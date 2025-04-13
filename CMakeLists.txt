@@ -5,12 +5,16 @@ set(CMAKE_CXX_STANDARD 17)
 set(OUTPATH ${PROJECT_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE})
 set(LIBPATH ${PROJECT_SOURCE_DIR}/lib)
 set(3RDPATH ${PROJECT_SOURCE_DIR}/engine/3rdParty)
+set(SHADER ${PROJECT_SOURCE_DIR}/engine/assets/shaders)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions(-DDEBUG)
 endif()
 
 find_package(Vulkan REQUIRED)
+find_program(GLSLC_PROGRAM glslc REQUIRED)
+execute_process(COMMAND ${GLSLC_PROGRAM} ${SHADER}/shader.vert -o ${SHADER}/spv/vert.spv)
+execute_process(COMMAND ${GLSLC_PROGRAM} ${SHADER}/shader.frag -o ${SHADER}/spv/frag.spv)
 
 include_directories(
     ${3RDPATH}/glfw/include

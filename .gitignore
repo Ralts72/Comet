@@ -3,7 +3,7 @@
 /lib/*
 **/.DS_Store
 .DS_Store
-
+/engine/assets/shaders/spv
 # Prerequisites
 *.d
 

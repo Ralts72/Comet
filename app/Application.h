@@ -23,7 +23,7 @@ namespace App {
         bool isRunning() const { return m_running; }
 
     private:
-        Application() {}
+        Application() = default;
 
         // bool onWindowClose(Engine::Event &e);
         // bool onWindowResize(Engine::Event &e);

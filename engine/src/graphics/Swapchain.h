@@ -26,6 +26,8 @@ namespace Comet
             vk::ImageView view;
         };
 
+        const SurfaceInfo &getSurfaceInfo() const { return m_surfaceInfo; }
+
     private:
         void init(uint32_t width, uint32_t height);
         void querySwapchainInfo(uint32_t width, uint32_t height);

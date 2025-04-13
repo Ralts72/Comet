@@ -3,7 +3,6 @@
 #include "../core/Log.h"
 #include "../graphics/Swapchain.h"
 #include <GLFW/glfw3.h>
-#include "../graphics/Swapchain.h"
 
 namespace Comet
 {
@@ -28,6 +27,7 @@ namespace Comet
         vk::Device getDevice() const { return m_device; }
         vk::SurfaceKHR getSurface() const { return m_surface; }
         QueueFamilyIndices getQueueFamilyIndices() const { return m_queueFamilyIndices; }
+        Swapchain *getSwapchain() const { return m_swapchain.get(); }
 
     private:
         void createInstance();
