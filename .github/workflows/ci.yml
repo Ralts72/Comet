@@ -17,11 +17,11 @@ jobs:
           submodules: true
 
       - name: Install dependencies
-        run: ｜
+        run: |
           sudo apt-get update
           sudo apt-get install -y cmake build-essential
           sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev
-      
+
       - name: Cache build files
         uses: actions/cache@v3
         with:
