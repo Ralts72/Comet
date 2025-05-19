@@ -2,34 +2,37 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: true
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
 
-    - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+      - name: Install dependencies
+        run: ｜
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev
+      
+      - name: Cache build files
+        uses: actions/cache@v3
+        with:
+          path: build
+          key: ${{ runner.os }}-build-${{ hashFiles('CMakeLists.txt') }}
 
-    - name: Cache build files
-      uses: actions/cache@v3
-      with:
-        path: build
-        key: ${{ runner.os }}-build-${{ hashFiles('CMakeLists.txt') }}
+      - name: Configure CMake
+        run: cmake -S . -B build
 
-    - name: Configure CMake
-      run: cmake -S . -B build
+      - name: Build project
+        run: cmake --build build
 
-    - name: Build project
-      run: cmake --build build
-
-    - name: Run tests
-      run: ctest --test-dir build --output-on-failure
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
