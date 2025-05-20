@@ -36,3 +36,9 @@ jobs:
 
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
+
+      - name: Install cloc for line count
+        run: sudo apt-get install -y cloc
+
+      - name: Count lines of code
+        run: cloc .
