@@ -25,9 +25,9 @@ namespace Comet {
 
         ~Device();
 
-        [[nodiscard]] VkDevice getVkDevice() const { return m_device; }
-        [[nodiscard]] VkQueue getGraphicsQueue() const { return m_graphics_queue; }
-        [[nodiscard]] VkQueue getPresentQueue() const { return m_present_queue; }
+        [[nodiscard]] vk::Device getVkDevice() const { return m_device; }
+        [[nodiscard]] vk::Queue getGraphicsQueue() const { return m_graphics_queue; }
+        [[nodiscard]] vk::Queue getPresentQueue() const { return m_present_queue; }
         [[nodiscard]] const QueueFamilyIndices& getQueueFamilyIndices() const { return m_queue_indices; }
 
         Device(const Device&) = delete;
@@ -35,11 +35,11 @@ namespace Comet {
         Device& operator=(const Device&) = delete;
 
     private:
-        static QueueFamilyIndices chooseQueue(VkPhysicalDevice phyDevice, VkSurfaceKHR surface);
+        void chooseQueue(const vk::PhysicalDevice& physicalDevice, const vk::SurfaceKHR& surface);
 
-        VkDevice m_device{};
-        VkQueue m_present_queue{};
-        VkQueue m_graphics_queue{};
+        vk::Device m_device;
+        vk::Queue m_graphics_queue;
+        vk::Queue m_present_queue;
         QueueFamilyIndices m_queue_indices;
     };
 }

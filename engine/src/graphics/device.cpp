@@ -1,112 +1,75 @@
 #include "device.h"
-#include "../common/log.h"
 #include "../common/macro.h"
 
 namespace Comet {
     Device::Device(const Adapter& adapter) {
-        auto physical_device = adapter.getPhysicalDevice();
-        m_queue_indices = chooseQueue(physical_device, adapter.getSurface());
-
+        auto physicalDevice = adapter.getPhysicalDevice();
+        chooseQueue(physicalDevice, adapter.getSurface());
         if(!m_queue_indices) {
             LOG_FATAL("no graphics queue in your GPU");
         }
-
-        VkDeviceCreateInfo device_ci{};
-        device_ci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-
-        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-
-        std::set indices{
+        std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
+        std::set<uint32_t> indices{
             m_queue_indices.graphicsIndex.value(),
             m_queue_indices.presentIndex.value()
         };
-
         float priority = 1.0;
         for(auto idx: indices) {
-            VkDeviceQueueCreateInfo ci{};
-            ci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            ci.queueCount = 1;
-            ci.queueFamilyIndex = idx;
-            ci.pQueuePriorities = &priority;
-            queueCreateInfos.push_back(ci);
+            vk::DeviceQueueCreateInfo queueCreateInfo = {};
+            queueCreateInfo.queueFamilyIndex = idx;
+            queueCreateInfo.queueCount = 1;
+            queueCreateInfo.pQueuePriorities = &priority;
+            queueCreateInfos.push_back(queueCreateInfo);
         }
-        device_ci.queueCreateInfoCount = queueCreateInfos.size();
-        device_ci.pQueueCreateInfos = queueCreateInfos.data();
-
-        std::vector requireExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-        std::vector<VkExtensionProperties> extension_props;
-        uint32_t extensionCount = 0;
-        VK_CHECK(vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extensionCount, nullptr));
-        extension_props.resize(extensionCount);
-        VK_CHECK(vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extensionCount, extension_props.data()));
-
-        removeUnexistsElems<const char*, VkExtensionProperties>(
-            requireExtensions, extension_props,
-            [](const auto& e1, const VkExtensionProperties& e2) {
+        std::vector requiredExtensions = {"VK_KHR_portability_subset",VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+        auto extensionsProps = physicalDevice.enumerateDeviceExtensionProperties();
+        removeUnexistsElems<const char*, vk::ExtensionProperties>(
+            requiredExtensions, extensionsProps,
+            [](const auto& e1, const vk::ExtensionProperties& e2) {
                 return std::strcmp(e1, e2.extensionName) == 0;
             });
-
-        for(auto ext: requireExtensions) {
+        for(auto ext: requiredExtensions) {
             LOG_INFO("enable vulkan device extension: {}", ext);
         }
-
-        std::vector<const char*> extension_names;
-        extension_names.reserve(extension_props.size());
-        for(const auto& ext: extension_props) {
-            extension_names.push_back(ext.extensionName);
+        std::vector<const char*> extensionNames;
+        extensionNames.reserve(extensionsProps.size());
+        for(const auto& ext: extensionsProps) {
+            extensionNames.push_back(ext.extensionName);
         }
-
-        device_ci.ppEnabledExtensionNames = extension_names.data();
-        device_ci.enabledExtensionCount = extension_names.size();
-
-        VkPhysicalDeviceFeatures features;
-        vkGetPhysicalDeviceFeatures(physical_device, &features);
-
+        auto features = physicalDevice.getFeatures();
         // features.geometryShader = true;
-        device_ci.pEnabledFeatures = &features;
-
-        VK_CHECK(vkCreateDevice(physical_device, &device_ci, nullptr, &m_device));
-
+        vk::DeviceCreateInfo createInfo = {};
+        createInfo.queueCreateInfoCount = queueCreateInfos.size();
+        createInfo.pQueueCreateInfos = queueCreateInfos.data();
+        createInfo.ppEnabledExtensionNames = extensionNames.data();
+        createInfo.enabledExtensionCount = extensionNames.size();
+        createInfo.pEnabledFeatures = &features;
+        m_device = physicalDevice.createDevice(createInfo);
         if(!m_device) {
             LOG_FATAL("failed to create vulkan device");
         }
-        volkLoadDevice(m_device);
-
-        vkGetDeviceQueue(m_device, m_queue_indices.graphicsIndex.value(), 0,
-            &m_graphics_queue);
-        vkGetDeviceQueue(m_device, m_queue_indices.presentIndex.value(), 0,
-            &m_present_queue);
+        m_graphics_queue = m_device.getQueue(m_queue_indices.graphicsIndex.value(), 0);
+        m_present_queue = m_device.getQueue(m_queue_indices.presentIndex.value(), 0);
     }
 
     Device::~Device() {
-        vkDestroyDevice(m_device, nullptr);
+        m_device.destroy();
     }
 
-    Device::QueueFamilyIndices Device::chooseQueue(VkPhysicalDevice phyDevice, VkSurfaceKHR surface) {
-        uint32_t count = 0;
-        std::vector<VkQueueFamilyProperties> queue_families;
-        vkGetPhysicalDeviceQueueFamilyProperties(phyDevice, &count, nullptr);
-        queue_families.resize(count);
-        vkGetPhysicalDeviceQueueFamilyProperties(phyDevice, &count, queue_families.data());
+    void Device::chooseQueue(const vk::PhysicalDevice& physicalDevice, const vk::SurfaceKHR& surface) {
+        const auto queueFamilies = physicalDevice.getQueueFamilyProperties();
 
-        QueueFamilyIndices indices;
-
-        for(int i = 0; i < queue_families.size(); i++) {
-            const auto& prop = queue_families[i];
-            if(prop.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                indices.graphicsIndex = i;
+        for(int i = 0; i < queueFamilies.size(); i++) {
+            const auto& prop = queueFamilies[i];
+            if(prop.queueFlags & vk::QueueFlagBits::eGraphics) {
+                m_queue_indices.graphicsIndex = i;
             }
-            VkBool32 supportSurface = false;
-            VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(phyDevice, i, surface, &supportSurface));
-            if(supportSurface) {
-                indices.presentIndex = i;
+            if(physicalDevice.getSurfaceSupportKHR(i, surface)) {
+                m_queue_indices.presentIndex = i;
             }
-
-            if(indices) {
+            if(m_queue_indices) {
                 break;
             }
         }
-
-        return indices;
     }
 }

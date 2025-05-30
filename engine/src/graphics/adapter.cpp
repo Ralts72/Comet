@@ -1,71 +1,57 @@
 #include "adapter.h"
 #include "device.h"
-#include "../common/log.h"
 #include "../common/macro.h"
+
 
 namespace Comet {
     Adapter::Adapter(const Window& window) {
-        if(volkInitialize() != VK_SUCCESS) {
-            LOG_ERROR("volk init failed");
-        }
-
         LOG_INFO("creating vulkan instance");
         createInstance();
         LOG_INFO("picking up physics device");
         pickupPhysicalDevice();
-        VkPhysicalDeviceProperties props;
-        vkGetPhysicalDeviceProperties(m_phyDevice, &props);
-        LOG_INFO("pick {}", props.deviceName);
         LOG_INFO("creating surface");
         createSurface(window);
-
         LOG_INFO("creating render device");
         createDevice();
     }
 
     Adapter::~Adapter() {
         delete m_device;
-        vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-        vkDestroyInstance(m_instance, nullptr);
+        m_instance.destroySurfaceKHR(m_surface);
+        m_instance.destroy();
     }
 
     void Adapter::createInstance() {
-        VkInstanceCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-
-        VkApplicationInfo appInfo{};
-        appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        vk::ApplicationInfo appInfo{};
+        appInfo.pApplicationName = "CometApp";
+        appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+        appInfo.pEngineName = "CometEngine";
         appInfo.apiVersion = VK_API_VERSION_1_3;
-        appInfo.pEngineName = "NickelEngine";
-        ci.pApplicationInfo = &appInfo;
 
-        unsigned int count;
-        const auto extensions = SDL_Vulkan_GetInstanceExtensions(&count);
-
-        ci.enabledExtensionCount = count;
-        ci.ppEnabledExtensionNames = extensions;
-
-        std::vector<VkLayerProperties> supportLayers;
-        uint32_t layerCount;
-        VK_CHECK(vkEnumerateInstanceLayerProperties(&layerCount, nullptr));
-        supportLayers.resize(layerCount);
-        VK_CHECK(vkEnumerateInstanceLayerProperties(&layerCount, supportLayers.data()));
-
-        std::vector<const char*> requireLayers;
-        requireLayers.push_back("VK_LAYER_KHRONOS_validation");
+        const auto availableLayers = vk::enumerateInstanceLayerProperties();
+        LOG_INFO("available layers:");
+        for(const auto& layer: availableLayers) {
+            LOG_INFO("  {}", std::string(layer.layerName.begin(), layer.layerName.end()));
+        }
+        std::vector<const char*> requiredLayers;
+#ifdef BUILD_TYPE_DEBUG
+        requiredLayers.push_back("VK_LAYER_KHRONOS_validation");
         LOG_INFO("Vulkan enable validation layer");
-
-        using LiteralString = const char*;
-        removeUnexistsElems<const char*, VkLayerProperties>(
-            requireLayers, supportLayers,
-            [](const LiteralString& require, const VkLayerProperties& prop) {
+#endif
+        removeUnexistsElems<const char*, vk::LayerProperties>(
+            requiredLayers, availableLayers,
+            [](const char* require, const vk::LayerProperties& prop) {
                 return std::strcmp(prop.layerName, require) == 0;
             });
-
-        ci.enabledLayerCount = static_cast<uint32_t>(requireLayers.size());
-        ci.ppEnabledLayerNames = requireLayers.data();
-        VK_CHECK(vkCreateInstance(&ci, nullptr, &m_instance));
-        volkLoadInstance(m_instance);
+        unsigned int count;
+        const auto extensions = SDL_Vulkan_GetInstanceExtensions(&count);
+        vk::InstanceCreateInfo createInfo = {};
+        createInfo.pApplicationInfo = &appInfo;
+        createInfo.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
+        createInfo.ppEnabledLayerNames = requiredLayers.data();
+        createInfo.enabledExtensionCount = count;
+        createInfo.ppEnabledExtensionNames = extensions;
+        m_instance = vk::createInstance(createInfo);
     }
 
     void Adapter::pickupPhysicalDevice() {
@@ -73,24 +59,21 @@ namespace Comet {
             LOG_ERROR("vulkan instance not created");
         }
 
-        uint32_t count = 0;
-        VK_CHECK(vkEnumeratePhysicalDevices(m_instance, &count, nullptr));
-        std::vector<VkPhysicalDevice> physicalDevices(count);
-        VK_CHECK(vkEnumeratePhysicalDevices(m_instance, &count, physicalDevices.data()));
-
-        if(physicalDevices.empty()) {
+        const auto devices = m_instance.enumeratePhysicalDevices();
+        if(devices.empty()) {
             LOG_ERROR("vulkan physical device not found");
         }
-        m_phyDevice = physicalDevices[0];
+        m_physical_device = devices[0];
+        std::cout << "Comet Engine: " << "physical device : " << m_physical_device.getProperties().deviceName << std::endl;
     }
 
     void Adapter::createSurface(const Window& window) {
-        if(!SDL_Vulkan_CreateSurface(window.getWindow(), m_instance, nullptr, &m_surface)) {
+        if(!SDL_Vulkan_CreateSurface(window.getWindow(), m_instance, nullptr, reinterpret_cast<VkSurfaceKHR*>(&m_surface))) {
             LOG_FATAL("create vulkan surface failed");
         }
     }
 
     void Adapter::createDevice() {
-        m_device = new Device{*this};
+        m_device = new Device(*this);
     }
 }

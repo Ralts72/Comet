@@ -21,6 +21,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake build-essential
           sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev
+          sudo apt-get install -y libvulkan-dev glslang-tools
+
+      - name: Set Vulkan SDK environment variable
+        run: |
+          echo "VULKAN_SDK=/usr" >> $GITHUB_ENV
 
       - name: Cache build files
         uses: actions/cache@v3

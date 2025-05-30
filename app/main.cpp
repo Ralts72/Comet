@@ -1,6 +1,10 @@
-#include <iostream>
+#include "./runtime/entry.h"
 
-int main() {
-    std::cout << "Hello World!" << std::endl;
-    return 0;
-}
+class App final: public Comet::Application {
+public:
+    void onInit() override {}
+    void onUpdate() override {}
+    void onShutdown() override {}
+};
+
+RUN_APP(App)

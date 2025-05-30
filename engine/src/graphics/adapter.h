@@ -15,9 +15,9 @@ namespace Comet {
 
         ~Adapter();
 
-        [[nodiscard]] VkInstance getInstance() const { return m_instance; }
-        [[nodiscard]] VkPhysicalDevice getPhysicalDevice() const { return m_phyDevice; }
-        [[nodiscard]] VkSurfaceKHR getSurface() const { return m_surface; }
+        [[nodiscard]] vk::Instance getInstance() const { return m_instance; }
+        [[nodiscard]] vk::PhysicalDevice getPhysicalDevice() const { return m_physical_device; }
+        [[nodiscard]] vk::SurfaceKHR getSurface() const { return m_surface; }
         [[nodiscard]] Device* getDevice() const { return m_device; }
 
     private:
@@ -29,9 +29,9 @@ namespace Comet {
 
         void createDevice();
 
-        VkInstance m_instance{};
-        VkPhysicalDevice m_phyDevice{};
-        VkSurfaceKHR m_surface{};
+        vk::Instance m_instance;
+        vk::PhysicalDevice m_physical_device;
+        vk::SurfaceKHR m_surface;
         Device* m_device{};
     };
 }

@@ -14,13 +14,6 @@ set(SDL_SHARED OFF)
 set(SDL_STATIC ON)
 add_subdirectory(SDL3)
 
-# volk
-set(VOLK_PULL_IN_VULKAN ON)
-set(VULKAN_HEADERS_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Vulkan-Headers)
-set(VOLK_STATIC ON)
-set(VOLK_INSTALL OFF)
-add_subdirectory(volk)
-
 # spdlog
 set(SPDLOG_ENABLE_PCH ON)
 add_subdirectory(spdlog)

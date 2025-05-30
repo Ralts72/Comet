@@ -6,7 +6,7 @@ namespace Comet {
     public:
         Window(const std::string& title, int width, int height);
 
-        ~Window();
+        ~Window() = default;
 
         [[nodiscard]] SDL_Window* getWindow() const { return m_window; }
 
