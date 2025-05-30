@@ -13,7 +13,7 @@ namespace Comet {
         LOG_INFO("init SDL");
         if(!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_SENSOR |
                      SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK)) {
-            std::cout << "SDL_Init Error: " << SDL_GetError() << std::endl;
+            LOG_FATAL("SDL init failed: {}", SDL_GetError());
         }
 
         LOG_INFO("init window");

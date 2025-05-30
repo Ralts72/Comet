@@ -21,6 +21,7 @@
 #include <unordered_map>
 #include <map>
 
+#include "./common/math_core.h"
 #include "./common/log.h"
 #include <vulkan/vulkan.hpp>
 // #include "imgui.h"
