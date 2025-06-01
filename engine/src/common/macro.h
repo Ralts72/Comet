@@ -106,23 +106,4 @@ if (!(x)) LOG_ERROR("SDL error: {}", SDL_GetError());   \
 
 #undef CASE
     }
-
-    template<typename T, typename U>
-    void removeUnexistsElems(std::vector<T>& requireList,
-                             const std::vector<U>& supports,
-                             std::function<bool(const T&, const U&)> isEqual) {
-        for(int i = requireList.size() - 1; i >= 0; --i) {
-            bool found = false;
-            auto& require = requireList[i];
-            for(auto& support: supports) {
-                if(isEqual(require, support)) {
-                    found = true;
-                }
-            }
-
-            if(!found) {
-                requireList.erase(requireList.begin() + i);
-            }
-        }
-    }
 }

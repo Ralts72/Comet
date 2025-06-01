@@ -24,10 +24,3 @@
 #include "./common/math_core.h"
 #include "./common/log.h"
 #include <vulkan/vulkan.hpp>
-// #include "imgui.h"
-// #include "backends/imgui_impl_sdl3.h"
-// #include "backends/imgui_impl_vulkan.h"
-// #include "misc/cpp/imgui_stdlib.h"
-//
-// #define TOML_EXCEPTIONS 0
-// #include "toml++/toml.hpp"

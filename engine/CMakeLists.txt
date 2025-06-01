@@ -9,6 +9,7 @@ file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/file/*.cpp"
 )
 
 find_package(Vulkan REQUIRED)

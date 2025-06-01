@@ -1,25 +1,19 @@
 #include "runtime.h"
+#include "../core/engine.h"
 
 namespace Comet {
     void run(Application* app) {
-        // try {
-        //     std::cout << "[Runtime] Init logger\n";
-        //     std::cout << "[Runtime] App starting...\n";
-        //
-        //     app->OnInit();
-        //
-        //     const int maxFrames = 3;
-        //     for (int frame = 0; frame < maxFrames; ++frame) {
-        //         std::cout << "[Runtime] Frame " << frame << "\n";
-        //         app->OnUpdate();
-        //         std::this_thread::sleep_for(std::chrono::milliseconds(16));
-        //     }
-        //
-        //     app->OnShutdown();
-        //     std::cout << "[Runtime] Clean shutdown.\n";
-        //
-        // } catch (const std::exception& e) {
-        //     std::cerr << "[Runtime] Unhandled exception: " << e.what() << "\n";
-        // }
+        LOG_INFO("[Runtime] Init logger");
+        LOG_INFO("[Runtime] App starting...");
+        Engine::init();
+        // SDL_AppInit();
+        Engine::getInstance().onInit();
+        app->onInit();
+        Engine::getInstance().onUpdate();
+        app->onUpdate();
+        app->onShutdown();
+
+        Engine::shutdown();
+        LOG_INFO("[Runtime] Clean shutdown");
     }
 }

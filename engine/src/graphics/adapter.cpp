@@ -1,7 +1,5 @@
 #include "adapter.h"
 #include "device.h"
-#include "../common/macro.h"
-
 
 namespace Comet {
     Adapter::Adapter(const Window& window) {
@@ -28,24 +26,36 @@ namespace Comet {
         appInfo.pEngineName = "CometEngine";
         appInfo.apiVersion = VK_API_VERSION_1_3;
 
-        const auto availableLayers = vk::enumerateInstanceLayerProperties();
+        const auto availableLayersProps = vk::enumerateInstanceLayerProperties();
+        std::set<std::string> availableLayers;
+        for(const auto& prop: availableLayersProps) {
+            availableLayers.emplace(prop.layerName);
+        }
+
         LOG_INFO("available layers:");
         for(const auto& layer: availableLayers) {
-            LOG_INFO("  {}", std::string(layer.layerName.begin(), layer.layerName.end()));
+            LOG_INFO("  {}", layer);
         }
+
         std::vector<const char*> requiredLayers;
 #ifdef BUILD_TYPE_DEBUG
         requiredLayers.push_back("VK_LAYER_KHRONOS_validation");
         LOG_INFO("Vulkan enable validation layer");
 #endif
-        removeUnexistsElems<const char*, vk::LayerProperties>(
-            requiredLayers, availableLayers,
-            [](const char* require, const vk::LayerProperties& prop) {
-                return std::strcmp(prop.layerName, require) == 0;
-            });
+
+        std::vector<const char*> enabledLayers;
+        for(const char* layer: requiredLayers) {
+            if(availableLayers.contains(layer)) {
+                enabledLayers.push_back(layer);
+            } else {
+                LOG_WARN("Required validation layer not supported and skipped: {}", layer);
+            }
+        }
+
         unsigned int count;
         const auto extensions = SDL_Vulkan_GetInstanceExtensions(&count);
         vk::InstanceCreateInfo createInfo = {};
+        createInfo.flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
         createInfo.pApplicationInfo = &appInfo;
         createInfo.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
         createInfo.ppEnabledLayerNames = requiredLayers.data();
@@ -68,9 +78,11 @@ namespace Comet {
     }
 
     void Adapter::createSurface(const Window& window) {
-        if(!SDL_Vulkan_CreateSurface(window.getWindow(), m_instance, nullptr, reinterpret_cast<VkSurfaceKHR*>(&m_surface))) {
+        VkSurfaceKHR rawSurface = VK_NULL_HANDLE;
+        if(!SDL_Vulkan_CreateSurface(window.getWindow(), m_instance, nullptr, &rawSurface)) {
             LOG_FATAL("create vulkan surface failed");
         }
+        m_surface = vk::SurfaceKHR(rawSurface);
     }
 
     void Adapter::createDevice() {

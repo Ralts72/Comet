@@ -1,5 +1,4 @@
 #include "device.h"
-#include "../common/macro.h"
 
 namespace Comet {
     Device::Device(const Adapter& adapter) {
@@ -21,21 +20,27 @@ namespace Comet {
             queueCreateInfo.pQueuePriorities = &priority;
             queueCreateInfos.push_back(queueCreateInfo);
         }
-        std::vector requiredExtensions = {"VK_KHR_portability_subset",VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-        auto extensionsProps = physicalDevice.enumerateDeviceExtensionProperties();
-        removeUnexistsElems<const char*, vk::ExtensionProperties>(
-            requiredExtensions, extensionsProps,
-            [](const auto& e1, const vk::ExtensionProperties& e2) {
-                return std::strcmp(e1, e2.extensionName) == 0;
-            });
-        for(auto ext: requiredExtensions) {
-            LOG_INFO("enable vulkan device extension: {}", ext);
+        std::vector<const char*> requiredExtensions = {
+            "VK_KHR_portability_subset",
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            "VK_KHR_buffer_device_address"
+        };
+
+        std::set<std::string> availableExtensions;
+        for(const auto& prop: physicalDevice.enumerateDeviceExtensionProperties()) {
+            availableExtensions.emplace(prop.extensionName);
         }
+
         std::vector<const char*> extensionNames;
-        extensionNames.reserve(extensionsProps.size());
-        for(const auto& ext: extensionsProps) {
-            extensionNames.push_back(ext.extensionName);
+        for(const auto& ext: requiredExtensions) {
+            if(availableExtensions.contains(ext)) {
+                LOG_INFO("Enable Vulkan device extension: {}", ext);
+                extensionNames.push_back(ext);
+            } else {
+                LOG_WARN("Required device extension not supported and skipped: {}", ext);
+            }
         }
+
         auto features = physicalDevice.getFeatures();
         // features.geometryShader = true;
         vk::DeviceCreateInfo createInfo = {};
