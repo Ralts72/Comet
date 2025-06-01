@@ -1,14 +1,7 @@
 #include "engine.h"
 
 namespace Comet {
-    Engine::~Engine() {
-        LOG_INFO("shutting down engine...");
-        m_storage_manager.reset();
-        m_graphics_context.reset();
-        m_window.reset();
-    }
-
-    void Engine::onInit() {
+    Engine::Engine() {
         LOG_INFO("init SDL");
         if(!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_SENSOR |
                      SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK)) {
@@ -27,11 +20,20 @@ namespace Comet {
         LOG_INFO("running engine...");
     }
 
+    Engine::~Engine() {
+        LOG_INFO("shutting down engine...");
+        m_storage_manager.reset();
+        m_graphics_context.reset();
+        m_window.reset();
+    }
+
     void Engine::onUpdate() {}
 
-    void Engine::onEvent(const SDL_Event& event) {
-        if(event.type == SDL_EVENT_QUIT) {
-            m_should_close = true;
+    void Engine::onEvent(SDL_Event& event) {
+        while(SDL_PollEvent(&event)) {
+            if(event.type == SDL_EVENT_QUIT) {
+                m_should_close = true;
+            }
         }
     }
 
@@ -52,7 +54,7 @@ namespace Comet {
         return SDL_APP_CONTINUE;
     }
 
-    SDL_AppResult SDL_AppEvent(void* appstate, const SDL_Event* event) {
+    SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event) {
         Engine::getInstance().onEvent(*event);
         return SDL_APP_CONTINUE;
     }

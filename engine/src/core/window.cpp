@@ -8,4 +8,12 @@ namespace Comet {
             std::cout << SDL_GetError() << std::endl;
         }
     }
+
+    Vec2 Window::getSize() const {
+        return {m_width, m_height};
+    }
+
+    bool Window::isMinimize() const noexcept {
+        return SDL_GetWindowFlags(m_window) & SDL_WINDOW_MINIMIZED;
+    }
 }

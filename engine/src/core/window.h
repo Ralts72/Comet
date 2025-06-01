@@ -10,6 +10,10 @@ namespace Comet {
 
         [[nodiscard]] SDL_Window* getWindow() const { return m_window; }
 
+        [[nodiscard]] Vec2 getSize() const;
+
+        bool isMinimize() const noexcept;
+
     private:
         SDL_Window* m_window;
         std::string m_title;

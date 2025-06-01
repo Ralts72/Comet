@@ -11,6 +11,8 @@ namespace Comet {
 
         Adapter(const Adapter&) = delete;
 
+        Adapter(Adapter&&) = delete;
+
         Adapter& operator=(const Adapter&) = delete;
 
         ~Adapter();

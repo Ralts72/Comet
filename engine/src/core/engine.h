@@ -6,15 +6,13 @@
 namespace Comet {
     class Engine: public Singleton<Engine, true> {
     public:
-        Engine() = default;
+        Engine();
 
         ~Engine();
 
-        void onInit();
-
         void onUpdate();
 
-        void onEvent(const SDL_Event& event);
+        void onEvent(SDL_Event& event);
 
         [[nodiscard]] bool getCloseStatus() const { return m_should_close; };
 
