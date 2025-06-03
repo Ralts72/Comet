@@ -2,7 +2,6 @@
 #include "../graphics/device.h"
 
 namespace Comet {
-
     SemaphoreRes::SemaphoreRes(Device& device): m_device(device) {
         vk::SemaphoreCreateInfo ci{};
         m_semaphore = m_device.getVkDevice().createSemaphore(ci);

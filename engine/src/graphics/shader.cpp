@@ -2,7 +2,6 @@
 #include "../resource/shader_res.h"
 
 namespace Comet {
-
     Shader::Shader(ShaderRes* res): m_res(res) {}
 
     Shader::Shader(const Shader& other): m_res(other.m_res) {

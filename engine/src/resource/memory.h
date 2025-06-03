@@ -58,6 +58,6 @@ namespace Comet {
         Node<Block>* m_block_head{};
         const size_t m_block_mem_count;
 
-        Block* ensure_block() noexcept;
+        Block* ensureBlock() noexcept;
     };
 }

@@ -1,21 +1,20 @@
-#include "semaphore.h"
-#include "../resource/semaphore_res.h"
+#include "sampler.h"
+#include "../resource/sampler_res.h"
 
 namespace Comet {
-    Semaphore::Semaphore(SemaphoreRes* res): m_res(res) {}
+    Sampler::Sampler(SamplerRes* res): m_res(res) {}
 
-
-    Semaphore::Semaphore(const Semaphore& other): m_res(other.m_res) {
+    Sampler::Sampler(const Sampler& other): m_res(other.m_res) {
         if(m_res) {
             m_res->increase();
         }
     }
 
-    Semaphore::Semaphore(Semaphore&& other) noexcept: m_res(other.m_res) {
+    Sampler::Sampler(Sampler&& other) noexcept: m_res(other.m_res) {
         other.m_res = nullptr;
     }
 
-    Semaphore& Semaphore::operator=(const Semaphore& other) noexcept {
+    Sampler& Sampler::operator=(const Sampler& other) noexcept {
         if(&other != this) {
             if(m_res) {
                 m_res->decrease();
@@ -28,7 +27,7 @@ namespace Comet {
         return *this;
     }
 
-    Semaphore& Semaphore::operator=(Semaphore&& other) noexcept {
+    Sampler& Sampler::operator=(Sampler&& other) noexcept {
         if(&other != this) {
             m_res = other.m_res;
             other.m_res = nullptr;
@@ -36,18 +35,20 @@ namespace Comet {
         return *this;
     }
 
-    Semaphore::~Semaphore() {
+    Sampler::~Sampler() {
         release();
     }
 
-    Semaphore::operator bool() const noexcept {
+    Sampler::operator bool() const noexcept {
         return m_res;
     }
 
-    void Semaphore::release() {
+    void Sampler::release() {
         if(m_res) {
             m_res->decrease();
             m_res = nullptr;
         }
     }
 }
+
+

@@ -9,6 +9,10 @@ namespace Comet {
     constexpr float DEG_TO_RAD = PI / 180.0f;
     constexpr float RAD_TO_DEG = 180.0f / PI;
 
+    using Vec2i = glm::ivec2;
+    using Vec3i = glm::ivec3;
+    using Vec4i = glm::ivec4;
+
     using Vec2 = glm::vec2;
     using Vec3 = glm::vec3;
     using Vec4 = glm::vec4;

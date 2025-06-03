@@ -86,7 +86,7 @@ namespace Comet {
         m_surface = vk::SurfaceKHR(rawSurface);
     }
 
-    void Adapter::createDevice(Vec2 size) {
+    void Adapter::createDevice(Vec2i size) {
         m_device = new Device(*this, size);
     }
 }

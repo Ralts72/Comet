@@ -1,7 +1,7 @@
 #include "device.h"
 
 namespace Comet {
-    Device::Device(const Adapter& adapter, Vec2 size) {
+    Device::Device(const Adapter& adapter, Vec2i size) {
         auto physicalDevice = adapter.getPhysicalDevice();
         chooseQueue(physicalDevice, adapter.getSurface());
         if(!m_queue_indices) {

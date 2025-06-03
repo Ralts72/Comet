@@ -10,8 +10,11 @@ namespace Comet {
         explicit Adapter(const Window& window);
 
         Adapter(const Adapter&) = delete;
+
         Adapter(Adapter&&) = delete;
+
         Adapter& operator=(const Adapter&) = delete;
+
         Adapter& operator=(Adapter&&) = delete;
 
         ~Adapter();
@@ -28,7 +31,7 @@ namespace Comet {
 
         void createSurface(const Window& window);
 
-        void createDevice(Vec2 size);
+        void createDevice(Vec2i size);
 
         vk::Instance m_instance;
         vk::PhysicalDevice m_physical_device;

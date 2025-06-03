@@ -10,7 +10,7 @@ namespace Comet {
 
         [[nodiscard]] SDL_Window* getWindow() const { return m_window; }
 
-        [[nodiscard]] Vec2 getSize() const;
+        [[nodiscard]] Vec2i getSize() const;
 
         bool isMinimize() const noexcept;
 

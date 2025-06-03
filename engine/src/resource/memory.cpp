@@ -26,7 +26,7 @@ namespace Comet {
     template<typename T>
     template<typename... Args>
     T* BlockMemoryAllocator<T>::allocate(Args&&... args) noexcept {
-        Block* block = ensure_block();
+        Block* block = ensureBlock();
         if(block == nullptr) {
             return nullptr;
         }
@@ -204,7 +204,7 @@ namespace Comet {
     }
 
     template<typename T>
-    typename BlockMemoryAllocator<T>::Block* BlockMemoryAllocator<T>::ensure_block() noexcept {
+    typename BlockMemoryAllocator<T>::Block* BlockMemoryAllocator<T>::ensureBlock() noexcept {
         Node<Block>* node = m_block_head;
         Node<Block>* prev = m_block_head;
         while(node && !node->m_data.m_unused_index_head) {

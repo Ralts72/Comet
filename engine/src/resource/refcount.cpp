@@ -12,13 +12,14 @@ namespace Comet {
             ++m_refcount;
         }
     }
+
     void Refcount::decrease() {
         if(m_refcount > 0) {
             --m_refcount;
         }
     }
+
     bool Refcount::isAlive() const noexcept {
         return m_refcount > 0;
     }
-
 }

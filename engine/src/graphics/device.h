@@ -19,9 +19,23 @@ namespace Comet {
             [[nodiscard]] bool HasSeparateQueue() const {
                 return graphicsIndex.value() != presentIndex.value();
             }
+
+            [[nodiscard]] std::vector<uint32_t> getIndices() const {
+                std::vector<uint32_t> indices;
+                if(!graphicsIndex.has_value() || !presentIndex.has_value()) {
+                    return {};
+                }
+                if(graphicsIndex.has_value() == presentIndex.has_value()) {
+                    indices.push_back(graphicsIndex.value());
+                } else {
+                    indices.push_back(graphicsIndex.value());
+                    indices.push_back(presentIndex.value());
+                }
+                return indices;
+            }
         };
 
-        explicit Device(const Adapter& adapter, Vec2 size);
+        explicit Device(const Adapter& adapter, Vec2i size);
 
         ~Device();
 
@@ -31,8 +45,11 @@ namespace Comet {
         [[nodiscard]] const QueueFamilyIndices& getQueueFamilyIndices() const { return m_queue_indices; }
 
         Device(const Device&) = delete;
+
         Device(Device&&) = delete;
+
         Device& operator=(Device&&) = delete;
+
         Device& operator=(const Device&) = delete;
 
     private:

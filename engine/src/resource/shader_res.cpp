@@ -3,7 +3,7 @@
 #include "../graphics/device.h"
 
 namespace Comet {
-    ShaderRes::ShaderRes(Device &device, const uint32_t *data, size_t size): m_device(device){
+    ShaderRes::ShaderRes(Device& device, const uint32_t* data, size_t size): m_device(device) {
         ASSERT(size % 4 == 0 && data, "invalid SPIR-V data");
         vk::ShaderModuleCreateInfo ci{};
         ci.pCode = data;
@@ -11,7 +11,7 @@ namespace Comet {
         m_shader = m_device.getVkDevice().createShaderModule(ci);
     }
 
-    ShaderRes::~ShaderRes(){
+    ShaderRes::~ShaderRes() {
         m_device.getVkDevice().destroyShaderModule(m_shader);
     }
 

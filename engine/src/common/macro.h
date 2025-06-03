@@ -35,9 +35,9 @@ if (!(x)) LOG_ERROR("SDL error: {}", SDL_GetError());   \
 
 #define VK_CREATE_CHECK(expr) VkCheck((expr), #expr)
 
-    template <typename T>
+    template<typename T>
     T&& VkCheck(vk::ResultValue<T>&& result, std::string_view expr) {
-        if (result.result != vk::Result::eSuccess) {
+        if(result.result != vk::Result::eSuccess) {
             LOG_FATAL("Vulkan call '{}' failed: {}", expr, vk::to_string(result.result));
             std::abort();
         }
@@ -45,13 +45,11 @@ if (!(x)) LOG_ERROR("SDL error: {}", SDL_GetError());   \
     }
 
     inline vk::Result VkCheckAcquire(vk::Result result, std::string_view expr) {
-        if (result != vk::Result::eSuccess && 
-            result != vk::Result::eSuboptimalKHR && 
-            result != vk::Result::eTimeout) {
+        if(result != vk::Result::eSuccess &&
+           result != vk::Result::eSuboptimalKHR &&
+           result != vk::Result::eTimeout) {
             LOG_FATAL("Vulkan call '{}' failed: {}", expr, vk::to_string(result));
-            std::abort();
         }
         return result;
-    } 
-
+    }
 }

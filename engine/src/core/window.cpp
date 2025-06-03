@@ -9,7 +9,7 @@ namespace Comet {
         }
     }
 
-    Vec2 Window::getSize() const {
+    Vec2i Window::getSize() const {
         return {m_width, m_height};
     }
 

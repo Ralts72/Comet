@@ -2,7 +2,6 @@
 #include "macro.h"
 
 namespace Comet {
-
 #define CASE(a, b) \
     case (a):      \
         return (b);
@@ -11,7 +10,7 @@ namespace Comet {
     if (flags & (src)) bits |= (dst);
 
     vk::Filter filter2VK(Filter filter) {
-        switch (filter) {
+        switch(filter) {
             CASE(Filter::Nearest, vk::Filter::eNearest)
             CASE(Filter::Linear, vk::Filter::eLinear)
         }
@@ -19,8 +18,8 @@ namespace Comet {
         return {};
     }
 
-    vk::SamplerAddressMode samplerAddressMode2VK(SamplerAddressMode mode){
-        switch (mode) {
+    vk::SamplerAddressMode samplerAddressMode2VK(SamplerAddressMode mode) {
+        switch(mode) {
             CASE(SamplerAddressMode::ClampToEdge, vk::SamplerAddressMode::eClampToEdge)
             CASE(SamplerAddressMode::Repeat, vk::SamplerAddressMode::eRepeat)
             CASE(SamplerAddressMode::MirrorRepeat, vk::SamplerAddressMode::eMirroredRepeat);
@@ -29,8 +28,8 @@ namespace Comet {
         return {};
     }
 
-    vk::CompareOp compareOp2VK(CompareOp op){
-        switch (op) {
+    vk::CompareOp compareOp2VK(CompareOp op) {
+        switch(op) {
             CASE(CompareOp::Never, vk::CompareOp::eNever)
             CASE(CompareOp::Less, vk::CompareOp::eLess)
             CASE(CompareOp::Equal, vk::CompareOp::eEqual)
@@ -43,8 +42,9 @@ namespace Comet {
         CANT_REACH();
         return {};
     }
+
     vk::ImageType imageType2VK(ImageType type) {
-        switch (type) {
+        switch(type) {
             CASE(ImageType::Dim1, vk::ImageType::e1D);
             CASE(ImageType::Dim2, vk::ImageType::e2D);
             CASE(ImageType::Dim3, vk::ImageType::e3D);
@@ -53,8 +53,8 @@ namespace Comet {
         return {};
     }
 
-    vk::SampleCountFlags sampleCount2VK(SampleCount count){
-        switch (count) {
+    vk::SampleCountFlags sampleCount2VK(SampleCount count) {
+        switch(count) {
             CASE(SampleCount::Count1, vk::SampleCountFlagBits::e1);
             CASE(SampleCount::Count2, vk::SampleCountFlagBits::e2);
             CASE(SampleCount::Count4, vk::SampleCountFlagBits::e4);
@@ -67,16 +67,16 @@ namespace Comet {
         return {};
     }
 
-    vk::Format format2VK(Format format){
+    vk::Format format2VK(Format format) {
         return static_cast<vk::Format>(format);
     }
 
-    Format VkFormat2Format(vk::Format format){
+    Format VkFormat2Format(vk::Format format) {
         return static_cast<Format>(format);
     }
 
     vk::ImageViewType imageViewType2VK(ImageViewType type) {
-        switch (type) {
+        switch(type) {
             CASE(ImageViewType::Dim1, vk::ImageViewType::e1D);
             CASE(ImageViewType::Dim2, vk::ImageViewType::e2D);
             CASE(ImageViewType::Dim3, vk::ImageViewType::e3D);
@@ -88,8 +88,8 @@ namespace Comet {
         return {};
     }
 
-    vk::PrimitiveTopology primitiveTopology2VK(Topology topology){
-        switch (topology) {
+    vk::PrimitiveTopology primitiveTopology2VK(Topology topology) {
+        switch(topology) {
             CASE(Topology::LineList, vk::PrimitiveTopology::eLineList);
             CASE(Topology::LineStrip, vk::PrimitiveTopology::eLineStrip);
             CASE(Topology::PointList, vk::PrimitiveTopology::ePointList);
@@ -101,8 +101,8 @@ namespace Comet {
         return {};
     }
 
-    vk::PolygonMode polygonMode2VK(PolygonMode mode){
-        switch (mode) {
+    vk::PolygonMode polygonMode2VK(PolygonMode mode) {
+        switch(mode) {
             CASE(PolygonMode::Line, vk::PolygonMode::eLine);
             CASE(PolygonMode::Fill, vk::PolygonMode::eFill);
             CASE(PolygonMode::Point, vk::PolygonMode::ePoint);
@@ -111,8 +111,8 @@ namespace Comet {
         return {};
     }
 
-    vk::FrontFace frontFace2VK(FrontFace face){
-        switch (face) {
+    vk::FrontFace frontFace2VK(FrontFace face) {
+        switch(face) {
             CASE(FrontFace::CCW, vk::FrontFace::eCounterClockwise);
             CASE(FrontFace::CW, vk::FrontFace::eClockwise);
         }
@@ -120,8 +120,8 @@ namespace Comet {
         return {};
     }
 
-    vk::BlendOp blendOp2VK(BlendOp op){
-        switch (op) {
+    vk::BlendOp blendOp2VK(BlendOp op) {
+        switch(op) {
             CASE(BlendOp::Add, vk::BlendOp::eAdd);
             CASE(BlendOp::Subtract, vk::BlendOp::eSubtract);
             CASE(BlendOp::ReverseSubtract, vk::BlendOp::eReverseSubtract);
@@ -132,8 +132,8 @@ namespace Comet {
         return {};
     }
 
-    vk::BlendFactor blendFactor2VK(BlendFactor factor){
-        switch (factor) {
+    vk::BlendFactor blendFactor2VK(BlendFactor factor) {
+        switch(factor) {
             CASE(BlendFactor::Zero, vk::BlendFactor::eZero);
             CASE(BlendFactor::One, vk::BlendFactor::eOne);
             CASE(BlendFactor::SrcColor, vk::BlendFactor::eSrcColor);
@@ -147,15 +147,15 @@ namespace Comet {
             CASE(BlendFactor::ConstantColor, vk::BlendFactor::eConstantColor);
             CASE(BlendFactor::OneMinusConstantColor, vk::BlendFactor::eOneMinusConstantColor);
             CASE(BlendFactor::ConstantAlpha, vk::BlendFactor::eConstantAlpha);
-            CASE(BlendFactor::OneMinusConstantAlpha,vk::BlendFactor::eOneMinusConstantAlpha);
+            CASE(BlendFactor::OneMinusConstantAlpha, vk::BlendFactor::eOneMinusConstantAlpha);
             CASE(BlendFactor::SrcAlphaSaturate, vk::BlendFactor::eSrcAlphaSaturate);
         }
         CANT_REACH();
         return {};
     }
 
-    vk::StencilOp stencilOp2VK(StencilOp op){
-        switch (op) {
+    vk::StencilOp stencilOp2VK(StencilOp op) {
+        switch(op) {
             CASE(StencilOp::Keep, vk::StencilOp::eKeep);
             CASE(StencilOp::Zero, vk::StencilOp::eZero);
             CASE(StencilOp::Replace, vk::StencilOp::eReplace);
@@ -170,7 +170,7 @@ namespace Comet {
     }
 
     vk::AttachmentLoadOp attachmentLoadOp2VK(AttachmentLoadOp op) {
-        switch (op) {
+        switch(op) {
             CASE(AttachmentLoadOp::Clear, vk::AttachmentLoadOp::eClear);
             CASE(AttachmentLoadOp::Load, vk::AttachmentLoadOp::eLoad);
             CASE(AttachmentLoadOp::DontCare, vk::AttachmentLoadOp::eDontCare);
@@ -179,8 +179,8 @@ namespace Comet {
         return {};
     }
 
-    vk::AttachmentStoreOp attachmentStoreOp2VK(AttachmentStoreOp op){
-        switch (op) {
+    vk::AttachmentStoreOp attachmentStoreOp2VK(AttachmentStoreOp op) {
+        switch(op) {
             CASE(AttachmentStoreOp::Store, vk::AttachmentStoreOp::eStore);
             CASE(AttachmentStoreOp::DontCare, vk::AttachmentStoreOp::eDontCare);
         }
@@ -188,8 +188,8 @@ namespace Comet {
         return {};
     }
 
-    vk::IndexType indexType2VK(IndexType type){
-        switch (type) {
+    vk::IndexType indexType2VK(IndexType type) {
+        switch(type) {
             CASE(IndexType::Uint16, vk::IndexType::eUint16);
             CASE(IndexType::Uint32, vk::IndexType::eUint32);
         }
@@ -197,8 +197,8 @@ namespace Comet {
         return {};
     }
 
-    vk::Format vertexFormat2VK(VertexFormat format){
-        switch (format) {
+    vk::Format vertexFormat2VK(VertexFormat format) {
+        switch(format) {
             CASE(VertexFormat::Uint8x2, vk::Format::eR8G8Uint);
             CASE(VertexFormat::Uint8x4, vk::Format::eR8G8B8A8Uint);
             CASE(VertexFormat::Sint8x2, vk::Format::eR8G8Sint);
@@ -234,11 +234,11 @@ namespace Comet {
         return {};
     }
 
-    vk::ShaderStageFlags shaderStage2VK(Flags<ShaderStage> flags){
-        if (flags == ShaderStage::All) {
+    vk::ShaderStageFlags shaderStage2VK(Flags<ShaderStage> flags) {
+        if(flags == ShaderStage::All) {
             return vk::ShaderStageFlagBits::eAll;
         }
-        if (flags == ShaderStage::AllGraphics) {
+        if(flags == ShaderStage::AllGraphics) {
             return vk::ShaderStageFlagBits::eAllGraphics;
         }
         vk::ShaderStageFlags bits{};
@@ -251,8 +251,8 @@ namespace Comet {
         return bits;
     }
 
-    vk::BorderColor borderColor2VK(BorderColor color){
-        switch (color) {
+    vk::BorderColor borderColor2VK(BorderColor color) {
+        switch(color) {
             CASE(BorderColor::FloatTransparentBlack, vk::BorderColor::eFloatTransparentBlack);
             CASE(BorderColor::IntTransparentBlack, vk::BorderColor::eIntTransparentBlack);
             CASE(BorderColor::FloatOpaqueBlack, vk::BorderColor::eFloatOpaqueBlack);
@@ -264,8 +264,8 @@ namespace Comet {
         return {};
     }
 
-    vk::SamplerMipmapMode samplerMipmapMode2VK(SamplerMipmapMode mode){
-        switch (mode) {
+    vk::SamplerMipmapMode samplerMipmapMode2VK(SamplerMipmapMode mode) {
+        switch(mode) {
             CASE(SamplerMipmapMode::Nearest, vk::SamplerMipmapMode::eNearest);
             CASE(SamplerMipmapMode::Linear, vk::SamplerMipmapMode::eLinear);
         }
@@ -274,7 +274,7 @@ namespace Comet {
     }
 
     vk::DescriptorType bindGroupEntryType2VK(BindGroupEntryType type) {
-        switch (type) {
+        switch(type) {
             CASE(BindGroupEntryType::Sampler, vk::DescriptorType::eSampler)
             CASE(BindGroupEntryType::CombinedImageSampler, vk::DescriptorType::eCombinedImageSampler)
             CASE(BindGroupEntryType::SampledImage, vk::DescriptorType::eSampledImage)
@@ -291,27 +291,27 @@ namespace Comet {
         CANT_REACH();
         return {};
     }
-    
-    vk::ImageAspectFlags ImageAspect2VK(Flags<ImageAspect> flags) {
+
+    vk::ImageAspectFlags imageAspect2VK(Flags<ImageAspect> flags) {
         vk::ImageAspectFlags bits{};
         TRY_SET_BIT(ImageAspect::Color, vk::ImageAspectFlagBits::eColor)
         TRY_SET_BIT(ImageAspect::Depth, vk::ImageAspectFlagBits::eDepth)
         TRY_SET_BIT(ImageAspect::Stencil, vk::ImageAspectFlagBits::eStencil)
         return bits;
     }
-    
-    vk::BufferUsageFlags bufferUsage2VK(Flags<BufferUsage> flags){
+
+    vk::BufferUsageFlags bufferUsage2VK(Flags<BufferUsage> flags) {
         vk::BufferUsageFlags bits{};
-        TRY_SET_BIT(BufferUsage::CopySrc,    vk::BufferUsageFlagBits::eTransferSrc)
-        TRY_SET_BIT(BufferUsage::CopyDst,    vk::BufferUsageFlagBits::eTransferDst)
-        TRY_SET_BIT(BufferUsage::Vertex,     vk::BufferUsageFlagBits::eVertexBuffer)
-        TRY_SET_BIT(BufferUsage::Index,      vk::BufferUsageFlagBits::eIndexBuffer)
-        TRY_SET_BIT(BufferUsage::Uniform,    vk::BufferUsageFlagBits::eUniformBuffer)
-        TRY_SET_BIT(BufferUsage::Storage,    vk::BufferUsageFlagBits::eStorageBuffer)
+        TRY_SET_BIT(BufferUsage::CopySrc, vk::BufferUsageFlagBits::eTransferSrc)
+        TRY_SET_BIT(BufferUsage::CopyDst, vk::BufferUsageFlagBits::eTransferDst)
+        TRY_SET_BIT(BufferUsage::Vertex, vk::BufferUsageFlagBits::eVertexBuffer)
+        TRY_SET_BIT(BufferUsage::Index, vk::BufferUsageFlagBits::eIndexBuffer)
+        TRY_SET_BIT(BufferUsage::Uniform, vk::BufferUsageFlagBits::eUniformBuffer)
+        TRY_SET_BIT(BufferUsage::Storage, vk::BufferUsageFlagBits::eStorageBuffer)
         return bits;
     }
 
-    vk::ImageUsageFlags imageUsage2VK(Flags<ImageUsage> flags){
+    vk::ImageUsageFlags imageUsage2VK(Flags<ImageUsage> flags) {
         vk::ImageUsageFlags bits{};
         TRY_SET_BIT(ImageUsage::Sampled, vk::ImageUsageFlagBits::eSampled)
         TRY_SET_BIT(ImageUsage::CopySrc, vk::ImageUsageFlagBits::eTransferSrc)
@@ -323,7 +323,7 @@ namespace Comet {
     }
 
     vk::ColorComponentFlags colorWriteMask2VK(Flags<ColorWriteMask> flags) {
-        if (flags == ColorWriteMask::All) {
+        if(flags == ColorWriteMask::All) {
             return vk::ColorComponentFlagBits::eA |
                    vk::ColorComponentFlagBits::eB |
                    vk::ColorComponentFlagBits::eG |
@@ -337,17 +337,17 @@ namespace Comet {
         return bits;
     }
 
-    vk::CullModeFlags cullMode2VK(Flags<CullMode> mode){
-        if (mode == CullMode::None) {
+    vk::CullModeFlags cullMode2VK(Flags<CullMode> mode) {
+        if(mode == CullMode::None) {
             return vk::CullModeFlagBits::eNone;
         }
-        if ((mode & CullMode::Front) && (mode & CullMode::Back)) {
+        if((mode & CullMode::Front) && (mode & CullMode::Back)) {
             return vk::CullModeFlagBits::eFrontAndBack;
         }
-        if (mode & CullMode::Front) {
+        if(mode & CullMode::Front) {
             return vk::CullModeFlagBits::eFront;
         }
-        if (mode & CullMode::Back) {
+        if(mode & CullMode::Back) {
             return vk::CullModeFlagBits::eBack;
         }
         CANT_REACH();
@@ -356,7 +356,7 @@ namespace Comet {
 
     vk::PipelineStageFlags pipelineStage2VK(Flags<PipelineStage> flags) {
         vk::PipelineStageFlags bits{};
-        if (flags == PipelineStage::None) {
+        if(flags == PipelineStage::None) {
             return vk::PipelineStageFlagBits::eNone;
         }
         TRY_SET_BIT(PipelineStage::Host, vk::PipelineStageFlagBits::eHost)
@@ -380,41 +380,41 @@ namespace Comet {
     }
 
     vk::AccessFlags access2VK(Flags<Access> flags) {
-        if (flags == Access::None) {
+        if(flags == Access::None) {
             return vk::AccessFlagBits::eNone;
         }
         vk::AccessFlags bits{};
-        TRY_SET_BIT(Access::HostRead,       vk::AccessFlagBits::eHostRead)
-        TRY_SET_BIT(Access::HostWrite,      vk::AccessFlagBits::eHostWrite)
-        TRY_SET_BIT(Access::IndexRead,      vk::AccessFlagBits::eIndexRead)
-        TRY_SET_BIT(Access::MemoryRead,     vk::AccessFlagBits::eMemoryRead)
-        TRY_SET_BIT(Access::MemoryWrite,    vk::AccessFlagBits::eMemoryWrite)
-        TRY_SET_BIT(Access::ShaderRead,     vk::AccessFlagBits::eShaderRead)
-        TRY_SET_BIT(Access::ShaderWrite,    vk::AccessFlagBits::eShaderWrite)
-        TRY_SET_BIT(Access::TransferRead,   vk::AccessFlagBits::eTransferRead)
-        TRY_SET_BIT(Access::TransferWrite,  vk::AccessFlagBits::eTransferWrite)
-        TRY_SET_BIT(Access::UniformRead,    vk::AccessFlagBits::eUniformRead)
-        TRY_SET_BIT(Access::ColorAttachmentRead,  vk::AccessFlagBits::eColorAttachmentRead)
+        TRY_SET_BIT(Access::HostRead, vk::AccessFlagBits::eHostRead)
+        TRY_SET_BIT(Access::HostWrite, vk::AccessFlagBits::eHostWrite)
+        TRY_SET_BIT(Access::IndexRead, vk::AccessFlagBits::eIndexRead)
+        TRY_SET_BIT(Access::MemoryRead, vk::AccessFlagBits::eMemoryRead)
+        TRY_SET_BIT(Access::MemoryWrite, vk::AccessFlagBits::eMemoryWrite)
+        TRY_SET_BIT(Access::ShaderRead, vk::AccessFlagBits::eShaderRead)
+        TRY_SET_BIT(Access::ShaderWrite, vk::AccessFlagBits::eShaderWrite)
+        TRY_SET_BIT(Access::TransferRead, vk::AccessFlagBits::eTransferRead)
+        TRY_SET_BIT(Access::TransferWrite, vk::AccessFlagBits::eTransferWrite)
+        TRY_SET_BIT(Access::UniformRead, vk::AccessFlagBits::eUniformRead)
+        TRY_SET_BIT(Access::ColorAttachmentRead, vk::AccessFlagBits::eColorAttachmentRead)
         TRY_SET_BIT(Access::ColorAttachmentWrite, vk::AccessFlagBits::eColorAttachmentWrite)
-        TRY_SET_BIT(Access::IndirectCommandRead,  vk::AccessFlagBits::eIndirectCommandRead)
-        TRY_SET_BIT(Access::InputAttachmentRead,  vk::AccessFlagBits::eInputAttachmentRead)
-        TRY_SET_BIT(Access::VertexAttributeRead,  vk::AccessFlagBits::eVertexAttributeRead)
-        TRY_SET_BIT(Access::DepthStencilAttachmentRead,  vk::AccessFlagBits::eDepthStencilAttachmentRead)
+        TRY_SET_BIT(Access::IndirectCommandRead, vk::AccessFlagBits::eIndirectCommandRead)
+        TRY_SET_BIT(Access::InputAttachmentRead, vk::AccessFlagBits::eInputAttachmentRead)
+        TRY_SET_BIT(Access::VertexAttributeRead, vk::AccessFlagBits::eVertexAttributeRead)
+        TRY_SET_BIT(Access::DepthStencilAttachmentRead, vk::AccessFlagBits::eDepthStencilAttachmentRead)
         TRY_SET_BIT(Access::DepthStencilAttachmentWrite, vk::AccessFlagBits::eDepthStencilAttachmentWrite)
-        
+
         return bits;
     }
 
-    vk::DependencyFlags dependency2VK(Flags<Dependency> flags){
+    vk::DependencyFlags dependency2VK(Flags<Dependency> flags) {
         vk::DependencyFlags bits{};
-        TRY_SET_BIT(Dependency::ByRegionBit,   vk::DependencyFlagBits::eByRegion)
+        TRY_SET_BIT(Dependency::ByRegionBit, vk::DependencyFlagBits::eByRegion)
         TRY_SET_BIT(Dependency::DeviceGroupBit, vk::DependencyFlagBits::eDeviceGroup)
-        TRY_SET_BIT(Dependency::ViewLocalBit,   vk::DependencyFlagBits::eViewLocal)
+        TRY_SET_BIT(Dependency::ViewLocalBit, vk::DependencyFlagBits::eViewLocal)
         return bits;
     }
 
     vk::ImageLayout imageLayout2VK(ImageLayout layout) {
-        switch (layout) {
+        switch(layout) {
             CASE(ImageLayout::Undefined, vk::ImageLayout::eUndefined)
             CASE(ImageLayout::General, vk::ImageLayout::eGeneral)
             CASE(ImageLayout::Preinitialized, vk::ImageLayout::ePreinitialized)
@@ -439,7 +439,7 @@ namespace Comet {
     }
 
     vk::PipelineBindPoint pipelineBindPoint2VK(PipelineBindPoint point) {
-        switch (point) {
+        switch(point) {
             CASE(PipelineBindPoint::Compute, vk::PipelineBindPoint::eCompute)
             CASE(PipelineBindPoint::Graphics, vk::PipelineBindPoint::eGraphics)
         }
@@ -448,7 +448,7 @@ namespace Comet {
     }
 
     vk::ImageTiling imageTiling2VK(ImageTiling tiling) {
-        switch (tiling) {
+        switch(tiling) {
             CASE(ImageTiling::Linear, vk::ImageTiling::eLinear)
             CASE(ImageTiling::Optimal, vk::ImageTiling::eOptimal)
         }
@@ -456,8 +456,8 @@ namespace Comet {
         return {};
     }
 
-    vk::SharingMode sharingMode2VK(SharingMode mode){
-        switch (mode) {
+    vk::SharingMode sharingMode2VK(SharingMode mode) {
+        switch(mode) {
             CASE(SharingMode::Concurrent, vk::SharingMode::eConcurrent)
             CASE(SharingMode::Exclusive, vk::SharingMode::eExclusive)
         }
@@ -466,20 +466,20 @@ namespace Comet {
     }
 
     vk::ComponentSwizzle componentMapping2VK(ComponentMapping swizzle) {
-        switch (swizzle) {
-            CASE(ComponentMapping::SwizzleZero,    vk::ComponentSwizzle::eZero)
-            CASE(ComponentMapping::SwizzleOne,     vk::ComponentSwizzle::eOne)
+        switch(swizzle) {
+            CASE(ComponentMapping::SwizzleZero, vk::ComponentSwizzle::eZero)
+            CASE(ComponentMapping::SwizzleOne, vk::ComponentSwizzle::eOne)
             CASE(ComponentMapping::SwizzleIdentity, vk::ComponentSwizzle::eIdentity)
-            CASE(ComponentMapping::SwizzleR,       vk::ComponentSwizzle::eR)
-            CASE(ComponentMapping::SwizzleG,       vk::ComponentSwizzle::eG)
-            CASE(ComponentMapping::SwizzleB,       vk::ComponentSwizzle::eB)
-            CASE(ComponentMapping::SwizzleA,       vk::ComponentSwizzle::eA)
+            CASE(ComponentMapping::SwizzleR, vk::ComponentSwizzle::eR)
+            CASE(ComponentMapping::SwizzleG, vk::ComponentSwizzle::eG)
+            CASE(ComponentMapping::SwizzleB, vk::ComponentSwizzle::eB)
+            CASE(ComponentMapping::SwizzleA, vk::ComponentSwizzle::eA)
         }
         CANT_REACH();
         return {};
     }
 
-    vk::ColorComponentFlags componentMask2VK(Flags<ColorComponent> flags){
+    vk::ColorComponentFlags componentMask2VK(Flags<ColorComponent> flags) {
         vk::ColorComponentFlags bits{};
         TRY_SET_BIT(ColorComponent::R, vk::ColorComponentFlagBits::eR)
         TRY_SET_BIT(ColorComponent::G, vk::ColorComponentFlagBits::eG)
@@ -489,32 +489,31 @@ namespace Comet {
     }
 
     vk::ColorSpaceKHR imageColorSpace2VK(ImageColorSpace space) {
-        switch (space) {
-            // CASE(ImageColorSpace::DolbyvisionEXT,         vk::ColorSpaceKHR::eDolbyvisionEXT)
-            CASE(ImageColorSpace::AdobergbLinearEXT,      vk::ColorSpaceKHR::eAdobergbLinearEXT)
-            CASE(ImageColorSpace::AdobergbNonlinearEXT,   vk::ColorSpaceKHR::eAdobergbNonlinearEXT)
-            CASE(ImageColorSpace::Bt709LinearEXT,         vk::ColorSpaceKHR::eBt709LinearEXT)
-            CASE(ImageColorSpace::Bt709NonlinearEXT,      vk::ColorSpaceKHR::eBt709NonlinearEXT)
-            CASE(ImageColorSpace::Bt2020LinearEXT,        vk::ColorSpaceKHR::eBt2020LinearEXT)
-            CASE(ImageColorSpace::DisplayNativeAMD,       vk::ColorSpaceKHR::eDisplayNativeAMD)
-            CASE(ImageColorSpace::Hdr10HlgEXT,            vk::ColorSpaceKHR::eHdr10HlgEXT)
-            CASE(ImageColorSpace::Hdr10St2084EXT,         vk::ColorSpaceKHR::eHdr10St2084EXT)
-            CASE(ImageColorSpace::PassThroughEXT,         vk::ColorSpaceKHR::ePassThroughEXT)
-            CASE(ImageColorSpace::SrgbNonlinearKHR,       vk::ColorSpaceKHR::eSrgbNonlinear)
-            CASE(ImageColorSpace::DciP3NonlinearEXT,      vk::ColorSpaceKHR::eDciP3NonlinearEXT)
-            CASE(ImageColorSpace::DisplayP3LinearEXT,     vk::ColorSpaceKHR::eDisplayP3LinearEXT)
-            CASE(ImageColorSpace::DisplayP3NonlinearEXT,  vk::ColorSpaceKHR::eDisplayP3NonlinearEXT)
-            CASE(ImageColorSpace::ExtendedSrgbLinearEXT,  vk::ColorSpaceKHR::eExtendedSrgbLinearEXT)
+        switch(space) {
+                // CASE(ImageColorSpace::DolbyvisionEXT,         vk::ColorSpaceKHR::eDolbyvisionEXT)
+            CASE(ImageColorSpace::AdobergbLinearEXT, vk::ColorSpaceKHR::eAdobergbLinearEXT)
+            CASE(ImageColorSpace::AdobergbNonlinearEXT, vk::ColorSpaceKHR::eAdobergbNonlinearEXT)
+            CASE(ImageColorSpace::Bt709LinearEXT, vk::ColorSpaceKHR::eBt709LinearEXT)
+            CASE(ImageColorSpace::Bt709NonlinearEXT, vk::ColorSpaceKHR::eBt709NonlinearEXT)
+            CASE(ImageColorSpace::Bt2020LinearEXT, vk::ColorSpaceKHR::eBt2020LinearEXT)
+            CASE(ImageColorSpace::DisplayNativeAMD, vk::ColorSpaceKHR::eDisplayNativeAMD)
+            CASE(ImageColorSpace::Hdr10HlgEXT, vk::ColorSpaceKHR::eHdr10HlgEXT)
+            CASE(ImageColorSpace::Hdr10St2084EXT, vk::ColorSpaceKHR::eHdr10St2084EXT)
+            CASE(ImageColorSpace::PassThroughEXT, vk::ColorSpaceKHR::ePassThroughEXT)
+            CASE(ImageColorSpace::SrgbNonlinearKHR, vk::ColorSpaceKHR::eSrgbNonlinear)
+            CASE(ImageColorSpace::DciP3NonlinearEXT, vk::ColorSpaceKHR::eDciP3NonlinearEXT)
+            CASE(ImageColorSpace::DisplayP3LinearEXT, vk::ColorSpaceKHR::eDisplayP3LinearEXT)
+            CASE(ImageColorSpace::DisplayP3NonlinearEXT, vk::ColorSpaceKHR::eDisplayP3NonlinearEXT)
+            CASE(ImageColorSpace::ExtendedSrgbLinearEXT, vk::ColorSpaceKHR::eExtendedSrgbLinearEXT)
             CASE(ImageColorSpace::ExtendedSrgbNonlinearEXT, vk::ColorSpaceKHR::eExtendedSrgbNonlinearEXT)
         }
         CANT_REACH();
         return {};
     }
 
-    ImageColorSpace VkColorSpace2ImageColorSpace(vk::ColorSpaceKHR space){
-        switch (space)
-        {
-            // CASE(vk::ColorSpaceKHR::eDolbyvisionEXT, ImageColorSpace::DolbyvisionEXT)
+    ImageColorSpace VkColorSpace2ImageColorSpace(vk::ColorSpaceKHR space) {
+        switch(space) {
+                // CASE(vk::ColorSpaceKHR::eDolbyvisionEXT, ImageColorSpace::DolbyvisionEXT)
             CASE(vk::ColorSpaceKHR::eAdobergbLinearEXT, ImageColorSpace::AdobergbLinearEXT)
             CASE(vk::ColorSpaceKHR::eAdobergbNonlinearEXT, ImageColorSpace::AdobergbNonlinearEXT)
             CASE(vk::ColorSpaceKHR::eBt709LinearEXT, ImageColorSpace::Bt709LinearEXT)
@@ -530,14 +529,14 @@ namespace Comet {
             CASE(vk::ColorSpaceKHR::eDisplayP3NonlinearEXT, ImageColorSpace::DisplayP3NonlinearEXT)
             CASE(vk::ColorSpaceKHR::eExtendedSrgbLinearEXT, ImageColorSpace::ExtendedSrgbLinearEXT)
             CASE(vk::ColorSpaceKHR::eExtendedSrgbNonlinearEXT, ImageColorSpace::ExtendedSrgbNonlinearEXT)
-        default:
-            CANT_REACH();
+            default:
+                CANT_REACH();
         }
-            CANT_REACH();
-            return {};
+        CANT_REACH();
+        return {};
     }
 
-    vk::MemoryPropertyFlags memoryProperty2VK(MemoryType property){
+    vk::MemoryPropertyFlags memoryProperty2VK(MemoryType property) {
         switch(property) {
             CASE(MemoryType::CPULocal, vk::MemoryPropertyFlagBits::eHostVisible);
             CASE(MemoryType::Coherence, vk::MemoryPropertyFlagBits::eHostCoherent);
@@ -547,6 +546,5 @@ namespace Comet {
         return {};
     }
 
-    #undef CASE
-
+#undef CASE
 }

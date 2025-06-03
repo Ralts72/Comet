@@ -5,21 +5,26 @@
 namespace Comet {
     class Device;
 
-    class SemaphoreRes : public Refcount
-    {
+    class SemaphoreRes final: public Refcount {
     public:
-        SemaphoreRes(Device&);
+        explicit SemaphoreRes(Device&);
+
         SemaphoreRes(const SemaphoreRes&) = delete;
+
         SemaphoreRes(SemaphoreRes&&) = delete;
+
         SemaphoreRes& operator=(const SemaphoreRes&) = delete;
+
         SemaphoreRes& operator=(SemaphoreRes&&) = delete;
 
-        ~SemaphoreRes();
+        ~SemaphoreRes() override;
+
         void decrease() override;
 
         [[nodiscard]] vk::Semaphore getVkSemaphore() const { return m_semaphore; }
+
     private:
         vk::Semaphore m_semaphore;
-        Device &m_device;
+        Device& m_device;
     };
 }
