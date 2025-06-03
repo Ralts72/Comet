@@ -1,5 +1,6 @@
 #include "adapter.h"
 #include "device.h"
+#include "../common/macro.h"
 
 namespace Comet {
     Adapter::Adapter(const Window& window) {
@@ -10,7 +11,7 @@ namespace Comet {
         LOG_INFO("creating surface");
         createSurface(window);
         LOG_INFO("creating render device");
-        createDevice();
+        createDevice(window.getSize());
     }
 
     Adapter::~Adapter() {
@@ -24,7 +25,7 @@ namespace Comet {
         appInfo.pApplicationName = "CometApp";
         appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
         appInfo.pEngineName = "CometEngine";
-        appInfo.apiVersion = VK_API_VERSION_1_3;
+        appInfo.apiVersion = vk::ApiVersion13;
 
         const auto availableLayersProps = vk::enumerateInstanceLayerProperties();
         std::set<std::string> availableLayers;
@@ -85,7 +86,7 @@ namespace Comet {
         m_surface = vk::SurfaceKHR(rawSurface);
     }
 
-    void Adapter::createDevice() {
-        m_device = new Device(*this);
+    void Adapter::createDevice(Vec2 size) {
+        m_device = new Device(*this, size);
     }
 }

@@ -2,3 +2,5 @@
 .Ds_Store
 **/.DS_Store
 *.spv
+build/
+.vscode/

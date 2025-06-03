@@ -21,7 +21,7 @@ namespace Comet {
             }
         };
 
-        explicit Device(const Adapter& adapter);
+        explicit Device(const Adapter& adapter, Vec2 size);
 
         ~Device();
 
@@ -31,7 +31,8 @@ namespace Comet {
         [[nodiscard]] const QueueFamilyIndices& getQueueFamilyIndices() const { return m_queue_indices; }
 
         Device(const Device&) = delete;
-
+        Device(Device&&) = delete;
+        Device& operator=(Device&&) = delete;
         Device& operator=(const Device&) = delete;
 
     private:

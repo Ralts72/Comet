@@ -5,12 +5,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(SHADER ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders)
 
 file(GLOB SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/common/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/file/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/resource/*.cpp"
 )
 
 find_program(GLSLC_PROGRAM glslc)

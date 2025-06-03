@@ -1,6 +1,6 @@
 #include "memory.h"
 #include <exception>
-#include "macro.h"
+#include "../common/macro.h"
 
 namespace Comet {
     template<typename T>

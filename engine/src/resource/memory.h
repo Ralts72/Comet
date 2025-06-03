@@ -1,6 +1,5 @@
 #pragma once
 
-
 namespace Comet {
     template<typename T>
     class BlockMemoryAllocator {
