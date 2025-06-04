@@ -75,7 +75,7 @@ namespace Comet {
     private:
         void createImage(const Image::Descriptor&, Device&);
 
-        void allocMemomry(vk::PhysicalDevice phyDevice);
+        void allocMemory(vk::PhysicalDevice phyDevice);
 
         void findSupportedFormat(vk::Format candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features);
 

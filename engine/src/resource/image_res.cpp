@@ -36,12 +36,12 @@ namespace Comet {
 
     ImageRes::ImageRes(const Adapter& adapter, Device& device, const Image::Descriptor& desc): m_device(device) {
         createImage(desc, device);
-        allocMemomry(adapter.getPhysicalDevice());
+        allocMemory(adapter.getPhysicalDevice());
 
         for(int i = 0; i < desc.arrayLayers; i++) {
             m_layouts.push_back(desc.initialLayout);
         }
-        m_device.getVkDevice().bindImageMemory(m_image, m_memory_res->getMemory(), 0);
+        m_device.getVkDevice().bindImageMemory(m_image, m_memory_res->getVkMemory(), 0);
     }
 
     ImageRes::~ImageRes() {
@@ -123,7 +123,7 @@ namespace Comet {
         m_image = m_device.getVkDevice().createImage(ci);
     }
 
-    void ImageRes::allocMemomry(vk::PhysicalDevice phyDevice) {
+    void ImageRes::allocMemory(vk::PhysicalDevice phyDevice) {
         vk::MemoryRequirements requirements;
         m_device.getVkDevice().getImageMemoryRequirements(m_image, &requirements);
 

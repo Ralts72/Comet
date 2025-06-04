@@ -20,7 +20,7 @@ namespace Comet {
 
         size_t getSize() const noexcept { return m_size; }
 
-        vk::DeviceMemory getMemory() const noexcept { return m_memory; }
+        vk::DeviceMemory getVkMemory() const noexcept { return m_memory; }
 
     private:
         vk::DeviceMemory m_memory;

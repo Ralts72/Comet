@@ -16,7 +16,7 @@ namespace Comet {
                 return {graphicsIndex.value(), presentIndex.value()};
             }
 
-            [[nodiscard]] bool HasSeparateQueue() const {
+            [[nodiscard]] bool hasSeparateQueue() const {
                 return graphicsIndex.value() != presentIndex.value();
             }
 
@@ -44,7 +44,7 @@ namespace Comet {
         [[nodiscard]] vk::Queue getPresentQueue() const { return m_present_queue; }
         [[nodiscard]] const QueueFamilyIndices& getQueueFamilyIndices() const { return m_queue_indices; }
         [[nodiscard]] const Adapter& getAdapter() const { return m_adapter; }
-        
+
         Device(const Device&) = delete;
 
         Device(Device&&) = delete;

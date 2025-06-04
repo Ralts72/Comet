@@ -81,7 +81,7 @@ namespace Comet {
 
         Image& operator=(Image&&) noexcept;
 
-        ImageView createView(const ImageView::Descriptor&);
+        ImageView createView(const ImageView::Descriptor&) const;
 
         ~Image();
 
