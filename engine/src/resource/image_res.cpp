@@ -123,6 +123,29 @@ namespace Comet {
         m_image = m_device.getVkDevice().createImage(ci);
     }
 
-    void ImageRes::allocMemomry(vk::PhysicalDevice phyDevice) {}
-    void ImageRes::findSupportedFormat(vk::Format candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features) {}
+    void ImageRes::allocMemomry(vk::PhysicalDevice phyDevice) {
+        vk::MemoryRequirements requirements;
+        m_device.getVkDevice().getImageMemoryRequirements(m_image, &requirements);
+
+        auto index = findMemoryType(phyDevice, requirements, vk::MemoryPropertyFlagBits::eDeviceLocal);
+        if (!index) {
+            LOG_ERROR("allocate image memory failed: no satisfied memory type ""(DeviceLocal)");
+        } else {
+            m_memory_res = new MemoryRes{m_device, static_cast<uint64_t>(requirements.size), index.value()};
+        }
+    }
+
+    void ImageRes::findSupportedFormat(vk::Format candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features) {
+        vk::FormatProperties props;
+        m_device.getAdapter().getPhysicalDevice().getFormatProperties(candidates, &props);
+        if (tiling == vk::ImageTiling::eLinear &&
+            (props.linearTilingFeatures & features) == features) {
+            return;
+        }
+        if (tiling == vk::ImageTiling::eOptimal &&
+            (props.optimalTilingFeatures & features) == features) {
+            return;
+        }
+        LOG_FATAL("failed to find supported format!");
+    }
 }

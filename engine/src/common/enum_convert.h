@@ -81,4 +81,6 @@ namespace Comet {
     inline ImageColorSpace VkColorSpace2ImageColorSpace(vk::ColorSpaceKHR space);
 
     inline vk::MemoryPropertyFlags memoryProperty2VK(MemoryType property);
+
+    inline std::optional<uint32_t> findMemoryType(vk::PhysicalDevice physicalDevice, vk::MemoryRequirements requirements, vk::MemoryPropertyFlags properties);
 }

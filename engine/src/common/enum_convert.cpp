@@ -546,5 +546,17 @@ namespace Comet {
         return {};
     }
 
+    std::optional<uint32_t> findMemoryType(vk::PhysicalDevice physicalDevice, vk::MemoryRequirements requirements, vk::MemoryPropertyFlags properties) {
+        vk::PhysicalDeviceMemoryProperties props;
+        physicalDevice.getMemoryProperties(&props);
+        for (uint32_t i = 0; i < props.memoryTypeCount; i++) {
+            if ((1 << i & requirements.memoryTypeBits) &&
+                (props.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+        return {};
+    }
+
 #undef CASE
 }
