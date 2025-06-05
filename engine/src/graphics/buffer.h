@@ -55,7 +55,7 @@ namespace Comet {
 
         void buffData(void* data, size_t size, size_t offset);
 
-        operator bool() const noexcept;
+        operator bool() const noexcept { return m_res; }
 
         void release();
 

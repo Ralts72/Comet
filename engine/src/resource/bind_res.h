@@ -1,3 +1,8 @@
 #pragma once
 
-namespace Comet {}
+namespace Comet {
+
+    // class BindGroupRes: public Refcount{
+
+    // }
+}
