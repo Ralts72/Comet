@@ -11,12 +11,10 @@ set(SHADER_COMPILE_TARGET shader_compile)
 add_subdirectory(assets/shaders)
 
 file(GLOB SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/common/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/*.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/file/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/resource/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/common/log_system/log_system.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/window/window.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/engine.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/context.cpp"
 )
 
 find_package(Vulkan REQUIRED)

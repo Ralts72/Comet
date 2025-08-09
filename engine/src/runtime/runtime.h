@@ -1,4 +1,5 @@
 #pragma once
+#include "core/engine.h"
 
 namespace Comet {
     class Application {
@@ -12,7 +13,13 @@ namespace Comet {
         virtual void on_shutdown() = 0;
     };
 
-    void run(Application* app) {
-	}
+    inline void run(Application* app) {
+        Engine::init();
+        app->on_init();
+        Engine::instance().on_update();
+        app->on_update();
+        Engine::shutdown();
+        app->on_shutdown();
+    }
 }
 
