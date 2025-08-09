@@ -1,5 +1,6 @@
 #include "window.h"
 #include "common/log_system/log_system.h"
+#define GL_FALSE 0
 
 namespace Comet {
     Window::Window(const std::string& title, const int width, const int height) : m_title(title), m_width(width), m_height(height) {
