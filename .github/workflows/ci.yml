@@ -18,17 +18,17 @@ jobs:
           fetch-depth: 0
 
       - name: Install dependencies
-          run: |
-            sudo apt-get update
-            sudo apt-get install -y \
-              cmake build-essential \
-              libx11-dev libxext-dev libxrandr-dev libxinerama-dev \
-              libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev \
-              mesa-common-dev libgl1-mesa-dev \
-              curl tar \
-              libvulkan-dev glslang-tools vulkan-tools
-            
-            echo "VULKAN_SDK=/usr" >> $GITHUB_ENV
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake build-essential \
+            libx11-dev libxext-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev \
+            mesa-common-dev libgl1-mesa-dev \
+            curl tar \
+            libvulkan-dev glslang-tools vulkan-tools
+          
+          echo "VULKAN_SDK=/usr" >> $GITHUB_ENV
 
       - name: Cache build files
         uses: actions/cache@v3
