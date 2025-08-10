@@ -15,6 +15,8 @@ file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/window/window.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/engine.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/context.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/device.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/queue.cpp"
 )
 
 find_package(Vulkan REQUIRED)

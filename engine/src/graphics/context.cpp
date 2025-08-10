@@ -1,13 +1,13 @@
 #include "context.h"
 
 namespace Comet {
-    std::vector<DeviceFeature> required_layers = {
+    static std::vector<DeviceFeature> required_layers = {
 #ifdef BUILD_TYPE_DEBUG
         {"VK_LAYER_KHRONOS_validation", true},
 #endif
     };
 
-    std::vector<DeviceFeature> required_extensions = {
+    static std::vector<DeviceFeature> required_extensions = {
 #ifdef __APPLE__
         // 在 macOS 上添加必要的 MoltenVK 扩展
         {VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME, true},
@@ -170,8 +170,8 @@ namespace Comet {
             }
         }
 
-        // 兜底，如果present还没找到，使用graphics队列簇
-        if(!present_index.has_value() && graphics_index.has_value()) {
+        // 如果present还没找到，且graphics队列支持，使用graphics队列簇
+        if(!present_index.has_value() && graphics_index.has_value() && m_physical_device.getSurfaceSupportKHR(graphics_index.value(), m_surface)) {
             present_index = graphics_index;
         }
 
@@ -185,6 +185,8 @@ namespace Comet {
         if(!graphics_index.has_value()) {
             LOG_FATAL("not found graphics queue family");
         }
+        LOG_INFO("graphics queue family index : {}, queue count is {}", graphics_index.value(), m_graphics_queue_family.queue_count);
+        LOG_INFO("present queue family index : {}, queue count is {}", present_index.value(), m_present_queue_family.queue_count);
     }
 }
 

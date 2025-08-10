@@ -3,13 +3,13 @@
 #include "core/window/window.h"
 
 namespace Comet {
+    struct QueueFamilyInfo {
+        std::optional<uint32_t> queue_family_index;
+        uint32_t queue_count = 0;
+    };
+
     class Context {
     public:
-        struct QueueFamilyInfo {
-            std::optional<uint32_t> queue_family_index;
-            uint32_t queue_count = 0;
-        };
-
         explicit Context(const Window& window);
 
         Context(const Context&) = delete;
