@@ -26,8 +26,9 @@ jobs:
             libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev \
             mesa-common-dev libgl1-mesa-dev \
             curl tar \
-            libvulkan-dev glslang-tools vulkan-tools
-          
+            libvulkan-dev glslang-tools vulkan-tools \
+            xvfb
+
           echo "VULKAN_SDK=/usr" >> $GITHUB_ENV
 
       - name: Cache build files
@@ -42,5 +43,8 @@ jobs:
       - name: Build project
         run: cmake --build build --parallel
 
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure
+      - name: Run tests with Xvfb
+        run: |
+          Xvfb :99 -screen 0 1024x768x24 &
+          export DISPLAY=:99
+          ctest --test-dir build --output-on-failure
