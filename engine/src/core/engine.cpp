@@ -15,8 +15,8 @@ namespace Comet {
         LOG_INFO("init window");
         m_window = std::make_unique<Window>("Comet Engine", 1024, 720);
 
-        // LOG_INFO("init graphics system");
-        // m_graphics_context = std::make_unique<Adapter>(*m_window);
+        LOG_INFO("init graphics system");
+        m_context = std::make_unique<Context>(*m_window);
         //
         // LOG_INFO("init storage system");
         // m_storage_manager = std::make_unique<StorageManager>("Ralts", "Comet");
