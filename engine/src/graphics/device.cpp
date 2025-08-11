@@ -68,12 +68,12 @@ namespace Comet {
         create_info.pEnabledFeatures = &features;
         m_device = context->get_physical_device().createDevice(create_info);
 
-        for(int i = 0; i < graphics_queue_count; ++i) {
+        for(uint32_t i = 0; i < graphics_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(graphics_queue_family_index.value(), i);
             auto queue = std::make_shared<Queue>(graphics_queue_family_index.value(), i, vk_queue, QueueType::GRAPHICS);
             m_graphics_queues.emplace_back(queue);
         }
-        for(int i = 0; i < present_queue_count; ++i) {
+        for(uint32_t i = 0; i < present_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(present_queue_family_index.value(), i);
             auto queue = std::make_shared<Queue>(present_queue_family_index.value(), i, vk_queue, QueueType::PRESENT);
             m_present_queues.emplace_back(queue);
