@@ -17,14 +17,22 @@ namespace Comet {
 
         LOG_INFO("init graphics system");
         m_context = std::make_unique<Context>(*m_window);
-        //
-        // LOG_INFO("init storage system");
-        // m_storage_manager = std::make_unique<StorageManager>("Ralts", "Comet");
+
+        LOG_INFO("create device");
+        m_device = std::make_unique<Device>(m_context.get(), 1, 1);
+
+        LOG_INFO("create swapchain");
+        m_swapchain = std::make_unique<Swapchain>(m_context.get(), m_device.get());
+        m_swapchain->recreate();
     }
 
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
+        m_swapchain.reset();
+        m_device.reset();
+        m_context.reset();
         m_window.reset();
+        glfwTerminate();
     }
 
     void Engine::on_update() {

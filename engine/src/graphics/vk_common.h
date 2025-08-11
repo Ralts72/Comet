@@ -9,6 +9,10 @@ namespace Comet {
         bool required;
     };
 
+    enum QueueType {
+        GRAPHICS, PRESENT, TRANSFER, COMPUTE
+    };
+
     inline std::vector<const char*> build_enabled_list(
         const std::vector<DeviceFeature>& required_items,
         const std::set<std::string>& available_names,

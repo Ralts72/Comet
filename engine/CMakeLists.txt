@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.31)
 project(Comet)
 
 set(CMAKE_CXX_STANDARD 20)
-
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -Os -Wall")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Os -Wall")
 find_program(glslangValidator_executable glslangValidator)
 if (NOT glslangValidator_executable)
     message(FATAL_ERROR "glslangValidator not found, please install it to compile shaders")
@@ -17,6 +19,8 @@ file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/context.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/device.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/queue.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/swapchain.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/render_pass.cpp"
 )
 
 find_package(Vulkan REQUIRED)
@@ -29,3 +33,6 @@ target_include_directories(engine
 )
 target_precompile_headers(engine PRIVATE "src/pch.h")
 target_compile_definitions(engine PRIVATE COMET_EXPORTS)
+if (NOT WIN32)
+    target_compile_options(engine PRIVATE -fvisibility=hidden)
+endif ()

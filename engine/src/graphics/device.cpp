@@ -1,17 +1,18 @@
 #include "device.h"
 #include "context.h"
+#include "queue.h"
 #include "common/log_system/log_system.h"
 
 namespace Comet {
     static std::vector<DeviceFeature> required_extensions = {
 #ifdef __APPLE__
-    { "VK_KHR_portability_subset", true },
+        {"VK_KHR_portability_subset", true},
 #endif
-    { VK_KHR_SWAPCHAIN_EXTENSION_NAME, true },
-    {"VK_KHR_buffer_device_address", true}
+        {VK_KHR_SWAPCHAIN_EXTENSION_NAME, true},
+        {"VK_KHR_buffer_device_address", true}
     };
 
-    Device::Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count, const VkSettings& settings): m_context(context), m_settings(settings) {
+    Device::Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count, const VkSettings& settings) : m_context(context), m_settings(settings) {
         if(!context) {
             LOG_ERROR("Must create a vulkan graphics context before create device");
             return;
@@ -40,7 +41,7 @@ namespace Comet {
         }
         vk::DeviceQueueCreateInfo queue_create_info = {};
         queue_create_info.queueFamilyIndex = graphics_queue_family_index.value();
-        queue_create_info.queueCount = is_same_queue_family? queue_count: graphics_queue_count;
+        queue_create_info.queueCount = is_same_queue_family ? queue_count : graphics_queue_count;
         queue_create_info.pQueuePriorities = graphics_queue_priorities.data();
         queue_create_infos.push_back(queue_create_info);
 
@@ -66,8 +67,21 @@ namespace Comet {
         create_info.enabledExtensionCount = enabled_extensions.size();
         create_info.pEnabledFeatures = &features;
         m_device = context->get_physical_device().createDevice(create_info);
+
+        for(int i = 0; i < graphics_queue_count; ++i) {
+            auto vk_queue = m_device.getQueue(graphics_queue_family_index.value(), i);
+            auto queue = std::make_shared<Queue>(graphics_queue_family_index.value(), i, vk_queue, QueueType::GRAPHICS);
+            m_graphics_queues.emplace_back(queue);
+        }
+        for(int i = 0; i < present_queue_count; ++i) {
+            auto vk_queue = m_device.getQueue(present_queue_family_index.value(), i);
+            auto queue = std::make_shared<Queue>(present_queue_family_index.value(), i, vk_queue, QueueType::PRESENT);
+            m_present_queues.emplace_back(queue);
+        }
     }
+
     Device::~Device() {
+        m_device.waitIdle();
         m_device.destroy();
     }
 }

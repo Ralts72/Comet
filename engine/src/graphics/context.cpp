@@ -14,25 +14,26 @@ namespace Comet {
         {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, true},
 #endif
         {VK_KHR_SURFACE_EXTENSION_NAME, true},
-        {VK_EXT_DEBUG_REPORT_EXTENSION_NAME, true},
+        // {VK_EXT_DEBUG_REPORT_EXTENSION_NAME, true},
+        {VK_EXT_DEBUG_UTILS_EXTENSION_NAME, true}
     };
 
-    static VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_report_callback(
-        VkDebugReportFlagsEXT flags,
-        VkDebugReportObjectTypeEXT objectType,
-        uint64_t object,
-        size_t location,
-        int32_t messageCode,
-        const char* pLayerPrefix,
-        const char* pMessage,
+    static VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_utils_messenger_callback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+        VkDebugUtilsMessageTypeFlagsEXT messageType,
+        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData) noexcept {
-        if(flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
-            LOG_ERROR("{}", pMessage);
-        } else if(flags & (VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) {
-            LOG_WARN("{}", pMessage);
+        if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+            LOG_ERROR("Vulkan Validation: {}", pCallbackData->pMessage);
+        } else if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+            LOG_WARN("Vulkan Validation: {}", pCallbackData->pMessage);
+        } else if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+            LOG_INFO("Vulkan Validation: {}", pCallbackData->pMessage);
+        } else if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+            LOG_DEBUG("Vulkan Validation: {}", pCallbackData->pMessage);
         }
 
-        return VK_TRUE;
+        return VK_FALSE;
     }
 
     Context::Context(const Window& window) {
@@ -78,23 +79,25 @@ namespace Comet {
         const std::vector<const char*> custom_extensions = build_enabled_list(required_extensions, available_extension_names, "extension");
         enabled_extensions.insert(enabled_extensions.end(), custom_extensions.begin(), custom_extensions.end());
 
-        // 3. debug report
-        vk::DebugReportCallbackCreateInfoEXT debug_create_info{};
-        debug_create_info.pNext = nullptr;
-        debug_create_info.flags = vk::DebugReportFlagBitsEXT::eWarning |
-                                  vk::DebugReportFlagBitsEXT::ePerformanceWarning |
-                                  vk::DebugReportFlagBitsEXT::eError;
-        debug_create_info.pfnCallback = vk_debug_report_callback;
+        // 3. debug utils messenger
+        vk::DebugUtilsMessengerCreateInfoEXT debug_utils_create_info{};
+        debug_utils_create_info.pNext = nullptr;
+        debug_utils_create_info.messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
+                                                  vk::DebugUtilsMessageSeverityFlagBitsEXT::eError;
+        debug_utils_create_info.messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
+                                              vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
+                                              vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
+        debug_utils_create_info.pfnUserCallback = vk_debug_utils_messenger_callback;
 
         vk::InstanceCreateInfo create_info = {};
 #ifdef __APPLE__
         // macOS 需要启用可移植性枚举标志
         create_info.flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
 #endif
-#ifdef BUILD_TYPE_DEBUG
-        create_info.pNext = &debug_create_info;
-#endif
 
+#ifdef BUILD_TYPE_DEBUG
+        create_info.pNext = &debug_utils_create_info;
+#endif
         create_info.pApplicationInfo = &app_info;
         create_info.enabledLayerCount = static_cast<uint32_t>(enabled_layers.size());
         create_info.ppEnabledLayerNames = enabled_layers.data();
@@ -118,7 +121,7 @@ namespace Comet {
     }
 
     void Context::create_surface(const Window& window) {
-        auto glfw_window = window.get_window();
+        const auto glfw_window = window.get_window();
         if(!glfw_window) {
             LOG_ERROR("glfw window not created");
         }
@@ -189,4 +192,3 @@ namespace Comet {
         LOG_INFO("present queue family index : {}, queue count is {}", present_index.value(), m_present_queue_family.queue_count);
     }
 }
-

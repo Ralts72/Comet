@@ -6,7 +6,10 @@
 
 namespace Comet {
     LogSystem::LogSystem() {
-        m_console_logger = spdlog::stdout_color_mt<spdlog::async_factory>("console");
-        m_console_logger->set_level(spdlog::level::trace);
+        m_console_logger = spdlog::get("console");
+        if(!m_console_logger) {
+            m_console_logger = spdlog::stdout_color_mt<spdlog::async_factory>("console");
+            m_console_logger->set_level(spdlog::level::trace);
+        }
     }
 }

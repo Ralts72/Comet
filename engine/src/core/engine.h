@@ -1,10 +1,13 @@
 #pragma once
+#include "common/export.h"
 #include "common/singleton.h"
 #include "core/window/window.h"
 #include "graphics/context.h"
+#include "graphics/device.h"
+#include "graphics/swapchain.h"
 
 namespace Comet {
-    class Engine: public Singleton<Engine, true> {
+    class COMET_API Engine: public Singleton<Engine, true> {
     public:
         Engine();
 
@@ -19,5 +22,7 @@ namespace Comet {
         bool m_should_close = false;
         std::unique_ptr<Window> m_window;
         std::unique_ptr<Context> m_context;
+        std::unique_ptr<Device> m_device;
+        std::unique_ptr<Swapchain> m_swapchain;
     };
 }
