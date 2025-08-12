@@ -34,7 +34,7 @@ namespace Comet {
         std::vector<std::vector<vk::AttachmentReference>> all_color_attachments_reference(m_sub_passes.size());
         std::vector<std::vector<vk::AttachmentReference>> all_depth_stencil_attachments_reference(m_sub_passes.size());
         
-        for(int32_t i = 0; i < m_sub_passes.size(); ++i) {
+        for(uint32_t i = 0; i < m_sub_passes.size(); ++i) {
             auto [input_attachments, color_attachments, depth_stencil_attachments, sample_count] = m_sub_passes[i];
             
             for(const auto& attachment : input_attachments) {
@@ -91,14 +91,14 @@ namespace Comet {
         }
         std::vector<vk::SubpassDependency> dependencies(m_sub_passes.size() - 1);
         if(m_sub_passes.size() > 1) {
-            for(uint32_t i = 0; i < dependencies.size(); ++i) {
-                dependencies[i].srcSubpass         = i;
-                dependencies[i].dstSubpass         = i + 1;
-                dependencies[i].srcStageMask    = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-                dependencies[i].dstStageMask    = vk::PipelineStageFlagBits::eFragmentShader;
-                dependencies[i].srcAccessMask   = vk::AccessFlagBits::eColorAttachmentWrite;
-                dependencies[i].dstAccessMask   = vk::AccessFlagBits::eInputAttachmentRead;
-                dependencies[i].dependencyFlags = vk::DependencyFlagBits::eByRegion;
+            for(uint32_t j = 0; j < dependencies.size(); ++j) {
+                dependencies[j].srcSubpass         = j;
+                dependencies[j].dstSubpass         = j + 1;
+                dependencies[j].srcStageMask    = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+                dependencies[j].dstStageMask    = vk::PipelineStageFlagBits::eFragmentShader;
+                dependencies[j].srcAccessMask   = vk::AccessFlagBits::eColorAttachmentWrite;
+                dependencies[j].dstAccessMask   = vk::AccessFlagBits::eInputAttachmentRead;
+                dependencies[j].dependencyFlags = vk::DependencyFlagBits::eByRegion;
             }
         }
         // 3. create info
