@@ -12,7 +12,8 @@ namespace Comet {
         {"VK_KHR_buffer_device_address", true}
     };
 
-    Device::Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count, const VkSettings& settings) : m_context(context), m_settings(settings) {
+    Device::Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count, const VkSettings& settings)
+        : m_context(context), m_settings(settings) {
         if(!context) {
             LOG_ERROR("Must create a vulkan graphics context before create device");
             return;
@@ -71,12 +72,12 @@ namespace Comet {
 
         for(uint32_t i = 0; i < graphics_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(graphics_queue_family_index.value(), i);
-            auto queue = std::make_shared<Queue>(graphics_queue_family_index.value(), i, vk_queue, QueueType::GRAPHICS);
+            auto queue = std::make_shared<Queue>(graphics_queue_family_index.value(), i, vk_queue, QueueType::Graphics);
             m_graphics_queues.emplace_back(queue);
         }
         for(uint32_t i = 0; i < present_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(present_queue_family_index.value(), i);
-            auto queue = std::make_shared<Queue>(present_queue_family_index.value(), i, vk_queue, QueueType::PRESENT);
+            auto queue = std::make_shared<Queue>(present_queue_family_index.value(), i, vk_queue, QueueType::Present);
             m_present_queues.emplace_back(queue);
         }
     }

@@ -9,8 +9,8 @@ namespace Comet {
         bool required;
     };
 
-    enum QueueType {
-        GRAPHICS, PRESENT, TRANSFER, COMPUTE
+    enum class QueueType {
+        Graphics, Present, transfer, Compute
     };
 
     inline std::vector<const char*> build_enabled_list(

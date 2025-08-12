@@ -27,15 +27,19 @@ namespace Comet {
         m_context = std::make_unique<Context>(*m_window);
 
         LOG_INFO("create device");
-        m_device = std::make_unique<Device>(m_context.get(), 1, 1, s_vk_settings);
+        m_device = std::make_shared<Device>(m_context.get(), 1, 1, s_vk_settings);
 
         LOG_INFO("create swapchain");
-        m_swapchain = std::make_unique<Swapchain>(m_context.get(), m_device.get());
+        m_swapchain = std::make_shared<Swapchain>(m_context.get(), m_device.get());
         m_swapchain->recreate();
+
+        LOG_INFO("create renderpass");
+        m_render_pass = std::make_shared<RenderPass>(m_device.get());
     }
 
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
+        m_render_pass.reset();
         m_swapchain.reset();
         m_device.reset();
         m_context.reset();

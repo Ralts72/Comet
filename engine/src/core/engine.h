@@ -5,6 +5,7 @@
 #include "graphics/context.h"
 #include "graphics/device.h"
 #include "graphics/swapchain.h"
+#include "graphics/render_pass.h"
 
 namespace Comet {
     class COMET_API Engine: public Singleton<Engine, true> {
@@ -22,7 +23,8 @@ namespace Comet {
         bool m_should_close = false;
         std::unique_ptr<Window> m_window;
         std::unique_ptr<Context> m_context;
-        std::unique_ptr<Device> m_device;
-        std::unique_ptr<Swapchain> m_swapchain;
+        std::shared_ptr<Device> m_device;
+        std::shared_ptr<Swapchain> m_swapchain;
+        std::shared_ptr<RenderPass> m_render_pass;
     };
 }

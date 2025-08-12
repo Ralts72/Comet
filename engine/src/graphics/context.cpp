@@ -14,7 +14,6 @@ namespace Comet {
         {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, true},
 #endif
         {VK_KHR_SURFACE_EXTENSION_NAME, true},
-        // {VK_EXT_DEBUG_REPORT_EXTENSION_NAME, true},
         {VK_EXT_DEBUG_UTILS_EXTENSION_NAME, true}
     };
 
