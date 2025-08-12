@@ -1,13 +1,13 @@
 #include "context.h"
 
 namespace Comet {
-    static std::vector<DeviceFeature> required_layers = {
+    static std::vector<DeviceFeature> s_required_layers = {
 #ifdef BUILD_TYPE_DEBUG
         {"VK_LAYER_KHRONOS_validation", true},
 #endif
     };
 
-    static std::vector<DeviceFeature> required_extensions = {
+    static std::vector<DeviceFeature> s_required_extensions = {
 #ifdef __APPLE__
         // 在 macOS 上添加必要的 MoltenVK 扩展
         {VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME, true},
@@ -62,7 +62,7 @@ namespace Comet {
         for(const auto& prop: available_layers_props) {
             available_layers.emplace(prop.layerName);
         }
-        const std::vector<const char*> enabled_layers = build_enabled_list(required_layers, available_layers, "layer");
+        const std::vector<const char*> enabled_layers = build_enabled_list(s_required_layers, available_layers, "layer");
 
         // 2. 构建扩展
         // 获取 GLFW 所需的扩展
@@ -76,7 +76,7 @@ namespace Comet {
         for(const auto& ext: available_extensions) {
             available_extension_names.insert(ext.extensionName);
         }
-        const std::vector<const char*> custom_extensions = build_enabled_list(required_extensions, available_extension_names, "extension");
+        const std::vector<const char*> custom_extensions = build_enabled_list(s_required_extensions, available_extension_names, "extension");
         enabled_extensions.insert(enabled_extensions.end(), custom_extensions.begin(), custom_extensions.end());
 
         // 3. debug utils messenger
@@ -108,12 +108,12 @@ namespace Comet {
 
     void Context::pickup_physical_device() {
         if(!m_instance) {
-            LOG_ERROR("vulkan instance not created");
+            LOG_FATAL("vulkan instance not created");
         }
 
         const auto devices = m_instance.enumeratePhysicalDevices();
         if(devices.empty()) {
-            LOG_ERROR("vulkan physical device not found");
+            LOG_FATAL("vulkan physical device not found");
         }
         m_physical_device = devices[0];
         const std::string deviceName = "physical device : " + static_cast<std::string>(m_physical_device.getProperties().deviceName);
@@ -123,7 +123,7 @@ namespace Comet {
     void Context::create_surface(const Window& window) {
         const auto glfw_window = window.get_window();
         if(!glfw_window) {
-            LOG_ERROR("glfw window not created");
+            LOG_FATAL("glfw window not created");
         }
         VkSurfaceKHR surface = VK_NULL_HANDLE;
         if(glfwCreateWindowSurface(m_instance, glfw_window, nullptr, &surface) != VK_SUCCESS) {
@@ -132,62 +132,52 @@ namespace Comet {
         m_surface = vk::SurfaceKHR(surface);
     }
 
-
-    void Context::create_device(Vec2i size) {}
-
     void Context::choose_queue_families() {
         auto queue_families = m_physical_device.getQueueFamilyProperties();
 
         std::optional<uint32_t> graphics_index;
         std::optional<uint32_t> present_index;
 
-        // 先遍历一次找到任意一个graphics和任意一个present（不考虑是否相同）
         for(uint32_t i = 0; i < queue_families.size(); i++) {
             const auto& props = queue_families[i];
-
+            if(props.queueCount == 0) {
+                continue;
+            }
             const auto is_graphics = props.queueFlags & vk::QueueFlagBits::eGraphics;
             const bool is_present = m_physical_device.getSurfaceSupportKHR(i, m_surface);
-
             if(is_graphics && !graphics_index.has_value()) {
                 graphics_index = i;
+                continue;
             }
-
             if(is_present && !present_index.has_value()) {
                 present_index = i;
+                continue;
             }
-
             if(graphics_index.has_value() && present_index.has_value()) {
                 break;
             }
         }
-
-        // 如果graphics和present是同一个队列簇，尝试找不同的present队列簇做优先分开
-        if(graphics_index.has_value() && present_index.has_value() && graphics_index == present_index) {
-            for(uint32_t i = 0; i < queue_families.size(); i++) {
-                if(i == graphics_index.value()) continue;
-
-                if(m_physical_device.getSurfaceSupportKHR(i, m_surface)) {
-                    present_index = i;
-                    break;
-                }
-            }
+        // 如果都没找到，报错
+        if(!graphics_index.has_value() && !present_index.has_value()) {
+            LOG_FATAL("not found graphics and present queue family");
         }
-
         // 如果present还没找到，且graphics队列支持，使用graphics队列簇
-        if(!present_index.has_value() && graphics_index.has_value() && m_physical_device.getSurfaceSupportKHR(graphics_index.value(), m_surface)) {
+        if(!present_index.has_value() && m_physical_device.getSurfaceSupportKHR(graphics_index.value(), m_surface)) {
+            LOG_DEBUG("graphics queue family also is present queue family");
             present_index = graphics_index;
         }
-
+        // 如果present队列簇还没找到，且present队列簇支持graphics队列簇
+        if(!graphics_index.has_value() && (queue_families[present_index.value()].queueFlags & vk::QueueFlagBits::eGraphics)) {
+            LOG_DEBUG("present queue family also is graphics queue family");
+            graphics_index = present_index;
+        }
         // 保存结果
         m_graphics_queue_family.queue_family_index = graphics_index;
-        m_graphics_queue_family.queue_count = graphics_index ? queue_families[graphics_index.value()].queueCount : 0;
+        m_graphics_queue_family.queue_count = queue_families[graphics_index.value()].queueCount;
 
         m_present_queue_family.queue_family_index = present_index;
-        m_present_queue_family.queue_count = present_index ? queue_families[present_index.value()].queueCount : 0;
+        m_present_queue_family.queue_count = queue_families[present_index.value()].queueCount;
 
-        if(!graphics_index.has_value()) {
-            LOG_FATAL("not found graphics queue family");
-        }
         LOG_INFO("graphics queue family index : {}, queue count is {}", graphics_index.value(), m_graphics_queue_family.queue_count);
         LOG_INFO("present queue family index : {}, queue count is {}", present_index.value(), m_present_queue_family.queue_count);
     }

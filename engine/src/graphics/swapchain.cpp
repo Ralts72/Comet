@@ -15,8 +15,14 @@ namespace Comet {
     bool Swapchain::recreate() {
         setup_surface_capabilities();
 
+        const uint32_t min_count = m_surface_info.capabilities.minImageCount;
+        const uint32_t max_count = m_surface_info.capabilities.maxImageCount;
         uint32_t image_count = m_device->get_settings().swapchain_image_count;
-        image_count = std::clamp(image_count, 2u, m_surface_info.capabilities.maxImageCount);
+        if(max_count > 0) {
+            image_count = std::clamp(image_count, min_count, max_count);
+        } else {
+            image_count = std::max(image_count, min_count);
+        }
 
         vk::SharingMode image_sharing_mode;
         uint32_t queue_family_index_count = 0;
@@ -30,7 +36,7 @@ namespace Comet {
             queue_family_indices.push_back(m_context->get_present_queue_family().queue_family_index.value());
         }
 
-        const vk::SwapchainKHR old_swapchain = m_swapchain;
+        vk::SwapchainKHR old_swapchain = m_swapchain;
 
         vk::SwapchainCreateInfoKHR create_info = {};
         create_info.surface = m_context->get_surface();
@@ -49,13 +55,12 @@ namespace Comet {
         create_info.clipped = VK_FALSE;
         create_info.oldSwapchain = old_swapchain;
         m_swapchain = m_device->get_device().createSwapchainKHR(create_info);
-
+        m_images = m_device->get_device().getSwapchainImagesKHR(m_swapchain);
         // 销毁旧的交换链
         if(old_swapchain) {
             m_device->get_device().destroySwapchainKHR(old_swapchain);
         }
 
-        m_images = m_device->get_device().getSwapchainImagesKHR(m_swapchain);
         return true;
     }
 
@@ -63,11 +68,12 @@ namespace Comet {
         // capabilities
         m_surface_info.capabilities = m_context->get_physical_device().getSurfaceCapabilitiesKHR(m_context->get_surface());
 
+        const auto& settings = m_device->get_settings();
         // format
         const auto surface_formats = m_context->get_physical_device().getSurfaceFormatsKHR(m_context->get_surface());
         m_surface_info.surface_format = surface_formats[0];
         for(const auto& format: surface_formats) {
-            if(format.format == m_device->get_settings().surface_format && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
+            if(format.format == settings.surface_format && format.colorSpace == settings.color_space) {
                 m_surface_info.surface_format = format;
                 break;
             }
@@ -77,7 +83,7 @@ namespace Comet {
         const auto present_modes = m_context->get_physical_device().getSurfacePresentModesKHR(m_context->get_surface());
         m_surface_info.present_mode = present_modes[0];
         for(const auto& mode: present_modes) {
-            if(mode == m_device->get_settings().present_mode) {
+            if(mode == settings.present_mode) {
                 m_surface_info.present_mode = mode;
                 break;
             }

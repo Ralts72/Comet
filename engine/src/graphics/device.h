@@ -7,6 +7,7 @@ namespace Comet {
 
     struct VkSettings {
         vk::Format surface_format = vk::Format::eB8G8R8A8Unorm;
+        vk::ColorSpaceKHR color_space = vk::ColorSpaceKHR::eSrgbNonlinear;
         vk::Format depth_format = vk::Format::eD32Sfloat;
         vk::PresentModeKHR present_mode = vk::PresentModeKHR::eImmediate;
         uint32_t swapchain_image_count = 3;

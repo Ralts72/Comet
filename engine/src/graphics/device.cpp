@@ -4,7 +4,7 @@
 #include "common/log_system/log_system.h"
 
 namespace Comet {
-    static std::vector<DeviceFeature> required_extensions = {
+    static std::vector<DeviceFeature> s_required_extensions = {
 #ifdef __APPLE__
         {"VK_KHR_portability_subset", true},
 #endif
@@ -34,10 +34,11 @@ namespace Comet {
         const bool is_same_queue_family = context->is_same_queue_families();
         if(is_same_queue_family) {
             queue_count += present_queue_count;
+            graphics_queue_priorities.insert(graphics_queue_priorities.end(), present_queue_priorities.begin(), present_queue_priorities.end());
             if(queue_count > graphics_queue_counts) {
                 queue_count = graphics_queue_counts;
+                graphics_queue_priorities.resize(queue_count);
             }
-            graphics_queue_priorities.insert(graphics_queue_priorities.end(), present_queue_priorities.begin(), present_queue_priorities.end());
         }
         vk::DeviceQueueCreateInfo queue_create_info = {};
         queue_create_info.queueFamilyIndex = graphics_queue_family_index.value();
@@ -57,7 +58,7 @@ namespace Comet {
         for(const auto& prop: context->get_physical_device().enumerateDeviceExtensionProperties()) {
             available_extensions.emplace(prop.extensionName);
         }
-        const std::vector<const char*> enabled_extensions = build_enabled_list(required_extensions, available_extensions, "device extension");
+        const std::vector<const char*> enabled_extensions = build_enabled_list(s_required_extensions, available_extensions, "device extension");
         auto features = context->get_physical_device().getFeatures();
 
         vk::DeviceCreateInfo create_info = {};

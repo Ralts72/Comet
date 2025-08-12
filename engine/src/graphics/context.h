@@ -44,8 +44,6 @@ namespace Comet {
 
         void create_surface(const Window& window);
 
-        void create_device(Vec2i size);
-
         void choose_queue_families();
 
         vk::Instance m_instance;
