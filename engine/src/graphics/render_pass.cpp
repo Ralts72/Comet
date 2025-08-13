@@ -26,10 +26,27 @@ namespace Comet {
             m_sub_passes.push_back(render_sub_pass);
         }
         // 2.subpass
+        // index check
+        for(const auto& sub_pass: m_sub_passes) {
+            for(const auto& attachment: sub_pass.input_attachments) {
+                if(attachment.index >= m_attachments.size()) {
+                    LOG_FATAL("input attachment index exceeds attachment pool ");
+                }
+            }
+            for(const auto& attachment: sub_pass.color_attachments) {
+                if(attachment.index >= m_attachments.size()) {
+                    LOG_FATAL("color attachment index exceeds attachment pool ");
+                }
+            }
+            for(const auto& attachment: sub_pass.depth_stencil_attachments) {
+                if(attachment.index >= m_attachments.size()) {
+                    LOG_FATAL("depth stencil attachment index exceeds attachment pool ");
+                }
+            }
+        }
         std::vector<vk::SubpassDescription> sub_pass_descriptions(m_sub_passes.size());
         std::vector<vk::AttachmentReference> resolve_attachments_reference(m_sub_passes.size());
         
-        // Store all attachment references with proper lifetime
         std::vector<std::vector<vk::AttachmentReference>> all_input_attachments_reference(m_sub_passes.size());
         std::vector<std::vector<vk::AttachmentReference>> all_color_attachments_reference(m_sub_passes.size());
         std::vector<std::vector<vk::AttachmentReference>> all_depth_stencil_attachments_reference(m_sub_passes.size());
@@ -81,11 +98,11 @@ namespace Comet {
 
             sub_pass_descriptions[i].pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
             sub_pass_descriptions[i].inputAttachmentCount = all_input_attachments_reference[i].size();
-            sub_pass_descriptions[i].pInputAttachments = all_input_attachments_reference[i].empty() ? nullptr : all_input_attachments_reference[i].data();
+            sub_pass_descriptions[i].pInputAttachments = all_input_attachments_reference[i].data();
             sub_pass_descriptions[i].colorAttachmentCount = all_color_attachments_reference[i].size();
-            sub_pass_descriptions[i].pColorAttachments = all_color_attachments_reference[i].empty() ? nullptr : all_color_attachments_reference[i].data();
+            sub_pass_descriptions[i].pColorAttachments = all_color_attachments_reference[i].data();
             sub_pass_descriptions[i].pResolveAttachments = (sample_count > vk::SampleCountFlagBits::e1 ? &resolve_attachments_reference[i]: nullptr);
-            sub_pass_descriptions[i].pDepthStencilAttachment = all_depth_stencil_attachments_reference[i].empty() ? nullptr : all_depth_stencil_attachments_reference[i].data();
+            sub_pass_descriptions[i].pDepthStencilAttachment = all_depth_stencil_attachments_reference[i].data();
             sub_pass_descriptions[i].preserveAttachmentCount = 0;
             sub_pass_descriptions[i].pPreserveAttachments = nullptr;
         }

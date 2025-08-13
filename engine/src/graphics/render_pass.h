@@ -9,7 +9,6 @@ namespace Comet {
         std::vector<SubpassInputAttachment> input_attachments;
         std::vector<SubpassColorAttachment> color_attachments;
         std::vector<SubpassDepthStencilAttachment> depth_stencil_attachments;
-        // std::vector<SubpassAttachment> resolve_attachments;
         vk::SampleCountFlagBits sample_count = vk::SampleCountFlagBits::e1;
     };
 

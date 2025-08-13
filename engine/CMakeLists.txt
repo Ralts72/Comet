@@ -21,6 +21,9 @@ file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/queue.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/swapchain.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/render_pass.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/image.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/image_view.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/frame_buffer.cpp"
 )
 
 find_package(Vulkan REQUIRED)

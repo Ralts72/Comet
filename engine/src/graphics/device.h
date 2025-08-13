@@ -30,6 +30,8 @@ namespace Comet {
             return m_present_queues.at(index);
         }
 
+        uint32_t get_memory_index(vk::MemoryPropertyFlags mem_props, uint32_t memory_type_bits) const;
+
     private:
         vk::Device m_device;
         Context* m_context;
