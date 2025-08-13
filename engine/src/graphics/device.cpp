@@ -92,7 +92,7 @@ namespace Comet {
         if(physical_device_mem_props.memoryTypeCount == 0){
             LOG_FATAL("Physical device memory type count is 0");
         }
-        for(int i = 0; i < physical_device_mem_props.memoryTypeCount; i++){
+        for(uint32_t i = 0; i < physical_device_mem_props.memoryTypeCount; i++){
             const bool is_type_used = (memory_type_bits & (1 << i)) != 0;
             const bool has_required_props = (physical_device_mem_props.memoryTypes[i].propertyFlags & mem_props) == mem_props;
             if( is_type_used && has_required_props ){
