@@ -4,10 +4,25 @@
 namespace Comet {
     class Device;
     class RenderPass;
+    class Image;
+    class ImageView;
 
     class FrameBuffer {
     public:
-        // FrameBuffer(Device* device, RenderPass* render_pass);
+        FrameBuffer(Device* device, RenderPass* render_pass, const std::vector<std::shared_ptr<Image>>& images, uint32_t width, uint32_t height);
+        ~FrameBuffer();
+
+        bool recreate(const std::vector<std::shared_ptr<Image>>& images, uint32_t width, uint32_t height);
+        [[nodiscard]] vk::Framebuffer get_frame_buffer() const { return m_frame_buffer; }
+        [[nodiscard]] uint32_t get_width() const { return m_width; }
+        [[nodiscard]] uint32_t get_height() const { return m_height; }
     private:
+        vk::Framebuffer m_frame_buffer;
+        Device* m_device;
+        RenderPass* m_render_pass;
+
+        uint32_t m_width, m_height;
+        std::vector<std::shared_ptr<Image>> m_images;
+        std::vector<std::shared_ptr<ImageView>> m_image_views;
     };
 }

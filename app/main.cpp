@@ -7,7 +7,8 @@ public:
         LOG_INFO("app init");
     }
 
-    void on_update() override {
+    void on_update(float delta_time) override {
+        LOG_INFO("update %f", delta_time);
         LOG_INFO("app update");
     }
 
@@ -15,5 +16,4 @@ public:
         LOG_INFO("app shutdown");
     }
 };
-
 RUN_APP(GameApp)

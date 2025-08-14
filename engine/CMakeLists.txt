@@ -24,6 +24,7 @@ file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/image.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/image_view.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/frame_buffer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/pipeline.cpp"
 )
 
 find_package(Vulkan REQUIRED)

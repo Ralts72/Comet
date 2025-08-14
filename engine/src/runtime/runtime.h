@@ -6,20 +6,32 @@ namespace Comet {
     public:
         virtual ~Application() = default;
 
+        void start() {
+            Engine::init();
+            on_init();
+        }
+
+        void main_loop() {
+            Engine::instance().on_update();
+            on_update();
+        }
+
+        void end() {
+            on_shutdown();
+            Engine::shutdown();
+        }
+
         virtual void on_init() = 0;
 
-        virtual void on_update() = 0;
+        virtual void on_update(float delta_time = 0.0f) = 0;
 
         virtual void on_shutdown() = 0;
     };
 
     inline void run(Application* app) {
-        Engine::init();
-        app->on_init();
-        Engine::instance().on_update();
-        app->on_update();
-        Engine::shutdown();
-        app->on_shutdown();
+        app->start();
+        app->main_loop();
+        app->end();
     }
 }
 

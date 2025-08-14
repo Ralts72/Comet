@@ -18,6 +18,9 @@ namespace Comet {
         ~Swapchain();
 
         bool recreate();
+        [[nodiscard]] const std::vector<vk::Image>& get_images() const { return m_images; }
+        [[nodiscard]] uint32_t get_width() const { return m_surface_info.capabilities.currentExtent.width; }
+        [[nodiscard]] uint32_t get_height() const { return m_surface_info.capabilities.currentExtent.height; }
 
     private:
         void setup_surface_capabilities();

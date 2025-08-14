@@ -6,6 +6,7 @@
 #include "graphics/device.h"
 #include "graphics/swapchain.h"
 #include "graphics/render_pass.h"
+#include "graphics/frame_buffer.h"
 
 namespace Comet {
     class COMET_API Engine: public Singleton<Engine, true> {
@@ -26,5 +27,6 @@ namespace Comet {
         std::shared_ptr<Device> m_device;
         std::shared_ptr<Swapchain> m_swapchain;
         std::shared_ptr<RenderPass> m_render_pass;
+        std::vector<std::shared_ptr<FrameBuffer>> m_frame_buffers;
     };
 }

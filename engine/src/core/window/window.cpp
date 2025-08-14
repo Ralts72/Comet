@@ -26,7 +26,7 @@ namespace Comet {
     Window::~Window() {
         glfwDestroyWindow(m_window);
         glfwTerminate();
-        LOG_INFO("The window has been destory.");
+        LOG_INFO("The window has been destroy.");
     }
 
     Vec2i Window::get_size() const {

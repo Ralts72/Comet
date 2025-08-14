@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "common/log_system/log_system.h"
+#include "graphics/image.h"
 
 namespace Comet {
     // template<>
@@ -12,7 +13,6 @@ namespace Comet {
         .present_mode = vk::PresentModeKHR::eImmediate,
         .swapchain_image_count = 3
     };
-
     Engine::Engine() {
         LOG_INFO("init glfw");
         if(!glfwInit()) {
@@ -35,16 +35,29 @@ namespace Comet {
 
         LOG_INFO("create renderpass");
         m_render_pass = std::make_shared<RenderPass>(m_device.get());
+
+        LOG_INFO("create framebuffer");
+        ImageInfo image_info = {
+            .format = s_vk_settings.surface_format,
+            .extent = {m_swapchain.get()->get_width(), m_swapchain.get()->get_height(), 1},
+            .usage = vk::ImageUsageFlagBits::eColorAttachment
+        };
+        for(const auto& image : m_swapchain->get_images()) {
+            std::vector<std::shared_ptr<Image>> images = {std::make_shared<Image>(m_device.get(), image, image_info)};
+            auto frame_buffer = std::make_shared<FrameBuffer>(m_device.get(), m_render_pass.get(), images, m_swapchain.get()->get_width(), m_swapchain.get()->get_height());
+            frame_buffer->recreate(images, 100, 200);
+            m_frame_buffers.push_back(frame_buffer);
+        }
     }
 
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
+        m_frame_buffers.clear();
         m_render_pass.reset();
         m_swapchain.reset();
         m_device.reset();
         m_context.reset();
         m_window.reset();
-        glfwTerminate();
     }
 
     void Engine::on_update() {
