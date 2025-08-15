@@ -26,7 +26,8 @@ jobs:
             libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev \
             mesa-common-dev libgl1-mesa-dev \
             curl tar \
-            libvulkan-dev glslang-tools vulkan-tools 
+            libvulkan-dev glslang-tools vulkan-tools \
+            xvfb mesa-vulkan-drivers vulkan-validationlayers
           echo "VULKAN_SDK=/usr" >> $GITHUB_ENV
 
       - name: Cache build files
@@ -41,5 +42,18 @@ jobs:
       - name: Build project
         run: cmake --build build --parallel
 
+      - name: Setup virtual display for GLFW tests
+        run: |
+          # 启动虚拟显示服务器用于GLFW测试
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+          echo "DISPLAY=:99" >> $GITHUB_ENV
+          # 等待X服务器启动
+          sleep 3
+
       - name: Run tests
-        run: ctest --test-dir build --output-on-failure
+        run: |
+          # 在虚拟显示环境中运行测试
+          export DISPLAY=:99
+          export CI=true
+          ctest --test-dir build --output-on-failure --verbose

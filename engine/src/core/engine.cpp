@@ -44,7 +44,7 @@ namespace Comet {
         };
         for(const auto& image : m_swapchain->get_images()) {
             std::vector<std::shared_ptr<Image>> images = {std::make_shared<Image>(m_device.get(), image, image_info)};
-            auto frame_buffer = std::make_shared<FrameBuffer>(m_device.get(), m_render_pass.get(), images, m_swapchain.get()->get_width(), m_swapchain.get()->get_height());
+            auto frame_buffer = std::make_shared<FrameBuffer>(m_device.get(), m_render_pass.get(), images, m_swapchain->get_width(), m_swapchain->get_height());
             frame_buffer->recreate(images, 100, 200);
             m_frame_buffers.push_back(frame_buffer);
         }
