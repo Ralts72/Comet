@@ -30,14 +30,19 @@ namespace Comet {
             return m_present_queues.at(index);
         }
 
-        uint32_t get_memory_index(vk::MemoryPropertyFlags mem_props, uint32_t memory_type_bits) const;
+        [[nodiscard]] vk::PipelineCache get_pipeline_cache() const { return m_pipeline_cache; }
+
+        [[nodiscard]] uint32_t get_memory_index(vk::MemoryPropertyFlags mem_props, uint32_t memory_type_bits) const;
 
     private:
+        void create_pipeline_cache();
+
         vk::Device m_device;
         Context* m_context;
         VkSettings m_settings;
 
         std::vector<std::shared_ptr<Queue>> m_graphics_queues;
         std::vector<std::shared_ptr<Queue>> m_present_queues;
+        vk::PipelineCache m_pipeline_cache;
     };
 }

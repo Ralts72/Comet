@@ -1,0 +1,38 @@
+#include "shader.h"
+#include "device.h"
+
+namespace Comet {
+    Shader::Shader(Device* device, const std::string& name, const std::vector<unsigned char>& spv_data, const ShaderLayout& layout)
+    : m_device(device), m_name(name), m_spv_data(spv_data), m_layout(layout) {
+        vk::ShaderModuleCreateInfo create_info{};
+        create_info.codeSize = spv_data.size();
+        create_info.pCode = reinterpret_cast<const uint32_t*>(spv_data.data());
+        m_shader_module = m_device->get_device().createShaderModule(create_info);
+    }
+
+    Shader::~Shader() {
+        m_device->get_device().destroyShaderModule(m_shader_module);
+    }
+
+    std::shared_ptr<Shader> ShaderManager::load_shader(const std::string& name, const std::vector<unsigned char>& spv_data, const ShaderLayout& layout) {
+        if(m_shaders.contains(name)) {
+            LOG_DEBUG("shader {} already exists, skipping load", name);
+            return m_shaders[name];
+        }
+        const auto shader = std::make_shared<Shader>(m_device, name, spv_data, layout);
+        m_shaders[name] = shader;
+        return shader;
+    }
+
+    std::shared_ptr<Shader> ShaderManager::get_shader(const std::string& name) const {
+        const auto it = m_shaders.find(name);
+        if(it != m_shaders.end()) {
+            return it->second;
+        }
+        return nullptr;
+    }
+
+    void ShaderManager::clean_up() {
+        m_shaders.clear();
+    }
+}

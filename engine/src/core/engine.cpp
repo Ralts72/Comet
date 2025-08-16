@@ -13,6 +13,8 @@ namespace Comet {
 
         LOG_INFO("init window");
         m_window = std::make_unique<Window>("Comet Engine", 1024, 720);
+
+        LOG_INFO("init renderer");
         m_renderer = std::make_unique<Renderer>(*m_window);
     }
 

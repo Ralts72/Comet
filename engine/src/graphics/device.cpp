@@ -80,10 +80,13 @@ namespace Comet {
             auto queue = std::make_shared<Queue>(present_queue_family_index.value(), i, vk_queue, QueueType::Present);
             m_present_queues.emplace_back(queue);
         }
+
+        create_pipeline_cache();
     }
 
     Device::~Device() {
         m_device.waitIdle();
+        m_device.destroyPipelineCache(m_pipeline_cache);
         m_device.destroy();
     }
 
@@ -101,5 +104,10 @@ namespace Comet {
         }
         LOG_ERROR("Can not find memory type index: type bit: {}", memory_type_bits);
         return 0;
+    }
+
+    void Device::create_pipeline_cache() {
+        constexpr vk::PipelineCacheCreateInfo pcache_create_info = {};
+        m_pipeline_cache = m_device.createPipelineCache(pcache_create_info);
     }
 }

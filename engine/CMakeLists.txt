@@ -25,6 +25,7 @@ file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/image_view.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/frame_buffer.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/pipeline.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/shader.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/renderer.cpp"
 )
 
@@ -34,6 +35,7 @@ target_link_libraries(engine PUBLIC spdlog::spdlog glm ${Vulkan_LIBRARIES} stb_i
 target_include_directories(engine
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/include
         ${Vulkan_INCLUDE_DIRS}
 )
 target_precompile_headers(engine PRIVATE "src/pch.h")
