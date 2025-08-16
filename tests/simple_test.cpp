@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "common/math_utils.h"
 #include "common/log_system/log_system.h"
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 namespace Comet::Tests {
 
@@ -17,8 +18,12 @@ TEST(SimpleMathTest, BasicMathOperations) {
 
 // 简单的日志系统测试
 TEST(SimpleLogTest, LogSystemWorks) {
-    LogSystem& logSystem = LogSystem::instance();
-    EXPECT_NE(logSystem.m_console_logger, nullptr);
+    // 创建测试专用logger
+    auto test_logger = spdlog::stdout_color_mt("simple_test_logger");
+    LogSystem::set_test_logger(test_logger);
+    
+    auto logger = LogSystem::get_console_logger();
+    EXPECT_NE(logger, nullptr);
     
     // 测试日志输出不崩溃
     EXPECT_NO_THROW({
@@ -26,6 +31,8 @@ TEST(SimpleLogTest, LogSystemWorks) {
         LOG_DEBUG("Debug message");
         LOG_WARN("Warning message");
     });
+    
+    LogSystem::shutdown();
 }
 
 } // namespace Comet::Tests

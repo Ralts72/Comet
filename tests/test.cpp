@@ -6,13 +6,14 @@ class CometTestEnvironment: public ::testing::Environment {
 public:
     void SetUp() override {
         // 初始化日志系统
-        Comet::LogSystem& logSystem = Comet::LogSystem::instance();
+        Comet::LogSystem::init();
 
         std::cout << "=== Comet Engine Test Suite ===" << std::endl;
         std::cout << "Initializing test environment..." << std::endl;
     }
 
     void TearDown() override {
+        Comet::LogSystem::shutdown();
         std::cout << "Test environment cleaned up." << std::endl;
         std::cout << "=== Test Suite Completed ===" << std::endl;
     }

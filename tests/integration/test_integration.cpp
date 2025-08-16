@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "common/log_system/log_system.h"
 #include "common/math_utils.h"
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 namespace Comet::Tests {
 
@@ -34,9 +35,12 @@ TEST_F(IntegrationTest, MathLibraryBasicOperations) {
 }
 
 TEST_F(IntegrationTest, LoggingSystemTest) {
-    // 测试日志系统
-    LogSystem& logSystem = LogSystem::instance();
-    EXPECT_NE(logSystem.m_console_logger, nullptr);
+    // 测试日志系统 - 创建独特的logger
+    auto test_logger = spdlog::stdout_color_mt("integration_test_logger");
+    LogSystem::set_test_logger(test_logger);
+    
+    auto logger = LogSystem::get_console_logger();
+    EXPECT_NE(logger, nullptr);
 
     LOG_INFO("Integration test logging");
     LOG_DEBUG("Debug message");
