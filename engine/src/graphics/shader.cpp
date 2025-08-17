@@ -1,5 +1,6 @@
 #include "shader.h"
 #include "device.h"
+#include "core/logger/logger.h"
 
 namespace Comet {
     Shader::Shader(Device* device, const std::string& name, const std::vector<unsigned char>& spv_data, const ShaderLayout& layout)
@@ -8,6 +9,7 @@ namespace Comet {
         create_info.codeSize = spv_data.size();
         create_info.pCode = reinterpret_cast<const uint32_t*>(spv_data.data());
         m_shader_module = m_device->get_device().createShaderModule(create_info);
+        LOG_INFO("Vulkan shader module '{}' created successfully", name);
     }
 
     Shader::~Shader() {
@@ -21,6 +23,7 @@ namespace Comet {
         }
         const auto shader = std::make_shared<Shader>(m_device, name, spv_data, layout);
         m_shaders[name] = shader;
+        LOG_INFO("Shader '{}' loaded and cached successfully", name);
         return shader;
     }
 

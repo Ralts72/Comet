@@ -1,5 +1,5 @@
 #include "window.h"
-#include "common/log_system/log_system.h"
+#include "core/logger/logger.h"
 #define GL_FALSE 0
 
 namespace Comet {

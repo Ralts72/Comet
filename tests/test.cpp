@@ -1,19 +1,19 @@
 #include <gtest/gtest.h>
-#include "common/log_system/log_system.h"
+#include "core/logger/logger.h"
 
 // 全局测试环境设置
 class CometTestEnvironment: public ::testing::Environment {
 public:
     void SetUp() override {
         // 初始化日志系统
-        Comet::LogSystem::init();
+        Comet::Logger::init();
 
         std::cout << "=== Comet Engine Test Suite ===" << std::endl;
         std::cout << "Initializing test environment..." << std::endl;
     }
 
     void TearDown() override {
-        Comet::LogSystem::shutdown();
+        Comet::Logger::shutdown();
         std::cout << "Test environment cleaned up." << std::endl;
         std::cout << "=== Test Suite Completed ===" << std::endl;
     }

@@ -6,12 +6,15 @@
 #include "graphics/frame_buffer.h"
 #include "graphics/shader.h"
 #include "graphics/pipeline.h"
+#include "graphics/command_buffer.h"
 
 namespace Comet {
     class Renderer {
     public:
         explicit Renderer(const Window& window);
         ~Renderer();
+
+        void on_render(float time);
     private:
         std::unique_ptr<Context> m_context;
         std::shared_ptr<Device> m_device;
@@ -20,6 +23,7 @@ namespace Comet {
         std::vector<std::shared_ptr<FrameBuffer>> m_frame_buffers;
         std::unique_ptr<ShaderManager> m_shader_manager;
         std::shared_ptr<Pipeline> m_pipeline;
+        std::shared_ptr<CommandPool> m_command_pool;
     };
 }
 

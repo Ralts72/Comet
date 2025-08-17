@@ -1,6 +1,7 @@
 #include "image_view.h"
 #include "device.h"
 #include "image.h"
+#include "core/logger/logger.h"
 
 namespace Comet {
     ImageView::ImageView(Device* device, const Image& image, const vk::ImageAspectFlags aspect): m_device(device) {
@@ -22,6 +23,7 @@ namespace Comet {
         subresource_range.layerCount = 1;
         create_info.subresourceRange = subresource_range;
         m_image_view = device->get_device().createImageView(create_info);
+        LOG_INFO("Vulkan image view created successfully");
     }
 
     ImageView::~ImageView() {

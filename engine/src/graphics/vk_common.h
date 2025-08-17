@@ -1,7 +1,7 @@
 #pragma once
 #include "pch.h"
 #include <vulkan/vulkan.hpp>
-#include "common/log_system/log_system.h"
+#include "core/logger/logger.h"
 
 namespace Comet {
     struct DeviceFeature {

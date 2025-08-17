@@ -1,5 +1,5 @@
 #include "renderer.h"
-#include "common/log_system/log_system.h"
+#include "core/logger/logger.h"
 #include "graphics/image.h"
 #include "triangle_vert.h"
 #include "triangle_frag.h"
@@ -55,9 +55,15 @@ namespace Comet {
 
         m_pipeline = std::make_shared<Pipeline>(m_device.get(),m_render_pass.get(),
             pipeline_layout, vert_shader, frag_shader, s_pipeline_config);
+
+        LOG_INFO("create command pool");
+        m_command_pool = std::make_shared<CommandPool>(m_device.get(), m_context->get_graphics_queue_family().queue_family_index.value());
+        auto command_buffers = m_command_pool->allocate_command_buffers(m_swapchain->get_images().size());
     }
+
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
+        m_command_pool.reset();
         m_pipeline.reset();
         m_shader_manager.reset();
         m_frame_buffers.clear();
@@ -66,4 +72,6 @@ namespace Comet {
         m_device.reset();
         m_context.reset();
     }
+
+    void Renderer::on_render(float time) {}
 }

@@ -1,7 +1,7 @@
 #include "device.h"
 #include "context.h"
 #include "queue.h"
-#include "common/log_system/log_system.h"
+#include "core/logger/logger.h"
 
 namespace Comet {
     static std::vector<DeviceFeature> s_required_extensions = {
@@ -69,6 +69,7 @@ namespace Comet {
         create_info.enabledExtensionCount = enabled_extensions.size();
         create_info.pEnabledFeatures = &features;
         m_device = context->get_physical_device().createDevice(create_info);
+        LOG_INFO("Vulkan logical device created successfully");
 
         for(uint32_t i = 0; i < graphics_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(graphics_queue_family_index.value(), i);
@@ -109,5 +110,6 @@ namespace Comet {
     void Device::create_pipeline_cache() {
         constexpr vk::PipelineCacheCreateInfo pcache_create_info = {};
         m_pipeline_cache = m_device.createPipelineCache(pcache_create_info);
+        LOG_INFO("Vulkan pipeline cache created successfully");
     }
 }

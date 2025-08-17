@@ -1,5 +1,4 @@
 #include "runtime/entry.h"
-#include "common/log_system/log_system.h"
 
 class GameApp final: public Comet::Application {
 public:
@@ -7,8 +6,9 @@ public:
         LOG_INFO("app init");
     }
 
-    void on_update(float delta_time) override {
-        LOG_INFO("update %f", delta_time);
+    void on_update(Comet::UpdateContext context) override {
+        LOG_INFO("delta time is {}", context.deltaTime);
+        LOG_DEBUG("fps is {}", context.fps);
         LOG_INFO("app update");
     }
 

@@ -1,5 +1,6 @@
 #include "image.h"
 #include "device.h"
+#include "core/logger/logger.h"
 
 namespace Comet {
     Image::Image(Device* device, const ImageInfo& info, const vk::SampleCountFlagBits sample_count)
@@ -29,6 +30,7 @@ namespace Comet {
         allocate_info.memoryTypeIndex = device->get_memory_index(vk::MemoryPropertyFlagBits::eDeviceLocal, memory_required.memoryTypeBits);
         m_memory = device->get_device().allocateMemory(allocate_info);
         m_device->get_device().bindImageMemory(m_image, m_memory, 0);
+        LOG_INFO("Vulkan image created successfully with memory allocated");
     }
     Image::Image(Device* device, const vk::Image image, const ImageInfo& info)
     :m_image(image), m_device(device), m_info(info), m_owner(ImageOwnership::Borrowed) {}

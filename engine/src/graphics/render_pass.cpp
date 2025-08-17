@@ -140,6 +140,7 @@ namespace Comet {
         render_pass_create_info.dependencyCount = static_cast<uint32_t>(dependencies.size());
         render_pass_create_info.pDependencies = dependencies.data();
         m_render_pass = device->get_device().createRenderPass(render_pass_create_info);
+        LOG_INFO("Vulkan render pass created successfully");
         LOG_TRACE("RenderPass: attachment count: {}, subpass count: {}",  m_attachments.size(), m_sub_passes.size());
     }
     RenderPass::~RenderPass() {

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "test_utils.h"
-#include "common/math_utils.h"
+#include "../../engine/src/core/math_utils.h"
 
 namespace Comet::Tests {
 

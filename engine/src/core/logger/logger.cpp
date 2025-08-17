@@ -1,14 +1,14 @@
 #include "pch.h"
-#include "log_system.h"
+#include "logger.h"
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/async.h>
 
 namespace Comet {
-    std::shared_ptr<spdlog::logger> LogSystem::s_console_logger = nullptr;
-    bool LogSystem::s_initialized = false;
+    std::shared_ptr<spdlog::logger> Logger::s_console_logger = nullptr;
+    bool Logger::s_initialized = false;
     
-    void LogSystem::init() {
+    void Logger::init() {
         if (s_initialized) {
             return;
         }
@@ -22,7 +22,7 @@ namespace Comet {
         s_initialized = true;
     }
     
-    void LogSystem::shutdown() {
+    void Logger::shutdown() {
         if (s_console_logger) {
             s_console_logger.reset();
         }
@@ -30,14 +30,14 @@ namespace Comet {
         s_initialized = false;
     }
     
-    std::shared_ptr<spdlog::logger> LogSystem::get_console_logger() {
+    std::shared_ptr<spdlog::logger> Logger::get_console_logger() {
         if (!s_initialized) {
             init(); // 延迟初始化
         }
         return s_console_logger;
     }
     
-    void LogSystem::set_test_logger(std::shared_ptr<spdlog::logger> logger) {
+    void Logger::set_test_logger(std::shared_ptr<spdlog::logger> logger) {
         s_console_logger = logger;
         s_initialized = true;
     }

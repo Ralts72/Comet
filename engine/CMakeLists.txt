@@ -13,8 +13,9 @@ set(SHADER_COMPILE_TARGET shader_compile)
 add_subdirectory(assets/shaders)
 
 file(GLOB SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/common/log_system/log_system.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/logger/logger.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/window/window.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/timer/timer.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/engine.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/context.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/device.cpp"
@@ -26,6 +27,7 @@ file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/frame_buffer.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/pipeline.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/shader.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/command_buffer.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/renderer.cpp"
 )
 

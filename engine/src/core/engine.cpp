@@ -1,10 +1,12 @@
 #include "engine.h"
-#include "common/log_system/log_system.h"
-#include "graphics/image.h"
+#include "core/logger/logger.h"
 
 namespace Comet {
 
     Engine::Engine() {
+        LOG_INFO("init timer");
+        m_timer = std::make_unique<Timer>();
+
         LOG_INFO("init glfw");
         if(!glfwInit()) {
             LOG_ERROR("Failed to init glfw.");
@@ -27,6 +29,14 @@ namespace Comet {
     void Engine::on_update() {
         LOG_INFO("running engine...");
         while(!m_window->should_close()) {
+            m_timer->tick();
+            const auto update_context = m_timer->get_update_context();
+            m_renderer->on_render(update_context.deltaTime);
+
+            for (auto& callback : m_update_callbacks) {
+                callback(update_context);
+            }
+
             m_window->poll_events();
             m_window->swap_buffers();
         }

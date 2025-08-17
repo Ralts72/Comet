@@ -1,7 +1,6 @@
 #pragma once
 #include "core/engine.h"
-#include "common/log_system/log_system.h"
-#include <memory>
+#include "core/logger/logger.h"
 
 namespace Comet {
     class Application {
@@ -9,27 +8,30 @@ namespace Comet {
         virtual ~Application() = default;
 
         void start() {
-            LogSystem::init();
+            Logger::init();
             m_engine = std::make_unique<Engine>();
             on_init();
+
+            m_engine->register_update_callback([this](const UpdateContext dt) {
+                this->on_update(dt);
+            });
         }
 
-        void main_loop() {
+        void main_loop() const {
             m_engine->on_update();
-            on_update(0.0f);
         }
 
         void end() {
             on_shutdown();
             m_engine.reset();
-            LogSystem::shutdown();
+            Logger::shutdown();
         }
 
         [[nodiscard]] Engine* get_engine() const { return m_engine.get(); }
 
         virtual void on_init() = 0;
 
-        virtual void on_update(float delta_time) = 0;
+        virtual void on_update(UpdateContext context) = 0;
 
         virtual void on_shutdown() = 0;
         

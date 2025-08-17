@@ -41,6 +41,7 @@ namespace Comet {
         create_info.height = m_height;
         create_info.layers = 1;
         m_frame_buffer = m_device->get_device().createFramebuffer(create_info);
+        LOG_INFO("Vulkan framebuffer created successfully");
         LOG_TRACE("Framebuffer created, width: {} height: {}  view count: {}", m_width, m_height, m_image_views.size());
         return true;
     }

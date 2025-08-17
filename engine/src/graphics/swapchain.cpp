@@ -2,6 +2,7 @@
 #include "context.h"
 #include "device.h"
 #include "pch.h"
+#include "core/logger/logger.h"
 
 namespace Comet {
     Swapchain::Swapchain(Context* context, Device* device) : m_context(context), m_device(device) {
@@ -56,6 +57,7 @@ namespace Comet {
         create_info.oldSwapchain = old_swapchain;
         m_swapchain = m_device->get_device().createSwapchainKHR(create_info);
         m_images = m_device->get_device().getSwapchainImagesKHR(m_swapchain);
+        LOG_INFO("Vulkan swapchain created successfully with {} images", m_images.size());
         // 销毁旧的交换链
         if(old_swapchain) {
             m_device->get_device().destroySwapchainKHR(old_swapchain);

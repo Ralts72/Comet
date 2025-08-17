@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "common/log_system/log_system.h"
+#include "core/logger/logger.h"
 #include <spdlog/sinks/ostream_sink.h>
 #include <sstream>
 #include <memory>
@@ -21,13 +21,13 @@ protected:
         test_logger->set_pattern("[%l] %v");
         
         // 设置测试logger
-        LogSystem::set_test_logger(test_logger);
+        Logger::set_test_logger(test_logger);
     }
 
     void TearDown() override {
         log_stream->str("");
         log_stream->clear();
-        LogSystem::shutdown();
+        Logger::shutdown();
     }
 
     std::string getLogOutput() {
@@ -51,7 +51,7 @@ private:
 
 TEST_F(LogSystemTest, LogSystemInitialization) {
     // 测试日志系统初始化
-    auto logger = LogSystem::get_console_logger();
+    auto logger = Logger::get_console_logger();
     EXPECT_NE(logger, nullptr);
     EXPECT_EQ(logger->name(), "test_logger");
 }
@@ -133,7 +133,7 @@ TEST_F(LogSystemTest, MultipleLogCalls) {
 }
 
 TEST_F(LogSystemTest, LoggerConfiguration) {
-    auto logger = LogSystem::get_console_logger();
+    auto logger = Logger::get_console_logger();
 
     // 测试logger是否正确配置
     EXPECT_NE(logger, nullptr);

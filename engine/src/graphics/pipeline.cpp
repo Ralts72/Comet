@@ -12,6 +12,7 @@ namespace Comet {
         pipeline_layout_create_info.pPushConstantRanges = layout.push_constants.data();
 
         m_pipeline_layout = m_device->get_device().createPipelineLayout(pipeline_layout_create_info);
+        LOG_INFO("Vulkan pipeline layout created successfully");
     }
 
     PipelineLayout::~PipelineLayout() {
@@ -196,6 +197,7 @@ namespace Comet {
             LOG_FATAL("Failed to create graphics pipeline");
         }
         m_pipeline = result.value;
+        LOG_INFO("Vulkan graphics pipeline created successfully");
     }
 
     Pipeline::~Pipeline() {

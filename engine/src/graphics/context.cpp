@@ -103,6 +103,7 @@ namespace Comet {
         create_info.enabledExtensionCount = static_cast<uint32_t>(enabled_extensions.size());
         create_info.ppEnabledExtensionNames = enabled_extensions.data();
         m_instance = vk::createInstance(create_info);
+        LOG_INFO("Vulkan instance created successfully");
     }
 
     void Context::pickup_physical_device() {
@@ -129,6 +130,7 @@ namespace Comet {
             LOG_FATAL("create vulkan surface failed");
         }
         m_surface = vk::SurfaceKHR(surface);
+        LOG_INFO("Vulkan surface created successfully");
     }
 
     void Context::choose_queue_families() {
