@@ -1,5 +1,5 @@
 #pragma once
-#include <vulkan/vulkan.hpp>
+#include "vk_common.h"
 
 namespace Comet {
     class Context;
@@ -20,9 +20,9 @@ namespace Comet {
 
         ~Device();
 
-        void wait_for_fences(const std::vector<const Fence*>& fences, bool wait_all = true,
+        void wait_for_fences(std::span<const Fence> fences, bool wait_all = true,
             uint64_t timeout = std::numeric_limits<uint64_t>::max()) const;
-        void reset_fences(const std::vector<const Fence*>& fences) const;
+        void reset_fences(std::span<const Fence> fences) const;
         void wait_idle();
 
         [[nodiscard]] Context* get_context() const { return m_context; }

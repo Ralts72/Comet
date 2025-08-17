@@ -23,7 +23,7 @@ namespace Comet {
         bool recreate();
 
         [[nodiscard]] uint32_t acquire_next_image(const Semaphore& semaphore, const Fence& fence);
-        void present(uint32_t image_index, const std::vector<const Semaphore*>& wait_semaphores) const;
+        void present(uint32_t image_index, std::span<const Semaphore> wait_semaphores) const;
         [[nodiscard]] uint32_t get_current_index() const { return m_current_index; }
         [[nodiscard]] const std::vector<Image>& get_images() const { return m_images; }
         [[nodiscard]] uint32_t get_width() const { return m_surface_info.capabilities.currentExtent.width; }

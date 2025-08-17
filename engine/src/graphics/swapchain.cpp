@@ -83,8 +83,8 @@ namespace Comet {
         const auto result = m_device->get_device().acquireNextImageKHR(m_swapchain, UINT64_MAX,
             semaphore.get_semaphore(), fence.get_fence(), &image_index);
         if(fence.get_fence()!=VK_NULL_HANDLE) {
-            m_device->wait_for_fences({&fence});
-            m_device->reset_fences({&fence});
+            m_device->wait_for_fences(std::span(&fence, 1));
+            m_device->reset_fences(std::span(&fence, 1));
         }
         if(result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR){
             m_current_index = image_index;
@@ -93,10 +93,10 @@ namespace Comet {
         LOG_FATAL("failed to acquire image index");
     }
 
-    void Swapchain::present(uint32_t image_index, const std::vector<const Semaphore*>& wait_semaphores) const {
+    void Swapchain::present(uint32_t image_index, const std::span<const Semaphore> wait_semaphores) const {
         std::vector<vk::Semaphore> vk_wait_semaphores;
-        for(const auto* wait_sem: wait_semaphores) {
-            vk_wait_semaphores.emplace_back(wait_sem->get_semaphore());
+        for(const auto& wait_sem: wait_semaphores) {
+            vk_wait_semaphores.emplace_back(wait_sem.get_semaphore());
         }
         vk::PresentInfoKHR present_info = {};
         present_info.waitSemaphoreCount = static_cast<uint32_t>(vk_wait_semaphores.size());

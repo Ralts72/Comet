@@ -21,3 +21,4 @@
 #include <chrono>
 #include <algorithm>
 #include <functional>
+#include <span>

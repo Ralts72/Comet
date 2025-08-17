@@ -98,8 +98,8 @@ namespace Comet {
     void Renderer::on_render(float delta_time) const {
         // 1. wait for fence
         const auto& fence = m_frame_fences[current_buffer];
-        m_device->wait_for_fences({&fence});
-        m_device->reset_fences({&fence});
+        m_device->wait_for_fences(std::span(&fence, 1));
+        m_device->reset_fences(std::span(&fence, 1));
 
         // 2. acquire swapchain image
         const uint32_t image_index = m_swapchain->acquire_next_image(m_image_semaphores[current_buffer], m_frame_fences[current_buffer]);
@@ -131,13 +131,14 @@ namespace Comet {
         command_buffer.end();
         
         // 10. submit with fence
-        m_graphics_queue->submit({&m_command_buffers[image_index]},
-            {&m_image_semaphores[current_buffer]},
-            {&m_submit_semaphores[current_buffer]},
-            &m_frame_fences[current_buffer]);
+        const auto& cmd_buffer = m_command_buffers[image_index];
+        const auto& wait_sem = m_image_semaphores[current_buffer];
+        const auto& signal_sem = m_submit_semaphores[current_buffer];
+        m_graphics_queue->submit(std::span(&cmd_buffer, 1), std::span(&wait_sem, 1), std::span(&signal_sem, 1), &m_frame_fences[current_buffer]);
 
         // 11. present
-        m_swapchain->present(image_index, {&m_submit_semaphores[current_buffer]});
+        const auto& present_wait_sem = m_submit_semaphores[current_buffer];
+        m_swapchain->present(image_index, std::span(&present_wait_sem, 1));
 
         current_buffer = (current_buffer + 1) % buffer_count;
     }

@@ -13,8 +13,8 @@ namespace Comet {
         ~Queue() = default;
 
         void wait_idle() const { m_queue.waitIdle(); }
-        void submit(const std::vector<const CommandBuffer*>& command_buffers, const std::vector<const Semaphore*>& wait_semaphores,
-            const std::vector<const Semaphore*>& signal_semaphores, const Fence* fence) const;
+        void submit(std::span<const CommandBuffer> command_buffers, std::span<const Semaphore> wait_semaphores,
+            std::span<const Semaphore> signal_semaphores, const Fence* fence) const;
 
         [[nodiscard]] vk::Queue get_queue() const { return m_queue; }
         [[nodiscard]] uint32_t get_family_index() const { return m_family_index; }

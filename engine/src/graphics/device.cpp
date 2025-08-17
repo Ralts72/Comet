@@ -92,10 +92,10 @@ namespace Comet {
         m_device.destroy();
     }
 
-    void Device::wait_for_fences(const std::vector<const Fence*>& fences, const bool wait_all, const uint64_t timeout) const {
+    void Device::wait_for_fences(const std::span<const Fence> fences, const bool wait_all, const uint64_t timeout) const {
         std::vector<vk::Fence> vk_fences;
-        for(const auto* fence : fences) {
-            vk_fences.push_back(fence->get_fence());
+        for(const auto& fence : fences) {
+            vk_fences.push_back(fence.get_fence());
         }
         const auto result = m_device.waitForFences(vk_fences, wait_all, timeout);
         if(result != vk::Result::eSuccess) {
@@ -105,10 +105,10 @@ namespace Comet {
         }
     }
 
-    void Device::reset_fences(const std::vector<const Fence*>& fences) const {
+    void Device::reset_fences(const std::span<const Fence> fences) const {
         std::vector<vk::Fence> vk_fences;
-        for(const auto* fence : fences) {
-            vk_fences.push_back(fence->get_fence());
+        for(const auto& fence : fences) {
+            vk_fences.push_back(fence.get_fence());
         }
         m_device.resetFences(vk_fences);
     }
