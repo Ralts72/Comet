@@ -82,11 +82,11 @@ namespace Comet {
         depth_stencil_state.depth_compare_op = vk::CompareOp::eLess;
     }
 
-    Pipeline::Pipeline(Device* device, RenderPass* render_pass,
+    Pipeline::Pipeline(const std::string& name, Device* device, RenderPass* render_pass,
                        const std::shared_ptr<PipelineLayout>& layout,
                        const std::shared_ptr<Shader>& vertex_shader,
                        const std::shared_ptr<Shader>& fragment_shader,
-                       const PipelineConfig& config) : m_device(device), m_render_pass(render_pass), m_layout(layout),
+                       const PipelineConfig& config) : m_name(name), m_device(device), m_render_pass(render_pass), m_layout(layout),
                                                        m_vertex_shader(vertex_shader), m_fragment_shader(fragment_shader), m_config(config) {
         std::array<vk::PipelineShaderStageCreateInfo, 2> pipeline_shader_stage;
         vk::PipelineShaderStageCreateInfo vertex_shader_stage_info = {};
@@ -112,17 +112,8 @@ namespace Comet {
         input_assembly_state_info.topology = m_config.input_assembly_state.topology;
         input_assembly_state_info.primitiveRestartEnable = m_config.input_assembly_state.primitive_restart_enable;
 
-        vk::Viewport viewport = {};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = 100.0f;
-        viewport.height = 100.0f;
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-
-        vk::Rect2D scissor = {};
-        scissor.offset = vk::Offset2D{0, 0};
-        scissor.extent = vk::Extent2D{100, 100};
+        auto viewport = get_viewport(100.0f, 100.0f);
+        auto scissor = get_scissor(100.0f, 100.0f);
 
         vk::PipelineViewportStateCreateInfo viewport_state_info = {};
         viewport_state_info.viewportCount = 1;

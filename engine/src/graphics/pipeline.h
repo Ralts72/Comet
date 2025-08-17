@@ -98,7 +98,7 @@ namespace Comet {
 
     class Pipeline {
     public:
-        Pipeline(Device* device, RenderPass* render_pass,
+        Pipeline(const std::string& name, Device* device, RenderPass* render_pass,
                  const std::shared_ptr<PipelineLayout>& layout,
                  const std::shared_ptr<Shader>& vertex_shader,
                  const std::shared_ptr<Shader>& fragment_shader,
@@ -109,8 +109,10 @@ namespace Comet {
         [[nodiscard]] const std::shared_ptr<PipelineLayout>& get_layout() const { return m_layout; }
         [[nodiscard]] const std::shared_ptr<Shader>& get_vertex_shader() const { return m_vertex_shader; }
         [[nodiscard]] const std::shared_ptr<Shader>& get_fragment_shader() const { return m_fragment_shader; }
+        [[nodiscard]] const std::string& get_name() const { return m_name; }
 
     private:
+        std::string m_name;
         Device* m_device;
         RenderPass* m_render_pass;
         vk::Pipeline m_pipeline;

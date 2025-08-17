@@ -28,6 +28,8 @@ file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/pipeline.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/shader.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/command_buffer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/fence.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/semaphore.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/renderer.cpp"
 )
 

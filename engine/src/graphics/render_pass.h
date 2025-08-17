@@ -4,6 +4,7 @@
 
 namespace Comet {
     class Device;
+    class FrameBuffer;
 
     struct RenderSubPass{
         std::vector<SubpassInputAttachment> input_attachments;
@@ -14,10 +15,13 @@ namespace Comet {
 
     class RenderPass{
     public:
-        explicit RenderPass(Device* device, const std::vector<Attachment>& attachments = {}, const std::vector<RenderSubPass>& sub_passes = {} );
+        explicit RenderPass(Device* device, const std::vector<Attachment>& attachments = {},
+            const std::vector<RenderSubPass>& sub_passes = {} );
         ~RenderPass();
+
         [[nodiscard]] vk::RenderPass get_render_pass() const { return m_render_pass; }
         [[nodiscard]] const std::vector<RenderSubPass>& get_sub_passes() const { return m_sub_passes; }
+
     private:
         vk::RenderPass m_render_pass;
         Device* m_device;

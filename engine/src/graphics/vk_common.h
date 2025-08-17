@@ -29,4 +29,22 @@ namespace Comet {
         }
         return enabled_list;
     }
+
+    inline vk::Viewport get_viewport(const float width, const float height) {
+        vk::Viewport viewport = {};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = width;
+        viewport.height = height;
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        return viewport;
+    }
+
+    inline vk::Rect2D get_scissor(const float width, const float height) {
+        vk::Rect2D scissor = {};
+        scissor.offset = vk::Offset2D(0, 0);
+        scissor.extent = vk::Extent2D(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+        return scissor;
+    }
 }

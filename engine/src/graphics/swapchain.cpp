@@ -3,6 +3,10 @@
 #include "device.h"
 #include "pch.h"
 #include "core/logger/logger.h"
+#include "queue.h"
+#include "image.h"
+#include "semaphore.h"
+#include "fence.h"
 
 namespace Comet {
     Swapchain::Swapchain(Context* context, Device* device) : m_context(context), m_device(device) {
@@ -56,7 +60,15 @@ namespace Comet {
         create_info.clipped = VK_FALSE;
         create_info.oldSwapchain = old_swapchain;
         m_swapchain = m_device->get_device().createSwapchainKHR(create_info);
-        m_images = m_device->get_device().getSwapchainImagesKHR(m_swapchain);
+        const auto images = m_device->get_device().getSwapchainImagesKHR(m_swapchain);
+        m_images.clear();
+        ImageInfo image_info = {};
+        image_info.format = m_surface_info.surface_format.format;
+        image_info.extent = vk::Extent3D{m_surface_info.capabilities.currentExtent.width, m_surface_info.capabilities.currentExtent.height, 1};
+        image_info.usage = vk::ImageUsageFlagBits::eColorAttachment;
+        for(const auto& image: images) {
+            m_images.emplace_back(m_device, image, image_info);
+        }
         LOG_INFO("Vulkan swapchain created successfully with {} images", m_images.size());
         // 销毁旧的交换链
         if(old_swapchain) {
@@ -64,6 +76,42 @@ namespace Comet {
         }
 
         return true;
+    }
+
+    uint32_t Swapchain::acquire_next_image(const Semaphore& semaphore, const Fence& fence){
+        uint32_t image_index;
+        const auto result = m_device->get_device().acquireNextImageKHR(m_swapchain, UINT64_MAX,
+            semaphore.get_semaphore(), fence.get_fence(), &image_index);
+        if(fence.get_fence()!=VK_NULL_HANDLE) {
+            m_device->wait_for_fences({&fence});
+            m_device->reset_fences({&fence});
+        }
+        if(result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR){
+            m_current_index = image_index;
+            return image_index;
+        }
+        LOG_FATAL("failed to acquire image index");
+    }
+
+    void Swapchain::present(uint32_t image_index, const std::vector<const Semaphore*>& wait_semaphores) const {
+        std::vector<vk::Semaphore> vk_wait_semaphores;
+        for(const auto* wait_sem: wait_semaphores) {
+            vk_wait_semaphores.emplace_back(wait_sem->get_semaphore());
+        }
+        vk::PresentInfoKHR present_info = {};
+        present_info.waitSemaphoreCount = static_cast<uint32_t>(vk_wait_semaphores.size());
+        present_info.pWaitSemaphores = vk_wait_semaphores.data();
+        present_info.swapchainCount = 1;
+        present_info.pSwapchains = &m_swapchain;
+        present_info.pImageIndices = &image_index;
+        const auto queue = m_device->get_present_queue(0);
+        const auto result = queue->get_queue().presentKHR(present_info);
+        if(result != vk::Result::eSuccess) {
+            LOG_ERROR("Failed to present swapchain image: {}", vk::to_string(result));
+        } else {
+            LOG_DEBUG("Presented swapchain image at index: {}", image_index);
+        }
+        queue->wait_idle();
     }
 
     void Swapchain::setup_surface_capabilities() {

@@ -4,6 +4,9 @@
 namespace Comet {
     class Context;
     class Device;
+    class Image;
+    class Semaphore;
+    class Fence;
 
     struct SurfaceInfo {
         vk::SurfaceCapabilitiesKHR capabilities;
@@ -18,7 +21,11 @@ namespace Comet {
         ~Swapchain();
 
         bool recreate();
-        [[nodiscard]] const std::vector<vk::Image>& get_images() const { return m_images; }
+
+        [[nodiscard]] uint32_t acquire_next_image(const Semaphore& semaphore, const Fence& fence);
+        void present(uint32_t image_index, const std::vector<const Semaphore*>& wait_semaphores) const;
+        [[nodiscard]] uint32_t get_current_index() const { return m_current_index; }
+        [[nodiscard]] const std::vector<Image>& get_images() const { return m_images; }
         [[nodiscard]] uint32_t get_width() const { return m_surface_info.capabilities.currentExtent.width; }
         [[nodiscard]] uint32_t get_height() const { return m_surface_info.capabilities.currentExtent.height; }
 
@@ -28,7 +35,8 @@ namespace Comet {
         vk::SwapchainKHR m_swapchain;
         Context* m_context;
         Device* m_device;
-        std::vector<vk::Image> m_images;
+        std::vector<Image> m_images;
         SurfaceInfo m_surface_info;
+        uint32_t m_current_index = -1;
     };
 }

@@ -4,6 +4,7 @@
 namespace Comet {
     class Context;
     class Queue;
+    class Fence;
 
     struct VkSettings {
         vk::Format surface_format = vk::Format::eB8G8R8A8Unorm;
@@ -19,6 +20,12 @@ namespace Comet {
 
         ~Device();
 
+        void wait_for_fences(const std::vector<const Fence*>& fences, bool wait_all = true,
+            uint64_t timeout = std::numeric_limits<uint64_t>::max()) const;
+        void reset_fences(const std::vector<const Fence*>& fences) const;
+        void wait_idle();
+
+        [[nodiscard]] Context* get_context() const { return m_context; }
         [[nodiscard]] vk::Device get_device() const { return m_device; }
         [[nodiscard]] const VkSettings& get_settings() const { return m_settings; }
 

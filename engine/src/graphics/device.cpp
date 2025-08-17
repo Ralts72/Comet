@@ -1,5 +1,6 @@
 #include "device.h"
 #include "context.h"
+#include "fence.h"
 #include "queue.h"
 #include "core/logger/logger.h"
 
@@ -91,6 +92,30 @@ namespace Comet {
         m_device.destroy();
     }
 
+    void Device::wait_for_fences(const std::vector<const Fence*>& fences, const bool wait_all, const uint64_t timeout) const {
+        std::vector<vk::Fence> vk_fences;
+        for(const auto* fence : fences) {
+            vk_fences.push_back(fence->get_fence());
+        }
+        const auto result = m_device.waitForFences(vk_fences, wait_all, timeout);
+        if(result != vk::Result::eSuccess) {
+            LOG_ERROR("Failed to wait for fences: {}", vk::to_string(result));
+        } else {
+            LOG_DEBUG("Waited for fences successfully");
+        }
+    }
+
+    void Device::reset_fences(const std::vector<const Fence*>& fences) const {
+        std::vector<vk::Fence> vk_fences;
+        for(const auto* fence : fences) {
+            vk_fences.push_back(fence->get_fence());
+        }
+        m_device.resetFences(vk_fences);
+    }
+
+    void Device::wait_idle() {
+        m_device.waitIdle();
+    }
     uint32_t Device::get_memory_index(const vk::MemoryPropertyFlags mem_props, uint32_t memory_type_bits) const {
         const vk::PhysicalDeviceMemoryProperties physical_device_mem_props = m_context->get_memory_properties();
         if(physical_device_mem_props.memoryTypeCount == 0){
@@ -112,4 +137,20 @@ namespace Comet {
         m_pipeline_cache = m_device.createPipelineCache(pcache_create_info);
         LOG_INFO("Vulkan pipeline cache created successfully");
     }
+    
+    // void Device::wait_for_fence(const Fence& fence, const uint64_t timeout) const {
+    //     const auto vk_fence = fence.get_fence();
+    //     const auto result = m_device.waitForFences(vk_fence, true, timeout);
+    //     if(result != vk::Result::eSuccess) {
+    //         LOG_ERROR("Failed to wait for fence: {}", vk::to_string(result));
+    //     } else {
+    //         LOG_DEBUG("Waited for fence successfully");
+    //     }
+    // }
+    //
+    // void Device::reset_fence(const Fence& fence) const {
+    //     const auto vk_fence = fence.get_fence();
+    //     m_device.resetFences(vk_fence);
+    //     LOG_DEBUG("Reset fence successfully");
+    // }
 }

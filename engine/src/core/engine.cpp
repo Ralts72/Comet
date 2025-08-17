@@ -29,6 +29,7 @@ namespace Comet {
     void Engine::on_update() {
         LOG_INFO("running engine...");
         while(!m_window->should_close()) {
+            m_window->poll_events();
             m_timer->tick();
             const auto update_context = m_timer->get_update_context();
             m_renderer->on_render(update_context.deltaTime);
@@ -37,7 +38,6 @@ namespace Comet {
                 callback(update_context);
             }
 
-            m_window->poll_events();
             m_window->swap_buffers();
         }
     }

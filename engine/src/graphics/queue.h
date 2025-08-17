@@ -2,6 +2,10 @@
 #include "vk_common.h"
 
 namespace Comet {
+    class CommandBuffer;
+    class Semaphore;
+    class Fence;
+
     class Queue {
     public:
         Queue(uint32_t family_index, uint32_t index, vk::Queue queue, QueueType type);
@@ -9,8 +13,10 @@ namespace Comet {
         ~Queue() = default;
 
         void wait_idle() const { m_queue.waitIdle(); }
+        void submit(const std::vector<const CommandBuffer*>& command_buffers, const std::vector<const Semaphore*>& wait_semaphores,
+            const std::vector<const Semaphore*>& signal_semaphores, const Fence* fence) const;
 
-        [[nodiscard]] vk::Queue get_handle() const { return m_queue; }
+        [[nodiscard]] vk::Queue get_queue() const { return m_queue; }
         [[nodiscard]] uint32_t get_family_index() const { return m_family_index; }
         [[nodiscard]] uint32_t get_index() const { return m_index; }
         [[nodiscard]] QueueType get_type() const { return m_type; }
