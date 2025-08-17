@@ -121,5 +121,4 @@ namespace Comet {
         std::shared_ptr<Shader> m_fragment_shader;
         PipelineConfig m_config;
     };
-
 }

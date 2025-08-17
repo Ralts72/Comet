@@ -18,6 +18,7 @@ namespace Comet {
         ~Renderer();
 
         void on_render(float delta_time) const;
+
     private:
         std::unique_ptr<Context> m_context;
         std::shared_ptr<Device> m_device;
@@ -34,7 +35,6 @@ namespace Comet {
         std::vector<Fence> m_frame_fences;
         std::vector<Semaphore> m_image_semaphores;
         std::vector<Semaphore> m_submit_semaphores;
-
     };
 }
 

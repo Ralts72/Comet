@@ -137,20 +137,4 @@ namespace Comet {
         m_pipeline_cache = m_device.createPipelineCache(pcache_create_info);
         LOG_INFO("Vulkan pipeline cache created successfully");
     }
-    
-    // void Device::wait_for_fence(const Fence& fence, const uint64_t timeout) const {
-    //     const auto vk_fence = fence.get_fence();
-    //     const auto result = m_device.waitForFences(vk_fence, true, timeout);
-    //     if(result != vk::Result::eSuccess) {
-    //         LOG_ERROR("Failed to wait for fence: {}", vk::to_string(result));
-    //     } else {
-    //         LOG_DEBUG("Waited for fence successfully");
-    //     }
-    // }
-    //
-    // void Device::reset_fence(const Fence& fence) const {
-    //     const auto vk_fence = fence.get_fence();
-    //     m_device.resetFences(vk_fence);
-    //     LOG_DEBUG("Reset fence successfully");
-    // }
 }
