@@ -15,9 +15,10 @@ namespace Comet {
     class Renderer {
     public:
         explicit Renderer(const Window& window);
+
         ~Renderer();
 
-        void on_render(float delta_time) const;
+        void on_render(float delta_time);
 
     private:
         std::unique_ptr<Context> m_context;

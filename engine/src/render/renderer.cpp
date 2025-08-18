@@ -14,7 +14,7 @@ namespace Comet {
     };
 
     static PipelineConfig s_pipeline_config;
-    static int buffer_count = 2;
+    static int buffer_count = static_cast<int>(s_vk_settings.swapchain_image_count);
     static int current_buffer = 0;
 
     Renderer::Renderer(const Window& window) {
@@ -38,7 +38,7 @@ namespace Comet {
             .extent = {m_swapchain->get_width(), m_swapchain->get_height(), 1},
             .usage = vk::ImageUsageFlagBits::eColorAttachment
         };
-        for(const auto& image : m_swapchain->get_images()) {
+        for(const auto& image: m_swapchain->get_images()) {
             std::vector<std::shared_ptr<Image>> images = {std::make_shared<Image>(m_device.get(), image.get_image(), image_info)};
             auto frame_buffer = std::make_shared<FrameBuffer>(m_device.get(), m_render_pass.get(),
                 images, m_swapchain->get_width(), m_swapchain->get_height());
@@ -57,7 +57,7 @@ namespace Comet {
         s_pipeline_config.set_dynamic_state({vk::DynamicState::eViewport, vk::DynamicState::eScissor});
         s_pipeline_config.enable_depth_test();
 
-        m_pipeline = std::make_shared<Pipeline>("triangle_pipeline", m_device.get(),m_render_pass.get(),
+        m_pipeline = std::make_shared<Pipeline>("triangle_pipeline", m_device.get(), m_render_pass.get(),
             pipeline_layout, vert_shader, frag_shader, s_pipeline_config);
 
         LOG_INFO("create command pool");
@@ -95,50 +95,50 @@ namespace Comet {
         m_context.reset();
     }
 
-    void Renderer::on_render(float delta_time) const {
-        // 1. wait for fence
+    void Renderer::on_render(float delta_time) {
+        // 1. acquire swapchain image
+        const uint32_t image_index = m_swapchain->acquire_next_image(m_image_semaphores[current_buffer]);
+
         const auto& fence = m_frame_fences[current_buffer];
+        auto& command_buffer = m_command_buffers[image_index];
+        const auto& wait_sem = m_image_semaphores[current_buffer];
+        const auto& signal_sem = m_submit_semaphores[current_buffer];
+        // 2. wait for fence
         m_device->wait_for_fences(std::span(&fence, 1));
         m_device->reset_fences(std::span(&fence, 1));
 
-        // 2. acquire swapchain image
-        const uint32_t image_index = m_swapchain->acquire_next_image(m_image_semaphores[current_buffer], m_frame_fences[current_buffer]);
-        
         // 3. begin command buffer
-        auto command_buffer = m_command_buffers[image_index];
         command_buffer.begin();
-        
+
         // 4. begin render pass, bind frame buffer
         command_buffer.begin_render_pass(*m_render_pass, *m_frame_buffers[image_index], m_clear_values);
-        
+
         // 5. bind pipeline
         command_buffer.bind_pipeline(*m_pipeline);
-        
+
         // 6. set dynamic states (viewport and scissor)
-        const auto viewport = get_viewport(m_swapchain->get_width(), m_swapchain->get_height());
+        const auto viewport = get_viewport(static_cast<float>(m_swapchain->get_width()),
+            static_cast<float>(m_swapchain->get_height()));
         command_buffer.set_viewport(viewport);
-        
-        const auto scissor = get_scissor(m_swapchain->get_width(), m_swapchain->get_height());
+
+        const auto scissor = get_scissor(static_cast<float>(m_swapchain->get_width()),
+            static_cast<float>(m_swapchain->get_height()));
         command_buffer.set_scissor(scissor);
-        
+
         // 7. draw
         command_buffer.draw(3, 1, 0, 0);
-        
+
         // 8. end render pass
         command_buffer.end_render_pass();
-        
+
         // 9. end command buffer
         command_buffer.end();
-        
+
         // 10. submit with fence
-        const auto& cmd_buffer = m_command_buffers[image_index];
-        const auto& wait_sem = m_image_semaphores[current_buffer];
-        const auto& signal_sem = m_submit_semaphores[current_buffer];
-        m_graphics_queue->submit(std::span(&cmd_buffer, 1), std::span(&wait_sem, 1), std::span(&signal_sem, 1), &m_frame_fences[current_buffer]);
+        m_graphics_queue->submit(std::span(&command_buffer, 1), std::span(&wait_sem, 1), std::span(&signal_sem, 1), &fence);
 
         // 11. present
-        const auto& present_wait_sem = m_submit_semaphores[current_buffer];
-        m_swapchain->present(image_index, std::span(&present_wait_sem, 1));
+        m_swapchain->present(image_index, std::span(&signal_sem, 1));
 
         current_buffer = (current_buffer + 1) % buffer_count;
     }
