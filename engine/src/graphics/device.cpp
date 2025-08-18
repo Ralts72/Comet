@@ -3,6 +3,7 @@
 #include "fence.h"
 #include "queue.h"
 #include "core/logger/logger.h"
+#include "command_buffer.h"
 
 namespace Comet {
     static std::vector<DeviceFeature> s_required_extensions = {
@@ -84,12 +85,18 @@ namespace Comet {
         }
 
         create_pipeline_cache();
+        create_default_command_pool();
     }
 
     Device::~Device() {
         m_device.waitIdle();
+        m_default_command_pool.reset();
         m_device.destroyPipelineCache(m_pipeline_cache);
         m_device.destroy();
+    }
+
+    void Device::create_default_command_pool() {
+        m_default_command_pool = std::make_shared<CommandPool>(this, m_context->get_graphics_queue_family().queue_family_index.value());
     }
 
     void Device::wait_for_fences(const std::span<const Fence> fences, const bool wait_all, const uint64_t timeout) const {

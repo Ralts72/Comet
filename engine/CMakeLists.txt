@@ -13,6 +13,7 @@ set(SHADER_COMPILE_TARGET shader_compile)
 add_subdirectory(assets/shaders)
 
 file(GLOB SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/common/geometry_utils.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/logger/logger.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/window/window.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/timer/timer.cpp"
@@ -30,6 +31,8 @@ file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/command_buffer.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/fence.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/semaphore.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/vertex_description.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/buffer.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/renderer.cpp"
 )
 

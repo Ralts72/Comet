@@ -10,6 +10,7 @@
 #include "graphics/queue.h"
 #include "graphics/fence.h"
 #include "graphics/semaphore.h"
+#include "graphics/buffer.h"
 
 namespace Comet {
     class Renderer {
@@ -30,12 +31,13 @@ namespace Comet {
         std::vector<std::shared_ptr<FrameBuffer>> m_frame_buffers;
         std::unique_ptr<ShaderManager> m_shader_manager;
         std::shared_ptr<Pipeline> m_pipeline;
-        std::shared_ptr<CommandPool> m_command_pool;
         std::vector<CommandBuffer> m_command_buffers;
         std::vector<vk::ClearValue> m_clear_values;
         std::vector<Fence> m_frame_fences;
         std::vector<Semaphore> m_image_semaphores;
         std::vector<Semaphore> m_submit_semaphores;
+        std::shared_ptr<Buffer> m_vertex_buffer;
+        std::shared_ptr<Buffer> m_index_buffer;
     };
 }
 

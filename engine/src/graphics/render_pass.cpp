@@ -5,17 +5,19 @@ namespace Comet {
     static bool s_need_depth_sampling = false;
 
     RenderPass::RenderPass(Device* device, const std::vector<Attachment>& attachments, const std::vector<RenderSubPass>& sub_passes)
-        : m_device(device),m_attachments(attachments), m_sub_passes(sub_passes) {
+        : m_device(device), m_attachments(attachments), m_sub_passes(sub_passes) {
         // 1. default subpass and attachment
         if(sub_passes.empty() && attachments.empty()) {
-            const Attachment attachment = {
-                .format        = device->get_settings().surface_format,
-                .load_op        = vk::AttachmentLoadOp::eClear,
-                .store_op       = vk::AttachmentStoreOp::eStore,
-                .stencil_load_op = vk::AttachmentLoadOp::eDontCare,
-                .stencil_store_op= vk::AttachmentStoreOp::eDontCare,
-                .final_layout   = vk::ImageLayout::ePresentSrcKHR,
-                .usage         = vk::ImageUsageFlagBits::eColorAttachment
+            vk::AttachmentDescription description{};
+            description.format = device->get_settings().surface_format;
+            description.loadOp = vk::AttachmentLoadOp::eClear;
+            description.storeOp = vk::AttachmentStoreOp::eStore;
+            description.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+            description.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+            description.finalLayout = vk::ImageLayout::ePresentSrcKHR;
+            Attachment attachment = {
+                .description = description,
+                .usage = vk::ImageUsageFlagBits::eColorAttachment
             };
             SubpassColorAttachment subpass_attachment(0);
             const RenderSubPass render_sub_pass = {
@@ -62,35 +64,38 @@ namespace Comet {
             for(const auto& attachment : color_attachments) {
                 vk::AttachmentReference reference = {attachment.index, attachment.layout};
                 all_color_attachments_reference[i].emplace_back(reference);
-                m_attachments[attachment.index].samples = sample_count;
+                m_attachments[attachment.index].description.samples = sample_count;
                 if(sample_count > vk::SampleCountFlagBits::e1){
-                    m_attachments[attachment.index].final_layout = attachment.layout;
+                    m_attachments[attachment.index].description.finalLayout = attachment.layout;
                 }
             }
             
             for(const auto& attachment : depth_stencil_attachments) {
                 vk::AttachmentReference reference = {attachment.index, attachment.layout};
                 all_depth_stencil_attachments_reference[i].emplace_back(reference);
-                m_attachments[attachment.index].samples = sample_count;
+                m_attachments[attachment.index].description.samples = sample_count;
                 if(s_need_depth_sampling) {
-                    m_attachments[attachment.index].final_layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+                    m_attachments[attachment.index].description.finalLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
                 } else {
-                    m_attachments[attachment.index].final_layout = attachment.layout;
+                    m_attachments[attachment.index].description.finalLayout = attachment.layout;
                 }
             }
 
             if(sample_count > vk::SampleCountFlagBits::e1) {
+                vk::AttachmentDescription msaa_description{};
+                msaa_description.format = device->get_settings().surface_format;
+                msaa_description.loadOp = vk::AttachmentLoadOp::eDontCare;
+                msaa_description.storeOp = vk::AttachmentStoreOp::eStore;
+                msaa_description.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+                msaa_description.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+                msaa_description.initialLayout = vk::ImageLayout::eUndefined;
+                msaa_description.finalLayout = vk::ImageLayout::ePresentSrcKHR;
+                msaa_description.samples = vk::SampleCountFlagBits::e1;
                 Attachment msaa_attachment = {
-                    .format = device->get_settings().surface_format,
-                    .load_op = vk::AttachmentLoadOp::eDontCare,
-                    .store_op = vk::AttachmentStoreOp::eStore,
-                    .stencil_load_op = vk::AttachmentLoadOp::eDontCare,
-                    .stencil_store_op = vk::AttachmentStoreOp::eDontCare,
-                    .initial_layout = vk::ImageLayout::eUndefined,
-                    .final_layout = vk::ImageLayout::ePresentSrcKHR,
-                    .samples = vk::SampleCountFlagBits::e1,
+                    .description = msaa_description,
                     .usage = vk::ImageUsageFlagBits::eColorAttachment
                 };
+
                 m_attachments.push_back(msaa_attachment);
                 vk::AttachmentReference reference = {static_cast<uint32_t>(m_attachments.size() - 1), vk::ImageLayout::eColorAttachmentOptimal};
                 resolve_attachments_reference[i] = reference;
@@ -120,16 +125,8 @@ namespace Comet {
         }
         // 3. create info
         std::vector<vk::AttachmentDescription> attachment_descriptions;
-        for(const auto& attachment : m_attachments ) {
-            vk::AttachmentDescription description = {};
-            description.format = attachment.format;
-            description.samples = attachment.samples;
-            description.loadOp = attachment.load_op;
-            description.storeOp = attachment.store_op;
-            description.stencilLoadOp = attachment.stencil_load_op;
-            description.stencilStoreOp = attachment.stencil_store_op;
-            description.initialLayout = attachment.initial_layout;
-            description.finalLayout = attachment.final_layout;
+        attachment_descriptions.reserve(m_attachments.size());
+        for(const auto& [description, usage] : m_attachments ) {
             attachment_descriptions.push_back(description);
         }
         vk::RenderPassCreateInfo render_pass_create_info = {};
@@ -143,6 +140,7 @@ namespace Comet {
         LOG_INFO("Vulkan render pass created successfully");
         LOG_TRACE("RenderPass: attachment count: {}, subpass count: {}",  m_attachments.size(), m_sub_passes.size());
     }
+
     RenderPass::~RenderPass() {
         m_device->get_device().destroyRenderPass(m_render_pass);
     }

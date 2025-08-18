@@ -1,4 +1,5 @@
 #pragma once
+#include "buffer.h"
 #include "vk_common.h"
 
 namespace Comet {
@@ -6,13 +7,14 @@ namespace Comet {
     class RenderPass;
     class FrameBuffer;
     class Pipeline;
+    class PipelineLayout;
 
     class CommandBuffer {
     public:
         friend class CommandPool;
         CommandBuffer() = delete;
 
-        void begin();
+        void begin(vk::CommandBufferUsageFlags flags = vk::CommandBufferUsageFlags{});
         void end();
         void reset();
 
@@ -28,15 +30,14 @@ namespace Comet {
         void set_viewport(const vk::Viewport& viewport);
         void set_scissor(const vk::Rect2D& scissor);
 
-        // void bind_vertex_buffer(const Buffer& buffer, uint32_t binding = 0) {
-        // //     vk::DeviceSize offset = 0;
-        // //     m_cmd.bindVertexBuffers(binding, buffer.get_handle(), offset);
-        // // }
-        //
-        // void bind_index_buffer(const Buffer& buffer, vk::IndexType type = vk::IndexType::eUint32) {
-        //     m_cmd.bindIndexBuffer(buffer.get_handle(), 0, type);
-        // }
-        //
+        void copy_buffer(vk::Buffer src_buffer, vk::Buffer dst_buffer, size_t size, size_t src_offset = 0, size_t dst_offset = 0);
+
+        void bind_vertex_buffer(std::span<const Buffer*> buffers, std::span<const vk::DeviceSize> offsets, uint32_t first_binding = 0);
+
+        void bind_index_buffer(const Buffer& buffer, vk::DeviceSize offset, vk::IndexType type = vk::IndexType::eUint32);
+
+        void push_constants(const PipelineLayout& layout, vk::ShaderStageFlags stage_flags,
+            uint32_t offset, const void* data, size_t size);
         // void bind_descriptor_set(const vk::PipelineLayout& layout,
         //                          const DescriptorSet& set,
         //                          vk::PipelineBindPoint bindPoint = vk::PipelineBindPoint::eGraphics)

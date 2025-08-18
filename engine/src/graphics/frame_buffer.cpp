@@ -26,6 +26,7 @@ namespace Comet {
 
         std::vector<vk::ImageView> image_views;
         for(const auto& image : images) {
+            //todo stencil format need to fix
             const bool is_depth_stencil = is_depth_stencil_format(image->get_info().format);
             vk::ImageAspectFlags aspect = is_depth_stencil ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor;
             auto image_view = std::make_shared<ImageView>(m_device, *image, aspect);

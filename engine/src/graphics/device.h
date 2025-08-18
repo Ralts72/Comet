@@ -5,6 +5,7 @@ namespace Comet {
     class Context;
     class Queue;
     class Fence;
+    class CommandPool;
 
     struct VkSettings {
         vk::Format surface_format = vk::Format::eB8G8R8A8Unorm;
@@ -42,8 +43,11 @@ namespace Comet {
 
         [[nodiscard]] uint32_t get_memory_index(vk::MemoryPropertyFlags mem_props, uint32_t memory_type_bits) const;
 
+        [[nodiscard]] std::shared_ptr<CommandPool> get_default_command_pool() const { return m_default_command_pool;}
+
     private:
         void create_pipeline_cache();
+        void create_default_command_pool();
 
         vk::Device m_device;
         Context* m_context;
@@ -52,5 +56,6 @@ namespace Comet {
         std::vector<std::shared_ptr<Queue>> m_graphics_queues;
         std::vector<std::shared_ptr<Queue>> m_present_queues;
         vk::PipelineCache m_pipeline_cache;
+        std::shared_ptr<CommandPool> m_default_command_pool;
     };
 }

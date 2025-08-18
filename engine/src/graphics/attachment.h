@@ -3,15 +3,18 @@
 
 namespace Comet {
     struct Attachment {
-        vk::Format                format           = vk::Format::eUndefined;
-        vk::AttachmentLoadOp      load_op          = vk::AttachmentLoadOp::eDontCare;
-        vk::AttachmentStoreOp     store_op         = vk::AttachmentStoreOp::eDontCare;
-        vk::AttachmentLoadOp      stencil_load_op  = vk::AttachmentLoadOp::eDontCare;
-        vk::AttachmentStoreOp     stencil_store_op = vk::AttachmentStoreOp::eDontCare;
-        vk::ImageLayout           initial_layout   = vk::ImageLayout::eUndefined;
-        vk::ImageLayout           final_layout     = vk::ImageLayout::eUndefined;
-        vk::SampleCountFlagBits   samples          = vk::SampleCountFlagBits::e1;
-        vk::ImageUsageFlags       usage            = vk::ImageUsageFlagBits::eColorAttachment;
+        vk::AttachmentDescription description{
+            {},                                  // flags
+            vk::Format::eUndefined,                 // format
+            vk::SampleCountFlagBits::e1,            // samples
+            vk::AttachmentLoadOp::eDontCare,        // loadOp
+            vk::AttachmentStoreOp::eDontCare,       // storeOp
+            vk::AttachmentLoadOp::eDontCare,        // stencilLoadOp
+            vk::AttachmentStoreOp::eDontCare,       // stencilStoreOp
+            vk::ImageLayout::eUndefined,            // initialLayout
+            vk::ImageLayout::eUndefined             // finalLayout
+        };
+        vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eColorAttachment;
     };
     enum class AttachmentType { Input, Color, DepthStencil };
 

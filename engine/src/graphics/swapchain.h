@@ -22,7 +22,7 @@ namespace Comet {
 
         bool recreate();
 
-        [[nodiscard]] uint32_t acquire_next_image(const Semaphore& semaphore, const Fence* fence = nullptr);
+        [[nodiscard]] uint32_t acquire_next_image(const Semaphore& semaphore);
 
         void present(uint32_t image_index, std::span<const Semaphore> wait_semaphores) const;
 

@@ -78,15 +78,10 @@ namespace Comet {
         return true;
     }
 
-    uint32_t Swapchain::acquire_next_image(const Semaphore& semaphore, const Fence* fence) {
+    uint32_t Swapchain::acquire_next_image(const Semaphore& semaphore) {
         uint32_t image_index;
-        const auto vk_fence = fence ? fence->get_fence() : VK_NULL_HANDLE;
         const auto result = m_device->get_device().acquireNextImageKHR(m_swapchain, UINT64_MAX,
-            semaphore.get_semaphore(), vk_fence, &image_index);
-        if(vk_fence != VK_NULL_HANDLE) {
-            m_device->wait_for_fences(std::span(fence, 1));
-            m_device->reset_fences(std::span(fence, 1));
-        }
+            semaphore.get_semaphore(), VK_NULL_HANDLE, &image_index);
         if(result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR) {
             m_current_index = image_index;
             return image_index;

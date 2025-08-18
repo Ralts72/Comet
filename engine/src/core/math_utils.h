@@ -5,6 +5,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/random.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace Comet {
     constexpr float PI = 3.14159265358979323846f;
@@ -60,4 +62,18 @@ namespace Comet {
     inline Mat4 look_at(const Vec3& eye, const Vec3& center, const Vec3& up) {
         return glm::lookAt(eye, center, up);
     }
+
+    inline Mat4 transpose(const Mat4& m) {
+        return glm::transpose(m);
+    }
+
+    inline Mat4 inverse(const Mat4& m) {
+        return glm::inverse(m);
+    }
+
+    struct Vertex {
+        Vec3 position;
+        Vec2 texcoord;
+        Vec3 normal;
+    };
 }

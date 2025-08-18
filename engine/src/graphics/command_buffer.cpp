@@ -6,10 +6,11 @@
 #include "pipeline.h"
 
 namespace Comet {
-    void CommandBuffer::begin() {
+    void CommandBuffer::begin(const vk::CommandBufferUsageFlags flags) {
         m_command_buffer.reset();
         vk::CommandBufferBeginInfo begin_info = {};
         begin_info.pInheritanceInfo = nullptr;
+        begin_info.flags = flags;
         m_command_buffer.begin(begin_info);
     }
 
@@ -56,8 +57,38 @@ namespace Comet {
         m_command_buffer.setScissor(0, 1, &scissor);
     }
 
+    void CommandBuffer::copy_buffer(vk::Buffer src_buffer, vk::Buffer dst_buffer, size_t size, size_t src_offset, size_t dst_offset) {
+        vk::BufferCopy copy_buffer{};
+        copy_buffer.srcOffset = src_offset;
+        copy_buffer.dstOffset = dst_offset;
+        copy_buffer.size = size;
+        m_command_buffer.copyBuffer(src_buffer, dst_buffer, 1, &copy_buffer);
+    }
+
+    void CommandBuffer::bind_vertex_buffer(std::span<const Buffer*> buffers, std::span<const vk::DeviceSize> offsets, uint32_t first_binding) {
+        if(buffers.size() != offsets.size()) {
+            LOG_FATAL("buffers and offsets must have the same size");
+        }
+        std::vector<vk::Buffer> vk_buffers;
+        vk_buffers.reserve(buffers.size());
+        for (const auto buf : buffers) {
+            vk_buffers.push_back(buf->get_buffer());
+        }
+        m_command_buffer.bindVertexBuffers(first_binding, static_cast<uint32_t>(vk_buffers.size()),
+            vk_buffers.data(), offsets.data());
+    }
+
+    void CommandBuffer::bind_index_buffer(const Buffer& buffer, vk::DeviceSize offset, vk::IndexType type) {
+        m_command_buffer.bindIndexBuffer(buffer.get_buffer(), offset, type);
+    }
+
+    void CommandBuffer::push_constants(const PipelineLayout& layout, vk::ShaderStageFlags stage_flags,
+        uint32_t offset, const void* data, size_t size) {
+        m_command_buffer.pushConstants(layout.get_pipeline_layout(), stage_flags, offset, size, data);
+    }
+
     void CommandBuffer::draw(const uint32_t vertex_count, const uint32_t instance_count, const uint32_t first_vertex,
-        const uint32_t first_instance) {
+                             const uint32_t first_instance) {
         m_command_buffer.draw(vertex_count, instance_count, first_vertex, first_instance);
     }
     void CommandBuffer::draw_indexed(const uint32_t index_count, const uint32_t instance_count,
