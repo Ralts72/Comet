@@ -1,4 +1,5 @@
 #include "profiler.h"
+#include "core/logger/logger.h"
 
 namespace Comet {
     thread_local std::vector<Profiler::ActiveBlock> Profiler::s_thread_stack;
@@ -31,11 +32,27 @@ namespace Comet {
         std::lock_guard<std::mutex> lock(s_mtx);
         for(const auto& [label, record]: s_records) {
             const double avg = record.total_time / record.call_count;
-            printf("[Profiler] %s: calls=%llu, total=%.3f ms, avg=%.3f ms\n",
-                label.c_str(),
-                static_cast<unsigned long long>(record.call_count),
-                record.total_time,
-                avg);
+            if (avg > 50.0 && record.call_count > 1) {
+                // 极高耗时 -> CRITICAL
+                PROFILE_LOG_CRITICAL("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
+                    label, record.call_count, record.total_time, avg);
+            } else if (avg > 10.0) {
+                // 高耗时 -> HIGH
+                PROFILE_LOG_HIGH("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
+                    label, record.call_count, record.total_time, avg);
+            } else if (avg > 5.0) {
+                // 中等耗时 -> MEDIUM
+                PROFILE_LOG_MEDIUM("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
+                    label, record.call_count, record.total_time, avg);
+            } else if (avg > 1.0) {
+                // 低耗时 -> LOW
+                PROFILE_LOG_LOW("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
+                    label, record.call_count, record.total_time, avg);
+            } else {
+                // 极低耗时 -> TRACE
+                PROFILE_LOG_TRACE("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
+                    label, record.call_count, record.total_time, avg);
+            }
         }
     }
 

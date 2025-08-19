@@ -20,18 +20,18 @@ protected:
 TEST_F(IntegrationTest, MathLibraryBasicOperations) {
     // 测试数学库的基本运算
     float aspect = 16.0f / 9.0f;
-    Mat4 projMatrix = perspective(45.0f, aspect, 0.1f, 100.0f);
+    Math::Mat4 projMatrix = Math::perspective(45.0f, aspect, 0.1f, 100.0f);
 
     // 验证投影矩阵不为零
-    EXPECT_FALSE(projMatrix == Mat4(0.0f));
+    EXPECT_FALSE(projMatrix == Math::Mat4(0.0f));
 
     // 测试变换矩阵链
-    Mat4 modelMatrix = translate(Vec3(0.0f, 0.0f, -5.0f)) *
-                      rotate(PI/4.0f, Vec3(0.0f, 1.0f, 0.0f)) *
-                      scale(Vec3(1.0f, 1.0f, 1.0f));
+    Math::Mat4 modelMatrix = Math::translate(Math::Mat4(1.0f),Math::Vec3(0.0f, 0.0f, -5.0f)) *
+                      Math::rotate(Math::Mat4(1.0f),Math::PI/4.0f, Math::Vec3(0.0f, 1.0f, 0.0f)) *
+                      Math::scale(Math::Mat4(1.0f),Math::Vec3(1.0f, 1.0f, 1.0f));
 
-    Mat4 mvpMatrix = projMatrix * modelMatrix;
-    EXPECT_FALSE(mvpMatrix == Mat4(0.0f));
+    Math::Mat4 mvpMatrix = projMatrix * modelMatrix;
+    EXPECT_FALSE(mvpMatrix == Math::Mat4(0.0f));
 }
 
 TEST_F(IntegrationTest, LoggingSystemTest) {

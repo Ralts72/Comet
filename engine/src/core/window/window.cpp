@@ -31,10 +31,6 @@ namespace Comet {
         LOG_INFO("The window has been destroy.");
     }
 
-    Vec2i Window::get_size() const {
-        return {m_width, m_height};
-    }
-
     bool Window::should_close() const {
         return glfwWindowShouldClose(m_window);
     }

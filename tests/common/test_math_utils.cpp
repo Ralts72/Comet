@@ -15,51 +15,51 @@ protected:
         return std::abs(a - b) < EPSILON;
     }
 
-    bool vec3Equal(const Vec3& a, const Vec3& b) {
+    bool vec3Equal(const Math::Vec3& a, const Math::Vec3& b) {
         return floatEqual(a.x, b.x) && floatEqual(a.y, b.y) && floatEqual(a.z, b.z);
     }
 };
 
 TEST_F(MathUtilsTest, Constants) {
-    EXPECT_FLOAT_EQ(PI, 3.14159265358979323846f);
-    EXPECT_FLOAT_EQ(DEG_TO_RAD, PI / 180.0f);
-    EXPECT_FLOAT_EQ(RAD_TO_DEG, 180.0f / PI);
+    EXPECT_FLOAT_EQ(Math::PI, 3.14159265358979323846f);
+    EXPECT_FLOAT_EQ(Math::DEG_TO_RAD, Math::PI / 180.0f);
+    EXPECT_FLOAT_EQ(Math::RAD_TO_DEG, 180.0f / Math::PI);
 }
 
 TEST_F(MathUtilsTest, VectorLength) {
-    Vec3 v1(1.0f, 0.0f, 0.0f);
-    Vec3 v2(3.0f, 4.0f, 0.0f);
-    Vec3 v3(1.0f, 1.0f, 1.0f);
+    Math::Vec3 v1(1.0f, 0.0f, 0.0f);
+    Math::Vec3 v2(3.0f, 4.0f, 0.0f);
+    Math::Vec3 v3(1.0f, 1.0f, 1.0f);
 
-    EXPECT_FLOAT_EQ(length(v1), 1.0f);
-    EXPECT_FLOAT_EQ(length(v2), 5.0f);
-    EXPECT_TRUE(floatEqual(length(v3), std::sqrt(3.0f)));
+    EXPECT_FLOAT_EQ(Math::length(v1), 1.0f);
+    EXPECT_FLOAT_EQ(Math::length(v2), 5.0f);
+    EXPECT_TRUE(floatEqual(Math::length(v3), std::sqrt(3.0f)));
 }
 
 TEST_F(MathUtilsTest, VectorNormalization) {
-    Vec3 v1(3.0f, 4.0f, 0.0f);
-    Vec3 normalized = normalize(v1);
+    Math::Vec3 v1(3.0f, 4.0f, 0.0f);
+    Math::Vec3 normalized = normalize(v1);
 
-    EXPECT_TRUE(floatEqual(length(normalized), 1.0f));
-    EXPECT_TRUE(vec3Equal(normalized, Vec3(0.6f, 0.8f, 0.0f)));
+    EXPECT_TRUE(floatEqual(Math::length(normalized), 1.0f));
+    EXPECT_TRUE(vec3Equal(normalized, Math::Vec3(0.6f, 0.8f, 0.0f)));
 }
 
 TEST_F(MathUtilsTest, DotProduct) {
-    Vec3 v1(1.0f, 0.0f, 0.0f);
-    Vec3 v2(0.0f, 1.0f, 0.0f);
-    Vec3 v3(1.0f, 1.0f, 0.0f);
+    Math::Vec3 v1(1.0f, 0.0f, 0.0f);
+    Math::Vec3 v2(0.0f, 1.0f, 0.0f);
+    Math::Vec3 v3(1.0f, 1.0f, 0.0f);
 
-    EXPECT_FLOAT_EQ(dot(v1, v2), 0.0f);
-    EXPECT_FLOAT_EQ(dot(v1, v3), 1.0f);
-    EXPECT_FLOAT_EQ(dot(v1, v1), 1.0f);
+    EXPECT_FLOAT_EQ(Math::dot(v1, v2), 0.0f);
+    EXPECT_FLOAT_EQ(Math::dot(v1, v3), 1.0f);
+    EXPECT_FLOAT_EQ(Math::dot(v1, v1), 1.0f);
 }
 
 TEST_F(MathUtilsTest, CrossProduct) {
-    Vec3 x(1.0f, 0.0f, 0.0f);
-    Vec3 y(0.0f, 1.0f, 0.0f);
-    Vec3 z(0.0f, 0.0f, 1.0f);
+    Math::Vec3 x(1.0f, 0.0f, 0.0f);
+    Math::Vec3 y(0.0f, 1.0f, 0.0f);
+    Math::Vec3 z(0.0f, 0.0f, 1.0f);
 
-    Vec3 result = cross(x, y);
+    Math::Vec3 result = Math::cross(x, y);
     EXPECT_TRUE(vec3Equal(result, z));
 
     result = cross(y, z);
@@ -71,10 +71,10 @@ TEST_F(MathUtilsTest, CrossProduct) {
 
 TEST_F(MathUtilsTest, TransformationMatrices) {
     // 测试平移矩阵
-    Vec3 translation(1.0f, 2.0f, 3.0f);
-    Mat4 translateMat = translate(translation);
-    Vec4 point(0.0f, 0.0f, 0.0f, 1.0f);
-    Vec4 translatedPoint = translateMat * point;
+    Math::Vec3 translation(1.0f, 2.0f, 3.0f);
+    Math::Mat4 translateMat = Math::translate(Math::Mat4(1.0f),translation);
+    Math::Vec4 point(0.0f, 0.0f, 0.0f, 1.0f);
+    Math::Vec4 translatedPoint = translateMat * point;
 
     EXPECT_FLOAT_EQ(translatedPoint.x, 1.0f);
     EXPECT_FLOAT_EQ(translatedPoint.y, 2.0f);
@@ -82,9 +82,9 @@ TEST_F(MathUtilsTest, TransformationMatrices) {
     EXPECT_FLOAT_EQ(translatedPoint.w, 1.0f);
 
     // 测试缩放矩阵
-    Vec3 scaleVec(2.0f, 3.0f, 4.0f);
-    Mat4 scaleMat = scale(scaleVec);
-    Vec4 scaledPoint = scaleMat * Vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    Math::Vec3 scaleVec(2.0f, 3.0f, 4.0f);
+    Math::Mat4 scaleMat = Math::scale(Math::Mat4(1.0f), scaleVec);
+    Math::Vec4 scaledPoint = scaleMat * Math::Vec4(1.0f, 1.0f, 1.0f, 1.0f);
 
     EXPECT_FLOAT_EQ(scaledPoint.x, 2.0f);
     EXPECT_FLOAT_EQ(scaledPoint.y, 3.0f);
@@ -93,12 +93,12 @@ TEST_F(MathUtilsTest, TransformationMatrices) {
 }
 
 TEST_F(MathUtilsTest, RotationMatrix) {
-    Vec3 axis(0.0f, 0.0f, 1.0f);
-    float angle = PI / 2.0f; // 90度
-    Mat4 rotMat = rotate(angle, axis);
+    Math::Vec3 axis(0.0f, 0.0f, 1.0f);
+    float angle = Math::PI / 2.0f; // 90度
+    Math::Mat4 rotMat = Math::rotate(Math::Mat4(1.0f), angle, axis);
 
-    Vec4 point(1.0f, 0.0f, 0.0f, 1.0f);
-    Vec4 rotatedPoint = rotMat * point;
+    Math::Vec4 point(1.0f, 0.0f, 0.0f, 1.0f);
+    Math::Vec4 rotatedPoint = rotMat * point;
 
     EXPECT_TRUE(floatEqual(rotatedPoint.x, 0.0f));
     EXPECT_TRUE(floatEqual(rotatedPoint.y, 1.0f));
@@ -113,18 +113,18 @@ TEST_F(MathUtilsTest, ProjectionMatrices) {
     float nearZ = 0.1f;
     float farZ = 100.0f;
 
-    Mat4 perspMat = perspective(fov, aspect, nearZ, farZ);
-    EXPECT_FALSE(perspMat == Mat4(0.0f)); // 确保矩阵不为零
+    Math::Mat4 perspMat = Math::perspective(fov, aspect, nearZ, farZ);
+    EXPECT_FALSE(perspMat == Math::Mat4(0.0f)); // 确保矩阵不为零
 
     // 测试正交投影矩阵
-    Mat4 orthoMat = ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 100.0f);
-    EXPECT_FALSE(orthoMat == Mat4(0.0f)); // 确保矩阵不为零
+    Math::Mat4 orthoMat = Math::ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 100.0f);
+    EXPECT_FALSE(orthoMat == Math::Mat4(0.0f)); // 确保矩阵不为零
 }
 
 TEST_F(MathUtilsTest, QuaternionAngleAxis) {
-    Vec3 axis(0.0f, 0.0f, 1.0f);
-    float angle = PI / 2.0f;
-    Quat q = angle_axis(angle, axis);
+    Math::Vec3 axis(0.0f, 0.0f, 1.0f);
+    float angle = Math::PI / 2.0f;
+    Math::Quat q = Math::angle_axis(angle, axis);
 
     // 验证四元数的长度为1
     float quatLength = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
@@ -133,13 +133,13 @@ TEST_F(MathUtilsTest, QuaternionAngleAxis) {
 
 TEST_F(MathUtilsTest, VectorTypes) {
     // 测试不同的向量类型是否正确定义
-    Vec2i v2i(1, 2);
-    Vec3i v3i(1, 2, 3);
-    Vec4i v4i(1, 2, 3, 4);
+    Math::Vec2i v2i(1, 2);
+    Math::Vec3i v3i(1, 2, 3);
+    Math::Vec4i v4i(1, 2, 3, 4);
 
-    Vec2 v2(1.0f, 2.0f);
-    Vec3 v3(1.0f, 2.0f, 3.0f);
-    Vec4 v4(1.0f, 2.0f, 3.0f, 4.0f);
+    Math::Vec2 v2(1.0f, 2.0f);
+    Math::Vec3 v3(1.0f, 2.0f, 3.0f);
+    Math::Vec4 v4(1.0f, 2.0f, 3.0f, 4.0f);
 
     EXPECT_EQ(v2i.x, 1);
     EXPECT_EQ(v2i.y, 2);

@@ -23,7 +23,6 @@ namespace Comet {
 
         void end() {
             on_shutdown();
-            m_engine.reset();
             Logger::shutdown();
         }
 

@@ -14,8 +14,6 @@ namespace Comet {
 
         [[nodiscard]] GLFWwindow* get_window() const { return m_window; }
 
-        [[nodiscard]] Vec2i get_size() const;
-
         [[nodiscard]] bool should_close() const;
 
         void poll_events();
@@ -25,7 +23,7 @@ namespace Comet {
     private:
         GLFWwindow* m_window;
         std::string m_title;
-        int m_width;
-        int m_height;
+        [[maybe_unused]] int m_width;
+        [[maybe_unused]] int m_height;
     };
 }

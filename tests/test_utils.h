@@ -15,19 +15,19 @@ namespace Comet::Tests {
         }
 
         // 向量比较工具
-        static bool Vec3Equal(const Vec3& a, const Vec3& b, float epsilon = 1e-6f) {
+        static bool Vec3Equal(const Math::Vec3& a, const Math::Vec3& b, float epsilon = 1e-6f) {
             return FloatEqual(a.x, b.x, epsilon) &&
                    FloatEqual(a.y, b.y, epsilon) &&
                    FloatEqual(a.z, b.z, epsilon);
         }
 
-        static bool Vec2Equal(const Vec2& a, const Vec2& b, float epsilon = 1e-6f) {
+        static bool Vec2Equal(const Math::Vec2& a, const Math::Vec2& b, float epsilon = 1e-6f) {
             return FloatEqual(a.x, b.x, epsilon) &&
                    FloatEqual(a.y, b.y, epsilon);
         }
 
         // 矩阵比较工具
-        static bool Mat4Equal(const Mat4& a, const Mat4& b, float epsilon = 1e-6f) {
+        static bool Mat4Equal(const Math::Mat4& a, const Math::Mat4& b, float epsilon = 1e-6f) {
             for(int i = 0; i < 4; ++i) {
                 for(int j = 0; j < 4; ++j) {
                     if(!FloatEqual(a[i][j], b[i][j], epsilon)) {
@@ -50,8 +50,8 @@ namespace Comet::Tests {
         }
 
         // 生成测试数据
-        static std::vector<Vec3> GenerateRandomVectors(size_t count, float min = -100.0f, float max = 100.0f) {
-            std::vector<Vec3> vectors;
+        static std::vector<Math::Vec3> GenerateRandomVectors(size_t count, float min = -100.0f, float max = 100.0f) {
+            std::vector<Math::Vec3> vectors;
             vectors.reserve(count);
 
             std::random_device rd;
@@ -66,26 +66,26 @@ namespace Comet::Tests {
         }
 
         // 验证矩阵是否为单位矩阵
-        static bool IsIdentityMatrix(const Mat4& matrix, float epsilon = 1e-6f) {
-            Mat4 identity(1.0f);
+        static bool IsIdentityMatrix(const Math::Mat4& matrix, float epsilon = 1e-6f) {
+            Math::Mat4 identity(1.0f);
             return Mat4Equal(matrix, identity, epsilon);
         }
 
         // 验证向量是否已归一化
-        static bool IsNormalized(const Vec3& vector, float epsilon = 1e-6f) {
-            float len = length(vector);
+        static bool IsNormalized(const Math::Vec3& vector, float epsilon = 1e-6f) {
+            float len = Math::length(vector);
             return FloatEqual(len, 1.0f, epsilon);
         }
 
         // 生成测试用的变换矩阵
-        static Mat4 CreateTestTransform(const Vec3& translation = Vec3(0.0f),
-                                        const Vec3& rotation = Vec3(0.0f),
-                                        const Vec3& scale_vec = Vec3(1.0f)) {
-            Mat4 t = translate(translation);
-            Mat4 rx = rotate(rotation.x, Vec3(1.0f, 0.0f, 0.0f));
-            Mat4 ry = rotate(rotation.y, Vec3(0.0f, 1.0f, 0.0f));
-            Mat4 rz = rotate(rotation.z, Vec3(0.0f, 0.0f, 1.0f));
-            Mat4 s = scale(scale_vec);
+        static Math::Mat4 CreateTestTransform(const Math::Vec3& translation = Math::Vec3(0.0f),
+                                        const Math::Vec3& rotation = Math::Vec3(0.0f),
+                                        const Math::Vec3& scale_vec = Math::Vec3(1.0f)) {
+           Math::Mat4 t = translate( Math::Mat4(1.0f), translation);
+           Math::Mat4 rx = Math::rotate(Math::Mat4(1.0f),rotation.x, Math::Vec3(1.0f, 0.0f, 0.0f));
+           Math::Mat4 ry = Math::rotate(Math::Mat4(1.0f),rotation.y, Math::Vec3(0.0f, 1.0f, 0.0f));
+           Math::Mat4 rz = Math::rotate(Math::Mat4(1.0f),rotation.z, Math::Vec3(0.0f, 0.0f, 1.0f));
+           Math::Mat4 s = Math::scale(Math::Mat4(1.0f),scale_vec);
 
             return t * rz * ry * rx * s;
         }

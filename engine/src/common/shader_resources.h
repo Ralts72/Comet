@@ -7,6 +7,6 @@
 
 namespace Comet {
     struct PushConstant {
-        Mat4 matrix;
+        Math::Mat4 matrix;
     };
 }

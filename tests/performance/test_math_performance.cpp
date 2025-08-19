@@ -19,7 +19,7 @@ protected:
         }
     }
 
-    std::vector<Vec3> test_vectors;
+    std::vector<Math::Vec3> test_vectors;
 };
 
 TEST_F(MathPerformanceTest, VectorOperationsPerformance) {
@@ -28,7 +28,7 @@ TEST_F(MathPerformanceTest, VectorOperationsPerformance) {
 
     float total_length = 0.0f;
     for (const auto& vec : test_vectors) {
-        total_length += length(vec);
+        total_length += Math::length(vec);
     }
 
     auto end = std::chrono::high_resolution_clock::now();
@@ -40,14 +40,14 @@ TEST_F(MathPerformanceTest, VectorOperationsPerformance) {
 }
 
 TEST_F(MathPerformanceTest, MatrixMultiplicationPerformance) {
-    Mat4 transform = translate(Vec3(1.0f, 2.0f, 3.0f)) *
-                    rotate(PI/4.0f, Vec3(0.0f, 1.0f, 0.0f)) *
-                    scale(Vec3(2.0f, 2.0f, 2.0f));
+    Math::Mat4 transform = Math::translate(Math::Mat4(1.0f), Math::Vec3(1.0f, 2.0f, 3.0f)) *
+                    Math::rotate(Math::Mat4(1.0f),Math::PI/4.0f, Math::Vec3(0.0f, 1.0f, 0.0f)) *
+                    Math::scale(Math::Mat4(1.0f),Math::Vec3(2.0f, 2.0f, 2.0f));
 
     auto start = std::chrono::high_resolution_clock::now();
 
     // 大量矩阵乘法运算
-    Mat4 result = Mat4(1.0f);
+    Math::Mat4 result = Math::Mat4(1.0f);
     for (int i = 0; i < 1000; ++i) {
         result = result * transform;
     }
@@ -56,7 +56,7 @@ TEST_F(MathPerformanceTest, MatrixMultiplicationPerformance) {
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 
     EXPECT_LT(duration.count(), 5000); // 小于5毫秒
-    EXPECT_FALSE(result == Mat4(0.0f)); // 确保结果不为零矩阵
+    EXPECT_FALSE(result == Math::Mat4(0.0f)); // 确保结果不为零矩阵
 }
 
 } // namespace Comet::Tests
