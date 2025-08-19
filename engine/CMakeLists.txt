@@ -50,3 +50,8 @@ target_compile_definitions(engine PRIVATE COMET_EXPORTS)
 if (NOT WIN32)
     target_compile_options(engine PRIVATE -fvisibility=hidden)
 endif ()
+
+if (CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_options(engine PRIVATE -O3 -DNDEBUG)
+    target_compile_options(engine PRIVATE -march=native)
+endif ()

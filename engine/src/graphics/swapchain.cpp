@@ -102,7 +102,9 @@ namespace Comet {
         present_info.pImageIndices = &image_index;
         const auto queue = m_device->get_present_queue(0);
         const auto result = queue->get_queue().presentKHR(present_info);
-        if(result != vk::Result::eSuccess) {
+        if(result == vk::Result::eSuboptimalKHR) {
+            LOG_WARN("swapchain is suboptimal, consider recreating it");
+        } else if(result != vk::Result::eSuccess) {
             LOG_ERROR("Failed to present swapchain image: {}", vk::to_string(result));
         } else {
             LOG_DEBUG("Presented swapchain image at index: {}", image_index);
