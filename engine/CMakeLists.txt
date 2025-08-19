@@ -14,6 +14,7 @@ add_subdirectory(assets/shaders)
 
 file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/common/geometry_utils.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/common/profiler.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/logger/logger.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/window/window.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/timer/timer.cpp"
@@ -54,4 +55,7 @@ endif ()
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(engine PRIVATE -O3 -DNDEBUG)
     target_compile_options(engine PRIVATE -march=native)
+else ()
+    # Enable profiler in Debug builds
+    target_compile_definitions(engine PRIVATE ENABLE_PROFILER)
 endif ()

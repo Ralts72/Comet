@@ -1,9 +1,11 @@
 #include "window.h"
 #include "core/logger/logger.h"
+#include "common/profiler.h"
 #define GL_FALSE 0
 
 namespace Comet {
     Window::Window(const std::string& title, const int width, const int height) : m_title(title), m_width(width), m_height(height) {
+        PROFILE_SCOPE("Window::Constructor");
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
         m_window = glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
@@ -38,10 +40,12 @@ namespace Comet {
     }
 
     void Window::poll_events() {
+        PROFILE_SCOPE("Window::PollEvents");
         glfwPollEvents();
     }
 
     void Window::swap_buffers() {
+        PROFILE_SCOPE("Window::SwapBuffers");
         glfwSwapBuffers(m_window);
     }
 }

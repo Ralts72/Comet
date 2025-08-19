@@ -4,6 +4,7 @@
 #include "core/logger/logger.h"
 #include "frame_buffer.h"
 #include "pipeline.h"
+#include "common/profiler.h"
 
 namespace Comet {
     void CommandBuffer::begin(const vk::CommandBufferUsageFlags flags) {
@@ -24,6 +25,7 @@ namespace Comet {
 
     void CommandBuffer::begin_render_pass(const RenderPass& render_pass, const FrameBuffer& frame_buffer,
         const std::vector<vk::ClearValue>& clear_values) {
+        PROFILE_SCOPE("CommandBuffer::BeginRenderPass");
         vk::RenderPassBeginInfo render_pass_info = {};
         render_pass_info.renderPass = render_pass.get_render_pass();
         render_pass_info.framebuffer = frame_buffer.get_frame_buffer();

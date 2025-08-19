@@ -4,6 +4,7 @@
 #include "queue.h"
 #include "core/logger/logger.h"
 #include "command_buffer.h"
+#include "common/profiler.h"
 
 namespace Comet {
     static std::vector<DeviceFeature> s_required_extensions = {
@@ -16,6 +17,7 @@ namespace Comet {
 
     Device::Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count, const VkSettings& settings)
         : m_context(context), m_settings(settings) {
+        PROFILE_SCOPE("Device::Constructor");
         if(!context) {
             LOG_ERROR("Must create a vulkan graphics context before create device");
             return;

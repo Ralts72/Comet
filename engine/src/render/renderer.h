@@ -39,7 +39,7 @@ namespace Comet {
         std::unique_ptr<ShaderManager> m_shader_manager;
         mutable std::shared_ptr<Pipeline> m_pipeline;
         mutable std::vector<std::shared_ptr<FrameBuffer>> m_frame_buffers;
-        mutable bool m_frame_buffers_dirty = false;
+        // mutable bool m_frame_buffers_dirty = false;
 
         mutable std::vector<FrameResources> m_frame_resources;
 

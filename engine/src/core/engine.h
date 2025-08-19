@@ -8,9 +8,11 @@ namespace Comet {
     class COMET_API Engine {
     public:
         Engine();
+
         ~Engine();
 
         void on_update();
+
         void register_update_callback(const std::function<void(UpdateContext)>& cb) {
             m_update_callbacks.push_back(cb);
         }

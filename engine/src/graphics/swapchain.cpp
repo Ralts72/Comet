@@ -3,6 +3,7 @@
 #include "device.h"
 #include "pch.h"
 #include "core/logger/logger.h"
+#include "common/profiler.h"
 #include "queue.h"
 #include "image.h"
 #include "semaphore.h"
@@ -10,6 +11,7 @@
 
 namespace Comet {
     Swapchain::Swapchain(Context* context, Device* device) : m_context(context), m_device(device) {
+        PROFILE_SCOPE("Swapchain::Constructor");
         recreate();
     }
 
@@ -18,6 +20,7 @@ namespace Comet {
     }
 
     bool Swapchain::recreate() {
+        PROFILE_SCOPE("Swapchain::Recreate");
         setup_surface_capabilities();
 
         const uint32_t min_count = m_surface_info.capabilities.minImageCount;
@@ -90,6 +93,7 @@ namespace Comet {
     }
 
     void Swapchain::present(uint32_t image_index, const std::span<const Semaphore> wait_semaphores) const {
+        PROFILE_SCOPE("Swapchain::Present");
         std::vector<vk::Semaphore> vk_wait_semaphores;
         for(const auto& wait_sem: wait_semaphores) {
             vk_wait_semaphores.emplace_back(wait_sem.get_semaphore());

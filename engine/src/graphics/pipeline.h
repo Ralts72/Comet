@@ -4,7 +4,7 @@
 namespace Comet {
     class Device;
     class Shader;
-    class ShaderLayout;
+    struct ShaderLayout;
     class RenderPass;
 
     class PipelineLayout {

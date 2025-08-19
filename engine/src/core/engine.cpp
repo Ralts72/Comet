@@ -1,9 +1,10 @@
 #include "engine.h"
 #include "core/logger/logger.h"
+#include "common/profiler.h"
 
 namespace Comet {
-
     Engine::Engine() {
+        PROFILE_SCOPE("Engine::Constructor");
         LOG_INFO("init timer");
         m_timer = std::make_unique<Timer>();
 
@@ -24,17 +25,20 @@ namespace Comet {
         LOG_INFO("shutting down engine...");
         m_renderer.reset();
         m_window.reset();
+        PROFILE_RESULTS();
     }
 
     void Engine::on_update() {
+        PROFILE_SCOPE("Engine::MainLoop");
         LOG_INFO("running engine...");
         while(!m_window->should_close()) {
+            PROFILE_SCOPE("Engine::Frame");
             m_window->poll_events();
             m_timer->tick();
             const auto update_context = m_timer->get_update_context();
             m_renderer->on_render(update_context.deltaTime);
 
-            for (auto& callback : m_update_callbacks) {
+            for(auto& callback: m_update_callbacks) {
                 callback(update_context);
             }
 

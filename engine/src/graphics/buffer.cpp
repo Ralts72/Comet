@@ -2,11 +2,13 @@
 #include "command_buffer.h"
 #include "device.h"
 #include "queue.h"
+#include "common/profiler.h"
 
 namespace Comet {
     Buffer::Buffer(Device* device, const vk::BufferUsageFlags usage, const size_t size, void* data,
         const BufferMemoryType buffer_type)
     : m_device(device), m_size(size), m_buffer_type(buffer_type) {
+        PROFILE_SCOPE("Buffer::Constructor");
         if(m_buffer_type == BufferMemoryType::HostVisible) {
             std::tie(m_buffer, m_memory) = create_buffer(vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, usage);
             write(data);

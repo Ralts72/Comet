@@ -4,6 +4,7 @@
 #include "graphics/vertex_description.h"
 #include "common/shader_resources.h"
 #include "common/geometry_utils.h"
+#include "common/profiler.h"
 
 namespace Comet {
     static const std::vector<vk::ClearValue> s_clear_values = {
@@ -20,13 +21,17 @@ namespace Comet {
     };
 
     static int buffer_count = static_cast<int>(s_vk_settings.swapchain_image_count);
+
     static int current_buffer = 0;
+
     static PushConstant s_push_constant = {
         .matrix = Mat4{1.0f}
     };
+
     static auto [s_cube_vertices, s_cube_indices] = GeometryUtils::create_cube(-0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f);
 
     Renderer::Renderer(const Window& window) {
+        PROFILE_SCOPE("Renderer::Constructor");
         LOG_INFO("init graphics system");
         m_context = std::make_unique<Context>(window);
 
@@ -36,7 +41,7 @@ namespace Comet {
         LOG_INFO("create swapchain");
         m_swapchain = std::make_shared<Swapchain>(m_context.get(), m_device.get());
 
-        LOG_INFO("create renderpass");
+        LOG_INFO("create render pass");
         std::vector<Attachment> attachments;
         vk::AttachmentDescription color_attachment = {};
         color_attachment.format = s_vk_settings.surface_format;
@@ -129,6 +134,7 @@ namespace Comet {
     }
 
     void Renderer::on_render(float delta_time) {
+        PROFILE_SCOPE("render");
         // Update MVP matrix
         Mat4 model{1.0f};
         Mat4 view = look_at(Vec3(2.0f, 2.0f, 2.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f));
@@ -137,12 +143,19 @@ namespace Comet {
 
         // 1. wait for fence
         const auto& fence = m_frame_resources[current_buffer].fence;
-        m_device->wait_for_fences(std::span(&fence, 1));
-        m_device->reset_fences(std::span(&fence, 1));
+        {
+            PROFILE_SCOPE("Renderer::WaitFence");
+            m_device->wait_for_fences(std::span(&fence, 1));
+            m_device->reset_fences(std::span(&fence, 1));
+        }
 
         // 2. acquire swapchain image
         const auto& wait_sem = m_frame_resources[current_buffer].image_semaphore;
-        const uint32_t image_index = m_swapchain->acquire_next_image(wait_sem);
+        uint32_t image_index;
+        {
+            PROFILE_SCOPE("Renderer::AcquireImage");
+            image_index = m_swapchain->acquire_next_image(wait_sem);
+        }
 
         auto& command_buffer = m_command_buffers[image_index];
         const auto& signal_sem = m_frame_resources[current_buffer].submit_semaphore;
@@ -193,8 +206,12 @@ namespace Comet {
         command_buffer.bind_index_buffer(*m_index_buffer, 0, vk::IndexType::eUint32);
         command_buffer.push_constants(*m_pipeline->get_layout(), vk::ShaderStageFlagBits::eVertex, 0,
             &s_push_constant, sizeof(PushConstant));
+
         // 7. draw
-        command_buffer.draw_indexed(s_cube_indices.size(), 1, 0, 0, 0);
+        {
+            PROFILE_SCOPE("Renderer::DrawCall");
+            command_buffer.draw_indexed(s_cube_indices.size(), 1, 0, 0, 0);
+        }
 
         // 8. end render pass
         command_buffer.end_render_pass();
@@ -203,12 +220,18 @@ namespace Comet {
         command_buffer.end();
 
         // 10. submit with fence
-        auto graphics_queue = m_device->get_graphics_queue(0);
-        graphics_queue->submit(std::span(&command_buffer, 1),
-            std::span(&wait_sem, 1), std::span(&signal_sem, 1), &fence);
+        {
+            PROFILE_SCOPE("Renderer::Submit");
+            auto graphics_queue = m_device->get_graphics_queue(0);
+            graphics_queue->submit(std::span(&command_buffer, 1),
+                std::span(&wait_sem, 1), std::span(&signal_sem, 1), &fence);
+        }
 
         // 11. present
-        m_swapchain->present(image_index, std::span(&signal_sem, 1));
+        {
+            PROFILE_SCOPE("Renderer::Present");
+            m_swapchain->present(image_index, std::span(&signal_sem, 1));
+        }
 
         current_buffer = (current_buffer + 1) % buffer_count;
     }
