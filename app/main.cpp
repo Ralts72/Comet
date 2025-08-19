@@ -4,6 +4,7 @@ class GameApp final: public Comet::Application {
 public:
     void on_init() override {
         LOG_INFO("app init");
+        set_settings({1000,800, "Comet Game"});
     }
 
     void on_update(Comet::UpdateContext context) override {

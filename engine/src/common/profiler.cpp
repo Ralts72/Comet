@@ -32,7 +32,10 @@ namespace Comet {
         std::lock_guard<std::mutex> lock(s_mtx);
         for(const auto& [label, record]: s_records) {
             const double avg = record.total_time / record.call_count;
-            if (avg > 50.0 && record.call_count > 1) {
+            if (record.call_count == 1) {
+                PROFILE_LOG_LOW("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
+                    label, record.call_count, record.total_time, avg);
+            } else if(avg > 50.0) {
                 // 极高耗时 -> CRITICAL
                 PROFILE_LOG_CRITICAL("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
                     label, record.call_count, record.total_time, avg);

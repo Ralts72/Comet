@@ -9,8 +9,8 @@ namespace Comet {
 
         void start() {
             Logger::init();
-            m_engine = std::make_unique<Engine>();
             on_init();
+            m_engine = std::make_unique<Engine>(m_settings);
 
             m_engine->register_update_callback([this](const UpdateContext dt) {
                 this->on_update(dt);
@@ -33,9 +33,28 @@ namespace Comet {
         virtual void on_update(UpdateContext context) = 0;
 
         virtual void on_shutdown() = 0;
-        
+
+    protected:
+        void set_width(const int width) {
+            m_settings.width = width;
+        }
+        void set_height(const int height) {
+            m_settings.height = height;
+        }
+        void set_title(const std::string& title) {
+            m_settings.title = title;
+        }
+        void set_settings(const Settings& settings) {
+            m_settings = settings;
+        }
+
     private:
         std::unique_ptr<Engine> m_engine;
+        Settings m_settings = {
+            .width = 1280,
+            .height = 720,
+            .title = "Comet Engine"
+        };
     };
 
     inline void run(Application* app) {

@@ -3,7 +3,7 @@
 #include "common/profiler.h"
 
 namespace Comet {
-    Engine::Engine() {
+    Engine::Engine(const Settings& settings) {
         PROFILE_SCOPE("Engine::Constructor");
         LOG_INFO("init timer");
         m_timer = std::make_unique<Timer>();
@@ -15,7 +15,7 @@ namespace Comet {
         }
 
         LOG_INFO("init window");
-        m_window = std::make_unique<Window>("Comet Engine", 1024, 720);
+        m_window = std::make_unique<Window>(settings.title, settings.width, settings.height);
 
         LOG_INFO("init renderer");
         m_renderer = std::make_unique<Renderer>(*m_window);
@@ -29,7 +29,6 @@ namespace Comet {
     }
 
     void Engine::on_update() {
-        PROFILE_SCOPE("Engine::MainLoop");
         LOG_INFO("running engine...");
         while(!m_window->should_close()) {
             PROFILE_SCOPE("Engine::Frame");

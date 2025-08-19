@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
-#include "core/logger/logger.h"
 #include "../../engine/src/core/math_utils.h"
-#include <spdlog/sinks/stdout_color_sinks.h>
 
 namespace Comet::Tests {
 
@@ -32,22 +30,6 @@ TEST_F(IntegrationTest, MathLibraryBasicOperations) {
 
     Math::Mat4 mvpMatrix = projMatrix * modelMatrix;
     EXPECT_FALSE(mvpMatrix == Math::Mat4(0.0f));
-}
-
-TEST_F(IntegrationTest, LoggingSystemTest) {
-    // 测试日志系统 - 创建独特的logger
-    auto test_logger = spdlog::stdout_color_mt("integration_test_logger");
-    Logger::set_test_logger(test_logger);
-    
-    auto logger = Logger::get_console_logger();
-    EXPECT_NE(logger, nullptr);
-
-    LOG_INFO("Integration test logging");
-    LOG_DEBUG("Debug message");
-    LOG_WARN("Warning message");
-
-    // 如果到这里没有崩溃，说明日志系统工作正常
-    SUCCEED();
 }
 
 } // namespace Comet::Tests

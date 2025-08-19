@@ -5,9 +5,16 @@
 #include "core/timer/timer.h"
 
 namespace Comet {
+
+    struct COMET_API Settings {
+        int width = 1280;
+        int height = 720;
+        std::string title = "Comet Engine";
+    };
+
     class COMET_API Engine {
     public:
-        Engine();
+        explicit Engine(const Settings& settings);
 
         ~Engine();
 

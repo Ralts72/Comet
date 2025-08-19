@@ -142,10 +142,7 @@ namespace Comet {
         auto model = Math::Mat4(1.0f);
         model = rotate(model, Math::radians(-17.0f), Math::Vec3(1.0f, 0.0f, 0.0f));
         model = rotate(model, Math::radians(total_time * 100.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
-        // Mat4 view = look_at(Vec3(2.0f, 2.0f, 2.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f));
-        // Mat4 projection = perspective(45.0f, static_cast<float>(m_swapchain->get_width()) / static_cast<float>(m_swapchain->get_height()), 0.1f, 100.0f);
-        // s_push_constant.matrix = projection * view * model;
-    s_push_constant.matrix = Math::ortho(-1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f) * model;
+        s_push_constant.matrix = Math::ortho(-1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f) * model;
         // 1. wait for fence
         const auto& fence = m_frame_resources[current_buffer].fence;
         m_device->wait_for_fences(std::span(&fence, 1));
