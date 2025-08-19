@@ -21,6 +21,7 @@ namespace Comet {
 
         [[nodiscard]] vk::RenderPass get_render_pass() const { return m_render_pass; }
         [[nodiscard]] const std::vector<RenderSubPass>& get_sub_passes() const { return m_sub_passes; }
+        [[nodiscard]] uint32_t get_attachments_count() const { return static_cast<uint32_t>(m_attachments.size()); }
 
     private:
         vk::RenderPass m_render_pass;
