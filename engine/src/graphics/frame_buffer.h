@@ -22,7 +22,6 @@ namespace Comet {
         RenderPass* m_render_pass;
 
         uint32_t m_width, m_height;
-        std::vector<std::shared_ptr<Image>> m_images;
         std::vector<std::shared_ptr<ImageView>> m_image_views;
     };
 }
