@@ -24,6 +24,6 @@ namespace Comet {
     //     RenderPass* m_render_pass;
     //     RenderTargetInfo m_info;
     //     RenderTargetType m_type;
-    };
+    // };
 
 }
