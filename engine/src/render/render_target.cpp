@@ -35,7 +35,7 @@ namespace Comet {
     void RenderTarget::set_color_clear_value(const Math::Vec4 color) {
         const auto clear_value = vk::ClearColorValue(std::array<float, 4>({ color.x, color.y, color.z, color.w}));
         const auto attachments = m_render_pass->get_attachments();
-        for(int i = 0; i < attachments.size(); ++i) {
+        for(uint32_t i = 0; i < attachments.size(); ++i) {
             const auto description = attachments[i].description;
             if(!is_depth_stencil_format(description.format) && description.loadOp == vk::AttachmentLoadOp::eClear) {
                 m_clear_values[i] = clear_value;
@@ -58,7 +58,7 @@ namespace Comet {
     void RenderTarget::set_depth_stencil_clear_value(const Math::Vec2 depth_stencil) {
         const auto depth_stencil_calue = vk::ClearDepthStencilValue(depth_stencil.x, depth_stencil.y);
         const auto attachments = m_render_pass->get_attachments();
-        for(int i = 0; i < attachments.size(); ++i) {
+        for(uint32_t i = 0; i < attachments.size(); ++i) {
             const auto description = attachments[i].description;
             if(is_depth_stencil_format(description.format) && description.loadOp == vk::AttachmentLoadOp::eClear) {
                 m_clear_values[i] = depth_stencil_calue;
@@ -129,7 +129,7 @@ namespace Comet {
             return;
         }
 
-        for(int i = 0; i < m_info.frame_count; ++i) {
+        for(uint32_t i = 0; i < m_info.frame_count; ++i) {
             std::vector<std::shared_ptr<Image>> color_images;
             std::vector<std::shared_ptr<ImageView>> color_views;
             std::shared_ptr<Image> depth_image = nullptr;
@@ -267,7 +267,7 @@ namespace Comet {
         if(attachments.empty()) {
             return;
         }
-        for(int i = 0; i < m_info.frame_count; ++i) {
+        for(uint32_t i = 0; i < m_info.frame_count; ++i) {
             std::vector<std::shared_ptr<Image>> color_images;
             std::vector<std::shared_ptr<ImageView>> color_views;
             std::shared_ptr<Image> depth_image = nullptr;
