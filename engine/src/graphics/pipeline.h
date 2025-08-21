@@ -114,7 +114,7 @@ namespace Comet {
 
         ~Pipeline();
 
-        [[nodiscard]] vk::Pipeline get_pipeline() const { return m_pipeline; }
+        [[nodiscard]] vk::Pipeline get() const { return m_pipeline; }
         [[nodiscard]] const std::shared_ptr<PipelineLayout>& get_layout() const { return m_layout; }
         [[nodiscard]] const std::string& get_name() const { return m_name; }
 

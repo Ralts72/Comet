@@ -47,4 +47,15 @@ namespace Comet {
         scissor.extent = vk::Extent2D(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
         return scissor;
     }
+
+    inline bool is_depth_only_format(const vk::Format format) {
+        return format == vk::Format::eD16Unorm || format == vk::Format::eD32Sfloat;
+    }
+
+    inline bool is_depth_stencil_format(const vk::Format format) {
+        return is_depth_only_format(format)
+               || format == vk::Format::eD16UnormS8Uint
+               || format == vk::Format::eD24UnormS8Uint
+               || format == vk::Format::eD32SfloatS8Uint;
+    }
 }

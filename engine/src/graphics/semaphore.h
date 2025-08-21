@@ -15,7 +15,7 @@ namespace Comet {
         Semaphore(Semaphore&& other) noexcept;
         Semaphore& operator=(Semaphore&& other) noexcept;
 
-        [[nodiscard]] vk::Semaphore get_semaphore() const { return m_semaphore; }
+        [[nodiscard]] vk::Semaphore get() const { return m_semaphore; }
     private:
         Device* m_device;
         vk::Semaphore m_semaphore;

@@ -15,7 +15,7 @@ namespace Comet {
         ~Buffer();
         void write(const void *data);
 
-        [[nodiscard]] vk::Buffer get_buffer() const { return m_buffer; }
+        [[nodiscard]] vk::Buffer get() const { return m_buffer; }
         [[nodiscard]] vk::DeviceMemory get_memory() const { return m_memory; }
         [[nodiscard]] size_t get_size() const { return m_size; }
         [[nodiscard]] BufferMemoryType get_buffer_memory_type() const { return m_buffer_type; }

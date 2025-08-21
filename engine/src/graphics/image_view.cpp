@@ -6,7 +6,7 @@
 namespace Comet {
     ImageView::ImageView(Device* device, const Image& image, const vk::ImageAspectFlags aspect): m_device(device) {
         vk::ImageViewCreateInfo create_info{};
-        create_info.image = image.get_image();
+        create_info.image = image.get();
         create_info.viewType = vk::ImageViewType::e2D;
         create_info.format = image.get_info().format;
         create_info.components= {
@@ -22,11 +22,11 @@ namespace Comet {
         subresource_range.baseArrayLayer = 0;
         subresource_range.layerCount = 1;
         create_info.subresourceRange = subresource_range;
-        m_image_view = device->get_device().createImageView(create_info);
+        m_image_view = device->get().createImageView(create_info);
         LOG_INFO("Vulkan image view created successfully");
     }
 
     ImageView::~ImageView() {
-        m_device->get_device().destroyImageView(m_image_view);
+        m_device->get().destroyImageView(m_image_view);
     }
 }

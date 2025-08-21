@@ -121,7 +121,7 @@ namespace Comet {
     }
 
     void Context::create_surface(const Window& window) {
-        const auto glfw_window = window.get_window();
+        const auto glfw_window = window.get();
         if(!glfw_window) {
             LOG_FATAL("glfw window not created");
         }

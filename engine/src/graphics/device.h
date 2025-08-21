@@ -6,6 +6,7 @@ namespace Comet {
     class Queue;
     class Fence;
     class CommandPool;
+    class CommandBuffer;
 
     struct VkSettings {
         vk::Format surface_format = vk::Format::eB8G8R8A8Unorm;
@@ -28,7 +29,9 @@ namespace Comet {
 
         void wait_idle();
 
-        [[nodiscard]] vk::Device get_device() const { return m_device; }
+        void copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size);
+
+        [[nodiscard]] vk::Device get() const { return m_device; }
         [[nodiscard]] const VkSettings& get_settings() const { return m_settings; }
 
         [[nodiscard]] std::shared_ptr<Queue> get_graphics_queue(const uint32_t index = 0) const {
@@ -48,6 +51,7 @@ namespace Comet {
     private:
         void create_pipeline_cache();
         void create_default_command_pool();
+        void one_time_submit(const std::function<void(CommandBuffer)>& cmd_func);
 
         vk::Device m_device;
         Context* m_context;

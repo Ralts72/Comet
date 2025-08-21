@@ -5,6 +5,7 @@
 #include "frame_buffer.h"
 #include "pipeline.h"
 #include "common/profiler.h"
+#include "render/render_target.h"
 
 namespace Comet {
     void CommandBuffer::begin(const vk::CommandBufferUsageFlags flags) {
@@ -27,8 +28,8 @@ namespace Comet {
         const std::vector<vk::ClearValue>& clear_values) {
         PROFILE_SCOPE("CommandBuffer::BeginRenderPass");
         vk::RenderPassBeginInfo render_pass_info = {};
-        render_pass_info.renderPass = render_pass.get_render_pass();
-        render_pass_info.framebuffer = frame_buffer.get_frame_buffer();
+        render_pass_info.renderPass = render_pass.get();
+        render_pass_info.framebuffer = frame_buffer.get();
         vk::Rect2D render_area = {};
         render_area.extent.width = frame_buffer.get_width();
         render_area.extent.height = frame_buffer.get_height();
@@ -47,7 +48,7 @@ namespace Comet {
     }
 
     void CommandBuffer::bind_pipeline(const Pipeline& pipeline) {
-        m_command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.get_pipeline());
+        m_command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.get());
         LOG_TRACE("CommandBuffer: bind pipeline {}", pipeline.get_name());
     }
 
@@ -74,14 +75,14 @@ namespace Comet {
         std::vector<vk::Buffer> vk_buffers;
         vk_buffers.reserve(buffers.size());
         for (const auto buf : buffers) {
-            vk_buffers.push_back(buf->get_buffer());
+            vk_buffers.push_back(buf->get());
         }
         m_command_buffer.bindVertexBuffers(first_binding, static_cast<uint32_t>(vk_buffers.size()),
             vk_buffers.data(), offsets.data());
     }
 
     void CommandBuffer::bind_index_buffer(const Buffer& buffer, vk::DeviceSize offset, vk::IndexType type) {
-        m_command_buffer.bindIndexBuffer(buffer.get_buffer(), offset, type);
+        m_command_buffer.bindIndexBuffer(buffer.get(), offset, type);
     }
 
     void CommandBuffer::push_constants(const PipelineLayout& layout, vk::ShaderStageFlags stage_flags,
@@ -103,12 +104,12 @@ namespace Comet {
         vk::CommandPoolCreateInfo pool_info = {};
         pool_info.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
         pool_info.queueFamilyIndex = queue_family_index;
-        m_command_pool = m_device->get_device().createCommandPool(pool_info);
+        m_command_pool = m_device->get().createCommandPool(pool_info);
         LOG_INFO("Vulkan command pool created successfully");
     }
 
     CommandPool::~CommandPool() {
-        m_device->get_device().destroyCommandPool(m_command_pool);
+        m_device->get().destroyCommandPool(m_command_pool);
     }
 
     std::vector<CommandBuffer> CommandPool::allocate_command_buffers(const uint32_t count) const {
@@ -117,7 +118,7 @@ namespace Comet {
         allocate_info.commandPool = m_command_pool;
         allocate_info.commandBufferCount = count;
         allocate_info.level = vk::CommandBufferLevel::ePrimary;
-        cmd_buffers = m_device->get_device().allocateCommandBuffers(allocate_info);
+        cmd_buffers = m_device->get().allocateCommandBuffers(allocate_info);
         std::vector<CommandBuffer> command_buffers;
         command_buffers.reserve(count);
         for (const auto& cmd_buffer : cmd_buffers) {

@@ -12,7 +12,7 @@ namespace Comet {
 
         ~Window();
 
-        [[nodiscard]] GLFWwindow* get_window() const { return m_window; }
+        [[nodiscard]] GLFWwindow* get() const { return m_window; }
 
         [[nodiscard]] bool should_close() const;
 

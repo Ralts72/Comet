@@ -104,7 +104,7 @@ namespace Comet {
     void Device::wait_for_fences(const std::span<const Fence> fences, const bool wait_all, const uint64_t timeout) const {
         std::vector<vk::Fence> vk_fences;
         for(const auto& fence : fences) {
-            vk_fences.push_back(fence.get_fence());
+            vk_fences.push_back(fence.get());
         }
         const auto result = m_device.waitForFences(vk_fences, wait_all, timeout);
         if(result != vk::Result::eSuccess) {
@@ -117,7 +117,7 @@ namespace Comet {
     void Device::reset_fences(const std::span<const Fence> fences) const {
         std::vector<vk::Fence> vk_fences;
         for(const auto& fence : fences) {
-            vk_fences.push_back(fence.get_fence());
+            vk_fences.push_back(fence.get());
         }
         m_device.resetFences(vk_fences);
     }
@@ -125,6 +125,13 @@ namespace Comet {
     void Device::wait_idle() {
         m_device.waitIdle();
     }
+
+    void Device::copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size) {
+        one_time_submit([&](CommandBuffer cmd_buf){
+            cmd_buf.copy_buffer(src, dst, size);
+        });
+    }
+
     uint32_t Device::get_memory_index(const vk::MemoryPropertyFlags mem_props, uint32_t memory_type_bits) const {
         const vk::PhysicalDeviceMemoryProperties physical_device_mem_props = m_context->get_memory_properties();
         if(physical_device_mem_props.memoryTypeCount == 0){
@@ -145,5 +152,15 @@ namespace Comet {
         constexpr vk::PipelineCacheCreateInfo pcache_create_info = {};
         m_pipeline_cache = m_device.createPipelineCache(pcache_create_info);
         LOG_INFO("Vulkan pipeline cache created successfully");
+    }
+
+    void Device::one_time_submit(const std::function<void(CommandBuffer)>& cmd_func) {
+        auto cmd_buf = m_default_command_pool->allocate_command_buffer();
+        cmd_buf.reset();
+        cmd_buf.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+        cmd_func(cmd_buf);
+        cmd_buf.end();
+        m_graphics_queues.at(0)->submit(std::span(&cmd_buf, 1), {}, {}, {});
+        m_graphics_queues.at(0)->wait_idle();
     }
 }

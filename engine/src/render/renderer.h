@@ -3,14 +3,13 @@
 #include "graphics/device.h"
 #include "graphics/swapchain.h"
 #include "graphics/render_pass.h"
-#include "graphics/frame_buffer.h"
 #include "graphics/shader.h"
 #include "graphics/pipeline.h"
 #include "graphics/command_buffer.h"
-#include "graphics/queue.h"
 #include "graphics/fence.h"
 #include "graphics/semaphore.h"
 #include "graphics/buffer.h"
+#include "render_target.h"
 
 namespace Comet {
     struct FrameResources {
@@ -38,8 +37,7 @@ namespace Comet {
 
         std::unique_ptr<ShaderManager> m_shader_manager;
         mutable std::shared_ptr<Pipeline> m_pipeline;
-        mutable std::vector<std::shared_ptr<FrameBuffer>> m_frame_buffers;
-        // mutable bool m_frame_buffers_dirty = false;
+        std::shared_ptr<RenderTarget> m_render_target;
 
         mutable std::vector<FrameResources> m_frame_resources;
 

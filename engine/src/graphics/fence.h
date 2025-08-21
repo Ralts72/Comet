@@ -15,7 +15,7 @@ namespace Comet {
         Fence(Fence&& other) noexcept;
         Fence& operator=(Fence&& other) noexcept;
 
-        [[nodiscard]] vk::Fence get_fence() const {return m_fence;}
+        [[nodiscard]] vk::Fence get() const {return m_fence;}
     private:
         Device* m_device;
         vk::Fence m_fence;

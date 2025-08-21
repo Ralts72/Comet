@@ -8,6 +8,7 @@ namespace Comet {
     class FrameBuffer;
     class Pipeline;
     class PipelineLayout;
+    class RenderTarget;
 
     class CommandBuffer {
     public:
@@ -38,12 +39,6 @@ namespace Comet {
 
         void push_constants(const PipelineLayout& layout, vk::ShaderStageFlags stage_flags,
             uint32_t offset, const void* data, size_t size);
-        // void bind_descriptor_set(const vk::PipelineLayout& layout,
-        //                          const DescriptorSet& set,
-        //                          vk::PipelineBindPoint bindPoint = vk::PipelineBindPoint::eGraphics)
-        // {
-        //     m_cmd.bindDescriptorSets(bindPoint, layout, 0, set.get_handle(), {});
-        // }
 
         // draw
         void draw(uint32_t vertex_count, uint32_t instance_count = 1,
@@ -51,7 +46,7 @@ namespace Comet {
         void draw_indexed(uint32_t index_count, uint32_t instance_count = 1, uint32_t first_index = 0,
             int32_t vertex_offset = 0, uint32_t first_instance = 0);
 
-        [[nodiscard]] vk::CommandBuffer get_command_buffer() const { return m_command_buffer; }
+        [[nodiscard]] vk::CommandBuffer get() const { return m_command_buffer; }
 
     private:
         explicit CommandBuffer(const vk::CommandBuffer command_buffer): m_command_buffer(command_buffer) {}
@@ -65,7 +60,7 @@ namespace Comet {
 
         [[nodiscard]] std::vector<CommandBuffer> allocate_command_buffers(uint32_t count) const;
         [[nodiscard]] CommandBuffer allocate_command_buffer() const;
-        [[nodiscard]] vk::CommandPool get_command_pool() const { return m_command_pool; }
+        [[nodiscard]] vk::CommandPool get() const { return m_command_pool; }
 
     private:
         Device* m_device;

@@ -5,12 +5,9 @@
 #include "common/shader_resources.h"
 #include "common/geometry_utils.h"
 #include "common/profiler.h"
+#include "graphics/queue.h"
 
 namespace Comet {
-    static const std::vector<vk::ClearValue> s_clear_values = {
-        vk::ClearColorValue(std::array<float, 4>({0.2f, 0.3f, 0.3f, 1.0f})),
-        vk::ClearDepthStencilValue(1.0f, 0)
-    };
 
     static VkSettings s_vk_settings = {
         .surface_format = vk::Format::eB8G8R8A8Unorm,
@@ -77,27 +74,12 @@ namespace Comet {
 
         m_render_pass = std::make_shared<RenderPass>(m_device.get(), attachments, render_sub_passes);
 
-        LOG_INFO("create framebuffer");
-        ImageInfo color_image_info = {
-            .format = s_vk_settings.surface_format,
-            .extent = {m_swapchain->get_width(), m_swapchain->get_height(), 1},
-            .usage = vk::ImageUsageFlagBits::eColorAttachment
+        LOG_INFO("create render target");
+        RenderTargetInfo render_target_info = {
+            Math::Vec2i(800, 800), 1
         };
-        ImageInfo depth_image_info = {
-            .format = s_vk_settings.depth_format,
-            .extent = {m_swapchain->get_width(), m_swapchain->get_height(), 1},
-            .usage = vk::ImageUsageFlagBits::eDepthStencilAttachment
-        };
-        for(const auto& image: m_swapchain->get_images()) {
-            std::vector<std::shared_ptr<Image>> images = {
-                std::make_shared<Image>(m_device.get(), image.get_image(), color_image_info),
-                std::make_shared<Image>(m_device.get(), depth_image_info)
-            };
-            auto frame_buffer = std::make_shared<FrameBuffer>(m_device.get(), m_render_pass.get(),
-                images, m_swapchain->get_width(), m_swapchain->get_height());
-            m_frame_buffers.push_back(frame_buffer);
-        }
-
+        m_render_target = RenderTarget::create_swapchain_target(m_device.get(),m_render_pass.get(), m_swapchain.get(), render_target_info);
+        m_render_target->set_color_clear_value(Math::Vec4{0.2f, 0.8f, 0.1f, 1.0f});
         LOG_INFO("create command buffers");
         m_command_buffers = m_device->get_default_command_pool()->allocate_command_buffers(m_swapchain->get_images().size());
 
@@ -157,31 +139,8 @@ namespace Comet {
         // 3. begin command buffer
         command_buffer.begin();
 
-        // 4. begin render pass, bind frame buffer
-        // todo check window resize
-        // if(m_frame_buffers_dirty) {
-        //     m_frame_buffers.clear();
-        //     for(const auto& image: m_swapchain->get_images()) {
-        //         std::vector<std::shared_ptr<Image>> images = {
-        //             std::make_shared<Image>(m_device.get(), image.get_image(), ImageInfo{
-        //                 .format = s_vk_settings.surface_format,
-        //                 .extent = {m_swapchain->get_width(), m_swapchain->get_height(), 1},
-        //                 .usage = vk::ImageUsageFlagBits::eColorAttachment
-        //             }),
-        //             std::make_shared<Image>(m_device.get(), ImageInfo{
-        //                 .format = s_vk_settings.depth_format,
-        //                 .extent = {m_swapchain->get_width(), m_swapchain->get_height(), 1},
-        //                 .usage = vk::ImageUsageFlagBits::eDepthStencilAttachment
-        //             })
-        //         };
-        //         auto frame_buffer = std::make_shared<FrameBuffer>(m_device.get(), m_render_pass.get(),
-        //             images, m_swapchain->get_width(), m_swapchain->get_height());
-        //         m_frame_buffers.push_back(frame_buffer);
-        //     }
-        //     m_frame_buffers_dirty = false;
-        // }
-        auto frame_buffer = m_frame_buffers[image_index];
-        command_buffer.begin_render_pass(*m_render_pass, *frame_buffer, s_clear_values);
+        // 4. begin render target
+        m_render_target->begin_render_target(command_buffer);
 
         // 5. bind pipeline
         command_buffer.bind_pipeline(*m_pipeline);
@@ -206,7 +165,7 @@ namespace Comet {
         command_buffer.draw_indexed(s_cube_indices.size(), 1, 0, 0, 0);
 
         // 8. end render pass
-        command_buffer.end_render_pass();
+        m_render_target->end_render_target(command_buffer);
 
         // 9. end command buffer
         command_buffer.end();
@@ -225,14 +184,13 @@ namespace Comet {
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
         m_device->wait_idle();
-
         m_index_buffer.reset();
         m_vertex_buffer.reset();
         m_frame_resources.clear();
         m_command_buffers.clear();
         m_pipeline.reset();
         m_shader_manager.reset();
-        m_frame_buffers.clear();
+        m_render_target.reset();
         m_render_pass.reset();
         m_swapchain.reset();
         m_device.reset();

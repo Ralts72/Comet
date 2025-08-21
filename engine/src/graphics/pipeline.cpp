@@ -11,12 +11,12 @@ namespace Comet {
         pipeline_layout_create_info.pushConstantRangeCount = static_cast<uint32_t>(layout.push_constants.size());
         pipeline_layout_create_info.pPushConstantRanges = layout.push_constants.data();
 
-        m_pipeline_layout = m_device->get_device().createPipelineLayout(pipeline_layout_create_info);
+        m_pipeline_layout = m_device->get().createPipelineLayout(pipeline_layout_create_info);
         LOG_INFO("Vulkan pipeline layout created successfully");
     }
 
     PipelineLayout::~PipelineLayout() {
-        m_device->get_device().destroyPipelineLayout(m_pipeline_layout);
+        m_device->get().destroyPipelineLayout(m_pipeline_layout);
     }
 
     void PipelineConfig::set_vertex_input_state(const std::vector<vk::VertexInputBindingDescription>& vertex_bindings,
@@ -97,12 +97,12 @@ namespace Comet {
         pipeline_create_info.pColorBlendState = &color_blend_state;
         pipeline_create_info.pDynamicState = &dynamic_state;
         pipeline_create_info.layout = m_layout->get_pipeline_layout();
-        pipeline_create_info.renderPass = m_render_pass->get_render_pass();
+        pipeline_create_info.renderPass = m_render_pass->get();
         pipeline_create_info.subpass = 0;
         pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
         pipeline_create_info.basePipelineIndex = 0;
 
-        auto result = m_device->get_device().createGraphicsPipeline(m_device->get_pipeline_cache(), pipeline_create_info);
+        auto result = m_device->get().createGraphicsPipeline(m_device->get_pipeline_cache(), pipeline_create_info);
         if(result.result != vk::Result::eSuccess) {
             LOG_FATAL("Failed to create graphics pipeline");
         }
@@ -114,13 +114,13 @@ namespace Comet {
         std::array<vk::PipelineShaderStageCreateInfo, 2> pipeline_shader_stage;
         vk::PipelineShaderStageCreateInfo vertex_shader_stage_info = {};
         vertex_shader_stage_info.stage = vk::ShaderStageFlagBits::eVertex;
-        vertex_shader_stage_info.module = vertex_shader->get_shader_module();
+        vertex_shader_stage_info.module = vertex_shader->get();
         vertex_shader_stage_info.pName = "main";
         vertex_shader_stage_info.pSpecializationInfo = nullptr;
         pipeline_shader_stage[0] = vertex_shader_stage_info;
         vk::PipelineShaderStageCreateInfo fragment_shader_stage_info = {};
         fragment_shader_stage_info.stage = vk::ShaderStageFlagBits::eFragment;
-        fragment_shader_stage_info.module = fragment_shader->get_shader_module();
+        fragment_shader_stage_info.module = fragment_shader->get();
         fragment_shader_stage_info.pName = "main";
         fragment_shader_stage_info.pSpecializationInfo = nullptr;
         pipeline_shader_stage[1] = fragment_shader_stage_info;
@@ -216,6 +216,6 @@ namespace Comet {
     }
 
     Pipeline::~Pipeline() {
-        m_device->get_device().destroyPipeline(m_pipeline);
+        m_device->get().destroyPipeline(m_pipeline);
     }
 }

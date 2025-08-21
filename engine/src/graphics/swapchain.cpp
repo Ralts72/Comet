@@ -16,7 +16,7 @@ namespace Comet {
     }
 
     Swapchain::~Swapchain() {
-        m_device->get_device().destroySwapchainKHR(m_swapchain);
+        m_device->get().destroySwapchainKHR(m_swapchain);
     }
 
     bool Swapchain::recreate() {
@@ -62,20 +62,20 @@ namespace Comet {
         create_info.presentMode = m_surface_info.present_mode;
         create_info.clipped = VK_FALSE;
         create_info.oldSwapchain = old_swapchain;
-        m_swapchain = m_device->get_device().createSwapchainKHR(create_info);
-        const auto images = m_device->get_device().getSwapchainImagesKHR(m_swapchain);
+        m_swapchain = m_device->get().createSwapchainKHR(create_info);
+        const auto images = m_device->get().getSwapchainImagesKHR(m_swapchain);
         m_images.clear();
         ImageInfo image_info = {};
         image_info.format = m_surface_info.surface_format.format;
         image_info.extent = vk::Extent3D{m_surface_info.capabilities.currentExtent.width, m_surface_info.capabilities.currentExtent.height, 1};
         image_info.usage = vk::ImageUsageFlagBits::eColorAttachment;
         for(const auto& image: images) {
-            m_images.emplace_back(m_device, image, image_info);
+            m_images.emplace_back(*Image::create_borrowed_image(m_device, image, image_info));
         }
         LOG_INFO("Vulkan swapchain created successfully with {} images", m_images.size());
         // 销毁旧的交换链
         if(old_swapchain) {
-            m_device->get_device().destroySwapchainKHR(old_swapchain);
+            m_device->get().destroySwapchainKHR(old_swapchain);
         }
 
         return true;
@@ -83,8 +83,8 @@ namespace Comet {
 
     uint32_t Swapchain::acquire_next_image(const Semaphore& semaphore) {
         uint32_t image_index;
-        const auto result = m_device->get_device().acquireNextImageKHR(m_swapchain, UINT64_MAX,
-            semaphore.get_semaphore(), VK_NULL_HANDLE, &image_index);
+        const auto result = m_device->get().acquireNextImageKHR(m_swapchain, UINT64_MAX,
+            semaphore.get(), VK_NULL_HANDLE, &image_index);
         if(result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR) {
             m_current_index = image_index;
             return image_index;
@@ -96,7 +96,7 @@ namespace Comet {
         PROFILE_SCOPE("Swapchain::Present");
         std::vector<vk::Semaphore> vk_wait_semaphores;
         for(const auto& wait_sem: wait_semaphores) {
-            vk_wait_semaphores.emplace_back(wait_sem.get_semaphore());
+            vk_wait_semaphores.emplace_back(wait_sem.get());
         }
         vk::PresentInfoKHR present_info = {};
         present_info.waitSemaphoreCount = static_cast<uint32_t>(vk_wait_semaphores.size());
@@ -105,7 +105,7 @@ namespace Comet {
         present_info.pSwapchains = &m_swapchain;
         present_info.pImageIndices = &image_index;
         const auto queue = m_device->get_present_queue(0);
-        const auto result = queue->get_queue().presentKHR(present_info);
+        const auto result = queue->get().presentKHR(present_info);
         if(result == vk::Result::eSuboptimalKHR) {
             LOG_WARN("swapchain is suboptimal, consider recreating it");
         } else if(result != vk::Result::eSuccess) {

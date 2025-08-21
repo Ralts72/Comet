@@ -8,12 +8,12 @@ namespace Comet {
         vk::ShaderModuleCreateInfo create_info{};
         create_info.codeSize = spv_data.size();
         create_info.pCode = reinterpret_cast<const uint32_t*>(spv_data.data());
-        m_shader_module = m_device->get_device().createShaderModule(create_info);
+        m_shader_module = m_device->get().createShaderModule(create_info);
         LOG_INFO("Vulkan shader module '{}' created successfully", name);
     }
 
     Shader::~Shader() {
-        m_device->get_device().destroyShaderModule(m_shader_module);
+        m_device->get().destroyShaderModule(m_shader_module);
     }
 
     std::shared_ptr<Shader> ShaderManager::load_shader(const std::string& name, const std::vector<unsigned char>& spv_data, const ShaderLayout& layout) {
