@@ -22,14 +22,12 @@ namespace Comet {
 
         bool recreate();
 
-        [[nodiscard]] uint32_t acquire_next_image(const Semaphore& semaphore);
-
-        void present(uint32_t image_index, std::span<const Semaphore> wait_semaphores) const;
-
+        [[nodiscard]]std::pair<uint32_t, vk::Result> acquire_next_image(const Semaphore& semaphore);
         [[nodiscard]] uint32_t get_current_index() const { return m_current_index; }
         [[nodiscard]] const std::vector<Image>& get_images() const { return m_images; }
         [[nodiscard]] uint32_t get_width() const { return m_surface_info.capabilities.currentExtent.width; }
         [[nodiscard]] uint32_t get_height() const { return m_surface_info.capabilities.currentExtent.height; }
+        [[nodiscard]] const vk::SwapchainKHR& get() const { return m_swapchain; }
 
     private:
         void setup_surface_capabilities();

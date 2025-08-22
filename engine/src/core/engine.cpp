@@ -35,7 +35,8 @@ namespace Comet {
             m_window->poll_events();
             m_timer->tick();
             const auto update_context = m_timer->get_update_context();
-            m_renderer->on_render(update_context.deltaTime);
+            m_renderer->on_update(update_context.deltaTime);
+            m_renderer->on_render();
 
             for(auto& callback: m_update_callbacks) {
                 callback(update_context);

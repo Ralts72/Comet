@@ -8,8 +8,9 @@
 #include "graphics/command_buffer.h"
 #include "graphics/fence.h"
 #include "graphics/semaphore.h"
-#include "graphics/buffer.h"
 #include "render_target.h"
+#include "mesh.h"
+#include "common/shader_resources.h"
 
 namespace Comet {
     struct FrameResources {
@@ -27,7 +28,8 @@ namespace Comet {
 
         ~Renderer();
 
-        void on_render(float delta_time);
+        void on_update(float delta_time);
+        void on_render();
 
     private:
         std::unique_ptr<Context> m_context;
@@ -41,10 +43,14 @@ namespace Comet {
 
         mutable std::vector<FrameResources> m_frame_resources;
 
-        std::shared_ptr<Buffer> m_vertex_buffer;
-        std::shared_ptr<Buffer> m_index_buffer;
+        std::shared_ptr<Mesh> m_cube_mesh;
 
         std::vector<CommandBuffer> m_command_buffers;
+        uint32_t m_current_buffer = 0;
+
+        PushConstant m_push_constant = {
+            .matrix = Math::Mat4{1.0f}
+        };
     };
 }
 

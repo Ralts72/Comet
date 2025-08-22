@@ -5,3 +5,4 @@
 *.spv
 build/
 cmake-build-debug/
+logs/

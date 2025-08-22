@@ -2,7 +2,6 @@
 #include "core/logger/logger.h"
 #include "graphics/image.h"
 #include "graphics/vertex_description.h"
-#include "common/shader_resources.h"
 #include "common/geometry_utils.h"
 #include "common/profiler.h"
 #include "graphics/queue.h"
@@ -14,14 +13,6 @@ namespace Comet {
         .depth_format = vk::Format::eD32Sfloat,
         .present_mode = vk::PresentModeKHR::eImmediate,
         .swapchain_image_count = 3
-    };
-
-    static int buffer_count = static_cast<int>(s_vk_settings.swapchain_image_count);
-
-    static int current_buffer = 0;
-
-    static PushConstant s_push_constant = {
-        .matrix = Math::Mat4{1.0f}
     };
 
     static auto [s_cube_vertices, s_cube_indices] = GeometryUtils::create_cube(-0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f);
@@ -80,7 +71,7 @@ namespace Comet {
         m_command_buffers = m_device->get_default_command_pool()->allocate_command_buffers(m_swapchain->get_images().size());
 
         LOG_INFO("create fence and semaphore");
-        for(int i = 0; i < buffer_count; ++i) {
+        for(int i = 0; i < s_vk_settings.swapchain_image_count; ++i) {
             m_frame_resources.emplace_back(m_device.get());
         }
 
@@ -107,33 +98,52 @@ namespace Comet {
         m_pipeline = std::make_shared<Pipeline>("cube_pipeline", m_device.get(), m_render_pass.get(),
             pipeline_layout, vert_shader, frag_shader, pipeline_config);
 
-        m_vertex_buffer = std::make_shared<Buffer>(m_device.get(), vk::BufferUsageFlagBits::eVertexBuffer,
-            s_cube_vertices.size() * sizeof(Math::Vertex), s_cube_vertices.data());
-        m_index_buffer = std::make_shared<Buffer>(m_device.get(), vk::BufferUsageFlagBits::eIndexBuffer,
-            sizeof(uint32_t) * s_cube_indices.size(), s_cube_indices.data());
+        m_cube_mesh = std::make_shared<Mesh>(m_device.get(), s_cube_vertices, s_cube_indices);
     }
 
-    void Renderer::on_render(const float delta_time) {
-        PROFILE_SCOPE("render");
+    void Renderer::on_update(const float delta_time) {
+        PROFILE_SCOPE("render update");
         total_time += delta_time;
         // Update MVP matrix
         auto model = Math::Mat4(1.0f);
-        model = rotate(model, Math::radians(-17.0f), Math::Vec3(1.0f, 0.0f, 0.0f));
-        model = rotate(model, Math::radians(total_time * 100.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
-        s_push_constant.matrix = Math::ortho(-1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f) * model;
+        model = Math::rotate(model, Math::radians(-17.0f), Math::Vec3(1.0f, 0.0f, 0.0f));
+        model = Math::rotate(model, Math::radians(total_time * 100.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
+        auto projection = Math::perspective(Math::radians(65.0f),
+            static_cast<float>(m_swapchain->get_width()) / static_cast<float>(m_swapchain->get_height()), 0.1f, 100.0f);
+        auto view = Math::look_at(Math::Vec3(30.0f, 0.0f, 30.0f),
+            Math::Vec3(0.0f, 0.0f, 0.0f),
+            Math::Vec3(0.0f, 1.0f, 0.0f));
+        m_push_constant.matrix = projection * view * model;
+    }
+
+    void Renderer::on_render() {
+        PROFILE_SCOPE("render frame");
         // 1. wait for fence
-        const auto& fence = m_frame_resources[current_buffer].fence;
+        const auto& fence = m_frame_resources[m_current_buffer].fence;
         m_device->wait_for_fences(std::span(&fence, 1));
         m_device->reset_fences(std::span(&fence, 1));
 
         // 2. acquire swapchain image
-        const auto& wait_sem = m_frame_resources[current_buffer].image_semaphore;
-        const uint32_t image_index = m_swapchain->acquire_next_image(wait_sem);
+        const auto& wait_sem = m_frame_resources[m_current_buffer].image_semaphore;
+        auto [image_index, acquire_result] = m_swapchain->acquire_next_image(wait_sem);
+        if(acquire_result == vk::Result::eErrorOutOfDateKHR) {
+            m_device->wait_idle();
+            const auto original_size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
+            const bool flag = m_swapchain->recreate();
+            const auto size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
+            if(flag && original_size != size) {
+                m_render_target->resize(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
+            }
+            std::tie(image_index, acquire_result) = m_swapchain->acquire_next_image(wait_sem);
+            if(acquire_result != vk::Result::eSuccess && acquire_result != vk::Result::eSuboptimalKHR) {
+                LOG_FATAL("can't acquire swapchain image");
+            }
+        }
 
         auto& command_buffer = m_command_buffers[image_index];
-        const auto& signal_sem = m_frame_resources[current_buffer].submit_semaphore;
+        const auto& signal_sem = m_frame_resources[m_current_buffer].submit_semaphore;
         // 3. begin command buffer
-        command_buffer.begin();
+        command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 
         // 4. begin render target
         m_render_target->begin_render_target(command_buffer);
@@ -150,15 +160,10 @@ namespace Comet {
             static_cast<float>(m_swapchain->get_height()));
         command_buffer.set_scissor(scissor);
 
-        const Buffer* buffer_array[] = {m_vertex_buffer.get()};
-        constexpr vk::DeviceSize offsets[] = {0};
-        command_buffer.bind_vertex_buffer(buffer_array, offsets, 0);
-        command_buffer.bind_index_buffer(*m_index_buffer, 0, vk::IndexType::eUint32);
-        command_buffer.push_constants(*m_pipeline->get_layout(), vk::ShaderStageFlagBits::eVertex, 0,
-            &s_push_constant, sizeof(PushConstant));
-
         // 7. draw
-        command_buffer.draw_indexed(s_cube_indices.size(), 1, 0, 0, 0);
+        command_buffer.push_constants(*m_pipeline->get_layout(), vk::ShaderStageFlagBits::eVertex, 0,
+            &m_push_constant, sizeof(PushConstant));
+        m_cube_mesh->draw(command_buffer);
 
         // 8. end render pass
         m_render_target->end_render_target(command_buffer);
@@ -172,16 +177,25 @@ namespace Comet {
             std::span(&wait_sem, 1), std::span(&signal_sem, 1), &fence);
 
         // 11. present
-        m_swapchain->present(image_index, std::span(&signal_sem, 1));
+        auto present_queue = m_device->get_present_queue(0);
+        const auto result = present_queue->present(*m_swapchain, std::span(&signal_sem, 1), image_index);
+        if(result == vk::Result::eSuboptimalKHR) {
+            m_device->wait_idle();
+            const auto original_size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
+            const bool flag = m_swapchain->recreate();
+            const auto size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
+            if(flag && original_size != size) {
+                m_render_target->resize(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
+            }
+        }
 
-        current_buffer = (current_buffer + 1) % buffer_count;
+        m_current_buffer = (m_current_buffer + 1) % s_vk_settings.swapchain_image_count;
     }
 
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
         m_device->wait_idle();
-        m_index_buffer.reset();
-        m_vertex_buffer.reset();
+        m_cube_mesh.reset();
         m_frame_resources.clear();
         m_command_buffers.clear();
         m_pipeline.reset();
@@ -192,4 +206,6 @@ namespace Comet {
         m_device.reset();
         m_context.reset();
     }
+
+
 }

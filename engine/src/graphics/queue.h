@@ -5,6 +5,7 @@ namespace Comet {
     class CommandBuffer;
     class Semaphore;
     class Fence;
+    class Swapchain;
 
     class Queue {
     public:
@@ -15,6 +16,8 @@ namespace Comet {
         void wait_idle() const { m_queue.waitIdle(); }
         void submit(std::span<const CommandBuffer> command_buffers, std::span<const Semaphore> wait_semaphores,
             std::span<const Semaphore> signal_semaphores, const Fence* fence) const;
+
+        vk::Result present(const Swapchain& swapchain, const std::span<const Semaphore> wait_semaphores, uint32_t image_index) const;
 
         [[nodiscard]] vk::Queue get() const { return m_queue; }
         [[nodiscard]] uint32_t get_family_index() const { return m_family_index; }

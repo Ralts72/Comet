@@ -10,7 +10,7 @@ namespace Comet {
 
     class Buffer {
     public:
-        Buffer(Device* device, vk::BufferUsageFlags usage, size_t size, void *data = nullptr,
+        Buffer(Device* device, vk::BufferUsageFlags usage, size_t size, const void *data = nullptr,
             BufferMemoryType buffer_type = BufferMemoryType::DeviceLocal);
         ~Buffer();
         void write(const void *data);

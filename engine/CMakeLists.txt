@@ -36,6 +36,7 @@ file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/buffer.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/renderer.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/render_target.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/render/mesh.cpp"
 )
 
 find_package(Vulkan REQUIRED)

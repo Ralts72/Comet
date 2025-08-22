@@ -18,13 +18,15 @@ namespace Comet {
         static std::shared_ptr<spdlog::logger> get_console_logger();
         static std::shared_ptr<spdlog::logger> get_profiler_logger();
         
-        // 测试专用接口
-        static void set_test_logger(std::shared_ptr<spdlog::logger> logger);
-        
+        // 获取日志文件路径
+        static std::string get_log_file_path();
+
     private:
         static std::shared_ptr<spdlog::logger> s_console_logger;
         static std::shared_ptr<spdlog::logger> s_profiler_logger;
         static bool s_initialized;
+        static std::string s_current_log_file_path;
+        static bool s_enable_file_output;
     };
 
 #ifdef BUILD_TYPE_DEBUG

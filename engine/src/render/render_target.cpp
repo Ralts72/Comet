@@ -261,6 +261,7 @@ namespace Comet {
         if(attachments.empty()) {
             return;
         }
+
         for(uint32_t i = 0; i < m_frame_count; ++i) {
             std::vector<std::shared_ptr<Image>> color_images;
             std::vector<std::shared_ptr<ImageView>> color_views;
