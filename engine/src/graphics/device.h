@@ -14,6 +14,7 @@ namespace Comet {
         vk::Format depth_format = vk::Format::eD32Sfloat;
         vk::PresentModeKHR present_mode = vk::PresentModeKHR::eImmediate;
         uint32_t swapchain_image_count = 3;
+        vk::SampleCountFlagBits msaa_samples = vk::SampleCountFlagBits::e1;
     };
 
     class Device {

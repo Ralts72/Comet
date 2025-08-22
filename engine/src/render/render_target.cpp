@@ -128,6 +128,7 @@ namespace Comet {
         }
 
         for(uint32_t i = 0; i < m_frame_count; ++i) {
+            std::vector<std::shared_ptr<ImageView>> all_views;
             std::vector<std::shared_ptr<Image>> color_images;
             std::vector<std::shared_ptr<ImageView>> color_views;
             std::shared_ptr<Image> depth_image = nullptr;
@@ -141,17 +142,20 @@ namespace Comet {
                 };
 
                 if(is_depth_stencil_format(description.format)) {
-                    depth_image = Image::create_owned_image(m_device, image_info);
+                    depth_image = Image::create_owned_image(m_device, image_info, description.samples);
                     depth_view = std::make_shared<ImageView>(m_device, *depth_image, vk::ImageAspectFlagBits::eDepth);
+                    all_views.push_back(depth_view);
                 } else {
                     std::shared_ptr<Image> color_image;
                     if(description.finalLayout == vk::ImageLayout::ePresentSrcKHR && description.samples == vk::SampleCountFlagBits::e1) {
                         color_image = Image::create_borrowed_image(m_device, m_swapchain->get_images()[i].get(), image_info);
                     } else {
-                        color_image = Image::create_owned_image(m_device, image_info);
+                        color_image = Image::create_owned_image(m_device, image_info, description.samples);
                     }
                     color_images.emplace_back(color_image);
-                    color_views.emplace_back(std::make_shared<ImageView>(m_device, *color_image, vk::ImageAspectFlagBits::eColor));
+                    auto color_view = std::make_shared<ImageView>(m_device, *color_image, vk::ImageAspectFlagBits::eColor);
+                    color_views.emplace_back(color_view);
+                    all_views.push_back(color_view);
                 }
             }
 
@@ -160,11 +164,6 @@ namespace Comet {
             if(depth_image) {
                 m_render_resources[i].depth_image = depth_image;
                 m_render_resources[i].depth_view = depth_view;
-            }
-
-            std::vector<std::shared_ptr<ImageView>> all_views = color_views;
-            if(depth_view) {
-                all_views.emplace_back(depth_view);
             }
 
             m_render_resources[i].frame_buffer = std::make_shared<FrameBuffer>(m_device, m_render_pass, all_views,
@@ -223,12 +222,12 @@ namespace Comet {
             };
 
             if(is_depth_stencil_format(description.format)) {
-                m_depth_image = Image::create_owned_image(m_device, image_info);
+                m_depth_image = Image::create_owned_image(m_device, image_info, description.samples);
                 m_depth_view = std::make_shared<ImageView>(m_device, *m_depth_image, vk::ImageAspectFlagBits::eDepth);
                 all_views.emplace_back(m_depth_view);
             } else {
                 if(!m_color_image) {
-                    m_color_image = Image::create_owned_image(m_device, image_info);
+                    m_color_image = Image::create_owned_image(m_device, image_info, description.samples);
                     m_color_view = std::make_shared<ImageView>(m_device, *m_color_image, vk::ImageAspectFlagBits::eColor);
                     all_views.emplace_back(m_color_view);
                 }
@@ -263,6 +262,7 @@ namespace Comet {
         }
 
         for(uint32_t i = 0; i < m_frame_count; ++i) {
+            std::vector<std::shared_ptr<ImageView>> all_views;
             std::vector<std::shared_ptr<Image>> color_images;
             std::vector<std::shared_ptr<ImageView>> color_views;
             std::shared_ptr<Image> depth_image = nullptr;
@@ -276,12 +276,15 @@ namespace Comet {
                 };
 
                 if(is_depth_stencil_format(description.format)) {
-                    depth_image = Image::create_owned_image(m_device, image_info);
+                    depth_image = Image::create_owned_image(m_device, image_info, description.samples);
                     depth_view = std::make_shared<ImageView>(m_device, *depth_image, vk::ImageAspectFlagBits::eDepth);
+                    all_views.push_back(depth_view);
                 } else {
-                    auto color_image = Image::create_owned_image(m_device, image_info);
+                    auto color_image = Image::create_owned_image(m_device, image_info, description.samples);
                     color_images.emplace_back(color_image);
-                    color_views.emplace_back(std::make_shared<ImageView>(m_device, *color_image, vk::ImageAspectFlagBits::eColor));
+                    auto color_view = std::make_shared<ImageView>(m_device, *color_image, vk::ImageAspectFlagBits::eColor);
+                    color_views.emplace_back(color_view);
+                    all_views.push_back(color_view);
                 }
             }
 
@@ -290,11 +293,6 @@ namespace Comet {
             if(depth_image) {
                 m_render_resources[i].depth_image = depth_image;
                 m_render_resources[i].depth_view = depth_view;
-            }
-
-            std::vector<std::shared_ptr<ImageView>> all_views = color_views;
-            if(depth_view) {
-                all_views.emplace_back(depth_view);
             }
 
             m_render_resources[i].frame_buffer = std::make_shared<FrameBuffer>(m_device, m_render_pass, all_views,

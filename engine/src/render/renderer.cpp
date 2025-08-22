@@ -12,7 +12,8 @@ namespace Comet {
         .color_space = vk::ColorSpaceKHR::eSrgbNonlinear,
         .depth_format = vk::Format::eD32Sfloat,
         .present_mode = vk::PresentModeKHR::eImmediate,
-        .swapchain_image_count = 3
+        .swapchain_image_count = 3,
+        .msaa_samples = vk::SampleCountFlagBits::e4
     };
 
     static auto [s_cube_vertices, s_cube_indices] = GeometryUtils::create_cube(-0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f);
@@ -32,33 +33,17 @@ namespace Comet {
 
         LOG_INFO("create render pass");
         std::vector<Attachment> attachments;
-        vk::AttachmentDescription color_attachment = {};
-        color_attachment.format = s_vk_settings.surface_format;
-        color_attachment.samples = vk::SampleCountFlagBits::e1;
-        color_attachment.loadOp = vk::AttachmentLoadOp::eClear;
-        color_attachment.storeOp = vk::AttachmentStoreOp::eStore;
-        color_attachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-        color_attachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-        color_attachment.initialLayout = vk::ImageLayout::eUndefined;
-        color_attachment.finalLayout = vk::ImageLayout::ePresentSrcKHR;
-        attachments.push_back({color_attachment, vk::ImageUsageFlagBits::eColorAttachment});
-        vk::AttachmentDescription depth_attachment = {};
-        depth_attachment.format = s_vk_settings.depth_format;
-        depth_attachment.samples = vk::SampleCountFlagBits::e1;
-        depth_attachment.loadOp = vk::AttachmentLoadOp::eClear;
-        depth_attachment.storeOp = vk::AttachmentStoreOp::eDontCare;
-        depth_attachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-        depth_attachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-        depth_attachment.initialLayout = vk::ImageLayout::eUndefined;
-        depth_attachment.finalLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
-        attachments.push_back({depth_attachment, vk::ImageUsageFlagBits::eDepthStencilAttachment});
+        attachments.emplace_back(Attachment::get_color_attachment(s_vk_settings.surface_format,
+            s_vk_settings.msaa_samples));
+        attachments.emplace_back(Attachment::get_depth_attachment(s_vk_settings.depth_format,
+            s_vk_settings.msaa_samples));
 
         std::vector<RenderSubPass> render_sub_passes;
         RenderSubPass render_sub_pass_0 = {
             {},
             {SubpassColorAttachment(0)},
             {SubpassDepthStencilAttachment(1)},
-            vk::SampleCountFlagBits::e1
+            s_vk_settings.msaa_samples
         };
         render_sub_passes.emplace_back(render_sub_pass_0);
 
@@ -71,7 +56,7 @@ namespace Comet {
         m_command_buffers = m_device->get_default_command_pool()->allocate_command_buffers(m_swapchain->get_images().size());
 
         LOG_INFO("create fence and semaphore");
-        for(int i = 0; i < s_vk_settings.swapchain_image_count; ++i) {
+        for(uint32_t i = 0; i < s_vk_settings.swapchain_image_count; ++i) {
             m_frame_resources.emplace_back(m_device.get());
         }
 
@@ -94,6 +79,7 @@ namespace Comet {
         pipeline_config.set_input_assembly_state(vk::PrimitiveTopology::eTriangleList);
         pipeline_config.set_dynamic_state({vk::DynamicState::eViewport, vk::DynamicState::eScissor});
         pipeline_config.enable_depth_test();
+        pipeline_config.set_multisample_state(s_vk_settings.msaa_samples, VK_FALSE, 0.2f);
 
         m_pipeline = std::make_shared<Pipeline>("cube_pipeline", m_device.get(), m_render_pass.get(),
             pipeline_layout, vert_shader, frag_shader, pipeline_config);
