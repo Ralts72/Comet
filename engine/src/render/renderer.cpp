@@ -8,7 +8,6 @@
 #include "graphics/queue.h"
 
 namespace Comet {
-
     static VkSettings s_vk_settings = {
         .surface_format = vk::Format::eB8G8R8A8Unorm,
         .color_space = vk::ColorSpaceKHR::eSrgbNonlinear,
@@ -75,10 +74,7 @@ namespace Comet {
         m_render_pass = std::make_shared<RenderPass>(m_device.get(), attachments, render_sub_passes);
 
         LOG_INFO("create render target");
-        RenderTargetInfo render_target_info = {
-            Math::Vec2i(800, 800), 1
-        };
-        m_render_target = RenderTarget::create_swapchain_target(m_device.get(),m_render_pass.get(), m_swapchain.get(), render_target_info);
+        m_render_target = RenderTarget::create_swapchain_target(m_device.get(), m_render_pass.get(), m_swapchain.get());
         m_render_target->set_color_clear_value(Math::Vec4{0.2f, 0.8f, 0.1f, 1.0f});
         LOG_INFO("create command buffers");
         m_command_buffers = m_device->get_default_command_pool()->allocate_command_buffers(m_swapchain->get_images().size());
@@ -173,7 +169,7 @@ namespace Comet {
         // 10. submit with fence
         auto graphics_queue = m_device->get_graphics_queue(0);
         graphics_queue->submit(std::span(&command_buffer, 1),
-                std::span(&wait_sem, 1), std::span(&signal_sem, 1), &fence);
+            std::span(&wait_sem, 1), std::span(&signal_sem, 1), &fence);
 
         // 11. present
         m_swapchain->present(image_index, std::span(&signal_sem, 1));

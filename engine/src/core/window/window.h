@@ -3,7 +3,6 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include "pch.h"
-#include "core/math_utils.h"
 
 namespace Comet {
     class Window {
