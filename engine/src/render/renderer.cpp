@@ -16,8 +16,6 @@ namespace Comet {
         .msaa_samples = vk::SampleCountFlagBits::e4
     };
 
-    static auto [s_cube_vertices, s_cube_indices] = GeometryUtils::create_cube(-0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f);
-
     static float total_time = 0.0f;
 
     Renderer::Renderer(const Window& window) {
@@ -84,7 +82,8 @@ namespace Comet {
         m_pipeline = std::make_shared<Pipeline>("cube_pipeline", m_device.get(), m_render_pass.get(),
             pipeline_layout, vert_shader, frag_shader, pipeline_config);
 
-        m_cube_mesh = std::make_shared<Mesh>(m_device.get(), s_cube_vertices, s_cube_indices);
+        auto [cube_vertices, cube_indices] = GeometryUtils::create_cube(-0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f);
+        m_cube_mesh = std::make_shared<Mesh>(m_device.get(), cube_vertices, cube_indices);
     }
 
     void Renderer::on_update(const float delta_time) {
@@ -113,13 +112,7 @@ namespace Comet {
         const auto& wait_sem = m_frame_resources[m_current_buffer].image_semaphore;
         auto [image_index, acquire_result] = m_swapchain->acquire_next_image(wait_sem);
         if(acquire_result == vk::Result::eErrorOutOfDateKHR) {
-            m_device->wait_idle();
-            const auto original_size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
-            const bool flag = m_swapchain->recreate();
-            const auto size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
-            if(flag && original_size != size) {
-                m_render_target->resize(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
-            }
+            recreate_swapchain();
             std::tie(image_index, acquire_result) = m_swapchain->acquire_next_image(wait_sem);
             if(acquire_result != vk::Result::eSuccess && acquire_result != vk::Result::eSuboptimalKHR) {
                 LOG_FATAL("can't acquire swapchain image");
@@ -166,16 +159,21 @@ namespace Comet {
         auto present_queue = m_device->get_present_queue(0);
         const auto result = present_queue->present(*m_swapchain, std::span(&signal_sem, 1), image_index);
         if(result == vk::Result::eSuboptimalKHR) {
-            m_device->wait_idle();
-            const auto original_size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
-            const bool flag = m_swapchain->recreate();
-            const auto size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
-            if(flag && original_size != size) {
-                m_render_target->resize(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
-            }
+            recreate_swapchain();
         }
 
         m_current_buffer = (m_current_buffer + 1) % s_vk_settings.swapchain_image_count;
+    }
+
+    void Renderer::recreate_swapchain() {
+        PROFILE_SCOPE("recreate_swapchain");
+        m_device->wait_idle();
+        const auto original_size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
+        const bool flag = m_swapchain->recreate();
+        const auto size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
+        if(flag && original_size != size) {
+            m_render_target->resize(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
+        }
     }
 
     Renderer::~Renderer() {
@@ -192,6 +190,4 @@ namespace Comet {
         m_device.reset();
         m_context.reset();
     }
-
-
 }

@@ -18,6 +18,10 @@ namespace Comet {
         using Vec3i = glm::ivec3;
         using Vec4i = glm::ivec4;
 
+        using Vec2u = glm::uvec2;
+        using Vec3u = glm::uvec3;
+        using Vec4u = glm::uvec4;
+
         using Vec2 = glm::vec2;
         using Vec3 = glm::vec3;
         using Vec4 = glm::vec4;
@@ -49,7 +53,7 @@ namespace Comet {
             return glm::scale(mat4, v);
         }
 
-        static Mat4 rotate(const Mat4& mat4,float radians, const Vec3& axis) {
+        static Mat4 rotate(const Mat4& mat4, float radians, const Vec3& axis) {
             return glm::rotate(mat4, radians, axis);
         }
 

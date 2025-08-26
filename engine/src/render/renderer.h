@@ -13,12 +13,12 @@
 #include "common/shader_resources.h"
 
 namespace Comet {
-    struct FrameResources {
+    struct FrameSynchronization {
         Fence fence;
         Semaphore image_semaphore;
         Semaphore submit_semaphore;
 
-        explicit FrameResources(Device* device)
+        explicit FrameSynchronization(Device* device)
             : fence(device), image_semaphore(device), submit_semaphore(device) {}
     };
 
@@ -29,7 +29,10 @@ namespace Comet {
         ~Renderer();
 
         void on_update(float delta_time);
+
         void on_render();
+
+        void recreate_swapchain();
 
     private:
         std::unique_ptr<Context> m_context;
@@ -38,10 +41,10 @@ namespace Comet {
         std::shared_ptr<RenderPass> m_render_pass;
 
         std::unique_ptr<ShaderManager> m_shader_manager;
-        mutable std::shared_ptr<Pipeline> m_pipeline;
+        std::shared_ptr<Pipeline> m_pipeline;
         std::shared_ptr<RenderTarget> m_render_target;
 
-        mutable std::vector<FrameResources> m_frame_resources;
+        std::vector<FrameSynchronization> m_frame_resources;
 
         std::shared_ptr<Mesh> m_cube_mesh;
 
@@ -53,5 +56,3 @@ namespace Comet {
         };
     };
 }
-
-

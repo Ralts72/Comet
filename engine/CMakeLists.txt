@@ -50,6 +50,7 @@ target_include_directories(engine
 )
 target_precompile_headers(engine PRIVATE "src/pch.h")
 target_compile_definitions(engine PRIVATE COMET_EXPORTS)
+target_compile_definitions(engine PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
 if (NOT WIN32)
     target_compile_options(engine PRIVATE -fvisibility=hidden)
 endif ()
