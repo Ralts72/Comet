@@ -168,11 +168,11 @@ namespace Comet {
     void Renderer::recreate_swapchain() {
         PROFILE_SCOPE("recreate_swapchain");
         m_device->wait_idle();
-        const auto original_size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
+        const auto original_size = Math::Vec2u(m_swapchain->get_width(), m_swapchain->get_height());
         const bool flag = m_swapchain->recreate();
-        const auto size = Math::Vec2(m_swapchain->get_width(), m_swapchain->get_height());
+        const auto size = Math::Vec2u(m_swapchain->get_width(), m_swapchain->get_height());
         if(flag && original_size != size) {
-            m_render_target->resize(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
+            m_render_target->resize(size.x, size.y);
         }
     }
 
