@@ -55,6 +55,7 @@ namespace Comet {
     void Buffer::write(const void* data) {
         if (!data || m_buffer_type == BufferMemoryType::DeviceLocal) {
             LOG_ERROR("Buffer is not host visible or data is null");
+            return;
         }
 
         void* mapping = m_device->get().mapMemory(m_memory, 0, vk::WholeSize);

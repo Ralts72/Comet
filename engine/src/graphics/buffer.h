@@ -21,7 +21,8 @@ namespace Comet {
         [[nodiscard]] BufferMemoryType get_buffer_memory_type() const { return m_buffer_type; }
 
     private:
-        std::pair<vk::Buffer, vk::DeviceMemory> create_buffer(vk::MemoryPropertyFlags mem_props, vk::BufferUsageFlags usage) const;
+        [[nodiscard]] std::pair<vk::Buffer, vk::DeviceMemory> create_buffer(vk::MemoryPropertyFlags mem_props,
+            vk::BufferUsageFlags usage) const;
 
         Device* m_device;
         vk::Buffer m_buffer;

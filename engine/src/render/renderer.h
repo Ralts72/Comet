@@ -8,9 +8,12 @@
 #include "graphics/command_buffer.h"
 #include "graphics/fence.h"
 #include "graphics/semaphore.h"
+#include "graphics/descriptor_set.h"
+#include "graphics/sampler.h"
 #include "render_target.h"
 #include "mesh.h"
 #include "common/shader_resources.h"
+#include "texture.h"
 
 namespace Comet {
     struct FrameSynchronization {
@@ -34,6 +37,8 @@ namespace Comet {
 
         void recreate_swapchain();
 
+        // 暂时由renderer实现
+        void updateDescriptorSets();
     private:
         std::unique_ptr<Context> m_context;
         std::shared_ptr<Device> m_device;
@@ -44,6 +49,17 @@ namespace Comet {
         std::shared_ptr<Pipeline> m_pipeline;
         std::shared_ptr<RenderTarget> m_render_target;
 
+        std::shared_ptr<DescriptorPool> m_descriptor_pool;
+        std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;
+        std::vector<DescriptorSet> m_descriptor_sets;
+
+        std::shared_ptr<Buffer> m_view_project_uniform_buffer;
+        std::shared_ptr<Buffer> m_model_uniform_buffer;
+
+        std::shared_ptr<SamplerManager> m_sampler_manager;
+        std::shared_ptr<Texture> m_texture1;
+        std::shared_ptr<Texture> m_texture2;
+
         std::vector<FrameSynchronization> m_frame_resources;
 
         std::shared_ptr<Mesh> m_cube_mesh;
@@ -53,6 +69,15 @@ namespace Comet {
 
         PushConstant m_push_constant = {
             .matrix = Math::Mat4{1.0f}
+        };
+
+        ViewProjectMatrix m_view_project_matrix = {
+            .view = Math::Mat4{1.0f},
+            .projection = Math::Mat4{1.0f}
+        };
+
+        ModelMatrix m_model_matrix = {
+            .model = Math::Mat4{1.0f}
         };
     };
 }

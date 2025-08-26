@@ -1,5 +1,6 @@
 #pragma once
 #include "buffer.h"
+#include "descriptor_set.h"
 #include "vk_common.h"
 
 namespace Comet {
@@ -26,12 +27,19 @@ namespace Comet {
 
         // bind
         void bind_pipeline(const Pipeline& pipeline);
-        
+
+        //暂时不添加
+        // void bind_descriptor_set(const DescriptorSet& descriptor_set);
         // dynamic state
         void set_viewport(const vk::Viewport& viewport);
         void set_scissor(const vk::Rect2D& scissor);
 
         void copy_buffer(vk::Buffer src_buffer, vk::Buffer dst_buffer, size_t size, size_t src_offset = 0, size_t dst_offset = 0);
+        void copy_buffer_to_image(vk::Buffer src_buffer, vk::Image dst_image, vk::ImageLayout dst_image_layout,
+            const vk::Extent3D& extent, uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
+        
+        void transition_image_layout(vk::Image image, vk::Format format, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+            uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
 
         void bind_vertex_buffer(std::span<const Buffer*> buffers, std::span<const vk::DeviceSize> offsets, uint32_t first_binding = 0);
 

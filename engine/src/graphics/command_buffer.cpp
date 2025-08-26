@@ -68,6 +68,55 @@ namespace Comet {
         m_command_buffer.copyBuffer(src_buffer, dst_buffer, 1, &copy_buffer);
     }
 
+    void CommandBuffer::copy_buffer_to_image(vk::Buffer src_buffer, vk::Image dst_image, vk::ImageLayout dst_image_layout,
+        const vk::Extent3D& extent, uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
+        vk::BufferImageCopy buffer_image_copy{};
+        buffer_image_copy.bufferOffset = 0;
+        buffer_image_copy.bufferRowLength = extent.width;
+        buffer_image_copy.bufferImageHeight = extent.height;
+        buffer_image_copy.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+        buffer_image_copy.imageSubresource.mipLevel = mip_level;
+        buffer_image_copy.imageSubresource.baseArrayLayer = base_array_layer;
+        buffer_image_copy.imageSubresource.layerCount = layer_count;
+        buffer_image_copy.imageOffset = vk::Offset3D{0, 0, 0};
+        buffer_image_copy.imageExtent = extent;
+        m_command_buffer.copyBufferToImage(src_buffer, dst_image, dst_image_layout, 1, &buffer_image_copy);
+    }
+
+    void CommandBuffer::transition_image_layout(vk::Image image, vk::Format format, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+        uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
+        vk::ImageMemoryBarrier barrier{};
+        barrier.oldLayout = old_layout;
+        barrier.newLayout = new_layout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+        barrier.subresourceRange.baseMipLevel = mip_level;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = base_array_layer;
+        barrier.subresourceRange.layerCount = layer_count;
+
+        vk::PipelineStageFlags source_stage;
+        vk::PipelineStageFlags destination_stage;
+
+        if (old_layout == vk::ImageLayout::eUndefined && new_layout == vk::ImageLayout::eTransferDstOptimal) {
+            barrier.srcAccessMask = {};
+            barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+            source_stage = vk::PipelineStageFlagBits::eTopOfPipe;
+            destination_stage = vk::PipelineStageFlagBits::eTransfer;
+        } else if (old_layout == vk::ImageLayout::eTransferDstOptimal && new_layout == vk::ImageLayout::eShaderReadOnlyOptimal) {
+            barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+            barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+            source_stage = vk::PipelineStageFlagBits::eTransfer;
+            destination_stage = vk::PipelineStageFlagBits::eFragmentShader;
+        } else {
+            throw std::invalid_argument("unsupported layout transition!");
+        }
+
+        m_command_buffer.pipelineBarrier(source_stage, destination_stage, {}, 0, nullptr, 0, nullptr, 1, &barrier);
+    }
+
     void CommandBuffer::bind_vertex_buffer(std::span<const Buffer*> buffers, std::span<const vk::DeviceSize> offsets, uint32_t first_binding) {
         if(buffers.size() != offsets.size()) {
             LOG_FATAL("buffers and offsets must have the same size");
@@ -87,7 +136,7 @@ namespace Comet {
 
     void CommandBuffer::push_constants(const PipelineLayout& layout, vk::ShaderStageFlags stage_flags,
         uint32_t offset, const void* data, size_t size) {
-        m_command_buffer.pushConstants(layout.get_pipeline_layout(), stage_flags, offset, size, data);
+        m_command_buffer.pushConstants(layout.get(), stage_flags, offset, size, data);
     }
 
     void CommandBuffer::draw(const uint32_t vertex_count, const uint32_t instance_count, const uint32_t first_vertex,

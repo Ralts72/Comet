@@ -96,7 +96,7 @@ namespace Comet {
         pipeline_create_info.pDepthStencilState = &depth_stencil_state;
         pipeline_create_info.pColorBlendState = &color_blend_state;
         pipeline_create_info.pDynamicState = &dynamic_state;
-        pipeline_create_info.layout = m_layout->get_pipeline_layout();
+        pipeline_create_info.layout = m_layout->get();
         pipeline_create_info.renderPass = m_render_pass->get();
         pipeline_create_info.subpass = 0;
         pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
@@ -127,7 +127,7 @@ namespace Comet {
         return pipeline_shader_stage;
     }
 
-    vk::PipelineVertexInputStateCreateInfo Pipeline::create_vertex_input_state() {
+    vk::PipelineVertexInputStateCreateInfo Pipeline::create_vertex_input_state() const {
         vk::PipelineVertexInputStateCreateInfo vertex_input_state_info = {};
         vertex_input_state_info.vertexBindingDescriptionCount = static_cast<uint32_t>(m_config.vertex_input_state.vertex_bindings.size());
         vertex_input_state_info.pVertexBindingDescriptions = m_config.vertex_input_state.vertex_bindings.data();
@@ -136,14 +136,14 @@ namespace Comet {
         return vertex_input_state_info;
     }
 
-    vk::PipelineInputAssemblyStateCreateInfo Pipeline::create_input_assembly_state() {
+    vk::PipelineInputAssemblyStateCreateInfo Pipeline::create_input_assembly_state() const {
         vk::PipelineInputAssemblyStateCreateInfo input_assembly_state_info = {};
         input_assembly_state_info.topology = m_config.input_assembly_state.topology;
         input_assembly_state_info.primitiveRestartEnable = m_config.input_assembly_state.primitive_restart_enable;
         return input_assembly_state_info;
     }
 
-    vk::PipelineViewportStateCreateInfo Pipeline::create_viewport_state() {
+    vk::PipelineViewportStateCreateInfo Pipeline::create_viewport_state() const {
         auto viewport = get_viewport(100.0f, 100.0f);
         auto scissor = get_scissor(100.0f, 100.0f);
 
@@ -155,14 +155,14 @@ namespace Comet {
         return viewport_state_info;
     }
 
-    vk::PipelineDynamicStateCreateInfo Pipeline::create_dynamic_state() {
+    vk::PipelineDynamicStateCreateInfo Pipeline::create_dynamic_state() const {
         vk::PipelineDynamicStateCreateInfo dynamic_state_info = {};
         dynamic_state_info.dynamicStateCount = static_cast<uint32_t>(m_config.dynamic_state.dynamic_states.size());
         dynamic_state_info.pDynamicStates = m_config.dynamic_state.dynamic_states.data();
         return dynamic_state_info;
     }
 
-    vk::PipelineRasterizationStateCreateInfo Pipeline::create_rasterization_state() {
+    vk::PipelineRasterizationStateCreateInfo Pipeline::create_rasterization_state() const {
         vk::PipelineRasterizationStateCreateInfo rasterization_state_info = {};
         rasterization_state_info.depthClampEnable = m_config.rasterization_state.depth_clamp_enable;
         rasterization_state_info.rasterizerDiscardEnable = m_config.rasterization_state.rasterizer_discard_enable;
@@ -177,7 +177,7 @@ namespace Comet {
         return rasterization_state_info;
     }
 
-    vk::PipelineMultisampleStateCreateInfo Pipeline::create_multisample_state() {
+    vk::PipelineMultisampleStateCreateInfo Pipeline::create_multisample_state() const {
         vk::PipelineMultisampleStateCreateInfo multisample_state_info = {};
         multisample_state_info.rasterizationSamples = m_config.multisample_state.rasterization_samples;
         multisample_state_info.sampleShadingEnable = m_config.multisample_state.sample_shading_enable;
@@ -188,7 +188,7 @@ namespace Comet {
         return multisample_state_info;
     }
 
-    vk::PipelineDepthStencilStateCreateInfo Pipeline::create_depth_stencil_state() {
+    vk::PipelineDepthStencilStateCreateInfo Pipeline::create_depth_stencil_state() const {
         vk::PipelineDepthStencilStateCreateInfo depth_stencil_state_info = {};
         depth_stencil_state_info.depthTestEnable = m_config.depth_stencil_state.depth_test_enable;
         depth_stencil_state_info.depthWriteEnable = m_config.depth_stencil_state.depth_write_enable;
@@ -202,7 +202,7 @@ namespace Comet {
         return depth_stencil_state_info;
     }
 
-    vk::PipelineColorBlendStateCreateInfo Pipeline::create_color_blend_state() {
+    vk::PipelineColorBlendStateCreateInfo Pipeline::create_color_blend_state() const {
         vk::PipelineColorBlendStateCreateInfo color_blend_state_info = {};
         color_blend_state_info.logicOpEnable = VK_FALSE;
         color_blend_state_info.logicOp = vk::LogicOp::eClear;

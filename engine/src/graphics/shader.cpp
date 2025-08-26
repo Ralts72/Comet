@@ -32,6 +32,7 @@ namespace Comet {
         if(it != m_shaders.end()) {
             return it->second;
         }
+        LOG_WARN("no shader found for name: {}", name);
         return nullptr;
     }
 

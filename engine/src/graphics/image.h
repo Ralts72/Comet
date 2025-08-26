@@ -26,7 +26,7 @@ namespace Comet {
         [[nodiscard]] ImageType get_type() const { return m_type; }
 
     protected:
-        Image(Device* device, const ImageInfo& info, const ImageType type);
+        Image(Device* device, const ImageInfo& info, ImageType type);
 
         vk::Image m_image;
         Device* m_device;

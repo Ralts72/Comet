@@ -13,7 +13,7 @@ namespace Comet {
 
         ~PipelineLayout();
 
-        [[nodiscard]] vk::PipelineLayout get_pipeline_layout() const { return m_pipeline_layout; }
+        [[nodiscard]] vk::PipelineLayout get() const { return m_pipeline_layout; }
 
     private:
         Device* m_device;
@@ -122,21 +122,21 @@ namespace Comet {
         [[nodiscard]] std::array<vk::PipelineShaderStageCreateInfo, 2> create_shader_stages(
             const std::shared_ptr<Shader>& vertex_shader, const std::shared_ptr<Shader>& fragment_shader);
 
-        [[nodiscard]] vk::PipelineVertexInputStateCreateInfo create_vertex_input_state();
+        [[nodiscard]] vk::PipelineVertexInputStateCreateInfo create_vertex_input_state() const;
 
-        [[nodiscard]] vk::PipelineInputAssemblyStateCreateInfo create_input_assembly_state();
+        [[nodiscard]] vk::PipelineInputAssemblyStateCreateInfo create_input_assembly_state() const;
 
-        [[nodiscard]] vk::PipelineRasterizationStateCreateInfo create_rasterization_state();
+        [[nodiscard]] vk::PipelineRasterizationStateCreateInfo create_rasterization_state() const;
 
-        [[nodiscard]] vk::PipelineMultisampleStateCreateInfo create_multisample_state();
+        [[nodiscard]] vk::PipelineMultisampleStateCreateInfo create_multisample_state() const;
 
-        [[nodiscard]] vk::PipelineDepthStencilStateCreateInfo create_depth_stencil_state();
+        [[nodiscard]] vk::PipelineDepthStencilStateCreateInfo create_depth_stencil_state() const;
 
-        [[nodiscard]] vk::PipelineColorBlendStateCreateInfo create_color_blend_state();
+        [[nodiscard]] vk::PipelineColorBlendStateCreateInfo create_color_blend_state() const;
 
-        [[nodiscard]] vk::PipelineViewportStateCreateInfo create_viewport_state();
+        [[nodiscard]] vk::PipelineViewportStateCreateInfo create_viewport_state() const;
 
-        [[nodiscard]] vk::PipelineDynamicStateCreateInfo create_dynamic_state();
+        [[nodiscard]] vk::PipelineDynamicStateCreateInfo create_dynamic_state() const;
 
         std::string m_name;
         Device* m_device;

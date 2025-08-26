@@ -5,6 +5,7 @@
 #include "common/geometry_utils.h"
 #include "common/profiler.h"
 #include "graphics/queue.h"
+#include "graphics/image_view.h"
 
 namespace Comet {
     static VkSettings s_vk_settings = {
@@ -62,6 +63,14 @@ namespace Comet {
         m_shader_manager = std::make_unique<ShaderManager>(m_device.get());
         ShaderLayout layout = {};
         layout.push_constants.emplace_back(vk::ShaderStageFlagBits::eVertex, 0, sizeof(PushConstant));
+        DescriptorSetLayoutBindings bindings;
+        bindings.add_binding(0, vk::DescriptorType::eUniformBuffer, vk::ShaderStageFlagBits::eVertex);
+        bindings.add_binding(1, vk::DescriptorType::eUniformBuffer, vk::ShaderStageFlagBits::eVertex);
+        bindings.add_binding(2, vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment);
+        bindings.add_binding(3, vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment);
+        m_descriptor_set_layout = std::make_shared<DescriptorSetLayout>(m_device.get(), bindings);
+        layout.descriptor_set_layouts.push_back(m_descriptor_set_layout->get());;
+
         auto vert_shader = m_shader_manager->load_shader("cube_vert", CUBE_VERT, layout);
         auto frag_shader = m_shader_manager->load_shader("cube_frag", CUBE_FRAG, layout);
         LOG_INFO("create pipeline");
@@ -82,6 +91,25 @@ namespace Comet {
         m_pipeline = std::make_shared<Pipeline>("cube_pipeline", m_device.get(), m_render_pass.get(),
             pipeline_layout, vert_shader, frag_shader, pipeline_config);
 
+        LOG_INFO("create descriptor pool and descriptor sets");
+        DescriptorPoolSizes descriptor_pool_sizes;
+        descriptor_pool_sizes.add_pool_size(vk::DescriptorType::eUniformBuffer, 2);
+        descriptor_pool_sizes.add_pool_size(vk::DescriptorType::eCombinedImageSampler, 2);
+        m_descriptor_pool = std::make_shared<DescriptorPool>(m_device.get(), 1, descriptor_pool_sizes);
+        m_descriptor_sets = m_descriptor_pool->allocate_descriptor_set(*m_descriptor_set_layout, 1);
+
+        m_view_project_uniform_buffer = std::make_shared<Buffer>(m_device.get(), vk::BufferUsageFlagBits::eUniformBuffer,
+            sizeof(ViewProjectMatrix), nullptr, BufferMemoryType::HostVisible);
+        m_model_uniform_buffer = std::make_shared<Buffer>(m_device.get(), vk::BufferUsageFlagBits::eUniformBuffer,
+            sizeof(ModelMatrix), nullptr, BufferMemoryType::HostVisible);
+
+        LOG_INFO("create sampler manager and textures");
+        m_sampler_manager = std::make_shared<SamplerManager>(m_device.get());
+        auto sampler = m_sampler_manager->get_linear_repeat();
+        std::string image_path = std::string(PROJECT_ROOT_DIR) + "/engine/assets/textures/";
+        m_texture1 = std::make_shared<Texture>(m_device.get(), image_path + "awesomeface.png");
+        m_texture2 = std::make_shared<Texture>(m_device.get(), image_path + "R-C.jpeg");
+
         auto [cube_vertices, cube_indices] = GeometryUtils::create_cube(-0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f);
         m_cube_mesh = std::make_shared<Mesh>(m_device.get(), cube_vertices, cube_indices);
     }
@@ -90,15 +118,25 @@ namespace Comet {
         PROFILE_SCOPE("render update");
         total_time += delta_time;
         // Update MVP matrix
-        auto model = Math::Mat4(1.0f);
-        model = Math::rotate(model, Math::radians(-17.0f), Math::Vec3(1.0f, 0.0f, 0.0f));
-        model = Math::rotate(model, Math::radians(total_time * 100.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
-        auto projection = Math::perspective(Math::radians(65.0f),
-            static_cast<float>(m_swapchain->get_width()) / static_cast<float>(m_swapchain->get_height()), 0.1f, 100.0f);
-        auto view = Math::look_at(Math::Vec3(30.0f, 0.0f, 30.0f),
-            Math::Vec3(0.0f, 0.0f, 0.0f),
+        // auto model = Math::Mat4(1.0f);
+        // model = Math::rotate(model, Math::radians(-17.0f), Math::Vec3(1.0f, 0.0f, 0.0f));
+        // model = Math::rotate(model, Math::radians(total_time * 100.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
+        // auto projection = Math::perspective(Math::radians(65.0f),
+        //     static_cast<float>(m_swapchain->get_width()) / static_cast<float>(m_swapchain->get_height()), 0.1f, 100.0f);
+        // auto view = Math::look_at(Math::Vec3(30.0f, 0.0f, 30.0f),
+        //     Math::Vec3(0.0f, 0.0f, 0.0f),
+        //     Math::Vec3(0.0f, 1.0f, 0.0f));
+        // m_push_constant.matrix = projection * view * model;
+
+        m_model_matrix.model = Math::rotate(Math::Mat4(1.0f), Math::radians(-17.0f), Math::Vec3(1.0f, 0.0f, 0.0f));
+        m_model_matrix.model = Math::rotate(m_model_matrix.model, Math::radians(total_time * 100.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
+
+        m_view_project_matrix.view = Math::look_at(Math::Vec3(0.0f, 0.0f, 1.5f),
+            Math::Vec3(0.0f, 0.0f, -1.0f),
             Math::Vec3(0.0f, 1.0f, 0.0f));
-        m_push_constant.matrix = projection * view * model;
+        m_view_project_matrix.projection = Math::perspective(Math::radians(45.0f),
+            static_cast<float>(m_swapchain->get_width()) / static_cast<float>(m_swapchain->get_height()), 0.1f, 100.0f);
+
     }
 
     void Renderer::on_render() {
@@ -139,6 +177,17 @@ namespace Comet {
             static_cast<float>(m_swapchain->get_height()));
         command_buffer.set_scissor(scissor);
 
+        m_view_project_uniform_buffer->write(&m_view_project_matrix);
+        m_model_uniform_buffer->write(&m_model_matrix);
+        updateDescriptorSets();
+
+        std::vector<vk::DescriptorSet> descriptor_sets;
+        descriptor_sets.reserve(m_descriptor_sets.size());
+        for(auto ds: m_descriptor_sets) {
+            descriptor_sets.push_back(ds.get());
+        }
+        command_buffer.get().bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipeline->get_layout()->get(),
+            0,1, descriptor_sets.data(), 0, nullptr);
         // 7. draw
         command_buffer.push_constants(*m_pipeline->get_layout(), vk::ShaderStageFlagBits::eVertex, 0,
             &m_push_constant, sizeof(PushConstant));
@@ -176,9 +225,72 @@ namespace Comet {
         }
     }
 
+    void Renderer::updateDescriptorSets() {
+        vk::DescriptorBufferInfo buffer_info1{};
+        buffer_info1.buffer = m_view_project_uniform_buffer->get();
+        buffer_info1.offset = 0;
+        buffer_info1.range = sizeof(ViewProjectMatrix);
+        vk::DescriptorBufferInfo buffer_info2{};
+        buffer_info2.buffer = m_model_uniform_buffer->get();
+        buffer_info2.offset = 0;
+        buffer_info2.range = sizeof(ModelMatrix);
+        vk::DescriptorImageInfo image_info1{};
+        image_info1.sampler = m_sampler_manager->get_linear_repeat()->get();
+        image_info1.imageView = m_texture1->get_image_view()->get();
+        image_info1.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+        vk::DescriptorImageInfo image_info2{};
+        image_info2.sampler = m_sampler_manager->get_linear_repeat()->get();
+        image_info2.imageView = m_texture2->get_image_view()->get();
+        image_info2.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+        DescriptorSet set = m_descriptor_sets[0];
+        std::vector<vk::WriteDescriptorSet> write_sets;
+        vk::WriteDescriptorSet set1{};
+        set1.dstSet = set.get();
+        set1.dstBinding = 0;
+        set1.dstArrayElement = 0;
+        set1.descriptorType = vk::DescriptorType::eUniformBuffer;
+        set1.descriptorCount = 1;
+        set1.pBufferInfo = &buffer_info1;
+        write_sets.emplace_back(set1);
+        vk::WriteDescriptorSet set2{};
+        set2.dstSet = set.get();
+        set2.dstBinding = 1;
+        set2.dstArrayElement = 0;
+        set2.descriptorType = vk::DescriptorType::eUniformBuffer;
+        set2.descriptorCount = 1;
+        set2.pBufferInfo = &buffer_info2;
+        write_sets.emplace_back(set2);
+        vk::WriteDescriptorSet set3{};
+        set3.dstSet = set.get();
+        set3.dstBinding = 2;
+        set3.dstArrayElement = 0;
+        set3.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+        set3.descriptorCount = 1;
+        set3.pImageInfo = &image_info1;
+        write_sets.emplace_back(set3);
+        vk::WriteDescriptorSet set4{};
+        set4.dstSet = set.get();
+        set4.dstBinding = 3;
+        set4.dstArrayElement = 0;
+        set4.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+        set4.descriptorCount = 1;
+        set4.pImageInfo = &image_info2;
+        write_sets.emplace_back(set4);
+        m_device->get().updateDescriptorSets(write_sets, {});
+    }
+
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
         m_device->wait_idle();
+
+        m_view_project_uniform_buffer.reset();
+        m_model_uniform_buffer.reset();
+        m_texture1.reset();
+        m_texture2.reset();
+        m_sampler_manager.reset();
+        m_descriptor_pool.reset();
+        m_descriptor_set_layout.reset();
+
         m_cube_mesh.reset();
         m_frame_resources.clear();
         m_command_buffers.clear();

@@ -58,4 +58,14 @@ namespace Comet {
                || format == vk::Format::eD24UnormS8Uint
                || format == vk::Format::eD32SfloatS8Uint;
     }
+
+    inline uint32_t format_size_in_bytes(const vk::Format format) {
+        switch(format) {
+            case vk::Format::eR8Unorm: return 1;
+            case vk::Format::eR8G8B8A8Unorm: return 4;
+            case vk::Format::eB8G8R8A8Unorm: return 4;
+            case vk::Format::eR16G16B16A16Sfloat: return 8;
+            default: LOG_FATAL("Unsupported format for byte size calculation"); return 0;
+        }
+    }
 }

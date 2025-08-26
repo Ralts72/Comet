@@ -32,6 +32,11 @@ namespace Comet {
 
         void copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size);
 
+        void copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, vk::ImageLayout dst_image_layout,
+            const vk::Extent3D& extent, uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
+        void transition_image_layout(vk::Image image, vk::Format format, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+            uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
+
         [[nodiscard]] vk::Device get() const { return m_device; }
         [[nodiscard]] const VkSettings& get_settings() const { return m_settings; }
 

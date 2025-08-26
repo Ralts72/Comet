@@ -34,9 +34,12 @@ file(GLOB SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/semaphore.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/vertex_description.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/buffer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/descriptor_set.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/sampler.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/renderer.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/render_target.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/mesh.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/render/texture.cpp"
 )
 
 find_package(Vulkan REQUIRED)

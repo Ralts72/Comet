@@ -132,6 +132,20 @@ namespace Comet {
         });
     }
 
+    void Device::copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, vk::ImageLayout dst_image_layout,
+        const vk::Extent3D& extent, uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
+        one_time_submit([&](CommandBuffer cmd_buf){
+            cmd_buf.copy_buffer_to_image(src, dst_image, dst_image_layout, extent, mip_level);
+        });
+    }
+
+    void Device::transition_image_layout(vk::Image image, vk::Format format, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+        uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
+        one_time_submit([&](CommandBuffer cmd_buf){
+            cmd_buf.transition_image_layout(image, format, old_layout, new_layout, base_array_layer, layer_count, mip_level);
+        });
+    }
+
     uint32_t Device::get_memory_index(const vk::MemoryPropertyFlags mem_props, uint32_t memory_type_bits) const {
         const vk::PhysicalDeviceMemoryProperties physical_device_mem_props = m_context->get_memory_properties();
         if(physical_device_mem_props.memoryTypeCount == 0){
