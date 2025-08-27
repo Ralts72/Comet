@@ -62,7 +62,7 @@ namespace Comet {
         LOG_INFO("create shader manager");
         m_shader_manager = std::make_unique<ShaderManager>(m_device.get());
         ShaderLayout layout = {};
-        layout.push_constants.emplace_back(vk::ShaderStageFlagBits::eVertex, 0, sizeof(PushConstant));
+        // layout.push_constants.emplace_back(vk::ShaderStageFlagBits::eVertex, 0, sizeof(PushConstant));
         DescriptorSetLayoutBindings bindings;
         bindings.add_binding(0, vk::DescriptorType::eUniformBuffer, vk::ShaderStageFlagBits::eVertex);
         bindings.add_binding(1, vk::DescriptorType::eUniformBuffer, vk::ShaderStageFlagBits::eVertex);
@@ -71,8 +71,8 @@ namespace Comet {
         m_descriptor_set_layout = std::make_shared<DescriptorSetLayout>(m_device.get(), bindings);
         layout.descriptor_set_layouts.push_back(m_descriptor_set_layout->get());;
 
-        auto vert_shader = m_shader_manager->load_shader("cube_vert", CUBE_VERT, layout);
-        auto frag_shader = m_shader_manager->load_shader("cube_frag", CUBE_FRAG, layout);
+        auto vert_shader = m_shader_manager->load_shader("cube_texture_vert", CUBE_TEXTURE_VERT, layout);
+        auto frag_shader = m_shader_manager->load_shader("cube_texture_frag", CUBE_TEXTURE_FRAG, layout);
         LOG_INFO("create pipeline");
         auto pipeline_layout = std::make_shared<PipelineLayout>(m_device.get(), layout);
         VertexInputDescription vertex_input_description;
@@ -131,8 +131,8 @@ namespace Comet {
         m_model_matrix.model = Math::rotate(Math::Mat4(1.0f), Math::radians(-17.0f), Math::Vec3(1.0f, 0.0f, 0.0f));
         m_model_matrix.model = Math::rotate(m_model_matrix.model, Math::radians(total_time * 100.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
 
-        m_view_project_matrix.view = Math::look_at(Math::Vec3(0.0f, 0.0f, 1.5f),
-            Math::Vec3(0.0f, 0.0f, -1.0f),
+        m_view_project_matrix.view = Math::look_at(Math::Vec3(0.0f, 0.0f, 30.5f),
+            Math::Vec3(0.0f, 0.0f, -10.0f),
             Math::Vec3(0.0f, 1.0f, 0.0f));
         m_view_project_matrix.projection = Math::perspective(Math::radians(45.0f),
             static_cast<float>(m_swapchain->get_width()) / static_cast<float>(m_swapchain->get_height()), 0.1f, 100.0f);
@@ -189,8 +189,8 @@ namespace Comet {
         command_buffer.get().bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipeline->get_layout()->get(),
             0,1, descriptor_sets.data(), 0, nullptr);
         // 7. draw
-        command_buffer.push_constants(*m_pipeline->get_layout(), vk::ShaderStageFlagBits::eVertex, 0,
-            &m_push_constant, sizeof(PushConstant));
+        // command_buffer.push_constants(*m_pipeline->get_layout(), vk::ShaderStageFlagBits::eVertex, 0,
+            // &m_push_constant, sizeof(PushConstant));
         m_cube_mesh->draw(command_buffer);
 
         // 8. end render pass
