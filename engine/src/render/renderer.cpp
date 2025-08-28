@@ -1,5 +1,5 @@
 #include "renderer.h"
-#include "core/logger/logger.h"
+#include "common/logger.h"
 #include "graphics/image.h"
 #include "graphics/vertex_description.h"
 #include "common/geometry_utils.h"
@@ -9,12 +9,12 @@
 
 namespace Comet {
     static VkSettings s_vk_settings = {
-        .surface_format = vk::Format::eB8G8R8A8Unorm,
-        .color_space = vk::ColorSpaceKHR::eSrgbNonlinear,
-        .depth_format = vk::Format::eD32Sfloat,
+        .surface_format = Format::B8G8R8A8_UNORM,
+        .color_space = ImageColorSpace::SrgbNonlinearKHR,
+        .depth_format = Format::D32_SFLOAT,
         .present_mode = vk::PresentModeKHR::eImmediate,
         .swapchain_image_count = 3,
-        .msaa_samples = vk::SampleCountFlagBits::e4
+        .msaa_samples = SampleCount::Count4
     };
 
     static float total_time = 0.0f;
@@ -32,10 +32,11 @@ namespace Comet {
 
         LOG_INFO("create render pass");
         std::vector<Attachment> attachments;
+        // auto vk_sampler_count = Graphics::sample_count_to_vk(s_vk_settings.msaa_samples);
         attachments.emplace_back(Attachment::get_color_attachment(s_vk_settings.surface_format,
             s_vk_settings.msaa_samples));
         attachments.emplace_back(Attachment::get_depth_attachment(s_vk_settings.depth_format,
-            s_vk_settings.msaa_samples));
+           s_vk_settings.msaa_samples));
 
         std::vector<RenderSubPass> render_sub_passes;
         RenderSubPass render_sub_pass_0 = {
@@ -50,7 +51,7 @@ namespace Comet {
 
         LOG_INFO("create render target");
         m_render_target = RenderTarget::create_swapchain_target(m_device.get(), m_render_pass.get(), m_swapchain.get());
-        m_render_target->set_color_clear_value(Math::Vec4{0.2f, 0.8f, 0.1f, 1.0f});
+        m_render_target->set_clear_value(ClearValue(Math::Vec4(0.2f, 0.4f, 0.1f, 1.0f)));
         LOG_INFO("create command buffers");
         m_command_buffers = m_device->get_default_command_pool()->allocate_command_buffers(m_swapchain->get_images().size());
 
@@ -69,24 +70,24 @@ namespace Comet {
         bindings.add_binding(2, vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment);
         bindings.add_binding(3, vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment);
         m_descriptor_set_layout = std::make_shared<DescriptorSetLayout>(m_device.get(), bindings);
-        layout.descriptor_set_layouts.push_back(m_descriptor_set_layout->get());;
+        layout.descriptor_set_layouts.push_back(m_descriptor_set_layout);
 
         auto vert_shader = m_shader_manager->load_shader("cube_texture_vert", CUBE_TEXTURE_VERT, layout);
         auto frag_shader = m_shader_manager->load_shader("cube_texture_frag", CUBE_TEXTURE_FRAG, layout);
         LOG_INFO("create pipeline");
         auto pipeline_layout = std::make_shared<PipelineLayout>(m_device.get(), layout);
         VertexInputDescription vertex_input_description;
-        vertex_input_description.add_binding(0, sizeof(Math::Vertex), vk::VertexInputRate::eVertex);
-        vertex_input_description.add_attribute(0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Math::Vertex, position));
-        vertex_input_description.add_attribute(1, 0, vk::Format::eR32G32Sfloat, offsetof(Math::Vertex, texcoord));
-        vertex_input_description.add_attribute(2, 0, vk::Format::eR32G32B32Sfloat, offsetof(Math::Vertex, normal));
+        vertex_input_description.add_binding(0, sizeof(Math::Vertex), VertexInputRate::Vertex);
+        vertex_input_description.add_attribute(0, 0, Format::R32G32B32_SFLOAT, offsetof(Math::Vertex, position));
+        vertex_input_description.add_attribute(1, 0, Format::R32G32_SFLOAT, offsetof(Math::Vertex, texcoord));
+        vertex_input_description.add_attribute(2, 0, Format::R32G32B32_SFLOAT, offsetof(Math::Vertex, normal));
 
         PipelineConfig pipeline_config = {};
-        pipeline_config.set_vertex_input_state(vertex_input_description.get_bindings(), vertex_input_description.get_attributes());
-        pipeline_config.set_input_assembly_state(vk::PrimitiveTopology::eTriangleList);
+        pipeline_config.set_vertex_input_state(vertex_input_description);
+        pipeline_config.set_input_assembly_state(Topology::TriangleList);
         pipeline_config.set_dynamic_state({vk::DynamicState::eViewport, vk::DynamicState::eScissor});
         pipeline_config.enable_depth_test();
-        pipeline_config.set_multisample_state(s_vk_settings.msaa_samples, VK_FALSE, 0.2f);
+        pipeline_config.set_multisample_state(s_vk_settings.msaa_samples, false, 0.2f);
 
         m_pipeline = std::make_shared<Pipeline>("cube_pipeline", m_device.get(), m_render_pass.get(),
             pipeline_layout, vert_shader, frag_shader, pipeline_config);
@@ -169,11 +170,11 @@ namespace Comet {
         command_buffer.bind_pipeline(*m_pipeline);
 
         // 6. set dynamic states (viewport and scissor)
-        const auto viewport = get_viewport(static_cast<float>(m_swapchain->get_width()),
+        const auto viewport = Graphics::get_viewport(static_cast<float>(m_swapchain->get_width()),
             static_cast<float>(m_swapchain->get_height()));
         command_buffer.set_viewport(viewport);
 
-        const auto scissor = get_scissor(static_cast<float>(m_swapchain->get_width()),
+        const auto scissor = Graphics::get_scissor(static_cast<float>(m_swapchain->get_width()),
             static_cast<float>(m_swapchain->get_height()));
         command_buffer.set_scissor(scissor);
 

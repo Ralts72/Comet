@@ -9,7 +9,8 @@ namespace Comet {
 
     class Queue {
     public:
-        Queue(uint32_t family_index, uint32_t index, vk::Queue queue, QueueType type);
+        enum class Type { Graphics, Present, transfer, Compute };
+        Queue(uint32_t family_index, uint32_t index, vk::Queue queue, Type type);
 
         ~Queue() = default;
 
@@ -17,17 +18,18 @@ namespace Comet {
         void submit(std::span<const CommandBuffer> command_buffers, std::span<const Semaphore> wait_semaphores,
             std::span<const Semaphore> signal_semaphores, const Fence* fence) const;
 
-        vk::Result present(const Swapchain& swapchain, const std::span<const Semaphore> wait_semaphores, uint32_t image_index) const;
+        [[nodiscard]] vk::Result present(const Swapchain& swapchain, std::span<const Semaphore> wait_semaphores,
+            uint32_t image_index) const;
 
         [[nodiscard]] vk::Queue get() const { return m_queue; }
         [[nodiscard]] uint32_t get_family_index() const { return m_family_index; }
         [[nodiscard]] uint32_t get_index() const { return m_index; }
-        [[nodiscard]] QueueType get_type() const { return m_type; }
+        [[nodiscard]] Type get_type() const { return m_type; }
 
     private:
         uint32_t m_family_index;
         uint32_t m_index;
         vk::Queue m_queue;
-        QueueType m_type;
+        Type m_type;
     };
 }

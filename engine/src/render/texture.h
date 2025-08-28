@@ -1,5 +1,6 @@
 #pragma once
 #include "graphics/vk_common.h"
+#include "graphics/convert.h"
 #include "core/math_utils.h"
 
 namespace Comet {
@@ -10,7 +11,7 @@ namespace Comet {
 
     class Texture {
     public:
-        explicit Texture(Device* device, const std::string& img_path, vk::Format format = vk::Format::eR8G8B8A8Unorm);
+        explicit Texture(Device* device, const std::string& img_path, Format format = Format::B8G8R8A8_UNORM);
         Texture(Device* device, int width, int height, Math::Vec4u color);
         ~Texture();
 
@@ -25,7 +26,7 @@ namespace Comet {
         int m_width;
         int m_height;
         int m_channels;
-        vk::Format m_format;
+        Format m_format;
         std::shared_ptr<Image> m_image;
         std::shared_ptr<ImageView> m_image_view;
     };

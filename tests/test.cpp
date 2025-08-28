@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "core/logger/logger.h"
+#include "../engine/src/common/logger.h"
 
 // 全局测试环境设置
 class CometTestEnvironment: public ::testing::Environment {

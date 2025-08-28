@@ -4,105 +4,102 @@
 namespace Comet {
     struct Attachment {
 
-        static Attachment get_color_attachment(const vk::Format format,
-            const vk::SampleCountFlagBits sample_count = vk::SampleCountFlagBits::e1) {
+        static Attachment get_color_attachment(const Format format,
+            const SampleCount sample_count = SampleCount::Count1) {
             Attachment attachment;
             attachment.description.format = format;
             attachment.description.samples = sample_count;
-            attachment.description.loadOp = vk::AttachmentLoadOp::eClear;
-            attachment.description.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-            attachment.description.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-            attachment.description.initialLayout = vk::ImageLayout::eUndefined;
-            if(sample_count > vk::SampleCountFlagBits::e1) {
-                attachment.description.finalLayout = vk::ImageLayout::eColorAttachmentOptimal;
-                attachment.description.storeOp = vk::AttachmentStoreOp::eDontCare;
+            attachment.description.load_op = AttachmentLoadOp::Clear;
+            attachment.description.stencil_load_op = AttachmentLoadOp::DontCare;
+            attachment.description.store_op = AttachmentStoreOp::DontCare;
+            attachment.description.initial_layout = ImageLayout::Undefined;
+            if(sample_count > SampleCount::Count1) {
+                attachment.description.final_layout = ImageLayout::ColorAttachmentOptimal;
+                attachment.description.stencil_store_op = AttachmentStoreOp::DontCare;
             } else {
-                attachment.description.storeOp = vk::AttachmentStoreOp::eStore;
-                attachment.description.finalLayout = vk::ImageLayout::ePresentSrcKHR;
+                attachment.description.stencil_store_op = AttachmentStoreOp::Store;
+                attachment.description.final_layout = ImageLayout::PresentSrcKHR;
             }
-            attachment.usage = vk::ImageUsageFlagBits::eColorAttachment;
+            attachment.usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
             return attachment;
         }
 
-        static Attachment get_depth_attachment(const vk::Format format,
-            const vk::SampleCountFlagBits sample_count = vk::SampleCountFlagBits::e1) {
+        static Attachment get_depth_attachment(const Format format,
+            const SampleCount sample_count = SampleCount::Count1) {
             Attachment attachment;
             attachment.description.format = format;
             attachment.description.samples = sample_count;
-            attachment.description.loadOp = vk::AttachmentLoadOp::eClear;
-            attachment.description.storeOp = vk::AttachmentStoreOp::eDontCare;
-            attachment.description.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-            attachment.description.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-            attachment.description.initialLayout = vk::ImageLayout::eUndefined;
-            attachment.description.finalLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
-            attachment.usage = vk::ImageUsageFlagBits::eDepthStencilAttachment;
+            attachment.description.load_op = AttachmentLoadOp::Clear;
+            attachment.description.store_op = AttachmentStoreOp::DontCare;
+            attachment.description.stencil_load_op = AttachmentLoadOp::DontCare;
+            attachment.description.stencil_store_op = AttachmentStoreOp::DontCare;
+            attachment.description.initial_layout = ImageLayout::Undefined;
+            attachment.description.final_layout = ImageLayout::DepthStencilAttachmentOptimal;
+            attachment.usage = Flags<ImageUsage>(ImageUsage::DepthStencilAttachment);
             return attachment;
         }
 
-        vk::AttachmentDescription description{
-            {},                                  // flags
-            vk::Format::eUndefined,                 // format
-            vk::SampleCountFlagBits::e1,            // samples
-            vk::AttachmentLoadOp::eDontCare,        // loadOp
-            vk::AttachmentStoreOp::eDontCare,       // storeOp
-            vk::AttachmentLoadOp::eDontCare,        // stencilLoadOp
-            vk::AttachmentStoreOp::eDontCare,       // stencilStoreOp
-            vk::ImageLayout::eUndefined,            // initialLayout
-            vk::ImageLayout::eUndefined             // finalLayout
-        };
-        vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eColorAttachment;
+        // vk::AttachmentDescription description{
+        //     {},                                  // flags
+        //     vk::Format::eUndefined,                 // format
+        //     vk::SampleCountFlagBits::e1,            // samples
+        //     vk::AttachmentLoadOp::eDontCare,        // loadOp
+        //     vk::AttachmentStoreOp::eDontCare,       // storeOp
+        //     vk::AttachmentLoadOp::eDontCare,        // stencilLoadOp
+        //     vk::AttachmentStoreOp::eDontCare,       // stencilStoreOp
+        //     vk::ImageLayout::eUndefined,            // initialLayout
+        //     vk::ImageLayout::eUndefined             // finalLayout
+        // };
+        struct Description {
+            Format format = Format::UNDEFINED;
+            SampleCount samples = SampleCount::Count1;
+            AttachmentLoadOp load_op = AttachmentLoadOp::DontCare;
+            AttachmentStoreOp store_op = AttachmentStoreOp::DontCare;
+            AttachmentLoadOp stencil_load_op = AttachmentLoadOp::DontCare;
+            AttachmentStoreOp stencil_store_op = AttachmentStoreOp::DontCare;
+            ImageLayout initial_layout = ImageLayout::Undefined;
+            ImageLayout final_layout = ImageLayout::Undefined;
+        } description;
+        Flags<ImageUsage> usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
+        // vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eColorAttachment;
     };
-    enum class AttachmentType { Input, Color, DepthStencil };
+
 
     class SubpassAttachment{
     public:
-        SubpassAttachment(const uint32_t index, const AttachmentType type) : index(index){
+        enum class Type { Input, Color, DepthStencil };
+
+        SubpassAttachment(const uint32_t index, const Type type) : index(index){
             switch(type) {
-                case AttachmentType::Input:
-                    layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+                case Type::Input:
+                    layout = ImageLayout::ShaderReadOnlyOptimal;
                     break;
-                case AttachmentType::Color:
-                    layout = vk::ImageLayout::eColorAttachmentOptimal;
+                case Type::Color:
+                    layout = ImageLayout::ColorAttachmentOptimal;
                     break;
-                case AttachmentType::DepthStencil:
-                    layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+                case Type::DepthStencil:
+                    layout = ImageLayout::DepthStencilAttachmentOptimal;
                     break;
             }
         }
-        SubpassAttachment(const uint32_t index, const vk::ImageLayout layout)
+        SubpassAttachment(const uint32_t index, const ImageLayout layout)
             : index(index), layout(layout) {}
 
         uint32_t index;
-        vk::ImageLayout layout;
+        ImageLayout layout;
     };
 
     class SubpassInputAttachment:public SubpassAttachment {
     public:
-        explicit SubpassInputAttachment(const uint32_t index) : SubpassAttachment(index, vk::ImageLayout::eShaderReadOnlyOptimal) {}
+        explicit SubpassInputAttachment(const uint32_t index) : SubpassAttachment(index, ImageLayout::ShaderReadOnlyOptimal) {}
     };
     class SubpassColorAttachment: public SubpassAttachment {
     public:
-        explicit SubpassColorAttachment(const uint32_t index) : SubpassAttachment(index, vk::ImageLayout::eColorAttachmentOptimal) {}
+        explicit SubpassColorAttachment(const uint32_t index) : SubpassAttachment(index, ImageLayout::ColorAttachmentOptimal) {}
     };
     class SubpassDepthStencilAttachment: public SubpassAttachment {
     public:
-        explicit SubpassDepthStencilAttachment(const uint32_t index) : SubpassAttachment(index, vk::ImageLayout::eDepthStencilAttachmentOptimal) {}
+        explicit SubpassDepthStencilAttachment(const uint32_t index) : SubpassAttachment(index, ImageLayout::DepthStencilAttachmentOptimal) {}
     };
-
-    // color_attachment.format = s_vk_settings.surface_format;
-    // color_attachment.samples = vk::SampleCountFlagBits::e4;
-    // color_attachment.loadOp = vk::AttachmentLoadOp::eClear;
-    // color_attachment.storeOp = vk::AttachmentStoreOp::eStore;
-    // color_attachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-    // color_attachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-    // color_attachment.initialLayout = vk::ImageLayout::eUndefined;
-    // // color_attachment.finalLayout = vk::ImageLayout::eColorAttachmentOptimal; // MSAA附件不应该直接用于呈现
-    // color_attachment.finalLayout = vk::ImageLayout::ePresentSrcKHR;
-    // Attachment msaa_color_attachment = {
-    //     .description = {
-    //         .format =
-    //     };
-    // };
-
 
 }

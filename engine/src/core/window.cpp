@@ -1,5 +1,6 @@
 #include "window.h"
-#include "core/logger/logger.h"
+#include "pch.h"
+#include "common/logger.h"
 #include "common/profiler.h"
 #define GL_FALSE 0
 

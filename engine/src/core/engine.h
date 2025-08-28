@@ -1,8 +1,8 @@
 #pragma once
 #include "common/export.h"
-#include "core/window/window.h"
+#include "window.h"
 #include "render/renderer.h"
-#include "core/timer/timer.h"
+#include "timer.h"
 
 namespace Comet {
 

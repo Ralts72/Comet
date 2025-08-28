@@ -1,7 +1,7 @@
 #include "command_buffer.h"
 #include "device.h"
 #include "render_pass.h"
-#include "core/logger/logger.h"
+#include "common/logger.h"
 #include "frame_buffer.h"
 #include "pipeline.h"
 #include "common/profiler.h"
@@ -25,7 +25,12 @@ namespace Comet {
     }
 
     void CommandBuffer::begin_render_pass(const RenderPass& render_pass, const FrameBuffer& frame_buffer,
-        const std::vector<vk::ClearValue>& clear_values) {
+        const std::vector<ClearValue>& clear_values) {
+        std::vector<vk::ClearValue> vk_clear_value;
+        vk_clear_value.reserve(clear_values.size());
+        for(auto& clear_value : clear_values) {
+            vk_clear_value.push_back(clear_value.vk_value());
+        }
         PROFILE_SCOPE("CommandBuffer::BeginRenderPass");
         vk::RenderPassBeginInfo render_pass_info = {};
         render_pass_info.renderPass = render_pass.get();
@@ -36,8 +41,8 @@ namespace Comet {
         render_area.offset.x = 0;
         render_area.offset.y = 0;
         render_pass_info.renderArea = render_area;
-        render_pass_info.clearValueCount = static_cast<uint32_t>(clear_values.size());
-        render_pass_info.pClearValues = clear_values.data();
+        render_pass_info.clearValueCount = static_cast<uint32_t>(vk_clear_value.size());
+        render_pass_info.pClearValues = vk_clear_value.data();
 
         m_command_buffer.beginRenderPass(render_pass_info, vk::SubpassContents::eInline);
         LOG_TRACE("RenderPass: begin render pass with {} clear values", clear_values.size());
@@ -83,7 +88,7 @@ namespace Comet {
         m_command_buffer.copyBufferToImage(src_buffer, dst_image, dst_image_layout, 1, &buffer_image_copy);
     }
 
-    void CommandBuffer::transition_image_layout(vk::Image image, vk::Format format, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+    void CommandBuffer::transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
         uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
         vk::ImageMemoryBarrier barrier{};
         barrier.oldLayout = old_layout;

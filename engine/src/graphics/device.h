@@ -8,15 +8,6 @@ namespace Comet {
     class CommandPool;
     class CommandBuffer;
 
-    struct VkSettings {
-        vk::Format surface_format = vk::Format::eB8G8R8A8Unorm;
-        vk::ColorSpaceKHR color_space = vk::ColorSpaceKHR::eSrgbNonlinear;
-        vk::Format depth_format = vk::Format::eD32Sfloat;
-        vk::PresentModeKHR present_mode = vk::PresentModeKHR::eImmediate;
-        uint32_t swapchain_image_count = 3;
-        vk::SampleCountFlagBits msaa_samples = vk::SampleCountFlagBits::e1;
-    };
-
     class Device {
     public:
         Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count, const VkSettings& settings = {});
@@ -34,7 +25,7 @@ namespace Comet {
 
         void copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, vk::ImageLayout dst_image_layout,
             const vk::Extent3D& extent, uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
-        void transition_image_layout(vk::Image image, vk::Format format, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+        void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
             uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
 
         [[nodiscard]] vk::Device get() const { return m_device; }

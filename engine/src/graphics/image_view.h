@@ -7,7 +7,7 @@ namespace Comet {
 
     class ImageView {
     public:
-        ImageView(Device* device, const Image& image, vk::ImageAspectFlags aspect);
+        ImageView(Device* device, const Image& image, Flags<ImageAspect> aspect);
         ~ImageView();
         [[nodiscard]] vk::ImageView get() const { return m_image_view;}
     private:

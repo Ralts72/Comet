@@ -5,12 +5,12 @@ namespace Comet {
     class Device;
 
     struct SamplerDesc {
-        vk::Filter magFilter = vk::Filter::eLinear;
-        vk::Filter minFilter = vk::Filter::eLinear;
-        vk::SamplerAddressMode addressModeU = vk::SamplerAddressMode::eRepeat;
-        vk::SamplerAddressMode addressModeV = vk::SamplerAddressMode::eRepeat;
-        vk::SamplerAddressMode addressModeW = vk::SamplerAddressMode::eRepeat;
-        float maxAnisotropy = 1.0f;
+        Filter mag_filter = Filter::Linear;
+        Filter min_filter = Filter::Linear;
+        SamplerAddressMode address_mode_u = SamplerAddressMode::Repeat;
+        SamplerAddressMode address_mode_v = SamplerAddressMode::Repeat;
+        SamplerAddressMode address_mode_w = SamplerAddressMode::Repeat;
+        float max_anisotropy = 1.0f;
     };
 
     class Sampler {

@@ -22,7 +22,7 @@ namespace Comet {
 
         // render pass
         void begin_render_pass(const RenderPass& render_pass, const FrameBuffer& frame_buffer,
-            const std::vector<vk::ClearValue>& clear_values);
+            const std::vector<ClearValue>& clear_values);
         void end_render_pass();
 
         // bind
@@ -38,7 +38,7 @@ namespace Comet {
         void copy_buffer_to_image(vk::Buffer src_buffer, vk::Image dst_image, vk::ImageLayout dst_image_layout,
             const vk::Extent3D& extent, uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
         
-        void transition_image_layout(vk::Image image, vk::Format format, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+        void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
             uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
 
         void bind_vertex_buffer(std::span<const Buffer*> buffers, std::span<const vk::DeviceSize> offsets, uint32_t first_binding = 0);

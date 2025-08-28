@@ -1,6 +1,10 @@
 #pragma once
-#include "pch.h"
 #include "export.h"
+#include <chrono>
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include <mutex>
 
 namespace Comet {
     struct ProfileRecord {

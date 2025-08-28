@@ -61,7 +61,7 @@ namespace Comet {
         for(const auto& prop: available_layers_props) {
             available_layers.emplace(prop.layerName);
         }
-        const std::vector<const char*> enabled_layers = build_enabled_list(s_required_layers, available_layers, "layer");
+        const std::vector<const char*> enabled_layers = Graphics::build_enabled_list(s_required_layers, available_layers, "layer");
 
         // 2. 构建扩展
         // 获取 GLFW 所需的扩展
@@ -75,7 +75,7 @@ namespace Comet {
         for(const auto& ext: available_extensions) {
             available_extension_names.insert(ext.extensionName);
         }
-        const std::vector<const char*> custom_extensions = build_enabled_list(s_required_extensions, available_extension_names, "extension");
+        const std::vector<const char*> custom_extensions = Graphics::build_enabled_list(s_required_extensions, available_extension_names, "extension");
         enabled_extensions.insert(enabled_extensions.end(), custom_extensions.begin(), custom_extensions.end());
 
         // 3. debug utils messenger

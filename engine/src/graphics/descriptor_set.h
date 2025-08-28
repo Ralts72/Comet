@@ -25,6 +25,7 @@ namespace Comet {
     private:
         std::vector<vk::DescriptorPoolSize> m_sizes;
     };
+
     class DescriptorSetLayout {
     public:
         DescriptorSetLayout(Device* device, const DescriptorSetLayoutBindings& bindings);
@@ -58,5 +59,13 @@ namespace Comet {
     private:
         Device* m_device;
         vk::DescriptorPool m_descriptor_pool;
+    };
+
+    class PushConstantRange {
+    public:
+        PushConstantRange(ShaderStage stage, uint32_t offset, uint32_t size);
+        [[nodiscard]] vk::PushConstantRange get() const { return m_const_range; }
+    private:
+        vk::PushConstantRange m_const_range;
     };
 }

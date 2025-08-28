@@ -1,5 +1,6 @@
 #include "profiler.h"
-#include "core/logger/logger.h"
+#include "pch.h"
+#include "logger.h"
 
 namespace Comet {
     thread_local std::vector<Profiler::ActiveBlock> Profiler::s_thread_stack;

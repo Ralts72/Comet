@@ -2,7 +2,7 @@
 #include "context.h"
 #include "fence.h"
 #include "queue.h"
-#include "core/logger/logger.h"
+#include "common/logger.h"
 #include "command_buffer.h"
 #include "common/profiler.h"
 
@@ -63,7 +63,7 @@ namespace Comet {
         for(const auto& prop: context->get_physical_device().enumerateDeviceExtensionProperties()) {
             available_extensions.emplace(prop.extensionName);
         }
-        const std::vector<const char*> enabled_extensions = build_enabled_list(s_required_extensions, available_extensions, "device extension");
+        const std::vector<const char*> enabled_extensions = Graphics::build_enabled_list(s_required_extensions, available_extensions, "device extension");
         auto features = context->get_physical_device().getFeatures();
 
         vk::DeviceCreateInfo create_info = {};
@@ -77,12 +77,12 @@ namespace Comet {
 
         for(uint32_t i = 0; i < graphics_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(graphics_queue_family_index.value(), i);
-            auto queue = std::make_shared<Queue>(graphics_queue_family_index.value(), i, vk_queue, QueueType::Graphics);
+            auto queue = std::make_shared<Queue>(graphics_queue_family_index.value(), i, vk_queue, Queue::Type::Graphics);
             m_graphics_queues.emplace_back(queue);
         }
         for(uint32_t i = 0; i < present_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(present_queue_family_index.value(), i);
-            auto queue = std::make_shared<Queue>(present_queue_family_index.value(), i, vk_queue, QueueType::Present);
+            auto queue = std::make_shared<Queue>(present_queue_family_index.value(), i, vk_queue, Queue::Type::Present);
             m_present_queues.emplace_back(queue);
         }
 
@@ -139,10 +139,10 @@ namespace Comet {
         });
     }
 
-    void Device::transition_image_layout(vk::Image image, vk::Format format, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+    void Device::transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
         uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
         one_time_submit([&](CommandBuffer cmd_buf){
-            cmd_buf.transition_image_layout(image, format, old_layout, new_layout, base_array_layer, layer_count, mip_level);
+            cmd_buf.transition_image_layout(image, old_layout, new_layout, base_array_layer, layer_count, mip_level);
         });
     }
 

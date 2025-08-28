@@ -1,6 +1,6 @@
 #pragma once
 #include "core/engine.h"
-#include "core/logger/logger.h"
+#include "common/logger.h"
 
 namespace Comet {
     class Application {

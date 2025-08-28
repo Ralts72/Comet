@@ -1,5 +1,6 @@
 #pragma once
 #include "vk_common.h"
+#include "vertex_description.h"
 
 namespace Comet {
     class Device;
@@ -26,17 +27,17 @@ namespace Comet {
     };
 
     struct PipelineInputAssemblyState {
-        vk::PrimitiveTopology topology = vk::PrimitiveTopology::eTriangleList;
-        vk::Bool32 primitive_restart_enable = VK_FALSE;
+        Topology topology = Topology::TriangleList;
+        bool primitive_restart_enable = false;
     };
 
     struct PipelineRasterizationState {
-        vk::Bool32 depth_clamp_enable = VK_FALSE;
-        vk::Bool32 rasterizer_discard_enable = VK_FALSE;
-        vk::PolygonMode polygon_mode = vk::PolygonMode::eFill;
-        vk::CullModeFlags cull_mode = vk::CullModeFlagBits::eNone;
-        vk::FrontFace front_face = vk::FrontFace::eCounterClockwise;
-        vk::Bool32 depth_bias_enable = VK_FALSE;
+        bool depth_clamp_enable = false;
+        bool rasterizer_discard_enable = false;
+        PolygonMode polygon_mode = PolygonMode::Fill;
+        CullMode cull_mode = CullMode::None;
+        FrontFace front_face = FrontFace::CCW;
+        bool depth_bias_enable = false;
         float depth_bias_constant_factor = 0.0f;
         float depth_bias_clamp = 0.0f;
         float depth_bias_slope_factor = 0.0f;
@@ -44,31 +45,28 @@ namespace Comet {
     };
 
     struct PipelineMultisampleState {
-        vk::SampleCountFlagBits rasterization_samples = vk::SampleCountFlagBits::e1;
-        vk::Bool32 sample_shading_enable = VK_FALSE;
+        SampleCount rasterization_samples = SampleCount::Count1;
+        bool sample_shading_enable = false;
         float min_sample_shading = 0.2f;
     };
 
     struct PipelineDepthStencilState {
-        vk::Bool32 depth_test_enable = VK_FALSE;
-        vk::Bool32 depth_write_enable = VK_FALSE;
-        vk::CompareOp depth_compare_op = vk::CompareOp::eNever;
-        vk::Bool32 depth_bounds_test_enable = VK_FALSE;
-        vk::Bool32 stencil_test_enable = VK_FALSE;
+        bool depth_test_enable = false;
+        bool depth_write_enable = false;
+        CompareOp depth_compare_op = CompareOp::Never;
+        bool depth_bounds_test_enable = false;
+        bool stencil_test_enable = false;
     };
 
     struct PipelineColorBlendState {
-        vk::PipelineColorBlendAttachmentState color_blend_attachment_state{
-            vk::False,
-            vk::BlendFactor::eOne,
-            vk::BlendFactor::eZero,
-            vk::BlendOp::eAdd,
-            vk::BlendFactor::eOne,
-            vk::BlendFactor::eZero,
-            vk::BlendOp::eAdd,
-            vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG
-            | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA
-        };
+        bool blend_enable = false;
+        BlendFactor src_color_blend_factor = BlendFactor::One;
+        BlendFactor dst_color_blend_factor = BlendFactor::Zero;
+        BlendOp color_blend_op = BlendOp::Add;
+        BlendFactor src_alpha_blend_factor = BlendFactor::One;
+        BlendFactor dst_alpha_blend_factor = BlendFactor::Zero;
+        BlendOp alpha_blend_op = BlendOp::Add;
+        Flags<ColorWriteMask> color_write_mask = Flags<ColorWriteMask>(ColorWriteMask::All);
     };
 
     struct PipelineDynamicState {
@@ -81,17 +79,28 @@ namespace Comet {
         PipelineRasterizationState rasterization_state;
         PipelineMultisampleState multisample_state;
         PipelineDepthStencilState depth_stencil_state;
-        PipelineColorBlendState color_blend_state;
+        vk::Viewport viewport{};
+        vk::Rect2D scissor{};
+        vk::PipelineColorBlendAttachmentState color_blend_state{
+            vk::False,  // blendEnable
+            vk::BlendFactor::eOne,      // srcColorBlendFactor
+            vk::BlendFactor::eZero,     // dstColorBlendFactor
+            vk::BlendOp::eAdd,          // colorBlendOp
+            vk::BlendFactor::eOne,      // srcAlphaBlendFactor
+            vk::BlendFactor::eZero,     // dstAlphaBlendFactor
+            vk::BlendOp::eAdd,          // alphaBlendOp
+            vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG 
+            | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA  // colorWriteMask
+        };
         PipelineDynamicState dynamic_state;
 
-        void set_vertex_input_state(const std::vector<vk::VertexInputBindingDescription>& vertex_bindings,
-                                    const std::vector<vk::VertexInputAttributeDescription>& vertex_attrs);
+        void set_vertex_input_state(const VertexInputDescription& description);
 
-        void set_input_assembly_state(vk::PrimitiveTopology topology, vk::Bool32 primitive_restart_enable = VK_FALSE);
+        void set_input_assembly_state(Topology topology, bool primitive_restart_enable = false);
 
         void set_rasterization_state(const PipelineRasterizationState& raster_state);
 
-        void set_multisample_state(vk::SampleCountFlagBits samples, vk::Bool32 sample_shading_enable, float min_sample_shading = 0.f);
+        void set_multisample_state(SampleCount samples, bool sample_shading_enable, float min_sample_shading = 0.f);
 
         void set_depth_stencil_state(const PipelineDepthStencilState& ds_state);
 
@@ -134,7 +143,7 @@ namespace Comet {
 
         [[nodiscard]] vk::PipelineColorBlendStateCreateInfo create_color_blend_state() const;
 
-        [[nodiscard]] vk::PipelineViewportStateCreateInfo create_viewport_state() const;
+        [[nodiscard]] vk::PipelineViewportStateCreateInfo create_viewport_state();
 
         [[nodiscard]] vk::PipelineDynamicStateCreateInfo create_dynamic_state() const;
 

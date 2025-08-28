@@ -1,13 +1,17 @@
 #pragma once
-#include "pch.h"
 #include "vk_common.h"
+#include "descriptor_set.h"
+#include <vector>
+#include <string>
+#include <unordered_map>
+#include <memory>
 
 namespace Comet {
     class Device;
 
     struct ShaderLayout{
-        std::vector<vk::DescriptorSetLayout> descriptor_set_layouts;
-        std::vector<vk::PushConstantRange> push_constants;
+        std::vector<std::shared_ptr<DescriptorSetLayout>> descriptor_set_layouts;
+        std::vector<std::shared_ptr<PushConstantRange>> push_constants;
     };
 
     class Shader {

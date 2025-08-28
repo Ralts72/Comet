@@ -1,6 +1,7 @@
 #include "shader.h"
+#include "pch.h"
 #include "device.h"
-#include "core/logger/logger.h"
+#include "common/logger.h"
 
 namespace Comet {
     Shader::Shader(Device* device, const std::string& name, const std::vector<unsigned char>& spv_data, const ShaderLayout& layout)

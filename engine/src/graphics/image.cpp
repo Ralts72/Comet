@@ -1,9 +1,9 @@
 #include "image.h"
 #include "device.h"
-#include "core/logger/logger.h"
+#include "common/logger.h"
 
 namespace Comet {
-    std::shared_ptr<Image> Image::create_owned_image(Device* device, const ImageInfo& info, vk::SampleCountFlagBits sample_count) {
+    std::shared_ptr<Image> Image::create_owned_image(Device* device, const ImageInfo& info, SampleCount sample_count) {
         return std::make_shared<OwnedImage>(device, info, sample_count);
     }
 
@@ -11,22 +11,23 @@ namespace Comet {
         return std::make_shared<BorrowedImage>(device, image, info);
     }
 
-    Image::Image(Device* device, const ImageInfo& info, const ImageType type): m_device(device), m_info(info), m_type(type) {}
+    Image::Image(Device* device, const ImageInfo& info, const Ownership type): m_device(device), m_info(info), m_type(type) {}
 
-    OwnedImage::OwnedImage(Device* device, const ImageInfo& info, const vk::SampleCountFlagBits sample_count): Image(device, info, ImageType::Owned) {
+    OwnedImage::OwnedImage(Device* device, const ImageInfo& info, const SampleCount sample_count): Image(device, info, Ownership::Owned) {
         auto tiling = vk::ImageTiling::eLinear;
-        if(is_depth_stencil_format(info.format) || sample_count > vk::SampleCountFlagBits::e1){
+        if(Graphics::is_depth_stencil_format(info.format) || sample_count > SampleCount::Count1){
             tiling = vk::ImageTiling::eOptimal;
         }
+        auto extent = Graphics::get_extent(m_info.extent.x, m_info.extent.y, m_info.extent.z);
         vk::ImageCreateInfo create_info = {};
         create_info.imageType = vk::ImageType::e2D;
-        create_info.format = m_info.format;
-        create_info.extent = m_info.extent;
+        create_info.format = Graphics::format_to_vk(m_info.format);
+        create_info.extent = extent;
         create_info.mipLevels = 1;
         create_info.arrayLayers = 1;
-        create_info.samples = sample_count;
+        create_info.samples = Graphics::sample_count_to_vk(sample_count);
         create_info.tiling = tiling;
-        create_info.usage = m_info.usage;
+        create_info.usage = Graphics::image_usage_to_vk(m_info.usage);
         create_info.sharingMode = vk::SharingMode::eExclusive;
         create_info.queueFamilyIndexCount = 0;
         create_info.pQueueFamilyIndices = nullptr;
@@ -47,7 +48,7 @@ namespace Comet {
         m_device->get().freeMemory(m_memory);
     }
 
-    BorrowedImage::BorrowedImage(Device* device, vk::Image image, const ImageInfo& info): Image(device, info, ImageType::Borrowed) {
+    BorrowedImage::BorrowedImage(Device* device, vk::Image image, const ImageInfo& info): Image(device, info, Ownership::Borrowed) {
         m_image = image;
     }
 }

@@ -4,13 +4,13 @@
 namespace Comet {
     Sampler::Sampler(Device* device, const SamplerDesc& desc): m_device(device) {
         vk::SamplerCreateInfo sampler_create_info;
-        sampler_create_info.magFilter = desc.magFilter;
-        sampler_create_info.minFilter = desc.minFilter;
-        sampler_create_info.addressModeU = desc.addressModeU;
-        sampler_create_info.addressModeV = desc.addressModeV;
-        sampler_create_info.addressModeW = desc.addressModeW;
-        sampler_create_info.anisotropyEnable = desc.maxAnisotropy > 1.0f ? VK_TRUE : VK_FALSE;
-        sampler_create_info.maxAnisotropy = desc.maxAnisotropy;
+        sampler_create_info.magFilter = Graphics::filter_to_vk(desc.mag_filter);
+        sampler_create_info.minFilter = Graphics::filter_to_vk(desc.min_filter);
+        sampler_create_info.addressModeU = Graphics::sampler_address_mode_to_vk(desc.address_mode_u);
+        sampler_create_info.addressModeV = Graphics::sampler_address_mode_to_vk(desc.address_mode_v);
+        sampler_create_info.addressModeW = Graphics::sampler_address_mode_to_vk(desc.address_mode_w);
+        sampler_create_info.anisotropyEnable = desc.max_anisotropy > 1.0f ? VK_TRUE : VK_FALSE;
+        sampler_create_info.maxAnisotropy = desc.max_anisotropy;
         sampler_create_info.borderColor = vk::BorderColor::eIntOpaqueBlack;
         sampler_create_info.unnormalizedCoordinates = VK_FALSE;
         sampler_create_info.mipmapMode = vk::SamplerMipmapMode::eLinear;
@@ -26,39 +26,39 @@ namespace Comet {
 
     std::shared_ptr<Sampler> Sampler::create_linear_repeat(Device* device, const float max_anisotropy) {
         SamplerDesc desc{};
-        desc.magFilter = vk::Filter::eLinear;
-        desc.minFilter = vk::Filter::eLinear;
-        desc.addressModeU = vk::SamplerAddressMode::eRepeat;
-        desc.addressModeV = vk::SamplerAddressMode::eRepeat;
-        desc.addressModeW = vk::SamplerAddressMode::eRepeat;
-        desc.maxAnisotropy = max_anisotropy;
+        desc.mag_filter = Filter::Linear;
+        desc.min_filter = Filter::Linear;
+        desc.address_mode_u = SamplerAddressMode::Repeat;
+        desc.address_mode_v = SamplerAddressMode::Repeat;
+        desc.address_mode_w = SamplerAddressMode::Repeat;
+        desc.max_anisotropy = max_anisotropy;
         return std::make_shared<Sampler>(device, desc);
     }
 
     std::shared_ptr<Sampler> Sampler::create_nearest_clamp(Device* device) {
         SamplerDesc desc{};
-        desc.magFilter = vk::Filter::eNearest;
-        desc.minFilter = vk::Filter::eNearest;
-        desc.addressModeU = vk::SamplerAddressMode::eClampToEdge;
-        desc.addressModeV = vk::SamplerAddressMode::eClampToEdge;
-        desc.addressModeW = vk::SamplerAddressMode::eClampToEdge;
-        desc.maxAnisotropy = 1.0f;
+        desc.mag_filter = Filter::Nearest;
+        desc.min_filter = Filter::Nearest;
+        desc.address_mode_u = SamplerAddressMode::ClampToEdge;
+        desc.address_mode_v = SamplerAddressMode::ClampToEdge;
+        desc.address_mode_w = SamplerAddressMode::ClampToEdge;
+        desc.max_anisotropy = 1.0f;
         return std::make_shared<Sampler>(device, desc);
     }
 
     std::shared_ptr<Sampler> Sampler::create_shadow_sampler(Device* device) {
         SamplerDesc desc{};
-        desc.magFilter = vk::Filter::eLinear;
-        desc.minFilter = vk::Filter::eLinear;
-        desc.addressModeU = vk::SamplerAddressMode::eClampToBorder;
-        desc.addressModeV = vk::SamplerAddressMode::eClampToBorder;
-        desc.addressModeW = vk::SamplerAddressMode::eClampToBorder;
-        desc.maxAnisotropy = 1.0f;
+        desc.mag_filter = Filter::Linear;
+        desc.min_filter = Filter::Linear;
+        desc.address_mode_u = SamplerAddressMode::ClampToBorder;
+        desc.address_mode_v = SamplerAddressMode::ClampToBorder;
+        desc.address_mode_w = SamplerAddressMode::ClampToBorder;
+        desc.max_anisotropy = 1.0f;
         // 边界颜色可在构造中单独处理
         return std::make_shared<Sampler>(device, desc);
     }
 
-    std::shared_ptr<Sampler> SamplerManager::get_linear_repeat(float max_anisotropy) {
+    std::shared_ptr<Sampler> SamplerManager::get_linear_repeat(const float max_anisotropy) {
         const std::string name = "linear_repeat_" + std::to_string(static_cast<int>(max_anisotropy));
         if (const auto it = m_samplers.find(name); it != m_samplers.end()) {
             return it->second;

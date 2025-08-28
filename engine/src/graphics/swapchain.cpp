@@ -2,12 +2,10 @@
 #include "context.h"
 #include "device.h"
 #include "pch.h"
-#include "core/logger/logger.h"
+#include "common/logger.h"
 #include "common/profiler.h"
-#include "queue.h"
 #include "image.h"
 #include "semaphore.h"
-#include "fence.h"
 
 namespace Comet {
     Swapchain::Swapchain(Context* context, Device* device) : m_context(context), m_device(device) {
@@ -66,9 +64,9 @@ namespace Comet {
         const auto images = m_device->get().getSwapchainImagesKHR(m_swapchain);
         m_images.clear();
         ImageInfo image_info = {};
-        image_info.format = m_surface_info.surface_format.format;
-        image_info.extent = vk::Extent3D{m_surface_info.capabilities.currentExtent.width, m_surface_info.capabilities.currentExtent.height, 1};
-        image_info.usage = vk::ImageUsageFlagBits::eColorAttachment;
+        image_info.format = Graphics::vk_to_format(m_surface_info.surface_format.format);
+        image_info.extent = Math::Vec3u(m_surface_info.capabilities.currentExtent.width, m_surface_info.capabilities.currentExtent.height, 1);
+        image_info.usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
         for(const auto& image: images) {
             m_images.emplace_back(*Image::create_borrowed_image(m_device, image, image_info));
         }
@@ -101,7 +99,7 @@ namespace Comet {
         const auto surface_formats = m_context->get_physical_device().getSurfaceFormatsKHR(m_context->get_surface());
         m_surface_info.surface_format = surface_formats[0];
         for(const auto& format: surface_formats) {
-            if(format.format == settings.surface_format && format.colorSpace == settings.color_space) {
+            if(format.format == Graphics::format_to_vk(settings.surface_format) && format.colorSpace == Graphics::image_color_space_to_vk(settings.color_space)) {
                 m_surface_info.surface_format = format;
                 break;
             }

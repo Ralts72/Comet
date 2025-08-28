@@ -54,4 +54,10 @@ namespace Comet {
         }
         return descriptor_sets;
     }
+
+    PushConstantRange::PushConstantRange(const ShaderStage stage, const uint32_t offset, const uint32_t size) {
+        m_const_range.offset = offset;
+        m_const_range.size = size;
+        m_const_range.stageFlags = Graphics::shader_stage_to_vk(Flags<ShaderStage>(stage));
+    }
 }

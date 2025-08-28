@@ -1,6 +1,6 @@
 #pragma once
 #include "vk_common.h"
-#include "core/window/window.h"
+#include "core/window.h"
 
 namespace Comet {
     struct QueueFamilyInfo {
