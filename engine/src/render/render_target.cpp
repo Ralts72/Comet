@@ -34,12 +34,12 @@ namespace Comet {
     void RenderTarget::set_clear_value(const ClearValue& clear_value, const int index) {
         const auto attachments = m_render_pass->get_attachments();
         if(index < 0) {
-            for (int i = 0; i < attachments.size(); ++i) {
+            for (size_t i = 0; i < attachments.size(); ++i) {
                 set_clear_value(clear_value, i);
             }
             return;
         }
-        if(index >= attachments.size()) return;
+        if(static_cast<size_t>(index) >= attachments.size()) return;
         const auto& description = attachments[index].description;
         if (description.load_op != AttachmentLoadOp::Clear) return;
 

@@ -17,7 +17,8 @@ namespace Comet {
         }
 
         // 直接使用绝对路径到logs目录
-        std::filesystem::path logs_dir = std::string(PROJECT_ROOT_DIR) + "/logs";
+        std::filesystem::path logs_dir(std::string(PROJECT_ROOT_DIR));
+        logs_dir /= "logs";
 
         // 生成一次时间戳，两个logger共享
         static std::string shared_timestamp;

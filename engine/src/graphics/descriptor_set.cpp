@@ -39,7 +39,7 @@ namespace Comet {
     std::vector<DescriptorSet> DescriptorPool::allocate_descriptor_set(const DescriptorSetLayout& set_layout,
         const uint32_t count) const {
         std::vector<vk::DescriptorSetLayout> set_layouts(count);
-        for(int i = 0; i < count; i++){
+        for(uint32_t i = 0; i < count; i++){
             set_layouts[i] = set_layout.get();
         }
         vk::DescriptorSetAllocateInfo allocate_info{};
