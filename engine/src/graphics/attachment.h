@@ -39,17 +39,6 @@ namespace Comet {
             return attachment;
         }
 
-        // vk::AttachmentDescription description{
-        //     {},                                  // flags
-        //     vk::Format::eUndefined,                 // format
-        //     vk::SampleCountFlagBits::e1,            // samples
-        //     vk::AttachmentLoadOp::eDontCare,        // loadOp
-        //     vk::AttachmentStoreOp::eDontCare,       // storeOp
-        //     vk::AttachmentLoadOp::eDontCare,        // stencilLoadOp
-        //     vk::AttachmentStoreOp::eDontCare,       // stencilStoreOp
-        //     vk::ImageLayout::eUndefined,            // initialLayout
-        //     vk::ImageLayout::eUndefined             // finalLayout
-        // };
         struct Description {
             Format format = Format::UNDEFINED;
             SampleCount samples = SampleCount::Count1;
@@ -61,9 +50,7 @@ namespace Comet {
             ImageLayout final_layout = ImageLayout::Undefined;
         } description;
         Flags<ImageUsage> usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
-        // vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eColorAttachment;
     };
-
 
     class SubpassAttachment{
     public:

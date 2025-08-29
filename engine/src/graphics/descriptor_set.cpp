@@ -2,9 +2,9 @@
 #include "device.h"
 
 namespace Comet {
-    void DescriptorSetLayoutBindings::add_binding(uint32_t binding, vk::DescriptorType type,
-        vk::ShaderStageFlags stage_flags, uint32_t count) {
-        m_bindings.emplace_back(binding, type, count, stage_flags, nullptr);
+    void DescriptorSetLayoutBindings::add_binding(uint32_t binding, DescriptorType type, Flags<ShaderStage> stage_flags, uint32_t count) {
+        m_bindings.emplace_back(binding, Graphics::description_type_to_vk(type), count,
+            Graphics::shader_stage_to_vk(stage_flags), nullptr);
     }
 
     DescriptorSetLayout::DescriptorSetLayout(Device* device, const DescriptorSetLayoutBindings& bindings)
@@ -28,8 +28,8 @@ namespace Comet {
         m_descriptor_pool = m_device->get().createDescriptorPool(create_info);
     }
 
-    void DescriptorPoolSizes::add_pool_size(vk::DescriptorType type, uint32_t count) {
-        m_sizes.emplace_back(type, count);
+    void DescriptorPoolSizes::add_pool_size(DescriptorType type, uint32_t count) {
+        m_sizes.emplace_back(Graphics::description_type_to_vk(type), count);
     }
 
     DescriptorPool::~DescriptorPool() {

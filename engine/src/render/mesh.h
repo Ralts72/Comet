@@ -11,7 +11,7 @@ namespace Comet {
         Mesh(Device* device, const std::vector<Math::Vertex>& vertices, const std::vector<uint32_t>& indices = {});
         ~Mesh();
 
-        void draw(CommandBuffer& command_buffer);
+        void draw(const CommandBuffer& command_buffer) const;
 
     private:
         std::shared_ptr<Buffer> m_vertex_buffer;

@@ -256,20 +256,20 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::DescriptorType bind_group_entry_type_to_vk(BindGroupEntryType type) {
+    vk::DescriptorType description_type_to_vk(DescriptorType type) {
         switch(type) {
-            CASE(BindGroupEntryType::Sampler, vk::DescriptorType::eSampler)
-            CASE(BindGroupEntryType::CombinedImageSampler, vk::DescriptorType::eCombinedImageSampler)
-            CASE(BindGroupEntryType::SampledImage, vk::DescriptorType::eSampledImage)
-            CASE(BindGroupEntryType::StorageImage, vk::DescriptorType::eStorageImage)
-            CASE(BindGroupEntryType::UniformTexelBuffer, vk::DescriptorType::eUniformTexelBuffer)
-            CASE(BindGroupEntryType::StorageTexelBuffer, vk::DescriptorType::eStorageTexelBuffer)
-            CASE(BindGroupEntryType::UniformBuffer, vk::DescriptorType::eUniformBuffer)
-            CASE(BindGroupEntryType::StorageBuffer, vk::DescriptorType::eStorageBuffer)
-            CASE(BindGroupEntryType::UniformBufferDynamic, vk::DescriptorType::eUniformBufferDynamic)
-            CASE(BindGroupEntryType::StoragesBufferDynamic, vk::DescriptorType::eStorageBufferDynamic)
-            CASE(BindGroupEntryType::InputAttachment, vk::DescriptorType::eInputAttachment)
-            CASE(BindGroupEntryType::InlineUniformBlock, vk::DescriptorType::eUniformBufferDynamic)
+            CASE(DescriptorType::Sampler, vk::DescriptorType::eSampler)
+            CASE(DescriptorType::CombinedImageSampler, vk::DescriptorType::eCombinedImageSampler)
+            CASE(DescriptorType::SampledImage, vk::DescriptorType::eSampledImage)
+            CASE(DescriptorType::StorageImage, vk::DescriptorType::eStorageImage)
+            CASE(DescriptorType::UniformTexelBuffer, vk::DescriptorType::eUniformTexelBuffer)
+            CASE(DescriptorType::StorageTexelBuffer, vk::DescriptorType::eStorageTexelBuffer)
+            CASE(DescriptorType::UniformBuffer, vk::DescriptorType::eUniformBuffer)
+            CASE(DescriptorType::StorageBuffer, vk::DescriptorType::eStorageBuffer)
+            CASE(DescriptorType::UniformBufferDynamic, vk::DescriptorType::eUniformBufferDynamic)
+            CASE(DescriptorType::StoragesBufferDynamic, vk::DescriptorType::eStorageBufferDynamic)
+            CASE(DescriptorType::InputAttachment, vk::DescriptorType::eInputAttachment)
+            CASE(DescriptorType::InlineUniformBlock, vk::DescriptorType::eUniformBufferDynamic)
         }
         LOG_FATAL("can't reach");
     }
@@ -488,7 +488,7 @@ namespace Comet::Graphics {
 
     ImageColorSpace vk_to_image_color_space(vk::ColorSpaceKHR space) {
         switch(space) {
-                // CASE(vk::ColorSpaceKHR::eDolbyvisionEXT, ImageColorSpace::DolbyvisionEXT)
+            // CASE(vk::ColorSpaceKHR::eDolbyvisionEXT, ImageColorSpace::DolbyvisionEXT)
             CASE(vk::ColorSpaceKHR::eAdobergbLinearEXT, ImageColorSpace::AdobergbLinearEXT)
             CASE(vk::ColorSpaceKHR::eAdobergbNonlinearEXT, ImageColorSpace::AdobergbNonlinearEXT)
             CASE(vk::ColorSpaceKHR::eBt709LinearEXT, ImageColorSpace::Bt709LinearEXT)
@@ -510,31 +510,34 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::MemoryPropertyFlags memory_property_to_vk(MemoryType property) {
-        switch(property) {
-            CASE(MemoryType::CPULocal, vk::MemoryPropertyFlagBits::eHostVisible);
-            CASE(MemoryType::Coherence, vk::MemoryPropertyFlagBits::eHostCoherent);
-            CASE(MemoryType::GPULocal, vk::MemoryPropertyFlagBits::eDeviceLocal);
-        }
-        LOG_FATAL("can't reach");
+    vk::MemoryPropertyFlags memory_property_to_vk(Flags<MemoryType> flags) {
+        vk::MemoryPropertyFlags bits{};
+        TRY_SET_BIT(MemoryType::Coherence,vk::MemoryPropertyFlagBits::eHostCoherent)
+        TRY_SET_BIT(MemoryType::CPULocal, vk::MemoryPropertyFlagBits::eHostVisible)
+        TRY_SET_BIT(MemoryType::GPULocal, vk::MemoryPropertyFlagBits::eDeviceLocal)
+        return bits;
     }
 
-    std::optional<uint32_t> find_memory_type(vk::PhysicalDevice physical_device, const vk::MemoryRequirements& requirements, vk::MemoryPropertyFlags properties) {
-        vk::PhysicalDeviceMemoryProperties props;
-        physical_device.getMemoryProperties(&props);
-        for (uint32_t i = 0; i < props.memoryTypeCount; i++) {
-            if ((1 << i & requirements.memoryTypeBits) &&
-                (props.memoryTypes[i].propertyFlags & properties) == properties) {
-                return i;
-            }
-        }
-        return {};
-    }
 
     vk::VertexInputRate vertex_input_rate_to_vk(VertexInputRate rate) {
         switch(rate) {
             CASE(VertexInputRate::Vertex, vk::VertexInputRate::eVertex);
             CASE(VertexInputRate::Instance, vk::VertexInputRate::eInstance);
+        }
+        LOG_FATAL("can't reach");
+    }
+
+    vk::DynamicState dynamic_state_to_vk(DynamicState state) {
+        switch(state) {
+            CASE(DynamicState::Viewport, vk::DynamicState::eViewport);
+            CASE(DynamicState::Scissor, vk::DynamicState::eScissor);
+            CASE(DynamicState::LineWidth, vk::DynamicState::eLineWidth);
+            CASE(DynamicState::DepthBias, vk::DynamicState::eDepthBias);
+            CASE(DynamicState::BlendConstants, vk::DynamicState::eBlendConstants);
+            CASE(DynamicState::DepthBounds, vk::DynamicState::eDepthBounds);
+            CASE(DynamicState::StencilCompareMask, vk::DynamicState::eStencilCompareMask);
+            CASE(DynamicState::StencilWriteMask, vk::DynamicState::eStencilWriteMask);
+            CASE(DynamicState::StencilReference, vk::DynamicState::eStencilReference);
         }
         LOG_FATAL("can't reach");
     }

@@ -8,7 +8,7 @@ namespace Comet {
     public:
         DescriptorSetLayoutBindings() = default;
 
-        void add_binding(uint32_t binding, vk::DescriptorType type, vk::ShaderStageFlags stage_flags, uint32_t count = 1);
+        void add_binding(uint32_t binding, DescriptorType type, Flags<ShaderStage> stage_flags, uint32_t count = 1);
 
         [[nodiscard]] const std::vector<vk::DescriptorSetLayoutBinding>& get_bindings() const { return m_bindings; }
     private:
@@ -19,7 +19,7 @@ namespace Comet {
     public:
         DescriptorPoolSizes() = default;
 
-        void add_pool_size(vk::DescriptorType type, uint32_t count);
+        void add_pool_size(DescriptorType type, uint32_t count);
 
         [[nodiscard]] const std::vector<vk::DescriptorPoolSize>& get_pool_sizes() const { return m_sizes; }
     private:

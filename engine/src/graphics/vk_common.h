@@ -23,13 +23,14 @@ namespace Comet {
     };
 
     struct ClearValue {
-        enum class Type { Color, DepthStencil } type;
+        enum class Type { Color, DepthStencil };
 
         ClearValue() = default;
-        explicit ClearValue(const Math::Vec4 clear_color): type(Type::Color), color(clear_color)  {}
+        explicit ClearValue(const Math::Vec4 clear_color): type(Type::Color), color(clear_color) {}
         explicit ClearValue(const float depth_value, const uint32_t stencil_value)
             : type(Type::DepthStencil), depth(depth_value), stencil(stencil_value) {}
 
+        Type type;
         Math::Vec4 color{0.0f};
         float depth = 1.0f;
         uint32_t stencil = 0;
@@ -44,6 +45,8 @@ namespace Comet {
             return cv;
         }
     };
+
+
 
     namespace Graphics {
 

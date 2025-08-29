@@ -122,8 +122,25 @@ namespace Comet {
         m_device.resetFences(vk_fences);
     }
 
-    void Device::wait_idle() {
+    void Device::wait_idle() const {
         m_device.waitIdle();
+    }
+
+    uint32_t Device::get_memory_index(const Flags<MemoryType> mem_props, uint32_t memory_type_bits) const {
+        const vk::PhysicalDeviceMemoryProperties physical_device_mem_props = m_context->get_memory_properties();
+        if(physical_device_mem_props.memoryTypeCount == 0){
+            LOG_FATAL("Physical device memory type count is 0");
+        }
+        const auto vk_memory_properties = Graphics::memory_property_to_vk(mem_props);
+        for(uint32_t i = 0; i < physical_device_mem_props.memoryTypeCount; i++){
+            const bool is_type_used = (memory_type_bits & (1 << i)) != 0;
+            const bool has_required_props = (physical_device_mem_props.memoryTypes[i].propertyFlags & vk_memory_properties) == vk_memory_properties;
+            if( is_type_used && has_required_props ){
+                return i;
+            }
+        }
+        LOG_ERROR("Can not find memory type index: type bit: {}", memory_type_bits);
+        return 0;
     }
 
     void Device::copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size) {
@@ -133,33 +150,17 @@ namespace Comet {
     }
 
     void Device::copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, vk::ImageLayout dst_image_layout,
-        const vk::Extent3D& extent, uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
+    const vk::Extent3D& extent, uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
         one_time_submit([&](CommandBuffer cmd_buf){
             cmd_buf.copy_buffer_to_image(src, dst_image, dst_image_layout, extent, mip_level);
         });
     }
 
     void Device::transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-        uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
+    uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
         one_time_submit([&](CommandBuffer cmd_buf){
             cmd_buf.transition_image_layout(image, old_layout, new_layout, base_array_layer, layer_count, mip_level);
         });
-    }
-
-    uint32_t Device::get_memory_index(const vk::MemoryPropertyFlags mem_props, uint32_t memory_type_bits) const {
-        const vk::PhysicalDeviceMemoryProperties physical_device_mem_props = m_context->get_memory_properties();
-        if(physical_device_mem_props.memoryTypeCount == 0){
-            LOG_FATAL("Physical device memory type count is 0");
-        }
-        for(uint32_t i = 0; i < physical_device_mem_props.memoryTypeCount; i++){
-            const bool is_type_used = (memory_type_bits & (1 << i)) != 0;
-            const bool has_required_props = (physical_device_mem_props.memoryTypes[i].propertyFlags & mem_props) == mem_props;
-            if( is_type_used && has_required_props ){
-                return i;
-            }
-        }
-        LOG_ERROR("Can not find memory type index: type bit: {}", memory_type_bits);
-        return 0;
     }
 
     void Device::create_pipeline_cache() {

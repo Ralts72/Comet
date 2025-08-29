@@ -1,5 +1,6 @@
 #pragma once
 #include "vk_common.h"
+#include "buffer.h"
 
 namespace Comet {
     class Context;
@@ -10,6 +11,9 @@ namespace Comet {
 
     class Device {
     public:
+        friend class GPUBuffer;
+        friend class Texture;
+
         Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count, const VkSettings& settings = {});
 
         ~Device();
@@ -19,14 +23,7 @@ namespace Comet {
 
         void reset_fences(std::span<const Fence> fences) const;
 
-        void wait_idle();
-
-        void copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size);
-
-        void copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, vk::ImageLayout dst_image_layout,
-            const vk::Extent3D& extent, uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
-        void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-            uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
+        void wait_idle() const;
 
         [[nodiscard]] vk::Device get() const { return m_device; }
         [[nodiscard]] const VkSettings& get_settings() const { return m_settings; }
@@ -41,11 +38,17 @@ namespace Comet {
 
         [[nodiscard]] vk::PipelineCache get_pipeline_cache() const { return m_pipeline_cache; }
 
-        [[nodiscard]] uint32_t get_memory_index(vk::MemoryPropertyFlags mem_props, uint32_t memory_type_bits) const;
+        [[nodiscard]] uint32_t get_memory_index(Flags<MemoryType> mem_props, uint32_t memory_type_bits) const;
 
         [[nodiscard]] std::shared_ptr<CommandPool> get_default_command_pool() const { return m_default_command_pool;}
 
     private:
+        void copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size);
+        void copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, vk::ImageLayout dst_image_layout,
+            const vk::Extent3D& extent, uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
+        void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+            uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
+
         void create_pipeline_cache();
         void create_default_command_pool();
         void one_time_submit(const std::function<void(CommandBuffer)>& cmd_func);

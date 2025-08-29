@@ -82,7 +82,7 @@ namespace Comet {
         vk::Viewport viewport{};
         vk::Rect2D scissor{};
         vk::PipelineColorBlendAttachmentState color_blend_state{
-            vk::False,  // blendEnable
+            vk::False,                  // blendEnable
             vk::BlendFactor::eOne,      // srcColorBlendFactor
             vk::BlendFactor::eZero,     // dstColorBlendFactor
             vk::BlendOp::eAdd,          // colorBlendOp
@@ -106,7 +106,7 @@ namespace Comet {
 
         void set_color_blend_attachment_state(const PipelineColorBlendState& cb_state);
 
-        void set_dynamic_state(const std::vector<vk::DynamicState>& dy_states);
+        void set_dynamic_state(const std::vector<DynamicState>& dy_states);
 
         void enable_alpha_blend();
 
@@ -128,7 +128,7 @@ namespace Comet {
         [[nodiscard]] const std::string& get_name() const { return m_name; }
 
     private:
-        [[nodiscard]] std::array<vk::PipelineShaderStageCreateInfo, 2> create_shader_stages(
+        [[nodiscard]] static std::array<vk::PipelineShaderStageCreateInfo, 2> create_shader_stages(
             const std::shared_ptr<Shader>& vertex_shader, const std::shared_ptr<Shader>& fragment_shader);
 
         [[nodiscard]] vk::PipelineVertexInputStateCreateInfo create_vertex_input_state() const;

@@ -6,10 +6,8 @@ namespace Comet {
 
     struct ImageInfo {
         Format format;
-        // vk::Extent3D extent;
         Math::Vec3u extent;
         Flags<ImageUsage> usage;
-        // vk::ImageUsageFlags usage;
     };
 
     class Image {
@@ -35,7 +33,7 @@ namespace Comet {
 
     class OwnedImage final: public Image {
     public:
-        OwnedImage(Device* device, const ImageInfo& info,SampleCount sample_count =SampleCount::Count1);
+        OwnedImage(Device* device, const ImageInfo& info,SampleCount sample_count = SampleCount::Count1);
         ~OwnedImage() override;
     private:
         vk::DeviceMemory m_memory;

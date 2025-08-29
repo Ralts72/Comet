@@ -32,7 +32,6 @@ namespace Comet {
 
         LOG_INFO("create render pass");
         std::vector<Attachment> attachments;
-        // auto vk_sampler_count = Graphics::sample_count_to_vk(s_vk_settings.msaa_samples);
         attachments.emplace_back(Attachment::get_color_attachment(s_vk_settings.surface_format,
             s_vk_settings.msaa_samples));
         attachments.emplace_back(Attachment::get_depth_attachment(s_vk_settings.depth_format,
@@ -65,10 +64,10 @@ namespace Comet {
         ShaderLayout layout = {};
         // layout.push_constants.emplace_back(vk::ShaderStageFlagBits::eVertex, 0, sizeof(PushConstant));
         DescriptorSetLayoutBindings bindings;
-        bindings.add_binding(0, vk::DescriptorType::eUniformBuffer, vk::ShaderStageFlagBits::eVertex);
-        bindings.add_binding(1, vk::DescriptorType::eUniformBuffer, vk::ShaderStageFlagBits::eVertex);
-        bindings.add_binding(2, vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment);
-        bindings.add_binding(3, vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment);
+        bindings.add_binding(0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
+        bindings.add_binding(1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
+        bindings.add_binding(2, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
+        bindings.add_binding(3, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
         m_descriptor_set_layout = std::make_shared<DescriptorSetLayout>(m_device.get(), bindings);
         layout.descriptor_set_layouts.push_back(m_descriptor_set_layout);
 
@@ -85,7 +84,7 @@ namespace Comet {
         PipelineConfig pipeline_config = {};
         pipeline_config.set_vertex_input_state(vertex_input_description);
         pipeline_config.set_input_assembly_state(Topology::TriangleList);
-        pipeline_config.set_dynamic_state({vk::DynamicState::eViewport, vk::DynamicState::eScissor});
+        pipeline_config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         pipeline_config.enable_depth_test();
         pipeline_config.set_multisample_state(s_vk_settings.msaa_samples, false, 0.2f);
 
@@ -94,16 +93,16 @@ namespace Comet {
 
         LOG_INFO("create descriptor pool and descriptor sets");
         DescriptorPoolSizes descriptor_pool_sizes;
-        descriptor_pool_sizes.add_pool_size(vk::DescriptorType::eUniformBuffer, 2);
-        descriptor_pool_sizes.add_pool_size(vk::DescriptorType::eCombinedImageSampler, 2);
+        descriptor_pool_sizes.add_pool_size(DescriptorType::UniformBuffer, 2);
+        descriptor_pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, 2);
         m_descriptor_pool = std::make_shared<DescriptorPool>(m_device.get(), 1, descriptor_pool_sizes);
         m_descriptor_sets = m_descriptor_pool->allocate_descriptor_set(*m_descriptor_set_layout, 1);
 
-        m_view_project_uniform_buffer = std::make_shared<Buffer>(m_device.get(), vk::BufferUsageFlagBits::eUniformBuffer,
-            sizeof(ViewProjectMatrix), nullptr, BufferMemoryType::HostVisible);
-        m_model_uniform_buffer = std::make_shared<Buffer>(m_device.get(), vk::BufferUsageFlagBits::eUniformBuffer,
-            sizeof(ModelMatrix), nullptr, BufferMemoryType::HostVisible);
+        m_view_project_uniform_buffer = Buffer::create_cpu_buffer(m_device.get(), Flags<BufferUsage>(BufferUsage::Uniform),
+        sizeof(ViewProjectMatrix), nullptr);
 
+        m_model_uniform_buffer = Buffer::create_cpu_buffer(m_device.get(), Flags<BufferUsage>(BufferUsage::Uniform),
+        sizeof(ModelMatrix), nullptr);
         LOG_INFO("create sampler manager and textures");
         m_sampler_manager = std::make_shared<SamplerManager>(m_device.get());
         auto sampler = m_sampler_manager->get_linear_repeat();
@@ -178,8 +177,8 @@ namespace Comet {
             static_cast<float>(m_swapchain->get_height()));
         command_buffer.set_scissor(scissor);
 
-        m_view_project_uniform_buffer->write(&m_view_project_matrix);
-        m_model_uniform_buffer->write(&m_model_matrix);
+        static_pointer_cast<CPUBuffer>(m_view_project_uniform_buffer)->write(&m_view_project_matrix);
+        static_pointer_cast<CPUBuffer>(m_model_uniform_buffer)->write(&m_model_matrix);
         updateDescriptorSets();
 
         std::vector<vk::DescriptorSet> descriptor_sets;
@@ -190,7 +189,7 @@ namespace Comet {
         command_buffer.get().bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipeline->get_layout()->get(),
             0,1, descriptor_sets.data(), 0, nullptr);
         // 7. draw
-        // command_buffer.push_constants(*m_pipeline->get_layout(), vk::ShaderStageFlagBits::eVertex, 0,
+        // command_buffer.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Vertex), 0,
             // &m_push_constant, sizeof(PushConstant));
         m_cube_mesh->draw(command_buffer);
 

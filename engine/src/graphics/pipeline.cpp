@@ -65,8 +65,13 @@ namespace Comet {
         color_blend_state.alphaBlendOp = Graphics::blend_op_to_vk(cb_state.alpha_blend_op);
     }
 
-    void PipelineConfig::set_dynamic_state(const std::vector<vk::DynamicState>& dy_states) {
-        dynamic_state.dynamic_states = dy_states;
+    void PipelineConfig::set_dynamic_state(const std::vector<DynamicState>& dy_states) {
+        std::vector<vk::DynamicState> dynamic_states;
+        dynamic_states.reserve(dy_states.size());
+        for(const auto& dy_state : dy_states) {
+            dynamic_states.push_back(Graphics::dynamic_state_to_vk(dy_state));
+        }
+        dynamic_state.dynamic_states = dynamic_states;
     }
 
     void PipelineConfig::enable_alpha_blend() {

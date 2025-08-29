@@ -3,31 +3,40 @@
 
 namespace Comet {
     class Device;
-    enum class BufferMemoryType {
-        HostVisible,    // CPU 可直接访问，适合频繁更新
-        DeviceLocal     // GPU 专用高速内存，适合静态数据
-    };
 
     class Buffer {
     public:
-        Buffer(Device* device, vk::BufferUsageFlags usage, size_t size, const void *data = nullptr,
-            BufferMemoryType buffer_type = BufferMemoryType::DeviceLocal);
-        ~Buffer();
-        void write(const void *data);
+        enum class Type { HostVisible, DeviceLocal };
+        Buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void *data, Type buffer_type);
+        virtual ~Buffer();
+
+        static std::shared_ptr<Buffer> create_cpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void *data = nullptr);
+        static std::shared_ptr<Buffer> create_gpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void *data = nullptr);
 
         [[nodiscard]] vk::Buffer get() const { return m_buffer; }
         [[nodiscard]] vk::DeviceMemory get_memory() const { return m_memory; }
         [[nodiscard]] size_t get_size() const { return m_size; }
-        [[nodiscard]] BufferMemoryType get_buffer_memory_type() const { return m_buffer_type; }
+        [[nodiscard]] Type get_buffer_memory_type() const { return m_buffer_type; }
 
-    private:
-        [[nodiscard]] std::pair<vk::Buffer, vk::DeviceMemory> create_buffer(vk::MemoryPropertyFlags mem_props,
-            vk::BufferUsageFlags usage) const;
+    protected:
+        [[nodiscard]] std::pair<vk::Buffer, vk::DeviceMemory> create_buffer(Flags<MemoryType> mem_props,
+            Flags<BufferUsage> usage) const;
 
         Device* m_device;
         vk::Buffer m_buffer;
         vk::DeviceMemory m_memory;
         size_t m_size;
-        BufferMemoryType m_buffer_type;
+        Type m_buffer_type;
+    };
+
+    class GPUBuffer final: public Buffer {
+    public:
+        GPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void *data);
+    };
+
+    class CPUBuffer final: public Buffer {
+    public:
+        CPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void *data);
+        void write(const void* data) const;
     };
 }

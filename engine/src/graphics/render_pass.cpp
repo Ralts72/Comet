@@ -16,13 +16,6 @@ namespace Comet {
             description.stencil_store_op = AttachmentStoreOp::DontCare;
             description.initial_layout = ImageLayout::Undefined;
             description.final_layout = ImageLayout::PresentSrcKHR;
-            // vk::AttachmentDescription description{};
-            // description.format = device->get_settings().surface_format;
-            // description.loadOp = vk::AttachmentLoadOp::eClear;
-            // description.storeOp = vk::AttachmentStoreOp::eStore;
-            // description.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-            // description.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-            // description.finalLayout = vk::ImageLayout::ePresentSrcKHR;
             Attachment attachment = {
                 .description = description,
                 .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)

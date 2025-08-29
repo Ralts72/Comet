@@ -37,7 +37,7 @@ namespace Comet {
         const auto memory_required = device->get().getImageMemoryRequirements(m_image);
         vk::MemoryAllocateInfo allocate_info = {};
         allocate_info.allocationSize = memory_required.size;
-        allocate_info.memoryTypeIndex = device->get_memory_index(vk::MemoryPropertyFlagBits::eDeviceLocal, memory_required.memoryTypeBits);
+        allocate_info.memoryTypeIndex = device->get_memory_index(Flags<MemoryType>(MemoryType::GPULocal), memory_required.memoryTypeBits);
         m_memory = device->get().allocateMemory(allocate_info);
         m_device->get().bindImageMemory(m_image, m_memory, 0);
         LOG_INFO("Vulkan image created successfully with memory allocated");

@@ -5,33 +5,19 @@
 #include "common/profiler.h"
 
 namespace Comet {
-    Buffer::Buffer(Device* device, const vk::BufferUsageFlags usage, const size_t size, const void* data,
-        const BufferMemoryType buffer_type)
-    : m_device(device), m_size(size), m_buffer_type(buffer_type) {
-        PROFILE_SCOPE("Buffer::Constructor");
-        if(m_buffer_type == BufferMemoryType::HostVisible) {
-            std::tie(m_buffer, m_memory) = create_buffer(vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, usage);
-            write(data);
-        } else {
-            auto [stage_buffer, stage_memory] = create_buffer(vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-                                 vk::BufferUsageFlagBits::eTransferSrc);
-            void* mapping = m_device->get().mapMemory(stage_memory, 0, vk::WholeSize);
-            memcpy(mapping, data, m_size);
-            m_device->get().unmapMemory(stage_memory);
-            std::tie(m_buffer, m_memory) = create_buffer(vk::MemoryPropertyFlagBits::eDeviceLocal, usage | vk::BufferUsageFlagBits::eTransferDst);
+    Buffer::Buffer(Device* device, const Flags<BufferUsage> usage, const size_t size, const void* data,
+        const Type buffer_type) : m_device(device), m_size(size), m_buffer_type(buffer_type) {}
 
-            m_device->copy_buffer(stage_buffer, m_buffer, m_size);
-
-            m_device->get().destroyBuffer(stage_buffer);
-            m_device->get().freeMemory(stage_memory);
-        }
+    Buffer::~Buffer() {
+        m_device->get().destroyBuffer(m_buffer);
+        m_device->get().freeMemory(m_memory);
     }
 
-    std::pair<vk::Buffer, vk::DeviceMemory> Buffer::create_buffer(const vk::MemoryPropertyFlags mem_props,
-        const vk::BufferUsageFlags usage) const {
+    std::pair<vk::Buffer, vk::DeviceMemory> Buffer::create_buffer(const Flags<MemoryType> mem_props,
+        const Flags<BufferUsage> usage) const {
         vk::BufferCreateInfo buffer_create_info = {};
         buffer_create_info.size = m_size;
-        buffer_create_info.usage = usage;
+        buffer_create_info.usage = Graphics::buffer_usage_to_vk(usage);
         buffer_create_info.sharingMode = vk::SharingMode::eExclusive;
         buffer_create_info.queueFamilyIndexCount = 0;
         buffer_create_info.pQueueFamilyIndices = nullptr;
@@ -47,13 +33,41 @@ namespace Comet {
         return std::make_pair(buffer, memory);
     }
 
-    Buffer::~Buffer() {
-        m_device->get().destroyBuffer(m_buffer);
-        m_device->get().freeMemory(m_memory);
+    GPUBuffer::GPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data)
+    : Buffer(device, usage, size, data, Type::DeviceLocal) {
+        PROFILE_SCOPE("Buffer::Constructor");
+        auto [stage_buffer, stage_memory] = create_buffer(Flags<MemoryType>(MemoryType::CPULocal)
+            | Flags<MemoryType>(MemoryType::Coherence), Flags<BufferUsage>(BufferUsage::CopySrc));
+        void* mapping = m_device->get().mapMemory(stage_memory, 0, vk::WholeSize);
+        memcpy(mapping, data, m_size);
+        m_device->get().unmapMemory(stage_memory);
+        std::tie(m_buffer, m_memory) = create_buffer(Flags<MemoryType>(MemoryType::GPULocal),
+            usage | Flags<BufferUsage>(BufferUsage::CopyDst));
+
+        m_device->copy_buffer(stage_buffer, m_buffer, m_size);
+
+        m_device->get().destroyBuffer(stage_buffer);
+        m_device->get().freeMemory(stage_memory);
     }
 
-    void Buffer::write(const void* data) {
-        if (!data || m_buffer_type == BufferMemoryType::DeviceLocal) {
+    CPUBuffer::CPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data)
+    : Buffer(device, usage, size, data, Type::HostVisible) {
+        std::tie(m_buffer, m_memory) = create_buffer(Flags<MemoryType>(MemoryType::CPULocal)
+            | Flags<MemoryType>(MemoryType::Coherence), usage);
+        write(data);
+    }
+
+    std::shared_ptr<Buffer> Buffer::create_cpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data) {
+        return std::make_shared<CPUBuffer>(device, usage, size, data);
+    }
+
+
+    std::shared_ptr<Buffer> Buffer::create_gpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data) {
+        return std::make_shared<GPUBuffer>(device, usage, size, data);
+    }
+
+    void CPUBuffer::write(const void* data) const {
+        if (!data) {
             LOG_ERROR("Buffer is not host visible or data is null");
             return;
         }

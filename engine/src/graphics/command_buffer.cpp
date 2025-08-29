@@ -8,7 +8,7 @@
 #include "render/render_target.h"
 
 namespace Comet {
-    void CommandBuffer::begin(const vk::CommandBufferUsageFlags flags) {
+    void CommandBuffer::begin(const vk::CommandBufferUsageFlags flags) const {
         m_command_buffer.reset();
         vk::CommandBufferBeginInfo begin_info = {};
         begin_info.pInheritanceInfo = nullptr;
@@ -16,16 +16,16 @@ namespace Comet {
         m_command_buffer.begin(begin_info);
     }
 
-    void CommandBuffer::end() {
+    void CommandBuffer::end() const {
         m_command_buffer.end();
     }
 
-    void CommandBuffer::reset() {
+    void CommandBuffer::reset() const {
         m_command_buffer.reset();
     }
 
     void CommandBuffer::begin_render_pass(const RenderPass& render_pass, const FrameBuffer& frame_buffer,
-        const std::vector<ClearValue>& clear_values) {
+        const std::vector<ClearValue>& clear_values) const {
         std::vector<vk::ClearValue> vk_clear_value;
         vk_clear_value.reserve(clear_values.size());
         for(auto& clear_value : clear_values) {
@@ -48,24 +48,59 @@ namespace Comet {
         LOG_TRACE("RenderPass: begin render pass with {} clear values", clear_values.size());
     }
 
-    void CommandBuffer::end_render_pass() {
+    void CommandBuffer::end_render_pass() const {
         m_command_buffer.endRenderPass();
     }
 
-    void CommandBuffer::bind_pipeline(const Pipeline& pipeline) {
+    void CommandBuffer::bind_pipeline(const Pipeline& pipeline) const {
         m_command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.get());
         LOG_TRACE("CommandBuffer: bind pipeline {}", pipeline.get_name());
     }
 
-    void CommandBuffer::set_viewport(const vk::Viewport& viewport) {
+    void CommandBuffer::set_viewport(const vk::Viewport& viewport) const {
         m_command_buffer.setViewport(0, 1, &viewport);
     }
 
-    void CommandBuffer::set_scissor(const vk::Rect2D& scissor) {
+    void CommandBuffer::set_scissor(const vk::Rect2D& scissor) const {
         m_command_buffer.setScissor(0, 1, &scissor);
     }
 
-    void CommandBuffer::copy_buffer(vk::Buffer src_buffer, vk::Buffer dst_buffer, size_t size, size_t src_offset, size_t dst_offset) {
+    void CommandBuffer::bind_vertex_buffer(const std::span<const Buffer*> buffers,
+        const std::span<const uint64_t> offsets,
+        const uint32_t first_binding) const {
+        if(buffers.size() != offsets.size()) {
+            LOG_FATAL("buffers and offsets must have the same size");
+        }
+        std::vector<vk::Buffer> vk_buffers;
+        vk_buffers.reserve(buffers.size());
+        for (const auto buf : buffers) {
+            vk_buffers.push_back(buf->get());
+        }
+        m_command_buffer.bindVertexBuffers(first_binding, static_cast<uint32_t>(vk_buffers.size()),
+            vk_buffers.data(), offsets.data());
+    }
+
+    void CommandBuffer::bind_index_buffer(const Buffer& buffer, const uint64_t offset, const vk::IndexType type) const {
+        m_command_buffer.bindIndexBuffer(buffer.get(), offset, type);
+    }
+
+    void CommandBuffer::push_constants(const PipelineLayout& layout, const Flags<ShaderStage> stage_flags,
+        const uint32_t offset, const void* data, const size_t size) const {
+        m_command_buffer.pushConstants(layout.get(), Graphics::shader_stage_to_vk(stage_flags), offset, size, data);
+    }
+
+    void CommandBuffer::draw(const uint32_t vertex_count, const uint32_t instance_count, const uint32_t first_vertex,
+                             const uint32_t first_instance) const {
+        m_command_buffer.draw(vertex_count, instance_count, first_vertex, first_instance);
+    }
+    void CommandBuffer::draw_indexed(const uint32_t index_count, const uint32_t instance_count,
+        const uint32_t first_index, const int32_t vertex_offset, const uint32_t first_instance) const {
+        m_command_buffer.drawIndexed(index_count, instance_count, first_index,
+            vertex_offset, first_instance);
+    }
+
+    void CommandBuffer::copy_buffer(const vk::Buffer src_buffer, const vk::Buffer dst_buffer, const size_t size,
+        const size_t src_offset, const size_t dst_offset) const {
         vk::BufferCopy copy_buffer{};
         copy_buffer.srcOffset = src_offset;
         copy_buffer.dstOffset = dst_offset;
@@ -73,8 +108,9 @@ namespace Comet {
         m_command_buffer.copyBuffer(src_buffer, dst_buffer, 1, &copy_buffer);
     }
 
-    void CommandBuffer::copy_buffer_to_image(vk::Buffer src_buffer, vk::Image dst_image, vk::ImageLayout dst_image_layout,
-        const vk::Extent3D& extent, uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
+    void CommandBuffer::copy_buffer_to_image(const vk::Buffer src_buffer, const vk::Image dst_image,
+        const vk::ImageLayout dst_image_layout, const vk::Extent3D& extent, const uint32_t base_array_layer,
+        const uint32_t layer_count, const uint32_t mip_level) const {
         vk::BufferImageCopy buffer_image_copy{};
         buffer_image_copy.bufferOffset = 0;
         buffer_image_copy.bufferRowLength = extent.width;
@@ -88,8 +124,9 @@ namespace Comet {
         m_command_buffer.copyBufferToImage(src_buffer, dst_image, dst_image_layout, 1, &buffer_image_copy);
     }
 
-    void CommandBuffer::transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-        uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
+    void CommandBuffer::transition_image_layout(const vk::Image image, const vk::ImageLayout old_layout,
+        const vk::ImageLayout new_layout, const uint32_t base_array_layer, const uint32_t layer_count,
+        const uint32_t mip_level) const {
         vk::ImageMemoryBarrier barrier{};
         barrier.oldLayout = old_layout;
         barrier.newLayout = new_layout;
@@ -121,38 +158,6 @@ namespace Comet {
 
         m_command_buffer.pipelineBarrier(source_stage, destination_stage, {}, 0, nullptr, 0, nullptr, 1, &barrier);
     }
-
-    void CommandBuffer::bind_vertex_buffer(std::span<const Buffer*> buffers, std::span<const vk::DeviceSize> offsets, uint32_t first_binding) {
-        if(buffers.size() != offsets.size()) {
-            LOG_FATAL("buffers and offsets must have the same size");
-        }
-        std::vector<vk::Buffer> vk_buffers;
-        vk_buffers.reserve(buffers.size());
-        for (const auto buf : buffers) {
-            vk_buffers.push_back(buf->get());
-        }
-        m_command_buffer.bindVertexBuffers(first_binding, static_cast<uint32_t>(vk_buffers.size()),
-            vk_buffers.data(), offsets.data());
-    }
-
-    void CommandBuffer::bind_index_buffer(const Buffer& buffer, vk::DeviceSize offset, vk::IndexType type) {
-        m_command_buffer.bindIndexBuffer(buffer.get(), offset, type);
-    }
-
-    void CommandBuffer::push_constants(const PipelineLayout& layout, vk::ShaderStageFlags stage_flags,
-        uint32_t offset, const void* data, size_t size) {
-        m_command_buffer.pushConstants(layout.get(), stage_flags, offset, size, data);
-    }
-
-    void CommandBuffer::draw(const uint32_t vertex_count, const uint32_t instance_count, const uint32_t first_vertex,
-                             const uint32_t first_instance) {
-        m_command_buffer.draw(vertex_count, instance_count, first_vertex, first_instance);
-    }
-    void CommandBuffer::draw_indexed(const uint32_t index_count, const uint32_t instance_count,
-        const uint32_t first_index, const int32_t vertex_offset, const uint32_t first_instance) {
-        m_command_buffer.drawIndexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-    }
-
 
     CommandPool::CommandPool(Device* device, const uint32_t queue_family_index): m_device(device) {
         vk::CommandPoolCreateInfo pool_info = {};

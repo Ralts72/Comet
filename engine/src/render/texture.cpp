@@ -44,9 +44,7 @@ namespace Comet {
             Flags<ImageUsage>(ImageUsage::Sampled) | Flags<ImageUsage>(ImageUsage::CopyDst)}, SampleCount::Count1);
         m_image_view = std::make_shared<ImageView>(device, *m_image, Flags<ImageAspect>(ImageAspect::Color));
 
-        auto stage_buffer = std::make_shared<Buffer>(device, vk::BufferUsageFlagBits::eTransferSrc,
-            size, data, BufferMemoryType::HostVisible);
-        
+        auto stage_buffer = Buffer::create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::CopySrc), size, data);
         // 1. Transition image layout from UNDEFINED to TRANSFER_DST_OPTIMAL
         device->transition_image_layout(m_image->get(),
             vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
