@@ -13,7 +13,8 @@ namespace Comet {
         if(!data) {
             LOG_FATAL("Failed to load texture image from path: {}", img_path);
         }
-        const size_t size = m_width * m_height * m_channels * Graphics::format_size_in_bytes(m_format);
+        LOG_INFO("Loaded texture: {}x{}, channels: {}", m_width, m_height, m_channels);
+        const size_t size = m_width * m_height * Graphics::format_size_in_bytes(m_format);
         create_image(device, size, data);
         stbi_image_free(data);
     }
@@ -40,6 +41,12 @@ namespace Comet {
     }
 
     void Texture::create_image(Device* device, size_t size, const void* data) {
+        if (!data || size == 0) {
+            LOG_ERROR("Invalid data or size for texture creation: data={}, size={}",
+                     static_cast<const void*>(data), size);
+            return;
+        }
+
         m_image = Image::create_owned_image(device, {m_format, Math::Vec3u(m_width, m_height, 1),
             Flags<ImageUsage>(ImageUsage::Sampled) | Flags<ImageUsage>(ImageUsage::CopyDst)}, SampleCount::Count1);
         m_image_view = std::make_shared<ImageView>(device, *m_image, Flags<ImageAspect>(ImageAspect::Color));

@@ -54,7 +54,9 @@ namespace Comet {
     : Buffer(device, usage, size, data, Type::HostVisible) {
         std::tie(m_buffer, m_memory) = create_buffer(Flags<MemoryType>(MemoryType::CPULocal)
             | Flags<MemoryType>(MemoryType::Coherence), usage);
-        write(data);
+        if (data) {
+            write(data);
+        }
     }
 
     std::shared_ptr<Buffer> Buffer::create_cpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data) {
