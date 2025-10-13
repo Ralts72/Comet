@@ -4,6 +4,8 @@
 **/.DS_Store
 *.spv
 build/
+build-debug/
+build-release/
 cmake-build-debug/
 .cache/
 logs/
