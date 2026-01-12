@@ -9,7 +9,6 @@ namespace Comet {
     std::shared_ptr<spdlog::logger> Logger::s_profiler_logger = nullptr;
     bool Logger::s_initialized = false;
     std::string Logger::s_current_log_file_path;
-    bool Logger::s_enable_file_output = false;
 
     void Logger::init() {
         if(s_initialized) {
@@ -19,6 +18,13 @@ namespace Comet {
         // 直接使用绝对路径到logs目录
         std::filesystem::path logs_dir(std::string(PROJECT_ROOT_DIR));
         logs_dir /= "logs";
+
+#ifdef COMET_ENABLE_FILE_LOGGING
+        // 确保logs目录存在
+        if(!std::filesystem::exists(logs_dir)) {
+            std::filesystem::create_directories(logs_dir);
+        }
+#endif
 
         // 生成一次时间戳，两个logger共享
         static std::string shared_timestamp;
@@ -48,17 +54,17 @@ namespace Comet {
             // 设置格式
             shared_console_sink->set_pattern("%^[%T] [%l] %v%$");
 
-            if(s_enable_file_output) {
-                auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename, false);
-                file_sink->set_pattern("[%Y-%m-%d %T.%e] [%l] %v");
+#ifdef COMET_ENABLE_FILE_LOGGING
+            auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename, false);
+            file_sink->set_pattern("[%Y-%m-%d %T.%e] [%l] %v");
 
-                // 创建组合logger (控制台 + 文件)
-                s_console_logger = std::make_shared<spdlog::logger>("console",
-                    spdlog::sinks_init_list{shared_console_sink, file_sink});
-            } else {
-                // 仅控制台输出
-                s_console_logger = std::make_shared<spdlog::logger>("console", shared_console_sink);
-            }
+            // 创建组合logger (控制台 + 文件)
+            s_console_logger = std::make_shared<spdlog::logger>("console",
+                spdlog::sinks_init_list{shared_console_sink, file_sink});
+#else
+            // 仅控制台输出
+            s_console_logger = std::make_shared<spdlog::logger>("console", shared_console_sink);
+#endif
 
             s_console_logger->set_level(spdlog::level::trace);
             s_console_logger->flush_on(spdlog::level::trace);
@@ -73,17 +79,17 @@ namespace Comet {
             auto profiler_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
             profiler_console_sink->set_pattern("%^[Profiler] %-50v%$");
 
-            if(s_enable_file_output) {
-                auto profiler_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(profiler_filename, false);
-                profiler_file_sink->set_pattern("[%Y-%m-%d %T.%e] [Profiler] %v");
+#ifdef COMET_ENABLE_FILE_LOGGING
+            auto profiler_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(profiler_filename, false);
+            profiler_file_sink->set_pattern("[%Y-%m-%d %T.%e] [Profiler] %v");
 
-                // 创建组合logger (控制台 + 文件)
-                s_profiler_logger = std::make_shared<spdlog::logger>("profiler",
-                    spdlog::sinks_init_list{profiler_console_sink, profiler_file_sink});
-            } else {
-                // 仅控制台输出
-                s_profiler_logger = std::make_shared<spdlog::logger>("profiler", profiler_console_sink);
-            }
+            // 创建组合logger (控制台 + 文件)
+            s_profiler_logger = std::make_shared<spdlog::logger>("profiler",
+                spdlog::sinks_init_list{profiler_console_sink, profiler_file_sink});
+#else
+            // 仅控制台输出
+            s_profiler_logger = std::make_shared<spdlog::logger>("profiler", profiler_console_sink);
+#endif
 
             s_profiler_logger->set_level(spdlog::level::trace);
             s_profiler_logger->flush_on(spdlog::level::trace);

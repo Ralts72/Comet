@@ -26,7 +26,6 @@ namespace Comet {
         static std::shared_ptr<spdlog::logger> s_profiler_logger;
         static bool s_initialized;
         static std::string s_current_log_file_path;
-        static bool s_enable_file_output;
     };
 
 #ifdef BUILD_TYPE_DEBUG
