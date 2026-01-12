@@ -34,19 +34,18 @@ namespace Comet {
     void RenderTarget::set_clear_value(const ClearValue& clear_value, const int index) {
         const auto attachments = m_render_pass->get_attachments();
         if(index < 0) {
-            for (size_t i = 0; i < attachments.size(); ++i) {
+            for(size_t i = 0; i < attachments.size(); ++i) {
                 set_clear_value(clear_value, i);
             }
             return;
         }
         if(static_cast<size_t>(index) >= attachments.size()) return;
         const auto& description = attachments[index].description;
-        if (description.load_op != AttachmentLoadOp::Clear) return;
+        if(description.load_op != AttachmentLoadOp::Clear) return;
 
         const bool is_depth_stencil = Graphics::is_depth_stencil_format(description.format);
-        if ((clear_value.type == ClearValue::Type::Color && !is_depth_stencil) ||
-            (clear_value.type == ClearValue::Type::DepthStencil && is_depth_stencil))
-        {
+        if((clear_value.is_color() && !is_depth_stencil) ||
+           (clear_value.is_depth_stencil() && is_depth_stencil)) {
             m_clear_values[index] = clear_value;
         }
     }
@@ -77,7 +76,7 @@ namespace Comet {
 
     // SwapchainTarget
     SwapchainTarget::SwapchainTarget(Device* device, RenderPass* render_pass, Swapchain* swapchain)
-        : RenderTarget(device, render_pass, Type::Swapchain, Math::Vec2u(swapchain->get_width(),
+        : RenderTarget(device, render_pass, Math::Vec2u(swapchain->get_width(),
               swapchain->get_height()), swapchain->get_images().size()), m_swapchain(swapchain) {
         m_clear_values.resize(m_render_pass->get_attachments().size());
         set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
@@ -115,15 +114,15 @@ namespace Comet {
                 image_info.usage = usage;
 
                 if(Graphics::is_depth_stencil_format(description.format)) {
-                    depth_image = Image::create_owned_image(m_device, image_info, description.samples);
+                    depth_image = Image::create(m_device, image_info, description.samples);
                     depth_view = std::make_shared<ImageView>(m_device, *depth_image, Flags<ImageAspect>(ImageAspect::Depth));
                     all_views.push_back(depth_view);
                 } else {
                     std::shared_ptr<Image> color_image;
                     if(description.final_layout == ImageLayout::PresentSrcKHR && description.samples == SampleCount::Count1) {
-                        color_image = Image::create_borrowed_image(m_device, m_swapchain->get_images()[i].get(), image_info);
+                        color_image = Image::wrap(m_device, m_swapchain->get_images()[i].get(), image_info);
                     } else {
-                        color_image = Image::create_owned_image(m_device, image_info, description.samples);
+                        color_image = Image::create(m_device, image_info, description.samples);
                     }
                     color_images.emplace_back(color_image);
                     auto color_view = std::make_shared<ImageView>(m_device, *color_image, Flags<ImageAspect>(ImageAspect::Color));
@@ -154,7 +153,7 @@ namespace Comet {
         command_buffer.begin_render_pass(*m_render_pass, *get_framebuffer(m_current_image_index), m_clear_values);
     }
 
-    OffscreenTarget::OffscreenTarget(Device* device, RenderPass* render_pass, const Math::Vec2u size) : RenderTarget(device, render_pass, Type::Offscreen, size, 1) {
+    OffscreenTarget::OffscreenTarget(Device* device, RenderPass* render_pass, const Math::Vec2u size) : RenderTarget(device, render_pass, size, 1) {
         m_clear_values.resize(m_render_pass->get_attachments().size());
         set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
         set_clear_value(ClearValue(1.0f, 0));
@@ -195,12 +194,12 @@ namespace Comet {
             };
 
             if(Graphics::is_depth_stencil_format(description.format)) {
-                m_depth_image = Image::create_owned_image(m_device, image_info, description.samples);
+                m_depth_image = Image::create(m_device, image_info, description.samples);
                 m_depth_view = std::make_shared<ImageView>(m_device, *m_depth_image, Flags<ImageAspect>(ImageAspect::Depth));
                 all_views.emplace_back(m_depth_view);
             } else {
                 if(!m_color_image) {
-                    m_color_image = Image::create_owned_image(m_device, image_info, description.samples);
+                    m_color_image = Image::create(m_device, image_info, description.samples);
                     m_color_view = std::make_shared<ImageView>(m_device, *m_color_image, Flags<ImageAspect>(ImageAspect::Color));
                     all_views.emplace_back(m_color_view);
                 }
@@ -211,7 +210,7 @@ namespace Comet {
             m_extent.x, m_extent.y);
     }
 
-    MultiTarget::MultiTarget(Device* device, RenderPass* render_pass, Math::Vec2u size, uint32_t frame_count) : RenderTarget(device, render_pass, Type::MultiAttachment, size, frame_count) {
+    MultiTarget::MultiTarget(Device* device, RenderPass* render_pass, Math::Vec2u size, uint32_t frame_count) : RenderTarget(device, render_pass, size, frame_count) {
         m_clear_values.resize(m_render_pass->get_attachments().size());
         set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
         set_clear_value(ClearValue(1.0f, 0));
@@ -249,11 +248,11 @@ namespace Comet {
                 };
 
                 if(Graphics::is_depth_stencil_format(description.format)) {
-                    depth_image = Image::create_owned_image(m_device, image_info, description.samples);
+                    depth_image = Image::create(m_device, image_info, description.samples);
                     depth_view = std::make_shared<ImageView>(m_device, *depth_image, Flags<ImageAspect>(ImageAspect::Depth));
                     all_views.push_back(depth_view);
                 } else {
-                    auto color_image = Image::create_owned_image(m_device, image_info, description.samples);
+                    auto color_image = Image::create(m_device, image_info, description.samples);
                     color_images.emplace_back(color_image);
                     auto color_view = std::make_shared<ImageView>(m_device, *color_image, Flags<ImageAspect>(ImageAspect::Color));
                     color_views.emplace_back(color_view);

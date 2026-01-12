@@ -1,11 +1,10 @@
 #pragma once
+
+#include "pch.h"
 #include <vulkan/vulkan.hpp>
 #include "convert.h"
 #include "common/logger.h"
 #include "core/math_utils.h"
-#include <vector>
-#include <string>
-#include <set>
 
 namespace Comet {
     struct DeviceFeature {
@@ -23,33 +22,37 @@ namespace Comet {
     };
 
     struct ClearValue {
-        enum class Type { Color, DepthStencil };
+        using ColorType = Math::Vec4;
 
-        ClearValue() = default;
-        explicit ClearValue(const Math::Vec4 clear_color): type(Type::Color), color(clear_color) {}
-        explicit ClearValue(const float depth_value, const uint32_t stencil_value)
-            : type(Type::DepthStencil), depth(depth_value), stencil(stencil_value) {}
+        struct DepthStencilType {
+            float depth;
+            uint32_t stencil;
+        };
 
-        Type type;
-        Math::Vec4 color{0.0f};
-        float depth = 1.0f;
-        uint32_t stencil = 0;
+        ClearValue() : value(ColorType(0.0f, 0.0f, 0.0f, 0.0f)) {}
+        explicit ClearValue(const Math::Vec4& clear_color) : value(clear_color) {}
+        explicit ClearValue(const float depth, const uint32_t stencil = 0) : value(DepthStencilType{depth, stencil}) {}
+        [[nodiscard]] bool is_color() const { return std::holds_alternative<ColorType>(value); }
+        [[nodiscard]] bool is_depth_stencil() const { return std::holds_alternative<DepthStencilType>(value); }
 
         [[nodiscard]] vk::ClearValue vk_value() const {
             vk::ClearValue cv{};
-            if (type == Type::Color) {
-                cv.color = vk::ClearColorValue{color.x, color.y, color.z, color.w};
-            } else {
-                cv.depthStencil = vk::ClearDepthStencilValue{depth, stencil};
-            }
+            std::visit([&cv](auto&& arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr(std::is_same_v<T, ColorType>) {
+                    cv.color = vk::ClearColorValue{arg.x, arg.y, arg.z, arg.w};
+                } else if constexpr(std::is_same_v<T, DepthStencilType>) {
+                    cv.depthStencil = vk::ClearDepthStencilValue{arg.depth, arg.stencil};
+                }
+            }, value);
             return cv;
         }
+
+        std::variant<ColorType, DepthStencilType> value;
     };
 
 
-
     namespace Graphics {
-
         inline std::vector<const char*> build_enabled_list(
             const std::vector<DeviceFeature>& required_items,
             const std::set<std::string>& available_names,

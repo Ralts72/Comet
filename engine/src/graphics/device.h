@@ -1,6 +1,8 @@
 #pragma once
 #include "vk_common.h"
 #include "buffer.h"
+#include "queue.h"
+#include "command_buffer.h"
 
 namespace Comet {
     class Context;
@@ -28,11 +30,19 @@ namespace Comet {
         [[nodiscard]] vk::Device get() const { return m_device; }
         [[nodiscard]] const VkSettings& get_settings() const { return m_settings; }
 
-        [[nodiscard]] std::shared_ptr<Queue> get_graphics_queue(const uint32_t index = 0) const {
+        [[nodiscard]] Queue& get_graphics_queue(const uint32_t index = 0) {
             return m_graphics_queues.at(index);
         }
 
-        [[nodiscard]] std::shared_ptr<Queue> get_present_queue(const uint32_t index = 0) const {
+        [[nodiscard]] const Queue& get_graphics_queue(const uint32_t index = 0) const {
+            return m_graphics_queues.at(index);
+        }
+
+        [[nodiscard]] Queue& get_present_queue(const uint32_t index = 0) {
+            return m_present_queues.at(index);
+        }
+
+        [[nodiscard]] const Queue& get_present_queue(const uint32_t index = 0) const {
             return m_present_queues.at(index);
         }
 
@@ -40,26 +50,31 @@ namespace Comet {
 
         [[nodiscard]] uint32_t get_memory_index(Flags<MemoryType> mem_props, uint32_t memory_type_bits) const;
 
-        [[nodiscard]] std::shared_ptr<CommandPool> get_default_command_pool() const { return m_default_command_pool;}
+        [[nodiscard]] CommandPool& get_default_command_pool() { return *m_default_command_pool; }
+        [[nodiscard]] const CommandPool& get_default_command_pool() const { return *m_default_command_pool; }
 
     private:
         void copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size);
+
         void copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, vk::ImageLayout dst_image_layout,
-            const vk::Extent3D& extent, uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
+                                  const vk::Extent3D& extent, uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
+
         void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-            uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
+                                     uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
 
         void create_pipeline_cache();
+
         void create_default_command_pool();
+
         void one_time_submit(const std::function<void(CommandBuffer)>& cmd_func);
 
         vk::Device m_device;
         Context* m_context;
         VkSettings m_settings;
 
-        std::vector<std::shared_ptr<Queue>> m_graphics_queues;
-        std::vector<std::shared_ptr<Queue>> m_present_queues;
+        std::vector<Queue> m_graphics_queues;
+        std::vector<Queue> m_present_queues;
         vk::PipelineCache m_pipeline_cache;
-        std::shared_ptr<CommandPool> m_default_command_pool;
+        std::unique_ptr<CommandPool> m_default_command_pool;
     };
 }

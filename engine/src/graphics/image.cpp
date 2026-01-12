@@ -3,19 +3,19 @@
 #include "common/logger.h"
 
 namespace Comet {
-    std::shared_ptr<Image> Image::create_owned_image(Device* device, const ImageInfo& info, SampleCount sample_count) {
+    std::shared_ptr<Image> Image::create(Device* device, const ImageInfo& info, SampleCount sample_count) {
         return std::make_shared<OwnedImage>(device, info, sample_count);
     }
 
-    std::shared_ptr<Image> Image::create_borrowed_image(Device* device, vk::Image image, const ImageInfo& info) {
+    std::shared_ptr<Image> Image::wrap(Device* device, vk::Image image, const ImageInfo& info) {
         return std::make_shared<BorrowedImage>(device, image, info);
     }
 
-    Image::Image(Device* device, const ImageInfo& info, const Ownership type): m_device(device), m_info(info), m_type(type) {}
+    Image::Image(Device* device, const ImageInfo& info) : m_device(device), m_info(info) {}
 
-    OwnedImage::OwnedImage(Device* device, const ImageInfo& info, const SampleCount sample_count): Image(device, info, Ownership::Owned) {
+    OwnedImage::OwnedImage(Device* device, const ImageInfo& info, const SampleCount sample_count) : Image(device, info) {
         auto tiling = vk::ImageTiling::eLinear;
-        if(Graphics::is_depth_stencil_format(info.format) || sample_count > SampleCount::Count1){
+        if(Graphics::is_depth_stencil_format(info.format) || sample_count > SampleCount::Count1) {
             tiling = vk::ImageTiling::eOptimal;
         }
         auto extent = Graphics::get_extent(m_info.extent.x, m_info.extent.y, m_info.extent.z);
@@ -48,7 +48,7 @@ namespace Comet {
         m_device->get().freeMemory(m_memory);
     }
 
-    BorrowedImage::BorrowedImage(Device* device, vk::Image image, const ImageInfo& info): Image(device, info, Ownership::Borrowed) {
+    BorrowedImage::BorrowedImage(Device* device, vk::Image image, const ImageInfo& info) : Image(device, info) {
         m_image = image;
     }
 }

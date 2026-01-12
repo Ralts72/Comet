@@ -77,13 +77,11 @@ namespace Comet {
 
         for(uint32_t i = 0; i < graphics_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(graphics_queue_family_index.value(), i);
-            auto queue = std::make_shared<Queue>(graphics_queue_family_index.value(), i, vk_queue, Queue::Type::Graphics);
-            m_graphics_queues.emplace_back(queue);
+            m_graphics_queues.emplace_back(graphics_queue_family_index.value(), i, vk_queue, Queue::Type::Graphics);
         }
         for(uint32_t i = 0; i < present_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(present_queue_family_index.value(), i);
-            auto queue = std::make_shared<Queue>(present_queue_family_index.value(), i, vk_queue, Queue::Type::Present);
-            m_present_queues.emplace_back(queue);
+            m_present_queues.emplace_back(present_queue_family_index.value(), i, vk_queue, Queue::Type::Present);
         }
 
         create_pipeline_cache();
@@ -98,7 +96,7 @@ namespace Comet {
     }
 
     void Device::create_default_command_pool() {
-        m_default_command_pool = std::make_shared<CommandPool>(this, m_context->get_graphics_queue_family().queue_family_index.value());
+        m_default_command_pool = std::make_unique<CommandPool>(this, m_context->get_graphics_queue_family().queue_family_index.value());
     }
 
     void Device::wait_for_fences(const std::span<const Fence> fences, const bool wait_all, const uint64_t timeout) const {
@@ -175,7 +173,7 @@ namespace Comet {
         cmd_buf.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
         cmd_func(cmd_buf);
         cmd_buf.end();
-        m_graphics_queues.at(0)->submit(std::span(&cmd_buf, 1), {}, {}, {});
-        m_graphics_queues.at(0)->wait_idle();
+        m_graphics_queues.at(0).submit(std::span(&cmd_buf, 1), {}, {}, {});
+        m_graphics_queues.at(0).wait_idle();
     }
 }

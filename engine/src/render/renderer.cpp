@@ -35,7 +35,7 @@ namespace Comet {
         attachments.emplace_back(Attachment::get_color_attachment(s_vk_settings.surface_format,
             s_vk_settings.msaa_samples));
         attachments.emplace_back(Attachment::get_depth_attachment(s_vk_settings.depth_format,
-           s_vk_settings.msaa_samples));
+            s_vk_settings.msaa_samples));
 
         std::vector<RenderSubPass> render_sub_passes;
         RenderSubPass render_sub_pass_0 = {
@@ -52,7 +52,7 @@ namespace Comet {
         m_render_target = RenderTarget::create_swapchain_target(m_device.get(), m_render_pass.get(), m_swapchain.get());
         m_render_target->set_clear_value(ClearValue(Math::Vec4(0.2f, 0.4f, 0.1f, 1.0f)));
         LOG_INFO("create command buffers");
-        m_command_buffers = m_device->get_default_command_pool()->allocate_command_buffers(m_swapchain->get_images().size());
+        m_command_buffers = m_device->get_default_command_pool().allocate_command_buffers(m_swapchain->get_images().size());
 
         LOG_INFO("create fence and semaphore");
         for(uint32_t i = 0; i < s_vk_settings.swapchain_image_count; ++i) {
@@ -99,10 +99,10 @@ namespace Comet {
         m_descriptor_sets = m_descriptor_pool->allocate_descriptor_set(*m_descriptor_set_layout, 1);
 
         m_view_project_uniform_buffer = Buffer::create_cpu_buffer(m_device.get(), Flags<BufferUsage>(BufferUsage::Uniform),
-        sizeof(ViewProjectMatrix), nullptr);
+            sizeof(ViewProjectMatrix), nullptr);
 
         m_model_uniform_buffer = Buffer::create_cpu_buffer(m_device.get(), Flags<BufferUsage>(BufferUsage::Uniform),
-        sizeof(ModelMatrix), nullptr);
+            sizeof(ModelMatrix), nullptr);
         LOG_INFO("create sampler manager and textures");
         m_sampler_manager = std::make_shared<SamplerManager>(m_device.get());
         auto sampler = m_sampler_manager->get_linear_repeat();
@@ -136,7 +136,6 @@ namespace Comet {
             Math::Vec3(0.0f, 1.0f, 0.0f));
         m_view_project_matrix.projection = Math::perspective(Math::radians(45.0f),
             static_cast<float>(m_swapchain->get_width()) / static_cast<float>(m_swapchain->get_height()), 0.1f, 100.0f);
-
     }
 
     void Renderer::on_render() {
@@ -187,10 +186,10 @@ namespace Comet {
             descriptor_sets.push_back(ds.get());
         }
         command_buffer.get().bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipeline->get_layout()->get(),
-            0,1, descriptor_sets.data(), 0, nullptr);
+            0, 1, descriptor_sets.data(), 0, nullptr);
         // 7. draw
         // command_buffer.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Vertex), 0,
-            // &m_push_constant, sizeof(PushConstant));
+        // &m_push_constant, sizeof(PushConstant));
         m_cube_mesh->draw(command_buffer);
 
         // 8. end render pass
@@ -200,13 +199,13 @@ namespace Comet {
         command_buffer.end();
 
         // 10. submit with fence
-        auto graphics_queue = m_device->get_graphics_queue(0);
-        graphics_queue->submit(std::span(&command_buffer, 1),
+        auto& graphics_queue = m_device->get_graphics_queue(0);
+        graphics_queue.submit(std::span(&command_buffer, 1),
             std::span(&wait_sem, 1), std::span(&signal_sem, 1), &fence);
 
         // 11. present
-        auto present_queue = m_device->get_present_queue(0);
-        const auto result = present_queue->present(*m_swapchain, std::span(&signal_sem, 1), image_index);
+        auto& present_queue = m_device->get_present_queue(0);
+        const auto result = present_queue.present(*m_swapchain, std::span(&signal_sem, 1), image_index);
         if(result == vk::Result::eSuboptimalKHR) {
             recreate_swapchain();
         }

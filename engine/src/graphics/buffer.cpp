@@ -5,8 +5,7 @@
 #include "common/profiler.h"
 
 namespace Comet {
-    Buffer::Buffer(Device* device, const Flags<BufferUsage> usage, const size_t size, const void* data,
-        const Type buffer_type) : m_device(device), m_size(size), m_buffer_type(buffer_type) {}
+    Buffer::Buffer(Device* device, const Flags<BufferUsage> usage, const size_t size, const void* data) : m_device(device), m_size(size) {}
 
     Buffer::~Buffer() {
         m_device->get().destroyBuffer(m_buffer);
@@ -14,7 +13,7 @@ namespace Comet {
     }
 
     std::pair<vk::Buffer, vk::DeviceMemory> Buffer::create_buffer(const Flags<MemoryType> mem_props,
-        const Flags<BufferUsage> usage) const {
+                                                                  const Flags<BufferUsage> usage) const {
         vk::BufferCreateInfo buffer_create_info = {};
         buffer_create_info.size = m_size;
         buffer_create_info.usage = Graphics::buffer_usage_to_vk(usage);
@@ -34,10 +33,10 @@ namespace Comet {
     }
 
     GPUBuffer::GPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data)
-    : Buffer(device, usage, size, data, Type::DeviceLocal) {
+        : Buffer(device, usage, size, data) {
         PROFILE_SCOPE("Buffer::Constructor");
         auto [stage_buffer, stage_memory] = create_buffer(Flags<MemoryType>(MemoryType::CPULocal)
-            | Flags<MemoryType>(MemoryType::Coherence), Flags<BufferUsage>(BufferUsage::CopySrc));
+                                                          | Flags<MemoryType>(MemoryType::Coherence), Flags<BufferUsage>(BufferUsage::CopySrc));
         void* mapping = m_device->get().mapMemory(stage_memory, 0, vk::WholeSize);
         memcpy(mapping, data, m_size);
         m_device->get().unmapMemory(stage_memory);
@@ -51,10 +50,10 @@ namespace Comet {
     }
 
     CPUBuffer::CPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data)
-    : Buffer(device, usage, size, data, Type::HostVisible) {
+        : Buffer(device, usage, size, data) {
         std::tie(m_buffer, m_memory) = create_buffer(Flags<MemoryType>(MemoryType::CPULocal)
-            | Flags<MemoryType>(MemoryType::Coherence), usage);
-        if (data) {
+                                                     | Flags<MemoryType>(MemoryType::Coherence), usage);
+        if(data) {
             write(data);
         }
     }
@@ -69,7 +68,7 @@ namespace Comet {
     }
 
     void CPUBuffer::write(const void* data) const {
-        if (!data) {
+        if(!data) {
             LOG_ERROR("Buffer is not host visible or data is null");
             return;
         }

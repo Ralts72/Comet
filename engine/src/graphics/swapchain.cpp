@@ -68,7 +68,7 @@ namespace Comet {
         image_info.extent = Math::Vec3u(m_surface_info.capabilities.currentExtent.width, m_surface_info.capabilities.currentExtent.height, 1);
         image_info.usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
         for(const auto& image: images) {
-            m_images.emplace_back(*Image::create_borrowed_image(m_device, image, image_info));
+            m_images.emplace_back(*Image::wrap(m_device, image, image_info));
         }
         LOG_INFO("Vulkan swapchain created successfully with {} images", m_images.size());
         // 销毁旧的交换链

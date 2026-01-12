@@ -21,10 +21,6 @@ namespace Comet {
 
     class RenderTarget {
     public:
-        enum class Type {
-            Swapchain, Offscreen, MultiAttachment
-        };
-
         static std::unique_ptr<RenderTarget> create_swapchain_target(Device* device, RenderPass* render_pass, Swapchain* swapchain);
 
         static std::unique_ptr<RenderTarget> create_offscreen_target(Device* device, RenderPass* render_pass, Math::Vec2u size);
@@ -50,20 +46,17 @@ namespace Comet {
         [[nodiscard]] virtual std::shared_ptr<FrameBuffer> get_framebuffer(uint32_t index) const = 0;
 
         [[nodiscard]] uint32_t get_frame_count() const { return m_frame_count; }
-        [[nodiscard]] Type get_type() const { return m_type; }
         [[nodiscard]] bool is_dirty() const { return m_needs_recreate; }
 
     protected:
-        RenderTarget(Device* device, RenderPass* render_pass, const Type type,
-            const Math::Vec2u size, const uint32_t frame_count) :
-        m_device(device), m_render_pass(render_pass), m_type(type), m_extent(size), m_frame_count(frame_count),
-        m_clear_values({}), m_needs_recreate(false), m_current_image_index(0) {}
+        RenderTarget(Device* device, RenderPass* render_pass,
+                     const Math::Vec2u size, const uint32_t frame_count) : m_device(device), m_render_pass(render_pass), m_extent(size), m_frame_count(frame_count),
+                                                                           m_clear_values({}), m_needs_recreate(false), m_current_image_index(0) {}
 
         static void clear_render_resources(std::vector<RenderResource>& resources);
 
         Device* m_device;
         RenderPass* m_render_pass;
-        Type m_type;
         Math::Vec2u m_extent;
         uint32_t m_frame_count;
         std::vector<ClearValue> m_clear_values;
