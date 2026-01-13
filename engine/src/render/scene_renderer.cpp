@@ -10,12 +10,12 @@
 #include "graphics/pipeline.h"
 
 namespace Comet {
-    SceneRenderer::SceneRenderer(RenderContext* context, ResourceManager* resources, RenderPass* render_pass)
-        : m_context(context), m_resources(resources), m_render_pass(render_pass) {
+    SceneRenderer::SceneRenderer(RenderContext* context, RenderPass* render_pass)
+        : m_context(context) {
         LOG_INFO("create render pipeline manager");
         m_pipeline_manager = std::make_unique<PipelineManager>(context->get_device(), render_pass);
         
-        uint32_t swapchain_image_count = Config::get<uint32_t>("vulkan.swapchain_image_count", 3);
+        auto swapchain_image_count = Config::get<uint32_t>("vulkan.swapchain_image_count", 3);
         
         LOG_INFO("create frame manager");
         m_frame_manager = std::make_unique<FrameManager>(context->get_device(), swapchain_image_count);
@@ -27,7 +27,7 @@ namespace Comet {
         // 从配置文件读取清除颜色
         const auto clear_color_array = Config::get<std::vector<float>>("render.clear_color", {0.2f, 0.4f, 0.1f, 1.0f});
         const Math::Vec4 clear_color(
-            clear_color_array.size() > 0 ? clear_color_array[0] : 0.2f,
+            !clear_color_array.empty() ? clear_color_array[0] : 0.2f,
             clear_color_array.size() > 1 ? clear_color_array[1] : 0.4f,
             clear_color_array.size() > 2 ? clear_color_array[2] : 0.1f,
             clear_color_array.size() > 3 ? clear_color_array[3] : 1.0f
@@ -65,7 +65,7 @@ namespace Comet {
 
     void SceneRenderer::render(const ViewProjectMatrix& view_project, const ModelMatrix& model,
                               std::shared_ptr<Mesh> mesh, std::shared_ptr<Pipeline> pipeline,
-                              const std::vector<DescriptorSet>& descriptor_sets) {
+                              const std::vector<DescriptorSet>& descriptor_sets) const {
         PROFILE_SCOPE("SceneRenderer::render");
         
         auto swapchain = m_context->get_swapchain();

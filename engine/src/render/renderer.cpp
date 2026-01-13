@@ -4,7 +4,6 @@
 #include "common/config.h"
 #include "graphics/vertex_description.h"
 #include "common/geometry_utils.h"
-#include "graphics/image_view.h"
 #include "graphics/buffer.h"
 #include "graphics/pipeline.h"
 #include "common/shader_resources.h"
@@ -28,8 +27,7 @@ namespace Comet {
 
         // Create scene renderer
         LOG_INFO("create scene renderer");
-        m_scene_renderer = std::make_unique<SceneRenderer>(
-            m_render_context.get(), m_resource_manager.get(), m_render_pass.get());
+        m_scene_renderer = std::make_unique<SceneRenderer>(m_render_context.get(), m_render_pass.get());
 
         // Setup pipeline and resources
         setup_pipeline();
@@ -41,9 +39,9 @@ namespace Comet {
         LOG_INFO("create render pass");
 
         // 从配置文件读取设置
-        Format surface_format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 44)); // B8G8R8A8_UNORM = 44
-        Format depth_format = static_cast<Format>(Config::get<int>("vulkan.depth_format", 126)); // D32_SFLOAT = 126
-        SampleCount msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4)); // Count4 = 4
+        const auto surface_format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 44)); // B8G8R8A8_UNORM = 44
+        const auto depth_format = static_cast<Format>(Config::get<int>("vulkan.depth_format", 126)); // D32_SFLOAT = 126
+        const auto msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4)); // Count4 = 4
 
         std::vector<Attachment> attachments;
         attachments.emplace_back(Attachment::get_color_attachment(surface_format, msaa_samples));
@@ -86,7 +84,7 @@ namespace Comet {
         pipeline_config.set_input_assembly_state(Topology::TriangleList);
 
         // 从配置文件读取 MSAA 设置
-        SampleCount msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4)); // Count4 = 4
+        auto msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4)); // Count4 = 4
 
         pipeline_config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         pipeline_config.enable_depth_test();
