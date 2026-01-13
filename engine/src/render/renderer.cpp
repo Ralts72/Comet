@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include "common/logger.h"
+#include "common/config.h"
 #include "graphics/image.h"
 #include "graphics/vertex_description.h"
 #include "common/geometry_utils.h"
@@ -8,41 +9,36 @@
 #include "graphics/image_view.h"
 
 namespace Comet {
-    static VkSettings s_vk_settings = {
-        .surface_format = Format::B8G8R8A8_UNORM,
-        .color_space = ImageColorSpace::SrgbNonlinearKHR,
-        .depth_format = Format::D32_SFLOAT,
-        .present_mode = vk::PresentModeKHR::eImmediate,
-        .swapchain_image_count = 3,
-        .msaa_samples = SampleCount::Count4
-    };
-
     static float total_time = 0.0f;
 
     Renderer::Renderer(const Window& window) {
         PROFILE_SCOPE("Renderer::Constructor");
+
         LOG_INFO("init graphics system");
         m_context = std::make_unique<Context>(window);
 
         LOG_INFO("create device");
-        m_device = std::make_shared<Device>(m_context.get(), 1, 1, s_vk_settings);
+        m_device = std::make_shared<Device>(m_context.get(), 1, 1);
 
         LOG_INFO("create swapchain");
         m_swapchain = std::make_shared<Swapchain>(m_context.get(), m_device.get());
 
         LOG_INFO("create render pass");
+        // 从 Config 读取 Vulkan 设置
+        auto surface_format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 50));
+        auto depth_format = static_cast<Format>(Config::get<int>("vulkan.depth_format", 126));
+        auto msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4));
+
         std::vector<Attachment> attachments;
-        attachments.emplace_back(Attachment::get_color_attachment(s_vk_settings.surface_format,
-            s_vk_settings.msaa_samples));
-        attachments.emplace_back(Attachment::get_depth_attachment(s_vk_settings.depth_format,
-            s_vk_settings.msaa_samples));
+        attachments.emplace_back(Attachment::get_color_attachment(surface_format, msaa_samples));
+        attachments.emplace_back(Attachment::get_depth_attachment(depth_format, msaa_samples));
 
         std::vector<RenderSubPass> render_sub_passes;
         RenderSubPass render_sub_pass_0 = {
             {},
             {SubpassColorAttachment(0)},
             {SubpassDepthStencilAttachment(1)},
-            s_vk_settings.msaa_samples
+            msaa_samples
         };
         render_sub_passes.emplace_back(render_sub_pass_0);
 
@@ -50,12 +46,16 @@ namespace Comet {
 
         LOG_INFO("create render target");
         m_render_target = RenderTarget::create_swapchain_target(m_device.get(), m_render_pass.get(), m_swapchain.get());
-        m_render_target->set_clear_value(ClearValue(Math::Vec4(0.2f, 0.4f, 0.1f, 1.0f)));
+
+        // 从 Config 读取 clear color
+        auto clear_color = Config::get<std::vector<float>>("render.clear_color", std::vector<float>{0.2f, 0.4f, 0.1f, 1.0f});
+        m_render_target->set_clear_value(ClearValue(Math::Vec4(clear_color[0], clear_color[1], clear_color[2], clear_color[3])));
         LOG_INFO("create command buffers");
         m_command_buffers = m_device->get_default_command_pool().allocate_command_buffers(m_swapchain->get_images().size());
 
         LOG_INFO("create fence and semaphore");
-        for(uint32_t i = 0; i < s_vk_settings.swapchain_image_count; ++i) {
+        uint32_t swapchain_image_count = Config::get<uint32_t>("vulkan.swapchain_image_count", 3);
+        for(uint32_t i = 0; i < swapchain_image_count; ++i) {
             m_frame_resources.emplace_back(m_device.get());
         }
 
@@ -86,7 +86,7 @@ namespace Comet {
         pipeline_config.set_input_assembly_state(Topology::TriangleList);
         pipeline_config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         pipeline_config.enable_depth_test();
-        pipeline_config.set_multisample_state(s_vk_settings.msaa_samples, false, 0.2f);
+        pipeline_config.set_multisample_state(msaa_samples, false, 0.2f);
 
         m_pipeline = std::make_shared<Pipeline>("cube_pipeline", m_device.get(), m_render_pass.get(),
             pipeline_layout, vert_shader, frag_shader, pipeline_config);
@@ -210,7 +210,8 @@ namespace Comet {
             recreate_swapchain();
         }
 
-        m_current_buffer = (m_current_buffer + 1) % s_vk_settings.swapchain_image_count;
+        const uint32_t swapchain_image_count = Config::get<uint32_t>("vulkan.swapchain_image_count", 3);
+        m_current_buffer = (m_current_buffer + 1) % swapchain_image_count;
     }
 
     void Renderer::recreate_swapchain() {

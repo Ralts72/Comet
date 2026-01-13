@@ -10,11 +10,6 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "Release")
 endif ()
 
 option(Comet_TESTS "build tests" ON)
-option(Comet_ENABLE_FILE_LOGGING "enable file logging output" ON)
-
-if (Comet_ENABLE_FILE_LOGGING)
-    add_compile_definitions(COMET_ENABLE_FILE_LOGGING)
-endif ()
 
 if (Comet_TESTS)
     enable_testing()

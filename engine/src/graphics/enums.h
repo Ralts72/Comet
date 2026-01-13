@@ -720,4 +720,11 @@ namespace Comet {
         StencilWriteMask = 7,
         StencilReference = 8,
     };
+
+    enum class PresentMode {
+        Immediate = 0,
+        Mailbox = 1,
+        Fifo = 2,
+        FifoRelaxed = 3,
+    };
 }

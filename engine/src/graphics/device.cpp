@@ -15,8 +15,8 @@ namespace Comet {
         {"VK_KHR_buffer_device_address", true}
     };
 
-    Device::Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count, const VkSettings& settings)
-        : m_context(context), m_settings(settings) {
+    Device::Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count)
+        : m_context(context) {
         PROFILE_SCOPE("Device::Constructor");
         if(!context) {
             LOG_ERROR("Must create a vulkan graphics context before create device");

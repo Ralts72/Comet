@@ -1,11 +1,7 @@
 #include "context.h"
+#include "common/config.h"
 
 namespace Comet {
-    static std::vector<DeviceFeature> s_required_layers = {
-#ifdef BUILD_TYPE_DEBUG
-        {"VK_LAYER_KHRONOS_validation", true},
-#endif
-    };
 
     static std::vector<DeviceFeature> s_required_extensions = {
 #ifdef __APPLE__
@@ -56,12 +52,18 @@ namespace Comet {
         app_info.apiVersion = vk::ApiVersion13;
 
         // 1.构建layer
+        std::vector<DeviceFeature> required_layers;
+        bool enable_validation = Config::get<bool>("debug.enable_validation", true);
+        if(enable_validation) {
+            required_layers.push_back({"VK_LAYER_KHRONOS_validation", true});
+        }
+
         const auto available_layers_props = vk::enumerateInstanceLayerProperties();
         std::set<std::string> available_layers;
         for(const auto& prop: available_layers_props) {
             available_layers.emplace(prop.layerName);
         }
-        const std::vector<const char*> enabled_layers = Graphics::build_enabled_list(s_required_layers, available_layers, "layer");
+        const std::vector<const char*> enabled_layers = Graphics::build_enabled_list(required_layers, available_layers, "layer");
 
         // 2. 构建扩展
         // 获取 GLFW 所需的扩展

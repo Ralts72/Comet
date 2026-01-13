@@ -12,15 +12,6 @@ namespace Comet {
         bool required;
     };
 
-    struct VkSettings {
-        Format surface_format = Format::B8G8R8A8_UNORM;
-        ImageColorSpace color_space = ImageColorSpace::SrgbNonlinearKHR;
-        Format depth_format = Format::D32_SFLOAT;
-        vk::PresentModeKHR present_mode = vk::PresentModeKHR::eImmediate;
-        uint32_t swapchain_image_count = 3;
-        SampleCount msaa_samples = SampleCount::Count1;
-    };
-
     struct ClearValue {
         using ColorType = Math::Vec4;
 

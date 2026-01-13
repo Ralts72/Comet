@@ -542,6 +542,32 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
+    vk::PresentModeKHR present_mode_to_vk(PresentMode mode) {
+        switch(mode) {
+            CASE(PresentMode::Immediate, vk::PresentModeKHR::eImmediate);
+            CASE(PresentMode::Mailbox, vk::PresentModeKHR::eMailbox);
+            CASE(PresentMode::Fifo, vk::PresentModeKHR::eFifo);
+            CASE(PresentMode::FifoRelaxed, vk::PresentModeKHR::eFifoRelaxed);
+        }
+        LOG_FATAL("can't reach");
+    }
+
+    PresentMode vk_to_present_mode(vk::PresentModeKHR mode) {
+        switch(mode) {
+            CASE(vk::PresentModeKHR::eImmediate, PresentMode::Immediate);
+            CASE(vk::PresentModeKHR::eMailbox, PresentMode::Mailbox);
+            CASE(vk::PresentModeKHR::eFifo, PresentMode::Fifo);
+            CASE(vk::PresentModeKHR::eFifoRelaxed, PresentMode::FifoRelaxed);
+            // Shared present modes (rarely used, fallback to Fifo)
+            case vk::PresentModeKHR::eSharedDemandRefresh:
+            case vk::PresentModeKHR::eSharedContinuousRefresh:
+                LOG_WARN("Shared present mode not fully supported, falling back to Fifo");
+                return PresentMode::Fifo;
+            default:
+                LOG_FATAL("Unknown present mode");
+        }
+    }
+
 #undef CASE
 #undef TRY_SET_BIT
 }

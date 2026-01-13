@@ -16,7 +16,7 @@ namespace Comet {
         friend class GPUBuffer;
         friend class Texture;
 
-        Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count, const VkSettings& settings = {});
+        Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count);
 
         ~Device();
 
@@ -28,7 +28,6 @@ namespace Comet {
         void wait_idle() const;
 
         [[nodiscard]] vk::Device get() const { return m_device; }
-        [[nodiscard]] const VkSettings& get_settings() const { return m_settings; }
 
         [[nodiscard]] Queue& get_graphics_queue(const uint32_t index = 0) {
             return m_graphics_queues.at(index);
@@ -70,7 +69,6 @@ namespace Comet {
 
         vk::Device m_device;
         Context* m_context;
-        VkSettings m_settings;
 
         std::vector<Queue> m_graphics_queues;
         std::vector<Queue> m_present_queues;

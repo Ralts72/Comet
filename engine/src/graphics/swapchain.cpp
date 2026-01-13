@@ -3,6 +3,7 @@
 #include "device.h"
 #include "pch.h"
 #include "common/logger.h"
+#include "common/config.h"
 #include "common/profiler.h"
 #include "image.h"
 #include "semaphore.h"
@@ -23,7 +24,7 @@ namespace Comet {
 
         const uint32_t min_count = m_surface_info.capabilities.minImageCount;
         const uint32_t max_count = m_surface_info.capabilities.maxImageCount;
-        uint32_t image_count = m_device->get_settings().swapchain_image_count;
+        uint32_t image_count = Config::get<uint32_t>("vulkan.swapchain_image_count", 3);
         if(max_count > 0) {
             image_count = std::clamp(image_count, min_count, max_count);
         } else {
@@ -94,12 +95,26 @@ namespace Comet {
         // capabilities
         m_surface_info.capabilities = m_context->get_physical_device().getSurfaceCapabilitiesKHR(m_context->get_surface());
 
-        const auto& settings = m_device->get_settings();
+        // 从 Config 读取设置
+        const auto desired_surface_format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 50));
+        const auto desired_color_space = static_cast<ImageColorSpace>(Config::get<int>("vulkan.color_space", 0));
+
+        // 根据 enable_vsync 配置决定 present mode
+        const bool enable_vsync = Config::get<bool>("render.enable_vsync", false);
+        vk::PresentModeKHR desired_present_mode;
+        if(enable_vsync) {
+            // VSync 启用：使用 Fifo 模式（垂直同步，限制帧率）
+            desired_present_mode = vk::PresentModeKHR::eFifo;
+        } else {
+            // VSync 禁用：优先使用配置的模式，如果没有配置则使用 Immediate
+            desired_present_mode = static_cast<vk::PresentModeKHR>(Config::get<int>("vulkan.present_mode", 0));
+        }
+
         // format
         const auto surface_formats = m_context->get_physical_device().getSurfaceFormatsKHR(m_context->get_surface());
         m_surface_info.surface_format = surface_formats[0];
         for(const auto& format: surface_formats) {
-            if(format.format == Graphics::format_to_vk(settings.surface_format) && format.colorSpace == Graphics::image_color_space_to_vk(settings.color_space)) {
+            if(format.format == Graphics::format_to_vk(desired_surface_format) && format.colorSpace == Graphics::image_color_space_to_vk(desired_color_space)) {
                 m_surface_info.surface_format = format;
                 break;
             }
@@ -109,7 +124,7 @@ namespace Comet {
         const auto present_modes = m_context->get_physical_device().getSurfacePresentModesKHR(m_context->get_surface());
         m_surface_info.present_mode = present_modes[0];
         for(const auto& mode: present_modes) {
-            if(mode == settings.present_mode) {
+            if(mode == desired_present_mode) {
                 m_surface_info.present_mode = mode;
                 break;
             }

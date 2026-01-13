@@ -1,5 +1,6 @@
 #include "render_pass.h"
 #include "device.h"
+#include "common/config.h"
 
 namespace Comet {
     static bool s_need_depth_sampling = false;
@@ -9,7 +10,7 @@ namespace Comet {
         // 1. default subpass and attachment
         if(sub_passes.empty() && attachments.empty()) {
             Attachment::Description description{};
-            description.format = device->get_settings().surface_format;
+            description.format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 50));
             description.load_op = AttachmentLoadOp::Clear;
             description.store_op = AttachmentStoreOp::Store;
             description.stencil_load_op = AttachmentLoadOp::DontCare;
@@ -85,7 +86,7 @@ namespace Comet {
 
             if(sample_count > SampleCount::Count1) {
                 Attachment::Description msaa_description{};
-                msaa_description.format = device->get_settings().surface_format;
+                msaa_description.format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 50));
                 msaa_description.samples = SampleCount::Count1;
                 msaa_description.load_op = AttachmentLoadOp::DontCare;
                 msaa_description.store_op = AttachmentStoreOp::Store;

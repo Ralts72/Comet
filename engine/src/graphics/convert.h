@@ -86,4 +86,8 @@ namespace Comet::Graphics {
     vk::VertexInputRate vertex_input_rate_to_vk(VertexInputRate rate);
 
     vk::DynamicState dynamic_state_to_vk(DynamicState state);
+
+    vk::PresentModeKHR present_mode_to_vk(PresentMode mode);
+
+    PresentMode vk_to_present_mode(vk::PresentModeKHR mode);
 }

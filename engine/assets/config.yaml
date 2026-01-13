@@ -1,0 +1,45 @@
+# Comet Engine Configuration
+# Version: 1.0.0
+
+# Vulkan 渲染设置
+vulkan:
+  # 表面格式 (Format 枚举值，参考 graphics/enums.h)
+  surface_format: 50  # B8G8R8A8_UNORM = 50 (实际枚举值是 50，对应 B8G8R8A8_SRGB)
+  # 颜色空间 (ImageColorSpace 枚举值)
+  color_space: 0  # SrgbNonlinearKHR = 0
+  # 深度格式 (Format 枚举值)
+  depth_format: 126  # D32_SFLOAT = 126
+  # 呈现模式 (vk::PresentModeKHR 枚举值: 0=Immediate, 1=Mailbox, 2=Fifo, 3=FifoRelaxed)
+  present_mode: 0  # Immediate
+  # Swapchain 图像数量
+  swapchain_image_count: 3
+  # MSAA 采样数 (1, 2, 4, 8, 16, 32, 64)
+  msaa_samples: 4  # Count4
+
+# 渲染设置
+render:
+  # 清除颜色 (RGBA)
+  clear_color: [0.2, 0.4, 0.1, 1.0]
+  # 启用垂直同步
+  enable_vsync: false
+
+# 窗口设置
+window:
+  width: 1280
+  height: 720
+  title: "Comet Engine"
+  fullscreen: false
+  resizable: true
+
+
+# 调试设置
+debug:
+  # 启用验证层（仅在支持的平台上生效）
+  enable_validation: true
+  # 日志级别 (trace, debug, info, warn, error, critical, off)
+  log_level: trace
+  # 启用文件日志输出
+  enable_file_logging: false
+  # 显示 FPS
+  show_fps: true
+

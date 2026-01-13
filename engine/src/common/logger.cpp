@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "logger.h"
+#include "config.h"
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/async.h>
@@ -10,6 +11,17 @@ namespace Comet {
     bool Logger::s_initialized = false;
     std::string Logger::s_current_log_file_path;
 
+    static spdlog::level::level_enum parse_log_level(const std::string& level_str) {
+        if (level_str == "trace") return spdlog::level::trace;
+        if (level_str == "debug") return spdlog::level::debug;
+        if (level_str == "info") return spdlog::level::info;
+        if (level_str == "warn") return spdlog::level::warn;
+        if (level_str == "error") return spdlog::level::err;
+        if (level_str == "critical") return spdlog::level::critical;
+        if (level_str == "off") return spdlog::level::off;
+        return spdlog::level::info; // 默认级别
+    }
+
     void Logger::init() {
         if(s_initialized) {
             return;
@@ -19,12 +31,15 @@ namespace Comet {
         std::filesystem::path logs_dir(std::string(PROJECT_ROOT_DIR));
         logs_dir /= "logs";
 
-#ifdef COMET_ENABLE_FILE_LOGGING
-        // 确保logs目录存在
-        if(!std::filesystem::exists(logs_dir)) {
-            std::filesystem::create_directories(logs_dir);
+        // 从配置读取是否启用文件日志
+        bool enable_file_logging = Config::get<bool>("debug.enable_file_logging", true);
+
+        if(enable_file_logging) {
+            // 确保logs目录存在
+            if(!std::filesystem::exists(logs_dir)) {
+                std::filesystem::create_directories(logs_dir);
+            }
         }
-#endif
 
         // 生成一次时间戳，两个logger共享
         static std::string shared_timestamp;
@@ -54,19 +69,23 @@ namespace Comet {
             // 设置格式
             shared_console_sink->set_pattern("%^[%T] [%l] %v%$");
 
-#ifdef COMET_ENABLE_FILE_LOGGING
-            auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename, false);
-            file_sink->set_pattern("[%Y-%m-%d %T.%e] [%l] %v");
+            if(enable_file_logging) {
+                auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename, false);
+                file_sink->set_pattern("[%Y-%m-%d %T.%e] [%l] %v");
 
-            // 创建组合logger (控制台 + 文件)
-            s_console_logger = std::make_shared<spdlog::logger>("console",
-                spdlog::sinks_init_list{shared_console_sink, file_sink});
-#else
-            // 仅控制台输出
-            s_console_logger = std::make_shared<spdlog::logger>("console", shared_console_sink);
-#endif
+                // 创建组合logger (控制台 + 文件)
+                s_console_logger = std::make_shared<spdlog::logger>("console",
+                    spdlog::sinks_init_list{shared_console_sink, file_sink});
+            } else {
+                // 仅控制台输出
+                s_console_logger = std::make_shared<spdlog::logger>("console", shared_console_sink);
+            }
 
-            s_console_logger->set_level(spdlog::level::trace);
+            // 从 Config 读取日志级别（如果失败则使用默认值 trace）
+            std::string log_level_str = Config::get<std::string>("debug.log_level", "trace");
+            spdlog::level::level_enum log_level = parse_log_level(log_level_str);
+
+            s_console_logger->set_level(log_level);
             s_console_logger->flush_on(spdlog::level::trace);
 
             // 注册logger
@@ -79,18 +98,19 @@ namespace Comet {
             auto profiler_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
             profiler_console_sink->set_pattern("%^[Profiler] %-50v%$");
 
-#ifdef COMET_ENABLE_FILE_LOGGING
-            auto profiler_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(profiler_filename, false);
-            profiler_file_sink->set_pattern("[%Y-%m-%d %T.%e] [Profiler] %v");
+            if(enable_file_logging) {
+                auto profiler_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(profiler_filename, false);
+                profiler_file_sink->set_pattern("[%Y-%m-%d %T.%e] [Profiler] %v");
 
-            // 创建组合logger (控制台 + 文件)
-            s_profiler_logger = std::make_shared<spdlog::logger>("profiler",
-                spdlog::sinks_init_list{profiler_console_sink, profiler_file_sink});
-#else
-            // 仅控制台输出
-            s_profiler_logger = std::make_shared<spdlog::logger>("profiler", profiler_console_sink);
-#endif
+                // 创建组合logger (控制台 + 文件)
+                s_profiler_logger = std::make_shared<spdlog::logger>("profiler",
+                    spdlog::sinks_init_list{profiler_console_sink, profiler_file_sink});
+            } else {
+                // 仅控制台输出
+                s_profiler_logger = std::make_shared<spdlog::logger>("profiler", profiler_console_sink);
+            }
 
+            // Profiler logger 总是使用 trace 级别
             s_profiler_logger->set_level(spdlog::level::trace);
             s_profiler_logger->flush_on(spdlog::level::trace);
 

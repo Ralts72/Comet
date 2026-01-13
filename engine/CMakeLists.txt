@@ -16,6 +16,7 @@ file(GLOB SOURCES
         "src/common/geometry_utils.cpp"
         "src/common/profiler.cpp"
         "src/common/logger.cpp"
+        "src/common/config.cpp"
         "src/core/window.cpp"
         "src/core/timer.cpp"
         "src/core/engine.cpp"
@@ -41,11 +42,15 @@ file(GLOB SOURCES
         "src/render/render_target.cpp"
         "src/render/mesh.cpp"
         "src/render/texture.cpp"
+        "src/render/render_context.cpp"
+        "src/render/scene_renderer.cpp"
+        "src/render/resource_manager.cpp"
+        "src/render/frame_manager.cpp"
 )
 
 find_package(Vulkan REQUIRED)
 add_library(engine SHARED ${SOURCES})
-target_link_libraries(engine PUBLIC spdlog::spdlog glm ${Vulkan_LIBRARIES} stb_image glfw)
+target_link_libraries(engine PUBLIC spdlog::spdlog glm ${Vulkan_LIBRARIES} stb_image glfw yaml-cpp)
 target_include_directories(engine
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
