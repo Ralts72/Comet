@@ -69,7 +69,7 @@ namespace Comet {
         image_info.extent = Math::Vec3u(m_surface_info.capabilities.currentExtent.width, m_surface_info.capabilities.currentExtent.height, 1);
         image_info.usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
         for(const auto& image: images) {
-            m_images.emplace_back(*Image::wrap(m_device, image, image_info));
+            m_images.emplace_back(Image::wrap(m_device, image, image_info));
         }
         LOG_INFO("Vulkan swapchain created successfully with {} images", m_images.size());
         // 销毁旧的交换链
@@ -101,13 +101,10 @@ namespace Comet {
 
         // 根据 enable_vsync 配置决定 present mode
         const bool enable_vsync = Config::get<bool>("render.enable_vsync", false);
-        vk::PresentModeKHR desired_present_mode;
+        auto desired_present_mode = static_cast<PresentMode>(Config::get<int>("vulkan.present_mode", 0));
         if(enable_vsync) {
             // VSync 启用：使用 Fifo 模式（垂直同步，限制帧率）
-            desired_present_mode = vk::PresentModeKHR::eFifo;
-        } else {
-            // VSync 禁用：优先使用配置的模式，如果没有配置则使用 Immediate
-            desired_present_mode = static_cast<vk::PresentModeKHR>(Config::get<int>("vulkan.present_mode", 0));
+            desired_present_mode = PresentMode::Fifo;
         }
 
         // format
@@ -124,7 +121,7 @@ namespace Comet {
         const auto present_modes = m_context->get_physical_device().getSurfacePresentModesKHR(m_context->get_surface());
         m_surface_info.present_mode = present_modes[0];
         for(const auto& mode: present_modes) {
-            if(mode == desired_present_mode) {
+            if(mode == Graphics::present_mode_to_vk(desired_present_mode)) {
                 m_surface_info.present_mode = mode;
                 break;
             }

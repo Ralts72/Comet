@@ -120,7 +120,7 @@ namespace Comet {
                 } else {
                     std::shared_ptr<Image> color_image;
                     if(description.final_layout == ImageLayout::PresentSrcKHR && description.samples == SampleCount::Count1) {
-                        color_image = Image::wrap(m_device, m_swapchain->get_images()[i].get(), image_info);
+                        color_image = m_swapchain->get_images()[i];
                     } else {
                         color_image = Image::create(m_device, image_info, description.samples);
                     }

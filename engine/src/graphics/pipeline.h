@@ -154,4 +154,25 @@ namespace Comet {
         std::shared_ptr<PipelineLayout> m_layout;
         PipelineConfig m_config;
     };
+
+    class PipelineManager {
+    public:
+        PipelineManager(Device* device, RenderPass* render_pass);
+
+        std::shared_ptr<Pipeline> create_pipeline(
+            const std::string& name,
+            const ShaderLayout& layout,
+            const VertexInputDescription& vertex_input,
+            const PipelineConfig& config,
+            std::shared_ptr<Shader> vert_shader,
+            std::shared_ptr<Shader> frag_shader
+        );
+
+        [[nodiscard]] std::shared_ptr<Pipeline> get_pipeline(const std::string& name) const;
+
+    private:
+        Device* m_device;
+        RenderPass* m_render_pass;
+        std::unordered_map<std::string, std::shared_ptr<Pipeline>> m_pipelines;
+    };
 }

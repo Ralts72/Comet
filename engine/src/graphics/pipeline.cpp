@@ -237,4 +237,47 @@ namespace Comet {
     Pipeline::~Pipeline() {
         m_device->get().destroyPipeline(m_pipeline);
     }
+
+    PipelineManager::PipelineManager(Device* device, RenderPass* render_pass)
+        : m_device(device), m_render_pass(render_pass) {
+        LOG_INFO("PipelineManager created");
+    }
+
+    std::shared_ptr<Pipeline> PipelineManager::create_pipeline(
+        const std::string& name,
+        const ShaderLayout& layout,
+        const VertexInputDescription& vertex_input,
+        const PipelineConfig& config,
+        std::shared_ptr<Shader> vert_shader,
+        std::shared_ptr<Shader> frag_shader) {
+
+        auto it = m_pipelines.find(name);
+        if (it != m_pipelines.end()) {
+            LOG_DEBUG("Pipeline '{}' already exists, returning cached version", name);
+            return it->second;
+        }
+
+        auto pipeline_layout = std::make_shared<PipelineLayout>(m_device, layout);
+
+        auto pipeline = std::make_shared<Pipeline>(
+            name, m_device, m_render_pass,
+            pipeline_layout,
+            vert_shader, frag_shader,
+            config
+        );
+
+        m_pipelines[name] = pipeline;
+
+        LOG_INFO("Pipeline '{}' created successfully", name);
+        return pipeline;
+    }
+
+    std::shared_ptr<Pipeline> PipelineManager::get_pipeline(const std::string& name) const {
+        auto it = m_pipelines.find(name);
+        if (it != m_pipelines.end()) {
+            return it->second;
+        }
+        LOG_WARN("Pipeline '{}' not found", name);
+        return nullptr;
+    }
 }

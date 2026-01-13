@@ -1,33 +1,49 @@
 #include "renderer.h"
 #include "common/logger.h"
+#include "common/profiler.h"
 #include "common/config.h"
-#include "graphics/image.h"
 #include "graphics/vertex_description.h"
 #include "common/geometry_utils.h"
-#include "common/profiler.h"
-#include "graphics/queue.h"
 #include "graphics/image_view.h"
+#include "graphics/buffer.h"
+#include "graphics/pipeline.h"
+#include "common/shader_resources.h"
 
 namespace Comet {
-    static float total_time = 0.0f;
+    float Renderer::total_time = 0.0f;
 
     Renderer::Renderer(const Window& window) {
         PROFILE_SCOPE("Renderer::Constructor");
-
         LOG_INFO("init graphics system");
-        m_context = std::make_unique<Context>(window);
 
-        LOG_INFO("create device");
-        m_device = std::make_shared<Device>(m_context.get(), 1, 1);
+        // Create render context
+        m_render_context = std::make_unique<RenderContext>(window);
 
-        LOG_INFO("create swapchain");
-        m_swapchain = std::make_shared<Swapchain>(m_context.get(), m_device.get());
+        // Create resource manager
+        LOG_INFO("create resource manager");
+        m_resource_manager = std::make_unique<ResourceManager>(m_render_context->get_device());
 
+        // Create render pass
+        create_render_pass();
+
+        // Create scene renderer
+        LOG_INFO("create scene renderer");
+        m_scene_renderer = std::make_unique<SceneRenderer>(
+            m_render_context.get(), m_resource_manager.get(), m_render_pass.get());
+
+        // Setup pipeline and resources
+        setup_pipeline();
+        setup_descriptor_sets();
+        setup_resources();
+    }
+
+    void Renderer::create_render_pass() {
         LOG_INFO("create render pass");
-        // 从 Config 读取 Vulkan 设置
-        auto surface_format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 50));
-        auto depth_format = static_cast<Format>(Config::get<int>("vulkan.depth_format", 126));
-        auto msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4));
+
+        // 从配置文件读取设置
+        Format surface_format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 44)); // B8G8R8A8_UNORM = 44
+        Format depth_format = static_cast<Format>(Config::get<int>("vulkan.depth_format", 126)); // D32_SFLOAT = 126
+        SampleCount msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4)); // Count4 = 4
 
         std::vector<Attachment> attachments;
         attachments.emplace_back(Attachment::get_color_attachment(surface_format, msaa_samples));
@@ -42,39 +58,23 @@ namespace Comet {
         };
         render_sub_passes.emplace_back(render_sub_pass_0);
 
-        m_render_pass = std::make_shared<RenderPass>(m_device.get(), attachments, render_sub_passes);
+        m_render_pass = std::make_shared<RenderPass>(m_render_context->get_device(), attachments, render_sub_passes);
+    }
 
-        LOG_INFO("create render target");
-        m_render_target = RenderTarget::create_swapchain_target(m_device.get(), m_render_pass.get(), m_swapchain.get());
-
-        // 从 Config 读取 clear color
-        auto clear_color = Config::get<std::vector<float>>("render.clear_color", std::vector<float>{0.2f, 0.4f, 0.1f, 1.0f});
-        m_render_target->set_clear_value(ClearValue(Math::Vec4(clear_color[0], clear_color[1], clear_color[2], clear_color[3])));
-        LOG_INFO("create command buffers");
-        m_command_buffers = m_device->get_default_command_pool().allocate_command_buffers(m_swapchain->get_images().size());
-
-        LOG_INFO("create fence and semaphore");
-        uint32_t swapchain_image_count = Config::get<uint32_t>("vulkan.swapchain_image_count", 3);
-        for(uint32_t i = 0; i < swapchain_image_count; ++i) {
-            m_frame_resources.emplace_back(m_device.get());
-        }
-
-        LOG_INFO("create shader manager");
-        m_shader_manager = std::make_unique<ShaderManager>(m_device.get());
+    void Renderer::setup_pipeline() {
+        LOG_INFO("setup pipeline");
         ShaderLayout layout = {};
-        // layout.push_constants.emplace_back(vk::ShaderStageFlagBits::eVertex, 0, sizeof(PushConstant));
         DescriptorSetLayoutBindings bindings;
         bindings.add_binding(0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
         bindings.add_binding(1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
         bindings.add_binding(2, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
         bindings.add_binding(3, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
-        m_descriptor_set_layout = std::make_shared<DescriptorSetLayout>(m_device.get(), bindings);
+        m_descriptor_set_layout = std::make_shared<DescriptorSetLayout>(m_render_context->get_device(), bindings);
         layout.descriptor_set_layouts.push_back(m_descriptor_set_layout);
 
-        auto vert_shader = m_shader_manager->load_shader("cube_texture_vert", CUBE_TEXTURE_VERT, layout);
-        auto frag_shader = m_shader_manager->load_shader("cube_texture_frag", CUBE_TEXTURE_FRAG, layout);
-        LOG_INFO("create pipeline");
-        auto pipeline_layout = std::make_shared<PipelineLayout>(m_device.get(), layout);
+        auto vert_shader = m_resource_manager->get_shader_manager()->load_shader("cube_texture_vert", CUBE_TEXTURE_VERT, layout);
+        auto frag_shader = m_resource_manager->get_shader_manager()->load_shader("cube_texture_frag", CUBE_TEXTURE_FRAG, layout);
+
         VertexInputDescription vertex_input_description;
         vertex_input_description.add_binding(0, sizeof(Math::Vertex), VertexInputRate::Vertex);
         vertex_input_description.add_attribute(0, 0, Format::R32G32B32_SFLOAT, offsetof(Math::Vertex, position));
@@ -84,222 +84,103 @@ namespace Comet {
         PipelineConfig pipeline_config = {};
         pipeline_config.set_vertex_input_state(vertex_input_description);
         pipeline_config.set_input_assembly_state(Topology::TriangleList);
+
+        // 从配置文件读取 MSAA 设置
+        SampleCount msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4)); // Count4 = 4
+
         pipeline_config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         pipeline_config.enable_depth_test();
         pipeline_config.set_multisample_state(msaa_samples, false, 0.2f);
 
-        m_pipeline = std::make_shared<Pipeline>("cube_pipeline", m_device.get(), m_render_pass.get(),
-            pipeline_layout, vert_shader, frag_shader, pipeline_config);
+        m_pipeline = m_scene_renderer->get_pipeline_manager()->create_pipeline(
+            "cube_pipeline", layout, vertex_input_description, pipeline_config, vert_shader, frag_shader);
+    }
 
+    void Renderer::setup_descriptor_sets() {
         LOG_INFO("create descriptor pool and descriptor sets");
         DescriptorPoolSizes descriptor_pool_sizes;
         descriptor_pool_sizes.add_pool_size(DescriptorType::UniformBuffer, 2);
         descriptor_pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, 2);
-        m_descriptor_pool = std::make_shared<DescriptorPool>(m_device.get(), 1, descriptor_pool_sizes);
+        m_descriptor_pool = std::make_shared<DescriptorPool>(m_render_context->get_device(), 1, descriptor_pool_sizes);
         m_descriptor_sets = m_descriptor_pool->allocate_descriptor_set(*m_descriptor_set_layout, 1);
+    }
 
-        m_view_project_uniform_buffer = Buffer::create_cpu_buffer(m_device.get(), Flags<BufferUsage>(BufferUsage::Uniform),
-            sizeof(ViewProjectMatrix), nullptr);
+    void Renderer::setup_resources() {
+        LOG_INFO("create uniform buffers");
+        m_view_project_uniform_buffer = Buffer::create_cpu_buffer(
+            m_render_context->get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
+        sizeof(ViewProjectMatrix), nullptr);
+        m_model_uniform_buffer = Buffer::create_cpu_buffer(
+            m_render_context->get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
+        sizeof(ModelMatrix), nullptr);
 
-        m_model_uniform_buffer = Buffer::create_cpu_buffer(m_device.get(), Flags<BufferUsage>(BufferUsage::Uniform),
-            sizeof(ModelMatrix), nullptr);
-        LOG_INFO("create sampler manager and textures");
-        m_sampler_manager = std::make_shared<SamplerManager>(m_device.get());
-        auto sampler = m_sampler_manager->get_linear_repeat();
+        LOG_INFO("load textures");
         std::string image_path = std::string(PROJECT_ROOT_DIR) + "/engine/assets/textures/";
-        m_texture1 = std::make_shared<Texture>(m_device.get(), image_path + "awesomeface.png");
-        m_texture2 = std::make_shared<Texture>(m_device.get(), image_path + "R-C.jpeg");
+        m_texture1 = m_resource_manager->load_texture(image_path + "awesomeface.png");
+        m_texture2 = m_resource_manager->load_texture(image_path + "R-C.jpeg");
 
+        LOG_INFO("create mesh");
         auto [cube_vertices, cube_indices] = GeometryUtils::create_cube(-0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f);
-        m_cube_mesh = std::make_shared<Mesh>(m_device.get(), cube_vertices, cube_indices);
+        m_cube_mesh = m_resource_manager->create_mesh(cube_vertices, cube_indices);
     }
 
     void Renderer::on_update(const float delta_time) {
         PROFILE_SCOPE("render update");
         total_time += delta_time;
-        // Update MVP matrix
-        // auto model = Math::Mat4(1.0f);
-        // model = Math::rotate(model, Math::radians(-17.0f), Math::Vec3(1.0f, 0.0f, 0.0f));
-        // model = Math::rotate(model, Math::radians(total_time * 100.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
-        // auto projection = Math::perspective(Math::radians(65.0f),
-        //     static_cast<float>(m_swapchain->get_width()) / static_cast<float>(m_swapchain->get_height()), 0.1f, 100.0f);
-        // auto view = Math::look_at(Math::Vec3(30.0f, 0.0f, 30.0f),
-        //     Math::Vec3(0.0f, 0.0f, 0.0f),
-        //     Math::Vec3(0.0f, 1.0f, 0.0f));
-        // m_push_constant.matrix = projection * view * model;
 
         m_model_matrix.model = Math::rotate(Math::Mat4(1.0f), Math::radians(-17.0f), Math::Vec3(1.0f, 0.0f, 0.0f));
         m_model_matrix.model = Math::rotate(m_model_matrix.model, Math::radians(total_time * 100.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
 
+        auto swapchain = m_render_context->get_swapchain();
         m_view_project_matrix.view = Math::look_at(Math::Vec3(0.0f, 0.0f, 30.5f),
             Math::Vec3(0.0f, 0.0f, -10.0f),
             Math::Vec3(0.0f, 1.0f, 0.0f));
         m_view_project_matrix.projection = Math::perspective(Math::radians(45.0f),
-            static_cast<float>(m_swapchain->get_width()) / static_cast<float>(m_swapchain->get_height()), 0.1f, 100.0f);
+            static_cast<float>(swapchain->get_width()) / static_cast<float>(swapchain->get_height()), 0.1f, 100.0f);
     }
 
     void Renderer::on_render() {
         PROFILE_SCOPE("render frame");
-        // 1. wait for fence
-        const auto& fence = m_frame_resources[m_current_buffer].fence;
-        m_device->wait_for_fences(std::span(&fence, 1));
-        m_device->reset_fences(std::span(&fence, 1));
 
-        // 2. acquire swapchain image
-        const auto& wait_sem = m_frame_resources[m_current_buffer].image_semaphore;
-        auto [image_index, acquire_result] = m_swapchain->acquire_next_image(wait_sem);
-        if(acquire_result == vk::Result::eErrorOutOfDateKHR) {
-            recreate_swapchain();
-            std::tie(image_index, acquire_result) = m_swapchain->acquire_next_image(wait_sem);
-            if(acquire_result != vk::Result::eSuccess && acquire_result != vk::Result::eSuboptimalKHR) {
-                LOG_FATAL("can't acquire swapchain image");
-            }
-        }
+        // Begin frame (acquires image and begins command buffer)
+        m_scene_renderer->begin_frame();
 
-        auto& command_buffer = m_command_buffers[image_index];
-        const auto& signal_sem = m_frame_resources[m_current_buffer].submit_semaphore;
-        // 3. begin command buffer
-        command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-
-        // 4. begin render target
-        m_render_target->begin_render_target(command_buffer);
-
-        // 5. bind pipeline
-        command_buffer.bind_pipeline(*m_pipeline);
-
-        // 6. set dynamic states (viewport and scissor)
-        const auto viewport = Graphics::get_viewport(static_cast<float>(m_swapchain->get_width()),
-            static_cast<float>(m_swapchain->get_height()));
-        command_buffer.set_viewport(viewport);
-
-        const auto scissor = Graphics::get_scissor(static_cast<float>(m_swapchain->get_width()),
-            static_cast<float>(m_swapchain->get_height()));
-        command_buffer.set_scissor(scissor);
-
+        // Update uniform buffers
         static_pointer_cast<CPUBuffer>(m_view_project_uniform_buffer)->write(&m_view_project_matrix);
         static_pointer_cast<CPUBuffer>(m_model_uniform_buffer)->write(&m_model_matrix);
-        updateDescriptorSets();
 
-        std::vector<vk::DescriptorSet> descriptor_sets;
-        descriptor_sets.reserve(m_descriptor_sets.size());
-        for(auto ds: m_descriptor_sets) {
-            descriptor_sets.push_back(ds.get());
-        }
-        command_buffer.get().bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipeline->get_layout()->get(),
-            0, 1, descriptor_sets.data(), 0, nullptr);
-        // 7. draw
-        // command_buffer.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Vertex), 0,
-        // &m_push_constant, sizeof(PushConstant));
-        m_cube_mesh->draw(command_buffer);
+        // Update descriptor sets
+        m_scene_renderer->update_descriptor_sets(m_descriptor_sets,
+            m_view_project_uniform_buffer, m_model_uniform_buffer,
+            m_texture1, m_texture2,
+            m_resource_manager->get_sampler_manager());
 
-        // 8. end render pass
-        m_render_target->end_render_target(command_buffer);
+        // Render
+        m_scene_renderer->render(m_view_project_matrix, m_model_matrix,
+            m_cube_mesh, m_pipeline, m_descriptor_sets);
 
-        // 9. end command buffer
-        command_buffer.end();
-
-        // 10. submit with fence
-        auto& graphics_queue = m_device->get_graphics_queue(0);
-        graphics_queue.submit(std::span(&command_buffer, 1),
-            std::span(&wait_sem, 1), std::span(&signal_sem, 1), &fence);
-
-        // 11. present
-        auto& present_queue = m_device->get_present_queue(0);
-        const auto result = present_queue.present(*m_swapchain, std::span(&signal_sem, 1), image_index);
-        if(result == vk::Result::eSuboptimalKHR) {
-            recreate_swapchain();
-        }
-
-        const uint32_t swapchain_image_count = Config::get<uint32_t>("vulkan.swapchain_image_count", 3);
-        m_current_buffer = (m_current_buffer + 1) % swapchain_image_count;
-    }
-
-    void Renderer::recreate_swapchain() {
-        PROFILE_SCOPE("recreate_swapchain");
-        m_device->wait_idle();
-        const auto original_size = Math::Vec2u(m_swapchain->get_width(), m_swapchain->get_height());
-        const bool flag = m_swapchain->recreate();
-        const auto size = Math::Vec2u(m_swapchain->get_width(), m_swapchain->get_height());
-        if(flag && original_size != size) {
-            m_render_target->resize(size.x, size.y);
-        }
-    }
-
-    void Renderer::updateDescriptorSets() {
-        vk::DescriptorBufferInfo buffer_info1{};
-        buffer_info1.buffer = m_view_project_uniform_buffer->get();
-        buffer_info1.offset = 0;
-        buffer_info1.range = sizeof(ViewProjectMatrix);
-        vk::DescriptorBufferInfo buffer_info2{};
-        buffer_info2.buffer = m_model_uniform_buffer->get();
-        buffer_info2.offset = 0;
-        buffer_info2.range = sizeof(ModelMatrix);
-        vk::DescriptorImageInfo image_info1{};
-        image_info1.sampler = m_sampler_manager->get_linear_repeat()->get();
-        image_info1.imageView = m_texture1->get_image_view()->get();
-        image_info1.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-        vk::DescriptorImageInfo image_info2{};
-        image_info2.sampler = m_sampler_manager->get_linear_repeat()->get();
-        image_info2.imageView = m_texture2->get_image_view()->get();
-        image_info2.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-        DescriptorSet set = m_descriptor_sets[0];
-        std::vector<vk::WriteDescriptorSet> write_sets;
-        vk::WriteDescriptorSet set1{};
-        set1.dstSet = set.get();
-        set1.dstBinding = 0;
-        set1.dstArrayElement = 0;
-        set1.descriptorType = vk::DescriptorType::eUniformBuffer;
-        set1.descriptorCount = 1;
-        set1.pBufferInfo = &buffer_info1;
-        write_sets.emplace_back(set1);
-        vk::WriteDescriptorSet set2{};
-        set2.dstSet = set.get();
-        set2.dstBinding = 1;
-        set2.dstArrayElement = 0;
-        set2.descriptorType = vk::DescriptorType::eUniformBuffer;
-        set2.descriptorCount = 1;
-        set2.pBufferInfo = &buffer_info2;
-        write_sets.emplace_back(set2);
-        vk::WriteDescriptorSet set3{};
-        set3.dstSet = set.get();
-        set3.dstBinding = 2;
-        set3.dstArrayElement = 0;
-        set3.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-        set3.descriptorCount = 1;
-        set3.pImageInfo = &image_info1;
-        write_sets.emplace_back(set3);
-        vk::WriteDescriptorSet set4{};
-        set4.dstSet = set.get();
-        set4.dstBinding = 3;
-        set4.dstArrayElement = 0;
-        set4.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-        set4.descriptorCount = 1;
-        set4.pImageInfo = &image_info2;
-        write_sets.emplace_back(set4);
-        m_device->get().updateDescriptorSets(write_sets, {});
+        // End frame (submits and presents)
+        m_scene_renderer->end_frame();
     }
 
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
-        m_device->wait_idle();
+        auto device = m_render_context->get_device();
+        if (device) {
+            device->wait_idle();
+        }
 
         m_view_project_uniform_buffer.reset();
         m_model_uniform_buffer.reset();
         m_texture1.reset();
         m_texture2.reset();
-        m_sampler_manager.reset();
+        m_cube_mesh.reset();
         m_descriptor_pool.reset();
         m_descriptor_set_layout.reset();
-
-        m_cube_mesh.reset();
-        m_frame_resources.clear();
-        m_command_buffers.clear();
         m_pipeline.reset();
-        m_shader_manager.reset();
-        m_render_target.reset();
+        m_scene_renderer.reset();
         m_render_pass.reset();
-        m_swapchain.reset();
-        m_device.reset();
-        m_context.reset();
+        m_resource_manager.reset();
+        m_render_context.reset();
     }
 }

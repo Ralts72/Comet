@@ -24,7 +24,7 @@ namespace Comet {
 
         [[nodiscard]]std::pair<uint32_t, vk::Result> acquire_next_image(const Semaphore& semaphore);
         [[nodiscard]] uint32_t get_current_index() const { return m_current_index; }
-        [[nodiscard]] const std::vector<Image>& get_images() const { return m_images; }
+        [[nodiscard]] const std::vector<std::shared_ptr<Image>>& get_images() const { return m_images; }
         [[nodiscard]] uint32_t get_width() const { return m_surface_info.capabilities.currentExtent.width; }
         [[nodiscard]] uint32_t get_height() const { return m_surface_info.capabilities.currentExtent.height; }
         [[nodiscard]] const vk::SwapchainKHR& get() const { return m_swapchain; }
@@ -35,7 +35,7 @@ namespace Comet {
         vk::SwapchainKHR m_swapchain;
         Context* m_context;
         Device* m_device;
-        std::vector<Image> m_images;
+        std::vector<std::shared_ptr<Image>> m_images;
         SurfaceInfo m_surface_info;
         uint32_t m_current_index = -1;
     };
