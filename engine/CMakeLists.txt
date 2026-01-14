@@ -32,6 +32,7 @@ file(GLOB SOURCES
         "src/graphics/pipeline.cpp"
         "src/graphics/shader.cpp"
         "src/graphics/command_buffer.cpp"
+        "src/graphics/command_context.cpp"
         "src/graphics/fence.cpp"
         "src/graphics/semaphore.cpp"
         "src/graphics/vertex_description.cpp"

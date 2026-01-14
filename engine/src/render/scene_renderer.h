@@ -1,6 +1,7 @@
 #pragma once
 #include "render_context.h"
 #include "graphics/pipeline.h"
+#include "graphics/render_pass.h"
 #include "frame_manager.h"
 #include "graphics/descriptor_set.h"
 #include "graphics/buffer.h"
@@ -9,37 +10,66 @@
 #include "texture.h"
 #include "mesh.h"
 #include "graphics/sampler.h"
+#include "graphics/vertex_description.h"
 #include <memory>
 
 namespace Comet {
+    class ResourceManager;
+    class VertexInputDescription;
+
     class SceneRenderer {
     public:
-        SceneRenderer(RenderContext* context, RenderPass* render_pass);
+        explicit SceneRenderer(RenderContext* context);
 
+        // 初始化方法：创建 RenderPass、Pipeline 和 DescriptorSet
+        void setup_render_pass();
+
+        // 创建 DescriptorSetLayout（需要在 setup_pipeline 之前调用）
+        std::shared_ptr<DescriptorSetLayout> create_descriptor_set_layout(const DescriptorSetLayoutBindings& bindings);
+
+        void setup_pipeline(ResourceManager* resource_manager,
+                            const ShaderLayout& layout,
+                            const VertexInputDescription& vertex_input,
+                            const PipelineConfig& config);
+
+        void setup_descriptor_sets(const DescriptorSetLayoutBindings& bindings);
+
+        // 渲染方法
         void render(const ViewProjectMatrix& view_project, const ModelMatrix& model,
-                   std::shared_ptr<Mesh> mesh, std::shared_ptr<Pipeline> pipeline,
-                   const std::vector<DescriptorSet>& descriptor_sets) const;
+                    std::shared_ptr<Mesh> mesh,
+                    const std::vector<DescriptorSet>& descriptor_sets) const;
 
         uint32_t begin_frame();
+
         void end_frame();
 
+        // 访问器
         [[nodiscard]] FrameManager* get_frame_manager() const { return m_frame_manager.get(); }
         [[nodiscard]] RenderTarget* get_render_target() const { return m_render_target.get(); }
         [[nodiscard]] PipelineManager* get_pipeline_manager() const { return m_pipeline_manager.get(); }
+        [[nodiscard]] RenderPass* get_render_pass() const { return m_render_pass.get(); }
+        [[nodiscard]] std::shared_ptr<Pipeline> get_pipeline() const { return m_pipeline; }
+        [[nodiscard]] const std::vector<DescriptorSet>& get_descriptor_sets() const { return m_descriptor_sets; }
 
         void recreate_swapchain();
+
         void update_descriptor_sets(const std::vector<DescriptorSet>& descriptor_sets,
-                                   std::shared_ptr<Buffer> view_project_buffer,
-                                   std::shared_ptr<Buffer> model_buffer,
-                                   std::shared_ptr<Texture> texture1,
-                                   std::shared_ptr<Texture> texture2,
-                                   SamplerManager* sampler_manager);
+                                    std::shared_ptr<Buffer> view_project_buffer,
+                                    std::shared_ptr<Buffer> model_buffer,
+                                    std::shared_ptr<Texture> texture1,
+                                    std::shared_ptr<Texture> texture2,
+                                    SamplerManager* sampler_manager);
 
     private:
         RenderContext* m_context;
+        std::shared_ptr<RenderPass> m_render_pass;
         std::unique_ptr<PipelineManager> m_pipeline_manager;
         std::unique_ptr<FrameManager> m_frame_manager;
         std::shared_ptr<RenderTarget> m_render_target;
+        std::shared_ptr<Pipeline> m_pipeline;
+        std::shared_ptr<DescriptorPool> m_descriptor_pool;
+        std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;
+        std::vector<DescriptorSet> m_descriptor_sets;
     };
 }
 

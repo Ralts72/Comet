@@ -3,6 +3,7 @@
 
 #include "glm/gtx/io.hpp"
 #include "graphics/device.h"
+#include "graphics/command_context.h"
 #include "graphics/image.h"
 #include "graphics/image_view.h"
 #include "graphics/buffer.h"
@@ -54,18 +55,23 @@ namespace Comet {
         m_image_view = std::make_shared<ImageView>(device, *m_image, Flags<ImageAspect>(ImageAspect::Color));
 
         auto stage_buffer = Buffer::create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::CopySrc), size, data);
+
+        auto ctx = device->create_command_context();
         // 1. Transition image layout from UNDEFINED to TRANSFER_DST_OPTIMAL
-        device->transition_image_layout(m_image->get(),
+        ctx->transition_image_layout(m_image->get(),
             vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
 
         // 2. Copy buffer to image
         auto extent = Graphics::get_extent(m_image->get_info().extent.x, m_image->get_info().extent.y);
-        device->copy_buffer_to_image(stage_buffer->get(), m_image->get(),
+        ctx->copy_buffer_to_image(stage_buffer->get(), m_image->get(),
             vk::ImageLayout::eTransferDstOptimal, extent);
 
         // 3. Transition image layout from TRANSFER_DST_OPTIMAL to SHADER_READ_ONLY_OPTIMAL
-        device->transition_image_layout(m_image->get(),
+        ctx->transition_image_layout(m_image->get(),
             vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
+
+        // 提交并等待完成
+        ctx->submit_and_wait();
 
         stage_buffer.reset();
     }

@@ -22,63 +22,46 @@ namespace Comet {
         LOG_INFO("create resource manager");
         m_resource_manager = std::make_unique<ResourceManager>(m_render_context->get_device());
 
-        // Create render pass
-        create_render_pass();
-
         // Create scene renderer
         LOG_INFO("create scene renderer");
-        m_scene_renderer = std::make_unique<SceneRenderer>(m_render_context.get(), m_render_pass.get());
+        m_scene_renderer = std::make_unique<SceneRenderer>(m_render_context.get());
 
-        // Setup pipeline and resources
+        // Setup render pass (moved to SceneRenderer)
+        m_scene_renderer->setup_render_pass();
+
+        // Setup pipeline and descriptor sets
         setup_pipeline();
         setup_descriptor_sets();
+
+        // Setup application resources
         setup_resources();
-    }
-
-    void Renderer::create_render_pass() {
-        LOG_INFO("create render pass");
-
-        // 从配置文件读取设置
-        const auto surface_format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 44)); // B8G8R8A8_UNORM = 44
-        const auto depth_format = static_cast<Format>(Config::get<int>("vulkan.depth_format", 126)); // D32_SFLOAT = 126
-        const auto msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4)); // Count4 = 4
-
-        std::vector<Attachment> attachments;
-        attachments.emplace_back(Attachment::get_color_attachment(surface_format, msaa_samples));
-        attachments.emplace_back(Attachment::get_depth_attachment(depth_format, msaa_samples));
-
-        std::vector<RenderSubPass> render_sub_passes;
-        RenderSubPass render_sub_pass_0 = {
-            {},
-            {SubpassColorAttachment(0)},
-            {SubpassDepthStencilAttachment(1)},
-            msaa_samples
-        };
-        render_sub_passes.emplace_back(render_sub_pass_0);
-
-        m_render_pass = std::make_shared<RenderPass>(m_render_context->get_device(), attachments, render_sub_passes);
     }
 
     void Renderer::setup_pipeline() {
         LOG_INFO("setup pipeline");
-        ShaderLayout layout = {};
+
+        // 创建 DescriptorSetLayout bindings
         DescriptorSetLayoutBindings bindings;
         bindings.add_binding(0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
         bindings.add_binding(1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
         bindings.add_binding(2, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
         bindings.add_binding(3, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
-        m_descriptor_set_layout = std::make_shared<DescriptorSetLayout>(m_render_context->get_device(), bindings);
-        layout.descriptor_set_layouts.push_back(m_descriptor_set_layout);
 
-        auto vert_shader = m_resource_manager->get_shader_manager()->load_shader("cube_texture_vert", CUBE_TEXTURE_VERT, layout);
-        auto frag_shader = m_resource_manager->get_shader_manager()->load_shader("cube_texture_frag", CUBE_TEXTURE_FRAG, layout);
+        // 让 SceneRenderer 创建 DescriptorSetLayout
+        auto descriptor_set_layout = m_scene_renderer->create_descriptor_set_layout(bindings);
 
+        // 创建 ShaderLayout（包含 DescriptorSetLayout）
+        ShaderLayout layout = {};
+        layout.descriptor_set_layouts.push_back(descriptor_set_layout);
+
+        // 创建 VertexInputDescription
         VertexInputDescription vertex_input_description;
         vertex_input_description.add_binding(0, sizeof(Math::Vertex), VertexInputRate::Vertex);
         vertex_input_description.add_attribute(0, 0, Format::R32G32B32_SFLOAT, offsetof(Math::Vertex, position));
         vertex_input_description.add_attribute(1, 0, Format::R32G32_SFLOAT, offsetof(Math::Vertex, texcoord));
         vertex_input_description.add_attribute(2, 0, Format::R32G32B32_SFLOAT, offsetof(Math::Vertex, normal));
 
+        // 创建 PipelineConfig
         PipelineConfig pipeline_config = {};
         pipeline_config.set_vertex_input_state(vertex_input_description);
         pipeline_config.set_input_assembly_state(Topology::TriangleList);
@@ -90,27 +73,32 @@ namespace Comet {
         pipeline_config.enable_depth_test();
         pipeline_config.set_multisample_state(msaa_samples, false, 0.2f);
 
-        m_pipeline = m_scene_renderer->get_pipeline_manager()->create_pipeline(
-            "cube_pipeline", layout, vertex_input_description, pipeline_config, vert_shader, frag_shader);
+        // 让 SceneRenderer 创建 Pipeline
+        m_scene_renderer->setup_pipeline(m_resource_manager.get(), layout, vertex_input_description, pipeline_config);
     }
 
     void Renderer::setup_descriptor_sets() {
         LOG_INFO("create descriptor pool and descriptor sets");
-        DescriptorPoolSizes descriptor_pool_sizes;
-        descriptor_pool_sizes.add_pool_size(DescriptorType::UniformBuffer, 2);
-        descriptor_pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, 2);
-        m_descriptor_pool = std::make_shared<DescriptorPool>(m_render_context->get_device(), 1, descriptor_pool_sizes);
-        m_descriptor_sets = m_descriptor_pool->allocate_descriptor_set(*m_descriptor_set_layout, 1);
+
+        // 创建 DescriptorSetLayout bindings（与 setup_pipeline 中相同）
+        DescriptorSetLayoutBindings bindings;
+        bindings.add_binding(0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
+        bindings.add_binding(1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
+        bindings.add_binding(2, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
+        bindings.add_binding(3, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
+
+        // 让 SceneRenderer 创建 DescriptorSet
+        m_scene_renderer->setup_descriptor_sets(bindings);
     }
 
     void Renderer::setup_resources() {
         LOG_INFO("create uniform buffers");
         m_view_project_uniform_buffer = Buffer::create_cpu_buffer(
             m_render_context->get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
-        sizeof(ViewProjectMatrix), nullptr);
+            sizeof(ViewProjectMatrix), nullptr);
         m_model_uniform_buffer = Buffer::create_cpu_buffer(
             m_render_context->get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
-        sizeof(ModelMatrix), nullptr);
+            sizeof(ModelMatrix), nullptr);
 
         LOG_INFO("load textures");
         std::string image_path = std::string(PROJECT_ROOT_DIR) + "/engine/assets/textures/";
@@ -148,14 +136,15 @@ namespace Comet {
         static_pointer_cast<CPUBuffer>(m_model_uniform_buffer)->write(&m_model_matrix);
 
         // Update descriptor sets
-        m_scene_renderer->update_descriptor_sets(m_descriptor_sets,
+        const auto& descriptor_sets = m_scene_renderer->get_descriptor_sets();
+        m_scene_renderer->update_descriptor_sets(descriptor_sets,
             m_view_project_uniform_buffer, m_model_uniform_buffer,
             m_texture1, m_texture2,
             m_resource_manager->get_sampler_manager());
 
         // Render
         m_scene_renderer->render(m_view_project_matrix, m_model_matrix,
-            m_cube_mesh, m_pipeline, m_descriptor_sets);
+            m_cube_mesh, descriptor_sets);
 
         // End frame (submits and presents)
         m_scene_renderer->end_frame();
@@ -164,20 +153,18 @@ namespace Comet {
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
         auto device = m_render_context->get_device();
-        if (device) {
+        if(device) {
             device->wait_idle();
         }
 
+        // 清理应用层资源
         m_view_project_uniform_buffer.reset();
         m_model_uniform_buffer.reset();
         m_texture1.reset();
         m_texture2.reset();
         m_cube_mesh.reset();
-        m_descriptor_pool.reset();
-        m_descriptor_set_layout.reset();
-        m_pipeline.reset();
+ // 清理子系统（会自动清理内部资源）
         m_scene_renderer.reset();
-        m_render_pass.reset();
         m_resource_manager.reset();
         m_render_context.reset();
     }

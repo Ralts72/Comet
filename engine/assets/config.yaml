@@ -19,13 +19,13 @@ vulkan:
 # 渲染设置
 render:
   # 清除颜色 (RGBA)
-  clear_color: [0.2, 0.4, 0.1, 1.0]
+  clear_color: [ 0.2, 0.4, 0.1, 1.0 ]
   # 启用垂直同步
   enable_vsync: false
 
 # 窗口设置
 window:
-  width: 1280
+  width: 720
   height: 720
   title: "Comet Engine"
   fullscreen: false

@@ -2,10 +2,9 @@
 #include "render_context.h"
 #include "resource_manager.h"
 #include "scene_renderer.h"
-#include "graphics/render_pass.h"
-#include "graphics/pipeline.h"
-#include "graphics/descriptor_set.h"
 #include "graphics/buffer.h"
+#include "graphics/descriptor_set.h"
+#include "graphics/vertex_description.h"
 #include "mesh.h"
 #include "texture.h"
 #include "common/shader_resources.h"
@@ -22,29 +21,30 @@ namespace Comet {
 
         void on_render();
 
+        // 访问器：提供对子系统的访问
+        [[nodiscard]] ResourceManager* get_resource_manager() const { return m_resource_manager.get(); }
+        [[nodiscard]] SceneRenderer* get_scene_renderer() const { return m_scene_renderer.get(); }
+        [[nodiscard]] RenderContext* get_render_context() const { return m_render_context.get(); }
+
     private:
-        void create_render_pass();
         void setup_pipeline();
+
         void setup_descriptor_sets();
+
         void setup_resources();
 
         std::unique_ptr<RenderContext> m_render_context;
         std::unique_ptr<ResourceManager> m_resource_manager;
         std::unique_ptr<SceneRenderer> m_scene_renderer;
-        std::shared_ptr<RenderPass> m_render_pass;
 
-        std::shared_ptr<Pipeline> m_pipeline;
-        std::shared_ptr<DescriptorPool> m_descriptor_pool;
-        std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;
-        std::vector<DescriptorSet> m_descriptor_sets;
-
+        // 应用层资源（这些应该由应用层管理，但为了向后兼容暂时保留）
         std::shared_ptr<Buffer> m_view_project_uniform_buffer;
         std::shared_ptr<Buffer> m_model_uniform_buffer;
-
         std::shared_ptr<Texture> m_texture1;
         std::shared_ptr<Texture> m_texture2;
         std::shared_ptr<Mesh> m_cube_mesh;
 
+        // 应用层业务逻辑（这些应该由应用层管理）
         ViewProjectMatrix m_view_project_matrix = {
             .view = Math::Mat4{1.0f},
             .projection = Math::Mat4{1.0f}

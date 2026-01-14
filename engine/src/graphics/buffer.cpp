@@ -1,8 +1,8 @@
 #include "buffer.h"
 #include "command_buffer.h"
 #include "device.h"
-#include "queue.h"
 #include "common/profiler.h"
+#include "command_context.h"
 
 namespace Comet {
     Buffer::Buffer(Device* device, const Flags<BufferUsage> usage, const size_t size, const void* data) : m_device(device), m_size(size) {}
@@ -43,7 +43,9 @@ namespace Comet {
         std::tie(m_buffer, m_memory) = create_buffer(Flags<MemoryType>(MemoryType::GPULocal),
             usage | Flags<BufferUsage>(BufferUsage::CopyDst));
 
-        m_device->copy_buffer(stage_buffer, m_buffer, m_size);
+        auto ctx = m_device->create_command_context();
+        ctx->copy_buffer(stage_buffer, m_buffer, m_size);
+        ctx->submit_and_wait();
 
         m_device->get().destroyBuffer(stage_buffer);
         m_device->get().freeMemory(stage_memory);

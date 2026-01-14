@@ -4,6 +4,7 @@
 #include "queue.h"
 #include "common/logger.h"
 #include "command_buffer.h"
+#include "command_context.h"
 #include "common/profiler.h"
 
 namespace Comet {
@@ -101,7 +102,7 @@ namespace Comet {
 
     void Device::wait_for_fences(const std::span<const Fence> fences, const bool wait_all, const uint64_t timeout) const {
         std::vector<vk::Fence> vk_fences;
-        for(const auto& fence : fences) {
+        for(const auto& fence: fences) {
             vk_fences.push_back(fence.get());
         }
         const auto result = m_device.waitForFences(vk_fences, wait_all, timeout);
@@ -114,7 +115,7 @@ namespace Comet {
 
     void Device::reset_fences(const std::span<const Fence> fences) const {
         std::vector<vk::Fence> vk_fences;
-        for(const auto& fence : fences) {
+        for(const auto& fence: fences) {
             vk_fences.push_back(fence.get());
         }
         m_device.resetFences(vk_fences);
@@ -126,14 +127,14 @@ namespace Comet {
 
     uint32_t Device::get_memory_index(const Flags<MemoryType> mem_props, uint32_t memory_type_bits) const {
         const vk::PhysicalDeviceMemoryProperties physical_device_mem_props = m_context->get_memory_properties();
-        if(physical_device_mem_props.memoryTypeCount == 0){
+        if(physical_device_mem_props.memoryTypeCount == 0) {
             LOG_FATAL("Physical device memory type count is 0");
         }
         const auto vk_memory_properties = Graphics::memory_property_to_vk(mem_props);
-        for(uint32_t i = 0; i < physical_device_mem_props.memoryTypeCount; i++){
+        for(uint32_t i = 0; i < physical_device_mem_props.memoryTypeCount; i++) {
             const bool is_type_used = (memory_type_bits & (1 << i)) != 0;
             const bool has_required_props = (physical_device_mem_props.memoryTypes[i].propertyFlags & vk_memory_properties) == vk_memory_properties;
-            if( is_type_used && has_required_props ){
+            if(is_type_used && has_required_props) {
                 return i;
             }
         }
@@ -141,39 +142,14 @@ namespace Comet {
         return 0;
     }
 
-    void Device::copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size) {
-        one_time_submit([&](CommandBuffer cmd_buf){
-            cmd_buf.copy_buffer(src, dst, size);
-        });
-    }
 
-    void Device::copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, vk::ImageLayout dst_image_layout,
-    const vk::Extent3D& extent, uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
-        one_time_submit([&](CommandBuffer cmd_buf){
-            cmd_buf.copy_buffer_to_image(src, dst_image, dst_image_layout, extent, mip_level);
-        });
-    }
-
-    void Device::transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-    uint32_t base_array_layer, uint32_t layer_count, uint32_t mip_level) {
-        one_time_submit([&](CommandBuffer cmd_buf){
-            cmd_buf.transition_image_layout(image, old_layout, new_layout, base_array_layer, layer_count, mip_level);
-        });
+    std::unique_ptr<CommandContext> Device::create_command_context() {
+        return std::make_unique<CommandContext>(this);
     }
 
     void Device::create_pipeline_cache() {
         constexpr vk::PipelineCacheCreateInfo pcache_create_info = {};
         m_pipeline_cache = m_device.createPipelineCache(pcache_create_info);
         LOG_INFO("Vulkan pipeline cache created successfully");
-    }
-
-    void Device::one_time_submit(const std::function<void(CommandBuffer)>& cmd_func) {
-        auto cmd_buf = m_default_command_pool->allocate_command_buffer();
-        cmd_buf.reset();
-        cmd_buf.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-        cmd_func(cmd_buf);
-        cmd_buf.end();
-        m_graphics_queues.at(0).submit(std::span(&cmd_buf, 1), {}, {}, {});
-        m_graphics_queues.at(0).wait_idle();
     }
 }

@@ -10,12 +10,10 @@ namespace Comet {
     class Fence;
     class CommandPool;
     class CommandBuffer;
+    class CommandContext;
 
     class Device {
     public:
-        friend class GPUBuffer;
-        friend class Texture;
-
         Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count);
 
         ~Device();
@@ -52,20 +50,12 @@ namespace Comet {
         [[nodiscard]] CommandPool& get_default_command_pool() { return *m_default_command_pool; }
         [[nodiscard]] const CommandPool& get_default_command_pool() const { return *m_default_command_pool; }
 
+        std::unique_ptr<CommandContext> create_command_context();
+
     private:
-        void copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size);
-
-        void copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, vk::ImageLayout dst_image_layout,
-                                  const vk::Extent3D& extent, uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
-
-        void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-                                     uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
-
         void create_pipeline_cache();
 
         void create_default_command_pool();
-
-        void one_time_submit(const std::function<void(CommandBuffer)>& cmd_func);
 
         vk::Device m_device;
         Context* m_context;
