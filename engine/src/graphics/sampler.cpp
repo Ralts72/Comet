@@ -71,7 +71,7 @@ namespace Comet {
     }
 
     std::shared_ptr<Sampler> SamplerManager::get_nearest_clamp() {
-        constexpr std::string name = "nearest_clamp";
+        const std::string name = "nearest_clamp";
         if (const auto it = m_samplers.find(name); it != m_samplers.end()) {
             return it->second;
         }
