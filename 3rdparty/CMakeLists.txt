@@ -10,7 +10,7 @@ add_subdirectory(spdlog)
 
 # gtest
 option(INSTALL_GTEST OFF)
-option(BUILD_GMOCK ON)  # Keep gmock if you use it, otherwise set to OFF
+option(BUILD_GMOCK OFF)
 add_subdirectory(googletest)
 
 # glm

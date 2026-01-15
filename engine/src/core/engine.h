@@ -5,16 +5,9 @@
 #include "timer.h"
 
 namespace Comet {
-
-    struct COMET_API Settings {
-        int width = 1280;
-        int height = 720;
-        std::string title = "Comet Engine";
-    };
-
     class COMET_API Engine {
     public:
-        explicit Engine(const Settings& settings);
+        Engine();
 
         ~Engine();
 
@@ -25,6 +18,7 @@ namespace Comet {
         }
 
         [[nodiscard]] Window* get_window() const { return m_window.get(); };
+        [[nodiscard]] Renderer* get_renderer() const { return m_renderer.get(); };
         [[nodiscard]] bool get_close_status() const { return m_should_close; };
         [[nodiscard]] float get_delta_time() const { return m_timer->get_delta_time(); }
         [[nodiscard]] float get_total_time() const { return m_timer->get_total_time(); }

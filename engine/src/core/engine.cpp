@@ -4,7 +4,7 @@
 #include "common/config.h"
 
 namespace Comet {
-    Engine::Engine(const Settings& settings) {
+    Engine::Engine() {
         PROFILE_SCOPE("Engine::Constructor");
         LOG_INFO("init timer");
         m_timer = std::make_unique<Timer>();
@@ -15,8 +15,12 @@ namespace Comet {
             return;
         }
 
+        int width = Config::get<int>("window.width", 1280);
+        int height = Config::get<int>("window.height", 720);
+        auto title = Config::get<std::string>("window.title", "Comet Engine");
+
         LOG_INFO("init window");
-        m_window = std::make_unique<Window>(settings.title, settings.width, settings.height);
+        m_window = std::make_unique<Window>(title, width, height);
 
         LOG_INFO("init renderer");
         m_renderer = std::make_unique<Renderer>(*m_window);

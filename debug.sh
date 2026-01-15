@@ -17,11 +17,11 @@ echo "构建Debug版本..."
 cmake -S . -B $BUILD_DIR -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 cmake --build $BUILD_DIR -- $PARALLEL
 
-# 运行Debug版本
-EXEC="$BUILD_DIR/app/app"
+# 运行Editor（Debug版本）
+EXEC="$BUILD_DIR/editor/editor"
 if [ -x "$EXEC" ]; then
-    echo "运行Debug版本: $EXEC"
+    echo "运行Editor: $EXEC"
     "$EXEC"
 else
-    echo "Debug executable not found: $EXEC"
+    echo "Editor executable not found: $EXEC"
 fi
