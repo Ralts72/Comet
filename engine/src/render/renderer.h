@@ -18,7 +18,7 @@ namespace Comet {
 
         void on_update(float delta_time);
 
-        void on_render();
+        void on_render() const;
 
         // 渲染回调：在主渲染后、end_frame 前调用（用于 ImGui 等叠加层）
         using RenderCallback = std::function<void(CommandBuffer&)>;
@@ -30,9 +30,9 @@ namespace Comet {
         [[nodiscard]] RenderContext* get_render_context() const { return m_render_context.get(); }
 
     private:
-        void setup_pipeline();
+        void setup_pipeline() const;
 
-        void setup_descriptor_sets();
+        void setup_descriptor_sets() const;
 
         void setup_resources();
 

@@ -1,7 +1,8 @@
 #include "geometry_utils.h"
 
 namespace Comet{
-    Comet::Cube GeometryUtils::create_cube(float left, float right, float top, float bottom, float near, float far, const Math::Mat4& transform) {
+    Comet::Cube GeometryUtils::create_cube(const float left, const float right, const float top,
+        const float bottom, const float near, const float far, const Math::Mat4& transform) {
         const Math::Mat4 normal_matrix = Math::transpose(Math::inverse(transform));
         //    v6----- v5
         //   /|      /|

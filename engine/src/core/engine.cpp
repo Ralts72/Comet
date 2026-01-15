@@ -33,7 +33,7 @@ namespace Comet {
         PROFILE_RESULTS();
     }
 
-    void Engine::on_update() {
+    void Engine::on_update() const {
         LOG_INFO("running engine...");
 
         static bool show_fps = Config::get<bool>("debug.show_fps", true);

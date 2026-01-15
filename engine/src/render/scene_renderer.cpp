@@ -73,15 +73,15 @@ namespace Comet {
         return m_descriptor_set_layout;
     }
 
-    void SceneRenderer::setup_pipeline(ResourceManager* resource_manager,
+    void SceneRenderer::setup_pipeline(const ResourceManager* resource_manager,
                                        const ShaderLayout& layout,
                                        const VertexInputDescription& vertex_input,
                                        const PipelineConfig& config) {
         LOG_INFO("setup pipeline");
 
         // 创建着色器
-        auto vert_shader = resource_manager->get_shader_manager()->load_shader("cube_texture_vert", CUBE_TEXTURE_VERT, layout);
-        auto frag_shader = resource_manager->get_shader_manager()->load_shader("cube_texture_frag", CUBE_TEXTURE_FRAG, layout);
+        const auto vert_shader = resource_manager->get_shader_manager()->load_shader("cube_texture_vert", CUBE_TEXTURE_VERT, layout);
+        const auto frag_shader = resource_manager->get_shader_manager()->load_shader("cube_texture_frag", CUBE_TEXTURE_FRAG, layout);
 
         // 创建 Pipeline
         m_pipeline = m_pipeline_manager->create_pipeline(
@@ -107,8 +107,8 @@ namespace Comet {
         PROFILE_SCOPE("SceneRenderer::begin_frame");
         m_frame_manager->begin_frame();
 
-        auto swapchain = m_context->get_swapchain();
-        auto& frame_sync = m_frame_manager->get_current_sync();
+        const auto swapchain = m_context->get_swapchain();
+        const auto& frame_sync = m_frame_manager->get_current_sync();
         auto& wait_sem = frame_sync.image_semaphore;
 
         // Acquire next image
@@ -129,7 +129,7 @@ namespace Comet {
     }
 
     void SceneRenderer::render(const ViewProjectMatrix& view_project, const ModelMatrix& model,
-                               std::shared_ptr<Mesh> mesh,
+                               const std::shared_ptr<Mesh>& mesh,
                                const std::vector<DescriptorSet>& descriptor_sets) const {
         PROFILE_SCOPE("SceneRenderer::render");
 
@@ -138,9 +138,9 @@ namespace Comet {
             return;
         }
 
-        auto swapchain = m_context->get_swapchain();
-        auto image_index = swapchain->get_current_index();
-        auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
+        const auto swapchain = m_context->get_swapchain();
+        const auto image_index = swapchain->get_current_index();
+        const auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
 
         // Bind pipeline
         command_buffer.bind_pipeline(*m_pipeline);
@@ -173,9 +173,9 @@ namespace Comet {
     void SceneRenderer::end_frame() {
         PROFILE_SCOPE("SceneRenderer::end_frame");
 
-        auto device = m_context->get_device();
-        auto swapchain = m_context->get_swapchain();
-        auto image_index = swapchain->get_current_index();
+        const auto device = m_context->get_device();
+        const auto swapchain = m_context->get_swapchain();
+        const auto image_index = swapchain->get_current_index();
         auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
         auto& frame_sync = m_frame_manager->get_current_sync();
 
@@ -186,14 +186,14 @@ namespace Comet {
         command_buffer.end();
 
         // Submit
-        auto& graphics_queue = device->get_graphics_queue(0);
+        const auto& graphics_queue = device->get_graphics_queue(0);
         graphics_queue.submit(std::span(&command_buffer, 1),
             std::span(&frame_sync.image_semaphore, 1),
             std::span(&frame_sync.submit_semaphore, 1),
             &frame_sync.fence);
 
         // Present
-        auto& present_queue = device->get_present_queue(0);
+        const auto& present_queue = device->get_present_queue(0);
         const auto result = present_queue.present(*swapchain,
             std::span(&frame_sync.submit_semaphore, 1), image_index);
         if(result == vk::Result::eSuboptimalKHR) {
@@ -210,8 +210,8 @@ namespace Comet {
 
     void SceneRenderer::recreate_swapchain() {
         PROFILE_SCOPE("SceneRenderer::recreate_swapchain");
-        auto device = m_context->get_device();
-        auto swapchain = m_context->get_swapchain();
+        const auto device = m_context->get_device();
+        const auto swapchain = m_context->get_swapchain();
 
         device->wait_idle();
         const auto original_size = Math::Vec2u(swapchain->get_width(), swapchain->get_height());
@@ -240,11 +240,11 @@ namespace Comet {
     }
 
     void SceneRenderer::update_descriptor_sets(const std::vector<DescriptorSet>& descriptor_sets,
-                                               std::shared_ptr<Buffer> view_project_buffer,
-                                               std::shared_ptr<Buffer> model_buffer,
-                                               std::shared_ptr<Texture> texture1,
-                                               std::shared_ptr<Texture> texture2,
-                                               SamplerManager* sampler_manager) {
+                                               const std::shared_ptr<Buffer>& view_project_buffer,
+                                               const std::shared_ptr<Buffer>& model_buffer,
+                                               const std::shared_ptr<Texture>& texture1,
+                                               const std::shared_ptr<Texture>& texture2,
+                                               SamplerManager* sampler_manager) const {
         vk::DescriptorBufferInfo buffer_info1{};
         buffer_info1.buffer = view_project_buffer->get();
         buffer_info1.offset = 0;

@@ -20,11 +20,11 @@ namespace Comet {
         CommandContext& operator=(const CommandContext&) = delete;
 
         // GPU 操作接口
-        void copy_buffer(Buffer* src, Buffer* dst, size_t size);
+        void copy_buffer(const Buffer* src, const Buffer* dst, size_t size);
 
         void copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size);
 
-        void copy_buffer_to_image(Buffer* src, Image* dst, vk::ImageLayout dst_image_layout,
+        void copy_buffer_to_image(const Buffer* src, const Image* dst, vk::ImageLayout dst_image_layout,
                                   const vk::Extent3D& extent, uint32_t base_array_layer = 0,
                                   uint32_t layer_count = 1, uint32_t mip_level = 0);
 
@@ -32,7 +32,7 @@ namespace Comet {
                                   const vk::Extent3D& extent, uint32_t base_array_layer = 0,
                                   uint32_t layer_count = 1, uint32_t mip_level = 0);
 
-        void transition_image_layout(Image* image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+        void transition_image_layout(const Image* image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
                                      uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
 
         void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,

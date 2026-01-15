@@ -37,7 +37,7 @@ namespace Comet {
         setup_resources();
     }
 
-    void Renderer::setup_pipeline() {
+    void Renderer::setup_pipeline() const {
         LOG_INFO("setup pipeline");
 
         // 创建 DescriptorSetLayout bindings
@@ -77,7 +77,7 @@ namespace Comet {
         m_scene_renderer->setup_pipeline(m_resource_manager.get(), layout, vertex_input_description, pipeline_config);
     }
 
-    void Renderer::setup_descriptor_sets() {
+    void Renderer::setup_descriptor_sets() const {
         LOG_INFO("create descriptor pool and descriptor sets");
 
         // 创建 DescriptorSetLayout bindings（与 setup_pipeline 中相同）
@@ -125,7 +125,7 @@ namespace Comet {
             static_cast<float>(swapchain->get_width()) / static_cast<float>(swapchain->get_height()), 0.1f, 100.0f);
     }
 
-    void Renderer::on_render() {
+    void Renderer::on_render() const {
         PROFILE_SCOPE("render frame");
 
         // Begin frame (acquires image and begins command buffer)

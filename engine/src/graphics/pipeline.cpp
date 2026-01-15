@@ -248,10 +248,10 @@ namespace Comet {
         const ShaderLayout& layout,
         const VertexInputDescription& vertex_input,
         const PipelineConfig& config,
-        std::shared_ptr<Shader> vert_shader,
-        std::shared_ptr<Shader> frag_shader) {
+        const std::shared_ptr<Shader>& vert_shader,
+        const std::shared_ptr<Shader>& frag_shader) {
 
-        auto it = m_pipelines.find(name);
+        const auto it = m_pipelines.find(name);
         if (it != m_pipelines.end()) {
             LOG_DEBUG("Pipeline '{}' already exists, returning cached version", name);
             return it->second;
@@ -273,7 +273,7 @@ namespace Comet {
     }
 
     std::shared_ptr<Pipeline> PipelineManager::get_pipeline(const std::string& name) const {
-        auto it = m_pipelines.find(name);
+        const auto it = m_pipelines.find(name);
         if (it != m_pipelines.end()) {
             return it->second;
         }

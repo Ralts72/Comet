@@ -164,8 +164,8 @@ namespace Comet {
             const ShaderLayout& layout,
             const VertexInputDescription& vertex_input,
             const PipelineConfig& config,
-            std::shared_ptr<Shader> vert_shader,
-            std::shared_ptr<Shader> frag_shader
+            const std::shared_ptr<Shader>& vert_shader,
+            const std::shared_ptr<Shader>& frag_shader
         );
 
         [[nodiscard]] std::shared_ptr<Pipeline> get_pipeline(const std::string& name) const;

@@ -5,7 +5,6 @@
 #include "graphics/command_buffer.h"
 #include "common/logger.h"
 #include "common/config.h"
-
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>

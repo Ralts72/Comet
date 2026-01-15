@@ -38,10 +38,10 @@ namespace Comet {
 
     template<typename T>
     T Config::get(const std::string& key) {
-        auto& cfg = instance();
+        const auto& cfg = instance();
         std::lock_guard<std::mutex> lock(cfg.m_mutex);
 
-        YAML::Node node = cfg.get_node_internal(key);
+        const YAML::Node node = cfg.get_node_internal(key);
         if (!node) {
             throw std::runtime_error("Config key not found: " + key);
         }

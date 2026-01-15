@@ -3,7 +3,7 @@
 #include "graphics/device.h"
 
 namespace Comet {
-    FrameManager::FrameManager(Device* device, uint32_t frame_count)
+    FrameManager::FrameManager(Device* device, const uint32_t frame_count)
         : m_device(device), m_frame_count(frame_count) {
         LOG_INFO("create command buffers");
         // Command buffers will be allocated when swapchain is created
@@ -15,7 +15,7 @@ namespace Comet {
         }
     }
 
-    void FrameManager::begin_frame() {
+    void FrameManager::begin_frame() const {
         // Wait for fence
         const auto& fence = m_frame_syncs[m_current_frame].fence;
         m_device->wait_for_fences(std::span(&fence, 1));
@@ -26,7 +26,7 @@ namespace Comet {
         m_current_frame = (m_current_frame + 1) % m_frame_count;
     }
 
-    void FrameManager::initialize_command_buffers(uint32_t count) {
+    void FrameManager::initialize_command_buffers(const uint32_t count) {
         if (m_command_buffers.empty()) {
             m_command_buffers = m_device->get_default_command_pool().allocate_command_buffers(count);
         }

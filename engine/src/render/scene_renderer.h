@@ -27,7 +27,7 @@ namespace Comet {
         // 创建 DescriptorSetLayout（需要在 setup_pipeline 之前调用）
         std::shared_ptr<DescriptorSetLayout> create_descriptor_set_layout(const DescriptorSetLayoutBindings& bindings);
 
-        void setup_pipeline(ResourceManager* resource_manager,
+        void setup_pipeline(const ResourceManager* resource_manager,
                             const ShaderLayout& layout,
                             const VertexInputDescription& vertex_input,
                             const PipelineConfig& config);
@@ -36,7 +36,7 @@ namespace Comet {
 
         // 渲染方法
         void render(const ViewProjectMatrix& view_project, const ModelMatrix& model,
-                    std::shared_ptr<Mesh> mesh,
+                    const std::shared_ptr<Mesh>& mesh,
                     const std::vector<DescriptorSet>& descriptor_sets) const;
 
         uint32_t begin_frame();
@@ -55,11 +55,11 @@ namespace Comet {
         void recreate_swapchain();
 
         void update_descriptor_sets(const std::vector<DescriptorSet>& descriptor_sets,
-                                    std::shared_ptr<Buffer> view_project_buffer,
-                                    std::shared_ptr<Buffer> model_buffer,
-                                    std::shared_ptr<Texture> texture1,
-                                    std::shared_ptr<Texture> texture2,
-                                    SamplerManager* sampler_manager);
+                                    const std::shared_ptr<Buffer>& view_project_buffer,
+                                    const std::shared_ptr<Buffer>& model_buffer,
+                                    const std::shared_ptr<Texture>& texture1,
+                                    const std::shared_ptr<Texture>& texture2,
+                                    SamplerManager* sampler_manager) const;
 
     private:
         RenderContext* m_context;

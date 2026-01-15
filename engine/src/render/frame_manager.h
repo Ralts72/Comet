@@ -18,12 +18,12 @@ namespace Comet {
     public:
         explicit FrameManager(Device* device, uint32_t frame_count);
 
-        void begin_frame();
+        void begin_frame() const;
         void end_frame();
 
         [[nodiscard]] uint32_t get_current_frame() const { return m_current_frame; }
         [[nodiscard]] FrameSynchronization& get_current_sync() { return m_frame_syncs[m_current_frame]; }
-        [[nodiscard]] CommandBuffer& get_command_buffer(uint32_t image_index) { return m_command_buffers[image_index]; }
+        [[nodiscard]] CommandBuffer& get_command_buffer(const uint32_t image_index) { return m_command_buffers[image_index]; }
         [[nodiscard]] const std::vector<CommandBuffer>& get_command_buffers() const { return m_command_buffers; }
 
         void initialize_command_buffers(uint32_t count);

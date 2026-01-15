@@ -15,9 +15,9 @@ namespace Comet {
 
         [[nodiscard]] bool should_close() const;
 
-        void poll_events();
+        static void poll_events();
 
-        void swap_buffers();
+        void swap_buffers() const;
 
     private:
         GLFWwindow* m_window;

@@ -9,7 +9,7 @@ namespace Comet::Graphics {
 #define TRY_SET_BIT(src, dst) \
     if (flags & (src)) bits |= (dst);
 
-    vk::Filter filter_to_vk(Filter filter) {
+    vk::Filter filter_to_vk(const Filter filter) {
         switch(filter) {
             CASE(Filter::Nearest, vk::Filter::eNearest)
             CASE(Filter::Linear, vk::Filter::eLinear)
@@ -17,7 +17,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::SamplerAddressMode sampler_address_mode_to_vk(SamplerAddressMode mode) {
+    vk::SamplerAddressMode sampler_address_mode_to_vk(const SamplerAddressMode mode) {
         switch(mode) {
             CASE(SamplerAddressMode::ClampToEdge, vk::SamplerAddressMode::eClampToEdge)
             CASE(SamplerAddressMode::Repeat, vk::SamplerAddressMode::eRepeat)
@@ -27,7 +27,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::CompareOp compare_op_to_vk(CompareOp op) {
+    vk::CompareOp compare_op_to_vk(const CompareOp op) {
         switch(op) {
             CASE(CompareOp::Never, vk::CompareOp::eNever)
             CASE(CompareOp::Less, vk::CompareOp::eLess)
@@ -41,7 +41,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::ImageType image_type_to_vk(ImageType type) {
+    vk::ImageType image_type_to_vk(const ImageType type) {
         switch(type) {
             CASE(ImageType::Dim1, vk::ImageType::e1D);
             CASE(ImageType::Dim2, vk::ImageType::e2D);
@@ -50,7 +50,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::SampleCountFlagBits sample_count_to_vk(SampleCount count) {
+    vk::SampleCountFlagBits sample_count_to_vk(const SampleCount count) {
         switch(count) {
             CASE(SampleCount::Count1, vk::SampleCountFlagBits::e1);
             CASE(SampleCount::Count2, vk::SampleCountFlagBits::e2);
@@ -71,7 +71,7 @@ namespace Comet::Graphics {
         return static_cast<Format>(format);
     }
 
-    vk::ImageViewType image_view_type_to_vk(ImageViewType type) {
+    vk::ImageViewType image_view_type_to_vk(const ImageViewType type) {
         switch(type) {
             CASE(ImageViewType::Dim1, vk::ImageViewType::e1D);
             CASE(ImageViewType::Dim2, vk::ImageViewType::e2D);
@@ -83,7 +83,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::PrimitiveTopology primitive_topology_to_vk(Topology topology) {
+    vk::PrimitiveTopology primitive_topology_to_vk(const Topology topology) {
         switch(topology) {
             CASE(Topology::LineList, vk::PrimitiveTopology::eLineList);
             CASE(Topology::LineStrip, vk::PrimitiveTopology::eLineStrip);
@@ -95,7 +95,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::PolygonMode polygon_mode_to_vk(PolygonMode mode) {
+    vk::PolygonMode polygon_mode_to_vk(const PolygonMode mode) {
         switch(mode) {
             CASE(PolygonMode::Line, vk::PolygonMode::eLine);
             CASE(PolygonMode::Fill, vk::PolygonMode::eFill);
@@ -104,7 +104,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::FrontFace front_face_to_vk(FrontFace face) {
+    vk::FrontFace front_face_to_vk(const FrontFace face) {
         switch(face) {
             CASE(FrontFace::CCW, vk::FrontFace::eCounterClockwise);
             CASE(FrontFace::CW, vk::FrontFace::eClockwise);
@@ -112,7 +112,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::BlendOp blend_op_to_vk(BlendOp op) {
+    vk::BlendOp blend_op_to_vk(const BlendOp op) {
         switch(op) {
             CASE(BlendOp::Add, vk::BlendOp::eAdd);
             CASE(BlendOp::Subtract, vk::BlendOp::eSubtract);
@@ -123,7 +123,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::BlendFactor blend_factor_to_vk(BlendFactor factor) {
+    vk::BlendFactor blend_factor_to_vk(const BlendFactor factor) {
         switch(factor) {
             CASE(BlendFactor::Zero, vk::BlendFactor::eZero);
             CASE(BlendFactor::One, vk::BlendFactor::eOne);
@@ -144,7 +144,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::StencilOp stencil_op_to_vk(StencilOp op) {
+    vk::StencilOp stencil_op_to_vk(const StencilOp op) {
         switch(op) {
             CASE(StencilOp::Keep, vk::StencilOp::eKeep);
             CASE(StencilOp::Zero, vk::StencilOp::eZero);
@@ -158,7 +158,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::AttachmentLoadOp attachment_load_op_to_vk(AttachmentLoadOp op) {
+    vk::AttachmentLoadOp attachment_load_op_to_vk(const AttachmentLoadOp op) {
         switch(op) {
             CASE(AttachmentLoadOp::Clear, vk::AttachmentLoadOp::eClear);
             CASE(AttachmentLoadOp::Load, vk::AttachmentLoadOp::eLoad);
@@ -167,7 +167,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::AttachmentStoreOp attachment_store_op_to_vk(AttachmentStoreOp op) {
+    vk::AttachmentStoreOp attachment_store_op_to_vk(const AttachmentStoreOp op) {
         switch(op) {
             CASE(AttachmentStoreOp::Store, vk::AttachmentStoreOp::eStore);
             CASE(AttachmentStoreOp::DontCare, vk::AttachmentStoreOp::eDontCare);
@@ -175,7 +175,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::IndexType index_type_to_vk(IndexType type) {
+    vk::IndexType index_type_to_vk(const IndexType type) {
         switch(type) {
             CASE(IndexType::Uint16, vk::IndexType::eUint16);
             CASE(IndexType::Uint32, vk::IndexType::eUint32);
@@ -183,7 +183,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::Format vertex_format_to_vk(VertexFormat format) {
+    vk::Format vertex_format_to_vk(const VertexFormat format) {
         switch(format) {
             CASE(VertexFormat::Uint8x2, vk::Format::eR8G8Uint);
             CASE(VertexFormat::Uint8x4, vk::Format::eR8G8B8A8Uint);
@@ -219,7 +219,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::ShaderStageFlags shader_stage_to_vk(Flags<ShaderStage> flags) {
+    vk::ShaderStageFlags shader_stage_to_vk(const Flags<ShaderStage> flags) {
         if(flags == ShaderStage::All) {
             return vk::ShaderStageFlagBits::eAll;
         }
@@ -236,7 +236,7 @@ namespace Comet::Graphics {
         return bits;
     }
 
-    vk::BorderColor border_color_to_vk(BorderColor color) {
+    vk::BorderColor border_color_to_vk(const BorderColor color) {
         switch(color) {
             CASE(BorderColor::FloatTransparentBlack, vk::BorderColor::eFloatTransparentBlack);
             CASE(BorderColor::IntTransparentBlack, vk::BorderColor::eIntTransparentBlack);
@@ -248,7 +248,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::SamplerMipmapMode sampler_mipmap_mode_to_vk(SamplerMipmapMode mode) {
+    vk::SamplerMipmapMode sampler_mipmap_mode_to_vk(const SamplerMipmapMode mode) {
         switch(mode) {
             CASE(SamplerMipmapMode::Nearest, vk::SamplerMipmapMode::eNearest);
             CASE(SamplerMipmapMode::Linear, vk::SamplerMipmapMode::eLinear);
@@ -256,7 +256,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::DescriptorType description_type_to_vk(DescriptorType type) {
+    vk::DescriptorType description_type_to_vk(const DescriptorType type) {
         switch(type) {
             CASE(DescriptorType::Sampler, vk::DescriptorType::eSampler)
             CASE(DescriptorType::CombinedImageSampler, vk::DescriptorType::eCombinedImageSampler)
@@ -274,7 +274,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::ImageAspectFlags image_aspect_to_vk(Flags<ImageAspect> flags) {
+    vk::ImageAspectFlags image_aspect_to_vk(const Flags<ImageAspect> flags) {
         vk::ImageAspectFlags bits{};
         TRY_SET_BIT(ImageAspect::Color, vk::ImageAspectFlagBits::eColor)
         TRY_SET_BIT(ImageAspect::Depth, vk::ImageAspectFlagBits::eDepth)
@@ -282,7 +282,7 @@ namespace Comet::Graphics {
         return bits;
     }
 
-    vk::BufferUsageFlags buffer_usage_to_vk(Flags<BufferUsage> flags) {
+    vk::BufferUsageFlags buffer_usage_to_vk(const Flags<BufferUsage> flags) {
         vk::BufferUsageFlags bits{};
         TRY_SET_BIT(BufferUsage::CopySrc, vk::BufferUsageFlagBits::eTransferSrc)
         TRY_SET_BIT(BufferUsage::CopyDst, vk::BufferUsageFlagBits::eTransferDst)
@@ -293,7 +293,7 @@ namespace Comet::Graphics {
         return bits;
     }
 
-    vk::ImageUsageFlags image_usage_to_vk(Flags<ImageUsage> flags) {
+    vk::ImageUsageFlags image_usage_to_vk(const Flags<ImageUsage> flags) {
         vk::ImageUsageFlags bits{};
         TRY_SET_BIT(ImageUsage::Sampled, vk::ImageUsageFlagBits::eSampled)
         TRY_SET_BIT(ImageUsage::CopySrc, vk::ImageUsageFlagBits::eTransferSrc)
@@ -304,7 +304,7 @@ namespace Comet::Graphics {
         return bits;
     }
 
-    vk::ColorComponentFlags color_write_mask_to_vk(Flags<ColorWriteMask> flags) {
+    vk::ColorComponentFlags color_write_mask_to_vk(const Flags<ColorWriteMask> flags) {
         if(flags == ColorWriteMask::All) {
             return vk::ColorComponentFlagBits::eA |
                    vk::ColorComponentFlagBits::eB |
@@ -319,7 +319,7 @@ namespace Comet::Graphics {
         return bits;
     }
 
-    vk::CullModeFlags cull_mode_to_vk(Flags<CullMode> mode) {
+    vk::CullModeFlags cull_mode_to_vk(const Flags<CullMode> mode) {
         if(mode == CullMode::None) {
             return vk::CullModeFlagBits::eNone;
         }
@@ -335,7 +335,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::PipelineStageFlags pipeline_stage_to_vk(Flags<PipelineStage> flags) {
+    vk::PipelineStageFlags pipeline_stage_to_vk(const Flags<PipelineStage> flags) {
         vk::PipelineStageFlags bits{};
         if(flags == PipelineStage::None) {
             return vk::PipelineStageFlagBits::eNone;
@@ -360,7 +360,7 @@ namespace Comet::Graphics {
         return bits;
     }
 
-    vk::AccessFlags access_to_vk(Flags<Access> flags) {
+    vk::AccessFlags access_to_vk(const Flags<Access> flags) {
         if(flags == Access::None) {
             return vk::AccessFlagBits::eNone;
         }
@@ -386,7 +386,7 @@ namespace Comet::Graphics {
         return bits;
     }
 
-    vk::DependencyFlags dependency_to_vk(Flags<Dependency> flags) {
+    vk::DependencyFlags dependency_to_vk(const Flags<Dependency> flags) {
         vk::DependencyFlags bits{};
         TRY_SET_BIT(Dependency::ByRegionBit, vk::DependencyFlagBits::eByRegion)
         TRY_SET_BIT(Dependency::DeviceGroupBit, vk::DependencyFlagBits::eDeviceGroup)
@@ -394,7 +394,7 @@ namespace Comet::Graphics {
         return bits;
     }
 
-    vk::ImageLayout image_layout_to_vk(ImageLayout layout) {
+    vk::ImageLayout image_layout_to_vk(const ImageLayout layout) {
         switch(layout) {
             CASE(ImageLayout::Undefined, vk::ImageLayout::eUndefined)
             CASE(ImageLayout::General, vk::ImageLayout::eGeneral)
@@ -418,7 +418,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::PipelineBindPoint pipeline_bind_point_to_vk(PipelineBindPoint point) {
+    vk::PipelineBindPoint pipeline_bind_point_to_vk(const PipelineBindPoint point) {
         switch(point) {
             CASE(PipelineBindPoint::Compute, vk::PipelineBindPoint::eCompute)
             CASE(PipelineBindPoint::Graphics, vk::PipelineBindPoint::eGraphics)
@@ -426,7 +426,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::ImageTiling image_tiling_to_vk(ImageTiling tiling) {
+    vk::ImageTiling image_tiling_to_vk(const ImageTiling tiling) {
         switch(tiling) {
             CASE(ImageTiling::Linear, vk::ImageTiling::eLinear)
             CASE(ImageTiling::Optimal, vk::ImageTiling::eOptimal)
@@ -434,7 +434,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::SharingMode sharing_mode_to_vk(SharingMode mode) {
+    vk::SharingMode sharing_mode_to_vk(const SharingMode mode) {
         switch(mode) {
             CASE(SharingMode::Concurrent, vk::SharingMode::eConcurrent)
             CASE(SharingMode::Exclusive, vk::SharingMode::eExclusive)
@@ -442,7 +442,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::ComponentSwizzle component_mapping_to_vk(ComponentMapping swizzle) {
+    vk::ComponentSwizzle component_mapping_to_vk(const ComponentMapping swizzle) {
         switch(swizzle) {
             CASE(ComponentMapping::SwizzleZero, vk::ComponentSwizzle::eZero)
             CASE(ComponentMapping::SwizzleOne, vk::ComponentSwizzle::eOne)
@@ -455,7 +455,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::ColorComponentFlags component_mask_to_vk(Flags<ColorComponent> flags) {
+    vk::ColorComponentFlags component_mask_to_vk(const Flags<ColorComponent> flags) {
         vk::ColorComponentFlags bits{};
         TRY_SET_BIT(ColorComponent::R, vk::ColorComponentFlagBits::eR)
         TRY_SET_BIT(ColorComponent::G, vk::ColorComponentFlagBits::eG)
@@ -464,7 +464,7 @@ namespace Comet::Graphics {
         return bits;
     }
 
-    vk::ColorSpaceKHR image_color_space_to_vk(ImageColorSpace space) {
+    vk::ColorSpaceKHR image_color_space_to_vk(const ImageColorSpace space) {
         switch(space) {
                 // CASE(ImageColorSpace::DolbyvisionEXT,         vk::ColorSpaceKHR::eDolbyvisionEXT)
             CASE(ImageColorSpace::AdobergbLinearEXT, vk::ColorSpaceKHR::eAdobergbLinearEXT)
@@ -486,7 +486,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    ImageColorSpace vk_to_image_color_space(vk::ColorSpaceKHR space) {
+    ImageColorSpace vk_to_image_color_space(const vk::ColorSpaceKHR space) {
         switch(space) {
             // CASE(vk::ColorSpaceKHR::eDolbyvisionEXT, ImageColorSpace::DolbyvisionEXT)
             CASE(vk::ColorSpaceKHR::eAdobergbLinearEXT, ImageColorSpace::AdobergbLinearEXT)
@@ -510,7 +510,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::MemoryPropertyFlags memory_property_to_vk(Flags<MemoryType> flags) {
+    vk::MemoryPropertyFlags memory_property_to_vk(const Flags<MemoryType> flags) {
         vk::MemoryPropertyFlags bits{};
         TRY_SET_BIT(MemoryType::Coherence,vk::MemoryPropertyFlagBits::eHostCoherent)
         TRY_SET_BIT(MemoryType::CPULocal, vk::MemoryPropertyFlagBits::eHostVisible)
@@ -519,7 +519,7 @@ namespace Comet::Graphics {
     }
 
 
-    vk::VertexInputRate vertex_input_rate_to_vk(VertexInputRate rate) {
+    vk::VertexInputRate vertex_input_rate_to_vk(const VertexInputRate rate) {
         switch(rate) {
             CASE(VertexInputRate::Vertex, vk::VertexInputRate::eVertex);
             CASE(VertexInputRate::Instance, vk::VertexInputRate::eInstance);
@@ -527,7 +527,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::DynamicState dynamic_state_to_vk(DynamicState state) {
+    vk::DynamicState dynamic_state_to_vk(const DynamicState state) {
         switch(state) {
             CASE(DynamicState::Viewport, vk::DynamicState::eViewport);
             CASE(DynamicState::Scissor, vk::DynamicState::eScissor);
@@ -542,7 +542,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::PresentModeKHR present_mode_to_vk(PresentMode mode) {
+    vk::PresentModeKHR present_mode_to_vk(const PresentMode mode) {
         switch(mode) {
             CASE(PresentMode::Immediate, vk::PresentModeKHR::eImmediate);
             CASE(PresentMode::Mailbox, vk::PresentModeKHR::eMailbox);
@@ -552,7 +552,7 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    PresentMode vk_to_present_mode(vk::PresentModeKHR mode) {
+    PresentMode vk_to_present_mode(const vk::PresentModeKHR mode) {
         switch(mode) {
             CASE(vk::PresentModeKHR::eImmediate, PresentMode::Immediate);
             CASE(vk::PresentModeKHR::eMailbox, PresentMode::Mailbox);

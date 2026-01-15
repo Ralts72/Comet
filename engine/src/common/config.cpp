@@ -28,7 +28,7 @@ namespace Comet {
     }
 
     bool Config::has(const std::string& key) {
-        auto& cfg = instance();
+        const auto& cfg = instance();
         std::lock_guard<std::mutex> lock(cfg.m_mutex);
 
         try {
@@ -40,7 +40,7 @@ namespace Comet {
     }
 
     YAML::Node Config::get_node(const std::string& key) {
-        auto& cfg = instance();
+        const auto& cfg = instance();
         std::lock_guard<std::mutex> lock(cfg.m_mutex);
         return cfg.get_node_internal(key);
     }

@@ -28,8 +28,8 @@ namespace Comet {
 
         [[nodiscard]] vk::ClearValue vk_value() const {
             vk::ClearValue cv{};
-            std::visit([&cv](auto&& arg) {
-                using T = std::decay_t<decltype(arg)>;
+            std::visit([&cv]<typename T0>(T0&& arg) {
+                using T = std::decay_t<T0>;
                 if constexpr(std::is_same_v<T, ColorType>) {
                     cv.color = vk::ClearColorValue{arg.x, arg.y, arg.z, arg.w};
                 } else if constexpr(std::is_same_v<T, DepthStencilType>) {

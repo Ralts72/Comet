@@ -48,7 +48,7 @@ namespace Comet {
         m_device->get().freeMemory(m_memory);
     }
 
-    BorrowedImage::BorrowedImage(Device* device, vk::Image image, const ImageInfo& info) : Image(device, info) {
+    BorrowedImage::BorrowedImage(Device* device, const vk::Image image, const ImageInfo& info) : Image(device, info) {
         m_image = image;
     }
 }

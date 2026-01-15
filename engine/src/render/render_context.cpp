@@ -1,7 +1,6 @@
 #include "render_context.h"
 #include "common/logger.h"
 #include "common/profiler.h"
-#include "common/config.h"
 
 namespace Comet {
     RenderContext::RenderContext(const Window& window) {

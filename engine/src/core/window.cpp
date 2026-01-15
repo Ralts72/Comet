@@ -11,7 +11,6 @@ namespace Comet {
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
 
-        // 从配置读取窗口属性
         const bool resizable = Config::get<bool>("window.resizable", true);
         glfwWindowHint(GLFW_RESIZABLE, resizable ? GLFW_TRUE : GLFW_FALSE);
 
@@ -70,7 +69,7 @@ namespace Comet {
         glfwPollEvents();
     }
 
-    void Window::swap_buffers() {
+    void Window::swap_buffers() const {
         PROFILE_SCOPE("Window::SwapBuffers");
         glfwSwapBuffers(m_window);
     }
