@@ -50,6 +50,7 @@ namespace Comet {
         [[nodiscard]] RenderPass* get_render_pass() const { return m_render_pass.get(); }
         [[nodiscard]] std::shared_ptr<Pipeline> get_pipeline() const { return m_pipeline; }
         [[nodiscard]] const std::vector<DescriptorSet>& get_descriptor_sets() const { return m_descriptor_sets; }
+        [[nodiscard]] CommandBuffer& get_current_command_buffer() const;
 
         void recreate_swapchain();
 

@@ -203,6 +203,11 @@ namespace Comet {
         m_frame_manager->end_frame();
     }
 
+    CommandBuffer& SceneRenderer::get_current_command_buffer() const {
+        const auto image_index = m_context->get_swapchain()->get_current_index();
+        return m_frame_manager->get_command_buffer(image_index);
+    }
+
     void SceneRenderer::recreate_swapchain() {
         PROFILE_SCOPE("SceneRenderer::recreate_swapchain");
         auto device = m_context->get_device();

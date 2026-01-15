@@ -1,6 +1,6 @@
 #pragma once
 #include "vk_common.h"
-#include "buffer.h"
+#include "common/export.h"
 #include "queue.h"
 #include "command_buffer.h"
 
@@ -12,7 +12,7 @@ namespace Comet {
     class CommandBuffer;
     class CommandContext;
 
-    class Device {
+    class COMET_API Device {
     public:
         Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count);
 

@@ -146,6 +146,11 @@ namespace Comet {
         m_scene_renderer->render(m_view_project_matrix, m_model_matrix,
             m_cube_mesh, descriptor_sets);
 
+        // Overlay callback (ImGui etc.)
+        if (m_overlay_callback) {
+            m_overlay_callback(m_scene_renderer->get_current_command_buffer());
+        }
+
         // End frame (submits and presents)
         m_scene_renderer->end_frame();
     }
@@ -163,7 +168,8 @@ namespace Comet {
         m_texture1.reset();
         m_texture2.reset();
         m_cube_mesh.reset();
- // 清理子系统（会自动清理内部资源）
+
+        // 清理子系统（会自动清理内部资源）
         m_scene_renderer.reset();
         m_resource_manager.reset();
         m_render_context.reset();

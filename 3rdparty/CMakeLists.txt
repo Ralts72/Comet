@@ -22,6 +22,9 @@ add_subdirectory(glm)
 # stb_image
 add_subdirectory(stb_image)
 
+# imgui
+add_subdirectory(imgui)
+
 # glfw
 option(GLFW_BUILD_DOCS OFF)
 option(GLFW_BUILD_TESTS OFF)
