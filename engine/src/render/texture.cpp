@@ -1,7 +1,6 @@
 #include "texture.h"
 #include <stb_image.h>
-
-#include "glm/gtx/io.hpp"
+#include <glm/gtx/io.hpp>
 #include "graphics/device.h"
 #include "graphics/command_context.h"
 #include "graphics/image.h"

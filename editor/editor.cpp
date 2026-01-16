@@ -5,7 +5,6 @@
 #include "render/scene_renderer.h"
 #include "core/window.h"
 #include <imgui.h>
-#include <memory>
 
 class Editor final : public Comet::Application {
 public:

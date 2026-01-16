@@ -2,7 +2,6 @@
 #include "graphics/buffer.h"
 #include "common/geometry_utils.h"
 #include "graphics/device.h"
-#include "graphics/command_buffer.h"
 
 namespace Comet {
 

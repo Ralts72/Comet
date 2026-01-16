@@ -14,7 +14,6 @@
 #include "common/logger.h"
 #include "common/config.h"
 #include "core/window.h"
-
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>

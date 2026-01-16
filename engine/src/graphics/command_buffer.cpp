@@ -5,7 +5,6 @@
 #include "frame_buffer.h"
 #include "pipeline.h"
 #include "common/profiler.h"
-#include "render/render_target.h"
 
 namespace Comet {
     void CommandBuffer::begin(const vk::CommandBufferUsageFlags flags) const {

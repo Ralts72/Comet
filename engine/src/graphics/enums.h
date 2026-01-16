@@ -1,6 +1,5 @@
 #pragma once
-#include <concepts>
-#include <type_traits>
+#include "pch.h"
 
 namespace Comet {
 

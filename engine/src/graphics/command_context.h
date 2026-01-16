@@ -1,7 +1,6 @@
 #pragma once
 #include "vk_common.h"
 #include "command_buffer.h"
-#include <memory>
 
 namespace Comet {
     class Device;

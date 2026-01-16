@@ -11,7 +11,6 @@
 #include "mesh.h"
 #include "graphics/sampler.h"
 #include "graphics/vertex_description.h"
-#include <memory>
 
 namespace Comet {
     class ResourceManager;

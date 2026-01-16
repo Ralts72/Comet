@@ -6,8 +6,6 @@
 #include "mesh.h"
 #include "texture.h"
 #include "common/shader_resources.h"
-#include <memory>
-#include <functional>
 
 namespace Comet {
     class Renderer {

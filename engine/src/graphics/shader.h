@@ -1,10 +1,6 @@
 #pragma once
 #include "vk_common.h"
 #include "descriptor_set.h"
-#include <vector>
-#include <string>
-#include <unordered_map>
-#include <memory>
 
 namespace Comet {
     class Device;

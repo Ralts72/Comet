@@ -2,7 +2,6 @@
 #include "graphics/command_buffer.h"
 #include "graphics/fence.h"
 #include "graphics/semaphore.h"
-#include <vector>
 
 namespace Comet {
     struct FrameSynchronization {

@@ -1,7 +1,6 @@
 #include "frame_buffer.h"
 #include "image_view.h"
 #include "device.h"
-#include "image.h"
 #include "render_pass.h"
 
 namespace Comet {

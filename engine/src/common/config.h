@@ -1,8 +1,6 @@
 #pragma once
 #include "common/export.h"
 #include <yaml-cpp/yaml.h>
-#include <string>
-#include <mutex>
 
 namespace Comet {
     class COMET_API Config {

@@ -1,12 +1,8 @@
 #pragma once
-#include "graphics/device.h"
 #include "graphics/shader.h"
 #include "graphics/sampler.h"
 #include "texture.h"
 #include "mesh.h"
-#include <memory>
-#include <unordered_map>
-#include <string>
 
 namespace Comet {
     class ResourceManager {

@@ -1,6 +1,5 @@
 #pragma once
 #include "buffer.h"
-#include "descriptor_set.h"
 #include "vk_common.h"
 
 namespace Comet {

@@ -1,9 +1,6 @@
 #pragma once
 #include "graphics/vk_common.h"
 #include "graphics/enums.h"
-#include <functional>
-#include <memory>
-#include <vector>
 
 namespace Comet {
     class RenderContext;

@@ -1,7 +1,6 @@
 #pragma once
 #include "enums.h"
 #include <vulkan/vulkan.hpp>
-#include <optional>
 
 namespace Comet::Graphics {
 

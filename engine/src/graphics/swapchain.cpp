@@ -1,7 +1,6 @@
 #include "swapchain.h"
 #include "context.h"
 #include "device.h"
-#include "pch.h"
 #include "common/logger.h"
 #include "common/config.h"
 #include "common/profiler.h"
@@ -24,7 +23,7 @@ namespace Comet {
 
         const uint32_t min_count = m_surface_info.capabilities.minImageCount;
         const uint32_t max_count = m_surface_info.capabilities.maxImageCount;
-        uint32_t image_count = Config::get<uint32_t>("vulkan.swapchain_image_count", 3);
+        auto image_count = Config::get<uint32_t>("vulkan.swapchain_image_count", 3);
         if(max_count > 0) {
             image_count = std::clamp(image_count, min_count, max_count);
         } else {

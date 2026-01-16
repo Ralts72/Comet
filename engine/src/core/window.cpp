@@ -1,5 +1,4 @@
 #include "window.h"
-#include "pch.h"
 #include "common/logger.h"
 #include "common/profiler.h"
 #include "common/config.h"
