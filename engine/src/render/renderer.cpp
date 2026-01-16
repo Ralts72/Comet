@@ -37,7 +37,7 @@ namespace Comet {
         setup_resources();
     }
 
-    void Renderer::setup_pipeline() const {
+    void Renderer::setup_pipeline() {
         LOG_INFO("setup pipeline");
 
         // 创建 DescriptorSetLayout bindings
@@ -77,7 +77,7 @@ namespace Comet {
         m_scene_renderer->setup_pipeline(m_resource_manager.get(), layout, vertex_input_description, pipeline_config);
     }
 
-    void Renderer::setup_descriptor_sets() const {
+    void Renderer::setup_descriptor_sets() {
         LOG_INFO("create descriptor pool and descriptor sets");
 
         // 创建 DescriptorSetLayout bindings（与 setup_pipeline 中相同）
@@ -125,7 +125,7 @@ namespace Comet {
             static_cast<float>(swapchain->get_width()) / static_cast<float>(swapchain->get_height()), 0.1f, 100.0f);
     }
 
-    void Renderer::on_render() const {
+    void Renderer::on_render() {
         PROFILE_SCOPE("render frame");
 
         // Begin frame (acquires image and begins command buffer)
@@ -146,9 +146,8 @@ namespace Comet {
         m_scene_renderer->render(m_view_project_matrix, m_model_matrix,
             m_cube_mesh, descriptor_sets);
 
-        // Overlay callback (ImGui etc.)
-        if (m_overlay_callback) {
-            m_overlay_callback(m_scene_renderer->get_current_command_buffer());
+        if (m_on_imgui_render) {
+            m_on_imgui_render(m_scene_renderer->get_current_command_buffer());
         }
 
         // End frame (submits and presents)

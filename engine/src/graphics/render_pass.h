@@ -1,6 +1,7 @@
 #pragma once
 #include "vk_common.h"
 #include "attachment.h"
+#include "common/export.h"
 
 namespace Comet {
     class Device;
@@ -13,7 +14,7 @@ namespace Comet {
         SampleCount sample_count = SampleCount::Count1;
     };
 
-    class RenderPass{
+    class COMET_API RenderPass{
     public:
         explicit RenderPass(Device* device, const std::vector<Attachment>& attachments = {},
             const std::vector<RenderSubPass>& sub_passes = {} );

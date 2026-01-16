@@ -51,6 +51,7 @@ file(GLOB SOURCES
 
 find_package(Vulkan REQUIRED)
 add_library(engine SHARED ${SOURCES})
+add_dependencies(engine ${SHADER_COMPILE_TARGET})
 target_link_libraries(engine PUBLIC spdlog::spdlog glm ${Vulkan_LIBRARIES} stb_image glfw yaml-cpp)
 target_include_directories(engine
         PUBLIC
@@ -60,7 +61,6 @@ target_include_directories(engine
 )
 target_precompile_headers(engine PRIVATE "src/pch.h")
 target_compile_definitions(engine PRIVATE COMET_EXPORTS)
-target_compile_definitions(engine PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
 if (NOT WIN32)
     target_compile_options(engine PRIVATE -fvisibility=hidden)
 endif ()

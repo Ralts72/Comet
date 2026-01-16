@@ -1,5 +1,6 @@
 #pragma once
 #include "vk_common.h"
+#include "common/export.h"
 
 namespace Comet {
     class Device;
@@ -15,7 +16,7 @@ namespace Comet {
         std::vector<vk::DescriptorSetLayoutBinding> m_bindings;
     };
 
-    class DescriptorPoolSizes {
+    class COMET_API DescriptorPoolSizes {
     public:
         DescriptorPoolSizes() = default;
 
@@ -49,9 +50,10 @@ namespace Comet {
         vk::DescriptorSet m_descriptor_set;
     };
 
-    class DescriptorPool {
+    class COMET_API DescriptorPool {
     public:
-        DescriptorPool(Device* device, uint32_t max_sets, const DescriptorPoolSizes& pool_sizes);
+        DescriptorPool(Device* device, uint32_t max_sets, const DescriptorPoolSizes& pool_sizes,
+                       Flags<DescriptorPoolCreateFlag> flags = {});
         ~DescriptorPool();
 
         [[nodiscard]] std::vector<DescriptorSet> allocate_descriptor_set(const DescriptorSetLayout& set_layout, uint32_t count) const;

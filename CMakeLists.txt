@@ -8,7 +8,7 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 elseif (CMAKE_BUILD_TYPE STREQUAL "Release")
     add_compile_definitions(BUILD_TYPE_RELEASE)
 endif ()
-
+add_compile_definitions(PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
 option(Comet_TESTS "build tests" ON)
 
 if (Comet_TESTS)

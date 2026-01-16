@@ -1,5 +1,6 @@
 #pragma once
 #include "vk_common.h"
+#include "common/export.h"
 
 namespace Comet {
     class Device;
@@ -10,7 +11,7 @@ namespace Comet {
         Flags<ImageUsage> usage;
     };
 
-    class Image {
+    class COMET_API Image {
     public:
         virtual ~Image() = default;
 
@@ -29,7 +30,7 @@ namespace Comet {
         ImageInfo m_info;
     };
 
-    class OwnedImage final: public Image {
+    class COMET_API OwnedImage final: public Image {
     public:
         OwnedImage(Device* device, const ImageInfo& info, SampleCount sample_count = SampleCount::Count1);
 
@@ -39,7 +40,7 @@ namespace Comet {
         vk::DeviceMemory m_memory;
     };
 
-    class BorrowedImage final: public Image {
+    class COMET_API BorrowedImage final: public Image {
     public:
         BorrowedImage(Device* device, vk::Image image, const ImageInfo& info);
 

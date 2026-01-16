@@ -18,24 +18,28 @@ public:
 
         m_imgui_layer = std::make_unique<CometEditor::ImGuiContext>(
             get_engine()->get_window(),
-            render_context->get_context(),
-            render_context->get_device(),
-            scene_renderer->get_render_pass()
+            render_context
         );
 
         setup_panels();
 
-        renderer->set_overlay_callback([this](Comet::CommandBuffer& cmd) {
+        // 注册 ImGui 渲染回调
+        renderer->set_on_imgui_render([this](Comet::CommandBuffer& cmd) {
             m_imgui_layer->begin_frame();
             m_imgui_layer->end_frame();
             m_imgui_layer->render(cmd);
+        });
+
+        // 注册 Swapchain 重建回调
+        scene_renderer->set_swapchain_recreate_callback([this]() {
+            m_imgui_layer->recreate_swapchain();
         });
 
         LOG_INFO("Editor initialized");
     }
 
     void on_update(Comet::UpdateContext context) override {
-        // ImGui rendering handled via overlay callback
+
     }
 
     void on_shutdown() override {

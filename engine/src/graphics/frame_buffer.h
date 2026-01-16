@@ -1,12 +1,13 @@
 #pragma once
 #include "vk_common.h"
+#include "common/export.h"
 
 namespace Comet {
     class Device;
     class RenderPass;
     class ImageView;
 
-    class FrameBuffer {
+    class COMET_API FrameBuffer {
     public:
         FrameBuffer(Device* device, RenderPass* render_pass, const std::vector<std::shared_ptr<ImageView>>& image_views, uint32_t width, uint32_t height);
         ~FrameBuffer();

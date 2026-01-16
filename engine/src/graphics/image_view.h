@@ -1,11 +1,12 @@
 #pragma once
 #include "vk_common.h"
+#include "common/export.h"
 
 namespace Comet {
     class Device;
     class Image;
 
-    class ImageView {
+    class COMET_API ImageView {
     public:
         ImageView(Device* device, const Image& image, Flags<ImageAspect> aspect);
         ~ImageView();

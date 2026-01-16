@@ -592,6 +592,12 @@ namespace Comet {
         InlineUniformBlock,
     };
 
+    enum class DescriptorPoolCreateFlag {
+        None = 0,
+        FreeDescriptorSet = 0x00000001,
+        UpdateAfterBind = 0x00000002,
+    };
+
     enum class PipelineStage {
         None = 0,
         TopOfPipe = 0x00000001,

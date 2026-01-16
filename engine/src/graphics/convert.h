@@ -49,6 +49,8 @@ namespace Comet::Graphics {
 
     vk::DescriptorType description_type_to_vk(DescriptorType type);
 
+    vk::DescriptorPoolCreateFlags descriptor_pool_create_flags_to_vk(Flags<DescriptorPoolCreateFlag> flags);
+
     vk::ImageAspectFlags image_aspect_to_vk(Flags<ImageAspect> flags);
 
     vk::BufferUsageFlags buffer_usage_to_vk(Flags<BufferUsage> flags);
