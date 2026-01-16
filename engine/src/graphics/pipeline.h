@@ -128,7 +128,7 @@ namespace Comet {
         [[nodiscard]] const std::string& get_name() const { return m_name; }
 
     private:
-        [[nodiscard]] static std::array<vk::PipelineShaderStageCreateInfo, 2> create_shader_stages(
+        [[nodiscard]] std::array<vk::PipelineShaderStageCreateInfo, 2> create_shader_stages(
             const std::shared_ptr<Shader>& vertex_shader, const std::shared_ptr<Shader>& fragment_shader);
 
         [[nodiscard]] vk::PipelineVertexInputStateCreateInfo create_vertex_input_state() const;

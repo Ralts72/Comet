@@ -1,5 +1,6 @@
 #pragma once
 #include "graphics/vk_common.h"
+#include "graphics/enums.h"
 #include <functional>
 #include <memory>
 #include <vector>
@@ -14,6 +15,13 @@ namespace Comet {
 }
 
 namespace CometEditor {
+
+    struct RenderFormatInfo {
+        Comet::Format color_format{};
+        Comet::Format depth_format{};
+        Comet::SampleCount msaa_samples{};
+    };
+
     class ImGuiContext {
     public:
         ImGuiContext(const Comet::Window* window, Comet::RenderContext* render_context);
@@ -22,17 +30,16 @@ namespace CometEditor {
         ImGuiContext(const ImGuiContext&) = delete;
         ImGuiContext& operator=(const ImGuiContext&) = delete;
 
-        void begin_frame();
-        void end_frame();
-        void render(Comet::CommandBuffer& command_buffer);
+        void update_frame() const;
+        void render(const Comet::CommandBuffer& command_buffer) const;
 
-        // Swapchain 重建时调用
         void recreate_swapchain();
 
         using UICallback = std::function<void()>;
         void set_ui_callback(UICallback callback) { m_ui_callback = std::move(callback); }
 
     private:
+
         void init_vulkan();
         void create_render_pass();
         void create_framebuffers();
@@ -46,6 +53,8 @@ namespace CometEditor {
         UICallback m_ui_callback;
         bool m_initialized = false;
         bool m_is_recreating = false;  // 标记是否正在重建 swapchain
+
+        RenderFormatInfo m_render_format_info;
     };
 }
 

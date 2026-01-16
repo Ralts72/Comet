@@ -29,9 +29,8 @@ namespace Comet {
     }
 
     std::shared_ptr<Shader> ShaderManager::get_shader(const std::string& name) const {
-        const auto it = m_shaders.find(name);
-        if(it != m_shaders.end()) {
-            return it->second;
+        if(m_shaders.contains(name)) {
+            return m_shaders.find(name)->second;
         }
         LOG_WARN("no shader found for name: {}", name);
         return nullptr;

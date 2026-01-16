@@ -15,7 +15,7 @@ namespace Comet {
 
         [[nodiscard]] bool should_close() const;
 
-        static void poll_events();
+        void poll_events();
 
         void swap_buffers() const;
 

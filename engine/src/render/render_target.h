@@ -53,7 +53,7 @@ namespace Comet {
                      const Math::Vec2u size, const uint32_t frame_count) : m_device(device), m_render_pass(render_pass), m_extent(size), m_frame_count(frame_count),
                                                                            m_clear_values({}), m_needs_recreate(false), m_current_image_index(0) {}
 
-        static void clear_render_resources(std::vector<RenderResource>& resources);
+        void clear_render_resources(std::vector<RenderResource>& resources);
 
         Device* m_device;
         RenderPass* m_render_pass;

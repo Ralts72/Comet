@@ -10,7 +10,6 @@ namespace Comet {
     CommandContext::CommandContext(Device* device)
         : m_device(device),
           m_command_buffer(device->get_default_command_pool().allocate_command_buffer()) {
-        // CommandBuffer 通过 CommandPool 分配
     }
 
     CommandContext::~CommandContext() {

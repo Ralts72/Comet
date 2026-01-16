@@ -13,8 +13,8 @@ namespace Comet {
     public:
         explicit ResourceManager(Device* device);
         
-        ShaderManager* get_shader_manager() const { return m_shader_manager.get(); }
-        SamplerManager* get_sampler_manager() const { return m_sampler_manager.get(); }
+        [[nodiscard]] ShaderManager* get_shader_manager() const { return m_shader_manager.get(); }
+        [[nodiscard]] SamplerManager* get_sampler_manager() const { return m_sampler_manager.get(); }
         
         std::shared_ptr<Texture> load_texture(const std::string& path);
         std::shared_ptr<Mesh> create_mesh(const std::vector<Math::Vertex>& vertices, const std::vector<uint32_t>& indices);

@@ -25,7 +25,6 @@ namespace Comet {
     void SceneRenderer::setup_render_pass() {
         LOG_INFO("create render pass");
 
-        // 从配置文件读取设置
         const auto surface_format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 44)); // B8G8R8A8_UNORM = 44
         const auto depth_format = static_cast<Format>(Config::get<int>("vulkan.depth_format", 126)); // D32_SFLOAT = 126
         const auto msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4)); // Count4 = 4
@@ -73,15 +72,15 @@ namespace Comet {
         return m_descriptor_set_layout;
     }
 
-    void SceneRenderer::setup_pipeline(ResourceManager* resource_manager,
+    void SceneRenderer::setup_pipeline(const ResourceManager* resource_manager,
                                        const ShaderLayout& layout,
                                        const VertexInputDescription& vertex_input,
                                        const PipelineConfig& config) {
         LOG_INFO("setup pipeline");
 
         // 创建着色器
-        auto vert_shader = resource_manager->get_shader_manager()->load_shader("cube_texture_vert", CUBE_TEXTURE_VERT, layout);
-        auto frag_shader = resource_manager->get_shader_manager()->load_shader("cube_texture_frag", CUBE_TEXTURE_FRAG, layout);
+        const auto vert_shader = resource_manager->get_shader_manager()->load_shader("cube_texture_vert", CUBE_TEXTURE_VERT, layout);
+        const auto frag_shader = resource_manager->get_shader_manager()->load_shader("cube_texture_frag", CUBE_TEXTURE_FRAG, layout);
 
         // 创建 Pipeline
         m_pipeline = m_pipeline_manager->create_pipeline(
@@ -129,7 +128,7 @@ namespace Comet {
     }
 
     void SceneRenderer::render(const ViewProjectMatrix& view_project, const ModelMatrix& model,
-                               std::shared_ptr<Mesh> mesh,
+                               const std::shared_ptr<Mesh>& mesh,
                                const std::vector<DescriptorSet>& descriptor_sets) const {
         PROFILE_SCOPE("SceneRenderer::render");
 
@@ -138,9 +137,9 @@ namespace Comet {
             return;
         }
 
-        auto swapchain = m_context->get_swapchain();
-        auto image_index = swapchain->get_current_index();
-        auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
+        const auto swapchain = m_context->get_swapchain();
+        const auto image_index = swapchain->get_current_index();
+        const auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
 
         // Bind pipeline
         command_buffer.bind_pipeline(*m_pipeline);
@@ -210,8 +209,8 @@ namespace Comet {
 
     void SceneRenderer::recreate_swapchain() {
         PROFILE_SCOPE("SceneRenderer::recreate_swapchain");
-        auto device = m_context->get_device();
-        auto swapchain = m_context->get_swapchain();
+        const auto device = m_context->get_device();
+        const auto swapchain = m_context->get_swapchain();
 
         device->wait_idle();
         const auto original_size = Math::Vec2u(swapchain->get_width(), swapchain->get_height());
@@ -244,11 +243,11 @@ namespace Comet {
     }
 
     void SceneRenderer::update_descriptor_sets(const std::vector<DescriptorSet>& descriptor_sets,
-                                               std::shared_ptr<Buffer> view_project_buffer,
-                                               std::shared_ptr<Buffer> model_buffer,
-                                               std::shared_ptr<Texture> texture1,
-                                               std::shared_ptr<Texture> texture2,
-                                               SamplerManager* sampler_manager) {
+                                               const std::shared_ptr<Buffer>& view_project_buffer,
+                                               const std::shared_ptr<Buffer>& model_buffer,
+                                               const std::shared_ptr<Texture>& texture1,
+                                               const std::shared_ptr<Texture>& texture2,
+                                               SamplerManager* sampler_manager) const {
         vk::DescriptorBufferInfo buffer_info1{};
         buffer_info1.buffer = view_project_buffer->get();
         buffer_info1.offset = 0;

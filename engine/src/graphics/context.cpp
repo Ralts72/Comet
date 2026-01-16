@@ -53,8 +53,7 @@ namespace Comet {
 
         // 1.构建layer
         std::vector<DeviceFeature> required_layers;
-        bool enable_validation = Config::get<bool>("debug.enable_validation", true);
-        if(enable_validation) {
+        if(Config::get<bool>("debug.enable_validation", true)) {
             required_layers.push_back({"VK_LAYER_KHRONOS_validation", true});
         }
 

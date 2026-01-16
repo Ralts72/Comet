@@ -21,29 +21,25 @@ namespace Comet {
     public:
         explicit SceneRenderer(RenderContext* context);
 
-        // 初始化方法：创建 RenderPass、Pipeline 和 DescriptorSet
         void setup_render_pass();
 
-        // 创建 DescriptorSetLayout（需要在 setup_pipeline 之前调用）
         std::shared_ptr<DescriptorSetLayout> create_descriptor_set_layout(const DescriptorSetLayoutBindings& bindings);
 
-        void setup_pipeline(ResourceManager* resource_manager,
+        void setup_pipeline(const ResourceManager* resource_manager,
                             const ShaderLayout& layout,
                             const VertexInputDescription& vertex_input,
                             const PipelineConfig& config);
 
         void setup_descriptor_sets(const DescriptorSetLayoutBindings& bindings);
 
-        // 渲染方法
         void render(const ViewProjectMatrix& view_project, const ModelMatrix& model,
-                    std::shared_ptr<Mesh> mesh,
+                    const std::shared_ptr<Mesh>& mesh,
                     const std::vector<DescriptorSet>& descriptor_sets) const;
 
         uint32_t begin_frame();
 
         void end_frame();
 
-        // 访问器
         [[nodiscard]] FrameManager* get_frame_manager() const { return m_frame_manager.get(); }
         [[nodiscard]] RenderTarget* get_render_target() const { return m_render_target.get(); }
         [[nodiscard]] PipelineManager* get_pipeline_manager() const { return m_pipeline_manager.get(); }
@@ -60,11 +56,11 @@ namespace Comet {
         }
 
         void update_descriptor_sets(const std::vector<DescriptorSet>& descriptor_sets,
-                                    std::shared_ptr<Buffer> view_project_buffer,
-                                    std::shared_ptr<Buffer> model_buffer,
-                                    std::shared_ptr<Texture> texture1,
-                                    std::shared_ptr<Texture> texture2,
-                                    SamplerManager* sampler_manager);
+                                    const std::shared_ptr<Buffer>& view_project_buffer,
+                                    const std::shared_ptr<Buffer>& model_buffer,
+                                    const std::shared_ptr<Texture>& texture1,
+                                    const std::shared_ptr<Texture>& texture2,
+                                    SamplerManager* sampler_manager) const;
 
     private:
         SwapchainRecreateCallback m_swapchain_recreate_callback;

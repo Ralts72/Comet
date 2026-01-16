@@ -156,10 +156,7 @@ namespace Comet {
 
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
-        auto device = m_render_context->get_device();
-        if(device) {
-            device->wait_idle();
-        }
+        m_render_context->wait_idle();
 
         // 清理应用层资源
         m_view_project_uniform_buffer.reset();

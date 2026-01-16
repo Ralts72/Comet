@@ -24,9 +24,8 @@ public:
         setup_panels();
 
         // 注册 ImGui 渲染回调
-        renderer->set_on_imgui_render([this](Comet::CommandBuffer& cmd) {
-            m_imgui_layer->begin_frame();
-            m_imgui_layer->end_frame();
+        renderer->set_on_imgui_render([this](const Comet::CommandBuffer& cmd) {
+            m_imgui_layer->update_frame();
             m_imgui_layer->render(cmd);
         });
 

@@ -11,9 +11,8 @@ namespace Comet {
     }
 
     std::shared_ptr<Texture> ResourceManager::load_texture(const std::string& path) {
-        const auto it = m_textures.find(path);
-        if (it != m_textures.end()) {
-            return it->second;
+        if (m_textures.contains(path)) {
+            return m_textures.find(path)->second;
         }
         
         auto texture = std::make_shared<Texture>(m_device, path);
@@ -27,17 +26,15 @@ namespace Comet {
     }
 
     std::shared_ptr<Texture> ResourceManager::get_texture(const std::string& name) const {
-        const auto it = m_textures.find(name);
-        if (it != m_textures.end()) {
-            return it->second;
+        if (m_textures.contains(name)) {
+            return m_textures.find(name)->second;
         }
         return nullptr;
     }
 
     std::shared_ptr<Mesh> ResourceManager::get_mesh(const std::string& name) const {
-        const auto it = m_meshes.find(name);
-        if (it != m_meshes.end()) {
-            return it->second;
+        if (m_meshes.contains(name)) {
+            return m_meshes.find(name)->second;
         }
         return nullptr;
     }
