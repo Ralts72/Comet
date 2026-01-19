@@ -89,6 +89,10 @@ namespace Comet {
     }
 
     void SwapchainTarget::recreate() {
+        m_extent.x = m_swapchain->get_width();
+        m_extent.y = m_swapchain->get_height();
+        m_frame_count = static_cast<uint32_t>(m_swapchain->get_images().size());
+
         if(m_extent.x == 0 || m_extent.y == 0) {
             return;
         }

@@ -63,6 +63,8 @@ namespace Comet {
 
         // Initialize command buffers
         m_frame_manager->initialize_command_buffers(m_context->get_swapchain()->get_images().size());
+
+        m_render_mode = RenderMode::Runtime;
     }
 
     std::shared_ptr<DescriptorSetLayout> SceneRenderer::create_descriptor_set_layout(const DescriptorSetLayoutBindings& bindings) {
@@ -106,8 +108,9 @@ namespace Comet {
         PROFILE_SCOPE("SceneRenderer::begin_frame");
         m_frame_manager->begin_frame();
 
-        auto swapchain = m_context->get_swapchain();
-        auto& frame_sync = m_frame_manager->get_current_sync();
+        // 暂时所有模式都使用 swapchain
+        const auto swapchain = m_context->get_swapchain();
+        const auto& frame_sync = m_frame_manager->get_current_sync();
         auto& wait_sem = frame_sync.image_semaphore;
 
         // Acquire next image
@@ -137,6 +140,7 @@ namespace Comet {
             return;
         }
 
+        // 暂时所有模式都使用 swapchain
         const auto swapchain = m_context->get_swapchain();
         const auto image_index = swapchain->get_current_index();
         const auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
@@ -145,14 +149,13 @@ namespace Comet {
         command_buffer.bind_pipeline(*m_pipeline);
 
         // Set dynamic states
+        const auto size = m_render_target->get_size();
         const auto viewport = Graphics::get_viewport(
-            static_cast<float>(swapchain->get_width()),
-            static_cast<float>(swapchain->get_height()));
+            static_cast<float>(size.x), static_cast<float>(size.y));
         command_buffer.set_viewport(viewport);
 
         const auto scissor = Graphics::get_scissor(
-            static_cast<float>(swapchain->get_width()),
-            static_cast<float>(swapchain->get_height()));
+            static_cast<float>(size.x), static_cast<float>(size.y));
         command_buffer.set_scissor(scissor);
 
         // Bind descriptor sets
@@ -172,20 +175,18 @@ namespace Comet {
     void SceneRenderer::end_frame() {
         PROFILE_SCOPE("SceneRenderer::end_frame");
 
-        auto device = m_context->get_device();
-        auto swapchain = m_context->get_swapchain();
-        auto image_index = swapchain->get_current_index();
+        // 暂时所有模式都使用 swapchain
+        const auto device = m_context->get_device();
+        const auto swapchain = m_context->get_swapchain();
+        const uint32_t image_index = swapchain->get_current_index();
         auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
         auto& frame_sync = m_frame_manager->get_current_sync();
-
-        // End render pass
-        m_render_target->end_render_target(command_buffer);
 
         // End command buffer
         command_buffer.end();
 
         // Submit
-        auto& graphics_queue = device->get_graphics_queue(0);
+        const auto& graphics_queue = device->get_graphics_queue(0);
         graphics_queue.submit(std::span(&command_buffer, 1),
             std::span(&frame_sync.image_semaphore, 1),
             std::span(&frame_sync.submit_semaphore, 1),
@@ -200,6 +201,31 @@ namespace Comet {
         }
 
         m_frame_manager->end_frame();
+    }
+
+    void SceneRenderer::end_render_pass() const {
+        // 暂时所有模式都使用 swapchain
+        const auto swapchain = m_context->get_swapchain();
+        const uint32_t image_index = swapchain->get_current_index();
+        auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
+
+        m_render_target->end_render_target(command_buffer);
+    }
+
+    void SceneRenderer::set_render_mode(RenderMode mode) {
+        if (m_render_mode == mode) {
+            return;
+        }
+
+        RenderMode old_mode = m_render_mode;
+        m_render_mode = mode;
+
+        LOG_INFO("SceneRenderer render mode changed: {} -> {}",
+            static_cast<int>(old_mode),
+            static_cast<int>(mode));
+
+        // 暂时只更新模式变量，不做其他操作
+        // 离屏渲染功能后续实现时再添加具体逻辑
     }
 
     CommandBuffer& SceneRenderer::get_current_command_buffer() const {

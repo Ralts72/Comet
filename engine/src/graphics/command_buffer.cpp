@@ -151,6 +151,21 @@ namespace Comet {
             barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
             source_stage = vk::PipelineStageFlagBits::eTransfer;
             destination_stage = vk::PipelineStageFlagBits::eFragmentShader;
+        } else if (old_layout == vk::ImageLayout::eColorAttachmentOptimal && new_layout == vk::ImageLayout::eShaderReadOnlyOptimal) {
+            barrier.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+            source_stage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+            destination_stage = vk::PipelineStageFlagBits::eFragmentShader;
+        } else if (old_layout == vk::ImageLayout::ePresentSrcKHR && new_layout == vk::ImageLayout::eShaderReadOnlyOptimal) {
+            barrier.srcAccessMask = {};
+            barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+            source_stage = vk::PipelineStageFlagBits::eBottomOfPipe;
+            destination_stage = vk::PipelineStageFlagBits::eFragmentShader;
+        } else if (old_layout == vk::ImageLayout::eShaderReadOnlyOptimal && new_layout == vk::ImageLayout::ePresentSrcKHR) {
+            barrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
+            barrier.dstAccessMask = {};
+            source_stage = vk::PipelineStageFlagBits::eFragmentShader;
+            destination_stage = vk::PipelineStageFlagBits::eBottomOfPipe;
         } else {
             throw std::invalid_argument("unsupported layout transition!");
         }

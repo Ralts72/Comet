@@ -9,6 +9,7 @@ namespace Comet {
     class Window;
     class FrameBuffer;
     class DescriptorPool;
+    class RenderTarget;
 }
 
 namespace CometEditor {
@@ -16,7 +17,6 @@ namespace CometEditor {
     struct RenderFormatInfo {
         Comet::Format color_format{};
         Comet::Format depth_format{};
-        Comet::SampleCount msaa_samples{};
     };
 
     class ImGuiContext {
@@ -28,7 +28,7 @@ namespace CometEditor {
         ImGuiContext& operator=(const ImGuiContext&) = delete;
 
         void update_frame() const;
-        void render(const Comet::CommandBuffer& command_buffer) const;
+        void render(Comet::CommandBuffer& command_buffer) const;
 
         void recreate_swapchain();
 
@@ -39,13 +39,12 @@ namespace CometEditor {
 
         void init_vulkan();
         void create_render_pass();
-        void create_framebuffers();
         void cleanup();
 
         const Comet::Window* m_window;
         Comet::RenderContext* m_render_context;
         std::unique_ptr<Comet::RenderPass> m_render_pass;
-        std::vector<std::shared_ptr<Comet::FrameBuffer>> m_framebuffers;
+        std::unique_ptr<Comet::RenderTarget> m_render_target;
         std::unique_ptr<Comet::DescriptorPool> m_descriptor_pool;
         UICallback m_ui_callback;
         bool m_initialized = false;

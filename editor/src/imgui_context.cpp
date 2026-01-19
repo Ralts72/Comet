@@ -3,14 +3,13 @@
 #include "graphics/device.h"
 #include "graphics/render_pass.h"
 #include "graphics/command_buffer.h"
-#include "graphics/image_view.h"
-#include "graphics/frame_buffer.h"
 #include "graphics/attachment.h"
-#include "graphics/swapchain.h"
 #include "graphics/image.h"
+#include "graphics/swapchain.h"
 #include "graphics/enums.h"
 #include "graphics/descriptor_set.h"
 #include "render/render_context.h"
+#include "render/render_target.h"
 #include "common/logger.h"
 #include "common/config.h"
 #include "core/window.h"
@@ -48,11 +47,12 @@ namespace CometEditor {
         const auto swapchain = m_render_context->get_swapchain();
         m_render_format_info.color_format = swapchain->get_images()[0]->get_info().format;
         m_render_format_info.depth_format = static_cast<Comet::Format>(Comet::Config::get<int>("vulkan.depth_format", 126));
-        m_render_format_info.msaa_samples = static_cast<Comet::SampleCount>(Comet::Config::get<int>("vulkan.msaa_samples", 4));
 
         create_render_pass();
-        create_framebuffers();
 
+        auto* device = m_render_context->get_device();
+        m_render_target = Comet::RenderTarget::create_swapchain_target(device, m_render_pass.get(), swapchain);
+        m_render_target->set_clear_value(Comet::ClearValue(Comet::Math::Vec4(0.0f, 0.0f, 0.0f, 0.0f)), 0);
         // 初始化 Vulkan backend
         init_vulkan();
 
@@ -65,98 +65,30 @@ namespace CometEditor {
 
         // 创建 Attachment
         std::vector<Comet::Attachment> attachments;
-        attachments.emplace_back(Comet::Attachment::get_color_attachment(m_render_format_info.color_format, m_render_format_info.msaa_samples));
-        attachments.emplace_back(Comet::Attachment::get_depth_attachment(m_render_format_info.depth_format, m_render_format_info.msaa_samples));
+        // 创建 color attachment，但修改 load_op 为 Load，以保留场景渲染的内容
+        auto color_attachment = Comet::Attachment::get_color_attachment(m_render_format_info.color_format, Comet::SampleCount::Count1);
+        color_attachment.description.load_op = Comet::AttachmentLoadOp::Load;  // 加载而不是清除
+        // 场景渲染结束后，swapchain image 处于 PresentSrcKHR 布局
+        color_attachment.description.initial_layout = Comet::ImageLayout::PresentSrcKHR;
+        // final_layout 应该保持为 PresentSrcKHR，因为这是最终呈现的布局
+        color_attachment.description.final_layout = Comet::ImageLayout::PresentSrcKHR;
+        // 确保 store_op 是 Store，以保存渲染结果
+        color_attachment.description.store_op = Comet::AttachmentStoreOp::Store;
+        attachments.emplace_back(color_attachment);
 
         // 创建 SubPass
         std::vector<Comet::RenderSubPass> render_sub_passes;
         Comet::RenderSubPass render_sub_pass = {
             {},
             {Comet::SubpassColorAttachment(0)},
-            {Comet::SubpassDepthStencilAttachment(1)},
-            m_render_format_info.msaa_samples
+            {},  // ImGui 不需要深度测试
+            Comet::SampleCount::Count1  // ImGui 不使用 MSAA
         };
         render_sub_passes.emplace_back(render_sub_pass);
 
         // 创建独立的 RenderPass
         auto* device = m_render_context->get_device();
         m_render_pass = std::make_unique<Comet::RenderPass>(device, attachments, render_sub_passes);
-    }
-
-    void ImGuiContext::create_framebuffers() {
-        LOG_INFO("Creating independent Framebuffers for ImGui");
-
-        auto* device = m_render_context->get_device();
-        auto swapchain = m_render_context->get_swapchain();
-        auto image_count = static_cast<uint32_t>(swapchain->get_images().size());
-
-        m_framebuffers.clear();
-        m_framebuffers.reserve(image_count);
-
-        // 为每个 Swapchain Image 创建 Framebuffer
-        for (uint32_t i = 0; i < image_count; ++i) {
-            std::vector<std::shared_ptr<Comet::ImageView>> all_views;
-
-            if (m_render_format_info.msaa_samples > Comet::SampleCount::Count1) {
-                // MSAA > 1: 需要 3 个 attachments (color multisampled, resolve, depth)
-
-                // 1. Color Attachment (multisampled) - 创建临时的 multisampled image
-                Comet::ImageInfo color_info = {};
-                color_info.format = swapchain->get_images()[i]->get_info().format;
-                color_info.extent = {swapchain->get_width(), swapchain->get_height(), 1};
-                color_info.usage = Comet::Flags<Comet::ImageUsage>(Comet::ImageUsage::ColorAttachment);
-
-                auto color_image = Comet::Image::create(device, color_info, m_render_format_info.msaa_samples);
-                auto color_view = std::make_shared<Comet::ImageView>(
-                    device, *color_image, Comet::Flags<Comet::ImageAspect>(Comet::ImageAspect::Color));
-                all_views.push_back(color_view);
-
-                // 2. Depth Attachment (multisampled)
-                Comet::ImageInfo depth_info = {};
-                depth_info.format = m_render_format_info.depth_format;
-                depth_info.extent = {swapchain->get_width(), swapchain->get_height(), 1};
-                depth_info.usage = Comet::Flags<Comet::ImageUsage>(Comet::ImageUsage::DepthStencilAttachment);
-
-                auto depth_image = Comet::Image::create(device, depth_info, m_render_format_info.msaa_samples);
-                auto depth_view = std::make_shared<Comet::ImageView>(
-                    device, *depth_image, Comet::Flags<Comet::ImageAspect>(Comet::ImageAspect::Depth));
-                all_views.push_back(depth_view);
-
-                // 3. Resolve Attachment (single sampled) - 使用 Swapchain Image
-                auto swapchain_image = swapchain->get_images()[i];
-                auto resolve_view = std::make_shared<Comet::ImageView>(
-                    device, *swapchain_image, Comet::Flags<Comet::ImageAspect>(Comet::ImageAspect::Color));
-                all_views.push_back(resolve_view);
-            } else {
-                // MSAA = 1: 只需要 2 个 attachments (color, depth)
-
-                // 1. Color Attachment - 使用 Swapchain Image
-                auto swapchain_image = swapchain->get_images()[i];
-                auto color_view = std::make_shared<Comet::ImageView>(
-                    device, *swapchain_image, Comet::Flags<Comet::ImageAspect>(Comet::ImageAspect::Color));
-                all_views.push_back(color_view);
-
-                // 2. Depth Attachment
-                Comet::ImageInfo depth_info = {};
-                depth_info.format = m_render_format_info.depth_format;
-                depth_info.extent = {swapchain->get_width(), swapchain->get_height(), 1};
-                depth_info.usage = Comet::Flags<Comet::ImageUsage>(Comet::ImageUsage::DepthStencilAttachment);
-
-                auto depth_image = Comet::Image::create(device, depth_info, m_render_format_info.msaa_samples);
-                auto depth_view = std::make_shared<Comet::ImageView>(
-                    device, *depth_image, Comet::Flags<Comet::ImageAspect>(Comet::ImageAspect::Depth));
-                all_views.push_back(depth_view);
-            }
-
-            // 创建 Framebuffer
-            auto framebuffer = std::make_shared<Comet::FrameBuffer>(
-                device, m_render_pass.get(), all_views,
-                swapchain->get_width(), swapchain->get_height());
-
-            m_framebuffers.push_back(framebuffer);
-        }
-
-        LOG_INFO("Created {} Framebuffers for ImGui", m_framebuffers.size());
     }
 
     void ImGuiContext::init_vulkan() {
@@ -181,9 +113,7 @@ namespace CometEditor {
         init_info.MinImageCount = 2;
         init_info.ImageCount = 2;
         init_info.PipelineInfoMain.RenderPass = m_render_pass->get();
-        // 从配置读取 MSAA 设置
-        int msaa = Comet::Config::get<int>("vulkan.msaa_samples", 4);
-        init_info.PipelineInfoMain.MSAASamples = static_cast<VkSampleCountFlagBits>(msaa);
+        init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 
         ImGui_ImplVulkan_Init(&init_info);
     }
@@ -210,7 +140,7 @@ namespace CometEditor {
         m_descriptor_pool.reset();
 
         // 销毁其他资源
-        m_framebuffers.clear();
+        m_render_target.reset();
         m_render_pass.reset();
 
         // 销毁 GLFW backend 和 ImGui context
@@ -257,7 +187,7 @@ namespace CometEditor {
         ImGui::Render();
     }
 
-    void ImGuiContext::render(const Comet::CommandBuffer& command_buffer) const {
+    void ImGuiContext::render(Comet::CommandBuffer& command_buffer) const {
         if (!m_initialized) {
             LOG_ERROR("ImGuiContext not initialized");
             return;
@@ -267,8 +197,11 @@ namespace CometEditor {
         if (!draw_data || draw_data->CmdListsCount == 0) {
             return;
         }
+        m_render_target->begin_render_target(command_buffer);
 
         ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer.get());
+
+        m_render_target->end_render_target(command_buffer);
     }
 
     void ImGuiContext::recreate_swapchain() {
@@ -285,10 +218,8 @@ namespace CometEditor {
         // 等待设备空闲
         m_render_context->wait_idle();
 
-        // 重建Framebuffers
-        m_framebuffers.clear();
-        create_framebuffers();
-
+        // 重建render target
+        m_render_target->recreate();
         // 重建完成，恢复 ImGui 更新
         m_is_recreating = false;
 

@@ -37,7 +37,7 @@ debug:
   # 启用验证层（仅在支持的平台上生效）
   enable_validation: true
   # 日志级别 (trace, debug, info, warn, error, critical, off)
-  log_level: trace
+  log_level: info
   # 启用文件日志输出
   enable_file_logging: false
   # 显示 FPS

@@ -146,6 +146,8 @@ namespace Comet {
         m_scene_renderer->render(m_view_project_matrix, m_model_matrix,
             m_cube_mesh, descriptor_sets);
 
+        m_scene_renderer->end_render_pass();
+
         if (m_on_imgui_render) {
             m_on_imgui_render(m_scene_renderer->get_current_command_buffer());
         }

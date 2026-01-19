@@ -18,6 +18,11 @@ namespace Comet {
 
     class SceneRenderer {
     public:
+        enum class RenderMode {
+            Runtime,
+            EditorViewport
+        };
+
         explicit SceneRenderer(RenderContext* context);
 
         void setup_render_pass();
@@ -39,6 +44,11 @@ namespace Comet {
 
         void end_frame();
 
+        void end_render_pass() const;
+
+        void set_render_mode(RenderMode mode);
+
+        [[nodiscard]] RenderMode get_render_mode() const { return m_render_mode; }
         [[nodiscard]] FrameManager* get_frame_manager() const { return m_frame_manager.get(); }
         [[nodiscard]] RenderTarget* get_render_target() const { return m_render_target.get(); }
         [[nodiscard]] PipelineManager* get_pipeline_manager() const { return m_pipeline_manager.get(); }
@@ -68,6 +78,7 @@ namespace Comet {
         std::unique_ptr<PipelineManager> m_pipeline_manager;
         std::unique_ptr<FrameManager> m_frame_manager;
         std::shared_ptr<RenderTarget> m_render_target;
+        RenderMode m_render_mode = RenderMode::Runtime;
         std::shared_ptr<Pipeline> m_pipeline;
         std::shared_ptr<DescriptorPool> m_descriptor_pool;
         std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;

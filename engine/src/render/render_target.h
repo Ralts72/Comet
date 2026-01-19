@@ -1,6 +1,7 @@
 #pragma once
 #include "graphics/vk_common.h"
 #include "core/math_utils.h"
+#include "common/export.h"
 
 namespace Comet {
     class Image;
@@ -19,7 +20,7 @@ namespace Comet {
         std::shared_ptr<FrameBuffer> frame_buffer;
     };
 
-    class RenderTarget {
+    class COMET_API RenderTarget {
     public:
         static std::unique_ptr<RenderTarget> create_swapchain_target(Device* device, RenderPass* render_pass, Swapchain* swapchain);
 
@@ -64,7 +65,7 @@ namespace Comet {
         uint32_t m_current_image_index;
     };
 
-    class SwapchainTarget final: public RenderTarget {
+    class COMET_API SwapchainTarget final: public RenderTarget {
     public:
         SwapchainTarget(Device* device, RenderPass* render_pass, Swapchain* swapchain);
 
@@ -81,7 +82,7 @@ namespace Comet {
         std::vector<RenderResource> m_render_resources;
     };
 
-    class OffscreenTarget final: public RenderTarget {
+    class COMET_API OffscreenTarget final: public RenderTarget {
     public:
         OffscreenTarget(Device* device, RenderPass* render_pass, Math::Vec2u size);
 
@@ -99,7 +100,7 @@ namespace Comet {
         std::shared_ptr<ImageView> m_depth_view;
     };
 
-    class MultiTarget final: public RenderTarget {
+    class COMET_API MultiTarget final: public RenderTarget {
     public:
         MultiTarget(Device* device, RenderPass* render_pass, Math::Vec2u size, uint32_t frame_count);
 
