@@ -9,8 +9,8 @@ file(GLOB SOURCES
         src/menu_bar.cpp
         src/panels/inspector_panel.cpp
         src/panels/console_panel.cpp
-        src/panels/viewport_panel.cpp
-        src/panels/world_panel.cpp
+        src/panels/view_panel.cpp
+        src/panels/hierarchy_panel.cpp
         src/panels/project_panel.cpp
 )
 
@@ -18,4 +18,4 @@ add_executable(editor ${SOURCES})
 target_link_libraries(editor PUBLIC engine imgui)
 target_include_directories(editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_precompile_headers(editor PRIVATE "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/engine/src/pch.h>")
-target_compile_definitions(engine PUBLIC COMET_EDITOR)
+target_compile_definitions(editor PUBLIC COMET_EDITOR)

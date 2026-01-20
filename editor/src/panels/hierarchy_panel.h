@@ -3,9 +3,9 @@
 
 namespace CometEditor {
 
-    class WorldPanel : public EditorPanel {
+    class HierarchyPanel : public EditorPanel {
     public:
-        WorldPanel();
+        HierarchyPanel();
         
         void render() override;
         

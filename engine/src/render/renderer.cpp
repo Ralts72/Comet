@@ -13,7 +13,6 @@ namespace Comet {
 
     Renderer::Renderer(const Window& window) {
         PROFILE_SCOPE("Renderer::Constructor");
-        LOG_INFO("init graphics system");
 
         // Create render context
         m_render_context = std::make_unique<RenderContext>(window);
@@ -38,7 +37,6 @@ namespace Comet {
     }
 
     void Renderer::setup_pipeline() {
-        LOG_INFO("setup pipeline");
 
         // 创建 DescriptorSetLayout bindings
         DescriptorSetLayoutBindings bindings;
@@ -78,9 +76,8 @@ namespace Comet {
     }
 
     void Renderer::setup_descriptor_sets() {
-        LOG_INFO("create descriptor pool and descriptor sets");
 
-        // 创建 DescriptorSetLayout bindings（与 setup_pipeline 中相同）
+        // 创建 DescriptorSetLayout bindings
         DescriptorSetLayoutBindings bindings;
         bindings.add_binding(0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
         bindings.add_binding(1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
@@ -167,7 +164,7 @@ namespace Comet {
         m_texture2.reset();
         m_cube_mesh.reset();
 
-        // 清理子系统（会自动清理内部资源）
+        // 清理子系统
         m_scene_renderer.reset();
         m_resource_manager.reset();
         m_render_context.reset();

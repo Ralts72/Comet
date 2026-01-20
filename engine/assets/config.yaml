@@ -40,6 +40,3 @@ debug:
   log_level: info
   # 启用文件日志输出
   enable_file_logging: false
-  # 显示 FPS
-  show_fps: true
-

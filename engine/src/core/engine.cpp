@@ -36,23 +36,11 @@ namespace Comet {
     void Engine::on_update() const {
         LOG_INFO("running engine...");
 
-        static bool show_fps = Config::get<bool>("debug.show_fps", true);
-        static float fps_display_timer = 0.0f;
-
         while(!m_window->should_close()) {
             PROFILE_SCOPE("Engine::Frame");
             m_window->poll_events();
             m_timer->tick();
             const auto update_context = m_timer->get_update_context();
-
-            // 显示FPS（每秒更新一次）
-            if(show_fps) {
-                fps_display_timer += update_context.deltaTime;
-                if(fps_display_timer >= 1.0f) {
-                    LOG_INFO("FPS: {:.1f} | Frame Time: {:.2f}ms", update_context.fps, 1000.0f / update_context.fps);
-                    fps_display_timer = 0.0f;
-                }
-            }
 
             m_renderer->on_update(update_context.deltaTime);
             m_renderer->on_render();

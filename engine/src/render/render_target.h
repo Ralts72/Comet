@@ -92,6 +92,10 @@ namespace Comet {
 
         [[nodiscard]] std::shared_ptr<FrameBuffer> get_framebuffer(const uint32_t index) const override { return m_frame_buffer; }
 
+        [[nodiscard]] std::shared_ptr<ImageView> get_color_view() const { return m_color_view; }
+
+        [[nodiscard]] std::shared_ptr<Image> get_color_image() const { return m_color_image; }
+
     private:
         std::shared_ptr<FrameBuffer> m_frame_buffer;
         std::shared_ptr<Image> m_color_image;

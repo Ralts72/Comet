@@ -1,16 +1,16 @@
-#include "world_panel.h"
+#include "hierarchy_panel.h"
 #include <imgui.h>
 
 namespace CometEditor {
 
-    WorldPanel::WorldPanel() 
-        : EditorPanel("World") {
+    HierarchyPanel::HierarchyPanel()
+        : EditorPanel("Hierarchy") {
     }
 
-    void WorldPanel::render() {
-        if (!m_visible) return;
-        
-        ImGui::Begin(m_name.c_str(), &m_visible);
+    void HierarchyPanel::render() {
+        if (!m_user_visible) return;
+
+        ImGui::Begin(m_name.c_str(), &m_user_visible);
         
         // 工具栏
         if (ImGui::Button("+")) {

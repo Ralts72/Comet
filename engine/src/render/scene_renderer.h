@@ -11,16 +11,18 @@
 #include "mesh.h"
 #include "graphics/sampler.h"
 #include "graphics/vertex_description.h"
+#include "common/export.h"
 
 namespace Comet {
     class ResourceManager;
     class VertexInputDescription;
 
-    class SceneRenderer {
+    class COMET_API SceneRenderer {
     public:
         enum class RenderMode {
             Runtime,
-            EditorViewport
+            SceneView,
+            GameView
         };
 
         explicit SceneRenderer(RenderContext* context);

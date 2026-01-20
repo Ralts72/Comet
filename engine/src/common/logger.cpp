@@ -3,6 +3,7 @@
 #include "config.h"
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/stdout_sinks.h>
 #include <spdlog/async.h>
 
 namespace Comet {
@@ -81,7 +82,7 @@ namespace Comet {
                 s_console_logger = std::make_shared<spdlog::logger>("console", shared_console_sink);
             }
 
-            // 从 Config 读取日志级别（如果失败则使用默认值 trace）
+            // 从 Config 读取日志级别
             std::string log_level_str = Config::get<std::string>("debug.log_level", "trace");
             spdlog::level::level_enum log_level = parse_log_level(log_level_str);
 
@@ -157,5 +158,116 @@ namespace Comet {
             init(); // 延迟初始化
         }
         return s_current_log_file_path;
+    }
+
+    void Logger::remove_console_sinks() {
+        auto logger = get_console_logger();
+        if (!logger) {
+            return;
+        }
+
+        // 移除控制台输出（stdout_color_sink），只保留文件输出
+        auto& sinks = logger->sinks();
+        sinks.erase(
+            std::remove_if(sinks.begin(), sinks.end(),
+                [](const std::shared_ptr<spdlog::sinks::sink>& sink) {
+                    // 检查是否是 stdout_color_sink 或 stdout_sink
+                    return dynamic_cast<spdlog::sinks::stdout_color_sink_mt*>(sink.get()) != nullptr ||
+                           dynamic_cast<spdlog::sinks::stdout_color_sink_st*>(sink.get()) != nullptr ||
+                           dynamic_cast<spdlog::sinks::stdout_sink_mt*>(sink.get()) != nullptr ||
+                           dynamic_cast<spdlog::sinks::stdout_sink_st*>(sink.get()) != nullptr;
+                }),
+            sinks.end()
+        );
+    }
+
+    void Logger::add_custom_sink(std::shared_ptr<spdlog::sinks::sink> sink) {
+        auto logger = get_console_logger();
+        if (!logger || !sink) {
+            return;
+        }
+
+        logger->sinks().push_back(sink);
+    }
+
+    LogLevel log_level_from_spdlog(spdlog::level::level_enum level) {
+        switch (level) {
+            case spdlog::level::trace:
+                return LogLevel::Trace;
+            case spdlog::level::debug:
+                return LogLevel::Debug;
+            case spdlog::level::info:
+                return LogLevel::Info;
+            case spdlog::level::warn:
+                return LogLevel::Warning;
+            case spdlog::level::err:
+                return LogLevel::Error;
+            case spdlog::level::critical:
+                return LogLevel::Critical;
+            default:
+                return LogLevel::Info;
+        }
+    }
+
+    spdlog::level::level_enum log_level_to_spdlog(LogLevel level) {
+        switch (level) {
+            case LogLevel::Trace:
+                return spdlog::level::trace;
+            case LogLevel::Debug:
+                return spdlog::level::debug;
+            case LogLevel::Info:
+                return spdlog::level::info;
+            case LogLevel::Warning:
+                return spdlog::level::warn;
+            case LogLevel::Error:
+                return spdlog::level::err;
+            case LogLevel::Critical:
+                return spdlog::level::critical;
+            default:
+                return spdlog::level::info;
+        }
+    }
+
+    const char* log_level_to_string(LogLevel level) {
+        switch (level) {
+            case LogLevel::Trace:
+                return "Trace";
+            case LogLevel::Debug:
+                return "Debug";
+            case LogLevel::Info:
+                return "Info";
+            case LogLevel::Warning:
+                return "Warning";
+            case LogLevel::Error:
+                return "Error";
+            case LogLevel::Critical:
+                return "Critical";
+            default:
+                return "Info";
+        }
+    }
+
+    std::string Logger::get_logs_directory() {
+        std::filesystem::path logs_dir(std::string(PROJECT_ROOT_DIR));
+        logs_dir /= "logs";
+
+        // 确保 logs 目录存在
+        if (!std::filesystem::exists(logs_dir)) {
+            std::filesystem::create_directories(logs_dir);
+        }
+
+        return logs_dir.string();
+    }
+
+    std::string Logger::generate_timestamp_filename() {
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      now.time_since_epoch()) % 1000;
+
+        std::stringstream ss;
+        ss << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
+           << "_" << std::setfill('0') << std::setw(3) << ms.count();
+        return ss.str();
     }
 }

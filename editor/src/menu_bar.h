@@ -20,15 +20,18 @@ namespace CometEditor {
 
         [[nodiscard]] bool is_panel_visible(const std::string& panel_name) const;
 
+        void set_fps(float fps) { m_fps = fps; }
+
     private:
         void render_file_menu();
         void render_edit_menu();
         void render_view_menu();
         void render_gameobject_menu();
         void render_help_menu();
-        
+
         std::map<std::string, bool> m_panel_visibility;
         std::map<std::string, PanelVisibilityCallback> m_panel_callbacks;
+        float m_fps = 0.0f;
     };
 
 }

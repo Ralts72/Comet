@@ -3,26 +3,26 @@
 
 namespace CometEditor {
 
-    ProjectPanel::ProjectPanel() 
+    ProjectPanel::ProjectPanel()
         : EditorPanel("Project") {
     }
 
     void ProjectPanel::render() {
-        if (!m_visible) return;
-        
-        ImGui::Begin(m_name.c_str(), &m_visible);
-        
+        if (!m_user_visible) return;
+
+        ImGui::Begin(m_name.c_str(), &m_user_visible);
+
         // 工具栏
-        if (ImGui::Button("Assets")) {
+        if (ImGui::Button("Assets##Button")) {
             m_view_mode = 0;
         }
         ImGui::SameLine();
         if (ImGui::Button("Packages")) {
             m_view_mode = 1;
         }
-        
+
         ImGui::Separator();
-        
+
         // 资源树
         if (ImGui::TreeNodeEx("Assets", ImGuiTreeNodeFlags_DefaultOpen)) {
             if (ImGui::TreeNodeEx("Scenes", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -46,7 +46,7 @@ namespace CometEditor {
             }
             ImGui::TreePop();
         }
-        
+
         ImGui::End();
     }
 

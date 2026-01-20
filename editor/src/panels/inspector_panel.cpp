@@ -8,9 +8,9 @@ namespace CometEditor {
     }
 
     void InspectorPanel::render() {
-        if (!m_visible) return;
-        
-        ImGui::Begin(m_name.c_str(), &m_visible);
+        if (!m_user_visible) return;
+
+        ImGui::Begin(m_name.c_str(), &m_user_visible);
         
         if (m_selected_object.empty()) {
             ImGui::Text("No object selected");

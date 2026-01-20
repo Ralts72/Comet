@@ -52,7 +52,11 @@ namespace Comet {
                   uint32_t first_vertex = 0, uint32_t first_instance = 0) const;
 
         void draw_indexed(uint32_t index_count, uint32_t instance_count = 1, uint32_t first_index = 0,
-                          int32_t vertex_offset = 0, uint32_t first_instance = 0) const;
+                         int32_t vertex_offset = 0, uint32_t first_instance = 0) const;
+
+        // image layout transition
+        void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+                                     uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0) const;
 
         [[nodiscard]] vk::CommandBuffer get() const { return m_command_buffer; }
 
@@ -63,9 +67,6 @@ namespace Comet {
 
         void copy_buffer_to_image(vk::Buffer src_buffer, vk::Image dst_image, vk::ImageLayout dst_image_layout,
                                   const vk::Extent3D& extent, uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0) const;
-
-        void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-                                     uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0) const;
 
         vk::CommandBuffer m_command_buffer;
     };

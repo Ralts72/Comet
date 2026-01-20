@@ -10,6 +10,11 @@ namespace CometEditor {
             render_view_menu();
             render_gameobject_menu();
             render_help_menu();
+
+            float fps_text_width = ImGui::CalcTextSize("FPS: 999.9").x;
+            ImGui::SameLine(ImGui::GetWindowWidth() - fps_text_width - ImGui::GetStyle().WindowPadding.x);
+            ImGui::Text("FPS: %.1f", m_fps);
+
             ImGui::EndMainMenuBar();
         }
     }
