@@ -1,7 +1,7 @@
 #include "material.h"
+#include "common/logger.h"
 
 namespace Comet {
-    // ====================== MaterialConfig ======================
 
     void MaterialConfig::set_blend_op(const BlendOp color_op, const BlendOp alpha_op) {
         m_color_blend_op = color_op;
@@ -15,8 +15,6 @@ namespace Comet {
         m_src_alpha_blend_factor = src_alpha;
         m_dst_alpha_blend_factor = dst_alpha;
     }
-
-    // ====================== Material ======================
 
     Material::Material(const std::string& name, const MaterialConfig& config)
         : m_name(name), m_config(config) {}
@@ -53,7 +51,7 @@ namespace Comet {
         if (m_properties.contains(name)) {
             return m_properties.at(name);
         }
-        throw std::runtime_error("Material property '" + name + "' not found in material '" + m_name + "'");
+        LOG_FATAL("Material property '{}' not found in material '{}'", name, m_name);
     }
 
     // ====================== MaterialInstance ======================
@@ -96,17 +94,15 @@ namespace Comet {
         return m_material->get_property(name);
     }
 
-    // ====================== MaterialManager ======================
-
     MaterialManager::MaterialManager(Device* device, ShaderManager* shader_manager, SamplerManager* sampler_manager) {
         // Parameters kept for future extensibility
     }
 
     std::shared_ptr<Material> MaterialManager::create_material(const std::string& name, const MaterialConfig& config) {
         if (m_materials.contains(name)) {
-            throw std::runtime_error("Material '" + name + "' already exists");
+            LOG_WARN("Material '{}' already exists, returning existing material", name);
+            return m_materials.at(name);
         }
-
         auto material = std::make_shared<Material>(name, config);
         m_materials[name] = material;
         return material;
@@ -116,7 +112,8 @@ namespace Comet {
         if (m_materials.contains(name)) {
             return m_materials.at(name);
         }
-        throw std::runtime_error("Material '" + name + "' not found");
+        LOG_ERROR("Material '{}' not found", name);
+        return nullptr;
     }
 
     std::shared_ptr<MaterialInstance> MaterialManager::create_instance(const std::string& material_name) const {
