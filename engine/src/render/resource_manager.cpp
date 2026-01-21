@@ -8,6 +8,9 @@ namespace Comet {
         
         LOG_INFO("create sampler manager");
         m_sampler_manager = std::make_unique<SamplerManager>(device);
+
+        LOG_INFO("create material manager");
+        m_material_manager = std::make_unique<MaterialManager>(device, m_shader_manager.get(), m_sampler_manager.get());
     }
 
     std::shared_ptr<Texture> ResourceManager::load_texture(const std::string& path) {

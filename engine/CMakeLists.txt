@@ -47,6 +47,7 @@ file(GLOB SOURCES
         src/render/scene_renderer.cpp
         src/render/resource_manager.cpp
         src/render/frame_manager.cpp
+        src/render/material.cpp
 )
 
 find_package(Vulkan REQUIRED)
