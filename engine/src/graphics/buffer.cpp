@@ -8,53 +8,56 @@ namespace Comet {
     Buffer::Buffer(Device* device, const Flags<BufferUsage> usage, const size_t size, const void* data) : m_device(device), m_size(size) {}
 
     Buffer::~Buffer() {
-        m_device->get().destroyBuffer(m_buffer);
-        m_device->get().freeMemory(m_memory);
+        if(m_buffer && m_allocation) {
+            vmaDestroyBuffer(m_device->get_allocator(), static_cast<VkBuffer>(m_buffer), m_allocation);
+        }
     }
 
-    std::pair<vk::Buffer, vk::DeviceMemory> Buffer::create_buffer(const Flags<MemoryType> mem_props,
-                                                                  const Flags<BufferUsage> usage) const {
-        vk::BufferCreateInfo buffer_create_info = {};
+    std::pair<vk::Buffer, VmaAllocation> Buffer::create_buffer(const Flags<MemoryType> mem_props,
+                                                               const Flags<BufferUsage> usage) const {
+        VkBufferCreateInfo buffer_create_info = {};
+        buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         buffer_create_info.size = m_size;
-        buffer_create_info.usage = Graphics::buffer_usage_to_vk(usage);
-        buffer_create_info.sharingMode = vk::SharingMode::eExclusive;
-        buffer_create_info.queueFamilyIndexCount = 0;
-        buffer_create_info.pQueueFamilyIndices = nullptr;
-        auto buffer = m_device->get().createBuffer(buffer_create_info);
+        buffer_create_info.usage = static_cast<VkBufferUsageFlags>(Graphics::buffer_usage_to_vk(usage));
+        buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        // allocate memory
-        const auto memory_required = m_device->get().getBufferMemoryRequirements(buffer);
-        vk::MemoryAllocateInfo allocate_info = {};
-        allocate_info.allocationSize = memory_required.size;
-        allocate_info.memoryTypeIndex = m_device->get_memory_index(mem_props, memory_required.memoryTypeBits);
-        auto memory = m_device->get().allocateMemory(allocate_info);
-        m_device->get().bindBufferMemory(buffer, memory, 0);
-        return std::make_pair(buffer, memory);
+        VmaAllocationCreateInfo allocation_info = {};
+        allocation_info.requiredFlags = static_cast<VkMemoryPropertyFlags>(Graphics::memory_property_to_vk(mem_props));
+
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VmaAllocation allocation = VK_NULL_HANDLE;
+        const VkResult result = vmaCreateBuffer(
+            m_device->get_allocator(), &buffer_create_info, &allocation_info, &buffer, &allocation, nullptr);
+        if(result != VK_SUCCESS) {
+            LOG_FATAL("Failed to create VMA buffer: {}", vk::to_string(static_cast<vk::Result>(result)));
+        }
+
+        return std::make_pair(vk::Buffer(buffer), allocation);
     }
 
     GPUBuffer::GPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data)
         : Buffer(device, usage, size, data) {
         PROFILE_SCOPE("Buffer::Constructor");
-        auto [stage_buffer, stage_memory] = create_buffer(Flags<MemoryType>(MemoryType::CPULocal)
-                                                          | Flags<MemoryType>(MemoryType::Coherence), Flags<BufferUsage>(BufferUsage::CopySrc));
-        void* mapping = m_device->get().mapMemory(stage_memory, 0, vk::WholeSize);
+        auto [stage_buffer, stage_allocation] = create_buffer(Flags<MemoryType>(MemoryType::CPULocal)
+                                                              | Flags<MemoryType>(MemoryType::Coherence), Flags<BufferUsage>(BufferUsage::CopySrc));
+        void* mapping = nullptr;
+        vmaMapMemory(m_device->get_allocator(), stage_allocation, &mapping);
         memcpy(mapping, data, m_size);
-        m_device->get().unmapMemory(stage_memory);
-        std::tie(m_buffer, m_memory) = create_buffer(Flags<MemoryType>(MemoryType::GPULocal),
+        vmaUnmapMemory(m_device->get_allocator(), stage_allocation);
+        std::tie(m_buffer, m_allocation) = create_buffer(Flags<MemoryType>(MemoryType::GPULocal),
             usage | Flags<BufferUsage>(BufferUsage::CopyDst));
 
         auto ctx = m_device->create_command_context();
         ctx->copy_buffer(stage_buffer, m_buffer, m_size);
         ctx->submit_and_wait();
 
-        m_device->get().destroyBuffer(stage_buffer);
-        m_device->get().freeMemory(stage_memory);
+        vmaDestroyBuffer(m_device->get_allocator(), static_cast<VkBuffer>(stage_buffer), stage_allocation);
     }
 
     CPUBuffer::CPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data)
         : Buffer(device, usage, size, data) {
-        std::tie(m_buffer, m_memory) = create_buffer(Flags<MemoryType>(MemoryType::CPULocal)
-                                                     | Flags<MemoryType>(MemoryType::Coherence), usage);
+        std::tie(m_buffer, m_allocation) = create_buffer(Flags<MemoryType>(MemoryType::CPULocal)
+                                                         | Flags<MemoryType>(MemoryType::Coherence), usage);
         if(data) {
             write(data);
         }
@@ -75,8 +78,9 @@ namespace Comet {
             return;
         }
 
-        void* mapping = m_device->get().mapMemory(m_memory, 0, vk::WholeSize);
+        void* mapping = nullptr;
+        vmaMapMemory(m_device->get_allocator(), m_allocation, &mapping);
         std::memcpy(mapping, data, m_size);
-        m_device->get().unmapMemory(m_memory);
+        vmaUnmapMemory(m_device->get_allocator(), m_allocation);
     }
 }

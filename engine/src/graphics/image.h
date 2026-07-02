@@ -1,6 +1,7 @@
 #pragma once
 #include "vk_common.h"
 #include "common/export.h"
+#include <vk_mem_alloc.h>
 
 namespace Comet {
     class Device;
@@ -42,7 +43,7 @@ namespace Comet {
         ~OwnedImage() override;
 
     private:
-        vk::DeviceMemory m_memory;
+        VmaAllocation m_allocation = VK_NULL_HANDLE;
     };
 
     class COMET_API BorrowedImage final: public Image {

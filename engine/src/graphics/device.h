@@ -3,6 +3,7 @@
 #include "common/export.h"
 #include "queue.h"
 #include "command_buffer.h"
+#include <vk_mem_alloc.h>
 
 namespace Comet {
     class Context;
@@ -11,6 +12,10 @@ namespace Comet {
     class CommandPool;
     class CommandBuffer;
     class CommandContext;
+    class Buffer;
+    class GPUBuffer;
+    class CPUBuffer;
+    class OwnedImage;
 
     class COMET_API Device {
     public:
@@ -58,11 +63,21 @@ namespace Comet {
         std::unique_ptr<CommandContext> create_command_context();
 
     private:
+        friend class Buffer;
+        friend class GPUBuffer;
+        friend class CPUBuffer;
+        friend class OwnedImage;
+
+        [[nodiscard]] VmaAllocator get_allocator() const { return m_allocator; }
+
         void create_pipeline_cache();
 
         void create_default_command_pool();
 
+        void create_allocator();
+
         vk::Device m_device;
+        VmaAllocator m_allocator = VK_NULL_HANDLE;
         Context* m_context;
 
         std::vector<Queue> m_graphics_queues;

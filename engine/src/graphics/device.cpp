@@ -75,6 +75,7 @@ namespace Comet {
         create_info.pEnabledFeatures = &features;
         m_device = context->get_physical_device().createDevice(create_info);
         LOG_INFO("Vulkan logical device created successfully");
+        create_allocator();
 
         for(uint32_t i = 0; i < graphics_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(graphics_queue_family_index.value(), i);
@@ -93,7 +94,22 @@ namespace Comet {
         m_device.waitIdle();
         m_default_command_pool.reset();
         m_device.destroyPipelineCache(m_pipeline_cache);
+        vmaDestroyAllocator(m_allocator);
         m_device.destroy();
+    }
+
+    void Device::create_allocator() {
+        VmaAllocatorCreateInfo allocator_info = {};
+        allocator_info.instance = m_context->instance();
+        allocator_info.physicalDevice = m_context->get_physical_device();
+        allocator_info.device = m_device;
+        allocator_info.vulkanApiVersion = VK_API_VERSION_1_3;
+
+        const VkResult result = vmaCreateAllocator(&allocator_info, &m_allocator);
+        if(result != VK_SUCCESS) {
+            LOG_FATAL("Failed to create VMA allocator: {}", vk::to_string(static_cast<vk::Result>(result)));
+        }
+        LOG_INFO("VMA allocator created successfully");
     }
 
     void Device::create_default_command_pool() {

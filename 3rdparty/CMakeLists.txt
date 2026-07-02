@@ -38,3 +38,7 @@ option(YAML_CPP_BUILD_TOOLS OFF)
 option(YAML_CPP_BUILD_CONTRIB OFF)
 option(YAML_CPP_INSTALL OFF)
 add_subdirectory(yaml-cpp)
+
+# Vulkan Memory Allocator
+option(VMA_ENABLE_INSTALL OFF)
+add_subdirectory(VulkanMemoryAllocator)

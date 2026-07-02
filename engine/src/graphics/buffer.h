@@ -1,5 +1,6 @@
 #pragma once
 #include "vk_common.h"
+#include <vk_mem_alloc.h>
 
 namespace Comet {
     class Device;
@@ -20,16 +21,15 @@ namespace Comet {
         static std::shared_ptr<Buffer> create_gpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data = nullptr);
 
         [[nodiscard]] vk::Buffer get() const { return m_buffer; }
-        [[nodiscard]] vk::DeviceMemory get_memory() const { return m_memory; }
         [[nodiscard]] size_t get_size() const { return m_size; }
 
     protected:
-        [[nodiscard]] std::pair<vk::Buffer, vk::DeviceMemory> create_buffer(Flags<MemoryType> mem_props,
-                                                                            Flags<BufferUsage> usage) const;
+        [[nodiscard]] std::pair<vk::Buffer, VmaAllocation> create_buffer(Flags<MemoryType> mem_props,
+                                                                         Flags<BufferUsage> usage) const;
 
         Device* m_device;
-        vk::Buffer m_buffer;
-        vk::DeviceMemory m_memory;
+        vk::Buffer m_buffer = VK_NULL_HANDLE;
+        VmaAllocation m_allocation = VK_NULL_HANDLE;
         size_t m_size;
     };
 

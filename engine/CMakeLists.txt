@@ -21,6 +21,7 @@ file(GLOB SOURCES
         src/core/timer.cpp
         src/core/engine.cpp
         src/graphics/convert.cpp
+        src/graphics/vma.cpp
         src/graphics/context.cpp
         src/graphics/device.cpp
         src/graphics/queue.cpp
@@ -53,7 +54,7 @@ file(GLOB SOURCES
 find_package(Vulkan REQUIRED)
 add_library(engine SHARED ${SOURCES})
 add_dependencies(engine ${SHADER_COMPILE_TARGET})
-target_link_libraries(engine PUBLIC spdlog::spdlog glm ${Vulkan_LIBRARIES} stb_image glfw yaml-cpp)
+target_link_libraries(engine PUBLIC spdlog::spdlog glm ${Vulkan_LIBRARIES} stb_image glfw yaml-cpp GPUOpen::VulkanMemoryAllocator)
 target_include_directories(engine
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
