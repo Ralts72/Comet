@@ -10,6 +10,11 @@ namespace Comet {
 
         virtual ~Buffer();
 
+        Buffer(const Buffer&) = delete;
+        Buffer& operator=(const Buffer&) = delete;
+        Buffer(Buffer&&) noexcept = delete;
+        Buffer& operator=(Buffer&&) noexcept = delete;
+
         static std::shared_ptr<Buffer> create_cpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data = nullptr);
 
         static std::shared_ptr<Buffer> create_gpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data = nullptr);

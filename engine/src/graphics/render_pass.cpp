@@ -1,16 +1,16 @@
 #include "render_pass.h"
 #include "device.h"
-#include "common/config.h"
 
 namespace Comet {
     static bool s_need_depth_sampling = false;
 
-    RenderPass::RenderPass(Device* device, const std::vector<Attachment>& attachments, const std::vector<RenderSubPass>& sub_passes)
+    RenderPass::RenderPass(Device* device, const std::vector<Attachment>& attachments, const std::vector<RenderSubPass>& sub_passes,
+                           const Format surface_format)
         : m_device(device), m_attachments(attachments), m_sub_passes(sub_passes) {
         // 1. default subpass and attachment
         if(sub_passes.empty() && attachments.empty()) {
             Attachment::Description description{};
-            description.format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 50));
+            description.format = surface_format;
             description.load_op = AttachmentLoadOp::Clear;
             description.store_op = AttachmentStoreOp::Store;
             description.stencil_load_op = AttachmentLoadOp::DontCare;
@@ -50,11 +50,11 @@ namespace Comet {
         }
         std::vector<vk::SubpassDescription> sub_pass_descriptions(m_sub_passes.size());
         std::vector<vk::AttachmentReference> resolve_attachments_reference(m_sub_passes.size());
-        
+
         std::vector<std::vector<vk::AttachmentReference>> all_input_attachments_reference(m_sub_passes.size());
         std::vector<std::vector<vk::AttachmentReference>> all_color_attachments_reference(m_sub_passes.size());
         std::vector<std::vector<vk::AttachmentReference>> all_depth_stencil_attachments_reference(m_sub_passes.size());
-        
+
         for(uint32_t i = 0; i < m_sub_passes.size(); ++i) {
             auto [input_attachments, color_attachments, depth_stencil_attachments, sample_count] = m_sub_passes[i];
 
@@ -63,7 +63,7 @@ namespace Comet {
                 vk::AttachmentReference reference = {attachment.index, Graphics::image_layout_to_vk(attachment.layout)};
                 all_input_attachments_reference[i].emplace_back(reference);
             }
-            
+
             for(const auto& attachment : color_attachments) {
                 vk::AttachmentReference reference = {attachment.index,  Graphics::image_layout_to_vk(attachment.layout)};
                 all_color_attachments_reference[i].emplace_back(reference);
@@ -72,7 +72,7 @@ namespace Comet {
                     m_attachments[attachment.index].description.final_layout = attachment.layout;
                 }
             }
-            
+
             for(const auto& attachment : depth_stencil_attachments) {
                 vk::AttachmentReference reference = {attachment.index, Graphics::image_layout_to_vk(attachment.layout)};
                 all_depth_stencil_attachments_reference[i].emplace_back(reference);
@@ -86,7 +86,7 @@ namespace Comet {
 
             if(sample_count > SampleCount::Count1) {
                 Attachment::Description msaa_description{};
-                msaa_description.format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 50));
+                msaa_description.format = surface_format;
                 msaa_description.samples = SampleCount::Count1;
                 msaa_description.load_op = AttachmentLoadOp::DontCare;
                 msaa_description.store_op = AttachmentStoreOp::Store;

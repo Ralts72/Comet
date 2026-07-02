@@ -15,6 +15,11 @@ namespace Comet {
         Shader(Device* device, const std::string& name, const std::vector<unsigned char>& spv_data, const ShaderLayout& layout = {});
         ~Shader();
 
+        Shader(const Shader&) = delete;
+        Shader& operator=(const Shader&) = delete;
+        Shader(Shader&&) noexcept = delete;
+        Shader& operator=(Shader&&) noexcept = delete;
+
         [[nodiscard]] vk::ShaderModule get() const { return m_shader_module; }
         [[nodiscard]] ShaderLayout get_layout() const { return m_layout; }
         [[nodiscard]] const std::string& get_name() const { return m_name; }

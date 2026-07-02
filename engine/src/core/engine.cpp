@@ -1,10 +1,10 @@
 #include "engine.h"
 #include "common/logger.h"
 #include "common/profiler.h"
-#include "common/config.h"
 
 namespace Comet {
-    Engine::Engine() {
+    Engine::Engine(Config::Runtime config)
+        : m_config(std::move(config)) {
         PROFILE_SCOPE("Engine::Constructor");
         LOG_INFO("init timer");
         m_timer = std::make_unique<Timer>();
@@ -15,15 +15,11 @@ namespace Comet {
             return;
         }
 
-        int width = Config::get<int>("window.width", 1280);
-        int height = Config::get<int>("window.height", 720);
-        auto title = Config::get<std::string>("window.title", "Comet Engine");
-
         LOG_INFO("init window");
-        m_window = std::make_unique<Window>(title, width, height);
+        m_window = std::make_unique<Window>(m_config.window);
 
         LOG_INFO("init renderer");
-        m_renderer = std::make_unique<Renderer>(*m_window);
+        m_renderer = std::make_unique<Renderer>(*m_window, m_config);
     }
 
     Engine::~Engine() {
@@ -42,12 +38,12 @@ namespace Comet {
             m_timer->tick();
             const auto update_context = m_timer->get_update_context();
 
-            m_renderer->on_update(update_context.deltaTime);
-            m_renderer->on_render();
-
             for(auto& callback: m_update_callbacks) {
                 callback(update_context);
             }
+
+            m_renderer->on_update(update_context.deltaTime);
+            m_renderer->on_render();
 
             m_window->swap_buffers();
         }

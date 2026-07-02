@@ -1,7 +1,6 @@
 #include "renderer.h"
 #include "common/logger.h"
 #include "common/profiler.h"
-#include "common/config.h"
 #include "graphics/vertex_description.h"
 #include "common/geometry_utils.h"
 #include "graphics/buffer.h"
@@ -11,11 +10,12 @@
 namespace Comet {
     float Renderer::total_time = 0.0f;
 
-    Renderer::Renderer(const Window& window) {
+    Renderer::Renderer(const Window& window, const Config::Runtime& config)
+        : m_vulkan_config(config.vulkan), m_render_config(config.render) {
         PROFILE_SCOPE("Renderer::Constructor");
 
         // Create render context
-        m_render_context = std::make_unique<RenderContext>(window);
+        m_render_context = std::make_unique<RenderContext>(window, m_vulkan_config, m_render_config);
 
         // Create resource manager
         LOG_INFO("create resource manager");
@@ -23,7 +23,7 @@ namespace Comet {
 
         // Create scene renderer
         LOG_INFO("create scene renderer");
-        m_scene_renderer = std::make_unique<SceneRenderer>(m_render_context.get());
+        m_scene_renderer = std::make_unique<SceneRenderer>(m_render_context.get(), m_vulkan_config, m_render_config);
 
         // Setup render pass (moved to SceneRenderer)
         m_scene_renderer->setup_render_pass();
@@ -64,8 +64,7 @@ namespace Comet {
         pipeline_config.set_vertex_input_state(vertex_input_description);
         pipeline_config.set_input_assembly_state(Topology::TriangleList);
 
-        // 从配置文件读取 MSAA 设置
-        auto msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4)); // Count4 = 4
+        auto msaa_samples = static_cast<SampleCount>(m_vulkan_config.msaa_samples);
 
         pipeline_config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         pipeline_config.enable_depth_test();
@@ -104,7 +103,7 @@ namespace Comet {
 
         LOG_INFO("create mesh");
         auto [cube_vertices, cube_indices] = GeometryUtils::create_cube(-0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f);
-        m_cube_mesh = m_resource_manager->create_mesh(cube_vertices, cube_indices);
+        m_cube_mesh = m_resource_manager->create_mesh("demo_cube", cube_vertices, cube_indices);
     }
 
     void Renderer::on_update(const float delta_time) {

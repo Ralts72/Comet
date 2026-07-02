@@ -1,6 +1,9 @@
 #pragma once
 #include "common/export.h"
+#include "common/config.h"
+#include <memory>
 #include <spdlog/spdlog.h>
+#include <string>
 
 namespace Comet {
     // 统一的日志级别枚举
@@ -27,7 +30,7 @@ namespace Comet {
         Logger& operator=(const Logger&) = delete;
 
         // 静态初始化和清理
-        static void init();
+        static void init(const Config::Log& config = {});
         static void shutdown();
 
         // 获取logger
@@ -93,7 +96,7 @@ namespace Comet {
 #else
 // Release模式下除LOG_FATAL外的LOG都为空操作
 #define LOG_ERROR(fmt, ...)   do { } while (0)
-#define LOG_WARN(fmt, ...)    do { } while (0)  
+#define LOG_WARN(fmt, ...)    do { } while (0)
 #define LOG_DEBUG(fmt, ...)   do { } while (0)
 #define LOG_INFO(fmt, ...)    do { } while (0)
 #define LOG_TRACE(fmt, ...)   do { } while (0)
@@ -149,7 +152,7 @@ namespace Comet {
 // Release模式下profiler日志都为空操作
 #define PROFILE_LOG_CRITICAL(fmt, ...)  do { } while (0)
 #define PROFILE_LOG_HIGH(fmt, ...)      do { } while (0)
-#define PROFILE_LOG_MEDIUM(fmt, ...)    do { } while (0)  
+#define PROFILE_LOG_MEDIUM(fmt, ...)    do { } while (0)
 #define PROFILE_LOG_LOW(fmt, ...)       do { } while (0)
 #define PROFILE_LOG_TRACE(fmt, ...)     do { } while (0)
 #endif

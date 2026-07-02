@@ -9,4 +9,5 @@ build-release/
 cmake-build-debug/
 .cache/
 logs/
+.codegraph/
 imgui.ini

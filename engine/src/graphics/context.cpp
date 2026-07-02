@@ -1,5 +1,4 @@
 #include "context.h"
-#include "common/config.h"
 
 namespace Comet {
 
@@ -31,7 +30,8 @@ namespace Comet {
         return VK_FALSE;
     }
 
-    Context::Context(const Window& window) {
+    Context::Context(const Window& window, const Config::Vulkan& config)
+        : m_config(config) {
         create_instance();
         create_surface(window);
         pickup_physical_device();
@@ -53,7 +53,7 @@ namespace Comet {
 
         // 1.构建layer
         std::vector<DeviceFeature> required_layers;
-        if(Config::get<bool>("debug.enable_validation", true)) {
+        if(m_config.enable_validation) {
             required_layers.push_back({"VK_LAYER_KHRONOS_validation", true});
         }
 

@@ -3,11 +3,12 @@
 #include "graphics/device.h"
 #include "graphics/swapchain.h"
 #include "common/export.h"
+#include "common/config.h"
 
 namespace Comet {
     class COMET_API RenderContext {
     public:
-        explicit RenderContext(const Window& window);
+        RenderContext(const Window& window, const Config::Vulkan& vulkan_config, const Config::Render& render_config);
         ~RenderContext();
 
         [[nodiscard]] Device* get_device() const { return m_device.get(); }
@@ -17,6 +18,8 @@ namespace Comet {
         void wait_idle() const;
 
     private:
+        Config::Vulkan m_vulkan_config;
+        Config::Render m_render_config;
         std::unique_ptr<Context> m_context;
         std::unique_ptr<Device> m_device;
         std::unique_ptr<Swapchain> m_swapchain;

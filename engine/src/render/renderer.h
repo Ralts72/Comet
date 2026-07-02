@@ -6,11 +6,12 @@
 #include "mesh.h"
 #include "texture.h"
 #include "common/shader_resources.h"
+#include "common/config.h"
 
 namespace Comet {
     class Renderer {
     public:
-        explicit Renderer(const Window& window);
+        Renderer(const Window& window, const Config::Runtime& config);
 
         ~Renderer();
 
@@ -58,5 +59,7 @@ namespace Comet {
         };
 
         static float total_time;
+        Config::Vulkan m_vulkan_config;
+        Config::Render m_render_config;
     };
 }

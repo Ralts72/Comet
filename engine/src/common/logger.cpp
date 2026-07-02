@@ -1,6 +1,5 @@
 #include "pch.h"
 #include "logger.h"
-#include "config.h"
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/stdout_sinks.h>
@@ -23,7 +22,7 @@ namespace Comet {
         return spdlog::level::info; // 默认级别
     }
 
-    void Logger::init() {
+    void Logger::init(const Config::Log& config) {
         if(s_initialized) {
             return;
         }
@@ -32,10 +31,7 @@ namespace Comet {
         std::filesystem::path logs_dir(std::string(PROJECT_ROOT_DIR));
         logs_dir /= "logs";
 
-        // 从配置读取是否启用文件日志
-        bool enable_file_logging = Config::get<bool>("debug.enable_file_logging", true);
-
-        if(enable_file_logging) {
+        if(config.enable_file_logging) {
             // 确保logs目录存在
             if(!std::filesystem::exists(logs_dir)) {
                 std::filesystem::create_directories(logs_dir);
@@ -57,9 +53,13 @@ namespace Comet {
         }
 
         // 生成日志文件名
-        std::string log_filename = (logs_dir / ("comet_" + shared_timestamp + ".log")).string();
-        std::string profiler_filename = (logs_dir / ("profiler_" + shared_timestamp + ".log")).string();
-        s_current_log_file_path = log_filename;
+        std::string log_filename;
+        std::string profiler_filename;
+        if (config.enable_file_logging) {
+            log_filename = (logs_dir / ("comet_" + shared_timestamp + ".log")).string();
+            profiler_filename = (logs_dir / ("profiler_" + shared_timestamp + ".log")).string();
+            s_current_log_file_path = log_filename;
+        }
 
         // 创建共享的控制台sink
         auto shared_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
@@ -70,7 +70,7 @@ namespace Comet {
             // 设置格式
             shared_console_sink->set_pattern("%^[%T] [%l] %v%$");
 
-            if(enable_file_logging) {
+            if(config.enable_file_logging) {
                 auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename, false);
                 file_sink->set_pattern("[%Y-%m-%d %T.%e] [%l] %v");
 
@@ -82,9 +82,7 @@ namespace Comet {
                 s_console_logger = std::make_shared<spdlog::logger>("console", shared_console_sink);
             }
 
-            // 从 Config 读取日志级别
-            std::string log_level_str = Config::get<std::string>("debug.log_level", "trace");
-            spdlog::level::level_enum log_level = parse_log_level(log_level_str);
+            spdlog::level::level_enum log_level = parse_log_level(config.level);
 
             s_console_logger->set_level(log_level);
             s_console_logger->flush_on(spdlog::level::trace);
@@ -99,7 +97,7 @@ namespace Comet {
             auto profiler_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
             profiler_console_sink->set_pattern("%^[Profiler] %-50v%$");
 
-            if(enable_file_logging) {
+            if(config.enable_file_logging) {
                 auto profiler_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(profiler_filename, false);
                 profiler_file_sink->set_pattern("[%Y-%m-%d %T.%e] [Profiler] %v");
 
@@ -140,23 +138,14 @@ namespace Comet {
     }
 
     std::shared_ptr<spdlog::logger> Logger::get_console_logger() {
-        if(!s_initialized) {
-            init(); // 延迟初始化
-        }
         return s_console_logger;
     }
 
     std::shared_ptr<spdlog::logger> Logger::get_profiler_logger() {
-        if(!s_initialized) {
-            init(); // 延迟初始化
-        }
         return s_profiler_logger;
     }
 
     std::string Logger::get_log_file_path() {
-        if(!s_initialized) {
-            init(); // 延迟初始化
-        }
         return s_current_log_file_path;
     }
 

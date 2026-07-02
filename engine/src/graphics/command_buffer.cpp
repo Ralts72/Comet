@@ -205,4 +205,18 @@ namespace Comet {
         const auto buffer = allocate_command_buffers(1);
         return buffer[0];
     }
+
+    void CommandPool::free_command_buffers(const std::span<const CommandBuffer> command_buffers) const {
+        if(command_buffers.empty()) {
+            return;
+        }
+
+        std::vector<vk::CommandBuffer> vk_command_buffers;
+        vk_command_buffers.reserve(command_buffers.size());
+        for(const auto& command_buffer : command_buffers) {
+            vk_command_buffers.emplace_back(command_buffer.get());
+        }
+
+        m_device->get().freeCommandBuffers(m_command_pool, vk_command_buffers);
+    }
 }

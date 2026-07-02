@@ -14,6 +14,11 @@ namespace Comet {
 
         ~PipelineLayout();
 
+        PipelineLayout(const PipelineLayout&) = delete;
+        PipelineLayout& operator=(const PipelineLayout&) = delete;
+        PipelineLayout(PipelineLayout&&) noexcept = delete;
+        PipelineLayout& operator=(PipelineLayout&&) noexcept = delete;
+
         [[nodiscard]] vk::PipelineLayout get() const { return m_pipeline_layout; }
 
     private:
@@ -89,7 +94,7 @@ namespace Comet {
             vk::BlendFactor::eOne,      // srcAlphaBlendFactor
             vk::BlendFactor::eZero,     // dstAlphaBlendFactor
             vk::BlendOp::eAdd,          // alphaBlendOp
-            vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG 
+            vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG
             | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA  // colorWriteMask
         };
         PipelineDynamicState dynamic_state;
@@ -122,6 +127,11 @@ namespace Comet {
                  const PipelineConfig& config);
 
         ~Pipeline();
+
+        Pipeline(const Pipeline&) = delete;
+        Pipeline& operator=(const Pipeline&) = delete;
+        Pipeline(Pipeline&&) noexcept = delete;
+        Pipeline& operator=(Pipeline&&) noexcept = delete;
 
         [[nodiscard]] vk::Pipeline get() const { return m_pipeline; }
         [[nodiscard]] const std::shared_ptr<PipelineLayout>& get_layout() const { return m_layout; }

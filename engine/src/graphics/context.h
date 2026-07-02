@@ -1,6 +1,7 @@
 #pragma once
 #include "vk_common.h"
 #include "core/window.h"
+#include "common/config.h"
 
 namespace Comet {
     struct QueueFamilyInfo {
@@ -10,7 +11,7 @@ namespace Comet {
 
     class Context {
     public:
-        explicit Context(const Window& window);
+        Context(const Window& window, const Config::Vulkan& config);
 
         Context(const Context&) = delete;
 
@@ -53,7 +54,6 @@ namespace Comet {
         QueueFamilyInfo m_graphics_queue_family;
         QueueFamilyInfo m_present_queue_family;
         vk::PhysicalDeviceMemoryProperties m_memory_properties;
+        Config::Vulkan m_config;
     };
 }
-
-

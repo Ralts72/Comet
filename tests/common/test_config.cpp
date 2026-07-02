@@ -3,88 +3,87 @@
 
 using namespace Comet;
 
-class ConfigTest : public ::testing::Test {
-protected:
-    void SetUp() override {
-        // Config 会在第一次调用时自动加载 config.yaml
-    }
-};
+namespace {
+    template<typename T>
+    concept HasPublicLoad = requires(T config) {
+        config.load();
+    };
 
-TEST_F(ConfigTest, GetIntValue) {
-    // 测试获取整数值（使用不依赖窗口尺寸的配置）
-    int msaa_samples = Config::get<int>("vulkan.msaa_samples");
-    EXPECT_EQ(msaa_samples, 4);
+    template<typename T>
+    concept HasPublicReload = requires(T config) {
+        config.reload();
+    };
 
-    int swapchain_image_count = Config::get<int>("vulkan.swapchain_image_count");
-    EXPECT_EQ(swapchain_image_count, 3);
+    template<typename T>
+    concept HasPublicGetRuntimeConfig = requires(T config) {
+        { config.get_runtime_config() } -> std::same_as<Config::Runtime>;
+    };
+
+    template<typename T>
+    concept HasPublicGet = requires(T config) {
+        { config.template get<int>("window.width") } -> std::same_as<int>;
+    };
+
+    template<typename T>
+    concept HasPublicGetWithDefault = requires(T config) {
+        { config.template get<int>("window.width", 0) } -> std::same_as<int>;
+    };
+
+    template<typename T>
+    concept HasPublicHas = requires(T config) {
+        { config.has("window.width") } -> std::same_as<bool>;
+    };
+
+    template<typename T>
+    concept HasPublicGetNode = requires(T config) {
+        config.get_node("window.width");
+    };
 }
 
-TEST_F(ConfigTest, GetBoolValue) {
-    // 测试获取布尔值
-    bool enable_validation = Config::get<bool>("debug.enable_validation");
-    EXPECT_TRUE(enable_validation);
-
-    bool resizable = Config::get<bool>("window.resizable");
-    EXPECT_TRUE(resizable);
+TEST(ConfigInterfaceTest, ExposesOnlyRuntimeConfigLoading) {
+    EXPECT_FALSE(HasPublicLoad<Config>);
+    EXPECT_FALSE(HasPublicReload<Config>);
+    EXPECT_FALSE(HasPublicGetRuntimeConfig<Config>);
+    EXPECT_FALSE(HasPublicGet<Config>);
+    EXPECT_FALSE(HasPublicGetWithDefault<Config>);
+    EXPECT_FALSE(HasPublicHas<Config>);
+    EXPECT_FALSE(HasPublicGetNode<Config>);
 }
 
-TEST_F(ConfigTest, GetStringValue) {
-    // 测试获取字符串值
-    std::string title = Config::get<std::string>("window.title");
-    EXPECT_EQ(title, "Comet Engine");
+TEST(ConfigTest, LoadRuntimeConfigParsesScalarValues) {
+    Config loader;
+    const Config::Runtime config = loader.load_runtime_config();
 
-    // 只验证日志级别存在且不为空，不验证具体值（因为是可配置的）
-    std::string log_level = Config::get<std::string>("debug.log_level");
-    EXPECT_FALSE(log_level.empty());
+    EXPECT_EQ(config.log.level, "info");
+    EXPECT_FALSE(config.log.enable_file_logging);
+
+    EXPECT_EQ(config.window.width, 720);
+    EXPECT_EQ(config.window.height, 720);
+    EXPECT_EQ(config.window.title, "Comet Engine");
+    EXPECT_FALSE(config.window.fullscreen);
+    EXPECT_TRUE(config.window.resizable);
+
+    EXPECT_EQ(config.vulkan.surface_format, 50);
+    EXPECT_EQ(config.vulkan.color_space, 0);
+    EXPECT_EQ(config.vulkan.depth_format, 126);
+    EXPECT_EQ(config.vulkan.present_mode, 0);
+    EXPECT_EQ(config.vulkan.swapchain_image_count, 3u);
+    EXPECT_EQ(config.vulkan.msaa_samples, 4);
+    EXPECT_TRUE(config.vulkan.enable_validation);
 }
 
-TEST_F(ConfigTest, GetFloatValue) {
-    // 测试获取浮点数
-    int msaa = Config::get<int>("vulkan.msaa_samples");
-    EXPECT_EQ(msaa, 4);
+TEST(ConfigTest, LoadRuntimeConfigParsesRenderValues) {
+    Config loader;
+    const Config::Runtime config = loader.load_runtime_config();
+
+    EXPECT_FALSE(config.render.enable_vsync);
+    EXPECT_FLOAT_EQ(config.render.clear_color[0], 0.2f);
+    EXPECT_FLOAT_EQ(config.render.clear_color[1], 0.4f);
+    EXPECT_FLOAT_EQ(config.render.clear_color[2], 0.1f);
+    EXPECT_FLOAT_EQ(config.render.clear_color[3], 1.0f);
 }
 
-TEST_F(ConfigTest, GetVectorValue) {
-    // 测试获取数组值
-    auto clear_color = Config::get<std::vector<float>>("render.clear_color");
-    EXPECT_EQ(clear_color.size(), 4);
-    EXPECT_FLOAT_EQ(clear_color[0], 0.2f);
-    EXPECT_FLOAT_EQ(clear_color[1], 0.4f);
-    EXPECT_FLOAT_EQ(clear_color[2], 0.1f);
-    EXPECT_FLOAT_EQ(clear_color[3], 1.0f);
-}
-
-TEST_F(ConfigTest, GetWithDefaultValue) {
-    // 测试带默认值的获取
-    int existing = Config::get<int>("vulkan.msaa_samples", 8);
-    EXPECT_EQ(existing, 4); // 应该返回配置文件中的值
-
-    int non_existing = Config::get<int>("non.existing.key", 999);
-    EXPECT_EQ(non_existing, 999); // 应该返回默认值
-}
-
-TEST_F(ConfigTest, HasKey) {
-    // 测试键是否存在
-    EXPECT_TRUE(Config::has("debug.log_level"));
-    EXPECT_TRUE(Config::has("vulkan.surface_format"));
-    EXPECT_FALSE(Config::has("non.existing.key"));
-}
-
-TEST_F(ConfigTest, NestedAccess) {
-    // 测试嵌套访问
-    int surface_format = Config::get<int>("vulkan.surface_format");
-    EXPECT_EQ(surface_format, 50);
-
-    int depth_format = Config::get<int>("vulkan.depth_format");
-    EXPECT_EQ(depth_format, 126);
-}
-
-TEST_F(ConfigTest, ThrowOnInvalidKey) {
-    // 测试不存在的键会抛出异常
-    EXPECT_THROW(Config::get<int>("invalid.key"), std::runtime_error);
-}
-
-TEST_F(ConfigTest, ThrowOnTypeMismatch) {
-    // 测试类型不匹配会抛出异常
-    EXPECT_THROW(Config::get<int>("window.title"), std::runtime_error);
+TEST(ConfigTest, LoadRuntimeConfigThrowsForMissingFile) {
+    Config loader;
+    EXPECT_THROW(loader.load_runtime_config("missing-config.yaml"), std::runtime_error);
 }

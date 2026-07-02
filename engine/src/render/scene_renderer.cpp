@@ -1,7 +1,6 @@
 #include "scene_renderer.h"
 #include "common/logger.h"
 #include "common/profiler.h"
-#include "common/config.h"
 #include "graphics/queue.h"
 #include "graphics/image_view.h"
 #include "graphics/vk_common.h"
@@ -14,20 +13,18 @@
 #include "resource_manager.h"
 
 namespace Comet {
-    SceneRenderer::SceneRenderer(RenderContext* context)
-        : m_context(context) {
-        auto swapchain_image_count = Config::get<uint32_t>("vulkan.swapchain_image_count", 3);
-
+    SceneRenderer::SceneRenderer(RenderContext* context, const Config::Vulkan& vulkan_config, const Config::Render& render_config)
+        : m_context(context), m_vulkan_config(vulkan_config), m_render_config(render_config) {
         LOG_INFO("create frame manager");
-        m_frame_manager = std::make_unique<FrameManager>(context->get_device(), swapchain_image_count);
+        m_frame_manager = std::make_unique<FrameManager>(context->get_device(), m_vulkan_config.swapchain_image_count);
     }
 
     void SceneRenderer::setup_render_pass() {
         LOG_INFO("create render pass");
 
-        const auto surface_format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 44)); // B8G8R8A8_UNORM = 44
-        const auto depth_format = static_cast<Format>(Config::get<int>("vulkan.depth_format", 126)); // D32_SFLOAT = 126
-        const auto msaa_samples = static_cast<SampleCount>(Config::get<int>("vulkan.msaa_samples", 4)); // Count4 = 4
+        const auto surface_format = static_cast<Format>(m_vulkan_config.surface_format);
+        const auto depth_format = static_cast<Format>(m_vulkan_config.depth_format);
+        const auto msaa_samples = static_cast<SampleCount>(m_vulkan_config.msaa_samples);
 
         std::vector<Attachment> attachments;
         attachments.emplace_back(Attachment::get_color_attachment(surface_format, msaa_samples));
@@ -42,7 +39,7 @@ namespace Comet {
         };
         render_sub_passes.emplace_back(render_sub_pass_0);
 
-        m_render_pass = std::make_shared<RenderPass>(m_context->get_device(), attachments, render_sub_passes);
+        m_render_pass = std::make_shared<RenderPass>(m_context->get_device(), attachments, render_sub_passes, surface_format);
 
         LOG_INFO("create render pipeline manager");
         m_pipeline_manager = std::make_unique<PipelineManager>(m_context->get_device(), m_render_pass.get());
@@ -51,13 +48,11 @@ namespace Comet {
         m_render_target = RenderTarget::create_swapchain_target(
             m_context->get_device(), m_render_pass.get(), m_context->get_swapchain());
 
-        // 从配置文件读取清除颜色
-        const auto clear_color_array = Config::get<std::vector<float>>("render.clear_color", {0.2f, 0.4f, 0.1f, 1.0f});
         const Math::Vec4 clear_color(
-            !clear_color_array.empty() ? clear_color_array[0] : 0.2f,
-            clear_color_array.size() > 1 ? clear_color_array[1] : 0.4f,
-            clear_color_array.size() > 2 ? clear_color_array[2] : 0.1f,
-            clear_color_array.size() > 3 ? clear_color_array[3] : 1.0f
+            m_render_config.clear_color[0],
+            m_render_config.clear_color[1],
+            m_render_config.clear_color[2],
+            m_render_config.clear_color[3]
         );
         m_render_target->set_clear_value(ClearValue(clear_color));
 
@@ -217,7 +212,7 @@ namespace Comet {
             return;
         }
 
-        RenderMode old_mode = m_render_mode;
+        [[maybe_unused]] const RenderMode old_mode = m_render_mode;
         m_render_mode = mode;
 
         LOG_INFO("SceneRenderer render mode changed: {} -> {}",
@@ -250,13 +245,11 @@ namespace Comet {
         m_render_target = RenderTarget::create_swapchain_target(
             m_context->get_device(), m_render_pass.get(), m_context->get_swapchain());
 
-        // 重新设置清除颜色
-        const auto clear_color_array = Config::get<std::vector<float>>("render.clear_color", {0.2f, 0.4f, 0.1f, 1.0f});
         const Math::Vec4 clear_color(
-            !clear_color_array.empty() ? clear_color_array[0] : 0.2f,
-            clear_color_array.size() > 1 ? clear_color_array[1] : 0.4f,
-            clear_color_array.size() > 2 ? clear_color_array[2] : 0.1f,
-            clear_color_array.size() > 3 ? clear_color_array[3] : 1.0f
+            m_render_config.clear_color[0],
+            m_render_config.clear_color[1],
+            m_render_config.clear_color[2],
+            m_render_config.clear_color[3]
         );
         m_render_target->set_clear_value(ClearValue(clear_color));
 
@@ -336,4 +329,3 @@ namespace Comet {
         m_context->get_device()->get().updateDescriptorSets(write_sets, {});
     }
 }
-

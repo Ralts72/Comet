@@ -3,17 +3,18 @@
 #include "common/profiler.h"
 
 namespace Comet {
-    RenderContext::RenderContext(const Window& window) {
+    RenderContext::RenderContext(const Window& window, const Config::Vulkan& vulkan_config, const Config::Render& render_config)
+        : m_vulkan_config(vulkan_config), m_render_config(render_config) {
         PROFILE_SCOPE("RenderContext::Constructor");
         LOG_INFO("init graphics system");
 
-        m_context = std::make_unique<Context>(window);
+        m_context = std::make_unique<Context>(window, m_vulkan_config);
 
         LOG_INFO("create device");
         m_device = std::make_unique<Device>(m_context.get(), 1, 1);
 
         LOG_INFO("create swapchain");
-        m_swapchain = std::make_unique<Swapchain>(m_context.get(), m_device.get());
+        m_swapchain = std::make_unique<Swapchain>(m_context.get(), m_device.get(), m_vulkan_config, m_render_config);
     }
 
     void RenderContext::wait_idle() const {

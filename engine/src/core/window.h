@@ -2,12 +2,13 @@
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include "common/config.h"
 #include "pch.h"
 
 namespace Comet {
     class Window {
     public:
-        Window(const std::string& title, int width, int height);
+        explicit Window(const Config::Window& config);
 
         ~Window();
 

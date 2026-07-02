@@ -24,7 +24,8 @@ public:
 
         m_imgui_context = std::make_unique<CometEditor::ImGuiContext>(
             get_engine()->get_window(),
-            render_context
+            render_context,
+            get_engine()->get_config().vulkan
         );
 
         // 设置日志重定向

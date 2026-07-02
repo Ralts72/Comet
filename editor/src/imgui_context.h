@@ -1,6 +1,7 @@
 #pragma once
 #include "graphics/vk_common.h"
 #include "graphics/enums.h"
+#include "common/config.h"
 
 namespace Comet {
     class RenderContext;
@@ -21,7 +22,8 @@ namespace CometEditor {
 
     class ImGuiContext {
     public:
-        ImGuiContext(const Comet::Window* window, Comet::RenderContext* render_context);
+        ImGuiContext(const Comet::Window* window, Comet::RenderContext* render_context,
+                     const Comet::Config::Vulkan& vulkan_config);
         ~ImGuiContext();
 
         ImGuiContext(const ImGuiContext&) = delete;
@@ -51,6 +53,6 @@ namespace CometEditor {
         bool m_is_recreating = false;  // 标记是否正在重建 swapchain
 
         RenderFormatInfo m_render_format_info;
+        Comet::Config::Vulkan m_vulkan_config;
     };
 }
-

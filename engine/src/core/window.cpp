@@ -1,24 +1,22 @@
 #include "window.h"
 #include "common/logger.h"
 #include "common/profiler.h"
-#include "common/config.h"
 #define GL_FALSE 0
 
 namespace Comet {
-    Window::Window(const std::string& title, const int width, const int height) : m_title(title), m_width(width), m_height(height) {
+    Window::Window(const Config::Window& config)
+        : m_title(config.title), m_width(config.width), m_height(config.height) {
         PROFILE_SCOPE("Window::Constructor");
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
 
-        const bool resizable = Config::get<bool>("window.resizable", true);
-        glfwWindowHint(GLFW_RESIZABLE, resizable ? GLFW_TRUE : GLFW_FALSE);
+        glfwWindowHint(GLFW_RESIZABLE, config.resizable ? GLFW_TRUE : GLFW_FALSE);
 
-        const bool fullscreen = Config::get<bool>("window.fullscreen", false);
         GLFWmonitor* monitor = nullptr;
-        int actual_width = width;
-        int actual_height = height;
+        int actual_width = config.width;
+        int actual_height = config.height;
 
-        if(fullscreen) {
+        if(config.fullscreen) {
             monitor = glfwGetPrimaryMonitor();
             if(monitor) {
                 // 全屏模式下使用显示器的当前视频模式分辨率
@@ -29,7 +27,7 @@ namespace Comet {
             }
         }
 
-        m_window = glfwCreateWindow(actual_width, actual_height, title.c_str(), monitor, nullptr);
+        m_window = glfwCreateWindow(actual_width, actual_height, config.title.c_str(), monitor, nullptr);
         if(!m_window) {
             LOG_ERROR("Failed to create glfw window.");
             return;
@@ -40,11 +38,11 @@ namespace Comet {
         m_height = actual_height;
 
         // 窗口模式下居中显示，全屏模式不需要
-        if(!fullscreen) {
+        if(!config.fullscreen) {
             if(GLFWmonitor* primary_monitor = glfwGetPrimaryMonitor()) {
                 int x_pos, y_pos, work_width, work_height;
                 glfwGetMonitorWorkarea(primary_monitor, &x_pos, &y_pos, &work_width, &work_height);
-                glfwSetWindowPos(m_window, work_width / 2 - width / 2, work_height / 2 - height / 2);
+                glfwSetWindowPos(m_window, work_width / 2 - config.width / 2, work_height / 2 - config.height / 2);
             }
         }
 

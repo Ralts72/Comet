@@ -15,11 +15,12 @@ namespace Comet {
         [[nodiscard]] MaterialManager* get_material_manager() const { return m_material_manager.get(); }
 
         std::shared_ptr<Texture> load_texture(const std::string& path);
-        std::shared_ptr<Mesh> create_mesh(const std::vector<Math::Vertex>& vertices, const std::vector<uint32_t>& indices);
-        
+        std::shared_ptr<Mesh> create_mesh(const std::string& name, const std::vector<Math::Vertex>& vertices,
+                                          const std::vector<uint32_t>& indices);
+
         [[nodiscard]] std::shared_ptr<Texture> get_texture(const std::string& name) const;
         [[nodiscard]] std::shared_ptr<Mesh> get_mesh(const std::string& name) const;
-        
+
     private:
         Device* m_device;
         std::unique_ptr<ShaderManager> m_shader_manager;
@@ -29,4 +30,3 @@ namespace Comet {
         std::unordered_map<std::string, std::shared_ptr<Mesh>> m_meshes;
     };
 }
-

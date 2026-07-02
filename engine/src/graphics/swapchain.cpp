@@ -2,13 +2,13 @@
 #include "context.h"
 #include "device.h"
 #include "common/logger.h"
-#include "common/config.h"
 #include "common/profiler.h"
 #include "image.h"
 #include "semaphore.h"
 
 namespace Comet {
-    Swapchain::Swapchain(Context* context, Device* device) : m_context(context), m_device(device) {
+    Swapchain::Swapchain(Context* context, Device* device, const Config::Vulkan& vulkan_config, const Config::Render& render_config)
+        : m_context(context), m_device(device), m_vulkan_config(vulkan_config), m_render_config(render_config) {
         PROFILE_SCOPE("Swapchain::Constructor");
         recreate();
     }
@@ -23,7 +23,7 @@ namespace Comet {
 
         const uint32_t min_count = m_surface_info.capabilities.minImageCount;
         const uint32_t max_count = m_surface_info.capabilities.maxImageCount;
-        auto image_count = Config::get<uint32_t>("vulkan.swapchain_image_count", 3);
+        auto image_count = m_vulkan_config.swapchain_image_count;
         if(max_count > 0) {
             image_count = std::clamp(image_count, min_count, max_count);
         } else {
@@ -80,28 +80,30 @@ namespace Comet {
     }
 
     std::pair<uint32_t, vk::Result> Swapchain::acquire_next_image(const Semaphore& semaphore) {
-        uint32_t image_index;
+        uint32_t image_index = 0;
         const auto result = m_device->get().acquireNextImageKHR(m_swapchain, UINT64_MAX,
             semaphore.get(), VK_NULL_HANDLE, &image_index);
         if(result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR) {
             m_current_index = image_index;
+        }
+        if(result == vk::Result::eSuccess
+            || result == vk::Result::eSuboptimalKHR
+            || result == vk::Result::eErrorOutOfDateKHR) {
             return std::make_pair(image_index, result);
         }
         LOG_FATAL("failed to acquire image index");
+        return std::make_pair(image_index, result);
     }
 
     void Swapchain::setup_surface_capabilities() {
         // capabilities
         m_surface_info.capabilities = m_context->get_physical_device().getSurfaceCapabilitiesKHR(m_context->get_surface());
 
-        // 从 Config 读取设置
-        const auto desired_surface_format = static_cast<Format>(Config::get<int>("vulkan.surface_format", 50));
-        const auto desired_color_space = static_cast<ImageColorSpace>(Config::get<int>("vulkan.color_space", 0));
+        const auto desired_surface_format = static_cast<Format>(m_vulkan_config.surface_format);
+        const auto desired_color_space = static_cast<ImageColorSpace>(m_vulkan_config.color_space);
 
-        // 根据 enable_vsync 配置决定 present mode
-        const bool enable_vsync = Config::get<bool>("render.enable_vsync", false);
-        auto desired_present_mode = static_cast<PresentMode>(Config::get<int>("vulkan.present_mode", 0));
-        if(enable_vsync) {
+        auto desired_present_mode = static_cast<PresentMode>(m_vulkan_config.present_mode);
+        if(m_render_config.enable_vsync) {
             // VSync 启用：使用 Fifo 模式（垂直同步，限制帧率）
             desired_present_mode = PresentMode::Fifo;
         }

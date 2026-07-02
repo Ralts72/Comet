@@ -2,49 +2,63 @@
 #include "config.h"
 
 namespace Comet {
-    Config::Config() {
+    namespace {
+        std::array<float, 4> parse_clear_color(const std::vector<float>& values) {
+            return {
+                !values.empty() ? values[0] : 0.2f,
+                values.size() > 1 ? values[1] : 0.4f,
+                values.size() > 2 ? values[2] : 0.1f,
+                values.size() > 3 ? values[3] : 1.0f
+            };
+        }
+    }
+
+    std::string Config::get_default_config_path() {
         std::filesystem::path config_path(std::string(PROJECT_ROOT_DIR));
         config_path /= "engine/assets/config.yaml";
-        load(config_path.string());
-    }
-
-    Config& Config::instance() {
-        static Config s_instance;
-        return s_instance;
-    }
-
-    void Config::reload(const std::string& config_path) {
-        auto& cfg = instance();
-        std::lock_guard<std::mutex> lock(cfg.m_mutex);
-
-        if (config_path.empty()) {
-            std::filesystem::path default_path(std::string(PROJECT_ROOT_DIR));
-            default_path /= "engine/assets/config.yaml";
-            cfg.load(default_path.string());
-        } else {
-            cfg.load(config_path);
-        }
-    }
-
-    bool Config::has(const std::string& key) {
-        const auto& cfg = instance();
-        std::lock_guard<std::mutex> lock(cfg.m_mutex);
-
-        try {
-            YAML::Node node = cfg.get_node_internal(key);
-            return node.IsDefined() && !node.IsNull();
-        } catch (...) {
-            return false;
-        }
-    }
-
-    YAML::Node Config::get_node(const std::string& key) {
-        const auto& cfg = instance();
-        std::lock_guard<std::mutex> lock(cfg.m_mutex);
-        return cfg.get_node_internal(key);
+        return config_path.string();
     }
 
     void Config::load(const std::string& config_path) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        load_from_file(config_path.empty() ? get_default_config_path() : config_path);
+    }
+
+    Config::Runtime Config::load_runtime_config(const std::string& config_path) {
+        load(config_path);
+        return get_runtime_config();
+    }
+
+    Config::Runtime Config::get_runtime_config() const {
+        Runtime config;
+
+        config.log.enable_file_logging = get<bool>("debug.enable_file_logging", config.log.enable_file_logging);
+        config.log.level = get<std::string>("debug.log_level", config.log.level);
+
+        config.window.width = get<int>("window.width", config.window.width);
+        config.window.height = get<int>("window.height", config.window.height);
+        config.window.title = get<std::string>("window.title", config.window.title);
+        config.window.fullscreen = get<bool>("window.fullscreen", config.window.fullscreen);
+        config.window.resizable = get<bool>("window.resizable", config.window.resizable);
+
+        config.vulkan.surface_format = get<int>("vulkan.surface_format", config.vulkan.surface_format);
+        config.vulkan.color_space = get<int>("vulkan.color_space", config.vulkan.color_space);
+        config.vulkan.depth_format = get<int>("vulkan.depth_format", config.vulkan.depth_format);
+        config.vulkan.present_mode = get<int>("vulkan.present_mode", config.vulkan.present_mode);
+        config.vulkan.swapchain_image_count = get<std::uint32_t>(
+            "vulkan.swapchain_image_count", config.vulkan.swapchain_image_count);
+        config.vulkan.msaa_samples = get<int>("vulkan.msaa_samples", config.vulkan.msaa_samples);
+        config.vulkan.enable_validation = get<bool>("debug.enable_validation", config.vulkan.enable_validation);
+
+        config.render.clear_color = parse_clear_color(
+            get<std::vector<float>>("render.clear_color", {0.2f, 0.4f, 0.1f, 1.0f}));
+        config.render.enable_vsync = get<bool>("render.enable_vsync", config.render.enable_vsync);
+
+        return config;
+    }
+
+    void Config::load_from_file(const std::string& config_path) {
         try {
             if (!std::filesystem::exists(config_path)) {
                 std::cerr << "[Config] Error: Config file not found: " << config_path << std::endl;

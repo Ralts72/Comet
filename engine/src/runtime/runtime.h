@@ -9,17 +9,16 @@ namespace Comet {
         virtual ~Application() = default;
 
         void start() {
-            // 1. 初始化 Config
-            Config::instance();
-
-            // 2. 初始化 Logger
-            Logger::init();
+            // 1. 加载配置文件并统一解析运行配置
+            Config config;
+            m_config = config.load_runtime_config();
+            Logger::init(m_config.log);
             LOG_INFO("Config and Logger initialized successfully");
 
-            // 3. 创建引擎
-            m_engine = std::make_unique<Engine>();
+            // 2. 创建引擎
+            m_engine = std::make_unique<Engine>(m_config);
 
-            // 4. 用户初始化代码
+            // 3. 用户初始化代码
             on_init();
 
             m_engine->register_update_callback([this](const UpdateContext dt) {
@@ -33,6 +32,7 @@ namespace Comet {
 
         void end() {
             on_shutdown();
+            m_engine.reset();
             Logger::shutdown();
         }
 
@@ -45,6 +45,7 @@ namespace Comet {
         virtual void on_shutdown() = 0;
 
     private:
+        Config::Runtime m_config;
         std::unique_ptr<Engine> m_engine;
     };
 
@@ -54,4 +55,3 @@ namespace Comet {
         app->end();
     }
 }
-

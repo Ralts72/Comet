@@ -11,7 +11,6 @@
 #include "render/render_context.h"
 #include "render/render_target.h"
 #include "common/logger.h"
-#include "common/config.h"
 #include "core/window.h"
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -20,8 +19,9 @@
 
 namespace CometEditor {
 
-    ImGuiContext::ImGuiContext(const Comet::Window* window, Comet::RenderContext* render_context)
-        : m_window(window), m_render_context(render_context) {
+    ImGuiContext::ImGuiContext(const Comet::Window* window, Comet::RenderContext* render_context,
+                               const Comet::Config::Vulkan& vulkan_config)
+        : m_window(window), m_render_context(render_context), m_vulkan_config(vulkan_config) {
         LOG_INFO("Initializing ImGui layer");
 
         IMGUI_CHECKVERSION();
@@ -46,7 +46,7 @@ namespace CometEditor {
         // 初始化缓存的格式和采样信息
         const auto swapchain = m_render_context->get_swapchain();
         m_render_format_info.color_format = swapchain->get_images()[0]->get_info().format;
-        m_render_format_info.depth_format = static_cast<Comet::Format>(Comet::Config::get<int>("vulkan.depth_format", 126));
+        m_render_format_info.depth_format = static_cast<Comet::Format>(m_vulkan_config.depth_format);
 
         create_render_pass();
 

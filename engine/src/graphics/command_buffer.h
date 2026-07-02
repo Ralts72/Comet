@@ -77,9 +77,16 @@ namespace Comet {
 
         ~CommandPool();
 
+        CommandPool(const CommandPool&) = delete;
+        CommandPool& operator=(const CommandPool&) = delete;
+        CommandPool(CommandPool&&) noexcept = delete;
+        CommandPool& operator=(CommandPool&&) noexcept = delete;
+
         [[nodiscard]] std::vector<CommandBuffer> allocate_command_buffers(uint32_t count) const;
 
         [[nodiscard]] CommandBuffer allocate_command_buffer() const;
+
+        void free_command_buffers(std::span<const CommandBuffer> command_buffers) const;
 
         [[nodiscard]] vk::CommandPool get() const { return m_command_pool; }
 

@@ -1,5 +1,6 @@
 #pragma once
 #include "vk_common.h"
+#include "common/config.h"
 
 namespace Comet {
     class Context;
@@ -16,9 +17,14 @@ namespace Comet {
 
     class Swapchain {
     public:
-        Swapchain(Context* context, Device* device);
+        Swapchain(Context* context, Device* device, const Config::Vulkan& vulkan_config, const Config::Render& render_config);
 
         ~Swapchain();
+
+        Swapchain(const Swapchain&) = delete;
+        Swapchain& operator=(const Swapchain&) = delete;
+        Swapchain(Swapchain&&) noexcept = delete;
+        Swapchain& operator=(Swapchain&&) noexcept = delete;
 
         bool recreate();
 
@@ -38,5 +44,7 @@ namespace Comet {
         std::vector<std::shared_ptr<Image>> m_images;
         SurfaceInfo m_surface_info;
         uint32_t m_current_index = -1;
+        Config::Vulkan m_vulkan_config;
+        Config::Render m_render_config;
     };
 }

@@ -18,6 +18,11 @@ namespace Comet {
         Sampler(Device* device, const SamplerDesc& desc);
         ~Sampler();
 
+        Sampler(const Sampler&) = delete;
+        Sampler& operator=(const Sampler&) = delete;
+        Sampler(Sampler&&) noexcept = delete;
+        Sampler& operator=(Sampler&&) noexcept = delete;
+
         static std::shared_ptr<Sampler> create_linear_repeat(Device* device, float max_anisotropy = 1.0f);
         static std::shared_ptr<Sampler> create_nearest_clamp(Device* device);
         static std::shared_ptr<Sampler> create_shadow_sampler(Device* device);

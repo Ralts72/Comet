@@ -12,6 +12,7 @@
 #include "graphics/sampler.h"
 #include "graphics/vertex_description.h"
 #include "common/export.h"
+#include "common/config.h"
 
 namespace Comet {
     class ResourceManager;
@@ -25,7 +26,7 @@ namespace Comet {
             GameView
         };
 
-        explicit SceneRenderer(RenderContext* context);
+        SceneRenderer(RenderContext* context, const Config::Vulkan& vulkan_config, const Config::Render& render_config);
 
         void setup_render_pass();
 
@@ -79,12 +80,13 @@ namespace Comet {
         std::shared_ptr<RenderPass> m_render_pass;
         std::unique_ptr<PipelineManager> m_pipeline_manager;
         std::unique_ptr<FrameManager> m_frame_manager;
-        std::shared_ptr<RenderTarget> m_render_target;
+        std::unique_ptr<RenderTarget> m_render_target;
         RenderMode m_render_mode = RenderMode::Runtime;
         std::shared_ptr<Pipeline> m_pipeline;
         std::shared_ptr<DescriptorPool> m_descriptor_pool;
         std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;
         std::vector<DescriptorSet> m_descriptor_sets;
+        Config::Vulkan m_vulkan_config;
+        Config::Render m_render_config;
     };
 }
-

@@ -23,8 +23,14 @@ namespace Comet {
         return texture;
     }
 
-    std::shared_ptr<Mesh> ResourceManager::create_mesh(const std::vector<Math::Vertex>& vertices, const std::vector<uint32_t>& indices) {
+    std::shared_ptr<Mesh> ResourceManager::create_mesh(const std::string& name, const std::vector<Math::Vertex>& vertices,
+                                                       const std::vector<uint32_t>& indices) {
+        if (m_meshes.contains(name)) {
+            return m_meshes.find(name)->second;
+        }
+
         auto mesh = std::make_shared<Mesh>(m_device, vertices, indices);
+        m_meshes[name] = mesh;
         return mesh;
     }
 
@@ -42,4 +48,3 @@ namespace Comet {
         return nullptr;
     }
 }
-

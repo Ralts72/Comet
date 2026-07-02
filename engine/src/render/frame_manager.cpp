@@ -27,9 +27,16 @@ namespace Comet {
     }
 
     void FrameManager::initialize_command_buffers(const uint32_t count) {
-        if (m_command_buffers.empty()) {
-            m_command_buffers = m_device->get_default_command_pool().allocate_command_buffers(count);
+        if(m_command_buffers.size() == count) {
+            return;
         }
+        if(!m_command_buffers.empty()) {
+            m_device->get_default_command_pool().free_command_buffers(m_command_buffers);
+            m_command_buffers.clear();
+        }
+        if(count == 0) {
+            return;
+        }
+        m_command_buffers = m_device->get_default_command_pool().allocate_command_buffers(count);
     }
 }
-

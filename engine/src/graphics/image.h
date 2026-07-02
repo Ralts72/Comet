@@ -15,6 +15,11 @@ namespace Comet {
     public:
         virtual ~Image() = default;
 
+        Image(const Image&) = delete;
+        Image& operator=(const Image&) = delete;
+        Image(Image&&) noexcept = delete;
+        Image& operator=(Image&&) noexcept = delete;
+
         static std::shared_ptr<Image> create(Device* device, const ImageInfo& info, SampleCount sample_count = SampleCount::Count1);
 
         static std::shared_ptr<Image> wrap(Device* device, vk::Image image, const ImageInfo& info);

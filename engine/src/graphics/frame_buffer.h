@@ -12,6 +12,11 @@ namespace Comet {
         FrameBuffer(Device* device, RenderPass* render_pass, const std::vector<std::shared_ptr<ImageView>>& image_views, uint32_t width, uint32_t height);
         ~FrameBuffer();
 
+        FrameBuffer(const FrameBuffer&) = delete;
+        FrameBuffer& operator=(const FrameBuffer&) = delete;
+        FrameBuffer(FrameBuffer&&) noexcept = delete;
+        FrameBuffer& operator=(FrameBuffer&&) noexcept = delete;
+
         bool recreate(const std::vector<std::shared_ptr<ImageView>>& image_views, uint32_t width, uint32_t height);
         [[nodiscard]] vk::Framebuffer get() const { return m_frame_buffer; }
         [[nodiscard]] uint32_t get_width() const { return m_width; }

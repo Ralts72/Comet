@@ -18,6 +18,11 @@ namespace Comet {
 
         ~Device();
 
+        Device(const Device&) = delete;
+        Device& operator=(const Device&) = delete;
+        Device(Device&&) noexcept = delete;
+        Device& operator=(Device&&) noexcept = delete;
+
         void wait_for_fences(std::span<const Fence> fences, bool wait_all = true,
                              uint64_t timeout = std::numeric_limits<uint64_t>::max()) const;
 
