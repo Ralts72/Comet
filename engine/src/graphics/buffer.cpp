@@ -3,36 +3,35 @@
 #include "device.h"
 #include "common/profiler.h"
 #include "command_context.h"
+#include "vulkan_allocator.h"
 
 namespace Comet {
     Buffer::Buffer(Device* device, const Flags<BufferUsage> usage, const size_t size, const void* data) : m_device(device), m_size(size) {}
 
     Buffer::~Buffer() {
         if(m_buffer && m_allocation) {
-            vmaDestroyBuffer(m_device->get_allocator(), static_cast<VkBuffer>(m_buffer), m_allocation);
+            get_allocator().destroy_buffer(m_buffer, m_allocation);
         }
     }
 
     std::pair<vk::Buffer, VmaAllocation> Buffer::create_buffer(const Flags<MemoryType> mem_props,
                                                                const Flags<BufferUsage> usage) const {
-        VkBufferCreateInfo buffer_create_info = {};
-        buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        vk::BufferCreateInfo buffer_create_info = {};
         buffer_create_info.size = m_size;
-        buffer_create_info.usage = static_cast<VkBufferUsageFlags>(Graphics::buffer_usage_to_vk(usage));
-        buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        buffer_create_info.usage = Graphics::buffer_usage_to_vk(usage);
+        buffer_create_info.sharingMode = vk::SharingMode::eExclusive;
+        buffer_create_info.queueFamilyIndexCount = 0;
+        buffer_create_info.pQueueFamilyIndices = nullptr;
 
-        VmaAllocationCreateInfo allocation_info = {};
-        allocation_info.requiredFlags = static_cast<VkMemoryPropertyFlags>(Graphics::memory_property_to_vk(mem_props));
+        const auto allocation = get_allocator().create_buffer(
+            buffer_create_info,
+            Graphics::memory_property_to_vk(mem_props));
 
-        VkBuffer buffer = VK_NULL_HANDLE;
-        VmaAllocation allocation = VK_NULL_HANDLE;
-        const VkResult result = vmaCreateBuffer(
-            m_device->get_allocator(), &buffer_create_info, &allocation_info, &buffer, &allocation, nullptr);
-        if(result != VK_SUCCESS) {
-            LOG_FATAL("Failed to create VMA buffer: {}", vk::to_string(static_cast<vk::Result>(result)));
-        }
+        return std::make_pair(allocation.buffer, allocation.allocation);
+    }
 
-        return std::make_pair(vk::Buffer(buffer), allocation);
+    VulkanAllocator& Buffer::get_allocator() const {
+        return m_device->get_allocator();
     }
 
     GPUBuffer::GPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data)
@@ -40,10 +39,9 @@ namespace Comet {
         PROFILE_SCOPE("Buffer::Constructor");
         auto [stage_buffer, stage_allocation] = create_buffer(Flags<MemoryType>(MemoryType::CPULocal)
                                                               | Flags<MemoryType>(MemoryType::Coherence), Flags<BufferUsage>(BufferUsage::CopySrc));
-        void* mapping = nullptr;
-        vmaMapMemory(m_device->get_allocator(), stage_allocation, &mapping);
+        void* mapping = get_allocator().map_memory(stage_allocation);
         memcpy(mapping, data, m_size);
-        vmaUnmapMemory(m_device->get_allocator(), stage_allocation);
+        get_allocator().unmap_memory(stage_allocation);
         std::tie(m_buffer, m_allocation) = create_buffer(Flags<MemoryType>(MemoryType::GPULocal),
             usage | Flags<BufferUsage>(BufferUsage::CopyDst));
 
@@ -51,7 +49,7 @@ namespace Comet {
         ctx->copy_buffer(stage_buffer, m_buffer, m_size);
         ctx->submit_and_wait();
 
-        vmaDestroyBuffer(m_device->get_allocator(), static_cast<VkBuffer>(stage_buffer), stage_allocation);
+        get_allocator().destroy_buffer(stage_buffer, stage_allocation);
     }
 
     CPUBuffer::CPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data)
@@ -78,9 +76,8 @@ namespace Comet {
             return;
         }
 
-        void* mapping = nullptr;
-        vmaMapMemory(m_device->get_allocator(), m_allocation, &mapping);
+        void* mapping = get_allocator().map_memory(m_allocation);
         std::memcpy(mapping, data, m_size);
-        vmaUnmapMemory(m_device->get_allocator(), m_allocation);
+        get_allocator().unmap_memory(m_allocation);
     }
 }

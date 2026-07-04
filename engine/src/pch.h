@@ -31,3 +31,5 @@
 #include <fstream>
 #include <filesystem>
 #include <variant>
+#include <cstdint>
+#include <stdexcept>

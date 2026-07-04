@@ -1,4 +1,4 @@
-#include "vk_common.h"
+#include <vulkan/vulkan.h>
 
 #if defined(__clang__)
 #pragma clang diagnostic push

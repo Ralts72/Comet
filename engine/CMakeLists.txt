@@ -21,7 +21,6 @@ file(GLOB SOURCES
         src/core/timer.cpp
         src/core/engine.cpp
         src/graphics/convert.cpp
-        src/graphics/vma.cpp
         src/graphics/context.cpp
         src/graphics/device.cpp
         src/graphics/queue.cpp
@@ -37,6 +36,7 @@ file(GLOB SOURCES
         src/graphics/fence.cpp
         src/graphics/semaphore.cpp
         src/graphics/vertex_description.cpp
+        src/graphics/vulkan_allocator.cpp
         src/graphics/buffer.cpp
         src/graphics/descriptor_set.cpp
         src/graphics/sampler.cpp

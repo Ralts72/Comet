@@ -3,7 +3,6 @@
 #include "common/export.h"
 #include "queue.h"
 #include "command_buffer.h"
-#include <vk_mem_alloc.h>
 
 namespace Comet {
     class Context;
@@ -13,9 +12,8 @@ namespace Comet {
     class CommandBuffer;
     class CommandContext;
     class Buffer;
-    class GPUBuffer;
-    class CPUBuffer;
     class OwnedImage;
+    class VulkanAllocator;
 
     class COMET_API Device {
     public:
@@ -24,8 +22,11 @@ namespace Comet {
         ~Device();
 
         Device(const Device&) = delete;
+
         Device& operator=(const Device&) = delete;
+
         Device(Device&&) noexcept = delete;
+
         Device& operator=(Device&&) noexcept = delete;
 
         void wait_for_fences(std::span<const Fence> fences, bool wait_all = true,
@@ -64,11 +65,9 @@ namespace Comet {
 
     private:
         friend class Buffer;
-        friend class GPUBuffer;
-        friend class CPUBuffer;
         friend class OwnedImage;
 
-        [[nodiscard]] VmaAllocator get_allocator() const { return m_allocator; }
+        [[nodiscard]] VulkanAllocator& get_allocator() const;
 
         void create_pipeline_cache();
 
@@ -77,7 +76,7 @@ namespace Comet {
         void create_allocator();
 
         vk::Device m_device;
-        VmaAllocator m_allocator = VK_NULL_HANDLE;
+        std::unique_ptr<VulkanAllocator> m_allocator;
         Context* m_context;
 
         std::vector<Queue> m_graphics_queues;

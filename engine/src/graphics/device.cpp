@@ -6,6 +6,7 @@
 #include "command_buffer.h"
 #include "command_context.h"
 #include "common/profiler.h"
+#include "vulkan_allocator.h"
 
 namespace Comet {
     static std::vector<DeviceFeature> s_required_extensions = {
@@ -91,25 +92,27 @@ namespace Comet {
     }
 
     Device::~Device() {
-        m_device.waitIdle();
+        if(m_device) {
+            m_device.waitIdle();
+        }
         m_default_command_pool.reset();
-        m_device.destroyPipelineCache(m_pipeline_cache);
-        vmaDestroyAllocator(m_allocator);
-        m_device.destroy();
+        if(m_pipeline_cache) {
+            m_device.destroyPipelineCache(m_pipeline_cache);
+        }
+        m_allocator.reset();
+        if(m_device) {
+            m_device.destroy();
+        }
     }
 
     void Device::create_allocator() {
-        VmaAllocatorCreateInfo allocator_info = {};
+        VulkanAllocator::CreateInfo allocator_info = {};
         allocator_info.instance = m_context->instance();
-        allocator_info.physicalDevice = m_context->get_physical_device();
+        allocator_info.physical_device = m_context->get_physical_device();
         allocator_info.device = m_device;
-        allocator_info.vulkanApiVersion = VK_API_VERSION_1_3;
+        allocator_info.vulkan_api_version = VK_API_VERSION_1_3;
 
-        const VkResult result = vmaCreateAllocator(&allocator_info, &m_allocator);
-        if(result != VK_SUCCESS) {
-            LOG_FATAL("Failed to create VMA allocator: {}", vk::to_string(static_cast<vk::Result>(result)));
-        }
-        LOG_INFO("VMA allocator created successfully");
+        m_allocator = std::make_unique<VulkanAllocator>(allocator_info);
     }
 
     void Device::create_default_command_pool() {
@@ -161,6 +164,14 @@ namespace Comet {
 
     std::unique_ptr<CommandContext> Device::create_command_context() {
         return std::make_unique<CommandContext>(this);
+    }
+
+    VulkanAllocator& Device::get_allocator() const {
+        if(!m_allocator) {
+            LOG_FATAL("Vulkan allocator is not initialized");
+        }
+
+        return *m_allocator;
     }
 
     void Device::create_pipeline_cache() {

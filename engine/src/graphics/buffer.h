@@ -4,6 +4,7 @@
 
 namespace Comet {
     class Device;
+    class VulkanAllocator;
 
     class Buffer {
     public:
@@ -12,8 +13,11 @@ namespace Comet {
         virtual ~Buffer();
 
         Buffer(const Buffer&) = delete;
+
         Buffer& operator=(const Buffer&) = delete;
+
         Buffer(Buffer&&) noexcept = delete;
+
         Buffer& operator=(Buffer&&) noexcept = delete;
 
         static std::shared_ptr<Buffer> create_cpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data = nullptr);
@@ -26,6 +30,8 @@ namespace Comet {
     protected:
         [[nodiscard]] std::pair<vk::Buffer, VmaAllocation> create_buffer(Flags<MemoryType> mem_props,
                                                                          Flags<BufferUsage> usage) const;
+
+        [[nodiscard]] VulkanAllocator& get_allocator() const;
 
         Device* m_device;
         vk::Buffer m_buffer = VK_NULL_HANDLE;
