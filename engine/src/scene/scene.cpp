@@ -3,6 +3,30 @@
 #include <stdexcept>
 
 namespace Comet {
+    bool Entity::is_valid() const {
+        return m_scene && m_handle != entt::null && m_scene->m_registry.valid(m_handle);
+    }
+
+    EntityId Entity::get_id() const {
+        return get_component<IDComponent>().id;
+    }
+
+    const std::string& Entity::get_name() const {
+        return get_component<NameComponent>().name;
+    }
+
+    void Entity::set_name(std::string name) {
+        get_component<NameComponent>().name = std::move(name);
+    }
+
+    bool Entity::operator==(const Entity& other) const {
+        return m_handle == other.m_handle && m_scene == other.m_scene;
+    }
+
+    bool Entity::operator!=(const Entity& other) const {
+        return !(*this == other);
+    }
+
     Entity Scene::create_entity(const std::string& name) {
         const entt::entity handle = m_registry.create();
         m_registry.emplace<IDComponent>(handle, m_next_entity_id++);
@@ -13,7 +37,7 @@ namespace Comet {
     }
 
     void Scene::destroy_entity(const Entity entity) {
-        if(!entity.is_valid()) {
+        if(!owns_entity(entity)) {
             return;
         }
 
@@ -43,7 +67,7 @@ namespace Comet {
     }
 
     void Scene::set_parent(const Entity child, const Entity parent) {
-        if(!child.is_valid() || !parent.is_valid()) {
+        if(!owns_entity(child) || !owns_entity(parent)) {
             throw std::runtime_error("Cannot set parent for invalid entity");
         }
         if(child == parent) {
@@ -62,14 +86,14 @@ namespace Comet {
     }
 
     void Scene::clear_parent(const Entity child) {
-        if(!child.is_valid()) {
+        if(!owns_entity(child)) {
             return;
         }
         remove_from_parent(child.get_handle());
     }
 
     Entity Scene::get_parent(const Entity child) {
-        if(!child.is_valid()) {
+        if(!owns_entity(child)) {
             return {};
         }
 
@@ -82,7 +106,7 @@ namespace Comet {
 
     std::vector<Entity> Scene::get_children(const Entity parent) {
         std::vector<Entity> children;
-        if(!parent.is_valid()) {
+        if(!owns_entity(parent)) {
             return children;
         }
 
@@ -110,7 +134,17 @@ namespace Comet {
         if(handle == entt::null || !m_registry.valid(handle)) {
             return {};
         }
-        return Entity(handle, this, &m_registry);
+        return Entity(handle, this);
+    }
+
+    bool Scene::owns_entity(const Entity entity) const {
+        return entity.m_scene == this && entity.m_handle != entt::null && m_registry.valid(entity.m_handle);
+    }
+
+    void Scene::ensure_entity_valid(const Entity entity) const {
+        if(!owns_entity(entity)) {
+            throw std::runtime_error("Entity handle is invalid");
+        }
     }
 
     bool Scene::would_create_cycle(const entt::entity child, entt::entity parent) const {

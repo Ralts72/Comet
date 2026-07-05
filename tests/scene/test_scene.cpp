@@ -2,8 +2,12 @@
 #include "scene/components.h"
 #include "scene/scene.h"
 #include "../test_utils.h"
+#include <type_traits>
 
 namespace Comet::Tests {
+
+static_assert(!std::is_constructible_v<Entity, entt::entity, Scene*, entt::registry*>,
+              "Entity construction must not expose the Scene registry");
 
 TEST(SceneTest, CreateEntityAddsDefaultComponents) {
     Scene scene;
