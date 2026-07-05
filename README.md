@@ -5,7 +5,7 @@ GoogleTest 测试基础。
 
 ## 项目结构
 
-- `engine/`：引擎核心库，包含 `core/`、`graphics/`、`render/`、`runtime/` 和 `common/` 模块。
+- `engine/`：引擎核心库，包含 `core/`、`graphics/`、`render/`、`runtime/`、`scene/` 和 `common/` 模块。
 - `editor/`：ImGui 编辑器入口和面板，包括层级、检查器、项目、视图和日志窗口。
 - `app/`：运行时示例程序入口。
 - `tests/`：GoogleTest 测试，覆盖数学、配置、导出和基础集成行为。
@@ -61,6 +61,7 @@ ctest --test-dir build --output-on-failure
 主配置文件位于 `engine/assets/config.yaml`。运行入口在 `engine/src/runtime/runtime.h` 中创建局部 `Config` 对象，调用
 `config.load_runtime_config()` 将 YAML 解析为 `Config::Runtime`，再把窗口、Vulkan、渲染和日志配置传入对应模块；`Config`
 对外只作为运行时配置加载入口，底层渲染资源不直接读取原始配置。Vulkan 内存分配由 `engine/src/graphics/vk_allocator.h`
-封装，`Device` 独占持有 allocator，`Buffer` 和 `Image` 只通过该封装创建、映射和释放 VMA 资源。关闭时先释放引擎资源，再关闭日志系统。Shader
+封装，`Device` 独占持有 allocator，`Buffer` 和 `Image` 只通过该封装创建、映射和释放 VMA 资源。`engine/src/scene/`
+提供基于 EnTT 的 Scene/Entity 和基础组件数据模型。关闭时先释放引擎资源，再关闭日志系统。Shader
 源文件位于 `engine/assets/shaders/glsl/`，构建时由 CMake 调用 `glslangValidator`
 编译。贡献者和智能体协作规范见 [AGENTS.md](./AGENTS.md)。
