@@ -3,7 +3,7 @@
 #include "device.h"
 #include "common/profiler.h"
 #include "command_context.h"
-#include "vulkan_allocator.h"
+#include "vk_allocator.h"
 
 namespace Comet {
     Buffer::Buffer(Device* device, const Flags<BufferUsage> usage, const size_t size, const void* data) : m_device(device), m_size(size) {}

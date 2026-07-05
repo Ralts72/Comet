@@ -16,7 +16,7 @@
 #include "graphics/semaphore.h"
 #include "graphics/shader.h"
 #include "graphics/swapchain.h"
-#include "graphics/vulkan_allocator.h"
+#include "graphics/vk_allocator.h"
 
 using namespace Comet;
 

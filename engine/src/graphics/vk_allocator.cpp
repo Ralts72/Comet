@@ -1,4 +1,4 @@
-#include "vulkan_allocator.h"
+#include "vk_allocator.h"
 #include "common/logger.h"
 
 namespace Comet {

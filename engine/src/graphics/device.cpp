@@ -6,7 +6,7 @@
 #include "command_buffer.h"
 #include "command_context.h"
 #include "common/profiler.h"
-#include "vulkan_allocator.h"
+#include "vk_allocator.h"
 
 namespace Comet {
     static std::vector<DeviceFeature> s_required_extensions = {

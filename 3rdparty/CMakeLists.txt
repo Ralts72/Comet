@@ -41,3 +41,6 @@ add_subdirectory(yaml-cpp)
 
 # Vulkan Memory Allocator
 add_subdirectory(VulkanMemoryAllocator)
+
+# EnTT
+add_subdirectory(entt)

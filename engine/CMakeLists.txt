@@ -36,7 +36,7 @@ file(GLOB SOURCES
         src/graphics/fence.cpp
         src/graphics/semaphore.cpp
         src/graphics/vertex_description.cpp
-        src/graphics/vulkan_allocator.cpp
+        src/graphics/vk_allocator.cpp
         src/graphics/buffer.cpp
         src/graphics/descriptor_set.cpp
         src/graphics/sampler.cpp
@@ -54,7 +54,7 @@ file(GLOB SOURCES
 find_package(Vulkan REQUIRED)
 add_library(engine SHARED ${SOURCES})
 add_dependencies(engine ${SHADER_COMPILE_TARGET})
-target_link_libraries(engine PUBLIC spdlog::spdlog glm ${Vulkan_LIBRARIES} stb_image glfw yaml-cpp GPUOpen::VulkanMemoryAllocator)
+target_link_libraries(engine PUBLIC spdlog::spdlog glm ${Vulkan_LIBRARIES} stb_image glfw yaml-cpp GPUOpen::VulkanMemoryAllocator EnTT::EnTT)
 target_include_directories(engine
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src

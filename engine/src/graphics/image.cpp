@@ -1,7 +1,7 @@
 #include "image.h"
 #include "device.h"
 #include "common/logger.h"
-#include "vulkan_allocator.h"
+#include "vk_allocator.h"
 
 namespace Comet {
     std::shared_ptr<Image> Image::create(Device* device, const ImageInfo& info, SampleCount sample_count) {

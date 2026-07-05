@@ -6,13 +6,14 @@ Comet is a C++20 CMake project. `engine/` builds the shared `engine` library and
 render, and common utilities under `engine/src/`. Runtime assets live in `engine/assets/`, including YAML config,
 textures, and GLSL shaders. `app/` builds the sample runtime executable from `app/main.cpp`. `editor/` builds the ImGui
 editor and keeps panels in `editor/src/panels/`. `tests/` builds the `unit_testing` GoogleTest target. `3rdparty/`
-contains third-party dependencies; most are submodules, while `3rdparty/VulkanMemoryAllocator/` is vendored source.
+contains third-party dependencies; most are submodules, while `3rdparty/VulkanMemoryAllocator/` and `3rdparty/entt/`
+are vendored source. EnTT is vendored as a single header under `3rdparty/entt/entt.hpp`.
 Avoid editing third-party code unless updating a dependency.
 
 ## Build, Test, and Development Commands
 
-- `git submodule update --init --recursive`: fetch submodule dependencies; Vulkan Memory Allocator is already vendored
-  under `3rdparty/VulkanMemoryAllocator/`.
+- `git submodule update --init --recursive`: fetch submodule dependencies; Vulkan Memory Allocator and EnTT are already
+  vendored under `3rdparty/VulkanMemoryAllocator/` and `3rdparty/entt/`.
 - `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`: configure a release build.
 - `cmake --build build --parallel`: build all targets, including `engine`, `app`, `editor`, and tests.
 - `ctest --test-dir build --output-on-failure`: run discovered GoogleTest tests.
