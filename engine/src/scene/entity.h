@@ -1,6 +1,7 @@
 #pragma once
 #include "common/export.h"
 #include "scene/components.h"
+#include <entt.hpp>
 
 namespace Comet {
     class Scene;
@@ -9,41 +10,37 @@ namespace Comet {
     public:
         Entity() = default;
 
-        [[nodiscard]] bool is_valid() const;
-
         [[nodiscard]] EntityId get_id() const;
-
-        [[nodiscard]] const std::string& get_name() const;
-
-        void set_name(std::string name);
 
         template<typename T, typename... Args>
         T& add_component(Args&&... args);
 
         template<typename T>
+        T& get_component();
+
+        template<typename T>
         [[nodiscard]] bool has_component() const;
 
         template<typename T>
-        T& get_component() const;
+        const T& get_component() const;
 
         template<typename T>
         void remove_component();
 
-        [[nodiscard]] Scene* get_scene() const { return m_scene; }
+        [[nodiscard]] explicit operator bool() const;
 
-        [[nodiscard]] entt::entity get_handle() const { return m_handle; }
+        [[nodiscard]] bool operator==(const Entity& other) const {
+            return m_handle == other.m_handle && m_scene == other.m_scene;
+        }
 
-        [[nodiscard]] explicit operator bool() const { return is_valid(); }
-
-        [[nodiscard]] bool operator==(const Entity& other) const;
-
-        [[nodiscard]] bool operator!=(const Entity& other) const;
+        [[nodiscard]] bool operator!=(const Entity& other) const {
+            return !(*this == other);
+        }
 
     private:
         friend class Scene;
 
-        Entity(entt::entity handle, Scene* scene)
-            : m_handle(handle), m_scene(scene) {}
+        Entity(entt::entity handle, Scene* scene);
 
         entt::entity m_handle = entt::null;
         Scene* m_scene = nullptr;

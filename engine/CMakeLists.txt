@@ -49,6 +49,7 @@ file(GLOB SOURCES
         src/render/resource_manager.cpp
         src/render/frame_manager.cpp
         src/render/material.cpp
+        src/scene/entity.cpp
         src/scene/scene.cpp
 )
 
