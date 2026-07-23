@@ -111,11 +111,12 @@ namespace Comet {
         m_model_matrix.model = Math::rotate(Math::Mat4(1.0f), Math::radians(-17.0f), Math::Vec3(1.0f, 0.0f, 0.0f));
         m_model_matrix.model = Math::rotate(m_model_matrix.model, Math::radians(total_time * 100.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
 
-        auto swapchain = m_render_context->get_swapchain();
-        m_view_project_matrix.view = Math::look_at(Math::Vec3(0.0f, 0.0f, 30.5f),
-            Math::Vec3(0.0f, 0.0f, -10.0f),
+        const auto swapchain = m_render_context->get_swapchain();
+        m_view_project_matrix.view = Math::look_at(
+            Math::Vec3(0.0f, 0.0f, 3.0f),
+            Math::Vec3(0.0f, 0.0f, 0.0f),
             Math::Vec3(0.0f, 1.0f, 0.0f));
-        m_view_project_matrix.projection = Math::perspective(Math::radians(45.0f),
+        m_view_project_matrix.projection = Math::perspective(45.0f,
             static_cast<float>(swapchain->get_width()) / static_cast<float>(swapchain->get_height()), 0.1f, 100.0f);
     }
 

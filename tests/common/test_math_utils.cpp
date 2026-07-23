@@ -108,13 +108,15 @@ TEST_F(MathUtilsTest, RotationMatrix) {
 
 TEST_F(MathUtilsTest, ProjectionMatrices) {
     // 测试透视投影矩阵
-    float fov = 45.0f;
+    float fov_degrees = 45.0f;
     float aspect = 16.0f / 9.0f;
     float nearZ = 0.1f;
     float farZ = 100.0f;
 
-    Math::Mat4 perspMat = Math::perspective(fov, aspect, nearZ, farZ);
+    Math::Mat4 perspMat = Math::perspective(fov_degrees, aspect, nearZ, farZ);
+    Math::Mat4 expectedPerspMat = glm::perspective(glm::radians(fov_degrees), aspect, nearZ, farZ);
     EXPECT_FALSE(perspMat == Math::Mat4(0.0f)); // 确保矩阵不为零
+    EXPECT_TRUE(perspMat == expectedPerspMat); // FOV 接口统一使用角度
 
     // 测试正交投影矩阵
     Math::Mat4 orthoMat = Math::ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 100.0f);

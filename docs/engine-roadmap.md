@@ -1,6 +1,8 @@
 # Comet 引擎长期开发路线图
 
-生成日期：2026-07-05
+首次生成：2026-07-05
+
+最近更新：2026-07-23
 
 ## 目标定位
 
@@ -19,34 +21,43 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 - 渲染层已有 `Renderer`、`RenderContext`、`SceneRenderer`、`FrameManager`、`RenderTarget`、`Mesh`、`Texture`、`Material`、`ResourceManager` 等雏形。
 - Shader 构建链路已经接入 CMake，通过 `glslangValidator` 将 GLSL 编译并生成头文件。
 - 编辑器已有 ImGui Docking 基础和几个典型面板：Hierarchy、Inspector、Project、SceneView、GameView、Log。
-- 测试基础已经存在，覆盖数学、配置、导出、日志、GLFW 初始化、Vulkan RAII 拥有关系等基础行为。
-- EnTT 已经作为依赖接入，具备进一步建设 ECS/Scene 的基础。
+- 测试基础已经存在，覆盖数学、配置、导出、日志、GLFW 初始化、Vulkan RAII 拥有关系和 Scene/ECS 基础行为。
+- EnTT 已经作为依赖接入，`Scene`、`Entity` 以及 ID、名称、局部 Transform、MeshRenderer、Camera 等基础组件已经落地。
+- Scene/ECS MVP 内核已覆盖实体创建、删除、查询、遍历和通用组件增删查。
 
 ### 当前主要形态
 
-目前 Comet 更接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**。底层图形资源封装在快速推进，但引擎核心数据模型还没有真正建立。
+目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但已经建立了 Scene/ECS 数据模型内核。当前主要矛盾已经从“没有场景数据”转变为“场景数据尚未接入渲染和编辑器工作流”。
 
 最明显的信号是：
 
 - `Renderer` 中仍然直接持有 demo 用的 uniform buffer、texture、mesh 和模型矩阵。
 - `SceneRenderer` 目前主要服务固定 cube pipeline，而不是遍历真实 Scene 数据。
+- Scene 已能管理实体和基础组件，但目前只有运行期自增 `EntityId` 和局部 TRS，还没有持久化 UUID、父子关系与世界矩阵。
 - 编辑器面板显示的是示例对象和占位资产，Hierarchy/Inspector/Project 尚未绑定实际项目数据。
 - Material/ResourceManager 已有接口，但还没有资产数据库、序列化、导入器、热重载和编辑器检查器闭环。
-- EnTT 已链接，但实体、组件、场景、系统调度仍未落地。
+- Scene Update、Render Submit 和运行时 System 调度的边界仍未落地。
 
 ## 距离成熟编辑器型引擎的核心缺口
 
 ### 1. 场景与实体组件模型
 
-成熟编辑器引擎首先需要一个可保存、可加载、可编辑、可运行的 Scene 数据模型。当前缺少：
+Scene/ECS MVP 内核已经完成：
 
-- `Scene`、`Entity`、`TransformComponent`、`NameComponent`、`MeshRendererComponent`、`CameraComponent`、`LightComponent` 等基础类型。
-- 基于 EnTT 的组件注册、创建、删除、查询和遍历。
-- 父子层级关系、局部/世界变换更新、实体生命周期管理。
-- Scene Update 和 Render Submit 的边界。
-- Scene 和 Editor Selection 的稳定对象 ID。
+- `Scene`、`Entity`、`IdComponent`、`NameComponent`、`TransformComponent`、`MeshRendererComponent` 和 `CameraComponent`。
+- 基于 EnTT 的实体创建、删除、查询、遍历和通用组件访问。
+- Scene 独占 registry，Entity 仅通过所属 Scene 访问组件。
+- 对应的纯逻辑单元测试。
 
-这是 Comet 从 demo 渲染器变成游戏引擎的第一道门。
+接下来仍缺少：
+
+- Scene 到 Render Scene / Render Item 的提取边界。
+- 父子层级关系、局部/世界变换更新。
+- 运行时自增 `EntityId` 与持久化实体 UUID 的明确区分。
+- Active Scene 的所有权、更新生命周期和运行时 System 调度。
+- Scene 与 Editor Selection 的稳定连接。
+
+Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环，Comet 才真正跨过从 demo 渲染器到游戏引擎的第一道门。
 
 ### 2. 序列化与项目格式
 
@@ -154,7 +165,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 2. 先打通编辑器闭环，再追求复杂渲染。
 3. 每个阶段都交付一个可运行 demo。
 4. 运行时和编辑器共享同一套项目数据，但保持职责边界。
-5. 所有核心对象都要有稳定 ID，避免后期资产引用和 Undo/Redo 重做。
+5. 区分运行时 `EntityId`、持久化 Entity UUID 和资产 GUID，避免后期资产引用、序列化和 Undo/Redo 重做。
 6. 渲染器只消费场景提交结果，不继续持有应用层 demo 状态。
 7. 优先建设可测试的纯逻辑模块，把 Vulkan 相关测试控制在少量集成测试中。
 
@@ -163,6 +174,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 ### 阶段 0：基线收束
 
 目标：把当前 demo 状态整理成可继续演进的稳定基线。
+
+当前状态：部分完成，剩余的渲染职责和所有权整理与阶段 1 并行推进。
 
 建议任务：
 
@@ -179,31 +192,55 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 - README 与实际依赖、构建命令保持一致。
 - 关键资源释放顺序清晰，无明显 Vulkan validation error。
 
-### 阶段 1：Scene/ECS MVP
+### 阶段 1：Scene/ECS 与渲染提交 MVP
 
 目标：建立真实场景数据模型，让引擎能从 Scene 渲染对象，而不是从 `Renderer` 内部硬编码对象。
 
-建议任务：
+当前状态：阶段 1A 已完成，阶段 1B 是下一项工作。
+
+#### 阶段 1A：Scene/ECS Core（已完成）
 
 - 新增 `engine/src/scene/` 模块。
 - 基于 EnTT 实现 `Scene`、`Entity` 包装类型。
-- 实现基础组件：
-  - `IDComponent`
-  - `NameComponent`
-  - `TransformComponent`
-  - `MeshRendererComponent`
-  - `CameraComponent`
-  - `LightComponent`
-- 实现 Transform 层级和世界矩阵更新。
-- 修改渲染路径，让 `SceneRenderer` 接收由 Scene 提交的 render items。
-- app 示例从代码创建一个 Scene，并渲染 cube。
+- 实现 `IdComponent`、`NameComponent`、`TransformComponent`、`MeshRendererComponent` 和 `CameraComponent`。
+- 实现实体验证、创建、删除、按 ID 查询、遍历和通用组件操作。
+- 使用单元测试约束 Entity 不公开 registry、原始 EnTT handle 和所属 Scene。
+
+#### 阶段 1B：Scene Render Submission（下一步）
+
+- 定义最小 `RenderScene` / `RenderItem`，至少包含实体 ID、模型矩阵、mesh key 和 material key。
+- 实现局部 TRS 到模型矩阵的转换，明确 Euler 旋转顺序和角度单位。
+- 新增 Scene Render Extractor，提取具有 Transform 与 MeshRenderer 的实体；Scene 组件不持有 GPU 资源。
+- 让运行时层持有 Active Scene，由 app 创建 demo Scene 和 cube entity。
+- 让 `Renderer` 只消费场景提交结果，并让 `SceneRenderer` 遍历 render items。
+- 接入主 `CameraComponent` 驱动 view/projection；Camera FOV 统一使用角度。
+- 每个 draw 的模型矩阵优先使用 push constant，避免单一 model uniform buffer 阻碍多对象渲染。
+- 删除 `Renderer` 内部硬编码的 cube mesh、旋转逻辑和固定相机业务状态。
+
+#### 阶段 1C：编辑器基础数据闭环
+
+- Hierarchy 从真实 Scene 读取实体，先支持平铺列表，不提前实现伪层级。
+- 建立 Selection 服务，以实体 ID 连接 Hierarchy、Inspector 和 SceneView。
+- Inspector 直接读写 Name 与 Transform，并让修改立即反映到渲染结果。
+- 支持创建、删除和重命名实体的最小编辑流程。
+
+#### 阶段 1D：Transform 层级
+
+- 新增父子关系组件和循环依赖保护。
+- 实现局部矩阵、世界矩阵及脏标记更新。
+- Hierarchy 显示真实父子树，支持最小 reparent 操作。
+- 补充父子变换、销毁父节点和非法层级的单元测试。
+
+`LightComponent` 延后到阶段 5，在基础 Forward Lighting 真正消费它时再加入，避免只存在类型却没有运行路径。
 
 验收标准：
 
 - demo cube 不再由 `Renderer` 内部硬编码创建。
+- 一个 Scene 可以提交并绘制多个 render items。
+- 场景主 Camera 驱动 view/projection，FOV 单位明确且有测试保护。
 - Hierarchy 可以从真实 Scene 读取实体名称。
 - Inspector 至少可以编辑选中实体的 Transform。
-- 单元测试覆盖实体创建、删除、组件添加、Transform 计算。
+- 单元测试覆盖实体生命周期、组件操作、RenderItem 提取和 Transform 计算。
 
 ### 阶段 2：场景序列化与编辑器闭环
 
@@ -211,18 +248,18 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 建议任务：
 
+- 引入持久化 Entity UUID，并与运行时 `EntityId` 区分。
+- 定义最小资产引用标识；Asset Database 完成前允许保留可迁移的路径回退。
 - 定义 `.scene` YAML 格式。
 - 实现场景保存和加载。
 - 菜单 New/Open/Save Scene 接入真实逻辑。
 - Hierarchy 支持创建、删除、重命名实体。
-- Inspector 支持编辑 Transform、MeshRenderer、Camera、Light。
-- 引入稳定 UUID/GUID，保存实体和资产引用。
-- 建立编辑器 Selection 服务，避免各面板直接传字符串。
+- Inspector 支持编辑 Transform、MeshRenderer 和 Camera。
 - 实现 Play/Edit 模式的最小切换。
 
 验收标准：
 
-- 在编辑器中新建场景，创建 cube/camera/light，保存后重启可以恢复。
+- 在编辑器中新建场景，创建 cube/camera，保存后重启可以恢复。
 - Inspector 修改 Transform 后，SceneView 立即反映。
 - Scene 文件可读、可 diff、可手动排查。
 - 场景序列化有单元测试。
@@ -283,7 +320,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 建议任务：
 
 - 抽象 RenderGraph 或轻量 RenderPass Pipeline。
-- 建立 Render Queue，支持多 mesh、多 material、多 camera。
+- 扩展阶段 1 的基础 Render Queue，支持多 mesh、多 material、多 camera、排序和批处理。
+- 新增 `LightComponent`，并接入真实 Forward Lighting 提交流程。
 - 基础光照模型：方向光、点光、聚光灯。
 - Shadow Map。
 - PBR 材质基础：base color、normal、metallic、roughness。
@@ -347,11 +385,12 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 近期最应该做：
 
-1. Scene/ECS MVP。
-2. Transform、MeshRenderer、Camera、Light 基础组件。
-3. Renderer 从硬编码 demo 状态迁移到 Scene 提交。
-4. Hierarchy/Inspector 绑定真实 Scene。
-5. `.scene` 序列化。
+1. 完成 Scene 到 RenderItem 的提取和渲染提交。
+2. 让主 CameraComponent 驱动 view/projection。
+3. 从 `Renderer` 移除硬编码 demo mesh、模型矩阵和相机状态。
+4. Hierarchy、Selection、Inspector 绑定真实 Scene。
+5. 完成 Transform 父子层级和世界矩阵。
+6. 引入持久化 Entity UUID，再开始 `.scene` 序列化。
 
 暂时不要急着做：
 
@@ -361,22 +400,26 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 4. 多平台打包。
 5. 大规模材质图/节点编辑器。
 
-原因很简单：没有 Scene、Asset、Editor 数据闭环，后面的系统都会缺少落点。
+原因很简单：Scene 内核已经存在，但还没有连接渲染、编辑器和持久化。先完成这条纵向链路，后面的 Asset、Play 模式和复杂渲染才有稳定落点。
 
 ## 12 个月建议里程碑
 
+以下时间按一名全职开发者或小团队持续投入估算。兼职开发应保留里程碑顺序，不强行套用月份。
+
 ### 第 1-2 个月
 
-- 完成 Scene/ECS MVP。
-- 完成基础组件。
-- Renderer 改为渲染 Scene。
-- 编辑器显示真实实体树和 Transform。
+- 完成 Scene Render Submission。
+- Renderer 改为消费 RenderScene/RenderItem。
+- 主 Camera 驱动渲染。
+- 编辑器显示真实实体和 Transform。
+- 完成基础父子层级与世界矩阵。
 
 ### 第 3-4 个月
 
+- 引入持久化 Entity UUID。
 - 完成 `.scene` 保存/加载。
 - 完成 New/Open/Save Scene。
-- Inspector 支持 MeshRenderer、Camera、Light。
+- Inspector 支持 MeshRenderer 和 Camera。
 - SceneView/GameView 区分 editor camera 和 game camera。
 
 ### 第 5-6 个月
@@ -394,8 +437,9 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 ### 第 9-10 个月
 
-- 渲染升级到多对象、多材质、多光源。
+- 渲染升级到多材质、多光源、排序和批处理。
 - 初步 PBR、Shadow、Post-process。
+- Inspector 支持 Light 和实时光照参数。
 - 材质参数在 Inspector 中实时编辑。
 
 ### 第 11-12 个月
@@ -413,7 +457,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 | Vulkan 基础封装 | 中 | 高 | 中 |
 | 内存管理/VMA | 中低 | 高 | 中 |
 | 渲染管线 | 低中 | 高 | 高 |
-| Scene/ECS | 低 | 高 | 最高 |
+| Scene/ECS | 低中 | 高 | 最高 |
 | 序列化 | 低 | 高 | 最高 |
 | Asset Database | 低 | 高 | 高 |
 | Editor UI | 低中 | 高 | 高 |
@@ -428,13 +472,21 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 ## 下一步建议
 
-下一步建议开一个专门分支做 **Scene/ECS MVP**。这个任务是后续所有编辑器和运行时能力的地基，范围可以控制在：
+下一步应完成 **阶段 1B：Scene Render Submission**，并在同一项工作中接入真实调用方，避免留下暂时无人使用的抽象。
 
-- 新增 `engine/src/scene/`。
-- 接入 EnTT registry。
-- 实现 Scene/Entity/基础组件。
-- 让 app 或 editor 创建一个真实 Scene。
-- 让 Renderer 渲染 Scene 中的 MeshRenderer。
-- 让 Hierarchy/Inspector 读写真实实体。
+建议的职责边界：
 
-这个阶段完成后，Comet 的性质会从“渲染 demo + 编辑器壳”转向“真正有场景数据的编辑器型引擎”。后面的资产系统、序列化、Play 模式和渲染升级都会有稳定落点。
+- Engine/运行时层持有 Active Scene，app 和 editor 负责创建或修改场景内容。
+- Scene 只拥有实体和可序列化组件，不依赖 Mesh、Texture、Buffer 等 GPU 对象。
+- Scene Render Extractor 把 Transform、MeshRenderer、Camera 转换为只读的 RenderScene。
+- Renderer 负责解析资源 key 并消费 RenderScene，SceneRenderer 只执行具体绘制。
+
+本项工作的最小范围：
+
+1. 定义 `RenderItem` 和局部 TRS 模型矩阵计算。
+2. 提取所有可渲染实体，并为缺失 mesh/material 提供可诊断的跳过策略。
+3. 让 SceneRenderer 遍历 items；模型矩阵使用每 draw push constant。
+4. app 创建 Scene、Camera 和 cube entity，Renderer 不再创建 demo cube。
+5. 单元测试覆盖提取过滤、字段映射、TRS、FOV 单位和无效资源。
+
+验收时至少使用两个不同 Transform 的实体，确保实现不是“把单 cube 接口换了个名字”。完成后再进入阶段 1C，连接 Hierarchy、Selection 和 Inspector。

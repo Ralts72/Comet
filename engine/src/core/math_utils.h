@@ -56,8 +56,8 @@ namespace Comet::Math {
         return glm::rotate(mat4, radians, axis);
     }
 
-    inline Mat4 perspective(float fovY, float aspect, float nearZ, float farZ) {
-        return glm::perspective(glm::radians(fovY), aspect, nearZ, farZ);
+    inline Mat4 perspective(float fov_degrees, float aspect, float nearZ, float farZ) {
+        return glm::perspective(glm::radians(fov_degrees), aspect, nearZ, farZ);
     }
 
     inline Mat4 ortho(float left, float right, float bottom, float top, float nearZ, float farZ) {
@@ -90,4 +90,3 @@ namespace Comet::Math {
         Vec3 normal;
     };
 }
-
