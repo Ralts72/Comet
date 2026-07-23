@@ -159,9 +159,7 @@ namespace Comet {
 
     class COMET_API MaterialManager {
     public:
-        MaterialManager(Device* device, ShaderManager* shader_manager, SamplerManager* sampler_manager);
-
-        ~MaterialManager() = default;
+        MaterialManager() = default;
 
         std::shared_ptr<Material> create_material(const std::string& name, const MaterialConfig& config);
 

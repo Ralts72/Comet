@@ -3,6 +3,9 @@
 
 namespace Comet {
     ResourceManager::ResourceManager(Device* device) : m_device(device) {
+        if(!device) {
+            LOG_FATAL("ResourceManager requires a valid Device");
+        }
         LOG_INFO("create shader manager");
         m_shader_manager = std::make_unique<ShaderManager>(device);
         
@@ -10,8 +13,10 @@ namespace Comet {
         m_sampler_manager = std::make_unique<SamplerManager>(device);
 
         LOG_INFO("create material manager");
-        m_material_manager = std::make_unique<MaterialManager>(device, m_shader_manager.get(), m_sampler_manager.get());
+        m_material_manager = std::make_unique<MaterialManager>();
     }
+
+    ResourceManager::~ResourceManager() = default;
 
     std::shared_ptr<Texture> ResourceManager::load_texture(const std::string& path) {
         if (m_textures.contains(path)) {

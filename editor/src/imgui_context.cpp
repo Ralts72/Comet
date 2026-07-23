@@ -94,6 +94,11 @@ namespace CometEditor {
     void ImGuiContext::init_vulkan() {
         const auto* context = m_render_context->get_context();
         auto* device = m_render_context->get_device();
+        const auto swapchain = m_render_context->get_swapchain();
+        m_backend_image_count = static_cast<uint32_t>(swapchain->get_images().size());
+        if(m_backend_image_count < 2) {
+            LOG_FATAL("ImGui Vulkan backend requires at least two swapchain images");
+        }
 
         // 使用自定义的 DescriptorPool
         Comet::DescriptorPoolSizes pool_sizes;
@@ -110,8 +115,8 @@ namespace CometEditor {
         init_info.QueueFamily = context->get_graphics_queue_family().queue_family_index.value();
         init_info.Queue = device->get_graphics_queue(0).get();
         init_info.DescriptorPool = m_descriptor_pool->get();
-        init_info.MinImageCount = 2;
-        init_info.ImageCount = 2;
+        init_info.MinImageCount = m_backend_image_count;
+        init_info.ImageCount = m_backend_image_count;
         init_info.PipelineInfoMain.RenderPass = m_render_pass->get();
         init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 
@@ -220,6 +225,13 @@ namespace CometEditor {
 
         // 重建render target
         m_render_target->recreate();
+        const uint32_t image_count = static_cast<uint32_t>(
+            m_render_context->get_swapchain()->get_images().size());
+        if(image_count != m_backend_image_count) {
+            ImGui_ImplVulkan_Shutdown();
+            m_descriptor_pool.reset();
+            init_vulkan();
+        }
         // 重建完成，恢复 ImGui 更新
         m_is_recreating = false;
 

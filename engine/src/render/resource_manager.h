@@ -1,4 +1,5 @@
 #pragma once
+#include "common/export.h"
 #include "graphics/shader.h"
 #include "graphics/sampler.h"
 #include "material.h"
@@ -6,9 +7,10 @@
 #include "mesh.h"
 
 namespace Comet {
-    class ResourceManager {
+    class COMET_API ResourceManager {
     public:
         explicit ResourceManager(Device* device);
+        ~ResourceManager();
         
         [[nodiscard]] ShaderManager* get_shader_manager() const { return m_shader_manager.get(); }
         [[nodiscard]] SamplerManager* get_sampler_manager() const { return m_sampler_manager.get(); }

@@ -57,7 +57,11 @@ namespace Comet {
     // ====================== MaterialInstance ======================
 
     MaterialInstance::MaterialInstance(std::shared_ptr<Material> material)
-        : m_material(std::move(material)) {}
+        : m_material(std::move(material)) {
+        if(!m_material) {
+            LOG_FATAL("MaterialInstance requires a valid Material");
+        }
+    }
 
     void MaterialInstance::set_property(const std::string& name, float value) {
         m_property_overrides[name] = MaterialProperty{MaterialPropertyType::Float, name, value};
@@ -94,10 +98,6 @@ namespace Comet {
         return m_material->get_property(name);
     }
 
-    MaterialManager::MaterialManager(Device* device, ShaderManager* shader_manager, SamplerManager* sampler_manager) {
-        // Parameters kept for future extensibility
-    }
-
     std::shared_ptr<Material> MaterialManager::create_material(const std::string& name, const MaterialConfig& config) {
         if (m_materials.contains(name)) {
             LOG_WARN("Material '{}' already exists, returning existing material", name);
@@ -118,6 +118,9 @@ namespace Comet {
 
     std::shared_ptr<MaterialInstance> MaterialManager::create_instance(const std::string& material_name) const {
         auto material = get_material(material_name);
+        if(!material) {
+            return nullptr;
+        }
         return std::make_shared<MaterialInstance>(material);
     }
 

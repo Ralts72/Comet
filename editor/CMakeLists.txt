@@ -3,7 +3,7 @@ project(Editor)
 
 set(CMAKE_CXX_STANDARD 20)
 
-file(GLOB SOURCES
+set(SOURCES
         editor.cpp
         src/imgui_context.cpp
         src/menu_bar.cpp

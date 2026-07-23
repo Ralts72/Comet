@@ -2,6 +2,7 @@
 #include "graphics/command_buffer.h"
 #include "graphics/fence.h"
 #include "graphics/semaphore.h"
+#include <optional>
 
 namespace Comet {
     struct FrameSynchronization {
@@ -18,11 +19,13 @@ namespace Comet {
         explicit FrameManager(Device* device, uint32_t frame_count);
 
         void begin_frame() const;
+        void prepare_image(uint32_t image_index);
         void end_frame();
 
         [[nodiscard]] uint32_t get_current_frame() const { return m_current_frame; }
-        [[nodiscard]] FrameSynchronization& get_current_sync() { return m_frame_syncs[m_current_frame]; }
-        [[nodiscard]] CommandBuffer& get_command_buffer(const uint32_t image_index) { return m_command_buffers[image_index]; }
+        [[nodiscard]] uint32_t get_frame_count() const { return m_frame_count; }
+        [[nodiscard]] FrameSynchronization& get_current_sync() { return m_frame_syncs.at(m_current_frame); }
+        [[nodiscard]] CommandBuffer& get_command_buffer(const uint32_t image_index) { return m_command_buffers.at(image_index); }
         [[nodiscard]] const std::vector<CommandBuffer>& get_command_buffers() const { return m_command_buffers; }
 
         void initialize_command_buffers(uint32_t count);
@@ -31,8 +34,8 @@ namespace Comet {
         Device* m_device;
         std::vector<FrameSynchronization> m_frame_syncs;
         std::vector<CommandBuffer> m_command_buffers;
+        std::vector<std::optional<uint32_t>> m_image_frames;
         uint32_t m_current_frame = 0;
         uint32_t m_frame_count = 0;
     };
 }
-

@@ -9,10 +9,26 @@ namespace Comet {
     }
 
     std::shared_ptr<Image> Image::wrap(Device* device, vk::Image image, const ImageInfo& info) {
+        if(!image) {
+            LOG_FATAL("BorrowedImage requires a valid image handle");
+        }
         return std::make_shared<BorrowedImage>(device, image, info);
     }
 
-    Image::Image(Device* device, const ImageInfo& info) : m_device(device), m_info(info) {}
+    Image::Image(Device* device, const ImageInfo& info) : m_device(device), m_info(info) {
+        if(info.extent.x == 0 || info.extent.y == 0 || info.extent.z == 0) {
+            LOG_FATAL("Image extent must be greater than zero");
+        }
+        if(info.format == Format::UNDEFINED) {
+            LOG_FATAL("Image format must be defined");
+        }
+        if(!info.usage) {
+            LOG_FATAL("Image usage must not be empty");
+        }
+        if(!device) {
+            LOG_FATAL("Image requires a valid Device");
+        }
+    }
 
     OwnedImage::OwnedImage(Device* device, const ImageInfo& info, const SampleCount sample_count) : Image(device, info) {
         auto tiling = vk::ImageTiling::eLinear;
@@ -48,6 +64,9 @@ namespace Comet {
     }
 
     BorrowedImage::BorrowedImage(Device* device, const vk::Image image, const ImageInfo& info) : Image(device, info) {
+        if(!image) {
+            LOG_FATAL("BorrowedImage requires a valid image handle");
+        }
         m_image = image;
     }
 }

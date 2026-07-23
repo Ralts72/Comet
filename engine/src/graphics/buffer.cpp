@@ -1,12 +1,21 @@
 #include "buffer.h"
 #include "command_buffer.h"
 #include "device.h"
+#include "common/logger.h"
 #include "common/profiler.h"
 #include "command_context.h"
 #include "vk_allocator.h"
 
 namespace Comet {
-    Buffer::Buffer(Device* device, const Flags<BufferUsage> usage, const size_t size, const void* data) : m_device(device), m_size(size) {}
+    Buffer::Buffer(Device* device, const Flags<BufferUsage> usage, const size_t size, const void* data)
+        : m_device(device), m_size(size) {
+        if(size == 0) {
+            LOG_FATAL("Buffer size must be greater than zero");
+        }
+        if(!device) {
+            LOG_FATAL("Buffer requires a valid Device");
+        }
+    }
 
     Buffer::~Buffer() {
         if(m_buffer && m_allocation) {
@@ -37,6 +46,9 @@ namespace Comet {
     GPUBuffer::GPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data)
         : Buffer(device, usage, size, data) {
         PROFILE_SCOPE("Buffer::Constructor");
+        if(!data) {
+            LOG_FATAL("GPUBuffer requires initial data");
+        }
         auto [stage_buffer, stage_allocation] = create_buffer(Flags<MemoryType>(MemoryType::CPULocal)
                                                               | Flags<MemoryType>(MemoryType::Coherence), Flags<BufferUsage>(BufferUsage::CopySrc));
         void* mapping = get_allocator().map_memory(stage_allocation);
@@ -45,7 +57,7 @@ namespace Comet {
         std::tie(m_buffer, m_allocation) = create_buffer(Flags<MemoryType>(MemoryType::GPULocal),
             usage | Flags<BufferUsage>(BufferUsage::CopyDst));
 
-        auto ctx = m_device->create_command_context();
+        const auto ctx = m_device->create_command_context();
         ctx->copy_buffer(stage_buffer, m_buffer, m_size);
         ctx->submit_and_wait();
 
@@ -67,12 +79,15 @@ namespace Comet {
 
 
     std::shared_ptr<Buffer> Buffer::create_gpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data) {
+        if(!data) {
+            LOG_FATAL("GPUBuffer requires initial data");
+        }
         return std::make_shared<GPUBuffer>(device, usage, size, data);
     }
 
     void CPUBuffer::write(const void* data) const {
         if(!data) {
-            LOG_ERROR("Buffer is not host visible or data is null");
+            LOG_ERROR("CPUBuffer write data must not be null");
             return;
         }
 

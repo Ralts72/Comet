@@ -34,6 +34,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 - `Renderer` 中仍然直接持有 demo 用的 uniform buffer、texture、mesh 和模型矩阵。
 - `SceneRenderer` 目前主要服务固定 cube pipeline，而不是遍历真实 Scene 数据。
 - Scene 已能管理实体和基础组件，但目前只有运行期自增 `EntityId` 和局部 TRS，还没有持久化 UUID、父子关系与世界矩阵。
+- `MeshRendererComponent` 仍以字符串保存 mesh/material 引用，还没有统一的 `AssetHandle`。
 - 编辑器面板显示的是示例对象和占位资产，Hierarchy/Inspector/Project 尚未绑定实际项目数据。
 - Material/ResourceManager 已有接口，但还没有资产数据库、序列化、导入器、热重载和编辑器检查器闭环。
 - Scene Update、Render Submit 和运行时 System 调度的边界仍未落地。
@@ -76,6 +77,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 当前 `ResourceManager` 能按路径加载纹理和创建 mesh，但成熟引擎需要 Asset Database，而不只是 runtime cache。缺少：
 
+- 可序列化的统一 `AssetHandle` 及无效值约定。
 - 资产扫描、导入、缓存和重新导入。
 - GUID 到实际文件路径的映射。
 - Texture、Mesh、Material、Shader、Scene 等资产类型。
@@ -168,6 +170,17 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 5. 区分运行时 `EntityId`、持久化 Entity UUID 和资产 GUID，避免后期资产引用、序列化和 Undo/Redo 重做。
 6. 渲染器只消费场景提交结果，不继续持有应用层 demo 状态。
 7. 优先建设可测试的纯逻辑模块，把 Vulkan 相关测试控制在少量集成测试中。
+8. Scene 和序列化数据只保存 `AssetHandle`，不保存文件路径、裸指针、`shared_ptr` 或 Vulkan handle。
+
+### 资源引用分层
+
+| 概念 | 职责 | 引入阶段 |
+| --- | --- | --- |
+| `AssetHandle` | 代码层使用的轻量、不透明、可比较和可序列化的资源引用 | 阶段 1B |
+| Asset GUID/元数据 | 保证资产跨重启、改名和移动后的持久身份，并记录类型、路径和导入设置 | 阶段 2 定义持久化契约，阶段 3 完整实现 |
+| Runtime/GPU Resource | `Mesh`、`Texture`、`Material`、`Buffer` 等已加载对象，只存在于资源缓存和渲染层 | 阶段 1B 起按需解析，永不写入 Scene |
+
+`AssetHandle` 是引擎 API 使用的包装类型，其底层值可以由持久化 GUID/UUID 提供。阶段 1B 只实现最小 Handle 和内存注册表，允许 demo 资源手动注册；资产扫描、`.meta`、导入器、依赖追踪和热重载仍留在阶段 3。
 
 ## 分阶段开发路线
 
@@ -175,22 +188,26 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 目标：把当前 demo 状态整理成可继续演进的稳定基线。
 
-当前状态：部分完成，剩余的渲染职责和所有权整理与阶段 1 并行推进。
+当前状态：已完成。`Renderer` 中 demo 资源的所有权已经被识别为应用层职责，实际迁移将在阶段 1B
+随 Active Scene 和 Render Submission 一次完成，避免在相邻阶段重复改造。
 
-建议任务：
+已完成：
 
-- 清理 `Renderer` 中 demo 资源和引擎职责混杂的问题，明确哪些资源属于示例场景，哪些属于渲染系统。
-- 明确 `RenderContext`、`SceneRenderer`、`ResourceManager`、`MaterialManager` 的所有权边界。
-- 为 VMA、Buffer、Image 的拥有关系补充更直接的测试和错误路径保护。
-- 梳理 CMake 目标，减少 `file(GLOB)` 带来的新增文件不可见风险，或至少建立约定。
-- 建立 `docs/architecture/`，记录当前模块边界。
+- 明确 demo mesh、texture、模型矩阵和固定 camera 属于示例场景，`Renderer` 只应保留渲染系统职责。
+- 在 `docs/architecture/rendering-ownership.md` 记录 `RenderContext`、`SceneRenderer`、`ResourceManager`、
+  `MaterialManager`、VMA 资源和 Device 的所有权与析构顺序。
+- 为 Buffer、Image、Device、ResourceManager 和 MaterialInstance 增加无效参数保护与单元测试。
+- 将 engine、editor 和 app 的源码清单改为显式维护；测试源码 glob 使用 `CONFIGURE_DEPENDS`。
+- 移除正常呈现路径中的逐帧 `queue.waitIdle()`，补齐 frame/image fence 关联，并按 frame-in-flight
+  独立持有 descriptor set 和 uniform buffer。
+- 统一 swapchain acquire/present 的可恢复错误处理与重建路径。
 
 验收标准：
 
-- 编辑器和 app 都能正常构建运行。
-- 当前 cube demo 行为不回退。
-- README 与实际依赖、构建命令保持一致。
-- 关键资源释放顺序清晰，无明显 Vulkan validation error。
+- [x] 编辑器和 app 都能正常构建。
+- [x] 当前 cube demo 可连续渲染，行为不回退。
+- [x] README 与实际依赖、构建命令保持一致。
+- [x] 关键资源释放顺序清晰，正常渲染路径无 Vulkan validation error。
 
 ### 阶段 1：Scene/ECS 与渲染提交 MVP
 
@@ -208,9 +225,12 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 #### 阶段 1B：Scene Render Submission（下一步）
 
-- 定义最小 `RenderScene` / `RenderItem`，至少包含实体 ID、模型矩阵、mesh key 和 material key。
+- 定义最小 `AssetHandle`，包含无效值、比较和哈希能力。
+- 将 `MeshRendererComponent` 的 mesh/material 字符串替换为 `AssetHandle`。
+- 提供最小内存 Asset Registry，支持 app 将 demo `AssetHandle` 注册到运行时资源；暂不实现目录扫描和导入。
+- 定义最小 `RenderScene` / `RenderItem`，至少包含实体 ID、模型矩阵、mesh handle 和 material handle。
 - 实现局部 TRS 到模型矩阵的转换，明确 Euler 旋转顺序和角度单位。
-- 新增 Scene Render Extractor，提取具有 Transform 与 MeshRenderer 的实体；Scene 组件不持有 GPU 资源。
+- 新增 Scene Render Extractor，提取具有 Transform 与 MeshRenderer 的实体；Scene 组件不持有文件路径或 GPU 资源。
 - 让运行时层持有 Active Scene，由 app 创建 demo Scene 和 cube entity。
 - 让 `Renderer` 只消费场景提交结果，并让 `SceneRenderer` 遍历 render items。
 - 接入主 `CameraComponent` 驱动 view/projection；Camera FOV 统一使用角度。
@@ -237,6 +257,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 - demo cube 不再由 `Renderer` 内部硬编码创建。
 - 一个 Scene 可以提交并绘制多个 render items。
+- Scene、MeshRenderer 和 RenderItem 之间只传递 `AssetHandle`，不传递字符串路径或 GPU 对象。
 - 场景主 Camera 驱动 view/projection，FOV 单位明确且有测试保护。
 - Hierarchy 可以从真实 Scene 读取实体名称。
 - Inspector 至少可以编辑选中实体的 Transform。
@@ -249,7 +270,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 建议任务：
 
 - 引入持久化 Entity UUID，并与运行时 `EntityId` 区分。
-- 定义最小资产引用标识；Asset Database 完成前允许保留可迁移的路径回退。
+- 定义 `AssetHandle` 的 YAML 表示和持久化稳定性；路径仅可作为导入/迁移提示，不能成为 Scene 的主引用。
 - 定义 `.scene` YAML 格式。
 - 实现场景保存和加载。
 - 菜单 New/Open/Save Scene 接入真实逻辑。
@@ -262,6 +283,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 - 在编辑器中新建场景，创建 cube/camera，保存后重启可以恢复。
 - Inspector 修改 Transform 后，SceneView 立即反映。
 - Scene 文件可读、可 diff、可手动排查。
+- Scene 保存和加载后，mesh/material 的 `AssetHandle` 保持不变。
 - 场景序列化有单元测试。
 
 ### 阶段 3：资产数据库与项目系统
@@ -272,17 +294,33 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 - 定义项目目录结构，例如 `Assets/`、`Library/`、`ProjectSettings/`。
 - 实现 Asset Database：
-  - GUID 分配
+  - 持久化 GUID 分配
   - 元数据文件
-  - 路径索引
+  - `AssetHandle` 到元数据、源文件和导入产物的索引
   - 类型识别
   - 依赖查询
 - Project 面板读取真实资产目录。
 - Texture Importer 支持基础导入参数。
 - Material 资产可保存和加载。
 - Mesh Importer 接入 glTF，至少支持静态网格。
-- ResourceManager 改为通过 AssetHandle/GUID 获取资源。
+- Asset Registry/Asset Manager 负责把 `AssetHandle` 解析为资产元数据和导入产物。
+- ResourceManager 以 `AssetHandle` 为缓存键，创建或复用对应的 Runtime/GPU Resource，不直接承担资产扫描。
 - 支持资产改名、移动后的引用稳定性。
+
+完整资源路径：
+
+```text
+Scene Component / RenderItem
+          AssetHandle
+              ↓
+    Asset Registry / Asset Manager
+              ↓
+ metadata + source/imported artifact
+              ↓
+        ResourceManager cache
+              ↓
+     Mesh / Texture / Material
+```
 
 验收标准：
 
@@ -290,6 +328,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 - 拖拽 mesh/material 到实体后可以保存并重新加载。
 - 删除或移动资产时有基本错误提示。
 - 资产数据库重建后，场景引用仍然稳定。
+- Scene 和编辑器业务代码不直接使用资产文件路径获取 Runtime/GPU Resource。
 
 ### 阶段 4：编辑器视口与交互能力
 
@@ -385,12 +424,13 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 近期最应该做：
 
-1. 完成 Scene 到 RenderItem 的提取和渲染提交。
-2. 让主 CameraComponent 驱动 view/projection。
-3. 从 `Renderer` 移除硬编码 demo mesh、模型矩阵和相机状态。
-4. Hierarchy、Selection、Inspector 绑定真实 Scene。
-5. 完成 Transform 父子层级和世界矩阵。
-6. 引入持久化 Entity UUID，再开始 `.scene` 序列化。
+1. 定义最小 `AssetHandle` 和内存 Asset Registry，替换 MeshRenderer 的字符串引用。
+2. 完成 Scene 到 RenderItem 的提取和渲染提交。
+3. 让主 CameraComponent 驱动 view/projection。
+4. 从 `Renderer` 移除硬编码 demo mesh、模型矩阵和相机状态。
+5. Hierarchy、Selection、Inspector 绑定真实 Scene。
+6. 完成 Transform 父子层级和世界矩阵。
+7. 引入持久化 Entity UUID，再开始 `.scene` 序列化。
 
 暂时不要急着做：
 
@@ -408,6 +448,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 ### 第 1-2 个月
 
+- 完成最小 `AssetHandle` 和内存 Asset Registry。
 - 完成 Scene Render Submission。
 - Renderer 改为消费 RenderScene/RenderItem。
 - 主 Camera 驱动渲染。
@@ -477,16 +518,19 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 建议的职责边界：
 
 - Engine/运行时层持有 Active Scene，app 和 editor 负责创建或修改场景内容。
-- Scene 只拥有实体和可序列化组件，不依赖 Mesh、Texture、Buffer 等 GPU 对象。
+- Scene 只拥有实体、可序列化组件和 `AssetHandle`，不依赖路径、Mesh、Texture、Buffer 等运行时/GPU对象。
 - Scene Render Extractor 把 Transform、MeshRenderer、Camera 转换为只读的 RenderScene。
-- Renderer 负责解析资源 key 并消费 RenderScene，SceneRenderer 只执行具体绘制。
+- Asset Registry 解析 `AssetHandle`，ResourceManager 创建或复用运行时/GPU资源。
+- Renderer 消费解析后的 RenderScene，SceneRenderer 只执行具体绘制。
 
 本项工作的最小范围：
 
-1. 定义 `RenderItem` 和局部 TRS 模型矩阵计算。
-2. 提取所有可渲染实体，并为缺失 mesh/material 提供可诊断的跳过策略。
-3. 让 SceneRenderer 遍历 items；模型矩阵使用每 draw push constant。
-4. app 创建 Scene、Camera 和 cube entity，Renderer 不再创建 demo cube。
-5. 单元测试覆盖提取过滤、字段映射、TRS、FOV 单位和无效资源。
+1. 定义 `AssetHandle`、无效值、比较、哈希和最小内存注册表。
+2. 将 MeshRenderer 的 mesh/material 字段改为 Handle，并迁移现有测试。
+3. 定义 `RenderItem` 和局部 TRS 模型矩阵计算。
+4. 提取所有可渲染实体，并为无效或无法解析的 mesh/material handle 提供可诊断的跳过策略。
+5. 让 SceneRenderer 遍历 items；模型矩阵使用每 draw push constant。
+6. app 注册 demo 资源并创建 Scene、Camera 和 cube entity，Renderer 不再创建 demo cube。
+7. 单元测试覆盖 Handle、资源解析、提取过滤、字段映射、TRS、FOV 单位和无效资源。
 
 验收时至少使用两个不同 Transform 的实体，确保实现不是“把单 cube 接口换了个名字”。完成后再进入阶段 1C，连接 Hierarchy、Selection 和 Inspector。

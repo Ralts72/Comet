@@ -41,7 +41,7 @@ namespace Comet {
 
         void render(const ViewProjectMatrix& view_project, const ModelMatrix& model,
                     const std::shared_ptr<Mesh>& mesh,
-                    const std::vector<DescriptorSet>& descriptor_sets) const;
+                    const DescriptorSet& descriptor_set) const;
 
         uint32_t begin_frame();
 
@@ -67,12 +67,12 @@ namespace Comet {
             m_swapchain_recreate_callback = std::move(callback);
         }
 
-        void update_descriptor_sets(const std::vector<DescriptorSet>& descriptor_sets,
-                                    const std::shared_ptr<Buffer>& view_project_buffer,
-                                    const std::shared_ptr<Buffer>& model_buffer,
-                                    const std::shared_ptr<Texture>& texture1,
-                                    const std::shared_ptr<Texture>& texture2,
-                                    SamplerManager* sampler_manager) const;
+        void update_descriptor_set(const DescriptorSet& descriptor_set,
+                                   const std::shared_ptr<Buffer>& view_project_buffer,
+                                   const std::shared_ptr<Buffer>& model_buffer,
+                                   const std::shared_ptr<Texture>& texture1,
+                                   const std::shared_ptr<Texture>& texture2,
+                                   SamplerManager* sampler_manager) const;
 
     private:
         SwapchainRecreateCallback m_swapchain_recreate_callback;

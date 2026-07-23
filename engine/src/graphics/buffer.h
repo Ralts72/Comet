@@ -1,4 +1,5 @@
 #pragma once
+#include "common/export.h"
 #include "vk_common.h"
 #include <vk_mem_alloc.h>
 
@@ -6,7 +7,7 @@ namespace Comet {
     class Device;
     class VulkanAllocator;
 
-    class Buffer {
+    class COMET_API Buffer {
     public:
         Buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data);
 
@@ -22,7 +23,7 @@ namespace Comet {
 
         static std::shared_ptr<Buffer> create_cpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data = nullptr);
 
-        static std::shared_ptr<Buffer> create_gpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data = nullptr);
+        static std::shared_ptr<Buffer> create_gpu_buffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data);
 
         [[nodiscard]] vk::Buffer get() const { return m_buffer; }
         [[nodiscard]] size_t get_size() const { return m_size; }
@@ -39,12 +40,12 @@ namespace Comet {
         size_t m_size;
     };
 
-    class GPUBuffer final: public Buffer {
+    class COMET_API GPUBuffer final: public Buffer {
     public:
         GPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data);
     };
 
-    class CPUBuffer final: public Buffer {
+    class COMET_API CPUBuffer final: public Buffer {
     public:
         CPUBuffer(Device* device, Flags<BufferUsage> usage, size_t size, const void* data);
 

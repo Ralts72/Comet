@@ -21,18 +21,17 @@ namespace Comet {
         : m_context(context) {
         PROFILE_SCOPE("Device::Constructor");
         if(!context) {
-            LOG_ERROR("Must create a vulkan graphics context before create device");
-            return;
+            LOG_FATAL("Device requires a valid Vulkan context");
         }
         auto [graphics_queue_family_index, graphics_queue_counts] = context->get_graphics_queue_family();
         auto [present_queue_family_index, present_queue_counts] = context->get_present_queue_family();
         if(graphics_queue_count > graphics_queue_counts) {
-            LOG_ERROR("Graphic queue count {} is larger than available queue count {}", graphics_queue_count, graphics_queue_counts);
-            return;
+            LOG_FATAL("Requested graphics queue count {} exceeds available count {}",
+                graphics_queue_count, graphics_queue_counts);
         }
         if(present_queue_count > present_queue_counts) {
-            LOG_ERROR("Present queue count {} is larger than available queue count {}", present_queue_count, present_queue_counts);
-            return;
+            LOG_FATAL("Requested present queue count {} exceeds available count {}",
+                present_queue_count, present_queue_counts);
         }
         std::vector<float> graphics_queue_priorities(graphics_queue_count, 0.0f);
         std::vector<float> present_queue_priorities(present_queue_count, 1.0f);

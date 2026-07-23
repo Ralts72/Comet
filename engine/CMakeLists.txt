@@ -12,7 +12,7 @@ endif ()
 set(SHADER_COMPILE_TARGET shader_compile)
 add_subdirectory(assets/shaders)
 
-file(GLOB SOURCES
+set(SOURCES
         src/common/geometry_utils.cpp
         src/common/profiler.cpp
         src/common/logger.cpp

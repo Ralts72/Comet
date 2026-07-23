@@ -16,7 +16,8 @@ namespace Comet {
     SceneRenderer::SceneRenderer(RenderContext* context, const Config::Vulkan& vulkan_config, const Config::Render& render_config)
         : m_context(context), m_vulkan_config(vulkan_config), m_render_config(render_config) {
         LOG_INFO("create frame manager");
-        m_frame_manager = std::make_unique<FrameManager>(context->get_device(), m_vulkan_config.swapchain_image_count);
+        const uint32_t frame_count = static_cast<uint32_t>(context->get_swapchain()->get_images().size());
+        m_frame_manager = std::make_unique<FrameManager>(context->get_device(), frame_count);
     }
 
     void SceneRenderer::setup_render_pass() {
@@ -92,11 +93,14 @@ namespace Comet {
             m_descriptor_set_layout = std::make_shared<DescriptorSetLayout>(m_context->get_device(), bindings);
         }
 
+        const uint32_t frame_count = m_frame_manager->get_frame_count();
         DescriptorPoolSizes descriptor_pool_sizes;
-        descriptor_pool_sizes.add_pool_size(DescriptorType::UniformBuffer, 2);
-        descriptor_pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, 2);
-        m_descriptor_pool = std::make_shared<DescriptorPool>(m_context->get_device(), 1, descriptor_pool_sizes);
-        m_descriptor_sets = m_descriptor_pool->allocate_descriptor_set(*m_descriptor_set_layout, 1);
+        descriptor_pool_sizes.add_pool_size(DescriptorType::UniformBuffer, 2 * frame_count);
+        descriptor_pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, 2 * frame_count);
+        m_descriptor_pool = std::make_shared<DescriptorPool>(
+            m_context->get_device(), frame_count, descriptor_pool_sizes);
+        m_descriptor_sets = m_descriptor_pool->allocate_descriptor_set(
+            *m_descriptor_set_layout, frame_count);
     }
 
     uint32_t SceneRenderer::begin_frame() {
@@ -118,6 +122,7 @@ namespace Comet {
             }
         }
 
+        m_frame_manager->prepare_image(image_index);
         auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
         command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
         m_render_target->begin_render_target(command_buffer);
@@ -127,7 +132,7 @@ namespace Comet {
 
     void SceneRenderer::render(const ViewProjectMatrix& view_project, const ModelMatrix& model,
                                const std::shared_ptr<Mesh>& mesh,
-                               const std::vector<DescriptorSet>& descriptor_sets) const {
+                               const DescriptorSet& descriptor_set) const {
         PROFILE_SCOPE("SceneRenderer::render");
 
         if(!m_pipeline) {
@@ -154,14 +159,15 @@ namespace Comet {
         command_buffer.set_scissor(scissor);
 
         // Bind descriptor sets
-        std::vector<vk::DescriptorSet> vk_descriptor_sets;
-        vk_descriptor_sets.reserve(descriptor_sets.size());
-        for(auto ds: descriptor_sets) {
-            vk_descriptor_sets.push_back(ds.get());
-        }
-        command_buffer.get().bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-            m_pipeline->get_layout()->get(), 0, static_cast<uint32_t>(vk_descriptor_sets.size()),
-            vk_descriptor_sets.data(), 0, nullptr);
+        const vk::DescriptorSet vk_descriptor_set = descriptor_set.get();
+        command_buffer.get().bindDescriptorSets(
+            vk::PipelineBindPoint::eGraphics,
+            m_pipeline->get_layout()->get(),
+            0,
+            1,
+            &vk_descriptor_set,
+            0,
+            nullptr);
 
         // Draw
         mesh->draw(command_buffer);
@@ -191,8 +197,10 @@ namespace Comet {
         auto& present_queue = device->get_present_queue(0);
         const auto result = present_queue.present(*swapchain,
             std::span(&frame_sync.submit_semaphore, 1), image_index);
-        if(result == vk::Result::eSuboptimalKHR) {
+        if(result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR) {
             recreate_swapchain();
+        } else if(result != vk::Result::eSuccess) {
+            LOG_FATAL("failed to present swapchain image: {}", vk::to_string(result));
         }
 
         m_frame_manager->end_frame();
@@ -234,12 +242,7 @@ namespace Comet {
         const auto swapchain = m_context->get_swapchain();
 
         device->wait_idle();
-        const auto original_size = Math::Vec2u(swapchain->get_width(), swapchain->get_height());
-        const bool flag = swapchain->recreate();
-        const auto size = Math::Vec2u(swapchain->get_width(), swapchain->get_height());
-        if(flag && original_size != size) {
-            m_render_target->resize(size.x, size.y);
-        }
+        swapchain->recreate();
 
         // Recreate render target with new swapchain
         m_render_target = RenderTarget::create_swapchain_target(
@@ -261,12 +264,12 @@ namespace Comet {
         }
     }
 
-    void SceneRenderer::update_descriptor_sets(const std::vector<DescriptorSet>& descriptor_sets,
-                                               const std::shared_ptr<Buffer>& view_project_buffer,
-                                               const std::shared_ptr<Buffer>& model_buffer,
-                                               const std::shared_ptr<Texture>& texture1,
-                                               const std::shared_ptr<Texture>& texture2,
-                                               SamplerManager* sampler_manager) const {
+    void SceneRenderer::update_descriptor_set(const DescriptorSet& descriptor_set,
+                                              const std::shared_ptr<Buffer>& view_project_buffer,
+                                              const std::shared_ptr<Buffer>& model_buffer,
+                                              const std::shared_ptr<Texture>& texture1,
+                                              const std::shared_ptr<Texture>& texture2,
+                                              SamplerManager* sampler_manager) const {
         vk::DescriptorBufferInfo buffer_info1{};
         buffer_info1.buffer = view_project_buffer->get();
         buffer_info1.offset = 0;
@@ -287,11 +290,10 @@ namespace Comet {
         image_info2.imageView = texture2->get_image_view()->get();
         image_info2.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-        DescriptorSet set = descriptor_sets[0];
         std::vector<vk::WriteDescriptorSet> write_sets;
 
         vk::WriteDescriptorSet set1{};
-        set1.dstSet = set.get();
+        set1.dstSet = descriptor_set.get();
         set1.dstBinding = 0;
         set1.dstArrayElement = 0;
         set1.descriptorType = vk::DescriptorType::eUniformBuffer;
@@ -300,7 +302,7 @@ namespace Comet {
         write_sets.emplace_back(set1);
 
         vk::WriteDescriptorSet set2{};
-        set2.dstSet = set.get();
+        set2.dstSet = descriptor_set.get();
         set2.dstBinding = 1;
         set2.dstArrayElement = 0;
         set2.descriptorType = vk::DescriptorType::eUniformBuffer;
@@ -309,7 +311,7 @@ namespace Comet {
         write_sets.emplace_back(set2);
 
         vk::WriteDescriptorSet set3{};
-        set3.dstSet = set.get();
+        set3.dstSet = descriptor_set.get();
         set3.dstBinding = 2;
         set3.dstArrayElement = 0;
         set3.descriptorType = vk::DescriptorType::eCombinedImageSampler;
@@ -318,7 +320,7 @@ namespace Comet {
         write_sets.emplace_back(set3);
 
         vk::WriteDescriptorSet set4{};
-        set4.dstSet = set.get();
+        set4.dstSet = descriptor_set.get();
         set4.dstBinding = 3;
         set4.dstArrayElement = 0;
         set4.descriptorType = vk::DescriptorType::eCombinedImageSampler;

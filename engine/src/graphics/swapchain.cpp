@@ -17,7 +17,7 @@ namespace Comet {
         m_device->get().destroySwapchainKHR(m_swapchain);
     }
 
-    bool Swapchain::recreate() {
+    void Swapchain::recreate() {
         PROFILE_SCOPE("Swapchain::Recreate");
         setup_surface_capabilities();
 
@@ -76,7 +76,6 @@ namespace Comet {
             m_device->get().destroySwapchainKHR(old_swapchain);
         }
 
-        return true;
     }
 
     std::pair<uint32_t, vk::Result> Swapchain::acquire_next_image(const Semaphore& semaphore) {

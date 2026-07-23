@@ -87,12 +87,17 @@ namespace Comet {
 
     void Renderer::setup_resources() {
         LOG_INFO("create uniform buffers");
-        m_view_project_uniform_buffer = Buffer::create_cpu_buffer(
-            m_render_context->get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
-            sizeof(ViewProjectMatrix), nullptr);
-        m_model_uniform_buffer = Buffer::create_cpu_buffer(
-            m_render_context->get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
-            sizeof(ModelMatrix), nullptr);
+        const uint32_t frame_count = m_scene_renderer->get_frame_manager()->get_frame_count();
+        m_view_project_uniform_buffers.reserve(frame_count);
+        m_model_uniform_buffers.reserve(frame_count);
+        for(uint32_t i = 0; i < frame_count; ++i) {
+            m_view_project_uniform_buffers.push_back(Buffer::create_cpu_buffer(
+                m_render_context->get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
+                sizeof(ViewProjectMatrix), nullptr));
+            m_model_uniform_buffers.push_back(Buffer::create_cpu_buffer(
+                m_render_context->get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
+                sizeof(ModelMatrix), nullptr));
+        }
 
         LOG_INFO("load textures");
         std::string image_path = std::string(PROJECT_ROOT_DIR) + "/engine/assets/textures/";
@@ -125,21 +130,24 @@ namespace Comet {
 
         // Begin frame (acquires image and begins command buffer)
         m_scene_renderer->begin_frame();
+        const uint32_t frame_index = m_scene_renderer->get_frame_manager()->get_current_frame();
+        const auto& view_project_buffer = m_view_project_uniform_buffers.at(frame_index);
+        const auto& model_buffer = m_model_uniform_buffers.at(frame_index);
+        const auto& descriptor_set = m_scene_renderer->get_descriptor_sets().at(frame_index);
 
         // Update uniform buffers
-        static_pointer_cast<CPUBuffer>(m_view_project_uniform_buffer)->write(&m_view_project_matrix);
-        static_pointer_cast<CPUBuffer>(m_model_uniform_buffer)->write(&m_model_matrix);
+        static_pointer_cast<CPUBuffer>(view_project_buffer)->write(&m_view_project_matrix);
+        static_pointer_cast<CPUBuffer>(model_buffer)->write(&m_model_matrix);
 
-        // Update descriptor sets
-        const auto& descriptor_sets = m_scene_renderer->get_descriptor_sets();
-        m_scene_renderer->update_descriptor_sets(descriptor_sets,
-            m_view_project_uniform_buffer, m_model_uniform_buffer,
+        // Update this frame's descriptor set after its fence has completed.
+        m_scene_renderer->update_descriptor_set(descriptor_set,
+            view_project_buffer, model_buffer,
             m_texture1, m_texture2,
             m_resource_manager->get_sampler_manager());
 
         // Render
         m_scene_renderer->render(m_view_project_matrix, m_model_matrix,
-            m_cube_mesh, descriptor_sets);
+            m_cube_mesh, descriptor_set);
 
         m_scene_renderer->end_render_pass();
 
@@ -156,8 +164,8 @@ namespace Comet {
         m_render_context->wait_idle();
 
         // 清理应用层资源
-        m_view_project_uniform_buffer.reset();
-        m_model_uniform_buffer.reset();
+        m_view_project_uniform_buffers.clear();
+        m_model_uniform_buffers.clear();
         m_texture1.reset();
         m_texture2.reset();
         m_cube_mesh.reset();

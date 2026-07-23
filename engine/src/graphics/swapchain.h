@@ -26,7 +26,7 @@ namespace Comet {
         Swapchain(Swapchain&&) noexcept = delete;
         Swapchain& operator=(Swapchain&&) noexcept = delete;
 
-        bool recreate();
+        void recreate();
 
         [[nodiscard]]std::pair<uint32_t, vk::Result> acquire_next_image(const Semaphore& semaphore);
         [[nodiscard]] uint32_t get_current_index() const { return m_current_index; }

@@ -43,8 +43,8 @@ namespace Comet {
         ImGuiRenderDelegate m_on_imgui_render;
 
         // 应用层资源（这些应该由应用层管理，但为了向后兼容暂时保留）
-        std::shared_ptr<Buffer> m_view_project_uniform_buffer;
-        std::shared_ptr<Buffer> m_model_uniform_buffer;
+        std::vector<std::shared_ptr<Buffer>> m_view_project_uniform_buffers;
+        std::vector<std::shared_ptr<Buffer>> m_model_uniform_buffers;
         std::shared_ptr<Texture> m_texture1;
         std::shared_ptr<Texture> m_texture2;
         std::shared_ptr<Mesh> m_cube_mesh;

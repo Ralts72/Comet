@@ -8,7 +8,7 @@ GoogleTest 测试基础。
 - `engine/`：引擎核心库，包含 `core/`、`graphics/`、`render/`、`runtime/`、`scene/` 和 `common/` 模块。
 - `editor/`：ImGui 编辑器入口和面板，包括层级、检查器、项目、视图和日志窗口。
 - `app/`：运行时示例程序入口。
-- `tests/`：GoogleTest 测试，覆盖数学、配置、导出和基础集成行为。
+- `tests/`：GoogleTest 测试，覆盖数学、配置、导出、Scene/ECS、资源参数保护和基础集成行为。
 - `engine/assets/`：配置、纹理和 GLSL shader 资源。
 - `3rdparty/`：第三方依赖目录，部分依赖通过 Git submodule 拉取，Vulkan Memory Allocator 和 EnTT 以 vendored
   源码形式维护；EnTT 只提交 single header。
@@ -18,8 +18,8 @@ GoogleTest 测试基础。
 - CMake 3.31 或更新版本。
 - 支持 C++20 的编译器。
 - Vulkan 开发环境和 `glslangValidator`，用于编译 shader。
-- Git submodules，用于拉取 `glfw`、`glm`、`googletest`、`imgui`、`spdlog`、`stb_image` 和 `yaml-cpp`；
-  `3rdparty/VulkanMemoryAllocator/` 和 `3rdparty/entt/` 直接随仓库提交。
+- Git submodules，用于拉取 `glfw`、`glm`、`googletest`、`spdlog` 和 `yaml-cpp`；
+  `imgui`、`stb_image`、`3rdparty/VulkanMemoryAllocator/` 和 `3rdparty/entt/` 直接随仓库提交。
 
 初始化依赖：
 
@@ -65,3 +65,6 @@ ctest --test-dir build --output-on-failure
 提供基于 EnTT 的 Scene/Entity 和基础组件数据模型。关闭时先释放引擎资源，再关闭日志系统。Shader
 源文件位于 `engine/assets/shaders/glsl/`，构建时由 CMake 调用 `glslangValidator`
 编译。贡献者和智能体协作规范见 [AGENTS.md](./AGENTS.md)。
+
+渲染资源的所有权、析构顺序和非拥有依赖约束见
+[渲染资源所有权](./docs/architecture/rendering-ownership.md)。

@@ -31,7 +31,7 @@ namespace Comet {
     protected:
         Image(Device* device, const ImageInfo& info);
 
-        vk::Image m_image;
+        vk::Image m_image = VK_NULL_HANDLE;
         Device* m_device;
         ImageInfo m_info;
     };

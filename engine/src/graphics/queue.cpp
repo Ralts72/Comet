@@ -58,14 +58,13 @@ namespace Comet {
         present_info.pSwapchains = &swapchain.get();
         present_info.pImageIndices = &image_index;
         const auto result = m_queue.presentKHR(present_info);
-        if(result == vk::Result::eSuboptimalKHR) {
-            LOG_WARN("swapchain is suboptimal, consider recreating it");
+        if(result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR) {
+            LOG_WARN("swapchain requires recreation: {}", vk::to_string(result));
         } else if(result != vk::Result::eSuccess) {
             LOG_ERROR("Failed to present swapchain image: {}", vk::to_string(result));
         } else {
             LOG_DEBUG("Presented swapchain image at index: {}", image_index);
         }
-        m_queue.waitIdle();
         return result;
     }
 }

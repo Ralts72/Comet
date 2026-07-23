@@ -167,7 +167,8 @@ namespace Comet {
             source_stage = vk::PipelineStageFlagBits::eFragmentShader;
             destination_stage = vk::PipelineStageFlagBits::eBottomOfPipe;
         } else {
-            throw std::invalid_argument("unsupported layout transition!");
+            LOG_FATAL("Unsupported image layout transition: {} -> {}",
+                vk::to_string(old_layout), vk::to_string(new_layout));
         }
 
         m_command_buffer.pipelineBarrier(source_stage, destination_stage, {}, 0, nullptr, 0, nullptr, 1, &barrier);

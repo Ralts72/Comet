@@ -51,6 +51,7 @@ namespace CometEditor {
         UICallback m_ui_callback;
         bool m_initialized = false;
         bool m_is_recreating = false;  // 标记是否正在重建 swapchain
+        uint32_t m_backend_image_count = 0;
 
         RenderFormatInfo m_render_format_info;
         Comet::Config::Vulkan m_vulkan_config;
