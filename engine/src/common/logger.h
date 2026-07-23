@@ -7,7 +7,7 @@
 
 namespace Comet {
     // 统一的日志级别枚举
-    enum class COMET_API LogLevel {
+    enum class COMET_API LogLevel{
         Trace,
         Debug,
         Info,
@@ -26,15 +26,19 @@ namespace Comet {
     public:
         // 禁止实例化
         Logger() = delete;
+
         Logger(const Logger&) = delete;
+
         Logger& operator=(const Logger&) = delete;
 
         // 静态初始化和清理
         static void init(const Config::Log& config = {});
+
         static void shutdown();
 
         // 获取logger
         static std::shared_ptr<spdlog::logger> get_console_logger();
+
         static std::shared_ptr<spdlog::logger> get_profiler_logger();
 
         // 获取日志文件路径
@@ -46,7 +50,7 @@ namespace Comet {
 
         // 添加自定义 sink 到 console logger
         // 允许外部（如编辑器）注册自定义的日志处理逻辑
-        static void add_custom_sink(std::shared_ptr<spdlog::sinks::sink> sink);
+        static void add_custom_sink(const std::shared_ptr<spdlog::sinks::sink>& sink);
 
         // 获取 logs 目录路径
         static std::string get_logs_directory();
@@ -94,7 +98,7 @@ namespace Comet {
         }                                                                              \
     } while(0)
 #else
-// Release模式下除LOG_FATAL外的LOG都为空操作
+    // Release模式下除LOG_FATAL外的LOG都为空操作
 #define LOG_ERROR(fmt, ...)   do { } while (0)
 #define LOG_WARN(fmt, ...)    do { } while (0)
 #define LOG_DEBUG(fmt, ...)   do { } while (0)

@@ -34,11 +34,10 @@ namespace Comet {
         create_info.pQueueFamilyIndices = nullptr;
         create_info.initialLayout = vk::ImageLayout::eUndefined;
 
-        const auto allocation = device->get_allocator().create_image(
-            create_info,
+        auto [image, allocation] = device->get_allocator().create_image(create_info,
             Graphics::memory_property_to_vk(Flags<MemoryType>(MemoryType::GPULocal)));
-        m_image = allocation.image;
-        m_allocation = allocation.allocation;
+        m_image = image;
+        m_allocation = allocation;
         LOG_INFO("Vulkan image created successfully with VMA allocation");
     }
 

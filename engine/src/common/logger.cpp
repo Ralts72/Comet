@@ -12,13 +12,13 @@ namespace Comet {
     std::string Logger::s_current_log_file_path;
 
     static spdlog::level::level_enum parse_log_level(const std::string& level_str) {
-        if (level_str == "trace") return spdlog::level::trace;
-        if (level_str == "debug") return spdlog::level::debug;
-        if (level_str == "info") return spdlog::level::info;
-        if (level_str == "warn") return spdlog::level::warn;
-        if (level_str == "error") return spdlog::level::err;
-        if (level_str == "critical") return spdlog::level::critical;
-        if (level_str == "off") return spdlog::level::off;
+        if(level_str == "trace") return spdlog::level::trace;
+        if(level_str == "debug") return spdlog::level::debug;
+        if(level_str == "info") return spdlog::level::info;
+        if(level_str == "warn") return spdlog::level::warn;
+        if(level_str == "error") return spdlog::level::err;
+        if(level_str == "critical") return spdlog::level::critical;
+        if(level_str == "off") return spdlog::level::off;
         return spdlog::level::info; // 默认级别
     }
 
@@ -55,7 +55,7 @@ namespace Comet {
         // 生成日志文件名
         std::string log_filename;
         std::string profiler_filename;
-        if (config.enable_file_logging) {
+        if(config.enable_file_logging) {
             log_filename = (logs_dir / ("comet_" + shared_timestamp + ".log")).string();
             profiler_filename = (logs_dir / ("profiler_" + shared_timestamp + ".log")).string();
             s_current_log_file_path = log_filename;
@@ -151,7 +151,7 @@ namespace Comet {
 
     void Logger::remove_console_sinks() {
         auto logger = get_console_logger();
-        if (!logger) {
+        if(!logger) {
             return;
         }
 
@@ -170,9 +170,9 @@ namespace Comet {
         );
     }
 
-    void Logger::add_custom_sink(std::shared_ptr<spdlog::sinks::sink> sink) {
-        auto logger = get_console_logger();
-        if (!logger || !sink) {
+    void Logger::add_custom_sink(const std::shared_ptr<spdlog::sinks::sink>& sink) {
+        const auto logger = get_console_logger();
+        if(!logger || !sink) {
             return;
         }
 
@@ -180,7 +180,7 @@ namespace Comet {
     }
 
     LogLevel log_level_from_spdlog(spdlog::level::level_enum level) {
-        switch (level) {
+        switch(level) {
             case spdlog::level::trace:
                 return LogLevel::Trace;
             case spdlog::level::debug:
@@ -199,7 +199,7 @@ namespace Comet {
     }
 
     spdlog::level::level_enum log_level_to_spdlog(LogLevel level) {
-        switch (level) {
+        switch(level) {
             case LogLevel::Trace:
                 return spdlog::level::trace;
             case LogLevel::Debug:
@@ -218,7 +218,7 @@ namespace Comet {
     }
 
     const char* log_level_to_string(LogLevel level) {
-        switch (level) {
+        switch(level) {
             case LogLevel::Trace:
                 return "Trace";
             case LogLevel::Debug:
@@ -241,7 +241,7 @@ namespace Comet {
         logs_dir /= "logs";
 
         // 确保 logs 目录存在
-        if (!std::filesystem::exists(logs_dir)) {
+        if(!std::filesystem::exists(logs_dir)) {
             std::filesystem::create_directories(logs_dir);
         }
 
@@ -256,7 +256,7 @@ namespace Comet {
 
         std::stringstream ss;
         ss << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
-           << "_" << std::setfill('0') << std::setw(3) << ms.count();
+                << "_" << std::setfill('0') << std::setw(3) << ms.count();
         return ss.str();
     }
 }

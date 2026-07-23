@@ -17,9 +17,10 @@ namespace Comet {
 
         void on_update(float delta_time);
 
-        void on_render();
+        void on_render() const;
 
         using ImGuiRenderDelegate = std::function<void(CommandBuffer&)>;
+
         void set_on_imgui_render(ImGuiRenderDelegate delegate) {
             m_on_imgui_render = std::move(delegate);
         }
@@ -32,7 +33,7 @@ namespace Comet {
     private:
         void setup_pipeline();
 
-        void setup_descriptor_sets();
+        void setup_descriptor_sets() const;
 
         void setup_resources();
 

@@ -64,12 +64,12 @@ namespace Comet {
     }
 
     void RenderTarget::clear_render_resources(std::vector<RenderResource>& resources) {
-        for(auto& resource: resources) {
-            resource.frame_buffer.reset();
-            resource.color_views.clear();
-            resource.depth_view.reset();
-            resource.color_images.clear();
-            resource.depth_image.reset();
+        for(auto& [color_images, color_views, depth_image, depth_view, frame_buffer]: resources) {
+            frame_buffer.reset();
+            color_views.clear();
+            depth_view.reset();
+            color_images.clear();
+            depth_image.reset();
         }
         resources.clear();
     }
