@@ -44,6 +44,12 @@ cmake --build build --parallel
 - `COMET_BUILD_EDITOR`：构建 ImGui 编辑器，默认 `OFF`。
 - `COMET_BUILD_TESTS`：构建 GoogleTest 测试，默认 `OFF`。
 
+完整构建 app、editor 和 tests（Debug，不启动程序）：
+
+```bash
+./build.sh
+```
+
 运行 Debug 编辑器：
 
 ```bash
@@ -61,8 +67,7 @@ cmake --build build --parallel
 项目测试目标为 `unit_testing`，通过 CTest 运行：
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCOMET_BUILD_TESTS=ON
-cmake --build build --parallel
+./build.sh
 ctest --test-dir build --output-on-failure
 ```
 
