@@ -87,10 +87,11 @@ namespace Comet {
 
     void Renderer::setup_resources() {
         LOG_INFO("create uniform buffers");
-        const uint32_t frame_count = m_scene_renderer->get_frame_manager()->get_frame_count();
-        m_view_project_uniform_buffers.reserve(frame_count);
-        m_model_uniform_buffers.reserve(frame_count);
-        for(uint32_t i = 0; i < frame_count; ++i) {
+        const uint32_t frame_slot_count =
+            m_scene_renderer->get_frame_manager()->get_frame_slot_count();
+        m_view_project_uniform_buffers.reserve(frame_slot_count);
+        m_model_uniform_buffers.reserve(frame_slot_count);
+        for(uint32_t i = 0; i < frame_slot_count; ++i) {
             m_view_project_uniform_buffers.push_back(Buffer::create_cpu_buffer(
                 m_render_context->get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
                 sizeof(ViewProjectMatrix), nullptr));
@@ -130,10 +131,14 @@ namespace Comet {
 
         // Begin frame (acquires image and begins command buffer)
         m_scene_renderer->begin_frame();
-        const uint32_t frame_index = m_scene_renderer->get_frame_manager()->get_current_frame();
-        const auto& view_project_buffer = m_view_project_uniform_buffers.at(frame_index);
-        const auto& model_buffer = m_model_uniform_buffers.at(frame_index);
-        const auto& descriptor_set = m_scene_renderer->get_descriptor_sets().at(frame_index);
+        const uint32_t frame_slot_index =
+            m_scene_renderer->get_frame_manager()->get_current_frame_slot_index();
+        const auto& view_project_buffer =
+            m_view_project_uniform_buffers.at(frame_slot_index);
+        const auto& model_buffer =
+            m_model_uniform_buffers.at(frame_slot_index);
+        const auto& descriptor_set =
+            m_scene_renderer->get_descriptor_sets().at(frame_slot_index);
 
         // Update uniform buffers
         static_pointer_cast<CPUBuffer>(view_project_buffer)->write(&m_view_project_matrix);

@@ -51,6 +51,8 @@ namespace Comet {
         config.vulkan.msaa_samples = get<int>("vulkan.msaa_samples", config.vulkan.msaa_samples);
         config.vulkan.enable_validation = get<bool>("debug.enable_validation", config.vulkan.enable_validation);
 
+        config.render.max_frames_in_flight = get<std::uint32_t>(
+            "render.max_frames_in_flight", config.render.max_frames_in_flight);
         config.render.clear_color = parse_clear_color(
             get<std::vector<float>>("render.clear_color", {0.2f, 0.4f, 0.1f, 1.0f}));
         config.render.enable_vsync = get<bool>("render.enable_vsync", config.render.enable_vsync);

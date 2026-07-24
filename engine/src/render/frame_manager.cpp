@@ -3,57 +3,60 @@
 #include "graphics/device.h"
 
 namespace Comet {
-    FrameManager::FrameManager(Device* device, const uint32_t frame_count)
-        : m_device(device), m_frame_count(frame_count) {
+    FrameManager::FrameManager(Device* device, const uint32_t frame_slot_count)
+        : m_device(device), m_frame_slot_count(frame_slot_count) {
         if(!device) {
             LOG_FATAL("FrameManager requires a valid Device");
         }
-        if(frame_count == 0) {
-            LOG_FATAL("FrameManager requires at least one frame in flight");
+        if(frame_slot_count == 0) {
+            LOG_FATAL("FrameManager requires at least one frame slot");
         }
 
-        LOG_INFO("create command buffers");
-        // Command buffers will be allocated when swapchain is created
-        // This will be initialized later
-
-        LOG_INFO("create fence and semaphore");
-        for(uint32_t i = 0; i < frame_count; ++i) {
-            m_frame_syncs.emplace_back(device);
+        LOG_INFO("create {} frame slots", frame_slot_count);
+        const auto command_buffers =
+            device->get_default_command_pool().allocate_command_buffers(frame_slot_count);
+        m_frame_slots.reserve(frame_slot_count);
+        for(uint32_t i = 0; i < frame_slot_count; ++i) {
+            m_frame_slots.emplace_back(device, command_buffers.at(i));
         }
     }
 
     void FrameManager::begin_frame() const {
-        const auto& fence = m_frame_syncs.at(m_current_frame).fence;
+        const auto& fence = m_frame_slots.at(m_current_frame_slot).in_flight_fence;
         m_device->wait_for_fences(std::span(&fence, 1));
     }
 
     void FrameManager::prepare_image(const uint32_t image_index) {
-        if(const auto previous_frame = m_image_frames.at(image_index); previous_frame.has_value()) {
-            const auto& previous_fence = m_frame_syncs.at(*previous_frame).fence;
+        auto& image_state = m_swapchain_image_states.at(image_index);
+        if(const auto previous_frame_slot = image_state.in_flight_frame_slot;
+           previous_frame_slot.has_value()) {
+            const auto& previous_fence =
+                m_frame_slots.at(*previous_frame_slot).in_flight_fence;
             m_device->wait_for_fences(std::span(&previous_fence, 1));
         }
 
-        auto& current_fence = m_frame_syncs.at(m_current_frame).fence;
+        auto& current_fence =
+            m_frame_slots.at(m_current_frame_slot).in_flight_fence;
         m_device->reset_fences(std::span(&current_fence, 1));
-        m_image_frames.at(image_index) = m_current_frame;
+        image_state.in_flight_frame_slot = m_current_frame_slot;
     }
 
     void FrameManager::end_frame() {
-        m_current_frame = (m_current_frame + 1) % m_frame_count;
+        m_current_frame_slot =
+            (m_current_frame_slot + 1) % m_frame_slot_count;
     }
 
-    void FrameManager::initialize_command_buffers(const uint32_t count) {
-        m_image_frames.assign(count, std::nullopt);
-        if(m_command_buffers.size() == count) {
-            return;
+    void FrameManager::initialize_swapchain_images(const uint32_t image_count) {
+        if(image_count == 0) {
+            LOG_FATAL("FrameManager requires at least one swapchain image");
         }
-        if(!m_command_buffers.empty()) {
-            m_device->get_default_command_pool().free_command_buffers(m_command_buffers);
-            m_command_buffers.clear();
+
+        LOG_INFO("create {} swapchain image states for {} frame slots",
+            image_count, m_frame_slot_count);
+        m_swapchain_image_states.clear();
+        m_swapchain_image_states.reserve(image_count);
+        for(uint32_t i = 0; i < image_count; ++i) {
+            m_swapchain_image_states.emplace_back(m_device);
         }
-        if(count == 0) {
-            return;
-        }
-        m_command_buffers = m_device->get_default_command_pool().allocate_command_buffers(count);
     }
 }

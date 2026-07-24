@@ -3,39 +3,60 @@
 #include "graphics/fence.h"
 #include "graphics/semaphore.h"
 #include <optional>
+#include <vector>
 
 namespace Comet {
-    struct FrameSynchronization {
-        Fence fence;
-        Semaphore image_semaphore;
-        Semaphore submit_semaphore;
+    struct FrameSlot {
+        Fence in_flight_fence;
+        Semaphore image_available_semaphore;
+        CommandBuffer command_buffer;
 
-        explicit FrameSynchronization(Device* device)
-            : fence(device), image_semaphore(device), submit_semaphore(device) {}
+        FrameSlot(Device* device, const CommandBuffer& command_buffer)
+            : in_flight_fence(device),
+              image_available_semaphore(device),
+              command_buffer(command_buffer) {}
+    };
+
+    struct SwapchainImageState {
+        Semaphore render_finished_semaphore;
+        std::optional<uint32_t> in_flight_frame_slot;
+
+        explicit SwapchainImageState(Device* device)
+            : render_finished_semaphore(device) {}
     };
 
     class FrameManager {
     public:
-        explicit FrameManager(Device* device, uint32_t frame_count);
+        explicit FrameManager(Device* device, uint32_t frame_slot_count);
 
         void begin_frame() const;
+
         void prepare_image(uint32_t image_index);
+
         void end_frame();
 
-        [[nodiscard]] uint32_t get_current_frame() const { return m_current_frame; }
-        [[nodiscard]] uint32_t get_frame_count() const { return m_frame_count; }
-        [[nodiscard]] FrameSynchronization& get_current_sync() { return m_frame_syncs.at(m_current_frame); }
-        [[nodiscard]] CommandBuffer& get_command_buffer(const uint32_t image_index) { return m_command_buffers.at(image_index); }
-        [[nodiscard]] const std::vector<CommandBuffer>& get_command_buffers() const { return m_command_buffers; }
+        void initialize_swapchain_images(uint32_t image_count);
 
-        void initialize_command_buffers(uint32_t count);
+        [[nodiscard]] uint32_t get_current_frame_slot_index() const { return m_current_frame_slot; }
+        [[nodiscard]] uint32_t get_frame_slot_count() const { return m_frame_slot_count; }
+
+        [[nodiscard]] FrameSlot& get_current_frame_slot() {
+            return m_frame_slots.at(m_current_frame_slot);
+        }
+
+        [[nodiscard]] SwapchainImageState& get_swapchain_image_state(const uint32_t image_index) {
+            return m_swapchain_image_states.at(image_index);
+        }
+
+        [[nodiscard]] CommandBuffer& get_current_command_buffer() {
+            return get_current_frame_slot().command_buffer;
+        }
 
     private:
         Device* m_device;
-        std::vector<FrameSynchronization> m_frame_syncs;
-        std::vector<CommandBuffer> m_command_buffers;
-        std::vector<std::optional<uint32_t>> m_image_frames;
-        uint32_t m_current_frame = 0;
-        uint32_t m_frame_count = 0;
+        std::vector<FrameSlot> m_frame_slots;
+        std::vector<SwapchainImageState> m_swapchain_image_states;
+        uint32_t m_current_frame_slot = 0;
+        uint32_t m_frame_slot_count = 0;
     };
 }

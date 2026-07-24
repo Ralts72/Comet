@@ -76,6 +76,7 @@ TEST(ConfigTest, LoadRuntimeConfigParsesRenderValues) {
     Config loader;
     const Config::Runtime config = loader.load_runtime_config();
 
+    EXPECT_EQ(config.render.max_frames_in_flight, 2u);
     EXPECT_FALSE(config.render.enable_vsync);
     EXPECT_FLOAT_EQ(config.render.clear_color[0], 0.2f);
     EXPECT_FLOAT_EQ(config.render.clear_color[1], 0.4f);

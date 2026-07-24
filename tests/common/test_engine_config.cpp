@@ -24,6 +24,7 @@ TEST(RuntimeConfigTest, ParsesRuntimeConfigurationFromLoadedConfig) {
     EXPECT_EQ(config.vulkan.msaa_samples, 4);
     EXPECT_TRUE(config.vulkan.enable_validation);
 
+    EXPECT_EQ(config.render.max_frames_in_flight, 2u);
     EXPECT_FALSE(config.render.enable_vsync);
     ASSERT_EQ(config.render.clear_color.size(), 4u);
     EXPECT_FLOAT_EQ(config.render.clear_color[0], 0.2f);

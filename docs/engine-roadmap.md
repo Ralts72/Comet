@@ -200,6 +200,8 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 - 将 engine、editor 和 app 的源码清单改为显式维护；测试源码 glob 使用 `CONFIGURE_DEPENDS`。
 - 移除正常呈现路径中的逐帧 `queue.waitIdle()`，补齐 frame/image fence 关联，并按 frame-in-flight
   独立持有 descriptor set 和 uniform buffer。
+- 将 `max_frames_in_flight` 显式配置为 2，与实际 swapchain image 数量解耦；command buffer 按 frame slot
+  复用，render-finished semaphore 和 framebuffer 按 swapchain image 管理。
 - 统一 swapchain acquire/present 的可恢复错误处理与重建路径。
 
 验收标准：

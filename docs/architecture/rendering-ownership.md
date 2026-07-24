@@ -1,6 +1,8 @@
 # 渲染资源所有权
 
 本文记录 Comet 当前渲染基础设施的所有权和生命周期约束。它描述的是资源由谁销毁，不代表 Scene、Asset 和 RenderItem 的最终 API。
+阶段 0 改造的背景、帧同步原理和代码前后对比见
+[阶段 0 渲染基础改造详解](./rendering-foundation-phase-0.md)。
 
 ## 所有权结构
 
@@ -21,6 +23,8 @@ Engine
     └── SceneRenderer
         ├── RenderPass/PipelineManager/Pipeline
         ├── FrameManager
+        │   ├── FrameSlot[frames-in-flight]
+        │   └── SwapchainImageState[swapchain images]
         ├── RenderTarget
         └── descriptor resources
 ```
@@ -51,7 +55,16 @@ Engine
 
 ## 帧同步
 
-FrameManager 按 frame-in-flight 等待和复用同步对象，并记录每个 swapchain image 最近一次使用的 frame fence。只有在对应 fence 完成后才能重录该 image 的 command buffer。每个 frame-in-flight 必须独立持有会被 CPU 更新的 descriptor set 和 uniform buffer；纹理、sampler 等只读资源可以共享。正常呈现路径不得依赖每帧 `queue.waitIdle()`；Device idle 仅用于关闭和 swapchain 重建等全局同步点。
+`render.max_frames_in_flight` 当前为 2，与实际 swapchain image 数量相互独立。
+
+- `FrameSlot` 按 frame slot 创建，持有 in-flight fence、image-available semaphore 和 command buffer。
+- uniform buffer 和 descriptor set 也按 frame slot 创建，只有对应 fence 完成后 CPU 才能改写。
+- `SwapchainImageState` 按实际 swapchain image 数量创建，持有 render-finished semaphore，并记录该 image
+  最近关联的 frame slot。
+- `SwapchainTarget` 按 image 持有 framebuffer、image view 和深度附件。
+
+交换链重建只重建 image state 和 render target，不改变 frame slot 数量。正常呈现路径不得依赖每帧
+`queue.waitIdle()`；Device idle 仅用于关闭和 swapchain 重建等全局同步点。
 
 ## 错误处理
 

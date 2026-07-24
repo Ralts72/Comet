@@ -16,8 +16,8 @@ namespace Comet {
     SceneRenderer::SceneRenderer(RenderContext* context, const Config::Vulkan& vulkan_config, const Config::Render& render_config)
         : m_context(context), m_vulkan_config(vulkan_config), m_render_config(render_config) {
         LOG_INFO("create frame manager");
-        const uint32_t frame_count = static_cast<uint32_t>(context->get_swapchain()->get_images().size());
-        m_frame_manager = std::make_unique<FrameManager>(context->get_device(), frame_count);
+        m_frame_manager = std::make_unique<FrameManager>(
+            context->get_device(), render_config.max_frames_in_flight);
     }
 
     void SceneRenderer::setup_render_pass() {
@@ -57,8 +57,9 @@ namespace Comet {
         );
         m_render_target->set_clear_value(ClearValue(clear_color));
 
-        // Initialize command buffers
-        m_frame_manager->initialize_command_buffers(m_context->get_swapchain()->get_images().size());
+        const uint32_t image_count = static_cast<uint32_t>(
+            m_context->get_swapchain()->get_images().size());
+        m_frame_manager->initialize_swapchain_images(image_count);
 
         m_render_mode = RenderMode::Runtime;
     }
@@ -93,14 +94,16 @@ namespace Comet {
             m_descriptor_set_layout = std::make_shared<DescriptorSetLayout>(m_context->get_device(), bindings);
         }
 
-        const uint32_t frame_count = m_frame_manager->get_frame_count();
+        const uint32_t frame_slot_count = m_frame_manager->get_frame_slot_count();
         DescriptorPoolSizes descriptor_pool_sizes;
-        descriptor_pool_sizes.add_pool_size(DescriptorType::UniformBuffer, 2 * frame_count);
-        descriptor_pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, 2 * frame_count);
+        descriptor_pool_sizes.add_pool_size(
+            DescriptorType::UniformBuffer, 2 * frame_slot_count);
+        descriptor_pool_sizes.add_pool_size(
+            DescriptorType::CombinedImageSampler, 2 * frame_slot_count);
         m_descriptor_pool = std::make_shared<DescriptorPool>(
-            m_context->get_device(), frame_count, descriptor_pool_sizes);
+            m_context->get_device(), frame_slot_count, descriptor_pool_sizes);
         m_descriptor_sets = m_descriptor_pool->allocate_descriptor_set(
-            *m_descriptor_set_layout, frame_count);
+            *m_descriptor_set_layout, frame_slot_count);
     }
 
     uint32_t SceneRenderer::begin_frame() {
@@ -109,21 +112,22 @@ namespace Comet {
 
         // 暂时所有模式都使用 swapchain
         const auto swapchain = m_context->get_swapchain();
-        const auto& frame_sync = m_frame_manager->get_current_sync();
-        auto& wait_sem = frame_sync.image_semaphore;
+        auto& frame_slot = m_frame_manager->get_current_frame_slot();
 
         // Acquire next image
-        auto [image_index, acquire_result] = swapchain->acquire_next_image(wait_sem);
+        auto [image_index, acquire_result] =
+            swapchain->acquire_next_image(frame_slot.image_available_semaphore);
         if(acquire_result == vk::Result::eErrorOutOfDateKHR) {
             recreate_swapchain();
-            std::tie(image_index, acquire_result) = swapchain->acquire_next_image(wait_sem);
+            std::tie(image_index, acquire_result) =
+                swapchain->acquire_next_image(frame_slot.image_available_semaphore);
             if(acquire_result != vk::Result::eSuccess && acquire_result != vk::Result::eSuboptimalKHR) {
                 LOG_FATAL("can't acquire swapchain image");
             }
         }
 
         m_frame_manager->prepare_image(image_index);
-        auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
+        auto& command_buffer = m_frame_manager->get_current_command_buffer();
         command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
         m_render_target->begin_render_target(command_buffer);
 
@@ -140,10 +144,8 @@ namespace Comet {
             return;
         }
 
-        // 暂时所有模式都使用 swapchain
-        const auto swapchain = m_context->get_swapchain();
-        const auto image_index = swapchain->get_current_index();
-        const auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
+        const auto& command_buffer =
+            m_frame_manager->get_current_command_buffer();
 
         // Bind pipeline
         command_buffer.bind_pipeline(*m_pipeline);
@@ -180,23 +182,24 @@ namespace Comet {
         const auto device = m_context->get_device();
         const auto swapchain = m_context->get_swapchain();
         const uint32_t image_index = swapchain->get_current_index();
-        auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
-        auto& frame_sync = m_frame_manager->get_current_sync();
+        auto& frame_slot = m_frame_manager->get_current_frame_slot();
+        auto& image_state =
+            m_frame_manager->get_swapchain_image_state(image_index);
 
         // End command buffer
-        command_buffer.end();
+        frame_slot.command_buffer.end();
 
         // Submit
         const auto& graphics_queue = device->get_graphics_queue(0);
-        graphics_queue.submit(std::span(&command_buffer, 1),
-            std::span(&frame_sync.image_semaphore, 1),
-            std::span(&frame_sync.submit_semaphore, 1),
-            &frame_sync.fence);
+        graphics_queue.submit(std::span(&frame_slot.command_buffer, 1),
+            std::span(&frame_slot.image_available_semaphore, 1),
+            std::span(&image_state.render_finished_semaphore, 1),
+            &frame_slot.in_flight_fence);
 
         // Present
         auto& present_queue = device->get_present_queue(0);
         const auto result = present_queue.present(*swapchain,
-            std::span(&frame_sync.submit_semaphore, 1), image_index);
+            std::span(&image_state.render_finished_semaphore, 1), image_index);
         if(result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR) {
             recreate_swapchain();
         } else if(result != vk::Result::eSuccess) {
@@ -207,12 +210,8 @@ namespace Comet {
     }
 
     void SceneRenderer::end_render_pass() const {
-        // 暂时所有模式都使用 swapchain
-        const auto swapchain = m_context->get_swapchain();
-        const uint32_t image_index = swapchain->get_current_index();
-        auto& command_buffer = m_frame_manager->get_command_buffer(image_index);
-
-        m_render_target->end_render_target(command_buffer);
+        m_render_target->end_render_target(
+            m_frame_manager->get_current_command_buffer());
     }
 
     void SceneRenderer::set_render_mode(RenderMode mode) {
@@ -232,8 +231,7 @@ namespace Comet {
     }
 
     CommandBuffer& SceneRenderer::get_current_command_buffer() const {
-        const auto image_index = m_context->get_swapchain()->get_current_index();
-        return m_frame_manager->get_command_buffer(image_index);
+        return m_frame_manager->get_current_command_buffer();
     }
 
     void SceneRenderer::recreate_swapchain() {
@@ -256,8 +254,9 @@ namespace Comet {
         );
         m_render_target->set_clear_value(ClearValue(clear_color));
 
-        // Reinitialize command buffers
-        m_frame_manager->initialize_command_buffers(swapchain->get_images().size());
+        const uint32_t image_count =
+            static_cast<uint32_t>(swapchain->get_images().size());
+        m_frame_manager->initialize_swapchain_images(image_count);
 
         if (m_swapchain_recreate_callback) {
             m_swapchain_recreate_callback();
