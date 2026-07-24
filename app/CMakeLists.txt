@@ -6,4 +6,4 @@ set(CMAKE_CXX_STANDARD 20)
 set(SOURCES main.cpp)
 
 add_executable(app ${SOURCES})
-target_link_libraries(app PUBLIC engine)
+target_link_libraries(app PRIVATE engine)

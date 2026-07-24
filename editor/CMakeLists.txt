@@ -15,6 +15,6 @@ set(SOURCES
 )
 
 add_executable(editor ${SOURCES})
-target_link_libraries(editor PUBLIC engine imgui)
+target_link_libraries(editor PRIVATE engine imgui glfw)
 target_include_directories(editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_compile_definitions(editor PUBLIC COMET_EDITOR)
+target_compile_definitions(editor PRIVATE COMET_EDITOR)

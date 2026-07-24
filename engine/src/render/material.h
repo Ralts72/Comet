@@ -5,6 +5,12 @@
 #include "graphics/pipeline.h"
 #include "common/export.h"
 
+#include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <variant>
+
 namespace Comet {
     class Device;
     class Texture;

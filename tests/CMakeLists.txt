@@ -3,9 +3,6 @@ project(Test)
 
 set(CMAKE_CXX_STANDARD 20)
 
-# 查找Vulkan
-find_package(Vulkan REQUIRED)
-
 # 收集所有测试源文件
 file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
@@ -19,14 +16,14 @@ add_executable(unit_testing ${TEST_SOURCES})
 target_link_libraries(unit_testing PRIVATE
         engine
         gtest_main
-        ${Vulkan_LIBRARIES}
+        glfw
+        Vulkan::Vulkan
 )
 
 # 设置包含目录
 target_include_directories(unit_testing PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/engine/src
-        ${Vulkan_INCLUDE_DIRS}
 )
 
 # 设置运行时库路径

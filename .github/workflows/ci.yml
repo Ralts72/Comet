@@ -37,7 +37,12 @@ jobs:
           key: ${{ runner.os }}-build-${{ hashFiles('CMakeLists.txt') }}
 
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DComet_ENABLE_FILE_LOGGING=OFF
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCOMET_BUILD_APP=ON
+          -DCOMET_BUILD_EDITOR=ON
+          -DCOMET_BUILD_TESTS=ON
 
       - name: Build project
         run: cmake --build build --parallel

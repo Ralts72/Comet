@@ -38,6 +38,12 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
+默认只构建引擎和运行时示例程序。可通过以下选项按需启用其他目标：
+
+- `COMET_BUILD_APP`：构建运行时示例程序，默认 `ON`。
+- `COMET_BUILD_EDITOR`：构建 ImGui 编辑器，默认 `OFF`。
+- `COMET_BUILD_TESTS`：构建 GoogleTest 测试，默认 `OFF`。
+
 运行 Debug 编辑器：
 
 ```bash
@@ -55,6 +61,8 @@ cmake --build build --parallel
 项目测试目标为 `unit_testing`，通过 CTest 运行：
 
 ```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCOMET_BUILD_TESTS=ON
+cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 

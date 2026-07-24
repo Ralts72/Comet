@@ -54,15 +54,24 @@ set(SOURCES
         src/scene/scene.cpp
 )
 
-find_package(Vulkan REQUIRED)
 add_library(engine SHARED ${SOURCES})
 add_dependencies(engine ${SHADER_COMPILE_TARGET})
-target_link_libraries(engine PUBLIC spdlog::spdlog glm ${Vulkan_LIBRARIES} stb_image glfw yaml-cpp GPUOpen::VulkanMemoryAllocator EnTT::EnTT)
+target_link_libraries(engine
+        PUBLIC
+        spdlog::spdlog
+        glm
+        Vulkan::Vulkan
+        glfw
+        yaml-cpp
+        GPUOpen::VulkanMemoryAllocator
+        EnTT::EnTT
+        PRIVATE
+        stb_image
+)
 target_include_directories(engine
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/include
-        ${Vulkan_INCLUDE_DIRS}
 )
 target_precompile_headers(engine PRIVATE
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h>"

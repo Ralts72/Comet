@@ -14,7 +14,12 @@ fi
 BUILD_DIR="build-release"
 mkdir -p $BUILD_DIR
 echo "构建Release版本..."
-cmake -S . -B $BUILD_DIR -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG"
+cmake -S . -B $BUILD_DIR -G "$GENERATOR" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG" \
+    -DCOMET_BUILD_APP=ON \
+    -DCOMET_BUILD_EDITOR=OFF \
+    -DCOMET_BUILD_TESTS=OFF
 cmake --build $BUILD_DIR -- $PARALLEL
 
 # 运行Release版本

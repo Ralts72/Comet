@@ -14,7 +14,12 @@ fi
 BUILD_DIR="build-debug"
 mkdir -p $BUILD_DIR
 echo "构建Debug版本..."
-cmake -S . -B $BUILD_DIR -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake -S . -B $BUILD_DIR -G "$GENERATOR" \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+    -DCOMET_BUILD_APP=OFF \
+    -DCOMET_BUILD_EDITOR=ON \
+    -DCOMET_BUILD_TESTS=OFF
 cmake --build $BUILD_DIR -- $PARALLEL
 
 # 运行Editor（Debug版本）
