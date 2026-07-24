@@ -1,9 +1,13 @@
 #pragma once
 #include "common/export.h"
 #include "common/config.h"
+
+#include <cassert>
+#include <exception>
 #include <memory>
-#include <spdlog/spdlog.h>
 #include <string>
+
+#include <spdlog/spdlog.h>
 
 namespace Comet {
     // 统一的日志级别枚举

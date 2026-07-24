@@ -1,9 +1,17 @@
 #pragma once
-#include "pch.h"
+
 #include <vulkan/vulkan.hpp>
+
 #include "convert.h"
 #include "common/logger.h"
 #include "core/math_utils.h"
+
+#include <cstdint>
+#include <set>
+#include <string>
+#include <type_traits>
+#include <variant>
+#include <vector>
 
 namespace Comet {
     struct DeviceFeature {

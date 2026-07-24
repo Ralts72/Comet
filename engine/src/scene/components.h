@@ -1,5 +1,8 @@
 #pragma once
+
+#include "asset/handle.h"
 #include "core/math_utils.h"
+
 #include <cstdint>
 #include <string>
 
@@ -23,8 +26,8 @@ namespace Comet {
     };
 
     struct MeshRendererComponent {
-        std::string mesh;
-        std::string material;
+        AssetHandle mesh;
+        AssetHandle material;
     };
 
     struct CameraComponent {

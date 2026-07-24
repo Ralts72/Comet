@@ -1,5 +1,4 @@
 #include "profiler.h"
-#include "pch.h"
 #include "logger.h"
 
 namespace Comet {

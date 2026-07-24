@@ -131,16 +131,28 @@ TEST(SceneTest, TransformComponentStoresLocalTRS) {
 TEST(SceneTest, BuiltInRenderComponentsCanBeAttached) {
     Scene scene;
     Entity entity = scene.create_entity("Renderable");
+    const AssetHandle mesh_handle(10);
+    const AssetHandle material_handle(20);
 
-    auto& mesh_renderer = entity.add_component<MeshRendererComponent>("cube", "default");
+    auto& mesh_renderer =
+        entity.add_component<MeshRendererComponent>(mesh_handle, material_handle);
     auto& camera = entity.add_component<CameraComponent>();
 
-    EXPECT_EQ(mesh_renderer.mesh, "cube");
-    EXPECT_EQ(mesh_renderer.material, "default");
+    EXPECT_EQ(mesh_renderer.mesh, mesh_handle);
+    EXPECT_EQ(mesh_renderer.material, material_handle);
     EXPECT_FLOAT_EQ(camera.fov, 45.0f);
     EXPECT_FLOAT_EQ(camera.near_clip, 0.1f);
     EXPECT_FLOAT_EQ(camera.far_clip, 1000.0f);
     EXPECT_FALSE(camera.primary);
+}
+
+TEST(SceneTest, MeshRendererComponentDefaultsToInvalidAssetHandles) {
+    const MeshRendererComponent mesh_renderer;
+
+    EXPECT_EQ(mesh_renderer.mesh, INVALID_ASSET_HANDLE);
+    EXPECT_EQ(mesh_renderer.material, INVALID_ASSET_HANDLE);
+    EXPECT_FALSE(mesh_renderer.mesh);
+    EXPECT_FALSE(mesh_renderer.material);
 }
 
 } // namespace Comet::Tests

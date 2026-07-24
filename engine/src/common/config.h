@@ -1,9 +1,12 @@
 #pragma once
 #include "common/export.h"
+
 #include <array>
+#include <cstdint>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+
 #include <yaml-cpp/yaml.h>
 
 namespace Comet {

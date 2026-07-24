@@ -13,6 +13,7 @@ set(SHADER_COMPILE_TARGET shader_compile)
 add_subdirectory(assets/shaders)
 
 set(SOURCES
+        src/asset/registry.cpp
         src/common/geometry_utils.cpp
         src/common/profiler.cpp
         src/common/logger.cpp
@@ -63,7 +64,9 @@ target_include_directories(engine
         ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/include
         ${Vulkan_INCLUDE_DIRS}
 )
-target_precompile_headers(engine PRIVATE "src/pch.h")
+target_precompile_headers(engine PRIVATE
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h>"
+)
 target_compile_definitions(engine PRIVATE COMET_EXPORTS)
 if (NOT WIN32)
     target_compile_options(engine PRIVATE -fvisibility=hidden)

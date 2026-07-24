@@ -1,5 +1,4 @@
 #include "shader.h"
-#include "pch.h"
 #include "device.h"
 #include "common/logger.h"
 

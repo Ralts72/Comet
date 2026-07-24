@@ -1,5 +1,9 @@
-#include "pch.h"
 #include "config.h"
+
+#include <filesystem>
+#include <iostream>
+#include <sstream>
+#include <vector>
 
 namespace Comet {
     namespace {

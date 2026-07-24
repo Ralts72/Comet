@@ -5,7 +5,9 @@ GoogleTest 测试基础。
 
 ## 项目结构
 
-- `engine/`：引擎核心库，包含 `core/`、`graphics/`、`render/`、`runtime/`、`scene/` 和 `common/` 模块。
+- `engine/`：引擎核心库，包含 `asset/`、`core/`、`graphics/`、`render/`、`runtime/`、`scene/` 和
+  `common/` 模块；`asset/` 当前提供轻量、不透明的 `AssetHandle` 和带类型校验的最小内存
+  `AssetRegistry`。
 - `editor/`：ImGui 编辑器入口和面板，包括层级、检查器、项目、视图和日志窗口。
 - `app/`：运行时示例程序入口。
 - `tests/`：GoogleTest 测试，覆盖数学、配置、导出、Scene/ECS、资源参数保护和基础集成行为。

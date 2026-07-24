@@ -1,5 +1,12 @@
 #pragma once
+
 #include "export.h"
+
+#include <chrono>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace Comet {
     struct ProfileRecord {

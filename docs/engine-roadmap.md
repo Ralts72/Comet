@@ -34,7 +34,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 - `Renderer` 中仍然直接持有 demo 用的 uniform buffer、texture、mesh 和模型矩阵。
 - `SceneRenderer` 目前主要服务固定 cube pipeline，而不是遍历真实 Scene 数据。
 - Scene 已能管理实体和基础组件，但目前只有运行期自增 `EntityId` 和局部 TRS，还没有持久化 UUID、父子关系与世界矩阵。
-- `MeshRendererComponent` 仍以字符串保存 mesh/material 引用，还没有统一的 `AssetHandle`。
+- `MeshRendererComponent` 已使用统一的 `AssetHandle`，最小内存 Asset Registry 也已建立，但 demo
+  资源尚未通过该链路接入场景渲染。
 - 编辑器面板显示的是示例对象和占位资产，Hierarchy/Inspector/Project 尚未绑定实际项目数据。
 - Material/ResourceManager 已有接口，但还没有资产数据库、序列化、导入器、热重载和编辑器检查器闭环。
 - Scene Update、Render Submit 和运行时 System 调度的边界仍未落地。
@@ -215,7 +216,8 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 目标：建立真实场景数据模型，让引擎能从 Scene 渲染对象，而不是从 `Renderer` 内部硬编码对象。
 
-当前状态：阶段 1A 已完成，阶段 1B 是下一项工作。
+当前状态：阶段 1A 已完成，阶段 1B 正在进行；`AssetHandle`、MeshRenderer Handle 化和最小内存
+Asset Registry 已完成。
 
 #### 阶段 1A：Scene/ECS Core（已完成）
 
@@ -225,19 +227,19 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 - 实现实体验证、创建、删除、按 ID 查询、遍历和通用组件操作。
 - 使用单元测试约束 Entity 不公开 registry、原始 EnTT handle 和所属 Scene。
 
-#### 阶段 1B：Scene Render Submission（下一步）
+#### 阶段 1B：Scene Render Submission（进行中）
 
-- 定义最小 `AssetHandle`，包含无效值、比较和哈希能力。
-- 将 `MeshRendererComponent` 的 mesh/material 字符串替换为 `AssetHandle`。
-- 提供最小内存 Asset Registry，支持 app 将 demo `AssetHandle` 注册到运行时资源；暂不实现目录扫描和导入。
-- 定义最小 `RenderScene` / `RenderItem`，至少包含实体 ID、模型矩阵、mesh handle 和 material handle。
-- 实现局部 TRS 到模型矩阵的转换，明确 Euler 旋转顺序和角度单位。
-- 新增 Scene Render Extractor，提取具有 Transform 与 MeshRenderer 的实体；Scene 组件不持有文件路径或 GPU 资源。
-- 让运行时层持有 Active Scene，由 app 创建 demo Scene 和 cube entity。
-- 让 `Renderer` 只消费场景提交结果，并让 `SceneRenderer` 遍历 render items。
-- 接入主 `CameraComponent` 驱动 view/projection；Camera FOV 统一使用角度。
-- 每个 draw 的模型矩阵优先使用 push constant，避免单一 model uniform buffer 阻碍多对象渲染。
-- 删除 `Renderer` 内部硬编码的 cube mesh、旋转逻辑和固定相机业务状态。
+- [x] 定义最小 `AssetHandle`，包含无效值、比较和哈希能力。
+- [x] 将 `MeshRendererComponent` 的 mesh/material 字符串替换为 `AssetHandle`。
+- [x] 提供最小内存 Asset Registry，支持 app 将 demo `AssetHandle` 注册到运行时资源；暂不实现目录扫描和导入。
+- [ ] 定义最小 `RenderScene` / `RenderItem`，至少包含实体 ID、模型矩阵、mesh handle 和 material handle。
+- [ ] 实现局部 TRS 到模型矩阵的转换，明确 Euler 旋转顺序和角度单位。
+- [ ] 新增 Scene Render Extractor，提取具有 Transform 与 MeshRenderer 的实体；Scene 组件不持有文件路径或 GPU 资源。
+- [ ] 让运行时层持有 Active Scene，由 app 创建 demo Scene 和 cube entity。
+- [ ] 让 `Renderer` 只消费场景提交结果，并让 `SceneRenderer` 遍历 render items。
+- [ ] 接入主 `CameraComponent` 驱动 view/projection；Camera FOV 统一使用角度。
+- [ ] 每个 draw 的模型矩阵优先使用 push constant，避免单一 model uniform buffer 阻碍多对象渲染。
+- [ ] 删除 `Renderer` 内部硬编码的 cube mesh、旋转逻辑和固定相机业务状态。
 
 #### 阶段 1C：编辑器基础数据闭环
 
