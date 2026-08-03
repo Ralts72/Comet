@@ -9,7 +9,7 @@
 
 namespace Comet {
     struct PushConstant {
-        Math::Mat4 matrix;
+        Math::Mat4 model;
     };
 
     struct ViewProjectMatrix {
@@ -17,7 +17,4 @@ namespace Comet {
         Math::Mat4 projection;
     };
 
-    struct ModelMatrix {
-        Math::Mat4 model;
-    };
 }

@@ -1,11 +1,12 @@
 #pragma once
+#include "common/export.h"
 #include "graphics/buffer.h"
 #include "common/geometry_utils.h"
 #include "graphics/device.h"
 
 namespace Comet {
 
-    class Mesh {
+    class COMET_API Mesh {
     public:
         Mesh(Device* device, const std::vector<Math::Vertex>& vertices, const std::vector<uint32_t>& indices = {});
         ~Mesh();

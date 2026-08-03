@@ -1,4 +1,5 @@
 #pragma once
+#include "common/export.h"
 #include "core/math_utils.h"
 
 namespace Comet {
@@ -8,7 +9,7 @@ namespace Comet {
         std::vector<uint32_t> indices;
     };
 
-    class GeometryUtils {
+    class COMET_API GeometryUtils {
     public:
         static Cube create_cube(float left, float right, float top, float bottom, float near, float far, const Math::Mat4& transform = Math::Mat4(1.0f));
     };

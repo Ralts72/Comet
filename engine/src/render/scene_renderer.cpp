@@ -1,6 +1,7 @@
 #include "scene_renderer.h"
 #include "common/logger.h"
 #include "common/profiler.h"
+#include "common/shader_resources.h"
 #include "graphics/queue.h"
 #include "graphics/image_view.h"
 #include "graphics/vk_common.h"
@@ -86,24 +87,48 @@ namespace Comet {
             "cube_pipeline", layout, vertex_input, config, vert_shader, frag_shader);
     }
 
-    void SceneRenderer::setup_descriptor_sets(const DescriptorSetLayoutBindings& bindings) {
-        LOG_INFO("create descriptor pool and descriptor sets");
-
-        // 如果 DescriptorSetLayout 还没有创建，先创建它
+    const DescriptorSet& SceneRenderer::prepare_material_descriptor_set(
+        const AssetHandle material_handle,
+        const std::shared_ptr<Buffer>& view_project_buffer,
+        const std::shared_ptr<Texture>& texture0,
+        const std::shared_ptr<Texture>& texture1,
+        SamplerManager* sampler_manager) {
         if(!m_descriptor_set_layout) {
-            m_descriptor_set_layout = std::make_shared<DescriptorSetLayout>(m_context->get_device(), bindings);
+            LOG_FATAL("Descriptor set layout must be created before preparing material descriptors");
         }
 
-        const uint32_t frame_slot_count = m_frame_manager->get_frame_slot_count();
-        DescriptorPoolSizes descriptor_pool_sizes;
-        descriptor_pool_sizes.add_pool_size(
-            DescriptorType::UniformBuffer, 2 * frame_slot_count);
-        descriptor_pool_sizes.add_pool_size(
-            DescriptorType::CombinedImageSampler, 2 * frame_slot_count);
-        m_descriptor_pool = std::make_shared<DescriptorPool>(
-            m_context->get_device(), frame_slot_count, descriptor_pool_sizes);
-        m_descriptor_sets = m_descriptor_pool->allocate_descriptor_set(
-            *m_descriptor_set_layout, frame_slot_count);
+        auto [iterator, inserted] = m_material_descriptors.try_emplace(material_handle);
+        MaterialDescriptorState& state = iterator->second;
+        if(inserted) {
+            const uint32_t frame_slot_count = m_frame_manager->get_frame_slot_count();
+            DescriptorPoolSizes descriptor_pool_sizes;
+            descriptor_pool_sizes.add_pool_size(
+                DescriptorType::UniformBuffer, frame_slot_count);
+            descriptor_pool_sizes.add_pool_size(
+                DescriptorType::CombinedImageSampler, 2 * frame_slot_count);
+            state.pool = std::make_shared<DescriptorPool>(
+                m_context->get_device(), frame_slot_count, descriptor_pool_sizes);
+            state.descriptor_sets = state.pool->allocate_descriptor_set(
+                *m_descriptor_set_layout, frame_slot_count);
+            state.view_project_buffers.resize(frame_slot_count);
+            state.textures0.resize(frame_slot_count);
+            state.textures1.resize(frame_slot_count);
+        }
+
+        const uint32_t frame_slot_index =
+            m_frame_manager->get_current_frame_slot_index();
+        const DescriptorSet& descriptor_set =
+            state.descriptor_sets.at(frame_slot_index);
+        if(state.view_project_buffers.at(frame_slot_index) != view_project_buffer
+            || state.textures0.at(frame_slot_index) != texture0
+            || state.textures1.at(frame_slot_index) != texture1) {
+            update_descriptor_set(
+                descriptor_set, view_project_buffer, texture0, texture1, sampler_manager);
+            state.view_project_buffers.at(frame_slot_index) = view_project_buffer;
+            state.textures0.at(frame_slot_index) = texture0;
+            state.textures1.at(frame_slot_index) = texture1;
+        }
+        return descriptor_set;
     }
 
     uint32_t SceneRenderer::begin_frame() {
@@ -134,10 +159,10 @@ namespace Comet {
         return image_index;
     }
 
-    void SceneRenderer::render(const ViewProjectMatrix& view_project, const ModelMatrix& model,
-                               const std::shared_ptr<Mesh>& mesh,
-                               const DescriptorSet& descriptor_set) const {
-        PROFILE_SCOPE("SceneRenderer::render");
+    void SceneRenderer::render_item(const Math::Mat4& model_matrix,
+                                    const std::shared_ptr<Mesh>& mesh,
+                                    const DescriptorSet& descriptor_set) const {
+        PROFILE_SCOPE("SceneRenderer::render_item");
 
         if(!m_pipeline) {
             LOG_ERROR("Pipeline not set up. Call setup_pipeline() first.");
@@ -170,6 +195,14 @@ namespace Comet {
             &vk_descriptor_set,
             0,
             nullptr);
+
+        const PushConstant push_constant{.model = model_matrix};
+        command_buffer.push_constants(
+            *m_pipeline->get_layout(),
+            Flags<ShaderStage>(ShaderStage::Vertex),
+            0,
+            &push_constant,
+            sizeof(push_constant));
 
         // Draw
         mesh->draw(command_buffer);
@@ -265,67 +298,52 @@ namespace Comet {
 
     void SceneRenderer::update_descriptor_set(const DescriptorSet& descriptor_set,
                                               const std::shared_ptr<Buffer>& view_project_buffer,
-                                              const std::shared_ptr<Buffer>& model_buffer,
+                                              const std::shared_ptr<Texture>& texture0,
                                               const std::shared_ptr<Texture>& texture1,
-                                              const std::shared_ptr<Texture>& texture2,
                                               SamplerManager* sampler_manager) const {
-        vk::DescriptorBufferInfo buffer_info1{};
-        buffer_info1.buffer = view_project_buffer->get();
-        buffer_info1.offset = 0;
-        buffer_info1.range = sizeof(ViewProjectMatrix);
+        vk::DescriptorBufferInfo buffer_info{};
+        buffer_info.buffer = view_project_buffer->get();
+        buffer_info.offset = 0;
+        buffer_info.range = sizeof(ViewProjectMatrix);
 
-        vk::DescriptorBufferInfo buffer_info2{};
-        buffer_info2.buffer = model_buffer->get();
-        buffer_info2.offset = 0;
-        buffer_info2.range = sizeof(ModelMatrix);
+        vk::DescriptorImageInfo image_info0{};
+        image_info0.sampler = sampler_manager->get_linear_repeat()->get();
+        image_info0.imageView = texture0->get_image_view()->get();
+        image_info0.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
         vk::DescriptorImageInfo image_info1{};
         image_info1.sampler = sampler_manager->get_linear_repeat()->get();
         image_info1.imageView = texture1->get_image_view()->get();
         image_info1.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-        vk::DescriptorImageInfo image_info2{};
-        image_info2.sampler = sampler_manager->get_linear_repeat()->get();
-        image_info2.imageView = texture2->get_image_view()->get();
-        image_info2.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-
         std::vector<vk::WriteDescriptorSet> write_sets;
 
-        vk::WriteDescriptorSet set1{};
-        set1.dstSet = descriptor_set.get();
-        set1.dstBinding = 0;
-        set1.dstArrayElement = 0;
-        set1.descriptorType = vk::DescriptorType::eUniformBuffer;
-        set1.descriptorCount = 1;
-        set1.pBufferInfo = &buffer_info1;
-        write_sets.emplace_back(set1);
+        vk::WriteDescriptorSet view_project_write{};
+        view_project_write.dstSet = descriptor_set.get();
+        view_project_write.dstBinding = 0;
+        view_project_write.dstArrayElement = 0;
+        view_project_write.descriptorType = vk::DescriptorType::eUniformBuffer;
+        view_project_write.descriptorCount = 1;
+        view_project_write.pBufferInfo = &buffer_info;
+        write_sets.emplace_back(view_project_write);
 
-        vk::WriteDescriptorSet set2{};
-        set2.dstSet = descriptor_set.get();
-        set2.dstBinding = 1;
-        set2.dstArrayElement = 0;
-        set2.descriptorType = vk::DescriptorType::eUniformBuffer;
-        set2.descriptorCount = 1;
-        set2.pBufferInfo = &buffer_info2;
-        write_sets.emplace_back(set2);
+        vk::WriteDescriptorSet texture0_write{};
+        texture0_write.dstSet = descriptor_set.get();
+        texture0_write.dstBinding = 2;
+        texture0_write.dstArrayElement = 0;
+        texture0_write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+        texture0_write.descriptorCount = 1;
+        texture0_write.pImageInfo = &image_info0;
+        write_sets.emplace_back(texture0_write);
 
-        vk::WriteDescriptorSet set3{};
-        set3.dstSet = descriptor_set.get();
-        set3.dstBinding = 2;
-        set3.dstArrayElement = 0;
-        set3.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-        set3.descriptorCount = 1;
-        set3.pImageInfo = &image_info1;
-        write_sets.emplace_back(set3);
-
-        vk::WriteDescriptorSet set4{};
-        set4.dstSet = descriptor_set.get();
-        set4.dstBinding = 3;
-        set4.dstArrayElement = 0;
-        set4.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-        set4.descriptorCount = 1;
-        set4.pImageInfo = &image_info2;
-        write_sets.emplace_back(set4);
+        vk::WriteDescriptorSet texture1_write{};
+        texture1_write.dstSet = descriptor_set.get();
+        texture1_write.dstBinding = 3;
+        texture1_write.dstArrayElement = 0;
+        texture1_write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+        texture1_write.descriptorCount = 1;
+        texture1_write.pImageInfo = &image_info1;
+        write_sets.emplace_back(texture1_write);
 
         m_context->get_device()->get().updateDescriptorSets(write_sets, {});
     }

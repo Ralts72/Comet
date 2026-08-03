@@ -1,6 +1,9 @@
 #include "engine.h"
+#include "asset/registry.h"
 #include "common/logger.h"
 #include "common/profiler.h"
+#include "render/scene_render_extractor.h"
+#include "scene/scene.h"
 
 namespace Comet {
     Engine::Engine(Config::Runtime config)
@@ -8,6 +11,7 @@ namespace Comet {
         PROFILE_SCOPE("Engine::Constructor");
         LOG_INFO("init timer");
         m_timer = std::make_unique<Timer>();
+        m_asset_registry = std::make_unique<AssetRegistry>();
 
         LOG_INFO("init glfw");
         if(!glfwInit()) {
@@ -24,9 +28,16 @@ namespace Comet {
 
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
+        m_asset_registry->clear();
         m_renderer.reset();
+        m_asset_registry.reset();
+        m_scene.reset();
         m_window.reset();
         PROFILE_RESULTS();
+    }
+
+    void Engine::set_scene(std::unique_ptr<Scene> scene) {
+        m_scene = std::move(scene);
     }
 
     void Engine::on_update() const {
@@ -42,8 +53,13 @@ namespace Comet {
                 callback(update_context);
             }
 
+            RenderScene render_scene;
+            if(m_scene) {
+                render_scene = SceneRenderExtractor::extract(*m_scene);
+            }
+
             m_renderer->on_update(update_context.deltaTime);
-            m_renderer->on_render();
+            m_renderer->on_render(render_scene, *m_asset_registry);
 
             m_window->swap_buffers();
         }

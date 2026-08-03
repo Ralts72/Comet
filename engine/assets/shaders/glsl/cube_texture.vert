@@ -13,13 +13,13 @@ layout(set=0, binding=0, std140) uniform ViewProjectMatrix {
     mat4 projection;
 } matrix;
 
-layout(set=0, binding=1, std140) uniform ModelMatrix {
+layout(push_constant) uniform PushConstant {
     mat4 model;
-} model;
+} push_constant;
 
 out layout(location=1) vec2 v_TexCoord;
 
 void main() {
-    gl_Position = matrix.projection * matrix.view * model.model * vec4(a_Pos, 1.f);
+    gl_Position = matrix.projection * matrix.view * push_constant.model * vec4(a_Pos, 1.f);
     v_TexCoord = a_TexCoord;
 }

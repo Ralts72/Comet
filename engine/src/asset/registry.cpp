@@ -41,7 +41,6 @@ namespace Comet {
         }
 
         if (asset_it->second.type != type) {
-            LOG_ERROR("Asset handle {} was resolved with an incompatible type", handle.value());
             return nullptr;
         }
 

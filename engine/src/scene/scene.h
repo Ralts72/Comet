@@ -9,6 +9,8 @@
 #include <entt.hpp>
 
 namespace Comet {
+    class SceneRenderExtractor;
+
     class COMET_API Scene {
     public:
         Scene() = default;
@@ -33,6 +35,7 @@ namespace Comet {
 
     private:
         friend class Entity;
+        friend class SceneRenderExtractor;
 
         EntityId m_next_entity_id = 1;
         entt::registry m_registry;

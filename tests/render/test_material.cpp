@@ -27,4 +27,15 @@ TEST(MaterialInstanceTest, RejectsNullMaterial) {
     EXPECT_DEATH({ MaterialInstance instance(nullptr); }, "");
 }
 
+TEST(MaterialTest, StoresTextureProperty) {
+    Material material("textured", MaterialConfig{});
+    const std::shared_ptr<Texture> texture;
+
+    material.set_property_texture("albedo", texture);
+
+    const MaterialProperty& property = material.get_property("albedo");
+    EXPECT_EQ(property.type, MaterialPropertyType::Texture);
+    EXPECT_EQ(std::get<std::shared_ptr<Texture>>(property.value), texture);
+}
+
 } // namespace Comet::Tests

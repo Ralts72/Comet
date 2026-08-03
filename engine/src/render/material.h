@@ -24,12 +24,14 @@ namespace Comet {
         Vec4,
         Int,
         Sampler,
+        Texture,
     };
 
     struct MaterialProperty {
         MaterialPropertyType type;
         std::string name;
-        std::variant<float, Math::Vec2, Math::Vec3, Math::Vec4, int, std::shared_ptr<Sampler>> value;
+        std::variant<float, Math::Vec2, Math::Vec3, Math::Vec4, int,
+            std::shared_ptr<Sampler>, std::shared_ptr<Texture>> value;
     };
 
     class COMET_API MaterialConfig {
@@ -113,6 +115,8 @@ namespace Comet {
         void set_property(const std::string& name, int value);
 
         void set_property_sampler(const std::string& name, const std::shared_ptr<Sampler>& sampler);
+
+        void set_property_texture(const std::string& name, const std::shared_ptr<Texture>& texture);
 
         [[nodiscard]] bool has_property(const std::string& name) const;
 

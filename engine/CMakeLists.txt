@@ -46,6 +46,7 @@ set(SOURCES
         src/render/mesh.cpp
         src/render/texture.cpp
         src/render/render_context.cpp
+        src/render/scene_render_extractor.cpp
         src/render/scene_renderer.cpp
         src/render/resource_manager.cpp
         src/render/frame_manager.cpp

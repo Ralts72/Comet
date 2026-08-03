@@ -1,4 +1,5 @@
 #pragma once
+#include "common/export.h"
 #include "graphics/vk_common.h"
 #include "graphics/convert.h"
 #include "core/math_utils.h"
@@ -9,7 +10,7 @@ namespace Comet {
     class Buffer;
     class Device;
 
-    class Texture {
+    class COMET_API Texture {
     public:
         explicit Texture(Device* device, const std::string& img_path, Format format = Format::B8G8R8A8_UNORM);
         Texture(Device* device, int width, int height, Math::Vec4u color);

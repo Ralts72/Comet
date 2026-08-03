@@ -43,6 +43,10 @@ namespace Comet {
         m_properties[name] = MaterialProperty{MaterialPropertyType::Sampler, name, sampler};
     }
 
+    void Material::set_property_texture(const std::string& name, const std::shared_ptr<Texture>& texture) {
+        m_properties[name] = MaterialProperty{MaterialPropertyType::Texture, name, texture};
+    }
+
     bool Material::has_property(const std::string& name) const {
         return m_properties.contains(name);
     }

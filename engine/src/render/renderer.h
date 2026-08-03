@@ -1,14 +1,21 @@
 #pragma once
+#include "asset/handle.h"
+#include "common/config.h"
+#include "common/shader_resources.h"
+#include "graphics/buffer.h"
+#include "render_scene.h"
 #include "render_context.h"
 #include "resource_manager.h"
 #include "scene_renderer.h"
-#include "graphics/buffer.h"
-#include "mesh.h"
-#include "texture.h"
-#include "common/shader_resources.h"
-#include "common/config.h"
+
+#include <functional>
+#include <memory>
+#include <unordered_set>
+#include <vector>
 
 namespace Comet {
+    class AssetRegistry;
+
     class Renderer {
     public:
         Renderer(const Window& window, const Config::Runtime& config);
@@ -17,7 +24,7 @@ namespace Comet {
 
         void on_update(float delta_time);
 
-        void on_render() const;
+        void on_render(const RenderScene& render_scene, const AssetRegistry& asset_registry);
 
         using ImGuiRenderDelegate = std::function<void(CommandBuffer&)>;
 
@@ -33,8 +40,6 @@ namespace Comet {
     private:
         void setup_pipeline();
 
-        void setup_descriptor_sets() const;
-
         void setup_resources();
 
         std::unique_ptr<RenderContext> m_render_context;
@@ -42,24 +47,16 @@ namespace Comet {
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         ImGuiRenderDelegate m_on_imgui_render;
 
-        // 应用层资源（这些应该由应用层管理，但为了向后兼容暂时保留）
         std::vector<std::shared_ptr<Buffer>> m_view_project_uniform_buffers;
-        std::vector<std::shared_ptr<Buffer>> m_model_uniform_buffers;
-        std::shared_ptr<Texture> m_texture1;
-        std::shared_ptr<Texture> m_texture2;
-        std::shared_ptr<Mesh> m_cube_mesh;
 
-        // 应用层业务逻辑（这些应该由应用层管理）
         ViewProjectMatrix m_view_project_matrix = {
             .view = Math::Mat4{1.0f},
             .projection = Math::Mat4{1.0f}
         };
 
-        ModelMatrix m_model_matrix = {
-            .model = Math::Mat4{1.0f}
-        };
-
-        static float total_time;
+        std::unordered_set<AssetHandle> m_missing_mesh_handles;
+        std::unordered_set<AssetHandle> m_missing_material_handles;
+        std::unordered_set<AssetHandle> m_invalid_material_handles;
         Config::Vulkan m_vulkan_config;
         Config::Render m_render_config;
     };

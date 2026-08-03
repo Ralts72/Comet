@@ -8,6 +8,8 @@
 
 ```text
 Engine
+├── Scene
+├── AssetRegistry
 └── Renderer
     ├── RenderContext
     │   ├── Context
@@ -26,21 +28,24 @@ Engine
         │   ├── FrameSlot[frames-in-flight]
         │   └── SwapchainImageState[swapchain images]
         ├── RenderTarget
-        └── descriptor resources
+        └── MaterialDescriptorState[material][frame slot]
 ```
 
-`Renderer` 是当前渲染子系统的组合根。`RenderContext` 独占 Vulkan Context、Device 和 Swapchain；`Device` 独占 `VulkanAllocator`。`ResourceManager` 与 `SceneRenderer` 只保存指向 Device 或 RenderContext 的非拥有指针。
+`Engine` 独占 Scene 和 Asset Registry，app 和 editor 负责创建或修改场景内容。Asset Registry 以
+`AssetHandle` 保存运行时资源的共享引用，Scene 组件只保存 Handle。`Renderer` 是当前渲染子系统的组合根。
+`RenderContext` 独占 Vulkan Context、Device 和 Swapchain；`Device` 独占 `VulkanAllocator`。`ResourceManager` 与
+`SceneRenderer` 只保存指向 Device 或 RenderContext 的非拥有指针。
 
 ## 生命周期约束
 
 关闭时必须遵循以下顺序：
 
-1. 等待 Device idle。
-2. 释放 Renderer 直接持有的 Buffer、Texture、Mesh 等资源。
+1. Asset Registry 先释放对运行时资源的共享引用；当前具体 GPU 资源仍由 ResourceManager cache 共同持有。
+2. Renderer 等待 Device idle，再释放直接持有的 per-frame Buffer。
 3. 释放 SceneRenderer，确保 pipeline、descriptor、render target、command buffer 等对象先于 Device 销毁。
 4. 释放 ResourceManager 及其 runtime resource cache。
-5. 释放 RenderContext：Swapchain → Device → Context。
-6. Device 内部先释放 CommandPool、PipelineCache 和 VulkanAllocator，再销毁 Vulkan Device。
+5. 释放 RenderContext：Swapchain → Device 内部的 CommandPool、PipelineCache 和 VulkanAllocator → Vulkan Device → Context。
+6. 释放 Scene；Scene 只持有组件和 AssetHandle，不拥有 GPU 资源。
 
 任何 `Buffer`、`OwnedImage`、`Texture`、`Mesh` 或其他 VMA 资源都不得比创建它的 Device 活得更久。`BorrowedImage` 只包装外部 image，不负责释放该 image。
 
@@ -51,14 +56,15 @@ Engine
 - `SceneRenderer`：帧同步、render target、pipeline、descriptor 和 draw command 录制。
 - `MaterialManager`：Material/MaterialInstance 的内存注册；不存在的基础材质不能产生有效实例。
 - `Scene`：只保存实体、可序列化组件和 `AssetHandle`，不保存 Device、GPU对象或文件路径。
-- Asset Registry/Asset Manager：后续负责把 `AssetHandle` 解析为元数据和导入产物，再交给 ResourceManager 创建运行时资源。
+- `AssetRegistry`：当前负责注册和解析 `AssetHandle` 对应的内存资源；项目扫描、元数据、导入产物和 GUID 分配仍属于后续 Asset Manager。
+- `Renderer`：消费 RenderScene，通过 Asset Registry 解析 mesh/material，并把有效 render item 提交给 SceneRenderer。
 
 ## 帧同步
 
 `render.max_frames_in_flight` 当前为 2，与实际 swapchain image 数量相互独立。
 
 - `FrameSlot` 按 frame slot 创建，持有 in-flight fence、image-available semaphore 和 command buffer。
-- uniform buffer 和 descriptor set 也按 frame slot 创建，只有对应 fence 完成后 CPU 才能改写。
+- view/projection uniform buffer 按 frame slot 创建；材质 descriptor set 按 material handle 和 frame slot 缓存，只有对应 fence 完成后 CPU 才能改写。
 - `SwapchainImageState` 按实际 swapchain image 数量创建，持有 render-finished semaphore，并记录该 image
   最近关联的 frame slot。
 - `SwapchainTarget` 按 image 持有 framebuffer、image view 和深度附件。
