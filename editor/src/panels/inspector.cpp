@@ -1,53 +1,49 @@
 #include "inspector.h"
+#include "selection.h"
+
+#include <algorithm>
+#include <array>
 #include <imgui.h>
 
 namespace CometEditor {
-    InspectorPanel::InspectorPanel() : EditorPanel("Inspector") {}
+    namespace {
+        constexpr std::size_t ENTITY_NAME_CAPACITY = 256;
+    }
+
+    InspectorPanel::InspectorPanel(SelectionService& selection)
+        : EditorPanel("Inspector"), m_selection(selection) {}
 
     void InspectorPanel::render() {
         if(!m_user_visible) return;
 
-        ImGui::Begin(m_name.c_str(), &m_user_visible);
-
-        if(m_selected_object.empty()) {
-            ImGui::Text("No object selected");
+        if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
             ImGui::End();
             return;
         }
 
-        ImGui::Text("Selected: %s", m_selected_object.c_str());
+        Comet::Entity entity = m_selection.get_selected_entity();
+        if(!entity) {
+            ImGui::TextUnformatted("No entity selected");
+            ImGui::End();
+            return;
+        }
+
+        auto& name = entity.get_component<Comet::NameComponent>().name;
+        std::array<char, ENTITY_NAME_CAPACITY> name_buffer{};
+        std::copy_n(name.data(), std::min(name.size(), name_buffer.size() - 1), name_buffer.data());
+
+        ImGui::Text("Entity ID: %llu", static_cast<unsigned long long>(entity.get_id()));
+        if(ImGui::InputText("Name", name_buffer.data(), name_buffer.size())) {
+            name = name_buffer.data();
+        }
+
         ImGui::Separator();
 
-        // Transform 组件
         if(ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::Text("Position");
-            ImGui::DragFloat3("##Position", m_position, 0.1f);
-
-            ImGui::Text("Rotation");
-            ImGui::DragFloat3("##Rotation", m_rotation, 1.0f);
-
-            ImGui::Text("Scale");
-            ImGui::DragFloat3("##Scale", m_scale, 0.1f);
-        }
-
-        // Mesh Renderer 组件
-        if(ImGui::CollapsingHeader("Mesh Renderer")) {
-            ImGui::Text("Mesh: Cube");
-            ImGui::Text("Material: Default");
-        }
-
-        // 添加组件按钮
-        ImGui::Separator();
-        if(ImGui::Button("Add Component")) {
-            ImGui::OpenPopup("AddComponentPopup");
-        }
-
-        if(ImGui::BeginPopup("AddComponentPopup")) {
-            if(ImGui::MenuItem("Mesh Renderer")) {}
-            if(ImGui::MenuItem("Light")) {}
-            if(ImGui::MenuItem("Camera")) {}
-            if(ImGui::MenuItem("Rigidbody")) {}
-            ImGui::EndPopup();
+            auto& transform = entity.get_component<Comet::TransformComponent>();
+            ImGui::DragFloat3("Translation", &transform.translation.x, 0.1f);
+            ImGui::DragFloat3("Rotation", &transform.rotation.x, 1.0f);
+            ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f);
         }
 
         ImGui::End();

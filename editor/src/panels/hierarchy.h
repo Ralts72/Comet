@@ -1,28 +1,22 @@
 #pragma once
 #include "editor.h"
-#include <functional>
-#include <string>
+
+namespace Comet {
+    class Scene;
+}
 
 namespace CometEditor {
+    class SelectionService;
 
     class HierarchyPanel : public EditorPanel {
     public:
-        HierarchyPanel();
+        HierarchyPanel(Comet::Scene& scene, SelectionService& selection);
 
         void render() override;
 
-        using SelectionCallback = std::function<void(const std::string&)>;
-        void set_selection_callback(const SelectionCallback& callback) {
-            m_selection_callback = callback;
-        }
-
-        [[nodiscard]] const std::string& get_selected_object() const {
-            return m_selected_object;
-        }
-
     private:
-        std::string m_selected_object;
-        SelectionCallback m_selection_callback;
+        Comet::Scene& m_scene;
+        SelectionService& m_selection;
     };
 
 }

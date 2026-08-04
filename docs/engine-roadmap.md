@@ -2,7 +2,7 @@
 
 首次生成：2026-07-05
 
-最近更新：2026-08-03
+最近更新：2026-08-04
 
 ## 目标定位
 
@@ -36,7 +36,10 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 - 每个 draw 的模型矩阵已通过 push constant 提交；descriptor 资源按材质和 frame slot 缓存。
 - Scene 已能管理实体和基础组件，但目前只有运行期自增 `EntityId` 和局部 TRS，还没有持久化 UUID、父子关系与世界矩阵。
 - `MeshRendererComponent` 已使用统一的 `AssetHandle`，app 会注册 demo mesh/material，并通过该链路绘制两个不同 Transform 的实体。
-- 编辑器面板显示的是示例对象和占位资产，Hierarchy/Inspector/Project 尚未绑定实际项目数据。
+- Hierarchy 和 Inspector 已绑定真实 Scene，支持基于 `EntityId` 的选择以及实体创建、删除、重命名和 TRS 编辑；
+  Project、SceneView 拾取和 gizmo 仍是占位状态。
+- 编辑器中的场景目前仍直接渲染到 swapchain，ImGui 通过透明 DockSpace 叠加其上；SceneView/GameView 尚未接收
+  离屏颜色纹理，因此场景画面会铺在整个窗口背景，而不是限制在 View 面板内。
 - Material/ResourceManager 已有接口，但还没有资产数据库、序列化、导入器、热重载和编辑器检查器闭环。
 - Scene Update 和 Render Submit 的最小边界已经落地，运行时 System 调度仍未建立。
 
@@ -88,25 +91,26 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 ### 4. 编辑器数据闭环
 
-当前编辑器已经有正确的面板方向，但还是静态 UI 原型。缺少：
+当前编辑器已经完成第一段真实数据闭环：Hierarchy 读取 Scene 的平铺实体列表，Selection 通过 `EntityId`
+连接 Hierarchy 与 Inspector，Inspector 可以修改 Name 和局部 Transform，创建、删除和重命名也会作用于真实 Scene。
+接下来仍缺少：
 
-- Hierarchy 读取真实 Scene 实体树。
-- Inspector 通过组件反射/注册表编辑真实组件。
 - Project 读取真实项目资产。
+- SceneView/GameView 显示真正的离屏渲染纹理，而不是让场景直接铺满编辑器 swapchain。
 - SceneView 使用 editor camera、选择、高亮、gizmo、拾取。
-- GameView 显示运行时 camera 输出。
+- GameView 使用场景主 Camera 的输出。
 - 菜单命令真正连接 New/Open/Save Scene。
-- Undo/Redo、复制粘贴、删除、重命名、拖拽资源到实体。
+- Inspector 的组件注册/反射，以及 MeshRenderer、Camera 等组件编辑。
+- Undo/Redo、复制粘贴、duplicate 和拖拽资源到实体。
 
 编辑器成熟度的关键不是面板数量，而是每个操作都能修改真实项目数据并可保存。
 
 ### 5. 渲染架构可扩展性
 
-当前渲染管线仍偏固定 demo。成熟引擎需要从“画一个 cube”演进到“提交一批可渲染对象”。缺少：
+当前渲染管线已有 RenderScene、RenderItem、主 Camera 和多对象提交的最小链路，但仍使用固定 cube pipeline。
+继续扩展仍缺少：
 
-- Render Scene / Render Queue / Draw Item 抽象。
-- MeshRendererComponent 到渲染提交的路径。
-- CameraComponent 驱动 view/projection。
+- Render Queue 排序、批处理和多 pipeline 选择。
 - LightComponent 与基础光照。
 - 材质参数到 descriptor/push constant/uniform 的稳定映射。
 - 多 pass 结构，例如 shadow、depth prepass、forward/deferred、post-process。
@@ -215,7 +219,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 目标：建立真实场景数据模型，让引擎能从 Scene 渲染对象，而不是从 `Renderer` 内部硬编码对象。
 
-当前状态：阶段 1A 和阶段 1B 已完成；Scene、Camera、AssetHandle 到多对象渲染的最小闭环已经建立。
+当前状态：阶段 1A、1B 和 1C 已完成；Scene、Camera、AssetHandle、多对象渲染以及编辑器基础数据闭环已经建立。
 
 #### 阶段 1A：Scene/ECS Core（已完成）
 
@@ -241,14 +245,32 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 - [x] 删除 `Renderer` 内部硬编码的 cube mesh、texture 和模型旋转逻辑。
 - [x] 删除 `Renderer` 的固定相机业务状态，由场景主 Camera 提供 view/projection。
 
-#### 阶段 1C：编辑器基础数据闭环
+#### 阶段 1C：编辑器基础数据闭环（已完成）
 
-- Hierarchy 从真实 Scene 读取实体，先支持平铺列表，不提前实现伪层级。
-- 建立 Selection 服务，以实体 ID 连接 Hierarchy、Inspector 和 SceneView。
-- Inspector 直接读写 Name 与 Transform，并让修改立即反映到渲染结果。
-- 支持创建、删除和重命名实体的最小编辑流程。
+- [x] Hierarchy 从真实 Scene 读取实体，先支持平铺列表，不提前实现伪层级。
+- [x] 建立 Selection 服务，只保存并按需解析 `EntityId`，连接 Hierarchy 和 Inspector，并为后续 SceneView 复用。
+- [x] Inspector 直接读写 Name 与 Transform，并让修改进入下一帧的场景提取和渲染结果。
+- [x] 支持创建、删除和重命名实体的最小编辑流程。
+- [x] 实体删除或无效 ID 会自动清空 Selection，并有纯逻辑单元测试保护。
 
-#### 阶段 1D：Transform 层级
+#### 阶段 1D：编辑器离屏视口基础
+
+- 将编辑器的场景渲染目标从 swapchain 分离：场景进入离屏颜色/深度附件，swapchain 只承载 ImGui 和最终呈现。
+- 为 frame slot 提供独立的离屏资源或等价的安全同步，避免多个 frames-in-flight 同时读写同一张 viewport image。
+- 离屏颜色附件结束时进入 `ShaderReadOnlyOptimal`，并通过 ImGui Vulkan descriptor 注册为 `ImTextureID`。
+- `ViewPanel` 提供实际内容尺寸，Renderer 使用上一帧稳定尺寸按需重建离屏目标，并处理零尺寸、折叠和频繁拖拽。
+- SceneView 和 GameView 先复用离屏提交基础；GameView 使用场景主 Camera，独立 editor camera 留到阶段 4。
+- 调整 ImGui swapchain render pass，使其负责清理编辑器背景和合成 UI，不再依赖先在 swapchain 上绘制场景。
+- 保持 runtime app 直接渲染到 swapchain 的路径不变。
+
+验收标准：
+
+- 编辑器中的场景画面只出现在可见 View 面板内，不再铺满整个窗口背景。
+- View 面板 resize、折叠、切换和 swapchain recreation 后纹理仍正确，且没有 Vulkan validation error。
+- 两个 frames-in-flight 下不会复用仍被 GPU 或 ImGui 采样的离屏附件。
+- app 的直接呈现路径和现有多实体渲染行为不回退。
+
+#### 阶段 1E：Transform 层级
 
 - 新增父子关系组件和循环依赖保护。
 - 实现局部矩阵、世界矩阵及脏标记更新。
@@ -278,7 +300,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 - 定义 `.scene` YAML 格式。
 - 实现场景保存和加载。
 - 菜单 New/Open/Save Scene 接入真实逻辑。
-- Hierarchy 支持创建、删除、重命名实体。
+- New/Open Scene 后重建编辑器上下文并清理失效 Selection。
 - Inspector 支持编辑 Transform、MeshRenderer 和 Camera。
 - 实现 Play/Edit 模式的最小切换。
 
@@ -338,6 +360,8 @@ Scene Component / RenderItem
 
 目标：让编辑器真正可用，而不是只显示数据。
 
+本阶段建立在阶段 1D 的离屏视口基础上，不再重复解决 RenderTarget 到 ImGui 纹理的接线。
+
 建议任务：
 
 - SceneView 使用独立 editor camera。
@@ -354,7 +378,7 @@ Scene Component / RenderItem
 - 用户可以通过鼠标在 SceneView 选择对象。
 - 用户可以用 gizmo 移动对象并保存场景。
 - Transform 修改可撤销和重做。
-- SceneView/GameView 的渲染目标尺寸随面板变化稳定更新。
+- SceneView 的拾取坐标、gizmo 和高亮在面板 resize 后仍与渲染内容一致。
 
 ### 阶段 5：渲染系统升级
 
@@ -428,13 +452,12 @@ Scene Component / RenderItem
 
 近期最应该做：
 
-1. 定义最小 `AssetHandle` 和内存 Asset Registry，替换 MeshRenderer 的字符串引用。
-2. 完成 Scene 到 RenderItem 的提取和渲染提交。
-3. 让主 CameraComponent 驱动 view/projection。
-4. 从 `Renderer` 移除硬编码 demo mesh、模型矩阵和相机状态。
-5. Hierarchy、Selection、Inspector 绑定真实 Scene。
-6. 完成 Transform 父子层级和世界矩阵。
-7. 引入持久化 Entity UUID，再开始 `.scene` 序列化。
+1. 完成编辑器离屏视口，让场景只显示在 SceneView/GameView 内。
+2. 完成 Transform 父子层级、世界矩阵和脏标记更新。
+3. 让 Hierarchy 显示真实父子树并支持最小 reparent。
+4. 引入持久化 Entity UUID，并明确它与运行时 `EntityId` 的边界。
+5. 定义 `.scene` YAML 格式并实现保存、加载。
+6. 接通 New/Open/Save Scene 和 Selection 生命周期。
 
 暂时不要急着做：
 
@@ -457,6 +480,7 @@ Scene Component / RenderItem
 - Renderer 改为消费 RenderScene/RenderItem。
 - 主 Camera 驱动渲染。
 - 编辑器显示真实实体和 Transform。
+- 编辑器使用离屏目标在 View 面板中显示场景，不再把场景铺满 swapchain。
 - 完成基础父子层级与世界矩阵。
 
 ### 第 3-4 个月
@@ -506,7 +530,7 @@ Scene Component / RenderItem
 | 序列化 | 低 | 高 | 最高 |
 | Asset Database | 低 | 高 | 高 |
 | Editor UI | 低中 | 高 | 高 |
-| Editor 数据闭环 | 低 | 高 | 最高 |
+| Editor 数据闭环 | 低中 | 高 | 最高 |
 | 脚本 | 无 | 中 | 中 |
 | 输入 | 无 | 中 | 中 |
 | 物理 | 无 | 中 | 中低 |
@@ -517,7 +541,8 @@ Scene Component / RenderItem
 
 ## 下一步建议
 
-下一步进入 **阶段 1C：编辑器基础数据闭环**，让现有 Hierarchy 和 Inspector 从占位数据切换到真实 Scene。
+下一步进入 **阶段 1D：编辑器离屏视口基础**，先把场景渲染从编辑器 swapchain 分离并显示在 View 面板内；
+随后阶段 1E 再实现 Transform 父子层级与世界矩阵。
 
 建议的职责边界：
 
@@ -527,8 +552,10 @@ Scene Component / RenderItem
 - Asset Registry 保存 `AssetHandle` 到运行时资源的映射，ResourceManager 创建或复用运行时/GPU资源。
 - RenderSceneResolver 选择 EntityId 最小的主 Camera、验证参数并将 RenderScene 解析为完整 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
 
-阶段 1C 的最小范围：
+阶段 1D 的最小范围：
 
-1. Hierarchy 读取真实 Scene 实体，先保持平铺列表。
-2. 建立基于 EntityId 的 Selection 状态，连接 Hierarchy 与 Inspector。
-3. Inspector 编辑 Name 和 Transform，并让修改立即反映到运行画面。
+1. 明确 runtime swapchain target、editor viewport target 和 ImGui presentation target 的职责与所有权。
+2. 为编辑器建立可采样的 per-frame 离屏颜色/深度资源和正确的 image layout/synchronization。
+3. 使用 ImGui Vulkan descriptor 注册离屏 color view，并由当前可见的 ViewPanel 显示。
+4. 用 ViewPanel 内容尺寸驱动延迟 resize，安全更新 framebuffer、image view 和 ImGui descriptor。
+5. 保持 app 的直接 swapchain 渲染路径不变，并补充渲染目标生命周期测试与 Vulkan 运行验证。

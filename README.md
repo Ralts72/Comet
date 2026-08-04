@@ -8,7 +8,8 @@ GoogleTest 测试基础。
 - `engine/`：引擎核心库，包含 `asset/`、`core/`、`graphics/`、`render/`、`runtime/`、`scene/` 和
   `common/` 模块；`asset/` 当前提供轻量、不透明的 `AssetHandle` 和带类型校验的最小内存
   `AssetRegistry`。
-- `editor/`：ImGui 编辑器入口和面板，包括层级、检查器、项目、视图和日志窗口。
+- `editor/`：ImGui 编辑器入口和面板；Hierarchy 与 Inspector 已通过基于 `EntityId` 的 Selection
+  连接真实 Scene，Project 和视图交互仍在后续阶段完善。
 - `app/`：运行时示例程序入口。
 - `tests/`：GoogleTest 测试，覆盖数学、配置、导出、Scene/ECS、资源参数保护和基础集成行为。
 - `engine/assets/`：配置、纹理和 GLSL shader 资源。
@@ -84,7 +85,9 @@ ctest --test-dir build --output-on-failure
 主 Camera 与两个具有不同 Transform 的 cube entity；`RenderSceneResolver` 选择并校验主 Camera、根据渲染尺寸
 生成 view/projection，同时将 Handle 解析为运行时 `RenderSubmission`。`Renderer` 负责编排帧流程，
 `SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过
-push constant 提交每个 draw 的模型矩阵。关闭时先释放引擎资源，再关闭日志系统。Shader
+push constant 提交每个 draw 的模型矩阵。editor 初始化由 Engine 持有的 Scene；Hierarchy 可创建、删除和选择
+真实实体，Inspector 直接编辑选中实体的 Name 与 Transform，Selection 仅保存 `EntityId` 并在访问时向 Scene
+重新解析实体。关闭时先释放引擎资源，再关闭日志系统。Shader
 源文件位于 `engine/assets/shaders/glsl/`，构建时由 CMake 调用 `glslangValidator`
 编译。贡献者和智能体协作规范见 [AGENTS.md](./AGENTS.md)。
 

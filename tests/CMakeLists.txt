@@ -24,6 +24,7 @@ target_link_libraries(unit_testing PRIVATE
 target_include_directories(unit_testing PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/engine/src
+        ${CMAKE_SOURCE_DIR}/editor/src
 )
 
 # 设置运行时库路径

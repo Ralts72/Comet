@@ -11,9 +11,22 @@
 #include "src/panels/project.h"
 #include "src/panels/view.h"
 #include "src/panels/hierarchy.h"
+#include "src/selection.h"
+#include "scene/scene.h"
+
+#include <memory>
+#include <optional>
 #include <spdlog/sinks/callback_sink.h>
 
 namespace {
+    std::unique_ptr<Comet::Scene> create_editor_scene() {
+        auto scene = std::make_unique<Comet::Scene>();
+        Comet::Entity main_camera = scene->create_entity("Main Camera");
+        main_camera.get_component<Comet::TransformComponent>().translation.z = 3.0f;
+        main_camera.add_component<Comet::CameraComponent>().primary = true;
+        return scene;
+    }
+
     class Editor final: public Comet::Application {
     public:
         void on_init() override {
@@ -33,7 +46,10 @@ namespace {
             // 设置日志重定向
             setup_log_redirect();
 
-            setup_panels();
+            engine.set_scene(create_editor_scene());
+            auto& scene = *engine.get_scene();
+            m_selection.emplace(scene);
+            setup_panels(scene);
 
             // 注册 ImGui 渲染回调
             renderer.set_on_imgui_render([this](Comet::CommandBuffer& cmd) {
@@ -117,6 +133,9 @@ namespace {
         void on_shutdown() override {
             LOG_INFO("Editor shutting down...");
             m_imgui_context.reset();
+            m_hierarchy_panel.reset();
+            m_inspector_panel.reset();
+            m_selection.reset();
         }
 
     private:
@@ -139,22 +158,17 @@ namespace {
             Comet::Logger::add_custom_sink(gui_sink);
         }
 
-        void setup_panels() {
+        void setup_panels(Comet::Scene& scene) {
             // 创建菜单栏
             m_menu_bar = std::make_unique<CometEditor::MenuBar>();
 
             // 创建面板
-            m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>();
+            m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
             m_scene_view_panel = std::make_unique<CometEditor::ViewPanel>(CometEditor::ViewType::SceneView);
             m_game_view_panel = std::make_unique<CometEditor::ViewPanel>(CometEditor::ViewType::GameView);
-            m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>();
+            m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(*m_selection);
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>();
             m_console_panel = std::make_unique<CometEditor::ConsolePanel>();
-
-            // 设置 Hierarchy 选择回调
-            m_hierarchy_panel->set_selection_callback([this](const std::string& object_name) {
-                m_inspector_panel->set_selected_object(object_name);
-            });
 
             // 设置菜单栏面板可见性回调
             m_menu_bar->set_panel_visibility_callback("Hierarchy", [this](const bool visible) {
@@ -194,6 +208,7 @@ namespace {
 
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::MenuBar> m_menu_bar;
+        std::optional<CometEditor::SelectionService> m_selection;
 
         std::unique_ptr<CometEditor::HierarchyPanel> m_hierarchy_panel;
         std::unique_ptr<CometEditor::ViewPanel> m_scene_view_panel;
