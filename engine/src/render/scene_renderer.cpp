@@ -148,9 +148,10 @@ namespace Comet {
         return descriptor_set;
     }
 
-    void SceneRenderer::render(const RenderSubmission& submission,
-                               const ViewProjectMatrix& view_project_matrix) {
+    void SceneRenderer::render(const RenderSubmission& submission) {
         PROFILE_SCOPE("SceneRenderer::render");
+
+        if(!submission.view_project_matrix) return;
 
         if(!m_pipeline || !m_default_sampler) {
             LOG_ERROR("SceneRenderer resources are not set up. Call setup_pipeline() first.");
@@ -162,7 +163,7 @@ namespace Comet {
         const auto& view_project_buffer =
                 m_view_project_uniform_buffers.at(frame_slot_index);
         std::static_pointer_cast<CPUBuffer>(view_project_buffer)->write(
-            &view_project_matrix);
+            &*submission.view_project_matrix);
 
         const auto& command_buffer = m_frame_manager->get_current_command_buffer();
         command_buffer.bind_pipeline(*m_pipeline);

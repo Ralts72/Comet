@@ -15,9 +15,13 @@ namespace Comet {
     public:
         explicit RenderSceneResolver(const AssetRegistry& asset_registry);
 
-        [[nodiscard]] RenderSubmission resolve(const RenderScene& render_scene);
+        [[nodiscard]] RenderSubmission resolve(
+            const RenderScene& render_scene, Math::Vec2u render_size);
 
     private:
+        [[nodiscard]] std::optional<ViewProjectMatrix> resolve_camera(
+            const RenderScene& render_scene, Math::Vec2u render_size);
+
         [[nodiscard]] std::optional<ResolvedRenderItem> resolve_item(
             const RenderItem& render_item);
 
@@ -25,5 +29,10 @@ namespace Comet {
         std::unordered_set<AssetHandle> m_missing_mesh_handles;
         std::unordered_set<AssetHandle> m_missing_material_handles;
         std::unordered_set<AssetHandle> m_invalid_material_handles;
+        std::optional<EntityId> m_invalid_camera_fov;
+        std::optional<EntityId> m_invalid_camera_clip_planes;
+        bool m_missing_primary_camera = false;
+        bool m_multiple_primary_cameras = false;
+        bool m_invalid_render_size = false;
     };
 }

@@ -55,8 +55,8 @@ Engine
 
 - `RenderContext`：Vulkan 上下文、逻辑设备、交换链和 idle 等待。
 - `ResourceManager`：运行时/GPU资源创建与缓存；不负责扫描项目目录或分配资产 GUID。
-- `RenderSceneResolver`：将 Handle 型 RenderScene 解析为持有运行时 Mesh 和材质绑定的 RenderSubmission，并集中处理缺失资源诊断。
-- `SceneRenderer`：消费整批 RenderSubmission，管理 per-frame view/projection buffer、render target、pipeline、descriptor 和 draw command 录制。
+- `RenderSceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断。
+- `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；没有有效主 Camera 时不提交场景 draw。
 - `MaterialManager`：Material/MaterialInstance 的内存注册；不存在的基础材质不能产生有效实例。
 - `Scene`：只保存实体、可序列化组件和 `AssetHandle`，不保存 Device、GPU对象或文件路径。
 - `AssetRegistry`：当前负责注册和解析 `AssetHandle` 对应的内存资源；项目扫描、元数据、导入产物和 GUID 分配仍属于后续 Asset Manager。
@@ -80,4 +80,5 @@ Engine
 - 违反引擎内部构造前置条件时使用 `LOG_FATAL` 记录诊断并立即终止，禁止部分初始化对象继续传播。
 - Vulkan/VMA 创建失败必须立即终止当前创建流程，不能返回带空 handle 的可用对象。
 - 可恢复的运行时状态，例如无效 AssetHandle 或缺失资源，应返回空结果并由提交层跳过，同时输出诊断。
+- 缺少主 Camera、Camera 参数非法或渲染尺寸为零时保留清屏和编辑器 UI，但跳过场景 draw；重复状态不得每帧刷屏。
 - `eErrorOutOfDateKHR` 和 `eSuboptimalKHR` 触发 swapchain 重建；其他 present/acquire 错误不得被静默忽略。

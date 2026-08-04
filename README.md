@@ -78,11 +78,12 @@ ctest --test-dir build --output-on-failure
 对外只作为运行时配置加载入口，底层渲染资源不直接读取原始配置。Vulkan 内存分配由 `engine/src/graphics/vk_allocator.h`
 封装，`Device` 独占持有 allocator，`Buffer` 和 `Image` 只通过该封装创建、映射和释放 VMA 资源。`engine/src/scene/`
 提供基于 EnTT 的 Scene/Entity 和基础组件数据模型；`TransformComponent` 的 Euler 角使用度，局部矩阵顺序为
-`T * Rz * Ry * Rx * S`。`SceneRenderExtractor` 将同时具有 Transform 和 MeshRenderer 的实体复制为
-`engine/src/render/render_scene.h` 定义的 CPU 侧渲染提交数据，其中只包含实体 ID、模型矩阵和资源 Handle。
+`T * Rz * Ry * Rx * S`。`SceneRenderExtractor` 将可渲染实体和 Camera 复制为
+`engine/src/render/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。
 `Engine` 使用唯一所有权持有 Scene 和最小 Asset Registry。app 在初始化阶段注册 demo mesh/material，并创建
-两个具有不同 Transform 的 cube entity；`RenderSceneResolver` 将 RenderScene 中的 Handle 解析为运行时
-`RenderSubmission`，`Renderer` 负责编排帧流程，`SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过
+主 Camera 与两个具有不同 Transform 的 cube entity；`RenderSceneResolver` 选择并校验主 Camera、根据渲染尺寸
+生成 view/projection，同时将 Handle 解析为运行时 `RenderSubmission`。`Renderer` 负责编排帧流程，
+`SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过
 push constant 提交每个 draw 的模型矩阵。关闭时先释放引擎资源，再关闭日志系统。Shader
 源文件位于 `engine/assets/shaders/glsl/`，构建时由 CMake 调用 `glslangValidator`
 编译。贡献者和智能体协作规范见 [AGENTS.md](./AGENTS.md)。

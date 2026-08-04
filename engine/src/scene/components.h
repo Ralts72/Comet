@@ -40,6 +40,7 @@ namespace Comet {
 
     struct CameraComponent {
         bool primary = false;
+        // Vertical field of view in degrees.
         float fov = 45.0f;
         float near_clip = 0.1f;
         float far_clip = 1000.0f;

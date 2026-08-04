@@ -73,26 +73,14 @@ namespace Comet {
             *m_resource_manager, layout, vertex_input_description, pipeline_config);
     }
 
-    void Renderer::on_update([[maybe_unused]] const float delta_time) {
-        PROFILE_SCOPE("render update");
-
-        const auto swapchain = m_render_context->get_swapchain();
-        m_view_project_matrix.view = Math::look_at(
-            Math::Vec3(0.0f, 0.0f, 3.0f),
-            Math::Vec3(0.0f, 0.0f, 0.0f),
-            Math::Vec3(0.0f, 1.0f, 0.0f));
-        m_view_project_matrix.projection = Math::perspective(45.0f,
-            static_cast<float>(swapchain->get_width()) / static_cast<float>(swapchain->get_height()), 0.1f, 100.0f);
-    }
-
     void Renderer::on_render(const RenderScene& render_scene) {
         PROFILE_SCOPE("render frame");
 
-        const RenderSubmission submission = m_render_scene_resolver.resolve(render_scene);
-
         // Begin frame (acquires image and begins command buffer)
         m_scene_renderer->begin_frame();
-        m_scene_renderer->render(submission, m_view_project_matrix);
+        const RenderSubmission submission = m_render_scene_resolver.resolve(
+            render_scene, m_scene_renderer->get_render_target().get_size());
+        m_scene_renderer->render(submission);
 
         m_scene_renderer->end_render_pass();
 

@@ -59,7 +59,6 @@ namespace Comet {
                 render_scene = SceneRenderExtractor::extract(*m_scene);
             }
 
-            m_renderer->on_update(update_context.deltaTime);
             m_renderer->on_render(render_scene);
 
             m_window->swap_buffers();

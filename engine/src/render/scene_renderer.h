@@ -46,8 +46,7 @@ namespace Comet {
                             const VertexInputDescription& vertex_input,
                             const PipelineConfig& config);
 
-        void render(const RenderSubmission& submission,
-                    const ViewProjectMatrix& view_project_matrix);
+        void render(const RenderSubmission& submission);
 
         uint32_t begin_frame();
 

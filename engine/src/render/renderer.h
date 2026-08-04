@@ -21,8 +21,6 @@ namespace Comet {
 
         ~Renderer();
 
-        void on_update(float delta_time);
-
         void on_render(const RenderScene& render_scene);
 
         using ImGuiRenderDelegate = std::function<void(CommandBuffer&)>;
@@ -46,11 +44,6 @@ namespace Comet {
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         RenderSceneResolver m_render_scene_resolver;
         ImGuiRenderDelegate m_on_imgui_render;
-
-        ViewProjectMatrix m_view_project_matrix = {
-            .view = Math::Mat4{1.0f},
-            .projection = Math::Mat4{1.0f}
-        };
 
         Config::Vulkan m_vulkan_config;
         Config::Render m_render_config;

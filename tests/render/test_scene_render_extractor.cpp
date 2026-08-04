@@ -67,4 +67,37 @@ namespace Comet::Tests {
         EXPECT_EQ(second_item->material_handle, AssetHandle(40));
         EXPECT_TRUE(TestUtils::Mat4Equal(second_item->model_matrix, expected_second_model));
     }
+
+    TEST(SceneRenderExtractorTest, ExtractsCameraViewWithoutTransformScale) {
+        Scene scene;
+        Entity camera_entity = scene.create_entity("Main Camera");
+        auto& transform = camera_entity.get_component<TransformComponent>();
+        transform.translation = Math::Vec3(1.0f, 2.0f, 3.0f);
+        transform.rotation = Math::Vec3(10.0f, 20.0f, 30.0f);
+        transform.scale = Math::Vec3(2.0f, 3.0f, 4.0f);
+        auto& camera = camera_entity.add_component<CameraComponent>();
+        camera.primary = true;
+        camera.fov = 60.0f;
+        camera.near_clip = 0.2f;
+        camera.far_clip = 500.0f;
+
+        Entity missing_transform = scene.create_entity("Missing Transform");
+        missing_transform.add_component<CameraComponent>().primary = true;
+        missing_transform.remove_component<TransformComponent>();
+
+        TransformComponent camera_pose = transform;
+        camera_pose.scale = Math::Vec3(1.0f);
+        const Math::Mat4 expected_view = Math::inverse(camera_pose.local_matrix());
+
+        const RenderScene render_scene = SceneRenderExtractor::extract(scene);
+
+        ASSERT_EQ(render_scene.cameras.size(), 1u);
+        const RenderCamera& extracted = render_scene.cameras.front();
+        EXPECT_EQ(extracted.entity_id, camera_entity.get_id());
+        EXPECT_TRUE(extracted.primary);
+        EXPECT_TRUE(TestUtils::Mat4Equal(extracted.view_matrix, expected_view));
+        EXPECT_FLOAT_EQ(extracted.fov_degrees, 60.0f);
+        EXPECT_FLOAT_EQ(extracted.near_clip, 0.2f);
+        EXPECT_FLOAT_EQ(extracted.far_clip, 500.0f);
+    }
 }

@@ -1,11 +1,13 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "common/shader_resources.h"
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
 
 #include <array>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace Comet {
@@ -25,6 +27,7 @@ namespace Comet {
     };
 
     struct RenderSubmission {
+        std::optional<ViewProjectMatrix> view_project_matrix;
         std::vector<ResolvedRenderItem> render_items;
     };
 }

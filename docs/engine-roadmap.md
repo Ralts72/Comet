@@ -31,8 +31,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 最明显的信号是：
 
-- `Engine` 持有 Scene 和最小 Asset Registry，每帧提取 RenderScene；`RenderSceneResolver` 解析 Handle，`Renderer` 编排并提交多个 render item。
-- `Renderer` 已不再创建 demo mesh、texture 或模型矩阵，但仍持有固定相机和固定 cube pipeline 所需的 view/projection buffer。
+- `Engine` 持有 Scene 和最小 Asset Registry，每帧提取 RenderScene；`RenderSceneResolver` 选择主 Camera、生成 view/projection 并解析 Handle，`Renderer` 编排多个 render item。
+- `Renderer` 已不再持有固定相机、demo mesh、texture 或模型矩阵，但当前仍使用固定 cube pipeline。
 - 每个 draw 的模型矩阵已通过 push constant 提交；descriptor 资源按材质和 frame slot 缓存。
 - Scene 已能管理实体和基础组件，但目前只有运行期自增 `EntityId` 和局部 TRS，还没有持久化 UUID、父子关系与世界矩阵。
 - `MeshRendererComponent` 已使用统一的 `AssetHandle`，app 会注册 demo mesh/material，并通过该链路绘制两个不同 Transform 的实体。
@@ -215,7 +215,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 目标：建立真实场景数据模型，让引擎能从 Scene 渲染对象，而不是从 `Renderer` 内部硬编码对象。
 
-当前状态：阶段 1A 已完成，阶段 1B 只剩主 Camera 接入；Scene 到多对象渲染的最小闭环和提交接口整理已经完成。
+当前状态：阶段 1A 和阶段 1B 已完成；Scene、Camera、AssetHandle 到多对象渲染的最小闭环已经建立。
 
 #### 阶段 1A：Scene/ECS Core（已完成）
 
@@ -225,7 +225,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 - 实现实体验证、创建、删除、按 ID 查询、遍历和通用组件操作。
 - 使用单元测试约束 Entity 不公开 registry、原始 EnTT handle 和所属 Scene。
 
-#### 阶段 1B：Scene Render Submission（进行中）
+#### 阶段 1B：Scene Render Submission（已完成）
 
 - [x] 定义最小 `AssetHandle`，包含无效值、比较和哈希能力。
 - [x] 将 `MeshRendererComponent` 的 mesh/material 字符串替换为 `AssetHandle`。
@@ -236,10 +236,10 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 - [x] 让运行时层持有 Scene，由 app 创建 demo Scene 和 cube entity。
 - [x] 让 `Renderer` 消费场景提交结果，逐项交给 `SceneRenderer` 绘制；消费端诊断并跳过无效或未解析的 Handle。
 - [x] 使用 `RenderSceneResolver` 和 `RenderSubmission` 封装资源解析；SceneRenderer 批量消费已解析对象并内部管理 per-frame UBO 与 descriptor。
-- [ ] 接入主 `CameraComponent` 驱动 view/projection；Camera FOV 统一使用角度。
+- [x] 接入主 `CameraComponent` 驱动 view/projection；Camera FOV 统一使用角度，并校验 FOV、裁剪面和渲染尺寸。
 - [x] 每个 draw 的模型矩阵使用 push constant，避免单一 model uniform buffer 阻碍多对象渲染。
 - [x] 删除 `Renderer` 内部硬编码的 cube mesh、texture 和模型旋转逻辑。
-- [ ] 删除 `Renderer` 的固定相机业务状态，由场景主 Camera 提供 view/projection。
+- [x] 删除 `Renderer` 的固定相机业务状态，由场景主 Camera 提供 view/projection。
 
 #### 阶段 1C：编辑器基础数据闭环
 
@@ -517,19 +517,18 @@ Scene Component / RenderItem
 
 ## 下一步建议
 
-下一步应收尾 **阶段 1B：Scene Render Submission**，接入场景主 Camera，删除 Renderer 中最后的固定相机状态。
+下一步进入 **阶段 1C：编辑器基础数据闭环**，让现有 Hierarchy 和 Inspector 从占位数据切换到真实 Scene。
 
 建议的职责边界：
 
 - Engine/运行时层持有 Scene，app 和 editor 负责创建或修改场景内容。
 - Scene 只拥有实体、可序列化组件和 `AssetHandle`，不依赖路径、Mesh、Texture、Buffer 等运行时/GPU对象。
-- Scene Render Extractor 把 Transform、MeshRenderer、Camera 转换为只读的 RenderScene。
+- Scene Render Extractor 把 Transform、MeshRenderer、Camera 转换为只读 RenderScene；Camera Transform 的 scale 不影响 view matrix。
 - Asset Registry 保存 `AssetHandle` 到运行时资源的映射，ResourceManager 创建或复用运行时/GPU资源。
-- RenderSceneResolver 将 RenderScene 解析为 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
+- RenderSceneResolver 选择 EntityId 最小的主 Camera、验证参数并将 RenderScene 解析为完整 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
 
-剩余工作的最小范围：
+阶段 1C 的最小范围：
 
-1. 接入主 `CameraComponent`，由 Scene 提供 view/projection 和 FOV，并为无主 Camera、非法裁剪面等情况提供诊断。
-2. 保留当前双实体运行样例和 Vulkan validation 验证，补齐 Camera 与无效参数测试。
-
-完成后进入阶段 1C，连接 Hierarchy、Selection 和 Inspector。
+1. Hierarchy 读取真实 Scene 实体，先保持平铺列表。
+2. 建立基于 EntityId 的 Selection 状态，连接 Hierarchy 与 Inspector。
+3. Inspector 编辑 Name 和 Transform，并让修改立即反映到运行画面。

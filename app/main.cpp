@@ -47,6 +47,10 @@ namespace {
             }
 
             auto scene = std::make_unique<Comet::Scene>();
+            Comet::Entity main_camera = scene->create_entity("Main Camera");
+            main_camera.get_component<Comet::TransformComponent>().translation.z = 3.0f;
+            main_camera.add_component<Comet::CameraComponent>().primary = true;
+
             Comet::Entity first_cube = scene->create_entity("Demo Cube A");
             auto& first_transform = first_cube.get_component<Comet::TransformComponent>();
             first_transform.translation.x = -0.5f;
