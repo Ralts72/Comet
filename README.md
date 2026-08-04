@@ -81,7 +81,8 @@ ctest --test-dir build --output-on-failure
 `T * Rz * Ry * Rx * S`。`SceneRenderExtractor` 将同时具有 Transform 和 MeshRenderer 的实体复制为
 `engine/src/render/render_scene.h` 定义的 CPU 侧渲染提交数据，其中只包含实体 ID、模型矩阵和资源 Handle。
 `Engine` 使用唯一所有权持有 Scene 和最小 Asset Registry。app 在初始化阶段注册 demo mesh/material，并创建
-两个具有不同 Transform 的 cube entity；`Renderer` 每帧消费提取出的 RenderScene，解析资源 Handle，并通过
+两个具有不同 Transform 的 cube entity；`RenderSceneResolver` 将 RenderScene 中的 Handle 解析为运行时
+`RenderSubmission`，`Renderer` 负责编排帧流程，`SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过
 push constant 提交每个 draw 的模型矩阵。关闭时先释放引擎资源，再关闭日志系统。Shader
 源文件位于 `engine/assets/shaders/glsl/`，构建时由 CMake 调用 `glslangValidator`
 编译。贡献者和智能体协作规范见 [AGENTS.md](./AGENTS.md)。

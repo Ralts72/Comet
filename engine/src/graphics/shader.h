@@ -5,19 +5,23 @@
 namespace Comet {
     class Device;
 
-    struct ShaderLayout{
+    struct ShaderLayout {
         std::vector<std::shared_ptr<DescriptorSetLayout>> descriptor_set_layouts;
         std::vector<std::shared_ptr<PushConstantRange>> push_constants;
     };
 
     class Shader {
     public:
-        Shader(Device* device, const std::string& name, const std::vector<unsigned char>& spv_data, const ShaderLayout& layout = {});
+        Shader(Device* device, const std::string& name, const std::vector<unsigned char>& spv_data, ShaderLayout layout = {});
+
         ~Shader();
 
         Shader(const Shader&) = delete;
+
         Shader& operator=(const Shader&) = delete;
+
         Shader(Shader&&) noexcept = delete;
+
         Shader& operator=(Shader&&) noexcept = delete;
 
         [[nodiscard]] vk::ShaderModule get() const { return m_shader_module; }
@@ -34,11 +38,13 @@ namespace Comet {
 
     class ShaderManager {
     public:
-        explicit ShaderManager(Device* device): m_device(device) {}
-        ~ShaderManager() { clean_up();}
+        explicit ShaderManager(Device* device) : m_device(device) {}
+        ~ShaderManager() { clean_up(); }
 
         std::shared_ptr<Shader> load_shader(const std::string& name, const std::vector<unsigned char>& spv_data, const ShaderLayout& layout = {});
+
         [[nodiscard]] std::shared_ptr<Shader> get_shader(const std::string& name) const;
+
         void clean_up();
 
     private:

@@ -39,7 +39,7 @@ namespace Comet {
         return {vk::Buffer(buffer), allocation};
     }
 
-    void VulkanAllocator::destroy_buffer(const vk::Buffer buffer, const VmaAllocation allocation) const {
+    void VulkanAllocator::destroy_buffer(const vk::Buffer buffer, VmaAllocation allocation) const {
         if(buffer && allocation) {
             vmaDestroyBuffer(m_allocator, static_cast<VkBuffer>(buffer), allocation);
         }
@@ -62,13 +62,13 @@ namespace Comet {
         return {vk::Image(image), allocation};
     }
 
-    void VulkanAllocator::destroy_image(const vk::Image image, const VmaAllocation allocation) const {
+    void VulkanAllocator::destroy_image(const vk::Image image, VmaAllocation allocation) const {
         if(image && allocation) {
             vmaDestroyImage(m_allocator, static_cast<VkImage>(image), allocation);
         }
     }
 
-    void* VulkanAllocator::map_memory(const VmaAllocation allocation) const {
+    void* VulkanAllocator::map_memory(VmaAllocation allocation) const {
         if(!allocation) {
             LOG_FATAL("Cannot map null VMA allocation");
         }
@@ -82,7 +82,7 @@ namespace Comet {
         return mapping;
     }
 
-    void VulkanAllocator::unmap_memory(const VmaAllocation allocation) const {
+    void VulkanAllocator::unmap_memory(VmaAllocation allocation) const {
         if(!allocation) {
             LOG_FATAL("Cannot unmap null VMA allocation");
         }

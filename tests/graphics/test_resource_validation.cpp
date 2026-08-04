@@ -3,7 +3,6 @@
 #include "graphics/buffer.h"
 #include "graphics/device.h"
 #include "graphics/image.h"
-#include "render/resource_manager.h"
 
 namespace Comet::Tests {
 
@@ -41,9 +40,8 @@ TEST(ResourceValidationTest, RejectsInvalidImageArguments) {
     EXPECT_DEATH(Image::create(nullptr, invalid_info), "");
 }
 
-TEST(ResourceValidationTest, RejectsMissingDeviceDependencies) {
+TEST(ResourceValidationTest, RejectsMissingContextForDevice) {
     EXPECT_DEATH({ Device device(nullptr, 1, 1); }, "");
-    EXPECT_DEATH({ ResourceManager resource_manager(nullptr); }, "");
 }
 
 } // namespace Comet::Tests

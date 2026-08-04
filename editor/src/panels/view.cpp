@@ -1,29 +1,26 @@
-#include "view_panel.h"
+#include "view.h"
 #include <imgui.h>
 #include <algorithm>
 
 namespace CometEditor {
-
     ViewPanel::ViewPanel(ViewType view_type)
-        : EditorPanel(view_type == ViewType::SceneView ? "SceneView" : "GameView"),
-          m_view_type(view_type) {
-    }
+        : EditorPanel(view_type == ViewType::SceneView ? "SceneView" : "GameView"), m_view_type(view_type) {}
 
     void ViewPanel::render() {
         // 重置实际可见性
         m_actually_visible = false;
 
-        if (!m_user_visible) {
+        if(!m_user_visible) {
             return;
         }
 
-        if (!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
+        if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
             ImGui::End();
             return;
         }
 
         // 检查窗口是否被折叠
-        if (ImGui::IsWindowCollapsed()) {
+        if(ImGui::IsWindowCollapsed()) {
             ImGui::End();
             return;
         }
@@ -33,12 +30,13 @@ namespace CometEditor {
 
         // 工具栏
         float button_width = 50.0f;
-        ImGui::SetCursorPosX(ImGui::GetWindowWidth() - button_width * 2 - ImGui::GetStyle().ItemSpacing.x - ImGui::GetStyle().WindowPadding.x);
-        if (ImGui::Button("2D", ImVec2(button_width, 0))) {
+        ImGui::SetCursorPosX(ImGui::GetWindowWidth() - button_width * 2 - ImGui::GetStyle().ItemSpacing.x -
+                             ImGui::GetStyle().WindowPadding.x);
+        if(ImGui::Button("2D", ImVec2(button_width, 0))) {
             m_2d_mode = true;
         }
         ImGui::SameLine();
-        if (ImGui::Button("3D", ImVec2(button_width, 0))) {
+        if(ImGui::Button("3D", ImVec2(button_width, 0))) {
             m_2d_mode = false;
         }
 
@@ -50,7 +48,7 @@ namespace CometEditor {
         ImGui::End();
     }
 
-    void ViewPanel::render_view_content() {
+    void ViewPanel::render_view_content() const {
         const char* view_title = (m_view_type == ViewType::SceneView) ? "Scene View" : "Game View";
 
         // 获取视口区域
@@ -59,11 +57,11 @@ namespace CometEditor {
         viewport_size.y = std::max(viewport_size.y, 50.0f);
 
         // 显示场景渲染内容
-        if (m_texture_id != ImTextureID_Invalid && m_texture_width > 0 && m_texture_height > 0) {
+        if(m_texture_id != ImTextureID_Invalid && m_texture_width > 0 && m_texture_height > 0) {
             // 计算显示尺寸，保持宽高比
             const float aspect_ratio = static_cast<float>(m_texture_width) / static_cast<float>(m_texture_height);
             ImVec2 display_size = viewport_size;
-            if (display_size.x / aspect_ratio < display_size.y) {
+            if(display_size.x / aspect_ratio < display_size.y) {
                 display_size.y = display_size.x / aspect_ratio;
             } else {
                 display_size.x = display_size.y * aspect_ratio;
@@ -71,7 +69,8 @@ namespace CometEditor {
 
             // 居中显示
             const ImVec2 pos = ImGui::GetCursorPos();
-            const ImVec2 center_offset((viewport_size.x - display_size.x) * 0.5f, (viewport_size.y - display_size.y) * 0.5f);
+            const ImVec2 center_offset((viewport_size.x - display_size.x) * 0.5f,
+                (viewport_size.y - display_size.y) * 0.5f);
             ImGui::SetCursorPos(ImVec2(pos.x + center_offset.x, pos.y + center_offset.y));
             ImGui::Image(m_texture_id, display_size);
         } else {
@@ -82,12 +81,12 @@ namespace CometEditor {
 
         // 显示视口信息
         ImGui::Text("%s: %.0fx%.0f", view_title, viewport_size.x, viewport_size.y);
-        if (m_texture_width > 0 && m_texture_height > 0) {
+        if(m_texture_width > 0 && m_texture_height > 0) {
             ImGui::Text("Texture: %ux%u", m_texture_width, m_texture_height);
         }
     }
 
-    void ViewPanel::set_texture_id(ImTextureID texture_id, std::uint32_t width, std::uint32_t height) {
+    void ViewPanel::set_texture_id(const ImTextureID texture_id, const std::uint32_t width, const std::uint32_t height) {
         m_texture_id = texture_id;
         m_texture_width = width;
         m_texture_height = height;
@@ -99,4 +98,3 @@ namespace CometEditor {
         m_texture_height = 0;
     }
 }
-

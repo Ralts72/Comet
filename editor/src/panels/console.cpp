@@ -1,20 +1,17 @@
-#include "console_panel.h"
+#include "console.h"
 #include "common/logger.h"
 #include <imgui.h>
 
 namespace CometEditor {
-
-    ConsolePanel::ConsolePanel()
-        : EditorPanel("Log") {
-    }
+    ConsolePanel::ConsolePanel() : EditorPanel("Log") {}
 
     void ConsolePanel::render() {
-        if (!m_user_visible) return;
+        if(!m_user_visible) return;
 
         ImGui::Begin(m_name.c_str(), &m_user_visible);
 
         // 工具栏
-        if (ImGui::Button("Clear")) {
+        if(ImGui::Button("Clear")) {
             clear_logs();
         }
         ImGui::SameLine();
@@ -40,12 +37,11 @@ namespace CometEditor {
         // 构建所有可见日志的文本
         static std::string log_buffer;
         log_buffer.clear();
-        for (size_t i = 0; i < m_logs.size(); ++i) {
-            const auto& log = m_logs[i];
+        for(const auto& [level, message]: m_logs) {
             bool should_show = false;
             const char* level_str = nullptr;
 
-            switch (log.level) {
+            switch(level) {
                 case Comet::LogLevel::Trace:
                     should_show = m_show_trace;
                     level_str = "[Trace]";
@@ -72,24 +68,19 @@ namespace CometEditor {
                     break;
             }
 
-            if (should_show && level_str) {
-                log_buffer += std::string(level_str) + " " + log.message + "\n";
+            if(should_show && level_str) {
+                log_buffer += std::string(level_str) + " " + message + "\n";
             }
         }
 
         static ImGuiInputTextFlags flags = ImGuiInputTextFlags_ReadOnly;
-        ImGui::InputTextMultiline("##LogContent",
-            const_cast<char*>(log_buffer.c_str()),
-            log_buffer.size() + 1,
-            ImVec2(-1, -1),
-            flags);
+        ImGui::InputTextMultiline("##LogContent", const_cast<char*>(log_buffer.c_str()), log_buffer.size() + 1,
+                                  ImVec2(-1, -1), flags);
 
         // 自动滚动到底部
         static bool auto_scroll = true;
-        if (auto_scroll && !log_buffer.empty()) {
-            float scroll_y = ImGui::GetScrollY();
-            float scroll_max_y = ImGui::GetScrollMaxY();
-            if (scroll_y >= scroll_max_y - 10.0f) {
+        if(auto_scroll && !log_buffer.empty()) {
+            if(ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 10.0f) {
                 ImGui::SetScrollHereY(1.0f);
             }
         }
@@ -100,16 +91,14 @@ namespace CometEditor {
     }
 
     void ConsolePanel::add_log(const Comet::LogLevel level, const std::string& message) {
-        m_logs.push_back({level, message});
+        m_logs.push_back({.level = level, .message = message});
 
-        if (m_logs.size() > MAX_LOGS) {
-            m_logs.erase(m_logs.begin(), m_logs.begin() + (m_logs.size() - MAX_LOGS));
+        if(m_logs.size() > MAX_LOGS) {
+            m_logs.pop_front();
         }
     }
 
     void ConsolePanel::clear_logs() {
         m_logs.clear();
     }
-
 }
-

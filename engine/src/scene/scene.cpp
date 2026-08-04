@@ -28,7 +28,7 @@ namespace Comet {
         const auto view = m_registry.view<IdComponent>();
         for(const entt::entity handle: view) {
             if(view.get<IdComponent>(handle).id == id) {
-                return Entity(handle, this);
+                return {handle, this};
             }
         }
 
@@ -49,8 +49,8 @@ namespace Comet {
 
     bool Scene::is_valid(const Entity entity) const {
         return entity.m_scene == this
-            && entity.m_handle != entt::null
-            && m_registry.valid(entity.m_handle);
+               && entity.m_handle != entt::null
+               && m_registry.valid(entity.m_handle);
     }
 
     std::size_t Scene::entity_count() const {

@@ -3,6 +3,8 @@
 #include "core/math_utils.h"
 #include "common/export.h"
 
+#include <cstddef>
+
 namespace Comet {
     class Image;
     class ImageView;
@@ -36,7 +38,9 @@ namespace Comet {
 
         void set_frame_count(uint32_t frame_count);
 
-        void set_clear_value(const ClearValue& clear_value, int index = -1);
+        void set_clear_value(const ClearValue& clear_value);
+
+        void set_clear_value(const ClearValue& clear_value, std::size_t index);
 
         virtual void begin_render_target(CommandBuffer& command_buffer);
 

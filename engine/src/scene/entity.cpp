@@ -3,7 +3,7 @@
 #include "scene/scene.h"
 
 namespace Comet {
-    Entity::Entity(entt::entity handle, Scene* scene)
+    Entity::Entity(const entt::entity handle, Scene* scene)
         : m_handle(handle), m_scene(scene) {}
 
     EntityId Entity::get_id() const {
@@ -16,7 +16,7 @@ namespace Comet {
 
     Entity::operator bool() const {
         return m_scene != nullptr
-            && m_handle != entt::null
-            && m_scene->m_registry.valid(m_handle);
+               && m_handle != entt::null
+               && m_scene->m_registry.valid(m_handle);
     }
 }

@@ -1,6 +1,7 @@
 #pragma once
-#include "editor_panel.h"
+#include "editor.h"
 #include "common/logger.h"
+#include <deque>
 
 namespace CometEditor {
 
@@ -19,15 +20,14 @@ namespace CometEditor {
         void clear_logs();
 
     private:
-        std::vector<LogInfo> m_logs;
+        std::deque<LogInfo> m_logs;
         bool m_show_trace = false;
         bool m_show_debug = false;
         bool m_show_info = true;
         bool m_show_warning = true;
         bool m_show_error = true;
         bool m_show_critical = true;
-        static constexpr size_t MAX_LOGS = 10000;  // 限制日志数量，避免内存溢出
+        static constexpr size_t MAX_LOGS = 10000; // 限制日志数量，避免内存溢出
     };
 
 }
-

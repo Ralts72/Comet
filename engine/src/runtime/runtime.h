@@ -36,7 +36,8 @@ namespace Comet {
             Logger::shutdown();
         }
 
-        [[nodiscard]] Engine* get_engine() const { return m_engine.get(); }
+        [[nodiscard]] Engine& get_engine() { return *m_engine; }
+        [[nodiscard]] const Engine& get_engine() const { return *m_engine; }
 
         virtual void on_init() = 0;
 

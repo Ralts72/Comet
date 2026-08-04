@@ -14,11 +14,15 @@ namespace Comet {
     class COMET_API AssetRegistry {
     public:
         AssetRegistry() = default;
+
         ~AssetRegistry() = default;
 
         AssetRegistry(const AssetRegistry&) = delete;
+
         AssetRegistry& operator=(const AssetRegistry&) = delete;
+
         AssetRegistry(AssetRegistry&&) noexcept = default;
+
         AssetRegistry& operator=(AssetRegistry&&) noexcept = default;
 
         template<typename T>
@@ -28,8 +32,11 @@ namespace Comet {
         [[nodiscard]] std::shared_ptr<T> resolve(AssetHandle handle) const;
 
         [[nodiscard]] bool contains(AssetHandle handle) const;
+
         [[nodiscard]] bool unregister_asset(AssetHandle handle);
+
         [[nodiscard]] std::size_t size() const;
+
         void clear();
 
     private:
@@ -51,7 +58,7 @@ namespace Comet {
     };
 
     template<typename T>
-    bool AssetRegistry::register_asset(AssetHandle handle, std::shared_ptr<T> asset) {
+    bool AssetRegistry::register_asset(const AssetHandle handle, std::shared_ptr<T> asset) {
         static_assert(!std::is_void_v<T>, "AssetRegistry requires a concrete asset type");
 
         return register_asset_impl(
@@ -61,7 +68,7 @@ namespace Comet {
     }
 
     template<typename T>
-    std::shared_ptr<T> AssetRegistry::resolve(AssetHandle handle) const {
+    std::shared_ptr<T> AssetRegistry::resolve(const AssetHandle handle) const {
         static_assert(!std::is_void_v<T>, "AssetRegistry requires a concrete asset type");
 
         const auto asset = resolve_impl(

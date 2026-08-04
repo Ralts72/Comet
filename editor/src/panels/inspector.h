@@ -1,5 +1,5 @@
 #pragma once
-#include "editor_panel.h"
+#include "editor.h"
 
 namespace CometEditor {
 
@@ -9,9 +9,13 @@ namespace CometEditor {
 
         void render() override;
 
-        void set_selected_object(const std::string& object_name) { m_selected_object = object_name; }
+        void set_selected_object(const std::string& object_name) {
+            m_selected_object = object_name;
+        }
 
-        [[nodiscard]] const std::string& get_selected_object() const { return m_selected_object; }
+        [[nodiscard]] const std::string& get_selected_object() const {
+            return m_selected_object;
+        }
 
     private:
         std::string m_selected_object;
@@ -22,4 +26,3 @@ namespace CometEditor {
     };
 
 }
-

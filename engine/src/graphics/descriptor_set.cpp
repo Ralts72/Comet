@@ -3,7 +3,8 @@
 #include "convert.h"
 
 namespace Comet {
-    void DescriptorSetLayoutBindings::add_binding(uint32_t binding, DescriptorType type, Flags<ShaderStage> stage_flags, uint32_t count) {
+    void DescriptorSetLayoutBindings::add_binding(uint32_t binding, const DescriptorType type,
+                                                  const Flags<ShaderStage> stage_flags, uint32_t count) {
         m_bindings.emplace_back(binding, Graphics::description_type_to_vk(type), count,
             Graphics::shader_stage_to_vk(stage_flags), nullptr);
     }
@@ -21,7 +22,7 @@ namespace Comet {
     }
 
     DescriptorPool::DescriptorPool(Device* device, const uint32_t max_sets,
-        const DescriptorPoolSizes& pool_sizes, Flags<DescriptorPoolCreateFlag> flags): m_device(device) {
+                                   const DescriptorPoolSizes& pool_sizes, const Flags<DescriptorPoolCreateFlag> flags) : m_device(device) {
         vk::DescriptorPoolCreateInfo create_info{};
         create_info.flags = Graphics::descriptor_pool_create_flags_to_vk(flags);
         create_info.maxSets = max_sets;
@@ -30,7 +31,7 @@ namespace Comet {
         m_descriptor_pool = m_device->get().createDescriptorPool(create_info);
     }
 
-    void DescriptorPoolSizes::add_pool_size(DescriptorType type, uint32_t count) {
+    void DescriptorPoolSizes::add_pool_size(const DescriptorType type, uint32_t count) {
         m_sizes.emplace_back(Graphics::description_type_to_vk(type), count);
     }
 
@@ -39,9 +40,9 @@ namespace Comet {
     }
 
     std::vector<DescriptorSet> DescriptorPool::allocate_descriptor_set(const DescriptorSetLayout& set_layout,
-        const uint32_t count) const {
+                                                                       const uint32_t count) const {
         std::vector<vk::DescriptorSetLayout> set_layouts(count);
-        for(uint32_t i = 0; i < count; i++){
+        for(uint32_t i = 0; i < count; i++) {
             set_layouts[i] = set_layout.get();
         }
         vk::DescriptorSetAllocateInfo allocate_info{};
@@ -51,7 +52,7 @@ namespace Comet {
         std::vector<DescriptorSet> descriptor_sets;
         descriptor_sets.reserve(count);
         const auto vk_descriptor_sets = m_device->get().allocateDescriptorSets(allocate_info);
-        for(const auto vk_descriptor_set : vk_descriptor_sets) {
+        for(const auto vk_descriptor_set: vk_descriptor_sets) {
             descriptor_sets.emplace_back(DescriptorSet(vk_descriptor_set));
         }
         return descriptor_sets;

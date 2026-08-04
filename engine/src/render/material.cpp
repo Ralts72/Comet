@@ -1,50 +1,51 @@
 #include "material.h"
+
+#include <utility>
 #include "common/logger.h"
 
 namespace Comet {
-
     void MaterialConfig::set_blend_op(const BlendOp color_op, const BlendOp alpha_op) {
         m_color_blend_op = color_op;
         m_alpha_blend_op = alpha_op;
     }
 
     void MaterialConfig::set_blend_factors(const BlendFactor src_color, const BlendFactor dst_color,
-                                          const BlendFactor src_alpha, const BlendFactor dst_alpha) {
+                                           const BlendFactor src_alpha, const BlendFactor dst_alpha) {
         m_src_color_blend_factor = src_color;
         m_dst_color_blend_factor = dst_color;
         m_src_alpha_blend_factor = src_alpha;
         m_dst_alpha_blend_factor = dst_alpha;
     }
 
-    Material::Material(const std::string& name, const MaterialConfig& config)
-        : m_name(name), m_config(config) {}
+    Material::Material(std::string name, const MaterialConfig& config)
+        : m_name(std::move(name)), m_config(config) {}
 
     void Material::set_property(const std::string& name, const float value) {
-        m_properties[name] = MaterialProperty{MaterialPropertyType::Float, name, value};
+        m_properties[name] = MaterialProperty{.type = MaterialPropertyType::Float, .name = name, .value = value};
     }
 
     void Material::set_property(const std::string& name, const Math::Vec2& value) {
-        m_properties[name] = MaterialProperty{MaterialPropertyType::Vec2, name, value};
+        m_properties[name] = MaterialProperty{.type = MaterialPropertyType::Vec2, .name = name, .value = value};
     }
 
     void Material::set_property(const std::string& name, const Math::Vec3& value) {
-        m_properties[name] = MaterialProperty{MaterialPropertyType::Vec3, name, value};
+        m_properties[name] = MaterialProperty{.type = MaterialPropertyType::Vec3, .name = name, .value = value};
     }
 
     void Material::set_property(const std::string& name, const Math::Vec4& value) {
-        m_properties[name] = MaterialProperty{MaterialPropertyType::Vec4, name, value};
+        m_properties[name] = MaterialProperty{.type = MaterialPropertyType::Vec4, .name = name, .value = value};
     }
 
     void Material::set_property(const std::string& name, int value) {
-        m_properties[name] = MaterialProperty{MaterialPropertyType::Int, name, value};
+        m_properties[name] = MaterialProperty{.type = MaterialPropertyType::Int, .name = name, .value = value};
     }
 
     void Material::set_property_sampler(const std::string& name, const std::shared_ptr<Sampler>& sampler) {
-        m_properties[name] = MaterialProperty{MaterialPropertyType::Sampler, name, sampler};
+        m_properties[name] = MaterialProperty{.type = MaterialPropertyType::Sampler, .name = name, .value = sampler};
     }
 
     void Material::set_property_texture(const std::string& name, const std::shared_ptr<Texture>& texture) {
-        m_properties[name] = MaterialProperty{MaterialPropertyType::Texture, name, texture};
+        m_properties[name] = MaterialProperty{.type = MaterialPropertyType::Texture, .name = name, .value = texture};
     }
 
     bool Material::has_property(const std::string& name) const {
@@ -52,10 +53,22 @@ namespace Comet {
     }
 
     const MaterialProperty& Material::get_property(const std::string& name) const {
-        if (m_properties.contains(name)) {
+        if(m_properties.contains(name)) {
             return m_properties.at(name);
         }
         LOG_FATAL("Material property '{}' not found in material '{}'", name, m_name);
+    }
+
+    std::shared_ptr<Texture> Material::get_texture_property(const std::string& name) const {
+        const auto property = m_properties.find(name);
+        if(property == m_properties.end()
+           || property->second.type != MaterialPropertyType::Texture) {
+            return nullptr;
+        }
+
+        const auto* texture =
+                std::get_if<std::shared_ptr<Texture>>(&property->second.value);
+        return texture ? *texture : nullptr;
     }
 
     // ====================== MaterialInstance ======================
@@ -96,14 +109,14 @@ namespace Comet {
     }
 
     const MaterialProperty& MaterialInstance::get_property_or_default(const std::string& name) const {
-        if (m_property_overrides.contains(name)) {
+        if(m_property_overrides.contains(name)) {
             return m_property_overrides.at(name);
         }
         return m_material->get_property(name);
     }
 
     std::shared_ptr<Material> MaterialManager::create_material(const std::string& name, const MaterialConfig& config) {
-        if (m_materials.contains(name)) {
+        if(m_materials.contains(name)) {
             LOG_WARN("Material '{}' already exists, returning existing material", name);
             return m_materials.at(name);
         }
@@ -113,7 +126,7 @@ namespace Comet {
     }
 
     std::shared_ptr<Material> MaterialManager::get_material(const std::string& name) const {
-        if (m_materials.contains(name)) {
+        if(m_materials.contains(name)) {
             return m_materials.at(name);
         }
         LOG_ERROR("Material '{}' not found", name);

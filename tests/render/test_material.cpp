@@ -36,6 +36,8 @@ TEST(MaterialTest, StoresTextureProperty) {
     const MaterialProperty& property = material.get_property("albedo");
     EXPECT_EQ(property.type, MaterialPropertyType::Texture);
     EXPECT_EQ(std::get<std::shared_ptr<Texture>>(property.value), texture);
+    EXPECT_EQ(material.get_texture_property("albedo"), texture);
+    EXPECT_EQ(material.get_texture_property("missing"), nullptr);
 }
 
 } // namespace Comet::Tests

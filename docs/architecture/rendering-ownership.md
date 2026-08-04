@@ -22,11 +22,13 @@ Engine
     │   ├── SamplerManager
     │   ├── MaterialManager
     │   └── Mesh/Texture runtime cache
+    ├── RenderSceneResolver
     └── SceneRenderer
         ├── RenderPass/PipelineManager/Pipeline
         ├── FrameManager
         │   ├── FrameSlot[frames-in-flight]
         │   └── SwapchainImageState[swapchain images]
+        ├── ViewProjectBuffer[frames-in-flight]
         ├── RenderTarget
         └── MaterialDescriptorState[material][frame slot]
 ```
@@ -34,15 +36,15 @@ Engine
 `Engine` 独占 Scene 和 Asset Registry，app 和 editor 负责创建或修改场景内容。Asset Registry 以
 `AssetHandle` 保存运行时资源的共享引用，Scene 组件只保存 Handle。`Renderer` 是当前渲染子系统的组合根。
 `RenderContext` 独占 Vulkan Context、Device 和 Swapchain；`Device` 独占 `VulkanAllocator`。`ResourceManager` 与
-`SceneRenderer` 只保存指向 Device 或 RenderContext 的非拥有指针。
+`SceneRenderer` 分别保存对 Device 和 RenderContext 的非拥有引用，构造接口不允许空依赖。
 
 ## 生命周期约束
 
 关闭时必须遵循以下顺序：
 
 1. Asset Registry 先释放对运行时资源的共享引用；当前具体 GPU 资源仍由 ResourceManager cache 共同持有。
-2. Renderer 等待 Device idle，再释放直接持有的 per-frame Buffer。
-3. 释放 SceneRenderer，确保 pipeline、descriptor、render target、command buffer 等对象先于 Device 销毁。
+2. Renderer 等待 Device idle。
+3. 释放 SceneRenderer，确保 per-frame Buffer、pipeline、descriptor、render target、command buffer 等对象先于 Device 销毁。
 4. 释放 ResourceManager 及其 runtime resource cache。
 5. 释放 RenderContext：Swapchain → Device 内部的 CommandPool、PipelineCache 和 VulkanAllocator → Vulkan Device → Context。
 6. 释放 Scene；Scene 只持有组件和 AssetHandle，不拥有 GPU 资源。
@@ -53,11 +55,12 @@ Engine
 
 - `RenderContext`：Vulkan 上下文、逻辑设备、交换链和 idle 等待。
 - `ResourceManager`：运行时/GPU资源创建与缓存；不负责扫描项目目录或分配资产 GUID。
-- `SceneRenderer`：帧同步、render target、pipeline、descriptor 和 draw command 录制。
+- `RenderSceneResolver`：将 Handle 型 RenderScene 解析为持有运行时 Mesh 和材质绑定的 RenderSubmission，并集中处理缺失资源诊断。
+- `SceneRenderer`：消费整批 RenderSubmission，管理 per-frame view/projection buffer、render target、pipeline、descriptor 和 draw command 录制。
 - `MaterialManager`：Material/MaterialInstance 的内存注册；不存在的基础材质不能产生有效实例。
 - `Scene`：只保存实体、可序列化组件和 `AssetHandle`，不保存 Device、GPU对象或文件路径。
 - `AssetRegistry`：当前负责注册和解析 `AssetHandle` 对应的内存资源；项目扫描、元数据、导入产物和 GUID 分配仍属于后续 Asset Manager。
-- `Renderer`：消费 RenderScene，通过 Asset Registry 解析 mesh/material，并把有效 render item 提交给 SceneRenderer。
+- `Renderer`：编排 RenderScene 解析、帧开始/结束和 ImGui 回调，不读取 Material 属性或管理 descriptor。
 
 ## 帧同步
 

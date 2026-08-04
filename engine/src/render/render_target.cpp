@@ -31,15 +31,18 @@ namespace Comet {
         m_needs_recreate = true;
     }
 
-    void RenderTarget::set_clear_value(const ClearValue& clear_value, const int index) {
-        const auto attachments = m_render_pass->get_attachments();
-        if(index < 0) {
-            for(size_t i = 0; i < attachments.size(); ++i) {
-                set_clear_value(clear_value, i);
-            }
-            return;
+    void RenderTarget::set_clear_value(const ClearValue& clear_value) {
+        const auto& attachments = m_render_pass->get_attachments();
+        for(std::size_t index = 0; index < attachments.size(); ++index) {
+            set_clear_value(clear_value, index);
         }
-        if(static_cast<size_t>(index) >= attachments.size()) return;
+    }
+
+    void RenderTarget::set_clear_value(
+        const ClearValue& clear_value, const std::size_t index) {
+        const auto& attachments = m_render_pass->get_attachments();
+        if(index >= attachments.size()) return;
+
         const auto& description = attachments[index].description;
         if(description.load_op != AttachmentLoadOp::Clear) return;
 

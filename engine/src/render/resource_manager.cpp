@@ -2,15 +2,12 @@
 #include "common/logger.h"
 
 namespace Comet {
-    ResourceManager::ResourceManager(Device* device) : m_device(device) {
-        if(!device) {
-            LOG_FATAL("ResourceManager requires a valid Device");
-        }
+    ResourceManager::ResourceManager(Device& device) : m_device(device) {
         LOG_INFO("create shader manager");
-        m_shader_manager = std::make_unique<ShaderManager>(device);
+        m_shader_manager = std::make_unique<ShaderManager>(&device);
         
         LOG_INFO("create sampler manager");
-        m_sampler_manager = std::make_unique<SamplerManager>(device);
+        m_sampler_manager = std::make_unique<SamplerManager>(&device);
 
         LOG_INFO("create material manager");
         m_material_manager = std::make_unique<MaterialManager>();
@@ -23,7 +20,7 @@ namespace Comet {
             return m_textures.find(path)->second;
         }
         
-        auto texture = std::make_shared<Texture>(m_device, path);
+        auto texture = std::make_shared<Texture>(&m_device, path);
         m_textures[path] = texture;
         return texture;
     }
@@ -34,7 +31,7 @@ namespace Comet {
             return m_meshes.find(name)->second;
         }
 
-        auto mesh = std::make_shared<Mesh>(m_device, vertices, indices);
+        auto mesh = std::make_shared<Mesh>(&m_device, vertices, indices);
         m_meshes[name] = mesh;
         return mesh;
     }

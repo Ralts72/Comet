@@ -7,19 +7,19 @@ namespace Comet {
     RenderScene SceneRenderExtractor::extract(const Scene& scene) {
         RenderScene render_scene;
         const auto view =
-            scene.m_registry.view<IdComponent, TransformComponent, MeshRendererComponent>();
+                scene.m_registry.view<IdComponent, TransformComponent, MeshRendererComponent>();
         render_scene.render_items.reserve(view.size_hint());
 
         for(const entt::entity handle: view) {
-            const auto& id = view.get<IdComponent>(handle);
+            const auto& [id] = view.get<IdComponent>(handle);
             const auto& transform = view.get<TransformComponent>(handle);
-            const auto& mesh_renderer = view.get<MeshRendererComponent>(handle);
+            const auto& [mesh, material] = view.get<MeshRendererComponent>(handle);
 
             render_scene.render_items.push_back({
-                .entity_id = id.id,
+                .entity_id = id,
                 .model_matrix = transform.local_matrix(),
-                .mesh_handle = mesh_renderer.mesh,
-                .material_handle = mesh_renderer.material
+                .mesh_handle = mesh,
+                .material_handle = material
             });
         }
 

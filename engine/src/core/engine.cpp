@@ -23,7 +23,8 @@ namespace Comet {
         m_window = std::make_unique<Window>(m_config.window);
 
         LOG_INFO("init renderer");
-        m_renderer = std::make_unique<Renderer>(*m_window, m_config);
+        m_renderer = std::make_unique<Renderer>(
+            *m_window, m_config, *m_asset_registry);
     }
 
     Engine::~Engine() {
@@ -59,7 +60,7 @@ namespace Comet {
             }
 
             m_renderer->on_update(update_context.deltaTime);
-            m_renderer->on_render(render_scene, *m_asset_registry);
+            m_renderer->on_render(render_scene);
 
             m_window->swap_buffers();
         }

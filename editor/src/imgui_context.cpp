@@ -18,7 +18,6 @@
 #include <GLFW/glfw3.h>
 
 namespace CometEditor {
-
     ImGuiContext::ImGuiContext(const Comet::Window* window, Comet::RenderContext* render_context,
                                const Comet::Config::Vulkan& vulkan_config)
         : m_window(window), m_render_context(render_context), m_vulkan_config(vulkan_config) {
@@ -67,7 +66,7 @@ namespace CometEditor {
         std::vector<Comet::Attachment> attachments;
         // 创建 color attachment，但修改 load_op 为 Load，以保留场景渲染的内容
         auto color_attachment = Comet::Attachment::get_color_attachment(m_render_format_info.color_format, Comet::SampleCount::Count1);
-        color_attachment.description.load_op = Comet::AttachmentLoadOp::Load;  // 加载而不是清除
+        color_attachment.description.load_op = Comet::AttachmentLoadOp::Load; // 加载而不是清除
         // 场景渲染结束后，swapchain image 处于 PresentSrcKHR 布局
         color_attachment.description.initial_layout = Comet::ImageLayout::PresentSrcKHR;
         // final_layout 应该保持为 PresentSrcKHR，因为这是最终呈现的布局
@@ -81,8 +80,8 @@ namespace CometEditor {
         Comet::RenderSubPass render_sub_pass = {
             {},
             {Comet::SubpassColorAttachment(0)},
-            {},  // ImGui 不需要深度测试
-            Comet::SampleCount::Count1  // ImGui 不使用 MSAA
+            {}, // ImGui 不需要深度测试
+            Comet::SampleCount::Count1 // ImGui 不使用 MSAA
         };
         render_sub_passes.emplace_back(render_sub_pass);
 
@@ -124,7 +123,7 @@ namespace CometEditor {
     }
 
     ImGuiContext::~ImGuiContext() {
-        if (m_initialized) {
+        if(m_initialized) {
             cleanup();
         }
     }
@@ -132,7 +131,7 @@ namespace CometEditor {
     void ImGuiContext::cleanup() {
         LOG_INFO("Cleaning up ImGui layer");
 
-        if (!m_initialized) {
+        if(!m_initialized) {
             return;
         }
 
@@ -156,18 +155,18 @@ namespace CometEditor {
     }
 
     void ImGuiContext::update_frame() const {
-        if (!m_initialized) {
+        if(!m_initialized) {
             LOG_ERROR("ImGuiContext not initialized, skipping update_frame");
             return;
         }
 
         // 如果正在重建 swapchain，跳过 ImGui 更新
-        if (m_is_recreating) {
+        if(m_is_recreating) {
             return;
         }
 
         // 检查窗口有效性
-        if (!m_window || !m_window->get()) {
+        if(!m_window || !m_window->get()) {
             LOG_WARN("Window is invalid, skipping ImGui frame");
             return;
         }
@@ -175,7 +174,7 @@ namespace CometEditor {
         ImGui_ImplVulkan_NewFrame();
 
         // 检查窗口是否最小化（最小化时跳过 GLFW backend 更新）
-        if (glfwGetWindowAttrib(m_window->get(), GLFW_ICONIFIED)) {
+        if(glfwGetWindowAttrib(m_window->get(), GLFW_ICONIFIED)) {
             ImGui::NewFrame();
         } else {
             // 正常更新 GLFW backend
@@ -184,7 +183,7 @@ namespace CometEditor {
         }
 
         // 添加 UI 元素
-        if (m_ui_callback) {
+        if(m_ui_callback) {
             m_ui_callback();
         }
 
@@ -193,13 +192,13 @@ namespace CometEditor {
     }
 
     void ImGuiContext::render(Comet::CommandBuffer& command_buffer) const {
-        if (!m_initialized) {
+        if(!m_initialized) {
             LOG_ERROR("ImGuiContext not initialized");
             return;
         }
 
         ImDrawData* draw_data = ImGui::GetDrawData();
-        if (!draw_data || draw_data->CmdListsCount == 0) {
+        if(!draw_data || draw_data->CmdListsCount == 0) {
             return;
         }
         m_render_target->begin_render_target(command_buffer);
@@ -212,7 +211,7 @@ namespace CometEditor {
     void ImGuiContext::recreate_swapchain() {
         LOG_INFO("Recreating ImGui resources for swapchain");
 
-        if (!m_initialized) {
+        if(!m_initialized) {
             LOG_ERROR("ImGuiContext not initialized, cannot recreate swapchain");
             return;
         }
@@ -225,7 +224,7 @@ namespace CometEditor {
 
         // 重建render target
         m_render_target->recreate();
-        const uint32_t image_count = static_cast<uint32_t>(
+        const auto image_count = static_cast<uint32_t>(
             m_render_context->get_swapchain()->get_images().size());
         if(image_count != m_backend_image_count) {
             ImGui_ImplVulkan_Shutdown();

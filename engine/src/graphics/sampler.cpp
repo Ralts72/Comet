@@ -2,7 +2,7 @@
 #include "device.h"
 
 namespace Comet {
-    Sampler::Sampler(Device* device, const SamplerDesc& desc): m_device(device) {
+    Sampler::Sampler(Device* device, const SamplerDesc& desc) : m_device(device) {
         vk::SamplerCreateInfo sampler_create_info;
         sampler_create_info.magFilter = Graphics::filter_to_vk(desc.mag_filter);
         sampler_create_info.minFilter = Graphics::filter_to_vk(desc.min_filter);
@@ -60,7 +60,7 @@ namespace Comet {
 
     std::shared_ptr<Sampler> SamplerManager::get_linear_repeat(const float max_anisotropy) {
         const std::string name = "linear_repeat_" + std::to_string(static_cast<int>(max_anisotropy));
-        if (const auto it = m_samplers.find(name); it != m_samplers.end()) {
+        if(const auto it = m_samplers.find(name); it != m_samplers.end()) {
             return it->second;
         }
 
@@ -71,8 +71,8 @@ namespace Comet {
     }
 
     std::shared_ptr<Sampler> SamplerManager::get_nearest_clamp() {
-        const std::string name = "nearest_clamp";
-        if (const auto it = m_samplers.find(name); it != m_samplers.end()) {
+        constexpr std::string name = "nearest_clamp";
+        if(const auto it = m_samplers.find(name); it != m_samplers.end()) {
             return it->second;
         }
 
@@ -83,8 +83,8 @@ namespace Comet {
     }
 
     std::shared_ptr<Sampler> SamplerManager::get_shadow_sampler() {
-        const std::string name = "shadow_sampler";
-        if (const auto it = m_samplers.find(name); it != m_samplers.end()) {
+        constexpr std::string name = "shadow_sampler";
+        if(const auto it = m_samplers.find(name); it != m_samplers.end()) {
             return it->second;
         }
 
@@ -95,7 +95,7 @@ namespace Comet {
     }
 
     std::shared_ptr<Sampler> SamplerManager::create_sampler(const std::string& name, const SamplerDesc& desc) {
-        if (const auto it = m_samplers.find(name); it != m_samplers.end()) {
+        if(const auto it = m_samplers.find(name); it != m_samplers.end()) {
             LOG_DEBUG("sampler {} already exists, skipping create", name);
             return it->second;
         }
@@ -106,7 +106,7 @@ namespace Comet {
     }
 
     std::shared_ptr<Sampler> SamplerManager::get_sampler(const std::string& name) const {
-        if (const auto it = m_samplers.find(name); it != m_samplers.end()) {
+        if(const auto it = m_samplers.find(name); it != m_samplers.end()) {
             return it->second;
         }
         LOG_WARN("no sampler found for name: {}", name);

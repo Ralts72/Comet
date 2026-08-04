@@ -14,11 +14,15 @@ namespace Comet {
     class COMET_API Scene {
     public:
         Scene() = default;
+
         ~Scene() = default;
 
         Scene(const Scene&) = delete;
+
         Scene& operator=(const Scene&) = delete;
+
         Scene(Scene&&) noexcept = delete;
+
         Scene& operator=(Scene&&) noexcept = delete;
 
         Entity create_entity(const std::string& name = "Entity");
@@ -62,7 +66,7 @@ namespace Comet {
     }
 
     template<typename T>
-    void Entity::remove_component() {
+    void Entity::remove_component() const {
         m_scene->m_registry.remove<T>(m_handle);
     }
 }

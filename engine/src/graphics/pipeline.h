@@ -15,8 +15,11 @@ namespace Comet {
         ~PipelineLayout();
 
         PipelineLayout(const PipelineLayout&) = delete;
+
         PipelineLayout& operator=(const PipelineLayout&) = delete;
+
         PipelineLayout(PipelineLayout&&) noexcept = delete;
+
         PipelineLayout& operator=(PipelineLayout&&) noexcept = delete;
 
         [[nodiscard]] vk::PipelineLayout get() const { return m_pipeline_layout; }
@@ -87,15 +90,15 @@ namespace Comet {
         vk::Viewport viewport{};
         vk::Rect2D scissor{};
         vk::PipelineColorBlendAttachmentState color_blend_state{
-            vk::False,                  // blendEnable
-            vk::BlendFactor::eOne,      // srcColorBlendFactor
-            vk::BlendFactor::eZero,     // dstColorBlendFactor
-            vk::BlendOp::eAdd,          // colorBlendOp
-            vk::BlendFactor::eOne,      // srcAlphaBlendFactor
-            vk::BlendFactor::eZero,     // dstAlphaBlendFactor
-            vk::BlendOp::eAdd,          // alphaBlendOp
+            vk::False, // blendEnable
+            vk::BlendFactor::eOne, // srcColorBlendFactor
+            vk::BlendFactor::eZero, // dstColorBlendFactor
+            vk::BlendOp::eAdd, // colorBlendOp
+            vk::BlendFactor::eOne, // srcAlphaBlendFactor
+            vk::BlendFactor::eZero, // dstAlphaBlendFactor
+            vk::BlendOp::eAdd, // alphaBlendOp
             vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG
-            | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA  // colorWriteMask
+            | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA // colorWriteMask
         };
         PipelineDynamicState dynamic_state;
 
@@ -120,17 +123,20 @@ namespace Comet {
 
     class Pipeline {
     public:
-        Pipeline(const std::string& name, Device* device, RenderPass* render_pass,
+        Pipeline(std::string name, Device* device, RenderPass* render_pass,
                  const std::shared_ptr<PipelineLayout>& layout,
                  const std::shared_ptr<Shader>& vertex_shader,
                  const std::shared_ptr<Shader>& fragment_shader,
-                 const PipelineConfig& config);
+                 PipelineConfig config);
 
         ~Pipeline();
 
         Pipeline(const Pipeline&) = delete;
+
         Pipeline& operator=(const Pipeline&) = delete;
+
         Pipeline(Pipeline&&) noexcept = delete;
+
         Pipeline& operator=(Pipeline&&) noexcept = delete;
 
         [[nodiscard]] vk::Pipeline get() const { return m_pipeline; }

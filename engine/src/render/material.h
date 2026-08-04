@@ -96,7 +96,7 @@ namespace Comet {
 
     class COMET_API Material {
     public:
-        Material(const std::string& name, const MaterialConfig& config);
+        Material(std::string name, const MaterialConfig& config);
 
         ~Material() = default;
 
@@ -121,6 +121,9 @@ namespace Comet {
         [[nodiscard]] bool has_property(const std::string& name) const;
 
         [[nodiscard]] const MaterialProperty& get_property(const std::string& name) const;
+
+        [[nodiscard]] std::shared_ptr<Texture> get_texture_property(
+            const std::string& name) const;
 
         [[nodiscard]] const std::map<std::string, MaterialProperty>& get_properties() const { return m_properties; }
 

@@ -1,19 +1,18 @@
 #include "context.h"
 
 namespace Comet {
-
     static std::vector<DeviceFeature> s_required_extensions = {
 #ifdef __APPLE__
         // 在 macOS 上添加必要的 MoltenVK 扩展
-        {VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME, true},
-        {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, true},
+        {.name = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME, .required = true},
+        {.name = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, .required = true},
 #endif
-        {VK_KHR_SURFACE_EXTENSION_NAME, true},
-        {VK_EXT_DEBUG_UTILS_EXTENSION_NAME, true}
+        {.name = VK_KHR_SURFACE_EXTENSION_NAME, .required = true},
+        {.name = VK_EXT_DEBUG_UTILS_EXTENSION_NAME, .required = true}
     };
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_utils_messenger_callback(
-        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+        const VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageType,
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData) noexcept {

@@ -9,12 +9,15 @@
 namespace Comet {
     class COMET_API ResourceManager {
     public:
-        explicit ResourceManager(Device* device);
+        explicit ResourceManager(Device& device);
         ~ResourceManager();
         
-        [[nodiscard]] ShaderManager* get_shader_manager() const { return m_shader_manager.get(); }
-        [[nodiscard]] SamplerManager* get_sampler_manager() const { return m_sampler_manager.get(); }
-        [[nodiscard]] MaterialManager* get_material_manager() const { return m_material_manager.get(); }
+        [[nodiscard]] ShaderManager& get_shader_manager() { return *m_shader_manager; }
+        [[nodiscard]] const ShaderManager& get_shader_manager() const { return *m_shader_manager; }
+        [[nodiscard]] SamplerManager& get_sampler_manager() { return *m_sampler_manager; }
+        [[nodiscard]] const SamplerManager& get_sampler_manager() const { return *m_sampler_manager; }
+        [[nodiscard]] MaterialManager& get_material_manager() { return *m_material_manager; }
+        [[nodiscard]] const MaterialManager& get_material_manager() const { return *m_material_manager; }
 
         std::shared_ptr<Texture> load_texture(const std::string& path);
         std::shared_ptr<Mesh> create_mesh(const std::string& name, const std::vector<Math::Vertex>& vertices,
@@ -24,7 +27,7 @@ namespace Comet {
         [[nodiscard]] std::shared_ptr<Mesh> get_mesh(const std::string& name) const;
 
     private:
-        Device* m_device;
+        Device& m_device;
         std::unique_ptr<ShaderManager> m_shader_manager;
         std::unique_ptr<SamplerManager> m_sampler_manager;
         std::unique_ptr<MaterialManager> m_material_manager;

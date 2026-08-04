@@ -31,7 +31,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 最明显的信号是：
 
-- `Engine` 持有 Scene 和最小 Asset Registry，每帧提取 RenderScene；`Renderer` 解析 Handle 并提交多个 render item。
+- `Engine` 持有 Scene 和最小 Asset Registry，每帧提取 RenderScene；`RenderSceneResolver` 解析 Handle，`Renderer` 编排并提交多个 render item。
 - `Renderer` 已不再创建 demo mesh、texture 或模型矩阵，但仍持有固定相机和固定 cube pipeline 所需的 view/projection buffer。
 - 每个 draw 的模型矩阵已通过 push constant 提交；descriptor 资源按材质和 frame slot 缓存。
 - Scene 已能管理实体和基础组件，但目前只有运行期自增 `EntityId` 和局部 TRS，还没有持久化 UUID、父子关系与世界矩阵。
@@ -215,7 +215,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 目标：建立真实场景数据模型，让引擎能从 Scene 渲染对象，而不是从 `Renderer` 内部硬编码对象。
 
-当前状态：阶段 1A 已完成，阶段 1B 只剩主 Camera 接入与过渡接口整理；Scene 到多对象渲染的最小闭环已经完成。
+当前状态：阶段 1A 已完成，阶段 1B 只剩主 Camera 接入；Scene 到多对象渲染的最小闭环和提交接口整理已经完成。
 
 #### 阶段 1A：Scene/ECS Core（已完成）
 
@@ -235,6 +235,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 - [x] 新增 Scene Render Extractor，提取具有 Transform 与 MeshRenderer 的实体；Scene 组件不持有文件路径或 GPU 资源。
 - [x] 让运行时层持有 Scene，由 app 创建 demo Scene 和 cube entity。
 - [x] 让 `Renderer` 消费场景提交结果，逐项交给 `SceneRenderer` 绘制；消费端诊断并跳过无效或未解析的 Handle。
+- [x] 使用 `RenderSceneResolver` 和 `RenderSubmission` 封装资源解析；SceneRenderer 批量消费已解析对象并内部管理 per-frame UBO 与 descriptor。
 - [ ] 接入主 `CameraComponent` 驱动 view/projection；Camera FOV 统一使用角度。
 - [x] 每个 draw 的模型矩阵使用 push constant，避免单一 model uniform buffer 阻碍多对象渲染。
 - [x] 删除 `Renderer` 内部硬编码的 cube mesh、texture 和模型旋转逻辑。
@@ -516,20 +517,19 @@ Scene Component / RenderItem
 
 ## 下一步建议
 
-下一步应收尾 **阶段 1B：Scene Render Submission**。先整理当前资源解析和 descriptor 绑定的过渡接口，再接入场景主 Camera，避免继续扩大 Renderer 与 SceneRenderer 的职责。
+下一步应收尾 **阶段 1B：Scene Render Submission**，接入场景主 Camera，删除 Renderer 中最后的固定相机状态。
 
 建议的职责边界：
 
 - Engine/运行时层持有 Scene，app 和 editor 负责创建或修改场景内容。
 - Scene 只拥有实体、可序列化组件和 `AssetHandle`，不依赖路径、Mesh、Texture、Buffer 等运行时/GPU对象。
 - Scene Render Extractor 把 Transform、MeshRenderer、Camera 转换为只读的 RenderScene。
-- Asset Registry 解析 `AssetHandle`，ResourceManager 创建或复用运行时/GPU资源。
-- Renderer 消费解析后的 RenderScene，SceneRenderer 只执行具体绘制。
+- Asset Registry 保存 `AssetHandle` 到运行时资源的映射，ResourceManager 创建或复用运行时/GPU资源。
+- RenderSceneResolver 将 RenderScene 解析为 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
 
 剩余工作的最小范围：
 
-1. 将 Handle 解析、材质绑定和 descriptor 缓存从帧循环中的零散逻辑收敛为明确职责，减少跨层指针传递。
-2. 接入主 `CameraComponent`，由 Scene 提供 view/projection 和 FOV，并为无主 Camera、非法裁剪面等情况提供诊断。
-3. 保留当前双实体运行样例和 Vulkan validation 验证，补齐 Camera 与无效资源测试。
+1. 接入主 `CameraComponent`，由 Scene 提供 view/projection 和 FOV，并为无主 Camera、非法裁剪面等情况提供诊断。
+2. 保留当前双实体运行样例和 Vulkan validation 验证，补齐 Camera 与无效参数测试。
 
 完成后进入阶段 1C，连接 Hierarchy、Selection 和 Inspector。

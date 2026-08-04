@@ -7,11 +7,11 @@ set(SOURCES
         editor.cpp
         src/imgui_context.cpp
         src/menu_bar.cpp
-        src/panels/inspector_panel.cpp
-        src/panels/console_panel.cpp
-        src/panels/view_panel.cpp
-        src/panels/hierarchy_panel.cpp
-        src/panels/project_panel.cpp
+        src/panels/inspector.cpp
+        src/panels/console.cpp
+        src/panels/view.cpp
+        src/panels/hierarchy.cpp
+        src/panels/project.cpp
 )
 
 add_executable(editor ${SOURCES})

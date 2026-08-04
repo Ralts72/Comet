@@ -2,13 +2,26 @@
 #include "logger.h"
 
 namespace Comet {
+#ifdef BUILD_TYPE_DEBUG
+    namespace {
+        spdlog::level::level_enum select_profile_log_level(const int call_count, const double average) {
+            if(call_count == 1) return spdlog::level::info;
+            if(average > 50.0) return spdlog::level::critical;
+            if(average > 10.0) return spdlog::level::err;
+            if(average > 5.0) return spdlog::level::warn;
+            if(average > 1.0) return spdlog::level::info;
+            return spdlog::level::debug;
+        }
+    }
+#endif
+
     thread_local std::vector<Profiler::ActiveBlock> Profiler::s_thread_stack;
     std::mutex Profiler::s_mtx;
     std::unordered_map<std::string, ProfileRecord> Profiler::s_records;
 
     void Profiler::begin_sample(const char* label) {
         auto& stack = get_thread_stack();
-        stack.push_back({label, std::chrono::high_resolution_clock::now()});
+        stack.push_back({.label = label, .start = std::chrono::high_resolution_clock::now()});
     }
 
     void Profiler::end_sample() {
@@ -29,34 +42,32 @@ namespace Comet {
     }
 
     void Profiler::dump_results() {
-        std::lock_guard<std::mutex> lock(s_mtx);
-        for(const auto& [label, record]: s_records) {
-            const double avg = record.total_time / record.call_count;
-            if (record.call_count == 1) {
-                PROFILE_LOG_LOW("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
-                    label, record.call_count, record.total_time, avg);
-            } else if(avg > 50.0) {
-                // 极高耗时 -> CRITICAL
-                PROFILE_LOG_CRITICAL("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
-                    label, record.call_count, record.total_time, avg);
-            } else if (avg > 10.0) {
-                // 高耗时 -> HIGH
-                PROFILE_LOG_HIGH("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
-                    label, record.call_count, record.total_time, avg);
-            } else if (avg > 5.0) {
-                // 中等耗时 -> MEDIUM
-                PROFILE_LOG_MEDIUM("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
-                    label, record.call_count, record.total_time, avg);
-            } else if (avg > 1.0) {
-                // 低耗时 -> LOW
-                PROFILE_LOG_LOW("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
-                    label, record.call_count, record.total_time, avg);
-            } else {
-                // 极低耗时 -> TRACE
-                PROFILE_LOG_TRACE("{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
-                    label, record.call_count, record.total_time, avg);
-            }
+#ifdef BUILD_TYPE_DEBUG
+        const auto logger = Logger::get_profiler_logger();
+        if(!logger) return;
+
+        decltype(s_records) records; {
+            std::lock_guard<std::mutex> lock(s_mtx);
+            records = s_records;
         }
+
+        for(const auto& [label, record]: records) {
+            const auto& [total_time, call_count] = record;
+            if(call_count <= 0) continue;
+
+            const double average = total_time / call_count;
+            const auto level = select_profile_log_level(call_count, average);
+
+            logger->log(
+                level,
+                "{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
+                label,
+                call_count,
+                total_time,
+                average
+            );
+        }
+#endif
     }
 
     void Profiler::reset() {

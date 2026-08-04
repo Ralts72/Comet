@@ -1,4 +1,6 @@
 #include "pipeline.h"
+
+#include <utility>
 #include "device.h"
 #include "shader.h"
 #include "render_pass.h"
@@ -7,12 +9,12 @@ namespace Comet {
     PipelineLayout::PipelineLayout(Device* device, const ShaderLayout& layout) : m_device(device) {
         std::vector<vk::DescriptorSetLayout> vk_set_layouts;
         vk_set_layouts.reserve(layout.descriptor_set_layouts.size());
-        for(auto & set_layout : layout.descriptor_set_layouts) {
+        for(auto& set_layout: layout.descriptor_set_layouts) {
             vk_set_layouts.push_back(set_layout->get());
         }
         std::vector<vk::PushConstantRange> vk_push_constants;
         vk_push_constants.reserve(layout.push_constants.size());
-        for(auto & push_constant : layout.push_constants) {
+        for(auto& push_constant: layout.push_constants) {
             vk_push_constants.push_back(push_constant->get());
         }
 
@@ -45,7 +47,7 @@ namespace Comet {
     }
 
     void PipelineConfig::set_multisample_state(const SampleCount samples, const bool sample_shading_enable,
-        const float min_sample_shading) {
+                                               const float min_sample_shading) {
         multisample_state.rasterization_samples = samples;
         multisample_state.sample_shading_enable = sample_shading_enable;
         multisample_state.min_sample_shading = min_sample_shading;
@@ -68,7 +70,7 @@ namespace Comet {
     void PipelineConfig::set_dynamic_state(const std::vector<DynamicState>& dy_states) {
         std::vector<vk::DynamicState> dynamic_states;
         dynamic_states.reserve(dy_states.size());
-        for(const auto& dy_state : dy_states) {
+        for(const auto& dy_state: dy_states) {
             dynamic_states.push_back(Graphics::dynamic_state_to_vk(dy_state));
         }
         dynamic_state.dynamic_states = dynamic_states;
@@ -90,11 +92,13 @@ namespace Comet {
         depth_stencil_state.depth_compare_op = CompareOp::Less;
     }
 
-    Pipeline::Pipeline(const std::string& name, Device* device, RenderPass* render_pass,
+    Pipeline::Pipeline(std::string name, Device* device, RenderPass* render_pass,
                        const std::shared_ptr<PipelineLayout>& layout,
                        const std::shared_ptr<Shader>& vertex_shader,
                        const std::shared_ptr<Shader>& fragment_shader,
-                       const PipelineConfig& config) : m_name(name), m_device(device), m_render_pass(render_pass), m_layout(layout), m_config(config) {
+                       PipelineConfig config) : m_name(std::move(name)), m_device(device),
+                                                m_render_pass(render_pass), m_layout(layout),
+                                                m_config(std::move(config)) {
         auto shader_stages = create_shader_stages(vertex_shader, fragment_shader);
         auto vertex_input_state = create_vertex_input_state();
         auto input_assembly_state = create_input_assembly_state();
@@ -250,9 +254,8 @@ namespace Comet {
         const PipelineConfig& config,
         const std::shared_ptr<Shader>& vert_shader,
         const std::shared_ptr<Shader>& frag_shader) {
-
         const auto it = m_pipelines.find(name);
-        if (it != m_pipelines.end()) {
+        if(it != m_pipelines.end()) {
             LOG_DEBUG("Pipeline '{}' already exists, returning cached version", name);
             return it->second;
         }
@@ -274,7 +277,7 @@ namespace Comet {
 
     std::shared_ptr<Pipeline> PipelineManager::get_pipeline(const std::string& name) const {
         const auto it = m_pipelines.find(name);
-        if (it != m_pipelines.end()) {
+        if(it != m_pipelines.end()) {
             return it->second;
         }
         LOG_WARN("Pipeline '{}' not found", name);

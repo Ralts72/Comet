@@ -1,36 +1,16 @@
 #include "renderer.h"
-#include "asset/registry.h"
 #include "common/logger.h"
 #include "common/profiler.h"
-#include "graphics/buffer.h"
 #include "graphics/pipeline.h"
 #include "graphics/vertex_description.h"
-#include "material.h"
-
-#include <string_view>
-#include <variant>
 
 namespace Comet {
-    namespace {
-        std::shared_ptr<Texture> get_texture_property(
-            const Material& material, const std::string_view property_name) {
-            const std::string name(property_name);
-            if(!material.has_property(name)) {
-                return nullptr;
-            }
-
-            const MaterialProperty& property = material.get_property(name);
-            if(property.type != MaterialPropertyType::Texture) {
-                return nullptr;
-            }
-
-            const auto* texture = std::get_if<std::shared_ptr<Texture>>(&property.value);
-            return texture ? *texture : nullptr;
-        }
-    }
-
-    Renderer::Renderer(const Window& window, const Config::Runtime& config)
-        : m_vulkan_config(config.vulkan), m_render_config(config.render) {
+    Renderer::Renderer(const Window& window,
+                       const Config::Runtime& config,
+                       const AssetRegistry& asset_registry)
+        : m_render_scene_resolver(asset_registry),
+          m_vulkan_config(config.vulkan),
+          m_render_config(config.render) {
         PROFILE_SCOPE("Renderer::Constructor");
 
         // Create render context
@@ -38,11 +18,13 @@ namespace Comet {
 
         // Create resource manager
         LOG_INFO("create resource manager");
-        m_resource_manager = std::make_unique<ResourceManager>(m_render_context->get_device());
+        m_resource_manager = std::make_unique<ResourceManager>(
+            *m_render_context->get_device());
 
         // Create scene renderer
         LOG_INFO("create scene renderer");
-        m_scene_renderer = std::make_unique<SceneRenderer>(m_render_context.get(), m_vulkan_config, m_render_config);
+        m_scene_renderer = std::make_unique<SceneRenderer>(
+            *m_render_context, m_vulkan_config, m_render_config);
 
         // Setup render pass (moved to SceneRenderer)
         m_scene_renderer->setup_render_pass();
@@ -50,8 +32,6 @@ namespace Comet {
         // Setup pipeline
         setup_pipeline();
 
-        // Setup per-frame render resources
-        setup_resources();
     }
 
     void Renderer::setup_pipeline() {
@@ -89,19 +69,8 @@ namespace Comet {
         pipeline_config.set_multisample_state(msaa_samples, false, 0.2f);
 
         // 让 SceneRenderer 创建 Pipeline
-        m_scene_renderer->setup_pipeline(m_resource_manager.get(), layout, vertex_input_description, pipeline_config);
-    }
-
-    void Renderer::setup_resources() {
-        LOG_INFO("create uniform buffers");
-        const uint32_t frame_slot_count =
-            m_scene_renderer->get_frame_manager()->get_frame_slot_count();
-        m_view_project_uniform_buffers.reserve(frame_slot_count);
-        for(uint32_t i = 0; i < frame_slot_count; ++i) {
-            m_view_project_uniform_buffers.push_back(Buffer::create_cpu_buffer(
-                m_render_context->get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
-                sizeof(ViewProjectMatrix), nullptr));
-        }
+        m_scene_renderer->setup_pipeline(
+            *m_resource_manager, layout, vertex_input_description, pipeline_config);
     }
 
     void Renderer::on_update([[maybe_unused]] const float delta_time) {
@@ -116,61 +85,14 @@ namespace Comet {
             static_cast<float>(swapchain->get_width()) / static_cast<float>(swapchain->get_height()), 0.1f, 100.0f);
     }
 
-    void Renderer::on_render(const RenderScene& render_scene, const AssetRegistry& asset_registry) {
+    void Renderer::on_render(const RenderScene& render_scene) {
         PROFILE_SCOPE("render frame");
+
+        const RenderSubmission submission = m_render_scene_resolver.resolve(render_scene);
 
         // Begin frame (acquires image and begins command buffer)
         m_scene_renderer->begin_frame();
-        const uint32_t frame_slot_index =
-            m_scene_renderer->get_frame_manager()->get_current_frame_slot_index();
-        const auto& view_project_buffer =
-            m_view_project_uniform_buffers.at(frame_slot_index);
-
-        static_pointer_cast<CPUBuffer>(view_project_buffer)->write(&m_view_project_matrix);
-
-        for(const RenderItem& render_item : render_scene.render_items) {
-            const auto mesh = asset_registry.resolve<Mesh>(render_item.mesh_handle);
-            if(!mesh) {
-                if(m_missing_mesh_handles.insert(render_item.mesh_handle).second) {
-                    LOG_ERROR("Render item references missing mesh handle {}",
-                        render_item.mesh_handle.value());
-                }
-                continue;
-            }
-            m_missing_mesh_handles.erase(render_item.mesh_handle);
-
-            const auto material = asset_registry.resolve<Material>(render_item.material_handle);
-            if(!material) {
-                if(m_missing_material_handles.insert(render_item.material_handle).second) {
-                    LOG_ERROR("Render item references missing material handle {}",
-                        render_item.material_handle.value());
-                }
-                continue;
-            }
-            m_missing_material_handles.erase(render_item.material_handle);
-
-            const auto texture0 = get_texture_property(*material, "u_Texture0");
-            const auto texture1 = get_texture_property(*material, "u_Texture1");
-            if(!texture0 || !texture1) {
-                if(m_invalid_material_handles.insert(render_item.material_handle).second) {
-                    LOG_ERROR(
-                        "Material handle {} requires Texture properties u_Texture0 and u_Texture1",
-                        render_item.material_handle.value());
-                }
-                continue;
-            }
-            m_invalid_material_handles.erase(render_item.material_handle);
-
-            const DescriptorSet& descriptor_set =
-                m_scene_renderer->prepare_material_descriptor_set(
-                    render_item.material_handle,
-                    view_project_buffer,
-                    texture0,
-                    texture1,
-                    m_resource_manager->get_sampler_manager());
-            m_scene_renderer->render_item(
-                render_item.model_matrix, mesh, descriptor_set);
-        }
+        m_scene_renderer->render(submission, m_view_project_matrix);
 
         m_scene_renderer->end_render_pass();
 
@@ -185,8 +107,6 @@ namespace Comet {
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
         m_render_context->wait_idle();
-
-        m_view_project_uniform_buffers.clear();
 
         // 清理子系统
         m_scene_renderer.reset();

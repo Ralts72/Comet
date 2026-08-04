@@ -1,10 +1,12 @@
 #include "shader.h"
+
+#include <utility>
 #include "device.h"
 #include "common/logger.h"
 
 namespace Comet {
-    Shader::Shader(Device* device, const std::string& name, const std::vector<unsigned char>& spv_data, const ShaderLayout& layout)
-    : m_device(device), m_name(name), m_spv_data(spv_data), m_layout(layout) {
+    Shader::Shader(Device* device, const std::string& name, const std::vector<unsigned char>& spv_data, ShaderLayout layout)
+        : m_device(device), m_name(name), m_spv_data(spv_data), m_layout(std::move(layout)) {
         vk::ShaderModuleCreateInfo create_info{};
         create_info.codeSize = spv_data.size();
         create_info.pCode = reinterpret_cast<const uint32_t*>(spv_data.data());

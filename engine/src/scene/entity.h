@@ -25,7 +25,7 @@ namespace Comet {
         const T& get_component() const;
 
         template<typename T>
-        void remove_component();
+        void remove_component() const;
 
         [[nodiscard]] explicit operator bool() const;
 
