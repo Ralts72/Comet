@@ -25,7 +25,7 @@ namespace Comet {
 
         void enable_viewport_rendering(Math::Vec2u initial_size);
 
-        void request_viewport_resize(Math::Vec2u size);
+        void request_viewport_resize(Math::Vec2u size) const;
 
         using ImGuiRenderDelegate = std::function<void(CommandBuffer&)>;
 

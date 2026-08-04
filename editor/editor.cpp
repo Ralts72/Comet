@@ -37,7 +37,7 @@ namespace {
             "editor_demo_cube", cube_vertices, cube_indices);
 
         const std::string texture_path =
-            std::string(PROJECT_ROOT_DIR) + "/engine/assets/textures/";
+                std::string(PROJECT_ROOT_DIR) + "/engine/assets/textures/";
         const auto texture0 = resource_manager.load_texture(
             texture_path + "awesomeface.png");
         const auto texture1 = resource_manager.load_texture(
@@ -163,9 +163,9 @@ namespace {
                 renderer.get_resource_manager().get_sampler_manager().get_nearest_clamp());
 
             const uint32_t frame_slot =
-                scene_renderer.get_frame_manager().get_current_frame_slot_index();
+                    scene_renderer.get_frame_manager().get_current_frame_slot_index();
             const ImTextureID texture_id =
-                m_imgui_context->get_viewport_texture_id(frame_slot);
+                    m_imgui_context->get_viewport_texture_id(frame_slot);
             const Comet::Math::Vec2u size = scene_renderer.get_render_target().get_size();
             m_scene_view_panel->set_texture_id(texture_id, size.x, size.y);
             m_game_view_panel->set_texture_id(texture_id, size.x, size.y);
@@ -188,7 +188,7 @@ namespace {
 
             if(Comet::Entity cube = scene->find_entity(m_cube_entity_id)) {
                 cube.get_component<Comet::TransformComponent>().rotation.y =
-                    30.0f + total_time * 45.0f;
+                        30.0f + total_time * 45.0f;
             }
         }
 
@@ -245,7 +245,7 @@ namespace {
 
             // 设置 UI 回调
             m_imgui_context->set_ui_callback([this]() {
-                const ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+                constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
                 ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), dockspace_flags);
 
                 m_menu_bar->render();

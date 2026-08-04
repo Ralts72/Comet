@@ -289,7 +289,7 @@ namespace CometEditor {
 
     void ImGuiContext::unregister_viewport_textures() {
         if(m_initialized) {
-            for(const VkDescriptorSet texture_id: m_viewport_texture_ids) {
+            for(VkDescriptorSet texture_id: m_viewport_texture_ids) {
                 if(texture_id != VK_NULL_HANDLE) {
                     ImGui_ImplVulkan_RemoveTexture(texture_id);
                 }

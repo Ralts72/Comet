@@ -3,7 +3,7 @@
 #include <algorithm>
 
 namespace CometEditor {
-    ViewPanel::ViewPanel(ViewType view_type)
+    ViewPanel::ViewPanel(const ViewType view_type)
         : EditorPanel(view_type == ViewType::SceneView ? "SceneView" : "GameView"), m_view_type(view_type) {}
 
     void ViewPanel::render() {

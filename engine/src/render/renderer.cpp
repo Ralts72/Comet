@@ -31,7 +31,6 @@ namespace Comet {
 
         // Setup pipeline
         setup_pipeline();
-
     }
 
     void Renderer::setup_pipeline() {
@@ -98,7 +97,7 @@ namespace Comet {
         setup_pipeline();
     }
 
-    void Renderer::request_viewport_resize(const Math::Vec2u size) {
+    void Renderer::request_viewport_resize(const Math::Vec2u size) const {
         m_scene_renderer->request_viewport_resize(size);
     }
 
