@@ -12,6 +12,8 @@ namespace Comet {
         std::vector<SubpassColorAttachment> color_attachments;
         std::vector<SubpassDepthStencilAttachment> depth_stencil_attachments;
         SampleCount sample_count = SampleCount::Count1;
+        ImageLayout resolve_final_layout = ImageLayout::PresentSrcKHR;
+        Flags<ImageUsage> resolve_usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
     };
 
     class COMET_API RenderPass{

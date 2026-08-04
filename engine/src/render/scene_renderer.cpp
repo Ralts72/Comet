@@ -37,6 +37,8 @@ namespace Comet {
     void SceneRenderer::setup_render_pass() {
         LOG_INFO("create render pass");
 
+        reset_render_pipeline();
+
         const auto surface_format = static_cast<Format>(m_vulkan_config.surface_format);
         const auto depth_format = static_cast<Format>(m_vulkan_config.depth_format);
         const auto msaa_samples = static_cast<SampleCount>(m_vulkan_config.msaa_samples);
@@ -64,20 +66,66 @@ namespace Comet {
         LOG_INFO("create render target");
         m_render_target = RenderTarget::create_swapchain_target(
             m_context.get_device(), m_render_pass.get(), m_context.get_swapchain());
-
-        const Math::Vec4 clear_color(
-            m_render_config.clear_color[0],
-            m_render_config.clear_color[1],
-            m_render_config.clear_color[2],
-            m_render_config.clear_color[3]
-        );
-        m_render_target->set_clear_value(ClearValue(clear_color));
+        set_render_target_clear_color();
 
         const auto image_count = static_cast<uint32_t>(
             m_context.get_swapchain()->get_images().size());
         m_frame_manager->initialize_swapchain_images(image_count);
 
         m_render_mode = RenderMode::Runtime;
+        m_uses_viewport_target = false;
+        m_requested_viewport_size = Math::Vec2u(0);
+        m_viewport_size_stable_frames = 0;
+    }
+
+    void SceneRenderer::setup_viewport_render_pass(const Math::Vec2u size) {
+        if(size.x == 0 || size.y == 0) {
+            LOG_FATAL("Viewport render target size must be greater than zero");
+        }
+
+        LOG_INFO("create viewport render pass at {}x{}", size.x, size.y);
+        reset_render_pipeline();
+
+        const auto surface_format = static_cast<Format>(m_vulkan_config.surface_format);
+        const auto depth_format = static_cast<Format>(m_vulkan_config.depth_format);
+        const auto msaa_samples = static_cast<SampleCount>(m_vulkan_config.msaa_samples);
+
+        Attachment color_attachment = Attachment::get_color_attachment(
+            surface_format, msaa_samples);
+        if(msaa_samples == SampleCount::Count1) {
+            color_attachment.description.store_op = AttachmentStoreOp::Store;
+            color_attachment.description.final_layout = ImageLayout::ShaderReadOnlyOptimal;
+            color_attachment.usage |= ImageUsage::Sampled;
+        }
+
+        std::vector<Attachment> attachments;
+        attachments.emplace_back(color_attachment);
+        attachments.emplace_back(Attachment::get_depth_attachment(depth_format, msaa_samples));
+
+        RenderSubPass render_sub_pass = {
+            {},
+            {SubpassColorAttachment(0)},
+            {SubpassDepthStencilAttachment(1)},
+            msaa_samples
+        };
+        render_sub_pass.resolve_final_layout = ImageLayout::ShaderReadOnlyOptimal;
+        render_sub_pass.resolve_usage =
+            Flags<ImageUsage>(ImageUsage::ColorAttachment) | ImageUsage::Sampled;
+
+        m_render_pass = std::make_shared<RenderPass>(
+            m_context.get_device(), attachments,
+            std::vector<RenderSubPass>{render_sub_pass}, surface_format);
+        m_pipeline_manager = std::make_unique<PipelineManager>(
+            m_context.get_device(), m_render_pass.get());
+        m_render_target = RenderTarget::create_multi_target(
+            m_context.get_device(), m_render_pass.get(), size,
+            m_frame_manager->get_frame_slot_count());
+        set_render_target_clear_color();
+
+        m_render_mode = RenderMode::SceneView;
+        m_uses_viewport_target = true;
+        m_requested_viewport_size = size;
+        m_viewport_size_stable_frames = 0;
     }
 
     std::shared_ptr<DescriptorSetLayout> SceneRenderer::create_descriptor_set_layout(const DescriptorSetLayoutBindings& bindings) {
@@ -183,9 +231,9 @@ namespace Comet {
 
     uint32_t SceneRenderer::begin_frame() {
         PROFILE_SCOPE("SceneRenderer::begin_frame");
+        apply_pending_viewport_resize();
         m_frame_manager->begin_frame();
 
-        // 暂时所有模式都使用 swapchain
         const auto swapchain = m_context.get_swapchain();
         auto& frame_slot = m_frame_manager->get_current_frame_slot();
 
@@ -204,7 +252,12 @@ namespace Comet {
         m_frame_manager->prepare_image(image_index);
         auto& command_buffer = m_frame_manager->get_current_command_buffer();
         command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-        m_render_target->begin_render_target(command_buffer);
+        if(m_uses_viewport_target) {
+            m_render_target->begin_render_target(
+                command_buffer, m_frame_manager->get_current_frame_slot_index());
+        } else {
+            m_render_target->begin_render_target(command_buffer);
+        }
 
         return image_index;
     }
@@ -242,7 +295,6 @@ namespace Comet {
     void SceneRenderer::end_frame() {
         PROFILE_SCOPE("SceneRenderer::end_frame");
 
-        // 暂时所有模式都使用 swapchain
         const auto device = m_context.get_device();
         const auto swapchain = m_context.get_swapchain();
         const uint32_t image_index = swapchain->get_current_index();
@@ -289,13 +341,40 @@ namespace Comet {
         LOG_INFO("SceneRenderer render mode changed: {} -> {}",
             static_cast<int>(old_mode),
             static_cast<int>(mode));
+    }
 
-        // 暂时只更新模式变量，不做其他操作
-        // 离屏渲染功能后续实现时再添加具体逻辑
+    void SceneRenderer::request_viewport_resize(const Math::Vec2u size) {
+        if(!m_uses_viewport_target || size.x == 0 || size.y == 0) {
+            return;
+        }
+
+        if(size != m_requested_viewport_size) {
+            m_requested_viewport_size = size;
+            m_viewport_size_stable_frames = 0;
+            return;
+        }
+
+        if(m_viewport_size_stable_frames < 2) {
+            ++m_viewport_size_stable_frames;
+        }
     }
 
     CommandBuffer& SceneRenderer::get_current_command_buffer() const {
         return m_frame_manager->get_current_command_buffer();
+    }
+
+    std::vector<vk::ImageView> SceneRenderer::get_viewport_color_views() const {
+        std::vector<vk::ImageView> color_views;
+        if(!m_uses_viewport_target) {
+            return color_views;
+        }
+
+        const uint32_t frame_slot_count = m_frame_manager->get_frame_slot_count();
+        color_views.reserve(frame_slot_count);
+        for(uint32_t index = 0; index < frame_slot_count; ++index) {
+            color_views.push_back(m_render_target->get_color_view(index)->get());
+        }
+        return color_views;
     }
 
     void SceneRenderer::recreate_swapchain() {
@@ -306,17 +385,11 @@ namespace Comet {
         device->wait_idle();
         swapchain->recreate();
 
-        // Recreate render target with new swapchain
-        m_render_target = RenderTarget::create_swapchain_target(
-            m_context.get_device(), m_render_pass.get(), m_context.get_swapchain());
-
-        const Math::Vec4 clear_color(
-            m_render_config.clear_color[0],
-            m_render_config.clear_color[1],
-            m_render_config.clear_color[2],
-            m_render_config.clear_color[3]
-        );
-        m_render_target->set_clear_value(ClearValue(clear_color));
+        if(!m_uses_viewport_target) {
+            m_render_target = RenderTarget::create_swapchain_target(
+                m_context.get_device(), m_render_pass.get(), m_context.get_swapchain());
+            set_render_target_clear_color();
+        }
 
         const auto image_count =
                 static_cast<uint32_t>(swapchain->get_images().size());
@@ -325,6 +398,36 @@ namespace Comet {
         if(m_swapchain_recreate_callback) {
             m_swapchain_recreate_callback();
         }
+    }
+
+    void SceneRenderer::reset_render_pipeline() {
+        m_pipeline.reset();
+        m_pipeline_manager.reset();
+        m_render_target.reset();
+        m_render_pass.reset();
+    }
+
+    void SceneRenderer::set_render_target_clear_color() const {
+        const Math::Vec4 clear_color(
+            m_render_config.clear_color[0],
+            m_render_config.clear_color[1],
+            m_render_config.clear_color[2],
+            m_render_config.clear_color[3]
+        );
+        m_render_target->set_clear_value(ClearValue(clear_color));
+    }
+
+    void SceneRenderer::apply_pending_viewport_resize() {
+        if(!m_uses_viewport_target
+           || m_viewport_size_stable_frames < 2
+           || m_render_target->get_size() == m_requested_viewport_size) {
+            return;
+        }
+
+        m_context.wait_idle();
+        m_render_target->resize(
+            m_requested_viewport_size.x, m_requested_viewport_size.y);
+        m_viewport_size_stable_frames = 0;
     }
 
     void SceneRenderer::update_descriptor_set(const DescriptorSet& descriptor_set,

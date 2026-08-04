@@ -21,6 +21,9 @@ namespace Comet {
 
     // RenderTarget
     void RenderTarget::resize(const uint32_t width, const uint32_t height) {
+        if(m_extent.x == width && m_extent.y == height) {
+            return;
+        }
         m_extent.x = width;
         m_extent.y = height;
         m_needs_recreate = true;
@@ -54,11 +57,20 @@ namespace Comet {
     }
 
     void RenderTarget::begin_render_target(CommandBuffer& command_buffer) {
+        begin_render_target(command_buffer, (m_current_image_index + 1) % m_frame_count);
+    }
+
+    void RenderTarget::begin_render_target(
+        CommandBuffer& command_buffer, const uint32_t frame_index) {
         if(m_needs_recreate) {
             recreate();
             m_needs_recreate = false;
         }
-        m_current_image_index = (m_current_image_index + 1) % m_frame_count;
+        if(frame_index >= m_frame_count) {
+            LOG_FATAL("Render target frame index {} exceeds frame count {}",
+                frame_index, m_frame_count);
+        }
+        m_current_image_index = frame_index;
         command_buffer.begin_render_pass(*m_render_pass, *get_framebuffer(m_current_image_index), m_clear_values);
     }
 
@@ -151,13 +163,7 @@ namespace Comet {
     }
 
     void SwapchainTarget::begin_render_target(CommandBuffer& command_buffer) {
-        if(m_needs_recreate) {
-            recreate();
-            m_needs_recreate = false;
-        }
-        m_current_image_index = m_swapchain->get_current_index();
-
-        command_buffer.begin_render_pass(*m_render_pass, *get_framebuffer(m_current_image_index), m_clear_values);
+        RenderTarget::begin_render_target(command_buffer, m_swapchain->get_current_index());
     }
 
     OffscreenTarget::OffscreenTarget(Device* device, RenderPass* render_pass, const Math::Vec2u size) : RenderTarget(device, render_pass, size, 1) {

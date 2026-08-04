@@ -1,4 +1,5 @@
 #pragma once
+#include "common/export.h"
 #include "vk_common.h"
 
 namespace Comet {
@@ -13,7 +14,7 @@ namespace Comet {
         float max_anisotropy = 1.0f;
     };
 
-    class Sampler {
+    class COMET_API Sampler {
     public:
         Sampler(Device* device, const SamplerDesc& desc);
         ~Sampler();
@@ -34,7 +35,7 @@ namespace Comet {
         vk::Sampler m_sampler;
     };
 
-    class SamplerManager {
+    class COMET_API SamplerManager {
     public:
         explicit SamplerManager(Device* device): m_device(device) {}
         ~SamplerManager() { clean_up();}

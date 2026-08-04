@@ -44,11 +44,15 @@ namespace Comet {
 
         virtual void begin_render_target(CommandBuffer& command_buffer);
 
+        void begin_render_target(CommandBuffer& command_buffer, uint32_t frame_index);
+
         virtual void end_render_target(CommandBuffer& command_buffer);
 
         [[nodiscard]] Math::Vec2u get_size() const { return m_extent; }
 
         [[nodiscard]] virtual std::shared_ptr<FrameBuffer> get_framebuffer(uint32_t index) const = 0;
+
+        [[nodiscard]] virtual std::shared_ptr<ImageView> get_color_view(uint32_t index) const = 0;
 
         [[nodiscard]] uint32_t get_frame_count() const { return m_frame_count; }
         [[nodiscard]] bool is_dirty() const { return m_needs_recreate; }
@@ -81,6 +85,10 @@ namespace Comet {
 
         [[nodiscard]] std::shared_ptr<FrameBuffer> get_framebuffer(const uint32_t index) const override { return m_render_resources.at(index).frame_buffer; }
 
+        [[nodiscard]] std::shared_ptr<ImageView> get_color_view(const uint32_t index) const override {
+            return m_render_resources.at(index).color_views.back();
+        }
+
     private:
         Swapchain* m_swapchain;
         std::vector<RenderResource> m_render_resources;
@@ -96,7 +104,7 @@ namespace Comet {
 
         [[nodiscard]] std::shared_ptr<FrameBuffer> get_framebuffer(const uint32_t index) const override { return m_frame_buffer; }
 
-        [[nodiscard]] std::shared_ptr<ImageView> get_color_view() const { return m_color_view; }
+        [[nodiscard]] std::shared_ptr<ImageView> get_color_view(uint32_t index = 0) const override { return m_color_view; }
 
         [[nodiscard]] std::shared_ptr<Image> get_color_image() const { return m_color_image; }
 
@@ -117,6 +125,10 @@ namespace Comet {
         void recreate() override;
 
         [[nodiscard]] std::shared_ptr<FrameBuffer> get_framebuffer(const uint32_t index) const override { return m_render_resources.at(index).frame_buffer; }
+
+        [[nodiscard]] std::shared_ptr<ImageView> get_color_view(const uint32_t index) const override {
+            return m_render_resources.at(index).color_views.back();
+        }
 
     private:
         std::vector<RenderResource> m_render_resources;

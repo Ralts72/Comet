@@ -92,6 +92,16 @@ namespace Comet {
         m_scene_renderer->end_frame();
     }
 
+    void Renderer::enable_viewport_rendering(const Math::Vec2u initial_size) {
+        m_render_context->wait_idle();
+        m_scene_renderer->setup_viewport_render_pass(initial_size);
+        setup_pipeline();
+    }
+
+    void Renderer::request_viewport_resize(const Math::Vec2u size) {
+        m_scene_renderer->request_viewport_resize(size);
+    }
+
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
         m_render_context->wait_idle();

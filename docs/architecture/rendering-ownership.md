@@ -30,7 +30,15 @@ Engine
         │   └── SwapchainImageState[swapchain images]
         ├── ViewProjectBuffer[frames-in-flight]
         ├── RenderTarget
+        │   ├── runtime: SwapchainTarget[swapchain image]
+        │   └── editor: MultiTarget[frame slot]
         └── MaterialDescriptorState[material][frame slot]
+
+Editor
+└── ImGuiContext
+    ├── ImGui RenderPass/SwapchainTarget
+    ├── DescriptorPool
+    └── Viewport descriptor[frame slot]
 ```
 
 `Engine` 独占 Scene 和 Asset Registry，app 和 editor 负责创建或修改场景内容。Asset Registry 以
@@ -38,16 +46,21 @@ Engine
 `RenderContext` 独占 Vulkan Context、Device 和 Swapchain；`Device` 独占 `VulkanAllocator`。`ResourceManager` 与
 `SceneRenderer` 分别保存对 Device 和 RenderContext 的非拥有引用，构造接口不允许空依赖。
 
+runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slot 分配的 `MultiTarget` 生成离屏颜色纹理，
+`ImGuiContext` 只保存非拥有的 `vk::ImageView` handle 并拥有对应的 ImGui descriptor；最终 swapchain 只由 ImGui
+render pass 清屏、合成和呈现。SceneView 与 GameView 当前复用同一组离屏输出。
+
 ## 生命周期约束
 
 关闭时必须遵循以下顺序：
 
-1. Asset Registry 先释放对运行时资源的共享引用；当前具体 GPU 资源仍由 ResourceManager cache 共同持有。
-2. Renderer 等待 Device idle。
-3. 释放 SceneRenderer，确保 per-frame Buffer、pipeline、descriptor、render target、command buffer 等对象先于 Device 销毁。
-4. 释放 ResourceManager 及其 runtime resource cache。
-5. 释放 RenderContext：Swapchain → Device 内部的 CommandPool、PipelineCache 和 VulkanAllocator → Vulkan Device → Context。
-6. 释放 Scene；Scene 只持有组件和 AssetHandle，不拥有 GPU 资源。
+1. editor 先等待 Device idle，释放 ImGui viewport descriptor、ImGui swapchain target 和 descriptor pool。
+2. Asset Registry 释放对运行时资源的共享引用；当前具体 GPU 资源仍由 ResourceManager cache 共同持有。
+3. Renderer 等待 Device idle。
+4. 释放 SceneRenderer，确保 per-frame Buffer、pipeline、descriptor、render target、command buffer 等对象先于 Device 销毁。
+5. 释放 ResourceManager 及其 runtime resource cache。
+6. 释放 RenderContext：Swapchain → Device 内部的 CommandPool、PipelineCache 和 VulkanAllocator → Vulkan Device → Context。
+7. 释放 Scene；Scene 只持有组件和 AssetHandle，不拥有 GPU 资源。
 
 任何 `Buffer`、`OwnedImage`、`Texture`、`Mesh` 或其他 VMA 资源都不得比创建它的 Device 活得更久。`BorrowedImage` 只包装外部 image，不负责释放该 image。
 
@@ -57,6 +70,7 @@ Engine
 - `ResourceManager`：运行时/GPU资源创建与缓存；不负责扫描项目目录或分配资产 GUID。
 - `RenderSceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断。
 - `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；没有有效主 Camera 时不提交场景 draw。
+- `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；不拥有 SceneRenderer 的离屏 image/image view。
 - `MaterialManager`：Material/MaterialInstance 的内存注册；不存在的基础材质不能产生有效实例。
 - `Scene`：只保存实体、可序列化组件和 `AssetHandle`，不保存 Device、GPU对象或文件路径。
 - `AssetRegistry`：当前负责注册和解析 `AssetHandle` 对应的内存资源；项目扫描、元数据、导入产物和 GUID 分配仍属于后续 Asset Manager。
@@ -71,9 +85,14 @@ Engine
 - `SwapchainImageState` 按实际 swapchain image 数量创建，持有 render-finished semaphore，并记录该 image
   最近关联的 frame slot。
 - `SwapchainTarget` 按 image 持有 framebuffer、image view 和深度附件。
+- editor 的 `MultiTarget` 按 frame slot 持有离屏颜色、深度、resolve image view 和 framebuffer；同一 slot 的 fence
+  完成后才会重新写入对应离屏资源。
+- 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
+  render pass 通过对应 frame slot 的 descriptor 采样它。
 
-交换链重建只重建 image state 和 render target，不改变 frame slot 数量。正常呈现路径不得依赖每帧
-`queue.waitIdle()`；Device idle 仅用于关闭和 swapchain 重建等全局同步点。
+交换链重建只重建 image state 和 swapchain target，不改变 frame slot 数量，也不重建 editor 离屏目标。
+ViewPanel 尺寸稳定后才触发离屏目标重建；当前实现会在该低频操作前等待 Device idle。正常呈现路径不得依赖每帧
+`queue.waitIdle()`；Device idle 仅用于关闭、swapchain 重建和离屏目标 resize 等全局资源切换点。
 
 ## 错误处理
 

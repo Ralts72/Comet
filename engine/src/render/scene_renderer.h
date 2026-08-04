@@ -39,6 +39,8 @@ namespace Comet {
 
         void setup_render_pass();
 
+        void setup_viewport_render_pass(Math::Vec2u size);
+
         std::shared_ptr<DescriptorSetLayout> create_descriptor_set_layout(const DescriptorSetLayoutBindings& bindings);
 
         void setup_pipeline(ResourceManager& resource_manager,
@@ -56,6 +58,8 @@ namespace Comet {
 
         void set_render_mode(RenderMode mode);
 
+        void request_viewport_resize(Math::Vec2u size);
+
         [[nodiscard]] RenderMode get_render_mode() const { return m_render_mode; }
         [[nodiscard]] FrameManager& get_frame_manager() { return *m_frame_manager; }
         [[nodiscard]] const FrameManager& get_frame_manager() const { return *m_frame_manager; }
@@ -67,6 +71,8 @@ namespace Comet {
         [[nodiscard]] const RenderPass& get_render_pass() const { return *m_render_pass; }
         [[nodiscard]] const std::shared_ptr<Pipeline>& get_pipeline() const { return m_pipeline; }
         [[nodiscard]] CommandBuffer& get_current_command_buffer() const;
+        [[nodiscard]] bool is_viewport_rendering() const { return m_uses_viewport_target; }
+        [[nodiscard]] std::vector<vk::ImageView> get_viewport_color_views() const;
 
         void recreate_swapchain();
 
@@ -99,6 +105,10 @@ namespace Comet {
                                    const DescriptorResources& resources,
                                    const Sampler& sampler) const;
 
+        void reset_render_pipeline();
+        void set_render_target_clear_color() const;
+        void apply_pending_viewport_resize();
+
         SwapchainRecreateCallback m_swapchain_recreate_callback;
         RenderContext& m_context;
         std::shared_ptr<RenderPass> m_render_pass;
@@ -106,6 +116,9 @@ namespace Comet {
         std::unique_ptr<FrameManager> m_frame_manager;
         std::unique_ptr<RenderTarget> m_render_target;
         RenderMode m_render_mode = RenderMode::Runtime;
+        bool m_uses_viewport_target = false;
+        Math::Vec2u m_requested_viewport_size = Math::Vec2u(0);
+        uint32_t m_viewport_size_stable_frames = 0;
         std::shared_ptr<Pipeline> m_pipeline;
         std::shared_ptr<Sampler> m_default_sampler;
         std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;

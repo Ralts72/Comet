@@ -1,6 +1,8 @@
 #include "render_pass.h"
 #include "device.h"
 
+#include <algorithm>
+
 namespace Comet {
     static bool s_need_depth_sampling = false;
 
@@ -56,7 +58,11 @@ namespace Comet {
         std::vector<std::vector<vk::AttachmentReference>> all_depth_stencil_attachments_reference(m_sub_passes.size());
 
         for(uint32_t i = 0; i < m_sub_passes.size(); ++i) {
-            auto [input_attachments, color_attachments, depth_stencil_attachments, sample_count] = m_sub_passes[i];
+            const RenderSubPass& sub_pass = m_sub_passes[i];
+            const auto& input_attachments = sub_pass.input_attachments;
+            const auto& color_attachments = sub_pass.color_attachments;
+            const auto& depth_stencil_attachments = sub_pass.depth_stencil_attachments;
+            const SampleCount sample_count = sub_pass.sample_count;
 
             // auto vk_sampler_count = Graphics::sample_count_to_vk(sample_count);
             for(const auto& attachment : input_attachments) {
@@ -93,7 +99,7 @@ namespace Comet {
                 msaa_description.stencil_load_op = AttachmentLoadOp::DontCare;
                 msaa_description.stencil_store_op = AttachmentStoreOp::DontCare;
                 msaa_description.initial_layout = ImageLayout::Undefined;
-                msaa_description.final_layout = ImageLayout::PresentSrcKHR;
+                msaa_description.final_layout = sub_pass.resolve_final_layout;
 
 
                 // vk::AttachmentDescription msaa_description{};
@@ -107,7 +113,7 @@ namespace Comet {
                 // msaa_description.samples = vk::SampleCountFlagBits::e1;
                 Attachment msaa_attachment = {
                     .description = msaa_description,
-                    .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)
+                    .usage = sub_pass.resolve_usage
                 };
 
                 m_attachments.push_back(msaa_attachment);
@@ -125,17 +131,36 @@ namespace Comet {
             sub_pass_descriptions[i].preserveAttachmentCount = 0;
             sub_pass_descriptions[i].pPreserveAttachments = nullptr;
         }
-        std::vector<vk::SubpassDependency> dependencies(m_sub_passes.size() - 1);
+        std::vector<vk::SubpassDependency> dependencies;
         if(m_sub_passes.size() > 1) {
-            for(uint32_t j = 0; j < dependencies.size(); ++j) {
-                dependencies[j].srcSubpass         = j;
-                dependencies[j].dstSubpass         = j + 1;
-                dependencies[j].srcStageMask    = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-                dependencies[j].dstStageMask    = vk::PipelineStageFlagBits::eFragmentShader;
-                dependencies[j].srcAccessMask   = vk::AccessFlagBits::eColorAttachmentWrite;
-                dependencies[j].dstAccessMask   = vk::AccessFlagBits::eInputAttachmentRead;
-                dependencies[j].dependencyFlags = vk::DependencyFlagBits::eByRegion;
+            dependencies.reserve(m_sub_passes.size());
+            for(uint32_t j = 0; j + 1 < m_sub_passes.size(); ++j) {
+                vk::SubpassDependency dependency{};
+                dependency.srcSubpass = j;
+                dependency.dstSubpass = j + 1;
+                dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+                dependency.dstStageMask = vk::PipelineStageFlagBits::eFragmentShader;
+                dependency.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+                dependency.dstAccessMask = vk::AccessFlagBits::eInputAttachmentRead;
+                dependency.dependencyFlags = vk::DependencyFlagBits::eByRegion;
+                dependencies.push_back(dependency);
             }
+        }
+
+        const bool has_sampled_output = std::any_of(
+            m_attachments.begin(), m_attachments.end(), [](const Attachment& attachment) {
+                return attachment.description.final_layout == ImageLayout::ShaderReadOnlyOptimal;
+            });
+        if(has_sampled_output) {
+            vk::SubpassDependency dependency{};
+            dependency.srcSubpass = static_cast<uint32_t>(m_sub_passes.size() - 1);
+            dependency.dstSubpass = VK_SUBPASS_EXTERNAL;
+            dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+            dependency.dstStageMask = vk::PipelineStageFlagBits::eFragmentShader;
+            dependency.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            dependency.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+            dependency.dependencyFlags = vk::DependencyFlagBits::eByRegion;
+            dependencies.push_back(dependency);
         }
         // 3. create info
         std::vector<vk::AttachmentDescription> attachment_descriptions;

@@ -13,7 +13,7 @@
 namespace Comet {
     class AssetRegistry;
 
-    class Renderer {
+    class COMET_API Renderer {
     public:
         Renderer(const Window& window,
                  const Config::Runtime& config,
@@ -22,6 +22,10 @@ namespace Comet {
         ~Renderer();
 
         void on_render(const RenderScene& render_scene);
+
+        void enable_viewport_rendering(Math::Vec2u initial_size);
+
+        void request_viewport_resize(Math::Vec2u size);
 
         using ImGuiRenderDelegate = std::function<void(CommandBuffer&)>;
 

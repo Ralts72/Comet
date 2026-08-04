@@ -38,8 +38,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 - `MeshRendererComponent` 已使用统一的 `AssetHandle`，app 会注册 demo mesh/material，并通过该链路绘制两个不同 Transform 的实体。
 - Hierarchy 和 Inspector 已绑定真实 Scene，支持基于 `EntityId` 的选择以及实体创建、删除、重命名和 TRS 编辑；
   Project、SceneView 拾取和 gizmo 仍是占位状态。
-- 编辑器中的场景目前仍直接渲染到 swapchain，ImGui 通过透明 DockSpace 叠加其上；SceneView/GameView 尚未接收
-  离屏颜色纹理，因此场景画面会铺在整个窗口背景，而不是限制在 View 面板内。
+- 编辑器中的场景已按 frame slot 渲染到可采样离屏目标，再由 ImGui 显示在 SceneView/GameView 中；runtime app
+  仍直接渲染到 swapchain。两个 View 当前共享场景主 Camera 输出，独立 editor camera 尚未实现。
 - Material/ResourceManager 已有接口，但还没有资产数据库、序列化、导入器、热重载和编辑器检查器闭环。
 - Scene Update 和 Render Submit 的最小边界已经落地，运行时 System 调度仍未建立。
 
@@ -92,13 +92,13 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 ### 4. 编辑器数据闭环
 
 当前编辑器已经完成第一段真实数据闭环：Hierarchy 读取 Scene 的平铺实体列表，Selection 通过 `EntityId`
-连接 Hierarchy 与 Inspector，Inspector 可以修改 Name 和局部 Transform，创建、删除和重命名也会作用于真实 Scene。
+连接 Hierarchy 与 Inspector，Inspector 可以修改 Name 和局部 Transform，创建、删除和重命名也会作用于真实 Scene；
+场景输出也已通过离屏目标进入 View 面板。
 接下来仍缺少：
 
 - Project 读取真实项目资产。
-- SceneView/GameView 显示真正的离屏渲染纹理，而不是让场景直接铺满编辑器 swapchain。
 - SceneView 使用 editor camera、选择、高亮、gizmo、拾取。
-- GameView 使用场景主 Camera 的输出。
+- SceneView/GameView 使用独立输出，并在 resize 后保持交互坐标与画面一致。
 - 菜单命令真正连接 New/Open/Save Scene。
 - Inspector 的组件注册/反射，以及 MeshRenderer、Camera 等组件编辑。
 - Undo/Redo、复制粘贴、duplicate 和拖拽资源到实体。
@@ -219,7 +219,8 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 目标：建立真实场景数据模型，让引擎能从 Scene 渲染对象，而不是从 `Renderer` 内部硬编码对象。
 
-当前状态：阶段 1A、1B 和 1C 已完成；Scene、Camera、AssetHandle、多对象渲染以及编辑器基础数据闭环已经建立。
+当前状态：阶段 1A、1B、1C 和 1D 已完成；Scene、Camera、AssetHandle、多对象渲染、编辑器基础数据闭环和
+离屏视口基础已经建立。下一步进入阶段 1E。
 
 #### 阶段 1A：Scene/ECS Core（已完成）
 
@@ -253,22 +254,22 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 - [x] 支持创建、删除和重命名实体的最小编辑流程。
 - [x] 实体删除或无效 ID 会自动清空 Selection，并有纯逻辑单元测试保护。
 
-#### 阶段 1D：编辑器离屏视口基础
+#### 阶段 1D：编辑器离屏视口基础（已完成）
 
-- 将编辑器的场景渲染目标从 swapchain 分离：场景进入离屏颜色/深度附件，swapchain 只承载 ImGui 和最终呈现。
-- 为 frame slot 提供独立的离屏资源或等价的安全同步，避免多个 frames-in-flight 同时读写同一张 viewport image。
-- 离屏颜色附件结束时进入 `ShaderReadOnlyOptimal`，并通过 ImGui Vulkan descriptor 注册为 `ImTextureID`。
-- `ViewPanel` 提供实际内容尺寸，Renderer 使用上一帧稳定尺寸按需重建离屏目标，并处理零尺寸、折叠和频繁拖拽。
-- SceneView 和 GameView 先复用离屏提交基础；GameView 使用场景主 Camera，独立 editor camera 留到阶段 4。
-- 调整 ImGui swapchain render pass，使其负责清理编辑器背景和合成 UI，不再依赖先在 swapchain 上绘制场景。
-- 保持 runtime app 直接渲染到 swapchain 的路径不变。
+- [x] 将编辑器的场景渲染目标从 swapchain 分离：场景进入离屏颜色/深度附件，swapchain 只承载 ImGui 和最终呈现。
+- [x] 为 frame slot 提供独立的离屏资源，避免多个 frames-in-flight 同时读写同一张 viewport image。
+- [x] 离屏颜色附件结束时进入 `ShaderReadOnlyOptimal`，并通过 ImGui Vulkan descriptor 注册为 `ImTextureID`。
+- [x] `ViewPanel` 提供实际内容尺寸，Renderer 使用稳定尺寸按需重建离屏目标，并处理零尺寸和折叠状态。
+- [x] SceneView 和 GameView 复用离屏提交基础；GameView 使用场景主 Camera，独立 editor camera 留到阶段 4。
+- [x] 调整 ImGui swapchain render pass，使其负责清理编辑器背景和合成 UI，不再依赖先在 swapchain 上绘制场景。
+- [x] 保持 runtime app 直接渲染到 swapchain 的路径不变。
 
 验收标准：
 
-- 编辑器中的场景画面只出现在可见 View 面板内，不再铺满整个窗口背景。
-- View 面板 resize、折叠、切换和 swapchain recreation 后纹理仍正确，且没有 Vulkan validation error。
-- 两个 frames-in-flight 下不会复用仍被 GPU 或 ImGui 采样的离屏附件。
-- app 的直接呈现路径和现有多实体渲染行为不回退。
+- [x] 编辑器中的场景画面只出现在可见 View 面板内，不再铺满整个窗口背景。
+- [x] View 面板 resize、折叠、切换和 swapchain recreation 后纹理仍正确，且没有 Vulkan validation error。
+- [x] 两个 frames-in-flight 下不会复用仍被 GPU 或 ImGui 采样的离屏附件。
+- [x] app 的直接呈现路径和现有多实体渲染行为不回退。
 
 #### 阶段 1E：Transform 层级
 
@@ -362,23 +363,56 @@ Scene Component / RenderItem
 
 本阶段建立在阶段 1D 的离屏视口基础上，不再重复解决 RenderTarget 到 ImGui 纹理的接线。
 
-建议任务：
+当前基线：
 
-- SceneView 使用独立 editor camera。
-- GameView 使用场景中的主 Camera。
-- 实现对象拾取。
-- 实现移动、旋转、缩放 gizmo。
-- 选中对象高亮和轮廓显示。
-- 实现 Undo/Redo 命令系统。
-- 支持复制、粘贴、删除、duplicate。
+- SceneView 和 GameView 共享同一组按 frame slot 分配的离屏纹理、同一个场景主 Camera 输出和同一个渲染尺寸。
+- 两个 View 接收相同的 `ImTextureID`；同时可见时由 SceneView 优先决定离屏目标尺寸，另一个面板只按宽高比显示同一张纹理。
+- resize 会等待尺寸连续稳定，再通过 `Device::wait_idle()` 重建离屏 image、image view 和 framebuffer。
+- Camera 垂直 FOV 与实体 Transform 不变，RenderTarget 尺寸只改变 projection aspect；ImGui 再把纹理等比放入面板。
+- ImGui 逻辑尺寸目前直接作为 RenderTarget 像素尺寸，尚未纳入 HiDPI framebuffer scale。
+
+#### 阶段 4A：SceneView/GameView 独立渲染状态
+
+- 为每个 View 建立独立的 viewport render state，分别保存 Camera 来源、RenderTarget、frame-slot image 和 ImGui descriptor。
+- SceneView 使用 editor-only camera；该 Camera 不属于 Scene entity，不参与场景保存，也不影响 runtime 主 Camera。
+- GameView 继续使用场景中的 primary Camera，并在没有有效主 Camera 时只清屏和显示诊断。
+- 两个 View 可以按各自尺寸独立渲染；隐藏或折叠的 View 跳过提交和 resize。
+- 将当前只记录枚举值的 `RenderMode` 演进为明确的 viewport render request，避免在 `SceneRenderer` 内隐式切换全局模式。
+
+验收标准：
+
+- SceneView 和 GameView 同时可见时可以显示不同 Camera 角度，且互不改变对方的投影和尺寸。
+- 移动 editor camera 不会修改 Scene，也不会改变 GameView。
+- 每个可见 View 在两个 frames-in-flight 下都不会读写仍在使用的离屏附件。
+
+#### 阶段 4B：渲染分辨率与显示策略
+
+- 明确区分 panel content size、render resolution 和 image display rect，不再把三者视为同一尺寸。
+- SceneView 默认按面板物理像素尺寸渲染，并结合 ImGui framebuffer scale 处理 Retina/HiDPI。
+- GameView 支持固定分辨率和宽高比预设，例如 Free、16:9、1920x1080；面板 resize 默认只改变显示缩放，不改变固定 render resolution。
+- 提供 Fit、1x 等显示倍率，保持宽高比并记录 letterbox/pillarbox 后的真实 image display rect。
+- 保留 resize debounce，但用 frame fence 和延迟销毁逐步替代 `Device::wait_idle()`，避免拖拽面板时阻塞整个 GPU。
+- 为超大 View 增加最大尺寸或 render scale 约束，避免无上限重建离屏资源。
+
+验收标准：
+
+- SceneView 在不同 DPI 和窗口缩放下保持清晰，RenderTarget 像素尺寸与实际显示需求一致。
+- GameView 切换固定分辨率时 Camera aspect、输出纹理和留白区域正确，场景对象不会被非等比拉伸。
+- 连续拖拽面板不会每帧重建资源，也不会依赖全局 Device idle。
+
+#### 阶段 4C：视口交互闭环
+
+- 基于 image display rect 将鼠标坐标映射到 RenderTarget 像素坐标，排除工具栏和 letterbox 区域。
+- SceneView 实现 editor camera 的平移、环绕、缩放，以及真正生效的 2D/3D 模式。
+- 实现对象拾取、Selection 同步、移动/旋转/缩放 gizmo 和选中对象高亮。
+- 将 gizmo 修改接入 Undo/Redo 命令系统，并支持复制、粘贴、删除和 duplicate。
 - 支持 prefab 的最小版本，至少能保存一组实体为可复用资产。
 
 验收标准：
 
-- 用户可以通过鼠标在 SceneView 选择对象。
-- 用户可以用 gizmo 移动对象并保存场景。
-- Transform 修改可撤销和重做。
-- SceneView 的拾取坐标、gizmo 和高亮在面板 resize 后仍与渲染内容一致。
+- 用户可以通过鼠标在 SceneView 精确选择对象，点击留白区域不会产生错误拾取。
+- 用户可以用 gizmo 修改对象并保存场景，Transform 修改可撤销和重做。
+- SceneView 的拾取坐标、gizmo 和高亮在面板 resize、DPI 变化和显示倍率切换后仍与画面一致。
 
 ### 阶段 5：渲染系统升级
 
@@ -452,12 +486,11 @@ Scene Component / RenderItem
 
 近期最应该做：
 
-1. 完成编辑器离屏视口，让场景只显示在 SceneView/GameView 内。
-2. 完成 Transform 父子层级、世界矩阵和脏标记更新。
-3. 让 Hierarchy 显示真实父子树并支持最小 reparent。
-4. 引入持久化 Entity UUID，并明确它与运行时 `EntityId` 的边界。
-5. 定义 `.scene` YAML 格式并实现保存、加载。
-6. 接通 New/Open/Save Scene 和 Selection 生命周期。
+1. 完成 Transform 父子层级、世界矩阵和脏标记更新。
+2. 让 Hierarchy 显示真实父子树并支持最小 reparent。
+3. 引入持久化 Entity UUID，并明确它与运行时 `EntityId` 的边界。
+4. 定义 `.scene` YAML 格式并实现保存、加载。
+5. 接通 New/Open/Save Scene 和 Selection 生命周期。
 
 暂时不要急着做：
 
@@ -467,7 +500,7 @@ Scene Component / RenderItem
 4. 多平台打包。
 5. 大规模材质图/节点编辑器。
 
-原因很简单：Scene 内核已经存在，但还没有连接渲染、编辑器和持久化。先完成这条纵向链路，后面的 Asset、Play 模式和复杂渲染才有稳定落点。
+原因很简单：Scene 已经连接渲染和编辑器，但层级与持久化仍未闭环。先完成这条纵向链路，后面的 Asset、Play 模式和复杂渲染才有稳定落点。
 
 ## 12 个月建议里程碑
 
@@ -541,8 +574,8 @@ Scene Component / RenderItem
 
 ## 下一步建议
 
-下一步进入 **阶段 1D：编辑器离屏视口基础**，先把场景渲染从编辑器 swapchain 分离并显示在 View 面板内；
-随后阶段 1E 再实现 Transform 父子层级与世界矩阵。
+下一步进入 **阶段 1E：Transform 层级**，在现有局部 TRS 基础上建立父子关系、世界矩阵和脏标记更新，
+并让 Hierarchy 从平铺列表升级为真实树结构。
 
 建议的职责边界：
 
@@ -552,10 +585,10 @@ Scene Component / RenderItem
 - Asset Registry 保存 `AssetHandle` 到运行时资源的映射，ResourceManager 创建或复用运行时/GPU资源。
 - RenderSceneResolver 选择 EntityId 最小的主 Camera、验证参数并将 RenderScene 解析为完整 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
 
-阶段 1D 的最小范围：
+阶段 1E 的最小范围：
 
-1. 明确 runtime swapchain target、editor viewport target 和 ImGui presentation target 的职责与所有权。
-2. 为编辑器建立可采样的 per-frame 离屏颜色/深度资源和正确的 image layout/synchronization。
-3. 使用 ImGui Vulkan descriptor 注册离屏 color view，并由当前可见的 ViewPanel 显示。
-4. 用 ViewPanel 内容尺寸驱动延迟 resize，安全更新 framebuffer、image view 和 ImGui descriptor。
-5. 保持 app 的直接 swapchain 渲染路径不变，并补充渲染目标生命周期测试与 Vulkan 运行验证。
+1. 定义父子关系组件及 Scene 层级 API，不向调用方暴露 EnTT registry。
+2. 阻止实体成为自己的父节点或形成祖先循环，并明确 reparent 时局部/世界 Transform 的保持策略。
+3. 计算局部矩阵和世界矩阵，以脏标记向后代传播更新。
+4. 让 Scene Render Extractor 提交世界矩阵，让 Hierarchy 显示真实父子树并支持最小 reparent。
+5. 补充父子变换、循环保护、reparent 和父节点销毁策略的纯逻辑测试。

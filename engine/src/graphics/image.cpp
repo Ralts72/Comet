@@ -31,10 +31,6 @@ namespace Comet {
     }
 
     OwnedImage::OwnedImage(Device* device, const ImageInfo& info, const SampleCount sample_count) : Image(device, info) {
-        auto tiling = vk::ImageTiling::eLinear;
-        if(Graphics::is_depth_stencil_format(info.format) || sample_count > SampleCount::Count1) {
-            tiling = vk::ImageTiling::eOptimal;
-        }
         auto extent = Graphics::get_extent(m_info.extent.x, m_info.extent.y, m_info.extent.z);
         vk::ImageCreateInfo create_info = {};
         create_info.imageType = vk::ImageType::e2D;
@@ -43,7 +39,7 @@ namespace Comet {
         create_info.mipLevels = 1;
         create_info.arrayLayers = 1;
         create_info.samples = Graphics::sample_count_to_vk(sample_count);
-        create_info.tiling = tiling;
+        create_info.tiling = vk::ImageTiling::eOptimal;
         create_info.usage = Graphics::image_usage_to_vk(m_info.usage);
         create_info.sharingMode = vk::SharingMode::eExclusive;
         create_info.queueFamilyIndexCount = 0;

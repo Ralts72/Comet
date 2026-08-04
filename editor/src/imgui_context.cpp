@@ -5,6 +5,7 @@
 #include "graphics/command_buffer.h"
 #include "graphics/attachment.h"
 #include "graphics/image.h"
+#include "graphics/sampler.h"
 #include "graphics/swapchain.h"
 #include "graphics/enums.h"
 #include "graphics/descriptor_set.h"
@@ -17,7 +18,22 @@
 #include <imgui_impl_vulkan.h>
 #include <GLFW/glfw3.h>
 
+#include <cstdint>
+#include <type_traits>
+#include <utility>
+
 namespace CometEditor {
+    namespace {
+        template<typename Handle>
+        std::uint64_t handle_to_uint64(const Handle handle) {
+            if constexpr(std::is_pointer_v<Handle>) {
+                return static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(handle));
+            } else {
+                return static_cast<std::uint64_t>(handle);
+            }
+        }
+    }
+
     ImGuiContext::ImGuiContext(const Comet::Window* window, Comet::RenderContext* render_context,
                                const Comet::Config::Vulkan& vulkan_config)
         : m_window(window), m_render_context(render_context), m_vulkan_config(vulkan_config) {
@@ -62,16 +78,11 @@ namespace CometEditor {
     void ImGuiContext::create_render_pass() {
         LOG_INFO("Creating independent RenderPass for ImGui");
 
-        // 创建 Attachment
         std::vector<Comet::Attachment> attachments;
-        // 创建 color attachment，但修改 load_op 为 Load，以保留场景渲染的内容
         auto color_attachment = Comet::Attachment::get_color_attachment(m_render_format_info.color_format, Comet::SampleCount::Count1);
-        color_attachment.description.load_op = Comet::AttachmentLoadOp::Load; // 加载而不是清除
-        // 场景渲染结束后，swapchain image 处于 PresentSrcKHR 布局
-        color_attachment.description.initial_layout = Comet::ImageLayout::PresentSrcKHR;
-        // final_layout 应该保持为 PresentSrcKHR，因为这是最终呈现的布局
+        color_attachment.description.load_op = Comet::AttachmentLoadOp::Clear;
+        color_attachment.description.initial_layout = Comet::ImageLayout::Undefined;
         color_attachment.description.final_layout = Comet::ImageLayout::PresentSrcKHR;
-        // 确保 store_op 是 Store，以保存渲染结果
         color_attachment.description.store_op = Comet::AttachmentStoreOp::Store;
         attachments.emplace_back(color_attachment);
 
@@ -137,6 +148,8 @@ namespace CometEditor {
 
         m_render_context->wait_idle();
 
+        unregister_viewport_textures();
+
         // 先 Shutdown ImGui Vulkan backend，让 ImGui 释放 DescriptorPool 的引用
         ImGui_ImplVulkan_Shutdown();
 
@@ -146,6 +159,8 @@ namespace CometEditor {
         // 销毁其他资源
         m_render_target.reset();
         m_render_pass.reset();
+        m_viewport_image_views.clear();
+        m_viewport_sampler.reset();
 
         // 销毁 GLFW backend 和 ImGui context
         ImGui_ImplGlfw_Shutdown();
@@ -197,13 +212,12 @@ namespace CometEditor {
             return;
         }
 
-        ImDrawData* draw_data = ImGui::GetDrawData();
-        if(!draw_data || draw_data->CmdListsCount == 0) {
-            return;
-        }
         m_render_target->begin_render_target(command_buffer);
 
-        ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer.get());
+        ImDrawData* draw_data = ImGui::GetDrawData();
+        if(draw_data && draw_data->CmdListsCount > 0) {
+            ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer.get());
+        }
 
         m_render_target->end_render_target(command_buffer);
     }
@@ -227,13 +241,60 @@ namespace CometEditor {
         const auto image_count = static_cast<uint32_t>(
             m_render_context->get_swapchain()->get_images().size());
         if(image_count != m_backend_image_count) {
+            unregister_viewport_textures();
             ImGui_ImplVulkan_Shutdown();
             m_descriptor_pool.reset();
             init_vulkan();
+            register_viewport_textures();
         }
         // 重建完成，恢复 ImGui 更新
         m_is_recreating = false;
 
         LOG_INFO("ImGui resources recreated successfully");
+    }
+
+    void ImGuiContext::set_viewport_images(
+        std::vector<vk::ImageView> image_views,
+        std::shared_ptr<Comet::Sampler> sampler) {
+        if(m_viewport_image_views == image_views && m_viewport_sampler == sampler) {
+            return;
+        }
+
+        unregister_viewport_textures();
+        m_viewport_image_views = std::move(image_views);
+        m_viewport_sampler = std::move(sampler);
+        register_viewport_textures();
+    }
+
+    std::uint64_t ImGuiContext::get_viewport_texture_id(const uint32_t frame_index) const {
+        if(frame_index >= m_viewport_texture_ids.size()) {
+            return 0;
+        }
+        return handle_to_uint64(m_viewport_texture_ids[frame_index]);
+    }
+
+    void ImGuiContext::register_viewport_textures() {
+        if(!m_initialized || !m_viewport_sampler || m_viewport_image_views.empty()) {
+            return;
+        }
+
+        m_viewport_texture_ids.reserve(m_viewport_image_views.size());
+        for(const vk::ImageView image_view: m_viewport_image_views) {
+            m_viewport_texture_ids.push_back(ImGui_ImplVulkan_AddTexture(
+                static_cast<VkSampler>(m_viewport_sampler->get()),
+                static_cast<VkImageView>(image_view),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+        }
+    }
+
+    void ImGuiContext::unregister_viewport_textures() {
+        if(m_initialized) {
+            for(const VkDescriptorSet texture_id: m_viewport_texture_ids) {
+                if(texture_id != VK_NULL_HANDLE) {
+                    ImGui_ImplVulkan_RemoveTexture(texture_id);
+                }
+            }
+        }
+        m_viewport_texture_ids.clear();
     }
 }
