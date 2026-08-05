@@ -7,10 +7,10 @@ namespace Comet {
             LOG_FATAL("vertices array is empty, can't create mesh");
         }
         m_vertex_buffer = Buffer::create_gpu_buffer(device, Flags<BufferUsage>(BufferUsage::Vertex),
-            vertices.size() * sizeof(Math::Vertex), vertices.data());
+            vertices.size() * sizeof(Math::Vertex), vertices.data(), "mesh vertex buffer");
         if(!indices.empty()) {
             m_index_buffer = Buffer::create_gpu_buffer(device, Flags<BufferUsage>(BufferUsage::Index),
-                indices.size() * sizeof(uint32_t), indices.data());
+                indices.size() * sizeof(uint32_t), indices.data(), "mesh index buffer");
         } else {
             m_index_buffer.reset();
         }

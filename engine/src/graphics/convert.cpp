@@ -517,15 +517,6 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::MemoryPropertyFlags memory_property_to_vk(const Flags<MemoryType> flags) {
-        vk::MemoryPropertyFlags bits{};
-        TRY_SET_BIT(MemoryType::Coherence,vk::MemoryPropertyFlagBits::eHostCoherent)
-        TRY_SET_BIT(MemoryType::CPULocal, vk::MemoryPropertyFlagBits::eHostVisible)
-        TRY_SET_BIT(MemoryType::GPULocal, vk::MemoryPropertyFlagBits::eDeviceLocal)
-        return bits;
-    }
-
-
     vk::VertexInputRate vertex_input_rate_to_vk(const VertexInputRate rate) {
         switch(rate) {
             CASE(VertexInputRate::Vertex, vk::VertexInputRate::eVertex);

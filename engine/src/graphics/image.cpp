@@ -1,11 +1,13 @@
 #include "image.h"
 #include "device.h"
 #include "common/logger.h"
-#include "vk_allocator.h"
 
 namespace Comet {
-    std::shared_ptr<Image> Image::create(Device* device, const ImageInfo& info, SampleCount sample_count) {
-        return std::make_shared<OwnedImage>(device, info, sample_count);
+    std::shared_ptr<Image> Image::create(Device* device,
+                                         const ImageInfo& info,
+                                         const SampleCount sample_count,
+                                         const std::string_view debug_name) {
+        return std::make_shared<OwnedImage>(device, info, sample_count, debug_name);
     }
 
     std::shared_ptr<Image> Image::wrap(Device* device, vk::Image image, const ImageInfo& info) {
@@ -30,8 +32,12 @@ namespace Comet {
         }
     }
 
-    OwnedImage::OwnedImage(Device* device, const ImageInfo& info, const SampleCount sample_count) : Image(device, info) {
-        auto extent = Graphics::get_extent(m_info.extent.x, m_info.extent.y, m_info.extent.z);
+    OwnedImage::OwnedImage(Device* device,
+                           const ImageInfo& info,
+                           const SampleCount sample_count,
+                           const std::string_view debug_name)
+        : Image(device, info) {
+        const auto extent = Graphics::get_extent(m_info.extent.x, m_info.extent.y, m_info.extent.z);
         vk::ImageCreateInfo create_info = {};
         create_info.imageType = vk::ImageType::e2D;
         create_info.format = Graphics::format_to_vk(m_info.format);
@@ -46,10 +52,14 @@ namespace Comet {
         create_info.pQueueFamilyIndices = nullptr;
         create_info.initialLayout = vk::ImageLayout::eUndefined;
 
-        auto [image, allocation] = device->get_allocator().create_image(create_info,
-            Graphics::memory_property_to_vk(Flags<MemoryType>(MemoryType::GPULocal)));
-        m_image = image;
-        m_allocation = allocation;
+        auto image_allocation = device->get_allocator().create_image(
+            create_info,
+            {
+                .usage = AllocationUsage::Device,
+                .debug_name = debug_name.empty() ? "image" : debug_name
+            });
+        m_image = image_allocation.image;
+        m_allocation = std::move(image_allocation.allocation);
         LOG_INFO("Vulkan image created successfully with VMA allocation");
     }
 

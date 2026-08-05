@@ -76,8 +76,9 @@ ctest --test-dir build --output-on-failure
 
 主配置文件位于 `engine/assets/config.yaml`。运行入口在 `engine/src/runtime/runtime.h` 中通过局部 `ConfigLoader` 将 YAML
 解析为纯数据 `Config`，再把窗口、Vulkan、渲染和日志配置传入对应模块；yaml-cpp 只存在于加载器实现中，底层渲染资源
-不直接读取原始配置。Vulkan 内存分配由 `engine/src/graphics/vk_allocator.h`
-封装，`Device` 独占持有 allocator，`Buffer` 和 `Image` 只通过该封装创建、映射和释放 VMA 资源。`engine/src/scene/`
+不直接读取原始配置。Vulkan 内存分配由 `engine/src/graphics/allocator.h`
+封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
+VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。`engine/src/scene/`
 提供基于 EnTT 的 Scene/Entity 和基础组件数据模型；`TransformComponent` 的 Euler 角使用度，局部矩阵顺序为
 `T * Rz * Ry * Rx * S`。`SceneRenderExtractor` 将可渲染实体和 Camera 复制为
 `engine/src/render/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。

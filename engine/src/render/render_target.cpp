@@ -61,7 +61,7 @@ namespace Comet {
     }
 
     void RenderTarget::begin_render_target(
-        CommandBuffer& command_buffer, const uint32_t frame_index) {
+        const CommandBuffer& command_buffer, const uint32_t frame_index) {
         if(m_needs_recreate) {
             recreate();
             m_needs_recreate = false;
@@ -133,7 +133,8 @@ namespace Comet {
                 image_info.usage = usage;
 
                 if(Graphics::is_depth_stencil_format(description.format)) {
-                    depth_image = Image::create(m_device, image_info, description.samples);
+                    depth_image = Image::create(
+                        m_device, image_info, description.samples, "render target depth image");
                     depth_view = std::make_shared<ImageView>(m_device, *depth_image, Flags<ImageAspect>(ImageAspect::Depth));
                     all_views.push_back(depth_view);
                 } else {
@@ -141,7 +142,8 @@ namespace Comet {
                     if(description.final_layout == ImageLayout::PresentSrcKHR && description.samples == SampleCount::Count1) {
                         color_image = m_swapchain->get_images()[i];
                     } else {
-                        color_image = Image::create(m_device, image_info, description.samples);
+                        color_image = Image::create(
+                            m_device, image_info, description.samples, "render target color image");
                     }
                     color_images.emplace_back(color_image);
                     auto color_view = std::make_shared<ImageView>(m_device, *color_image, Flags<ImageAspect>(ImageAspect::Color));
@@ -207,12 +209,14 @@ namespace Comet {
             };
 
             if(Graphics::is_depth_stencil_format(description.format)) {
-                m_depth_image = Image::create(m_device, image_info, description.samples);
+                m_depth_image = Image::create(
+                    m_device, image_info, description.samples, "render target depth image");
                 m_depth_view = std::make_shared<ImageView>(m_device, *m_depth_image, Flags<ImageAspect>(ImageAspect::Depth));
                 all_views.emplace_back(m_depth_view);
             } else {
                 if(!m_color_image) {
-                    m_color_image = Image::create(m_device, image_info, description.samples);
+                    m_color_image = Image::create(
+                        m_device, image_info, description.samples, "render target color image");
                     m_color_view = std::make_shared<ImageView>(m_device, *m_color_image, Flags<ImageAspect>(ImageAspect::Color));
                     all_views.emplace_back(m_color_view);
                 }
@@ -261,11 +265,13 @@ namespace Comet {
                 };
 
                 if(Graphics::is_depth_stencil_format(description.format)) {
-                    depth_image = Image::create(m_device, image_info, description.samples);
+                    depth_image = Image::create(
+                        m_device, image_info, description.samples, "render target depth image");
                     depth_view = std::make_shared<ImageView>(m_device, *depth_image, Flags<ImageAspect>(ImageAspect::Depth));
                     all_views.push_back(depth_view);
                 } else {
-                    auto color_image = Image::create(m_device, image_info, description.samples);
+                    auto color_image = Image::create(
+                        m_device, image_info, description.samples, "render target color image");
                     color_images.emplace_back(color_image);
                     auto color_view = std::make_shared<ImageView>(m_device, *color_image, Flags<ImageAspect>(ImageAspect::Color));
                     color_views.emplace_back(color_view);

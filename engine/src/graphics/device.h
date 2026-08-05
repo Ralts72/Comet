@@ -13,7 +13,7 @@ namespace Comet {
     class CommandContext;
     class Buffer;
     class OwnedImage;
-    class VulkanAllocator;
+    class Allocator;
 
     class COMET_API Device {
     public:
@@ -56,8 +56,6 @@ namespace Comet {
 
         [[nodiscard]] vk::PipelineCache get_pipeline_cache() const { return m_pipeline_cache; }
 
-        [[nodiscard]] uint32_t get_memory_index(Flags<MemoryType> mem_props, uint32_t memory_type_bits) const;
-
         [[nodiscard]] CommandPool& get_default_command_pool() { return *m_default_command_pool; }
         [[nodiscard]] const CommandPool& get_default_command_pool() const { return *m_default_command_pool; }
 
@@ -67,7 +65,7 @@ namespace Comet {
         friend class Buffer;
         friend class OwnedImage;
 
-        [[nodiscard]] VulkanAllocator& get_allocator() const;
+        [[nodiscard]] Allocator& get_allocator() const;
 
         void create_pipeline_cache();
 
@@ -76,7 +74,7 @@ namespace Comet {
         void create_allocator();
 
         vk::Device m_device;
-        std::unique_ptr<VulkanAllocator> m_allocator;
+        std::unique_ptr<Allocator> m_allocator;
         Context* m_context;
 
         std::vector<Queue> m_graphics_queues;

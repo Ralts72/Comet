@@ -30,7 +30,8 @@ namespace Comet {
                 context.get_device(),
                 Flags<BufferUsage>(BufferUsage::Uniform),
                 sizeof(ViewProjectMatrix),
-                nullptr));
+                nullptr,
+                "view-project uniform buffer"));
         }
     }
 

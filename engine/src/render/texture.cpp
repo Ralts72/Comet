@@ -50,14 +50,19 @@ namespace Comet {
         }
 
         m_image = Image::create(device, {
-            m_format, Math::Vec3u(m_width, m_height, 1),
-            Flags<ImageUsage>(ImageUsage::Sampled) | Flags<ImageUsage>(ImageUsage::CopyDst)
-        }, SampleCount::Count1);
+            .format = m_format, .extent = Math::Vec3u(m_width, m_height, 1),
+            .usage = Flags<ImageUsage>(ImageUsage::Sampled) | Flags<ImageUsage>(ImageUsage::CopyDst)
+        }, SampleCount::Count1, "texture image");
         m_image_view = std::make_shared<ImageView>(device, *m_image, Flags<ImageAspect>(ImageAspect::Color));
 
-        auto stage_buffer = Buffer::create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::CopySrc), size, data);
+        auto stage_buffer = Buffer::create_upload_buffer(
+            device,
+            Flags<BufferUsage>(BufferUsage::CopySrc),
+            size,
+            data,
+            "texture upload buffer");
 
-        auto ctx = device->create_command_context();
+        const auto ctx = device->create_command_context();
         // 1. Transition image layout from UNDEFINED to TRANSFER_DST_OPTIMAL
         ctx->transition_image_layout(m_image->get(),
             vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);

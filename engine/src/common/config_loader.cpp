@@ -48,7 +48,10 @@ namespace Comet {
                 }
 
                 node.reset(child);
-                parent_path = parent_path.empty() ? segment : parent_path + "." + segment;
+                if(!parent_path.empty()) {
+                    parent_path += '.';
+                }
+                parent_path += segment;
             }
 
             return node;
@@ -72,15 +75,14 @@ namespace Comet {
                     config_path,
                     key,
                     "expected " + std::string(expected_type) + ", got " + YAML::Dump(*node)
-                        + " (" + error.what() + ")");
+                    + " (" + error.what() + ")");
             }
         }
 
         std::array<float, 4> read_clear_color(const YAML::Node& root,
                                               const Config::Render& defaults,
                                               const std::string& config_path) {
-            const auto node = find_node(root, "render.clear_color", config_path);
-            if(!node.has_value()) {
+            if(!find_node(root, "render.clear_color", config_path).has_value()) {
                 return defaults.clear_color;
             }
 

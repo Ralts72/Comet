@@ -15,6 +15,8 @@ TEST(ResourceValidationTest, RejectsInvalidBufferArguments) {
         Buffer::create_cpu_buffer(nullptr, Flags<BufferUsage>(BufferUsage::Uniform), 0, &data), "");
     EXPECT_DEATH(
         Buffer::create_gpu_buffer(nullptr, Flags<BufferUsage>(BufferUsage::Vertex), sizeof(data), nullptr), "");
+    EXPECT_DEATH(
+        Buffer::create_upload_buffer(nullptr, Flags<BufferUsage>(BufferUsage::CopySrc), sizeof(data), nullptr), "");
 }
 
 TEST(ResourceValidationTest, RejectsInvalidImageArguments) {

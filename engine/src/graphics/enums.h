@@ -109,13 +109,6 @@ namespace Comet {
         Indirect = 0x0100,
     };
 
-    enum class MemoryType {
-        None      = 0,
-        CPULocal  = 1 << 0,
-        Coherence = 1 << 1,
-        GPULocal  = 1 << 2
-    };
-
     enum class SamplerAddressMode {
         ClampToEdge = 0,
         Repeat = 1,

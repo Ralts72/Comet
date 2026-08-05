@@ -1,7 +1,10 @@
 #pragma once
+
+#include "allocator.h"
 #include "vk_common.h"
 #include "common/export.h"
-#include <vk_mem_alloc.h>
+
+#include <string_view>
 
 namespace Comet {
     class Device;
@@ -21,7 +24,11 @@ namespace Comet {
         Image(Image&&) noexcept = delete;
         Image& operator=(Image&&) noexcept = delete;
 
-        static std::shared_ptr<Image> create(Device* device, const ImageInfo& info, SampleCount sample_count = SampleCount::Count1);
+        static std::shared_ptr<Image> create(
+            Device* device,
+            const ImageInfo& info,
+            SampleCount sample_count = SampleCount::Count1,
+            std::string_view debug_name = {});
 
         static std::shared_ptr<Image> wrap(Device* device, vk::Image image, const ImageInfo& info);
 
@@ -38,12 +45,15 @@ namespace Comet {
 
     class COMET_API OwnedImage final: public Image {
     public:
-        OwnedImage(Device* device, const ImageInfo& info, SampleCount sample_count = SampleCount::Count1);
+        OwnedImage(Device* device,
+                   const ImageInfo& info,
+                   SampleCount sample_count = SampleCount::Count1,
+                   std::string_view debug_name = {});
 
         ~OwnedImage() override;
 
     private:
-        VmaAllocation m_allocation = VK_NULL_HANDLE;
+        Allocation m_allocation;
     };
 
     class COMET_API BorrowedImage final: public Image {

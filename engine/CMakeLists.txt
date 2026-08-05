@@ -37,7 +37,7 @@ set(SOURCES
         src/graphics/fence.cpp
         src/graphics/semaphore.cpp
         src/graphics/vertex_description.cpp
-        src/graphics/vk_allocator.cpp
+        src/graphics/allocator.cpp
         src/graphics/buffer.cpp
         src/graphics/descriptor_set.cpp
         src/graphics/sampler.cpp

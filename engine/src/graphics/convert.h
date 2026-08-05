@@ -82,8 +82,6 @@ namespace Comet::Graphics {
 
     ImageColorSpace vk_to_image_color_space(vk::ColorSpaceKHR space);
 
-    vk::MemoryPropertyFlags memory_property_to_vk(Flags<MemoryType> flags);
-
     vk::VertexInputRate vertex_input_rate_to_vk(VertexInputRate rate);
 
     vk::DynamicState dynamic_state_to_vk(DynamicState state);

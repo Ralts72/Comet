@@ -2,6 +2,7 @@
 #include <type_traits>
 
 #include "graphics/buffer.h"
+#include "graphics/allocator.h"
 #include "graphics/command_buffer.h"
 #include "graphics/context.h"
 #include "graphics/descriptor_set.h"
@@ -16,7 +17,6 @@
 #include "graphics/semaphore.h"
 #include "graphics/shader.h"
 #include "graphics/swapchain.h"
-#include "graphics/vk_allocator.h"
 
 using namespace Comet;
 
@@ -56,7 +56,7 @@ TEST(VulkanRaiiOwnershipTest, OwningWrappersDoNotCopyOrMoveByDefault) {
     expect_noncopyable_immovable_owner<RenderPass>();
     expect_noncopyable_immovable_owner<CommandPool>();
     expect_noncopyable_immovable_owner<Swapchain>();
-    expect_noncopyable_immovable_owner<VulkanAllocator>();
+    expect_noncopyable_immovable_owner<Allocator>();
     expect_noncopyable_immovable_owner<Device>();
     expect_noncopyable_immovable_owner<Context>();
 }
