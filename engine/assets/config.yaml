@@ -24,6 +24,8 @@ render:
   clear_color: [ 0.2, 0.4, 0.1, 1.0 ]
   # 启用垂直同步
   enable_vsync: false
+  # 期望的各向异性过滤倍率；1 表示关闭，超过设备上限时会回退到支持的最大值
+  max_anisotropy: 8
 
 # 窗口设置
 window:

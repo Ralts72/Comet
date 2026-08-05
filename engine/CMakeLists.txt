@@ -24,6 +24,7 @@ set(SOURCES
         src/graphics/convert.cpp
         src/graphics/context.cpp
         src/graphics/device.cpp
+        src/graphics/vk_capability.cpp
         src/graphics/queue.cpp
         src/graphics/swapchain.cpp
         src/graphics/render_pass.cpp

@@ -13,12 +13,11 @@ namespace Comet {
     }
 
     CommandContext::~CommandContext() {
-        // CommandBuffer 由 CommandPool 管理，不需要手动释放
-        // 但如果已经开始但未提交，需要结束
         if(m_is_recording && !m_submitted) {
-            m_command_buffer.end();
             LOG_WARN("CommandContext destroyed without submitting commands");
         }
+
+        m_device->get_default_command_pool().free_command_buffer(m_command_buffer);
     }
 
     void CommandContext::copy_buffer(const Buffer* src, const Buffer* dst, const size_t size) {

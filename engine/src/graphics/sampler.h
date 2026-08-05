@@ -43,7 +43,8 @@ namespace Comet {
         std::shared_ptr<Sampler> create_sampler(const std::string& name,  const SamplerDesc& desc = {});
         [[nodiscard]] std::shared_ptr<Sampler> get_sampler(const std::string& name) const;
 
-        std::shared_ptr<Sampler> get_linear_repeat(float max_anisotropy = 1.0f);
+        std::shared_ptr<Sampler> get_linear_repeat();
+        std::shared_ptr<Sampler> get_linear_repeat(float max_anisotropy);
         std::shared_ptr<Sampler> get_nearest_clamp();
         std::shared_ptr<Sampler> get_shadow_sampler();
 

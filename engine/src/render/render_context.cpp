@@ -11,7 +11,13 @@ namespace Comet {
         m_context = std::make_unique<Context>(window, m_vulkan_config);
 
         LOG_INFO("create device");
-        m_device = std::make_unique<Device>(m_context.get(), 1, 1);
+        m_device = std::make_unique<Device>(
+            m_context.get(),
+            Device::CreateInfo{
+                .capabilities = {
+                    .max_sampler_anisotropy = m_render_config.max_anisotropy
+                }
+            });
 
         LOG_INFO("create swapchain");
         m_swapchain = std::make_unique<Swapchain>(m_context.get(), m_device.get(), m_vulkan_config, m_render_config);

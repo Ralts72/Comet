@@ -36,6 +36,7 @@ namespace Comet {
             std::uint32_t max_frames_in_flight = 2;
             std::array<float, 4> clear_color = {0.2f, 0.4f, 0.1f, 1.0f};
             bool enable_vsync = false;
+            float max_anisotropy = 1.0f;
         };
 
         Log log;

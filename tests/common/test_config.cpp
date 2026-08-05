@@ -70,6 +70,7 @@ TEST(ConfigTest, LoadsProjectConfiguration) {
 
     EXPECT_EQ(config.render.max_frames_in_flight, 2u);
     EXPECT_FALSE(config.render.enable_vsync);
+    EXPECT_FLOAT_EQ(config.render.max_anisotropy, 8.0f);
     EXPECT_EQ(config.render.clear_color, (std::array<float, 4>{0.2f, 0.4f, 0.1f, 1.0f}));
 }
 
@@ -82,6 +83,7 @@ TEST(ConfigTest, UsesDefaultsForMissingFields) {
     EXPECT_EQ(config.window.height, Config::Window{}.height);
     EXPECT_EQ(config.log.level, Config::Log{}.level);
     EXPECT_EQ(config.render.clear_color, Config::Render{}.clear_color);
+    EXPECT_FLOAT_EQ(config.render.max_anisotropy, Config::Render{}.max_anisotropy);
 }
 
 TEST(ConfigTest, RejectsInvalidFieldTypeWithFieldAndFileContext) {
@@ -106,6 +108,12 @@ TEST(ConfigTest, RejectsInvalidClearColorLength) {
 
 TEST(ConfigTest, ValidatesRequiredPositiveValues) {
     const TemporaryConfigFile file("render:\n  max_frames_in_flight: 0\n");
+
+    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load(file.path())), std::runtime_error);
+}
+
+TEST(ConfigTest, RejectsInvalidAnisotropy) {
+    const TemporaryConfigFile file("render:\n  max_anisotropy: 0\n");
 
     EXPECT_THROW(static_cast<void>(ConfigLoader{}.load(file.path())), std::runtime_error);
 }

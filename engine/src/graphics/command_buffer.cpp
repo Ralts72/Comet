@@ -207,6 +207,10 @@ namespace Comet {
         return buffer[0];
     }
 
+    void CommandPool::free_command_buffer(const CommandBuffer& command_buffer) const {
+        free_command_buffers(std::span(&command_buffer, 1));
+    }
+
     void CommandPool::free_command_buffers(const std::span<const CommandBuffer> command_buffers) const {
         if(command_buffers.empty()) {
             return;

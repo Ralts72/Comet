@@ -1,8 +1,29 @@
 #include "sampler.h"
 #include "device.h"
+#include "common/logger.h"
+
+#include <cmath>
 
 namespace Comet {
     Sampler::Sampler(Device* device, const SamplerDesc& desc) : m_device(device) {
+        if(!device) {
+            LOG_FATAL("Sampler requires a valid Device");
+        }
+
+        if(!std::isfinite(desc.max_anisotropy) || desc.max_anisotropy < 1.0f) {
+            LOG_FATAL("Sampler max anisotropy must be a finite number of at least "
+                      "1.0 (requested: {})",
+                      desc.max_anisotropy);
+        }
+
+        const float enabled_max_anisotropy =
+            device->get_capability().max_sampler_anisotropy;
+
+        if(desc.max_anisotropy > enabled_max_anisotropy) {
+            LOG_FATAL("Sampler anisotropy {} exceeds the enabled device maximum {}",
+                      desc.max_anisotropy, enabled_max_anisotropy);
+        }
+
         vk::SamplerCreateInfo sampler_create_info;
         sampler_create_info.magFilter = Graphics::filter_to_vk(desc.mag_filter);
         sampler_create_info.minFilter = Graphics::filter_to_vk(desc.min_filter);
@@ -58,8 +79,12 @@ namespace Comet {
         return std::make_shared<Sampler>(device, desc);
     }
 
+    std::shared_ptr<Sampler> SamplerManager::get_linear_repeat() {
+        return get_linear_repeat(m_device->get_capability().max_sampler_anisotropy);
+    }
+
     std::shared_ptr<Sampler> SamplerManager::get_linear_repeat(const float max_anisotropy) {
-        const std::string name = "linear_repeat_" + std::to_string(static_cast<int>(max_anisotropy));
+        const std::string name = "linear_repeat_" + std::to_string(max_anisotropy);
         if(const auto it = m_samplers.find(name); it != m_samplers.end()) {
             return it->second;
         }

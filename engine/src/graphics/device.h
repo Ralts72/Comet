@@ -3,6 +3,7 @@
 #include "common/export.h"
 #include "queue.h"
 #include "command_buffer.h"
+#include "vk_capability.h"
 
 namespace Comet {
     class Context;
@@ -17,7 +18,15 @@ namespace Comet {
 
     class COMET_API Device {
     public:
-        Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count);
+        struct CreateInfo {
+            uint32_t graphics_queue_count = 1;
+            uint32_t present_queue_count = 1;
+            DeviceCapabilityRequest capabilities;
+        };
+
+        explicit Device(Context* context);
+
+        Device(Context* context, CreateInfo create_info);
 
         ~Device();
 
@@ -56,6 +65,10 @@ namespace Comet {
 
         [[nodiscard]] vk::PipelineCache get_pipeline_cache() const { return m_pipeline_cache; }
 
+        [[nodiscard]] const DeviceCapability& get_capability() const {
+            return m_capability;
+        }
+
         [[nodiscard]] CommandPool& get_default_command_pool() { return *m_default_command_pool; }
         [[nodiscard]] const CommandPool& get_default_command_pool() const { return *m_default_command_pool; }
 
@@ -79,6 +92,7 @@ namespace Comet {
 
         std::vector<Queue> m_graphics_queues;
         std::vector<Queue> m_present_queues;
+        DeviceCapability m_capability;
         vk::PipelineCache m_pipeline_cache;
         std::unique_ptr<CommandPool> m_default_command_pool;
     };

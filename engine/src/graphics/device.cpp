@@ -9,15 +9,10 @@
 #include "allocator.h"
 
 namespace Comet {
-    static std::vector<DeviceFeature> s_required_extensions = {
-#ifdef __APPLE__
-        {"VK_KHR_portability_subset", true},
-#endif
-        {VK_KHR_SWAPCHAIN_EXTENSION_NAME, true},
-        {"VK_KHR_buffer_device_address", true}
-    };
+    Device::Device(Context* context)
+        : Device(context, CreateInfo{}) {}
 
-    Device::Device(Context* context, uint32_t graphics_queue_count, uint32_t present_queue_count)
+    Device::Device(Context* context, const CreateInfo create_info)
         : m_context(context) {
         PROFILE_SCOPE("Device::Constructor");
         if(!context) {
@@ -25,21 +20,21 @@ namespace Comet {
         }
         auto [graphics_queue_family_index, graphics_queue_counts] = context->get_graphics_queue_family();
         auto [present_queue_family_index, present_queue_counts] = context->get_present_queue_family();
-        if(graphics_queue_count > graphics_queue_counts) {
+        if(create_info.graphics_queue_count > graphics_queue_counts) {
             LOG_FATAL("Requested graphics queue count {} exceeds available count {}",
-                graphics_queue_count, graphics_queue_counts);
+                create_info.graphics_queue_count, graphics_queue_counts);
         }
-        if(present_queue_count > present_queue_counts) {
+        if(create_info.present_queue_count > present_queue_counts) {
             LOG_FATAL("Requested present queue count {} exceeds available count {}",
-                present_queue_count, present_queue_counts);
+                create_info.present_queue_count, present_queue_counts);
         }
-        std::vector<float> graphics_queue_priorities(graphics_queue_count, 0.0f);
-        std::vector<float> present_queue_priorities(present_queue_count, 1.0f);
+        std::vector<float> graphics_queue_priorities(create_info.graphics_queue_count, 0.0f);
+        std::vector<float> present_queue_priorities(create_info.present_queue_count, 1.0f);
         std::vector<vk::DeviceQueueCreateInfo> queue_create_infos;
-        uint32_t queue_count = graphics_queue_count;
+        uint32_t queue_count = create_info.graphics_queue_count;
         const bool is_same_queue_family = context->is_same_queue_families();
         if(is_same_queue_family) {
-            queue_count += present_queue_count;
+            queue_count += create_info.present_queue_count;
             graphics_queue_priorities.insert(graphics_queue_priorities.end(), present_queue_priorities.begin(), present_queue_priorities.end());
             if(queue_count > graphics_queue_counts) {
                 queue_count = graphics_queue_counts;
@@ -48,40 +43,39 @@ namespace Comet {
         }
         vk::DeviceQueueCreateInfo queue_create_info = {};
         queue_create_info.queueFamilyIndex = graphics_queue_family_index.value();
-        queue_create_info.queueCount = is_same_queue_family ? queue_count : graphics_queue_count;
+        queue_create_info.queueCount = is_same_queue_family
+            ? queue_count
+            : create_info.graphics_queue_count;
         queue_create_info.pQueuePriorities = graphics_queue_priorities.data();
         queue_create_infos.push_back(queue_create_info);
 
         if(!is_same_queue_family) {
             vk::DeviceQueueCreateInfo present_queue_create_info = {};
             present_queue_create_info.queueFamilyIndex = present_queue_family_index.value();
-            present_queue_create_info.queueCount = present_queue_count;
+            present_queue_create_info.queueCount = create_info.present_queue_count;
             present_queue_create_info.pQueuePriorities = present_queue_priorities.data();
             queue_create_infos.push_back(present_queue_create_info);
         }
 
-        std::set<std::string> available_extensions;
-        for(const auto& prop: context->get_physical_device().enumerateDeviceExtensionProperties()) {
-            available_extensions.emplace(prop.extensionName);
-        }
-        const std::vector<const char*> enabled_extensions = Graphics::build_enabled_list(s_required_extensions, available_extensions, "device extension");
-        auto features = context->get_physical_device().getFeatures();
+        const auto physical_device = context->get_physical_device();
+        m_capability = select_device_capabilities(
+            create_info.capabilities, physical_device);
 
-        vk::DeviceCreateInfo create_info = {};
-        create_info.queueCreateInfoCount = queue_create_infos.size();
-        create_info.pQueueCreateInfos = queue_create_infos.data();
-        create_info.ppEnabledExtensionNames = enabled_extensions.data();
-        create_info.enabledExtensionCount = enabled_extensions.size();
-        create_info.pEnabledFeatures = &features;
-        m_device = context->get_physical_device().createDevice(create_info);
+        vk::DeviceCreateInfo device_create_info = {};
+        device_create_info.queueCreateInfoCount = queue_create_infos.size();
+        device_create_info.pQueueCreateInfos = queue_create_infos.data();
+        device_create_info.ppEnabledExtensionNames = m_capability.enabled_extensions.data();
+        device_create_info.enabledExtensionCount = m_capability.enabled_extensions.size();
+        device_create_info.pEnabledFeatures = &m_capability.enabled_features;
+        m_device = physical_device.createDevice(device_create_info);
         LOG_INFO("Vulkan logical device created successfully");
         create_allocator();
 
-        for(uint32_t i = 0; i < graphics_queue_count; ++i) {
+        for(uint32_t i = 0; i < create_info.graphics_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(graphics_queue_family_index.value(), i);
             m_graphics_queues.emplace_back(graphics_queue_family_index.value(), i, vk_queue, Queue::Type::Graphics);
         }
-        for(uint32_t i = 0; i < present_queue_count; ++i) {
+        for(uint32_t i = 0; i < create_info.present_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(present_queue_family_index.value(), i);
             m_present_queues.emplace_back(present_queue_family_index.value(), i, vk_queue, Queue::Type::Present);
         }

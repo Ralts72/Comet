@@ -3,6 +3,7 @@
 #include "graphics/buffer.h"
 #include "graphics/device.h"
 #include "graphics/image.h"
+#include "graphics/sampler.h"
 
 namespace Comet::Tests {
 
@@ -43,7 +44,15 @@ TEST(ResourceValidationTest, RejectsInvalidImageArguments) {
 }
 
 TEST(ResourceValidationTest, RejectsMissingContextForDevice) {
-    EXPECT_DEATH({ Device device(nullptr, 1, 1); }, "");
+    EXPECT_DEATH({ Device device(nullptr); }, "");
+}
+
+TEST(ResourceValidationTest, RejectsInvalidSamplerArguments) {
+    EXPECT_DEATH({ Sampler sampler(nullptr, {}); }, "");
+
+    SamplerDesc invalid_desc;
+    invalid_desc.max_anisotropy = 0.0f;
+    EXPECT_DEATH({ Sampler sampler(nullptr, invalid_desc); }, "");
 }
 
 } // namespace Comet::Tests

@@ -1,5 +1,6 @@
 #include "config_loader.h"
 
+#include <cmath>
 #include <filesystem>
 #include <optional>
 #include <sstream>
@@ -111,6 +112,11 @@ namespace Comet {
             if(config.render.max_frames_in_flight == 0) {
                 throw config_error(config_path, "render.max_frames_in_flight", "must be greater than zero");
             }
+            if(!std::isfinite(config.render.max_anisotropy)
+                || config.render.max_anisotropy < 1.0f) {
+                throw config_error(
+                    config_path, "render.max_anisotropy", "must be a finite number of at least 1.0");
+            }
         }
     }
 
@@ -177,6 +183,8 @@ namespace Comet {
         config.render.clear_color = read_clear_color(root, config.render, resolved_path);
         config.render.enable_vsync = read_value<bool>(
             root, "render.enable_vsync", config.render.enable_vsync, "a boolean", resolved_path);
+        config.render.max_anisotropy = read_value<float>(
+            root, "render.max_anisotropy", config.render.max_anisotropy, "a number", resolved_path);
 
         validate_config(config, resolved_path);
         return config;

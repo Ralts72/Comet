@@ -86,6 +86,8 @@ namespace Comet {
 
         [[nodiscard]] CommandBuffer allocate_command_buffer() const;
 
+        void free_command_buffer(const CommandBuffer& command_buffer) const;
+
         void free_command_buffers(std::span<const CommandBuffer> command_buffers) const;
 
         [[nodiscard]] vk::CommandPool get() const { return m_command_pool; }

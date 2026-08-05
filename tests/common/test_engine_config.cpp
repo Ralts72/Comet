@@ -25,6 +25,7 @@ TEST(RuntimeConfigTest, ParsesRuntimeConfigurationFromLoadedConfig) {
 
     EXPECT_EQ(config.render.max_frames_in_flight, 2u);
     EXPECT_FALSE(config.render.enable_vsync);
+    EXPECT_FLOAT_EQ(config.render.max_anisotropy, 8.0f);
     ASSERT_EQ(config.render.clear_color.size(), 4u);
     EXPECT_FLOAT_EQ(config.render.clear_color[0], 0.2f);
     EXPECT_FLOAT_EQ(config.render.clear_color[1], 0.4f);

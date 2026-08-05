@@ -1,14 +1,15 @@
 #include "context.h"
+#include "vk_capability.h"
 
 namespace Comet {
-    static std::vector<DeviceFeature> s_required_extensions = {
+    static const std::vector<const char*> s_requested_instance_extensions = {
 #ifdef __APPLE__
         // 在 macOS 上添加必要的 MoltenVK 扩展
-        {.name = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME, .required = true},
-        {.name = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, .required = true},
+        VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
 #endif
-        {.name = VK_KHR_SURFACE_EXTENSION_NAME, .required = true},
-        {.name = VK_EXT_DEBUG_UTILS_EXTENSION_NAME, .required = true}
+        VK_KHR_SURFACE_EXTENSION_NAME,
+        VK_EXT_DEBUG_UTILS_EXTENSION_NAME
     };
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_utils_messenger_callback(
@@ -51,9 +52,9 @@ namespace Comet {
         app_info.apiVersion = vk::ApiVersion13;
 
         // 1.构建layer
-        std::vector<DeviceFeature> required_layers;
+        std::vector<const char*> requested_layers;
         if(m_config.enable_validation) {
-            required_layers.push_back({"VK_LAYER_KHRONOS_validation", true});
+            requested_layers.push_back("VK_LAYER_KHRONOS_validation");
         }
 
         const auto available_layers_props = vk::enumerateInstanceLayerProperties();
@@ -61,7 +62,8 @@ namespace Comet {
         for(const auto& prop: available_layers_props) {
             available_layers.emplace(prop.layerName);
         }
-        const std::vector<const char*> enabled_layers = Graphics::build_enabled_list(required_layers, available_layers, "layer");
+        const std::vector<const char*> enabled_layers = get_available_names(
+            requested_layers, available_layers, "layer");
 
         // 2. 构建扩展
         // 获取 GLFW 所需的扩展
@@ -75,7 +77,8 @@ namespace Comet {
         for(const auto& ext: available_extensions) {
             available_extension_names.insert(ext.extensionName);
         }
-        const std::vector<const char*> custom_extensions = Graphics::build_enabled_list(s_required_extensions, available_extension_names, "extension");
+        const std::vector<const char*> custom_extensions = get_available_names(
+            s_requested_instance_extensions, available_extension_names, "instance extension");
         enabled_extensions.insert(enabled_extensions.end(), custom_extensions.begin(), custom_extensions.end());
 
         // 3. debug utils messenger
