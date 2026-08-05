@@ -66,7 +66,7 @@ TEST(ConfigTest, LoadsProjectConfiguration) {
     EXPECT_EQ(config.vulkan.present_mode, 0);
     EXPECT_EQ(config.vulkan.swapchain_image_count, 3u);
     EXPECT_EQ(config.vulkan.msaa_samples, 4);
-    EXPECT_TRUE(config.vulkan.enable_validation);
+    EXPECT_EQ(config.vulkan.enable_validation, Config::Vulkan{}.enable_validation);
 
     EXPECT_EQ(config.render.max_frames_in_flight, 2u);
     EXPECT_FALSE(config.render.enable_vsync);
@@ -84,6 +84,17 @@ TEST(ConfigTest, UsesDefaultsForMissingFields) {
     EXPECT_EQ(config.log.level, Config::Log{}.level);
     EXPECT_EQ(config.render.clear_color, Config::Render{}.clear_color);
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, Config::Render{}.max_anisotropy);
+}
+
+TEST(ConfigTest, ExplicitValidationSettingOverridesBuildDefault) {
+    const bool expected = !Config::Vulkan{}.enable_validation;
+    const TemporaryConfigFile file(
+        std::string("debug:\n  enable_validation: ")
+        + (expected ? "true\n" : "false\n"));
+
+    const Config config = ConfigLoader{}.load(file.path());
+
+    EXPECT_EQ(config.vulkan.enable_validation, expected);
 }
 
 TEST(ConfigTest, RejectsInvalidFieldTypeWithFieldAndFileContext) {

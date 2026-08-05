@@ -29,7 +29,11 @@ namespace Comet {
             int present_mode = 0;
             std::uint32_t swapchain_image_count = 3;
             int msaa_samples = 4;
+#ifdef BUILD_TYPE_DEBUG
             bool enable_validation = true;
+#else
+            bool enable_validation = false;
+#endif
         };
 
         struct Render {

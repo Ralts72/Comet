@@ -21,7 +21,6 @@ namespace Comet {
         struct CreateInfo {
             uint32_t graphics_queue_count = 1;
             uint32_t present_queue_count = 1;
-            DeviceCapabilityRequest capabilities;
         };
 
         explicit Device(Context* context);

@@ -1,47 +1,109 @@
 #include "context.h"
-#include "vk_capability.h"
+
+#include <algorithm>
+#include <string_view>
 
 namespace Comet {
-    static const std::vector<const char*> s_requested_instance_extensions = {
+    namespace {
+        const std::vector<const char*> requested_instance_extensions = {
 #ifdef __APPLE__
-        // 在 macOS 上添加必要的 MoltenVK 扩展
-        VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+            VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+            VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
 #endif
-        VK_KHR_SURFACE_EXTENSION_NAME,
-        VK_EXT_DEBUG_UTILS_EXTENSION_NAME
-    };
+        };
 
-    static VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_utils_messenger_callback(
-        const VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-        VkDebugUtilsMessageTypeFlagsEXT messageType,
-        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-        void* pUserData) noexcept {
-        if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-            LOG_ERROR("Vulkan Validation: {}", pCallbackData->pMessage);
-        } else if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-            LOG_WARN("Vulkan Validation: {}", pCallbackData->pMessage);
-        } else if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
-            LOG_INFO("Vulkan Validation: {}", pCallbackData->pMessage);
-        } else if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
-            LOG_DEBUG("Vulkan Validation: {}", pCallbackData->pMessage);
+        VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_utils_messenger_callback(
+            const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
+            VkDebugUtilsMessageTypeFlagsEXT,
+            const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
+            void*) noexcept {
+            const auto logger = Logger::get_console_logger();
+            if(!logger) {
+                return VK_FALSE;
+            }
+
+            if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+                logger->error("Vulkan Validation: {}", callback_data->pMessage);
+            } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+                logger->warn("Vulkan Validation: {}", callback_data->pMessage);
+            } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+                logger->info("Vulkan Validation: {}", callback_data->pMessage);
+            } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+                logger->debug("Vulkan Validation: {}", callback_data->pMessage);
+            }
+
+            return VK_FALSE;
         }
 
-        return VK_FALSE;
+        vk::DebugUtilsMessengerCreateInfoEXT make_debug_messenger_create_info() {
+            vk::DebugUtilsMessengerCreateInfoEXT create_info{};
+            create_info.messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning
+                                          | vk::DebugUtilsMessageSeverityFlagBitsEXT::eError;
+            create_info.messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral
+                                      | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation
+                                      | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
+            create_info.pfnUserCallback = vk_debug_utils_messenger_callback;
+            return create_info;
+        }
+
+        vk::DebugUtilsMessengerEXT create_debug_messenger(
+            const vk::Instance instance,
+            const vk::DebugUtilsMessengerCreateInfoEXT& create_info) {
+            const auto create_function = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+                instance.getProcAddr("vkCreateDebugUtilsMessengerEXT"));
+            if(!create_function) {
+                LOG_FATAL("Failed to load vkCreateDebugUtilsMessengerEXT");
+            }
+
+            VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
+            const VkResult result = create_function(
+                static_cast<VkInstance>(instance),
+                reinterpret_cast<const VkDebugUtilsMessengerCreateInfoEXT*>(&create_info),
+                nullptr,
+                &messenger);
+            if(result != VK_SUCCESS) {
+                LOG_FATAL("Failed to create Vulkan debug messenger: {}",
+                    static_cast<int>(result));
+            }
+            return {messenger};
+        }
+
+        void destroy_debug_messenger(
+            const vk::Instance instance,
+            const vk::DebugUtilsMessengerEXT messenger) {
+            const auto destroy_function = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+                instance.getProcAddr("vkDestroyDebugUtilsMessengerEXT"));
+            if(!destroy_function) {
+                LOG_FATAL("Failed to load vkDestroyDebugUtilsMessengerEXT");
+            }
+            destroy_function(
+                static_cast<VkInstance>(instance),
+                static_cast<VkDebugUtilsMessengerEXT>(messenger),
+                nullptr);
+        }
     }
 
-    Context::Context(const Window& window, const Config::Vulkan& config)
+    Context::Context(
+        const Window& window,
+        const Config::Vulkan& config,
+        const DeviceCapabilityRequest& capability_request)
         : m_config(config) {
         create_instance();
         create_surface(window);
-        pickup_physical_device();
-        choose_queue_families();
-        m_memory_properties = m_physical_device.getMemoryProperties();
+        pickup_physical_device(capability_request);
+        m_memory_properties = m_device_capability.physical_device.getMemoryProperties();
     }
 
     Context::~Context() {
-        m_instance.destroySurfaceKHR(m_surface);
-        m_instance.destroy();
+        if(m_surface) {
+            m_instance.destroySurfaceKHR(m_surface);
+        }
+        if(m_debug_messenger) {
+            destroy_debug_messenger(m_instance, m_debug_messenger);
+        }
+        if(m_instance) {
+            m_instance.destroy();
+        }
     }
 
     void Context::create_instance() {
@@ -51,138 +113,116 @@ namespace Comet {
         app_info.pEngineName = "CometEngine";
         app_info.apiVersion = vk::ApiVersion13;
 
-        // 1.构建layer
         std::vector<const char*> requested_layers;
         if(m_config.enable_validation) {
             requested_layers.push_back("VK_LAYER_KHRONOS_validation");
         }
 
-        const auto available_layers_props = vk::enumerateInstanceLayerProperties();
         std::set<std::string> available_layers;
-        for(const auto& prop: available_layers_props) {
-            available_layers.emplace(prop.layerName);
+        for(const auto& properties: vk::enumerateInstanceLayerProperties()) {
+            available_layers.emplace(properties.layerName);
         }
         const std::vector<const char*> enabled_layers = get_available_names(
             requested_layers, available_layers, "layer");
+        m_validation_enabled = !enabled_layers.empty();
 
-        // 2. 构建扩展
-        // 获取 GLFW 所需的扩展
-        unsigned int glfw_extension_count;
-        const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
-        std::vector<const char*> enabled_extensions(glfw_extensions, glfw_extensions + glfw_extension_count);
-
-        // 检查扩展可用性
-        const auto available_extensions = vk::enumerateInstanceExtensionProperties();
         std::set<std::string> available_extension_names;
-        for(const auto& ext: available_extensions) {
-            available_extension_names.insert(ext.extensionName);
+        for(const auto& extension: vk::enumerateInstanceExtensionProperties()) {
+            available_extension_names.emplace(extension.extensionName);
         }
-        const std::vector<const char*> custom_extensions = get_available_names(
-            s_requested_instance_extensions, available_extension_names, "instance extension");
-        enabled_extensions.insert(enabled_extensions.end(), custom_extensions.begin(), custom_extensions.end());
 
-        // 3. debug utils messenger
-        vk::DebugUtilsMessengerCreateInfoEXT debug_utils_create_info{};
-        debug_utils_create_info.pNext = nullptr;
-        debug_utils_create_info.messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-                                                  vk::DebugUtilsMessageSeverityFlagBitsEXT::eError;
-        debug_utils_create_info.messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
-                                              vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
-                                              vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
-        debug_utils_create_info.pfnUserCallback = vk_debug_utils_messenger_callback;
+        unsigned int glfw_extension_count = 0;
+        const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
+        if(!glfw_extensions || glfw_extension_count == 0) {
+            LOG_FATAL("GLFW did not provide the required Vulkan instance extensions");
+        }
 
-        vk::InstanceCreateInfo create_info = {};
+        std::vector<const char*> enabled_extensions;
+        enabled_extensions.reserve(
+            glfw_extension_count + requested_instance_extensions.size() + 1);
+        for(uint32_t i = 0; i < glfw_extension_count; ++i) {
+            if(!available_extension_names.contains(glfw_extensions[i])) {
+                LOG_FATAL("Required GLFW Vulkan instance extension is unavailable: {}",
+                    glfw_extensions[i]);
+            }
+            enabled_extensions.push_back(glfw_extensions[i]);
+            LOG_INFO("Enabled GLFW instance extension: {}", glfw_extensions[i]);
+        }
+
+        const auto custom_extensions = get_available_names(
+            requested_instance_extensions,
+            available_extension_names,
+            "instance extension");
+        for(const char* extension: custom_extensions) {
+            const bool already_enabled = std::ranges::any_of(
+                enabled_extensions,
+                [extension](const char* enabled_extension) {
+                    return std::string_view(enabled_extension) == extension;
+                });
+            if(!already_enabled) {
+                enabled_extensions.push_back(extension);
+            }
+        }
+
+        if(m_validation_enabled) {
+            if(available_extension_names.contains(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+                enabled_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+                m_debug_utils_enabled = true;
+                LOG_INFO("Enabled instance extension: {}", VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            } else {
+                LOG_WARN("Vulkan validation is enabled, but {} is unavailable; validation messages cannot be captured",
+                    VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            }
+        } else if(m_config.enable_validation) {
+            LOG_WARN("Vulkan validation was requested, but no validation layer is available");
+        }
+
+        const auto debug_messenger_create_info = make_debug_messenger_create_info();
+        vk::InstanceCreateInfo create_info{};
 #ifdef __APPLE__
-        // macOS 需要启用可移植性枚举标志
         create_info.flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
 #endif
-
-#ifdef BUILD_TYPE_DEBUG
-        create_info.pNext = &debug_utils_create_info;
-#endif
+        if(m_debug_utils_enabled) {
+            create_info.pNext = &debug_messenger_create_info;
+        }
         create_info.pApplicationInfo = &app_info;
         create_info.enabledLayerCount = static_cast<uint32_t>(enabled_layers.size());
         create_info.ppEnabledLayerNames = enabled_layers.data();
         create_info.enabledExtensionCount = static_cast<uint32_t>(enabled_extensions.size());
         create_info.ppEnabledExtensionNames = enabled_extensions.data();
         m_instance = vk::createInstance(create_info);
-        LOG_INFO("Vulkan instance created successfully");
+
+        if(m_debug_utils_enabled) {
+            m_debug_messenger = create_debug_messenger(
+                m_instance, debug_messenger_create_info);
+            LOG_INFO("Vulkan debug messenger created successfully");
+        }
+        LOG_INFO("Vulkan instance created successfully (validation: {})",
+            m_validation_enabled ? "enabled" : "disabled");
     }
 
-    void Context::pickup_physical_device() {
+    void Context::pickup_physical_device(
+        const DeviceCapabilityRequest& capability_request) {
         if(!m_instance) {
-            LOG_FATAL("vulkan instance not created");
+            LOG_FATAL("Vulkan instance not created");
         }
 
-        const auto devices = m_instance.enumeratePhysicalDevices();
-        if(devices.empty()) {
-            LOG_FATAL("vulkan physical device not found");
-        }
-        m_physical_device = devices[0];
-        const std::string deviceName = "physical device : " + static_cast<std::string>(m_physical_device.getProperties().deviceName);
-        LOG_INFO(deviceName);
+        m_device_capability = select_physical_device(
+            m_instance.enumeratePhysicalDevices(),
+            m_surface,
+            capability_request);
     }
 
     void Context::create_surface(const Window& window) {
         const auto glfw_window = window.get();
         if(!glfw_window) {
-            LOG_FATAL("glfw window not created");
+            LOG_FATAL("GLFW window not created");
         }
         VkSurfaceKHR surface = VK_NULL_HANDLE;
         if(glfwCreateWindowSurface(m_instance, glfw_window, nullptr, &surface) != VK_SUCCESS) {
-            LOG_FATAL("create vulkan surface failed");
+            LOG_FATAL("Create Vulkan surface failed");
         }
         m_surface = vk::SurfaceKHR(surface);
         LOG_INFO("Vulkan surface created successfully");
-    }
-
-    void Context::choose_queue_families() {
-        auto queue_families = m_physical_device.getQueueFamilyProperties();
-
-        std::optional<uint32_t> graphics_index;
-        std::optional<uint32_t> present_index;
-
-        for(uint32_t i = 0; i < queue_families.size(); i++) {
-            const auto& props = queue_families[i];
-            if(props.queueCount == 0) {
-                continue;
-            }
-            const auto is_graphics = props.queueFlags & vk::QueueFlagBits::eGraphics;
-            const bool is_present = m_physical_device.getSurfaceSupportKHR(i, m_surface);
-            if(is_graphics && !graphics_index.has_value()) {
-                graphics_index = i;
-                continue;
-            }
-            if(is_present && !present_index.has_value()) {
-                present_index = i;
-                continue;
-            }
-            if(graphics_index.has_value() && present_index.has_value()) {
-                break;
-            }
-        }
-        // 如果都没找到，报错
-        if(!graphics_index.has_value() && !present_index.has_value()) {
-            LOG_FATAL("not found graphics and present queue family");
-        }
-        // 如果present还没找到，且graphics队列支持，使用graphics队列簇
-        if(!present_index.has_value() && m_physical_device.getSurfaceSupportKHR(graphics_index.value(), m_surface)) {
-            LOG_DEBUG("graphics queue family also is present queue family");
-            present_index = graphics_index;
-        }
-        // 如果present队列簇还没找到，且present队列簇支持graphics队列簇
-        if(!graphics_index.has_value() && (queue_families[present_index.value()].queueFlags & vk::QueueFlagBits::eGraphics)) {
-            LOG_DEBUG("present queue family also is graphics queue family");
-            graphics_index = present_index;
-        }
-        // 保存结果
-        m_graphics_queue_family.queue_family_index = graphics_index;
-        m_graphics_queue_family.queue_count = queue_families[graphics_index.value()].queueCount;
-
-        m_present_queue_family.queue_family_index = present_index;
-        m_present_queue_family.queue_count = queue_families[present_index.value()].queueCount;
-
-        LOG_INFO("graphics queue family index : {}, queue count is {}", graphics_index.value(), m_graphics_queue_family.queue_count);
-        LOG_INFO("present queue family index : {}, queue count is {}", present_index.value(), m_present_queue_family.queue_count);
     }
 }

@@ -1,17 +1,14 @@
 #pragma once
 #include "vk_common.h"
+#include "vk_capability.h"
 #include "core/window.h"
 #include "common/config.h"
 
 namespace Comet {
-    struct QueueFamilyInfo {
-        std::optional<uint32_t> queue_family_index;
-        uint32_t queue_count = 0;
-    };
-
     class Context {
     public:
-        Context(const Window& window, const Config::Vulkan& config);
+        Context(const Window& window, const Config::Vulkan& config,
+                const DeviceCapabilityRequest& capability_request);
 
         Context(const Context&) = delete;
 
@@ -24,15 +21,27 @@ namespace Comet {
         ~Context();
 
         [[nodiscard]] vk::Instance instance() const { return m_instance; }
-        [[nodiscard]] vk::PhysicalDevice get_physical_device() const { return m_physical_device; }
+        [[nodiscard]] vk::PhysicalDevice get_physical_device() const {
+            return m_device_capability.physical_device;
+        }
         [[nodiscard]] vk::SurfaceKHR get_surface() const { return m_surface; }
 
         [[nodiscard]] bool is_same_queue_families() const {
-            return m_graphics_queue_family.queue_family_index == m_present_queue_family.queue_family_index;
+            return m_device_capability.graphics_queue_family.queue_family_index
+                == m_device_capability.present_queue_family.queue_family_index;
         }
 
-        [[nodiscard]] QueueFamilyInfo get_graphics_queue_family() const { return m_graphics_queue_family; }
-        [[nodiscard]] QueueFamilyInfo get_present_queue_family() const { return m_present_queue_family; }
+        [[nodiscard]] QueueFamilyInfo get_graphics_queue_family() const {
+            return m_device_capability.graphics_queue_family;
+        }
+
+        [[nodiscard]] QueueFamilyInfo get_present_queue_family() const {
+            return m_device_capability.present_queue_family;
+        }
+
+        [[nodiscard]] const DeviceCapability& get_device_capability() const {
+            return m_device_capability;
+        }
 
         [[nodiscard]] vk::PhysicalDeviceMemoryProperties get_memory_properties() const {
             return m_memory_properties;
@@ -41,19 +50,18 @@ namespace Comet {
     private:
         void create_instance();
 
-        void pickup_physical_device();
+        void pickup_physical_device(const DeviceCapabilityRequest& capability_request);
 
         void create_surface(const Window& window);
 
-        void choose_queue_families();
-
         vk::Instance m_instance;
-        vk::PhysicalDevice m_physical_device;
+        vk::DebugUtilsMessengerEXT m_debug_messenger;
         vk::SurfaceKHR m_surface;
 
-        QueueFamilyInfo m_graphics_queue_family;
-        QueueFamilyInfo m_present_queue_family;
+        DeviceCapability m_device_capability;
         vk::PhysicalDeviceMemoryProperties m_memory_properties;
         Config::Vulkan m_config;
+        bool m_validation_enabled = false;
+        bool m_debug_utils_enabled = false;
     };
 }

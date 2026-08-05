@@ -8,16 +8,25 @@ namespace Comet {
         PROFILE_SCOPE("RenderContext::Constructor");
         LOG_INFO("init graphics system");
 
-        m_context = std::make_unique<Context>(window, m_vulkan_config);
+        auto present_mode = static_cast<vk::PresentModeKHR>(m_vulkan_config.present_mode);
+        if(m_render_config.enable_vsync) {
+            present_mode = vk::PresentModeKHR::eFifo;
+        }
+
+        const DeviceCapabilityRequest capability_request{
+            .surface_format = {
+                static_cast<vk::Format>(m_vulkan_config.surface_format),
+                static_cast<vk::ColorSpaceKHR>(m_vulkan_config.color_space)
+            },
+            .depth_format = static_cast<vk::Format>(m_vulkan_config.depth_format),
+            .sample_count = static_cast<vk::SampleCountFlagBits>(m_vulkan_config.msaa_samples),
+            .present_mode = present_mode,
+            .max_sampler_anisotropy = m_render_config.max_anisotropy
+        };
+        m_context = std::make_unique<Context>(window, m_vulkan_config, capability_request);
 
         LOG_INFO("create device");
-        m_device = std::make_unique<Device>(
-            m_context.get(),
-            Device::CreateInfo{
-                .capabilities = {
-                    .max_sampler_anisotropy = m_render_config.max_anisotropy
-                }
-            });
+        m_device = std::make_unique<Device>(m_context.get());
 
         LOG_INFO("create swapchain");
         m_swapchain = std::make_unique<Swapchain>(m_context.get(), m_device.get(), m_vulkan_config, m_render_config);

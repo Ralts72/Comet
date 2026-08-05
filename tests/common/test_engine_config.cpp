@@ -21,7 +21,7 @@ TEST(RuntimeConfigTest, ParsesRuntimeConfigurationFromLoadedConfig) {
     EXPECT_EQ(config.vulkan.present_mode, 0);
     EXPECT_EQ(config.vulkan.swapchain_image_count, 3u);
     EXPECT_EQ(config.vulkan.msaa_samples, 4);
-    EXPECT_TRUE(config.vulkan.enable_validation);
+    EXPECT_EQ(config.vulkan.enable_validation, Config::Vulkan{}.enable_validation);
 
     EXPECT_EQ(config.render.max_frames_in_flight, 2u);
     EXPECT_FALSE(config.render.enable_vsync);

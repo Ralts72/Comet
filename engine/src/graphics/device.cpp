@@ -58,8 +58,7 @@ namespace Comet {
         }
 
         const auto physical_device = context->get_physical_device();
-        m_capability = select_device_capabilities(
-            create_info.capabilities, physical_device);
+        m_capability = context->get_device_capability();
 
         vk::DeviceCreateInfo device_create_info = {};
         device_create_info.queueCreateInfoCount = queue_create_infos.size();

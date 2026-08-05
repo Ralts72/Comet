@@ -76,8 +76,10 @@ ctest --test-dir build --output-on-failure
 
 主配置文件位于 `engine/assets/config.yaml`。运行入口在 `engine/src/runtime/runtime.h` 中通过局部 `ConfigLoader` 将 YAML
 解析为纯数据 `Config`，再把窗口、Vulkan、渲染和日志配置传入对应模块；yaml-cpp 只存在于加载器实现中，底层渲染资源
-不直接读取原始配置。`render.max_anisotropy` 表达项目期望的过滤倍率，`1` 表示关闭；`engine/src/graphics/vk_capability.h`
-集中处理 Layer、Extension 和设备能力协商，并将实际值限制在设备上限内。Vulkan 内存分配由 `engine/src/graphics/allocator.h`
+不直接读取原始配置。Vulkan Validation 在 Debug 构建中默认开启、Release 和 CI 构建中默认关闭；需要临时覆盖时可在
+`debug.enable_validation` 中配置，运行期 Debug Utils Messenger 由 `Context` 持有。`render.max_anisotropy` 表达项目期望的
+过滤倍率，`1` 表示关闭；`engine/src/graphics/vk_capability.h` 集中处理物理设备的队列、扩展、Surface、格式和 Feature
+能力检查，按设备类型与可用能力评分，并将实际值限制在设备上限内。Vulkan 内存分配由 `engine/src/graphics/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。`engine/src/scene/`
 提供基于 EnTT 的 Scene/Entity 和基础组件数据模型；`TransformComponent` 的 Euler 角使用度，局部矩阵顺序为
