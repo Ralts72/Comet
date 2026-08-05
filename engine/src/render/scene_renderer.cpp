@@ -308,7 +308,7 @@ namespace Comet {
         // Submit
         const auto& graphics_queue = device->get_graphics_queue(0);
         graphics_queue.submit(std::span(&frame_slot.command_buffer, 1),
-            std::span(&frame_slot.image_available_semaphore, 1),
+            frame_slot.image_available_semaphore,
             std::span(&image_state.render_finished_semaphore, 1),
             &frame_slot.in_flight_fence);
 

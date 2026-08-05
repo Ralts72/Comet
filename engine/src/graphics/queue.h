@@ -17,8 +17,14 @@ namespace Comet {
 
         void wait_idle() const { m_queue.waitIdle(); }
 
-        void submit(std::span<const CommandBuffer> command_buffers, std::span<const Semaphore> wait_semaphores,
-                    std::span<const Semaphore> signal_semaphores, const Fence* fence) const;
+        void submit(std::span<const CommandBuffer> command_buffers,
+                    std::span<const Semaphore> signal_semaphores,
+                    const Fence* fence) const;
+
+        void submit(std::span<const CommandBuffer> command_buffers,
+                    const Semaphore& wait_semaphore,
+                    std::span<const Semaphore> signal_semaphores,
+                    const Fence* fence) const;
 
         [[nodiscard]] vk::Result present(const Swapchain& swapchain, std::span<const Semaphore> wait_semaphores,
                                          uint32_t image_index) const;
@@ -29,6 +35,11 @@ namespace Comet {
         [[nodiscard]] Type get_type() const { return m_type; }
 
     private:
+        void submit_internal(std::span<const CommandBuffer> command_buffers,
+                             const Semaphore* wait_semaphore,
+                             std::span<const Semaphore> signal_semaphores,
+                             const Fence* fence) const;
+
         uint32_t m_family_index;
         uint32_t m_index;
         vk::Queue m_queue;

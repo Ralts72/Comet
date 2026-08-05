@@ -85,7 +85,7 @@ namespace Comet {
 
         // 提交到队列
         const auto& graphics_queue = m_device->get_graphics_queue(0);
-        graphics_queue.submit(std::span(&m_command_buffer, 1), {}, {}, {});
+        graphics_queue.submit(std::span(&m_command_buffer, 1), {}, nullptr);
 
         // 等待完成
         graphics_queue.wait_idle();
@@ -99,4 +99,3 @@ namespace Comet {
         submit_and_wait();
     }
 }
-

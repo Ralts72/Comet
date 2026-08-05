@@ -9,20 +9,36 @@ namespace Comet {
     Queue::Queue(const uint32_t family_index, const uint32_t index, const vk::Queue queue, const Type type)
     : m_family_index(family_index), m_index(index), m_queue(queue), m_type(type) {}
 
-    void Queue::submit(const std::span<const CommandBuffer> command_buffers, const std::span<const Semaphore> wait_semaphores,
-        const std::span<const Semaphore> signal_semaphores, const Fence* fence) const {
-        std::vector<vk::Semaphore> vk_wait_semaphores;
-        vk_wait_semaphores.reserve(wait_semaphores.size());
-        for(const auto& semaphore : wait_semaphores) {
-            vk_wait_semaphores.emplace_back(semaphore.get());
-        }
+    void Queue::submit(const std::span<const CommandBuffer> command_buffers,
+                       const std::span<const Semaphore> signal_semaphores,
+                       const Fence* fence) const {
+        submit_internal(command_buffers, nullptr, signal_semaphores, fence);
+    }
+
+    void Queue::submit(const std::span<const CommandBuffer> command_buffers,
+                       const Semaphore& wait_semaphore,
+                       const std::span<const Semaphore> signal_semaphores,
+                       const Fence* fence) const {
+        submit_internal(command_buffers, &wait_semaphore, signal_semaphores, fence);
+    }
+
+    void Queue::submit_internal(const std::span<const CommandBuffer> command_buffers,
+                                const Semaphore* wait_semaphore,
+                                const std::span<const Semaphore> signal_semaphores,
+                                const Fence* fence) const {
         std::vector<vk::Semaphore> vk_signal_semaphores;
         vk_signal_semaphores.reserve(signal_semaphores.size());
         for(const auto& semaphore : signal_semaphores) {
             vk_signal_semaphores.emplace_back(semaphore.get());
         }
 
-        const std::vector<vk::PipelineStageFlags> stage_info = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
+        vk::Semaphore vk_wait_semaphore = VK_NULL_HANDLE;
+        vk::PipelineStageFlags wait_stage = {};
+        if(wait_semaphore) {
+            vk_wait_semaphore = wait_semaphore->get();
+            wait_stage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        }
+
         std::vector<vk::CommandBuffer> cmd_buffers;
         cmd_buffers.reserve(command_buffers.size());
         for(const auto& cmd_buffer : command_buffers) {
@@ -33,9 +49,9 @@ namespace Comet {
         submit_info.pCommandBuffers = cmd_buffers.data();
         submit_info.signalSemaphoreCount = static_cast<uint32_t>(vk_signal_semaphores.size());
         submit_info.pSignalSemaphores = vk_signal_semaphores.data();
-        submit_info.pWaitDstStageMask = stage_info.data();
-        submit_info.pWaitSemaphores = vk_wait_semaphores.data();
-        submit_info.waitSemaphoreCount = static_cast<uint32_t>(vk_wait_semaphores.size());
+        submit_info.pWaitDstStageMask = wait_semaphore ? &wait_stage : nullptr;
+        submit_info.pWaitSemaphores = wait_semaphore ? &vk_wait_semaphore : nullptr;
+        submit_info.waitSemaphoreCount = wait_semaphore ? 1 : 0;
 
         if(!fence) {
             m_queue.submit(submit_info, nullptr);
