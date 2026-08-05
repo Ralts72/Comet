@@ -6,7 +6,7 @@
 #include "scene/scene.h"
 
 namespace Comet {
-    Engine::Engine(Config::Runtime config)
+    Engine::Engine(Config config)
         : m_config(std::move(config)) {
         PROFILE_SCOPE("Engine::Constructor");
         LOG_INFO("init timer");

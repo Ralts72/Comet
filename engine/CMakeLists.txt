@@ -17,7 +17,7 @@ set(SOURCES
         src/common/geometry_utils.cpp
         src/common/profiler.cpp
         src/common/logger.cpp
-        src/common/config.cpp
+        src/common/config_loader.cpp
         src/core/window.cpp
         src/core/timer.cpp
         src/core/engine.cpp
@@ -64,11 +64,11 @@ target_link_libraries(engine
         glm
         Vulkan::Vulkan
         glfw
-        yaml-cpp
         GPUOpen::VulkanMemoryAllocator
         EnTT::EnTT
         PRIVATE
         stb_image
+        yaml-cpp
 )
 target_include_directories(engine
         PUBLIC

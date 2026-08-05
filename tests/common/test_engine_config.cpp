@@ -1,11 +1,10 @@
 #include <gtest/gtest.h>
-#include "common/config.h"
+#include "common/config_loader.h"
 
 using namespace Comet;
 
 TEST(RuntimeConfigTest, ParsesRuntimeConfigurationFromLoadedConfig) {
-    Config loader;
-    const Config::Runtime config = loader.load_runtime_config();
+    const Config config = ConfigLoader{}.load();
 
     EXPECT_EQ(config.log.level, "info");
     EXPECT_FALSE(config.log.enable_file_logging);

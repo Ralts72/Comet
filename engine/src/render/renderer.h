@@ -16,7 +16,7 @@ namespace Comet {
     class COMET_API Renderer {
     public:
         Renderer(const Window& window,
-                 const Config::Runtime& config,
+                 const Config& config,
                  const AssetRegistry& asset_registry);
 
         ~Renderer();

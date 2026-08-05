@@ -1,13 +1,12 @@
 #include <gtest/gtest.h>
-#include "../engine/src/common/config.h"
+#include "../engine/src/common/config_loader.h"
 #include "../engine/src/common/logger.h"
 
 // 全局测试环境设置
 class CometTestEnvironment: public ::testing::Environment {
 public:
     void SetUp() override {
-        Comet::Config config;
-        const auto runtime_config = config.load_runtime_config();
+        const auto runtime_config = Comet::ConfigLoader{}.load();
         Comet::Logger::init(runtime_config.log);
 
         std::cout << "=== Comet Engine Test Suite ===" << std::endl;

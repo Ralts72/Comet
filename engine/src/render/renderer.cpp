@@ -6,7 +6,7 @@
 
 namespace Comet {
     Renderer::Renderer(const Window& window,
-                       const Config::Runtime& config,
+                       const Config& config,
                        const AssetRegistry& asset_registry)
         : m_render_scene_resolver(asset_registry),
           m_vulkan_config(config.vulkan),

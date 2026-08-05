@@ -1,13 +1,10 @@
 #pragma once
+
 #include "common/export.h"
 
 #include <array>
 #include <cstdint>
-#include <mutex>
-#include <stdexcept>
 #include <string>
-
-#include <yaml-cpp/yaml.h>
 
 namespace Comet {
     class COMET_API Config {
@@ -41,67 +38,9 @@ namespace Comet {
             bool enable_vsync = false;
         };
 
-        struct Runtime {
-            Log log;
-            Window window;
-            Vulkan vulkan;
-            Render render;
-        };
-
-        Config() = default;
-
-        ~Config() = default;
-
-        Config(const Config&) = delete;
-
-        Config& operator=(const Config&) = delete;
-
-        Runtime load_runtime_config(const std::string& config_path = "");
-
-    private:
-        void load(const std::string& config_path);
-
-        Runtime get_runtime_config() const;
-
-        template<typename T>
-        T get(const std::string& key) const;
-
-        template<typename T>
-        T get(const std::string& key, const T& default_value) const;
-
-        static std::string get_default_config_path();
-
-        void load_from_file(const std::string& config_path);
-
-        YAML::Node get_node_internal(const std::string& key) const;
-
-        YAML::Node m_root;
-        std::string m_config_path;
-        mutable std::mutex m_mutex;
+        Log log;
+        Window window;
+        Vulkan vulkan;
+        Render render;
     };
-
-    template<typename T>
-    T Config::get(const std::string& key) const {
-        std::lock_guard<std::mutex> lock(m_mutex);
-
-        const YAML::Node node = get_node_internal(key);
-        if(!node) {
-            throw std::runtime_error("Config key not found: " + key);
-        }
-
-        try {
-            return node.as<T>();
-        } catch(const YAML::Exception& e) {
-            throw std::runtime_error("Config type conversion failed for key '" + key + "': " + e.what());
-        }
-    }
-
-    template<typename T>
-    T Config::get(const std::string& key, const T& default_value) const {
-        try {
-            return get<T>(key);
-        } catch(const std::runtime_error&) {
-            return default_value;
-        }
-    }
 }

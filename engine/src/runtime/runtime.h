@@ -1,7 +1,7 @@
 #pragma once
 #include "core/engine.h"
 #include "common/logger.h"
-#include "common/config.h"
+#include "common/config_loader.h"
 
 namespace Comet {
     class Application {
@@ -10,8 +10,7 @@ namespace Comet {
 
         void start() {
             // 1. 加载配置文件并统一解析运行配置
-            Config config;
-            m_config = config.load_runtime_config();
+            m_config = ConfigLoader{}.load();
             Logger::init(m_config.log);
             LOG_INFO("Config and Logger initialized successfully");
 
@@ -46,7 +45,7 @@ namespace Comet {
         virtual void on_shutdown() = 0;
 
     private:
-        Config::Runtime m_config;
+        Config m_config;
         std::unique_ptr<Engine> m_engine;
     };
 
