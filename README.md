@@ -79,9 +79,12 @@ ctest --test-dir build --output-on-failure
 不直接读取原始配置。Vulkan Validation 在 Debug 构建中默认开启、Release 和 CI 构建中默认关闭；需要临时覆盖时可在
 `debug.enable_validation` 中配置，运行期 Debug Utils Messenger 由 `Context` 持有。`render.max_anisotropy` 表达项目期望的
 过滤倍率，`1` 表示关闭；`engine/src/graphics/vk_capability.h` 集中处理物理设备的队列、扩展、Surface、格式和 Feature
-能力检查，按设备类型与可用能力评分，并将实际值限制在设备上限内。Vulkan 内存分配由 `engine/src/graphics/allocator.h`
+能力检查，以及 Swapchain Request 到最终 Config 的选择；设备按类型与可用能力评分，实际值限制在设备上限内。
+Vulkan 内存分配由 `engine/src/graphics/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
-VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。`engine/src/scene/`
+VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability
+和 framebuffer 像素尺寸选择 extent、transform、alpha、usage 与 present mode，窗口最小化时暂停更新并延迟重建。
+`engine/src/scene/`
 提供基于 EnTT 的 Scene/Entity 和基础组件数据模型；`TransformComponent` 的 Euler 角使用度，局部矩阵顺序为
 `T * Rz * Ry * Rx * S`。`SceneRenderExtractor` 将可渲染实体和 Camera 复制为
 `engine/src/render/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。

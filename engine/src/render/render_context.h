@@ -18,8 +18,6 @@ namespace Comet {
         void wait_idle() const;
 
     private:
-        Config::Vulkan m_vulkan_config;
-        Config::Render m_render_config;
         std::unique_ptr<Context> m_context;
         std::unique_ptr<Device> m_device;
         std::unique_ptr<Swapchain> m_swapchain;

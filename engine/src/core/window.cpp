@@ -1,6 +1,7 @@
 #include "window.h"
 #include "common/logger.h"
 #include "common/profiler.h"
+#include <algorithm>
 #define GL_FALSE 0
 
 namespace Comet {
@@ -61,9 +62,24 @@ namespace Comet {
         return glfwWindowShouldClose(m_window);
     }
 
+    Math::Vec2u Window::get_framebuffer_size() const {
+        int width = 0;
+        int height = 0;
+        glfwGetFramebufferSize(m_window, &width, &height);
+        return {
+            static_cast<uint32_t>(std::max(width, 0)),
+            static_cast<uint32_t>(std::max(height, 0))
+        };
+    }
+
     void Window::poll_events() {
         PROFILE_SCOPE("Window::PollEvents");
         glfwPollEvents();
+    }
+
+    void Window::wait_events() {
+        PROFILE_SCOPE("Window::WaitEvents");
+        glfwWaitEvents();
     }
 
     void Window::swap_buffers() const {

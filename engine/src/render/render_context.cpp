@@ -3,33 +3,38 @@
 #include "common/profiler.h"
 
 namespace Comet {
-    RenderContext::RenderContext(const Window& window, const Config::Vulkan& vulkan_config, const Config::Render& render_config)
-        : m_vulkan_config(vulkan_config), m_render_config(render_config) {
+    RenderContext::RenderContext(const Window& window, const Config::Vulkan& vulkan_config, const Config::Render& render_config) {
         PROFILE_SCOPE("RenderContext::Constructor");
         LOG_INFO("init graphics system");
 
-        auto present_mode = static_cast<vk::PresentModeKHR>(m_vulkan_config.present_mode);
-        if(m_render_config.enable_vsync) {
+        auto present_mode = static_cast<vk::PresentModeKHR>(vulkan_config.present_mode);
+        if(render_config.enable_vsync) {
             present_mode = vk::PresentModeKHR::eFifo;
         }
 
-        const DeviceCapabilityRequest capability_request{
+        const SwapchainRequest swapchain_request{
+            .image_count = vulkan_config.swapchain_image_count,
             .surface_format = {
-                static_cast<vk::Format>(m_vulkan_config.surface_format),
-                static_cast<vk::ColorSpaceKHR>(m_vulkan_config.color_space)
+                static_cast<vk::Format>(vulkan_config.surface_format),
+                static_cast<vk::ColorSpaceKHR>(vulkan_config.color_space)
             },
-            .depth_format = static_cast<vk::Format>(m_vulkan_config.depth_format),
-            .sample_count = static_cast<vk::SampleCountFlagBits>(m_vulkan_config.msaa_samples),
             .present_mode = present_mode,
-            .max_sampler_anisotropy = m_render_config.max_anisotropy
+            .usage = vk::ImageUsageFlagBits::eColorAttachment
         };
-        m_context = std::make_unique<Context>(window, m_vulkan_config, capability_request);
+        const DeviceCapabilityRequest capability_request{
+            .swapchain = swapchain_request,
+            .depth_format = static_cast<vk::Format>(vulkan_config.depth_format),
+            .sample_count = static_cast<vk::SampleCountFlagBits>(vulkan_config.msaa_samples),
+            .max_sampler_anisotropy = render_config.max_anisotropy
+        };
+        m_context = std::make_unique<Context>(window, vulkan_config, capability_request);
 
         LOG_INFO("create device");
         m_device = std::make_unique<Device>(m_context.get());
 
         LOG_INFO("create swapchain");
-        m_swapchain = std::make_unique<Swapchain>(m_context.get(), m_device.get(), m_vulkan_config, m_render_config);
+        m_swapchain = std::make_unique<Swapchain>(
+            window, m_context.get(), m_device.get(), swapchain_request);
     }
 
     void RenderContext::wait_idle() const {

@@ -1,6 +1,8 @@
 #pragma once
 #include "vk_common.h"
-#include "common/config.h"
+#include "vk_capability.h"
+
+#include <vector>
 
 namespace Comet {
     class Context;
@@ -8,43 +10,41 @@ namespace Comet {
     class Image;
     class Semaphore;
     class Fence;
-
-    struct SurfaceInfo {
-        vk::SurfaceCapabilitiesKHR capabilities;
-        vk::SurfaceFormatKHR surface_format;
-        vk::PresentModeKHR present_mode;
-    };
+    class Window;
 
     class Swapchain {
     public:
-        Swapchain(Context* context, Device* device, const Config::Vulkan& vulkan_config, const Config::Render& render_config);
+        Swapchain(const Window& window, Context* context, Device* device,
+                  const SwapchainRequest& request);
 
         ~Swapchain();
 
         Swapchain(const Swapchain&) = delete;
+
         Swapchain& operator=(const Swapchain&) = delete;
+
         Swapchain(Swapchain&&) noexcept = delete;
+
         Swapchain& operator=(Swapchain&&) noexcept = delete;
 
-        void recreate();
+        [[nodiscard]] bool recreate();
 
-        [[nodiscard]]std::pair<uint32_t, vk::Result> acquire_next_image(const Semaphore& semaphore);
+        [[nodiscard]] std::pair<uint32_t, vk::Result> acquire_next_image(const Semaphore& semaphore);
+
         [[nodiscard]] uint32_t get_current_index() const { return m_current_index; }
         [[nodiscard]] const std::vector<std::shared_ptr<Image>>& get_images() const { return m_images; }
-        [[nodiscard]] uint32_t get_width() const { return m_surface_info.capabilities.currentExtent.width; }
-        [[nodiscard]] uint32_t get_height() const { return m_surface_info.capabilities.currentExtent.height; }
+        [[nodiscard]] uint32_t get_width() const { return m_config.extent.width; }
+        [[nodiscard]] uint32_t get_height() const { return m_config.extent.height; }
         [[nodiscard]] const vk::SwapchainKHR& get() const { return m_swapchain; }
 
     private:
-        void setup_surface_capabilities();
-
         vk::SwapchainKHR m_swapchain;
+        const Window& m_window;
         Context* m_context;
         Device* m_device;
         std::vector<std::shared_ptr<Image>> m_images;
-        SurfaceInfo m_surface_info;
+        SwapchainConfig m_config;
         uint32_t m_current_index = -1;
-        Config::Vulkan m_vulkan_config;
-        Config::Render m_render_config;
+        SwapchainRequest m_request;
     };
 }

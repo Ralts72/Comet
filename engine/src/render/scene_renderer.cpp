@@ -230,7 +230,7 @@ namespace Comet {
         }
     }
 
-    uint32_t SceneRenderer::begin_frame() {
+    bool SceneRenderer::begin_frame() {
         PROFILE_SCOPE("SceneRenderer::begin_frame");
         apply_pending_viewport_resize();
         m_frame_manager->begin_frame();
@@ -242,7 +242,9 @@ namespace Comet {
         auto [image_index, acquire_result] =
                 swapchain->acquire_next_image(frame_slot.image_available_semaphore);
         if(acquire_result == vk::Result::eErrorOutOfDateKHR) {
-            recreate_swapchain();
+            if(!recreate_swapchain()) {
+                return false;
+            }
             std::tie(image_index, acquire_result) =
                     swapchain->acquire_next_image(frame_slot.image_available_semaphore);
             if(acquire_result != vk::Result::eSuccess && acquire_result != vk::Result::eSuboptimalKHR) {
@@ -260,7 +262,7 @@ namespace Comet {
             m_render_target->begin_render_target(command_buffer);
         }
 
-        return image_index;
+        return true;
     }
 
     void SceneRenderer::render_item(const ResolvedRenderItem& render_item,
@@ -318,7 +320,7 @@ namespace Comet {
         const auto result = present_queue.present(*swapchain,
             std::span(&image_state.render_finished_semaphore, 1), image_index);
         if(result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR) {
-            recreate_swapchain();
+            static_cast<void>(recreate_swapchain());
         } else if(result != vk::Result::eSuccess) {
             LOG_FATAL("failed to present swapchain image: {}", vk::to_string(result));
         }
@@ -378,13 +380,13 @@ namespace Comet {
         return color_views;
     }
 
-    void SceneRenderer::recreate_swapchain() {
+    bool SceneRenderer::recreate_swapchain() {
         PROFILE_SCOPE("SceneRenderer::recreate_swapchain");
-        const auto device = m_context.get_device();
         const auto swapchain = m_context.get_swapchain();
 
-        device->wait_idle();
-        swapchain->recreate();
+        if(!swapchain->recreate()) {
+            return false;
+        }
 
         if(!m_uses_viewport_target) {
             m_render_target = RenderTarget::create_swapchain_target(
@@ -399,6 +401,7 @@ namespace Comet {
         if(m_swapchain_recreate_callback) {
             m_swapchain_recreate_callback();
         }
+        return true;
     }
 
     void SceneRenderer::reset_render_pipeline() {

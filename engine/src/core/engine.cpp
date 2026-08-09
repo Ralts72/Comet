@@ -47,6 +47,17 @@ namespace Comet {
         while(!m_window->should_close()) {
             PROFILE_SCOPE("Engine::Frame");
             m_window->poll_events();
+            if(m_window->should_close()) {
+                break;
+            }
+
+            const auto framebuffer_size = m_window->get_framebuffer_size();
+            if(framebuffer_size.x == 0 || framebuffer_size.y == 0) {
+                m_window->wait_events();
+                m_timer->tick();
+                continue;
+            }
+
             m_timer->tick();
             const auto update_context = m_timer->get_update_context();
 

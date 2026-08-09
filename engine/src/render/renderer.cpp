@@ -76,7 +76,9 @@ namespace Comet {
         PROFILE_SCOPE("render frame");
 
         // Begin frame (acquires image and begins command buffer)
-        m_scene_renderer->begin_frame();
+        if(!m_scene_renderer->begin_frame()) {
+            return;
+        }
         const RenderSubmission submission = m_render_scene_resolver.resolve(
             render_scene, m_scene_renderer->get_render_target().get_size());
         m_scene_renderer->render(submission);

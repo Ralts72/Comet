@@ -5,6 +5,7 @@
 #include <GLFW/glfw3.h>
 
 #include "common/config.h"
+#include "core/math_utils.h"
 
 #include <string>
 
@@ -19,7 +20,11 @@ namespace Comet {
 
         [[nodiscard]] bool should_close() const;
 
+        [[nodiscard]] Math::Vec2u get_framebuffer_size() const;
+
         void poll_events();
+
+        void wait_events();
 
         void swap_buffers() const;
 

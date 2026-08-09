@@ -50,7 +50,7 @@ namespace Comet {
 
         void render(const RenderSubmission& submission);
 
-        uint32_t begin_frame();
+        [[nodiscard]] bool begin_frame();
 
         void end_frame();
 
@@ -74,7 +74,7 @@ namespace Comet {
         [[nodiscard]] bool is_viewport_rendering() const { return m_uses_viewport_target; }
         [[nodiscard]] std::vector<vk::ImageView> get_viewport_color_views() const;
 
-        void recreate_swapchain();
+        [[nodiscard]] bool recreate_swapchain();
 
         using SwapchainRecreateCallback = std::function<void()>;
         void set_swapchain_recreate_callback(SwapchainRecreateCallback callback) {

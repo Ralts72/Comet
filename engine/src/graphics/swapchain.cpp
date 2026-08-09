@@ -1,134 +1,153 @@
 #include "swapchain.h"
-#include "context.h"
-#include "device.h"
+
 #include "common/logger.h"
 #include "common/profiler.h"
+#include "context.h"
+#include "core/window.h"
+#include "device.h"
 #include "image.h"
 #include "semaphore.h"
 
+#include <utility>
+
 namespace Comet {
-    Swapchain::Swapchain(Context* context, Device* device, const Config::Vulkan& vulkan_config, const Config::Render& render_config)
-        : m_context(context), m_device(device), m_vulkan_config(vulkan_config), m_render_config(render_config) {
+    Swapchain::Swapchain(
+        const Window& window,
+        Context* context,
+        Device* device,
+        const SwapchainRequest& request)
+        : m_window(window),
+          m_context(context),
+          m_device(device),
+          m_request(request) {
         PROFILE_SCOPE("Swapchain::Constructor");
-        recreate();
+        if(!context || !device) {
+            LOG_FATAL("Swapchain requires a valid Context and Device");
+        }
+        if(!recreate()) {
+            LOG_FATAL("Cannot create the initial swapchain for a zero-sized framebuffer");
+        }
     }
 
     Swapchain::~Swapchain() {
-        m_device->get().destroySwapchainKHR(m_swapchain);
+        if(m_swapchain) {
+            m_device->get().destroySwapchainKHR(m_swapchain);
+        }
     }
 
-    void Swapchain::recreate() {
+    bool Swapchain::recreate() {
         PROFILE_SCOPE("Swapchain::Recreate");
-        setup_surface_capabilities();
+        const auto physical_device = m_context->get_physical_device();
+        const auto surface = m_context->get_surface();
+        const auto capabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
+        const auto surface_formats = physical_device.getSurfaceFormatsKHR(surface);
+        const auto present_modes = physical_device.getSurfacePresentModesKHR(surface);
+        const auto framebuffer_size = m_window.get_framebuffer_size();
 
-        const uint32_t min_count = m_surface_info.capabilities.minImageCount;
-        const uint32_t max_count = m_surface_info.capabilities.maxImageCount;
-        auto image_count = m_vulkan_config.swapchain_image_count;
-        if(max_count > 0) {
-            image_count = std::clamp(image_count, min_count, max_count);
-        } else {
-            image_count = std::max(image_count, min_count);
+        const auto [status, config, message] = select_swapchain(
+            capabilities,
+            surface_formats,
+            present_modes,
+            vk::Extent2D{framebuffer_size.x, framebuffer_size.y},
+            m_request);
+        if(status == SwapchainStatus::Deferred) {
+            LOG_DEBUG("Swapchain recreation deferred: {}", message);
+            return false;
         }
+        if(status == SwapchainStatus::Unsupported) {
+            LOG_FATAL("Cannot create Vulkan swapchain: {}", message);
+        }
+        if(!message.empty()) {
+            LOG_WARN("Swapchain selection: {}", message);
+        }
+        m_device->wait_idle();
 
         vk::SharingMode image_sharing_mode;
-        uint32_t queue_family_index_count = 0;
         std::vector<uint32_t> queue_family_indices;
         if(m_context->is_same_queue_families()) {
             image_sharing_mode = vk::SharingMode::eExclusive;
         } else {
             image_sharing_mode = vk::SharingMode::eConcurrent;
-            queue_family_index_count = 2;
-            queue_family_indices.push_back(m_context->get_graphics_queue_family().queue_family_index.value());
-            queue_family_indices.push_back(m_context->get_present_queue_family().queue_family_index.value());
+            queue_family_indices.push_back(
+                m_context->get_graphics_queue_family().queue_family_index.value());
+            queue_family_indices.push_back(
+                m_context->get_present_queue_family().queue_family_index.value());
         }
 
-        vk::SwapchainKHR old_swapchain = m_swapchain;
-
-        vk::SwapchainCreateInfoKHR create_info = {};
-        create_info.surface = m_context->get_surface();
-        create_info.minImageCount = image_count;
-        create_info.imageFormat = m_surface_info.surface_format.format;
-        create_info.imageColorSpace = m_surface_info.surface_format.colorSpace;
-        create_info.imageExtent = m_surface_info.capabilities.currentExtent;
-        create_info.imageArrayLayers = 1;
-        create_info.imageUsage = vk::ImageUsageFlagBits::eColorAttachment;
+        const vk::SwapchainKHR old_swapchain = m_swapchain;
+        vk::SwapchainCreateInfoKHR create_info{};
+        create_info.surface = surface;
+        create_info.minImageCount = config.image_count;
+        create_info.imageFormat = config.surface_format.format;
+        create_info.imageColorSpace = config.surface_format.colorSpace;
+        create_info.imageExtent = config.extent;
+        create_info.imageArrayLayers = config.image_layers;
+        create_info.imageUsage = config.usage;
         create_info.imageSharingMode = image_sharing_mode;
-        create_info.queueFamilyIndexCount = queue_family_index_count;
-        create_info.pQueueFamilyIndices = queue_family_indices.data();
-        create_info.preTransform = vk::SurfaceTransformFlagBitsKHR::eIdentity;
-        create_info.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eInherit;
-        create_info.presentMode = m_surface_info.present_mode;
-        create_info.clipped = VK_FALSE;
+        create_info.queueFamilyIndexCount = static_cast<uint32_t>(
+            queue_family_indices.size());
+        create_info.pQueueFamilyIndices = queue_family_indices.empty()
+                                              ? nullptr
+                                              : queue_family_indices.data();
+        create_info.preTransform = config.transform;
+        create_info.compositeAlpha = config.composite_alpha;
+        create_info.presentMode = config.present_mode;
+        create_info.clipped = config.clipped ? VK_TRUE : VK_FALSE;
         create_info.oldSwapchain = old_swapchain;
+
         m_swapchain = m_device->get().createSwapchainKHR(create_info);
         const auto images = m_device->get().getSwapchainImagesKHR(m_swapchain);
         m_images.clear();
-        ImageInfo image_info = {};
-        image_info.format = Graphics::vk_to_format(m_surface_info.surface_format.format);
-        image_info.extent = Math::Vec3u(m_surface_info.capabilities.currentExtent.width, m_surface_info.capabilities.currentExtent.height, 1);
-        image_info.usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
-        for(const auto& image: images) {
+        m_images.reserve(images.size());
+        const ImageInfo image_info{
+            .format = Graphics::vk_to_format(config.surface_format.format),
+            .extent = Math::Vec3u(config.extent.width, config.extent.height, 1),
+            .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)
+        };
+        for(const auto image: images) {
             m_images.emplace_back(Image::wrap(m_device, image, image_info));
         }
-        LOG_INFO("Vulkan swapchain created successfully with {} images", m_images.size());
-        // 销毁旧的交换链
+        m_config = config;
+        m_current_index = static_cast<uint32_t>(-1);
+
         if(old_swapchain) {
             m_device->get().destroySwapchainKHR(old_swapchain);
         }
 
+        LOG_INFO(
+            "Vulkan swapchain created: images={}, extent={}x{}, format={}, color_space={}, present_mode={}, transform={}, composite_alpha={}, usage={}, layers={}, clipped={}",
+            m_images.size(),
+            config.extent.width,
+            config.extent.height,
+            vk::to_string(config.surface_format.format),
+            vk::to_string(config.surface_format.colorSpace),
+            vk::to_string(config.present_mode),
+            vk::to_string(config.transform),
+            vk::to_string(config.composite_alpha),
+            vk::to_string(config.usage),
+            config.image_layers,
+            config.clipped);
+        return true;
     }
 
-    std::pair<uint32_t, vk::Result> Swapchain::acquire_next_image(const Semaphore& semaphore) {
+    std::pair<uint32_t, vk::Result> Swapchain::acquire_next_image(
+        const Semaphore& semaphore) {
         uint32_t image_index = 0;
-        const auto result = m_device->get().acquireNextImageKHR(m_swapchain, UINT64_MAX,
-            semaphore.get(), VK_NULL_HANDLE, &image_index);
+        const auto result = m_device->get().acquireNextImageKHR(
+            m_swapchain,
+            UINT64_MAX,
+            semaphore.get(),
+            VK_NULL_HANDLE,
+            &image_index);
         if(result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR) {
             m_current_index = image_index;
         }
         if(result == vk::Result::eSuccess
-            || result == vk::Result::eSuboptimalKHR
-            || result == vk::Result::eErrorOutOfDateKHR) {
+           || result == vk::Result::eSuboptimalKHR
+           || result == vk::Result::eErrorOutOfDateKHR) {
             return std::make_pair(image_index, result);
         }
-        LOG_FATAL("failed to acquire image index");
+        LOG_FATAL("Failed to acquire swapchain image");
         return std::make_pair(image_index, result);
-    }
-
-    void Swapchain::setup_surface_capabilities() {
-        // capabilities
-        m_surface_info.capabilities = m_context->get_physical_device().getSurfaceCapabilitiesKHR(m_context->get_surface());
-
-        const auto desired_surface_format = static_cast<Format>(m_vulkan_config.surface_format);
-        const auto desired_color_space = static_cast<ImageColorSpace>(m_vulkan_config.color_space);
-
-        auto desired_present_mode = static_cast<PresentMode>(m_vulkan_config.present_mode);
-        if(m_render_config.enable_vsync) {
-            // VSync 启用：使用 Fifo 模式（垂直同步，限制帧率）
-            desired_present_mode = PresentMode::Fifo;
-        }
-
-        // format
-        const auto surface_formats = m_context->get_physical_device().getSurfaceFormatsKHR(m_context->get_surface());
-        m_surface_info.surface_format = surface_formats[0];
-        for(const auto& format: surface_formats) {
-            if(format.format == Graphics::format_to_vk(desired_surface_format) && format.colorSpace == Graphics::image_color_space_to_vk(desired_color_space)) {
-                m_surface_info.surface_format = format;
-                break;
-            }
-        }
-
-        // present mode
-        const auto present_modes = m_context->get_physical_device().getSurfacePresentModesKHR(m_context->get_surface());
-        m_surface_info.present_mode = present_modes[0];
-        for(const auto& mode: present_modes) {
-            if(mode == Graphics::present_mode_to_vk(desired_present_mode)) {
-                m_surface_info.present_mode = mode;
-                break;
-            }
-        }
-
-        LOG_DEBUG("current extent : {} x {}", m_surface_info.capabilities.currentExtent.width, m_surface_info.capabilities.currentExtent.height);
-        LOG_DEBUG("surface format : {}", vk::to_string(m_surface_info.surface_format.format));
-        LOG_DEBUG("present mode   : {}", vk::to_string(m_surface_info.present_mode));
     }
 }
