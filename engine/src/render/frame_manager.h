@@ -11,7 +11,7 @@ namespace Comet {
         Semaphore image_available_semaphore;
         CommandBuffer command_buffer;
 
-        FrameSlot(Device* device, const CommandBuffer& command_buffer)
+        FrameSlot(Device& device, const CommandBuffer& command_buffer)
             : in_flight_fence(device),
               image_available_semaphore(device),
               command_buffer(command_buffer) {}
@@ -21,13 +21,13 @@ namespace Comet {
         Semaphore render_finished_semaphore;
         std::optional<uint32_t> in_flight_frame_slot;
 
-        explicit SwapchainImageState(Device* device)
+        explicit SwapchainImageState(Device& device)
             : render_finished_semaphore(device) {}
     };
 
     class FrameManager {
     public:
-        explicit FrameManager(Device* device, uint32_t frame_slot_count);
+        explicit FrameManager(Device& device, uint32_t frame_slot_count);
 
         void begin_frame() const;
 
@@ -53,7 +53,7 @@ namespace Comet {
         }
 
     private:
-        Device* m_device;
+        Device& m_device;
         std::vector<FrameSlot> m_frame_slots;
         std::vector<SwapchainImageState> m_swapchain_image_states;
         uint32_t m_current_frame_slot = 0;

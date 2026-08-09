@@ -8,7 +8,7 @@
 #include "graphics/buffer.h"
 
 namespace Comet {
-    Texture::Texture(Device* device, const std::string& img_path, const Format format)
+    Texture::Texture(Device& device, const std::string& img_path, const Format format)
         : m_width(0), m_height(0), m_channels(0), m_format(format) {
         uint8_t* data = stbi_load(img_path.c_str(), &m_width, &m_height, &m_channels, STBI_rgb_alpha);
         if(!data) {
@@ -20,7 +20,7 @@ namespace Comet {
         stbi_image_free(data);
     }
 
-    Texture::Texture(Device* device, const int width, const int height, const Math::Vec4u color)
+    Texture::Texture(Device& device, const int width, const int height, const Math::Vec4u color)
         : m_width(width), m_height(height), m_channels(4) {
         m_format = Format::B8G8R8A8_UNORM;
         const size_t size = sizeof(uint8_t) * 4 * m_width * m_height;
@@ -42,7 +42,7 @@ namespace Comet {
         m_image.reset();
     }
 
-    void Texture::create_image(Device* device, size_t size, const void* data) {
+    void Texture::create_image(Device& device, size_t size, const void* data) {
         if(!data || size == 0) {
             LOG_ERROR("Invalid data or size for texture creation: data={}, size={}",
                 static_cast<const void*>(data), size);
@@ -62,7 +62,7 @@ namespace Comet {
             data,
             "texture upload buffer");
 
-        const auto ctx = device->create_command_context();
+        const auto ctx = device.create_command_context();
         // 1. Transition image layout from UNDEFINED to TRANSFER_DST_OPTIMAL
         ctx->transition_image_layout(m_image->get(),
             vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);

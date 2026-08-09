@@ -46,6 +46,14 @@ Editor
 `RenderContext` 独占 Vulkan Context、Device 和 Swapchain；`Device` 独占 `VulkanAllocator`。`ResourceManager` 与
 `SceneRenderer` 分别保存对 Device 和 RenderContext 的非拥有引用，构造接口不允许空依赖。
 
+渲染和 graphics 层统一使用以下依赖表达：
+
+- `T&` / `const T&` 表示非拥有、构造时必须存在、构造后不可重绑定的依赖。
+- `T*` 只用于允许为空、需要重绑定或 moved-from 状态需要置空的对象；当前主要包括 `Entity` 的可空 Scene，
+  以及可移动 Fence/Semaphore 内部保存的 Device。
+- `std::unique_ptr` 表示独占所有权，`std::shared_ptr` 表示共享生命周期；引用和裸指针都不会延长依赖生命周期。
+- GLFW、Vulkan 等 C API handle 保持各自的原生值或指针形式，不属于 C++ 对象借用约定。
+
 runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slot 分配的 `MultiTarget` 生成离屏颜色纹理，
 `ImGuiContext` 只保存非拥有的 `vk::ImageView` handle 并拥有对应的 ImGui descriptor；最终 swapchain 只由 ImGui
 render pass 清屏、合成和呈现。SceneView 与 GameView 当前复用同一组离屏输出。

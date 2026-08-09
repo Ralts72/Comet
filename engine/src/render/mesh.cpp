@@ -1,7 +1,7 @@
 #include "mesh.h"
 
 namespace Comet {
-    Mesh::Mesh(Device* device, const std::vector<Math::Vertex>& vertices, const std::vector<uint32_t>& indices)
+    Mesh::Mesh(Device& device, const std::vector<Math::Vertex>& vertices, const std::vector<uint32_t>& indices)
     : m_vertex_count(vertices.size()), m_index_count(indices.size()) {
         if(vertices.empty()) {
             LOG_FATAL("vertices array is empty, can't create mesh");

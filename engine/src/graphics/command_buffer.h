@@ -73,7 +73,7 @@ namespace Comet {
 
     class CommandPool {
     public:
-        CommandPool(Device* device, uint32_t queue_family_index);
+        CommandPool(Device& device, uint32_t queue_family_index);
 
         ~CommandPool();
 
@@ -93,7 +93,7 @@ namespace Comet {
         [[nodiscard]] vk::CommandPool get() const { return m_command_pool; }
 
     private:
-        Device* m_device;
+        Device& m_device;
         vk::CommandPool m_command_pool;
     };
 }

@@ -10,7 +10,7 @@ namespace Comet {
 
     class PipelineLayout {
     public:
-        PipelineLayout(Device* device, const ShaderLayout& layout);
+        PipelineLayout(Device& device, const ShaderLayout& layout);
 
         ~PipelineLayout();
 
@@ -25,7 +25,7 @@ namespace Comet {
         [[nodiscard]] vk::PipelineLayout get() const { return m_pipeline_layout; }
 
     private:
-        Device* m_device;
+        Device& m_device;
         vk::PipelineLayout m_pipeline_layout;
     };
 
@@ -123,7 +123,7 @@ namespace Comet {
 
     class Pipeline {
     public:
-        Pipeline(std::string name, Device* device, RenderPass* render_pass,
+        Pipeline(std::string name, Device& device, RenderPass& render_pass,
                  const std::shared_ptr<PipelineLayout>& layout,
                  const std::shared_ptr<Shader>& vertex_shader,
                  const std::shared_ptr<Shader>& fragment_shader,
@@ -164,8 +164,8 @@ namespace Comet {
         [[nodiscard]] vk::PipelineDynamicStateCreateInfo create_dynamic_state() const;
 
         std::string m_name;
-        Device* m_device;
-        RenderPass* m_render_pass;
+        Device& m_device;
+        RenderPass& m_render_pass;
         vk::Pipeline m_pipeline;
         std::shared_ptr<PipelineLayout> m_layout;
         PipelineConfig m_config;
@@ -173,7 +173,7 @@ namespace Comet {
 
     class PipelineManager {
     public:
-        PipelineManager(Device* device, RenderPass* render_pass);
+        PipelineManager(Device& device, RenderPass& render_pass);
 
         std::shared_ptr<Pipeline> create_pipeline(
             const std::string& name,
@@ -187,8 +187,8 @@ namespace Comet {
         [[nodiscard]] std::shared_ptr<Pipeline> get_pipeline(const std::string& name) const;
 
     private:
-        Device* m_device;
-        RenderPass* m_render_pass;
+        Device& m_device;
+        RenderPass& m_render_pass;
         std::unordered_map<std::string, std::shared_ptr<Pipeline>> m_pipelines;
     };
 }

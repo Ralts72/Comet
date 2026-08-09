@@ -62,15 +62,15 @@ namespace Comet {
 
         LOG_INFO("create render pipeline manager");
         m_pipeline_manager = std::make_unique<PipelineManager>(
-            m_context.get_device(), m_render_pass.get());
+            m_context.get_device(), *m_render_pass);
 
         LOG_INFO("create render target");
         m_render_target = RenderTarget::create_swapchain_target(
-            m_context.get_device(), m_render_pass.get(), m_context.get_swapchain());
+            m_context.get_device(), *m_render_pass, m_context.get_swapchain());
         set_render_target_clear_color();
 
         const auto image_count = static_cast<uint32_t>(
-            m_context.get_swapchain()->get_images().size());
+            m_context.get_swapchain().get_images().size());
         m_frame_manager->initialize_swapchain_images(image_count);
 
         m_render_mode = RenderMode::Runtime;
@@ -117,9 +117,9 @@ namespace Comet {
             m_context.get_device(), attachments,
             std::vector<RenderSubPass>{render_sub_pass}, surface_format);
         m_pipeline_manager = std::make_unique<PipelineManager>(
-            m_context.get_device(), m_render_pass.get());
+            m_context.get_device(), *m_render_pass);
         m_render_target = RenderTarget::create_multi_target(
-            m_context.get_device(), m_render_pass.get(), size,
+            m_context.get_device(), *m_render_pass, size,
             m_frame_manager->get_frame_slot_count());
         set_render_target_clear_color();
 
@@ -235,18 +235,18 @@ namespace Comet {
         apply_pending_viewport_resize();
         m_frame_manager->begin_frame();
 
-        const auto swapchain = m_context.get_swapchain();
+        auto& swapchain = m_context.get_swapchain();
         auto& frame_slot = m_frame_manager->get_current_frame_slot();
 
         // Acquire next image
         auto [image_index, acquire_result] =
-                swapchain->acquire_next_image(frame_slot.image_available_semaphore);
+                swapchain.acquire_next_image(frame_slot.image_available_semaphore);
         if(acquire_result == vk::Result::eErrorOutOfDateKHR) {
             if(!recreate_swapchain()) {
                 return false;
             }
             std::tie(image_index, acquire_result) =
-                    swapchain->acquire_next_image(frame_slot.image_available_semaphore);
+                    swapchain.acquire_next_image(frame_slot.image_available_semaphore);
             if(acquire_result != vk::Result::eSuccess && acquire_result != vk::Result::eSuboptimalKHR) {
                 LOG_FATAL("can't acquire swapchain image");
             }
@@ -298,9 +298,9 @@ namespace Comet {
     void SceneRenderer::end_frame() {
         PROFILE_SCOPE("SceneRenderer::end_frame");
 
-        const auto device = m_context.get_device();
-        const auto swapchain = m_context.get_swapchain();
-        const uint32_t image_index = swapchain->get_current_index();
+        auto& device = m_context.get_device();
+        auto& swapchain = m_context.get_swapchain();
+        const uint32_t image_index = swapchain.get_current_index();
         auto& frame_slot = m_frame_manager->get_current_frame_slot();
         auto& image_state =
                 m_frame_manager->get_swapchain_image_state(image_index);
@@ -309,15 +309,15 @@ namespace Comet {
         frame_slot.command_buffer.end();
 
         // Submit
-        const auto& graphics_queue = device->get_graphics_queue(0);
+        const auto& graphics_queue = device.get_graphics_queue(0);
         graphics_queue.submit(std::span(&frame_slot.command_buffer, 1),
             frame_slot.image_available_semaphore,
             std::span(&image_state.render_finished_semaphore, 1),
             &frame_slot.in_flight_fence);
 
         // Present
-        auto& present_queue = device->get_present_queue(0);
-        const auto result = present_queue.present(*swapchain,
+        auto& present_queue = device.get_present_queue(0);
+        const auto result = present_queue.present(swapchain,
             std::span(&image_state.render_finished_semaphore, 1), image_index);
         if(result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR) {
             static_cast<void>(recreate_swapchain());
@@ -382,20 +382,20 @@ namespace Comet {
 
     bool SceneRenderer::recreate_swapchain() {
         PROFILE_SCOPE("SceneRenderer::recreate_swapchain");
-        const auto swapchain = m_context.get_swapchain();
+        auto& swapchain = m_context.get_swapchain();
 
-        if(!swapchain->recreate()) {
+        if(!swapchain.recreate()) {
             return false;
         }
 
         if(!m_uses_viewport_target) {
             m_render_target = RenderTarget::create_swapchain_target(
-                m_context.get_device(), m_render_pass.get(), m_context.get_swapchain());
+                m_context.get_device(), *m_render_pass, m_context.get_swapchain());
             set_render_target_clear_color();
         }
 
         const auto image_count =
-                static_cast<uint32_t>(swapchain->get_images().size());
+                static_cast<uint32_t>(swapchain.get_images().size());
         m_frame_manager->initialize_swapchain_images(image_count);
 
         if(m_swapchain_recreate_callback) {
@@ -481,6 +481,6 @@ namespace Comet {
         texture1_write.pImageInfo = &image_info1;
         write_sets.emplace_back(texture1_write);
 
-        m_context.get_device()->get().updateDescriptorSets(write_sets, {});
+        m_context.get_device().get().updateDescriptorSets(write_sets, {});
     }
 }

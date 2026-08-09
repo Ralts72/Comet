@@ -2,7 +2,7 @@
 #include "device.h"
 
 namespace Comet {
-    Fence::Fence(Device* device): m_device(device) {
+    Fence::Fence(Device& device): m_device(&device) {
         vk::FenceCreateInfo fence_create_info = {};
         fence_create_info.flags = vk::FenceCreateFlagBits::eSignaled;
         m_fence = m_device->get().createFence(fence_create_info);

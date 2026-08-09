@@ -6,7 +6,7 @@ namespace Comet {
 
     class Fence {
     public:
-        explicit Fence(Device* device);
+        explicit Fence(Device& device);
         ~Fence();
 
         Fence(const Fence&) = delete;

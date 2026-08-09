@@ -11,9 +11,12 @@ namespace Comet {
         RenderContext(const Window& window, const Config::Vulkan& vulkan_config, const Config::Render& render_config);
         ~RenderContext();
 
-        [[nodiscard]] Device* get_device() const { return m_device.get(); }
-        [[nodiscard]] Swapchain* get_swapchain() const { return m_swapchain.get(); }
-        [[nodiscard]] Context *get_context() const { return m_context.get(); }
+        [[nodiscard]] Device& get_device() { return *m_device; }
+        [[nodiscard]] const Device& get_device() const { return *m_device; }
+        [[nodiscard]] Swapchain& get_swapchain() { return *m_swapchain; }
+        [[nodiscard]] const Swapchain& get_swapchain() const { return *m_swapchain; }
+        [[nodiscard]] Context& get_context() { return *m_context; }
+        [[nodiscard]] const Context& get_context() const { return *m_context; }
 
         void wait_idle() const;
 

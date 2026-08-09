@@ -12,8 +12,8 @@ namespace Comet {
 
     class COMET_API Texture {
     public:
-        explicit Texture(Device* device, const std::string& img_path, Format format = Format::B8G8R8A8_UNORM);
-        Texture(Device* device, int width, int height, Math::Vec4u color);
+        explicit Texture(Device& device, const std::string& img_path, Format format = Format::B8G8R8A8_UNORM);
+        Texture(Device& device, int width, int height, Math::Vec4u color);
         ~Texture();
 
         [[nodiscard]] int get_width() const { return m_width; }
@@ -22,7 +22,7 @@ namespace Comet {
         [[nodiscard]] std::shared_ptr<Image> get_image() const { return m_image; }
         [[nodiscard]] std::shared_ptr<ImageView> get_image_view() const { return m_image_view; }
     private:
-        void create_image(Device* device, size_t size, const void* data);
+        void create_image(Device& device, size_t size, const void* data);
 
         int m_width;
         int m_height;

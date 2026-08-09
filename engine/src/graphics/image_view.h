@@ -8,7 +8,7 @@ namespace Comet {
 
     class COMET_API ImageView {
     public:
-        ImageView(Device* device, const Image& image, Flags<ImageAspect> aspect);
+        ImageView(Device& device, const Image& image, Flags<ImageAspect> aspect);
         ~ImageView();
 
         ImageView(const ImageView&) = delete;
@@ -19,6 +19,6 @@ namespace Comet {
         [[nodiscard]] vk::ImageView get() const { return m_image_view;}
     private:
         vk::ImageView m_image_view;
-        Device* m_device;
+        Device& m_device;
     };
 }

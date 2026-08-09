@@ -6,7 +6,7 @@
 #include "render_pass.h"
 
 namespace Comet {
-    PipelineLayout::PipelineLayout(Device* device, const ShaderLayout& layout) : m_device(device) {
+    PipelineLayout::PipelineLayout(Device& device, const ShaderLayout& layout) : m_device(device) {
         std::vector<vk::DescriptorSetLayout> vk_set_layouts;
         vk_set_layouts.reserve(layout.descriptor_set_layouts.size());
         for(auto& set_layout: layout.descriptor_set_layouts) {
@@ -24,12 +24,12 @@ namespace Comet {
         pipeline_layout_create_info.pushConstantRangeCount = static_cast<uint32_t>(vk_push_constants.size());
         pipeline_layout_create_info.pPushConstantRanges = vk_push_constants.data();
 
-        m_pipeline_layout = m_device->get().createPipelineLayout(pipeline_layout_create_info);
+        m_pipeline_layout = m_device.get().createPipelineLayout(pipeline_layout_create_info);
         LOG_INFO("Vulkan pipeline layout created successfully");
     }
 
     PipelineLayout::~PipelineLayout() {
-        m_device->get().destroyPipelineLayout(m_pipeline_layout);
+        m_device.get().destroyPipelineLayout(m_pipeline_layout);
     }
 
     void PipelineConfig::set_vertex_input_state(const VertexInputDescription& description) {
@@ -92,7 +92,7 @@ namespace Comet {
         depth_stencil_state.depth_compare_op = CompareOp::Less;
     }
 
-    Pipeline::Pipeline(std::string name, Device* device, RenderPass* render_pass,
+    Pipeline::Pipeline(std::string name, Device& device, RenderPass& render_pass,
                        const std::shared_ptr<PipelineLayout>& layout,
                        const std::shared_ptr<Shader>& vertex_shader,
                        const std::shared_ptr<Shader>& fragment_shader,
@@ -121,12 +121,12 @@ namespace Comet {
         pipeline_create_info.pColorBlendState = &color_blend_state;
         pipeline_create_info.pDynamicState = &dynamic_state;
         pipeline_create_info.layout = m_layout->get();
-        pipeline_create_info.renderPass = m_render_pass->get();
+        pipeline_create_info.renderPass = m_render_pass.get();
         pipeline_create_info.subpass = 0;
         pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
         pipeline_create_info.basePipelineIndex = 0;
 
-        auto result = m_device->get().createGraphicsPipeline(m_device->get_pipeline_cache(), pipeline_create_info);
+        auto result = m_device.get().createGraphicsPipeline(m_device.get_pipeline_cache(), pipeline_create_info);
         if(result.result != vk::Result::eSuccess) {
             LOG_FATAL("Failed to create graphics pipeline");
         }
@@ -239,10 +239,10 @@ namespace Comet {
     }
 
     Pipeline::~Pipeline() {
-        m_device->get().destroyPipeline(m_pipeline);
+        m_device.get().destroyPipeline(m_pipeline);
     }
 
-    PipelineManager::PipelineManager(Device* device, RenderPass* render_pass)
+    PipelineManager::PipelineManager(Device& device, RenderPass& render_pass)
         : m_device(device), m_render_pass(render_pass) {
         LOG_INFO("PipelineManager created");
     }

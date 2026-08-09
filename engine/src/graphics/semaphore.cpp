@@ -2,7 +2,7 @@
 #include "device.h"
 
 namespace Comet {
-    Semaphore::Semaphore(Device* device): m_device(device) {
+    Semaphore::Semaphore(Device& device): m_device(&device) {
         vk::SemaphoreCreateInfo semaphore_create_info = {};
         m_semaphore = m_device->get().createSemaphore(semaphore_create_info);
     }

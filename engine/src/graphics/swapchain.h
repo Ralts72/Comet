@@ -14,7 +14,7 @@ namespace Comet {
 
     class Swapchain {
     public:
-        Swapchain(const Window& window, Context* context, Device* device,
+        Swapchain(const Window& window, Context& context, Device& device,
                   const SwapchainRequest& request);
 
         ~Swapchain();
@@ -40,8 +40,8 @@ namespace Comet {
     private:
         vk::SwapchainKHR m_swapchain;
         const Window& m_window;
-        Context* m_context;
-        Device* m_device;
+        Context& m_context;
+        Device& m_device;
         std::vector<std::shared_ptr<Image>> m_images;
         SwapchainConfig m_config;
         uint32_t m_current_index = -1;

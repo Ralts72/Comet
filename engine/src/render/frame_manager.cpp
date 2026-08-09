@@ -3,18 +3,15 @@
 #include "graphics/device.h"
 
 namespace Comet {
-    FrameManager::FrameManager(Device* device, const uint32_t frame_slot_count)
+    FrameManager::FrameManager(Device& device, const uint32_t frame_slot_count)
         : m_device(device), m_frame_slot_count(frame_slot_count) {
-        if(!device) {
-            LOG_FATAL("FrameManager requires a valid Device");
-        }
         if(frame_slot_count == 0) {
             LOG_FATAL("FrameManager requires at least one frame slot");
         }
 
         LOG_INFO("create {} frame slots", frame_slot_count);
         const auto command_buffers =
-            device->get_default_command_pool().allocate_command_buffers(frame_slot_count);
+            device.get_default_command_pool().allocate_command_buffers(frame_slot_count);
         m_frame_slots.reserve(frame_slot_count);
         for(uint32_t i = 0; i < frame_slot_count; ++i) {
             m_frame_slots.emplace_back(device, command_buffers.at(i));
@@ -23,7 +20,7 @@ namespace Comet {
 
     void FrameManager::begin_frame() const {
         const auto& fence = m_frame_slots.at(m_current_frame_slot).in_flight_fence;
-        m_device->wait_for_fences(std::span(&fence, 1));
+        m_device.wait_for_fences(std::span(&fence, 1));
     }
 
     void FrameManager::prepare_image(const uint32_t image_index) {
@@ -32,12 +29,12 @@ namespace Comet {
            previous_frame_slot.has_value()) {
             const auto& previous_fence =
                 m_frame_slots.at(*previous_frame_slot).in_flight_fence;
-            m_device->wait_for_fences(std::span(&previous_fence, 1));
+            m_device.wait_for_fences(std::span(&previous_fence, 1));
         }
 
         auto& current_fence =
             m_frame_slots.at(m_current_frame_slot).in_flight_fence;
-        m_device->reset_fences(std::span(&current_fence, 1));
+        m_device.reset_fences(std::span(&current_fence, 1));
         image_state.in_flight_frame_slot = m_current_frame_slot;
     }
 

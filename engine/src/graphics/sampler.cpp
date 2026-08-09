@@ -5,11 +5,7 @@
 #include <cmath>
 
 namespace Comet {
-    Sampler::Sampler(Device* device, const SamplerDesc& desc) : m_device(device) {
-        if(!device) {
-            LOG_FATAL("Sampler requires a valid Device");
-        }
-
+    Sampler::Sampler(Device& device, const SamplerDesc& desc) : m_device(device) {
         if(!std::isfinite(desc.max_anisotropy) || desc.max_anisotropy < 1.0f) {
             LOG_FATAL("Sampler max anisotropy must be a finite number of at least "
                       "1.0 (requested: {})",
@@ -17,7 +13,7 @@ namespace Comet {
         }
 
         const float enabled_max_anisotropy =
-            device->get_capability().max_sampler_anisotropy;
+            device.get_capability().max_sampler_anisotropy;
 
         if(desc.max_anisotropy > enabled_max_anisotropy) {
             LOG_FATAL("Sampler anisotropy {} exceeds the enabled device maximum {}",
@@ -38,14 +34,14 @@ namespace Comet {
         sampler_create_info.mipLodBias = 0.0f;
         sampler_create_info.minLod = 0.0f;
         sampler_create_info.maxLod = VK_LOD_CLAMP_NONE;
-        m_sampler = m_device->get().createSampler(sampler_create_info);
+        m_sampler = m_device.get().createSampler(sampler_create_info);
     }
 
     Sampler::~Sampler() {
-        m_device->get().destroySampler(m_sampler);
+        m_device.get().destroySampler(m_sampler);
     }
 
-    std::shared_ptr<Sampler> Sampler::create_linear_repeat(Device* device, const float max_anisotropy) {
+    std::shared_ptr<Sampler> Sampler::create_linear_repeat(Device& device, const float max_anisotropy) {
         SamplerDesc desc{};
         desc.mag_filter = Filter::Linear;
         desc.min_filter = Filter::Linear;
@@ -56,7 +52,7 @@ namespace Comet {
         return std::make_shared<Sampler>(device, desc);
     }
 
-    std::shared_ptr<Sampler> Sampler::create_nearest_clamp(Device* device) {
+    std::shared_ptr<Sampler> Sampler::create_nearest_clamp(Device& device) {
         SamplerDesc desc{};
         desc.mag_filter = Filter::Nearest;
         desc.min_filter = Filter::Nearest;
@@ -67,7 +63,7 @@ namespace Comet {
         return std::make_shared<Sampler>(device, desc);
     }
 
-    std::shared_ptr<Sampler> Sampler::create_shadow_sampler(Device* device) {
+    std::shared_ptr<Sampler> Sampler::create_shadow_sampler(Device& device) {
         SamplerDesc desc{};
         desc.mag_filter = Filter::Linear;
         desc.min_filter = Filter::Linear;
@@ -80,7 +76,7 @@ namespace Comet {
     }
 
     std::shared_ptr<Sampler> SamplerManager::get_linear_repeat() {
-        return get_linear_repeat(m_device->get_capability().max_sampler_anisotropy);
+        return get_linear_repeat(m_device.get_capability().max_sampler_anisotropy);
     }
 
     std::shared_ptr<Sampler> SamplerManager::get_linear_repeat(const float max_anisotropy) {

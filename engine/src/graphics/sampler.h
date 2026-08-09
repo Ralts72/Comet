@@ -16,7 +16,7 @@ namespace Comet {
 
     class COMET_API Sampler {
     public:
-        Sampler(Device* device, const SamplerDesc& desc);
+        Sampler(Device& device, const SamplerDesc& desc);
         ~Sampler();
 
         Sampler(const Sampler&) = delete;
@@ -24,20 +24,20 @@ namespace Comet {
         Sampler(Sampler&&) noexcept = delete;
         Sampler& operator=(Sampler&&) noexcept = delete;
 
-        static std::shared_ptr<Sampler> create_linear_repeat(Device* device, float max_anisotropy = 1.0f);
-        static std::shared_ptr<Sampler> create_nearest_clamp(Device* device);
-        static std::shared_ptr<Sampler> create_shadow_sampler(Device* device);
+        static std::shared_ptr<Sampler> create_linear_repeat(Device& device, float max_anisotropy = 1.0f);
+        static std::shared_ptr<Sampler> create_nearest_clamp(Device& device);
+        static std::shared_ptr<Sampler> create_shadow_sampler(Device& device);
 
         [[nodiscard]] vk::Sampler get() const { return m_sampler; }
 
     private:
-        Device* m_device;
+        Device& m_device;
         vk::Sampler m_sampler;
     };
 
     class COMET_API SamplerManager {
     public:
-        explicit SamplerManager(Device* device): m_device(device) {}
+        explicit SamplerManager(Device& device): m_device(device) {}
         ~SamplerManager() { clean_up();}
 
         std::shared_ptr<Sampler> create_sampler(const std::string& name,  const SamplerDesc& desc = {});
@@ -51,7 +51,7 @@ namespace Comet {
         void clean_up();
 
     private:
-        Device* m_device;
+        Device& m_device;
         std::unordered_map<std::string, std::shared_ptr<Sampler>> m_samplers;
     };
 }

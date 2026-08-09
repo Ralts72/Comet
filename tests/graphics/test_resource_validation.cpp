@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <type_traits>
+
 #include "graphics/buffer.h"
 #include "graphics/device.h"
 #include "graphics/image.h"
@@ -7,52 +9,26 @@
 
 namespace Comet::Tests {
 
-TEST(ResourceValidationTest, RejectsInvalidBufferArguments) {
-    const int data = 42;
+TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
+    using CpuBufferFactory = decltype(&Buffer::create_cpu_buffer);
+    using ImageFactory = decltype(&Image::create);
+    using ImageWrapper = decltype(&Image::wrap);
 
-    EXPECT_DEATH(
-        Buffer::create_cpu_buffer(nullptr, Flags<BufferUsage>(BufferUsage::Uniform), sizeof(data), &data), "");
-    EXPECT_DEATH(
-        Buffer::create_cpu_buffer(nullptr, Flags<BufferUsage>(BufferUsage::Uniform), 0, &data), "");
-    EXPECT_DEATH(
-        Buffer::create_gpu_buffer(nullptr, Flags<BufferUsage>(BufferUsage::Vertex), sizeof(data), nullptr), "");
-    EXPECT_DEATH(
-        Buffer::create_upload_buffer(nullptr, Flags<BufferUsage>(BufferUsage::CopySrc), sizeof(data), nullptr), "");
-}
+    EXPECT_FALSE((std::is_constructible_v<Device, std::nullptr_t>));
+    EXPECT_FALSE((std::is_constructible_v<Sampler, std::nullptr_t, SamplerDesc>));
+    EXPECT_FALSE((std::is_invocable_v<CpuBufferFactory, std::nullptr_t,
+        Flags<BufferUsage>, size_t, const void*, std::string_view>));
+    EXPECT_FALSE((std::is_invocable_v<ImageFactory, std::nullptr_t,
+        const ImageInfo&, SampleCount, std::string_view>));
+    EXPECT_FALSE((std::is_invocable_v<ImageWrapper, std::nullptr_t,
+        vk::Image, const ImageInfo&>));
 
-TEST(ResourceValidationTest, RejectsInvalidImageArguments) {
-    const ImageInfo valid_info = {
-        .format = Format::R8G8B8A8_UNORM,
-        .extent = Math::Vec3u(1, 1, 1),
-        .usage = Flags<ImageUsage>(ImageUsage::Sampled)
-    };
-
-    EXPECT_DEATH(Image::create(nullptr, valid_info), "");
-    EXPECT_DEATH(Image::wrap(nullptr, VK_NULL_HANDLE, valid_info), "");
-
-    ImageInfo invalid_info = valid_info;
-    invalid_info.extent.x = 0;
-    EXPECT_DEATH(Image::create(nullptr, invalid_info), "");
-
-    invalid_info = valid_info;
-    invalid_info.format = Format::UNDEFINED;
-    EXPECT_DEATH(Image::create(nullptr, invalid_info), "");
-
-    invalid_info = valid_info;
-    invalid_info.usage = Flags<ImageUsage>();
-    EXPECT_DEATH(Image::create(nullptr, invalid_info), "");
-}
-
-TEST(ResourceValidationTest, RejectsMissingContextForDevice) {
-    EXPECT_DEATH({ Device device(nullptr); }, "");
-}
-
-TEST(ResourceValidationTest, RejectsInvalidSamplerArguments) {
-    EXPECT_DEATH({ Sampler sampler(nullptr, {}); }, "");
-
-    SamplerDesc invalid_desc;
-    invalid_desc.max_anisotropy = 0.0f;
-    EXPECT_DEATH({ Sampler sampler(nullptr, invalid_desc); }, "");
+    EXPECT_TRUE((std::is_invocable_v<CpuBufferFactory, Device&,
+        Flags<BufferUsage>, size_t, const void*, std::string_view>));
+    EXPECT_TRUE((std::is_invocable_v<ImageFactory, Device&,
+        const ImageInfo&, SampleCount, std::string_view>));
+    EXPECT_TRUE((std::is_invocable_v<ImageWrapper, Device&,
+        vk::Image, const ImageInfo&>));
 }
 
 } // namespace Comet::Tests

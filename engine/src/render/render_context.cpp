@@ -30,11 +30,11 @@ namespace Comet {
         m_context = std::make_unique<Context>(window, vulkan_config, capability_request);
 
         LOG_INFO("create device");
-        m_device = std::make_unique<Device>(m_context.get());
+        m_device = std::make_unique<Device>(*m_context);
 
         LOG_INFO("create swapchain");
         m_swapchain = std::make_unique<Swapchain>(
-            window, m_context.get(), m_device.get(), swapchain_request);
+            window, *m_context, *m_device, swapchain_request);
     }
 
     void RenderContext::wait_idle() const {

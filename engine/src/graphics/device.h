@@ -23,9 +23,9 @@ namespace Comet {
             uint32_t present_queue_count = 1;
         };
 
-        explicit Device(Context* context);
+        explicit Device(Context& context);
 
-        Device(Context* context, CreateInfo create_info);
+        Device(Context& context, CreateInfo create_info);
 
         ~Device();
 
@@ -87,7 +87,7 @@ namespace Comet {
 
         vk::Device m_device;
         std::unique_ptr<Allocator> m_allocator;
-        Context* m_context;
+        Context& m_context;
 
         std::vector<Queue> m_graphics_queues;
         std::vector<Queue> m_present_queues;

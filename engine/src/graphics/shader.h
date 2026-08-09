@@ -12,7 +12,7 @@ namespace Comet {
 
     class Shader {
     public:
-        Shader(Device* device, const std::string& name, const std::vector<unsigned char>& spv_data, ShaderLayout layout = {});
+        Shader(Device& device, const std::string& name, const std::vector<unsigned char>& spv_data, ShaderLayout layout = {});
 
         ~Shader();
 
@@ -29,7 +29,7 @@ namespace Comet {
         [[nodiscard]] const std::string& get_name() const { return m_name; }
 
     private:
-        Device* m_device;
+        Device& m_device;
         vk::ShaderModule m_shader_module;
         std::string m_name;
         std::vector<unsigned char> m_spv_data;
@@ -38,7 +38,7 @@ namespace Comet {
 
     class ShaderManager {
     public:
-        explicit ShaderManager(Device* device) : m_device(device) {}
+        explicit ShaderManager(Device& device) : m_device(device) {}
         ~ShaderManager() { clean_up(); }
 
         std::shared_ptr<Shader> load_shader(const std::string& name, const std::vector<unsigned char>& spv_data, const ShaderLayout& layout = {});
@@ -48,7 +48,7 @@ namespace Comet {
         void clean_up();
 
     private:
-        Device* m_device;
+        Device& m_device;
         std::unordered_map<std::string, std::shared_ptr<Shader>> m_shaders;
     };
 }

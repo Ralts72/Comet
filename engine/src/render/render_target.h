@@ -24,11 +24,11 @@ namespace Comet {
 
     class COMET_API RenderTarget {
     public:
-        static std::unique_ptr<RenderTarget> create_swapchain_target(Device* device, RenderPass* render_pass, Swapchain* swapchain);
+        static std::unique_ptr<RenderTarget> create_swapchain_target(Device& device, RenderPass& render_pass, Swapchain& swapchain);
 
-        static std::unique_ptr<RenderTarget> create_offscreen_target(Device* device, RenderPass* render_pass, Math::Vec2u size);
+        static std::unique_ptr<RenderTarget> create_offscreen_target(Device& device, RenderPass& render_pass, Math::Vec2u size);
 
-        static std::unique_ptr<RenderTarget> create_multi_target(Device* device, RenderPass* render_pass, Math::Vec2u size, uint32_t frame_count);
+        static std::unique_ptr<RenderTarget> create_multi_target(Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);
 
         virtual ~RenderTarget() = default;
 
@@ -58,14 +58,14 @@ namespace Comet {
         [[nodiscard]] bool is_dirty() const { return m_needs_recreate; }
 
     protected:
-        RenderTarget(Device* device, RenderPass* render_pass,
+        RenderTarget(Device& device, RenderPass& render_pass,
                      const Math::Vec2u size, const uint32_t frame_count) : m_device(device), m_render_pass(render_pass), m_extent(size), m_frame_count(frame_count),
                                                                            m_clear_values({}), m_needs_recreate(false), m_current_image_index(0) {}
 
         void clear_render_resources(std::vector<RenderResource>& resources);
 
-        Device* m_device;
-        RenderPass* m_render_pass;
+        Device& m_device;
+        RenderPass& m_render_pass;
         Math::Vec2u m_extent;
         uint32_t m_frame_count;
         std::vector<ClearValue> m_clear_values;
@@ -75,7 +75,7 @@ namespace Comet {
 
     class COMET_API SwapchainTarget final: public RenderTarget {
     public:
-        SwapchainTarget(Device* device, RenderPass* render_pass, Swapchain* swapchain);
+        SwapchainTarget(Device& device, RenderPass& render_pass, Swapchain& swapchain);
 
         ~SwapchainTarget() override;
 
@@ -90,13 +90,13 @@ namespace Comet {
         }
 
     private:
-        Swapchain* m_swapchain;
+        Swapchain& m_swapchain;
         std::vector<RenderResource> m_render_resources;
     };
 
     class COMET_API OffscreenTarget final: public RenderTarget {
     public:
-        OffscreenTarget(Device* device, RenderPass* render_pass, Math::Vec2u size);
+        OffscreenTarget(Device& device, RenderPass& render_pass, Math::Vec2u size);
 
         ~OffscreenTarget() override;
 
@@ -118,7 +118,7 @@ namespace Comet {
 
     class COMET_API MultiTarget final: public RenderTarget {
     public:
-        MultiTarget(Device* device, RenderPass* render_pass, Math::Vec2u size, uint32_t frame_count);
+        MultiTarget(Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);
 
         ~MultiTarget() override;
 

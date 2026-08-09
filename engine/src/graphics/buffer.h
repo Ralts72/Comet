@@ -11,7 +11,7 @@ namespace Comet {
 
     class COMET_API Buffer {
     public:
-        Buffer(Device* device, size_t size);
+        Buffer(Device& device, size_t size);
 
         virtual ~Buffer();
 
@@ -24,21 +24,21 @@ namespace Comet {
         Buffer& operator=(Buffer&&) noexcept = delete;
 
         static std::shared_ptr<Buffer> create_cpu_buffer(
-            Device* device,
+            Device& device,
             Flags<BufferUsage> usage,
             size_t size,
             const void* data = nullptr,
             std::string_view debug_name = {});
 
         static std::shared_ptr<Buffer> create_upload_buffer(
-            Device* device,
+            Device& device,
             Flags<BufferUsage> usage,
             size_t size,
             const void* data,
             std::string_view debug_name = {});
 
         static std::shared_ptr<Buffer> create_gpu_buffer(
-            Device* device,
+            Device& device,
             Flags<BufferUsage> usage,
             size_t size,
             const void* data,
@@ -54,7 +54,7 @@ namespace Comet {
 
         [[nodiscard]] Allocator& get_allocator() const;
 
-        Device* m_device;
+        Device& m_device;
         vk::Buffer m_buffer = VK_NULL_HANDLE;
         Allocation m_allocation;
         size_t m_size;
@@ -62,7 +62,7 @@ namespace Comet {
 
     class COMET_API GPUBuffer final: public Buffer {
     public:
-        GPUBuffer(Device* device,
+        GPUBuffer(Device& device,
                   Flags<BufferUsage> usage,
                   size_t size,
                   const void* data,
@@ -71,7 +71,7 @@ namespace Comet {
 
     class COMET_API CPUBuffer final: public Buffer {
     public:
-        CPUBuffer(Device* device,
+        CPUBuffer(Device& device,
                   Flags<BufferUsage> usage,
                   size_t size,
                   const void* data,

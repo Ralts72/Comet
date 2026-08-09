@@ -92,13 +92,13 @@ namespace {
             auto& render_context = renderer.get_render_context();
             auto& scene_renderer = renderer.get_scene_renderer();
 
-            const auto* swapchain = render_context.get_swapchain();
+            const auto& swapchain = render_context.get_swapchain();
             renderer.enable_viewport_rendering(
-                Comet::Math::Vec2u(swapchain->get_width(), swapchain->get_height()));
+                Comet::Math::Vec2u(swapchain.get_width(), swapchain.get_height()));
 
             m_imgui_context = std::make_unique<CometEditor::ImGuiContext>(
-                &engine.get_window(),
-                &render_context,
+                engine.get_window(),
+                render_context,
                 engine.get_config().vulkan
             );
 

@@ -8,7 +8,7 @@ namespace Comet {
 
     class COMET_API Mesh {
     public:
-        Mesh(Device* device, const std::vector<Math::Vertex>& vertices, const std::vector<uint32_t>& indices = {});
+        Mesh(Device& device, const std::vector<Math::Vertex>& vertices, const std::vector<uint32_t>& indices = {});
         ~Mesh();
 
         void draw(const CommandBuffer& command_buffer) const;

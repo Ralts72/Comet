@@ -9,17 +9,14 @@
 #include "allocator.h"
 
 namespace Comet {
-    Device::Device(Context* context)
+    Device::Device(Context& context)
         : Device(context, CreateInfo{}) {}
 
-    Device::Device(Context* context, const CreateInfo create_info)
+    Device::Device(Context& context, const CreateInfo create_info)
         : m_context(context) {
         PROFILE_SCOPE("Device::Constructor");
-        if(!context) {
-            LOG_FATAL("Device requires a valid Vulkan context");
-        }
-        auto [graphics_queue_family_index, graphics_queue_counts] = context->get_graphics_queue_family();
-        auto [present_queue_family_index, present_queue_counts] = context->get_present_queue_family();
+        auto [graphics_queue_family_index, graphics_queue_counts] = context.get_graphics_queue_family();
+        auto [present_queue_family_index, present_queue_counts] = context.get_present_queue_family();
         if(create_info.graphics_queue_count > graphics_queue_counts) {
             LOG_FATAL("Requested graphics queue count {} exceeds available count {}",
                 create_info.graphics_queue_count, graphics_queue_counts);
@@ -32,7 +29,7 @@ namespace Comet {
         std::vector<float> present_queue_priorities(create_info.present_queue_count, 1.0f);
         std::vector<vk::DeviceQueueCreateInfo> queue_create_infos;
         uint32_t queue_count = create_info.graphics_queue_count;
-        const bool is_same_queue_family = context->is_same_queue_families();
+        const bool is_same_queue_family = context.is_same_queue_families();
         if(is_same_queue_family) {
             queue_count += create_info.present_queue_count;
             graphics_queue_priorities.insert(graphics_queue_priorities.end(), present_queue_priorities.begin(), present_queue_priorities.end());
@@ -57,8 +54,8 @@ namespace Comet {
             queue_create_infos.push_back(present_queue_create_info);
         }
 
-        const auto physical_device = context->get_physical_device();
-        m_capability = context->get_device_capability();
+        const auto physical_device = context.get_physical_device();
+        m_capability = context.get_device_capability();
 
         vk::DeviceCreateInfo device_create_info = {};
         device_create_info.queueCreateInfoCount = queue_create_infos.size();
@@ -99,8 +96,8 @@ namespace Comet {
 
     void Device::create_allocator() {
         Allocator::CreateInfo allocator_info = {};
-        allocator_info.instance = m_context->instance();
-        allocator_info.physical_device = m_context->get_physical_device();
+        allocator_info.instance = m_context.instance();
+        allocator_info.physical_device = m_context.get_physical_device();
         allocator_info.device = m_device;
         allocator_info.vulkan_api_version = VK_API_VERSION_1_3;
 
@@ -108,7 +105,8 @@ namespace Comet {
     }
 
     void Device::create_default_command_pool() {
-        m_default_command_pool = std::make_unique<CommandPool>(this, m_context->get_graphics_queue_family().queue_family_index.value());
+        m_default_command_pool = std::make_unique<CommandPool>(
+            *this, m_context.get_graphics_queue_family().queue_family_index.value());
     }
 
     void Device::wait_for_fences(const std::span<const Fence> fences, const bool wait_all, const uint64_t timeout) const {
@@ -137,7 +135,7 @@ namespace Comet {
     }
 
     std::unique_ptr<CommandContext> Device::create_command_context() {
-        return std::make_unique<CommandContext>(this);
+        return std::make_unique<CommandContext>(*this);
     }
 
     Allocator& Device::get_allocator() const {

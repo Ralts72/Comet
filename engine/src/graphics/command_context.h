@@ -9,7 +9,7 @@ namespace Comet {
 
     class CommandContext {
     public:
-        explicit CommandContext(Device* device);
+        explicit CommandContext(Device& device);
 
         ~CommandContext();
 
@@ -42,10 +42,9 @@ namespace Comet {
         void submit(); // 异步提交（未来扩展）
 
     private:
-        Device* m_device;
+        Device& m_device;
         CommandBuffer m_command_buffer;
         bool m_is_recording = false;
         bool m_submitted = false;
     };
 }
-

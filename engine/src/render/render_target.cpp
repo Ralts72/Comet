@@ -7,15 +7,15 @@
 #include "graphics/frame_buffer.h"
 
 namespace Comet {
-    std::unique_ptr<RenderTarget> RenderTarget::create_swapchain_target(Device* device, RenderPass* render_pass, Swapchain* swapchain) {
+    std::unique_ptr<RenderTarget> RenderTarget::create_swapchain_target(Device& device, RenderPass& render_pass, Swapchain& swapchain) {
         return std::make_unique<SwapchainTarget>(device, render_pass, swapchain);
     }
 
-    std::unique_ptr<RenderTarget> RenderTarget::create_offscreen_target(Device* device, RenderPass* render_pass, Math::Vec2u size) {
+    std::unique_ptr<RenderTarget> RenderTarget::create_offscreen_target(Device& device, RenderPass& render_pass, Math::Vec2u size) {
         return std::make_unique<OffscreenTarget>(device, render_pass, size);
     }
 
-    std::unique_ptr<RenderTarget> RenderTarget::create_multi_target(Device* device, RenderPass* render_pass, Math::Vec2u size, uint32_t frame_count) {
+    std::unique_ptr<RenderTarget> RenderTarget::create_multi_target(Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count) {
         return std::make_unique<MultiTarget>(device, render_pass, size, frame_count);
     }
 
@@ -35,7 +35,7 @@ namespace Comet {
     }
 
     void RenderTarget::set_clear_value(const ClearValue& clear_value) {
-        const auto& attachments = m_render_pass->get_attachments();
+        const auto& attachments = m_render_pass.get_attachments();
         for(std::size_t index = 0; index < attachments.size(); ++index) {
             set_clear_value(clear_value, index);
         }
@@ -43,7 +43,7 @@ namespace Comet {
 
     void RenderTarget::set_clear_value(
         const ClearValue& clear_value, const std::size_t index) {
-        const auto& attachments = m_render_pass->get_attachments();
+        const auto& attachments = m_render_pass.get_attachments();
         if(index >= attachments.size()) return;
 
         const auto& description = attachments[index].description;
@@ -71,7 +71,7 @@ namespace Comet {
                 frame_index, m_frame_count);
         }
         m_current_image_index = frame_index;
-        command_buffer.begin_render_pass(*m_render_pass, *get_framebuffer(m_current_image_index), m_clear_values);
+        command_buffer.begin_render_pass(m_render_pass, *get_framebuffer(m_current_image_index), m_clear_values);
     }
 
     void RenderTarget::end_render_target(CommandBuffer& command_buffer) {
@@ -90,10 +90,10 @@ namespace Comet {
     }
 
     // SwapchainTarget
-    SwapchainTarget::SwapchainTarget(Device* device, RenderPass* render_pass, Swapchain* swapchain)
-        : RenderTarget(device, render_pass, Math::Vec2u(swapchain->get_width(),
-              swapchain->get_height()), swapchain->get_images().size()), m_swapchain(swapchain) {
-        m_clear_values.resize(m_render_pass->get_attachments().size());
+    SwapchainTarget::SwapchainTarget(Device& device, RenderPass& render_pass, Swapchain& swapchain)
+        : RenderTarget(device, render_pass, Math::Vec2u(swapchain.get_width(),
+              swapchain.get_height()), swapchain.get_images().size()), m_swapchain(swapchain) {
+        m_clear_values.resize(m_render_pass.get_attachments().size());
         set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
         set_clear_value(ClearValue(1.0f, 0));
         recreate();
@@ -104,9 +104,9 @@ namespace Comet {
     }
 
     void SwapchainTarget::recreate() {
-        m_extent.x = m_swapchain->get_width();
-        m_extent.y = m_swapchain->get_height();
-        m_frame_count = static_cast<uint32_t>(m_swapchain->get_images().size());
+        m_extent.x = m_swapchain.get_width();
+        m_extent.y = m_swapchain.get_height();
+        m_frame_count = static_cast<uint32_t>(m_swapchain.get_images().size());
 
         if(m_extent.x == 0 || m_extent.y == 0) {
             return;
@@ -114,7 +114,7 @@ namespace Comet {
         m_render_resources.clear();
         m_render_resources.resize(m_frame_count);
 
-        const auto attachments = m_render_pass->get_attachments();
+        const auto attachments = m_render_pass.get_attachments();
         if(attachments.empty()) {
             return;
         }
@@ -140,7 +140,7 @@ namespace Comet {
                 } else {
                     std::shared_ptr<Image> color_image;
                     if(description.final_layout == ImageLayout::PresentSrcKHR && description.samples == SampleCount::Count1) {
-                        color_image = m_swapchain->get_images()[i];
+                        color_image = m_swapchain.get_images()[i];
                     } else {
                         color_image = Image::create(
                             m_device, image_info, description.samples, "render target color image");
@@ -165,11 +165,11 @@ namespace Comet {
     }
 
     void SwapchainTarget::begin_render_target(CommandBuffer& command_buffer) {
-        RenderTarget::begin_render_target(command_buffer, m_swapchain->get_current_index());
+        RenderTarget::begin_render_target(command_buffer, m_swapchain.get_current_index());
     }
 
-    OffscreenTarget::OffscreenTarget(Device* device, RenderPass* render_pass, const Math::Vec2u size) : RenderTarget(device, render_pass, size, 1) {
-        m_clear_values.resize(m_render_pass->get_attachments().size());
+    OffscreenTarget::OffscreenTarget(Device& device, RenderPass& render_pass, const Math::Vec2u size) : RenderTarget(device, render_pass, size, 1) {
+        m_clear_values.resize(m_render_pass.get_attachments().size());
         set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
         set_clear_value(ClearValue(1.0f, 0));
         recreate();
@@ -194,7 +194,7 @@ namespace Comet {
         m_color_image.reset();
         m_depth_image.reset();
 
-        const auto attachments = m_render_pass->get_attachments();
+        const auto attachments = m_render_pass.get_attachments();
         if(attachments.empty()) {
             return;
         }
@@ -227,8 +227,8 @@ namespace Comet {
             m_extent.x, m_extent.y);
     }
 
-    MultiTarget::MultiTarget(Device* device, RenderPass* render_pass, Math::Vec2u size, uint32_t frame_count) : RenderTarget(device, render_pass, size, frame_count) {
-        m_clear_values.resize(m_render_pass->get_attachments().size());
+    MultiTarget::MultiTarget(Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count) : RenderTarget(device, render_pass, size, frame_count) {
+        m_clear_values.resize(m_render_pass.get_attachments().size());
         set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
         set_clear_value(ClearValue(1.0f, 0));
         recreate();
@@ -245,7 +245,7 @@ namespace Comet {
         m_render_resources.clear();
         m_render_resources.resize(m_frame_count);
 
-        const auto attachments = m_render_pass->get_attachments();
+        const auto attachments = m_render_pass.get_attachments();
         if(attachments.empty()) {
             return;
         }

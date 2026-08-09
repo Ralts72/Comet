@@ -34,7 +34,7 @@ namespace CometEditor {
         }
     }
 
-    ImGuiContext::ImGuiContext(const Comet::Window* window, Comet::RenderContext* render_context,
+    ImGuiContext::ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context,
                                const Comet::Config::Vulkan& vulkan_config)
         : m_window(window), m_render_context(render_context), m_vulkan_config(vulkan_config) {
         LOG_INFO("Initializing ImGui layer");
@@ -56,17 +56,18 @@ namespace CometEditor {
 
         ImGui::StyleColorsDark();
 
-        ImGui_ImplGlfw_InitForVulkan(window->get(), true);
+        ImGui_ImplGlfw_InitForVulkan(window.get(), true);
 
         // 初始化缓存的格式和采样信息
-        const auto swapchain = m_render_context->get_swapchain();
-        m_render_format_info.color_format = swapchain->get_images()[0]->get_info().format;
+        auto& swapchain = m_render_context.get_swapchain();
+        m_render_format_info.color_format = swapchain.get_images()[0]->get_info().format;
         m_render_format_info.depth_format = static_cast<Comet::Format>(m_vulkan_config.depth_format);
 
         create_render_pass();
 
-        auto* device = m_render_context->get_device();
-        m_render_target = Comet::RenderTarget::create_swapchain_target(device, m_render_pass.get(), swapchain);
+        auto& device = m_render_context.get_device();
+        m_render_target = Comet::RenderTarget::create_swapchain_target(
+            device, *m_render_pass, swapchain);
         m_render_target->set_clear_value(Comet::ClearValue(Comet::Math::Vec4(0.0f, 0.0f, 0.0f, 0.0f)), 0);
         // 初始化 Vulkan backend
         init_vulkan();
@@ -97,15 +98,16 @@ namespace CometEditor {
         render_sub_passes.emplace_back(render_sub_pass);
 
         // 创建独立的 RenderPass
-        auto* device = m_render_context->get_device();
-        m_render_pass = std::make_unique<Comet::RenderPass>(device, attachments, render_sub_passes);
+        auto& device = m_render_context.get_device();
+        m_render_pass = std::make_unique<Comet::RenderPass>(
+            device, attachments, render_sub_passes);
     }
 
     void ImGuiContext::init_vulkan() {
-        const auto* context = m_render_context->get_context();
-        auto* device = m_render_context->get_device();
-        const auto swapchain = m_render_context->get_swapchain();
-        m_backend_image_count = static_cast<uint32_t>(swapchain->get_images().size());
+        const auto& context = m_render_context.get_context();
+        auto& device = m_render_context.get_device();
+        const auto& swapchain = m_render_context.get_swapchain();
+        m_backend_image_count = static_cast<uint32_t>(swapchain.get_images().size());
         if(m_backend_image_count < 2) {
             LOG_FATAL("ImGui Vulkan backend requires at least two swapchain images");
         }
@@ -119,11 +121,11 @@ namespace CometEditor {
 
         ImGui_ImplVulkan_InitInfo init_info{};
         init_info.ApiVersion = VK_API_VERSION_1_0;
-        init_info.Instance = context->instance();
-        init_info.PhysicalDevice = context->get_physical_device();
-        init_info.Device = device->get();
-        init_info.QueueFamily = context->get_graphics_queue_family().queue_family_index.value();
-        init_info.Queue = device->get_graphics_queue(0).get();
+        init_info.Instance = context.instance();
+        init_info.PhysicalDevice = context.get_physical_device();
+        init_info.Device = device.get();
+        init_info.QueueFamily = context.get_graphics_queue_family().queue_family_index.value();
+        init_info.Queue = device.get_graphics_queue(0).get();
         init_info.DescriptorPool = m_descriptor_pool->get();
         init_info.MinImageCount = m_backend_image_count;
         init_info.ImageCount = m_backend_image_count;
@@ -146,7 +148,7 @@ namespace CometEditor {
             return;
         }
 
-        m_render_context->wait_idle();
+        m_render_context.wait_idle();
 
         unregister_viewport_textures();
 
@@ -181,7 +183,7 @@ namespace CometEditor {
         }
 
         // 检查窗口有效性
-        if(!m_window || !m_window->get()) {
+        if(!m_window.get()) {
             LOG_WARN("Window is invalid, skipping ImGui frame");
             return;
         }
@@ -189,7 +191,7 @@ namespace CometEditor {
         ImGui_ImplVulkan_NewFrame();
 
         // 检查窗口是否最小化（最小化时跳过 GLFW backend 更新）
-        if(glfwGetWindowAttrib(m_window->get(), GLFW_ICONIFIED)) {
+        if(glfwGetWindowAttrib(m_window.get(), GLFW_ICONIFIED)) {
             ImGui::NewFrame();
         } else {
             // 正常更新 GLFW backend
@@ -234,12 +236,12 @@ namespace CometEditor {
         m_is_recreating = true;
 
         // 等待设备空闲
-        m_render_context->wait_idle();
+        m_render_context.wait_idle();
 
         // 重建render target
         m_render_target->recreate();
         const auto image_count = static_cast<uint32_t>(
-            m_render_context->get_swapchain()->get_images().size());
+            m_render_context.get_swapchain().get_images().size());
         if(image_count != m_backend_image_count) {
             unregister_viewport_textures();
             ImGui_ImplVulkan_Shutdown();

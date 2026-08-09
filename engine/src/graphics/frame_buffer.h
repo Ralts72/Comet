@@ -9,7 +9,7 @@ namespace Comet {
 
     class COMET_API FrameBuffer {
     public:
-        FrameBuffer(Device* device, RenderPass* render_pass, const std::vector<std::shared_ptr<ImageView>>& image_views, uint32_t width, uint32_t height);
+        FrameBuffer(Device& device, RenderPass& render_pass, const std::vector<std::shared_ptr<ImageView>>& image_views, uint32_t width, uint32_t height);
         ~FrameBuffer();
 
         FrameBuffer(const FrameBuffer&) = delete;
@@ -23,8 +23,8 @@ namespace Comet {
         [[nodiscard]] uint32_t get_height() const { return m_height; }
     private:
         vk::Framebuffer m_frame_buffer;
-        Device* m_device;
-        RenderPass* m_render_pass;
+        Device& m_device;
+        RenderPass& m_render_pass;
 
         uint32_t m_width, m_height;
     };

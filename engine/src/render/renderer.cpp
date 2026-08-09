@@ -19,7 +19,7 @@ namespace Comet {
         // Create resource manager
         LOG_INFO("create resource manager");
         m_resource_manager = std::make_unique<ResourceManager>(
-            *m_render_context->get_device());
+            m_render_context->get_device());
 
         // Create scene renderer
         LOG_INFO("create scene renderer");

@@ -6,7 +6,7 @@ namespace Comet {
 
     class Semaphore {
     public:
-        explicit Semaphore(Device* device);
+        explicit Semaphore(Device& device);
         ~Semaphore();
 
         Semaphore(const Semaphore&) = delete;

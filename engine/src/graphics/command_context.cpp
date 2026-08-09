@@ -7,9 +7,9 @@
 #include "common/logger.h"
 
 namespace Comet {
-    CommandContext::CommandContext(Device* device)
+    CommandContext::CommandContext(Device& device)
         : m_device(device),
-          m_command_buffer(device->get_default_command_pool().allocate_command_buffer()) {
+          m_command_buffer(device.get_default_command_pool().allocate_command_buffer()) {
     }
 
     CommandContext::~CommandContext() {
@@ -17,7 +17,7 @@ namespace Comet {
             LOG_WARN("CommandContext destroyed without submitting commands");
         }
 
-        m_device->get_default_command_pool().free_command_buffer(m_command_buffer);
+        m_device.get_default_command_pool().free_command_buffer(m_command_buffer);
     }
 
     void CommandContext::copy_buffer(const Buffer* src, const Buffer* dst, const size_t size) {
@@ -83,7 +83,7 @@ namespace Comet {
         m_command_buffer.end();
 
         // 提交到队列
-        const auto& graphics_queue = m_device->get_graphics_queue(0);
+        const auto& graphics_queue = m_device.get_graphics_queue(0);
         graphics_queue.submit(std::span(&m_command_buffer, 1), {}, nullptr);
 
         // 等待完成

@@ -9,13 +9,10 @@
 #include <string>
 
 namespace Comet {
-    Buffer::Buffer(Device* device, const size_t size)
+    Buffer::Buffer(Device& device, const size_t size)
         : m_device(device), m_size(size) {
         if(size == 0) {
             LOG_FATAL("Buffer size must be greater than zero");
-        }
-        if(!device) {
-            LOG_FATAL("Buffer requires a valid Device");
         }
     }
 
@@ -37,10 +34,10 @@ namespace Comet {
     }
 
     Allocator& Buffer::get_allocator() const {
-        return m_device->get_allocator();
+        return m_device.get_allocator();
     }
 
-    GPUBuffer::GPUBuffer(Device* device,
+    GPUBuffer::GPUBuffer(Device& device,
                          const Flags<BufferUsage> usage,
                          const size_t size,
                          const void* data,
@@ -74,14 +71,14 @@ namespace Comet {
         m_buffer = device_buffer.buffer;
         m_allocation = std::move(device_buffer.allocation);
 
-        const auto context = m_device->create_command_context();
+        const auto context = m_device.create_command_context();
         context->copy_buffer(buffer, m_buffer, m_size);
         context->submit_and_wait();
 
         get_allocator().destroy_buffer(buffer, allocation);
     }
 
-    CPUBuffer::CPUBuffer(Device* device,
+    CPUBuffer::CPUBuffer(Device& device,
                          const Flags<BufferUsage> usage,
                          const size_t size,
                          const void* data,
@@ -115,7 +112,7 @@ namespace Comet {
     }
 
     std::shared_ptr<Buffer> Buffer::create_cpu_buffer(
-        Device* device,
+        Device& device,
         const Flags<BufferUsage> usage,
         const size_t size,
         const void* data,
@@ -125,7 +122,7 @@ namespace Comet {
     }
 
     std::shared_ptr<Buffer> Buffer::create_upload_buffer(
-        Device* device,
+        Device& device,
         const Flags<BufferUsage> usage,
         const size_t size,
         const void* data,
@@ -138,7 +135,7 @@ namespace Comet {
     }
 
     std::shared_ptr<Buffer> Buffer::create_gpu_buffer(
-        Device* device,
+        Device& device,
         const Flags<BufferUsage> usage,
         const size_t size,
         const void* data,

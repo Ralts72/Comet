@@ -28,7 +28,7 @@ namespace CometEditor {
 
     class ImGuiContext {
     public:
-        ImGuiContext(const Comet::Window* window, Comet::RenderContext* render_context,
+        ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context,
                      const Comet::Config::Vulkan& vulkan_config);
         ~ImGuiContext();
 
@@ -57,8 +57,8 @@ namespace CometEditor {
         void register_viewport_textures();
         void unregister_viewport_textures();
 
-        const Comet::Window* m_window;
-        Comet::RenderContext* m_render_context;
+        const Comet::Window& m_window;
+        Comet::RenderContext& m_render_context;
         std::unique_ptr<Comet::RenderPass> m_render_pass;
         std::unique_ptr<Comet::RenderTarget> m_render_target;
         std::unique_ptr<Comet::DescriptorPool> m_descriptor_pool;

@@ -174,16 +174,16 @@ namespace Comet {
         m_command_buffer.pipelineBarrier(source_stage, destination_stage, {}, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
-    CommandPool::CommandPool(Device* device, const uint32_t queue_family_index): m_device(device) {
+    CommandPool::CommandPool(Device& device, const uint32_t queue_family_index): m_device(device) {
         vk::CommandPoolCreateInfo pool_info = {};
         pool_info.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
         pool_info.queueFamilyIndex = queue_family_index;
-        m_command_pool = m_device->get().createCommandPool(pool_info);
+        m_command_pool = m_device.get().createCommandPool(pool_info);
         LOG_INFO("Vulkan command pool created successfully");
     }
 
     CommandPool::~CommandPool() {
-        m_device->get().destroyCommandPool(m_command_pool);
+        m_device.get().destroyCommandPool(m_command_pool);
     }
 
     std::vector<CommandBuffer> CommandPool::allocate_command_buffers(const uint32_t count) const {
@@ -192,7 +192,7 @@ namespace Comet {
         allocate_info.commandPool = m_command_pool;
         allocate_info.commandBufferCount = count;
         allocate_info.level = vk::CommandBufferLevel::ePrimary;
-        cmd_buffers = m_device->get().allocateCommandBuffers(allocate_info);
+        cmd_buffers = m_device.get().allocateCommandBuffers(allocate_info);
         std::vector<CommandBuffer> command_buffers;
         command_buffers.reserve(count);
         for (const auto& cmd_buffer : cmd_buffers) {
@@ -222,6 +222,6 @@ namespace Comet {
             vk_command_buffers.emplace_back(command_buffer.get());
         }
 
-        m_device->get().freeCommandBuffers(m_command_pool, vk_command_buffers);
+        m_device.get().freeCommandBuffers(m_command_pool, vk_command_buffers);
     }
 }

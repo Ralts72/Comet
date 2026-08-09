@@ -25,27 +25,27 @@ namespace Comet {
         Image& operator=(Image&&) noexcept = delete;
 
         static std::shared_ptr<Image> create(
-            Device* device,
+            Device& device,
             const ImageInfo& info,
             SampleCount sample_count = SampleCount::Count1,
             std::string_view debug_name = {});
 
-        static std::shared_ptr<Image> wrap(Device* device, vk::Image image, const ImageInfo& info);
+        static std::shared_ptr<Image> wrap(Device& device, vk::Image image, const ImageInfo& info);
 
         [[nodiscard]] ImageInfo get_info() const { return m_info; }
         [[nodiscard]] vk::Image get() const { return m_image; }
 
     protected:
-        Image(Device* device, const ImageInfo& info);
+        Image(Device& device, const ImageInfo& info);
 
         vk::Image m_image = VK_NULL_HANDLE;
-        Device* m_device;
+        Device& m_device;
         ImageInfo m_info;
     };
 
     class COMET_API OwnedImage final: public Image {
     public:
-        OwnedImage(Device* device,
+        OwnedImage(Device& device,
                    const ImageInfo& info,
                    SampleCount sample_count = SampleCount::Count1,
                    std::string_view debug_name = {});
@@ -58,7 +58,7 @@ namespace Comet {
 
     class COMET_API BorrowedImage final: public Image {
     public:
-        BorrowedImage(Device* device, vk::Image image, const ImageInfo& info);
+        BorrowedImage(Device& device, vk::Image image, const ImageInfo& info);
 
         ~BorrowedImage() override = default;
     };

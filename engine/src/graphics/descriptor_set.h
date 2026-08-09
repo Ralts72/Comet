@@ -29,7 +29,7 @@ namespace Comet {
 
     class DescriptorSetLayout {
     public:
-        DescriptorSetLayout(Device* device, const DescriptorSetLayoutBindings& bindings);
+        DescriptorSetLayout(Device& device, const DescriptorSetLayoutBindings& bindings);
         ~DescriptorSetLayout();
 
         DescriptorSetLayout(const DescriptorSetLayout&) = delete;
@@ -40,7 +40,7 @@ namespace Comet {
         [[nodiscard]] vk::DescriptorSetLayout get() const { return m_descriptor_set_layout; }
 
     private:
-        Device* m_device;
+        Device& m_device;
         vk::DescriptorSetLayout m_descriptor_set_layout;
     };
 
@@ -57,7 +57,7 @@ namespace Comet {
 
     class COMET_API DescriptorPool {
     public:
-        DescriptorPool(Device* device, uint32_t max_sets, const DescriptorPoolSizes& pool_sizes,
+        DescriptorPool(Device& device, uint32_t max_sets, const DescriptorPoolSizes& pool_sizes,
                        Flags<DescriptorPoolCreateFlag> flags = {});
         ~DescriptorPool();
 
@@ -69,7 +69,7 @@ namespace Comet {
         [[nodiscard]] std::vector<DescriptorSet> allocate_descriptor_set(const DescriptorSetLayout& set_layout, uint32_t count) const;
         [[nodiscard]] vk::DescriptorPool get() const { return m_descriptor_pool; }
     private:
-        Device* m_device;
+        Device& m_device;
         vk::DescriptorPool m_descriptor_pool;
     };
 

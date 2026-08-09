@@ -965,7 +965,7 @@ present modes: FIFO + Mailbox
 ```text
 Debug build: passed
 Release build: passed
-CTest: 108/108 passed
+CTest: 105/105 passed
 Editor + Vulkan Validation: started and rendered without validation errors
 git diff --check: passed
 ```
@@ -976,9 +976,11 @@ git diff --check: passed
 
 ```cpp
 const Window& m_window;
+Context& m_context;
+Device& m_device;
 ```
 
-这是非 owning 引用。当前所有权关系为：
+这些都是构造时必须存在、构造后不可重绑定的非 owning 引用。当前所有权关系为：
 
 ```text
 Engine
@@ -987,11 +989,15 @@ Engine
     └── RenderContext
         ├── Context
         ├── Device
-        └── Swapchain -> const Window&
+        └── Swapchain
+            ├── const Window&
+            ├── Context&
+            └── Device&
 ```
 
-Engine 析构时先销毁 Renderer，再销毁 Window，因此 Swapchain 生命周期内引用有效。`Context*` 和 `Device*` 仍延续
-当前 graphics 层已有的非 owning 依赖方式，本次没有扩大到整体所有权重构。
+Engine 析构时先销毁 Renderer，再销毁 Window；RenderContext 析构时先销毁 Swapchain，再销毁 Device 和 Context，
+因此这些引用在 Swapchain 的完整生命周期内有效。graphics 层其他必需依赖也遵循同一约定：固定且不可为空的借用
+使用引用，只有允许为空、需要重绑定或 moved-from 状态需要置空时才保存裸指针。
 
 Swapchain 重建后的依赖更新顺序为：
 

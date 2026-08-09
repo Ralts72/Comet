@@ -9,26 +9,26 @@ namespace Comet {
             Graphics::shader_stage_to_vk(stage_flags), nullptr);
     }
 
-    DescriptorSetLayout::DescriptorSetLayout(Device* device, const DescriptorSetLayoutBindings& bindings)
+    DescriptorSetLayout::DescriptorSetLayout(Device& device, const DescriptorSetLayoutBindings& bindings)
         : m_device(device) {
         vk::DescriptorSetLayoutCreateInfo create_info{};
         create_info.bindingCount = bindings.get_bindings().size();
         create_info.pBindings = bindings.get_bindings().data();
-        m_descriptor_set_layout = m_device->get().createDescriptorSetLayout(create_info);
+        m_descriptor_set_layout = m_device.get().createDescriptorSetLayout(create_info);
     }
 
     DescriptorSetLayout::~DescriptorSetLayout() {
-        m_device->get().destroyDescriptorSetLayout(m_descriptor_set_layout);
+        m_device.get().destroyDescriptorSetLayout(m_descriptor_set_layout);
     }
 
-    DescriptorPool::DescriptorPool(Device* device, const uint32_t max_sets,
+    DescriptorPool::DescriptorPool(Device& device, const uint32_t max_sets,
                                    const DescriptorPoolSizes& pool_sizes, const Flags<DescriptorPoolCreateFlag> flags) : m_device(device) {
         vk::DescriptorPoolCreateInfo create_info{};
         create_info.flags = Graphics::descriptor_pool_create_flags_to_vk(flags);
         create_info.maxSets = max_sets;
         create_info.poolSizeCount = pool_sizes.get_pool_sizes().size();
         create_info.pPoolSizes = pool_sizes.get_pool_sizes().data();
-        m_descriptor_pool = m_device->get().createDescriptorPool(create_info);
+        m_descriptor_pool = m_device.get().createDescriptorPool(create_info);
     }
 
     void DescriptorPoolSizes::add_pool_size(const DescriptorType type, uint32_t count) {
@@ -36,7 +36,7 @@ namespace Comet {
     }
 
     DescriptorPool::~DescriptorPool() {
-        m_device->get().destroyDescriptorPool(m_descriptor_pool);
+        m_device.get().destroyDescriptorPool(m_descriptor_pool);
     }
 
     std::vector<DescriptorSet> DescriptorPool::allocate_descriptor_set(const DescriptorSetLayout& set_layout,
@@ -51,7 +51,7 @@ namespace Comet {
         allocate_info.pSetLayouts = set_layouts.data();
         std::vector<DescriptorSet> descriptor_sets;
         descriptor_sets.reserve(count);
-        const auto vk_descriptor_sets = m_device->get().allocateDescriptorSets(allocate_info);
+        const auto vk_descriptor_sets = m_device.get().allocateDescriptorSets(allocate_info);
         for(const auto vk_descriptor_set: vk_descriptor_sets) {
             descriptor_sets.emplace_back(DescriptorSet(vk_descriptor_set));
         }
