@@ -99,7 +99,7 @@ version 4 `EntityUuid`，作为跨保存/加载稳定的实体身份，并支持
 `SceneSerializer` 使用带版本字段的 `.scene` YAML 保存 Name、Transform、MeshRenderer、Camera 和父 UUID 引用；
 运行时 `EntityId`、EnTT handle 与派生世界矩阵不会落盘。实体按 UUID 排序，加载时会拒绝重复 UUID、悬空父引用、
 层级环、未知字段和不支持的版本。
-`SceneRenderExtractor` 将可渲染实体和 Camera 复制为
+`SceneExtractor` 将可渲染实体和 Camera 复制为
 `engine/src/render/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。
 `Engine` 使用唯一所有权持有 Scene 和最小 Asset Registry。app 在初始化阶段注册 demo mesh/material，并创建
 主 Camera 与两个具有不同 Transform 的 cube entity；`SceneResolver` 选择并校验主 Camera、根据渲染尺寸

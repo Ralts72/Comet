@@ -1,10 +1,10 @@
-#include "render/scene_render_extractor.h"
+#include "render/scene_extractor.h"
 
 #include "scene/components.h"
 #include "scene/scene.h"
 
 namespace Comet {
-    RenderScene SceneRenderExtractor::extract(Scene& scene) {
+    RenderScene SceneExtractor::extract(Scene& scene) {
         scene.update_world_transforms();
 
         RenderScene render_scene;

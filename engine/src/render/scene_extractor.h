@@ -6,7 +6,7 @@
 namespace Comet {
     class Scene;
 
-    class COMET_API SceneRenderExtractor {
+    class COMET_API SceneExtractor {
     public:
         [[nodiscard]] static RenderScene extract(Scene& scene);
     };

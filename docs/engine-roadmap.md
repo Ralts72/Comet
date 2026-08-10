@@ -190,7 +190,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 ### 线程模型与任务系统演进
 
-当前 Comet 是单线程主循环：主线程依次执行 GLFW 事件、Application/Scene 更新、`SceneRenderExtractor`、
+当前 Comet 是单线程主循环：主线程依次执行 GLFW 事件、Application/Scene 更新、`SceneExtractor`、
 `SceneResolver`、Vulkan command recording、queue submit/present 和 ImGui 合成。这是当前规模下正确且便于
 验证的基线，但路线图不能只零散地写“后台编译”或“渲染线程边界”，需要明确最终线程所有权。
 

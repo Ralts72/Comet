@@ -2,7 +2,7 @@
 #include "asset/registry.h"
 #include "common/logger.h"
 #include "common/profiler.h"
-#include "render/scene_render_extractor.h"
+#include "render/scene_extractor.h"
 #include "scene/scene.h"
 
 namespace Comet {
@@ -67,7 +67,7 @@ namespace Comet {
 
             RenderScene render_scene;
             if(m_scene) {
-                render_scene = SceneRenderExtractor::extract(*m_scene);
+                render_scene = SceneExtractor::extract(*m_scene);
             }
 
             m_renderer->on_render(render_scene);

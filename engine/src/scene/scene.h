@@ -9,7 +9,7 @@
 #include <entt.hpp>
 
 namespace Comet {
-    class SceneRenderExtractor;
+    class SceneExtractor;
     class SceneSerializer;
 
     class COMET_API Scene {
@@ -59,7 +59,7 @@ namespace Comet {
 
     private:
         friend class Entity;
-        friend class SceneRenderExtractor;
+        friend class SceneExtractor;
         friend class SceneSerializer;
 
         [[nodiscard]] bool has_cycle(Entity child, Entity parent);
