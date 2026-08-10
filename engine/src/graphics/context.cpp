@@ -12,27 +12,43 @@ namespace Comet {
 #endif
         };
 
+        void log_validation_message(
+            const uint32_t message_severity,
+            const char* message) noexcept {
+            const auto logger = Logger::get_console_logger();
+            if(!logger) {
+                return;
+            }
+
+            if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+                logger->error("Vulkan Validation: {}", message);
+            } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+                logger->warn("Vulkan Validation: {}", message);
+            } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+                logger->info("Vulkan Validation: {}", message);
+            } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+                logger->debug("Vulkan Validation: {}", message);
+            }
+        }
+
+        VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_utils_messenger_callback(
+            const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
+            VkDebugUtilsMessageTypeFlagsEXT,
+            const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
+            void*) noexcept {
+            log_validation_message(
+                static_cast<uint32_t>(message_severity), callback_data->pMessage);
+            return VK_FALSE; // Report the validation message without aborting the Vulkan call.
+        }
+
         VKAPI_ATTR vk::Bool32 VKAPI_CALL vk_debug_utils_messenger_callback(
-            vk::DebugUtilsMessageSeverityFlagBitsEXT message_severity,
+            const vk::DebugUtilsMessageSeverityFlagBitsEXT message_severity,
             vk::DebugUtilsMessageTypeFlagsEXT,
             const vk::DebugUtilsMessengerCallbackDataEXT* callback_data,
             void*) noexcept {
-            const auto logger = Logger::get_console_logger();
-            if(!logger) {
-                return VK_FALSE;
-            }
-
-            if(message_severity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eError) {
-                logger->error("Vulkan Validation: {}", callback_data->pMessage);
-            } else if(message_severity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning) {
-                logger->warn("Vulkan Validation: {}", callback_data->pMessage);
-            } else if(message_severity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo) {
-                logger->info("Vulkan Validation: {}", callback_data->pMessage);
-            } else if(message_severity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose) {
-                logger->debug("Vulkan Validation: {}", callback_data->pMessage);
-            }
-
-            return VK_FALSE;
+            log_validation_message(
+                static_cast<uint32_t>(message_severity), callback_data->pMessage);
+            return VK_FALSE; // Report the validation message without aborting the Vulkan call.
         }
 
         vk::DebugUtilsMessengerCreateInfoEXT make_debug_messenger_create_info() {
@@ -42,7 +58,9 @@ namespace Comet {
             create_info.messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral
                                       | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation
                                       | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
-            create_info.pfnUserCallback = vk_debug_utils_messenger_callback;
+            create_info.pfnUserCallback =
+                static_cast<decltype(create_info.pfnUserCallback)>(
+                    vk_debug_utils_messenger_callback);
             return create_info;
         }
 
