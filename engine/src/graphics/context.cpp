@@ -31,7 +31,7 @@ namespace Comet {
             }
         }
 
-        VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_utils_messenger_callback(
+        [[maybe_unused]] VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_utils_messenger_callback(
             const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
             VkDebugUtilsMessageTypeFlagsEXT,
             const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
@@ -41,7 +41,7 @@ namespace Comet {
             return VK_FALSE; // Report the validation message without aborting the Vulkan call.
         }
 
-        VKAPI_ATTR vk::Bool32 VKAPI_CALL vk_debug_utils_messenger_callback(
+        [[maybe_unused]] VKAPI_ATTR vk::Bool32 VKAPI_CALL vk_debug_utils_messenger_callback(
             const vk::DebugUtilsMessageSeverityFlagBitsEXT message_severity,
             vk::DebugUtilsMessageTypeFlagsEXT,
             const vk::DebugUtilsMessengerCallbackDataEXT* callback_data,
