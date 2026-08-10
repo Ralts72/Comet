@@ -215,6 +215,14 @@ namespace Comet {
             const auto supported_features = physical_device.getFeatures();
             candidate_info.sampler_anisotropy_supported = supported_features.samplerAnisotropy;
             candidate_info.max_sampler_anisotropy = properties.limits.maxSamplerAnisotropy;
+            if(properties.apiVersion >= VK_API_VERSION_1_3) {
+                vk::PhysicalDeviceVulkan13Features supported_vulkan13_features{};
+                vk::PhysicalDeviceFeatures2 supported_features2{};
+                supported_features2.pNext = &supported_vulkan13_features;
+                physical_device.getFeatures2(&supported_features2);
+                candidate_info.synchronization2_supported =
+                    supported_vulkan13_features.synchronization2;
+            }
 
             DeviceCandidateEvaluation evaluation = evaluate_device_candidate(
                 candidate_info, request);
@@ -223,6 +231,8 @@ namespace Comet {
             candidate.notes = std::move(evaluation.notes);
             candidate.score_reasons = std::move(evaluation.score_reasons);
             candidate.capability.enabled_features = evaluation.enabled_features;
+            candidate.capability.enabled_vulkan13_features =
+                evaluation.enabled_vulkan13_features;
             candidate.capability.max_sampler_anisotropy = evaluation.max_sampler_anisotropy;
 
             return candidate;
@@ -268,6 +278,12 @@ namespace Comet {
         if(!candidate.depth_format_supported) {
             evaluation.rejection_reasons.emplace_back(
                 "configured depth format does not support the requested MSAA sample count");
+        }
+        if(!candidate.synchronization2_supported) {
+            evaluation.rejection_reasons.emplace_back(
+                "required Vulkan 1.3 feature synchronization2 is unsupported");
+        } else {
+            evaluation.enabled_vulkan13_features.synchronization2 = VK_TRUE;
         }
 
         if(request.max_sampler_anisotropy > 1.0f) {

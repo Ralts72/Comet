@@ -310,9 +310,18 @@ namespace Comet {
 
         // Submit
         const auto& graphics_queue = device.get_graphics_queue(0);
-        graphics_queue.submit(std::span(&frame_slot.command_buffer, 1),
+        const QueueSemaphoreSubmit image_available_wait{
             frame_slot.image_available_semaphore,
-            std::span(&image_state.render_finished_semaphore, 1),
+            Flags<PipelineStage>(PipelineStage::ColorAttachmentOutput)
+        };
+        const QueueSemaphoreSubmit render_finished_signal{
+            image_state.render_finished_semaphore,
+            Flags<PipelineStage>(PipelineStage::AllCommands)
+        };
+        graphics_queue.submit2(
+            std::span(&image_available_wait, 1),
+            std::span(&frame_slot.command_buffer, 1),
+            std::span(&render_finished_signal, 1),
             &frame_slot.in_flight_fence);
 
         // Present

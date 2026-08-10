@@ -11,7 +11,17 @@
 namespace Comet::Tests {
     namespace {
         template<typename T>
-        concept SupportsNoWaitSubmit = requires(
+        concept SupportsSynchronization2Submit = requires(
+            const T& queue,
+            std::span<const QueueSemaphoreSubmit> waits,
+            std::span<const CommandBuffer> command_buffers,
+            std::span<const QueueSemaphoreSubmit> signals,
+            const Fence* fence) {
+            queue.submit2(waits, command_buffers, signals, fence);
+        };
+
+        template<typename T>
+        concept SupportsLegacyNoWaitSubmit = requires(
             const T& queue,
             std::span<const CommandBuffer> command_buffers,
             std::span<const Semaphore> signal_semaphores,
@@ -20,7 +30,7 @@ namespace Comet::Tests {
         };
 
         template<typename T>
-        concept SupportsSingleWaitSubmit = requires(
+        concept SupportsLegacySingleWaitSubmit = requires(
             const T& queue,
             std::span<const CommandBuffer> command_buffers,
             const Semaphore& wait_semaphore,
@@ -28,21 +38,11 @@ namespace Comet::Tests {
             const Fence* fence) {
             queue.submit(command_buffers, wait_semaphore, signal_semaphores, fence);
         };
-
-        template<typename T>
-        concept SupportsWaitSemaphoreSpan = requires(
-            const T& queue,
-            std::span<const CommandBuffer> command_buffers,
-            std::span<const Semaphore> wait_semaphores,
-            std::span<const Semaphore> signal_semaphores,
-            const Fence* fence) {
-            queue.submit(command_buffers, wait_semaphores, signal_semaphores, fence);
-        };
     }
 
-    TEST(QueueSubmitInterfaceTest, SupportsOnlyZeroOrOneWaitSemaphore) {
-        EXPECT_TRUE(SupportsNoWaitSubmit<Queue>);
-        EXPECT_TRUE(SupportsSingleWaitSubmit<Queue>);
-        EXPECT_FALSE(SupportsWaitSemaphoreSpan<Queue>);
+    TEST(QueueSubmitInterfaceTest, UsesSynchronization2SubmissionModel) {
+        EXPECT_TRUE(SupportsSynchronization2Submit<Queue>);
+        EXPECT_FALSE(SupportsLegacyNoWaitSubmit<Queue>);
+        EXPECT_FALSE(SupportsLegacySingleWaitSubmit<Queue>);
     }
 }

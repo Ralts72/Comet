@@ -12,23 +12,23 @@ namespace Comet {
 #endif
         };
 
-        VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_utils_messenger_callback(
-            const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
-            VkDebugUtilsMessageTypeFlagsEXT,
-            const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
+        VKAPI_ATTR vk::Bool32 VKAPI_CALL vk_debug_utils_messenger_callback(
+            vk::DebugUtilsMessageSeverityFlagBitsEXT message_severity,
+            vk::DebugUtilsMessageTypeFlagsEXT,
+            const vk::DebugUtilsMessengerCallbackDataEXT* callback_data,
             void*) noexcept {
             const auto logger = Logger::get_console_logger();
             if(!logger) {
                 return VK_FALSE;
             }
 
-            if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+            if(message_severity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eError) {
                 logger->error("Vulkan Validation: {}", callback_data->pMessage);
-            } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+            } else if(message_severity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning) {
                 logger->warn("Vulkan Validation: {}", callback_data->pMessage);
-            } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+            } else if(message_severity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo) {
                 logger->info("Vulkan Validation: {}", callback_data->pMessage);
-            } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+            } else if(message_severity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose) {
                 logger->debug("Vulkan Validation: {}", callback_data->pMessage);
             }
 

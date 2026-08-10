@@ -6,59 +6,71 @@
 #include "swapchain.h"
 
 namespace Comet {
-    Queue::Queue(const uint32_t family_index, const uint32_t index, const vk::Queue queue, const Type type)
-    : m_family_index(family_index), m_index(index), m_queue(queue), m_type(type) {}
+    namespace {
+        vk::SemaphoreSubmitInfo make_semaphore_submit_info(
+            const vk::Semaphore semaphore,
+            const uint64_t value,
+            const Flags<PipelineStage> stage_mask) {
+            const vk::PipelineStageFlags2 vk_stage_mask =
+                Graphics::pipeline_stage_to_vk2(stage_mask);
+            if(!vk_stage_mask) {
+                LOG_FATAL("Queue semaphore stage mask must not be empty");
+            }
 
-    void Queue::submit(const std::span<const CommandBuffer> command_buffers,
-                       const std::span<const Semaphore> signal_semaphores,
-                       const Fence* fence) const {
-        submit_internal(command_buffers, nullptr, signal_semaphores, fence);
+            vk::SemaphoreSubmitInfo info{};
+            info.semaphore = semaphore;
+            info.value = value;
+            info.stageMask = vk_stage_mask;
+            return info;
+        }
     }
 
-    void Queue::submit(const std::span<const CommandBuffer> command_buffers,
-                       const Semaphore& wait_semaphore,
-                       const std::span<const Semaphore> signal_semaphores,
-                       const Fence* fence) const {
-        submit_internal(command_buffers, &wait_semaphore, signal_semaphores, fence);
-    }
+    Queue::Queue(const uint32_t family_index, const uint32_t index,
+                 const vk::Queue queue, const Type type)
+        : m_family_index(family_index),
+          m_index(index),
+          m_queue(queue),
+          m_type(type) {}
 
-    void Queue::submit_internal(const std::span<const CommandBuffer> command_buffers,
-                                const Semaphore* wait_semaphore,
-                                const std::span<const Semaphore> signal_semaphores,
-                                const Fence* fence) const {
-        std::vector<vk::Semaphore> vk_signal_semaphores;
-        vk_signal_semaphores.reserve(signal_semaphores.size());
-        for(const auto& semaphore : signal_semaphores) {
-            vk_signal_semaphores.emplace_back(semaphore.get());
+    void Queue::submit2(const std::span<const QueueSemaphoreSubmit> waits,
+                        const std::span<const CommandBuffer> command_buffers,
+                        const std::span<const QueueSemaphoreSubmit> signals,
+                        const Fence* fence) const {
+        std::vector<vk::SemaphoreSubmitInfo> wait_infos;
+        wait_infos.reserve(waits.size());
+        for(const auto& wait: waits) {
+            wait_infos.push_back(make_semaphore_submit_info(
+                wait.semaphore.get(), wait.value, wait.stage_mask));
         }
 
-        vk::Semaphore vk_wait_semaphore = VK_NULL_HANDLE;
-        vk::PipelineStageFlags wait_stage = {};
-        if(wait_semaphore) {
-            vk_wait_semaphore = wait_semaphore->get();
-            wait_stage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        std::vector<vk::CommandBufferSubmitInfo> command_infos;
+        command_infos.reserve(command_buffers.size());
+        for(const auto& command_buffer: command_buffers) {
+            vk::CommandBufferSubmitInfo info{};
+            info.commandBuffer = command_buffer.get();
+            command_infos.push_back(info);
         }
 
-        std::vector<vk::CommandBuffer> cmd_buffers;
-        cmd_buffers.reserve(command_buffers.size());
-        for(const auto& cmd_buffer : command_buffers) {
-            cmd_buffers.emplace_back(cmd_buffer.get());
+        std::vector<vk::SemaphoreSubmitInfo> signal_infos;
+        signal_infos.reserve(signals.size());
+        for(const auto& signal: signals) {
+            signal_infos.push_back(make_semaphore_submit_info(
+                signal.semaphore.get(), signal.value, signal.stage_mask));
         }
-        vk::SubmitInfo submit_info = {};
-        submit_info.commandBufferCount = static_cast<uint32_t>(cmd_buffers.size());
-        submit_info.pCommandBuffers = cmd_buffers.data();
-        submit_info.signalSemaphoreCount = static_cast<uint32_t>(vk_signal_semaphores.size());
-        submit_info.pSignalSemaphores = vk_signal_semaphores.data();
-        submit_info.pWaitDstStageMask = wait_semaphore ? &wait_stage : nullptr;
-        submit_info.pWaitSemaphores = wait_semaphore ? &vk_wait_semaphore : nullptr;
-        submit_info.waitSemaphoreCount = wait_semaphore ? 1 : 0;
 
-        if(!fence) {
-            m_queue.submit(submit_info, nullptr);
-            return;
+        vk::SubmitInfo2 submit_info{};
+        submit_info.waitSemaphoreInfoCount = static_cast<uint32_t>(wait_infos.size());
+        submit_info.pWaitSemaphoreInfos = wait_infos.data();
+        submit_info.commandBufferInfoCount = static_cast<uint32_t>(command_infos.size());
+        submit_info.pCommandBufferInfos = command_infos.data();
+        submit_info.signalSemaphoreInfoCount = static_cast<uint32_t>(signal_infos.size());
+        submit_info.pSignalSemaphoreInfos = signal_infos.data();
+
+        const vk::Fence vk_fence = fence ? fence->get() : vk::Fence{};
+        const vk::Result result = m_queue.submit2(1, &submit_info, vk_fence);
+        if(result != vk::Result::eSuccess) {
+            LOG_FATAL("Queue submit2 failed: {}", vk::to_string(result));
         }
-        const auto vk_fence = fence->get();
-        m_queue.submit(submit_info, vk_fence);
     }
 
     vk::Result Queue::present(const Swapchain& swapchain, const std::span<const Semaphore> wait_semaphores, uint32_t image_index) const {

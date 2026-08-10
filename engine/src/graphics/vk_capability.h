@@ -42,6 +42,7 @@ namespace Comet {
         QueueFamilyInfo present_queue_family;
         std::vector<const char*> enabled_extensions;
         vk::PhysicalDeviceFeatures enabled_features{};
+        vk::PhysicalDeviceVulkan13Features enabled_vulkan13_features{};
         float max_sampler_anisotropy = 1.0f;
     };
 
@@ -82,6 +83,7 @@ namespace Comet {
         bool requested_present_mode_supported = false;
         bool color_format_supported = false;
         bool depth_format_supported = false;
+        bool synchronization2_supported = false;
         bool sampler_anisotropy_supported = false;
         float max_sampler_anisotropy = 1.0f;
     };
@@ -92,6 +94,7 @@ namespace Comet {
         std::vector<std::string> notes;
         std::vector<std::string> score_reasons;
         vk::PhysicalDeviceFeatures enabled_features{};
+        vk::PhysicalDeviceVulkan13Features enabled_vulkan13_features{};
         float max_sampler_anisotropy = 1.0f;
 
         [[nodiscard]] bool is_suitable() const {

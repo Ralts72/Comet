@@ -62,6 +62,8 @@ namespace Comet::Graphics {
 
     vk::PipelineStageFlags pipeline_stage_to_vk(Flags<PipelineStage> flags);
 
+    vk::PipelineStageFlags2 pipeline_stage_to_vk2(Flags<PipelineStage> flags);
+
     vk::AccessFlags access_to_vk(Flags<Access> flags);
 
     vk::DependencyFlags dependency_to_vk(Flags<Dependency> flags);

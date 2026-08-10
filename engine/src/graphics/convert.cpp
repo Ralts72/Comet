@@ -367,6 +367,31 @@ namespace Comet::Graphics {
         return bits;
     }
 
+    vk::PipelineStageFlags2 pipeline_stage_to_vk2(const Flags<PipelineStage> flags) {
+        vk::PipelineStageFlags2 bits{};
+        if(flags == PipelineStage::None) {
+            return vk::PipelineStageFlagBits2::eNone;
+        }
+        TRY_SET_BIT(PipelineStage::Host, vk::PipelineStageFlagBits2::eHost)
+        TRY_SET_BIT(PipelineStage::Transfer, vk::PipelineStageFlagBits2::eTransfer)
+        TRY_SET_BIT(PipelineStage::AllCommands, vk::PipelineStageFlagBits2::eAllCommands)
+        TRY_SET_BIT(PipelineStage::AllGraphics, vk::PipelineStageFlagBits2::eAllGraphics)
+        TRY_SET_BIT(PipelineStage::ComputeShader, vk::PipelineStageFlagBits2::eComputeShader)
+        TRY_SET_BIT(PipelineStage::DrawIndirect, vk::PipelineStageFlagBits2::eDrawIndirect)
+        TRY_SET_BIT(PipelineStage::FragmentShader, vk::PipelineStageFlagBits2::eFragmentShader)
+        TRY_SET_BIT(PipelineStage::VertexInput, vk::PipelineStageFlagBits2::eVertexInput)
+        TRY_SET_BIT(PipelineStage::VertexShader, vk::PipelineStageFlagBits2::eVertexShader)
+        TRY_SET_BIT(PipelineStage::GeometryShader, vk::PipelineStageFlagBits2::eGeometryShader)
+        TRY_SET_BIT(PipelineStage::BottomOfPipe, vk::PipelineStageFlagBits2::eBottomOfPipe)
+        TRY_SET_BIT(PipelineStage::ColorAttachmentOutput, vk::PipelineStageFlagBits2::eColorAttachmentOutput)
+        TRY_SET_BIT(PipelineStage::EarlyFragmentTests, vk::PipelineStageFlagBits2::eEarlyFragmentTests)
+        TRY_SET_BIT(PipelineStage::LateFragmentTests, vk::PipelineStageFlagBits2::eLateFragmentTests)
+        TRY_SET_BIT(PipelineStage::TessellationControlShader, vk::PipelineStageFlagBits2::eTessellationControlShader)
+        TRY_SET_BIT(PipelineStage::TessellationEvaluationShader, vk::PipelineStageFlagBits2::eTessellationEvaluationShader)
+        TRY_SET_BIT(PipelineStage::TopOfPipe, vk::PipelineStageFlagBits2::eTopOfPipe)
+        return bits;
+    }
+
     vk::AccessFlags access_to_vk(const Flags<Access> flags) {
         if(flags == Access::None) {
             return vk::AccessFlagBits::eNone;

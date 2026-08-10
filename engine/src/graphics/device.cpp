@@ -62,18 +62,26 @@ namespace Comet {
         device_create_info.pQueueCreateInfos = queue_create_infos.data();
         device_create_info.ppEnabledExtensionNames = m_capability.enabled_extensions.data();
         device_create_info.enabledExtensionCount = m_capability.enabled_extensions.size();
-        device_create_info.pEnabledFeatures = &m_capability.enabled_features;
+        vk::PhysicalDeviceFeatures2 enabled_features{};
+        enabled_features.features = m_capability.enabled_features;
+        enabled_features.pNext = &m_capability.enabled_vulkan13_features;
+        device_create_info.pNext = &enabled_features;
+        device_create_info.pEnabledFeatures = nullptr;
         m_device = physical_device.createDevice(device_create_info);
         LOG_INFO("Vulkan logical device created successfully");
         create_allocator();
 
         for(uint32_t i = 0; i < create_info.graphics_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(graphics_queue_family_index.value(), i);
-            m_graphics_queues.emplace_back(graphics_queue_family_index.value(), i, vk_queue, Queue::Type::Graphics);
+            m_graphics_queues.emplace_back(
+                graphics_queue_family_index.value(), i, vk_queue,
+                Queue::Type::Graphics);
         }
         for(uint32_t i = 0; i < create_info.present_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(present_queue_family_index.value(), i);
-            m_present_queues.emplace_back(present_queue_family_index.value(), i, vk_queue, Queue::Type::Present);
+            m_present_queues.emplace_back(
+                present_queue_family_index.value(), i, vk_queue,
+                Queue::Type::Present);
         }
 
         create_pipeline_cache();
