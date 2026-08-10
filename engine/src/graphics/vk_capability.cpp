@@ -11,11 +11,10 @@
 namespace Comet {
     namespace {
         const std::vector<const char*> required_device_extensions = {
-#ifdef __APPLE__
-            "VK_KHR_portability_subset",
-#endif
             VK_KHR_SWAPCHAIN_EXTENSION_NAME
         };
+        constexpr const char* portability_subset_extension =
+            "VK_KHR_portability_subset";
 
         struct DeviceCandidate {
             DeviceCapability capability;
@@ -182,6 +181,10 @@ namespace Comet {
                 }
             }
             candidate.capability.enabled_extensions = required_device_extensions;
+            if(available_extensions.contains(portability_subset_extension)) {
+                candidate.capability.enabled_extensions.push_back(
+                    portability_subset_extension);
+            }
 
             const auto surface_capabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
             const auto surface_formats = physical_device.getSurfaceFormatsKHR(surface);
