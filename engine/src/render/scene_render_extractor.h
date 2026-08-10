@@ -8,6 +8,6 @@ namespace Comet {
 
     class COMET_API SceneRenderExtractor {
     public:
-        [[nodiscard]] static RenderScene extract(const Scene& scene);
+        [[nodiscard]] static RenderScene extract(Scene& scene);
     };
 }

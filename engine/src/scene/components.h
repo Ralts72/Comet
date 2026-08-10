@@ -30,6 +30,15 @@ namespace Comet {
         }
     };
 
+    struct RelationshipComponent {
+        EntityId parent = INVALID_ENTITY_ID;
+    };
+
+    struct WorldTransformComponent {
+        Math::Mat4 world_matrix = Math::Mat4(1.0f);
+        Math::Mat4 camera_world_matrix = Math::Mat4(1.0f);
+    };
+
     struct MeshRendererComponent {
         AssetHandle mesh;
         AssetHandle material;

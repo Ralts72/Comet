@@ -8,8 +8,8 @@ GoogleTest 测试基础。
 - `engine/`：引擎核心库，包含 `asset/`、`core/`、`graphics/`、`render/`、`runtime/`、`scene/` 和
   `common/` 模块；`asset/` 当前提供轻量、不透明的 `AssetHandle` 和带类型校验的最小内存
   `AssetRegistry`。
-- `editor/`：ImGui 编辑器入口和面板；Hierarchy 与 Inspector 已通过基于 `EntityId` 的 Selection
-  连接真实 Scene，SceneView/GameView 已显示离屏场景纹理，Project 和视图交互仍在后续阶段完善。
+- `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过基于
+  `EntityId` 的 Selection 编辑实体，SceneView/GameView 已显示离屏场景纹理。
 - `app/`：运行时示例程序入口。
 - `tests/`：GoogleTest 测试，覆盖数学、配置、导出、Scene/ECS、资源参数保护和基础集成行为。
 - `engine/assets/`：配置、纹理和 GLSL shader 资源。
@@ -91,16 +91,18 @@ VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范�
 提供基于 EnTT 的 Scene/Entity 和基础组件数据模型；`TransformComponent` 的 Euler 角使用度，局部矩阵顺序为
 `T * Rz * Ry * Rx * S`。组件只存储 TRS 数据，并提供不引入额外状态的 `rotate()` 和 `to_matrix()` 值操作；
 底层 `Math::wrap_degrees()` 与 `Math::compose_trs()` 会将旋转规范到 `[-180, 180)`，避免长期动画中的角度累积和
-大数精度损失。
+大数精度损失。`RelationshipComponent` 只保存父实体 ID，子节点由 Scene 查询；Scene 阻止循环层级、递归销毁
+子树，并在每次场景提取前按父级优先顺序全量更新 `WorldTransformComponent`。reparent 保持局部 TRS，世界矩阵随
+新父节点重新计算；增量 dirty 更新留到 TransformSystem 建立后实现。
 `SceneRenderExtractor` 将可渲染实体和 Camera 复制为
 `engine/src/render/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。
 `Engine` 使用唯一所有权持有 Scene 和最小 Asset Registry。app 在初始化阶段注册 demo mesh/material，并创建
 主 Camera 与两个具有不同 Transform 的 cube entity；`RenderSceneResolver` 选择并校验主 Camera、根据渲染尺寸
 生成 view/projection，同时将 Handle 解析为运行时 `RenderSubmission`。`Renderer` 负责编排帧流程，
 `SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过
-push constant 提交每个 draw 的模型矩阵。editor 初始化由 Engine 持有的 Scene；Hierarchy 可创建、删除和选择
-真实实体，Inspector 直接编辑选中实体的 Name 与 Transform，Selection 仅保存 `EntityId` 并在访问时向 Scene
-重新解析实体。editor 中的场景按 frame slot 渲染到可采样的离屏目标，再由 ImGui 合成到 swapchain；
+push constant 提交每个 draw 的模型矩阵。editor 初始化由 Engine 持有的 Scene；Hierarchy 可创建、递归删除、选择
+实体，并以拖拽方式 reparent；Inspector 直接编辑选中实体的 Name 与 Transform，Selection 仅保存 `EntityId` 并在访问时
+向 Scene 重新解析实体。editor 中的场景按 frame slot 渲染到可采样的离屏目标，再由 ImGui 合成到 swapchain；
 runtime app 仍直接渲染到 swapchain。SceneView 和 GameView 当前共享场景主 Camera 的输出。关闭时先释放引擎资源，
 再关闭日志系统。Shader
 源文件位于 `engine/assets/shaders/glsl/`，构建时由 CMake 调用 `glslangValidator`

@@ -2,6 +2,7 @@
 #include "editor.h"
 
 namespace Comet {
+    class Entity;
     class Scene;
 }
 
@@ -15,6 +16,10 @@ namespace CometEditor {
         void render() override;
 
     private:
+        void render_entity_node(Comet::Entity entity);
+
+        void accept_reparent_drop(Comet::Entity parent);
+
         Comet::Scene& m_scene;
         SelectionService& m_selection;
     };

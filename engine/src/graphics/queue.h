@@ -13,8 +13,8 @@ namespace Comet {
         Flags<PipelineStage> stage_mask;
 
         QueueSemaphoreSubmit(const Semaphore& semaphore,
-                             Flags<PipelineStage> stage_mask,
-                             uint64_t value = 0)
+                             const Flags<PipelineStage> stage_mask,
+                             const uint64_t value = 0)
             : semaphore(semaphore), value(value), stage_mask(stage_mask) {}
     };
 

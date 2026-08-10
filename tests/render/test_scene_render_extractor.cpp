@@ -8,7 +8,7 @@
 
 namespace Comet::Tests {
     TEST(SceneRenderExtractorTest, EmptySceneProducesNoRenderItems) {
-        const Scene scene;
+        Scene scene;
 
         const RenderScene render_scene = SceneRenderExtractor::extract(scene);
 
@@ -41,9 +41,7 @@ namespace Comet::Tests {
             first_transform.translation, first_transform.rotation, first_transform.scale);
         const Math::Mat4 expected_second_model = Math::compose_trs(
             second_transform.translation, second_transform.rotation, second_transform.scale);
-        const Scene& const_scene = scene;
-
-        const RenderScene render_scene = SceneRenderExtractor::extract(const_scene);
+        const RenderScene render_scene = SceneRenderExtractor::extract(scene);
 
         ASSERT_EQ(render_scene.render_items.size(), 2u);
         const auto find_item = [&render_scene](const EntityId id) {
@@ -68,6 +66,29 @@ namespace Comet::Tests {
         EXPECT_TRUE(TestUtils::Mat4Equal(second_item->model_matrix, expected_second_model));
     }
 
+    TEST(SceneRenderExtractorTest, ExtractsWorldMatrixForChildEntity) {
+        Scene scene;
+        Entity parent = scene.create_entity("Parent");
+        parent.get_component<TransformComponent>().translation =
+            Math::Vec3(2.0f, 0.0f, 0.0f);
+
+        Entity child = scene.create_entity("Child");
+        child.get_component<TransformComponent>().translation =
+            Math::Vec3(0.0f, 3.0f, 0.0f);
+        child.add_component<MeshRendererComponent>(AssetHandle(10), AssetHandle(20));
+        ASSERT_TRUE(scene.set_parent(child, parent));
+
+        const Math::Mat4 expected =
+            parent.get_component<TransformComponent>().to_matrix()
+            * child.get_component<TransformComponent>().to_matrix();
+        const RenderScene render_scene = SceneRenderExtractor::extract(scene);
+
+        ASSERT_EQ(render_scene.render_items.size(), 1u);
+        EXPECT_EQ(render_scene.render_items.front().entity_id, child.get_id());
+        EXPECT_TRUE(TestUtils::Mat4Equal(
+            render_scene.render_items.front().model_matrix, expected));
+    }
+
     TEST(SceneRenderExtractorTest, ExtractsCameraViewWithoutTransformScale) {
         Scene scene;
         Entity camera_entity = scene.create_entity("Main Camera");
@@ -85,10 +106,17 @@ namespace Comet::Tests {
         missing_transform.add_component<CameraComponent>().primary = true;
         missing_transform.remove_component<TransformComponent>();
 
+        Entity camera_parent = scene.create_entity("Camera Parent");
+        auto& parent_transform =
+            camera_parent.get_component<TransformComponent>();
+        parent_transform.translation = Math::Vec3(5.0f, 0.0f, 0.0f);
+        parent_transform.rotation = Math::Vec3(0.0f, 15.0f, 0.0f);
+        ASSERT_TRUE(scene.set_parent(camera_entity, camera_parent));
+
         TransformComponent camera_pose = transform;
         camera_pose.scale = Math::Vec3(1.0f);
-        const Math::Mat4 expected_view = Math::inverse(Math::compose_trs(
-            camera_pose.translation, camera_pose.rotation, camera_pose.scale));
+        const Math::Mat4 expected_view = Math::inverse(
+            parent_transform.to_matrix() * camera_pose.to_matrix());
 
         const RenderScene render_scene = SceneRenderExtractor::extract(scene);
 

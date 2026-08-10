@@ -29,6 +29,20 @@ namespace Comet {
 
         void destroy_entity(Entity entity);
 
+        [[nodiscard]] bool set_parent(Entity child, Entity parent);
+
+        [[nodiscard]] bool clear_parent(Entity child);
+
+        [[nodiscard]] Entity get_parent(Entity entity);
+
+        [[nodiscard]] std::vector<Entity> get_children(Entity entity);
+
+        [[nodiscard]] std::vector<Entity> get_root_entities();
+
+        void update_world_transforms();
+
+        [[nodiscard]] const Math::Mat4& get_world_matrix(Entity entity);
+
         [[nodiscard]] Entity find_entity(EntityId id);
 
         [[nodiscard]] std::vector<Entity> get_entities();
@@ -40,6 +54,8 @@ namespace Comet {
     private:
         friend class Entity;
         friend class SceneRenderExtractor;
+
+        [[nodiscard]] bool has_cycle(Entity child, Entity parent);
 
         EntityId m_next_entity_id = 1;
         entt::registry m_registry;

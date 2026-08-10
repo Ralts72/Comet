@@ -815,8 +815,8 @@ compile burst 后或正常 shutdown
 
 目标：建立真实场景数据模型，让引擎能从 Scene 渲染对象，而不是从 `Renderer` 内部硬编码对象。
 
-当前状态：阶段 1A、1B、1C 和 1D 已完成；Scene、Camera、AssetHandle、多对象渲染、编辑器基础数据闭环和
-离屏视口基础已经建立。下一步进入阶段 1E。
+当前状态：阶段 1A 至 1E 已完成；Scene、Camera、AssetHandle、多对象渲染、编辑器离屏视口和 Transform
+层级已经建立。下一步进入阶段 2。
 
 #### 阶段 1A：Scene/ECS Core（已完成）
 
@@ -867,12 +867,13 @@ compile burst 后或正常 shutdown
 - [x] 两个 frames-in-flight 下不会复用仍被 GPU 或 ImGui 采样的离屏附件。
 - [x] app 的直接呈现路径和现有多实体渲染行为不回退。
 
-#### 阶段 1E：Transform 层级
+#### 阶段 1E：Transform 层级（已完成）
 
-- 新增父子关系组件和循环依赖保护。
-- 实现局部矩阵、世界矩阵及脏标记更新。
-- Hierarchy 显示真实父子树，支持最小 reparent 操作。
-- 补充父子变换、销毁父节点和非法层级的单元测试。
+- [x] 新增父子关系组件和循环依赖保护。
+- [x] 实现局部矩阵和世界矩阵的父级优先全量更新；reparent 保持局部 TRS。
+- [x] Scene Render Extractor 提交世界矩阵，Camera 忽略自身局部 scale。
+- [x] Hierarchy 显示真实父子树，支持拖拽 reparent 和拖回根节点。
+- [x] 补充父子变换、销毁父节点、reparent 和非法层级的单元测试。
 
 `LightComponent` 延后到阶段 5，在基础 Forward Lighting 真正消费它时再加入，避免只存在类型却没有运行路径。
 
@@ -1185,6 +1186,8 @@ Scene Component / RenderItem
 - Native Script 组件。
 - Script 生命周期；Inspector 字段暴露复用阶段 2 的 descriptor 和 `PropertyEditorRegistry`，不另建一套反射协议。
 - Fixed Update。
+- 建立 TransformSystem：收口 Inspector、gizmo、脚本和运行时的 Transform 修改入口，以系统持有的 dirty 集合
+  增量更新受影响子树；保留全量更新路径作为正确性基线和测试对照。
 - 复用阶段 3 的 TaskScheduler 执行具有明确读写集合的 Transform propagation、animation preparation、AI 或物理
   辅助任务；系统依赖由显式 phase/barrier 组织，不并行调用可能写入同一组件集合的任意脚本 callback。
 - 物理引擎接入，建议先接入 Jolt 或 Bullet。
@@ -1226,11 +1229,11 @@ Scene Component / RenderItem
 
 近期最应该做：
 
-1. 完成 Transform 父子层级、世界矩阵和脏标记更新。
-2. 让 Hierarchy 显示真实父子树并支持最小 reparent。
-3. 引入持久化 Entity UUID，并明确它与运行时 `EntityId` 的边界。
-4. 定义 `.scene` YAML 格式并实现保存、加载。
-5. 接通 New/Open/Save Scene 和 Selection 生命周期。
+1. 引入持久化 Entity UUID，并明确它与运行时 `EntityId` 的边界。
+2. 定义 `.scene` YAML 格式并实现保存、加载。
+3. 接通 New/Open/Save Scene 和 Selection 生命周期。
+4. 定义场景版本字段和最小迁移策略。
+5. 为序列化往返、无效引用和加载失败补充测试。
 
 暂时不要急着做：
 
@@ -1241,7 +1244,7 @@ Scene Component / RenderItem
 5. 大规模材质图/节点编辑器。
 6. 在 Scene/资源生命周期尚未稳定前提前拆独立 RenderThread 或并行 command recording。
 
-原因很简单：Scene 已经连接渲染和编辑器，但层级与持久化仍未闭环。先完成这条纵向链路，后面的 Asset、Play 模式和复杂渲染才有稳定落点。
+原因很简单：Scene 已经连接渲染、编辑器和 Transform 层级，但持久化仍未闭环。先完成这条纵向链路，后面的 Asset、Play 模式和复杂渲染才有稳定落点。
 
 ## 12 个月建议里程碑
 
@@ -1335,8 +1338,8 @@ Scene Component / RenderItem
 
 ## 下一步建议
 
-下一步进入 **阶段 1E：Transform 层级**，在现有局部 TRS 基础上建立父子关系、世界矩阵和脏标记更新，
-并让 Hierarchy 从平铺列表升级为真实树结构。
+下一步进入 **阶段 2：场景序列化与编辑器闭环**。第一步引入持久化 Entity UUID，明确它与只在当前
+Scene 生命周期内有效的运行时 `EntityId` 之间的边界，再以此为基础定义 `.scene` YAML 格式。
 
 建议的职责边界：
 
@@ -1346,10 +1349,10 @@ Scene Component / RenderItem
 - Asset Registry 保存 `AssetHandle` 到运行时资源的映射，ResourceManager 创建或复用运行时/GPU资源。
 - RenderSceneResolver 选择 EntityId 最小的主 Camera、验证参数并将 RenderScene 解析为完整 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
 
-阶段 1E 的最小范围：
+阶段 2 的第一批最小范围：
 
-1. 定义父子关系组件及 Scene 层级 API，不向调用方暴露 EnTT registry。
-2. 阻止实体成为自己的父节点或形成祖先循环，并明确 reparent 时局部/世界 Transform 的保持策略。
-3. 计算局部矩阵和世界矩阵，以脏标记向后代传播更新。
-4. 让 Scene Render Extractor 提交世界矩阵，让 Hierarchy 显示真实父子树并支持最小 reparent。
-5. 补充父子变换、循环保护、reparent 和父节点销毁策略的纯逻辑测试。
+1. 为实体增加可持久化 UUID，运行时 `EntityId` 继续用于快速查询和编辑器 Selection。
+2. 定义 UUID 的生成、比较和无效值语义，并保证复制或加载场景时不会意外复用身份。
+3. 定义 `.scene` YAML 中实体、父子 UUID 引用和基础组件的表示。
+4. 先实现纯 Scene 的序列化往返，再接入编辑器 New/Open/Save。
+5. 对重复 UUID、缺失父节点、循环引用和格式错误给出可测试的失败策略。

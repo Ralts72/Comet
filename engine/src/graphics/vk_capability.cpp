@@ -224,16 +224,16 @@ namespace Comet {
                     supported_vulkan13_features.synchronization2;
             }
 
-            DeviceCandidateEvaluation evaluation = evaluate_device_candidate(
+            auto [score, rejection_reasons, notes, score_reasons, enabled_features, enabled_vulkan13_features, max_sampler_anisotropy] = evaluate_device_candidate(
                 candidate_info, request);
-            candidate.score = evaluation.score;
-            candidate.rejection_reasons = std::move(evaluation.rejection_reasons);
-            candidate.notes = std::move(evaluation.notes);
-            candidate.score_reasons = std::move(evaluation.score_reasons);
-            candidate.capability.enabled_features = evaluation.enabled_features;
+            candidate.score = score;
+            candidate.rejection_reasons = std::move(rejection_reasons);
+            candidate.notes = std::move(notes);
+            candidate.score_reasons = std::move(score_reasons);
+            candidate.capability.enabled_features = enabled_features;
             candidate.capability.enabled_vulkan13_features =
-                evaluation.enabled_vulkan13_features;
-            candidate.capability.max_sampler_anisotropy = evaluation.max_sampler_anisotropy;
+                enabled_vulkan13_features;
+            candidate.capability.max_sampler_anisotropy = max_sampler_anisotropy;
 
             return candidate;
         }

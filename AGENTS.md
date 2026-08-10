@@ -16,6 +16,7 @@ Avoid editing third-party code unless updating a dependency.
   vendored under `3rdparty/VulkanMemoryAllocator/` and `3rdparty/entt/`.
 - `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`: configure a release build.
 - `cmake --build build --parallel`: build all targets, including `engine`, `app`, `editor`, and tests.
+- `./build.sh`: configure a full Debug build in `build/` with `app`, `editor`, and tests enabled, then build every target.
 - `ctest --test-dir build --output-on-failure`: run discovered GoogleTest tests.
 - `./debug.sh`: configure/build `build-debug`, then launch `build-debug/editor/editor`.
 - `./release.sh`: configure/build `build-release`, then launch `build-release/app/app`.

@@ -36,7 +36,14 @@ TEST(SceneTest, CreateEntityAddsDefaultComponents) {
     EXPECT_TRUE(entity.has_component<IdComponent>());
     EXPECT_TRUE(entity.has_component<NameComponent>());
     EXPECT_TRUE(entity.has_component<TransformComponent>());
+    EXPECT_TRUE(entity.has_component<RelationshipComponent>());
+    EXPECT_TRUE(entity.has_component<WorldTransformComponent>());
     EXPECT_EQ(entity.get_component<NameComponent>().name, "Camera");
+    EXPECT_EQ(
+        entity.get_component<RelationshipComponent>().parent,
+        INVALID_ENTITY_ID);
+    EXPECT_TRUE(TestUtils::IsIdentityMatrix(
+        entity.get_component<WorldTransformComponent>().world_matrix));
     EXPECT_NE(entity.get_id(), INVALID_ENTITY_ID);
     EXPECT_EQ(scene.entity_count(), 1u);
 }
@@ -92,6 +99,107 @@ TEST(SceneTest, FindAndEnumerateEntitiesById) {
     EXPECT_FALSE(scene.find_entity(INVALID_ENTITY_ID));
     EXPECT_TRUE(scene.is_valid(first));
     EXPECT_TRUE(scene.is_valid(second));
+}
+
+TEST(SceneTest, EstablishesAndClearsParentChildRelationships) {
+    Scene scene;
+    Entity root = scene.create_entity("Root");
+    Entity first_child = scene.create_entity("First Child");
+    Entity second_child = scene.create_entity("Second Child");
+
+    EXPECT_TRUE(scene.set_parent(first_child, root));
+    EXPECT_TRUE(scene.set_parent(second_child, root));
+    EXPECT_EQ(scene.get_parent(first_child), root);
+    EXPECT_EQ(scene.get_parent(second_child), root);
+
+    const std::vector<Entity> children = scene.get_children(root);
+    ASSERT_EQ(children.size(), 2u);
+    EXPECT_EQ(children[0], first_child);
+    EXPECT_EQ(children[1], second_child);
+
+    const std::vector<Entity> roots = scene.get_root_entities();
+    ASSERT_EQ(roots.size(), 1u);
+    EXPECT_EQ(roots.front(), root);
+
+    EXPECT_TRUE(scene.clear_parent(first_child));
+    EXPECT_FALSE(scene.get_parent(first_child));
+    EXPECT_EQ(scene.get_root_entities().size(), 2u);
+}
+
+TEST(SceneTest, RejectsInvalidAndCyclicParenting) {
+    Scene scene;
+    Scene other_scene;
+    Entity parent = scene.create_entity("Parent");
+    Entity child = scene.create_entity("Child");
+    Entity grandchild = scene.create_entity("Grandchild");
+    Entity foreign = other_scene.create_entity("Foreign");
+
+    ASSERT_TRUE(scene.set_parent(child, parent));
+    ASSERT_TRUE(scene.set_parent(grandchild, child));
+
+    EXPECT_FALSE(scene.set_parent(parent, parent));
+    EXPECT_FALSE(scene.set_parent(parent, grandchild));
+    EXPECT_FALSE(scene.set_parent(child, foreign));
+    EXPECT_EQ(scene.get_parent(child), parent);
+    EXPECT_EQ(scene.get_parent(grandchild), child);
+}
+
+TEST(SceneTest, ReparentKeepsLocalTransformAndUpdatesWorldMatrix) {
+    Scene scene;
+    Entity first_parent = scene.create_entity("First Parent");
+    Entity second_parent = scene.create_entity("Second Parent");
+    Entity child = scene.create_entity("Child");
+
+    first_parent.get_component<TransformComponent>().translation =
+        Math::Vec3(1.0f, 0.0f, 0.0f);
+    second_parent.get_component<TransformComponent>().translation =
+        Math::Vec3(5.0f, 0.0f, 0.0f);
+    auto& child_transform = child.get_component<TransformComponent>();
+    child_transform.translation = Math::Vec3(0.0f, 2.0f, 0.0f);
+    const TransformComponent local_before_reparent = child_transform;
+
+    ASSERT_TRUE(scene.set_parent(child, first_parent));
+    EXPECT_TRUE(TestUtils::Mat4Equal(
+        scene.get_world_matrix(child),
+        first_parent.get_component<TransformComponent>().to_matrix()
+            * child_transform.to_matrix()));
+
+    first_parent.get_component<TransformComponent>().translation.x = 3.0f;
+    EXPECT_TRUE(TestUtils::Mat4Equal(
+        scene.get_world_matrix(child),
+        first_parent.get_component<TransformComponent>().to_matrix()
+            * child_transform.to_matrix()));
+
+    ASSERT_TRUE(scene.set_parent(child, second_parent));
+    EXPECT_TRUE(TestUtils::Mat4Equal(
+        child_transform.to_matrix(), local_before_reparent.to_matrix()));
+    EXPECT_TRUE(TestUtils::Mat4Equal(
+        scene.get_world_matrix(child),
+        second_parent.get_component<TransformComponent>().to_matrix()
+            * child_transform.to_matrix()));
+
+    ASSERT_TRUE(scene.clear_parent(child));
+    EXPECT_TRUE(TestUtils::Mat4Equal(
+        scene.get_world_matrix(child), child_transform.to_matrix()));
+}
+
+TEST(SceneTest, DestroyingParentDestroysEntireSubtree) {
+    Scene scene;
+    Entity parent = scene.create_entity("Parent");
+    Entity child = scene.create_entity("Child");
+    Entity grandchild = scene.create_entity("Grandchild");
+    Entity survivor = scene.create_entity("Survivor");
+
+    ASSERT_TRUE(scene.set_parent(child, parent));
+    ASSERT_TRUE(scene.set_parent(grandchild, child));
+
+    scene.destroy_entity(parent);
+
+    EXPECT_FALSE(parent);
+    EXPECT_FALSE(child);
+    EXPECT_FALSE(grandchild);
+    EXPECT_TRUE(survivor);
+    EXPECT_EQ(scene.entity_count(), 1u);
 }
 
 TEST(SceneTest, EntityManagesCustomComponents) {
