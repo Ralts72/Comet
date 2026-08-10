@@ -7,6 +7,7 @@ set(SOURCES
         editor.cpp
         src/imgui_context.cpp
         src/menu_bar.cpp
+        src/property_editor_registry.cpp
         src/panels/inspector.cpp
         src/panels/console.cpp
         src/panels/view.cpp

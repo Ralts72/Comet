@@ -39,8 +39,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 - Scene 已能管理运行期 `EntityId`、持久化 UUID、父子关系、局部 TRS 与派生世界矩阵，并可将基础组件保存为
   带版本字段的 `.scene` YAML。
 - `MeshRendererComponent` 已使用统一的 `AssetHandle`，app 会注册 demo mesh/material，并通过该链路绘制两个不同 Transform 的实体。
-- Hierarchy 和 Inspector 已绑定真实 Scene，支持基于 `EntityId` 的选择以及实体创建、删除、重命名和 TRS 编辑；
-  Project、SceneView 拾取和 gizmo 仍是占位状态。
+- Hierarchy 和 Inspector 已绑定真实 Scene，支持基于 `EntityId` 的选择以及实体创建、删除、重命名；Inspector 通过
+  显式组件/属性描述符编辑 Transform、MeshRenderer 和 Camera，Project、SceneView 拾取和 gizmo 仍是占位状态。
 - 编辑器中的场景已按 frame slot 渲染到可采样离屏目标，再由 ImGui 显示在 SceneView/GameView 中；runtime app
   仍直接渲染到 swapchain。两个 View 当前共享场景主 Camera 输出，独立 editor camera 尚未实现。
 - Material/ResourceManager 已有接口，但还没有资产数据库、资产序列化、导入器、热重载和编辑器检查器闭环。
@@ -93,16 +93,15 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 ### 4. 编辑器数据闭环
 
-当前编辑器已经完成第一段真实数据闭环：Hierarchy 读取 Scene 的平铺实体列表，Selection 通过 `EntityId`
-连接 Hierarchy 与 Inspector，Inspector 可以修改 Name 和局部 Transform，创建、删除和重命名也会作用于真实 Scene；
-场景输出也已通过离屏目标进入 View 面板。
+当前编辑器已经完成第一段真实数据闭环：Hierarchy 读取 Scene 层级，Selection 通过 `EntityId` 连接 Hierarchy 与
+Inspector，组件描述符驱动 Transform、MeshRenderer 和 Camera 属性编辑，创建、删除、重命名和场景文件操作也会
+作用于真实 Scene；场景输出已通过离屏目标进入 View 面板。
 接下来仍缺少：
 
 - Project 读取真实项目资产。
 - SceneView 使用 editor camera、选择、高亮、gizmo、拾取。
 - SceneView/GameView 使用独立输出，并在 resize 后保持交互坐标与画面一致。
-- 菜单命令真正连接 New/Open/Save Scene。
-- Inspector 的组件注册/反射，以及 MeshRenderer、Camera 等组件编辑。
+- Add Component、Remove Component 和组件搜索菜单。
 - Undo/Redo、复制粘贴、duplicate 和拖拽资源到实体。
 
 编辑器成熟度的关键不是面板数量，而是每个操作都能修改真实项目数据并可保存。
@@ -893,8 +892,8 @@ compile burst 后或正常 shutdown
 
 目标：用户能在编辑器里创建、编辑、保存、加载一个简单场景。
 
-当前状态：持久化 Entity UUID、`.scene` YAML v1 契约、纯 Scene 保存/加载和编辑器 New/Open/Save 已完成；
-场景替换会重绑定 Hierarchy/Selection 并清理旧选择。下一步建立组件与属性描述元数据。
+当前状态：持久化 Entity UUID、`.scene` YAML v1、编辑器 New/Open/Save 和 descriptor 驱动的基础组件 Inspector
+已完成；下一步让场景序列化复用同一份属性元数据，同时保持显式版本契约。
 
 建议任务：
 
@@ -905,9 +904,9 @@ compile burst 后或正常 shutdown
 - [x] 实现纯 Scene 的内存序列化往返和文件保存/加载；加载失败不会修改已有 Scene。
 - [x] 菜单 New/Open/Save Scene 接入真实逻辑；Open 和首次 Save 使用路径输入，已有路径的 Scene 可直接保存。
 - [x] New/Open Scene 后重绑定 Hierarchy 与 Selection，并在运行时 `EntityId` 可能复用时仍清理旧选择。
-- [ ] 建立 `ComponentRegistry`、`ComponentDescriptor`、`PropertyDescriptor` 和按属性类型分发的
+- [x] 建立 `ComponentRegistry`、`ComponentDescriptor`、`PropertyDescriptor` 和按属性类型分发的
   `PropertyEditorRegistry`。
-- [ ] 先为 Transform、MeshRenderer 和 Camera 显式注册元数据，Inspector 通过 descriptor 生成控件，不再为每个字段
+- [x] 先为 Transform、MeshRenderer 和 Camera 显式注册元数据，Inspector 通过 descriptor 生成控件，不再为每个字段
   硬编码面板逻辑。
 - [ ] 场景序列化复用同一份属性元数据，但仍由显式 stable ID、`serializable` 标记和版本迁移规则决定持久化契约。
 - [ ] 实现 Play/Edit 模式的最小切换。
@@ -1345,8 +1344,8 @@ Scene Component / RenderItem
 
 ## 下一步建议
 
-下一步继续 **阶段 2：场景序列化与编辑器闭环**。持久化 Entity UUID、`.scene` YAML v1、编辑器
-New/Open/Save 和 Selection 重绑定已经建立，接下来定义组件/属性描述元数据并让 Inspector 消费它。
+下一步继续 **阶段 2：场景序列化与编辑器闭环**。组件/属性描述元数据和通用 Inspector 已建立，接下来让
+`SceneSerializer` 复用 descriptor 的 stable ID、类型访问器与 `serializable` 标记，同时继续显式处理版本迁移。
 
 建议的职责边界：
 
@@ -1364,4 +1363,5 @@ New/Open/Save 和 Selection 重绑定已经建立，接下来定义组件/属性
 4. [x] 实现纯 Scene 的内存序列化往返和文件保存/加载。
 5. [x] 对重复 UUID、缺失父节点、循环引用和格式错误给出可测试的失败策略。
 6. [x] 接入编辑器 New/Open/Save，并在替换 Scene 后清理失效 Selection。
-7. [ ] 建立组件/属性描述元数据，并让 Inspector 通过描述生成基础组件编辑控件。
+7. [x] 建立组件/属性描述元数据，并让 Inspector 通过描述生成基础组件编辑控件。
+8. [ ] 让场景序列化复用属性描述元数据，并保留显式版本迁移边界。

@@ -55,6 +55,7 @@ set(SOURCES
         src/render/material.cpp
         src/scene/entity.cpp
         src/scene/entity_uuid.cpp
+        src/scene/component_registry.cpp
         src/scene/scene.cpp
         src/scene/scene_serializer.cpp
 )

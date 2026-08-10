@@ -2,6 +2,7 @@
 #include "asset/registry.h"
 #include "common/geometry_utils.h"
 #include "src/imgui_context.h"
+#include "src/property_editor_registry.h"
 #include "core/engine.h"
 #include "render/material.h"
 #include "render/renderer.h"
@@ -16,6 +17,7 @@
 #include "src/panels/hierarchy.h"
 #include "src/selection.h"
 #include "scene/scene.h"
+#include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
 
 #include <algorithm>
@@ -363,7 +365,10 @@ namespace {
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
             m_scene_view_panel = std::make_unique<CometEditor::ViewPanel>(CometEditor::ViewType::SceneView);
             m_game_view_panel = std::make_unique<CometEditor::ViewPanel>(CometEditor::ViewType::GameView);
-            m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(*m_selection);
+            m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
+                *m_selection,
+                m_component_registry,
+                m_property_editor_registry);
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>();
             m_console_panel = std::make_unique<CometEditor::ConsolePanel>();
 
@@ -406,6 +411,10 @@ namespace {
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::MenuBar> m_menu_bar;
         std::optional<CometEditor::SelectionService> m_selection;
+        Comet::ComponentRegistry m_component_registry =
+                Comet::create_scene_component_registry();
+        CometEditor::PropertyEditorRegistry m_property_editor_registry =
+                CometEditor::create_property_editor_registry();
         Comet::SceneSerializer m_scene_serializer;
         std::string m_scene_path;
         std::array<char, SCENE_PATH_CAPACITY> m_scene_path_buffer{};

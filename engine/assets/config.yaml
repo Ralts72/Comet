@@ -29,8 +29,8 @@ render:
 
 # 窗口设置
 window:
-  width: 720
-  height: 720
+  width: 1440
+  height: 960
   title: "Comet Engine"
   fullscreen: false
   resizable: true

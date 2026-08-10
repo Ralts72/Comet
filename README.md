@@ -8,8 +8,8 @@ GoogleTest 测试基础。
 - `engine/`：引擎核心库，包含 `asset/`、`core/`、`graphics/`、`render/`、`runtime/`、`scene/` 和
   `common/` 模块；`asset/` 当前提供轻量、不透明的 `AssetHandle` 和带类型校验的最小内存
   `AssetRegistry`。
-- `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过基于
-  `EntityId` 的 Selection 编辑实体，File 菜单可新建、打开和保存 `.scene`，SceneView/GameView 已显示离屏场景纹理。
+- `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过组件描述符
+  编辑 Transform、MeshRenderer 和 Camera，File 菜单可新建、打开和保存 `.scene`。
 - `app/`：运行时示例程序入口。
 - `tests/`：GoogleTest 测试，覆盖数学、配置、导出、Scene/ECS、场景序列化、资源参数保护和基础集成行为。
 - `engine/assets/`：配置、纹理和 GLSL shader 资源。
@@ -96,6 +96,8 @@ version 4 `EntityUuid`，作为跨保存/加载稳定的实体身份，并支持
 `RelationshipComponent` 只保存父实体 ID，子节点由 Scene 查询；Scene 阻止循环层级、递归销毁
 子树，并在每次场景提取前按父级优先顺序全量更新 `WorldTransformComponent`。reparent 保持局部 TRS，世界矩阵随
 新父节点重新计算；增量 dirty 更新留到 TransformSystem 建立后实现。
+`ComponentRegistry` 使用显式 stable ID、pointer-to-member 访问器和属性标记描述 Transform、MeshRenderer 与 Camera；
+editor 的 `PropertyEditorRegistry` 按 Bool、Float、Vec3 和 AssetHandle 类型分发控件，Inspector 不再包含组件专用分支。
 `SceneSerializer` 使用带版本字段的 `.scene` YAML 保存 Name、Transform、MeshRenderer、Camera 和父 UUID 引用；
 运行时 `EntityId`、EnTT handle 与派生世界矩阵不会落盘。实体按 UUID 排序，加载时会拒绝重复 UUID、悬空父引用、
 层级环、未知字段和不支持的版本；保存时会自动创建缺失的父目录。
@@ -106,7 +108,7 @@ version 4 `EntityUuid`，作为跨保存/加载稳定的实体身份，并支持
 生成 view/projection，同时将 Handle 解析为运行时 `RenderSubmission`。`Renderer` 负责编排帧流程，
 `SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过
 push constant 提交每个 draw 的模型矩阵。editor 初始化由 Engine 持有的 Scene；Hierarchy 可创建、递归删除、选择
-实体，并以拖拽方式 reparent；Inspector 直接编辑选中实体的 Name 与 Transform，Selection 仅保存 `EntityId` 并在访问时
+实体，并以拖拽方式 reparent；Inspector 直接编辑 Name，并通过描述符编辑基础组件，Selection 仅保存 `EntityId` 并在访问时
 向 Scene 重新解析实体。File 菜单通过路径输入执行 New/Open/Save；Open 先完整加载再替换 Engine 中的 Scene，
 New/Open 都会重绑定 Hierarchy 与 Selection 并清除旧选择。editor 中的场景按 frame slot 渲染到可采样的离屏目标，再由 ImGui 合成到 swapchain；
 runtime app 仍直接渲染到 swapchain。SceneView 和 GameView 当前共享场景主 Camera 的输出。关闭时先释放引擎资源，

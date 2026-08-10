@@ -49,29 +49,58 @@ TEST(ConfigInterfaceTest, SeparatesDataFromLoading) {
 }
 
 TEST(ConfigTest, LoadsProjectConfiguration) {
-    const Config config = ConfigLoader{}.load();
+    EXPECT_NO_THROW(static_cast<void>(ConfigLoader{}.load()));
+}
 
-    EXPECT_EQ(config.log.level, "info");
-    EXPECT_FALSE(config.log.enable_file_logging);
+TEST(ConfigTest, ParsesExplicitConfiguration) {
+    const TemporaryConfigFile file(R"(
+vulkan:
+  surface_format: rgba8_unorm
+  color_space: srgb_nonlinear
+  depth_format: d24_unorm_s8_uint
+  present_mode: mailbox
+  swapchain_image_count: 4
+  msaa_samples: 8
+render:
+  max_frames_in_flight: 3
+  clear_color: [0.9, 0.7, 0.5, 0.3]
+  enable_vsync: true
+  max_anisotropy: 16
+window:
+  width: 901
+  height: 517
+  title: "Config Test"
+  fullscreen: true
+  resizable: false
+debug:
+  log_level: warn
+  enable_file_logging: true
+  enable_validation: false
+)");
 
-    EXPECT_EQ(config.window.width, 720);
-    EXPECT_EQ(config.window.height, 720);
-    EXPECT_EQ(config.window.title, "Comet Engine");
-    EXPECT_FALSE(config.window.fullscreen);
-    EXPECT_TRUE(config.window.resizable);
+    const Config config = ConfigLoader{}.load(file.path());
 
-    EXPECT_EQ(config.vulkan.surface_format, Format::B8G8R8A8_SRGB);
+    EXPECT_EQ(config.log.level, "warn");
+    EXPECT_TRUE(config.log.enable_file_logging);
+
+    EXPECT_EQ(config.window.width, 901);
+    EXPECT_EQ(config.window.height, 517);
+    EXPECT_EQ(config.window.title, "Config Test");
+    EXPECT_TRUE(config.window.fullscreen);
+    EXPECT_FALSE(config.window.resizable);
+
+    EXPECT_EQ(config.vulkan.surface_format, Format::R8G8B8A8_UNORM);
     EXPECT_EQ(config.vulkan.color_space, ImageColorSpace::SrgbNonlinearKHR);
-    EXPECT_EQ(config.vulkan.depth_format, Format::D32_SFLOAT);
-    EXPECT_EQ(config.vulkan.present_mode, PresentMode::Immediate);
-    EXPECT_EQ(config.vulkan.swapchain_image_count, 3u);
-    EXPECT_EQ(config.vulkan.msaa_samples, SampleCount::Count4);
-    EXPECT_EQ(config.vulkan.enable_validation, Config::Vulkan{}.enable_validation);
+    EXPECT_EQ(config.vulkan.depth_format, Format::D24_UNORM_S8_UINT);
+    EXPECT_EQ(config.vulkan.present_mode, PresentMode::Mailbox);
+    EXPECT_EQ(config.vulkan.swapchain_image_count, 4u);
+    EXPECT_EQ(config.vulkan.msaa_samples, SampleCount::Count8);
+    EXPECT_FALSE(config.vulkan.enable_validation);
 
-    EXPECT_EQ(config.render.max_frames_in_flight, 2u);
-    EXPECT_FALSE(config.render.enable_vsync);
-    EXPECT_FLOAT_EQ(config.render.max_anisotropy, 8.0f);
-    EXPECT_EQ(config.render.clear_color, (std::array<float, 4>{0.2f, 0.4f, 0.1f, 1.0f}));
+    EXPECT_EQ(config.render.max_frames_in_flight, 3u);
+    EXPECT_TRUE(config.render.enable_vsync);
+    EXPECT_FLOAT_EQ(config.render.max_anisotropy, 16.0f);
+    EXPECT_EQ(config.render.clear_color, (std::array<float, 4>{0.9f, 0.7f, 0.5f, 0.3f}));
 }
 
 TEST(ConfigTest, UsesDefaultsForMissingFields) {
