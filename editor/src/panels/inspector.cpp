@@ -42,7 +42,9 @@ namespace CometEditor {
         if(ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
             auto& transform = entity.get_component<Comet::TransformComponent>();
             ImGui::DragFloat3("Translation", &transform.translation.x, 0.1f);
-            ImGui::DragFloat3("Rotation", &transform.rotation.x, 1.0f);
+            if(ImGui::DragFloat3("Rotation", &transform.rotation.x, 1.0f)) {
+                transform.rotation = Comet::Math::wrap_degrees(transform.rotation);
+            }
             ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f);
         }
 

@@ -22,14 +22,7 @@ namespace Comet {
     }
 
     void Mesh::draw(const CommandBuffer& command_buffer) const {
-        const Buffer* buffer = m_vertex_buffer.get();
-        uint64_t offset = 0;
-
-        command_buffer.bind_vertex_buffer(
-            std::span(&buffer, 1),
-            std::span(&offset, 1),
-            0
-        );
+        command_buffer.bind_vertex_buffer({*m_vertex_buffer, 0});
 
         if(m_index_count > 0) {
             command_buffer.bind_index_buffer(*m_index_buffer, 0, vk::IndexType::eUint32);

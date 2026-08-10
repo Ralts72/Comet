@@ -18,12 +18,35 @@ protected:
     bool vec3Equal(const Math::Vec3& a, const Math::Vec3& b) {
         return floatEqual(a.x, b.x) && floatEqual(a.y, b.y) && floatEqual(a.z, b.z);
     }
+
+    bool mat4Equal(const Math::Mat4& a, const Math::Mat4& b) {
+        for(int column = 0; column < 4; ++column) {
+            for(int row = 0; row < 4; ++row) {
+                if(!floatEqual(a[column][row], b[column][row])) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 };
 
 TEST_F(MathUtilsTest, Constants) {
     EXPECT_FLOAT_EQ(Math::PI, 3.14159265358979323846f);
     EXPECT_FLOAT_EQ(Math::DEG_TO_RAD, Math::PI / 180.0f);
     EXPECT_FLOAT_EQ(Math::RAD_TO_DEG, 180.0f / Math::PI);
+}
+
+TEST_F(MathUtilsTest, WrapsDegreesToSignedCycle) {
+    EXPECT_FLOAT_EQ(Math::wrap_degrees(0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(Math::wrap_degrees(180.0f), -180.0f);
+    EXPECT_FLOAT_EQ(Math::wrap_degrees(181.0f), -179.0f);
+    EXPECT_FLOAT_EQ(Math::wrap_degrees(-181.0f), 179.0f);
+    EXPECT_FLOAT_EQ(Math::wrap_degrees(540.0f), -180.0f);
+
+    const Math::Vec3 wrapped = Math::wrap_degrees(
+        Math::Vec3(360.0f, -450.0f, 721.0f));
+    EXPECT_TRUE(vec3Equal(wrapped, Math::Vec3(0.0f, -90.0f, 1.0f)));
 }
 
 TEST_F(MathUtilsTest, VectorLength) {
@@ -104,6 +127,45 @@ TEST_F(MathUtilsTest, RotationMatrix) {
     EXPECT_TRUE(floatEqual(rotatedPoint.y, 1.0f));
     EXPECT_TRUE(floatEqual(rotatedPoint.z, 0.0f));
     EXPECT_FLOAT_EQ(rotatedPoint.w, 1.0f);
+}
+
+TEST_F(MathUtilsTest, ComposeTrsUsesDegreeEulerAngles) {
+    const Math::Mat4 matrix = Math::compose_trs(
+        Math::Vec3(1.0f, 2.0f, 3.0f),
+        Math::Vec3(0.0f, 0.0f, 90.0f),
+        Math::Vec3(2.0f, 3.0f, 4.0f));
+
+    const Math::Vec4 transformed =
+        matrix * Math::Vec4(1.0f, 0.0f, 0.0f, 1.0f);
+
+    EXPECT_TRUE(vec3Equal(
+        Math::Vec3(transformed), Math::Vec3(1.0f, 4.0f, 3.0f)));
+}
+
+TEST_F(MathUtilsTest, ComposeTrsAppliesEulerRotationsInXYZOrder) {
+    const Math::Mat4 matrix = Math::compose_trs(
+        Math::Vec3(0.0f),
+        Math::Vec3(90.0f, 90.0f, 0.0f),
+        Math::Vec3(1.0f));
+
+    const Math::Vec4 transformed =
+        matrix * Math::Vec4(0.0f, 1.0f, 0.0f, 0.0f);
+
+    EXPECT_TRUE(vec3Equal(
+        Math::Vec3(transformed), Math::Vec3(1.0f, 0.0f, 0.0f)));
+}
+
+TEST_F(MathUtilsTest, ComposeTrsWrapsLargeEulerAngles) {
+    const Math::Mat4 wrapped = Math::compose_trs(
+        Math::Vec3(0.0f),
+        Math::Vec3(10.0f, -20.0f, 30.0f),
+        Math::Vec3(1.0f));
+    const Math::Mat4 accumulated = Math::compose_trs(
+        Math::Vec3(0.0f),
+        Math::Vec3(3610.0f, -7220.0f, 10830.0f),
+        Math::Vec3(1.0f));
+
+    EXPECT_TRUE(mat4Equal(wrapped, accumulated));
 }
 
 TEST_F(MathUtilsTest, ProjectionMatrices) {

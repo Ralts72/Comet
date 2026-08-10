@@ -137,7 +137,7 @@ namespace {
             // 更新 FPS 显示
             m_menu_bar->set_fps(context.fps);
 
-            update_demo_cube(context.totalTime);
+            update_demo_cube(context.deltaTime);
             update_viewport_state();
         }
 
@@ -180,15 +180,16 @@ namespace {
         }
 
     private:
-        void update_demo_cube(const float total_time) {
+        void update_demo_cube(const float delta_time) {
             Comet::Scene* scene = get_engine().get_scene();
             if(!scene) {
                 return;
             }
 
             if(Comet::Entity cube = scene->find_entity(m_cube_entity_id)) {
-                cube.get_component<Comet::TransformComponent>().rotation.y =
-                        30.0f + total_time * 45.0f;
+                auto& transform = cube.get_component<Comet::TransformComponent>();
+                transform.rotate(
+                    Comet::Math::Vec3(0.0f, delta_time * 45.0f, 0.0f));
             }
         }
 

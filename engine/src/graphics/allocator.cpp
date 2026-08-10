@@ -5,6 +5,18 @@
 #include <string>
 
 namespace Comet {
+    Allocation& Allocation::operator=(Allocation&& other) noexcept {
+        if(this == &other) {
+            return *this;
+        }
+        if(m_handle != VK_NULL_HANDLE) {
+            LOG_FATAL("Cannot overwrite a live allocation handle");
+        }
+
+        m_handle = std::exchange(other.m_handle, VK_NULL_HANDLE);
+        return *this;
+    }
+
     namespace {
         const char* allocation_usage_name(const AllocationUsage usage) {
             switch(usage) {

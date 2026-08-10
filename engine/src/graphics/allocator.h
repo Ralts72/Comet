@@ -32,12 +32,7 @@ namespace Comet {
         Allocation(Allocation&& other) noexcept
             : m_handle(std::exchange(other.m_handle, VK_NULL_HANDLE)) {}
 
-        Allocation& operator=(Allocation&& other) noexcept {
-            if(this != &other) {
-                m_handle = std::exchange(other.m_handle, VK_NULL_HANDLE);
-            }
-            return *this;
-        }
+        Allocation& operator=(Allocation&& other) noexcept;
 
         [[nodiscard]] explicit operator bool() const noexcept {
             return m_handle != VK_NULL_HANDLE;

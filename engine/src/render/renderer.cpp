@@ -61,7 +61,7 @@ namespace Comet {
         pipeline_config.set_vertex_input_state(vertex_input_description);
         pipeline_config.set_input_assembly_state(Topology::TriangleList);
 
-        auto msaa_samples = static_cast<SampleCount>(m_vulkan_config.msaa_samples);
+        const auto msaa_samples = m_vulkan_config.msaa_samples;
 
         pipeline_config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         pipeline_config.enable_depth_test();

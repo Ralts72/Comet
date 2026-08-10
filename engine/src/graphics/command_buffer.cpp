@@ -64,19 +64,34 @@ namespace Comet {
         m_command_buffer.setScissor(0, 1, &scissor);
     }
 
-    void CommandBuffer::bind_vertex_buffer(const std::span<const Buffer*> buffers,
-        const std::span<const uint64_t> offsets,
+    void CommandBuffer::bind_vertex_buffer(const VertexBufferBinding& binding,
+                                           const uint32_t first_binding) const {
+        const vk::Buffer buffer = binding.buffer.get();
+        m_command_buffer.bindVertexBuffers(
+            first_binding, 1, &buffer, &binding.offset);
+    }
+
+    void CommandBuffer::bind_vertex_buffers(
+        const std::span<const VertexBufferBinding> bindings,
         const uint32_t first_binding) const {
-        if(buffers.size() != offsets.size()) {
-            LOG_FATAL("buffers and offsets must have the same size");
+        if(bindings.empty()) {
+            return;
         }
-        std::vector<vk::Buffer> vk_buffers;
-        vk_buffers.reserve(buffers.size());
-        for (const auto buf : buffers) {
-            vk_buffers.push_back(buf->get());
+
+        std::vector<vk::Buffer> buffers;
+        std::vector<uint64_t> offsets;
+        buffers.reserve(bindings.size());
+        offsets.reserve(bindings.size());
+        for(const auto& [buffer, offset]: bindings) {
+            buffers.push_back(buffer.get());
+            offsets.push_back(offset);
         }
-        m_command_buffer.bindVertexBuffers(first_binding, static_cast<uint32_t>(vk_buffers.size()),
-            vk_buffers.data(), offsets.data());
+
+        m_command_buffer.bindVertexBuffers(
+            first_binding,
+            static_cast<uint32_t>(buffers.size()),
+            buffers.data(),
+            offsets.data());
     }
 
     void CommandBuffer::bind_index_buffer(const Buffer& buffer, const uint64_t offset, const vk::IndexType type) const {

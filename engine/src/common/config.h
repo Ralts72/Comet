@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "graphics/enums.h"
 
 #include <array>
 #include <cstdint>
@@ -23,12 +24,12 @@ namespace Comet {
         };
 
         struct Vulkan {
-            int surface_format = 50;
-            int color_space = 0;
-            int depth_format = 126;
-            int present_mode = 0;
+            Format surface_format = Format::B8G8R8A8_SRGB;
+            ImageColorSpace color_space = ImageColorSpace::SrgbNonlinearKHR;
+            Format depth_format = Format::D32_SFLOAT;
+            PresentMode present_mode = PresentMode::Immediate;
             std::uint32_t swapchain_image_count = 3;
-            int msaa_samples = 4;
+            SampleCount msaa_samples = SampleCount::Count4;
 #ifdef BUILD_TYPE_DEBUG
             bool enable_validation = true;
 #else

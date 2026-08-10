@@ -79,14 +79,19 @@ ctest --test-dir build --output-on-failure
 不直接读取原始配置。Vulkan Validation 在 Debug 构建中默认开启、Release 和 CI 构建中默认关闭；需要临时覆盖时可在
 `debug.enable_validation` 中配置，运行期 Debug Utils Messenger 由 `Context` 持有。`render.max_anisotropy` 表达项目期望的
 过滤倍率，`1` 表示关闭；`engine/src/graphics/vk_capability.h` 集中处理物理设备的队列、扩展、Surface、格式和 Feature
-能力检查，以及 Swapchain Request 到最终 Config 的选择；设备按类型与可用能力评分，实际值限制在设备上限内。
+能力检查，以及 Swapchain Request 到最终 Config 的选择；设备按类型与可用能力评分，实际值限制在设备上限内。项目要求
+Vulkan 1.3，启动时同时检查 loader 与 PhysicalDevice 版本。Vulkan format、color space 和 present mode 在 YAML 中使用
+`bgra8_srgb`、`srgb_nonlinear`、`immediate` 等稳定名称，加载后保存为 Comet 强类型枚举。
 Vulkan 内存分配由 `engine/src/graphics/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability
 和 framebuffer 像素尺寸选择 extent、transform、alpha、usage 与 present mode，窗口最小化时暂停更新并延迟重建。
 `engine/src/scene/`
 提供基于 EnTT 的 Scene/Entity 和基础组件数据模型；`TransformComponent` 的 Euler 角使用度，局部矩阵顺序为
-`T * Rz * Ry * Rx * S`。`SceneRenderExtractor` 将可渲染实体和 Camera 复制为
+`T * Rz * Ry * Rx * S`。组件只存储 TRS 数据，并提供不引入额外状态的 `rotate()` 和 `to_matrix()` 值操作；
+底层 `Math::wrap_degrees()` 与 `Math::compose_trs()` 会将旋转规范到 `[-180, 180)`，避免长期动画中的角度累积和
+大数精度损失。
+`SceneRenderExtractor` 将可渲染实体和 Camera 复制为
 `engine/src/render/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。
 `Engine` 使用唯一所有权持有 Scene 和最小 Asset Registry。app 在初始化阶段注册 demo mesh/material，并创建
 主 Camera 与两个具有不同 Transform 的 cube entity；`RenderSceneResolver` 选择并校验主 Camera、根据渲染尺寸

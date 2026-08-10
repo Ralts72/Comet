@@ -3,11 +3,65 @@
 #include <type_traits>
 
 #include "graphics/buffer.h"
+#include "graphics/command_buffer.h"
+#include "graphics/command_context.h"
 #include "graphics/device.h"
 #include "graphics/image.h"
 #include "graphics/sampler.h"
 
 namespace Comet::Tests {
+namespace {
+    template<typename T>
+    concept SupportsBufferReferenceCopy = requires(
+        T& context, const Buffer& source, const Buffer& destination) {
+        context.copy_buffer(source, destination, 1);
+    };
+
+    template<typename T>
+    concept SupportsBufferPointerCopy = requires(
+        T& context, const Buffer* source, const Buffer* destination) {
+        context.copy_buffer(source, destination, 1);
+    };
+
+    template<typename T>
+    concept SupportsImageReferenceTransition = requires(
+        T& context, const Image& image) {
+        context.transition_image_layout(
+            image, vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral);
+    };
+
+    template<typename T>
+    concept SupportsImagePointerTransition = requires(
+        T& context, const Image* image) {
+        context.transition_image_layout(
+            image, vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral);
+    };
+
+    template<typename T>
+    concept SupportsSingleVertexBufferBinding = requires(
+        const T& command_buffer, const Buffer& buffer) {
+        command_buffer.bind_vertex_buffer(VertexBufferBinding{buffer, 0});
+    };
+
+    template<typename T>
+    concept SupportsMultipleVertexBufferBindings = requires(
+        const T& command_buffer,
+        const std::span<const VertexBufferBinding> bindings) {
+        command_buffer.bind_vertex_buffers(bindings);
+    };
+
+    template<typename T>
+    concept SupportsVertexBufferPointerBinding = requires(
+        const T& command_buffer, const Buffer* buffer) {
+        command_buffer.bind_vertex_buffer(buffer, 0);
+    };
+
+    template<typename T>
+    concept SupportsSeparatedVertexBufferBinding = requires(
+        const T& command_buffer, const Buffer& buffer) {
+        command_buffer.bind_vertex_buffer(buffer, 0);
+    };
+}
 
 TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
     using CpuBufferFactory = decltype(&Buffer::create_cpu_buffer);
@@ -29,6 +83,17 @@ TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
         const ImageInfo&, SampleCount, std::string_view>));
     EXPECT_TRUE((std::is_invocable_v<ImageWrapper, Device&,
         vk::Image, const ImageInfo&>));
+}
+
+TEST(ResourceValidationTest, CommandRecordingUsesNonNullResourceReferences) {
+    EXPECT_TRUE(SupportsBufferReferenceCopy<CommandContext>);
+    EXPECT_FALSE(SupportsBufferPointerCopy<CommandContext>);
+    EXPECT_TRUE(SupportsImageReferenceTransition<CommandContext>);
+    EXPECT_FALSE(SupportsImagePointerTransition<CommandContext>);
+    EXPECT_TRUE(SupportsSingleVertexBufferBinding<CommandBuffer>);
+    EXPECT_TRUE(SupportsMultipleVertexBufferBindings<CommandBuffer>);
+    EXPECT_FALSE(SupportsVertexBufferPointerBinding<CommandBuffer>);
+    EXPECT_FALSE(SupportsSeparatedVertexBufferBinding<CommandBuffer>);
 }
 
 } // namespace Comet::Tests

@@ -37,10 +37,10 @@ namespace Comet::Tests {
         no_transform.add_component<MeshRendererComponent>(AssetHandle(50), AssetHandle(60));
         no_transform.remove_component<TransformComponent>();
 
-        const Math::Mat4 expected_first_model =
-            first.get_component<TransformComponent>().local_matrix();
-        const Math::Mat4 expected_second_model =
-            second.get_component<TransformComponent>().local_matrix();
+        const Math::Mat4 expected_first_model = Math::compose_trs(
+            first_transform.translation, first_transform.rotation, first_transform.scale);
+        const Math::Mat4 expected_second_model = Math::compose_trs(
+            second_transform.translation, second_transform.rotation, second_transform.scale);
         const Scene& const_scene = scene;
 
         const RenderScene render_scene = SceneRenderExtractor::extract(const_scene);
@@ -87,7 +87,8 @@ namespace Comet::Tests {
 
         TransformComponent camera_pose = transform;
         camera_pose.scale = Math::Vec3(1.0f);
-        const Math::Mat4 expected_view = Math::inverse(camera_pose.local_matrix());
+        const Math::Mat4 expected_view = Math::inverse(Math::compose_trs(
+            camera_pose.translation, camera_pose.rotation, camera_pose.scale));
 
         const RenderScene render_scene = SceneRenderExtractor::extract(scene);
 

@@ -61,7 +61,7 @@ namespace CometEditor {
         // 初始化缓存的格式和采样信息
         auto& swapchain = m_render_context.get_swapchain();
         m_render_format_info.color_format = swapchain.get_images()[0]->get_info().format;
-        m_render_format_info.depth_format = static_cast<Comet::Format>(m_vulkan_config.depth_format);
+        m_render_format_info.depth_format = m_vulkan_config.depth_format;
 
         create_render_pass();
 

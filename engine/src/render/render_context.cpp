@@ -1,13 +1,14 @@
 #include "render_context.h"
 #include "common/logger.h"
 #include "common/profiler.h"
+#include "graphics/convert.h"
 
 namespace Comet {
     RenderContext::RenderContext(const Window& window, const Config::Vulkan& vulkan_config, const Config::Render& render_config) {
         PROFILE_SCOPE("RenderContext::Constructor");
         LOG_INFO("init graphics system");
 
-        auto present_mode = static_cast<vk::PresentModeKHR>(vulkan_config.present_mode);
+        auto present_mode = Graphics::present_mode_to_vk(vulkan_config.present_mode);
         if(render_config.enable_vsync) {
             present_mode = vk::PresentModeKHR::eFifo;
         }
@@ -15,16 +16,16 @@ namespace Comet {
         const SwapchainRequest swapchain_request{
             .image_count = vulkan_config.swapchain_image_count,
             .surface_format = {
-                static_cast<vk::Format>(vulkan_config.surface_format),
-                static_cast<vk::ColorSpaceKHR>(vulkan_config.color_space)
+                Graphics::format_to_vk(vulkan_config.surface_format),
+                Graphics::image_color_space_to_vk(vulkan_config.color_space)
             },
             .present_mode = present_mode,
             .usage = vk::ImageUsageFlagBits::eColorAttachment
         };
         const DeviceCapabilityRequest capability_request{
             .swapchain = swapchain_request,
-            .depth_format = static_cast<vk::Format>(vulkan_config.depth_format),
-            .sample_count = static_cast<vk::SampleCountFlagBits>(vulkan_config.msaa_samples),
+            .depth_format = Graphics::format_to_vk(vulkan_config.depth_format),
+            .sample_count = Graphics::sample_count_to_vk(vulkan_config.msaa_samples),
             .max_sampler_anisotropy = render_config.max_anisotropy
         };
         m_context = std::make_unique<Context>(window, vulkan_config, capability_request);

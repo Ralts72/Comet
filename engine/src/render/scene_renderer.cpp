@@ -40,9 +40,9 @@ namespace Comet {
 
         reset_render_pipeline();
 
-        const auto surface_format = static_cast<Format>(m_vulkan_config.surface_format);
-        const auto depth_format = static_cast<Format>(m_vulkan_config.depth_format);
-        const auto msaa_samples = static_cast<SampleCount>(m_vulkan_config.msaa_samples);
+        const auto surface_format = m_vulkan_config.surface_format;
+        const auto depth_format = m_vulkan_config.depth_format;
+        const auto msaa_samples = m_vulkan_config.msaa_samples;
 
         std::vector<Attachment> attachments;
         attachments.emplace_back(Attachment::get_color_attachment(surface_format, msaa_samples));
@@ -87,9 +87,9 @@ namespace Comet {
         LOG_INFO("create viewport render pass at {}x{}", size.x, size.y);
         reset_render_pipeline();
 
-        const auto surface_format = static_cast<Format>(m_vulkan_config.surface_format);
-        const auto depth_format = static_cast<Format>(m_vulkan_config.depth_format);
-        const auto msaa_samples = static_cast<SampleCount>(m_vulkan_config.msaa_samples);
+        const auto surface_format = m_vulkan_config.surface_format;
+        const auto depth_format = m_vulkan_config.depth_format;
+        const auto msaa_samples = m_vulkan_config.msaa_samples;
 
         Attachment color_attachment = Attachment::get_color_attachment(
             surface_format, msaa_samples);

@@ -107,11 +107,23 @@ namespace Comet {
     }
 
     void Context::create_instance() {
+        const uint32_t loader_api_version = vk::enumerateInstanceVersion();
+        if(loader_api_version < REQUIRED_VULKAN_API_VERSION) {
+            LOG_FATAL(
+                "Vulkan loader API version {}.{}.{} is below required {}.{}.{}",
+                VK_API_VERSION_MAJOR(loader_api_version),
+                VK_API_VERSION_MINOR(loader_api_version),
+                VK_API_VERSION_PATCH(loader_api_version),
+                VK_API_VERSION_MAJOR(REQUIRED_VULKAN_API_VERSION),
+                VK_API_VERSION_MINOR(REQUIRED_VULKAN_API_VERSION),
+                VK_API_VERSION_PATCH(REQUIRED_VULKAN_API_VERSION));
+        }
+
         vk::ApplicationInfo app_info{};
         app_info.pApplicationName = "CometApp";
         app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
         app_info.pEngineName = "CometEngine";
-        app_info.apiVersion = vk::ApiVersion13;
+        app_info.apiVersion = REQUIRED_VULKAN_API_VERSION;
 
         std::vector<const char*> requested_layers;
         if(m_config.enable_validation) {

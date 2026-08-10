@@ -60,12 +60,12 @@ TEST(ConfigTest, LoadsProjectConfiguration) {
     EXPECT_FALSE(config.window.fullscreen);
     EXPECT_TRUE(config.window.resizable);
 
-    EXPECT_EQ(config.vulkan.surface_format, 50);
-    EXPECT_EQ(config.vulkan.color_space, 0);
-    EXPECT_EQ(config.vulkan.depth_format, 126);
-    EXPECT_EQ(config.vulkan.present_mode, 0);
+    EXPECT_EQ(config.vulkan.surface_format, Format::B8G8R8A8_SRGB);
+    EXPECT_EQ(config.vulkan.color_space, ImageColorSpace::SrgbNonlinearKHR);
+    EXPECT_EQ(config.vulkan.depth_format, Format::D32_SFLOAT);
+    EXPECT_EQ(config.vulkan.present_mode, PresentMode::Immediate);
     EXPECT_EQ(config.vulkan.swapchain_image_count, 3u);
-    EXPECT_EQ(config.vulkan.msaa_samples, 4);
+    EXPECT_EQ(config.vulkan.msaa_samples, SampleCount::Count4);
     EXPECT_EQ(config.vulkan.enable_validation, Config::Vulkan{}.enable_validation);
 
     EXPECT_EQ(config.render.max_frames_in_flight, 2u);
@@ -125,6 +125,25 @@ TEST(ConfigTest, ValidatesRequiredPositiveValues) {
 
 TEST(ConfigTest, RejectsInvalidAnisotropy) {
     const TemporaryConfigFile file("render:\n  max_anisotropy: 0\n");
+
+    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load(file.path())), std::runtime_error);
+}
+
+TEST(ConfigTest, RejectsUnknownVulkanEnumName) {
+    const TemporaryConfigFile file("vulkan:\n  present_mode: fastest\n");
+
+    try {
+        static_cast<void>(ConfigLoader{}.load(file.path()));
+        FAIL() << "Expected unknown present mode to fail";
+    } catch(const std::runtime_error& error) {
+        const std::string message = error.what();
+        EXPECT_NE(message.find("vulkan.present_mode"), std::string::npos);
+        EXPECT_NE(message.find("fastest"), std::string::npos);
+    }
+}
+
+TEST(ConfigTest, RejectsUnsupportedMsaaSampleCount) {
+    const TemporaryConfigFile file("vulkan:\n  msaa_samples: 3\n");
 
     EXPECT_THROW(static_cast<void>(ConfigLoader{}.load(file.path())), std::runtime_error);
 }

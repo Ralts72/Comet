@@ -14,7 +14,7 @@ Engine
     ├── RenderContext
     │   ├── Context
     │   ├── Device
-    │   │   ├── VulkanAllocator
+    │   │   ├── Allocator
     │   │   └── default CommandPool
     │   └── Swapchain
     ├── ResourceManager
@@ -43,7 +43,7 @@ Editor
 
 `Engine` 独占 Scene 和 Asset Registry，app 和 editor 负责创建或修改场景内容。Asset Registry 以
 `AssetHandle` 保存运行时资源的共享引用，Scene 组件只保存 Handle。`Renderer` 是当前渲染子系统的组合根。
-`RenderContext` 独占 Vulkan Context、Device 和 Swapchain；`Device` 独占 `VulkanAllocator`。`ResourceManager` 与
+`RenderContext` 独占 Vulkan Context、Device 和 Swapchain；`Device` 独占 `Allocator`。`ResourceManager` 与
 `SceneRenderer` 分别保存对 Device 和 RenderContext 的非拥有引用，构造接口不允许空依赖。
 
 渲染和 graphics 层统一使用以下依赖表达：
@@ -67,7 +67,7 @@ render pass 清屏、合成和呈现。SceneView 与 GameView 当前复用同一
 3. Renderer 等待 Device idle。
 4. 释放 SceneRenderer，确保 per-frame Buffer、pipeline、descriptor、render target、command buffer 等对象先于 Device 销毁。
 5. 释放 ResourceManager 及其 runtime resource cache。
-6. 释放 RenderContext：Swapchain → Device 内部的 CommandPool、PipelineCache 和 VulkanAllocator → Vulkan Device → Context。
+6. 释放 RenderContext：Swapchain → Device 内部的 CommandPool、PipelineCache 和 Allocator → Vulkan Device → Context。
 7. 释放 Scene；Scene 只持有组件和 AssetHandle，不拥有 GPU 资源。
 
 任何 `Buffer`、`OwnedImage`、`Texture`、`Mesh` 或其他 VMA 资源都不得比创建它的 Device 活得更久。`BorrowedImage` 只包装外部 image，不负责释放该 image。

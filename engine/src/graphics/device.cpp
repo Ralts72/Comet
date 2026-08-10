@@ -99,7 +99,7 @@ namespace Comet {
         allocator_info.instance = m_context.instance();
         allocator_info.physical_device = m_context.get_physical_device();
         allocator_info.device = m_device;
-        allocator_info.vulkan_api_version = VK_API_VERSION_1_3;
+        allocator_info.vulkan_api_version = REQUIRED_VULKAN_API_VERSION;
 
         m_allocator = std::make_unique<Allocator>(allocator_info);
     }

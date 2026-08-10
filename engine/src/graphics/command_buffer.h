@@ -10,6 +10,11 @@ namespace Comet {
     class PipelineLayout;
     class RenderTarget;
 
+    struct VertexBufferBinding {
+        const Buffer& buffer;
+        uint64_t offset = 0;
+    };
+
     class CommandBuffer {
     public:
         friend class CommandPool;
@@ -38,8 +43,11 @@ namespace Comet {
 
         void set_scissor(const vk::Rect2D& scissor) const;
 
-        void bind_vertex_buffer(std::span<const Buffer*> buffers, std::span<const uint64_t> offsets,
+        void bind_vertex_buffer(const VertexBufferBinding& binding,
                                 uint32_t first_binding = 0) const;
+
+        void bind_vertex_buffers(std::span<const VertexBufferBinding> bindings,
+                                 uint32_t first_binding = 0) const;
 
         void bind_index_buffer(const Buffer& buffer, uint64_t offset,
                                vk::IndexType type = vk::IndexType::eUint32) const;

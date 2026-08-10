@@ -128,34 +128,19 @@ TEST(SceneTest, TransformComponentStoresLocalTRS) {
     EXPECT_TRUE(TestUtils::Vec3Equal(transform.scale, Math::Vec3(2.0f, 3.0f, 4.0f)));
 }
 
-TEST(SceneTest, DefaultTransformProducesIdentityMatrix) {
-    const TransformComponent transform;
-
-    EXPECT_TRUE(TestUtils::IsIdentityMatrix(transform.local_matrix()));
-}
-
-TEST(SceneTest, TransformComponentBuildsLocalMatrixFromDegrees) {
+TEST(SceneTest, TransformComponentProvidesValueOperations) {
     TransformComponent transform;
     transform.translation = Math::Vec3(1.0f, 2.0f, 3.0f);
-    transform.rotation = Math::Vec3(0.0f, 0.0f, 90.0f);
-    transform.scale = Math::Vec3(2.0f, 3.0f, 4.0f);
+    transform.rotation = Math::Vec3(170.0f, -170.0f, 0.0f);
+    transform.scale = Math::Vec3(2.0f);
 
-    const Math::Vec4 transformed_point =
-        transform.local_matrix() * Math::Vec4(1.0f, 0.0f, 0.0f, 1.0f);
-
-    EXPECT_TRUE(TestUtils::Vec3Equal(
-        Math::Vec3(transformed_point), Math::Vec3(1.0f, 4.0f, 3.0f), 1e-5f));
-}
-
-TEST(SceneTest, TransformComponentAppliesEulerRotationsInXYZOrder) {
-    TransformComponent transform;
-    transform.rotation = Math::Vec3(90.0f, 90.0f, 0.0f);
-
-    const Math::Vec4 transformed_direction =
-        transform.local_matrix() * Math::Vec4(0.0f, 1.0f, 0.0f, 0.0f);
+    transform.rotate(Math::Vec3(20.0f, -20.0f, 360.0f));
 
     EXPECT_TRUE(TestUtils::Vec3Equal(
-        Math::Vec3(transformed_direction), Math::Vec3(1.0f, 0.0f, 0.0f), 1e-5f));
+        transform.rotation, Math::Vec3(-170.0f, 170.0f, 0.0f)));
+    EXPECT_TRUE(TestUtils::Mat4Equal(
+        transform.to_matrix(),
+        Math::compose_trs(transform.translation, transform.rotation, transform.scale)));
 }
 
 TEST(SceneTest, BuiltInRenderComponentsCanBeAttached) {

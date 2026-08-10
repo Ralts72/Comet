@@ -1,5 +1,6 @@
 #include "config_loader.h"
 
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <optional>
@@ -12,6 +13,30 @@
 
 namespace Comet {
     namespace {
+        constexpr std::array SURFACE_FORMATS = {
+            std::pair{"bgra8_srgb", Format::B8G8R8A8_SRGB},
+            std::pair{"bgra8_unorm", Format::B8G8R8A8_UNORM},
+            std::pair{"rgba8_srgb", Format::R8G8B8A8_SRGB},
+            std::pair{"rgba8_unorm", Format::R8G8B8A8_UNORM}
+        };
+
+        constexpr std::array COLOR_SPACES = {
+            std::pair{"srgb_nonlinear", ImageColorSpace::SrgbNonlinearKHR}
+        };
+
+        constexpr std::array DEPTH_FORMATS = {
+            std::pair{"d32_float", Format::D32_SFLOAT},
+            std::pair{"d24_unorm_s8_uint", Format::D24_UNORM_S8_UINT},
+            std::pair{"d32_float_s8_uint", Format::D32_SFLOAT_S8_UINT}
+        };
+
+        constexpr std::array PRESENT_MODES = {
+            std::pair{"immediate", PresentMode::Immediate},
+            std::pair{"mailbox", PresentMode::Mailbox},
+            std::pair{"fifo", PresentMode::Fifo},
+            std::pair{"fifo_relaxed", PresentMode::FifoRelaxed}
+        };
+
         std::string get_default_config_path() {
             std::filesystem::path config_path(std::string(PROJECT_ROOT_DIR));
             config_path /= "engine/assets/config.yaml";
@@ -77,6 +102,64 @@ namespace Comet {
                     key,
                     "expected " + std::string(expected_type) + ", got " + YAML::Dump(*node)
                     + " (" + error.what() + ")");
+            }
+        }
+
+        template<typename T, std::size_t Size>
+        T read_named_value(const YAML::Node& root,
+                           const std::string_view key,
+                           const T default_value,
+                           const std::array<std::pair<const char*, T>, Size>& values,
+                           const std::string& config_path) {
+            if(!find_node(root, key, config_path).has_value()) {
+                return default_value;
+            }
+
+            const std::string name = read_value<std::string>(
+                root, key, {}, "a string", config_path);
+            for(const auto& [candidate, value]: values) {
+                if(name == candidate) {
+                    return value;
+                }
+            }
+
+            std::string expected;
+            for(const auto& [candidate, value]: values) {
+                static_cast<void>(value);
+                if(!expected.empty()) {
+                    expected += ", ";
+                }
+                expected += candidate;
+            }
+            throw config_error(
+                config_path,
+                key,
+                "unknown value '" + name + "'; expected one of: " + expected);
+        }
+
+        SampleCount read_sample_count(const YAML::Node& root,
+                                      const std::string_view key,
+                                      const SampleCount default_value,
+                                      const std::string& config_path) {
+            if(!find_node(root, key, config_path).has_value()) {
+                return default_value;
+            }
+
+            switch(const auto value = read_value<std::uint32_t>(
+                       root, key, 0, "one of 1, 2, 4, 8, 16, 32, or 64", config_path)) {
+                case 1: return SampleCount::Count1;
+                case 2: return SampleCount::Count2;
+                case 4: return SampleCount::Count4;
+                case 8: return SampleCount::Count8;
+                case 16: return SampleCount::Count16;
+                case 32: return SampleCount::Count32;
+                case 64: return SampleCount::Count64;
+                default:
+                    throw config_error(
+                        config_path,
+                        key,
+                        "unsupported sample count " + std::to_string(value)
+                        + "; expected one of: 1, 2, 4, 8, 16, 32, 64");
             }
         }
 
@@ -155,22 +238,22 @@ namespace Comet {
         config.window.resizable = read_value<bool>(
             root, "window.resizable", config.window.resizable, "a boolean", resolved_path);
 
-        config.vulkan.surface_format = read_value<int>(
-            root, "vulkan.surface_format", config.vulkan.surface_format, "an integer", resolved_path);
-        config.vulkan.color_space = read_value<int>(
-            root, "vulkan.color_space", config.vulkan.color_space, "an integer", resolved_path);
-        config.vulkan.depth_format = read_value<int>(
-            root, "vulkan.depth_format", config.vulkan.depth_format, "an integer", resolved_path);
-        config.vulkan.present_mode = read_value<int>(
-            root, "vulkan.present_mode", config.vulkan.present_mode, "an integer", resolved_path);
+        config.vulkan.surface_format = read_named_value(
+            root, "vulkan.surface_format", config.vulkan.surface_format, SURFACE_FORMATS, resolved_path);
+        config.vulkan.color_space = read_named_value(
+            root, "vulkan.color_space", config.vulkan.color_space, COLOR_SPACES, resolved_path);
+        config.vulkan.depth_format = read_named_value(
+            root, "vulkan.depth_format", config.vulkan.depth_format, DEPTH_FORMATS, resolved_path);
+        config.vulkan.present_mode = read_named_value(
+            root, "vulkan.present_mode", config.vulkan.present_mode, PRESENT_MODES, resolved_path);
         config.vulkan.swapchain_image_count = read_value<std::uint32_t>(
             root,
             "vulkan.swapchain_image_count",
             config.vulkan.swapchain_image_count,
             "a non-negative integer",
             resolved_path);
-        config.vulkan.msaa_samples = read_value<int>(
-            root, "vulkan.msaa_samples", config.vulkan.msaa_samples, "an integer", resolved_path);
+        config.vulkan.msaa_samples = read_sample_count(
+            root, "vulkan.msaa_samples", config.vulkan.msaa_samples, resolved_path);
         config.vulkan.enable_validation = read_value<bool>(
             root, "debug.enable_validation", config.vulkan.enable_validation, "a boolean", resolved_path);
 

@@ -78,8 +78,11 @@ namespace {
             for(std::size_t index = 0; index < m_cube_entity_ids.size(); ++index) {
                 if(Comet::Entity cube = scene->find_entity(m_cube_entity_ids[index])) {
                     const float direction = index == 0 ? 1.0f : -1.0f;
-                    cube.get_component<Comet::TransformComponent>().rotation.y =
-                            context.totalTime * 100.0f * direction;
+                    auto& transform = cube.get_component<Comet::TransformComponent>();
+                    transform.rotate(Comet::Math::Vec3(
+                        0.0f,
+                        context.deltaTime * 100.0f * direction,
+                        0.0f));
                 }
             }
         }
