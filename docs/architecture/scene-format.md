@@ -36,4 +36,5 @@ v1 支持 `name`、`transform`、`mesh_renderer` 和 `camera`。`name` 必填，
 `mesh_renderer.mesh` 和 `mesh_renderer.material` 保存 `AssetHandle` 的无符号整数值；源文件路径和 GPU 对象不会落盘。
 
 加载会拒绝格式错误或重复的 UUID、缺失父节点、父子环、未知字段、非法组件结构和不支持的版本。反序列化始终构建
-新的 Scene，因此失败不会让已有 Scene 处于部分修改状态。
+新的 Scene，因此失败不会让已有 Scene 处于部分修改状态。保存会自动创建目标文件缺失的父目录；目录创建或文件写入
+失败会返回包含目标路径的错误。

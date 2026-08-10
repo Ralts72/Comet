@@ -835,7 +835,7 @@ compile burst 后或正常 shutdown
 - [x] 提供最小内存 Asset Registry，支持 app 将 demo `AssetHandle` 注册到运行时资源；暂不实现目录扫描和导入。
 - [x] 定义最小 `RenderScene` / `RenderItem`，至少包含实体 ID、模型矩阵、mesh handle 和 material handle。
 - [x] 实现局部 TRS 到模型矩阵的转换；Euler 角使用度，矩阵顺序为 `T * Rz * Ry * Rx * S`。
-- [x] 新增 Scene Render Extractor，提取具有 Transform 与 MeshRenderer 的实体；Scene 组件不持有文件路径或 GPU 资源。
+- [x] 新增 SceneExtractor，提取具有 Transform 与 MeshRenderer 的实体；Scene 组件不持有文件路径或 GPU 资源。
 - [x] 让运行时层持有 Scene，由 app 创建 demo Scene 和 cube entity。
 - [x] 让 `Renderer` 消费场景提交结果，逐项交给 `SceneRenderer` 绘制；消费端诊断并跳过无效或未解析的 Handle。
 - [x] 使用 `SceneResolver` 和 `RenderSubmission` 封装资源解析；SceneRenderer 批量消费已解析对象并内部管理 per-frame UBO 与 descriptor。
@@ -873,7 +873,7 @@ compile burst 后或正常 shutdown
 
 - [x] 新增父子关系组件和循环依赖保护。
 - [x] 实现局部矩阵和世界矩阵的父级优先全量更新；reparent 保持局部 TRS。
-- [x] Scene Render Extractor 提交世界矩阵，Camera 忽略自身局部 scale。
+- [x] SceneExtractor 提交世界矩阵，Camera 忽略自身局部 scale。
 - [x] Hierarchy 显示真实父子树，支持拖拽 reparent 和拖回根节点。
 - [x] 补充父子变换、销毁父节点、reparent 和非法层级的单元测试。
 
@@ -893,8 +893,8 @@ compile burst 后或正常 shutdown
 
 目标：用户能在编辑器里创建、编辑、保存、加载一个简单场景。
 
-当前状态：持久化 Entity UUID、`.scene` YAML v1 契约和纯 Scene 保存/加载已完成；下一步把 New/Open/Save
-接入编辑器，并在场景替换时重建上下文、清理失效 Selection。
+当前状态：持久化 Entity UUID、`.scene` YAML v1 契约、纯 Scene 保存/加载和编辑器 New/Open/Save 已完成；
+场景替换会重绑定 Hierarchy/Selection 并清理旧选择。下一步建立组件与属性描述元数据。
 
 建议任务：
 
@@ -903,8 +903,8 @@ compile burst 后或正常 shutdown
 - [x] 定义 `AssetHandle` 的 YAML 无符号整数表示；路径不进入 Scene，后续由 Asset Database 建立 Handle 到资产的稳定映射。
 - [x] 定义带 `version` 字段的 `.scene` YAML v1 格式，并记录实体、父 UUID 和基础组件契约。
 - [x] 实现纯 Scene 的内存序列化往返和文件保存/加载；加载失败不会修改已有 Scene。
-- [ ] 菜单 New/Open/Save Scene 接入真实逻辑。
-- [ ] New/Open Scene 后重建编辑器上下文并清理失效 Selection。
+- [x] 菜单 New/Open/Save Scene 接入真实逻辑；Open 和首次 Save 使用路径输入，已有路径的 Scene 可直接保存。
+- [x] New/Open Scene 后重绑定 Hierarchy 与 Selection，并在运行时 `EntityId` 可能复用时仍清理旧选择。
 - [ ] 建立 `ComponentRegistry`、`ComponentDescriptor`、`PropertyDescriptor` 和按属性类型分发的
   `PropertyEditorRegistry`。
 - [ ] 先为 Transform、MeshRenderer 和 Camera 显式注册元数据，Inspector 通过 descriptor 生成控件，不再为每个字段
@@ -1238,7 +1238,7 @@ Scene Component / RenderItem
 
 1. [x] 引入持久化 Entity UUID，并明确它与运行时 `EntityId` 的边界。
 2. [x] 定义 `.scene` YAML 格式并实现保存、加载。
-3. 接通 New/Open/Save Scene 和 Selection 生命周期。
+3. [x] 接通 New/Open/Save Scene 和 Selection 生命周期。
 4. 定义场景版本字段和最小迁移策略。
 5. [x] 为序列化往返、无效引用和加载失败补充测试。
 
@@ -1345,14 +1345,14 @@ Scene Component / RenderItem
 
 ## 下一步建议
 
-下一步继续 **阶段 2：场景序列化与编辑器闭环**。持久化 Entity UUID、`.scene` YAML v1 契约和纯 Scene
-保存/加载已经建立，接下来接通编辑器 New/Open/Save，并明确场景替换后的 Selection 生命周期。
+下一步继续 **阶段 2：场景序列化与编辑器闭环**。持久化 Entity UUID、`.scene` YAML v1、编辑器
+New/Open/Save 和 Selection 重绑定已经建立，接下来定义组件/属性描述元数据并让 Inspector 消费它。
 
 建议的职责边界：
 
 - Engine/运行时层持有 Scene，app 和 editor 负责创建或修改场景内容。
 - Scene 只拥有实体、可序列化组件和 `AssetHandle`，不依赖路径、Mesh、Texture、Buffer 等运行时/GPU对象。
-- Scene Render Extractor 把 Transform、MeshRenderer、Camera 转换为只读 RenderScene；Camera Transform 的 scale 不影响 view matrix。
+- SceneExtractor 把 Transform、MeshRenderer、Camera 转换为只读 RenderScene；Camera Transform 的 scale 不影响 view matrix。
 - Asset Registry 保存 `AssetHandle` 到运行时资源的映射，ResourceManager 创建或复用运行时/GPU资源。
 - SceneResolver 选择 EntityId 最小的主 Camera、验证参数并将 RenderScene 解析为完整 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
 
@@ -1363,4 +1363,5 @@ Scene Component / RenderItem
 3. [x] 定义 `.scene` YAML 中实体、父子 UUID 引用和基础组件的表示。
 4. [x] 实现纯 Scene 的内存序列化往返和文件保存/加载。
 5. [x] 对重复 UUID、缺失父节点、循环引用和格式错误给出可测试的失败策略。
-6. [ ] 接入编辑器 New/Open/Save，并在替换 Scene 后清理失效 Selection。
+6. [x] 接入编辑器 New/Open/Save，并在替换 Scene 后清理失效 Selection。
+7. [ ] 建立组件/属性描述元数据，并让 Inspector 通过描述生成基础组件编辑控件。

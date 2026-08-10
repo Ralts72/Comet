@@ -16,16 +16,28 @@
 #include "src/panels/hierarchy.h"
 #include "src/selection.h"
 #include "scene/scene.h"
+#include "scene/scene_serializer.h"
 
+#include <algorithm>
+#include <array>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
+#include <imgui.h>
 #include <spdlog/sinks/callback_sink.h>
 
 namespace {
     constexpr Comet::AssetHandle EDITOR_CUBE_MESH_HANDLE(1);
     constexpr Comet::AssetHandle EDITOR_CUBE_MATERIAL_HANDLE(2);
+    constexpr std::size_t SCENE_PATH_CAPACITY = 1024;
+
+    enum class SceneFileDialog {
+        None,
+        Open,
+        Save
+    };
 
     void register_editor_render_assets(Comet::Engine& engine) {
         auto& resource_manager = engine.get_resource_manager();
@@ -58,12 +70,7 @@ namespace {
         }
     }
 
-    struct EditorSceneSetup {
-        std::unique_ptr<Comet::Scene> scene;
-        Comet::EntityId cube_entity_id = Comet::INVALID_ENTITY_ID;
-    };
-
-    EditorSceneSetup create_editor_scene() {
+    std::unique_ptr<Comet::Scene> create_editor_scene() {
         auto scene = std::make_unique<Comet::Scene>();
         Comet::Entity main_camera = scene->create_entity("Main Camera");
         main_camera.get_component<Comet::TransformComponent>().translation.z = 3.0f;
@@ -74,12 +81,8 @@ namespace {
         transform.rotation = Comet::Math::Vec3(-20.0f, 30.0f, 0.0f);
         cube.add_component<Comet::MeshRendererComponent>(
             EDITOR_CUBE_MESH_HANDLE, EDITOR_CUBE_MATERIAL_HANDLE);
-        const Comet::EntityId cube_entity_id = cube.get_id();
 
-        return {
-            .scene = std::move(scene),
-            .cube_entity_id = cube_entity_id
-        };
+        return scene;
     }
 
     class Editor final: public Comet::Application {
@@ -106,9 +109,7 @@ namespace {
             setup_log_redirect();
 
             register_editor_render_assets(engine);
-            EditorSceneSetup scene_setup = create_editor_scene();
-            m_cube_entity_id = scene_setup.cube_entity_id;
-            engine.set_scene(std::move(scene_setup.scene));
+            engine.set_scene(create_editor_scene());
             auto& scene = *engine.get_scene();
             m_selection.emplace(scene);
             setup_panels(scene);
@@ -137,7 +138,6 @@ namespace {
             // 更新 FPS 显示
             m_menu_bar->set_fps(context.fps);
 
-            update_demo_cube(context.deltaTime);
             update_viewport_state();
         }
 
@@ -180,17 +180,156 @@ namespace {
         }
 
     private:
-        void update_demo_cube(const float delta_time) {
-            Comet::Scene* scene = get_engine().get_scene();
+        void handle_file_command(const CometEditor::FileCommand command) {
+            switch(command) {
+                case CometEditor::FileCommand::NewScene:
+                    replace_scene(std::make_unique<Comet::Scene>(), {});
+                    LOG_INFO("Created new scene");
+                    break;
+                case CometEditor::FileCommand::OpenScene:
+                    request_scene_file_dialog(SceneFileDialog::Open);
+                    break;
+                case CometEditor::FileCommand::SaveScene:
+                    if(m_scene_path.empty()) {
+                        request_scene_file_dialog(SceneFileDialog::Save);
+                    } else {
+                        static_cast<void>(save_scene(m_scene_path));
+                    }
+                    break;
+                default: ;
+            }
+        }
+
+        void replace_scene(
+            std::unique_ptr<Comet::Scene> scene, std::string path) {
             if(!scene) {
+                m_scene_file_error = "Cannot activate an empty scene";
+                LOG_ERROR("{}", m_scene_file_error);
                 return;
             }
 
-            if(Comet::Entity cube = scene->find_entity(m_cube_entity_id)) {
-                auto& transform = cube.get_component<Comet::TransformComponent>();
-                transform.rotate(
-                    Comet::Math::Vec3(0.0f, delta_time * 45.0f, 0.0f));
+            auto& engine = get_engine();
+            m_selection->clear();
+            engine.set_scene(std::move(scene));
+            auto& active_scene = *engine.get_scene();
+            m_selection->set_scene(active_scene);
+            m_hierarchy_panel->set_scene(active_scene);
+            m_scene_path = std::move(path);
+        }
+
+        bool open_scene(const std::string& path) {
+            if(path.empty()) {
+                m_scene_file_error = "Scene path cannot be empty";
+                return false;
             }
+
+            try {
+                std::unique_ptr<Comet::Scene> scene =
+                    m_scene_serializer.load(path);
+                replace_scene(std::move(scene), path);
+                m_scene_file_error.clear();
+                LOG_INFO("Opened scene '{}'", path);
+                return true;
+            } catch(const std::exception& error) {
+                m_scene_file_error = error.what();
+                LOG_ERROR("Failed to open scene '{}': {}", path, error.what());
+                return false;
+            }
+        }
+
+        bool save_scene(const std::string& path) {
+            const Comet::Scene* scene = get_engine().get_scene();
+            if(!scene) {
+                m_scene_file_error = "No active scene to save";
+                return false;
+            }
+            if(path.empty()) {
+                m_scene_file_error = "Scene path cannot be empty";
+                return false;
+            }
+
+            try {
+                m_scene_serializer.save(*scene, path);
+                m_scene_path = path;
+                m_scene_file_error.clear();
+                LOG_INFO("Saved scene '{}'", path);
+                return true;
+            } catch(const std::exception& error) {
+                m_scene_file_error = error.what();
+                LOG_ERROR("Failed to save scene '{}': {}", path, error.what());
+                return false;
+            }
+        }
+
+        void request_scene_file_dialog(const SceneFileDialog dialog) {
+            m_scene_file_dialog = dialog;
+            m_scene_file_dialog_open_requested = true;
+            m_scene_file_error.clear();
+
+            std::string initial_path = m_scene_path;
+            if(dialog == SceneFileDialog::Save && initial_path.empty()) {
+                initial_path = std::string(PROJECT_ROOT_DIR) + "/untitled.scene";
+            } else if(dialog == SceneFileDialog::Open && initial_path.empty()) {
+                initial_path = std::string(PROJECT_ROOT_DIR) + "/";
+            }
+            m_scene_path_buffer.fill('\0');
+            std::copy_n(
+                initial_path.data(),
+                std::min(initial_path.size(), m_scene_path_buffer.size() - 1),
+                m_scene_path_buffer.data());
+        }
+
+        void render_scene_file_dialog() {
+            if(m_scene_file_dialog == SceneFileDialog::None) {
+                return;
+            }
+
+            const bool is_open = m_scene_file_dialog == SceneFileDialog::Open;
+            const char* title = is_open ? "Open Scene" : "Save Scene";
+            if(m_scene_file_dialog_open_requested) {
+                ImGui::OpenPopup(title);
+                m_scene_file_dialog_open_requested = false;
+            }
+
+            if(!ImGui::BeginPopupModal(
+                   title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                return;
+            }
+
+            ImGui::SetNextItemWidth(560.0f);
+            const bool submitted = ImGui::InputText(
+                "Path",
+                m_scene_path_buffer.data(),
+                m_scene_path_buffer.size(),
+                ImGuiInputTextFlags_EnterReturnsTrue);
+
+            const char* action = is_open ? "Open" : "Save";
+            if((ImGui::Button(action, ImVec2(100.0f, 0.0f)) || submitted)) {
+                const std::string path(m_scene_path_buffer.data());
+                const bool succeeded = is_open
+                    ? open_scene(path)
+                    : save_scene(path);
+                if(succeeded) {
+                    ImGui::CloseCurrentPopup();
+                    m_scene_file_dialog = SceneFileDialog::None;
+                }
+            }
+            ImGui::SameLine();
+            if(ImGui::Button("Cancel", ImVec2(100.0f, 0.0f))) {
+                ImGui::CloseCurrentPopup();
+                m_scene_file_dialog = SceneFileDialog::None;
+                m_scene_file_error.clear();
+            }
+
+            if(!m_scene_file_error.empty()) {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Text, ImVec4(0.9f, 0.25f, 0.2f, 1.0f));
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 560.0f);
+                ImGui::TextWrapped("%s", m_scene_file_error.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::PopStyleColor();
+            }
+            ImGui::EndPopup();
         }
 
         void setup_log_redirect() const {
@@ -215,6 +354,10 @@ namespace {
         void setup_panels(Comet::Scene& scene) {
             // 创建菜单栏
             m_menu_bar = std::make_unique<CometEditor::MenuBar>();
+            m_menu_bar->set_file_command_callback(
+                [this](const CometEditor::FileCommand command) {
+                    handle_file_command(command);
+                });
 
             // 创建面板
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
@@ -256,13 +399,19 @@ namespace {
                 m_inspector_panel->render();
                 m_project_panel->render();
                 m_console_panel->render();
+                render_scene_file_dialog();
             });
         }
 
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::MenuBar> m_menu_bar;
         std::optional<CometEditor::SelectionService> m_selection;
-        Comet::EntityId m_cube_entity_id = Comet::INVALID_ENTITY_ID;
+        Comet::SceneSerializer m_scene_serializer;
+        std::string m_scene_path;
+        std::array<char, SCENE_PATH_CAPACITY> m_scene_path_buffer{};
+        std::string m_scene_file_error;
+        SceneFileDialog m_scene_file_dialog = SceneFileDialog::None;
+        bool m_scene_file_dialog_open_requested = false;
 
         std::unique_ptr<CometEditor::HierarchyPanel> m_hierarchy_panel;
         std::unique_ptr<CometEditor::ViewPanel> m_scene_view_panel;

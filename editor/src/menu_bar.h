@@ -3,17 +3,19 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <utility>
 
 namespace CometEditor {
 
 using PanelVisibilityCallback = std::function<void(bool)>;
 
-struct MenuItem {
-  std::string label;
-  std::string shortcut;
-  std::function<void()> callback;
-  bool enabled = true;
+enum class FileCommand {
+  NewScene,
+  OpenScene,
+  SaveScene
 };
+
+using FileCommandCallback = std::function<void(FileCommand)>;
 
 class MenuBar {
 public:
@@ -21,6 +23,10 @@ public:
 
   void set_panel_visibility_callback(const std::string &panel_name,
                                      PanelVisibilityCallback callback);
+
+  void set_file_command_callback(FileCommandCallback callback) {
+    m_file_command_callback = std::move(callback);
+  }
 
   [[nodiscard]] bool is_panel_visible(const std::string &panel_name) const;
 
@@ -35,6 +41,7 @@ private:
 
   std::map<std::string, bool> m_panel_visibility;
   std::map<std::string, PanelVisibilityCallback> m_panel_callbacks;
+  FileCommandCallback m_file_command_callback;
   float m_fps = 0.0f;
 };
 

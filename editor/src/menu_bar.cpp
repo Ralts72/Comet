@@ -22,13 +22,19 @@ namespace CometEditor {
     void MenuBar::render_file_menu() {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Scene", "Ctrl+N")) {
-                // TODO: 实现新建场景
+                if(m_file_command_callback) {
+                    m_file_command_callback(FileCommand::NewScene);
+                }
             }
             if (ImGui::MenuItem("Open Scene", "Ctrl+O")) {
-                // TODO: 实现打开场景
+                if(m_file_command_callback) {
+                    m_file_command_callback(FileCommand::OpenScene);
+                }
             }
             if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
-                // TODO: 实现保存场景
+                if(m_file_command_callback) {
+                    m_file_command_callback(FileCommand::SaveScene);
+                }
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Alt+F4")) {
@@ -96,4 +102,3 @@ namespace CometEditor {
     }
 
 }
-

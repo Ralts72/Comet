@@ -12,7 +12,7 @@ namespace CometEditor {
     }
 
     HierarchyPanel::HierarchyPanel(Comet::Scene& scene, SelectionService& selection)
-        : EditorPanel("Hierarchy"), m_scene(scene), m_selection(selection) {}
+        : EditorPanel("Hierarchy"), m_scene(&scene), m_selection(selection) {}
 
     void HierarchyPanel::accept_reparent_drop(const Comet::Entity parent) {
         if(!ImGui::BeginDragDropTarget()) {
@@ -24,11 +24,11 @@ namespace CometEditor {
            payload && payload->DataSize == sizeof(Comet::EntityId)) {
             const auto entity_id =
                 *static_cast<const Comet::EntityId*>(payload->Data);
-            if(const Comet::Entity child = m_scene.find_entity(entity_id)) {
+            if(const Comet::Entity child = m_scene->find_entity(entity_id)) {
                 if(parent) {
-                    static_cast<void>(m_scene.set_parent(child, parent));
+                    static_cast<void>(m_scene->set_parent(child, parent));
                 } else {
-                    static_cast<void>(m_scene.clear_parent(child));
+                    static_cast<void>(m_scene->clear_parent(child));
                 }
             }
         }
@@ -36,7 +36,7 @@ namespace CometEditor {
     }
 
     void HierarchyPanel::render_entity_node(const Comet::Entity entity) {
-        const std::vector<Comet::Entity> children = m_scene.get_children(entity);
+        const std::vector<Comet::Entity> children = m_scene->get_children(entity);
         const auto& name = entity.get_component<Comet::NameComponent>().name;
         const std::string display_name = name.empty() ? "<Unnamed Entity>" : name;
 
@@ -87,7 +87,7 @@ namespace CometEditor {
         Comet::Entity selected_entity = m_selection.get_selected_entity();
 
         if(ImGui::Button("+")) {
-            selected_entity = m_scene.create_entity();
+            selected_entity = m_scene->create_entity();
             m_selection.select_entity(selected_entity.get_id());
         }
         if(ImGui::IsItemHovered()) {
@@ -97,7 +97,7 @@ namespace CometEditor {
         ImGui::SameLine();
         ImGui::BeginDisabled(!selected_entity);
         if(ImGui::Button("-")) {
-            m_scene.destroy_entity(selected_entity);
+            m_scene->destroy_entity(selected_entity);
             m_selection.clear();
         }
         if(ImGui::IsItemHovered()) {
@@ -114,7 +114,7 @@ namespace CometEditor {
                 | ImGuiTreeNodeFlags_SpanAvailWidth);
         accept_reparent_drop({});
         if(scene_open) {
-            for(const Comet::Entity root: m_scene.get_root_entities()) {
+            for(const Comet::Entity root: m_scene->get_root_entities()) {
                 render_entity_node(root);
             }
             ImGui::TreePop();

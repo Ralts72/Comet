@@ -5,10 +5,15 @@
 namespace CometEditor {
     class SelectionService {
     public:
-        explicit SelectionService(Comet::Scene& scene) : m_scene(scene) {}
+        explicit SelectionService(Comet::Scene& scene) : m_scene(&scene) {}
+
+        void set_scene(Comet::Scene& scene) {
+            m_scene = &scene;
+            clear();
+        }
 
         void select_entity(const Comet::EntityId entity_id) {
-            m_selected_entity_id = m_scene.find_entity(entity_id)
+            m_selected_entity_id = m_scene->find_entity(entity_id)
                 ? entity_id
                 : Comet::INVALID_ENTITY_ID;
         }
@@ -18,7 +23,7 @@ namespace CometEditor {
         }
 
         [[nodiscard]] Comet::Entity get_selected_entity() {
-            Comet::Entity entity = m_scene.find_entity(m_selected_entity_id);
+            Comet::Entity entity = m_scene->find_entity(m_selected_entity_id);
             if(!entity) {
                 clear();
             }
@@ -35,7 +40,7 @@ namespace CometEditor {
         }
 
     private:
-        Comet::Scene& m_scene;
+        Comet::Scene* m_scene;
         Comet::EntityId m_selected_entity_id = Comet::INVALID_ENTITY_ID;
     };
 }

@@ -40,6 +40,27 @@ namespace Comet::Tests {
             std::filesystem::path m_path;
         };
 
+        class TemporarySceneDirectory final {
+        public:
+            TemporarySceneDirectory() {
+                const auto id = std::random_device{}();
+                m_root = std::filesystem::temp_directory_path()
+                    / ("comet_scene_directory_test_" + std::to_string(id));
+            }
+
+            ~TemporarySceneDirectory() {
+                std::error_code error;
+                std::filesystem::remove_all(m_root, error);
+            }
+
+            [[nodiscard]] std::string scene_path() const {
+                return (m_root / "nested" / "untitled.scene").string();
+            }
+
+        private:
+            std::filesystem::path m_root;
+        };
+
         void expect_scene_error(const std::string_view contents,
                                 const std::string_view expected_detail) {
             try {
@@ -188,6 +209,23 @@ namespace Comet::Tests {
         Entity entity = loaded->find_entity(entity_uuid);
         ASSERT_TRUE(entity);
         EXPECT_EQ(entity.get_component<NameComponent>().name, "Saved");
+    }
+
+    TEST(SceneSerializerTest, CreatesMissingParentDirectoriesWhenSaving) {
+        Scene scene;
+        ASSERT_TRUE(scene.create_entity("Saved"));
+        const TemporarySceneDirectory directory;
+        const std::string path = directory.scene_path();
+        ASSERT_FALSE(std::filesystem::exists(
+            std::filesystem::path(path).parent_path()));
+
+        const SceneSerializer serializer;
+        serializer.save(scene, path);
+
+        EXPECT_TRUE(std::filesystem::is_regular_file(path));
+        const std::unique_ptr<Scene> loaded = serializer.load(path);
+        ASSERT_NE(loaded, nullptr);
+        EXPECT_EQ(loaded->entity_count(), 1u);
     }
 
     TEST(SceneSerializerTest, RejectsDuplicateUuid) {

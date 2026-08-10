@@ -52,4 +52,24 @@ namespace CometEditor::Tests {
         EXPECT_FLOAT_EQ(
             stored_entity.get_component<Comet::TransformComponent>().translation.x, 2.0f);
     }
+
+    TEST(SelectionServiceTest, RebindingSceneClearsSelection) {
+        Comet::Scene first_scene;
+        const Comet::Entity first = first_scene.create_entity("First");
+        SelectionService selection(first_scene);
+        selection.select_entity(first.get_id());
+
+        Comet::Scene second_scene;
+        const Comet::Entity second = second_scene.create_entity("Second");
+        ASSERT_EQ(first.get_id(), second.get_id());
+
+        selection.set_scene(second_scene);
+
+        EXPECT_EQ(
+            selection.get_selected_entity_id(), Comet::INVALID_ENTITY_ID);
+        EXPECT_FALSE(selection.get_selected_entity());
+
+        selection.select_entity(second.get_id());
+        EXPECT_EQ(selection.get_selected_entity(), second);
+    }
 }

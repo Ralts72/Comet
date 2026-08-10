@@ -15,12 +15,16 @@ namespace CometEditor {
 
         void render() override;
 
+        void set_scene(Comet::Scene& scene) {
+            m_scene = &scene;
+        }
+
     private:
         void render_entity_node(Comet::Entity entity);
 
         void accept_reparent_drop(Comet::Entity parent);
 
-        Comet::Scene& m_scene;
+        Comet::Scene* m_scene;
         SelectionService& m_selection;
     };
 
