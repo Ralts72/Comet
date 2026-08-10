@@ -14,6 +14,14 @@ namespace Comet {
         return get_component<IdComponent>().id;
     }
 
+    EntityUuid Entity::get_uuid() const {
+        if(!has_component<UuidComponent>()) {
+            return INVALID_ENTITY_UUID;
+        }
+
+        return get_component<UuidComponent>().uuid;
+    }
+
     Entity::operator bool() const {
         return m_scene != nullptr
                && m_handle != entt::null

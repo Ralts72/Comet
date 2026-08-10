@@ -11,7 +11,7 @@ GoogleTest 测试基础。
 - `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过基于
   `EntityId` 的 Selection 编辑实体，SceneView/GameView 已显示离屏场景纹理。
 - `app/`：运行时示例程序入口。
-- `tests/`：GoogleTest 测试，覆盖数学、配置、导出、Scene/ECS、资源参数保护和基础集成行为。
+- `tests/`：GoogleTest 测试，覆盖数学、配置、导出、Scene/ECS、场景序列化、资源参数保护和基础集成行为。
 - `engine/assets/`：配置、纹理和 GLSL shader 资源。
 - `3rdparty/`：第三方依赖目录，部分依赖通过 Git submodule 拉取，Vulkan Memory Allocator 和 EnTT 以 vendored
   源码形式维护；EnTT 只提交 single header。
@@ -91,13 +91,18 @@ VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范�
 提供基于 EnTT 的 Scene/Entity 和基础组件数据模型；`TransformComponent` 的 Euler 角使用度，局部矩阵顺序为
 `T * Rz * Ry * Rx * S`。组件只存储 TRS 数据，并提供不引入额外状态的 `rotate()` 和 `to_matrix()` 值操作；
 底层 `Math::wrap_degrees()` 与 `Math::compose_trs()` 会将旋转规范到 `[-180, 180)`，避免长期动画中的角度累积和
-大数精度损失。`RelationshipComponent` 只保存父实体 ID，子节点由 Scene 查询；Scene 阻止循环层级、递归销毁
+大数精度损失。运行时自增 `EntityId` 用于当前 Scene 内查询和 Selection；`UuidComponent` 保存 128-bit
+version 4 `EntityUuid`，作为跨保存/加载稳定的实体身份，并支持标准字符串解析、格式化和哈希查询。
+`RelationshipComponent` 只保存父实体 ID，子节点由 Scene 查询；Scene 阻止循环层级、递归销毁
 子树，并在每次场景提取前按父级优先顺序全量更新 `WorldTransformComponent`。reparent 保持局部 TRS，世界矩阵随
 新父节点重新计算；增量 dirty 更新留到 TransformSystem 建立后实现。
+`SceneSerializer` 使用带版本字段的 `.scene` YAML 保存 Name、Transform、MeshRenderer、Camera 和父 UUID 引用；
+运行时 `EntityId`、EnTT handle 与派生世界矩阵不会落盘。实体按 UUID 排序，加载时会拒绝重复 UUID、悬空父引用、
+层级环、未知字段和不支持的版本。
 `SceneRenderExtractor` 将可渲染实体和 Camera 复制为
 `engine/src/render/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。
 `Engine` 使用唯一所有权持有 Scene 和最小 Asset Registry。app 在初始化阶段注册 demo mesh/material，并创建
-主 Camera 与两个具有不同 Transform 的 cube entity；`RenderSceneResolver` 选择并校验主 Camera、根据渲染尺寸
+主 Camera 与两个具有不同 Transform 的 cube entity；`SceneResolver` 选择并校验主 Camera、根据渲染尺寸
 生成 view/projection，同时将 Handle 解析为运行时 `RenderSubmission`。`Renderer` 负责编排帧流程，
 `SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过
 push constant 提交每个 draw 的模型矩阵。editor 初始化由 Engine 持有的 Scene；Hierarchy 可创建、递归删除、选择
@@ -109,4 +114,5 @@ runtime app 仍直接渲染到 swapchain。SceneView 和 GameView 当前共享�
 编译。贡献者和智能体协作规范见 [AGENTS.md](./AGENTS.md)。
 
 渲染资源的所有权、析构顺序和非拥有依赖约束见
-[渲染资源所有权](./docs/architecture/rendering-ownership.md)。
+[渲染资源所有权](./docs/architecture/rendering-ownership.md)；场景持久化契约见
+[场景文件格式](./docs/architecture/scene-format.md)。

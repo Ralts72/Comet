@@ -38,7 +38,7 @@ namespace Comet {
             void*) noexcept {
             log_validation_message(
                 static_cast<uint32_t>(message_severity), callback_data->pMessage);
-            return VK_FALSE; // Report the validation message without aborting the Vulkan call.
+            return VK_FALSE;
         }
 
         [[maybe_unused]] VKAPI_ATTR vk::Bool32 VKAPI_CALL vk_debug_utils_messenger_callback(
@@ -48,7 +48,7 @@ namespace Comet {
             void*) noexcept {
             log_validation_message(
                 static_cast<uint32_t>(message_severity), callback_data->pMessage);
-            return VK_FALSE; // Report the validation message without aborting the Vulkan call.
+            return VK_FALSE;
         }
 
         vk::DebugUtilsMessengerCreateInfoEXT make_debug_messenger_create_info() {

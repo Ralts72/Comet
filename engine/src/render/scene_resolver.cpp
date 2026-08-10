@@ -1,4 +1,4 @@
-#include "render_scene_resolver.h"
+#include "scene_resolver.h"
 
 #include "asset/registry.h"
 #include "common/logger.h"
@@ -10,10 +10,10 @@
 #include <utility>
 
 namespace Comet {
-    RenderSceneResolver::RenderSceneResolver(const AssetRegistry& asset_registry)
+    SceneResolver::SceneResolver(const AssetRegistry& asset_registry)
         : m_asset_registry(asset_registry) {}
 
-    RenderSubmission RenderSceneResolver::resolve(
+    RenderSubmission SceneResolver::resolve(
         const RenderScene& render_scene, const Math::Vec2u render_size) {
         RenderSubmission submission;
         submission.view_project_matrix = resolve_camera(render_scene, render_size);
@@ -28,7 +28,7 @@ namespace Comet {
         return submission;
     }
 
-    std::optional<ViewProjectMatrix> RenderSceneResolver::resolve_camera(
+    std::optional<ViewProjectMatrix> SceneResolver::resolve_camera(
         const RenderScene& render_scene, const Math::Vec2u render_size) {
         const RenderCamera* primary_camera = nullptr;
         std::size_t primary_camera_count = 0;
@@ -117,7 +117,7 @@ namespace Comet {
         };
     }
 
-    std::optional<ResolvedRenderItem> RenderSceneResolver::resolve_item(
+    std::optional<ResolvedRenderItem> SceneResolver::resolve_item(
         const RenderItem& render_item) {
         const auto mesh = m_asset_registry.resolve<Mesh>(render_item.mesh_handle);
         if(!mesh) {

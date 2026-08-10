@@ -8,7 +8,7 @@ namespace Comet {
     Renderer::Renderer(const Window& window,
                        const Config& config,
                        const AssetRegistry& asset_registry)
-        : m_render_scene_resolver(asset_registry),
+        : m_scene_resolver(asset_registry),
           m_vulkan_config(config.vulkan),
           m_render_config(config.render) {
         PROFILE_SCOPE("Renderer::Constructor");
@@ -79,7 +79,7 @@ namespace Comet {
         if(!m_scene_renderer->begin_frame()) {
             return;
         }
-        const RenderSubmission submission = m_render_scene_resolver.resolve(
+        const RenderSubmission submission = m_scene_resolver.resolve(
             render_scene, m_scene_renderer->get_render_target().get_size());
         m_scene_renderer->render(submission);
 

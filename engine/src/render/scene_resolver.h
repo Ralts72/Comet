@@ -11,9 +11,9 @@
 namespace Comet {
     class AssetRegistry;
 
-    class COMET_API RenderSceneResolver {
+    class COMET_API SceneResolver {
     public:
-        explicit RenderSceneResolver(const AssetRegistry& asset_registry);
+        explicit SceneResolver(const AssetRegistry& asset_registry);
 
         [[nodiscard]] RenderSubmission resolve(
             const RenderScene& render_scene, Math::Vec2u render_size);

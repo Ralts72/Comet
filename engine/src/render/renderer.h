@@ -3,7 +3,7 @@
 #include "common/shader_resources.h"
 #include "render_context.h"
 #include "render_scene.h"
-#include "render_scene_resolver.h"
+#include "scene_resolver.h"
 #include "resource_manager.h"
 #include "scene_renderer.h"
 
@@ -46,7 +46,7 @@ namespace Comet {
         std::unique_ptr<RenderContext> m_render_context;
         std::unique_ptr<ResourceManager> m_resource_manager;
         std::unique_ptr<SceneRenderer> m_scene_renderer;
-        RenderSceneResolver m_render_scene_resolver;
+        SceneResolver m_scene_resolver;
         ImGuiRenderDelegate m_on_imgui_render;
 
         Config::Vulkan m_vulkan_config;

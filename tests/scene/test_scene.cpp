@@ -34,6 +34,7 @@ TEST(SceneTest, CreateEntityAddsDefaultComponents) {
 
     ASSERT_TRUE(entity);
     EXPECT_TRUE(entity.has_component<IdComponent>());
+    EXPECT_TRUE(entity.has_component<UuidComponent>());
     EXPECT_TRUE(entity.has_component<NameComponent>());
     EXPECT_TRUE(entity.has_component<TransformComponent>());
     EXPECT_TRUE(entity.has_component<RelationshipComponent>());
@@ -45,6 +46,33 @@ TEST(SceneTest, CreateEntityAddsDefaultComponents) {
     EXPECT_TRUE(TestUtils::IsIdentityMatrix(
         entity.get_component<WorldTransformComponent>().world_matrix));
     EXPECT_NE(entity.get_id(), INVALID_ENTITY_ID);
+    EXPECT_TRUE(entity.get_uuid());
+    EXPECT_EQ(scene.entity_count(), 1u);
+}
+
+TEST(SceneTest, CreatesAndFindsEntityByUuid) {
+    Scene scene;
+    const auto uuid = EntityUuid::parse(
+        "550e8400-e29b-41d4-a716-446655440000");
+    ASSERT_TRUE(uuid.has_value());
+
+    Entity entity = scene.create_entity_with_uuid(*uuid, "Persistent Entity");
+
+    ASSERT_TRUE(entity);
+    EXPECT_EQ(entity.get_uuid(), *uuid);
+    EXPECT_EQ(scene.find_entity(*uuid), entity);
+    EXPECT_NE(entity.get_id(), INVALID_ENTITY_ID);
+}
+
+TEST(SceneTest, RejectsInvalidAndDuplicateUuids) {
+    Scene scene;
+    const auto uuid = EntityUuid::parse(
+        "550e8400-e29b-41d4-a716-446655440000");
+    ASSERT_TRUE(uuid.has_value());
+
+    EXPECT_FALSE(scene.create_entity_with_uuid(INVALID_ENTITY_UUID));
+    ASSERT_TRUE(scene.create_entity_with_uuid(*uuid, "First"));
+    EXPECT_FALSE(scene.create_entity_with_uuid(*uuid, "Duplicate"));
     EXPECT_EQ(scene.entity_count(), 1u);
 }
 
@@ -53,6 +81,7 @@ TEST(SceneTest, InvalidEntityHasInvalidId) {
 
     EXPECT_FALSE(entity);
     EXPECT_EQ(entity.get_id(), INVALID_ENTITY_ID);
+    EXPECT_EQ(entity.get_uuid(), INVALID_ENTITY_UUID);
 }
 
 TEST(SceneTest, CreateEntityUsesDefaultNameWhenNameIsEmpty) {

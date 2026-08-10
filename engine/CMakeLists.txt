@@ -47,14 +47,16 @@ set(SOURCES
         src/render/mesh.cpp
         src/render/texture.cpp
         src/render/render_context.cpp
-        src/render/render_scene_resolver.cpp
+        src/render/scene_resolver.cpp
         src/render/scene_render_extractor.cpp
         src/render/scene_renderer.cpp
         src/render/resource_manager.cpp
         src/render/frame_manager.cpp
         src/render/material.cpp
         src/scene/entity.cpp
+        src/scene/entity_uuid.cpp
         src/scene/scene.cpp
+        src/scene/scene_serializer.cpp
 )
 
 add_library(engine SHARED ${SOURCES})

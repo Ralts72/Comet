@@ -10,6 +10,7 @@
 
 namespace Comet {
     class SceneRenderExtractor;
+    class SceneSerializer;
 
     class COMET_API Scene {
     public:
@@ -26,6 +27,9 @@ namespace Comet {
         Scene& operator=(Scene&&) noexcept = delete;
 
         Entity create_entity(const std::string& name = "Entity");
+
+        [[nodiscard]] Entity create_entity_with_uuid(
+            EntityUuid uuid, const std::string& name = "Entity");
 
         void destroy_entity(Entity entity);
 
@@ -45,6 +49,8 @@ namespace Comet {
 
         [[nodiscard]] Entity find_entity(EntityId id);
 
+        [[nodiscard]] Entity find_entity(EntityUuid uuid);
+
         [[nodiscard]] std::vector<Entity> get_entities();
 
         [[nodiscard]] bool is_valid(Entity entity) const;
@@ -54,6 +60,7 @@ namespace Comet {
     private:
         friend class Entity;
         friend class SceneRenderExtractor;
+        friend class SceneSerializer;
 
         [[nodiscard]] bool has_cycle(Entity child, Entity parent);
 

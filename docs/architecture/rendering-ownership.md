@@ -22,7 +22,7 @@ Engine
     │   ├── SamplerManager
     │   ├── MaterialManager
     │   └── Mesh/Texture runtime cache
-    ├── RenderSceneResolver
+    ├── SceneResolver
     └── SceneRenderer
         ├── RenderPass/PipelineManager/Pipeline
         ├── FrameManager
@@ -76,7 +76,7 @@ render pass 清屏、合成和呈现。SceneView 与 GameView 当前复用同一
 
 - `RenderContext`：Vulkan 上下文、逻辑设备、交换链和 idle 等待。
 - `ResourceManager`：运行时/GPU资源创建与缓存；不负责扫描项目目录或分配资产 GUID。
-- `RenderSceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断。
+- `SceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断。
 - `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；没有有效主 Camera 时不提交场景 draw。
 - `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；不拥有 SceneRenderer 的离屏 image/image view。
 - `MaterialManager`：Material/MaterialInstance 的内存注册；不存在的基础材质不能产生有效实例。

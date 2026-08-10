@@ -2,7 +2,7 @@
 
 首次生成：2026-07-05
 
-最近更新：2026-08-05
+最近更新：2026-08-10
 
 ## 目标定位
 
@@ -27,20 +27,23 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 ### 当前主要形态
 
-目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但 Scene/ECS 已经接入最小运行时渲染链路和编辑器基础数据闭环。当前主要矛盾已经转变为：Transform 层级、持久化身份、场景序列化和资产数据库尚未建立，渲染接口仍偏 demo 化。
+目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但 Scene/ECS 已经接入最小运行时渲染链路、
+编辑器基础数据闭环和纯逻辑场景持久化。当前主要矛盾已经转变为：场景文件尚未接入编辑器操作，资产数据库尚未建立，
+渲染接口仍偏 demo 化。
 
 最明显的信号是：
 
-- `Engine` 持有 Scene 和最小 Asset Registry，每帧提取 RenderScene；`RenderSceneResolver` 选择主 Camera、生成 view/projection 并解析 Handle，`Renderer` 编排多个 render item。
+- `Engine` 持有 Scene 和最小 Asset Registry，每帧提取 RenderScene；`SceneResolver` 选择主 Camera、生成 view/projection 并解析 Handle，`Renderer` 编排多个 render item。
 - `Renderer` 已不再持有固定相机、demo mesh、texture 或模型矩阵，但当前仍使用固定 cube pipeline。
 - 每个 draw 的模型矩阵已通过 push constant 提交；descriptor 资源按材质和 frame slot 缓存。
-- Scene 已能管理实体和基础组件，但目前只有运行期自增 `EntityId` 和局部 TRS，还没有持久化 UUID、父子关系与世界矩阵。
+- Scene 已能管理运行期 `EntityId`、持久化 UUID、父子关系、局部 TRS 与派生世界矩阵，并可将基础组件保存为
+  带版本字段的 `.scene` YAML。
 - `MeshRendererComponent` 已使用统一的 `AssetHandle`，app 会注册 demo mesh/material，并通过该链路绘制两个不同 Transform 的实体。
 - Hierarchy 和 Inspector 已绑定真实 Scene，支持基于 `EntityId` 的选择以及实体创建、删除、重命名和 TRS 编辑；
   Project、SceneView 拾取和 gizmo 仍是占位状态。
 - 编辑器中的场景已按 frame slot 渲染到可采样离屏目标，再由 ImGui 显示在 SceneView/GameView 中；runtime app
   仍直接渲染到 swapchain。两个 View 当前共享场景主 Camera 输出，独立 editor camera 尚未实现。
-- Material/ResourceManager 已有接口，但还没有资产数据库、序列化、导入器、热重载和编辑器检查器闭环。
+- Material/ResourceManager 已有接口，但还没有资产数据库、资产序列化、导入器、热重载和编辑器检查器闭环。
 - Scene Update 和 Render Submit 的最小边界已经落地，运行时 System 调度仍未建立。
 
 ## 距离成熟编辑器型引擎的核心缺口
@@ -52,12 +55,11 @@ Scene/ECS MVP 内核已经完成：
 - `Scene`、`Entity`、`IdComponent`、`NameComponent`、`TransformComponent`、`MeshRendererComponent` 和 `CameraComponent`。
 - 基于 EnTT 的实体创建、删除、查询、遍历和通用组件访问。
 - Scene 独占 registry，Entity 仅通过所属 Scene 访问组件。
+- 父子层级、局部/世界变换更新，以及运行时 `EntityId` 与持久化 Entity UUID 的职责分离。
 - 对应的纯逻辑单元测试。
 
 接下来仍缺少：
 
-- 父子层级关系、局部/世界变换更新。
-- 运行时自增 `EntityId` 与持久化实体 UUID 的明确区分。
 - 运行时 System 调度。
 - SceneView 拾取、gizmo 与现有 Editor Selection 的稳定连接。
 
@@ -65,14 +67,14 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 ### 2. 序列化与项目格式
 
-成熟编辑器引擎必须让用户的工作可持久化。当前缺少：
+成熟编辑器引擎必须让用户的工作可持久化。基础 `.scene` YAML 契约、版本字段和纯 Scene 保存/加载已经完成；
+当前仍缺少：
 
 - `.comet` 项目文件或项目目录约定。
-- `.scene` 场景文件格式。
 - `.mat` 材质文件格式。
 - 资源 GUID、元数据文件和引用关系。
-- YAML/JSON/Binary 的版本迁移策略。
-- 场景保存、打开、新建、另存为、自动保存。
+- 场景版本迁移策略。
+- 编辑器中的场景打开、新建、另存为和自动保存。
 
 建议前期继续使用 YAML，因为项目已经引入 `yaml-cpp`，调试成本低。
 
@@ -189,7 +191,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 ### 线程模型与任务系统演进
 
 当前 Comet 是单线程主循环：主线程依次执行 GLFW 事件、Application/Scene 更新、`SceneRenderExtractor`、
-`RenderSceneResolver`、Vulkan command recording、queue submit/present 和 ImGui 合成。这是当前规模下正确且便于
+`SceneResolver`、Vulkan command recording、queue submit/present 和 ImGui 合成。这是当前规模下正确且便于
 验证的基线，但路线图不能只零散地写“后台编译”或“渲染线程边界”，需要明确最终线程所有权。
 
 线程演进遵循以下顺序：
@@ -625,7 +627,7 @@ Comet descriptor；不应在业务代码中同时维护两套 Inspector 或序�
 
 ### Material 与 Shader 绑定演进策略
 
-当前材质链路是为固定 cube pipeline 服务的 MVP：`RenderSceneResolver` 每帧按字符串读取
+当前材质链路是为固定 cube pipeline 服务的 MVP：`SceneResolver` 每帧按字符串读取
 `u_Texture0`/`u_Texture1`，`MaterialBinding` 和 descriptor 资源固定为两张纹理，pipeline layout 固定使用
 binding 0/2/3，所有 draw 也共享一个 `cube_pipeline`。后续不应只把 `array<2>` 换成 `vector`，而要
 建立 shader 接口、材质数据和 GPU 绑定之间的契约。
@@ -635,7 +637,7 @@ binding 0/2/3，所有 draw 也共享一个 `cube_pipeline`。后续不应只把
 ```text
 MeshRendererComponent
   -> mesh handle + material handle
-  -> RenderSceneResolver
+  -> SceneResolver
       -> Mesh + Material Asset
   -> Render Queue（Pipeline/Material 排序）
   -> MaterialRuntimeCache
@@ -651,7 +653,7 @@ MeshRendererComponent
 
 职责边界：
 
-- `RenderSceneResolver` 只把 mesh/material handle 解析为运行时对象，不得知道具体材质属性名、纹理数量、
+- `SceneResolver` 只把 mesh/material handle 解析为运行时对象，不得知道具体材质属性名、纹理数量、
   descriptor set 或 binding。
 - `ShaderInterface` 记录 descriptor set/binding/type/count/stage 和 push constant range；`MaterialLayout` 在此基础上
   补充稳定 `PropertyId`、默认值、编辑器显示和参数语义。
@@ -704,7 +706,7 @@ ShaderModule、Pipeline、PipelineLayout 或 DescriptorSetLayout。
 
 建议演进顺序：
 
-1. `RenderSceneResolver` 只返回已解析 `Material`，移除 `u_Texture0/1` 和固定纹理数组。
+1. `SceneResolver` 只返回已解析 `Material`，移除 `u_Texture0/1` 和固定纹理数组。
 2. 建立 material/layout revision 和 `MaterialRuntimeCache`，停止每帧重复解析同一材质。
 3. 用手工 `MaterialLayout` 验证参数类型与 binding，拆分 frame/material descriptor set。
 4. 让 Render Queue 按 pipeline/material 排序，支持多 shader、多 pipeline 和非纹理材质参数。
@@ -836,7 +838,7 @@ compile burst 后或正常 shutdown
 - [x] 新增 Scene Render Extractor，提取具有 Transform 与 MeshRenderer 的实体；Scene 组件不持有文件路径或 GPU 资源。
 - [x] 让运行时层持有 Scene，由 app 创建 demo Scene 和 cube entity。
 - [x] 让 `Renderer` 消费场景提交结果，逐项交给 `SceneRenderer` 绘制；消费端诊断并跳过无效或未解析的 Handle。
-- [x] 使用 `RenderSceneResolver` 和 `RenderSubmission` 封装资源解析；SceneRenderer 批量消费已解析对象并内部管理 per-frame UBO 与 descriptor。
+- [x] 使用 `SceneResolver` 和 `RenderSubmission` 封装资源解析；SceneRenderer 批量消费已解析对象并内部管理 per-frame UBO 与 descriptor。
 - [x] 接入主 `CameraComponent` 驱动 view/projection；Camera FOV 统一使用角度，并校验 FOV、裁剪面和渲染尺寸。
 - [x] 每个 draw 的模型矩阵使用 push constant，避免单一 model uniform buffer 阻碍多对象渲染。
 - [x] 删除 `Renderer` 内部硬编码的 cube mesh、texture 和模型旋转逻辑。
@@ -891,20 +893,25 @@ compile burst 后或正常 shutdown
 
 目标：用户能在编辑器里创建、编辑、保存、加载一个简单场景。
 
+当前状态：持久化 Entity UUID、`.scene` YAML v1 契约和纯 Scene 保存/加载已完成；下一步把 New/Open/Save
+接入编辑器，并在场景替换时重建上下文、清理失效 Selection。
+
 建议任务：
 
-- 引入持久化 Entity UUID，并与运行时 `EntityId` 区分。
-- 定义 `AssetHandle` 的 YAML 表示和持久化稳定性；路径仅可作为导入/迁移提示，不能成为 Scene 的主引用。
-- 定义 `.scene` YAML 格式。
-- 实现场景保存和加载。
-- 菜单 New/Open/Save Scene 接入真实逻辑。
-- New/Open Scene 后重建编辑器上下文并清理失效 Selection。
-- 建立 `ComponentRegistry`、`ComponentDescriptor`、`PropertyDescriptor` 和按属性类型分发的
+- [x] 引入 128-bit `EntityUuid` 和 `UuidComponent`，并与运行时 `EntityId` 区分；支持生成、解析、格式化、
+  比较、哈希、指定 UUID 创建、重复拒绝和按 UUID 查找。
+- [x] 定义 `AssetHandle` 的 YAML 无符号整数表示；路径不进入 Scene，后续由 Asset Database 建立 Handle 到资产的稳定映射。
+- [x] 定义带 `version` 字段的 `.scene` YAML v1 格式，并记录实体、父 UUID 和基础组件契约。
+- [x] 实现纯 Scene 的内存序列化往返和文件保存/加载；加载失败不会修改已有 Scene。
+- [ ] 菜单 New/Open/Save Scene 接入真实逻辑。
+- [ ] New/Open Scene 后重建编辑器上下文并清理失效 Selection。
+- [ ] 建立 `ComponentRegistry`、`ComponentDescriptor`、`PropertyDescriptor` 和按属性类型分发的
   `PropertyEditorRegistry`。
-- 先为 Transform、MeshRenderer 和 Camera 显式注册元数据，Inspector 通过 descriptor 生成控件，不再为每个字段
+- [ ] 先为 Transform、MeshRenderer 和 Camera 显式注册元数据，Inspector 通过 descriptor 生成控件，不再为每个字段
   硬编码面板逻辑。
-- 场景序列化复用同一份属性元数据，但仍由显式 stable ID、`serializable` 标记和版本迁移规则决定持久化契约。
-- 实现 Play/Edit 模式的最小切换。
+- [ ] 场景序列化复用同一份属性元数据，但仍由显式 stable ID、`serializable` 标记和版本迁移规则决定持久化契约。
+- [ ] 实现 Play/Edit 模式的最小切换。
+- [x] 为稳定排序、组件与层级往返、文件读写、重复 UUID、悬空父引用、层级环和格式错误补充单元测试。
 
 验收标准：
 
@@ -1089,7 +1096,7 @@ Scene Component / RenderItem
   compiler/state tracker 生成 Synchronization 2 barrier，pass execute callback 不直接调用 layout-pair transition。
 - 在 RenderGraph pass 描述稳定后验证 Dynamic Rendering：比较对象/缓存复杂度、validation 结果和目标平台性能，
   再决定默认采用 `beginRendering()`、保留传统 RenderPass，或由 backend 按 pass 选择；不先做全量 API 替换。
-- 移除 `RenderSceneResolver` 中的 `u_Texture0/1` 和两张纹理假设，只解析 Mesh 与 Material Asset。
+- 移除 `SceneResolver` 中的 `u_Texture0/1` 和两张纹理假设，只解析 Mesh 与 Material Asset。
 - 建立 `ShaderInterface`、`MaterialLayout`、material/layout revision、`PreparedMaterial` 和
   `MaterialRuntimeCache`。
 - 将 frame/material/object descriptor 按更新频率分层，保证同一材质在多个 render item 之间复用已准备绑定。
@@ -1142,7 +1149,7 @@ Scene Component / RenderItem
   支持范围、传统 RenderPass 保留场景与平台测试结论。
 - RenderGraph 能根据 pass contract 为 image/buffer 生成必要且范围正确的 barrier；未知 imported state、跨 queue
   handoff 和越过 tracker 的资源操作会被明确拒绝或要求显式声明。
-- `RenderSceneResolver` 不知道材质属性名、纹理数量和 descriptor binding，源码中不再依赖固定
+- `SceneResolver` 不知道材质属性名、纹理数量和 descriptor binding，源码中不再依赖固定
   `u_Texture0/1` 链路。
 - 至少两种不同 shader/pipeline layout 的材质可在同一场景正确渲染，纹理和标量/向量参数均由
   `MaterialLayout` 验证和绑定。
@@ -1229,11 +1236,11 @@ Scene Component / RenderItem
 
 近期最应该做：
 
-1. 引入持久化 Entity UUID，并明确它与运行时 `EntityId` 的边界。
-2. 定义 `.scene` YAML 格式并实现保存、加载。
+1. [x] 引入持久化 Entity UUID，并明确它与运行时 `EntityId` 的边界。
+2. [x] 定义 `.scene` YAML 格式并实现保存、加载。
 3. 接通 New/Open/Save Scene 和 Selection 生命周期。
 4. 定义场景版本字段和最小迁移策略。
-5. 为序列化往返、无效引用和加载失败补充测试。
+5. [x] 为序列化往返、无效引用和加载失败补充测试。
 
 暂时不要急着做：
 
@@ -1338,8 +1345,8 @@ Scene Component / RenderItem
 
 ## 下一步建议
 
-下一步进入 **阶段 2：场景序列化与编辑器闭环**。第一步引入持久化 Entity UUID，明确它与只在当前
-Scene 生命周期内有效的运行时 `EntityId` 之间的边界，再以此为基础定义 `.scene` YAML 格式。
+下一步继续 **阶段 2：场景序列化与编辑器闭环**。持久化 Entity UUID、`.scene` YAML v1 契约和纯 Scene
+保存/加载已经建立，接下来接通编辑器 New/Open/Save，并明确场景替换后的 Selection 生命周期。
 
 建议的职责边界：
 
@@ -1347,12 +1354,13 @@ Scene 生命周期内有效的运行时 `EntityId` 之间的边界，再以此�
 - Scene 只拥有实体、可序列化组件和 `AssetHandle`，不依赖路径、Mesh、Texture、Buffer 等运行时/GPU对象。
 - Scene Render Extractor 把 Transform、MeshRenderer、Camera 转换为只读 RenderScene；Camera Transform 的 scale 不影响 view matrix。
 - Asset Registry 保存 `AssetHandle` 到运行时资源的映射，ResourceManager 创建或复用运行时/GPU资源。
-- RenderSceneResolver 选择 EntityId 最小的主 Camera、验证参数并将 RenderScene 解析为完整 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
+- SceneResolver 选择 EntityId 最小的主 Camera、验证参数并将 RenderScene 解析为完整 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
 
 阶段 2 的第一批最小范围：
 
-1. 为实体增加可持久化 UUID，运行时 `EntityId` 继续用于快速查询和编辑器 Selection。
-2. 定义 UUID 的生成、比较和无效值语义，并保证复制或加载场景时不会意外复用身份。
-3. 定义 `.scene` YAML 中实体、父子 UUID 引用和基础组件的表示。
-4. 先实现纯 Scene 的序列化往返，再接入编辑器 New/Open/Save。
-5. 对重复 UUID、缺失父节点、循环引用和格式错误给出可测试的失败策略。
+1. [x] 为实体增加可持久化 UUID，运行时 `EntityId` 继续用于快速查询和编辑器 Selection。
+2. [x] 定义 UUID 的生成、解析、格式化、比较、哈希和无效值语义，并拒绝无效或重复 UUID。
+3. [x] 定义 `.scene` YAML 中实体、父子 UUID 引用和基础组件的表示。
+4. [x] 实现纯 Scene 的内存序列化往返和文件保存/加载。
+5. [x] 对重复 UUID、缺失父节点、循环引用和格式错误给出可测试的失败策略。
+6. [ ] 接入编辑器 New/Open/Save，并在替换 Scene 后清理失效 Selection。

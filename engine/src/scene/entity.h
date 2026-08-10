@@ -12,6 +12,8 @@ namespace Comet {
 
         [[nodiscard]] EntityId get_id() const;
 
+        [[nodiscard]] EntityUuid get_uuid() const;
+
         template<typename T, typename... Args>
         T& add_component(Args&&... args);
 

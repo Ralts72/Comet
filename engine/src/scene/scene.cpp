@@ -8,10 +8,24 @@
 
 namespace Comet {
     Entity Scene::create_entity(const std::string& name) {
+        EntityUuid uuid;
+        do {
+            uuid = EntityUuid::generate();
+        } while(find_entity(uuid));
+        return create_entity_with_uuid(uuid, name);
+    }
+
+    Entity Scene::create_entity_with_uuid(
+        const EntityUuid uuid, const std::string& name) {
+        if(!uuid || find_entity(uuid)) {
+            return {};
+        }
+
         const entt::entity handle = m_registry.create();
         Entity entity(handle, this);
 
         entity.add_component<IdComponent>(m_next_entity_id++);
+        entity.add_component<UuidComponent>(uuid);
         entity.add_component<NameComponent>(name.empty() ? "Entity" : name);
         entity.add_component<TransformComponent>();
         entity.add_component<RelationshipComponent>();
@@ -211,6 +225,21 @@ namespace Comet {
         const auto view = m_registry.view<IdComponent>();
         for(const entt::entity handle: view) {
             if(view.get<IdComponent>(handle).id == id) {
+                return {handle, this};
+            }
+        }
+
+        return {};
+    }
+
+    Entity Scene::find_entity(const EntityUuid uuid) {
+        if(!uuid) {
+            return {};
+        }
+
+        const auto view = m_registry.view<UuidComponent>();
+        for(const entt::entity handle: view) {
+            if(view.get<UuidComponent>(handle).uuid == uuid) {
                 return {handle, this};
             }
         }

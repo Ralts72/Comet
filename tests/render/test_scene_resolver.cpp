@@ -1,13 +1,13 @@
 #include <gtest/gtest.h>
 
 #include "asset/registry.h"
-#include "render/render_scene_resolver.h"
+#include "render/scene_resolver.h"
 #include "../test_utils.h"
 
 namespace Comet::Tests {
-    TEST(RenderSceneResolverTest, EmptySceneProducesEmptySubmission) {
+    TEST(SceneResolverTest, EmptySceneProducesEmptySubmission) {
         const AssetRegistry asset_registry;
-        RenderSceneResolver resolver(asset_registry);
+        SceneResolver resolver(asset_registry);
 
         const RenderSubmission submission = resolver.resolve(
             RenderScene{}, Math::Vec2u(1280, 720));
@@ -16,9 +16,9 @@ namespace Comet::Tests {
         EXPECT_TRUE(submission.render_items.empty());
     }
 
-    TEST(RenderSceneResolverTest, SkipsItemsWithMissingResources) {
+    TEST(SceneResolverTest, SkipsItemsWithMissingResources) {
         const AssetRegistry asset_registry;
-        RenderSceneResolver resolver(asset_registry);
+        SceneResolver resolver(asset_registry);
         RenderScene render_scene;
         render_scene.render_items.push_back({
             .entity_id = 7,
@@ -33,9 +33,9 @@ namespace Comet::Tests {
         EXPECT_TRUE(submission.render_items.empty());
     }
 
-    TEST(RenderSceneResolverTest, BuildsViewProjectionFromPrimaryCamera) {
+    TEST(SceneResolverTest, BuildsViewProjectionFromPrimaryCamera) {
         const AssetRegistry asset_registry;
-        RenderSceneResolver resolver(asset_registry);
+        SceneResolver resolver(asset_registry);
         const Math::Mat4 view_matrix = Math::translate(
             Math::Mat4(1.0f), Math::Vec3(0.0f, 0.0f, -3.0f));
         RenderScene render_scene;
@@ -59,9 +59,9 @@ namespace Comet::Tests {
             Math::perspective(60.0f, 1600.0f / 900.0f, 0.2f, 500.0f)));
     }
 
-    TEST(RenderSceneResolverTest, SelectsLowestEntityIdWhenMultipleCamerasArePrimary) {
+    TEST(SceneResolverTest, SelectsLowestEntityIdWhenMultipleCamerasArePrimary) {
         const AssetRegistry asset_registry;
-        RenderSceneResolver resolver(asset_registry);
+        SceneResolver resolver(asset_registry);
         const Math::Mat4 selected_view = Math::translate(
             Math::Mat4(1.0f), Math::Vec3(0.0f, 0.0f, -5.0f));
         RenderScene render_scene;
@@ -84,9 +84,9 @@ namespace Comet::Tests {
             submission.view_project_matrix->view, selected_view));
     }
 
-    TEST(RenderSceneResolverTest, RejectsInvalidCameraParametersAndRenderSize) {
+    TEST(SceneResolverTest, RejectsInvalidCameraParametersAndRenderSize) {
         const AssetRegistry asset_registry;
-        RenderSceneResolver resolver(asset_registry);
+        SceneResolver resolver(asset_registry);
         RenderScene render_scene;
         render_scene.cameras.push_back({
             .entity_id = 7,

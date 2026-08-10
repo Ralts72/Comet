@@ -3,12 +3,17 @@
 #include "asset/handle.h"
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
+#include "scene/entity_uuid.h"
 
 #include <string>
 
 namespace Comet {
     struct IdComponent {
         EntityId id = INVALID_ENTITY_ID;
+    };
+
+    struct UuidComponent {
+        EntityUuid uuid;
     };
 
     struct NameComponent {
