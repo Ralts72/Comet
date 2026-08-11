@@ -8,11 +8,15 @@
 #include <string_view>
 
 namespace Comet {
+    class ComponentRegistry;
     class Scene;
 
     class COMET_API SceneSerializer final {
     public:
         static constexpr std::uint32_t FORMAT_VERSION = 1;
+
+        explicit SceneSerializer(
+            const ComponentRegistry& component_registry);
 
         [[nodiscard]] std::string serialize(const Scene& scene) const;
 
@@ -24,5 +28,8 @@ namespace Comet {
 
         [[nodiscard]] std::unique_ptr<Scene> load(
             const std::string& path) const;
+
+    private:
+        const ComponentRegistry& m_component_registry;
     };
 }

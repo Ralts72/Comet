@@ -28,8 +28,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 ### 当前主要形态
 
 目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但 Scene/ECS 已经接入最小运行时渲染链路、
-编辑器基础数据闭环和纯逻辑场景持久化。当前主要矛盾已经转变为：场景文件尚未接入编辑器操作，资产数据库尚未建立，
-渲染接口仍偏 demo 化。
+编辑器基础数据闭环和场景持久化，New/Open/Save 也已经接入编辑器。当前主要矛盾已经转变为：Edit Scene 与
+Runtime Scene 尚未分离，资产数据库尚未建立，渲染接口仍偏 demo 化。
 
 最明显的信号是：
 
@@ -37,7 +37,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 - `Renderer` 已不再持有固定相机、demo mesh、texture 或模型矩阵，但当前仍使用固定 cube pipeline。
 - 每个 draw 的模型矩阵已通过 push constant 提交；descriptor 资源按材质和 frame slot 缓存。
 - Scene 已能管理运行期 `EntityId`、持久化 UUID、父子关系、局部 TRS 与派生世界矩阵，并可将基础组件保存为
-  带版本字段的 `.scene` YAML。
+  带版本字段的 `.scene` YAML；Inspector 与 `SceneSerializer` 已复用同一份组件/属性描述元数据。
 - `MeshRendererComponent` 已使用统一的 `AssetHandle`，app 会注册 demo mesh/material，并通过该链路绘制两个不同 Transform 的实体。
 - Hierarchy 和 Inspector 已绑定真实 Scene，支持基于 `EntityId` 的选择以及实体创建、删除、重命名；Inspector 通过
   显式组件/属性描述符编辑 Transform、MeshRenderer 和 Camera，Project、SceneView 拾取和 gizmo 仍是占位状态。
@@ -73,8 +73,8 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 - `.comet` 项目文件或项目目录约定。
 - `.mat` 材质文件格式。
 - 资源 GUID、元数据文件和引用关系。
-- 场景版本迁移策略。
-- 编辑器中的场景打开、新建、另存为和自动保存。
+- 格式稳定后的 schema 冻结与版本迁移机制；开发期 `.scene` 不承诺向后兼容，过期文件可重新保存或重建。
+- 编辑器中的显式另存为、自动保存和崩溃恢复。
 
 建议前期继续使用 YAML，因为项目已经引入 `yaml-cpp`，调试成本低。
 
@@ -466,10 +466,10 @@ image。旧 swapchain 的回收必须使用可用的 present completion/fence；
 
 ### Vulkan 同步演进顺序
 
-当前 `Queue::submit()` 使用 legacy `vk::SubmitInfo`，所有 wait semaphore 共用单独构造的 stage-mask 数组；
-`CommandBuffer::transition_image_layout()` 使用 `vk::ImageMemoryBarrier` 和 `pipelineBarrier()`，并按 layout pair
-硬编码 stage/access。当前只有简单 graphics submit 和单个 swapchain wait，这套实现可以工作，不需要在阶段 1/2
-仅为了 API 名称立即重写。
+当前 Vulkan 1.3 `synchronization2` feature 的查询、启用以及 `Queue::submit2()` 已完成，每个 wait/signal 都使用独立
+`vk::SemaphoreSubmitInfo`。`CommandBuffer::transition_image_layout()` 仍使用 `vk::ImageMemoryBarrier` 和
+`pipelineBarrier()`，并按 layout pair 硬编码 stage/access，因此 Synchronization 2 迁移只完成了提交侧，barrier 与
+类型化资源状态仍未完成。
 
 Synchronization 2 应作为阶段 3 异步上传的前置基础设施，顺序固定为：
 
@@ -892,15 +892,15 @@ compile burst 后或正常 shutdown
 
 目标：用户能在编辑器里创建、编辑、保存、加载一个简单场景。
 
-当前状态：持久化 Entity UUID、`.scene` YAML v1、编辑器 New/Open/Save 和 descriptor 驱动的基础组件 Inspector
-已完成；下一步让场景序列化复用同一份属性元数据，同时保持显式版本契约。
+当前状态：持久化 Entity UUID、开发期 `.scene` YAML、编辑器 New/Open/Save、descriptor 驱动的基础组件 Inspector，
+以及 descriptor 驱动的场景组件序列化均已完成；下一步实现最小 Play/Edit 切换并隔离编辑态与运行态 Scene。
 
 建议任务：
 
 - [x] 引入 128-bit `EntityUuid` 和 `UuidComponent`，并与运行时 `EntityId` 区分；支持生成、解析、格式化、
   比较、哈希、指定 UUID 创建、重复拒绝和按 UUID 查找。
 - [x] 定义 `AssetHandle` 的 YAML 无符号整数表示；路径不进入 Scene，后续由 Asset Database 建立 Handle 到资产的稳定映射。
-- [x] 定义带 `version` 字段的 `.scene` YAML v1 格式，并记录实体、父 UUID 和基础组件契约。
+- [x] 定义带 `version` 字段的开发期 `.scene` YAML 格式，并记录实体、父 UUID 和基础组件契约。
 - [x] 实现纯 Scene 的内存序列化往返和文件保存/加载；加载失败不会修改已有 Scene。
 - [x] 菜单 New/Open/Save Scene 接入真实逻辑；Open 和首次 Save 使用路径输入，已有路径的 Scene 可直接保存。
 - [x] New/Open Scene 后重绑定 Hierarchy 与 Selection，并在运行时 `EntityId` 可能复用时仍清理旧选择。
@@ -908,7 +908,7 @@ compile burst 后或正常 shutdown
   `PropertyEditorRegistry`。
 - [x] 先为 Transform、MeshRenderer 和 Camera 显式注册元数据，Inspector 通过 descriptor 生成控件，不再为每个字段
   硬编码面板逻辑。
-- [ ] 场景序列化复用同一份属性元数据，但仍由显式 stable ID、`serializable` 标记和版本迁移规则决定持久化契约。
+- [x] 场景序列化复用同一份属性元数据，由 stable ID、类型访问器和 `serializable` 标记定义当前活动格式。
 - [ ] 实现 Play/Edit 模式的最小切换。
 - [x] 为稳定排序、组件与层级往返、文件读写、重复 UUID、悬空父引用、层级环和格式错误补充单元测试。
 
@@ -1238,8 +1238,9 @@ Scene Component / RenderItem
 1. [x] 引入持久化 Entity UUID，并明确它与运行时 `EntityId` 的边界。
 2. [x] 定义 `.scene` YAML 格式并实现保存、加载。
 3. [x] 接通 New/Open/Save Scene 和 Selection 生命周期。
-4. 定义场景版本字段和最小迁移策略。
+4. [x] 预留场景版本字段并严格校验当前格式；schema 冻结和迁移器推迟到项目格式稳定后。
 5. [x] 为序列化往返、无效引用和加载失败补充测试。
+6. 实现最小 Play/Edit 切换，运行时修改不污染编辑态 Scene。
 
 暂时不要急着做：
 
@@ -1250,7 +1251,8 @@ Scene Component / RenderItem
 5. 大规模材质图/节点编辑器。
 6. 在 Scene/资源生命周期尚未稳定前提前拆独立 RenderThread 或并行 command recording。
 
-原因很简单：Scene 已经连接渲染、编辑器和 Transform 层级，但持久化仍未闭环。先完成这条纵向链路，后面的 Asset、Play 模式和复杂渲染才有稳定落点。
+原因很简单：Scene、编辑器和持久化的第一段纵向链路已经闭环。现在先用 Play/Edit 验证 Scene 的复制与运行时生命周期，
+再进入 Asset Database，能避免后续运行态资源和编辑态数据继续混在一起。
 
 ## 12 个月建议里程碑
 
@@ -1344,8 +1346,8 @@ Scene Component / RenderItem
 
 ## 下一步建议
 
-下一步继续 **阶段 2：场景序列化与编辑器闭环**。组件/属性描述元数据和通用 Inspector 已建立，接下来让
-`SceneSerializer` 复用 descriptor 的 stable ID、类型访问器与 `serializable` 标记，同时继续显式处理版本迁移。
+下一步收尾 **阶段 2：场景序列化与编辑器闭环**。`SceneSerializer` 已复用 descriptor 的 stable ID、类型访问器与
+`serializable` 标记；开发期格式暂不承担向后兼容和迁移成本，接下来实现最小 Play/Edit 切换。
 
 建议的职责边界：
 
@@ -1364,4 +1366,5 @@ Scene Component / RenderItem
 5. [x] 对重复 UUID、缺失父节点、循环引用和格式错误给出可测试的失败策略。
 6. [x] 接入编辑器 New/Open/Save，并在替换 Scene 后清理失效 Selection。
 7. [x] 建立组件/属性描述元数据，并让 Inspector 通过描述生成基础组件编辑控件。
-8. [ ] 让场景序列化复用属性描述元数据，并保留显式版本迁移边界。
+8. [x] 让场景序列化复用属性描述元数据，由 descriptor 定义当前开发格式。
+9. [ ] 实现最小 Play/Edit 切换：进入 Play 时复制 Edit Scene，退出时丢弃 Runtime Scene，并清理失效 Selection。

@@ -1,5 +1,6 @@
 #include "scene/scene_serializer.h"
 
+#include "scene/component_registry.h"
 #include "scene/components.h"
 #include "scene/scene.h"
 
@@ -16,19 +17,34 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <yaml-cpp/yaml.h>
 
 namespace Comet {
     namespace {
+        using PropertyValue = std::variant<
+            bool,
+            float,
+            Math::Vec3,
+            AssetHandle>;
+
+        struct PropertyRecord {
+            const PropertyDescriptor* descriptor = nullptr;
+            PropertyValue value;
+        };
+
+        struct ComponentRecord {
+            const ComponentDescriptor* descriptor = nullptr;
+            std::vector<PropertyRecord> properties;
+        };
+
         struct EntityRecord {
             EntityUuid uuid;
             std::optional<EntityUuid> parent;
             std::string name;
-            std::optional<TransformComponent> transform;
-            std::optional<MeshRendererComponent> mesh_renderer;
-            std::optional<CameraComponent> camera;
+            std::vector<ComponentRecord> components;
         };
 
         std::runtime_error scene_error(const std::string_view source,
@@ -55,10 +71,11 @@ namespace Comet {
             }
         }
 
-        void validate_keys(const YAML::Node& node,
-                           const std::initializer_list<std::string_view> allowed,
-                           const std::string_view source,
-                           const std::string_view location) {
+        template<typename AllowedKeys>
+        void validate_keys_in(const YAML::Node& node,
+                              const AllowedKeys& allowed,
+                              const std::string_view source,
+                              const std::string_view location) {
             require_map(node, source, location);
             std::unordered_set<std::string> keys;
             for(const auto& entry: node) {
@@ -80,11 +97,25 @@ namespace Comet {
             }
         }
 
+        void validate_keys(const YAML::Node& node,
+                           const std::initializer_list<std::string_view> allowed,
+                           const std::string_view source,
+                           const std::string_view location) {
+            validate_keys_in(node, allowed, source, location);
+        }
+
+        void validate_keys(const YAML::Node& node,
+                           const std::vector<std::string_view>& allowed,
+                           const std::string_view source,
+                           const std::string_view location) {
+            validate_keys_in(node, allowed, source, location);
+        }
+
         YAML::Node required_child(const YAML::Node& node,
-                                  const char* key,
+                                  const std::string_view key,
                                   const std::string_view source,
                                   const std::string_view location) {
-            const YAML::Node child = node[key];
+            const YAML::Node child = node[std::string(key)];
             if(!child.IsDefined()) {
                 throw scene_error(
                     source,
@@ -176,13 +207,131 @@ namespace Comet {
             return node;
         }
 
+        bool is_finite(const Math::Vec3& value) {
+            return std::isfinite(value.x)
+                && std::isfinite(value.y)
+                && std::isfinite(value.z);
+        }
+
+        PropertyValue read_property_value(
+            const PropertyDescriptor& property,
+            const YAML::Node& node,
+            const std::string_view source,
+            const std::string_view location) {
+            switch(property.type) {
+                case PropertyType::Bool:
+                    return read_scalar<bool>(
+                        node, source, location, "a boolean");
+                case PropertyType::Float: {
+                    const float value = read_scalar<float>(
+                        node, source, location, "a finite number");
+                    if(!std::isfinite(value)) {
+                        throw scene_error(
+                            source, location, "expected a finite number");
+                    }
+                    return value;
+                }
+                case PropertyType::Vec3:
+                    return read_vec3(node, source, location);
+                case PropertyType::AssetHandle:
+                    return AssetHandle(read_unsigned_integer<
+                        AssetHandle::ValueType>(node, source, location));
+            }
+            throw scene_error(source, location, "unsupported property type");
+        }
+
+        PropertyValue copy_property_value(
+            const PropertyDescriptor& property,
+            const void* component,
+            const std::string_view location) {
+            const void* value = property.get_value(component);
+            if(value == nullptr) {
+                throw scene_error(
+                    "<memory>", location, "property accessor returned null");
+            }
+
+            switch(property.type) {
+                case PropertyType::Bool:
+                    return *static_cast<const bool*>(value);
+                case PropertyType::Float: {
+                    const float result = *static_cast<const float*>(value);
+                    if(!std::isfinite(result)) {
+                        throw scene_error(
+                            "<memory>", location, "expected a finite number");
+                    }
+                    return result;
+                }
+                case PropertyType::Vec3: {
+                    const Math::Vec3 result =
+                        *static_cast<const Math::Vec3*>(value);
+                    if(!is_finite(result)) {
+                        throw scene_error(
+                            "<memory>", location, "expected finite numbers");
+                    }
+                    return result;
+                }
+                case PropertyType::AssetHandle:
+                    return *static_cast<const AssetHandle*>(value);
+            }
+            throw scene_error(
+                "<memory>", location, "unsupported property type");
+        }
+
+        YAML::Node write_property_value(const PropertyRecord& property) {
+            switch(property.descriptor->type) {
+                case PropertyType::Bool:
+                    return YAML::Node(std::get<bool>(property.value));
+                case PropertyType::Float:
+                    return YAML::Node(std::get<float>(property.value));
+                case PropertyType::Vec3:
+                    return write_vec3(std::get<Math::Vec3>(property.value));
+                case PropertyType::AssetHandle:
+                    return YAML::Node(
+                        std::get<AssetHandle>(property.value).value());
+            }
+            return {};
+        }
+
+        void assign_property_value(const PropertyRecord& property,
+                                   void* component,
+                                   const std::string_view source,
+                                   const std::string_view location) {
+            void* value = property.descriptor->get_value(component);
+            if(value == nullptr) {
+                throw scene_error(
+                    source, location, "property accessor returned null");
+            }
+
+            switch(property.descriptor->type) {
+                case PropertyType::Bool:
+                    *static_cast<bool*>(value) =
+                        std::get<bool>(property.value);
+                    return;
+                case PropertyType::Float:
+                    *static_cast<float*>(value) =
+                        std::get<float>(property.value);
+                    return;
+                case PropertyType::Vec3:
+                    *static_cast<Math::Vec3*>(value) =
+                        std::get<Math::Vec3>(property.value);
+                    return;
+                case PropertyType::AssetHandle:
+                    *static_cast<AssetHandle*>(value) =
+                        std::get<AssetHandle>(property.value);
+                    return;
+            }
+            throw scene_error(source, location, "unsupported property type");
+        }
+
         std::string entity_location(const std::size_t index) {
             return "entities[" + std::to_string(index) + "]";
         }
 
-        EntityRecord read_entity_record(const YAML::Node& node,
-                                        const std::size_t index,
-                                        const std::string_view source) {
+        EntityRecord read_entity_record(
+            const YAML::Node& node,
+            const std::size_t index,
+            const std::string_view source,
+            const ComponentRegistry& component_registry) {
             const std::string location = entity_location(index);
             validate_keys(
                 node, {"uuid", "parent", "components"}, source, location);
@@ -200,9 +349,18 @@ namespace Comet {
 
             const YAML::Node components = required_child(
                 node, "components", source, location);
+            std::vector<std::string_view> component_ids{"name"};
+            component_ids.reserve(
+                component_registry.components().size() + 1);
+            for(const ComponentDescriptor& component:
+                component_registry.components()) {
+                if(component.serializable) {
+                    component_ids.push_back(component.id);
+                }
+            }
             validate_keys(
                 components,
-                {"name", "transform", "mesh_renderer", "camera"},
+                component_ids,
                 source,
                 location + ".components");
 
@@ -211,124 +369,56 @@ namespace Comet {
                     components, "name", source, location + ".components"),
                 source, location + ".components.name", "a string");
 
-            const YAML::Node transform = components["transform"];
-            if(transform.IsDefined() && !transform.IsNull()) {
-                validate_keys(
-                    transform,
-                    {"translation", "rotation", "scale"},
-                    source,
-                    location + ".components.transform");
-                record.transform = TransformComponent{
-                    .translation = read_vec3(
-                        required_child(
-                            transform,
-                            "translation",
-                            source,
-                            location + ".components.transform"),
-                        source,
-                        location + ".components.transform.translation"),
-                    .rotation = read_vec3(
-                        required_child(
-                            transform,
-                            "rotation",
-                            source,
-                            location + ".components.transform"),
-                        source,
-                        location + ".components.transform.rotation"),
-                    .scale = read_vec3(
-                        required_child(
-                            transform,
-                            "scale",
-                            source,
-                            location + ".components.transform"),
-                        source,
-                        location + ".components.transform.scale")
-                };
-            }
-
-            const YAML::Node mesh_renderer = components["mesh_renderer"];
-            if(mesh_renderer.IsDefined() && !mesh_renderer.IsNull()) {
-                validate_keys(
-                    mesh_renderer,
-                    {"mesh", "material"},
-                    source,
-                    location + ".components.mesh_renderer");
-                record.mesh_renderer = MeshRendererComponent{
-                    .mesh = AssetHandle(read_unsigned_integer<
-                        AssetHandle::ValueType>(
-                        required_child(
-                            mesh_renderer,
-                            "mesh",
-                            source,
-                            location + ".components.mesh_renderer"),
-                        source,
-                        location + ".components.mesh_renderer.mesh")),
-                    .material = AssetHandle(read_unsigned_integer<
-                        AssetHandle::ValueType>(
-                        required_child(
-                            mesh_renderer,
-                            "material",
-                            source,
-                            location + ".components.mesh_renderer"),
-                        source,
-                        location + ".components.mesh_renderer.material"))
-                };
-            }
-
-            const YAML::Node camera = components["camera"];
-            if(camera.IsDefined() && !camera.IsNull()) {
-                validate_keys(
-                    camera,
-                    {"primary", "fov", "near_clip", "far_clip"},
-                    source,
-                    location + ".components.camera");
-                record.camera = CameraComponent{
-                    .primary = read_scalar<bool>(
-                        required_child(
-                            camera,
-                            "primary",
-                            source,
-                            location + ".components.camera"),
-                        source,
-                        location + ".components.camera.primary",
-                        "a boolean"),
-                    .fov = read_scalar<float>(
-                        required_child(
-                            camera,
-                            "fov",
-                            source,
-                            location + ".components.camera"),
-                        source,
-                        location + ".components.camera.fov",
-                        "a finite number"),
-                    .near_clip = read_scalar<float>(
-                        required_child(
-                            camera,
-                            "near_clip",
-                            source,
-                            location + ".components.camera"),
-                        source,
-                        location + ".components.camera.near_clip",
-                        "a finite number"),
-                    .far_clip = read_scalar<float>(
-                        required_child(
-                            camera,
-                            "far_clip",
-                            source,
-                            location + ".components.camera"),
-                        source,
-                        location + ".components.camera.far_clip",
-                        "a finite number")
-                };
-
-                if(!std::isfinite(record.camera->fov)
-                   || !std::isfinite(record.camera->near_clip)
-                   || !std::isfinite(record.camera->far_clip)) {
-                    throw scene_error(
-                        source,
-                        location + ".components.camera",
-                        "camera values must be finite");
+            for(const ComponentDescriptor& component_descriptor:
+                component_registry.components()) {
+                if(!component_descriptor.serializable) {
+                    continue;
                 }
+
+                const YAML::Node component =
+                    components[component_descriptor.id];
+                if(!component.IsDefined() || component.IsNull()) {
+                    continue;
+                }
+
+                const std::string component_location = location
+                    + ".components." + component_descriptor.id;
+                std::vector<std::string_view> property_ids;
+                property_ids.reserve(component_descriptor.properties.size());
+                for(const PropertyDescriptor& property:
+                    component_descriptor.properties) {
+                    if(property.serializable && !property.transient) {
+                        property_ids.push_back(property.id);
+                    }
+                }
+                validate_keys(
+                    component, property_ids, source, component_location);
+
+                ComponentRecord component_record{
+                    .descriptor = &component_descriptor
+                };
+                component_record.properties.reserve(property_ids.size());
+                for(const PropertyDescriptor& property:
+                    component_descriptor.properties) {
+                    if(!property.serializable || property.transient) {
+                        continue;
+                    }
+                    const std::string property_location =
+                        component_location + "." + property.id;
+                    component_record.properties.push_back({
+                        .descriptor = &property,
+                        .value = read_property_value(
+                            property,
+                            required_child(
+                                component,
+                                property.id,
+                                source,
+                                component_location),
+                            source,
+                            property_location)
+                    });
+                }
+                record.components.push_back(std::move(component_record));
             }
 
             return record;
@@ -339,36 +429,11 @@ namespace Comet {
             std::unordered_map<EntityUuid, std::size_t> indices;
             indices.reserve(records.size());
             for(std::size_t index = 0; index < records.size(); ++index) {
-                const EntityRecord& record = records[index];
                 if(!indices.emplace(records[index].uuid, index).second) {
                     throw scene_error(
                         source,
                         entity_location(index) + ".uuid",
                         "duplicate UUID " + records[index].uuid.to_string());
-                }
-
-                const auto finite_vec3 = [](const Math::Vec3& value) {
-                    return std::isfinite(value.x)
-                           && std::isfinite(value.y)
-                           && std::isfinite(value.z);
-                };
-                if(record.transform
-                   && (!finite_vec3(record.transform->translation)
-                       || !finite_vec3(record.transform->rotation)
-                       || !finite_vec3(record.transform->scale))) {
-                    throw scene_error(
-                        source,
-                        entity_location(index) + ".components.transform",
-                        "transform values must be finite");
-                }
-                if(record.camera
-                   && (!std::isfinite(record.camera->fov)
-                       || !std::isfinite(record.camera->near_clip)
-                       || !std::isfinite(record.camera->far_clip))) {
-                    throw scene_error(
-                        source,
-                        entity_location(index) + ".components.camera",
-                        "camera values must be finite");
                 }
             }
 
@@ -420,33 +485,23 @@ namespace Comet {
 
             YAML::Node components(YAML::NodeType::Map);
             components["name"] = record.name;
-            if(record.transform) {
-                YAML::Node transform(YAML::NodeType::Map);
-                transform["translation"] = write_vec3(
-                    record.transform->translation);
-                transform["rotation"] = write_vec3(record.transform->rotation);
-                transform["scale"] = write_vec3(record.transform->scale);
-                components["transform"] = transform;
-            }
-            if(record.mesh_renderer) {
-                YAML::Node mesh_renderer(YAML::NodeType::Map);
-                mesh_renderer["mesh"] = record.mesh_renderer->mesh.value();
-                mesh_renderer["material"] =
-                    record.mesh_renderer->material.value();
-                components["mesh_renderer"] = mesh_renderer;
-            }
-            if(record.camera) {
-                YAML::Node camera(YAML::NodeType::Map);
-                camera["primary"] = record.camera->primary;
-                camera["fov"] = record.camera->fov;
-                camera["near_clip"] = record.camera->near_clip;
-                camera["far_clip"] = record.camera->far_clip;
-                components["camera"] = camera;
+            for(const ComponentRecord& component_record: record.components) {
+                YAML::Node component(YAML::NodeType::Map);
+                for(const PropertyRecord& property:
+                    component_record.properties) {
+                    component[property.descriptor->id] =
+                        write_property_value(property);
+                }
+                components[component_record.descriptor->id] = component;
             }
             entity["components"] = components;
             return entity;
         }
     }
+
+    SceneSerializer::SceneSerializer(
+        const ComponentRegistry& component_registry)
+        : m_component_registry(component_registry) {}
 
     std::string SceneSerializer::serialize(const Scene& scene) const {
         std::vector<EntityRecord> records;
@@ -484,17 +539,45 @@ namespace Comet {
                 .uuid = uuid->uuid,
                 .name = name->name
             };
-            if(const auto* transform =
-                   scene.m_registry.try_get<TransformComponent>(handle)) {
-                record.transform = *transform;
-            }
-            if(const auto* mesh_renderer =
-                   scene.m_registry.try_get<MeshRendererComponent>(handle)) {
-                record.mesh_renderer = *mesh_renderer;
-            }
-            if(const auto* camera =
-                   scene.m_registry.try_get<CameraComponent>(handle)) {
-                record.camera = *camera;
+            const Entity entity(handle, const_cast<Scene*>(&scene));
+            for(const ComponentDescriptor& component_descriptor:
+                m_component_registry.components()) {
+                if(!component_descriptor.serializable
+                   || !component_descriptor.has_component(entity)) {
+                    continue;
+                }
+
+                const void* component =
+                    component_descriptor.get_component(entity);
+                const std::string component_location =
+                    uuid->uuid.to_string() + ".components."
+                    + component_descriptor.id;
+                if(component == nullptr) {
+                    throw scene_error(
+                        "<memory>",
+                        component_location,
+                        "component accessor returned null");
+                }
+
+                ComponentRecord component_record{
+                    .descriptor = &component_descriptor
+                };
+                component_record.properties.reserve(
+                    component_descriptor.properties.size());
+                for(const PropertyDescriptor& property:
+                    component_descriptor.properties) {
+                    if(!property.serializable || property.transient) {
+                        continue;
+                    }
+                    component_record.properties.push_back({
+                        .descriptor = &property,
+                        .value = copy_property_value(
+                            property,
+                            component,
+                            component_location + "." + property.id)
+                    });
+                }
+                record.components.push_back(std::move(component_record));
             }
             records.push_back(std::move(record));
         }
@@ -566,7 +649,8 @@ namespace Comet {
         std::vector<EntityRecord> records;
         records.reserve(entities.size());
         for(std::size_t index = 0; index < entities.size(); ++index) {
-            records.push_back(read_entity_record(entities[index], index, source));
+            records.push_back(read_entity_record(
+                entities[index], index, source, m_component_registry));
         }
         validate_records(records, source);
 
@@ -582,17 +666,53 @@ namespace Comet {
                     "failed to create entity");
             }
             entity.get_component<NameComponent>().name = record.name;
-            if(record.transform) {
-                entity.get_component<TransformComponent>() = *record.transform;
-            } else {
-                entity.remove_component<TransformComponent>();
-            }
-            if(record.mesh_renderer) {
-                entity.add_component<MeshRendererComponent>(
-                    *record.mesh_renderer);
-            }
-            if(record.camera) {
-                entity.add_component<CameraComponent>(*record.camera);
+            for(const ComponentDescriptor& component_descriptor:
+                m_component_registry.components()) {
+                if(!component_descriptor.serializable) {
+                    continue;
+                }
+
+                const auto component_record = std::ranges::find_if(
+                    record.components,
+                    [&component_descriptor](const ComponentRecord& component) {
+                        return component.descriptor == &component_descriptor;
+                    });
+                const std::string component_location =
+                    record.uuid.to_string() + ".components."
+                    + component_descriptor.id;
+                if(component_record == record.components.end()) {
+                    if(component_descriptor.has_component(entity)
+                       && !component_descriptor.remove_component(entity)) {
+                        throw scene_error(
+                            source,
+                            component_location,
+                            "failed to remove absent component");
+                    }
+                    continue;
+                }
+
+                if(!component_descriptor.has_component(entity)
+                   && !component_descriptor.add_component(entity)) {
+                    throw scene_error(
+                        source,
+                        component_location,
+                        "failed to create component");
+                }
+                void* component = component_descriptor.get_component(entity);
+                if(component == nullptr) {
+                    throw scene_error(
+                        source,
+                        component_location,
+                        "component accessor returned null");
+                }
+                for(const PropertyRecord& property:
+                    component_record->properties) {
+                    assign_property_value(
+                        property,
+                        component,
+                        source,
+                        component_location + "." + property.descriptor->id);
+                }
             }
             loaded_entities.emplace(record.uuid, entity);
         }

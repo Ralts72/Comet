@@ -415,7 +415,7 @@ namespace {
                 Comet::create_scene_component_registry();
         CometEditor::PropertyEditorRegistry m_property_editor_registry =
                 CometEditor::create_property_editor_registry();
-        Comet::SceneSerializer m_scene_serializer;
+        Comet::SceneSerializer m_scene_serializer{m_component_registry};
         std::string m_scene_path;
         std::array<char, SCENE_PATH_CAPACITY> m_scene_path_buffer{};
         std::string m_scene_file_error;

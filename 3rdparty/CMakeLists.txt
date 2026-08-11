@@ -46,7 +46,12 @@ if (COMET_BUILD_TESTS)
     option(BUILD_GMOCK OFF)
     add_subdirectory(googletest EXCLUDE_FROM_ALL)
 
-    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag(
+        "-Wno-character-conversion -Werror=unknown-warning-option"
+        COMET_HAS_WNO_CHARACTER_CONVERSION
+    )
+    if (COMET_HAS_WNO_CHARACTER_CONVERSION)
         target_compile_options(gtest PRIVATE -Wno-character-conversion)
         target_compile_options(gtest_main PRIVATE -Wno-character-conversion)
     endif ()

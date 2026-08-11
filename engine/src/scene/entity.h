@@ -5,6 +5,7 @@
 
 namespace Comet {
     class Scene;
+    class SceneSerializer;
 
     class COMET_API Entity {
     public:
@@ -41,6 +42,7 @@ namespace Comet {
 
     private:
         friend class Scene;
+        friend class SceneSerializer;
 
         Entity(entt::entity handle, Scene* scene);
 

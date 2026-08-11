@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "scene/component_registry.h"
 #include "scene/components.h"
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
@@ -15,8 +16,27 @@
 
 namespace Comet::Tests {
     namespace {
+        struct DescriptorTestComponent {
+            float persisted = 0.0f;
+            float runtime_only = 17.0f;
+        };
+
+        struct RuntimeOnlyTestComponent {
+            bool enabled = true;
+        };
+
         EntityUuid uuid(const std::string_view value) {
             return EntityUuid::parse(value).value();
+        }
+
+        const ComponentRegistry& component_registry() {
+            static const ComponentRegistry registry =
+                create_scene_component_registry();
+            return registry;
+        }
+
+        SceneSerializer make_scene_serializer() {
+            return SceneSerializer(component_registry());
         }
 
         class TemporarySceneFile final {
@@ -61,10 +81,11 @@ namespace Comet::Tests {
             std::filesystem::path m_root;
         };
 
-        void expect_scene_error(const std::string_view contents,
+        void expect_scene_error(const SceneSerializer& serializer,
+                                const std::string_view contents,
                                 const std::string_view expected_detail) {
             try {
-                static_cast<void>(SceneSerializer{}.deserialize(
+                static_cast<void>(serializer.deserialize(
                     contents, "invalid.scene"));
                 FAIL() << "Expected scene deserialization to fail";
             } catch(const std::runtime_error& error) {
@@ -74,6 +95,12 @@ namespace Comet::Tests {
                     message.find(expected_detail), std::string::npos)
                     << message;
             }
+        }
+
+        void expect_scene_error(const std::string_view contents,
+                                const std::string_view expected_detail) {
+            const SceneSerializer serializer = make_scene_serializer();
+            expect_scene_error(serializer, contents, expected_detail);
         }
     }
 
@@ -105,7 +132,7 @@ namespace Comet::Tests {
         camera.far_clip = 2500.0f;
         ASSERT_TRUE(scene.set_parent(child, root));
 
-        const SceneSerializer serializer;
+        const SceneSerializer serializer = make_scene_serializer();
         const std::string contents = serializer.serialize(scene);
 
         EXPECT_NE(contents.find("version: 1"), std::string::npos);
@@ -166,7 +193,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(entity);
         entity.remove_component<TransformComponent>();
 
-        const SceneSerializer serializer;
+        const SceneSerializer serializer = make_scene_serializer();
         const std::string contents = serializer.serialize(scene);
         std::unique_ptr<Scene> loaded = serializer.deserialize(contents);
         Entity loaded_entity = loaded->find_entity(entity_uuid);
@@ -187,7 +214,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(scene.create_entity_with_uuid(later, "Later"));
         ASSERT_TRUE(scene.create_entity_with_uuid(earlier, "Earlier"));
 
-        const std::string contents = SceneSerializer{}.serialize(scene);
+        const std::string contents = make_scene_serializer().serialize(scene);
 
         EXPECT_LT(
             contents.find(earlier.to_string()),
@@ -200,7 +227,7 @@ namespace Comet::Tests {
         Scene scene;
         ASSERT_TRUE(scene.create_entity_with_uuid(entity_uuid, "Saved"));
         const TemporarySceneFile file;
-        const SceneSerializer serializer;
+        const SceneSerializer serializer = make_scene_serializer();
 
         serializer.save(scene, file.path());
         std::unique_ptr<Scene> loaded = serializer.load(file.path());
@@ -219,7 +246,7 @@ namespace Comet::Tests {
         ASSERT_FALSE(std::filesystem::exists(
             std::filesystem::path(path).parent_path()));
 
-        const SceneSerializer serializer;
+        const SceneSerializer serializer = make_scene_serializer();
         serializer.save(scene, path);
 
         EXPECT_TRUE(std::filesystem::is_regular_file(path));
@@ -308,7 +335,75 @@ entities:
         entity.get_component<TransformComponent>().translation.x =
             std::numeric_limits<float>::infinity();
         EXPECT_THROW(
-            static_cast<void>(SceneSerializer{}.serialize(scene)),
+            static_cast<void>(make_scene_serializer().serialize(scene)),
             std::runtime_error);
+    }
+
+    TEST(SceneSerializerTest, UsesDescriptorIdsAndSerializationFlags) {
+        ComponentRegistry registry = create_scene_component_registry();
+        ASSERT_TRUE(registry.register_component(
+            make_component_descriptor<DescriptorTestComponent>(
+                "descriptor_component",
+                "Descriptor Component",
+                {
+                    make_property_descriptor(
+                        "persisted_value",
+                        "Persisted Value",
+                        &DescriptorTestComponent::persisted),
+                    make_property_descriptor(
+                        "runtime_value",
+                        "Runtime Value",
+                        &DescriptorTestComponent::runtime_only,
+                        {.serializable = false})
+                })));
+        ASSERT_TRUE(registry.register_component(
+            make_component_descriptor<RuntimeOnlyTestComponent>(
+                "runtime_component",
+                "Runtime Component",
+                {
+                    make_property_descriptor(
+                        "enabled",
+                        "Enabled",
+                        &RuntimeOnlyTestComponent::enabled)
+                },
+                false)));
+
+        Scene scene;
+        const EntityUuid entity_uuid = uuid(
+            "00000000-0000-4000-8000-000000000050");
+        Entity entity = scene.create_entity_with_uuid(
+            entity_uuid, "Descriptor Driven");
+        auto& component = entity.add_component<DescriptorTestComponent>();
+        component.persisted = 42.0f;
+        component.runtime_only = 99.0f;
+        entity.add_component<RuntimeOnlyTestComponent>().enabled = false;
+
+        const SceneSerializer serializer(registry);
+        const std::string contents = serializer.serialize(scene);
+        EXPECT_NE(contents.find("descriptor_component:"), std::string::npos);
+        EXPECT_NE(contents.find("persisted_value: 42"), std::string::npos);
+        EXPECT_EQ(contents.find("runtime_value"), std::string::npos);
+        EXPECT_EQ(contents.find("runtime_component"), std::string::npos);
+
+        const std::unique_ptr<Scene> loaded = serializer.deserialize(contents);
+        const Entity loaded_entity = loaded->find_entity(entity_uuid);
+        ASSERT_TRUE(loaded_entity);
+        ASSERT_TRUE(loaded_entity.has_component<DescriptorTestComponent>());
+        const auto& loaded_component =
+            loaded_entity.get_component<DescriptorTestComponent>();
+        EXPECT_FLOAT_EQ(loaded_component.persisted, 42.0f);
+        EXPECT_FLOAT_EQ(loaded_component.runtime_only, 17.0f);
+        EXPECT_FALSE(loaded_entity.has_component<RuntimeOnlyTestComponent>());
+
+        expect_scene_error(serializer, R"(
+version: 1
+entities:
+  - uuid: 00000000-0000-4000-8000-000000000050
+    components:
+      name: Invalid
+      descriptor_component:
+        persisted_value: 42
+        runtime_value: 99
+)", "unknown field 'runtime_value'");
     }
 }

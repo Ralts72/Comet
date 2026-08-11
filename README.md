@@ -98,7 +98,8 @@ version 4 `EntityUuid`，作为跨保存/加载稳定的实体身份，并支持
 新父节点重新计算；增量 dirty 更新留到 TransformSystem 建立后实现。
 `ComponentRegistry` 使用显式 stable ID、pointer-to-member 访问器和属性标记描述 Transform、MeshRenderer 与 Camera；
 editor 的 `PropertyEditorRegistry` 按 Bool、Float、Vec3 和 AssetHandle 类型分发控件，Inspector 不再包含组件专用分支。
-`SceneSerializer` 使用带版本字段的 `.scene` YAML 保存 Name、Transform、MeshRenderer、Camera 和父 UUID 引用；
+editor 将同一个 `ComponentRegistry` 提供给 Inspector 和 `SceneSerializer`；serializer 按 stable ID、属性类型和
+`serializable` 标记读写带版本字段的 `.scene` YAML，同时显式管理 Name、Entity UUID 与父 UUID 引用；
 运行时 `EntityId`、EnTT handle 与派生世界矩阵不会落盘。实体按 UUID 排序，加载时会拒绝重复 UUID、悬空父引用、
 层级环、未知字段和不支持的版本；保存时会自动创建缺失的父目录。
 `SceneExtractor` 将可渲染实体和 Camera 复制为
