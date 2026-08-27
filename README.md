@@ -80,8 +80,8 @@ ctest --preset dev-debug
 ## 开发说明
 
 运行配置位于 `engine/assets/config/`：`common.yaml` 保存窗口、Vulkan 和渲染的共享设置，`profiles/` 下的配置按顺序覆盖
-共享层。运行入口在 `engine/src/runtime/runtime.h` 中通过局部 `ConfigLoader` 合并 YAML 并最终校验为纯数据 `Config`，
-再把各配置传入对应模块；yaml-cpp 只存在于加载器实现中，底层渲染资源不直接读取原始配置。
+共享层。运行时启动层根据目标的默认 profile 选择配置文件，`ConfigLoader` 只负责合并显式传入的 YAML 并最终校验为
+纯数据 `Config`，再由 `Application` 和 `Engine` 消费；yaml-cpp 只存在于加载器实现中，底层渲染资源不直接读取原始配置。
 
 `diagnostics` 配置域负责日志、Profiler 和 Vulkan Validation 的运行时策略。日志在所有构建中保留
 Info/Warn/Error/Fatal，Debug/Trace 只在 Debug 中编译，运行时再由 `diagnostics.log_level` 过滤。Profiler 代码只在

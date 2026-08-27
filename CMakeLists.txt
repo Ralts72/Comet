@@ -21,8 +21,12 @@ add_compile_definitions(
 )
 add_compile_definitions(
     PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}"
-    COMET_CONFIG_PROFILE="${COMET_CONFIG_PROFILE}"
 )
+
+if ((COMET_BUILD_APP OR COMET_BUILD_EDITOR) AND COMET_CONFIG_PROFILE STREQUAL "")
+    message(FATAL_ERROR
+        "COMET_CONFIG_PROFILE is required when building app or editor; use a CMake preset or set it explicitly")
+endif ()
 
 add_subdirectory(engine)
 

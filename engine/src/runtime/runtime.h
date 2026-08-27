@@ -1,21 +1,32 @@
 #pragma once
+
+#include "common/config.h"
 #include "common/config_loader.h"
 #include "common/diagnostics.h"
-#include "common/logger.h"
 #include "core/engine.h"
 
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
 namespace Comet {
+    struct LaunchOptions {
+        std::filesystem::path config_directory;
+        std::string config_profile;
+    };
+
     class Application {
     public:
         virtual ~Application() = default;
 
-        void start() {
-            // 1. 加载配置文件并统一解析运行配置
-            m_config = ConfigLoader{}.load();
-            m_diagnostics = std::make_unique<Diagnostics>(m_config.diagnostics);
+        void start(Config config) {
+            // 1. 根据入口提供的配置初始化运行期诊断
+            m_diagnostics = std::make_unique<Diagnostics>(config.diagnostics);
 
             // 2. 创建引擎
-            m_engine = std::make_unique<Engine>(m_config);
+            m_engine = std::make_unique<Engine>(std::move(config));
 
             // 3. 用户初始化代码
             on_init();
@@ -45,14 +56,20 @@ namespace Comet {
         virtual void on_shutdown() = 0;
 
     private:
-        Config m_config;
         std::unique_ptr<Diagnostics> m_diagnostics;
         std::unique_ptr<Engine> m_engine;
     };
 
-    inline void run(Application* app) {
-        app->start();
+    inline int run(Application* app, const LaunchOptions& options) {
+        const auto& config_directory = options.config_directory;
+        Config config = ConfigLoader{}.load(std::vector<std::string>{
+            (config_directory / "common.yaml").string(),
+            (config_directory / "profiles" / (options.config_profile + ".yaml")).string()
+        });
+
+        app->start(std::move(config));
         app->main_loop();
         app->end();
+        return 0;
     }
 }

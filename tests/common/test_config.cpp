@@ -15,8 +15,13 @@ using namespace Comet;
 
 namespace {
     template<typename T>
-    concept HasPublicLoad = requires(T loader) {
+    concept HasImplicitLoad = requires(T loader) {
         { loader.load() } -> std::same_as<Config>;
+    };
+
+    template<typename T>
+    concept HasExplicitLoad = requires(T loader, const std::string& path) {
+        { loader.load(path) } -> std::same_as<Config>;
     };
 
     class TemporaryConfigFile final {
@@ -44,13 +49,10 @@ namespace {
     };
 }
 
-TEST(ConfigInterfaceTest, SeparatesDataFromLoading) {
-    EXPECT_FALSE(HasPublicLoad<Config>);
-    EXPECT_TRUE(HasPublicLoad<ConfigLoader>);
-}
-
-TEST(ConfigTest, LoadsProjectConfiguration) {
-    EXPECT_NO_THROW(static_cast<void>(ConfigLoader{}.load()));
+TEST(ConfigInterfaceTest, RequiresExplicitConfigurationSources) {
+    EXPECT_FALSE(HasImplicitLoad<Config>);
+    EXPECT_FALSE(HasImplicitLoad<ConfigLoader>);
+    EXPECT_TRUE(HasExplicitLoad<ConfigLoader>);
 }
 
 TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {

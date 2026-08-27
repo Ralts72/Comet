@@ -19,4 +19,8 @@ set(SOURCES
 add_executable(editor ${SOURCES})
 target_link_libraries(editor PRIVATE engine imgui glfw)
 target_include_directories(editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_compile_definitions(editor PRIVATE COMET_EDITOR)
+target_compile_definitions(editor PRIVATE
+        COMET_EDITOR
+        COMET_CONFIG_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/assets/config"
+        COMET_DEFAULT_CONFIG_PROFILE="${COMET_CONFIG_PROFILE}"
+)

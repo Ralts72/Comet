@@ -37,15 +37,6 @@ namespace Comet {
             std::pair{"fifo_relaxed", PresentMode::FifoRelaxed}
         };
 
-        std::vector<std::string> get_default_config_paths() {
-            std::filesystem::path config_directory(std::string(PROJECT_ROOT_DIR));
-            config_directory /= "engine/assets/config";
-            return {
-                (config_directory / "common.yaml").string(),
-                (config_directory / "profiles" / (std::string(COMET_CONFIG_PROFILE) + ".yaml")).string()
-            };
-        }
-
         std::runtime_error config_error(const std::string& config_path,
                                         const std::string_view key,
                                         const std::string& detail) {
@@ -287,10 +278,6 @@ namespace Comet {
             config.render.max_anisotropy = read_value<float>(
                 root, "render.max_anisotropy", config.render.max_anisotropy, "a number", config_path);
         }
-    }
-
-    Config ConfigLoader::load() const {
-        return load(get_default_config_paths());
     }
 
     Config ConfigLoader::load(const std::string& config_path) const {
