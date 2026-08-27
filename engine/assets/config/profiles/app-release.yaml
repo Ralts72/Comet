@@ -1,0 +1,8 @@
+# Release 运行时诊断配置。
+diagnostics:
+  # 最低日志级别：info、warn、error、critical 或 off。
+  log_level: warn
+  # 将日志同时写入 PROJECT_ROOT_DIR/logs。
+  enable_file_logging: false
+  # 启用 Vulkan Validation Layer 和 Debug Utils Messenger。
+  enable_validation: false

@@ -20,7 +20,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 - VMA 已开始接入，`Device` 独占持有 `VulkanAllocator`，`Buffer` 和 `Image` 通过 allocator 管理显存资源。
 - 渲染层已有 `Renderer`、`RenderContext`、`SceneRenderer`、`FrameManager`、`RenderTarget`、`Mesh`、`Texture`、`Material`、`ResourceManager` 等雏形。
 - Shader 构建链路已经接入 CMake，通过 `glslangValidator` 将 GLSL 编译并生成头文件。
-- 编辑器已有 ImGui Docking 基础和几个典型面板：Hierarchy、Inspector、Project、SceneView、GameView、Log。
+- 编辑器已有 ImGui Docking 基础和几个典型面板：Hierarchy、Inspector、Project、Viewport、Log。
 - 测试基础已经存在，覆盖数学、配置、导出、日志、GLFW 初始化、Vulkan RAII 拥有关系和 Scene/ECS 基础行为。
 - EnTT 已经作为依赖接入，`Scene`、`Entity` 以及 ID、名称、局部 Transform、MeshRenderer、Camera 等基础组件已经落地。
 - Scene/ECS MVP 内核已覆盖实体创建、删除、查询、遍历和通用组件增删查。
@@ -28,8 +28,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 ### 当前主要形态
 
 目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但 Scene/ECS 已经接入最小运行时渲染链路、
-编辑器基础数据闭环和场景持久化，New/Open/Save 也已经接入编辑器。当前主要矛盾已经转变为：Edit Scene 与
-Runtime Scene 尚未分离，资产数据库尚未建立，渲染接口仍偏 demo 化。
+编辑器基础数据闭环和场景持久化，New/Open/Save 与最小 Play/Edit 隔离也已经接入编辑器。当前主要矛盾已经转变为：
+资产数据库尚未建立，渲染接口仍偏 demo 化，运行时 System 调度也还没有形成。
 
 最明显的信号是：
 
@@ -40,9 +40,11 @@ Runtime Scene 尚未分离，资产数据库尚未建立，渲染接口仍偏 de
   带版本字段的 `.scene` YAML；Inspector 与 `SceneSerializer` 已复用同一份组件/属性描述元数据。
 - `MeshRendererComponent` 已使用统一的 `AssetHandle`，app 会注册 demo mesh/material，并通过该链路绘制两个不同 Transform 的实体。
 - Hierarchy 和 Inspector 已绑定真实 Scene，支持基于 `EntityId` 的选择以及实体创建、删除、重命名；Inspector 通过
-  显式组件/属性描述符编辑 Transform、MeshRenderer 和 Camera，Project、SceneView 拾取和 gizmo 仍是占位状态。
-- 编辑器中的场景已按 frame slot 渲染到可采样离屏目标，再由 ImGui 显示在 SceneView/GameView 中；runtime app
-  仍直接渲染到 swapchain。两个 View 当前共享场景主 Camera 输出，独立 editor camera 尚未实现。
+  显式组件/属性描述符编辑 Transform、MeshRenderer 和 Camera，Project、Viewport 拾取和 gizmo 仍是占位状态。
+- 编辑器中的场景已按 frame slot 渲染到可采样离屏目标，再由 ImGui 显示在单一 Viewport 中；runtime app
+  仍直接渲染到 swapchain。Viewport 在 Edit/Play 间切换活动 Scene 和工具状态，独立 editor camera 尚未实现。
+- Play 会从 Edit Scene 创建独立 Runtime Scene，Stop 后丢弃运行时修改并恢复原 Scene；暂停、单帧步进和真正的
+  runtime System 更新仍未实现。
 - Material/ResourceManager 已有接口，但还没有资产数据库、资产序列化、导入器、热重载和编辑器检查器闭环。
 - Scene Update 和 Render Submit 的最小边界已经落地，运行时 System 调度仍未建立。
 
@@ -61,7 +63,7 @@ Scene/ECS MVP 内核已经完成：
 接下来仍缺少：
 
 - 运行时 System 调度。
-- SceneView 拾取、gizmo 与现有 Editor Selection 的稳定连接。
+- Viewport 拾取、gizmo 与现有 Editor Selection 的稳定连接。
 
 Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环，Comet 才真正跨过从 demo 渲染器到游戏引擎的第一道门。
 
@@ -99,8 +101,8 @@ Inspector，组件描述符驱动 Transform、MeshRenderer 和 Camera 属性编�
 接下来仍缺少：
 
 - Project 读取真实项目资产。
-- SceneView 使用 editor camera、选择、高亮、gizmo、拾取。
-- SceneView/GameView 使用独立输出，并在 resize 后保持交互坐标与画面一致。
+- Viewport 在 Edit 时使用 editor camera、选择、高亮、gizmo 和拾取，在 Play 时使用场景 primary camera 与游戏输入。
+- Viewport 在 resize 后保持交互坐标、渲染分辨率与显示区域一致。
 - Add Component、Remove Component 和组件搜索菜单。
 - Undo/Redo、复制粘贴、duplicate 和拖拽资源到实体。
 
@@ -122,15 +124,33 @@ Inspector，组件描述符驱动 Transform、MeshRenderer 和 Camera 属性编�
 
 ### 6. 运行时系统与游戏循环
 
-当前 `Application` 和 `Engine` 有基础生命周期，但成熟引擎需要更清晰的运行时系统。缺少：
+当前 `Application` 和 `Engine` 有基础生命周期，编辑器也已能通过 Scene 克隆完成最小 Play/Edit 隔离，但成熟引擎仍缺少：
 
 - System 调度，例如 TransformSystem、RenderSystem、CameraSystem。
-- Play/Edit 模式切换。
 - Fixed Update 与普通 Update 分离。
 - 输入系统。
 - 时间缩放、暂停、单帧步进。
-- Runtime Scene 克隆，避免编辑模式数据被运行时直接污染。
 - 应用层访问场景和资源的稳定 API。
+
+模式与运行状态应保持两条正交的状态轴：
+
+```cpp
+enum class EditorMode {
+    Edit,
+    Play
+};
+
+enum class RuntimeState {
+    Running,
+    Paused
+};
+```
+
+`EditorMode` 只属于 editor：它决定当前使用 Edit Scene 还是克隆的 Runtime Scene，以及是否开放场景编辑工具。
+runtime app 不需要理解 `EditorMode`，它启动后直接进入运行时生命周期。`RuntimeState` 属于可复用的运行时调度层：
+editor 只在 Play 时使用它控制游戏 System 是否继续推进，runtime app 也可在需要游戏内暂停时复用同一语义。
+Paused 时应停止 gameplay update/fixed update，但保持编辑器 UI、场景检查和画面渲染；单帧步进是对 Paused 状态的一次调度命令，
+不需要再增加一个持久枚举值。不应增加 `EditorMode::Paused`，否则 Scene 所有权状态与运行时时钟状态会被耦合。
 
 ### 7. 脚本能力
 
@@ -179,11 +199,11 @@ Inspector，组件描述符驱动 Transform、MeshRenderer 和 Camera 属性编�
 
 ### 资源引用分层
 
-| 概念 | 职责 | 引入阶段 |
-| --- | --- | --- |
-| `AssetHandle` | 代码层使用的轻量、不透明、可比较和可序列化的资源引用 | 阶段 1B |
-| Asset GUID/元数据 | 保证资产跨重启、改名和移动后的持久身份，并记录类型、路径和导入设置 | 阶段 2 定义持久化契约，阶段 3 完整实现 |
-| Runtime/GPU Resource | `Mesh`、`Texture`、`Material`、`Buffer` 等已加载对象，只存在于资源缓存和渲染层 | 阶段 1B 起按需解析，永不写入 Scene |
+| 概念                 | 职责                                                                           | 引入阶段                               |
+| -------------------- | ------------------------------------------------------------------------------ | -------------------------------------- |
+| `AssetHandle`        | 代码层使用的轻量、不透明、可比较和可序列化的资源引用                           | 阶段 1B                                |
+| Asset GUID/元数据    | 保证资产跨重启、改名和移动后的持久身份，并记录类型、路径和导入设置             | 阶段 2 定义持久化契约，阶段 3 完整实现 |
+| Runtime/GPU Resource | `Mesh`、`Texture`、`Material`、`Buffer` 等已加载对象，只存在于资源缓存和渲染层 | 阶段 1B 起按需解析，永不写入 Scene     |
 
 `AssetHandle` 是引擎 API 使用的包装类型，其底层值可以由持久化 GUID/UUID 提供。阶段 1B 只实现最小 Handle 和内存注册表，允许 demo 资源手动注册；资产扫描、`.meta`、导入器、依赖追踪和热重载仍留在阶段 3。
 
@@ -205,10 +225,10 @@ Inspector，组件描述符驱动 Transform、MeshRenderer 和 Camera 属性编�
 
 目标线程职责：
 
-| 线程 | 主要职责 | 禁止直接执行 |
-| --- | --- | --- |
-| Main/Update | GLFW 事件、ImGui 构建、Scene/EnTT 修改、脚本和 editor command | 并发修改 GPU runtime cache |
-| Worker pool | 文件 I/O、解码、导入、Shader 编译和纯 CPU 数据处理 | 修改 Scene、访问 ImGui、提交 Vulkan Queue |
+| 线程         | 主要职责                                                                          | 禁止直接执行                                |
+| ------------ | --------------------------------------------------------------------------------- | ------------------------------------------- |
+| Main/Update  | GLFW 事件、ImGui 构建、Scene/EnTT 修改、脚本和 editor command                     | 并发修改 GPU runtime cache                  |
+| Worker pool  | 文件 I/O、解码、导入、Shader 编译和纯 CPU 数据处理                                | 修改 Scene、访问 ImGui、提交 Vulkan Queue   |
 | RenderThread | 消费只读 frame packet、管理 GPU runtime cache、录制命令、submit/present、延迟销毁 | 读取可变 EnTT registry 或 editor panel 状态 |
 
 基本规则：
@@ -664,12 +684,12 @@ MeshRendererComponent
 
 Descriptor set 按更新频率拆分：
 
-| Set/通道 | 资源 | 更新频率 |
-| --- | --- | --- |
-| set 0: Frame | view/projection、light、shadow | 每个 frame slot |
-| set 1: Material | texture、sampler、稳定 material constants | material revision 变化时创建替代版本 |
-| set 2: Object/Instance | skinning、instance buffer（未来） | 每对象或批次 |
-| push constant | model matrix、object ID | 每次 draw |
+| Set/通道               | 资源                                      | 更新频率                             |
+| ---------------------- | ----------------------------------------- | ------------------------------------ |
+| set 0: Frame           | view/projection、light、shadow            | 每个 frame slot                      |
+| set 1: Material        | texture、sampler、稳定 material constants | material revision 变化时创建替代版本 |
+| set 2: Object/Instance | skinning、instance buffer（未来）         | 每对象或批次                         |
+| push constant          | model matrix、object ID                   | 每次 draw                            |
 
 `Material` 和 `MaterialLayout` 需要 revision/generation。`MaterialRuntimeCache` 以 material handle、material revision、
 layout/pipeline ID 作为稳定缓存维度，只在材质或 layout 变化时重新解析参数。稳定的纹理/sampler descriptor set
@@ -722,10 +742,10 @@ Comet 当前已经创建 `vk::PipelineCache`，并在 `createGraphicsPipeline()`
 
 这两层 cache 必须分开设计：
 
-| 层次 | 职责 | Key/兼容依据 |
-| --- | --- | --- |
+| 层次                 | 职责                                                                       | Key/兼容依据                                       |
+| -------------------- | -------------------------------------------------------------------------- | -------------------------------------------------- |
 | Engine `PipelineKey` | 判断当前进程中两个 pipeline description 是否等价，复用 `vk::Pipeline` 对象 | Shader/layout/render state/render-target signature |
-| Vulkan cache blob | 帮助驱动跨 pipeline 创建或跨进程复用内部编译结果 | `VkPipelineCacheHeaderVersionOne` 与设备/驱动标识 |
+| Vulkan cache blob    | 帮助驱动跨 pipeline 创建或跨进程复用内部编译结果                           | `VkPipelineCacheHeaderVersionOne` 与设备/驱动标识  |
 
 #### Engine PipelineKey
 
@@ -846,7 +866,7 @@ compile burst 后或正常 shutdown
 #### 阶段 1C：编辑器基础数据闭环（已完成）
 
 - [x] Hierarchy 从真实 Scene 读取实体，先支持平铺列表，不提前实现伪层级。
-- [x] 建立 Selection 服务，只保存并按需解析 `EntityId`，连接 Hierarchy 和 Inspector，并为后续 SceneView 复用。
+- [x] 建立 Selection 服务，只保存并按需解析 `EntityId`，连接 Hierarchy 和 Inspector，并为后续 Viewport 拾取复用。
 - [x] Inspector 直接读写 Name 与 Transform，并让修改进入下一帧的场景提取和渲染结果。
 - [x] 支持创建、删除和重命名实体的最小编辑流程。
 - [x] 实体删除或无效 ID 会自动清空 Selection，并有纯逻辑单元测试保护。
@@ -857,7 +877,7 @@ compile burst 后或正常 shutdown
 - [x] 为 frame slot 提供独立的离屏资源，避免多个 frames-in-flight 同时读写同一张 viewport image。
 - [x] 离屏颜色附件结束时进入 `ShaderReadOnlyOptimal`，并通过 ImGui Vulkan descriptor 注册为 `ImTextureID`。
 - [x] `ViewPanel` 提供实际内容尺寸，Renderer 使用稳定尺寸按需重建离屏目标，并处理零尺寸和折叠状态。
-- [x] SceneView 和 GameView 复用离屏提交基础；GameView 使用场景主 Camera，独立 editor camera 留到阶段 4。
+- [x] 单一 Viewport 复用离屏提交基础；Edit/Play 当前都使用活动 Scene 的主 Camera，独立 editor camera 留到阶段 4。
 - [x] 调整 ImGui swapchain render pass，使其负责清理编辑器背景和合成 UI，不再依赖先在 swapchain 上绘制场景。
 - [x] 保持 runtime app 直接渲染到 swapchain 的路径不变。
 
@@ -892,8 +912,8 @@ compile burst 后或正常 shutdown
 
 目标：用户能在编辑器里创建、编辑、保存、加载一个简单场景。
 
-当前状态：持久化 Entity UUID、开发期 `.scene` YAML、编辑器 New/Open/Save、descriptor 驱动的基础组件 Inspector，
-以及 descriptor 驱动的场景组件序列化均已完成；下一步实现最小 Play/Edit 切换并隔离编辑态与运行态 Scene。
+当前状态：持久化 Entity UUID、开发期 `.scene` YAML、编辑器 New/Open/Save、descriptor 驱动的基础组件 Inspector、
+descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成；下一步进入阶段 3 的 Asset Database MVP。
 
 建议任务：
 
@@ -909,17 +929,19 @@ compile burst 后或正常 shutdown
 - [x] 先为 Transform、MeshRenderer 和 Camera 显式注册元数据，Inspector 通过 descriptor 生成控件，不再为每个字段
   硬编码面板逻辑。
 - [x] 场景序列化复用同一份属性元数据，由 stable ID、类型访问器和 `serializable` 标记定义当前活动格式。
-- [ ] 实现 Play/Edit 模式的最小切换。
+- [x] 实现 Play/Edit 模式的最小切换；进入 Play 时通过内存序列化复制 Edit Scene，退出时丢弃 Runtime Scene 并恢复
+  原 Edit Scene，切换时重绑定 Hierarchy/Selection，Play 期间禁用场景文件操作。
 - [x] 为稳定排序、组件与层级往返、文件读写、重复 UUID、悬空父引用、层级环和格式错误补充单元测试。
 
 验收标准：
 
 - 在编辑器中新建场景，创建 cube/camera，保存后重启可以恢复。
-- Inspector 修改 Transform 后，SceneView 立即反映。
+- Inspector 修改 Transform 后，Viewport 立即反映。
 - Inspector 可以通过通用 descriptor 编辑 Transform、MeshRenderer 和 Camera，新增已支持类型的字段时不需新增专用面板分支。
 - Scene 文件可读、可 diff、可手动排查。
 - Scene 保存和加载后，mesh/material 的 `AssetHandle` 保持不变。
 - 场景序列化有单元测试。
+- Play 中修改 Runtime Scene 后退出，Edit Scene 保持原值。
 
 ### 阶段 3：资产数据库与项目系统
 
@@ -1024,31 +1046,32 @@ Scene Component / RenderItem
 
 当前基线：
 
-- SceneView 和 GameView 共享同一组按 frame slot 分配的离屏纹理、同一个场景主 Camera 输出和同一个渲染尺寸。
-- 两个 View 接收相同的 `ImTextureID`；同时可见时由 SceneView 优先决定离屏目标尺寸，另一个面板只按宽高比显示同一张纹理。
+- editor 只有一个 ViewportPanel 和一组按 frame slot 分配的离屏纹理，面板尺寸直接驱动同一个 RenderTarget。
+- Edit 使用 Edit Scene 并显示 2D/3D 编辑工具；Play 使用 Runtime Scene 并隐藏编辑工具，两种模式当前都使用活动 Scene 的主 Camera。
+- 2D/3D 是单个 Edit Viewport 的观察和交互方式，不是两个独立 Viewport；当前按钮只保存 UI 状态，尚未真正切换 editor camera 投影和操作逻辑。
 - resize 会等待尺寸连续稳定，再通过 `Device::wait_idle()` 重建离屏 image、image view 和 framebuffer。
 - Camera 垂直 FOV 与实体 Transform 不变，RenderTarget 尺寸只改变 projection aspect；ImGui 再把纹理等比放入面板。
 - ImGui 逻辑尺寸目前直接作为 RenderTarget 像素尺寸，尚未纳入 HiDPI framebuffer scale。
 
-#### 阶段 4A：SceneView/GameView 独立渲染状态
+#### 阶段 4A：单 Viewport 的模式化 Camera 与输入
 
-- 为每个 View 建立独立的 viewport render state，分别保存 Camera 来源、RenderTarget、frame-slot image 和 ImGui descriptor。
-- SceneView 使用 editor-only camera；该 Camera 不属于 Scene entity，不参与场景保存，也不影响 runtime 主 Camera。
-- GameView 继续使用场景中的 primary Camera，并在没有有效主 Camera 时只清屏和显示诊断。
-- 两个 View 可以按各自尺寸独立渲染；隐藏或折叠的 View 跳过提交和 resize。
-- 将当前只记录枚举值的 `RenderMode` 演进为明确的 viewport render request，避免在 `SceneRenderer` 内隐式切换全局模式。
+- 建立明确的 viewport render request，保存 EditorMode、Camera 来源、RenderTarget 尺寸和输入策略，不把 UI 模式塞入 `SceneRenderer`。
+- Edit 使用 editor-only camera；该 Camera 不属于 Scene entity，不参与场景保存，也不影响 runtime 主 Camera。
+- Play 使用 Runtime Scene 中的 primary Camera，并在没有有效主 Camera 时只清屏和显示诊断。
+- Viewport 隐藏或折叠时跳过 resize；输入焦点只在 Play 且画面区域获得焦点时转发给游戏。
+- 只有出现 Play 中脱离游戏相机调试 Runtime Scene 的真实需求后，再增加 Eject/Debug Camera，不提前维护第二套 Viewport。
 
 验收标准：
 
-- SceneView 和 GameView 同时可见时可以显示不同 Camera 角度，且互不改变对方的投影和尺寸。
-- 移动 editor camera 不会修改 Scene，也不会改变 GameView。
-- 每个可见 View 在两个 frames-in-flight 下都不会读写仍在使用的离屏附件。
+- 进入 Play 时同一 Viewport 切换到 Runtime Scene primary Camera，Stop 后恢复 Edit Scene 和 editor camera。
+- 移动 editor camera 不会修改 Scene，Play 中的 Camera 和运行时修改也不会污染 Edit Scene。
+- 两个 frames-in-flight 下不会读写仍在使用的离屏附件。
 
 #### 阶段 4B：渲染分辨率与显示策略
 
 - 明确区分 panel content size、render resolution 和 image display rect，不再把三者视为同一尺寸。
-- SceneView 默认按面板物理像素尺寸渲染，并结合 ImGui framebuffer scale 处理 Retina/HiDPI。
-- GameView 支持固定分辨率和宽高比预设，例如 Free、16:9、1920x1080；面板 resize 默认只改变显示缩放，不改变固定 render resolution。
+- Edit 模式默认按面板物理像素尺寸渲染，并结合 ImGui framebuffer scale 处理 Retina/HiDPI。
+- Play 模式支持固定分辨率和宽高比预设，例如 Free、16:9、1920x1080；面板 resize 默认只改变显示缩放，不改变固定 render resolution。
 - 提供 Fit、1x 等显示倍率，保持宽高比并记录 letterbox/pillarbox 后的真实 image display rect。
 - 保留 resize debounce，但用 frame fence 和延迟销毁逐步替代 `Device::wait_idle()`，避免拖拽面板时阻塞整个 GPU。
 - resize 创建新的 `RenderTargetGeneration`，成功后切换 viewport 引用，并按最后使用它的 frame submission 延迟释放
@@ -1061,8 +1084,8 @@ Scene Component / RenderItem
 
 验收标准：
 
-- SceneView 在不同 DPI 和窗口缩放下保持清晰，RenderTarget 像素尺寸与实际显示需求一致。
-- GameView 切换固定分辨率时 Camera aspect、输出纹理和留白区域正确，场景对象不会被非等比拉伸。
+- Viewport 在不同 DPI 和窗口缩放下保持清晰，RenderTarget 像素尺寸与实际显示需求一致。
+- Play 模式切换固定分辨率时 Camera aspect、输出纹理和留白区域正确，场景对象不会被非等比拉伸。
 - 连续拖拽面板不会每帧重建资源，也不会依赖全局 Device idle。
 - 新 swapchain handle 创建失败不会覆盖或提前销毁 current generation；创建成功后不会尝试从已 retired 的 old
   swapchain acquire。重建后 image count、format-dependent RenderPass/Pipeline、FrameManager image state 和 ImGui
@@ -1071,7 +1094,9 @@ Scene Component / RenderItem
 #### 阶段 4C：视口交互闭环
 
 - 基于 image display rect 将鼠标坐标映射到 RenderTarget 像素坐标，排除工具栏和 letterbox 区域。
-- SceneView 实现 editor camera 的平移、环绕、缩放，以及真正生效的 2D/3D 模式。
+- Viewport 在 Edit 模式实现 editor camera 的平移、环绕、缩放，以及真正生效的 2D/3D 观察模式。
+- 默认保持一个 Viewport 并在内部切换 2D/3D，共享同一组 RenderTarget、拾取和 gizmo 上下文。只有当多视图同时对照成为明确工作流时，
+  才增加可停靠的多 Viewport；每个同时可见视口应拥有独立 Camera、尺寸、frame-slot RenderTarget 和渲染提交，隐藏时必须跳过渲染。
 - 实现对象拾取、Selection 同步、移动/旋转/缩放 gizmo 和选中对象高亮。
 - 如果对象拾取采用 GPU ID buffer，按请求或 FrameSlot 持有 host-visible readback buffer；copy 完成并确认
   fence/timeline 后再 invalidate/read。若采用 CPU ray cast，则不为了预留能力提前建立通用 readback 系统。
@@ -1080,9 +1105,9 @@ Scene Component / RenderItem
 
 验收标准：
 
-- 用户可以通过鼠标在 SceneView 精确选择对象，点击留白区域不会产生错误拾取。
+- 用户可以通过鼠标在 Edit 模式 Viewport 精确选择对象，点击留白区域不会产生错误拾取。
 - 用户可以用 gizmo 修改对象并保存场景，Transform 修改可撤销和重做。
-- SceneView 的拾取坐标、gizmo 和高亮在面板 resize、DPI 变化和显示倍率切换后仍与画面一致。
+- Viewport 的拾取坐标、gizmo 和高亮在面板 resize、DPI 变化和显示倍率切换后仍与画面一致。
 
 ### 阶段 5：渲染系统升级
 
@@ -1240,7 +1265,7 @@ Scene Component / RenderItem
 3. [x] 接通 New/Open/Save Scene 和 Selection 生命周期。
 4. [x] 预留场景版本字段并严格校验当前格式；schema 冻结和迁移器推迟到项目格式稳定后。
 5. [x] 为序列化往返、无效引用和加载失败补充测试。
-6. 实现最小 Play/Edit 切换，运行时修改不污染编辑态 Scene。
+6. [x] 实现最小 Play/Edit 切换，运行时修改不污染编辑态 Scene。
 
 暂时不要急着做：
 
@@ -1251,8 +1276,8 @@ Scene Component / RenderItem
 5. 大规模材质图/节点编辑器。
 6. 在 Scene/资源生命周期尚未稳定前提前拆独立 RenderThread 或并行 command recording。
 
-原因很简单：Scene、编辑器和持久化的第一段纵向链路已经闭环。现在先用 Play/Edit 验证 Scene 的复制与运行时生命周期，
-再进入 Asset Database，能避免后续运行态资源和编辑态数据继续混在一起。
+Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一段纵向闭环。下一步进入 Asset Database，先稳定项目资产身份、
+路径和导入产物边界，再扩展材质编辑、资源拖拽、热重载和 streaming。
 
 ## 12 个月建议里程碑
 
@@ -1274,7 +1299,7 @@ Scene Component / RenderItem
 - 完成 `.scene` 保存/加载。
 - 完成 New/Open/Save Scene。
 - Inspector 支持 MeshRenderer 和 Camera。
-- SceneView/GameView 区分 editor camera 和 game camera。
+- 单一 Viewport 按 Edit/Play 切换 editor camera 和 game camera。
 
 ### 第 5-6 个月
 
@@ -1324,30 +1349,30 @@ Scene Component / RenderItem
 
 ## 成熟度评估表
 
-| 能力域 | 当前成熟度 | 目标成熟度 | 优先级 |
-| --- | --- | --- | --- |
-| CMake/工程结构 | 中 | 高 | 中 |
-| Vulkan 基础封装 | 中 | 高 | 中 |
-| 内存管理/VMA | 中低 | 高 | 中 |
-| 渲染管线 | 低中 | 高 | 高 |
-| 任务系统/多线程 | 无 | 中高 | 中 |
-| Scene/ECS | 低中 | 高 | 最高 |
-| 序列化 | 低 | 高 | 最高 |
-| Asset Database | 低 | 高 | 高 |
-| Editor UI | 低中 | 高 | 高 |
-| Editor 数据闭环 | 低中 | 高 | 最高 |
-| 脚本 | 无 | 中 | 中 |
-| 输入 | 无 | 中 | 中 |
-| 物理 | 无 | 中 | 中低 |
-| 音频 | 无 | 中 | 中低 |
-| 动画 | 无 | 中 | 低 |
-| 打包发布 | 无 | 中 | 低 |
-| 测试/CI | 中低 | 高 | 中 |
+| 能力域          | 当前成熟度 | 目标成熟度 | 优先级 |
+| --------------- | ---------- | ---------- | ------ |
+| CMake/工程结构  | 中         | 高         | 中     |
+| Vulkan 基础封装 | 中         | 高         | 中     |
+| 内存管理/VMA    | 中低       | 高         | 中     |
+| 渲染管线        | 低中       | 高         | 高     |
+| 任务系统/多线程 | 无         | 中高       | 中     |
+| Scene/ECS       | 低中       | 高         | 最高   |
+| 序列化          | 低         | 高         | 最高   |
+| Asset Database  | 低         | 高         | 高     |
+| Editor UI       | 低中       | 高         | 高     |
+| Editor 数据闭环 | 低中       | 高         | 最高   |
+| 脚本            | 无         | 中         | 中     |
+| 输入            | 无         | 中         | 中     |
+| 物理            | 无         | 中         | 中低   |
+| 音频            | 无         | 中         | 中低   |
+| 动画            | 无         | 中         | 低     |
+| 打包发布        | 无         | 中         | 低     |
+| 测试/CI         | 中低       | 高         | 中     |
 
 ## 下一步建议
 
-下一步收尾 **阶段 2：场景序列化与编辑器闭环**。`SceneSerializer` 已复用 descriptor 的 stable ID、类型访问器与
-`serializable` 标记；开发期格式暂不承担向后兼容和迁移成本，接下来实现最小 Play/Edit 切换。
+下一步进入 **阶段 3：资产数据库与项目系统**。阶段 2 已完成 Scene 编辑、持久化和最小 Play/Edit 生命周期；现在需要让
+`.scene` 中的 `AssetHandle` 从手工注册值升级为由项目资产身份稳定派生和解析的引用。
 
 建议的职责边界：
 
@@ -1357,7 +1382,7 @@ Scene Component / RenderItem
 - Asset Registry 保存 `AssetHandle` 到运行时资源的映射，ResourceManager 创建或复用运行时/GPU资源。
 - SceneResolver 选择 EntityId 最小的主 Camera、验证参数并将 RenderScene 解析为完整 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
 
-阶段 2 的第一批最小范围：
+阶段 2 完成情况：
 
 1. [x] 为实体增加可持久化 UUID，运行时 `EntityId` 继续用于快速查询和编辑器 Selection。
 2. [x] 定义 UUID 的生成、解析、格式化、比较、哈希和无效值语义，并拒绝无效或重复 UUID。
@@ -1367,4 +1392,11 @@ Scene Component / RenderItem
 6. [x] 接入编辑器 New/Open/Save，并在替换 Scene 后清理失效 Selection。
 7. [x] 建立组件/属性描述元数据，并让 Inspector 通过描述生成基础组件编辑控件。
 8. [x] 让场景序列化复用属性描述元数据，由 descriptor 定义当前开发格式。
-9. [ ] 实现最小 Play/Edit 切换：进入 Play 时复制 Edit Scene，退出时丢弃 Runtime Scene，并清理失效 Selection。
+9. [x] 实现最小 Play/Edit 切换：进入 Play 时复制 Edit Scene，退出时丢弃 Runtime Scene，并清理失效 Selection。
+
+阶段 3 的第一批最小范围：
+
+1. 定义 `Assets/`、`Library/` 和 `ProjectSettings/` 的目录职责，以及源资产、`.meta` 和导入产物的边界。
+2. 定义持久化 Asset GUID 与代码层 `AssetHandle` 的映射规则，禁止把源文件路径直接写入 Scene。
+3. 实现只负责扫描、索引和查询的 Asset Database Core，并用临时项目目录完成纯逻辑测试。
+4. 先接入 Texture 和 Material 两类资产，再让 Project 面板读取真实索引；Importer、缩略图和文件监听在索引契约稳定后增加。

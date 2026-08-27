@@ -2,6 +2,7 @@
 
 #include "export.h"
 
+#include <atomic>
 #include <chrono>
 #include <mutex>
 #include <string>
@@ -16,7 +17,13 @@ namespace Comet {
 
     class COMET_API Profiler {
     public:
-        static void begin_sample(const char* label);
+        static void set_enabled(bool enabled) noexcept;
+
+        [[nodiscard]] static bool is_enabled() noexcept;
+
+        [[nodiscard]] static bool is_available() noexcept;
+
+        [[nodiscard]] static bool begin_sample(const char* label);
 
         static void end_sample();
 
@@ -33,6 +40,7 @@ namespace Comet {
         };
 
         static thread_local std::vector<ActiveBlock> s_thread_stack;
+        static std::atomic_bool s_enabled;
         static std::mutex s_mtx;
         static std::unordered_map<std::string, ProfileRecord> s_records;
 
@@ -44,10 +52,13 @@ namespace Comet {
         explicit ScopedSample(const char* label);
 
         ~ScopedSample();
+
+    private:
+        bool m_active = false;
     };
 }
 
-#ifdef ENABLE_PROFILER
+#ifdef COMET_ENABLE_PROFILER
 #define PROFILE_SCOPE(name) Comet::ScopedSample __scope_##__LINE__(name)
 #define PROFILE_RESULTS() Comet::Profiler::dump_results()
 #else

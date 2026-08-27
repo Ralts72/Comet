@@ -15,6 +15,11 @@ namespace Comet {
             std::string level = "trace";
         };
 
+        struct Diagnostics {
+            Log log;
+            bool enable_profiler = false;
+        };
+
         struct Window {
             int width = 1280;
             int height = 720;
@@ -30,11 +35,7 @@ namespace Comet {
             PresentMode present_mode = PresentMode::Immediate;
             std::uint32_t swapchain_image_count = 3;
             SampleCount msaa_samples = SampleCount::Count4;
-#ifdef BUILD_TYPE_DEBUG
-            bool enable_validation = true;
-#else
             bool enable_validation = false;
-#endif
         };
 
         struct Render {
@@ -44,7 +45,7 @@ namespace Comet {
             float max_anisotropy = 1.0f;
         };
 
-        Log log;
+        Diagnostics diagnostics;
         Window window;
         Vulkan vulkan;
         Render render;

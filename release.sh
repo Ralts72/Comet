@@ -1,26 +1,18 @@
 #!/bin/bash
 set -euo pipefail
 
-if command -v ninja &> /dev/null; then
-    GENERATOR="Ninja"
-else
-    GENERATOR="Unix Makefiles"
-fi
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
 
-BUILD_DIR="build-release"
+echo "配置 app-release（Release）..."
+cmake --preset app-release
+cmake --build --preset app-release --parallel
 
-echo "构建Release版本..."
-cmake -S . -B "$BUILD_DIR" -G "$GENERATOR" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCOMET_BUILD_APP=ON \
-    -DCOMET_BUILD_EDITOR=OFF \
-    -DCOMET_BUILD_TESTS=OFF
-cmake --build "$BUILD_DIR" --parallel
-
-EXEC="$BUILD_DIR/app/app"
+EXEC="$ROOT_DIR/build-release/app/app"
 if [ -x "$EXEC" ]; then
-    echo "运行Release版本: $EXEC"
+    echo "运行 Release App: $EXEC"
     "$EXEC"
 else
-    echo "Release executable not found: $EXEC"
+    echo "Release App executable not found: $EXEC"
+    exit 1
 fi

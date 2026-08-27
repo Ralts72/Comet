@@ -37,10 +37,13 @@ namespace Comet {
             std::pair{"fifo_relaxed", PresentMode::FifoRelaxed}
         };
 
-        std::string get_default_config_path() {
-            std::filesystem::path config_path(std::string(PROJECT_ROOT_DIR));
-            config_path /= "engine/assets/config.yaml";
-            return config_path.string();
+        std::vector<std::string> get_default_config_paths() {
+            std::filesystem::path config_directory(std::string(PROJECT_ROOT_DIR));
+            config_directory /= "engine/assets/config";
+            return {
+                (config_directory / "common.yaml").string(),
+                (config_directory / "profiles" / (std::string(COMET_CONFIG_PROFILE) + ".yaml")).string()
+            };
         }
 
         std::runtime_error config_error(const std::string& config_path,
@@ -115,7 +118,7 @@ namespace Comet {
                 return default_value;
             }
 
-            const std::string name = read_value<std::string>(
+            const auto name = read_value<std::string>(
                 root, key, {}, "a string", config_path);
             for(const auto& [candidate, value]: values) {
                 if(name == candidate) {
@@ -201,75 +204,115 @@ namespace Comet {
                     config_path, "render.max_anisotropy", "must be a finite number of at least 1.0");
             }
         }
+
+        void merge_config_file(Config& config, const std::string& config_path) {
+            if(!std::filesystem::exists(config_path)) {
+                throw std::runtime_error("Config file not found: " + config_path);
+            }
+
+            YAML::Node root;
+            try {
+                root = YAML::LoadFile(config_path);
+            } catch(const YAML::Exception& error) {
+                throw std::runtime_error(
+                    "Failed to load config '" + config_path + "': " + std::string(error.what()));
+            }
+
+            if(root.IsDefined() && !root.IsNull() && !root.IsMap()) {
+                throw config_error(config_path, "<root>", "expected a mapping");
+            }
+
+            config.diagnostics.log.enable_file_logging = read_value<bool>(
+                root,
+                "diagnostics.enable_file_logging",
+                config.diagnostics.log.enable_file_logging,
+                "a boolean",
+                config_path);
+            config.diagnostics.log.level = read_value<std::string>(
+                root,
+                "diagnostics.log_level",
+                config.diagnostics.log.level,
+                "a string",
+                config_path);
+            config.diagnostics.enable_profiler = read_value<bool>(
+                root,
+                "diagnostics.enable_profiler",
+                config.diagnostics.enable_profiler,
+                "a boolean",
+                config_path);
+
+            config.window.width = read_value<int>(
+                root, "window.width", config.window.width, "an integer", config_path);
+            config.window.height = read_value<int>(
+                root, "window.height", config.window.height, "an integer", config_path);
+            config.window.title = read_value<std::string>(
+                root, "window.title", config.window.title, "a string", config_path);
+            config.window.fullscreen = read_value<bool>(
+                root, "window.fullscreen", config.window.fullscreen, "a boolean", config_path);
+            config.window.resizable = read_value<bool>(
+                root, "window.resizable", config.window.resizable, "a boolean", config_path);
+
+            config.vulkan.surface_format = read_named_value(
+                root, "vulkan.surface_format", config.vulkan.surface_format, SURFACE_FORMATS, config_path);
+            config.vulkan.color_space = read_named_value(
+                root, "vulkan.color_space", config.vulkan.color_space, COLOR_SPACES, config_path);
+            config.vulkan.depth_format = read_named_value(
+                root, "vulkan.depth_format", config.vulkan.depth_format, DEPTH_FORMATS, config_path);
+            config.vulkan.present_mode = read_named_value(
+                root, "vulkan.present_mode", config.vulkan.present_mode, PRESENT_MODES, config_path);
+            config.vulkan.swapchain_image_count = read_value<std::uint32_t>(
+                root,
+                "vulkan.swapchain_image_count",
+                config.vulkan.swapchain_image_count,
+                "a non-negative integer",
+                config_path);
+            config.vulkan.msaa_samples = read_sample_count(
+                root, "vulkan.msaa_samples", config.vulkan.msaa_samples, config_path);
+            config.vulkan.enable_validation = read_value<bool>(
+                root,
+                "diagnostics.enable_validation",
+                config.vulkan.enable_validation,
+                "a boolean",
+                config_path);
+
+            config.render.max_frames_in_flight = read_value<std::uint32_t>(
+                root,
+                "render.max_frames_in_flight",
+                config.render.max_frames_in_flight,
+                "a non-negative integer",
+                config_path);
+            config.render.clear_color = read_clear_color(root, config.render, config_path);
+            config.render.enable_vsync = read_value<bool>(
+                root, "render.enable_vsync", config.render.enable_vsync, "a boolean", config_path);
+            config.render.max_anisotropy = read_value<float>(
+                root, "render.max_anisotropy", config.render.max_anisotropy, "a number", config_path);
+        }
+    }
+
+    Config ConfigLoader::load() const {
+        return load(get_default_config_paths());
     }
 
     Config ConfigLoader::load(const std::string& config_path) const {
-        const std::string resolved_path = config_path.empty() ? get_default_config_path() : config_path;
-        if(!std::filesystem::exists(resolved_path)) {
-            throw std::runtime_error("Config file not found: " + resolved_path);
-        }
+        return load(std::vector{config_path});
+    }
 
-        YAML::Node root;
-        try {
-            root = YAML::LoadFile(resolved_path);
-        } catch(const YAML::Exception& error) {
-            throw std::runtime_error(
-                "Failed to load config '" + resolved_path + "': " + std::string(error.what()));
-        }
-
-        if(root.IsDefined() && !root.IsNull() && !root.IsMap()) {
-            throw config_error(resolved_path, "<root>", "expected a mapping");
+    Config ConfigLoader::load(const std::vector<std::string>& config_paths) const {
+        if(config_paths.empty()) {
+            throw std::runtime_error("At least one config file is required");
         }
 
         Config config;
-        config.log.enable_file_logging = read_value<bool>(
-            root, "debug.enable_file_logging", config.log.enable_file_logging, "a boolean", resolved_path);
-        config.log.level = read_value<std::string>(
-            root, "debug.log_level", config.log.level, "a string", resolved_path);
+        std::string source_description;
+        for(const auto& config_path: config_paths) {
+            merge_config_file(config, config_path);
+            if(!source_description.empty()) {
+                source_description += ", ";
+            }
+            source_description += config_path;
+        }
 
-        config.window.width = read_value<int>(
-            root, "window.width", config.window.width, "an integer", resolved_path);
-        config.window.height = read_value<int>(
-            root, "window.height", config.window.height, "an integer", resolved_path);
-        config.window.title = read_value<std::string>(
-            root, "window.title", config.window.title, "a string", resolved_path);
-        config.window.fullscreen = read_value<bool>(
-            root, "window.fullscreen", config.window.fullscreen, "a boolean", resolved_path);
-        config.window.resizable = read_value<bool>(
-            root, "window.resizable", config.window.resizable, "a boolean", resolved_path);
-
-        config.vulkan.surface_format = read_named_value(
-            root, "vulkan.surface_format", config.vulkan.surface_format, SURFACE_FORMATS, resolved_path);
-        config.vulkan.color_space = read_named_value(
-            root, "vulkan.color_space", config.vulkan.color_space, COLOR_SPACES, resolved_path);
-        config.vulkan.depth_format = read_named_value(
-            root, "vulkan.depth_format", config.vulkan.depth_format, DEPTH_FORMATS, resolved_path);
-        config.vulkan.present_mode = read_named_value(
-            root, "vulkan.present_mode", config.vulkan.present_mode, PRESENT_MODES, resolved_path);
-        config.vulkan.swapchain_image_count = read_value<std::uint32_t>(
-            root,
-            "vulkan.swapchain_image_count",
-            config.vulkan.swapchain_image_count,
-            "a non-negative integer",
-            resolved_path);
-        config.vulkan.msaa_samples = read_sample_count(
-            root, "vulkan.msaa_samples", config.vulkan.msaa_samples, resolved_path);
-        config.vulkan.enable_validation = read_value<bool>(
-            root, "debug.enable_validation", config.vulkan.enable_validation, "a boolean", resolved_path);
-
-        config.render.max_frames_in_flight = read_value<std::uint32_t>(
-            root,
-            "render.max_frames_in_flight",
-            config.render.max_frames_in_flight,
-            "a non-negative integer",
-            resolved_path);
-        config.render.clear_color = read_clear_color(root, config.render, resolved_path);
-        config.render.enable_vsync = read_value<bool>(
-            root, "render.enable_vsync", config.render.enable_vsync, "a boolean", resolved_path);
-        config.render.max_anisotropy = read_value<float>(
-            root, "render.max_anisotropy", config.render.max_anisotropy, "a number", resolved_path);
-
-        validate_config(config, resolved_path);
+        validate_config(config, source_description);
         return config;
     }
 }

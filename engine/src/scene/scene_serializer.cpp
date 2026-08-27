@@ -733,6 +733,10 @@ namespace Comet {
         return scene;
     }
 
+    std::unique_ptr<Scene> SceneSerializer::clone(const Scene& scene) const {
+        return deserialize(serialize(scene), "<scene-clone>");
+    }
+
     void SceneSerializer::save(
         const Scene& scene, const std::string& path) const {
         const std::filesystem::path scene_path(path);

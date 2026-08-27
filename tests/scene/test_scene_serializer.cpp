@@ -205,6 +205,46 @@ namespace Comet::Tests {
         EXPECT_EQ(contents.find("transform:"), std::string::npos);
     }
 
+    TEST(SceneSerializerTest, ClonesIndependentRuntimeScene) {
+        const EntityUuid parent_uuid = uuid(
+            "00000000-0000-4000-8000-000000000060");
+        const EntityUuid child_uuid = uuid(
+            "00000000-0000-4000-8000-000000000061");
+        Scene edit_scene;
+        Entity edit_parent = edit_scene.create_entity_with_uuid(
+            parent_uuid, "Edit Parent");
+        Entity edit_child = edit_scene.create_entity_with_uuid(
+            child_uuid, "Edit Child");
+        ASSERT_TRUE(edit_parent);
+        ASSERT_TRUE(edit_child);
+        edit_child.get_component<TransformComponent>().translation =
+            Math::Vec3(1.0f, 2.0f, 3.0f);
+        ASSERT_TRUE(edit_scene.set_parent(edit_child, edit_parent));
+
+        const SceneSerializer serializer = make_scene_serializer();
+        std::unique_ptr<Scene> runtime_scene = serializer.clone(edit_scene);
+
+        ASSERT_NE(runtime_scene, nullptr);
+        EXPECT_NE(runtime_scene.get(), &edit_scene);
+        Entity runtime_parent = runtime_scene->find_entity(parent_uuid);
+        Entity runtime_child = runtime_scene->find_entity(child_uuid);
+        ASSERT_TRUE(runtime_parent);
+        ASSERT_TRUE(runtime_child);
+        EXPECT_EQ(runtime_scene->get_parent(runtime_child), runtime_parent);
+        EXPECT_VEC3_EQ(
+            runtime_child.get_component<TransformComponent>().translation,
+            Math::Vec3(1.0f, 2.0f, 3.0f));
+
+        runtime_parent.get_component<NameComponent>().name = "Runtime Parent";
+        runtime_child.get_component<TransformComponent>().translation.x = 9.0f;
+
+        EXPECT_EQ(
+            edit_parent.get_component<NameComponent>().name, "Edit Parent");
+        EXPECT_FLOAT_EQ(
+            edit_child.get_component<TransformComponent>().translation.x,
+            1.0f);
+    }
+
     TEST(SceneSerializerTest, OrdersEntitiesByUuid) {
         Scene scene;
         const EntityUuid later = uuid(

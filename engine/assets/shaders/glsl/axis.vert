@@ -32,12 +32,12 @@ layout(set = 0, binding = 1) readonly buffer _unused_name_axis
     uint selected_axis;
 };
 
-layout(location = 0) in vec3 in_position; // for some types as dvec3 takes 2 locations
+layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_normal;
 layout(location = 2) in vec3 in_tangent;
 layout(location = 3) in vec2 in_texcoord;
 
-layout(location = 0) out vec3 out_color; // output in location 0 for fragment shader
+layout(location = 0) out vec3 out_color;
 
 void main()
 {

@@ -8,6 +8,9 @@ file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
 )
+list(APPEND TEST_SOURCES
+        "${CMAKE_SOURCE_DIR}/editor/src/editor_scene_session.cpp"
+)
 
 # 创建单元测试可执行文件
 add_executable(unit_testing ${TEST_SOURCES})

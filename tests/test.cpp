@@ -1,23 +1,31 @@
 #include <gtest/gtest.h>
-#include "../engine/src/common/config_loader.h"
-#include "../engine/src/common/logger.h"
+#include "common/config.h"
+#include "common/diagnostics.h"
+
+#include <memory>
 
 // 全局测试环境设置
 class CometTestEnvironment: public ::testing::Environment {
 public:
     void SetUp() override {
-        const auto runtime_config = Comet::ConfigLoader{}.load();
-        Comet::Logger::init(runtime_config.log);
+        Comet::Config::Diagnostics diagnostics_config;
+        diagnostics_config.log.enable_file_logging = false;
+        diagnostics_config.log.level = "warn";
+        diagnostics_config.enable_profiler = false;
+        m_diagnostics = std::make_unique<Comet::Diagnostics>(diagnostics_config);
 
         std::cout << "=== Comet Engine Test Suite ===" << std::endl;
         std::cout << "Initializing test environment..." << std::endl;
     }
 
     void TearDown() override {
-        Comet::Logger::shutdown();
+        m_diagnostics.reset();
         std::cout << "Test environment cleaned up." << std::endl;
         std::cout << "=== Test Suite Completed ===" << std::endl;
     }
+
+private:
+    std::unique_ptr<Comet::Diagnostics> m_diagnostics;
 };
 
 // 主函数

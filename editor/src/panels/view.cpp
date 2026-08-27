@@ -3,8 +3,8 @@
 #include <algorithm>
 
 namespace CometEditor {
-    ViewPanel::ViewPanel(const ViewType view_type)
-        : EditorPanel(view_type == ViewType::SceneView ? "SceneView" : "GameView"), m_view_type(view_type) {}
+    ViewPanel::ViewPanel(const EditorState& state)
+        : EditorPanel("Viewport"), m_state(state) {}
 
     void ViewPanel::render() {
         m_actually_visible = false;
@@ -26,19 +26,21 @@ namespace CometEditor {
 
         m_actually_visible = true;
 
-        // 工具栏
-        float button_width = 50.0f;
-        ImGui::SetCursorPosX(ImGui::GetWindowWidth() - button_width * 2 - ImGui::GetStyle().ItemSpacing.x -
-                             ImGui::GetStyle().WindowPadding.x);
-        if(ImGui::Button("2D", ImVec2(button_width, 0))) {
-            m_2d_mode = true;
+        if(m_state.mode == EditorMode::Edit) {
+            constexpr float button_width = 50.0f;
+            ImGui::SetCursorPosX(
+                ImGui::GetWindowWidth() - button_width * 2
+                - ImGui::GetStyle().ItemSpacing.x
+                - ImGui::GetStyle().WindowPadding.x);
+            if(ImGui::Button("2D", ImVec2(button_width, 0))) {
+                m_2d_mode = true;
+            }
+            ImGui::SameLine();
+            if(ImGui::Button("3D", ImVec2(button_width, 0))) {
+                m_2d_mode = false;
+            }
+            ImGui::Separator();
         }
-        ImGui::SameLine();
-        if(ImGui::Button("3D", ImVec2(button_width, 0))) {
-            m_2d_mode = false;
-        }
-
-        ImGui::Separator();
 
         render_view_content();
 

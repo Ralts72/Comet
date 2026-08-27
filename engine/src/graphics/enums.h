@@ -149,7 +149,6 @@ namespace Comet {
         Count64 = 64,
     };
 
-    // don't change value! copied from volk.hpp directly
     enum class Format {
         UNDEFINED = 0,
 

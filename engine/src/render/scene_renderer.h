@@ -27,11 +27,6 @@ namespace Comet {
 
     class COMET_API SceneRenderer {
     public:
-        enum class RenderMode {
-            Runtime,
-            SceneView,
-            GameView
-        };
 
         SceneRenderer(RenderContext& context,
                       const Config::Vulkan& vulkan_config,
@@ -56,11 +51,8 @@ namespace Comet {
 
         void end_render_pass() const;
 
-        void set_render_mode(RenderMode mode);
-
         void request_viewport_resize(Math::Vec2u size);
 
-        [[nodiscard]] RenderMode get_render_mode() const { return m_render_mode; }
         [[nodiscard]] FrameManager& get_frame_manager() { return *m_frame_manager; }
         [[nodiscard]] const FrameManager& get_frame_manager() const { return *m_frame_manager; }
         [[nodiscard]] RenderTarget& get_render_target() { return *m_render_target; }
@@ -115,7 +107,6 @@ namespace Comet {
         std::unique_ptr<PipelineManager> m_pipeline_manager;
         std::unique_ptr<FrameManager> m_frame_manager;
         std::unique_ptr<RenderTarget> m_render_target;
-        RenderMode m_render_mode = RenderMode::Runtime;
         bool m_uses_viewport_target = false;
         Math::Vec2u m_requested_viewport_size = Math::Vec2u(0);
         uint32_t m_viewport_size_stable_frames = 0;

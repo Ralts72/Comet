@@ -67,7 +67,7 @@ namespace CometEditor {
         std::vector<VkDescriptorSet> m_viewport_texture_ids;
         UICallback m_ui_callback;
         bool m_initialized = false;
-        bool m_is_recreating = false;  // 标记是否正在重建 swapchain
+        bool m_is_recreating = false;  // 标记是否正在重建 Swapchain
         uint32_t m_backend_image_count = 0;
 
         RenderFormatInfo m_render_format_info;

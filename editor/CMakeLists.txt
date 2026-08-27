@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 set(SOURCES
         editor.cpp
+        src/editor_scene_session.cpp
         src/imgui_context.cpp
         src/menu_bar.cpp
         src/property_editor_registry.cpp

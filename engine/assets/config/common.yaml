@@ -1,5 +1,4 @@
-# Comet Engine Configuration
-# Version: 1.0.0
+# Comet Engine 共享运行配置
 
 # Vulkan 渲染设置
 vulkan:
@@ -34,11 +33,3 @@ window:
   title: "Comet Engine"
   fullscreen: false
   resizable: true
-
-
-# 调试设置
-debug:
-  # 日志级别 (trace, debug, info, warn, error, critical, off)
-  log_level: info
-  # 启用文件日志输出
-  enable_file_logging: false

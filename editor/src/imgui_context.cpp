@@ -46,7 +46,7 @@ namespace CometEditor {
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
-        // 设置 imgui.ini 路径到 editor 目录
+        // 将 imgui.ini 路径设置到 editor 目录
         static std::string ini_path = std::string(PROJECT_ROOT_DIR) + "/editor/imgui.ini";
         io.IniFilename = ini_path.c_str();
 
@@ -112,7 +112,7 @@ namespace CometEditor {
             LOG_FATAL("ImGui Vulkan backend requires at least two swapchain images");
         }
 
-        // 使用自定义的 DescriptorPool
+        // 使用自定义 DescriptorPool
         Comet::DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(Comet::DescriptorType::CombinedImageSampler, 100);
 
@@ -152,10 +152,10 @@ namespace CometEditor {
 
         unregister_viewport_textures();
 
-        // 先 Shutdown ImGui Vulkan backend，让 ImGui 释放 DescriptorPool 的引用
+        // 先关闭 ImGui Vulkan backend，让 ImGui 释放 DescriptorPool 引用
         ImGui_ImplVulkan_Shutdown();
 
-        // 销毁 DescriptorPool（必须在 Shutdown 之后）
+        // 销毁 DescriptorPool（必须在关闭 backend 之后）
         m_descriptor_pool.reset();
 
         // 销毁其他资源
@@ -177,7 +177,7 @@ namespace CometEditor {
             return;
         }
 
-        // 如果正在重建 swapchain，跳过 ImGui 更新
+        // 如果正在重建 Swapchain，跳过 ImGui 更新
         if(m_is_recreating) {
             return;
         }
@@ -238,7 +238,7 @@ namespace CometEditor {
         // 等待设备空闲
         m_render_context.wait_idle();
 
-        // 重建render target
+        // 重建 RenderTarget
         m_render_target->recreate();
         const auto image_count = static_cast<uint32_t>(
             m_render_context.get_swapchain().get_images().size());

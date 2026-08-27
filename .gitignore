@@ -5,6 +5,7 @@
 *.spv
 build/
 build-debug/
+build-editor/
 build-release/
 cmake-build-debug/
 cmake-build-release/

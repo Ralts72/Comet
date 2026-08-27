@@ -1,7 +1,8 @@
 #pragma once
-#include "core/engine.h"
-#include "common/logger.h"
 #include "common/config_loader.h"
+#include "common/diagnostics.h"
+#include "common/logger.h"
+#include "core/engine.h"
 
 namespace Comet {
     class Application {
@@ -11,8 +12,7 @@ namespace Comet {
         void start() {
             // 1. 加载配置文件并统一解析运行配置
             m_config = ConfigLoader{}.load();
-            Logger::init(m_config.log);
-            LOG_INFO("Config and Logger initialized successfully");
+            m_diagnostics = std::make_unique<Diagnostics>(m_config.diagnostics);
 
             // 2. 创建引擎
             m_engine = std::make_unique<Engine>(m_config);
@@ -32,7 +32,7 @@ namespace Comet {
         void end() {
             on_shutdown();
             m_engine.reset();
-            Logger::shutdown();
+            m_diagnostics.reset();
         }
 
         [[nodiscard]] Engine& get_engine() { return *m_engine; }
@@ -46,6 +46,7 @@ namespace Comet {
 
     private:
         Config m_config;
+        std::unique_ptr<Diagnostics> m_diagnostics;
         std::unique_ptr<Engine> m_engine;
     };
 

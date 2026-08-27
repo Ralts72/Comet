@@ -1,6 +1,8 @@
 #include "runtime/entry.h"
 #include "asset/registry.h"
 #include "common/geometry_utils.h"
+#include "src/editor_scene_session.h"
+#include "src/editor_state.h"
 #include "src/imgui_context.h"
 #include "src/property_editor_registry.h"
 #include "core/engine.h"
@@ -112,6 +114,14 @@ namespace {
 
             register_editor_render_assets(engine);
             engine.set_scene(create_editor_scene());
+            Comet::Engine* engine_ptr = &engine;
+            m_scene_session = std::make_unique<CometEditor::EditorSceneSession>(
+                m_editor_state,
+                m_scene_serializer,
+                [engine_ptr]() { return engine_ptr->get_scene(); },
+                [engine_ptr](std::unique_ptr<Comet::Scene> scene) {
+                    return engine_ptr->replace_scene(std::move(scene));
+                });
             auto& scene = *engine.get_scene();
             m_selection.emplace(scene);
             setup_panels(scene);
@@ -136,7 +146,9 @@ namespace {
             LOG_INFO("Editor initialized");
         }
 
-        void on_update(Comet::UpdateContext context) override {
+        void on_update(const Comet::UpdateContext context) override {
+            apply_editor_mode_request();
+
             // 更新 FPS 显示
             m_menu_bar->set_fps(context.fps);
 
@@ -144,17 +156,10 @@ namespace {
         }
 
         void update_viewport_state() {
-            auto& renderer = get_engine().get_renderer();
-            auto& scene_renderer = renderer.get_scene_renderer();
-            const bool scene_visible = m_scene_view_panel->is_visible();
-            const bool game_visible = m_game_view_panel->is_visible();
-
-            if(scene_visible) {
-                scene_renderer.set_render_mode(Comet::SceneRenderer::RenderMode::SceneView);
-                renderer.request_viewport_resize(m_scene_view_panel->get_viewport_size());
-            } else if(game_visible) {
-                scene_renderer.set_render_mode(Comet::SceneRenderer::RenderMode::GameView);
-                renderer.request_viewport_resize(m_game_view_panel->get_viewport_size());
+            const auto& renderer = get_engine().get_renderer();
+            if(m_viewport_panel->is_visible()) {
+                renderer.request_viewport_resize(
+                    m_viewport_panel->get_viewport_size());
             }
         }
 
@@ -169,8 +174,7 @@ namespace {
             const ImTextureID texture_id =
                     m_imgui_context->get_viewport_texture_id(frame_slot);
             const Comet::Math::Vec2u size = scene_renderer.get_render_target().get_size();
-            m_scene_view_panel->set_texture_id(texture_id, size.x, size.y);
-            m_game_view_panel->set_texture_id(texture_id, size.x, size.y);
+            m_viewport_panel->set_texture_id(texture_id, size.x, size.y);
         }
 
         void on_shutdown() override {
@@ -179,13 +183,19 @@ namespace {
             m_hierarchy_panel.reset();
             m_inspector_panel.reset();
             m_selection.reset();
+            m_scene_session.reset();
         }
 
     private:
         void handle_file_command(const CometEditor::FileCommand command) {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
+                LOG_WARN("Scene file commands are disabled in Play mode");
+                return;
+            }
+
             switch(command) {
                 case CometEditor::FileCommand::NewScene:
-                    replace_scene(std::make_unique<Comet::Scene>(), {});
+                    replace_edit_scene(std::make_unique<Comet::Scene>(), {});
                     LOG_INFO("Created new scene");
                     break;
                 case CometEditor::FileCommand::OpenScene:
@@ -202,7 +212,7 @@ namespace {
             }
         }
 
-        void replace_scene(
+        void replace_edit_scene(
             std::unique_ptr<Comet::Scene> scene, std::string path) {
             if(!scene) {
                 m_scene_file_error = "Cannot activate an empty scene";
@@ -211,12 +221,33 @@ namespace {
             }
 
             auto& engine = get_engine();
-            m_selection->clear();
             engine.set_scene(std::move(scene));
-            auto& active_scene = *engine.get_scene();
-            m_selection->set_scene(active_scene);
-            m_hierarchy_panel->set_scene(active_scene);
+            bind_active_scene();
             m_scene_path = std::move(path);
+        }
+
+        void bind_active_scene() {
+            Comet::Scene* active_scene = get_engine().get_scene();
+            if(active_scene == nullptr) {
+                LOG_ERROR("Cannot bind editor panels without an active scene");
+                return;
+            }
+            m_selection->set_scene(*active_scene);
+            m_hierarchy_panel->set_scene(*active_scene);
+        }
+
+        void apply_editor_mode_request() {
+            if(!m_scene_session) {
+                return;
+            }
+
+            try {
+                if(m_scene_session->apply_mode_request()) {
+                    bind_active_scene();
+                }
+            } catch(const std::exception& error) {
+                LOG_ERROR("Failed to change editor mode: {}", error.what());
+            }
         }
 
         bool open_scene(const std::string& path) {
@@ -228,7 +259,7 @@ namespace {
             try {
                 std::unique_ptr<Comet::Scene> scene =
                     m_scene_serializer.load(path);
-                replace_scene(std::move(scene), path);
+                replace_edit_scene(std::move(scene), path);
                 m_scene_file_error.clear();
                 LOG_INFO("Opened scene '{}'", path);
                 return true;
@@ -355,16 +386,20 @@ namespace {
 
         void setup_panels(Comet::Scene& scene) {
             // 创建菜单栏
-            m_menu_bar = std::make_unique<CometEditor::MenuBar>();
+            m_menu_bar = std::make_unique<CometEditor::MenuBar>(m_editor_state);
             m_menu_bar->set_file_command_callback(
                 [this](const CometEditor::FileCommand command) {
                     handle_file_command(command);
                 });
+            m_menu_bar->set_editor_mode_callback(
+                [this](const CometEditor::EditorMode mode) {
+                    m_scene_session->request_mode(mode);
+                });
 
             // 创建面板
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
-            m_scene_view_panel = std::make_unique<CometEditor::ViewPanel>(CometEditor::ViewType::SceneView);
-            m_game_view_panel = std::make_unique<CometEditor::ViewPanel>(CometEditor::ViewType::GameView);
+            m_viewport_panel = std::make_unique<CometEditor::ViewPanel>(
+                m_editor_state);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
                 *m_selection,
                 m_component_registry,
@@ -376,11 +411,8 @@ namespace {
             m_menu_bar->set_panel_visibility_callback("Hierarchy", [this](const bool visible) {
                 m_hierarchy_panel->set_visible(visible);
             });
-            m_menu_bar->set_panel_visibility_callback("SceneView", [this](const bool visible) {
-                m_scene_view_panel->set_visible(visible);
-            });
-            m_menu_bar->set_panel_visibility_callback("GameView", [this](const bool visible) {
-                m_game_view_panel->set_visible(visible);
+            m_menu_bar->set_panel_visibility_callback("Viewport", [this](const bool visible) {
+                m_viewport_panel->set_visible(visible);
             });
             m_menu_bar->set_panel_visibility_callback("Inspector", [this](const bool visible) {
                 m_inspector_panel->set_visible(visible);
@@ -399,8 +431,7 @@ namespace {
 
                 m_menu_bar->render();
                 m_hierarchy_panel->render();
-                m_scene_view_panel->render();
-                m_game_view_panel->render();
+                m_viewport_panel->render();
                 m_inspector_panel->render();
                 m_project_panel->render();
                 m_console_panel->render();
@@ -409,22 +440,23 @@ namespace {
         }
 
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
-        std::unique_ptr<CometEditor::MenuBar> m_menu_bar;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry =
                 Comet::create_scene_component_registry();
         CometEditor::PropertyEditorRegistry m_property_editor_registry =
                 CometEditor::create_property_editor_registry();
         Comet::SceneSerializer m_scene_serializer{m_component_registry};
+        CometEditor::EditorState m_editor_state;
+        std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
         std::string m_scene_path;
         std::array<char, SCENE_PATH_CAPACITY> m_scene_path_buffer{};
         std::string m_scene_file_error;
         SceneFileDialog m_scene_file_dialog = SceneFileDialog::None;
         bool m_scene_file_dialog_open_requested = false;
 
+        std::unique_ptr<CometEditor::MenuBar> m_menu_bar;
         std::unique_ptr<CometEditor::HierarchyPanel> m_hierarchy_panel;
-        std::unique_ptr<CometEditor::ViewPanel> m_scene_view_panel;
-        std::unique_ptr<CometEditor::ViewPanel> m_game_view_panel;
+        std::unique_ptr<CometEditor::ViewPanel> m_viewport_panel;
         std::unique_ptr<CometEditor::InspectorPanel> m_inspector_panel;
         std::unique_ptr<CometEditor::ProjectPanel> m_project_panel;
         std::unique_ptr<CometEditor::ConsolePanel> m_console_panel;

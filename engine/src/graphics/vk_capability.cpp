@@ -512,7 +512,7 @@ namespace Comet {
             LOG_FATAL("No suitable Vulkan physical device found: {}", join_strings(rejected_devices));
         }
 
-#ifdef BUILD_TYPE_DEBUG
+#ifdef COMET_ENABLE_DEBUG_LOGS
         const auto selected_properties =
                 selected_candidate->capability.physical_device.getProperties();
         LOG_INFO("Selected physical device '{}' with score {}",

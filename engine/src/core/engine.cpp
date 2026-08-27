@@ -34,11 +34,16 @@ namespace Comet {
         m_asset_registry.reset();
         m_scene.reset();
         m_window.reset();
-        PROFILE_RESULTS();
     }
 
     void Engine::set_scene(std::unique_ptr<Scene> scene) {
         m_scene = std::move(scene);
+    }
+
+    std::unique_ptr<Scene> Engine::replace_scene(
+        std::unique_ptr<Scene> scene) noexcept {
+        m_scene.swap(scene);
+        return scene;
     }
 
     void Engine::on_update() const {

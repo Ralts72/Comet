@@ -56,7 +56,7 @@ Editor
 
 runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slot 分配的 `MultiTarget` 生成离屏颜色纹理，
 `ImGuiContext` 只保存非拥有的 `vk::ImageView` handle 并拥有对应的 ImGui descriptor；最终 swapchain 只由 ImGui
-render pass 清屏、合成和呈现。SceneView 与 GameView 当前复用同一组离屏输出。
+render pass 清屏、合成和呈现。editor 只有一个 Viewport，Edit/Play 复用同一组离屏输出并切换活动 Scene 与交互状态。
 
 ## 生命周期约束
 

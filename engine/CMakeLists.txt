@@ -3,8 +3,6 @@ project(Comet)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -Os -Wall")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Os -Wall")
 find_program(glslangValidator_executable glslangValidator)
 if (NOT glslangValidator_executable)
     message(FATAL_ERROR "glslangValidator not found, please install it to compile shaders")
@@ -15,6 +13,7 @@ add_subdirectory(assets/shaders)
 set(SOURCES
         src/asset/registry.cpp
         src/common/geometry_utils.cpp
+        src/common/diagnostics.cpp
         src/common/profiler.cpp
         src/common/logger.cpp
         src/common/config_loader.cpp
@@ -84,12 +83,9 @@ target_precompile_headers(engine PRIVATE
 )
 target_compile_definitions(engine PRIVATE COMET_EXPORTS)
 if (NOT WIN32)
-    target_compile_options(engine PRIVATE -fvisibility=hidden)
+    target_compile_options(engine PRIVATE -Wall -fvisibility=hidden)
 endif ()
 
-if (CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_options(engine PRIVATE -O3 -DNDEBUG)
+if (COMET_NATIVE_OPTIMIZATION AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(engine PRIVATE -march=native)
-else ()
-    target_compile_definitions(engine PRIVATE ENABLE_PROFILER)
 endif ()

@@ -3,6 +3,7 @@
 #include "common/config.h"
 #include "common/config_loader.h"
 
+#include <array>
 #include <concepts>
 #include <filesystem>
 #include <fstream>
@@ -52,6 +53,36 @@ TEST(ConfigTest, LoadsProjectConfiguration) {
     EXPECT_NO_THROW(static_cast<void>(ConfigLoader{}.load()));
 }
 
+TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
+    struct ProfileExpectation {
+        const char* name;
+        const char* log_level;
+        bool enable_profiler;
+        bool enable_validation;
+    };
+
+    constexpr std::array expectations = {
+        ProfileExpectation{"dev-debug", "trace", true, true},
+        ProfileExpectation{"editor-dev", "info", false, false},
+        ProfileExpectation{"app-release", "warn", false, false}
+    };
+
+    const std::filesystem::path config_directory =
+        std::filesystem::path(std::string(PROJECT_ROOT_DIR)) / "engine/assets/config";
+    for(const auto& expectation: expectations) {
+        SCOPED_TRACE(expectation.name);
+        const Config config = ConfigLoader{}.load(std::vector<std::string>{
+            (config_directory / "common.yaml").string(),
+            (config_directory / "profiles" / (std::string(expectation.name) + ".yaml")).string()
+        });
+
+        EXPECT_EQ(config.diagnostics.log.level, expectation.log_level);
+        EXPECT_FALSE(config.diagnostics.log.enable_file_logging);
+        EXPECT_EQ(config.diagnostics.enable_profiler, expectation.enable_profiler);
+        EXPECT_EQ(config.vulkan.enable_validation, expectation.enable_validation);
+    }
+}
+
 TEST(ConfigTest, ParsesExplicitConfiguration) {
     const TemporaryConfigFile file(R"(
 vulkan:
@@ -72,16 +103,18 @@ window:
   title: "Config Test"
   fullscreen: true
   resizable: false
-debug:
+diagnostics:
   log_level: warn
   enable_file_logging: true
+  enable_profiler: false
   enable_validation: false
 )");
 
     const Config config = ConfigLoader{}.load(file.path());
 
-    EXPECT_EQ(config.log.level, "warn");
-    EXPECT_TRUE(config.log.enable_file_logging);
+    EXPECT_EQ(config.diagnostics.log.level, "warn");
+    EXPECT_TRUE(config.diagnostics.log.enable_file_logging);
+    EXPECT_FALSE(config.diagnostics.enable_profiler);
 
     EXPECT_EQ(config.window.width, 901);
     EXPECT_EQ(config.window.height, 517);
@@ -110,20 +143,48 @@ TEST(ConfigTest, UsesDefaultsForMissingFields) {
 
     EXPECT_EQ(config.window.width, 960);
     EXPECT_EQ(config.window.height, Config::Window{}.height);
-    EXPECT_EQ(config.log.level, Config::Log{}.level);
+    EXPECT_EQ(config.diagnostics.log.level, Config::Log{}.level);
     EXPECT_EQ(config.render.clear_color, Config::Render{}.clear_color);
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, Config::Render{}.max_anisotropy);
 }
 
-TEST(ConfigTest, ExplicitValidationSettingOverridesBuildDefault) {
+TEST(ConfigTest, ExplicitValidationSettingOverridesDefault) {
     const bool expected = !Config::Vulkan{}.enable_validation;
     const TemporaryConfigFile file(
-        std::string("debug:\n  enable_validation: ")
+        std::string("diagnostics:\n  enable_validation: ")
         + (expected ? "true\n" : "false\n"));
 
     const Config config = ConfigLoader{}.load(file.path());
 
     EXPECT_EQ(config.vulkan.enable_validation, expected);
+}
+
+TEST(ConfigTest, LaterLayersOverrideEarlierLayersBeforeValidation) {
+    const TemporaryConfigFile common(R"(
+window:
+  width: 0
+  title: "Shared Title"
+render:
+  max_anisotropy: 4
+diagnostics:
+  log_level: info
+  enable_profiler: true
+)");
+    const TemporaryConfigFile profile(R"(
+window:
+  width: 1200
+diagnostics:
+  log_level: warn
+)");
+
+    const Config config = ConfigLoader{}.load(
+        std::vector<std::string>{common.path(), profile.path()});
+
+    EXPECT_EQ(config.window.width, 1200);
+    EXPECT_EQ(config.window.title, "Shared Title");
+    EXPECT_FLOAT_EQ(config.render.max_anisotropy, 4.0f);
+    EXPECT_EQ(config.diagnostics.log.level, "warn");
+    EXPECT_TRUE(config.diagnostics.enable_profiler);
 }
 
 TEST(ConfigTest, RejectsInvalidFieldTypeWithFieldAndFileContext) {
@@ -179,4 +240,10 @@ TEST(ConfigTest, RejectsUnsupportedMsaaSampleCount) {
 
 TEST(ConfigTest, ThrowsForMissingFile) {
     EXPECT_THROW(static_cast<void>(ConfigLoader{}.load("missing-config.yaml")), std::runtime_error);
+}
+
+TEST(ConfigTest, RejectsEmptyLayerList) {
+    EXPECT_THROW(
+        static_cast<void>(ConfigLoader{}.load(std::vector<std::string>{})),
+        std::runtime_error);
 }

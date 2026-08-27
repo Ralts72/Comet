@@ -73,7 +73,6 @@ namespace Comet {
             m_context.get_swapchain().get_images().size());
         m_frame_manager->initialize_swapchain_images(image_count);
 
-        m_render_mode = RenderMode::Runtime;
         m_uses_viewport_target = false;
         m_requested_viewport_size = Math::Vec2u(0);
         m_viewport_size_stable_frames = 0;
@@ -123,7 +122,6 @@ namespace Comet {
             m_frame_manager->get_frame_slot_count());
         set_render_target_clear_color();
 
-        m_render_mode = RenderMode::SceneView;
         m_uses_viewport_target = true;
         m_requested_viewport_size = size;
         m_viewport_size_stable_frames = 0;
@@ -340,19 +338,6 @@ namespace Comet {
     void SceneRenderer::end_render_pass() const {
         m_render_target->end_render_target(
             m_frame_manager->get_current_command_buffer());
-    }
-
-    void SceneRenderer::set_render_mode(RenderMode mode) {
-        if(m_render_mode == mode) {
-            return;
-        }
-
-        [[maybe_unused]] const RenderMode old_mode = m_render_mode;
-        m_render_mode = mode;
-
-        LOG_INFO("SceneRenderer render mode changed: {} -> {}",
-            static_cast<int>(old_mode),
-            static_cast<int>(mode));
     }
 
     void SceneRenderer::request_viewport_resize(const Math::Vec2u size) {

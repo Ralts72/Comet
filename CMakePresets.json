@@ -1,0 +1,100 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 31,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "dev-debug",
+            "displayName": "Comet development (Debug)",
+            "description": "Build app, editor, and tests with full debug diagnostics.",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+                "COMET_BUILD_APP": true,
+                "COMET_BUILD_EDITOR": true,
+                "COMET_BUILD_TESTS": true,
+                "COMET_CONFIG_PROFILE": "dev-debug",
+                "COMET_NATIVE_OPTIMIZATION": false
+            }
+        },
+        {
+            "name": "editor-dev",
+            "displayName": "Comet editor development (RelWithDebInfo)",
+            "description": "Build the optimized editor with debug symbols and profiling.",
+            "binaryDir": "${sourceDir}/build-editor",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+                "COMET_BUILD_APP": false,
+                "COMET_BUILD_EDITOR": true,
+                "COMET_BUILD_TESTS": false,
+                "COMET_CONFIG_PROFILE": "editor-dev",
+                "COMET_NATIVE_OPTIMIZATION": false
+            }
+        },
+        {
+            "name": "app-release",
+            "displayName": "Comet runtime application (Release)",
+            "description": "Build the optimized runtime application without editor or tests.",
+            "binaryDir": "${sourceDir}/build-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": false,
+                "COMET_BUILD_APP": true,
+                "COMET_BUILD_EDITOR": false,
+                "COMET_BUILD_TESTS": false,
+                "COMET_CONFIG_PROFILE": "app-release",
+                "COMET_NATIVE_OPTIMIZATION": false
+            }
+        },
+        {
+            "name": "ci-release",
+            "displayName": "Comet CI (Release)",
+            "description": "Build app, editor, and tests in Release with runtime diagnostics disabled.",
+            "inherits": "app-release",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "COMET_BUILD_EDITOR": true,
+                "COMET_BUILD_TESTS": true
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "dev-debug",
+            "configurePreset": "dev-debug"
+        },
+        {
+            "name": "editor-dev",
+            "configurePreset": "editor-dev"
+        },
+        {
+            "name": "app-release",
+            "configurePreset": "app-release"
+        },
+        {
+            "name": "ci-release",
+            "configurePreset": "ci-release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "dev-debug",
+            "configurePreset": "dev-debug",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "ci-release",
+            "configurePreset": "ci-release",
+            "output": {
+                "outputOnFailure": true
+            }
+        }
+    ]
+}

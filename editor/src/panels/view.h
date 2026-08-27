@@ -1,4 +1,5 @@
 #pragma once
+#include "editor_state.h"
 #include "editor.h"
 #include "core/math_utils.h"
 
@@ -6,20 +7,11 @@
 #include <cstdint>
 
 namespace CometEditor {
-    enum class ViewType {
-        SceneView,
-        GameView
-    };
-
     class ViewPanel: public EditorPanel {
     public:
-        explicit ViewPanel(ViewType view_type);
+        explicit ViewPanel(const EditorState& state);
 
         void render() override;
-
-        [[nodiscard]] ViewType get_view_type() const {
-            return m_view_type;
-        }
 
         [[nodiscard]] bool is_2d_mode() const {
             return m_2d_mode;
@@ -40,7 +32,7 @@ namespace CometEditor {
     private:
         void render_view_content();
 
-        ViewType m_view_type;
+        const EditorState& m_state;
         bool m_2d_mode = false;
 
         ImTextureID m_texture_id = ImTextureID_Invalid;

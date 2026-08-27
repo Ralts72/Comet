@@ -36,11 +36,11 @@ namespace Comet {
         Logger& operator=(const Logger&) = delete;
 
         // 静态初始化和清理
-        static void init(const Config::Log& config = {});
+        static void init(const Config::Log& config = {}, bool enable_profiler = false);
 
         static void shutdown();
 
-        // 获取logger
+        // 获取 logger
         static std::shared_ptr<spdlog::logger> get_console_logger();
 
         static std::shared_ptr<spdlog::logger> get_profiler_logger();
@@ -52,7 +52,7 @@ namespace Comet {
         // 用于在编辑器等场景中禁用控制台输出，只保留文件输出
         static void remove_console_sinks();
 
-        // 添加自定义 sink 到 console logger
+        // 向 console logger 添加自定义 sink
         // 允许外部（如编辑器）注册自定义的日志处理逻辑
         static void add_custom_sink(const std::shared_ptr<spdlog::sinks::sink>& sink);
 
@@ -70,49 +70,57 @@ namespace Comet {
         static std::string s_current_log_file_path;
     };
 
-#ifdef BUILD_TYPE_DEBUG
 #define LOG_ERROR(fmt, ...)                                                            \
     do {                                                                               \
-        if (auto logger = ::Comet::Logger::get_console_logger()) {                     \
-            logger->error(fmt, ##__VA_ARGS__);                                         \
+        if (auto logger = ::Comet::Logger::get_console_logger();                       \
+            logger && logger->should_log(::spdlog::level::err)) {                      \
+            logger->error(fmt __VA_OPT__(,) __VA_ARGS__);                              \
         }                                                                              \
     } while (0)
 #define LOG_WARN(fmt, ...)                                                             \
     do {                                                                               \
-        if (auto logger = ::Comet::Logger::get_console_logger()) {                     \
-            logger->warn(fmt, ##__VA_ARGS__);                                          \
-        }                                                                              \
-    } while (0)
-#define LOG_DEBUG(fmt, ...)                                                            \
-    do {                                                                               \
-        if (auto logger = ::Comet::Logger::get_console_logger()) {                     \
-            logger->debug(fmt, ##__VA_ARGS__);                                         \
+        if (auto logger = ::Comet::Logger::get_console_logger();                       \
+            logger && logger->should_log(::spdlog::level::warn)) {                     \
+            logger->warn(fmt __VA_OPT__(,) __VA_ARGS__);                               \
         }                                                                              \
     } while (0)
 #define LOG_INFO(fmt, ...)                                                             \
     do {                                                                               \
-        if (auto logger = ::Comet::Logger::get_console_logger()) {                     \
-            logger->info(fmt, ##__VA_ARGS__);                                          \
+        if (auto logger = ::Comet::Logger::get_console_logger();                       \
+            logger && logger->should_log(::spdlog::level::info)) {                     \
+            logger->info(fmt __VA_OPT__(,) __VA_ARGS__);                               \
         }                                                                              \
     } while (0)
+
+#ifdef COMET_ENABLE_DEBUG_LOGS
+#define LOG_DEBUG(fmt, ...)                                                            \
+    do {                                                                               \
+        if (auto logger = ::Comet::Logger::get_console_logger();                       \
+            logger && logger->should_log(::spdlog::level::debug)) {                    \
+            logger->debug(fmt __VA_OPT__(,) __VA_ARGS__);                              \
+        }                                                                              \
+    } while (0)
+#else
+#define LOG_DEBUG(fmt, ...) do { } while (0)
+#endif
+
+#ifdef COMET_ENABLE_TRACE_LOGS
 #define LOG_TRACE(fmt, ...)                                                            \
     do {                                                                               \
-        if (auto logger = ::Comet::Logger::get_console_logger()) {                     \
-            logger->trace(fmt, ##__VA_ARGS__);                                         \
+        if (auto logger = ::Comet::Logger::get_console_logger();                       \
+            logger && logger->should_log(::spdlog::level::trace)) {                    \
+            logger->trace(fmt __VA_OPT__(,) __VA_ARGS__);                              \
         }                                                                              \
     } while(0)
 #else
-    // Release模式下除LOG_FATAL外的LOG都为空操作
-#define LOG_ERROR(fmt, ...)   do { } while (0)
-#define LOG_WARN(fmt, ...)    do { } while (0)
-#define LOG_DEBUG(fmt, ...)   do { } while (0)
-#define LOG_INFO(fmt, ...)    do { } while (0)
 #define LOG_TRACE(fmt, ...)   do { } while (0)
 #endif
+
 #define LOG_FATAL(fmt, ...)                                                            \
     do {                                                                               \
         if (auto logger = ::Comet::Logger::get_console_logger()) {                     \
-            logger->critical(fmt, ##__VA_ARGS__);                                      \
+            logger->critical(fmt __VA_OPT__(,) __VA_ARGS__);                           \
+            logger->flush();                                                           \
         }                                                                              \
         assert(false);                                                                 \
         std::terminate();                                                              \

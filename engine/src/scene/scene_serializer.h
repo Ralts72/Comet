@@ -24,6 +24,9 @@ namespace Comet {
             std::string_view contents,
             std::string_view source = "<memory>") const;
 
+        [[nodiscard]] std::unique_ptr<Scene> clone(
+            const Scene& scene) const;
+
         void save(const Scene& scene, const std::string& path) const;
 
         [[nodiscard]] std::unique_ptr<Scene> load(
