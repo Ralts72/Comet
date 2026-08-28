@@ -180,10 +180,6 @@ namespace Comet {
 
         [[nodiscard]] std::shared_ptr<MaterialInstance> create_instance(const std::string& material_name) const;
 
-        [[nodiscard]] const std::unordered_map<std::string, std::shared_ptr<Material>>& get_materials() const { return m_materials; }
-
-        void clean_up();
-
     private:
         std::unordered_map<std::string, std::shared_ptr<Material>> m_materials;
     };

@@ -11,7 +11,7 @@ GoogleTest 测试基础。
 - `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过组件描述符
   编辑 Transform、MeshRenderer 和 Camera，File 菜单可新建、打开和保存 `.scene`。
 - `app/`：运行时示例程序入口。
-- `tests/`：GoogleTest 测试，覆盖数学、配置、导出、Scene/ECS、场景序列化、资源参数保护和基础集成行为。
+- `tests/`：GoogleTest 测试，覆盖数学、配置、Scene/ECS、场景序列化、资源参数保护和渲染数据链路。
 - `engine/assets/`：配置、纹理和 GLSL shader 资源。
 - `3rdparty/`：第三方依赖目录，部分依赖通过 Git submodule 拉取，Vulkan Memory Allocator 和 EnTT 以 vendored
   源码形式维护；EnTT 只提交 single header。

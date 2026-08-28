@@ -25,13 +25,6 @@ namespace Comet {
         }
     }
 
-    Queue::Queue(const uint32_t family_index, const uint32_t index,
-                 const vk::Queue queue, const Type type)
-        : m_family_index(family_index),
-          m_index(index),
-          m_queue(queue),
-          m_type(type) {}
-
     void Queue::submit2(const std::span<const QueueSemaphoreSubmit> waits,
                         const std::span<const CommandBuffer> command_buffers,
                         const std::span<const QueueSemaphoreSubmit> signals,

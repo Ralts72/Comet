@@ -34,9 +34,8 @@ namespace CometEditor {
         }
     }
 
-    ImGuiContext::ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context,
-                               const Comet::Config::Vulkan& vulkan_config)
-        : m_window(window), m_render_context(render_context), m_vulkan_config(vulkan_config) {
+    ImGuiContext::ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context)
+        : m_window(window), m_render_context(render_context) {
         LOG_INFO("Initializing ImGui layer");
 
         IMGUI_CHECKVERSION();
@@ -58,10 +57,7 @@ namespace CometEditor {
 
         ImGui_ImplGlfw_InitForVulkan(window.get(), true);
 
-        // 初始化缓存的格式和采样信息
         auto& swapchain = m_render_context.get_swapchain();
-        m_render_format_info.color_format = swapchain.get_images()[0]->get_info().format;
-        m_render_format_info.depth_format = m_vulkan_config.depth_format;
 
         create_render_pass();
 
@@ -80,7 +76,9 @@ namespace CometEditor {
         LOG_INFO("Creating independent RenderPass for ImGui");
 
         std::vector<Comet::Attachment> attachments;
-        auto color_attachment = Comet::Attachment::get_color_attachment(m_render_format_info.color_format, Comet::SampleCount::Count1);
+        const auto color_format = m_render_context.get_swapchain()
+                                  .get_images()[0]->get_info().format;
+        auto color_attachment = Comet::Attachment::get_color_attachment(color_format, Comet::SampleCount::Count1);
         color_attachment.description.load_op = Comet::AttachmentLoadOp::Clear;
         color_attachment.description.initial_layout = Comet::ImageLayout::Undefined;
         color_attachment.description.final_layout = Comet::ImageLayout::PresentSrcKHR;

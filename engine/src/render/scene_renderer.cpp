@@ -1,7 +1,9 @@
 #include "scene_renderer.h"
 #include "common/logger.h"
 #include "common/profiler.h"
-#include "common/shader_resources.h"
+#include "common/shader_types.h"
+#include "cube_texture_frag.h"
+#include "cube_texture_vert.h"
 #include "graphics/queue.h"
 #include "graphics/image_view.h"
 #include "graphics/vk_common.h"
@@ -17,7 +19,15 @@ namespace Comet {
     SceneRenderer::SceneRenderer(RenderContext& context,
                                  const Config::Vulkan& vulkan_config,
                                  const Config::Render& render_config)
-        : m_context(context), m_vulkan_config(vulkan_config), m_render_config(render_config) {
+        : m_context(context),
+          m_surface_format(vulkan_config.surface_format),
+          m_depth_format(vulkan_config.depth_format),
+          m_msaa_samples(vulkan_config.msaa_samples),
+          m_color_clear_value(Math::Vec4(
+              render_config.clear_color[0],
+              render_config.clear_color[1],
+              render_config.clear_color[2],
+              render_config.clear_color[3])) {
         LOG_INFO("create frame manager");
         m_frame_manager = std::make_unique<FrameManager>(
             context.get_device(), render_config.max_frames_in_flight);
@@ -40,25 +50,21 @@ namespace Comet {
 
         reset_render_pipeline();
 
-        const auto surface_format = m_vulkan_config.surface_format;
-        const auto depth_format = m_vulkan_config.depth_format;
-        const auto msaa_samples = m_vulkan_config.msaa_samples;
-
         std::vector<Attachment> attachments;
-        attachments.emplace_back(Attachment::get_color_attachment(surface_format, msaa_samples));
-        attachments.emplace_back(Attachment::get_depth_attachment(depth_format, msaa_samples));
+        attachments.emplace_back(Attachment::get_color_attachment(m_surface_format, m_msaa_samples));
+        attachments.emplace_back(Attachment::get_depth_attachment(m_depth_format, m_msaa_samples));
 
         std::vector<RenderSubPass> render_sub_passes;
         RenderSubPass render_sub_pass_0 = {
             {},
             {SubpassColorAttachment(0)},
             {SubpassDepthStencilAttachment(1)},
-            msaa_samples
+            m_msaa_samples
         };
         render_sub_passes.emplace_back(render_sub_pass_0);
 
         m_render_pass = std::make_shared<RenderPass>(
-            m_context.get_device(), attachments, render_sub_passes, surface_format);
+            m_context.get_device(), attachments, render_sub_passes, m_surface_format);
 
         LOG_INFO("create render pipeline manager");
         m_pipeline_manager = std::make_unique<PipelineManager>(
@@ -86,13 +92,9 @@ namespace Comet {
         LOG_INFO("create viewport render pass at {}x{}", size.x, size.y);
         reset_render_pipeline();
 
-        const auto surface_format = m_vulkan_config.surface_format;
-        const auto depth_format = m_vulkan_config.depth_format;
-        const auto msaa_samples = m_vulkan_config.msaa_samples;
-
         Attachment color_attachment = Attachment::get_color_attachment(
-            surface_format, msaa_samples);
-        if(msaa_samples == SampleCount::Count1) {
+            m_surface_format, m_msaa_samples);
+        if(m_msaa_samples == SampleCount::Count1) {
             color_attachment.description.store_op = AttachmentStoreOp::Store;
             color_attachment.description.final_layout = ImageLayout::ShaderReadOnlyOptimal;
             color_attachment.usage |= ImageUsage::Sampled;
@@ -100,13 +102,13 @@ namespace Comet {
 
         std::vector<Attachment> attachments;
         attachments.emplace_back(color_attachment);
-        attachments.emplace_back(Attachment::get_depth_attachment(depth_format, msaa_samples));
+        attachments.emplace_back(Attachment::get_depth_attachment(m_depth_format, m_msaa_samples));
 
         RenderSubPass render_sub_pass = {
             {},
             {SubpassColorAttachment(0)},
             {SubpassDepthStencilAttachment(1)},
-            msaa_samples
+            m_msaa_samples
         };
         render_sub_pass.resolve_final_layout = ImageLayout::ShaderReadOnlyOptimal;
         render_sub_pass.resolve_usage =
@@ -114,7 +116,7 @@ namespace Comet {
 
         m_render_pass = std::make_shared<RenderPass>(
             m_context.get_device(), attachments,
-            std::vector<RenderSubPass>{render_sub_pass}, surface_format);
+            std::vector<RenderSubPass>{render_sub_pass}, m_surface_format);
         m_pipeline_manager = std::make_unique<PipelineManager>(
             m_context.get_device(), *m_render_pass);
         m_render_target = RenderTarget::create_multi_target(
@@ -137,20 +139,19 @@ namespace Comet {
 
     void SceneRenderer::setup_pipeline(ResourceManager& resource_manager,
                                        const ShaderLayout& layout,
-                                       const VertexInputDescription& vertex_input,
                                        const PipelineConfig& config) {
         LOG_INFO("setup pipeline");
 
         // 创建着色器
         const auto vert_shader = resource_manager.get_shader_manager().load_shader(
-            "cube_texture_vert", CUBE_TEXTURE_VERT, layout);
+            "cube_texture_vert", CUBE_TEXTURE_VERT);
         const auto frag_shader = resource_manager.get_shader_manager().load_shader(
-            "cube_texture_frag", CUBE_TEXTURE_FRAG, layout);
+            "cube_texture_frag", CUBE_TEXTURE_FRAG);
         m_default_sampler = resource_manager.get_sampler_manager().get_linear_repeat();
 
         // 创建 Pipeline
         m_pipeline = m_pipeline_manager->create_pipeline(
-            "cube_pipeline", layout, vertex_input, config, vert_shader, frag_shader);
+            "cube_pipeline", layout, config, vert_shader, frag_shader);
     }
 
     const DescriptorSet& SceneRenderer::prepare_material_descriptor_set(
@@ -406,13 +407,7 @@ namespace Comet {
     }
 
     void SceneRenderer::set_render_target_clear_color() const {
-        const Math::Vec4 clear_color(
-            m_render_config.clear_color[0],
-            m_render_config.clear_color[1],
-            m_render_config.clear_color[2],
-            m_render_config.clear_color[3]
-        );
-        m_render_target->set_clear_value(ClearValue(clear_color));
+        m_render_target->set_clear_value(m_color_clear_value);
     }
 
     void SceneRenderer::apply_pending_viewport_resize() {

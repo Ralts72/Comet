@@ -1,6 +1,7 @@
 #include "renderer.h"
 #include "common/logger.h"
 #include "common/profiler.h"
+#include "common/shader_types.h"
 #include "graphics/pipeline.h"
 #include "graphics/vertex_description.h"
 
@@ -9,12 +10,12 @@ namespace Comet {
                        const Config& config,
                        const AssetRegistry& asset_registry)
         : m_scene_resolver(asset_registry),
-          m_vulkan_config(config.vulkan),
-          m_render_config(config.render) {
+          m_msaa_samples(config.vulkan.msaa_samples) {
         PROFILE_SCOPE("Renderer::Constructor");
 
         // Create render context
-        m_render_context = std::make_unique<RenderContext>(window, m_vulkan_config, m_render_config);
+        m_render_context = std::make_unique<RenderContext>(
+            window, config.vulkan, config.render);
 
         // Create resource manager
         LOG_INFO("create resource manager");
@@ -24,7 +25,7 @@ namespace Comet {
         // Create scene renderer
         LOG_INFO("create scene renderer");
         m_scene_renderer = std::make_unique<SceneRenderer>(
-            *m_render_context, m_vulkan_config, m_render_config);
+            *m_render_context, config.vulkan, config.render);
 
         // Setup render pass (moved to SceneRenderer)
         m_scene_renderer->setup_render_pass();
@@ -61,15 +62,13 @@ namespace Comet {
         pipeline_config.set_vertex_input_state(vertex_input_description);
         pipeline_config.set_input_assembly_state(Topology::TriangleList);
 
-        const auto msaa_samples = m_vulkan_config.msaa_samples;
-
         pipeline_config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         pipeline_config.enable_depth_test();
-        pipeline_config.set_multisample_state(msaa_samples, false, 0.2f);
+        pipeline_config.set_multisample_state(m_msaa_samples, false, 0.2f);
 
         // 让 SceneRenderer 创建 Pipeline
         m_scene_renderer->setup_pipeline(
-            *m_resource_manager, layout, vertex_input_description, pipeline_config);
+            *m_resource_manager, layout, pipeline_config);
     }
 
     void Renderer::on_render(const RenderScene& render_scene) {

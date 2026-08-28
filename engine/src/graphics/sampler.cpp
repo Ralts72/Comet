@@ -134,7 +134,4 @@ namespace Comet {
         return nullptr;
     }
 
-    void SamplerManager::clean_up() {
-        m_samplers.clear();
-    }
 }

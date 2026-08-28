@@ -43,12 +43,8 @@ namespace Comet {
             return m_device_capability;
         }
 
-        [[nodiscard]] vk::PhysicalDeviceMemoryProperties get_memory_properties() const {
-            return m_memory_properties;
-        }
-
     private:
-        void create_instance();
+        void create_instance(bool validation_requested);
 
         void pickup_physical_device(const DeviceCapabilityRequest& capability_request);
 
@@ -59,9 +55,5 @@ namespace Comet {
         vk::SurfaceKHR m_surface;
 
         DeviceCapability m_device_capability;
-        vk::PhysicalDeviceMemoryProperties m_memory_properties;
-        Config::Vulkan m_config;
-        bool m_validation_enabled = false;
-        bool m_debug_utils_enabled = false;
     };
 }

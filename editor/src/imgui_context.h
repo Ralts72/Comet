@@ -21,15 +21,9 @@ namespace Comet {
 
 namespace CometEditor {
 
-    struct RenderFormatInfo {
-        Comet::Format color_format{};
-        Comet::Format depth_format{};
-    };
-
     class ImGuiContext {
     public:
-        ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context,
-                     const Comet::Config::Vulkan& vulkan_config);
+        ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context);
         ~ImGuiContext();
 
         ImGuiContext(const ImGuiContext&) = delete;
@@ -69,8 +63,6 @@ namespace CometEditor {
         bool m_initialized = false;
         bool m_is_recreating = false;  // 标记是否正在重建 Swapchain
         uint32_t m_backend_image_count = 0;
-
-        RenderFormatInfo m_render_format_info;
-        Comet::Config::Vulkan m_vulkan_config;
+        
     };
 }

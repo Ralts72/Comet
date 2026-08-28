@@ -16,7 +16,7 @@ namespace Comet {
 
     class COMET_API Engine {
     public:
-        explicit Engine(Config config);
+        explicit Engine(const Config& config);
 
         ~Engine();
 
@@ -48,15 +48,8 @@ namespace Comet {
         [[nodiscard]] const Window& get_window() const { return *m_window; }
         [[nodiscard]] Renderer& get_renderer() { return *m_renderer; }
         [[nodiscard]] const Renderer& get_renderer() const { return *m_renderer; }
-        [[nodiscard]] const Config& get_config() const { return m_config; }
-        [[nodiscard]] bool get_close_status() const { return m_should_close; }
-        [[nodiscard]] float get_delta_time() const { return m_timer->get_delta_time(); }
-        [[nodiscard]] float get_total_time() const { return m_timer->get_total_time(); }
-        [[nodiscard]] float get_fps() const { return m_timer->get_fps(); }
 
     private:
-        Config m_config;
-        bool m_should_close = false;
         std::unique_ptr<Timer> m_timer;
         std::unique_ptr<Window> m_window;
         std::unique_ptr<AssetRegistry> m_asset_registry;

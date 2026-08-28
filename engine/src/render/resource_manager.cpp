@@ -36,17 +36,4 @@ namespace Comet {
         return mesh;
     }
 
-    std::shared_ptr<Texture> ResourceManager::get_texture(const std::string& name) const {
-        if (m_textures.contains(name)) {
-            return m_textures.find(name)->second;
-        }
-        return nullptr;
-    }
-
-    std::shared_ptr<Mesh> ResourceManager::get_mesh(const std::string& name) const {
-        if (m_meshes.contains(name)) {
-            return m_meshes.find(name)->second;
-        }
-        return nullptr;
-    }
 }

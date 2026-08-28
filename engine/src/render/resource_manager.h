@@ -23,9 +23,6 @@ namespace Comet {
         std::shared_ptr<Mesh> create_mesh(const std::string& name, const std::vector<Math::Vertex>& vertices,
                                           const std::vector<uint32_t>& indices);
 
-        [[nodiscard]] std::shared_ptr<Texture> get_texture(const std::string& name) const;
-        [[nodiscard]] std::shared_ptr<Mesh> get_mesh(const std::string& name) const;
-
     private:
         Device& m_device;
         std::unique_ptr<ShaderManager> m_shader_manager;

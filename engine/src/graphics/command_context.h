@@ -37,9 +37,7 @@ namespace Comet {
         void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
                                      uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
 
-        // 提交和同步
-        void submit_and_wait(); // 立即提交并等待完成（用于资源上传）
-        void submit(); // 异步提交（未来扩展）
+        void submit_and_wait();
 
     private:
         Device& m_device;

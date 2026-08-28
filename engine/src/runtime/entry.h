@@ -7,6 +7,6 @@ int main() {                                                            \
     App app;                                                            \
     return Comet::run(&app, {                                           \
         .config_directory = COMET_CONFIG_DIRECTORY,                     \
-        .config_profile = COMET_DEFAULT_CONFIG_PROFILE                  \
+        .config_profile = COMET_CONFIG_PROFILE                  \
     });                                                                 \
 }

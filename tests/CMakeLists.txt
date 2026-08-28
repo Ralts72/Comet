@@ -1,12 +1,6 @@
-cmake_minimum_required(VERSION 3.31)
-project(Test)
-
-set(CMAKE_CXX_STANDARD 20)
-
 # 收集所有测试源文件
 file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
 )
 list(APPEND TEST_SOURCES
         "${CMAKE_SOURCE_DIR}/editor/src/editor_scene_session.cpp"
@@ -18,7 +12,7 @@ add_executable(unit_testing ${TEST_SOURCES})
 # 链接库，确保正确的依赖顺序
 target_link_libraries(unit_testing PRIVATE
         engine
-        gtest_main
+        gtest
         glfw
         Vulkan::Vulkan
 )

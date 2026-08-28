@@ -73,15 +73,11 @@ namespace Comet {
 
         for(uint32_t i = 0; i < create_info.graphics_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(graphics_queue_family_index.value(), i);
-            m_graphics_queues.emplace_back(
-                graphics_queue_family_index.value(), i, vk_queue,
-                Queue::Type::Graphics);
+            m_graphics_queues.emplace_back(vk_queue);
         }
         for(uint32_t i = 0; i < create_info.present_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(present_queue_family_index.value(), i);
-            m_present_queues.emplace_back(
-                present_queue_family_index.value(), i, vk_queue,
-                Queue::Type::Present);
+            m_present_queues.emplace_back(vk_queue);
         }
 
         create_pipeline_cache();

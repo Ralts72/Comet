@@ -1,21 +1,23 @@
 #pragma once
 #include "common/config.h"
 #include "common/export.h"
-#include "common/shader_resources.h"
 #include "core/math_utils.h"
 #include "frame_manager.h"
 #include "graphics/buffer.h"
 #include "graphics/descriptor_set.h"
+#include "graphics/enums.h"
 #include "graphics/pipeline.h"
 #include "graphics/render_pass.h"
 #include "graphics/sampler.h"
 #include "graphics/vertex_description.h"
+#include "graphics/vk_common.h"
 #include "mesh.h"
 #include "render_context.h"
 #include "render_submission.h"
 #include "render_target.h"
 #include "texture.h"
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -40,7 +42,6 @@ namespace Comet {
 
         void setup_pipeline(ResourceManager& resource_manager,
                             const ShaderLayout& layout,
-                            const VertexInputDescription& vertex_input,
                             const PipelineConfig& config);
 
         void render(const RenderSubmission& submission);
@@ -57,13 +58,7 @@ namespace Comet {
         [[nodiscard]] const FrameManager& get_frame_manager() const { return *m_frame_manager; }
         [[nodiscard]] RenderTarget& get_render_target() { return *m_render_target; }
         [[nodiscard]] const RenderTarget& get_render_target() const { return *m_render_target; }
-        [[nodiscard]] PipelineManager& get_pipeline_manager() { return *m_pipeline_manager; }
-        [[nodiscard]] const PipelineManager& get_pipeline_manager() const { return *m_pipeline_manager; }
-        [[nodiscard]] RenderPass& get_render_pass() { return *m_render_pass; }
-        [[nodiscard]] const RenderPass& get_render_pass() const { return *m_render_pass; }
-        [[nodiscard]] const std::shared_ptr<Pipeline>& get_pipeline() const { return m_pipeline; }
         [[nodiscard]] CommandBuffer& get_current_command_buffer() const;
-        [[nodiscard]] bool is_viewport_rendering() const { return m_uses_viewport_target; }
         [[nodiscard]] std::vector<vk::ImageView> get_viewport_color_views() const;
 
         [[nodiscard]] bool recreate_swapchain();
@@ -116,6 +111,9 @@ namespace Comet {
         std::unordered_map<AssetHandle, MaterialDescriptorState> m_material_descriptors;
         std::vector<std::shared_ptr<Buffer>> m_view_project_uniform_buffers;
         Config::Vulkan m_vulkan_config;
-        Config::Render m_render_config;
+        Format m_surface_format;
+        Format m_depth_format;
+        SampleCount m_msaa_samples;
+        ClearValue m_color_clear_value;
     };
 }

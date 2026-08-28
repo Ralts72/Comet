@@ -1,7 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
-#include "common/shader_resources.h"
+#include "common/shader_types.h"
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
 

@@ -1,41 +1,57 @@
-function(compile_shader SHADERS TARGET_NAME SHADER_INCLUDE_FOLDER GLSLANG_BIN)
-    set(working_dir "${CMAKE_CURRENT_SOURCE_DIR}")
-    set(ALL_GENERATED_SPV_FILES "")
-    set(ALL_GENERATED_CPP_FILES "")
-    if (UNIX)
-        execute_process(COMMAND chmod a+x ${GLSLANG_BIN})
-    endif ()
+function(compile_shaders)
+    cmake_parse_arguments(
+            SHADER
+            ""
+            "TARGET;COMPILER;INCLUDE_DIRECTORY;OUTPUT_DIRECTORY"
+            "SOURCES;DEPENDENCIES"
+            ${ARGN}
+    )
 
-    foreach (SHADER ${SHADERS})
-        get_filename_component(SHADER_NAME ${SHADER} NAME)
-        string(REPLACE "." "_" HEADER_NAME ${SHADER_NAME})
-        string(TOUPPER ${HEADER_NAME} GLOBAL_SHADER_VAR)
-        set(SPV_FILE "${CMAKE_CURRENT_SOURCE_DIR}/spv/${SHADER_NAME}.spv")
-        set(CPP_FILE "${CMAKE_CURRENT_SOURCE_DIR}/include/${HEADER_NAME}.h")
+    set(SPV_OUTPUT_DIRECTORY "${SHADER_OUTPUT_DIRECTORY}/spv")
+    set(CPP_OUTPUT_DIRECTORY "${SHADER_OUTPUT_DIRECTORY}/include")
+    set(SPV_TO_CPP_SCRIPT "${CMAKE_SOURCE_DIR}/engine/cmake/spv_to_cpp.cmake")
+    set(ALL_GENERATED_SPV_FILES)
+    set(ALL_GENERATED_CPP_FILES)
+
+    foreach (SOURCE_FILE IN LISTS SHADER_SOURCES)
+        get_filename_component(SHADER_NAME "${SOURCE_FILE}" NAME)
+        string(REPLACE "." "_" HEADER_NAME "${SHADER_NAME}")
+        string(TOUPPER "${HEADER_NAME}" GLOBAL_SHADER_VAR)
+        set(SPV_FILE "${SPV_OUTPUT_DIRECTORY}/${SHADER_NAME}.spv")
+        set(CPP_FILE "${CPP_OUTPUT_DIRECTORY}/${HEADER_NAME}.h")
+
         add_custom_command(
-                OUTPUT ${SPV_FILE}
-                COMMAND ${GLSLANG_BIN} -I${SHADER_INCLUDE_FOLDER} -V100 -o ${SPV_FILE} ${SHADER}
-                DEPENDS ${SHADER}
-                WORKING_DIRECTORY "${working_dir}")
+                OUTPUT "${SPV_FILE}"
+                COMMAND "${CMAKE_COMMAND}" -E make_directory "${SPV_OUTPUT_DIRECTORY}"
+                COMMAND "${SHADER_COMPILER}"
+                        "-I${SHADER_INCLUDE_DIRECTORY}"
+                        -V100
+                        -o "${SPV_FILE}"
+                        "${SOURCE_FILE}"
+                DEPENDS "${SOURCE_FILE}" ${SHADER_DEPENDENCIES}
+                VERBATIM
+        )
 
-        list(APPEND ALL_GENERATED_SPV_FILES ${SPV_FILE})
+        list(APPEND ALL_GENERATED_SPV_FILES "${SPV_FILE}")
 
         add_custom_command(
-                OUTPUT ${CPP_FILE}
-                COMMAND ${CMAKE_COMMAND}
-                -DSPV_FILE="${SPV_FILE}"
-                -DCPP_FILE="${CPP_FILE}"
-                -DGLOBAL_VAR="${GLOBAL_SHADER_VAR}"
-                -DEMBED_RESOURCE_ENTRY=1
-                -P "${CMAKE_SOURCE_DIR}/engine/cmake/spv_to_cpp.cmake"
-                DEPENDS ${SPV_FILE}
-                WORKING_DIRECTORY "${working_dir}")
+                OUTPUT "${CPP_FILE}"
+                COMMAND "${CMAKE_COMMAND}" -E make_directory "${CPP_OUTPUT_DIRECTORY}"
+                COMMAND "${CMAKE_COMMAND}"
+                        "-DSPV_FILE=${SPV_FILE}"
+                        "-DCPP_FILE=${CPP_FILE}"
+                        "-DGLOBAL_VAR=${GLOBAL_SHADER_VAR}"
+                        -DEMBED_RESOURCE_ENTRY=1
+                        -P "${SPV_TO_CPP_SCRIPT}"
+                DEPENDS "${SPV_FILE}" "${SPV_TO_CPP_SCRIPT}"
+                VERBATIM
+        )
 
-        list(APPEND ALL_GENERATED_CPP_FILES ${CPP_FILE})
-
+        list(APPEND ALL_GENERATED_CPP_FILES "${CPP_FILE}")
     endforeach ()
 
-    add_custom_target(${TARGET_NAME}
-            DEPENDS ${ALL_GENERATED_SPV_FILES} ${ALL_GENERATED_CPP_FILES} SOURCES ${SHADERS})
-
+    add_custom_target(${SHADER_TARGET}
+            DEPENDS ${ALL_GENERATED_SPV_FILES} ${ALL_GENERATED_CPP_FILES}
+            SOURCES ${SHADER_SOURCES} ${SHADER_DEPENDENCIES}
+    )
 endfunction()

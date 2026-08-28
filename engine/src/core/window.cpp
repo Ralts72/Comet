@@ -2,14 +2,12 @@
 #include "common/logger.h"
 #include "common/profiler.h"
 #include <algorithm>
-#define GL_FALSE 0
 
 namespace Comet {
-    Window::Window(const Config::Window& config)
-        : m_title(config.title), m_width(config.width), m_height(config.height) {
+    Window::Window(const Config::Window& config) {
         PROFILE_SCOPE("Window::Constructor");
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
         glfwWindowHint(GLFW_RESIZABLE, config.resizable ? GLFW_TRUE : GLFW_FALSE);
 
@@ -30,13 +28,8 @@ namespace Comet {
 
         m_window = glfwCreateWindow(actual_width, actual_height, config.title.c_str(), monitor, nullptr);
         if(!m_window) {
-            LOG_ERROR("Failed to create glfw window.");
-            return;
+            LOG_FATAL("Failed to create glfw window.");
         }
-
-        // 更新实际的窗口尺寸
-        m_width = actual_width;
-        m_height = actual_height;
 
         // 窗口模式下居中显示，全屏模式不需要
         if(!config.fullscreen) {
@@ -47,8 +40,6 @@ namespace Comet {
             }
         }
 
-        glfwMakeContextCurrent(m_window);
-        // SetupWindowCallbacks();
         glfwShowWindow(m_window);
     }
 
@@ -82,8 +73,4 @@ namespace Comet {
         glfwWaitEvents();
     }
 
-    void Window::swap_buffers() const {
-        PROFILE_SCOPE("Window::SwapBuffers");
-        glfwSwapBuffers(m_window);
-    }
 }

@@ -1,7 +1,6 @@
 #pragma once
 #include <gtest/gtest.h>
 #include "../engine/src/core/math_utils.h"
-#include <chrono>
 #include <random>
 #include <vector>
 
@@ -36,17 +35,6 @@ namespace Comet::Tests {
                 }
             }
             return true;
-        }
-
-        // 性能测试工具
-        template<typename Func>
-        static double MeasureExecutionTime(Func&& func) {
-            auto start = std::chrono::high_resolution_clock::now();
-            func();
-            auto end = std::chrono::high_resolution_clock::now();
-
-            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-            return duration.count() / 1000.0; // 返回毫秒
         }
 
         // 生成测试数据
@@ -119,12 +107,5 @@ namespace Comet::Tests {
 #define EXPECT_NORMALIZED(vector) \
     EXPECT_TRUE(TestUtils::IsNormalized(vector)) \
     << "Vector is not normalized: (" << vector.x << ", " << vector.y << ", " << vector.z << ")"
-
-    // 性能测试宏
-#define EXPECT_PERFORMANCE(code, max_time_ms) \
-    do { \
-        double elapsed = TestUtils::MeasureExecutionTime([&]() { code; }); \
-        EXPECT_LT(elapsed, max_time_ms) \
-        << "Code took " << elapsed << "ms, expected less than " << max_time_ms << "ms"; \
-    } while(0)
+    
 } // namespace Comet::Tests

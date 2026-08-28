@@ -1,15 +1,18 @@
 #include "shader.h"
 
-#include <utility>
 #include "device.h"
 #include "common/logger.h"
 
 namespace Comet {
-    Shader::Shader(Device& device, const std::string& name, const std::vector<unsigned char>& spv_data, ShaderLayout layout)
-        : m_device(device), m_name(name), m_spv_data(spv_data), m_layout(std::move(layout)) {
+    Shader::Shader(Device& device, const std::string& name,
+                   std::span<const std::uint32_t> spirv_words)
+        : m_device(device) {
+        if(spirv_words.empty()) {
+            LOG_FATAL("Shader '{}' has empty SPIR-V bytecode", name);
+        }
         vk::ShaderModuleCreateInfo create_info{};
-        create_info.codeSize = spv_data.size();
-        create_info.pCode = reinterpret_cast<const uint32_t*>(spv_data.data());
+        create_info.codeSize = spirv_words.size_bytes();
+        create_info.pCode = spirv_words.data();
         m_shader_module = m_device.get().createShaderModule(create_info);
         LOG_INFO("Vulkan shader module '{}' created successfully", name);
     }
@@ -18,26 +21,17 @@ namespace Comet {
         m_device.get().destroyShaderModule(m_shader_module);
     }
 
-    std::shared_ptr<Shader> ShaderManager::load_shader(const std::string& name, const std::vector<unsigned char>& spv_data, const ShaderLayout& layout) {
-        if(m_shaders.contains(name)) {
+    std::shared_ptr<Shader> ShaderManager::load_shader(
+        const std::string& name,
+        std::span<const std::uint32_t> spirv_words) {
+        if(const auto it = m_shaders.find(name); it != m_shaders.end()) {
             LOG_DEBUG("shader {} already exists, skipping load", name);
-            return m_shaders[name];
+            return it->second;
         }
-        const auto shader = std::make_shared<Shader>(m_device, name, spv_data, layout);
+        const auto shader = std::make_shared<Shader>(m_device, name, spirv_words);
         m_shaders[name] = shader;
         LOG_INFO("Shader '{}' loaded and cached successfully", name);
         return shader;
     }
-
-    std::shared_ptr<Shader> ShaderManager::get_shader(const std::string& name) const {
-        if(m_shaders.contains(name)) {
-            return m_shaders.find(name)->second;
-        }
-        LOG_WARN("no shader found for name: {}", name);
-        return nullptr;
-    }
-
-    void ShaderManager::clean_up() {
-        m_shaders.clear();
-    }
+    
 }

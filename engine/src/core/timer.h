@@ -18,13 +18,12 @@ namespace Comet {
         Timer();
         ~Timer() = default;
         void tick();
+        
+        [[nodiscard]] UpdateContext get_update_context() const;
+
+      private:
         void reset();
 
-        [[nodiscard]] float get_delta_time() const {return m_delta_time;}
-        [[nodiscard]] float get_total_time() const {return m_total_time;}
-        [[nodiscard]] float get_fps() const { return m_fps; }
-        [[nodiscard]] UpdateContext get_update_context() const;
-    private:
         std::chrono::time_point<std::chrono::high_resolution_clock> m_last_frame;
         float m_total_time = 0.0f;
         float m_delta_time = 0.0f;

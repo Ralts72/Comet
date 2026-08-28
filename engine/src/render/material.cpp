@@ -141,7 +141,4 @@ namespace Comet {
         return std::make_shared<MaterialInstance>(material);
     }
 
-    void MaterialManager::clean_up() {
-        m_materials.clear();
-    }
 }

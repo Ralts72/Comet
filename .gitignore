@@ -1,15 +1,10 @@
 .idea/
 .vscode/
-.claude/
+.cache/
 **/.DS_Store
-*.spv
 build/
-build-debug/
 build-editor/
 build-release/
-cmake-build-debug/
-cmake-build-release/
-.cache/
 logs/
 .codegraph/
 imgui.ini

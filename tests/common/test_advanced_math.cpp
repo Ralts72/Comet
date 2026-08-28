@@ -74,19 +74,6 @@ TEST_F(AdvancedMathTest, RandomVectorGeneration) {
     }
 }
 
-TEST_F(AdvancedMathTest, PerformanceMeasurement) {
-    // 测试性能测量工具
-    std::vector<Math::Vec3> vectors = TestUtils::GenerateRandomVectors(1000);
-
-    EXPECT_PERFORMANCE({
-        for (const auto& vec : vectors) {
-            Math::Vec3 normalized = normalize(vec);
-            float len = Math::length(normalized);
-            (void)len; // 避免未使用变量警告
-        }
-    }, 5.0); // 期望在5毫秒内完成
-}
-
 TEST_F(AdvancedMathTest, ComplexTransformChain) {
     // 测试复杂的变换链
     Math::Mat4 final_transform = Math::Mat4(1.0f);

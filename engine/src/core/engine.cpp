@@ -6,8 +6,7 @@
 #include "scene/scene.h"
 
 namespace Comet {
-    Engine::Engine(Config config)
-        : m_config(std::move(config)) {
+    Engine::Engine(const Config& config) {
         PROFILE_SCOPE("Engine::Constructor");
         LOG_INFO("init timer");
         m_timer = std::make_unique<Timer>();
@@ -15,16 +14,15 @@ namespace Comet {
 
         LOG_INFO("init glfw");
         if(!glfwInit()) {
-            LOG_ERROR("Failed to init glfw.");
-            return;
+            LOG_FATAL("Failed to init glfw.");
         }
 
         LOG_INFO("init window");
-        m_window = std::make_unique<Window>(m_config.window);
+        m_window = std::make_unique<Window>(config.window);
 
         LOG_INFO("init renderer");
         m_renderer = std::make_unique<Renderer>(
-            *m_window, m_config, *m_asset_registry);
+            *m_window, config, *m_asset_registry);
     }
 
     Engine::~Engine() {
@@ -76,8 +74,6 @@ namespace Comet {
             }
 
             m_renderer->on_render(render_scene);
-
-            m_window->swap_buffers();
         }
     }
 }

@@ -92,9 +92,4 @@ namespace Comet {
         m_submitted = true;
     }
 
-    void CommandContext::submit() {
-        // 未来扩展：异步提交
-        // 目前先使用 submit_and_wait
-        submit_and_wait();
-    }
 }

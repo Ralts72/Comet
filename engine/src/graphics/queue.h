@@ -20,9 +20,7 @@ namespace Comet {
 
     class Queue {
     public:
-        enum class Type { Graphics, Present, Transfer, Compute };
-
-        Queue(uint32_t family_index, uint32_t index, vk::Queue queue, Type type);
+        explicit Queue(vk::Queue queue): m_queue(queue) {}
 
         ~Queue() = default;
 
@@ -37,14 +35,8 @@ namespace Comet {
                                          uint32_t image_index) const;
 
         [[nodiscard]] vk::Queue get() const { return m_queue; }
-        [[nodiscard]] uint32_t get_family_index() const { return m_family_index; }
-        [[nodiscard]] uint32_t get_index() const { return m_index; }
-        [[nodiscard]] Type get_type() const { return m_type; }
 
     private:
-        uint32_t m_family_index;
-        uint32_t m_index;
         vk::Queue m_queue;
-        Type m_type;
     };
 }

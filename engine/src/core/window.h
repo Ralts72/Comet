@@ -7,8 +7,6 @@
 #include "common/config.h"
 #include "core/math_utils.h"
 
-#include <string>
-
 namespace Comet {
     class Window {
     public:
@@ -26,12 +24,7 @@ namespace Comet {
 
         void wait_events();
 
-        void swap_buffers() const;
-
     private:
-        GLFWwindow* m_window;
-        std::string m_title;
-        [[maybe_unused]] int m_width;
-        [[maybe_unused]] int m_height;
+        GLFWwindow* m_window = nullptr;
     };
 }

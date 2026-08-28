@@ -96,18 +96,19 @@ namespace Comet {
                        const std::shared_ptr<PipelineLayout>& layout,
                        const std::shared_ptr<Shader>& vertex_shader,
                        const std::shared_ptr<Shader>& fragment_shader,
-                       PipelineConfig config) : m_name(std::move(name)), m_device(device),
-                                                m_render_pass(render_pass), m_layout(layout),
-                                                m_config(std::move(config)) {
+                       const PipelineConfig& config)
+        : m_name(std::move(name)), m_device(device), m_layout(layout) {
         auto shader_stages = create_shader_stages(vertex_shader, fragment_shader);
-        auto vertex_input_state = create_vertex_input_state();
-        auto input_assembly_state = create_input_assembly_state();
-        auto rasterization_state = create_rasterization_state();
-        auto multisample_state = create_multisample_state();
-        auto depth_stencil_state = create_depth_stencil_state();
-        auto color_blend_state = create_color_blend_state();
-        auto viewport_state = create_viewport_state();
-        auto dynamic_state = create_dynamic_state();
+        auto vertex_input_state = create_vertex_input_state(config);
+        auto input_assembly_state = create_input_assembly_state(config);
+        auto rasterization_state = create_rasterization_state(config);
+        auto multisample_state = create_multisample_state(config);
+        auto depth_stencil_state = create_depth_stencil_state(config);
+        auto color_blend_state = create_color_blend_state(config);
+        const vk::Viewport viewport = Graphics::get_viewport(100.0f, 100.0f);
+        const vk::Rect2D scissor = Graphics::get_scissor(100.0f, 100.0f);
+        auto viewport_state = create_viewport_state(viewport, scissor);
+        auto dynamic_state = create_dynamic_state(config);
 
         vk::GraphicsPipelineCreateInfo pipeline_create_info = {};
         pipeline_create_info.stageCount = static_cast<uint32_t>(shader_stages.size());
@@ -121,7 +122,7 @@ namespace Comet {
         pipeline_create_info.pColorBlendState = &color_blend_state;
         pipeline_create_info.pDynamicState = &dynamic_state;
         pipeline_create_info.layout = m_layout->get();
-        pipeline_create_info.renderPass = m_render_pass.get();
+        pipeline_create_info.renderPass = render_pass.get();
         pipeline_create_info.subpass = 0;
         pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
         pipeline_create_info.basePipelineIndex = 0;
@@ -151,73 +152,78 @@ namespace Comet {
         return pipeline_shader_stage;
     }
 
-    vk::PipelineVertexInputStateCreateInfo Pipeline::create_vertex_input_state() const {
+    vk::PipelineVertexInputStateCreateInfo Pipeline::create_vertex_input_state(
+        const PipelineConfig& config) {
         vk::PipelineVertexInputStateCreateInfo vertex_input_state_info = {};
-        vertex_input_state_info.vertexBindingDescriptionCount = static_cast<uint32_t>(m_config.vertex_input_state.vertex_bindings.size());
-        vertex_input_state_info.pVertexBindingDescriptions = m_config.vertex_input_state.vertex_bindings.data();
-        vertex_input_state_info.vertexAttributeDescriptionCount = static_cast<uint32_t>(m_config.vertex_input_state.vertex_attributes.size());
-        vertex_input_state_info.pVertexAttributeDescriptions = m_config.vertex_input_state.vertex_attributes.data();
+        vertex_input_state_info.vertexBindingDescriptionCount = static_cast<uint32_t>(config.vertex_input_state.vertex_bindings.size());
+        vertex_input_state_info.pVertexBindingDescriptions = config.vertex_input_state.vertex_bindings.data();
+        vertex_input_state_info.vertexAttributeDescriptionCount = static_cast<uint32_t>(config.vertex_input_state.vertex_attributes.size());
+        vertex_input_state_info.pVertexAttributeDescriptions = config.vertex_input_state.vertex_attributes.data();
         return vertex_input_state_info;
     }
 
-    vk::PipelineInputAssemblyStateCreateInfo Pipeline::create_input_assembly_state() const {
+    vk::PipelineInputAssemblyStateCreateInfo Pipeline::create_input_assembly_state(
+        const PipelineConfig& config) {
         vk::PipelineInputAssemblyStateCreateInfo input_assembly_state_info = {};
-        input_assembly_state_info.topology = Graphics::primitive_topology_to_vk(m_config.input_assembly_state.topology);
-        input_assembly_state_info.primitiveRestartEnable = m_config.input_assembly_state.primitive_restart_enable;
+        input_assembly_state_info.topology = Graphics::primitive_topology_to_vk(config.input_assembly_state.topology);
+        input_assembly_state_info.primitiveRestartEnable = config.input_assembly_state.primitive_restart_enable;
         return input_assembly_state_info;
     }
 
-    vk::PipelineViewportStateCreateInfo Pipeline::create_viewport_state() {
-        m_config.viewport = Graphics::get_viewport(100.0f, 100.0f);
-        m_config.scissor = Graphics::get_scissor(100.0f, 100.0f);
+    vk::PipelineViewportStateCreateInfo Pipeline::create_viewport_state(
+        const vk::Viewport& viewport, const vk::Rect2D& scissor) {
         vk::PipelineViewportStateCreateInfo viewport_state_info = {};
         viewport_state_info.viewportCount = 1;
-        viewport_state_info.pViewports = &m_config.viewport;
+        viewport_state_info.pViewports = &viewport;
         viewport_state_info.scissorCount = 1;
-        viewport_state_info.pScissors = &m_config.scissor;
+        viewport_state_info.pScissors = &scissor;
         return viewport_state_info;
     }
 
-    vk::PipelineDynamicStateCreateInfo Pipeline::create_dynamic_state() const {
+    vk::PipelineDynamicStateCreateInfo Pipeline::create_dynamic_state(
+        const PipelineConfig& config) {
         vk::PipelineDynamicStateCreateInfo dynamic_state_info = {};
-        dynamic_state_info.dynamicStateCount = static_cast<uint32_t>(m_config.dynamic_state.dynamic_states.size());
-        dynamic_state_info.pDynamicStates = m_config.dynamic_state.dynamic_states.data();
+        dynamic_state_info.dynamicStateCount = static_cast<uint32_t>(config.dynamic_state.dynamic_states.size());
+        dynamic_state_info.pDynamicStates = config.dynamic_state.dynamic_states.data();
         return dynamic_state_info;
     }
 
-    vk::PipelineRasterizationStateCreateInfo Pipeline::create_rasterization_state() const {
+    vk::PipelineRasterizationStateCreateInfo Pipeline::create_rasterization_state(
+        const PipelineConfig& config) {
         vk::PipelineRasterizationStateCreateInfo rasterization_state_info = {};
-        rasterization_state_info.depthClampEnable = m_config.rasterization_state.depth_clamp_enable;
-        rasterization_state_info.rasterizerDiscardEnable = m_config.rasterization_state.rasterizer_discard_enable;
-        rasterization_state_info.polygonMode = Graphics::polygon_mode_to_vk(m_config.rasterization_state.polygon_mode);
-        rasterization_state_info.lineWidth = m_config.rasterization_state.line_width;
-        rasterization_state_info.cullMode = Graphics::cull_mode_to_vk(Flags<CullMode>(m_config.rasterization_state.cull_mode));
-        rasterization_state_info.frontFace = Graphics::front_face_to_vk(m_config.rasterization_state.front_face);
-        rasterization_state_info.depthBiasEnable = m_config.rasterization_state.depth_bias_enable;
-        rasterization_state_info.depthBiasConstantFactor = m_config.rasterization_state.depth_bias_constant_factor;
-        rasterization_state_info.depthBiasClamp = m_config.rasterization_state.depth_bias_clamp;
-        rasterization_state_info.depthBiasSlopeFactor = m_config.rasterization_state.depth_bias_slope_factor;
+        rasterization_state_info.depthClampEnable = config.rasterization_state.depth_clamp_enable;
+        rasterization_state_info.rasterizerDiscardEnable = config.rasterization_state.rasterizer_discard_enable;
+        rasterization_state_info.polygonMode = Graphics::polygon_mode_to_vk(config.rasterization_state.polygon_mode);
+        rasterization_state_info.lineWidth = config.rasterization_state.line_width;
+        rasterization_state_info.cullMode = Graphics::cull_mode_to_vk(Flags<CullMode>(config.rasterization_state.cull_mode));
+        rasterization_state_info.frontFace = Graphics::front_face_to_vk(config.rasterization_state.front_face);
+        rasterization_state_info.depthBiasEnable = config.rasterization_state.depth_bias_enable;
+        rasterization_state_info.depthBiasConstantFactor = config.rasterization_state.depth_bias_constant_factor;
+        rasterization_state_info.depthBiasClamp = config.rasterization_state.depth_bias_clamp;
+        rasterization_state_info.depthBiasSlopeFactor = config.rasterization_state.depth_bias_slope_factor;
         return rasterization_state_info;
     }
 
-    vk::PipelineMultisampleStateCreateInfo Pipeline::create_multisample_state() const {
+    vk::PipelineMultisampleStateCreateInfo Pipeline::create_multisample_state(
+        const PipelineConfig& config) {
         vk::PipelineMultisampleStateCreateInfo multisample_state_info = {};
-        multisample_state_info.rasterizationSamples = Graphics::sample_count_to_vk(m_config.multisample_state.rasterization_samples);
-        multisample_state_info.sampleShadingEnable = m_config.multisample_state.sample_shading_enable;
-        multisample_state_info.minSampleShading = m_config.multisample_state.min_sample_shading;
+        multisample_state_info.rasterizationSamples = Graphics::sample_count_to_vk(config.multisample_state.rasterization_samples);
+        multisample_state_info.sampleShadingEnable = config.multisample_state.sample_shading_enable;
+        multisample_state_info.minSampleShading = config.multisample_state.min_sample_shading;
         multisample_state_info.pSampleMask = nullptr;
         multisample_state_info.alphaToCoverageEnable = VK_FALSE;
         multisample_state_info.alphaToOneEnable = VK_FALSE;
         return multisample_state_info;
     }
 
-    vk::PipelineDepthStencilStateCreateInfo Pipeline::create_depth_stencil_state() const {
+    vk::PipelineDepthStencilStateCreateInfo Pipeline::create_depth_stencil_state(
+        const PipelineConfig& config) {
         vk::PipelineDepthStencilStateCreateInfo depth_stencil_state_info = {};
-        depth_stencil_state_info.depthTestEnable = m_config.depth_stencil_state.depth_test_enable;
-        depth_stencil_state_info.depthWriteEnable = m_config.depth_stencil_state.depth_write_enable;
-        depth_stencil_state_info.depthCompareOp = Graphics::compare_op_to_vk(m_config.depth_stencil_state.depth_compare_op);
-        depth_stencil_state_info.depthBoundsTestEnable = m_config.depth_stencil_state.depth_bounds_test_enable;
-        depth_stencil_state_info.stencilTestEnable = m_config.depth_stencil_state.stencil_test_enable;
+        depth_stencil_state_info.depthTestEnable = config.depth_stencil_state.depth_test_enable;
+        depth_stencil_state_info.depthWriteEnable = config.depth_stencil_state.depth_write_enable;
+        depth_stencil_state_info.depthCompareOp = Graphics::compare_op_to_vk(config.depth_stencil_state.depth_compare_op);
+        depth_stencil_state_info.depthBoundsTestEnable = config.depth_stencil_state.depth_bounds_test_enable;
+        depth_stencil_state_info.stencilTestEnable = config.depth_stencil_state.stencil_test_enable;
         depth_stencil_state_info.front = vk::StencilOpState{};
         depth_stencil_state_info.back = vk::StencilOpState{};
         depth_stencil_state_info.minDepthBounds = 0.0f;
@@ -225,12 +231,13 @@ namespace Comet {
         return depth_stencil_state_info;
     }
 
-    vk::PipelineColorBlendStateCreateInfo Pipeline::create_color_blend_state() const {
+    vk::PipelineColorBlendStateCreateInfo Pipeline::create_color_blend_state(
+        const PipelineConfig& config) {
         vk::PipelineColorBlendStateCreateInfo color_blend_state_info = {};
         color_blend_state_info.logicOpEnable = VK_FALSE;
         color_blend_state_info.logicOp = vk::LogicOp::eClear;
         color_blend_state_info.attachmentCount = 1;
-        color_blend_state_info.pAttachments = &m_config.color_blend_state;
+        color_blend_state_info.pAttachments = &config.color_blend_state;
         color_blend_state_info.blendConstants[0] = 0.0f;
         color_blend_state_info.blendConstants[1] = 0.0f;
         color_blend_state_info.blendConstants[2] = 0.0f;
@@ -250,7 +257,6 @@ namespace Comet {
     std::shared_ptr<Pipeline> PipelineManager::create_pipeline(
         const std::string& name,
         const ShaderLayout& layout,
-        const VertexInputDescription& vertex_input,
         const PipelineConfig& config,
         const std::shared_ptr<Shader>& vert_shader,
         const std::shared_ptr<Shader>& frag_shader) {
@@ -275,12 +281,4 @@ namespace Comet {
         return pipeline;
     }
 
-    std::shared_ptr<Pipeline> PipelineManager::get_pipeline(const std::string& name) const {
-        const auto it = m_pipelines.find(name);
-        if(it != m_pipelines.end()) {
-            return it->second;
-        }
-        LOG_WARN("Pipeline '{}' not found", name);
-        return nullptr;
-    }
 }

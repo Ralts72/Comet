@@ -26,7 +26,7 @@ namespace Comet {
             m_diagnostics = std::make_unique<Diagnostics>(config.diagnostics);
 
             // 2. 创建引擎
-            m_engine = std::make_unique<Engine>(std::move(config));
+            m_engine = std::make_unique<Engine>(config);
 
             // 3. 用户初始化代码
             on_init();

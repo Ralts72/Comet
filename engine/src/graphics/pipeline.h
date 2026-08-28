@@ -127,7 +127,7 @@ namespace Comet {
                  const std::shared_ptr<PipelineLayout>& layout,
                  const std::shared_ptr<Shader>& vertex_shader,
                  const std::shared_ptr<Shader>& fragment_shader,
-                 PipelineConfig config);
+                 const PipelineConfig& config);
 
         ~Pipeline();
 
@@ -144,31 +144,37 @@ namespace Comet {
         [[nodiscard]] const std::string& get_name() const { return m_name; }
 
     private:
-        [[nodiscard]] std::array<vk::PipelineShaderStageCreateInfo, 2> create_shader_stages(
+        [[nodiscard]] static std::array<vk::PipelineShaderStageCreateInfo, 2> create_shader_stages(
             const std::shared_ptr<Shader>& vertex_shader, const std::shared_ptr<Shader>& fragment_shader);
 
-        [[nodiscard]] vk::PipelineVertexInputStateCreateInfo create_vertex_input_state() const;
+        [[nodiscard]] static vk::PipelineVertexInputStateCreateInfo create_vertex_input_state(
+            const PipelineConfig& config);
 
-        [[nodiscard]] vk::PipelineInputAssemblyStateCreateInfo create_input_assembly_state() const;
+        [[nodiscard]] static vk::PipelineInputAssemblyStateCreateInfo create_input_assembly_state(
+            const PipelineConfig& config);
 
-        [[nodiscard]] vk::PipelineRasterizationStateCreateInfo create_rasterization_state() const;
+        [[nodiscard]] static vk::PipelineRasterizationStateCreateInfo create_rasterization_state(
+            const PipelineConfig& config);
 
-        [[nodiscard]] vk::PipelineMultisampleStateCreateInfo create_multisample_state() const;
+        [[nodiscard]] static vk::PipelineMultisampleStateCreateInfo create_multisample_state(
+            const PipelineConfig& config);
 
-        [[nodiscard]] vk::PipelineDepthStencilStateCreateInfo create_depth_stencil_state() const;
+        [[nodiscard]] static vk::PipelineDepthStencilStateCreateInfo create_depth_stencil_state(
+            const PipelineConfig& config);
 
-        [[nodiscard]] vk::PipelineColorBlendStateCreateInfo create_color_blend_state() const;
+        [[nodiscard]] static vk::PipelineColorBlendStateCreateInfo create_color_blend_state(
+            const PipelineConfig& config);
 
-        [[nodiscard]] vk::PipelineViewportStateCreateInfo create_viewport_state();
+        [[nodiscard]] static vk::PipelineViewportStateCreateInfo create_viewport_state(
+            const vk::Viewport& viewport, const vk::Rect2D& scissor);
 
-        [[nodiscard]] vk::PipelineDynamicStateCreateInfo create_dynamic_state() const;
+        [[nodiscard]] static vk::PipelineDynamicStateCreateInfo create_dynamic_state(
+            const PipelineConfig& config);
 
         std::string m_name;
         Device& m_device;
-        RenderPass& m_render_pass;
         vk::Pipeline m_pipeline;
         std::shared_ptr<PipelineLayout> m_layout;
-        PipelineConfig m_config;
     };
 
     class PipelineManager {
@@ -178,13 +184,10 @@ namespace Comet {
         std::shared_ptr<Pipeline> create_pipeline(
             const std::string& name,
             const ShaderLayout& layout,
-            const VertexInputDescription& vertex_input,
             const PipelineConfig& config,
             const std::shared_ptr<Shader>& vert_shader,
             const std::shared_ptr<Shader>& frag_shader
         );
-
-        [[nodiscard]] std::shared_ptr<Pipeline> get_pipeline(const std::string& name) const;
 
     private:
         Device& m_device;

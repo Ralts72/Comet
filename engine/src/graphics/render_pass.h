@@ -28,14 +28,11 @@ namespace Comet {
         RenderPass& operator=(RenderPass&&) noexcept = delete;
 
         [[nodiscard]] vk::RenderPass get() const { return m_render_pass; }
-        [[nodiscard]] const std::vector<RenderSubPass>& get_sub_passes() const { return m_sub_passes; }
         [[nodiscard]] const std::vector<Attachment>& get_attachments() const { return m_attachments; }
-        [[nodiscard]] uint32_t get_attachments_count() const { return static_cast<uint32_t>(m_attachments.size()); }
 
     private:
         vk::RenderPass m_render_pass;
         Device& m_device;
         std::vector<Attachment> m_attachments;
-        std::vector<RenderSubPass> m_sub_passes;
     };
 }

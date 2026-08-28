@@ -1,22 +1,23 @@
 set(TARGET_NAME ${SHADER_COMPILE_TARGET})
 
-file(GLOB_RECURSE SHADER_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/glsl/*.vert"
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/*.frag"
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/*.comp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/*.geom")
+set(SHADER_FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/cube_texture.vert"
+        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/cube_texture.frag"
+)
 
-SOURCE_GROUP("shaders" FILES ${SHADER_FILES})
+set(SHADER_SOURCE_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
+file(GLOB_RECURSE SHADER_INCLUDE_FILES CONFIGURE_DEPENDS
+        "${SHADER_SOURCE_INCLUDE_DIRECTORY}/*")
 
-set(SHADER_INCLUDE_FOLDER ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-if (NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/spv)
-    file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/spv)
-endif()
+source_group("shaders" FILES ${SHADER_FILES} ${SHADER_INCLUDE_FILES})
 
 include("../../cmake/compile_shader.cmake")
 
-compile_shader(
-        "${SHADER_FILES}"
-        "${TARGET_NAME}"
-        "${SHADER_INCLUDE_FOLDER}"
-        "${glslangValidator_executable}")
+compile_shaders(
+        TARGET ${TARGET_NAME}
+        COMPILER "${glslangValidator_executable}"
+        INCLUDE_DIRECTORY "${SHADER_SOURCE_INCLUDE_DIRECTORY}"
+        OUTPUT_DIRECTORY "${SHADER_GENERATED_DIRECTORY}"
+        SOURCES ${SHADER_FILES}
+        DEPENDENCIES ${SHADER_INCLUDE_FILES}
+)

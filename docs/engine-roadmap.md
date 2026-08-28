@@ -697,6 +697,17 @@ layout/pipeline ID 作为稳定缓存维度，只在材质或 layout 变化时�
 如果某类 material constants 使用 per-frame backing buffer，只为这部分维护 per-slot binding/offset state，不复制稳定
 纹理 binding。同一材质被多个 render item 使用时，不应重复进行字符串查询和资源解析。
 
+Shader 源码、编译结果和 Runtime Vulkan 对象应保持分层。路线图现阶段只确定以下能力边界：
+
+- Shader 源文件与共享 include 作为可再生成输入，由版本控制管理。
+- build-time compiler 与 editor compiler 共用 stage、entry、define/variant、target 和依赖信息的逻辑契约。
+- 编译结果可提供 SPIR-V、revision 和后续 reflection 生成的 `ShaderInterface`，Runtime 再从中创建
+  `ShaderModule`、`PipelineLayout` 和 `Pipeline`。
+- Shipping app 只消费预编译并打包的 Shader 数据，不携带 Shader 源码编译器。
+
+编译描述和编译结果是否对应独立类型、是否落盘、使用资源包还是构建期嵌入数据，等 Asset Database 方案确定后再选型。
+热加载不以 Runtime 直接读取松散 `.spv` 为前提。
+
 Shader reflection 后续从 SPIR-V 提取 set、binding、descriptor type、array count、stage 和 push constant，
 用于生成低层 `ShaderInterface`；它无法单独决定参数显示名、默认资源、颜色/法线等语义和
 Inspector 范围，这些仍由 Material metadata 提供。Shader reflection 与前述 C++ 组件反射是两套不同机制，
@@ -709,8 +720,10 @@ Inspector 范围，这些仍由 Material metadata 提供。Shader reflection 与
 ```text
 Editor FileWatcher
   -> Shader source changed（debounce）
+  -> 根据 Shader Asset/导入设置解析 stage、entry、define 和依赖
   -> ShaderCompiler 后台编译 SPIR-V
   -> Shader Reflection 生成新 ShaderInterface
+  -> 形成内存中的候选编译结果/revision
   -> 与旧 ShaderInterface 比较
       -> 接口兼容：重建 ShaderModule/Pipeline
       -> 接口变化：重建 Layout，失效相关 MaterialRuntimeCache
@@ -729,9 +742,10 @@ ShaderModule、Pipeline、PipelineLayout 或 DescriptorSetLayout。
 2. 建立 material/layout revision 和 `MaterialRuntimeCache`，停止每帧重复解析同一材质。
 3. 用手工 `MaterialLayout` 验证参数类型与 binding，拆分 frame/material descriptor set。
 4. 让 Render Queue 按 pipeline/material 排序，支持多 shader、多 pipeline 和非纹理材质参数。
-5. 接入 SPIR-V shader reflection 生成 `ShaderInterface`，Material metadata 继续补充高层语义。
-6. Material Inspector 基于 `MaterialLayout` 生成控件，修改参数后通过 revision 精确失效运行时缓存。
-7. 增加 editor-only Shader 热加载，复用 reflection 比较接口并重建 pipeline/材质绑定。
+5. 在 Asset Database 结构稳定后，确定 Shader 导入设置、编译结果与缓存/打包形式；此前不锁定具体类型。
+6. 接入 SPIR-V shader reflection 生成 `ShaderInterface`，Material metadata 继续补充高层语义。
+7. Material Inspector 基于 `MaterialLayout` 生成控件，修改参数后通过 revision 精确失效运行时缓存。
+8. 增加 editor-only Shader 热加载，生成候选编译结果，复用 reflection 比较接口并重建 pipeline/材质绑定。
 
 ### Pipeline 对象缓存与驱动 Cache 持久化
 
@@ -959,6 +973,8 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
 - Project 面板读取真实资产目录。
 - Texture Importer 支持基础导入参数。
 - Material 资产可保存和加载。
+- 在 Asset Database 的 metadata 和导入产物结构稳定后，设计 Shader Importer 的输入、编译结果、缓存键和打包方式；
+  当前 CMake 编译链不预设对应的 C++ 类型或落盘格式。
 - Mesh Importer 接入 glTF，至少支持静态网格。
 - Asset Registry/Asset Manager 负责把 `AssetHandle` 解析为资产元数据和导入产物。
 - ResourceManager 以 `AssetHandle` 为缓存键，创建或复用对应的 Runtime/GPU Resource，不直接承担资产扫描。
@@ -1150,6 +1166,8 @@ Scene Component / RenderItem
 - 基础光照模型：方向光、点光、聚光灯。
 - Shadow Map。
 - PBR 材质基础：base color、normal、metallic、roughness。
+- build-time compiler 和 editor compiler 向 Runtime 提供一致的 Shader 编译结果接口；Shipping 只消费打包数据，
+  editor 热加载可以直接使用内存中的候选结果，不以松散 `.spv` 文件为必要条件。
 - 先使用手工 `MaterialLayout` 跑通动态参数链路，再通过 SPIR-V shader reflection 生成低层
   descriptor/push-constant `ShaderInterface`。
 - Material Inspector 通过 `MaterialLayout` 和 material metadata 生成参数控件。

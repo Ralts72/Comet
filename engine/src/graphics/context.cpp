@@ -104,12 +104,10 @@ namespace Comet {
     Context::Context(
         const Window& window,
         const Config::Vulkan& config,
-        const DeviceCapabilityRequest& capability_request)
-        : m_config(config) {
-        create_instance();
+        const DeviceCapabilityRequest& capability_request) {
+        create_instance(config.enable_validation);
         create_surface(window);
         pickup_physical_device(capability_request);
-        m_memory_properties = m_device_capability.physical_device.getMemoryProperties();
     }
 
     Context::~Context() {
@@ -124,7 +122,7 @@ namespace Comet {
         }
     }
 
-    void Context::create_instance() {
+    void Context::create_instance(const bool validation_requested) {
         const uint32_t loader_api_version = vk::enumerateInstanceVersion();
         if(loader_api_version < REQUIRED_VULKAN_API_VERSION) {
             LOG_FATAL(
@@ -144,7 +142,7 @@ namespace Comet {
         app_info.apiVersion = REQUIRED_VULKAN_API_VERSION;
 
         std::vector<const char*> requested_layers;
-        if(m_config.enable_validation) {
+        if(validation_requested) {
             requested_layers.push_back("VK_LAYER_KHRONOS_validation");
         }
 
@@ -154,7 +152,7 @@ namespace Comet {
         }
         const std::vector<const char*> enabled_layers = get_available_names(
             requested_layers, available_layers, "layer");
-        m_validation_enabled = !enabled_layers.empty();
+        const bool validation_enabled = !enabled_layers.empty();
 
         std::set<std::string> available_extension_names;
         for(const auto& extension: vk::enumerateInstanceExtensionProperties()) {
@@ -194,16 +192,17 @@ namespace Comet {
             }
         }
 
-        if(m_validation_enabled) {
+        bool debug_utils_enabled = false;
+        if(validation_enabled) {
             if(available_extension_names.contains(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
                 enabled_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-                m_debug_utils_enabled = true;
+                debug_utils_enabled = true;
                 LOG_INFO("Enabled instance extension: {}", VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
             } else {
                 LOG_WARN("Vulkan validation is enabled, but {} is unavailable; validation messages cannot be captured",
                     VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
             }
-        } else if(m_config.enable_validation) {
+        } else if(validation_requested) {
             LOG_WARN("Vulkan validation was requested, but no validation layer is available");
         }
 
@@ -212,7 +211,7 @@ namespace Comet {
 #ifdef __APPLE__
         create_info.flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
 #endif
-        if(m_debug_utils_enabled) {
+        if(debug_utils_enabled) {
             create_info.pNext = &debug_messenger_create_info;
         }
         create_info.pApplicationInfo = &app_info;
@@ -222,13 +221,13 @@ namespace Comet {
         create_info.ppEnabledExtensionNames = enabled_extensions.data();
         m_instance = vk::createInstance(create_info);
 
-        if(m_debug_utils_enabled) {
+        if(debug_utils_enabled) {
             m_debug_messenger = create_debug_messenger(
                 m_instance, debug_messenger_create_info);
             LOG_INFO("Vulkan debug messenger created successfully");
         }
         LOG_INFO("Vulkan instance created successfully (validation: {})",
-            m_validation_enabled ? "enabled" : "disabled");
+            validation_enabled ? "enabled" : "disabled");
     }
 
     void Context::pickup_physical_device(

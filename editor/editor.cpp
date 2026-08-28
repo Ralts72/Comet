@@ -105,8 +105,7 @@ namespace {
 
             m_imgui_context = std::make_unique<CometEditor::ImGuiContext>(
                 engine.get_window(),
-                render_context,
-                engine.get_config().vulkan
+                render_context
             );
 
             // 设置日志重定向

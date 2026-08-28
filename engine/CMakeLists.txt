@@ -1,13 +1,9 @@
-cmake_minimum_required(VERSION 3.31)
-project(Comet)
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_program(glslangValidator_executable glslangValidator)
 if (NOT glslangValidator_executable)
     message(FATAL_ERROR "glslangValidator not found, please install it to compile shaders")
 endif ()
 set(SHADER_COMPILE_TARGET shader_compile)
+set(SHADER_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders")
 add_subdirectory(assets/shaders)
 
 set(SOURCES
@@ -76,7 +72,8 @@ target_link_libraries(engine
 target_include_directories(engine
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/include
+        PRIVATE
+        ${SHADER_GENERATED_DIRECTORY}/include
 )
 target_precompile_headers(engine PRIVATE
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h>"

@@ -1,6 +1,6 @@
 #pragma once
 #include "common/config.h"
-#include "common/shader_resources.h"
+#include "graphics/enums.h"
 #include "render_context.h"
 #include "render_scene.h"
 #include "scene_resolver.h"
@@ -49,7 +49,6 @@ namespace Comet {
         SceneResolver m_scene_resolver;
         ImGuiRenderDelegate m_on_imgui_render;
 
-        Config::Vulkan m_vulkan_config;
-        Config::Render m_render_config;
+        SampleCount m_msaa_samples;
     };
 }
