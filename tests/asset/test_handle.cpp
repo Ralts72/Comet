@@ -30,6 +30,15 @@ namespace Comet::Tests {
         EXPECT_EQ(handle.value(), 42u);
     }
 
+    TEST(AssetHandleTest, GeneratesValidPersistentValue) {
+        const AssetHandle first = AssetHandle::generate();
+        const AssetHandle second = AssetHandle::generate();
+
+        EXPECT_TRUE(first);
+        EXPECT_TRUE(second);
+        EXPECT_NE(first, second);
+    }
+
     TEST(AssetHandleTest, SupportsValueComparison) {
         constexpr AssetHandle first(1);
         constexpr AssetHandle same_as_first(1);

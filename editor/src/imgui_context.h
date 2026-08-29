@@ -63,6 +63,6 @@ namespace CometEditor {
         bool m_initialized = false;
         bool m_is_recreating = false;  // 标记是否正在重建 Swapchain
         uint32_t m_backend_image_count = 0;
-        
+
     };
 }

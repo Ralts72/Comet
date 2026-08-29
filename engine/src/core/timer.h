@@ -18,7 +18,7 @@ namespace Comet {
         Timer();
         ~Timer() = default;
         void tick();
-        
+
         [[nodiscard]] UpdateContext get_update_context() const;
 
       private:

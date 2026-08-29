@@ -7,7 +7,8 @@ GoogleTest 测试基础。
 
 - `engine/`：引擎核心库，包含 `asset/`、`core/`、`graphics/`、`render/`、`runtime/`、`scene/` 和
   `common/` 模块；`asset/` 当前提供轻量、不透明的 `AssetHandle` 和带类型校验的最小内存
-  `AssetRegistry`。
+  `AssetRegistry`，并定义持久化资产身份、`.meta` 编解码及源资产索引；`core/project_paths` 定义项目根目录与
+  `Assets/`、`Library/`、`ProjectSettings/` 的标准路径契约。
 - `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过组件描述符
   编辑 Transform、MeshRenderer 和 Camera，File 菜单可新建、打开和保存 `.scene`。
 - `app/`：运行时示例程序入口。

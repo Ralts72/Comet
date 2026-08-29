@@ -107,5 +107,5 @@ namespace Comet::Tests {
 #define EXPECT_NORMALIZED(vector) \
     EXPECT_TRUE(TestUtils::IsNormalized(vector)) \
     << "Vector is not normalized: (" << vector.x << ", " << vector.y << ", " << vector.z << ")"
-    
+
 } // namespace Comet::Tests

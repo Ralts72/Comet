@@ -33,5 +33,5 @@ namespace Comet {
         LOG_INFO("Shader '{}' loaded and cached successfully", name);
         return shader;
     }
-    
+
 }

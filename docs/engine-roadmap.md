@@ -961,6 +961,33 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
 
 目标：从“按路径加载文件”升级为“项目资产管理”。
 
+项目目录契约：
+
+```text
+<ProjectRoot>/
+├── Assets/           # 受版本控制的源资产和与其相邻的 .meta
+├── Library/          # 可重建的导入产物、索引和缓存，不进入版本控制
+└── ProjectSettings/  # 受版本控制的项目级设置
+```
+
+`ProjectPaths` 已提供这三个目录的统一路径解析，但不负责创建目录或执行 I/O；项目创建、打开与校验属于后续
+Project System，Asset Database 只通过该契约定位输入和缓存。
+
+资产身份契约：
+
+- 每个源资产使用相邻的 `<filename>.meta` 保存非零 64 位 `guid` 和资产类型。
+- `guid` 在代码层直接包装为 `AssetHandle`，二者数值一一对应，不增加运行期重编号或额外哈希映射。
+- 新资产只在缺少 `.meta` 时生成随机身份；资产改名或移动必须携带原 `.meta`，Asset Database 会拒绝重复身份。
+- 当前 `.meta` 格式包含 `version`、`guid` 和 `type`；Importer 设置在具体 Importer 接入时扩展。
+- `.meta` 由编辑器在首次发现资产时自动创建，之后作为源资产的一部分长期保存并进入版本控制；它不是
+  `Library/` 中可随时删除重建的缓存。
+- Asset Inspector 是 `.meta` 的主要编辑入口：GUID 和识别出的资产类型只读，Importer 参数经过校验后写回并触发
+  重新导入。开发者可以手工编辑 YAML，但文件监听器必须按同一契约校验；解析失败时保留上一次有效导入产物并报告错误。
+- `.meta` 只服务于编辑器、Asset Database 和导入管线，不原样进入 Shipping 资源包。发布流程消费 `Library/`
+  中确认有效的导入产物，并生成描述打包资源、依赖和版本的最终 manifest。
+- Asset Database 扫描 `Assets/` 并建立 Handle 与项目相对路径的双向索引；扫描报告会收集重复 GUID、孤立或损坏
+  `.meta`、类型不匹配和不支持的文件，有效资产仍可进入索引，不因单个坏文件丢失整个项目视图。
+
 建议任务：
 
 - 定义项目目录结构，例如 `Assets/`、`Library/`、`ProjectSettings/`。
@@ -1260,6 +1287,8 @@ Scene Component / RenderItem
 
 - Build Settings。
 - 资源打包格式。
+- 根据 Asset Database 和 `Library/` 导入产物生成发布 manifest；Shipping 包排除源资产 `.meta` 和编辑器专用的
+  Importer 配置，只包含运行时所需资源身份、依赖和打包位置。
 - Runtime player 可加载打包资源。
 - 示例项目模板。
 - 项目设置面板。
@@ -1271,6 +1300,7 @@ Scene Component / RenderItem
 
 - 一个示例项目可以从编辑器打包为独立可执行程序。
 - 打包产物不依赖源码目录。
+- Shipping 资源包不包含松散 `.meta`，Runtime 可通过发布 manifest 解析所需资产和依赖。
 - CI 能至少构建 engine、editor、app、tests。
 - 新贡献者能按文档完成环境初始化、构建、运行和测试。
 
@@ -1414,7 +1444,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 阶段 3 的第一批最小范围：
 
-1. 定义 `Assets/`、`Library/` 和 `ProjectSettings/` 的目录职责，以及源资产、`.meta` 和导入产物的边界。
-2. 定义持久化 Asset GUID 与代码层 `AssetHandle` 的映射规则，禁止把源文件路径直接写入 Scene。
-3. 实现只负责扫描、索引和查询的 Asset Database Core，并用临时项目目录完成纯逻辑测试。
+1. [x] 定义 `Assets/`、`Library/` 和 `ProjectSettings/` 的目录职责，以及源资产、`.meta` 和导入产物的边界。
+2. [x] 定义持久化 Asset GUID 与代码层 `AssetHandle` 的映射规则，禁止把源文件路径直接写入 Scene。
+3. [x] 实现只负责扫描、索引和查询的 Asset Database Core，并用临时项目目录完成纯逻辑测试。
 4. 先接入 Texture 和 Material 两类资产，再让 Project 面板读取真实索引；Importer、缩略图和文件监听在索引契约稳定后增加。

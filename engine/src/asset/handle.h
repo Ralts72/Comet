@@ -1,12 +1,14 @@
 #pragma once
 
+#include "common/export.h"
+
 #include <cstddef>
 #include <compare>
 #include <cstdint>
 #include <functional>
 
 namespace Comet {
-    class AssetHandle {
+    class COMET_API AssetHandle {
     public:
         using ValueType = std::uint64_t;
 
@@ -14,6 +16,8 @@ namespace Comet {
 
         explicit constexpr AssetHandle(const ValueType value) noexcept
             : m_value(value) {}
+
+        [[nodiscard]] static AssetHandle generate();
 
         [[nodiscard]] constexpr ValueType value() const noexcept {
             return m_value;

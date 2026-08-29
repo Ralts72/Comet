@@ -37,5 +37,4 @@ elseif (UNIX)
     )
 endif ()
 
-include(GoogleTest)
-gtest_discover_tests(unit_testing)
+add_test(NAME unit_testing COMMAND unit_testing)
