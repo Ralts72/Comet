@@ -5,6 +5,7 @@
 #include "graphics/command_buffer.h"
 #include "graphics/attachment.h"
 #include "graphics/image.h"
+#include "graphics/image_view.h"
 #include "graphics/sampler.h"
 #include "graphics/swapchain.h"
 #include "graphics/enums.h"
@@ -25,14 +26,70 @@
 namespace CometEditor {
     namespace {
         template<typename Handle>
-        std::uint64_t handle_to_uint64(const Handle handle) {
+        ImTextureID handle_to_texture_id(const Handle handle) {
             if constexpr(std::is_pointer_v<Handle>) {
-                return static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(handle));
+                return static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(handle));
             } else {
-                return static_cast<std::uint64_t>(handle);
+                return static_cast<ImTextureID>(handle);
             }
         }
     }
+
+    class ImGuiContext::TextureBinding final {
+    public:
+        TextureBinding(
+            std::shared_ptr<Comet::ImageView> image_view,
+            std::shared_ptr<Comet::Sampler> sampler)
+            : m_image_view(std::move(image_view)), m_sampler(std::move(sampler)) {
+            if(!m_image_view || !m_sampler) {
+                LOG_FATAL("ImGui texture binding requires a valid image view and sampler");
+            }
+        }
+
+        ~TextureBinding() {
+            unregister_texture();
+        }
+
+        TextureBinding(const TextureBinding&) = delete;
+        TextureBinding& operator=(const TextureBinding&) = delete;
+        TextureBinding(TextureBinding&&) noexcept = delete;
+        TextureBinding& operator=(TextureBinding&&) noexcept = delete;
+
+        [[nodiscard]] bool matches(
+            const std::shared_ptr<Comet::ImageView>& image_view,
+            const std::shared_ptr<Comet::Sampler>& sampler) const {
+            return m_image_view == image_view && m_sampler == sampler;
+        }
+
+        void register_texture() {
+            if(m_descriptor_set != VK_NULL_HANDLE) {
+                return;
+            }
+
+            m_descriptor_set = ImGui_ImplVulkan_AddTexture(
+                static_cast<VkSampler>(m_sampler->get()),
+                static_cast<VkImageView>(m_image_view->get()),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+
+        void unregister_texture() {
+            if(m_descriptor_set == VK_NULL_HANDLE) {
+                return;
+            }
+
+            ImGui_ImplVulkan_RemoveTexture(m_descriptor_set);
+            m_descriptor_set = VK_NULL_HANDLE;
+        }
+
+        [[nodiscard]] ImTextureID get_texture_id() const {
+            return handle_to_texture_id(m_descriptor_set);
+        }
+
+    private:
+        std::shared_ptr<Comet::ImageView> m_image_view;
+        std::shared_ptr<Comet::Sampler> m_sampler;
+        VkDescriptorSet m_descriptor_set = VK_NULL_HANDLE;
+    };
 
     ImGuiContext::ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context)
         : m_window(window), m_render_context(render_context) {
@@ -159,8 +216,7 @@ namespace CometEditor {
         // 销毁其他资源
         m_render_target.reset();
         m_render_pass.reset();
-        m_viewport_image_views.clear();
-        m_viewport_sampler.reset();
+        m_viewport_textures.clear();
 
         // 销毁 GLFW backend 和 ImGui context
         ImGui_ImplGlfw_Shutdown();
@@ -254,47 +310,55 @@ namespace CometEditor {
     }
 
     void ImGuiContext::set_viewport_images(
-        std::vector<vk::ImageView> image_views,
+        std::vector<std::shared_ptr<Comet::ImageView>> image_views,
         std::shared_ptr<Comet::Sampler> sampler) {
-        if(m_viewport_image_views == image_views && m_viewport_sampler == sampler) {
+        bool bindings_match = m_viewport_textures.size() == image_views.size();
+        for(std::size_t index = 0; bindings_match && index < image_views.size(); ++index) {
+            bindings_match = m_viewport_textures[index]->matches(image_views[index], sampler);
+        }
+        if(bindings_match) {
             return;
         }
 
         unregister_viewport_textures();
-        m_viewport_image_views = std::move(image_views);
-        m_viewport_sampler = std::move(sampler);
-        register_viewport_textures();
-    }
-
-    std::uint64_t ImGuiContext::get_viewport_texture_id(const uint32_t frame_index) const {
-        if(frame_index >= m_viewport_texture_ids.size()) {
-            return 0;
-        }
-        return handle_to_uint64(m_viewport_texture_ids[frame_index]);
-    }
-
-    void ImGuiContext::register_viewport_textures() {
-        if(!m_initialized || !m_viewport_sampler || m_viewport_image_views.empty()) {
+        m_viewport_textures.clear();
+        if(!sampler) {
+            if(!image_views.empty()) {
+                LOG_ERROR("Cannot register viewport images without a sampler");
+            }
             return;
         }
 
-        m_viewport_texture_ids.reserve(m_viewport_image_views.size());
-        for(const vk::ImageView image_view: m_viewport_image_views) {
-            m_viewport_texture_ids.push_back(ImGui_ImplVulkan_AddTexture(
-                static_cast<VkSampler>(m_viewport_sampler->get()),
-                static_cast<VkImageView>(image_view),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+        m_viewport_textures.reserve(image_views.size());
+        for(auto& image_view: image_views) {
+            m_viewport_textures.push_back(std::make_unique<TextureBinding>(
+                std::move(image_view), sampler));
+        }
+        register_viewport_textures();
+    }
+
+    ImTextureID ImGuiContext::get_viewport_texture_id(const uint32_t frame_index) const {
+        if(frame_index >= m_viewport_textures.size()) {
+            return ImTextureID_Invalid;
+        }
+        return m_viewport_textures[frame_index]->get_texture_id();
+    }
+
+    void ImGuiContext::register_viewport_textures() {
+        if(!m_initialized) {
+            return;
+        }
+
+        for(const auto& texture: m_viewport_textures) {
+            texture->register_texture();
         }
     }
 
     void ImGuiContext::unregister_viewport_textures() {
         if(m_initialized) {
-            for(VkDescriptorSet texture_id: m_viewport_texture_ids) {
-                if(texture_id != VK_NULL_HANDLE) {
-                    ImGui_ImplVulkan_RemoveTexture(texture_id);
-                }
+            for(const auto& texture: m_viewport_textures) {
+                texture->unregister_texture();
             }
         }
-        m_viewport_texture_ids.clear();
     }
 }

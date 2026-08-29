@@ -37,9 +37,10 @@ namespace Comet {
         create_image(device, size, pixels.data());
     }
 
-    Texture::~Texture() {
-        m_image_view.reset();
-        m_image.reset();
+    Texture::~Texture() = default;
+
+    std::shared_ptr<Image> Texture::get_image() const {
+        return m_image_view ? m_image_view->get_image() : nullptr;
     }
 
     void Texture::create_image(Device& device, size_t size, const void* data) {
@@ -49,11 +50,11 @@ namespace Comet {
             return;
         }
 
-        m_image = Image::create(device, {
+        auto image = Image::create(device, {
             .format = m_format, .extent = Math::Vec3u(m_width, m_height, 1),
             .usage = Flags<ImageUsage>(ImageUsage::Sampled) | Flags<ImageUsage>(ImageUsage::CopyDst)
         }, SampleCount::Count1, "texture image");
-        m_image_view = std::make_shared<ImageView>(device, *m_image, Flags<ImageAspect>(ImageAspect::Color));
+        m_image_view = std::make_shared<ImageView>(device, image, Flags<ImageAspect>(ImageAspect::Color));
 
         auto stage_buffer = Buffer::create_upload_buffer(
             device,
@@ -64,16 +65,16 @@ namespace Comet {
 
         const auto ctx = device.create_command_context();
         // 1. Transition image layout from UNDEFINED to TRANSFER_DST_OPTIMAL
-        ctx->transition_image_layout(m_image->get(),
+        ctx->transition_image_layout(image->get(),
             vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
 
         // 2. Copy buffer to image
-        const auto extent = Graphics::get_extent(m_image->get_info().extent.x, m_image->get_info().extent.y);
-        ctx->copy_buffer_to_image(stage_buffer->get(), m_image->get(),
+        const auto extent = Graphics::get_extent(image->get_info().extent.x, image->get_info().extent.y);
+        ctx->copy_buffer_to_image(stage_buffer->get(), image->get(),
             vk::ImageLayout::eTransferDstOptimal, extent);
 
         // 3. Transition image layout from TRANSFER_DST_OPTIMAL to SHADER_READ_ONLY_OPTIMAL
-        ctx->transition_image_layout(m_image->get(),
+        ctx->transition_image_layout(image->get(),
             vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
 
         // 提交并等待完成

@@ -17,13 +17,15 @@ namespace Comet {
     bool FrameBuffer::recreate(const std::vector<std::shared_ptr<ImageView>>& image_views, const uint32_t width, const uint32_t height) {
         if (m_frame_buffer) {
             m_device.get().destroyFramebuffer(m_frame_buffer);
+            m_frame_buffer = VK_NULL_HANDLE;
         }
+        m_attachments = image_views;
         m_width = width;
         m_height = height;
 
         std::vector<vk::ImageView> vk_image_views;
-        vk_image_views.reserve(image_views.size());
-        for(const auto& image_view : image_views) {
+        vk_image_views.reserve(m_attachments.size());
+        for(const auto& image_view : m_attachments) {
             vk_image_views.emplace_back(image_view->get());
         }
 

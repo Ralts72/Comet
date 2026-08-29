@@ -2,6 +2,9 @@
 #include "vk_common.h"
 #include "common/export.h"
 
+#include <memory>
+#include <vector>
+
 namespace Comet {
     class Device;
     class RenderPass;
@@ -22,9 +25,10 @@ namespace Comet {
         [[nodiscard]] uint32_t get_width() const { return m_width; }
         [[nodiscard]] uint32_t get_height() const { return m_height; }
     private:
-        vk::Framebuffer m_frame_buffer;
+        vk::Framebuffer m_frame_buffer = VK_NULL_HANDLE;
         Device& m_device;
         RenderPass& m_render_pass;
+        std::vector<std::shared_ptr<ImageView>> m_attachments;
 
         uint32_t m_width, m_height;
     };

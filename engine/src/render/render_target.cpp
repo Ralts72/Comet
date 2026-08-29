@@ -6,6 +6,8 @@
 #include "graphics/image_view.h"
 #include "graphics/frame_buffer.h"
 
+#include <utility>
+
 namespace Comet {
     std::unique_ptr<RenderTarget> RenderTarget::create_swapchain_target(Device& device, RenderPass& render_pass, Swapchain& swapchain) {
         return std::make_unique<SwapchainTarget>(device, render_pass, swapchain);
@@ -79,12 +81,9 @@ namespace Comet {
     }
 
     void RenderTarget::clear_render_resources(std::vector<RenderResource>& resources) {
-        for(auto& [color_images, color_views, depth_image, depth_view, frame_buffer]: resources) {
+        for(auto& [color_views, frame_buffer]: resources) {
             frame_buffer.reset();
             color_views.clear();
-            depth_view.reset();
-            color_images.clear();
-            depth_image.reset();
         }
         resources.clear();
     }
@@ -121,10 +120,7 @@ namespace Comet {
 
         for(uint32_t i = 0; i < m_frame_count; ++i) {
             std::vector<std::shared_ptr<ImageView>> all_views;
-            std::vector<std::shared_ptr<Image>> color_images;
             std::vector<std::shared_ptr<ImageView>> color_views;
-            std::shared_ptr<Image> depth_image = nullptr;
-            std::shared_ptr<ImageView> depth_view = nullptr;
 
             for(const auto& [description, usage]: attachments) {
                 ImageInfo image_info = {};
@@ -133,10 +129,10 @@ namespace Comet {
                 image_info.usage = usage;
 
                 if(Graphics::is_depth_stencil_format(description.format)) {
-                    depth_image = Image::create(
+                    auto depth_image = Image::create(
                         m_device, image_info, description.samples, "render target depth image");
-                    depth_view = std::make_shared<ImageView>(m_device, *depth_image, Flags<ImageAspect>(ImageAspect::Depth));
-                    all_views.push_back(depth_view);
+                    all_views.push_back(std::make_shared<ImageView>(
+                        m_device, depth_image, Flags<ImageAspect>(ImageAspect::Depth)));
                 } else {
                     std::shared_ptr<Image> color_image;
                     if(description.final_layout == ImageLayout::PresentSrcKHR && description.samples == SampleCount::Count1) {
@@ -145,22 +141,15 @@ namespace Comet {
                         color_image = Image::create(
                             m_device, image_info, description.samples, "render target color image");
                     }
-                    color_images.emplace_back(color_image);
-                    auto color_view = std::make_shared<ImageView>(m_device, *color_image, Flags<ImageAspect>(ImageAspect::Color));
+                    auto color_view = std::make_shared<ImageView>(m_device, color_image, Flags<ImageAspect>(ImageAspect::Color));
                     color_views.emplace_back(color_view);
                     all_views.push_back(color_view);
                 }
             }
 
-            m_render_resources[i].color_images = color_images;
-            m_render_resources[i].color_views = color_views;
-            if(depth_image) {
-                m_render_resources[i].depth_image = depth_image;
-                m_render_resources[i].depth_view = depth_view;
-            }
-
             m_render_resources[i].frame_buffer = std::make_shared<FrameBuffer>(m_device, m_render_pass, all_views,
                 m_extent.x, m_extent.y);
+            m_render_resources[i].color_views = std::move(color_views);
         }
     }
 
@@ -178,9 +167,6 @@ namespace Comet {
     OffscreenTarget::~OffscreenTarget() {
         m_frame_buffer.reset();
         m_color_view.reset();
-        m_depth_view.reset();
-        m_color_image.reset();
-        m_depth_image.reset();
     }
 
     void OffscreenTarget::recreate() {
@@ -190,9 +176,6 @@ namespace Comet {
 
         m_frame_buffer.reset();
         m_color_view.reset();
-        m_depth_view.reset();
-        m_color_image.reset();
-        m_depth_image.reset();
 
         const auto attachments = m_render_pass.get_attachments();
         if(attachments.empty()) {
@@ -209,15 +192,16 @@ namespace Comet {
             };
 
             if(Graphics::is_depth_stencil_format(description.format)) {
-                m_depth_image = Image::create(
+                auto depth_image = Image::create(
                     m_device, image_info, description.samples, "render target depth image");
-                m_depth_view = std::make_shared<ImageView>(m_device, *m_depth_image, Flags<ImageAspect>(ImageAspect::Depth));
-                all_views.emplace_back(m_depth_view);
+                all_views.push_back(std::make_shared<ImageView>(
+                    m_device, depth_image, Flags<ImageAspect>(ImageAspect::Depth)));
             } else {
-                if(!m_color_image) {
-                    m_color_image = Image::create(
+                if(!m_color_view) {
+                    auto color_image = Image::create(
                         m_device, image_info, description.samples, "render target color image");
-                    m_color_view = std::make_shared<ImageView>(m_device, *m_color_image, Flags<ImageAspect>(ImageAspect::Color));
+                    m_color_view = std::make_shared<ImageView>(
+                        m_device, color_image, Flags<ImageAspect>(ImageAspect::Color));
                     all_views.emplace_back(m_color_view);
                 }
             }
@@ -225,6 +209,10 @@ namespace Comet {
 
         m_frame_buffer = std::make_shared<FrameBuffer>(m_device, m_render_pass, all_views,
             m_extent.x, m_extent.y);
+    }
+
+    std::shared_ptr<Image> OffscreenTarget::get_color_image() const {
+        return m_color_view ? m_color_view->get_image() : nullptr;
     }
 
     MultiTarget::MultiTarget(Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count) : RenderTarget(device, render_pass, size, frame_count) {
@@ -252,10 +240,7 @@ namespace Comet {
 
         for(uint32_t i = 0; i < m_frame_count; ++i) {
             std::vector<std::shared_ptr<ImageView>> all_views;
-            std::vector<std::shared_ptr<Image>> color_images;
             std::vector<std::shared_ptr<ImageView>> color_views;
-            std::shared_ptr<Image> depth_image = nullptr;
-            std::shared_ptr<ImageView> depth_view = nullptr;
 
             for(const auto& [description, usage]: attachments) {
                 ImageInfo image_info = {
@@ -265,29 +250,22 @@ namespace Comet {
                 };
 
                 if(Graphics::is_depth_stencil_format(description.format)) {
-                    depth_image = Image::create(
+                    auto depth_image = Image::create(
                         m_device, image_info, description.samples, "render target depth image");
-                    depth_view = std::make_shared<ImageView>(m_device, *depth_image, Flags<ImageAspect>(ImageAspect::Depth));
-                    all_views.push_back(depth_view);
+                    all_views.push_back(std::make_shared<ImageView>(
+                        m_device, depth_image, Flags<ImageAspect>(ImageAspect::Depth)));
                 } else {
                     auto color_image = Image::create(
                         m_device, image_info, description.samples, "render target color image");
-                    color_images.emplace_back(color_image);
-                    auto color_view = std::make_shared<ImageView>(m_device, *color_image, Flags<ImageAspect>(ImageAspect::Color));
+                    auto color_view = std::make_shared<ImageView>(m_device, color_image, Flags<ImageAspect>(ImageAspect::Color));
                     color_views.emplace_back(color_view);
                     all_views.push_back(color_view);
                 }
             }
 
-            m_render_resources[i].color_images = color_images;
-            m_render_resources[i].color_views = color_views;
-            if(depth_image) {
-                m_render_resources[i].depth_image = depth_image;
-                m_render_resources[i].depth_view = depth_view;
-            }
-
             m_render_resources[i].frame_buffer = std::make_shared<FrameBuffer>(m_device, m_render_pass, all_views,
                 m_extent.x, m_extent.y);
+            m_render_resources[i].color_views = std::move(color_views);
         }
     }
 }

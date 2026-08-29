@@ -3,12 +3,22 @@
 #include "image.h"
 #include "common/logger.h"
 
+#include <utility>
+
 namespace Comet {
-    ImageView::ImageView(Device& device, const Image& image, const Flags<ImageAspect> aspect): m_device(device) {
+    ImageView::ImageView(
+        Device& device,
+        std::shared_ptr<Image> image,
+        const Flags<ImageAspect> aspect)
+        : m_device(device), m_image(std::move(image)) {
+        if(!m_image) {
+            LOG_FATAL("ImageView requires a valid image");
+        }
+
         vk::ImageViewCreateInfo create_info{};
-        create_info.image = image.get();
+        create_info.image = m_image->get();
         create_info.viewType = vk::ImageViewType::e2D;
-        create_info.format = Graphics::format_to_vk(image.get_info().format);
+        create_info.format = Graphics::format_to_vk(m_image->get_info().format);
         create_info.components= {
             vk::ComponentSwizzle::eIdentity,
             vk::ComponentSwizzle::eIdentity,

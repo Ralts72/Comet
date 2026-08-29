@@ -38,7 +38,10 @@ Editor
 └── ImGuiContext
     ├── ImGui RenderPass/SwapchainTarget
     ├── DescriptorPool
-    └── Viewport descriptor[frame slot]
+    └── ImGuiContext::TextureBinding[frame slot]
+        ├── ImageView → Image
+        ├── Sampler
+        └── ImGui descriptor
 ```
 
 `Engine` 独占 Scene 和 Asset Registry，app 和 editor 负责创建或修改场景内容。Asset Registry 以
@@ -55,8 +58,9 @@ Editor
 - GLFW、Vulkan 等 C API handle 保持各自的原生值或指针形式，不属于 C++ 对象借用约定。
 
 runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slot 分配的 `MultiTarget` 生成离屏颜色纹理，
-`ImGuiContext` 只保存非拥有的 `vk::ImageView` handle 并拥有对应的 ImGui descriptor；最终 swapchain 只由 ImGui
-render pass 清屏、合成和呈现。editor 只有一个 Viewport，Edit/Play 复用同一组离屏输出并切换活动 Scene 与交互状态。
+`ImGuiContext` 通过私有纹理绑定持有离屏 `ImageView` 和 `Sampler` 的共享引用，并拥有对应的 ImGui descriptor；
+最终 swapchain 只由 ImGui render pass 清屏、合成和呈现。editor 只有一个 Viewport，Edit/Play 复用同一组离屏输出
+并切换活动 Scene 与交互状态。
 
 ## 生命周期约束
 
@@ -71,6 +75,11 @@ render pass 清屏、合成和呈现。editor 只有一个 Viewport，Edit/Play 
 7. 释放 Scene；Scene 只持有组件和 AssetHandle，不拥有 GPU 资源。
 
 任何 `Buffer`、`OwnedImage`、`Texture`、`Mesh` 或其他 VMA 资源都不得比创建它的 Device 活得更久。`BorrowedImage` 只包装外部 image，不负责释放该 image。
+`ImageView` 持有父 `Image` 的共享引用，并在释放该引用前销毁原生 image view；因此任何持有 `ImageView` 的消费者都会
+自动延长对应 C++ `Image` 对象的生命周期。`BorrowedImage` 对应的原生 image 生命周期仍由 Swapchain 等外部所有者负责。
+`FrameBuffer` 持有全部 attachment `ImageView` 的共享引用，并在释放 attachment 前销毁原生 framebuffer，
+由此形成 `FrameBuffer → ImageView → Image` 的完整所有权链。`Texture` 和 `RenderTarget` 不再并行保存同一资源的
+`Image`/`ImageView` 共享引用；需要 image 时统一通过 `ImageView::get_image()` 访问。
 
 ## 职责边界
 
@@ -78,7 +87,8 @@ render pass 清屏、合成和呈现。editor 只有一个 Viewport，Edit/Play 
 - `ResourceManager`：运行时/GPU资源创建与缓存；不负责扫描项目目录或分配资产 GUID。
 - `SceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断。
 - `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；没有有效主 Camera 时不提交场景 draw。
-- `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；不拥有 SceneRenderer 的离屏 image/image view。
+- `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；通过私有绑定共享
+  SceneRenderer 的离屏 `ImageView` 生命周期，但不创建或直接销毁这些 engine 图形资源。
 - `MaterialManager`：Material/MaterialInstance 的内存注册；不存在的基础材质不能产生有效实例。
 - `Scene`：只保存实体、可序列化组件和 `AssetHandle`，不保存 Device、GPU对象或文件路径。
 - `AssetRegistry`：当前负责注册和解析 `AssetHandle` 对应的内存资源；项目扫描、元数据、导入产物和 GUID 分配仍属于后续 Asset Manager。
@@ -92,8 +102,9 @@ render pass 清屏、合成和呈现。editor 只有一个 Viewport，Edit/Play 
 - view/projection uniform buffer 按 frame slot 创建；材质 descriptor set 按 material handle 和 frame slot 缓存，只有对应 fence 完成后 CPU 才能改写。
 - `SwapchainImageState` 按实际 swapchain image 数量创建，持有 render-finished semaphore，并记录该 image
   最近关联的 frame slot。
-- `SwapchainTarget` 按 image 持有 framebuffer、image view 和深度附件。
-- editor 的 `MultiTarget` 按 frame slot 持有离屏颜色、深度、resolve image view 和 framebuffer；同一 slot 的 fence
+- `SwapchainTarget` 按 image 持有 framebuffer 和对外暴露的颜色 image view；framebuffer 内部保留全部 attachment。
+- editor 的 `MultiTarget` 按 frame slot 持有 framebuffer 和对外暴露的离屏颜色/resolve image view；深度等内部
+  attachment 由 framebuffer 保留。同一 slot 的 fence
   完成后才会重新写入对应离屏资源。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。

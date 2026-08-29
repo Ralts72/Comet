@@ -19,7 +19,7 @@ namespace Comet {
         [[nodiscard]] int get_width() const { return m_width; }
         [[nodiscard]] int get_height() const { return m_height; }
         [[nodiscard]] int get_channels() const { return m_channels; }
-        [[nodiscard]] std::shared_ptr<Image> get_image() const { return m_image; }
+        [[nodiscard]] std::shared_ptr<Image> get_image() const;
         [[nodiscard]] std::shared_ptr<ImageView> get_image_view() const { return m_image_view; }
     private:
         void create_image(Device& device, size_t size, const void* data);
@@ -28,7 +28,6 @@ namespace Comet {
         int m_height;
         int m_channels;
         Format m_format;
-        std::shared_ptr<Image> m_image;
         std::shared_ptr<ImageView> m_image_view;
     };
 }

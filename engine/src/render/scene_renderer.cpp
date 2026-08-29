@@ -361,8 +361,8 @@ namespace Comet {
         return m_frame_manager->get_current_command_buffer();
     }
 
-    std::vector<vk::ImageView> SceneRenderer::get_viewport_color_views() const {
-        std::vector<vk::ImageView> color_views;
+    std::vector<std::shared_ptr<ImageView>> SceneRenderer::get_viewport_color_views() const {
+        std::vector<std::shared_ptr<ImageView>> color_views;
         if(!m_uses_viewport_target) {
             return color_views;
         }
@@ -370,7 +370,7 @@ namespace Comet {
         const uint32_t frame_slot_count = m_frame_manager->get_frame_slot_count();
         color_views.reserve(frame_slot_count);
         for(uint32_t index = 0; index < frame_slot_count; ++index) {
-            color_views.push_back(m_render_target->get_color_view(index)->get());
+            color_views.push_back(m_render_target->get_color_view(index));
         }
         return color_views;
     }

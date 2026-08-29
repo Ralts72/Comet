@@ -15,10 +15,7 @@ namespace Comet {
     class CommandBuffer;
 
     struct RenderResource {
-        std::vector<std::shared_ptr<Image>> color_images;
         std::vector<std::shared_ptr<ImageView>> color_views;
-        std::shared_ptr<Image> depth_image;
-        std::shared_ptr<ImageView> depth_view;
         std::shared_ptr<FrameBuffer> frame_buffer;
     };
 
@@ -106,14 +103,11 @@ namespace Comet {
 
         [[nodiscard]] std::shared_ptr<ImageView> get_color_view(uint32_t index) const override { return m_color_view; }
 
-        [[nodiscard]] std::shared_ptr<Image> get_color_image() const { return m_color_image; }
+        [[nodiscard]] std::shared_ptr<Image> get_color_image() const;
 
     private:
         std::shared_ptr<FrameBuffer> m_frame_buffer;
-        std::shared_ptr<Image> m_color_image;
         std::shared_ptr<ImageView> m_color_view;
-        std::shared_ptr<Image> m_depth_image;
-        std::shared_ptr<ImageView> m_depth_view;
     };
 
     class COMET_API MultiTarget final: public RenderTarget {

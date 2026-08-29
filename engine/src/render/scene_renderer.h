@@ -59,7 +59,7 @@ namespace Comet {
         [[nodiscard]] RenderTarget& get_render_target() { return *m_render_target; }
         [[nodiscard]] const RenderTarget& get_render_target() const { return *m_render_target; }
         [[nodiscard]] CommandBuffer& get_current_command_buffer() const;
-        [[nodiscard]] std::vector<vk::ImageView> get_viewport_color_views() const;
+        [[nodiscard]] std::vector<std::shared_ptr<ImageView>> get_viewport_color_views() const;
 
         [[nodiscard]] bool recreate_swapchain();
 
