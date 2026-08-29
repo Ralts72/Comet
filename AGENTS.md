@@ -3,9 +3,10 @@
 ## Project Structure & Module Organization
 
 Comet is a C++20 CMake project. `engine/` builds the shared `engine` library and contains core runtime, graphics,
-render, and common utilities under `engine/src/`. Runtime assets live in `engine/assets/`, including YAML config,
-textures, and GLSL shaders. `app/` builds the sample runtime executable from `app/main.cpp`. `editor/` builds the ImGui
-editor and keeps panels in `editor/src/panels/`. `tests/` builds the `unit_testing` GoogleTest target. `3rdparty/`
+render, and common utilities under `engine/src/`; engine-owned GLSL sources live in `engine/shaders/`. Runtime config
+lives in `config/`, project source assets in `assets/`, and editor-private resources in `editor/resources/`. `app/`
+builds the sample runtime executable from `app/main.cpp`. `editor/` builds the ImGui editor and keeps panels in
+`editor/src/panels/`. `tests/` builds the `unit_testing` GoogleTest target. `3rdparty/`
 contains third-party dependencies; most are submodules, while `3rdparty/VulkanMemoryAllocator/` and `3rdparty/entt/`
 are vendored source. EnTT is vendored as a single header under `3rdparty/entt/entt.hpp`.
 Avoid editing third-party code unless updating a dependency.

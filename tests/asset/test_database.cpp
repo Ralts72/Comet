@@ -52,7 +52,7 @@ namespace Comet::Tests {
 
     TEST(AssetDatabaseTest, GeneratesMetadataAndBuildsBothIndexes) {
         const TemporaryProject project;
-        project.add_file("Textures/albedo.PNG");
+        project.add_file("textures/albedo.PNG");
         project.add_file("Materials/default.mat");
         AssetDatabase database(project.paths());
 
@@ -63,7 +63,7 @@ namespace Comet::Tests {
         EXPECT_EQ(report.generated_metadata, 2u);
         ASSERT_EQ(database.size(), 2u);
 
-        const AssetRecord* texture = database.find("Textures/albedo.PNG");
+        const AssetRecord* texture = database.find("textures/albedo.PNG");
         ASSERT_NE(texture, nullptr);
         EXPECT_EQ(texture->type, AssetType::Texture);
         EXPECT_EQ(database.find(texture->handle), texture);
@@ -78,7 +78,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(database.scan().succeeded());
         const AssetHandle original_handle = database.find("old.png")->handle;
 
-        const std::filesystem::path moved = project.paths().assets() / "Textures/new.png";
+        const std::filesystem::path moved = project.paths().assets() / "textures/new.png";
         std::filesystem::create_directories(moved.parent_path());
         std::filesystem::rename(source, moved);
         std::filesystem::rename(metadata_path(source), metadata_path(moved));
@@ -87,7 +87,7 @@ namespace Comet::Tests {
 
         EXPECT_TRUE(report.succeeded());
         EXPECT_EQ(report.generated_metadata, 0u);
-        EXPECT_EQ(database.find(original_handle)->path, "Textures/new.png");
+        EXPECT_EQ(database.find(original_handle)->path, "textures/new.png");
         EXPECT_EQ(database.find("old.png"), nullptr);
     }
 
@@ -139,7 +139,7 @@ namespace Comet::Tests {
         const AssetScanReport report = database.scan();
 
         EXPECT_FALSE(report.succeeded());
-        EXPECT_TRUE(has_issue_containing(report, "Assets directory does not exist"));
+        EXPECT_TRUE(has_issue_containing(report, "assets directory does not exist"));
         EXPECT_EQ(database.size(), 0u);
     }
 }

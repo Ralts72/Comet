@@ -9,7 +9,7 @@ namespace Comet::Tests {
         const ProjectPaths paths(std::filesystem::path("Projects") / "Sandbox");
 
         EXPECT_EQ(paths.root(), std::filesystem::path("Projects/Sandbox"));
-        EXPECT_EQ(paths.assets(), std::filesystem::path("Projects/Sandbox/Assets"));
+        EXPECT_EQ(paths.assets(), std::filesystem::path("Projects/Sandbox/assets"));
         EXPECT_EQ(paths.library(), std::filesystem::path("Projects/Sandbox/Library"));
         EXPECT_EQ(paths.settings(), std::filesystem::path("Projects/Sandbox/ProjectSettings"));
     }
@@ -18,6 +18,6 @@ namespace Comet::Tests {
         const ProjectPaths paths(std::filesystem::path("Projects") / "Draft" / ".." / "Sandbox");
 
         EXPECT_EQ(paths.root(), std::filesystem::path("Projects/Sandbox"));
-        EXPECT_EQ(paths.assets(), paths.root() / "Assets");
+    EXPECT_EQ(paths.assets(), paths.root() / "assets");
     }
 }

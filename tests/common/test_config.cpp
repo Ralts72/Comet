@@ -70,7 +70,7 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
     };
 
     const std::filesystem::path config_directory =
-        std::filesystem::path(std::string(PROJECT_ROOT_DIR)) / "engine/assets/config";
+        std::filesystem::path(std::string(PROJECT_ROOT_DIR)) / "config";
     for(const auto& expectation: expectations) {
         SCOPED_TRACE(expectation.name);
         const Config config = ConfigLoader{}.load(std::vector<std::string>{

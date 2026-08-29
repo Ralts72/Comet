@@ -11,7 +11,7 @@ file(GLOB_RECURSE SHADER_INCLUDE_FILES CONFIGURE_DEPENDS
 
 source_group("shaders" FILES ${SHADER_FILES} ${SHADER_INCLUDE_FILES})
 
-include("../../cmake/compile_shader.cmake")
+include("../cmake/compile_shader.cmake")
 
 compile_shaders(
         TARGET ${TARGET_NAME}

@@ -107,7 +107,8 @@ namespace CometEditor {
         io.IniFilename = ini_path.c_str();
 
         // 加载字体
-        const std::string font_path = std::string(PROJECT_ROOT_DIR) + "/editor/assets/fonts/Roboto-Regular.ttf";
+        const std::string font_path =
+            std::string(COMET_EDITOR_RESOURCE_DIRECTORY) + "/fonts/Roboto-Regular.ttf";
         io.Fonts->AddFontFromFileTTF(font_path.c_str(), 16.0f);
 
         ImGui::StyleColorsDark();

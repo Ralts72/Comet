@@ -4,15 +4,26 @@
 #include "graphics/convert.h"
 #include "core/math_utils.h"
 
+#include <cstdint>
+#include <vector>
+
 namespace Comet {
     class Image;
     class ImageView;
     class Buffer;
     class Device;
 
+    struct TextureData {
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        Format format = Format::R8G8B8A8_UNORM;
+        std::vector<std::uint8_t> pixels;
+    };
+
     class COMET_API Texture {
     public:
-        explicit Texture(Device& device, const std::string& img_path, Format format = Format::B8G8R8A8_UNORM);
+        Texture(Device& device, const TextureData& data);
         Texture(Device& device, int width, int height, Math::Vec4u color);
         ~Texture();
 

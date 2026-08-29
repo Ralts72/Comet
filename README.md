@@ -8,12 +8,16 @@ GoogleTest 测试基础。
 - `engine/`：引擎核心库，包含 `asset/`、`core/`、`graphics/`、`render/`、`runtime/`、`scene/` 和
   `common/` 模块；`asset/` 当前提供轻量、不透明的 `AssetHandle` 和带类型校验的最小内存
   `AssetRegistry`，并定义持久化资产身份、`.meta` 编解码及源资产索引；`core/project_paths` 定义项目根目录与
-  `Assets/`、`Library/`、`ProjectSettings/` 的标准路径契约。
+  `assets/`、`Library/`、`ProjectSettings/` 的标准路径契约。
 - `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过组件描述符
-  编辑 Transform、MeshRenderer 和 Camera，File 菜单可新建、打开和保存 `.scene`。
+  编辑 Transform、MeshRenderer 和 Camera，File 菜单可新建、打开和保存 `.scene`；`editor/resources/` 保存不进入
+  项目资产数据库的编辑器私有字体等资源。
 - `app/`：运行时示例程序入口。
+- `assets/`：当前示例项目的源资产及相邻 `.meta`，当前包含 demo Texture；资产身份进入版本控制。
+- `config/`：`common.yaml` 保存共享运行配置，`profiles/` 保存构建/启动环境覆盖。
+- `Library/`：可重建的导入产物与缓存目录，不进入版本控制。
 - `tests/`：GoogleTest 测试，覆盖数学、配置、Scene/ECS、场景序列化、资源参数保护和渲染数据链路。
-- `engine/assets/`：配置、纹理和 GLSL shader 资源。
+- `engine/shaders/`：引擎自有 GLSL Shader 源码，构建时编译并嵌入引擎。
 - `3rdparty/`：第三方依赖目录，部分依赖通过 Git submodule 拉取，Vulkan Memory Allocator 和 EnTT 以 vendored
   源码形式维护；EnTT 只提交 single header。
 
@@ -80,7 +84,7 @@ ctest --preset dev-debug
 
 ## 开发说明
 
-运行配置位于 `engine/assets/config/`：`common.yaml` 保存窗口、Vulkan 和渲染的共享设置，`profiles/` 下的配置按顺序覆盖
+运行配置位于 `config/`：`common.yaml` 保存窗口、Vulkan 和渲染的共享设置，`profiles/` 下的配置按顺序覆盖
 共享层。运行时启动层根据目标的默认 profile 选择配置文件，`ConfigLoader` 只负责合并显式传入的 YAML 并最终校验为
 纯数据 `Config`，再由 `Application` 和 `Engine` 消费；yaml-cpp 只存在于加载器实现中，底层渲染资源不直接读取原始配置。
 
@@ -123,7 +127,10 @@ editor 将同一个 `ComponentRegistry` 提供给 Inspector 和 `SceneSerializer
 层级环、未知字段和不支持的版本；保存时会自动创建缺失的父目录。
 `SceneExtractor` 将可渲染实体和 Camera 复制为
 `engine/src/render/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。
-`Engine` 使用唯一所有权持有当前活动 Scene 和最小 Asset Registry，并可在保持唯一所有权的前提下交换 Scene。app 在初始化阶段注册 demo mesh/material，并创建
+`Engine` 使用唯一所有权持有当前活动 Scene 和最小 Asset Registry，并可在保持唯一所有权的前提下交换 Scene。
+app/editor 组合根持有 `AssetManager`，它使用 `AssetDatabase` 将稳定 Handle 解析为项目源资产；Texture 由
+`TextureImporter` 解码为 CPU 像素数据，`ResourceManager` 再按 Handle 创建和缓存 GPU Texture。Project 面板展示
+真实索引与扫描问题。app 在初始化阶段注册 demo mesh/material，并创建
 主 Camera 与两个具有不同 Transform 的 cube entity；`SceneResolver` 选择并校验主 Camera、根据渲染尺寸
 生成 view/projection，同时将 Handle 解析为运行时 `RenderSubmission`。`Renderer` 负责编排帧流程，
 `SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过
@@ -136,9 +143,10 @@ Play 时通过 `SceneSerializer` 创建独立 Runtime Scene，并暂存原 Edit 
 Play 时同一面板切换为运行画面并隐藏编辑工具。当前两种模式仍使用活动 Scene 的主 Camera，独立 editor camera 留在后续视口阶段；
 runtime app 仍直接渲染到 swapchain。关闭时先释放引擎资源，
 再关闭日志系统。Shader
-源文件位于 `engine/assets/shaders/glsl/`，构建时由 CMake 调用 `glslangValidator`
+源文件位于 `engine/shaders/glsl/`，构建时由 CMake 调用 `glslangValidator`
 编译。贡献者和智能体协作规范见 [AGENTS.md](./AGENTS.md)。
 
 渲染资源的所有权、析构顺序和非拥有依赖约束见
-[渲染资源所有权](./docs/architecture/rendering-ownership.md)；场景持久化契约见
+[渲染资源所有权](./docs/architecture/rendering-ownership.md)；资产索引、导入与运行时发布边界见
+[资产管线边界](./docs/architecture/asset-pipeline.md)；场景持久化契约见
 [场景文件格式](./docs/architecture/scene-format.md)。

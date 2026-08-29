@@ -1,5 +1,4 @@
 #include "texture.h"
-#include <stb_image.h>
 #include <glm/gtx/io.hpp>
 #include "graphics/device.h"
 #include "graphics/command_context.h"
@@ -8,21 +7,29 @@
 #include "graphics/buffer.h"
 
 namespace Comet {
-    Texture::Texture(Device& device, const std::string& img_path, const Format format)
-        : m_width(0), m_height(0), m_channels(0), m_format(format) {
-        uint8_t* data = stbi_load(img_path.c_str(), &m_width, &m_height, &m_channels, STBI_rgb_alpha);
-        if(!data) {
-            LOG_FATAL("Failed to load texture image from path: {}", img_path);
+    Texture::Texture(Device& device, const TextureData& data)
+        : m_width(data.width),
+          m_height(data.height),
+          m_channels(data.channels),
+          m_format(data.format) {
+        if(m_width <= 0 || m_height <= 0 || m_channels <= 0
+           || data.pixels.empty()) {
+            LOG_FATAL("Texture requires valid decoded pixel data");
         }
-        LOG_INFO("Loaded texture: {}x{}, channels: {}", m_width, m_height, m_channels);
-        const size_t size = m_width * m_height * Graphics::format_size_in_bytes(m_format);
-        create_image(device, size, data);
-        stbi_image_free(data);
+        const size_t expected_size = static_cast<size_t>(m_width)
+            * static_cast<size_t>(m_height)
+            * Graphics::format_size_in_bytes(m_format);
+        if(data.pixels.size() != expected_size) {
+            LOG_FATAL(
+                "Texture pixel data size {} does not match expected size {}",
+                data.pixels.size(), expected_size);
+        }
+        create_image(device, data.pixels.size(), data.pixels.data());
     }
 
     Texture::Texture(Device& device, const int width, const int height, const Math::Vec4u color)
         : m_width(width), m_height(height), m_channels(4) {
-        m_format = Format::B8G8R8A8_UNORM;
+        m_format = Format::R8G8B8A8_UNORM;
         const size_t size = sizeof(uint8_t) * 4 * m_width * m_height;
         std::vector<uint8_t> pixels(size);
         for(int y = 0; y < m_height; ++y) {

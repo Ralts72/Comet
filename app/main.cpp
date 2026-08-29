@@ -1,10 +1,13 @@
 #include "runtime/entry.h"
+#include "asset/manager.h"
 #include "asset/registry.h"
 #include "common/geometry_utils.h"
+#include "core/project_paths.h"
 #include "render/material.h"
 #include "scene/scene.h"
 
 #include <array>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
@@ -12,6 +15,30 @@
 namespace {
     constexpr Comet::AssetHandle DEMO_CUBE_MESH_HANDLE(1);
     constexpr Comet::AssetHandle DEMO_CUBE_MATERIAL_HANDLE(2);
+    const std::filesystem::path AWESOME_FACE_TEXTURE =
+            "textures/awesomeface.png";
+    const std::filesystem::path SECOND_DEMO_TEXTURE =
+            "textures/R-C.jpeg";
+
+    std::shared_ptr<Comet::Texture> load_required_texture(
+        Comet::AssetManager& asset_manager,
+        const std::filesystem::path& relative_path) {
+        const Comet::AssetRecord* record =
+                asset_manager.get_database().find(relative_path);
+        if(!record) {
+            LOG_FATAL(
+                "Required texture asset '{}' is not indexed",
+                relative_path.generic_string());
+        }
+
+        auto texture = asset_manager.load_texture(record->handle);
+        if(!texture) {
+            LOG_FATAL(
+                "Failed to load required texture asset '{}'",
+                relative_path.generic_string());
+        }
+        return texture;
+    }
 
     class GameApp final: public Comet::Application {
     public:
@@ -22,15 +49,27 @@ namespace {
             auto& resource_manager = engine.get_resource_manager();
             auto& asset_registry = engine.get_asset_registry();
 
+            m_asset_manager = std::make_unique<Comet::AssetManager>(
+                Comet::ProjectPaths(PROJECT_ROOT_DIR),
+                asset_registry,
+                resource_manager);
+            const Comet::AssetScanReport scan_report = m_asset_manager->scan();
+            for(const Comet::AssetScanIssue& issue: scan_report.issues) {
+                LOG_WARN(
+                    "Asset scan issue at '{}': {}",
+                    issue.path.generic_string(),
+                    issue.message);
+            }
+
             auto [cube_vertices, cube_indices] =
                     Comet::GeometryUtils::create_cube(-0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f);
             auto cube_mesh = resource_manager.create_mesh(
                 "demo_cube", cube_vertices, cube_indices);
 
-            const std::string texture_path =
-                    std::string(PROJECT_ROOT_DIR) + "/engine/assets/textures/";
-            const auto texture0 = resource_manager.load_texture(texture_path + "awesomeface.png");
-            const auto texture1 = resource_manager.load_texture(texture_path + "R-C.jpeg");
+            const auto texture0 = load_required_texture(
+                *m_asset_manager, AWESOME_FACE_TEXTURE);
+            const auto texture1 = load_required_texture(
+                *m_asset_manager, SECOND_DEMO_TEXTURE);
 
             const Comet::MaterialConfig material_config;
             auto material = resource_manager.get_material_manager().create_material(
@@ -89,9 +128,11 @@ namespace {
 
         void on_shutdown() override {
             LOG_INFO("app shutdown");
+            m_asset_manager.reset();
         }
 
     private:
+        std::unique_ptr<Comet::AssetManager> m_asset_manager;
         std::array<Comet::EntityId, 2> m_cube_entity_ids = {
             Comet::INVALID_ENTITY_ID,
             Comet::INVALID_ENTITY_ID

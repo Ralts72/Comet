@@ -17,7 +17,7 @@ namespace Comet {
     }
 
     std::filesystem::path ProjectPaths::assets() const {
-        return m_root / "Assets";
+        return m_root / "assets";
     }
 
     std::filesystem::path ProjectPaths::library() const {

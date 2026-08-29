@@ -1,4 +1,5 @@
 #pragma once
+#include "asset/handle.h"
 #include "common/export.h"
 #include "graphics/shader.h"
 #include "graphics/sampler.h"
@@ -19,7 +20,9 @@ namespace Comet {
         [[nodiscard]] MaterialManager& get_material_manager() { return *m_material_manager; }
         [[nodiscard]] const MaterialManager& get_material_manager() const { return *m_material_manager; }
 
-        std::shared_ptr<Texture> load_texture(const std::string& path);
+        std::shared_ptr<Texture> create_texture(
+            AssetHandle handle,
+            const TextureData& data);
         std::shared_ptr<Mesh> create_mesh(const std::string& name, const std::vector<Math::Vertex>& vertices,
                                           const std::vector<uint32_t>& indices);
 
@@ -28,7 +31,7 @@ namespace Comet {
         std::unique_ptr<ShaderManager> m_shader_manager;
         std::unique_ptr<SamplerManager> m_sampler_manager;
         std::unique_ptr<MaterialManager> m_material_manager;
-        std::unordered_map<std::string, std::shared_ptr<Texture>> m_textures;
+        std::unordered_map<AssetHandle, std::shared_ptr<Texture>> m_textures;
         std::unordered_map<std::string, std::shared_ptr<Mesh>> m_meshes;
     };
 }

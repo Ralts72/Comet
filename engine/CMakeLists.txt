@@ -4,13 +4,15 @@ if (NOT glslangValidator_executable)
 endif ()
 set(SHADER_COMPILE_TARGET shader_compile)
 set(SHADER_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders")
-add_subdirectory(assets/shaders)
+add_subdirectory(shaders)
 
 set(SOURCES
         src/asset/database.cpp
         src/asset/handle.cpp
+        src/asset/manager.cpp
         src/asset/metadata.cpp
         src/asset/registry.cpp
+        src/asset/texture_importer.cpp
         src/common/geometry_utils.cpp
         src/common/diagnostics.cpp
         src/common/profiler.cpp

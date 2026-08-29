@@ -1,4 +1,5 @@
 #include "runtime/entry.h"
+#include "asset/manager.h"
 #include "asset/registry.h"
 #include "common/geometry_utils.h"
 #include "src/editor_scene_session.h"
@@ -6,6 +7,7 @@
 #include "src/imgui_context.h"
 #include "src/property_editor_registry.h"
 #include "core/engine.h"
+#include "core/project_paths.h"
 #include "render/material.h"
 #include "render/renderer.h"
 #include "render/scene_renderer.h"
@@ -25,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <exception>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -36,6 +39,10 @@ namespace {
     constexpr Comet::AssetHandle EDITOR_CUBE_MESH_HANDLE(1);
     constexpr Comet::AssetHandle EDITOR_CUBE_MATERIAL_HANDLE(2);
     constexpr std::size_t SCENE_PATH_CAPACITY = 1024;
+    const std::filesystem::path AWESOME_FACE_TEXTURE =
+            "textures/awesomeface.png";
+    const std::filesystem::path SECOND_DEMO_TEXTURE =
+            "textures/R-C.jpeg";
 
     enum class SceneFileDialog {
         None,
@@ -43,7 +50,38 @@ namespace {
         Save
     };
 
-    void register_editor_render_assets(Comet::Engine& engine) {
+    void log_asset_scan_issues(const Comet::AssetScanReport& report) {
+        for(const Comet::AssetScanIssue& issue: report.issues) {
+            LOG_WARN(
+                "Asset scan issue at '{}': {}",
+                issue.path.generic_string(),
+                issue.message);
+        }
+    }
+
+    std::shared_ptr<Comet::Texture> load_required_texture(
+        Comet::AssetManager& asset_manager,
+        const std::filesystem::path& relative_path) {
+        const Comet::AssetRecord* record =
+                asset_manager.get_database().find(relative_path);
+        if(!record) {
+            LOG_FATAL(
+                "Required texture asset '{}' is not indexed",
+                relative_path.generic_string());
+        }
+
+        auto texture = asset_manager.load_texture(record->handle);
+        if(!texture) {
+            LOG_FATAL(
+                "Failed to load required texture asset '{}'",
+                relative_path.generic_string());
+        }
+        return texture;
+    }
+
+    void register_editor_render_assets(
+        Comet::Engine& engine,
+        Comet::AssetManager& asset_manager) {
         auto& resource_manager = engine.get_resource_manager();
         auto& asset_registry = engine.get_asset_registry();
 
@@ -52,12 +90,10 @@ namespace {
         auto cube_mesh = resource_manager.create_mesh(
             "editor_demo_cube", cube_vertices, cube_indices);
 
-        const std::string texture_path =
-                std::string(PROJECT_ROOT_DIR) + "/engine/assets/textures/";
-        const auto texture0 = resource_manager.load_texture(
-            texture_path + "awesomeface.png");
-        const auto texture1 = resource_manager.load_texture(
-            texture_path + "R-C.jpeg");
+        const auto texture0 = load_required_texture(
+            asset_manager, AWESOME_FACE_TEXTURE);
+        const auto texture1 = load_required_texture(
+            asset_manager, SECOND_DEMO_TEXTURE);
 
         const Comet::MaterialConfig material_config;
         auto material = resource_manager.get_material_manager().create_material(
@@ -111,7 +147,14 @@ namespace {
             // 设置日志重定向
             setup_log_redirect();
 
-            register_editor_render_assets(engine);
+            m_asset_manager = std::make_unique<Comet::AssetManager>(
+                Comet::ProjectPaths(PROJECT_ROOT_DIR),
+                engine.get_asset_registry(),
+                engine.get_resource_manager());
+            m_asset_scan_report = m_asset_manager->scan();
+            log_asset_scan_issues(m_asset_scan_report);
+
+            register_editor_render_assets(engine, *m_asset_manager);
             engine.set_scene(create_editor_scene());
             Comet::Engine* engine_ptr = &engine;
             m_scene_session = std::make_unique<CometEditor::EditorSceneSession>(
@@ -179,10 +222,12 @@ namespace {
         void on_shutdown() override {
             LOG_INFO("Editor shutting down...");
             m_imgui_context.reset();
+            m_project_panel.reset();
             m_hierarchy_panel.reset();
             m_inspector_panel.reset();
             m_selection.reset();
             m_scene_session.reset();
+            m_asset_manager.reset();
         }
 
     private:
@@ -403,7 +448,14 @@ namespace {
                 *m_selection,
                 m_component_registry,
                 m_property_editor_registry);
-            m_project_panel = std::make_unique<CometEditor::ProjectPanel>();
+            m_project_panel = std::make_unique<CometEditor::ProjectPanel>(
+                m_asset_manager->get_database(),
+                m_asset_scan_report,
+                [this]() {
+                    Comet::AssetScanReport report = m_asset_manager->scan();
+                    log_asset_scan_issues(report);
+                    return report;
+                });
             m_console_panel = std::make_unique<CometEditor::ConsolePanel>();
 
             // 设置菜单栏面板可见性回调
@@ -439,6 +491,8 @@ namespace {
         }
 
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
+        std::unique_ptr<Comet::AssetManager> m_asset_manager;
+        Comet::AssetScanReport m_asset_scan_report;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry =
                 Comet::create_scene_component_registry();

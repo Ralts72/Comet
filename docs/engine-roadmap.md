@@ -802,7 +802,7 @@ compile burst 后或正常 shutdown
 - Comet 自己的文件 envelope 可额外保存 magic、schema version、driver version、Vulkan API version、payload size
   和 checksum，便于拒绝截断或损坏文件。
 - 不兼容、损坏或读取失败时记录一次诊断并退回空 cache，不能阻止引擎启动。
-- cache 文件放在项目 `Library/Cache` 或平台用户 cache 目录，不放进 `engine/assets`，默认不提交版本控制。
+- cache 文件放在项目 `Library/Cache` 或平台用户 cache 目录，不放进引擎源码目录，默认不提交版本控制。
 - Shader 或 render state 变化通过 `PipelineKey` 产生新的 pipeline create info，不需要因此删除整个驱动 blob；
   驱动 cache 会自行判断是否存在可复用条目。
 - `vk::PipelineCache` 的 host access 需要遵守外部同步。引入 RenderThread 后，pipeline 创建、合并和 blob 读取/保存
@@ -965,7 +965,7 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
 
 ```text
 <ProjectRoot>/
-├── Assets/           # 受版本控制的源资产和与其相邻的 .meta
+├── assets/           # 受版本控制的源资产和与其相邻的 .meta
 ├── Library/          # 可重建的导入产物、索引和缓存，不进入版本控制
 └── ProjectSettings/  # 受版本控制的项目级设置
 ```
@@ -985,21 +985,22 @@ Project System，Asset Database 只通过该契约定位输入和缓存。
   重新导入。开发者可以手工编辑 YAML，但文件监听器必须按同一契约校验；解析失败时保留上一次有效导入产物并报告错误。
 - `.meta` 只服务于编辑器、Asset Database 和导入管线，不原样进入 Shipping 资源包。发布流程消费 `Library/`
   中确认有效的导入产物，并生成描述打包资源、依赖和版本的最终 manifest。
-- Asset Database 扫描 `Assets/` 并建立 Handle 与项目相对路径的双向索引；扫描报告会收集重复 GUID、孤立或损坏
+- Asset Database 扫描 `assets/` 并建立 Handle 与项目相对路径的双向索引；扫描报告会收集重复 GUID、孤立或损坏
   `.meta`、类型不匹配和不支持的文件，有效资产仍可进入索引，不因单个坏文件丢失整个项目视图。
 
 建议任务：
 
-- 定义项目目录结构，例如 `Assets/`、`Library/`、`ProjectSettings/`。
+- 定义项目目录结构，例如 `assets/`、`Library/`、`ProjectSettings/`。
 - 实现 Asset Database：
   - 持久化 GUID 分配
   - 元数据文件
   - `AssetHandle` 到元数据、源文件和导入产物的索引
   - 类型识别
   - 依赖查询
-- Project 面板读取真实资产目录。
-- Texture Importer 支持基础导入参数。
-- Material 资产可保存和加载。
+- [x] Project 面板读取真实资产目录并展示扫描问题。
+- [x] 建立 Texture 同步纵向链路：Importer 输出 CPU `TextureData`，ResourceManager 按 Handle 缓存 GPU Texture。
+- [ ] Texture Importer 支持可持久化、可校验的基础导入参数。
+- [ ] Material 资产可保存和加载。
 - 在 Asset Database 的 metadata 和导入产物结构稳定后，设计 Shader Importer 的输入、编译结果、缓存键和打包方式；
   当前 CMake 编译链不预设对应的 C++ 类型或落盘格式。
 - Mesh Importer 接入 glTF，至少支持静态网格。
@@ -1053,7 +1054,7 @@ Scene Component / RenderItem
 
 验收标准：
 
-- Project 面板显示真实 `Assets/` 目录。
+- Project 面板显示真实 `assets/` 目录。
 - 拖拽 mesh/material 到实体后可以保存并重新加载。
 - 删除或移动资产时有基本错误提示。
 - 资产数据库重建后，场景引用仍然稳定。
@@ -1444,7 +1445,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 阶段 3 的第一批最小范围：
 
-1. [x] 定义 `Assets/`、`Library/` 和 `ProjectSettings/` 的目录职责，以及源资产、`.meta` 和导入产物的边界。
+1. [x] 定义 `assets/`、`Library/` 和 `ProjectSettings/` 的目录职责，以及源资产、`.meta` 和导入产物的边界。
 2. [x] 定义持久化 Asset GUID 与代码层 `AssetHandle` 的映射规则，禁止把源文件路径直接写入 Scene。
 3. [x] 实现只负责扫描、索引和查询的 Asset Database Core，并用临时项目目录完成纯逻辑测试。
-4. 先接入 Texture 和 Material 两类资产，再让 Project 面板读取真实索引；Importer、缩略图和文件监听在索引契约稳定后增加。
+4. [x] 完成 Texture 同步导入与运行时发布，资源缓存键从路径收敛为 `AssetHandle`。
+5. [x] 让 Project 面板读取真实索引、刷新扫描并展示问题。
+6. [ ] 接入 Material 资产，使其通过 Texture Handle 表达依赖；缩略图和文件监听在契约稳定后增加。

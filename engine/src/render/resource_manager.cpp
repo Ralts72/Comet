@@ -15,13 +15,19 @@ namespace Comet {
 
     ResourceManager::~ResourceManager() = default;
 
-    std::shared_ptr<Texture> ResourceManager::load_texture(const std::string& path) {
-        if (m_textures.contains(path)) {
-            return m_textures.find(path)->second;
+    std::shared_ptr<Texture> ResourceManager::create_texture(
+        const AssetHandle handle,
+        const TextureData& data) {
+        if(!handle) {
+            LOG_ERROR("Cannot create a texture with an invalid asset handle");
+            return nullptr;
         }
-        
-        auto texture = std::make_shared<Texture>(m_device, path);
-        m_textures[path] = texture;
+        if(m_textures.contains(handle)) {
+            return m_textures.find(handle)->second;
+        }
+
+        auto texture = std::make_shared<Texture>(m_device, data);
+        m_textures[handle] = texture;
         return texture;
     }
 

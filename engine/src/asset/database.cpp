@@ -70,13 +70,13 @@ namespace Comet {
             add_issue(
                 report,
                 assets_root,
-                "failed to access Assets directory: " + error.message());
+                "failed to access assets directory: " + error.message());
             m_assets.clear();
             m_handles_by_path.clear();
             return report;
         }
         if(!assets_exist) {
-            add_issue(report, assets_root, "Assets directory does not exist");
+            add_issue(report, assets_root, "assets directory does not exist");
             m_assets.clear();
             m_handles_by_path.clear();
             return report;
@@ -85,8 +85,8 @@ namespace Comet {
             add_issue(
                 report,
                 assets_root,
-                error ? "failed to access Assets directory: " + error.message()
-                      : "Assets path is not a directory");
+                error ? "failed to access assets directory: " + error.message()
+                      : "assets path is not a directory");
             m_assets.clear();
             m_handles_by_path.clear();
             return report;
@@ -102,7 +102,7 @@ namespace Comet {
             add_issue(
                 report,
                 assets_root,
-                "failed to scan Assets directory: " + error.message());
+                "failed to scan assets directory: " + error.message());
             m_assets.clear();
             m_handles_by_path.clear();
             return report;
@@ -125,7 +125,7 @@ namespace Comet {
                 add_issue(
                     report,
                     assets_root,
-                    "failed while scanning Assets directory: " + error.message());
+                    "failed while scanning assets directory: " + error.message());
                 error.clear();
             }
         }
