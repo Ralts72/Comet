@@ -1148,9 +1148,9 @@ Scene Component / RenderItem
 - Edit 使用 Edit Scene 和不属于 Scene 的 editor camera；Play 使用 Runtime Scene 的 primary Camera。Viewport 可见性、目标尺寸和
   Camera 来源由 ViewportRenderRequest 表达，SceneRenderer 不依赖 EditorMode；输入焦点留在 Editor 交互层。
 - 2D/3D 是单个 Edit Viewport 的观察和交互方式，不是两个独立 Viewport；当前按钮只保存 UI 状态，尚未真正切换 editor camera 投影和操作逻辑。
-- resize 会等待尺寸连续稳定，再通过 `Device::wait_idle()` 重建离屏 image、image view 和 framebuffer。
+- resize 会等待尺寸连续稳定，再事务式创建新的离屏 target generation；正常切换不等待 `Device::wait_idle()`。
 - Camera 垂直 FOV 与实体 Transform 不变，RenderTarget 尺寸只改变 projection aspect；ImGui 再把纹理等比放入面板。
-- ImGui 逻辑尺寸目前直接作为 RenderTarget 像素尺寸，尚未纳入 HiDPI framebuffer scale。
+- Viewport layout 已区分 ImGui 逻辑尺寸、HiDPI 物理渲染分辨率和实际 image display rect。
 
 #### 阶段 4A：单 Viewport 的模式化 Camera 与输入
 
@@ -1173,8 +1173,8 @@ Scene Component / RenderItem
 - [x] Edit 模式默认按面板物理像素尺寸渲染，并结合当前 ImGui platform viewport 的 framebuffer scale 处理 Retina/HiDPI。
 - [x] Play 模式支持 Free、16:9、1280x720、1920x1080 分辨率策略；固定像素模式下 panel resize 只改变显示缩放，不改变 render resolution。
 - [x] 提供 Fit、1x 显示倍率，保持物理像素语义并记录 letterbox/pillarbox 或 1x 裁切后的真实 image display rect。
-- 保留 resize debounce，但用 frame fence 和延迟销毁逐步替代 `Device::wait_idle()`，避免拖拽面板时阻塞整个 GPU。
-- resize 创建新的 `RenderTargetGeneration`，成功后切换 viewport 引用，并按最后使用它的 frame submission 延迟释放
+- [x] 保留 resize debounce，并用 frame submission completion 和延迟销毁替代 `Device::wait_idle()`，避免拖拽面板时阻塞整个 GPU。
+- [x] resize 创建完整的新 `MultiTarget` generation，成功后切换 viewport 引用，并按最后使用它的 frame submission 延迟释放
   旧 image、image view、framebuffer 和 ImGui descriptor；创建失败时继续使用旧 generation。
 - 将 swapchain 重建改为 prepare/create/commit/retire generation 流程。engine core、runtime present target 和 editor ImGui
   dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
@@ -1476,9 +1476,8 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 4B：离屏 RenderTarget generation**。保留现有 resize debounce，但把 Viewport 重建从 `Device::wait_idle()` 改为
-prepare/create/commit/retire：新 generation 全部创建成功后才切换，旧 generation 按最后一次 frame submission 延迟释放，失败继续使用旧
-目标。先只收敛 editor 离屏目标，不同时改 swapchain generation。
+下一步继续 **阶段 4B：Viewport 尺寸约束**。在 ViewportLayout 的物理目标分辨率上加入由 Vulkan capability 与编辑器策略共同决定的
+上限，并提供可测试的等比缩放规则，避免超大浮动窗口或异常 DPI 触发无上限 generation 创建；本步仍不同时改 swapchain generation。
 
 建议的职责边界：
 
@@ -1556,6 +1555,7 @@ prepare/create/commit/retire：新 generation 全部创建成功后才切换，�
 52. [x] 完成阶段 3 → 4 架构复盘：删除 Editor/ProjectPanel 重复 scan report 状态、Renderer 未消费的输入策略和 SceneResolver 旧重载；确认 AssetManager 暂不按行数拆分，补齐资产架构文档。
 53. [x] 建立纯 ViewportLayout：分离 panel logical content、HiDPI physical render resolution 与等比 image display rect；ViewPanel 使用 platform viewport framebuffer scale，Renderer 只接收物理分辨率。
 54. [x] 增加 Play Viewport 分辨率/显示策略：Free、16:9、1280x720、1920x1080 与 Fit/1x 均由纯布局策略计算；固定模式不随 panel resize 改变目标像素。
+55. [x] 将离屏 resize 改为 generation prepare/create/commit/retire：FrameBuffer 与 MultiTarget 提供可恢复工厂，SceneRenderer 按真实 submission completion 保留旧 target，ImGui descriptor 只在 ready frame slot 替换。
 
 格式所有权后续需求：
 

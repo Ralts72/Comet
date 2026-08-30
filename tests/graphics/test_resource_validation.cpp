@@ -6,10 +6,12 @@
 #include "graphics/command/command_buffer.h"
 #include "graphics/command/command_context.h"
 #include "graphics/device.h"
+#include "graphics/frame_buffer.h"
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/resource/sampler.h"
 #include "graphics/synchronization/resource_state.h"
+#include "render/render_target.h"
 
 namespace Comet::Tests {
 namespace {
@@ -94,6 +96,10 @@ TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
     using ImageWrapper = decltype(&Image::wrap);
     using ImageViewFactory = decltype(&ImageView::create);
     using RecoverableImageViewFactory = decltype(&ImageView::try_create);
+    using FrameBufferFactory = decltype(&FrameBuffer::create);
+    using RecoverableFrameBufferFactory = decltype(&FrameBuffer::try_create);
+    using RecoverableMultiTargetFactory =
+        decltype(&RenderTarget::try_create_multi_target);
 
     EXPECT_FALSE((std::is_constructible_v<Device, std::nullptr_t>));
     EXPECT_FALSE((std::is_constructible_v<Sampler, std::nullptr_t, SamplerDesc>));
@@ -132,6 +138,29 @@ TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
         Device&,
         std::shared_ptr<Image>,
         Flags<ImageAspect>>));
+    EXPECT_TRUE((std::is_invocable_r_v<
+        std::shared_ptr<FrameBuffer>,
+        FrameBufferFactory,
+        Device&,
+        RenderPass&,
+        const std::vector<std::shared_ptr<ImageView>>&,
+        uint32_t,
+        uint32_t>));
+    EXPECT_TRUE((std::is_invocable_r_v<
+        GpuResourceResult<std::shared_ptr<FrameBuffer>>,
+        RecoverableFrameBufferFactory,
+        Device&,
+        RenderPass&,
+        const std::vector<std::shared_ptr<ImageView>>&,
+        uint32_t,
+        uint32_t>));
+    EXPECT_TRUE((std::is_invocable_r_v<
+        GpuResourceResult<std::unique_ptr<RenderTarget>>,
+        RecoverableMultiTargetFactory,
+        Device&,
+        RenderPass&,
+        Math::Vec2u,
+        uint32_t>));
     EXPECT_FALSE((std::is_constructible_v<OwnedImage,
         Device&, const ImageInfo&, SampleCount, std::string_view>));
     EXPECT_FALSE((std::is_constructible_v<
@@ -139,6 +168,13 @@ TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
         Device&,
         std::shared_ptr<Image>,
         Flags<ImageAspect>>));
+    EXPECT_FALSE((std::is_constructible_v<
+        FrameBuffer,
+        Device&,
+        RenderPass&,
+        const std::vector<std::shared_ptr<ImageView>>&,
+        uint32_t,
+        uint32_t>));
 }
 
 TEST(ResourceValidationTest, CommandRecordingUsesNonNullResourceReferences) {

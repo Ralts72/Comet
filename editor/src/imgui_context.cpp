@@ -327,39 +327,37 @@ namespace CometEditor {
         LOG_INFO("ImGui resources recreated successfully");
     }
 
-    void ImGuiContext::set_viewport_images(
-        std::vector<std::shared_ptr<Comet::ImageView>> image_views,
+    void ImGuiContext::set_viewport_image(
+        const uint32_t frame_slot_index,
+        std::shared_ptr<Comet::ImageView> image_view,
         std::shared_ptr<Comet::Sampler> sampler) {
-        bool bindings_match = m_viewport_textures.size() == image_views.size();
-        for(std::size_t index = 0; bindings_match && index < image_views.size(); ++index) {
-            bindings_match = m_viewport_textures[index]->matches(image_views[index], sampler);
+        if(!image_view || !sampler) {
+            LOG_FATAL("Viewport texture binding requires a valid image view and sampler");
         }
-        if(bindings_match) {
+        if(frame_slot_index < m_viewport_textures.size()
+           && m_viewport_textures[frame_slot_index]
+           && m_viewport_textures[frame_slot_index]->matches(
+               image_view, sampler)) {
             return;
         }
 
-        unregister_viewport_textures();
-        m_viewport_textures.clear();
-        if(!sampler) {
-            if(!image_views.empty()) {
-                LOG_ERROR("Cannot register viewport images without a sampler");
-            }
-            return;
+        if(frame_slot_index >= m_viewport_textures.size()) {
+            m_viewport_textures.resize(frame_slot_index + 1);
         }
-
-        m_viewport_textures.reserve(image_views.size());
-        for(auto& image_view: image_views) {
-            m_viewport_textures.push_back(std::make_unique<TextureBinding>(
-                std::move(image_view), sampler));
+        auto binding = std::make_unique<TextureBinding>(
+            std::move(image_view), std::move(sampler));
+        if(m_initialized) {
+            binding->register_texture();
         }
-        register_viewport_textures();
+        m_viewport_textures[frame_slot_index] = std::move(binding);
     }
 
     ImTextureID ImGuiContext::get_viewport_texture_id(const uint32_t frame_index) const {
         if(frame_index >= m_viewport_textures.size()) {
             return ImTextureID_Invalid;
         }
-        return m_viewport_textures[frame_index]->get_texture_id();
+        const auto& binding = m_viewport_textures[frame_index];
+        return binding ? binding->get_texture_id() : ImTextureID_Invalid;
     }
 
     void ImGuiContext::register_viewport_textures() {
@@ -368,14 +366,18 @@ namespace CometEditor {
         }
 
         for(const auto& texture: m_viewport_textures) {
-            texture->register_texture();
+            if(texture) {
+                texture->register_texture();
+            }
         }
     }
 
     void ImGuiContext::unregister_viewport_textures() {
         if(m_initialized) {
             for(const auto& texture: m_viewport_textures) {
-                texture->unregister_texture();
+                if(texture) {
+                    texture->unregister_texture();
+                }
             }
         }
     }

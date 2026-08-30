@@ -269,20 +269,14 @@ namespace Comet {
             static_cast<float>(size.x), static_cast<float>(size.y)));
 
         std::vector<QueueSemaphoreSubmit> resource_waits;
-        const auto retain_resource = [this](const auto& resource) {
-            if(resource
-               && m_recorded_resource_ids.insert(resource.get()).second) {
-                m_recorded_resource_owners.emplace_back(resource);
-            }
-        };
         for(const ResolvedRenderItem& item: submission.render_items) {
-            retain_resource(item.mesh);
+            retain_recorded_resource(item.mesh);
             append_resource_wait(
                 resource_waits,
                 item.mesh->get_ready_completion(),
                 Flags<PipelineStage>(PipelineStage::VertexInput));
             for(const auto& texture: item.material.textures) {
-                retain_resource(texture);
+                retain_recorded_resource(texture);
                 append_resource_wait(
                     resource_waits,
                     texture->get_ready_completion(),
@@ -331,6 +325,7 @@ namespace Comet {
             m_frame_scheduler->get_current_command_buffer();
         command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
         if(m_uses_viewport_target) {
+            retain_recorded_resource(m_render_target);
             m_render_target->begin_render_target(
                 command_buffer,
                 m_frame_scheduler->get_current_frame_slot_index());
@@ -447,19 +442,18 @@ namespace Comet {
         return m_frame_scheduler->get_current_command_buffer();
     }
 
-    std::vector<std::shared_ptr<ImageView>> SceneRenderer::get_viewport_color_views() const {
-        std::vector<std::shared_ptr<ImageView>> color_views;
+    std::shared_ptr<ImageView> SceneRenderer::get_viewport_color_view(
+        const uint32_t frame_slot_index) const {
         if(!m_uses_viewport_target) {
-            return color_views;
+            return nullptr;
         }
 
-        const uint32_t frame_slot_count =
-            m_frame_scheduler->get_frame_slot_count();
-        color_views.reserve(frame_slot_count);
-        for(uint32_t index = 0; index < frame_slot_count; ++index) {
-            color_views.push_back(m_render_target->get_color_view(index));
+        if(frame_slot_index >= m_frame_scheduler->get_frame_slot_count()) {
+            LOG_FATAL("Viewport frame slot {} exceeds frame slot count {}",
+                frame_slot_index,
+                m_frame_scheduler->get_frame_slot_count());
         }
-        return color_views;
+        return m_render_target->get_color_view(frame_slot_index);
     }
 
     bool SceneRenderer::recreate_swapchain() {
@@ -502,6 +496,14 @@ namespace Comet {
             });
     }
 
+    void SceneRenderer::retain_recorded_resource(
+        std::shared_ptr<void> resource) {
+        if(resource
+           && m_recorded_resource_ids.insert(resource.get()).second) {
+            m_recorded_resource_owners.push_back(std::move(resource));
+        }
+    }
+
     void SceneRenderer::set_render_target_clear_color() const {
         m_render_target->set_clear_value(m_color_clear_value);
     }
@@ -513,10 +515,30 @@ namespace Comet {
             return;
         }
 
-        m_context.wait_idle();
-        m_render_target->resize(
-            m_requested_viewport_size.x, m_requested_viewport_size.y);
+        auto candidate = RenderTarget::try_create_multi_target(
+            m_context.get_device(),
+            *m_render_pass,
+            m_requested_viewport_size,
+            m_frame_scheduler->get_frame_slot_count());
         m_viewport_size_stable_frames = 0;
+        if(!candidate) {
+            const Math::Vec2u current_size = m_render_target->get_size();
+            LOG_ERROR("Keeping viewport render target at {}x{} after {}x{} generation creation failed: {}",
+                current_size.x,
+                current_size.y,
+                m_requested_viewport_size.x,
+                m_requested_viewport_size.y,
+                vk::to_string(candidate.result()));
+            return;
+        }
+
+        std::shared_ptr<RenderTarget> next_generation(
+            std::move(candidate).value());
+        next_generation->set_clear_value(m_color_clear_value);
+        LOG_INFO("Commit viewport render target generation {}x{}",
+            m_requested_viewport_size.x,
+            m_requested_viewport_size.y);
+        m_render_target = std::move(next_generation);
     }
 
     void SceneRenderer::update_descriptor_set(const DescriptorSet& descriptor_set,

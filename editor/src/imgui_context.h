@@ -38,8 +38,9 @@ namespace CometEditor {
 
         void recreate_swapchain();
 
-        void set_viewport_images(
-            std::vector<std::shared_ptr<Comet::ImageView>> image_views,
+        void set_viewport_image(
+            uint32_t frame_slot_index,
+            std::shared_ptr<Comet::ImageView> image_view,
             std::shared_ptr<Comet::Sampler> sampler);
 
         [[nodiscard]] ImTextureID get_viewport_texture_id(uint32_t frame_index) const;
