@@ -61,4 +61,10 @@ namespace CometEditor {
     map_viewport_point_to_pixel(
         const ViewportLayout& layout,
         Comet::Math::Vec2 screen_point);
+
+    [[nodiscard]] std::optional<Comet::Math::Vec2>
+    map_viewport_point_to_pixel_position(
+        const ViewportLayout& layout,
+        Comet::Math::Vec2 screen_point,
+        bool require_visible = true);
 }

@@ -8,6 +8,7 @@
 #include "src/editor_state.h"
 #include "src/imgui_context.h"
 #include "src/property_editor_registry.h"
+#include "src/transform_gizmo.h"
 #include "core/engine.h"
 #include "core/project_paths.h"
 #include "render/debug/debug_draw.h"
@@ -30,6 +31,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cmath>
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -42,6 +44,8 @@
 namespace {
     constexpr std::size_t SCENE_PATH_CAPACITY = 1024;
     constexpr std::uint32_t EDITOR_VIEWPORT_MAX_RENDER_DIMENSION = 4096;
+    constexpr float TRANSLATION_GIZMO_DISPLAY_LENGTH = 84.0f;
+    constexpr float TRANSLATION_GIZMO_HIT_RADIUS = 8.0f;
     const std::filesystem::path DEMO_MESH = "meshes/cube.gltf";
     const std::filesystem::path DEMO_MATERIAL = "materials/demo.mat";
 
@@ -183,8 +187,8 @@ namespace {
                     apply_viewport_camera_input();
                     apply_viewport_focus();
                     update_viewport_state();
-                    submit_selection_debug_draw();
-                    submit_viewport_pick();
+                    apply_viewport_pointer_input();
+                    submit_editor_debug_draw();
                 },
                 [this](Comet::CommandBuffer& cmd) {
                     m_imgui_context->render(cmd);
@@ -302,33 +306,173 @@ namespace {
                 scene->get_world_matrix(entity));
         }
 
-        void submit_selection_debug_draw() {
+        [[nodiscard]] std::optional<CometEditor::TranslationGizmoContext>
+        make_translation_gizmo_context(Comet::Entity entity) {
+            if(!entity
+               || !entity.has_component<Comet::TransformComponent>()) {
+                return std::nullopt;
+            }
+            Comet::Scene* scene = get_engine().get_scene();
+            const CometEditor::ViewportLayout& layout =
+                m_viewport_panel->get_layout();
+            const Comet::Math::Vec2 display_size =
+                layout.image_display_rect.size();
+            if(scene == nullptr
+               || layout.image_resolution.x == 0
+               || layout.image_resolution.y == 0
+               || !std::isfinite(display_size.y)
+               || display_size.y <= 0.0f) {
+                return std::nullopt;
+            }
+
+            const Comet::Math::Mat4 world_matrix =
+                scene->get_world_matrix(entity);
+            const Comet::Math::Vec4 world_origin = world_matrix
+                * Comet::Math::Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            if(!std::isfinite(world_origin.w)
+               || std::abs(world_origin.w) <= 0.000001f) {
+                return std::nullopt;
+            }
+            const float texture_pixels_per_display_pixel =
+                static_cast<float>(layout.image_resolution.y)
+                / display_size.y;
+            const auto frame = CometEditor::make_translation_gizmo_frame(
+                m_editor_state.camera,
+                Comet::Math::Vec3(world_origin) / world_origin.w,
+                layout.image_resolution,
+                TRANSLATION_GIZMO_DISPLAY_LENGTH
+                    * texture_pixels_per_display_pixel);
+            if(!frame) {
+                return std::nullopt;
+            }
+            Comet::Entity parent = scene->get_parent(entity);
+            const Comet::Math::Mat4 world_to_parent = parent
+                ? Comet::Math::inverse(scene->get_world_matrix(parent))
+                : Comet::Math::Mat4(1.0f);
+            return CometEditor::TranslationGizmoContext{
+                .entity_uuid = entity.get_uuid(),
+                .local_translation = entity
+                    .get_component<Comet::TransformComponent>().translation,
+                .world_to_parent = world_to_parent,
+                .frame = *frame,
+                .hit_radius_pixels = TRANSLATION_GIZMO_HIT_RADIUS
+                    * texture_pixels_per_display_pixel
+            };
+        }
+
+        void apply_translation_gizmo_edit(
+            const CometEditor::TranslationGizmoEdit& edit) {
+            Comet::Scene* scene = get_engine().get_scene();
+            Comet::Entity entity = scene
+                ? scene->find_entity(edit.entity_uuid)
+                : Comet::Entity{};
+            if(entity && entity.has_component<Comet::TransformComponent>()) {
+                entity.get_component<Comet::TransformComponent>()
+                    .translation = edit.translation;
+            }
+        }
+
+        void cancel_translation_gizmo_drag() {
+            const std::optional<CometEditor::TranslationGizmoEdit> edit =
+                m_translation_gizmo_controller.cancel();
+            if(edit) {
+                apply_translation_gizmo_edit(*edit);
+            }
+        }
+
+        void apply_viewport_pointer_input() {
+            const std::optional<CometEditor::ViewportPointerInput> panel_input =
+                m_viewport_panel->take_pointer_input();
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit
+               || !m_viewport_panel->is_visible()
+               || !m_selection) {
+                cancel_translation_gizmo_drag();
+                return;
+            }
+
+            Comet::Entity entity = m_selection->get_selected_entity();
+            const std::optional<CometEditor::TranslationGizmoContext> context =
+                make_translation_gizmo_context(entity);
+            const std::optional<CometEditor::TranslationGizmoPointerInput>
+                gizmo_input = panel_input
+                ? std::optional<CometEditor::TranslationGizmoPointerInput>({
+                    .pixel_position = panel_input->pixel_position,
+                    .pointer_over_image = panel_input->pointer_over_image,
+                    .pressed = panel_input->pressed,
+                    .down = panel_input->down,
+                    .released = panel_input->released
+                })
+                : std::nullopt;
+            const CometEditor::TranslationGizmoUpdate update =
+                m_translation_gizmo_controller.update(context, gizmo_input);
+            if(update.edit) {
+                apply_translation_gizmo_edit(*update.edit);
+            }
+            if(update.commit) {
+                record_entity_property_edit(
+                    update.commit->entity_uuid,
+                    "transform",
+                    "translation",
+                    Comet::PropertyValue(update.commit->before),
+                    Comet::PropertyValue(update.commit->after));
+            }
+
+            if(!panel_input
+               || !panel_input->pressed
+               || !panel_input->pointer_over_image
+               || update.pointer_press_consumed) {
+                return;
+            }
+
+            const CometEditor::ViewportLayout& layout =
+                m_viewport_panel->get_layout();
+            if(layout.image_resolution.x == 0
+               || layout.image_resolution.y == 0) {
+                return;
+            }
+            const auto pixel_x = static_cast<std::uint32_t>(std::clamp(
+                std::floor(panel_input->pixel_position.x),
+                0.0f,
+                static_cast<float>(layout.image_resolution.x - 1)));
+            const auto pixel_y = static_cast<std::uint32_t>(std::clamp(
+                std::floor(panel_input->pixel_position.y),
+                0.0f,
+                static_cast<float>(layout.image_resolution.y - 1)));
+            get_engine().get_renderer().request_viewport_pick(
+                Comet::Math::Vec2u(pixel_x, pixel_y));
+        }
+
+        void submit_editor_debug_draw() {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit
                || !m_viewport_panel->is_visible()) {
                 return;
             }
 
+            Comet::DebugDrawList draw_list;
             const std::optional<Comet::AxisAlignedBox> world_bounds =
                 resolve_selected_mesh_world_bounds();
-            if(!world_bounds) {
-                return;
+            if(world_bounds) {
+                const Comet::Math::Vec4 selection_color(
+                    1.0f, 0.65f, 0.1f, 1.0f);
+                static_cast<void>(draw_list.add_box(
+                    *world_bounds, selection_color));
             }
 
-            Comet::DebugDrawList draw_list;
-            const Comet::Math::Vec4 selection_color(
-                1.0f, 0.65f, 0.1f, 1.0f);
-            if(draw_list.add_box(*world_bounds, selection_color)) {
+            Comet::Entity entity = m_selection
+                ? m_selection->get_selected_entity()
+                : Comet::Entity{};
+            const auto gizmo_context = make_translation_gizmo_context(entity);
+            if(gizmo_context) {
+                static_cast<void>(CometEditor::add_translation_gizmo(
+                    draw_list,
+                    gizmo_context->frame,
+                    m_translation_gizmo_controller.hovered_axis(),
+                    m_translation_gizmo_controller.active_axis()));
+            }
+
+            if(!draw_list.empty()) {
                 get_engine().get_renderer().submit_debug_draw(
                     std::move(draw_list));
-            }
-        }
-
-        void submit_viewport_pick() {
-            if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
-                return;
-            }
-            if(const auto pixel = m_viewport_panel->take_pick_request()) {
-                get_engine().get_renderer().request_viewport_pick(*pixel);
             }
         }
 
@@ -570,6 +714,7 @@ namespace {
                 LOG_ERROR("Cannot bind editor panels without an active scene");
                 return;
             }
+            m_translation_gizmo_controller.reset();
             m_selection->set_scene(*active_scene);
             m_hierarchy_panel->set_scene(*active_scene);
             m_command_history.clear();
@@ -581,6 +726,7 @@ namespace {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
                 return;
             }
+            cancel_translation_gizmo_drag();
             const bool succeeded = command == CometEditor::EditCommand::Undo
                 ? m_command_history.undo()
                 : m_command_history.redo();
@@ -619,6 +765,9 @@ namespace {
             }
 
             try {
+                if(m_scene_session->has_pending_mode_request()) {
+                    cancel_translation_gizmo_drag();
+                }
                 if(m_scene_session->apply_mode_request()) {
                     bind_active_scene();
                 }
@@ -885,6 +1034,8 @@ namespace {
         CometEditor::PropertyEditorRegistry m_property_editor_registry =
                 CometEditor::create_property_editor_registry();
         CometEditor::EditorCommandHistory m_command_history;
+        CometEditor::TranslationGizmoController
+            m_translation_gizmo_controller;
         Comet::SceneSerializer m_scene_serializer{m_component_registry};
         CometEditor::EditorState m_editor_state;
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;

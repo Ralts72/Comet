@@ -6,6 +6,7 @@ list(APPEND TEST_SOURCES
         "${CMAKE_SOURCE_DIR}/editor/src/editor_command_history.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/editor_scene_session.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/editor_camera_controller.cpp"
+        "${CMAKE_SOURCE_DIR}/editor/src/transform_gizmo.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/viewport_layout.cpp"
 )
 

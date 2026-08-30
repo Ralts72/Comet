@@ -31,6 +31,10 @@ namespace CometEditor {
 
         void request_mode(EditorMode mode);
 
+        [[nodiscard]] bool has_pending_mode_request() const {
+            return m_requested_mode.has_value();
+        }
+
         [[nodiscard]] bool apply_mode_request();
 
     private:

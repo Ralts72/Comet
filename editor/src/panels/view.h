@@ -9,6 +9,14 @@
 #include <optional>
 
 namespace CometEditor {
+    struct ViewportPointerInput {
+        Comet::Math::Vec2 pixel_position{};
+        bool pointer_over_image = false;
+        bool pressed = false;
+        bool down = false;
+        bool released = false;
+    };
+
     class ViewPanel: public EditorPanel {
     public:
         ViewPanel(
@@ -35,8 +43,8 @@ namespace CometEditor {
         [[nodiscard]] std::optional<Comet::CameraProjection>
         take_camera_projection_request();
 
-        [[nodiscard]] std::optional<Comet::Math::Vec2u>
-        take_pick_request();
+        [[nodiscard]] std::optional<ViewportPointerInput>
+        take_pointer_input();
 
         [[nodiscard]] bool take_focus_request();
 
@@ -45,7 +53,7 @@ namespace CometEditor {
         void render_play_toolbar();
         void render_view_content();
         void update_view_interaction();
-        void reset_camera_interaction();
+        void reset_view_interaction();
 
         const EditorState& m_state;
         std::uint32_t m_max_render_dimension = 0;
@@ -58,8 +66,9 @@ namespace CometEditor {
         std::optional<EditorCameraInput> m_camera_input;
         std::optional<Comet::CameraProjection>
             m_camera_projection_request;
-        std::optional<Comet::Math::Vec2u> m_pick_request;
+        std::optional<ViewportPointerInput> m_pointer_input;
         bool m_focus_request = false;
+        bool m_left_pointer_active = false;
         bool m_orbit_drag_active = false;
         bool m_pan_drag_active = false;
     };

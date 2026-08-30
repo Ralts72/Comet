@@ -16,22 +16,22 @@ namespace CometEditor {
         m_layout = {};
         m_camera_input.reset();
         m_camera_projection_request.reset();
-        m_pick_request.reset();
+        m_pointer_input.reset();
         m_focus_request = false;
 
         if(!m_user_visible) {
-            reset_camera_interaction();
+            reset_view_interaction();
             return;
         }
 
         if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
-            reset_camera_interaction();
+            reset_view_interaction();
             ImGui::End();
             return;
         }
 
         if(ImGui::IsWindowCollapsed()) {
-            reset_camera_interaction();
+            reset_view_interaction();
             ImGui::End();
             return;
         }
@@ -207,7 +207,7 @@ namespace CometEditor {
 
     void ViewPanel::update_view_interaction() {
         if(m_state.mode != EditorMode::Edit) {
-            reset_camera_interaction();
+            reset_view_interaction();
             return;
         }
 
@@ -225,9 +225,30 @@ namespace CometEditor {
             m_focus_request = true;
         }
 
-        if(pointer_over_image
-           && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            m_pick_request = *mapped_pixel;
+        const bool left_pressed = pointer_over_image
+            && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+        if(left_pressed) {
+            m_left_pointer_active = true;
+        }
+        const bool left_released = m_left_pointer_active
+            && ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+        if(pointer_over_image || m_left_pointer_active) {
+            const auto pixel_position =
+                map_viewport_point_to_pixel_position(
+                    m_layout, mouse_position, false);
+            if(pixel_position) {
+                m_pointer_input = ViewportPointerInput{
+                    .pixel_position = *pixel_position,
+                    .pointer_over_image = pointer_over_image,
+                    .pressed = left_pressed,
+                    .down = m_left_pointer_active
+                        && ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                    .released = left_released
+                };
+            }
+        }
+        if(left_released) {
+            m_left_pointer_active = false;
         }
 
         if(pointer_over_image
@@ -268,7 +289,8 @@ namespace CometEditor {
         };
     }
 
-    void ViewPanel::reset_camera_interaction() {
+    void ViewPanel::reset_view_interaction() {
+        m_left_pointer_active = false;
         m_orbit_drag_active = false;
         m_pan_drag_active = false;
     }
@@ -283,8 +305,8 @@ namespace CometEditor {
             m_camera_projection_request, std::nullopt);
     }
 
-    std::optional<Comet::Math::Vec2u> ViewPanel::take_pick_request() {
-        return std::exchange(m_pick_request, std::nullopt);
+    std::optional<ViewportPointerInput> ViewPanel::take_pointer_input() {
+        return std::exchange(m_pointer_input, std::nullopt);
     }
 
     bool ViewPanel::take_focus_request() {

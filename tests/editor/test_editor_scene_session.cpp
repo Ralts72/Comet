@@ -36,10 +36,12 @@ namespace CometEditor::Tests {
             });
 
         session.request_mode(EditorMode::Play);
+        EXPECT_TRUE(session.has_pending_mode_request());
         EXPECT_EQ(state.mode, EditorMode::Edit);
         EXPECT_EQ(active_scene.get(), original_edit_scene);
 
         ASSERT_TRUE(session.apply_mode_request());
+        EXPECT_FALSE(session.has_pending_mode_request());
         EXPECT_EQ(state.mode, EditorMode::Play);
         ASSERT_NE(active_scene.get(), original_edit_scene);
         Comet::Entity runtime_entity = active_scene->find_entity(entity_uuid);

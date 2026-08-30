@@ -207,6 +207,9 @@ FOV 模拟正交。3D position/target 被保留，2D pan 同步移动两者，�
   PipelineManager/RenderPass 销毁，不读取 Selection、Scene 或 ImGui。
 - Editor 组合根是当前第一个 DebugDraw producer：它把 Selection 解析为 Runtime Mesh local AABB 和 Scene world matrix，再提交 world AABB。
   Focus 与高亮复用同一私有 bounds 解析，不缓存派生数据；ViewPanel 继续只产生 UI 事件，Scene/Material 不保存编辑器选择或高亮状态。
+- ViewPanel 把左键交互表达为连续 texture-pixel pointer event，并只负责 ImGui capture；Editor 将选中实体解析为 Gizmo context。
+  `TranslationGizmoController` 是不依赖 ImGui/Scene/Renderer 的 Editor 工具状态机，输出临时 translation edit 和单次 release commit；
+  组合根应用 edit 并复用 UUID + descriptor Command History。未消费的 press 才进入原 CPU scene picking。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture

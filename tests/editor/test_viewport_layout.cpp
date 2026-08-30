@@ -240,6 +240,26 @@ namespace CometEditor::Tests {
             Comet::Math::Vec2u(1599, 899));
     }
 
+    TEST(ViewportLayoutTest, MapsContinuousPixelPositionDuringCapturedDrag) {
+        const ViewportLayout layout = calculate_viewport_layout({
+            .content_origin = Comet::Math::Vec2(100.0f, 200.0f),
+            .content_size = Comet::Math::Vec2(800.0f, 600.0f),
+            .current_render_resolution = Comet::Math::Vec2u(1600, 900)
+        });
+
+        const auto center = map_viewport_point_to_pixel_position(
+            layout, Comet::Math::Vec2(500.0f, 500.0f));
+        const auto outside = map_viewport_point_to_pixel_position(
+            layout, Comet::Math::Vec2(980.0f, 500.0f), false);
+
+        ASSERT_TRUE(center);
+        ASSERT_TRUE(outside);
+        expect_vec2(*center, Comet::Math::Vec2(800.0f, 450.0f));
+        EXPECT_GT(outside->x, 1600.0f);
+        EXPECT_FALSE(map_viewport_point_to_pixel_position(
+            layout, Comet::Math::Vec2(980.0f, 500.0f), true));
+    }
+
     TEST(ViewportLayoutTest, RejectsToolbarLetterboxAndMaximumEdges) {
         const ViewportLayout layout = calculate_viewport_layout({
             .content_origin = Comet::Math::Vec2(100.0f, 200.0f),
