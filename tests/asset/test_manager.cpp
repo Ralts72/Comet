@@ -11,6 +11,8 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -74,6 +76,25 @@ namespace Comet::Tests {
                 return path;
             }
 
+            std::filesystem::path add_external_mesh(
+                const AssetHandle handle) const {
+                const std::filesystem::path path =
+                    paths().assets() / "meshes/external.gltf";
+                const std::filesystem::path buffer =
+                    paths().assets() / "meshes/external.bin";
+                std::filesystem::create_directories(path.parent_path());
+                write_external_mesh_buffer(buffer, false);
+                std::ofstream output(path, std::ios::binary);
+                output
+                    << R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":42,"uri":"external.bin"}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"indices":1}]}]})";
+                output.close();
+                AssetMetadataSerializer{}.save({
+                    .handle = handle,
+                    .type = AssetType::Mesh
+                }, metadata_path(path));
+                return buffer;
+            }
+
             static void write_mesh(
                 const std::filesystem::path& path,
                 const std::string_view primitive) {
@@ -81,6 +102,22 @@ namespace Comet::Tests {
                 output
                     << R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":42,"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAABAAIA"}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[)"
                     << primitive << "]}]}";
+            }
+
+            static void write_external_mesh_buffer(
+                const std::filesystem::path& path,
+                const bool modified) {
+                std::array<std::uint8_t, 42> data{};
+                data[14] = modified ? 0x00 : 0x80;
+                data[15] = modified ? 0x40 : 0x3f;
+                data[30] = 0x80;
+                data[31] = 0x3f;
+                data[38] = 0x01;
+                data[40] = 0x02;
+                std::ofstream output(path, std::ios::binary);
+                output.write(
+                    reinterpret_cast<const char*>(data.data()),
+                    static_cast<std::streamsize>(data.size()));
             }
 
         private:
@@ -228,6 +265,57 @@ namespace Comet::Tests {
         EXPECT_NE(modified, original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
         EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 6);
+    }
+
+    TEST(AssetManagerTest, RefreshesLoadedMeshWhenExternalBufferChanges) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path dependency =
+            project.add_external_mesh(handle);
+        {
+            AssetRegistry registry;
+            FakeRenderResourceFactory resource_factory;
+            TaskScheduler task_scheduler(1);
+            AssetManager manager(
+                project.paths(), registry, resource_factory, task_scheduler);
+            ASSERT_TRUE(manager.scan().succeeded());
+            ASSERT_NE(manager.load_mesh(handle), nullptr);
+        }
+
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
+        ASSERT_NE(original, nullptr);
+        EXPECT_EQ(
+            std::vector<std::filesystem::path>(
+                manager.get_database()
+                    .get_import_dependencies(handle).begin(),
+                manager.get_database()
+                    .get_import_dependencies(handle).end()),
+            (std::vector<std::filesystem::path>{"meshes/external.bin"}));
+
+        const auto previous_write_time =
+            std::filesystem::last_write_time(dependency);
+        TemporaryProject::write_external_mesh_buffer(dependency, true);
+        std::filesystem::last_write_time(
+            dependency,
+            previous_write_time + std::chrono::seconds(1));
+
+        const AssetScanReport refresh = manager.scan();
+
+        ASSERT_TRUE(refresh.snapshot_updated);
+        EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
+        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        task_scheduler.wait_idle();
+        manager.process_completions();
+
+        EXPECT_NE(registry.resolve<Mesh>(handle), original);
+        EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
+        EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 3);
     }
 
     TEST(AssetManagerTest, DiscardsMeshCandidateWhenRevisionChangesBeforePublication) {

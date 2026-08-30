@@ -23,12 +23,27 @@ namespace Comet {
             std::optional<AssetMetadata> metadata;
         };
 
+        using ImportDependenciesByAsset = std::unordered_map<
+            AssetHandle,
+            std::vector<std::filesystem::path>>;
+        using ImportDependentsBySource = std::unordered_map<
+            std::filesystem::path,
+            std::vector<AssetHandle>>;
+
+        std::string lowercase_extension(const std::filesystem::path& path) {
+            std::string extension = path.extension().string();
+            std::ranges::transform(
+                extension,
+                extension.begin(),
+                [](const unsigned char character) {
+                    return static_cast<char>(std::tolower(character));
+                });
+            return extension;
+        }
+
         std::optional<AssetType> asset_type_from_path(
             const std::filesystem::path& path) {
-            std::string extension = path.extension().string();
-            std::ranges::transform(extension, extension.begin(), [](const unsigned char character) {
-                return static_cast<char>(std::tolower(character));
-            });
+            const std::string extension = lowercase_extension(path);
 
             if(extension == ".png" || extension == ".jpg"
                || extension == ".jpeg") {
@@ -45,6 +60,11 @@ namespace Comet {
             }
             if(extension == ".scene") return AssetType::Scene;
             return std::nullopt;
+        }
+
+        bool is_import_source_only_path(
+            const std::filesystem::path& path) {
+            return lowercase_extension(path) == ".bin";
         }
 
         std::string path_text(const std::filesystem::path& path) {
@@ -78,10 +98,75 @@ namespace Comet {
         }
 
         std::uint64_t asset_source_signature(
-            const std::filesystem::path& asset_path) {
-            return combine_source_signature(
+            const std::filesystem::path& asset_path,
+            const std::filesystem::path& asset_root,
+            const std::span<const std::filesystem::path> import_dependencies) {
+            std::uint64_t signature = combine_source_signature(
                 file_source_signature(asset_path),
                 file_source_signature(metadata_path(asset_path)));
+            for(const std::filesystem::path& dependency:
+                import_dependencies) {
+                for(const unsigned char character:
+                    dependency.generic_string()) {
+                    signature = combine_source_signature(
+                        signature,
+                        character);
+                }
+                signature = combine_source_signature(
+                    signature,
+                    file_source_signature(asset_root / dependency));
+            }
+            return signature;
+        }
+
+        std::span<const std::filesystem::path> find_import_dependencies(
+            const ImportDependenciesByAsset& dependencies_by_asset,
+            const AssetHandle handle) {
+            const auto dependencies = dependencies_by_asset.find(handle);
+            return dependencies == dependencies_by_asset.end()
+                ? std::span<const std::filesystem::path>()
+                : std::span<const std::filesystem::path>(
+                    dependencies->second);
+        }
+
+        std::filesystem::path normalize_import_dependency(
+            const std::filesystem::path& asset_root,
+            const std::filesystem::path& dependency) {
+            if(dependency.empty()) {
+                throw std::invalid_argument(
+                    "Import dependency path cannot be empty");
+            }
+
+            std::error_code error;
+            const std::filesystem::path canonical_root =
+                std::filesystem::weakly_canonical(asset_root, error);
+            if(error) {
+                throw std::runtime_error(
+                    "Failed to resolve assets directory: "
+                    + error.message());
+            }
+            const std::filesystem::path canonical_dependency =
+                std::filesystem::weakly_canonical(
+                    dependency.is_absolute()
+                        ? dependency
+                        : canonical_root / dependency,
+                    error);
+            if(error) {
+                throw std::runtime_error(
+                    "Failed to resolve import dependency '"
+                    + dependency.string() + "': " + error.message());
+            }
+
+            const std::filesystem::path relative = canonical_dependency
+                .lexically_relative(canonical_root)
+                .lexically_normal();
+            if(relative.empty() || relative == "." || relative.is_absolute()
+               || *relative.begin() == "..") {
+                throw std::invalid_argument(
+                    "Import dependency must be inside the project assets directory: "
+                    + dependency.string());
+            }
+            return relative;
         }
 
         void add_issue(
@@ -132,6 +217,8 @@ namespace Comet {
         std::unordered_map<std::filesystem::path, AssetHandle> handles_by_path;
         std::unordered_map<AssetHandle, std::vector<AssetHandle>>
             dependents_by_dependency;
+        ImportDependenciesByAsset import_dependencies_by_asset;
+        ImportDependentsBySource import_dependents_by_source;
         std::unordered_map<AssetHandle, std::uint64_t> asset_source_signatures;
         std::unordered_map<AssetHandle, AssetRevision> asset_revisions;
         AssetRevision next_revision = m_next_revision;
@@ -246,6 +333,9 @@ namespace Comet {
                 source.lexically_relative(assets_root).lexically_normal();
             const auto expected_type = asset_type_from_path(source);
             if(!expected_type) {
+                if(is_import_source_only_path(source)) {
+                    continue;
+                }
                 add_issue(
                     report,
                     relative,
@@ -384,12 +474,31 @@ namespace Comet {
             std::ranges::sort(dependency.second);
         }
 
+        for(const auto& [handle, dependencies]:
+            m_import_dependencies_by_asset) {
+            if(!assets.contains(handle)) {
+                continue;
+            }
+            import_dependencies_by_asset.emplace(handle, dependencies);
+            for(const std::filesystem::path& dependency: dependencies) {
+                import_dependents_by_source[dependency].push_back(handle);
+            }
+        }
+        for(auto& dependent: import_dependents_by_source) {
+            std::ranges::sort(dependent.second);
+        }
+
         asset_source_signatures.reserve(assets.size());
         asset_revisions.reserve(assets.size());
         for(const auto& [handle, record]: assets) {
             asset_source_signatures.emplace(
                 handle,
-                asset_source_signature(assets_root / record.path));
+                asset_source_signature(
+                    assets_root / record.path,
+                    assets_root,
+                    find_import_dependencies(
+                        import_dependencies_by_asset,
+                        handle)));
         }
 
         for(const auto& [handle, record]: assets) {
@@ -430,6 +539,10 @@ namespace Comet {
         m_assets = std::move(assets);
         m_handles_by_path = std::move(handles_by_path);
         m_dependents_by_dependency = std::move(dependents_by_dependency);
+        m_import_dependencies_by_asset =
+            std::move(import_dependencies_by_asset);
+        m_import_dependents_by_source =
+            std::move(import_dependents_by_source);
         m_asset_source_signatures = std::move(asset_source_signatures);
         m_asset_revisions = std::move(asset_revisions);
         m_next_revision = next_revision;
@@ -459,7 +572,11 @@ namespace Comet {
             record.import_settings != import_settings;
         record.import_settings = std::move(import_settings);
         const std::uint64_t source_signature = asset_source_signature(
-            m_paths.assets() / record.path);
+            m_paths.assets() / record.path,
+            m_paths.assets(),
+            find_import_dependencies(
+                m_import_dependencies_by_asset,
+                handle));
         const auto previous_signature = m_asset_source_signatures.find(handle);
         const bool source_changed =
             previous_signature == m_asset_source_signatures.end()
@@ -513,7 +630,11 @@ namespace Comet {
             }
         }
         const std::uint64_t source_signature = asset_source_signature(
-            m_paths.assets() / record.path);
+            m_paths.assets() / record.path,
+            m_paths.assets(),
+            find_import_dependencies(
+                m_import_dependencies_by_asset,
+                handle));
         const auto previous_signature = m_asset_source_signatures.find(handle);
         const bool source_changed =
             previous_signature == m_asset_source_signatures.end()
@@ -522,6 +643,65 @@ namespace Comet {
         if(dependencies_changed || source_changed) {
             m_asset_revisions[handle] = issue_revision();
         }
+    }
+
+    void AssetDatabase::update_import_dependencies(
+        const AssetHandle handle,
+        std::vector<std::filesystem::path> dependencies) {
+        const auto asset = m_assets.find(handle);
+        if(asset == m_assets.end()) {
+            throw std::runtime_error(
+                "Cannot update import dependencies for an unindexed asset handle "
+                + std::to_string(handle.value()));
+        }
+
+        for(std::filesystem::path& dependency: dependencies) {
+            dependency = normalize_import_dependency(
+                m_paths.assets(),
+                dependency);
+        }
+        std::erase(dependencies, asset->second.path.lexically_normal());
+        std::ranges::sort(
+            dependencies,
+            {},
+            [](const std::filesystem::path& path) {
+                return path.generic_string();
+            });
+        const auto duplicate = std::ranges::unique(dependencies);
+        dependencies.erase(duplicate.begin(), duplicate.end());
+
+        const auto previous = m_import_dependencies_by_asset.find(handle);
+        if(previous != m_import_dependencies_by_asset.end()) {
+            for(const std::filesystem::path& dependency: previous->second) {
+                auto dependents =
+                    m_import_dependents_by_source.find(dependency);
+                if(dependents == m_import_dependents_by_source.end()) {
+                    continue;
+                }
+                std::erase(dependents->second, handle);
+                if(dependents->second.empty()) {
+                    m_import_dependents_by_source.erase(dependents);
+                }
+            }
+        }
+
+        if(dependencies.empty()) {
+            m_import_dependencies_by_asset.erase(handle);
+        } else {
+            m_import_dependencies_by_asset[handle] = dependencies;
+        }
+        for(const std::filesystem::path& dependency: dependencies) {
+            auto& dependents = m_import_dependents_by_source[dependency];
+            const auto position = std::ranges::lower_bound(dependents, handle);
+            if(position == dependents.end() || *position != handle) {
+                dependents.insert(position, handle);
+            }
+        }
+
+        m_asset_source_signatures[handle] = asset_source_signature(
+            m_paths.assets() / asset->second.path,
+            m_paths.assets(),
+            dependencies);
     }
 
     const AssetRecord* AssetDatabase::find(const AssetHandle handle) const {
@@ -550,6 +730,29 @@ namespace Comet {
         const AssetHandle handle) const {
         const auto dependents = m_dependents_by_dependency.find(handle);
         return dependents == m_dependents_by_dependency.end()
+            ? std::span<const AssetHandle>()
+            : std::span<const AssetHandle>(dependents->second);
+    }
+
+    std::span<const std::filesystem::path>
+    AssetDatabase::get_import_dependencies(
+        const AssetHandle handle) const {
+        return find_import_dependencies(
+            m_import_dependencies_by_asset,
+            handle);
+    }
+
+    std::span<const AssetHandle> AssetDatabase::get_import_dependents(
+        const std::filesystem::path& path) const {
+        std::filesystem::path normalized;
+        try {
+            normalized = normalize_import_dependency(m_paths.assets(), path);
+        } catch(const std::exception&) {
+            return {};
+        }
+        const auto dependents =
+            m_import_dependents_by_source.find(normalized);
+        return dependents == m_import_dependents_by_source.end()
             ? std::span<const AssetHandle>()
             : std::span<const AssetHandle>(dependents->second);
     }

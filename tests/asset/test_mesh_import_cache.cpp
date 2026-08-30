@@ -9,6 +9,7 @@
 #include <array>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace Comet::Tests {
     namespace {
@@ -102,7 +103,8 @@ namespace Comet::Tests {
             MeshImporter::OUTPUT_VERSION);
 
         ASSERT_TRUE(loaded.has_value());
-        expect_mesh_equal(*loaded, expected);
+        expect_mesh_equal(loaded->data, expected);
+        EXPECT_TRUE(loaded->source_dependencies.empty());
     }
 
     TEST(MeshImportCacheTest, InvalidatesWhenSourceContentChanges) {
@@ -138,6 +140,17 @@ namespace Comet::Tests {
             dependencies,
             MeshImporter::OUTPUT_VERSION,
             make_mesh_data());
+
+        const auto loaded = MeshImportCache::load_if_current(
+            project.cache_path(),
+            project.asset_root(),
+            source,
+            MeshImporter::OUTPUT_VERSION);
+
+        ASSERT_TRUE(loaded.has_value());
+        EXPECT_EQ(
+            loaded->source_dependencies,
+            (std::vector<std::filesystem::path>{dependency}));
 
         static_cast<void>(project.write_dependency("buffer-b"));
 

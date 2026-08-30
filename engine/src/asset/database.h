@@ -55,6 +55,9 @@ namespace Comet {
         void update_dependencies(
             AssetHandle handle,
             std::vector<AssetHandle> dependencies);
+        void update_import_dependencies(
+            AssetHandle handle,
+            std::vector<std::filesystem::path> dependencies);
 
         [[nodiscard]] const AssetRecord* find(AssetHandle handle) const;
         [[nodiscard]] const AssetRecord* find(const std::filesystem::path& path) const;
@@ -62,6 +65,10 @@ namespace Comet {
             AssetHandle handle) const;
         [[nodiscard]] std::span<const AssetHandle> get_dependents(
             AssetHandle handle) const;
+        [[nodiscard]] std::span<const std::filesystem::path>
+        get_import_dependencies(AssetHandle handle) const;
+        [[nodiscard]] std::span<const AssetHandle> get_import_dependents(
+            const std::filesystem::path& path) const;
         [[nodiscard]] std::vector<AssetRecord> get_assets() const;
         [[nodiscard]] AssetRevision get_revision(
             AssetHandle handle) const noexcept;
@@ -78,6 +85,10 @@ namespace Comet {
         std::unordered_map<std::filesystem::path, AssetHandle> m_handles_by_path;
         std::unordered_map<AssetHandle, std::vector<AssetHandle>>
             m_dependents_by_dependency;
+        std::unordered_map<AssetHandle, std::vector<std::filesystem::path>>
+            m_import_dependencies_by_asset;
+        std::unordered_map<std::filesystem::path, std::vector<AssetHandle>>
+            m_import_dependents_by_source;
         std::unordered_map<AssetHandle, std::uint64_t>
             m_asset_source_signatures;
         std::unordered_map<AssetHandle, AssetRevision> m_asset_revisions;

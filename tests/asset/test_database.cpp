@@ -130,6 +130,48 @@ namespace Comet::Tests {
             database.get_revision(handle)));
     }
 
+    TEST(AssetDatabaseTest, TracksImporterSourceDependencies) {
+        const TemporaryProject project;
+        project.add_file("meshes/model.gltf");
+        const std::filesystem::path dependency =
+            project.add_file("meshes/model.bin", "buffer-a");
+        AssetDatabase database(project.paths());
+
+        const AssetScanReport initial_scan = database.scan();
+
+        ASSERT_TRUE(initial_scan.succeeded());
+        ASSERT_EQ(database.size(), 1u);
+        const AssetRecord* mesh = database.find("meshes/model.gltf");
+        ASSERT_NE(mesh, nullptr);
+        const AssetHandle handle = mesh->handle;
+        database.update_import_dependencies(
+            handle,
+            {dependency, dependency});
+
+        EXPECT_EQ(
+            std::vector<std::filesystem::path>(
+                database.get_import_dependencies(handle).begin(),
+                database.get_import_dependencies(handle).end()),
+            (std::vector<std::filesystem::path>{"meshes/model.bin"}));
+        EXPECT_EQ(
+            std::vector<AssetHandle>(
+                database.get_import_dependents("meshes/model.bin").begin(),
+                database.get_import_dependents("meshes/model.bin").end()),
+            (std::vector{handle}));
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(dependency)));
+
+        const AssetRevision initial_revision = database.get_revision(handle);
+        EXPECT_TRUE(database.scan().modified_assets.empty());
+        project.add_file("meshes/model.bin", "buffer-b-expanded");
+
+        const AssetScanReport modified_scan = database.scan();
+
+        EXPECT_TRUE(std::ranges::find(
+            modified_scan.modified_assets,
+            handle) != modified_scan.modified_assets.end());
+        EXPECT_GT(database.get_revision(handle), initial_revision);
+    }
+
     TEST(AssetDatabaseTest, UpdatesImportSettingsInIndexAndMetadata) {
         const TemporaryProject project;
         project.add_file("textures/albedo.png");

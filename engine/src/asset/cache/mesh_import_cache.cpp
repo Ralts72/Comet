@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <span>
@@ -351,7 +352,7 @@ namespace Comet::MeshImportCache {
         }
     }
 
-    std::optional<MeshData> load_if_current(
+    std::optional<Entry> load_if_current(
         const std::filesystem::path& cache_path,
         const std::filesystem::path& asset_root,
         const std::filesystem::path& source_path,
@@ -445,21 +446,29 @@ namespace Comet::MeshImportCache {
                 return std::nullopt;
             }
 
-            MeshData data;
-            data.vertices.resize(vertex_count);
-            for(MeshVertex& vertex: data.vertices) {
+            Entry entry;
+            entry.source_dependencies.reserve(inputs.size() - 1);
+            for(auto input = std::next(inputs.begin());
+                input != inputs.end(); ++input) {
+                entry.source_dependencies.push_back(
+                    (asset_root / path_from_utf8(input->relative_path))
+                        .lexically_normal());
+            }
+
+            entry.data.vertices.resize(vertex_count);
+            for(MeshVertex& vertex: entry.data.vertices) {
                 if(!read_vertex(reader, vertex)) {
                     return std::nullopt;
                 }
             }
-            data.indices.resize(index_count);
-            for(std::uint32_t& index: data.indices) {
+            entry.data.indices.resize(index_count);
+            for(std::uint32_t& index: entry.data.indices) {
                 if(!reader.read_u32(index) || index >= vertex_count) {
                     return std::nullopt;
                 }
             }
 
-            return data;
+            return entry;
         } catch(...) {
             return std::nullopt;
         }

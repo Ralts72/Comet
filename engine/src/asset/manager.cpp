@@ -64,7 +64,9 @@ namespace Comet {
                        candidate.asset_root,
                        candidate.source_path,
                        MeshImporter::OUTPUT_VERSION)) {
-                    candidate.data = std::move(*cached);
+                    candidate.data = std::move(cached->data);
+                    candidate.source_dependencies =
+                        std::move(cached->source_dependencies);
                     candidate.cache_hit = true;
                 } else {
                     MeshImportResult imported =
@@ -254,6 +256,10 @@ namespace Comet {
                     candidate.revision);
                 continue;
             }
+
+            record_import_dependencies(
+                candidate.handle,
+                candidate.source_dependencies);
 
             std::shared_ptr<Mesh> mesh;
             try {
@@ -715,7 +721,23 @@ namespace Comet {
         if(!m_database.is_current(record.handle, revision)) {
             return nullptr;
         }
+        record_import_dependencies(
+            record.handle,
+            candidate.source_dependencies);
         return m_resource_factory.create_mesh(candidate.data);
+    }
+
+    void AssetManager::record_import_dependencies(
+        const AssetHandle handle,
+        const std::vector<std::filesystem::path>& dependencies) {
+        try {
+            m_database.update_import_dependencies(handle, dependencies);
+        } catch(const std::exception& exception) {
+            LOG_WARN(
+                "Could not index import dependencies for asset handle {}: {}",
+                handle.value(),
+                exception.what());
+        }
     }
 
     bool AssetManager::schedule_loaded_mesh_refresh(

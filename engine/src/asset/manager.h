@@ -46,6 +46,9 @@ namespace Comet {
 
         [[nodiscard]] std::shared_ptr<Mesh> create_runtime_mesh(
             const AssetRecord& record);
+        void record_import_dependencies(
+            AssetHandle handle,
+            const std::vector<std::filesystem::path>& dependencies);
         [[nodiscard]] bool schedule_loaded_mesh_refresh(
             const AssetRecord& record);
         [[nodiscard]] std::shared_ptr<Texture> create_runtime_texture(

@@ -2,7 +2,7 @@
 
 本文记录 Comet 当前阶段 3 资产链路的职责边界。当前已完成 Texture、Texture 基础导入设置与显式重新导入、Material 同步加载与
 编辑保存，以及 glTF 静态 Mesh 的同步首载、后台 CPU 热刷新和 `.comet/cache/` 二进制产物纵向切片，并建立事务式扫描快照、单调资产 revision、Owner Thread 候选发布校验、手动刷新一致性和原子文件写入；
-Texture 等其他类型的导入产物、后台导入和文件监听热重载仍属于后续工作。
+Mesh 外部 buffer 的导入源依赖也已接入 Asset Database 精确失效。Texture 等其他类型的导入产物、后台导入和文件监听热重载仍属于后续工作。
 
 ## 项目目录
 
@@ -31,11 +31,11 @@ ProjectPanel
 AssetDatabase
     ↓ AssetHandle → AssetRecord(type, relative path, validated import settings, dependencies)
     ↓ 每次已提交变化 → 单调 AssetRevision
-    ↓ 正向 dependencies / 反向 dependents 查询
+    ↓ AssetHandle 依赖与 Importer 源路径依赖的正向/反向查询
 AssetManager
     ↓ 校验类型并创建候选 CPU 数据
     ├── Mesh 同步首载：校验 .comet/cache/imported/mesh/<Handle>.bin
-    │   ├── 命中 → MeshData(vertices + indices)
+    │   ├── 命中 → MeshData(vertices + indices) + 外部源依赖路径
     │   └── 未命中/过期/损坏 → MeshImporter → MeshData → 原子更新产物
     ├── TextureImporter(settings) → TextureData(RGBA CPU pixels + SRGB/UNORM format)
     └── MaterialSerializer → MaterialData(template + Texture Handle properties)
@@ -51,6 +51,7 @@ AssetRegistry
 
 ```text
 AssetManager::scan() 提交新 AssetRevision
+    ↑ 顶层 glTF/.meta 或已登记外部 buffer 发生变化
     → TaskScheduler Worker：缓存校验或 MeshImporter → CPU MeshImportCandidate
     → 线程安全 completion queue
     → AssetManager::process_completions()（Owner Thread）
@@ -61,6 +62,10 @@ AssetManager::scan() 提交新 AssetRevision
 ```
 
 Worker 只接收路径、Handle 和 revision 的值拷贝，不访问 `AssetDatabase`、`AssetRegistry` 或 Vulkan。刷新进行中、导入失败以及 Runtime Mesh 创建失败时，Registry 中的旧 Mesh 都保持可用；相同 Handle 的连续变化可以同时完成，但只有当前 revision 会进入缓存和 Registry。
+
+Importer 源依赖与 Material 的 AssetHandle 依赖是两套不同关系：前者表示“哪些项目文件参与生成这个资产”，后者表示“哪些资产在运行时引用另一个资产”。`MeshImportCache` 已在二进制产物中持久保存外部 buffer 的项目相对路径和内容指纹；缓存命中或重新导入后，`AssetManager` 把这些路径登记到 `AssetDatabase`，由后者维护 `AssetHandle → source paths` 与 `source path → owning AssetHandles` 两个索引，并把依赖文件签名合入资产变化检测。`.bin` 被视为 Importer 的辅助输入，不作为独立资产建立 Handle 或 `.meta`。
+
+该索引在进程内由实际加载结果恢复，而依赖路径持久化在可重建 Mesh 缓存中：重启后，已加载 Mesh 会在同步首载命中缓存时重新登记依赖；未加载 Mesh 不需要主动热刷新，之后首次加载仍会先校验缓存中的全部输入指纹，因此不会发布过期产物。
 
 Material 的编辑路径与加载路径复用同一格式契约：
 
@@ -99,12 +104,12 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 
 ## 职责
 
-- `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径、已校验 Importer 设置以及正向/反向依赖索引；Material 依赖由 `MaterialData` 提取，缺失引用和错误类型进入扫描报告。扫描先完整构建候选快照，再一次替换当前快照并报告新增、删除和修改 Handle；目录发现不完整时保留上一份有效快照。磁盘文件签名只负责检测输入变化，每次提交的变化会获得独立、单调的 `AssetRevision`，供结果发布时验票。Revision 是当前进程内的不透明版本，不持久化，也不承担内容哈希职责。设置更新先成功写入 `.meta`，再更新内存记录。
+- `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径、已校验 Importer 设置以及两类正向/反向依赖索引；Material 的 AssetHandle 依赖由 `MaterialData` 提取，Importer 源依赖由成功导入或缓存命中结果登记。缺失资产引用和错误类型进入扫描报告，`.bin` 等明确的导入辅助输入不单独建档。扫描先完整构建候选快照，再一次替换当前快照并报告新增、删除和修改 Handle；目录发现不完整时保留上一份有效快照。顶层源文件、`.meta` 和已登记的 Importer 输入签名共同负责检测变化，每次提交的资产变化会获得独立、单调的 `AssetRevision`，供结果发布时验票。Revision 是当前进程内的不透明版本，不持久化，也不承担内容哈希职责。设置更新先成功写入 `.meta`，再更新内存记录。
 - `AssetMetadataSerializer`：只负责 `.meta` 的 YAML 读写和类型/设置契约校验；`AssetMetadata` 本身仍是独立于文件格式的数据类型。
 - `AssetManager`：协调数据库、Importer、派生数据、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载、Texture 重新导入和 Mesh 刷新都会先完整构建候选对象，失败时保留旧对象。同步 Mesh 首载在调用线程完成；已加载 Mesh 的刷新向 TaskScheduler 提交纯 CPU 工作，由 `process_completions()` 在 Owner Thread 验票后写缓存、创建 Runtime Mesh 并发布。手动扫描提交后会卸载已删除资产及仍依赖它们的 Runtime 对象，并刷新发生修改且当前已加载的 Texture/Material/Mesh。
 - `TaskScheduler`：Engine 持有的通用固定 Worker 池，提供 FIFO 任务提交、Future、等待空闲和 drain-on-destruction；不认识资产类型、Registry 或 Vulkan。显式传入单 Worker 可让并发测试保持确定性。
 - `MeshImporter`：唯一接触 glTF Mesh 格式的解析边界，使用 fastgltf 读取 `.gltf`/`.glb`，输出不包含 GPU 对象的 `MeshData`，并报告参与导入的外部 buffer 路径；fastgltf 类型不进入 Comet 公共头文件。
-- `MeshImportCache`：确定性读写版本化 Mesh 导入缓存，记录项目内源文件和外部 buffer 的内容指纹；格式版本、Importer 输出版本、输入内容或缓存校验和不匹配时返回 miss。它不创建 GPU 对象，也不管理运行时资源生命周期。
+- `MeshImportCache`：确定性读写版本化 Mesh 导入缓存，记录项目内源文件和外部 buffer 的相对路径及内容指纹；命中时同时恢复 `MeshData` 和源依赖路径，格式版本、Importer 输出版本、输入内容或缓存校验和不匹配时返回 miss。它不创建 GPU 对象，也不管理运行时资源生命周期。
 - `TextureImporter`：唯一接触 Texture 源文件路径的解码边界，应用色彩空间和垂直翻转设置，输出不包含 GPU 对象的 `TextureData`。
 - `MaterialSerializer`：确定性读写 Comet 原生 `.mat` 与不包含运行时对象的 `MaterialData`；Texture 属性只保存项目 `AssetHandle`。`get_asset_dependencies(MaterialData)` 负责生成排序、去重的依赖列表，供扫描和编辑更新共同复用。
 - `Material`：运行时材质保存模板身份和已解析属性；不读取 `.mat`，当前渲染管线是否支持该模板由 `SceneResolver` 在提交边界判断。
@@ -126,7 +131,7 @@ Material/Texture/Mesh 替换只交换 Registry 中的 `shared_ptr`，已取得�
 
 Project 刷新成功提交快照后，会通过变化集清理删除资产及其依赖对象、刷新已加载的修改资产，并以事件方式使 Inspector
 丢弃同一 Handle 的旧编辑缓存；扫描目录暂时不可访问时三者继续使用上一份有效快照。当前手动刷新路径仍不等于文件监听热重载，
-外部导入依赖到资产 revision 的反向映射、递归依赖 revision 和 GPU retirement 仍属于后续工作。
+更通用的递归 AssetHandle 依赖 revision、文件监听和 GPU retirement 仍属于后续工作。
 
 Scene、Material 和 `.meta` 使用同一原子文本写入函数：先在目标目录写完临时文件，再原子替换正式文件，避免直接截断造成半写文件。
 Mesh 产物复用同一临时文件替换机制写入二进制数据；缓存写入失败只降低后续加载性能，不会使本次成功的源资产导入失败。

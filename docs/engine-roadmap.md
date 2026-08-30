@@ -30,7 +30,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但 Scene/ECS 已经接入最小运行时渲染链路、
 编辑器基础数据闭环和场景持久化，New/Open/Save 与最小 Play/Edit 隔离也已经接入编辑器。当前主要矛盾已经转变为：
 Texture/Material/Mesh 资产纵向链路已经建立，Mesh 也已有第一种 `.comet/cache/` 导入产物，并通过通用 TaskScheduler、
-revision 验票和 Owner Thread completion 形成第一段后台 CPU 刷新；但渲染接口仍偏 demo 化，其他资产后台导入、外部输入依赖失效和运行时 System 调度还没有形成。
+revision 验票和 Owner Thread completion 形成第一段后台 CPU 刷新；Mesh 外部 buffer 也已通过持久化缓存输入、源路径反向索引和 revision 形成精确失效，但渲染接口仍偏 demo 化，其他资产后台导入和运行时 System 调度还没有形成。
 
 最明显的信号是：
 
@@ -47,7 +47,7 @@ revision 验票和 Owner Thread completion 形成第一段后台 CPU 刷新；�
 - Play 会从 Edit Scene 创建独立 Runtime Scene，Stop 后丢弃运行时修改并恢复原 Scene；暂停、单帧步进和真正的
   runtime System 更新仍未实现。
 - Texture/Material/Mesh 已建立 Asset Database、导入/序列化和运行时发布链路，Mesh 产物可按源 glTF 与外部 buffer
-  内容自动失效；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，文件监听和通用依赖失效传播仍未建立。
+  内容自动失效，已加载 Mesh 会在外部 buffer 变化后进入后台刷新；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，文件监听和通用递归依赖传播仍未建立。
 - Scene Update 和 Render Submit 的最小边界已经落地，运行时 System 调度仍未建立。
 
 ## 距离成熟编辑器型引擎的核心缺口
@@ -1021,6 +1021,7 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   当前 CMake 编译链不预设对应的 C++ 类型或落盘格式。
 - [x] Mesh Importer 接入 fastgltf，支持 `.gltf`/`.glb` 静态 triangle mesh，并由 app/editor 通过项目 AssetHandle 加载示例 cube。
 - [x] 建立 `.comet/cache/imported/mesh/<AssetHandle>.bin` 纵向切片；`MeshImportCache` 保存显式格式和 Importer 版本、项目内输入内容指纹与完整性校验，缺失、过期或损坏时自动重新导入并原子替换。
+- [x] 缓存命中时恢复 Mesh Importer 源依赖，Asset Database 建立源路径正向/反向索引；`.bin` 作为辅助输入不生成资产身份，其变化会推进所属 Mesh revision 并复用后台刷新链路。
 - [x] 将磁盘变化签名与 `AssetRevision` 分离；每次数据库提交的资产变化分配单调 revision，Mesh 候选在发布到 Registry 前验票并丢弃过期结果。
 - [x] Asset Registry/Asset Manager 负责把 `AssetHandle` 解析为资产元数据和同步导入结果。
 - [x] Asset Registry/Asset Manager 以 `AssetHandle` 为唯一缓存键创建或复用 Runtime Asset；ResourceManager 不承担资产扫描或 Handle 缓存。
@@ -1438,8 +1439,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：导入源依赖索引与精确失效**。TaskScheduler、Mesh 后台 CPU 刷新、completion queue 和 revision 验票已经形成首个闭环；
-但 Asset Database 当前只根据顶层 `.gltf`/`.glb` 与 `.meta` 变化推进 Mesh revision，MeshImportCache 虽然记录外部 buffer 内容指纹，却还不能让外部 `.bin` 变化主动刷新已加载 Mesh。下一步应持久保存 Importer 报告的项目内源依赖，建立 `source path → owning AssetHandle` 反向索引，并让扫描变化集把依赖变化归并为资产 revision。Texture 产物仍应等 mipmap 与最终上传格式契约明确后接入。
+下一步转向 **阶段 3：类型化资源状态与 Synchronization 2 barrier 收敛**。Mesh 源依赖精确失效已经闭环；Vulkan 1.3 `synchronization2` feature 查询和 `Queue::submit2()` 已完成，但 `CommandBuffer::transition_image_layout()` 仍按 layout pair 推断 stage/access 并使用 legacy `vk::ImageMemoryBarrier`。下一步应先定义可测试的 `ResourceState`/`ImageState` 与 usage-to-state 映射，再把现有 upload、swapchain 和 RenderPass 转换迁移到 `vk::DependencyInfo` + `vk::*MemoryBarrier2`。这会为后续 timeline semaphore、批量 UploadManager 和安全 GPU retirement 建立可信边界；Texture 产物仍等 mipmap 与最终上传格式契约明确后接入。
 
 建议的职责边界：
 
@@ -1478,6 +1478,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 13. [x] 将项目本地数据收敛到 `.comet/`：cache 保存版本化 Mesh 二进制产物并支持源文件/外部 buffer 失效检测、完整性校验和原子重建，editor 保存 ImGui 布局状态。
 14. [x] 分离资产源文件签名与单调 `AssetRevision`，并在 Mesh 候选发布前验证 revision，阻止旧导入结果覆盖新状态。
 15. [x] 建立 Engine 统一持有的最小 TaskScheduler，并让已加载 Mesh 通过后台 CPU 导入、Owner Thread completion 和 revision 验票完成失败安全热刷新。
+16. [x] 从 Mesh 缓存恢复 Importer 源依赖，在 Asset Database 建立源路径正向/反向索引，并让项目内、由 glTF 外部引用的 `.bin` 变化推进所属 Mesh revision、触发后台热刷新。
 
 格式所有权后续需求：
 
