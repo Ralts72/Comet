@@ -19,6 +19,7 @@ namespace CometEditor {
             SelectionService& selection);
 
         void render() override;
+        void update_scan_report(Comet::AssetScanReport scan_report);
 
     private:
         const Comet::AssetDatabase& m_database;

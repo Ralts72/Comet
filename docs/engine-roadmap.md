@@ -30,7 +30,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但 Scene/ECS 已经接入最小运行时渲染链路、
 编辑器基础数据闭环和场景持久化，New/Open/Save 与最小 Play/Edit 隔离也已经接入编辑器。当前主要矛盾已经转变为：
 Texture/Material/Mesh 资产纵向链路已经建立，Mesh 也已有第一种 `.comet/cache/` 导入产物；已加载 Mesh/Texture 通过通用
-TaskScheduler、revision 验票和 Owner Thread completion 完成后台 CPU 刷新，Mesh 外部 buffer 也已通过持久化缓存输入、源路径反向索引和 revision 形成精确失效，但渲染接口仍偏 demo 化，文件监听和运行时 System 调度还没有形成。
+TaskScheduler、revision 验票和 Owner Thread completion 完成后台 CPU 刷新，Mesh 外部 buffer 也已通过持久化缓存输入、源路径反向索引和 revision 形成精确失效；Editor 已用低频资产源快照自动触发同一扫描事务，但渲染接口仍偏 demo 化，运行时 System 调度还没有形成。
 
 最明显的信号是：
 
@@ -47,7 +47,7 @@ TaskScheduler、revision 验票和 Owner Thread completion 完成后台 CPU 刷�
 - Play 会从 Edit Scene 创建独立 Runtime Scene，Stop 后丢弃运行时修改并恢复原 Scene；暂停、单帧步进和真正的
   runtime System 更新仍未实现。
 - Texture/Material/Mesh 已建立 Asset Database、导入/序列化和运行时发布链路，Mesh 产物可按源 glTF 与外部 buffer
-  内容自动失效，已加载 Mesh/Texture 会在扫描发现变化后进入后台 CPU 刷新；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，文件监听和通用递归依赖传播仍未建立。
+  内容自动失效，已加载 Mesh/Texture 会在资产源监视触发扫描后进入后台 CPU 刷新；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，通用递归依赖传播仍未建立。
 - Scene Update 和 Render Submit 的最小边界已经落地，运行时 System 调度仍未建立。
 
 ## 距离成熟编辑器型引擎的核心缺口
@@ -93,7 +93,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 版本化 Mesh 二进制产物；Asset Registry 是运行时 Handle 缓存，ResourceManager 不再承担资产身份或缓存职责。距离成熟管线仍缺少：
 
 - Texture/Shader 等更多 `.comet/cache/` 产物、统一缓存状态和重新导入调度。
-- 更通用的递归失效传播和文件监听热重载。
+- 更通用的递归失效传播，以及大型项目需要时可替换的原生文件事件后端。
 - Shader、Scene 等更多资产类型及其导入/加载策略。
 - glTF 多 mesh 子资产、node transform、material、animation、skin 和 morph target 导入契约。
 - Texture 已支持持久化并在 Asset Inspector 编辑色彩空间和垂直翻转；wrap、filter、mipmap、压缩仍待接入对应运行时链路。
@@ -1005,7 +1005,7 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
 - `.meta` 由编辑器在首次发现资产时自动创建，之后作为源资产的一部分长期保存并进入版本控制；它不是
   `.comet/cache/` 中可随时删除重建的缓存。
 - Asset Inspector 是 `.meta` 的主要编辑入口：GUID 和识别出的资产类型只读，Importer 参数经过校验后写回并触发
-  重新导入。当前开发格式允许手工编辑 YAML，但文件监听器必须按同一契约校验；解析失败时保留上一次有效导入产物并报告错误。
+  重新导入。当前开发格式允许手工编辑 YAML；资产源监视只触发 Asset Database 扫描，仍由数据库按同一契约校验。解析失败时保留上一次有效导入产物并报告错误。
   编辑器写入链路和 Metadata Schema 稳定后，`.meta` 应与 `.scene`、`.mat`、`ProjectSettings/` 一起迁移为统一 JSON 文档，
   而不是单独更换格式。
 - `.meta` 只服务于编辑器、Asset Database 和导入管线，不原样进入 Shipping 资源包。发布流程消费 `.comet/cache/`
@@ -1043,6 +1043,7 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
 - [x] 建立最小 `TaskScheduler`/worker pool，支持 FIFO 提交、Future、等待空闲和安全 drain；Engine 统一持有，测试可显式使用单 Worker。
 - [x] 将已加载 Mesh 的缓存读取和 CPU 导入移出主线程；worker 只产出候选结果，Owner Thread 验证 revision 后才写缓存、创建 Runtime Mesh 和替换 Registry，失败时保留旧 Mesh。同步首载暂时保留。
 - [x] 将已加载 Texture 的文件读取和图片解码移出主线程；Mesh/Texture 共享任务占位与 pending revision 去重，Owner Thread 双重验票后才创建 GPU Texture、替换 Registry 并刷新已加载 Material 依赖。
+- [x] 建立低频 `AssetSourceMonitor`：只观察 `assets/` 文件树并触发既有 scan，目录不可访问时保留上一快照，Editor 自身已知写入按精确路径确认；Project 与 Inspector 在 Owner Thread 消费同一扫描报告。
 - [x] 在现有显式同步路径完成 Synchronization 2 迁移：通过 GFX-002 的 Vulkan 1.3 feature chain 查询并启用
   `synchronization2`，将 queue submit 改为 `vk::SubmitInfo2`/`submit2()`，将显式 image/buffer barrier 改为
   `vk::DependencyInfo` 和 `vk::ImageMemoryBarrier2`/`vk::BufferMemoryBarrier2`。
@@ -1473,9 +1474,10 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：Editor 项目文件监听入口**。Mesh/Texture 已共享通用异步任务占位与 revision 去重，Worker 只生成类型化
-CPU candidate，Owner Thread 完成 GPU 创建和发布；接下来建立只负责触发既有 AssetDatabase scan 的轻量 watcher，先明确
-事件合并、编辑器自身写入抑制和目录不可访问策略，不在 watcher 线程执行导入或 Registry 修改。
+下一步继续 **阶段 3：资产管线阶段性架构复盘**。Editor 已通过轻量 `AssetSourceMonitor` 自动触发既有 AssetDatabase scan，
+Mesh/Texture 共享通用异步任务占位与 revision 去重，Worker 只生成类型化 CPU candidate，Owner Thread 完成 GPU 创建和发布。
+复盘需要核对监视、数据库快照、任务占位、导入缓存、GPU 发布和旧资源保留是否存在重复状态或职责倒置，并据此决定阶段 3
+剩余的最小闭环，不直接扩展新的资产类型。
 
 建议的职责边界：
 
@@ -1504,7 +1506,7 @@ CPU candidate，Owner Thread 完成 GPU 创建和发布；接下来建立只负�
 3. [x] 实现只负责扫描、索引和查询的 Asset Database Core，并用临时项目目录完成纯逻辑测试。
 4. [x] 完成 Texture 同步导入与运行时发布，资源缓存键从路径收敛为 `AssetHandle`。
 5. [x] 让 Project 面板读取真实索引、刷新扫描并展示问题。
-6. [x] 接入 Material 资产，使其通过 Texture Handle 表达依赖；缩略图和文件监听在契约稳定后增加。
+6. [x] 接入 Material 资产，使其通过 Texture Handle 表达依赖；缩略图后续增加，文件监视入口已在第 43 步完成。
 7. [x] 为 Texture 建立类型化 Importer 设置，支持色彩空间与垂直翻转的持久化、校验和同步导入。
 8. [x] 统一 Entity/Asset Selection，并在现有 Inspector 中完成 Material 编辑、保存和显式运行时重载。
 9. [x] 扫描以候选快照提交变化集，Project Refresh 同步 Registry/Inspector，发现失败保留上一有效快照。
@@ -1541,6 +1543,7 @@ CPU candidate，Owner Thread 完成 GPU 创建和发布；接下来建立只负�
 40. [x] 建立显式 UploadBatch：每个 scope 独占未提交 CommandContext、目标引用和 staging pages，submit 后移交 pending ownership，析构/失败只 abort 自身；删除 UploadManager 全局 active API。
 41. [x] 增加 staging growth guard 和真实 GPU fault-injection 测试：Batch A 第二次增长返回 out-of-device-memory 并只回滚 A，已开放 Batch B 仍能提交、等待和回收；补齐 Window/Context 动态库导出。
 42. [x] 将已加载 Texture 的扫描刷新迁到 TaskScheduler：泛化 pending/scheduled task 状态，Worker 只解码 TextureData，Owner Thread 双重 revision 验票、可恢复 GPU 创建并替换 Registry，失败保留旧 Texture。
+43. [x] 建立 Editor 资产源自动监视入口：500ms 时间门控只在文件快照变化时触发既有 scan，失败保留上一基线，已知 Editor 写入按路径确认，Project/Inspector 在 Owner Thread 更新。
 
 格式所有权后续需求：
 

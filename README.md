@@ -9,7 +9,7 @@ GoogleTest 测试基础。
   `AssetRegistry`，并定义持久化资产身份、类型化 Importer 设置、`.meta` 编解码、事务式源资产快照、变化集及 Material/Texture 正反向依赖查询；`core/project_paths` 定义项目根目录与
   `assets/`、`.comet/`、`ProjectSettings/` 的标准路径契约；`.comet/` 再区分可重建 cache 与当前机器的 editor 状态；`graphics/` 按 command、resource、pipeline 和 synchronization 组织 Vulkan 包装，跨组的 Context、Device、Queue、Swapchain 与 RenderPass 保留为顶层编排对象；`graphics/synchronization/GpuCompletionPoint` 表达可跨上传、渲染和延迟销毁复用的非拥有 GPU 完成 token，`graphics/command/UploadManager` 统一 staging、copy/barrier batch 和 completion 生命周期；`render/resource/` 集中放置 Texture/Mesh 的 CPU DTO、程序化 Mesh、Runtime 对象与设备资源创建边界，`render/scene/` 集中放置场景提取、解析和提交渲染流水线。
 - `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过组件描述符
-  编辑 Transform、MeshRenderer 和 Camera，并可编辑 Project 中选中的 Material 以及 Texture 导入设置；File 菜单可新建、打开和保存 `.scene`；`editor/resources/` 保存不进入
+  编辑 Transform、MeshRenderer 和 Camera，并可编辑 Project 中选中的 Material 以及 Texture 导入设置；Project 会在资产源文件树变化时自动刷新，File 菜单可新建、打开和保存 `.scene`；`editor/resources/` 保存不进入
   项目资产数据库的编辑器私有字体等资源。
 - `app/`：运行时示例程序入口。
 - `assets/`：当前示例项目的源资产及相邻 `.meta`，当前包含 demo Texture、Material 和 glTF Mesh；资产身份进入版本控制。
@@ -171,6 +171,7 @@ app/editor 组合根持有 `AssetManager`，它使用 `AssetDatabase` 将稳定 
 完整候选，刷新失败时保留上一有效 Runtime Resource。`ResourceManager` 继续负责 Device 相关的 Texture/Mesh 创建和 Shader/Sampler 等渲染侧共享资源，不缓存资产 Handle。`render/resource/` 将这一资源族集中管理，其中 `TextureData`/`MeshData` 仍作为独立 CPU DTO，不与 Runtime Texture/Mesh 类定义混放；`MeshPrimitives` 直接生成 `MeshData`，Mesh 顶点布局不再属于通用数学模块。
 Asset Database 扫描先构建候选快照再提交，并报告新增、删除和修改 Handle；Project 刷新据此同步 Runtime Registry 并以事件方式使 Inspector 缓存失效。Scene、Material 和 `.meta` 通过同一原子文本写入函数替换正式文件。Inspector 的 Material Texture 属性以及 Texture 色彩空间、垂直翻转设置只在值变化事件发生时自动保存并更新运行时对象，Texture 重新导入还会刷新已加载的直接 Material 依赖；更新结果统一显示在 Log 面板。
 Asset Database 另为每次已提交的资产变化分配单调 `AssetRevision`，与仅用于发现磁盘变化的文件签名分离；MeshImporter 报告的项目内、由 glTF 外部引用的 buffer 路径会随 Mesh 缓存持久化，并在加载时恢复为源路径正向/反向索引，因此修改 `.bin` 也会推进所属 Mesh revision。Engine 持有通用 `TaskScheduler`；已加载 Mesh/Texture 在 Project 刷新后由 Worker 执行缓存读取、CPU 导入或图片解码，旧资源在此期间继续可用，app/editor 每帧由 Owner Thread 消费完成结果。只有 revision 仍匹配的候选才会创建 Runtime Resource 并替换 Registry；Mesh 候选还会按需更新导入缓存和源依赖。启动必需资源以及 Inspector 的显式 Texture reimport 仍复用同步入口。
+Editor 通过引擎侧 `AssetSourceMonitor` 以 500ms 间隔观察 `assets/` 的路径、写入时间和大小，只有快照变化才调用同一个 AssetManager scan；目录暂时不可访问时保留上一份成功快照。Material/Texture Inspector 已经同步提交到数据库的自身写入会按精确路径确认，避免重复扫描；监视器不访问 ImGui、Registry 或 Vulkan，未来可在保持上层事件契约时替换为原生文件系统后端。
 app/editor 的示例 cube mesh、材质及纹理均从项目资产链路按稳定 Handle 加载；app 创建
 主 Camera 与两个具有不同 Transform 的 cube entity；`SceneResolver` 选择并校验主 Camera、根据渲染尺寸
 生成 view/projection，同时将 Handle 解析为运行时 `RenderSubmission`。`Renderer` 负责编排帧流程，

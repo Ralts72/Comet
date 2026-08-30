@@ -19,6 +19,7 @@ set(SOURCES
         src/asset/material_data.cpp
         src/asset/metadata.cpp
         src/asset/registry.cpp
+        src/asset/source_monitor.cpp
         src/asset/serialization/material_serializer.cpp
         src/asset/serialization/metadata_serializer.cpp
         src/render/resource/mesh_primitives.cpp
