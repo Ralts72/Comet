@@ -109,7 +109,9 @@ Debug 和 RelWithDebInfo 中编译，并由 `diagnostics.enable_profiler` 决定
 能力检查，以及 Swapchain Request 到最终 Config 的选择；设备按类型与可用能力评分，实际值限制在设备上限内。项目要求
 Vulkan 1.3，启动时同时检查 loader 与 PhysicalDevice 版本。Vulkan format、color space 和 present mode 在 YAML 中使用
 `bgra8_srgb`、`srgb_nonlinear`、`immediate` 等稳定名称，加载后保存为 Comet 强类型枚举。Queue 提交使用
-Synchronization 2，每个 wait/signal 显式携带 semaphore value 和 pipeline stage；当前帧同步仍使用 binary semaphore。
+Synchronization 2，每个 wait/signal 显式携带 semaphore value 和 pipeline stage；`ResourceUsage` 可解析为包含
+stage、access、queue owner、layout 与 subresource range 的类型化资源状态，供 Barrier2、UploadManager 和
+RenderGraph 复用。当前帧同步仍使用 binary semaphore，CommandBuffer 的 legacy image barrier 将在下一迭代迁移。
 Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability

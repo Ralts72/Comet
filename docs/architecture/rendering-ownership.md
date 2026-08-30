@@ -82,6 +82,10 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
 由此形成 `FrameBuffer → ImageView → Image` 的完整所有权链。`Texture` 和 `RenderTarget` 不再并行保存同一资源的
 `Image`/`ImageView` 共享引用；需要 image 时统一通过 `ImageView::get_image()` 访问。
 
+`ResourceState`/`ImageState` 是不拥有 GPU 对象的同步描述，不作为 `Image` 或 `Buffer` 的全局 current state 成员。
+状态跟踪属于 command recording、UploadManager 或 RenderGraph 的编译上下文；持久资源只在明确的提交边界交接
+handoff state。这样可以分别表达不同 mip/layer 的状态，也不会把已录制、已提交和正在执行的状态混成单一 CPU 值。
+
 底层 Vulkan 包装按职责位于 `graphics/command/`、`graphics/resource/`、`graphics/pipeline/` 和
 `graphics/synchronization/`。Context、Device、Queue、Swapchain、RenderPass 和 FrameBuffer 会跨越多个职责组，
 因此保留在 `graphics/` 根目录，不用物理目录伪造不存在的单向依赖。

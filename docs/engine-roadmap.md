@@ -494,9 +494,9 @@ image。旧 swapchain 的回收必须使用可用的 present completion/fence；
 ### Vulkan 同步演进顺序
 
 当前 Vulkan 1.3 `synchronization2` feature 的查询、启用以及 `Queue::submit2()` 已完成，每个 wait/signal 都使用独立
-`vk::SemaphoreSubmitInfo`。`CommandBuffer::transition_image_layout()` 仍使用 `vk::ImageMemoryBarrier` 和
-`pipelineBarrier()`，并按 layout pair 硬编码 stage/access，因此 Synchronization 2 迁移只完成了提交侧，barrier 与
-类型化资源状态仍未完成。
+`vk::SemaphoreSubmitInfo`。类型化 `ResourceUsage`、`ResourceState`、`ImageState` 以及 subresource/queue owner
+映射已经完成并由纯单元测试覆盖；`CommandBuffer::transition_image_layout()` 仍使用 `vk::ImageMemoryBarrier` 和
+`pipelineBarrier()`，并按 layout pair 硬编码 stage/access。下一步是让运行路径消费类型化状态并迁移 Barrier2。
 
 Synchronization 2 应作为阶段 3 异步上传的前置基础设施，顺序固定为：
 
@@ -1032,8 +1032,10 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
 - 在实现异步 `UploadManager` 前完成 Synchronization 2 迁移：通过 GFX-002 的 Vulkan 1.3 feature chain 查询并启用
   `synchronization2`，将 `Queue::submit()` 改为 `vk::SubmitInfo2`/`submit2()`，将 image/buffer barrier 改为
   `vk::DependencyInfo` 和 `vk::*MemoryBarrier2`。
-- 同步迁移时定义类型化 `ResourceState`/`ImageState` 与 usage-to-state 映射；现有 upload、swapchain 和 RenderPass
-  路径必须提供 known-before/desired-after state，不再为新的 layout pair 扩展散落的 `if/else`。
+- [x] 定义类型化 `ResourceUsage`、`ResourceState`/`ImageState` 与 usage-to-state 映射，包含 queue-family owner、
+  image subresource range 和不完整输入的拒绝规则，并使用纯单元测试覆盖。
+- 让现有 upload、swapchain 和 RenderPass 路径提供 known-before/desired-after state，不再为新的 layout pair
+  扩展散落的 `if/else`。
 - 先用现有 swapchain frame submit、texture upload 和 buffer copy 路径验证迁移等价性，再引入 timeline semaphore；
   不把 API 迁移、异步上传和 transfer queue 合并成一个无法单独回归的大改动。
 - 在阶段 3 后半段建立 `UploadManager`：使用可复用的 staging pages/ring 和批量 copy command，将一次资源上传从
@@ -1439,7 +1441,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步转向 **阶段 3：类型化资源状态与 Synchronization 2 barrier 收敛**。Mesh 源依赖精确失效已经闭环；Vulkan 1.3 `synchronization2` feature 查询和 `Queue::submit2()` 已完成，但 `CommandBuffer::transition_image_layout()` 仍按 layout pair 推断 stage/access 并使用 legacy `vk::ImageMemoryBarrier`。下一步应先定义可测试的 `ResourceState`/`ImageState` 与 usage-to-state 映射，再把现有 upload、swapchain 和 RenderPass 转换迁移到 `vk::DependencyInfo` + `vk::*MemoryBarrier2`。这会为后续 timeline semaphore、批量 UploadManager 和安全 GPU retirement 建立可信边界；Texture 产物仍等 mipmap 与最终上传格式契约明确后接入。
+下一步继续 **阶段 3：Synchronization 2 Barrier2 迁移**。类型化 `ResourceUsage`、`ResourceState`/`ImageState`、queue owner 和 subresource range 契约已经就绪；接下来让 `CommandBuffer` 接收 known-before/desired-after 状态并使用 `vk::DependencyInfo` + `vk::ImageMemoryBarrier2`，首先迁移现有 Texture 阻塞上传链路，再覆盖 swapchain 和 RenderPass 边界。这会为 timeline semaphore、批量 UploadManager 和安全 GPU retirement 建立可信基础；Texture 产物仍等 mipmap 与最终上传格式契约明确后接入。
 
 建议的职责边界：
 
@@ -1479,6 +1481,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 14. [x] 分离资产源文件签名与单调 `AssetRevision`，并在 Mesh 候选发布前验证 revision，阻止旧导入结果覆盖新状态。
 15. [x] 建立 Engine 统一持有的最小 TaskScheduler，并让已加载 Mesh 通过后台 CPU 导入、Owner Thread completion 和 revision 验票完成失败安全热刷新。
 16. [x] 从 Mesh 缓存恢复 Importer 源依赖，在 Asset Database 建立源路径正向/反向索引，并让项目内、由 glTF 外部引用的 `.bin` 变化推进所属 Mesh revision、触发后台热刷新。
+17. [x] 建立类型化 `ResourceUsage`、`ResourceState`/`ImageState` 与 usage-to-state 映射，显式携带 queue owner 和 image subresource range，并拒绝缺少 shader stage、非法 aspect 和空范围。
 
 格式所有权后续需求：
 
