@@ -42,6 +42,16 @@ namespace Comet::Tests {
         concept StoresResourceWaits = requires(T& submission) {
             submission.resource_waits;
         };
+
+        template<typename T>
+        concept HasRecoverableMeshFactory = requires(
+            Device& device,
+            UploadManager& upload_manager,
+            const MeshData& data) {
+            {
+                T::try_create(device, upload_manager, data, true)
+            } -> std::same_as<GpuResourceResult<std::shared_ptr<Mesh>>>;
+        };
     }
 
     TEST(ResourceReadinessTest, RuntimeGpuResourcesExposeCompletion) {
@@ -51,5 +61,8 @@ namespace Comet::Tests {
         EXPECT_TRUE(SubmitsResourceWaits<SceneRenderer>);
         EXPECT_TRUE(BuildsResourceWaits<SceneRenderer>);
         EXPECT_FALSE(StoresResourceWaits<RenderSubmission>);
+        EXPECT_TRUE(HasRecoverableMeshFactory<Mesh>);
+        EXPECT_FALSE((std::constructible_from<
+            Mesh, Device&, UploadManager&, const MeshData&>));
     }
 }

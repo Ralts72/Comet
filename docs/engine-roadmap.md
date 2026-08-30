@@ -1472,7 +1472,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：Runtime Mesh/Texture 的事务式尝试创建**。Buffer/Image 和 UploadManager 已形成可回滚路径；接下来 Mesh/Texture 先完成全部目标分配，再用 recoverable enqueue 录制，任一步失败都返回 `GpuResourceResult`，成功才 flush 并构造 Runtime wrapper。随后 ResourceManager 再把错误交给 AssetManager 保留旧资源。
+下一步继续 **阶段 3：Runtime Texture 的事务式尝试创建**。Mesh 已按“全部目标分配 → 可回滚 enqueue → flush → 构造
+wrapper”收敛；接下来先让 ImageView 创建也能返回完整句柄或 Vulkan error，再把 Image、ImageView 和 staging upload 组合为
+Texture 事务。随后 ResourceManager 再把 Mesh/Texture 错误交给 AssetManager 保留旧资源。
 
 建议的职责边界：
 
@@ -1530,6 +1532,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 32. [x] 在 Allocator 建立强失败 `create_*` 与可恢复 `try_create_*` 双轨接口，并增加默认关闭的 `within_budget` allocation 选项；失败结果不包含半初始化 handle。
 33. [x] 将 recoverable contract 提升到 Buffer/Image 静态工厂：先完成 allocation 再构造 owning wrapper，强失败工厂继续委托同一逻辑且默认允许超预算。
 34. [x] 建立事务式 UploadManager active batch：upload staging 支持 within-budget 尝试创建，recoverable enqueue 失败自动 abort 未提交命令/引用/page；GpuResourceResult 从 Allocator 细节中独立出来供整条 GPU 创建链复用。
+35. [x] 将 Runtime Mesh 收敛为强失败/可恢复静态工厂：全部 vertex/index target 分配成功后才开始 enqueue，flush 产生 completion 后才构造和发布 wrapper。
 
 格式所有权后续需求：
 
