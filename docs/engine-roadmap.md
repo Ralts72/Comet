@@ -29,7 +29,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但 Scene/ECS 已经接入最小运行时渲染链路、
 编辑器基础数据闭环和场景持久化，New/Open/Save 与最小 Play/Edit 隔离也已经接入编辑器。当前主要矛盾已经转变为：
-资产数据库尚未建立，渲染接口仍偏 demo 化，运行时 System 调度也还没有形成。
+Texture/Material 资产纵向链路已经建立，但 Mesh 仍靠手工注册，渲染接口仍偏 demo 化，运行时 System 调度也还没有形成。
 
 最明显的信号是：
 
@@ -74,7 +74,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 - `.comet` 项目文件或项目目录约定。
 - `.mat` 已支持 Material Inspector 编辑保存；格式版本迁移和更通用的 MaterialLayout 驱动参数仍未建立。
-- 资源依赖查询、跨项目迁移和失效重载策略。
+- 跨项目迁移、递归 revision 和失效重载策略。
 - 格式稳定后的 schema 冻结与版本迁移机制；开发期 `.scene` 不承诺向后兼容，过期文件可重新保存或重建。
 - 编辑器中的显式另存为、自动保存和崩溃恢复。
 
@@ -86,11 +86,11 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 Asset Registry 是运行时 Handle 缓存，ResourceManager 不再承担资产身份或缓存职责。距离成熟管线仍缺少：
 
 - `Library/` 导入产物、缓存状态和重新导入。
-- 资产依赖查询、失效传播和热重载。
+- 更通用的递归失效传播和文件监听热重载。
 - Mesh、Shader、Scene 等更多资产类型及其导入/加载策略。
 - 模型导入器，例如 glTF。
 - Texture 已支持持久化并在 Asset Inspector 编辑色彩空间和垂直翻转；wrap、filter、mipmap、压缩仍待接入对应运行时链路。
-- 资产依赖追踪和热重载。
+- Shader include、Mesh/Material 等后续资产类型的依赖追踪和热重载。
 
 ### 4. 编辑器数据闭环
 
@@ -99,7 +99,7 @@ Asset Registry 是运行时 Handle 缓存，ResourceManager 不再承担资产�
 创建、删除、重命名和场景文件操作会作用于真实 Scene，场景输出已通过离屏目标进入 View 面板。
 接下来仍缺少：
 
-- Project 读取真实项目资产。
+- Project 缩略图、搜索、拖拽与创建/重命名资产工作流。
 - Viewport 在 Edit 时使用 editor camera、选择、高亮、gizmo 和拾取，在 Play 时使用场景 primary camera 与游戏输入。
 - Viewport 在 resize 后保持交互坐标、渲染分辨率与显示区域一致。
 - Add Component、Remove Component 和组件搜索菜单。
@@ -831,7 +831,7 @@ compile burst 后或正常 shutdown
 - 明确 demo mesh、texture、模型矩阵和固定 camera 属于示例场景，`Renderer` 只应保留渲染系统职责。
 - 在 `docs/architecture/rendering-ownership.md` 记录 `RenderContext`、`SceneRenderer`、`ResourceManager`、
   Material runtime cache、VMA 资源和 Device 的所有权与析构顺序。
-- 为 Buffer、Image、Device、ResourceManager 和 MaterialInstance 增加无效参数保护与单元测试。
+- 为 Buffer、Image、Device 和 ResourceManager 增加无效参数保护与单元测试。
 - 将 engine、editor 和 app 的源码清单改为显式维护；测试源码 glob 使用 `CONFIGURE_DEPENDS`。
 - 移除正常呈现路径中的逐帧 `queue.waitIdle()`，补齐 frame/image fence 关联，并按 frame-in-flight
   独立持有 descriptor set 和 uniform buffer。
@@ -1004,6 +1004,8 @@ Project System，Asset Database 只通过该契约定位输入和缓存。
 - [x] Texture Importer 支持可持久化、可校验并实际参与导入的基础参数：色彩空间和垂直翻转。
 - [x] Material 资产可通过编辑器修改 Texture Handle、保存，并在候选对象构建成功后显式替换运行时 Material。
 - [x] Asset Database 从 MaterialData 建立正向/反向依赖索引，扫描时报告缺失或类型错误的引用，并供 Texture 重导入查询直接 Material 依赖。
+- [x] Asset Database 先构建候选快照再提交并报告新增、删除、修改 Handle；Project Refresh 同步 Registry 与 Inspector，扫描发现阶段失败时保留上一份有效快照。
+- [x] Scene、Material 和 `.meta` 复用原子文本替换；Texture/Mesh 的 CPU 创建数据从 Runtime GPU 类头文件中拆分。
 - 在 Asset Database 的 metadata 和导入产物结构稳定后，设计 Shader Importer 的输入、编译结果、缓存键和打包方式；
   当前 CMake 编译链不预设对应的 C++ 类型或落盘格式。
 - Mesh Importer 接入 glTF，至少支持静态网格。
@@ -1423,8 +1425,8 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步进入 **阶段 3：资产数据库与项目系统**。阶段 2 已完成 Scene 编辑、持久化和最小 Play/Edit 生命周期；现在需要让
-`.scene` 中的 `AssetHandle` 从手工注册值升级为由项目资产身份稳定派生和解析的引用。
+下一步继续 **阶段 3：Mesh/glTF 静态网格纵向链路**。Texture/Material、事务式 Asset Database 快照、依赖索引和
+手动刷新一致性已经完成；现在需要让 app/editor 中手工注册的 cube mesh 也改为由项目 AssetHandle 稳定解析。
 
 建议的职责边界：
 
@@ -1456,3 +1458,6 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 6. [x] 接入 Material 资产，使其通过 Texture Handle 表达依赖；缩略图和文件监听在契约稳定后增加。
 7. [x] 为 Texture 建立类型化 Importer 设置，支持色彩空间与垂直翻转的持久化、校验和同步导入。
 8. [x] 统一 Entity/Asset Selection，并在现有 Inspector 中完成 Material 编辑、保存和显式运行时重载。
+9. [x] 扫描以候选快照提交变化集，Project Refresh 同步 Registry/Inspector，发现失败保留上一有效快照。
+10. [x] Scene、Material 和 `.meta` 使用共享原子文本替换，并为 AssetManager 更新/刷新链路补测试。
+11. [x] 删除未接入生产渲染路径的 MaterialConfig/MaterialInstance，拆分 TextureData/MeshData CPU DTO。

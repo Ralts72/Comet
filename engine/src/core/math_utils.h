@@ -123,9 +123,4 @@ namespace Comet::Math {
         return glm::inverse(m);
     }
 
-    struct Vertex {
-        Vec3 position;
-        Vec2 texcoord;
-        Vec3 normal;
-    };
 }

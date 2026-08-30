@@ -1,6 +1,6 @@
 #include "allocator.h"
 
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 
 #include <string>
 

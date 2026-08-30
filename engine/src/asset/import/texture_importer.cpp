@@ -41,7 +41,6 @@ namespace Comet {
         TextureData data{
             .width = width,
             .height = height,
-            .channels = output_channels,
             .format = settings.color_space == TextureColorSpace::Srgb
                 ? Format::R8G8B8A8_SRGB
                 : Format::R8G8B8A8_UNORM

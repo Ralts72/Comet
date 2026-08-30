@@ -45,7 +45,7 @@ Editor
 
 `Engine` 独占 Scene 和 Asset Registry，app 和 editor 负责创建或修改场景内容。app/editor 持有项目级
 `AssetManager`，并在 Engine 销毁前释放它；`AssetManager` 持有 Asset Database，对 Asset Registry 和
-ResourceManager 只保存非拥有引用。Asset Registry 以
+由 ResourceManager 实现的 `RenderResourceFactory` 只保存非拥有引用。Asset Registry 以
 `AssetHandle` 保存运行时资源的共享引用，Scene 组件只保存 Handle。`Renderer` 是当前渲染子系统的组合根。
 `RenderContext` 独占 Vulkan Context、Device 和 Swapchain；`Device` 独占 `Allocator`。`ResourceManager` 与
 `SceneRenderer` 分别保存对 Device 和 RenderContext 的非拥有引用，构造接口不允许空依赖。
@@ -85,6 +85,7 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
 ## 职责边界
 
 - `RenderContext`：Vulkan 上下文、逻辑设备、交换链和 idle 等待。
+- `RenderResourceFactory`：向资产层暴露从 CPU `TextureData`/`MeshData` 创建 Runtime 资源的窄接口。
 - `ResourceManager`：创建 Device 相关的 Texture/Mesh，并维护 Shader/Sampler 等设备级共享资源；不认识或缓存 `AssetHandle`。
 - `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。
 - `SceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断。
@@ -93,6 +94,9 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
   SceneRenderer 的离屏 `ImageView` 生命周期，但不创建或直接销毁这些 engine 图形资源。
 - `Scene`：只保存实体、可序列化组件和 `AssetHandle`，不保存 Device、GPU对象或文件路径。
 - `AssetRegistry`：唯一按 `AssetHandle` 缓存、注册和解析已发布运行时资源；不保存源路径或执行导入。
+
+Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/resource/`；Material 保留在渲染语义层，不归入设备资源创建子目录。
+`RenderScene → SceneExtractor → SceneResolver → RenderSubmission → SceneRenderer` 流水线集中在 `engine/src/render/scene/`，顶层 `Renderer` 只负责编排渲染上下文、资源管理器和这条场景渲染链路。
 - `Renderer`：编排 RenderScene 解析、帧开始/结束和 ImGui 回调，不读取 Material 属性或管理 descriptor。
 
 ## 帧同步

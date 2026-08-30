@@ -1,7 +1,8 @@
 # 资产管线边界
 
 本文记录 Comet 当前阶段 3 资产链路的职责边界。当前已完成 Texture、Texture 基础导入设置与显式重新导入、Material 同步加载和
-Material 编辑保存的纵向切片；Mesh、后台导入、`Library/` 导入产物和文件监听热重载仍属于后续工作。
+Material 编辑保存的纵向切片，并建立事务式扫描快照、手动刷新一致性和原子文本写入；Mesh、后台导入、`Library/`
+导入产物和文件监听热重载仍属于后续工作。
 
 ## 项目目录
 
@@ -33,7 +34,7 @@ AssetManager
     ├── TextureImporter(settings) → TextureData(RGBA CPU pixels + SRGB/UNORM format)
     └── MaterialSerializer → MaterialData(template + Texture Handle properties)
                                ↓ AssetManager 递归解析 Texture Handle
-    ├── ResourceManager：TextureData → Runtime Texture
+    ├── RenderResourceFactory → ResourceManager：TextureData → Runtime Texture
     └── Material：template + 已解析 Texture → Runtime Material
                                ↓ AssetManager 发布
 AssetRegistry
@@ -46,7 +47,7 @@ Material 的编辑路径与加载路径复用同一格式契约：
 ProjectPanel → SelectionService(AssetHandle) → Inspector
     → Texture Handle 选择仅在值变化事件发生时提交 MaterialData
     → AssetManager::update_material(MaterialData)
-    → 构建候选 Runtime Material → MaterialSerializer::save(.mat)
+    → 构建候选 Runtime Material → MaterialSerializer 序列化并原子替换 .mat
     → 更新 AssetDatabase 依赖索引 → 替换 AssetRegistry 条目
     → 任一步失败则 Inspector 恢复旧选择
 ```
@@ -70,24 +71,26 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 
 `engine/src/asset/import/` 保存“外部格式 → Comet CPU 数据”的导入器；
 `engine/src/asset/serialization/` 保存 Comet 自有资产格式和资产元数据的读写器。场景序列化与运行配置加载仍留在
-各自的 `scene/` 和 `common/` 模块，因为它们不是 AssetManager 管理的资产格式。
+各自的 `scene/` 和 `config/` 模块，因为它们不是 AssetManager 管理的资产格式。`TextureData`/`MeshData` 是与 GPU
+对象分离的 CPU 创建数据，Importer 不需要包含 Runtime Texture/Mesh 类定义。相关 DTO、Runtime 对象、工厂接口和管理器统一位于 `engine/src/render/resource/`，而不是按“数据”单独建立宽泛目录。
 
 ## 职责
 
-- `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径、已校验 Importer 设置以及正向/反向依赖索引；Material 依赖由 `MaterialData` 提取，缺失引用和错误类型进入扫描报告。设置更新先成功写入 `.meta`，再更新内存记录。
+- `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径、已校验 Importer 设置以及正向/反向依赖索引；Material 依赖由 `MaterialData` 提取，缺失引用和错误类型进入扫描报告。扫描先完整构建候选快照，再一次替换当前快照并报告新增、删除和修改 Handle；目录发现不完整时保留上一份有效快照。设置更新先成功写入 `.meta`，再更新内存记录。
 - `AssetMetadataSerializer`：只负责 `.meta` 的 YAML 读写和类型/设置契约校验；`AssetMetadata` 本身仍是独立于文件格式的数据类型。
-- `AssetManager`：协调数据库、Importer、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载和 Texture 重新导入都会先完整构建候选对象，失败时保留旧对象。Texture 替换后会刷新当前已加载且直接引用旧对象的 Material。
+- `AssetManager`：协调数据库、Importer、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载和 Texture 重新导入都会先完整构建候选对象，失败时保留旧对象。手动扫描提交后会卸载已删除资产及仍依赖它们的 Runtime 对象，并刷新发生修改且当前已加载的 Texture/Material。
 - `TextureImporter`：唯一接触 Texture 源文件路径的解码边界，应用色彩空间和垂直翻转设置，输出不包含 GPU 对象的 `TextureData`。
 - `MaterialSerializer`：确定性读写 Comet 原生 `.mat` 与不包含运行时对象的 `MaterialData`；Texture 属性只保存项目 `AssetHandle`。`get_asset_dependencies(MaterialData)` 负责生成排序、去重的依赖列表，供扫描和编辑更新共同复用。
 - `Material`：运行时材质保存模板身份和已解析属性；不读取 `.mat`，当前渲染管线是否支持该模板由 `SceneResolver` 在提交边界判断。
-- `ResourceManager`：使用 Device 从 CPU 数据创建 Texture/Mesh，并维护 Shader/Sampler 等设备级共享资源；不认识 `AssetHandle`、`MaterialData`、`.meta` 或源文件路径。
+- `RenderResourceFactory`：AssetManager 创建 Runtime Texture/Mesh 所需的窄接口，不暴露 Shader/Sampler 等无关能力。
+- `ResourceManager`：实现 `RenderResourceFactory`，使用 Device 从 CPU 数据创建 Texture/Mesh，并维护 Shader/Sampler 等设备级共享资源；不认识 `AssetHandle`、`MaterialData`、`.meta` 或源文件路径。
 - `AssetRegistry`：作为唯一的 Handle 缓存，保存已发布运行时对象的带类型共享引用，并允许同类型候选对象替换；Scene 中仍只保存 Handle。
 - `ProjectPanel`：显示 Asset Database 的快照和扫描问题，并向共享 Selection 发布 Asset Handle；不自己访问文件系统或创建 GPU 资源。
 - `Inspector`：根据共享 Selection 显示 Entity 或 Asset；Material 编辑器只允许从已索引 Texture 中选择属性，模板身份仍只读；Material 和 Texture 控件都只在值变化事件发生时自动提交，失败时恢复旧值。更新成功或失败统一写入 Logger 并由 Log 面板展示，Inspector 只显示当前资产的加载或字段校验错误。
 
 ## 生命周期
 
-`AssetManager` 持有 `AssetDatabase` 和对 `AssetRegistry`/`ResourceManager` 的非拥有引用，因此 app/editor 必须在
+`AssetManager` 持有 `AssetDatabase` 和对 `AssetRegistry`/`RenderResourceFactory` 的非拥有引用，因此 app/editor 必须在
 `Engine` 销毁前释放它。`AssetRegistry` 是按 Handle 保存运行时资产的唯一生命周期根；Material 等运行时对象可以
 通过共享引用保持其 Texture 依赖。`Engine` 关闭时先等待 Device idle，再清理 Registry，最后由 Renderer 释放
 ResourceManager 和 Device 级共享资源。
@@ -95,8 +98,11 @@ ResourceManager 和 Device 级共享资源。
 Material/Texture 替换只交换 Registry 中的 `shared_ptr`，已取得旧对象的当前帧和 descriptor frame slot 仍可自然持有到结束；
 这条同步、用户触发的编辑器路径不等同于文件监听热重载，也不替代后续的 revision、completion 和 retirement 机制。
 
-Project 刷新会重建源资产及其依赖索引，但不会自动卸载、重导入或替换已发布的运行时资源。当前 Texture 显式重新导入
-通过反向索引刷新已加载的直接 Material；递归失效传播仍需要后续的 revision、completion token 和 GPU retirement 机制支持。
+Project 刷新成功提交快照后，会通过变化集清理删除资产及其依赖对象、刷新已加载的修改资产，并以事件方式使 Inspector
+丢弃同一 Handle 的旧编辑缓存；扫描目录暂时不可访问时三者继续使用上一份有效快照。当前同步路径仍不等于文件监听热重载，
+后台任务完成、递归 revision 和 GPU retirement 仍属于后续工作。
+
+Scene、Material 和 `.meta` 使用同一原子文本写入函数：先在目标目录写完临时文件，再原子替换正式文件，避免直接截断造成半写文件。
 
 `filter`/`wrap` 由运行时 Sampler 消费，mipmap 需要 Image mip-level 和上传链路共同支持，因此没有作为只落盘但
 不生效的字段提前加入 Texture Importer 契约。

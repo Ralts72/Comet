@@ -1,8 +1,8 @@
 #include "buffer.h"
 
 #include "command_context.h"
-#include "common/logger.h"
-#include "common/profiler.h"
+#include "diagnostics/logger.h"
+#include "diagnostics/profiler.h"
 #include "device.h"
 
 #include <cstring>

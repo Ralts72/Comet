@@ -68,6 +68,14 @@ namespace CometEditor {
         ImGui::End();
     }
 
+    void InspectorPanel::invalidate_asset_cache() {
+        m_loaded_asset = Comet::INVALID_ASSET_HANDLE;
+        m_texture_import_settings.reset();
+        m_material_data.reset();
+        m_texture_assets.clear();
+        m_asset_error.clear();
+    }
+
     void InspectorPanel::render_entity(Comet::Entity entity) const {
         auto& name = entity.get_component<Comet::NameComponent>().name;
         std::array<char, ENTITY_NAME_CAPACITY> name_buffer{};
@@ -206,19 +214,13 @@ namespace CometEditor {
         ImGui::TextDisabled("Template editing is not available yet");
         ImGui::SeparatorText("Texture Properties");
 
-        const std::vector<Comet::AssetRecord> assets =
-                m_asset_database.get_assets();
         for(auto& [property_name, texture_handle]:
             m_material_data->texture_properties) {
             const std::string preview = texture_preview(
                 m_asset_database, texture_handle);
             ImGui::PushID(property_name.c_str());
             if(ImGui::BeginCombo(property_name.c_str(), preview.c_str())) {
-                for(const Comet::AssetRecord& candidate: assets) {
-                    if(candidate.type != Comet::AssetType::Texture) {
-                        continue;
-                    }
-
+                for(const Comet::AssetRecord& candidate: m_texture_assets) {
                     const bool selected = candidate.handle == texture_handle;
                     const std::string label = candidate.path.generic_string();
                     if(ImGui::Selectable(label.c_str(), selected) && !selected) {
@@ -255,6 +257,7 @@ namespace CometEditor {
         m_loaded_asset = record.handle;
         m_texture_import_settings.reset();
         m_material_data.reset();
+        m_texture_assets.clear();
         m_asset_error.clear();
 
         if(record.type == Comet::AssetType::Texture) {
@@ -275,6 +278,11 @@ namespace CometEditor {
         try {
             m_material_data = Comet::MaterialSerializer{}.load(
                 m_assets_root / record.path);
+            for(const Comet::AssetRecord& asset: m_asset_database.get_assets()) {
+                if(asset.type == Comet::AssetType::Texture) {
+                    m_texture_assets.push_back(asset);
+                }
+            }
         } catch(const std::exception& error) {
             m_asset_error = error.what();
         }

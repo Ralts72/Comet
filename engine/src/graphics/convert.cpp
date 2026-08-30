@@ -1,5 +1,5 @@
 #include "convert.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 
 namespace Comet::Graphics {
     #define CASE(a, b) \

@@ -2,7 +2,7 @@
 #include "command_buffer.h"
 #include "semaphore.h"
 #include "fence.h"
-#include "common/profiler.h"
+#include "diagnostics/profiler.h"
 #include "swapchain.h"
 
 namespace Comet {

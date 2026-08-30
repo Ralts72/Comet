@@ -9,7 +9,7 @@
 namespace Comet {
     class AssetRegistry;
     class Material;
-    class ResourceManager;
+    class RenderResourceFactory;
     class Texture;
     struct MaterialData;
 
@@ -18,7 +18,7 @@ namespace Comet {
         AssetManager(
             ProjectPaths paths,
             AssetRegistry& registry,
-            ResourceManager& resource_manager);
+            RenderResourceFactory& resource_factory);
 
         [[nodiscard]] AssetScanReport scan();
         [[nodiscard]] std::shared_ptr<Texture> load_texture(AssetHandle handle);
@@ -39,6 +39,7 @@ namespace Comet {
         [[nodiscard]] std::shared_ptr<Texture> create_runtime_texture(
             const AssetRecord& record,
             const TextureImportSettings& import_settings);
+        [[nodiscard]] bool refresh_loaded_texture(const AssetRecord& record);
         [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
             const AssetRecord& record);
         [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
@@ -48,6 +49,6 @@ namespace Comet {
         ProjectPaths m_paths;
         AssetDatabase m_database;
         AssetRegistry& m_registry;
-        ResourceManager& m_resource_manager;
+        RenderResourceFactory& m_resource_factory;
     };
 }

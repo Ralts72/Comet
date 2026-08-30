@@ -1,6 +1,6 @@
 #include "core/project_paths.h"
 
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 
 #include <utility>
 

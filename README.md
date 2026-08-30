@@ -5,10 +5,9 @@ GoogleTest 测试基础。
 
 ## 项目结构
 
-- `engine/`：引擎核心库，包含 `asset/`、`core/`、`graphics/`、`render/`、`runtime/`、`scene/` 和
-  `common/` 模块；`asset/` 当前提供轻量、不透明的 `AssetHandle` 和带类型校验的最小内存
-  `AssetRegistry`，并定义持久化资产身份、类型化 Importer 设置、`.meta` 编解码、源资产索引及 Material/Texture 正反向依赖查询；`core/project_paths` 定义项目根目录与
-  `assets/`、`Library/`、`ProjectSettings/` 的标准路径契约。
+- `engine/`：引擎核心库，包含 `asset/`、`common/`、`config/`、`core/`、`diagnostics/`、`graphics/`、`render/`、`runtime/` 和 `scene/` 模块；`asset/` 当前提供轻量、不透明的 `AssetHandle` 和带类型校验的最小内存
+  `AssetRegistry`，并定义持久化资产身份、类型化 Importer 设置、`.meta` 编解码、事务式源资产快照、变化集及 Material/Texture 正反向依赖查询；`core/project_paths` 定义项目根目录与
+  `assets/`、`Library/`、`ProjectSettings/` 的标准路径契约；`render/resource/` 集中放置 Texture/Mesh 的 CPU DTO、程序化 Mesh、Runtime 对象与设备资源创建边界，`render/scene/` 集中放置场景提取、解析和提交渲染流水线。
 - `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过组件描述符
   编辑 Transform、MeshRenderer 和 Camera，并可编辑 Project 中选中的 Material 以及 Texture 导入设置；File 菜单可新建、打开和保存 `.scene`；`editor/resources/` 保存不进入
   项目资产数据库的编辑器私有字体等资源。
@@ -16,7 +15,7 @@ GoogleTest 测试基础。
 - `assets/`：当前示例项目的源资产及相邻 `.meta`，当前包含 demo Texture 和 Material；资产身份进入版本控制。
 - `config/`：`common.yaml` 保存共享运行配置，`profiles/` 保存构建/启动环境覆盖。
 - `Library/`：可重建的导入产物与缓存目录，不进入版本控制。
-- `tests/`：GoogleTest 测试，覆盖数学、配置、Scene/ECS、场景序列化、资源参数保护和渲染数据链路。
+- `tests/`：GoogleTest 测试，覆盖数学、配置、Scene/ECS、场景序列化、原子文件写入、Asset Manager 更新事务、资源参数保护和渲染数据链路。
 - `engine/shaders/`：引擎自有 GLSL Shader 源码，构建时编译并嵌入引擎。
 - `3rdparty/`：第三方依赖目录，部分依赖通过 Git submodule 拉取，Vulkan Memory Allocator 和 EnTT 以 vendored
   源码形式维护；EnTT 只提交 single header。
@@ -129,15 +128,15 @@ editor 将同一个 `ComponentRegistry` 提供给 Inspector 和 `SceneSerializer
 运行时 `EntityId`、EnTT handle 与派生世界矩阵不会落盘。实体按 UUID 排序，加载时会拒绝重复 UUID、悬空父引用、
 层级环、未知字段和不支持的版本；保存时会自动创建缺失的父目录。
 `SceneExtractor` 将可渲染实体和 Camera 复制为
-`engine/src/render/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。
+`engine/src/render/scene/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。
 `Engine` 使用唯一所有权持有当前活动 Scene 和最小 Asset Registry，并可在保持唯一所有权的前提下交换 Scene。
 app/editor 组合根持有 `AssetManager`，它使用 `AssetDatabase` 将稳定 Handle 解析为项目源资产；Texture 由
 `TextureImporter` 按 `.meta` 中经过校验的色彩空间和垂直翻转设置解码为 CPU 像素数据，Material 由
 `MaterialSerializer` 读取为只含模板名和 Texture Handle 的
 `MaterialData`；Asset Database 从 MaterialData 提取、去重 Texture Handle 依赖，并维护正向/反向索引。外部格式的导入器集中在 `engine/src/asset/import/`，Comet 原生资产与元数据的序列化器集中在
 `engine/src/asset/serialization/`。`AssetManager` 递归解析材质依赖、组装运行时 Material 并统一发布到 `AssetRegistry`；
-`ResourceManager` 只创建 Device 相关的 Texture/Mesh 和维护 Shader/Sampler 等渲染侧共享资源，不再缓存资产 Handle。
-Project 面板展示真实索引与扫描问题；Inspector 的 Material Texture 属性以及 Texture 色彩空间、垂直翻转设置只在值变化事件发生时自动保存并更新运行时对象，Texture 重新导入还会刷新已加载的直接 Material 依赖；更新结果统一显示在 Log 面板。app 在初始化阶段只手工注册尚未资产化的 demo mesh，材质及其纹理由项目资产链路加载，并创建
+它只依赖由 `ResourceManager` 实现的窄 `RenderResourceFactory`；`ResourceManager` 继续负责 Device 相关的 Texture/Mesh 创建和 Shader/Sampler 等渲染侧共享资源，不缓存资产 Handle。`render/resource/` 将这一资源族集中管理，其中 `TextureData`/`MeshData` 仍作为独立 CPU DTO，不与 Runtime Texture/Mesh 类定义混放；`MeshPrimitives` 直接生成 `MeshData`，Mesh 顶点布局不再属于通用数学模块。
+Asset Database 扫描先构建候选快照再提交，并报告新增、删除和修改 Handle；Project 刷新据此同步 Runtime Registry 并以事件方式使 Inspector 缓存失效。Scene、Material 和 `.meta` 通过同一原子文本写入函数替换正式文件。Inspector 的 Material Texture 属性以及 Texture 色彩空间、垂直翻转设置只在值变化事件发生时自动保存并更新运行时对象，Texture 重新导入还会刷新已加载的直接 Material 依赖；更新结果统一显示在 Log 面板。app 在初始化阶段只手工注册尚未资产化的 demo mesh，材质及其纹理由项目资产链路加载，并创建
 主 Camera 与两个具有不同 Transform 的 cube entity；`SceneResolver` 选择并校验主 Camera、根据渲染尺寸
 生成 view/projection，同时将 Handle 解析为运行时 `RenderSubmission`。`Renderer` 负责编排帧流程，
 `SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过

@@ -1,9 +1,10 @@
 #include "renderer.h"
-#include "common/logger.h"
-#include "common/profiler.h"
-#include "common/shader_types.h"
+#include "diagnostics/logger.h"
+#include "diagnostics/profiler.h"
 #include "graphics/pipeline.h"
 #include "graphics/vertex_description.h"
+#include "render/resource/mesh_data.h"
+#include "render/scene/render_types.h"
 
 namespace Comet {
     Renderer::Renderer(const Window& window,
@@ -52,10 +53,10 @@ namespace Comet {
 
         // 创建 VertexInputDescription
         VertexInputDescription vertex_input_description;
-        vertex_input_description.add_binding(0, sizeof(Math::Vertex), VertexInputRate::Vertex);
-        vertex_input_description.add_attribute(0, 0, Format::R32G32B32_SFLOAT, offsetof(Math::Vertex, position));
-        vertex_input_description.add_attribute(1, 0, Format::R32G32_SFLOAT, offsetof(Math::Vertex, texcoord));
-        vertex_input_description.add_attribute(2, 0, Format::R32G32B32_SFLOAT, offsetof(Math::Vertex, normal));
+        vertex_input_description.add_binding(0, sizeof(MeshVertex), VertexInputRate::Vertex);
+        vertex_input_description.add_attribute(0, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, position));
+        vertex_input_description.add_attribute(1, 0, Format::R32G32_SFLOAT, offsetof(MeshVertex, texcoord));
+        vertex_input_description.add_attribute(2, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, normal));
 
         // 创建 PipelineConfig
         PipelineConfig pipeline_config = {};

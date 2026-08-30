@@ -1,6 +1,6 @@
 #include "asset/registry.h"
 
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 
 namespace Comet {
     bool AssetRegistry::register_asset_impl(

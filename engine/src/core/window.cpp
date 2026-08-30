@@ -1,6 +1,6 @@
 #include "window.h"
-#include "common/logger.h"
-#include "common/profiler.h"
+#include "diagnostics/logger.h"
+#include "diagnostics/profiler.h"
 #include <algorithm>
 
 namespace Comet {

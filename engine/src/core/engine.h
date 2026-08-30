@@ -3,7 +3,7 @@
 #include "window.h"
 #include "render/renderer.h"
 #include "timer.h"
-#include "common/config.h"
+#include "config/config.h"
 
 #include <functional>
 #include <memory>

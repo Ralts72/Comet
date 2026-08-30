@@ -4,7 +4,7 @@
 #include "image.h"
 #include "command_buffer.h"
 #include "queue.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 
 namespace Comet {
     CommandContext::CommandContext(Device& device)

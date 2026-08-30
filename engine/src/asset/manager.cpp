@@ -3,14 +3,17 @@
 #include "asset/import/texture_importer.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
-#include "common/logger.h"
+#include "common/file_io.h"
+#include "diagnostics/logger.h"
 #include "render/material.h"
-#include "render/resource_manager.h"
-#include "render/texture.h"
+#include "render/resource/resource_factory.h"
+#include "render/resource/texture.h"
 
 #include <exception>
 #include <map>
+#include <queue>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -18,14 +21,73 @@ namespace Comet {
     AssetManager::AssetManager(
         ProjectPaths paths,
         AssetRegistry& registry,
-        ResourceManager& resource_manager)
+        RenderResourceFactory& resource_factory)
         : m_paths(std::move(paths)),
           m_database(m_paths),
           m_registry(registry),
-          m_resource_manager(resource_manager) {}
+          m_resource_factory(resource_factory) {}
 
     AssetScanReport AssetManager::scan() {
-        return m_database.scan();
+        AssetScanReport report = m_database.scan();
+        if(!report.snapshot_updated) {
+            return report;
+        }
+
+        std::unordered_set<AssetHandle> invalidated(
+            report.removed_assets.begin(),
+            report.removed_assets.end());
+        std::queue<AssetHandle> pending_invalidations;
+        for(const AssetHandle handle: report.removed_assets) {
+            pending_invalidations.push(handle);
+        }
+        while(!pending_invalidations.empty()) {
+            const AssetHandle dependency = pending_invalidations.front();
+            pending_invalidations.pop();
+            for(const AssetHandle dependent:
+                m_database.get_dependents(dependency)) {
+                if(invalidated.insert(dependent).second) {
+                    pending_invalidations.push(dependent);
+                }
+            }
+        }
+        for(const AssetHandle handle: invalidated) {
+            static_cast<void>(m_registry.unregister_asset(handle));
+        }
+
+        for(const AssetHandle handle: report.modified_assets) {
+            if(invalidated.contains(handle) || !m_registry.contains(handle)) {
+                continue;
+            }
+
+            const AssetRecord* record = m_database.find(handle);
+            if(!record) {
+                continue;
+            }
+            switch(record->type) {
+                case AssetType::Texture:
+                    if(!refresh_loaded_texture(*record)) {
+                        LOG_ERROR(
+                            "Failed to refresh modified texture asset handle {}",
+                            handle.value());
+                    }
+                    break;
+                case AssetType::Material:
+                    if(!reload_material(handle)) {
+                        LOG_ERROR(
+                            "Failed to refresh modified material asset handle {}",
+                            handle.value());
+                    }
+                    break;
+                default:
+                    static_cast<void>(m_registry.unregister_asset(handle));
+                    LOG_WARN(
+                        "Unloaded modified asset handle {} because runtime reload is not implemented for type '{}'",
+                        handle.value(),
+                        to_string(record->type));
+                    break;
+            }
+        }
+        return report;
     }
 
     std::shared_ptr<Texture> AssetManager::load_texture(
@@ -297,8 +359,9 @@ namespace Comet {
         }
 
         const MaterialSerializer serializer;
+        std::string serialized_data;
         try {
-            static_cast<void>(serializer.serialize(data));
+            serialized_data = serializer.serialize(data);
         } catch(const std::exception& exception) {
             LOG_ERROR("{}", exception.what());
             return nullptr;
@@ -310,7 +373,9 @@ namespace Comet {
         }
 
         try {
-            serializer.save(data, m_paths.assets() / record->path);
+            write_text_file_atomic(
+                m_paths.assets() / record->path,
+                serialized_data);
             m_database.update_dependencies(
                 handle,
                 get_asset_dependencies(data));
@@ -347,7 +412,48 @@ namespace Comet {
             LOG_ERROR("{}", exception.what());
             return nullptr;
         }
-        return m_resource_manager.create_texture(data);
+        return m_resource_factory.create_texture(data);
+    }
+
+    bool AssetManager::refresh_loaded_texture(const AssetRecord& record) {
+        const auto previous_texture = m_registry.resolve<Texture>(record.handle);
+        if(!previous_texture) {
+            return !m_registry.contains(record.handle);
+        }
+
+        const auto* settings = std::get_if<TextureImportSettings>(
+            &record.import_settings);
+        if(!settings) {
+            LOG_ERROR(
+                "Texture asset handle {} has incompatible import settings",
+                record.handle.value());
+            return false;
+        }
+
+        auto texture = create_runtime_texture(record, *settings);
+        if(!texture
+           || !m_registry.replace_asset(record.handle, texture)) {
+            return false;
+        }
+
+        for(const AssetHandle dependent:
+            m_database.get_dependents(record.handle)) {
+            const AssetRecord* dependent_record = m_database.find(dependent);
+            if(dependent_record
+               && dependent_record->type == AssetType::Material
+               && m_registry.resolve<Material>(dependent)
+               && !reload_material(dependent)) {
+                LOG_ERROR(
+                    "Texture handle {} was refreshed, but dependent material handle {} could not be refreshed",
+                    record.handle.value(),
+                    dependent.value());
+            }
+        }
+        LOG_INFO(
+            "Reloaded texture asset '{}' (handle {})",
+            record.path.generic_string(),
+            record.handle.value());
+        return true;
     }
 
     std::shared_ptr<Material> AssetManager::create_runtime_material(
@@ -382,10 +488,9 @@ namespace Comet {
 
         auto material = std::make_shared<Material>(
             record.path.stem().string(),
-            data.template_name,
-            MaterialConfig{});
+            data.template_name);
         for(const auto& [property_name, texture]: textures) {
-            material->set_property_texture(property_name, texture);
+            material->set_texture_property(property_name, texture);
         }
         return material;
     }

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "asset/registry.h"
-#include "render/scene_resolver.h"
+#include "render/scene/scene_resolver.h"
 #include "../test_utils.h"
 
 namespace Comet::Tests {

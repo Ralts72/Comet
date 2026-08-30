@@ -59,6 +59,7 @@ namespace Comet::Tests {
         const TemporaryProject project;
         project.add_file("textures/albedo.PNG");
         project.add_file("Materials/default.mat", std::string(EMPTY_MATERIAL));
+        project.add_file(".comet-tmp-interrupted-write.1", "partial");
         AssetDatabase database(project.paths());
 
         const AssetScanReport report = database.scan();
@@ -305,5 +306,25 @@ namespace Comet::Tests {
         EXPECT_FALSE(report.succeeded());
         EXPECT_TRUE(has_issue_containing(report, "assets directory does not exist"));
         EXPECT_EQ(database.size(), 0u);
+    }
+
+    TEST(AssetDatabaseTest, PreservesPreviousSnapshotWhenRescanCannotDiscoverAssets) {
+        const TemporaryProject project;
+        project.add_file("valid.scene");
+        AssetDatabase database(project.paths());
+        const AssetScanReport initial_scan = database.scan();
+        ASSERT_TRUE(initial_scan.snapshot_updated);
+        ASSERT_EQ(database.size(), 1u);
+        const AssetHandle handle = database.find("valid.scene")->handle;
+
+        std::filesystem::remove_all(project.paths().assets());
+        const AssetScanReport failed_rescan = database.scan();
+
+        EXPECT_FALSE(failed_rescan.snapshot_updated);
+        EXPECT_TRUE(has_issue_containing(
+            failed_rescan, "assets directory does not exist"));
+        EXPECT_EQ(database.size(), 1u);
+        ASSERT_NE(database.find(handle), nullptr);
+        EXPECT_EQ(database.find(handle)->path, "valid.scene");
     }
 }

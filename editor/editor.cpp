@@ -1,7 +1,7 @@
 #include "runtime/entry.h"
 #include "asset/manager.h"
 #include "asset/registry.h"
-#include "common/geometry_utils.h"
+#include "render/resource/mesh_primitives.h"
 #include "src/editor_scene_session.h"
 #include "src/editor_state.h"
 #include "src/imgui_context.h"
@@ -9,9 +9,9 @@
 #include "core/engine.h"
 #include "core/project_paths.h"
 #include "render/renderer.h"
-#include "render/scene_renderer.h"
+#include "render/scene/scene_renderer.h"
 #include "core/window.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 #include "menu_bar.h"
 #include "src/panels/console.h"
 #include "src/panels/inspector.h"
@@ -79,10 +79,9 @@ namespace {
         auto& resource_manager = engine.get_resource_manager();
         auto& asset_registry = engine.get_asset_registry();
 
-        auto [cube_vertices, cube_indices] = Comet::GeometryUtils::create_cube(
-            -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0.5f);
         auto cube_mesh = resource_manager.create_mesh(
-            cube_vertices, cube_indices);
+            Comet::MeshPrimitives::create_cube(
+                -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0.5f));
 
         const Comet::AssetHandle material_handle = load_required_material(
             asset_manager, DEMO_MATERIAL);
@@ -454,6 +453,9 @@ namespace {
                 m_asset_scan_report,
                 [this]() {
                     Comet::AssetScanReport report = m_asset_manager->scan();
+                    if(report.snapshot_updated) {
+                        m_inspector_panel->invalidate_asset_cache();
+                    }
                     log_asset_scan_issues(report);
                     return report;
                 },

@@ -1,8 +1,8 @@
 #include "engine.h"
 #include "asset/registry.h"
-#include "common/logger.h"
-#include "common/profiler.h"
-#include "render/scene_extractor.h"
+#include "diagnostics/logger.h"
+#include "diagnostics/profiler.h"
+#include "render/scene/scene_extractor.h"
 #include "scene/scene.h"
 
 namespace Comet {

@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace Comet {
     class ComponentRegistry;
@@ -37,6 +38,7 @@ namespace CometEditor {
             ReimportTextureCallback reimport_texture_callback);
 
         void render() override;
+        void invalidate_asset_cache();
 
     private:
         void render_entity(Comet::Entity entity) const;
@@ -62,6 +64,7 @@ namespace CometEditor {
         Comet::AssetHandle m_loaded_asset;
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;
         std::optional<Comet::MaterialData> m_material_data;
+        std::vector<Comet::AssetRecord> m_texture_assets;
         std::string m_asset_error;
     };
 

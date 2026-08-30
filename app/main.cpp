@@ -1,7 +1,7 @@
 #include "runtime/entry.h"
 #include "asset/manager.h"
 #include "asset/registry.h"
-#include "common/geometry_utils.h"
+#include "render/resource/mesh_primitives.h"
 #include "core/project_paths.h"
 #include "scene/scene.h"
 
@@ -55,10 +55,9 @@ namespace {
                     issue.message);
             }
 
-            auto [cube_vertices, cube_indices] =
-                    Comet::GeometryUtils::create_cube(-0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f);
             auto cube_mesh = resource_manager.create_mesh(
-                cube_vertices, cube_indices);
+                Comet::MeshPrimitives::create_cube(
+                    -0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f));
 
             const Comet::AssetHandle material_handle = load_required_material(
                 *m_asset_manager, DEMO_MATERIAL);

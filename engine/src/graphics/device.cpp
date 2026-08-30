@@ -2,10 +2,10 @@
 #include "context.h"
 #include "fence.h"
 #include "queue.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 #include "command_buffer.h"
 #include "command_context.h"
-#include "common/profiler.h"
+#include "diagnostics/profiler.h"
 #include "allocator.h"
 
 namespace Comet {

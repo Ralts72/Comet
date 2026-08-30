@@ -1,5 +1,6 @@
 #include "scene/scene_serializer.h"
 
+#include "common/file_io.h"
 #include "scene/component_registry.h"
 #include "scene/components.h"
 #include "scene/scene.h"
@@ -743,27 +744,7 @@ namespace Comet {
         if(scene_path.empty()) {
             throw std::runtime_error("Scene path cannot be empty");
         }
-
-        const std::filesystem::path parent = scene_path.parent_path();
-        if(!parent.empty()) {
-            std::error_code error;
-            std::filesystem::create_directories(parent, error);
-            if(error) {
-                throw std::runtime_error(
-                    "Failed to create scene directory '" + parent.string()
-                    + "': " + error.message());
-            }
-        }
-
-        std::ofstream output(
-            scene_path, std::ios::binary | std::ios::trunc);
-        if(!output.is_open()) {
-            throw std::runtime_error("Failed to open scene for writing: " + path);
-        }
-        output << serialize(scene);
-        if(!output) {
-            throw std::runtime_error("Failed to write scene: " + path);
-        }
+        write_text_file_atomic(scene_path, serialize(scene));
     }
 
     std::unique_ptr<Scene> SceneSerializer::load(

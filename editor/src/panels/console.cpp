@@ -1,5 +1,5 @@
 #include "console.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 #include <imgui.h>
 
 namespace CometEditor {

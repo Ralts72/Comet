@@ -2,7 +2,7 @@
 #include "vk_common.h"
 #include "vk_capability.h"
 #include "core/window.h"
-#include "common/config.h"
+#include "config/config.h"
 
 namespace Comet {
     class Context {

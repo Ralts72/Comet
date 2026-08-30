@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "common/config.h"
-#include "common/diagnostics.h"
+#include "config/config.h"
+#include "diagnostics/diagnostics.h"
 
 #include <memory>
 

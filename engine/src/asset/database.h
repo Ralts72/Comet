@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <compare>
+#include <cstdint>
 #include <filesystem>
 #include <span>
 #include <string>
@@ -31,6 +32,10 @@ namespace Comet {
     struct AssetScanReport {
         std::size_t indexed_assets = 0;
         std::size_t generated_metadata = 0;
+        bool snapshot_updated = false;
+        std::vector<AssetHandle> added_assets;
+        std::vector<AssetHandle> removed_assets;
+        std::vector<AssetHandle> modified_assets;
         std::vector<AssetScanIssue> issues;
 
         [[nodiscard]] bool succeeded() const noexcept {
@@ -66,5 +71,6 @@ namespace Comet {
         std::unordered_map<std::filesystem::path, AssetHandle> m_handles_by_path;
         std::unordered_map<AssetHandle, std::vector<AssetHandle>>
             m_dependents_by_dependency;
+        std::unordered_map<AssetHandle, std::uint64_t> m_asset_revisions;
     };
 }

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "render/render_scene.h"
+#include "render/scene/render_scene.h"
 #include "../test_utils.h"
 
 namespace Comet::Tests {

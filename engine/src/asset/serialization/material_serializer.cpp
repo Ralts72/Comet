@@ -1,4 +1,5 @@
 #include "asset/serialization/material_serializer.h"
+#include "common/file_io.h"
 
 #include <yaml-cpp/yaml.h>
 
@@ -243,16 +244,7 @@ namespace Comet {
         const MaterialData& data,
         const std::filesystem::path& path) const {
         const std::string contents = serialize(data);
-        std::ofstream output(path, std::ios::binary | std::ios::trunc);
-        if(!output) {
-            throw std::runtime_error(
-                "Failed to open material for writing: " + path.string());
-        }
-        output << contents;
-        if(!output) {
-            throw std::runtime_error(
-                "Failed to write material: " + path.string());
-        }
+        write_text_file_atomic(path, contents);
     }
 
     MaterialData MaterialSerializer::load(

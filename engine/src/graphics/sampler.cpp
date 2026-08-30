@@ -1,6 +1,6 @@
 #include "sampler.h"
 #include "device.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 
 #include <cmath>
 

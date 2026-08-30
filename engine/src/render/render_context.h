@@ -3,7 +3,7 @@
 #include "graphics/device.h"
 #include "graphics/swapchain.h"
 #include "common/export.h"
-#include "common/config.h"
+#include "config/config.h"
 
 namespace Comet {
     class COMET_API RenderContext {

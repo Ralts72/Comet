@@ -1,4 +1,5 @@
 #include "asset/serialization/metadata_serializer.h"
+#include "common/file_io.h"
 
 #include <yaml-cpp/yaml.h>
 
@@ -260,16 +261,7 @@ namespace Comet {
         const AssetMetadata& metadata,
         const std::filesystem::path& path) const {
         const std::string contents = serialize(metadata);
-        std::ofstream output(path, std::ios::binary | std::ios::trunc);
-        if(!output) {
-            throw std::runtime_error(
-                "Failed to open asset metadata for writing: " + path.string());
-        }
-        output << contents;
-        if(!output) {
-            throw std::runtime_error(
-                "Failed to write asset metadata: " + path.string());
-        }
+        write_text_file_atomic(path, contents);
     }
 
     AssetMetadata AssetMetadataSerializer::load(

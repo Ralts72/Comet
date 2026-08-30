@@ -1,5 +1,5 @@
 #include "frame_manager.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 #include "graphics/device.h"
 
 namespace Comet {

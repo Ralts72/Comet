@@ -1,6 +1,6 @@
 #pragma once
 #include "editor.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 #include <deque>
 
 namespace CometEditor {

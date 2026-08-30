@@ -5,10 +5,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <exception>
 #include <optional>
 #include <stdexcept>
 #include <system_error>
+#include <unordered_set>
 #include <utility>
 
 namespace Comet {
@@ -46,6 +48,38 @@ namespace Comet {
 
         std::string path_text(const std::filesystem::path& path) {
             return path.generic_string();
+        }
+
+        std::uint64_t combine_revision(
+            const std::uint64_t seed,
+            const std::uint64_t value) noexcept {
+            return seed ^ (value + 0x9e3779b97f4a7c15ULL
+                + (seed << 6U) + (seed >> 2U));
+        }
+
+        std::uint64_t file_revision(const std::filesystem::path& path) {
+            std::error_code error;
+            const auto write_time = std::filesystem::last_write_time(path, error);
+            if(error) {
+                return 0;
+            }
+
+            std::uint64_t revision = static_cast<std::uint64_t>(
+                write_time.time_since_epoch().count());
+            const std::uintmax_t size = std::filesystem::file_size(path, error);
+            if(!error) {
+                revision = combine_revision(
+                    revision,
+                    static_cast<std::uint64_t>(size));
+            }
+            return revision;
+        }
+
+        std::uint64_t asset_revision(
+            const std::filesystem::path& asset_path) {
+            return combine_revision(
+                file_revision(asset_path),
+                file_revision(metadata_path(asset_path)));
         }
 
         void add_issue(
@@ -91,15 +125,12 @@ namespace Comet {
         : m_paths(std::move(paths)) {}
 
     AssetScanReport AssetDatabase::scan() {
-        m_assets.clear();
-        m_handles_by_path.clear();
-        m_dependents_by_dependency.clear();
-
         AssetScanReport report;
         std::unordered_map<AssetHandle, AssetRecord> assets;
         std::unordered_map<std::filesystem::path, AssetHandle> handles_by_path;
         std::unordered_map<AssetHandle, std::vector<AssetHandle>>
             dependents_by_dependency;
+        std::unordered_map<AssetHandle, std::uint64_t> asset_revisions;
 
         const std::filesystem::path assets_root = m_paths.assets();
         std::error_code error;
@@ -138,12 +169,14 @@ namespace Comet {
             return report;
         }
 
+        bool discovery_complete = true;
         while(iterator != end) {
             const std::filesystem::directory_entry entry = *iterator;
             std::error_code entry_error;
             if(entry.is_regular_file(entry_error)) {
                 files.push_back(entry.path());
             } else if(entry_error) {
+                discovery_complete = false;
                 add_issue(
                     report,
                     entry.path().lexically_relative(assets_root),
@@ -152,6 +185,7 @@ namespace Comet {
 
             iterator.increment(error);
             if(error) {
+                discovery_complete = false;
                 add_issue(
                     report,
                     assets_root,
@@ -160,24 +194,33 @@ namespace Comet {
             }
         }
 
+        if(!discovery_complete) {
+            return report;
+        }
+
         std::ranges::sort(files, {}, [](const std::filesystem::path& path) {
             return path.generic_string();
         });
 
         std::unordered_map<std::filesystem::path, std::filesystem::path> sidecars;
+        std::unordered_set<std::filesystem::path> source_paths;
         std::vector<std::filesystem::path> source_files;
         for(const std::filesystem::path& file: files) {
+            if(file.filename().string().starts_with(".comet-tmp-")) {
+                continue;
+            }
             if(file.extension() == ".meta") {
                 std::filesystem::path source = file;
                 source.replace_extension();
                 sidecars.emplace(source.lexically_normal(), file);
             } else {
                 source_files.push_back(file);
+                source_paths.insert(file.lexically_normal());
             }
         }
 
         for(const auto& [source, sidecar]: sidecars) {
-            if(std::ranges::find(source_files, source) == source_files.end()) {
+            if(!source_paths.contains(source)) {
                 add_issue(
                     report,
                     sidecar.lexically_relative(assets_root),
@@ -331,10 +374,44 @@ namespace Comet {
             std::ranges::sort(dependency.second);
         }
 
+        asset_revisions.reserve(assets.size());
+        for(const auto& [handle, record]: assets) {
+            asset_revisions.emplace(
+                handle,
+                asset_revision(assets_root / record.path));
+        }
+
+        for(const auto& [handle, record]: assets) {
+            const auto previous = m_assets.find(handle);
+            if(previous == m_assets.end()) {
+                report.added_assets.push_back(handle);
+                continue;
+            }
+
+            const auto previous_revision = m_asset_revisions.find(handle);
+            const bool revision_changed =
+                previous_revision == m_asset_revisions.end()
+                || previous_revision->second != asset_revisions.at(handle);
+            if(previous->second != record || revision_changed) {
+                report.modified_assets.push_back(handle);
+            }
+        }
+        for(const auto& [handle, record]: m_assets) {
+            static_cast<void>(record);
+            if(!assets.contains(handle)) {
+                report.removed_assets.push_back(handle);
+            }
+        }
+        std::ranges::sort(report.added_assets);
+        std::ranges::sort(report.removed_assets);
+        std::ranges::sort(report.modified_assets);
+
         report.indexed_assets = assets.size();
+        report.snapshot_updated = true;
         m_assets = std::move(assets);
         m_handles_by_path = std::move(handles_by_path);
         m_dependents_by_dependency = std::move(dependents_by_dependency);
+        m_asset_revisions = std::move(asset_revisions);
         return report;
     }
 
@@ -358,6 +435,8 @@ namespace Comet {
             metadata,
             metadata_path(m_paths.assets() / record.path));
         record.import_settings = std::move(import_settings);
+        m_asset_revisions[handle] = asset_revision(
+            m_paths.assets() / record.path);
     }
 
     void AssetDatabase::update_dependencies(
@@ -401,6 +480,8 @@ namespace Comet {
                 dependents.insert(position, handle);
             }
         }
+        m_asset_revisions[handle] = asset_revision(
+            m_paths.assets() / record.path);
     }
 
     const AssetRecord* AssetDatabase::find(const AssetHandle handle) const {

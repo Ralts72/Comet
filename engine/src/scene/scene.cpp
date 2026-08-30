@@ -1,6 +1,6 @@
 #include "scene/scene.h"
 
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 
 #include <algorithm>
 #include <unordered_map>

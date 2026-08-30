@@ -4,7 +4,7 @@
 
 #include <GLFW/glfw3.h>
 
-#include "common/config.h"
+#include "config/config.h"
 #include "core/math_utils.h"
 
 namespace Comet {

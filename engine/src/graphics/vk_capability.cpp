@@ -1,6 +1,6 @@
 #include "vk_capability.h"
 
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 
 #include <algorithm>
 #include <array>

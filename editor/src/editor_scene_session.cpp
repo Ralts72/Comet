@@ -1,6 +1,6 @@
 #include "editor_scene_session.h"
 
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
 

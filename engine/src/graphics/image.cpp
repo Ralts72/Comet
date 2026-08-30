@@ -1,6 +1,6 @@
 #include "image.h"
 #include "device.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 
 namespace Comet {
     std::shared_ptr<Image> Image::create(Device& device,

@@ -20,11 +20,10 @@ namespace Comet::Tests {
 
         EXPECT_EQ(data.width, 512);
         EXPECT_EQ(data.height, 512);
-        EXPECT_EQ(data.channels, 4);
         EXPECT_EQ(data.format, Format::R8G8B8A8_SRGB);
         EXPECT_EQ(
             data.pixels.size(),
-            static_cast<std::size_t>(data.width * data.height * data.channels));
+            static_cast<std::size_t>(data.width * data.height * 4));
     }
 
     TEST(TextureImporterTest, AppliesColorSpaceAndVerticalFlip) {
@@ -46,7 +45,7 @@ namespace Comet::Tests {
         ASSERT_EQ(original.pixels.size(), flipped.pixels.size());
 
         const std::size_t row_size = static_cast<std::size_t>(original.width)
-            * original.channels;
+            * 4;
         EXPECT_TRUE(std::equal(
             original.pixels.begin(),
             original.pixels.begin() + static_cast<std::ptrdiff_t>(row_size),

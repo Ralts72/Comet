@@ -1,8 +1,8 @@
 #pragma once
 
-#include "common/config.h"
-#include "common/config_loader.h"
-#include "common/diagnostics.h"
+#include "config/config.h"
+#include "config/config_loader.h"
+#include "diagnostics/diagnostics.h"
 #include "core/engine.h"
 
 #include <filesystem>

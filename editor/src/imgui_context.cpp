@@ -12,7 +12,7 @@
 #include "graphics/descriptor_set.h"
 #include "render/render_context.h"
 #include "render/render_target.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 #include "core/window.h"
 #include <imgui.h>
 #include <imgui_impl_glfw.h>

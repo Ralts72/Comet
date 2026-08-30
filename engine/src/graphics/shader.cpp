@@ -1,7 +1,7 @@
 #include "shader.h"
 
 #include "device.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 
 namespace Comet {
     Shader::Shader(Device& device, const std::string& name,

@@ -1,7 +1,7 @@
 #include "image_view.h"
 #include "device.h"
 #include "image.h"
-#include "common/logger.h"
+#include "diagnostics/logger.h"
 
 #include <utility>
 

@@ -1,11 +1,11 @@
 #pragma once
-#include "common/config.h"
+#include "config/config.h"
 #include "graphics/enums.h"
 #include "render_context.h"
-#include "render_scene.h"
-#include "scene_resolver.h"
-#include "resource_manager.h"
-#include "scene_renderer.h"
+#include "render/scene/render_scene.h"
+#include "render/scene/scene_resolver.h"
+#include "render/resource/resource_manager.h"
+#include "render/scene/scene_renderer.h"
 
 #include <functional>
 #include <memory>

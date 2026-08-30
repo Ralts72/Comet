@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "render/scene_extractor.h"
+#include "render/scene/scene_extractor.h"
 #include "scene/scene.h"
 #include "../test_utils.h"
 

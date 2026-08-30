@@ -17,11 +17,12 @@ set(SOURCES
         src/asset/registry.cpp
         src/asset/serialization/material_serializer.cpp
         src/asset/serialization/metadata_serializer.cpp
-        src/common/geometry_utils.cpp
-        src/common/diagnostics.cpp
-        src/common/profiler.cpp
-        src/common/logger.cpp
-        src/common/config_loader.cpp
+        src/render/resource/mesh_primitives.cpp
+        src/common/file_io.cpp
+        src/config/config_loader.cpp
+        src/diagnostics/diagnostics.cpp
+        src/diagnostics/profiler.cpp
+        src/diagnostics/logger.cpp
         src/core/window.cpp
         src/core/timer.cpp
         src/core/project_paths.cpp
@@ -49,13 +50,13 @@ set(SOURCES
         src/graphics/sampler.cpp
         src/render/renderer.cpp
         src/render/render_target.cpp
-        src/render/mesh.cpp
-        src/render/texture.cpp
+        src/render/resource/mesh.cpp
+        src/render/resource/texture.cpp
         src/render/render_context.cpp
-        src/render/scene_resolver.cpp
-        src/render/scene_extractor.cpp
-        src/render/scene_renderer.cpp
-        src/render/resource_manager.cpp
+        src/render/scene/scene_resolver.cpp
+        src/render/scene/scene_extractor.cpp
+        src/render/scene/scene_renderer.cpp
+        src/render/resource/resource_manager.cpp
         src/render/frame_manager.cpp
         src/render/material.cpp
         src/scene/entity.cpp
