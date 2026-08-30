@@ -1473,10 +1473,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：Material 依赖的失败安全扫描**。metadata 已能在 sidecar 暂时无效时合并上一份有效记录，重复 GUID 也会
-拒绝有歧义的整次快照；但 `.mat` 内容解析失败时，旧 Runtime Material 虽然保留，数据库候选中的 Texture Handle 依赖会变空，
-后续 Texture 刷新无法继续传播到它。下一步保留上一份有效 Material 依赖，同时让 Material 自身文件变化继续推进 revision、
-触发重载尝试并报告错误。
+下一步继续 **阶段 3：Mesh Importer 输入一致性**。metadata 和 Material 依赖都已具备 last-known-good 失败语义；下一处优先级
+是 Worker 导入输入与 Owner Thread 发布之间的 TOCTOU 窗口。Mesh candidate 应携带本次实际读取的 glTF/外部 buffer 内容指纹，
+发布前验证输入仍匹配；不匹配时丢弃并重新调度，不能把旧 CPU Mesh、当前文件签名和新缓存记录组合在一起。
 
 建议的职责边界：
 
@@ -1545,6 +1544,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 43. [x] 建立 Editor 资产源自动监视入口：500ms 时间门控只在文件快照变化时触发既有 scan，失败保留上一基线，已知 Editor 写入按路径确认，Project/Inspector 在 Owner Thread 更新。
 44. [x] 完成资产管线阶段性架构复盘：确认 monitor/database/cache/revision/task 状态各自职责，修复索引类型变化后 Registry 仍保留旧 C++ 类型的问题，并确定 metadata 失败安全为下一优先级。
 45. [x] 让 metadata 扫描失败安全：已有路径的无效 sidecar 合并上一份 AssetRecord/signature/revision/依赖，新资产只报告问题；重复 GUID 拒绝整次有歧义快照，不再按路径选择身份所有者。
+46. [x] 保留无效 Material 文档的上一份有效 Texture Handle 依赖：Material 文件变化仍推进 revision 并触发重载诊断，旧 Runtime Material 与正反向依赖图保持一致。
 
 格式所有权后续需求：
 

@@ -326,6 +326,51 @@ namespace Comet::Tests {
             (std::vector{AssetHandle(100)}));
     }
 
+    TEST(AssetDatabaseTest, RetainsMaterialDependenciesWhenDocumentIsInvalid) {
+        const TemporaryProject project;
+        const std::filesystem::path texture =
+            project.add_file("textures/albedo.png");
+        const std::filesystem::path material = project.add_file(
+            "materials/default.mat",
+            "version: 1\ntemplate: cube_texture\nproperties:\n"
+            "  albedo:\n    type: texture\n    asset: 42\n");
+        const AssetMetadataSerializer serializer;
+        serializer.save({
+            .handle = AssetHandle(42),
+            .type = AssetType::Texture,
+            .import_settings = TextureImportSettings{}
+        }, metadata_path(texture));
+        serializer.save({
+            .handle = AssetHandle(100),
+            .type = AssetType::Material
+        }, metadata_path(material));
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const AssetRevision revision =
+                database.get_revision(AssetHandle(100));
+
+        project.add_file("materials/default.mat", "invalid material");
+        const AssetScanReport report = database.scan();
+
+        EXPECT_TRUE(report.snapshot_updated);
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_NE(
+            std::ranges::find(
+                report.modified_assets, AssetHandle(100)),
+            report.modified_assets.end());
+        EXPECT_GT(database.get_revision(AssetHandle(100)), revision);
+        EXPECT_EQ(
+            std::vector<AssetHandle>(
+                database.get_dependencies(AssetHandle(100)).begin(),
+                database.get_dependencies(AssetHandle(100)).end()),
+            (std::vector{AssetHandle(42)}));
+        EXPECT_EQ(
+            std::vector<AssetHandle>(
+                database.get_dependents(AssetHandle(42)).begin(),
+                database.get_dependents(AssetHandle(42)).end()),
+            (std::vector{AssetHandle(100)}));
+    }
+
     TEST(AssetDatabaseTest, RejectsAmbiguousDuplicateGuidSnapshot) {
         const TemporaryProject project;
         const std::filesystem::path first = project.add_file("a.png");

@@ -504,7 +504,13 @@ namespace Comet {
                     material_record->dependencies = get_asset_dependencies(data);
                 } catch(const std::exception& exception) {
                     add_issue(report, material_record->path, exception.what());
-                    continue;
+                    const auto previous =
+                        m_assets.find(material_record->handle);
+                    if(previous != m_assets.end()
+                       && previous->second.type == AssetType::Material) {
+                        material_record->dependencies =
+                            previous->second.dependencies;
+                    }
                 }
             }
 

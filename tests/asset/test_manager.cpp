@@ -703,6 +703,49 @@ namespace Comet::Tests {
             "modified_template_with_different_size");
     }
 
+    TEST(AssetManagerTest, KeepsRuntimeMaterialAndDependenciesWhenFileIsInvalid) {
+        const TemporaryProject project;
+        constexpr AssetHandle texture_handle(42);
+        constexpr AssetHandle material_handle(100);
+        project.add_texture(texture_handle);
+        const std::filesystem::path material_path = project.add_material(
+            material_handle, "original_template");
+        MaterialSerializer{}.save({
+            .template_name = "original_template",
+            .texture_properties = {{"albedo", texture_handle}}
+        }, material_path);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().succeeded());
+        const std::shared_ptr<Material> original =
+                manager.load_material(material_handle);
+        ASSERT_NE(original, nullptr);
+        std::ofstream(material_path, std::ios::trunc)
+            << "invalid material";
+
+        const AssetScanReport refresh = manager.scan();
+
+        EXPECT_TRUE(refresh.snapshot_updated);
+        EXPECT_FALSE(refresh.succeeded());
+        EXPECT_TRUE(contains_handle(
+            refresh.modified_assets, material_handle));
+        EXPECT_EQ(registry.resolve<Material>(material_handle), original);
+        EXPECT_EQ(
+            std::vector<AssetHandle>(
+                manager.get_database().get_dependencies(material_handle).begin(),
+                manager.get_database().get_dependencies(material_handle).end()),
+            (std::vector{texture_handle}));
+        EXPECT_EQ(
+            std::vector<AssetHandle>(
+                manager.get_database().get_dependents(texture_handle).begin(),
+                manager.get_database().get_dependents(texture_handle).end()),
+            (std::vector{material_handle}));
+    }
+
     TEST(AssetManagerTest, UnregistersRemovedRuntimeAssetsAfterScan) {
         const TemporaryProject project;
         constexpr AssetHandle handle(42);
