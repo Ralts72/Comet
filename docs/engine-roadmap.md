@@ -1083,6 +1083,8 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   才为非关键 allocation 使用 `WITHIN_BUDGET`；render target 等关键资源保留独立失败策略。
 - [x] Allocator 先建立双轨创建契约：现有 `create_buffer/image` 保持强失败，`try_create_buffer/image` 返回显式结果；
   `WITHIN_BUDGET` 仅通过默认关闭的 allocation 选项启用，不改变任何现有关键资源调用点。
+- [x] Buffer/Image owning wrapper 增加静态尝试创建：allocation 成功后才构造 GPUBuffer/OwnedImage，旧公开构造入口收回，
+  因而失败结果不会携带可发布的半初始化包装对象。
 - 支持资产改名、移动后的引用稳定性。
 
 完整资源路径：
@@ -1468,7 +1470,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：把可恢复分配传递到 Runtime Resource 创建边界**。Allocator 已有强失败与尝试创建双轨接口；接下来让 Buffer/Image 提供不会构造半初始化对象的静态 `try_create`，再让 ResourceManager 对非关键 Mesh/Texture 返回失败并由 AssetManager 保留旧资源。关键 render target allocation 继续使用明确的强失败路径。
+下一步继续 **阶段 3：Runtime Mesh/Texture 的事务式尝试创建**。Buffer/Image 已能安全返回分配失败；接下来 Mesh/Texture 必须先完成全部目标资源分配，再 enqueue/flush upload，任何一步失败都不提交半套 batch，并由 ResourceManager 把错误交给 AssetManager 保留旧资源。关键 render target allocation 继续使用明确的强失败路径。
 
 建议的职责边界：
 
@@ -1524,6 +1526,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 30. [x] 为 UploadManager 增加有界 staging 空闲池和预算感知增长：超大 page 不缓存，pool miss 时才采样预算，高压力下仅释放无在途引用的空闲页并节流记录。
 31. [x] 完成 GPU 资源生命周期子阶段复盘：GpuCompletionPoint 迁入 synchronization，删除 FrameSlot 重复 timeline token、未使用配置/透传接口和冗余析构代码，保持 fence serial 与 timeline completion 职责分离。
 32. [x] 在 Allocator 建立强失败 `create_*` 与可恢复 `try_create_*` 双轨接口，并增加默认关闭的 `within_budget` allocation 选项；失败结果不包含半初始化 handle。
+33. [x] 将 recoverable contract 提升到 Buffer/Image 静态工厂：先完成 allocation 再构造 owning wrapper，强失败工厂继续委托同一逻辑且默认允许超预算。
 
 格式所有权后续需求：
 

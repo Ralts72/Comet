@@ -7,6 +7,18 @@
 #include <cstring>
 
 namespace Comet {
+    namespace {
+        vk::BufferCreateInfo build_buffer_create_info(
+            const Flags<BufferUsage> usage,
+            const size_t size) {
+            vk::BufferCreateInfo create_info{};
+            create_info.size = size;
+            create_info.usage = Graphics::buffer_usage_to_vk(usage);
+            create_info.sharingMode = vk::SharingMode::eExclusive;
+            return create_info;
+        }
+    }
+
     Buffer::Buffer(Device& device, const size_t size)
         : m_device(device), m_size(size) {
         if(size == 0) {
@@ -23,12 +35,9 @@ namespace Comet {
     Allocator::BufferAllocation Buffer::create_buffer(
         const Flags<BufferUsage> usage,
         const AllocationCreateInfo& allocation_info) const {
-        vk::BufferCreateInfo buffer_create_info = {};
-        buffer_create_info.size = m_size;
-        buffer_create_info.usage = Graphics::buffer_usage_to_vk(usage);
-        buffer_create_info.sharingMode = vk::SharingMode::eExclusive;
-
-        return get_allocator().create_buffer(buffer_create_info, allocation_info);
+        return get_allocator().create_buffer(
+            build_buffer_create_info(usage, m_size),
+            allocation_info);
     }
 
     Allocator& Buffer::get_allocator() const {
@@ -36,21 +45,12 @@ namespace Comet {
     }
 
     GPUBuffer::GPUBuffer(Device& device,
-                         const Flags<BufferUsage> usage,
                          const size_t size,
-                         const std::string_view debug_name)
+                         Allocator::BufferAllocation allocation)
         : Buffer(device, size) {
         PROFILE_SCOPE("Buffer::Constructor");
-
-        const std::string_view resolved_name = debug_name.empty() ? "GPU buffer" : debug_name;
-        auto device_buffer = create_buffer(
-            usage | BufferUsage::CopyDst,
-            {
-                .usage = AllocationUsage::Device,
-                .debug_name = resolved_name
-        });
-        m_buffer = device_buffer.buffer;
-        m_allocation = std::move(device_buffer.allocation);
+        m_buffer = allocation.buffer;
+        m_allocation = std::move(allocation.allocation);
     }
 
     CPUBuffer::CPUBuffer(Device& device,
@@ -111,7 +111,49 @@ namespace Comet {
         const Flags<BufferUsage> usage,
         const size_t size,
         const std::string_view debug_name) {
-        return std::make_shared<GPUBuffer>(device, usage, size, debug_name);
+        auto attempt = try_create_gpu_buffer(
+            device, usage, size, false, debug_name);
+        if(!attempt) {
+            LOG_FATAL("Failed to create GPU buffer '{}' ({} bytes): {}",
+                debug_name,
+                size,
+                vk::to_string(attempt.result()));
+        }
+        return std::move(attempt).value();
+    }
+
+    ResourceAllocationResult<std::shared_ptr<Buffer>>
+    Buffer::try_create_gpu_buffer(
+        Device& device,
+        const Flags<BufferUsage> usage,
+        const size_t size,
+        const bool within_budget,
+        const std::string_view debug_name) {
+        if(size == 0) {
+            LOG_FATAL("Buffer size must be greater than zero");
+        }
+
+        const std::string_view resolved_name = debug_name.empty()
+            ? "GPU buffer"
+            : debug_name;
+        auto allocation = device.get_allocator().try_create_buffer(
+            build_buffer_create_info(usage | BufferUsage::CopyDst, size),
+            {
+                .usage = AllocationUsage::Device,
+                .within_budget = within_budget,
+                .debug_name = resolved_name
+            });
+        if(!allocation) {
+            return ResourceAllocationResult<std::shared_ptr<Buffer>>::failure(
+                allocation.result());
+        }
+
+        std::shared_ptr<Buffer> buffer(new GPUBuffer(
+            device,
+            size,
+            std::move(allocation).value()));
+        return ResourceAllocationResult<std::shared_ptr<Buffer>>::success(
+            std::move(buffer));
     }
 
     void CPUBuffer::write(const void* data) const {

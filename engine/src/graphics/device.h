@@ -14,6 +14,7 @@ namespace Comet {
     class CommandBuffer;
     class CommandContext;
     class Buffer;
+    class Image;
     class OwnedImage;
     class Allocator;
 
@@ -80,6 +81,7 @@ namespace Comet {
 
     private:
         friend class Buffer;
+        friend class Image;
         friend class OwnedImage;
 
         [[nodiscard]] Allocator& get_allocator() const;

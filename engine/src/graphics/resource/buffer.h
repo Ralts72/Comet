@@ -44,6 +44,14 @@ namespace Comet {
             size_t size,
             std::string_view debug_name = {});
 
+        static ResourceAllocationResult<std::shared_ptr<Buffer>>
+        try_create_gpu_buffer(
+            Device& device,
+            Flags<BufferUsage> usage,
+            size_t size,
+            bool within_budget,
+            std::string_view debug_name = {});
+
         [[nodiscard]] vk::Buffer get() const { return m_buffer; }
         [[nodiscard]] size_t get_size() const { return m_size; }
 
@@ -61,11 +69,12 @@ namespace Comet {
     };
 
     class COMET_API GPUBuffer final: public Buffer {
-    public:
+    private:
+        friend class Buffer;
+
         GPUBuffer(Device& device,
-                  Flags<BufferUsage> usage,
                   size_t size,
-                  std::string_view debug_name);
+                  Allocator::BufferAllocation allocation);
     };
 
     class COMET_API CPUBuffer final: public Buffer {

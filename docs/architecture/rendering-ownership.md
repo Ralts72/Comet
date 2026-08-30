@@ -138,6 +138,8 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
   snapshot 区分驱动报告值和扩展缺失时的 VMA 估算值，调用方不得把估算值当成硬分配上限。
 - Allocator 的 `create_buffer/image` 是关键资源强失败接口；`try_create_buffer/image` 只返回完整 allocation 或显式
   Vulkan error，`within_budget` 也必须由调用方选择。任何路径都不允许发布带空 handle 的 Buffer/Image。
+- `Buffer::try_create_gpu_buffer()` 与 `Image::try_create()` 先获得完整 allocation，再调用不可公开访问的 owning wrapper
+  构造函数；失败时只有 error result，没有可观察的半初始化 GPUBuffer/OwnedImage。
 - `SwapchainImageState` 按实际 swapchain image 数量创建，持有 render-finished semaphore，并记录该 image
   最近关联的 frame slot。
 - `SwapchainTarget` 按 image 持有 framebuffer 和对外暴露的颜色 image view；framebuffer 内部保留全部 attachment。

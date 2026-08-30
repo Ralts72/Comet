@@ -30,6 +30,13 @@ namespace Comet {
             SampleCount sample_count = SampleCount::Count1,
             std::string_view debug_name = {});
 
+        static ResourceAllocationResult<std::shared_ptr<Image>> try_create(
+            Device& device,
+            const ImageInfo& info,
+            bool within_budget,
+            SampleCount sample_count = SampleCount::Count1,
+            std::string_view debug_name = {});
+
         static std::shared_ptr<Image> wrap(Device& device, vk::Image image, const ImageInfo& info);
 
         [[nodiscard]] ImageInfo get_info() const { return m_info; }
@@ -45,14 +52,15 @@ namespace Comet {
 
     class COMET_API OwnedImage final: public Image {
     public:
-        OwnedImage(Device& device,
-                   const ImageInfo& info,
-                   SampleCount sample_count = SampleCount::Count1,
-                   std::string_view debug_name = {});
-
         ~OwnedImage() override;
 
     private:
+        friend class Image;
+
+        OwnedImage(Device& device,
+                   const ImageInfo& info,
+                   Allocator::ImageAllocation allocation);
+
         Allocation m_allocation;
     };
 
