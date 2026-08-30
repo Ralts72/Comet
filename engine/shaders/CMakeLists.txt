@@ -5,19 +5,13 @@ set(SHADER_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/cube_texture.frag"
 )
 
-set(SHADER_SOURCE_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
-file(GLOB_RECURSE SHADER_INCLUDE_FILES CONFIGURE_DEPENDS
-        "${SHADER_SOURCE_INCLUDE_DIRECTORY}/*")
-
-source_group("shaders" FILES ${SHADER_FILES} ${SHADER_INCLUDE_FILES})
+source_group("shaders" FILES ${SHADER_FILES})
 
 include("../cmake/compile_shader.cmake")
 
 compile_shaders(
         TARGET ${TARGET_NAME}
         COMPILER "${glslangValidator_executable}"
-        INCLUDE_DIRECTORY "${SHADER_SOURCE_INCLUDE_DIRECTORY}"
         OUTPUT_DIRECTORY "${SHADER_GENERATED_DIRECTORY}"
         SOURCES ${SHADER_FILES}
-        DEPENDENCIES ${SHADER_INCLUDE_FILES}
 )

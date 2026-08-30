@@ -12,6 +12,11 @@ function(compile_shaders)
     set(SPV_TO_CPP_SCRIPT "${CMAKE_SOURCE_DIR}/engine/cmake/spv_to_cpp.cmake")
     set(ALL_GENERATED_SPV_FILES)
     set(ALL_GENERATED_CPP_FILES)
+    set(SHADER_INCLUDE_ARGUMENT)
+    if (SHADER_INCLUDE_DIRECTORY)
+        list(APPEND SHADER_INCLUDE_ARGUMENT
+                "-I${SHADER_INCLUDE_DIRECTORY}")
+    endif ()
 
     foreach (SOURCE_FILE IN LISTS SHADER_SOURCES)
         get_filename_component(SHADER_NAME "${SOURCE_FILE}" NAME)
@@ -24,7 +29,7 @@ function(compile_shaders)
                 OUTPUT "${SPV_FILE}"
                 COMMAND "${CMAKE_COMMAND}" -E make_directory "${SPV_OUTPUT_DIRECTORY}"
                 COMMAND "${SHADER_COMPILER}"
-                        "-I${SHADER_INCLUDE_DIRECTORY}"
+                        ${SHADER_INCLUDE_ARGUMENT}
                         -V100
                         -o "${SPV_FILE}"
                         "${SOURCE_FILE}"
