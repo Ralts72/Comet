@@ -1473,9 +1473,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：Texture 输入一致性**。Mesh candidate、MeshImportCache 与 Owner Thread 已共享可复用的
-`ImportInputSnapshot`，能在 glTF/外部 buffer 变化时丢弃候选、推进 revision 并自动重调度。下一步将同一契约用于 Texture 单一
-源文件：Worker 解码前后捕获内容快照，GPU 创建前后复核，变化时不短暂发布旧像素。
+下一步继续 **阶段 3：资产移动/重命名事务**。Mesh/Texture 已共享 ImportInputSnapshot、revision 验票、自动重调度和可恢复 GPU
+发布，异步刷新主链完整。下一步为项目操作层建立源文件与相邻 `.meta` 的成对移动：Handle 必须保持，目标冲突和中途文件系统
+失败必须可恢复，成功后复用 AssetManager scan/变化集，不直接修改 Registry 内部状态。
 
 建议的职责边界：
 
@@ -1546,6 +1546,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 45. [x] 让 metadata 扫描失败安全：已有路径的无效 sidecar 合并上一份 AssetRecord/signature/revision/依赖，新资产只报告问题；重复 GUID 拒绝整次有歧义快照，不再按路径选择身份所有者。
 46. [x] 保留无效 Material 文档的上一份有效 Texture Handle 依赖：Material 文件变化仍推进 revision 并触发重载诊断，旧 Runtime Material 与正反向依赖图保持一致。
 47. [x] 建立可复用 ImportInputSnapshot，并接入 MeshImporter、MeshImportCache 与 Owner Thread 发布门；输入在导入/缓存/GPU 创建期间变化时丢弃候选、推进 revision 并自动重调度。
+48. [x] 让 TextureImporter 与后台/同步发布复用 ImportInputSnapshot：解码和 GPU 创建期间源图片变化时不发布旧像素，主动推进 revision 并自动重调度；首次加载补齐 revision 验票。
 
 格式所有权后续需求：
 

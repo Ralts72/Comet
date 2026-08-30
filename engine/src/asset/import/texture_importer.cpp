@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <exception>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -61,5 +62,46 @@ namespace Comet {
             }
         }
         return data;
+    }
+
+    TextureImportResult TextureImporter::import_with_snapshot(
+        const std::filesystem::path& source_path,
+        const std::filesystem::path& asset_root,
+        const TextureImportSettings& settings) const {
+        ImportInputSnapshot snapshot_before = capture_import_inputs(
+            asset_root, source_path, {});
+
+        TextureData data;
+        std::exception_ptr import_error;
+        try {
+            data = import(source_path, settings);
+        } catch(...) {
+            import_error = std::current_exception();
+        }
+
+        ImportInputSnapshot snapshot_after;
+        try {
+            snapshot_after = capture_import_inputs(
+                asset_root, source_path, {});
+        } catch(...) {
+            return {
+                .input_snapshot = std::move(snapshot_before),
+                .inputs_changed_during_import = true
+            };
+        }
+
+        if(snapshot_before != snapshot_after) {
+            return {
+                .input_snapshot = std::move(snapshot_after),
+                .inputs_changed_during_import = true
+            };
+        }
+        if(import_error) {
+            std::rethrow_exception(import_error);
+        }
+        return {
+            .data = std::move(data),
+            .input_snapshot = std::move(snapshot_after)
+        };
     }
 }

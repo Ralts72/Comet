@@ -56,6 +56,25 @@ namespace Comet::Tests {
             flipped.pixels.begin()));
     }
 
+    TEST(TextureImporterTest, CapturesStableSourceInput) {
+        const std::filesystem::path asset_root =
+                std::filesystem::path(PROJECT_ROOT_DIR) / "assets";
+        const std::filesystem::path source =
+                asset_root / "textures/awesomeface.png";
+
+        const TextureImportResult result =
+            TextureImporter{}.import_with_snapshot(source, asset_root);
+
+        EXPECT_FALSE(result.inputs_changed_during_import);
+        EXPECT_EQ(result.data.width, 512);
+        ASSERT_EQ(result.input_snapshot.files.size(), 1u);
+        EXPECT_EQ(
+            result.input_snapshot.files.front().relative_path,
+            "textures/awesomeface.png");
+        EXPECT_TRUE(import_inputs_are_current(
+            asset_root, result.input_snapshot));
+    }
+
     TEST(TextureImporterTest, RejectsInvalidImageData) {
         const std::filesystem::path source =
                 std::filesystem::temp_directory_path()

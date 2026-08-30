@@ -168,6 +168,10 @@ namespace Comet::Tests {
             GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(
                 const TextureData&) override {
                 ++m_texture_creation_count;
+                if(m_on_texture_creation) {
+                    auto callback = std::move(m_on_texture_creation);
+                    callback();
+                }
                 if(m_fail_texture_creation) {
                     return GpuResourceResult<std::shared_ptr<Texture>>::failure(
                         vk::Result::eErrorOutOfDeviceMemory);
@@ -210,6 +214,10 @@ namespace Comet::Tests {
                 m_on_mesh_creation = std::move(callback);
             }
 
+            void on_next_texture_creation(std::function<void()> callback) {
+                m_on_texture_creation = std::move(callback);
+            }
+
             [[nodiscard]] std::size_t mesh_creation_count() const {
                 return m_mesh_creation_count;
             }
@@ -229,6 +237,7 @@ namespace Comet::Tests {
             std::size_t m_last_mesh_vertex_count = 0;
             std::size_t m_texture_creation_count = 0;
             std::function<void()> m_on_mesh_creation;
+            std::function<void()> m_on_texture_creation;
         };
 
         bool contains_handle(
@@ -680,6 +689,44 @@ namespace Comet::Tests {
 
         EXPECT_NE(registry.resolve<Texture>(handle), original);
         EXPECT_EQ(resource_factory.texture_creation_count(), 2);
+    }
+
+    TEST(AssetManagerTest, ReschedulesTextureWhenInputChangesDuringPublication) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path texture_path = project.add_texture(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().succeeded());
+        const std::shared_ptr<Texture> original = manager.load_texture(handle);
+        ASSERT_NE(original, nullptr);
+        TemporaryProject::replace_texture(texture_path);
+        const AssetScanReport refresh = manager.scan();
+        ASSERT_TRUE(contains_handle(refresh.modified_assets, handle));
+        const AssetRevision requested_revision =
+                manager.get_database().get_revision(handle);
+        resource_factory.on_next_texture_creation([&] {
+            TemporaryProject::replace_texture(texture_path, true);
+        });
+
+        task_scheduler.wait_idle();
+        manager.process_completions();
+
+        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_EQ(resource_factory.texture_creation_count(), 2u);
+        EXPECT_GT(
+            manager.get_database().get_revision(handle),
+            requested_revision);
+
+        task_scheduler.wait_idle();
+        manager.process_completions();
+
+        EXPECT_NE(registry.resolve<Texture>(handle), original);
+        EXPECT_EQ(resource_factory.texture_creation_count(), 3u);
     }
 
     TEST(AssetManagerTest, KeepsPreviousTextureWhenBackgroundImportFails) {

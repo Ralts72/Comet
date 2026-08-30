@@ -48,8 +48,11 @@ namespace Comet {
             AssetHandle handle;
             AssetRevision revision = INVALID_ASSET_REVISION;
             std::filesystem::path relative_path;
+            std::filesystem::path asset_root;
             TextureData data;
+            ImportInputSnapshot input_snapshot;
             std::string error;
+            bool inputs_changed_during_import = false;
         };
 
         MeshImportCandidate import_mesh_candidate(
@@ -121,12 +124,20 @@ namespace Comet {
             TextureImportCandidate candidate{
                 .handle = handle,
                 .revision = revision,
-                .relative_path = relative_path
+                .relative_path = relative_path,
+                .asset_root = asset_root
             };
             try {
-                candidate.data = TextureImporter{}.import(
-                    asset_root / relative_path,
-                    settings);
+                TextureImportResult imported =
+                    TextureImporter{}.import_with_snapshot(
+                        asset_root / relative_path,
+                        asset_root,
+                        settings);
+                candidate.data = std::move(imported.data);
+                candidate.input_snapshot =
+                    std::move(imported.input_snapshot);
+                candidate.inputs_changed_during_import =
+                    imported.inputs_changed_during_import;
             } catch(const std::exception& exception) {
                 candidate.error = exception.what();
             } catch(...) {
@@ -306,10 +317,11 @@ namespace Comet {
             if(candidate.inputs_changed_during_import
                || !import_inputs_are_current(
                    candidate.asset_root, candidate.input_snapshot)) {
-                reschedule_mesh_after_input_change(
+                reschedule_after_input_change(
                     candidate.handle,
                     candidate.revision,
                     candidate.relative_path,
+                    AssetType::Mesh,
                     candidate.source_dependencies);
                 continue;
             }
@@ -332,10 +344,11 @@ namespace Comet {
 
             if(!import_inputs_are_current(
                    candidate.asset_root, candidate.input_snapshot)) {
-                reschedule_mesh_after_input_change(
+                reschedule_after_input_change(
                     candidate.handle,
                     candidate.revision,
                     candidate.relative_path,
+                    AssetType::Mesh,
                     candidate.source_dependencies);
                 continue;
             }
@@ -384,10 +397,11 @@ namespace Comet {
             }
             if(!import_inputs_are_current(
                    candidate.asset_root, candidate.input_snapshot)) {
-                reschedule_mesh_after_input_change(
+                reschedule_after_input_change(
                     candidate.handle,
                     candidate.revision,
                     candidate.relative_path,
+                    AssetType::Mesh,
                     candidate.source_dependencies);
                 continue;
             }
@@ -429,6 +443,17 @@ namespace Comet {
                     candidate.error);
                 continue;
             }
+            if(candidate.inputs_changed_during_import
+               || !import_inputs_are_current(
+                   candidate.asset_root, candidate.input_snapshot)) {
+                reschedule_after_input_change(
+                    candidate.handle,
+                    candidate.revision,
+                    candidate.relative_path,
+                    AssetType::Texture,
+                    {});
+                continue;
+            }
 
             std::shared_ptr<Texture> texture;
             try {
@@ -457,6 +482,16 @@ namespace Comet {
                     "Discarded stale runtime texture candidate for asset handle {} (revision {})",
                     candidate.handle.value(),
                     candidate.revision);
+                continue;
+            }
+            if(!import_inputs_are_current(
+                   candidate.asset_root, candidate.input_snapshot)) {
+                reschedule_after_input_change(
+                    candidate.handle,
+                    candidate.revision,
+                    candidate.relative_path,
+                    AssetType::Texture,
+                    {});
                 continue;
             }
             if(!m_registry.replace_asset(candidate.handle, texture)) {
@@ -603,8 +638,16 @@ namespace Comet {
             return nullptr;
         }
 
+        const AssetRevision revision = m_database.get_revision(handle);
         auto texture = create_runtime_texture(*record, *settings);
         if(!texture) {
+            return nullptr;
+        }
+        if(!m_database.is_current(handle, revision)) {
+            LOG_DEBUG(
+                "Discarded stale runtime texture candidate for asset handle {} (revision {})",
+                handle.value(),
+                revision);
             return nullptr;
         }
         if(!m_registry.register_asset(handle, texture)) {
@@ -636,6 +679,7 @@ namespace Comet {
                 to_string(record->type));
             return nullptr;
         }
+        const AssetRecord record_snapshot = *record;
 
         const auto previous_texture = m_registry.resolve<Texture>(handle);
         if(m_registry.contains(handle) && !previous_texture) {
@@ -655,7 +699,7 @@ namespace Comet {
             }
         }
 
-        auto texture = create_runtime_texture(*record, import_settings);
+        auto texture = create_runtime_texture(record_snapshot, import_settings);
         if(!texture) {
             return nullptr;
         }
@@ -687,7 +731,7 @@ namespace Comet {
         }
         LOG_INFO(
             "Reimported texture asset '{}' (handle {}, color_space={}, flip_y={})",
-            record->path.generic_string(),
+            record_snapshot.path.generic_string(),
             handle.value(),
             to_string(import_settings.color_space),
             import_settings.flip_y);
@@ -1079,13 +1123,15 @@ namespace Comet {
         return true;
     }
 
-    void AssetManager::reschedule_mesh_after_input_change(
+    void AssetManager::reschedule_after_input_change(
         const AssetHandle handle,
         const AssetRevision rejected_revision,
         const std::filesystem::path& relative_path,
+        const AssetType type,
         const std::vector<std::filesystem::path>& dependencies) {
         LOG_INFO(
-            "Discarded mesh candidate '{}' (handle {}, revision {}) because its import inputs changed",
+            "Discarded {} candidate '{}' (handle {}, revision {}) because its import inputs changed",
+            to_string(type),
             relative_path.generic_string(),
             handle.value(),
             rejected_revision);
@@ -1093,20 +1139,33 @@ namespace Comet {
             m_database.invalidate_import_inputs(handle, dependencies);
         } catch(const std::exception& exception) {
             LOG_ERROR(
-                "Failed to invalidate changed mesh inputs for asset handle {}: {}",
+                "Failed to invalidate changed {} inputs for asset handle {}: {}",
+                to_string(type),
                 handle.value(),
                 exception.what());
             return;
         }
 
         const AssetRecord* record = m_database.find(handle);
-        if(!record || record->type != AssetType::Mesh
-           || !m_registry.resolve<Mesh>(handle)) {
+        if(!record || record->type != type) {
             return;
         }
-        if(!schedule_loaded_mesh_refresh(*record)) {
+        bool scheduled = false;
+        switch(type) {
+            case AssetType::Mesh:
+                if(!m_registry.resolve<Mesh>(handle)) return;
+                scheduled = schedule_loaded_mesh_refresh(*record);
+                break;
+            case AssetType::Texture:
+                if(!m_registry.resolve<Texture>(handle)) return;
+                scheduled = schedule_loaded_texture_refresh(*record);
+                break;
+            default: return;
+        }
+        if(!scheduled) {
             LOG_ERROR(
-                "Failed to reschedule mesh refresh for changed import inputs on asset handle {}",
+                "Failed to reschedule {} refresh for changed import inputs on asset handle {}",
+                to_string(type),
                 handle.value());
         }
     }
@@ -1114,22 +1173,42 @@ namespace Comet {
     std::shared_ptr<Texture> AssetManager::create_runtime_texture(
         const AssetRecord& record,
         const TextureImportSettings& import_settings) {
-        TextureData data;
+        const AssetHandle handle = record.handle;
+        const std::filesystem::path relative_path = record.path;
+        TextureImportResult imported;
         try {
-            data = TextureImporter{}.import(
-                m_paths.assets() / record.path,
+            imported = TextureImporter{}.import_with_snapshot(
+                m_paths.assets() / relative_path,
+                m_paths.assets(),
                 import_settings);
         } catch(const std::exception& exception) {
             LOG_ERROR("{}", exception.what());
             return nullptr;
         }
+        if(imported.inputs_changed_during_import
+           || !import_inputs_are_current(
+               m_paths.assets(), imported.input_snapshot)) {
+            LOG_WARN(
+                "Texture import inputs changed while loading '{}' (handle {}); retry the load",
+                relative_path.generic_string(),
+                handle.value());
+            return nullptr;
+        }
         auto texture_attempt =
-            m_resource_factory.try_create_texture(data);
+            m_resource_factory.try_create_texture(imported.data);
         if(!texture_attempt) {
             LOG_ERROR(
                 "Failed to create runtime texture for asset handle {}: {}",
-                record.handle.value(),
+                handle.value(),
                 vk::to_string(texture_attempt.result()));
+            return nullptr;
+        }
+        if(!import_inputs_are_current(
+               m_paths.assets(), imported.input_snapshot)) {
+            LOG_WARN(
+                "Texture import inputs changed while creating runtime texture '{}' (handle {}); retry the load",
+                relative_path.generic_string(),
+                handle.value());
             return nullptr;
         }
         return std::move(texture_attempt).value();
