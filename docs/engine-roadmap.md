@@ -1088,7 +1088,8 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   因而失败结果不会携带可发布的半初始化包装对象。
 - [x] UploadManager 增加可恢复 staging page 创建和 `try_enqueue_upload()`；失败会 discard 未提交 CommandContext 并 abort
   整个 active batch，强失败 enqueue 与 recoverable enqueue 共享录制逻辑。
-- 支持资产改名、移动后的引用稳定性。
+- [x] 支持资产改名、移动后的引用稳定性：Project 面板只提交 Handle 与项目相对目标，AssetManager 成对移动 source/sidecar，
+  以数据库快照作为提交点并在失败时回滚；Selection、Inspector、Log 与源监视器消费同一结果。
 
 完整资源路径：
 
@@ -1473,9 +1474,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：Project 面板资产移动交互**。AssetManager 已能成对移动 source/`.meta`，保持 Handle，并在目标冲突、路径越界
-或扫描无法提交时回滚。下一步让 Project 面板以选中 Handle 打开 Rename/Move 对话框，调用该后端并统一刷新 Project、Inspector、
-Selection 与 AssetSourceMonitor；UI 不直接执行文件系统操作。
+下一步进入 **阶段 4A：Viewport Render Request 与 editor-only camera 边界**。先定义不依赖 ImGui 的请求值对象，明确 Edit/Play 的
+Camera 来源、RenderTarget 尺寸和输入策略，再让现有单 Viewport 提交链消费它；本步先不加入相机操控和多 Viewport，避免把 UI 状态
+直接塞进 SceneRenderer。
 
 建议的职责边界：
 
@@ -1548,6 +1549,7 @@ Selection 与 AssetSourceMonitor；UI 不直接执行文件系统操作。
 47. [x] 建立可复用 ImportInputSnapshot，并接入 MeshImporter、MeshImportCache 与 Owner Thread 发布门；输入在导入/缓存/GPU 创建期间变化时丢弃候选、推进 revision 并自动重调度。
 48. [x] 让 TextureImporter 与后台/同步发布复用 ImportInputSnapshot：解码和 GPU 创建期间源图片变化时不发布旧像素，主动推进 revision 并自动重调度；首次加载补齐 revision 验票。
 49. [x] 建立 AssetManager 资产移动事务：校验项目内目标和 sidecar 身份，成对 rename source/.meta，成功复用 scan，目标冲突、路径越界或快照无法提交时回滚并保留 Handle/Registry。
+50. [x] 在 Project 面板接入事件式 Move/Rename：UI 只提交选中 Handle 与相对目标，Editor 同步 Inspector、Selection、Log 和 AssetSourceMonitor；成功后保持选中身份，失败留在对话框并展示诊断。
 
 格式所有权后续需求：
 

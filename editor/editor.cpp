@@ -283,6 +283,47 @@ namespace {
             return report;
         }
 
+        Comet::AssetScanReport move_project_asset(
+            const Comet::AssetHandle handle,
+            const std::filesystem::path& destination) {
+            const Comet::AssetRecord* old_record =
+                m_asset_manager->get_database().find(handle);
+            const std::filesystem::path old_path =
+                old_record ? old_record->path : std::filesystem::path{};
+
+            Comet::AssetScanReport report =
+                m_asset_manager->move_asset(handle, destination);
+            if(report.snapshot_updated) {
+                const Comet::AssetRecord* new_record =
+                    m_asset_manager->get_database().find(handle);
+                const std::filesystem::path new_path = new_record
+                    ? new_record->path
+                    : destination.lexically_normal();
+                if(m_asset_source_monitor && !old_path.empty()
+                   && new_record) {
+                    static_cast<void>(
+                        m_asset_source_monitor->acknowledge(old_path));
+                    static_cast<void>(m_asset_source_monitor->acknowledge(
+                        Comet::metadata_path(old_path)));
+                    static_cast<void>(m_asset_source_monitor->acknowledge(
+                        new_record->path));
+                    static_cast<void>(m_asset_source_monitor->acknowledge(
+                        Comet::metadata_path(new_record->path)));
+                }
+                if(m_inspector_panel) {
+                    m_inspector_panel->invalidate_asset_cache();
+                }
+                LOG_INFO(
+                    "Moved asset handle {} from '{}' to '{}'",
+                    handle.value(),
+                    old_path.generic_string(),
+                    new_path.generic_string());
+            }
+            log_asset_scan_issues(report);
+            m_asset_scan_report = report;
+            return report;
+        }
+
         void monitor_asset_sources() {
             if(!m_asset_source_monitor || !m_project_panel) {
                 return;
@@ -566,6 +607,11 @@ namespace {
                 m_asset_scan_report,
                 [this]() {
                     return refresh_project_assets(false);
+                },
+                [this](
+                    const Comet::AssetHandle handle,
+                    const std::filesystem::path& destination) {
+                    return move_project_asset(handle, destination);
                 },
                 *m_selection);
             m_console_panel = std::make_unique<CometEditor::ConsolePanel>();
