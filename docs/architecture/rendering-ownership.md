@@ -80,7 +80,8 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
 
 任何 `Buffer`、`OwnedImage`、`Texture`、`Mesh` 或其他 VMA 资源都不得比创建它的 Device 活得更久。`BorrowedImage` 只包装外部 image，不负责释放该 image。
 `ImageView` 持有父 `Image` 的共享引用，并在释放该引用前销毁原生 image view；因此任何持有 `ImageView` 的消费者都会
-自动延长对应 C++ `Image` 对象的生命周期。`BorrowedImage` 对应的原生 image 生命周期仍由 Swapchain 等外部所有者负责。
+自动延长对应 C++ `Image` 对象的生命周期。ImageView 通过强失败/可恢复静态工厂创建，原生 view handle 成功后才构造
+wrapper，失败时不会发布空句柄对象。`BorrowedImage` 对应的原生 image 生命周期仍由 Swapchain 等外部所有者负责。
 `FrameBuffer` 持有全部 attachment `ImageView` 的共享引用，并在释放 attachment 前销毁原生 framebuffer，
 由此形成 `FrameBuffer → ImageView → Image` 的完整所有权链。`Texture` 和 `RenderTarget` 不再并行保存同一资源的
 `Image`/`ImageView` 共享引用；需要 image 时统一通过 `ImageView::get_image()` 访问。

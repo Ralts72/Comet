@@ -73,7 +73,8 @@ namespace Comet {
             .format = m_format, .extent = Math::Vec3u(m_width, m_height, 1),
             .usage = Flags<ImageUsage>(ImageUsage::Sampled) | Flags<ImageUsage>(ImageUsage::CopyDst)
         }, SampleCount::Count1, "texture image");
-        m_image_view = std::make_shared<ImageView>(device, image, Flags<ImageAspect>(ImageAspect::Color));
+        m_image_view = ImageView::create(
+            device, image, Flags<ImageAspect>(ImageAspect::Color));
 
         const ImageSubresourceRange subresources{
             .aspects = Flags<ImageAspect>(ImageAspect::Color)

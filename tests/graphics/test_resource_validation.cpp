@@ -7,6 +7,7 @@
 #include "graphics/command/command_context.h"
 #include "graphics/device.h"
 #include "graphics/resource/image.h"
+#include "graphics/resource/image_view.h"
 #include "graphics/resource/sampler.h"
 #include "graphics/synchronization/resource_state.h"
 
@@ -91,6 +92,8 @@ TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
     using ImageFactory = decltype(&Image::create);
     using RecoverableImageFactory = decltype(&Image::try_create);
     using ImageWrapper = decltype(&Image::wrap);
+    using ImageViewFactory = decltype(&ImageView::create);
+    using RecoverableImageViewFactory = decltype(&ImageView::try_create);
 
     EXPECT_FALSE((std::is_constructible_v<Device, std::nullptr_t>));
     EXPECT_FALSE((std::is_constructible_v<Sampler, std::nullptr_t, SamplerDesc>));
@@ -117,8 +120,25 @@ TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
         std::string_view>));
     EXPECT_TRUE((std::is_invocable_v<ImageWrapper, Device&,
         vk::Image, const ImageInfo&>));
+    EXPECT_TRUE((std::is_invocable_r_v<
+        std::shared_ptr<ImageView>,
+        ImageViewFactory,
+        Device&,
+        std::shared_ptr<Image>,
+        Flags<ImageAspect>>));
+    EXPECT_TRUE((std::is_invocable_r_v<
+        GpuResourceResult<std::shared_ptr<ImageView>>,
+        RecoverableImageViewFactory,
+        Device&,
+        std::shared_ptr<Image>,
+        Flags<ImageAspect>>));
     EXPECT_FALSE((std::is_constructible_v<OwnedImage,
         Device&, const ImageInfo&, SampleCount, std::string_view>));
+    EXPECT_FALSE((std::is_constructible_v<
+        ImageView,
+        Device&,
+        std::shared_ptr<Image>,
+        Flags<ImageAspect>>));
 }
 
 TEST(ResourceValidationTest, CommandRecordingUsesNonNullResourceReferences) {

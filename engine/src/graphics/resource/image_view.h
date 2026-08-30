@@ -1,6 +1,7 @@
 #pragma once
-#include "graphics/vk_common.h"
 #include "common/export.h"
+#include "graphics/resource/resource_result.h"
+#include "graphics/vk_common.h"
 
 #include <memory>
 
@@ -10,10 +11,16 @@ namespace Comet {
 
     class COMET_API ImageView {
     public:
-        ImageView(
+        [[nodiscard]] static std::shared_ptr<ImageView> create(
             Device& device,
             std::shared_ptr<Image> image,
             Flags<ImageAspect> aspect);
+        [[nodiscard]] static GpuResourceResult<std::shared_ptr<ImageView>>
+        try_create(
+            Device& device,
+            std::shared_ptr<Image> image,
+            Flags<ImageAspect> aspect);
+
         ~ImageView();
 
         ImageView(const ImageView&) = delete;
@@ -28,8 +35,13 @@ namespace Comet {
         }
 
     private:
+        ImageView(
+            Device& device,
+            std::shared_ptr<Image> image,
+            vk::ImageView image_view);
+
         Device& m_device;
         std::shared_ptr<Image> m_image;
-        vk::ImageView m_image_view;
+        vk::ImageView m_image_view = VK_NULL_HANDLE;
     };
 }
