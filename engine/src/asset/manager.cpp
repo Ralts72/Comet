@@ -110,28 +110,12 @@ namespace Comet {
         }
 
         std::vector<AssetHandle> dependent_materials;
-        if(previous_texture) {
-            for(const AssetRecord& candidate: m_database.get_assets()) {
-                if(candidate.type != AssetType::Material) {
-                    continue;
-                }
-
-                const auto material = m_registry.resolve<Material>(
-                    candidate.handle);
-                if(!material) {
-                    continue;
-                }
-
-                for(const auto& property_entry:
-                    material->get_properties()) {
-                    const MaterialProperty& property = property_entry.second;
-                    const auto* texture =
-                        std::get_if<std::shared_ptr<Texture>>(&property.value);
-                    if(texture && *texture == previous_texture) {
-                        dependent_materials.push_back(candidate.handle);
-                        break;
-                    }
-                }
+        for(const AssetHandle dependent: m_database.get_dependents(handle)) {
+            const AssetRecord* dependent_record = m_database.find(dependent);
+            if(dependent_record
+               && dependent_record->type == AssetType::Material
+               && m_registry.resolve<Material>(dependent)) {
+                dependent_materials.push_back(dependent);
             }
         }
 
@@ -245,8 +229,25 @@ namespace Comet {
             return nullptr;
         }
 
-        auto material = create_runtime_material(*record);
+        MaterialData data;
+        try {
+            data = MaterialSerializer{}.load(m_paths.assets() / record->path);
+        } catch(const std::exception& exception) {
+            LOG_ERROR("{}", exception.what());
+            return nullptr;
+        }
+
+        auto material = create_runtime_material(*record, data);
         if(!material) {
+            return nullptr;
+        }
+
+        try {
+            m_database.update_dependencies(
+                handle,
+                get_asset_dependencies(data));
+        } catch(const std::exception& exception) {
+            LOG_ERROR("{}", exception.what());
             return nullptr;
         }
 
@@ -260,7 +261,7 @@ namespace Comet {
             return nullptr;
         }
         LOG_INFO(
-            "Updated material asset '{}' (handle {})",
+            "Reloaded material asset '{}' (handle {})",
             record->path.generic_string(),
             handle.value());
         return material;
@@ -310,6 +311,9 @@ namespace Comet {
 
         try {
             serializer.save(data, m_paths.assets() / record->path);
+            m_database.update_dependencies(
+                handle,
+                get_asset_dependencies(data));
         } catch(const std::exception& exception) {
             LOG_ERROR("{}", exception.what());
             return nullptr;
@@ -324,6 +328,10 @@ namespace Comet {
                 handle.value());
             return nullptr;
         }
+        LOG_INFO(
+            "Updated material asset '{}' (handle {})",
+            record->path.generic_string(),
+            handle.value());
         return material;
     }
 

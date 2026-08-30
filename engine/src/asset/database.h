@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <compare>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -17,6 +18,7 @@ namespace Comet {
         AssetType type = AssetType::Unknown;
         std::filesystem::path path;
         AssetImportSettings import_settings;
+        std::vector<AssetHandle> dependencies;
 
         auto operator<=>(const AssetRecord&) const noexcept = default;
     };
@@ -45,9 +47,16 @@ namespace Comet {
         void update_import_settings(
             AssetHandle handle,
             AssetImportSettings import_settings);
+        void update_dependencies(
+            AssetHandle handle,
+            std::vector<AssetHandle> dependencies);
 
         [[nodiscard]] const AssetRecord* find(AssetHandle handle) const;
         [[nodiscard]] const AssetRecord* find(const std::filesystem::path& path) const;
+        [[nodiscard]] std::span<const AssetHandle> get_dependencies(
+            AssetHandle handle) const;
+        [[nodiscard]] std::span<const AssetHandle> get_dependents(
+            AssetHandle handle) const;
         [[nodiscard]] std::vector<AssetRecord> get_assets() const;
         [[nodiscard]] std::size_t size() const noexcept;
 
@@ -55,5 +64,7 @@ namespace Comet {
         ProjectPaths m_paths;
         std::unordered_map<AssetHandle, AssetRecord> m_assets;
         std::unordered_map<std::filesystem::path, AssetHandle> m_handles_by_path;
+        std::unordered_map<AssetHandle, std::vector<AssetHandle>>
+            m_dependents_by_dependency;
     };
 }

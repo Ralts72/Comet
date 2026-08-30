@@ -26,7 +26,8 @@ Material 编辑保存的纵向切片；Mesh、后台导入、`Library/` 导入�
 ProjectPanel
     ↓ 只读 AssetRecord / 请求刷新
 AssetDatabase
-    ↓ AssetHandle → AssetRecord(type, relative path, validated import settings)
+    ↓ AssetHandle → AssetRecord(type, relative path, validated import settings, dependencies)
+    ↓ 正向 dependencies / 反向 dependents 查询
 AssetManager
     ↓ 校验类型并调用 Importer
     ├── TextureImporter(settings) → TextureData(RGBA CPU pixels + SRGB/UNORM format)
@@ -46,7 +47,8 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
     → Texture Handle 选择仅在值变化事件发生时提交 MaterialData
     → AssetManager::update_material(MaterialData)
     → 构建候选 Runtime Material → MaterialSerializer::save(.mat)
-    → 替换 AssetRegistry 条目；任一步失败则 Inspector 恢复旧选择
+    → 更新 AssetDatabase 依赖索引 → 替换 AssetRegistry 条目
+    → 任一步失败则 Inspector 恢复旧选择
 ```
 
 Texture 的设置编辑与运行时创建也复用同一导入入口：
@@ -57,7 +59,8 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
     → AssetManager::reimport_texture(TextureImportSettings)
     → TextureImporter 构建候选 TextureData → ResourceManager 构建候选 Runtime Texture
     → AssetDatabase::update_import_settings() 保存 .meta 并更新索引
-    → 替换 AssetRegistry Texture，并刷新当前已加载且引用旧 Texture 的 Material
+    → 替换 AssetRegistry Texture
+    → AssetDatabase::get_dependents() 查询并刷新当前已加载的直接 Material
 ```
 
 候选 Texture 的解码或 GPU 创建失败时不会修改 `.meta`、数据库索引或已发布对象。`.meta` 保存成功后才发布候选对象；
@@ -71,11 +74,11 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 
 ## 职责
 
-- `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径和已校验 Importer 设置的索引；设置更新先成功写入 `.meta`，再更新内存记录。
+- `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径、已校验 Importer 设置以及正向/反向依赖索引；Material 依赖由 `MaterialData` 提取，缺失引用和错误类型进入扫描报告。设置更新先成功写入 `.meta`，再更新内存记录。
 - `AssetMetadataSerializer`：只负责 `.meta` 的 YAML 读写和类型/设置契约校验；`AssetMetadata` 本身仍是独立于文件格式的数据类型。
 - `AssetManager`：协调数据库、Importer、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载和 Texture 重新导入都会先完整构建候选对象，失败时保留旧对象。Texture 替换后会刷新当前已加载且直接引用旧对象的 Material。
 - `TextureImporter`：唯一接触 Texture 源文件路径的解码边界，应用色彩空间和垂直翻转设置，输出不包含 GPU 对象的 `TextureData`。
-- `MaterialSerializer`：确定性读写 Comet 原生 `.mat` 与不包含运行时对象的 `MaterialData`；Texture 属性只保存项目 `AssetHandle`。
+- `MaterialSerializer`：确定性读写 Comet 原生 `.mat` 与不包含运行时对象的 `MaterialData`；Texture 属性只保存项目 `AssetHandle`。`get_asset_dependencies(MaterialData)` 负责生成排序、去重的依赖列表，供扫描和编辑更新共同复用。
 - `Material`：运行时材质保存模板身份和已解析属性；不读取 `.mat`，当前渲染管线是否支持该模板由 `SceneResolver` 在提交边界判断。
 - `ResourceManager`：使用 Device 从 CPU 数据创建 Texture/Mesh，并维护 Shader/Sampler 等设备级共享资源；不认识 `AssetHandle`、`MaterialData`、`.meta` 或源文件路径。
 - `AssetRegistry`：作为唯一的 Handle 缓存，保存已发布运行时对象的带类型共享引用，并允许同类型候选对象替换；Scene 中仍只保存 Handle。
@@ -92,8 +95,8 @@ ResourceManager 和 Device 级共享资源。
 Material/Texture 替换只交换 Registry 中的 `shared_ptr`，已取得旧对象的当前帧和 descriptor frame slot 仍可自然持有到结束；
 这条同步、用户触发的编辑器路径不等同于文件监听热重载，也不替代后续的 revision、completion 和 retirement 机制。
 
-Project 刷新仍只重建源资产索引，不会自动卸载、重导入或替换已发布的运行时资源。自动失效传播需要后续的
-依赖图、revision、completion token 和 GPU retirement 机制支持；当前 Texture 显式重新导入只刷新已加载的直接 Material 依赖。
+Project 刷新会重建源资产及其依赖索引，但不会自动卸载、重导入或替换已发布的运行时资源。当前 Texture 显式重新导入
+通过反向索引刷新已加载的直接 Material；递归失效传播仍需要后续的 revision、completion token 和 GPU retirement 机制支持。
 
 `filter`/`wrap` 由运行时 Sampler 消费，mipmap 需要 Image mip-level 和上传链路共同支持，因此没有作为只落盘但
 不生效的字段提前加入 Texture Importer 契约。

@@ -1,4 +1,6 @@
 #include "asset/database.h"
+#include "asset/material_data.h"
+#include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 
 #include <algorithm>
@@ -55,15 +57,49 @@ namespace Comet {
                 .message = std::move(message)
             });
         }
+
+        void add_dependency_issues(
+            AssetScanReport& report,
+            const AssetRecord& owner,
+            const std::unordered_map<AssetHandle, AssetRecord>& assets) {
+            for(const AssetHandle dependency_handle: owner.dependencies) {
+                const auto dependency = assets.find(dependency_handle);
+                if(dependency == assets.end()) {
+                    add_issue(
+                        report,
+                        owner.path,
+                        "material dependency handle "
+                            + std::to_string(dependency_handle.value())
+                            + " is not indexed");
+                    continue;
+                }
+                if(dependency->second.type != AssetType::Texture) {
+                    add_issue(
+                        report,
+                        owner.path,
+                        "material dependency handle "
+                            + std::to_string(dependency_handle.value())
+                            + " has type '"
+                            + std::string(to_string(dependency->second.type))
+                            + "', expected 'texture'");
+                }
+            }
+        }
     }
 
     AssetDatabase::AssetDatabase(ProjectPaths paths)
         : m_paths(std::move(paths)) {}
 
     AssetScanReport AssetDatabase::scan() {
+        m_assets.clear();
+        m_handles_by_path.clear();
+        m_dependents_by_dependency.clear();
+
         AssetScanReport report;
         std::unordered_map<AssetHandle, AssetRecord> assets;
         std::unordered_map<std::filesystem::path, AssetHandle> handles_by_path;
+        std::unordered_map<AssetHandle, std::vector<AssetHandle>>
+            dependents_by_dependency;
 
         const std::filesystem::path assets_root = m_paths.assets();
         std::error_code error;
@@ -73,14 +109,10 @@ namespace Comet {
                 report,
                 assets_root,
                 "failed to access assets directory: " + error.message());
-            m_assets.clear();
-            m_handles_by_path.clear();
             return report;
         }
         if(!assets_exist) {
             add_issue(report, assets_root, "assets directory does not exist");
-            m_assets.clear();
-            m_handles_by_path.clear();
             return report;
         }
         if(!std::filesystem::is_directory(assets_root, error)) {
@@ -89,8 +121,6 @@ namespace Comet {
                 assets_root,
                 error ? "failed to access assets directory: " + error.message()
                       : "assets path is not a directory");
-            m_assets.clear();
-            m_handles_by_path.clear();
             return report;
         }
 
@@ -105,8 +135,6 @@ namespace Comet {
                 report,
                 assets_root,
                 "failed to scan assets directory: " + error.message());
-            m_assets.clear();
-            m_handles_by_path.clear();
             return report;
         }
 
@@ -266,9 +294,47 @@ namespace Comet {
             ++report.generated_metadata;
         }
 
+        std::vector<AssetRecord*> material_records;
+        for(auto& asset: assets) {
+            AssetRecord& record = asset.second;
+            if(record.type == AssetType::Material) {
+                material_records.push_back(&record);
+            }
+        }
+        std::ranges::sort(
+            material_records,
+            {},
+            [](const AssetRecord* record) {
+                return record->path.generic_string();
+            });
+
+        const MaterialSerializer material_serializer;
+        for(AssetRecord* material_record: material_records) {
+            try {
+                const MaterialData data = material_serializer.load(
+                    assets_root / material_record->path);
+                material_record->dependencies = get_asset_dependencies(data);
+            } catch(const std::exception& exception) {
+                add_issue(report, material_record->path, exception.what());
+                continue;
+            }
+
+            add_dependency_issues(report, *material_record, assets);
+            for(const AssetHandle dependency:
+                material_record->dependencies) {
+                dependents_by_dependency[dependency].push_back(
+                    material_record->handle);
+            }
+        }
+
+        for(auto& dependency: dependents_by_dependency) {
+            std::ranges::sort(dependency.second);
+        }
+
         report.indexed_assets = assets.size();
         m_assets = std::move(assets);
         m_handles_by_path = std::move(handles_by_path);
+        m_dependents_by_dependency = std::move(dependents_by_dependency);
         return report;
     }
 
@@ -294,6 +360,49 @@ namespace Comet {
         record.import_settings = std::move(import_settings);
     }
 
+    void AssetDatabase::update_dependencies(
+        const AssetHandle handle,
+        std::vector<AssetHandle> dependencies) {
+        const auto asset = m_assets.find(handle);
+        if(asset == m_assets.end()) {
+            throw std::runtime_error(
+                "Cannot update dependencies for an unindexed asset handle "
+                + std::to_string(handle.value()));
+        }
+
+        if(std::ranges::any_of(dependencies, [](const AssetHandle dependency) {
+               return !dependency;
+           })) {
+            throw std::runtime_error(
+                "Cannot register an invalid dependency for asset handle "
+                + std::to_string(handle.value()));
+        }
+        std::ranges::sort(dependencies);
+        const auto duplicate = std::ranges::unique(dependencies);
+        dependencies.erase(duplicate.begin(), duplicate.end());
+
+        AssetRecord& record = asset->second;
+        for(const AssetHandle dependency: record.dependencies) {
+            auto dependents = m_dependents_by_dependency.find(dependency);
+            if(dependents == m_dependents_by_dependency.end()) {
+                continue;
+            }
+            std::erase(dependents->second, handle);
+            if(dependents->second.empty()) {
+                m_dependents_by_dependency.erase(dependents);
+            }
+        }
+
+        record.dependencies = std::move(dependencies);
+        for(const AssetHandle dependency: record.dependencies) {
+            auto& dependents = m_dependents_by_dependency[dependency];
+            const auto position = std::ranges::lower_bound(dependents, handle);
+            if(position == dependents.end() || *position != handle) {
+                dependents.insert(position, handle);
+            }
+        }
+    }
+
     const AssetRecord* AssetDatabase::find(const AssetHandle handle) const {
         const auto asset = m_assets.find(handle);
         return asset == m_assets.end() ? nullptr : &asset->second;
@@ -307,6 +416,21 @@ namespace Comet {
 
         const auto handle = m_handles_by_path.find(path.lexically_normal());
         return handle == m_handles_by_path.end() ? nullptr : find(handle->second);
+    }
+
+    std::span<const AssetHandle> AssetDatabase::get_dependencies(
+        const AssetHandle handle) const {
+        const AssetRecord* asset = find(handle);
+        return asset ? std::span<const AssetHandle>(asset->dependencies)
+                     : std::span<const AssetHandle>();
+    }
+
+    std::span<const AssetHandle> AssetDatabase::get_dependents(
+        const AssetHandle handle) const {
+        const auto dependents = m_dependents_by_dependency.find(handle);
+        return dependents == m_dependents_by_dependency.end()
+            ? std::span<const AssetHandle>()
+            : std::span<const AssetHandle>(dependents->second);
     }
 
     std::vector<AssetRecord> AssetDatabase::get_assets() const {

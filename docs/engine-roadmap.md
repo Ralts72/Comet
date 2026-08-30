@@ -1003,6 +1003,7 @@ Project System，Asset Database 只通过该契约定位输入和缓存。
 - [x] 建立 Material 同步加载链路：`.mat` 通过 Texture Handle 表达依赖，AssetManager 解析依赖并将运行时 Material 发布到 Asset Registry。
 - [x] Texture Importer 支持可持久化、可校验并实际参与导入的基础参数：色彩空间和垂直翻转。
 - [x] Material 资产可通过编辑器修改 Texture Handle、保存，并在候选对象构建成功后显式替换运行时 Material。
+- [x] Asset Database 从 MaterialData 建立正向/反向依赖索引，扫描时报告缺失或类型错误的引用，并供 Texture 重导入查询直接 Material 依赖。
 - 在 Asset Database 的 metadata 和导入产物结构稳定后，设计 Shader Importer 的输入、编译结果、缓存键和打包方式；
   当前 CMake 编译链不预设对应的 C++ 类型或落盘格式。
 - Mesh Importer 接入 glTF，至少支持静态网格。

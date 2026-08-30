@@ -12,6 +12,7 @@ set(SOURCES
         src/asset/import_settings.cpp
         src/asset/import/texture_importer.cpp
         src/asset/manager.cpp
+        src/asset/material_data.cpp
         src/asset/metadata.cpp
         src/asset/registry.cpp
         src/asset/serialization/material_serializer.cpp
