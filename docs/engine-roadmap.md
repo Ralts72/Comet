@@ -18,7 +18,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 - `engine` 已有基础运行框架：`Application`、`Engine`、`Window`、`Timer` 和统一的 YAML 运行配置加载。
 - Vulkan 底层封装已经有一定厚度，包括 `Context`、`Device`、`Swapchain`、`RenderPass`、`FrameBuffer`、`Pipeline`、`CommandBuffer`、`DescriptorSet`、`Buffer`、`Image`、`Sampler` 等。
 - VMA 已开始接入，`Device` 独占持有 `VulkanAllocator`，`Buffer` 和 `Image` 通过 allocator 管理显存资源。
-- 渲染层已有 `Renderer`、`RenderContext`、`SceneRenderer`、`FrameManager`、`RenderTarget`、`Mesh`、`Texture`、`Material`、`ResourceManager` 等雏形。
+- 渲染层已有 `Renderer`、`RenderContext`、`SceneRenderer`、`FrameScheduler`、`RenderTarget`、`Mesh`、`Texture`、`Material`、`ResourceManager` 等雏形。
 - Shader 构建链路已经接入 CMake，通过 `glslangValidator` 将 GLSL 编译并生成头文件。
 - 编辑器已有 ImGui Docking 基础和几个典型面板：Hierarchy、Inspector、Project、Viewport、Log。
 - 测试基础已经存在，覆盖数学、配置、导出、日志、GLFW 初始化、Vulkan RAII 拥有关系和 Scene/ECS 基础行为。
@@ -261,7 +261,7 @@ Paused 时应停止 gameplay update/fixed update，但保持编辑器 UI、场�
 ### 目标渲染资源组织
 
 以下结构描述最终职责和依赖方向，不要求一次重写，也不要求每个框都立刻对应一个新类。当前 `RenderContext`、
-`Device`、`FrameManager`、`SceneRenderer` 和渲染侧资源服务按后续需求逐步收敛到这些边界；不为匹配命名增加只做
+`Device`、`FrameScheduler`、`SceneRenderer` 和渲染侧资源服务按后续需求逐步收敛到这些边界；不为匹配命名增加只做
 转发的 facade，也不把任何对象改成全局单例。
 
 ```text
@@ -303,8 +303,8 @@ RenderSystem (Main/Update owner)
 
 #### FrameScheduler
 
-现有 `FrameManager` 已经包含 slot 轮转、frame fence、image-available semaphore 和 command buffer，是
-`FrameScheduler` 的核心。演进目标是先统一索引、submission serial 和 reset 时机，再按实际需求迁入 arena：
+现有 `FrameScheduler` 已经包含 slot 轮转、frame fence、image-available semaphore、command buffer、单调 submission
+serial 和显式生命周期状态机；后续按实际需求迁入 arena：
 
 ```text
 FrameSlot
@@ -402,8 +402,9 @@ frame-compile tracker，持久资源通过明确 handoff state 连接两者；�
 
 ### GPU Completion 与延迟释放
 
-当前 `FrameSlot` 已持有 in-flight fence，并记录最近一次 Queue submission 返回的单调 `GpuCompletionPoint`；
-`FrameManager::begin_frame()` 会在复用 slot 前等待该 fence，但 slot 内还没有资源退休队列。viewport resize、swapchain
+当前 `FrameSlot` 已持有 in-flight fence，并记录最近一次 Queue submission 返回的单调 `GpuCompletionPoint` 和 frame
+serial；`FrameScheduler::wait_for_current_slot()` 会在复用 slot 前等待 fence，随后 SceneRenderer 收集通用
+GpuRetirementQueue。viewport resize、swapchain
 recreation、渲染模式切换和 renderer cleanup 仍通过 `Device::wait_idle()`
 保证旧资源不再被 GPU 使用。这对当前阶段是安全且简单的基线，但不能作为 texture/shader/pipeline 热重载、资产卸载、
 streaming 和持续 resize 的常规资源替换机制。
@@ -450,7 +451,7 @@ replace resource R
 ### Swapchain Generation 与重建事务
 
 当前 `SceneRenderer::recreate_swapchain()` 先执行 `Device::wait_idle()`，随后 `Swapchain::recreate()` 原地替换 handle 和
-borrowed images，并在返回前销毁 old swapchain；runtime `SwapchainTarget`、FrameManager image state 和 editor ImGui
+borrowed images，并在返回前销毁 old swapchain；runtime `SwapchainTarget`、FrameScheduler image state 和 editor ImGui
 target 再由外层依次重建。该流程当前可工作，但所有权和失效传播分散，创建中途失败也难以保留一份完整旧状态。
 
 目标结构按代际管理：
@@ -1062,8 +1063,8 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   只保存循环 slot index。
 - [x] 建立 owner-thread `GpuRetirementQueue`。SceneRenderer 将每帧实际录制的 Runtime GPU owner 绑定到 frame timeline
   completion，UploadManager 继续按 upload timeline value 回收 staging 与 command resources。
-- 将 `FrameManager` 逐步收敛为 FrameScheduler contract：统一 slot index、frame submission serial，以及
-  wait completion、collect retirement、reset per-frame arena、开始录制的顺序；本阶段不强制迁移全部 UBO/descriptor。
+- [x] 将 `FrameManager` 收敛并更名为 FrameScheduler contract：统一 slot index、单调 frame submission serial，以及
+  wait slot、collect retirement、acquire、reset fence、record submission、advance slot 的顺序；per-frame arena 后续迁入。
 - `UploadManager` 根据 fence 或 timeline value 延迟回收 staging allocation、upload command buffer 和上传期间临时
   持有的资源；保留阻塞式 `upload_and_wait()`，用于启动期、工具和测试。
 - ResourceManager 批量创建 Mesh/Texture 等 GPU Resource 时通过上传接口提交数据，不直接管理 staging lifetime，
@@ -1171,7 +1172,7 @@ Scene Component / RenderItem
 - Play 模式切换固定分辨率时 Camera aspect、输出纹理和留白区域正确，场景对象不会被非等比拉伸。
 - 连续拖拽面板不会每帧重建资源，也不会依赖全局 Device idle。
 - 新 swapchain handle 创建失败不会覆盖或提前销毁 current generation；创建成功后不会尝试从已 retired 的 old
-  swapchain acquire。重建后 image count、format-dependent RenderPass/Pipeline、FrameManager image state 和 ImGui
+  swapchain acquire。重建后 image count、format-dependent RenderPass/Pipeline、FrameScheduler image state 和 ImGui
   backend 保持一致，旧 generation 不会在 presentation 完成前释放。
 
 #### 阶段 4C：视口交互闭环
@@ -1459,7 +1460,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：FrameScheduler contract 收敛**。异步上传与 ready/retirement 生命周期已闭环：新资源由 ready wait 约束首次消费，实际 draw owner 由 GpuRetirementQueue 保留到 frame completion。接下来让 FrameManager 明确 wait、collect、reset、record、submit 的 slot 生命周期顺序，并为 per-frame deferred release 留出稳定入口；继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue。
+下一步继续 **阶段 3：per-frame arena 与 descriptor 生命周期**。FrameScheduler 已明确 wait slot、collect retirement、acquire、begin、record submission 和 advance 的顺序，并提供单调 frame serial；接下来先把现有 per-frame descriptor/UBO 更新契约接到 slot 生命周期，再评估是否需要独立 transient buffer/descriptor arena。继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue。
 
 建议的职责边界：
 
@@ -1508,6 +1509,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 23. [x] 将 Mesh/Texture ready completion 汇总为 frame submission 前置条件，并按 timeline 去重、合并最大 value，在 VertexInput/FragmentShader stage 等待。
 24. [x] 完成上传/ready 子阶段架构复盘：把 stage 与 Queue wait 编译从 SceneResolver 收回 SceneRenderer，并将 timeline 完成查询移到去重之后。
 25. [x] 建立通用 GpuRetirementQueue；SceneRenderer 将实际录制的 Mesh/Texture owner 绑定到 frame completion，热重载旧资源不再早于在途 draw 销毁。
+26. [x] 将 FrameManager 更名并收敛为 FrameScheduler：显式状态机约束 slot wait、image acquire 后 begin、submission completion 记录和单调 frame serial。
 
 格式所有权后续需求：
 

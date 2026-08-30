@@ -204,7 +204,7 @@ namespace {
                 renderer.get_resource_manager().get_sampler_manager().get_nearest_clamp());
 
             const uint32_t frame_slot =
-                    scene_renderer.get_frame_manager().get_current_frame_slot_index();
+                    scene_renderer.get_frame_scheduler().get_current_frame_slot_index();
             const ImTextureID texture_id =
                     m_imgui_context->get_viewport_texture_id(frame_slot);
             const Comet::Math::Vec2u size = scene_renderer.get_render_target().get_size();

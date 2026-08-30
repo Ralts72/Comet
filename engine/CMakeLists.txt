@@ -66,7 +66,7 @@ set(SOURCES
         src/render/scene/scene_extractor.cpp
         src/render/scene/scene_renderer.cpp
         src/render/resource/resource_manager.cpp
-        src/render/frame_manager.cpp
+        src/render/frame_scheduler.cpp
         src/render/material.cpp
         src/scene/entity.cpp
         src/scene/entity_uuid.cpp

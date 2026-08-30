@@ -25,9 +25,10 @@ Engine
     ├── SceneResolver
     └── SceneRenderer
         ├── RenderPass/PipelineManager/Pipeline
-        ├── FrameManager
+        ├── FrameScheduler
         │   ├── FrameSlot[frames-in-flight]
         │   └── SwapchainImageState[swapchain images]
+        ├── GpuRetirementQueue
         ├── ViewProjectBuffer[frames-in-flight]
         ├── RenderTarget
         │   ├── runtime: SwapchainTarget[swapchain image]

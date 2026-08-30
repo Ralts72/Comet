@@ -69,11 +69,12 @@ namespace Comet {
               render_config.clear_color[2],
               render_config.clear_color[3])) {
         LOG_INFO("create frame manager");
-        m_frame_manager = std::make_unique<FrameManager>(
+        m_frame_scheduler = std::make_unique<FrameScheduler>(
             context.get_device(), render_config.max_frames_in_flight);
 
         LOG_INFO("create per-frame uniform buffers");
-        const uint32_t frame_slot_count = m_frame_manager->get_frame_slot_count();
+        const uint32_t frame_slot_count =
+            m_frame_scheduler->get_frame_slot_count();
         m_view_project_uniform_buffers.reserve(frame_slot_count);
         for(uint32_t index = 0; index < frame_slot_count; ++index) {
             m_view_project_uniform_buffers.push_back(Buffer::create_cpu_buffer(
@@ -117,7 +118,7 @@ namespace Comet {
 
         const auto image_count = static_cast<uint32_t>(
             m_context.get_swapchain().get_images().size());
-        m_frame_manager->initialize_swapchain_images(image_count);
+        m_frame_scheduler->initialize_swapchain_images(image_count);
 
         m_uses_viewport_target = false;
         m_requested_viewport_size = Math::Vec2u(0);
@@ -161,7 +162,7 @@ namespace Comet {
             m_context.get_device(), *m_render_pass);
         m_render_target = RenderTarget::create_multi_target(
             m_context.get_device(), *m_render_pass, size,
-            m_frame_manager->get_frame_slot_count());
+            m_frame_scheduler->get_frame_slot_count());
         set_render_target_clear_color();
 
         m_uses_viewport_target = true;
@@ -206,7 +207,8 @@ namespace Comet {
                 m_material_descriptors.try_emplace(material.material_handle);
         MaterialDescriptorState& state = iterator->second;
         if(inserted) {
-            const uint32_t frame_slot_count = m_frame_manager->get_frame_slot_count();
+            const uint32_t frame_slot_count =
+                m_frame_scheduler->get_frame_slot_count();
             DescriptorPoolSizes descriptor_pool_sizes;
             descriptor_pool_sizes.add_pool_size(
                 DescriptorType::UniformBuffer, frame_slot_count);
@@ -220,7 +222,7 @@ namespace Comet {
         }
 
         const uint32_t frame_slot_index =
-                m_frame_manager->get_current_frame_slot_index();
+                m_frame_scheduler->get_current_frame_slot_index();
         const DescriptorSet& descriptor_set =
                 state.descriptor_sets.at(frame_slot_index);
         DescriptorResources& current_resources = state.resources.at(frame_slot_index);
@@ -248,13 +250,14 @@ namespace Comet {
         }
 
         const uint32_t frame_slot_index =
-                m_frame_manager->get_current_frame_slot_index();
+                m_frame_scheduler->get_current_frame_slot_index();
         const auto& view_project_buffer =
                 m_view_project_uniform_buffers.at(frame_slot_index);
         std::static_pointer_cast<CPUBuffer>(view_project_buffer)->write(
             &*submission.view_project_matrix);
 
-        const auto& command_buffer = m_frame_manager->get_current_command_buffer();
+        const auto& command_buffer =
+            m_frame_scheduler->get_current_command_buffer();
         command_buffer.bind_pipeline(*m_pipeline);
 
         const auto size = m_render_target->get_size();
@@ -297,12 +300,12 @@ namespace Comet {
            || !m_recorded_resource_ids.empty()) {
             LOG_FATAL("Previous frame resources were not retired");
         }
+        m_frame_scheduler->wait_for_current_slot();
         m_retirement_queue.collect_completed();
         apply_pending_viewport_resize();
-        m_frame_manager->begin_frame();
 
         auto& swapchain = m_context.get_swapchain();
-        auto& frame_slot = m_frame_manager->get_current_frame_slot();
+        auto& frame_slot = m_frame_scheduler->get_current_frame_slot();
 
         // Acquire next image
         auto [image_index, acquire_result] =
@@ -318,12 +321,14 @@ namespace Comet {
             }
         }
 
-        m_frame_manager->prepare_image(image_index);
-        auto& command_buffer = m_frame_manager->get_current_command_buffer();
+        m_frame_scheduler->begin_frame(image_index);
+        auto& command_buffer =
+            m_frame_scheduler->get_current_command_buffer();
         command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
         if(m_uses_viewport_target) {
             m_render_target->begin_render_target(
-                command_buffer, m_frame_manager->get_current_frame_slot_index());
+                command_buffer,
+                m_frame_scheduler->get_current_frame_slot_index());
         } else {
             m_render_target->begin_render_target(command_buffer);
         }
@@ -336,7 +341,7 @@ namespace Comet {
         PROFILE_SCOPE("SceneRenderer::render_item");
 
         const auto& command_buffer =
-                m_frame_manager->get_current_command_buffer();
+                m_frame_scheduler->get_current_command_buffer();
 
         // Bind descriptor sets
         const vk::DescriptorSet vk_descriptor_set = descriptor_set.get();
@@ -368,9 +373,9 @@ namespace Comet {
         auto& device = m_context.get_device();
         auto& swapchain = m_context.get_swapchain();
         const uint32_t image_index = swapchain.get_current_index();
-        auto& frame_slot = m_frame_manager->get_current_frame_slot();
+        auto& frame_slot = m_frame_scheduler->get_current_frame_slot();
         auto& image_state =
-                m_frame_manager->get_swapchain_image_state(image_index);
+                m_frame_scheduler->get_swapchain_image_state(image_index);
 
         // End command buffer
         frame_slot.command_buffer.end();
@@ -388,13 +393,14 @@ namespace Comet {
             image_state.render_finished_semaphore,
             Flags<PipelineStage>(PipelineStage::AllCommands)
         };
-        frame_slot.last_submission = graphics_queue.submit2(
+        const auto completion = graphics_queue.submit2(
             waits,
             std::span(&frame_slot.command_buffer, 1),
             std::span(&render_finished_signal, 1),
             &frame_slot.in_flight_fence);
+        m_frame_scheduler->record_submission(completion);
         m_retirement_queue.retire_batch(
-            *frame_slot.last_submission,
+            completion,
             std::move(m_recorded_resource_owners));
         m_recorded_resource_ids.clear();
 
@@ -408,12 +414,12 @@ namespace Comet {
             LOG_FATAL("failed to present swapchain image: {}", vk::to_string(result));
         }
 
-        m_frame_manager->end_frame();
+        m_frame_scheduler->end_frame();
     }
 
     void SceneRenderer::end_render_pass() const {
         m_render_target->end_render_target(
-            m_frame_manager->get_current_command_buffer());
+            m_frame_scheduler->get_current_command_buffer());
     }
 
     void SceneRenderer::request_viewport_resize(const Math::Vec2u size) {
@@ -433,7 +439,7 @@ namespace Comet {
     }
 
     CommandBuffer& SceneRenderer::get_current_command_buffer() const {
-        return m_frame_manager->get_current_command_buffer();
+        return m_frame_scheduler->get_current_command_buffer();
     }
 
     std::vector<std::shared_ptr<ImageView>> SceneRenderer::get_viewport_color_views() const {
@@ -442,7 +448,8 @@ namespace Comet {
             return color_views;
         }
 
-        const uint32_t frame_slot_count = m_frame_manager->get_frame_slot_count();
+        const uint32_t frame_slot_count =
+            m_frame_scheduler->get_frame_slot_count();
         color_views.reserve(frame_slot_count);
         for(uint32_t index = 0; index < frame_slot_count; ++index) {
             color_views.push_back(m_render_target->get_color_view(index));
@@ -466,7 +473,7 @@ namespace Comet {
 
         const auto image_count =
                 static_cast<uint32_t>(swapchain.get_images().size());
-        m_frame_manager->initialize_swapchain_images(image_count);
+        m_frame_scheduler->initialize_swapchain_images(image_count);
 
         if(m_swapchain_recreate_callback) {
             m_swapchain_recreate_callback();

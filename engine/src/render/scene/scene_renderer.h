@@ -2,7 +2,7 @@
 #include "config/config.h"
 #include "common/export.h"
 #include "core/math_utils.h"
-#include "render/frame_manager.h"
+#include "render/frame_scheduler.h"
 #include "graphics/resource/buffer.h"
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/queue.h"
@@ -59,8 +59,12 @@ namespace Comet {
 
         void request_viewport_resize(Math::Vec2u size);
 
-        [[nodiscard]] FrameManager& get_frame_manager() { return *m_frame_manager; }
-        [[nodiscard]] const FrameManager& get_frame_manager() const { return *m_frame_manager; }
+        [[nodiscard]] FrameScheduler& get_frame_scheduler() {
+            return *m_frame_scheduler;
+        }
+        [[nodiscard]] const FrameScheduler& get_frame_scheduler() const {
+            return *m_frame_scheduler;
+        }
         [[nodiscard]] RenderTarget& get_render_target() { return *m_render_target; }
         [[nodiscard]] const RenderTarget& get_render_target() const { return *m_render_target; }
         [[nodiscard]] CommandBuffer& get_current_command_buffer() const;
@@ -105,7 +109,7 @@ namespace Comet {
         RenderContext& m_context;
         std::shared_ptr<RenderPass> m_render_pass;
         std::unique_ptr<PipelineManager> m_pipeline_manager;
-        std::unique_ptr<FrameManager> m_frame_manager;
+        std::unique_ptr<FrameScheduler> m_frame_scheduler;
         std::unique_ptr<RenderTarget> m_render_target;
         bool m_uses_viewport_target = false;
         Math::Vec2u m_requested_viewport_size = Math::Vec2u(0);
