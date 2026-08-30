@@ -2,8 +2,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -50,57 +52,75 @@ namespace Comet {
             }
 #endif
         }
+
+        void write_file_atomic(
+            const std::filesystem::path& path,
+            const char* contents,
+            const std::size_t size) {
+            if(path.empty()) {
+                throw std::runtime_error("Cannot write an empty file path");
+            }
+
+            const std::filesystem::path parent = path.parent_path();
+            if(!parent.empty()) {
+                std::error_code error;
+                std::filesystem::create_directories(parent, error);
+                if(error) {
+                    throw std::runtime_error(
+                        "Failed to create directory '" + parent.string()
+                        + "': " + error.message());
+                }
+            }
+
+            const std::filesystem::path temporary = temporary_path_for(path);
+            try {
+                std::ofstream output(
+                    temporary,
+                    std::ios::binary | std::ios::trunc);
+                if(!output) {
+                    throw std::runtime_error(
+                        "Failed to open temporary file for writing: "
+                        + temporary.string());
+                }
+                if(size != 0) {
+                    output.write(
+                        contents,
+                        static_cast<std::streamsize>(size));
+                }
+                output.flush();
+                if(!output) {
+                    throw std::runtime_error(
+                        "Failed to write temporary file: "
+                        + temporary.string());
+                }
+                output.close();
+                if(!output) {
+                    throw std::runtime_error(
+                        "Failed to close temporary file: "
+                        + temporary.string());
+                }
+
+                replace_file(temporary, path);
+            } catch(...) {
+                std::error_code cleanup_error;
+                std::filesystem::remove(temporary, cleanup_error);
+                throw;
+            }
+        }
+    }
+
+    void write_binary_file_atomic(
+        const std::filesystem::path& path,
+        const std::span<const std::byte> contents) {
+        write_file_atomic(
+            path,
+            reinterpret_cast<const char*>(contents.data()),
+            contents.size());
     }
 
     void write_text_file_atomic(
         const std::filesystem::path& path,
         const std::string_view contents) {
-        if(path.empty()) {
-            throw std::runtime_error("Cannot write an empty file path");
-        }
-
-        const std::filesystem::path parent = path.parent_path();
-        if(!parent.empty()) {
-            std::error_code error;
-            std::filesystem::create_directories(parent, error);
-            if(error) {
-                throw std::runtime_error(
-                    "Failed to create directory '" + parent.string()
-                    + "': " + error.message());
-            }
-        }
-
-        const std::filesystem::path temporary = temporary_path_for(path);
-        try {
-            std::ofstream output(
-                temporary,
-                std::ios::binary | std::ios::trunc);
-            if(!output) {
-                throw std::runtime_error(
-                    "Failed to open temporary file for writing: "
-                    + temporary.string());
-            }
-            output.write(
-                contents.data(),
-                static_cast<std::streamsize>(contents.size()));
-            output.flush();
-            if(!output) {
-                throw std::runtime_error(
-                    "Failed to write temporary file: "
-                    + temporary.string());
-            }
-            output.close();
-            if(!output) {
-                throw std::runtime_error(
-                    "Failed to close temporary file: "
-                    + temporary.string());
-            }
-
-            replace_file(temporary, path);
-        } catch(...) {
-            std::error_code cleanup_error;
-            std::filesystem::remove(temporary, cleanup_error);
-            throw;
-        }
+        write_file_atomic(path, contents.data(), contents.size());
     }
 }

@@ -20,6 +20,9 @@
 #include <GLFW/glfw3.h>
 
 #include <cstdint>
+#include <filesystem>
+#include <string>
+#include <system_error>
 #include <type_traits>
 #include <utility>
 
@@ -91,8 +94,13 @@ namespace CometEditor {
         VkDescriptorSet m_descriptor_set = VK_NULL_HANDLE;
     };
 
-    ImGuiContext::ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context)
-        : m_window(window), m_render_context(render_context) {
+    ImGuiContext::ImGuiContext(
+        const Comet::Window& window,
+        Comet::RenderContext& render_context,
+        std::filesystem::path ini_path)
+        : m_window(window),
+          m_render_context(render_context),
+          m_ini_path(std::move(ini_path).string()) {
         LOG_INFO("Initializing ImGui layer");
 
         IMGUI_CHECKVERSION();
@@ -102,11 +110,20 @@ namespace CometEditor {
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
-        // 将 imgui.ini 路径设置到 editor 目录
-        static std::string ini_path = std::string(PROJECT_ROOT_DIR) + "/editor/imgui.ini";
-        io.IniFilename = ini_path.c_str();
+        const std::filesystem::path ini_directory =
+            std::filesystem::path(m_ini_path).parent_path();
+        if(!ini_directory.empty()) {
+            std::error_code error;
+            std::filesystem::create_directories(ini_directory, error);
+            if(error) {
+                LOG_WARN(
+                    "Failed to create ImGui state directory '{}': {}",
+                    ini_directory.string(),
+                    error.message());
+            }
+        }
+        io.IniFilename = m_ini_path.c_str();
 
-        // 加载字体
         const std::string font_path =
             std::string(COMET_EDITOR_RESOURCE_DIRECTORY) + "/fonts/Roboto-Regular.ttf";
         io.Fonts->AddFontFromFileTTF(font_path.c_str(), 16.0f);

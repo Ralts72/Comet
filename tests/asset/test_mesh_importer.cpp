@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <bit>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -60,7 +62,35 @@ namespace Comet::Tests {
                 return path;
             }
 
+            [[nodiscard]] std::filesystem::path write_triangle_buffer(
+                const std::string_view name) const {
+                const std::filesystem::path path = m_path / name;
+                std::ofstream output(path, std::ios::binary);
+                constexpr std::array<float, 9> positions{
+                    0.0f, 0.0f, 0.0f,
+                    1.0f, 0.0f, 0.0f,
+                    0.0f, 1.0f, 0.0f
+                };
+                for(const float value: positions) {
+                    write_u32(output, std::bit_cast<std::uint32_t>(value));
+                }
+                write_u16(output, 0);
+                write_u16(output, 1);
+                write_u16(output, 2);
+                return path;
+            }
+
         private:
+            static void write_u16(
+                std::ofstream& output,
+                const std::uint16_t value) {
+                const char bytes[] = {
+                    static_cast<char>(value & 0xFF),
+                    static_cast<char>((value >> 8) & 0xFF)
+                };
+                output.write(bytes, sizeof(bytes));
+            }
+
             static void write_u32(
                 std::ofstream& output,
                 const std::uint32_t value) {
@@ -77,10 +107,15 @@ namespace Comet::Tests {
         };
 
         [[nodiscard]] std::string make_triangle_gltf(
-            const std::string_view primitive) {
+            const std::string_view primitive,
+            const std::string_view buffer_uri = {}) {
+            const std::string uri = buffer_uri.empty()
+                ? "data:application/octet-stream;base64,"
+                    + std::string(TRIANGLE_BUFFER)
+                : std::string(buffer_uri);
             return std::string(
-                R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":42,"uri":"data:application/octet-stream;base64,)"
-            ) + std::string(TRIANGLE_BUFFER)
+                R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":42,"uri":")"
+            ) + uri
                 + R"("}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[)"
                 + std::string(primitive) + "]}]}";
         }
@@ -129,6 +164,24 @@ namespace Comet::Tests {
 
         EXPECT_EQ(data.vertices.size(), 3);
         EXPECT_EQ(data.indices, (std::vector<std::uint32_t>{0, 1, 2}));
+    }
+
+    TEST(MeshImporterTest, ReportsExternalBufferDependencies) {
+        const TemporaryDirectory directory;
+        const std::filesystem::path buffer =
+            directory.write_triangle_buffer("triangle.bin");
+        const std::filesystem::path source = directory.write_text(
+            "triangle.gltf",
+            make_triangle_gltf(
+                R"({"attributes":{"POSITION":0},"indices":1})",
+                "triangle.bin"));
+
+        const MeshImportResult result =
+            MeshImporter{}.import_with_dependencies(source);
+
+        EXPECT_EQ(result.data.vertices.size(), 3);
+        ASSERT_EQ(result.source_dependencies.size(), 1);
+        EXPECT_EQ(result.source_dependencies.front(), buffer);
     }
 
     TEST(MeshImporterTest, ConcatenatesTrianglePrimitives) {

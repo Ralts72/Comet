@@ -3,6 +3,7 @@
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -10,6 +11,9 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
 
 namespace Comet {
     namespace {
@@ -89,6 +93,47 @@ namespace Comet {
                     ? normal / length
                     : Math::Vec3(0.0f, 1.0f, 0.0f);
             }
+        }
+
+        [[nodiscard]] std::vector<std::filesystem::path>
+        collect_source_dependencies(
+            const std::filesystem::path& source_path) {
+            auto source = fastgltf::GltfDataBuffer::FromPath(source_path);
+            if(!source) {
+                fail_import(
+                    source_path,
+                    fastgltf::getErrorMessage(source.error()));
+            }
+
+            fastgltf::Parser parser;
+            auto parsed = parser.loadGltf(
+                source.get(),
+                source_path.parent_path(),
+                fastgltf::Options::None,
+                fastgltf::Category::Buffers);
+            if(!parsed) {
+                fail_import(
+                    source_path,
+                    fastgltf::getErrorMessage(parsed.error()));
+            }
+
+            std::vector<std::filesystem::path> dependencies;
+            for(const fastgltf::Buffer& buffer: parsed.get().buffers) {
+                const auto* uri = std::get_if<fastgltf::sources::URI>(
+                    &buffer.data);
+                if(!uri || !uri->uri.isLocalPath()) {
+                    continue;
+                }
+
+                const std::filesystem::path dependency =
+                    (source_path.parent_path() / uri->uri.fspath())
+                        .lexically_normal();
+                if(std::ranges::find(dependencies, dependency)
+                   == dependencies.end()) {
+                    dependencies.push_back(dependency);
+                }
+            }
+            return dependencies;
         }
     }
 
@@ -299,5 +344,15 @@ namespace Comet {
             fail_import(source_path, "mesh contains no drawable triangles");
         }
         return data;
+    }
+
+    MeshImportResult MeshImporter::import_with_dependencies(
+        const std::filesystem::path& source_path) const {
+        std::vector<std::filesystem::path> dependencies =
+            collect_source_dependencies(source_path);
+        return {
+            .data = import(source_path),
+            .source_dependencies = std::move(dependencies)
+        };
     }
 }

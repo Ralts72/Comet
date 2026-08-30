@@ -29,7 +29,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但 Scene/ECS 已经接入最小运行时渲染链路、
 编辑器基础数据闭环和场景持久化，New/Open/Save 与最小 Play/Edit 隔离也已经接入编辑器。当前主要矛盾已经转变为：
-Texture/Material/Mesh 资产纵向链路已经建立，但渲染接口仍偏 demo 化，`Library/` 导入产物与运行时 System 调度也还没有形成。
+Texture/Material/Mesh 资产纵向链路已经建立，Mesh 也已有第一种 `.comet/cache/` 导入产物；但渲染接口仍偏 demo 化，
+通用后台导入/revision 契约与运行时 System 调度还没有形成。
 
 最明显的信号是：
 
@@ -45,7 +46,8 @@ Texture/Material/Mesh 资产纵向链路已经建立，但渲染接口仍偏 dem
   仍直接渲染到 swapchain。Viewport 在 Edit/Play 间切换活动 Scene 和工具状态，独立 editor camera 尚未实现。
 - Play 会从 Edit Scene 创建独立 Runtime Scene，Stop 后丢弃运行时修改并恢复原 Scene；暂停、单帧步进和真正的
   runtime System 更新仍未实现。
-- Texture/Material/Mesh 已建立 Asset Database、导入/序列化和运行时发布链路；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，文件监听和通用依赖失效传播仍未建立。
+- Texture/Material/Mesh 已建立 Asset Database、导入/序列化和运行时发布链路，Mesh 产物可按源 glTF 与外部 buffer
+  内容自动失效；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，文件监听和通用依赖失效传播仍未建立。
 - Scene Update 和 Render Submit 的最小边界已经落地，运行时 System 调度仍未建立。
 
 ## 距离成熟编辑器型引擎的核心缺口
@@ -72,20 +74,25 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 成熟编辑器引擎必须让用户的工作可持久化。基础 `.scene` YAML 契约、版本字段和纯 Scene 保存/加载已经完成；
 当前仍缺少：
 
-- `.comet` 项目文件或项目目录约定。
+- 受版本控制的项目 manifest 或 `ProjectSettings/` 入口约定；`.comet/` 已保留给不提交的项目本地状态。
 - `.mat` 已支持 Material Inspector 编辑保存；格式版本迁移和更通用的 MaterialLayout 驱动参数仍未建立。
 - 跨项目迁移、递归 revision 和失效重载策略。
 - 格式稳定后的 schema 冻结与版本迁移机制；开发期 `.scene` 不承诺向后兼容，过期文件可重新保存或重建。
+- 项目文档的格式所有权收敛：人工维护的运行配置继续使用 YAML；由编辑器维护并进入版本控制的 `.scene`、`.mat`、`.meta`
+  和 `ProjectSettings/`，在 Schema 稳定后整体迁移为严格、确定性输出的 JSON；`.comet/cache/` 继续保存可重建的二进制产物和索引。
 - 编辑器中的显式另存为、自动保存和崩溃恢复。
 
-建议前期继续使用 YAML，因为项目已经引入 `yaml-cpp`，调试成本低。
+开发期继续使用现有 YAML 格式，因为当前序列化、校验、原子保存和测试链路已经建立，调试成本低。JSON 迁移必须以
+“编辑器成为项目文档的唯一写入入口”和 Scene/Material/Metadata Schema 基本稳定为前提，并一次性统一 `.scene`、`.mat`、
+`.meta` 与 `ProjectSettings/` 的格式版本、迁移工具和确定性序列化规则；不能因为 fastgltf 间接带入 simdjson 就零散替换。
+若未来正式采用 JSON，Comet 应定义自己的读写抽象和直接依赖，不能把 fastgltf 的私有传递依赖暴露为引擎序列化 API。
 
 ### 3. 资产系统与导入管线
 
-当前已经建立 `AssetHandle`、相邻 `.meta`、Asset Database，以及 Texture/Material/Mesh 的同步加载纵向链路；
-Asset Registry 是运行时 Handle 缓存，ResourceManager 不再承担资产身份或缓存职责。距离成熟管线仍缺少：
+当前已经建立 `AssetHandle`、相邻 `.meta`、Asset Database、Texture/Material/Mesh 的同步加载纵向链路，以及第一种
+版本化 Mesh 二进制产物；Asset Registry 是运行时 Handle 缓存，ResourceManager 不再承担资产身份或缓存职责。距离成熟管线仍缺少：
 
-- `Library/` 导入产物、缓存状态和重新导入。
+- Texture/Shader 等更多 `.comet/cache/` 产物、统一缓存状态和重新导入调度。
 - 更通用的递归失效传播和文件监听热重载。
 - Shader、Scene 等更多资产类型及其导入/加载策略。
 - glTF 多 mesh 子资产、node transform、material、animation、skin 和 morph target 导入契约。
@@ -782,7 +789,7 @@ in-flight frame 完成后再释放，不原地替换仍可能被 GPU 使用的 h
 ```text
 startup
   -> PhysicalDevice 确定
-  -> 从 Library/Cache/Vulkan 读取候选 blob
+  -> 从 .comet/cache/vulkan 读取候选 blob
   -> 校验 envelope 和 VkPipelineCacheHeaderVersionOne
   -> 通过 PipelineCacheCreateInfo.initialDataSize/pInitialData 创建 cache
 
@@ -802,7 +809,7 @@ compile burst 后或正常 shutdown
 - Comet 自己的文件 envelope 可额外保存 magic、schema version、driver version、Vulkan API version、payload size
   和 checksum，便于拒绝截断或损坏文件。
 - 不兼容、损坏或读取失败时记录一次诊断并退回空 cache，不能阻止引擎启动。
-- cache 文件放在项目 `Library/Cache` 或平台用户 cache 目录，不放进引擎源码目录，默认不提交版本控制。
+- cache 文件放在项目 `.comet/cache` 或平台用户 cache 目录，不放进引擎源码目录，默认不提交版本控制。
 - Shader 或 render state 变化通过 `PipelineKey` 产生新的 pipeline create info，不需要因此删除整个驱动 blob；
   驱动 cache 会自行判断是否存在可复用条目。
 - `vk::PipelineCache` 的 host access 需要遵守外部同步。引入 RenderThread 后，pipeline 创建、合并和 blob 读取/保存
@@ -814,7 +821,7 @@ compile burst 后或正常 shutdown
 
 1. 先建立结构化 `PipelineKey`，消除 name-only cache 的正确性风险。
 2. Shader 热加载和多 pipeline 创建统一通过 `PipelineManager` 与 key/revision 路径。
-3. 项目 `Library/Cache` 可用后增加 `PipelineCacheStore`，完成 blob 校验、加载和原子保存。
+3. 项目 `.comet/cache` 可用后增加 `PipelineCacheStore`，完成 blob 校验、加载和原子保存。
 4. 通过日志和 profiler 比较 cold/warm pipeline creation 时间，但不把特定机器上的加速比例作为功能测试条件。
 
 ## 分阶段开发路线
@@ -965,13 +972,15 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
 
 ```text
 <ProjectRoot>/
-├── assets/           # 受版本控制的源资产和与其相邻的 .meta
-├── Library/          # 可重建的导入产物、索引和缓存，不进入版本控制
-└── ProjectSettings/  # 受版本控制的项目级设置
+├── assets/                # 受版本控制的源资产和与其相邻的 .meta
+├── .comet/                # 不提交的项目本地数据
+│   ├── cache/             # 可重建的导入产物、索引和缓存
+│   └── editor/imgui.ini   # 当前机器的编辑器窗口与 Docking 布局
+└── ProjectSettings/       # 受版本控制的项目级设置
 ```
 
-`ProjectPaths` 已提供这三个目录的统一路径解析，但不负责创建目录或执行 I/O；项目创建、打开与校验属于后续
-Project System，Asset Database 只通过该契约定位输入和缓存。
+`ProjectPaths` 已提供项目根目录、源资产、项目设置、`.comet` 本地数据、cache 和 editor 状态的统一路径解析；除实际消费者
+按需创建 cache/editor 子目录外，它本身不执行 I/O。项目创建、打开与校验属于后续 Project System，Asset Database 只通过该契约定位输入和缓存。
 
 资产身份契约：
 
@@ -981,17 +990,19 @@ Project System，Asset Database 只通过该契约定位输入和缓存。
 - 当前 `.meta` v2 包含 `version`、`guid`、`type` 和按资产类型校验的可选 Importer 设置；Texture 已定义
   `color_space` 与 `flip_y`。
 - `.meta` 由编辑器在首次发现资产时自动创建，之后作为源资产的一部分长期保存并进入版本控制；它不是
-  `Library/` 中可随时删除重建的缓存。
+  `.comet/cache/` 中可随时删除重建的缓存。
 - Asset Inspector 是 `.meta` 的主要编辑入口：GUID 和识别出的资产类型只读，Importer 参数经过校验后写回并触发
-  重新导入。开发者可以手工编辑 YAML，但文件监听器必须按同一契约校验；解析失败时保留上一次有效导入产物并报告错误。
-- `.meta` 只服务于编辑器、Asset Database 和导入管线，不原样进入 Shipping 资源包。发布流程消费 `Library/`
+  重新导入。当前开发格式允许手工编辑 YAML，但文件监听器必须按同一契约校验；解析失败时保留上一次有效导入产物并报告错误。
+  编辑器写入链路和 Metadata Schema 稳定后，`.meta` 应与 `.scene`、`.mat`、`ProjectSettings/` 一起迁移为统一 JSON 文档，
+  而不是单独更换格式。
+- `.meta` 只服务于编辑器、Asset Database 和导入管线，不原样进入 Shipping 资源包。发布流程消费 `.comet/cache/`
   中确认有效的导入产物，并生成描述打包资源、依赖和版本的最终 manifest。
 - Asset Database 扫描 `assets/` 并建立 Handle 与项目相对路径的双向索引；扫描报告会收集重复 GUID、孤立或损坏
   `.meta`、类型不匹配和不支持的文件，有效资产仍可进入索引，不因单个坏文件丢失整个项目视图。
 
 建议任务：
 
-- 定义项目目录结构，例如 `assets/`、`Library/`、`ProjectSettings/`。
+- 定义项目目录结构，例如 `assets/`、`.comet/cache/`、`.comet/editor/`、`ProjectSettings/`。
 - 实现 Asset Database：
   - 持久化 GUID 分配
   - 元数据文件
@@ -1009,6 +1020,7 @@ Project System，Asset Database 只通过该契约定位输入和缓存。
 - 在 Asset Database 的 metadata 和导入产物结构稳定后，设计 Shader Importer 的输入、编译结果、缓存键和打包方式；
   当前 CMake 编译链不预设对应的 C++ 类型或落盘格式。
 - [x] Mesh Importer 接入 fastgltf，支持 `.gltf`/`.glb` 静态 triangle mesh，并由 app/editor 通过项目 AssetHandle 加载示例 cube。
+- [x] 建立 `.comet/cache/imported/mesh/<AssetHandle>.bin` 纵向切片；`MeshImportCache` 保存显式格式和 Importer 版本、项目内输入内容指纹与完整性校验，缺失、过期或损坏时自动重新导入并原子替换。
 - [x] Asset Registry/Asset Manager 负责把 `AssetHandle` 解析为资产元数据和同步导入结果。
 - [x] Asset Registry/Asset Manager 以 `AssetHandle` 为唯一缓存键创建或复用 Runtime Asset；ResourceManager 不承担资产扫描或 Handle 缓存。
 - 完成 GFX-002 后让现有 `Device` 暴露不可变 `CapabilitySet`，统一保存实际启用的 feature/extension、queue family、
@@ -1206,7 +1218,7 @@ Scene Component / RenderItem
 - Material Inspector 通过 `MaterialLayout` 和 material metadata 生成参数控件。
 - 将 `PipelineManager` 从 name-only map 改为结构化 `PipelineKey`；Shader、layout、render state 和 render-target
   compatibility 任一变化都会生成不同 key，name 只保留为调试标签。
-- 增加 `PipelineCacheStore`：从 `Library/Cache/Vulkan` 加载经过设备/驱动校验的 cache blob，通过
+- 增加 `PipelineCacheStore`：从 `.comet/cache/vulkan` 加载经过设备/驱动校验的 cache blob，通过
   `PipelineCacheCreateInfo::initialDataSize`/`pInitialData` 创建 cache，并在 pipeline compile burst 后或正常关机时
   原子保存。
 - 建立 editor-only `FileWatcher -> ShaderCompiler -> Shader Reflection -> Pipeline Reload` 链路；编译与 reflection
@@ -1293,7 +1305,7 @@ Scene Component / RenderItem
 
 - Build Settings。
 - 资源打包格式。
-- 根据 Asset Database 和 `Library/` 导入产物生成发布 manifest；Shipping 包排除源资产 `.meta` 和编辑器专用的
+- 根据 Asset Database 和 `.comet/cache/` 导入产物生成发布 manifest；Shipping 包排除源资产 `.meta` 和编辑器专用的
   Importer 配置，只包含运行时所需资源身份、依赖和打包位置。
 - Runtime player 可加载打包资源。
 - 示例项目模板。
@@ -1425,8 +1437,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：`Library/` 导入产物与 revision 契约**。Texture/Material/Mesh、事务式 Asset Database 快照、依赖索引和
-手动刷新一致性已经完成；现在需要把“每次直接读取源文件并同步创建 GPU 对象”拆成可缓存、可验证版本的导入结果，再为后台任务和文件监听建立稳定边界。
+下一步继续 **阶段 3：后台导入的 revision/completion 契约**。Mesh 已具备可版本化、可验证、损坏后自动重建的
+`.comet/cache/` 产物，Asset Database 也能提交事务式变化集；下一步应把 CPU 导入任务移出主线程，并保证旧 revision 的完成结果
+不能覆盖新源文件对应的 Runtime 资源。Texture 产物应在 mipmap 与最终上传格式契约明确后接入，避免缓存一个即将变化的中间格式。
 
 建议的职责边界：
 
@@ -1450,7 +1463,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 阶段 3 的第一批最小范围：
 
-1. [x] 定义 `assets/`、`Library/` 和 `ProjectSettings/` 的目录职责，以及源资产、`.meta` 和导入产物的边界。
+1. [x] 定义 `assets/`、`.comet/` 和 `ProjectSettings/` 的目录职责，以及源资产、`.meta`、导入产物和编辑器本地状态的边界。
 2. [x] 定义持久化 Asset GUID 与代码层 `AssetHandle` 的映射规则，禁止把源文件路径直接写入 Scene。
 3. [x] 实现只负责扫描、索引和查询的 Asset Database Core，并用临时项目目录完成纯逻辑测试。
 4. [x] 完成 Texture 同步导入与运行时发布，资源缓存键从路径收敛为 `AssetHandle`。
@@ -1462,3 +1475,11 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 10. [x] Scene、Material 和 `.meta` 使用共享原子文本替换，并为 AssetManager 更新/刷新链路补测试。
 11. [x] 删除未接入生产渲染路径的 MaterialConfig/MaterialInstance，拆分 TextureData/MeshData CPU DTO。
 12. [x] 以 submodule 接入 fastgltf/simdjson，完成 `.gltf`/`.glb` 静态 Mesh 导入、失败安全刷新，并让 app/editor 从项目资产加载 cube。
+13. [x] 将项目本地数据收敛到 `.comet/`：cache 保存版本化 Mesh 二进制产物并支持源文件/外部 buffer 失效检测、完整性校验和原子重建，editor 保存 ImGui 布局状态。
+
+格式所有权后续需求：
+
+1. [ ] 保留 YAML 作为人工维护的运行配置格式；不把外部 glTF JSON 解析能力扩散为通用项目格式依赖。
+2. [ ] 在编辑器成为唯一写入入口且 Schema 稳定后，将 `.scene`、`.mat`、`.meta` 和 `ProjectSettings/` 作为一个版本化迁移整体改为 JSON。
+3. [ ] 为 JSON 项目文档建立确定性输出、严格字段校验、版本升级和旧 YAML 项目迁移测试；禁止只迁移单一资产类型。
+4. [ ] `.comet/cache/` 和 Shipping 资源继续使用面向 Runtime 的二进制产物/索引；JSON 只用于需要工具互操作的 manifest 或协议边界。

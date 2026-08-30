@@ -20,8 +20,16 @@ namespace Comet {
         return m_root / "assets";
     }
 
-    std::filesystem::path ProjectPaths::library() const {
-        return m_root / "Library";
+    std::filesystem::path ProjectPaths::local_data() const {
+        return m_root / ".comet";
+    }
+
+    std::filesystem::path ProjectPaths::cache() const {
+        return local_data() / "cache";
+    }
+
+    std::filesystem::path ProjectPaths::editor_state() const {
+        return local_data() / "editor";
     }
 
     std::filesystem::path ProjectPaths::settings() const {

@@ -7,15 +7,17 @@ GoogleTest 测试基础。
 
 - `engine/`：引擎核心库，包含 `asset/`、`common/`、`config/`、`core/`、`diagnostics/`、`graphics/`、`render/`、`runtime/` 和 `scene/` 模块；`asset/` 当前提供轻量、不透明的 `AssetHandle` 和带类型校验的最小内存
   `AssetRegistry`，并定义持久化资产身份、类型化 Importer 设置、`.meta` 编解码、事务式源资产快照、变化集及 Material/Texture 正反向依赖查询；`core/project_paths` 定义项目根目录与
-  `assets/`、`Library/`、`ProjectSettings/` 的标准路径契约；`graphics/` 按 command、resource、pipeline 和 synchronization 组织 Vulkan 包装，跨组的 Context、Device、Queue、Swapchain 与 RenderPass 保留为顶层编排对象；`render/resource/` 集中放置 Texture/Mesh 的 CPU DTO、程序化 Mesh、Runtime 对象与设备资源创建边界，`render/scene/` 集中放置场景提取、解析和提交渲染流水线。
+  `assets/`、`.comet/`、`ProjectSettings/` 的标准路径契约；`.comet/` 再区分可重建 cache 与当前机器的 editor 状态；`graphics/` 按 command、resource、pipeline 和 synchronization 组织 Vulkan 包装，跨组的 Context、Device、Queue、Swapchain 与 RenderPass 保留为顶层编排对象；`render/resource/` 集中放置 Texture/Mesh 的 CPU DTO、程序化 Mesh、Runtime 对象与设备资源创建边界，`render/scene/` 集中放置场景提取、解析和提交渲染流水线。
 - `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过组件描述符
   编辑 Transform、MeshRenderer 和 Camera，并可编辑 Project 中选中的 Material 以及 Texture 导入设置；File 菜单可新建、打开和保存 `.scene`；`editor/resources/` 保存不进入
   项目资产数据库的编辑器私有字体等资源。
 - `app/`：运行时示例程序入口。
 - `assets/`：当前示例项目的源资产及相邻 `.meta`，当前包含 demo Texture、Material 和 glTF Mesh；资产身份进入版本控制。
 - `config/`：`common.yaml` 保存共享运行配置，`profiles/` 保存构建/启动环境覆盖。
-- `Library/`：可重建的导入产物与缓存目录，不进入版本控制。
-- `tests/`：GoogleTest 测试，覆盖数学、配置、Scene/ECS、场景序列化、原子文件写入、Asset Manager 更新事务、资源参数保护和渲染数据链路。
+- `.comet/`：项目本地数据根目录，整体不进入版本控制；`cache/imported/mesh/<AssetHandle>.bin` 保存可重建 Mesh
+  产物，缓存命中前会校验格式/Importer 版本、源 glTF 和外部 buffer 内容指纹；`editor/imgui.ini` 保存当前机器的
+  ImGui 窗口与 Docking 布局。
+- `tests/`：GoogleTest 测试，覆盖数学、配置、Scene/ECS、场景序列化、原子文件写入、Mesh 导入产物、Asset Manager 更新事务、资源参数保护和渲染数据链路。
 - `engine/shaders/`：引擎自有 GLSL Shader 源码，构建时编译并嵌入引擎。
 - `3rdparty/`：第三方依赖目录，部分依赖通过 Git submodule 拉取，Vulkan Memory Allocator 和 EnTT 以 vendored
   源码形式维护；EnTT 只提交 single header。

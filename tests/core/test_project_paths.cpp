@@ -10,7 +10,15 @@ namespace Comet::Tests {
 
         EXPECT_EQ(paths.root(), std::filesystem::path("Projects/Sandbox"));
         EXPECT_EQ(paths.assets(), std::filesystem::path("Projects/Sandbox/assets"));
-        EXPECT_EQ(paths.library(), std::filesystem::path("Projects/Sandbox/Library"));
+        EXPECT_EQ(
+            paths.local_data(),
+            std::filesystem::path("Projects/Sandbox/.comet"));
+        EXPECT_EQ(
+            paths.cache(),
+            std::filesystem::path("Projects/Sandbox/.comet/cache"));
+        EXPECT_EQ(
+            paths.editor_state(),
+            std::filesystem::path("Projects/Sandbox/.comet/editor"));
         EXPECT_EQ(paths.settings(), std::filesystem::path("Projects/Sandbox/ProjectSettings"));
     }
 

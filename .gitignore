@@ -7,5 +7,5 @@ build-editor/
 build-release/
 logs/
 .codegraph/
-imgui.ini
+.comet/
 project/

@@ -1,5 +1,6 @@
 #include "asset/manager.h"
 
+#include "asset/cache/mesh_import_cache.h"
 #include "asset/import/mesh_importer.h"
 #include "asset/import/texture_importer.h"
 #include "asset/registry.h"
@@ -454,9 +455,42 @@ namespace Comet {
 
     std::shared_ptr<Mesh> AssetManager::create_runtime_mesh(
         const AssetRecord& record) {
+        const std::filesystem::path asset_root = m_paths.assets();
+        const std::filesystem::path source_path = asset_root / record.path;
+        const std::filesystem::path cache_path =
+            m_paths.cache() / "imported" / "mesh"
+            / (std::to_string(record.handle.value()) + ".bin");
         MeshData data;
         try {
-            data = MeshImporter{}.import(m_paths.assets() / record.path);
+            if(auto cached = MeshImportCache::load_if_current(
+                   cache_path,
+                   asset_root,
+                   source_path,
+                   MeshImporter::OUTPUT_VERSION)) {
+                data = std::move(*cached);
+                LOG_DEBUG(
+                    "Loaded mesh import cache '{}' (handle {})",
+                    record.path.generic_string(),
+                    record.handle.value());
+            } else {
+                MeshImportResult imported =
+                    MeshImporter{}.import_with_dependencies(source_path);
+                data = std::move(imported.data);
+                try {
+                    MeshImportCache::store(
+                        cache_path,
+                        asset_root,
+                        source_path,
+                        imported.source_dependencies,
+                        MeshImporter::OUTPUT_VERSION,
+                        data);
+                } catch(const std::exception& exception) {
+                    LOG_WARN(
+                        "Imported mesh '{}', but could not update its import cache: {}",
+                        record.path.generic_string(),
+                        exception.what());
+                }
+            }
         } catch(const std::exception& exception) {
             LOG_ERROR("{}", exception.what());
             return nullptr;

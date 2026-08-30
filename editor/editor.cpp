@@ -127,14 +127,14 @@ namespace {
 
             m_imgui_context = std::make_unique<CometEditor::ImGuiContext>(
                 engine.get_window(),
-                render_context
-            );
+                render_context,
+                m_project_paths.editor_state() / "imgui.ini");
 
             // 设置日志重定向
             setup_log_redirect();
 
             m_asset_manager = std::make_unique<Comet::AssetManager>(
-                Comet::ProjectPaths(PROJECT_ROOT_DIR),
+                m_project_paths,
                 engine.get_asset_registry(),
                 engine.get_resource_manager());
             m_asset_scan_report = m_asset_manager->scan();
@@ -439,7 +439,7 @@ namespace {
                 m_component_registry,
                 m_property_editor_registry,
                 m_asset_manager->get_database(),
-                Comet::ProjectPaths(PROJECT_ROOT_DIR).assets(),
+                m_project_paths.assets(),
                 [this](
                     const Comet::AssetHandle handle,
                     const Comet::MaterialData& data) {
@@ -498,6 +498,7 @@ namespace {
             });
         }
 
+        Comet::ProjectPaths m_project_paths{PROJECT_ROOT_DIR};
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
         Comet::AssetScanReport m_asset_scan_report;

@@ -7,6 +7,7 @@ set(SHADER_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders")
 add_subdirectory(shaders)
 
 set(SOURCES
+        src/asset/cache/mesh_import_cache.cpp
         src/asset/database.cpp
         src/asset/handle.cpp
         src/asset/import_settings.cpp

@@ -144,6 +144,37 @@ namespace Comet::Tests {
         EXPECT_EQ(manager.load_mesh(handle), mesh);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 1);
         EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 3);
+        EXPECT_TRUE(std::filesystem::is_regular_file(
+            project.paths().cache() / "imported" / "mesh" / "42.bin"));
+    }
+
+    TEST(AssetManagerTest, RebuildsCorruptedMeshImportCache) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        project.add_mesh(handle);
+        const std::filesystem::path cache_path =
+            project.paths().cache() / "imported" / "mesh" / "42.bin";
+        {
+            AssetRegistry registry;
+            FakeRenderResourceFactory resource_factory;
+            AssetManager manager(project.paths(), registry, resource_factory);
+            ASSERT_TRUE(manager.scan().snapshot_updated);
+            ASSERT_NE(manager.load_mesh(handle), nullptr);
+        }
+        {
+            std::ofstream output(
+                cache_path,
+                std::ios::binary | std::ios::trunc);
+            output << "corrupted";
+        }
+
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        AssetManager manager(project.paths(), registry, resource_factory);
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+
+        EXPECT_NE(manager.load_mesh(handle), nullptr);
+        EXPECT_GT(std::filesystem::file_size(cache_path), 9u);
     }
 
     TEST(AssetManagerTest, RefreshesModifiedLoadedMeshAfterScan) {

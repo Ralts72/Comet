@@ -3,8 +3,10 @@
 #include <imgui.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace Comet {
@@ -22,7 +24,10 @@ namespace Comet {
 namespace CometEditor {
     class ImGuiContext {
     public:
-        ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context);
+        ImGuiContext(
+            const Comet::Window& window,
+            Comet::RenderContext& render_context,
+            std::filesystem::path ini_path);
         ~ImGuiContext();
 
         ImGuiContext(const ImGuiContext&) = delete;
@@ -53,6 +58,7 @@ namespace CometEditor {
 
         const Comet::Window& m_window;
         Comet::RenderContext& m_render_context;
+        std::string m_ini_path;
         std::unique_ptr<Comet::RenderPass> m_render_pass;
         std::unique_ptr<Comet::RenderTarget> m_render_target;
         std::unique_ptr<Comet::DescriptorPool> m_descriptor_pool;
