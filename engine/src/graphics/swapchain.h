@@ -53,6 +53,16 @@ namespace Comet {
         uint32_t m_current_index = static_cast<uint32_t>(-1);
     };
 
+    struct SwapchainCompatibility {
+        bool extent_changed = false;
+        bool format_changed = false;
+        bool image_count_changed = false;
+    };
+
+    [[nodiscard]] COMET_API SwapchainCompatibility compare_swapchain_configs(
+        const SwapchainConfig& previous,
+        const SwapchainConfig& current);
+
     class COMET_API Swapchain {
     public:
         Swapchain(const Window& window, Context& context, Device& device,

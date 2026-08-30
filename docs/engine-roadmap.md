@@ -1182,6 +1182,8 @@ Scene Component / RenderItem
   重建延期时恢复旧 core 的 dependent，避免 framebuffer/image view 晚于父 swapchain 销毁。
 - [x] 将 core handle、borrowed images、config 和 current image index 收敛为 `SwapchainGeneration`；候选完整后才提交 active shared
   owner，`vkCreateSwapchainKHR` 失败不覆盖旧 generation。
+- [x] 让 runtime/ImGui SwapchainTarget 显式共享其 core generation，并以纯 compatibility diff 区分 extent、format、image count
+  失效；editor 按 diff 精确重建 backend。
 - 将 swapchain 重建改为 prepare/create/commit/retire generation 流程。engine core、runtime present target 和 editor ImGui
   dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
 - old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
@@ -1482,9 +1484,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **swapchain dependent generation**：让 runtime `SwapchainTarget` 与 editor ImGui target 显式共享它们所基于的
-`SwapchainGeneration`，并先建立可纯测试的 config compatibility diff（extent、format、image count）。仍保留 idle，先让 parent owner 与
-精确失效传播成立，再接入 graphics/present completion 退休。
+下一步继续 **swapchain retirement**：记录最后一次使用旧 generation 的 graphics completion，并为 presentation completion 不可用的平台
+使用最窄的 present-queue idle 回退；随后移除 swapchain 正常重建路径中的全 Device idle。先不把 shutdown 和 device-lost 回退中的 idle
+机械删除。
 
 建议的职责边界：
 
@@ -1566,6 +1568,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 56. [x] 为 Viewport 物理分辨率增加设备/编辑器双重上限：DeviceCapability 暴露 maxImageDimension2D，ViewportLayout 对所有 resolution policy 的最终结果统一等比约束到 4096 以内。
 57. [x] 完成 swapchain generation 边界审计并先修 parent/dependent 顺序：SceneRenderer 在 core 重建前释放 runtime/ImGui target，成功或延期后重建；Editor shutdown 主动解绑回调。
 58. [x] 建立 SwapchainGeneration core 候选事务：handle/images/config/current index 不再分散覆盖 active 字段，vkCreate 失败保留旧 generation；新 handle 成功后的 image 查询失败明确为不可回滚 fatal 状态。
+59. [x] 建立 swapchain dependent generation 共享与 compatibility diff：SwapchainTarget 持有 core shared owner，editor 对 extent/format/image-count 精确失效，runtime format 变化在 pipeline generation 完成前明确拒绝。
 
 格式所有权后续需求：
 

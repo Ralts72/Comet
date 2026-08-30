@@ -12,6 +12,7 @@ namespace Comet {
     class FrameBuffer;
     class RenderPass;
     class Swapchain;
+    class SwapchainGeneration;
     class Device;
     class CommandBuffer;
 
@@ -22,7 +23,10 @@ namespace Comet {
 
     class COMET_API RenderTarget {
     public:
-        static std::unique_ptr<RenderTarget> create_swapchain_target(Device& device, RenderPass& render_pass, Swapchain& swapchain);
+        static std::unique_ptr<RenderTarget> create_swapchain_target(
+            Device& device,
+            RenderPass& render_pass,
+            std::shared_ptr<SwapchainGeneration> swapchain_generation);
 
         static std::unique_ptr<RenderTarget> create_offscreen_target(Device& device, RenderPass& render_pass, Math::Vec2u size);
 
@@ -80,8 +84,6 @@ namespace Comet {
 
     class COMET_API SwapchainTarget final: public RenderTarget {
     public:
-        SwapchainTarget(Device& device, RenderPass& render_pass, Swapchain& swapchain);
-
         ~SwapchainTarget() override;
 
         void recreate() override;
@@ -95,7 +97,14 @@ namespace Comet {
         }
 
     private:
-        Swapchain& m_swapchain;
+        friend class RenderTarget;
+
+        SwapchainTarget(
+            Device& device,
+            RenderPass& render_pass,
+            std::shared_ptr<SwapchainGeneration> swapchain_generation);
+
+        std::shared_ptr<SwapchainGeneration> m_swapchain_generation;
         std::vector<RenderResource> m_render_resources;
     };
 

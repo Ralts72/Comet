@@ -138,7 +138,7 @@ namespace CometEditor {
 
         auto& device = m_render_context.get_device();
         m_render_target = Comet::RenderTarget::create_swapchain_target(
-            device, *m_render_pass, swapchain);
+            device, *m_render_pass, swapchain.get_active_generation());
         m_render_target->set_clear_value(Comet::ClearValue(Comet::Math::Vec4(0.0f, 0.0f, 0.0f, 0.0f)), 0);
         // 初始化 Vulkan backend
         init_vulkan();
@@ -310,7 +310,8 @@ namespace CometEditor {
         m_render_target.reset();
     }
 
-    void ImGuiContext::rebuild_swapchain_resources() {
+    void ImGuiContext::rebuild_swapchain_resources(
+        const Comet::SwapchainCompatibility& compatibility) {
         if(!m_initialized) {
             LOG_ERROR("ImGuiContext not initialized, cannot rebuild swapchain resources");
             return;
@@ -322,16 +323,22 @@ namespace CometEditor {
         LOG_INFO("Rebuilding ImGui swapchain resources");
         auto& device = m_render_context.get_device();
         auto& swapchain = m_render_context.get_swapchain();
-        m_render_target = Comet::RenderTarget::create_swapchain_target(
-            device, *m_render_pass, swapchain);
-        m_render_target->set_clear_value(
-            Comet::ClearValue(Comet::Math::Vec4(0.0f)), 0);
-        const auto image_count = static_cast<uint32_t>(
-            swapchain.get_images().size());
-        if(image_count != m_backend_image_count) {
+        const bool rebuild_backend = compatibility.format_changed
+            || compatibility.image_count_changed;
+        if(rebuild_backend) {
             unregister_viewport_textures();
             ImGui_ImplVulkan_Shutdown();
             m_descriptor_pool.reset();
+        }
+        if(compatibility.format_changed) {
+            m_render_pass.reset();
+            create_render_pass();
+        }
+        m_render_target = Comet::RenderTarget::create_swapchain_target(
+            device, *m_render_pass, swapchain.get_active_generation());
+        m_render_target->set_clear_value(
+            Comet::ClearValue(Comet::Math::Vec4(0.0f)), 0);
+        if(rebuild_backend) {
             init_vulkan();
             register_viewport_textures();
         }

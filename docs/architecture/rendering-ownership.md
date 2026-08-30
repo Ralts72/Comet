@@ -186,6 +186,9 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
 Swapchain 创建 core 候选。`SwapchainGeneration` 把 handle、borrowed images、config 和 current image index 收拢为单一 shared owner；
 候选的 handle 和 images 全部就绪后才替换 active generation，`vkCreateSwapchainKHR` 失败不会覆盖旧 active 字段。成功后重建 runtime target、
 FrameScheduler per-image state 和 ImGui target。
+runtime `SwapchainTarget` 与 editor ImGui target 都共享持有各自构造时使用的 core generation，不再通过可变 `Swapchain&` 查 images/index。
+config compatibility diff 明确报告 extent、surface format 和 image count 变化；editor 据此只在 format/image count 失效时重建 ImGui backend，
+单纯 extent 变化只重建 target attachments。runtime format 变化在完整 RenderPass/Pipeline generation 接入前明确终止，不继续使用不兼容对象。
 窗口零尺寸导致 core 重建延期时，从仍有效的旧 swapchain 重新建立 dependent，不能留下半释放的活动渲染器。Editor shutdown 会先解绑
 捕获 ImGuiContext 的回调，SceneRenderer 不保存悬空 editor delegate。
 ViewPanel 尺寸稳定后才创建并提交新的离屏 generation，正常 resize 不等待 Device idle。正常呈现路径不得依赖每帧

@@ -73,8 +73,15 @@ namespace Comet {
         }
     }
 
-    std::unique_ptr<RenderTarget> RenderTarget::create_swapchain_target(Device& device, RenderPass& render_pass, Swapchain& swapchain) {
-        return std::make_unique<SwapchainTarget>(device, render_pass, swapchain);
+    std::unique_ptr<RenderTarget> RenderTarget::create_swapchain_target(
+        Device& device,
+        RenderPass& render_pass,
+        std::shared_ptr<SwapchainGeneration> swapchain_generation) {
+        if(!swapchain_generation) {
+            LOG_FATAL("SwapchainTarget requires a valid swapchain generation");
+        }
+        return std::unique_ptr<RenderTarget>(new SwapchainTarget(
+            device, render_pass, std::move(swapchain_generation)));
     }
 
     std::unique_ptr<RenderTarget> RenderTarget::create_offscreen_target(Device& device, RenderPass& render_pass, Math::Vec2u size) {
@@ -184,9 +191,18 @@ namespace Comet {
     }
 
     // SwapchainTarget
-    SwapchainTarget::SwapchainTarget(Device& device, RenderPass& render_pass, Swapchain& swapchain)
-        : RenderTarget(device, render_pass, Math::Vec2u(swapchain.get_width(),
-              swapchain.get_height()), swapchain.get_images().size()), m_swapchain(swapchain) {
+    SwapchainTarget::SwapchainTarget(
+        Device& device,
+        RenderPass& render_pass,
+        std::shared_ptr<SwapchainGeneration> swapchain_generation)
+        : RenderTarget(
+            device,
+            render_pass,
+            Math::Vec2u(
+                swapchain_generation->get_config().extent.width,
+                swapchain_generation->get_config().extent.height),
+            swapchain_generation->get_images().size()),
+          m_swapchain_generation(std::move(swapchain_generation)) {
         m_clear_values.resize(m_render_pass.get_attachments().size());
         set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
         set_clear_value(ClearValue(1.0f, 0));
@@ -198,9 +214,11 @@ namespace Comet {
     }
 
     void SwapchainTarget::recreate() {
-        m_extent.x = m_swapchain.get_width();
-        m_extent.y = m_swapchain.get_height();
-        m_frame_count = static_cast<uint32_t>(m_swapchain.get_images().size());
+        const auto& config = m_swapchain_generation->get_config();
+        m_extent.x = config.extent.width;
+        m_extent.y = config.extent.height;
+        m_frame_count = static_cast<uint32_t>(
+            m_swapchain_generation->get_images().size());
 
         if(m_extent.x == 0 || m_extent.y == 0) {
             return;
@@ -231,7 +249,7 @@ namespace Comet {
                 } else {
                     std::shared_ptr<Image> color_image;
                     if(description.final_layout == ImageLayout::PresentSrcKHR && description.samples == SampleCount::Count1) {
-                        color_image = m_swapchain.get_images()[i];
+                        color_image = m_swapchain_generation->get_images()[i];
                     } else {
                         color_image = Image::create(
                             m_device, image_info, description.samples, "render target color image");
@@ -250,7 +268,8 @@ namespace Comet {
     }
 
     void SwapchainTarget::begin_render_target(CommandBuffer& command_buffer) {
-        RenderTarget::begin_render_target(command_buffer, m_swapchain.get_current_index());
+        RenderTarget::begin_render_target(
+            command_buffer, m_swapchain_generation->get_current_index());
     }
 
     OffscreenTarget::OffscreenTarget(Device& device, RenderPass& render_pass, const Math::Vec2u size) : RenderTarget(device, render_pass, size, 1) {

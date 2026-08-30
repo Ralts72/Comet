@@ -19,6 +19,7 @@ namespace Comet {
     class RenderTarget;
     class Sampler;
     class ImageView;
+    struct SwapchainCompatibility;
 }
 
 namespace CometEditor {
@@ -37,7 +38,8 @@ namespace CometEditor {
         void render(Comet::CommandBuffer& command_buffer) const;
 
         void release_swapchain_resources();
-        void rebuild_swapchain_resources();
+        void rebuild_swapchain_resources(
+            const Comet::SwapchainCompatibility& compatibility);
 
         void set_viewport_image(
             uint32_t frame_slot_index,
