@@ -1472,9 +1472,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：显式 UploadBatch 事务所有权**。阶段性复盘确认 recoverable 结果和资产发布边界成立，但 UploadManager
-仍以全局 active state 隐式表示未提交事务；接下来让不可复制的 UploadBatch 独占 command context/resources，析构只 abort
-自身工作，submit 后把 pending ownership 交回 UploadManager。完成隔离后再补 staging fault injection。
+下一步继续 **阶段 3：UploadBatch staging fault injection**。显式、不可复制的 UploadBatch 已独占未提交 context/resources，
+submit 才把 pending ownership 交回 UploadManager；接下来增加仅由测试配置提供的 staging allocation seam，确定性验证一个
+batch 的增长失败和 abort 不会改变另一个 open batch，再评估 Texture 后台 CPU 导入。
 
 建议的职责边界：
 
@@ -1537,6 +1537,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 37. [x] 将 Runtime Texture 收敛为强失败/可恢复静态工厂：Image、ImageView、staging enqueue 和 flush 全部成功后才发布 wrapper，并删除重复的纯色 GPU 构造入口。
 38. [x] 将 recoverable Mesh/Texture 结果接入 RenderResourceFactory、ResourceManager 和 AssetManager：资产创建遵守预算，失败记录具体 Vulkan error，刷新候选不替换旧 Registry 对象。
 39. [x] 完成 recoverable GPU 创建纵向链复盘：删除 ResourceManager 无调用方的强失败转发，禁止默认构造 GpuResourceResult，并确认下一优先级是把 UploadManager 全局 active state 收敛为显式 UploadBatch。
+40. [x] 建立显式 UploadBatch：每个 scope 独占未提交 CommandContext、目标引用和 staging pages，submit 后移交 pending ownership，析构/失败只 abort 自身；删除 UploadManager 全局 active API。
 
 格式所有权后续需求：
 

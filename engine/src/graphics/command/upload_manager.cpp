@@ -42,11 +42,28 @@ namespace Comet {
     }
 
     UploadManager::~UploadManager() {
-        abort_batch();
+        if(m_open_batch_count != 0) {
+            LOG_FATAL(
+                "UploadManager destroyed with {} open batch(es)",
+                m_open_batch_count);
+        }
         wait_for_pending_batches();
     }
 
-    void UploadManager::enqueue_upload(
+    UploadBatch UploadManager::begin_batch() {
+        return UploadBatch(*this);
+    }
+
+    UploadBatch::UploadBatch(UploadManager& manager)
+        : m_manager(&manager) {
+        ++m_manager->m_open_batch_count;
+    }
+
+    UploadBatch::~UploadBatch() {
+        abort();
+    }
+
+    void UploadBatch::enqueue_upload(
         std::shared_ptr<Buffer> destination,
         const std::span<const std::byte> data,
         const ResourceState& after) {
@@ -58,11 +75,12 @@ namespace Comet {
         }
     }
 
-    GpuResourceResult<void> UploadManager::try_enqueue_upload(
+    GpuResourceResult<void> UploadBatch::try_enqueue_upload(
         std::shared_ptr<Buffer> destination,
         const std::span<const std::byte> data,
         const ResourceState& after,
         const bool within_budget) {
+        ensure_active();
         if(!destination || data.empty()) {
             LOG_FATAL("Buffer upload requires a destination and non-empty data");
         }
@@ -76,14 +94,15 @@ namespace Comet {
             LOG_FATAL("Buffer upload size must be a multiple of 4 bytes");
         }
 
-        auto staging_attempt = try_allocate_staging(data, within_budget);
+        auto staging_attempt = m_manager->try_allocate_staging(
+            m_resources, data, within_budget);
         if(!staging_attempt) {
-            abort_batch();
+            abort();
             return GpuResourceResult<void>::failure(
                 staging_attempt.result());
         }
         const auto staging = std::move(staging_attempt).value();
-        get_active_context().copy_buffer(
+        get_context().copy_buffer(
             *staging.page->buffer,
             *destination,
             data.size_bytes(),
@@ -95,17 +114,17 @@ namespace Comet {
         if(!transfer) {
             LOG_FATAL("UploadManager failed to resolve buffer transfer state");
         }
-        get_active_context().transition_buffer_state(
+        get_context().transition_buffer_state(
             *destination,
             *transfer,
             after,
             0,
             data.size_bytes());
-        m_active_resources.buffers.push_back(std::move(destination));
+        m_resources.buffers.push_back(std::move(destination));
         return GpuResourceResult<void>::success();
     }
 
-    void UploadManager::enqueue_upload(
+    void UploadBatch::enqueue_upload(
         std::shared_ptr<Image> destination,
         const std::span<const std::byte> data,
         const ImageState& before,
@@ -118,12 +137,13 @@ namespace Comet {
         }
     }
 
-    GpuResourceResult<void> UploadManager::try_enqueue_upload(
+    GpuResourceResult<void> UploadBatch::try_enqueue_upload(
         std::shared_ptr<Image> destination,
         const std::span<const std::byte> data,
         const ImageState& before,
         const ImageState& after,
         const bool within_budget) {
+        ensure_active();
         if(!destination || data.empty()) {
             LOG_FATAL("Image upload requires a destination and non-empty data");
         }
@@ -142,15 +162,16 @@ namespace Comet {
                 "with stable queue ownership and CopyDst usage");
         }
 
-        auto staging_attempt = try_allocate_staging(data, within_budget);
+        auto staging_attempt = m_manager->try_allocate_staging(
+            m_resources, data, within_budget);
         if(!staging_attempt) {
-            abort_batch();
+            abort();
             return GpuResourceResult<void>::failure(
                 staging_attempt.result());
         }
         const auto staging = std::move(staging_attempt).value();
 
-        auto& context = get_active_context();
+        auto& context = get_context();
         const auto transfer = resolve_image_state(
             ResourceUsage::TransferDestination,
             before.subresources,
@@ -171,46 +192,51 @@ namespace Comet {
             staging.offset);
         context.transition_image_state(*destination, *transfer, after);
 
-        m_active_resources.images.push_back(std::move(destination));
+        m_resources.images.push_back(std::move(destination));
         return GpuResourceResult<void>::success();
     }
 
-    std::optional<GpuCompletionPoint> UploadManager::flush_batch() {
-        if(!m_active_context) {
-            return std::nullopt;
+    GpuCompletionPoint UploadBatch::submit() {
+        ensure_active();
+        if(!m_context) {
+            LOG_FATAL("Cannot submit an empty upload batch");
         }
+        return m_manager->submit_batch(*this);
+    }
 
-        auto context = std::move(m_active_context);
+    GpuCompletionPoint UploadManager::submit_batch(UploadBatch& batch) {
+        auto context = std::move(batch.m_context);
         const auto completion = context->submit();
         if(!completion.is_valid()) {
             LOG_FATAL("UploadManager failed to submit an active batch");
         }
         m_pending_batches.push_back({
             .context = std::move(context),
-            .resources = std::move(m_active_resources),
+            .resources = std::move(batch.m_resources),
             .completion = completion
         });
-        m_active_resources = {};
+        batch.m_resources = {};
+        --m_open_batch_count;
+        batch.m_manager = nullptr;
         return completion;
     }
 
-    void UploadManager::abort_batch() {
-        if(m_active_context) {
-            m_active_context->discard();
-            m_active_context.reset();
-        }
-        recycle_staging_pages(m_active_resources);
-        m_active_resources = {};
-    }
-
-    void UploadManager::upload_and_wait() {
-        const auto completion = flush_batch();
-        if(!completion) {
-            LOG_WARN("UploadManager::upload_and_wait() called without uploads");
+    void UploadBatch::abort() {
+        if(!m_manager) {
             return;
         }
-        static_cast<void>(completion->wait());
-        collect_completed();
+        m_manager->abort_batch(*this);
+    }
+
+    void UploadManager::abort_batch(UploadBatch& batch) {
+        if(batch.m_context) {
+            batch.m_context->discard();
+            batch.m_context.reset();
+        }
+        recycle_staging_pages(batch.m_resources);
+        batch.m_resources = {};
+        --m_open_batch_count;
+        batch.m_manager = nullptr;
     }
 
     void UploadManager::collect_completed() {
@@ -225,20 +251,28 @@ namespace Comet {
         }
     }
 
-    CommandContext& UploadManager::get_active_context() {
-        if(!m_active_context) {
-            m_active_context = m_device.create_command_context();
+    void UploadBatch::ensure_active() const {
+        if(!m_manager) {
+            LOG_FATAL("UploadBatch is no longer active");
         }
-        return *m_active_context;
+    }
+
+    CommandContext& UploadBatch::get_context() {
+        ensure_active();
+        if(!m_context) {
+            m_context = m_manager->m_device.create_command_context();
+        }
+        return *m_context;
     }
 
     GpuResourceResult<UploadManager::StagingAllocation>
     UploadManager::try_allocate_staging(
+        BatchResources& resources,
         const std::span<const std::byte> data,
         const bool within_budget) {
         collect_completed();
 
-        for(const auto& page: m_active_resources.staging_pages) {
+        for(const auto& page: resources.staging_pages) {
             const size_t offset = align_staging_offset(page->used);
             if(offset <= page->capacity
                && data.size_bytes() <= page->capacity - offset) {
@@ -296,7 +330,7 @@ namespace Comet {
         page->buffer->write(data.data(), data.size_bytes(), 0);
         page->used = data.size_bytes();
         auto* allocation_page = page.get();
-        m_active_resources.staging_pages.push_back(std::move(page));
+        resources.staging_pages.push_back(std::move(page));
         return GpuResourceResult<StagingAllocation>::success({
             .page = allocation_page,
             .offset = 0

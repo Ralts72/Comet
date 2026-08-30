@@ -79,7 +79,8 @@ namespace Comet {
         }
         auto image_view = std::move(view_attempt).value();
 
-        auto upload_attempt = upload_manager.try_enqueue_upload(
+        auto upload_batch = upload_manager.begin_batch();
+        auto upload_attempt = upload_batch.try_enqueue_upload(
             image,
             std::as_bytes(std::span(data.pixels)),
             *initial_state,
@@ -90,16 +91,13 @@ namespace Comet {
                 upload_attempt.result());
         }
 
-        const auto completion = upload_manager.flush_batch();
-        if(!completion) {
-            LOG_FATAL("Texture upload did not produce a completion point");
-        }
+        const GpuCompletionPoint completion = upload_batch.submit();
 
         std::shared_ptr<Texture> texture(new Texture(
             data.width,
             data.height,
             std::move(image_view),
-            *completion));
+            completion));
         return GpuResourceResult<std::shared_ptr<Texture>>::success(
             std::move(texture));
     }

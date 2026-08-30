@@ -71,7 +71,8 @@ namespace Comet {
             index_buffer = std::move(index_attempt).value();
         }
 
-        auto vertex_upload = upload_manager.try_enqueue_upload(
+        auto upload_batch = upload_manager.begin_batch();
+        auto vertex_upload = upload_batch.try_enqueue_upload(
             vertex_buffer,
             std::as_bytes(std::span(data.vertices)),
             *vertex_state,
@@ -81,7 +82,7 @@ namespace Comet {
                 vertex_upload.result());
         }
         if(index_buffer) {
-            auto index_upload = upload_manager.try_enqueue_upload(
+            auto index_upload = upload_batch.try_enqueue_upload(
                 index_buffer,
                 std::as_bytes(std::span(data.indices)),
                 *index_state,
@@ -92,15 +93,12 @@ namespace Comet {
             }
         }
 
-        const auto completion = upload_manager.flush_batch();
-        if(!completion) {
-            LOG_FATAL("Mesh upload did not produce a completion point");
-        }
+        const GpuCompletionPoint completion = upload_batch.submit();
 
         std::shared_ptr<Mesh> mesh(new Mesh(
             std::move(vertex_buffer),
             std::move(index_buffer),
-            *completion,
+            completion,
             static_cast<uint32_t>(data.vertices.size()),
             static_cast<uint32_t>(data.indices.size())));
         return GpuResourceResult<std::shared_ptr<Mesh>>::success(

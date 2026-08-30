@@ -7,7 +7,6 @@
 
 #include <cstddef>
 #include <memory>
-#include <optional>
 #include <span>
 #include <vector>
 
@@ -17,6 +16,7 @@ namespace Comet {
     class CPUBuffer;
     class Device;
     class Image;
+    class UploadBatch;
 
     class COMET_API UploadManager {
     public:
@@ -34,6 +34,63 @@ namespace Comet {
         UploadManager& operator=(const UploadManager&) = delete;
         UploadManager(UploadManager&&) noexcept = delete;
         UploadManager& operator=(UploadManager&&) noexcept = delete;
+
+        [[nodiscard]] UploadBatch begin_batch();
+        void collect_completed();
+
+    private:
+        friend class UploadBatch;
+
+        struct StagingPage {
+            std::shared_ptr<CPUBuffer> buffer;
+            size_t capacity = 0;
+            size_t used = 0;
+        };
+
+        struct StagingAllocation {
+            StagingPage* page = nullptr;
+            size_t offset = 0;
+        };
+
+        struct BatchResources {
+            std::vector<std::shared_ptr<Buffer>> buffers;
+            std::vector<std::shared_ptr<Image>> images;
+            std::vector<std::unique_ptr<StagingPage>> staging_pages;
+        };
+
+        struct PendingBatch {
+            std::unique_ptr<CommandContext> context;
+            BatchResources resources;
+            GpuCompletionPoint completion;
+        };
+
+        [[nodiscard]] GpuResourceResult<StagingAllocation>
+        try_allocate_staging(
+            BatchResources& resources,
+            std::span<const std::byte> data,
+            bool within_budget);
+        [[nodiscard]] GpuCompletionPoint submit_batch(UploadBatch& batch);
+        void abort_batch(UploadBatch& batch);
+        void prepare_for_staging_growth(size_t capacity);
+        void recycle_staging_pages(BatchResources& resources);
+        void wait_for_pending_batches();
+
+        Device& m_device;
+        CreateInfo m_create_info;
+        std::vector<PendingBatch> m_pending_batches;
+        std::vector<std::unique_ptr<StagingPage>> m_available_pages;
+        size_t m_open_batch_count = 0;
+        bool m_memory_pressure_reported = false;
+    };
+
+    class COMET_API UploadBatch final {
+    public:
+        ~UploadBatch();
+
+        UploadBatch(const UploadBatch&) = delete;
+        UploadBatch& operator=(const UploadBatch&) = delete;
+        UploadBatch(UploadBatch&&) noexcept = delete;
+        UploadBatch& operator=(UploadBatch&&) noexcept = delete;
 
         void enqueue_upload(
             std::shared_ptr<Buffer> destination,
@@ -59,50 +116,19 @@ namespace Comet {
             const ImageState& after,
             bool within_budget);
 
-        [[nodiscard]] std::optional<GpuCompletionPoint> flush_batch();
-        void abort_batch();
-        void upload_and_wait();
-        void collect_completed();
+        [[nodiscard]] GpuCompletionPoint submit();
+        void abort();
 
     private:
-        struct StagingPage {
-            std::shared_ptr<CPUBuffer> buffer;
-            size_t capacity = 0;
-            size_t used = 0;
-        };
+        friend class UploadManager;
 
-        struct StagingAllocation {
-            StagingPage* page = nullptr;
-            size_t offset = 0;
-        };
+        explicit UploadBatch(UploadManager& manager);
 
-        struct BatchResources {
-            std::vector<std::shared_ptr<Buffer>> buffers;
-            std::vector<std::shared_ptr<Image>> images;
-            std::vector<std::unique_ptr<StagingPage>> staging_pages;
-        };
+        void ensure_active() const;
+        [[nodiscard]] CommandContext& get_context();
 
-        struct PendingBatch {
-            std::unique_ptr<CommandContext> context;
-            BatchResources resources;
-            GpuCompletionPoint completion;
-        };
-
-        [[nodiscard]] CommandContext& get_active_context();
-        [[nodiscard]] GpuResourceResult<StagingAllocation>
-        try_allocate_staging(
-            std::span<const std::byte> data,
-            bool within_budget);
-        void prepare_for_staging_growth(size_t capacity);
-        void recycle_staging_pages(BatchResources& resources);
-        void wait_for_pending_batches();
-
-        Device& m_device;
-        CreateInfo m_create_info;
-        std::unique_ptr<CommandContext> m_active_context;
-        BatchResources m_active_resources;
-        std::vector<PendingBatch> m_pending_batches;
-        std::vector<std::unique_ptr<StagingPage>> m_available_pages;
-        bool m_memory_pressure_reported = false;
+        UploadManager* m_manager;
+        std::unique_ptr<CommandContext> m_context;
+        UploadManager::BatchResources m_resources;
     };
 }

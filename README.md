@@ -129,8 +129,8 @@ FrameScheduler 以状态机约束 wait slot、成功 acquire 后 begin、记录 
 serial 更新 VMA，而不是传递循环 FrameSlot 下标。Allocator/Device 还提供按需查询的 Comet heap budget snapshot，
 包含 VMA block/allocation 统计和 usage/budget；扩展缺失时 snapshot 明确标记为估算值。
 可恢复上传通过 `GpuResourceResult` 传递 Buffer/Image/staging 创建错误；任一 staging enqueue 失败会 abort 整个尚未提交的
-active batch，不会把半套 copy 命令送入 Queue；结果必须由显式 success/failure 工厂产生，不存在“默认未知失败”状态。
-原 `enqueue_upload()` 仍是关键路径的强失败入口。
+显式 UploadBatch，不会把半套 copy 命令送入 Queue，也不会影响其他开放 batch；Batch submit 后才把 context、目标引用和 page
+作为 pending ownership 交回 UploadManager。结果必须由显式 success/failure 工厂产生，不存在“默认未知失败”状态。
 Runtime Mesh 采用强失败 `create()` 与可恢复 `try_create()` 双轨静态工厂；vertex/index target 全部分配成功后才开始
 enqueue，只有 batch flush 产生 ready completion 后才构造并发布 Mesh。Runtime Texture 采用相同事务边界，完整创建
 Image/ImageView 并成功 enqueue 后才 flush 和发布。

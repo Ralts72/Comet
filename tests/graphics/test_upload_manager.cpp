@@ -65,7 +65,7 @@ namespace Comet::Tests {
 
         template<typename T>
         concept SupportsBatchAbort = requires(T& manager) {
-            manager.abort_batch();
+            manager.abort();
         };
 
         template<typename T>
@@ -74,10 +74,10 @@ namespace Comet::Tests {
         };
 
         template<typename T>
-        concept ReturnsOptionalCompletion = requires(T& manager) {
+        concept BeginsUploadBatch = requires(T& manager) {
             {
-                manager.flush_batch()
-            } -> std::same_as<std::optional<GpuCompletionPoint>>;
+                manager.begin_batch()
+            } -> std::same_as<UploadBatch>;
         };
 
         template<typename T>
@@ -113,14 +113,20 @@ namespace Comet::Tests {
     }
 
     TEST(UploadManagerInterfaceTest, OwnsResourcesUntilBatchCompletion) {
-        EXPECT_TRUE(SupportsOwnedBufferUpload<UploadManager>);
-        EXPECT_TRUE(SupportsRecoverableBufferUpload<UploadManager>);
-        EXPECT_TRUE(SupportsOwnedImageUpload<UploadManager>);
-        EXPECT_TRUE(SupportsRecoverableImageUpload<UploadManager>);
-        EXPECT_FALSE(SupportsBorrowedBufferUpload<UploadManager>);
-        EXPECT_TRUE(ReturnsOptionalCompletion<UploadManager>);
+        EXPECT_TRUE(BeginsUploadBatch<UploadManager>);
+        EXPECT_FALSE(SupportsOwnedBufferUpload<UploadManager>);
+        EXPECT_FALSE(SupportsRecoverableBufferUpload<UploadManager>);
+        EXPECT_FALSE(SupportsOwnedImageUpload<UploadManager>);
+        EXPECT_FALSE(SupportsRecoverableImageUpload<UploadManager>);
+        EXPECT_TRUE(SupportsOwnedBufferUpload<UploadBatch>);
+        EXPECT_TRUE(SupportsRecoverableBufferUpload<UploadBatch>);
+        EXPECT_TRUE(SupportsOwnedImageUpload<UploadBatch>);
+        EXPECT_TRUE(SupportsRecoverableImageUpload<UploadBatch>);
+        EXPECT_FALSE(SupportsBorrowedBufferUpload<UploadBatch>);
+        EXPECT_TRUE(ReturnsGpuCompletion<UploadBatch>);
         EXPECT_TRUE(ReturnsGpuCompletion<CommandContext>);
-        EXPECT_TRUE(SupportsBatchAbort<UploadManager>);
+        EXPECT_TRUE(SupportsBatchAbort<UploadBatch>);
+        EXPECT_FALSE(SupportsBatchAbort<UploadManager>);
         EXPECT_TRUE(SupportsCommandDiscard<CommandContext>);
     }
 
@@ -129,6 +135,11 @@ namespace Comet::Tests {
         EXPECT_FALSE(std::is_copy_assignable_v<UploadManager>);
         EXPECT_FALSE(std::is_move_constructible_v<UploadManager>);
         EXPECT_FALSE(std::is_move_assignable_v<UploadManager>);
+        EXPECT_FALSE(std::is_copy_constructible_v<UploadBatch>);
+        EXPECT_FALSE(std::is_copy_assignable_v<UploadBatch>);
+        EXPECT_FALSE(std::is_move_constructible_v<UploadBatch>);
+        EXPECT_FALSE(std::is_move_assignable_v<UploadBatch>);
+        EXPECT_FALSE((std::is_constructible_v<UploadBatch, UploadManager&>));
     }
 
     TEST(UploadManagerInterfaceTest, SeparatesAllocationFromUploadData) {
