@@ -451,9 +451,10 @@ replace resource R
 ### Swapchain Generation 与重建事务
 
 当前 `SceneRenderer::recreate_swapchain()` 仍使用 `Device::wait_idle()` 基线，但已经明确 dependent 生命周期边界：idle 后先释放
-runtime `SwapchainTarget` 和 editor ImGui target，再由 `Swapchain::recreate()` 原地替换 handle/borrowed images，随后重建 target 与
-FrameScheduler image state；窗口最小化导致重建延期时会从仍有效的旧 core 恢复 dependent。父子对象销毁顺序已正确，但 core 创建中途
-失败仍难以保留一份完整旧状态，format compatibility 和 present completion 也尚未进入 generation 对象。
+runtime `SwapchainTarget` 和 editor ImGui target，再由 `Swapchain::recreate()` 构建局部 `SwapchainGeneration` 候选。generation 收拢
+handle、borrowed images、config 与 current index，全部就绪才替换 active shared owner；窗口最小化延期或 `vkCreateSwapchainKHR` 失败时
+从仍有效的旧 core 恢复 dependent。父子对象顺序和 core active 字段事务已建立，format compatibility、dependent generation 与 present
+completion 尚未完成。
 
 目标结构按代际管理：
 
@@ -1179,6 +1180,8 @@ Scene Component / RenderItem
   旧 image、image view、framebuffer 和 ImGui descriptor；创建失败时继续使用旧 generation。
 - [x] 建立 swapchain dependent release/rebuild 边界：Device idle 后先释放 runtime/ImGui framebuffer target，再替换 core；
   重建延期时恢复旧 core 的 dependent，避免 framebuffer/image view 晚于父 swapchain 销毁。
+- [x] 将 core handle、borrowed images、config 和 current image index 收敛为 `SwapchainGeneration`；候选完整后才提交 active shared
+  owner，`vkCreateSwapchainKHR` 失败不覆盖旧 generation。
 - 将 swapchain 重建改为 prepare/create/commit/retire generation 流程。engine core、runtime present target 和 editor ImGui
   dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
 - old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
@@ -1479,9 +1482,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **swapchain core 候选事务**：把 config 选择、`vkCreateSwapchainKHR` 和 borrowed image 包装先落入未发布候选，创建失败时
-不覆盖 active core；成功后再进入 dependent rebuild/commit。仍保留当前 idle 安全基线，先解决 active 字段原地覆盖和部分初始化，再单独
-引入 graphics/present completion 退休。
+下一步继续 **swapchain dependent generation**：让 runtime `SwapchainTarget` 与 editor ImGui target 显式共享它们所基于的
+`SwapchainGeneration`，并先建立可纯测试的 config compatibility diff（extent、format、image count）。仍保留 idle，先让 parent owner 与
+精确失效传播成立，再接入 graphics/present completion 退休。
 
 建议的职责边界：
 
@@ -1562,6 +1565,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 55. [x] 将离屏 resize 改为 generation prepare/create/commit/retire：FrameBuffer 与 MultiTarget 提供可恢复工厂，SceneRenderer 按真实 submission completion 保留旧 target，ImGui descriptor 只在 ready frame slot 替换。
 56. [x] 为 Viewport 物理分辨率增加设备/编辑器双重上限：DeviceCapability 暴露 maxImageDimension2D，ViewportLayout 对所有 resolution policy 的最终结果统一等比约束到 4096 以内。
 57. [x] 完成 swapchain generation 边界审计并先修 parent/dependent 顺序：SceneRenderer 在 core 重建前释放 runtime/ImGui target，成功或延期后重建；Editor shutdown 主动解绑回调。
+58. [x] 建立 SwapchainGeneration core 候选事务：handle/images/config/current index 不再分散覆盖 active 字段，vkCreate 失败保留旧 generation；新 handle 成功后的 image 查询失败明确为不可回滚 fatal 状态。
 
 格式所有权后续需求：
 

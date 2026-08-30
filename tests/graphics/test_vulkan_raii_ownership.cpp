@@ -62,6 +62,7 @@ TEST(VulkanRaiiOwnershipTest, OwningWrappersDoNotCopyOrMoveByDefault) {
     expect_noncopyable_immovable_owner<CommandContext>();
     expect_noncopyable_immovable_owner<UploadManager>();
     expect_noncopyable_immovable_owner<GpuRetirementQueue>();
+    expect_noncopyable_immovable_owner<SwapchainGeneration>();
     expect_noncopyable_immovable_owner<Swapchain>();
     expect_noncopyable_immovable_owner<Allocator>();
     expect_noncopyable_immovable_owner<Device>();
@@ -75,4 +76,10 @@ TEST(VulkanRaiiOwnershipTest, ExplicitlyMovableSyncWrappersDoNotCopy) {
     EXPECT_FALSE(std::is_copy_assignable_v<Queue>);
     EXPECT_TRUE(std::is_move_constructible_v<Queue>);
     EXPECT_FALSE(std::is_move_assignable_v<Queue>);
+}
+
+TEST(VulkanRaiiOwnershipTest, SwapchainPublishesSharedGenerationOwnership) {
+    EXPECT_TRUE((std::is_same_v<
+        decltype(std::declval<const Swapchain&>().get_active_generation()),
+        const std::shared_ptr<SwapchainGeneration>&>));
 }
