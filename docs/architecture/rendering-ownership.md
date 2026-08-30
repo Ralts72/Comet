@@ -70,6 +70,10 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
 最终 swapchain 只由 ImGui render pass 清屏、合成和呈现。editor 只有一个 Viewport，Edit/Play 复用同一组离屏输出
 并切换活动 Scene 与交互状态。
 
+`RenderTarget` 的 extent 和 frame count 在构造后不可修改，也不提供 `resize`、dirty flag 或公开 `recreate`。resize 和
+swapchain 变化必须在 active target 之外创建完整候选，再替换 shared owner；渲染开始时不会隐式分配或重建 GPU 对象。
+单帧离屏目标与 `MultiTarget(frame_count = 1)` 的所有权模型相同，因此不再保留一套重复的 `OffscreenTarget` 实现。
+
 ## 生命周期约束
 
 关闭时必须遵循以下顺序：
@@ -126,7 +130,7 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
   的 timeline wait，因此未来切换 transfer queue 不改变资源与资产接口。
 - `GpuRetirementQueue`：按 submission completion 批量持有任意 Runtime GPU owner，完成后释放；它不认识资产类型、
   FrameSlot 或具体 Vulkan object。SceneRenderer 把每帧实际录制的 Mesh/Texture 和 active 离屏 MultiTarget generation 交给它；
-  尚未 generation 化的 runtime SwapchainTarget 继续使用现有 idle 重建路径。
+  runtime `SwapchainTarget` 则共享持有对应 `SwapchainGeneration`，在交换链编排边界按 graphics fence 与 present queue 完成状态整体替换。
 - `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。Runtime Mesh/Texture 创建失败时记录具体结果，首次加载不注册，刷新不替换旧对象。
 - `SceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断；不决定 backend pipeline stage 或 Queue wait。
 - `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；把实际录制资源保留到 frame completion，没有有效主 Camera 时不提交场景 draw。
@@ -190,6 +194,8 @@ FrameScheduler per-image state 和 ImGui target。
 runtime `SwapchainTarget` 与 editor ImGui target 都共享持有各自构造时使用的 core generation，不再通过可变 `Swapchain&` 查 images/index。
 config compatibility diff 明确报告 extent、surface format 和 image count 变化；editor 据此只在 format/image count 失效时重建 ImGui backend，
 单纯 extent 变化只重建 target attachments。runtime format 变化在完整 RenderPass/Pipeline generation 接入前明确终止，不继续使用不兼容对象。
+初始 runtime RenderPass 的颜色格式来自 active `SwapchainGeneration` 实际选中的 surface format，而不是配置中的首选请求；配置仍只负责提出
+选择偏好，不能作为设备选择后的事实来源。
 窗口零尺寸导致 core 重建延期时，从仍有效的旧 swapchain 重新建立 dependent，不能留下半释放的活动渲染器。Editor shutdown 会先解绑
 捕获 ImGuiContext 的回调，SceneRenderer 不保存悬空 editor delegate。
 ViewPanel 尺寸稳定后才创建并提交新的离屏 generation，正常 resize 和 swapchain recreation 都不等待 Device idle。正常呈现路径不得依赖每帧

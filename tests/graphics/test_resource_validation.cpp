@@ -87,6 +87,21 @@ namespace {
         const T& command_buffer, const Buffer& buffer) {
         command_buffer.bind_vertex_buffer(buffer, 0);
     };
+
+    template<typename T>
+    concept SupportsRenderTargetResize = requires(T& target) {
+        target.resize(1280, 720);
+    };
+
+    template<typename T>
+    concept SupportsRenderTargetFrameCountMutation = requires(T& target) {
+        target.set_frame_count(2);
+    };
+
+    template<typename T>
+    concept SupportsRenderTargetRecreation = requires(T& target) {
+        target.recreate();
+    };
 }
 
 TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
@@ -175,6 +190,11 @@ TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
         const std::vector<std::shared_ptr<ImageView>>&,
         uint32_t,
         uint32_t>));
+    EXPECT_FALSE((std::is_constructible_v<MultiTarget,
+        Device&, RenderPass&, Math::Vec2u, uint32_t>));
+    EXPECT_FALSE(SupportsRenderTargetResize<RenderTarget>);
+    EXPECT_FALSE(SupportsRenderTargetFrameCountMutation<RenderTarget>);
+    EXPECT_FALSE(SupportsRenderTargetRecreation<RenderTarget>);
 }
 
 TEST(ResourceValidationTest, CommandRecordingUsesNonNullResourceReferences) {

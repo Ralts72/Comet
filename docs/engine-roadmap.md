@@ -500,8 +500,9 @@ prepare CPU plan + validate format-dependent compatibility
 
 graphics FrameSlot fence 只证明相关 graphics submission 完成，不自动证明 presentation engine 已释放旧 presentable
 image。旧 swapchain 的回收必须使用可用的 present completion/fence；平台不支持时，对 present queue 执行局部
-`waitIdle()` 作为兼容回退。不能仅把 old swapchain 放入任意 FrameSlot 的 deferred batch。现阶段继续使用
-`Device::wait_idle()` 是可接受基线，先建立 generation 所有权和事务，再缩小等待范围。
+`waitIdle()` 作为兼容回退。不能仅把 old swapchain 放入任意 FrameSlot 的 deferred batch。
+当前正常重建已经收窄为全部 graphics frame-slot fence 与 present queue idle 回退；`Device::wait_idle()` 只保留在 shutdown、
+device-lost 等全局边界。未来平台提供 present completion/fence 时，再用精确完成信号替换 present queue idle。
 
 ### Vulkan 同步演进顺序
 
@@ -1178,14 +1179,16 @@ Scene Component / RenderItem
 - [x] 保留 resize debounce，并用 frame submission completion 和延迟销毁替代 `Device::wait_idle()`，避免拖拽面板时阻塞整个 GPU。
 - [x] resize 创建完整的新 `MultiTarget` generation，成功后切换 viewport 引用，并按最后使用它的 frame submission 延迟释放
   旧 image、image view、framebuffer 和 ImGui descriptor；创建失败时继续使用旧 generation。
-- [x] 建立 swapchain dependent release/rebuild 边界：Device idle 后先释放 runtime/ImGui framebuffer target，再替换 core；
+- [x] 建立 swapchain dependent release/rebuild 边界：等待全部 graphics frame-slot fence 与 present queue 后先释放 runtime/ImGui framebuffer target，再替换 core；
   重建延期时恢复旧 core 的 dependent，避免 framebuffer/image view 晚于父 swapchain 销毁。
 - [x] 将 core handle、borrowed images、config 和 current image index 收敛为 `SwapchainGeneration`；候选完整后才提交 active shared
   owner，`vkCreateSwapchainKHR` 失败不覆盖旧 generation。
 - [x] 让 runtime/ImGui SwapchainTarget 显式共享其 core generation，并以纯 compatibility diff 区分 extent、format、image count
   失效；editor 按 diff 精确重建 backend。
-- 将 swapchain 重建改为 prepare/create/commit/retire generation 流程。engine core、runtime present target 和 editor ImGui
-  dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
+- [x] 将 swapchain core 与 runtime/editor dependent 分层持有，并按 extent、format、image count compatibility 精确失效；
+  core 创建失败不提交候选，dependent 始终共享其构造时对应的 core generation。
+- [ ] 将 runtime format/sample-count-dependent RenderPass 与 Pipeline 收敛为可事务替换的 generation；该工作与阶段 5 的
+  PipelineKey/RenderGraph 生命周期一起完成，当前 format 变化明确终止，绝不继续使用不兼容 pipeline。
 - [x] old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
   present-queue idle 回退，不用不相关的全局 Device idle 代替依赖判断。
 - [x] 为超大 View 增加设备硬上限与 editor 软上限约束，等比限制最终物理分辨率，避免无上限重建离屏资源。
@@ -1484,8 +1487,10 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步做一次 **阶段 4B 完成审计**：核对离屏/swapchain generation、compatibility、失败状态和等待范围，清理过渡期重复接口，并决定
-runtime format-dependent Pipeline generation 是进入阶段 4C 前补齐，还是归入后续渲染管线阶段。审计后再进入 Viewport 坐标映射与输入闭环。
+下一步进入 **阶段 4C 视口交互闭环**：先把 screen point 到 RenderTarget pixel 的映射提取为纯函数，严格排除工具栏、letterbox、
+pillarbox 和 1x 裁切区域，并以自动化测试覆盖边界。随后让 editor camera 输入只在真实 image display rect 内消费。
+runtime format/sample-count-dependent Pipeline generation 归入阶段 5，与 PipelineKey/RenderGraph 生命周期一并设计，避免在旧
+PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 
 建议的职责边界：
 
@@ -1569,6 +1574,7 @@ runtime format-dependent Pipeline generation 是进入阶段 4C 前补齐，还�
 58. [x] 建立 SwapchainGeneration core 候选事务：handle/images/config/current index 不再分散覆盖 active 字段，vkCreate 失败保留旧 generation；新 handle 成功后的 image 查询失败明确为不可回滚 fatal 状态。
 59. [x] 建立 swapchain dependent generation 共享与 compatibility diff：SwapchainTarget 持有 core shared owner，editor 对 extent/format/image-count 精确失效，runtime format 变化在 pipeline generation 完成前明确拒绝。
 60. [x] 将 swapchain 正常重建从 Device idle 收窄为全部 graphics frame-slot fence + present-queue idle 回退；submission serial 在 record 时绑定 slot，确保 active-frame 重建等待能推进真实完成状态。
+61. [x] 完成阶段 4B 架构审计：RenderTarget generation 删除原地 resize/dirty/recreate API 和重复 OffscreenTarget，extent/frame-count 构造后只读；初始 RenderPass 使用 active swapchain 实际格式，runtime Pipeline generation 明确归入阶段 5。
 
 格式所有权后续需求：
 

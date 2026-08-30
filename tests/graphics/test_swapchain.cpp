@@ -228,4 +228,25 @@ namespace Comet::Tests {
         EXPECT_TRUE(changes.format_changed);
         EXPECT_TRUE(changes.image_count_changed);
     }
+
+    TEST(SwapchainConfigTest, TreatsColorSpaceAsFormatCompatibility) {
+        SwapchainConfig previous{
+            .image_count = 3,
+            .extent = vk::Extent2D{1280, 720},
+            .surface_format = {
+                vk::Format::eB8G8R8A8Srgb,
+                vk::ColorSpaceKHR::eSrgbNonlinear
+            }
+        };
+        SwapchainConfig current = previous;
+        current.surface_format.colorSpace =
+            vk::ColorSpaceKHR::eExtendedSrgbLinearEXT;
+
+        const SwapchainCompatibility changes =
+            compare_swapchain_configs(previous, current);
+
+        EXPECT_FALSE(changes.extent_changed);
+        EXPECT_TRUE(changes.format_changed);
+        EXPECT_FALSE(changes.image_count_changed);
+    }
 }

@@ -5,6 +5,7 @@
 #include "cube_texture_frag.h"
 #include "cube_texture_vert.h"
 #include "graphics/queue.h"
+#include "graphics/convert.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/vk_common.h"
 #include "graphics/resource/buffer.h"
@@ -60,7 +61,9 @@ namespace Comet {
                                  const Config::Vulkan& vulkan_config,
                                  const Config::Render& render_config)
         : m_context(context),
-          m_surface_format(vulkan_config.surface_format),
+          m_surface_format(Graphics::vk_to_format(
+              context.get_swapchain().get_active_generation()
+                  ->get_config().surface_format.format)),
           m_depth_format(vulkan_config.depth_format),
           m_msaa_samples(vulkan_config.msaa_samples),
           m_color_clear_value(Math::Vec4(
