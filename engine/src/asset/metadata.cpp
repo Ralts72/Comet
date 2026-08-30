@@ -23,6 +23,13 @@ namespace Comet {
         return std::nullopt;
     }
 
+    AssetImportSettings make_default_import_settings(const AssetType type) {
+        if(type == AssetType::Texture) {
+            return TextureImportSettings{};
+        }
+        return std::monostate{};
+    }
+
     std::filesystem::path metadata_path(
         const std::filesystem::path& asset_path) {
         std::filesystem::path result = asset_path;

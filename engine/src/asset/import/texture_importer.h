@@ -1,5 +1,6 @@
 #pragma once
 
+#include "asset/import_settings.h"
 #include "common/export.h"
 #include "render/texture.h"
 
@@ -8,6 +9,8 @@
 namespace Comet {
     class COMET_API TextureImporter final {
     public:
-        [[nodiscard]] TextureData import(const std::filesystem::path& source_path) const;
+        [[nodiscard]] TextureData import(
+            const std::filesystem::path& source_path,
+            const TextureImportSettings& settings = {}) const;
     };
 }

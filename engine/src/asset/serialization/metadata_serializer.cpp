@@ -6,6 +6,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
+#include <utility>
 
 namespace Comet {
     namespace {
@@ -29,7 +30,7 @@ namespace Comet {
 
         void validate_keys(const YAML::Node& root, const std::string_view source) {
             const std::unordered_set<std::string> supported{
-                "version", "guid", "type"
+                "version", "guid", "type", "importer"
             };
             std::unordered_set<std::string> found;
             for(const auto& entry: root) {
@@ -49,14 +50,42 @@ namespace Comet {
             }
         }
 
+        void validate_texture_importer_keys(
+            const YAML::Node& importer,
+            const std::string_view source) {
+            const std::unordered_set<std::string> supported{
+                "color_space", "flip_y"
+            };
+            std::unordered_set<std::string> found;
+            for(const auto& entry: importer) {
+                if(!entry.first.IsScalar()) {
+                    throw metadata_error(
+                        source, "importer", "expected string keys");
+                }
+
+                const std::string key = entry.first.as<std::string>();
+                if(!supported.contains(key)) {
+                    throw metadata_error(
+                        source, "importer", "unknown field '" + key + "'");
+                }
+                if(!found.insert(key).second) {
+                    throw metadata_error(
+                        source, "importer", "duplicate field '" + key + "'");
+                }
+            }
+        }
+
         YAML::Node required_child(
             const YAML::Node& root,
             const char* key,
-            const std::string_view source) {
+            const std::string_view source,
+            const std::string_view parent_location = "<root>") {
             const YAML::Node child = root[key];
             if(!child.IsDefined()) {
                 throw metadata_error(
-                    source, "<root>", "missing required field '" + std::string(key) + "'");
+                    source,
+                    parent_location,
+                    "missing required field '" + std::string(key) + "'");
             }
             return child;
         }
@@ -90,10 +119,34 @@ namespace Comet {
             throw metadata_error("<memory>", "type", "expected a known asset type");
         }
 
+        const auto* texture_settings = std::get_if<TextureImportSettings>(
+            &metadata.import_settings);
+        if(metadata.type == AssetType::Texture && !texture_settings) {
+            throw metadata_error(
+                "<memory>",
+                "importer",
+                "expected texture import settings for a texture asset");
+        }
+        if(metadata.type != AssetType::Texture
+           && !std::holds_alternative<std::monostate>(metadata.import_settings)) {
+            throw metadata_error(
+                "<memory>",
+                "importer",
+                "import settings do not match asset type '"
+                + std::string(to_string(metadata.type)) + "'");
+        }
+
         YAML::Node root(YAML::NodeType::Map);
         root["version"] = FORMAT_VERSION;
         root["guid"] = metadata.handle.value();
         root["type"] = std::string(to_string(metadata.type));
+        if(texture_settings) {
+            YAML::Node importer(YAML::NodeType::Map);
+            importer["color_space"] = std::string(to_string(
+                texture_settings->color_space));
+            importer["flip_y"] = texture_settings->flip_y;
+            root["importer"] = importer;
+        }
 
         YAML::Emitter emitter;
         emitter << root;
@@ -153,7 +206,54 @@ namespace Comet {
                 source, "type", "unknown asset type '" + type_name + "'");
         }
 
-        return AssetMetadata{.handle = handle, .type = *type};
+        AssetImportSettings import_settings = std::monostate{};
+        const YAML::Node importer = root["importer"];
+        if(*type == AssetType::Texture) {
+            if(!importer.IsDefined()) {
+                throw metadata_error(
+                    source,
+                    "<root>",
+                    "missing required field 'importer'");
+            }
+            require_map(importer, source, "importer");
+            validate_texture_importer_keys(importer, source);
+
+            const std::string color_space_name = read_scalar<std::string>(
+                required_child(importer, "color_space", source, "importer"),
+                source,
+                "importer.color_space",
+                "a texture color space string");
+            const auto color_space = texture_color_space_from_string(
+                color_space_name);
+            if(!color_space) {
+                throw metadata_error(
+                    source,
+                    "importer.color_space",
+                    "unknown texture color space '" + color_space_name + "'");
+            }
+
+            import_settings = TextureImportSettings{
+                .color_space = *color_space,
+                .flip_y = read_scalar<bool>(
+                    required_child(
+                        importer, "flip_y", source, "importer"),
+                    source,
+                    "importer.flip_y",
+                    "a boolean")
+            };
+        } else if(importer.IsDefined()) {
+            throw metadata_error(
+                source,
+                "importer",
+                "import settings are not supported for asset type '"
+                + std::string(to_string(*type)) + "'");
+        }
+
+        return AssetMetadata{
+            .handle = handle,
+            .type = *type,
+            .import_settings = std::move(import_settings)
+        };
     }
 
     void AssetMetadataSerializer::save(

@@ -2,7 +2,7 @@
 
 首次生成：2026-07-05
 
-最近更新：2026-08-10
+最近更新：2026-08-30
 
 ## 目标定位
 
@@ -89,7 +89,7 @@ Asset Registry 是运行时 Handle 缓存，ResourceManager 不再承担资产�
 - 资产依赖查询、失效传播和热重载。
 - Mesh、Shader、Scene 等更多资产类型及其导入/加载策略。
 - 模型导入器，例如 glTF。
-- 贴图导入参数，例如 sRGB、wrap、filter、mipmap、压缩。
+- Texture 已支持持久化色彩空间和垂直翻转；wrap、filter、mipmap、压缩仍待接入对应运行时链路。
 - 资产依赖追踪和热重载。
 - 编辑器 Project 面板与真实文件系统/资产数据库绑定。
 
@@ -979,7 +979,8 @@ Project System，Asset Database 只通过该契约定位输入和缓存。
 - 每个源资产使用相邻的 `<filename>.meta` 保存非零 64 位 `guid` 和资产类型。
 - `guid` 在代码层直接包装为 `AssetHandle`，二者数值一一对应，不增加运行期重编号或额外哈希映射。
 - 新资产只在缺少 `.meta` 时生成随机身份；资产改名或移动必须携带原 `.meta`，Asset Database 会拒绝重复身份。
-- 当前 `.meta` 格式包含 `version`、`guid` 和 `type`；Importer 设置在具体 Importer 接入时扩展。
+- 当前 `.meta` v2 包含 `version`、`guid`、`type` 和按资产类型校验的可选 Importer 设置；Texture 已定义
+  `color_space` 与 `flip_y`。
 - `.meta` 由编辑器在首次发现资产时自动创建，之后作为源资产的一部分长期保存并进入版本控制；它不是
   `Library/` 中可随时删除重建的缓存。
 - Asset Inspector 是 `.meta` 的主要编辑入口：GUID 和识别出的资产类型只读，Importer 参数经过校验后写回并触发
@@ -1001,7 +1002,7 @@ Project System，Asset Database 只通过该契约定位输入和缓存。
 - [x] Project 面板读取真实资产目录并展示扫描问题。
 - [x] 建立 Texture 同步纵向链路：Importer 输出 CPU `TextureData`，ResourceManager 创建 GPU Texture，Asset Registry 按 Handle 缓存。
 - [x] 建立 Material 同步加载链路：`.mat` 通过 Texture Handle 表达依赖，AssetManager 解析依赖并将运行时 Material 发布到 Asset Registry。
-- [ ] Texture Importer 支持可持久化、可校验的基础导入参数。
+- [x] Texture Importer 支持可持久化、可校验并实际参与导入的基础参数：色彩空间和垂直翻转。
 - [ ] Material 资产可通过编辑器修改和保存。
 - 在 Asset Database 的 metadata 和导入产物结构稳定后，设计 Shader Importer 的输入、编译结果、缓存键和打包方式；
   当前 CMake 编译链不预设对应的 C++ 类型或落盘格式。
@@ -1453,3 +1454,4 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 4. [x] 完成 Texture 同步导入与运行时发布，资源缓存键从路径收敛为 `AssetHandle`。
 5. [x] 让 Project 面板读取真实索引、刷新扫描并展示问题。
 6. [x] 接入 Material 资产，使其通过 Texture Handle 表达依赖；缩略图和文件监听在契约稳定后增加。
+7. [x] 为 Texture 建立类型化 Importer 设置，支持色彩空间与垂直翻转的持久化、校验和同步导入。

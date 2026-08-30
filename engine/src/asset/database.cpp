@@ -223,7 +223,8 @@ namespace Comet {
             const AssetRecord record{
                 .handle = handle,
                 .type = candidate.metadata->type,
-                .path = candidate.relative_path
+                .path = candidate.relative_path,
+                .import_settings = candidate.metadata->import_settings
             };
             assets.emplace(handle, record);
             handles_by_path.emplace(record.path, handle);
@@ -241,7 +242,9 @@ namespace Comet {
 
             const AssetMetadata metadata{
                 .handle = handle,
-                .type = candidate.expected_type
+                .type = candidate.expected_type,
+                .import_settings = make_default_import_settings(
+                    candidate.expected_type)
             };
             try {
                 serializer.save(metadata, metadata_path(candidate.absolute_path));
@@ -254,7 +257,8 @@ namespace Comet {
             const AssetRecord record{
                 .handle = handle,
                 .type = candidate.expected_type,
-                .path = candidate.relative_path
+                .path = candidate.relative_path,
+                .import_settings = metadata.import_settings
             };
             assets.emplace(handle, record);
             handles_by_path.emplace(record.path, handle);

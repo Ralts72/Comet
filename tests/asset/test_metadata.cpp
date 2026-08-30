@@ -36,13 +36,20 @@ namespace Comet::Tests {
     TEST(AssetMetadataTest, SerializesStableGuidAndType) {
         const AssetMetadata metadata{
             .handle = AssetHandle(42),
-            .type = AssetType::Texture
+            .type = AssetType::Texture,
+            .import_settings = TextureImportSettings{
+                .color_space = TextureColorSpace::Linear,
+                .flip_y = true
+            }
         };
         const AssetMetadataSerializer serializer;
 
         const std::string contents = serializer.serialize(metadata);
 
-        EXPECT_EQ(contents, "version: 1\nguid: 42\ntype: texture\n");
+        EXPECT_EQ(
+            contents,
+            "version: 2\nguid: 42\ntype: texture\nimporter:\n"
+            "  color_space: linear\n  flip_y: true\n");
         EXPECT_EQ(serializer.deserialize(contents), metadata);
     }
 
@@ -94,16 +101,17 @@ namespace Comet::Tests {
 
         EXPECT_THROW(
             static_cast<void>(serializer.deserialize(
-                "version: 1\nguid: 0\ntype: texture\n")),
+                "version: 2\nguid: 0\ntype: material\n")),
             std::runtime_error);
         EXPECT_THROW(
             static_cast<void>(serializer.deserialize(
-                "version: 1\nguid: 42\ntype: audio\n")),
+                "version: 2\nguid: 42\ntype: audio\n")),
             std::runtime_error);
         EXPECT_THROW(
             static_cast<void>(serializer.serialize({
                 .handle = INVALID_ASSET_HANDLE,
-                .type = AssetType::Texture
+                .type = AssetType::Texture,
+                .import_settings = TextureImportSettings{}
             })),
             std::runtime_error);
     }
@@ -113,15 +121,56 @@ namespace Comet::Tests {
 
         EXPECT_THROW(
             static_cast<void>(serializer.deserialize(
+                "version: 3\nguid: 42\ntype: material\n")),
+            std::runtime_error);
+        EXPECT_THROW(
+            static_cast<void>(serializer.deserialize(
+                "version: 2\ntype: material\n")),
+            std::runtime_error);
+        EXPECT_THROW(
+            static_cast<void>(serializer.deserialize(
+                "version: 2\nguid: 42\ntype: material\nextra: true\n")),
+            std::runtime_error);
+    }
+
+    TEST(AssetMetadataTest, ValidatesTextureImportSettings) {
+        const AssetMetadataSerializer serializer;
+
+        EXPECT_THROW(
+            static_cast<void>(serializer.deserialize(
                 "version: 2\nguid: 42\ntype: texture\n")),
             std::runtime_error);
         EXPECT_THROW(
             static_cast<void>(serializer.deserialize(
-                "version: 1\ntype: texture\n")),
+                "version: 2\nguid: 42\ntype: texture\n"
+                "importer:\n  color_space: display_p3\n"
+                "  flip_y: false\n")),
             std::runtime_error);
         EXPECT_THROW(
             static_cast<void>(serializer.deserialize(
-                "version: 1\nguid: 42\ntype: texture\nextra: true\n")),
+                "version: 2\nguid: 42\ntype: texture\n"
+                "importer:\n  color_space: srgb\n"
+                "  flip_y: false\n  compression: high\n")),
             std::runtime_error);
+        EXPECT_THROW(
+            static_cast<void>(serializer.deserialize(
+                "version: 2\nguid: 42\ntype: material\n"
+                "importer:\n  color_space: srgb\n"
+                "  flip_y: false\n")),
+            std::runtime_error);
+        EXPECT_THROW(
+            static_cast<void>(serializer.serialize({
+                .handle = AssetHandle(42),
+                .type = AssetType::Texture
+            })),
+            std::runtime_error);
+
+        EXPECT_EQ(
+            texture_color_space_from_string("srgb"),
+            TextureColorSpace::Srgb);
+        EXPECT_EQ(
+            texture_color_space_from_string("linear"),
+            TextureColorSpace::Linear);
+        EXPECT_FALSE(texture_color_space_from_string("SRGB"));
     }
 }

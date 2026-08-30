@@ -16,6 +16,7 @@ namespace Comet {
         AssetHandle handle;
         AssetType type = AssetType::Unknown;
         std::filesystem::path path;
+        AssetImportSettings import_settings;
 
         auto operator<=>(const AssetRecord&) const noexcept = default;
     };

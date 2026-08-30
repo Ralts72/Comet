@@ -57,9 +57,20 @@ namespace Comet {
             return nullptr;
         }
 
+        const auto* settings = std::get_if<TextureImportSettings>(
+            &record->import_settings);
+        if(!settings) {
+            LOG_ERROR(
+                "Texture asset handle {} has incompatible import settings",
+                handle.value());
+            return nullptr;
+        }
+
         TextureData data;
         try {
-            data = TextureImporter{}.import(m_paths.assets() / record->path);
+            data = TextureImporter{}.import(
+                m_paths.assets() / record->path,
+                *settings);
         } catch(const std::exception& exception) {
             LOG_ERROR("{}", exception.what());
             return nullptr;

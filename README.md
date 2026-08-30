@@ -7,7 +7,7 @@ GoogleTest 测试基础。
 
 - `engine/`：引擎核心库，包含 `asset/`、`core/`、`graphics/`、`render/`、`runtime/`、`scene/` 和
   `common/` 模块；`asset/` 当前提供轻量、不透明的 `AssetHandle` 和带类型校验的最小内存
-  `AssetRegistry`，并定义持久化资产身份、`.meta` 编解码及源资产索引；`core/project_paths` 定义项目根目录与
+  `AssetRegistry`，并定义持久化资产身份、类型化 Importer 设置、`.meta` 编解码及源资产索引；`core/project_paths` 定义项目根目录与
   `assets/`、`Library/`、`ProjectSettings/` 的标准路径契约。
 - `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过组件描述符
   编辑 Transform、MeshRenderer 和 Camera，File 菜单可新建、打开和保存 `.scene`；`editor/resources/` 保存不进入
@@ -129,7 +129,8 @@ editor 将同一个 `ComponentRegistry` 提供给 Inspector 和 `SceneSerializer
 `engine/src/render/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。
 `Engine` 使用唯一所有权持有当前活动 Scene 和最小 Asset Registry，并可在保持唯一所有权的前提下交换 Scene。
 app/editor 组合根持有 `AssetManager`，它使用 `AssetDatabase` 将稳定 Handle 解析为项目源资产；Texture 由
-`TextureImporter` 解码为 CPU 像素数据，Material 由 `MaterialSerializer` 读取为只含模板名和 Texture Handle 的
+`TextureImporter` 按 `.meta` 中经过校验的色彩空间和垂直翻转设置解码为 CPU 像素数据，Material 由
+`MaterialSerializer` 读取为只含模板名和 Texture Handle 的
 `MaterialData`。外部格式的导入器集中在 `engine/src/asset/import/`，Comet 原生资产与元数据的序列化器集中在
 `engine/src/asset/serialization/`。`AssetManager` 递归解析材质依赖、组装运行时 Material 并统一发布到 `AssetRegistry`；
 `ResourceManager` 只创建 Device 相关的 Texture/Mesh 和维护 Shader/Sampler 等渲染侧共享资源，不再缓存资产 Handle。

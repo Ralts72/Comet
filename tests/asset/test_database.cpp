@@ -68,8 +68,14 @@ namespace Comet::Tests {
         ASSERT_NE(texture, nullptr);
         EXPECT_EQ(texture->type, AssetType::Texture);
         EXPECT_EQ(database.find(texture->handle), texture);
-        EXPECT_TRUE(std::filesystem::exists(
-            metadata_path(project.paths().assets() / texture->path)));
+        const std::filesystem::path sidecar = metadata_path(
+            project.paths().assets() / texture->path);
+        EXPECT_TRUE(std::filesystem::exists(sidecar));
+        const AssetMetadata metadata = AssetMetadataSerializer{}.load(sidecar);
+        EXPECT_EQ(
+            metadata.import_settings,
+            AssetImportSettings(TextureImportSettings{}));
+        EXPECT_EQ(texture->import_settings, metadata.import_settings);
     }
 
     TEST(AssetDatabaseTest, KeepsIdentityWhenAssetAndMetadataMoveTogether) {
@@ -98,7 +104,8 @@ namespace Comet::Tests {
         const std::filesystem::path second = project.add_file("b.png");
         const AssetMetadata metadata{
             .handle = AssetHandle(42),
-            .type = AssetType::Texture
+            .type = AssetType::Texture,
+            .import_settings = TextureImportSettings{}
         };
         const AssetMetadataSerializer serializer;
         serializer.save(metadata, metadata_path(first));
@@ -118,7 +125,7 @@ namespace Comet::Tests {
         project.add_file("valid.scene");
         const std::filesystem::path invalid = project.add_file("invalid.png");
         project.add_file("notes.txt");
-        project.add_file("orphan.mat.meta", "version: 1\nguid: 8\ntype: material\n");
+        project.add_file("orphan.mat.meta", "version: 2\nguid: 8\ntype: material\n");
         std::ofstream(metadata_path(invalid)) << "version: nope\n";
         AssetDatabase database(project.paths());
 

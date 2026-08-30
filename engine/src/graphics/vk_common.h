@@ -82,6 +82,7 @@ namespace Comet {
             switch(format) {
                 case Format::R8_UNORM: return 1;
                 case Format::R8G8B8A8_UNORM:
+                case Format::R8G8B8A8_SRGB:
                 case Format::B8G8R8A8_UNORM:
                     return 4;
                 case Format::R16G16B16A16_SFLOAT: return 8;

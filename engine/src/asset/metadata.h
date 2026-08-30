@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "asset/import_settings.h"
 #include "common/export.h"
 
 #include <compare>
@@ -26,9 +27,13 @@ namespace Comet {
     struct AssetMetadata {
         AssetHandle handle;
         AssetType type = AssetType::Unknown;
+        AssetImportSettings import_settings;
 
         auto operator<=>(const AssetMetadata&) const noexcept = default;
     };
+
+    [[nodiscard]] COMET_API AssetImportSettings make_default_import_settings(
+        AssetType type);
 
     [[nodiscard]] COMET_API std::filesystem::path metadata_path(
         const std::filesystem::path& asset_path);

@@ -1,7 +1,7 @@
 # 资产管线边界
 
-本文记录 Comet 当前阶段 3 资产链路的职责边界。当前已完成 Texture 和 Material 的同步纵向切片；Mesh、后台导入、
-`Library/` 导入产物、材质编辑保存和热重载仍属于后续工作。
+本文记录 Comet 当前阶段 3 资产链路的职责边界。当前已完成 Texture、Texture 基础导入设置和 Material 的同步纵向切片；
+Mesh、后台导入、`Library/` 导入产物、材质编辑保存和热重载仍属于后续工作。
 
 ## 项目目录
 
@@ -16,16 +16,20 @@
 `assets/materials/` 中的示例材质都带有已提交的 `.meta`，启动扫描不会重新生成其身份。Editor 自身的字体等私有资源位于 `editor/resources/`，不进入项目
 `AssetDatabase`，也不生成 `.meta`。
 
+当前 `.meta` v2 固定保存 `version`、`guid` 和 `type`。Texture 还必须保存类型化 `importer` 映射：
+`color_space` 取 `srgb` 或 `linear`，`flip_y` 取布尔值；缺失字段、未知字段、未知枚举值以及资产类型与设置
+不匹配都会使该资产拒绝进入索引。新建 Texture 资产会写入 `srgb`、不翻转的默认设置。
+
 ## 当前数据流
 
 ```text
 ProjectPanel
     ↓ 只读 AssetRecord / 请求刷新
 AssetDatabase
-    ↓ AssetHandle → AssetRecord(type, relative path)
+    ↓ AssetHandle → AssetRecord(type, relative path, validated import settings)
 AssetManager
     ↓ 校验类型并调用 Importer
-    ├── TextureImporter → TextureData(RGBA CPU pixels)
+    ├── TextureImporter(settings) → TextureData(RGBA CPU pixels + SRGB/UNORM format)
     └── MaterialSerializer → MaterialData(template + Texture Handle properties)
                                ↓ AssetManager 递归解析 Texture Handle
     ├── ResourceManager：TextureData → Runtime Texture
@@ -43,10 +47,10 @@ AssetRegistry
 
 ## 职责
 
-- `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle 与项目相对路径的双向索引。
-- `AssetMetadataSerializer`：只负责 `.meta` 的 YAML 读写；`AssetMetadata` 本身仍是独立于文件格式的数据类型。
+- `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径和已校验 Importer 设置的索引。
+- `AssetMetadataSerializer`：只负责 `.meta` 的 YAML 读写和类型/设置契约校验；`AssetMetadata` 本身仍是独立于文件格式的数据类型。
 - `AssetManager`：协调数据库、Importer、依赖解析、运行时对象组装和 `AssetRegistry` 发布；当前由 app/editor 组合根持有。
-- `TextureImporter`：唯一接触 Texture 源文件路径的解码边界，输出不包含 GPU 对象的 `TextureData`。
+- `TextureImporter`：唯一接触 Texture 源文件路径的解码边界，应用色彩空间和垂直翻转设置，输出不包含 GPU 对象的 `TextureData`。
 - `MaterialSerializer`：读取 Comet 原生 `.mat` 为不包含运行时对象的 `MaterialData`；Texture 属性只保存项目 `AssetHandle`，后续材质编辑保存复用同一格式契约。
 - `Material`：运行时材质保存模板身份和已解析属性；不读取 `.mat`，当前渲染管线是否支持该模板由 `SceneResolver` 在提交边界判断。
 - `ResourceManager`：使用 Device 从 CPU 数据创建 Texture/Mesh，并维护 Shader/Sampler 等设备级共享资源；不认识 `AssetHandle`、`MaterialData`、`.meta` 或源文件路径。
@@ -62,3 +66,6 @@ ResourceManager 和 Device 级共享资源。
 
 当前刷新只重建源资产索引，不会自动卸载、重导入或替换已发布的运行时资源。这些行为需要后续的
 revision、completion token 和 GPU retirement 机制支持。
+
+`filter`/`wrap` 由运行时 Sampler 消费，mipmap 需要 Image mip-level 和上传链路共同支持，因此没有作为只落盘但
+不生效的字段提前加入 Texture Importer 契约。

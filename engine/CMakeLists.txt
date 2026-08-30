@@ -9,6 +9,7 @@ add_subdirectory(shaders)
 set(SOURCES
         src/asset/database.cpp
         src/asset/handle.cpp
+        src/asset/import_settings.cpp
         src/asset/import/texture_importer.cpp
         src/asset/manager.cpp
         src/asset/metadata.cpp

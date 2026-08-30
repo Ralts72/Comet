@@ -1,3 +1,6 @@
-version: 1
+version: 2
 guid: 15538271868700781231
 type: texture
+importer:
+  color_space: srgb
+  flip_y: false
