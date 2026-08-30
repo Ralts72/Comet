@@ -7,9 +7,9 @@
 
 namespace Comet {
     struct MeshVertex {
-        Math::Vec3 position;
-        Math::Vec2 texcoord;
-        Math::Vec3 normal;
+        Math::Vec3 position{};
+        Math::Vec2 texcoord{};
+        Math::Vec3 normal{};
     };
 
     struct MeshData {

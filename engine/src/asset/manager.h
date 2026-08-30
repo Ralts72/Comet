@@ -9,6 +9,7 @@
 namespace Comet {
     class AssetRegistry;
     class Material;
+    class Mesh;
     class RenderResourceFactory;
     class Texture;
     struct MaterialData;
@@ -21,6 +22,7 @@ namespace Comet {
             RenderResourceFactory& resource_factory);
 
         [[nodiscard]] AssetScanReport scan();
+        [[nodiscard]] std::shared_ptr<Mesh> load_mesh(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Texture> load_texture(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Texture> reimport_texture(
             AssetHandle handle,
@@ -36,6 +38,9 @@ namespace Comet {
         }
 
     private:
+        [[nodiscard]] std::shared_ptr<Mesh> create_runtime_mesh(
+            const AssetRecord& record);
+        [[nodiscard]] bool refresh_loaded_mesh(const AssetRecord& record);
         [[nodiscard]] std::shared_ptr<Texture> create_runtime_texture(
             const AssetRecord& record,
             const TextureImportSettings& import_settings);

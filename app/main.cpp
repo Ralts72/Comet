@@ -1,7 +1,5 @@
 #include "runtime/entry.h"
 #include "asset/manager.h"
-#include "asset/registry.h"
-#include "render/resource/mesh_primitives.h"
 #include "core/project_paths.h"
 #include "scene/scene.h"
 
@@ -12,8 +10,27 @@
 #include <utility>
 
 namespace {
-    constexpr Comet::AssetHandle DEMO_CUBE_MESH_HANDLE(1);
+    const std::filesystem::path DEMO_MESH = "meshes/cube.gltf";
     const std::filesystem::path DEMO_MATERIAL = "materials/demo.mat";
+
+    Comet::AssetHandle load_required_mesh(
+        Comet::AssetManager& asset_manager,
+        const std::filesystem::path& relative_path) {
+        const Comet::AssetRecord* record =
+                asset_manager.get_database().find(relative_path);
+        if(!record) {
+            LOG_FATAL(
+                "Required mesh asset '{}' is not indexed",
+                relative_path.generic_string());
+        }
+
+        if(!asset_manager.load_mesh(record->handle)) {
+            LOG_FATAL(
+                "Failed to load required mesh asset '{}'",
+                relative_path.generic_string());
+        }
+        return record->handle;
+    }
 
     Comet::AssetHandle load_required_material(
         Comet::AssetManager& asset_manager,
@@ -55,18 +72,10 @@ namespace {
                     issue.message);
             }
 
-            auto cube_mesh = resource_manager.create_mesh(
-                Comet::MeshPrimitives::create_cube(
-                    -0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f));
-
+            const Comet::AssetHandle mesh_handle = load_required_mesh(
+                *m_asset_manager, DEMO_MESH);
             const Comet::AssetHandle material_handle = load_required_material(
                 *m_asset_manager, DEMO_MATERIAL);
-
-            const bool mesh_registered = asset_registry.register_asset(
-                DEMO_CUBE_MESH_HANDLE, std::move(cube_mesh));
-            if(!mesh_registered) {
-                LOG_FATAL("Failed to register demo mesh");
-            }
 
             auto scene = std::make_unique<Comet::Scene>();
             Comet::Entity main_camera = scene->create_entity("Main Camera");
@@ -77,15 +86,17 @@ namespace {
             auto& first_transform = first_cube.get_component<Comet::TransformComponent>();
             first_transform.translation.x = -0.5f;
             first_transform.rotation.x = -17.0f;
+            first_transform.scale = Comet::Math::Vec3(0.6f);
             first_cube.add_component<Comet::MeshRendererComponent>(
-                DEMO_CUBE_MESH_HANDLE, material_handle);
+                mesh_handle, material_handle);
 
             Comet::Entity second_cube = scene->create_entity("Demo Cube B");
             auto& second_transform = second_cube.get_component<Comet::TransformComponent>();
             second_transform.translation.x = 0.5f;
             second_transform.rotation.x = -17.0f;
+            second_transform.scale = Comet::Math::Vec3(0.6f);
             second_cube.add_component<Comet::MeshRendererComponent>(
-                DEMO_CUBE_MESH_HANDLE, material_handle);
+                mesh_handle, material_handle);
 
             m_cube_entity_ids = {first_cube.get_id(), second_cube.get_id()};
             engine.set_scene(std::move(scene));

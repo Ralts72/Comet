@@ -4,14 +4,18 @@
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "render/material.h"
+#include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Comet::Tests {
@@ -51,6 +55,30 @@ namespace Comet::Tests {
                 return path;
             }
 
+            std::filesystem::path add_mesh(
+                const AssetHandle handle,
+                const std::string_view primitive =
+                    R"({"attributes":{"POSITION":0},"indices":1})") const {
+                const std::filesystem::path path =
+                    paths().assets() / "meshes/test.gltf";
+                std::filesystem::create_directories(path.parent_path());
+                write_mesh(path, primitive);
+                AssetMetadataSerializer{}.save({
+                    .handle = handle,
+                    .type = AssetType::Mesh
+                }, metadata_path(path));
+                return path;
+            }
+
+            static void write_mesh(
+                const std::filesystem::path& path,
+                const std::string_view primitive) {
+                std::ofstream output(path, std::ios::binary);
+                output
+                    << R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":42,"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAABAAIA"}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[)"
+                    << primitive << "]}]}";
+            }
+
         private:
             std::filesystem::path m_root;
         };
@@ -63,9 +91,34 @@ namespace Comet::Tests {
             }
 
             std::shared_ptr<Mesh> create_mesh(
-                const MeshData&) const override {
-                return nullptr;
+                const MeshData& data) const override {
+                ++m_mesh_creation_count;
+                m_last_mesh_vertex_count = data.vertices.size();
+                if(m_fail_mesh_creation) {
+                    return nullptr;
+                }
+
+                auto owner = std::make_shared<std::uint8_t>(0);
+                return std::shared_ptr<Mesh>(
+                    owner, reinterpret_cast<Mesh*>(owner.get()));
             }
+
+            void fail_mesh_creation(const bool fail) {
+                m_fail_mesh_creation = fail;
+            }
+
+            [[nodiscard]] std::size_t mesh_creation_count() const {
+                return m_mesh_creation_count;
+            }
+
+            [[nodiscard]] std::size_t last_mesh_vertex_count() const {
+                return m_last_mesh_vertex_count;
+            }
+
+        private:
+            bool m_fail_mesh_creation = false;
+            mutable std::size_t m_mesh_creation_count = 0;
+            mutable std::size_t m_last_mesh_vertex_count = 0;
         };
 
         bool contains_handle(
@@ -73,6 +126,98 @@ namespace Comet::Tests {
             const AssetHandle expected) {
             return std::ranges::find(handles, expected) != handles.end();
         }
+    }
+
+    TEST(AssetManagerTest, LoadsAndCachesMeshByAssetHandle) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        project.add_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        AssetManager manager(project.paths(), registry, resource_factory);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const std::shared_ptr<Mesh> mesh = manager.load_mesh(handle);
+
+        ASSERT_NE(mesh, nullptr);
+        EXPECT_EQ(registry.resolve<Mesh>(handle), mesh);
+        EXPECT_EQ(manager.load_mesh(handle), mesh);
+        EXPECT_EQ(resource_factory.mesh_creation_count(), 1);
+        EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 3);
+    }
+
+    TEST(AssetManagerTest, RefreshesModifiedLoadedMeshAfterScan) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path mesh_path = project.add_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        AssetManager manager(project.paths(), registry, resource_factory);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
+        ASSERT_NE(original, nullptr);
+        TemporaryProject::write_mesh(
+            mesh_path,
+            R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})");
+
+        const AssetScanReport refresh = manager.scan();
+
+        ASSERT_TRUE(refresh.snapshot_updated);
+        EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
+        const std::shared_ptr<Mesh> modified = registry.resolve<Mesh>(handle);
+        ASSERT_NE(modified, nullptr);
+        EXPECT_NE(modified, original);
+        EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
+        EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 6);
+    }
+
+    TEST(AssetManagerTest, KeepsPreviousMeshWhenImportFails) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path mesh_path = project.add_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        AssetManager manager(project.paths(), registry, resource_factory);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
+        ASSERT_NE(original, nullptr);
+        {
+            std::ofstream output(mesh_path, std::ios::binary);
+            output << "corrupted glTF with a different file size";
+        }
+
+        const AssetScanReport refresh = manager.scan();
+
+        ASSERT_TRUE(refresh.snapshot_updated);
+        EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
+        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_EQ(resource_factory.mesh_creation_count(), 1);
+    }
+
+    TEST(AssetManagerTest, KeepsPreviousMeshWhenRuntimeCreationFails) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path mesh_path = project.add_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        AssetManager manager(project.paths(), registry, resource_factory);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
+        ASSERT_NE(original, nullptr);
+        resource_factory.fail_mesh_creation(true);
+        TemporaryProject::write_mesh(
+            mesh_path,
+            R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})");
+
+        const AssetScanReport refresh = manager.scan();
+
+        ASSERT_TRUE(refresh.snapshot_updated);
+        EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
+        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
     }
 
     TEST(AssetManagerTest, ReloadsModifiedLoadedMaterialAfterScan) {

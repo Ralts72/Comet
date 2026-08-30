@@ -13,3 +13,9 @@
 [submodule "3rdparty/yaml-cpp"]
 	path = 3rdparty/yaml-cpp
 	url = https://github.com/jbeder/yaml-cpp.git
+[submodule "3rdparty/fastgltf"]
+	path = 3rdparty/fastgltf
+	url = https://github.com/spnda/fastgltf.git
+[submodule "3rdparty/simdjson"]
+	path = 3rdparty/simdjson
+	url = https://github.com/simdjson/simdjson.git

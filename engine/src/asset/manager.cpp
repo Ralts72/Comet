@@ -1,11 +1,13 @@
 #include "asset/manager.h"
 
+#include "asset/import/mesh_importer.h"
 #include "asset/import/texture_importer.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
 #include "common/file_io.h"
 #include "diagnostics/logger.h"
 #include "render/material.h"
+#include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
 #include "render/resource/texture.h"
 
@@ -78,6 +80,13 @@ namespace Comet {
                             handle.value());
                     }
                     break;
+                case AssetType::Mesh:
+                    if(!refresh_loaded_mesh(*record)) {
+                        LOG_ERROR(
+                            "Failed to refresh modified mesh asset handle {}",
+                            handle.value());
+                    }
+                    break;
                 default:
                     static_cast<void>(m_registry.unregister_asset(handle));
                     LOG_WARN(
@@ -88,6 +97,49 @@ namespace Comet {
             }
         }
         return report;
+    }
+
+    std::shared_ptr<Mesh> AssetManager::load_mesh(
+        const AssetHandle handle) {
+        if(!handle) {
+            LOG_ERROR("Cannot load a mesh with an invalid asset handle");
+            return nullptr;
+        }
+
+        if(const auto mesh = m_registry.resolve<Mesh>(handle)) {
+            return mesh;
+        }
+        if(m_registry.contains(handle)) {
+            LOG_ERROR(
+                "Asset handle {} is already registered with another runtime type",
+                handle.value());
+            return nullptr;
+        }
+
+        const AssetRecord* record = m_database.find(handle);
+        if(!record) {
+            LOG_ERROR("Mesh asset handle {} is not indexed", handle.value());
+            return nullptr;
+        }
+        if(record->type != AssetType::Mesh) {
+            LOG_ERROR(
+                "Asset handle {} has type '{}', expected 'mesh'",
+                handle.value(),
+                to_string(record->type));
+            return nullptr;
+        }
+
+        auto mesh = create_runtime_mesh(*record);
+        if(!mesh) {
+            return nullptr;
+        }
+        if(!m_registry.register_asset(handle, mesh)) {
+            LOG_ERROR(
+                "Failed to register runtime mesh for asset handle {}",
+                handle.value());
+            return nullptr;
+        }
+        return mesh;
     }
 
     std::shared_ptr<Texture> AssetManager::load_texture(
@@ -398,6 +450,36 @@ namespace Comet {
             record->path.generic_string(),
             handle.value());
         return material;
+    }
+
+    std::shared_ptr<Mesh> AssetManager::create_runtime_mesh(
+        const AssetRecord& record) {
+        MeshData data;
+        try {
+            data = MeshImporter{}.import(m_paths.assets() / record.path);
+        } catch(const std::exception& exception) {
+            LOG_ERROR("{}", exception.what());
+            return nullptr;
+        }
+        return m_resource_factory.create_mesh(data);
+    }
+
+    bool AssetManager::refresh_loaded_mesh(const AssetRecord& record) {
+        const auto previous_mesh = m_registry.resolve<Mesh>(record.handle);
+        if(!previous_mesh) {
+            return !m_registry.contains(record.handle);
+        }
+
+        auto mesh = create_runtime_mesh(record);
+        if(!mesh || !m_registry.replace_asset(record.handle, mesh)) {
+            return false;
+        }
+
+        LOG_INFO(
+            "Reloaded mesh asset '{}' (handle {})",
+            record.path.generic_string(),
+            record.handle.value());
+        return true;
     }
 
     std::shared_ptr<Texture> AssetManager::create_runtime_texture(

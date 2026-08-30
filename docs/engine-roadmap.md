@@ -29,7 +29,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但 Scene/ECS 已经接入最小运行时渲染链路、
 编辑器基础数据闭环和场景持久化，New/Open/Save 与最小 Play/Edit 隔离也已经接入编辑器。当前主要矛盾已经转变为：
-Texture/Material 资产纵向链路已经建立，但 Mesh 仍靠手工注册，渲染接口仍偏 demo 化，运行时 System 调度也还没有形成。
+Texture/Material/Mesh 资产纵向链路已经建立，但渲染接口仍偏 demo 化，`Library/` 导入产物与运行时 System 调度也还没有形成。
 
 最明显的信号是：
 
@@ -38,14 +38,14 @@ Texture/Material 资产纵向链路已经建立，但 Mesh 仍靠手工注册，
 - 每个 draw 的模型矩阵已通过 push constant 提交；descriptor 资源按材质和 frame slot 缓存。
 - Scene 已能管理运行期 `EntityId`、持久化 UUID、父子关系、局部 TRS 与派生世界矩阵，并可将基础组件保存为
   带版本字段的 `.scene` YAML；Inspector 与 `SceneSerializer` 已复用同一份组件/属性描述元数据。
-- `MeshRendererComponent` 已使用统一的 `AssetHandle`，app 会注册 demo mesh/material，并通过该链路绘制两个不同 Transform 的实体。
+- `MeshRendererComponent` 已使用统一的 `AssetHandle`，app/editor 会从项目资产加载 demo mesh/material，并通过该链路绘制实体。
 - Hierarchy、Project 和 Inspector 已共享互斥的 Entity/Asset Selection；Inspector 通过显式组件/属性描述符编辑
   Transform、MeshRenderer 和 Camera，Material 的 Texture 属性在选择变化事件发生时自动保存并替换运行时对象；Viewport 拾取和 gizmo 仍是占位状态。
 - 编辑器中的场景已按 frame slot 渲染到可采样离屏目标，再由 ImGui 显示在单一 Viewport 中；runtime app
   仍直接渲染到 swapchain。Viewport 在 Edit/Play 间切换活动 Scene 和工具状态，独立 editor camera 尚未实现。
 - Play 会从 Edit Scene 创建独立 Runtime Scene，Stop 后丢弃运行时修改并恢复原 Scene；暂停、单帧步进和真正的
   runtime System 更新仍未实现。
-- Texture/Material 已建立 Asset Database、序列化/导入、运行时发布和最小 Inspector 闭环；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，文件监听和通用依赖失效传播仍未建立。
+- Texture/Material/Mesh 已建立 Asset Database、导入/序列化和运行时发布链路；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，文件监听和通用依赖失效传播仍未建立。
 - Scene Update 和 Render Submit 的最小边界已经落地，运行时 System 调度仍未建立。
 
 ## 距离成熟编辑器型引擎的核心缺口
@@ -82,13 +82,13 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 ### 3. 资产系统与导入管线
 
-当前已经建立 `AssetHandle`、相邻 `.meta`、Asset Database，以及 Texture/Material 的同步加载纵向链路；
+当前已经建立 `AssetHandle`、相邻 `.meta`、Asset Database，以及 Texture/Material/Mesh 的同步加载纵向链路；
 Asset Registry 是运行时 Handle 缓存，ResourceManager 不再承担资产身份或缓存职责。距离成熟管线仍缺少：
 
 - `Library/` 导入产物、缓存状态和重新导入。
 - 更通用的递归失效传播和文件监听热重载。
-- Mesh、Shader、Scene 等更多资产类型及其导入/加载策略。
-- 模型导入器，例如 glTF。
+- Shader、Scene 等更多资产类型及其导入/加载策略。
+- glTF 多 mesh 子资产、node transform、material、animation、skin 和 morph target 导入契约。
 - Texture 已支持持久化并在 Asset Inspector 编辑色彩空间和垂直翻转；wrap、filter、mipmap、压缩仍待接入对应运行时链路。
 - Shader include、Mesh/Material 等后续资产类型的依赖追踪和热重载。
 
@@ -1008,9 +1008,9 @@ Project System，Asset Database 只通过该契约定位输入和缓存。
 - [x] Scene、Material 和 `.meta` 复用原子文本替换；Texture/Mesh 的 CPU 创建数据从 Runtime GPU 类头文件中拆分。
 - 在 Asset Database 的 metadata 和导入产物结构稳定后，设计 Shader Importer 的输入、编译结果、缓存键和打包方式；
   当前 CMake 编译链不预设对应的 C++ 类型或落盘格式。
-- Mesh Importer 接入 glTF，至少支持静态网格。
-- Asset Registry/Asset Manager 负责把 `AssetHandle` 解析为资产元数据和导入产物。
-- Asset Registry/Asset Manager 以 `AssetHandle` 为唯一缓存键创建或复用 Runtime Asset；ResourceManager 不承担资产扫描或 Handle 缓存。
+- [x] Mesh Importer 接入 fastgltf，支持 `.gltf`/`.glb` 静态 triangle mesh，并由 app/editor 通过项目 AssetHandle 加载示例 cube。
+- [x] Asset Registry/Asset Manager 负责把 `AssetHandle` 解析为资产元数据和同步导入结果。
+- [x] Asset Registry/Asset Manager 以 `AssetHandle` 为唯一缓存键创建或复用 Runtime Asset；ResourceManager 不承担资产扫描或 Handle 缓存。
 - 完成 GFX-002 后让现有 `Device` 暴露不可变 `CapabilitySet`，统一保存实际启用的 feature/extension、queue family、
   limits 和 format 能力；明确它承担 GraphicsDevice 职责，但不迁入 FrameSlot、资产或 RenderTarget 所有权。
 - 建立最小 `TaskScheduler`/worker pool，将文件读取、纹理解码、mesh 导入和其他纯 CPU 任务移出主线程；worker
@@ -1425,8 +1425,8 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：Mesh/glTF 静态网格纵向链路**。Texture/Material、事务式 Asset Database 快照、依赖索引和
-手动刷新一致性已经完成；现在需要让 app/editor 中手工注册的 cube mesh 也改为由项目 AssetHandle 稳定解析。
+下一步继续 **阶段 3：`Library/` 导入产物与 revision 契约**。Texture/Material/Mesh、事务式 Asset Database 快照、依赖索引和
+手动刷新一致性已经完成；现在需要把“每次直接读取源文件并同步创建 GPU 对象”拆成可缓存、可验证版本的导入结果，再为后台任务和文件监听建立稳定边界。
 
 建议的职责边界：
 
@@ -1461,3 +1461,4 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 9. [x] 扫描以候选快照提交变化集，Project Refresh 同步 Registry/Inspector，发现失败保留上一有效快照。
 10. [x] Scene、Material 和 `.meta` 使用共享原子文本替换，并为 AssetManager 更新/刷新链路补测试。
 11. [x] 删除未接入生产渲染路径的 MaterialConfig/MaterialInstance，拆分 TextureData/MeshData CPU DTO。
+12. [x] 以 submodule 接入 fastgltf/simdjson，完成 `.gltf`/`.glb` 静态 Mesh 导入、失败安全刷新，并让 app/editor 从项目资产加载 cube。

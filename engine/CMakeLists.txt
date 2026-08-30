@@ -10,6 +10,7 @@ set(SOURCES
         src/asset/database.cpp
         src/asset/handle.cpp
         src/asset/import_settings.cpp
+        src/asset/import/mesh_importer.cpp
         src/asset/import/texture_importer.cpp
         src/asset/manager.cpp
         src/asset/material_data.cpp
@@ -78,6 +79,7 @@ target_link_libraries(engine
         EnTT::EnTT
         PRIVATE
         stb_image
+        fastgltf::fastgltf
         yaml-cpp
 )
 target_include_directories(engine

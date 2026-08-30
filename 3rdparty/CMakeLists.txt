@@ -37,6 +37,18 @@ add_subdirectory(VulkanMemoryAllocator EXCLUDE_FROM_ALL)
 # EnTT
 add_subdirectory(entt EXCLUDE_FROM_ALL)
 
+# simdjson (fastgltf dependency)
+set(SIMDJSON_BUILD_STATIC_LIB OFF CACHE BOOL "" FORCE)
+set(SIMDJSON_ENABLE_THREADS ON CACHE BOOL "" FORCE)
+add_subdirectory(simdjson EXCLUDE_FROM_ALL)
+
+# fastgltf
+set(FASTGLTF_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_DOCS OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_COMPILE_AS_CPP20 ON CACHE BOOL "" FORCE)
+add_subdirectory(fastgltf EXCLUDE_FROM_ALL)
+
 if (COMET_BUILD_EDITOR)
     add_subdirectory(imgui EXCLUDE_FROM_ALL)
 endif ()
