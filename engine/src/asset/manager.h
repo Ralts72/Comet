@@ -26,6 +26,9 @@ namespace Comet {
         ~AssetManager();
 
         [[nodiscard]] AssetScanReport scan();
+        [[nodiscard]] AssetScanReport move_asset(
+            AssetHandle handle,
+            const std::filesystem::path& destination);
         void process_completions();
         [[nodiscard]] std::shared_ptr<Mesh> load_mesh(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Texture> load_texture(AssetHandle handle);
