@@ -37,6 +37,20 @@ namespace Comet {
         m_current_slot_ready = true;
     }
 
+    void FrameScheduler::wait_for_all_slots() {
+        if(m_frame_active && !m_submission_recorded) {
+            LOG_FATAL("Cannot wait for all frame slots before the active frame is submitted");
+        }
+        for(uint32_t frame_slot = 0;
+            frame_slot < m_frame_slot_count;
+            ++frame_slot) {
+            wait_for_slot(frame_slot);
+        }
+        if(!m_frame_active) {
+            m_current_slot_ready = true;
+        }
+    }
+
     void FrameScheduler::begin_frame(const uint32_t image_index) {
         if(!m_current_slot_ready || m_frame_active) {
             LOG_FATAL(
@@ -63,6 +77,8 @@ namespace Comet {
         }
 
         m_submission_recorded = true;
+        get_current_frame_slot().last_submission_serial =
+            m_current_frame_serial;
     }
 
     void FrameScheduler::end_frame() {
@@ -73,8 +89,6 @@ namespace Comet {
             LOG_FATAL("Frame submission serial exhausted");
         }
 
-        get_current_frame_slot().last_submission_serial =
-            m_current_frame_serial;
         ++m_current_frame_serial;
         m_current_frame_slot =
             (m_current_frame_slot + 1) % m_frame_slot_count;

@@ -122,4 +122,12 @@ namespace Comet {
         }
         return result;
     }
+
+    void Queue::wait_idle() const {
+        const VkResult result = vkQueueWaitIdle(static_cast<VkQueue>(m_queue));
+        if(result != VK_SUCCESS) {
+            LOG_FATAL("Queue wait idle failed: {}",
+                vk::to_string(static_cast<vk::Result>(result)));
+        }
+    }
 }

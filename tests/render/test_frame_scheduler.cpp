@@ -10,6 +10,7 @@ namespace Comet::Tests {
         template<typename T>
         concept HasFrameLifecycleContract = requires(T& scheduler) {
             scheduler.wait_for_current_slot();
+            scheduler.wait_for_all_slots();
             scheduler.begin_frame(0);
             scheduler.record_submission();
             scheduler.end_frame();

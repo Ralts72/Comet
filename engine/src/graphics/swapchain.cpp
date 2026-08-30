@@ -118,8 +118,6 @@ namespace Comet {
         if(!message.empty()) {
             LOG_WARN("Swapchain selection: {}", message);
         }
-        m_device.wait_idle();
-
         auto candidate = try_create_generation(config);
         if(!candidate) {
             LOG_ERROR("Failed to create swapchain candidate: {}",

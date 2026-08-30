@@ -38,6 +38,7 @@ namespace Comet {
         FrameScheduler& operator=(FrameScheduler&&) noexcept = delete;
 
         void wait_for_current_slot();
+        void wait_for_all_slots();
         void begin_frame(uint32_t image_index);
         void record_submission();
         void end_frame();

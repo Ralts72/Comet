@@ -464,7 +464,9 @@ namespace Comet {
         const SwapchainConfig previous_config =
             swapchain.get_active_generation()->get_config();
 
-        m_context.wait_idle();
+        m_frame_scheduler->wait_for_all_slots();
+        m_context.get_device().get_present_queue(0).wait_idle();
+        m_retirement_queue.collect_completed();
         if(!m_uses_viewport_target) {
             m_render_target.reset();
         }

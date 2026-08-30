@@ -78,6 +78,10 @@ TEST(VulkanRaiiOwnershipTest, ExplicitlyMovableSyncWrappersDoNotCopy) {
     EXPECT_FALSE(std::is_move_assignable_v<Queue>);
 }
 
+TEST(VulkanRaiiOwnershipTest, QueueExposesScopedIdleFallback) {
+    EXPECT_TRUE((std::is_invocable_r_v<void, decltype(&Queue::wait_idle), const Queue&>));
+}
+
 TEST(VulkanRaiiOwnershipTest, SwapchainPublishesSharedGenerationOwnership) {
     EXPECT_TRUE((std::is_same_v<
         decltype(std::declval<const Swapchain&>().get_active_generation()),

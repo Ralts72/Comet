@@ -450,11 +450,11 @@ replace resource R
 
 ### Swapchain Generation 与重建事务
 
-当前 `SceneRenderer::recreate_swapchain()` 仍使用 `Device::wait_idle()` 基线，但已经明确 dependent 生命周期边界：idle 后先释放
-runtime `SwapchainTarget` 和 editor ImGui target，再由 `Swapchain::recreate()` 构建局部 `SwapchainGeneration` 候选。generation 收拢
+当前 `SceneRenderer::recreate_swapchain()` 会等待全部 graphics frame-slot fence，并在没有 present completion 的平台只等待 present queue；
+之后释放 runtime `SwapchainTarget` 和 editor ImGui target，再由 `Swapchain::recreate()` 构建局部 `SwapchainGeneration` 候选。generation 收拢
 handle、borrowed images、config 与 current index，全部就绪才替换 active shared owner；窗口最小化延期或 `vkCreateSwapchainKHR` 失败时
-从仍有效的旧 core 恢复 dependent。父子对象顺序和 core active 字段事务已建立，format compatibility、dependent generation 与 present
-completion 尚未完成。
+从仍有效的旧 core 恢复 dependent。父子对象顺序、core active 字段事务、dependent generation 和 compatibility diff 已建立；runtime
+format-dependent Pipeline generation 仍未完成。
 
 目标结构按代际管理：
 
@@ -1186,7 +1186,7 @@ Scene Component / RenderItem
   失效；editor 按 diff 精确重建 backend。
 - 将 swapchain 重建改为 prepare/create/commit/retire generation 流程。engine core、runtime present target 和 editor ImGui
   dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
-- old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
+- [x] old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
   present-queue idle 回退，不用不相关的全局 Device idle 代替依赖判断。
 - [x] 为超大 View 增加设备硬上限与 editor 软上限约束，等比限制最终物理分辨率，避免无上限重建离屏资源。
 
@@ -1484,9 +1484,8 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **swapchain retirement**：记录最后一次使用旧 generation 的 graphics completion，并为 presentation completion 不可用的平台
-使用最窄的 present-queue idle 回退；随后移除 swapchain 正常重建路径中的全 Device idle。先不把 shutdown 和 device-lost 回退中的 idle
-机械删除。
+下一步做一次 **阶段 4B 完成审计**：核对离屏/swapchain generation、compatibility、失败状态和等待范围，清理过渡期重复接口，并决定
+runtime format-dependent Pipeline generation 是进入阶段 4C 前补齐，还是归入后续渲染管线阶段。审计后再进入 Viewport 坐标映射与输入闭环。
 
 建议的职责边界：
 
@@ -1569,6 +1568,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 57. [x] 完成 swapchain generation 边界审计并先修 parent/dependent 顺序：SceneRenderer 在 core 重建前释放 runtime/ImGui target，成功或延期后重建；Editor shutdown 主动解绑回调。
 58. [x] 建立 SwapchainGeneration core 候选事务：handle/images/config/current index 不再分散覆盖 active 字段，vkCreate 失败保留旧 generation；新 handle 成功后的 image 查询失败明确为不可回滚 fatal 状态。
 59. [x] 建立 swapchain dependent generation 共享与 compatibility diff：SwapchainTarget 持有 core shared owner，editor 对 extent/format/image-count 精确失效，runtime format 变化在 pipeline generation 完成前明确拒绝。
+60. [x] 将 swapchain 正常重建从 Device idle 收窄为全部 graphics frame-slot fence + present-queue idle 回退；submission serial 在 record 时绑定 slot，确保 active-frame 重建等待能推进真实完成状态。
 
 格式所有权后续需求：
 
