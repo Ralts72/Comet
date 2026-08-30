@@ -14,7 +14,6 @@ namespace Comet::Tests {
 
         EXPECT_FALSE(submission.view_project_matrix);
         EXPECT_TRUE(submission.render_items.empty());
-        EXPECT_TRUE(submission.resource_waits.empty());
     }
 
     TEST(SceneResolverTest, SkipsItemsWithMissingResources) {
@@ -32,7 +31,6 @@ namespace Comet::Tests {
             render_scene, Math::Vec2u(1280, 720));
 
         EXPECT_TRUE(submission.render_items.empty());
-        EXPECT_TRUE(submission.resource_waits.empty());
     }
 
     TEST(SceneResolverTest, BuildsViewProjectionFromPrimaryCamera) {

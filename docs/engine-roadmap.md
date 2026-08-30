@@ -359,9 +359,9 @@ ready token，避免以后只能通过 CPU wait 才能接入异步资源。
 立即把 CPU 数据复制到可复用 staging page 的子分配范围并录制 batch，`flush_batch()` 返回 `GpuCompletionPoint`；
 pending batch 独占所用 page、CommandContext 和目标资源直到 completion，随后整页回池。同步 ResourceManager 通过
 每帧 collection 回收已完成 batch；Mesh/Texture 创建不再 CPU wait，而是保存 ready completion 后立即返回，一个 Mesh
-的 vertex/index copy 已合并为一次 submission。SceneResolver 会汇总实际消费资源的 ready completion，SceneRenderer
-按 timeline semaphore 合并等待值和 stage，在 frame submission 建立 VertexInput/FragmentShader wait。跨资产批量和
-更细粒度 ring 回收仍待实现。
+的 vertex/index copy 已合并为一次 submission。SceneRenderer 从实际 draw 资源汇总 ready completion，按 timeline
+semaphore 合并等待值和 stage，在 frame submission 建立 VertexInput/FragmentShader wait；完成查询在去重后每个
+timeline 只执行一次。跨资产批量和更细粒度 ring 回收仍待实现。
 
 #### Descriptor System
 
@@ -1505,7 +1505,8 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 20. [x] 建立 ResourceManager 独占的最小 UploadManager，分离目标 allocation 与内容上传，统一 staging/copy/Barrier2/completion 生命周期，并把 Mesh vertex/index 合并为一次提交。
 21. [x] 将 staging 演进为默认 4 MiB 的可复用 page：同一 batch 线性子分配，超大上传按需扩页，timeline completion 后整页回池。
 22. [x] 让 Runtime Mesh/Texture 保存上传 completion 并在提交上传后立即返回；ResourceManager 每帧回收已完成 batch，取消资源创建路径的 CPU wait。
-23. [x] 将 Mesh/Texture ready completion 汇总为 RenderSubmission 前置条件，并在 frame submit 按 timeline 去重、合并最大 value，在 VertexInput/FragmentShader stage 等待。
+23. [x] 将 Mesh/Texture ready completion 汇总为 frame submission 前置条件，并按 timeline 去重、合并最大 value，在 VertexInput/FragmentShader stage 等待。
+24. [x] 完成上传/ready 子阶段架构复盘：把 stage 与 Queue wait 编译从 SceneResolver 收回 SceneRenderer，并将 timeline 完成查询移到去重之后。
 
 格式所有权后续需求：
 

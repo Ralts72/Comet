@@ -117,8 +117,8 @@ RenderGraph 复用。CommandBuffer 的显式 image/buffer transition 已使用 `
 ResourceManager 独占 UploadManager，Buffer/Image allocation 与内容上传分离；上传数据在可复用 staging page 内按偏移
 子分配，pending batch 在 timeline completion 前独占对应 page、CommandContext 和目标资源，完成后整页回池；一个 Mesh
 的 vertex/index copy 会合并为一次 Queue submission。Runtime Mesh/Texture 创建不再执行 CPU wait，而是保存对应
-`GpuCompletionPoint`；SceneResolver 将本帧实际使用资源的 completion 转成类型化 RenderResourceWait，SceneRenderer
-按 semaphore 去重并在 VertexInput/FragmentShader stage 加入 frame submission。
+`GpuCompletionPoint`；SceneRenderer 从实际 draw 资源生成 Queue wait，按 timeline 去重、合并最大值并在
+VertexInput/FragmentShader stage 加入 frame submission。
 Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability

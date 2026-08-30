@@ -25,8 +25,22 @@ namespace Comet::Tests {
         template<typename T>
         concept SubmitsResourceWaits = requires(
             T& renderer,
-            std::span<const RenderResourceWait> waits) {
+            std::span<const QueueSemaphoreSubmit> waits) {
             renderer.end_frame(waits);
+        };
+
+        template<typename T>
+        concept BuildsResourceWaits = requires(
+            T& renderer,
+            const RenderSubmission& submission) {
+            {
+                renderer.render(submission)
+            } -> std::same_as<std::vector<QueueSemaphoreSubmit>>;
+        };
+
+        template<typename T>
+        concept StoresResourceWaits = requires(T& submission) {
+            submission.resource_waits;
         };
     }
 
@@ -35,19 +49,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(ExposesReadyCompletion<Texture>);
         EXPECT_TRUE(CollectsCompletedUploads<ResourceManager>);
         EXPECT_TRUE(SubmitsResourceWaits<SceneRenderer>);
-    }
-
-    TEST(ResourceReadinessTest, RenderSubmissionCarriesTypedWaits) {
-        RenderSubmission submission;
-        submission.resource_waits.push_back({
-            .completion = {},
-            .stages = Flags<PipelineStage>(PipelineStage::VertexInput)
-        });
-
-        ASSERT_EQ(submission.resource_waits.size(), 1U);
-        EXPECT_FALSE(submission.resource_waits.front().completion.is_valid());
-        EXPECT_EQ(
-            submission.resource_waits.front().stages,
-            PipelineStage::VertexInput);
+        EXPECT_TRUE(BuildsResourceWaits<SceneRenderer>);
+        EXPECT_FALSE(StoresResourceWaits<RenderSubmission>);
     }
 }
