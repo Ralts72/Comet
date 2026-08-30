@@ -6,7 +6,7 @@
 
 - Edit 使用 editor-only camera；
 - Play 使用 Runtime Scene primary camera；
-- 请求显式携带 Viewport 可见性、目标尺寸、Camera 来源和输入许可；
+- 请求显式携带 Viewport 可见性、目标尺寸和 Camera 来源；
 - SceneRenderer 不读取 EditorMode、ImGui focus 或 EditorState。
 
 本步不实现相机鼠标操控、正交 2D、固定分辨率、多 Viewport 或游戏 Input System，只先建立这些能力必须依赖的稳定边界。
@@ -15,7 +15,7 @@
 
 ```text
 ViewPanel（上一帧 UI 测量）
-  -> visible / content size / image focus
+  -> visible / content size
 
 EditorState
   -> Edit: EditorCameraState snapshot
@@ -67,7 +67,7 @@ SceneRenderer
 
 ## 相机选择契约
 
-SceneResolver 保留原有 `resolve(RenderScene, size)` 兼容入口，并新增消费完整请求的入口：
+SceneResolver 消费完整请求：
 
 - `ScenePrimary` 延续原规则：选择 EntityId 最小的 primary camera，多主相机仅记录一次诊断；
 - `Explicit` 必须携带 explicit_camera；缺失时只清屏并诊断，不回退 Scene primary；
@@ -76,29 +76,20 @@ SceneResolver 保留原有 `resolve(RenderScene, size)` 兼容入口，并新增
 
 禁止显式相机缺失时回退很重要：回退会掩盖 Edit 编排错误，并可能让用户以为移动 editor camera 修改了 Scene Camera。
 
-## 输入与可见性
+## 可见性与输入边界
 
-ViewPanel 每帧开始先清空实际可见性、尺寸和输入状态。只有窗口未折叠且已经绘制 Image/占位 item 后才记录：
+ViewPanel 每帧开始先清空实际可见性和尺寸；隐藏/折叠请求不会调用 resize。现阶段仍可继续渲染已有离屏目标，彻底跳过隐藏
+Viewport 的场景 pass 留到多视图/RenderGraph 调度具备明确语义时处理。
 
-```text
-input_active = window focused && image item hovered
-```
-
-Request 的输入策略为：
-
-- 不可见或画面未获得焦点：`Disabled`；
-- Edit 且画面 active：`EditorCamera`；
-- Play 且画面 active：`RuntimeScene`。
-
-当前 Input System 尚未建立，因此该字段先定义允许谁消费输入的契约，不在 Renderer 内读取 GLFW。未来转发必须消费这一许可，不能只看
-EditorMode。隐藏/折叠请求不会调用 resize；现阶段仍可继续渲染已有离屏目标，彻底跳过隐藏 Viewport 的场景 pass 留到多视图/RenderGraph
-调度具备明确语义时处理。
+阶段切换复盘删除了最初加入的 `ViewportInputPolicy`：Renderer 和 SceneResolver 都没有输入消费者，让渲染请求携带未消费的 Editor
+策略会形成错误依赖。输入焦点应在 editor camera controller 或未来 Runtime Input System 真正接入时，由 ViewPanel 的 image display
+rect、hover/focus 与模式共同决定；届时该策略属于交互路由，不属于 SceneRenderer。
 
 ## 验证
 
-- `ViewportRenderRequestTest.EditModeUsesEditorOnlyCamera`：Edit 生成显式相机与 editor input policy；
+- `ViewportRenderRequestTest.EditModeUsesEditorOnlyCamera`：Edit 生成显式相机；
 - `PlayModeUsesRuntimeSceneCamera`：Play 不携带 editor camera；
-- `HiddenViewportDisablesInput` 与 `UnfocusedViewportDisablesInputOnly`：可见性、Camera 来源与输入许可彼此不混淆；
+- `HiddenViewportPreservesCameraChoice`：可见性与 Camera 来源彼此不混淆；
 - `SceneResolverTest.ExplicitViewportCameraOverridesScenePrimary`：显式相机覆盖 Scene primary 并使用实际 aspect；
 - `MissingExplicitCameraDoesNotFallBackToScene`：编排错误不会静默回退；
 - 完整 Debug 构建与 CTest。

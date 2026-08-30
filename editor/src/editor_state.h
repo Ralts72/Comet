@@ -35,19 +35,13 @@ namespace CometEditor {
     make_viewport_render_request(
         const EditorState& state,
         const bool visible,
-        const bool input_active,
         const Comet::Math::Vec2u render_size) {
         Comet::ViewportRenderRequest request{
             .visible = visible,
             .render_size = render_size,
             .camera_source = state.mode == EditorMode::Edit
                 ? Comet::ViewportCameraSource::Explicit
-                : Comet::ViewportCameraSource::ScenePrimary,
-            .input_policy = !visible || !input_active
-                ? Comet::ViewportInputPolicy::Disabled
-                : state.mode == EditorMode::Edit
-                    ? Comet::ViewportInputPolicy::EditorCamera
-                    : Comet::ViewportInputPolicy::RuntimeScene
+                : Comet::ViewportCameraSource::ScenePrimary
         };
         if(state.mode == EditorMode::Edit) {
             request.explicit_camera = state.camera.snapshot();

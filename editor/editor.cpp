@@ -139,8 +139,9 @@ namespace {
                 engine.get_asset_registry(),
                 engine.get_resource_manager(),
                 engine.get_task_scheduler());
-            m_asset_scan_report = m_asset_manager->scan();
-            log_asset_scan_issues(m_asset_scan_report);
+            Comet::AssetScanReport initial_asset_scan =
+                m_asset_manager->scan();
+            log_asset_scan_issues(initial_asset_scan);
             m_asset_source_monitor =
                     std::make_unique<Comet::AssetSourceMonitor>(
                         m_project_paths.assets());
@@ -162,7 +163,7 @@ namespace {
                 });
             auto& scene = *engine.get_scene();
             m_selection.emplace(scene);
-            setup_panels(scene);
+            setup_panels(scene, std::move(initial_asset_scan));
 
             m_imgui_context->set_viewport_images(
                 scene_renderer.get_viewport_color_views(),
@@ -201,7 +202,6 @@ namespace {
                 CometEditor::make_viewport_render_request(
                     m_editor_state,
                     m_viewport_panel->is_visible(),
-                    m_viewport_panel->is_input_active(),
                     m_viewport_panel->get_viewport_size()));
         }
 
@@ -281,7 +281,6 @@ namespace {
             }
             acknowledge_generated_metadata(report);
             log_asset_scan_issues(report);
-            m_asset_scan_report = report;
             return report;
         }
 
@@ -322,7 +321,6 @@ namespace {
                     new_path.generic_string());
             }
             log_asset_scan_issues(report);
-            m_asset_scan_report = report;
             return report;
         }
 
@@ -572,7 +570,9 @@ namespace {
             Comet::Logger::add_custom_sink(gui_sink);
         }
 
-        void setup_panels(Comet::Scene& scene) {
+        void setup_panels(
+            Comet::Scene& scene,
+            Comet::AssetScanReport initial_asset_scan) {
             // 创建菜单栏
             m_menu_bar = std::make_unique<CometEditor::MenuBar>(m_editor_state);
             m_menu_bar->set_file_command_callback(
@@ -606,7 +606,7 @@ namespace {
                 });
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(
                 m_asset_manager->get_database(),
-                m_asset_scan_report,
+                std::move(initial_asset_scan),
                 [this]() {
                     return refresh_project_assets(false);
                 },
@@ -655,7 +655,6 @@ namespace {
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
         std::unique_ptr<Comet::AssetSourceMonitor> m_asset_source_monitor;
         std::string m_asset_source_monitor_error;
-        Comet::AssetScanReport m_asset_scan_report;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry =
                 Comet::create_scene_component_registry();

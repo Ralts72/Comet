@@ -10,16 +10,13 @@ namespace CometEditor::Tests {
 
         const Comet::ViewportRenderRequest request =
             make_viewport_render_request(
-                state, true, true, Comet::Math::Vec2u(1280, 720));
+                state, true, Comet::Math::Vec2u(1280, 720));
 
         EXPECT_TRUE(request.visible);
         EXPECT_EQ(request.render_size, Comet::Math::Vec2u(1280, 720));
         EXPECT_EQ(
             request.camera_source,
             Comet::ViewportCameraSource::Explicit);
-        EXPECT_EQ(
-            request.input_policy,
-            Comet::ViewportInputPolicy::EditorCamera);
         ASSERT_TRUE(request.explicit_camera);
         EXPECT_TRUE(Comet::Tests::TestUtils::Mat4Equal(
             request.explicit_camera->view_matrix,
@@ -35,44 +32,25 @@ namespace CometEditor::Tests {
 
         const Comet::ViewportRenderRequest request =
             make_viewport_render_request(
-                state, true, true, Comet::Math::Vec2u(1920, 1080));
+                state, true, Comet::Math::Vec2u(1920, 1080));
 
         EXPECT_EQ(
             request.camera_source,
             Comet::ViewportCameraSource::ScenePrimary);
-        EXPECT_EQ(
-            request.input_policy,
-            Comet::ViewportInputPolicy::RuntimeScene);
         EXPECT_FALSE(request.explicit_camera);
     }
 
-    TEST(ViewportRenderRequestTest, HiddenViewportDisablesInput) {
+    TEST(ViewportRenderRequestTest, HiddenViewportPreservesCameraChoice) {
         EditorState state;
 
         const Comet::ViewportRenderRequest request =
             make_viewport_render_request(
-                state, false, false, Comet::Math::Vec2u(0));
+                state, false, Comet::Math::Vec2u(0));
 
         EXPECT_FALSE(request.visible);
-        EXPECT_EQ(
-            request.input_policy,
-            Comet::ViewportInputPolicy::Disabled);
-    }
-
-    TEST(ViewportRenderRequestTest, UnfocusedViewportDisablesInputOnly) {
-        EditorState state;
-
-        const Comet::ViewportRenderRequest request =
-            make_viewport_render_request(
-                state, true, false, Comet::Math::Vec2u(1280, 720));
-
-        EXPECT_TRUE(request.visible);
         EXPECT_EQ(
             request.camera_source,
             Comet::ViewportCameraSource::Explicit);
         EXPECT_TRUE(request.explicit_camera);
-        EXPECT_EQ(
-            request.input_policy,
-            Comet::ViewportInputPolicy::Disabled);
     }
 }

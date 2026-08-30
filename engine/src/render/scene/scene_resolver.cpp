@@ -14,13 +14,6 @@ namespace Comet {
         : m_asset_registry(asset_registry) {}
 
     RenderSubmission SceneResolver::resolve(
-        const RenderScene& render_scene, const Math::Vec2u render_size) {
-        return resolve(render_scene, ViewportRenderRequest{
-            .render_size = render_size
-        });
-    }
-
-    RenderSubmission SceneResolver::resolve(
         const RenderScene& render_scene,
         const ViewportRenderRequest& request) {
         RenderSubmission submission;

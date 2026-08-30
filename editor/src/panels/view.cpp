@@ -9,7 +9,6 @@ namespace CometEditor {
     void ViewPanel::render() {
         m_actually_visible = false;
         m_viewport_size = Comet::Math::Vec2u(0);
-        m_input_active = false;
 
         if(!m_user_visible) {
             return;
@@ -73,8 +72,6 @@ namespace CometEditor {
         } else {
             ImGui::InvisibleButton("View", viewport_size);
         }
-        m_input_active = ImGui::IsWindowFocused()
-            && ImGui::IsItemHovered();
     }
 
     void ViewPanel::set_texture_id(const ImTextureID texture_id, const std::uint32_t width, const std::uint32_t height) {

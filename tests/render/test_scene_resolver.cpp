@@ -5,12 +5,18 @@
 #include "../test_utils.h"
 
 namespace Comet::Tests {
+    namespace {
+        ViewportRenderRequest runtime_view(const Math::Vec2u size) {
+            return ViewportRenderRequest{.render_size = size};
+        }
+    }
+
     TEST(SceneResolverTest, EmptySceneProducesEmptySubmission) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);
 
         const RenderSubmission submission = resolver.resolve(
-            RenderScene{}, Math::Vec2u(1280, 720));
+            RenderScene{}, runtime_view(Math::Vec2u(1280, 720)));
 
         EXPECT_FALSE(submission.view_project_matrix);
         EXPECT_TRUE(submission.render_items.empty());
@@ -28,7 +34,7 @@ namespace Comet::Tests {
         });
 
         const RenderSubmission submission = resolver.resolve(
-            render_scene, Math::Vec2u(1280, 720));
+            render_scene, runtime_view(Math::Vec2u(1280, 720)));
 
         EXPECT_TRUE(submission.render_items.empty());
     }
@@ -49,7 +55,7 @@ namespace Comet::Tests {
         });
 
         const RenderSubmission submission = resolver.resolve(
-            render_scene, Math::Vec2u(1600, 900));
+            render_scene, runtime_view(Math::Vec2u(1600, 900)));
 
         ASSERT_TRUE(submission.view_project_matrix);
         EXPECT_TRUE(TestUtils::Mat4Equal(
@@ -132,7 +138,7 @@ namespace Comet::Tests {
         });
 
         const RenderSubmission submission = resolver.resolve(
-            render_scene, Math::Vec2u(1280, 720));
+            render_scene, runtime_view(Math::Vec2u(1280, 720)));
 
         ASSERT_TRUE(submission.view_project_matrix);
         EXPECT_TRUE(TestUtils::Mat4Equal(
@@ -150,18 +156,22 @@ namespace Comet::Tests {
         });
 
         EXPECT_FALSE(resolver.resolve(
-            render_scene, Math::Vec2u(1280, 720)).view_project_matrix);
+            render_scene,
+            runtime_view(Math::Vec2u(1280, 720))).view_project_matrix);
 
         render_scene.cameras.front().fov_degrees = 45.0f;
         render_scene.cameras.front().near_clip = 1.0f;
         render_scene.cameras.front().far_clip = 0.5f;
         EXPECT_FALSE(resolver.resolve(
-            render_scene, Math::Vec2u(1280, 720)).view_project_matrix);
+            render_scene,
+            runtime_view(Math::Vec2u(1280, 720))).view_project_matrix);
 
         render_scene.cameras.front().far_clip = 100.0f;
         EXPECT_FALSE(resolver.resolve(
-            render_scene, Math::Vec2u(0, 720)).view_project_matrix);
+            render_scene,
+            runtime_view(Math::Vec2u(0, 720))).view_project_matrix);
         EXPECT_TRUE(resolver.resolve(
-            render_scene, Math::Vec2u(1280, 720)).view_project_matrix);
+            render_scene,
+            runtime_view(Math::Vec2u(1280, 720))).view_project_matrix);
     }
 }

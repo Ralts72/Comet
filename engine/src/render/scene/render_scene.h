@@ -34,19 +34,11 @@ namespace Comet {
         Explicit
     };
 
-    enum class ViewportInputPolicy {
-        Disabled,
-        EditorCamera,
-        RuntimeScene
-    };
-
     struct ViewportRenderRequest {
         bool visible = true;
         Math::Vec2u render_size{};
         ViewportCameraSource camera_source =
             ViewportCameraSource::ScenePrimary;
-        ViewportInputPolicy input_policy =
-            ViewportInputPolicy::RuntimeScene;
         std::optional<RenderCamera> explicit_camera;
     };
 }

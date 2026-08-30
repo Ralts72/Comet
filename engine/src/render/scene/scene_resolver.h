@@ -16,9 +16,6 @@ namespace Comet {
         explicit SceneResolver(const AssetRegistry& asset_registry);
 
         [[nodiscard]] RenderSubmission resolve(
-            const RenderScene& render_scene, Math::Vec2u render_size);
-
-        [[nodiscard]] RenderSubmission resolve(
             const RenderScene& render_scene,
             const ViewportRenderRequest& request);
 

@@ -29,10 +29,6 @@ namespace CometEditor {
             return m_viewport_size;
         }
 
-        [[nodiscard]] bool is_input_active() const {
-            return m_input_active;
-        }
-
     private:
         void render_view_content();
 
@@ -43,6 +39,5 @@ namespace CometEditor {
         std::uint32_t m_texture_width = 0;
         std::uint32_t m_texture_height = 0;
         Comet::Math::Vec2u m_viewport_size = Comet::Math::Vec2u(0);
-        bool m_input_active = false;
     };
 }
