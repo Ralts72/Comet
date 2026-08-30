@@ -326,7 +326,7 @@ namespace Comet::Tests {
             (std::vector{AssetHandle(100)}));
     }
 
-    TEST(AssetDatabaseTest, ReportsDuplicateGuidAndKeepsDeterministicFirstAsset) {
+    TEST(AssetDatabaseTest, RejectsAmbiguousDuplicateGuidSnapshot) {
         const TemporaryProject project;
         const std::filesystem::path first = project.add_file("a.png");
         const std::filesystem::path second = project.add_file("b.png");
@@ -343,9 +343,87 @@ namespace Comet::Tests {
         const AssetScanReport report = database.scan();
 
         EXPECT_FALSE(report.succeeded());
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_TRUE(has_issue_containing(report, "duplicate guid 42"));
+        EXPECT_EQ(database.size(), 0u);
+    }
+
+    TEST(AssetDatabaseTest, KeepsPreviousSnapshotWhenDuplicateGuidAppears) {
+        const TemporaryProject project;
+        const std::filesystem::path first = project.add_file("a.png");
+        AssetMetadataSerializer{}.save({
+            .handle = AssetHandle(42),
+            .type = AssetType::Texture,
+            .import_settings = TextureImportSettings{}
+        }, metadata_path(first));
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().snapshot_updated);
+        const AssetRevision revision =
+                database.get_revision(AssetHandle(42));
+
+        const std::filesystem::path duplicate = project.add_file("b.png");
+        AssetMetadataSerializer{}.save({
+            .handle = AssetHandle(42),
+            .type = AssetType::Texture,
+            .import_settings = TextureImportSettings{}
+        }, metadata_path(duplicate));
+
+        const AssetScanReport report = database.scan();
+
+        EXPECT_FALSE(report.snapshot_updated);
         EXPECT_TRUE(has_issue_containing(report, "duplicate guid 42"));
         ASSERT_EQ(database.size(), 1u);
         EXPECT_EQ(database.find(AssetHandle(42))->path, "a.png");
+        EXPECT_EQ(database.get_revision(AssetHandle(42)), revision);
+    }
+
+    TEST(AssetDatabaseTest, RetainsExistingAssetWhenMetadataIsMalformed) {
+        const TemporaryProject project;
+        const std::filesystem::path source = project.add_file("texture.png");
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().snapshot_updated);
+        const AssetHandle handle = database.find("texture.png")->handle;
+        const AssetRecord original = *database.find(handle);
+        const AssetRevision revision = database.get_revision(handle);
+
+        std::ofstream(metadata_path(source), std::ios::trunc)
+            << "version: invalid\n";
+        const AssetScanReport report = database.scan();
+
+        EXPECT_TRUE(report.snapshot_updated);
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_TRUE(has_issue_containing(report, "Invalid asset metadata"));
+        EXPECT_TRUE(report.removed_assets.empty());
+        EXPECT_TRUE(report.modified_assets.empty());
+        ASSERT_NE(database.find(handle), nullptr);
+        EXPECT_EQ(*database.find(handle), original);
+        EXPECT_EQ(database.get_revision(handle), revision);
+    }
+
+    TEST(AssetDatabaseTest, RetainsExistingAssetWhenMetadataTypeIsInvalid) {
+        const TemporaryProject project;
+        const std::filesystem::path source = project.add_file("texture.png");
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().snapshot_updated);
+        const AssetHandle handle = database.find("texture.png")->handle;
+        const AssetRecord original = *database.find(handle);
+        const AssetRevision revision = database.get_revision(handle);
+        AssetMetadataSerializer{}.save({
+            .handle = handle,
+            .type = AssetType::Material
+        }, metadata_path(source));
+
+        const AssetScanReport report = database.scan();
+
+        EXPECT_TRUE(report.snapshot_updated);
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_TRUE(has_issue_containing(
+            report, "does not match source type 'texture'"));
+        EXPECT_TRUE(report.removed_assets.empty());
+        EXPECT_TRUE(report.modified_assets.empty());
+        ASSERT_NE(database.find(handle), nullptr);
+        EXPECT_EQ(*database.find(handle), original);
+        EXPECT_EQ(database.get_revision(handle), revision);
     }
 
     TEST(AssetDatabaseTest, ReportsInvalidAssetsWithoutDroppingValidOnes) {

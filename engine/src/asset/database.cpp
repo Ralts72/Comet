@@ -327,7 +327,23 @@ namespace Comet {
 
         const AssetMetadataSerializer serializer;
         std::vector<AssetCandidate> candidates;
+        std::vector<AssetRecord> retained_records;
         candidates.reserve(source_files.size());
+        retained_records.reserve(source_files.size());
+        const auto retain_previous_record = [
+            this,
+            &retained_records
+        ](const std::filesystem::path& relative_path) {
+            const auto previous_handle =
+                m_handles_by_path.find(relative_path);
+            if(previous_handle == m_handles_by_path.end()) {
+                return;
+            }
+            const auto previous = m_assets.find(previous_handle->second);
+            if(previous != m_assets.end()) {
+                retained_records.push_back(previous->second);
+            }
+        };
         for(const std::filesystem::path& source: source_files) {
             const std::filesystem::path relative =
                 source.lexically_relative(assets_root).lexically_normal();
@@ -357,6 +373,7 @@ namespace Comet {
                         report,
                         sidecar->second.lexically_relative(assets_root),
                         exception.what());
+                    retain_previous_record(relative);
                     continue;
                 }
 
@@ -368,6 +385,7 @@ namespace Comet {
                         + std::string(to_string(candidate.metadata->type))
                         + "' does not match source type '"
                         + std::string(to_string(candidate.expected_type)) + "'");
+                    retain_previous_record(relative);
                     continue;
                 }
             }
@@ -375,6 +393,7 @@ namespace Comet {
         }
 
         std::unordered_map<AssetHandle, std::filesystem::path> known_handles;
+        bool identity_conflict = false;
         for(const AssetCandidate& candidate: candidates) {
             if(!candidate.metadata) {
                 continue;
@@ -389,6 +408,7 @@ namespace Comet {
                     candidate.relative_path,
                     "duplicate guid " + std::to_string(handle.value())
                     + "; already used by '" + path_text(existing->second) + "'");
+                identity_conflict = true;
                 continue;
             }
 
@@ -402,6 +422,30 @@ namespace Comet {
             handles_by_path.emplace(record.path, handle);
         }
 
+        std::unordered_set<AssetHandle> retained_handles;
+        retained_handles.reserve(retained_records.size());
+        for(const AssetRecord& record: retained_records) {
+            const auto [existing, inserted] = known_handles.emplace(
+                record.handle, record.path);
+            if(!inserted && existing->second != record.path) {
+                add_issue(
+                    report,
+                    record.path,
+                    "duplicate guid " + std::to_string(record.handle.value())
+                    + "; already used by '" + path_text(existing->second) + "'");
+                identity_conflict = true;
+                continue;
+            }
+
+            assets.emplace(record.handle, record);
+            handles_by_path.emplace(record.path, record.handle);
+            retained_handles.insert(record.handle);
+        }
+
+        if(identity_conflict) {
+            return report;
+        }
+
         for(AssetCandidate& candidate: candidates) {
             if(candidate.metadata) {
                 continue;
@@ -410,7 +454,7 @@ namespace Comet {
             AssetHandle handle;
             do {
                 handle = AssetHandle::generate();
-            } while(known_handles.contains(handle));
+            } while(known_handles.contains(handle) || m_assets.contains(handle));
 
             const AssetMetadata metadata{
                 .handle = handle,
@@ -453,13 +497,15 @@ namespace Comet {
 
         const MaterialSerializer material_serializer;
         for(AssetRecord* material_record: material_records) {
-            try {
-                const MaterialData data = material_serializer.load(
-                    assets_root / material_record->path);
-                material_record->dependencies = get_asset_dependencies(data);
-            } catch(const std::exception& exception) {
-                add_issue(report, material_record->path, exception.what());
-                continue;
+            if(!retained_handles.contains(material_record->handle)) {
+                try {
+                    const MaterialData data = material_serializer.load(
+                        assets_root / material_record->path);
+                    material_record->dependencies = get_asset_dependencies(data);
+                } catch(const std::exception& exception) {
+                    add_issue(report, material_record->path, exception.what());
+                    continue;
+                }
             }
 
             add_dependency_issues(report, *material_record, assets);
@@ -491,6 +537,13 @@ namespace Comet {
         asset_source_signatures.reserve(assets.size());
         asset_revisions.reserve(assets.size());
         for(const auto& [handle, record]: assets) {
+            if(retained_handles.contains(handle)) {
+                const auto previous = m_asset_source_signatures.find(handle);
+                if(previous != m_asset_source_signatures.end()) {
+                    asset_source_signatures.emplace(handle, previous->second);
+                    continue;
+                }
+            }
             asset_source_signatures.emplace(
                 handle,
                 asset_source_signature(
@@ -507,6 +560,16 @@ namespace Comet {
                 report.added_assets.push_back(handle);
                 asset_revisions.emplace(handle, issue_revision());
                 continue;
+            }
+
+            if(retained_handles.contains(handle)) {
+                const auto previous_revision =
+                    m_asset_revisions.find(handle);
+                if(previous_revision != m_asset_revisions.end()) {
+                    asset_revisions.emplace(
+                        handle, previous_revision->second);
+                    continue;
+                }
             }
 
             const auto previous_signature =

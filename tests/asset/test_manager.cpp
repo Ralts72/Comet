@@ -786,6 +786,34 @@ namespace Comet::Tests {
         ASSERT_NE(manager.get_database().find(handle), nullptr);
     }
 
+    TEST(AssetManagerTest, KeepsRuntimeAssetWhenMetadataIsMalformed) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path texture_path = project.add_texture(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const std::shared_ptr<Texture> original = manager.load_texture(handle);
+        ASSERT_NE(original, nullptr);
+        const AssetRevision revision =
+                manager.get_database().get_revision(handle);
+        std::ofstream(metadata_path(texture_path), std::ios::trunc)
+            << "version: invalid\n";
+
+        const AssetScanReport refresh = manager.scan();
+
+        EXPECT_TRUE(refresh.snapshot_updated);
+        EXPECT_FALSE(refresh.succeeded());
+        EXPECT_TRUE(refresh.removed_assets.empty());
+        EXPECT_TRUE(refresh.modified_assets.empty());
+        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_EQ(manager.get_database().get_revision(handle), revision);
+    }
+
     TEST(AssetManagerTest, RejectsInvalidMaterialBeforeUpdatingFileAndRuntime) {
         const TemporaryProject project;
         constexpr AssetHandle handle(42);

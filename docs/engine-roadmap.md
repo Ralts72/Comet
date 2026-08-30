@@ -1473,10 +1473,10 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：metadata 失败安全扫描**。资产管线复盘确认 monitor、数据库签名、revision、任务占位和导入缓存分别
-承担不同职责，但发现已有资产的 `.meta` 暂时损坏或类型不匹配时，当前候选快照会把它当作 removed 并卸载上一份 Runtime
-Resource。下一步区分真实删除与无效 sidecar：已有资产保留上一份有效记录/revision/依赖并报告问题，新资产只报告问题，重复
-GUID 等身份歧义不得按遍历顺序任意提交。
+下一步继续 **阶段 3：Material 依赖的失败安全扫描**。metadata 已能在 sidecar 暂时无效时合并上一份有效记录，重复 GUID 也会
+拒绝有歧义的整次快照；但 `.mat` 内容解析失败时，旧 Runtime Material 虽然保留，数据库候选中的 Texture Handle 依赖会变空，
+后续 Texture 刷新无法继续传播到它。下一步保留上一份有效 Material 依赖，同时让 Material 自身文件变化继续推进 revision、
+触发重载尝试并报告错误。
 
 建议的职责边界：
 
@@ -1544,6 +1544,7 @@ GUID 等身份歧义不得按遍历顺序任意提交。
 42. [x] 将已加载 Texture 的扫描刷新迁到 TaskScheduler：泛化 pending/scheduled task 状态，Worker 只解码 TextureData，Owner Thread 双重 revision 验票、可恢复 GPU 创建并替换 Registry，失败保留旧 Texture。
 43. [x] 建立 Editor 资产源自动监视入口：500ms 时间门控只在文件快照变化时触发既有 scan，失败保留上一基线，已知 Editor 写入按路径确认，Project/Inspector 在 Owner Thread 更新。
 44. [x] 完成资产管线阶段性架构复盘：确认 monitor/database/cache/revision/task 状态各自职责，修复索引类型变化后 Registry 仍保留旧 C++ 类型的问题，并确定 metadata 失败安全为下一优先级。
+45. [x] 让 metadata 扫描失败安全：已有路径的无效 sidecar 合并上一份 AssetRecord/signature/revision/依赖，新资产只报告问题；重复 GUID 拒绝整次有歧义快照，不再按路径选择身份所有者。
 
 格式所有权后续需求：
 
