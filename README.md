@@ -118,7 +118,8 @@ ResourceManager 独占 UploadManager，Buffer/Image allocation 与内容上传�
 子分配，pending batch 在 timeline completion 前独占对应 page、CommandContext 和目标资源，完成后整页回池；一个 Mesh
 的 vertex/index copy 会合并为一次 Queue submission。Runtime Mesh/Texture 创建不再执行 CPU wait，而是保存对应
 `GpuCompletionPoint`；SceneRenderer 从实际 draw 资源生成 Queue wait，按 timeline 去重、合并最大值并在
-VertexInput/FragmentShader stage 加入 frame submission。
+VertexInput/FragmentShader stage 加入 frame submission。实际录制使用的 Runtime GPU owner 会随 frame completion
+进入通用 GpuRetirementQueue，GPU 完成后才释放，避免热重载旧资源早于在途 draw 销毁。
 Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability

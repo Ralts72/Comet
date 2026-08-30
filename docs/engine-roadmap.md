@@ -1060,8 +1060,8 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   timeline 合并最大 value 与 stage，同一有序 queue 上的冗余 wait 后续可由 backend 消除。
 - [x] 建立 `GpuCompletionPoint`，让 Queue submission 返回单调 timeline value，并由 FrameSlot 记录最近提交而不是
   只保存循环 slot index。
-- 建立 owner-thread `GpuRetirementQueue`。FrameSlot 在 fence signal 后清理自己的 `DeferredReleaseBatch`；
-  UploadManager 按 timeline value 回收。
+- [x] 建立 owner-thread `GpuRetirementQueue`。SceneRenderer 将每帧实际录制的 Runtime GPU owner 绑定到 frame timeline
+  completion，UploadManager 继续按 upload timeline value 回收 staging 与 command resources。
 - 将 `FrameManager` 逐步收敛为 FrameScheduler contract：统一 slot index、frame submission serial，以及
   wait completion、collect retirement、reset per-frame arena、开始录制的顺序；本阶段不强制迁移全部 UBO/descriptor。
 - `UploadManager` 根据 fence 或 timeline value 延迟回收 staging allocation、upload command buffer 和上传期间临时
@@ -1459,7 +1459,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：GPU 资源延迟退休**。异步上传已经形成 page 子分配、completion 回收、Runtime Resource ready token 与 frame submission GPU wait 的闭环；接下来建立 owner-thread `GpuRetirementQueue`，让热重载替换下来的 Buffer/Image/Descriptor 等 owner 在最后一次 frame completion 后再销毁。继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue 或更细粒度 staging ring。
+下一步继续 **阶段 3：FrameScheduler contract 收敛**。异步上传与 ready/retirement 生命周期已闭环：新资源由 ready wait 约束首次消费，实际 draw owner 由 GpuRetirementQueue 保留到 frame completion。接下来让 FrameManager 明确 wait、collect、reset、record、submit 的 slot 生命周期顺序，并为 per-frame deferred release 留出稳定入口；继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue。
 
 建议的职责边界：
 
@@ -1507,6 +1507,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 22. [x] 让 Runtime Mesh/Texture 保存上传 completion 并在提交上传后立即返回；ResourceManager 每帧回收已完成 batch，取消资源创建路径的 CPU wait。
 23. [x] 将 Mesh/Texture ready completion 汇总为 frame submission 前置条件，并按 timeline 去重、合并最大 value，在 VertexInput/FragmentShader stage 等待。
 24. [x] 完成上传/ready 子阶段架构复盘：把 stage 与 Queue wait 编译从 SceneResolver 收回 SceneRenderer，并将 timeline 完成查询移到去重之后。
+25. [x] 建立通用 GpuRetirementQueue；SceneRenderer 将实际录制的 Mesh/Texture owner 绑定到 frame completion，热重载旧资源不再早于在途 draw 销毁。
 
 格式所有权后续需求：
 

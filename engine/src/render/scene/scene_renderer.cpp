@@ -264,12 +264,20 @@ namespace Comet {
             static_cast<float>(size.x), static_cast<float>(size.y)));
 
         std::vector<QueueSemaphoreSubmit> resource_waits;
+        const auto retain_resource = [this](const auto& resource) {
+            if(resource
+               && m_recorded_resource_ids.insert(resource.get()).second) {
+                m_recorded_resource_owners.emplace_back(resource);
+            }
+        };
         for(const ResolvedRenderItem& item: submission.render_items) {
+            retain_resource(item.mesh);
             append_resource_wait(
                 resource_waits,
                 item.mesh->get_ready_completion(),
                 Flags<PipelineStage>(PipelineStage::VertexInput));
             for(const auto& texture: item.material.textures) {
+                retain_resource(texture);
                 append_resource_wait(
                     resource_waits,
                     texture->get_ready_completion(),
@@ -285,6 +293,11 @@ namespace Comet {
 
     bool SceneRenderer::begin_frame() {
         PROFILE_SCOPE("SceneRenderer::begin_frame");
+        if(!m_recorded_resource_owners.empty()
+           || !m_recorded_resource_ids.empty()) {
+            LOG_FATAL("Previous frame resources were not retired");
+        }
+        m_retirement_queue.collect_completed();
         apply_pending_viewport_resize();
         m_frame_manager->begin_frame();
 
@@ -380,6 +393,10 @@ namespace Comet {
             std::span(&frame_slot.command_buffer, 1),
             std::span(&render_finished_signal, 1),
             &frame_slot.in_flight_fence);
+        m_retirement_queue.retire_batch(
+            *frame_slot.last_submission,
+            std::move(m_recorded_resource_owners));
+        m_recorded_resource_ids.clear();
 
         // Present
         auto& present_queue = device.get_present_queue(0);

@@ -10,6 +10,7 @@
 #include "graphics/pipeline/pipeline.h"
 #include "graphics/render_pass.h"
 #include "graphics/resource/sampler.h"
+#include "graphics/synchronization/gpu_retirement_queue.h"
 #include "graphics/pipeline/vertex_description.h"
 #include "graphics/vk_common.h"
 #include "render/resource/mesh.h"
@@ -23,6 +24,7 @@
 #include <memory>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Comet {
@@ -113,6 +115,9 @@ namespace Comet {
         std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;
         std::unordered_map<AssetHandle, MaterialDescriptorState> m_material_descriptors;
         std::vector<std::shared_ptr<Buffer>> m_view_project_uniform_buffers;
+        GpuRetirementQueue m_retirement_queue;
+        std::vector<std::shared_ptr<void>> m_recorded_resource_owners;
+        std::unordered_set<const void*> m_recorded_resource_ids;
         Config::Vulkan m_vulkan_config;
         Format m_surface_format;
         Format m_depth_format;
