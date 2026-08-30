@@ -1,12 +1,16 @@
 #include "asset/manager.h"
 
+#include "asset/import/texture_importer.h"
 #include "asset/registry.h"
-#include "asset/texture_importer.h"
+#include "asset/serialization/material_serializer.h"
 #include "common/logger.h"
+#include "render/material.h"
 #include "render/resource_manager.h"
 #include "render/texture.h"
 
 #include <exception>
+#include <map>
+#include <string>
 #include <utility>
 
 namespace Comet {
@@ -61,7 +65,7 @@ namespace Comet {
             return nullptr;
         }
 
-        auto texture = m_resource_manager.create_texture(handle, data);
+        auto texture = m_resource_manager.create_texture(data);
         if(!texture) {
             return nullptr;
         }
@@ -72,5 +76,73 @@ namespace Comet {
             return nullptr;
         }
         return texture;
+    }
+
+    std::shared_ptr<Material> AssetManager::load_material(
+        const AssetHandle handle) {
+        if(!handle) {
+            LOG_ERROR("Cannot load a material with an invalid asset handle");
+            return nullptr;
+        }
+
+        if(const auto material = m_registry.resolve<Material>(handle)) {
+            return material;
+        }
+        if(m_registry.contains(handle)) {
+            LOG_ERROR(
+                "Asset handle {} is already registered with another runtime type",
+                handle.value());
+            return nullptr;
+        }
+
+        const AssetRecord* record = m_database.find(handle);
+        if(!record) {
+            LOG_ERROR("Material asset handle {} is not indexed", handle.value());
+            return nullptr;
+        }
+        if(record->type != AssetType::Material) {
+            LOG_ERROR(
+                "Asset handle {} has type '{}', expected 'material'",
+                handle.value(),
+                to_string(record->type));
+            return nullptr;
+        }
+
+        MaterialData data;
+        try {
+            data = MaterialSerializer{}.load(m_paths.assets() / record->path);
+        } catch(const std::exception& exception) {
+            LOG_ERROR("{}", exception.what());
+            return nullptr;
+        }
+
+        std::map<std::string, std::shared_ptr<Texture>> textures;
+        for(const auto& [property_name, texture_handle]: data.texture_properties) {
+            auto texture = load_texture(texture_handle);
+            if(!texture) {
+                LOG_ERROR(
+                    "Failed to resolve texture handle {} for material '{}' property '{}'",
+                    texture_handle.value(),
+                    record->path.generic_string(),
+                    property_name);
+                return nullptr;
+            }
+            textures.emplace(property_name, std::move(texture));
+        }
+
+        auto material = std::make_shared<Material>(
+            record->path.stem().string(),
+            data.template_name,
+            MaterialConfig{});
+        for(const auto& [property_name, texture]: textures) {
+            material->set_property_texture(property_name, texture);
+        }
+        if(!m_registry.register_asset(handle, material)) {
+            LOG_ERROR(
+                "Failed to register runtime material for asset handle {}",
+                handle.value());
+            return nullptr;
+        }
+        return material;
     }
 }

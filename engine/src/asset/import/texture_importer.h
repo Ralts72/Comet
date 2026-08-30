@@ -8,7 +8,6 @@
 namespace Comet {
     class COMET_API TextureImporter final {
     public:
-        [[nodiscard]] TextureData import(
-            const std::filesystem::path& source_path) const;
+        [[nodiscard]] TextureData import(const std::filesystem::path& source_path) const;
     };
 }

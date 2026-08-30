@@ -8,7 +8,6 @@
 #include "src/property_editor_registry.h"
 #include "core/engine.h"
 #include "core/project_paths.h"
-#include "render/material.h"
 #include "render/renderer.h"
 #include "render/scene_renderer.h"
 #include "core/window.h"
@@ -37,12 +36,8 @@
 
 namespace {
     constexpr Comet::AssetHandle EDITOR_CUBE_MESH_HANDLE(1);
-    constexpr Comet::AssetHandle EDITOR_CUBE_MATERIAL_HANDLE(2);
     constexpr std::size_t SCENE_PATH_CAPACITY = 1024;
-    const std::filesystem::path AWESOME_FACE_TEXTURE =
-            "textures/awesomeface.png";
-    const std::filesystem::path SECOND_DEMO_TEXTURE =
-            "textures/R-C.jpeg";
+    const std::filesystem::path DEMO_MATERIAL = "materials/demo.mat";
 
     enum class SceneFileDialog {
         None,
@@ -59,27 +54,26 @@ namespace {
         }
     }
 
-    std::shared_ptr<Comet::Texture> load_required_texture(
+    Comet::AssetHandle load_required_material(
         Comet::AssetManager& asset_manager,
         const std::filesystem::path& relative_path) {
         const Comet::AssetRecord* record =
                 asset_manager.get_database().find(relative_path);
         if(!record) {
             LOG_FATAL(
-                "Required texture asset '{}' is not indexed",
+                "Required material asset '{}' is not indexed",
                 relative_path.generic_string());
         }
 
-        auto texture = asset_manager.load_texture(record->handle);
-        if(!texture) {
+        if(!asset_manager.load_material(record->handle)) {
             LOG_FATAL(
-                "Failed to load required texture asset '{}'",
+                "Failed to load required material asset '{}'",
                 relative_path.generic_string());
         }
-        return texture;
+        return record->handle;
     }
 
-    void register_editor_render_assets(
+    Comet::AssetHandle register_editor_render_assets(
         Comet::Engine& engine,
         Comet::AssetManager& asset_manager) {
         auto& resource_manager = engine.get_resource_manager();
@@ -88,29 +82,21 @@ namespace {
         auto [cube_vertices, cube_indices] = Comet::GeometryUtils::create_cube(
             -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0.5f);
         auto cube_mesh = resource_manager.create_mesh(
-            "editor_demo_cube", cube_vertices, cube_indices);
+            cube_vertices, cube_indices);
 
-        const auto texture0 = load_required_texture(
-            asset_manager, AWESOME_FACE_TEXTURE);
-        const auto texture1 = load_required_texture(
-            asset_manager, SECOND_DEMO_TEXTURE);
-
-        const Comet::MaterialConfig material_config;
-        auto material = resource_manager.get_material_manager().create_material(
-            "editor_demo_material", material_config);
-        material->set_property_texture("u_Texture0", texture0);
-        material->set_property_texture("u_Texture1", texture1);
+        const Comet::AssetHandle material_handle = load_required_material(
+            asset_manager, DEMO_MATERIAL);
 
         const bool mesh_registered = asset_registry.register_asset(
             EDITOR_CUBE_MESH_HANDLE, std::move(cube_mesh));
-        const bool material_registered = asset_registry.register_asset(
-            EDITOR_CUBE_MATERIAL_HANDLE, std::move(material));
-        if(!mesh_registered || !material_registered) {
-            LOG_FATAL("Failed to register editor demo render assets");
+        if(!mesh_registered) {
+            LOG_FATAL("Failed to register editor demo mesh");
         }
+        return material_handle;
     }
 
-    std::unique_ptr<Comet::Scene> create_editor_scene() {
+    std::unique_ptr<Comet::Scene> create_editor_scene(
+        const Comet::AssetHandle material_handle) {
         auto scene = std::make_unique<Comet::Scene>();
         Comet::Entity main_camera = scene->create_entity("Main Camera");
         main_camera.get_component<Comet::TransformComponent>().translation.z = 3.0f;
@@ -120,7 +106,7 @@ namespace {
         auto& transform = cube.get_component<Comet::TransformComponent>();
         transform.rotation = Comet::Math::Vec3(-20.0f, 30.0f, 0.0f);
         cube.add_component<Comet::MeshRendererComponent>(
-            EDITOR_CUBE_MESH_HANDLE, EDITOR_CUBE_MATERIAL_HANDLE);
+            EDITOR_CUBE_MESH_HANDLE, material_handle);
 
         return scene;
     }
@@ -154,8 +140,9 @@ namespace {
             m_asset_scan_report = m_asset_manager->scan();
             log_asset_scan_issues(m_asset_scan_report);
 
-            register_editor_render_assets(engine, *m_asset_manager);
-            engine.set_scene(create_editor_scene());
+            const Comet::AssetHandle material_handle =
+                    register_editor_render_assets(engine, *m_asset_manager);
+            engine.set_scene(create_editor_scene(material_handle));
             Comet::Engine* engine_ptr = &engine;
             m_scene_session = std::make_unique<CometEditor::EditorSceneSession>(
                 m_editor_state,

@@ -1,4 +1,6 @@
 #include "asset/metadata.h"
+#include "asset/serialization/material_serializer.h"
+#include "asset/serialization/metadata_serializer.h"
 #include "core/project_paths.h"
 
 #include <gtest/gtest.h>
@@ -29,5 +31,25 @@ namespace Comet::Tests {
         EXPECT_EQ(
             second_texture.handle,
             AssetHandle(6692465245512631459ull));
+
+        const std::filesystem::path material_source =
+                paths.assets() / "materials/demo.mat";
+        ASSERT_TRUE(std::filesystem::exists(material_source));
+        const AssetMetadata material = serializer.load(
+            metadata_path(material_source));
+        EXPECT_EQ(material.type, AssetType::Material);
+        EXPECT_EQ(
+            material.handle,
+            AssetHandle(11364856686536078871ull));
+
+        const MaterialData material_data =
+                MaterialSerializer{}.load(material_source);
+        EXPECT_EQ(material_data.template_name, "cube_texture");
+        EXPECT_EQ(
+            material_data.texture_properties.at("u_Texture0"),
+            awesome_face.handle);
+        EXPECT_EQ(
+            material_data.texture_properties.at("u_Texture1"),
+            second_texture.handle);
     }
 }

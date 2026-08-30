@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
-#include <string>
 #include <string_view>
 
 namespace Comet {
@@ -29,21 +28,6 @@ namespace Comet {
         AssetType type = AssetType::Unknown;
 
         auto operator<=>(const AssetMetadata&) const noexcept = default;
-    };
-
-    class COMET_API AssetMetadataSerializer final {
-    public:
-        static constexpr std::uint32_t FORMAT_VERSION = 1;
-
-        [[nodiscard]] std::string serialize(const AssetMetadata& metadata) const;
-        [[nodiscard]] AssetMetadata deserialize(
-            std::string_view contents,
-            std::string_view source = "<memory>") const;
-
-        void save(
-            const AssetMetadata& metadata,
-            const std::filesystem::path& path) const;
-        [[nodiscard]] AssetMetadata load(const std::filesystem::path& path) const;
     };
 
     [[nodiscard]] COMET_API std::filesystem::path metadata_path(

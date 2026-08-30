@@ -139,6 +139,16 @@ namespace Comet {
         }
         m_missing_material_handles.erase(render_item.material_handle);
 
+        if(material->get_template_name() != "cube_texture") {
+            if(m_invalid_material_handles.insert(render_item.material_handle).second) {
+                LOG_ERROR(
+                    "Material handle {} uses unsupported template '{}'",
+                    render_item.material_handle.value(),
+                    material->get_template_name());
+            }
+            return std::nullopt;
+        }
+
         std::array<std::shared_ptr<Texture>, 2> textures = {
             material->get_texture_property("u_Texture0"),
             material->get_texture_property("u_Texture1")

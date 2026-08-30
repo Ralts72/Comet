@@ -73,8 +73,8 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 当前仍缺少：
 
 - `.comet` 项目文件或项目目录约定。
-- `.mat` 材质文件格式。
-- 资源 GUID、元数据文件和引用关系。
+- `.mat` 材质编辑保存、版本迁移和 Inspector 闭环。
+- 资源依赖查询、跨项目迁移和失效重载策略。
 - 格式稳定后的 schema 冻结与版本迁移机制；开发期 `.scene` 不承诺向后兼容，过期文件可重新保存或重建。
 - 编辑器中的显式另存为、自动保存和崩溃恢复。
 
@@ -82,12 +82,12 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 ### 3. 资产系统与导入管线
 
-当前 `ResourceManager` 能按路径加载纹理和创建 mesh，但成熟引擎需要 Asset Database，而不只是 runtime cache。缺少：
+当前已经建立 `AssetHandle`、相邻 `.meta`、Asset Database，以及 Texture/Material 的同步加载纵向链路；
+Asset Registry 是运行时 Handle 缓存，ResourceManager 不再承担资产身份或缓存职责。距离成熟管线仍缺少：
 
-- `AssetHandle` 的持久化表示，以及它与资产 GUID/元数据的稳定映射。
-- 资产扫描、导入、缓存和重新导入。
-- GUID 到实际文件路径的映射。
-- Texture、Mesh、Material、Shader、Scene 等资产类型。
+- `Library/` 导入产物、缓存状态和重新导入。
+- 资产依赖查询、失效传播和热重载。
+- Mesh、Shader、Scene 等更多资产类型及其导入/加载策略。
 - 模型导入器，例如 glTF。
 - 贴图导入参数，例如 sRGB、wrap、filter、mipmap、压缩。
 - 资产依赖追踪和热重载。
@@ -255,7 +255,7 @@ Paused 时应停止 gameplay update/fixed update，但保持编辑器 UI、场�
 ### 目标渲染资源组织
 
 以下结构描述最终职责和依赖方向，不要求一次重写，也不要求每个框都立刻对应一个新类。当前 `RenderContext`、
-`Device`、`FrameManager`、`SceneRenderer` 和 `ResourceManager` 按后续需求逐步收敛到这些边界；不为匹配命名增加只做
+`Device`、`FrameManager`、`SceneRenderer` 和渲染侧资源服务按后续需求逐步收敛到这些边界；不为匹配命名增加只做
 转发的 facade，也不把任何对象改成全局单例。
 
 ```text
@@ -274,11 +274,11 @@ RenderSystem (Main/Update owner)
           ├── active SwapchainGeneration
           │   └── SwapchainImageState[M]
           ├── UploadManager
-          └── ResourceManager runtime/GPU cache
+          └── render-side runtime/GPU caches
 ```
 
 这是一张生命周期和调用方向图，不表示 `GraphicsDevice` 直接拥有下面所有模块。`InstanceContext` 先于 device 创建并
-晚于 device 销毁；`FrameScheduler`、`SwapchainGeneration`、`UploadManager` 和 `ResourceManager` 依赖 device，但各自
+晚于 device 销毁；`FrameScheduler`、`SwapchainGeneration`、`UploadManager` 和渲染侧资源服务依赖 device，但各自
 拥有自己的业务资源和回收规则。
 
 #### GraphicsDevice
@@ -368,11 +368,12 @@ ImGuiDescriptorPool
 成为问题后，再把 PersistentDescriptorArena 实现为分页 pool。descriptor allocation lifetime 与 descriptor 引用的
 Buffer/Image lifetime 是两套契约；reset/free descriptor set 不能代替 `RetainedResources` 保持底层资源有效。
 
-#### ResourceManager 与 RenderSystem
+#### Asset Runtime Cache、ResourceManager 与 RenderSystem
 
-ResourceManager 以 `AssetHandle` 为 key 缓存 Mesh、Texture、Material、Shader 等 Runtime/GPU resource，并管理 pending、
-ready、failed、evicted 和 revision 状态；它不扫描项目文件，也不拥有 Scene。Asset Registry/Asset Manager 负责元数据
-和导入产物解析，UploadManager 负责传输，GpuRetirementQueue 负责旧 GPU owner 回收。
+Asset Registry/Asset Manager 是 `AssetHandle` 到 Mesh、Texture、Material 等已加载运行时资产的唯一缓存和发布边界，
+并逐步管理 pending、ready、failed、evicted 和 revision 状态。`ResourceManager` 只保留 Device 相关对象创建与
+Shader/Sampler 等设备级共享资源，不建立第二份 AssetHandle 缓存。未来由 `MaterialRuntimeCache`、Pipeline cache 等
+渲染侧缓存按资产 Handle 与 revision 保存派生 GPU 状态；UploadManager 负责传输，GpuRetirementQueue 负责旧 GPU owner 回收。
 
 `RenderSystem` 是 Main/Update system schedule 中的高层协调者：读取 Scene 的稳定时点，调用 extraction/culling，生成
 `RenderScene` 或 owned `RenderFramePacket` 并提交 Renderer。它不持有 Vulkan object，不从 RenderThread 读取可变
@@ -830,7 +831,7 @@ compile burst 后或正常 shutdown
 
 - 明确 demo mesh、texture、模型矩阵和固定 camera 属于示例场景，`Renderer` 只应保留渲染系统职责。
 - 在 `docs/architecture/rendering-ownership.md` 记录 `RenderContext`、`SceneRenderer`、`ResourceManager`、
-  `MaterialManager`、VMA 资源和 Device 的所有权与析构顺序。
+  Material runtime cache、VMA 资源和 Device 的所有权与析构顺序。
 - 为 Buffer、Image、Device、ResourceManager 和 MaterialInstance 增加无效参数保护与单元测试。
 - 将 engine、editor 和 app 的源码清单改为显式维护；测试源码 glob 使用 `CONFIGURE_DEPENDS`。
 - 移除正常呈现路径中的逐帧 `queue.waitIdle()`，补齐 frame/image fence 关联，并按 frame-in-flight
@@ -998,18 +999,19 @@ Project System，Asset Database 只通过该契约定位输入和缓存。
   - 类型识别
   - 依赖查询
 - [x] Project 面板读取真实资产目录并展示扫描问题。
-- [x] 建立 Texture 同步纵向链路：Importer 输出 CPU `TextureData`，ResourceManager 按 Handle 缓存 GPU Texture。
+- [x] 建立 Texture 同步纵向链路：Importer 输出 CPU `TextureData`，ResourceManager 创建 GPU Texture，Asset Registry 按 Handle 缓存。
+- [x] 建立 Material 同步加载链路：`.mat` 通过 Texture Handle 表达依赖，AssetManager 解析依赖并将运行时 Material 发布到 Asset Registry。
 - [ ] Texture Importer 支持可持久化、可校验的基础导入参数。
-- [ ] Material 资产可保存和加载。
+- [ ] Material 资产可通过编辑器修改和保存。
 - 在 Asset Database 的 metadata 和导入产物结构稳定后，设计 Shader Importer 的输入、编译结果、缓存键和打包方式；
   当前 CMake 编译链不预设对应的 C++ 类型或落盘格式。
 - Mesh Importer 接入 glTF，至少支持静态网格。
 - Asset Registry/Asset Manager 负责把 `AssetHandle` 解析为资产元数据和导入产物。
-- ResourceManager 以 `AssetHandle` 为缓存键，创建或复用对应的 Runtime/GPU Resource，不直接承担资产扫描。
+- Asset Registry/Asset Manager 以 `AssetHandle` 为唯一缓存键创建或复用 Runtime Asset；ResourceManager 不承担资产扫描或 Handle 缓存。
 - 完成 GFX-002 后让现有 `Device` 暴露不可变 `CapabilitySet`，统一保存实际启用的 feature/extension、queue family、
   limits 和 format 能力；明确它承担 GraphicsDevice 职责，但不迁入 FrameSlot、资产或 RenderTarget 所有权。
 - 建立最小 `TaskScheduler`/worker pool，将文件读取、纹理解码、mesh 导入和其他纯 CPU 任务移出主线程；worker
-  只产出 CPU artifact，不直接修改 Scene、ResourceManager GPU cache 或提交 Vulkan Queue。
+  只产出 CPU artifact，不直接修改 Scene、Asset Registry 或提交 Vulkan Queue。
 - 在实现异步 `UploadManager` 前完成 Synchronization 2 迁移：通过 GFX-002 的 Vulkan 1.3 feature chain 查询并启用
   `synchronization2`，将 `Queue::submit()` 改为 `vk::SubmitInfo2`/`submit2()`，将 image/buffer barrier 改为
   `vk::DependencyInfo` 和 `vk::*MemoryBarrier2`。
@@ -1047,7 +1049,7 @@ Scene Component / RenderItem
               ↓
  metadata + source/imported artifact
               ↓
-        ResourceManager cache
+        Asset Registry cache
               ↓
      Mesh / Texture / Material
 ```
@@ -1246,7 +1248,7 @@ Scene Component / RenderItem
   引用无界增长。
 - RenderSystem 只读取 Main/Update 所有的 Scene 并生成 packet；Renderer/RenderThread 不读取可变 registry，
   GraphicsDevice 不拥有 RenderSystem 或业务资产。
-- Scene/EnTT 修改、ImGui draw data、ResourceManager cache 和 Vulkan Queue 均有唯一 owner，ThreadSanitizer/validation
+- Scene/EnTT 修改、ImGui draw data、Asset Registry/渲染派生缓存和 Vulkan Queue 均有唯一 owner，ThreadSanitizer/validation
   测试不报告跨线程生命周期或外部同步错误。
 - 并行 command recording 启用时，每个 `FrameSlot + worker + queue family` 使用独立 CommandArena/CommandPool，
   关闭该优化后仍可走确定性的单线程路径。
@@ -1428,7 +1430,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 - Engine/运行时层持有 Scene，app 和 editor 负责创建或修改场景内容。
 - Scene 只拥有实体、可序列化组件和 `AssetHandle`，不依赖路径、Mesh、Texture、Buffer 等运行时/GPU对象。
 - SceneExtractor 把 Transform、MeshRenderer、Camera 转换为只读 RenderScene；Camera Transform 的 scale 不影响 view matrix。
-- Asset Registry 保存 `AssetHandle` 到运行时资源的映射，ResourceManager 创建或复用运行时/GPU资源。
+- Asset Registry 唯一保存 `AssetHandle` 到运行时资源的映射，ResourceManager 只创建 Device 相关资源并维护设备级共享对象。
 - SceneResolver 选择 EntityId 最小的主 Camera、验证参数并将 RenderScene 解析为完整 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
 
 阶段 2 完成情况：
@@ -1450,4 +1452,4 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 3. [x] 实现只负责扫描、索引和查询的 Asset Database Core，并用临时项目目录完成纯逻辑测试。
 4. [x] 完成 Texture 同步导入与运行时发布，资源缓存键从路径收敛为 `AssetHandle`。
 5. [x] 让 Project 面板读取真实索引、刷新扫描并展示问题。
-6. [ ] 接入 Material 资产，使其通过 Texture Handle 表达依赖；缩略图和文件监听在契约稳定后增加。
+6. [x] 接入 Material 资产，使其通过 Texture Handle 表达依赖；缩略图和文件监听在契约稳定后增加。

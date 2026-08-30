@@ -10,6 +10,7 @@
 Engine
 ├── Scene
 ├── AssetRegistry
+│   └── Runtime Mesh/Texture/Material assets
 └── Renderer
     ├── RenderContext
     │   ├── Context
@@ -19,9 +20,7 @@ Engine
     │   └── Swapchain
     ├── ResourceManager
     │   ├── ShaderManager
-    │   ├── SamplerManager
-    │   ├── MaterialManager
-    │   └── Mesh/Texture runtime cache
+    │   └── SamplerManager
     ├── SceneResolver
     └── SceneRenderer
         ├── RenderPass/PipelineManager/Pipeline
@@ -69,10 +68,10 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
 关闭时必须遵循以下顺序：
 
 1. editor 先等待 Device idle，释放 ImGui viewport descriptor、ImGui swapchain target 和 descriptor pool。
-2. Asset Registry 释放对运行时资源的共享引用；当前具体 GPU 资源仍由 ResourceManager cache 共同持有。
-3. Renderer 等待 Device idle。
+2. Engine 在清理 Asset Registry 前等待 Device idle，保证 Registry 可能释放的 GPU 资产不再被提交引用。
+3. Asset Registry 释放对 Runtime Mesh/Texture/Material 的 Handle 缓存及其依赖共享引用。
 4. 释放 SceneRenderer，确保 per-frame Buffer、pipeline、descriptor、render target、command buffer 等对象先于 Device 销毁。
-5. 释放 ResourceManager 及其 runtime resource cache。
+5. 释放 ResourceManager 持有的 ShaderManager、SamplerManager 和对应设备级共享资源。
 6. 释放 RenderContext：Swapchain → Device 内部的 CommandPool、PipelineCache 和 Allocator → Vulkan Device → Context。
 7. 释放 Scene；Scene 只持有组件和 AssetHandle，不拥有 GPU 资源。
 
@@ -86,15 +85,14 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
 ## 职责边界
 
 - `RenderContext`：Vulkan 上下文、逻辑设备、交换链和 idle 等待。
-- `ResourceManager`：运行时/GPU资源创建与缓存；不负责扫描项目目录或分配资产 GUID。
-- `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、ResourceManager 和 Asset Registry；不拥有 Device 或 GPU 资源。
+- `ResourceManager`：创建 Device 相关的 Texture/Mesh，并维护 Shader/Sampler 等设备级共享资源；不认识或缓存 `AssetHandle`。
+- `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。
 - `SceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断。
 - `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；没有有效主 Camera 时不提交场景 draw。
 - `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；通过私有绑定共享
   SceneRenderer 的离屏 `ImageView` 生命周期，但不创建或直接销毁这些 engine 图形资源。
-- `MaterialManager`：Material/MaterialInstance 的内存注册；不存在的基础材质不能产生有效实例。
 - `Scene`：只保存实体、可序列化组件和 `AssetHandle`，不保存 Device、GPU对象或文件路径。
-- `AssetRegistry`：注册和解析 `AssetHandle` 对应的已发布运行时资源；不保存源路径或执行导入。
+- `AssetRegistry`：唯一按 `AssetHandle` 缓存、注册和解析已发布运行时资源；不保存源路径或执行导入。
 - `Renderer`：编排 RenderScene 解析、帧开始/结束和 ImGui 回调，不读取 Material 属性或管理 descriptor。
 
 ## 帧同步

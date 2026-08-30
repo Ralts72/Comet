@@ -4,23 +4,12 @@
 
 namespace Comet::Tests {
 
-TEST(MaterialManagerTest, CreatesAndFindsMaterialInstances) {
-    MaterialManager manager;
-    MaterialConfig config;
+TEST(MaterialInstanceTest, KeepsRuntimeMaterialAlive) {
+    const auto material = std::make_shared<Material>(
+        "default", "test", MaterialConfig{});
+    const MaterialInstance instance(material);
 
-    const auto material = manager.create_material("default", config);
-    const auto instance = manager.create_instance("default");
-
-    ASSERT_NE(material, nullptr);
-    ASSERT_NE(instance, nullptr);
-    EXPECT_EQ(instance->get_material(), material);
-    EXPECT_EQ(manager.get_material("default"), material);
-}
-
-TEST(MaterialManagerTest, MissingMaterialDoesNotCreateInvalidInstance) {
-    MaterialManager manager;
-
-    EXPECT_EQ(manager.create_instance("missing"), nullptr);
+    EXPECT_EQ(instance.get_material(), material);
 }
 
 TEST(MaterialInstanceTest, RejectsNullMaterial) {
@@ -28,7 +17,7 @@ TEST(MaterialInstanceTest, RejectsNullMaterial) {
 }
 
 TEST(MaterialTest, StoresTextureProperty) {
-    Material material("textured", MaterialConfig{});
+    Material material("textured", "test", MaterialConfig{});
     const std::shared_ptr<Texture> texture;
 
     material.set_property_texture("albedo", texture);
@@ -38,6 +27,12 @@ TEST(MaterialTest, StoresTextureProperty) {
     EXPECT_EQ(std::get<std::shared_ptr<Texture>>(property.value), texture);
     EXPECT_EQ(material.get_texture_property("albedo"), texture);
     EXPECT_EQ(material.get_texture_property("missing"), nullptr);
+}
+
+TEST(MaterialTest, StoresRuntimeTemplateIdentity) {
+    const Material material("textured", "cube_texture", MaterialConfig{});
+
+    EXPECT_EQ(material.get_template_name(), "cube_texture");
 }
 
 } // namespace Comet::Tests

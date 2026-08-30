@@ -1,11 +1,13 @@
 #pragma once
-#include "asset/handle.h"
 #include "common/export.h"
 #include "graphics/shader.h"
 #include "graphics/sampler.h"
-#include "material.h"
 #include "texture.h"
 #include "mesh.h"
+
+#include <cstdint>
+#include <memory>
+#include <vector>
 
 namespace Comet {
     class COMET_API ResourceManager {
@@ -17,21 +19,16 @@ namespace Comet {
         [[nodiscard]] const ShaderManager& get_shader_manager() const { return *m_shader_manager; }
         [[nodiscard]] SamplerManager& get_sampler_manager() { return *m_sampler_manager; }
         [[nodiscard]] const SamplerManager& get_sampler_manager() const { return *m_sampler_manager; }
-        [[nodiscard]] MaterialManager& get_material_manager() { return *m_material_manager; }
-        [[nodiscard]] const MaterialManager& get_material_manager() const { return *m_material_manager; }
 
-        std::shared_ptr<Texture> create_texture(
-            AssetHandle handle,
-            const TextureData& data);
-        std::shared_ptr<Mesh> create_mesh(const std::string& name, const std::vector<Math::Vertex>& vertices,
-                                          const std::vector<uint32_t>& indices);
+        [[nodiscard]] std::shared_ptr<Texture> create_texture(
+            const TextureData& data) const;
+        [[nodiscard]] std::shared_ptr<Mesh> create_mesh(
+            const std::vector<Math::Vertex>& vertices,
+            const std::vector<uint32_t>& indices) const;
 
     private:
         Device& m_device;
         std::unique_ptr<ShaderManager> m_shader_manager;
         std::unique_ptr<SamplerManager> m_sampler_manager;
-        std::unique_ptr<MaterialManager> m_material_manager;
-        std::unordered_map<AssetHandle, std::shared_ptr<Texture>> m_textures;
-        std::unordered_map<std::string, std::shared_ptr<Mesh>> m_meshes;
     };
 }

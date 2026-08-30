@@ -1,4 +1,5 @@
 #include "asset/metadata.h"
+#include "asset/serialization/metadata_serializer.h"
 
 #include <gtest/gtest.h>
 

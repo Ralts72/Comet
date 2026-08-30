@@ -1,4 +1,5 @@
 #include "asset/database.h"
+#include "asset/serialization/metadata_serializer.h"
 
 #include <algorithm>
 #include <cctype>

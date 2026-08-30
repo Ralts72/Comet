@@ -8,38 +8,19 @@ namespace Comet {
         
         LOG_INFO("create sampler manager");
         m_sampler_manager = std::make_unique<SamplerManager>(device);
-
-        LOG_INFO("create material manager");
-        m_material_manager = std::make_unique<MaterialManager>();
     }
 
     ResourceManager::~ResourceManager() = default;
 
     std::shared_ptr<Texture> ResourceManager::create_texture(
-        const AssetHandle handle,
-        const TextureData& data) {
-        if(!handle) {
-            LOG_ERROR("Cannot create a texture with an invalid asset handle");
-            return nullptr;
-        }
-        if(m_textures.contains(handle)) {
-            return m_textures.find(handle)->second;
-        }
-
-        auto texture = std::make_shared<Texture>(m_device, data);
-        m_textures[handle] = texture;
-        return texture;
+        const TextureData& data) const {
+        return std::make_shared<Texture>(m_device, data);
     }
 
-    std::shared_ptr<Mesh> ResourceManager::create_mesh(const std::string& name, const std::vector<Math::Vertex>& vertices,
-                                                       const std::vector<uint32_t>& indices) {
-        if (m_meshes.contains(name)) {
-            return m_meshes.find(name)->second;
-        }
-
-        auto mesh = std::make_shared<Mesh>(m_device, vertices, indices);
-        m_meshes[name] = mesh;
-        return mesh;
+    std::shared_ptr<Mesh> ResourceManager::create_mesh(
+        const std::vector<Math::Vertex>& vertices,
+        const std::vector<uint32_t>& indices) const {
+        return std::make_shared<Mesh>(m_device, vertices, indices);
     }
 
 }

@@ -13,7 +13,7 @@ GoogleTest 测试基础。
   编辑 Transform、MeshRenderer 和 Camera，File 菜单可新建、打开和保存 `.scene`；`editor/resources/` 保存不进入
   项目资产数据库的编辑器私有字体等资源。
 - `app/`：运行时示例程序入口。
-- `assets/`：当前示例项目的源资产及相邻 `.meta`，当前包含 demo Texture；资产身份进入版本控制。
+- `assets/`：当前示例项目的源资产及相邻 `.meta`，当前包含 demo Texture 和 Material；资产身份进入版本控制。
 - `config/`：`common.yaml` 保存共享运行配置，`profiles/` 保存构建/启动环境覆盖。
 - `Library/`：可重建的导入产物与缓存目录，不进入版本控制。
 - `tests/`：GoogleTest 测试，覆盖数学、配置、Scene/ECS、场景序列化、资源参数保护和渲染数据链路。
@@ -129,8 +129,11 @@ editor 将同一个 `ComponentRegistry` 提供给 Inspector 和 `SceneSerializer
 `engine/src/render/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。
 `Engine` 使用唯一所有权持有当前活动 Scene 和最小 Asset Registry，并可在保持唯一所有权的前提下交换 Scene。
 app/editor 组合根持有 `AssetManager`，它使用 `AssetDatabase` 将稳定 Handle 解析为项目源资产；Texture 由
-`TextureImporter` 解码为 CPU 像素数据，`ResourceManager` 再按 Handle 创建和缓存 GPU Texture。Project 面板展示
-真实索引与扫描问题。app 在初始化阶段注册 demo mesh/material，并创建
+`TextureImporter` 解码为 CPU 像素数据，Material 由 `MaterialSerializer` 读取为只含模板名和 Texture Handle 的
+`MaterialData`。外部格式的导入器集中在 `engine/src/asset/import/`，Comet 原生资产与元数据的序列化器集中在
+`engine/src/asset/serialization/`。`AssetManager` 递归解析材质依赖、组装运行时 Material 并统一发布到 `AssetRegistry`；
+`ResourceManager` 只创建 Device 相关的 Texture/Mesh 和维护 Shader/Sampler 等渲染侧共享资源，不再缓存资产 Handle。
+Project 面板展示真实索引与扫描问题。app 在初始化阶段只手工注册尚未资产化的 demo mesh，材质及其纹理由项目资产链路加载，并创建
 主 Camera 与两个具有不同 Transform 的 cube entity；`SceneResolver` 选择并校验主 Camera、根据渲染尺寸
 生成 view/projection，同时将 Handle 解析为运行时 `RenderSubmission`。`Renderer` 负责编排帧流程，
 `SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过

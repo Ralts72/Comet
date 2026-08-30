@@ -17,8 +17,13 @@ namespace Comet {
         m_dst_alpha_blend_factor = dst_alpha;
     }
 
-    Material::Material(std::string name, const MaterialConfig& config)
-        : m_name(std::move(name)), m_config(config) {}
+    Material::Material(
+        std::string name,
+        std::string template_name,
+        const MaterialConfig& config)
+        : m_name(std::move(name)),
+          m_template_name(std::move(template_name)),
+          m_config(config) {}
 
     void Material::set_property(const std::string& name, const float value) {
         m_properties[name] = MaterialProperty{.type = MaterialPropertyType::Float, .name = name, .value = value};
@@ -113,32 +118,6 @@ namespace Comet {
             return m_property_overrides.at(name);
         }
         return m_material->get_property(name);
-    }
-
-    std::shared_ptr<Material> MaterialManager::create_material(const std::string& name, const MaterialConfig& config) {
-        if(m_materials.contains(name)) {
-            LOG_WARN("Material '{}' already exists, returning existing material", name);
-            return m_materials.at(name);
-        }
-        auto material = std::make_shared<Material>(name, config);
-        m_materials[name] = material;
-        return material;
-    }
-
-    std::shared_ptr<Material> MaterialManager::get_material(const std::string& name) const {
-        if(m_materials.contains(name)) {
-            return m_materials.at(name);
-        }
-        LOG_ERROR("Material '{}' not found", name);
-        return nullptr;
-    }
-
-    std::shared_ptr<MaterialInstance> MaterialManager::create_instance(const std::string& material_name) const {
-        auto material = get_material(material_name);
-        if(!material) {
-            return nullptr;
-        }
-        return std::make_shared<MaterialInstance>(material);
     }
 
 }

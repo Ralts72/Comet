@@ -27,6 +27,7 @@ namespace Comet {
 
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
+        m_renderer->get_render_context().wait_idle();
         m_asset_registry->clear();
         m_renderer.reset();
         m_asset_registry.reset();

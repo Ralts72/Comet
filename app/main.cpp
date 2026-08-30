@@ -3,7 +3,6 @@
 #include "asset/registry.h"
 #include "common/geometry_utils.h"
 #include "core/project_paths.h"
-#include "render/material.h"
 #include "scene/scene.h"
 
 #include <array>
@@ -14,30 +13,25 @@
 
 namespace {
     constexpr Comet::AssetHandle DEMO_CUBE_MESH_HANDLE(1);
-    constexpr Comet::AssetHandle DEMO_CUBE_MATERIAL_HANDLE(2);
-    const std::filesystem::path AWESOME_FACE_TEXTURE =
-            "textures/awesomeface.png";
-    const std::filesystem::path SECOND_DEMO_TEXTURE =
-            "textures/R-C.jpeg";
+    const std::filesystem::path DEMO_MATERIAL = "materials/demo.mat";
 
-    std::shared_ptr<Comet::Texture> load_required_texture(
+    Comet::AssetHandle load_required_material(
         Comet::AssetManager& asset_manager,
         const std::filesystem::path& relative_path) {
         const Comet::AssetRecord* record =
                 asset_manager.get_database().find(relative_path);
         if(!record) {
             LOG_FATAL(
-                "Required texture asset '{}' is not indexed",
+                "Required material asset '{}' is not indexed",
                 relative_path.generic_string());
         }
 
-        auto texture = asset_manager.load_texture(record->handle);
-        if(!texture) {
+        if(!asset_manager.load_material(record->handle)) {
             LOG_FATAL(
-                "Failed to load required texture asset '{}'",
+                "Failed to load required material asset '{}'",
                 relative_path.generic_string());
         }
-        return texture;
+        return record->handle;
     }
 
     class GameApp final: public Comet::Application {
@@ -64,25 +58,15 @@ namespace {
             auto [cube_vertices, cube_indices] =
                     Comet::GeometryUtils::create_cube(-0.3f, 0.3f, -0.3f, 0.3f, -0.3f, 0.3f);
             auto cube_mesh = resource_manager.create_mesh(
-                "demo_cube", cube_vertices, cube_indices);
+                cube_vertices, cube_indices);
 
-            const auto texture0 = load_required_texture(
-                *m_asset_manager, AWESOME_FACE_TEXTURE);
-            const auto texture1 = load_required_texture(
-                *m_asset_manager, SECOND_DEMO_TEXTURE);
-
-            const Comet::MaterialConfig material_config;
-            auto material = resource_manager.get_material_manager().create_material(
-                "demo_material", material_config);
-            material->set_property_texture("u_Texture0", texture0);
-            material->set_property_texture("u_Texture1", texture1);
+            const Comet::AssetHandle material_handle = load_required_material(
+                *m_asset_manager, DEMO_MATERIAL);
 
             const bool mesh_registered = asset_registry.register_asset(
                 DEMO_CUBE_MESH_HANDLE, std::move(cube_mesh));
-            const bool material_registered = asset_registry.register_asset(
-                DEMO_CUBE_MATERIAL_HANDLE, std::move(material));
-            if(!mesh_registered || !material_registered) {
-                LOG_FATAL("Failed to register demo render assets");
+            if(!mesh_registered) {
+                LOG_FATAL("Failed to register demo mesh");
             }
 
             auto scene = std::make_unique<Comet::Scene>();
@@ -95,14 +79,14 @@ namespace {
             first_transform.translation.x = -0.5f;
             first_transform.rotation.x = -17.0f;
             first_cube.add_component<Comet::MeshRendererComponent>(
-                DEMO_CUBE_MESH_HANDLE, DEMO_CUBE_MATERIAL_HANDLE);
+                DEMO_CUBE_MESH_HANDLE, material_handle);
 
             Comet::Entity second_cube = scene->create_entity("Demo Cube B");
             auto& second_transform = second_cube.get_component<Comet::TransformComponent>();
             second_transform.translation.x = 0.5f;
             second_transform.rotation.x = -17.0f;
             second_cube.add_component<Comet::MeshRendererComponent>(
-                DEMO_CUBE_MESH_HANDLE, DEMO_CUBE_MATERIAL_HANDLE);
+                DEMO_CUBE_MESH_HANDLE, material_handle);
 
             m_cube_entity_ids = {first_cube.get_id(), second_cube.get_id()};
             engine.set_scene(std::move(scene));

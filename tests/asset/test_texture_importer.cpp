@@ -1,4 +1,4 @@
-#include "asset/texture_importer.h"
+#include "asset/import/texture_importer.h"
 #include "asset/handle.h"
 
 #include <gtest/gtest.h>

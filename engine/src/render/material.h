@@ -8,7 +8,6 @@
 #include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <variant>
 
 namespace Comet {
@@ -96,11 +95,17 @@ namespace Comet {
 
     class COMET_API Material {
     public:
-        Material(std::string name, const MaterialConfig& config);
+        Material(
+            std::string name,
+            std::string template_name,
+            const MaterialConfig& config);
 
         ~Material() = default;
 
         [[nodiscard]] const std::string& get_name() const { return m_name; }
+        [[nodiscard]] const std::string& get_template_name() const {
+            return m_template_name;
+        }
         [[nodiscard]] const MaterialConfig& get_config() const { return m_config; }
         [[nodiscard]] MaterialConfig& get_config_mut() { return m_config; }
 
@@ -129,6 +134,7 @@ namespace Comet {
 
     private:
         std::string m_name;
+        std::string m_template_name;
         MaterialConfig m_config;
         std::map<std::string, MaterialProperty> m_properties;
     };
@@ -170,17 +176,4 @@ namespace Comet {
         std::map<std::string, MaterialProperty> m_property_overrides;
     };
 
-    class COMET_API MaterialManager {
-    public:
-        MaterialManager() = default;
-
-        std::shared_ptr<Material> create_material(const std::string& name, const MaterialConfig& config);
-
-        [[nodiscard]] std::shared_ptr<Material> get_material(const std::string& name) const;
-
-        [[nodiscard]] std::shared_ptr<MaterialInstance> create_instance(const std::string& material_name) const;
-
-    private:
-        std::unordered_map<std::string, std::shared_ptr<Material>> m_materials;
-    };
 }
