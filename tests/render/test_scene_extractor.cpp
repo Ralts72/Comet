@@ -125,6 +125,7 @@ namespace Comet::Tests {
         EXPECT_EQ(extracted.entity_id, camera_entity.get_id());
         EXPECT_TRUE(extracted.primary);
         EXPECT_TRUE(TestUtils::Mat4Equal(extracted.view_matrix, expected_view));
+        EXPECT_EQ(extracted.projection, CameraProjection::Perspective);
         EXPECT_FLOAT_EQ(extracted.fov_degrees, 60.0f);
         EXPECT_FLOAT_EQ(extracted.near_clip, 0.2f);
         EXPECT_FLOAT_EQ(extracted.far_clip, 500.0f);

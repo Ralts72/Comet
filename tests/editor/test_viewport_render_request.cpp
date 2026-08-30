@@ -40,6 +40,34 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(request.explicit_camera);
     }
 
+    TEST(ViewportRenderRequestTest, OrthographicEditorCameraUsesFixedAxis) {
+        EditorState state;
+        state.camera.position = Comet::Math::Vec3(4.0f, 3.0f, 2.0f);
+        state.camera.target = Comet::Math::Vec3(1.0f, 2.0f, 0.0f);
+        state.camera.projection = Comet::CameraProjection::Orthographic;
+        state.camera.orthographic_height = 12.0f;
+
+        const Comet::ViewportRenderRequest request =
+            make_viewport_render_request(
+                state, true, Comet::Math::Vec2u(1280, 720));
+
+        ASSERT_TRUE(request.explicit_camera);
+        EXPECT_EQ(
+            request.explicit_camera->projection,
+            Comet::CameraProjection::Orthographic);
+        EXPECT_FLOAT_EQ(
+            request.explicit_camera->orthographic_height, 12.0f);
+        const float distance = Comet::Math::length(
+            state.camera.position - state.camera.target);
+        EXPECT_TRUE(Comet::Tests::TestUtils::Mat4Equal(
+            request.explicit_camera->view_matrix,
+            Comet::Math::look_at(
+                state.camera.target
+                    + Comet::Math::Vec3(0.0f, 0.0f, distance),
+                state.camera.target,
+                state.camera.up)));
+    }
+
     TEST(ViewportRenderRequestTest, HiddenViewportPreservesCameraChoice) {
         EditorState state;
 

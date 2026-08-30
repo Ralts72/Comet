@@ -149,6 +149,11 @@ Viewport descriptor、执行 ImGui NewFrame/面板逻辑、消费 editor camera 
 draw 使用同一帧更新后的请求。场景 render pass 结束后，render 阶段只录制已经生成的 ImGui draw data。Renderer 只认识通用 overlay callback
 与 CommandBuffer，不依赖 ImGui 类型；Editor shutdown 必须先解绑两个 callback。
 
+`RenderCamera` 是 Scene/Editor 到渲染提交边界的 camera snapshot，显式携带 Perspective/Orthographic 投影模式及对应参数；
+`SceneResolver` 是 projection matrix 的唯一构建点。runtime `CameraComponent` 当前仍提取为默认 Perspective，editor explicit camera 可选择
+Orthographic。Editor 2D 使用固定 `+Z → target` 观察轴、世界 `+Y` up、正交高度和屏幕 XY 平移；它不创建第二个 Scene camera，也不用极端
+FOV 模拟正交。3D position/target 被保留，2D pan 同步移动两者，因此切回 Perspective 后仍保持相对观察方向与距离。
+
 ## 帧同步
 
 `render.max_frames_in_flight` 当前为 2，与实际 swapchain image 数量相互独立。

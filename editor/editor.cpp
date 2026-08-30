@@ -208,6 +208,10 @@ namespace {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
                 return;
             }
+            if(const auto projection =
+                   m_viewport_panel->take_camera_projection_request()) {
+                m_editor_state.camera.projection = *projection;
+            }
             const std::optional<CometEditor::EditorCameraInput> input =
                 m_viewport_panel->take_camera_input();
             if(input) {

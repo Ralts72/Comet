@@ -1209,7 +1209,8 @@ Scene Component / RenderItem
 - [x] 基于 image display/visible rect 将屏幕坐标映射到当前实际 RenderTarget 像素，排除工具栏、letterbox/pillarbox、
   最大边界和 OneToOne 裁切区域；resize debounce 期间不使用尚未发布的请求分辨率。
 - [x] Viewport 在 Edit 模式实现 editor camera 的 RMB 环绕、MMB 平移和滚轮缩放；UI prepare 在 SceneResolver 前执行，当前帧直接消费最新 camera snapshot。
-- [ ] 让 2D/3D 按钮切换真正的投影与操作策略；2D 使用正交投影和独立 zoom 语义，不用极端透视参数模拟。
+- [x] 让 2D/3D 按钮切换真实投影与操作策略：RenderCamera 显式表达 Perspective/Orthographic，2D 固定 +Z 观察轴、
+  使用屏幕 XY 平移与正交高度缩放并禁用 orbit，不用极端透视参数模拟。
 - 默认保持一个 Viewport 并在内部切换 2D/3D，共享同一组 RenderTarget、拾取和 gizmo 上下文。只有当多视图同时对照成为明确工作流时，
   才增加可停靠的多 Viewport；每个同时可见视口应拥有独立 Camera、尺寸、frame-slot RenderTarget 和渲染提交，隐藏时必须跳过渲染。
 - 实现对象拾取、Selection 同步、移动/旋转/缩放 gizmo 和选中对象高亮。
@@ -1491,8 +1492,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步让 **2D/3D 观察模式真正生效**：扩展显式 editor camera snapshot 以表达 Perspective/Orthographic 投影，2D 模式固定观察轴、
-禁用 orbit、保留平移与正交缩放；3D 延用当前 orbit/pan/dolly。投影选择由 SceneResolver 消费，不把 EditorMode 或 ImGui 状态传入 renderer。
+下一步进入 **对象拾取最小闭环的技术选择与数据基础**：先审计 Runtime Mesh 是否保留可复用 bounds/CPU geometry，以及当前 pass 增加
+ID attachment/readback 的代价。若已有可靠 bounds，则先做 CPU ray-AABB 粗拾取；否则按阶段 5 RenderGraph 边界设计按需 GPU ID pass，
+不为了一个 click 把同步 readback 或通用 attachment 状态塞进 ViewPanel。
 runtime format/sample-count-dependent Pipeline generation 归入阶段 5，与 PipelineKey/RenderGraph 生命周期一并设计，避免在旧
 PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 
@@ -1581,6 +1583,7 @@ PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 61. [x] 完成阶段 4B 架构审计：RenderTarget generation 删除原地 resize/dirty/recreate API 和重复 OffscreenTarget，extent/frame-count 构造后只读；初始 RenderPass 使用 active swapchain 实际格式，runtime Pipeline generation 明确归入阶段 5。
 62. [x] 建立 Viewport 屏幕点到当前纹理像素的纯映射：布局显式输出 image resolution 与裁切后的 visible rect，排除工具栏、留白、最大边和 OneToOne 不可见区域，并覆盖 HiDPI、debounce 旧纹理和裁切测试。
 63. [x] 建立 Viewport editor camera 输入闭环：拆分 overlay prepare/render 时序，当前帧 UI 状态在 SceneResolver 前提交；可见画面内激活 RMB orbit、MMB pan、wheel zoom，纯 controller 覆盖距离、平移和异常输入测试。
+64. [x] 让 Viewport 2D/3D 成为真实观察模式：RenderCamera/SceneResolver 支持正交高度，ViewPanel 只发投影切换事件；2D 固定观察轴、使用屏幕 XY pan 与独立正交 zoom，保留 3D camera 状态。
 
 格式所有权后续需求：
 

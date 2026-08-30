@@ -70,6 +70,7 @@ namespace Comet {
 
         if(!primary_camera) {
             m_invalid_camera_fov.reset();
+            m_invalid_camera_orthographic_height.reset();
             m_invalid_camera_clip_planes.reset();
             m_invalid_render_size = false;
             return std::nullopt;
@@ -93,23 +94,45 @@ namespace Comet {
                 m_invalid_render_size = true;
             }
             m_invalid_camera_fov.reset();
+            m_invalid_camera_orthographic_height.reset();
             m_invalid_camera_clip_planes.reset();
             return std::nullopt;
         }
         m_invalid_render_size = false;
 
-        if(!std::isfinite(primary_camera->fov_degrees)
-            || primary_camera->fov_degrees <= 0.0f
-            || primary_camera->fov_degrees >= 180.0f) {
-            if(m_invalid_camera_fov != primary_camera->entity_id) {
-                LOG_ERROR("Primary camera entity {} has invalid FOV {} degrees",
-                    primary_camera->entity_id, primary_camera->fov_degrees);
+        if(primary_camera->projection == CameraProjection::Perspective) {
+            if(!std::isfinite(primary_camera->fov_degrees)
+               || primary_camera->fov_degrees <= 0.0f
+               || primary_camera->fov_degrees >= 180.0f) {
+                if(m_invalid_camera_fov != primary_camera->entity_id) {
+                    LOG_ERROR("Primary camera entity {} has invalid FOV {} degrees",
+                        primary_camera->entity_id, primary_camera->fov_degrees);
+                }
+                m_invalid_camera_fov = primary_camera->entity_id;
+                m_invalid_camera_orthographic_height.reset();
+                m_invalid_camera_clip_planes.reset();
+                return std::nullopt;
             }
-            m_invalid_camera_fov = primary_camera->entity_id;
-            m_invalid_camera_clip_planes.reset();
-            return std::nullopt;
+            m_invalid_camera_fov.reset();
+            m_invalid_camera_orthographic_height.reset();
+        } else {
+            if(!std::isfinite(primary_camera->orthographic_height)
+               || primary_camera->orthographic_height <= 0.0f) {
+                if(m_invalid_camera_orthographic_height
+                   != primary_camera->entity_id) {
+                    LOG_ERROR("Primary camera entity {} has invalid orthographic height {}",
+                        primary_camera->entity_id,
+                        primary_camera->orthographic_height);
+                }
+                m_invalid_camera_orthographic_height =
+                    primary_camera->entity_id;
+                m_invalid_camera_fov.reset();
+                m_invalid_camera_clip_planes.reset();
+                return std::nullopt;
+            }
+            m_invalid_camera_fov.reset();
+            m_invalid_camera_orthographic_height.reset();
         }
-        m_invalid_camera_fov.reset();
 
         if(!std::isfinite(primary_camera->near_clip)
             || !std::isfinite(primary_camera->far_clip)
@@ -130,13 +153,28 @@ namespace Comet {
         const float aspect =
             static_cast<float>(request.render_size.x)
             / static_cast<float>(request.render_size.y);
-        return ViewProjectMatrix{
-            .view = primary_camera->view_matrix,
-            .projection = Math::perspective(
+        Math::Mat4 projection;
+        if(primary_camera->projection == CameraProjection::Perspective) {
+            projection = Math::perspective(
                 primary_camera->fov_degrees,
                 aspect,
                 primary_camera->near_clip,
-                primary_camera->far_clip)
+                primary_camera->far_clip);
+        } else {
+            const float half_height =
+                primary_camera->orthographic_height * 0.5f;
+            const float half_width = half_height * aspect;
+            projection = Math::ortho(
+                -half_width,
+                half_width,
+                -half_height,
+                half_height,
+                primary_camera->near_clip,
+                primary_camera->far_clip);
+        }
+        return ViewProjectMatrix{
+            .view = primary_camera->view_matrix,
+            .projection = projection
         };
     }
 

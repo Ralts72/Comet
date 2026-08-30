@@ -8,11 +8,18 @@
 #include <vector>
 
 namespace Comet {
+    enum class CameraProjection {
+        Perspective,
+        Orthographic
+    };
+
     struct RenderCamera {
         EntityId entity_id = INVALID_ENTITY_ID;
         bool primary = false;
         Math::Mat4 view_matrix = Math::Mat4(1.0f);
+        CameraProjection projection = CameraProjection::Perspective;
         float fov_degrees = 45.0f;
+        float orthographic_height = 10.0f;
         float near_clip = 0.1f;
         float far_clip = 1000.0f;
     };

@@ -32,6 +32,7 @@ namespace Comet {
         std::unordered_set<AssetHandle> m_missing_material_handles;
         std::unordered_set<AssetHandle> m_invalid_material_handles;
         std::optional<EntityId> m_invalid_camera_fov;
+        std::optional<EntityId> m_invalid_camera_orthographic_height;
         std::optional<EntityId> m_invalid_camera_clip_planes;
         bool m_missing_primary_camera = false;
         bool m_missing_explicit_camera = false;

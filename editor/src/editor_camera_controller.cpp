@@ -9,6 +9,8 @@ namespace CometEditor {
         constexpr float ZOOM_EXPONENT_PER_STEP = 0.15f;
         constexpr float MIN_DISTANCE = 0.05f;
         constexpr float MAX_DISTANCE = 10000.0f;
+        constexpr float MIN_ORTHOGRAPHIC_HEIGHT = 0.01f;
+        constexpr float MAX_ORTHOGRAPHIC_HEIGHT = 10000.0f;
         constexpr float MAX_VERTICAL_ALIGNMENT = 0.995f;
         constexpr float MIN_DIRECTION_LENGTH = 0.00001f;
 
@@ -39,7 +41,8 @@ namespace CometEditor {
         const Comet::Math::Vec3 world_up(0.0f, 1.0f, 0.0f);
         bool changed = false;
 
-        if(has_delta(input.orbit_delta)) {
+        if(camera.projection == Comet::CameraProjection::Perspective
+           && has_delta(input.orbit_delta)) {
             offset = Comet::Math::angle_axis(
                 -input.orbit_delta.x * ORBIT_RADIANS_PER_PIXEL,
                 world_up) * offset;
@@ -73,11 +76,21 @@ namespace CometEditor {
         if(has_delta(input.pan_delta)
            && std::isfinite(input.viewport_height)
            && input.viewport_height > 0.0f
-           && std::isfinite(camera.fov_degrees)
-           && camera.fov_degrees > 0.0f
-           && camera.fov_degrees < 179.0f) {
+           && ((camera.projection
+                    == Comet::CameraProjection::Perspective
+                && std::isfinite(camera.fov_degrees)
+                && camera.fov_degrees > 0.0f
+                && camera.fov_degrees < 179.0f)
+               || (camera.projection
+                       == Comet::CameraProjection::Orthographic
+                   && std::isfinite(camera.orthographic_height)
+                   && camera.orthographic_height > 0.0f))) {
             const Comet::Math::Vec3 forward =
-                Comet::Math::normalize(camera.target - camera.position);
+                camera.projection
+                    == Comet::CameraProjection::Orthographic
+                ? Comet::Math::Vec3(0.0f, 0.0f, -1.0f)
+                : Comet::Math::normalize(
+                    camera.target - camera.position);
             const Comet::Math::Vec3 right_candidate =
                 Comet::Math::cross(forward, world_up);
             if(Comet::Math::length(right_candidate)
@@ -88,7 +101,10 @@ namespace CometEditor {
                     Comet::Math::normalize(
                         Comet::Math::cross(right, forward));
                 const float visible_world_height =
-                    2.0f * distance * std::tan(
+                    camera.projection
+                        == Comet::CameraProjection::Orthographic
+                    ? camera.orthographic_height
+                    : 2.0f * distance * std::tan(
                         Comet::Math::radians(camera.fov_degrees) * 0.5f);
                 const float world_units_per_pixel =
                     visible_world_height / input.viewport_height;
@@ -102,7 +118,19 @@ namespace CometEditor {
             }
         }
 
-        if(input.zoom_delta != 0.0f) {
+        if(input.zoom_delta != 0.0f
+           && camera.projection == Comet::CameraProjection::Orthographic) {
+            if(!std::isfinite(camera.orthographic_height)
+               || camera.orthographic_height <= 0.0f) {
+                return changed;
+            }
+            camera.orthographic_height = std::clamp(
+                camera.orthographic_height * std::exp(
+                    -input.zoom_delta * ZOOM_EXPONENT_PER_STEP),
+                MIN_ORTHOGRAPHIC_HEIGHT,
+                MAX_ORTHOGRAPHIC_HEIGHT);
+            changed = true;
+        } else if(input.zoom_delta != 0.0f) {
             const Comet::Math::Vec3 direction =
                 Comet::Math::normalize(camera.position - camera.target);
             distance = std::clamp(

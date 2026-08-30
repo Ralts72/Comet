@@ -100,4 +100,26 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(
             camera.position, previous.position));
     }
+
+    TEST(EditorCameraControllerTest, OrthographicModePansAndScalesWithoutOrbit) {
+        EditorCameraState camera;
+        camera.projection = Comet::CameraProjection::Orthographic;
+        camera.position = Comet::Math::Vec3(3.0f, 2.0f, 4.0f);
+        const Comet::Math::Vec3 previous_offset =
+            camera.position - camera.target;
+
+        EXPECT_TRUE(apply_editor_camera_input(camera, {
+            .orbit_delta = Comet::Math::Vec2(100.0f, 50.0f),
+            .pan_delta = Comet::Math::Vec2(20.0f, -10.0f),
+            .zoom_delta = 1.0f,
+            .viewport_height = 500.0f
+        }));
+
+        EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(
+            camera.position - camera.target, previous_offset));
+        EXPECT_LT(camera.orthographic_height, 10.0f);
+        EXPECT_FALSE(Comet::Tests::TestUtils::Vec3Equal(
+            camera.target, Comet::Math::Vec3(0.0f)));
+        EXPECT_FLOAT_EQ(camera.target.z, 0.0f);
+    }
 }

@@ -15,6 +15,7 @@ namespace CometEditor {
         m_actually_visible = false;
         m_layout = {};
         m_camera_input.reset();
+        m_camera_projection_request.reset();
 
         if(!m_user_visible) {
             reset_camera_interaction();
@@ -52,12 +53,24 @@ namespace CometEditor {
             ImGui::GetWindowWidth() - button_width * 2
             - ImGui::GetStyle().ItemSpacing.x
             - ImGui::GetStyle().WindowPadding.x);
-        if(ImGui::Button("2D", ImVec2(button_width, 0))) {
-            m_2d_mode = true;
+        if(ImGui::Selectable(
+               "2D",
+               m_state.camera.projection
+                   == Comet::CameraProjection::Orthographic,
+               0,
+               ImVec2(button_width, 0))) {
+            m_camera_projection_request =
+                Comet::CameraProjection::Orthographic;
         }
         ImGui::SameLine();
-        if(ImGui::Button("3D", ImVec2(button_width, 0))) {
-            m_2d_mode = false;
+        if(ImGui::Selectable(
+               "3D",
+               m_state.camera.projection
+                   == Comet::CameraProjection::Perspective,
+               0,
+               ImVec2(button_width, 0))) {
+            m_camera_projection_request =
+                Comet::CameraProjection::Perspective;
         }
         ImGui::Separator();
     }
@@ -248,6 +261,12 @@ namespace CometEditor {
 
     std::optional<EditorCameraInput> ViewPanel::take_camera_input() {
         return std::exchange(m_camera_input, std::nullopt);
+    }
+
+    std::optional<Comet::CameraProjection>
+    ViewPanel::take_camera_projection_request() {
+        return std::exchange(
+            m_camera_projection_request, std::nullopt);
     }
 
     void ViewPanel::set_texture_id(const ImTextureID texture_id, const std::uint32_t width, const std::uint32_t height) {
