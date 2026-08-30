@@ -1,9 +1,29 @@
 #include <gtest/gtest.h>
 
 #include "render/scene/render_scene.h"
+#include "render/renderer.h"
 #include "../test_utils.h"
 
+#include <concepts>
+#include <utility>
+
 namespace Comet::Tests {
+    namespace {
+        template<typename T>
+        concept AcceptsDeferredRenderScene = requires(
+            T& renderer,
+            typename T::RenderSceneProvider provider) {
+            renderer.render_frame(std::move(provider));
+        };
+
+        template<typename T>
+        concept AcceptsPrebuiltRenderScene = requires(
+            T& renderer,
+            const RenderScene& render_scene) {
+            renderer.render_frame(render_scene);
+        };
+    }
+
     TEST(RenderCameraTest, DefaultsToInvalidEntityAndIdentityView) {
         const RenderCamera camera;
 
@@ -70,5 +90,10 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(stored_camera.fov_degrees, 60.0f);
         EXPECT_FLOAT_EQ(stored_camera.near_clip, 0.2f);
         EXPECT_FLOAT_EQ(stored_camera.far_clip, 500.0f);
+    }
+
+    TEST(RenderSceneTest, RendererDefersSnapshotUntilFramePreparation) {
+        EXPECT_TRUE(AcceptsDeferredRenderScene<Renderer>);
+        EXPECT_FALSE(AcceptsPrebuiltRenderScene<Renderer>);
     }
 }

@@ -74,12 +74,11 @@ namespace Comet {
                 callback(update_context);
             }
 
-            RenderScene render_scene;
-            if(m_scene) {
-                render_scene = SceneExtractor::extract(*m_scene);
-            }
-
-            m_renderer->on_render(render_scene);
+            m_renderer->render_frame([this]() {
+                return m_scene
+                    ? SceneExtractor::extract(*m_scene)
+                    : RenderScene{};
+            });
         }
     }
 }

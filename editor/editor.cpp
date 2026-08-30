@@ -178,7 +178,7 @@ namespace {
 
             initialize_viewport_textures(scene_renderer);
 
-            // UI 先更新编辑器状态，再由当前帧场景渲染消费；draw data 最后合成。
+            // UI 先更新编辑器状态，再提取当前帧场景快照；draw data 最后合成。
             renderer.set_overlay_callbacks(
                 [this]() {
                     update_viewport_texture(

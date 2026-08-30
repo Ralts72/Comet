@@ -90,6 +90,6 @@ Scene owner 真正替换后只 reset Controller，因为旧 Scene 已由 session
 
 ## 已知边界与下一步
 
-当前只支持 Global Translation，且 Gizmo 与 selected bounds 共用 depth-tested line policy；轴朝向相机时会因投影退化而不可选，这是数学上明确的退化而不是任意拖拽。Scene extraction 仍早于 overlay prepare，因此 Mesh 视觉可能比实时 Gizmo/高亮慢一个帧。
+当前只支持 Global Translation，且 Gizmo 与 selected bounds 共用 depth-tested line policy；轴朝向相机时会因投影退化而不可选，这是数学上明确的退化而不是任意拖拽。本轮提交时 Scene extraction 仍早于 overlay prepare；迭代 057 已将快照延迟到 UI/Gizmo edit 之后，Mesh 与工具现已同帧。
 
 下一步增加 Gizmo mode 与快捷键，按同一 Controller/transaction 契约实现 Rotation、Scale 和可选 snapping；完成三种 Transform 工具后再评估 overlay/x-ray DebugDraw policy。

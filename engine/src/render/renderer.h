@@ -23,7 +23,8 @@ namespace Comet {
 
         ~Renderer();
 
-        void on_render(const RenderScene& render_scene);
+        using RenderSceneProvider = std::function<RenderScene()>;
+        void render_frame(RenderSceneProvider provide_render_scene);
 
         void enable_viewport_rendering(Math::Vec2u initial_size);
 

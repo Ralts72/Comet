@@ -74,7 +74,7 @@ namespace Comet {
             *m_resource_manager, layout, pipeline_config);
     }
 
-    void Renderer::on_render(const RenderScene& render_scene) {
+    void Renderer::render_frame(RenderSceneProvider provide_render_scene) {
         PROFILE_SCOPE("render frame");
         m_resource_manager->collect_completed_uploads();
 
@@ -86,6 +86,9 @@ namespace Comet {
         if(m_prepare_overlay) {
             m_prepare_overlay();
         }
+        const RenderScene render_scene = provide_render_scene
+            ? provide_render_scene()
+            : RenderScene{};
         ViewportRenderRequest request = m_viewport_render_request;
         request.render_size =
             m_scene_renderer->get_render_target().get_size();

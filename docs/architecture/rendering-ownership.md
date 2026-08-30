@@ -210,6 +210,9 @@ FOV 模拟正交。3D position/target 被保留，2D pan 同步移动两者，�
 - ViewPanel 把左键交互表达为连续 texture-pixel pointer event，并只负责 ImGui capture；Editor 将选中实体解析为 Gizmo context。
   `TranslationGizmoController` 是不依赖 ImGui/Scene/Renderer 的 Editor 工具状态机，输出临时 translation edit 和单次 release commit；
   组合根应用 edit 并复用 UUID + descriptor Command History。未消费的 press 才进入原 CPU scene picking。
+- Renderer 通过延迟 `RenderSceneProvider` 保持完整 frame 事务：wait/acquire 成功后先执行 overlay prepare，再调用 Engine provider 从当前
+  Scene 提取快照，随后 resolve/record/submit。这样 UI/Gizmo 对 Scene 的修改与 Mesh draw 同帧；Engine 仍拥有 SceneExtractor，Renderer
+  不接触 ECS。没有公开 begin/render 两段式半开帧 API，begin 失败时 provider 不执行。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture

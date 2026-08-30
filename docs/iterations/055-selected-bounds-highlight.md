@@ -50,7 +50,7 @@ Play、资产选择、隐藏/折叠 Viewport、缺失组件或尚未加载 Mesh 
 
 Hierarchy/Inspector/Viewport UI 在 overlay prepare 内先更新，随后相机输入、Focus、Viewport request 和选中 bounds 都在 SceneResolver 前完成，因此高亮使用本帧 Camera 和目标尺寸。Viewport 点击拾取依赖本帧解析后的 `RenderSubmission`，其 Selection 回调发生在这次 prepare 之后，所以鼠标新选中的高亮从下一帧出现；该路径没有等待、readback 或额外同步。
 
-Inspector 在同一次 prepare 中修改 Transform 时，当前实现会直接按 Scene 最新世界矩阵生成 bounds，而主场景 RenderScene 快照由 Engine 在 prepare 前提取，因此极端情况下高亮会领先 Mesh 一个帧。这个差异来自现有 Scene extraction/UI 时序，后续 TransformSystem 或帧编排收敛时统一解决，不在 DebugDraw 内缓存旧矩阵掩盖问题。
+本轮提交时，Inspector 在同一次 prepare 中修改 Transform 会让高亮领先旧 RenderScene snapshot 一个帧；迭代 057 已将 Scene extraction 延迟到 overlay prepare 之后，现已由同帧最新 world matrix 同时驱动 bounds 和 Mesh model matrix。
 
 ## 验证
 

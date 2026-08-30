@@ -1208,7 +1208,7 @@ Scene Component / RenderItem
 
 - [x] 基于 image display/visible rect 将屏幕坐标映射到当前实际 RenderTarget 像素，排除工具栏、letterbox/pillarbox、
   最大边界和 OneToOne 裁切区域；resize debounce 期间不使用尚未发布的请求分辨率。
-- [x] Viewport 在 Edit 模式实现 editor camera 的 RMB 环绕、MMB 平移和滚轮缩放；UI prepare 在 SceneResolver 前执行，当前帧直接消费最新 camera snapshot。
+- [x] Viewport 在 Edit 模式实现 editor camera 的 RMB 环绕、MMB 平移和滚轮缩放；UI prepare 在 SceneExtractor/SceneResolver 前执行，当前帧直接消费最新 camera 和 Scene snapshot。
 - [x] 让 2D/3D 按钮切换真实投影与操作策略：RenderCamera 显式表达 Perspective/Orthographic，2D 固定 +Z 观察轴、
   使用屏幕 XY 平移与正交高度缩放并禁用 orbit，不用极端透视参数模拟。
 - 默认保持一个 Viewport 并在内部切换 2D/3D，共享同一组 RenderTarget、拾取和 gizmo 上下文。只有当多视图同时对照成为明确工作流时，
@@ -1231,6 +1231,8 @@ Scene Component / RenderItem
   向现有 DebugDraw list 提交 12 条 depth-tested 高亮线；Play、资产选择和缺失 Mesh 不产生提交。
 - [x] 建立 Global Translation Gizmo 事务：连续 texture-pixel pointer 输入区分工具命中与场景拾取，纯 Editor controller 完成轴投影命中、
   ray-axis 拖拽和 parent-local 换算；实时 Transform 在 release 时只登记一个现有属性命令，取消会恢复开始值。
+- [x] 将 RenderScene 快照延迟到 overlay prepare 之后：Renderer 以 provider 保持完整帧事务，Engine 在 UI/Gizmo 修改 Scene 后再提取当前 owner，
+  Inspector/Gizmo/bounds 与 Mesh model matrix 同帧，不暴露 begin/render 半开状态。
 - 如果对象拾取采用 GPU ID buffer，按请求或 FrameSlot 持有 host-visible readback buffer；copy 完成并确认
   fence/timeline 后再 invalidate/read。若采用 CPU ray cast，则不为了预留能力提前建立通用 readback 系统。
 - 为 Rotation/Scale Gizmo 复用现有 Undo/Redo 事务，并支持复制、粘贴、删除和 duplicate。
@@ -1598,7 +1600,7 @@ PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 60. [x] 将 swapchain 正常重建从 Device idle 收窄为全部 graphics frame-slot fence + present-queue idle 回退；submission serial 在 record 时绑定 slot，确保 active-frame 重建等待能推进真实完成状态。
 61. [x] 完成阶段 4B 架构审计：RenderTarget generation 删除原地 resize/dirty/recreate API 和重复 OffscreenTarget，extent/frame-count 构造后只读；初始 RenderPass 使用 active swapchain 实际格式，runtime Pipeline generation 明确归入阶段 5。
 62. [x] 建立 Viewport 屏幕点到当前纹理像素的纯映射：布局显式输出 image resolution 与裁切后的 visible rect，排除工具栏、留白、最大边和 OneToOne 不可见区域，并覆盖 HiDPI、debounce 旧纹理和裁切测试。
-63. [x] 建立 Viewport editor camera 输入闭环：拆分 overlay prepare/render 时序，当前帧 UI 状态在 SceneResolver 前提交；可见画面内激活 RMB orbit、MMB pan、wheel zoom，纯 controller 覆盖距离、平移和异常输入测试。
+63. [x] 建立 Viewport editor camera 输入闭环：拆分 overlay prepare/render 时序，当前帧 UI 状态先在 SceneResolver 前提交；可见画面内激活 RMB orbit、MMB pan、wheel zoom，纯 controller 覆盖距离、平移和异常输入测试。SceneExtractor 的同帧前移由第 73 项补齐。
 64. [x] 让 Viewport 2D/3D 成为真实观察模式：RenderCamera/SceneResolver 支持正交高度，ViewPanel 只发投影切换事件；2D 固定观察轴、使用屏幕 XY pan 与独立正交 zoom，保留 3D camera 状态。
 65. [x] 完成 Viewport picking 技术审计并建立可复用 Mesh bounds：新增通用 AxisAlignedBox，MeshData 拒绝空/非有限位置，Runtime Mesh 与 GPU buffer 同候选保存 local bounds；CPU ray-AABB 优先于当前阶段的 GPU ID/readback。
 66. [x] 建立事件式 CPU Viewport 拾取闭环：ViewPanel 只提交可见画面内的当前纹理 pixel，Renderer 用当帧 RenderSubmission/Camera 完成 ray-local-AABB 最近命中并回调 Selection；空白点击清除选择，无 GPU readback 或 ImGui 下沉。
@@ -1608,6 +1610,7 @@ PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 70. [x] 建立通用 DebugDraw line submission/executor：纯 CPU list 支持 line/AABB，独立 depth-tested pipeline 在当前场景 subpass 绘制；mapped vertex buffer 按 FrameSlot 隔离并预算内增长，失败不影响主场景。
 71. [x] 将 Editor Selection 接到 DebugDraw：Focus 与持续高亮复用同一 selected Mesh world bounds 解析，Edit Viewport 可见时提交 12 条深度测试线；不修改 Material/Scene 或增加专用 renderer。
 72. [x] 建立 Global Translation Gizmo MVP：固定 logical-pixel 尺寸的 RGB 世界轴通过 DebugDraw 绘制，连续 texture-pixel 输入完成命中/拖拽；parent-local 换算和 release 单命令事务可测试，未命中 press 继续进入场景拾取。
+73. [x] 对齐 Editor 修改与 RenderScene 快照时序：wait/acquire 后先 overlay prepare，再由 Engine provider 提取当前 Scene；同帧 Transform 进入 Mesh draw，Renderer 继续独占完整 frame 生命周期。
 
 格式所有权后续需求：
 
