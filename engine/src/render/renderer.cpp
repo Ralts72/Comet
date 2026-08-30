@@ -74,6 +74,7 @@ namespace Comet {
 
     void Renderer::on_render(const RenderScene& render_scene) {
         PROFILE_SCOPE("render frame");
+        m_resource_manager->collect_completed_uploads();
 
         // Begin frame (acquires image and begins command buffer)
         if(!m_scene_renderer->begin_frame()) {

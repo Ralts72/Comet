@@ -98,6 +98,10 @@ namespace Comet {
             data,
             *initial_state,
             *sampled_state);
-        upload_manager.upload_and_wait();
+        const auto completion = upload_manager.flush_batch();
+        if(!completion) {
+            LOG_FATAL("Texture upload did not produce a completion point");
+        }
+        m_ready_completion = *completion;
     }
 }

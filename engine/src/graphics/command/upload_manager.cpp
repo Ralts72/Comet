@@ -182,6 +182,8 @@ namespace Comet {
 
     UploadManager::StagingAllocation UploadManager::allocate_staging(
         const std::span<const std::byte> data) {
+        collect_completed();
+
         for(const auto& page: m_active_resources.staging_pages) {
             const size_t offset = align_staging_offset(page->used);
             if(offset <= page->capacity

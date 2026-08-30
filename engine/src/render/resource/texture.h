@@ -1,6 +1,7 @@
 #pragma once
 #include "common/export.h"
 #include "core/math_utils.h"
+#include "graphics/queue.h"
 #include "render/resource/texture_data.h"
 
 #include <cstddef>
@@ -31,6 +32,9 @@ namespace Comet {
         [[nodiscard]] int get_height() const { return m_height; }
         [[nodiscard]] std::shared_ptr<Image> get_image() const;
         [[nodiscard]] std::shared_ptr<ImageView> get_image_view() const { return m_image_view; }
+        [[nodiscard]] const GpuCompletionPoint& get_ready_completion() const {
+            return m_ready_completion;
+        }
     private:
         void create_image(
             Device& device,
@@ -41,5 +45,6 @@ namespace Comet {
         int m_height;
         Format m_format;
         std::shared_ptr<ImageView> m_image_view;
+        GpuCompletionPoint m_ready_completion;
     };
 }

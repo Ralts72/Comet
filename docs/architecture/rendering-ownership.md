@@ -101,6 +101,8 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
 - `UploadManager`：在 owner thread 从可复用 staging page 子分配上传范围，合并 buffer/image copy 与 Barrier2；每个
   pending batch 独占所用 page、CommandContext 和目标资源直到 timeline completion，随后整页回池。它不认识
   AssetHandle、Importer 或资产发布策略。
+- `Mesh` / `Texture`：持有 Runtime GPU 对象和创建它们的 ready completion；创建返回不等待 CPU。当前 upload 与 draw
+  使用同一 graphics queue，因此依靠 queue order 保证消费顺序；显式跨 queue wait 由 RenderSubmission/Renderer 层接入。
 - `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。
 - `SceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断。
 - `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；没有有效主 Camera 时不提交场景 draw。

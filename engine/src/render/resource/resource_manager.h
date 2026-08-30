@@ -25,6 +25,7 @@ namespace Comet {
             const TextureData& data) override;
         [[nodiscard]] std::shared_ptr<Mesh> create_mesh(
             const MeshData& data) override;
+        void collect_completed_uploads();
 
     private:
         Device& m_device;

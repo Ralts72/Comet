@@ -45,7 +45,11 @@ namespace Comet {
         } else {
             m_index_buffer.reset();
         }
-        upload_manager.upload_and_wait();
+        const auto completion = upload_manager.flush_batch();
+        if(!completion) {
+            LOG_FATAL("Mesh upload did not produce a completion point");
+        }
+        m_ready_completion = *completion;
     }
 
     Mesh::~Mesh() {
