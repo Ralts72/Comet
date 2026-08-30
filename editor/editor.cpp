@@ -437,9 +437,17 @@ namespace {
                 m_property_editor_registry,
                 m_asset_manager->get_database(),
                 Comet::ProjectPaths(PROJECT_ROOT_DIR).assets(),
-                [this](const Comet::AssetHandle handle) {
+                [this](
+                    const Comet::AssetHandle handle,
+                    const Comet::MaterialData& data) {
                     return static_cast<bool>(
-                        m_asset_manager->reload_material(handle));
+                        m_asset_manager->update_material(handle, data));
+                },
+                [this](
+                    const Comet::AssetHandle handle,
+                    const Comet::TextureImportSettings settings) {
+                    return static_cast<bool>(
+                        m_asset_manager->reimport_texture(handle, settings));
                 });
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(
                 m_asset_manager->get_database(),

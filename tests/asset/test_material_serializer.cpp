@@ -124,6 +124,9 @@ extra: true
 
     TEST(MaterialSerializerTest, RejectsInvalidDataBeforeSaving) {
         const MaterialSerializer serializer;
+        const TemporaryMaterial material(
+            "version: 1\ntemplate: cube_texture\nproperties: {}\n");
+        const MaterialData original = serializer.load(material.path());
 
         EXPECT_THROW(
             static_cast<void>(serializer.serialize({
@@ -139,5 +142,14 @@ extra: true
                 }
             })),
             std::runtime_error);
+        EXPECT_THROW(
+            serializer.save(
+                {
+                    .template_name = "",
+                    .texture_properties = {}
+                },
+                material.path()),
+            std::runtime_error);
+        EXPECT_EQ(serializer.load(material.path()), original);
     }
 }

@@ -20,7 +20,12 @@ namespace CometEditor {
 
     class InspectorPanel : public EditorPanel {
     public:
-        using ReloadMaterialCallback = std::function<bool(Comet::AssetHandle)>;
+        using UpdateMaterialCallback = std::function<bool(
+            Comet::AssetHandle,
+            const Comet::MaterialData&)>;
+        using ReimportTextureCallback = std::function<bool(
+            Comet::AssetHandle,
+            Comet::TextureImportSettings)>;
 
         InspectorPanel(
             SelectionService& selection,
@@ -28,16 +33,23 @@ namespace CometEditor {
             const PropertyEditorRegistry& property_editor_registry,
             const Comet::AssetDatabase& asset_database,
             std::filesystem::path assets_root,
-            ReloadMaterialCallback reload_material_callback);
+            UpdateMaterialCallback update_material_callback,
+            ReimportTextureCallback reimport_texture_callback);
 
         void render() override;
 
     private:
         void render_entity(Comet::Entity entity) const;
         void render_asset(Comet::AssetHandle handle);
+        void render_texture(const Comet::AssetRecord& record);
         void render_material(const Comet::AssetRecord& record);
         void load_asset(const Comet::AssetRecord& record);
-        void save_material(const Comet::AssetRecord& record);
+        void reimport_texture(
+            const Comet::AssetRecord& record,
+            const Comet::TextureImportSettings& previous_settings);
+        void update_material(
+            const Comet::AssetRecord& record,
+            const Comet::MaterialData& previous_data);
         [[nodiscard]] std::string validate_material() const;
 
         SelectionService& m_selection;
@@ -45,12 +57,12 @@ namespace CometEditor {
         const PropertyEditorRegistry& m_property_editor_registry;
         const Comet::AssetDatabase& m_asset_database;
         std::filesystem::path m_assets_root;
-        ReloadMaterialCallback m_reload_material_callback;
+        UpdateMaterialCallback m_update_material_callback;
+        ReimportTextureCallback m_reimport_texture_callback;
         Comet::AssetHandle m_loaded_asset;
+        std::optional<Comet::TextureImportSettings> m_texture_import_settings;
         std::optional<Comet::MaterialData> m_material_data;
-        bool m_material_dirty = false;
         std::string m_asset_error;
-        std::string m_asset_status;
     };
 
 }

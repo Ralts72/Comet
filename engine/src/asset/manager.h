@@ -11,6 +11,7 @@ namespace Comet {
     class Material;
     class ResourceManager;
     class Texture;
+    struct MaterialData;
 
     class COMET_API AssetManager final {
     public:
@@ -21,7 +22,13 @@ namespace Comet {
 
         [[nodiscard]] AssetScanReport scan();
         [[nodiscard]] std::shared_ptr<Texture> load_texture(AssetHandle handle);
+        [[nodiscard]] std::shared_ptr<Texture> reimport_texture(
+            AssetHandle handle,
+            TextureImportSettings import_settings);
         [[nodiscard]] std::shared_ptr<Material> load_material(AssetHandle handle);
+        [[nodiscard]] std::shared_ptr<Material> update_material(
+            AssetHandle handle,
+            const MaterialData& data);
         [[nodiscard]] std::shared_ptr<Material> reload_material(AssetHandle handle);
 
         [[nodiscard]] const AssetDatabase& get_database() const noexcept {
@@ -29,8 +36,14 @@ namespace Comet {
         }
 
     private:
+        [[nodiscard]] std::shared_ptr<Texture> create_runtime_texture(
+            const AssetRecord& record,
+            const TextureImportSettings& import_settings);
         [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
             const AssetRecord& record);
+        [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
+            const AssetRecord& record,
+            const MaterialData& data);
 
         ProjectPaths m_paths;
         AssetDatabase m_database;

@@ -98,6 +98,53 @@ namespace Comet::Tests {
         EXPECT_EQ(database.find("old.png"), nullptr);
     }
 
+    TEST(AssetDatabaseTest, UpdatesImportSettingsInIndexAndMetadata) {
+        const TemporaryProject project;
+        project.add_file("textures/albedo.png");
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const AssetRecord* original = database.find("textures/albedo.png");
+        ASSERT_NE(original, nullptr);
+        const AssetHandle handle = original->handle;
+        const TextureImportSettings settings{
+            .color_space = TextureColorSpace::Linear,
+            .flip_y = true
+        };
+
+        database.update_import_settings(handle, settings);
+
+        const AssetRecord* updated = database.find(handle);
+        ASSERT_NE(updated, nullptr);
+        EXPECT_EQ(updated->import_settings, AssetImportSettings(settings));
+        const AssetMetadata metadata = AssetMetadataSerializer{}.load(
+            metadata_path(project.paths().assets() / updated->path));
+        EXPECT_EQ(metadata.import_settings, AssetImportSettings(settings));
+    }
+
+    TEST(AssetDatabaseTest, RejectsImportSettingsForAnotherAssetType) {
+        const TemporaryProject project;
+        project.add_file("materials/default.mat");
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const AssetRecord* material = database.find("materials/default.mat");
+        ASSERT_NE(material, nullptr);
+        const AssetMetadata original_metadata = AssetMetadataSerializer{}.load(
+            metadata_path(project.paths().assets() / material->path));
+
+        EXPECT_THROW(
+            database.update_import_settings(
+                material->handle,
+                TextureImportSettings{}),
+            std::runtime_error);
+        EXPECT_EQ(
+            database.find(material->handle)->import_settings,
+            AssetImportSettings(std::monostate{}));
+        EXPECT_EQ(
+            AssetMetadataSerializer{}.load(
+                metadata_path(project.paths().assets() / material->path)),
+            original_metadata);
+    }
+
     TEST(AssetDatabaseTest, ReportsDuplicateGuidAndKeepsDeterministicFirstAsset) {
         const TemporaryProject project;
         const std::filesystem::path first = project.add_file("a.png");

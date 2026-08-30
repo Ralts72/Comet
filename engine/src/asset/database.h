@@ -42,6 +42,10 @@ namespace Comet {
 
         [[nodiscard]] AssetScanReport scan();
 
+        void update_import_settings(
+            AssetHandle handle,
+            AssetImportSettings import_settings);
+
         [[nodiscard]] const AssetRecord* find(AssetHandle handle) const;
         [[nodiscard]] const AssetRecord* find(const std::filesystem::path& path) const;
         [[nodiscard]] std::vector<AssetRecord> get_assets() const;

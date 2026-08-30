@@ -242,12 +242,13 @@ namespace Comet {
     void MaterialSerializer::save(
         const MaterialData& data,
         const std::filesystem::path& path) const {
+        const std::string contents = serialize(data);
         std::ofstream output(path, std::ios::binary | std::ios::trunc);
         if(!output) {
             throw std::runtime_error(
                 "Failed to open material for writing: " + path.string());
         }
-        output << serialize(data);
+        output << contents;
         if(!output) {
             throw std::runtime_error(
                 "Failed to write material: " + path.string());

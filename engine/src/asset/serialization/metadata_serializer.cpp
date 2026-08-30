@@ -259,12 +259,13 @@ namespace Comet {
     void AssetMetadataSerializer::save(
         const AssetMetadata& metadata,
         const std::filesystem::path& path) const {
+        const std::string contents = serialize(metadata);
         std::ofstream output(path, std::ios::binary | std::ios::trunc);
         if(!output) {
             throw std::runtime_error(
                 "Failed to open asset metadata for writing: " + path.string());
         }
-        output << serialize(metadata);
+        output << contents;
         if(!output) {
             throw std::runtime_error(
                 "Failed to write asset metadata: " + path.string());

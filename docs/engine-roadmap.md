@@ -40,12 +40,12 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
   带版本字段的 `.scene` YAML；Inspector 与 `SceneSerializer` 已复用同一份组件/属性描述元数据。
 - `MeshRendererComponent` 已使用统一的 `AssetHandle`，app 会注册 demo mesh/material，并通过该链路绘制两个不同 Transform 的实体。
 - Hierarchy、Project 和 Inspector 已共享互斥的 Entity/Asset Selection；Inspector 通过显式组件/属性描述符编辑
-  Transform、MeshRenderer 和 Camera，并支持 Material 的 Texture 属性保存和显式运行时重载；Viewport 拾取和 gizmo 仍是占位状态。
+  Transform、MeshRenderer 和 Camera，Material 的 Texture 属性在选择变化事件发生时自动保存并替换运行时对象；Viewport 拾取和 gizmo 仍是占位状态。
 - 编辑器中的场景已按 frame slot 渲染到可采样离屏目标，再由 ImGui 显示在单一 Viewport 中；runtime app
   仍直接渲染到 swapchain。Viewport 在 Edit/Play 间切换活动 Scene 和工具状态，独立 editor camera 尚未实现。
 - Play 会从 Edit Scene 创建独立 Runtime Scene，Stop 后丢弃运行时修改并恢复原 Scene；暂停、单帧步进和真正的
   runtime System 更新仍未实现。
-- Texture/Material 已建立 Asset Database、序列化/导入、运行时发布和最小 Inspector 闭环；文件监听、依赖失效传播和 GPU 资源热重载仍未建立。
+- Texture/Material 已建立 Asset Database、序列化/导入、运行时发布和最小 Inspector 闭环；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，文件监听和通用依赖失效传播仍未建立。
 - Scene Update 和 Render Submit 的最小边界已经落地，运行时 System 调度仍未建立。
 
 ## 距离成熟编辑器型引擎的核心缺口
@@ -89,14 +89,13 @@ Asset Registry 是运行时 Handle 缓存，ResourceManager 不再承担资产�
 - 资产依赖查询、失效传播和热重载。
 - Mesh、Shader、Scene 等更多资产类型及其导入/加载策略。
 - 模型导入器，例如 glTF。
-- Texture 已支持持久化色彩空间和垂直翻转；wrap、filter、mipmap、压缩仍待接入对应运行时链路。
+- Texture 已支持持久化并在 Asset Inspector 编辑色彩空间和垂直翻转；wrap、filter、mipmap、压缩仍待接入对应运行时链路。
 - 资产依赖追踪和热重载。
-- Texture Import Settings 的 Asset Inspector 编辑入口。
 
 ### 4. 编辑器数据闭环
 
 当前编辑器已经完成第一段真实数据闭环：Hierarchy 和 Project 通过互斥的 Entity/Asset Selection 连接 Inspector，
-组件描述符驱动 Transform、MeshRenderer 和 Camera 属性编辑，Material 可选择已索引 Texture、保存并显式替换运行时对象；
+组件描述符驱动 Transform、MeshRenderer 和 Camera 属性编辑，Material 可选择已索引 Texture 并在变化事件发生时自动保存、替换运行时对象；
 创建、删除、重命名和场景文件操作会作用于真实 Scene，场景输出已通过离屏目标进入 View 面板。
 接下来仍缺少：
 

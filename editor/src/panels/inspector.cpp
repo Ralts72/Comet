@@ -37,14 +37,16 @@ namespace CometEditor {
         const PropertyEditorRegistry& property_editor_registry,
         const Comet::AssetDatabase& asset_database,
         std::filesystem::path assets_root,
-        ReloadMaterialCallback reload_material_callback)
+        UpdateMaterialCallback update_material_callback,
+        ReimportTextureCallback reimport_texture_callback)
         : EditorPanel("Inspector"),
           m_selection(selection),
           m_component_registry(component_registry),
           m_property_editor_registry(property_editor_registry),
           m_asset_database(asset_database),
           m_assets_root(std::move(assets_root)),
-          m_reload_material_callback(std::move(reload_material_callback)) {}
+          m_update_material_callback(std::move(update_material_callback)),
+          m_reimport_texture_callback(std::move(reimport_texture_callback)) {}
 
     void InspectorPanel::render() {
         if(!m_user_visible) return;
@@ -132,9 +134,6 @@ namespace CometEditor {
                 "%s",
                 m_asset_error.c_str());
         }
-        if(!m_asset_status.empty()) {
-            ImGui::TextDisabled("%s", m_asset_status.c_str());
-        }
 
         if(record->type == Comet::AssetType::Material) {
             if(m_material_data) {
@@ -145,10 +144,64 @@ namespace CometEditor {
             return;
         }
 
+        if(record->type == Comet::AssetType::Texture) {
+            if(m_texture_import_settings) {
+                render_texture(*record);
+            } else if(ImGui::Button("Retry Load")) {
+                load_asset(*record);
+            }
+            return;
+        }
+
         ImGui::TextDisabled("No inspector is available for this asset type");
     }
 
+    void InspectorPanel::render_texture(const Comet::AssetRecord& record) {
+        std::optional<Comet::TextureImportSettings> previous_settings;
+        const char* color_space =
+            m_texture_import_settings->color_space
+                == Comet::TextureColorSpace::Srgb
+            ? "sRGB"
+            : "Linear";
+        if(ImGui::BeginCombo("Color Space", color_space)) {
+            constexpr std::array color_spaces{
+                Comet::TextureColorSpace::Srgb,
+                Comet::TextureColorSpace::Linear
+            };
+            for(const Comet::TextureColorSpace candidate: color_spaces) {
+                const bool selected =
+                    candidate == m_texture_import_settings->color_space;
+                const char* label = candidate == Comet::TextureColorSpace::Srgb
+                    ? "sRGB"
+                    : "Linear";
+                if(ImGui::Selectable(label, selected) && !selected) {
+                    if(!previous_settings) {
+                        previous_settings = *m_texture_import_settings;
+                    }
+                    m_texture_import_settings->color_space = candidate;
+                }
+                if(selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        bool flip_y = m_texture_import_settings->flip_y;
+        if(ImGui::Checkbox("Flip Y", &flip_y)) {
+            if(!previous_settings) {
+                previous_settings = *m_texture_import_settings;
+            }
+            m_texture_import_settings->flip_y = flip_y;
+        }
+
+        if(previous_settings) {
+            reimport_texture(record, *previous_settings);
+        }
+    }
+
     void InspectorPanel::render_material(const Comet::AssetRecord& record) {
+        std::optional<Comet::MaterialData> previous_data;
         ImGui::Text("Template: %s", m_material_data->template_name.c_str());
         ImGui::TextDisabled("Template editing is not available yet");
         ImGui::SeparatorText("Texture Properties");
@@ -168,11 +221,9 @@ namespace CometEditor {
 
                     const bool selected = candidate.handle == texture_handle;
                     const std::string label = candidate.path.generic_string();
-                    if(ImGui::Selectable(label.c_str(), selected)) {
+                    if(ImGui::Selectable(label.c_str(), selected) && !selected) {
+                        previous_data = *m_material_data;
                         texture_handle = candidate.handle;
-                        m_material_dirty = true;
-                        m_asset_error.clear();
-                        m_asset_status.clear();
                     }
                     if(selected) {
                         ImGui::SetItemDefaultFocus();
@@ -189,27 +240,33 @@ namespace CometEditor {
                 ImVec4(0.9f, 0.25f, 0.2f, 1.0f),
                 "%s",
                 validation_error.c_str());
-        } else if(m_material_dirty) {
-            ImGui::TextDisabled("Unsaved changes");
         }
 
-        ImGui::BeginDisabled(!validation_error.empty());
-        if(ImGui::Button("Save")) {
-            save_material(record);
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if(ImGui::Button("Revert")) {
-            load_asset(record);
+        if(previous_data) {
+            if(validation_error.empty()) {
+                update_material(record, *previous_data);
+            } else {
+                m_material_data = *previous_data;
+            }
         }
     }
 
     void InspectorPanel::load_asset(const Comet::AssetRecord& record) {
         m_loaded_asset = record.handle;
+        m_texture_import_settings.reset();
         m_material_data.reset();
-        m_material_dirty = false;
         m_asset_error.clear();
-        m_asset_status.clear();
+
+        if(record.type == Comet::AssetType::Texture) {
+            const auto* settings = std::get_if<Comet::TextureImportSettings>(
+                &record.import_settings);
+            if(settings) {
+                m_texture_import_settings = *settings;
+            } else {
+                m_asset_error = "Texture has incompatible import settings";
+            }
+            return;
+        }
 
         if(record.type != Comet::AssetType::Material) {
             return;
@@ -223,28 +280,31 @@ namespace CometEditor {
         }
     }
 
-    void InspectorPanel::save_material(const Comet::AssetRecord& record) {
-        if(!m_material_data) {
+    void InspectorPanel::reimport_texture(
+        const Comet::AssetRecord& record,
+        const Comet::TextureImportSettings& previous_settings) {
+        if(!m_texture_import_settings || !m_reimport_texture_callback) {
             return;
         }
 
-        try {
-            Comet::MaterialSerializer{}.save(
-                *m_material_data,
-                m_assets_root / record.path);
-            m_material_dirty = false;
-            if(m_reload_material_callback
-               && !m_reload_material_callback(record.handle)) {
-                m_asset_error =
-                        "Material was saved, but runtime reload failed; the previous runtime material is still active";
-                m_asset_status.clear();
-                return;
-            }
-            m_asset_error.clear();
-            m_asset_status = "Material saved and reloaded";
-        } catch(const std::exception& error) {
-            m_asset_error = error.what();
-            m_asset_status.clear();
+        if(!m_reimport_texture_callback(
+               record.handle,
+               *m_texture_import_settings)) {
+            m_texture_import_settings = previous_settings;
+            return;
+        }
+    }
+
+    void InspectorPanel::update_material(
+        const Comet::AssetRecord& record,
+        const Comet::MaterialData& previous_data) {
+        if(!m_material_data || !m_update_material_callback) {
+            return;
+        }
+
+        if(!m_update_material_callback(record.handle, *m_material_data)) {
+            m_material_data = previous_data;
+            return;
         }
     }
 

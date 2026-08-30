@@ -8,7 +8,7 @@
 #include <filesystem>
 
 namespace Comet::Tests {
-    TEST(ProjectAssetsTest, DemoTexturesHaveStableMetadata) {
+    TEST(ProjectAssetsTest, DemoAssetsHaveStableIdentityAndValidReferences) {
         const ProjectPaths paths(PROJECT_ROOT_DIR);
         const AssetMetadataSerializer serializer;
 
@@ -21,9 +21,10 @@ namespace Comet::Tests {
         EXPECT_EQ(
             awesome_face.handle,
             AssetHandle(15538271868700781231ull));
-        EXPECT_EQ(
-            awesome_face.import_settings,
-            AssetImportSettings(TextureImportSettings{}));
+        EXPECT_NE(
+            std::get_if<TextureImportSettings>(
+                &awesome_face.import_settings),
+            nullptr);
 
         const std::filesystem::path second_texture_source =
                 paths.assets() / "textures/R-C.jpeg";
@@ -34,9 +35,10 @@ namespace Comet::Tests {
         EXPECT_EQ(
             second_texture.handle,
             AssetHandle(6692465245512631459ull));
-        EXPECT_EQ(
-            second_texture.import_settings,
-            AssetImportSettings(TextureImportSettings{}));
+        EXPECT_NE(
+            std::get_if<TextureImportSettings>(
+                &second_texture.import_settings),
+            nullptr);
 
         const std::filesystem::path material_source =
                 paths.assets() / "materials/demo.mat";

@@ -12,6 +12,7 @@
 #include <map>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace Comet {
     AssetManager::AssetManager(
@@ -66,17 +67,7 @@ namespace Comet {
             return nullptr;
         }
 
-        TextureData data;
-        try {
-            data = TextureImporter{}.import(
-                m_paths.assets() / record->path,
-                *settings);
-        } catch(const std::exception& exception) {
-            LOG_ERROR("{}", exception.what());
-            return nullptr;
-        }
-
-        auto texture = m_resource_manager.create_texture(data);
+        auto texture = create_runtime_texture(*record, *settings);
         if(!texture) {
             return nullptr;
         }
@@ -86,6 +77,100 @@ namespace Comet {
                 handle.value());
             return nullptr;
         }
+        return texture;
+    }
+
+    std::shared_ptr<Texture> AssetManager::reimport_texture(
+        const AssetHandle handle,
+        TextureImportSettings import_settings) {
+        if(!handle) {
+            LOG_ERROR("Cannot reimport a texture with an invalid asset handle");
+            return nullptr;
+        }
+
+        const AssetRecord* record = m_database.find(handle);
+        if(!record) {
+            LOG_ERROR("Texture asset handle {} is not indexed", handle.value());
+            return nullptr;
+        }
+        if(record->type != AssetType::Texture) {
+            LOG_ERROR(
+                "Asset handle {} has type '{}', expected 'texture'",
+                handle.value(),
+                to_string(record->type));
+            return nullptr;
+        }
+
+        const auto previous_texture = m_registry.resolve<Texture>(handle);
+        if(m_registry.contains(handle) && !previous_texture) {
+            LOG_ERROR(
+                "Asset handle {} is already registered with another runtime type",
+                handle.value());
+            return nullptr;
+        }
+
+        std::vector<AssetHandle> dependent_materials;
+        if(previous_texture) {
+            for(const AssetRecord& candidate: m_database.get_assets()) {
+                if(candidate.type != AssetType::Material) {
+                    continue;
+                }
+
+                const auto material = m_registry.resolve<Material>(
+                    candidate.handle);
+                if(!material) {
+                    continue;
+                }
+
+                for(const auto& property_entry:
+                    material->get_properties()) {
+                    const MaterialProperty& property = property_entry.second;
+                    const auto* texture =
+                        std::get_if<std::shared_ptr<Texture>>(&property.value);
+                    if(texture && *texture == previous_texture) {
+                        dependent_materials.push_back(candidate.handle);
+                        break;
+                    }
+                }
+            }
+        }
+
+        auto texture = create_runtime_texture(*record, import_settings);
+        if(!texture) {
+            return nullptr;
+        }
+
+        try {
+            m_database.update_import_settings(handle, import_settings);
+        } catch(const std::exception& exception) {
+            LOG_ERROR("{}", exception.what());
+            return nullptr;
+        }
+
+        const bool published = previous_texture
+            ? m_registry.replace_asset(handle, texture)
+            : m_registry.register_asset(handle, texture);
+        if(!published) {
+            LOG_ERROR(
+                "Failed to publish reimported texture for asset handle {}",
+                handle.value());
+            return nullptr;
+        }
+
+        for(const AssetHandle material_handle: dependent_materials) {
+            if(!reload_material(material_handle)) {
+                LOG_ERROR(
+                    "Texture handle {} was reimported, but dependent material handle {} could not be refreshed",
+                    handle.value(),
+                    material_handle.value());
+            }
+        }
+        LOG_INFO(
+            "Reimported texture asset '{}' (handle {}, color_space={}, flip_y={})",
+            record->path.generic_string(),
+            handle.value(),
+            to_string(import_settings.color_space),
+            import_settings.flip_y);
         return texture;
     }
 
@@ -174,7 +259,87 @@ namespace Comet {
                 handle.value());
             return nullptr;
         }
+        LOG_INFO(
+            "Updated material asset '{}' (handle {})",
+            record->path.generic_string(),
+            handle.value());
         return material;
+    }
+
+    std::shared_ptr<Material> AssetManager::update_material(
+        const AssetHandle handle,
+        const MaterialData& data) {
+        if(!handle) {
+            LOG_ERROR("Cannot update a material with an invalid asset handle");
+            return nullptr;
+        }
+
+        const AssetRecord* record = m_database.find(handle);
+        if(!record) {
+            LOG_ERROR("Material asset handle {} is not indexed", handle.value());
+            return nullptr;
+        }
+        if(record->type != AssetType::Material) {
+            LOG_ERROR(
+                "Asset handle {} has type '{}', expected 'material'",
+                handle.value(),
+                to_string(record->type));
+            return nullptr;
+        }
+
+        const bool has_runtime_asset = m_registry.contains(handle);
+        if(has_runtime_asset && !m_registry.resolve<Material>(handle)) {
+            LOG_ERROR(
+                "Asset handle {} is already registered with another runtime type",
+                handle.value());
+            return nullptr;
+        }
+
+        const MaterialSerializer serializer;
+        try {
+            static_cast<void>(serializer.serialize(data));
+        } catch(const std::exception& exception) {
+            LOG_ERROR("{}", exception.what());
+            return nullptr;
+        }
+
+        auto material = create_runtime_material(*record, data);
+        if(!material) {
+            return nullptr;
+        }
+
+        try {
+            serializer.save(data, m_paths.assets() / record->path);
+        } catch(const std::exception& exception) {
+            LOG_ERROR("{}", exception.what());
+            return nullptr;
+        }
+
+        const bool published = has_runtime_asset
+            ? m_registry.replace_asset(handle, material)
+            : m_registry.register_asset(handle, material);
+        if(!published) {
+            LOG_ERROR(
+                "Failed to publish updated material for asset handle {}",
+                handle.value());
+            return nullptr;
+        }
+        return material;
+    }
+
+    std::shared_ptr<Texture> AssetManager::create_runtime_texture(
+        const AssetRecord& record,
+        const TextureImportSettings& import_settings) {
+        TextureData data;
+        try {
+            data = TextureImporter{}.import(
+                m_paths.assets() / record.path,
+                import_settings);
+        } catch(const std::exception& exception) {
+            LOG_ERROR("{}", exception.what());
+            return nullptr;
+        }
+        return m_resource_manager.create_texture(data);
     }
 
     std::shared_ptr<Material> AssetManager::create_runtime_material(
@@ -187,6 +352,12 @@ namespace Comet {
             return nullptr;
         }
 
+        return create_runtime_material(record, data);
+    }
+
+    std::shared_ptr<Material> AssetManager::create_runtime_material(
+        const AssetRecord& record,
+        const MaterialData& data) {
         std::map<std::string, std::shared_ptr<Texture>> textures;
         for(const auto& [property_name, texture_handle]: data.texture_properties) {
             auto texture = load_texture(texture_handle);

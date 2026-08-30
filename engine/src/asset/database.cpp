@@ -5,6 +5,7 @@
 #include <cctype>
 #include <exception>
 #include <optional>
+#include <stdexcept>
 #include <system_error>
 #include <utility>
 
@@ -269,6 +270,28 @@ namespace Comet {
         m_assets = std::move(assets);
         m_handles_by_path = std::move(handles_by_path);
         return report;
+    }
+
+    void AssetDatabase::update_import_settings(
+        const AssetHandle handle,
+        AssetImportSettings import_settings) {
+        const auto asset = m_assets.find(handle);
+        if(asset == m_assets.end()) {
+            throw std::runtime_error(
+                "Cannot update import settings for an unindexed asset handle "
+                + std::to_string(handle.value()));
+        }
+
+        AssetRecord& record = asset->second;
+        const AssetMetadata metadata{
+            .handle = record.handle,
+            .type = record.type,
+            .import_settings = import_settings
+        };
+        AssetMetadataSerializer{}.save(
+            metadata,
+            metadata_path(m_paths.assets() / record.path));
+        record.import_settings = std::move(import_settings);
     }
 
     const AssetRecord* AssetDatabase::find(const AssetHandle handle) const {
