@@ -41,7 +41,7 @@ TaskScheduler、revision 验票和 Owner Thread completion 完成后台 CPU 刷�
   带版本字段的 `.scene` YAML；Inspector 与 `SceneSerializer` 已复用同一份组件/属性描述元数据。
 - `MeshRendererComponent` 已使用统一的 `AssetHandle`，app/editor 会从项目资产加载 demo mesh/material，并通过该链路绘制实体。
 - Hierarchy、Project 和 Inspector 已共享互斥的 Entity/Asset Selection；Inspector 通过显式组件/属性描述符编辑
-  Transform、MeshRenderer 和 Camera，Material 的 Texture 属性在选择变化事件发生时自动保存并替换运行时对象；Viewport 拾取和 gizmo 仍是占位状态。
+  Transform、MeshRenderer 和 Camera，Material 的 Texture 属性在选择变化事件发生时自动保存并替换运行时对象；Viewport 已支持 CPU bounds 拾取、Focus 和选中 world AABB 高亮，gizmo 尚未实现。
 - 编辑器中的场景已按 frame slot 渲染到可采样离屏目标，再由 ImGui 显示在单一 Viewport 中；runtime app
   仍直接渲染到 swapchain。Viewport 在 Edit/Play 间切换活动 Scene 和工具状态，独立 editor camera 尚未实现。
 - Play 会从 Edit Scene 创建独立 Runtime Scene，Stop 后丢弃运行时修改并恢复原 Scene；暂停、单帧步进和真正的
@@ -1227,6 +1227,8 @@ Scene Component / RenderItem
   component/property stable id 重新解析，MenuBar 与快捷键统一 Undo/Redo；Scene owner 切换清空历史，不持有组件裸指针。
 - [x] 建立通用 DebugDraw line path：无后端类型的 CPU list 生成 line/AABB，独立 line pipeline 使用当前 Camera/depth/MSAA；每个 FrameSlot
   独占可恢复增长的 mapped vertex buffer，Renderer 一次性提交，模块不依赖 Selection、Scene、Material 或 ImGui。
+- [x] 接入 selected bounds highlight：Editor 在 Edit/Viewport 可见且选中实体能解析有效 Runtime Mesh 时复用 Focus 的 world bounds 语义，
+  向现有 DebugDraw list 提交 12 条 depth-tested 高亮线；Play、资产选择和缺失 Mesh 不产生提交。
 - 如果对象拾取采用 GPU ID buffer，按请求或 FrameSlot 持有 host-visible readback buffer；copy 完成并确认
   fence/timeline 后再 invalidate/read。若采用 CPU ray cast，则不为了预留能力提前建立通用 readback 系统。
 - 将 gizmo 修改接入 Undo/Redo 命令系统，并支持复制、粘贴、删除和 duplicate。
@@ -1505,8 +1507,8 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步接入 **selected bounds highlight**：Editor 只在 Edit 模式为当前选中、带有效 Runtime Mesh 的实体计算 world AABB，并向现有
-DebugDrawList 添加 12 条线；Play、资产选择和缺失 Mesh 不提交。不再增加渲染类或修改 Material。
+下一步建立 **Transform gizmo interaction transaction**：先复用现有 DebugDraw producer 绘制移动轴和命中反馈，再将一次鼠标按下—拖拽—释放
+收敛为单个 Transform command，接入现有 Command History；不增加 gizmo 专用渲染器，也不把临时交互状态写入 Scene。
 runtime format/sample-count-dependent Pipeline generation 归入阶段 5，与 PipelineKey/RenderGraph 生命周期一并设计，避免在旧
 PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 
@@ -1602,6 +1604,7 @@ PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 68. [x] 完成 editor visualization/command 审计并清理旧 Shader 草稿：拒绝材质 tint、ImGui 假轮廓和阶段 4 临时 ID attachment；确定 CommandHistory → DebugDraw → bounds 高亮 → gizmo transaction 的实现顺序。
 69. [x] 建立有界 Editor Command History 与通用属性事务：Inspector 一次控件手势只登记一个已应用命令，UUID + descriptor stable id 避免悬空引用；MenuBar/快捷键接入 Undo/Redo，Scene owner 切换清空历史。
 70. [x] 建立通用 DebugDraw line submission/executor：纯 CPU list 支持 line/AABB，独立 depth-tested pipeline 在当前场景 subpass 绘制；mapped vertex buffer 按 FrameSlot 隔离并预算内增长，失败不影响主场景。
+71. [x] 将 Editor Selection 接到 DebugDraw：Focus 与持续高亮复用同一 selected Mesh world bounds 解析，Edit Viewport 可见时提交 12 条深度测试线；不修改 Material/Scene 或增加专用 renderer。
 
 格式所有权后续需求：
 

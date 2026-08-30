@@ -10,6 +10,7 @@
 #include "src/property_editor_registry.h"
 #include "core/engine.h"
 #include "core/project_paths.h"
+#include "render/debug/debug_draw.h"
 #include "render/renderer.h"
 #include "render/resource/mesh.h"
 #include "render/scene/scene_renderer.h"
@@ -182,6 +183,7 @@ namespace {
                     apply_viewport_camera_input();
                     apply_viewport_focus();
                     update_viewport_state();
+                    submit_selection_debug_draw();
                     submit_viewport_pick();
                 },
                 [this](Comet::CommandBuffer& cmd) {
@@ -253,27 +255,8 @@ namespace {
                 return;
             }
 
-            Comet::Entity entity = m_selection->get_selected_entity();
-            if(!entity
-               || !entity.has_component<Comet::MeshRendererComponent>()) {
-                return;
-            }
-
-            const Comet::AssetHandle mesh_handle = entity
-                .get_component<Comet::MeshRendererComponent>()
-                .mesh;
-            const std::shared_ptr<Comet::Mesh> mesh = get_engine()
-                .get_asset_registry()
-                .resolve<Comet::Mesh>(mesh_handle);
-            Comet::Scene* scene = get_engine().get_scene();
-            if(!mesh || scene == nullptr) {
-                return;
-            }
-
             const std::optional<Comet::AxisAlignedBox> world_bounds =
-                Comet::transform_box(
-                    mesh->get_local_bounds(),
-                    scene->get_world_matrix(entity));
+                resolve_selected_mesh_world_bounds();
             const CometEditor::ViewportLayout& layout =
                 m_viewport_panel->get_layout();
             if(!world_bounds
@@ -289,6 +272,55 @@ namespace {
                 m_editor_state.camera,
                 *world_bounds,
                 viewport_aspect));
+        }
+
+        [[nodiscard]] std::optional<Comet::AxisAlignedBox>
+        resolve_selected_mesh_world_bounds() {
+            if(!m_selection) {
+                return std::nullopt;
+            }
+
+            Comet::Entity entity = m_selection->get_selected_entity();
+            if(!entity
+               || !entity.has_component<Comet::MeshRendererComponent>()) {
+                return std::nullopt;
+            }
+
+            const Comet::AssetHandle mesh_handle = entity
+                .get_component<Comet::MeshRendererComponent>()
+                .mesh;
+            const std::shared_ptr<Comet::Mesh> mesh = get_engine()
+                .get_asset_registry()
+                .resolve<Comet::Mesh>(mesh_handle);
+            Comet::Scene* scene = get_engine().get_scene();
+            if(!mesh || scene == nullptr) {
+                return std::nullopt;
+            }
+
+            return Comet::transform_box(
+                mesh->get_local_bounds(),
+                scene->get_world_matrix(entity));
+        }
+
+        void submit_selection_debug_draw() {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit
+               || !m_viewport_panel->is_visible()) {
+                return;
+            }
+
+            const std::optional<Comet::AxisAlignedBox> world_bounds =
+                resolve_selected_mesh_world_bounds();
+            if(!world_bounds) {
+                return;
+            }
+
+            Comet::DebugDrawList draw_list;
+            const Comet::Math::Vec4 selection_color(
+                1.0f, 0.65f, 0.1f, 1.0f);
+            if(draw_list.add_box(*world_bounds, selection_color)) {
+                get_engine().get_renderer().submit_debug_draw(
+                    std::move(draw_list));
+            }
         }
 
         void submit_viewport_pick() {

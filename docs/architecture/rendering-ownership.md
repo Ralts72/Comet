@@ -205,6 +205,8 @@ FOV 模拟正交。3D position/target 被保留，2D pan 同步移动两者，�
   mesh draw 后、同一 subpass 结束前用当前 ViewProjectMatrix 录制 line-list pipeline。每个 FrameSlot 独占 persistently mapped vertex
   buffer，slot fence 完成后才覆写/增长；预算内增长失败跳过可选调试绘制并节流重试，不影响主场景。executor 在 pipeline reset 时先于
   PipelineManager/RenderPass 销毁，不读取 Selection、Scene 或 ImGui。
+- Editor 组合根是当前第一个 DebugDraw producer：它把 Selection 解析为 Runtime Mesh local AABB 和 Scene world matrix，再提交 world AABB。
+  Focus 与高亮复用同一私有 bounds 解析，不缓存派生数据；ViewPanel 继续只产生 UI 事件，Scene/Material 不保存编辑器选择或高亮状态。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture
