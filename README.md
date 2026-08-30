@@ -164,7 +164,8 @@ app/editor 组合根持有 `AssetManager`，它使用 `AssetDatabase` 将稳定 
 `MaterialSerializer` 读取为只含模板名和 Texture Handle 的
 `MaterialData`；Asset Database 从 MaterialData 提取、去重 Texture Handle 依赖，并维护正向/反向索引。外部格式的导入器集中在 `engine/src/asset/import/`，Comet 原生资产与元数据的序列化器集中在
 `engine/src/asset/serialization/`。`AssetManager` 递归解析材质依赖、组装运行时 Material 并统一发布到 `AssetRegistry`；
-它只依赖由 `ResourceManager` 实现的窄 `RenderResourceFactory`；`ResourceManager` 继续负责 Device 相关的 Texture/Mesh 创建和 Shader/Sampler 等渲染侧共享资源，不缓存资产 Handle。`render/resource/` 将这一资源族集中管理，其中 `TextureData`/`MeshData` 仍作为独立 CPU DTO，不与 Runtime Texture/Mesh 类定义混放；`MeshPrimitives` 直接生成 `MeshData`，Mesh 顶点布局不再属于通用数学模块。
+它只依赖由 `ResourceManager` 实现的窄 `RenderResourceFactory`；工厂返回预算受限的类型化 GPU 创建结果，AssetManager 只发布
+完整候选，刷新失败时保留上一有效 Runtime Resource。`ResourceManager` 继续负责 Device 相关的 Texture/Mesh 创建和 Shader/Sampler 等渲染侧共享资源，不缓存资产 Handle。`render/resource/` 将这一资源族集中管理，其中 `TextureData`/`MeshData` 仍作为独立 CPU DTO，不与 Runtime Texture/Mesh 类定义混放；`MeshPrimitives` 直接生成 `MeshData`，Mesh 顶点布局不再属于通用数学模块。
 Asset Database 扫描先构建候选快照再提交，并报告新增、删除和修改 Handle；Project 刷新据此同步 Runtime Registry 并以事件方式使 Inspector 缓存失效。Scene、Material 和 `.meta` 通过同一原子文本写入函数替换正式文件。Inspector 的 Material Texture 属性以及 Texture 色彩空间、垂直翻转设置只在值变化事件发生时自动保存并更新运行时对象，Texture 重新导入还会刷新已加载的直接 Material 依赖；更新结果统一显示在 Log 面板。
 Asset Database 另为每次已提交的资产变化分配单调 `AssetRevision`，与仅用于发现磁盘变化的文件签名分离；MeshImporter 报告的项目内、由 glTF 外部引用的 buffer 路径会随 Mesh 缓存持久化，并在加载时恢复为源路径正向/反向索引，因此修改 `.bin` 也会推进所属 Mesh revision。Engine 持有通用 `TaskScheduler`；已加载 Mesh 在 Project 刷新后由 Worker 执行缓存读取或 CPU 导入，旧 Mesh 在此期间继续可用，app/editor 每帧由 Owner Thread 消费完成结果。只有 revision 仍匹配的候选才会更新导入缓存、创建 Runtime Mesh 并替换 Registry；启动必需资源仍复用同步 `load_mesh()`。
 app/editor 的示例 cube mesh、材质及纹理均从项目资产链路按稳定 Handle 加载；app 创建

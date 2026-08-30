@@ -1472,9 +1472,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：把可恢复 GPU 创建结果接入资产发布边界**。Mesh/Texture 已按“完整 GPU owner → 可回滚 enqueue →
-flush → 构造 wrapper”收敛；接下来让 RenderResourceFactory/ResourceManager 返回 recoverable 结果，由 AssetManager 在同步
-加载与热刷新候选创建失败时记录错误并保留 Registry 中的旧 Runtime Resource。
+下一步继续 **阶段 3：GPU 可恢复创建纵向链的阶段性架构复盘**。Allocator、Buffer/Image/ImageView、UploadManager、
+Mesh/Texture、RenderResourceFactory 与 AssetManager 已形成完整失败传播；接下来检查双轨工厂、结果类型、batch 边界、日志和
+依赖方向是否仍有冗余或职责泄漏，再决定优先补 fault injection 还是把 Texture CPU 导入迁到后台任务。
 
 建议的职责边界：
 
@@ -1535,6 +1535,7 @@ flush → 构造 wrapper”收敛；接下来让 RenderResourceFactory/ResourceM
 35. [x] 将 Runtime Mesh 收敛为强失败/可恢复静态工厂：全部 vertex/index target 分配成功后才开始 enqueue，flush 产生 completion 后才构造和发布 wrapper。
 36. [x] 将 ImageView 收敛为强失败/可恢复静态工厂：原生 view handle 成功后才构造持有父 Image 的 wrapper，并迁移现有生产调用点。
 37. [x] 将 Runtime Texture 收敛为强失败/可恢复静态工厂：Image、ImageView、staging enqueue 和 flush 全部成功后才发布 wrapper，并删除重复的纯色 GPU 构造入口。
+38. [x] 将 recoverable Mesh/Texture 结果接入 RenderResourceFactory、ResourceManager 和 AssetManager：资产创建遵守预算，失败记录具体 Vulkan error，刷新候选不替换旧 Registry 对象。
 
 格式所有权后续需求：
 

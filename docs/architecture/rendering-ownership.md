@@ -97,9 +97,10 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
 ## 职责边界
 
 - `RenderContext`：Vulkan 上下文、逻辑设备、交换链和 idle 等待。
-- `RenderResourceFactory`：向资产层暴露从 CPU `TextureData`/`MeshData` 创建 Runtime 资源的窄接口。
+- `RenderResourceFactory`：向资产层暴露从 CPU `TextureData`/`MeshData` 尝试创建 Runtime 资源的窄接口；返回类型化 GPU
+  错误，不决定 Registry 发布或旧资源保留策略。
 - `ResourceManager`：创建 Device 相关的 Texture/Mesh，独占 UploadManager，并维护 Shader/Sampler 等设备级共享资源；
-  不认识或缓存 `AssetHandle`。
+  不认识或缓存 `AssetHandle`。资产侧 `try_create_*` 固定遵守 memory budget；显式 `create_*` 保留给关键资源。
 - `UploadManager`：在 owner thread 从可复用 staging page 子分配上传范围，合并 buffer/image copy 与 Barrier2；每个
   pending batch 独占所用 page、CommandContext 和目标资源直到 timeline completion，随后整页回池。它不认识
   AssetHandle、Importer 或资产发布策略。
@@ -114,7 +115,7 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
   的 timeline wait，因此未来切换 transfer queue 不改变资源与资产接口。
 - `GpuRetirementQueue`：按 submission completion 批量持有任意 Runtime GPU owner，完成后释放；它不认识资产类型、
   FrameSlot 或具体 Vulkan object。SceneRenderer 当前把每帧实际 draw 的 Mesh/Texture owner 交给它。
-- `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。
+- `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。Runtime Mesh/Texture 创建失败时记录具体结果，首次加载不注册，刷新不替换旧对象。
 - `SceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断；不决定 backend pipeline stage 或 Queue wait。
 - `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；把实际录制资源保留到 frame completion，没有有效主 Camera 时不提交场景 draw。
 - `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；通过私有绑定共享

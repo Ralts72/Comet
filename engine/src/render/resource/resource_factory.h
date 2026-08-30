@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "graphics/resource/resource_result.h"
 #include "render/resource/mesh_data.h"
 #include "render/resource/texture_data.h"
 
@@ -14,9 +15,11 @@ namespace Comet {
     public:
         virtual ~RenderResourceFactory() = default;
 
-        [[nodiscard]] virtual std::shared_ptr<Texture> create_texture(
+        [[nodiscard]] virtual GpuResourceResult<std::shared_ptr<Texture>>
+        try_create_texture(
             const TextureData& data) = 0;
-        [[nodiscard]] virtual std::shared_ptr<Mesh> create_mesh(
+        [[nodiscard]] virtual GpuResourceResult<std::shared_ptr<Mesh>>
+        try_create_mesh(
             const MeshData& data) = 0;
     };
 }

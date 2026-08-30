@@ -26,6 +26,18 @@ namespace Comet {
         return Mesh::create(m_device, *m_upload_manager, data);
     }
 
+    GpuResourceResult<std::shared_ptr<Texture>>
+    ResourceManager::try_create_texture(const TextureData& data) {
+        return Texture::try_create(
+            m_device, *m_upload_manager, data, true);
+    }
+
+    GpuResourceResult<std::shared_ptr<Mesh>>
+    ResourceManager::try_create_mesh(const MeshData& data) {
+        return Mesh::try_create(
+            m_device, *m_upload_manager, data, true);
+    }
+
     void ResourceManager::collect_completed_uploads() {
         m_upload_manager->collect_completed();
     }
