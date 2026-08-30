@@ -3,6 +3,7 @@
 #include "asset/database.h"
 #include "asset/material_data.h"
 #include "editor.h"
+#include "scene/component_registry.h"
 
 #include <filesystem>
 #include <functional>
@@ -11,7 +12,6 @@
 #include <vector>
 
 namespace Comet {
-    class ComponentRegistry;
     class Entity;
 }
 
@@ -27,6 +27,12 @@ namespace CometEditor {
         using ReimportTextureCallback = std::function<bool(
             Comet::AssetHandle,
             Comet::TextureImportSettings)>;
+        using EntityPropertyEditCallback = std::function<void(
+            Comet::EntityUuid,
+            std::string,
+            std::string,
+            Comet::PropertyValue,
+            Comet::PropertyValue)>;
 
         InspectorPanel(
             SelectionService& selection,
@@ -39,9 +45,26 @@ namespace CometEditor {
 
         void render() override;
         void invalidate_asset_cache();
+        void reset_entity_edit() { m_active_property_edit.reset(); }
+        void set_entity_property_edit_callback(
+            EntityPropertyEditCallback callback) {
+            m_entity_property_edit_callback = std::move(callback);
+        }
 
     private:
-        void render_entity(Comet::Entity entity) const;
+        struct ActivePropertyEdit {
+            Comet::EntityUuid entity_uuid;
+            std::string component_id;
+            std::string property_id;
+            Comet::PropertyValue before;
+        };
+
+        void render_entity(Comet::Entity entity);
+        void render_entity_property(
+            Comet::Entity entity,
+            const Comet::ComponentDescriptor& component_descriptor,
+            void* component,
+            const Comet::PropertyDescriptor& property);
         void render_asset(Comet::AssetHandle handle);
         void render_texture(const Comet::AssetRecord& record);
         void render_material(const Comet::AssetRecord& record);
@@ -61,6 +84,8 @@ namespace CometEditor {
         std::filesystem::path m_assets_root;
         UpdateMaterialCallback m_update_material_callback;
         ReimportTextureCallback m_reimport_texture_callback;
+        EntityPropertyEditCallback m_entity_property_edit_callback;
+        std::optional<ActivePropertyEdit> m_active_property_edit;
         Comet::AssetHandle m_loaded_asset;
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;
         std::optional<Comet::MaterialData> m_material_data;

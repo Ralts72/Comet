@@ -9,7 +9,7 @@ GoogleTest 测试基础。
   `AssetRegistry`，并定义持久化资产身份、类型化 Importer 设置、`.meta` 编解码、失败安全的事务式源资产快照、变化集及 Material/Texture 正反向依赖查询；`core/project_paths` 定义项目根目录与
   `assets/`、`.comet/`、`ProjectSettings/` 的标准路径契约；`.comet/` 再区分可重建 cache 与当前机器的 editor 状态；`graphics/` 按 command、resource、pipeline 和 synchronization 组织 Vulkan 包装，跨组的 Context、Device、Queue、Swapchain 与 RenderPass 保留为顶层编排对象；`graphics/synchronization/GpuCompletionPoint` 表达可跨上传、渲染和延迟销毁复用的非拥有 GPU 完成 token，`graphics/command/UploadManager` 统一 staging、copy/barrier batch 和 completion 生命周期；`render/resource/` 集中放置 Texture/Mesh 的 CPU DTO、程序化 Mesh、Runtime 对象与设备资源创建边界，`render/scene/` 集中放置场景提取、解析和提交渲染流水线。
 - `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过组件描述符
-  编辑 Transform、MeshRenderer 和 Camera，并可编辑 Project 中选中的 Material 以及 Texture 导入设置；Edit Viewport 支持 2D/3D 相机控制、左键选择当前渲染对象、空白点击清除选择，并可在 Viewport 聚焦时按 `F` framing 当前选中 Mesh；Project 会在资产源文件树变化时自动刷新，File 菜单可新建、打开和保存 `.scene`；`editor/resources/` 保存不进入
+  编辑 Transform、MeshRenderer 和 Camera；一次实体属性控件手势会作为单个命令进入有界历史，可通过 Edit 菜单或 `Ctrl/Cmd+Z`、`Ctrl/Cmd+Y` 撤销/重做；Project 资产 Inspector 可编辑 Material 和 Texture 导入设置；Edit Viewport 支持 2D/3D 相机控制、左键选择当前渲染对象、空白点击清除选择，并可在 Viewport 聚焦时按 `F` framing 当前选中 Mesh；Project 会在资产源文件树变化时自动刷新，File 菜单可新建、打开和保存 `.scene`；`editor/resources/` 保存不进入
   项目资产数据库的编辑器私有字体等资源。
 - `app/`：运行时示例程序入口。
 - `assets/`：当前示例项目的源资产及相邻 `.meta`，当前包含 demo Texture、Material 和 glTF Mesh；资产身份进入版本控制。
@@ -152,8 +152,8 @@ version 4 `EntityUuid`，作为跨保存/加载稳定的实体身份，并支持
 `RelationshipComponent` 只保存父实体 ID，子节点由 Scene 查询；Scene 阻止循环层级、递归销毁
 子树，并在每次场景提取前按父级优先顺序全量更新 `WorldTransformComponent`。reparent 保持局部 TRS，世界矩阵随
 新父节点重新计算；增量 dirty 更新留到 TransformSystem 建立后实现。
-`ComponentRegistry` 使用显式 stable ID、pointer-to-member 访问器和属性标记描述 Transform、MeshRenderer 与 Camera；
-editor 的 `PropertyEditorRegistry` 按 Bool、Float、Vec3 和 AssetHandle 类型分发控件，Inspector 不再包含组件专用分支。
+`ComponentRegistry` 使用显式 stable ID、pointer-to-member 访问器和属性标记描述 Transform、MeshRenderer 与 Camera，并以 Bool/Float/Vec3/AssetHandle 的类型化 PropertyValue 提供快照与恢复；
+editor 的 `PropertyEditorRegistry` 按 Bool、Float、Vec3 和 AssetHandle 类型分发控件，Inspector 不再包含组件专用分支。实体属性从 ImGui item 激活到释放形成一个 before/after command；有界 Editor Command History 通过 EntityUuid 与 component/property stable ID 在执行时重新解析目标，不跨 Scene owner 保存 Entity/组件裸指针，MenuBar 和快捷键共享 Undo/Redo 请求。
 editor 将同一个 `ComponentRegistry` 提供给 Inspector 和 `SceneSerializer`；serializer 按 stable ID、属性类型和
 `serializable` 标记读写带版本字段的 `.scene` YAML，同时显式管理 Name、Entity UUID 与父 UUID 引用；
 运行时 `EntityId`、EnTT handle 与派生世界矩阵不会落盘。实体按 UUID 排序，加载时会拒绝重复 UUID、悬空父引用、

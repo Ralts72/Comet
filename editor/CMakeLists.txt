@@ -1,5 +1,6 @@
 set(SOURCES
         editor.cpp
+        src/editor_command_history.cpp
         src/editor_scene_session.cpp
         src/editor_camera_controller.cpp
         src/imgui_context.cpp

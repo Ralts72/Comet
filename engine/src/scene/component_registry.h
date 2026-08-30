@@ -11,6 +11,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace Comet {
@@ -20,6 +21,33 @@ namespace Comet {
         Vec3,
         AssetHandle
     };
+
+    using PropertyValue = std::variant<
+        bool,
+        float,
+        Math::Vec3,
+        AssetHandle>;
+
+    [[nodiscard]] inline bool property_values_equal(
+        const PropertyValue& left,
+        const PropertyValue& right) {
+        if(left.index() != right.index()) {
+            return false;
+        }
+        return std::visit([](const auto& left_value, const auto& right_value) {
+            using Left = std::remove_cvref_t<decltype(left_value)>;
+            using Right = std::remove_cvref_t<decltype(right_value)>;
+            if constexpr(!std::is_same_v<Left, Right>) {
+                return false;
+            } else if constexpr(std::is_same_v<Left, Math::Vec3>) {
+                return left_value.x == right_value.x
+                    && left_value.y == right_value.y
+                    && left_value.z == right_value.z;
+            } else {
+                return left_value == right_value;
+            }
+        }, left, right);
+    }
 
     struct NumericPropertyMetadata {
         float speed = 0.1f;
@@ -47,6 +75,10 @@ namespace Comet {
         std::function<void*(void*)> mutable_accessor;
         std::function<const void*(const void*)> const_accessor;
         std::function<void(void*)> on_changed;
+        std::function<std::optional<PropertyValue>(const void*)>
+            copy_value_callback;
+        std::function<bool(void*, const PropertyValue&)>
+            assign_value_callback;
 
         [[nodiscard]] void* get_value(void* component) const {
             return component != nullptr && mutable_accessor
@@ -64,6 +96,25 @@ namespace Comet {
             if(value != nullptr && on_changed) {
                 on_changed(value);
             }
+        }
+
+        [[nodiscard]] std::optional<PropertyValue> copy_value(
+            const void* component) const {
+            return component != nullptr && copy_value_callback
+                ? copy_value_callback(component)
+                : std::nullopt;
+        }
+
+        [[nodiscard]] bool assign_value(
+            void* component,
+            const PropertyValue& value) const {
+            if(component == nullptr
+               || !assign_value_callback
+               || !assign_value_callback(component, value)) {
+                return false;
+            }
+            notify_changed(get_value(component));
+            return true;
         }
     };
 
@@ -142,20 +193,20 @@ namespace Comet {
         std::string display_name,
         Value Component::* member,
         PropertyMetadata metadata = {}) {
-        using PropertyValue = std::remove_cvref_t<Value>;
+        using StoredValue = std::remove_cvref_t<Value>;
         static_assert(
-            std::is_same_v<PropertyValue, bool>
-            || std::is_same_v<PropertyValue, float>
-            || std::is_same_v<PropertyValue, Math::Vec3>
-            || std::is_same_v<PropertyValue, AssetHandle>,
+            std::is_same_v<StoredValue, bool>
+            || std::is_same_v<StoredValue, float>
+            || std::is_same_v<StoredValue, Math::Vec3>
+            || std::is_same_v<StoredValue, AssetHandle>,
             "Unsupported property type");
 
         constexpr PropertyType type = [] {
-            if constexpr(std::is_same_v<PropertyValue, bool>) {
+            if constexpr(std::is_same_v<StoredValue, bool>) {
                 return PropertyType::Bool;
-            } else if constexpr(std::is_same_v<PropertyValue, float>) {
+            } else if constexpr(std::is_same_v<StoredValue, float>) {
                 return PropertyType::Float;
-            } else if constexpr(std::is_same_v<PropertyValue, Math::Vec3>) {
+            } else if constexpr(std::is_same_v<StoredValue, Math::Vec3>) {
                 return PropertyType::Vec3;
             } else {
                 return PropertyType::AssetHandle;
@@ -176,6 +227,27 @@ namespace Comet {
             },
             .const_accessor = [member](const void* component) -> const void* {
                 return &(static_cast<const Component*>(component)->*member);
+            },
+            .copy_value_callback = [member](const void* component)
+                -> std::optional<PropertyValue> {
+                if(component == nullptr) {
+                    return std::nullopt;
+                }
+                return PropertyValue(
+                    static_cast<const Component*>(component)->*member);
+            },
+            .assign_value_callback = [member](
+                void* component,
+                const PropertyValue& value) {
+                if(component == nullptr) {
+                    return false;
+                }
+                const auto stored = std::get_if<StoredValue>(&value);
+                if(stored == nullptr) {
+                    return false;
+                }
+                static_cast<Component*>(component)->*member = *stored;
+                return true;
             }
         };
     }

@@ -76,7 +76,7 @@ namespace CometEditor {
         m_asset_error.clear();
     }
 
-    void InspectorPanel::render_entity(Comet::Entity entity) const {
+    void InspectorPanel::render_entity(Comet::Entity entity) {
         auto& name = entity.get_component<Comet::NameComponent>().name;
         std::array<char, ENTITY_NAME_CAPACITY> name_buffer{};
         std::copy_n(
@@ -107,13 +107,66 @@ namespace CometEditor {
                 for(const Comet::PropertyDescriptor& property:
                     component_descriptor.properties) {
                     ImGui::PushID(property.id.c_str());
-                    static_cast<void>(m_property_editor_registry.edit_property(
-                        property, property.get_value(component)));
+                    render_entity_property(
+                        entity,
+                        component_descriptor,
+                        component,
+                        property);
                     ImGui::PopID();
                 }
             }
             ImGui::PopID();
         }
+    }
+
+    void InspectorPanel::render_entity_property(
+        const Comet::Entity entity,
+        const Comet::ComponentDescriptor& component_descriptor,
+        void* component,
+        const Comet::PropertyDescriptor& property) {
+        const std::optional<Comet::PropertyValue> before =
+            property.copy_value(component);
+        static_cast<void>(m_property_editor_registry.edit_property(
+            property, property.get_value(component)));
+
+        if(m_entity_property_edit_callback
+           && before
+           && ImGui::IsItemActivated()) {
+            m_active_property_edit = ActivePropertyEdit{
+                .entity_uuid = entity.get_uuid(),
+                .component_id = component_descriptor.id,
+                .property_id = property.id,
+                .before = *before
+            };
+        }
+
+        if(!ImGui::IsItemDeactivated() || !m_active_property_edit) {
+            return;
+        }
+        const bool matches_active_property =
+            m_active_property_edit->entity_uuid == entity.get_uuid()
+            && m_active_property_edit->component_id
+                == component_descriptor.id
+            && m_active_property_edit->property_id == property.id;
+        if(!matches_active_property) {
+            return;
+        }
+
+        if(ImGui::IsItemDeactivatedAfterEdit()) {
+            const std::optional<Comet::PropertyValue> after =
+                property.copy_value(component);
+            if(after
+               && !Comet::property_values_equal(
+                   m_active_property_edit->before, *after)) {
+                m_entity_property_edit_callback(
+                    m_active_property_edit->entity_uuid,
+                    m_active_property_edit->component_id,
+                    m_active_property_edit->property_id,
+                    m_active_property_edit->before,
+                    *after);
+            }
+        }
+        m_active_property_edit.reset();
     }
 
     void InspectorPanel::render_asset(const Comet::AssetHandle handle) {

@@ -2,6 +2,7 @@
 #include "asset/manager.h"
 #include "asset/registry.h"
 #include "asset/source_monitor.h"
+#include "src/editor_command_history.h"
 #include "src/editor_camera_controller.h"
 #include "src/editor_scene_session.h"
 #include "src/editor_state.h"
@@ -539,6 +540,45 @@ namespace {
             }
             m_selection->set_scene(*active_scene);
             m_hierarchy_panel->set_scene(*active_scene);
+            m_command_history.clear();
+            m_inspector_panel->reset_entity_edit();
+        }
+
+        void handle_edit_command(
+            const CometEditor::EditCommand command) {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
+                return;
+            }
+            const bool succeeded = command == CometEditor::EditCommand::Undo
+                ? m_command_history.undo()
+                : m_command_history.redo();
+            if(!succeeded) {
+                LOG_WARN("Discarding editor command history after a stale command target");
+                m_command_history.clear();
+            }
+        }
+
+        void record_entity_property_edit(
+            const Comet::EntityUuid entity_uuid,
+            std::string component_id,
+            std::string property_id,
+            Comet::PropertyValue before,
+            Comet::PropertyValue after) {
+            if(Comet::property_values_equal(before, after)) {
+                return;
+            }
+            auto command =
+                std::make_unique<CometEditor::EntityPropertyEditCommand>(
+                    [this]() { return get_engine().get_scene(); },
+                    m_component_registry,
+                    entity_uuid,
+                    std::move(component_id),
+                    std::move(property_id),
+                    std::move(before),
+                    std::move(after));
+            if(!m_command_history.push_applied(std::move(command))) {
+                LOG_WARN("Failed to record editor property command");
+            }
         }
 
         void apply_editor_mode_request() {
@@ -702,6 +742,10 @@ namespace {
                 [this](const CometEditor::EditorMode mode) {
                     m_scene_session->request_mode(mode);
                 });
+            m_menu_bar->set_edit_command_callback(
+                [this](const CometEditor::EditCommand command) {
+                    handle_edit_command(command);
+                });
 
             // 创建面板
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
@@ -734,6 +778,20 @@ namespace {
                     const Comet::AssetHandle handle,
                     const Comet::TextureImportSettings settings) {
                     return reimport_texture(handle, settings);
+                });
+            m_inspector_panel->set_entity_property_edit_callback(
+                [this](
+                    const Comet::EntityUuid entity_uuid,
+                    std::string component_id,
+                    std::string property_id,
+                    Comet::PropertyValue before,
+                    Comet::PropertyValue after) {
+                    record_entity_property_edit(
+                        entity_uuid,
+                        std::move(component_id),
+                        std::move(property_id),
+                        std::move(before),
+                        std::move(after));
                 });
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(
                 m_asset_manager->get_database(),
@@ -771,6 +829,9 @@ namespace {
                 constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
                 ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), dockspace_flags);
 
+                m_menu_bar->set_edit_history_state(
+                    m_command_history.can_undo(),
+                    m_command_history.can_redo());
                 m_menu_bar->render();
                 m_hierarchy_panel->render();
                 m_viewport_panel->render();
@@ -791,6 +852,7 @@ namespace {
                 Comet::create_scene_component_registry();
         CometEditor::PropertyEditorRegistry m_property_editor_registry =
                 CometEditor::create_property_editor_registry();
+        CometEditor::EditorCommandHistory m_command_history;
         Comet::SceneSerializer m_scene_serializer{m_component_registry};
         CometEditor::EditorState m_editor_state;
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;

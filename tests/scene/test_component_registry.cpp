@@ -110,4 +110,50 @@ namespace {
         EXPECT_FALSE(registry.register_component(std::move(duplicate)));
         EXPECT_EQ(registry.components().size(), 1U);
     }
+
+    TEST(ComponentRegistryTest, CopiesAndAssignsTypedPropertyValues) {
+        Comet::Scene scene;
+        Comet::Entity entity = scene.create_entity();
+        const Comet::ComponentRegistry registry =
+            Comet::create_scene_component_registry();
+        const Comet::ComponentDescriptor& transform =
+            *registry.find_component("transform");
+        const Comet::PropertyDescriptor& translation =
+            *transform.find_property("translation");
+        void* component = transform.get_component(entity);
+
+        const auto initial = translation.copy_value(component);
+        ASSERT_TRUE(initial);
+        EXPECT_TRUE(Comet::property_values_equal(
+            *initial,
+            Comet::PropertyValue(Comet::Math::Vec3(0.0f))));
+
+        const Comet::Math::Vec3 expected(2.0f, -3.0f, 4.0f);
+        EXPECT_TRUE(translation.assign_value(
+            component, Comet::PropertyValue(expected)));
+        EXPECT_EQ(
+            entity.get_component<Comet::TransformComponent>().translation,
+            expected);
+        EXPECT_FALSE(translation.assign_value(
+            component, Comet::PropertyValue(5.0f)));
+    }
+
+    TEST(ComponentRegistryTest, AssignmentRunsPropertyChangeNormalization) {
+        Comet::Scene scene;
+        Comet::Entity entity = scene.create_entity();
+        const Comet::ComponentRegistry registry =
+            Comet::create_scene_component_registry();
+        const Comet::ComponentDescriptor& transform =
+            *registry.find_component("transform");
+        const Comet::PropertyDescriptor& rotation =
+            *transform.find_property("rotation");
+
+        ASSERT_TRUE(rotation.assign_value(
+            transform.get_component(entity),
+            Comet::PropertyValue(Comet::Math::Vec3(370.0f, -190.0f, 180.0f))));
+
+        EXPECT_EQ(
+            entity.get_component<Comet::TransformComponent>().rotation,
+            Comet::Math::Vec3(10.0f, 170.0f, -180.0f));
+    }
 }

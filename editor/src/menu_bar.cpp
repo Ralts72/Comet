@@ -4,6 +4,7 @@
 namespace CometEditor {
 
     void MenuBar::render() {
+        render_edit_shortcuts();
         if (ImGui::BeginMainMenuBar()) {
             render_file_menu();
             render_edit_menu();
@@ -61,12 +62,40 @@ namespace CometEditor {
     }
 
     void MenuBar::render_edit_menu() {
-        if (ImGui::BeginMenu("Edit")) {
-            if (ImGui::MenuItem("Undo", "Ctrl+Z")) {}
-            if (ImGui::MenuItem("Redo", "Ctrl+Y")) {}
+        if (ImGui::BeginMenu("Edit", m_state.mode == EditorMode::Edit)) {
+            if (ImGui::MenuItem("Undo", "Ctrl+Z", false, m_can_undo)
+               && m_edit_command_callback) {
+                m_edit_command_callback(EditCommand::Undo);
+            }
+            if (ImGui::MenuItem("Redo", "Ctrl+Y", false, m_can_redo)
+               && m_edit_command_callback) {
+                m_edit_command_callback(EditCommand::Redo);
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Preferences", "Ctrl+,")) {}
             ImGui::EndMenu();
+        }
+    }
+
+    void MenuBar::render_edit_shortcuts() {
+        if(m_state.mode != EditorMode::Edit || !m_edit_command_callback) {
+            return;
+        }
+        constexpr ImGuiInputFlags shortcut_flags =
+            ImGuiInputFlags_RouteGlobal
+            | ImGuiInputFlags_RouteUnlessBgFocused;
+        if(m_can_undo
+           && ImGui::Shortcut(
+               ImGuiMod_Ctrl | ImGuiKey_Z, shortcut_flags)) {
+            m_edit_command_callback(EditCommand::Undo);
+        } else if(m_can_redo
+                  && (ImGui::Shortcut(
+                          ImGuiMod_Ctrl | ImGuiKey_Y,
+                          shortcut_flags)
+                      || ImGui::Shortcut(
+                          ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z,
+                          shortcut_flags))) {
+            m_edit_command_callback(EditCommand::Redo);
         }
     }
 

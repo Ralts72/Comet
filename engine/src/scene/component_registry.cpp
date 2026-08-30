@@ -25,6 +25,8 @@ namespace Comet {
                || property.display_name.empty()
                || !property.mutable_accessor
                || !property.const_accessor
+               || !property.copy_value_callback
+               || !property.assign_value_callback
                || (property.transient && property.serializable)
                || !property_ids.insert(property.id).second) {
                 return false;
