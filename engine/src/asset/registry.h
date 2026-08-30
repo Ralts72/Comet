@@ -29,6 +29,9 @@ namespace Comet {
         [[nodiscard]] bool register_asset(AssetHandle handle, std::shared_ptr<T> asset);
 
         template<typename T>
+        [[nodiscard]] bool replace_asset(AssetHandle handle, std::shared_ptr<T> asset);
+
+        template<typename T>
         [[nodiscard]] std::shared_ptr<T> resolve(AssetHandle handle) const;
 
         [[nodiscard]] bool contains(AssetHandle handle) const;
@@ -50,6 +53,11 @@ namespace Comet {
             std::shared_ptr<void> asset,
             std::type_index type);
 
+        [[nodiscard]] bool replace_asset_impl(
+            AssetHandle handle,
+            std::shared_ptr<void> asset,
+            std::type_index type);
+
         [[nodiscard]] std::shared_ptr<void> resolve_impl(
             AssetHandle handle,
             std::type_index type) const;
@@ -62,6 +70,18 @@ namespace Comet {
         static_assert(!std::is_void_v<T>, "AssetRegistry requires a concrete asset type");
 
         return register_asset_impl(
+            handle,
+            std::shared_ptr<void>(std::move(asset)),
+            std::type_index(typeid(T)));
+    }
+
+    template<typename T>
+    bool AssetRegistry::replace_asset(
+        const AssetHandle handle,
+        std::shared_ptr<T> asset) {
+        static_assert(!std::is_void_v<T>, "AssetRegistry requires a concrete asset type");
+
+        return replace_asset_impl(
             handle,
             std::shared_ptr<void>(std::move(asset)),
             std::type_index(typeid(T)));

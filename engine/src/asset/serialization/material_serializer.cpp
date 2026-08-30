@@ -85,22 +85,65 @@ namespace Comet {
                     source, location, "expected " + std::string(expected));
             }
         }
+
+        void validate_material_data(
+            const MaterialData& data,
+            const std::string_view source) {
+            if(data.template_name.empty()) {
+                throw material_error(
+                    source, "template", "expected a non-empty string");
+            }
+            for(const auto& [property_name, texture_handle]:
+                data.texture_properties) {
+                if(property_name.empty()) {
+                    throw material_error(
+                        source,
+                        "properties",
+                        "property names cannot be empty");
+                }
+                if(!texture_handle) {
+                    throw material_error(
+                        source,
+                        "properties." + property_name + ".asset",
+                        "expected a non-zero unsigned integer");
+                }
+            }
+        }
     }
 
-    MaterialData MaterialSerializer::load(
-        const std::filesystem::path& source_path) const {
-        const std::string source = source_path.string();
-        std::ifstream input(source_path, std::ios::binary);
-        if(!input) {
-            throw std::runtime_error("Failed to open material '" + source + "'");
+    std::string MaterialSerializer::serialize(const MaterialData& data) const {
+        validate_material_data(data, "<memory>");
+
+        YAML::Node root(YAML::NodeType::Map);
+        root["version"] = FORMAT_VERSION;
+        root["template"] = data.template_name;
+
+        YAML::Node properties(YAML::NodeType::Map);
+        for(const auto& [property_name, texture_handle]:
+            data.texture_properties) {
+            YAML::Node property(YAML::NodeType::Map);
+            property["type"] = "texture";
+            property["asset"] = texture_handle.value();
+            properties[property_name] = property;
         }
+        root["properties"] = properties;
 
-        std::ostringstream contents;
-        contents << input.rdbuf();
+        YAML::Emitter emitter;
+        emitter << root;
+        if(!emitter.good()) {
+            throw std::runtime_error(
+                "Failed to serialize material: "
+                + emitter.GetLastError());
+        }
+        return std::string(emitter.c_str()) + '\n';
+    }
 
+    MaterialData MaterialSerializer::deserialize(
+        const std::string_view contents,
+        const std::string_view source) const {
         YAML::Node root;
         try {
-            root = YAML::Load(contents.str());
+            root = YAML::Load(std::string(contents));
         } catch(const YAML::Exception& exception) {
             throw material_error(source, "<yaml>", exception.what());
         }
@@ -194,5 +237,37 @@ namespace Comet {
         }
 
         return data;
+    }
+
+    void MaterialSerializer::save(
+        const MaterialData& data,
+        const std::filesystem::path& path) const {
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        if(!output) {
+            throw std::runtime_error(
+                "Failed to open material for writing: " + path.string());
+        }
+        output << serialize(data);
+        if(!output) {
+            throw std::runtime_error(
+                "Failed to write material: " + path.string());
+        }
+    }
+
+    MaterialData MaterialSerializer::load(
+        const std::filesystem::path& source_path) const {
+        std::ifstream input(source_path, std::ios::binary);
+        if(!input) {
+            throw std::runtime_error(
+                "Failed to open material '" + source_path.string() + "'");
+        }
+
+        std::ostringstream contents;
+        contents << input.rdbuf();
+        if(input.bad()) {
+            throw std::runtime_error(
+                "Failed to read material '" + source_path.string() + "'");
+        }
+        return deserialize(contents.str(), source_path.string());
     }
 }

@@ -6,6 +6,7 @@
 #include <vector>
 
 namespace CometEditor {
+    class SelectionService;
 
     class ProjectPanel : public EditorPanel {
     public:
@@ -14,7 +15,8 @@ namespace CometEditor {
         ProjectPanel(
             const Comet::AssetDatabase& database,
             Comet::AssetScanReport scan_report,
-            RefreshCallback refresh_callback);
+            RefreshCallback refresh_callback,
+            SelectionService& selection);
 
         void render() override;
 
@@ -23,7 +25,7 @@ namespace CometEditor {
         std::vector<Comet::AssetRecord> m_assets;
         Comet::AssetScanReport m_scan_report;
         RefreshCallback m_refresh_callback;
-        Comet::AssetHandle m_selected_asset;
+        SelectionService& m_selection;
         int m_view_mode = 0; // 0: Assets, 1: Packages
     };
 }

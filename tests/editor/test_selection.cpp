@@ -25,6 +25,35 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(selection.get_selected_entity());
     }
 
+    TEST(SelectionServiceTest, SelectsAssetByHandle) {
+        Comet::Scene scene;
+        SelectionService selection(scene);
+
+        selection.select_asset(Comet::AssetHandle(73));
+
+        EXPECT_EQ(selection.get_selected_asset(), Comet::AssetHandle(73));
+        EXPECT_TRUE(selection.is_selected(Comet::AssetHandle(73)));
+        EXPECT_FALSE(selection.get_selected_entity());
+    }
+
+    TEST(SelectionServiceTest, EntityAndAssetSelectionsAreMutuallyExclusive) {
+        Comet::Scene scene;
+        const Comet::Entity entity = scene.create_entity("Selected");
+        SelectionService selection(scene);
+
+        selection.select_asset(Comet::AssetHandle(73));
+        selection.select_entity(entity.get_id());
+        EXPECT_EQ(selection.get_selected_entity(), entity);
+        EXPECT_FALSE(selection.get_selected_asset());
+
+        selection.select_asset(Comet::AssetHandle(42));
+        EXPECT_FALSE(selection.get_selected_entity());
+        EXPECT_EQ(selection.get_selected_asset(), Comet::AssetHandle(42));
+
+        selection.select_asset(Comet::INVALID_ASSET_HANDLE);
+        EXPECT_FALSE(selection.get_selected_asset());
+    }
+
     TEST(SelectionServiceTest, ClearsSelectionWhenEntityIsDestroyed) {
         Comet::Scene scene;
         const Comet::Entity entity = scene.create_entity("Selected");

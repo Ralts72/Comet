@@ -434,7 +434,13 @@ namespace {
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
                 *m_selection,
                 m_component_registry,
-                m_property_editor_registry);
+                m_property_editor_registry,
+                m_asset_manager->get_database(),
+                Comet::ProjectPaths(PROJECT_ROOT_DIR).assets(),
+                [this](const Comet::AssetHandle handle) {
+                    return static_cast<bool>(
+                        m_asset_manager->reload_material(handle));
+                });
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(
                 m_asset_manager->get_database(),
                 m_asset_scan_report,
@@ -442,7 +448,8 @@ namespace {
                     Comet::AssetScanReport report = m_asset_manager->scan();
                     log_asset_scan_issues(report);
                     return report;
-                });
+                },
+                *m_selection);
             m_console_panel = std::make_unique<CometEditor::ConsolePanel>();
 
             // 设置菜单栏面板可见性回调

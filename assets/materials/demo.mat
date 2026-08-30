@@ -3,7 +3,7 @@ template: cube_texture
 properties:
   u_Texture0:
     type: texture
-    asset: 15538271868700781231
+    asset: 6692465245512631459
   u_Texture1:
     type: texture
-    asset: 6692465245512631459
+    asset: 15538271868700781231

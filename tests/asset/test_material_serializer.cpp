@@ -56,6 +56,29 @@ properties:
         EXPECT_EQ(data.texture_properties.at("u_Texture1"), AssetHandle(73));
     }
 
+    TEST(MaterialSerializerTest, SerializesAndSavesDeterministically) {
+        const MaterialData data{
+            .template_name = "cube_texture",
+            .texture_properties = {
+                {"u_Texture0", AssetHandle(42)},
+                {"u_Texture1", AssetHandle(73)}
+            }
+        };
+        const MaterialSerializer serializer;
+        const std::string contents = serializer.serialize(data);
+
+        EXPECT_EQ(
+            contents,
+            "version: 1\ntemplate: cube_texture\nproperties:\n"
+            "  u_Texture0:\n    type: texture\n    asset: 42\n"
+            "  u_Texture1:\n    type: texture\n    asset: 73\n");
+        EXPECT_EQ(serializer.deserialize(contents), data);
+
+        const TemporaryMaterial material("");
+        serializer.save(data, material.path());
+        EXPECT_EQ(serializer.load(material.path()), data);
+    }
+
     TEST(MaterialSerializerTest, RejectsInvalidAssetReference) {
         const TemporaryMaterial material(R"(
 version: 1
@@ -96,6 +119,25 @@ extra: true
 
         EXPECT_THROW(
             static_cast<void>(MaterialSerializer{}.load(material.path())),
+            std::runtime_error);
+    }
+
+    TEST(MaterialSerializerTest, RejectsInvalidDataBeforeSaving) {
+        const MaterialSerializer serializer;
+
+        EXPECT_THROW(
+            static_cast<void>(serializer.serialize({
+                .template_name = "",
+                .texture_properties = {}
+            })),
+            std::runtime_error);
+        EXPECT_THROW(
+            static_cast<void>(serializer.serialize({
+                .template_name = "cube_texture",
+                .texture_properties = {
+                    {"u_Texture0", INVALID_ASSET_HANDLE}
+                }
+            })),
             std::runtime_error);
     }
 }

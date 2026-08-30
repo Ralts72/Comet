@@ -1,4 +1,5 @@
 #include "project.h"
+#include "selection.h"
 
 #include <imgui.h>
 
@@ -29,11 +30,11 @@ namespace CometEditor {
 
         void render_asset_tree(
             const AssetTreeNode& node,
-            Comet::AssetHandle& selected_asset) {
+            SelectionService& selection) {
             for(const auto& [name, directory]: node.directories) {
                 if(ImGui::TreeNodeEx(
                        name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                    render_asset_tree(directory, selected_asset);
+                    render_asset_tree(directory, selection);
                     ImGui::TreePop();
                 }
             }
@@ -41,8 +42,8 @@ namespace CometEditor {
             for(const Comet::AssetRecord* asset: node.assets) {
                 const std::string name = asset->path.filename().string();
                 if(ImGui::Selectable(
-                       name.c_str(), selected_asset == asset->handle)) {
-                    selected_asset = asset->handle;
+                       name.c_str(), selection.is_selected(asset->handle))) {
+                    selection.select_asset(asset->handle);
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("(%s)", Comet::to_string(asset->type).data());
@@ -59,12 +60,14 @@ namespace CometEditor {
     ProjectPanel::ProjectPanel(
         const Comet::AssetDatabase& database,
         Comet::AssetScanReport scan_report,
-        RefreshCallback refresh_callback)
+        RefreshCallback refresh_callback,
+        SelectionService& selection)
         : EditorPanel("Project"),
           m_database(database),
           m_assets(database.get_assets()),
           m_scan_report(std::move(scan_report)),
-          m_refresh_callback(std::move(refresh_callback)) {}
+          m_refresh_callback(std::move(refresh_callback)),
+          m_selection(selection) {}
 
     void ProjectPanel::render() {
         if(!m_user_visible) return;
@@ -85,8 +88,10 @@ namespace CometEditor {
         if(ImGui::Button("Refresh") && m_refresh_callback) {
             m_scan_report = m_refresh_callback();
             m_assets = m_database.get_assets();
-            if(!m_database.find(m_selected_asset)) {
-                m_selected_asset = Comet::INVALID_ASSET_HANDLE;
+            const Comet::AssetHandle selected_asset =
+                    m_selection.get_selected_asset();
+            if(selected_asset && !m_database.find(selected_asset)) {
+                m_selection.clear();
             }
         }
 
@@ -98,7 +103,7 @@ namespace CometEditor {
                 if(m_assets.empty()) {
                     ImGui::TextDisabled("No indexed assets");
                 } else {
-                    render_asset_tree(tree, m_selected_asset);
+                    render_asset_tree(tree, m_selection);
                 }
                 ImGui::TreePop();
             }

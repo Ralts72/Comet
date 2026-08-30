@@ -22,12 +22,16 @@ namespace Comet {
         [[nodiscard]] AssetScanReport scan();
         [[nodiscard]] std::shared_ptr<Texture> load_texture(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Material> load_material(AssetHandle handle);
+        [[nodiscard]] std::shared_ptr<Material> reload_material(AssetHandle handle);
 
         [[nodiscard]] const AssetDatabase& get_database() const noexcept {
             return m_database;
         }
 
     private:
+        [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
+            const AssetRecord& record);
+
         ProjectPaths m_paths;
         AssetDatabase m_database;
         AssetRegistry& m_registry;

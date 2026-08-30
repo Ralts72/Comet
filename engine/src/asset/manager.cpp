@@ -119,9 +119,69 @@ namespace Comet {
             return nullptr;
         }
 
+        auto material = create_runtime_material(*record);
+        if(!material) {
+            return nullptr;
+        }
+        if(!m_registry.register_asset(handle, material)) {
+            LOG_ERROR(
+                "Failed to register runtime material for asset handle {}",
+                handle.value());
+            return nullptr;
+        }
+        return material;
+    }
+
+    std::shared_ptr<Material> AssetManager::reload_material(
+        const AssetHandle handle) {
+        if(!handle) {
+            LOG_ERROR("Cannot reload a material with an invalid asset handle");
+            return nullptr;
+        }
+
+        const AssetRecord* record = m_database.find(handle);
+        if(!record) {
+            LOG_ERROR("Material asset handle {} is not indexed", handle.value());
+            return nullptr;
+        }
+        if(record->type != AssetType::Material) {
+            LOG_ERROR(
+                "Asset handle {} has type '{}', expected 'material'",
+                handle.value(),
+                to_string(record->type));
+            return nullptr;
+        }
+
+        const bool has_runtime_asset = m_registry.contains(handle);
+        if(has_runtime_asset && !m_registry.resolve<Material>(handle)) {
+            LOG_ERROR(
+                "Asset handle {} is already registered with another runtime type",
+                handle.value());
+            return nullptr;
+        }
+
+        auto material = create_runtime_material(*record);
+        if(!material) {
+            return nullptr;
+        }
+
+        const bool published = has_runtime_asset
+            ? m_registry.replace_asset(handle, material)
+            : m_registry.register_asset(handle, material);
+        if(!published) {
+            LOG_ERROR(
+                "Failed to publish reloaded material for asset handle {}",
+                handle.value());
+            return nullptr;
+        }
+        return material;
+    }
+
+    std::shared_ptr<Material> AssetManager::create_runtime_material(
+        const AssetRecord& record) {
         MaterialData data;
         try {
-            data = MaterialSerializer{}.load(m_paths.assets() / record->path);
+            data = MaterialSerializer{}.load(m_paths.assets() / record.path);
         } catch(const std::exception& exception) {
             LOG_ERROR("{}", exception.what());
             return nullptr;
@@ -134,7 +194,7 @@ namespace Comet {
                 LOG_ERROR(
                     "Failed to resolve texture handle {} for material '{}' property '{}'",
                     texture_handle.value(),
-                    record->path.generic_string(),
+                    record.path.generic_string(),
                     property_name);
                 return nullptr;
             }
@@ -142,17 +202,11 @@ namespace Comet {
         }
 
         auto material = std::make_shared<Material>(
-            record->path.stem().string(),
+            record.path.stem().string(),
             data.template_name,
             MaterialConfig{});
         for(const auto& [property_name, texture]: textures) {
             material->set_property_texture(property_name, texture);
-        }
-        if(!m_registry.register_asset(handle, material)) {
-            LOG_ERROR(
-                "Failed to register runtime material for asset handle {}",
-                handle.value());
-            return nullptr;
         }
         return material;
     }

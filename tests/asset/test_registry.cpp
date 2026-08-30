@@ -85,4 +85,20 @@ namespace Comet::Tests {
         EXPECT_FALSE(registry.contains(AssetHandle(4)));
         EXPECT_FALSE(registry.contains(AssetHandle(5)));
     }
+
+    TEST(AssetRegistryTest, ReplacesExistingAssetWithoutChangingItsType) {
+        AssetRegistry registry;
+        const AssetHandle handle(42);
+        const auto original = std::make_shared<TestMesh>(TestMesh{1});
+        const auto replacement = std::make_shared<TestMesh>(TestMesh{2});
+        ASSERT_TRUE(registry.register_asset(handle, original));
+
+        EXPECT_TRUE(registry.replace_asset(handle, replacement));
+        EXPECT_EQ(registry.resolve<TestMesh>(handle), replacement);
+        EXPECT_EQ(original->vertex_count, 1);
+        EXPECT_FALSE(registry.replace_asset(
+            AssetHandle(73), std::make_shared<TestMesh>()));
+        EXPECT_FALSE(registry.replace_asset(
+            handle, std::make_shared<TestMaterial>()));
+    }
 }
