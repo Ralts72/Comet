@@ -11,6 +11,7 @@ namespace CometEditor {
         constexpr float MAX_DISTANCE = 10000.0f;
         constexpr float MIN_ORTHOGRAPHIC_HEIGHT = 0.01f;
         constexpr float MAX_ORTHOGRAPHIC_HEIGHT = 10000.0f;
+        constexpr float FOCUS_PADDING = 1.2f;
         constexpr float MAX_VERTICAL_ALIGNMENT = 0.995f;
         constexpr float MIN_DIRECTION_LENGTH = 0.00001f;
 
@@ -143,5 +144,72 @@ namespace CometEditor {
         }
 
         return changed;
+    }
+
+    bool focus_editor_camera(
+        EditorCameraState& camera,
+        const Comet::AxisAlignedBox& world_bounds,
+        const float viewport_aspect) {
+        if(!world_bounds.is_valid()
+           || !std::isfinite(viewport_aspect)
+           || viewport_aspect <= 0.0f) {
+            return false;
+        }
+
+        const Comet::Math::Vec3 offset = camera.position - camera.target;
+        const float previous_distance = Comet::Math::length(offset);
+        if(!std::isfinite(previous_distance)
+           || previous_distance < MIN_DIRECTION_LENGTH) {
+            return false;
+        }
+
+        const Comet::Math::Vec3 center = world_bounds.center();
+        const Comet::Math::Vec3 size = world_bounds.size();
+        if(!std::isfinite(center.x)
+           || !std::isfinite(center.y)
+           || !std::isfinite(center.z)
+           || !std::isfinite(size.x)
+           || !std::isfinite(size.y)
+           || !std::isfinite(size.z)) {
+            return false;
+        }
+        if(camera.projection == Comet::CameraProjection::Orthographic) {
+            const float required_height = std::max(
+                size.y, size.x / viewport_aspect);
+            camera.orthographic_height = std::clamp(
+                std::max(required_height * FOCUS_PADDING,
+                    MIN_ORTHOGRAPHIC_HEIGHT),
+                MIN_ORTHOGRAPHIC_HEIGHT,
+                MAX_ORTHOGRAPHIC_HEIGHT);
+            camera.target = center;
+            camera.position = center
+                + Comet::Math::normalize(offset) * previous_distance;
+            return true;
+        }
+
+        if(!std::isfinite(camera.fov_degrees)
+           || camera.fov_degrees <= 0.0f
+           || camera.fov_degrees >= 179.0f) {
+            return false;
+        }
+
+        const float vertical_half_fov =
+            Comet::Math::radians(camera.fov_degrees) * 0.5f;
+        const float horizontal_half_fov = std::atan(
+            std::tan(vertical_half_fov) * viewport_aspect);
+        const float limiting_half_fov = std::min(
+            vertical_half_fov, horizontal_half_fov);
+        const float radius = Comet::Math::length(size) * 0.5f;
+        const float focus_distance = std::clamp(
+            std::max(
+                radius * FOCUS_PADDING / std::sin(limiting_half_fov),
+                MIN_DISTANCE),
+            MIN_DISTANCE,
+            MAX_DISTANCE);
+        camera.target = center;
+        camera.position = center
+            + Comet::Math::normalize(offset) * focus_distance;
+        camera.up = Comet::Math::Vec3(0.0f, 1.0f, 0.0f);
+        return true;
     }
 }

@@ -17,6 +17,7 @@ namespace CometEditor {
         m_camera_input.reset();
         m_camera_projection_request.reset();
         m_pick_request.reset();
+        m_focus_request = false;
 
         if(!m_user_visible) {
             reset_camera_interaction();
@@ -218,6 +219,12 @@ namespace CometEditor {
         const bool pointer_over_image =
             ImGui::IsItemHovered() && mapped_pixel.has_value();
 
+        if(ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+           && !io.WantTextInput
+           && ImGui::IsKeyPressed(ImGuiKey_F, false)) {
+            m_focus_request = true;
+        }
+
         if(pointer_over_image
            && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             m_pick_request = *mapped_pixel;
@@ -278,6 +285,10 @@ namespace CometEditor {
 
     std::optional<Comet::Math::Vec2u> ViewPanel::take_pick_request() {
         return std::exchange(m_pick_request, std::nullopt);
+    }
+
+    bool ViewPanel::take_focus_request() {
+        return std::exchange(m_focus_request, false);
     }
 
     void ViewPanel::set_texture_id(const ImTextureID texture_id, const std::uint32_t width, const std::uint32_t height) {

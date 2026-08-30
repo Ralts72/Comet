@@ -38,6 +38,8 @@ namespace CometEditor {
         [[nodiscard]] std::optional<Comet::Math::Vec2u>
         take_pick_request();
 
+        [[nodiscard]] bool take_focus_request();
+
     private:
         void render_edit_toolbar();
         void render_play_toolbar();
@@ -57,6 +59,7 @@ namespace CometEditor {
         std::optional<Comet::CameraProjection>
             m_camera_projection_request;
         std::optional<Comet::Math::Vec2u> m_pick_request;
+        bool m_focus_request = false;
         bool m_orbit_drag_active = false;
         bool m_pan_drag_active = false;
     };

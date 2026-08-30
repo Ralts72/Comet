@@ -122,4 +122,70 @@ namespace CometEditor::Tests {
             camera.target, Comet::Math::Vec3(0.0f)));
         EXPECT_FLOAT_EQ(camera.target.z, 0.0f);
     }
+
+    TEST(EditorCameraControllerTest, FocusPerspectiveBoundsPreservesViewDirection) {
+        EditorCameraState camera;
+        camera.position = Comet::Math::Vec3(3.0f, 2.0f, 4.0f);
+        const Comet::Math::Vec3 previous_direction =
+            Comet::Math::normalize(camera.position - camera.target);
+        const Comet::AxisAlignedBox bounds{
+            .minimum = Comet::Math::Vec3(8.0f, 1.0f, -2.0f),
+            .maximum = Comet::Math::Vec3(12.0f, 3.0f, 0.0f)
+        };
+
+        EXPECT_TRUE(focus_editor_camera(camera, bounds, 16.0f / 9.0f));
+
+        EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(
+            camera.target, bounds.center(), 0.0001f));
+        EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(
+            Comet::Math::normalize(camera.position - camera.target),
+            previous_direction,
+            0.0001f));
+        EXPECT_GT(
+            Comet::Math::length(camera.position - camera.target),
+            Comet::Math::length(bounds.size()) * 0.5f);
+    }
+
+    TEST(EditorCameraControllerTest, FocusOrthographicBoundsFitsAspect) {
+        EditorCameraState camera;
+        camera.projection = Comet::CameraProjection::Orthographic;
+        const Comet::Math::Vec3 previous_offset =
+            camera.position - camera.target;
+        const Comet::AxisAlignedBox bounds{
+            .minimum = Comet::Math::Vec3(-4.0f, -1.0f, -0.5f),
+            .maximum = Comet::Math::Vec3(4.0f, 1.0f, 0.5f)
+        };
+
+        EXPECT_TRUE(focus_editor_camera(camera, bounds, 2.0f));
+
+        EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(
+            camera.target, bounds.center(), 0.0001f));
+        EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(
+            camera.position - camera.target,
+            previous_offset,
+            0.0001f));
+        EXPECT_NEAR(camera.orthographic_height, 4.8f, 0.0001f);
+    }
+
+    TEST(EditorCameraControllerTest, FocusRejectsInvalidBoundsOrAspect) {
+        EditorCameraState camera;
+        const EditorCameraState previous = camera;
+        Comet::AxisAlignedBox invalid{
+            .minimum = Comet::Math::Vec3(1.0f),
+            .maximum = Comet::Math::Vec3(-1.0f)
+        };
+
+        EXPECT_FALSE(focus_editor_camera(camera, invalid, 1.0f));
+        EXPECT_FALSE(focus_editor_camera(
+            camera,
+            {
+                .minimum = Comet::Math::Vec3(-1.0f),
+                .maximum = Comet::Math::Vec3(1.0f)
+            },
+            0.0f));
+        EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(
+            camera.position, previous.position));
+        EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(
+            camera.target, previous.target));
+    }
 }

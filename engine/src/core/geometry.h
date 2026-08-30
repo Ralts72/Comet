@@ -43,7 +43,7 @@ namespace Comet {
         }
 
         [[nodiscard]] Math::Vec3 center() const {
-            return (minimum + maximum) * 0.5f;
+            return minimum * 0.5f + maximum * 0.5f;
         }
 
         [[nodiscard]] Math::Vec3 size() const {
@@ -56,15 +56,56 @@ namespace Comet {
         Math::Vec3 direction{0.0f, 0.0f, -1.0f};
 
         [[nodiscard]] bool is_valid() const {
+            const float direction_length = Math::length(direction);
             return std::isfinite(origin.x)
                 && std::isfinite(origin.y)
                 && std::isfinite(origin.z)
                 && std::isfinite(direction.x)
                 && std::isfinite(direction.y)
                 && std::isfinite(direction.z)
-                && Math::length(direction) > 0.000001f;
+                && std::isfinite(direction_length)
+                && direction_length > 0.000001f;
         }
     };
+
+    [[nodiscard]] inline std::optional<AxisAlignedBox> transform_box(
+        const AxisAlignedBox& box,
+        const Math::Mat4& transform) {
+        if(!box.is_valid()) {
+            return std::nullopt;
+        }
+
+        std::optional<AxisAlignedBox> transformed_box;
+        for(int corner_index = 0; corner_index < 8; ++corner_index) {
+            const Math::Vec3 corner(
+                (corner_index & 1) != 0 ? box.maximum.x : box.minimum.x,
+                (corner_index & 2) != 0 ? box.maximum.y : box.minimum.y,
+                (corner_index & 4) != 0 ? box.maximum.z : box.minimum.z);
+            const Math::Vec4 transformed = transform
+                * Math::Vec4(corner, 1.0f);
+            if(!std::isfinite(transformed.x)
+               || !std::isfinite(transformed.y)
+               || !std::isfinite(transformed.z)
+               || !std::isfinite(transformed.w)
+               || std::abs(transformed.w) <= 0.000001f) {
+                return std::nullopt;
+            }
+
+            const Math::Vec3 point = Math::Vec3(transformed)
+                / transformed.w;
+            if(!std::isfinite(point.x)
+               || !std::isfinite(point.y)
+               || !std::isfinite(point.z)) {
+                return std::nullopt;
+            }
+            if(transformed_box) {
+                transformed_box->include(point);
+            } else {
+                transformed_box = AxisAlignedBox::from_point(point);
+            }
+        }
+        return transformed_box;
+    }
 
     [[nodiscard]] inline std::optional<float> intersect_ray_box(
         const Ray& ray,

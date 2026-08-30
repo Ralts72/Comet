@@ -1219,6 +1219,8 @@ Scene Component / RenderItem
 - [x] 实现 CPU ray-local-AABB 最近命中与 Selection 同步：点击事件映射为当前纹理 pixel，Renderer 复用当前 RenderSubmission/Camera，
   空白点击清除选择且查询不依赖 ImGui 或 GPU 等待；GPU ID attachment/readback 留到真实几何精度需求出现并与阶段 5 RenderGraph
   resource/pass contract 一起设计。
+- [x] 增加 Focus Selection：Viewport 聚焦时的 `F` 产生一次事件，Editor 用 Selection 实体 world transform 与 Runtime Mesh local bounds
+  计算 world AABB；Perspective 保留观察方向并按水平/垂直 FOV framing，Orthographic 按 world XY 与 aspect 调整高度，不修改 Scene。
 - 如果对象拾取采用 GPU ID buffer，按请求或 FrameSlot 持有 host-visible readback buffer；copy 完成并确认
   fence/timeline 后再 invalidate/read。若采用 CPU ray cast，则不为了预留能力提前建立通用 readback 系统。
 - 将 gizmo 修改接入 Undo/Redo 命令系统，并支持复制、粘贴、删除和 duplicate。
@@ -1497,9 +1499,8 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步实现 **Focus Selection**：从当前 Selection 对应实体的 world transform 与 Runtime Mesh local bounds 计算聚焦中心和尺度，
-让 2D/3D editor camera 通过事件式按键请求定位选中对象且不修改 Scene。完成后再审计选中高亮、gizmo 渲染与 Undo/Redo 命令边界，
-避免 gizmo 直接散落写 Transform。
+下一步做 **选中高亮与 gizmo 技术审计**：先确定高亮 pass/overlay、gizmo depth 与 picking 的边界，以及 Transform 修改进入 Undo/Redo 的
+命令契约，再选择最小实现顺序；避免直接把轴绘制和组件写入硬编码进 ViewPanel 或 SceneRenderer。
 runtime format/sample-count-dependent Pipeline generation 归入阶段 5，与 PipelineKey/RenderGraph 生命周期一并设计，避免在旧
 PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 
@@ -1591,6 +1592,7 @@ PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 64. [x] 让 Viewport 2D/3D 成为真实观察模式：RenderCamera/SceneResolver 支持正交高度，ViewPanel 只发投影切换事件；2D 固定观察轴、使用屏幕 XY pan 与独立正交 zoom，保留 3D camera 状态。
 65. [x] 完成 Viewport picking 技术审计并建立可复用 Mesh bounds：新增通用 AxisAlignedBox，MeshData 拒绝空/非有限位置，Runtime Mesh 与 GPU buffer 同候选保存 local bounds；CPU ray-AABB 优先于当前阶段的 GPU ID/readback。
 66. [x] 建立事件式 CPU Viewport 拾取闭环：ViewPanel 只提交可见画面内的当前纹理 pixel，Renderer 用当帧 RenderSubmission/Camera 完成 ray-local-AABB 最近命中并回调 Selection；空白点击清除选择，无 GPU readback 或 ImGui 下沉。
+67. [x] 增加 Focus Selection：通用 geometry 负责 local AABB 到 world AABB，Editor 只在 Viewport `F` 事件上解析 Selection/Mesh/world transform，现有 camera controller 分别为 Perspective/Orthographic framing；无缓存 world bounds 或 Scene 修改。
 
 格式所有权后续需求：
 

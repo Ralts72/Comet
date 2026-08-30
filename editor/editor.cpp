@@ -1,5 +1,6 @@
 #include "runtime/entry.h"
 #include "asset/manager.h"
+#include "asset/registry.h"
 #include "asset/source_monitor.h"
 #include "src/editor_camera_controller.h"
 #include "src/editor_scene_session.h"
@@ -9,6 +10,7 @@
 #include "core/engine.h"
 #include "core/project_paths.h"
 #include "render/renderer.h"
+#include "render/resource/mesh.h"
 #include "render/scene/scene_renderer.h"
 #include "core/window.h"
 #include "diagnostics/logger.h"
@@ -177,6 +179,7 @@ namespace {
                         get_engine().get_renderer().get_scene_renderer());
                     m_imgui_context->update_frame();
                     apply_viewport_camera_input();
+                    apply_viewport_focus();
                     update_viewport_state();
                     submit_viewport_pick();
                 },
@@ -240,6 +243,51 @@ namespace {
                     m_editor_state,
                     m_viewport_panel->is_visible(),
                     m_viewport_panel->get_render_resolution()));
+        }
+
+        void apply_viewport_focus() {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit
+               || !m_viewport_panel->take_focus_request()
+               || !m_selection) {
+                return;
+            }
+
+            Comet::Entity entity = m_selection->get_selected_entity();
+            if(!entity
+               || !entity.has_component<Comet::MeshRendererComponent>()) {
+                return;
+            }
+
+            const Comet::AssetHandle mesh_handle = entity
+                .get_component<Comet::MeshRendererComponent>()
+                .mesh;
+            const std::shared_ptr<Comet::Mesh> mesh = get_engine()
+                .get_asset_registry()
+                .resolve<Comet::Mesh>(mesh_handle);
+            Comet::Scene* scene = get_engine().get_scene();
+            if(!mesh || scene == nullptr) {
+                return;
+            }
+
+            const std::optional<Comet::AxisAlignedBox> world_bounds =
+                Comet::transform_box(
+                    mesh->get_local_bounds(),
+                    scene->get_world_matrix(entity));
+            const CometEditor::ViewportLayout& layout =
+                m_viewport_panel->get_layout();
+            if(!world_bounds
+               || layout.image_resolution.x == 0
+               || layout.image_resolution.y == 0) {
+                return;
+            }
+
+            const float viewport_aspect =
+                static_cast<float>(layout.image_resolution.x)
+                / static_cast<float>(layout.image_resolution.y);
+            static_cast<void>(CometEditor::focus_editor_camera(
+                m_editor_state.camera,
+                *world_bounds,
+                viewport_aspect));
         }
 
         void submit_viewport_pick() {

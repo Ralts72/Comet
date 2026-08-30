@@ -197,6 +197,10 @@ FOV 模拟正交。3D position/target 被保留，2D pan 同步移动两者，�
   `ViewProjectMatrix` 生成 world ray，把射线变换到每个对象的 local space 并与 Runtime Mesh local AABB 求最近命中；结果通过无
   Editor 依赖的回调返回，Editor 再更新统一 Selection。空白点击清除选择，没有请求时不执行查询；该路径不增加 GPU attachment、
   readback 或等待，也不让 ViewPanel 访问 Scene、AssetRegistry 和 Runtime Mesh。
+- Viewport 获得键盘焦点且未编辑文本时，`F` 只产生一次 Focus 事件。Editor 组合根按 Selection 解析 Mesh local bounds 与 Scene world
+  matrix，使用通用 `transform_box()` 得到 world AABB，再让现有 editor camera controller 按投影模式和当前纹理 aspect framing；
+  ViewPanel 不读取选择/资源，Renderer 不感知 Selection，Focus 不修改 Scene 或增加 GPU 工作。world bounds 当前按事件计算，不在
+  Scene/Mesh 间缓存第二份需要 transform revision 失效的数据。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture
