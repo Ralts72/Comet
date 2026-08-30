@@ -9,6 +9,8 @@
 #include <memory>
 
 namespace Comet {
+    class UploadManager;
+
     class COMET_API ResourceManager final : public RenderResourceFactory {
     public:
         explicit ResourceManager(Device& device);
@@ -20,12 +22,13 @@ namespace Comet {
         [[nodiscard]] const SamplerManager& get_sampler_manager() const { return *m_sampler_manager; }
 
         [[nodiscard]] std::shared_ptr<Texture> create_texture(
-            const TextureData& data) const override;
+            const TextureData& data) override;
         [[nodiscard]] std::shared_ptr<Mesh> create_mesh(
-            const MeshData& data) const override;
+            const MeshData& data) override;
 
     private:
         Device& m_device;
+        std::unique_ptr<UploadManager> m_upload_manager;
         std::unique_ptr<ShaderManager> m_shader_manager;
         std::unique_ptr<SamplerManager> m_sampler_manager;
     };

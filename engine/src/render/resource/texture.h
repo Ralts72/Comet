@@ -3,18 +3,28 @@
 #include "core/math_utils.h"
 #include "render/resource/texture_data.h"
 
+#include <cstddef>
 #include <memory>
+#include <span>
 
 namespace Comet {
     class Image;
     class ImageView;
-    class Buffer;
     class Device;
+    class UploadManager;
 
     class COMET_API Texture {
     public:
-        Texture(Device& device, const TextureData& data);
-        Texture(Device& device, int width, int height, Math::Vec4u color);
+        Texture(
+            Device& device,
+            UploadManager& upload_manager,
+            const TextureData& data);
+        Texture(
+            Device& device,
+            UploadManager& upload_manager,
+            int width,
+            int height,
+            Math::Vec4u color);
         ~Texture();
 
         [[nodiscard]] int get_width() const { return m_width; }
@@ -22,7 +32,10 @@ namespace Comet {
         [[nodiscard]] std::shared_ptr<Image> get_image() const;
         [[nodiscard]] std::shared_ptr<ImageView> get_image_view() const { return m_image_view; }
     private:
-        void create_image(Device& device, size_t size, const void* data);
+        void create_image(
+            Device& device,
+            UploadManager& upload_manager,
+            std::span<const std::byte> data);
 
         int m_width;
         int m_height;

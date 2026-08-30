@@ -1,4 +1,5 @@
 #pragma once
+#include "common/export.h"
 #include "graphics/synchronization/semaphore.h"
 #include "vk_common.h"
 
@@ -12,7 +13,7 @@ namespace Comet {
     class Swapchain;
     class Queue;
 
-    class GpuCompletionPoint {
+    class COMET_API GpuCompletionPoint {
     public:
         GpuCompletionPoint() = default;
 

@@ -1,12 +1,10 @@
 #include "graphics/resource/buffer.h"
 
-#include "graphics/command/command_context.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 #include "graphics/device.h"
 
 #include <cstring>
-#include <string>
 
 namespace Comet {
     Buffer::Buffer(Device& device, const size_t size)
@@ -40,28 +38,11 @@ namespace Comet {
     GPUBuffer::GPUBuffer(Device& device,
                          const Flags<BufferUsage> usage,
                          const size_t size,
-                         const void* data,
                          const std::string_view debug_name)
         : Buffer(device, size) {
         PROFILE_SCOPE("Buffer::Constructor");
-        if(!data) {
-            LOG_FATAL("GPUBuffer requires initial data");
-        }
 
         const std::string_view resolved_name = debug_name.empty() ? "GPU buffer" : debug_name;
-        std::string upload_name(resolved_name);
-        upload_name += " upload";
-
-        auto [buffer, allocation, mapped_data] = create_buffer(
-            Flags<BufferUsage>(BufferUsage::CopySrc),
-            {
-                .usage = AllocationUsage::Upload,
-                .persistent_mapping = true,
-                .debug_name = upload_name
-            });
-        std::memcpy(mapped_data, data, m_size);
-        get_allocator().flush_memory(allocation, 0, m_size);
-
         auto device_buffer = create_buffer(
             usage | BufferUsage::CopyDst,
             {
@@ -70,12 +51,6 @@ namespace Comet {
         });
         m_buffer = device_buffer.buffer;
         m_allocation = std::move(device_buffer.allocation);
-
-        const auto context = m_device.create_command_context();
-        context->copy_buffer(buffer, m_buffer, m_size);
-        context->submit_and_wait();
-
-        get_allocator().destroy_buffer(buffer, allocation);
     }
 
     CPUBuffer::CPUBuffer(Device& device,
@@ -138,12 +113,8 @@ namespace Comet {
         Device& device,
         const Flags<BufferUsage> usage,
         const size_t size,
-        const void* data,
         const std::string_view debug_name) {
-        if(!data) {
-            LOG_FATAL("GPUBuffer requires initial data");
-        }
-        return std::make_shared<GPUBuffer>(device, usage, size, data, debug_name);
+        return std::make_shared<GPUBuffer>(device, usage, size, debug_name);
     }
 
     void CPUBuffer::write(const void* data) const {

@@ -15,8 +15,8 @@ namespace Comet {
         virtual ~RenderResourceFactory() = default;
 
         [[nodiscard]] virtual std::shared_ptr<Texture> create_texture(
-            const TextureData& data) const = 0;
+            const TextureData& data) = 0;
         [[nodiscard]] virtual std::shared_ptr<Mesh> create_mesh(
-            const MeshData& data) const = 0;
+            const MeshData& data) = 0;
     };
 }

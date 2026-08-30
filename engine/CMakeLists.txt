@@ -48,6 +48,7 @@ set(SOURCES
         src/graphics/pipeline/shader.cpp
         src/graphics/command/command_buffer.cpp
         src/graphics/command/command_context.cpp
+        src/graphics/command/upload_manager.cpp
         src/graphics/synchronization/fence.cpp
         src/graphics/synchronization/semaphore.cpp
         src/graphics/pipeline/vertex_description.cpp

@@ -1,6 +1,7 @@
 #pragma once
 #include "graphics/vk_common.h"
 #include "graphics/command/command_buffer.h"
+#include "graphics/queue.h"
 #include "graphics/synchronization/resource_state.h"
 
 namespace Comet {
@@ -42,7 +43,14 @@ namespace Comet {
             const ImageState& before,
             const ImageState& after);
 
-        void submit_and_wait();
+        void transition_buffer_state(
+            const Buffer& buffer,
+            const ResourceState& before,
+            const ResourceState& after,
+            vk::DeviceSize offset = 0,
+            vk::DeviceSize size = VK_WHOLE_SIZE);
+
+        [[nodiscard]] GpuCompletionPoint submit();
 
     private:
         Device& m_device;

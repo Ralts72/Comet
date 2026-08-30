@@ -68,6 +68,13 @@ namespace Comet {
             const ImageState& before,
             const ImageState& after) const;
 
+        void transition_buffer_state(
+            vk::Buffer buffer,
+            const ResourceState& before,
+            const ResourceState& after,
+            vk::DeviceSize offset = 0,
+            vk::DeviceSize size = VK_WHOLE_SIZE) const;
+
         [[nodiscard]] vk::CommandBuffer get() const { return m_command_buffer; }
 
     private:

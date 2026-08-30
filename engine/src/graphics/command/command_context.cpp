@@ -80,15 +80,35 @@ namespace Comet {
         m_command_buffer.transition_image_state(image, before, after);
     }
 
-    void CommandContext::submit_and_wait() {
+    void CommandContext::transition_buffer_state(
+        const Buffer& buffer,
+        const ResourceState& before,
+        const ResourceState& after,
+        const vk::DeviceSize offset,
+        const vk::DeviceSize size) {
         if(!m_is_recording) {
-            LOG_WARN("CommandContext::submit_and_wait() called without any commands");
-            return;
+            m_command_buffer.reset();
+            m_command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+            m_is_recording = true;
+        }
+
+        m_command_buffer.transition_buffer_state(
+            buffer.get(),
+            before,
+            after,
+            offset,
+            size);
+    }
+
+    GpuCompletionPoint CommandContext::submit() {
+        if(!m_is_recording) {
+            LOG_WARN("CommandContext::submit() called without any commands");
+            return {};
         }
 
         if(m_submitted) {
             LOG_WARN("CommandContext already submitted");
-            return;
+            return {};
         }
 
         // 结束命令缓冲区
@@ -101,9 +121,9 @@ namespace Comet {
             std::span(&m_command_buffer, 1),
             {},
             nullptr);
-        static_cast<void>(completion.wait());
 
         m_submitted = true;
+        return completion;
     }
 
 }

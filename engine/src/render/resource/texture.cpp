@@ -1,15 +1,16 @@
 #include "render/resource/texture.h"
-#include <glm/gtx/io.hpp>
+#include "graphics/command/upload_manager.h"
 #include "graphics/device.h"
-#include "graphics/command/command_context.h"
 #include "graphics/convert.h"
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
-#include "graphics/resource/buffer.h"
 #include "graphics/synchronization/resource_state.h"
 
 namespace Comet {
-    Texture::Texture(Device& device, const TextureData& data)
+    Texture::Texture(
+        Device& device,
+        UploadManager& upload_manager,
+        const TextureData& data)
         : m_width(data.width),
           m_height(data.height),
           m_format(data.format) {
@@ -24,11 +25,22 @@ namespace Comet {
                 "Texture pixel data size {} does not match expected size {}",
                 data.pixels.size(), expected_size);
         }
-        create_image(device, data.pixels.size(), data.pixels.data());
+        create_image(
+            device,
+            upload_manager,
+            std::as_bytes(std::span(data.pixels)));
     }
 
-    Texture::Texture(Device& device, const int width, const int height, const Math::Vec4u color)
+    Texture::Texture(
+        Device& device,
+        UploadManager& upload_manager,
+        const int width,
+        const int height,
+        const Math::Vec4u color)
         : m_width(width), m_height(height) {
+        if(m_width <= 0 || m_height <= 0) {
+            LOG_FATAL("Texture requires positive dimensions");
+        }
         m_format = Format::R8G8B8A8_UNORM;
         const size_t size = sizeof(uint8_t) * 4 * m_width * m_height;
         std::vector<uint8_t> pixels(size);
@@ -41,7 +53,10 @@ namespace Comet {
                 pixels[idx + 3] = color.w; // A
             }
         }
-        create_image(device, size, pixels.data());
+        create_image(
+            device,
+            upload_manager,
+            std::as_bytes(std::span(pixels)));
     }
 
     Texture::~Texture() = default;
@@ -50,11 +65,12 @@ namespace Comet {
         return m_image_view ? m_image_view->get_image() : nullptr;
     }
 
-    void Texture::create_image(Device& device, size_t size, const void* data) {
-        if(!data || size == 0) {
-            LOG_ERROR("Invalid data or size for texture creation: data={}, size={}",
-                static_cast<const void*>(data), size);
-            return;
+    void Texture::create_image(
+        Device& device,
+        UploadManager& upload_manager,
+        const std::span<const std::byte> data) {
+        if(data.empty()) {
+            LOG_FATAL("Texture requires non-empty upload data");
         }
 
         auto image = Image::create(device, {
@@ -63,45 +79,26 @@ namespace Comet {
         }, SampleCount::Count1, "texture image");
         m_image_view = std::make_shared<ImageView>(device, image, Flags<ImageAspect>(ImageAspect::Color));
 
-        auto stage_buffer = Buffer::create_upload_buffer(
-            device,
-            Flags<BufferUsage>(BufferUsage::CopySrc),
-            size,
-            data,
-            "texture upload buffer");
-
-        const auto ctx = device.create_command_context();
         const ImageSubresourceRange subresources{
             .aspects = Flags<ImageAspect>(ImageAspect::Color)
         };
         const auto initial_state = resolve_image_state(
             ResourceUsage::Undefined,
             subresources);
-        const auto transfer_state = resolve_image_state(
-            ResourceUsage::TransferDestination,
-            subresources);
         const auto sampled_state = resolve_image_state(
             ResourceUsage::SampledRead,
             subresources,
             Flags<PipelineStage>(PipelineStage::FragmentShader));
-        if(!initial_state || !transfer_state || !sampled_state) {
+        if(!initial_state || !sampled_state) {
             LOG_FATAL("Failed to resolve texture upload states");
         }
 
-        ctx->transition_image_state(*image, *initial_state, *transfer_state);
-
-        const auto extent = Graphics::get_extent(image->get_info().extent.x, image->get_info().extent.y);
-        ctx->copy_buffer_to_image(
-            *stage_buffer,
-            *image,
-            transfer_state->layout,
-            extent);
-
-        ctx->transition_image_state(*image, *transfer_state, *sampled_state);
-
-        // 提交并等待完成
-        ctx->submit_and_wait();
-
-        stage_buffer.reset();
+        upload_manager.enqueue_upload(
+            image,
+            data,
+            *initial_state,
+            *sampled_state,
+            "texture upload");
+        upload_manager.upload_and_wait();
     }
 }

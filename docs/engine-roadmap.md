@@ -355,6 +355,11 @@ ResourceManager 可以发布带 ready token 的 pending resource，Renderer/Rend
 但 staging 回收仍以 completion value 为准。当前实现也可以先选择“完成后才发布”的简单策略，但不能在 API 中丢失
 ready token，避免以后只能通过 CPU wait 才能接入异步资源。
 
+当前最小实现已由 ResourceManager 独占持有 UploadManager：Buffer/Image allocation 与上传分离，`enqueue_upload()`
+立即把 CPU 数据复制到 staging 并录制 batch，`flush_batch()` 返回 `GpuCompletionPoint`，pending batch 持有 staging、
+CommandContext 和目标资源直到 completion。同步 ResourceManager 通过 `upload_and_wait()` 保持“返回即 ready”；一个
+Mesh 的 vertex/index copy 已合并为一次 submission。staging page/ring、跨资产批量和 ready token 发布仍待实现。
+
 #### Descriptor System
 
 Descriptor 按更新频率和 owner 拆成三类：
@@ -494,10 +499,11 @@ image。旧 swapchain 的回收必须使用可用的 present completion/fence；
 
 ### Vulkan 同步演进顺序
 
-当前 Vulkan 1.3 `synchronization2` feature 查询与启用、`Queue::submit2()` 和显式 image barrier 迁移均已完成。
+当前 Vulkan 1.3 `synchronization2` feature 查询与启用、`Queue::submit2()` 和显式 image/buffer barrier 迁移均已完成。
 每个 submit wait/signal 使用独立 `vk::SemaphoreSubmitInfo`；Texture 阻塞上传通过类型化 `ImageState` 提供 stage、
 access、layout、subresource 和 queue owner，并由 `vk::ImageMemoryBarrier2`、`vk::DependencyInfo` 与
-`pipelineBarrier2()` 录制。Vulkan 1.2 `timelineSemaphore` 也已加入能力查询和 logical device feature chain；每个
+`pipelineBarrier2()` 录制；UploadManager 的 buffer copy 也会从 TransferWrite 转到 Vertex/Index read state，并生成
+`vk::BufferMemoryBarrier2`。Vulkan 1.2 `timelineSemaphore` 已加入能力查询和 logical device feature chain；每个
 Queue submission 会 signal 单调 timeline value 并返回 `GpuCompletionPoint`。旧 layout-pair 推断、legacy image
 barrier、对应 32-bit stage/access 转换以及 Queue 级上传 `waitIdle()` 已经删除。
 
@@ -1033,18 +1039,20 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
 - [x] 建立最小 `TaskScheduler`/worker pool，支持 FIFO 提交、Future、等待空闲和安全 drain；Engine 统一持有，测试可显式使用单 Worker。
 - [x] 将已加载 Mesh 的缓存读取和 CPU 导入移出主线程；worker 只产出候选结果，Owner Thread 验证 revision 后才写缓存、创建 Runtime Mesh 和替换 Registry，失败时保留旧 Mesh。同步首载暂时保留。
 - [x] 在现有显式同步路径完成 Synchronization 2 迁移：通过 GFX-002 的 Vulkan 1.3 feature chain 查询并启用
-  `synchronization2`，将 queue submit 改为 `vk::SubmitInfo2`/`submit2()`，将显式 image barrier 改为
-  `vk::DependencyInfo` 和 `vk::ImageMemoryBarrier2`；当前没有显式 buffer barrier 消费者。
+  `synchronization2`，将 queue submit 改为 `vk::SubmitInfo2`/`submit2()`，将显式 image/buffer barrier 改为
+  `vk::DependencyInfo` 和 `vk::ImageMemoryBarrier2`/`vk::BufferMemoryBarrier2`。
 - [x] 定义类型化 `ResourceUsage`、`ResourceState`/`ImageState` 与 usage-to-state 映射，包含 queue-family owner、
   image subresource range 和不完整输入的拒绝规则，并使用纯单元测试覆盖。
 - [x] 让现有 Texture upload 提供 known-before/desired-after state，删除 layout-pair `if/else` 和 legacy
   `pipelineBarrier()`；传统 RenderPass 的隐式 attachment 转换继续由 RenderPass 契约表达。
 - [x] 用现有 swapchain frame submit、texture upload 和 buffer copy 路径保持迁移等价性，并引入 Queue 独占 timeline
   semaphore 和 `GpuCompletionPoint`；没有把 API 迁移、异步上传和 transfer queue 合并成一次改动。
-- 在阶段 3 后半段建立 `UploadManager`：使用可复用的 staging pages/ring 和批量 copy command，将一次资源上传从
-  “每个资源单独 `queue.waitIdle()`”演进为“提交 upload batch 并返回 completion token”。
-- 明确 `upload_and_wait()`、`enqueue_upload()` 和 `flush_batch()` 契约。异步资源携带 ready token；首次 graphics
-  消费在准确 stage 等待 upload timeline value，同一有序 queue 上的冗余 wait 可由 backend 消除。
+- [x] 建立最小 `UploadManager`，集中持有 staging、upload command context、目标资源和 completion；一个 Mesh 的
+  vertex/index copy 合并为一次 submission，不再由 Buffer/Texture 各自创建临时 CommandContext。
+- [x] 明确 `upload_and_wait()`、`enqueue_upload()` 和 `flush_batch()` 的同步/提交契约，并让 flush 返回
+  `GpuCompletionPoint`。
+- 将单独 staging allocation 演进为可复用 pages/ring；异步资源携带 ready token，首次 graphics 消费在准确 stage
+  等待 upload timeline value，同一有序 queue 上的冗余 wait 可由 backend 消除。
 - [x] 建立 `GpuCompletionPoint`，让 Queue submission 返回单调 timeline value，并由 FrameSlot 记录最近提交而不是
   只保存循环 slot index。
 - 建立 owner-thread `GpuRetirementQueue`。FrameSlot 在 fence signal 后清理自己的 `DeferredReleaseBatch`；
@@ -1446,7 +1454,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：最小 UploadManager 与批量上传**。类型化资源状态、submit2、Image Barrier2、timeline semaphore 和单调 `GpuCompletionPoint` 已形成完整底座，阻塞式 CommandContext 也只等待自己的 submission；接下来应先定义 `upload_and_wait()`、`enqueue_upload()`、`flush_batch()` 和 staging lifetime 契约，再让 Buffer/Texture 创建通过同一上传入口合并 copy 与 barrier。首版继续使用 graphics queue，不提前引入独立 transfer queue；异步 ready token 必须能转成 graphics submission 的 GPU-side wait。
+下一步继续 **阶段 3：staging page 复用与异步 ready token**。最小 UploadManager 已统一 Buffer/Texture 上传，pending batch 会把 staging、CommandContext 和目标资源保留到 `GpuCompletionPoint` 完成，一个 Mesh 的 vertex/index 已合并提交；接下来应先用 page/ring 子分配减少每次 enqueue 的 VMA allocation，再让 AssetManager owner-thread 发布携带 ready completion 的 Runtime Resource，并在首次 graphics consumption 建立 GPU-side wait。继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue。
 
 建议的职责边界：
 
@@ -1489,6 +1497,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 17. [x] 建立类型化 `ResourceUsage`、`ResourceState`/`ImageState` 与 usage-to-state 映射，显式携带 queue owner 和 image subresource range，并拒绝缺少 shader stage、非法 aspect 和空范围。
 18. [x] 将现有显式 image transition 迁移到 `ImageMemoryBarrier2`/`DependencyInfo`，让 Texture 上传提供前后 `ImageState`，删除 layout-pair 推断和 legacy `pipelineBarrier()`。
 19. [x] 启用 Vulkan timeline semaphore，Queue 为每次 submission 返回单调 `GpuCompletionPoint`，FrameSlot 记录最近提交，阻塞式资源上传只等待对应完成点而不再等待整个 Queue idle。
+20. [x] 建立 ResourceManager 独占的最小 UploadManager，分离目标 allocation 与内容上传，统一 staging/copy/Barrier2/completion 生命周期，并把 Mesh vertex/index 合并为一次提交。
 
 格式所有权后续需求：
 

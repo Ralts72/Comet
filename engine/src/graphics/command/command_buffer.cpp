@@ -157,6 +157,28 @@ namespace Comet {
         m_command_buffer.pipelineBarrier2(dependency_info);
     }
 
+    void CommandBuffer::transition_buffer_state(
+        const vk::Buffer buffer,
+        const ResourceState& before,
+        const ResourceState& after,
+        const vk::DeviceSize offset,
+        const vk::DeviceSize size) const {
+        const auto barrier = Graphics::build_buffer_memory_barrier(
+            buffer,
+            before,
+            after,
+            offset,
+            size);
+        if(!barrier) {
+            LOG_FATAL("Invalid buffer state transition");
+        }
+
+        vk::DependencyInfo dependency_info{};
+        dependency_info.bufferMemoryBarrierCount = 1;
+        dependency_info.pBufferMemoryBarriers = &*barrier;
+        m_command_buffer.pipelineBarrier2(dependency_info);
+    }
+
     CommandPool::CommandPool(Device& device, const uint32_t queue_family_index): m_device(device) {
         vk::CommandPoolCreateInfo pool_info = {};
         pool_info.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;

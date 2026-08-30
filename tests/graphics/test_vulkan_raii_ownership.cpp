@@ -5,6 +5,7 @@
 #include "graphics/resource/allocator.h"
 #include "graphics/command/command_buffer.h"
 #include "graphics/command/command_context.h"
+#include "graphics/command/upload_manager.h"
 #include "graphics/context.h"
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/device.h"
@@ -58,6 +59,7 @@ TEST(VulkanRaiiOwnershipTest, OwningWrappersDoNotCopyOrMoveByDefault) {
     expect_noncopyable_immovable_owner<RenderPass>();
     expect_noncopyable_immovable_owner<CommandPool>();
     expect_noncopyable_immovable_owner<CommandContext>();
+    expect_noncopyable_immovable_owner<UploadManager>();
     expect_noncopyable_immovable_owner<Swapchain>();
     expect_noncopyable_immovable_owner<Allocator>();
     expect_noncopyable_immovable_owner<Device>();

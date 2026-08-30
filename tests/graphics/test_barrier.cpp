@@ -25,6 +25,62 @@ namespace Comet::Tests {
             EXPECT_TRUE(state);
             return state.value_or(ImageState{});
         }
+
+        ResourceState require_resource_state(const ResourceUsage usage) {
+            const auto state = resolve_resource_state(usage);
+            EXPECT_TRUE(state);
+            return state.value_or(ResourceState{});
+        }
+    }
+
+    TEST(BufferBarrierTest, BuildsTransferToVertexReadDependency) {
+        const auto before = require_resource_state(
+            ResourceUsage::TransferDestination);
+        const auto after = require_resource_state(ResourceUsage::VertexBuffer);
+
+        const auto barrier = Graphics::build_buffer_memory_barrier(
+            {},
+            before,
+            after,
+            32,
+            256);
+
+        ASSERT_TRUE(barrier);
+        EXPECT_EQ(
+            barrier->srcStageMask,
+            vk::PipelineStageFlagBits2::eTransfer);
+        EXPECT_EQ(
+            barrier->srcAccessMask,
+            vk::AccessFlagBits2::eTransferWrite);
+        EXPECT_EQ(
+            barrier->dstStageMask,
+            vk::PipelineStageFlagBits2::eVertexInput);
+        EXPECT_EQ(
+            barrier->dstAccessMask,
+            vk::AccessFlagBits2::eVertexAttributeRead);
+        EXPECT_EQ(barrier->srcQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED);
+        EXPECT_EQ(barrier->dstQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED);
+        EXPECT_EQ(barrier->offset, 32u);
+        EXPECT_EQ(barrier->size, 256u);
+    }
+
+    TEST(BufferBarrierTest, RejectsInvalidScopeRangeOrOwnershipTransfer) {
+        auto before = require_resource_state(
+            ResourceUsage::TransferDestination);
+        auto after = require_resource_state(ResourceUsage::IndexBuffer);
+
+        EXPECT_FALSE(Graphics::build_buffer_memory_barrier(
+            {}, before, after, 0, 0));
+
+        after.stages = {};
+        EXPECT_FALSE(Graphics::build_buffer_memory_barrier(
+            {}, before, after));
+
+        after = require_resource_state(ResourceUsage::IndexBuffer);
+        before.queue_family = 2;
+        after.queue_family = 3;
+        EXPECT_FALSE(Graphics::build_buffer_memory_barrier(
+            {}, before, after));
     }
 
     TEST(ImageBarrierTest, BuildsSynchronization2BarrierFromTypedStates) {
