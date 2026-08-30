@@ -97,8 +97,7 @@ namespace Comet {
             image,
             data,
             *initial_state,
-            *sampled_state,
-            "texture upload");
+            *sampled_state);
         upload_manager.upload_and_wait();
     }
 }

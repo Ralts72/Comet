@@ -7,9 +7,34 @@
 #include "graphics/resource/image.h"
 
 #include <algorithm>
+#include <limits>
 
 namespace Comet {
-    UploadManager::UploadManager(Device& device) : m_device(device) {}
+    namespace {
+        constexpr size_t STAGING_ALIGNMENT = 4;
+
+        size_t align_staging_offset(const size_t value) {
+            constexpr size_t padding = STAGING_ALIGNMENT - 1;
+            if(value > std::numeric_limits<size_t>::max() - padding) {
+                LOG_FATAL("Upload staging offset overflow");
+            }
+            return (value + padding) & ~padding;
+        }
+    }
+
+    UploadManager::UploadManager(Device& device)
+        : UploadManager(device, CreateInfo{}) {}
+
+    UploadManager::UploadManager(
+        Device& device,
+        const CreateInfo create_info)
+        : m_device(device), m_create_info(create_info) {
+        if(m_create_info.staging_page_size < STAGING_ALIGNMENT) {
+            LOG_FATAL("UploadManager staging page size is too small");
+        }
+        m_create_info.staging_page_size = align_staging_offset(
+            m_create_info.staging_page_size);
+    }
 
     UploadManager::~UploadManager() {
         if(m_active_context) {
@@ -22,8 +47,7 @@ namespace Comet {
     void UploadManager::enqueue_upload(
         std::shared_ptr<Buffer> destination,
         const std::span<const std::byte> data,
-        const ResourceState& after,
-        const std::string_view debug_name) {
+        const ResourceState& after) {
         if(!destination || data.empty()) {
             LOG_FATAL("Buffer upload requires a destination and non-empty data");
         }
@@ -33,19 +57,16 @@ namespace Comet {
                 data.size_bytes(),
                 destination->get_size());
         }
+        if(data.size_bytes() % STAGING_ALIGNMENT != 0) {
+            LOG_FATAL("Buffer upload size must be a multiple of 4 bytes");
+        }
 
-        const std::string_view resolved_name =
-            debug_name.empty() ? "buffer upload" : debug_name;
-        auto staging = Buffer::create_upload_buffer(
-            m_device,
-            Flags<BufferUsage>(BufferUsage::CopySrc),
-            data.size_bytes(),
-            data.data(),
-            resolved_name);
+        const auto staging = allocate_staging(data);
         get_active_context().copy_buffer(
-            *staging,
+            *staging.page->buffer,
             *destination,
-            data.size_bytes());
+            data.size_bytes(),
+            staging.offset);
         const auto transfer = resolve_resource_state(
             ResourceUsage::TransferDestination,
             {},
@@ -59,7 +80,6 @@ namespace Comet {
             after,
             0,
             data.size_bytes());
-        m_active_resources.buffers.push_back(std::move(staging));
         m_active_resources.buffers.push_back(std::move(destination));
     }
 
@@ -67,8 +87,7 @@ namespace Comet {
         std::shared_ptr<Image> destination,
         const std::span<const std::byte> data,
         const ImageState& before,
-        const ImageState& after,
-        const std::string_view debug_name) {
+        const ImageState& after) {
         if(!destination || data.empty()) {
             LOG_FATAL("Image upload requires a destination and non-empty data");
         }
@@ -87,14 +106,7 @@ namespace Comet {
                 "with stable queue ownership and CopyDst usage");
         }
 
-        const std::string_view resolved_name =
-            debug_name.empty() ? "image upload" : debug_name;
-        auto staging = Buffer::create_upload_buffer(
-            m_device,
-            Flags<BufferUsage>(BufferUsage::CopySrc),
-            data.size_bytes(),
-            data.data(),
-            resolved_name);
+        const auto staging = allocate_staging(data);
 
         auto& context = get_active_context();
         const auto transfer = resolve_image_state(
@@ -107,13 +119,16 @@ namespace Comet {
         }
         context.transition_image_state(*destination, before, *transfer);
         context.copy_buffer_to_image(
-            *staging,
+            *staging.page->buffer,
             *destination,
             transfer->layout,
-            vk::Extent3D{info.extent.x, info.extent.y, info.extent.z});
+            vk::Extent3D{info.extent.x, info.extent.y, info.extent.z},
+            0,
+            1,
+            0,
+            staging.offset);
         context.transition_image_state(*destination, *transfer, after);
 
-        m_active_resources.buffers.push_back(std::move(staging));
         m_active_resources.images.push_back(std::move(destination));
     }
 
@@ -147,11 +162,15 @@ namespace Comet {
     }
 
     void UploadManager::collect_completed() {
-        std::erase_if(
-            m_pending_batches,
-            [](const PendingBatch& batch) {
-                return batch.completion.is_complete();
-            });
+        for(auto batch = m_pending_batches.begin();
+            batch != m_pending_batches.end();) {
+            if(!batch->completion.is_complete()) {
+                ++batch;
+                continue;
+            }
+            recycle_staging_pages(batch->resources);
+            batch = m_pending_batches.erase(batch);
+        }
     }
 
     CommandContext& UploadManager::get_active_context() {
@@ -161,9 +180,72 @@ namespace Comet {
         return *m_active_context;
     }
 
+    UploadManager::StagingAllocation UploadManager::allocate_staging(
+        const std::span<const std::byte> data) {
+        for(const auto& page: m_active_resources.staging_pages) {
+            const size_t offset = align_staging_offset(page->used);
+            if(offset <= page->capacity
+               && data.size_bytes() <= page->capacity - offset) {
+                page->buffer->write(
+                    data.data(),
+                    data.size_bytes(),
+                    offset);
+                page->used = offset + data.size_bytes();
+                return {.page = page.get(), .offset = offset};
+            }
+        }
+
+        const size_t required_capacity = align_staging_offset(
+            data.size_bytes());
+        auto available = m_available_pages.end();
+        for(auto candidate = m_available_pages.begin();
+            candidate != m_available_pages.end();
+            ++candidate) {
+            if((*candidate)->capacity >= required_capacity
+               && (available == m_available_pages.end()
+                   || (*candidate)->capacity < (*available)->capacity)) {
+                available = candidate;
+            }
+        }
+
+        std::unique_ptr<StagingPage> page;
+        if(available != m_available_pages.end()) {
+            page = std::move(*available);
+            m_available_pages.erase(available);
+        } else {
+            const size_t capacity = std::max(
+                m_create_info.staging_page_size,
+                required_capacity);
+            page = std::make_unique<StagingPage>(StagingPage{
+                .buffer = Buffer::create_upload_buffer(
+                    m_device,
+                    Flags<BufferUsage>(BufferUsage::CopySrc),
+                    capacity,
+                    nullptr,
+                    "upload staging page"),
+                .capacity = capacity
+            });
+        }
+
+        page->buffer->write(data.data(), data.size_bytes(), 0);
+        page->used = data.size_bytes();
+        auto* allocation_page = page.get();
+        m_active_resources.staging_pages.push_back(std::move(page));
+        return {.page = allocation_page, .offset = 0};
+    }
+
+    void UploadManager::recycle_staging_pages(BatchResources& resources) {
+        for(auto& page: resources.staging_pages) {
+            page->used = 0;
+            m_available_pages.push_back(std::move(page));
+        }
+        resources.staging_pages.clear();
+    }
+
     void UploadManager::wait_for_pending_batches() {
-        for(const auto& batch: m_pending_batches) {
+        for(auto& batch: m_pending_batches) {
             static_cast<void>(batch.completion.wait());
+            recycle_staging_pages(batch.resources);
         }
         m_pending_batches.clear();
     }

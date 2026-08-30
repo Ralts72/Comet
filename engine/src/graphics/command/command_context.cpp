@@ -21,29 +21,54 @@ namespace Comet {
         m_device.get_default_command_pool().free_command_buffer(m_command_buffer);
     }
 
-    void CommandContext::copy_buffer(const Buffer& src, const Buffer& dst, const size_t size) {
-        copy_buffer(src.get(), dst.get(), size);
+    void CommandContext::copy_buffer(
+        const Buffer& src,
+        const Buffer& dst,
+        const size_t size,
+        const size_t src_offset,
+        const size_t dst_offset) {
+        copy_buffer(src.get(), dst.get(), size, src_offset, dst_offset);
     }
 
-    void CommandContext::copy_buffer(const vk::Buffer src, const vk::Buffer dst, const vk::DeviceSize size) {
+    void CommandContext::copy_buffer(
+        const vk::Buffer src,
+        const vk::Buffer dst,
+        const vk::DeviceSize size,
+        const vk::DeviceSize src_offset,
+        const vk::DeviceSize dst_offset) {
         if(!m_is_recording) {
             m_command_buffer.reset();
             m_command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
             m_is_recording = true;
         }
 
-        m_command_buffer.copy_buffer(src, dst, size);
+        m_command_buffer.copy_buffer(
+            src,
+            dst,
+            size,
+            src_offset,
+            dst_offset);
     }
 
     void CommandContext::copy_buffer_to_image(const Buffer& src, const Image& dst, const ImageLayout dst_image_layout,
                                               const vk::Extent3D& extent, const uint32_t base_array_layer,
-                                              const uint32_t layer_count, const uint32_t mip_level) {
-        copy_buffer_to_image(src.get(), dst.get(), dst_image_layout, extent, base_array_layer, layer_count, mip_level);
+                                              const uint32_t layer_count, const uint32_t mip_level,
+                                              const vk::DeviceSize buffer_offset) {
+        copy_buffer_to_image(
+            src.get(),
+            dst.get(),
+            dst_image_layout,
+            extent,
+            base_array_layer,
+            layer_count,
+            mip_level,
+            buffer_offset);
     }
 
     void CommandContext::copy_buffer_to_image(const vk::Buffer src, const vk::Image dst_image, const ImageLayout dst_image_layout,
                                               const vk::Extent3D& extent, const uint32_t base_array_layer,
-                                              const uint32_t layer_count, const uint32_t mip_level) {
+                                              const uint32_t layer_count, const uint32_t mip_level,
+                                              const vk::DeviceSize buffer_offset) {
         if(!m_is_recording) {
             m_command_buffer.reset();
             m_command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
@@ -57,7 +82,8 @@ namespace Comet {
             extent,
             base_array_layer,
             layer_count,
-            mip_level);
+            mip_level,
+            buffer_offset);
     }
 
     void CommandContext::transition_image_state(

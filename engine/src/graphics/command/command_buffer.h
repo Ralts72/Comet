@@ -82,8 +82,15 @@ namespace Comet {
 
         void copy_buffer(vk::Buffer src_buffer, vk::Buffer dst_buffer, size_t size, size_t src_offset = 0, size_t dst_offset = 0) const;
 
-        void copy_buffer_to_image(vk::Buffer src_buffer, vk::Image dst_image, vk::ImageLayout dst_image_layout,
-                                  const vk::Extent3D& extent, uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0) const;
+        void copy_buffer_to_image(
+            vk::Buffer src_buffer,
+            vk::Image dst_image,
+            vk::ImageLayout dst_image_layout,
+            const vk::Extent3D& extent,
+            uint32_t base_array_layer = 0,
+            uint32_t layer_count = 1,
+            uint32_t mip_level = 0,
+            vk::DeviceSize buffer_offset = 0) const;
 
         vk::CommandBuffer m_command_buffer;
     };

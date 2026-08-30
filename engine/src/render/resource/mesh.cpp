@@ -26,8 +26,7 @@ namespace Comet {
         upload_manager.enqueue_upload(
             m_vertex_buffer,
             std::as_bytes(std::span(data.vertices)),
-            *vertex_state,
-            "mesh vertex upload");
+            *vertex_state);
         if(!data.indices.empty()) {
             m_index_buffer = Buffer::create_gpu_buffer(
                 device,
@@ -42,8 +41,7 @@ namespace Comet {
             upload_manager.enqueue_upload(
                 m_index_buffer,
                 std::as_bytes(std::span(data.indices)),
-                *index_state,
-                "mesh index upload");
+                *index_state);
         } else {
             m_index_buffer.reset();
         }

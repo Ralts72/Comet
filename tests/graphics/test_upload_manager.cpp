@@ -51,6 +51,30 @@ namespace Comet::Tests {
                 context.submit()
             } -> std::same_as<GpuCompletionPoint>;
         };
+
+        template<typename T>
+        concept SupportsRangedBufferCopy = requires(
+            T& context,
+            const Buffer& source,
+            const Buffer& destination) {
+            context.copy_buffer(source, destination, 4, 8, 12);
+        };
+
+        template<typename T>
+        concept SupportsOffsetImageCopy = requires(
+            T& context,
+            const Buffer& source,
+            const Image& destination) {
+            context.copy_buffer_to_image(
+                source,
+                destination,
+                ImageLayout::TransferDstOptimal,
+                vk::Extent3D{1, 1, 1},
+                0,
+                1,
+                0,
+                16);
+        };
     }
 
     TEST(UploadManagerInterfaceTest, OwnsResourcesUntilBatchCompletion) {
@@ -70,6 +94,7 @@ namespace Comet::Tests {
 
     TEST(UploadManagerInterfaceTest, SeparatesAllocationFromUploadData) {
         using GpuBufferFactory = decltype(&Buffer::create_gpu_buffer);
+        using UploadBufferFactory = decltype(&Buffer::create_upload_buffer);
 
         EXPECT_TRUE((std::is_invocable_v<
             GpuBufferFactory,
@@ -84,5 +109,22 @@ namespace Comet::Tests {
             size_t,
             const void*,
             std::string_view>));
+        EXPECT_TRUE((std::same_as<
+            std::invoke_result_t<
+                UploadBufferFactory,
+                Device&,
+                Flags<BufferUsage>,
+                size_t,
+                const void*,
+                std::string_view>,
+            std::shared_ptr<CPUBuffer>>));
+    }
+
+    TEST(UploadManagerInterfaceTest, SupportsStagingPageSuballocations) {
+        constexpr UploadManager::CreateInfo create_info;
+
+        EXPECT_EQ(create_info.staging_page_size, 4U * 1024U * 1024U);
+        EXPECT_TRUE(SupportsRangedBufferCopy<CommandContext>);
+        EXPECT_TRUE(SupportsOffsetImageCopy<CommandContext>);
     }
 }

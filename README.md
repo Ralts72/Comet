@@ -114,8 +114,9 @@ stage、access、queue owner、layout 与 subresource range 的类型化资源�
 RenderGraph 复用。CommandBuffer 的显式 image/buffer transition 已使用 `ImageMemoryBarrier2`/
 `BufferMemoryBarrier2` 和 `DependencyInfo`，Texture 上传不再传递 Vulkan layout pair。每个 Queue submission 额外 signal 自有 timeline semaphore 并返回单调
 `GpuCompletionPoint`；FrameSlot 的 acquire/present 同步仍使用 binary semaphore，阻塞上传只等待自己的完成点。
-ResourceManager 独占 UploadManager，Buffer/Image allocation 与内容上传分离；pending batch 在 timeline completion 前
-持有 staging、CommandContext 和目标资源，一个 Mesh 的 vertex/index copy 会合并为一次 Queue submission。
+ResourceManager 独占 UploadManager，Buffer/Image allocation 与内容上传分离；上传数据在可复用 staging page 内按偏移
+子分配，pending batch 在 timeline completion 前独占对应 page、CommandContext 和目标资源，完成后整页回池；一个 Mesh
+的 vertex/index copy 会合并为一次 Queue submission。
 Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability

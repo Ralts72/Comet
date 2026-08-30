@@ -96,15 +96,12 @@ namespace Comet {
             device, usage, size, data, AllocationUsage::CpuToGpu, debug_name);
     }
 
-    std::shared_ptr<Buffer> Buffer::create_upload_buffer(
+    std::shared_ptr<CPUBuffer> Buffer::create_upload_buffer(
         Device& device,
         const Flags<BufferUsage> usage,
         const size_t size,
         const void* data,
         const std::string_view debug_name) {
-        if(!data) {
-            LOG_FATAL("Upload buffer requires initial data");
-        }
         return std::make_shared<CPUBuffer>(
             device, usage, size, data, AllocationUsage::Upload, debug_name);
     }
