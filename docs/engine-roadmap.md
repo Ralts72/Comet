@@ -1171,8 +1171,8 @@ Scene Component / RenderItem
 
 - [x] 明确区分 panel content size、render resolution 和 image display rect，不再把三者视为同一尺寸。
 - [x] Edit 模式默认按面板物理像素尺寸渲染，并结合当前 ImGui platform viewport 的 framebuffer scale 处理 Retina/HiDPI。
-- Play 模式支持固定分辨率和宽高比预设，例如 Free、16:9、1920x1080；面板 resize 默认只改变显示缩放，不改变固定 render resolution。
-- 提供 Fit、1x 等显示倍率，保持宽高比并记录 letterbox/pillarbox 后的真实 image display rect。
+- [x] Play 模式支持 Free、16:9、1280x720、1920x1080 分辨率策略；固定像素模式下 panel resize 只改变显示缩放，不改变 render resolution。
+- [x] 提供 Fit、1x 显示倍率，保持物理像素语义并记录 letterbox/pillarbox 或 1x 裁切后的真实 image display rect。
 - 保留 resize debounce，但用 frame fence 和延迟销毁逐步替代 `Device::wait_idle()`，避免拖拽面板时阻塞整个 GPU。
 - resize 创建新的 `RenderTargetGeneration`，成功后切换 viewport 引用，并按最后使用它的 frame submission 延迟释放
   旧 image、image view、framebuffer 和 ImGui descriptor；创建失败时继续使用旧 generation。
@@ -1476,9 +1476,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 4B：Play 分辨率与显示策略**。在现有 ViewportLayout 上增加 Free 与固定 16:9/明确像素分辨率策略，区分
-“目标渲染多少像素”和“在面板中以 Fit/1x 如何显示”；Edit 默认继续使用面板物理像素，Play 切换预设只改变 request/layout，不修改
-Scene Camera。先完成纯策略与 UI 接线，不与 RenderTarget generation/延迟销毁合并。
+下一步继续 **阶段 4B：离屏 RenderTarget generation**。保留现有 resize debounce，但把 Viewport 重建从 `Device::wait_idle()` 改为
+prepare/create/commit/retire：新 generation 全部创建成功后才切换，旧 generation 按最后一次 frame submission 延迟释放，失败继续使用旧
+目标。先只收敛 editor 离屏目标，不同时改 swapchain generation。
 
 建议的职责边界：
 
@@ -1555,6 +1555,7 @@ Scene Camera。先完成纯策略与 UI 接线，不与 RenderTarget generation/
 51. [x] 建立 ViewportRenderRequest 与 editor-only camera：Edit 提交显式相机快照，Play 选择 Runtime Scene 主相机，隐藏视口不请求 resize；SceneRenderer 不感知 EditorMode。
 52. [x] 完成阶段 3 → 4 架构复盘：删除 Editor/ProjectPanel 重复 scan report 状态、Renderer 未消费的输入策略和 SceneResolver 旧重载；确认 AssetManager 暂不按行数拆分，补齐资产架构文档。
 53. [x] 建立纯 ViewportLayout：分离 panel logical content、HiDPI physical render resolution 与等比 image display rect；ViewPanel 使用 platform viewport framebuffer scale，Renderer 只接收物理分辨率。
+54. [x] 增加 Play Viewport 分辨率/显示策略：Free、16:9、1280x720、1920x1080 与 Fit/1x 均由纯布局策略计算；固定模式不随 panel resize 改变目标像素。
 
 格式所有权后续需求：
 

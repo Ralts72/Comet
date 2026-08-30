@@ -3,6 +3,22 @@
 #include "core/math_utils.h"
 
 namespace CometEditor {
+    enum class ViewportResolutionMode {
+        Free,
+        Aspect16By9,
+        Fixed
+    };
+
+    enum class ViewportDisplayMode {
+        Fit,
+        OneToOne
+    };
+
+    struct ViewportResolutionPolicy {
+        ViewportResolutionMode mode = ViewportResolutionMode::Free;
+        Comet::Math::Vec2u fixed_resolution{};
+    };
+
     struct ViewportRect {
         Comet::Math::Vec2 min{};
         Comet::Math::Vec2 max{};
@@ -22,6 +38,8 @@ namespace CometEditor {
         Comet::Math::Vec2 content_size{};
         Comet::Math::Vec2 framebuffer_scale{1.0f, 1.0f};
         Comet::Math::Vec2u current_render_resolution{};
+        ViewportResolutionPolicy resolution_policy;
+        ViewportDisplayMode display_mode = ViewportDisplayMode::Fit;
     };
 
     struct ViewportLayout {

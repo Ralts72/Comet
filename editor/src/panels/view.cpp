@@ -26,24 +26,106 @@ namespace CometEditor {
         m_actually_visible = true;
 
         if(m_state.mode == EditorMode::Edit) {
-            constexpr float button_width = 50.0f;
-            ImGui::SetCursorPosX(
-                ImGui::GetWindowWidth() - button_width * 2
-                - ImGui::GetStyle().ItemSpacing.x
-                - ImGui::GetStyle().WindowPadding.x);
-            if(ImGui::Button("2D", ImVec2(button_width, 0))) {
-                m_2d_mode = true;
-            }
-            ImGui::SameLine();
-            if(ImGui::Button("3D", ImVec2(button_width, 0))) {
-                m_2d_mode = false;
-            }
-            ImGui::Separator();
+            render_edit_toolbar();
+        } else {
+            render_play_toolbar();
         }
 
         render_view_content();
 
         ImGui::End();
+    }
+
+    void ViewPanel::render_edit_toolbar() {
+        constexpr float button_width = 50.0f;
+        ImGui::SetCursorPosX(
+            ImGui::GetWindowWidth() - button_width * 2
+            - ImGui::GetStyle().ItemSpacing.x
+            - ImGui::GetStyle().WindowPadding.x);
+        if(ImGui::Button("2D", ImVec2(button_width, 0))) {
+            m_2d_mode = true;
+        }
+        ImGui::SameLine();
+        if(ImGui::Button("3D", ImVec2(button_width, 0))) {
+            m_2d_mode = false;
+        }
+        ImGui::Separator();
+    }
+
+    void ViewPanel::render_play_toolbar() {
+        const char* resolution = "Free";
+        if(m_play_resolution_policy.mode
+           == ViewportResolutionMode::Aspect16By9) {
+            resolution = "16:9";
+        } else if(m_play_resolution_policy.mode
+                  == ViewportResolutionMode::Fixed) {
+            resolution = m_play_resolution_policy.fixed_resolution
+                    == Comet::Math::Vec2u(1280, 720)
+                ? "1280 x 720"
+                : "1920 x 1080";
+        }
+
+        ImGui::SetNextItemWidth(150.0f);
+        if(ImGui::BeginCombo("##Resolution", resolution)) {
+            if(ImGui::Selectable(
+                   "Free",
+                   m_play_resolution_policy.mode
+                       == ViewportResolutionMode::Free)) {
+                m_play_resolution_policy = {};
+            }
+            if(ImGui::Selectable(
+                   "16:9",
+                   m_play_resolution_policy.mode
+                       == ViewportResolutionMode::Aspect16By9)) {
+                m_play_resolution_policy = {
+                    .mode = ViewportResolutionMode::Aspect16By9
+                };
+            }
+            if(ImGui::Selectable(
+                   "1280 x 720",
+                   m_play_resolution_policy.mode
+                       == ViewportResolutionMode::Fixed
+                       && m_play_resolution_policy.fixed_resolution
+                           == Comet::Math::Vec2u(1280, 720))) {
+                m_play_resolution_policy = {
+                    .mode = ViewportResolutionMode::Fixed,
+                    .fixed_resolution = Comet::Math::Vec2u(1280, 720)
+                };
+            }
+            if(ImGui::Selectable(
+                   "1920 x 1080",
+                   m_play_resolution_policy.mode
+                       == ViewportResolutionMode::Fixed
+                       && m_play_resolution_policy.fixed_resolution
+                           == Comet::Math::Vec2u(1920, 1080))) {
+                m_play_resolution_policy = {
+                    .mode = ViewportResolutionMode::Fixed,
+                    .fixed_resolution = Comet::Math::Vec2u(1920, 1080)
+                };
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::SameLine();
+        const char* display = m_play_display_mode
+                == ViewportDisplayMode::Fit
+            ? "Fit"
+            : "1x";
+        ImGui::SetNextItemWidth(80.0f);
+        if(ImGui::BeginCombo("##Display", display)) {
+            if(ImGui::Selectable(
+                   "Fit",
+                   m_play_display_mode == ViewportDisplayMode::Fit)) {
+                m_play_display_mode = ViewportDisplayMode::Fit;
+            }
+            if(ImGui::Selectable(
+                   "1x",
+                   m_play_display_mode == ViewportDisplayMode::OneToOne)) {
+                m_play_display_mode = ViewportDisplayMode::OneToOne;
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::Separator();
     }
 
     void ViewPanel::render_view_content() {
@@ -66,7 +148,13 @@ namespace CometEditor {
                 framebuffer_scale.x,
                 framebuffer_scale.y
             },
-            .current_render_resolution = m_texture_resolution
+            .current_render_resolution = m_texture_resolution,
+            .resolution_policy = m_state.mode == EditorMode::Play
+                ? m_play_resolution_policy
+                : ViewportResolutionPolicy{},
+            .display_mode = m_state.mode == EditorMode::Play
+                ? m_play_display_mode
+                : ViewportDisplayMode::Fit
         });
 
         const Comet::Math::Vec2 display_size =
