@@ -296,24 +296,38 @@ namespace CometEditor {
         m_render_target->end_render_target(command_buffer);
     }
 
-    void ImGuiContext::recreate_swapchain() {
-        LOG_INFO("Recreating ImGui resources for swapchain");
-
+    void ImGuiContext::release_swapchain_resources() {
         if(!m_initialized) {
-            LOG_ERROR("ImGuiContext not initialized, cannot recreate swapchain");
+            LOG_ERROR("ImGuiContext not initialized, cannot release swapchain resources");
+            return;
+        }
+        if(m_is_recreating) {
             return;
         }
 
-        // 标记正在重建，防止在重建过程中调用 update_frame
+        LOG_INFO("Releasing ImGui swapchain resources");
         m_is_recreating = true;
+        m_render_target.reset();
+    }
 
-        // 等待设备空闲
-        m_render_context.wait_idle();
+    void ImGuiContext::rebuild_swapchain_resources() {
+        if(!m_initialized) {
+            LOG_ERROR("ImGuiContext not initialized, cannot rebuild swapchain resources");
+            return;
+        }
+        if(!m_is_recreating) {
+            LOG_FATAL("ImGui swapchain resources must be released before rebuilding");
+        }
 
-        // 重建 RenderTarget
-        m_render_target->recreate();
+        LOG_INFO("Rebuilding ImGui swapchain resources");
+        auto& device = m_render_context.get_device();
+        auto& swapchain = m_render_context.get_swapchain();
+        m_render_target = Comet::RenderTarget::create_swapchain_target(
+            device, *m_render_pass, swapchain);
+        m_render_target->set_clear_value(
+            Comet::ClearValue(Comet::Math::Vec4(0.0f)), 0);
         const auto image_count = static_cast<uint32_t>(
-            m_render_context.get_swapchain().get_images().size());
+            swapchain.get_images().size());
         if(image_count != m_backend_image_count) {
             unregister_viewport_textures();
             ImGui_ImplVulkan_Shutdown();
@@ -321,10 +335,8 @@ namespace CometEditor {
             init_vulkan();
             register_viewport_textures();
         }
-        // 重建完成，恢复 ImGui 更新
         m_is_recreating = false;
-
-        LOG_INFO("ImGui resources recreated successfully");
+        LOG_INFO("ImGui swapchain resources rebuilt successfully");
     }
 
     void ImGuiContext::set_viewport_image(

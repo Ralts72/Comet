@@ -6,6 +6,7 @@
 #include "render/scene/scene_renderer.h"
 
 #include <concepts>
+#include <functional>
 #include <gtest/gtest.h>
 
 namespace Comet::Tests {
@@ -36,6 +37,13 @@ namespace Comet::Tests {
             {
                 renderer.render(submission)
             } -> std::same_as<std::vector<QueueSemaphoreSubmit>>;
+        };
+
+        template<typename T>
+        concept ConfiguresSwapchainResourceLifecycle = requires(T& renderer) {
+            renderer.set_swapchain_resource_callbacks(
+                std::function<void()>{},
+                std::function<void()>{});
         };
 
         template<typename T>
@@ -70,6 +78,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(CollectsCompletedUploads<ResourceManager>);
         EXPECT_TRUE(SubmitsResourceWaits<SceneRenderer>);
         EXPECT_TRUE(BuildsResourceWaits<SceneRenderer>);
+        EXPECT_TRUE(ConfiguresSwapchainResourceLifecycle<SceneRenderer>);
         EXPECT_FALSE(StoresResourceWaits<RenderSubmission>);
         EXPECT_TRUE(HasRecoverableMeshFactory<Mesh>);
         EXPECT_FALSE((std::constructible_from<

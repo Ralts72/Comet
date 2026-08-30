@@ -450,9 +450,10 @@ replace resource R
 
 ### Swapchain Generation 与重建事务
 
-当前 `SceneRenderer::recreate_swapchain()` 先执行 `Device::wait_idle()`，随后 `Swapchain::recreate()` 原地替换 handle 和
-borrowed images，并在返回前销毁 old swapchain；runtime `SwapchainTarget`、FrameScheduler image state 和 editor ImGui
-target 再由外层依次重建。该流程当前可工作，但所有权和失效传播分散，创建中途失败也难以保留一份完整旧状态。
+当前 `SceneRenderer::recreate_swapchain()` 仍使用 `Device::wait_idle()` 基线，但已经明确 dependent 生命周期边界：idle 后先释放
+runtime `SwapchainTarget` 和 editor ImGui target，再由 `Swapchain::recreate()` 原地替换 handle/borrowed images，随后重建 target 与
+FrameScheduler image state；窗口最小化导致重建延期时会从仍有效的旧 core 恢复 dependent。父子对象销毁顺序已正确，但 core 创建中途
+失败仍难以保留一份完整旧状态，format compatibility 和 present completion 也尚未进入 generation 对象。
 
 目标结构按代际管理：
 
@@ -1176,6 +1177,8 @@ Scene Component / RenderItem
 - [x] 保留 resize debounce，并用 frame submission completion 和延迟销毁替代 `Device::wait_idle()`，避免拖拽面板时阻塞整个 GPU。
 - [x] resize 创建完整的新 `MultiTarget` generation，成功后切换 viewport 引用，并按最后使用它的 frame submission 延迟释放
   旧 image、image view、framebuffer 和 ImGui descriptor；创建失败时继续使用旧 generation。
+- [x] 建立 swapchain dependent release/rebuild 边界：Device idle 后先释放 runtime/ImGui framebuffer target，再替换 core；
+  重建延期时恢复旧 core 的 dependent，避免 framebuffer/image view 晚于父 swapchain 销毁。
 - 将 swapchain 重建改为 prepare/create/commit/retire generation 流程。engine core、runtime present target 和 editor ImGui
   dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
 - old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
@@ -1476,9 +1479,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步在阶段 4B 末尾先做一次 **swapchain generation 边界审计**：对照现有 Swapchain、runtime SwapchainTarget、FrameScheduler 和
-editor ImGui dependent 资源，明确 prepare/create/commit/retire 的最小切分与 present completion 回退，再开始代码迁移。该步骤不会把
-离屏 target generation 和 swapchain generation 合并成一个类型。
+下一步继续 **swapchain core 候选事务**：把 config 选择、`vkCreateSwapchainKHR` 和 borrowed image 包装先落入未发布候选，创建失败时
+不覆盖 active core；成功后再进入 dependent rebuild/commit。仍保留当前 idle 安全基线，先解决 active 字段原地覆盖和部分初始化，再单独
+引入 graphics/present completion 退休。
 
 建议的职责边界：
 
@@ -1558,6 +1561,7 @@ editor ImGui dependent 资源，明确 prepare/create/commit/retire 的最小切
 54. [x] 增加 Play Viewport 分辨率/显示策略：Free、16:9、1280x720、1920x1080 与 Fit/1x 均由纯布局策略计算；固定模式不随 panel resize 改变目标像素。
 55. [x] 将离屏 resize 改为 generation prepare/create/commit/retire：FrameBuffer 与 MultiTarget 提供可恢复工厂，SceneRenderer 按真实 submission completion 保留旧 target，ImGui descriptor 只在 ready frame slot 替换。
 56. [x] 为 Viewport 物理分辨率增加设备/编辑器双重上限：DeviceCapability 暴露 maxImageDimension2D，ViewportLayout 对所有 resolution policy 的最终结果统一等比约束到 4096 以内。
+57. [x] 完成 swapchain generation 边界审计并先修 parent/dependent 顺序：SceneRenderer 在 core 重建前释放 runtime/ImGui target，成功或延期后重建；Editor shutdown 主动解绑回调。
 
 格式所有权后续需求：
 

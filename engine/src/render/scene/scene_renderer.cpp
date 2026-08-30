@@ -460,7 +460,23 @@ namespace Comet {
         PROFILE_SCOPE("SceneRenderer::recreate_swapchain");
         auto& swapchain = m_context.get_swapchain();
 
+        m_context.wait_idle();
+        if(!m_uses_viewport_target) {
+            m_render_target.reset();
+        }
+        if(m_release_swapchain_resources) {
+            m_release_swapchain_resources();
+        }
+
         if(!swapchain.recreate()) {
+            if(!m_uses_viewport_target) {
+                m_render_target = RenderTarget::create_swapchain_target(
+                    m_context.get_device(), *m_render_pass, swapchain);
+                set_render_target_clear_color();
+            }
+            if(m_rebuild_swapchain_resources) {
+                m_rebuild_swapchain_resources();
+            }
             return false;
         }
 
@@ -474,8 +490,8 @@ namespace Comet {
                 static_cast<uint32_t>(swapchain.get_images().size());
         m_frame_scheduler->initialize_swapchain_images(image_count);
 
-        if(m_swapchain_recreate_callback) {
-            m_swapchain_recreate_callback();
+        if(m_rebuild_swapchain_resources) {
+            m_rebuild_swapchain_resources();
         }
         return true;
     }

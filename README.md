@@ -187,7 +187,7 @@ New/Open 都会重绑定 Hierarchy 与 Selection 并清除旧选择。editor 中
 Play 时通过 `SceneSerializer` 创建独立 Runtime Scene，并暂存原 Edit Scene；Stop 会丢弃运行时修改、恢复 Edit Scene，
 重新绑定面板并清空 Selection，Play 期间禁用场景文件操作。editor 只保留一个 `ViewportPanel`：Edit 时显示编辑工具，
 Play 时同一面板切换为运行画面并隐藏编辑工具。Viewport 通过纯值请求提交可见性、物理像素目标尺寸和 Camera 来源：Edit 使用不属于 Scene、不会序列化的 editor camera，Play 使用 Runtime Scene 的 primary Camera；SceneRenderer 不依赖 EditorMode。ViewPanel 通过可纯测试的布局计算分离 ImGui 逻辑内容区、结合当前平台 framebuffer scale 的 render resolution，以及保持当前纹理宽高比的屏幕坐标 image display rect。Play 工具栏支持 Free、16:9、1280×720、1920×1080 目标与 Fit/1x 显示；固定像素模式下 panel resize 只改变显示，不改变渲染分辨率。最终物理分辨率会结合设备 `maxImageDimension2D` 与 4096 编辑器软上限等比约束。离屏 resize 会先完整创建新的 MultiTarget generation，成功后切换，失败保留旧目标；旧 target 和 ImGui descriptor 分别按真实 submission completion 与 ready frame slot 延迟释放，正常 resize 不再等待整个 Device idle。输入焦点仍由 Viewport/editor 交互层管理，等实际相机控制或游戏 Input System 接入时再形成消费契约，不提前进入 Renderer；
-runtime app 仍直接渲染到 swapchain。关闭时先释放引擎资源，
+runtime app 仍直接渲染到 swapchain。swapchain 重建当前保留 Device idle 基线，但会先释放 runtime/ImGui framebuffer target，再替换 core swapchain，成功或窗口最小化延期后都重建有效 dependent，避免 Vulkan 父子资源逆序销毁。关闭时先释放引擎资源，
 再关闭日志系统。Shader
 源文件位于 `engine/shaders/glsl/`，构建时由 CMake 调用 `glslangValidator`
 编译。贡献者和智能体协作规范见 [AGENTS.md](./AGENTS.md)。

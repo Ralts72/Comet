@@ -177,10 +177,14 @@ namespace {
                 m_imgui_context->render(cmd);
             });
 
-            // 注册 Swapchain 重建回调
-            scene_renderer.set_swapchain_recreate_callback([this]() {
-                m_imgui_context->recreate_swapchain();
-            });
+            // 注册 Swapchain dependent 资源的 release/rebuild 边界
+            scene_renderer.set_swapchain_resource_callbacks(
+                [this]() {
+                    m_imgui_context->release_swapchain_resources();
+                },
+                [this]() {
+                    m_imgui_context->rebuild_swapchain_resources();
+                });
 
             LOG_INFO("Editor initialized");
         }
@@ -240,6 +244,10 @@ namespace {
 
         void on_shutdown() override {
             LOG_INFO("Editor shutting down...");
+            get_engine()
+                .get_renderer()
+                .get_scene_renderer()
+                .set_swapchain_resource_callbacks({}, {});
             m_imgui_context.reset();
             m_project_panel.reset();
             m_hierarchy_panel.reset();
