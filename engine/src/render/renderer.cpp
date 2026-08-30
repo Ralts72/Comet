@@ -80,6 +80,7 @@ namespace Comet {
 
         // Begin frame (acquires image and begins command buffer)
         if(!m_scene_renderer->begin_frame()) {
+            m_debug_draw_list.clear();
             return;
         }
         if(m_prepare_overlay) {
@@ -100,7 +101,9 @@ namespace Comet {
                 m_viewport_pick_callback(hit);
             }
         }
-        const auto resource_waits = m_scene_renderer->render(submission);
+        const auto resource_waits = m_scene_renderer->render(
+            submission, m_debug_draw_list);
+        m_debug_draw_list.clear();
 
         m_scene_renderer->end_render_pass();
 

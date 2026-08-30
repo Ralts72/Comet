@@ -61,6 +61,8 @@ set(SOURCES
         src/graphics/pipeline/descriptor_set.cpp
         src/graphics/resource/sampler.cpp
         src/render/renderer.cpp
+        src/render/debug/debug_draw.cpp
+        src/render/debug/debug_draw_renderer.cpp
         src/render/render_target.cpp
         src/render/resource/mesh.cpp
         src/render/resource/texture.cpp

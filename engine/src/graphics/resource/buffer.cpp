@@ -64,14 +64,8 @@ namespace Comet {
         const size_t size,
         const void* data,
         const std::string_view debug_name) {
-        auto attempt = try_create_mapped_buffer(
-            device,
-            usage,
-            size,
-            AllocationUsage::CpuToGpu,
-            false,
-            data,
-            debug_name);
+        auto attempt = try_create_cpu_buffer(
+            device, usage, size, false, data, debug_name);
         if(!attempt) {
             LOG_FATAL("Failed to create CPU buffer '{}' ({} bytes): {}",
                 debug_name,
@@ -79,6 +73,24 @@ namespace Comet {
                 vk::to_string(attempt.result()));
         }
         return std::move(attempt).value();
+    }
+
+    GpuResourceResult<std::shared_ptr<CPUBuffer>>
+    Buffer::try_create_cpu_buffer(
+        Device& device,
+        const Flags<BufferUsage> usage,
+        const size_t size,
+        const bool within_budget,
+        const void* data,
+        const std::string_view debug_name) {
+        return try_create_mapped_buffer(
+            device,
+            usage,
+            size,
+            AllocationUsage::CpuToGpu,
+            within_budget,
+            data,
+            debug_name);
     }
 
     std::shared_ptr<CPUBuffer> Buffer::create_upload_buffer(

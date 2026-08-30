@@ -6,6 +6,7 @@
 #include "render/scene/scene_resolver.h"
 #include "render/scene/scene_picking.h"
 #include "render/resource/resource_manager.h"
+#include "render/debug/debug_draw.h"
 #include "render/scene/scene_renderer.h"
 
 #include <functional>
@@ -48,6 +49,10 @@ namespace Comet {
             m_viewport_pick_callback = std::move(callback);
         }
 
+        void submit_debug_draw(DebugDrawList draw_list) {
+            m_debug_draw_list = std::move(draw_list);
+        }
+
         [[nodiscard]] ResourceManager& get_resource_manager() { return *m_resource_manager; }
         [[nodiscard]] const ResourceManager& get_resource_manager() const { return *m_resource_manager; }
         [[nodiscard]] SceneRenderer& get_scene_renderer() { return *m_scene_renderer; }
@@ -67,6 +72,7 @@ namespace Comet {
         OverlayRenderDelegate m_render_overlay;
         std::optional<Math::Vec2u> m_viewport_pick_request;
         ViewportPickCallback m_viewport_pick_callback;
+        DebugDrawList m_debug_draw_list;
 
         SampleCount m_msaa_samples;
     };

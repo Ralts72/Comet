@@ -1225,6 +1225,8 @@ Scene Component / RenderItem
   Editor Command History，再以通用 DebugDraw line path 实现 bounds 高亮并供 gizmo 复用，GPU outline/ID pass 留给阶段 5 RenderGraph。
 - [x] 建立 Editor Command History 并接入 Inspector 实体属性：ImGui 激活到释放形成一个 before/after 事务，命令通过 EntityUuid 与
   component/property stable id 重新解析，MenuBar 与快捷键统一 Undo/Redo；Scene owner 切换清空历史，不持有组件裸指针。
+- [x] 建立通用 DebugDraw line path：无后端类型的 CPU list 生成 line/AABB，独立 line pipeline 使用当前 Camera/depth/MSAA；每个 FrameSlot
+  独占可恢复增长的 mapped vertex buffer，Renderer 一次性提交，模块不依赖 Selection、Scene、Material 或 ImGui。
 - 如果对象拾取采用 GPU ID buffer，按请求或 FrameSlot 持有 host-visible readback buffer；copy 完成并确认
   fence/timeline 后再 invalidate/read。若采用 CPU ray cast，则不为了预留能力提前建立通用 readback 系统。
 - 将 gizmo 修改接入 Undo/Redo 命令系统，并支持复制、粘贴、删除和 duplicate。
@@ -1503,8 +1505,8 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步建立 **通用 DebugDraw line path**：先定义无 Vulkan 类型的 CPU line submission 和 AABB 12 边生成，再接入按 frame slot 持有的动态
-GPU buffer 与独立 pipeline。Selection bounds 高亮和 gizmo 复用该路径，不修改 Material 或 Scene。
+下一步接入 **selected bounds highlight**：Editor 只在 Edit 模式为当前选中、带有效 Runtime Mesh 的实体计算 world AABB，并向现有
+DebugDrawList 添加 12 条线；Play、资产选择和缺失 Mesh 不提交。不再增加渲染类或修改 Material。
 runtime format/sample-count-dependent Pipeline generation 归入阶段 5，与 PipelineKey/RenderGraph 生命周期一并设计，避免在旧
 PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 
@@ -1599,6 +1601,7 @@ PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 67. [x] 增加 Focus Selection：通用 geometry 负责 local AABB 到 world AABB，Editor 只在 Viewport `F` 事件上解析 Selection/Mesh/world transform，现有 camera controller 分别为 Perspective/Orthographic framing；无缓存 world bounds 或 Scene 修改。
 68. [x] 完成 editor visualization/command 审计并清理旧 Shader 草稿：拒绝材质 tint、ImGui 假轮廓和阶段 4 临时 ID attachment；确定 CommandHistory → DebugDraw → bounds 高亮 → gizmo transaction 的实现顺序。
 69. [x] 建立有界 Editor Command History 与通用属性事务：Inspector 一次控件手势只登记一个已应用命令，UUID + descriptor stable id 避免悬空引用；MenuBar/快捷键接入 Undo/Redo，Scene owner 切换清空历史。
+70. [x] 建立通用 DebugDraw line submission/executor：纯 CPU list 支持 line/AABB，独立 depth-tested pipeline 在当前场景 subpass 绘制；mapped vertex buffer 按 FrameSlot 隔离并预算内增长，失败不影响主场景。
 
 格式所有权后续需求：
 

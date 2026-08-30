@@ -30,6 +30,14 @@ namespace Comet {
             size_t size,
             const void* data = nullptr,
             std::string_view debug_name = {});
+        static GpuResourceResult<std::shared_ptr<CPUBuffer>>
+        try_create_cpu_buffer(
+            Device& device,
+            Flags<BufferUsage> usage,
+            size_t size,
+            bool within_budget,
+            const void* data = nullptr,
+            std::string_view debug_name = {});
 
         static std::shared_ptr<CPUBuffer> create_upload_buffer(
             Device& device,

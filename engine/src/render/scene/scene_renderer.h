@@ -18,6 +18,7 @@
 #include "render/scene/render_submission.h"
 #include "render/render_target.h"
 #include "render/resource/texture.h"
+#include "render/debug/debug_draw.h"
 
 #include <array>
 #include <functional>
@@ -30,6 +31,7 @@
 namespace Comet {
     class ResourceManager;
     class VertexInputDescription;
+    class DebugDrawRenderer;
 
     class COMET_API SceneRenderer {
     public:
@@ -37,6 +39,7 @@ namespace Comet {
         SceneRenderer(RenderContext& context,
                       const Config::Vulkan& vulkan_config,
                       const Config::Render& render_config);
+        ~SceneRenderer();
 
         void setup_render_pass();
 
@@ -50,6 +53,10 @@ namespace Comet {
 
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(
             const RenderSubmission& submission);
+
+        [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(
+            const RenderSubmission& submission,
+            const DebugDrawList& debug_draw_list);
 
         [[nodiscard]] bool begin_frame();
 
@@ -125,6 +132,7 @@ namespace Comet {
         Math::Vec2u m_requested_viewport_size = Math::Vec2u(0);
         uint32_t m_viewport_size_stable_frames = 0;
         std::shared_ptr<Pipeline> m_pipeline;
+        std::unique_ptr<DebugDrawRenderer> m_debug_draw_renderer;
         std::shared_ptr<Sampler> m_default_sampler;
         std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;
         std::unordered_map<AssetHandle, MaterialDescriptorState> m_material_descriptors;

@@ -201,6 +201,10 @@ FOV 模拟正交。3D position/target 被保留，2D pan 同步移动两者，�
   matrix，使用通用 `transform_box()` 得到 world AABB，再让现有 editor camera controller 按投影模式和当前纹理 aspect framing；
   ViewPanel 不读取选择/资源，Renderer 不感知 Selection，Focus 不修改 Scene 或增加 GPU 工作。world bounds 当前按事件计算，不在
   Scene/Mesh 间缓存第二份需要 transform revision 失效的数据。
+- DebugDraw 使用无 Vulkan 类型的 world-space line list 与独立渲染 executor。Renderer 只持有当前帧一次性 list；SceneRenderer 在普通
+  mesh draw 后、同一 subpass 结束前用当前 ViewProjectMatrix 录制 line-list pipeline。每个 FrameSlot 独占 persistently mapped vertex
+  buffer，slot fence 完成后才覆写/增长；预算内增长失败跳过可选调试绘制并节流重试，不影响主场景。executor 在 pipeline reset 时先于
+  PipelineManager/RenderPass 销毁，不读取 Selection、Scene 或 ImGui。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture

@@ -15,6 +15,7 @@
 #include "graphics/attachment.h"
 #include "graphics/pipeline/vertex_description.h"
 #include "render/resource/resource_manager.h"
+#include "render/debug/debug_draw_renderer.h"
 
 #include <algorithm>
 
@@ -88,6 +89,8 @@ namespace Comet {
                 "view-project uniform buffer"));
         }
     }
+
+    SceneRenderer::~SceneRenderer() = default;
 
     void SceneRenderer::setup_render_pass() {
         LOG_INFO("create render pass");
@@ -198,6 +201,12 @@ namespace Comet {
         // 创建 Pipeline
         m_pipeline = m_pipeline_manager->create_pipeline(
             "cube_pipeline", layout, config, vert_shader, frag_shader);
+        m_debug_draw_renderer = std::make_unique<DebugDrawRenderer>(
+            m_context.get_device(),
+            *m_pipeline_manager,
+            resource_manager,
+            m_frame_scheduler->get_frame_slot_count(),
+            m_msaa_samples);
     }
 
     const DescriptorSet& SceneRenderer::prepare_material_descriptor_set(
@@ -247,6 +256,12 @@ namespace Comet {
 
     std::vector<QueueSemaphoreSubmit> SceneRenderer::render(
         const RenderSubmission& submission) {
+        return render(submission, DebugDrawList{});
+    }
+
+    std::vector<QueueSemaphoreSubmit> SceneRenderer::render(
+        const RenderSubmission& submission,
+        const DebugDrawList& debug_draw_list) {
         PROFILE_SCOPE("SceneRenderer::render");
 
         if(!submission.view_project_matrix) return {};
@@ -290,6 +305,13 @@ namespace Comet {
             const DescriptorSet& descriptor_set = prepare_material_descriptor_set(
                 item.material, view_project_buffer, *m_default_sampler);
             render_item(item, descriptor_set);
+        }
+        if(m_debug_draw_renderer) {
+            m_debug_draw_renderer->render(
+                command_buffer,
+                frame_slot_index,
+                *submission.view_project_matrix,
+                debug_draw_list);
         }
         remove_completed_resource_waits(resource_waits);
         return resource_waits;
@@ -517,6 +539,7 @@ namespace Comet {
     }
 
     void SceneRenderer::reset_render_pipeline() {
+        m_debug_draw_renderer.reset();
         m_pipeline.reset();
         m_pipeline_manager.reset();
         m_render_target.reset();
