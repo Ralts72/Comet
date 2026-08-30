@@ -261,10 +261,18 @@ namespace Comet {
                 candidate.handle,
                 candidate.source_dependencies);
 
-            GpuResourceResult<std::shared_ptr<Mesh>> mesh_attempt;
+            std::shared_ptr<Mesh> mesh;
             try {
-                mesh_attempt =
+                auto mesh_attempt =
                     m_resource_factory.try_create_mesh(candidate.data);
+                if(!mesh_attempt) {
+                    LOG_ERROR(
+                        "Failed to create refreshed runtime mesh for asset handle {}: {}",
+                        candidate.handle.value(),
+                        vk::to_string(mesh_attempt.result()));
+                    continue;
+                }
+                mesh = std::move(mesh_attempt).value();
             } catch(const std::exception& exception) {
                 LOG_ERROR(
                     "Failed to create refreshed runtime mesh for asset handle {}: {}",
@@ -272,14 +280,6 @@ namespace Comet {
                     exception.what());
                 continue;
             }
-            if(!mesh_attempt) {
-                LOG_ERROR(
-                    "Failed to create refreshed runtime mesh for asset handle {}: {}",
-                    candidate.handle.value(),
-                    vk::to_string(mesh_attempt.result()));
-                continue;
-            }
-            auto mesh = std::move(mesh_attempt).value();
             if(!m_database.is_current(
                    candidate.handle,
                    candidate.revision)) {

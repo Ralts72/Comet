@@ -21,10 +21,6 @@ namespace Comet {
         [[nodiscard]] SamplerManager& get_sampler_manager() { return *m_sampler_manager; }
         [[nodiscard]] const SamplerManager& get_sampler_manager() const { return *m_sampler_manager; }
 
-        [[nodiscard]] std::shared_ptr<Texture> create_texture(
-            const TextureData& data);
-        [[nodiscard]] std::shared_ptr<Mesh> create_mesh(
-            const MeshData& data);
         [[nodiscard]] GpuResourceResult<std::shared_ptr<Texture>>
         try_create_texture(const TextureData& data) override;
         [[nodiscard]] GpuResourceResult<std::shared_ptr<Mesh>>

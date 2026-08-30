@@ -100,7 +100,8 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
 - `RenderResourceFactory`：向资产层暴露从 CPU `TextureData`/`MeshData` 尝试创建 Runtime 资源的窄接口；返回类型化 GPU
   错误，不决定 Registry 发布或旧资源保留策略。
 - `ResourceManager`：创建 Device 相关的 Texture/Mesh，独占 UploadManager，并维护 Shader/Sampler 等设备级共享资源；
-  不认识或缓存 `AssetHandle`。资产侧 `try_create_*` 固定遵守 memory budget；显式 `create_*` 保留给关键资源。
+  不认识或缓存 `AssetHandle`。它通过 RenderResourceFactory 只暴露资产侧 `try_create_*`，并固定遵守 memory budget；
+  Mesh/Texture primitive 自身保留强失败工厂，但 ResourceManager 不复制无调用方的强失败转发入口。
 - `UploadManager`：在 owner thread 从可复用 staging page 子分配上传范围，合并 buffer/image copy 与 Barrier2；每个
   pending batch 独占所用 page、CommandContext 和目标资源直到 timeline completion，随后整页回池。它不认识
   AssetHandle、Importer 或资产发布策略。
@@ -108,6 +109,8 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
   memory budget，高压力时可销毁空闲页，但绝不回收 active/pending batch 拥有的页。
 - recoverable `try_enqueue_upload()` 在 staging 失败时 abort 整个 active batch：先 discard 未提交 CommandContext，再释放
   目标引用并回收 page；pending batch 已有 completion，不能 abort，只能等待正常回收。
+- 当前 active batch 仍隐式保存在 UploadManager 中，生产调用点依靠“每个 Runtime Resource 立即 flush”避免事务混合；下一步
+  将未提交 context/resources 移入显式 UploadBatch scope，使 abort/submit 的所有权由类型保证。
 - `Mesh` / `Texture`：持有 Runtime GPU 对象和创建它们的 ready completion；创建返回不等待 CPU。两者都通过静态工厂先
   完成全部目标 GPU owner，再以可回滚 batch enqueue，flush 成功后才发布 Runtime wrapper；其公开对象不表达“正在构造”
   的中间状态。当前 upload 与 draw

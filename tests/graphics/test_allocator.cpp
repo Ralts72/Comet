@@ -85,19 +85,23 @@ namespace Comet::Tests {
     }
 
     TEST(GpuResourceResultTest, DistinguishesSuccessFromFailure) {
-        const GpuResourceResult<int> failure;
+        const auto failure = GpuResourceResult<int>::failure(
+            vk::Result::eErrorOutOfDeviceMemory);
         const auto success = GpuResourceResult<int>::success(42);
         const auto normalized_failure =
             GpuResourceResult<int>::failure(vk::Result::eSuccess);
 
+        EXPECT_FALSE(std::is_default_constructible_v<GpuResourceResult<int>>);
+        EXPECT_FALSE(std::is_default_constructible_v<GpuResourceResult<void>>);
         EXPECT_FALSE(static_cast<bool>(failure));
-        EXPECT_EQ(failure.result(), vk::Result::eErrorUnknown);
+        EXPECT_EQ(failure.result(), vk::Result::eErrorOutOfDeviceMemory);
         EXPECT_TRUE(static_cast<bool>(success));
         EXPECT_EQ(success.value(), 42);
         EXPECT_FALSE(static_cast<bool>(normalized_failure));
         EXPECT_EQ(normalized_failure.result(), vk::Result::eErrorUnknown);
 
-        const GpuResourceResult<void> empty_failure;
+        const auto empty_failure = GpuResourceResult<void>::failure(
+            vk::Result::eErrorOutOfDeviceMemory);
         const auto empty_success = GpuResourceResult<void>::success();
         EXPECT_FALSE(static_cast<bool>(empty_failure));
         EXPECT_TRUE(static_cast<bool>(empty_success));

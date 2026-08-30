@@ -9,8 +9,6 @@ namespace Comet {
     template<typename T>
     class GpuResourceResult {
     public:
-        GpuResourceResult() = default;
-
         [[nodiscard]] static GpuResourceResult success(T value) {
             return GpuResourceResult(
                 std::optional<T>(std::move(value)),
@@ -49,8 +47,6 @@ namespace Comet {
     template<>
     class GpuResourceResult<void> {
     public:
-        GpuResourceResult() = default;
-
         [[nodiscard]] static GpuResourceResult success() {
             return GpuResourceResult(vk::Result::eSuccess);
         }
