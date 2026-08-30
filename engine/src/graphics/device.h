@@ -1,6 +1,7 @@
 #pragma once
 #include "vk_common.h"
 #include "common/export.h"
+#include "graphics/resource/memory_budget.h"
 #include "queue.h"
 #include "graphics/command/command_buffer.h"
 #include "vk_capability.h"
@@ -45,6 +46,8 @@ namespace Comet {
         void wait_idle() const;
 
         void set_allocator_frame_index(uint64_t frame_serial) const;
+
+        [[nodiscard]] MemoryBudgetSnapshot query_memory_budget() const;
 
         [[nodiscard]] vk::Device get() const { return m_device; }
 

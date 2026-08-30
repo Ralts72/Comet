@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "graphics/resource/memory_budget.h"
 #include "graphics/vk_common.h"
 
 #include <string_view>
@@ -94,6 +95,8 @@ namespace Comet {
         void flush_memory(const Allocation& allocation, size_t offset, size_t size) const;
 
         void set_current_frame_index(uint64_t frame_serial) const;
+
+        [[nodiscard]] MemoryBudgetSnapshot query_memory_budget() const;
 
         [[nodiscard]] bool is_memory_budget_enabled() const noexcept {
             return m_memory_budget_enabled;

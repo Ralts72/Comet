@@ -2,6 +2,7 @@
 
 #include "diagnostics/logger.h"
 
+#include <array>
 #include <string>
 
 namespace Comet {
@@ -220,5 +221,34 @@ namespace Comet {
         vmaSetCurrentFrameIndex(
             m_allocator,
             static_cast<uint32_t>(frame_serial));
+    }
+
+    MemoryBudgetSnapshot Allocator::query_memory_budget() const {
+        const VkPhysicalDeviceMemoryProperties* memory_properties = nullptr;
+        vmaGetMemoryProperties(m_allocator, &memory_properties);
+        if(!memory_properties) {
+            LOG_FATAL("VMA did not provide physical device memory properties");
+        }
+
+        std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> budgets{};
+        vmaGetHeapBudgets(m_allocator, budgets.data());
+
+        MemoryBudgetSnapshot snapshot;
+        snapshot.driver_reported = m_memory_budget_enabled;
+        snapshot.heaps.reserve(memory_properties->memoryHeapCount);
+        for(uint32_t heap_index = 0;
+            heap_index < memory_properties->memoryHeapCount;
+            ++heap_index) {
+            const auto& budget = budgets[heap_index];
+            snapshot.heaps.push_back({
+                .block_count = budget.statistics.blockCount,
+                .allocation_count = budget.statistics.allocationCount,
+                .block_bytes = budget.statistics.blockBytes,
+                .allocation_bytes = budget.statistics.allocationBytes,
+                .usage_bytes = budget.usage,
+                .budget_bytes = budget.budget
+            });
+        }
+        return snapshot;
     }
 }

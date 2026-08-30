@@ -26,6 +26,13 @@ namespace Comet::Tests {
                 allocator.is_memory_budget_enabled()
             } -> std::same_as<bool>;
         };
+
+        template<typename T>
+        concept SupportsMemoryBudgetSnapshot = requires(const T& allocator) {
+            {
+                allocator.query_memory_budget()
+            } -> std::same_as<MemoryBudgetSnapshot>;
+        };
     }
 
     TEST(AllocationTest, DefaultsToInvalidHandle) {
@@ -58,5 +65,23 @@ namespace Comet::Tests {
 
         EXPECT_FALSE(create_info.memory_budget_enabled);
         EXPECT_TRUE(SupportsFrameIndex<Allocator>);
+        EXPECT_TRUE(SupportsMemoryBudgetSnapshot<Allocator>);
+    }
+
+    TEST(MemoryHeapBudgetTest, AvailableBytesSaturatesAtZero) {
+        MemoryHeapBudget budget;
+        budget.usage_bytes = 70;
+        budget.budget_bytes = 100;
+        EXPECT_EQ(budget.available_bytes(), 30U);
+
+        budget.usage_bytes = 120;
+        EXPECT_EQ(budget.available_bytes(), 0U);
+    }
+
+    TEST(MemoryBudgetSnapshotTest, DefaultsToEstimatedEmptySnapshot) {
+        const MemoryBudgetSnapshot snapshot;
+
+        EXPECT_TRUE(snapshot.heaps.empty());
+        EXPECT_FALSE(snapshot.driver_reported);
     }
 }

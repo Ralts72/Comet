@@ -2,7 +2,7 @@
 
 首次生成：2026-07-05
 
-最近更新：2026-08-30
+最近更新：2026-08-31
 
 ## 目标定位
 
@@ -1074,7 +1074,11 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
 - [x] 将 `VK_EXT_memory_budget` 作为 optional device capability；只在扩展实际启用后为 VMA allocator 设置
   `VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT`。
 - [x] memory budget 启用后，每个渲染帧用单调递增的 frame serial 调用 `vmaSetCurrentFrameIndex()`，不传循环变化的
-  FrameSlot 下标。`vmaGetHeapBudgets()` 的低频采样与策略消费在下一步接入。
+  FrameSlot 下标。
+- [x] 通过 Allocator/Device 暴露按需 `MemoryBudgetSnapshot`，将 `vmaGetHeapBudgets()` 的 heap 统计转换为 Comet 类型，
+  并标记数据是驱动报告值还是 VMA 估算值。
+- UploadManager 在 staging pool 确实需要增长时采样 budget snapshot，优先释放空闲超大 page，并对高压力状态做节流诊断；
+  不在每帧无条件采样。
 - 区分关键 GPU 资源和可降级 streaming 资源。只有 ResourceManager 已支持返回错误、占位资源、重试或淘汰后，
   才为非关键 allocation 使用 `WITHIN_BUDGET`；render target 等关键资源保留独立失败策略。
 - 支持资产改名、移动后的引用稳定性。
@@ -1462,7 +1466,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：GPU budget snapshot 与回收策略**。`VK_EXT_memory_budget` 已按 optional capability 接入 VMA，FrameScheduler 单调 serial 也会驱动 allocator frame index；接下来为 ResourceManager/UploadManager 提供低频 heap budget snapshot，在批量加载和 staging pool 增长前用于诊断及保守回收，但暂不对关键 render target allocation 强制 `WITHIN_BUDGET`。
+下一步继续 **阶段 3：staging page pool 的预算感知回收策略**。Allocator/Device 已提供按需 heap budget snapshot；接下来由 UploadManager 只在 page pool 需要增长时采样，回收空闲超大 page 并在高压力时输出节流诊断，但暂不对关键 render target allocation 强制 `WITHIN_BUDGET`。
 
 建议的职责边界：
 
@@ -1514,6 +1518,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 26. [x] 将 FrameManager 更名并收敛为 FrameScheduler：显式状态机约束 slot wait、image acquire 后 begin、submission completion 记录和单调 frame serial。
 27. [x] 由实际 fence wait 推进 completed frame serial，并用它安全回收不再使用的 Material DescriptorPool/资源缓存；确认当前无需空的通用 per-frame arena。
 28. [x] 将 VK_EXT_memory_budget 作为可选设备能力接入 VMA，并用 FrameScheduler 单调 serial 更新 allocator frame index；扩展缺失时保持兼容回退。
+29. [x] 增加不暴露 VMA 类型的 MemoryBudgetSnapshot，由 Allocator 查询每个 heap 的 block/allocation/usage/budget，Device 提供只读转发接口。
 
 格式所有权后续需求：
 
