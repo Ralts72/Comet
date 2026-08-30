@@ -216,4 +216,93 @@ namespace CometEditor::Tests {
             fallback_scale.render_resolution,
             Comet::Math::Vec2u(320, 180));
     }
+
+    TEST(ViewportLayoutTest, MapsVisibleImagePointsToCurrentPixels) {
+        const ViewportLayout layout = calculate_viewport_layout({
+            .content_origin = Comet::Math::Vec2(100.0f, 200.0f),
+            .content_size = Comet::Math::Vec2(800.0f, 600.0f),
+            .framebuffer_scale = Comet::Math::Vec2(2.0f),
+            .current_render_resolution = Comet::Math::Vec2u(1600, 900)
+        });
+
+        EXPECT_EQ(layout.image_resolution, Comet::Math::Vec2u(1600, 900));
+        EXPECT_EQ(
+            map_viewport_point_to_pixel(
+                layout, Comet::Math::Vec2(100.0f, 275.0f)),
+            Comet::Math::Vec2u(0, 0));
+        EXPECT_EQ(
+            map_viewport_point_to_pixel(
+                layout, Comet::Math::Vec2(500.0f, 500.0f)),
+            Comet::Math::Vec2u(800, 450));
+        EXPECT_EQ(
+            map_viewport_point_to_pixel(
+                layout, Comet::Math::Vec2(899.5f, 724.5f)),
+            Comet::Math::Vec2u(1599, 899));
+    }
+
+    TEST(ViewportLayoutTest, RejectsToolbarLetterboxAndMaximumEdges) {
+        const ViewportLayout layout = calculate_viewport_layout({
+            .content_origin = Comet::Math::Vec2(100.0f, 200.0f),
+            .content_size = Comet::Math::Vec2(800.0f, 600.0f),
+            .current_render_resolution = Comet::Math::Vec2u(1600, 900)
+        });
+
+        EXPECT_FALSE(map_viewport_point_to_pixel(
+            layout, Comet::Math::Vec2(500.0f, 190.0f)));
+        EXPECT_FALSE(map_viewport_point_to_pixel(
+            layout, Comet::Math::Vec2(500.0f, 250.0f)));
+        EXPECT_FALSE(map_viewport_point_to_pixel(
+            layout, Comet::Math::Vec2(900.0f, 500.0f)));
+        EXPECT_FALSE(map_viewport_point_to_pixel(
+            layout, Comet::Math::Vec2(500.0f, 725.0f)));
+    }
+
+    TEST(ViewportLayoutTest, OneToOneMapsOnlyTheClippedVisibleRegion) {
+        const ViewportLayout layout = calculate_viewport_layout({
+            .content_origin = Comet::Math::Vec2(100.0f, 200.0f),
+            .content_size = Comet::Math::Vec2(800.0f, 400.0f),
+            .framebuffer_scale = Comet::Math::Vec2(2.0f),
+            .current_render_resolution = Comet::Math::Vec2u(1920, 1080),
+            .display_mode = ViewportDisplayMode::OneToOne
+        });
+
+        expect_vec2(
+            layout.image_display_rect.min,
+            Comet::Math::Vec2(20.0f, 130.0f));
+        expect_vec2(
+            layout.image_display_rect.max,
+            Comet::Math::Vec2(980.0f, 670.0f));
+        expect_vec2(
+            layout.image_visible_rect.min,
+            Comet::Math::Vec2(100.0f, 200.0f));
+        expect_vec2(
+            layout.image_visible_rect.max,
+            Comet::Math::Vec2(900.0f, 600.0f));
+        EXPECT_EQ(
+            map_viewport_point_to_pixel(
+                layout, Comet::Math::Vec2(100.0f, 200.0f)),
+            Comet::Math::Vec2u(160, 140));
+        EXPECT_FALSE(map_viewport_point_to_pixel(
+            layout, Comet::Math::Vec2(50.0f, 150.0f)));
+        EXPECT_FALSE(map_viewport_point_to_pixel(
+            layout, Comet::Math::Vec2(950.0f, 650.0f)));
+    }
+
+    TEST(ViewportLayoutTest, UsesDisplayedImageInsteadOfPendingResolution) {
+        const ViewportLayout layout = calculate_viewport_layout({
+            .content_size = Comet::Math::Vec2(800.0f, 600.0f),
+            .current_render_resolution = Comet::Math::Vec2u(1600, 900),
+            .resolution_policy = {
+                .mode = ViewportResolutionMode::Fixed,
+                .fixed_resolution = Comet::Math::Vec2u(1280, 720)
+            }
+        });
+
+        EXPECT_EQ(layout.render_resolution, Comet::Math::Vec2u(1280, 720));
+        EXPECT_EQ(layout.image_resolution, Comet::Math::Vec2u(1600, 900));
+        EXPECT_EQ(
+            map_viewport_point_to_pixel(
+                layout, Comet::Math::Vec2(400.0f, 300.0f)),
+            Comet::Math::Vec2u(800, 450));
+    }
 }

@@ -176,6 +176,10 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
   submission retirement batch，因此旧 generation 会由所有真实使用过它的 completion 共同延长，而不是固定延迟若干帧。
 - Editor 从选中 DeviceCapability 读取 Vulkan `maxImageDimension2D`，再与 4096 的编辑器软上限取较小值。ViewportLayout 在
   Free/16:9/Fixed 策略得到目标后统一等比约束长边；SceneRenderer 因而只接收已满足当前设备和编辑器策略的物理像素尺寸。
+- ViewportLayout 同时保存当前实际显示纹理的 `image_resolution`、完整 `image_display_rect` 和与 panel content 相交后的
+  `image_visible_rect`。屏幕点只有位于 visible rect 时才按完整 display rect 归一化并映射到左上闭、右下开的纹理像素；因此
+  toolbar、letterbox/pillarbox、Fit 最大边界和 OneToOne 被裁掉的区域不会进入 camera/picking 输入。resize debounce 期间映射继续
+  使用当前纹理分辨率，不提前使用尚未发布的请求尺寸。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture

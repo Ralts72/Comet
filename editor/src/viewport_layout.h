@@ -3,6 +3,7 @@
 #include "core/math_utils.h"
 
 #include <cstdint>
+#include <optional>
 
 namespace CometEditor {
     enum class ViewportResolutionMode {
@@ -48,9 +49,16 @@ namespace CometEditor {
     struct ViewportLayout {
         Comet::Math::Vec2 panel_content_size{};
         Comet::Math::Vec2u render_resolution{};
+        Comet::Math::Vec2u image_resolution{};
         ViewportRect image_display_rect;
+        ViewportRect image_visible_rect;
     };
 
     [[nodiscard]] ViewportLayout calculate_viewport_layout(
         const ViewportLayoutInput& input);
+
+    [[nodiscard]] std::optional<Comet::Math::Vec2u>
+    map_viewport_point_to_pixel(
+        const ViewportLayout& layout,
+        Comet::Math::Vec2 screen_point);
 }

@@ -1204,7 +1204,8 @@ Scene Component / RenderItem
 
 #### 阶段 4C：视口交互闭环
 
-- 基于 image display rect 将鼠标坐标映射到 RenderTarget 像素坐标，排除工具栏和 letterbox 区域。
+- [x] 基于 image display/visible rect 将屏幕坐标映射到当前实际 RenderTarget 像素，排除工具栏、letterbox/pillarbox、
+  最大边界和 OneToOne 裁切区域；resize debounce 期间不使用尚未发布的请求分辨率。
 - Viewport 在 Edit 模式实现 editor camera 的平移、环绕、缩放，以及真正生效的 2D/3D 观察模式。
 - 默认保持一个 Viewport 并在内部切换 2D/3D，共享同一组 RenderTarget、拾取和 gizmo 上下文。只有当多视图同时对照成为明确工作流时，
   才增加可停靠的多 Viewport；每个同时可见视口应拥有独立 Camera、尺寸、frame-slot RenderTarget 和渲染提交，隐藏时必须跳过渲染。
@@ -1487,8 +1488,8 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步进入 **阶段 4C 视口交互闭环**：先把 screen point 到 RenderTarget pixel 的映射提取为纯函数，严格排除工具栏、letterbox、
-pillarbox 和 1x 裁切区域，并以自动化测试覆盖边界。随后让 editor camera 输入只在真实 image display rect 内消费。
+下一步让 **Viewport 输入焦点与 editor camera 消费边界** 使用已经稳定的坐标契约：只在 Edit 模式且鼠标位于
+`image_visible_rect` 时响应平移、环绕和缩放；先建立事件/状态输入与纯 camera controller，再接具体 ImGui 键鼠采样。
 runtime format/sample-count-dependent Pipeline generation 归入阶段 5，与 PipelineKey/RenderGraph 生命周期一并设计，避免在旧
 PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 
@@ -1575,6 +1576,7 @@ PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 59. [x] 建立 swapchain dependent generation 共享与 compatibility diff：SwapchainTarget 持有 core shared owner，editor 对 extent/format/image-count 精确失效，runtime format 变化在 pipeline generation 完成前明确拒绝。
 60. [x] 将 swapchain 正常重建从 Device idle 收窄为全部 graphics frame-slot fence + present-queue idle 回退；submission serial 在 record 时绑定 slot，确保 active-frame 重建等待能推进真实完成状态。
 61. [x] 完成阶段 4B 架构审计：RenderTarget generation 删除原地 resize/dirty/recreate API 和重复 OffscreenTarget，extent/frame-count 构造后只读；初始 RenderPass 使用 active swapchain 实际格式，runtime Pipeline generation 明确归入阶段 5。
+62. [x] 建立 Viewport 屏幕点到当前纹理像素的纯映射：布局显式输出 image resolution 与裁切后的 visible rect，排除工具栏、留白、最大边和 OneToOne 不可见区域，并覆盖 HiDPI、debounce 旧纹理和裁切测试。
 
 格式所有权后续需求：
 
