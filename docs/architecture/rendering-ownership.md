@@ -82,6 +82,10 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
 由此形成 `FrameBuffer → ImageView → Image` 的完整所有权链。`Texture` 和 `RenderTarget` 不再并行保存同一资源的
 `Image`/`ImageView` 共享引用；需要 image 时统一通过 `ImageView::get_image()` 访问。
 
+底层 Vulkan 包装按职责位于 `graphics/command/`、`graphics/resource/`、`graphics/pipeline/` 和
+`graphics/synchronization/`。Context、Device、Queue、Swapchain、RenderPass 和 FrameBuffer 会跨越多个职责组，
+因此保留在 `graphics/` 根目录，不用物理目录伪造不存在的单向依赖。
+
 ## 职责边界
 
 - `RenderContext`：Vulkan 上下文、逻辑设备、交换链和 idle 等待。

@@ -1,8 +1,8 @@
 #include "renderer.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
-#include "graphics/pipeline.h"
-#include "graphics/vertex_description.h"
+#include "graphics/pipeline/pipeline.h"
+#include "graphics/pipeline/vertex_description.h"
 #include "render/resource/mesh_data.h"
 #include "render/scene/render_types.h"
 

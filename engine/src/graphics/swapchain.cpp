@@ -5,8 +5,8 @@
 #include "context.h"
 #include "core/window.h"
 #include "device.h"
-#include "image.h"
-#include "semaphore.h"
+#include "graphics/resource/image.h"
+#include "graphics/synchronization/semaphore.h"
 
 #include <utility>
 

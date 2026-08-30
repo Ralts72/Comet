@@ -1,5 +1,5 @@
-#include "semaphore.h"
-#include "device.h"
+#include "graphics/synchronization/semaphore.h"
+#include "graphics/device.h"
 
 namespace Comet {
     Semaphore::Semaphore(Device& device): m_device(&device) {

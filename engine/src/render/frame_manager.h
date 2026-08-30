@@ -1,7 +1,7 @@
 #pragma once
-#include "graphics/command_buffer.h"
-#include "graphics/fence.h"
-#include "graphics/semaphore.h"
+#include "graphics/command/command_buffer.h"
+#include "graphics/synchronization/fence.h"
+#include "graphics/synchronization/semaphore.h"
 #include <optional>
 #include <vector>
 

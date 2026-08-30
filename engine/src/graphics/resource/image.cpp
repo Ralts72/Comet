@@ -1,5 +1,5 @@
-#include "image.h"
-#include "device.h"
+#include "graphics/resource/image.h"
+#include "graphics/device.h"
 #include "diagnostics/logger.h"
 
 namespace Comet {

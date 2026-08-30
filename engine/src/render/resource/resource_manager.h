@@ -1,7 +1,7 @@
 #pragma once
 #include "common/export.h"
-#include "graphics/shader.h"
-#include "graphics/sampler.h"
+#include "graphics/pipeline/shader.h"
+#include "graphics/resource/sampler.h"
 #include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
 #include "render/resource/texture.h"

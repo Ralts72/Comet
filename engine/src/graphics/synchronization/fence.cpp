@@ -1,5 +1,5 @@
-#include "fence.h"
-#include "device.h"
+#include "graphics/synchronization/fence.h"
+#include "graphics/device.h"
 
 namespace Comet {
     Fence::Fence(Device& device): m_device(&device) {

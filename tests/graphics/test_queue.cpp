@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 
-#include "graphics/command_buffer.h"
-#include "graphics/fence.h"
+#include "graphics/command/command_buffer.h"
+#include "graphics/synchronization/fence.h"
 #include "graphics/queue.h"
-#include "graphics/semaphore.h"
+#include "graphics/synchronization/semaphore.h"
 
 #include <concepts>
 #include <span>

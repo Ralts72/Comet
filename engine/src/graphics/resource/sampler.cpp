@@ -1,5 +1,5 @@
-#include "sampler.h"
-#include "device.h"
+#include "graphics/resource/sampler.h"
+#include "graphics/device.h"
 #include "diagnostics/logger.h"
 
 #include <cmath>

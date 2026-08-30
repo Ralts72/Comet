@@ -1,6 +1,6 @@
-#include "shader.h"
+#include "graphics/pipeline/shader.h"
 
-#include "device.h"
+#include "graphics/device.h"
 #include "diagnostics/logger.h"
 
 namespace Comet {

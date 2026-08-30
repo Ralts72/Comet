@@ -1,7 +1,7 @@
 #include "queue.h"
-#include "command_buffer.h"
-#include "semaphore.h"
-#include "fence.h"
+#include "graphics/command/command_buffer.h"
+#include "graphics/synchronization/semaphore.h"
+#include "graphics/synchronization/fence.h"
 #include "diagnostics/profiler.h"
 #include "swapchain.h"
 

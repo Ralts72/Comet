@@ -1,4 +1,4 @@
-#include "allocator.h"
+#include "graphics/resource/allocator.h"
 
 #include "diagnostics/logger.h"
 

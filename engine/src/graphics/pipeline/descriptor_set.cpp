@@ -1,6 +1,6 @@
-#include "descriptor_set.h"
-#include "device.h"
-#include "convert.h"
+#include "graphics/pipeline/descriptor_set.h"
+#include "graphics/device.h"
+#include "graphics/convert.h"
 
 namespace Comet {
     void DescriptorSetLayoutBindings::add_binding(uint32_t binding, const DescriptorType type,

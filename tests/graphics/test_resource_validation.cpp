@@ -2,12 +2,12 @@
 
 #include <type_traits>
 
-#include "graphics/buffer.h"
-#include "graphics/command_buffer.h"
-#include "graphics/command_context.h"
+#include "graphics/resource/buffer.h"
+#include "graphics/command/command_buffer.h"
+#include "graphics/command/command_context.h"
 #include "graphics/device.h"
-#include "graphics/image.h"
-#include "graphics/sampler.h"
+#include "graphics/resource/image.h"
+#include "graphics/resource/sampler.h"
 
 namespace Comet::Tests {
 namespace {

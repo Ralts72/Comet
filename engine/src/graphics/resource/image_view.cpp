@@ -1,6 +1,6 @@
-#include "image_view.h"
-#include "device.h"
-#include "image.h"
+#include "graphics/resource/image_view.h"
+#include "graphics/device.h"
+#include "graphics/resource/image.h"
 #include "diagnostics/logger.h"
 
 #include <utility>

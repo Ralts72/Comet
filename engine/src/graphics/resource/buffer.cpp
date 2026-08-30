@@ -1,9 +1,9 @@
-#include "buffer.h"
+#include "graphics/resource/buffer.h"
 
-#include "command_context.h"
+#include "graphics/command/command_context.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
-#include "device.h"
+#include "graphics/device.h"
 
 #include <cstring>
 #include <string>

@@ -1,6 +1,6 @@
 #pragma once
-#include "vk_common.h"
-#include "vertex_description.h"
+#include "graphics/vk_common.h"
+#include "graphics/pipeline/vertex_description.h"
 
 namespace Comet {
     class Device;

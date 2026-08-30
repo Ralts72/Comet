@@ -1,6 +1,6 @@
 #pragma once
-#include "vk_common.h"
-#include "descriptor_set.h"
+#include "graphics/vk_common.h"
+#include "graphics/pipeline/descriptor_set.h"
 
 #include <cstdint>
 #include <span>

@@ -1,9 +1,9 @@
-#include "command_buffer.h"
-#include "device.h"
-#include "render_pass.h"
+#include "graphics/command/command_buffer.h"
+#include "graphics/device.h"
+#include "graphics/render_pass.h"
 #include "diagnostics/logger.h"
-#include "frame_buffer.h"
-#include "pipeline.h"
+#include "graphics/frame_buffer.h"
+#include "graphics/pipeline/pipeline.h"
 #include "diagnostics/profiler.h"
 
 namespace Comet {

@@ -1,6 +1,6 @@
 #pragma once
-#include "buffer.h"
-#include "vk_common.h"
+#include "graphics/resource/buffer.h"
+#include "graphics/vk_common.h"
 
 namespace Comet {
     class Device;

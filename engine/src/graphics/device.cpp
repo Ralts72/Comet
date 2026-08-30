@@ -1,12 +1,12 @@
 #include "device.h"
 #include "context.h"
-#include "fence.h"
+#include "graphics/synchronization/fence.h"
 #include "queue.h"
 #include "diagnostics/logger.h"
-#include "command_buffer.h"
-#include "command_context.h"
+#include "graphics/command/command_buffer.h"
+#include "graphics/command/command_context.h"
 #include "diagnostics/profiler.h"
-#include "allocator.h"
+#include "graphics/resource/allocator.h"
 
 namespace Comet {
     Device::Device(Context& context)

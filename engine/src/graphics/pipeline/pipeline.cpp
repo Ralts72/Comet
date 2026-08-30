@@ -1,9 +1,9 @@
-#include "pipeline.h"
+#include "graphics/pipeline/pipeline.h"
 
 #include <utility>
-#include "device.h"
-#include "shader.h"
-#include "render_pass.h"
+#include "graphics/device.h"
+#include "graphics/pipeline/shader.h"
+#include "graphics/render_pass.h"
 
 namespace Comet {
     PipelineLayout::PipelineLayout(Device& device, const ShaderLayout& layout) : m_device(device) {

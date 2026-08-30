@@ -1,11 +1,11 @@
 #include "render/resource/texture.h"
 #include <glm/gtx/io.hpp>
 #include "graphics/device.h"
-#include "graphics/command_context.h"
+#include "graphics/command/command_context.h"
 #include "graphics/convert.h"
-#include "graphics/image.h"
-#include "graphics/image_view.h"
-#include "graphics/buffer.h"
+#include "graphics/resource/image.h"
+#include "graphics/resource/image_view.h"
+#include "graphics/resource/buffer.h"
 
 namespace Comet {
     Texture::Texture(Device& device, const TextureData& data)

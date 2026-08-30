@@ -1,5 +1,5 @@
 #pragma once
-#include "vk_common.h"
+#include "graphics/vk_common.h"
 #include "common/export.h"
 
 #include <memory>

@@ -34,20 +34,20 @@ set(SOURCES
         src/graphics/queue.cpp
         src/graphics/swapchain.cpp
         src/graphics/render_pass.cpp
-        src/graphics/image.cpp
-        src/graphics/image_view.cpp
+        src/graphics/resource/image.cpp
+        src/graphics/resource/image_view.cpp
         src/graphics/frame_buffer.cpp
-        src/graphics/pipeline.cpp
-        src/graphics/shader.cpp
-        src/graphics/command_buffer.cpp
-        src/graphics/command_context.cpp
-        src/graphics/fence.cpp
-        src/graphics/semaphore.cpp
-        src/graphics/vertex_description.cpp
-        src/graphics/allocator.cpp
-        src/graphics/buffer.cpp
-        src/graphics/descriptor_set.cpp
-        src/graphics/sampler.cpp
+        src/graphics/pipeline/pipeline.cpp
+        src/graphics/pipeline/shader.cpp
+        src/graphics/command/command_buffer.cpp
+        src/graphics/command/command_context.cpp
+        src/graphics/synchronization/fence.cpp
+        src/graphics/synchronization/semaphore.cpp
+        src/graphics/pipeline/vertex_description.cpp
+        src/graphics/resource/allocator.cpp
+        src/graphics/resource/buffer.cpp
+        src/graphics/pipeline/descriptor_set.cpp
+        src/graphics/resource/sampler.cpp
         src/render/renderer.cpp
         src/render/render_target.cpp
         src/render/resource/mesh.cpp

@@ -1,6 +1,6 @@
 #pragma once
 #include "common/export.h"
-#include "graphics/buffer.h"
+#include "graphics/resource/buffer.h"
 #include "graphics/device.h"
 #include "render/resource/mesh_data.h"
 

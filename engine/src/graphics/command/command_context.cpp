@@ -1,9 +1,9 @@
-#include "command_context.h"
-#include "device.h"
-#include "buffer.h"
-#include "image.h"
-#include "command_buffer.h"
-#include "queue.h"
+#include "graphics/command/command_context.h"
+#include "graphics/device.h"
+#include "graphics/resource/buffer.h"
+#include "graphics/resource/image.h"
+#include "graphics/command/command_buffer.h"
+#include "graphics/queue.h"
 #include "diagnostics/logger.h"
 
 namespace Comet {

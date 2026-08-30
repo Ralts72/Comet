@@ -1,8 +1,8 @@
 #pragma once
 
-#include "allocator.h"
+#include "graphics/resource/allocator.h"
 #include "common/export.h"
-#include "vk_common.h"
+#include "graphics/vk_common.h"
 
 #include <string_view>
 

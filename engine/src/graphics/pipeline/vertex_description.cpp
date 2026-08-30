@@ -1,4 +1,4 @@
-#include "vertex_description.h"
+#include "graphics/pipeline/vertex_description.h"
 
 namespace Comet {
     void VertexInputDescription::add_binding(const uint32_t binding, const uint32_t stride, const VertexInputRate input_rate) {
