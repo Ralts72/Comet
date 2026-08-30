@@ -1,6 +1,5 @@
 #include "view.h"
 #include <imgui.h>
-#include <algorithm>
 
 namespace CometEditor {
     ViewPanel::ViewPanel(const EditorState& state)
@@ -8,7 +7,7 @@ namespace CometEditor {
 
     void ViewPanel::render() {
         m_actually_visible = false;
-        m_viewport_size = Comet::Math::Vec2u(0);
+        m_layout = {};
 
         if(!m_user_visible) {
             return;
@@ -48,41 +47,56 @@ namespace CometEditor {
     }
 
     void ViewPanel::render_view_content() {
-        ImVec2 viewport_size = ImGui::GetContentRegionAvail();
-        viewport_size.x = std::max(viewport_size.x, 1.0f);
-        viewport_size.y = std::max(viewport_size.y, 1.0f);
-        m_viewport_size = Comet::Math::Vec2u(
-            static_cast<std::uint32_t>(viewport_size.x),
-            static_cast<std::uint32_t>(viewport_size.y));
+        const ImVec2 content_size = ImGui::GetContentRegionAvail();
+        const ImVec2 content_origin = ImGui::GetCursorScreenPos();
+        const ImGuiViewport* window_viewport = ImGui::GetWindowViewport();
+        const ImVec2 framebuffer_scale = window_viewport
+            ? window_viewport->FramebufferScale
+            : ImVec2(1.0f, 1.0f);
+        m_layout = calculate_viewport_layout({
+            .content_origin = {
+                content_origin.x,
+                content_origin.y
+            },
+            .content_size = {
+                content_size.x,
+                content_size.y
+            },
+            .framebuffer_scale = {
+                framebuffer_scale.x,
+                framebuffer_scale.y
+            },
+            .current_render_resolution = m_texture_resolution
+        });
 
-        if(m_texture_id != ImTextureID_Invalid && m_texture_width > 0 && m_texture_height > 0) {
-            const float aspect_ratio = static_cast<float>(m_texture_width) / static_cast<float>(m_texture_height);
-            ImVec2 display_size = viewport_size;
-            if(display_size.x / aspect_ratio < display_size.y) {
-                display_size.y = display_size.x / aspect_ratio;
-            } else {
-                display_size.x = display_size.y * aspect_ratio;
-            }
+        const Comet::Math::Vec2 display_size =
+            m_layout.image_display_rect.size();
+        if(display_size.x <= 0.0f || display_size.y <= 0.0f) {
+            return;
+        }
 
-            const ImVec2 pos = ImGui::GetCursorPos();
-            const ImVec2 center_offset((viewport_size.x - display_size.x) * 0.5f,
-                (viewport_size.y - display_size.y) * 0.5f);
-            ImGui::SetCursorPos(ImVec2(pos.x + center_offset.x, pos.y + center_offset.y));
-            ImGui::Image(m_texture_id, display_size);
+        ImGui::SetCursorScreenPos(ImVec2(
+            m_layout.image_display_rect.min.x,
+            m_layout.image_display_rect.min.y));
+        if(m_texture_id != ImTextureID_Invalid
+           && m_texture_resolution.x > 0
+           && m_texture_resolution.y > 0) {
+            ImGui::Image(
+                m_texture_id,
+                ImVec2(display_size.x, display_size.y));
         } else {
-            ImGui::InvisibleButton("View", viewport_size);
+            ImGui::InvisibleButton(
+                "View", ImVec2(display_size.x, display_size.y));
         }
     }
 
     void ViewPanel::set_texture_id(const ImTextureID texture_id, const std::uint32_t width, const std::uint32_t height) {
         m_texture_id = texture_id;
-        m_texture_width = width;
-        m_texture_height = height;
+        m_texture_resolution = Comet::Math::Vec2u(width, height);
     }
 
     void ViewPanel::clear_texture() {
         m_texture_id = ImTextureID_Invalid;
-        m_texture_width = 0;
-        m_texture_height = 0;
+        m_texture_resolution = {};
     }
 }

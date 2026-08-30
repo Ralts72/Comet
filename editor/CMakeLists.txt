@@ -4,6 +4,7 @@ set(SOURCES
         src/imgui_context.cpp
         src/menu_bar.cpp
         src/property_editor_registry.cpp
+        src/viewport_layout.cpp
         src/panels/inspector.cpp
         src/panels/console.cpp
         src/panels/view.cpp

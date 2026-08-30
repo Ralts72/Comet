@@ -202,7 +202,7 @@ namespace {
                 CometEditor::make_viewport_render_request(
                     m_editor_state,
                     m_viewport_panel->is_visible(),
-                    m_viewport_panel->get_viewport_size()));
+                    m_viewport_panel->get_render_resolution()));
         }
 
         void update_viewport_texture(Comet::SceneRenderer& scene_renderer) {
