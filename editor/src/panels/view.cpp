@@ -16,6 +16,7 @@ namespace CometEditor {
         m_layout = {};
         m_camera_input.reset();
         m_camera_projection_request.reset();
+        m_pick_request.reset();
 
         if(!m_user_visible) {
             reset_camera_interaction();
@@ -200,10 +201,10 @@ namespace CometEditor {
             ImGui::InvisibleButton(
                 "View", ImVec2(display_size.x, display_size.y));
         }
-        update_camera_input();
+        update_view_interaction();
     }
 
-    void ViewPanel::update_camera_input() {
+    void ViewPanel::update_view_interaction() {
         if(m_state.mode != EditorMode::Edit) {
             reset_camera_interaction();
             return;
@@ -212,9 +213,15 @@ namespace CometEditor {
         const ImGuiIO& io = ImGui::GetIO();
         const Comet::Math::Vec2 mouse_position(
             io.MousePos.x, io.MousePos.y);
-        const bool pointer_over_image = ImGui::IsItemHovered()
-            && map_viewport_point_to_pixel(m_layout, mouse_position)
-                .has_value();
+        const std::optional<Comet::Math::Vec2u> mapped_pixel =
+            map_viewport_point_to_pixel(m_layout, mouse_position);
+        const bool pointer_over_image =
+            ImGui::IsItemHovered() && mapped_pixel.has_value();
+
+        if(pointer_over_image
+           && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            m_pick_request = *mapped_pixel;
+        }
 
         if(pointer_over_image
            && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
@@ -267,6 +274,10 @@ namespace CometEditor {
     ViewPanel::take_camera_projection_request() {
         return std::exchange(
             m_camera_projection_request, std::nullopt);
+    }
+
+    std::optional<Comet::Math::Vec2u> ViewPanel::take_pick_request() {
+        return std::exchange(m_pick_request, std::nullopt);
     }
 
     void ViewPanel::set_texture_id(const ImTextureID texture_id, const std::uint32_t width, const std::uint32_t height) {

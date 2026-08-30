@@ -193,6 +193,10 @@ FOV 模拟正交。3D position/target 被保留，2D pan 同步移动两者，�
   `image_visible_rect`。屏幕点只有位于 visible rect 时才按完整 display rect 归一化并映射到左上闭、右下开的纹理像素；因此
   toolbar、letterbox/pillarbox、Fit 最大边界和 OneToOne 被裁掉的区域不会进入 camera/picking 输入。resize debounce 期间映射继续
   使用当前纹理分辨率，不提前使用尚未发布的请求尺寸。
+- Edit Viewport 的左键点击只产生一次当前纹理 pixel 请求。Renderer 在当前 `RenderSubmission` 解析完成后，用对应
+  `ViewProjectMatrix` 生成 world ray，把射线变换到每个对象的 local space 并与 Runtime Mesh local AABB 求最近命中；结果通过无
+  Editor 依赖的回调返回，Editor 再更新统一 Selection。空白点击清除选择，没有请求时不执行查询；该路径不增加 GPU attachment、
+  readback 或等待，也不让 ViewPanel 访问 Scene、AssetRegistry 和 Runtime Mesh。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture

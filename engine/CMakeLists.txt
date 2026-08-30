@@ -66,6 +66,7 @@ set(SOURCES
         src/render/resource/texture.cpp
         src/render/render_context.cpp
         src/render/scene/scene_resolver.cpp
+        src/render/scene/scene_picking.cpp
         src/render/scene/scene_extractor.cpp
         src/render/scene/scene_renderer.cpp
         src/render/resource/resource_manager.cpp

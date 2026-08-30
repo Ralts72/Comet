@@ -1216,7 +1216,8 @@ Scene Component / RenderItem
 - 实现对象拾取、Selection 同步、移动/旋转/缩放 gizmo 和选中对象高亮。
 - [x] 完成拾取技术审计并建立 CPU bounds 基础：MeshData 计算有限 local AABB，Runtime Mesh 与 GPU buffer 同候选保存；该数据同时服务
   CPU ray picking、Focus Selection、culling 和 debug draw，不保留完整 CPU 顶点副本。
-- [ ] 先实现 CPU ray-local-AABB 最近命中与 Selection 同步；GPU ID attachment/readback 留到真实几何精度需求出现并与阶段 5 RenderGraph
+- [x] 实现 CPU ray-local-AABB 最近命中与 Selection 同步：点击事件映射为当前纹理 pixel，Renderer 复用当前 RenderSubmission/Camera，
+  空白点击清除选择且查询不依赖 ImGui 或 GPU 等待；GPU ID attachment/readback 留到真实几何精度需求出现并与阶段 5 RenderGraph
   resource/pass contract 一起设计。
 - 如果对象拾取采用 GPU ID buffer，按请求或 FrameSlot 持有 host-visible readback buffer；copy 完成并确认
   fence/timeline 后再 invalidate/read。若采用 CPU ray cast，则不为了预留能力提前建立通用 readback 系统。
@@ -1496,9 +1497,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步实现 **CPU ray-AABB 拾取闭环**：从当前 camera view/projection 与 RenderTarget pixel 构造 world ray，把 ray 变换到每个
-ResolvedRenderItem 的 local space，与 Mesh bounds 求最近非负命中，并通过 Renderer 的一次性 query/result 边界同步 Selection。
-点击事件仍由 ViewPanel 产生，纯 picking 不依赖 ImGui；空白点击清除选择。
+下一步实现 **Focus Selection**：从当前 Selection 对应实体的 world transform 与 Runtime Mesh local bounds 计算聚焦中心和尺度，
+让 2D/3D editor camera 通过事件式按键请求定位选中对象且不修改 Scene。完成后再审计选中高亮、gizmo 渲染与 Undo/Redo 命令边界，
+避免 gizmo 直接散落写 Transform。
 runtime format/sample-count-dependent Pipeline generation 归入阶段 5，与 PipelineKey/RenderGraph 生命周期一并设计，避免在旧
 PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 
@@ -1589,6 +1590,7 @@ PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 63. [x] 建立 Viewport editor camera 输入闭环：拆分 overlay prepare/render 时序，当前帧 UI 状态在 SceneResolver 前提交；可见画面内激活 RMB orbit、MMB pan、wheel zoom，纯 controller 覆盖距离、平移和异常输入测试。
 64. [x] 让 Viewport 2D/3D 成为真实观察模式：RenderCamera/SceneResolver 支持正交高度，ViewPanel 只发投影切换事件；2D 固定观察轴、使用屏幕 XY pan 与独立正交 zoom，保留 3D camera 状态。
 65. [x] 完成 Viewport picking 技术审计并建立可复用 Mesh bounds：新增通用 AxisAlignedBox，MeshData 拒绝空/非有限位置，Runtime Mesh 与 GPU buffer 同候选保存 local bounds；CPU ray-AABB 优先于当前阶段的 GPU ID/readback。
+66. [x] 建立事件式 CPU Viewport 拾取闭环：ViewPanel 只提交可见画面内的当前纹理 pixel，Renderer 用当帧 RenderSubmission/Camera 完成 ray-local-AABB 最近命中并回调 Selection；空白点击清除选择，无 GPU readback 或 ImGui 下沉。
 
 格式所有权后续需求：
 

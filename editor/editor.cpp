@@ -178,6 +178,7 @@ namespace {
                     m_imgui_context->update_frame();
                     apply_viewport_camera_input();
                     update_viewport_state();
+                    submit_viewport_pick();
                 },
                 [this](Comet::CommandBuffer& cmd) {
                     m_imgui_context->render(cmd);
@@ -190,6 +191,18 @@ namespace {
                 },
                 [this](const Comet::SwapchainCompatibility& compatibility) {
                     m_imgui_context->rebuild_swapchain_resources(compatibility);
+                });
+
+            renderer.set_viewport_pick_callback(
+                [this](const std::optional<Comet::ScenePickHit> hit) {
+                    if(!m_selection) {
+                        return;
+                    }
+                    if(hit) {
+                        m_selection->select_entity(hit->entity_id);
+                    } else {
+                        m_selection->clear();
+                    }
                 });
 
             LOG_INFO("Editor initialized");
@@ -229,6 +242,15 @@ namespace {
                     m_viewport_panel->get_render_resolution()));
         }
 
+        void submit_viewport_pick() {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
+                return;
+            }
+            if(const auto pixel = m_viewport_panel->take_pick_request()) {
+                get_engine().get_renderer().request_viewport_pick(*pixel);
+            }
+        }
+
         void update_viewport_texture(Comet::SceneRenderer& scene_renderer) {
             auto& renderer = get_engine().get_renderer();
             const uint32_t frame_slot =
@@ -265,6 +287,7 @@ namespace {
         void on_shutdown() override {
             LOG_INFO("Editor shutting down...");
             get_engine().get_renderer().set_overlay_callbacks({}, {});
+            get_engine().get_renderer().set_viewport_pick_callback({});
             get_engine()
                 .get_renderer()
                 .get_scene_renderer()

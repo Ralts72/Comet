@@ -35,11 +35,14 @@ namespace CometEditor {
         [[nodiscard]] std::optional<Comet::CameraProjection>
         take_camera_projection_request();
 
+        [[nodiscard]] std::optional<Comet::Math::Vec2u>
+        take_pick_request();
+
     private:
         void render_edit_toolbar();
         void render_play_toolbar();
         void render_view_content();
-        void update_camera_input();
+        void update_view_interaction();
         void reset_camera_interaction();
 
         const EditorState& m_state;
@@ -53,6 +56,7 @@ namespace CometEditor {
         std::optional<EditorCameraInput> m_camera_input;
         std::optional<Comet::CameraProjection>
             m_camera_projection_request;
+        std::optional<Comet::Math::Vec2u> m_pick_request;
         bool m_orbit_drag_active = false;
         bool m_pan_drag_active = false;
     };

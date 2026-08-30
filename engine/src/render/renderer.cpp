@@ -90,6 +90,16 @@ namespace Comet {
             m_scene_renderer->get_render_target().get_size();
         const RenderSubmission submission =
             m_scene_resolver.resolve(render_scene, request);
+        if(m_viewport_pick_request) {
+            const std::optional<ScenePickHit> hit = pick_render_submission(
+                submission,
+                *m_viewport_pick_request,
+                request.render_size);
+            m_viewport_pick_request.reset();
+            if(m_viewport_pick_callback) {
+                m_viewport_pick_callback(hit);
+            }
+        }
         const auto resource_waits = m_scene_renderer->render(submission);
 
         m_scene_renderer->end_render_pass();
