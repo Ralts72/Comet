@@ -394,8 +394,9 @@ frame-compile tracker，持久资源通过明确 handoff state 连接两者；�
 
 ### GPU Completion 与延迟释放
 
-当前 `FrameSlot` 已持有 in-flight fence，`FrameManager::begin_frame()` 会在复用 slot 前等待该 fence，但 slot 内没有
-资源退休队列。viewport resize、swapchain recreation、渲染模式切换和 renderer cleanup 仍通过 `Device::wait_idle()`
+当前 `FrameSlot` 已持有 in-flight fence，并记录最近一次 Queue submission 返回的单调 `GpuCompletionPoint`；
+`FrameManager::begin_frame()` 会在复用 slot 前等待该 fence，但 slot 内还没有资源退休队列。viewport resize、swapchain
+recreation、渲染模式切换和 renderer cleanup 仍通过 `Device::wait_idle()`
 保证旧资源不再被 GPU 使用。这对当前阶段是安全且简单的基线，但不能作为 texture/shader/pipeline 热重载、资产卸载、
 streaming 和持续 resize 的常规资源替换机制。
 
@@ -496,7 +497,9 @@ image。旧 swapchain 的回收必须使用可用的 present completion/fence；
 当前 Vulkan 1.3 `synchronization2` feature 查询与启用、`Queue::submit2()` 和显式 image barrier 迁移均已完成。
 每个 submit wait/signal 使用独立 `vk::SemaphoreSubmitInfo`；Texture 阻塞上传通过类型化 `ImageState` 提供 stage、
 access、layout、subresource 和 queue owner，并由 `vk::ImageMemoryBarrier2`、`vk::DependencyInfo` 与
-`pipelineBarrier2()` 录制。旧 layout-pair 推断、legacy image barrier 和对应 32-bit stage/access 转换已经删除。
+`pipelineBarrier2()` 录制。Vulkan 1.2 `timelineSemaphore` 也已加入能力查询和 logical device feature chain；每个
+Queue submission 会 signal 单调 timeline value 并返回 `GpuCompletionPoint`。旧 layout-pair 推断、legacy image
+barrier、对应 32-bit stage/access 转换以及 Queue 级上传 `waitIdle()` 已经删除。
 
 Synchronization 2 应作为阶段 3 异步上传的前置基础设施，顺序固定为：
 
@@ -1036,14 +1039,16 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   image subresource range 和不完整输入的拒绝规则，并使用纯单元测试覆盖。
 - [x] 让现有 Texture upload 提供 known-before/desired-after state，删除 layout-pair `if/else` 和 legacy
   `pipelineBarrier()`；传统 RenderPass 的隐式 attachment 转换继续由 RenderPass 契约表达。
-- 先用现有 swapchain frame submit、texture upload 和 buffer copy 路径验证迁移等价性，再引入 timeline semaphore；
-  不把 API 迁移、异步上传和 transfer queue 合并成一个无法单独回归的大改动。
+- [x] 用现有 swapchain frame submit、texture upload 和 buffer copy 路径保持迁移等价性，并引入 Queue 独占 timeline
+  semaphore 和 `GpuCompletionPoint`；没有把 API 迁移、异步上传和 transfer queue 合并成一次改动。
 - 在阶段 3 后半段建立 `UploadManager`：使用可复用的 staging pages/ring 和批量 copy command，将一次资源上传从
   “每个资源单独 `queue.waitIdle()`”演进为“提交 upload batch 并返回 completion token”。
 - 明确 `upload_and_wait()`、`enqueue_upload()` 和 `flush_batch()` 契约。异步资源携带 ready token；首次 graphics
   消费在准确 stage 等待 upload timeline value，同一有序 queue 上的冗余 wait 可由 backend 消除。
-- 建立 `GpuCompletionPoint` 与 owner-thread `GpuRetirementQueue`。FrameSlot 在 fence signal 后清理自己的
-  `DeferredReleaseBatch`；UploadManager 按 timeline value 回收，不把循环 slot index 当成长期完成标识。
+- [x] 建立 `GpuCompletionPoint`，让 Queue submission 返回单调 timeline value，并由 FrameSlot 记录最近提交而不是
+  只保存循环 slot index。
+- 建立 owner-thread `GpuRetirementQueue`。FrameSlot 在 fence signal 后清理自己的 `DeferredReleaseBatch`；
+  UploadManager 按 timeline value 回收。
 - 将 `FrameManager` 逐步收敛为 FrameScheduler contract：统一 slot index、frame submission serial，以及
   wait completion、collect retirement、reset per-frame arena、开始录制的顺序；本阶段不强制迁移全部 UBO/descriptor。
 - `UploadManager` 根据 fence 或 timeline value 延迟回收 staging allocation、upload command buffer 和上传期间临时
@@ -1441,7 +1446,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：GPU completion 与 timeline semaphore 基线**。类型化资源状态、submit2 和显式 Image Barrier2 已完成，Texture 阻塞上传不再依赖 layout-pair 推断；接下来应先定义可测试的 `GpuCompletionPoint`，让 Semaphore 支持 timeline 类型与单调 value，并让 Queue 的 signal/wait 契约能返回和消费完成点。完成后再把每个 Texture 独立 `queue.waitIdle()` 收敛为 UploadManager batch，而不是直接把线程池、transfer queue 和资源热替换揉成一次改动。
+下一步继续 **阶段 3：最小 UploadManager 与批量上传**。类型化资源状态、submit2、Image Barrier2、timeline semaphore 和单调 `GpuCompletionPoint` 已形成完整底座，阻塞式 CommandContext 也只等待自己的 submission；接下来应先定义 `upload_and_wait()`、`enqueue_upload()`、`flush_batch()` 和 staging lifetime 契约，再让 Buffer/Texture 创建通过同一上传入口合并 copy 与 barrier。首版继续使用 graphics queue，不提前引入独立 transfer queue；异步 ready token 必须能转成 graphics submission 的 GPU-side wait。
 
 建议的职责边界：
 
@@ -1483,6 +1488,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 16. [x] 从 Mesh 缓存恢复 Importer 源依赖，在 Asset Database 建立源路径正向/反向索引，并让项目内、由 glTF 外部引用的 `.bin` 变化推进所属 Mesh revision、触发后台热刷新。
 17. [x] 建立类型化 `ResourceUsage`、`ResourceState`/`ImageState` 与 usage-to-state 映射，显式携带 queue owner 和 image subresource range，并拒绝缺少 shader stage、非法 aspect 和空范围。
 18. [x] 将现有显式 image transition 迁移到 `ImageMemoryBarrier2`/`DependencyInfo`，让 Texture 上传提供前后 `ImageState`，删除 layout-pair 推断和 legacy `pipelineBarrier()`。
+19. [x] 启用 Vulkan timeline semaphore，Queue 为每次 submission 返回单调 `GpuCompletionPoint`，FrameSlot 记录最近提交，阻塞式资源上传只等待对应完成点而不再等待整个 Queue idle。
 
 格式所有权后续需求：
 

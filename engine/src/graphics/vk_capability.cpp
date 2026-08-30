@@ -219,21 +219,31 @@ namespace Comet {
             candidate_info.sampler_anisotropy_supported = supported_features.samplerAnisotropy;
             candidate_info.max_sampler_anisotropy = properties.limits.maxSamplerAnisotropy;
             if(properties.apiVersion >= VK_API_VERSION_1_3) {
+                vk::PhysicalDeviceVulkan12Features supported_vulkan12_features{};
                 vk::PhysicalDeviceVulkan13Features supported_vulkan13_features{};
                 vk::PhysicalDeviceFeatures2 supported_features2{};
-                supported_features2.pNext = &supported_vulkan13_features;
+                supported_features2.pNext = &supported_vulkan12_features;
+                supported_vulkan12_features.pNext =
+                    &supported_vulkan13_features;
                 physical_device.getFeatures2(&supported_features2);
+                candidate_info.timeline_semaphore_supported =
+                    supported_vulkan12_features.timelineSemaphore;
                 candidate_info.synchronization2_supported =
                     supported_vulkan13_features.synchronization2;
             }
 
-            auto [score, rejection_reasons, notes, score_reasons, enabled_features, enabled_vulkan13_features, max_sampler_anisotropy] = evaluate_device_candidate(
+            auto [score, rejection_reasons, notes, score_reasons,
+                enabled_features, enabled_vulkan12_features,
+                enabled_vulkan13_features, max_sampler_anisotropy] =
+                evaluate_device_candidate(
                 candidate_info, request);
             candidate.score = score;
             candidate.rejection_reasons = std::move(rejection_reasons);
             candidate.notes = std::move(notes);
             candidate.score_reasons = std::move(score_reasons);
             candidate.capability.enabled_features = enabled_features;
+            candidate.capability.enabled_vulkan12_features =
+                enabled_vulkan12_features;
             candidate.capability.enabled_vulkan13_features =
                 enabled_vulkan13_features;
             candidate.capability.max_sampler_anisotropy = max_sampler_anisotropy;
@@ -287,6 +297,12 @@ namespace Comet {
                 "required Vulkan 1.3 feature synchronization2 is unsupported");
         } else {
             evaluation.enabled_vulkan13_features.synchronization2 = VK_TRUE;
+        }
+        if(!candidate.timeline_semaphore_supported) {
+            evaluation.rejection_reasons.emplace_back(
+                "required Vulkan 1.2 feature timelineSemaphore is unsupported");
+        } else {
+            evaluation.enabled_vulkan12_features.timelineSemaphore = VK_TRUE;
         }
 
         if(request.max_sampler_anisotropy > 1.0f) {

@@ -17,6 +17,7 @@
 #include "graphics/resource/sampler.h"
 #include "graphics/synchronization/semaphore.h"
 #include "graphics/pipeline/shader.h"
+#include "graphics/queue.h"
 #include "graphics/swapchain.h"
 
 using namespace Comet;
@@ -66,4 +67,8 @@ TEST(VulkanRaiiOwnershipTest, OwningWrappersDoNotCopyOrMoveByDefault) {
 TEST(VulkanRaiiOwnershipTest, ExplicitlyMovableSyncWrappersDoNotCopy) {
     expect_noncopyable_movable_owner<Fence>();
     expect_noncopyable_movable_owner<Semaphore>();
+    EXPECT_FALSE(std::is_copy_constructible_v<Queue>);
+    EXPECT_FALSE(std::is_copy_assignable_v<Queue>);
+    EXPECT_TRUE(std::is_move_constructible_v<Queue>);
+    EXPECT_FALSE(std::is_move_assignable_v<Queue>);
 }
