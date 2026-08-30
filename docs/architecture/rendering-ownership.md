@@ -107,6 +107,8 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
   直到 timeline completion 后整页回池。它不认识 AssetHandle、Importer 或资产发布策略。
 - staging 空闲池最多缓存配置数量的默认 page，超大 page 不进入长期缓存；只有 best-fit 失败、池即将增长时才查询
   memory budget，高压力时可销毁空闲页，但绝不回收 active/pending batch 拥有的页。
+- UploadManager CreateInfo 可选的 staging growth guard 在任何增长副作用前允许或拒绝新 page；生产默认不设置，自动化测试用
+  它确定性注入 allocation error，验证 batch 隔离而不依赖真实显存耗尽。
 - recoverable `UploadBatch::try_enqueue_upload()` 在 staging 失败时只 abort 自身：先 discard 自己的未提交 CommandContext，再
   释放目标引用并回收自己的 page；其他 open batch 不受影响。pending batch 已有 completion，不能 abort，只能等待正常回收。
 - UploadBatch 不可复制或移动，析构自动 abort 未提交工作；UploadManager 必须比其创建的 open batch 活得更久，并在析构时

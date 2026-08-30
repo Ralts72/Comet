@@ -1,11 +1,12 @@
 #pragma once
+#include "common/export.h"
 #include "vk_common.h"
 #include "vk_capability.h"
 #include "core/window.h"
 #include "config/config.h"
 
 namespace Comet {
-    class Context {
+    class COMET_API Context {
     public:
         Context(const Window& window, const Config::Vulkan& config,
                 const DeviceCapabilityRequest& capability_request);

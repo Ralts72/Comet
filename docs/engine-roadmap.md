@@ -1472,9 +1472,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：UploadBatch staging fault injection**。显式、不可复制的 UploadBatch 已独占未提交 context/resources，
-submit 才把 pending ownership 交回 UploadManager；接下来增加仅由测试配置提供的 staging allocation seam，确定性验证一个
-batch 的增长失败和 abort 不会改变另一个 open batch，再评估 Texture 后台 CPU 导入。
+下一步继续 **阶段 3：Texture 后台 CPU 导入与 revision 验票**。真实 GPU fault-injection 测试已确认一个 UploadBatch 的
+staging 增长失败不会影响另一个 open batch；接下来复用 TaskScheduler 模型，让 Worker 只读取/解码 TextureData，Owner Thread
+执行 recoverable GPU 创建和 Registry replace，并阻止旧候选覆盖新 revision。
 
 建议的职责边界：
 
@@ -1538,6 +1538,7 @@ batch 的增长失败和 abort 不会改变另一个 open batch，再评估 Text
 38. [x] 将 recoverable Mesh/Texture 结果接入 RenderResourceFactory、ResourceManager 和 AssetManager：资产创建遵守预算，失败记录具体 Vulkan error，刷新候选不替换旧 Registry 对象。
 39. [x] 完成 recoverable GPU 创建纵向链复盘：删除 ResourceManager 无调用方的强失败转发，禁止默认构造 GpuResourceResult，并确认下一优先级是把 UploadManager 全局 active state 收敛为显式 UploadBatch。
 40. [x] 建立显式 UploadBatch：每个 scope 独占未提交 CommandContext、目标引用和 staging pages，submit 后移交 pending ownership，析构/失败只 abort 自身；删除 UploadManager 全局 active API。
+41. [x] 增加 staging growth guard 和真实 GPU fault-injection 测试：Batch A 第二次增长返回 out-of-device-memory 并只回滚 A，已开放 Batch B 仍能提交、等待和回收；补齐 Window/Context 动态库导出。
 
 格式所有权后续需求：
 
