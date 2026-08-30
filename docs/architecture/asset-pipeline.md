@@ -47,21 +47,23 @@ AssetRegistry
     ↓ 唯一按 AssetHandle 缓存并向 SceneResolver 提供运行时对象
 ```
 
-已加载 Mesh 的 Project 刷新使用后台 CPU 路径：
+已加载 Mesh/Texture 的 Project 刷新使用后台 CPU 路径：
 
 ```text
 AssetManager::scan() 提交新 AssetRevision
-    ↑ 顶层 glTF/.meta 或已登记外部 buffer 发生变化
-    → TaskScheduler Worker：缓存校验或 MeshImporter → CPU MeshImportCandidate
-    → 线程安全 completion queue
+    ↑ 顶层源文件/.meta 或已登记外部 buffer 发生变化
+    → TaskScheduler Worker
+        ├── 缓存校验或 MeshImporter → CPU MeshImportCandidate
+        └── TextureImporter → CPU TextureImportCandidate
+    → 类型化的线程安全 completion queue
     → AssetManager::process_completions()（Owner Thread）
         → revision 验票
-        → 有效时更新缓存
-        → RenderResourceFactory 创建 Runtime Mesh
+        → Mesh 有效时更新缓存和源依赖
+        → RenderResourceFactory 尝试创建 Runtime Mesh/Texture
         → 再次验票并替换 AssetRegistry
 ```
 
-Worker 只接收路径、Handle 和 revision 的值拷贝，不访问 `AssetDatabase`、`AssetRegistry` 或 Vulkan。刷新进行中、导入失败以及 Runtime Mesh 创建失败时，Registry 中的旧 Mesh 都保持可用；相同 Handle 的连续变化可以同时完成，但只有当前 revision 会进入缓存和 Registry。
+Worker 只接收路径、Handle、revision 和已校验 Importer 设置的值拷贝，不访问 `AssetDatabase`、`AssetRegistry` 或 Vulkan。刷新进行中、导入失败以及 Runtime Resource 创建失败时，Registry 中的旧 Mesh/Texture 都保持可用；相同 Handle 的连续变化可以同时完成，但只有当前 revision 会进入 GPU 创建和 Registry，Mesh 还会在验票后更新缓存。
 
 Importer 源依赖与 Material 的 AssetHandle 依赖是两套不同关系：前者表示“哪些项目文件参与生成这个资产”，后者表示“哪些资产在运行时引用另一个资产”。`MeshImportCache` 已在二进制产物中持久保存外部 buffer 的项目相对路径和内容指纹；缓存命中或重新导入后，`AssetManager` 把这些路径登记到 `AssetDatabase`，由后者维护 `AssetHandle → source paths` 与 `source path → owning AssetHandles` 两个索引，并把依赖文件签名合入资产变化检测。`.bin` 被视为 Importer 的辅助输入，不作为独立资产建立 Handle 或 `.meta`。
 
@@ -106,7 +108,7 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 
 - `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径、已校验 Importer 设置以及两类正向/反向依赖索引；Material 的 AssetHandle 依赖由 `MaterialData` 提取，Importer 源依赖由成功导入或缓存命中结果登记。缺失资产引用和错误类型进入扫描报告，`.bin` 等明确的导入辅助输入不单独建档。扫描先完整构建候选快照，再一次替换当前快照并报告新增、删除和修改 Handle；目录发现不完整时保留上一份有效快照。顶层源文件、`.meta` 和已登记的 Importer 输入签名共同负责检测变化，每次提交的资产变化会获得独立、单调的 `AssetRevision`，供结果发布时验票。Revision 是当前进程内的不透明版本，不持久化，也不承担内容哈希职责。设置更新先成功写入 `.meta`，再更新内存记录。
 - `AssetMetadataSerializer`：只负责 `.meta` 的 YAML 读写和类型/设置契约校验；`AssetMetadata` 本身仍是独立于文件格式的数据类型。
-- `AssetManager`：协调数据库、Importer、派生数据、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载、Texture 重新导入和 Mesh 刷新都会先完整构建候选对象，失败时保留旧对象。同步 Mesh 首载在调用线程完成；已加载 Mesh 的刷新向 TaskScheduler 提交纯 CPU 工作，由 `process_completions()` 在 Owner Thread 验票后写缓存、尝试创建 Runtime Mesh 并发布。Runtime Mesh/Texture 创建返回类型化 GPU 错误，首次加载失败不注册，刷新失败不替换上一有效对象。手动扫描提交后会卸载已删除资产及仍依赖它们的 Runtime 对象，并刷新发生修改且当前已加载的 Texture/Material/Mesh。
+- `AssetManager`：协调数据库、Importer、派生数据、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载、Texture 重新导入和 Mesh/Texture 扫描刷新都会先完整构建候选对象，失败时保留旧对象。同步首载和 Inspector Texture reimport 在调用线程完成；已加载 Mesh/Texture 的扫描刷新向 TaskScheduler 提交纯 CPU 工作，由 `process_completions()` 在 Owner Thread 验票后更新缓存/依赖、尝试创建 Runtime Resource 并发布。Runtime Mesh/Texture 创建返回类型化 GPU 错误，首次加载失败不注册，刷新失败不替换上一有效对象。手动扫描提交后会卸载已删除资产及仍依赖它们的 Runtime 对象，并刷新发生修改且当前已加载的 Texture/Material/Mesh。
 - `TaskScheduler`：Engine 持有的通用固定 Worker 池，提供 FIFO 任务提交、Future、等待空闲和 drain-on-destruction；不认识资产类型、Registry 或 Vulkan。显式传入单 Worker 可让并发测试保持确定性。
 - `MeshImporter`：唯一接触 glTF Mesh 格式的解析边界，使用 fastgltf 读取 `.gltf`/`.glb`，输出不包含 GPU 对象的 `MeshData`，并报告参与导入的外部 buffer 路径；fastgltf 类型不进入 Comet 公共头文件。
 - `MeshImportCache`：确定性读写版本化 Mesh 导入缓存，记录项目内源文件和外部 buffer 的相对路径及内容指纹；命中时同时恢复 `MeshData` 和源依赖路径，格式版本、Importer 输出版本、输入内容或缓存校验和不匹配时返回 miss。它不创建 GPU 对象，也不管理运行时资源生命周期。
@@ -127,7 +129,7 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 ResourceManager 和 Device 级共享资源。
 
 Material/Texture/Mesh 替换只交换 Registry 中的 `shared_ptr`，已取得旧对象的当前帧和 descriptor frame slot 仍可自然持有到结束；
-当前 `AssetRevision` 与 completion queue 解决 Mesh CPU 候选的版本一致性，不等同于文件监听热重载，也不替代后续的异步 GPU completion 和 GPU retirement 机制。
+当前 `AssetRevision` 与 completion queue 解决 Mesh/Texture CPU 候选的版本一致性，不等同于文件监听热重载，也不替代异步 GPU completion 和 GPU retirement 机制。
 
 Project 刷新成功提交快照后，会通过变化集清理删除资产及其依赖对象、刷新已加载的修改资产，并以事件方式使 Inspector
 丢弃同一 Handle 的旧编辑缓存；扫描目录暂时不可访问时三者继续使用上一份有效快照。当前手动刷新路径仍不等于文件监听热重载，

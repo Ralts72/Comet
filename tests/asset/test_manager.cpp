@@ -96,12 +96,23 @@ namespace Comet::Tests {
             }
 
             static void replace_texture(
-                const std::filesystem::path& path) {
+                const std::filesystem::path& path,
+                const bool restore_original = false) {
                 std::filesystem::copy_file(
                     std::filesystem::path(PROJECT_ROOT_DIR)
-                        / "assets/textures/R-C.jpeg",
+                        / (restore_original
+                            ? "assets/textures/awesomeface.png"
+                            : "assets/textures/R-C.jpeg"),
                     path,
                     std::filesystem::copy_options::overwrite_existing);
+            }
+
+            static void corrupt_texture(
+                const std::filesystem::path& path) {
+                std::ofstream output(
+                    path,
+                    std::ios::binary | std::ios::trunc);
+                output << "corrupted texture data";
             }
 
             std::filesystem::path add_external_mesh(
@@ -549,7 +560,113 @@ namespace Comet::Tests {
         ASSERT_TRUE(refresh.snapshot_updated);
         EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
         EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_EQ(resource_factory.texture_creation_count(), 1);
+
+        task_scheduler.wait_idle();
+        manager.process_completions();
+
+        EXPECT_EQ(registry.resolve<Texture>(handle), original);
         EXPECT_EQ(resource_factory.texture_creation_count(), 2);
+    }
+
+    TEST(AssetManagerTest, RefreshesModifiedTextureOnOwnerThread) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(84);
+        const std::filesystem::path texture_path =
+            project.add_texture(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const std::shared_ptr<Texture> original = manager.load_texture(handle);
+        ASSERT_NE(original, nullptr);
+        TemporaryProject::replace_texture(texture_path);
+
+        const AssetScanReport refresh = manager.scan();
+
+        ASSERT_TRUE(refresh.snapshot_updated);
+        EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
+        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_EQ(resource_factory.texture_creation_count(), 1);
+
+        task_scheduler.wait_idle();
+        manager.process_completions();
+
+        EXPECT_NE(registry.resolve<Texture>(handle), original);
+        EXPECT_EQ(resource_factory.texture_creation_count(), 2);
+    }
+
+    TEST(AssetManagerTest, PublishesOnlyLatestBackgroundTextureRevision) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(84);
+        const std::filesystem::path texture_path =
+            project.add_texture(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const std::shared_ptr<Texture> original = manager.load_texture(handle);
+        ASSERT_NE(original, nullptr);
+
+        std::promise<void> release_worker;
+        const std::shared_future<void> worker_gate =
+            release_worker.get_future().share();
+        std::future<void> blocker = task_scheduler.submit([worker_gate] {
+            worker_gate.wait();
+        });
+
+        TemporaryProject::replace_texture(texture_path);
+        const AssetScanReport first_refresh = manager.scan();
+        ASSERT_TRUE(contains_handle(first_refresh.modified_assets, handle));
+        const AssetRevision first_revision =
+            manager.get_database().get_revision(handle);
+
+        TemporaryProject::replace_texture(texture_path, true);
+        const AssetScanReport second_refresh = manager.scan();
+        ASSERT_TRUE(contains_handle(second_refresh.modified_assets, handle));
+        EXPECT_GT(manager.get_database().get_revision(handle), first_revision);
+        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+
+        release_worker.set_value();
+        task_scheduler.wait_idle();
+        blocker.get();
+        manager.process_completions();
+
+        EXPECT_NE(registry.resolve<Texture>(handle), original);
+        EXPECT_EQ(resource_factory.texture_creation_count(), 2);
+    }
+
+    TEST(AssetManagerTest, KeepsPreviousTextureWhenBackgroundImportFails) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(84);
+        const std::filesystem::path texture_path =
+            project.add_texture(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const std::shared_ptr<Texture> original = manager.load_texture(handle);
+        ASSERT_NE(original, nullptr);
+        TemporaryProject::corrupt_texture(texture_path);
+
+        const AssetScanReport refresh = manager.scan();
+
+        ASSERT_TRUE(refresh.snapshot_updated);
+        EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
+        task_scheduler.wait_idle();
+        manager.process_completions();
+
+        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_EQ(resource_factory.texture_creation_count(), 1);
     }
 
     TEST(AssetManagerTest, ReloadsModifiedLoadedMaterialAfterScan) {

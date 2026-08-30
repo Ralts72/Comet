@@ -29,8 +29,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但 Scene/ECS 已经接入最小运行时渲染链路、
 编辑器基础数据闭环和场景持久化，New/Open/Save 与最小 Play/Edit 隔离也已经接入编辑器。当前主要矛盾已经转变为：
-Texture/Material/Mesh 资产纵向链路已经建立，Mesh 也已有第一种 `.comet/cache/` 导入产物，并通过通用 TaskScheduler、
-revision 验票和 Owner Thread completion 形成第一段后台 CPU 刷新；Mesh 外部 buffer 也已通过持久化缓存输入、源路径反向索引和 revision 形成精确失效，但渲染接口仍偏 demo 化，其他资产后台导入和运行时 System 调度还没有形成。
+Texture/Material/Mesh 资产纵向链路已经建立，Mesh 也已有第一种 `.comet/cache/` 导入产物；已加载 Mesh/Texture 通过通用
+TaskScheduler、revision 验票和 Owner Thread completion 完成后台 CPU 刷新，Mesh 外部 buffer 也已通过持久化缓存输入、源路径反向索引和 revision 形成精确失效，但渲染接口仍偏 demo 化，文件监听和运行时 System 调度还没有形成。
 
 最明显的信号是：
 
@@ -47,7 +47,7 @@ revision 验票和 Owner Thread completion 形成第一段后台 CPU 刷新；Me
 - Play 会从 Edit Scene 创建独立 Runtime Scene，Stop 后丢弃运行时修改并恢复原 Scene；暂停、单帧步进和真正的
   runtime System 更新仍未实现。
 - Texture/Material/Mesh 已建立 Asset Database、导入/序列化和运行时发布链路，Mesh 产物可按源 glTF 与外部 buffer
-  内容自动失效，已加载 Mesh 会在外部 buffer 变化后进入后台刷新；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，文件监听和通用递归依赖传播仍未建立。
+  内容自动失效，已加载 Mesh/Texture 会在扫描发现变化后进入后台 CPU 刷新；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，文件监听和通用递归依赖传播仍未建立。
 - Scene Update 和 Render Submit 的最小边界已经落地，运行时 System 调度仍未建立。
 
 ## 距离成熟编辑器型引擎的核心缺口
@@ -1042,6 +1042,7 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   limits 和 format 能力；明确它承担 GraphicsDevice 职责，但不迁入 FrameSlot、资产或 RenderTarget 所有权。
 - [x] 建立最小 `TaskScheduler`/worker pool，支持 FIFO 提交、Future、等待空闲和安全 drain；Engine 统一持有，测试可显式使用单 Worker。
 - [x] 将已加载 Mesh 的缓存读取和 CPU 导入移出主线程；worker 只产出候选结果，Owner Thread 验证 revision 后才写缓存、创建 Runtime Mesh 和替换 Registry，失败时保留旧 Mesh。同步首载暂时保留。
+- [x] 将已加载 Texture 的文件读取和图片解码移出主线程；Mesh/Texture 共享任务占位与 pending revision 去重，Owner Thread 双重验票后才创建 GPU Texture、替换 Registry 并刷新已加载 Material 依赖。
 - [x] 在现有显式同步路径完成 Synchronization 2 迁移：通过 GFX-002 的 Vulkan 1.3 feature chain 查询并启用
   `synchronization2`，将 queue submit 改为 `vk::SubmitInfo2`/`submit2()`，将显式 image/buffer barrier 改为
   `vk::DependencyInfo` 和 `vk::ImageMemoryBarrier2`/`vk::BufferMemoryBarrier2`。
@@ -1472,9 +1473,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：Texture 后台 CPU 导入与 revision 验票**。真实 GPU fault-injection 测试已确认一个 UploadBatch 的
-staging 增长失败不会影响另一个 open batch；接下来复用 TaskScheduler 模型，让 Worker 只读取/解码 TextureData，Owner Thread
-执行 recoverable GPU 创建和 Registry replace，并阻止旧候选覆盖新 revision。
+下一步继续 **阶段 3：Editor 项目文件监听入口**。Mesh/Texture 已共享通用异步任务占位与 revision 去重，Worker 只生成类型化
+CPU candidate，Owner Thread 完成 GPU 创建和发布；接下来建立只负责触发既有 AssetDatabase scan 的轻量 watcher，先明确
+事件合并、编辑器自身写入抑制和目录不可访问策略，不在 watcher 线程执行导入或 Registry 修改。
 
 建议的职责边界：
 
@@ -1539,6 +1540,7 @@ staging 增长失败不会影响另一个 open batch；接下来复用 TaskSched
 39. [x] 完成 recoverable GPU 创建纵向链复盘：删除 ResourceManager 无调用方的强失败转发，禁止默认构造 GpuResourceResult，并确认下一优先级是把 UploadManager 全局 active state 收敛为显式 UploadBatch。
 40. [x] 建立显式 UploadBatch：每个 scope 独占未提交 CommandContext、目标引用和 staging pages，submit 后移交 pending ownership，析构/失败只 abort 自身；删除 UploadManager 全局 active API。
 41. [x] 增加 staging growth guard 和真实 GPU fault-injection 测试：Batch A 第二次增长返回 out-of-device-memory 并只回滚 A，已开放 Batch B 仍能提交、等待和回收；补齐 Window/Context 动态库导出。
+42. [x] 将已加载 Texture 的扫描刷新迁到 TaskScheduler：泛化 pending/scheduled task 状态，Worker 只解码 TextureData，Owner Thread 双重 revision 验票、可恢复 GPU 创建并替换 Registry，失败保留旧 Texture。
 
 格式所有权后续需求：
 
