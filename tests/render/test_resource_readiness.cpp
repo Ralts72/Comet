@@ -19,6 +19,13 @@ namespace Comet::Tests {
         };
 
         template<typename T>
+        concept ExposesLocalBounds = requires(const T& resource) {
+            {
+                resource.get_local_bounds()
+            } -> std::same_as<const AxisAlignedBox&>;
+        };
+
+        template<typename T>
         concept CollectsCompletedUploads = requires(T& manager) {
             manager.collect_completed_uploads();
         };
@@ -74,6 +81,7 @@ namespace Comet::Tests {
 
     TEST(ResourceReadinessTest, RuntimeGpuResourcesExposeCompletion) {
         EXPECT_TRUE(ExposesReadyCompletion<Mesh>);
+        EXPECT_TRUE(ExposesLocalBounds<Mesh>);
         EXPECT_TRUE(ExposesReadyCompletion<Texture>);
         EXPECT_TRUE(CollectsCompletedUploads<ResourceManager>);
         EXPECT_TRUE(SubmitsResourceWaits<SceneRenderer>);

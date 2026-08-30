@@ -128,6 +128,9 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
   的中间状态。当前 upload 与 draw
   使用同一 graphics queue；SceneRenderer 从实际 draw 资源取得 completion，并在 frame submission 转换为准确 stage
   的 timeline wait，因此未来切换 transfer queue 不改变资源与资产接口。
+- `Mesh` 不长期保留完整 CPU 顶点/索引副本，但在 GPU wrapper 发布前由 `MeshData` 计算并保存有限的 local `AxisAlignedBox`。
+  bounds 是 Runtime Mesh 的稳定派生元数据，可供 CPU picking、Focus Selection、视锥裁剪和 debug visualization 复用；热重载发布新 Mesh 时
+  bounds 与 GPU buffer 作为同一候选一起替换。空顶点或非有限 position 不会发布带无效 bounds 的 Runtime Mesh。
 - `GpuRetirementQueue`：按 submission completion 批量持有任意 Runtime GPU owner，完成后释放；它不认识资产类型、
   FrameSlot 或具体 Vulkan object。SceneRenderer 把每帧实际录制的 Mesh/Texture 和 active 离屏 MultiTarget generation 交给它；
   runtime `SwapchainTarget` 则共享持有对应 `SwapchainGeneration`，在交换链编排边界按 graphics fence 与 present queue 完成状态整体替换。
