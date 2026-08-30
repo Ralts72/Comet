@@ -126,8 +126,9 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
 `render.max_frames_in_flight` 当前为 2，与实际 swapchain image 数量相互独立。
 
 - `FrameSlot` 按 frame slot 创建，持有 in-flight fence、image-available semaphore 和 command buffer。
-- Queue 为每次 submission signal 自有 timeline 并返回单调 `GpuCompletionPoint`；FrameSlot 保存
-  `last_submission`，但仍由 fence 控制 CPU 复用。completion point 是非拥有 token，不得比 Device/Queue 活得更久。
+- Queue 为每次 submission signal 自有 timeline 并返回单调 `GpuCompletionPoint`；该 token 位于 synchronization 模块，
+  由 UploadManager、Runtime Resource 和 GpuRetirementQueue 保存。FrameSlot 只保存 fence 覆盖的 frame serial，不重复
+  保存未参与调度判断的 timeline token。completion point 是非拥有 token，不得比 Device/Queue 活得更久。
 - view/projection uniform buffer 按 frame slot 创建；材质 descriptor set 按 material handle 和 frame slot 缓存，只有对应 fence 完成后 CPU 才能改写。
 - FrameScheduler 在 slot/image fence wait 后推进 `completed_frame_serial`；SceneRenderer 以 descriptor state 的最后使用
   serial 判断何时可以销毁整组 DescriptorPool 与缓存资源，不使用固定“延迟 N 帧”猜测。

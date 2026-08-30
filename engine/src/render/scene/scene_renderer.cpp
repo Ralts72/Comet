@@ -68,7 +68,7 @@ namespace Comet {
               render_config.clear_color[1],
               render_config.clear_color[2],
               render_config.clear_color[3])) {
-        LOG_INFO("create frame manager");
+        LOG_INFO("create frame scheduler");
         m_frame_scheduler = std::make_unique<FrameScheduler>(
             context.get_device(), render_config.max_frames_in_flight);
 
@@ -403,7 +403,7 @@ namespace Comet {
             std::span(&frame_slot.command_buffer, 1),
             std::span(&render_finished_signal, 1),
             &frame_slot.in_flight_fence);
-        m_frame_scheduler->record_submission(completion);
+        m_frame_scheduler->record_submission();
         m_retirement_queue.retire_batch(
             completion,
             std::move(m_recorded_resource_owners));

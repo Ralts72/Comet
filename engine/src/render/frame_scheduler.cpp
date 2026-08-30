@@ -56,17 +56,12 @@ namespace Comet {
         m_submission_recorded = false;
     }
 
-    void FrameScheduler::record_submission(
-        const GpuCompletionPoint& completion) {
+    void FrameScheduler::record_submission() {
         if(!m_frame_active || m_submission_recorded) {
             LOG_FATAL(
                 "FrameScheduler requires one submission for the active frame");
         }
-        if(!completion.is_valid()) {
-            LOG_FATAL("Frame submission completion must be valid");
-        }
 
-        get_current_frame_slot().last_submission = completion;
         m_submission_recorded = true;
     }
 

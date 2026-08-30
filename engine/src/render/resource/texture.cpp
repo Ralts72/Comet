@@ -61,10 +61,6 @@ namespace Comet {
 
     Texture::~Texture() = default;
 
-    std::shared_ptr<Image> Texture::get_image() const {
-        return m_image_view ? m_image_view->get_image() : nullptr;
-    }
-
     void Texture::create_image(
         Device& device,
         UploadManager& upload_manager,

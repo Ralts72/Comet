@@ -124,7 +124,6 @@ namespace Comet {
         GpuRetirementQueue m_retirement_queue;
         std::vector<std::shared_ptr<void>> m_recorded_resource_owners;
         std::unordered_set<const void*> m_recorded_resource_ids;
-        Config::Vulkan m_vulkan_config;
         Format m_surface_format;
         Format m_depth_format;
         SampleCount m_msaa_samples;

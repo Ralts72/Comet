@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/export.h"
-#include "graphics/queue.h"
+#include "graphics/synchronization/gpu_completion_point.h"
 
 #include <cstddef>
 #include <memory>

@@ -1,9 +1,9 @@
 #pragma once
 #include "common/export.h"
+#include "graphics/synchronization/gpu_completion_point.h"
 #include "graphics/synchronization/semaphore.h"
 #include "vk_common.h"
 
-#include <limits>
 #include <memory>
 
 namespace Comet {
@@ -12,34 +12,6 @@ namespace Comet {
     class Fence;
     class Swapchain;
     class Queue;
-
-    class COMET_API GpuCompletionPoint {
-    public:
-        GpuCompletionPoint() = default;
-
-        [[nodiscard]] bool is_valid() const noexcept {
-            return m_timeline != nullptr && m_value > 0;
-        }
-
-        [[nodiscard]] uint64_t get_value() const noexcept { return m_value; }
-        [[nodiscard]] bool is_complete() const;
-        [[nodiscard]] bool wait(
-            uint64_t timeout = std::numeric_limits<uint64_t>::max()) const;
-
-        bool operator==(const GpuCompletionPoint&) const noexcept = default;
-
-    private:
-        friend class Queue;
-        friend struct QueueSemaphoreSubmit;
-
-        GpuCompletionPoint(
-            const Semaphore& timeline,
-            const uint64_t value)
-            : m_timeline(&timeline), m_value(value) {}
-
-        const Semaphore* m_timeline = nullptr;
-        uint64_t m_value = 0;
-    };
 
     struct QueueSemaphoreSubmit {
         const Semaphore* semaphore;

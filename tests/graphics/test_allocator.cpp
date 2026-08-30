@@ -23,9 +23,6 @@ namespace Comet::Tests {
             const T& allocator,
             const uint64_t frame_serial) {
             allocator.set_current_frame_index(frame_serial);
-            {
-                allocator.is_memory_budget_enabled()
-            } -> std::same_as<bool>;
         };
 
         template<typename T>

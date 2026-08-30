@@ -1,12 +1,10 @@
 #pragma once
 
 #include "graphics/command/command_buffer.h"
-#include "graphics/queue.h"
 #include "graphics/synchronization/fence.h"
 #include "graphics/synchronization/semaphore.h"
 
 #include <cstdint>
-#include <optional>
 #include <vector>
 
 namespace Comet {
@@ -14,7 +12,6 @@ namespace Comet {
         Fence in_flight_fence;
         Semaphore image_available_semaphore;
         CommandBuffer command_buffer;
-        std::optional<GpuCompletionPoint> last_submission;
         uint64_t last_submission_serial = 0;
 
         FrameSlot(Device& device, const CommandBuffer& command_buffer)
@@ -42,7 +39,7 @@ namespace Comet {
 
         void wait_for_current_slot();
         void begin_frame(uint32_t image_index);
-        void record_submission(const GpuCompletionPoint& completion);
+        void record_submission();
         void end_frame();
 
         void initialize_swapchain_images(uint32_t image_count);

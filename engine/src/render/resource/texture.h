@@ -1,7 +1,7 @@
 #pragma once
 #include "common/export.h"
 #include "core/math_utils.h"
-#include "graphics/queue.h"
+#include "graphics/synchronization/gpu_completion_point.h"
 #include "render/resource/texture_data.h"
 
 #include <cstddef>
@@ -9,7 +9,6 @@
 #include <span>
 
 namespace Comet {
-    class Image;
     class ImageView;
     class Device;
     class UploadManager;
@@ -30,7 +29,6 @@ namespace Comet {
 
         [[nodiscard]] int get_width() const { return m_width; }
         [[nodiscard]] int get_height() const { return m_height; }
-        [[nodiscard]] std::shared_ptr<Image> get_image() const;
         [[nodiscard]] std::shared_ptr<ImageView> get_image_view() const { return m_image_view; }
         [[nodiscard]] const GpuCompletionPoint& get_ready_completion() const {
             return m_ready_completion;

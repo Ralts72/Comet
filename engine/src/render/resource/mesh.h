@@ -1,11 +1,14 @@
 #pragma once
 #include "common/export.h"
-#include "graphics/queue.h"
-#include "graphics/resource/buffer.h"
-#include "graphics/device.h"
+#include "graphics/synchronization/gpu_completion_point.h"
 #include "render/resource/mesh_data.h"
 
+#include <memory>
+
 namespace Comet {
+    class Buffer;
+    class CommandBuffer;
+    class Device;
     class UploadManager;
 
     class COMET_API Mesh {

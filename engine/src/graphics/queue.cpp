@@ -5,6 +5,8 @@
 #include "diagnostics/profiler.h"
 #include "swapchain.h"
 
+#include <limits>
+
 namespace Comet {
     namespace {
         vk::SemaphoreSubmitInfo make_semaphore_submit_info(
@@ -28,17 +30,6 @@ namespace Comet {
             info.stageMask = vk_stage_mask;
             return info;
         }
-    }
-
-    bool GpuCompletionPoint::is_complete() const {
-        return is_valid() && m_timeline->get_counter_value() >= m_value;
-    }
-
-    bool GpuCompletionPoint::wait(const uint64_t timeout) const {
-        if(!is_valid()) {
-            LOG_FATAL("Cannot wait for an invalid GPU completion point");
-        }
-        return m_timeline->wait(m_value, timeout);
     }
 
     QueueSemaphoreSubmit::QueueSemaphoreSubmit(
