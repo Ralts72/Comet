@@ -727,6 +727,43 @@ namespace Comet::Tests {
         EXPECT_FALSE(registry.contains(handle));
     }
 
+    TEST(AssetManagerTest, UnloadsRuntimeAssetWhenIndexedTypeChanges) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path texture_path = project.add_texture(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        ASSERT_NE(manager.load_texture(handle), nullptr);
+        ASSERT_NE(registry.resolve<Texture>(handle), nullptr);
+
+        const std::filesystem::path material_path =
+                texture_path.parent_path() / "test.mat";
+        std::filesystem::rename(texture_path, material_path);
+        std::filesystem::remove(metadata_path(texture_path));
+        MaterialSerializer{}.save({
+            .template_name = "changed_type",
+            .texture_properties = {}
+        }, material_path);
+        AssetMetadataSerializer{}.save({
+            .handle = handle,
+            .type = AssetType::Material
+        }, metadata_path(material_path));
+
+        const AssetScanReport refresh = manager.scan();
+
+        ASSERT_TRUE(refresh.snapshot_updated);
+        EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
+        EXPECT_FALSE(registry.contains(handle));
+        const std::shared_ptr<Material> material = manager.load_material(handle);
+        ASSERT_NE(material, nullptr);
+        EXPECT_EQ(material->get_template_name(), "changed_type");
+    }
+
     TEST(AssetManagerTest, KeepsRuntimeAssetsWhenRescanCannotCommitSnapshot) {
         const TemporaryProject project;
         constexpr AssetHandle handle(42);

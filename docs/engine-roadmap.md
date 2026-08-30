@@ -1055,8 +1055,7 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   semaphore 和 `GpuCompletionPoint`；没有把 API 迁移、异步上传和 transfer queue 合并成一次改动。
 - [x] 建立最小 `UploadManager`，集中持有 staging、upload command context、目标资源和 completion；一个 Mesh 的
   vertex/index copy 合并为一次 submission，不再由 Buffer/Texture 各自创建临时 CommandContext。
-- [x] 明确 `upload_and_wait()`、`enqueue_upload()` 和 `flush_batch()` 的同步/提交契约，并让 flush 返回
-  `GpuCompletionPoint`。
+- [x] 明确阻塞式上传和显式 `UploadBatch` 的同步/提交契约；batch submit 返回 `GpuCompletionPoint`，未提交 batch 析构只回滚自身。
 - [x] 将每次 enqueue 的独立 staging allocation 演进为可复用 page 子分配；page 由 pending batch 独占，并在其
   timeline completion 满足后回池。更细粒度 ring 回收等 profile 证明有必要后再增加。
 - [x] 异步资源携带 ready token，首次 graphics 消费在准确 stage 等待 upload timeline value；同一 submission 内按
@@ -1069,10 +1068,10 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   wait slot、collect retirement、acquire、reset fence、record submission、advance slot 的顺序；per-frame arena 后续迁入。
 - [x] 让 FrameScheduler 从实际 fence wait 推进 completed frame serial；Material descriptor cache 记录最后使用 serial，
   仅在对应 submission 完成后回收，现阶段不创建没有实际 allocation 需求的通用 DescriptorArena。
-- `UploadManager` 根据 fence 或 timeline value 延迟回收 staging allocation、upload command buffer 和上传期间临时
-  持有的资源；保留阻塞式 `upload_and_wait()`，用于启动期、工具和测试。
-- ResourceManager 批量创建 Mesh/Texture 等 GPU Resource 时通过上传接口提交数据，不直接管理 staging lifetime，
-  pending resource 必须携带 ready token，不能在缺少 completion 或 GPU-side wait 的情况下被当作 ready resource。
+- [x] `UploadManager` 根据 timeline value 延迟回收 staging page、upload CommandContext 和上传期间临时持有的目标资源；显式
+  batch 可由调用方等待自己的 completion，用于启动期、工具和测试。
+- [x] ResourceManager 创建 Mesh/Texture 等 GPU Resource 时通过 UploadBatch 提交数据，不直接管理 staging lifetime；
+  pending resource 携带 ready token，首次 graphics 消费建立 GPU-side wait。
 - [x] 将 `VK_EXT_memory_budget` 作为 optional device capability；只在扩展实际启用后为 VMA allocator 设置
   `VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT`。
 - [x] memory budget 启用后，每个渲染帧用单调递增的 frame serial 调用 `vmaSetCurrentFrameIndex()`，不传循环变化的
@@ -1474,10 +1473,10 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：资产管线阶段性架构复盘**。Editor 已通过轻量 `AssetSourceMonitor` 自动触发既有 AssetDatabase scan，
-Mesh/Texture 共享通用异步任务占位与 revision 去重，Worker 只生成类型化 CPU candidate，Owner Thread 完成 GPU 创建和发布。
-复盘需要核对监视、数据库快照、任务占位、导入缓存、GPU 发布和旧资源保留是否存在重复状态或职责倒置，并据此决定阶段 3
-剩余的最小闭环，不直接扩展新的资产类型。
+下一步继续 **阶段 3：metadata 失败安全扫描**。资产管线复盘确认 monitor、数据库签名、revision、任务占位和导入缓存分别
+承担不同职责，但发现已有资产的 `.meta` 暂时损坏或类型不匹配时，当前候选快照会把它当作 removed 并卸载上一份 Runtime
+Resource。下一步区分真实删除与无效 sidecar：已有资产保留上一份有效记录/revision/依赖并报告问题，新资产只报告问题，重复
+GUID 等身份歧义不得按遍历顺序任意提交。
 
 建议的职责边界：
 
@@ -1544,6 +1543,7 @@ Mesh/Texture 共享通用异步任务占位与 revision 去重，Worker 只生�
 41. [x] 增加 staging growth guard 和真实 GPU fault-injection 测试：Batch A 第二次增长返回 out-of-device-memory 并只回滚 A，已开放 Batch B 仍能提交、等待和回收；补齐 Window/Context 动态库导出。
 42. [x] 将已加载 Texture 的扫描刷新迁到 TaskScheduler：泛化 pending/scheduled task 状态，Worker 只解码 TextureData，Owner Thread 双重 revision 验票、可恢复 GPU 创建并替换 Registry，失败保留旧 Texture。
 43. [x] 建立 Editor 资产源自动监视入口：500ms 时间门控只在文件快照变化时触发既有 scan，失败保留上一基线，已知 Editor 写入按路径确认，Project/Inspector 在 Owner Thread 更新。
+44. [x] 完成资产管线阶段性架构复盘：确认 monitor/database/cache/revision/task 状态各自职责，修复索引类型变化后 Registry 仍保留旧 C++ 类型的问题，并确定 metadata 失败安全为下一优先级。
 
 格式所有权后续需求：
 
