@@ -1065,6 +1065,8 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   completion，UploadManager 继续按 upload timeline value 回收 staging 与 command resources。
 - [x] 将 `FrameManager` 收敛并更名为 FrameScheduler contract：统一 slot index、单调 frame submission serial，以及
   wait slot、collect retirement、acquire、reset fence、record submission、advance slot 的顺序；per-frame arena 后续迁入。
+- [x] 让 FrameScheduler 从实际 fence wait 推进 completed frame serial；Material descriptor cache 记录最后使用 serial，
+  仅在对应 submission 完成后回收，现阶段不创建没有实际 allocation 需求的通用 DescriptorArena。
 - `UploadManager` 根据 fence 或 timeline value 延迟回收 staging allocation、upload command buffer 和上传期间临时
   持有的资源；保留阻塞式 `upload_and_wait()`，用于启动期、工具和测试。
 - ResourceManager 批量创建 Mesh/Texture 等 GPU Resource 时通过上传接口提交数据，不直接管理 staging lifetime，
@@ -1460,7 +1462,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：per-frame arena 与 descriptor 生命周期**。FrameScheduler 已明确 wait slot、collect retirement、acquire、begin、record submission 和 advance 的顺序，并提供单调 frame serial；接下来先把现有 per-frame descriptor/UBO 更新契约接到 slot 生命周期，再评估是否需要独立 transient buffer/descriptor arena。继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue。
+下一步继续 **阶段 3：GPU memory budget 能力**。现有 UBO 和 material descriptor 已按 FrameSlot 隔离，descriptor cache 也会依据 completed frame serial 安全回收；当前没有 transient allocation 负载，因此不提前创建 DescriptorArena/TransientBufferArena。接下来按 optional capability 接入 `VK_EXT_memory_budget`，并用单调 frame serial 驱动 VMA current frame，避免误用循环 slot index。
 
 建议的职责边界：
 
@@ -1510,6 +1512,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 24. [x] 完成上传/ready 子阶段架构复盘：把 stage 与 Queue wait 编译从 SceneResolver 收回 SceneRenderer，并将 timeline 完成查询移到去重之后。
 25. [x] 建立通用 GpuRetirementQueue；SceneRenderer 将实际录制的 Mesh/Texture owner 绑定到 frame completion，热重载旧资源不再早于在途 draw 销毁。
 26. [x] 将 FrameManager 更名并收敛为 FrameScheduler：显式状态机约束 slot wait、image acquire 后 begin、submission completion 记录和单调 frame serial。
+27. [x] 由实际 fence wait 推进 completed frame serial，并用它安全回收不再使用的 Material DescriptorPool/资源缓存；确认当前无需空的通用 per-frame arena。
 
 格式所有权后续需求：
 

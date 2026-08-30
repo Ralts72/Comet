@@ -3,6 +3,7 @@
 #include "diagnostics/logger.h"
 #include "graphics/device.h"
 
+#include <algorithm>
 #include <limits>
 
 namespace Comet {
@@ -32,8 +33,7 @@ namespace Comet {
             return;
         }
 
-        const auto& fence = get_current_frame_slot().in_flight_fence;
-        m_device.wait_for_fences(std::span(&fence, 1));
+        wait_for_slot(m_current_frame_slot);
         m_current_slot_ready = true;
     }
 
@@ -46,9 +46,7 @@ namespace Comet {
         auto& image_state = m_swapchain_image_states.at(image_index);
         if(const auto previous_frame_slot = image_state.in_flight_frame_slot;
            previous_frame_slot.has_value()) {
-            const auto& previous_fence =
-                m_frame_slots.at(*previous_frame_slot).in_flight_fence;
-            m_device.wait_for_fences(std::span(&previous_fence, 1));
+            wait_for_slot(*previous_frame_slot);
         }
 
         auto& current_fence = get_current_frame_slot().in_flight_fence;
@@ -104,5 +102,13 @@ namespace Comet {
         for(uint32_t index = 0; index < image_count; ++index) {
             m_swapchain_image_states.emplace_back(m_device);
         }
+    }
+
+    void FrameScheduler::wait_for_slot(const uint32_t frame_slot_index) {
+        const auto& slot = m_frame_slots.at(frame_slot_index);
+        m_device.wait_for_fences(std::span(&slot.in_flight_fence, 1));
+        m_completed_frame_serial = std::max(
+            m_completed_frame_serial,
+            slot.last_submission_serial);
     }
 }

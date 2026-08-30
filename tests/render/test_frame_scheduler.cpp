@@ -18,6 +18,12 @@ namespace Comet::Tests {
             {
                 scheduler.get_current_frame_serial()
             } -> std::same_as<uint64_t>;
+            {
+                scheduler.get_completed_frame_serial()
+            } -> std::same_as<uint64_t>;
+            {
+                scheduler.is_frame_serial_complete(1)
+            } -> std::same_as<bool>;
         };
     }
 

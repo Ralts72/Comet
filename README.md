@@ -121,7 +121,8 @@ ResourceManager 独占 UploadManager，Buffer/Image allocation 与内容上传�
 VertexInput/FragmentShader stage 加入 frame submission。实际录制使用的 Runtime GPU owner 会随 frame completion
 进入通用 GpuRetirementQueue，GPU 完成后才释放，避免热重载旧资源早于在途 draw 销毁。
 FrameScheduler 以状态机约束 wait slot、成功 acquire 后 begin、记录 submission completion、推进 slot 的顺序，并提供
-不随循环 slot 回绕的单调 frame serial。
+不随循环 slot 回绕的单调 frame serial。材质 descriptor cache 记录最后使用 serial，只在对应 frame 已完成后回收，
+持续编辑或卸载材质不会让 DescriptorPool 和 Texture owner 永久累积。
 Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability

@@ -206,6 +206,8 @@ namespace Comet {
         auto [iterator, inserted] =
                 m_material_descriptors.try_emplace(material.material_handle);
         MaterialDescriptorState& state = iterator->second;
+        state.last_used_frame_serial =
+            m_frame_scheduler->get_current_frame_serial();
         if(inserted) {
             const uint32_t frame_slot_count =
                 m_frame_scheduler->get_frame_slot_count();
@@ -302,6 +304,7 @@ namespace Comet {
         }
         m_frame_scheduler->wait_for_current_slot();
         m_retirement_queue.collect_completed();
+        collect_completed_material_descriptors();
         apply_pending_viewport_resize();
 
         auto& swapchain = m_context.get_swapchain();
@@ -486,6 +489,15 @@ namespace Comet {
         m_pipeline_manager.reset();
         m_render_target.reset();
         m_render_pass.reset();
+    }
+
+    void SceneRenderer::collect_completed_material_descriptors() {
+        std::erase_if(
+            m_material_descriptors,
+            [this](const auto& entry) {
+                return m_frame_scheduler->is_frame_serial_complete(
+                    entry.second.last_used_frame_serial);
+            });
     }
 
     void SceneRenderer::set_render_target_clear_color() const {

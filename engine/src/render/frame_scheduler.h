@@ -56,6 +56,14 @@ namespace Comet {
         [[nodiscard]] uint64_t get_current_frame_serial() const {
             return m_current_frame_serial;
         }
+        [[nodiscard]] uint64_t get_completed_frame_serial() const {
+            return m_completed_frame_serial;
+        }
+        [[nodiscard]] bool is_frame_serial_complete(
+            const uint64_t frame_serial) const {
+            return frame_serial == 0
+                || frame_serial <= m_completed_frame_serial;
+        }
 
         [[nodiscard]] FrameSlot& get_current_frame_slot() {
             return m_frame_slots.at(m_current_frame_slot);
@@ -74,12 +82,15 @@ namespace Comet {
         }
 
     private:
+        void wait_for_slot(uint32_t frame_slot_index);
+
         Device& m_device;
         std::vector<FrameSlot> m_frame_slots;
         std::vector<SwapchainImageState> m_swapchain_image_states;
         uint32_t m_current_frame_slot = 0;
         uint32_t m_frame_slot_count = 0;
         uint64_t m_current_frame_serial = 1;
+        uint64_t m_completed_frame_serial = 0;
         bool m_current_slot_ready = false;
         bool m_frame_active = false;
         bool m_submission_recorded = false;
