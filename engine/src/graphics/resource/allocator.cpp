@@ -73,12 +73,17 @@ namespace Comet {
         }
     }
 
-    Allocator::Allocator(const CreateInfo& create_info) {
+    Allocator::Allocator(const CreateInfo& create_info)
+        : m_memory_budget_enabled(create_info.memory_budget_enabled) {
         VmaAllocatorCreateInfo allocator_info = {};
         allocator_info.instance = create_info.instance;
         allocator_info.physicalDevice = create_info.physical_device;
         allocator_info.device = create_info.device;
         allocator_info.vulkanApiVersion = create_info.vulkan_api_version;
+        if(m_memory_budget_enabled) {
+            allocator_info.flags |=
+                VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
+        }
 
         const VkResult result = vmaCreateAllocator(&allocator_info, &m_allocator);
         if(result != VK_SUCCESS) {
@@ -205,5 +210,15 @@ namespace Comet {
         if(result != VK_SUCCESS) {
             LOG_FATAL("Failed to flush allocation: {}", vk::to_string(static_cast<vk::Result>(result)));
         }
+    }
+
+    void Allocator::set_current_frame_index(
+        const uint64_t frame_serial) const {
+        if(!m_memory_budget_enabled) {
+            return;
+        }
+        vmaSetCurrentFrameIndex(
+            m_allocator,
+            static_cast<uint32_t>(frame_serial));
     }
 }

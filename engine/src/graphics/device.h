@@ -44,6 +44,8 @@ namespace Comet {
 
         void wait_idle() const;
 
+        void set_allocator_frame_index(uint64_t frame_serial) const;
+
         [[nodiscard]] vk::Device get() const { return m_device; }
 
         [[nodiscard]] Queue& get_graphics_queue(const uint32_t index = 0) {

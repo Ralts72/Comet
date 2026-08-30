@@ -51,6 +51,7 @@ namespace Comet {
             vk::PhysicalDevice physical_device;
             vk::Device device;
             uint32_t vulkan_api_version = VK_API_VERSION_1_3;
+            bool memory_budget_enabled = false;
         };
 
         struct BufferAllocation {
@@ -92,7 +93,14 @@ namespace Comet {
 
         void flush_memory(const Allocation& allocation, size_t offset, size_t size) const;
 
+        void set_current_frame_index(uint64_t frame_serial) const;
+
+        [[nodiscard]] bool is_memory_budget_enabled() const noexcept {
+            return m_memory_budget_enabled;
+        }
+
     private:
         VmaAllocator m_allocator = VK_NULL_HANDLE;
+        bool m_memory_budget_enabled = false;
     };
 }

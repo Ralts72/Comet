@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <string>
+#include <string_view>
 
 namespace Comet::Tests {
     namespace {
@@ -86,6 +87,36 @@ namespace Comet::Tests {
         ASSERT_TRUE(integrated_evaluation.is_suitable());
         ASSERT_TRUE(discrete_evaluation.is_suitable());
         EXPECT_GT(discrete_evaluation.score, integrated_evaluation.score);
+    }
+
+    TEST(DeviceCapabilityTest, SelectsMemoryBudgetOnlyWhenAvailable) {
+        const auto without_budget = select_device_extensions({
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME
+        });
+        EXPECT_TRUE(without_budget.missing_required_extensions.empty());
+        EXPECT_FALSE(without_budget.memory_budget_enabled);
+
+        const auto with_budget = select_device_extensions({
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            VK_EXT_MEMORY_BUDGET_EXTENSION_NAME
+        });
+        EXPECT_TRUE(with_budget.missing_required_extensions.empty());
+        EXPECT_TRUE(with_budget.memory_budget_enabled);
+        EXPECT_TRUE(std::ranges::any_of(
+            with_budget.enabled_extensions,
+            [](const char* extension_name) {
+                return std::string_view(extension_name) ==
+                       VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
+            }));
+
+        const auto missing_required = select_device_extensions({
+            VK_EXT_MEMORY_BUDGET_EXTENSION_NAME
+        });
+        ASSERT_EQ(missing_required.missing_required_extensions.size(), 1U);
+        EXPECT_EQ(
+            missing_required.missing_required_extensions.front(),
+            std::string(VK_KHR_SWAPCHAIN_EXTENSION_NAME));
+        EXPECT_FALSE(DeviceCapability{}.memory_budget_enabled);
     }
 
     TEST(DeviceCandidateEvaluationTest, ClampsOrDisablesOptionalAnisotropy) {

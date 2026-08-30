@@ -129,6 +129,8 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
 - view/projection uniform buffer 按 frame slot 创建；材质 descriptor set 按 material handle 和 frame slot 缓存，只有对应 fence 完成后 CPU 才能改写。
 - FrameScheduler 在 slot/image fence wait 后推进 `completed_frame_serial`；SceneRenderer 以 descriptor state 的最后使用
   serial 判断何时可以销毁整组 DescriptorPool 与缓存资源，不使用固定“延迟 N 帧”猜测。
+- Device 只在 `VK_EXT_memory_budget` 实际可用并加入 logical-device extension 列表后为 VMA 启用 memory-budget flag；
+  SceneRenderer 每帧传入 FrameScheduler 的单调 serial，循环 slot index 不作为 allocator frame age。
 - `SwapchainImageState` 按实际 swapchain image 数量创建，持有 render-finished semaphore，并记录该 image
   最近关联的 frame slot。
 - `SwapchainTarget` 按 image 持有 framebuffer 和对外暴露的颜色 image view；framebuffer 内部保留全部 attachment。

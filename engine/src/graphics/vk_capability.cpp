@@ -13,6 +13,9 @@ namespace Comet {
         const std::vector<const char*> required_device_extensions = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME
         };
+        const std::vector<const char*> optional_device_extensions = {
+            VK_EXT_MEMORY_BUDGET_EXTENSION_NAME
+        };
         constexpr const char* portability_subset_extension =
             "VK_KHR_portability_subset";
 
@@ -175,16 +178,14 @@ namespace Comet {
             for(const auto& extension: physical_device.enumerateDeviceExtensionProperties()) {
                 available_extensions.emplace(extension.extensionName);
             }
-            for(const char* extension: required_device_extensions) {
-                if(!available_extensions.contains(extension)) {
-                    candidate_info.missing_required_extensions.emplace_back(extension);
-                }
-            }
-            candidate.capability.enabled_extensions = required_device_extensions;
-            if(available_extensions.contains(portability_subset_extension)) {
-                candidate.capability.enabled_extensions.push_back(
-                    portability_subset_extension);
-            }
+            auto extension_selection = select_device_extensions(
+                available_extensions);
+            candidate_info.missing_required_extensions = std::move(
+                extension_selection.missing_required_extensions);
+            candidate.capability.enabled_extensions = std::move(
+                extension_selection.enabled_extensions);
+            candidate.capability.memory_budget_enabled =
+                extension_selection.memory_budget_enabled;
 
             const auto surface_capabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
             const auto surface_formats = physical_device.getSurfaceFormatsKHR(surface);
@@ -250,6 +251,30 @@ namespace Comet {
 
             return candidate;
         }
+    }
+
+    DeviceExtensionSelection select_device_extensions(
+        const std::set<std::string>& available_extensions) {
+        DeviceExtensionSelection selection;
+        for(const char* extension: required_device_extensions) {
+            if(available_extensions.contains(extension)) {
+                selection.enabled_extensions.push_back(extension);
+            } else {
+                selection.missing_required_extensions.emplace_back(extension);
+            }
+        }
+        for(const char* extension: optional_device_extensions) {
+            if(available_extensions.contains(extension)) {
+                selection.enabled_extensions.push_back(extension);
+            }
+        }
+        selection.memory_budget_enabled = available_extensions.contains(
+            VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+        if(available_extensions.contains(portability_subset_extension)) {
+            selection.enabled_extensions.push_back(
+                portability_subset_extension);
+        }
+        return selection;
     }
 
     DeviceCandidateEvaluation evaluate_device_candidate(

@@ -1071,10 +1071,10 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   持有的资源；保留阻塞式 `upload_and_wait()`，用于启动期、工具和测试。
 - ResourceManager 批量创建 Mesh/Texture 等 GPU Resource 时通过上传接口提交数据，不直接管理 staging lifetime，
   pending resource 必须携带 ready token，不能在缺少 completion 或 GPU-side wait 的情况下被当作 ready resource。
-- 将 `VK_EXT_memory_budget` 作为 optional device capability；只在扩展实际启用后为 VMA allocator 设置
+- [x] 将 `VK_EXT_memory_budget` 作为 optional device capability；只在扩展实际启用后为 VMA allocator 设置
   `VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT`。
-- memory budget 启用后，每个渲染帧用单调递增的 frame serial 调用 `vmaSetCurrentFrameIndex()`，不能传循环变化的
-  FrameSlot 下标。`vmaGetHeapBudgets()` 按固定低频率及批量加载前采样，不每帧计算 detailed statistics。
+- [x] memory budget 启用后，每个渲染帧用单调递增的 frame serial 调用 `vmaSetCurrentFrameIndex()`，不传循环变化的
+  FrameSlot 下标。`vmaGetHeapBudgets()` 的低频采样与策略消费在下一步接入。
 - 区分关键 GPU 资源和可降级 streaming 资源。只有 ResourceManager 已支持返回错误、占位资源、重试或淘汰后，
   才为非关键 allocation 使用 `WITHIN_BUDGET`；render target 等关键资源保留独立失败策略。
 - 支持资产改名、移动后的引用稳定性。
@@ -1462,7 +1462,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：GPU memory budget 能力**。现有 UBO 和 material descriptor 已按 FrameSlot 隔离，descriptor cache 也会依据 completed frame serial 安全回收；当前没有 transient allocation 负载，因此不提前创建 DescriptorArena/TransientBufferArena。接下来按 optional capability 接入 `VK_EXT_memory_budget`，并用单调 frame serial 驱动 VMA current frame，避免误用循环 slot index。
+下一步继续 **阶段 3：GPU budget snapshot 与回收策略**。`VK_EXT_memory_budget` 已按 optional capability 接入 VMA，FrameScheduler 单调 serial 也会驱动 allocator frame index；接下来为 ResourceManager/UploadManager 提供低频 heap budget snapshot，在批量加载和 staging pool 增长前用于诊断及保守回收，但暂不对关键 render target allocation 强制 `WITHIN_BUDGET`。
 
 建议的职责边界：
 
@@ -1513,6 +1513,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 25. [x] 建立通用 GpuRetirementQueue；SceneRenderer 将实际录制的 Mesh/Texture owner 绑定到 frame completion，热重载旧资源不再早于在途 draw 销毁。
 26. [x] 将 FrameManager 更名并收敛为 FrameScheduler：显式状态机约束 slot wait、image acquire 后 begin、submission completion 记录和单调 frame serial。
 27. [x] 由实际 fence wait 推进 completed frame serial，并用它安全回收不再使用的 Material DescriptorPool/资源缓存；确认当前无需空的通用 per-frame arena。
+28. [x] 将 VK_EXT_memory_budget 作为可选设备能力接入 VMA，并用 FrameScheduler 单调 serial 更新 allocator frame index；扩展缺失时保持兼容回退。
 
 格式所有权后续需求：
 

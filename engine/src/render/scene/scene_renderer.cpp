@@ -303,6 +303,8 @@ namespace Comet {
             LOG_FATAL("Previous frame resources were not retired");
         }
         m_frame_scheduler->wait_for_current_slot();
+        m_context.get_device().set_allocator_frame_index(
+            m_frame_scheduler->get_current_frame_serial());
         m_retirement_queue.collect_completed();
         collect_completed_material_descriptors();
         apply_pending_viewport_resize();
