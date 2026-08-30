@@ -3,6 +3,7 @@
 #include "graphics/resource/buffer.h"
 #include "graphics/resource/image.h"
 #include "graphics/command/command_buffer.h"
+#include "graphics/convert.h"
 #include "graphics/queue.h"
 #include "diagnostics/logger.h"
 
@@ -34,13 +35,13 @@ namespace Comet {
         m_command_buffer.copy_buffer(src, dst, size);
     }
 
-    void CommandContext::copy_buffer_to_image(const Buffer& src, const Image& dst, const vk::ImageLayout dst_image_layout,
+    void CommandContext::copy_buffer_to_image(const Buffer& src, const Image& dst, const ImageLayout dst_image_layout,
                                               const vk::Extent3D& extent, const uint32_t base_array_layer,
                                               const uint32_t layer_count, const uint32_t mip_level) {
         copy_buffer_to_image(src.get(), dst.get(), dst_image_layout, extent, base_array_layer, layer_count, mip_level);
     }
 
-    void CommandContext::copy_buffer_to_image(const vk::Buffer src, const vk::Image dst_image, const vk::ImageLayout dst_image_layout,
+    void CommandContext::copy_buffer_to_image(const vk::Buffer src, const vk::Image dst_image, const ImageLayout dst_image_layout,
                                               const vk::Extent3D& extent, const uint32_t base_array_layer,
                                               const uint32_t layer_count, const uint32_t mip_level) {
         if(!m_is_recording) {
@@ -49,23 +50,34 @@ namespace Comet {
             m_is_recording = true;
         }
 
-        m_command_buffer.copy_buffer_to_image(src, dst_image, dst_image_layout, extent, base_array_layer, layer_count, mip_level);
+        m_command_buffer.copy_buffer_to_image(
+            src,
+            dst_image,
+            Graphics::image_layout_to_vk(dst_image_layout),
+            extent,
+            base_array_layer,
+            layer_count,
+            mip_level);
     }
 
-    void CommandContext::transition_image_layout(const Image& image, const vk::ImageLayout old_layout, const vk::ImageLayout new_layout,
-                                                 const uint32_t base_array_layer, const uint32_t layer_count, const uint32_t mip_level) {
-        transition_image_layout(image.get(), old_layout, new_layout, base_array_layer, layer_count, mip_level);
+    void CommandContext::transition_image_state(
+        const Image& image,
+        const ImageState& before,
+        const ImageState& after) {
+        transition_image_state(image.get(), before, after);
     }
 
-    void CommandContext::transition_image_layout(const vk::Image image, const vk::ImageLayout old_layout, const vk::ImageLayout new_layout,
-                                                 const uint32_t base_array_layer, const uint32_t layer_count, const uint32_t mip_level) {
+    void CommandContext::transition_image_state(
+        const vk::Image image,
+        const ImageState& before,
+        const ImageState& after) {
         if(!m_is_recording) {
             m_command_buffer.reset();
             m_command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
             m_is_recording = true;
         }
 
-        m_command_buffer.transition_image_layout(image, old_layout, new_layout, base_array_layer, layer_count, mip_level);
+        m_command_buffer.transition_image_state(image, before, after);
     }
 
     void CommandContext::submit_and_wait() {

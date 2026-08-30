@@ -1,6 +1,7 @@
 #pragma once
 #include "graphics/vk_common.h"
 #include "graphics/command/command_buffer.h"
+#include "graphics/synchronization/resource_state.h"
 
 namespace Comet {
     class Device;
@@ -23,19 +24,23 @@ namespace Comet {
 
         void copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size);
 
-        void copy_buffer_to_image(const Buffer& src, const Image& dst, vk::ImageLayout dst_image_layout,
+        void copy_buffer_to_image(const Buffer& src, const Image& dst, ImageLayout dst_image_layout,
                                   const vk::Extent3D& extent, uint32_t base_array_layer = 0,
                                   uint32_t layer_count = 1, uint32_t mip_level = 0);
 
-        void copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, vk::ImageLayout dst_image_layout,
+        void copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, ImageLayout dst_image_layout,
                                   const vk::Extent3D& extent, uint32_t base_array_layer = 0,
                                   uint32_t layer_count = 1, uint32_t mip_level = 0);
 
-        void transition_image_layout(const Image& image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-                                     uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
+        void transition_image_state(
+            const Image& image,
+            const ImageState& before,
+            const ImageState& after);
 
-        void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-                                     uint32_t base_array_layer = 0, uint32_t layer_count = 1, uint32_t mip_level = 0);
+        void transition_image_state(
+            vk::Image image,
+            const ImageState& before,
+            const ImageState& after);
 
         void submit_and_wait();
 

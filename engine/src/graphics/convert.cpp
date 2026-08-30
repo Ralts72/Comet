@@ -342,31 +342,6 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::PipelineStageFlags pipeline_stage_to_vk(const Flags<PipelineStage> flags) {
-        vk::PipelineStageFlags bits{};
-        if(flags == PipelineStage::None) {
-            return vk::PipelineStageFlagBits::eNone;
-        }
-        TRY_SET_BIT(PipelineStage::Host, vk::PipelineStageFlagBits::eHost)
-        TRY_SET_BIT(PipelineStage::Transfer, vk::PipelineStageFlagBits::eTransfer)
-        TRY_SET_BIT(PipelineStage::AllCommands, vk::PipelineStageFlagBits::eAllCommands)
-        TRY_SET_BIT(PipelineStage::AllGraphics, vk::PipelineStageFlagBits::eAllGraphics)
-        TRY_SET_BIT(PipelineStage::ComputeShader, vk::PipelineStageFlagBits::eComputeShader)
-        TRY_SET_BIT(PipelineStage::DrawIndirect, vk::PipelineStageFlagBits::eDrawIndirect)
-        TRY_SET_BIT(PipelineStage::FragmentShader, vk::PipelineStageFlagBits::eFragmentShader)
-        TRY_SET_BIT(PipelineStage::VertexInput, vk::PipelineStageFlagBits::eVertexInput)
-        TRY_SET_BIT(PipelineStage::VertexShader, vk::PipelineStageFlagBits::eVertexShader)
-        TRY_SET_BIT(PipelineStage::GeometryShader, vk::PipelineStageFlagBits::eGeometryShader)
-        TRY_SET_BIT(PipelineStage::BottomOfPipe, vk::PipelineStageFlagBits::eBottomOfPipe)
-        TRY_SET_BIT(PipelineStage::ColorAttachmentOutput, vk::PipelineStageFlagBits::eColorAttachmentOutput)
-        TRY_SET_BIT(PipelineStage::EarlyFragmentTests, vk::PipelineStageFlagBits::eEarlyFragmentTests)
-        TRY_SET_BIT(PipelineStage::LateFragmentTests, vk::PipelineStageFlagBits::eLateFragmentTests)
-        TRY_SET_BIT(PipelineStage::TessellationControlShader, vk::PipelineStageFlagBits::eTessellationControlShader)
-        TRY_SET_BIT(PipelineStage::TessellationEvaluationShader, vk::PipelineStageFlagBits::eTessellationEvaluationShader)
-        TRY_SET_BIT(PipelineStage::TopOfPipe, vk::PipelineStageFlagBits::eTopOfPipe)
-        return bits;
-    }
-
     vk::PipelineStageFlags2 pipeline_stage_to_vk2(const Flags<PipelineStage> flags) {
         vk::PipelineStageFlags2 bits{};
         if(flags == PipelineStage::None) {
@@ -392,28 +367,28 @@ namespace Comet::Graphics {
         return bits;
     }
 
-    vk::AccessFlags access_to_vk(const Flags<Access> flags) {
+    vk::AccessFlags2 access_to_vk2(const Flags<Access> flags) {
         if(flags == Access::None) {
-            return vk::AccessFlagBits::eNone;
+            return vk::AccessFlagBits2::eNone;
         }
-        vk::AccessFlags bits{};
-        TRY_SET_BIT(Access::HostRead, vk::AccessFlagBits::eHostRead)
-        TRY_SET_BIT(Access::HostWrite, vk::AccessFlagBits::eHostWrite)
-        TRY_SET_BIT(Access::IndexRead, vk::AccessFlagBits::eIndexRead)
-        TRY_SET_BIT(Access::MemoryRead, vk::AccessFlagBits::eMemoryRead)
-        TRY_SET_BIT(Access::MemoryWrite, vk::AccessFlagBits::eMemoryWrite)
-        TRY_SET_BIT(Access::ShaderRead, vk::AccessFlagBits::eShaderRead)
-        TRY_SET_BIT(Access::ShaderWrite, vk::AccessFlagBits::eShaderWrite)
-        TRY_SET_BIT(Access::TransferRead, vk::AccessFlagBits::eTransferRead)
-        TRY_SET_BIT(Access::TransferWrite, vk::AccessFlagBits::eTransferWrite)
-        TRY_SET_BIT(Access::UniformRead, vk::AccessFlagBits::eUniformRead)
-        TRY_SET_BIT(Access::ColorAttachmentRead, vk::AccessFlagBits::eColorAttachmentRead)
-        TRY_SET_BIT(Access::ColorAttachmentWrite, vk::AccessFlagBits::eColorAttachmentWrite)
-        TRY_SET_BIT(Access::IndirectCommandRead, vk::AccessFlagBits::eIndirectCommandRead)
-        TRY_SET_BIT(Access::InputAttachmentRead, vk::AccessFlagBits::eInputAttachmentRead)
-        TRY_SET_BIT(Access::VertexAttributeRead, vk::AccessFlagBits::eVertexAttributeRead)
-        TRY_SET_BIT(Access::DepthStencilAttachmentRead, vk::AccessFlagBits::eDepthStencilAttachmentRead)
-        TRY_SET_BIT(Access::DepthStencilAttachmentWrite, vk::AccessFlagBits::eDepthStencilAttachmentWrite)
+        vk::AccessFlags2 bits{};
+        TRY_SET_BIT(Access::HostRead, vk::AccessFlagBits2::eHostRead)
+        TRY_SET_BIT(Access::HostWrite, vk::AccessFlagBits2::eHostWrite)
+        TRY_SET_BIT(Access::IndexRead, vk::AccessFlagBits2::eIndexRead)
+        TRY_SET_BIT(Access::MemoryRead, vk::AccessFlagBits2::eMemoryRead)
+        TRY_SET_BIT(Access::MemoryWrite, vk::AccessFlagBits2::eMemoryWrite)
+        TRY_SET_BIT(Access::ShaderRead, vk::AccessFlagBits2::eShaderRead)
+        TRY_SET_BIT(Access::ShaderWrite, vk::AccessFlagBits2::eShaderWrite)
+        TRY_SET_BIT(Access::TransferRead, vk::AccessFlagBits2::eTransferRead)
+        TRY_SET_BIT(Access::TransferWrite, vk::AccessFlagBits2::eTransferWrite)
+        TRY_SET_BIT(Access::UniformRead, vk::AccessFlagBits2::eUniformRead)
+        TRY_SET_BIT(Access::ColorAttachmentRead, vk::AccessFlagBits2::eColorAttachmentRead)
+        TRY_SET_BIT(Access::ColorAttachmentWrite, vk::AccessFlagBits2::eColorAttachmentWrite)
+        TRY_SET_BIT(Access::IndirectCommandRead, vk::AccessFlagBits2::eIndirectCommandRead)
+        TRY_SET_BIT(Access::InputAttachmentRead, vk::AccessFlagBits2::eInputAttachmentRead)
+        TRY_SET_BIT(Access::VertexAttributeRead, vk::AccessFlagBits2::eVertexAttributeRead)
+        TRY_SET_BIT(Access::DepthStencilAttachmentRead, vk::AccessFlagBits2::eDepthStencilAttachmentRead)
+        TRY_SET_BIT(Access::DepthStencilAttachmentWrite, vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
 
         return bits;
     }

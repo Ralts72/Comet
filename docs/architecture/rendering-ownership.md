@@ -121,6 +121,10 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
   完成后才会重新写入对应离屏资源。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
+- 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture
+  上传声明 Undefined、TransferDestination 和 Fragment SampledRead，不由 CommandBuffer 根据 layout pair 猜依赖。
+- 单个 CommandBuffer barrier 只处理未声明 owner或 owner 不变的状态。queue-family owner 改变必须由后续提交编排层
+  生成 release/acquire barrier，并使用 semaphore/timeline 连接，不能靠一次 transition 冒充完整 ownership transfer。
 
 交换链重建只重建 image state 和 swapchain target，不改变 frame slot 数量，也不重建 editor 离屏目标。
 ViewPanel 尺寸稳定后才触发离屏目标重建；当前实现会在该低频操作前等待 Device idle。正常呈现路径不得依赖每帧

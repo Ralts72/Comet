@@ -6,6 +6,7 @@
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/resource/buffer.h"
+#include "graphics/synchronization/resource_state.h"
 
 namespace Comet {
     Texture::Texture(Device& device, const TextureData& data)
@@ -70,18 +71,33 @@ namespace Comet {
             "texture upload buffer");
 
         const auto ctx = device.create_command_context();
-        // 1. Transition image layout from UNDEFINED to TRANSFER_DST_OPTIMAL
-        ctx->transition_image_layout(image->get(),
-            vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+        const ImageSubresourceRange subresources{
+            .aspects = Flags<ImageAspect>(ImageAspect::Color)
+        };
+        const auto initial_state = resolve_image_state(
+            ResourceUsage::Undefined,
+            subresources);
+        const auto transfer_state = resolve_image_state(
+            ResourceUsage::TransferDestination,
+            subresources);
+        const auto sampled_state = resolve_image_state(
+            ResourceUsage::SampledRead,
+            subresources,
+            Flags<PipelineStage>(PipelineStage::FragmentShader));
+        if(!initial_state || !transfer_state || !sampled_state) {
+            LOG_FATAL("Failed to resolve texture upload states");
+        }
 
-        // 2. Copy buffer to image
+        ctx->transition_image_state(*image, *initial_state, *transfer_state);
+
         const auto extent = Graphics::get_extent(image->get_info().extent.x, image->get_info().extent.y);
-        ctx->copy_buffer_to_image(stage_buffer->get(), image->get(),
-            vk::ImageLayout::eTransferDstOptimal, extent);
+        ctx->copy_buffer_to_image(
+            *stage_buffer,
+            *image,
+            transfer_state->layout,
+            extent);
 
-        // 3. Transition image layout from TRANSFER_DST_OPTIMAL to SHADER_READ_ONLY_OPTIMAL
-        ctx->transition_image_layout(image->get(),
-            vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
+        ctx->transition_image_state(*image, *transfer_state, *sampled_state);
 
         // 提交并等待完成
         ctx->submit_and_wait();

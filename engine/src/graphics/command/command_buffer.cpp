@@ -4,6 +4,7 @@
 #include "diagnostics/logger.h"
 #include "graphics/frame_buffer.h"
 #include "graphics/pipeline/pipeline.h"
+#include "graphics/synchronization/barrier.h"
 #include "diagnostics/profiler.h"
 
 namespace Comet {
@@ -138,55 +139,22 @@ namespace Comet {
         m_command_buffer.copyBufferToImage(src_buffer, dst_image, dst_image_layout, 1, &buffer_image_copy);
     }
 
-    void CommandBuffer::transition_image_layout(const vk::Image image, const vk::ImageLayout old_layout,
-        const vk::ImageLayout new_layout, const uint32_t base_array_layer, const uint32_t layer_count,
-        const uint32_t mip_level) const {
-        vk::ImageMemoryBarrier barrier{};
-        barrier.oldLayout = old_layout;
-        barrier.newLayout = new_layout;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = image;
-        barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-        barrier.subresourceRange.baseMipLevel = mip_level;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = base_array_layer;
-        barrier.subresourceRange.layerCount = layer_count;
-
-        vk::PipelineStageFlags source_stage;
-        vk::PipelineStageFlags destination_stage;
-
-        if (old_layout == vk::ImageLayout::eUndefined && new_layout == vk::ImageLayout::eTransferDstOptimal) {
-            barrier.srcAccessMask = {};
-            barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
-            source_stage = vk::PipelineStageFlagBits::eTopOfPipe;
-            destination_stage = vk::PipelineStageFlagBits::eTransfer;
-        } else if (old_layout == vk::ImageLayout::eTransferDstOptimal && new_layout == vk::ImageLayout::eShaderReadOnlyOptimal) {
-            barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-            barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-            source_stage = vk::PipelineStageFlagBits::eTransfer;
-            destination_stage = vk::PipelineStageFlagBits::eFragmentShader;
-        } else if (old_layout == vk::ImageLayout::eColorAttachmentOptimal && new_layout == vk::ImageLayout::eShaderReadOnlyOptimal) {
-            barrier.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
-            barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-            source_stage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-            destination_stage = vk::PipelineStageFlagBits::eFragmentShader;
-        } else if (old_layout == vk::ImageLayout::ePresentSrcKHR && new_layout == vk::ImageLayout::eShaderReadOnlyOptimal) {
-            barrier.srcAccessMask = {};
-            barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-            source_stage = vk::PipelineStageFlagBits::eBottomOfPipe;
-            destination_stage = vk::PipelineStageFlagBits::eFragmentShader;
-        } else if (old_layout == vk::ImageLayout::eShaderReadOnlyOptimal && new_layout == vk::ImageLayout::ePresentSrcKHR) {
-            barrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
-            barrier.dstAccessMask = {};
-            source_stage = vk::PipelineStageFlagBits::eFragmentShader;
-            destination_stage = vk::PipelineStageFlagBits::eBottomOfPipe;
-        } else {
-            LOG_FATAL("Unsupported image layout transition: {} -> {}",
-                vk::to_string(old_layout), vk::to_string(new_layout));
+    void CommandBuffer::transition_image_state(
+        const vk::Image image,
+        const ImageState& before,
+        const ImageState& after) const {
+        const auto barrier = Graphics::build_image_memory_barrier(
+            image,
+            before,
+            after);
+        if(!barrier) {
+            LOG_FATAL("Invalid image state transition");
         }
 
-        m_command_buffer.pipelineBarrier(source_stage, destination_stage, {}, 0, nullptr, 0, nullptr, 1, &barrier);
+        vk::DependencyInfo dependency_info{};
+        dependency_info.imageMemoryBarrierCount = 1;
+        dependency_info.pImageMemoryBarriers = &*barrier;
+        m_command_buffer.pipelineBarrier2(dependency_info);
     }
 
     CommandPool::CommandPool(Device& device, const uint32_t queue_family_index): m_device(device) {
