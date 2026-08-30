@@ -25,7 +25,7 @@ namespace Comet {
 
         void enable_viewport_rendering(Math::Vec2u initial_size);
 
-        void request_viewport_resize(Math::Vec2u size) const;
+        void set_viewport_render_request(ViewportRenderRequest request);
 
         using ImGuiRenderDelegate = std::function<void(CommandBuffer&)>;
 
@@ -47,6 +47,7 @@ namespace Comet {
         std::unique_ptr<ResourceManager> m_resource_manager;
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         SceneResolver m_scene_resolver;
+        ViewportRenderRequest m_viewport_render_request;
         ImGuiRenderDelegate m_on_imgui_render;
 
         SampleCount m_msaa_samples;

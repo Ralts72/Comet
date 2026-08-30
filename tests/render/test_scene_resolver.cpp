@@ -59,6 +59,61 @@ namespace Comet::Tests {
             Math::perspective(60.0f, 1600.0f / 900.0f, 0.2f, 500.0f)));
     }
 
+    TEST(SceneResolverTest, ExplicitViewportCameraOverridesScenePrimary) {
+        const AssetRegistry asset_registry;
+        SceneResolver resolver(asset_registry);
+        RenderScene render_scene;
+        render_scene.cameras.push_back({
+            .entity_id = 7,
+            .primary = true,
+            .view_matrix = Math::Mat4(1.0f),
+            .fov_degrees = 45.0f
+        });
+        const Math::Mat4 editor_view = Math::look_at(
+            Math::Vec3(4.0f, 3.0f, 2.0f),
+            Math::Vec3(0.0f),
+            Math::Vec3(0.0f, 1.0f, 0.0f));
+
+        const RenderSubmission submission = resolver.resolve(
+            render_scene,
+            ViewportRenderRequest{
+                .render_size = Math::Vec2u(1600, 900),
+                .camera_source = ViewportCameraSource::Explicit,
+                .explicit_camera = RenderCamera{
+                    .view_matrix = editor_view,
+                    .fov_degrees = 70.0f,
+                    .near_clip = 0.5f,
+                    .far_clip = 250.0f
+                }
+            });
+
+        ASSERT_TRUE(submission.view_project_matrix);
+        EXPECT_TRUE(TestUtils::Mat4Equal(
+            submission.view_project_matrix->view, editor_view));
+        EXPECT_TRUE(TestUtils::Mat4Equal(
+            submission.view_project_matrix->projection,
+            Math::perspective(70.0f, 1600.0f / 900.0f, 0.5f, 250.0f)));
+    }
+
+    TEST(SceneResolverTest, MissingExplicitCameraDoesNotFallBackToScene) {
+        const AssetRegistry asset_registry;
+        SceneResolver resolver(asset_registry);
+        RenderScene render_scene;
+        render_scene.cameras.push_back({
+            .entity_id = 7,
+            .primary = true
+        });
+
+        const RenderSubmission submission = resolver.resolve(
+            render_scene,
+            ViewportRenderRequest{
+                .render_size = Math::Vec2u(1280, 720),
+                .camera_source = ViewportCameraSource::Explicit
+            });
+
+        EXPECT_FALSE(submission.view_project_matrix);
+    }
+
     TEST(SceneResolverTest, SelectsLowestEntityIdWhenMultipleCamerasArePrimary) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);

@@ -196,11 +196,13 @@ namespace {
         }
 
         void update_viewport_state() {
-            const auto& renderer = get_engine().get_renderer();
-            if(m_viewport_panel->is_visible()) {
-                renderer.request_viewport_resize(
-                    m_viewport_panel->get_viewport_size());
-            }
+            auto& renderer = get_engine().get_renderer();
+            renderer.set_viewport_render_request(
+                CometEditor::make_viewport_render_request(
+                    m_editor_state,
+                    m_viewport_panel->is_visible(),
+                    m_viewport_panel->is_input_active(),
+                    m_viewport_panel->get_viewport_size()));
         }
 
         void update_viewport_texture(Comet::SceneRenderer& scene_renderer) {

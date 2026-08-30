@@ -4,6 +4,7 @@
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
 
+#include <optional>
 #include <vector>
 
 namespace Comet {
@@ -26,5 +27,26 @@ namespace Comet {
     struct RenderScene {
         std::vector<RenderCamera> cameras;
         std::vector<RenderItem> render_items;
+    };
+
+    enum class ViewportCameraSource {
+        ScenePrimary,
+        Explicit
+    };
+
+    enum class ViewportInputPolicy {
+        Disabled,
+        EditorCamera,
+        RuntimeScene
+    };
+
+    struct ViewportRenderRequest {
+        bool visible = true;
+        Math::Vec2u render_size{};
+        ViewportCameraSource camera_source =
+            ViewportCameraSource::ScenePrimary;
+        ViewportInputPolicy input_policy =
+            ViewportInputPolicy::RuntimeScene;
+        std::optional<RenderCamera> explicit_camera;
     };
 }

@@ -6,6 +6,8 @@
 #include "render/resource/mesh_data.h"
 #include "render/scene/render_types.h"
 
+#include <utility>
+
 namespace Comet {
     Renderer::Renderer(const Window& window,
                        const Config& config,
@@ -80,8 +82,11 @@ namespace Comet {
         if(!m_scene_renderer->begin_frame()) {
             return;
         }
-        const RenderSubmission submission = m_scene_resolver.resolve(
-            render_scene, m_scene_renderer->get_render_target().get_size());
+        ViewportRenderRequest request = m_viewport_render_request;
+        request.render_size =
+            m_scene_renderer->get_render_target().get_size();
+        const RenderSubmission submission =
+            m_scene_resolver.resolve(render_scene, request);
         const auto resource_waits = m_scene_renderer->render(submission);
 
         m_scene_renderer->end_render_pass();
@@ -100,8 +105,15 @@ namespace Comet {
         setup_pipeline();
     }
 
-    void Renderer::request_viewport_resize(const Math::Vec2u size) const {
-        m_scene_renderer->request_viewport_resize(size);
+    void Renderer::set_viewport_render_request(
+        ViewportRenderRequest request) {
+        m_viewport_render_request = std::move(request);
+        if(m_viewport_render_request.visible
+           && m_viewport_render_request.render_size.x > 0
+           && m_viewport_render_request.render_size.y > 0) {
+            m_scene_renderer->request_viewport_resize(
+                m_viewport_render_request.render_size);
+        }
     }
 
     Renderer::~Renderer() {

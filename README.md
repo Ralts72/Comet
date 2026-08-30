@@ -186,7 +186,7 @@ push constant 提交每个 draw 的模型矩阵。editor 初始化由 Engine 持
 New/Open 都会重绑定 Hierarchy 与 Selection 并清除旧选择。editor 中的场景按 frame slot 渲染到可采样的离屏目标，再由 ImGui 合成到 swapchain；
 Play 时通过 `SceneSerializer` 创建独立 Runtime Scene，并暂存原 Edit Scene；Stop 会丢弃运行时修改、恢复 Edit Scene，
 重新绑定面板并清空 Selection，Play 期间禁用场景文件操作。editor 只保留一个 `ViewportPanel`：Edit 时显示编辑工具，
-Play 时同一面板切换为运行画面并隐藏编辑工具。当前两种模式仍使用活动 Scene 的主 Camera，独立 editor camera 留在后续视口阶段；
+Play 时同一面板切换为运行画面并隐藏编辑工具。Viewport 通过纯值请求提交可见性、目标尺寸、Camera 来源和输入策略：Edit 使用不属于 Scene、不会序列化的 editor camera，Play 使用 Runtime Scene 的 primary Camera；只有画面区域处于焦点时才开放对应的 Editor/Runtime 输入策略，SceneRenderer 不依赖 EditorMode；
 runtime app 仍直接渲染到 swapchain。关闭时先释放引擎资源，
 再关闭日志系统。Shader
 源文件位于 `engine/shaders/glsl/`，构建时由 CMake 调用 `glslangValidator`

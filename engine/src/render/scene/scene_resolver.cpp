@@ -15,8 +15,16 @@ namespace Comet {
 
     RenderSubmission SceneResolver::resolve(
         const RenderScene& render_scene, const Math::Vec2u render_size) {
+        return resolve(render_scene, ViewportRenderRequest{
+            .render_size = render_size
+        });
+    }
+
+    RenderSubmission SceneResolver::resolve(
+        const RenderScene& render_scene,
+        const ViewportRenderRequest& request) {
         RenderSubmission submission;
-        submission.view_project_matrix = resolve_camera(render_scene, render_size);
+        submission.view_project_matrix = resolve_camera(render_scene, request);
         submission.render_items.reserve(render_scene.render_items.size());
 
         for(const RenderItem& render_item : render_scene.render_items) {
@@ -29,32 +37,53 @@ namespace Comet {
     }
 
     std::optional<ViewProjectMatrix> SceneResolver::resolve_camera(
-        const RenderScene& render_scene, const Math::Vec2u render_size) {
+        const RenderScene& render_scene,
+        const ViewportRenderRequest& request) {
         const RenderCamera* primary_camera = nullptr;
         std::size_t primary_camera_count = 0;
-        for(const RenderCamera& camera : render_scene.cameras) {
-            if(!camera.primary) continue;
+        if(request.camera_source == ViewportCameraSource::Explicit) {
+            if(request.explicit_camera) {
+                primary_camera = &*request.explicit_camera;
+                m_missing_explicit_camera = false;
+            } else if(!m_missing_explicit_camera) {
+                LOG_WARN(
+                    "Viewport requested an explicit camera but none was provided; scene drawing is skipped");
+                m_missing_explicit_camera = true;
+            }
+            m_missing_primary_camera = false;
+            m_multiple_primary_cameras = false;
+        } else {
+            m_missing_explicit_camera = false;
+            for(const RenderCamera& camera : render_scene.cameras) {
+                if(!camera.primary) continue;
 
-            ++primary_camera_count;
-            if(!primary_camera || camera.entity_id < primary_camera->entity_id) {
-                primary_camera = &camera;
+                ++primary_camera_count;
+                if(!primary_camera
+                   || camera.entity_id < primary_camera->entity_id) {
+                    primary_camera = &camera;
+                }
+            }
+
+            if(!primary_camera) {
+                if(!m_missing_primary_camera) {
+                    LOG_WARN(
+                        "Render scene has no primary camera; scene drawing is skipped");
+                    m_missing_primary_camera = true;
+                }
+            } else {
+                m_missing_primary_camera = false;
             }
         }
 
         if(!primary_camera) {
-            if(!m_missing_primary_camera) {
-                LOG_WARN("Render scene has no primary camera; scene drawing is skipped");
-                m_missing_primary_camera = true;
-            }
-            m_multiple_primary_cameras = false;
             m_invalid_camera_fov.reset();
             m_invalid_camera_clip_planes.reset();
             m_invalid_render_size = false;
             return std::nullopt;
         }
-        m_missing_primary_camera = false;
 
-        if(primary_camera_count > 1) {
+        if(request.camera_source == ViewportCameraSource::ScenePrimary
+           && primary_camera_count > 1) {
             if(!m_multiple_primary_cameras) {
                 LOG_WARN("Render scene has {} primary cameras; using entity {}",
                     primary_camera_count, primary_camera->entity_id);
@@ -64,10 +93,10 @@ namespace Comet {
             m_multiple_primary_cameras = false;
         }
 
-        if(render_size.x == 0 || render_size.y == 0) {
+        if(request.render_size.x == 0 || request.render_size.y == 0) {
             if(!m_invalid_render_size) {
                 LOG_WARN("Cannot build camera projection for render size {}x{}",
-                    render_size.x, render_size.y);
+                    request.render_size.x, request.render_size.y);
                 m_invalid_render_size = true;
             }
             m_invalid_camera_fov.reset();
@@ -106,7 +135,8 @@ namespace Comet {
         m_invalid_camera_clip_planes.reset();
 
         const float aspect =
-                static_cast<float>(render_size.x) / static_cast<float>(render_size.y);
+            static_cast<float>(request.render_size.x)
+            / static_cast<float>(request.render_size.y);
         return ViewProjectMatrix{
             .view = primary_camera->view_matrix,
             .projection = Math::perspective(

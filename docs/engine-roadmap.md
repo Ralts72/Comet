@@ -1145,7 +1145,8 @@ Scene Component / RenderItem
 当前基线：
 
 - editor 只有一个 ViewportPanel 和一组按 frame slot 分配的离屏纹理，面板尺寸直接驱动同一个 RenderTarget。
-- Edit 使用 Edit Scene 并显示 2D/3D 编辑工具；Play 使用 Runtime Scene 并隐藏编辑工具，两种模式当前都使用活动 Scene 的主 Camera。
+- Edit 使用 Edit Scene 和不属于 Scene 的 editor camera；Play 使用 Runtime Scene 的 primary Camera。模式、Viewport 可见性、目标尺寸、
+  Camera 来源与输入许可由 ViewportRenderRequest 表达，SceneRenderer 不依赖 EditorMode。
 - 2D/3D 是单个 Edit Viewport 的观察和交互方式，不是两个独立 Viewport；当前按钮只保存 UI 状态，尚未真正切换 editor camera 投影和操作逻辑。
 - resize 会等待尺寸连续稳定，再通过 `Device::wait_idle()` 重建离屏 image、image view 和 framebuffer。
 - Camera 垂直 FOV 与实体 Transform 不变，RenderTarget 尺寸只改变 projection aspect；ImGui 再把纹理等比放入面板。
@@ -1153,10 +1154,10 @@ Scene Component / RenderItem
 
 #### 阶段 4A：单 Viewport 的模式化 Camera 与输入
 
-- 建立明确的 viewport render request，保存 EditorMode、Camera 来源、RenderTarget 尺寸和输入策略，不把 UI 模式塞入 `SceneRenderer`。
-- Edit 使用 editor-only camera；该 Camera 不属于 Scene entity，不参与场景保存，也不影响 runtime 主 Camera。
-- Play 使用 Runtime Scene 中的 primary Camera，并在没有有效主 Camera 时只清屏和显示诊断。
-- Viewport 隐藏或折叠时跳过 resize；输入焦点只在 Play 且画面区域获得焦点时转发给游戏。
+- [x] 建立明确的 viewport render request，保存可见性、Camera 来源、RenderTarget 目标尺寸和输入策略，不把 UI 模式塞入 `SceneRenderer`。
+- [x] Edit 使用 editor-only camera；该 Camera 不属于 Scene entity，不参与场景保存，也不影响 runtime 主 Camera。
+- [x] Play 使用 Runtime Scene 中的 primary Camera，并在没有有效主 Camera 时只清屏和显示诊断。
+- [x] Viewport 隐藏或折叠时跳过 resize；只有画面 item 获得窗口焦点且处于 hover 时，请求才开放 Editor/Runtime 输入策略。实际游戏输入转发随运行时 Input System 接入。
 - 只有出现 Play 中脱离游戏相机调试 Runtime Scene 的真实需求后，再增加 Eject/Debug Camera，不提前维护第二套 Viewport。
 
 验收标准：
@@ -1474,9 +1475,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步进入 **阶段 4A：Viewport Render Request 与 editor-only camera 边界**。先定义不依赖 ImGui 的请求值对象，明确 Edit/Play 的
-Camera 来源、RenderTarget 尺寸和输入策略，再让现有单 Viewport 提交链消费它；本步先不加入相机操控和多 Viewport，避免把 UI 状态
-直接塞进 SceneRenderer。
+下一步先做一次 **阶段 3 → 阶段 4 架构复盘**。重点检查资产管线新增的 monitor/database/import/task/operation 边界，以及
+ViewportRenderRequest、EditorState、Renderer、SceneResolver 的依赖方向；只修真实重复、越权或状态歧义，不为阶段切换增加空 facade。
+复盘完成后继续阶段 4B 的 panel content、render resolution 与 image display rect 分离。
 
 建议的职责边界：
 
@@ -1550,6 +1551,7 @@ Camera 来源、RenderTarget 尺寸和输入策略，再让现有单 Viewport �
 48. [x] 让 TextureImporter 与后台/同步发布复用 ImportInputSnapshot：解码和 GPU 创建期间源图片变化时不发布旧像素，主动推进 revision 并自动重调度；首次加载补齐 revision 验票。
 49. [x] 建立 AssetManager 资产移动事务：校验项目内目标和 sidecar 身份，成对 rename source/.meta，成功复用 scan，目标冲突、路径越界或快照无法提交时回滚并保留 Handle/Registry。
 50. [x] 在 Project 面板接入事件式 Move/Rename：UI 只提交选中 Handle 与相对目标，Editor 同步 Inspector、Selection、Log 和 AssetSourceMonitor；成功后保持选中身份，失败留在对话框并展示诊断。
+51. [x] 建立 ViewportRenderRequest 与 editor-only camera：Edit 提交显式相机快照，Play 选择 Runtime Scene 主相机，隐藏视口不请求 resize，画面失焦时禁用输入策略；SceneRenderer 不感知 EditorMode。
 
 格式所有权后续需求：
 
