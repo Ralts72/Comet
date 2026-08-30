@@ -26,12 +26,15 @@ GoogleTest 测试基础。
 - CMake 3.31 或更新版本。
 - 支持 C++20 的编译器。
 - Vulkan 开发环境和 `glslangValidator`，用于编译 shader。
+- Git LFS，用于拉取 Texture、字体等二进制资源。
 - Git submodules，用于拉取 `glfw`、`glm`、`googletest`、`spdlog` 和 `yaml-cpp`；
   `imgui`、`stb_image`、`3rdparty/VulkanMemoryAllocator/` 和 `3rdparty/entt/` 直接随仓库提交。
 
 初始化依赖：
 
 ```bash
+git lfs install
+git lfs pull
 git submodule update --init --recursive
 ```
 
