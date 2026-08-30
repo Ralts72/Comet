@@ -91,7 +91,12 @@ namespace Comet {
         }
 
         // End frame (submits and presents)
-        m_scene_renderer->end_frame();
+        const std::span<const RenderResourceWait> resource_waits =
+            submission.view_project_matrix
+                ? std::span<const RenderResourceWait>(
+                    submission.resource_waits)
+                : std::span<const RenderResourceWait>{};
+        m_scene_renderer->end_frame(resource_waits);
     }
 
     void Renderer::enable_viewport_rendering(const Math::Vec2u initial_size) {

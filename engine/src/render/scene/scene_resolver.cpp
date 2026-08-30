@@ -21,6 +21,26 @@ namespace Comet {
 
         for(const RenderItem& render_item : render_scene.render_items) {
             if(auto resolved_item = resolve_item(render_item)) {
+                const auto& mesh_completion =
+                    resolved_item->mesh->get_ready_completion();
+                if(mesh_completion.is_valid()) {
+                    submission.resource_waits.push_back({
+                        .completion = mesh_completion,
+                        .stages = Flags<PipelineStage>(
+                            PipelineStage::VertexInput)
+                    });
+                }
+                for(const auto& texture: resolved_item->material.textures) {
+                    const auto& texture_completion =
+                        texture->get_ready_completion();
+                    if(texture_completion.is_valid()) {
+                        submission.resource_waits.push_back({
+                            .completion = texture_completion,
+                            .stages = Flags<PipelineStage>(
+                                PipelineStage::FragmentShader)
+                        });
+                    }
+                }
                 submission.render_items.push_back(std::move(*resolved_item));
             }
         }

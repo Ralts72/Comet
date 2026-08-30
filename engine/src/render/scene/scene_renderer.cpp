@@ -15,7 +15,38 @@
 #include "graphics/pipeline/vertex_description.h"
 #include "render/resource/resource_manager.h"
 
+#include <algorithm>
+
 namespace Comet {
+    namespace {
+        void append_resource_wait(
+            std::vector<QueueSemaphoreSubmit>& waits,
+            const RenderResourceWait& resource_wait) {
+            if(!resource_wait.completion.is_valid()
+               || resource_wait.completion.is_complete()) {
+                return;
+            }
+
+            const QueueSemaphoreSubmit candidate(
+                resource_wait.completion,
+                resource_wait.stages);
+            const auto existing = std::find_if(
+                waits.begin(),
+                waits.end(),
+                [&candidate](const QueueSemaphoreSubmit& wait) {
+                    return wait.semaphore == candidate.semaphore;
+                });
+            if(existing == waits.end()) {
+                waits.push_back(candidate);
+                return;
+            }
+
+            existing->value = std::max(existing->value, candidate.value);
+            existing->stage_mask =
+                existing->stage_mask | candidate.stage_mask;
+        }
+    }
+
     SceneRenderer::SceneRenderer(RenderContext& context,
                                  const Config::Vulkan& vulkan_config,
                                  const Config::Render& render_config)
@@ -294,7 +325,8 @@ namespace Comet {
         render_item.mesh->draw(command_buffer);
     }
 
-    void SceneRenderer::end_frame() {
+    void SceneRenderer::end_frame(
+        const std::span<const RenderResourceWait> resource_waits) {
         PROFILE_SCOPE("SceneRenderer::end_frame");
 
         auto& device = m_context.get_device();
@@ -309,16 +341,20 @@ namespace Comet {
 
         // Submit
         auto& graphics_queue = device.get_graphics_queue(0);
-        const QueueSemaphoreSubmit image_available_wait{
+        std::vector<QueueSemaphoreSubmit> waits;
+        waits.emplace_back(QueueSemaphoreSubmit{
             frame_slot.image_available_semaphore,
             Flags<PipelineStage>(PipelineStage::ColorAttachmentOutput)
-        };
+        });
+        for(const RenderResourceWait& resource_wait: resource_waits) {
+            append_resource_wait(waits, resource_wait);
+        }
         const QueueSemaphoreSubmit render_finished_signal{
             image_state.render_finished_semaphore,
             Flags<PipelineStage>(PipelineStage::AllCommands)
         };
         frame_slot.last_submission = graphics_queue.submit2(
-            std::span(&image_available_wait, 1),
+            waits,
             std::span(&frame_slot.command_buffer, 1),
             std::span(&render_finished_signal, 1),
             &frame_slot.in_flight_fence);

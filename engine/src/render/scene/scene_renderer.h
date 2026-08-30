@@ -20,6 +20,7 @@
 #include <array>
 #include <functional>
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -48,7 +49,7 @@ namespace Comet {
 
         [[nodiscard]] bool begin_frame();
 
-        void end_frame();
+        void end_frame(std::span<const RenderResourceWait> resource_waits);
 
         void end_render_pass() const;
 

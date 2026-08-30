@@ -2,6 +2,7 @@
 
 #include "asset/handle.h"
 #include "core/math_utils.h"
+#include "graphics/queue.h"
 #include "render/scene/render_types.h"
 #include "scene/entity_id.h"
 
@@ -26,8 +27,14 @@ namespace Comet {
         MaterialBinding material;
     };
 
+    struct RenderResourceWait {
+        GpuCompletionPoint completion;
+        Flags<PipelineStage> stages;
+    };
+
     struct RenderSubmission {
         std::optional<ViewProjectMatrix> view_project_matrix;
         std::vector<ResolvedRenderItem> render_items;
+        std::vector<RenderResourceWait> resource_waits;
     };
 }
