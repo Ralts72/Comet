@@ -2,6 +2,8 @@
 
 #include "core/math_utils.h"
 
+#include <cstdint>
+
 namespace CometEditor {
     enum class ViewportResolutionMode {
         Free,
@@ -38,6 +40,7 @@ namespace CometEditor {
         Comet::Math::Vec2 content_size{};
         Comet::Math::Vec2 framebuffer_scale{1.0f, 1.0f};
         Comet::Math::Vec2u current_render_resolution{};
+        std::uint32_t max_render_dimension = 0;
         ViewportResolutionPolicy resolution_policy;
         ViewportDisplayMode display_mode = ViewportDisplayMode::Fit;
     };

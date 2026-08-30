@@ -45,6 +45,7 @@ namespace Comet {
         vk::PhysicalDeviceVulkan12Features enabled_vulkan12_features{};
         vk::PhysicalDeviceVulkan13Features enabled_vulkan13_features{};
         bool memory_budget_enabled = false;
+        uint32_t max_image_dimension_2d = 0;
         float max_sampler_anisotropy = 1.0f;
     };
 

@@ -70,6 +70,38 @@ namespace CometEditor {
             }
             return display_size;
         }
+
+        Comet::Math::Vec2u constrain_render_resolution(
+            const Comet::Math::Vec2u resolution,
+            const std::uint32_t max_dimension) {
+            if(resolution.x == 0 || resolution.y == 0
+               || max_dimension == 0
+               || (resolution.x <= max_dimension
+                   && resolution.y <= max_dimension)) {
+                return resolution;
+            }
+
+            if(resolution.x >= resolution.y) {
+                return {
+                    max_dimension,
+                    static_cast<std::uint32_t>(std::max(
+                        1.0,
+                        std::floor(
+                            static_cast<double>(resolution.y)
+                            * static_cast<double>(max_dimension)
+                            / static_cast<double>(resolution.x))))
+                };
+            }
+            return {
+                static_cast<std::uint32_t>(std::max(
+                    1.0,
+                    std::floor(
+                        static_cast<double>(resolution.x)
+                        * static_cast<double>(max_dimension)
+                        / static_cast<double>(resolution.y)))),
+                max_dimension
+            };
+        }
     }
 
     ViewportLayout calculate_viewport_layout(
@@ -103,6 +135,9 @@ namespace CometEditor {
                 layout.render_resolution = free_resolution;
                 break;
         }
+        layout.render_resolution = constrain_render_resolution(
+            layout.render_resolution,
+            input.max_render_dimension);
 
         const Comet::Math::Vec2u display_resolution =
             input.current_render_resolution.x > 0

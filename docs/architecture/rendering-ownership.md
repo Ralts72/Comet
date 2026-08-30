@@ -166,6 +166,8 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
 - Viewport resize 先在 active target 之外用预算受限的 Image、ImageView 和 FrameBuffer 可恢复工厂完整创建候选
   `MultiTarget`。全部成功才交换 active shared owner；失败保留旧 target。每次录制先把当时的 active target 加入
   submission retirement batch，因此旧 generation 会由所有真实使用过它的 completion 共同延长，而不是固定延迟若干帧。
+- Editor 从选中 DeviceCapability 读取 Vulkan `maxImageDimension2D`，再与 4096 的编辑器软上限取较小值。ViewportLayout 在
+  Free/16:9/Fixed 策略得到目标后统一等比约束长边；SceneRenderer 因而只接收已满足当前设备和编辑器策略的物理像素尺寸。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture

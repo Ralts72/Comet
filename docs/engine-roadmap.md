@@ -1180,7 +1180,7 @@ Scene Component / RenderItem
   dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
 - old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
   present-queue idle 回退，不用不相关的全局 Device idle 代替依赖判断。
-- 为超大 View 增加最大尺寸或 render scale 约束，避免无上限重建离屏资源。
+- [x] 为超大 View 增加设备硬上限与 editor 软上限约束，等比限制最终物理分辨率，避免无上限重建离屏资源。
 
 验收标准：
 
@@ -1476,8 +1476,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 4B：Viewport 尺寸约束**。在 ViewportLayout 的物理目标分辨率上加入由 Vulkan capability 与编辑器策略共同决定的
-上限，并提供可测试的等比缩放规则，避免超大浮动窗口或异常 DPI 触发无上限 generation 创建；本步仍不同时改 swapchain generation。
+下一步在阶段 4B 末尾先做一次 **swapchain generation 边界审计**：对照现有 Swapchain、runtime SwapchainTarget、FrameScheduler 和
+editor ImGui dependent 资源，明确 prepare/create/commit/retire 的最小切分与 present completion 回退，再开始代码迁移。该步骤不会把
+离屏 target generation 和 swapchain generation 合并成一个类型。
 
 建议的职责边界：
 
@@ -1556,6 +1557,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 53. [x] 建立纯 ViewportLayout：分离 panel logical content、HiDPI physical render resolution 与等比 image display rect；ViewPanel 使用 platform viewport framebuffer scale，Renderer 只接收物理分辨率。
 54. [x] 增加 Play Viewport 分辨率/显示策略：Free、16:9、1280x720、1920x1080 与 Fit/1x 均由纯布局策略计算；固定模式不随 panel resize 改变目标像素。
 55. [x] 将离屏 resize 改为 generation prepare/create/commit/retire：FrameBuffer 与 MultiTarget 提供可恢复工厂，SceneRenderer 按真实 submission completion 保留旧 target，ImGui descriptor 只在 ready frame slot 替换。
+56. [x] 为 Viewport 物理分辨率增加设备/编辑器双重上限：DeviceCapability 暴露 maxImageDimension2D，ViewportLayout 对所有 resolution policy 的最终结果统一等比约束到 4096 以内。
 
 格式所有权后续需求：
 

@@ -186,6 +186,8 @@ namespace Comet {
                 extension_selection.enabled_extensions);
             candidate.capability.memory_budget_enabled =
                 extension_selection.memory_budget_enabled;
+            candidate.capability.max_image_dimension_2d =
+                properties.limits.maxImageDimension2D;
 
             const auto surface_capabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
             const auto surface_formats = physical_device.getSurfaceFormatsKHR(surface);

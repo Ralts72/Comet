@@ -2,8 +2,12 @@
 #include <imgui.h>
 
 namespace CometEditor {
-    ViewPanel::ViewPanel(const EditorState& state)
-        : EditorPanel("Viewport"), m_state(state) {}
+    ViewPanel::ViewPanel(
+        const EditorState& state,
+        const std::uint32_t max_render_dimension)
+        : EditorPanel("Viewport"),
+          m_state(state),
+          m_max_render_dimension(max_render_dimension) {}
 
     void ViewPanel::render() {
         m_actually_visible = false;
@@ -149,6 +153,7 @@ namespace CometEditor {
                 framebuffer_scale.y
             },
             .current_render_resolution = m_texture_resolution,
+            .max_render_dimension = m_max_render_dimension,
             .resolution_policy = m_state.mode == EditorMode::Play
                 ? m_play_resolution_policy
                 : ViewportResolutionPolicy{},

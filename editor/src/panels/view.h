@@ -9,7 +9,9 @@
 namespace CometEditor {
     class ViewPanel: public EditorPanel {
     public:
-        explicit ViewPanel(const EditorState& state);
+        ViewPanel(
+            const EditorState& state,
+            std::uint32_t max_render_dimension);
 
         void render() override;
 
@@ -39,6 +41,7 @@ namespace CometEditor {
         void render_view_content();
 
         const EditorState& m_state;
+        std::uint32_t m_max_render_dimension = 0;
         bool m_2d_mode = false;
         ViewportResolutionPolicy m_play_resolution_policy;
         ViewportDisplayMode m_play_display_mode = ViewportDisplayMode::Fit;
