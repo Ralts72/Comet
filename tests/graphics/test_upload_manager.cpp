@@ -20,6 +20,18 @@ namespace Comet::Tests {
         };
 
         template<typename T>
+        concept SupportsRecoverableBufferUpload = requires(
+            T& manager,
+            std::shared_ptr<Buffer> destination,
+            std::span<const std::byte> data,
+            const ResourceState& after) {
+            {
+                manager.try_enqueue_upload(
+                    destination, data, after, true)
+            } -> std::same_as<GpuResourceResult<void>>;
+        };
+
+        template<typename T>
         concept SupportsBorrowedBufferUpload = requires(
             T& manager,
             Buffer* destination,
@@ -36,6 +48,29 @@ namespace Comet::Tests {
             const ImageState& before,
             const ImageState& after) {
             manager.enqueue_upload(destination, data, before, after);
+        };
+
+        template<typename T>
+        concept SupportsRecoverableImageUpload = requires(
+            T& manager,
+            std::shared_ptr<Image> destination,
+            std::span<const std::byte> data,
+            const ImageState& before,
+            const ImageState& after) {
+            {
+                manager.try_enqueue_upload(
+                    destination, data, before, after, true)
+            } -> std::same_as<GpuResourceResult<void>>;
+        };
+
+        template<typename T>
+        concept SupportsBatchAbort = requires(T& manager) {
+            manager.abort_batch();
+        };
+
+        template<typename T>
+        concept SupportsCommandDiscard = requires(T& context) {
+            context.discard();
         };
 
         template<typename T>
@@ -79,10 +114,14 @@ namespace Comet::Tests {
 
     TEST(UploadManagerInterfaceTest, OwnsResourcesUntilBatchCompletion) {
         EXPECT_TRUE(SupportsOwnedBufferUpload<UploadManager>);
+        EXPECT_TRUE(SupportsRecoverableBufferUpload<UploadManager>);
         EXPECT_TRUE(SupportsOwnedImageUpload<UploadManager>);
+        EXPECT_TRUE(SupportsRecoverableImageUpload<UploadManager>);
         EXPECT_FALSE(SupportsBorrowedBufferUpload<UploadManager>);
         EXPECT_TRUE(ReturnsOptionalCompletion<UploadManager>);
         EXPECT_TRUE(ReturnsGpuCompletion<CommandContext>);
+        EXPECT_TRUE(SupportsBatchAbort<UploadManager>);
+        EXPECT_TRUE(SupportsCommandDiscard<CommandContext>);
     }
 
     TEST(UploadManagerInterfaceTest, HasSingleOwnerThreadSemantics) {
@@ -96,6 +135,8 @@ namespace Comet::Tests {
         using GpuBufferFactory = decltype(&Buffer::create_gpu_buffer);
         using RecoverableGpuBufferFactory =
             decltype(&Buffer::try_create_gpu_buffer);
+        using RecoverableUploadBufferFactory =
+            decltype(&Buffer::try_create_upload_buffer);
         using UploadBufferFactory = decltype(&Buffer::create_upload_buffer);
 
         EXPECT_TRUE((std::is_invocable_v<
@@ -112,12 +153,21 @@ namespace Comet::Tests {
             const void*,
             std::string_view>));
         EXPECT_TRUE((std::is_invocable_r_v<
-            ResourceAllocationResult<std::shared_ptr<Buffer>>,
+            GpuResourceResult<std::shared_ptr<Buffer>>,
             RecoverableGpuBufferFactory,
             Device&,
             Flags<BufferUsage>,
             size_t,
             bool,
+            std::string_view>));
+        EXPECT_TRUE((std::is_invocable_r_v<
+            GpuResourceResult<std::shared_ptr<CPUBuffer>>,
+            RecoverableUploadBufferFactory,
+            Device&,
+            Flags<BufferUsage>,
+            size_t,
+            bool,
+            const void*,
             std::string_view>));
         EXPECT_TRUE((std::same_as<
             std::invoke_result_t<
@@ -133,6 +183,14 @@ namespace Comet::Tests {
             Device&,
             Flags<BufferUsage>,
             size_t,
+            std::string_view>));
+        EXPECT_FALSE((std::is_constructible_v<
+            CPUBuffer,
+            Device&,
+            Flags<BufferUsage>,
+            size_t,
+            const void*,
+            AllocationUsage,
             std::string_view>));
     }
 

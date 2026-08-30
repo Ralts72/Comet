@@ -116,7 +116,7 @@ namespace Comet {
         return std::move(attempt).value();
     }
 
-    ResourceAllocationResult<Allocator::BufferAllocation>
+    GpuResourceResult<Allocator::BufferAllocation>
     Allocator::try_create_buffer(
         const vk::BufferCreateInfo& buffer_info,
         const AllocationCreateInfo& allocation_info) const {
@@ -134,20 +134,20 @@ namespace Comet {
             &allocation,
             &created_info);
         if(result != VK_SUCCESS) {
-            return ResourceAllocationResult<BufferAllocation>::failure(
+            return GpuResourceResult<BufferAllocation>::failure(
                 static_cast<vk::Result>(result));
         }
 
         set_allocation_name(m_allocator, allocation, allocation_info.debug_name);
         if(allocation_info.persistent_mapping && !created_info.pMappedData) {
             vmaDestroyBuffer(m_allocator, buffer, allocation);
-            return ResourceAllocationResult<BufferAllocation>::failure(
+            return GpuResourceResult<BufferAllocation>::failure(
                 vk::Result::eErrorMemoryMapFailed);
         }
 
         Allocation wrapped_allocation;
         wrapped_allocation.m_handle = allocation;
-        return ResourceAllocationResult<BufferAllocation>::success(
+        return GpuResourceResult<BufferAllocation>::success(
             BufferAllocation{
                 vk::Buffer(buffer),
                 std::move(wrapped_allocation),
@@ -175,7 +175,7 @@ namespace Comet {
         return std::move(attempt).value();
     }
 
-    ResourceAllocationResult<Allocator::ImageAllocation>
+    GpuResourceResult<Allocator::ImageAllocation>
     Allocator::try_create_image(
         const vk::ImageCreateInfo& image_info,
         const AllocationCreateInfo& allocation_info) const {
@@ -193,20 +193,20 @@ namespace Comet {
             &allocation,
             &created_info);
         if(result != VK_SUCCESS) {
-            return ResourceAllocationResult<ImageAllocation>::failure(
+            return GpuResourceResult<ImageAllocation>::failure(
                 static_cast<vk::Result>(result));
         }
 
         set_allocation_name(m_allocator, allocation, allocation_info.debug_name);
         if(allocation_info.persistent_mapping && !created_info.pMappedData) {
             vmaDestroyImage(m_allocator, image, allocation);
-            return ResourceAllocationResult<ImageAllocation>::failure(
+            return GpuResourceResult<ImageAllocation>::failure(
                 vk::Result::eErrorMemoryMapFailed);
         }
 
         Allocation wrapped_allocation;
         wrapped_allocation.m_handle = allocation;
-        return ResourceAllocationResult<ImageAllocation>::success(
+        return GpuResourceResult<ImageAllocation>::success(
             ImageAllocation{
                 vk::Image(image),
                 std::move(wrapped_allocation),

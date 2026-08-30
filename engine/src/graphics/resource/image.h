@@ -30,7 +30,7 @@ namespace Comet {
             SampleCount sample_count = SampleCount::Count1,
             std::string_view debug_name = {});
 
-        static ResourceAllocationResult<std::shared_ptr<Image>> try_create(
+        static GpuResourceResult<std::shared_ptr<Image>> try_create(
             Device& device,
             const ImageInfo& info,
             bool within_budget,

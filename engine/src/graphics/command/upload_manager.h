@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "graphics/resource/resource_result.h"
 #include "graphics/synchronization/gpu_completion_point.h"
 #include "graphics/synchronization/resource_state.h"
 
@@ -39,13 +40,27 @@ namespace Comet {
             std::span<const std::byte> data,
             const ResourceState& after);
 
+        [[nodiscard]] GpuResourceResult<void> try_enqueue_upload(
+            std::shared_ptr<Buffer> destination,
+            std::span<const std::byte> data,
+            const ResourceState& after,
+            bool within_budget);
+
         void enqueue_upload(
             std::shared_ptr<Image> destination,
             std::span<const std::byte> data,
             const ImageState& before,
             const ImageState& after);
 
+        [[nodiscard]] GpuResourceResult<void> try_enqueue_upload(
+            std::shared_ptr<Image> destination,
+            std::span<const std::byte> data,
+            const ImageState& before,
+            const ImageState& after,
+            bool within_budget);
+
         [[nodiscard]] std::optional<GpuCompletionPoint> flush_batch();
+        void abort_batch();
         void upload_and_wait();
         void collect_completed();
 
@@ -74,8 +89,10 @@ namespace Comet {
         };
 
         [[nodiscard]] CommandContext& get_active_context();
-        [[nodiscard]] StagingAllocation allocate_staging(
-            std::span<const std::byte> data);
+        [[nodiscard]] GpuResourceResult<StagingAllocation>
+        try_allocate_staging(
+            std::span<const std::byte> data,
+            bool within_budget);
         void prepare_for_staging_growth(size_t capacity);
         void recycle_staging_pages(BatchResources& resources);
         void wait_for_pending_batches();

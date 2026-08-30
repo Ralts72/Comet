@@ -152,4 +152,11 @@ namespace Comet {
         return completion;
     }
 
+    void CommandContext::discard() {
+        if(m_submitted) {
+            LOG_FATAL("Cannot discard a submitted CommandContext");
+        }
+        m_is_recording = false;
+    }
+
 }

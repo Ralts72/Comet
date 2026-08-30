@@ -49,7 +49,7 @@ namespace Comet {
         return std::move(attempt).value();
     }
 
-    ResourceAllocationResult<std::shared_ptr<Image>> Image::try_create(
+    GpuResourceResult<std::shared_ptr<Image>> Image::try_create(
         Device& device,
         const ImageInfo& info,
         const bool within_budget,
@@ -64,7 +64,7 @@ namespace Comet {
                 .debug_name = debug_name.empty() ? "image" : debug_name
             });
         if(!allocation) {
-            return ResourceAllocationResult<std::shared_ptr<Image>>::failure(
+            return GpuResourceResult<std::shared_ptr<Image>>::failure(
                 allocation.result());
         }
 
@@ -72,7 +72,7 @@ namespace Comet {
             device,
             info,
             std::move(allocation).value()));
-        return ResourceAllocationResult<std::shared_ptr<Image>>::success(
+        return GpuResourceResult<std::shared_ptr<Image>>::success(
             std::move(image));
     }
 

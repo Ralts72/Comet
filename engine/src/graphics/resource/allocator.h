@@ -2,55 +2,15 @@
 
 #include "common/export.h"
 #include "graphics/resource/memory_budget.h"
+#include "graphics/resource/resource_result.h"
 #include "graphics/vk_common.h"
 
-#include <optional>
 #include <string_view>
 #include <utility>
 
 #include <vk_mem_alloc.h>
 
 namespace Comet {
-    template<typename T>
-    class ResourceAllocationResult {
-    public:
-        ResourceAllocationResult() = default;
-
-        [[nodiscard]] static ResourceAllocationResult success(T value) {
-            return ResourceAllocationResult(
-                std::optional<T>(std::move(value)),
-                vk::Result::eSuccess);
-        }
-
-        [[nodiscard]] static ResourceAllocationResult failure(
-            const vk::Result result) {
-            return ResourceAllocationResult(
-                std::nullopt,
-                result == vk::Result::eSuccess
-                    ? vk::Result::eErrorUnknown
-                    : result);
-        }
-
-        [[nodiscard]] explicit operator bool() const noexcept {
-            return m_value.has_value();
-        }
-
-        [[nodiscard]] T& value() & { return m_value.value(); }
-        [[nodiscard]] const T& value() const & { return m_value.value(); }
-        [[nodiscard]] T&& value() && { return std::move(m_value).value(); }
-
-        [[nodiscard]] vk::Result result() const noexcept { return m_result; }
-
-    private:
-        ResourceAllocationResult(
-            std::optional<T> value,
-            const vk::Result result)
-            : m_value(std::move(value)), m_result(result) {}
-
-        std::optional<T> m_value;
-        vk::Result m_result = vk::Result::eErrorUnknown;
-    };
-
     enum class AllocationUsage {
         Device,
         Upload,
@@ -122,7 +82,7 @@ namespace Comet {
             const vk::BufferCreateInfo& buffer_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 
-        [[nodiscard]] ResourceAllocationResult<BufferAllocation>
+        [[nodiscard]] GpuResourceResult<BufferAllocation>
         try_create_buffer(
             const vk::BufferCreateInfo& buffer_info,
             const AllocationCreateInfo& allocation_info = {}) const;
@@ -133,7 +93,7 @@ namespace Comet {
             const vk::ImageCreateInfo& image_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 
-        [[nodiscard]] ResourceAllocationResult<ImageAllocation>
+        [[nodiscard]] GpuResourceResult<ImageAllocation>
         try_create_image(
             const vk::ImageCreateInfo& image_info,
             const AllocationCreateInfo& allocation_info = {}) const;

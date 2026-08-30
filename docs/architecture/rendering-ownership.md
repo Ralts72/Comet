@@ -104,6 +104,8 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
   AssetHandle、Importer 或资产发布策略。
 - staging 空闲池最多缓存配置数量的默认 page，超大 page 不进入长期缓存；只有 best-fit 失败、池即将增长时才查询
   memory budget，高压力时可销毁空闲页，但绝不回收 active/pending batch 拥有的页。
+- recoverable `try_enqueue_upload()` 在 staging 失败时 abort 整个 active batch：先 discard 未提交 CommandContext，再释放
+  目标引用并回收 page；pending batch 已有 completion，不能 abort，只能等待正常回收。
 - `Mesh` / `Texture`：持有 Runtime GPU 对象和创建它们的 ready completion；创建返回不等待 CPU。当前 upload 与 draw
   使用同一 graphics queue；SceneRenderer 从实际 draw 资源取得 completion，并在 frame submission 转换为准确 stage
   的 timeline wait，因此未来切换 transfer queue 不改变资源与资产接口。
@@ -140,6 +142,8 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
   Vulkan error，`within_budget` 也必须由调用方选择。任何路径都不允许发布带空 handle 的 Buffer/Image。
 - `Buffer::try_create_gpu_buffer()` 与 `Image::try_create()` 先获得完整 allocation，再调用不可公开访问的 owning wrapper
   构造函数；失败时只有 error result，没有可观察的半初始化 GPUBuffer/OwnedImage。
+- `GpuResourceResult<T>` 位于 graphics/resource 公共契约，不依赖 Allocator/VMA，统一承载 allocation、wrapper 和 upload
+  操作的 Vulkan failure；`void` 特化用于只返回成功/失败的事务操作。
 - `SwapchainImageState` 按实际 swapchain image 数量创建，持有 render-finished semaphore，并记录该 image
   最近关联的 frame slot。
 - `SwapchainTarget` 按 image 持有 framebuffer 和对外暴露的颜色 image view；framebuffer 内部保留全部 attachment。

@@ -17,14 +17,14 @@ critical caller
 
 recoverable caller
   -> try_create_buffer/image()
-  -> success: ResourceAllocationResult.value
-  -> failure: ResourceAllocationResult.result (vk::Result)
+  -> success: GpuResourceResult.value
+  -> failure: GpuResourceResult.result (vk::Result)
 ```
 
 现有 `create_*` 不复制 VMA 调用，而是委托给 `try_create_*`，失败后统一补充 debug name、大小、usage 和 Vulkan result
 并执行强失败。因此两条路径共享资源创建、命名、persistent mapping 校验和失败清理逻辑，不会随时间产生行为漂移。
 
-`ResourceAllocationResult<T>` 默认是 `eErrorUnknown` 的失败状态，并通过 `success()`/`failure()` 工厂维护 value 与 result
+`GpuResourceResult<T>` 默认是 `eErrorUnknown` 的失败状态，并通过 `success()`/`failure()` 工厂维护 value 与 result
 的一致性；失败结果不保存 allocation，调用方不能构造“成功状态 + 空 handle”并误发布半初始化 Vulkan 对象。
 
 ## Within-budget 语义

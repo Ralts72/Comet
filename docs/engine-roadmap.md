@@ -1085,6 +1085,8 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   `WITHIN_BUDGET` 仅通过默认关闭的 allocation 选项启用，不改变任何现有关键资源调用点。
 - [x] Buffer/Image owning wrapper 增加静态尝试创建：allocation 成功后才构造 GPUBuffer/OwnedImage，旧公开构造入口收回，
   因而失败结果不会携带可发布的半初始化包装对象。
+- [x] UploadManager 增加可恢复 staging page 创建和 `try_enqueue_upload()`；失败会 discard 未提交 CommandContext 并 abort
+  整个 active batch，强失败 enqueue 与 recoverable enqueue 共享录制逻辑。
 - 支持资产改名、移动后的引用稳定性。
 
 完整资源路径：
@@ -1470,7 +1472,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：Runtime Mesh/Texture 的事务式尝试创建**。Buffer/Image 已能安全返回分配失败；接下来 Mesh/Texture 必须先完成全部目标资源分配，再 enqueue/flush upload，任何一步失败都不提交半套 batch，并由 ResourceManager 把错误交给 AssetManager 保留旧资源。关键 render target allocation 继续使用明确的强失败路径。
+下一步继续 **阶段 3：Runtime Mesh/Texture 的事务式尝试创建**。Buffer/Image 和 UploadManager 已形成可回滚路径；接下来 Mesh/Texture 先完成全部目标分配，再用 recoverable enqueue 录制，任一步失败都返回 `GpuResourceResult`，成功才 flush 并构造 Runtime wrapper。随后 ResourceManager 再把错误交给 AssetManager 保留旧资源。
 
 建议的职责边界：
 
@@ -1527,6 +1529,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 31. [x] 完成 GPU 资源生命周期子阶段复盘：GpuCompletionPoint 迁入 synchronization，删除 FrameSlot 重复 timeline token、未使用配置/透传接口和冗余析构代码，保持 fence serial 与 timeline completion 职责分离。
 32. [x] 在 Allocator 建立强失败 `create_*` 与可恢复 `try_create_*` 双轨接口，并增加默认关闭的 `within_budget` allocation 选项；失败结果不包含半初始化 handle。
 33. [x] 将 recoverable contract 提升到 Buffer/Image 静态工厂：先完成 allocation 再构造 owning wrapper，强失败工厂继续委托同一逻辑且默认允许超预算。
+34. [x] 建立事务式 UploadManager active batch：upload staging 支持 within-budget 尝试创建，recoverable enqueue 失败自动 abort 未提交命令/引用/page；GpuResourceResult 从 Allocator 细节中独立出来供整条 GPU 创建链复用。
 
 格式所有权后续需求：
 

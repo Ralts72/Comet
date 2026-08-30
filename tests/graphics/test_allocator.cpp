@@ -40,11 +40,11 @@ namespace Comet::Tests {
             const AllocationCreateInfo& allocation_info) {
             {
                 allocator.try_create_buffer(buffer_info, allocation_info)
-            } -> std::same_as<ResourceAllocationResult<
+            } -> std::same_as<GpuResourceResult<
                 Allocator::BufferAllocation>>;
             {
                 allocator.try_create_image(image_info, allocation_info)
-            } -> std::same_as<ResourceAllocationResult<
+            } -> std::same_as<GpuResourceResult<
                 Allocator::ImageAllocation>>;
         };
     }
@@ -84,11 +84,11 @@ namespace Comet::Tests {
         EXPECT_TRUE(SupportsRecoverableAllocation<Allocator>);
     }
 
-    TEST(ResourceAllocationResultTest, DistinguishesSuccessFromFailure) {
-        const ResourceAllocationResult<int> failure;
-        const auto success = ResourceAllocationResult<int>::success(42);
+    TEST(GpuResourceResultTest, DistinguishesSuccessFromFailure) {
+        const GpuResourceResult<int> failure;
+        const auto success = GpuResourceResult<int>::success(42);
         const auto normalized_failure =
-            ResourceAllocationResult<int>::failure(vk::Result::eSuccess);
+            GpuResourceResult<int>::failure(vk::Result::eSuccess);
 
         EXPECT_FALSE(static_cast<bool>(failure));
         EXPECT_EQ(failure.result(), vk::Result::eErrorUnknown);
@@ -96,6 +96,11 @@ namespace Comet::Tests {
         EXPECT_EQ(success.value(), 42);
         EXPECT_FALSE(static_cast<bool>(normalized_failure));
         EXPECT_EQ(normalized_failure.result(), vk::Result::eErrorUnknown);
+
+        const GpuResourceResult<void> empty_failure;
+        const auto empty_success = GpuResourceResult<void>::success();
+        EXPECT_FALSE(static_cast<bool>(empty_failure));
+        EXPECT_TRUE(static_cast<bool>(empty_success));
     }
 
     TEST(MemoryHeapBudgetTest, AvailableBytesSaturatesAtZero) {

@@ -64,6 +64,8 @@ namespace Comet {
 
         [[nodiscard]] GpuCompletionPoint submit();
 
+        void discard();
+
     private:
         Device& m_device;
         CommandBuffer m_command_buffer;

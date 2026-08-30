@@ -108,7 +108,7 @@ TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
     EXPECT_TRUE((std::is_invocable_v<ImageFactory, Device&,
         const ImageInfo&, SampleCount, std::string_view>));
     EXPECT_TRUE((std::is_invocable_r_v<
-        ResourceAllocationResult<std::shared_ptr<Image>>,
+        GpuResourceResult<std::shared_ptr<Image>>,
         RecoverableImageFactory,
         Device&,
         const ImageInfo&,

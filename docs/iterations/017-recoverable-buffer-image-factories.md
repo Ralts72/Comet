@@ -32,9 +32,9 @@ validate create parameters
 ## 公共接口
 
 - `Buffer::try_create_gpu_buffer(..., within_budget, ...)` 返回
-  `ResourceAllocationResult<std::shared_ptr<Buffer>>`；
+  `GpuResourceResult<std::shared_ptr<Buffer>>`；
 - `Image::try_create(..., within_budget, ...)` 返回
-  `ResourceAllocationResult<std::shared_ptr<Image>>`；
+  `GpuResourceResult<std::shared_ptr<Image>>`；
 - 原 `create_gpu_buffer()`/`Image::create()` 签名保持不变，内部委托 try 工厂并在失败时输出上下文后强失败；
 - CPUBuffer、upload staging、render target 等现有关键调用点没有切换到 recoverable path。
 
