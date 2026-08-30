@@ -1,7 +1,7 @@
 # 资产管线边界
 
 本文记录 Comet 当前阶段 3 资产链路的职责边界。当前已完成 Texture、Texture 基础导入设置与显式重新导入、Material 同步加载与
-编辑保存，以及 glTF 静态 Mesh 的同步导入和 `.comet/cache/` 二进制产物纵向切片，并建立事务式扫描快照、手动刷新一致性和原子文件写入；
+编辑保存，以及 glTF 静态 Mesh 的同步导入和 `.comet/cache/` 二进制产物纵向切片，并建立事务式扫描快照、单调资产 revision、Mesh 候选发布校验、手动刷新一致性和原子文件写入；
 Texture 等其他类型的导入产物、后台导入和文件监听热重载仍属于后续工作。
 
 ## 项目目录
@@ -30,6 +30,7 @@ ProjectPanel
     ↓ 只读 AssetRecord / 请求刷新
 AssetDatabase
     ↓ AssetHandle → AssetRecord(type, relative path, validated import settings, dependencies)
+    ↓ 每次已提交变化 → 单调 AssetRevision
     ↓ 正向 dependencies / 反向 dependents 查询
 AssetManager
     ↓ 校验类型并创建候选 CPU 数据
@@ -41,7 +42,7 @@ AssetManager
                                ↓ AssetManager 递归解析 Texture Handle
     ├── RenderResourceFactory → ResourceManager：MeshData/TextureData → Runtime Mesh/Texture
     └── Material：template + 已解析 Texture → Runtime Material
-                               ↓ AssetManager 发布
+                               ↓ AssetManager 发布（Mesh 候选需保持请求时 revision）
 AssetRegistry
     ↓ 唯一按 AssetHandle 缓存并向 SceneResolver 提供运行时对象
 ```
@@ -70,7 +71,7 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 ```
 
 候选 Texture 的解码或 GPU 创建失败时不会修改 `.meta`、数据库索引或已发布对象。候选 Mesh 导入或 GPU 创建失败时同样保留上一份
-已发布 Mesh；`.meta` 保存成功后才发布候选对象；
+已发布 Mesh；Mesh 从数据库取得请求 revision，候选对象创建完毕后只有 revision 仍为当前版本才允许发布，过期候选会直接丢弃。`.meta` 保存成功后才发布候选对象；
 当前单线程 Registry 保证经过类型预检的同类型替换不会竞争失败。
 
 ## 代码组织
@@ -83,9 +84,9 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 
 ## 职责
 
-- `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径、已校验 Importer 设置以及正向/反向依赖索引；Material 依赖由 `MaterialData` 提取，缺失引用和错误类型进入扫描报告。扫描先完整构建候选快照，再一次替换当前快照并报告新增、删除和修改 Handle；目录发现不完整时保留上一份有效快照。设置更新先成功写入 `.meta`，再更新内存记录。
+- `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径、已校验 Importer 设置以及正向/反向依赖索引；Material 依赖由 `MaterialData` 提取，缺失引用和错误类型进入扫描报告。扫描先完整构建候选快照，再一次替换当前快照并报告新增、删除和修改 Handle；目录发现不完整时保留上一份有效快照。磁盘文件签名只负责检测输入变化，每次提交的变化会获得独立、单调的 `AssetRevision`，供结果发布时验票。Revision 是当前进程内的不透明版本，不持久化，也不承担内容哈希职责。设置更新先成功写入 `.meta`，再更新内存记录。
 - `AssetMetadataSerializer`：只负责 `.meta` 的 YAML 读写和类型/设置契约校验；`AssetMetadata` 本身仍是独立于文件格式的数据类型。
-- `AssetManager`：协调数据库、Importer、派生数据、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载、Texture 重新导入和 Mesh 刷新都会先完整构建候选对象，失败时保留旧对象。手动扫描提交后会卸载已删除资产及仍依赖它们的 Runtime 对象，并刷新发生修改且当前已加载的 Texture/Material/Mesh。
+- `AssetManager`：协调数据库、Importer、派生数据、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载、Texture 重新导入和 Mesh 刷新都会先完整构建候选对象，失败时保留旧对象。Mesh 的加载和刷新在发布前检查请求 revision，防止旧候选覆盖较新的资产状态。手动扫描提交后会卸载已删除资产及仍依赖它们的 Runtime 对象，并刷新发生修改且当前已加载的 Texture/Material/Mesh。
 - `MeshImporter`：唯一接触 glTF Mesh 格式的解析边界，使用 fastgltf 读取 `.gltf`/`.glb`，输出不包含 GPU 对象的 `MeshData`，并报告参与导入的外部 buffer 路径；fastgltf 类型不进入 Comet 公共头文件。
 - `MeshImportCache`：确定性读写版本化 Mesh 导入缓存，记录项目内源文件和外部 buffer 的内容指纹；格式版本、Importer 输出版本、输入内容或缓存校验和不匹配时返回 miss。它不创建 GPU 对象，也不管理运行时资源生命周期。
 - `TextureImporter`：唯一接触 Texture 源文件路径的解码边界，应用色彩空间和垂直翻转设置，输出不包含 GPU 对象的 `TextureData`。
@@ -105,11 +106,11 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 ResourceManager 和 Device 级共享资源。
 
 Material/Texture/Mesh 替换只交换 Registry 中的 `shared_ptr`，已取得旧对象的当前帧和 descriptor frame slot 仍可自然持有到结束；
-这条同步、用户触发的编辑器路径不等同于文件监听热重载，也不替代后续的 revision、completion 和 retirement 机制。
+当前 `AssetRevision` 只解决 CPU 候选发布前的版本一致性，不等同于文件监听热重载，也不替代后续的后台 completion 和 GPU retirement 机制。
 
 Project 刷新成功提交快照后，会通过变化集清理删除资产及其依赖对象、刷新已加载的修改资产，并以事件方式使 Inspector
 丢弃同一 Handle 的旧编辑缓存；扫描目录暂时不可访问时三者继续使用上一份有效快照。当前同步路径仍不等于文件监听热重载，
-后台任务完成、递归 revision 和 GPU retirement 仍属于后续工作。
+后台任务调度、递归依赖 revision 和 GPU retirement 仍属于后续工作。
 
 Scene、Material 和 `.meta` 使用同一原子文本写入函数：先在目标目录写完临时文件，再原子替换正式文件，避免直接截断造成半写文件。
 Mesh 产物复用同一临时文件替换机制写入二进制数据；缓存写入失败只降低后续加载性能，不会使本次成功的源资产导入失败。

@@ -103,6 +103,33 @@ namespace Comet::Tests {
         EXPECT_EQ(database.find("old.png"), nullptr);
     }
 
+    TEST(AssetDatabaseTest, AdvancesRevisionOnlyWhenAssetChanges) {
+        const TemporaryProject project;
+        project.add_file("textures/albedo.png", "first");
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const AssetHandle handle = database.find("textures/albedo.png")->handle;
+        const AssetRevision initial_revision = database.get_revision(handle);
+        ASSERT_NE(initial_revision, INVALID_ASSET_REVISION);
+
+        const AssetScanReport unchanged_scan = database.scan();
+
+        EXPECT_TRUE(unchanged_scan.modified_assets.empty());
+        EXPECT_EQ(database.get_revision(handle), initial_revision);
+        project.add_file("textures/albedo.png", "second version");
+
+        const AssetScanReport modified_scan = database.scan();
+
+        EXPECT_TRUE(std::ranges::find(
+            modified_scan.modified_assets,
+            handle) != modified_scan.modified_assets.end());
+        EXPECT_GT(database.get_revision(handle), initial_revision);
+        EXPECT_FALSE(database.is_current(handle, initial_revision));
+        EXPECT_TRUE(database.is_current(
+            handle,
+            database.get_revision(handle)));
+    }
+
     TEST(AssetDatabaseTest, UpdatesImportSettingsInIndexAndMetadata) {
         const TemporaryProject project;
         project.add_file("textures/albedo.png");
@@ -111,6 +138,7 @@ namespace Comet::Tests {
         const AssetRecord* original = database.find("textures/albedo.png");
         ASSERT_NE(original, nullptr);
         const AssetHandle handle = original->handle;
+        const AssetRevision original_revision = database.get_revision(handle);
         const TextureImportSettings settings{
             .color_space = TextureColorSpace::Linear,
             .flip_y = true
@@ -121,6 +149,7 @@ namespace Comet::Tests {
         const AssetRecord* updated = database.find(handle);
         ASSERT_NE(updated, nullptr);
         EXPECT_EQ(updated->import_settings, AssetImportSettings(settings));
+        EXPECT_GT(database.get_revision(handle), original_revision);
         const AssetMetadata metadata = AssetMetadataSerializer{}.load(
             metadata_path(project.paths().assets() / updated->path));
         EXPECT_EQ(metadata.import_settings, AssetImportSettings(settings));

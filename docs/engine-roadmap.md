@@ -1021,6 +1021,7 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   当前 CMake 编译链不预设对应的 C++ 类型或落盘格式。
 - [x] Mesh Importer 接入 fastgltf，支持 `.gltf`/`.glb` 静态 triangle mesh，并由 app/editor 通过项目 AssetHandle 加载示例 cube。
 - [x] 建立 `.comet/cache/imported/mesh/<AssetHandle>.bin` 纵向切片；`MeshImportCache` 保存显式格式和 Importer 版本、项目内输入内容指纹与完整性校验，缺失、过期或损坏时自动重新导入并原子替换。
+- [x] 将磁盘变化签名与 `AssetRevision` 分离；每次数据库提交的资产变化分配单调 revision，Mesh 候选在发布到 Registry 前验票并丢弃过期结果。
 - [x] Asset Registry/Asset Manager 负责把 `AssetHandle` 解析为资产元数据和同步导入结果。
 - [x] Asset Registry/Asset Manager 以 `AssetHandle` 为唯一缓存键创建或复用 Runtime Asset；ResourceManager 不承担资产扫描或 Handle 缓存。
 - 完成 GFX-002 后让现有 `Device` 暴露不可变 `CapabilitySet`，统一保存实际启用的 feature/extension、queue family、
@@ -1437,9 +1438,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：后台导入的 revision/completion 契约**。Mesh 已具备可版本化、可验证、损坏后自动重建的
-`.comet/cache/` 产物，Asset Database 也能提交事务式变化集；下一步应把 CPU 导入任务移出主线程，并保证旧 revision 的完成结果
-不能覆盖新源文件对应的 Runtime 资源。Texture 产物应在 mipmap 与最终上传格式契约明确后接入，避免缓存一个即将变化的中间格式。
+下一步继续 **阶段 3：最小 TaskScheduler 与 Mesh 后台导入**。Mesh 已具备可版本化、可验证、损坏后自动重建的
+`.comet/cache/` 产物，Asset Database 也会为事务式变化分配单调 revision，AssetManager 已能拒绝旧 revision 的 Mesh 候选；
+下一步应让 worker 只生成 CPU 结果，再由 owner thread 复用这道 revision 检查完成缓存更新和 Runtime 发布。Texture 产物应在 mipmap 与最终上传格式契约明确后接入，避免缓存一个即将变化的中间格式。
 
 建议的职责边界：
 
@@ -1476,6 +1477,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 11. [x] 删除未接入生产渲染路径的 MaterialConfig/MaterialInstance，拆分 TextureData/MeshData CPU DTO。
 12. [x] 以 submodule 接入 fastgltf/simdjson，完成 `.gltf`/`.glb` 静态 Mesh 导入、失败安全刷新，并让 app/editor 从项目资产加载 cube。
 13. [x] 将项目本地数据收敛到 `.comet/`：cache 保存版本化 Mesh 二进制产物并支持源文件/外部 buffer 失效检测、完整性校验和原子重建，editor 保存 ImGui 布局状态。
+14. [x] 分离资产源文件签名与单调 `AssetRevision`，并在 Mesh 候选发布前验证 revision，阻止旧导入结果覆盖新状态。
 
 格式所有权后续需求：
 

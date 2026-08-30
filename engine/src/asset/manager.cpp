@@ -129,9 +129,17 @@ namespace Comet {
                 to_string(record->type));
             return nullptr;
         }
+        const AssetRevision revision = m_database.get_revision(handle);
 
         auto mesh = create_runtime_mesh(*record);
         if(!mesh) {
+            return nullptr;
+        }
+        if(!m_database.is_current(handle, revision)) {
+            LOG_DEBUG(
+                "Discarded stale runtime mesh candidate for asset handle {} (revision {})",
+                handle.value(),
+                revision);
             return nullptr;
         }
         if(!m_registry.register_asset(handle, mesh)) {
@@ -499,20 +507,33 @@ namespace Comet {
     }
 
     bool AssetManager::refresh_loaded_mesh(const AssetRecord& record) {
-        const auto previous_mesh = m_registry.resolve<Mesh>(record.handle);
+        const AssetHandle handle = record.handle;
+        const std::filesystem::path path = record.path;
+        const AssetRevision revision = m_database.get_revision(handle);
+        const auto previous_mesh = m_registry.resolve<Mesh>(handle);
         if(!previous_mesh) {
-            return !m_registry.contains(record.handle);
+            return !m_registry.contains(handle);
         }
 
         auto mesh = create_runtime_mesh(record);
-        if(!mesh || !m_registry.replace_asset(record.handle, mesh)) {
+        if(!mesh) {
+            return false;
+        }
+        if(!m_database.is_current(handle, revision)) {
+            LOG_DEBUG(
+                "Discarded stale refreshed mesh candidate for asset handle {} (revision {})",
+                handle.value(),
+                revision);
+            return true;
+        }
+        if(!m_registry.replace_asset(handle, mesh)) {
             return false;
         }
 
         LOG_INFO(
             "Reloaded mesh asset '{}' (handle {})",
-            record.path.generic_string(),
-            record.handle.value());
+            path.generic_string(),
+            handle.value());
         return true;
     }
 

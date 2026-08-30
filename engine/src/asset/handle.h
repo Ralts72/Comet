@@ -8,6 +8,9 @@
 #include <functional>
 
 namespace Comet {
+    using AssetRevision = std::uint64_t;
+    inline constexpr AssetRevision INVALID_ASSET_REVISION = 0;
+
     class COMET_API AssetHandle {
     public:
         using ValueType = std::uint64_t;

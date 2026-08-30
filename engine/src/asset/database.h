@@ -63,14 +63,24 @@ namespace Comet {
         [[nodiscard]] std::span<const AssetHandle> get_dependents(
             AssetHandle handle) const;
         [[nodiscard]] std::vector<AssetRecord> get_assets() const;
+        [[nodiscard]] AssetRevision get_revision(
+            AssetHandle handle) const noexcept;
+        [[nodiscard]] bool is_current(
+            AssetHandle handle,
+            AssetRevision revision) const noexcept;
         [[nodiscard]] std::size_t size() const noexcept;
 
     private:
+        [[nodiscard]] AssetRevision issue_revision();
+
         ProjectPaths m_paths;
         std::unordered_map<AssetHandle, AssetRecord> m_assets;
         std::unordered_map<std::filesystem::path, AssetHandle> m_handles_by_path;
         std::unordered_map<AssetHandle, std::vector<AssetHandle>>
             m_dependents_by_dependency;
-        std::unordered_map<AssetHandle, std::uint64_t> m_asset_revisions;
+        std::unordered_map<AssetHandle, std::uint64_t>
+            m_asset_source_signatures;
+        std::unordered_map<AssetHandle, AssetRevision> m_asset_revisions;
+        AssetRevision m_next_revision = 1;
     };
 }

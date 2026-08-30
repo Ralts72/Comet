@@ -13,9 +13,11 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Comet::Tests {
@@ -94,6 +96,10 @@ namespace Comet::Tests {
                 const MeshData& data) const override {
                 ++m_mesh_creation_count;
                 m_last_mesh_vertex_count = data.vertices.size();
+                if(m_on_mesh_creation) {
+                    auto callback = std::move(m_on_mesh_creation);
+                    callback();
+                }
                 if(m_fail_mesh_creation) {
                     return nullptr;
                 }
@@ -105,6 +111,10 @@ namespace Comet::Tests {
 
             void fail_mesh_creation(const bool fail) {
                 m_fail_mesh_creation = fail;
+            }
+
+            void on_next_mesh_creation(std::function<void()> callback) {
+                m_on_mesh_creation = std::move(callback);
             }
 
             [[nodiscard]] std::size_t mesh_creation_count() const {
@@ -119,6 +129,7 @@ namespace Comet::Tests {
             bool m_fail_mesh_creation = false;
             mutable std::size_t m_mesh_creation_count = 0;
             mutable std::size_t m_last_mesh_vertex_count = 0;
+            mutable std::function<void()> m_on_mesh_creation;
         };
 
         bool contains_handle(
@@ -201,6 +212,39 @@ namespace Comet::Tests {
         EXPECT_NE(modified, original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
         EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 6);
+    }
+
+    TEST(AssetManagerTest, DiscardsMeshCandidateWhenRevisionChangesBeforePublication) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path mesh_path = project.add_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        AssetManager manager(project.paths(), registry, resource_factory);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const AssetRevision requested_revision =
+            manager.get_database().get_revision(handle);
+        bool rescan_detected_change = false;
+        resource_factory.on_next_mesh_creation([&] {
+            TemporaryProject::write_mesh(
+                mesh_path,
+                R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})");
+            const AssetScanReport report = manager.scan();
+            rescan_detected_change = contains_handle(
+                report.modified_assets,
+                handle);
+        });
+
+        const std::shared_ptr<Mesh> stale_candidate = manager.load_mesh(handle);
+
+        EXPECT_TRUE(rescan_detected_change);
+        EXPECT_EQ(stale_candidate, nullptr);
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_GT(
+            manager.get_database().get_revision(handle),
+            requested_revision);
+        EXPECT_EQ(resource_factory.mesh_creation_count(), 1);
     }
 
     TEST(AssetManagerTest, KeepsPreviousMeshWhenImportFails) {
