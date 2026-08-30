@@ -82,6 +82,9 @@ namespace Comet {
         if(!m_scene_renderer->begin_frame()) {
             return;
         }
+        if(m_prepare_overlay) {
+            m_prepare_overlay();
+        }
         ViewportRenderRequest request = m_viewport_render_request;
         request.render_size =
             m_scene_renderer->get_render_target().get_size();
@@ -91,8 +94,8 @@ namespace Comet {
 
         m_scene_renderer->end_render_pass();
 
-        if(m_on_imgui_render) {
-            m_on_imgui_render(m_scene_renderer->get_current_command_buffer());
+        if(m_render_overlay) {
+            m_render_overlay(m_scene_renderer->get_current_command_buffer());
         }
 
         // End frame (submits and presents)

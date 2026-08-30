@@ -1,10 +1,12 @@
 #pragma once
 #include "editor_state.h"
+#include "editor_camera_controller.h"
 #include "editor.h"
 #include "viewport_layout.h"
 
 #include <imgui.h>
 #include <cstdint>
+#include <optional>
 
 namespace CometEditor {
     class ViewPanel: public EditorPanel {
@@ -35,10 +37,15 @@ namespace CometEditor {
             return m_layout;
         }
 
+        [[nodiscard]] std::optional<EditorCameraInput>
+        take_camera_input();
+
     private:
         void render_edit_toolbar();
         void render_play_toolbar();
         void render_view_content();
+        void update_camera_input();
+        void reset_camera_interaction();
 
         const EditorState& m_state;
         std::uint32_t m_max_render_dimension = 0;
@@ -49,5 +56,8 @@ namespace CometEditor {
         ImTextureID m_texture_id = ImTextureID_Invalid;
         Comet::Math::Vec2u m_texture_resolution{};
         ViewportLayout m_layout;
+        std::optional<EditorCameraInput> m_camera_input;
+        bool m_orbit_drag_active = false;
+        bool m_pan_drag_active = false;
     };
 }

@@ -144,6 +144,11 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
 `RenderScene → SceneExtractor → SceneResolver → RenderSubmission → SceneRenderer` 流水线集中在 `engine/src/render/scene/`，顶层 `Renderer` 只负责编排渲染上下文、资源管理器和这条场景渲染链路。
 - `Renderer`：编排 RenderScene 解析、帧开始/结束和 ImGui 回调，不读取 Material 属性或管理 descriptor。
 
+Editor overlay 分成 CPU prepare 与 GPU render 两个阶段。`SceneRenderer::begin_frame()` 得到 ready frame slot 后，prepare 阶段先更新该 slot 的
+Viewport descriptor、执行 ImGui NewFrame/面板逻辑、消费 editor camera 输入并提交最新 `ViewportRenderRequest`；随后 SceneResolver 与场景
+draw 使用同一帧更新后的请求。场景 render pass 结束后，render 阶段只录制已经生成的 ImGui draw data。Renderer 只认识通用 overlay callback
+与 CommandBuffer，不依赖 ImGui 类型；Editor shutdown 必须先解绑两个 callback。
+
 ## 帧同步
 
 `render.max_frames_in_flight` 当前为 2，与实际 swapchain image 数量相互独立。

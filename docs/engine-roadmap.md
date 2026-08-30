@@ -1161,7 +1161,9 @@ Scene Component / RenderItem
 - [x] Edit 使用 editor-only camera；该 Camera 不属于 Scene entity，不参与场景保存，也不影响 runtime 主 Camera。
 - [x] Play 使用 Runtime Scene 中的 primary Camera，并在没有有效主 Camera 时只清屏和显示诊断。
 - [x] Viewport 隐藏或折叠时跳过 resize。
-- [ ] 输入焦点只在画面区域 active 时交给 editor camera；Play 模式的游戏输入转发随运行时 Input System 接入。输入策略由真实消费者持有，不进入 Renderer 请求。
+- [x] Edit 模式的鼠标输入只从可见画面区域激活 editor camera；RMB orbit、MMB pan 和滚轮 zoom 由 backend-neutral controller 消费，
+  拖拽激活后持续到按键释放。输入策略不进入 Renderer 请求。
+- [ ] Play 模式的游戏输入转发随运行时 Input System 接入，不复用 editor camera 输入快照。
 - 只有出现 Play 中脱离游戏相机调试 Runtime Scene 的真实需求后，再增加 Eject/Debug Camera，不提前维护第二套 Viewport。
 
 验收标准：
@@ -1206,7 +1208,8 @@ Scene Component / RenderItem
 
 - [x] 基于 image display/visible rect 将屏幕坐标映射到当前实际 RenderTarget 像素，排除工具栏、letterbox/pillarbox、
   最大边界和 OneToOne 裁切区域；resize debounce 期间不使用尚未发布的请求分辨率。
-- Viewport 在 Edit 模式实现 editor camera 的平移、环绕、缩放，以及真正生效的 2D/3D 观察模式。
+- [x] Viewport 在 Edit 模式实现 editor camera 的 RMB 环绕、MMB 平移和滚轮缩放；UI prepare 在 SceneResolver 前执行，当前帧直接消费最新 camera snapshot。
+- [ ] 让 2D/3D 按钮切换真正的投影与操作策略；2D 使用正交投影和独立 zoom 语义，不用极端透视参数模拟。
 - 默认保持一个 Viewport 并在内部切换 2D/3D，共享同一组 RenderTarget、拾取和 gizmo 上下文。只有当多视图同时对照成为明确工作流时，
   才增加可停靠的多 Viewport；每个同时可见视口应拥有独立 Camera、尺寸、frame-slot RenderTarget 和渲染提交，隐藏时必须跳过渲染。
 - 实现对象拾取、Selection 同步、移动/旋转/缩放 gizmo 和选中对象高亮。
@@ -1488,8 +1491,8 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步让 **Viewport 输入焦点与 editor camera 消费边界** 使用已经稳定的坐标契约：只在 Edit 模式且鼠标位于
-`image_visible_rect` 时响应平移、环绕和缩放；先建立事件/状态输入与纯 camera controller，再接具体 ImGui 键鼠采样。
+下一步让 **2D/3D 观察模式真正生效**：扩展显式 editor camera snapshot 以表达 Perspective/Orthographic 投影，2D 模式固定观察轴、
+禁用 orbit、保留平移与正交缩放；3D 延用当前 orbit/pan/dolly。投影选择由 SceneResolver 消费，不把 EditorMode 或 ImGui 状态传入 renderer。
 runtime format/sample-count-dependent Pipeline generation 归入阶段 5，与 PipelineKey/RenderGraph 生命周期一并设计，避免在旧
 PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 
@@ -1577,6 +1580,7 @@ PipelineManager 上再增加一套只为 swapchain 服务的临时包装。
 60. [x] 将 swapchain 正常重建从 Device idle 收窄为全部 graphics frame-slot fence + present-queue idle 回退；submission serial 在 record 时绑定 slot，确保 active-frame 重建等待能推进真实完成状态。
 61. [x] 完成阶段 4B 架构审计：RenderTarget generation 删除原地 resize/dirty/recreate API 和重复 OffscreenTarget，extent/frame-count 构造后只读；初始 RenderPass 使用 active swapchain 实际格式，runtime Pipeline generation 明确归入阶段 5。
 62. [x] 建立 Viewport 屏幕点到当前纹理像素的纯映射：布局显式输出 image resolution 与裁切后的 visible rect，排除工具栏、留白、最大边和 OneToOne 不可见区域，并覆盖 HiDPI、debounce 旧纹理和裁切测试。
+63. [x] 建立 Viewport editor camera 输入闭环：拆分 overlay prepare/render 时序，当前帧 UI 状态在 SceneResolver 前提交；可见画面内激活 RMB orbit、MMB pan、wheel zoom，纯 controller 覆盖距离、平移和异常输入测试。
 
 格式所有权后续需求：
 

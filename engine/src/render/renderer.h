@@ -27,10 +27,14 @@ namespace Comet {
 
         void set_viewport_render_request(ViewportRenderRequest request);
 
-        using ImGuiRenderDelegate = std::function<void(CommandBuffer&)>;
+        using OverlayPrepareDelegate = std::function<void()>;
+        using OverlayRenderDelegate = std::function<void(CommandBuffer&)>;
 
-        void set_on_imgui_render(ImGuiRenderDelegate delegate) {
-            m_on_imgui_render = std::move(delegate);
+        void set_overlay_callbacks(
+            OverlayPrepareDelegate prepare,
+            OverlayRenderDelegate render) {
+            m_prepare_overlay = std::move(prepare);
+            m_render_overlay = std::move(render);
         }
 
         [[nodiscard]] ResourceManager& get_resource_manager() { return *m_resource_manager; }
@@ -48,7 +52,8 @@ namespace Comet {
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         SceneResolver m_scene_resolver;
         ViewportRenderRequest m_viewport_render_request;
-        ImGuiRenderDelegate m_on_imgui_render;
+        OverlayPrepareDelegate m_prepare_overlay;
+        OverlayRenderDelegate m_render_overlay;
 
         SampleCount m_msaa_samples;
     };
