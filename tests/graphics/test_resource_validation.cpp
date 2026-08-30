@@ -8,6 +8,7 @@
 #include "graphics/device.h"
 #include "graphics/resource/image.h"
 #include "graphics/resource/sampler.h"
+#include "graphics/synchronization/resource_state.h"
 
 namespace Comet::Tests {
 namespace {
@@ -25,16 +26,20 @@ namespace {
 
     template<typename T>
     concept SupportsImageReferenceTransition = requires(
-        T& context, const Image& image) {
-        context.transition_image_layout(
-            image, vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral);
+        T& context,
+        const Image& image,
+        const ImageState& before,
+        const ImageState& after) {
+        context.transition_image_state(image, before, after);
     };
 
     template<typename T>
     concept SupportsImagePointerTransition = requires(
-        T& context, const Image* image) {
-        context.transition_image_layout(
-            image, vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral);
+        T& context,
+        const Image* image,
+        const ImageState& before,
+        const ImageState& after) {
+        context.transition_image_state(image, before, after);
     };
 
     template<typename T>

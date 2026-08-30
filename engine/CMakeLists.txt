@@ -36,6 +36,7 @@ set(SOURCES
         src/graphics/context.cpp
         src/graphics/device.cpp
         src/graphics/vk_capability.cpp
+        src/graphics/synchronization/barrier.cpp
         src/graphics/synchronization/resource_state.cpp
         src/graphics/queue.cpp
         src/graphics/swapchain.cpp
