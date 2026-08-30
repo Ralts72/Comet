@@ -32,6 +32,10 @@ namespace Comet::Tests {
                 std::filesystem::remove_all(m_path, error);
             }
 
+            [[nodiscard]] const std::filesystem::path& path() const {
+                return m_path;
+            }
+
             [[nodiscard]] std::filesystem::path write_text(
                 const std::string_view name,
                 const std::string_view contents) const {
@@ -177,11 +181,15 @@ namespace Comet::Tests {
                 "triangle.bin"));
 
         const MeshImportResult result =
-            MeshImporter{}.import_with_dependencies(source);
+            MeshImporter{}.import_with_dependencies(
+                source, directory.path());
 
         EXPECT_EQ(result.data.vertices.size(), 3);
         ASSERT_EQ(result.source_dependencies.size(), 1);
         EXPECT_EQ(result.source_dependencies.front(), buffer);
+        EXPECT_FALSE(result.inputs_changed_during_import);
+        EXPECT_TRUE(import_inputs_are_current(
+            directory.path(), result.input_snapshot));
     }
 
     TEST(MeshImporterTest, ConcatenatesTrianglePrimitives) {

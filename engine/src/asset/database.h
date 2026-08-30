@@ -58,6 +58,9 @@ namespace Comet {
         void update_import_dependencies(
             AssetHandle handle,
             std::vector<std::filesystem::path> dependencies);
+        void invalidate_import_inputs(
+            AssetHandle handle,
+            std::vector<std::filesystem::path> dependencies);
 
         [[nodiscard]] const AssetRecord* find(AssetHandle handle) const;
         [[nodiscard]] const AssetRecord* find(const std::filesystem::path& path) const;

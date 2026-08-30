@@ -37,9 +37,11 @@ namespace Comet {
             std::filesystem::path cache_path;
             MeshData data;
             std::vector<std::filesystem::path> source_dependencies;
+            ImportInputSnapshot input_snapshot;
             std::string error;
             bool cache_hit = false;
             bool cache_update_required = false;
+            bool inputs_changed_during_import = false;
         };
 
         struct TextureImportCandidate {
@@ -75,15 +77,23 @@ namespace Comet {
                     candidate.data = std::move(cached->data);
                     candidate.source_dependencies =
                         std::move(cached->source_dependencies);
+                    candidate.input_snapshot =
+                        std::move(cached->input_snapshot);
                     candidate.cache_hit = true;
                 } else {
                     MeshImportResult imported =
                         MeshImporter{}.import_with_dependencies(
-                            candidate.source_path);
+                            candidate.source_path,
+                            candidate.asset_root);
                     candidate.data = std::move(imported.data);
                     candidate.source_dependencies =
                         std::move(imported.source_dependencies);
-                    candidate.cache_update_required = true;
+                    candidate.input_snapshot =
+                        std::move(imported.input_snapshot);
+                    candidate.inputs_changed_during_import =
+                        imported.inputs_changed_during_import;
+                    candidate.cache_update_required =
+                        !candidate.inputs_changed_during_import;
                 }
             } catch(const std::exception& exception) {
                 candidate.error = exception.what();
@@ -97,8 +107,7 @@ namespace Comet {
             MeshImportCache::store(
                 candidate.cache_path,
                 candidate.asset_root,
-                candidate.source_path,
-                candidate.source_dependencies,
+                candidate.input_snapshot,
                 MeshImporter::OUTPUT_VERSION,
                 candidate.data);
         }
@@ -294,6 +303,16 @@ namespace Comet {
                     candidate.error);
                 continue;
             }
+            if(candidate.inputs_changed_during_import
+               || !import_inputs_are_current(
+                   candidate.asset_root, candidate.input_snapshot)) {
+                reschedule_mesh_after_input_change(
+                    candidate.handle,
+                    candidate.revision,
+                    candidate.relative_path,
+                    candidate.source_dependencies);
+                continue;
+            }
 
             if(candidate.cache_update_required) {
                 try {
@@ -309,6 +328,16 @@ namespace Comet {
                     "Loaded mesh import cache '{}' (handle {})",
                     candidate.relative_path.generic_string(),
                     candidate.handle.value());
+            }
+
+            if(!import_inputs_are_current(
+                   candidate.asset_root, candidate.input_snapshot)) {
+                reschedule_mesh_after_input_change(
+                    candidate.handle,
+                    candidate.revision,
+                    candidate.relative_path,
+                    candidate.source_dependencies);
+                continue;
             }
 
             if(!m_database.is_current(
@@ -351,6 +380,15 @@ namespace Comet {
                     "Discarded stale runtime mesh candidate for asset handle {} (revision {})",
                     candidate.handle.value(),
                     candidate.revision);
+                continue;
+            }
+            if(!import_inputs_are_current(
+                   candidate.asset_root, candidate.input_snapshot)) {
+                reschedule_mesh_after_input_change(
+                    candidate.handle,
+                    candidate.revision,
+                    candidate.relative_path,
+                    candidate.source_dependencies);
                 continue;
             }
             if(!m_registry.replace_asset(candidate.handle, mesh)) {
@@ -838,19 +876,30 @@ namespace Comet {
 
     std::shared_ptr<Mesh> AssetManager::create_runtime_mesh(
         const AssetRecord& record) {
+        const AssetHandle handle = record.handle;
+        const std::filesystem::path relative_path = record.path;
         const AssetRevision revision =
-            m_database.get_revision(record.handle);
+            m_database.get_revision(handle);
         const MeshImportCandidate candidate = import_mesh_candidate(
             m_paths.assets(),
             m_paths.cache(),
-            record.handle,
+            handle,
             revision,
-            record.path);
+            relative_path);
         if(!candidate.error.empty()) {
             LOG_ERROR("{}", candidate.error);
             return nullptr;
         }
-        if(!m_database.is_current(record.handle, revision)) {
+        if(candidate.inputs_changed_during_import
+           || !import_inputs_are_current(
+               candidate.asset_root, candidate.input_snapshot)) {
+            LOG_WARN(
+                "Mesh import inputs changed while loading '{}' (handle {}); retry the load",
+                relative_path.generic_string(),
+                handle.value());
+            return nullptr;
+        }
+        if(!m_database.is_current(handle, revision)) {
             return nullptr;
         }
         if(candidate.cache_update_required) {
@@ -859,27 +908,43 @@ namespace Comet {
             } catch(const std::exception& exception) {
                 LOG_WARN(
                     "Imported mesh '{}', but could not update its import cache: {}",
-                    record.path.generic_string(),
+                    relative_path.generic_string(),
                     exception.what());
             }
         } else if(candidate.cache_hit) {
             LOG_DEBUG(
                 "Loaded mesh import cache '{}' (handle {})",
-                record.path.generic_string(),
-                record.handle.value());
+                relative_path.generic_string(),
+                handle.value());
         }
-        if(!m_database.is_current(record.handle, revision)) {
+        if(!import_inputs_are_current(
+               candidate.asset_root, candidate.input_snapshot)) {
+            LOG_WARN(
+                "Mesh import inputs changed while loading '{}' (handle {}); retry the load",
+                relative_path.generic_string(),
+                handle.value());
+            return nullptr;
+        }
+        if(!m_database.is_current(handle, revision)) {
             return nullptr;
         }
         record_import_dependencies(
-            record.handle,
+            handle,
             candidate.source_dependencies);
         auto mesh_attempt = m_resource_factory.try_create_mesh(candidate.data);
         if(!mesh_attempt) {
             LOG_ERROR(
                 "Failed to create runtime mesh for asset handle {}: {}",
-                record.handle.value(),
+                handle.value(),
                 vk::to_string(mesh_attempt.result()));
+            return nullptr;
+        }
+        if(!import_inputs_are_current(
+               candidate.asset_root, candidate.input_snapshot)) {
+            LOG_WARN(
+                "Mesh import inputs changed while creating runtime mesh '{}' (handle {}); retry the load",
+                relative_path.generic_string(),
+                handle.value());
             return nullptr;
         }
         return std::move(mesh_attempt).value();
@@ -1012,6 +1077,38 @@ namespace Comet {
             return false;
         }
         return true;
+    }
+
+    void AssetManager::reschedule_mesh_after_input_change(
+        const AssetHandle handle,
+        const AssetRevision rejected_revision,
+        const std::filesystem::path& relative_path,
+        const std::vector<std::filesystem::path>& dependencies) {
+        LOG_INFO(
+            "Discarded mesh candidate '{}' (handle {}, revision {}) because its import inputs changed",
+            relative_path.generic_string(),
+            handle.value(),
+            rejected_revision);
+        try {
+            m_database.invalidate_import_inputs(handle, dependencies);
+        } catch(const std::exception& exception) {
+            LOG_ERROR(
+                "Failed to invalidate changed mesh inputs for asset handle {}: {}",
+                handle.value(),
+                exception.what());
+            return;
+        }
+
+        const AssetRecord* record = m_database.find(handle);
+        if(!record || record->type != AssetType::Mesh
+           || !m_registry.resolve<Mesh>(handle)) {
+            return;
+        }
+        if(!schedule_loaded_mesh_refresh(*record)) {
+            LOG_ERROR(
+                "Failed to reschedule mesh refresh for changed import inputs on asset handle {}",
+                handle.value());
+        }
     }
 
     std::shared_ptr<Texture> AssetManager::create_runtime_texture(

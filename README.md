@@ -15,7 +15,7 @@ GoogleTest 测试基础。
 - `assets/`：当前示例项目的源资产及相邻 `.meta`，当前包含 demo Texture、Material 和 glTF Mesh；资产身份进入版本控制。
 - `config/`：`common.yaml` 保存共享运行配置，`profiles/` 保存构建/启动环境覆盖。
 - `.comet/`：项目本地数据根目录，整体不进入版本控制；`cache/imported/mesh/<AssetHandle>.bin` 保存可重建 Mesh
-  产物，缓存命中前会校验格式/Importer 版本、源 glTF 和外部 buffer 内容指纹；`editor/imgui.ini` 保存当前机器的
+  产物，缓存命中前会校验格式/Importer 版本、源 glTF 和外部 buffer 内容指纹；同一输入快照还会贯穿 Worker candidate、cache 写入和 Owner Thread 发布验证；`editor/imgui.ini` 保存当前机器的
   ImGui 窗口与 Docking 布局。
 - `tests/`：GoogleTest 测试，覆盖数学、配置、Scene/ECS、场景序列化、原子文件写入、Mesh 导入产物、Asset Manager 更新事务、资源参数保护和渲染数据链路。
 - `engine/shaders/`：引擎自有 GLSL Shader 源码，构建时编译并嵌入引擎。
@@ -173,6 +173,7 @@ Asset Database 扫描先构建候选快照再提交，并报告新增、删除�
 已有资产的 `.meta` 暂时无法解析或声明类型与源扩展不匹配时，扫描会报告问题但合并该路径上一份有效记录、签名、revision 和依赖，不会把编辑中间态误报为删除；新资产没有可信旧身份时只报告问题。重复 GUID 会拒绝整次有歧义的候选快照并保留当前数据库，不再按路径任意选择一个资产。
 Material 文档暂时无法解析时，自身文件变化仍推进 revision 并触发一次失败安全重载，但数据库会保留上一份有效 Texture Handle 依赖和反向索引，使旧 Runtime Material 留存期间仍能正确响应依赖刷新或删除。
 Asset Database 另为每次已提交的资产变化分配单调 `AssetRevision`，与仅用于发现磁盘变化的文件签名分离；MeshImporter 报告的项目内、由 glTF 外部引用的 buffer 路径会随 Mesh 缓存持久化，并在加载时恢复为源路径正向/反向索引，因此修改 `.bin` 也会推进所属 Mesh revision。Engine 持有通用 `TaskScheduler`；已加载 Mesh/Texture 在 Project 刷新后由 Worker 执行缓存读取、CPU 导入或图片解码，旧资源在此期间继续可用，app/editor 每帧由 Owner Thread 消费完成结果。只有 revision 仍匹配的候选才会创建 Runtime Resource 并替换 Registry；Mesh 候选还会按需更新导入缓存和源依赖。启动必需资源以及 Inspector 的显式 Texture reimport 仍复用同步入口。
+Mesh Worker 对主 glTF 和项目内外部 buffer 在导入前后捕获规范化内容指纹；cache hit 也恢复同一 `ImportInputSnapshot`。Owner Thread 在 cache、依赖登记、GPU 创建和 Registry replace 边界复核，输入变化时主动推进 revision 并重调度，不会把旧 CPU Mesh 与新的文件签名或缓存记录组合。
 Editor 通过引擎侧 `AssetSourceMonitor` 以 500ms 间隔观察 `assets/` 的路径、写入时间和大小，只有快照变化才调用同一个 AssetManager scan；目录暂时不可访问时保留上一份成功快照。Material/Texture Inspector 已经同步提交到数据库的自身写入会按精确路径确认，避免重复扫描；监视器不访问 ImGui、Registry 或 Vulkan，未来可在保持上层事件契约时替换为原生文件系统后端。
 app/editor 的示例 cube mesh、材质及纹理均从项目资产链路按稳定 Handle 加载；app 创建
 主 Camera 与两个具有不同 Transform 的 cube entity；`SceneResolver` 选择并校验主 Camera、根据渲染尺寸

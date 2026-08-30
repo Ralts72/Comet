@@ -773,6 +773,13 @@ namespace Comet {
             dependencies);
     }
 
+    void AssetDatabase::invalidate_import_inputs(
+        const AssetHandle handle,
+        std::vector<std::filesystem::path> dependencies) {
+        update_import_dependencies(handle, std::move(dependencies));
+        m_asset_revisions[handle] = issue_revision();
+    }
+
     const AssetRecord* AssetDatabase::find(const AssetHandle handle) const {
         const auto asset = m_assets.find(handle);
         return asset == m_assets.end() ? nullptr : &asset->second;

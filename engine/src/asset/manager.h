@@ -59,6 +59,11 @@ namespace Comet {
             AssetRevision revision,
             AssetType type,
             std::function<void()> task);
+        void reschedule_mesh_after_input_change(
+            AssetHandle handle,
+            AssetRevision rejected_revision,
+            const std::filesystem::path& relative_path,
+            const std::vector<std::filesystem::path>& dependencies);
         [[nodiscard]] std::shared_ptr<Texture> create_runtime_texture(
             const AssetRecord& record,
             const TextureImportSettings& import_settings);

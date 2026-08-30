@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "asset/import/input_snapshot.h"
 #include "render/resource/mesh_data.h"
 
 #include <cstdint>
@@ -11,6 +12,8 @@ namespace Comet {
     struct COMET_API MeshImportResult {
         MeshData data;
         std::vector<std::filesystem::path> source_dependencies;
+        ImportInputSnapshot input_snapshot;
+        bool inputs_changed_during_import = false;
     };
 
     class COMET_API MeshImporter final {
@@ -20,6 +23,7 @@ namespace Comet {
         [[nodiscard]] MeshData import(
             const std::filesystem::path& source_path) const;
         [[nodiscard]] MeshImportResult import_with_dependencies(
-            const std::filesystem::path& source_path) const;
+            const std::filesystem::path& source_path,
+            const std::filesystem::path& asset_root) const;
     };
 }

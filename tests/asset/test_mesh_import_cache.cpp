@@ -92,8 +92,7 @@ namespace Comet::Tests {
         MeshImportCache::store(
             project.cache_path(),
             project.asset_root(),
-            source,
-            {},
+            capture_import_inputs(project.asset_root(), source, {}),
             MeshImporter::OUTPUT_VERSION,
             expected);
         const auto loaded = MeshImportCache::load_if_current(
@@ -105,6 +104,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(loaded.has_value());
         expect_mesh_equal(loaded->data, expected);
         EXPECT_TRUE(loaded->source_dependencies.empty());
+        EXPECT_TRUE(import_inputs_are_current(
+            project.asset_root(), loaded->input_snapshot));
     }
 
     TEST(MeshImportCacheTest, InvalidatesWhenSourceContentChanges) {
@@ -113,8 +114,7 @@ namespace Comet::Tests {
         MeshImportCache::store(
             project.cache_path(),
             project.asset_root(),
-            source,
-            {},
+            capture_import_inputs(project.asset_root(), source, {}),
             MeshImporter::OUTPUT_VERSION,
             make_mesh_data());
 
@@ -136,8 +136,8 @@ namespace Comet::Tests {
         MeshImportCache::store(
             project.cache_path(),
             project.asset_root(),
-            source,
-            dependencies,
+            capture_import_inputs(
+                project.asset_root(), source, dependencies),
             MeshImporter::OUTPUT_VERSION,
             make_mesh_data());
 
@@ -167,8 +167,7 @@ namespace Comet::Tests {
         MeshImportCache::store(
             project.cache_path(),
             project.asset_root(),
-            source,
-            {},
+            capture_import_inputs(project.asset_root(), source, {}),
             MeshImporter::OUTPUT_VERSION,
             make_mesh_data());
 

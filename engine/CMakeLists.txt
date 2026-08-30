@@ -13,6 +13,7 @@ set(SOURCES
         src/asset/database.cpp
         src/asset/handle.cpp
         src/asset/import_settings.cpp
+        src/asset/import/input_snapshot.cpp
         src/asset/import/mesh_importer.cpp
         src/asset/import/texture_importer.cpp
         src/asset/manager.cpp

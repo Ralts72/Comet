@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -347,12 +348,49 @@ namespace Comet {
     }
 
     MeshImportResult MeshImporter::import_with_dependencies(
-        const std::filesystem::path& source_path) const {
-        std::vector<std::filesystem::path> dependencies =
+        const std::filesystem::path& source_path,
+        const std::filesystem::path& asset_root) const {
+        std::vector<std::filesystem::path> dependencies_before =
             collect_source_dependencies(source_path);
+        ImportInputSnapshot snapshot_before = capture_import_inputs(
+            asset_root, source_path, dependencies_before);
+
+        MeshData data;
+        std::exception_ptr import_error;
+        try {
+            data = import(source_path);
+        } catch(...) {
+            import_error = std::current_exception();
+        }
+
+        std::vector<std::filesystem::path> dependencies_after;
+        ImportInputSnapshot snapshot_after;
+        try {
+            dependencies_after = collect_source_dependencies(source_path);
+            snapshot_after = capture_import_inputs(
+                asset_root, source_path, dependencies_after);
+        } catch(...) {
+            return {
+                .source_dependencies = std::move(dependencies_before),
+                .input_snapshot = std::move(snapshot_before),
+                .inputs_changed_during_import = true
+            };
+        }
+
+        if(snapshot_before != snapshot_after) {
+            return {
+                .source_dependencies = std::move(dependencies_after),
+                .input_snapshot = std::move(snapshot_after),
+                .inputs_changed_during_import = true
+            };
+        }
+        if(import_error) {
+            std::rethrow_exception(import_error);
+        }
         return {
-            .data = import(source_path),
-            .source_dependencies = std::move(dependencies)
+            .data = std::move(data),
+            .source_dependencies = std::move(dependencies_after),
+            .input_snapshot = std::move(snapshot_after)
         };
     }
 }

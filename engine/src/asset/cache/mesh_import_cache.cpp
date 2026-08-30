@@ -11,7 +11,6 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
-#include <map>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -33,14 +32,9 @@ namespace Comet::MeshImportCache {
         static_assert(sizeof(float) == sizeof(std::uint32_t));
         static_assert(std::numeric_limits<float>::is_iec559);
 
-        struct FileFingerprint {
-            std::uint64_t size = 0;
-            std::uint64_t hash = FNV_OFFSET_BASIS;
-        };
-
         struct InputRecord {
             std::string relative_path;
-            FileFingerprint fingerprint;
+            ImportInputFingerprint fingerprint;
         };
 
         [[nodiscard]] std::uint64_t hash_bytes(
@@ -51,41 +45,6 @@ namespace Comet::MeshImportCache {
                 hash *= FNV_PRIME;
             }
             return hash;
-        }
-
-        [[nodiscard]] std::optional<FileFingerprint> fingerprint_file(
-            const std::filesystem::path& path) {
-            std::ifstream input(path, std::ios::binary);
-            if(!input) {
-                return std::nullopt;
-            }
-
-            FileFingerprint fingerprint;
-            std::array<char, 64 * 1024> buffer{};
-            while(input) {
-                input.read(
-                    buffer.data(),
-                    static_cast<std::streamsize>(buffer.size()));
-                const std::streamsize count = input.gcount();
-                if(count <= 0) {
-                    continue;
-                }
-                if(static_cast<std::uint64_t>(count)
-                   > std::numeric_limits<std::uint64_t>::max()
-                       - fingerprint.size) {
-                    return std::nullopt;
-                }
-                fingerprint.size += static_cast<std::uint64_t>(count);
-                for(std::streamsize index = 0; index < count; ++index) {
-                    fingerprint.hash ^=
-                        static_cast<unsigned char>(buffer[index]);
-                    fingerprint.hash *= FNV_PRIME;
-                }
-            }
-            if(!input.eof()) {
-                return std::nullopt;
-            }
-            return fingerprint;
         }
 
         [[nodiscard]] bool is_safe_relative_path(
@@ -409,6 +368,7 @@ namespace Comet::MeshImportCache {
                    || path_to_utf8(relative) != input.relative_path) {
                     return std::nullopt;
                 }
+                input.fingerprint.relative_path = relative;
                 inputs.push_back(std::move(input));
             }
 
@@ -420,6 +380,8 @@ namespace Comet::MeshImportCache {
                 return std::nullopt;
             }
 
+            ImportInputSnapshot input_snapshot;
+            input_snapshot.files.reserve(inputs.size());
             for(const InputRecord& input: inputs) {
                 const std::filesystem::path relative =
                     path_from_utf8(input.relative_path);
@@ -428,12 +390,10 @@ namespace Comet::MeshImportCache {
                 if(relative_to_root(canonical_root, input_path) != relative) {
                     return std::nullopt;
                 }
-                const auto fingerprint = fingerprint_file(input_path);
-                if(!fingerprint
-                   || fingerprint->size != input.fingerprint.size
-                   || fingerprint->hash != input.fingerprint.hash) {
-                    return std::nullopt;
-                }
+                input_snapshot.files.push_back(input.fingerprint);
+            }
+            if(!import_inputs_are_current(asset_root, input_snapshot)) {
+                return std::nullopt;
             }
 
             constexpr std::uint64_t SERIALIZED_VERTEX_SIZE = 8 * sizeof(float);
@@ -447,11 +407,12 @@ namespace Comet::MeshImportCache {
             }
 
             Entry entry;
+            entry.input_snapshot = std::move(input_snapshot);
             entry.source_dependencies.reserve(inputs.size() - 1);
-            for(auto input = std::next(inputs.begin());
-                input != inputs.end(); ++input) {
+            for(auto input = std::next(entry.input_snapshot.files.begin());
+                input != entry.input_snapshot.files.end(); ++input) {
                 entry.source_dependencies.push_back(
-                    (asset_root / path_from_utf8(input->relative_path))
+                    (asset_root / input->relative_path)
                         .lexically_normal());
             }
 
@@ -477,8 +438,7 @@ namespace Comet::MeshImportCache {
     void store(
         const std::filesystem::path& cache_path,
         const std::filesystem::path& asset_root,
-        const std::filesystem::path& source_path,
-        const std::span<const std::filesystem::path> source_dependencies,
+        const ImportInputSnapshot& input_snapshot,
         const std::uint32_t importer_version,
         const MeshData& data) {
         if(data.vertices.empty() || data.indices.empty()
@@ -489,42 +449,20 @@ namespace Comet::MeshImportCache {
                 "Cannot cache a mesh with invalid vertex or index counts");
         }
 
-        const std::filesystem::path canonical_root = canonical_path(asset_root);
-        const std::filesystem::path source_relative =
-            relative_to_root(canonical_root, source_path);
-        std::map<std::string, std::filesystem::path> dependency_paths;
-        for(const std::filesystem::path& dependency: source_dependencies) {
-            const std::filesystem::path relative =
-                relative_to_root(canonical_root, dependency);
-            if(relative == source_relative) {
-                continue;
-            }
-            dependency_paths.emplace(path_to_utf8(relative), relative);
-        }
-        if(dependency_paths.size() + 1 > MAX_INPUT_COUNT) {
+        if(input_snapshot.files.empty()
+           || input_snapshot.files.size() > MAX_INPUT_COUNT
+           || !import_inputs_are_current(asset_root, input_snapshot)) {
             throw std::runtime_error(
-                "Mesh import cache has too many source dependencies");
+                "Cannot cache a mesh with stale or invalid import inputs");
         }
 
         std::vector<InputRecord> inputs;
-        inputs.reserve(dependency_paths.size() + 1);
-        const auto add_input = [&](const std::filesystem::path& relative) {
-            const auto fingerprint =
-                fingerprint_file(canonical_root / relative);
-            if(!fingerprint) {
-                throw std::runtime_error(
-                    "Failed to fingerprint mesh import cache input '"
-                    + (canonical_root / relative).string() + "'");
-            }
+        inputs.reserve(input_snapshot.files.size());
+        for(const ImportInputFingerprint& fingerprint: input_snapshot.files) {
             inputs.push_back({
-                .relative_path = path_to_utf8(relative),
-                .fingerprint = *fingerprint
+                .relative_path = path_to_utf8(fingerprint.relative_path),
+                .fingerprint = fingerprint
             });
-        };
-        add_input(source_relative);
-        for(const auto& [path, relative]: dependency_paths) {
-            static_cast<void>(path);
-            add_input(relative);
         }
 
         BinaryWriter writer;

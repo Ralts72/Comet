@@ -378,6 +378,46 @@ namespace Comet::Tests {
         EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 3);
     }
 
+    TEST(AssetManagerTest, ReschedulesMeshWhenInputsChangeDuringPublication) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path dependency =
+            project.add_external_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().succeeded());
+        const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
+        ASSERT_NE(original, nullptr);
+        TemporaryProject::write_external_mesh_buffer(dependency, true);
+        const AssetScanReport refresh = manager.scan();
+        ASSERT_TRUE(contains_handle(refresh.modified_assets, handle));
+        const AssetRevision requested_revision =
+                manager.get_database().get_revision(handle);
+        resource_factory.on_next_mesh_creation([&] {
+            TemporaryProject::write_external_mesh_buffer(dependency, false);
+        });
+
+        task_scheduler.wait_idle();
+        manager.process_completions();
+
+        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_EQ(resource_factory.mesh_creation_count(), 2u);
+        EXPECT_GT(
+            manager.get_database().get_revision(handle),
+            requested_revision);
+
+        task_scheduler.wait_idle();
+        manager.process_completions();
+
+        EXPECT_NE(registry.resolve<Mesh>(handle), original);
+        EXPECT_EQ(resource_factory.mesh_creation_count(), 3u);
+        EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 3u);
+    }
+
     TEST(AssetManagerTest, DiscardsMeshCandidateWhenRevisionChangesBeforePublication) {
         const TemporaryProject project;
         constexpr AssetHandle handle(42);
