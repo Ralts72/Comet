@@ -6,29 +6,125 @@
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
 #include "common/file_io.h"
+#include "core/task_scheduler.h"
 #include "diagnostics/logger.h"
 #include "render/material.h"
 #include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
 #include "render/resource/texture.h"
 
+#include <chrono>
+#include <deque>
 #include <exception>
+#include <future>
 #include <map>
+#include <mutex>
 #include <queue>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 namespace Comet {
+    namespace {
+        struct MeshImportCandidate {
+            AssetHandle handle;
+            AssetRevision revision = INVALID_ASSET_REVISION;
+            std::filesystem::path relative_path;
+            std::filesystem::path asset_root;
+            std::filesystem::path source_path;
+            std::filesystem::path cache_path;
+            MeshData data;
+            std::vector<std::filesystem::path> source_dependencies;
+            std::string error;
+            bool cache_hit = false;
+            bool cache_update_required = false;
+        };
+
+        MeshImportCandidate import_mesh_candidate(
+            const std::filesystem::path& asset_root,
+            const std::filesystem::path& cache_root,
+            const AssetHandle handle,
+            const AssetRevision revision,
+            const std::filesystem::path& relative_path) {
+            MeshImportCandidate candidate{
+                .handle = handle,
+                .revision = revision,
+                .relative_path = relative_path,
+                .asset_root = asset_root,
+                .source_path = asset_root / relative_path,
+                .cache_path = cache_root / "imported" / "mesh"
+                    / (std::to_string(handle.value()) + ".bin")
+            };
+
+            try {
+                if(auto cached = MeshImportCache::load_if_current(
+                       candidate.cache_path,
+                       candidate.asset_root,
+                       candidate.source_path,
+                       MeshImporter::OUTPUT_VERSION)) {
+                    candidate.data = std::move(*cached);
+                    candidate.cache_hit = true;
+                } else {
+                    MeshImportResult imported =
+                        MeshImporter{}.import_with_dependencies(
+                            candidate.source_path);
+                    candidate.data = std::move(imported.data);
+                    candidate.source_dependencies =
+                        std::move(imported.source_dependencies);
+                    candidate.cache_update_required = true;
+                }
+            } catch(const std::exception& exception) {
+                candidate.error = exception.what();
+            } catch(...) {
+                candidate.error = "Unknown mesh import failure";
+            }
+            return candidate;
+        }
+
+        void update_mesh_import_cache(const MeshImportCandidate& candidate) {
+            MeshImportCache::store(
+                candidate.cache_path,
+                candidate.asset_root,
+                candidate.source_path,
+                candidate.source_dependencies,
+                MeshImporter::OUTPUT_VERSION,
+                candidate.data);
+        }
+    }
+
+    struct AssetManager::AsyncState {
+        struct ScheduledMeshTask {
+            AssetHandle handle;
+            AssetRevision revision = INVALID_ASSET_REVISION;
+            std::future<void> completion;
+        };
+
+        std::mutex completed_mutex;
+        std::deque<MeshImportCandidate> completed_meshes;
+        std::unordered_map<AssetHandle, AssetRevision> pending_meshes;
+        std::vector<ScheduledMeshTask> scheduled_tasks;
+    };
+
     AssetManager::AssetManager(
         ProjectPaths paths,
         AssetRegistry& registry,
-        RenderResourceFactory& resource_factory)
+        RenderResourceFactory& resource_factory,
+        TaskScheduler& task_scheduler)
         : m_paths(std::move(paths)),
           m_database(m_paths),
           m_registry(registry),
-          m_resource_factory(resource_factory) {}
+          m_resource_factory(resource_factory),
+          m_task_scheduler(task_scheduler),
+          m_async_state(std::make_shared<AsyncState>()) {}
+
+    AssetManager::~AssetManager() {
+        for(AsyncState::ScheduledMeshTask& task:
+            m_async_state->scheduled_tasks) {
+            task.completion.wait();
+        }
+    }
 
     AssetScanReport AssetManager::scan() {
         AssetScanReport report = m_database.scan();
@@ -82,9 +178,9 @@ namespace Comet {
                     }
                     break;
                 case AssetType::Mesh:
-                    if(!refresh_loaded_mesh(*record)) {
+                    if(!schedule_loaded_mesh_refresh(*record)) {
                         LOG_ERROR(
-                            "Failed to refresh modified mesh asset handle {}",
+                            "Failed to schedule refresh for modified mesh asset handle {}",
                             handle.value());
                     }
                     break;
@@ -98,6 +194,129 @@ namespace Comet {
             }
         }
         return report;
+    }
+
+    void AssetManager::process_completions() {
+        std::deque<MeshImportCandidate> completed_meshes;
+        {
+            const std::lock_guard lock(m_async_state->completed_mutex);
+            completed_meshes.swap(m_async_state->completed_meshes);
+        }
+
+        for(MeshImportCandidate& candidate: completed_meshes) {
+            const auto pending =
+                m_async_state->pending_meshes.find(candidate.handle);
+            if(pending != m_async_state->pending_meshes.end()
+               && pending->second == candidate.revision) {
+                m_async_state->pending_meshes.erase(pending);
+            }
+
+            if(!m_database.is_current(
+                   candidate.handle,
+                   candidate.revision)) {
+                LOG_DEBUG(
+                    "Discarded stale background mesh import for asset handle {} (revision {})",
+                    candidate.handle.value(),
+                    candidate.revision);
+                continue;
+            }
+            if(!candidate.error.empty()) {
+                LOG_ERROR(
+                    "Failed to import modified mesh asset '{}' (handle {}): {}",
+                    candidate.relative_path.generic_string(),
+                    candidate.handle.value(),
+                    candidate.error);
+                continue;
+            }
+
+            if(candidate.cache_update_required) {
+                try {
+                    update_mesh_import_cache(candidate);
+                } catch(const std::exception& exception) {
+                    LOG_WARN(
+                        "Imported mesh '{}', but could not update its import cache: {}",
+                        candidate.relative_path.generic_string(),
+                        exception.what());
+                }
+            } else if(candidate.cache_hit) {
+                LOG_DEBUG(
+                    "Loaded mesh import cache '{}' (handle {})",
+                    candidate.relative_path.generic_string(),
+                    candidate.handle.value());
+            }
+
+            if(!m_database.is_current(
+                   candidate.handle,
+                   candidate.revision)) {
+                LOG_DEBUG(
+                    "Discarded stale background mesh import for asset handle {} (revision {})",
+                    candidate.handle.value(),
+                    candidate.revision);
+                continue;
+            }
+
+            std::shared_ptr<Mesh> mesh;
+            try {
+                mesh = m_resource_factory.create_mesh(candidate.data);
+            } catch(const std::exception& exception) {
+                LOG_ERROR(
+                    "Failed to create refreshed runtime mesh for asset handle {}: {}",
+                    candidate.handle.value(),
+                    exception.what());
+                continue;
+            }
+            if(!mesh) {
+                LOG_ERROR(
+                    "Failed to create refreshed runtime mesh for asset handle {}",
+                    candidate.handle.value());
+                continue;
+            }
+            if(!m_database.is_current(
+                   candidate.handle,
+                   candidate.revision)) {
+                LOG_DEBUG(
+                    "Discarded stale runtime mesh candidate for asset handle {} (revision {})",
+                    candidate.handle.value(),
+                    candidate.revision);
+                continue;
+            }
+            if(!m_registry.replace_asset(candidate.handle, mesh)) {
+                LOG_ERROR(
+                    "Failed to publish refreshed runtime mesh for asset handle {}",
+                    candidate.handle.value());
+                continue;
+            }
+
+            LOG_INFO(
+                "Reloaded mesh asset '{}' (handle {})",
+                candidate.relative_path.generic_string(),
+                candidate.handle.value());
+        }
+
+        auto& tasks = m_async_state->scheduled_tasks;
+        for(auto task = tasks.begin(); task != tasks.end();) {
+            if(task->completion.wait_for(std::chrono::seconds(0))
+               != std::future_status::ready) {
+                ++task;
+                continue;
+            }
+
+            try {
+                task->completion.get();
+            } catch(const std::exception& exception) {
+                const auto pending =
+                    m_async_state->pending_meshes.find(task->handle);
+                if(pending != m_async_state->pending_meshes.end()
+                   && pending->second == task->revision) {
+                    m_async_state->pending_meshes.erase(pending);
+                }
+                LOG_ERROR(
+                    "Background mesh task failed for asset handle {}: {}",
+                    task->handle.value(),
+                    exception.what());
+            }
+            task = tasks.erase(task);
+        }
     }
 
     std::shared_ptr<Mesh> AssetManager::load_mesh(
@@ -463,77 +682,100 @@ namespace Comet {
 
     std::shared_ptr<Mesh> AssetManager::create_runtime_mesh(
         const AssetRecord& record) {
-        const std::filesystem::path asset_root = m_paths.assets();
-        const std::filesystem::path source_path = asset_root / record.path;
-        const std::filesystem::path cache_path =
-            m_paths.cache() / "imported" / "mesh"
-            / (std::to_string(record.handle.value()) + ".bin");
-        MeshData data;
-        try {
-            if(auto cached = MeshImportCache::load_if_current(
-                   cache_path,
-                   asset_root,
-                   source_path,
-                   MeshImporter::OUTPUT_VERSION)) {
-                data = std::move(*cached);
-                LOG_DEBUG(
-                    "Loaded mesh import cache '{}' (handle {})",
-                    record.path.generic_string(),
-                    record.handle.value());
-            } else {
-                MeshImportResult imported =
-                    MeshImporter{}.import_with_dependencies(source_path);
-                data = std::move(imported.data);
-                try {
-                    MeshImportCache::store(
-                        cache_path,
-                        asset_root,
-                        source_path,
-                        imported.source_dependencies,
-                        MeshImporter::OUTPUT_VERSION,
-                        data);
-                } catch(const std::exception& exception) {
-                    LOG_WARN(
-                        "Imported mesh '{}', but could not update its import cache: {}",
-                        record.path.generic_string(),
-                        exception.what());
-                }
-            }
-        } catch(const std::exception& exception) {
-            LOG_ERROR("{}", exception.what());
+        const AssetRevision revision =
+            m_database.get_revision(record.handle);
+        const MeshImportCandidate candidate = import_mesh_candidate(
+            m_paths.assets(),
+            m_paths.cache(),
+            record.handle,
+            revision,
+            record.path);
+        if(!candidate.error.empty()) {
+            LOG_ERROR("{}", candidate.error);
             return nullptr;
         }
-        return m_resource_factory.create_mesh(data);
+        if(!m_database.is_current(record.handle, revision)) {
+            return nullptr;
+        }
+        if(candidate.cache_update_required) {
+            try {
+                update_mesh_import_cache(candidate);
+            } catch(const std::exception& exception) {
+                LOG_WARN(
+                    "Imported mesh '{}', but could not update its import cache: {}",
+                    record.path.generic_string(),
+                    exception.what());
+            }
+        } else if(candidate.cache_hit) {
+            LOG_DEBUG(
+                "Loaded mesh import cache '{}' (handle {})",
+                record.path.generic_string(),
+                record.handle.value());
+        }
+        if(!m_database.is_current(record.handle, revision)) {
+            return nullptr;
+        }
+        return m_resource_factory.create_mesh(candidate.data);
     }
 
-    bool AssetManager::refresh_loaded_mesh(const AssetRecord& record) {
+    bool AssetManager::schedule_loaded_mesh_refresh(
+        const AssetRecord& record) {
         const AssetHandle handle = record.handle;
-        const std::filesystem::path path = record.path;
         const AssetRevision revision = m_database.get_revision(handle);
         const auto previous_mesh = m_registry.resolve<Mesh>(handle);
         if(!previous_mesh) {
             return !m_registry.contains(handle);
         }
 
-        auto mesh = create_runtime_mesh(record);
-        if(!mesh) {
-            return false;
-        }
-        if(!m_database.is_current(handle, revision)) {
-            LOG_DEBUG(
-                "Discarded stale refreshed mesh candidate for asset handle {} (revision {})",
-                handle.value(),
-                revision);
+        const auto pending = m_async_state->pending_meshes.find(handle);
+        if(pending != m_async_state->pending_meshes.end()
+           && pending->second == revision) {
             return true;
         }
-        if(!m_registry.replace_asset(handle, mesh)) {
+
+        m_async_state->pending_meshes[handle] = revision;
+        bool task_slot_created = false;
+        try {
+            m_async_state->scheduled_tasks.push_back({
+                .handle = handle,
+                .revision = revision,
+                .completion = {}
+            });
+            task_slot_created = true;
+            m_async_state->scheduled_tasks.back().completion =
+                m_task_scheduler.submit([
+                    state = m_async_state,
+                    asset_root = m_paths.assets(),
+                    cache_root = m_paths.cache(),
+                    handle,
+                    revision,
+                    relative_path = record.path
+                ] {
+                    MeshImportCandidate candidate = import_mesh_candidate(
+                        asset_root,
+                        cache_root,
+                        handle,
+                        revision,
+                        relative_path);
+                    const std::lock_guard lock(state->completed_mutex);
+                    state->completed_meshes.push_back(std::move(candidate));
+                });
+        } catch(const std::exception& exception) {
+            if(task_slot_created) {
+                m_async_state->scheduled_tasks.pop_back();
+            }
+            const auto current_pending =
+                m_async_state->pending_meshes.find(handle);
+            if(current_pending != m_async_state->pending_meshes.end()
+               && current_pending->second == revision) {
+                m_async_state->pending_meshes.erase(current_pending);
+            }
+            LOG_ERROR(
+                "Failed to schedule mesh refresh for asset handle {}: {}",
+                handle.value(),
+                exception.what());
             return false;
         }
-
-        LOG_INFO(
-            "Reloaded mesh asset '{}' (handle {})",
-            path.generic_string(),
-            handle.value());
         return true;
     }
 

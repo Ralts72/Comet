@@ -3,6 +3,7 @@
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
+#include "core/task_scheduler.h"
 #include "render/material.h"
 #include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
@@ -14,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -145,7 +147,9 @@ namespace Comet::Tests {
         project.add_mesh(handle);
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
-        AssetManager manager(project.paths(), registry, resource_factory);
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
         const std::shared_ptr<Mesh> mesh = manager.load_mesh(handle);
@@ -168,7 +172,9 @@ namespace Comet::Tests {
         {
             AssetRegistry registry;
             FakeRenderResourceFactory resource_factory;
-            AssetManager manager(project.paths(), registry, resource_factory);
+            TaskScheduler task_scheduler(1);
+            AssetManager manager(
+                project.paths(), registry, resource_factory, task_scheduler);
             ASSERT_TRUE(manager.scan().snapshot_updated);
             ASSERT_NE(manager.load_mesh(handle), nullptr);
         }
@@ -181,7 +187,9 @@ namespace Comet::Tests {
 
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
-        AssetManager manager(project.paths(), registry, resource_factory);
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
         ASSERT_TRUE(manager.scan().snapshot_updated);
 
         EXPECT_NE(manager.load_mesh(handle), nullptr);
@@ -194,7 +202,9 @@ namespace Comet::Tests {
         const std::filesystem::path mesh_path = project.add_mesh(handle);
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
-        AssetManager manager(project.paths(), registry, resource_factory);
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
         const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
@@ -207,6 +217,12 @@ namespace Comet::Tests {
 
         ASSERT_TRUE(refresh.snapshot_updated);
         EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
+        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_EQ(resource_factory.mesh_creation_count(), 1);
+
+        task_scheduler.wait_idle();
+        manager.process_completions();
+
         const std::shared_ptr<Mesh> modified = registry.resolve<Mesh>(handle);
         ASSERT_NE(modified, nullptr);
         EXPECT_NE(modified, original);
@@ -220,7 +236,9 @@ namespace Comet::Tests {
         const std::filesystem::path mesh_path = project.add_mesh(handle);
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
-        AssetManager manager(project.paths(), registry, resource_factory);
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
         const AssetRevision requested_revision =
@@ -247,13 +265,62 @@ namespace Comet::Tests {
         EXPECT_EQ(resource_factory.mesh_creation_count(), 1);
     }
 
+    TEST(AssetManagerTest, PublishesOnlyLatestBackgroundMeshRevision) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path mesh_path = project.add_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
+        ASSERT_NE(original, nullptr);
+
+        std::promise<void> release_worker;
+        const std::shared_future<void> worker_gate =
+            release_worker.get_future().share();
+        std::future<void> blocker = task_scheduler.submit([worker_gate] {
+            worker_gate.wait();
+        });
+
+        TemporaryProject::write_mesh(
+            mesh_path,
+            R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})");
+        const AssetScanReport first_refresh = manager.scan();
+        ASSERT_TRUE(contains_handle(first_refresh.modified_assets, handle));
+        const AssetRevision first_revision =
+            manager.get_database().get_revision(handle);
+
+        TemporaryProject::write_mesh(
+            mesh_path,
+            R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})");
+        const AssetScanReport second_refresh = manager.scan();
+        ASSERT_TRUE(contains_handle(second_refresh.modified_assets, handle));
+        EXPECT_GT(manager.get_database().get_revision(handle), first_revision);
+        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+
+        release_worker.set_value();
+        task_scheduler.wait_idle();
+        blocker.get();
+        manager.process_completions();
+
+        EXPECT_NE(registry.resolve<Mesh>(handle), original);
+        EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
+        EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 9);
+    }
+
     TEST(AssetManagerTest, KeepsPreviousMeshWhenImportFails) {
         const TemporaryProject project;
         constexpr AssetHandle handle(42);
         const std::filesystem::path mesh_path = project.add_mesh(handle);
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
-        AssetManager manager(project.paths(), registry, resource_factory);
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
         const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
@@ -267,6 +334,8 @@ namespace Comet::Tests {
 
         ASSERT_TRUE(refresh.snapshot_updated);
         EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
+        task_scheduler.wait_idle();
+        manager.process_completions();
         EXPECT_EQ(registry.resolve<Mesh>(handle), original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 1);
     }
@@ -277,7 +346,9 @@ namespace Comet::Tests {
         const std::filesystem::path mesh_path = project.add_mesh(handle);
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
-        AssetManager manager(project.paths(), registry, resource_factory);
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
         const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
@@ -292,6 +363,11 @@ namespace Comet::Tests {
         ASSERT_TRUE(refresh.snapshot_updated);
         EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
         EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+
+        task_scheduler.wait_idle();
+        manager.process_completions();
+
+        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
     }
 
@@ -302,7 +378,9 @@ namespace Comet::Tests {
             handle, "original_template");
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
-        AssetManager manager(project.paths(), registry, resource_factory);
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
 
         const AssetScanReport initial_scan = manager.scan();
         ASSERT_TRUE(initial_scan.snapshot_updated);
@@ -334,7 +412,9 @@ namespace Comet::Tests {
             handle, "test_template");
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
-        AssetManager manager(project.paths(), registry, resource_factory);
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
         ASSERT_NE(manager.load_material(handle), nullptr);
@@ -355,7 +435,9 @@ namespace Comet::Tests {
         project.add_material(handle, "test_template");
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
-        AssetManager manager(project.paths(), registry, resource_factory);
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
         const std::shared_ptr<Material> original = manager.load_material(handle);
@@ -376,7 +458,9 @@ namespace Comet::Tests {
             handle, "original_template");
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
-        AssetManager manager(project.paths(), registry, resource_factory);
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(
+            project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
         const std::shared_ptr<Material> original = manager.load_material(handle);

@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "asset/registry.h"
+#include "core/task_scheduler.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 #include "render/scene/scene_extractor.h"
@@ -10,6 +11,8 @@ namespace Comet {
         PROFILE_SCOPE("Engine::Constructor");
         LOG_INFO("init timer");
         m_timer = std::make_unique<Timer>();
+        LOG_INFO("init task scheduler");
+        m_task_scheduler = std::make_unique<TaskScheduler>();
         m_asset_registry = std::make_unique<AssetRegistry>();
 
         LOG_INFO("init glfw");
@@ -27,12 +30,14 @@ namespace Comet {
 
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
+        m_task_scheduler->wait_idle();
         m_renderer->get_render_context().wait_idle();
         m_asset_registry->clear();
         m_renderer.reset();
         m_asset_registry.reset();
         m_scene.reset();
         m_window.reset();
+        m_task_scheduler.reset();
     }
 
     void Engine::set_scene(std::unique_ptr<Scene> scene) {

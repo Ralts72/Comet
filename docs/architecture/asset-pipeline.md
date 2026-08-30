@@ -1,7 +1,7 @@
 # 资产管线边界
 
 本文记录 Comet 当前阶段 3 资产链路的职责边界。当前已完成 Texture、Texture 基础导入设置与显式重新导入、Material 同步加载与
-编辑保存，以及 glTF 静态 Mesh 的同步导入和 `.comet/cache/` 二进制产物纵向切片，并建立事务式扫描快照、单调资产 revision、Mesh 候选发布校验、手动刷新一致性和原子文件写入；
+编辑保存，以及 glTF 静态 Mesh 的同步首载、后台 CPU 热刷新和 `.comet/cache/` 二进制产物纵向切片，并建立事务式扫描快照、单调资产 revision、Owner Thread 候选发布校验、手动刷新一致性和原子文件写入；
 Texture 等其他类型的导入产物、后台导入和文件监听热重载仍属于后续工作。
 
 ## 项目目录
@@ -34,7 +34,7 @@ AssetDatabase
     ↓ 正向 dependencies / 反向 dependents 查询
 AssetManager
     ↓ 校验类型并创建候选 CPU 数据
-    ├── Mesh：校验 .comet/cache/imported/mesh/<Handle>.bin
+    ├── Mesh 同步首载：校验 .comet/cache/imported/mesh/<Handle>.bin
     │   ├── 命中 → MeshData(vertices + indices)
     │   └── 未命中/过期/损坏 → MeshImporter → MeshData → 原子更新产物
     ├── TextureImporter(settings) → TextureData(RGBA CPU pixels + SRGB/UNORM format)
@@ -46,6 +46,21 @@ AssetManager
 AssetRegistry
     ↓ 唯一按 AssetHandle 缓存并向 SceneResolver 提供运行时对象
 ```
+
+已加载 Mesh 的 Project 刷新使用后台 CPU 路径：
+
+```text
+AssetManager::scan() 提交新 AssetRevision
+    → TaskScheduler Worker：缓存校验或 MeshImporter → CPU MeshImportCandidate
+    → 线程安全 completion queue
+    → AssetManager::process_completions()（Owner Thread）
+        → revision 验票
+        → 有效时更新缓存
+        → RenderResourceFactory 创建 Runtime Mesh
+        → 再次验票并替换 AssetRegistry
+```
+
+Worker 只接收路径、Handle 和 revision 的值拷贝，不访问 `AssetDatabase`、`AssetRegistry` 或 Vulkan。刷新进行中、导入失败以及 Runtime Mesh 创建失败时，Registry 中的旧 Mesh 都保持可用；相同 Handle 的连续变化可以同时完成，但只有当前 revision 会进入缓存和 Registry。
 
 Material 的编辑路径与加载路径复用同一格式契约：
 
@@ -86,7 +101,8 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 
 - `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径、已校验 Importer 设置以及正向/反向依赖索引；Material 依赖由 `MaterialData` 提取，缺失引用和错误类型进入扫描报告。扫描先完整构建候选快照，再一次替换当前快照并报告新增、删除和修改 Handle；目录发现不完整时保留上一份有效快照。磁盘文件签名只负责检测输入变化，每次提交的变化会获得独立、单调的 `AssetRevision`，供结果发布时验票。Revision 是当前进程内的不透明版本，不持久化，也不承担内容哈希职责。设置更新先成功写入 `.meta`，再更新内存记录。
 - `AssetMetadataSerializer`：只负责 `.meta` 的 YAML 读写和类型/设置契约校验；`AssetMetadata` 本身仍是独立于文件格式的数据类型。
-- `AssetManager`：协调数据库、Importer、派生数据、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载、Texture 重新导入和 Mesh 刷新都会先完整构建候选对象，失败时保留旧对象。Mesh 的加载和刷新在发布前检查请求 revision，防止旧候选覆盖较新的资产状态。手动扫描提交后会卸载已删除资产及仍依赖它们的 Runtime 对象，并刷新发生修改且当前已加载的 Texture/Material/Mesh。
+- `AssetManager`：协调数据库、Importer、派生数据、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载、Texture 重新导入和 Mesh 刷新都会先完整构建候选对象，失败时保留旧对象。同步 Mesh 首载在调用线程完成；已加载 Mesh 的刷新向 TaskScheduler 提交纯 CPU 工作，由 `process_completions()` 在 Owner Thread 验票后写缓存、创建 Runtime Mesh 并发布。手动扫描提交后会卸载已删除资产及仍依赖它们的 Runtime 对象，并刷新发生修改且当前已加载的 Texture/Material/Mesh。
+- `TaskScheduler`：Engine 持有的通用固定 Worker 池，提供 FIFO 任务提交、Future、等待空闲和 drain-on-destruction；不认识资产类型、Registry 或 Vulkan。显式传入单 Worker 可让并发测试保持确定性。
 - `MeshImporter`：唯一接触 glTF Mesh 格式的解析边界，使用 fastgltf 读取 `.gltf`/`.glb`，输出不包含 GPU 对象的 `MeshData`，并报告参与导入的外部 buffer 路径；fastgltf 类型不进入 Comet 公共头文件。
 - `MeshImportCache`：确定性读写版本化 Mesh 导入缓存，记录项目内源文件和外部 buffer 的内容指纹；格式版本、Importer 输出版本、输入内容或缓存校验和不匹配时返回 miss。它不创建 GPU 对象，也不管理运行时资源生命周期。
 - `TextureImporter`：唯一接触 Texture 源文件路径的解码边界，应用色彩空间和垂直翻转设置，输出不包含 GPU 对象的 `TextureData`。
@@ -100,17 +116,17 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 
 ## 生命周期
 
-`AssetManager` 持有 `AssetDatabase` 和对 `AssetRegistry`/`RenderResourceFactory` 的非拥有引用，因此 app/editor 必须在
-`Engine` 销毁前释放它。`AssetRegistry` 是按 Handle 保存运行时资产的唯一生命周期根；Material 等运行时对象可以
-通过共享引用保持其 Texture 依赖。`Engine` 关闭时先等待 Device idle，再清理 Registry，最后由 Renderer 释放
+`AssetManager` 持有 `AssetDatabase` 和对 `AssetRegistry`/`RenderResourceFactory`/`TaskScheduler` 的非拥有引用，因此 app/editor 必须在
+`Engine` 销毁前释放它；析构时会等待自己已提交的任务完成，再释放 completion state。`AssetRegistry` 是按 Handle 保存运行时资产的唯一生命周期根；Material 等运行时对象可以
+通过共享引用保持其 Texture 依赖。`Engine` 关闭时先等待 TaskScheduler idle，再等待 Device idle、清理 Registry，最后由 Renderer 释放
 ResourceManager 和 Device 级共享资源。
 
 Material/Texture/Mesh 替换只交换 Registry 中的 `shared_ptr`，已取得旧对象的当前帧和 descriptor frame slot 仍可自然持有到结束；
-当前 `AssetRevision` 只解决 CPU 候选发布前的版本一致性，不等同于文件监听热重载，也不替代后续的后台 completion 和 GPU retirement 机制。
+当前 `AssetRevision` 与 completion queue 解决 Mesh CPU 候选的版本一致性，不等同于文件监听热重载，也不替代后续的异步 GPU completion 和 GPU retirement 机制。
 
 Project 刷新成功提交快照后，会通过变化集清理删除资产及其依赖对象、刷新已加载的修改资产，并以事件方式使 Inspector
-丢弃同一 Handle 的旧编辑缓存；扫描目录暂时不可访问时三者继续使用上一份有效快照。当前同步路径仍不等于文件监听热重载，
-后台任务调度、递归依赖 revision 和 GPU retirement 仍属于后续工作。
+丢弃同一 Handle 的旧编辑缓存；扫描目录暂时不可访问时三者继续使用上一份有效快照。当前手动刷新路径仍不等于文件监听热重载，
+外部导入依赖到资产 revision 的反向映射、递归依赖 revision 和 GPU retirement 仍属于后续工作。
 
 Scene、Material 和 `.meta` 使用同一原子文本写入函数：先在目标目录写完临时文件，再原子替换正式文件，避免直接截断造成半写文件。
 Mesh 产物复用同一临时文件替换机制写入二进制数据；缓存写入失败只降低后续加载性能，不会使本次成功的源资产导入失败。

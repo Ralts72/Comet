@@ -63,7 +63,8 @@ namespace {
             m_asset_manager = std::make_unique<Comet::AssetManager>(
                 Comet::ProjectPaths(PROJECT_ROOT_DIR),
                 asset_registry,
-                resource_manager);
+                resource_manager,
+                engine.get_task_scheduler());
             const Comet::AssetScanReport scan_report = m_asset_manager->scan();
             for(const Comet::AssetScanIssue& issue: scan_report.issues) {
                 LOG_WARN(
@@ -103,6 +104,7 @@ namespace {
         }
 
         void on_update(Comet::UpdateContext context) override {
+            m_asset_manager->process_completions();
             Comet::Scene* scene = get_engine().get_scene();
             if(!scene) {
                 return;

@@ -136,7 +136,8 @@ namespace {
             m_asset_manager = std::make_unique<Comet::AssetManager>(
                 m_project_paths,
                 engine.get_asset_registry(),
-                engine.get_resource_manager());
+                engine.get_resource_manager(),
+                engine.get_task_scheduler());
             m_asset_scan_report = m_asset_manager->scan();
             log_asset_scan_issues(m_asset_scan_report);
 
@@ -179,6 +180,7 @@ namespace {
         }
 
         void on_update(const Comet::UpdateContext context) override {
+            m_asset_manager->process_completions();
             apply_editor_mode_request();
 
             // 更新 FPS 显示

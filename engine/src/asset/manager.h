@@ -11,6 +11,7 @@ namespace Comet {
     class Material;
     class Mesh;
     class RenderResourceFactory;
+    class TaskScheduler;
     class Texture;
     struct MaterialData;
 
@@ -19,9 +20,12 @@ namespace Comet {
         AssetManager(
             ProjectPaths paths,
             AssetRegistry& registry,
-            RenderResourceFactory& resource_factory);
+            RenderResourceFactory& resource_factory,
+            TaskScheduler& task_scheduler);
+        ~AssetManager();
 
         [[nodiscard]] AssetScanReport scan();
+        void process_completions();
         [[nodiscard]] std::shared_ptr<Mesh> load_mesh(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Texture> load_texture(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Texture> reimport_texture(
@@ -38,9 +42,12 @@ namespace Comet {
         }
 
     private:
+        struct AsyncState;
+
         [[nodiscard]] std::shared_ptr<Mesh> create_runtime_mesh(
             const AssetRecord& record);
-        [[nodiscard]] bool refresh_loaded_mesh(const AssetRecord& record);
+        [[nodiscard]] bool schedule_loaded_mesh_refresh(
+            const AssetRecord& record);
         [[nodiscard]] std::shared_ptr<Texture> create_runtime_texture(
             const AssetRecord& record,
             const TextureImportSettings& import_settings);
@@ -55,5 +62,7 @@ namespace Comet {
         AssetDatabase m_database;
         AssetRegistry& m_registry;
         RenderResourceFactory& m_resource_factory;
+        TaskScheduler& m_task_scheduler;
+        std::shared_ptr<AsyncState> m_async_state;
     };
 }

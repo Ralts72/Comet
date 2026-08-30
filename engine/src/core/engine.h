@@ -13,6 +13,7 @@
 namespace Comet {
     class AssetRegistry;
     class Scene;
+    class TaskScheduler;
 
     class COMET_API Engine {
     public:
@@ -44,6 +45,13 @@ namespace Comet {
             return get_renderer().get_resource_manager();
         }
 
+        [[nodiscard]] TaskScheduler& get_task_scheduler() {
+            return *m_task_scheduler;
+        }
+        [[nodiscard]] const TaskScheduler& get_task_scheduler() const {
+            return *m_task_scheduler;
+        }
+
         [[nodiscard]] Window& get_window() { return *m_window; }
         [[nodiscard]] const Window& get_window() const { return *m_window; }
         [[nodiscard]] Renderer& get_renderer() { return *m_renderer; }
@@ -51,6 +59,7 @@ namespace Comet {
 
     private:
         std::unique_ptr<Timer> m_timer;
+        std::unique_ptr<TaskScheduler> m_task_scheduler;
         std::unique_ptr<Window> m_window;
         std::unique_ptr<AssetRegistry> m_asset_registry;
         std::unique_ptr<Scene> m_scene;

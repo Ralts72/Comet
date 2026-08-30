@@ -6,6 +6,8 @@ set(SHADER_COMPILE_TARGET shader_compile)
 set(SHADER_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders")
 add_subdirectory(shaders)
 
+find_package(Threads REQUIRED)
+
 set(SOURCES
         src/asset/cache/mesh_import_cache.cpp
         src/asset/database.cpp
@@ -28,6 +30,7 @@ set(SOURCES
         src/core/window.cpp
         src/core/timer.cpp
         src/core/project_paths.cpp
+        src/core/task_scheduler.cpp
         src/core/engine.cpp
         src/graphics/convert.cpp
         src/graphics/context.cpp
@@ -79,6 +82,7 @@ target_link_libraries(engine
         GPUOpen::VulkanMemoryAllocator
         EnTT::EnTT
         PRIVATE
+        Threads::Threads
         stb_image
         fastgltf::fastgltf
         yaml-cpp
