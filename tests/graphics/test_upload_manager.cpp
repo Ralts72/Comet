@@ -124,6 +124,8 @@ namespace Comet::Tests {
         constexpr UploadManager::CreateInfo create_info;
 
         EXPECT_EQ(create_info.staging_page_size, 4U * 1024U * 1024U);
+        EXPECT_EQ(create_info.max_cached_staging_pages, 4U);
+        EXPECT_EQ(create_info.memory_pressure_threshold_percent, 90U);
         EXPECT_TRUE(SupportsRangedBufferCopy<CommandContext>);
         EXPECT_TRUE(SupportsOffsetImageCopy<CommandContext>);
     }

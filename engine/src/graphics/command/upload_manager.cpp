@@ -5,6 +5,7 @@
 #include "graphics/device.h"
 #include "graphics/resource/buffer.h"
 #include "graphics/resource/image.h"
+#include "graphics/resource/memory_budget.h"
 
 #include <algorithm>
 #include <limits>
@@ -31,6 +32,10 @@ namespace Comet {
         : m_device(device), m_create_info(create_info) {
         if(m_create_info.staging_page_size < STAGING_ALIGNMENT) {
             LOG_FATAL("UploadManager staging page size is too small");
+        }
+        if(m_create_info.memory_pressure_threshold_percent == 0
+           || m_create_info.memory_pressure_threshold_percent > 100) {
+            LOG_FATAL("UploadManager memory pressure threshold must be in [1, 100]");
         }
         m_create_info.staging_page_size = align_staging_offset(
             m_create_info.staging_page_size);
@@ -218,6 +223,7 @@ namespace Comet {
             const size_t capacity = std::max(
                 m_create_info.staging_page_size,
                 required_capacity);
+            prepare_for_staging_growth(capacity);
             page = std::make_unique<StagingPage>(StagingPage{
                 .buffer = Buffer::create_upload_buffer(
                     m_device,
@@ -236,10 +242,42 @@ namespace Comet {
         return {.page = allocation_page, .offset = 0};
     }
 
+    void UploadManager::prepare_for_staging_growth(const size_t capacity) {
+        const auto snapshot = m_device.query_memory_budget();
+        const bool under_pressure = std::ranges::any_of(
+            snapshot.heaps,
+            [this, capacity](const MemoryHeapBudget& heap) {
+                return heap.reaches_usage_percentage(
+                    capacity,
+                    m_create_info.memory_pressure_threshold_percent);
+            });
+
+        if(!under_pressure) {
+            m_memory_pressure_reported = false;
+            return;
+        }
+
+        const size_t released_pages = m_available_pages.size();
+        m_available_pages.clear();
+        if(!m_memory_pressure_reported) {
+            LOG_WARN(
+                "GPU memory budget pressure before growing upload staging "
+                "pool by {} bytes ({} budget); released {} idle page(s)",
+                capacity,
+                snapshot.driver_reported ? "driver-reported" : "estimated",
+                released_pages);
+            m_memory_pressure_reported = true;
+        }
+    }
+
     void UploadManager::recycle_staging_pages(BatchResources& resources) {
         for(auto& page: resources.staging_pages) {
             page->used = 0;
-            m_available_pages.push_back(std::move(page));
+            if(page->capacity <= m_create_info.staging_page_size
+               && m_available_pages.size() <
+                   m_create_info.max_cached_staging_pages) {
+                m_available_pages.push_back(std::move(page));
+            }
         }
         resources.staging_pages.clear();
     }

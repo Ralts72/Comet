@@ -102,6 +102,8 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
 - `UploadManager`：在 owner thread 从可复用 staging page 子分配上传范围，合并 buffer/image copy 与 Barrier2；每个
   pending batch 独占所用 page、CommandContext 和目标资源直到 timeline completion，随后整页回池。它不认识
   AssetHandle、Importer 或资产发布策略。
+- staging 空闲池最多缓存配置数量的默认 page，超大 page 不进入长期缓存；只有 best-fit 失败、池即将增长时才查询
+  memory budget，高压力时可销毁空闲页，但绝不回收 active/pending batch 拥有的页。
 - `Mesh` / `Texture`：持有 Runtime GPU 对象和创建它们的 ready completion；创建返回不等待 CPU。当前 upload 与 draw
   使用同一 graphics queue；SceneRenderer 从实际 draw 资源取得 completion，并在 frame submission 转换为准确 stage
   的 timeline wait，因此未来切换 transfer queue 不改变资源与资产接口。
