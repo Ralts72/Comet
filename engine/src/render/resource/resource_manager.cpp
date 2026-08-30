@@ -18,7 +18,7 @@ namespace Comet {
 
     std::shared_ptr<Texture> ResourceManager::create_texture(
         const TextureData& data) {
-        return std::make_shared<Texture>(m_device, *m_upload_manager, data);
+        return Texture::create(m_device, *m_upload_manager, data);
     }
 
     std::shared_ptr<Mesh> ResourceManager::create_mesh(

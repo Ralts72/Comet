@@ -131,7 +131,8 @@ serial 更新 VMA，而不是传递循环 FrameSlot 下标。Allocator/Device �
 可恢复上传通过 `GpuResourceResult` 传递 Buffer/Image/staging 创建错误；任一 staging enqueue 失败会 abort 整个尚未提交的
 active batch，不会把半套 copy 命令送入 Queue。原 `enqueue_upload()` 仍是关键路径的强失败入口。
 Runtime Mesh 采用强失败 `create()` 与可恢复 `try_create()` 双轨静态工厂；vertex/index target 全部分配成功后才开始
-enqueue，只有 batch flush 产生 ready completion 后才构造并发布 Mesh。
+enqueue，只有 batch flush 产生 ready completion 后才构造并发布 Mesh。Runtime Texture 采用相同事务边界，完整创建
+Image/ImageView 并成功 enqueue 后才 flush 和发布。
 Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；关键资源继续使用强失败的 `create_*`，非关键流送路径可显式选择返回 Vulkan 错误的

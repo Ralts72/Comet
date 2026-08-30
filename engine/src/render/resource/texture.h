@@ -1,12 +1,10 @@
 #pragma once
 #include "common/export.h"
-#include "core/math_utils.h"
+#include "graphics/resource/resource_result.h"
 #include "graphics/synchronization/gpu_completion_point.h"
 #include "render/resource/texture_data.h"
 
-#include <cstddef>
 #include <memory>
-#include <span>
 
 namespace Comet {
     class ImageView;
@@ -15,16 +13,17 @@ namespace Comet {
 
     class COMET_API Texture {
     public:
-        Texture(
+        [[nodiscard]] static std::shared_ptr<Texture> create(
             Device& device,
             UploadManager& upload_manager,
             const TextureData& data);
-        Texture(
+        [[nodiscard]] static GpuResourceResult<std::shared_ptr<Texture>>
+        try_create(
             Device& device,
             UploadManager& upload_manager,
-            int width,
-            int height,
-            Math::Vec4u color);
+            const TextureData& data,
+            bool within_budget);
+
         ~Texture();
 
         [[nodiscard]] int get_width() const { return m_width; }
@@ -34,14 +33,14 @@ namespace Comet {
             return m_ready_completion;
         }
     private:
-        void create_image(
-            Device& device,
-            UploadManager& upload_manager,
-            std::span<const std::byte> data);
+        Texture(
+            int width,
+            int height,
+            std::shared_ptr<ImageView> image_view,
+            GpuCompletionPoint ready_completion);
 
         int m_width;
         int m_height;
-        Format m_format;
         std::shared_ptr<ImageView> m_image_view;
         GpuCompletionPoint m_ready_completion;
     };
