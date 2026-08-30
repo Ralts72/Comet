@@ -136,6 +136,8 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
   SceneRenderer 每帧传入 FrameScheduler 的单调 serial，循环 slot index 不作为 allocator frame age。
 - `Allocator::query_memory_budget()` 将 `vmaGetHeapBudgets()` 转换为不暴露 VMA 类型的只读 snapshot，Device 只负责转发；
   snapshot 区分驱动报告值和扩展缺失时的 VMA 估算值，调用方不得把估算值当成硬分配上限。
+- Allocator 的 `create_buffer/image` 是关键资源强失败接口；`try_create_buffer/image` 只返回完整 allocation 或显式
+  Vulkan error，`within_budget` 也必须由调用方选择。任何路径都不允许发布带空 handle 的 Buffer/Image。
 - `SwapchainImageState` 按实际 swapchain image 数量创建，持有 render-finished semaphore，并记录该 image
   最近关联的 frame slot。
 - `SwapchainTarget` 按 image 持有 framebuffer 和对外暴露的颜色 image view；framebuffer 内部保留全部 attachment。

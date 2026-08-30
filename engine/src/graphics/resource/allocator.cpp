@@ -59,6 +59,9 @@ namespace Comet {
                 }
                 vma_info.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
             }
+            if(create_info.within_budget) {
+                vma_info.flags |= VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+            }
             return vma_info;
         }
 
@@ -102,6 +105,21 @@ namespace Comet {
     Allocator::BufferAllocation Allocator::create_buffer(
         const vk::BufferCreateInfo& buffer_info,
         const AllocationCreateInfo& allocation_info) const {
+        auto attempt = try_create_buffer(buffer_info, allocation_info);
+        if(!attempt) {
+            LOG_FATAL("Failed to create VMA buffer '{}' ({} bytes, usage {}): {}",
+                allocation_info.debug_name,
+                buffer_info.size,
+                allocation_usage_name(allocation_info.usage),
+                vk::to_string(attempt.result()));
+        }
+        return std::move(attempt).value();
+    }
+
+    ResourceAllocationResult<Allocator::BufferAllocation>
+    Allocator::try_create_buffer(
+        const vk::BufferCreateInfo& buffer_info,
+        const AllocationCreateInfo& allocation_info) const {
         const VmaAllocationCreateInfo vma_allocation_info = build_vma_allocation_info(allocation_info);
 
         VkBuffer buffer = VK_NULL_HANDLE;
@@ -116,22 +134,25 @@ namespace Comet {
             &allocation,
             &created_info);
         if(result != VK_SUCCESS) {
-            LOG_FATAL("Failed to create VMA buffer '{}' ({} bytes, usage {}): {}",
-                allocation_info.debug_name,
-                buffer_info.size,
-                allocation_usage_name(allocation_info.usage),
-                vk::to_string(static_cast<vk::Result>(result)));
+            return ResourceAllocationResult<BufferAllocation>::failure(
+                static_cast<vk::Result>(result));
         }
 
         set_allocation_name(m_allocator, allocation, allocation_info.debug_name);
         if(allocation_info.persistent_mapping && !created_info.pMappedData) {
             vmaDestroyBuffer(m_allocator, buffer, allocation);
-            LOG_FATAL("Persistently mapped buffer '{}' has no mapped pointer", allocation_info.debug_name);
+            return ResourceAllocationResult<BufferAllocation>::failure(
+                vk::Result::eErrorMemoryMapFailed);
         }
 
         Allocation wrapped_allocation;
         wrapped_allocation.m_handle = allocation;
-        return {vk::Buffer(buffer), std::move(wrapped_allocation), created_info.pMappedData};
+        return ResourceAllocationResult<BufferAllocation>::success(
+            BufferAllocation{
+                vk::Buffer(buffer),
+                std::move(wrapped_allocation),
+                created_info.pMappedData
+            });
     }
 
     void Allocator::destroy_buffer(const vk::Buffer buffer, Allocation& allocation) const {
@@ -142,6 +163,20 @@ namespace Comet {
     }
 
     Allocator::ImageAllocation Allocator::create_image(
+        const vk::ImageCreateInfo& image_info,
+        const AllocationCreateInfo& allocation_info) const {
+        auto attempt = try_create_image(image_info, allocation_info);
+        if(!attempt) {
+            LOG_FATAL("Failed to create VMA image '{}' (usage {}): {}",
+                allocation_info.debug_name,
+                allocation_usage_name(allocation_info.usage),
+                vk::to_string(attempt.result()));
+        }
+        return std::move(attempt).value();
+    }
+
+    ResourceAllocationResult<Allocator::ImageAllocation>
+    Allocator::try_create_image(
         const vk::ImageCreateInfo& image_info,
         const AllocationCreateInfo& allocation_info) const {
         const VmaAllocationCreateInfo vma_allocation_info = build_vma_allocation_info(allocation_info);
@@ -158,21 +193,25 @@ namespace Comet {
             &allocation,
             &created_info);
         if(result != VK_SUCCESS) {
-            LOG_FATAL("Failed to create VMA image '{}' (usage {}): {}",
-                allocation_info.debug_name,
-                allocation_usage_name(allocation_info.usage),
-                vk::to_string(static_cast<vk::Result>(result)));
+            return ResourceAllocationResult<ImageAllocation>::failure(
+                static_cast<vk::Result>(result));
         }
 
         set_allocation_name(m_allocator, allocation, allocation_info.debug_name);
         if(allocation_info.persistent_mapping && !created_info.pMappedData) {
             vmaDestroyImage(m_allocator, image, allocation);
-            LOG_FATAL("Persistently mapped image '{}' has no mapped pointer", allocation_info.debug_name);
+            return ResourceAllocationResult<ImageAllocation>::failure(
+                vk::Result::eErrorMemoryMapFailed);
         }
 
         Allocation wrapped_allocation;
         wrapped_allocation.m_handle = allocation;
-        return {vk::Image(image), std::move(wrapped_allocation), created_info.pMappedData};
+        return ResourceAllocationResult<ImageAllocation>::success(
+            ImageAllocation{
+                vk::Image(image),
+                std::move(wrapped_allocation),
+                created_info.pMappedData
+            });
     }
 
     void Allocator::destroy_image(const vk::Image image, Allocation& allocation) const {

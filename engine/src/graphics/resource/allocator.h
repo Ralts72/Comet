@@ -4,12 +4,53 @@
 #include "graphics/resource/memory_budget.h"
 #include "graphics/vk_common.h"
 
+#include <optional>
 #include <string_view>
 #include <utility>
 
 #include <vk_mem_alloc.h>
 
 namespace Comet {
+    template<typename T>
+    class ResourceAllocationResult {
+    public:
+        ResourceAllocationResult() = default;
+
+        [[nodiscard]] static ResourceAllocationResult success(T value) {
+            return ResourceAllocationResult(
+                std::optional<T>(std::move(value)),
+                vk::Result::eSuccess);
+        }
+
+        [[nodiscard]] static ResourceAllocationResult failure(
+            const vk::Result result) {
+            return ResourceAllocationResult(
+                std::nullopt,
+                result == vk::Result::eSuccess
+                    ? vk::Result::eErrorUnknown
+                    : result);
+        }
+
+        [[nodiscard]] explicit operator bool() const noexcept {
+            return m_value.has_value();
+        }
+
+        [[nodiscard]] T& value() & { return m_value.value(); }
+        [[nodiscard]] const T& value() const & { return m_value.value(); }
+        [[nodiscard]] T&& value() && { return std::move(m_value).value(); }
+
+        [[nodiscard]] vk::Result result() const noexcept { return m_result; }
+
+    private:
+        ResourceAllocationResult(
+            std::optional<T> value,
+            const vk::Result result)
+            : m_value(std::move(value)), m_result(result) {}
+
+        std::optional<T> m_value;
+        vk::Result m_result = vk::Result::eErrorUnknown;
+    };
+
     enum class AllocationUsage {
         Device,
         Upload,
@@ -20,6 +61,7 @@ namespace Comet {
     struct AllocationCreateInfo {
         AllocationUsage usage = AllocationUsage::Device;
         bool persistent_mapping = false;
+        bool within_budget = false;
         std::string_view debug_name;
     };
 
@@ -80,9 +122,19 @@ namespace Comet {
             const vk::BufferCreateInfo& buffer_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 
+        [[nodiscard]] ResourceAllocationResult<BufferAllocation>
+        try_create_buffer(
+            const vk::BufferCreateInfo& buffer_info,
+            const AllocationCreateInfo& allocation_info = {}) const;
+
         void destroy_buffer(vk::Buffer buffer, Allocation& allocation) const;
 
         [[nodiscard]] ImageAllocation create_image(
+            const vk::ImageCreateInfo& image_info,
+            const AllocationCreateInfo& allocation_info = {}) const;
+
+        [[nodiscard]] ResourceAllocationResult<ImageAllocation>
+        try_create_image(
             const vk::ImageCreateInfo& image_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 

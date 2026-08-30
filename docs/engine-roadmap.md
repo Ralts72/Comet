@@ -1081,6 +1081,8 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   完成后直接释放，高压力增长前释放全部空闲页，并对连续压力做边沿触发诊断，不在每帧无条件采样。
 - 区分关键 GPU 资源和可降级 streaming 资源。只有 ResourceManager 已支持返回错误、占位资源、重试或淘汰后，
   才为非关键 allocation 使用 `WITHIN_BUDGET`；render target 等关键资源保留独立失败策略。
+- [x] Allocator 先建立双轨创建契约：现有 `create_buffer/image` 保持强失败，`try_create_buffer/image` 返回显式结果；
+  `WITHIN_BUDGET` 仅通过默认关闭的 allocation 选项启用，不改变任何现有关键资源调用点。
 - 支持资产改名、移动后的引用稳定性。
 
 完整资源路径：
@@ -1466,7 +1468,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：非关键 streaming allocation 的可恢复失败契约**。GPU 生命周期复盘已删除 FrameSlot 中重复的 timeline token，并把 GpuCompletionPoint 收敛到 synchronization 模块；接下来先让底层 Allocator/Buffer/Image 提供不终止进程的尝试创建路径，再由 ResourceManager 选择占位、保留旧资源或重试。关键 render target allocation 继续使用明确的强失败路径。
+下一步继续 **阶段 3：把可恢复分配传递到 Runtime Resource 创建边界**。Allocator 已有强失败与尝试创建双轨接口；接下来让 Buffer/Image 提供不会构造半初始化对象的静态 `try_create`，再让 ResourceManager 对非关键 Mesh/Texture 返回失败并由 AssetManager 保留旧资源。关键 render target allocation 继续使用明确的强失败路径。
 
 建议的职责边界：
 
@@ -1521,6 +1523,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 29. [x] 增加不暴露 VMA 类型的 MemoryBudgetSnapshot，由 Allocator 查询每个 heap 的 block/allocation/usage/budget，Device 提供只读转发接口。
 30. [x] 为 UploadManager 增加有界 staging 空闲池和预算感知增长：超大 page 不缓存，pool miss 时才采样预算，高压力下仅释放无在途引用的空闲页并节流记录。
 31. [x] 完成 GPU 资源生命周期子阶段复盘：GpuCompletionPoint 迁入 synchronization，删除 FrameSlot 重复 timeline token、未使用配置/透传接口和冗余析构代码，保持 fence serial 与 timeline completion 职责分离。
+32. [x] 在 Allocator 建立强失败 `create_*` 与可恢复 `try_create_*` 双轨接口，并增加默认关闭的 `within_budget` allocation 选项；失败结果不包含半初始化 handle。
 
 格式所有权后续需求：
 
