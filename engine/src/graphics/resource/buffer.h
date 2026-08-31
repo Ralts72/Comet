@@ -8,6 +8,7 @@
 
 namespace Comet {
     class Device;
+    class CPUBuffer;
 
     class COMET_API Buffer {
     public:
@@ -30,11 +31,11 @@ namespace Comet {
             const void* data = nullptr,
             std::string_view debug_name = {});
 
-        static std::shared_ptr<Buffer> create_upload_buffer(
+        static std::shared_ptr<CPUBuffer> create_upload_buffer(
             Device& device,
             Flags<BufferUsage> usage,
             size_t size,
-            const void* data,
+            const void* data = nullptr,
             std::string_view debug_name = {});
 
         static std::shared_ptr<Buffer> create_gpu_buffer(

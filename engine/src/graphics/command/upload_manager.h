@@ -7,19 +7,25 @@
 #include <cstddef>
 #include <memory>
 #include <span>
-#include <string_view>
 #include <vector>
 
 namespace Comet {
     class Buffer;
     class CommandContext;
+    class CPUBuffer;
     class Device;
     class Image;
     class UploadBatch;
 
     class COMET_API UploadManager {
     public:
+        struct CreateInfo {
+            size_t staging_page_size = 4 * 1024 * 1024;
+            size_t max_cached_staging_pages = 4;
+        };
+
         explicit UploadManager(Device& device);
+        UploadManager(Device& device, CreateInfo create_info);
         ~UploadManager();
 
         UploadManager(const UploadManager&) = delete;
@@ -33,9 +39,21 @@ namespace Comet {
     private:
         friend class UploadBatch;
 
+        struct StagingPage {
+            std::shared_ptr<CPUBuffer> buffer;
+            size_t capacity = 0;
+            size_t used = 0;
+        };
+
+        struct StagingAllocation {
+            StagingPage* page = nullptr;
+            size_t offset = 0;
+        };
+
         struct BatchResources {
             std::vector<std::shared_ptr<Buffer>> buffers;
             std::vector<std::shared_ptr<Image>> images;
+            std::vector<std::unique_ptr<StagingPage>> staging_pages;
         };
 
         struct PendingBatch {
@@ -44,12 +62,18 @@ namespace Comet {
             GpuCompletionPoint completion;
         };
 
+        [[nodiscard]] StagingAllocation allocate_staging(
+            BatchResources& resources,
+            std::span<const std::byte> data);
         [[nodiscard]] GpuCompletionPoint submit_batch(UploadBatch& batch);
         void abort_batch(UploadBatch& batch);
+        void recycle_staging_pages(BatchResources& resources);
         void wait_for_pending_batches();
 
         Device& m_device;
+        CreateInfo m_create_info;
         std::vector<PendingBatch> m_pending_batches;
+        std::vector<std::unique_ptr<StagingPage>> m_available_pages;
         size_t m_open_batch_count = 0;
     };
 
@@ -65,15 +89,13 @@ namespace Comet {
         void enqueue_upload(
             std::shared_ptr<Buffer> destination,
             std::span<const std::byte> data,
-            const ResourceState& after,
-            std::string_view debug_name = {});
+            const ResourceState& after);
 
         void enqueue_upload(
             std::shared_ptr<Image> destination,
             std::span<const std::byte> data,
             const ImageState& before,
-            const ImageState& after,
-            std::string_view debug_name = {});
+            const ImageState& after);
 
         [[nodiscard]] GpuCompletionPoint submit();
         void abort();

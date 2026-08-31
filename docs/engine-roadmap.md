@@ -2,7 +2,7 @@
 
 首次生成：2026-07-05
 
-最近更新：2026-08-30
+最近更新：2026-08-31
 
 ## 目标定位
 
@@ -357,9 +357,10 @@ ResourceManager 可以发布带 ready token 的 pending resource，Renderer/Rend
 ready token，避免以后只能通过 CPU wait 才能接入异步资源。
 
 当前最小实现已由 ResourceManager 独占持有 UploadManager：Buffer/Image allocation 与上传分离，显式 `UploadBatch`
-立即把 CPU 数据复制到 staging 并录制命令，`submit()` 返回 `GpuCompletionPoint`，pending batch 持有 staging、
-CommandContext 和目标资源直到 completion。同步 Texture/Mesh 创建路径显式等待完成点，从而保持“返回即 ready”；
-一个 Mesh 的 vertex/index copy 已合并为一次 submission。staging page/ring、跨资产批量和 ready token 发布仍待实现。
+立即把 CPU 数据复制到可复用 staging page 的子分配范围并录制命令，`submit()` 返回 `GpuCompletionPoint`；pending
+batch 独占所用 page、CommandContext 和目标资源直到 completion，随后按有界策略回收默认尺寸页，临时超大页直接
+释放。同步 Texture/Mesh 创建路径显式等待完成点，从而保持“返回即 ready”；一个 Mesh 的 vertex/index copy 已合并为
+一次 submission。跨资产批量、更细粒度的 ring 回收和 ready token 发布仍待实现。
 
 #### Descriptor System
 
@@ -1052,8 +1053,10 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   vertex/index copy 合并为一次 submission，不再由 Buffer/Texture 各自创建临时 CommandContext。
 - [x] 使用显式 `UploadBatch` 表达上传事务，通过 `begin_batch()`、`enqueue_upload()` 和 `submit()` 控制批次边界，
   并让 submit 返回 `GpuCompletionPoint`。
-- 将单独 staging allocation 演进为可复用 pages/ring；异步资源携带 ready token，首次 graphics 消费在准确 stage
-  等待 upload timeline value，同一有序 queue 上的冗余 wait 可由 backend 消除。
+- [x] 将每次 enqueue 的独立 staging allocation 演进为可复用 page 子分配；page 由 pending batch 独占，并在其
+  timeline completion 满足后按有界策略回池，超大 page 不进入常驻缓存。更细粒度 ring 回收等 profile 证明有必要后再增加。
+- 异步资源携带 ready token，首次 graphics 消费在准确 stage 等待 upload timeline value，同一有序 queue 上的
+  冗余 wait 可由 backend 消除。
 - [x] 建立 `GpuCompletionPoint`，让 Queue submission 返回单调 timeline value，并由 FrameSlot 记录最近提交而不是
   只保存循环 slot index。
 - 建立 owner-thread `GpuRetirementQueue`。FrameSlot 在 fence signal 后清理自己的 `DeferredReleaseBatch`；
@@ -1455,7 +1458,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：staging page 复用与异步 ready token**。最小 UploadManager 已统一 Buffer/Texture 上传，pending batch 会把 staging、CommandContext 和目标资源保留到 `GpuCompletionPoint` 完成，一个 Mesh 的 vertex/index 已合并提交；接下来应先用 page/ring 子分配减少每次 enqueue 的 VMA allocation，再让 AssetManager owner-thread 发布携带 ready completion 的 Runtime Resource，并在首次 graphics consumption 建立 GPU-side wait。继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue。
+下一步继续 **阶段 3：异步 ready token 与 GPU 侧等待**。UploadManager 已使用 staging page 子分配消除每次 enqueue 的 VMA allocation，并在 `GpuCompletionPoint` 完成后按有界策略回收默认尺寸页；接下来让 AssetManager owner-thread 发布携带 ready completion 的 Runtime Resource，并在首次 graphics consumption 建立 GPU-side wait。继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue 或更细粒度 staging ring。
 
 建议的职责边界：
 
@@ -1499,6 +1502,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 18. [x] 将现有显式 image transition 迁移到 `ImageMemoryBarrier2`/`DependencyInfo`，让 Texture 上传提供前后 `ImageState`，删除 layout-pair 推断和 legacy `pipelineBarrier()`。
 19. [x] 启用 Vulkan timeline semaphore，Queue 为每次 submission 返回单调 `GpuCompletionPoint`，FrameSlot 记录最近提交，阻塞式资源上传只等待对应完成点而不再等待整个 Queue idle。
 20. [x] 建立 ResourceManager 独占的最小 UploadManager，分离目标 allocation 与内容上传，统一 staging/copy/Barrier2/completion 生命周期，并把 Mesh vertex/index 合并为一次提交。
+21. [x] 将 staging 演进为默认 4 MiB 的可复用 page：同一 batch 线性子分配，超大上传按需扩页，timeline completion 后有界回收默认页并释放超大页。
 
 格式所有权后续需求：
 

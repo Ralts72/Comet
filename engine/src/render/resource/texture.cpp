@@ -98,8 +98,7 @@ namespace Comet {
             image,
             data,
             *initial_state,
-            *sampled_state,
-            "texture upload");
+            *sampled_state);
         const auto completion = upload_batch.submit();
         completion.wait();
         upload_manager.collect_completed();

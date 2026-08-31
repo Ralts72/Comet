@@ -125,9 +125,10 @@ namespace Comet {
 
     void CommandBuffer::copy_buffer_to_image(const vk::Buffer src_buffer, const vk::Image dst_image,
         const vk::ImageLayout dst_image_layout, const vk::Extent3D& extent, const uint32_t base_array_layer,
-        const uint32_t layer_count, const uint32_t mip_level) const {
+        const uint32_t layer_count, const uint32_t mip_level,
+        const vk::DeviceSize buffer_offset) const {
         vk::BufferImageCopy buffer_image_copy{};
-        buffer_image_copy.bufferOffset = 0;
+        buffer_image_copy.bufferOffset = buffer_offset;
         buffer_image_copy.bufferRowLength = extent.width;
         buffer_image_copy.bufferImageHeight = extent.height;
         buffer_image_copy.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
