@@ -127,12 +127,12 @@ namespace Comet::Tests {
         class FakeRenderResourceFactory final : public RenderResourceFactory {
         public:
             std::shared_ptr<Texture> create_texture(
-                const TextureData&) const override {
+                const TextureData&) override {
                 return nullptr;
             }
 
             std::shared_ptr<Mesh> create_mesh(
-                const MeshData& data) const override {
+                const MeshData& data) override {
                 ++m_mesh_creation_count;
                 m_last_mesh_vertex_count = data.vertices.size();
                 if(m_on_mesh_creation) {
@@ -166,9 +166,9 @@ namespace Comet::Tests {
 
         private:
             bool m_fail_mesh_creation = false;
-            mutable std::size_t m_mesh_creation_count = 0;
-            mutable std::size_t m_last_mesh_vertex_count = 0;
-            mutable std::function<void()> m_on_mesh_creation;
+            std::size_t m_mesh_creation_count = 0;
+            std::size_t m_last_mesh_vertex_count = 0;
+            std::function<void()> m_on_mesh_creation;
         };
 
         bool contains_handle(

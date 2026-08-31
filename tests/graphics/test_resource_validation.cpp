@@ -43,6 +43,24 @@ namespace {
     };
 
     template<typename T>
+    concept SupportsBufferReferenceTransition = requires(
+        T& context,
+        const Buffer& buffer,
+        const ResourceState& before,
+        const ResourceState& after) {
+        context.transition_buffer_state(buffer, before, after);
+    };
+
+    template<typename T>
+    concept SupportsBufferPointerTransition = requires(
+        T& context,
+        const Buffer* buffer,
+        const ResourceState& before,
+        const ResourceState& after) {
+        context.transition_buffer_state(buffer, before, after);
+    };
+
+    template<typename T>
     concept SupportsSingleVertexBufferBinding = requires(
         const T& command_buffer, const Buffer& buffer) {
         command_buffer.bind_vertex_buffer(VertexBufferBinding{buffer, 0});
@@ -95,6 +113,8 @@ TEST(ResourceValidationTest, CommandRecordingUsesNonNullResourceReferences) {
     EXPECT_FALSE(SupportsBufferPointerCopy<CommandContext>);
     EXPECT_TRUE(SupportsImageReferenceTransition<CommandContext>);
     EXPECT_FALSE(SupportsImagePointerTransition<CommandContext>);
+    EXPECT_TRUE(SupportsBufferReferenceTransition<CommandContext>);
+    EXPECT_FALSE(SupportsBufferPointerTransition<CommandContext>);
     EXPECT_TRUE(SupportsSingleVertexBufferBinding<CommandBuffer>);
     EXPECT_TRUE(SupportsMultipleVertexBufferBindings<CommandBuffer>);
     EXPECT_FALSE(SupportsVertexBufferPointerBinding<CommandBuffer>);

@@ -5,10 +5,11 @@
 #include "render/resource/mesh_data.h"
 
 namespace Comet {
+    class UploadManager;
 
     class COMET_API Mesh {
     public:
-        Mesh(Device& device, const MeshData& data);
+        Mesh(Device& device, UploadManager& upload_manager, const MeshData& data);
         ~Mesh();
 
         void draw(const CommandBuffer& command_buffer) const;

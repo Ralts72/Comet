@@ -19,6 +19,7 @@ Engine
     │   │   └── default CommandPool
     │   └── Swapchain
     ├── ResourceManager
+    │   ├── UploadManager
     │   ├── ShaderManager
     │   └── SamplerManager
     ├── SceneResolver
@@ -71,7 +72,7 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
 2. Engine 在清理 Asset Registry 前等待 Device idle，保证 Registry 可能释放的 GPU 资产不再被提交引用。
 3. Asset Registry 释放对 Runtime Mesh/Texture/Material 的 Handle 缓存及其依赖共享引用。
 4. 释放 SceneRenderer，确保 per-frame Buffer、pipeline、descriptor、render target、command buffer 等对象先于 Device 销毁。
-5. 释放 ResourceManager 持有的 ShaderManager、SamplerManager 和对应设备级共享资源。
+5. 释放 ResourceManager 持有的 ShaderManager、SamplerManager、UploadManager pending batch 和对应设备级资源。
 6. 释放 RenderContext：Swapchain → Device 内部的 CommandPool、Queue timeline、PipelineCache 和 Allocator →
    Vulkan Device → Context。
 7. 释放 Scene；Scene 只持有组件和 AssetHandle，不拥有 GPU 资源。
@@ -95,7 +96,10 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
 
 - `RenderContext`：Vulkan 上下文、逻辑设备、交换链和 idle 等待。
 - `RenderResourceFactory`：向资产层暴露从 CPU `TextureData`/`MeshData` 创建 Runtime 资源的窄接口。
-- `ResourceManager`：创建 Device 相关的 Texture/Mesh，并维护 Shader/Sampler 等设备级共享资源；不认识或缓存 `AssetHandle`。
+- `ResourceManager`：创建 Device 相关的 Texture/Mesh，独占 UploadManager，并维护 Shader/Sampler 等设备级共享资源；
+  不认识或缓存 `AssetHandle`。
+- `UploadManager`：在 owner thread 合并 buffer/image copy 与 Barrier2，提交后持有 staging、CommandContext 和目标资源
+  到 timeline completion；不认识 AssetHandle、Importer 或资产发布策略。
 - `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。
 - `SceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断。
 - `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；没有有效主 Camera 时不提交场景 draw。
@@ -126,6 +130,8 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture
   上传声明 Undefined、TransferDestination 和 Fragment SampledRead，不由 CommandBuffer 根据 layout pair 猜依赖。
+- Buffer upload 在 copy 后根据最终 `ResourceState` 生成 `BufferMemoryBarrier2`，明确 TransferWrite 到 Vertex/Index
+  read 的内存依赖；timeline completion 负责完成身份，不替代资源访问 barrier。
 - 单个 CommandBuffer barrier 只处理未声明 owner或 owner 不变的状态。queue-family owner 改变必须由后续提交编排层
   生成 release/acquire barrier，并使用 semaphore/timeline 连接，不能靠一次 transition 冒充完整 ownership transfer。
 

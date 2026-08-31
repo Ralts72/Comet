@@ -41,7 +41,6 @@ namespace Comet {
             Device& device,
             Flags<BufferUsage> usage,
             size_t size,
-            const void* data,
             std::string_view debug_name = {});
 
         [[nodiscard]] vk::Buffer get() const { return m_buffer; }
@@ -65,7 +64,6 @@ namespace Comet {
         GPUBuffer(Device& device,
                   Flags<BufferUsage> usage,
                   size_t size,
-                  const void* data,
                   std::string_view debug_name);
     };
 
