@@ -98,10 +98,6 @@ namespace Comet {
 
         [[nodiscard]] MemoryBudgetSnapshot query_memory_budget() const;
 
-        [[nodiscard]] bool is_memory_budget_enabled() const noexcept {
-            return m_memory_budget_enabled;
-        }
-
     private:
         VmaAllocator m_allocator = VK_NULL_HANDLE;
         bool m_memory_budget_enabled = false;

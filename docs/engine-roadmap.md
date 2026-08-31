@@ -388,7 +388,8 @@ Buffer/Image lifetime 是两套契约；reset/free descriptor set 不能代替 `
 Asset Registry/Asset Manager 是 `AssetHandle` 到 Mesh、Texture、Material 等已加载运行时资产的唯一缓存和发布边界，
 并逐步管理 pending、ready、failed、evicted 和 revision 状态。`ResourceManager` 只保留 Device 相关对象创建与
 Shader/Sampler 等设备级共享资源，不建立第二份 AssetHandle 缓存。未来由 `MaterialRuntimeCache`、Pipeline cache 等
-渲染侧缓存按资产 Handle 与 revision 保存派生 GPU 状态；UploadManager 负责传输，GpuRetirementQueue 负责旧 GPU owner 回收。
+渲染侧缓存按资产 Handle 与 revision 保存派生 GPU 状态；UploadManager 负责传输，当前单帧 draw owner 由 FrameSlot
+保留到 fence 完成。只有出现无法归属单个 FrameSlot 的真实消费者后，才增加 timeline 驱动的通用退休队列。
 
 `RenderSystem` 是 Main/Update system schedule 中的高层协调者：读取 Scene 的稳定时点，调用 extraction/culling，生成
 `RenderScene` 或 owned `RenderFramePacket` 并提交 Renderer。它不持有 Vulkan object，不从 RenderThread 读取可变
@@ -412,21 +413,21 @@ recreation、渲染模式切换和 renderer cleanup 仍通过 `Device::wait_idle
 
 ```text
 single graphics-frame use
-  -> FrameSlot fence + DeferredReleaseBatch
+  -> FrameSlot fence + RetainedResources
 
 async upload / multiple submissions / multiple queues
   -> GpuCompletionPoint(queue, timeline value)
-  -> GpuRetirementQueue[completion point -> owning resources]
+  -> future retirement owner when a real cross-submission consumer appears
 ```
 
 FrameSlot 路径的顺序固定为：
 
 ```text
-replace resource R
-  -> 新 frame packet/submission 不再引用 R
-  -> 根据 R 的 last-use submission 把 owning reference 放入对应 retirement batch
+record draw using resource R
+  -> retain R in the current FrameSlot before submission
+  -> submit the frame with the slot fence
   -> wait slot fence
-  -> release batch
+  -> release retained owners
   -> reset fence/command pool and reuse slot
 ```
 
@@ -438,12 +439,12 @@ replace resource R
   使用的资源需要记录各 queue 的 completion point，全部满足后才能释放。
 - UploadManager 使用 timeline value 管 staging page、upload command buffer 和上传资源的临时引用；FrameSlot batch
   只负责由该 frame fence 完整覆盖的 graphics 使用，不能替代 timeline retirement。
-- `std::vector<std::function<void()>>` 可以作为原型，但不作为长期资源所有权接口。正式实现使用受约束的 move-only
-  retirement entry 或 owning-resource type erasure，回收只执行 noexcept 资源析构，不允许混入任意业务 callback。
+- 当前 FrameSlot 使用 owning-resource type erasure，只保留本帧实际录制引用的资源，不允许混入任意业务 callback。
+  未来若增加跨 submission 退休队列，也应使用受约束的 move-only retirement entry 或 owning-resource type erasure。
 - versioned texture、material descriptor、shader 和 pipeline 在切换新 revision 后，把旧 owning reference 交给回收器；
   command buffer 中的裸 Vulkan handle 本身不能延长 C++ owner 生命周期。
-- `GpuRetirementQueue::collect_completed()` 只能由当前 GPU resource owner thread 执行。阶段 5 引入 RenderThread 后，Main/Update
-  和 worker 只提交 retire request，不直接销毁 Vulkan 对象。
+- 若未来建立通用退休队列，其 collect 只能由当前 GPU resource owner thread 执行。阶段 5 引入 RenderThread 后，
+  Main/Update 和 worker 只提交 retire request，不直接销毁 Vulkan 对象。
 - `waitIdle()` 仍允许用于正常 shutdown、设备丢失/恢复边界、测试和缺少更精确完成机制的平台回退；目标是移出正常
   运行中的资源替换路径，而不是机械删除所有调用。
 
@@ -1466,10 +1467,10 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步先做一次 **阶段 3 GPU 资源生命周期子阶段架构复盘**。异步上传、ready wait、FrameSlot 资源保留、
-FrameScheduler、descriptor 回收和预算感知 staging pool 已形成完整链路；复盘将检查这些新增边界是否存在重复状态、
-错误所有权或可以删除的过渡接口，再决定是否进入非关键 streaming allocation 的可恢复失败契约。关键 render target
-allocation 仍不强制 `WITHIN_BUDGET`。
+下一步继续 **阶段 3：非关键 streaming allocation 的可恢复失败契约**。GPU 生命周期复盘已确认 upload timeline、
+frame fence serial 和 FrameSlot Runtime owner 保留各自覆盖不同区间；接下来先让底层 Allocator/Buffer/Image 提供不终止
+进程的尝试创建路径，再由 ResourceManager 选择占位、保留旧资源或重试。关键 render target allocation 继续使用明确的
+强失败路径。
 
 建议的职责边界：
 
@@ -1511,7 +1512,8 @@ allocation 仍不强制 `WITHIN_BUDGET`。
 16. [x] 从 Mesh 缓存恢复 Importer 源依赖，在 Asset Database 建立源路径正向/反向索引，并让项目内、由 glTF 外部引用的 `.bin` 变化推进所属 Mesh revision、触发后台热刷新。
 17. [x] 建立类型化 `ResourceUsage`、`ResourceState`/`ImageState` 与 usage-to-state 映射，显式携带 queue owner 和 image subresource range，并拒绝缺少 shader stage、非法 aspect 和空范围。
 18. [x] 将现有显式 image transition 迁移到 `ImageMemoryBarrier2`/`DependencyInfo`，让 Texture 上传提供前后 `ImageState`，删除 layout-pair 推断和 legacy `pipelineBarrier()`。
-19. [x] 启用 Vulkan timeline semaphore，Queue 为每次 submission 返回单调 `GpuCompletionPoint`，FrameSlot 记录最近提交，阻塞式资源上传只等待对应完成点而不再等待整个 Queue idle。
+19. [x] 启用 Vulkan timeline semaphore，Queue 为每次 submission 返回单调 `GpuCompletionPoint`，Runtime Resource 保存
+    需要的 ready token，FrameSlot 只记录 fence 覆盖的 submission serial；阻塞式上传只等待对应完成点而不再等待整个 Queue idle。
 20. [x] 建立 ResourceManager 独占的最小 UploadManager，分离目标 allocation 与内容上传，统一 staging/copy/Barrier2/completion 生命周期，并把 Mesh vertex/index 合并为一次提交。
 21. [x] 将 staging 演进为默认 4 MiB 的可复用 page：同一 batch 线性子分配，超大上传按需扩页，timeline completion 后有界回收默认页并释放超大页。
 22. [x] 让 Runtime Mesh/Texture 保存上传 completion 并在提交上传后立即返回；ResourceManager 每帧回收已完成 batch，取消资源创建路径的 CPU wait。
@@ -1526,6 +1528,8 @@ allocation 仍不强制 `WITHIN_BUDGET`。
     block/allocation/usage/budget，Device 提供只读转发接口。
 28. [x] 为 UploadManager 增加有界 staging 空闲池和预算感知增长：超大 page 不缓存，pool miss 时才采样预算，
     高压力下仅释放无在途引用的空闲页并节流记录。
+29. [x] 完成 GPU 资源生命周期子阶段复盘：确认 GpuCompletionPoint 位于 synchronization，删除无调用方的 Texture
+    Image 透传与 Allocator capability accessor，并保持 upload timeline、frame fence serial 和 FrameSlot owner 职责分离。
 
 格式所有权后续需求：
 
