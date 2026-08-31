@@ -100,6 +100,8 @@ namespace Comet::Tests {
 
     TEST(UploadManagerInterfaceTest, SeparatesAllocationFromUploadData) {
         using GpuBufferFactory = decltype(&Buffer::create_gpu_buffer);
+        using RecoverableGpuBufferFactory =
+            decltype(&Buffer::try_create_gpu_buffer);
         using UploadBufferFactory = decltype(&Buffer::create_upload_buffer);
 
         EXPECT_TRUE((std::is_invocable_v<
@@ -115,6 +117,14 @@ namespace Comet::Tests {
             size_t,
             const void*,
             std::string_view>));
+        EXPECT_TRUE((std::is_invocable_r_v<
+            GpuResourceResult<std::shared_ptr<Buffer>>,
+            RecoverableGpuBufferFactory,
+            Device&,
+            Flags<BufferUsage>,
+            size_t,
+            bool,
+            std::string_view>));
         EXPECT_TRUE((std::same_as<
             std::invoke_result_t<
                 UploadBufferFactory,
@@ -124,6 +134,12 @@ namespace Comet::Tests {
                 const void*,
                 std::string_view>,
             std::shared_ptr<CPUBuffer>>));
+        EXPECT_FALSE((std::is_constructible_v<
+            GPUBuffer,
+            Device&,
+            Flags<BufferUsage>,
+            size_t,
+            std::string_view>));
     }
 
     TEST(UploadManagerInterfaceTest, SupportsStagingPageSuballocations) {

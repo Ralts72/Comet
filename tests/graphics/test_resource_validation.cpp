@@ -89,6 +89,7 @@ namespace {
 TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
     using CpuBufferFactory = decltype(&Buffer::create_cpu_buffer);
     using ImageFactory = decltype(&Image::create);
+    using RecoverableImageFactory = decltype(&Image::try_create);
     using ImageWrapper = decltype(&Image::wrap);
 
     EXPECT_FALSE((std::is_constructible_v<Device, std::nullptr_t>));
@@ -97,6 +98,8 @@ TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
         Flags<BufferUsage>, size_t, const void*, std::string_view>));
     EXPECT_FALSE((std::is_invocable_v<ImageFactory, std::nullptr_t,
         const ImageInfo&, SampleCount, std::string_view>));
+    EXPECT_FALSE((std::is_invocable_v<RecoverableImageFactory, std::nullptr_t,
+        const ImageInfo&, bool, SampleCount, std::string_view>));
     EXPECT_FALSE((std::is_invocable_v<ImageWrapper, std::nullptr_t,
         vk::Image, const ImageInfo&>));
 
@@ -104,8 +107,18 @@ TEST(ResourceValidationTest, RequiredDependenciesRejectNullAtCompileTime) {
         Flags<BufferUsage>, size_t, const void*, std::string_view>));
     EXPECT_TRUE((std::is_invocable_v<ImageFactory, Device&,
         const ImageInfo&, SampleCount, std::string_view>));
+    EXPECT_TRUE((std::is_invocable_r_v<
+        GpuResourceResult<std::shared_ptr<Image>>,
+        RecoverableImageFactory,
+        Device&,
+        const ImageInfo&,
+        bool,
+        SampleCount,
+        std::string_view>));
     EXPECT_TRUE((std::is_invocable_v<ImageWrapper, Device&,
         vk::Image, const ImageInfo&>));
+    EXPECT_FALSE((std::is_constructible_v<OwnedImage,
+        Device&, const ImageInfo&, SampleCount, std::string_view>));
 }
 
 TEST(ResourceValidationTest, CommandRecordingUsesNonNullResourceReferences) {
