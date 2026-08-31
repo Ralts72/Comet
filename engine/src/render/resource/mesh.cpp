@@ -1,6 +1,8 @@
 #include "render/resource/mesh.h"
 
+#include "graphics/command/command_buffer.h"
 #include "graphics/command/upload_manager.h"
+#include "graphics/resource/buffer.h"
 
 #include <span>
 
@@ -46,15 +48,9 @@ namespace Comet {
         } else {
             m_index_buffer.reset();
         }
-        const auto completion = upload_batch.submit();
-        completion.wait();
-        upload_manager.collect_completed();
+        m_ready_completion = upload_batch.submit();
     }
 
-    Mesh::~Mesh() {
-        m_vertex_buffer.reset();
-        m_index_buffer.reset();
-    }
 
     void Mesh::draw(const CommandBuffer& command_buffer) const {
         command_buffer.bind_vertex_buffer({*m_vertex_buffer, 0});

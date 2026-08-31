@@ -99,8 +99,6 @@ namespace Comet {
             data,
             *initial_state,
             *sampled_state);
-        const auto completion = upload_batch.submit();
-        completion.wait();
-        upload_manager.collect_completed();
+        m_ready_completion = upload_batch.submit();
     }
 }

@@ -26,4 +26,8 @@ namespace Comet {
         return std::make_shared<Mesh>(m_device, *m_upload_manager, data);
     }
 
+    void ResourceManager::collect_completed_uploads() {
+        m_upload_manager->collect_completed();
+    }
+
 }
