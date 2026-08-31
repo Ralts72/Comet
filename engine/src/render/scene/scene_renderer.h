@@ -86,6 +86,7 @@ namespace Comet {
             std::shared_ptr<DescriptorPool> pool;
             std::vector<DescriptorSet> descriptor_sets;
             std::vector<DescriptorResources> resources;
+            uint64_t last_used_frame_serial = 0;
         };
 
         [[nodiscard]] const DescriptorSet& prepare_material_descriptor_set(
@@ -101,6 +102,7 @@ namespace Comet {
                                    const Sampler& sampler) const;
 
         void reset_render_pipeline();
+        void collect_completed_material_descriptors();
         void set_render_target_clear_color() const;
 
         SwapchainRecreateCallback m_swapchain_recreate_callback;
