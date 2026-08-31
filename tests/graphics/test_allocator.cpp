@@ -31,6 +31,22 @@ namespace Comet::Tests {
                 allocator.query_memory_budget()
             } -> std::same_as<MemoryBudgetSnapshot>;
         };
+
+        template<typename T>
+        concept SupportsRecoverableAllocation = requires(
+            const T& allocator,
+            const vk::BufferCreateInfo& buffer_info,
+            const vk::ImageCreateInfo& image_info,
+            const AllocationCreateInfo& allocation_info) {
+            {
+                allocator.try_create_buffer(buffer_info, allocation_info)
+            } -> std::same_as<GpuResourceResult<
+                Allocator::BufferAllocation>>;
+            {
+                allocator.try_create_image(image_info, allocation_info)
+            } -> std::same_as<GpuResourceResult<
+                Allocator::ImageAllocation>>;
+        };
     }
 
     TEST(AllocationTest, DefaultsToInvalidHandle) {
@@ -51,6 +67,7 @@ namespace Comet::Tests {
 
         EXPECT_EQ(create_info.usage, AllocationUsage::Device);
         EXPECT_FALSE(create_info.persistent_mapping);
+        EXPECT_FALSE(create_info.within_budget);
         EXPECT_TRUE(create_info.debug_name.empty());
     }
 
@@ -64,6 +81,30 @@ namespace Comet::Tests {
         EXPECT_FALSE(create_info.memory_budget_enabled);
         EXPECT_TRUE(SupportsFrameIndex<Allocator>);
         EXPECT_TRUE(SupportsMemoryBudgetSnapshot<Allocator>);
+        EXPECT_TRUE(SupportsRecoverableAllocation<Allocator>);
+    }
+
+    TEST(GpuResourceResultTest, DistinguishesSuccessFromFailure) {
+        const auto failure = GpuResourceResult<int>::failure(
+            vk::Result::eErrorOutOfDeviceMemory);
+        const auto success = GpuResourceResult<int>::success(42);
+        const auto normalized_failure =
+            GpuResourceResult<int>::failure(vk::Result::eSuccess);
+
+        EXPECT_FALSE(std::is_default_constructible_v<GpuResourceResult<int>>);
+        EXPECT_FALSE(std::is_default_constructible_v<GpuResourceResult<void>>);
+        EXPECT_FALSE(static_cast<bool>(failure));
+        EXPECT_EQ(failure.result(), vk::Result::eErrorOutOfDeviceMemory);
+        EXPECT_TRUE(static_cast<bool>(success));
+        EXPECT_EQ(success.value(), 42);
+        EXPECT_FALSE(static_cast<bool>(normalized_failure));
+        EXPECT_EQ(normalized_failure.result(), vk::Result::eErrorUnknown);
+
+        const auto empty_failure = GpuResourceResult<void>::failure(
+            vk::Result::eErrorOutOfDeviceMemory);
+        const auto empty_success = GpuResourceResult<void>::success();
+        EXPECT_FALSE(static_cast<bool>(empty_failure));
+        EXPECT_TRUE(static_cast<bool>(empty_success));
     }
 
     TEST(MemoryHeapBudgetTest, AvailableBytesSaturatesAtZero) {

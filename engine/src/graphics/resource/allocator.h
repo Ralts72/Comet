@@ -2,6 +2,7 @@
 
 #include "common/export.h"
 #include "graphics/resource/memory_budget.h"
+#include "graphics/resource/resource_result.h"
 #include "graphics/vk_common.h"
 
 #include <string_view>
@@ -20,6 +21,7 @@ namespace Comet {
     struct AllocationCreateInfo {
         AllocationUsage usage = AllocationUsage::Device;
         bool persistent_mapping = false;
+        bool within_budget = false;
         std::string_view debug_name;
     };
 
@@ -80,9 +82,19 @@ namespace Comet {
             const vk::BufferCreateInfo& buffer_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 
+        [[nodiscard]] GpuResourceResult<BufferAllocation>
+        try_create_buffer(
+            const vk::BufferCreateInfo& buffer_info,
+            const AllocationCreateInfo& allocation_info = {}) const;
+
         void destroy_buffer(vk::Buffer buffer, Allocation& allocation) const;
 
         [[nodiscard]] ImageAllocation create_image(
+            const vk::ImageCreateInfo& image_info,
+            const AllocationCreateInfo& allocation_info = {}) const;
+
+        [[nodiscard]] GpuResourceResult<ImageAllocation>
+        try_create_image(
             const vk::ImageCreateInfo& image_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 

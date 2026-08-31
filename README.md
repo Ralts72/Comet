@@ -128,7 +128,9 @@ serial 更新 VMA，而不是传递循环 FrameSlot 下标。Allocator/Device �
 包含 VMA block/allocation 统计和 usage/budget；扩展缺失时 snapshot 明确标记为估算值。
 Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
-VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability
+VMA allocation 句柄；关键资源继续使用强失败的 `create_*`，非关键流送路径可显式选择返回 Vulkan 错误的
+`try_create_*` 和 `within_budget`，失败时不会产生带空 handle 的成功结果；per-frame `CPUBuffer` 使用 persistent mapping
+和范围写入。Swapchain 根据实时 Surface capability
 和 framebuffer 像素尺寸选择 extent、transform、alpha、usage 与 present mode，窗口最小化时暂停更新并延迟重建。
 `engine/src/scene/`
 提供基于 EnTT 的 Scene/Entity 和基础组件数据模型；`TransformComponent` 的 Euler 角使用度，局部矩阵顺序为
