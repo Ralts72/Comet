@@ -82,7 +82,7 @@ namespace Comet {
         }
         const RenderSubmission submission = m_scene_resolver.resolve(
             render_scene, m_scene_renderer->get_render_target().get_size());
-        m_scene_renderer->render(submission);
+        const auto resource_waits = m_scene_renderer->render(submission);
 
         m_scene_renderer->end_render_pass();
 
@@ -91,7 +91,7 @@ namespace Comet {
         }
 
         // End frame (submits and presents)
-        m_scene_renderer->end_frame();
+        m_scene_renderer->end_frame(resource_waits);
     }
 
     void Renderer::enable_viewport_rendering(const Math::Vec2u initial_size) {

@@ -3,6 +3,7 @@
 #include "common/export.h"
 #include "core/math_utils.h"
 #include "render/frame_manager.h"
+#include "graphics/queue.h"
 #include "graphics/resource/buffer.h"
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/enums.h"
@@ -20,6 +21,7 @@
 #include <array>
 #include <functional>
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -44,11 +46,13 @@ namespace Comet {
                             const ShaderLayout& layout,
                             const PipelineConfig& config);
 
-        void render(const RenderSubmission& submission);
+        [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(
+            const RenderSubmission& submission);
 
         [[nodiscard]] bool begin_frame();
 
-        void end_frame();
+        void end_frame(
+            std::span<const QueueSemaphoreSubmit> resource_waits);
 
         void end_render_pass() const;
 
