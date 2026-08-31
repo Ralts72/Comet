@@ -116,7 +116,8 @@ RenderGraph 复用。CommandBuffer 的显式 image/buffer transition 已使用 `
 `GpuCompletionPoint`；FrameSlot 的 acquire/present 同步仍使用 binary semaphore，Runtime GPU 资源以该完成点表达异步就绪状态。
 ResourceManager 独占 UploadManager，Buffer/Image allocation 与内容上传分离；上传数据在可复用 staging page 内按偏移
 子分配，pending batch 在 timeline completion 前独占对应 page、CommandContext 和目标资源，完成后只将有限数量的默认页
-放回缓存，临时超大页直接释放；一个 Mesh 的 vertex/index copy 会合并为一次 Queue submission。Runtime Mesh/Texture
+放回缓存，临时超大页直接释放；空闲池确实需要增长时才查询 heap budget，高压力下先释放全部空闲 page，并对连续压力
+只记录一次警告。一个 Mesh 的 vertex/index copy 会合并为一次 Queue submission。Runtime Mesh/Texture
 创建不再执行 CPU wait，而是保存对应 `GpuCompletionPoint`；SceneRenderer 根据实际 Mesh/Texture 绑定分配
 VertexInput/FragmentShader stage，按 timeline 合并最大 value 和 stage 后加入 frame submission。实际录制使用的
 Runtime GPU owner 会登记到当前 FrameSlot，并在该 slot 的 fence 完成后统一释放，避免热重载旧资源早于在途 draw

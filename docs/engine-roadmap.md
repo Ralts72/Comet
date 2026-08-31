@@ -1077,8 +1077,8 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   FrameSlot 下标。
 - [x] 通过 Allocator/Device 暴露按需 `MemoryBudgetSnapshot`，将 `vmaGetHeapBudgets()` 的 heap 统计转换为 Comet 类型，
   并标记数据是驱动报告值还是 VMA 估算值。
-- UploadManager 在 staging pool 确实需要增长时采样 budget snapshot，优先释放空闲超大 page，并对高压力状态做节流诊断；
-  不在每帧无条件采样。
+- [x] UploadManager 在 staging pool 确实需要增长时采样 budget snapshot；空闲池只保留有限数量的默认 page，超大 page
+  完成后直接释放，高压力增长前释放全部空闲页，并对连续压力做边沿触发诊断，不在每帧无条件采样。
 - 区分关键 GPU 资源和可降级 streaming 资源。只有 ResourceManager 已支持返回错误、占位资源、重试或淘汰后，
   才为非关键 allocation 使用 `WITHIN_BUDGET`；render target 等关键资源保留独立失败策略。
 - 支持资产改名、移动后的引用稳定性。
@@ -1466,9 +1466,10 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：staging page pool 的预算感知回收策略**。Allocator/Device 已提供按需 heap budget snapshot；
-接下来由 UploadManager 只在 page pool 需要增长时采样，回收空闲超大 page 并在高压力时输出节流诊断，但暂不对关键
-render target allocation 强制 `WITHIN_BUDGET`。
+下一步先做一次 **阶段 3 GPU 资源生命周期子阶段架构复盘**。异步上传、ready wait、FrameSlot 资源保留、
+FrameScheduler、descriptor 回收和预算感知 staging pool 已形成完整链路；复盘将检查这些新增边界是否存在重复状态、
+错误所有权或可以删除的过渡接口，再决定是否进入非关键 streaming allocation 的可恢复失败契约。关键 render target
+allocation 仍不强制 `WITHIN_BUDGET`。
 
 建议的职责边界：
 
@@ -1523,6 +1524,8 @@ render target allocation 强制 `WITHIN_BUDGET`。
     扩展缺失时保持兼容回退。
 27. [x] 增加不暴露 VMA 类型的 MemoryBudgetSnapshot，由 Allocator 查询每个 heap 的
     block/allocation/usage/budget，Device 提供只读转发接口。
+28. [x] 为 UploadManager 增加有界 staging 空闲池和预算感知增长：超大 page 不缓存，pool miss 时才采样预算，
+    高压力下仅释放无在途引用的空闲页并节流记录。
 
 格式所有权后续需求：
 

@@ -22,6 +22,7 @@ namespace Comet {
         struct CreateInfo {
             size_t staging_page_size = 4 * 1024 * 1024;
             size_t max_cached_staging_pages = 4;
+            uint32_t memory_pressure_threshold_percent = 90;
         };
 
         explicit UploadManager(Device& device);
@@ -67,6 +68,7 @@ namespace Comet {
             std::span<const std::byte> data);
         [[nodiscard]] GpuCompletionPoint submit_batch(UploadBatch& batch);
         void abort_batch(UploadBatch& batch);
+        void prepare_for_staging_growth(size_t capacity);
         void recycle_staging_pages(BatchResources& resources);
         void wait_for_pending_batches();
 
@@ -75,6 +77,7 @@ namespace Comet {
         std::vector<PendingBatch> m_pending_batches;
         std::vector<std::unique_ptr<StagingPage>> m_available_pages;
         size_t m_open_batch_count = 0;
+        bool m_memory_pressure_reported = false;
     };
 
     class COMET_API UploadBatch final {
