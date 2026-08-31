@@ -72,7 +72,8 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
 3. Asset Registry 释放对 Runtime Mesh/Texture/Material 的 Handle 缓存及其依赖共享引用。
 4. 释放 SceneRenderer，确保 per-frame Buffer、pipeline、descriptor、render target、command buffer 等对象先于 Device 销毁。
 5. 释放 ResourceManager 持有的 ShaderManager、SamplerManager 和对应设备级共享资源。
-6. 释放 RenderContext：Swapchain → Device 内部的 CommandPool、PipelineCache 和 Allocator → Vulkan Device → Context。
+6. 释放 RenderContext：Swapchain → Device 内部的 CommandPool、Queue timeline、PipelineCache 和 Allocator →
+   Vulkan Device → Context。
 7. 释放 Scene；Scene 只持有组件和 AssetHandle，不拥有 GPU 资源。
 
 任何 `Buffer`、`OwnedImage`、`Texture`、`Mesh` 或其他 VMA 资源都不得比创建它的 Device 活得更久。`BorrowedImage` 只包装外部 image，不负责释放该 image。
@@ -112,6 +113,8 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
 `render.max_frames_in_flight` 当前为 2，与实际 swapchain image 数量相互独立。
 
 - `FrameSlot` 按 frame slot 创建，持有 in-flight fence、image-available semaphore 和 command buffer。
+- Queue 为每次 submission signal 自有 timeline 并返回单调 `GpuCompletionPoint`；FrameSlot 保存
+  `last_submission`，但仍由 fence 控制 CPU 复用。completion point 是非拥有 token，不得比 Device/Queue 活得更久。
 - view/projection uniform buffer 按 frame slot 创建；材质 descriptor set 按 material handle 和 frame slot 缓存，只有对应 fence 完成后 CPU 才能改写。
 - `SwapchainImageState` 按实际 swapchain image 数量创建，持有 render-finished semaphore，并记录该 image
   最近关联的 frame slot。
@@ -128,7 +131,8 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
 
 交换链重建只重建 image state 和 swapchain target，不改变 frame slot 数量，也不重建 editor 离屏目标。
 ViewPanel 尺寸稳定后才触发离屏目标重建；当前实现会在该低频操作前等待 Device idle。正常呈现路径不得依赖每帧
-`queue.waitIdle()`；Device idle 仅用于关闭、swapchain 重建和离屏目标 resize 等全局资源切换点。
+`queue.waitIdle()`；阻塞式资源上传也只等待自己的 timeline completion。Device idle 仅用于关闭、swapchain 重建和
+离屏目标 resize 等全局资源切换点。
 
 ## 错误处理
 

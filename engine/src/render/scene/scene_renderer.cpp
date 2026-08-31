@@ -308,7 +308,7 @@ namespace Comet {
         frame_slot.command_buffer.end();
 
         // Submit
-        const auto& graphics_queue = device.get_graphics_queue(0);
+        auto& graphics_queue = device.get_graphics_queue(0);
         const QueueSemaphoreSubmit image_available_wait{
             frame_slot.image_available_semaphore,
             Flags<PipelineStage>(PipelineStage::ColorAttachmentOutput)
@@ -317,7 +317,7 @@ namespace Comet {
             image_state.render_finished_semaphore,
             Flags<PipelineStage>(PipelineStage::AllCommands)
         };
-        graphics_queue.submit2(
+        frame_slot.last_submission = graphics_queue.submit2(
             std::span(&image_available_wait, 1),
             std::span(&frame_slot.command_buffer, 1),
             std::span(&render_finished_signal, 1),

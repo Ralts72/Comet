@@ -19,6 +19,7 @@ namespace Comet::Tests {
                 .requested_present_mode_supported = true,
                 .color_format_supported = true,
                 .depth_format_supported = true,
+                .timeline_semaphore_supported = true,
                 .synchronization2_supported = true
             };
         }
@@ -53,6 +54,7 @@ namespace Comet::Tests {
         candidate.swapchain_message = "no surface formats";
         candidate.color_format_supported = false;
         candidate.depth_format_supported = false;
+        candidate.timeline_semaphore_supported = false;
         candidate.synchronization2_supported = false;
 
         const auto evaluation = evaluate_device_candidate(
@@ -65,6 +67,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(contains_reason(evaluation, "swapchain configuration"));
         EXPECT_TRUE(contains_reason(evaluation, "color format"));
         EXPECT_TRUE(contains_reason(evaluation, "depth format"));
+        EXPECT_TRUE(contains_reason(evaluation, "timelineSemaphore"));
         EXPECT_TRUE(contains_reason(evaluation, "synchronization2"));
     }
 
@@ -103,11 +106,12 @@ namespace Comet::Tests {
         EXPECT_FALSE(disabled.notes.empty());
     }
 
-    TEST(DeviceCandidateEvaluationTest, EnablesRequiredSynchronization2Feature) {
+    TEST(DeviceCandidateEvaluationTest, EnablesRequiredSynchronizationFeatures) {
         const auto evaluation = evaluate_device_candidate(
             make_suitable_candidate(), DeviceCapabilityRequest{});
 
         ASSERT_TRUE(evaluation.is_suitable());
+        EXPECT_TRUE(evaluation.enabled_vulkan12_features.timelineSemaphore);
         EXPECT_TRUE(evaluation.enabled_vulkan13_features.synchronization2);
     }
 }

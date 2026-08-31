@@ -112,7 +112,8 @@ Vulkan 1.3，启动时同时检查 loader 与 PhysicalDevice 版本。Vulkan for
 Synchronization 2，每个 wait/signal 显式携带 semaphore value 和 pipeline stage；`ResourceUsage` 可解析为包含
 stage、access、queue owner、layout 与 subresource range 的类型化资源状态，供 Barrier2、UploadManager 和
 RenderGraph 复用。CommandBuffer 的显式 image transition 已使用 `ImageMemoryBarrier2`/`DependencyInfo`，Texture
-上传不再传递 Vulkan layout pair；当前帧同步仍使用 binary semaphore。
+上传不再传递 Vulkan layout pair。每个 Queue submission 额外 signal 自有 timeline semaphore 并返回单调
+`GpuCompletionPoint`；FrameSlot 的 acquire/present 同步仍使用 binary semaphore，阻塞上传只等待自己的完成点。
 Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability

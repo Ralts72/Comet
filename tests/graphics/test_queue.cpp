@@ -12,12 +12,14 @@ namespace Comet::Tests {
     namespace {
         template<typename T>
         concept SupportsSynchronization2Submit = requires(
-            const T& queue,
+            T& queue,
             std::span<const QueueSemaphoreSubmit> waits,
             std::span<const CommandBuffer> command_buffers,
             std::span<const QueueSemaphoreSubmit> signals,
             const Fence* fence) {
-            queue.submit2(waits, command_buffers, signals, fence);
+            {
+                queue.submit2(waits, command_buffers, signals, fence)
+            } -> std::same_as<GpuCompletionPoint>;
         };
 
         template<typename T>
@@ -44,5 +46,17 @@ namespace Comet::Tests {
         EXPECT_TRUE(SupportsSynchronization2Submit<Queue>);
         EXPECT_FALSE(SupportsLegacyNoWaitSubmit<Queue>);
         EXPECT_FALSE(SupportsLegacySingleWaitSubmit<Queue>);
+        EXPECT_FALSE(GpuCompletionPoint{}.is_valid());
+        EXPECT_TRUE((std::is_constructible_v<
+            QueueSemaphoreSubmit,
+            const GpuCompletionPoint&,
+            Flags<PipelineStage>>));
+        EXPECT_TRUE((std::is_constructible_v<
+            Semaphore,
+            Device&,
+            SemaphoreType,
+            uint64_t>));
+        EXPECT_TRUE(std::is_copy_constructible_v<GpuCompletionPoint>);
+        EXPECT_TRUE(std::is_copy_assignable_v<GpuCompletionPoint>);
     }
 }

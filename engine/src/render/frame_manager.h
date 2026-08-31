@@ -1,5 +1,6 @@
 #pragma once
 #include "graphics/command/command_buffer.h"
+#include "graphics/queue.h"
 #include "graphics/synchronization/fence.h"
 #include "graphics/synchronization/semaphore.h"
 #include <optional>
@@ -10,6 +11,7 @@ namespace Comet {
         Fence in_flight_fence;
         Semaphore image_available_semaphore;
         CommandBuffer command_buffer;
+        std::optional<GpuCompletionPoint> last_submission;
 
         FrameSlot(Device& device, const CommandBuffer& command_buffer)
             : in_flight_fence(device),

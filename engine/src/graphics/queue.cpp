@@ -8,7 +8,7 @@
 namespace Comet {
     namespace {
         vk::SemaphoreSubmitInfo make_semaphore_submit_info(
-            const vk::Semaphore semaphore,
+            const Semaphore& semaphore,
             const uint64_t value,
             const Flags<PipelineStage> stage_mask) {
             const vk::PipelineStageFlags2 vk_stage_mask =
@@ -16,24 +16,47 @@ namespace Comet {
             if(!vk_stage_mask) {
                 LOG_FATAL("Queue semaphore stage mask must not be empty");
             }
+            if((semaphore.get_type() == SemaphoreType::Binary && value != 0)
+               || (semaphore.get_type() == SemaphoreType::Timeline
+                   && value == 0)) {
+                LOG_FATAL("Queue semaphore value does not match semaphore type");
+            }
 
             vk::SemaphoreSubmitInfo info{};
-            info.semaphore = semaphore;
+            info.semaphore = semaphore.get();
             info.value = value;
             info.stageMask = vk_stage_mask;
             return info;
         }
     }
 
-    void Queue::submit2(const std::span<const QueueSemaphoreSubmit> waits,
-                        const std::span<const CommandBuffer> command_buffers,
-                        const std::span<const QueueSemaphoreSubmit> signals,
-                        const Fence* fence) const {
+    QueueSemaphoreSubmit::QueueSemaphoreSubmit(
+        const GpuCompletionPoint& completion,
+        const Flags<PipelineStage> stage_mask)
+        : semaphore(completion.m_timeline),
+          value(completion.m_value),
+          stage_mask(stage_mask) {
+        if(!completion.is_valid()) {
+            LOG_FATAL("Cannot submit an invalid GPU completion point");
+        }
+    }
+
+    Queue::Queue(Device& device, const vk::Queue queue)
+        : m_queue(queue),
+          m_completion_timeline(std::make_unique<Semaphore>(
+              device,
+              SemaphoreType::Timeline)) {}
+
+    GpuCompletionPoint Queue::submit2(
+        const std::span<const QueueSemaphoreSubmit> waits,
+        const std::span<const CommandBuffer> command_buffers,
+        const std::span<const QueueSemaphoreSubmit> signals,
+        const Fence* fence) {
         std::vector<vk::SemaphoreSubmitInfo> wait_infos;
         wait_infos.reserve(waits.size());
         for(const auto& wait: waits) {
             wait_infos.push_back(make_semaphore_submit_info(
-                wait.semaphore.get(), wait.value, wait.stage_mask));
+                *wait.semaphore, wait.value, wait.stage_mask));
         }
 
         std::vector<vk::CommandBufferSubmitInfo> command_infos;
@@ -45,11 +68,19 @@ namespace Comet {
         }
 
         std::vector<vk::SemaphoreSubmitInfo> signal_infos;
-        signal_infos.reserve(signals.size());
+        signal_infos.reserve(signals.size() + 1);
         for(const auto& signal: signals) {
             signal_infos.push_back(make_semaphore_submit_info(
-                signal.semaphore.get(), signal.value, signal.stage_mask));
+                *signal.semaphore, signal.value, signal.stage_mask));
         }
+        if(m_next_completion_value == std::numeric_limits<uint64_t>::max()) {
+            LOG_FATAL("Queue completion timeline value exhausted");
+        }
+        const uint64_t completion_value = m_next_completion_value++;
+        signal_infos.push_back(make_semaphore_submit_info(
+            *m_completion_timeline,
+            completion_value,
+            Flags<PipelineStage>(PipelineStage::AllCommands)));
 
         vk::SubmitInfo2 submit_info{};
         submit_info.waitSemaphoreInfoCount = static_cast<uint32_t>(wait_infos.size());
@@ -64,6 +95,7 @@ namespace Comet {
         if(result != vk::Result::eSuccess) {
             LOG_FATAL("Queue submit2 failed: {}", vk::to_string(result));
         }
+        return GpuCompletionPoint(*m_completion_timeline, completion_value);
     }
 
     vk::Result Queue::present(const Swapchain& swapchain, const std::span<const Semaphore> wait_semaphores, uint32_t image_index) const {

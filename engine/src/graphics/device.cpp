@@ -64,7 +64,12 @@ namespace Comet {
         device_create_info.enabledExtensionCount = m_capability.enabled_extensions.size();
         vk::PhysicalDeviceFeatures2 enabled_features{};
         enabled_features.features = m_capability.enabled_features;
-        enabled_features.pNext = &m_capability.enabled_vulkan13_features;
+        auto enabled_vulkan12_features =
+            m_capability.enabled_vulkan12_features;
+        auto enabled_vulkan13_features =
+            m_capability.enabled_vulkan13_features;
+        enabled_features.pNext = &enabled_vulkan12_features;
+        enabled_vulkan12_features.pNext = &enabled_vulkan13_features;
         device_create_info.pNext = &enabled_features;
         device_create_info.pEnabledFeatures = nullptr;
         m_device = physical_device.createDevice(device_create_info);
@@ -73,11 +78,11 @@ namespace Comet {
 
         for(uint32_t i = 0; i < create_info.graphics_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(graphics_queue_family_index.value(), i);
-            m_graphics_queues.emplace_back(vk_queue);
+            m_graphics_queues.emplace_back(*this, vk_queue);
         }
         for(uint32_t i = 0; i < create_info.present_queue_count; ++i) {
             auto vk_queue = m_device.getQueue(present_queue_family_index.value(), i);
-            m_present_queues.emplace_back(vk_queue);
+            m_present_queues.emplace_back(*this, vk_queue);
         }
 
         create_pipeline_cache();
@@ -89,6 +94,8 @@ namespace Comet {
             m_device.waitIdle();
         }
         m_default_command_pool.reset();
+        m_present_queues.clear();
+        m_graphics_queues.clear();
         if(m_pipeline_cache) {
             m_device.destroyPipelineCache(m_pipeline_cache);
         }
