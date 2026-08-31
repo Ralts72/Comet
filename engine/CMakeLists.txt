@@ -38,6 +38,7 @@ set(SOURCES
         src/graphics/vk_capability.cpp
         src/graphics/synchronization/barrier.cpp
         src/graphics/synchronization/gpu_completion_point.cpp
+        src/graphics/synchronization/gpu_retirement_queue.cpp
         src/graphics/synchronization/resource_state.cpp
         src/graphics/queue.cpp
         src/graphics/swapchain.cpp

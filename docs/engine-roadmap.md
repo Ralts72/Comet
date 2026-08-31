@@ -443,7 +443,7 @@ replace resource R
   retirement entry 或 owning-resource type erasure，回收只执行 noexcept 资源析构，不允许混入任意业务 callback。
 - versioned texture、material descriptor、shader 和 pipeline 在切换新 revision 后，把旧 owning reference 交给回收器；
   command buffer 中的裸 Vulkan handle 本身不能延长 C++ owner 生命周期。
-- `GpuRetirementQueue::collect()` 只能由当前 GPU resource owner thread 执行。阶段 5 引入 RenderThread 后，Main/Update
+- `GpuRetirementQueue::collect_completed()` 只能由当前 GPU resource owner thread 执行。阶段 5 引入 RenderThread 后，Main/Update
   和 worker 只提交 retire request，不直接销毁 Vulkan 对象。
 - `waitIdle()` 仍允许用于正常 shutdown、设备丢失/恢复边界、测试和缺少更精确完成机制的平台回退；目标是移出正常
   运行中的资源替换路径，而不是机械删除所有调用。
@@ -1062,8 +1062,8 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
   stage，同一有序 queue 上的冗余 wait 后续可由 backend 消除。
 - [x] 建立 `GpuCompletionPoint`，让 Queue submission 返回单调 timeline value，并由 FrameSlot 记录最近提交而不是
   只保存循环 slot index。
-- 建立 owner-thread `GpuRetirementQueue`。FrameSlot 在 fence signal 后清理自己的 `DeferredReleaseBatch`；
-  UploadManager 按 timeline value 回收。
+- [x] 建立 owner-thread `GpuRetirementQueue`。SceneRenderer 将每帧实际录制的 Runtime GPU owner 绑定到 frame timeline
+  completion，UploadManager 继续按 upload timeline value 回收 staging 与 command resources。
 - 将 `FrameManager` 逐步收敛为 FrameScheduler contract：统一 slot index、frame submission serial，以及
   wait completion、collect retirement、reset per-frame arena、开始录制的顺序；本阶段不强制迁移全部 UBO/descriptor。
 - `UploadManager` 根据 fence 或 timeline value 延迟回收 staging allocation、upload command buffer 和上传期间临时
@@ -1224,7 +1224,7 @@ Scene Component / RenderItem
   GPU deferred destruction。
 - 将 Engine 主循环中的 scene extraction/render submission 编排收敛到 Main/Update 侧 `RenderSystem`；它只生成
   `RenderScene`/`RenderFramePacket`，不持有 Vulkan object，也不替代 Renderer/RenderThread。
-- RenderThread 独占 `GpuRetirementQueue::collect()`；热重载、资产卸载、pipeline/material revision 替换和 streaming
+- RenderThread 独占 `GpuRetirementQueue::collect_completed()`；热重载、资产卸载、pipeline/material revision 替换和 streaming
   eviction 都以实际 last-use completion point 退休旧 owner，正常替换路径不调用 `Device::wait_idle()`。
 - 为 editor frame packet 建立 owned ImGui draw data 或等价的 UI render packet，并把 viewport resize、Shader
   reload 和资源替换转换为在 RenderThread 帧边界消费的命令。
@@ -1461,7 +1461,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：GPU 资源延迟退休**。异步上传已经形成 page 子分配、completion 回收、Runtime Resource ready token 与 frame submission GPU wait 的闭环；接下来建立 owner-thread `GpuRetirementQueue`，让热重载替换下来的 GPU owner 在最后一次 frame completion 后再销毁。继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue 或更细粒度 staging ring。
+下一步继续 **阶段 3：FrameScheduler contract 收敛**。异步上传与 ready/retirement 生命周期已闭环：新资源由 ready wait 约束首次消费，实际 draw owner 由 GpuRetirementQueue 保留到 frame completion。接下来让 FrameManager 明确 wait、collect、reset、record、submit 的 slot 生命周期顺序，并为 per-frame deferred release 留出稳定入口；继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue。
 
 建议的职责边界：
 
@@ -1508,6 +1508,7 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 21. [x] 将 staging 演进为默认 4 MiB 的可复用 page：同一 batch 线性子分配，超大上传按需扩页，timeline completion 后有界回收默认页并释放超大页。
 22. [x] 让 Runtime Mesh/Texture 保存上传 completion 并在提交上传后立即返回；ResourceManager 每帧回收已完成 batch，取消资源创建路径的 CPU wait。
 23. [x] 由 SceneRenderer 根据实际 Mesh/Texture 绑定生成 ready wait，并在 frame submit 前按 timeline 合并最大 value 与 stage、过滤已完成等待。
+24. [x] 建立通用 GpuRetirementQueue；SceneRenderer 将实际录制的 Mesh/Texture owner 绑定到 frame completion，热重载旧资源不再早于在途 draw 销毁。
 
 格式所有权后续需求：
 
