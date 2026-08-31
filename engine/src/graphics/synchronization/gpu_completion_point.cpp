@@ -8,10 +8,17 @@ namespace Comet {
         return is_valid() && m_timeline->get_counter_value() >= m_value;
     }
 
-    bool GpuCompletionPoint::wait(const uint64_t timeout) const {
+    void GpuCompletionPoint::wait() const {
         if(!is_valid()) {
             LOG_FATAL("Cannot wait for an invalid GPU completion point");
         }
-        return m_timeline->wait(m_value, timeout);
+        m_timeline->wait(m_value);
+    }
+
+    bool GpuCompletionPoint::wait_for(const uint64_t timeout) const {
+        if(!is_valid()) {
+            LOG_FATAL("Cannot wait for an invalid GPU completion point");
+        }
+        return m_timeline->wait_for(m_value, timeout);
     }
 }

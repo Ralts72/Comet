@@ -3,7 +3,6 @@
 #include "common/export.h"
 
 #include <cstdint>
-#include <limits>
 
 namespace Comet {
     class Queue;
@@ -20,8 +19,8 @@ namespace Comet {
 
         [[nodiscard]] uint64_t get_value() const noexcept { return m_value; }
         [[nodiscard]] bool is_complete() const;
-        [[nodiscard]] bool wait(
-            uint64_t timeout = std::numeric_limits<uint64_t>::max()) const;
+        void wait() const;
+        [[nodiscard]] bool wait_for(uint64_t timeout) const;
 
         bool operator==(const GpuCompletionPoint&) const noexcept = default;
 

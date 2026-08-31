@@ -11,6 +11,23 @@
 namespace Comet::Tests {
     namespace {
         template<typename T>
+        concept SupportsExplicitWaitModes = requires(
+            const T& completion,
+            uint64_t timeout) {
+            { completion.wait() } -> std::same_as<void>;
+            { completion.wait_for(timeout) } -> std::same_as<bool>;
+        };
+
+        template<typename T>
+        concept SupportsTimelineWaitModes = requires(
+            const T& semaphore,
+            uint64_t value,
+            uint64_t timeout) {
+            { semaphore.wait(value) } -> std::same_as<void>;
+            { semaphore.wait_for(value, timeout) } -> std::same_as<bool>;
+        };
+
+        template<typename T>
         concept SupportsSynchronization2Submit = requires(
             T& queue,
             std::span<const QueueSemaphoreSubmit> waits,
@@ -54,8 +71,10 @@ namespace Comet::Tests {
         EXPECT_TRUE((std::is_constructible_v<
             Semaphore,
             Device&,
-            SemaphoreType,
+            Semaphore::Type,
             uint64_t>));
+        EXPECT_TRUE(SupportsExplicitWaitModes<GpuCompletionPoint>);
+        EXPECT_TRUE(SupportsTimelineWaitModes<Semaphore>);
         EXPECT_TRUE(std::is_copy_constructible_v<GpuCompletionPoint>);
         EXPECT_TRUE(std::is_copy_assignable_v<GpuCompletionPoint>);
     }

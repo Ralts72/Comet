@@ -16,8 +16,8 @@ namespace Comet {
             if(!vk_stage_mask) {
                 LOG_FATAL("Queue semaphore stage mask must not be empty");
             }
-            if((semaphore.get_type() == SemaphoreType::Binary && value != 0)
-               || (semaphore.get_type() == SemaphoreType::Timeline
+            if((semaphore.get_type() == Semaphore::Type::Binary && value != 0)
+               || (semaphore.get_type() == Semaphore::Type::Timeline
                    && value == 0)) {
                 LOG_FATAL("Queue semaphore value does not match semaphore type");
             }
@@ -45,7 +45,7 @@ namespace Comet {
         : m_queue(queue),
           m_completion_timeline(std::make_unique<Semaphore>(
               device,
-              SemaphoreType::Timeline)) {}
+              Semaphore::Type::Timeline)) {}
 
     GpuCompletionPoint Queue::submit2(
         const std::span<const QueueSemaphoreSubmit> waits,

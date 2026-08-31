@@ -101,7 +101,7 @@ namespace Comet {
             std::span(&m_command_buffer, 1),
             {},
             nullptr);
-        static_cast<void>(completion.wait());
+        completion.wait();
 
         m_submitted = true;
     }
