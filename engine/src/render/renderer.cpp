@@ -100,8 +100,8 @@ namespace Comet {
         setup_pipeline();
     }
 
-    void Renderer::request_viewport_resize(const Math::Vec2u size) const {
-        m_scene_renderer->request_viewport_resize(size);
+    void Renderer::resize_viewport(const Math::Vec2u size) const {
+        m_scene_renderer->resize_viewport(size);
     }
 
     Renderer::~Renderer() {

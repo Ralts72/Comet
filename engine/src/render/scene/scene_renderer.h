@@ -2,7 +2,7 @@
 #include "config/config.h"
 #include "common/export.h"
 #include "core/math_utils.h"
-#include "render/frame_manager.h"
+#include "render/frame_scheduler.h"
 #include "graphics/queue.h"
 #include "graphics/resource/buffer.h"
 #include "graphics/pipeline/descriptor_set.h"
@@ -10,7 +10,6 @@
 #include "graphics/pipeline/pipeline.h"
 #include "graphics/render_pass.h"
 #include "graphics/resource/sampler.h"
-#include "graphics/synchronization/gpu_retirement_queue.h"
 #include "graphics/pipeline/vertex_description.h"
 #include "graphics/vk_common.h"
 #include "render/resource/mesh.h"
@@ -24,7 +23,6 @@
 #include <memory>
 #include <span>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace Comet {
@@ -58,10 +56,14 @@ namespace Comet {
 
         void end_render_pass() const;
 
-        void request_viewport_resize(Math::Vec2u size);
+        void resize_viewport(Math::Vec2u size);
 
-        [[nodiscard]] FrameManager& get_frame_manager() { return *m_frame_manager; }
-        [[nodiscard]] const FrameManager& get_frame_manager() const { return *m_frame_manager; }
+        [[nodiscard]] FrameScheduler& get_frame_scheduler() {
+            return *m_frame_scheduler;
+        }
+        [[nodiscard]] const FrameScheduler& get_frame_scheduler() const {
+            return *m_frame_scheduler;
+        }
         [[nodiscard]] RenderTarget& get_render_target() { return *m_render_target; }
         [[nodiscard]] const RenderTarget& get_render_target() const { return *m_render_target; }
         [[nodiscard]] CommandBuffer& get_current_command_buffer() const;
@@ -100,26 +102,20 @@ namespace Comet {
 
         void reset_render_pipeline();
         void set_render_target_clear_color() const;
-        void apply_pending_viewport_resize();
 
         SwapchainRecreateCallback m_swapchain_recreate_callback;
         RenderContext& m_context;
         std::shared_ptr<RenderPass> m_render_pass;
         std::unique_ptr<PipelineManager> m_pipeline_manager;
-        std::unique_ptr<FrameManager> m_frame_manager;
+        std::unique_ptr<FrameScheduler> m_frame_scheduler;
         std::unique_ptr<RenderTarget> m_render_target;
         bool m_uses_viewport_target = false;
-        Math::Vec2u m_requested_viewport_size = Math::Vec2u(0);
-        uint32_t m_viewport_size_stable_frames = 0;
         std::shared_ptr<Pipeline> m_pipeline;
         std::shared_ptr<Sampler> m_default_sampler;
         std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;
-        std::unordered_map<AssetHandle, MaterialDescriptorState> m_material_descriptors;
+        std::unordered_map<AssetHandle, MaterialDescriptorState>
+            m_material_descriptors;
         std::vector<std::shared_ptr<Buffer>> m_view_project_uniform_buffers;
-        GpuRetirementQueue m_retirement_queue;
-        std::vector<std::shared_ptr<void>> m_recorded_resource_owners;
-        std::unordered_set<const void*> m_recorded_resource_ids;
-        Config::Vulkan m_vulkan_config;
         Format m_surface_format;
         Format m_depth_format;
         SampleCount m_msaa_samples;

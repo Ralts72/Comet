@@ -10,7 +10,6 @@
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/device.h"
 #include "graphics/synchronization/fence.h"
-#include "graphics/synchronization/gpu_retirement_queue.h"
 #include "graphics/frame_buffer.h"
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
@@ -61,7 +60,6 @@ TEST(VulkanRaiiOwnershipTest, OwningWrappersDoNotCopyOrMoveByDefault) {
     expect_noncopyable_immovable_owner<CommandPool>();
     expect_noncopyable_immovable_owner<CommandContext>();
     expect_noncopyable_immovable_owner<UploadManager>();
-    expect_noncopyable_immovable_owner<GpuRetirementQueue>();
     expect_noncopyable_immovable_owner<Swapchain>();
     expect_noncopyable_immovable_owner<Allocator>();
     expect_noncopyable_immovable_owner<Device>();

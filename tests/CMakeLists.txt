@@ -4,6 +4,7 @@ file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
 )
 list(APPEND TEST_SOURCES
         "${CMAKE_SOURCE_DIR}/editor/src/editor_scene_session.cpp"
+        "${CMAKE_SOURCE_DIR}/editor/src/scene_document.cpp"
 )
 
 # 创建单元测试可执行文件

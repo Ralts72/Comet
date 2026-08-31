@@ -25,8 +25,9 @@ Engine
     ├── SceneResolver
     └── SceneRenderer
         ├── RenderPass/PipelineManager/Pipeline
-        ├── FrameManager
+        ├── FrameScheduler
         │   ├── FrameSlot[frames-in-flight]
+        │   │   └── RetainedResources
         │   └── SwapchainImageState[swapchain images]
         ├── ViewProjectBuffer[frames-in-flight]
         ├── RenderTarget
@@ -35,6 +36,8 @@ Engine
         └── MaterialDescriptorState[material][frame slot]
 
 Editor
+├── SceneDocument (New/Open/Save + current path)
+├── EditorSceneSession (Edit/Play scene switching)
 └── ImGuiContext
     ├── ImGui RenderPass/SwapchainTarget
     ├── DescriptorPool
@@ -104,11 +107,12 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
 - `Mesh` / `Texture`：持有 Runtime GPU 对象和创建它们的 ready completion；创建返回不等待 CPU。当前 upload 与 draw
   使用同一 graphics queue；SceneRenderer 根据实际绑定用途把 completion 编译为准确 stage 的 timeline wait，因此未来
   切换 transfer queue 不改变资源与资产接口。
-- `GpuRetirementQueue`：按 submission completion 批量持有任意 Runtime GPU owner，完成后释放；它不认识资产类型、
-  FrameSlot 或具体 Vulkan object。SceneRenderer 当前把每帧实际 draw 的 Mesh/Texture owner 交给它。
+- `FrameScheduler`：拥有 FrameSlot 轮转、fence 等待、swapchain image 关联、submission serial 和当前 slot 的
+  RetainedResources；实际 draw 的 Mesh/Texture owner 在该 slot fence 完成后统一释放。
 - `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。
 - `SceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断。
-- `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；从实际 Mesh/Texture 绑定汇总并合并 ready wait，并把实际录制资源保留到 frame completion；没有有效主 Camera 时不提交场景 draw。
+- `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；从实际 Mesh/Texture 绑定汇总 ready wait，并向 FrameScheduler 登记当前帧使用的 owner；没有有效主 Camera 时不提交场景 draw。
+- `ViewPanel`：拥有面板逻辑尺寸和 resize debounce；尺寸连续稳定后只产生一次 resize request。Renderer 不保存编辑器面板的稳定帧状态，只在请求到达后等待相关 FrameSlot 并调整离屏 RenderTarget。
 - `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；通过私有绑定共享
   SceneRenderer 的离屏 `ImageView` 生命周期，但不创建或直接销毁这些 engine 图形资源。
 - `Scene`：只保存实体、可序列化组件和 `AssetHandle`，不保存 Device、GPU对象或文件路径。
@@ -122,9 +126,10 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
 
 `render.max_frames_in_flight` 当前为 2，与实际 swapchain image 数量相互独立。
 
-- `FrameSlot` 按 frame slot 创建，持有 in-flight fence、image-available semaphore 和 command buffer。
-- Queue 为每次 submission signal 自有 timeline 并返回单调 `GpuCompletionPoint`；FrameSlot 保存
-  `last_submission`，但仍由 fence 控制 CPU 复用。completion point 是非拥有 token，不得比 Device/Queue 活得更久。
+- `FrameSlot` 按 frame slot 创建，持有 in-flight fence、image-available semaphore、command buffer、submission serial
+  和本 slot 实际录制所引用的 Runtime owner；等待 fence 后先释放这些 owner，再复用 slot。
+- Queue 为每次 submission signal 自有 timeline 并返回单调 `GpuCompletionPoint`；FrameScheduler 不长期保存该非拥有
+  token，frame-slot CPU 复用和 RetainedResources 回收由 fence 控制。
 - view/projection uniform buffer 按 frame slot 创建；材质 descriptor set 按 material handle 和 frame slot 缓存，只有对应 fence 完成后 CPU 才能改写。
 - `SwapchainImageState` 按实际 swapchain image 数量创建，持有 render-finished semaphore，并记录该 image
   最近关联的 frame slot。

@@ -66,12 +66,13 @@ namespace Comet {
               render_config.clear_color[1],
               render_config.clear_color[2],
               render_config.clear_color[3])) {
-        LOG_INFO("create frame manager");
-        m_frame_manager = std::make_unique<FrameManager>(
+        LOG_INFO("create frame scheduler");
+        m_frame_scheduler = std::make_unique<FrameScheduler>(
             context.get_device(), render_config.max_frames_in_flight);
 
         LOG_INFO("create per-frame uniform buffers");
-        const uint32_t frame_slot_count = m_frame_manager->get_frame_slot_count();
+        const uint32_t frame_slot_count =
+                m_frame_scheduler->get_frame_slot_count();
         m_view_project_uniform_buffers.reserve(frame_slot_count);
         for(uint32_t index = 0; index < frame_slot_count; ++index) {
             m_view_project_uniform_buffers.push_back(Buffer::create_cpu_buffer(
@@ -115,11 +116,9 @@ namespace Comet {
 
         const auto image_count = static_cast<uint32_t>(
             m_context.get_swapchain().get_images().size());
-        m_frame_manager->initialize_swapchain_images(image_count);
+        m_frame_scheduler->initialize_swapchain_images(image_count);
 
         m_uses_viewport_target = false;
-        m_requested_viewport_size = Math::Vec2u(0);
-        m_viewport_size_stable_frames = 0;
     }
 
     void SceneRenderer::setup_viewport_render_pass(const Math::Vec2u size) {
@@ -159,12 +158,10 @@ namespace Comet {
             m_context.get_device(), *m_render_pass);
         m_render_target = RenderTarget::create_multi_target(
             m_context.get_device(), *m_render_pass, size,
-            m_frame_manager->get_frame_slot_count());
+            m_frame_scheduler->get_frame_slot_count());
         set_render_target_clear_color();
 
         m_uses_viewport_target = true;
-        m_requested_viewport_size = size;
-        m_viewport_size_stable_frames = 0;
     }
 
     std::shared_ptr<DescriptorSetLayout> SceneRenderer::create_descriptor_set_layout(const DescriptorSetLayoutBindings& bindings) {
@@ -197,31 +194,37 @@ namespace Comet {
         const std::shared_ptr<Buffer>& view_project_buffer,
         const Sampler& sampler) {
         if(!m_descriptor_set_layout) {
-            LOG_FATAL("Descriptor set layout must be created before preparing material descriptors");
+            LOG_FATAL(
+                "Descriptor set layout must be created before preparing material descriptors");
         }
 
         auto [iterator, inserted] =
                 m_material_descriptors.try_emplace(material.material_handle);
         MaterialDescriptorState& state = iterator->second;
         if(inserted) {
-            const uint32_t frame_slot_count = m_frame_manager->get_frame_slot_count();
+            const uint32_t frame_slot_count =
+                    m_frame_scheduler->get_frame_slot_count();
             DescriptorPoolSizes descriptor_pool_sizes;
             descriptor_pool_sizes.add_pool_size(
                 DescriptorType::UniformBuffer, frame_slot_count);
             descriptor_pool_sizes.add_pool_size(
-                DescriptorType::CombinedImageSampler, 2 * frame_slot_count);
+                DescriptorType::CombinedImageSampler,
+                2 * frame_slot_count);
             state.pool = std::make_shared<DescriptorPool>(
-                m_context.get_device(), frame_slot_count, descriptor_pool_sizes);
+                m_context.get_device(),
+                frame_slot_count,
+                descriptor_pool_sizes);
             state.descriptor_sets = state.pool->allocate_descriptor_set(
                 *m_descriptor_set_layout, frame_slot_count);
             state.resources.resize(frame_slot_count);
         }
 
         const uint32_t frame_slot_index =
-                m_frame_manager->get_current_frame_slot_index();
+                m_frame_scheduler->get_current_frame_slot_index();
         const DescriptorSet& descriptor_set =
                 state.descriptor_sets.at(frame_slot_index);
-        DescriptorResources& current_resources = state.resources.at(frame_slot_index);
+        DescriptorResources& current_resources =
+                state.resources.at(frame_slot_index);
         if(current_resources.view_project_buffer != view_project_buffer
            || current_resources.textures != material.textures) {
             const DescriptorResources resources = {
@@ -246,13 +249,14 @@ namespace Comet {
         }
 
         const uint32_t frame_slot_index =
-                m_frame_manager->get_current_frame_slot_index();
+                m_frame_scheduler->get_current_frame_slot_index();
         const auto& view_project_buffer =
                 m_view_project_uniform_buffers.at(frame_slot_index);
         std::static_pointer_cast<CPUBuffer>(view_project_buffer)->write(
             &*submission.view_project_matrix);
 
-        const auto& command_buffer = m_frame_manager->get_current_command_buffer();
+        const auto& command_buffer =
+                m_frame_scheduler->get_current_command_buffer();
         command_buffer.bind_pipeline(*m_pipeline);
 
         const auto size = m_render_target->get_size();
@@ -262,27 +266,24 @@ namespace Comet {
             static_cast<float>(size.x), static_cast<float>(size.y)));
 
         std::vector<QueueSemaphoreSubmit> resource_waits;
-        const auto retain_resource = [this](const auto& resource) {
-            if(resource
-               && m_recorded_resource_ids.insert(resource.get()).second) {
-                m_recorded_resource_owners.emplace_back(resource);
-            }
-        };
         for(const ResolvedRenderItem& item: submission.render_items) {
-            retain_resource(item.mesh);
+            m_frame_scheduler->retain_current_frame_resource(item.mesh);
             append_resource_wait(
                 resource_waits,
                 item.mesh->get_ready_completion(),
                 Flags<PipelineStage>(PipelineStage::VertexInput));
             for(const auto& texture: item.material.textures) {
-                retain_resource(texture);
+                m_frame_scheduler->retain_current_frame_resource(texture);
                 append_resource_wait(
                     resource_waits,
                     texture->get_ready_completion(),
                     Flags<PipelineStage>(PipelineStage::FragmentShader));
             }
-            const DescriptorSet& descriptor_set = prepare_material_descriptor_set(
-                item.material, view_project_buffer, *m_default_sampler);
+            const DescriptorSet& descriptor_set =
+                    prepare_material_descriptor_set(
+                        item.material,
+                        view_project_buffer,
+                        *m_default_sampler);
             render_item(item, descriptor_set);
         }
         remove_completed_resource_waits(resource_waits);
@@ -291,16 +292,10 @@ namespace Comet {
 
     bool SceneRenderer::begin_frame() {
         PROFILE_SCOPE("SceneRenderer::begin_frame");
-        if(!m_recorded_resource_owners.empty()
-           || !m_recorded_resource_ids.empty()) {
-            LOG_FATAL("Previous frame resources were not retired");
-        }
-        m_frame_manager->begin_frame();
-        m_retirement_queue.collect_completed();
-        apply_pending_viewport_resize();
+        m_frame_scheduler->wait_for_current_slot();
 
         auto& swapchain = m_context.get_swapchain();
-        auto& frame_slot = m_frame_manager->get_current_frame_slot();
+        auto& frame_slot = m_frame_scheduler->get_current_frame_slot();
 
         // Acquire next image
         auto [image_index, acquire_result] =
@@ -316,12 +311,14 @@ namespace Comet {
             }
         }
 
-        m_frame_manager->prepare_image(image_index);
-        auto& command_buffer = m_frame_manager->get_current_command_buffer();
+        m_frame_scheduler->begin_frame(image_index);
+        auto& command_buffer =
+                m_frame_scheduler->get_current_command_buffer();
         command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
         if(m_uses_viewport_target) {
             m_render_target->begin_render_target(
-                command_buffer, m_frame_manager->get_current_frame_slot_index());
+                command_buffer,
+                m_frame_scheduler->get_current_frame_slot_index());
         } else {
             m_render_target->begin_render_target(command_buffer);
         }
@@ -334,7 +331,7 @@ namespace Comet {
         PROFILE_SCOPE("SceneRenderer::render_item");
 
         const auto& command_buffer =
-                m_frame_manager->get_current_command_buffer();
+                m_frame_scheduler->get_current_command_buffer();
 
         // Bind descriptor sets
         const vk::DescriptorSet vk_descriptor_set = descriptor_set.get();
@@ -366,9 +363,9 @@ namespace Comet {
         auto& device = m_context.get_device();
         auto& swapchain = m_context.get_swapchain();
         const uint32_t image_index = swapchain.get_current_index();
-        auto& frame_slot = m_frame_manager->get_current_frame_slot();
+        auto& frame_slot = m_frame_scheduler->get_current_frame_slot();
         auto& image_state =
-                m_frame_manager->get_swapchain_image_state(image_index);
+                m_frame_scheduler->get_swapchain_image_state(image_index);
 
         // End command buffer
         frame_slot.command_buffer.end();
@@ -386,17 +383,12 @@ namespace Comet {
             image_state.render_finished_semaphore,
             Flags<PipelineStage>(PipelineStage::AllCommands)
         };
-        const auto completion = graphics_queue.submit2(
+        static_cast<void>(graphics_queue.submit2(
             waits,
             std::span(&frame_slot.command_buffer, 1),
             std::span(&render_finished_signal, 1),
-            &frame_slot.in_flight_fence);
-        frame_slot.last_submission = completion;
-        m_retirement_queue.retire_batch(
-            completion,
-            std::move(m_recorded_resource_owners));
-        m_recorded_resource_owners.clear();
-        m_recorded_resource_ids.clear();
+            &frame_slot.in_flight_fence));
+        m_frame_scheduler->record_submission();
 
         // Present
         auto& present_queue = device.get_present_queue(0);
@@ -408,32 +400,28 @@ namespace Comet {
             LOG_FATAL("failed to present swapchain image: {}", vk::to_string(result));
         }
 
-        m_frame_manager->end_frame();
+        m_frame_scheduler->end_frame();
     }
 
     void SceneRenderer::end_render_pass() const {
         m_render_target->end_render_target(
-            m_frame_manager->get_current_command_buffer());
+            m_frame_scheduler->get_current_command_buffer());
     }
 
-    void SceneRenderer::request_viewport_resize(const Math::Vec2u size) {
+    void SceneRenderer::resize_viewport(const Math::Vec2u size) {
         if(!m_uses_viewport_target || size.x == 0 || size.y == 0) {
             return;
         }
-
-        if(size != m_requested_viewport_size) {
-            m_requested_viewport_size = size;
-            m_viewport_size_stable_frames = 0;
+        if(m_render_target->get_size() == size) {
             return;
         }
 
-        if(m_viewport_size_stable_frames < 2) {
-            ++m_viewport_size_stable_frames;
-        }
+        m_frame_scheduler->wait_for_all_slots();
+        m_render_target->resize(size.x, size.y);
     }
 
     CommandBuffer& SceneRenderer::get_current_command_buffer() const {
-        return m_frame_manager->get_current_command_buffer();
+        return m_frame_scheduler->get_current_command_buffer();
     }
 
     std::vector<std::shared_ptr<ImageView>> SceneRenderer::get_viewport_color_views() const {
@@ -442,7 +430,8 @@ namespace Comet {
             return color_views;
         }
 
-        const uint32_t frame_slot_count = m_frame_manager->get_frame_slot_count();
+        const uint32_t frame_slot_count =
+                m_frame_scheduler->get_frame_slot_count();
         color_views.reserve(frame_slot_count);
         for(uint32_t index = 0; index < frame_slot_count; ++index) {
             color_views.push_back(m_render_target->get_color_view(index));
@@ -466,7 +455,7 @@ namespace Comet {
 
         const auto image_count =
                 static_cast<uint32_t>(swapchain.get_images().size());
-        m_frame_manager->initialize_swapchain_images(image_count);
+        m_frame_scheduler->initialize_swapchain_images(image_count);
 
         if(m_swapchain_recreate_callback) {
             m_swapchain_recreate_callback();
@@ -485,22 +474,10 @@ namespace Comet {
         m_render_target->set_clear_value(m_color_clear_value);
     }
 
-    void SceneRenderer::apply_pending_viewport_resize() {
-        if(!m_uses_viewport_target
-           || m_viewport_size_stable_frames < 2
-           || m_render_target->get_size() == m_requested_viewport_size) {
-            return;
-        }
-
-        m_context.wait_idle();
-        m_render_target->resize(
-            m_requested_viewport_size.x, m_requested_viewport_size.y);
-        m_viewport_size_stable_frames = 0;
-    }
-
-    void SceneRenderer::update_descriptor_set(const DescriptorSet& descriptor_set,
-                                              const DescriptorResources& resources,
-                                              const Sampler& sampler) const {
+    void SceneRenderer::update_descriptor_set(
+        const DescriptorSet& descriptor_set,
+        const DescriptorResources& resources,
+        const Sampler& sampler) const {
         vk::DescriptorBufferInfo buffer_info{};
         buffer_info.buffer = resources.view_project_buffer->get();
         buffer_info.offset = 0;
@@ -531,7 +508,8 @@ namespace Comet {
         texture0_write.dstSet = descriptor_set.get();
         texture0_write.dstBinding = 2;
         texture0_write.dstArrayElement = 0;
-        texture0_write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+        texture0_write.descriptorType =
+                vk::DescriptorType::eCombinedImageSampler;
         texture0_write.descriptorCount = 1;
         texture0_write.pImageInfo = &image_info0;
         write_sets.emplace_back(texture0_write);
@@ -540,11 +518,13 @@ namespace Comet {
         texture1_write.dstSet = descriptor_set.get();
         texture1_write.dstBinding = 3;
         texture1_write.dstArrayElement = 0;
-        texture1_write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+        texture1_write.descriptorType =
+                vk::DescriptorType::eCombinedImageSampler;
         texture1_write.descriptorCount = 1;
         texture1_write.pImageInfo = &image_info1;
         write_sets.emplace_back(texture1_write);
 
         m_context.get_device().get().updateDescriptorSets(write_sets, {});
     }
+
 }

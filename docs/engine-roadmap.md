@@ -18,7 +18,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 - `engine` 已有基础运行框架：`Application`、`Engine`、`Window`、`Timer` 和统一的 YAML 运行配置加载。
 - Vulkan 底层封装已经有一定厚度，包括 `Context`、`Device`、`Swapchain`、`RenderPass`、`FrameBuffer`、`Pipeline`、`CommandBuffer`、`DescriptorSet`、`Buffer`、`Image`、`Sampler` 等。
 - VMA 已开始接入，`Device` 独占持有 `VulkanAllocator`，`Buffer` 和 `Image` 通过 allocator 管理显存资源。
-- 渲染层已有 `Renderer`、`RenderContext`、`SceneRenderer`、`FrameManager`、`RenderTarget`、`Mesh`、`Texture`、`Material`、`ResourceManager` 等雏形。
+- 渲染层已有 `Renderer`、`RenderContext`、`SceneRenderer`、`FrameScheduler`、`RenderTarget`、`Mesh`、`Texture`、`Material`、`ResourceManager` 等雏形。
 - Shader 构建链路已经接入 CMake，通过 `glslangValidator` 将 GLSL 编译并生成头文件。
 - 编辑器已有 ImGui Docking 基础和几个典型面板：Hierarchy、Inspector、Project、Viewport、Log。
 - 测试基础已经存在，覆盖数学、配置、导出、日志、GLFW 初始化、Vulkan RAII 拥有关系和 Scene/ECS 基础行为。
@@ -261,7 +261,7 @@ Paused 时应停止 gameplay update/fixed update，但保持编辑器 UI、场�
 ### 目标渲染资源组织
 
 以下结构描述最终职责和依赖方向，不要求一次重写，也不要求每个框都立刻对应一个新类。当前 `RenderContext`、
-`Device`、`FrameManager`、`SceneRenderer` 和渲染侧资源服务按后续需求逐步收敛到这些边界；不为匹配命名增加只做
+`Device`、`FrameScheduler`、`SceneRenderer` 和渲染侧资源服务按后续需求逐步收敛到这些边界；不为匹配命名增加只做
 转发的 facade，也不把任何对象改成全局单例。
 
 ```text
@@ -303,8 +303,8 @@ RenderSystem (Main/Update owner)
 
 #### FrameScheduler
 
-现有 `FrameManager` 已经包含 slot 轮转、frame fence、image-available semaphore 和 command buffer，是
-`FrameScheduler` 的核心。演进目标是先统一索引、submission serial 和 reset 时机，再按实际需求迁入 arena：
+现有 `FrameScheduler` 已统一 slot 轮转、frame fence、image-available semaphore、command buffer、submission serial
+和 RetainedResources；后续按实际需求迁入 arena：
 
 ```text
 FrameSlot
@@ -403,11 +403,10 @@ frame-compile tracker，持久资源通过明确 handoff state 连接两者；�
 
 ### GPU Completion 与延迟释放
 
-当前 `FrameSlot` 已持有 in-flight fence，并记录最近一次 Queue submission 返回的单调 `GpuCompletionPoint`；
-`FrameManager::begin_frame()` 会在复用 slot 前等待该 fence，但 slot 内还没有资源退休队列。viewport resize、swapchain
-recreation、渲染模式切换和 renderer cleanup 仍通过 `Device::wait_idle()`
-保证旧资源不再被 GPU 使用。这对当前阶段是安全且简单的基线，但不能作为 texture/shader/pipeline 热重载、资产卸载、
-streaming 和持续 resize 的常规资源替换机制。
+当前 `FrameSlot` 持有 in-flight fence、submission serial 和实际录制所引用的 Runtime owner；`FrameScheduler` 会在
+复用 slot 前等待该 fence 并释放 RetainedResources。viewport resize 已缩小为等待所有 FrameSlot，swapchain
+recreation、渲染模式切换和 renderer cleanup 仍通过 `Device::wait_idle()` 保证旧资源不再被 GPU 使用。这对当前阶段是
+安全且简单的基线，但不能作为 texture/shader/pipeline 热重载、资产卸载、streaming 和持续 resize 的常规资源替换机制。
 
 目标模型分为两层：
 
@@ -451,7 +450,7 @@ replace resource R
 ### Swapchain Generation 与重建事务
 
 当前 `SceneRenderer::recreate_swapchain()` 先执行 `Device::wait_idle()`，随后 `Swapchain::recreate()` 原地替换 handle 和
-borrowed images，并在返回前销毁 old swapchain；runtime `SwapchainTarget`、FrameManager image state 和 editor ImGui
+borrowed images，并在返回前销毁 old swapchain；runtime `SwapchainTarget`、FrameScheduler image state 和 editor ImGui
 target 再由外层依次重建。该流程当前可工作，但所有权和失效传播分散，创建中途失败也难以保留一份完整旧状态。
 
 目标结构按代际管理：
@@ -1060,12 +1059,12 @@ descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成�
 - [x] 让异步 Runtime Mesh/Texture 携带 ready token，资源创建提交上传后不再 CPU wait。
 - [x] 首次 graphics 消费在准确 stage 等待 upload timeline value；同一 submission 内按 timeline 合并最大 value 与
   stage，同一有序 queue 上的冗余 wait 后续可由 backend 消除。
-- [x] 建立 `GpuCompletionPoint`，让 Queue submission 返回单调 timeline value，并由 FrameSlot 记录最近提交而不是
-  只保存循环 slot index。
-- [x] 建立 owner-thread `GpuRetirementQueue`。SceneRenderer 将每帧实际录制的 Runtime GPU owner 绑定到 frame timeline
-  completion，UploadManager 继续按 upload timeline value 回收 staging 与 command resources。
-- 将 `FrameManager` 逐步收敛为 FrameScheduler contract：统一 slot index、frame submission serial，以及
-  wait completion、collect retirement、reset per-frame arena、开始录制的顺序；本阶段不强制迁移全部 UBO/descriptor。
+- [x] 建立 `GpuCompletionPoint`，让 Queue submission 返回单调 timeline value；FrameSlot 以 fence 和单调 frame serial
+  管理自身复用，不长期持有非拥有 completion token。
+- 仅在 generation、材质版本或跨 submission 资源出现无法绑定到单一 FrameSlot 的真实退休需求后，再建立
+  owner-thread `GpuRetirementQueue`；UploadManager 继续按 upload timeline value 回收 staging 与 command resources。
+- [x] 将原有 frame-slot 管理收敛为 FrameScheduler contract：统一 slot index、frame submission serial、wait、record、end
+  顺序，并让当前 FrameSlot 持有实际 draw owner 到 fence completion；本阶段不强制迁移全部 UBO/descriptor。
 - `UploadManager` 根据 fence 或 timeline value 延迟回收 staging allocation、upload command buffer 和上传期间临时
   持有的资源；启动期、工具和测试可显式等待 `UploadBatch::submit()` 返回的 completion。
 - ResourceManager 批量创建 Mesh/Texture 等 GPU Resource 时通过上传接口提交数据，不直接管理 staging lifetime，
@@ -1134,7 +1133,7 @@ Scene Component / RenderItem
 - editor 只有一个 ViewportPanel 和一组按 frame slot 分配的离屏纹理，面板尺寸直接驱动同一个 RenderTarget。
 - Edit 使用 Edit Scene 并显示 2D/3D 编辑工具；Play 使用 Runtime Scene 并隐藏编辑工具，两种模式当前都使用活动 Scene 的主 Camera。
 - 2D/3D 是单个 Edit Viewport 的观察和交互方式，不是两个独立 Viewport；当前按钮只保存 UI 状态，尚未真正切换 editor camera 投影和操作逻辑。
-- resize 会等待尺寸连续稳定，再通过 `Device::wait_idle()` 重建离屏 image、image view 和 framebuffer。
+- resize debounce 由 ViewPanel 持有；尺寸连续稳定后产生一次请求，Renderer 等待所有 FrameSlot 后重建离屏 image、image view 和 framebuffer，不再等待整个 Device idle。
 - Camera 垂直 FOV 与实体 Transform 不变，RenderTarget 尺寸只改变 projection aspect；ImGui 再把纹理等比放入面板。
 - ImGui 逻辑尺寸目前直接作为 RenderTarget 像素尺寸，尚未纳入 HiDPI framebuffer scale。
 
@@ -1158,7 +1157,7 @@ Scene Component / RenderItem
 - Edit 模式默认按面板物理像素尺寸渲染，并结合 ImGui framebuffer scale 处理 Retina/HiDPI。
 - Play 模式支持固定分辨率和宽高比预设，例如 Free、16:9、1920x1080；面板 resize 默认只改变显示缩放，不改变固定 render resolution。
 - 提供 Fit、1x 等显示倍率，保持宽高比并记录 letterbox/pillarbox 后的真实 image display rect。
-- 保留 resize debounce，但用 frame fence 和延迟销毁逐步替代 `Device::wait_idle()`，避免拖拽面板时阻塞整个 GPU。
+- 保留 ViewPanel 的 resize debounce；在现有全 FrameSlot fence 等待基础上继续引入 generation 与延迟销毁，避免 resize 时同步等待全部在途 frame。
 - resize 创建新的 `RenderTargetGeneration`，成功后切换 viewport 引用，并按最后使用它的 frame submission 延迟释放
   旧 image、image view、framebuffer 和 ImGui descriptor；创建失败时继续使用旧 generation。
 - 将 swapchain 重建改为 prepare/create/commit/retire generation 流程。engine core、runtime present target 和 editor ImGui
@@ -1173,7 +1172,7 @@ Scene Component / RenderItem
 - Play 模式切换固定分辨率时 Camera aspect、输出纹理和留白区域正确，场景对象不会被非等比拉伸。
 - 连续拖拽面板不会每帧重建资源，也不会依赖全局 Device idle。
 - 新 swapchain handle 创建失败不会覆盖或提前销毁 current generation；创建成功后不会尝试从已 retired 的 old
-  swapchain acquire。重建后 image count、format-dependent RenderPass/Pipeline、FrameManager image state 和 ImGui
+  swapchain acquire。重建后 image count、format-dependent RenderPass/Pipeline、FrameScheduler image state 和 ImGui
   backend 保持一致，旧 generation 不会在 presentation 完成前释放。
 
 #### 阶段 4C：视口交互闭环
@@ -1461,7 +1460,9 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 
 ## 下一步建议
 
-下一步继续 **阶段 3：FrameScheduler contract 收敛**。异步上传与 ready/retirement 生命周期已闭环：新资源由 ready wait 约束首次消费，实际 draw owner 由 GpuRetirementQueue 保留到 frame completion。接下来让 FrameManager 明确 wait、collect、reset、record、submit 的 slot 生命周期顺序，并为 per-frame deferred release 留出稳定入口；继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue。
+下一步继续 **阶段 3：材质 descriptor 生命周期收敛**。FrameScheduler 已明确 wait、record、end 与 FrameSlot
+RetainedResources 的顺序；接下来让长期材质 descriptor 按最后使用的 frame serial 退休，不把 persistent descriptor
+错误塞进 FrameSlot。继续使用 graphics queue，等 profile 证明需要后再引入 transfer queue。
 
 建议的职责边界：
 
@@ -1508,7 +1509,8 @@ Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一�
 21. [x] 将 staging 演进为默认 4 MiB 的可复用 page：同一 batch 线性子分配，超大上传按需扩页，timeline completion 后有界回收默认页并释放超大页。
 22. [x] 让 Runtime Mesh/Texture 保存上传 completion 并在提交上传后立即返回；ResourceManager 每帧回收已完成 batch，取消资源创建路径的 CPU wait。
 23. [x] 由 SceneRenderer 根据实际 Mesh/Texture 绑定生成 ready wait，并在 frame submit 前按 timeline 合并最大 value 与 stage、过滤已完成等待。
-24. [x] 建立通用 GpuRetirementQueue；SceneRenderer 将实际录制的 Mesh/Texture owner 绑定到 frame completion，热重载旧资源不再早于在途 draw 销毁。
+24. [x] 让 FrameScheduler 的当前 FrameSlot 保留实际录制的 Mesh/Texture owner 到 fence completion，热重载旧资源
+    不再早于在途 draw 销毁；通用退休队列推迟到出现非 frame-slot 生命周期的真实消费者后引入。
 
 格式所有权后续需求：
 

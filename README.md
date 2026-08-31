@@ -119,8 +119,8 @@ ResourceManager 独占 UploadManager，Buffer/Image allocation 与内容上传�
 放回缓存，临时超大页直接释放；一个 Mesh 的 vertex/index copy 会合并为一次 Queue submission。Runtime Mesh/Texture
 创建不再执行 CPU wait，而是保存对应 `GpuCompletionPoint`；SceneRenderer 根据实际 Mesh/Texture 绑定分配
 VertexInput/FragmentShader stage，按 timeline 合并最大 value 和 stage 后加入 frame submission。实际录制使用的
-Runtime GPU owner 会随 frame completion 进入通用 GpuRetirementQueue，GPU 完成后才释放，避免热重载旧资源早于在途
-draw 销毁。
+Runtime GPU owner 会登记到当前 FrameSlot，并在该 slot 的 fence 完成后统一释放，避免热重载旧资源早于在途 draw
+销毁。
 Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability
@@ -158,9 +158,9 @@ app/editor 的示例 cube mesh、材质及纹理均从项目资产链路按稳�
 `SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过
 push constant 提交每个 draw 的模型矩阵。editor 初始化由 Engine 持有的 Scene；Hierarchy 可创建、递归删除、选择
 实体，并以拖拽方式 reparent；Project 和 Hierarchy 共享 Entity/Asset 互斥的 Selection；Inspector 直接编辑 Name、
-通过描述符编辑基础组件；Material 的 Texture Handle 属性在选择变化时自动持久化，并以候选对象替换运行时 Material。File 菜单通过路径输入执行 New/Open/Save；Open 先完整加载再替换 Engine 中的 Scene，
+通过描述符编辑基础组件；Material 的 Texture Handle 属性在选择变化时自动持久化，并以候选对象替换运行时 Material。File 菜单通过 `SceneDocument` 执行 New/Open/Save、维护当前路径；Open 先完整加载再替换 Engine 中的 Scene，
 New/Open 都会重绑定 Hierarchy 与 Selection 并清除旧选择。editor 中的场景按 frame slot 渲染到可采样的离屏目标，再由 ImGui 合成到 swapchain；
-Play 时通过 `SceneSerializer` 创建独立 Runtime Scene，并暂存原 Edit Scene；Stop 会丢弃运行时修改、恢复 Edit Scene，
+Play/Edit 切换由独立的 `EditorSceneSession` 管理：Play 时通过 `SceneSerializer` 创建 Runtime Scene 并暂存原 Edit Scene，Stop 会丢弃运行时修改、恢复 Edit Scene，
 重新绑定面板并清空 Selection，Play 期间禁用场景文件操作。editor 只保留一个 `ViewportPanel`：Edit 时显示编辑工具，
 Play 时同一面板切换为运行画面并隐藏编辑工具。当前两种模式仍使用活动 Scene 的主 Camera，独立 editor camera 留在后续视口阶段；
 runtime app 仍直接渲染到 swapchain。关闭时先释放引擎资源，

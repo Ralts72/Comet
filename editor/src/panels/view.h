@@ -5,6 +5,7 @@
 
 #include <imgui.h>
 #include <cstdint>
+#include <optional>
 
 namespace CometEditor {
     class ViewPanel: public EditorPanel {
@@ -25,9 +26,8 @@ namespace CometEditor {
 
         void clear_texture();
 
-        [[nodiscard]] Comet::Math::Vec2u get_viewport_size() const {
-            return m_viewport_size;
-        }
+        [[nodiscard]] std::optional<Comet::Math::Vec2u>
+            take_resize_request();
 
     private:
         void render_view_content();
@@ -39,5 +39,7 @@ namespace CometEditor {
         std::uint32_t m_texture_width = 0;
         std::uint32_t m_texture_height = 0;
         Comet::Math::Vec2u m_viewport_size = Comet::Math::Vec2u(0);
+        Comet::Math::Vec2u m_last_requested_size = Comet::Math::Vec2u(0);
+        std::uint32_t m_viewport_size_stable_frames = 0;
     };
 }

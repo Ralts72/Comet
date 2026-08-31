@@ -38,7 +38,6 @@ set(SOURCES
         src/graphics/vk_capability.cpp
         src/graphics/synchronization/barrier.cpp
         src/graphics/synchronization/gpu_completion_point.cpp
-        src/graphics/synchronization/gpu_retirement_queue.cpp
         src/graphics/synchronization/resource_state.cpp
         src/graphics/queue.cpp
         src/graphics/swapchain.cpp
@@ -67,7 +66,7 @@ set(SOURCES
         src/render/scene/scene_extractor.cpp
         src/render/scene/scene_renderer.cpp
         src/render/resource/resource_manager.cpp
-        src/render/frame_manager.cpp
+        src/render/frame_scheduler.cpp
         src/render/material.cpp
         src/scene/entity.cpp
         src/scene/entity_uuid.cpp
