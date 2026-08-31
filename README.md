@@ -122,6 +122,8 @@ VertexInput/FragmentShader stage，按 timeline 合并最大 value 和 stage 后
 Runtime GPU owner 会登记到当前 FrameSlot，并在该 slot 的 fence 完成后统一释放，避免热重载旧资源早于在途 draw
 销毁。材质 descriptor cache 记录最后使用的 frame serial，只在对应 graphics submission 完成后回收不再使用的
 DescriptorPool 及其资源引用，避免场景切换或材质卸载造成缓存永久增长。
+设备存在 `VK_EXT_memory_budget` 时会将其作为可选能力启用，并为 VMA allocator 设置对应 flag；每帧使用单调 frame
+serial 更新 VMA，而不是传递循环 FrameSlot 下标。扩展缺失时 allocator 保持原有估算路径。
 Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability

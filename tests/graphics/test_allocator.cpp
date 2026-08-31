@@ -16,6 +16,16 @@ namespace Comet::Tests {
             const size_t offset) {
             buffer.write(data, size, offset);
         };
+
+        template<typename T>
+        concept SupportsFrameIndex = requires(
+            const T& allocator,
+            const uint64_t frame_serial) {
+            allocator.set_current_frame_index(frame_serial);
+            {
+                allocator.is_memory_budget_enabled()
+            } -> std::same_as<bool>;
+        };
     }
 
     TEST(AllocationTest, DefaultsToInvalidHandle) {
@@ -41,5 +51,12 @@ namespace Comet::Tests {
 
     TEST(CPUBufferInterfaceTest, SupportsBoundedRangeWrites) {
         EXPECT_TRUE(SupportsRangeWrite<CPUBuffer>);
+    }
+
+    TEST(AllocatorInterfaceTest, MemoryBudgetIsOptional) {
+        const Allocator::CreateInfo create_info;
+
+        EXPECT_FALSE(create_info.memory_budget_enabled);
+        EXPECT_TRUE(SupportsFrameIndex<Allocator>);
     }
 }

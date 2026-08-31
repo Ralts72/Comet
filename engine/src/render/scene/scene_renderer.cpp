@@ -295,6 +295,8 @@ namespace Comet {
     bool SceneRenderer::begin_frame() {
         PROFILE_SCOPE("SceneRenderer::begin_frame");
         m_frame_scheduler->wait_for_current_slot();
+        m_context.get_device().set_allocator_frame_index(
+            m_frame_scheduler->get_current_frame_serial());
         collect_completed_material_descriptors();
 
         auto& swapchain = m_context.get_swapchain();

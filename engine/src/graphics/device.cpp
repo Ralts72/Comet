@@ -111,6 +111,8 @@ namespace Comet {
         allocator_info.physical_device = m_context.get_physical_device();
         allocator_info.device = m_device;
         allocator_info.vulkan_api_version = REQUIRED_VULKAN_API_VERSION;
+        allocator_info.memory_budget_enabled =
+            m_capability.memory_budget_enabled;
 
         m_allocator = std::make_unique<Allocator>(allocator_info);
     }
@@ -143,6 +145,11 @@ namespace Comet {
 
     void Device::wait_idle() const {
         m_device.waitIdle();
+    }
+
+    void Device::set_allocator_frame_index(
+        const uint64_t frame_serial) const {
+        get_allocator().set_current_frame_index(frame_serial);
     }
 
     std::unique_ptr<CommandContext> Device::create_command_context() {

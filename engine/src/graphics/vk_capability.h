@@ -44,7 +44,14 @@ namespace Comet {
         vk::PhysicalDeviceFeatures enabled_features{};
         vk::PhysicalDeviceVulkan12Features enabled_vulkan12_features{};
         vk::PhysicalDeviceVulkan13Features enabled_vulkan13_features{};
+        bool memory_budget_enabled = false;
         float max_sampler_anisotropy = 1.0f;
+    };
+
+    struct DeviceExtensionSelection {
+        std::vector<const char*> enabled_extensions;
+        std::vector<std::string> missing_required_extensions;
+        bool memory_budget_enabled = false;
     };
 
     struct SwapchainConfig {
@@ -109,6 +116,9 @@ namespace Comet {
         const std::vector<const char*>& requested_names,
         const std::set<std::string>& available_names,
         std::string_view item_type);
+
+    [[nodiscard]] COMET_API DeviceExtensionSelection select_device_extensions(
+        const std::set<std::string>& available_extensions);
 
     [[nodiscard]] COMET_API DeviceCandidateEvaluation evaluate_device_candidate(
         const DeviceCandidateInfo& candidate,
