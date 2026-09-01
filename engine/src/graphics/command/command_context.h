@@ -28,19 +28,7 @@ namespace Comet {
             size_t src_offset = 0,
             size_t dst_offset = 0);
 
-        void copy_buffer(
-            vk::Buffer src,
-            vk::Buffer dst,
-            vk::DeviceSize size,
-            vk::DeviceSize src_offset = 0,
-            vk::DeviceSize dst_offset = 0);
-
         void copy_buffer_to_image(const Buffer& src, const Image& dst, ImageLayout dst_image_layout,
-                                  const vk::Extent3D& extent, uint32_t base_array_layer = 0,
-                                  uint32_t layer_count = 1, uint32_t mip_level = 0,
-                                  vk::DeviceSize buffer_offset = 0);
-
-        void copy_buffer_to_image(vk::Buffer src, vk::Image dst_image, ImageLayout dst_image_layout,
                                   const vk::Extent3D& extent, uint32_t base_array_layer = 0,
                                   uint32_t layer_count = 1, uint32_t mip_level = 0,
                                   vk::DeviceSize buffer_offset = 0);
@@ -66,6 +54,8 @@ namespace Comet {
         void discard();
 
     private:
+        void ensure_recording();
+
         Device& m_device;
         CommandBuffer m_command_buffer;
         bool m_is_recording = false;

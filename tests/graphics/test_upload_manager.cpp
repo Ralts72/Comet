@@ -110,6 +110,30 @@ namespace Comet::Tests {
                 0,
                 16);
         };
+
+        template<typename T>
+        concept SupportsRawBufferCopy = requires(
+            T& context,
+            const vk::Buffer source,
+            const vk::Buffer destination) {
+            context.copy_buffer(source, destination, 4, 8, 12);
+        };
+
+        template<typename T>
+        concept SupportsRawImageCopy = requires(
+            T& context,
+            const vk::Buffer source,
+            const vk::Image destination) {
+            context.copy_buffer_to_image(
+                source,
+                destination,
+                ImageLayout::TransferDstOptimal,
+                vk::Extent3D{1, 1, 1},
+                0,
+                1,
+                0,
+                16);
+        };
     }
 
     TEST(UploadManagerInterfaceTest, UsesExplicitOwnedBatches) {
@@ -212,5 +236,7 @@ namespace Comet::Tests {
         EXPECT_EQ(create_info.memory_pressure_threshold_percent, 90U);
         EXPECT_TRUE(SupportsRangedBufferCopy<CommandContext>);
         EXPECT_TRUE(SupportsOffsetImageCopy<CommandContext>);
+        EXPECT_FALSE(SupportsRawBufferCopy<CommandContext>);
+        EXPECT_FALSE(SupportsRawImageCopy<CommandContext>);
     }
 }
