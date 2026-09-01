@@ -1,35 +1,25 @@
 # Comet 引擎
 
-Comet 是一个基于 C++20、CMake 和 Vulkan 的引擎/编辑器项目。当前项目重点是图形资源封装、基础渲染流程、ImGui 编辑器面板和
-GoogleTest 测试基础。
+Comet 是一个使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与编辑器。项目目前围绕 Scene/ECS、资产导入、
+Vulkan 渲染资源管理和 ImGui 编辑器工作流持续演进。
 
 ## 项目结构
 
-- `engine/`：引擎核心库，包含 `asset/`、`common/`、`config/`、`core/`、`diagnostics/`、`graphics/`、`render/`、`runtime/` 和 `scene/` 模块；`asset/` 当前提供轻量、不透明的 `AssetHandle` 和带类型校验的最小内存
-  `AssetRegistry`，并定义持久化资产身份、类型化 Importer 设置、`.meta` 编解码、事务式源资产快照、变化集及 Material/Texture 正反向依赖查询；`core/project_paths` 定义项目根目录与
-  `assets/`、`.comet/`、`ProjectSettings/` 的标准路径契约；`.comet/` 再区分可重建 cache 与当前机器的 editor 状态；`graphics/` 按 command、resource、pipeline 和 synchronization 组织 Vulkan 包装，跨组的 Context、Device、Queue、Swapchain 与 RenderPass 保留为顶层编排对象；`graphics/synchronization/GpuCompletionPoint` 表达上传和渲染可复用的非拥有 GPU 完成 token，`graphics/command/UploadManager` 统一 staging、copy/barrier batch 和 completion 生命周期；`render/resource/` 集中放置 Texture/Mesh 的 CPU DTO、程序化 Mesh、Runtime 对象与设备资源创建边界，`render/scene/` 集中放置场景提取、解析和提交渲染流水线。
-- `editor/`：ImGui 编辑器入口和面板；Hierarchy 以父子树展示 Scene 并支持拖拽调整层级，Inspector 通过组件描述符
-  编辑 Transform、MeshRenderer 和 Camera，并可编辑 Project 中选中的 Material 以及 Texture 导入设置；File 菜单可新建、打开和保存 `.scene`；`editor/resources/` 保存不进入
-  项目资产数据库的编辑器私有字体等资源。
-- `app/`：运行时示例程序入口。
-- `assets/`：当前示例项目的源资产及相邻 `.meta`，当前包含 demo Texture、Material 和 glTF Mesh；资产身份进入版本控制。
-- `config/`：`common.yaml` 保存共享运行配置，`profiles/` 保存构建/启动环境覆盖。
-- `.comet/`：项目本地数据根目录，整体不进入版本控制；`cache/imported/mesh/<AssetHandle>.bin` 保存可重建 Mesh
-  产物，缓存命中前会校验格式/Importer 版本、源 glTF 和外部 buffer 内容指纹；`editor/imgui.ini` 保存当前机器的
-  ImGui 窗口与 Docking 布局。
-- `tests/`：GoogleTest 测试，覆盖数学、配置、Scene/ECS、场景序列化、原子文件写入、Mesh 导入产物、Asset Manager 更新事务、资源参数保护和渲染数据链路。
-- `engine/shaders/`：引擎自有 GLSL Shader 源码，构建时编译并嵌入引擎。
-- `3rdparty/`：第三方依赖目录，部分依赖通过 Git submodule 拉取，Vulkan Memory Allocator 和 EnTT 以 vendored
-  源码形式维护；EnTT 只提交 single header。
+- `engine/`：共享引擎库；源码位于 `engine/src/`，GLSL Shader 位于 `engine/shaders/`。
+- `editor/`：ImGui 编辑器入口、面板和编辑器私有资源。
+- `app/`：Runtime 示例程序。
+- `assets/`：项目源资产及其 `.meta`；资产身份随源码进入版本控制。
+- `config/`：共享配置与 `dev-debug`、`editor-dev`、`app-release` Profile。
+- `.comet/`：本机缓存和编辑器状态，不进入版本控制。
+- `tests/`：GoogleTest 单元测试和集成测试。
+- `3rdparty/`：Submodule 与仓库内维护的第三方依赖。
 
 ## 环境依赖
 
 - CMake 3.31 或更新版本。
 - 支持 C++20 的编译器。
-- Vulkan 开发环境和 `glslangValidator`，用于编译 shader。
-- Git LFS，用于拉取 Texture、字体等二进制资源。
-- Git submodules，用于拉取 `fastgltf`、`simdjson`、`glfw`、`glm`、`googletest`、`spdlog` 和 `yaml-cpp`；
-  `imgui`、`stb_image`、`3rdparty/VulkanMemoryAllocator/` 和 `3rdparty/entt/` 直接随仓库提交。
+- Vulkan SDK 与 `glslangValidator`。
+- Git LFS 与 Git Submodule。
 
 初始化依赖：
 
@@ -41,143 +31,43 @@ git submodule update --init --recursive
 
 ## 构建与运行
 
-项目通过 `CMakePresets.json` 维护三种常用构建组合：
+| Profile | 构建类型 | 目标 | 常用入口 |
+| --- | --- | --- | --- |
+| `dev-debug` | Debug | app、editor、tests | `./build.sh` |
+| `editor-dev` | RelWithDebInfo | editor | `./editor.sh` |
+| `app-release` | Release | app | `./release.sh` |
 
-- `dev-debug`：Debug 构建 app、editor 和 tests，用于开发、调试与测试。
-- `editor-dev`：RelWithDebInfo 只构建 editor，用于日常高性能编辑并保留调试符号和可按配置启用的 Profiler。
-- `app-release`：Release 只构建 app，用于运行时性能与发布行为验证。
-
-完整构建 app、editor 和 tests（Debug，不启动程序）：
-
-```bash
-./build.sh
-```
-
-构建并运行 RelWithDebInfo 编辑器：
+脚本分别使用对应的 CMake Preset。也可以直接执行：
 
 ```bash
-./editor.sh
-```
-
-构建并运行 Release 示例程序：
-
-```bash
-./release.sh
-```
-
-脚本分别调用同名用途的 CMake preset，也可以直接使用 `cmake --preset <name>` 和
-`cmake --build --preset <name> --parallel`。底层目标仍可通过以下选项独立组合：
-
-- `COMET_BUILD_APP`：构建运行时示例程序，默认 `ON`。
-- `COMET_BUILD_EDITOR`：构建 ImGui 编辑器，默认 `OFF`。
-- `COMET_BUILD_TESTS`：构建 GoogleTest 测试，默认 `OFF`。
-- `COMET_CONFIG_PROFILE`：选择 `dev-debug`、`editor-dev` 或 `app-release` 运行配置层；必须显式指定，三个 preset 已分别绑定同名 profile。
-- `COMET_NATIVE_OPTIMIZATION`：增加面向构建机器 CPU 的优化，默认 `OFF`；需要分发的二进制不应开启。
-
-不使用 preset 手动配置时，必须同时传入 profile，例如
-`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCOMET_CONFIG_PROFILE=dev-debug`。
-
-## 测试
-
-项目测试目标为 `unit_testing`，通过 CTest 运行：
-
-```bash
-./build.sh
+cmake --preset dev-debug
+cmake --build --preset dev-debug --parallel
 ctest --preset dev-debug
 ```
 
+手动配置时，可通过 `COMET_BUILD_APP`、`COMET_BUILD_EDITOR` 和 `COMET_BUILD_TESTS` 组合目标，并必须显式指定
+`COMET_CONFIG_PROFILE`。`COMET_NATIVE_OPTIMIZATION` 仅适合本机构建，不应为可分发二进制启用。
+
 ## 开发说明
 
-运行配置位于 `config/`：`common.yaml` 保存窗口、Vulkan 和渲染的共享设置，`profiles/` 下的配置按顺序覆盖
-共享层。运行时启动层根据目标的默认 profile 选择配置文件，`ConfigLoader` 只负责合并显式传入的 YAML 并最终校验为
-纯数据 `Config`，再由 `Application` 和 `Engine` 消费；yaml-cpp 只存在于加载器实现中，底层渲染资源不直接读取原始配置。
+- app 与 editor 共同链接 `engine`。app 直接运行 Runtime；editor 额外管理 Edit/Play Scene、Selection、面板和离屏 Viewport。
+- 场景渲染主链路为 `Scene -> SceneExtractor -> RenderScene -> SceneResolver -> RenderSubmission -> SceneRenderer`。
+  Scene 只保存组件和 `AssetHandle`，不持有 GPU Resource。
+- 资产主链路为 `assets + .meta -> AssetDatabase -> Importer/Cache -> AssetManager -> AssetRegistry`。
+  `.comet/cache/` 中的导入产物可以重建，不属于源资产。
+- Graphics 后端使用 Vulkan 1.3、VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
+  Vulkan 类型应限制在 Graphics 后端及明确需要底层能力的 Render 实现中。
+- 世界与编辑器坐标约定 `+Y` 向上；Vulkan Viewport 使用负高度完成画面坐标转换。Texture 是否翻转仅由对应
+  `.meta` 的 `flip_y` 导入设置决定，不用于修正世界坐标。
+- CMake 只编译 `engine/shaders/CMakeLists.txt` 中显式列出的 Shader；`.spv` 和嵌入式 C++ Header 都生成到构建目录。
+- 运行配置采用“编译期能力 + Profile 运行时策略”：Logger 在所有构建中保留基础级别，Profiler 只在 Debug 和
+  RelWithDebInfo 中编译，Vulkan Validation 由配置按运行环境启用。
 
-`diagnostics` 配置域负责日志、Profiler 和 Vulkan Validation 的运行时策略。日志在所有构建中保留
-Info/Warn/Error/Fatal，Debug/Trace 只在 Debug 中编译，运行时再由 `diagnostics.log_level` 过滤。Profiler 代码只在
-Debug 和 RelWithDebInfo 中编译，并由 `diagnostics.enable_profiler` 决定运行时是否采样；默认 `dev-debug` 开启，
-`editor-dev` 关闭。`app-release` 不编译 Profiler，因此对应 profile 不提供 `enable_profiler` 字段，并使用安全默认值
-`false`。`Application` 持有 `Diagnostics` 生命周期对象，由它统一完成 Logger/Profiler 的能力协商与关闭；`Engine`
-销毁后再汇总 Profiler 数据，最后关闭 Logger。Validation 默认只在 `dev-debug` profile 开启，运行期 Debug Utils Messenger 由
-`Context` 持有。三个 profile 暂时都关闭文件日志；发布日志迁移到用户数据目录并加入轮转策略后，再为 `app-release`
-开启。`render.max_anisotropy` 表达项目期望的过滤倍率，`1` 表示关闭；
+## 设计文档
 
-诊断开关遵循“宏控制编译期能力，配置控制运行时策略”：宏用于从二进制中移除 Debug/Trace 日志调用点和 Profiler
-采样代码，YAML 只能启用当前构建已经具备的能力。Validation 不需要条件编译，C++ 默认关闭，由 profile 明确决定是否
-在启动时请求 Validation Layer；Release 即使配置为开启，也只会在系统存在对应 Layer 和 Debug Utils 时生效。
+- [长期开发路线图](./docs/engine-roadmap.md)
+- [渲染资源所有权](./docs/architecture/rendering-ownership.md)
+- [资产管线边界](./docs/architecture/asset-pipeline.md)
+- [场景文件格式](./docs/architecture/scene-format.md)
 
-`engine/src/graphics/vk_capability.h` 集中处理物理设备的队列、扩展、Surface、格式和 Feature
-能力检查，以及 Swapchain Request 到最终 Config 的选择；设备按类型与可用能力评分，实际值限制在设备上限内。项目要求
-Vulkan 1.3，启动时同时检查 loader 与 PhysicalDevice 版本。Vulkan format、color space 和 present mode 在 YAML 中使用
-`bgra8_srgb`、`srgb_nonlinear`、`immediate` 等稳定名称，加载后保存为 Comet 强类型枚举。Queue 提交使用
-Synchronization 2，每个 wait/signal 显式携带 semaphore value 和 pipeline stage；`ResourceUsage` 可解析为包含
-stage、access、queue owner、layout 与 subresource range 的类型化资源状态，供 Barrier2、UploadManager 和
-RenderGraph 复用。CommandBuffer 的显式 image/buffer transition 已使用 `ImageMemoryBarrier2`/
-`BufferMemoryBarrier2` 和 `DependencyInfo`，Texture 上传不再传递 Vulkan layout pair。每个 Queue submission 额外 signal 自有 timeline semaphore 并返回单调
-`GpuCompletionPoint`；FrameSlot 的 acquire/present 同步仍使用 binary semaphore，Runtime GPU 资源以该完成点表达异步就绪状态。
-ResourceManager 独占 UploadManager，Buffer/Image allocation 与内容上传分离；上传数据在可复用 staging page 内按偏移
-子分配，pending batch 在 timeline completion 前独占对应 page、CommandContext 和目标资源，完成后只将有限数量的默认页
-放回缓存，临时超大页直接释放；空闲池确实需要增长时才查询 heap budget，高压力下先释放全部空闲 page，并对连续压力
-只记录一次警告。一个 Mesh 的 vertex/index copy 会合并为一次 Queue submission。Runtime Mesh/Texture
-创建不再执行 CPU wait，而是保存对应 `GpuCompletionPoint`；SceneRenderer 根据实际 Mesh/Texture 绑定分配
-VertexInput/FragmentShader stage，按 timeline 合并最大 value 和 stage 后加入 frame submission。实际录制使用的
-Runtime GPU owner 会登记到当前 FrameSlot，并在该 slot 的 fence 完成后统一释放，避免热重载旧资源早于在途 draw
-销毁。材质 descriptor cache 记录最后使用的 frame serial，只在对应 graphics submission 完成后回收不再使用的
-DescriptorPool 及其资源引用，避免场景切换或材质卸载造成缓存永久增长。
-设备存在 `VK_EXT_memory_budget` 时会将其作为可选能力启用，并为 VMA allocator 设置对应 flag；每帧使用单调 frame
-serial 更新 VMA，而不是传递循环 FrameSlot 下标。Allocator/Device 还提供按需查询的 Comet heap budget snapshot，
-包含 VMA block/allocation 统计和 usage/budget；扩展缺失时 snapshot 明确标记为估算值。
-可恢复上传通过 `GpuResourceResult` 传递 Buffer/Image/staging 创建错误；任一 staging enqueue 失败会 abort 整个尚未提交的
-active batch，不会把半套 copy 命令送入 Queue。原 `enqueue_upload()` 仍是关键路径的强失败入口。
-Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
-封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
-VMA allocation 句柄；关键资源继续使用强失败的 `create_*`，非关键流送路径可显式选择返回 Vulkan 错误的
-`try_create_*` 和 `within_budget`；Buffer/Image 工厂先取得完整 allocation 再构造包装对象，失败时不会发布带空 handle
-的对象；per-frame `CPUBuffer` 使用 persistent mapping 和范围写入。Swapchain 根据实时 Surface capability
-和 framebuffer 像素尺寸选择 extent、transform、alpha、usage 与 present mode，窗口最小化时暂停更新并延迟重建。
-`engine/src/scene/`
-提供基于 EnTT 的 Scene/Entity 和基础组件数据模型；`TransformComponent` 的 Euler 角使用度，局部矩阵顺序为
-`T * Rz * Ry * Rx * S`。组件只存储 TRS 数据，并提供不引入额外状态的 `rotate()` 和 `to_matrix()` 值操作；
-底层 `Math::wrap_degrees()` 与 `Math::compose_trs()` 会将旋转规范到 `[-180, 180)`，避免长期动画中的角度累积和
-大数精度损失。运行时自增 `EntityId` 用于当前 Scene 内查询和 Selection；`UuidComponent` 保存 128-bit
-version 4 `EntityUuid`，作为跨保存/加载稳定的实体身份，并支持标准字符串解析、格式化和哈希查询。
-`RelationshipComponent` 只保存父实体 ID，子节点由 Scene 查询；Scene 阻止循环层级、递归销毁
-子树，并在每次场景提取前按父级优先顺序全量更新 `WorldTransformComponent`。reparent 保持局部 TRS，世界矩阵随
-新父节点重新计算；增量 dirty 更新留到 TransformSystem 建立后实现。
-`ComponentRegistry` 使用显式 stable ID、pointer-to-member 访问器和属性标记描述 Transform、MeshRenderer 与 Camera；
-editor 的 `PropertyEditorRegistry` 按 Bool、Float、Vec3 和 AssetHandle 类型分发控件，Inspector 不再包含组件专用分支。
-editor 将同一个 `ComponentRegistry` 提供给 Inspector 和 `SceneSerializer`；serializer 按 stable ID、属性类型和
-`serializable` 标记读写带版本字段的 `.scene` YAML，同时显式管理 Name、Entity UUID 与父 UUID 引用；
-运行时 `EntityId`、EnTT handle 与派生世界矩阵不会落盘。实体按 UUID 排序，加载时会拒绝重复 UUID、悬空父引用、
-层级环、未知字段和不支持的版本；保存时会自动创建缺失的父目录。
-`SceneExtractor` 将可渲染实体和 Camera 复制为
-`engine/src/render/scene/render_scene.h` 定义的 CPU 侧快照，其中只包含实体 ID、矩阵、Camera 参数和资源 Handle。
-`Engine` 使用唯一所有权持有当前活动 Scene 和最小 Asset Registry，并可在保持唯一所有权的前提下交换 Scene。
-app/editor 组合根持有 `AssetManager`，它使用 `AssetDatabase` 将稳定 Handle 解析为项目源资产；Mesh 由
-`MeshImporter` 通过 fastgltf 将 `.gltf`/`.glb` 静态网格转换为 `MeshData`，Texture 由
-`TextureImporter` 按 `.meta` 中经过校验的色彩空间和垂直翻转设置解码为 CPU 像素数据，Material 由
-`MaterialSerializer` 读取为只含模板名和 Texture Handle 的
-`MaterialData`；Asset Database 从 MaterialData 提取、去重 Texture Handle 依赖，并维护正向/反向索引。外部格式的导入器集中在 `engine/src/asset/import/`，Comet 原生资产与元数据的序列化器集中在
-`engine/src/asset/serialization/`。`AssetManager` 递归解析材质依赖、组装运行时 Material 并统一发布到 `AssetRegistry`；
-它只依赖由 `ResourceManager` 实现的窄 `RenderResourceFactory`；`ResourceManager` 继续负责 Device 相关的 Texture/Mesh 创建和 Shader/Sampler 等渲染侧共享资源，不缓存资产 Handle。`render/resource/` 将这一资源族集中管理，其中 `TextureData`/`MeshData` 仍作为独立 CPU DTO，不与 Runtime Texture/Mesh 类定义混放；`MeshPrimitives` 直接生成 `MeshData`，Mesh 顶点布局不再属于通用数学模块。
-Asset Database 扫描先构建候选快照再提交，并报告新增、删除和修改 Handle；Project 刷新据此同步 Runtime Registry 并以事件方式使 Inspector 缓存失效。Scene、Material 和 `.meta` 通过同一原子文本写入函数替换正式文件。Inspector 的 Material Texture 属性以及 Texture 色彩空间、垂直翻转设置只在值变化事件发生时自动保存并更新运行时对象，Texture 重新导入还会刷新已加载的直接 Material 依赖；更新结果统一显示在 Log 面板。
-Asset Database 另为每次已提交的资产变化分配单调 `AssetRevision`，与仅用于发现磁盘变化的文件签名分离；MeshImporter 报告的项目内、由 glTF 外部引用的 buffer 路径会随 Mesh 缓存持久化，并在加载时恢复为源路径正向/反向索引，因此修改 `.bin` 也会推进所属 Mesh revision。Engine 持有通用 `TaskScheduler`；已加载 Mesh 在 Project 刷新后由 Worker 执行缓存读取或 CPU 导入，旧 Mesh 在此期间继续可用，app/editor 每帧由 Owner Thread 消费完成结果。只有 revision 仍匹配的候选才会更新导入缓存、创建 Runtime Mesh 并替换 Registry；启动必需资源仍复用同步 `load_mesh()`。
-app/editor 的示例 cube mesh、材质及纹理均从项目资产链路按稳定 Handle 加载；app 创建
-主 Camera 与两个具有不同 Transform 的 cube entity；`SceneResolver` 选择并校验主 Camera、根据渲染尺寸
-生成 view/projection，同时将 Handle 解析为运行时 `RenderSubmission`。`Renderer` 负责编排帧流程，
-`SceneRenderer` 管理 per-frame UBO、材质 descriptor，并通过
-push constant 提交每个 draw 的模型矩阵。editor 初始化由 Engine 持有的 Scene；Hierarchy 可创建、递归删除、选择
-实体，并以拖拽方式 reparent；Project 和 Hierarchy 共享 Entity/Asset 互斥的 Selection；Inspector 直接编辑 Name、
-通过描述符编辑基础组件；Material 的 Texture Handle 属性在选择变化时自动持久化，并以候选对象替换运行时 Material。File 菜单通过 `SceneDocument` 执行 New/Open/Save、维护当前路径；Open 先完整加载再替换 Engine 中的 Scene，
-New/Open 都会重绑定 Hierarchy 与 Selection 并清除旧选择。editor 中的场景按 frame slot 渲染到可采样的离屏目标，再由 ImGui 合成到 swapchain；
-Play/Edit 切换由独立的 `EditorSceneSession` 管理：Play 时通过 `SceneSerializer` 创建 Runtime Scene 并暂存原 Edit Scene，Stop 会丢弃运行时修改、恢复 Edit Scene，
-重新绑定面板并清空 Selection，Play 期间禁用场景文件操作。editor 只保留一个 `ViewportPanel`：Edit 时显示编辑工具，
-Play 时同一面板切换为运行画面并隐藏编辑工具。当前两种模式仍使用活动 Scene 的主 Camera，独立 editor camera 留在后续视口阶段；
-runtime app 仍直接渲染到 swapchain。关闭时先释放引擎资源，
-再关闭日志系统。Shader
-源文件位于 `engine/shaders/glsl/`，构建时由 CMake 调用 `glslangValidator`
-编译。贡献者和智能体协作规范见 [AGENTS.md](./AGENTS.md)。
-
-渲染资源的所有权、析构顺序和非拥有依赖约束见
-[渲染资源所有权](./docs/architecture/rendering-ownership.md)；资产索引、导入与运行时发布边界见
-[资产管线边界](./docs/architecture/asset-pipeline.md)；场景持久化契约见
-[场景文件格式](./docs/architecture/scene-format.md)。
+贡献约定见 [AGENTS.md](./AGENTS.md)。

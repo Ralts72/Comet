@@ -51,7 +51,7 @@ namespace Comet {
                                  uint32_t first_binding = 0) const;
 
         void bind_index_buffer(const Buffer& buffer, uint64_t offset,
-                               vk::IndexType type = vk::IndexType::eUint32) const;
+                               IndexType type = IndexType::Uint32) const;
 
         void push_constants(const PipelineLayout& layout, Flags<ShaderStage> stage_flags,
                             uint32_t offset, const void* data, size_t size) const;

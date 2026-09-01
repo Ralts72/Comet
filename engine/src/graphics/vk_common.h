@@ -44,9 +44,9 @@ namespace Comet {
         inline vk::Viewport get_viewport(const float width, const float height) {
             vk::Viewport viewport = {};
             viewport.x = 0.0f;
-            viewport.y = 0.0f;
+            viewport.y = height;
             viewport.width = width;
-            viewport.height = height;
+            viewport.height = -height;
             viewport.minDepth = 0.0f;
             viewport.maxDepth = 1.0f;
             return viewport;

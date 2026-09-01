@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "graphics/enums.h"
 
 #include <vulkan/vulkan.hpp>
 
@@ -20,19 +21,17 @@ namespace Comet {
 
     struct SwapchainRequest {
         uint32_t image_count = 3;
-        vk::SurfaceFormatKHR surface_format{
-            vk::Format::eB8G8R8A8Srgb,
-            vk::ColorSpaceKHR::eSrgbNonlinear
-        };
-        vk::PresentModeKHR present_mode = vk::PresentModeKHR::eFifo;
-        vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eColorAttachment;
+        Format surface_format = Format::B8G8R8A8_SRGB;
+        ImageColorSpace color_space = ImageColorSpace::SrgbNonlinearKHR;
+        PresentMode present_mode = PresentMode::Fifo;
+        Flags<ImageUsage> usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
     };
 
     struct DeviceCapabilityRequest {
         uint32_t required_api_version = REQUIRED_VULKAN_API_VERSION;
         SwapchainRequest swapchain;
-        vk::Format depth_format = vk::Format::eD32Sfloat;
-        vk::SampleCountFlagBits sample_count = vk::SampleCountFlagBits::e1;
+        Format depth_format = Format::D32_SFLOAT;
+        SampleCount sample_count = SampleCount::Count1;
         float max_sampler_anisotropy = 1.0f;
     };
 

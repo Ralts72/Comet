@@ -2,7 +2,7 @@
 
 首次生成：2026-07-05
 
-最近更新：2026-08-31
+最近更新：2026-09-01
 
 ## 目标定位
 
@@ -14,41 +14,18 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 ### 已具备的基础
 
-- C++20 + CMake 项目结构已经成型，分为 `engine/`、`editor/`、`app/`、`tests/` 和 `3rdparty/`。
-- `engine` 已有基础运行框架：`Application`、`Engine`、`Window`、`Timer` 和统一的 YAML 运行配置加载。
-- Vulkan 底层封装已经有一定厚度，包括 `Context`、`Device`、`Swapchain`、`RenderPass`、`FrameBuffer`、`Pipeline`、`CommandBuffer`、`DescriptorSet`、`Buffer`、`Image`、`Sampler` 等。
-- VMA 已开始接入，`Device` 独占持有 `VulkanAllocator`，`Buffer` 和 `Image` 通过 allocator 管理显存资源。
-- 渲染层已有 `Renderer`、`RenderContext`、`SceneRenderer`、`FrameScheduler`、`RenderTarget`、`Mesh`、`Texture`、`Material`、`ResourceManager` 等雏形。
-- Shader 构建链路已经接入 CMake，通过 `glslangValidator` 将 GLSL 编译并生成头文件。
-- 编辑器已有 ImGui Docking 基础和几个典型面板：Hierarchy、Inspector、Project、Viewport、Log。
-- 测试基础已经存在，覆盖数学、配置、导出、日志、GLFW 初始化、Vulkan RAII 拥有关系和 Scene/ECS 基础行为。
-- EnTT 已经作为依赖接入，`Scene`、`Entity` 以及 ID、名称、局部 Transform、MeshRenderer、Camera 等基础组件已经落地。
-- Scene/ECS MVP 内核已覆盖实体创建、删除、查询、遍历和通用组件增删查。
+- C++20/CMake 工程、分层运行配置、Diagnostics 和 GoogleTest 基础已经建立。
+- Scene/ECS、Transform 层级、组件元数据、场景序列化和隔离的 Edit/Play Scene 已形成闭环。
+- AssetHandle、Asset Database、Texture/Material/glTF Mesh 导入、Mesh Import Cache 与后台刷新链路已经可用。
+- Vulkan 1.3 后端已采用 VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
+- ImGui 编辑器已接通 Hierarchy、Inspector、Project、Log 和单一离屏 Viewport。
+- Shader 由 CMake 显式选择 GLSL，并在构建目录生成 `.spv` 与嵌入式 Header。
 
 ### 当前主要形态
 
-目前 Comet 仍接近一个 **带编辑器外壳的 Vulkan demo 引擎原型**，但 Scene/ECS 已经接入最小运行时渲染链路、
-编辑器基础数据闭环和场景持久化，New/Open/Save 与最小 Play/Edit 隔离也已经接入编辑器。当前主要矛盾已经转变为：
-Texture/Material/Mesh 资产纵向链路已经建立，Mesh 也已有第一种 `.comet/cache/` 导入产物，并通过通用 TaskScheduler、
-revision 验票和 Owner Thread completion 形成第一段后台 CPU 刷新；Mesh 外部 buffer 也已通过持久化缓存输入、源路径反向索引和 revision 形成精确失效，但渲染接口仍偏 demo 化，其他资产后台导入和运行时 System 调度还没有形成。
-
-最明显的信号是：
-
-- `Engine` 持有 Scene 和最小 Asset Registry，每帧提取 RenderScene；`SceneResolver` 选择主 Camera、生成 view/projection 并解析 Handle，`Renderer` 编排多个 render item。
-- `Renderer` 已不再持有固定相机、demo mesh、texture 或模型矩阵，但当前仍使用固定 cube pipeline。
-- 每个 draw 的模型矩阵已通过 push constant 提交；descriptor 资源按材质和 frame slot 缓存。
-- Scene 已能管理运行期 `EntityId`、持久化 UUID、父子关系、局部 TRS 与派生世界矩阵，并可将基础组件保存为
-  带版本字段的 `.scene` YAML；Inspector 与 `SceneSerializer` 已复用同一份组件/属性描述元数据。
-- `MeshRendererComponent` 已使用统一的 `AssetHandle`，app/editor 会从项目资产加载 demo mesh/material，并通过该链路绘制实体。
-- Hierarchy、Project 和 Inspector 已共享互斥的 Entity/Asset Selection；Inspector 通过显式组件/属性描述符编辑
-  Transform、MeshRenderer 和 Camera，Material 的 Texture 属性在选择变化事件发生时自动保存并替换运行时对象；Viewport 拾取和 gizmo 仍是占位状态。
-- 编辑器中的场景已按 frame slot 渲染到可采样离屏目标，再由 ImGui 显示在单一 Viewport 中；runtime app
-  仍直接渲染到 swapchain。Viewport 在 Edit/Play 间切换活动 Scene 和工具状态，独立 editor camera 尚未实现。
-- Play 会从 Edit Scene 创建独立 Runtime Scene，Stop 后丢弃运行时修改并恢复原 Scene；暂停、单帧步进和真正的
-  runtime System 更新仍未实现。
-- Texture/Material/Mesh 已建立 Asset Database、导入/序列化和运行时发布链路，Mesh 产物可按源 glTF 与外部 buffer
-  内容自动失效，已加载 Mesh 会在外部 buffer 变化后进入后台刷新；Material 属性和 Texture Import Settings 都在值变化事件发生时自动提交，文件监听和通用递归依赖传播仍未建立。
-- Scene Update 和 Render Submit 的最小边界已经落地，运行时 System 调度仍未建立。
+Comet 目前仍是编辑器型引擎原型，但已经跨过“Renderer 内硬编码 demo”的阶段。当前位于阶段 3 收尾：优先补齐 Runtime
+Mesh/Texture 的事务式失败处理、项目与资产操作，再进入阶段 4 的 editor-only Camera、Viewport 输入和交互闭环。
+渲染端仍使用固定 Pipeline 与两张 Texture 的材质假设，运行时 System 调度、完整 RenderGraph 和独立 RenderThread 尚未建立。
 
 ## 距离成熟编辑器型引擎的核心缺口
 
@@ -841,254 +818,48 @@ compile burst 后或正常 shutdown
 
 ### 阶段 0：基线收束
 
-目标：把当前 demo 状态整理成可继续演进的稳定基线。
-
-当前状态：已完成。`Renderer` 中 demo 资源的所有权已经被识别为应用层职责，实际迁移将在阶段 1B
-随 Scene 和 Render Submission 一次完成，避免在相邻阶段重复改造。
-
-已完成：
-
-- 明确 demo mesh、texture、模型矩阵和固定 camera 属于示例场景，`Renderer` 只应保留渲染系统职责。
-- 在 `docs/architecture/rendering-ownership.md` 记录 `RenderContext`、`SceneRenderer`、`ResourceManager`、
-  Material runtime cache、VMA 资源和 Device 的所有权与析构顺序。
-- 为 Buffer、Image、Device 和 ResourceManager 增加无效参数保护与单元测试。
-- 将 engine、editor 和 app 的源码清单改为显式维护；测试源码 glob 使用 `CONFIGURE_DEPENDS`。
-- 移除正常呈现路径中的逐帧 `queue.waitIdle()`，补齐 frame/image fence 关联，并按 frame-in-flight
-  独立持有 descriptor set 和 uniform buffer。
-- 将 `max_frames_in_flight` 显式配置为 2，与实际 swapchain image 数量解耦；command buffer 按 frame slot
-  复用，render-finished semaphore 和 framebuffer 按 swapchain image 管理。
-- 统一 swapchain acquire/present 的可恢复错误处理与重建路径。
-
-验收标准：
-
-- [x] 编辑器和 app 都能正常构建。
-- [x] 当前 cube demo 可连续渲染，行为不回退。
-- [x] README 与实际依赖、构建命令保持一致。
-- [x] 关键资源释放顺序清晰，正常渲染路径无 Vulkan validation error。
+**状态：已完成。** 已收束构建清单、基础参数校验和渲染资源所有权；FrameSlot 与 Swapchain Image 已解耦，
+正常呈现路径不再逐帧 `queue.waitIdle()`。详细所有权约束见
+[渲染资源所有权](./architecture/rendering-ownership.md)。
 
 ### 阶段 1：Scene/ECS 与渲染提交 MVP
 
-目标：建立真实场景数据模型，让引擎能从 Scene 渲染对象，而不是从 `Renderer` 内部硬编码对象。
-
-当前状态：阶段 1A 至 1E 已完成；Scene、Camera、AssetHandle、多对象渲染、编辑器离屏视口和 Transform
-层级已经建立。下一步进入阶段 2。
-
-#### 阶段 1A：Scene/ECS Core（已完成）
-
-- 新增 `engine/src/scene/` 模块。
-- 基于 EnTT 实现 `Scene`、`Entity` 包装类型。
-- 实现 `IdComponent`、`NameComponent`、`TransformComponent`、`MeshRendererComponent` 和 `CameraComponent`。
-- 实现实体验证、创建、删除、按 ID 查询、遍历和通用组件操作。
-- 使用单元测试约束 Entity 不公开 registry、原始 EnTT handle 和所属 Scene。
-
-#### 阶段 1B：Scene Render Submission（已完成）
-
-- [x] 定义最小 `AssetHandle`，包含无效值、比较和哈希能力。
-- [x] 将 `MeshRendererComponent` 的 mesh/material 字符串替换为 `AssetHandle`。
-- [x] 提供最小内存 Asset Registry，支持 app 将 demo `AssetHandle` 注册到运行时资源；暂不实现目录扫描和导入。
-- [x] 定义最小 `RenderScene` / `RenderItem`，至少包含实体 ID、模型矩阵、mesh handle 和 material handle。
-- [x] 实现局部 TRS 到模型矩阵的转换；Euler 角使用度，矩阵顺序为 `T * Rz * Ry * Rx * S`。
-- [x] 新增 SceneExtractor，提取具有 Transform 与 MeshRenderer 的实体；Scene 组件不持有文件路径或 GPU 资源。
-- [x] 让运行时层持有 Scene，由 app 创建 demo Scene 和 cube entity。
-- [x] 让 `Renderer` 消费场景提交结果，逐项交给 `SceneRenderer` 绘制；消费端诊断并跳过无效或未解析的 Handle。
-- [x] 使用 `SceneResolver` 和 `RenderSubmission` 封装资源解析；SceneRenderer 批量消费已解析对象并内部管理 per-frame UBO 与 descriptor。
-- [x] 接入主 `CameraComponent` 驱动 view/projection；Camera FOV 统一使用角度，并校验 FOV、裁剪面和渲染尺寸。
-- [x] 每个 draw 的模型矩阵使用 push constant，避免单一 model uniform buffer 阻碍多对象渲染。
-- [x] 删除 `Renderer` 内部硬编码的 cube mesh、texture 和模型旋转逻辑。
-- [x] 删除 `Renderer` 的固定相机业务状态，由场景主 Camera 提供 view/projection。
-
-#### 阶段 1C：编辑器基础数据闭环（已完成）
-
-- [x] Hierarchy 从真实 Scene 读取实体，先支持平铺列表，不提前实现伪层级。
-- [x] 建立 Selection 服务，只保存并按需解析 `EntityId`，连接 Hierarchy 和 Inspector，并为后续 Viewport 拾取复用。
-- [x] Inspector 直接读写 Name 与 Transform，并让修改进入下一帧的场景提取和渲染结果。
-- [x] 支持创建、删除和重命名实体的最小编辑流程。
-- [x] 实体删除或无效 ID 会自动清空 Selection，并有纯逻辑单元测试保护。
-
-#### 阶段 1D：编辑器离屏视口基础（已完成）
-
-- [x] 将编辑器的场景渲染目标从 swapchain 分离：场景进入离屏颜色/深度附件，swapchain 只承载 ImGui 和最终呈现。
-- [x] 为 frame slot 提供独立的离屏资源，避免多个 frames-in-flight 同时读写同一张 viewport image。
-- [x] 离屏颜色附件结束时进入 `ShaderReadOnlyOptimal`，并通过 ImGui Vulkan descriptor 注册为 `ImTextureID`。
-- [x] `ViewPanel` 提供实际内容尺寸，Renderer 使用稳定尺寸按需重建离屏目标，并处理零尺寸和折叠状态。
-- [x] 单一 Viewport 复用离屏提交基础；Edit/Play 当前都使用活动 Scene 的主 Camera，独立 editor camera 留到阶段 4。
-- [x] 调整 ImGui swapchain render pass，使其负责清理编辑器背景和合成 UI，不再依赖先在 swapchain 上绘制场景。
-- [x] 保持 runtime app 直接渲染到 swapchain 的路径不变。
-
-验收标准：
-
-- [x] 编辑器中的场景画面只出现在可见 View 面板内，不再铺满整个窗口背景。
-- [x] View 面板 resize、折叠、切换和 swapchain recreation 后纹理仍正确，且没有 Vulkan validation error。
-- [x] 两个 frames-in-flight 下不会复用仍被 GPU 或 ImGui 采样的离屏附件。
-- [x] app 的直接呈现路径和现有多实体渲染行为不回退。
-
-#### 阶段 1E：Transform 层级（已完成）
-
-- [x] 新增父子关系组件和循环依赖保护。
-- [x] 实现局部矩阵和世界矩阵的父级优先全量更新；reparent 保持局部 TRS。
-- [x] SceneExtractor 提交世界矩阵，Camera 忽略自身局部 scale。
-- [x] Hierarchy 显示真实父子树，支持拖拽 reparent 和拖回根节点。
-- [x] 补充父子变换、销毁父节点、reparent 和非法层级的单元测试。
-
-`LightComponent` 延后到阶段 5，在基础 Forward Lighting 真正消费它时再加入，避免只存在类型却没有运行路径。
-
-验收标准：
-
-- demo cube 不再由 `Renderer` 内部硬编码创建。
-- 一个 Scene 可以提交并绘制多个 render items。
-- Scene、MeshRenderer 和 RenderItem 之间只传递 `AssetHandle`，不传递字符串路径或 GPU 对象。
-- 场景主 Camera 驱动 view/projection，FOV 单位明确且有测试保护。
-- Hierarchy 可以从真实 Scene 读取实体名称。
-- Inspector 至少可以编辑选中实体的 Transform。
-- 单元测试覆盖实体生命周期、组件操作、RenderItem 提取和 Transform 计算。
+**状态：已完成。** 已建立基于 EnTT 的 Scene/Entity/Component，形成
+`Scene -> SceneExtractor -> RenderScene -> SceneResolver -> RenderSubmission -> SceneRenderer` 主链路；
+Camera、Transform 层级、`AssetHandle`、多对象绘制、Hierarchy/Inspector/Selection 和按 FrameSlot 分配的编辑器离屏
+Viewport 均已接通。Scene 不持有路径或 GPU Resource，`LightComponent` 留到阶段 5 的真实光照链路再加入。
 
 ### 阶段 2：场景序列化与编辑器闭环
 
-目标：用户能在编辑器里创建、编辑、保存、加载一个简单场景。
-
-当前状态：持久化 Entity UUID、开发期 `.scene` YAML、编辑器 New/Open/Save、descriptor 驱动的基础组件 Inspector、
-descriptor 驱动的场景组件序列化和最小 Play/Edit 隔离均已完成；下一步进入阶段 3 的 Asset Database MVP。
-
-建议任务：
-
-- [x] 引入 128-bit `EntityUuid` 和 `UuidComponent`，并与运行时 `EntityId` 区分；支持生成、解析、格式化、
-  比较、哈希、指定 UUID 创建、重复拒绝和按 UUID 查找。
-- [x] 定义 `AssetHandle` 的 YAML 无符号整数表示；路径不进入 Scene，后续由 Asset Database 建立 Handle 到资产的稳定映射。
-- [x] 定义带 `version` 字段的开发期 `.scene` YAML 格式，并记录实体、父 UUID 和基础组件契约。
-- [x] 实现纯 Scene 的内存序列化往返和文件保存/加载；加载失败不会修改已有 Scene。
-- [x] 菜单 New/Open/Save Scene 接入真实逻辑；Open 和首次 Save 使用路径输入，已有路径的 Scene 可直接保存。
-- [x] New/Open Scene 后重绑定 Hierarchy 与 Selection，并在运行时 `EntityId` 可能复用时仍清理旧选择。
-- [x] 建立 `ComponentRegistry`、`ComponentDescriptor`、`PropertyDescriptor` 和按属性类型分发的
-  `PropertyEditorRegistry`。
-- [x] 先为 Transform、MeshRenderer 和 Camera 显式注册元数据，Inspector 通过 descriptor 生成控件，不再为每个字段
-  硬编码面板逻辑。
-- [x] 场景序列化复用同一份属性元数据，由 stable ID、类型访问器和 `serializable` 标记定义当前活动格式。
-- [x] 实现 Play/Edit 模式的最小切换；进入 Play 时通过内存序列化复制 Edit Scene，退出时丢弃 Runtime Scene 并恢复
-  原 Edit Scene，切换时重绑定 Hierarchy/Selection，Play 期间禁用场景文件操作。
-- [x] 为稳定排序、组件与层级往返、文件读写、重复 UUID、悬空父引用、层级环和格式错误补充单元测试。
-
-验收标准：
-
-- 在编辑器中新建场景，创建 cube/camera，保存后重启可以恢复。
-- Inspector 修改 Transform 后，Viewport 立即反映。
-- Inspector 可以通过通用 descriptor 编辑 Transform、MeshRenderer 和 Camera，新增已支持类型的字段时不需新增专用面板分支。
-- Scene 文件可读、可 diff、可手动排查。
-- Scene 保存和加载后，mesh/material 的 `AssetHandle` 保持不变。
-- 场景序列化有单元测试。
-- Play 中修改 Runtime Scene 后退出，Edit Scene 保持原值。
+**状态：已完成。** 已引入持久化 `EntityUuid` 和带版本的 `.scene` YAML，支持事务式 New/Open/Save；
+`ComponentRegistry` 元数据同时驱动 Inspector 和序列化。Play 通过复制 Edit Scene 建立独立 Runtime Scene，Stop 后丢弃
+运行时修改并恢复编辑态。格式契约见 [场景文件格式](./architecture/scene-format.md)。
 
 ### 阶段 3：资产数据库与项目系统
 
 目标：从“按路径加载文件”升级为“项目资产管理”。
 
-项目目录契约：
+**状态：进行中。** 已建立的基线：
 
-```text
-<ProjectRoot>/
-├── assets/                # 受版本控制的源资产和与其相邻的 .meta
-├── .comet/                # 不提交的项目本地数据
-│   ├── cache/             # 可重建的导入产物、索引和缓存
-│   └── editor/imgui.ini   # 当前机器的编辑器窗口与 Docking 布局
-└── ProjectSettings/       # 受版本控制的项目级设置
-```
+- `assets/` 保存受版本控制的源资产与相邻 `.meta`，`.comet/` 保存可重建缓存和本机编辑器状态，
+  `ProjectSettings/` 预留项目级设置；路径统一由 `ProjectPaths` 解析。
+- 非零 64 位 GUID 直接作为 `AssetHandle`，Scene 只持有 Handle；`.meta` 保存身份、类型和 Importer 设置。
+- Asset Database 事务式扫描并维护路径、Handle、revision、资产依赖和 Importer 源依赖，单个坏文件不会清空上一份有效快照。
+- Asset Manager 负责导入、依赖解析与 Runtime Asset 发布；ResourceManager 只创建 Device 相关资源。
+- Texture、Material 和 glTF Mesh 已接通导入与刷新；Mesh Import Cache、后台 CPU 导入和 revision 验票已经落地。
+- GPU 路径已采用 Synchronization 2、Timeline Semaphore、UploadManager、FrameScheduler retention 与 VMA budget 诊断。
 
-`ProjectPaths` 已提供项目根目录、源资产、项目设置、`.comet` 本地数据、cache 和 editor 状态的统一路径解析；除实际消费者
-按需创建 cache/editor 子目录外，它本身不执行 I/O。项目创建、打开与校验属于后续 Project System，Asset Database 只通过该契约定位输入和缓存。
+完整资产边界见 [资产管线边界](./architecture/asset-pipeline.md)。
 
-资产身份契约：
+剩余任务：
 
-- 每个源资产使用相邻的 `<filename>.meta` 保存非零 64 位 `guid` 和资产类型。
-- `guid` 在代码层直接包装为 `AssetHandle`，二者数值一一对应，不增加运行期重编号或额外哈希映射。
-- 新资产只在缺少 `.meta` 时生成随机身份；资产改名或移动必须携带原 `.meta`，Asset Database 会拒绝重复身份。
-- 当前 `.meta` v2 包含 `version`、`guid`、`type` 和按资产类型校验的可选 Importer 设置；Texture 已定义
-  `color_space` 与 `flip_y`。
-- `.meta` 由编辑器在首次发现资产时自动创建，之后作为源资产的一部分长期保存并进入版本控制；它不是
-  `.comet/cache/` 中可随时删除重建的缓存。
-- Asset Inspector 是 `.meta` 的主要编辑入口：GUID 和识别出的资产类型只读，Importer 参数经过校验后写回并触发
-  重新导入。当前开发格式允许手工编辑 YAML，但文件监听器必须按同一契约校验；解析失败时保留上一次有效导入产物并报告错误。
-  编辑器写入链路和 Metadata Schema 稳定后，`.meta` 应与 `.scene`、`.mat`、`ProjectSettings/` 一起迁移为统一 JSON 文档，
-  而不是单独更换格式。
-- `.meta` 只服务于编辑器、Asset Database 和导入管线，不原样进入 Shipping 资源包。发布流程消费 `.comet/cache/`
-  中确认有效的导入产物，并生成描述打包资源、依赖和版本的最终 manifest。
-- Asset Database 扫描 `assets/` 并建立 Handle 与项目相对路径的双向索引；扫描报告会收集重复 GUID、孤立或损坏
-  `.meta`、类型不匹配和不支持的文件，有效资产仍可进入索引，不因单个坏文件丢失整个项目视图。
-
-建议任务：
-
-- 定义项目目录结构，例如 `assets/`、`.comet/cache/`、`.comet/editor/`、`ProjectSettings/`。
-- 实现 Asset Database：
-  - 持久化 GUID 分配
-  - 元数据文件
-  - `AssetHandle` 到元数据、源文件和导入产物的索引
-  - 类型识别
-  - 依赖查询
-- [x] Project 面板读取真实资产目录并展示扫描问题。
-- [x] 建立 Texture 同步纵向链路：Importer 输出 CPU `TextureData`，ResourceManager 创建 GPU Texture，Asset Registry 按 Handle 缓存。
-- [x] 建立 Material 同步加载链路：`.mat` 通过 Texture Handle 表达依赖，AssetManager 解析依赖并将运行时 Material 发布到 Asset Registry。
-- [x] Texture Importer 支持可持久化、可校验并实际参与导入的基础参数：色彩空间和垂直翻转。
-- [x] Material 资产可通过编辑器修改 Texture Handle、保存，并在候选对象构建成功后显式替换运行时 Material。
-- [x] Asset Database 从 MaterialData 建立正向/反向依赖索引，扫描时报告缺失或类型错误的引用，并供 Texture 重导入查询直接 Material 依赖。
-- [x] Asset Database 先构建候选快照再提交并报告新增、删除、修改 Handle；Project Refresh 同步 Registry 与 Inspector，扫描发现阶段失败时保留上一份有效快照。
-- [x] Scene、Material 和 `.meta` 复用原子文本替换；Texture/Mesh 的 CPU 创建数据从 Runtime GPU 类头文件中拆分。
-- 在 Asset Database 的 metadata 和导入产物结构稳定后，设计 Shader Importer 的输入、编译结果、缓存键和打包方式；
-  当前 CMake 编译链不预设对应的 C++ 类型或落盘格式。
-- [x] Mesh Importer 接入 fastgltf，支持 `.gltf`/`.glb` 静态 triangle mesh，并由 app/editor 通过项目 AssetHandle 加载示例 cube。
-- [x] 建立 `.comet/cache/imported/mesh/<AssetHandle>.bin` 纵向切片；`MeshImportCache` 保存显式格式和 Importer 版本、项目内输入内容指纹与完整性校验，缺失、过期或损坏时自动重新导入并原子替换。
-- [x] 缓存命中时恢复 Mesh Importer 源依赖，Asset Database 建立源路径正向/反向索引；`.bin` 作为辅助输入不生成资产身份，其变化会推进所属 Mesh revision 并复用后台刷新链路。
-- [x] 将磁盘变化签名与 `AssetRevision` 分离；每次数据库提交的资产变化分配单调 revision，Mesh 候选在发布到 Registry 前验票并丢弃过期结果。
-- [x] Asset Registry/Asset Manager 负责把 `AssetHandle` 解析为资产元数据和同步导入结果。
-- [x] Asset Registry/Asset Manager 以 `AssetHandle` 为唯一缓存键创建或复用 Runtime Asset；ResourceManager 不承担资产扫描或 Handle 缓存。
-- 完成 GFX-002 后让现有 `Device` 暴露不可变 `CapabilitySet`，统一保存实际启用的 feature/extension、queue family、
-  limits 和 format 能力；明确它承担 GraphicsDevice 职责，但不迁入 FrameSlot、资产或 RenderTarget 所有权。
-- [x] 建立最小 `TaskScheduler`/worker pool，支持 FIFO 提交、Future、等待空闲和安全 drain；Engine 统一持有，测试可显式使用单 Worker。
-- [x] 将已加载 Mesh 的缓存读取和 CPU 导入移出主线程；worker 只产出候选结果，Owner Thread 验证 revision 后才写缓存、创建 Runtime Mesh 和替换 Registry，失败时保留旧 Mesh。同步首载暂时保留。
-- [x] 在现有显式同步路径完成 Synchronization 2 迁移：通过 GFX-002 的 Vulkan 1.3 feature chain 查询并启用
-  `synchronization2`，将 queue submit 改为 `vk::SubmitInfo2`/`submit2()`，将显式 image/buffer barrier 改为
-  `vk::DependencyInfo` 和 `vk::ImageMemoryBarrier2`/`vk::BufferMemoryBarrier2`。
-- [x] 定义类型化 `ResourceUsage`、`ResourceState`/`ImageState` 与 usage-to-state 映射，包含 queue-family owner、
-  image subresource range 和不完整输入的拒绝规则，并使用纯单元测试覆盖。
-- [x] 让现有 Texture upload 提供 known-before/desired-after state，删除 layout-pair `if/else` 和 legacy
-  `pipelineBarrier()`；传统 RenderPass 的隐式 attachment 转换继续由 RenderPass 契约表达。
-- [x] 用现有 swapchain frame submit、texture upload 和 buffer copy 路径保持迁移等价性，并引入 Queue 独占 timeline
-  semaphore 和 `GpuCompletionPoint`；没有把 API 迁移、异步上传和 transfer queue 合并成一次改动。
-- [x] 建立最小 `UploadManager`，集中持有 staging、upload command context、目标资源和 completion；一个 Mesh 的
-  vertex/index copy 合并为一次 submission，不再由 Buffer/Texture 各自创建临时 CommandContext。
-- [x] 使用显式 `UploadBatch` 表达上传事务，通过 `begin_batch()`、`enqueue_upload()` 和 `submit()` 控制批次边界，
-  并让 submit 返回 `GpuCompletionPoint`。
-- [x] 将每次 enqueue 的独立 staging allocation 演进为可复用 page 子分配；page 由 pending batch 独占，并在其
-  timeline completion 满足后按有界策略回池，超大 page 不进入常驻缓存。更细粒度 ring 回收等 profile 证明有必要后再增加。
-- [x] 让异步 Runtime Mesh/Texture 携带 ready token，资源创建提交上传后不再 CPU wait。
-- [x] 首次 graphics 消费在准确 stage 等待 upload timeline value；同一 submission 内按 timeline 合并最大 value 与
-  stage，同一有序 queue 上的冗余 wait 后续可由 backend 消除。
-- [x] 建立 `GpuCompletionPoint`，让 Queue submission 返回单调 timeline value；FrameSlot 以 fence 和单调 frame serial
-  管理自身复用，不长期持有非拥有 completion token。
-- 仅在 generation、材质版本或跨 submission 资源出现无法绑定到单一 FrameSlot 的真实退休需求后，再建立
-  owner-thread `GpuRetirementQueue`；UploadManager 继续按 upload timeline value 回收 staging 与 command resources。
-- [x] 将原有 frame-slot 管理收敛为 FrameScheduler contract：统一 slot index、frame submission serial、wait、record、end
-  顺序，并让当前 FrameSlot 持有实际 draw owner 到 fence completion；本阶段不强制迁移全部 UBO/descriptor。
-- [x] 让 FrameScheduler 从实际 fence wait 推进 completed frame serial；Material descriptor cache 记录最后使用 serial，
-  仅在对应 submission 完成后回收，现阶段不创建没有实际 allocation 需求的通用 DescriptorArena。
-- `UploadManager` 根据 fence 或 timeline value 延迟回收 staging allocation、upload command buffer 和上传期间临时
-  持有的资源；启动期、工具和测试可显式等待 `UploadBatch::submit()` 返回的 completion。
-- ResourceManager 批量创建 Mesh/Texture 等 GPU Resource 时通过上传接口提交数据，不直接管理 staging lifetime，
-  pending resource 必须携带 ready token，不能在缺少 completion 或 GPU-side wait 的情况下被当作 ready resource。
-- [x] 将 `VK_EXT_memory_budget` 作为 optional device capability；只在扩展实际启用后为 VMA allocator 设置
-  `VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT`。
-- [x] memory budget 启用后，每个渲染帧用单调递增的 frame serial 调用 `vmaSetCurrentFrameIndex()`，不传循环变化的
-  FrameSlot 下标。
-- [x] 通过 Allocator/Device 暴露按需 `MemoryBudgetSnapshot`，将 `vmaGetHeapBudgets()` 的 heap 统计转换为 Comet 类型，
-  并标记数据是驱动报告值还是 VMA 估算值。
-- [x] UploadManager 在 staging pool 确实需要增长时采样 budget snapshot；空闲池只保留有限数量的默认 page，超大 page
-  完成后直接释放，高压力增长前释放全部空闲页，并对连续压力做边沿触发诊断，不在每帧无条件采样。
-- 区分关键 GPU 资源和可降级 streaming 资源。只有 ResourceManager 已支持返回错误、占位资源、重试或淘汰后，
-  才为非关键 allocation 使用 `WITHIN_BUDGET`；render target 等关键资源保留独立失败策略。
-- [x] Allocator 先建立双轨创建契约：现有 `create_buffer/image` 保持强失败，`try_create_buffer/image` 返回显式结果；
-  `WITHIN_BUDGET` 仅通过默认关闭的 allocation 选项启用，不改变任何现有关键资源调用点。
-- [x] Buffer/Image owning wrapper 增加静态尝试创建：allocation 成功后才构造 GPUBuffer/OwnedImage，旧公开构造入口收回，
-  因而失败结果不会携带可发布的半初始化包装对象。
-- [x] UploadManager 增加可恢复 staging page 创建，UploadBatch 增加 `try_enqueue_upload()`；失败会 discard 未提交
-  CommandContext 并 abort 整个 active batch，强失败 enqueue 与 recoverable enqueue 共享录制逻辑。
-- 支持资产改名、移动后的引用稳定性。
+- 将 Buffer/Image 的可恢复创建契约提升到 Runtime Mesh/Texture：全部 allocation 成功后才提交 UploadBatch，失败时不发布
+  半初始化资源，并由 AssetManager 保留旧版本或使用占位资源。
+- 为非关键 streaming 资源建立占位、重试或淘汰策略后，再选择性启用 `WITHIN_BUDGET`；RenderTarget 等关键资源继续强失败。
+- 完成项目创建、打开和校验，以及资产改名、移动时连同 `.meta` 保持引用稳定的编辑器操作。
+- 让 `Device` 提供实际启用 feature、extension、queue、limit 和 format 的不可变 CapabilitySet。
+- 在 metadata 与导入产物契约稳定后，设计 Shader Importer、编译产物、缓存键和打包边界；当前不预设 Artifact/Manifest 细节。
+- 仅在出现无法绑定到单一 FrameSlot 的真实退休需求后引入 `GpuRetirementQueue`。
 
 完整资源路径：
 
@@ -1107,33 +878,11 @@ Scene Component / RenderItem
 
 验收标准：
 
-- Project 面板显示真实 `assets/` 目录。
-- 拖拽 mesh/material 到实体后可以保存并重新加载。
-- 删除或移动资产时有基本错误提示。
-- 资产数据库重建后，场景引用仍然稳定。
-- Scene 和编辑器业务代码不直接使用资产文件路径获取 Runtime/GPU Resource。
-- GraphicsDevice/`Device` 的 capability snapshot 与实际创建 logical device 时启用的 feature/extension 一致，且
-  Device 不反向拥有 FrameScheduler、ResourceManager 或 RenderTarget。
-- engine-owned submit/barrier 主链路不再使用 legacy `vk::SubmitInfo`、`vk::ImageMemoryBarrier` 或
-  `pipelineBarrier()`；每个 wait semaphore 都显式携带自己的 stage mask 和 timeline value。
-- Synchronization 2 迁移后，现有 frame fence、swapchain semaphore、layout transition 和阻塞式 upload 行为保持
-  正确，validation 无 stage/access、layout 或资源生命周期错误。
-- upload 与 swapchain 的 barrier 由类型化 state 映射生成；unknown initial state 会被拒绝，常见 read/write hazard、
-  subresource range 和 usage mapping 有不依赖真实 GPU 的单元测试。
-- 批量加载资源时不会为每个 buffer/texture 单独执行 `queue.waitIdle()`；一次 batch 中的 copy 和 layout transition
-  可以合并提交。
-- staging allocation、upload command buffer 和目标资源的可用状态均由 completion token 约束；GPU 完成前不会
-  提前释放，也不会在缺少对应 GPU-side wait 的 submission 中被消费。
-- 异步上传不会通过 CPU wait 才允许首次使用；graphics submission 会消费 ready token 并建立 GPU-side wait；
-  确定性的阻塞路径由调用方显式等待 batch completion。
-- retirement queue 使用可注入的 completed serial/value 测试 last-use、跨 queue completion 和回收顺序；旧资源在
-  完成点之前保持 owning reference，完成后只析构一次。
-- FrameScheduler 的 reset-order 测试证明 completion 前不会 reset command/descriptor/transient arena，slot 复用后
-  submission serial 单调递增。
-- 大批量导入时窗口事件和编辑器交互不会被文件读取、解码或 CPU importer 长时间阻塞；测试可切换到确定性的
-  single-thread executor。
-- memory budget capability、VMA allocator flag 和每帧 frame serial 保持一致；内存不足时非关键资源可以失败并
-  进入占位/重试路径，而不是直接终止进程。
+- Scene 与编辑器业务只通过 `AssetHandle` 获取 Runtime Asset，Asset Database 重建、资产移动或改名不破坏引用。
+- Mesh/Texture 创建失败不会提交半套上传或覆盖上一份有效 Runtime Asset。
+- 非关键资源在预算不足时可以降级，关键资源仍提供明确失败诊断。
+- CapabilitySet 与 Logical Device 实际启用能力一致，Device 不反向拥有 FrameScheduler、ResourceManager 或 RenderTarget。
+- 大批量导入不会长时间阻塞编辑器主线程，上传和资源退休由明确的 completion 约束。
 
 ### 阶段 4：编辑器视口与交互能力
 
@@ -1358,193 +1107,20 @@ Scene Component / RenderItem
 - CI 能至少构建 engine、editor、app、tests。
 - 新贡献者能按文档完成环境初始化、构建、运行和测试。
 
-## 推荐的优先级顺序
+## 当前优先级
 
-近期最应该做：
+1. 完成阶段 3 的 Runtime Mesh/Texture 事务式创建、可恢复预算失败和资产移动/改名闭环。
+2. 推进阶段 4A/4B：editor-only Camera、Viewport 输入、HiDPI 与渲染分辨率策略。
+3. 推进阶段 4C：拾取、Gizmo、Undo/Redo 和 Prefab MVP。
+4. 进入阶段 5 后先解除材质两张 Texture 的硬编码，再建立 ShaderInterface、MaterialLayout 和 PipelineKey。
+5. 根据实际性能数据决定 RenderThread、并行 Command Recording、Bindless 和完整 RenderGraph 的引入时机。
 
-1. [x] 引入持久化 Entity UUID，并明确它与运行时 `EntityId` 的边界。
-2. [x] 定义 `.scene` YAML 格式并实现保存、加载。
-3. [x] 接通 New/Open/Save Scene 和 Selection 生命周期。
-4. [x] 预留场景版本字段并严格校验当前格式；schema 冻结和迁移器推迟到项目格式稳定后。
-5. [x] 为序列化往返、无效引用和加载失败补充测试。
-6. [x] 实现最小 Play/Edit 切换，运行时修改不污染编辑态 Scene。
+复杂脚本、完整物理/动画、多平台打包和大规模材质图继续后置，避免跨越当前尚未稳定的编辑与资产工作流。
 
-暂时不要急着做：
+## 下一步
 
-1. 完整 PBR/Deferred/RenderGraph。
-2. 复杂脚本语言。
-3. 完整物理和动画系统。
-4. 多平台打包。
-5. 大规模材质图/节点编辑器。
-6. 在 Scene/资源生命周期尚未稳定前提前拆独立 RenderThread 或并行 command recording。
+先完成 **Runtime Mesh/Texture 的事务式尝试创建**：全部目标 allocation 成功后再提交 UploadBatch；任何一步失败都不发布
+半初始化对象，由 ResourceManager 将错误交给 AssetManager 保留旧资源。关键 RenderTarget 继续使用明确的强失败路径。
 
-Scene、编辑器、持久化和最小 Play/Edit 生命周期已经形成第一段纵向闭环。下一步进入 Asset Database，先稳定项目资产身份、
-路径和导入产物边界，再扩展材质编辑、资源拖拽、热重载和 streaming。
-
-## 12 个月建议里程碑
-
-以下时间按一名全职开发者或小团队持续投入估算。兼职开发应保留里程碑顺序，不强行套用月份。
-
-### 第 1-2 个月
-
-- 完成最小 `AssetHandle` 和内存 Asset Registry。
-- 完成 Scene Render Submission。
-- Renderer 改为消费 RenderScene/RenderItem。
-- 主 Camera 驱动渲染。
-- 编辑器显示真实实体和 Transform。
-- 编辑器使用离屏目标在 View 面板中显示场景，不再把场景铺满 swapchain。
-- 完成基础父子层级与世界矩阵。
-
-### 第 3-4 个月
-
-- 引入持久化 Entity UUID。
-- 完成 `.scene` 保存/加载。
-- 完成 New/Open/Save Scene。
-- Inspector 支持 MeshRenderer 和 Camera。
-- 单一 Viewport 按 Edit/Play 切换 editor camera 和 game camera。
-
-### 第 5-6 个月
-
-- 完成项目系统和 Asset Database MVP。
-- Project 面板绑定真实资产目录。
-- Material 和 Texture 资产可编辑、可保存。
-- 支持 glTF 静态 mesh 导入。
-- 建立 CPU worker pool，后台执行文件读取、纹理解码和 mesh importer，并支持测试用 single-thread executor。
-- 完成 Synchronization 2 feature/submit/barrier 迁移，并用现有渲染与阻塞上传链路完成 validation 回归。
-- 固化 GraphicsDevice capability snapshot 和 FrameScheduler 的 completion/reset contract。
-- 用类型化 `ResourceState`/`ImageState` 覆盖 upload、swapchain 和现有 RenderPass 转换，不再扩展 layout-pair
-  `if/else`。
-- 批量创建 GPU Resource 时通过 `UploadManager` 合并上传，并用 completion token 管理 staging 生命周期。
-- 异步 upload ready token 可以直接转成首次 graphics consumption 的 GPU-side wait，不要求主线程等待上传完成。
-- 建立 frame-fence/timeline completion point 与统一 retirement queue，资源在 last-use 完成前保持有效。
-- 接入 optional VMA memory budget，低频采集 heap budget，并为非关键 streaming 资源建立可恢复失败路径。
-
-### 第 7-8 个月
-
-- 完成对象拾取、gizmo、Undo/Redo。
-- 初步支持 prefab。
-- 编辑器可完成一个小型静态场景搭建。
-- viewport RenderTarget 和 swapchain 使用 generation prepare/create/commit/retire；正常 resize 不依赖全局 Device idle。
-
-### 第 9-10 个月
-
-- 渲染升级到多材质、多光源、排序和批处理。
-- 大量对象数据改用 per-FrameSlot ring/dynamic UBO/SSBO，并满足设备 buffer offset alignment。
-- Main/Update 与独立 RenderThread 通过有界、owned `RenderFramePacket` 队列解耦。
-- Main/Update 侧 RenderSystem 负责 extraction/packet submission；RenderThread 使用 per-slot/per-thread CommandArena。
-- RenderThread 统一消费 retirement queue，热重载和资产淘汰按 submission/timeline completion 延迟释放。
-- Descriptor system 拆分为 frame、persistent 和 editor ImGui 三类 arena/pool，并按各自 completion/generation 回收。
-- RenderGraph pass 描述与具体 `RenderPass`/`Framebuffer` 解耦，完成 Dynamic Rendering 技术验证并记录后端选择；
-  验证结果不支持迁移时继续保留传统路径。
-- RenderGraph 根据 pass resource contract 统一跟踪 subresource 状态并生成 Synchronization 2 barrier。
-- PipelineManager 使用结构化 `PipelineKey`，并完成兼容 cache blob 的跨启动加载与原子保存。
-- 初步 PBR、Shadow、Post-process。
-- Inspector 支持 Light 和实时光照参数。
-- 材质参数在 Inspector 中实时编辑。
-
-### 第 11-12 个月
-
-- 输入、Native Script、Fixed Update。
-- 基础物理和音频。
-- Play/Edit 模式稳定。
-- 完成一个可交互 demo 项目。
-
-## 成熟度评估表
-
-| 能力域          | 当前成熟度 | 目标成熟度 | 优先级 |
-| --------------- | ---------- | ---------- | ------ |
-| CMake/工程结构  | 中         | 高         | 中     |
-| Vulkan 基础封装 | 中         | 高         | 中     |
-| 内存管理/VMA    | 中低       | 高         | 中     |
-| 渲染管线        | 低中       | 高         | 高     |
-| 任务系统/多线程 | 无         | 中高       | 中     |
-| Scene/ECS       | 低中       | 高         | 最高   |
-| 序列化          | 低         | 高         | 最高   |
-| Asset Database  | 低         | 高         | 高     |
-| Editor UI       | 低中       | 高         | 高     |
-| Editor 数据闭环 | 低中       | 高         | 最高   |
-| 脚本            | 无         | 中         | 中     |
-| 输入            | 无         | 中         | 中     |
-| 物理            | 无         | 中         | 中低   |
-| 音频            | 无         | 中         | 中低   |
-| 动画            | 无         | 中         | 低     |
-| 打包发布        | 无         | 中         | 低     |
-| 测试/CI         | 中低       | 高         | 中     |
-
-## 下一步建议
-
-下一步继续 **阶段 3：Runtime Mesh/Texture 的事务式尝试创建**。Buffer/Image 和 UploadBatch 已形成可回滚路径；
-接下来 Mesh/Texture 先完成全部目标分配，再用 recoverable enqueue 录制，任一步失败都返回 `GpuResourceResult`，
-成功才 submit 并构造 Runtime wrapper。随后 ResourceManager 再把错误交给 AssetManager 保留旧资源。
-
-建议的职责边界：
-
-- Engine/运行时层持有 Scene，app 和 editor 负责创建或修改场景内容。
-- Scene 只拥有实体、可序列化组件和 `AssetHandle`，不依赖路径、Mesh、Texture、Buffer 等运行时/GPU对象。
-- SceneExtractor 把 Transform、MeshRenderer、Camera 转换为只读 RenderScene；Camera Transform 的 scale 不影响 view matrix。
-- Asset Registry 唯一保存 `AssetHandle` 到运行时资源的映射，ResourceManager 只创建 Device 相关资源并维护设备级共享对象。
-- SceneResolver 选择 EntityId 最小的主 Camera、验证参数并将 RenderScene 解析为完整 RenderSubmission；Renderer 编排帧流程，SceneRenderer 管理帧资源并执行绘制。
-
-阶段 2 完成情况：
-
-1. [x] 为实体增加可持久化 UUID，运行时 `EntityId` 继续用于快速查询和编辑器 Selection。
-2. [x] 定义 UUID 的生成、解析、格式化、比较、哈希和无效值语义，并拒绝无效或重复 UUID。
-3. [x] 定义 `.scene` YAML 中实体、父子 UUID 引用和基础组件的表示。
-4. [x] 实现纯 Scene 的内存序列化往返和文件保存/加载。
-5. [x] 对重复 UUID、缺失父节点、循环引用和格式错误给出可测试的失败策略。
-6. [x] 接入编辑器 New/Open/Save，并在替换 Scene 后清理失效 Selection。
-7. [x] 建立组件/属性描述元数据，并让 Inspector 通过描述生成基础组件编辑控件。
-8. [x] 让场景序列化复用属性描述元数据，由 descriptor 定义当前开发格式。
-9. [x] 实现最小 Play/Edit 切换：进入 Play 时复制 Edit Scene，退出时丢弃 Runtime Scene，并清理失效 Selection。
-
-阶段 3 的第一批最小范围：
-
-1. [x] 定义 `assets/`、`.comet/` 和 `ProjectSettings/` 的目录职责，以及源资产、`.meta`、导入产物和编辑器本地状态的边界。
-2. [x] 定义持久化 Asset GUID 与代码层 `AssetHandle` 的映射规则，禁止把源文件路径直接写入 Scene。
-3. [x] 实现只负责扫描、索引和查询的 Asset Database Core，并用临时项目目录完成纯逻辑测试。
-4. [x] 完成 Texture 同步导入与运行时发布，资源缓存键从路径收敛为 `AssetHandle`。
-5. [x] 让 Project 面板读取真实索引、刷新扫描并展示问题。
-6. [x] 接入 Material 资产，使其通过 Texture Handle 表达依赖；缩略图和文件监听在契约稳定后增加。
-7. [x] 为 Texture 建立类型化 Importer 设置，支持色彩空间与垂直翻转的持久化、校验和同步导入。
-8. [x] 统一 Entity/Asset Selection，并在现有 Inspector 中完成 Material 编辑、保存和显式运行时重载。
-9. [x] 扫描以候选快照提交变化集，Project Refresh 同步 Registry/Inspector，发现失败保留上一有效快照。
-10. [x] Scene、Material 和 `.meta` 使用共享原子文本替换，并为 AssetManager 更新/刷新链路补测试。
-11. [x] 删除未接入生产渲染路径的 MaterialConfig/MaterialInstance，拆分 TextureData/MeshData CPU DTO。
-12. [x] 以 submodule 接入 fastgltf/simdjson，完成 `.gltf`/`.glb` 静态 Mesh 导入、失败安全刷新，并让 app/editor 从项目资产加载 cube。
-13. [x] 将项目本地数据收敛到 `.comet/`：cache 保存版本化 Mesh 二进制产物并支持源文件/外部 buffer 失效检测、完整性校验和原子重建，editor 保存 ImGui 布局状态。
-14. [x] 分离资产源文件签名与单调 `AssetRevision`，并在 Mesh 候选发布前验证 revision，阻止旧导入结果覆盖新状态。
-15. [x] 建立 Engine 统一持有的最小 TaskScheduler，并让已加载 Mesh 通过后台 CPU 导入、Owner Thread completion 和 revision 验票完成失败安全热刷新。
-16. [x] 从 Mesh 缓存恢复 Importer 源依赖，在 Asset Database 建立源路径正向/反向索引，并让项目内、由 glTF 外部引用的 `.bin` 变化推进所属 Mesh revision、触发后台热刷新。
-17. [x] 建立类型化 `ResourceUsage`、`ResourceState`/`ImageState` 与 usage-to-state 映射，显式携带 queue owner 和 image subresource range，并拒绝缺少 shader stage、非法 aspect 和空范围。
-18. [x] 将现有显式 image transition 迁移到 `ImageMemoryBarrier2`/`DependencyInfo`，让 Texture 上传提供前后 `ImageState`，删除 layout-pair 推断和 legacy `pipelineBarrier()`。
-19. [x] 启用 Vulkan timeline semaphore，Queue 为每次 submission 返回单调 `GpuCompletionPoint`，Runtime Resource 保存
-    需要的 ready token，FrameSlot 只记录 fence 覆盖的 submission serial；阻塞式上传只等待对应完成点而不再等待整个 Queue idle。
-20. [x] 建立 ResourceManager 独占的最小 UploadManager，分离目标 allocation 与内容上传，统一 staging/copy/Barrier2/completion 生命周期，并把 Mesh vertex/index 合并为一次提交。
-21. [x] 将 staging 演进为默认 4 MiB 的可复用 page：同一 batch 线性子分配，超大上传按需扩页，timeline completion 后有界回收默认页并释放超大页。
-22. [x] 让 Runtime Mesh/Texture 保存上传 completion 并在提交上传后立即返回；ResourceManager 每帧回收已完成 batch，取消资源创建路径的 CPU wait。
-23. [x] 由 SceneRenderer 根据实际 Mesh/Texture 绑定生成 ready wait，并在 frame submit 前按 timeline 合并最大 value 与 stage、过滤已完成等待。
-24. [x] 让 FrameScheduler 的当前 FrameSlot 保留实际录制的 Mesh/Texture owner 到 fence completion，热重载旧资源
-    不再早于在途 draw 销毁；通用退休队列推迟到出现非 frame-slot 生命周期的真实消费者后引入。
-25. [x] 由实际 fence wait 推进 completed frame serial，并用它安全回收不再使用的 Material DescriptorPool/资源缓存；
-    确认当前无需空的通用 per-frame arena。
-26. [x] 将 VK_EXT_memory_budget 作为可选设备能力接入 VMA，并用 FrameScheduler 单调 serial 更新 allocator frame index；
-    扩展缺失时保持兼容回退。
-27. [x] 增加不暴露 VMA 类型的 MemoryBudgetSnapshot，由 Allocator 查询每个 heap 的
-    block/allocation/usage/budget，Device 提供只读转发接口。
-28. [x] 为 UploadManager 增加有界 staging 空闲池和预算感知增长：超大 page 不缓存，pool miss 时才采样预算，
-    高压力下仅释放无在途引用的空闲页并节流记录。
-29. [x] 完成 GPU 资源生命周期子阶段复盘：确认 GpuCompletionPoint 位于 synchronization，删除无调用方的 Texture
-    Image 透传与 Allocator capability accessor，并保持 upload timeline、frame fence serial 和 FrameSlot owner 职责分离。
-30. [x] 在 Allocator 建立强失败 `create_*` 与可恢复 `try_create_*` 双轨接口，并增加默认关闭的 `within_budget`
-    allocation 选项；`GpuResourceResult` 强制调用方显式构造成功或失败，不允许半初始化 handle。
-31. [x] 将 recoverable contract 提升到 Buffer/Image 静态工厂：先完成 allocation 再构造 owning wrapper，强失败工厂
-    继续委托同一逻辑且默认允许超预算。
-32. [x] 建立事务式 UploadBatch：upload staging 支持 within-budget 尝试创建，recoverable enqueue 失败自动 abort
-    未提交命令、目标引用和 page；`GpuResourceResult` 供整条 GPU 创建链复用。
-
-格式所有权后续需求：
-
-1. [ ] 保留 YAML 作为人工维护的运行配置格式；不把外部 glTF JSON 解析能力扩散为通用项目格式依赖。
-2. [ ] 在编辑器成为唯一写入入口且 Schema 稳定后，将 `.scene`、`.mat`、`.meta` 和 `ProjectSettings/` 作为一个版本化迁移整体改为 JSON。
-3. [ ] 为 JSON 项目文档建立确定性输出、严格字段校验、版本升级和旧 YAML 项目迁移测试；禁止只迁移单一资产类型。
-4. [ ] `.comet/cache/` 和 Shipping 资源继续使用面向 Runtime 的二进制产物/索引；JSON 只用于需要工具互操作的 manifest 或协议边界。
+格式演进保持以下边界：运行配置继续使用 YAML；项目文档只在编辑器写入链路和 Schema 稳定后整体评估 JSON 迁移；
+`.comet/cache/` 与 Shipping 资源继续使用面向 Runtime 的二进制产物和索引。

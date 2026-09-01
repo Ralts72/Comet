@@ -28,12 +28,10 @@ namespace Comet::Tests {
         SwapchainRequest make_request() {
             return {
                 .image_count = 3,
-                .surface_format = {
-                    vk::Format::eB8G8R8A8Srgb,
-                    vk::ColorSpaceKHR::eSrgbNonlinear
-                },
-                .present_mode = vk::PresentModeKHR::eMailbox,
-                .usage = vk::ImageUsageFlagBits::eColorAttachment
+                .surface_format = Format::B8G8R8A8_SRGB,
+                .color_space = ImageColorSpace::SrgbNonlinearKHR,
+                .present_mode = PresentMode::Mailbox,
+                .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)
             };
         }
 
@@ -111,7 +109,7 @@ namespace Comet::Tests {
             vk::CompositeAlphaFlagBitsKHR::ePreMultiplied
             | vk::CompositeAlphaFlagBitsKHR::eInherit;
         auto request = make_request();
-        request.present_mode = vk::PresentModeKHR::eImmediate;
+        request.present_mode = PresentMode::Immediate;
 
         const auto result = select_swapchain(
             capabilities,
@@ -129,7 +127,7 @@ namespace Comet::Tests {
 
     TEST(SwapchainConfigTest, RejectsUnsupportedRequiredImageUsage) {
         auto request = make_request();
-        request.usage |= vk::ImageUsageFlagBits::eTransferSrc;
+        request.usage |= ImageUsage::CopySrc;
 
         const auto result = select_swapchain(
             make_capabilities(),
@@ -176,7 +174,12 @@ namespace Comet::Tests {
             make_request());
 
         ASSERT_EQ(result.status, SwapchainStatus::Ready);
-        EXPECT_EQ(result.config.surface_format, make_request().surface_format);
+        // make_request() 请求 B8G8R8A8_SRGB / SrgbNonlinear，结果按 Vulkan 类型比较
+        EXPECT_EQ(result.config.surface_format,
+            (vk::SurfaceFormatKHR{
+                vk::Format::eB8G8R8A8Srgb,
+                vk::ColorSpaceKHR::eSrgbNonlinear
+            }));
     }
 
     TEST(SwapchainConfigTest, RejectsMissingFormatAndCompositeAlpha) {

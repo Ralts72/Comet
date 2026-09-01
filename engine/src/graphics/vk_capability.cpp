@@ -1,6 +1,7 @@
 #include "vk_capability.h"
 
 #include "diagnostics/logger.h"
+#include "graphics/convert.h"
 
 #include <algorithm>
 #include <array>
@@ -203,18 +204,20 @@ namespace Comet {
             candidate_info.swapchain_status = swapchain_result.status;
             candidate_info.swapchain_message = swapchain_result.message;
             candidate_info.requested_present_mode_supported = std::ranges::find(
-                present_modes, request.swapchain.present_mode) != present_modes.end();
+                present_modes,
+                Graphics::present_mode_to_vk(request.swapchain.present_mode))
+                != present_modes.end();
 
             candidate_info.color_format_supported = supports_image_format(
                 physical_device,
-                request.swapchain.surface_format.format,
+                Graphics::format_to_vk(request.swapchain.surface_format),
                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                request.sample_count);
+                Graphics::sample_count_to_vk(request.sample_count));
             candidate_info.depth_format_supported = supports_image_format(
                 physical_device,
-                request.depth_format,
+                Graphics::format_to_vk(request.depth_format),
                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                request.sample_count);
+                Graphics::sample_count_to_vk(request.sample_count));
 
             const auto supported_features = physical_device.getFeatures();
             candidate_info.sampler_anisotropy_supported = supported_features.samplerAnisotropy;
@@ -411,10 +414,12 @@ namespace Comet {
            || capabilities.minImageExtent.height > capabilities.maxImageExtent.height) {
             return unsupported_swapchain("surface extent limits are inconsistent");
         }
-        if(!static_cast<bool>(request.usage & vk::ImageUsageFlagBits::eColorAttachment)) {
+        const vk::ImageUsageFlags requested_usage =
+            Graphics::image_usage_to_vk(request.usage);
+        if(!static_cast<bool>(requested_usage & vk::ImageUsageFlagBits::eColorAttachment)) {
             return unsupported_swapchain("swapchain usage must include color attachment");
         }
-        if((capabilities.supportedUsageFlags & request.usage) != request.usage) {
+        if((capabilities.supportedUsageFlags & requested_usage) != requested_usage) {
             return unsupported_swapchain("surface does not support the required swapchain usage");
         }
         if(!static_cast<bool>(capabilities.supportedTransforms
@@ -423,7 +428,11 @@ namespace Comet {
         }
 
         const auto surface_format = find_surface_format(
-            surface_formats, request.surface_format);
+            surface_formats,
+            vk::SurfaceFormatKHR{
+                Graphics::format_to_vk(request.surface_format),
+                Graphics::image_color_space_to_vk(request.color_space)
+            });
         if(!surface_format) {
             return unsupported_swapchain(
                 "configured surface format and color space are unavailable");
@@ -434,7 +443,7 @@ namespace Comet {
 
         SwapchainConfig config;
         config.surface_format = *surface_format;
-        config.usage = request.usage;
+        config.usage = requested_usage;
         config.transform = capabilities.currentTransform;
 
         if(capabilities.maxImageCount == 0) {
@@ -487,8 +496,10 @@ namespace Comet {
             .status = SwapchainStatus::Ready,
             .config = config
         };
-        if(std::ranges::find(present_modes, request.present_mode) != present_modes.end()) {
-            result.config.present_mode = request.present_mode;
+        const vk::PresentModeKHR requested_present_mode =
+            Graphics::present_mode_to_vk(request.present_mode);
+        if(std::ranges::find(present_modes, requested_present_mode) != present_modes.end()) {
+            result.config.present_mode = requested_present_mode;
         } else {
             const auto fifo = std::ranges::find(
                 present_modes, vk::PresentModeKHR::eFifo);

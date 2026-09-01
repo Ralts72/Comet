@@ -56,7 +56,7 @@ namespace Comet {
         command_buffer.bind_vertex_buffer({*m_vertex_buffer, 0});
 
         if(m_index_count > 0) {
-            command_buffer.bind_index_buffer(*m_index_buffer, 0, vk::IndexType::eUint32);
+            command_buffer.bind_index_buffer(*m_index_buffer, 0, IndexType::Uint32);
             command_buffer.draw_indexed(m_index_count, 1, 0, 0);
         } else {
             command_buffer.draw(m_vertex_count, 1, 0, 0);

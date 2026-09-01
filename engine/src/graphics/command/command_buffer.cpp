@@ -2,6 +2,7 @@
 #include "graphics/device.h"
 #include "graphics/render_pass.h"
 #include "diagnostics/logger.h"
+#include "graphics/convert.h"
 #include "graphics/frame_buffer.h"
 #include "graphics/pipeline/pipeline.h"
 #include "graphics/synchronization/barrier.h"
@@ -95,8 +96,8 @@ namespace Comet {
             offsets.data());
     }
 
-    void CommandBuffer::bind_index_buffer(const Buffer& buffer, const uint64_t offset, const vk::IndexType type) const {
-        m_command_buffer.bindIndexBuffer(buffer.get(), offset, type);
+    void CommandBuffer::bind_index_buffer(const Buffer& buffer, const uint64_t offset, const IndexType type) const {
+        m_command_buffer.bindIndexBuffer(buffer.get(), offset, Graphics::index_type_to_vk(type));
     }
 
     void CommandBuffer::push_constants(const PipelineLayout& layout, const Flags<ShaderStage> stage_flags,

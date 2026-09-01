@@ -44,7 +44,7 @@ namespace Comet {
         bool rasterizer_discard_enable = false;
         PolygonMode polygon_mode = PolygonMode::Fill;
         CullMode cull_mode = CullMode::None;
-        FrontFace front_face = FrontFace::CCW;
+        FrontFace front_face = FrontFace::CW;
         bool depth_bias_enable = false;
         float depth_bias_constant_factor = 0.0f;
         float depth_bias_clamp = 0.0f;

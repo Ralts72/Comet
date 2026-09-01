@@ -8,24 +8,19 @@ namespace Comet {
         PROFILE_SCOPE("RenderContext::Constructor");
         LOG_INFO("init graphics system");
 
-        auto present_mode = Graphics::present_mode_to_vk(vulkan_config.present_mode);
-        if(render_config.enable_vsync) {
-            present_mode = vk::PresentModeKHR::eFifo;
-        }
-
         const SwapchainRequest swapchain_request{
             .image_count = vulkan_config.swapchain_image_count,
-            .surface_format = {
-                Graphics::format_to_vk(vulkan_config.surface_format),
-                Graphics::image_color_space_to_vk(vulkan_config.color_space)
-            },
-            .present_mode = present_mode,
-            .usage = vk::ImageUsageFlagBits::eColorAttachment
+            .surface_format = vulkan_config.surface_format,
+            .color_space = vulkan_config.color_space,
+            .present_mode = render_config.enable_vsync
+                ? PresentMode::Fifo
+                : vulkan_config.present_mode,
+            .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)
         };
         const DeviceCapabilityRequest capability_request{
             .swapchain = swapchain_request,
-            .depth_format = Graphics::format_to_vk(vulkan_config.depth_format),
-            .sample_count = Graphics::sample_count_to_vk(vulkan_config.msaa_samples),
+            .depth_format = vulkan_config.depth_format,
+            .sample_count = vulkan_config.msaa_samples,
             .max_sampler_anisotropy = render_config.max_anisotropy
         };
         m_context = std::make_unique<Context>(window, vulkan_config, capability_request);
