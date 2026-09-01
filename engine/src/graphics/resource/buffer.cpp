@@ -32,14 +32,6 @@ namespace Comet {
         }
     }
 
-    Allocator::BufferAllocation Buffer::create_buffer(
-        const Flags<BufferUsage> usage,
-        const AllocationCreateInfo& allocation_info) const {
-        return get_allocator().create_buffer(
-            build_buffer_create_info(usage, m_size),
-            allocation_info);
-    }
-
     Allocator& Buffer::get_allocator() const {
         return m_device.get_allocator();
     }
@@ -54,32 +46,12 @@ namespace Comet {
     }
 
     CPUBuffer::CPUBuffer(Device& device,
-                         const Flags<BufferUsage> usage,
                          const size_t size,
-                         const void* data,
-                         const AllocationUsage allocation_usage,
-                         const std::string_view debug_name)
+                         Allocator::BufferAllocation allocation)
         : Buffer(device, size) {
-        if(allocation_usage != AllocationUsage::Upload
-            && allocation_usage != AllocationUsage::CpuToGpu) {
-            LOG_FATAL("CPUBuffer requires Upload or CpuToGpu allocation usage");
-        }
-
-        const std::string_view resolved_name = debug_name.empty() ? "CPU buffer" : debug_name;
-        auto [buffer, allocation, mapped_data] = create_buffer(
-            usage,
-            {
-                .usage = allocation_usage,
-                .persistent_mapping = true,
-                .debug_name = resolved_name
-        });
-        m_buffer = buffer;
-        m_allocation = std::move(allocation);
-        m_mapped_data = mapped_data;
-
-        if(data) {
-            write(data);
-        }
+        m_buffer = allocation.buffer;
+        m_mapped_data = allocation.mapped_data;
+        m_allocation = std::move(allocation.allocation);
     }
 
     CPUBuffer::~CPUBuffer() {
@@ -92,8 +64,21 @@ namespace Comet {
         const size_t size,
         const void* data,
         const std::string_view debug_name) {
-        return std::make_shared<CPUBuffer>(
-            device, usage, size, data, AllocationUsage::CpuToGpu, debug_name);
+        auto attempt = try_create_mapped_buffer(
+            device,
+            usage,
+            size,
+            AllocationUsage::CpuToGpu,
+            false,
+            data,
+            debug_name);
+        if(!attempt) {
+            LOG_FATAL("Failed to create CPU buffer '{}' ({} bytes): {}",
+                debug_name,
+                size,
+                vk::to_string(attempt.result()));
+        }
+        return std::move(attempt).value();
     }
 
     std::shared_ptr<CPUBuffer> Buffer::create_upload_buffer(
@@ -102,8 +87,77 @@ namespace Comet {
         const size_t size,
         const void* data,
         const std::string_view debug_name) {
-        return std::make_shared<CPUBuffer>(
-            device, usage, size, data, AllocationUsage::Upload, debug_name);
+        auto attempt = try_create_upload_buffer(
+            device, usage, size, false, data, debug_name);
+        if(!attempt) {
+            LOG_FATAL("Failed to create upload buffer '{}' ({} bytes): {}",
+                debug_name,
+                size,
+                vk::to_string(attempt.result()));
+        }
+        return std::move(attempt).value();
+    }
+
+    GpuResourceResult<std::shared_ptr<CPUBuffer>>
+    Buffer::try_create_upload_buffer(
+        Device& device,
+        const Flags<BufferUsage> usage,
+        const size_t size,
+        const bool within_budget,
+        const void* data,
+        const std::string_view debug_name) {
+        return try_create_mapped_buffer(
+            device,
+            usage,
+            size,
+            AllocationUsage::Upload,
+            within_budget,
+            data,
+            debug_name);
+    }
+
+    GpuResourceResult<std::shared_ptr<CPUBuffer>>
+    Buffer::try_create_mapped_buffer(
+        Device& device,
+        const Flags<BufferUsage> usage,
+        const size_t size,
+        const AllocationUsage allocation_usage,
+        const bool within_budget,
+        const void* data,
+        const std::string_view debug_name) {
+        if(size == 0) {
+            LOG_FATAL("Buffer size must be greater than zero");
+        }
+        if(allocation_usage != AllocationUsage::Upload
+           && allocation_usage != AllocationUsage::CpuToGpu) {
+            LOG_FATAL("CPUBuffer requires Upload or CpuToGpu allocation usage");
+        }
+
+        const std::string_view resolved_name = debug_name.empty()
+            ? "CPU buffer"
+            : debug_name;
+        auto allocation = device.get_allocator().try_create_buffer(
+            build_buffer_create_info(usage, size),
+            {
+                .usage = allocation_usage,
+                .persistent_mapping = true,
+                .within_budget = within_budget,
+                .debug_name = resolved_name
+            });
+        if(!allocation) {
+            return GpuResourceResult<std::shared_ptr<CPUBuffer>>::failure(
+                allocation.result());
+        }
+
+        std::shared_ptr<CPUBuffer> buffer(new CPUBuffer(
+            device,
+            size,
+            std::move(allocation).value()));
+        if(data) {
+            buffer->write(data);
+        }
+        return GpuResourceResult<std::shared_ptr<CPUBuffer>>::success(
+            std::move(buffer));
     }
 
     std::shared_ptr<Buffer> Buffer::create_gpu_buffer(

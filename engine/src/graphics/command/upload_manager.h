@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "graphics/resource/resource_result.h"
 #include "graphics/synchronization/gpu_completion_point.h"
 #include "graphics/synchronization/resource_state.h"
 
@@ -63,9 +64,11 @@ namespace Comet {
             GpuCompletionPoint completion;
         };
 
-        [[nodiscard]] StagingAllocation allocate_staging(
+        [[nodiscard]] GpuResourceResult<StagingAllocation>
+        try_allocate_staging(
             BatchResources& resources,
-            std::span<const std::byte> data);
+            std::span<const std::byte> data,
+            bool within_budget);
         [[nodiscard]] GpuCompletionPoint submit_batch(UploadBatch& batch);
         void abort_batch(UploadBatch& batch);
         void prepare_for_staging_growth(size_t capacity);
@@ -94,11 +97,24 @@ namespace Comet {
             std::span<const std::byte> data,
             const ResourceState& after);
 
+        [[nodiscard]] GpuResourceResult<void> try_enqueue_upload(
+            std::shared_ptr<Buffer> destination,
+            std::span<const std::byte> data,
+            const ResourceState& after,
+            bool within_budget);
+
         void enqueue_upload(
             std::shared_ptr<Image> destination,
             std::span<const std::byte> data,
             const ImageState& before,
             const ImageState& after);
+
+        [[nodiscard]] GpuResourceResult<void> try_enqueue_upload(
+            std::shared_ptr<Image> destination,
+            std::span<const std::byte> data,
+            const ImageState& before,
+            const ImageState& after,
+            bool within_budget);
 
         [[nodiscard]] GpuCompletionPoint submit();
         void abort();

@@ -126,6 +126,8 @@ DescriptorPool 及其资源引用，避免场景切换或材质卸载造成缓�
 设备存在 `VK_EXT_memory_budget` 时会将其作为可选能力启用，并为 VMA allocator 设置对应 flag；每帧使用单调 frame
 serial 更新 VMA，而不是传递循环 FrameSlot 下标。Allocator/Device 还提供按需查询的 Comet heap budget snapshot，
 包含 VMA block/allocation 统计和 usage/budget；扩展缺失时 snapshot 明确标记为估算值。
+可恢复上传通过 `GpuResourceResult` 传递 Buffer/Image/staging 创建错误；任一 staging enqueue 失败会 abort 整个尚未提交的
+active batch，不会把半套 copy 命令送入 Queue。原 `enqueue_upload()` 仍是关键路径的强失败入口。
 Vulkan 内存分配由 `engine/src/graphics/resource/allocator.h`
 封装，`Device` 独占持有 `Allocator`，`Buffer` 和 `Image` 通过 `AllocationUsage` 表达显存用途并以 `Allocation` 保存
 VMA allocation 句柄；关键资源继续使用强失败的 `create_*`，非关键流送路径可显式选择返回 Vulkan 错误的
