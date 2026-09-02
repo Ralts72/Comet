@@ -6,6 +6,7 @@
 #include "scene/entity_uuid.h"
 
 #include <string>
+#include <type_traits>
 
 namespace Comet {
     struct IdComponent {
@@ -43,6 +44,21 @@ namespace Comet {
         Math::Mat4 world_matrix = Math::Mat4(1.0f);
         Math::Mat4 camera_world_matrix = Math::Mat4(1.0f);
     };
+
+    template<typename T>
+    inline constexpr bool is_scene_managed_component_v =
+        std::is_same_v<std::remove_cvref_t<T>, IdComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, UuidComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, NameComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, RelationshipComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, WorldTransformComponent>;
+
+    template<typename T>
+    inline constexpr bool is_scene_read_only_component_v =
+        std::is_same_v<std::remove_cvref_t<T>, IdComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, UuidComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, RelationshipComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, WorldTransformComponent>;
 
     struct MeshRendererComponent {
         AssetHandle mesh;

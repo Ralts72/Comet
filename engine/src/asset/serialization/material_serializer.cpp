@@ -1,23 +1,21 @@
-#include "asset/serialization/material_serializer.h"
+#include "asset/serialization/metadata_serializer.h"
 #include "common/file_io.h"
+#include "common/yaml_utils.h"
 
 #include <yaml-cpp/yaml.h>
 
-#include <fstream>
-#include <sstream>
 #include <stdexcept>
-#include <string>
-#include <string_view>
 #include <unordered_set>
+#include <utility>
 
 namespace Comet {
     namespace {
-        std::runtime_error material_error(
+        std::runtime_error metadata_error(
             const std::string_view source,
             const std::string_view location,
             const std::string& detail) {
             return std::runtime_error(
-                "Invalid material '" + std::string(source) + "' at '"
+                "Invalid asset metadata '" + std::string(source) + "' at '"
                 + std::string(location) + "': " + detail);
         }
 
@@ -25,47 +23,34 @@ namespace Comet {
             const YAML::Node& node,
             const std::string_view source,
             const std::string_view location) {
-            if(!node.IsMap()) {
-                throw material_error(source, location, "expected a mapping");
-            }
+            Yaml::require_map(node, source, location, metadata_error);
         }
 
-        void validate_keys(
-            const YAML::Node& node,
-            const std::unordered_set<std::string>& supported,
-            const std::string_view source,
-            const std::string_view location) {
-            std::unordered_set<std::string> found;
-            for(const auto& entry: node) {
-                if(!entry.first.IsScalar()) {
-                    throw material_error(source, location, "expected string keys");
-                }
+        void validate_keys(const YAML::Node& root, const std::string_view source) {
+            const std::unordered_set<std::string> supported{
+                "version", "guid", "type", "importer"
+            };
+            Yaml::validate_keys(
+                root, supported, source, "<root>", metadata_error);
+        }
 
-                const std::string key = entry.first.as<std::string>();
-                if(!supported.contains(key)) {
-                    throw material_error(
-                        source, location, "unknown field '" + key + "'");
-                }
-                if(!found.insert(key).second) {
-                    throw material_error(
-                        source, location, "duplicate field '" + key + "'");
-                }
-            }
+        void validate_texture_importer_keys(
+            const YAML::Node& importer,
+            const std::string_view source) {
+            const std::unordered_set<std::string> supported{
+                "color_space", "flip_y"
+            };
+            Yaml::validate_keys(
+                importer, supported, source, "importer", metadata_error);
         }
 
         YAML::Node required_child(
-            const YAML::Node& node,
+            const YAML::Node& root,
             const char* key,
             const std::string_view source,
-            const std::string_view location) {
-            const YAML::Node child = node[key];
-            if(!child.IsDefined()) {
-                throw material_error(
-                    source,
-                    location,
-                    "missing required field '" + std::string(key) + "'");
-            }
-            return child;
+            const std::string_view parent_location = "<root>") {
+            return Yaml::required_child(
+                root, key, source, parent_location, metadata_error);
         }
 
         template<typename T>
@@ -74,193 +59,166 @@ namespace Comet {
             const std::string_view source,
             const std::string_view location,
             const std::string_view expected) {
-            if(!node.IsScalar()) {
-                throw material_error(
-                    source, location, "expected " + std::string(expected));
-            }
-
-            try {
-                return node.as<T>();
-            } catch(const YAML::Exception&) {
-                throw material_error(
-                    source, location, "expected " + std::string(expected));
-            }
-        }
-
-        void validate_material_data(
-            const MaterialData& data,
-            const std::string_view source) {
-            if(data.template_name.empty()) {
-                throw material_error(
-                    source, "template", "expected a non-empty string");
-            }
-            for(const auto& [property_name, texture_handle]:
-                data.texture_properties) {
-                if(property_name.empty()) {
-                    throw material_error(
-                        source,
-                        "properties",
-                        "property names cannot be empty");
-                }
-                if(!texture_handle) {
-                    throw material_error(
-                        source,
-                        "properties." + property_name + ".asset",
-                        "expected a non-zero unsigned integer");
-                }
-            }
+            return Yaml::read_scalar<T>(
+                node, source, location, expected, metadata_error);
         }
     }
 
-    std::string MaterialSerializer::serialize(const MaterialData& data) const {
-        validate_material_data(data, "<memory>");
+    std::string AssetMetadataSerializer::serialize(
+        const AssetMetadata& metadata) const {
+        if(!metadata.handle) {
+            throw metadata_error("<memory>", "guid", "expected a non-zero value");
+        }
+        if(metadata.type == AssetType::Unknown) {
+            throw metadata_error("<memory>", "type", "expected a known asset type");
+        }
+
+        const auto* texture_settings = std::get_if<TextureImportSettings>(
+            &metadata.import_settings);
+        if(metadata.type == AssetType::Texture && !texture_settings) {
+            throw metadata_error(
+                "<memory>",
+                "importer",
+                "expected texture import settings for a texture asset");
+        }
+        if(metadata.type != AssetType::Texture
+           && !std::holds_alternative<std::monostate>(metadata.import_settings)) {
+            throw metadata_error(
+                "<memory>",
+                "importer",
+                "import settings do not match asset type '"
+                + std::string(to_string(metadata.type)) + "'");
+        }
 
         YAML::Node root(YAML::NodeType::Map);
         root["version"] = FORMAT_VERSION;
-        root["template"] = data.template_name;
-
-        YAML::Node properties(YAML::NodeType::Map);
-        for(const auto& [property_name, texture_handle]:
-            data.texture_properties) {
-            YAML::Node property(YAML::NodeType::Map);
-            property["type"] = "texture";
-            property["asset"] = texture_handle.value();
-            properties[property_name] = property;
+        root["guid"] = metadata.handle.value();
+        root["type"] = std::string(to_string(metadata.type));
+        if(texture_settings) {
+            YAML::Node importer(YAML::NodeType::Map);
+            importer["color_space"] = std::string(to_string(
+                texture_settings->color_space));
+            importer["flip_y"] = texture_settings->flip_y;
+            root["importer"] = importer;
         }
-        root["properties"] = properties;
 
         YAML::Emitter emitter;
         emitter << root;
         if(!emitter.good()) {
             throw std::runtime_error(
-                "Failed to serialize material: "
+                "Failed to serialize asset metadata: "
                 + emitter.GetLastError());
         }
         return std::string(emitter.c_str()) + '\n';
     }
 
-    MaterialData MaterialSerializer::deserialize(
+    AssetMetadata AssetMetadataSerializer::deserialize(
         const std::string_view contents,
         const std::string_view source) const {
         YAML::Node root;
         try {
             root = YAML::Load(std::string(contents));
-        } catch(const YAML::Exception& exception) {
-            throw material_error(source, "<yaml>", exception.what());
+        } catch(const YAML::Exception& error) {
+            throw std::runtime_error(
+                "Failed to parse asset metadata '" + std::string(source)
+                + "': " + error.what());
         }
 
         require_map(root, source, "<root>");
-        validate_keys(
-            root,
-            {"version", "template", "properties"},
-            source,
-            "<root>");
+        validate_keys(root, source);
 
         const std::uint32_t version = read_scalar<std::uint32_t>(
-            required_child(root, "version", source, "<root>"),
+            required_child(root, "version", source),
             source,
             "version",
             "an unsigned integer");
         if(version != FORMAT_VERSION) {
-            throw material_error(
+            throw metadata_error(
                 source,
                 "version",
-                "unsupported version " + std::to_string(version));
+                "unsupported version " + std::to_string(version)
+                + "; expected " + std::to_string(FORMAT_VERSION));
         }
 
-        MaterialData data;
-        data.template_name = read_scalar<std::string>(
-            required_child(root, "template", source, "<root>"),
+        const AssetHandle handle(read_scalar<AssetHandle::ValueType>(
+            required_child(root, "guid", source),
             source,
-            "template",
-            "a non-empty string");
-        if(data.template_name.empty()) {
-            throw material_error(source, "template", "expected a non-empty string");
+            "guid",
+            "a non-zero unsigned integer"));
+        if(!handle) {
+            throw metadata_error(source, "guid", "expected a non-zero value");
         }
 
-        const YAML::Node properties =
-                required_child(root, "properties", source, "<root>");
-        require_map(properties, source, "properties");
-        for(const auto& entry: properties) {
-            if(!entry.first.IsScalar()) {
-                throw material_error(source, "properties", "expected string keys");
-            }
-
-            const std::string property_name = entry.first.as<std::string>();
-            if(property_name.empty()) {
-                throw material_error(
-                    source, "properties", "property names cannot be empty");
-            }
-            if(data.texture_properties.contains(property_name)) {
-                throw material_error(
-                    source,
-                    "properties",
-                    "duplicate property '" + property_name + "'");
-            }
-
-            const std::string property_location =
-                    "properties." + property_name;
-            const YAML::Node property = entry.second;
-            require_map(property, source, property_location);
-            validate_keys(
-                property,
-                {"type", "asset"},
-                source,
-                property_location);
-
-            const std::string type = read_scalar<std::string>(
-                required_child(
-                    property, "type", source, property_location),
-                source,
-                property_location + ".type",
-                "a string");
-            if(type != "texture") {
-                throw material_error(
-                    source,
-                    property_location + ".type",
-                    "unsupported property type '" + type + "'");
-            }
-
-            const std::uint64_t asset = read_scalar<std::uint64_t>(
-                required_child(
-                    property, "asset", source, property_location),
-                source,
-                property_location + ".asset",
-                "a non-zero unsigned integer");
-            const AssetHandle texture_handle(asset);
-            if(!texture_handle) {
-                throw material_error(
-                    source,
-                    property_location + ".asset",
-                    "expected a non-zero unsigned integer");
-            }
-            data.texture_properties.emplace(property_name, texture_handle);
+        const std::string type_name = read_scalar<std::string>(
+            required_child(root, "type", source),
+            source,
+            "type",
+            "an asset type string");
+        const auto type = asset_type_from_string(type_name);
+        if(!type) {
+            throw metadata_error(
+                source, "type", "unknown asset type '" + type_name + "'");
         }
 
-        return data;
+        AssetImportSettings import_settings = std::monostate{};
+        const YAML::Node importer = root["importer"];
+        if(*type == AssetType::Texture) {
+            if(!importer.IsDefined()) {
+                throw metadata_error(
+                    source,
+                    "<root>",
+                    "missing required field 'importer'");
+            }
+            require_map(importer, source, "importer");
+            validate_texture_importer_keys(importer, source);
+
+            const std::string color_space_name = read_scalar<std::string>(
+                required_child(importer, "color_space", source, "importer"),
+                source,
+                "importer.color_space",
+                "a texture color space string");
+            const auto color_space = texture_color_space_from_string(
+                color_space_name);
+            if(!color_space) {
+                throw metadata_error(
+                    source,
+                    "importer.color_space",
+                    "unknown texture color space '" + color_space_name + "'");
+            }
+
+            import_settings = TextureImportSettings{
+                .color_space = *color_space,
+                .flip_y = read_scalar<bool>(
+                    required_child(
+                        importer, "flip_y", source, "importer"),
+                    source,
+                    "importer.flip_y",
+                    "a boolean")
+            };
+        } else if(importer.IsDefined()) {
+            throw metadata_error(
+                source,
+                "importer",
+                "import settings are not supported for asset type '"
+                + std::string(to_string(*type)) + "'");
+        }
+
+        return AssetMetadata{
+            .handle = handle,
+            .type = *type,
+            .import_settings = std::move(import_settings)
+        };
     }
 
-    void MaterialSerializer::save(
-        const MaterialData& data,
+    void AssetMetadataSerializer::save(
+        const AssetMetadata& metadata,
         const std::filesystem::path& path) const {
-        const std::string contents = serialize(data);
+        const std::string contents = serialize(metadata);
         write_text_file_atomic(path, contents);
     }
 
-    MaterialData MaterialSerializer::load(
-        const std::filesystem::path& source_path) const {
-        std::ifstream input(source_path, std::ios::binary);
-        if(!input) {
-            throw std::runtime_error(
-                "Failed to open material '" + source_path.string() + "'");
-        }
-
-        std::ostringstream contents;
-        contents << input.rdbuf();
-        if(input.bad()) {
-            throw std::runtime_error(
-                "Failed to read material '" + source_path.string() + "'");
-        }
-        return deserialize(contents.str(), source_path.string());
+    AssetMetadata AssetMetadataSerializer::load(
+        const std::filesystem::path& path) const {
+        return deserialize(read_text_file(path), path.string());
     }
 }

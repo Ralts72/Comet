@@ -13,10 +13,6 @@ namespace Comet {
         return std::make_unique<SwapchainTarget>(device, render_pass, swapchain);
     }
 
-    std::unique_ptr<RenderTarget> RenderTarget::create_offscreen_target(Device& device, RenderPass& render_pass, Math::Vec2u size) {
-        return std::make_unique<OffscreenTarget>(device, render_pass, size);
-    }
-
     std::unique_ptr<RenderTarget> RenderTarget::create_multi_target(Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count) {
         return std::make_unique<MultiTarget>(device, render_pass, size, frame_count);
     }
@@ -28,11 +24,6 @@ namespace Comet {
         }
         m_extent.x = width;
         m_extent.y = height;
-        m_needs_recreate = true;
-    }
-
-    void RenderTarget::set_frame_count(const uint32_t frame_count) {
-        m_frame_count = frame_count;
         m_needs_recreate = true;
     }
 
@@ -155,64 +146,6 @@ namespace Comet {
 
     void SwapchainTarget::begin_render_target(CommandBuffer& command_buffer) {
         RenderTarget::begin_render_target(command_buffer, m_swapchain.get_current_index());
-    }
-
-    OffscreenTarget::OffscreenTarget(Device& device, RenderPass& render_pass, const Math::Vec2u size) : RenderTarget(device, render_pass, size, 1) {
-        m_clear_values.resize(m_render_pass.get_attachments().size());
-        set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
-        set_clear_value(ClearValue(1.0f, 0));
-        recreate();
-    }
-
-    OffscreenTarget::~OffscreenTarget() {
-        m_frame_buffer.reset();
-        m_color_view.reset();
-    }
-
-    void OffscreenTarget::recreate() {
-        if(m_extent.x == 0 || m_extent.y == 0) {
-            return;
-        }
-
-        m_frame_buffer.reset();
-        m_color_view.reset();
-
-        const auto attachments = m_render_pass.get_attachments();
-        if(attachments.empty()) {
-            return;
-        }
-
-        std::vector<std::shared_ptr<ImageView>> all_views;
-
-        for(const auto& [description, usage]: attachments) {
-            ImageInfo image_info = {
-                .format = description.format,
-                .extent = {m_extent.x, m_extent.y, 1},
-                .usage = usage
-            };
-
-            if(Graphics::is_depth_stencil_format(description.format)) {
-                auto depth_image = Image::create(
-                    m_device, image_info, description.samples, "render target depth image");
-                all_views.push_back(std::make_shared<ImageView>(
-                    m_device, depth_image, Flags<ImageAspect>(ImageAspect::Depth)));
-            } else {
-                if(!m_color_view) {
-                    auto color_image = Image::create(
-                        m_device, image_info, description.samples, "render target color image");
-                    m_color_view = std::make_shared<ImageView>(
-                        m_device, color_image, Flags<ImageAspect>(ImageAspect::Color));
-                    all_views.emplace_back(m_color_view);
-                }
-            }
-        }
-
-        m_frame_buffer = std::make_shared<FrameBuffer>(m_device, m_render_pass, all_views,
-            m_extent.x, m_extent.y);
-    }
-
-    std::shared_ptr<Image> OffscreenTarget::get_color_image() const {
-        return m_color_view ? m_color_view->get_image() : nullptr;
     }
 
     MultiTarget::MultiTarget(Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count) : RenderTarget(device, render_pass, size, frame_count) {

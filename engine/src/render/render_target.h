@@ -6,7 +6,6 @@
 #include <cstddef>
 
 namespace Comet {
-    class Image;
     class ImageView;
     class FrameBuffer;
     class RenderPass;
@@ -23,8 +22,6 @@ namespace Comet {
     public:
         static std::unique_ptr<RenderTarget> create_swapchain_target(Device& device, RenderPass& render_pass, Swapchain& swapchain);
 
-        static std::unique_ptr<RenderTarget> create_offscreen_target(Device& device, RenderPass& render_pass, Math::Vec2u size);
-
         static std::unique_ptr<RenderTarget> create_multi_target(Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);
 
         virtual ~RenderTarget() = default;
@@ -32,8 +29,6 @@ namespace Comet {
         virtual void recreate() = 0;
 
         void resize(uint32_t width, uint32_t height);
-
-        void set_frame_count(uint32_t frame_count);
 
         void set_clear_value(const ClearValue& clear_value);
 
@@ -50,9 +45,6 @@ namespace Comet {
         [[nodiscard]] virtual std::shared_ptr<FrameBuffer> get_framebuffer(uint32_t index) const = 0;
 
         [[nodiscard]] virtual std::shared_ptr<ImageView> get_color_view(uint32_t index) const = 0;
-
-        [[nodiscard]] uint32_t get_frame_count() const { return m_frame_count; }
-        [[nodiscard]] bool is_dirty() const { return m_needs_recreate; }
 
     protected:
         RenderTarget(Device& device, RenderPass& render_pass,
@@ -89,25 +81,6 @@ namespace Comet {
     private:
         Swapchain& m_swapchain;
         std::vector<RenderResource> m_render_resources;
-    };
-
-    class COMET_API OffscreenTarget final: public RenderTarget {
-    public:
-        OffscreenTarget(Device& device, RenderPass& render_pass, Math::Vec2u size);
-
-        ~OffscreenTarget() override;
-
-        void recreate() override;
-
-        [[nodiscard]] std::shared_ptr<FrameBuffer> get_framebuffer(const uint32_t index) const override { return m_frame_buffer; }
-
-        [[nodiscard]] std::shared_ptr<ImageView> get_color_view(uint32_t index) const override { return m_color_view; }
-
-        [[nodiscard]] std::shared_ptr<Image> get_color_image() const;
-
-    private:
-        std::shared_ptr<FrameBuffer> m_frame_buffer;
-        std::shared_ptr<ImageView> m_color_view;
     };
 
     class COMET_API MultiTarget final: public RenderTarget {

@@ -16,9 +16,11 @@ namespace Comet {
         [[nodiscard]] EntityUuid get_uuid() const;
 
         template<typename T, typename... Args>
+        requires (!is_scene_managed_component_v<T>)
         T& add_component(Args&&... args);
 
         template<typename T>
+        requires (!is_scene_read_only_component_v<T>)
         T& get_component();
 
         template<typename T>
@@ -28,6 +30,7 @@ namespace Comet {
         const T& get_component() const;
 
         template<typename T>
+        requires (!is_scene_managed_component_v<T>)
         void remove_component() const;
 
         [[nodiscard]] explicit operator bool() const;

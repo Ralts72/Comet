@@ -34,6 +34,8 @@ entities:
 
 当前内置 registry 支持 `name`、`transform`、`mesh_renderer` 和 `camera`。`name` 是 Scene 格式显式管理的必填字段，其余组件可选。
 `mesh_renderer.mesh` 和 `mesh_renderer.material` 保存 `AssetHandle` 的无符号整数值；源文件路径和 GPU 对象不会落盘。
+`NameComponent` 可以编辑但不能通过通用 Entity API 添加或移除；`IdComponent`、`UuidComponent`、
+`RelationshipComponent` 和 `WorldTransformComponent` 只允许只读访问，由 Scene 负责创建和维护。
 
 `SceneSerializer` 与 Inspector 共享同一个 `ComponentRegistry`。除 `name` 外，组件键和属性键来自 descriptor 的
 stable ID，值通过 descriptor 的类型访问器读写；只有 `serializable=true` 且非 transient 的属性会进入文件。

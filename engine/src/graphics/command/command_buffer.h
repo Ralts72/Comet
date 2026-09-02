@@ -63,18 +63,6 @@ namespace Comet {
         void draw_indexed(uint32_t index_count, uint32_t instance_count = 1, uint32_t first_index = 0,
                          int32_t vertex_offset = 0, uint32_t first_instance = 0) const;
 
-        void transition_image_state(
-            vk::Image image,
-            const ImageState& before,
-            const ImageState& after) const;
-
-        void transition_buffer_state(
-            vk::Buffer buffer,
-            const ResourceState& before,
-            const ResourceState& after,
-            vk::DeviceSize offset = 0,
-            vk::DeviceSize size = VK_WHOLE_SIZE) const;
-
         [[nodiscard]] vk::CommandBuffer get() const { return m_command_buffer; }
 
     private:
@@ -91,6 +79,18 @@ namespace Comet {
             uint32_t layer_count = 1,
             uint32_t mip_level = 0,
             vk::DeviceSize buffer_offset = 0) const;
+
+        void transition_image_state(
+            vk::Image image,
+            const ImageState& before,
+            const ImageState& after) const;
+
+        void transition_buffer_state(
+            vk::Buffer buffer,
+            const ResourceState& before,
+            const ResourceState& after,
+            vk::DeviceSize offset = 0,
+            vk::DeviceSize size = VK_WHOLE_SIZE) const;
 
         vk::CommandBuffer m_command_buffer;
     };

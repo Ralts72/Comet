@@ -3,6 +3,7 @@
 #include "scene/scene.h"
 #include "../test_utils.h"
 #include <algorithm>
+#include <concepts>
 #include <type_traits>
 #include <utility>
 
@@ -26,6 +27,36 @@ static_assert(!std::is_constructible_v<Entity, entt::entity, Scene*>,
               "Only Scene should create Entity handles");
 static_assert(!HasGetScene<Entity>::value, "Entity must not expose its owning Scene");
 static_assert(!HasGetHandle<Entity>::value, "Entity must not expose the raw entt handle");
+
+template<typename T>
+concept HasMutableComponentAccess = requires(Entity entity) {
+    { entity.get_component<T>() } -> std::same_as<T&>;
+};
+
+template<typename T>
+concept CanAddComponent = requires(Entity entity) {
+    entity.add_component<T>();
+};
+
+template<typename T>
+concept CanRemoveComponent = requires(Entity entity) {
+    entity.remove_component<T>();
+};
+
+static_assert(!HasMutableComponentAccess<IdComponent>);
+static_assert(!HasMutableComponentAccess<UuidComponent>);
+static_assert(!HasMutableComponentAccess<RelationshipComponent>);
+static_assert(!HasMutableComponentAccess<WorldTransformComponent>);
+static_assert(!CanAddComponent<IdComponent>);
+static_assert(!CanAddComponent<NameComponent>);
+static_assert(!CanAddComponent<RelationshipComponent>);
+static_assert(!CanRemoveComponent<UuidComponent>);
+static_assert(!CanRemoveComponent<NameComponent>);
+static_assert(!CanRemoveComponent<WorldTransformComponent>);
+static_assert(HasMutableComponentAccess<NameComponent>);
+static_assert(HasMutableComponentAccess<TransformComponent>);
+static_assert(CanAddComponent<CameraComponent>);
+static_assert(CanRemoveComponent<CameraComponent>);
 
 TEST(SceneTest, CreateEntityAddsDefaultComponents) {
     Scene scene;
@@ -252,17 +283,6 @@ TEST(SceneTest, EntityManagesCustomComponents) {
     entity.remove_component<HealthComponent>();
 
     EXPECT_FALSE(entity.has_component<HealthComponent>());
-}
-
-TEST(SceneTest, TransformComponentStoresLocalTRS) {
-    TransformComponent transform;
-    transform.translation = Math::Vec3(1.0f, 2.0f, 3.0f);
-    transform.rotation = Math::Vec3(0.0f, 1.0f, 2.0f);
-    transform.scale = Math::Vec3(2.0f, 3.0f, 4.0f);
-
-    EXPECT_TRUE(TestUtils::Vec3Equal(transform.translation, Math::Vec3(1.0f, 2.0f, 3.0f)));
-    EXPECT_TRUE(TestUtils::Vec3Equal(transform.rotation, Math::Vec3(0.0f, 1.0f, 2.0f)));
-    EXPECT_TRUE(TestUtils::Vec3Equal(transform.scale, Math::Vec3(2.0f, 3.0f, 4.0f)));
 }
 
 TEST(SceneTest, TransformComponentProvidesValueOperations) {

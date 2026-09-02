@@ -7,20 +7,10 @@
 #include <array>
 #include <cstddef>
 #include <filesystem>
-#include <fstream>
-#include <sstream>
+#include <stdexcept>
 #include <string>
 
 namespace Comet::Tests {
-    namespace {
-        std::string read_file(const std::filesystem::path& path) {
-            std::ifstream input(path, std::ios::binary);
-            std::ostringstream contents;
-            contents << input.rdbuf();
-            return contents.str();
-        }
-    }
-
     TEST(FileIoTest, AtomicallyCreatesAndReplacesTextFiles) {
         const std::filesystem::path root =
             std::filesystem::temp_directory_path()
@@ -29,10 +19,10 @@ namespace Comet::Tests {
         const std::filesystem::path path = root / "nested" / "asset.yaml";
 
         write_text_file_atomic(path, "first\n");
-        EXPECT_EQ(read_file(path), "first\n");
+        EXPECT_EQ(read_text_file(path), "first\n");
 
         write_text_file_atomic(path, "second value\n");
-        EXPECT_EQ(read_file(path), "second value\n");
+        EXPECT_EQ(read_text_file(path), "second value\n");
 
         std::size_t file_count = 0;
         for(const auto& entry:
@@ -58,7 +48,7 @@ namespace Comet::Tests {
 
         write_binary_file_atomic(path, contents);
 
-        const std::string stored = read_file(path);
+        const std::string stored = read_text_file(path);
         ASSERT_EQ(stored.size(), contents.size());
         EXPECT_EQ(static_cast<unsigned char>(stored[0]), 0x00);
         EXPECT_EQ(static_cast<unsigned char>(stored[1]), 0x7F);
@@ -66,5 +56,16 @@ namespace Comet::Tests {
 
         std::error_code error;
         std::filesystem::remove_all(root, error);
+    }
+
+    TEST(FileIoTest, RejectsMissingTextFile) {
+        const std::filesystem::path path =
+            std::filesystem::temp_directory_path()
+            / ("comet_missing_file_io_test_"
+               + std::to_string(AssetHandle::generate().value()));
+
+        EXPECT_THROW(
+            static_cast<void>(read_text_file(path)),
+            std::runtime_error);
     }
 }

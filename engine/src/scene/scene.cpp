@@ -24,12 +24,13 @@ namespace Comet {
         const entt::entity handle = m_registry.create();
         Entity entity(handle, this);
 
-        entity.add_component<IdComponent>(m_next_entity_id++);
-        entity.add_component<UuidComponent>(uuid);
-        entity.add_component<NameComponent>(name.empty() ? "Entity" : name);
-        entity.add_component<TransformComponent>();
-        entity.add_component<RelationshipComponent>();
-        entity.add_component<WorldTransformComponent>();
+        m_registry.emplace<IdComponent>(handle, m_next_entity_id++);
+        m_registry.emplace<UuidComponent>(handle, uuid);
+        m_registry.emplace<NameComponent>(
+            handle, name.empty() ? "Entity" : name);
+        m_registry.emplace<TransformComponent>(handle);
+        m_registry.emplace<RelationshipComponent>(handle);
+        m_registry.emplace<WorldTransformComponent>(handle);
 
         return entity;
     }

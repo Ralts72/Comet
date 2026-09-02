@@ -21,6 +21,7 @@
 #include <mutex>
 #include <queue>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -93,6 +94,77 @@ namespace Comet {
                 candidate.source_dependencies,
                 MeshImporter::OUTPUT_VERSION,
                 candidate.data);
+        }
+
+        bool validate_asset_handle(
+            const AssetHandle handle,
+            const std::string_view operation) {
+            if(handle) {
+                return true;
+            }
+            LOG_ERROR("Cannot {} with an invalid asset handle", operation);
+            return false;
+        }
+
+        const AssetRecord* find_asset_record(
+            const AssetDatabase& database,
+            const AssetHandle handle,
+            const AssetType expected_type) {
+            const AssetRecord* record = database.find(handle);
+            if(!record) {
+                LOG_ERROR("Asset handle {} is not indexed", handle.value());
+                return nullptr;
+            }
+            if(record->type != expected_type) {
+                LOG_ERROR(
+                    "Asset handle {} has type '{}', expected '{}'",
+                    handle.value(),
+                    to_string(record->type),
+                    to_string(expected_type));
+                return nullptr;
+            }
+            return record;
+        }
+
+        template<typename T>
+        struct RuntimeAssetLookup {
+            std::shared_ptr<T> asset;
+            bool type_conflict = false;
+        };
+
+        template<typename T>
+        RuntimeAssetLookup<T> find_runtime_asset(
+            const AssetRegistry& registry,
+            const AssetHandle handle) {
+            if(auto asset = registry.resolve<T>(handle)) {
+                return {.asset = std::move(asset)};
+            }
+            if(registry.contains(handle)) {
+                LOG_ERROR(
+                    "Asset handle {} is already registered with another runtime type",
+                    handle.value());
+                return {.type_conflict = true};
+            }
+            return {};
+        }
+
+        template<typename T>
+        bool publish_runtime_asset(
+            AssetRegistry& registry,
+            const AssetHandle handle,
+            const std::shared_ptr<T>& asset,
+            const bool replace_existing,
+            const std::string_view asset_type) {
+            const bool published = replace_existing
+                ? registry.replace_asset(handle, asset)
+                : registry.register_asset(handle, asset);
+            if(!published) {
+                LOG_ERROR(
+                    "Failed to publish runtime {} for asset handle {}",
+                    asset_type,
+                    handle.value());
+            }
+            return published;
         }
     }
 
@@ -327,31 +399,21 @@ namespace Comet {
 
     std::shared_ptr<Mesh> AssetManager::load_mesh(
         const AssetHandle handle) {
-        if(!handle) {
-            LOG_ERROR("Cannot load a mesh with an invalid asset handle");
+        if(!validate_asset_handle(handle, "load a mesh")) {
             return nullptr;
         }
 
-        if(const auto mesh = m_registry.resolve<Mesh>(handle)) {
-            return mesh;
+        const auto runtime = find_runtime_asset<Mesh>(m_registry, handle);
+        if(runtime.asset) {
+            return runtime.asset;
         }
-        if(m_registry.contains(handle)) {
-            LOG_ERROR(
-                "Asset handle {} is already registered with another runtime type",
-                handle.value());
+        if(runtime.type_conflict) {
             return nullptr;
         }
 
-        const AssetRecord* record = m_database.find(handle);
+        const AssetRecord* record = find_asset_record(
+            m_database, handle, AssetType::Mesh);
         if(!record) {
-            LOG_ERROR("Mesh asset handle {} is not indexed", handle.value());
-            return nullptr;
-        }
-        if(record->type != AssetType::Mesh) {
-            LOG_ERROR(
-                "Asset handle {} has type '{}', expected 'mesh'",
-                handle.value(),
-                to_string(record->type));
             return nullptr;
         }
         const AssetRevision revision = m_database.get_revision(handle);
@@ -367,10 +429,8 @@ namespace Comet {
                 revision);
             return nullptr;
         }
-        if(!m_registry.register_asset(handle, mesh)) {
-            LOG_ERROR(
-                "Failed to register runtime mesh for asset handle {}",
-                handle.value());
+        if(!publish_runtime_asset(
+               m_registry, handle, mesh, false, "mesh")) {
             return nullptr;
         }
         return mesh;
@@ -378,31 +438,21 @@ namespace Comet {
 
     std::shared_ptr<Texture> AssetManager::load_texture(
         const AssetHandle handle) {
-        if(!handle) {
-            LOG_ERROR("Cannot load a texture with an invalid asset handle");
+        if(!validate_asset_handle(handle, "load a texture")) {
             return nullptr;
         }
 
-        if(const auto texture = m_registry.resolve<Texture>(handle)) {
-            return texture;
+        const auto runtime = find_runtime_asset<Texture>(m_registry, handle);
+        if(runtime.asset) {
+            return runtime.asset;
         }
-        if(m_registry.contains(handle)) {
-            LOG_ERROR(
-                "Asset handle {} is already registered with another runtime type",
-                handle.value());
+        if(runtime.type_conflict) {
             return nullptr;
         }
 
-        const AssetRecord* record = m_database.find(handle);
+        const AssetRecord* record = find_asset_record(
+            m_database, handle, AssetType::Texture);
         if(!record) {
-            LOG_ERROR("Texture asset handle {} is not indexed", handle.value());
-            return nullptr;
-        }
-        if(record->type != AssetType::Texture) {
-            LOG_ERROR(
-                "Asset handle {} has type '{}', expected 'texture'",
-                handle.value(),
-                to_string(record->type));
             return nullptr;
         }
 
@@ -419,10 +469,8 @@ namespace Comet {
         if(!texture) {
             return nullptr;
         }
-        if(!m_registry.register_asset(handle, texture)) {
-            LOG_ERROR(
-                "Failed to register runtime texture for asset handle {}",
-                handle.value());
+        if(!publish_runtime_asset(
+               m_registry, handle, texture, false, "texture")) {
             return nullptr;
         }
         return texture;
@@ -431,31 +479,21 @@ namespace Comet {
     std::shared_ptr<Texture> AssetManager::reimport_texture(
         const AssetHandle handle,
         TextureImportSettings import_settings) {
-        if(!handle) {
-            LOG_ERROR("Cannot reimport a texture with an invalid asset handle");
+        if(!validate_asset_handle(handle, "reimport a texture")) {
             return nullptr;
         }
 
-        const AssetRecord* record = m_database.find(handle);
+        const AssetRecord* record = find_asset_record(
+            m_database, handle, AssetType::Texture);
         if(!record) {
-            LOG_ERROR("Texture asset handle {} is not indexed", handle.value());
-            return nullptr;
-        }
-        if(record->type != AssetType::Texture) {
-            LOG_ERROR(
-                "Asset handle {} has type '{}', expected 'texture'",
-                handle.value(),
-                to_string(record->type));
             return nullptr;
         }
 
-        const auto previous_texture = m_registry.resolve<Texture>(handle);
-        if(m_registry.contains(handle) && !previous_texture) {
-            LOG_ERROR(
-                "Asset handle {} is already registered with another runtime type",
-                handle.value());
+        const auto runtime = find_runtime_asset<Texture>(m_registry, handle);
+        if(runtime.type_conflict) {
             return nullptr;
         }
+        const auto& previous_texture = runtime.asset;
 
         std::vector<AssetHandle> dependent_materials;
         for(const AssetHandle dependent: m_database.get_dependents(handle)) {
@@ -479,13 +517,12 @@ namespace Comet {
             return nullptr;
         }
 
-        const bool published = previous_texture
-            ? m_registry.replace_asset(handle, texture)
-            : m_registry.register_asset(handle, texture);
-        if(!published) {
-            LOG_ERROR(
-                "Failed to publish reimported texture for asset handle {}",
-                handle.value());
+        if(!publish_runtime_asset(
+               m_registry,
+               handle,
+               texture,
+               static_cast<bool>(previous_texture),
+               "texture")) {
             return nullptr;
         }
 
@@ -508,31 +545,21 @@ namespace Comet {
 
     std::shared_ptr<Material> AssetManager::load_material(
         const AssetHandle handle) {
-        if(!handle) {
-            LOG_ERROR("Cannot load a material with an invalid asset handle");
+        if(!validate_asset_handle(handle, "load a material")) {
             return nullptr;
         }
 
-        if(const auto material = m_registry.resolve<Material>(handle)) {
-            return material;
+        const auto runtime = find_runtime_asset<Material>(m_registry, handle);
+        if(runtime.asset) {
+            return runtime.asset;
         }
-        if(m_registry.contains(handle)) {
-            LOG_ERROR(
-                "Asset handle {} is already registered with another runtime type",
-                handle.value());
+        if(runtime.type_conflict) {
             return nullptr;
         }
 
-        const AssetRecord* record = m_database.find(handle);
+        const AssetRecord* record = find_asset_record(
+            m_database, handle, AssetType::Material);
         if(!record) {
-            LOG_ERROR("Material asset handle {} is not indexed", handle.value());
-            return nullptr;
-        }
-        if(record->type != AssetType::Material) {
-            LOG_ERROR(
-                "Asset handle {} has type '{}', expected 'material'",
-                handle.value(),
-                to_string(record->type));
             return nullptr;
         }
 
@@ -540,10 +567,8 @@ namespace Comet {
         if(!material) {
             return nullptr;
         }
-        if(!m_registry.register_asset(handle, material)) {
-            LOG_ERROR(
-                "Failed to register runtime material for asset handle {}",
-                handle.value());
+        if(!publish_runtime_asset(
+               m_registry, handle, material, false, "material")) {
             return nullptr;
         }
         return material;
@@ -551,31 +576,21 @@ namespace Comet {
 
     std::shared_ptr<Material> AssetManager::reload_material(
         const AssetHandle handle) {
-        if(!handle) {
-            LOG_ERROR("Cannot reload a material with an invalid asset handle");
+        if(!validate_asset_handle(handle, "reload a material")) {
             return nullptr;
         }
 
-        const AssetRecord* record = m_database.find(handle);
+        const AssetRecord* record = find_asset_record(
+            m_database, handle, AssetType::Material);
         if(!record) {
-            LOG_ERROR("Material asset handle {} is not indexed", handle.value());
-            return nullptr;
-        }
-        if(record->type != AssetType::Material) {
-            LOG_ERROR(
-                "Asset handle {} has type '{}', expected 'material'",
-                handle.value(),
-                to_string(record->type));
             return nullptr;
         }
 
-        const bool has_runtime_asset = m_registry.contains(handle);
-        if(has_runtime_asset && !m_registry.resolve<Material>(handle)) {
-            LOG_ERROR(
-                "Asset handle {} is already registered with another runtime type",
-                handle.value());
+        const auto runtime = find_runtime_asset<Material>(m_registry, handle);
+        if(runtime.type_conflict) {
             return nullptr;
         }
+        const bool has_runtime_asset = static_cast<bool>(runtime.asset);
 
         MaterialData data;
         try {
@@ -599,13 +614,12 @@ namespace Comet {
             return nullptr;
         }
 
-        const bool published = has_runtime_asset
-            ? m_registry.replace_asset(handle, material)
-            : m_registry.register_asset(handle, material);
-        if(!published) {
-            LOG_ERROR(
-                "Failed to publish reloaded material for asset handle {}",
-                handle.value());
+        if(!publish_runtime_asset(
+               m_registry,
+               handle,
+               material,
+               has_runtime_asset,
+               "material")) {
             return nullptr;
         }
         LOG_INFO(
@@ -618,31 +632,21 @@ namespace Comet {
     std::shared_ptr<Material> AssetManager::update_material(
         const AssetHandle handle,
         const MaterialData& data) {
-        if(!handle) {
-            LOG_ERROR("Cannot update a material with an invalid asset handle");
+        if(!validate_asset_handle(handle, "update a material")) {
             return nullptr;
         }
 
-        const AssetRecord* record = m_database.find(handle);
+        const AssetRecord* record = find_asset_record(
+            m_database, handle, AssetType::Material);
         if(!record) {
-            LOG_ERROR("Material asset handle {} is not indexed", handle.value());
-            return nullptr;
-        }
-        if(record->type != AssetType::Material) {
-            LOG_ERROR(
-                "Asset handle {} has type '{}', expected 'material'",
-                handle.value(),
-                to_string(record->type));
             return nullptr;
         }
 
-        const bool has_runtime_asset = m_registry.contains(handle);
-        if(has_runtime_asset && !m_registry.resolve<Material>(handle)) {
-            LOG_ERROR(
-                "Asset handle {} is already registered with another runtime type",
-                handle.value());
+        const auto runtime = find_runtime_asset<Material>(m_registry, handle);
+        if(runtime.type_conflict) {
             return nullptr;
         }
+        const bool has_runtime_asset = static_cast<bool>(runtime.asset);
 
         const MaterialSerializer serializer;
         std::string serialized_data;
@@ -670,13 +674,12 @@ namespace Comet {
             return nullptr;
         }
 
-        const bool published = has_runtime_asset
-            ? m_registry.replace_asset(handle, material)
-            : m_registry.register_asset(handle, material);
-        if(!published) {
-            LOG_ERROR(
-                "Failed to publish updated material for asset handle {}",
-                handle.value());
+        if(!publish_runtime_asset(
+               m_registry,
+               handle,
+               material,
+               has_runtime_asset,
+               "material")) {
             return nullptr;
         }
         LOG_INFO(

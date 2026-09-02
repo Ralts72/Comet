@@ -70,16 +70,9 @@ namespace Comet {
         const Image& image,
         const ImageState& before,
         const ImageState& after) {
-        transition_image_state(image.get(), before, after);
-    }
-
-    void CommandContext::transition_image_state(
-        const vk::Image image,
-        const ImageState& before,
-        const ImageState& after) {
         ensure_recording();
 
-        m_command_buffer.transition_image_state(image, before, after);
+        m_command_buffer.transition_image_state(image.get(), before, after);
     }
 
     void CommandContext::transition_buffer_state(

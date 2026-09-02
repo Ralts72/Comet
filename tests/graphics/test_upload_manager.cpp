@@ -5,7 +5,6 @@
 #include "graphics/resource/image.h"
 
 #include <concepts>
-#include <gtest/gtest.h>
 #include <type_traits>
 
 namespace Comet::Tests {
@@ -134,38 +133,25 @@ namespace Comet::Tests {
                 0,
                 16);
         };
-    }
 
-    TEST(UploadManagerInterfaceTest, UsesExplicitOwnedBatches) {
-        EXPECT_TRUE(ReturnsUploadBatch<UploadManager>);
-        EXPECT_FALSE(SupportsOwnedBufferUpload<UploadManager>);
-        EXPECT_FALSE(SupportsRecoverableBufferUpload<UploadManager>);
-        EXPECT_TRUE(SupportsOwnedBufferUpload<UploadBatch>);
-        EXPECT_TRUE(SupportsRecoverableBufferUpload<UploadBatch>);
-        EXPECT_FALSE(SupportsRecoverableImageUpload<UploadManager>);
-        EXPECT_TRUE(SupportsOwnedImageUpload<UploadBatch>);
-        EXPECT_TRUE(SupportsRecoverableImageUpload<UploadBatch>);
-        EXPECT_FALSE(SupportsBorrowedBufferUpload<UploadBatch>);
-        EXPECT_TRUE(ReturnsGpuCompletion<UploadBatch>);
-        EXPECT_TRUE(ReturnsGpuCompletion<CommandContext>);
-        EXPECT_TRUE(SupportsBatchAbort<UploadBatch>);
-        EXPECT_FALSE(SupportsBatchAbort<UploadManager>);
-        EXPECT_TRUE(SupportsCommandDiscard<CommandContext>);
-    }
+        template<typename T>
+        concept SupportsRawImageTransition = requires(
+            T& context,
+            const vk::Image image,
+            const ImageState& before,
+            const ImageState& after) {
+            context.transition_image_state(image, before, after);
+        };
 
-    TEST(UploadManagerInterfaceTest, HasSingleOwnerThreadSemantics) {
-        EXPECT_FALSE(std::is_copy_constructible_v<UploadManager>);
-        EXPECT_FALSE(std::is_copy_assignable_v<UploadManager>);
-        EXPECT_FALSE(std::is_move_constructible_v<UploadManager>);
-        EXPECT_FALSE(std::is_move_assignable_v<UploadManager>);
-        EXPECT_FALSE(std::is_copy_constructible_v<UploadBatch>);
-        EXPECT_FALSE(std::is_copy_assignable_v<UploadBatch>);
-        EXPECT_FALSE(std::is_move_constructible_v<UploadBatch>);
-        EXPECT_FALSE(std::is_move_assignable_v<UploadBatch>);
-        EXPECT_FALSE((std::is_constructible_v<UploadBatch, UploadManager&>));
-    }
+        template<typename T>
+        concept SupportsRawBufferTransition = requires(
+            T& context,
+            const vk::Buffer buffer,
+            const ResourceState& before,
+            const ResourceState& after) {
+            context.transition_buffer_state(buffer, before, after);
+        };
 
-    TEST(UploadManagerInterfaceTest, SeparatesAllocationFromUploadData) {
         using GpuBufferFactory = decltype(&Buffer::create_gpu_buffer);
         using RecoverableGpuBufferFactory =
             decltype(&Buffer::try_create_gpu_buffer);
@@ -173,28 +159,53 @@ namespace Comet::Tests {
             decltype(&Buffer::try_create_upload_buffer);
         using UploadBufferFactory = decltype(&Buffer::create_upload_buffer);
 
-        EXPECT_TRUE((std::is_invocable_v<
+        static_assert(ReturnsUploadBatch<UploadManager>);
+        static_assert(!SupportsOwnedBufferUpload<UploadManager>);
+        static_assert(!SupportsRecoverableBufferUpload<UploadManager>);
+        static_assert(SupportsOwnedBufferUpload<UploadBatch>);
+        static_assert(SupportsRecoverableBufferUpload<UploadBatch>);
+        static_assert(!SupportsRecoverableImageUpload<UploadManager>);
+        static_assert(SupportsOwnedImageUpload<UploadBatch>);
+        static_assert(SupportsRecoverableImageUpload<UploadBatch>);
+        static_assert(!SupportsBorrowedBufferUpload<UploadBatch>);
+        static_assert(ReturnsGpuCompletion<UploadBatch>);
+        static_assert(ReturnsGpuCompletion<CommandContext>);
+        static_assert(SupportsBatchAbort<UploadBatch>);
+        static_assert(!SupportsBatchAbort<UploadManager>);
+        static_assert(SupportsCommandDiscard<CommandContext>);
+
+        static_assert(!std::is_copy_constructible_v<UploadManager>);
+        static_assert(!std::is_copy_assignable_v<UploadManager>);
+        static_assert(!std::is_move_constructible_v<UploadManager>);
+        static_assert(!std::is_move_assignable_v<UploadManager>);
+        static_assert(!std::is_copy_constructible_v<UploadBatch>);
+        static_assert(!std::is_copy_assignable_v<UploadBatch>);
+        static_assert(!std::is_move_constructible_v<UploadBatch>);
+        static_assert(!std::is_move_assignable_v<UploadBatch>);
+        static_assert(!std::is_constructible_v<UploadBatch, UploadManager&>);
+
+        static_assert(std::is_invocable_v<
             GpuBufferFactory,
             Device&,
             Flags<BufferUsage>,
             size_t,
-            std::string_view>));
-        EXPECT_FALSE((std::is_invocable_v<
+            std::string_view>);
+        static_assert(!std::is_invocable_v<
             GpuBufferFactory,
             Device&,
             Flags<BufferUsage>,
             size_t,
             const void*,
-            std::string_view>));
-        EXPECT_TRUE((std::is_invocable_r_v<
+            std::string_view>);
+        static_assert(std::is_invocable_r_v<
             GpuResourceResult<std::shared_ptr<Buffer>>,
             RecoverableGpuBufferFactory,
             Device&,
             Flags<BufferUsage>,
             size_t,
             bool,
-            std::string_view>));
-        EXPECT_TRUE((std::is_invocable_r_v<
+            std::string_view>);
+        static_assert(std::is_invocable_r_v<
             GpuResourceResult<std::shared_ptr<CPUBuffer>>,
             RecoverableUploadBufferFactory,
             Device&,
@@ -202,8 +213,8 @@ namespace Comet::Tests {
             size_t,
             bool,
             const void*,
-            std::string_view>));
-        EXPECT_TRUE((std::same_as<
+            std::string_view>);
+        static_assert(std::same_as<
             std::invoke_result_t<
                 UploadBufferFactory,
                 Device&,
@@ -211,32 +222,35 @@ namespace Comet::Tests {
                 size_t,
                 const void*,
                 std::string_view>,
-            std::shared_ptr<CPUBuffer>>));
-        EXPECT_FALSE((std::is_constructible_v<
+            std::shared_ptr<CPUBuffer>>);
+        static_assert(!std::is_constructible_v<
             GPUBuffer,
             Device&,
             Flags<BufferUsage>,
             size_t,
-            std::string_view>));
-        EXPECT_FALSE((std::is_constructible_v<
+            std::string_view>);
+        static_assert(!std::is_constructible_v<
             CPUBuffer,
             Device&,
             Flags<BufferUsage>,
             size_t,
             const void*,
             AllocationUsage,
-            std::string_view>));
-    }
+            std::string_view>);
 
-    TEST(UploadManagerInterfaceTest, SupportsStagingPageSuballocations) {
-        constexpr UploadManager::CreateInfo create_info;
-
-        EXPECT_EQ(create_info.staging_page_size, 4U * 1024U * 1024U);
-        EXPECT_EQ(create_info.max_cached_staging_pages, 4U);
-        EXPECT_EQ(create_info.memory_pressure_threshold_percent, 90U);
-        EXPECT_TRUE(SupportsRangedBufferCopy<CommandContext>);
-        EXPECT_TRUE(SupportsOffsetImageCopy<CommandContext>);
-        EXPECT_FALSE(SupportsRawBufferCopy<CommandContext>);
-        EXPECT_FALSE(SupportsRawImageCopy<CommandContext>);
+        constexpr UploadManager::CreateInfo DEFAULT_CREATE_INFO;
+        static_assert(
+            DEFAULT_CREATE_INFO.staging_page_size == 4U * 1024U * 1024U);
+        static_assert(DEFAULT_CREATE_INFO.max_cached_staging_pages == 4U);
+        static_assert(
+            DEFAULT_CREATE_INFO.memory_pressure_threshold_percent == 90U);
+        static_assert(SupportsRangedBufferCopy<CommandContext>);
+        static_assert(SupportsOffsetImageCopy<CommandContext>);
+        static_assert(!SupportsRawBufferCopy<CommandContext>);
+        static_assert(!SupportsRawImageCopy<CommandContext>);
+        static_assert(!SupportsRawImageTransition<CommandContext>);
+        static_assert(!SupportsRawImageTransition<CommandBuffer>);
+        static_assert(!SupportsRawBufferTransition<CommandContext>);
+        static_assert(!SupportsRawBufferTransition<CommandBuffer>);
     }
 }

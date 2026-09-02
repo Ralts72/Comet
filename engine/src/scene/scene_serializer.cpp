@@ -1,6 +1,7 @@
 #include "scene/scene_serializer.h"
 
 #include "common/file_io.h"
+#include "common/yaml_utils.h"
 #include "scene/component_registry.h"
 #include "scene/components.h"
 #include "scene/scene.h"
@@ -9,10 +10,8 @@
 #include <charconv>
 #include <cmath>
 #include <filesystem>
-#include <fstream>
 #include <initializer_list>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -56,20 +55,10 @@ namespace Comet {
                 + std::string(location) + "': " + detail);
         }
 
-        void require_map(const YAML::Node& node,
-                         const std::string_view source,
-                         const std::string_view location) {
-            if(!node.IsDefined() || !node.IsMap()) {
-                throw scene_error(source, location, "expected a mapping");
-            }
-        }
-
         void require_sequence(const YAML::Node& node,
                               const std::string_view source,
                               const std::string_view location) {
-            if(!node.IsDefined() || !node.IsSequence()) {
-                throw scene_error(source, location, "expected a sequence");
-            }
+            Yaml::require_sequence(node, source, location, scene_error);
         }
 
         template<typename AllowedKeys>
@@ -77,25 +66,8 @@ namespace Comet {
                               const AllowedKeys& allowed,
                               const std::string_view source,
                               const std::string_view location) {
-            require_map(node, source, location);
-            std::unordered_set<std::string> keys;
-            for(const auto& entry: node) {
-                std::string key;
-                try {
-                    key = entry.first.as<std::string>();
-                } catch(const YAML::Exception&) {
-                    throw scene_error(source, location, "expected string keys");
-                }
-
-                if(!keys.insert(key).second) {
-                    throw scene_error(
-                        source, location, "duplicate field '" + key + "'");
-                }
-                if(std::ranges::find(allowed, key) == allowed.end()) {
-                    throw scene_error(
-                        source, location, "unknown field '" + key + "'");
-                }
-            }
+            Yaml::validate_keys(
+                node, allowed, source, location, scene_error);
         }
 
         void validate_keys(const YAML::Node& node,
@@ -116,14 +88,8 @@ namespace Comet {
                                   const std::string_view key,
                                   const std::string_view source,
                                   const std::string_view location) {
-            const YAML::Node child = node[std::string(key)];
-            if(!child.IsDefined()) {
-                throw scene_error(
-                    source,
-                    location,
-                    "missing required field '" + std::string(key) + "'");
-            }
-            return child;
+            return Yaml::required_child(
+                node, key, source, location, scene_error);
         }
 
         template<typename T>
@@ -131,16 +97,8 @@ namespace Comet {
                       const std::string_view source,
                       const std::string_view location,
                       const std::string_view expected) {
-            if(!node.IsDefined() || !node.IsScalar()) {
-                throw scene_error(
-                    source, location, "expected " + std::string(expected));
-            }
-            try {
-                return node.as<T>();
-            } catch(const YAML::Exception&) {
-                throw scene_error(
-                    source, location, "expected " + std::string(expected));
-            }
+            return Yaml::read_scalar<T>(
+                node, source, location, expected, scene_error);
         }
 
         template<typename T>
@@ -749,16 +707,6 @@ namespace Comet {
 
     std::unique_ptr<Scene> SceneSerializer::load(
         const std::string& path) const {
-        std::ifstream input(path, std::ios::binary);
-        if(!input.is_open()) {
-            throw std::runtime_error("Scene file not found: " + path);
-        }
-
-        std::ostringstream contents;
-        contents << input.rdbuf();
-        if(input.bad()) {
-            throw std::runtime_error("Failed to read scene: " + path);
-        }
-        return deserialize(contents.str(), path);
+        return deserialize(read_text_file(path), path);
     }
 }

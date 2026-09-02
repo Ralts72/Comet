@@ -38,11 +38,6 @@ namespace Comet {
             const ImageState& before,
             const ImageState& after);
 
-        void transition_image_state(
-            vk::Image image,
-            const ImageState& before,
-            const ImageState& after);
-
         void transition_buffer_state(
             const Buffer& buffer,
             const ResourceState& before,

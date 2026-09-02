@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <fstream>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -107,6 +108,22 @@ namespace Comet {
                 throw;
             }
         }
+    }
+
+    std::string read_text_file(const std::filesystem::path& path) {
+        std::ifstream input(path, std::ios::binary);
+        if(!input) {
+            throw std::runtime_error(
+                "Failed to open file '" + path.string() + "'");
+        }
+
+        std::ostringstream contents;
+        contents << input.rdbuf();
+        if(input.bad()) {
+            throw std::runtime_error(
+                "Failed to read file '" + path.string() + "'");
+        }
+        return contents.str();
     }
 
     void write_binary_file_atomic(
