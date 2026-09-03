@@ -23,7 +23,7 @@ namespace Comet {
 
     std::shared_ptr<Mesh> ResourceManager::create_mesh(
         const MeshData& data) {
-        return std::make_shared<Mesh>(m_device, *m_upload_manager, data);
+        return Mesh::create(m_device, *m_upload_manager, data);
     }
 
     void ResourceManager::collect_completed_uploads() {

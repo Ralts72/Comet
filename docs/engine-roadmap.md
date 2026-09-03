@@ -853,8 +853,8 @@ Viewport 均已接通。Scene 不持有路径或 GPU Resource，`LightComponent`
 
 剩余任务：
 
-- 将 Buffer/Image 的可恢复创建契约提升到 Runtime Mesh/Texture：全部 allocation 成功后才提交 UploadBatch，失败时不发布
-  半初始化资源，并由 AssetManager 保留旧版本或使用占位资源。
+- 将 Image 的可恢复创建契约提升到 Runtime Texture：Image 与 ImageView 全部分配成功后才提交 UploadBatch，失败时不发布
+  半初始化资源；Mesh 已完成同类事务式创建。随后由 AssetManager 保留旧版本或使用占位资源。
 - 为非关键 streaming 资源建立占位、重试或淘汰策略后，再选择性启用 `WITHIN_BUDGET`；RenderTarget 等关键资源继续强失败。
 - 完成项目创建、打开和校验，以及资产改名、移动时连同 `.meta` 保持引用稳定的编辑器操作。
 - 让 `Device` 提供实际启用 feature、extension、queue、limit 和 format 的不可变 CapabilitySet。
@@ -1109,7 +1109,7 @@ Scene Component / RenderItem
 
 ## 当前优先级
 
-1. 完成阶段 3 的 Runtime Mesh/Texture 事务式创建、可恢复预算失败和资产移动/改名闭环。
+1. 完成阶段 3 的 Runtime Texture 事务式创建、可恢复预算失败和资产移动/改名闭环。
 2. 推进阶段 4A/4B：editor-only Camera、Viewport 输入、HiDPI 与渲染分辨率策略。
 3. 推进阶段 4C：拾取、Gizmo、Undo/Redo 和 Prefab MVP。
 4. 进入阶段 5 后先解除材质两张 Texture 的硬编码，再建立 ShaderInterface、MaterialLayout 和 PipelineKey。
@@ -1119,8 +1119,9 @@ Scene Component / RenderItem
 
 ## 下一步
 
-先完成 **Runtime Mesh/Texture 的事务式尝试创建**：全部目标 allocation 成功后再提交 UploadBatch；任何一步失败都不发布
-半初始化对象，由 ResourceManager 将错误交给 AssetManager 保留旧资源。关键 RenderTarget 继续使用明确的强失败路径。
+先完成 **Runtime Texture 的事务式尝试创建**：Image 与 ImageView 全部创建成功后再提交 UploadBatch；任何一步失败都不
+发布半初始化对象，再由 ResourceManager 将错误交给 AssetManager 保留旧资源。Mesh 已完成同类事务式创建，关键
+RenderTarget 继续使用明确的强失败路径。
 
 格式演进保持以下边界：运行配置继续使用 YAML；项目文档只在编辑器写入链路和 Schema 稳定后整体评估 JSON 迁移；
 `.comet/cache/` 与 Shipping 资源继续使用面向 Runtime 的二进制产物和索引。

@@ -108,9 +108,10 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
   memory budget，高压力时可销毁空闲页，但绝不回收 active/pending batch 拥有的页。
 - recoverable `UploadBatch::try_enqueue_upload()` 在 staging 失败时 abort 整个 active batch：先 discard 未提交
   CommandContext，再释放目标引用并回收 page；pending batch 已有 completion，不能 abort，只能等待正常回收。
-- `Mesh` / `Texture`：持有 Runtime GPU 对象和创建它们的 ready completion；创建返回不等待 CPU。当前 upload 与 draw
-  使用同一 graphics queue；SceneRenderer 根据实际绑定用途把 completion 编译为准确 stage 的 timeline wait，因此未来
-  切换 transfer queue 不改变资源与资产接口。
+- `Mesh` / `Texture`：持有 Runtime GPU 对象和创建它们的 ready completion；创建返回不等待 CPU。Mesh 通过静态工厂先
+  完成全部目标 Buffer 分配，再以可回滚 batch enqueue，提交成功后才发布 Runtime wrapper；其公开对象不表达“正在构造”
+  的中间状态。当前 upload 与 draw 使用同一 graphics queue；SceneRenderer 根据实际绑定用途把 completion 编译为准确
+  stage 的 timeline wait，因此未来切换 transfer queue 不改变资源与资产接口。
 - `FrameScheduler`：拥有 FrameSlot 轮转、fence 等待、swapchain image 关联、submission serial 和当前 slot 的
   RetainedResources；实际 draw 的 Mesh/Texture owner 在该 slot fence 完成后统一释放。
 - `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。
