@@ -101,9 +101,7 @@ namespace Comet {
         }
     }
 
-    Context::Context(
-        const Window& window,
-        const Config::Vulkan& config,
+    Context::Context(const Window& window, const Config::Vulkan& config,
         const DeviceCapabilityRequest& capability_request) {
         create_instance(config.enable_validation);
         create_surface(window);
@@ -238,8 +236,7 @@ namespace Comet {
 
         m_device_capability = select_physical_device(
             m_instance.enumeratePhysicalDevices(),
-            m_surface,
-            capability_request);
+            m_surface, capability_request);
     }
 
     void Context::create_surface(const Window& window) {

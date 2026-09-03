@@ -123,7 +123,7 @@ namespace {
             auto& scene_renderer = renderer.get_scene_renderer();
 
             const auto& swapchain = render_context.get_swapchain();
-            renderer.enable_viewport_rendering(
+            renderer.enable_offscreen_rendering(
                 Comet::Math::Vec2u(swapchain.get_width(), swapchain.get_height()));
 
             m_imgui_context = std::make_unique<CometEditor::ImGuiContext>(
@@ -171,7 +171,7 @@ namespace {
             setup_panels(scene);
 
             m_imgui_context->set_viewport_images(
-                scene_renderer.get_viewport_color_views(),
+                scene_renderer.get_offscreen_color_views(),
                 renderer.get_resource_manager().get_sampler_manager().get_nearest_clamp());
 
             // 注册 ImGui 渲染回调
@@ -203,14 +203,14 @@ namespace {
         void update_viewport_state() {
             if(const auto resize_request =
                    m_viewport_panel->take_resize_request()) {
-                get_engine().get_renderer().resize_viewport(*resize_request);
+                get_engine().get_renderer().resize_offscreen_target(*resize_request);
             }
         }
 
         void update_viewport_texture(Comet::SceneRenderer& scene_renderer) {
             auto& renderer = get_engine().get_renderer();
             m_imgui_context->set_viewport_images(
-                scene_renderer.get_viewport_color_views(),
+                scene_renderer.get_offscreen_color_views(),
                 renderer.get_resource_manager().get_sampler_manager().get_nearest_clamp());
 
             const uint32_t frame_slot =

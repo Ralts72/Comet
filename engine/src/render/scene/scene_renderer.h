@@ -10,7 +10,6 @@
 #include "graphics/pipeline/pipeline.h"
 #include "graphics/render_pass.h"
 #include "graphics/resource/sampler.h"
-#include "graphics/pipeline/vertex_description.h"
 #include "graphics/vk_common.h"
 #include "render/resource/mesh.h"
 #include "render/render_context.h"
@@ -27,7 +26,6 @@
 
 namespace Comet {
     class ResourceManager;
-    class VertexInputDescription;
 
     class COMET_API SceneRenderer {
     public:
@@ -38,15 +36,11 @@ namespace Comet {
 
         void setup_render_pass();
 
-        void setup_viewport_render_pass(Math::Vec2u size);
+        void setup_offscreen_render_pass(Math::Vec2u size);
 
-        std::shared_ptr<DescriptorSetLayout> create_descriptor_set_layout(const DescriptorSetLayoutBindings& bindings);
+        void setup_pipeline(ResourceManager& resource_manager);
 
-        void setup_pipeline(ResourceManager& resource_manager,
-                            const ShaderLayout& layout,
-                            const PipelineConfig& config);
-
-        [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(
+        [[nodiscard]] std::vector<QueueSemaphoreSubmit> render_scene_pass(
             const RenderSubmission& submission);
 
         [[nodiscard]] bool begin_frame();
@@ -54,9 +48,7 @@ namespace Comet {
         void end_frame(
             std::span<const QueueSemaphoreSubmit> resource_waits);
 
-        void end_render_pass() const;
-
-        void resize_viewport(Math::Vec2u size);
+        void resize_offscreen_target(Math::Vec2u size);
 
         [[nodiscard]] FrameScheduler& get_frame_scheduler() {
             return *m_frame_scheduler;
@@ -67,7 +59,7 @@ namespace Comet {
         [[nodiscard]] RenderTarget& get_render_target() { return *m_render_target; }
         [[nodiscard]] const RenderTarget& get_render_target() const { return *m_render_target; }
         [[nodiscard]] CommandBuffer& get_current_command_buffer() const;
-        [[nodiscard]] std::vector<std::shared_ptr<ImageView>> get_viewport_color_views() const;
+        [[nodiscard]] std::vector<std::shared_ptr<ImageView>> get_offscreen_color_views() const;
 
         [[nodiscard]] bool recreate_swapchain();
 
@@ -94,6 +86,9 @@ namespace Comet {
             const std::shared_ptr<Buffer>& view_project_buffer,
             const Sampler& sampler);
 
+        std::shared_ptr<DescriptorSetLayout> create_descriptor_set_layout(
+            const DescriptorSetLayoutBindings& bindings);
+
         void render_item(const ResolvedRenderItem& render_item,
                          const DescriptorSet& descriptor_set) const;
 
@@ -111,7 +106,7 @@ namespace Comet {
         std::unique_ptr<PipelineManager> m_pipeline_manager;
         std::unique_ptr<FrameScheduler> m_frame_scheduler;
         std::unique_ptr<RenderTarget> m_render_target;
-        bool m_uses_viewport_target = false;
+        bool m_uses_offscreen_target = false;
         std::shared_ptr<Pipeline> m_pipeline;
         std::shared_ptr<Sampler> m_default_sampler;
         std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;

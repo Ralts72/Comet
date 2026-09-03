@@ -13,6 +13,7 @@
 #include "graphics/render_pass.h"
 #include "graphics/attachment.h"
 #include "graphics/pipeline/vertex_description.h"
+#include "render/resource/mesh_data.h"
 #include "render/resource/resource_manager.h"
 
 #include <algorithm>
@@ -118,15 +119,15 @@ namespace Comet {
             m_context.get_swapchain().get_images().size());
         m_frame_scheduler->initialize_swapchain_images(image_count);
 
-        m_uses_viewport_target = false;
+        m_uses_offscreen_target = false;
     }
 
-    void SceneRenderer::setup_viewport_render_pass(const Math::Vec2u size) {
+    void SceneRenderer::setup_offscreen_render_pass(const Math::Vec2u size) {
         if(size.x == 0 || size.y == 0) {
-            LOG_FATAL("Viewport render target size must be greater than zero");
+            LOG_FATAL("Offscreen render target size must be greater than zero");
         }
 
-        LOG_INFO("create viewport render pass at {}x{}", size.x, size.y);
+        LOG_INFO("create offscreen render pass at {}x{}", size.x, size.y);
         reset_render_pipeline();
 
         Attachment color_attachment = Attachment::get_color_attachment(
@@ -161,7 +162,7 @@ namespace Comet {
             m_frame_scheduler->get_frame_slot_count());
         set_render_target_clear_color();
 
-        m_uses_viewport_target = true;
+        m_uses_offscreen_target = true;
     }
 
     std::shared_ptr<DescriptorSetLayout> SceneRenderer::create_descriptor_set_layout(const DescriptorSetLayoutBindings& bindings) {
@@ -172,10 +173,32 @@ namespace Comet {
         return m_descriptor_set_layout;
     }
 
-    void SceneRenderer::setup_pipeline(ResourceManager& resource_manager,
-                                       const ShaderLayout& layout,
-                                       const PipelineConfig& config) {
+    void SceneRenderer::setup_pipeline(ResourceManager& resource_manager) {
         LOG_INFO("setup pipeline");
+
+        DescriptorSetLayoutBindings bindings;
+        bindings.add_binding(0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
+        bindings.add_binding(2, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
+        bindings.add_binding(3, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
+        auto descriptor_set_layout = create_descriptor_set_layout(bindings);
+
+        ShaderLayout layout = {};
+        layout.descriptor_set_layouts.push_back(descriptor_set_layout);
+        layout.push_constants.push_back(std::make_shared<PushConstantRange>(
+            ShaderStage::Vertex, 0, sizeof(PushConstant)));
+
+        VertexInputDescription vertex_input_description;
+        vertex_input_description.add_binding(0, sizeof(MeshVertex), VertexInputRate::Vertex);
+        vertex_input_description.add_attribute(0, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, position));
+        vertex_input_description.add_attribute(1, 0, Format::R32G32_SFLOAT, offsetof(MeshVertex, texcoord));
+        vertex_input_description.add_attribute(2, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, normal));
+
+        PipelineConfig pipeline_config = {};
+        pipeline_config.set_vertex_input_state(vertex_input_description);
+        pipeline_config.set_input_assembly_state(Topology::TriangleList);
+        pipeline_config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
+        pipeline_config.enable_depth_test();
+        pipeline_config.set_multisample_state(m_msaa_samples, false, 0.2f);
 
         // 创建着色器
         const auto vert_shader = resource_manager.get_shader_manager().load_shader(
@@ -186,7 +209,7 @@ namespace Comet {
 
         // 创建 Pipeline
         m_pipeline = m_pipeline_manager->create_pipeline(
-            "cube_pipeline", layout, config, vert_shader, frag_shader);
+            "cube_pipeline", layout, pipeline_config, vert_shader, frag_shader);
     }
 
     const DescriptorSet& SceneRenderer::prepare_material_descriptor_set(
@@ -239,56 +262,66 @@ namespace Comet {
         return descriptor_set;
     }
 
-    std::vector<QueueSemaphoreSubmit> SceneRenderer::render(
+    std::vector<QueueSemaphoreSubmit> SceneRenderer::render_scene_pass(
         const RenderSubmission& submission) {
-        PROFILE_SCOPE("SceneRenderer::render");
+        PROFILE_SCOPE("SceneRenderer::render_scene_pass");
 
-        if(!submission.view_project_matrix) return {};
-
-        if(!m_pipeline || !m_default_sampler) {
-            LOG_ERROR("SceneRenderer resources are not set up. Call setup_pipeline() first.");
-            return {};
-        }
-
-        const uint32_t frame_slot_index =
-                m_frame_scheduler->get_current_frame_slot_index();
-        const auto& view_project_buffer =
-                m_view_project_uniform_buffers.at(frame_slot_index);
-        std::static_pointer_cast<CPUBuffer>(view_project_buffer)->write(
-            &*submission.view_project_matrix);
-
-        const auto& command_buffer =
+        auto& command_buffer =
                 m_frame_scheduler->get_current_command_buffer();
-        command_buffer.bind_pipeline(*m_pipeline);
-
-        const auto size = m_render_target->get_size();
-        command_buffer.set_viewport(Graphics::get_viewport(
-            static_cast<float>(size.x), static_cast<float>(size.y)));
-        command_buffer.set_scissor(Graphics::get_scissor(
-            static_cast<float>(size.x), static_cast<float>(size.y)));
+        if(m_uses_offscreen_target) {
+            m_render_target->begin_render_target(
+                command_buffer,
+                m_frame_scheduler->get_current_frame_slot_index());
+        } else {
+            m_render_target->begin_render_target(command_buffer);
+        }
 
         std::vector<QueueSemaphoreSubmit> resource_waits;
-        for(const ResolvedRenderItem& item: submission.render_items) {
-            m_frame_scheduler->retain_current_frame_resource(item.mesh);
-            append_resource_wait(
-                resource_waits,
-                item.mesh->get_ready_completion(),
-                Flags<PipelineStage>(PipelineStage::VertexInput));
-            for(const auto& texture: item.material.textures) {
-                m_frame_scheduler->retain_current_frame_resource(texture);
-                append_resource_wait(
-                    resource_waits,
-                    texture->get_ready_completion(),
-                    Flags<PipelineStage>(PipelineStage::FragmentShader));
+        if(submission.view_project_matrix) {
+            if(!m_pipeline || !m_default_sampler) {
+                LOG_ERROR("SceneRenderer resources are not set up. Call setup_pipeline() first.");
+            } else {
+                const uint32_t frame_slot_index =
+                        m_frame_scheduler->get_current_frame_slot_index();
+                const auto& view_project_buffer =
+                        m_view_project_uniform_buffers.at(frame_slot_index);
+                std::static_pointer_cast<CPUBuffer>(view_project_buffer)->write(
+                    &*submission.view_project_matrix);
+
+                command_buffer.bind_pipeline(*m_pipeline);
+
+                const auto size = m_render_target->get_size();
+                command_buffer.set_viewport(Graphics::get_viewport(
+                    static_cast<float>(size.x), static_cast<float>(size.y)));
+                command_buffer.set_scissor(Graphics::get_scissor(
+                    static_cast<float>(size.x), static_cast<float>(size.y)));
+
+                for(const ResolvedRenderItem& item: submission.render_items) {
+                    m_frame_scheduler->retain_current_frame_resource(item.mesh);
+                    append_resource_wait(
+                        resource_waits,
+                        item.mesh->get_ready_completion(),
+                        Flags<PipelineStage>(PipelineStage::VertexInput));
+                    for(const auto& texture: item.material.textures) {
+                        m_frame_scheduler->retain_current_frame_resource(texture);
+                        append_resource_wait(
+                            resource_waits,
+                            texture->get_ready_completion(),
+                            Flags<PipelineStage>(PipelineStage::FragmentShader));
+                    }
+                    const DescriptorSet& descriptor_set =
+                            prepare_material_descriptor_set(
+                                item.material,
+                                view_project_buffer,
+                                *m_default_sampler);
+                    render_item(item, descriptor_set);
+                }
+                remove_completed_resource_waits(resource_waits);
             }
-            const DescriptorSet& descriptor_set =
-                    prepare_material_descriptor_set(
-                        item.material,
-                        view_project_buffer,
-                        *m_default_sampler);
-            render_item(item, descriptor_set);
         }
-        remove_completed_resource_waits(resource_waits);
+
+        m_render_target->end_render_target(command_buffer);
+        collect_completed_material_descriptors();
         return resource_waits;
     }
 
@@ -297,7 +330,6 @@ namespace Comet {
         m_frame_scheduler->wait_for_current_slot();
         m_context.get_device().set_allocator_frame_index(
             m_frame_scheduler->get_current_frame_serial());
-        collect_completed_material_descriptors();
 
         auto& swapchain = m_context.get_swapchain();
         auto& frame_slot = m_frame_scheduler->get_current_frame_slot();
@@ -320,13 +352,6 @@ namespace Comet {
         auto& command_buffer =
                 m_frame_scheduler->get_current_command_buffer();
         command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-        if(m_uses_viewport_target) {
-            m_render_target->begin_render_target(
-                command_buffer,
-                m_frame_scheduler->get_current_frame_slot_index());
-        } else {
-            m_render_target->begin_render_target(command_buffer);
-        }
 
         return true;
     }
@@ -408,13 +433,8 @@ namespace Comet {
         m_frame_scheduler->end_frame();
     }
 
-    void SceneRenderer::end_render_pass() const {
-        m_render_target->end_render_target(
-            m_frame_scheduler->get_current_command_buffer());
-    }
-
-    void SceneRenderer::resize_viewport(const Math::Vec2u size) {
-        if(!m_uses_viewport_target || size.x == 0 || size.y == 0) {
+    void SceneRenderer::resize_offscreen_target(const Math::Vec2u size) {
+        if(!m_uses_offscreen_target || size.x == 0 || size.y == 0) {
             return;
         }
         if(m_render_target->get_size() == size) {
@@ -429,9 +449,9 @@ namespace Comet {
         return m_frame_scheduler->get_current_command_buffer();
     }
 
-    std::vector<std::shared_ptr<ImageView>> SceneRenderer::get_viewport_color_views() const {
+    std::vector<std::shared_ptr<ImageView>> SceneRenderer::get_offscreen_color_views() const {
         std::vector<std::shared_ptr<ImageView>> color_views;
-        if(!m_uses_viewport_target) {
+        if(!m_uses_offscreen_target) {
             return color_views;
         }
 
@@ -452,7 +472,7 @@ namespace Comet {
             return false;
         }
 
-        if(!m_uses_viewport_target) {
+        if(!m_uses_offscreen_target) {
             m_render_target = RenderTarget::create_swapchain_target(
                 m_context.get_device(), *m_render_pass, m_context.get_swapchain());
             set_render_target_clear_color();
@@ -476,8 +496,7 @@ namespace Comet {
     }
 
     void SceneRenderer::collect_completed_material_descriptors() {
-        std::erase_if(
-            m_material_descriptors,
+        std::erase_if(m_material_descriptors,
             [this](const auto& entry) {
                 return m_frame_scheduler->is_frame_serial_complete(
                     entry.second.last_used_frame_serial);

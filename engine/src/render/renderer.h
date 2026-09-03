@@ -1,6 +1,5 @@
 #pragma once
 #include "config/config.h"
-#include "graphics/enums.h"
 #include "render_context.h"
 #include "render/scene/render_scene.h"
 #include "render/scene/scene_resolver.h"
@@ -15,17 +14,15 @@ namespace Comet {
 
     class COMET_API Renderer {
     public:
-        Renderer(const Window& window,
-                 const Config& config,
-                 const AssetRegistry& asset_registry);
+        Renderer(const Window& window, const Config& config, const AssetRegistry& asset_registry);
 
         ~Renderer();
 
         void on_render(const RenderScene& render_scene);
 
-        void enable_viewport_rendering(Math::Vec2u initial_size);
+        void enable_offscreen_rendering(Math::Vec2u initial_size);
 
-        void resize_viewport(Math::Vec2u size) const;
+        void resize_offscreen_target(Math::Vec2u size) const;
 
         using ImGuiRenderDelegate = std::function<void(CommandBuffer&)>;
 
@@ -41,14 +38,10 @@ namespace Comet {
         [[nodiscard]] const RenderContext& get_render_context() const { return *m_render_context; }
 
     private:
-        void setup_pipeline();
-
         std::unique_ptr<RenderContext> m_render_context;
         std::unique_ptr<ResourceManager> m_resource_manager;
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         SceneResolver m_scene_resolver;
         ImGuiRenderDelegate m_on_imgui_render;
-
-        SampleCount m_msaa_samples;
     };
 }

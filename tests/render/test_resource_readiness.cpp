@@ -34,7 +34,7 @@ namespace Comet::Tests {
             T& renderer,
             const RenderSubmission& submission) {
             {
-                renderer.render(submission)
+                renderer.render_scene_pass(submission)
             } -> std::same_as<std::vector<QueueSemaphoreSubmit>>;
         };
 

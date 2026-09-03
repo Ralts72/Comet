@@ -107,6 +107,16 @@ namespace Comet::Tests {
         EXPECT_TRUE(static_cast<bool>(empty_success));
     }
 
+    TEST(GpuResourceResultTest, RejectsFailedValueAccess) {
+        EXPECT_DEATH(
+            {
+                auto failure = GpuResourceResult<int>::failure(
+                    vk::Result::eErrorOutOfDeviceMemory);
+                static_cast<void>(failure.value());
+            },
+            "");
+    }
+
     TEST(MemoryHeapBudgetTest, AvailableBytesSaturatesAtZero) {
         MemoryHeapBudget budget;
         budget.usage_bytes = 70;

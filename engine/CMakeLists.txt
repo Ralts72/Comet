@@ -55,6 +55,7 @@ set(SOURCES
         src/graphics/pipeline/vertex_description.cpp
         src/graphics/resource/allocator.cpp
         src/graphics/resource/buffer.cpp
+        src/graphics/resource/resource_result.cpp
         src/graphics/pipeline/descriptor_set.cpp
         src/graphics/resource/sampler.cpp
         src/render/renderer.cpp

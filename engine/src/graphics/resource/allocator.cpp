@@ -257,8 +257,7 @@ namespace Comet {
         if(!m_memory_budget_enabled) {
             return;
         }
-        vmaSetCurrentFrameIndex(
-            m_allocator,
+        vmaSetCurrentFrameIndex(m_allocator,
             static_cast<uint32_t>(frame_serial));
     }
 

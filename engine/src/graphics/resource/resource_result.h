@@ -1,11 +1,15 @@
 #pragma once
 
+#include "common/export.h"
 #include "graphics/vk_common.h"
 
 #include <optional>
 #include <utility>
 
 namespace Comet {
+    [[noreturn]] COMET_API void fail_gpu_resource_result_value_access(
+        vk::Result result);
+
     template<typename T>
     class GpuResourceResult {
     public:
@@ -28,13 +32,30 @@ namespace Comet {
             return m_value.has_value();
         }
 
-        [[nodiscard]] T& value() & { return m_value.value(); }
-        [[nodiscard]] const T& value() const & { return m_value.value(); }
-        [[nodiscard]] T&& value() && { return std::move(m_value).value(); }
+        [[nodiscard]] T& value() & {
+            require_value();
+            return *m_value;
+        }
+
+        [[nodiscard]] const T& value() const & {
+            require_value();
+            return *m_value;
+        }
+
+        [[nodiscard]] T&& value() && {
+            require_value();
+            return std::move(*m_value);
+        }
 
         [[nodiscard]] vk::Result result() const noexcept { return m_result; }
 
     private:
+        void require_value() const {
+            if(!m_value) {
+                fail_gpu_resource_result_value_access(m_result);
+            }
+        }
+
         GpuResourceResult(
             std::optional<T> value,
             const vk::Result result)
@@ -45,19 +66,11 @@ namespace Comet {
     };
 
     template<>
-    class GpuResourceResult<void> {
+    class COMET_API GpuResourceResult<void> {
     public:
-        [[nodiscard]] static GpuResourceResult success() {
-            return GpuResourceResult(vk::Result::eSuccess);
-        }
+        [[nodiscard]] static GpuResourceResult success();
 
-        [[nodiscard]] static GpuResourceResult failure(
-            const vk::Result result) {
-            return GpuResourceResult(
-                result == vk::Result::eSuccess
-                    ? vk::Result::eErrorUnknown
-                    : result);
-        }
+        [[nodiscard]] static GpuResourceResult failure(vk::Result result);
 
         [[nodiscard]] explicit operator bool() const noexcept {
             return m_result == vk::Result::eSuccess;

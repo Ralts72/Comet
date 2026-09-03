@@ -68,10 +68,8 @@ namespace Comet {
                 allocation.result());
         }
 
-        std::shared_ptr<Image> image(new OwnedImage(
-            device,
-            info,
-            std::move(allocation).value()));
+        std::shared_ptr<Image> image(new OwnedImage(device,
+            info, std::move(allocation).value()));
         return GpuResourceResult<std::shared_ptr<Image>>::success(
             std::move(image));
     }
@@ -87,8 +85,7 @@ namespace Comet {
         validate_image_info(info);
     }
 
-    OwnedImage::OwnedImage(Device& device,
-                           const ImageInfo& info,
+    OwnedImage::OwnedImage(Device& device, const ImageInfo& info,
                            Allocator::ImageAllocation allocation)
         : Image(device, info) {
         m_image = allocation.image;
