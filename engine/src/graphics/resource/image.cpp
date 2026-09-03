@@ -35,10 +35,9 @@ namespace Comet {
         }
     }
 
-    std::shared_ptr<Image> Image::create(Device& device,
-                                         const ImageInfo& info,
-                                         const SampleCount sample_count,
-                                         const std::string_view debug_name) {
+    std::shared_ptr<Image> Image::create(
+        Device& device, const ImageInfo& info,
+        const SampleCount sample_count, const std::string_view debug_name) {
         auto attempt = try_create(
             device, info, false, sample_count, debug_name);
         if(!attempt) {
@@ -50,11 +49,8 @@ namespace Comet {
     }
 
     GpuResourceResult<std::shared_ptr<Image>> Image::try_create(
-        Device& device,
-        const ImageInfo& info,
-        const bool within_budget,
-        const SampleCount sample_count,
-        const std::string_view debug_name) {
+        Device& device, const ImageInfo& info, const bool within_budget,
+        const SampleCount sample_count, const std::string_view debug_name) {
         validate_image_info(info);
         auto allocation = device.get_allocator().try_create_image(
             build_image_create_info(info, sample_count),
@@ -99,7 +95,8 @@ namespace Comet {
         }
     }
 
-    BorrowedImage::BorrowedImage(Device& device, const vk::Image image, const ImageInfo& info) : Image(device, info) {
+    BorrowedImage::BorrowedImage(Device& device, const vk::Image image,
+        const ImageInfo& info) : Image(device, info) {
         if(!image) {
             LOG_FATAL("BorrowedImage requires a valid image handle");
         }

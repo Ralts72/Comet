@@ -122,7 +122,7 @@ namespace Comet {
                 if(Graphics::is_depth_stencil_format(description.format)) {
                     auto depth_image = Image::create(
                         m_device, image_info, description.samples, "render target depth image");
-                    all_views.push_back(std::make_shared<ImageView>(
+                    all_views.push_back(ImageView::create(
                         m_device, depth_image, Flags<ImageAspect>(ImageAspect::Depth)));
                 } else {
                     std::shared_ptr<Image> color_image;
@@ -132,7 +132,8 @@ namespace Comet {
                         color_image = Image::create(
                             m_device, image_info, description.samples, "render target color image");
                     }
-                    auto color_view = std::make_shared<ImageView>(m_device, color_image, Flags<ImageAspect>(ImageAspect::Color));
+                    auto color_view = ImageView::create(
+                        m_device, color_image, Flags<ImageAspect>(ImageAspect::Color));
                     color_views.emplace_back(color_view);
                     all_views.push_back(color_view);
                 }
@@ -185,12 +186,13 @@ namespace Comet {
                 if(Graphics::is_depth_stencil_format(description.format)) {
                     auto depth_image = Image::create(
                         m_device, image_info, description.samples, "render target depth image");
-                    all_views.push_back(std::make_shared<ImageView>(
+                    all_views.push_back(ImageView::create(
                         m_device, depth_image, Flags<ImageAspect>(ImageAspect::Depth)));
                 } else {
                     auto color_image = Image::create(
                         m_device, image_info, description.samples, "render target color image");
-                    auto color_view = std::make_shared<ImageView>(m_device, color_image, Flags<ImageAspect>(ImageAspect::Color));
+                    auto color_view = ImageView::create(
+                        m_device, color_image, Flags<ImageAspect>(ImageAspect::Color));
                     color_views.emplace_back(color_view);
                     all_views.push_back(color_view);
                 }

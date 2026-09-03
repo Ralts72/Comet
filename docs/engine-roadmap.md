@@ -853,8 +853,8 @@ Viewport 均已接通。Scene 不持有路径或 GPU Resource，`LightComponent`
 
 剩余任务：
 
-- 将 Image 的可恢复创建契约提升到 Runtime Texture：Image 与 ImageView 全部分配成功后才提交 UploadBatch，失败时不发布
-  半初始化资源；Mesh 已完成同类事务式创建。随后由 AssetManager 保留旧版本或使用占位资源。
+- 将 Image 和 ImageView 的可恢复创建契约组合到 Runtime Texture：全部 GPU 对象创建成功后才提交 UploadBatch，失败时
+  不发布半初始化资源；Mesh 和 ImageView 工厂已完成同类事务边界。随后由 AssetManager 保留旧版本或使用占位资源。
 - 为非关键 streaming 资源建立占位、重试或淘汰策略后，再选择性启用 `WITHIN_BUDGET`；RenderTarget 等关键资源继续强失败。
 - 完成项目创建、打开和校验，以及资产改名、移动时连同 `.meta` 保持引用稳定的编辑器操作。
 - 让 `Device` 提供实际启用 feature、extension、queue、limit 和 format 的不可变 CapabilitySet。
@@ -1119,9 +1119,9 @@ Scene Component / RenderItem
 
 ## 下一步
 
-先完成 **Runtime Texture 的事务式尝试创建**：Image 与 ImageView 全部创建成功后再提交 UploadBatch；任何一步失败都不
-发布半初始化对象，再由 ResourceManager 将错误交给 AssetManager 保留旧资源。Mesh 已完成同类事务式创建，关键
-RenderTarget 继续使用明确的强失败路径。
+先完成 **Runtime Texture 的事务式尝试创建**：ImageView 已能返回完整原生句柄或 Vulkan error；接下来把 Image、
+ImageView 和 staging upload 组合为一个事务，任何一步失败都不发布半初始化对象，再由 ResourceManager 将错误交给
+AssetManager 保留旧资源。关键 RenderTarget 继续使用明确的强失败路径。
 
 格式演进保持以下边界：运行配置继续使用 YAML；项目文档只在编辑器写入链路和 Schema 稳定后整体评估 JSON 迁移；
 `.comet/cache/` 与 Shipping 资源继续使用面向 Runtime 的二进制产物和索引。

@@ -57,8 +57,7 @@ namespace Comet {
     private:
         friend class Image;
 
-        OwnedImage(Device& device,
-                   const ImageInfo& info,
+        OwnedImage(Device& device, const ImageInfo& info,
                    Allocator::ImageAllocation allocation);
 
         Allocation m_allocation;

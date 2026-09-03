@@ -115,8 +115,7 @@ namespace Comet {
           m_index_buffer(std::move(index_buffer)),
           m_ready_completion(ready_completion),
           m_vertex_count(vertex_count),
-          m_index_count(index_count) {
-    }
+          m_index_count(index_count) {}
 
     void Mesh::draw(const CommandBuffer& command_buffer) const {
         command_buffer.bind_vertex_buffer({*m_vertex_buffer, 0});
