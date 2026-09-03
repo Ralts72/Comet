@@ -25,8 +25,7 @@ namespace Comet {
     private:
         friend class FrameScheduler;
 
-        std::unordered_map<const void*, std::shared_ptr<void>>
-            retained_resources;
+        std::unordered_map<const void*, std::shared_ptr<void>> retained_resources;
     };
 
     struct SwapchainImageState {

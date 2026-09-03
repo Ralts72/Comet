@@ -9,8 +9,7 @@
 
 namespace Comet {
     FrameScheduler::FrameScheduler(
-        Device& device,
-        const uint32_t frame_slot_count)
+        Device& device, const uint32_t frame_slot_count)
         : m_device(device), m_frame_slot_count(frame_slot_count) {
         if(frame_slot_count == 0) {
             LOG_FATAL("FrameScheduler requires at least one frame slot");
@@ -40,8 +39,7 @@ namespace Comet {
 
     void FrameScheduler::wait_for_all_slots() {
         if(m_frame_active && !m_submission_recorded) {
-            LOG_FATAL(
-                "Cannot wait for all frame slots before the active frame is submitted");
+            LOG_FATAL("Cannot wait for all frame slots before the active frame is submitted");
         }
         for(uint32_t frame_slot = 0;
             frame_slot < m_frame_slot_count;
@@ -55,8 +53,7 @@ namespace Comet {
 
     void FrameScheduler::begin_frame(const uint32_t image_index) {
         if(!m_current_slot_ready || m_frame_active) {
-            LOG_FATAL(
-                "FrameScheduler requires a ready inactive slot before begin_frame");
+            LOG_FATAL("FrameScheduler requires a ready inactive slot before begin_frame");
         }
 
         auto& image_state = m_swapchain_image_states.at(image_index);
@@ -75,8 +72,7 @@ namespace Comet {
     void FrameScheduler::retain_current_frame_resource(
         std::shared_ptr<void> resource) {
         if(!m_frame_active || m_submission_recorded) {
-            LOG_FATAL(
-                "Frame resources can only be retained while recording an active frame");
+            LOG_FATAL("Frame resources can only be retained while recording an active frame");
         }
         if(!resource) {
             return;
@@ -89,8 +85,7 @@ namespace Comet {
 
     void FrameScheduler::record_submission() {
         if(!m_frame_active || m_submission_recorded) {
-            LOG_FATAL(
-                "FrameScheduler requires one submission for the active frame");
+            LOG_FATAL("FrameScheduler requires one submission for the active frame");
         }
 
         m_submission_recorded = true;
@@ -117,8 +112,7 @@ namespace Comet {
     void FrameScheduler::initialize_swapchain_images(
         const uint32_t image_count) {
         if(image_count == 0) {
-            LOG_FATAL(
-                "FrameScheduler requires at least one swapchain image");
+            LOG_FATAL("FrameScheduler requires at least one swapchain image");
         }
 
         LOG_INFO("create {} swapchain image states for {} frame slots",

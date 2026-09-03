@@ -288,8 +288,8 @@ namespace Comet {
             }
         }
 
-        const size_t required_capacity = align_staging_offset(
-            data.size_bytes());
+        const size_t required_capacity = 
+            align_staging_offset(data.size_bytes());
         auto available = m_available_pages.end();
         for(auto candidate = m_available_pages.begin();
             candidate != m_available_pages.end();
