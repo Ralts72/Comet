@@ -3,11 +3,10 @@
 #include <algorithm>
 
 namespace Comet {
-    std::vector<AssetHandle> get_asset_dependencies(
-        const MaterialData& data) {
+    std::vector<AssetHandle> get_asset_dependencies(const MaterialData& data) {
         std::vector<AssetHandle> dependencies;
         dependencies.reserve(data.texture_properties.size());
-        for(const auto& property: data.texture_properties) {
+        for(const auto& property : data.texture_properties) {
             dependencies.push_back(property.second);
         }
 

@@ -14,20 +14,16 @@ namespace CometEditor {
 
         void render() override;
 
-        [[nodiscard]] bool is_2d_mode() const {
-            return m_2d_mode;
-        }
+        [[nodiscard]] bool is_2d_mode() const { return m_2d_mode; }
 
-        void set_2d_mode(const bool is_2d) {
-            m_2d_mode = is_2d;
-        }
+        void set_2d_mode(const bool is_2d) { m_2d_mode = is_2d; }
 
-        void set_texture_id(ImTextureID texture_id, std::uint32_t width, std::uint32_t height);
+        void set_texture_id(
+            ImTextureID texture_id, std::uint32_t width, std::uint32_t height);
 
         void clear_texture();
 
-        [[nodiscard]] std::optional<Comet::Math::Vec2u>
-            take_resize_request();
+        [[nodiscard]] std::optional<Comet::Math::Vec2u> take_resize_request();
 
     private:
         void render_view_content();

@@ -28,9 +28,7 @@ namespace Comet {
         friend class Queue;
         friend struct QueueSemaphoreSubmit;
 
-        GpuCompletionPoint(
-            const Semaphore& timeline,
-            uint64_t value)
+        GpuCompletionPoint(const Semaphore& timeline, uint64_t value)
             : m_timeline(&timeline), m_value(value) {}
 
         const Semaphore* m_timeline = nullptr;

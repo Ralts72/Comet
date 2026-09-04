@@ -60,11 +60,10 @@ namespace CometEditor {
 
         [[nodiscard]] bool is_selected(const Comet::EntityId entity_id) const {
             return entity_id != Comet::INVALID_ENTITY_ID
-                && m_selected_entity_id == entity_id;
+                   && m_selected_entity_id == entity_id;
         }
 
-        [[nodiscard]] bool is_selected(
-            const Comet::AssetHandle asset) const {
+        [[nodiscard]] bool is_selected(const Comet::AssetHandle asset) const {
             return asset && m_selected_asset == asset;
         }
 

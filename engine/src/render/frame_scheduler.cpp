@@ -8,8 +8,7 @@
 #include <utility>
 
 namespace Comet {
-    FrameScheduler::FrameScheduler(
-        Device& device, const uint32_t frame_slot_count)
+    FrameScheduler::FrameScheduler(Device& device, const uint32_t frame_slot_count)
         : m_device(device), m_frame_slot_count(frame_slot_count) {
         if(frame_slot_count == 0) {
             LOG_FATAL("FrameScheduler requires at least one frame slot");
@@ -17,8 +16,7 @@ namespace Comet {
 
         LOG_INFO("create {} frame slots", frame_slot_count);
         const auto command_buffers =
-            device.get_default_command_pool().allocate_command_buffers(
-                frame_slot_count);
+            device.get_default_command_pool().allocate_command_buffers(frame_slot_count);
         m_frame_slots.reserve(frame_slot_count);
         for(uint32_t index = 0; index < frame_slot_count; ++index) {
             m_frame_slots.emplace_back(device, command_buffers.at(index));
@@ -39,11 +37,10 @@ namespace Comet {
 
     void FrameScheduler::wait_for_all_slots() {
         if(m_frame_active && !m_submission_recorded) {
-            LOG_FATAL("Cannot wait for all frame slots before the active frame is submitted");
+            LOG_FATAL(
+                "Cannot wait for all frame slots before the active frame is submitted");
         }
-        for(uint32_t frame_slot = 0;
-            frame_slot < m_frame_slot_count;
-            ++frame_slot) {
+        for(uint32_t frame_slot = 0; frame_slot < m_frame_slot_count; ++frame_slot) {
             wait_for_slot(frame_slot);
         }
         if(!m_frame_active) {
@@ -58,7 +55,7 @@ namespace Comet {
 
         auto& image_state = m_swapchain_image_states.at(image_index);
         if(const auto previous_frame_slot = image_state.in_flight_frame_slot;
-           previous_frame_slot.has_value()) {
+            previous_frame_slot.has_value()) {
             wait_for_slot(*previous_frame_slot);
         }
 
@@ -69,10 +66,10 @@ namespace Comet {
         m_submission_recorded = false;
     }
 
-    void FrameScheduler::retain_current_frame_resource(
-        std::shared_ptr<void> resource) {
+    void FrameScheduler::retain_current_frame_resource(std::shared_ptr<void> resource) {
         if(!m_frame_active || m_submission_recorded) {
-            LOG_FATAL("Frame resources can only be retained while recording an active frame");
+            LOG_FATAL(
+                "Frame resources can only be retained while recording an active frame");
         }
         if(!resource) {
             return;
@@ -89,8 +86,7 @@ namespace Comet {
         }
 
         m_submission_recorded = true;
-        get_current_frame_slot().last_submission_serial =
-            m_current_frame_serial;
+        get_current_frame_slot().last_submission_serial = m_current_frame_serial;
     }
 
     void FrameScheduler::end_frame() {
@@ -102,21 +98,19 @@ namespace Comet {
         }
 
         ++m_current_frame_serial;
-        m_current_frame_slot =
-            (m_current_frame_slot + 1) % m_frame_slot_count;
+        m_current_frame_slot = (m_current_frame_slot + 1) % m_frame_slot_count;
         m_current_slot_ready = false;
         m_frame_active = false;
         m_submission_recorded = false;
     }
 
-    void FrameScheduler::initialize_swapchain_images(
-        const uint32_t image_count) {
+    void FrameScheduler::initialize_swapchain_images(const uint32_t image_count) {
         if(image_count == 0) {
             LOG_FATAL("FrameScheduler requires at least one swapchain image");
         }
 
-        LOG_INFO("create {} swapchain image states for {} frame slots",
-            image_count, m_frame_slot_count);
+        LOG_INFO("create {} swapchain image states for {} frame slots", image_count,
+            m_frame_slot_count);
         m_swapchain_image_states.clear();
         m_swapchain_image_states.reserve(image_count);
         for(uint32_t index = 0; index < image_count; ++index) {
@@ -128,8 +122,7 @@ namespace Comet {
         auto& slot = m_frame_slots.at(frame_slot_index);
         m_device.wait_for_fences(std::span(&slot.in_flight_fence, 1));
         slot.retained_resources.clear();
-        m_completed_frame_serial = std::max(
-            m_completed_frame_serial,
-            slot.last_submission_serial);
+        m_completed_frame_serial =
+            std::max(m_completed_frame_serial, slot.last_submission_serial);
     }
 }

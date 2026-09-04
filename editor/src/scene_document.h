@@ -13,21 +13,17 @@ namespace CometEditor {
     class SceneDocument final {
     public:
         using ActiveSceneGetter = std::function<Comet::Scene*()>;
-        using ActiveSceneReplacer = std::function<std::unique_ptr<Comet::Scene>(
-            std::unique_ptr<Comet::Scene>)>;
+        using ActiveSceneReplacer =
+            std::function<std::unique_ptr<Comet::Scene>(std::unique_ptr<Comet::Scene>)>;
 
-        SceneDocument(
-            const Comet::SceneSerializer& serializer,
-            ActiveSceneGetter get_active_scene,
-            ActiveSceneReplacer replace_active_scene);
+        SceneDocument(const Comet::SceneSerializer& serializer,
+            ActiveSceneGetter get_active_scene, ActiveSceneReplacer replace_active_scene);
 
         [[nodiscard]] bool create_new();
         [[nodiscard]] bool open(const std::string& path);
         [[nodiscard]] bool save(const std::string& path);
 
-        [[nodiscard]] const std::string& get_path() const noexcept {
-            return m_path;
-        }
+        [[nodiscard]] const std::string& get_path() const noexcept { return m_path; }
         [[nodiscard]] const std::string& get_last_error() const noexcept {
             return m_last_error;
         }
@@ -35,8 +31,7 @@ namespace CometEditor {
 
     private:
         [[nodiscard]] bool replace_scene(
-            std::unique_ptr<Comet::Scene> scene,
-            std::string path);
+            std::unique_ptr<Comet::Scene> scene, std::string path);
 
         const Comet::SceneSerializer& m_serializer;
         ActiveSceneGetter m_get_active_scene;

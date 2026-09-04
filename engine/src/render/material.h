@@ -13,16 +13,13 @@ namespace Comet {
     public:
         Material(std::string name, std::string template_name);
 
-        [[nodiscard]] const std::string& get_name() const {
-            return m_name;
-        }
+        [[nodiscard]] const std::string& get_name() const { return m_name; }
         [[nodiscard]] const std::string& get_template_name() const {
             return m_template_name;
         }
 
         void set_texture_property(
-            const std::string& name,
-            std::shared_ptr<Texture> texture);
+            const std::string& name, std::shared_ptr<Texture> texture);
 
         [[nodiscard]] std::shared_ptr<Texture> get_texture_property(
             const std::string& name) const;

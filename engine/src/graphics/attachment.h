@@ -4,8 +4,8 @@
 namespace Comet {
     struct Attachment {
 
-        static Attachment get_color_attachment(const Format format,
-            const SampleCount sample_count = SampleCount::Count1) {
+        static Attachment get_color_attachment(
+            const Format format, const SampleCount sample_count = SampleCount::Count1) {
             Attachment attachment;
             attachment.description.format = format;
             attachment.description.samples = sample_count;
@@ -24,8 +24,8 @@ namespace Comet {
             return attachment;
         }
 
-        static Attachment get_depth_attachment(const Format format,
-            const SampleCount sample_count = SampleCount::Count1) {
+        static Attachment get_depth_attachment(
+            const Format format, const SampleCount sample_count = SampleCount::Count1) {
             Attachment attachment;
             attachment.description.format = format;
             attachment.description.samples = sample_count;
@@ -34,7 +34,8 @@ namespace Comet {
             attachment.description.stencil_load_op = AttachmentLoadOp::DontCare;
             attachment.description.stencil_store_op = AttachmentStoreOp::DontCare;
             attachment.description.initial_layout = ImageLayout::Undefined;
-            attachment.description.final_layout = ImageLayout::DepthStencilAttachmentOptimal;
+            attachment.description.final_layout =
+                ImageLayout::DepthStencilAttachmentOptimal;
             attachment.usage = Flags<ImageUsage>(ImageUsage::DepthStencilAttachment);
             return attachment;
         }
@@ -52,11 +53,11 @@ namespace Comet {
         Flags<ImageUsage> usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
     };
 
-    class SubpassAttachment{
+    class SubpassAttachment {
     public:
         enum class Type { Input, Color, DepthStencil };
 
-        SubpassAttachment(const uint32_t index, const Type type) : index(index){
+        SubpassAttachment(const uint32_t index, const Type type) : index(index) {
             switch(type) {
                 case Type::Input:
                     layout = ImageLayout::ShaderReadOnlyOptimal;
@@ -76,17 +77,20 @@ namespace Comet {
         ImageLayout layout;
     };
 
-    class SubpassInputAttachment:public SubpassAttachment {
+    class SubpassInputAttachment: public SubpassAttachment {
     public:
-        explicit SubpassInputAttachment(const uint32_t index) : SubpassAttachment(index, ImageLayout::ShaderReadOnlyOptimal) {}
+        explicit SubpassInputAttachment(const uint32_t index)
+            : SubpassAttachment(index, ImageLayout::ShaderReadOnlyOptimal) {}
     };
     class SubpassColorAttachment: public SubpassAttachment {
     public:
-        explicit SubpassColorAttachment(const uint32_t index) : SubpassAttachment(index, ImageLayout::ColorAttachmentOptimal) {}
+        explicit SubpassColorAttachment(const uint32_t index)
+            : SubpassAttachment(index, ImageLayout::ColorAttachmentOptimal) {}
     };
     class SubpassDepthStencilAttachment: public SubpassAttachment {
     public:
-        explicit SubpassDepthStencilAttachment(const uint32_t index) : SubpassAttachment(index, ImageLayout::DepthStencilAttachmentOptimal) {}
+        explicit SubpassDepthStencilAttachment(const uint32_t index)
+            : SubpassAttachment(index, ImageLayout::DepthStencilAttachmentOptimal) {}
     };
 
 }

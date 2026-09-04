@@ -28,8 +28,7 @@
 
 namespace CometEditor {
     namespace {
-        template<typename Handle>
-        ImTextureID handle_to_texture_id(const Handle handle) {
+        template<typename Handle> ImTextureID handle_to_texture_id(const Handle handle) {
             if constexpr(std::is_pointer_v<Handle>) {
                 return static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(handle));
             } else {
@@ -40,26 +39,23 @@ namespace CometEditor {
 
     class ImGuiContext::TextureBinding final {
     public:
-        TextureBinding(
-            std::shared_ptr<Comet::ImageView> image_view,
+        TextureBinding(std::shared_ptr<Comet::ImageView> image_view,
             std::shared_ptr<Comet::Sampler> sampler)
             : m_image_view(std::move(image_view)), m_sampler(std::move(sampler)) {
             if(!m_image_view || !m_sampler) {
-                LOG_FATAL("ImGui texture binding requires a valid image view and sampler");
+                LOG_FATAL(
+                    "ImGui texture binding requires a valid image view and sampler");
             }
         }
 
-        ~TextureBinding() {
-            unregister_texture();
-        }
+        ~TextureBinding() { unregister_texture(); }
 
         TextureBinding(const TextureBinding&) = delete;
         TextureBinding& operator=(const TextureBinding&) = delete;
         TextureBinding(TextureBinding&&) noexcept = delete;
         TextureBinding& operator=(TextureBinding&&) noexcept = delete;
 
-        [[nodiscard]] bool matches(
-            const std::shared_ptr<Comet::ImageView>& image_view,
+        [[nodiscard]] bool matches(const std::shared_ptr<Comet::ImageView>& image_view,
             const std::shared_ptr<Comet::Sampler>& sampler) const {
             return m_image_view == image_view && m_sampler == sampler;
         }
@@ -69,10 +65,10 @@ namespace CometEditor {
                 return;
             }
 
-            m_descriptor_set = ImGui_ImplVulkan_AddTexture(
-                static_cast<VkSampler>(m_sampler->get()),
-                static_cast<VkImageView>(m_image_view->get()),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            m_descriptor_set =
+                ImGui_ImplVulkan_AddTexture(static_cast<VkSampler>(m_sampler->get()),
+                    static_cast<VkImageView>(m_image_view->get()),
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
 
         void unregister_texture() {
@@ -94,12 +90,9 @@ namespace CometEditor {
         VkDescriptorSet m_descriptor_set = VK_NULL_HANDLE;
     };
 
-    ImGuiContext::ImGuiContext(
-        const Comet::Window& window,
-        Comet::RenderContext& render_context,
-        std::filesystem::path ini_path)
-        : m_window(window),
-          m_render_context(render_context),
+    ImGuiContext::ImGuiContext(const Comet::Window& window,
+        Comet::RenderContext& render_context, std::filesystem::path ini_path)
+        : m_window(window), m_render_context(render_context),
           m_ini_path(std::move(ini_path).string()) {
         LOG_INFO("Initializing ImGui layer");
 
@@ -116,10 +109,8 @@ namespace CometEditor {
             std::error_code error;
             std::filesystem::create_directories(ini_directory, error);
             if(error) {
-                LOG_WARN(
-                    "Failed to create ImGui state directory '{}': {}",
-                    ini_directory.string(),
-                    error.message());
+                LOG_WARN("Failed to create ImGui state directory '{}': {}",
+                    ini_directory.string(), error.message());
             }
         }
         io.IniFilename = m_ini_path.c_str();
@@ -139,7 +130,8 @@ namespace CometEditor {
         auto& device = m_render_context.get_device();
         m_render_target = Comet::RenderTarget::create_swapchain_target(
             device, *m_render_pass, swapchain);
-        m_render_target->set_clear_value(Comet::ClearValue(Comet::Math::Vec4(0.0f, 0.0f, 0.0f, 0.0f)), 0);
+        m_render_target->set_clear_value(
+            Comet::ClearValue(Comet::Math::Vec4(0.0f, 0.0f, 0.0f, 0.0f)), 0);
         // 初始化 Vulkan backend
         init_vulkan();
 
@@ -151,9 +143,10 @@ namespace CometEditor {
         LOG_INFO("Creating independent RenderPass for ImGui");
 
         std::vector<Comet::Attachment> attachments;
-        const auto color_format = m_render_context.get_swapchain()
-                                  .get_images()[0]->get_info().format;
-        auto color_attachment = Comet::Attachment::get_color_attachment(color_format, Comet::SampleCount::Count1);
+        const auto color_format =
+            m_render_context.get_swapchain().get_images()[0]->get_info().format;
+        auto color_attachment = Comet::Attachment::get_color_attachment(
+            color_format, Comet::SampleCount::Count1);
         color_attachment.description.load_op = Comet::AttachmentLoadOp::Clear;
         color_attachment.description.initial_layout = Comet::ImageLayout::Undefined;
         color_attachment.description.final_layout = Comet::ImageLayout::PresentSrcKHR;
@@ -163,17 +156,15 @@ namespace CometEditor {
         // 创建 SubPass
         std::vector<Comet::RenderSubPass> render_sub_passes;
         Comet::RenderSubPass render_sub_pass = {
-            {},
-            {Comet::SubpassColorAttachment(0)},
-            {}, // ImGui 不需要深度测试
-            Comet::SampleCount::Count1 // ImGui 不使用 MSAA
+            {}, {Comet::SubpassColorAttachment(0)}, {}, // ImGui 不需要深度测试
+            Comet::SampleCount::Count1                  // ImGui 不使用 MSAA
         };
         render_sub_passes.emplace_back(render_sub_pass);
 
         // 创建独立的 RenderPass
         auto& device = m_render_context.get_device();
-        m_render_pass = std::make_unique<Comet::RenderPass>(
-            device, attachments, render_sub_passes);
+        m_render_pass =
+            std::make_unique<Comet::RenderPass>(device, attachments, render_sub_passes);
     }
 
     void ImGuiContext::init_vulkan() {
@@ -189,15 +180,18 @@ namespace CometEditor {
         Comet::DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(Comet::DescriptorType::CombinedImageSampler, 100);
 
-        m_descriptor_pool = std::make_unique<Comet::DescriptorPool>(device, 100, pool_sizes,
-            Comet::Flags<Comet::DescriptorPoolCreateFlag>(Comet::DescriptorPoolCreateFlag::FreeDescriptorSet));
+        m_descriptor_pool =
+            std::make_unique<Comet::DescriptorPool>(device, 100, pool_sizes,
+                Comet::Flags<Comet::DescriptorPoolCreateFlag>(
+                    Comet::DescriptorPoolCreateFlag::FreeDescriptorSet));
 
         ImGui_ImplVulkan_InitInfo init_info{};
         init_info.ApiVersion = VK_API_VERSION_1_0;
         init_info.Instance = context.instance();
         init_info.PhysicalDevice = context.get_physical_device();
         init_info.Device = device.get();
-        init_info.QueueFamily = context.get_graphics_queue_family().queue_family_index.value();
+        init_info.QueueFamily =
+            context.get_graphics_queue_family().queue_family_index.value();
         init_info.Queue = device.get_graphics_queue(0).get();
         init_info.DescriptorPool = m_descriptor_pool->get();
         init_info.MinImageCount = m_backend_image_count;
@@ -312,8 +306,8 @@ namespace CometEditor {
 
         // 重建 RenderTarget
         m_render_target->recreate();
-        const auto image_count = static_cast<uint32_t>(
-            m_render_context.get_swapchain().get_images().size());
+        const auto image_count =
+            static_cast<uint32_t>(m_render_context.get_swapchain().get_images().size());
         if(image_count != m_backend_image_count) {
             unregister_viewport_textures();
             ImGui_ImplVulkan_Shutdown();
@@ -331,8 +325,10 @@ namespace CometEditor {
         std::vector<std::shared_ptr<Comet::ImageView>> image_views,
         std::shared_ptr<Comet::Sampler> sampler) {
         bool bindings_match = m_viewport_textures.size() == image_views.size();
-        for(std::size_t index = 0; bindings_match && index < image_views.size(); ++index) {
-            bindings_match = m_viewport_textures[index]->matches(image_views[index], sampler);
+        for(std::size_t index = 0; bindings_match && index < image_views.size();
+            ++index) {
+            bindings_match =
+                m_viewport_textures[index]->matches(image_views[index], sampler);
         }
         if(bindings_match) {
             return;
@@ -348,9 +344,9 @@ namespace CometEditor {
         }
 
         m_viewport_textures.reserve(image_views.size());
-        for(auto& image_view: image_views) {
-            m_viewport_textures.push_back(std::make_unique<TextureBinding>(
-                std::move(image_view), sampler));
+        for(auto& image_view : image_views) {
+            m_viewport_textures.push_back(
+                std::make_unique<TextureBinding>(std::move(image_view), sampler));
         }
         register_viewport_textures();
     }
@@ -367,14 +363,14 @@ namespace CometEditor {
             return;
         }
 
-        for(const auto& texture: m_viewport_textures) {
+        for(const auto& texture : m_viewport_textures) {
             texture->register_texture();
         }
     }
 
     void ImGuiContext::unregister_viewport_textures() {
         if(m_initialized) {
-            for(const auto& texture: m_viewport_textures) {
+            for(const auto& texture : m_viewport_textures) {
                 texture->unregister_texture();
             }
         }

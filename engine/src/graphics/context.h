@@ -8,7 +8,7 @@ namespace Comet {
     class Context {
     public:
         Context(const Window& window, const Config::Vulkan& config,
-                const DeviceCapabilityRequest& capability_request);
+            const DeviceCapabilityRequest& capability_request);
 
         Context(const Context&) = delete;
 
@@ -28,7 +28,7 @@ namespace Comet {
 
         [[nodiscard]] bool is_same_queue_families() const {
             return m_device_capability.graphics_queue_family.queue_family_index
-                == m_device_capability.present_queue_family.queue_family_index;
+                   == m_device_capability.present_queue_family.queue_family_index;
         }
 
         [[nodiscard]] QueueFamilyInfo get_graphics_queue_family() const {

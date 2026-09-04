@@ -31,14 +31,11 @@ namespace Comet {
             // 3. 用户初始化代码
             on_init();
 
-            m_engine->register_update_callback([this](const UpdateContext dt) {
-                this->on_update(dt);
-            });
+            m_engine->register_update_callback(
+                [this](const UpdateContext dt) { this->on_update(dt); });
         }
 
-        void main_loop() const {
-            m_engine->on_update();
-        }
+        void main_loop() const { m_engine->on_update(); }
 
         void end() {
             on_shutdown();
@@ -62,10 +59,10 @@ namespace Comet {
 
     inline int run(Application* app, const LaunchOptions& options) {
         const auto& config_directory = options.config_directory;
-        Config config = ConfigLoader{}.load(std::vector<std::string>{
-            (config_directory / "common.yaml").string(),
-            (config_directory / "profiles" / (options.config_profile + ".yaml")).string()
-        });
+        Config config = ConfigLoader{}.load(
+            std::vector<std::string>{(config_directory / "common.yaml").string(),
+                (config_directory / "profiles" / (options.config_profile + ".yaml"))
+                    .string()});
 
         app->start(std::move(config));
         app->main_loop();

@@ -5,17 +5,15 @@
 
 namespace {
     const Comet::PropertyDescriptor& require_property(
-        const Comet::ComponentDescriptor& component,
-        const std::string_view property_id) {
-        const Comet::PropertyDescriptor* property =
-                component.find_property(property_id);
+        const Comet::ComponentDescriptor& component, const std::string_view property_id) {
+        const Comet::PropertyDescriptor* property = component.find_property(property_id);
         EXPECT_NE(property, nullptr);
         return *property;
     }
 
     TEST(ComponentRegistryTest, RegistersBuiltInEditableComponents) {
         const Comet::ComponentRegistry registry =
-                Comet::create_scene_component_registry();
+            Comet::create_scene_component_registry();
 
         ASSERT_EQ(registry.components().size(), 3U);
         EXPECT_NE(registry.find_component("transform"), nullptr);
@@ -25,8 +23,8 @@ namespace {
         const auto& transform = *registry.find_component("transform");
         EXPECT_EQ(transform.display_name, "Transform");
         EXPECT_TRUE(transform.serializable);
-        EXPECT_EQ(require_property(transform, "translation").type,
-                  Comet::PropertyType::Vec3);
+        EXPECT_EQ(
+            require_property(transform, "translation").type, Comet::PropertyType::Vec3);
         EXPECT_EQ(require_property(transform, "rotation").numeric.speed, 1.0f);
         EXPECT_TRUE(require_property(transform, "rotation").editable);
         EXPECT_TRUE(require_property(transform, "rotation").serializable);
@@ -34,13 +32,11 @@ namespace {
 
         const auto& mesh_renderer = *registry.find_component("mesh_renderer");
         EXPECT_EQ(require_property(mesh_renderer, "mesh").type,
-                  Comet::PropertyType::AssetHandle);
+            Comet::PropertyType::AssetHandle);
 
         const auto& camera = *registry.find_component("camera");
-        EXPECT_EQ(require_property(camera, "primary").type,
-                  Comet::PropertyType::Bool);
-        EXPECT_EQ(require_property(camera, "fov").type,
-                  Comet::PropertyType::Float);
+        EXPECT_EQ(require_property(camera, "primary").type, Comet::PropertyType::Bool);
+        EXPECT_EQ(require_property(camera, "fov").type, Comet::PropertyType::Float);
     }
 
     TEST(ComponentRegistryTest, AccessesAndNormalizesEntityComponentProperties) {
@@ -48,7 +44,7 @@ namespace {
         Comet::Entity entity = scene.create_entity("Camera");
         entity.add_component<Comet::CameraComponent>();
         const Comet::ComponentRegistry registry =
-                Comet::create_scene_component_registry();
+            Comet::create_scene_component_registry();
 
         const auto& transform = *registry.find_component("transform");
         ASSERT_TRUE(transform.has_component(entity));
@@ -56,8 +52,8 @@ namespace {
         ASSERT_NE(transform_value, nullptr);
 
         const auto& rotation = require_property(transform, "rotation");
-        auto& rotation_value = *static_cast<Comet::Math::Vec3*>(
-            rotation.get_value(transform_value));
+        auto& rotation_value =
+            *static_cast<Comet::Math::Vec3*>(rotation.get_value(transform_value));
         rotation_value = {0.0f, 725.0f, -540.0f};
         rotation.notify_changed(&rotation_value);
         EXPECT_FLOAT_EQ(rotation_value.x, 0.0f);
@@ -75,15 +71,14 @@ namespace {
         Comet::Scene scene;
         Comet::Entity entity = scene.create_entity();
         const Comet::ComponentRegistry registry =
-                Comet::create_scene_component_registry();
+            Comet::create_scene_component_registry();
 
         EXPECT_TRUE(registry.find_component("transform")->has_component(entity));
         EXPECT_FALSE(registry.find_component("camera")->has_component(entity));
         EXPECT_FALSE(registry.find_component("mesh_renderer")->has_component(entity));
         EXPECT_EQ(registry.find_component("camera")->get_component(entity), nullptr);
 
-        const Comet::ComponentDescriptor& camera =
-                *registry.find_component("camera");
+        const Comet::ComponentDescriptor& camera = *registry.find_component("camera");
         EXPECT_TRUE(camera.add_component(entity));
         EXPECT_TRUE(entity.has_component<Comet::CameraComponent>());
         EXPECT_FALSE(camera.add_component(entity));
@@ -94,15 +89,11 @@ namespace {
     TEST(ComponentRegistryTest, RejectsDuplicateStableIds) {
         Comet::ComponentRegistry registry;
         auto first = Comet::make_component_descriptor<Comet::TransformComponent>(
-            "transform",
-            "Transform",
+            "transform", "Transform",
             {Comet::make_property_descriptor(
-                "translation",
-                "Translation",
-                &Comet::TransformComponent::translation)});
+                "translation", "Translation", &Comet::TransformComponent::translation)});
         auto duplicate = Comet::make_component_descriptor<Comet::CameraComponent>(
-            "transform",
-            "Camera",
+            "transform", "Camera",
             {Comet::make_property_descriptor(
                 "primary", "Primary", &Comet::CameraComponent::primary)});
 

@@ -46,26 +46,18 @@ namespace Comet {
         }
 
         Flags operator~() const noexcept { return Flags{~m_value}; }
-        
-        Flags operator&(const Flags& o) const {
-            return Flags{m_value & o.m_value};
-        }
-        
-        Flags operator|(const Flags& o) const {
-            return Flags{m_value | o.m_value};
-        }
-        
+
+        Flags operator&(const Flags& o) const { return Flags{m_value & o.m_value}; }
+
+        Flags operator|(const Flags& o) const { return Flags{m_value | o.m_value}; }
+
         bool operator==(T value) const {
             return m_value == static_cast<underlying_type>(value);
         }
-        
-        bool operator==(const Flags& other) const {
-            return m_value == other.m_value;
-        }
-        
-        explicit operator bool() const {
-            return m_value != 0;
-        }
+
+        bool operator==(const Flags& other) const { return m_value == other.m_value; }
+
+        explicit operator bool() const { return m_value != 0; }
 
         explicit operator T() const { return static_cast<T>(m_value); }
 
@@ -702,10 +694,7 @@ namespace Comet {
         DisplayNativeAMD,
     };
 
-    enum class VertexInputRate {
-        Vertex = 0,
-        Instance = 1
-    };
+    enum class VertexInputRate { Vertex = 0, Instance = 1 };
 
     enum class DynamicState {
         Viewport = 0,

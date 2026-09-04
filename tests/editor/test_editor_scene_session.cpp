@@ -27,9 +27,7 @@ namespace CometEditor::Tests {
         const Comet::EntityUuid entity_uuid = edit_entity.get_uuid();
 
         EditorSceneSession session(
-            state,
-            serializer,
-            [&active_scene]() { return active_scene.get(); },
+            state, serializer, [&active_scene]() { return active_scene.get(); },
             [&active_scene](std::unique_ptr<Comet::Scene> replacement) {
                 active_scene.swap(replacement);
                 return replacement;
@@ -50,9 +48,9 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(session.apply_mode_request());
         EXPECT_EQ(state.mode, EditorMode::Edit);
         EXPECT_EQ(active_scene.get(), original_edit_scene);
-        EXPECT_EQ(
-            active_scene->find_entity(entity_uuid)
-                .get_component<Comet::NameComponent>().name,
+        EXPECT_EQ(active_scene->find_entity(entity_uuid)
+                      .get_component<Comet::NameComponent>()
+                      .name,
             "Edit Entity");
     }
 
@@ -61,9 +59,7 @@ namespace CometEditor::Tests {
         EditorState state;
         std::unique_ptr<Comet::Scene> active_scene;
         EditorSceneSession session(
-            state,
-            serializer,
-            [&active_scene]() { return active_scene.get(); },
+            state, serializer, [&active_scene]() { return active_scene.get(); },
             [&active_scene](std::unique_ptr<Comet::Scene> replacement) {
                 active_scene.swap(replacement);
                 return replacement;

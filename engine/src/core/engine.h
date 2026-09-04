@@ -36,7 +36,9 @@ namespace Comet {
         [[nodiscard]] const Scene* get_scene() const { return m_scene.get(); }
 
         [[nodiscard]] AssetRegistry& get_asset_registry() { return *m_asset_registry; }
-        [[nodiscard]] const AssetRegistry& get_asset_registry() const { return *m_asset_registry; }
+        [[nodiscard]] const AssetRegistry& get_asset_registry() const {
+            return *m_asset_registry;
+        }
 
         [[nodiscard]] ResourceManager& get_resource_manager() {
             return m_renderer->get_resource_manager();
@@ -45,9 +47,7 @@ namespace Comet {
             return get_renderer().get_resource_manager();
         }
 
-        [[nodiscard]] TaskScheduler& get_task_scheduler() {
-            return *m_task_scheduler;
-        }
+        [[nodiscard]] TaskScheduler& get_task_scheduler() { return *m_task_scheduler; }
         [[nodiscard]] const TaskScheduler& get_task_scheduler() const {
             return *m_task_scheduler;
         }

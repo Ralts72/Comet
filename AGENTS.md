@@ -28,8 +28,8 @@ The engine requires Vulkan files and `glslangValidator`; CI also provides Xvfb f
 
 Use C++20, four-space indentation, and the existing brace style. Classes and fixtures use `PascalCase`; functions and
 methods use `snake_case`; member fields use the `m_` prefix. Keep public headers under the owning module's `src/` tree
-and pair implementation files as `.h`/`.cpp` where practical. There is no root clang-format file, so match nearby code
-and keep comments short and useful.
+and pair implementation files as `.h`/`.cpp` where practical. C++ code must follow the root `.clang-format`. Keep
+comments short and useful.
 
 ## Testing Guidelines
 

@@ -22,8 +22,8 @@ namespace Comet::Tests {
         public:
             TemporaryDirectory() {
                 m_path = std::filesystem::temp_directory_path()
-                    / ("comet_mesh_importer_test_"
-                       + std::to_string(AssetHandle::generate().value()));
+                         / ("comet_mesh_importer_test_"
+                             + std::to_string(AssetHandle::generate().value()));
                 std::filesystem::create_directories(m_path);
             }
 
@@ -33,8 +33,7 @@ namespace Comet::Tests {
             }
 
             [[nodiscard]] std::filesystem::path write_text(
-                const std::string_view name,
-                const std::string_view contents) const {
+                const std::string_view name, const std::string_view contents) const {
                 const std::filesystem::path path = m_path / name;
                 std::ofstream output(path, std::ios::binary);
                 output << contents;
@@ -42,8 +41,7 @@ namespace Comet::Tests {
             }
 
             [[nodiscard]] std::filesystem::path write_glb(
-                const std::string_view name,
-                std::string json) const {
+                const std::string_view name, std::string json) const {
                 while(json.size() % 4 != 0) {
                     json.push_back(' ');
                 }
@@ -52,13 +50,10 @@ namespace Comet::Tests {
                 std::ofstream output(path, std::ios::binary);
                 write_u32(output, 0x46546C67);
                 write_u32(output, 2);
-                write_u32(
-                    output,
-                    static_cast<std::uint32_t>(12 + 8 + json.size()));
+                write_u32(output, static_cast<std::uint32_t>(12 + 8 + json.size()));
                 write_u32(output, static_cast<std::uint32_t>(json.size()));
                 write_u32(output, 0x4E4F534A);
-                output.write(
-                    json.data(), static_cast<std::streamsize>(json.size()));
+                output.write(json.data(), static_cast<std::streamsize>(json.size()));
                 return path;
             }
 
@@ -67,11 +62,8 @@ namespace Comet::Tests {
                 const std::filesystem::path path = m_path / name;
                 std::ofstream output(path, std::ios::binary);
                 constexpr std::array<float, 9> positions{
-                    0.0f, 0.0f, 0.0f,
-                    1.0f, 0.0f, 0.0f,
-                    0.0f, 1.0f, 0.0f
-                };
-                for(const float value: positions) {
+                    0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
+                for(const float value : positions) {
                     write_u32(output, std::bit_cast<std::uint32_t>(value));
                 }
                 write_u16(output, 0);
@@ -81,25 +73,17 @@ namespace Comet::Tests {
             }
 
         private:
-            static void write_u16(
-                std::ofstream& output,
-                const std::uint16_t value) {
-                const char bytes[] = {
-                    static_cast<char>(value & 0xFF),
-                    static_cast<char>((value >> 8) & 0xFF)
-                };
+            static void write_u16(std::ofstream& output, const std::uint16_t value) {
+                const char bytes[] = {static_cast<char>(value & 0xFF),
+                    static_cast<char>((value >> 8) & 0xFF)};
                 output.write(bytes, sizeof(bytes));
             }
 
-            static void write_u32(
-                std::ofstream& output,
-                const std::uint32_t value) {
-                const char bytes[] = {
-                    static_cast<char>(value & 0xFF),
+            static void write_u32(std::ofstream& output, const std::uint32_t value) {
+                const char bytes[] = {static_cast<char>(value & 0xFF),
                     static_cast<char>((value >> 8) & 0xFF),
                     static_cast<char>((value >> 16) & 0xFF),
-                    static_cast<char>((value >> 24) & 0xFF)
-                };
+                    static_cast<char>((value >> 24) & 0xFF)};
                 output.write(bytes, sizeof(bytes));
             }
 
@@ -107,24 +91,22 @@ namespace Comet::Tests {
         };
 
         [[nodiscard]] std::string make_triangle_gltf(
-            const std::string_view primitive,
-            const std::string_view buffer_uri = {}) {
+            const std::string_view primitive, const std::string_view buffer_uri = {}) {
             const std::string uri = buffer_uri.empty()
-                ? "data:application/octet-stream;base64,"
-                    + std::string(TRIANGLE_BUFFER)
-                : std::string(buffer_uri);
+                                        ? "data:application/octet-stream;base64,"
+                                              + std::string(TRIANGLE_BUFFER)
+                                        : std::string(buffer_uri);
             return std::string(
-                R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":42,"uri":")"
-            ) + uri
-                + R"("}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[)"
-                + std::string(primitive) + "]}]}";
+                       R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":42,"uri":")")
+                   + uri
+                   + R"("}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[)"
+                   + std::string(primitive) + "]}]}";
         }
     }
 
     TEST(MeshImporterTest, ImportsProjectCubeAsset) {
         const std::filesystem::path source =
-            std::filesystem::path(PROJECT_ROOT_DIR)
-            / "assets/meshes/cube.gltf";
+            std::filesystem::path(PROJECT_ROOT_DIR) / "assets/meshes/cube.gltf";
 
         const MeshData data = MeshImporter{}.import(source);
 
@@ -134,10 +116,8 @@ namespace Comet::Tests {
 
     TEST(MeshImporterTest, ImportsGltfAndGeneratesMissingVertexData) {
         const TemporaryDirectory directory;
-        const std::filesystem::path source = directory.write_text(
-            "triangle.gltf",
-            make_triangle_gltf(
-                R"({"attributes":{"POSITION":0},"indices":1})"));
+        const std::filesystem::path source = directory.write_text("triangle.gltf",
+            make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})"));
 
         const MeshData data = MeshImporter{}.import(source);
 
@@ -146,7 +126,7 @@ namespace Comet::Tests {
         EXPECT_EQ(data.indices, (std::vector<std::uint32_t>{0, 1, 2}));
         EXPECT_EQ(data.vertices[1].position, Math::Vec3(1.0f, 0.0f, 0.0f));
         EXPECT_EQ(data.vertices[2].texcoord, Math::Vec2(0.0f));
-        for(const MeshVertex& vertex: data.vertices) {
+        for(const MeshVertex& vertex : data.vertices) {
             EXPECT_NEAR(vertex.normal.x, 0.0f, 1.0e-6f);
             EXPECT_NEAR(vertex.normal.y, 0.0f, 1.0e-6f);
             EXPECT_NEAR(vertex.normal.z, 1.0f, 1.0e-6f);
@@ -155,10 +135,8 @@ namespace Comet::Tests {
 
     TEST(MeshImporterTest, ImportsGlbContainer) {
         const TemporaryDirectory directory;
-        const std::filesystem::path source = directory.write_glb(
-            "triangle.glb",
-            make_triangle_gltf(
-                R"({"attributes":{"POSITION":0},"indices":1})"));
+        const std::filesystem::path source = directory.write_glb("triangle.glb",
+            make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})"));
 
         const MeshData data = MeshImporter{}.import(source);
 
@@ -170,14 +148,11 @@ namespace Comet::Tests {
         const TemporaryDirectory directory;
         const std::filesystem::path buffer =
             directory.write_triangle_buffer("triangle.bin");
-        const std::filesystem::path source = directory.write_text(
-            "triangle.gltf",
+        const std::filesystem::path source = directory.write_text("triangle.gltf",
             make_triangle_gltf(
-                R"({"attributes":{"POSITION":0},"indices":1})",
-                "triangle.bin"));
+                R"({"attributes":{"POSITION":0},"indices":1})", "triangle.bin"));
 
-        const MeshImportResult result =
-            MeshImporter{}.import_with_dependencies(source);
+        const MeshImportResult result = MeshImporter{}.import_with_dependencies(source);
 
         EXPECT_EQ(result.data.vertices.size(), 3);
         ASSERT_EQ(result.source_dependencies.size(), 1);
@@ -186,49 +161,40 @@ namespace Comet::Tests {
 
     TEST(MeshImporterTest, ConcatenatesTrianglePrimitives) {
         const TemporaryDirectory directory;
-        const std::filesystem::path source = directory.write_text(
-            "two_primitives.gltf",
+        const std::filesystem::path source = directory.write_text("two_primitives.gltf",
             make_triangle_gltf(
                 R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})"));
 
         const MeshData data = MeshImporter{}.import(source);
 
         EXPECT_EQ(data.vertices.size(), 6);
-        EXPECT_EQ(
-            data.indices,
-            (std::vector<std::uint32_t>{0, 1, 2, 3, 4, 5}));
+        EXPECT_EQ(data.indices, (std::vector<std::uint32_t>{0, 1, 2, 3, 4, 5}));
     }
 
     TEST(MeshImporterTest, RejectsUnsupportedPrimitiveTopology) {
         const TemporaryDirectory directory;
-        const std::filesystem::path source = directory.write_text(
-            "lines.gltf",
-            make_triangle_gltf(
-                R"({"attributes":{"POSITION":0},"indices":1,"mode":1})"));
+        const std::filesystem::path source = directory.write_text("lines.gltf",
+            make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1,"mode":1})"));
 
         EXPECT_THROW(
-            static_cast<void>(MeshImporter{}.import(source)),
-            std::runtime_error);
+            static_cast<void>(MeshImporter{}.import(source)), std::runtime_error);
     }
 
     TEST(MeshImporterTest, RejectsPrimitiveWithoutPosition) {
         const TemporaryDirectory directory;
-        const std::filesystem::path source = directory.write_text(
-            "missing_position.gltf",
+        const std::filesystem::path source = directory.write_text("missing_position.gltf",
             make_triangle_gltf(R"({"attributes":{},"indices":1})"));
 
         EXPECT_THROW(
-            static_cast<void>(MeshImporter{}.import(source)),
-            std::runtime_error);
+            static_cast<void>(MeshImporter{}.import(source)), std::runtime_error);
     }
 
     TEST(MeshImporterTest, RejectsCorruptedInput) {
         const TemporaryDirectory directory;
-        const std::filesystem::path source = directory.write_text(
-            "corrupted.gltf", "not glTF");
+        const std::filesystem::path source =
+            directory.write_text("corrupted.gltf", "not glTF");
 
         EXPECT_THROW(
-            static_cast<void>(MeshImporter{}.import(source)),
-            std::runtime_error);
+            static_cast<void>(MeshImporter{}.import(source)), std::runtime_error);
     }
 }

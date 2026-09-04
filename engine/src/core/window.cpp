@@ -22,11 +22,13 @@ namespace Comet {
                 const GLFWvidmode* mode = glfwGetVideoMode(monitor);
                 actual_width = mode->width;
                 actual_height = mode->height;
-                LOG_INFO("Fullscreen mode: using monitor resolution {}x{}", actual_width, actual_height);
+                LOG_INFO("Fullscreen mode: using monitor resolution {}x{}", actual_width,
+                    actual_height);
             }
         }
 
-        m_window = glfwCreateWindow(actual_width, actual_height, config.title.c_str(), monitor, nullptr);
+        m_window = glfwCreateWindow(
+            actual_width, actual_height, config.title.c_str(), monitor, nullptr);
         if(!m_window) {
             LOG_FATAL("Failed to create glfw window.");
         }
@@ -35,8 +37,10 @@ namespace Comet {
         if(!config.fullscreen) {
             if(GLFWmonitor* primary_monitor = glfwGetPrimaryMonitor()) {
                 int x_pos, y_pos, work_width, work_height;
-                glfwGetMonitorWorkarea(primary_monitor, &x_pos, &y_pos, &work_width, &work_height);
-                glfwSetWindowPos(m_window, work_width / 2 - config.width / 2, work_height / 2 - config.height / 2);
+                glfwGetMonitorWorkarea(
+                    primary_monitor, &x_pos, &y_pos, &work_width, &work_height);
+                glfwSetWindowPos(m_window, work_width / 2 - config.width / 2,
+                    work_height / 2 - config.height / 2);
             }
         }
 
@@ -57,10 +61,8 @@ namespace Comet {
         int width = 0;
         int height = 0;
         glfwGetFramebufferSize(m_window, &width, &height);
-        return {
-            static_cast<uint32_t>(std::max(width, 0)),
-            static_cast<uint32_t>(std::max(height, 0))
-        };
+        return {static_cast<uint32_t>(std::max(width, 0)),
+            static_cast<uint32_t>(std::max(height, 0))};
     }
 
     void Window::poll_events() {

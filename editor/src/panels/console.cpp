@@ -6,7 +6,8 @@ namespace CometEditor {
     ConsolePanel::ConsolePanel() : EditorPanel("Log") {}
 
     void ConsolePanel::render() {
-        if(!m_user_visible) return;
+        if(!m_user_visible)
+            return;
 
         ImGui::Begin(m_name.c_str(), &m_user_visible);
 
@@ -32,12 +33,13 @@ namespace CometEditor {
         ImGui::Separator();
 
         // 日志列表
-        ImGui::BeginChild("LogScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+        ImGui::BeginChild(
+            "LogScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
 
         // 构建所有可见日志的文本
         static std::string log_buffer;
         log_buffer.clear();
-        for(const auto& [level, message]: m_logs) {
+        for(const auto& [level, message] : m_logs) {
             bool should_show = false;
             const char* level_str = nullptr;
 
@@ -74,8 +76,8 @@ namespace CometEditor {
         }
 
         static ImGuiInputTextFlags flags = ImGuiInputTextFlags_ReadOnly;
-        ImGui::InputTextMultiline("##LogContent", const_cast<char*>(log_buffer.c_str()), log_buffer.size() + 1,
-                                  ImVec2(-1, -1), flags);
+        ImGui::InputTextMultiline("##LogContent", const_cast<char*>(log_buffer.c_str()),
+            log_buffer.size() + 1, ImVec2(-1, -1), flags);
 
         // 自动滚动到底部
         static bool auto_scroll = true;

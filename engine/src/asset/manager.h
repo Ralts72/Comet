@@ -17,11 +17,8 @@ namespace Comet {
 
     class COMET_API AssetManager final {
     public:
-        AssetManager(
-            ProjectPaths paths,
-            AssetRegistry& registry,
-            RenderResourceFactory& resource_factory,
-            TaskScheduler& task_scheduler);
+        AssetManager(ProjectPaths paths, AssetRegistry& registry,
+            RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler);
         ~AssetManager();
 
         [[nodiscard]] AssetScanReport scan();
@@ -29,12 +26,10 @@ namespace Comet {
         [[nodiscard]] std::shared_ptr<Mesh> load_mesh(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Texture> load_texture(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Texture> reimport_texture(
-            AssetHandle handle,
-            TextureImportSettings import_settings);
+            AssetHandle handle, TextureImportSettings import_settings);
         [[nodiscard]] std::shared_ptr<Material> load_material(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Material> update_material(
-            AssetHandle handle,
-            const MaterialData& data);
+            AssetHandle handle, const MaterialData& data);
         [[nodiscard]] std::shared_ptr<Material> reload_material(AssetHandle handle);
 
         [[nodiscard]] const AssetDatabase& get_database() const noexcept {
@@ -47,19 +42,15 @@ namespace Comet {
         [[nodiscard]] std::shared_ptr<Mesh> create_runtime_mesh(
             const AssetRecord& record);
         void record_import_dependencies(
-            AssetHandle handle,
-            const std::vector<std::filesystem::path>& dependencies);
-        [[nodiscard]] bool schedule_loaded_mesh_refresh(
-            const AssetRecord& record);
+            AssetHandle handle, const std::vector<std::filesystem::path>& dependencies);
+        [[nodiscard]] bool schedule_loaded_mesh_refresh(const AssetRecord& record);
         [[nodiscard]] std::shared_ptr<Texture> create_runtime_texture(
-            const AssetRecord& record,
-            const TextureImportSettings& import_settings);
+            const AssetRecord& record, const TextureImportSettings& import_settings);
         [[nodiscard]] bool refresh_loaded_texture(const AssetRecord& record);
         [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
             const AssetRecord& record);
         [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
-            const AssetRecord& record,
-            const MaterialData& data);
+            const AssetRecord& record, const MaterialData& data);
 
         ProjectPaths m_paths;
         AssetDatabase m_database;

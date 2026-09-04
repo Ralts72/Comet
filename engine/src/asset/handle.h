@@ -17,18 +17,13 @@ namespace Comet {
 
         constexpr AssetHandle() noexcept = default;
 
-        explicit constexpr AssetHandle(const ValueType value) noexcept
-            : m_value(value) {}
+        explicit constexpr AssetHandle(const ValueType value) noexcept : m_value(value) {}
 
         [[nodiscard]] static AssetHandle generate();
 
-        [[nodiscard]] constexpr ValueType value() const noexcept {
-            return m_value;
-        }
+        [[nodiscard]] constexpr ValueType value() const noexcept { return m_value; }
 
-        [[nodiscard]] constexpr bool is_valid() const noexcept {
-            return m_value != 0;
-        }
+        [[nodiscard]] constexpr bool is_valid() const noexcept { return m_value != 0; }
 
         [[nodiscard]] explicit constexpr operator bool() const noexcept {
             return is_valid();
@@ -43,8 +38,7 @@ namespace Comet {
     inline constexpr AssetHandle INVALID_ASSET_HANDLE{};
 }
 
-template<>
-struct std::hash<Comet::AssetHandle> {
+template<> struct std::hash<Comet::AssetHandle> {
     std::size_t operator()(const Comet::AssetHandle handle) const noexcept {
         return std::hash<Comet::AssetHandle::ValueType>{}(handle.value());
     }

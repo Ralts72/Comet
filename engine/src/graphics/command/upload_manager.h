@@ -64,10 +64,8 @@ namespace Comet {
             GpuCompletionPoint completion;
         };
 
-        [[nodiscard]] GpuResourceResult<StagingAllocation>
-        try_allocate_staging(
-            BatchResources& resources,
-            std::span<const std::byte> data,
+        [[nodiscard]] GpuResourceResult<StagingAllocation> try_allocate_staging(
+            BatchResources& resources, std::span<const std::byte> data,
             bool within_budget);
         [[nodiscard]] GpuCompletionPoint submit_batch(UploadBatch& batch);
         void abort_batch(UploadBatch& batch);
@@ -92,29 +90,20 @@ namespace Comet {
         UploadBatch(UploadBatch&&) noexcept = delete;
         UploadBatch& operator=(UploadBatch&&) noexcept = delete;
 
-        void enqueue_upload(
-            std::shared_ptr<Buffer> destination,
-            std::span<const std::byte> data,
-            const ResourceState& after);
+        void enqueue_upload(std::shared_ptr<Buffer> destination,
+            std::span<const std::byte> data, const ResourceState& after);
 
         [[nodiscard]] GpuResourceResult<void> try_enqueue_upload(
-            std::shared_ptr<Buffer> destination,
-            std::span<const std::byte> data,
-            const ResourceState& after,
-            bool within_budget);
+            std::shared_ptr<Buffer> destination, std::span<const std::byte> data,
+            const ResourceState& after, bool within_budget);
 
-        void enqueue_upload(
-            std::shared_ptr<Image> destination,
-            std::span<const std::byte> data,
-            const ImageState& before,
+        void enqueue_upload(std::shared_ptr<Image> destination,
+            std::span<const std::byte> data, const ImageState& before,
             const ImageState& after);
 
         [[nodiscard]] GpuResourceResult<void> try_enqueue_upload(
-            std::shared_ptr<Image> destination,
-            std::span<const std::byte> data,
-            const ImageState& before,
-            const ImageState& after,
-            bool within_budget);
+            std::shared_ptr<Image> destination, std::span<const std::byte> data,
+            const ImageState& before, const ImageState& after, bool within_budget);
 
         [[nodiscard]] GpuCompletionPoint submit();
         void abort();

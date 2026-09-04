@@ -37,10 +37,9 @@ namespace CometEditor {
 
         if(m_state.mode == EditorMode::Edit) {
             constexpr float button_width = 50.0f;
-            ImGui::SetCursorPosX(
-                ImGui::GetWindowWidth() - button_width * 2
-                - ImGui::GetStyle().ItemSpacing.x
-                - ImGui::GetStyle().WindowPadding.x);
+            ImGui::SetCursorPosX(ImGui::GetWindowWidth() - button_width * 2
+                                 - ImGui::GetStyle().ItemSpacing.x
+                                 - ImGui::GetStyle().WindowPadding.x);
             if(ImGui::Button("2D", ImVec2(button_width, 0))) {
                 m_2d_mode = true;
             }
@@ -66,13 +65,14 @@ namespace CometEditor {
         if(new_viewport_size != m_viewport_size) {
             m_viewport_size = new_viewport_size;
             m_viewport_size_stable_frames = 0;
-        } else if(m_viewport_size_stable_frames
-                  < RESIZE_STABLE_FRAME_COUNT) {
+        } else if(m_viewport_size_stable_frames < RESIZE_STABLE_FRAME_COUNT) {
             ++m_viewport_size_stable_frames;
         }
 
-        if(m_texture_id != ImTextureID_Invalid && m_texture_width > 0 && m_texture_height > 0) {
-            const float aspect_ratio = static_cast<float>(m_texture_width) / static_cast<float>(m_texture_height);
+        if(m_texture_id != ImTextureID_Invalid && m_texture_width > 0
+            && m_texture_height > 0) {
+            const float aspect_ratio = static_cast<float>(m_texture_width)
+                                       / static_cast<float>(m_texture_height);
             ImVec2 display_size = viewport_size;
             if(display_size.x / aspect_ratio < display_size.y) {
                 display_size.y = display_size.x / aspect_ratio;
@@ -90,7 +90,8 @@ namespace CometEditor {
         }
     }
 
-    void ViewPanel::set_texture_id(const ImTextureID texture_id, const std::uint32_t width, const std::uint32_t height) {
+    void ViewPanel::set_texture_id(const ImTextureID texture_id,
+        const std::uint32_t width, const std::uint32_t height) {
         m_texture_id = texture_id;
         m_texture_width = width;
         m_texture_height = height;
@@ -104,8 +105,8 @@ namespace CometEditor {
 
     std::optional<Comet::Math::Vec2u> ViewPanel::take_resize_request() {
         if(m_viewport_size_stable_frames < RESIZE_STABLE_FRAME_COUNT
-           || m_viewport_size == Comet::Math::Vec2u(0)
-           || m_viewport_size == m_last_requested_size) {
+            || m_viewport_size == Comet::Math::Vec2u(0)
+            || m_viewport_size == m_last_requested_size) {
             return std::nullopt;
         }
 

@@ -10,20 +10,12 @@ namespace CometEditor {
 
         virtual void render() = 0;
 
-        [[nodiscard]] const std::string& get_name() const {
-            return m_name;
-        }
+        [[nodiscard]] const std::string& get_name() const { return m_name; }
 
-        [[nodiscard]] bool is_visible() const {
-            return m_actually_visible;
-        }
+        [[nodiscard]] bool is_visible() const { return m_actually_visible; }
 
-        void set_visible(const bool visible) {
-            m_user_visible = visible;
-        }
-        void toggle_visible() {
-            m_user_visible = !m_user_visible;
-        }
+        void set_visible(const bool visible) { m_user_visible = visible; }
+        void toggle_visible() { m_user_visible = !m_user_visible; }
 
     protected:
         std::string m_name;

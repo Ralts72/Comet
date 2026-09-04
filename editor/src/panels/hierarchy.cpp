@@ -20,10 +20,9 @@ namespace CometEditor {
         }
 
         if(const ImGuiPayload* payload =
-               ImGui::AcceptDragDropPayload(ENTITY_PAYLOAD_TYPE);
-           payload && payload->DataSize == sizeof(Comet::EntityId)) {
-            const auto entity_id =
-                *static_cast<const Comet::EntityId*>(payload->Data);
+                ImGui::AcceptDragDropPayload(ENTITY_PAYLOAD_TYPE);
+            payload && payload->DataSize == sizeof(Comet::EntityId)) {
+            const auto entity_id = *static_cast<const Comet::EntityId*>(payload->Data);
             if(const Comet::Entity child = m_scene->find_entity(entity_id)) {
                 if(parent) {
                     static_cast<void>(m_scene->set_parent(child, parent));
@@ -47,29 +46,26 @@ namespace CometEditor {
             flags |= ImGuiTreeNodeFlags_Selected;
         }
         if(children.empty()) {
-            flags |= ImGuiTreeNodeFlags_Leaf
-                     | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+            flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
         }
 
-        const auto node_id = reinterpret_cast<const void*>(
-            static_cast<std::uintptr_t>(entity.get_id()));
-        const bool open = ImGui::TreeNodeEx(
-            node_id, flags, "%s", display_name.c_str());
+        const auto node_id =
+            reinterpret_cast<const void*>(static_cast<std::uintptr_t>(entity.get_id()));
+        const bool open = ImGui::TreeNodeEx(node_id, flags, "%s", display_name.c_str());
         if(ImGui::IsItemClicked()) {
             m_selection.select_entity(entity.get_id());
         }
 
         if(ImGui::BeginDragDropSource()) {
             const Comet::EntityId entity_id = entity.get_id();
-            ImGui::SetDragDropPayload(
-                ENTITY_PAYLOAD_TYPE, &entity_id, sizeof(entity_id));
+            ImGui::SetDragDropPayload(ENTITY_PAYLOAD_TYPE, &entity_id, sizeof(entity_id));
             ImGui::TextUnformatted(display_name.c_str());
             ImGui::EndDragDropSource();
         }
         accept_reparent_drop(entity);
 
         if(open && !children.empty()) {
-            for(const Comet::Entity child: children) {
+            for(const Comet::Entity child : children) {
                 render_entity_node(child);
             }
             ImGui::TreePop();
@@ -77,7 +73,8 @@ namespace CometEditor {
     }
 
     void HierarchyPanel::render() {
-        if(!m_user_visible) return;
+        if(!m_user_visible)
+            return;
 
         if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
             ImGui::End();
@@ -108,13 +105,11 @@ namespace CometEditor {
         ImGui::Separator();
 
         const bool scene_open = ImGui::TreeNodeEx(
-            "Scene",
-            ImGuiTreeNodeFlags_DefaultOpen
-                | ImGuiTreeNodeFlags_OpenOnArrow
-                | ImGuiTreeNodeFlags_SpanAvailWidth);
+            "Scene", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow
+                         | ImGuiTreeNodeFlags_SpanAvailWidth);
         accept_reparent_drop({});
         if(scene_open) {
-            for(const Comet::Entity root: m_scene->get_root_entities()) {
+            for(const Comet::Entity root : m_scene->get_root_entities()) {
                 render_entity_node(root);
             }
             ImGui::TreePop();

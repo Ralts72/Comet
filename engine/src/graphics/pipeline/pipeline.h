@@ -74,7 +74,8 @@ namespace Comet {
         BlendFactor src_alpha_blend_factor = BlendFactor::One;
         BlendFactor dst_alpha_blend_factor = BlendFactor::Zero;
         BlendOp alpha_blend_op = BlendOp::Add;
-        Flags<ColorWriteMask> color_write_mask = Flags<ColorWriteMask>(ColorWriteMask::All);
+        Flags<ColorWriteMask> color_write_mask =
+            Flags<ColorWriteMask>(ColorWriteMask::All);
     };
 
     struct PipelineDynamicState {
@@ -90,25 +91,28 @@ namespace Comet {
         vk::Viewport viewport{};
         vk::Rect2D scissor{};
         vk::PipelineColorBlendAttachmentState color_blend_state{
-            vk::False, // blendEnable
-            vk::BlendFactor::eOne, // srcColorBlendFactor
+            vk::False,              // blendEnable
+            vk::BlendFactor::eOne,  // srcColorBlendFactor
             vk::BlendFactor::eZero, // dstColorBlendFactor
-            vk::BlendOp::eAdd, // colorBlendOp
-            vk::BlendFactor::eOne, // srcAlphaBlendFactor
+            vk::BlendOp::eAdd,      // colorBlendOp
+            vk::BlendFactor::eOne,  // srcAlphaBlendFactor
             vk::BlendFactor::eZero, // dstAlphaBlendFactor
-            vk::BlendOp::eAdd, // alphaBlendOp
+            vk::BlendOp::eAdd,      // alphaBlendOp
             vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG
-            | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA // colorWriteMask
+                | vk::ColorComponentFlagBits::eB
+                | vk::ColorComponentFlagBits::eA // colorWriteMask
         };
         PipelineDynamicState dynamic_state;
 
         void set_vertex_input_state(const VertexInputDescription& description);
 
-        void set_input_assembly_state(Topology topology, bool primitive_restart_enable = false);
+        void set_input_assembly_state(
+            Topology topology, bool primitive_restart_enable = false);
 
         void set_rasterization_state(const PipelineRasterizationState& raster_state);
 
-        void set_multisample_state(SampleCount samples, bool sample_shading_enable, float min_sample_shading = 0.f);
+        void set_multisample_state(SampleCount samples, bool sample_shading_enable,
+            float min_sample_shading = 0.f);
 
         void set_depth_stencil_state(const PipelineDepthStencilState& ds_state);
 
@@ -124,10 +128,9 @@ namespace Comet {
     class Pipeline {
     public:
         Pipeline(std::string name, Device& device, RenderPass& render_pass,
-                 const std::shared_ptr<PipelineLayout>& layout,
-                 const std::shared_ptr<Shader>& vertex_shader,
-                 const std::shared_ptr<Shader>& fragment_shader,
-                 const PipelineConfig& config);
+            const std::shared_ptr<PipelineLayout>& layout,
+            const std::shared_ptr<Shader>& vertex_shader,
+            const std::shared_ptr<Shader>& fragment_shader, const PipelineConfig& config);
 
         ~Pipeline();
 
@@ -140,30 +143,33 @@ namespace Comet {
         Pipeline& operator=(Pipeline&&) noexcept = delete;
 
         [[nodiscard]] vk::Pipeline get() const { return m_pipeline; }
-        [[nodiscard]] const std::shared_ptr<PipelineLayout>& get_layout() const { return m_layout; }
+        [[nodiscard]] const std::shared_ptr<PipelineLayout>& get_layout() const {
+            return m_layout;
+        }
         [[nodiscard]] const std::string& get_name() const { return m_name; }
 
     private:
-        [[nodiscard]] static std::array<vk::PipelineShaderStageCreateInfo, 2> create_shader_stages(
-            const std::shared_ptr<Shader>& vertex_shader, const std::shared_ptr<Shader>& fragment_shader);
+        [[nodiscard]] static std::array<vk::PipelineShaderStageCreateInfo, 2>
+        create_shader_stages(const std::shared_ptr<Shader>& vertex_shader,
+            const std::shared_ptr<Shader>& fragment_shader);
 
-        [[nodiscard]] static vk::PipelineVertexInputStateCreateInfo create_vertex_input_state(
-            const PipelineConfig& config);
+        [[nodiscard]] static vk::PipelineVertexInputStateCreateInfo
+        create_vertex_input_state(const PipelineConfig& config);
 
-        [[nodiscard]] static vk::PipelineInputAssemblyStateCreateInfo create_input_assembly_state(
-            const PipelineConfig& config);
+        [[nodiscard]] static vk::PipelineInputAssemblyStateCreateInfo
+        create_input_assembly_state(const PipelineConfig& config);
 
-        [[nodiscard]] static vk::PipelineRasterizationStateCreateInfo create_rasterization_state(
-            const PipelineConfig& config);
+        [[nodiscard]] static vk::PipelineRasterizationStateCreateInfo
+        create_rasterization_state(const PipelineConfig& config);
 
-        [[nodiscard]] static vk::PipelineMultisampleStateCreateInfo create_multisample_state(
-            const PipelineConfig& config);
+        [[nodiscard]] static vk::PipelineMultisampleStateCreateInfo
+        create_multisample_state(const PipelineConfig& config);
 
-        [[nodiscard]] static vk::PipelineDepthStencilStateCreateInfo create_depth_stencil_state(
-            const PipelineConfig& config);
+        [[nodiscard]] static vk::PipelineDepthStencilStateCreateInfo
+        create_depth_stencil_state(const PipelineConfig& config);
 
-        [[nodiscard]] static vk::PipelineColorBlendStateCreateInfo create_color_blend_state(
-            const PipelineConfig& config);
+        [[nodiscard]] static vk::PipelineColorBlendStateCreateInfo
+        create_color_blend_state(const PipelineConfig& config);
 
         [[nodiscard]] static vk::PipelineViewportStateCreateInfo create_viewport_state(
             const vk::Viewport& viewport, const vk::Rect2D& scissor);
@@ -181,13 +187,10 @@ namespace Comet {
     public:
         PipelineManager(Device& device, RenderPass& render_pass);
 
-        std::shared_ptr<Pipeline> create_pipeline(
-            const std::string& name,
-            const ShaderLayout& layout,
-            const PipelineConfig& config,
+        std::shared_ptr<Pipeline> create_pipeline(const std::string& name,
+            const ShaderLayout& layout, const PipelineConfig& config,
             const std::shared_ptr<Shader>& vert_shader,
-            const std::shared_ptr<Shader>& frag_shader
-        );
+            const std::shared_ptr<Shader>& frag_shader);
 
     private:
         Device& m_device;

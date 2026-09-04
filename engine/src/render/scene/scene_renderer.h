@@ -29,10 +29,8 @@ namespace Comet {
 
     class COMET_API SceneRenderer {
     public:
-
-        SceneRenderer(RenderContext& context,
-                      const Config::Vulkan& vulkan_config,
-                      const Config::Render& render_config);
+        SceneRenderer(RenderContext& context, const Config::Vulkan& vulkan_config,
+            const Config::Render& render_config);
 
         void setup_render_pass();
 
@@ -45,21 +43,21 @@ namespace Comet {
 
         [[nodiscard]] bool begin_frame();
 
-        void end_frame(
-            std::span<const QueueSemaphoreSubmit> resource_waits);
+        void end_frame(std::span<const QueueSemaphoreSubmit> resource_waits);
 
         void resize_offscreen_target(Math::Vec2u size);
 
-        [[nodiscard]] FrameScheduler& get_frame_scheduler() {
-            return *m_frame_scheduler;
-        }
+        [[nodiscard]] FrameScheduler& get_frame_scheduler() { return *m_frame_scheduler; }
         [[nodiscard]] const FrameScheduler& get_frame_scheduler() const {
             return *m_frame_scheduler;
         }
         [[nodiscard]] RenderTarget& get_render_target() { return *m_render_target; }
-        [[nodiscard]] const RenderTarget& get_render_target() const { return *m_render_target; }
+        [[nodiscard]] const RenderTarget& get_render_target() const {
+            return *m_render_target;
+        }
         [[nodiscard]] CommandBuffer& get_current_command_buffer() const;
-        [[nodiscard]] std::vector<std::shared_ptr<ImageView>> get_offscreen_color_views() const;
+        [[nodiscard]] std::vector<std::shared_ptr<ImageView>> get_offscreen_color_views()
+            const;
 
         [[nodiscard]] bool recreate_swapchain();
 
@@ -83,18 +81,16 @@ namespace Comet {
 
         [[nodiscard]] const DescriptorSet& prepare_material_descriptor_set(
             const MaterialBinding& material,
-            const std::shared_ptr<Buffer>& view_project_buffer,
-            const Sampler& sampler);
+            const std::shared_ptr<Buffer>& view_project_buffer, const Sampler& sampler);
 
         std::shared_ptr<DescriptorSetLayout> create_descriptor_set_layout(
             const DescriptorSetLayoutBindings& bindings);
 
         void render_item(const ResolvedRenderItem& render_item,
-                         const DescriptorSet& descriptor_set) const;
+            const DescriptorSet& descriptor_set) const;
 
         void update_descriptor_set(const DescriptorSet& descriptor_set,
-                                   const DescriptorResources& resources,
-                                   const Sampler& sampler) const;
+            const DescriptorResources& resources, const Sampler& sampler) const;
 
         void reset_render_pipeline();
         void collect_completed_material_descriptors();
@@ -110,8 +106,7 @@ namespace Comet {
         std::shared_ptr<Pipeline> m_pipeline;
         std::shared_ptr<Sampler> m_default_sampler;
         std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;
-        std::unordered_map<AssetHandle, MaterialDescriptorState>
-            m_material_descriptors;
+        std::unordered_map<AssetHandle, MaterialDescriptorState> m_material_descriptors;
         std::vector<std::shared_ptr<Buffer>> m_view_project_uniform_buffers;
         Format m_surface_format;
         Format m_depth_format;

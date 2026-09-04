@@ -11,15 +11,9 @@
 #include <utility>
 
 namespace Comet {
-    Swapchain::Swapchain(
-        const Window& window,
-        Context& context,
-        Device& device,
+    Swapchain::Swapchain(const Window& window, Context& context, Device& device,
         const SwapchainRequest& request)
-        : m_window(window),
-          m_context(context),
-          m_device(device),
-          m_request(request) {
+        : m_window(window), m_context(context), m_device(device), m_request(request) {
         PROFILE_SCOPE("Swapchain::Constructor");
         if(!recreate()) {
             LOG_FATAL("Cannot create the initial swapchain for a zero-sized framebuffer");
@@ -41,12 +35,9 @@ namespace Comet {
         const auto present_modes = physical_device.getSurfacePresentModesKHR(surface);
         const auto framebuffer_size = m_window.get_framebuffer_size();
 
-        const auto [status, config, message] = select_swapchain(
-            capabilities,
-            surface_formats,
-            present_modes,
-            vk::Extent2D{framebuffer_size.x, framebuffer_size.y},
-            m_request);
+        const auto [status, config, message] =
+            select_swapchain(capabilities, surface_formats, present_modes,
+                vk::Extent2D{framebuffer_size.x, framebuffer_size.y}, m_request);
         if(status == SwapchainStatus::Deferred) {
             LOG_DEBUG("Swapchain recreation deferred: {}", message);
             return false;
@@ -81,11 +72,10 @@ namespace Comet {
         create_info.imageArrayLayers = config.image_layers;
         create_info.imageUsage = config.usage;
         create_info.imageSharingMode = image_sharing_mode;
-        create_info.queueFamilyIndexCount = static_cast<uint32_t>(
-            queue_family_indices.size());
-        create_info.pQueueFamilyIndices = queue_family_indices.empty()
-                                              ? nullptr
-                                              : queue_family_indices.data();
+        create_info.queueFamilyIndexCount =
+            static_cast<uint32_t>(queue_family_indices.size());
+        create_info.pQueueFamilyIndices =
+            queue_family_indices.empty() ? nullptr : queue_family_indices.data();
         create_info.preTransform = config.transform;
         create_info.compositeAlpha = config.composite_alpha;
         create_info.presentMode = config.present_mode;
@@ -99,9 +89,8 @@ namespace Comet {
         const ImageInfo image_info{
             .format = Graphics::vk_to_format(config.surface_format.format),
             .extent = Math::Vec3u(config.extent.width, config.extent.height, 1),
-            .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)
-        };
-        for(const auto image: images) {
+            .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)};
+        for(const auto image : images) {
             m_images.emplace_back(Image::wrap(m_device, image, image_info));
         }
         m_config = config;
@@ -113,17 +102,12 @@ namespace Comet {
 
         LOG_INFO(
             "Vulkan swapchain created: images={}, extent={}x{}, format={}, color_space={}, present_mode={}, transform={}, composite_alpha={}, usage={}, layers={}, clipped={}",
-            m_images.size(),
-            config.extent.width,
-            config.extent.height,
+            m_images.size(), config.extent.width, config.extent.height,
             vk::to_string(config.surface_format.format),
             vk::to_string(config.surface_format.colorSpace),
-            vk::to_string(config.present_mode),
-            vk::to_string(config.transform),
-            vk::to_string(config.composite_alpha),
-            vk::to_string(config.usage),
-            config.image_layers,
-            config.clipped);
+            vk::to_string(config.present_mode), vk::to_string(config.transform),
+            vk::to_string(config.composite_alpha), vk::to_string(config.usage),
+            config.image_layers, config.clipped);
         return true;
     }
 
@@ -131,17 +115,12 @@ namespace Comet {
         const Semaphore& semaphore) {
         uint32_t image_index = 0;
         const auto result = m_device.get().acquireNextImageKHR(
-            m_swapchain,
-            UINT64_MAX,
-            semaphore.get(),
-            VK_NULL_HANDLE,
-            &image_index);
+            m_swapchain, UINT64_MAX, semaphore.get(), VK_NULL_HANDLE, &image_index);
         if(result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR) {
             m_current_index = image_index;
         }
-        if(result == vk::Result::eSuccess
-           || result == vk::Result::eSuboptimalKHR
-           || result == vk::Result::eErrorOutOfDateKHR) {
+        if(result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR
+            || result == vk::Result::eErrorOutOfDateKHR) {
             return std::make_pair(image_index, result);
         }
         LOG_FATAL("Failed to acquire swapchain image");

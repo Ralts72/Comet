@@ -3,10 +3,8 @@
 #include "diagnostics/logger.h"
 
 namespace Comet {
-    bool AssetRegistry::register_asset_impl(
-        const AssetHandle handle,
-        std::shared_ptr<void> asset,
-        const std::type_index type) {
+    bool AssetRegistry::register_asset_impl(const AssetHandle handle,
+        std::shared_ptr<void> asset, const std::type_index type) {
         if(!handle) {
             LOG_ERROR("Cannot register an asset with an invalid handle");
             return false;
@@ -17,9 +15,9 @@ namespace Comet {
             return false;
         }
 
-        const bool inserted = m_assets.emplace(
-            handle,
-            AssetEntry{.asset = std::move(asset), .type = type}).second;
+        const bool inserted =
+            m_assets.emplace(handle, AssetEntry{.asset = std::move(asset), .type = type})
+                .second;
         if(!inserted) {
             LOG_ERROR("Asset handle {} is already registered", handle.value());
             return false;
@@ -28,18 +26,14 @@ namespace Comet {
         return true;
     }
 
-    bool AssetRegistry::replace_asset_impl(
-        const AssetHandle handle,
-        std::shared_ptr<void> asset,
-        const std::type_index type) {
+    bool AssetRegistry::replace_asset_impl(const AssetHandle handle,
+        std::shared_ptr<void> asset, const std::type_index type) {
         if(!handle) {
             LOG_ERROR("Cannot replace an asset with an invalid handle");
             return false;
         }
         if(!asset) {
-            LOG_ERROR(
-                "Cannot replace an asset with null for handle {}",
-                handle.value());
+            LOG_ERROR("Cannot replace an asset with null for handle {}", handle.value());
             return false;
         }
 
@@ -49,8 +43,7 @@ namespace Comet {
             return false;
         }
         if(existing->second.type != type) {
-            LOG_ERROR(
-                "Cannot replace asset handle {} with another runtime type",
+            LOG_ERROR("Cannot replace asset handle {} with another runtime type",
                 handle.value());
             return false;
         }
@@ -60,8 +53,7 @@ namespace Comet {
     }
 
     std::shared_ptr<void> AssetRegistry::resolve_impl(
-        const AssetHandle handle,
-        const std::type_index type) const {
+        const AssetHandle handle, const std::type_index type) const {
         if(!handle) {
             return nullptr;
         }

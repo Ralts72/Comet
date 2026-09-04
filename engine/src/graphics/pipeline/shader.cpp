@@ -5,7 +5,7 @@
 
 namespace Comet {
     Shader::Shader(Device& device, const std::string& name,
-                   std::span<const std::uint32_t> spirv_words)
+        std::span<const std::uint32_t> spirv_words)
         : m_device(device) {
         if(spirv_words.empty()) {
             LOG_FATAL("Shader '{}' has empty SPIR-V bytecode", name);
@@ -22,8 +22,7 @@ namespace Comet {
     }
 
     std::shared_ptr<Shader> ShaderManager::load_shader(
-        const std::string& name,
-        std::span<const std::uint32_t> spirv_words) {
+        const std::string& name, std::span<const std::uint32_t> spirv_words) {
         if(const auto it = m_shaders.find(name); it != m_shaders.end()) {
             LOG_DEBUG("shader {} already exists, skipping load", name);
             return it->second;

@@ -26,45 +26,31 @@ namespace Comet::Tests {
         }
 
         SwapchainRequest make_request() {
-            return {
-                .image_count = 3,
+            return {.image_count = 3,
                 .surface_format = Format::B8G8R8A8_SRGB,
                 .color_space = ImageColorSpace::SrgbNonlinearKHR,
                 .present_mode = PresentMode::Mailbox,
-                .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)
-            };
+                .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)};
         }
 
         std::vector<vk::SurfaceFormatKHR> make_surface_formats() {
-            return {{
-                vk::Format::eB8G8R8A8Srgb,
-                vk::ColorSpaceKHR::eSrgbNonlinear
-            }};
+            return {{vk::Format::eB8G8R8A8Srgb, vk::ColorSpaceKHR::eSrgbNonlinear}};
         }
 
         std::vector<vk::PresentModeKHR> make_present_modes() {
-            return {
-                vk::PresentModeKHR::eFifo,
-                vk::PresentModeKHR::eMailbox
-            };
+            return {vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eMailbox};
         }
     }
 
     TEST(SwapchainConfigTest, UsesFixedExtentAndSurfaceTransform) {
-        const auto result = select_swapchain(
-            make_capabilities(),
-            make_surface_formats(),
-            make_present_modes(),
-            vk::Extent2D{320, 240},
-            make_request());
+        const auto result = select_swapchain(make_capabilities(), make_surface_formats(),
+            make_present_modes(), vk::Extent2D{320, 240}, make_request());
 
         ASSERT_EQ(result.status, SwapchainStatus::Ready);
         EXPECT_EQ(result.config.image_count, 3u);
         EXPECT_EQ(result.config.extent, (vk::Extent2D{800, 600}));
-        EXPECT_EQ(result.config.transform,
-            vk::SurfaceTransformFlagBitsKHR::eRotate90);
-        EXPECT_EQ(result.config.composite_alpha,
-            vk::CompositeAlphaFlagBitsKHR::eOpaque);
+        EXPECT_EQ(result.config.transform, vk::SurfaceTransformFlagBitsKHR::eRotate90);
+        EXPECT_EQ(result.config.composite_alpha, vk::CompositeAlphaFlagBitsKHR::eOpaque);
         EXPECT_EQ(result.config.present_mode, vk::PresentModeKHR::eMailbox);
         EXPECT_TRUE(result.config.clipped);
     }
@@ -73,18 +59,12 @@ namespace Comet::Tests {
         auto capabilities = make_capabilities();
         capabilities.maxImageCount = 0;
         capabilities.currentExtent = vk::Extent2D{
-            std::numeric_limits<uint32_t>::max(),
-            std::numeric_limits<uint32_t>::max()
-        };
+            std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max()};
         auto request = make_request();
         request.image_count = 5;
 
-        const auto result = select_swapchain(
-            capabilities,
-            make_surface_formats(),
-            make_present_modes(),
-            vk::Extent2D{4000, 10},
-            request);
+        const auto result = select_swapchain(capabilities, make_surface_formats(),
+            make_present_modes(), vk::Extent2D{4000, 10}, request);
 
         ASSERT_EQ(result.status, SwapchainStatus::Ready);
         EXPECT_EQ(result.config.image_count, 5u);
@@ -92,12 +72,8 @@ namespace Comet::Tests {
     }
 
     TEST(SwapchainConfigTest, DefersZeroSizedFramebuffer) {
-        const auto result = select_swapchain(
-            make_capabilities(),
-            make_surface_formats(),
-            make_present_modes(),
-            vk::Extent2D{0, 0},
-            make_request());
+        const auto result = select_swapchain(make_capabilities(), make_surface_formats(),
+            make_present_modes(), vk::Extent2D{0, 0}, make_request());
 
         EXPECT_EQ(result.status, SwapchainStatus::Deferred);
         EXPECT_FALSE(result.message.empty());
@@ -111,17 +87,13 @@ namespace Comet::Tests {
         auto request = make_request();
         request.present_mode = PresentMode::Immediate;
 
-        const auto result = select_swapchain(
-            capabilities,
-            make_surface_formats(),
-            make_present_modes(),
-            vk::Extent2D{800, 600},
-            request);
+        const auto result = select_swapchain(capabilities, make_surface_formats(),
+            make_present_modes(), vk::Extent2D{800, 600}, request);
 
         ASSERT_EQ(result.status, SwapchainStatus::Ready);
         EXPECT_EQ(result.config.present_mode, vk::PresentModeKHR::eFifo);
-        EXPECT_EQ(result.config.composite_alpha,
-            vk::CompositeAlphaFlagBitsKHR::ePreMultiplied);
+        EXPECT_EQ(
+            result.config.composite_alpha, vk::CompositeAlphaFlagBitsKHR::ePreMultiplied);
         EXPECT_FALSE(result.message.empty());
     }
 
@@ -129,12 +101,8 @@ namespace Comet::Tests {
         auto request = make_request();
         request.usage |= ImageUsage::CopySrc;
 
-        const auto result = select_swapchain(
-            make_capabilities(),
-            make_surface_formats(),
-            make_present_modes(),
-            vk::Extent2D{800, 600},
-            request);
+        const auto result = select_swapchain(make_capabilities(), make_surface_formats(),
+            make_present_modes(), vk::Extent2D{800, 600}, request);
 
         EXPECT_EQ(result.status, SwapchainStatus::Unsupported);
         EXPECT_NE(result.message.find("usage"), std::string::npos);
@@ -147,58 +115,36 @@ namespace Comet::Tests {
         auto request = make_request();
         request.image_count = 0;
 
-        const auto result = select_swapchain(
-            capabilities,
-            make_surface_formats(),
-            make_present_modes(),
-            vk::Extent2D{800, 600},
-            request);
+        const auto result = select_swapchain(capabilities, make_surface_formats(),
+            make_present_modes(), vk::Extent2D{800, 600}, request);
 
         EXPECT_EQ(result.status, SwapchainStatus::Unsupported);
         EXPECT_NE(result.message.find("at least one image"), std::string::npos);
     }
 
     TEST(SwapchainConfigTest, AcceptsUndefinedSurfaceFormat) {
-        const std::vector formats{
-            vk::SurfaceFormatKHR{
-                vk::Format::eUndefined,
-                vk::ColorSpaceKHR::eSrgbNonlinear
-            }
-        };
+        const std::vector formats{vk::SurfaceFormatKHR{
+            vk::Format::eUndefined, vk::ColorSpaceKHR::eSrgbNonlinear}};
 
-        const auto result = select_swapchain(
-            make_capabilities(),
-            formats,
-            make_present_modes(),
-            vk::Extent2D{800, 600},
-            make_request());
+        const auto result = select_swapchain(make_capabilities(), formats,
+            make_present_modes(), vk::Extent2D{800, 600}, make_request());
 
         ASSERT_EQ(result.status, SwapchainStatus::Ready);
         // make_request() 请求 B8G8R8A8_SRGB / SrgbNonlinear，结果按 Vulkan 类型比较
-        EXPECT_EQ(result.config.surface_format,
-            (vk::SurfaceFormatKHR{
-                vk::Format::eB8G8R8A8Srgb,
-                vk::ColorSpaceKHR::eSrgbNonlinear
-            }));
+        EXPECT_EQ(
+            result.config.surface_format, (vk::SurfaceFormatKHR{vk::Format::eB8G8R8A8Srgb,
+                                              vk::ColorSpaceKHR::eSrgbNonlinear}));
     }
 
     TEST(SwapchainConfigTest, RejectsMissingFormatAndCompositeAlpha) {
-        const auto missing_format = select_swapchain(
-            make_capabilities(),
-            {},
-            make_present_modes(),
-            vk::Extent2D{800, 600},
-            make_request());
+        const auto missing_format = select_swapchain(make_capabilities(), {},
+            make_present_modes(), vk::Extent2D{800, 600}, make_request());
         EXPECT_EQ(missing_format.status, SwapchainStatus::Unsupported);
 
         auto capabilities = make_capabilities();
         capabilities.supportedCompositeAlpha = {};
-        const auto missing_alpha = select_swapchain(
-            capabilities,
-            make_surface_formats(),
-            make_present_modes(),
-            vk::Extent2D{800, 600},
-            make_request());
+        const auto missing_alpha = select_swapchain(capabilities, make_surface_formats(),
+            make_present_modes(), vk::Extent2D{800, 600}, make_request());
         EXPECT_EQ(missing_alpha.status, SwapchainStatus::Unsupported);
         EXPECT_NE(missing_alpha.message.find("composite alpha"), std::string::npos);
     }

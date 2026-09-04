@@ -18,22 +18,18 @@ namespace Comet {
 
         constexpr EntityUuid() noexcept = default;
 
-        explicit constexpr EntityUuid(const Bytes bytes) noexcept
-            : m_bytes(bytes) {}
+        explicit constexpr EntityUuid(const Bytes bytes) noexcept : m_bytes(bytes) {}
 
         [[nodiscard]] static EntityUuid generate();
 
-        [[nodiscard]] static std::optional<EntityUuid> parse(
-            std::string_view value);
+        [[nodiscard]] static std::optional<EntityUuid> parse(std::string_view value);
 
         [[nodiscard]] std::string to_string() const;
 
-        [[nodiscard]] constexpr const Bytes& bytes() const noexcept {
-            return m_bytes;
-        }
+        [[nodiscard]] constexpr const Bytes& bytes() const noexcept { return m_bytes; }
 
         [[nodiscard]] constexpr bool is_valid() const noexcept {
-            for(const std::uint8_t byte: m_bytes) {
+            for(const std::uint8_t byte : m_bytes) {
                 if(byte != 0) {
                     return true;
                 }
@@ -54,14 +50,12 @@ namespace Comet {
     inline constexpr EntityUuid INVALID_ENTITY_UUID{};
 }
 
-template<>
-struct std::hash<Comet::EntityUuid> {
+template<> struct std::hash<Comet::EntityUuid> {
     std::size_t operator()(const Comet::EntityUuid uuid) const noexcept {
         std::size_t result = 0;
-        for(const std::uint8_t byte: uuid.bytes()) {
+        for(const std::uint8_t byte : uuid.bytes()) {
             result ^= static_cast<std::size_t>(byte)
-                      + static_cast<std::size_t>(0x9e3779b97f4a7c15ULL)
-                      + (result << 6U)
+                      + static_cast<std::size_t>(0x9e3779b97f4a7c15ULL) + (result << 6U)
                       + (result >> 2U);
         }
         return result;

@@ -8,14 +8,12 @@
 namespace CometEditor {
     class SelectionService;
 
-    class ProjectPanel : public EditorPanel {
+    class ProjectPanel: public EditorPanel {
     public:
         using RefreshCallback = std::function<Comet::AssetScanReport()>;
 
-        ProjectPanel(
-            const Comet::AssetDatabase& database,
-            Comet::AssetScanReport scan_report,
-            RefreshCallback refresh_callback,
+        ProjectPanel(const Comet::AssetDatabase& database,
+            Comet::AssetScanReport scan_report, RefreshCallback refresh_callback,
             SelectionService& selection);
 
         void render() override;

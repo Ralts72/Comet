@@ -48,6 +48,9 @@ ctest --preset dev-debug
 手动配置时，可通过 `COMET_BUILD_APP`、`COMET_BUILD_EDITOR` 和 `COMET_BUILD_TESTS` 组合目标，并必须显式指定
 `COMET_CONFIG_PROFILE`。`COMET_NATIVE_OPTIMIZATION` 仅适合本机构建，不应为可分发二进制启用。
 
+C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多参数声明和调用在需要换行时会继续成组排列，不会强制
+每个参数独占一行。提交前只需对本次改动的 C++ 文件运行 `clang-format -i <files...>`，不要求为单次功能改动重排整个仓库。
+
 ## 开发说明
 
 - app 与 editor 共同链接 `engine`。app 直接运行 Runtime；editor 额外管理 Edit/Play Scene、Selection、面板和离屏 Viewport。

@@ -10,43 +10,32 @@
 namespace Comet::Tests {
     namespace {
         template<typename T>
-        concept SupportsRangeWrite = requires(
-            const T& buffer,
-            const void* data,
-            const size_t size,
-            const size_t offset) {
-            buffer.write(data, size, offset);
-        };
+        concept SupportsRangeWrite = requires(const T& buffer, const void* data,
+            const size_t size, const size_t offset) { buffer.write(data, size, offset); };
 
         template<typename T>
-        concept SupportsFrameIndex = requires(
-            const T& allocator,
-            const uint64_t frame_serial) {
-            allocator.set_current_frame_index(frame_serial);
-        };
+        concept SupportsFrameIndex =
+            requires(const T& allocator, const uint64_t frame_serial) {
+                allocator.set_current_frame_index(frame_serial);
+            };
 
         template<typename T>
         concept SupportsMemoryBudgetSnapshot = requires(const T& allocator) {
-            {
-                allocator.query_memory_budget()
-            } -> std::same_as<MemoryBudgetSnapshot>;
+            { allocator.query_memory_budget() } -> std::same_as<MemoryBudgetSnapshot>;
         };
 
         template<typename T>
-        concept SupportsRecoverableAllocation = requires(
-            const T& allocator,
-            const vk::BufferCreateInfo& buffer_info,
-            const vk::ImageCreateInfo& image_info,
-            const AllocationCreateInfo& allocation_info) {
-            {
-                allocator.try_create_buffer(buffer_info, allocation_info)
-            } -> std::same_as<GpuResourceResult<
-                Allocator::BufferAllocation>>;
-            {
-                allocator.try_create_image(image_info, allocation_info)
-            } -> std::same_as<GpuResourceResult<
-                Allocator::ImageAllocation>>;
-        };
+        concept SupportsRecoverableAllocation =
+            requires(const T& allocator, const vk::BufferCreateInfo& buffer_info,
+                const vk::ImageCreateInfo& image_info,
+                const AllocationCreateInfo& allocation_info) {
+                {
+                    allocator.try_create_buffer(buffer_info, allocation_info)
+                } -> std::same_as<GpuResourceResult<Allocator::BufferAllocation>>;
+                {
+                    allocator.try_create_image(image_info, allocation_info)
+                } -> std::same_as<GpuResourceResult<Allocator::ImageAllocation>>;
+            };
     }
 
     TEST(AllocationTest, DefaultsToInvalidHandle) {
@@ -85,8 +74,8 @@ namespace Comet::Tests {
     }
 
     TEST(GpuResourceResultTest, DistinguishesSuccessFromFailure) {
-        const auto failure = GpuResourceResult<int>::failure(
-            vk::Result::eErrorOutOfDeviceMemory);
+        const auto failure =
+            GpuResourceResult<int>::failure(vk::Result::eErrorOutOfDeviceMemory);
         const auto success = GpuResourceResult<int>::success(42);
         const auto normalized_failure =
             GpuResourceResult<int>::failure(vk::Result::eSuccess);
@@ -100,8 +89,8 @@ namespace Comet::Tests {
         EXPECT_FALSE(static_cast<bool>(normalized_failure));
         EXPECT_EQ(normalized_failure.result(), vk::Result::eErrorUnknown);
 
-        const auto empty_failure = GpuResourceResult<void>::failure(
-            vk::Result::eErrorOutOfDeviceMemory);
+        const auto empty_failure =
+            GpuResourceResult<void>::failure(vk::Result::eErrorOutOfDeviceMemory);
         const auto empty_success = GpuResourceResult<void>::success();
         EXPECT_FALSE(static_cast<bool>(empty_failure));
         EXPECT_TRUE(static_cast<bool>(empty_success));
@@ -110,8 +99,8 @@ namespace Comet::Tests {
     TEST(GpuResourceResultTest, RejectsFailedValueAccess) {
         EXPECT_DEATH(
             {
-                auto failure = GpuResourceResult<int>::failure(
-                    vk::Result::eErrorOutOfDeviceMemory);
+                auto failure =
+                    GpuResourceResult<int>::failure(vk::Result::eErrorOutOfDeviceMemory);
                 static_cast<void>(failure.value());
             },
             "");
@@ -134,9 +123,8 @@ namespace Comet::Tests {
 
         EXPECT_FALSE(budget.reaches_usage_percentage(0, 90));
         EXPECT_TRUE(budget.reaches_usage_percentage(1, 90));
-        EXPECT_TRUE(budget.reaches_usage_percentage(
-            std::numeric_limits<uint64_t>::max(),
-            90));
+        EXPECT_TRUE(
+            budget.reaches_usage_percentage(std::numeric_limits<uint64_t>::max(), 90));
         EXPECT_FALSE(budget.reaches_usage_percentage(1, 0));
         EXPECT_FALSE(budget.reaches_usage_percentage(1, 101));
 

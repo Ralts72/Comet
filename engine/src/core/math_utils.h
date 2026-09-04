@@ -32,15 +32,22 @@ namespace Comet::Math {
 
     using Quat = glm::quat;
 
-    template<typename T>
-    T identity() {
+    template<typename T> T identity() {
         return glm::identity<T>();
     }
 
-    inline float length(const Vec3& v) { return glm::length(v); }
-    inline Vec3 normalize(const Vec3& v) { return glm::normalize(v); }
-    inline float dot(const Vec3& a, const Vec3& b) { return glm::dot(a, b); }
-    inline Vec3 cross(const Vec3& a, const Vec3& b) { return glm::cross(a, b); }
+    inline float length(const Vec3& v) {
+        return glm::length(v);
+    }
+    inline Vec3 normalize(const Vec3& v) {
+        return glm::normalize(v);
+    }
+    inline float dot(const Vec3& a, const Vec3& b) {
+        return glm::dot(a, b);
+    }
+    inline Vec3 cross(const Vec3& a, const Vec3& b) {
+        return glm::cross(a, b);
+    }
 
     inline float radians(float degrees) {
         return glm::radians(degrees);
@@ -62,10 +69,7 @@ namespace Comet::Math {
 
     inline Vec3 wrap_degrees(const Vec3& degrees) {
         return {
-            wrap_degrees(degrees.x),
-            wrap_degrees(degrees.y),
-            wrap_degrees(degrees.z)
-        };
+            wrap_degrees(degrees.x), wrap_degrees(degrees.y), wrap_degrees(degrees.z)};
     }
 
     inline Mat4 translate(const Mat4& mat4, const Vec3& v) {
@@ -80,18 +84,14 @@ namespace Comet::Math {
         return glm::rotate(mat4, radians, axis);
     }
 
-    inline Mat4 compose_trs(const Vec3& translation,
-                            const Vec3& rotation_degrees,
-                            const Vec3& scale_vector) {
+    inline Mat4 compose_trs(
+        const Vec3& translation, const Vec3& rotation_degrees, const Vec3& scale_vector) {
         // Euler rotations are applied in X/Y/Z order: T * Rz * Ry * Rx * S.
         const Vec3 wrapped_rotation = wrap_degrees(rotation_degrees);
         Mat4 matrix = translate(Mat4(1.0f), translation);
-        matrix = rotate(
-            matrix, radians(wrapped_rotation.z), Vec3(0.0f, 0.0f, 1.0f));
-        matrix = rotate(
-            matrix, radians(wrapped_rotation.y), Vec3(0.0f, 1.0f, 0.0f));
-        matrix = rotate(
-            matrix, radians(wrapped_rotation.x), Vec3(1.0f, 0.0f, 0.0f));
+        matrix = rotate(matrix, radians(wrapped_rotation.z), Vec3(0.0f, 0.0f, 1.0f));
+        matrix = rotate(matrix, radians(wrapped_rotation.y), Vec3(0.0f, 1.0f, 0.0f));
+        matrix = rotate(matrix, radians(wrapped_rotation.x), Vec3(1.0f, 0.0f, 0.0f));
         return scale(matrix, scale_vector);
     }
 
@@ -99,7 +99,8 @@ namespace Comet::Math {
         return glm::perspective(glm::radians(fov_degrees), aspect, nearZ, farZ);
     }
 
-    inline Mat4 ortho(float left, float right, float bottom, float top, float nearZ, float farZ) {
+    inline Mat4 ortho(
+        float left, float right, float bottom, float top, float nearZ, float farZ) {
         return glm::ortho(left, right, bottom, top, nearZ, farZ);
     }
 

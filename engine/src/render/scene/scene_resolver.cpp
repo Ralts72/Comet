@@ -33,7 +33,8 @@ namespace Comet {
         const RenderCamera* primary_camera = nullptr;
         std::size_t primary_camera_count = 0;
         for(const RenderCamera& camera : render_scene.cameras) {
-            if(!camera.primary) continue;
+            if(!camera.primary)
+                continue;
 
             ++primary_camera_count;
             if(!primary_camera || camera.entity_id < primary_camera->entity_id) {
@@ -96,8 +97,7 @@ namespace Comet {
             if(m_invalid_camera_clip_planes != primary_camera->entity_id) {
                 LOG_ERROR(
                     "Primary camera entity {} has invalid clip planes: near={}, far={}",
-                    primary_camera->entity_id,
-                    primary_camera->near_clip,
+                    primary_camera->entity_id, primary_camera->near_clip,
                     primary_camera->far_clip);
             }
             m_invalid_camera_clip_planes = primary_camera->entity_id;
@@ -106,15 +106,10 @@ namespace Comet {
         m_invalid_camera_clip_planes.reset();
 
         const float aspect =
-                static_cast<float>(render_size.x) / static_cast<float>(render_size.y);
-        return ViewProjectMatrix{
-            .view = primary_camera->view_matrix,
-            .projection = Math::perspective(
-                primary_camera->fov_degrees,
-                aspect,
-                primary_camera->near_clip,
-                primary_camera->far_clip)
-        };
+            static_cast<float>(render_size.x) / static_cast<float>(render_size.y);
+        return ViewProjectMatrix{.view = primary_camera->view_matrix,
+            .projection = Math::perspective(primary_camera->fov_degrees, aspect,
+                primary_camera->near_clip, primary_camera->far_clip)};
     }
 
     std::optional<ResolvedRenderItem> SceneResolver::resolve_item(
@@ -129,7 +124,8 @@ namespace Comet {
         }
         m_missing_mesh_handles.erase(render_item.mesh_handle);
 
-        const auto material = m_asset_registry.resolve<Material>(render_item.material_handle);
+        const auto material =
+            m_asset_registry.resolve<Material>(render_item.material_handle);
         if(!material) {
             if(m_missing_material_handles.insert(render_item.material_handle).second) {
                 LOG_ERROR("Render item references missing material handle {}",
@@ -141,18 +137,15 @@ namespace Comet {
 
         if(material->get_template_name() != "cube_texture") {
             if(m_invalid_material_handles.insert(render_item.material_handle).second) {
-                LOG_ERROR(
-                    "Material handle {} uses unsupported template '{}'",
-                    render_item.material_handle.value(),
-                    material->get_template_name());
+                LOG_ERROR("Material handle {} uses unsupported template '{}'",
+                    render_item.material_handle.value(), material->get_template_name());
             }
             return std::nullopt;
         }
 
         std::array<std::shared_ptr<Texture>, 2> textures = {
             material->get_texture_property("u_Texture0"),
-            material->get_texture_property("u_Texture1")
-        };
+            material->get_texture_property("u_Texture1")};
         if(!textures[0] || !textures[1]) {
             if(m_invalid_material_handles.insert(render_item.material_handle).second) {
                 LOG_ERROR(
@@ -163,14 +156,10 @@ namespace Comet {
         }
         m_invalid_material_handles.erase(render_item.material_handle);
 
-        return ResolvedRenderItem{
-            .entity_id = render_item.entity_id,
+        return ResolvedRenderItem{.entity_id = render_item.entity_id,
             .model_matrix = render_item.model_matrix,
             .mesh = mesh,
-            .material = {
-                .material_handle = render_item.material_handle,
-                .textures = std::move(textures)
-            }
-        };
+            .material = {.material_handle = render_item.material_handle,
+                .textures = std::move(textures)}};
     }
 }

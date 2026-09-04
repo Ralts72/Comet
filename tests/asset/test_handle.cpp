@@ -53,9 +53,7 @@ namespace Comet::Tests {
         const AssetHandle mesh_handle(10);
         const AssetHandle material_handle(20);
         const std::unordered_map<AssetHandle, int> assets = {
-            {mesh_handle, 1},
-            {material_handle, 2}
-        };
+            {mesh_handle, 1}, {material_handle, 2}};
 
         EXPECT_EQ(assets.at(mesh_handle), 1);
         EXPECT_EQ(assets.at(material_handle), 2);

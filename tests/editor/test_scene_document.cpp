@@ -24,8 +24,7 @@ namespace CometEditor::Tests {
             TemporarySceneFile() {
                 const auto id = std::random_device{}();
                 m_path = std::filesystem::temp_directory_path()
-                    / ("comet_scene_document_" + std::to_string(id)
-                       + ".scene");
+                         / ("comet_scene_document_" + std::to_string(id) + ".scene");
             }
 
             ~TemporarySceneFile() {
@@ -33,9 +32,7 @@ namespace CometEditor::Tests {
                 std::filesystem::remove(m_path, error);
             }
 
-            [[nodiscard]] std::string path() const {
-                return m_path.string();
-            }
+            [[nodiscard]] std::string path() const { return m_path.string(); }
 
         private:
             std::filesystem::path m_path;
@@ -47,8 +44,7 @@ namespace CometEditor::Tests {
         auto active_scene = std::make_unique<Comet::Scene>();
         active_scene->create_entity("Saved Entity");
         SceneDocument document(
-            serializer,
-            [&active_scene]() { return active_scene.get(); },
+            serializer, [&active_scene]() { return active_scene.get(); },
             [&active_scene](std::unique_ptr<Comet::Scene> replacement) {
                 active_scene.swap(replacement);
                 return replacement;

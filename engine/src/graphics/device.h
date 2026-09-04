@@ -40,7 +40,7 @@ namespace Comet {
         Device& operator=(Device&&) noexcept = delete;
 
         void wait_for_fences(std::span<const Fence> fences, bool wait_all = true,
-                             uint64_t timeout = std::numeric_limits<uint64_t>::max()) const;
+            uint64_t timeout = std::numeric_limits<uint64_t>::max()) const;
 
         void reset_fences(std::span<const Fence> fences) const;
 
@@ -68,14 +68,20 @@ namespace Comet {
             return m_present_queues.at(index);
         }
 
-        [[nodiscard]] vk::PipelineCache get_pipeline_cache() const { return m_pipeline_cache; }
+        [[nodiscard]] vk::PipelineCache get_pipeline_cache() const {
+            return m_pipeline_cache;
+        }
 
         [[nodiscard]] const DeviceCapability& get_capability() const {
             return m_capability;
         }
 
-        [[nodiscard]] CommandPool& get_default_command_pool() { return *m_default_command_pool; }
-        [[nodiscard]] const CommandPool& get_default_command_pool() const { return *m_default_command_pool; }
+        [[nodiscard]] CommandPool& get_default_command_pool() {
+            return *m_default_command_pool;
+        }
+        [[nodiscard]] const CommandPool& get_default_command_pool() const {
+            return *m_default_command_pool;
+        }
 
         std::unique_ptr<CommandContext> create_command_context();
 

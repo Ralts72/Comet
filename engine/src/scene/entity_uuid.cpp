@@ -37,8 +37,8 @@ namespace Comet {
         for(std::size_t block = 0; block < 2; ++block) {
             const std::uint64_t value = generator();
             for(std::size_t index = 0; index < 8; ++index) {
-                bytes[block * 8 + index] = static_cast<std::uint8_t>(
-                    value >> (index * 8));
+                bytes[block * 8 + index] =
+                    static_cast<std::uint8_t>(value >> (index * 8));
             }
         }
 
@@ -48,19 +48,16 @@ namespace Comet {
     }
 
     std::optional<EntityUuid> EntityUuid::parse(const std::string_view value) {
-        if(value.size() != 36
-           || value[8] != '-'
-           || value[13] != '-'
-           || value[18] != '-'
-           || value[23] != '-') {
+        if(value.size() != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-'
+            || value[23] != '-') {
             return std::nullopt;
         }
 
         Bytes bytes{};
         std::size_t input_index = 0;
         for(std::size_t byte_index = 0; byte_index < bytes.size(); ++byte_index) {
-            if(byte_index == 4 || byte_index == 6
-               || byte_index == 8 || byte_index == 10) {
+            if(byte_index == 4 || byte_index == 6 || byte_index == 8
+                || byte_index == 10) {
                 ++input_index;
             }
 

@@ -59,17 +59,15 @@ namespace Comet {
         vk::Extent2D extent;
         vk::SurfaceFormatKHR surface_format;
         vk::PresentModeKHR present_mode = vk::PresentModeKHR::eFifo;
-        vk::SurfaceTransformFlagBitsKHR transform = vk::SurfaceTransformFlagBitsKHR::eIdentity;
-        vk::CompositeAlphaFlagBitsKHR composite_alpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
+        vk::SurfaceTransformFlagBitsKHR transform =
+            vk::SurfaceTransformFlagBitsKHR::eIdentity;
+        vk::CompositeAlphaFlagBitsKHR composite_alpha =
+            vk::CompositeAlphaFlagBitsKHR::eOpaque;
         vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eColorAttachment;
         bool clipped = true;
     };
 
-    enum class SwapchainStatus {
-        Ready,
-        Deferred,
-        Unsupported
-    };
+    enum class SwapchainStatus { Ready, Deferred, Unsupported };
 
     struct SwapchainResult {
         SwapchainStatus status = SwapchainStatus::Unsupported;
@@ -106,26 +104,21 @@ namespace Comet {
         vk::PhysicalDeviceVulkan13Features enabled_vulkan13_features{};
         float max_sampler_anisotropy = 1.0f;
 
-        [[nodiscard]] bool is_suitable() const {
-            return rejection_reasons.empty();
-        }
+        [[nodiscard]] bool is_suitable() const { return rejection_reasons.empty(); }
     };
 
     [[nodiscard]] std::vector<const char*> get_available_names(
         const std::vector<const char*>& requested_names,
-        const std::set<std::string>& available_names,
-        std::string_view item_type);
+        const std::set<std::string>& available_names, std::string_view item_type);
 
     [[nodiscard]] COMET_API DeviceExtensionSelection select_device_extensions(
         const std::set<std::string>& available_extensions);
 
     [[nodiscard]] COMET_API DeviceCandidateEvaluation evaluate_device_candidate(
-        const DeviceCandidateInfo& candidate,
-        const DeviceCapabilityRequest& request);
+        const DeviceCandidateInfo& candidate, const DeviceCapabilityRequest& request);
 
     [[nodiscard]] DeviceCapability select_physical_device(
-        const std::vector<vk::PhysicalDevice>& physical_devices,
-        vk::SurfaceKHR surface,
+        const std::vector<vk::PhysicalDevice>& physical_devices, vk::SurfaceKHR surface,
         const DeviceCapabilityRequest& request,
         uint32_t required_graphics_queue_count = 1,
         uint32_t required_present_queue_count = 1);
@@ -134,6 +127,5 @@ namespace Comet {
         const vk::SurfaceCapabilitiesKHR& capabilities,
         const std::vector<vk::SurfaceFormatKHR>& surface_formats,
         const std::vector<vk::PresentModeKHR>& present_modes,
-        vk::Extent2D framebuffer_extent,
-        const SwapchainRequest& request);
+        vk::Extent2D framebuffer_extent, const SwapchainRequest& request);
 }

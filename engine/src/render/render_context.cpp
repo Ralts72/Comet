@@ -4,7 +4,8 @@
 #include "graphics/convert.h"
 
 namespace Comet {
-    RenderContext::RenderContext(const Window& window, const Config::Vulkan& vulkan_config, const Config::Render& render_config) {
+    RenderContext::RenderContext(const Window& window,
+        const Config::Vulkan& vulkan_config, const Config::Render& render_config) {
         PROFILE_SCOPE("RenderContext::Constructor");
         LOG_INFO("init graphics system");
 
@@ -12,29 +13,25 @@ namespace Comet {
             .image_count = vulkan_config.swapchain_image_count,
             .surface_format = vulkan_config.surface_format,
             .color_space = vulkan_config.color_space,
-            .present_mode = render_config.enable_vsync
-                ? PresentMode::Fifo
-                : vulkan_config.present_mode,
-            .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)
-        };
-        const DeviceCapabilityRequest capability_request{
-            .swapchain = swapchain_request,
+            .present_mode = render_config.enable_vsync ? PresentMode::Fifo
+                                                       : vulkan_config.present_mode,
+            .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)};
+        const DeviceCapabilityRequest capability_request{.swapchain = swapchain_request,
             .depth_format = vulkan_config.depth_format,
             .sample_count = vulkan_config.msaa_samples,
-            .max_sampler_anisotropy = render_config.max_anisotropy
-        };
+            .max_sampler_anisotropy = render_config.max_anisotropy};
         m_context = std::make_unique<Context>(window, vulkan_config, capability_request);
 
         LOG_INFO("create device");
         m_device = std::make_unique<Device>(*m_context);
 
         LOG_INFO("create swapchain");
-        m_swapchain = std::make_unique<Swapchain>(
-            window, *m_context, *m_device, swapchain_request);
+        m_swapchain =
+            std::make_unique<Swapchain>(window, *m_context, *m_device, swapchain_request);
     }
 
     void RenderContext::wait_idle() const {
-        if (m_device) {
+        if(m_device) {
             m_device->wait_idle();
         } else {
             LOG_ERROR("m_device is nullptr, can't wait idle");

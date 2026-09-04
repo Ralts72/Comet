@@ -11,69 +11,47 @@
 
 namespace Comet {
     namespace {
-        std::runtime_error material_error(
-            const std::string_view source,
-            const std::string_view location,
-            const std::string& detail) {
-            return std::runtime_error(
-                "Invalid material '" + std::string(source) + "' at '"
-                + std::string(location) + "': " + detail);
+        std::runtime_error material_error(const std::string_view source,
+            const std::string_view location, const std::string& detail) {
+            return std::runtime_error("Invalid material '" + std::string(source)
+                                      + "' at '" + std::string(location)
+                                      + "': " + detail);
         }
 
-        void require_map(
-            const YAML::Node& node,
-            const std::string_view source,
+        void require_map(const YAML::Node& node, const std::string_view source,
             const std::string_view location) {
             Yaml::require_map(node, source, location, material_error);
         }
 
-        void validate_keys(
-            const YAML::Node& node,
+        void validate_keys(const YAML::Node& node,
             const std::unordered_set<std::string>& supported,
-            const std::string_view source,
-            const std::string_view location) {
-            Yaml::validate_keys(
-                node, supported, source, location, material_error);
+            const std::string_view source, const std::string_view location) {
+            Yaml::validate_keys(node, supported, source, location, material_error);
         }
 
-        YAML::Node required_child(
-            const YAML::Node& node,
-            const char* key,
-            const std::string_view source,
-            const std::string_view location) {
-            return Yaml::required_child(
-                node, key, source, location, material_error);
+        YAML::Node required_child(const YAML::Node& node, const char* key,
+            const std::string_view source, const std::string_view location) {
+            return Yaml::required_child(node, key, source, location, material_error);
         }
 
         template<typename T>
-        T read_scalar(
-            const YAML::Node& node,
-            const std::string_view source,
-            const std::string_view location,
-            const std::string_view expected) {
-            return Yaml::read_scalar<T>(
-                node, source, location, expected, material_error);
+        T read_scalar(const YAML::Node& node, const std::string_view source,
+            const std::string_view location, const std::string_view expected) {
+            return Yaml::read_scalar<T>(node, source, location, expected, material_error);
         }
 
         void validate_material_data(
-            const MaterialData& data,
-            const std::string_view source) {
+            const MaterialData& data, const std::string_view source) {
             if(data.template_name.empty()) {
-                throw material_error(
-                    source, "template", "expected a non-empty string");
+                throw material_error(source, "template", "expected a non-empty string");
             }
-            for(const auto& [property_name, texture_handle]:
-                data.texture_properties) {
+            for(const auto& [property_name, texture_handle] : data.texture_properties) {
                 if(property_name.empty()) {
                     throw material_error(
-                        source,
-                        "properties",
-                        "property names cannot be empty");
+                        source, "properties", "property names cannot be empty");
                 }
                 if(!texture_handle) {
-                    throw material_error(
-                        source,
-                        "properties." + property_name + ".asset",
+                    throw material_error(source, "properties." + property_name + ".asset",
                         "expected a non-zero unsigned integer");
                 }
             }
@@ -88,8 +66,7 @@ namespace Comet {
         root["template"] = data.template_name;
 
         YAML::Node properties(YAML::NodeType::Map);
-        for(const auto& [property_name, texture_handle]:
-            data.texture_properties) {
+        for(const auto& [property_name, texture_handle] : data.texture_properties) {
             YAML::Node property(YAML::NodeType::Map);
             property["type"] = "texture";
             property["asset"] = texture_handle.value();
@@ -101,15 +78,13 @@ namespace Comet {
         emitter << root;
         if(!emitter.good()) {
             throw std::runtime_error(
-                "Failed to serialize material: "
-                + emitter.GetLastError());
+                "Failed to serialize material: " + emitter.GetLastError());
         }
         return std::string(emitter.c_str()) + '\n';
     }
 
     MaterialData MaterialSerializer::deserialize(
-        const std::string_view contents,
-        const std::string_view source) const {
+        const std::string_view contents, const std::string_view source) const {
         YAML::Node root;
         try {
             root = YAML::Load(std::string(contents));
@@ -118,38 +93,28 @@ namespace Comet {
         }
 
         require_map(root, source, "<root>");
-        validate_keys(
-            root,
-            {"version", "template", "properties"},
-            source,
-            "<root>");
+        validate_keys(root, {"version", "template", "properties"}, source, "<root>");
 
-        const std::uint32_t version = read_scalar<std::uint32_t>(
-            required_child(root, "version", source, "<root>"),
-            source,
-            "version",
-            "an unsigned integer");
+        const std::uint32_t version =
+            read_scalar<std::uint32_t>(required_child(root, "version", source, "<root>"),
+                source, "version", "an unsigned integer");
         if(version != FORMAT_VERSION) {
             throw material_error(
-                source,
-                "version",
-                "unsupported version " + std::to_string(version));
+                source, "version", "unsupported version " + std::to_string(version));
         }
 
         MaterialData data;
-        data.template_name = read_scalar<std::string>(
-            required_child(root, "template", source, "<root>"),
-            source,
-            "template",
-            "a non-empty string");
+        data.template_name =
+            read_scalar<std::string>(required_child(root, "template", source, "<root>"),
+                source, "template", "a non-empty string");
         if(data.template_name.empty()) {
             throw material_error(source, "template", "expected a non-empty string");
         }
 
         const YAML::Node properties =
-                required_child(root, "properties", source, "<root>");
+            required_child(root, "properties", source, "<root>");
         require_map(properties, source, "properties");
-        for(const auto& entry: properties) {
+        for(const auto& entry : properties) {
             if(!entry.first.IsScalar()) {
                 throw material_error(source, "properties", "expected string keys");
             }
@@ -161,45 +126,28 @@ namespace Comet {
             }
             if(data.texture_properties.contains(property_name)) {
                 throw material_error(
-                    source,
-                    "properties",
-                    "duplicate property '" + property_name + "'");
+                    source, "properties", "duplicate property '" + property_name + "'");
             }
 
-            const std::string property_location =
-                    "properties." + property_name;
+            const std::string property_location = "properties." + property_name;
             const YAML::Node property = entry.second;
             require_map(property, source, property_location);
-            validate_keys(
-                property,
-                {"type", "asset"},
-                source,
-                property_location);
+            validate_keys(property, {"type", "asset"}, source, property_location);
 
             const std::string type = read_scalar<std::string>(
-                required_child(
-                    property, "type", source, property_location),
-                source,
-                property_location + ".type",
-                "a string");
+                required_child(property, "type", source, property_location), source,
+                property_location + ".type", "a string");
             if(type != "texture") {
-                throw material_error(
-                    source,
-                    property_location + ".type",
+                throw material_error(source, property_location + ".type",
                     "unsupported property type '" + type + "'");
             }
 
             const std::uint64_t asset = read_scalar<std::uint64_t>(
-                required_child(
-                    property, "asset", source, property_location),
-                source,
-                property_location + ".asset",
-                "a non-zero unsigned integer");
+                required_child(property, "asset", source, property_location), source,
+                property_location + ".asset", "a non-zero unsigned integer");
             const AssetHandle texture_handle(asset);
             if(!texture_handle) {
-                throw material_error(
-                    source,
-                    property_location + ".asset",
+                throw material_error(source, property_location + ".asset",
                     "expected a non-zero unsigned integer");
             }
             data.texture_properties.emplace(property_name, texture_handle);
@@ -209,15 +157,13 @@ namespace Comet {
     }
 
     void MaterialSerializer::save(
-        const MaterialData& data,
-        const std::filesystem::path& path) const {
+        const MaterialData& data, const std::filesystem::path& path) const {
         const std::string contents = serialize(data);
         write_text_file_atomic(path, contents);
     }
 
     MaterialData MaterialSerializer::load(
         const std::filesystem::path& source_path) const {
-        return deserialize(
-            read_text_file(source_path), source_path.string());
+        return deserialize(read_text_file(source_path), source_path.string());
     }
 }

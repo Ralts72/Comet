@@ -94,8 +94,7 @@ namespace CometEditor::Tests {
 
         selection.set_scene(second_scene);
 
-        EXPECT_EQ(
-            selection.get_selected_entity_id(), Comet::INVALID_ENTITY_ID);
+        EXPECT_EQ(selection.get_selected_entity_id(), Comet::INVALID_ENTITY_ID);
         EXPECT_FALSE(selection.get_selected_entity());
 
         selection.select_entity(second.get_id());

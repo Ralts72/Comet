@@ -18,8 +18,7 @@ namespace Comet {
         uint64_t last_submission_serial = 0;
 
         FrameSlot(Device& device, const CommandBuffer& command_buffer)
-            : in_flight_fence(device),
-              image_available_semaphore(device),
+            : in_flight_fence(device), image_available_semaphore(device),
               command_buffer(command_buffer) {}
 
     private:
@@ -57,19 +56,15 @@ namespace Comet {
         [[nodiscard]] uint32_t get_current_frame_slot_index() const {
             return m_current_frame_slot;
         }
-        [[nodiscard]] uint32_t get_frame_slot_count() const {
-            return m_frame_slot_count;
-        }
+        [[nodiscard]] uint32_t get_frame_slot_count() const { return m_frame_slot_count; }
         [[nodiscard]] uint64_t get_current_frame_serial() const {
             return m_current_frame_serial;
         }
         [[nodiscard]] uint64_t get_completed_frame_serial() const {
             return m_completed_frame_serial;
         }
-        [[nodiscard]] bool is_frame_serial_complete(
-            const uint64_t frame_serial) const {
-            return frame_serial == 0
-                || frame_serial <= m_completed_frame_serial;
+        [[nodiscard]] bool is_frame_serial_complete(const uint64_t frame_serial) const {
+            return frame_serial == 0 || frame_serial <= m_completed_frame_serial;
         }
 
         [[nodiscard]] FrameSlot& get_current_frame_slot() {

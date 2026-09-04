@@ -15,7 +15,7 @@ namespace Comet {
     class Swapchain {
     public:
         Swapchain(const Window& window, Context& context, Device& device,
-                  const SwapchainRequest& request);
+            const SwapchainRequest& request);
 
         ~Swapchain();
 
@@ -29,10 +29,13 @@ namespace Comet {
 
         [[nodiscard]] bool recreate();
 
-        [[nodiscard]] std::pair<uint32_t, vk::Result> acquire_next_image(const Semaphore& semaphore);
+        [[nodiscard]] std::pair<uint32_t, vk::Result> acquire_next_image(
+            const Semaphore& semaphore);
 
         [[nodiscard]] uint32_t get_current_index() const { return m_current_index; }
-        [[nodiscard]] const std::vector<std::shared_ptr<Image>>& get_images() const { return m_images; }
+        [[nodiscard]] const std::vector<std::shared_ptr<Image>>& get_images() const {
+            return m_images;
+        }
         [[nodiscard]] uint32_t get_width() const { return m_config.extent.width; }
         [[nodiscard]] uint32_t get_height() const { return m_config.extent.height; }
         [[nodiscard]] const vk::SwapchainKHR& get() const { return m_swapchain; }

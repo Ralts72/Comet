@@ -8,11 +8,9 @@
 
 using namespace Comet;
 
-class LoggerTest : public ::testing::Test {
+class LoggerTest: public ::testing::Test {
 protected:
-    void TearDown() override {
-        Logger::shutdown();
-    }
+    void TearDown() override { Logger::shutdown(); }
 };
 
 TEST_F(LoggerTest, InitUsesExplicitConfig) {
@@ -82,9 +80,6 @@ TEST_F(LoggerTest, OperationalMacrosRemainAvailableInOptimizedBuilds) {
     LOG_WARN("warning message");
     LOG_ERROR("error message");
 
-    EXPECT_EQ(messages, (std::vector<std::string>{
-        "info message",
-        "warning message",
-        "error message"
-    }));
+    EXPECT_EQ(messages,
+        (std::vector<std::string>{"info message", "warning message", "error message"}));
 }

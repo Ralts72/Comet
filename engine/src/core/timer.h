@@ -21,7 +21,7 @@ namespace Comet {
 
         [[nodiscard]] UpdateContext get_update_context() const;
 
-      private:
+    private:
         void reset();
 
         std::chrono::time_point<std::chrono::high_resolution_clock> m_last_frame;

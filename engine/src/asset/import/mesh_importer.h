@@ -17,8 +17,7 @@ namespace Comet {
     public:
         static constexpr std::uint32_t OUTPUT_VERSION = 1;
 
-        [[nodiscard]] MeshData import(
-            const std::filesystem::path& source_path) const;
+        [[nodiscard]] MeshData import(const std::filesystem::path& source_path) const;
         [[nodiscard]] MeshImportResult import_with_dependencies(
             const std::filesystem::path& source_path) const;
     };

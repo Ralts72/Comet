@@ -8,7 +8,8 @@
 namespace Comet {
     class COMET_API RenderContext {
     public:
-        RenderContext(const Window& window, const Config::Vulkan& vulkan_config, const Config::Render& render_config);
+        RenderContext(const Window& window, const Config::Vulkan& vulkan_config,
+            const Config::Render& render_config);
         ~RenderContext();
 
         [[nodiscard]] Device& get_device() { return *m_device; }

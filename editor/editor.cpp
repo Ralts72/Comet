@@ -43,61 +43,48 @@ namespace {
         Comet::AssetHandle material;
     };
 
-    enum class SceneFileDialog {
-        None,
-        Open,
-        Save
-    };
+    enum class SceneFileDialog { None, Open, Save };
 
     void log_asset_scan_issues(const Comet::AssetScanReport& report) {
-        for(const Comet::AssetScanIssue& issue: report.issues) {
-            LOG_WARN(
-                "Asset scan issue at '{}': {}",
-                issue.path.generic_string(),
+        for(const Comet::AssetScanIssue& issue : report.issues) {
+            LOG_WARN("Asset scan issue at '{}': {}", issue.path.generic_string(),
                 issue.message);
         }
     }
 
     Comet::AssetHandle load_required_material(
-        Comet::AssetManager& asset_manager,
-        const std::filesystem::path& relative_path) {
+        Comet::AssetManager& asset_manager, const std::filesystem::path& relative_path) {
         const Comet::AssetRecord* record =
-                asset_manager.get_database().find(relative_path);
+            asset_manager.get_database().find(relative_path);
         if(!record) {
-            LOG_FATAL(
-                "Required material asset '{}' is not indexed",
+            LOG_FATAL("Required material asset '{}' is not indexed",
                 relative_path.generic_string());
         }
 
         if(!asset_manager.load_material(record->handle)) {
-            LOG_FATAL(
-                "Failed to load required material asset '{}'",
+            LOG_FATAL("Failed to load required material asset '{}'",
                 relative_path.generic_string());
         }
         return record->handle;
     }
 
     Comet::AssetHandle load_required_mesh(
-        Comet::AssetManager& asset_manager,
-        const std::filesystem::path& relative_path) {
+        Comet::AssetManager& asset_manager, const std::filesystem::path& relative_path) {
         const Comet::AssetRecord* record =
-                asset_manager.get_database().find(relative_path);
+            asset_manager.get_database().find(relative_path);
         if(!record) {
-            LOG_FATAL(
-                "Required mesh asset '{}' is not indexed",
+            LOG_FATAL("Required mesh asset '{}' is not indexed",
                 relative_path.generic_string());
         }
 
         if(!asset_manager.load_mesh(record->handle)) {
-            LOG_FATAL(
-                "Failed to load required mesh asset '{}'",
+            LOG_FATAL("Failed to load required mesh asset '{}'",
                 relative_path.generic_string());
         }
         return record->handle;
     }
 
-    std::unique_ptr<Comet::Scene> create_editor_scene(
-        const EditorRenderAssets& assets) {
+    std::unique_ptr<Comet::Scene> create_editor_scene(const EditorRenderAssets& assets) {
         auto scene = std::make_unique<Comet::Scene>();
         Comet::Entity main_camera = scene->create_entity("Main Camera");
         main_camera.get_component<Comet::TransformComponent>().translation.z = 3.0f;
@@ -106,8 +93,7 @@ namespace {
         Comet::Entity cube = scene->create_entity("Editor Cube");
         auto& transform = cube.get_component<Comet::TransformComponent>();
         transform.rotation = Comet::Math::Vec3(-20.0f, 30.0f, 0.0f);
-        cube.add_component<Comet::MeshRendererComponent>(
-            assets.mesh, assets.material);
+        cube.add_component<Comet::MeshRendererComponent>(assets.mesh, assets.material);
 
         return scene;
     }
@@ -126,66 +112,56 @@ namespace {
             renderer.enable_offscreen_rendering(
                 Comet::Math::Vec2u(swapchain.get_width(), swapchain.get_height()));
 
-            m_imgui_context = std::make_unique<CometEditor::ImGuiContext>(
-                engine.get_window(),
-                render_context,
-                m_project_paths.editor_state() / "imgui.ini");
+            m_imgui_context =
+                std::make_unique<CometEditor::ImGuiContext>(engine.get_window(),
+                    render_context, m_project_paths.editor_state() / "imgui.ini");
 
             // 设置日志重定向
             setup_log_redirect();
 
-            m_asset_manager = std::make_unique<Comet::AssetManager>(
-                m_project_paths,
-                engine.get_asset_registry(),
-                engine.get_resource_manager(),
+            m_asset_manager = std::make_unique<Comet::AssetManager>(m_project_paths,
+                engine.get_asset_registry(), engine.get_resource_manager(),
                 engine.get_task_scheduler());
             m_asset_scan_report = m_asset_manager->scan();
             log_asset_scan_issues(m_asset_scan_report);
 
             const EditorRenderAssets render_assets{
                 .mesh = load_required_mesh(*m_asset_manager, DEMO_MESH),
-                .material = load_required_material(
-                    *m_asset_manager, DEMO_MATERIAL)
-            };
+                .material = load_required_material(*m_asset_manager, DEMO_MATERIAL)};
             engine.set_scene(create_editor_scene(render_assets));
             Comet::Engine* engine_ptr = &engine;
             const auto get_active_scene = [engine_ptr]() {
                 return engine_ptr->get_scene();
             };
-            const auto replace_active_scene =
-                [engine_ptr](std::unique_ptr<Comet::Scene> scene) {
-                    return engine_ptr->replace_scene(std::move(scene));
-                };
-            m_scene_document =
-                    std::make_unique<CometEditor::SceneDocument>(
-                        m_scene_serializer,
-                        get_active_scene,
-                        replace_active_scene);
-            m_scene_session = std::make_unique<CometEditor::EditorSceneSession>(
-                m_editor_state,
-                m_scene_serializer,
-                get_active_scene,
-                replace_active_scene);
+            const auto replace_active_scene = [engine_ptr](
+                                                  std::unique_ptr<Comet::Scene> scene) {
+                return engine_ptr->replace_scene(std::move(scene));
+            };
+            m_scene_document = std::make_unique<CometEditor::SceneDocument>(
+                m_scene_serializer, get_active_scene, replace_active_scene);
+            m_scene_session =
+                std::make_unique<CometEditor::EditorSceneSession>(m_editor_state,
+                    m_scene_serializer, get_active_scene, replace_active_scene);
             auto& scene = *engine.get_scene();
             m_selection.emplace(scene);
             setup_panels(scene);
 
             m_imgui_context->set_viewport_images(
                 scene_renderer.get_offscreen_color_views(),
-                renderer.get_resource_manager().get_sampler_manager().get_nearest_clamp());
+                renderer.get_resource_manager()
+                    .get_sampler_manager()
+                    .get_nearest_clamp());
 
             // 注册 ImGui 渲染回调
             renderer.set_on_imgui_render([this](Comet::CommandBuffer& cmd) {
-                update_viewport_texture(
-                    get_engine().get_renderer().get_scene_renderer());
+                update_viewport_texture(get_engine().get_renderer().get_scene_renderer());
                 m_imgui_context->update_frame();
                 m_imgui_context->render(cmd);
             });
 
             // 注册 Swapchain 重建回调
-            scene_renderer.set_swapchain_recreate_callback([this]() {
-                m_imgui_context->recreate_swapchain();
-            });
+            scene_renderer.set_swapchain_recreate_callback(
+                [this]() { m_imgui_context->recreate_swapchain(); });
 
             LOG_INFO("Editor initialized");
         }
@@ -201,8 +177,7 @@ namespace {
         }
 
         void update_viewport_state() {
-            if(const auto resize_request =
-                   m_viewport_panel->take_resize_request()) {
+            if(const auto resize_request = m_viewport_panel->take_resize_request()) {
                 get_engine().get_renderer().resize_offscreen_target(*resize_request);
             }
         }
@@ -211,13 +186,14 @@ namespace {
             auto& renderer = get_engine().get_renderer();
             m_imgui_context->set_viewport_images(
                 scene_renderer.get_offscreen_color_views(),
-                renderer.get_resource_manager().get_sampler_manager().get_nearest_clamp());
+                renderer.get_resource_manager()
+                    .get_sampler_manager()
+                    .get_nearest_clamp());
 
             const uint32_t frame_slot =
-                    scene_renderer.get_frame_scheduler()
-                        .get_current_frame_slot_index();
+                scene_renderer.get_frame_scheduler().get_current_frame_slot_index();
             const ImTextureID texture_id =
-                    m_imgui_context->get_viewport_texture_id(frame_slot);
+                m_imgui_context->get_viewport_texture_id(frame_slot);
             const Comet::Math::Vec2u size = scene_renderer.get_render_target().get_size();
             m_viewport_panel->set_texture_id(texture_id, size.x, size.y);
         }
@@ -254,11 +230,11 @@ namespace {
                     if(m_scene_document->get_path().empty()) {
                         request_scene_file_dialog(SceneFileDialog::Save);
                     } else {
-                        static_cast<void>(m_scene_document->save(
-                            m_scene_document->get_path()));
+                        static_cast<void>(
+                            m_scene_document->save(m_scene_document->get_path()));
                     }
                     break;
-                default: ;
+                default:;
             }
         }
 
@@ -298,8 +274,7 @@ namespace {
                 initial_path = std::string(PROJECT_ROOT_DIR) + "/";
             }
             m_scene_path_buffer.fill('\0');
-            std::copy_n(
-                initial_path.data(),
+            std::copy_n(initial_path.data(),
                 std::min(initial_path.size(), m_scene_path_buffer.size() - 1),
                 m_scene_path_buffer.data());
         }
@@ -322,18 +297,14 @@ namespace {
             }
 
             ImGui::SetNextItemWidth(560.0f);
-            const bool submitted = ImGui::InputText(
-                "Path",
-                m_scene_path_buffer.data(),
-                m_scene_path_buffer.size(),
-                ImGuiInputTextFlags_EnterReturnsTrue);
+            const bool submitted = ImGui::InputText("Path", m_scene_path_buffer.data(),
+                m_scene_path_buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue);
 
             const char* action = is_open ? "Open" : "Save";
             if((ImGui::Button(action, ImVec2(100.0f, 0.0f)) || submitted)) {
                 const std::string path(m_scene_path_buffer.data());
-                const bool succeeded = is_open
-                    ? m_scene_document->open(path)
-                    : m_scene_document->save(path);
+                const bool succeeded =
+                    is_open ? m_scene_document->open(path) : m_scene_document->save(path);
                 if(succeeded) {
                     if(is_open) {
                         bind_active_scene();
@@ -350,11 +321,9 @@ namespace {
             }
 
             if(!m_scene_document->get_last_error().empty()) {
-                ImGui::PushStyleColor(
-                    ImGuiCol_Text, ImVec4(0.9f, 0.25f, 0.2f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.25f, 0.2f, 1.0f));
                 ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 560.0f);
-                ImGui::TextWrapped(
-                    "%s", m_scene_document->get_last_error().c_str());
+                ImGui::TextWrapped("%s", m_scene_document->get_last_error().c_str());
                 ImGui::PopTextWrapPos();
                 ImGui::PopStyleColor();
             }
@@ -373,8 +342,7 @@ namespace {
                     if(m_console_panel) {
                         m_console_panel->add_log(level, message);
                     }
-                }
-            );
+                });
 
             // 将 GUI sink 添加到 logger
             Comet::Logger::add_custom_sink(gui_sink);
@@ -393,30 +361,23 @@ namespace {
                 });
 
             // 创建面板
-            m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
-            m_viewport_panel = std::make_unique<CometEditor::ViewPanel>(
-                m_editor_state);
+            m_hierarchy_panel =
+                std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
+            m_viewport_panel = std::make_unique<CometEditor::ViewPanel>(m_editor_state);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
-                *m_selection,
-                m_component_registry,
-                m_property_editor_registry,
-                m_asset_manager->get_database(),
-                m_project_paths.assets(),
-                [this](
-                    const Comet::AssetHandle handle,
-                    const Comet::MaterialData& data) {
+                *m_selection, m_component_registry, m_property_editor_registry,
+                m_asset_manager->get_database(), m_project_paths.assets(),
+                [this](const Comet::AssetHandle handle, const Comet::MaterialData& data) {
                     return static_cast<bool>(
                         m_asset_manager->update_material(handle, data));
                 },
-                [this](
-                    const Comet::AssetHandle handle,
+                [this](const Comet::AssetHandle handle,
                     const Comet::TextureImportSettings settings) {
                     return static_cast<bool>(
                         m_asset_manager->reimport_texture(handle, settings));
                 });
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(
-                m_asset_manager->get_database(),
-                m_asset_scan_report,
+                m_asset_manager->get_database(), m_asset_scan_report,
                 [this]() {
                     Comet::AssetScanReport report = m_asset_manager->scan();
                     if(report.snapshot_updated) {
@@ -429,26 +390,22 @@ namespace {
             m_console_panel = std::make_unique<CometEditor::ConsolePanel>();
 
             // 设置菜单栏面板可见性回调
-            m_menu_bar->set_panel_visibility_callback("Hierarchy", [this](const bool visible) {
-                m_hierarchy_panel->set_visible(visible);
-            });
-            m_menu_bar->set_panel_visibility_callback("Viewport", [this](const bool visible) {
-                m_viewport_panel->set_visible(visible);
-            });
-            m_menu_bar->set_panel_visibility_callback("Inspector", [this](const bool visible) {
-                m_inspector_panel->set_visible(visible);
-            });
-            m_menu_bar->set_panel_visibility_callback("Project", [this](const bool visible) {
-                m_project_panel->set_visible(visible);
-            });
-            m_menu_bar->set_panel_visibility_callback("Log", [this](const bool visible) {
-                m_console_panel->set_visible(visible);
-            });
+            m_menu_bar->set_panel_visibility_callback("Hierarchy",
+                [this](const bool visible) { m_hierarchy_panel->set_visible(visible); });
+            m_menu_bar->set_panel_visibility_callback("Viewport",
+                [this](const bool visible) { m_viewport_panel->set_visible(visible); });
+            m_menu_bar->set_panel_visibility_callback("Inspector",
+                [this](const bool visible) { m_inspector_panel->set_visible(visible); });
+            m_menu_bar->set_panel_visibility_callback("Project",
+                [this](const bool visible) { m_project_panel->set_visible(visible); });
+            m_menu_bar->set_panel_visibility_callback("Log",
+                [this](const bool visible) { m_console_panel->set_visible(visible); });
 
             // 设置 UI 回调
             m_imgui_context->set_ui_callback([this]() {
                 constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
-                ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), dockspace_flags);
+                ImGui::DockSpaceOverViewport(
+                    0, ImGui::GetMainViewport(), dockspace_flags);
 
                 m_menu_bar->render();
                 m_hierarchy_panel->render();
@@ -466,9 +423,9 @@ namespace {
         Comet::AssetScanReport m_asset_scan_report;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry =
-                Comet::create_scene_component_registry();
+            Comet::create_scene_component_registry();
         CometEditor::PropertyEditorRegistry m_property_editor_registry =
-                CometEditor::create_property_editor_registry();
+            CometEditor::create_property_editor_registry();
         Comet::SceneSerializer m_scene_serializer{m_component_registry};
         CometEditor::EditorState m_editor_state;
         std::unique_ptr<CometEditor::SceneDocument> m_scene_document;

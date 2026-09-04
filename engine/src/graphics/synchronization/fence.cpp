@@ -2,14 +2,14 @@
 #include "graphics/device.h"
 
 namespace Comet {
-    Fence::Fence(Device& device): m_device(&device) {
+    Fence::Fence(Device& device) : m_device(&device) {
         vk::FenceCreateInfo fence_create_info = {};
         fence_create_info.flags = vk::FenceCreateFlagBits::eSignaled;
         m_fence = m_device->get().createFence(fence_create_info);
     }
 
     Fence::~Fence() {
-        if(m_device && m_fence!= VK_NULL_HANDLE) {
+        if(m_device && m_fence != VK_NULL_HANDLE) {
             m_device->get().destroyFence(m_fence);
         }
     }
@@ -21,8 +21,8 @@ namespace Comet {
     }
 
     Fence& Fence::operator=(Fence&& other) noexcept {
-        if (this != &other) {
-            if (m_fence != VK_NULL_HANDLE && m_device) {
+        if(this != &other) {
+            if(m_fence != VK_NULL_HANDLE && m_device) {
                 m_device->get().destroyFence(m_fence);
             }
             m_device = other.m_device;

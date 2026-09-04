@@ -21,28 +21,19 @@ namespace Comet {
         CommandContext& operator=(const CommandContext&) = delete;
 
         // GPU 操作接口
-        void copy_buffer(
-            const Buffer& src,
-            const Buffer& dst,
-            size_t size,
-            size_t src_offset = 0,
-            size_t dst_offset = 0);
+        void copy_buffer(const Buffer& src, const Buffer& dst, size_t size,
+            size_t src_offset = 0, size_t dst_offset = 0);
 
-        void copy_buffer_to_image(const Buffer& src, const Image& dst, ImageLayout dst_image_layout,
-                                  const vk::Extent3D& extent, uint32_t base_array_layer = 0,
-                                  uint32_t layer_count = 1, uint32_t mip_level = 0,
-                                  vk::DeviceSize buffer_offset = 0);
+        void copy_buffer_to_image(const Buffer& src, const Image& dst,
+            ImageLayout dst_image_layout, const vk::Extent3D& extent,
+            uint32_t base_array_layer = 0, uint32_t layer_count = 1,
+            uint32_t mip_level = 0, vk::DeviceSize buffer_offset = 0);
 
         void transition_image_state(
-            const Image& image,
-            const ImageState& before,
-            const ImageState& after);
+            const Image& image, const ImageState& before, const ImageState& after);
 
-        void transition_buffer_state(
-            const Buffer& buffer,
-            const ResourceState& before,
-            const ResourceState& after,
-            vk::DeviceSize offset = 0,
+        void transition_buffer_state(const Buffer& buffer, const ResourceState& before,
+            const ResourceState& after, vk::DeviceSize offset = 0,
             vk::DeviceSize size = VK_WHOLE_SIZE);
 
         [[nodiscard]] GpuCompletionPoint submit();

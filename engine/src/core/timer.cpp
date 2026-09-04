@@ -17,19 +17,19 @@ namespace Comet {
         // FPS 统计 - 使用滑动平均平滑FPS
         m_frame_count++;
         m_fps_timer += m_delta_time;
-        
+
         // 每0.5秒更新一次FPS，提供稳定的显示
-        if (m_fps_timer >= 0.5f) {
+        if(m_fps_timer >= 0.5f) {
             const float current_fps = static_cast<float>(m_frame_count) / m_fps_timer;
-            
+
             // 如果是第一次计算，直接使用当前值
-            if (m_fps == 0.0f) {
+            if(m_fps == 0.0f) {
                 m_fps = current_fps;
             } else {
                 // 使用指数加权移动平均平滑FPS (90%旧值 + 10%新值)
                 m_fps = m_fps * 0.9f + current_fps * 0.1f;
             }
-            
+
             m_frame_count = 0;
             m_fps_timer = 0.0f;
         }

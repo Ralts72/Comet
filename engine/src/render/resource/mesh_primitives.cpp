@@ -2,7 +2,8 @@
 
 namespace Comet::MeshPrimitives {
     MeshData create_cube(const float left, const float right, const float top,
-        const float bottom, const float near, const float far, const Math::Mat4& transform) {
+        const float bottom, const float near, const float far,
+        const Math::Mat4& transform) {
         const Math::Mat4 normal_matrix = Math::transpose(Math::inverse(transform));
         //    v6----- v5
         //   /|      /|
@@ -12,38 +13,36 @@ namespace Comet::MeshPrimitives {
         //  |/      |/
         //  v2------v3
         MeshData cube_data;
-        cube_data.vertices = {
-                // v0-v1-v2-v3 front
-                { transform * Math::Vec4(right, top, near, 1.f) },
-                { transform * Math::Vec4(left, top, near, 1.f) },
-                { transform * Math::Vec4(left, bottom, near, 1.f) },
-                { transform * Math::Vec4(right, bottom, near, 1.f) },
-                // v0-v3-v4-v5 right
-                { transform * Math::Vec4(right, top, near, 1.f) },
-                { transform * Math::Vec4(right, bottom, near, 1.f) },
-                { transform * Math::Vec4(right, bottom, far, 1.f) },
-                { transform * Math::Vec4(right, top, far, 1.f) },
-                // v0-v5-v6-v1 up
-                { transform * Math::Vec4(right, top, near, 1.f) },
-                { transform * Math::Vec4(right, top, far, 1.f) },
-                { transform * Math::Vec4(left, top, far, 1.f) },
-                { transform * Math::Vec4(left, top, near, 1.f) },
-                // v1-v6-v7-v2 left
-                { transform * Math::Vec4(left, top, near, 1.f) },
-                { transform * Math::Vec4(left, top, far, 1.f) },
-                { transform * Math::Vec4(left, bottom, far, 1.f) },
-                { transform * Math::Vec4(left, bottom, near, 1.f) },
-                // v7-v4-v3-v2 bottom
-                { transform * Math::Vec4(left, bottom, far, 1.f) },
-                { transform * Math::Vec4(right, bottom, far, 1.f) },
-                { transform * Math::Vec4(right, bottom, near, 1.f) },
-                { transform * Math::Vec4(left, bottom, near, 1.f) },
-                // v4-v7-v6-v5 back
-                { transform * Math::Vec4(right, bottom, far, 1.f) },
-                { transform * Math::Vec4(left, bottom, far, 1.f) },
-                { transform * Math::Vec4(left, top, far, 1.f) },
-                { transform * Math::Vec4(right, top, far, 1.f) }
-        };
+        cube_data.vertices = {// v0-v1-v2-v3 front
+            {transform * Math::Vec4(right, top, near, 1.f)},
+            {transform * Math::Vec4(left, top, near, 1.f)},
+            {transform * Math::Vec4(left, bottom, near, 1.f)},
+            {transform * Math::Vec4(right, bottom, near, 1.f)},
+            // v0-v3-v4-v5 right
+            {transform * Math::Vec4(right, top, near, 1.f)},
+            {transform * Math::Vec4(right, bottom, near, 1.f)},
+            {transform * Math::Vec4(right, bottom, far, 1.f)},
+            {transform * Math::Vec4(right, top, far, 1.f)},
+            // v0-v5-v6-v1 up
+            {transform * Math::Vec4(right, top, near, 1.f)},
+            {transform * Math::Vec4(right, top, far, 1.f)},
+            {transform * Math::Vec4(left, top, far, 1.f)},
+            {transform * Math::Vec4(left, top, near, 1.f)},
+            // v1-v6-v7-v2 left
+            {transform * Math::Vec4(left, top, near, 1.f)},
+            {transform * Math::Vec4(left, top, far, 1.f)},
+            {transform * Math::Vec4(left, bottom, far, 1.f)},
+            {transform * Math::Vec4(left, bottom, near, 1.f)},
+            // v7-v4-v3-v2 bottom
+            {transform * Math::Vec4(left, bottom, far, 1.f)},
+            {transform * Math::Vec4(right, bottom, far, 1.f)},
+            {transform * Math::Vec4(right, bottom, near, 1.f)},
+            {transform * Math::Vec4(left, bottom, near, 1.f)},
+            // v4-v7-v6-v5 back
+            {transform * Math::Vec4(right, bottom, far, 1.f)},
+            {transform * Math::Vec4(left, bottom, far, 1.f)},
+            {transform * Math::Vec4(left, top, far, 1.f)},
+            {transform * Math::Vec4(right, top, far, 1.f)}};
         cube_data.vertices[0].texcoord = Math::Vec2(0.0f, 0.0f);
         cube_data.vertices[1].texcoord = Math::Vec2(1.0f, 0.0f);
         cube_data.vertices[2].texcoord = Math::Vec2(1.0f, 1.0f);
@@ -94,14 +93,8 @@ namespace Comet::MeshPrimitives {
         cube_data.vertices[22].normal = normal_matrix * Math::Vec4(0, 0, -1, 1);
         cube_data.vertices[23].normal = normal_matrix * Math::Vec4(0, 0, -1, 1);
 
-        cube_data.indices = {
-            0, 1, 2, 0, 2, 3,
-            4, 5, 6, 4, 6, 7,
-            8, 9, 10, 8, 10, 11,
-            12, 13, 14, 12, 14, 15,
-            16, 17, 18, 16, 18, 19,
-            20, 21, 22, 20, 22, 23
-        };
+        cube_data.indices = {0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11, 12,
+            13, 14, 12, 14, 15, 16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23};
         return cube_data;
     }
 }

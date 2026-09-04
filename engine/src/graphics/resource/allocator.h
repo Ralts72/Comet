@@ -11,12 +11,7 @@
 #include <vk_mem_alloc.h>
 
 namespace Comet {
-    enum class AllocationUsage {
-        Device,
-        Upload,
-        CpuToGpu,
-        Readback
-    };
+    enum class AllocationUsage { Device, Upload, CpuToGpu, Readback };
 
     struct AllocationCreateInfo {
         AllocationUsage usage = AllocationUsage::Device;
@@ -82,19 +77,16 @@ namespace Comet {
             const vk::BufferCreateInfo& buffer_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 
-        [[nodiscard]] GpuResourceResult<BufferAllocation>
-        try_create_buffer(
+        [[nodiscard]] GpuResourceResult<BufferAllocation> try_create_buffer(
             const vk::BufferCreateInfo& buffer_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 
         void destroy_buffer(vk::Buffer buffer, Allocation& allocation) const;
 
-        [[nodiscard]] ImageAllocation create_image(
-            const vk::ImageCreateInfo& image_info,
+        [[nodiscard]] ImageAllocation create_image(const vk::ImageCreateInfo& image_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 
-        [[nodiscard]] GpuResourceResult<ImageAllocation>
-        try_create_image(
+        [[nodiscard]] GpuResourceResult<ImageAllocation> try_create_image(
             const vk::ImageCreateInfo& image_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 

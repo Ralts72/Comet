@@ -12,11 +12,9 @@ namespace Comet {
     class COMET_API ImageView {
     public:
         [[nodiscard]] static std::shared_ptr<ImageView> create(
-            Device& device, std::shared_ptr<Image> image,
-            Flags<ImageAspect> aspect);
-        [[nodiscard]] static GpuResourceResult<std::shared_ptr<ImageView>>
-        try_create(Device& device, std::shared_ptr<Image> image,
-            Flags<ImageAspect> aspect);
+            Device& device, std::shared_ptr<Image> image, Flags<ImageAspect> aspect);
+        [[nodiscard]] static GpuResourceResult<std::shared_ptr<ImageView>> try_create(
+            Device& device, std::shared_ptr<Image> image, Flags<ImageAspect> aspect);
 
         ~ImageView();
 
@@ -25,15 +23,12 @@ namespace Comet {
         ImageView(ImageView&&) noexcept = delete;
         ImageView& operator=(ImageView&&) noexcept = delete;
 
-        [[nodiscard]] vk::ImageView get() const { return m_image_view;}
+        [[nodiscard]] vk::ImageView get() const { return m_image_view; }
 
-        [[nodiscard]] const std::shared_ptr<Image>& get_image() const {
-            return m_image;
-        }
+        [[nodiscard]] const std::shared_ptr<Image>& get_image() const { return m_image; }
 
     private:
-        ImageView(Device& device, std::shared_ptr<Image> image,
-            vk::ImageView image_view);
+        ImageView(Device& device, std::shared_ptr<Image> image, vk::ImageView image_view);
 
         Device& m_device;
         std::shared_ptr<Image> m_image;

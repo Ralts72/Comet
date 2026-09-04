@@ -10,7 +10,7 @@ namespace CometEditor {
         std::string message;
     };
 
-    class ConsolePanel : public EditorPanel {
+    class ConsolePanel: public EditorPanel {
     public:
         ConsolePanel();
 

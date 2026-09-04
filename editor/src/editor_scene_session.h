@@ -15,14 +15,11 @@ namespace CometEditor {
     class EditorSceneSession final {
     public:
         using ActiveSceneGetter = std::function<Comet::Scene*()>;
-        using ActiveSceneReplacer = std::function<std::unique_ptr<Comet::Scene>(
-            std::unique_ptr<Comet::Scene>)>;
+        using ActiveSceneReplacer =
+            std::function<std::unique_ptr<Comet::Scene>(std::unique_ptr<Comet::Scene>)>;
 
-        EditorSceneSession(
-            EditorState& state,
-            const Comet::SceneSerializer& serializer,
-            ActiveSceneGetter get_active_scene,
-            ActiveSceneReplacer replace_active_scene);
+        EditorSceneSession(EditorState& state, const Comet::SceneSerializer& serializer,
+            ActiveSceneGetter get_active_scene, ActiveSceneReplacer replace_active_scene);
 
         ~EditorSceneSession();
 

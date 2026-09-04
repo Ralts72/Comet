@@ -24,7 +24,8 @@ namespace Comet {
         Sampler(Sampler&&) noexcept = delete;
         Sampler& operator=(Sampler&&) noexcept = delete;
 
-        static std::shared_ptr<Sampler> create_linear_repeat(Device& device, float max_anisotropy = 1.0f);
+        static std::shared_ptr<Sampler> create_linear_repeat(
+            Device& device, float max_anisotropy = 1.0f);
         static std::shared_ptr<Sampler> create_nearest_clamp(Device& device);
         static std::shared_ptr<Sampler> create_shadow_sampler(Device& device);
 
@@ -37,9 +38,10 @@ namespace Comet {
 
     class COMET_API SamplerManager {
     public:
-        explicit SamplerManager(Device& device): m_device(device) {}
+        explicit SamplerManager(Device& device) : m_device(device) {}
 
-        std::shared_ptr<Sampler> create_sampler(const std::string& name,  const SamplerDesc& desc = {});
+        std::shared_ptr<Sampler> create_sampler(
+            const std::string& name, const SamplerDesc& desc = {});
         [[nodiscard]] std::shared_ptr<Sampler> get_sampler(const std::string& name) const;
 
         std::shared_ptr<Sampler> get_linear_repeat();

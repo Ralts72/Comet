@@ -9,9 +9,14 @@ namespace Comet {
     public:
         DescriptorSetLayoutBindings() = default;
 
-        void add_binding(uint32_t binding, DescriptorType type, Flags<ShaderStage> stage_flags, uint32_t count = 1);
+        void add_binding(uint32_t binding, DescriptorType type,
+            Flags<ShaderStage> stage_flags, uint32_t count = 1);
 
-        [[nodiscard]] const std::vector<vk::DescriptorSetLayoutBinding>& get_bindings() const { return m_bindings; }
+        [[nodiscard]] const std::vector<vk::DescriptorSetLayoutBinding>& get_bindings()
+            const {
+            return m_bindings;
+        }
+
     private:
         std::vector<vk::DescriptorSetLayoutBinding> m_bindings;
     };
@@ -22,7 +27,10 @@ namespace Comet {
 
         void add_pool_size(DescriptorType type, uint32_t count);
 
-        [[nodiscard]] const std::vector<vk::DescriptorPoolSize>& get_pool_sizes() const { return m_sizes; }
+        [[nodiscard]] const std::vector<vk::DescriptorPoolSize>& get_pool_sizes() const {
+            return m_sizes;
+        }
+
     private:
         std::vector<vk::DescriptorPoolSize> m_sizes;
     };
@@ -37,7 +45,9 @@ namespace Comet {
         DescriptorSetLayout(DescriptorSetLayout&&) noexcept = delete;
         DescriptorSetLayout& operator=(DescriptorSetLayout&&) noexcept = delete;
 
-        [[nodiscard]] vk::DescriptorSetLayout get() const { return m_descriptor_set_layout; }
+        [[nodiscard]] vk::DescriptorSetLayout get() const {
+            return m_descriptor_set_layout;
+        }
 
     private:
         Device& m_device;
@@ -50,15 +60,18 @@ namespace Comet {
         DescriptorSet() = delete;
 
         [[nodiscard]] vk::DescriptorSet get() const { return m_descriptor_set; }
+
     private:
-        explicit DescriptorSet(const vk::DescriptorSet descriptor_set): m_descriptor_set(descriptor_set) {}
+        explicit DescriptorSet(const vk::DescriptorSet descriptor_set)
+            : m_descriptor_set(descriptor_set) {}
         vk::DescriptorSet m_descriptor_set;
     };
 
     class COMET_API DescriptorPool {
     public:
-        DescriptorPool(Device& device, uint32_t max_sets, const DescriptorPoolSizes& pool_sizes,
-                       Flags<DescriptorPoolCreateFlag> flags = {});
+        DescriptorPool(Device& device, uint32_t max_sets,
+            const DescriptorPoolSizes& pool_sizes,
+            Flags<DescriptorPoolCreateFlag> flags = {});
         ~DescriptorPool();
 
         DescriptorPool(const DescriptorPool&) = delete;
@@ -66,8 +79,10 @@ namespace Comet {
         DescriptorPool(DescriptorPool&&) noexcept = delete;
         DescriptorPool& operator=(DescriptorPool&&) noexcept = delete;
 
-        [[nodiscard]] std::vector<DescriptorSet> allocate_descriptor_set(const DescriptorSetLayout& set_layout, uint32_t count) const;
+        [[nodiscard]] std::vector<DescriptorSet> allocate_descriptor_set(
+            const DescriptorSetLayout& set_layout, uint32_t count) const;
         [[nodiscard]] vk::DescriptorPool get() const { return m_descriptor_pool; }
+
     private:
         Device& m_device;
         vk::DescriptorPool m_descriptor_pool;
@@ -77,6 +92,7 @@ namespace Comet {
     public:
         PushConstantRange(ShaderStage stage, uint32_t offset, uint32_t size);
         [[nodiscard]] vk::PushConstantRange get() const { return m_const_range; }
+
     private:
         vk::PushConstantRange m_const_range;
     };

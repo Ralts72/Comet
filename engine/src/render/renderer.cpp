@@ -4,18 +4,19 @@
 #include "render/scene/render_types.h"
 
 namespace Comet {
-    Renderer::Renderer(const Window& window, const Config& config, const AssetRegistry& asset_registry)
+    Renderer::Renderer(
+        const Window& window, const Config& config, const AssetRegistry& asset_registry)
         : m_scene_resolver(asset_registry) {
         PROFILE_SCOPE("Renderer::Constructor");
 
         // Create render context
-        m_render_context = std::make_unique<RenderContext>(
-            window, config.vulkan, config.render);
+        m_render_context =
+            std::make_unique<RenderContext>(window, config.vulkan, config.render);
 
         // Create resource manager
         LOG_INFO("create resource manager");
-        m_resource_manager = std::make_unique<ResourceManager>(
-            m_render_context->get_device());
+        m_resource_manager =
+            std::make_unique<ResourceManager>(m_render_context->get_device());
 
         // Create scene renderer
         LOG_INFO("create scene renderer");
@@ -38,8 +39,7 @@ namespace Comet {
         }
         const RenderSubmission submission = m_scene_resolver.resolve(
             render_scene, m_scene_renderer->get_render_target().get_size());
-        const auto resource_waits =
-                m_scene_renderer->render_scene_pass(submission);
+        const auto resource_waits = m_scene_renderer->render_scene_pass(submission);
 
         if(m_on_imgui_render) {
             m_on_imgui_render(m_scene_renderer->get_current_command_buffer());

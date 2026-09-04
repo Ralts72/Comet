@@ -9,8 +9,8 @@
 namespace CometEditor {
     class PropertyEditorRegistry {
     public:
-        using PropertyEditor = std::function<bool(
-            const Comet::PropertyDescriptor&, void*)>;
+        using PropertyEditor =
+            std::function<bool(const Comet::PropertyDescriptor&, void*)>;
 
         [[nodiscard]] bool register_editor(
             const Comet::PropertyType type, PropertyEditor editor) {

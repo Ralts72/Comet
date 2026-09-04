@@ -9,8 +9,7 @@
 namespace Comet::Tests {
     namespace {
         DeviceCandidateInfo make_suitable_candidate() {
-            return {
-                .api_version = REQUIRED_VULKAN_API_VERSION,
+            return {.api_version = REQUIRED_VULKAN_API_VERSION,
                 .device_type = vk::PhysicalDeviceType::eIntegratedGpu,
                 .max_image_dimension_2d = 8192,
                 .has_graphics_queue = true,
@@ -21,15 +20,13 @@ namespace Comet::Tests {
                 .color_format_supported = true,
                 .depth_format_supported = true,
                 .timeline_semaphore_supported = true,
-                .synchronization2_supported = true
-            };
+                .synchronization2_supported = true};
         }
 
-        bool contains_reason(const DeviceCandidateEvaluation& evaluation,
-                             const std::string& text) {
+        bool contains_reason(
+            const DeviceCandidateEvaluation& evaluation, const std::string& text) {
             return std::ranges::any_of(
-                evaluation.rejection_reasons,
-                [&text](const std::string& reason) {
+                evaluation.rejection_reasons, [&text](const std::string& reason) {
                     return reason.find(text) != std::string::npos;
                 });
         }
@@ -39,8 +36,8 @@ namespace Comet::Tests {
         auto candidate = make_suitable_candidate();
         candidate.api_version = VK_API_VERSION_1_2;
 
-        const auto evaluation = evaluate_device_candidate(
-            candidate, DeviceCapabilityRequest{});
+        const auto evaluation =
+            evaluate_device_candidate(candidate, DeviceCapabilityRequest{});
 
         EXPECT_FALSE(evaluation.is_suitable());
         EXPECT_TRUE(contains_reason(evaluation, "Vulkan API"));
@@ -58,8 +55,8 @@ namespace Comet::Tests {
         candidate.timeline_semaphore_supported = false;
         candidate.synchronization2_supported = false;
 
-        const auto evaluation = evaluate_device_candidate(
-            candidate, DeviceCapabilityRequest{});
+        const auto evaluation =
+            evaluate_device_candidate(candidate, DeviceCapabilityRequest{});
 
         EXPECT_FALSE(evaluation.is_suitable());
         EXPECT_TRUE(contains_reason(evaluation, "graphics queue"));
@@ -79,10 +76,10 @@ namespace Comet::Tests {
         discrete.device_type = vk::PhysicalDeviceType::eDiscreteGpu;
         discrete.shares_graphics_present_queue = true;
 
-        const auto integrated_evaluation = evaluate_device_candidate(
-            integrated, DeviceCapabilityRequest{});
-        const auto discrete_evaluation = evaluate_device_candidate(
-            discrete, DeviceCapabilityRequest{});
+        const auto integrated_evaluation =
+            evaluate_device_candidate(integrated, DeviceCapabilityRequest{});
+        const auto discrete_evaluation =
+            evaluate_device_candidate(discrete, DeviceCapabilityRequest{});
 
         ASSERT_TRUE(integrated_evaluation.is_suitable());
         ASSERT_TRUE(discrete_evaluation.is_suitable());
@@ -90,31 +87,25 @@ namespace Comet::Tests {
     }
 
     TEST(DeviceCapabilityTest, SelectsMemoryBudgetOnlyWhenAvailable) {
-        const auto without_budget = select_device_extensions({
-            VK_KHR_SWAPCHAIN_EXTENSION_NAME
-        });
+        const auto without_budget =
+            select_device_extensions({VK_KHR_SWAPCHAIN_EXTENSION_NAME});
         EXPECT_TRUE(without_budget.missing_required_extensions.empty());
         EXPECT_FALSE(without_budget.memory_budget_enabled);
 
-        const auto with_budget = select_device_extensions({
-            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-            VK_EXT_MEMORY_BUDGET_EXTENSION_NAME
-        });
+        const auto with_budget = select_device_extensions(
+            {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME});
         EXPECT_TRUE(with_budget.missing_required_extensions.empty());
         EXPECT_TRUE(with_budget.memory_budget_enabled);
         EXPECT_TRUE(std::ranges::any_of(
-            with_budget.enabled_extensions,
-            [](const char* extension_name) {
-                return std::string_view(extension_name) ==
-                       VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
+            with_budget.enabled_extensions, [](const char* extension_name) {
+                return std::string_view(extension_name)
+                       == VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
             }));
 
-        const auto missing_required = select_device_extensions({
-            VK_EXT_MEMORY_BUDGET_EXTENSION_NAME
-        });
+        const auto missing_required =
+            select_device_extensions({VK_EXT_MEMORY_BUDGET_EXTENSION_NAME});
         ASSERT_EQ(missing_required.missing_required_extensions.size(), 1U);
-        EXPECT_EQ(
-            missing_required.missing_required_extensions.front(),
+        EXPECT_EQ(missing_required.missing_required_extensions.front(),
             std::string(VK_KHR_SWAPCHAIN_EXTENSION_NAME));
         EXPECT_FALSE(DeviceCapability{}.memory_budget_enabled);
     }

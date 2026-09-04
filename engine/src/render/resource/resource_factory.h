@@ -16,7 +16,6 @@ namespace Comet {
 
         [[nodiscard]] virtual std::shared_ptr<Texture> create_texture(
             const TextureData& data) = 0;
-        [[nodiscard]] virtual std::shared_ptr<Mesh> create_mesh(
-            const MeshData& data) = 0;
+        [[nodiscard]] virtual std::shared_ptr<Mesh> create_mesh(const MeshData& data) = 0;
     };
 }

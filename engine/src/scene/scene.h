@@ -69,29 +69,27 @@ namespace Comet {
     };
 
     template<typename T, typename... Args>
-    requires (!is_scene_managed_component_v<T>)
+        requires(!is_scene_managed_component_v<T>)
     T& Entity::add_component(Args&&... args) {
         return m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...);
     }
 
     template<typename T>
-    requires (!is_scene_read_only_component_v<T>)
+        requires(!is_scene_read_only_component_v<T>)
     T& Entity::get_component() {
         return m_scene->m_registry.get<T>(m_handle);
     }
 
-    template<typename T>
-    const T& Entity::get_component() const {
+    template<typename T> const T& Entity::get_component() const {
         return m_scene->m_registry.get<T>(m_handle);
     }
 
-    template<typename T>
-    bool Entity::has_component() const {
+    template<typename T> bool Entity::has_component() const {
         return static_cast<bool>(*this) && m_scene->m_registry.all_of<T>(m_handle);
     }
 
     template<typename T>
-    requires (!is_scene_managed_component_v<T>)
+        requires(!is_scene_managed_component_v<T>)
     void Entity::remove_component() const {
         m_scene->m_registry.remove<T>(m_handle);
     }

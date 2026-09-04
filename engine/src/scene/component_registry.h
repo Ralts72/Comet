@@ -14,12 +14,7 @@
 #include <vector>
 
 namespace Comet {
-    enum class PropertyType {
-        Bool,
-        Float,
-        Vec3,
-        AssetHandle
-    };
+    enum class PropertyType { Bool, Float, Vec3, AssetHandle };
 
     struct NumericPropertyMetadata {
         float speed = 0.1f;
@@ -49,15 +44,13 @@ namespace Comet {
         std::function<void(void*)> on_changed;
 
         [[nodiscard]] void* get_value(void* component) const {
-            return component != nullptr && mutable_accessor
-                ? mutable_accessor(component)
-                : nullptr;
+            return component != nullptr && mutable_accessor ? mutable_accessor(component)
+                                                            : nullptr;
         }
 
         [[nodiscard]] const void* get_value(const void* component) const {
-            return component != nullptr && const_accessor
-                ? const_accessor(component)
-                : nullptr;
+            return component != nullptr && const_accessor ? const_accessor(component)
+                                                          : nullptr;
         }
 
         void notify_changed(void* value) const {
@@ -100,19 +93,19 @@ namespace Comet {
 
         [[nodiscard]] void* get_component(Entity& entity) const {
             return has_component(entity) && mutable_component_accessor
-                ? mutable_component_accessor(entity)
-                : nullptr;
+                       ? mutable_component_accessor(entity)
+                       : nullptr;
         }
 
         [[nodiscard]] const void* get_component(const Entity& entity) const {
             return has_component(entity) && const_component_accessor
-                ? const_component_accessor(entity)
-                : nullptr;
+                       ? const_component_accessor(entity)
+                       : nullptr;
         }
 
         [[nodiscard]] const PropertyDescriptor* find_property(
             const std::string_view property_id) const {
-            for(const PropertyDescriptor& property: properties) {
+            for(const PropertyDescriptor& property : properties) {
                 if(property.id == property_id) {
                     return &property;
                 }
@@ -137,17 +130,13 @@ namespace Comet {
     };
 
     template<typename Component, typename Value>
-    PropertyDescriptor make_property_descriptor(
-        std::string id,
-        std::string display_name,
-        Value Component::* member,
-        PropertyMetadata metadata = {}) {
+    PropertyDescriptor make_property_descriptor(std::string id, std::string display_name,
+        Value Component::* member, PropertyMetadata metadata = {}) {
         using PropertyValue = std::remove_cvref_t<Value>;
-        static_assert(
-            std::is_same_v<PropertyValue, bool>
-            || std::is_same_v<PropertyValue, float>
-            || std::is_same_v<PropertyValue, Math::Vec3>
-            || std::is_same_v<PropertyValue, AssetHandle>,
+        static_assert(std::is_same_v<PropertyValue, bool>
+                          || std::is_same_v<PropertyValue, float>
+                          || std::is_same_v<PropertyValue, Math::Vec3>
+                          || std::is_same_v<PropertyValue, AssetHandle>,
             "Unsupported property type");
 
         constexpr PropertyType type = [] {
@@ -162,8 +151,7 @@ namespace Comet {
             }
         }();
 
-        return {
-            .id = std::move(id),
+        return {.id = std::move(id),
             .display_name = std::move(display_name),
             .type = type,
             .editable = metadata.editable,
@@ -176,56 +164,41 @@ namespace Comet {
             },
             .const_accessor = [member](const void* component) -> const void* {
                 return &(static_cast<const Component*>(component)->*member);
-            }
-        };
+            }};
     }
 
     template<typename Component, typename Value, typename Callback>
-    PropertyDescriptor make_property_descriptor(
-        std::string id,
-        std::string display_name,
-        Value Component::* member,
-        PropertyMetadata metadata,
-        Callback&& on_changed) {
+    PropertyDescriptor make_property_descriptor(std::string id, std::string display_name,
+        Value Component::* member, PropertyMetadata metadata, Callback&& on_changed) {
         PropertyDescriptor descriptor = make_property_descriptor(
-            std::move(id),
-            std::move(display_name),
-            member,
-            std::move(metadata));
+            std::move(id), std::move(display_name), member, std::move(metadata));
         descriptor.on_changed = [callback = std::forward<Callback>(on_changed)](
-            void* value) mutable {
+                                    void* value) mutable {
             callback(*static_cast<Value*>(value));
         };
         return descriptor;
     }
 
     template<typename Component>
-    ComponentDescriptor make_component_descriptor(
-        std::string id,
-        std::string display_name,
-        std::vector<PropertyDescriptor> properties,
+    ComponentDescriptor make_component_descriptor(std::string id,
+        std::string display_name, std::vector<PropertyDescriptor> properties,
         const bool serializable = true) {
-        return {
-            .id = std::move(id),
+        return {.id = std::move(id),
             .display_name = std::move(display_name),
             .serializable = serializable,
             .properties = std::move(properties),
-            .has_component_callback = [](const Entity& entity) {
-                return entity.has_component<Component>();
-            },
-            .add_component_callback = [](Entity& entity) {
-                entity.add_component<Component>();
-            },
-            .remove_component_callback = [](const Entity& entity) {
-                entity.remove_component<Component>();
-            },
+            .has_component_callback =
+                [](const Entity& entity) { return entity.has_component<Component>(); },
+            .add_component_callback =
+                [](Entity& entity) { entity.add_component<Component>(); },
+            .remove_component_callback =
+                [](const Entity& entity) { entity.remove_component<Component>(); },
             .mutable_component_accessor = [](Entity& entity) -> void* {
                 return &entity.get_component<Component>();
             },
             .const_component_accessor = [](const Entity& entity) -> const void* {
                 return &entity.get_component<Component>();
-            }
-        };
+            }};
     }
 
     [[nodiscard]] COMET_API ComponentRegistry create_scene_component_registry();

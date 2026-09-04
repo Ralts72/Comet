@@ -14,8 +14,7 @@ namespace Comet {
 
             const std::size_t hardware_threads = std::thread::hardware_concurrency();
             return std::max<std::size_t>(
-                1,
-                hardware_threads > 1 ? hardware_threads - 1 : 1);
+                1, hardware_threads > 1 ? hardware_threads - 1 : 1);
         }
     }
 
@@ -32,7 +31,7 @@ namespace Comet {
                 m_stopping = true;
             }
             m_task_available.notify_all();
-            for(std::thread& worker: m_workers) {
+            for(std::thread& worker : m_workers) {
                 worker.join();
             }
             throw;
@@ -45,7 +44,7 @@ namespace Comet {
             m_stopping = true;
         }
         m_task_available.notify_all();
-        for(std::thread& worker: m_workers) {
+        for(std::thread& worker : m_workers) {
             if(worker.joinable()) {
                 worker.join();
             }
@@ -57,8 +56,8 @@ namespace Comet {
             throw std::invalid_argument("Cannot submit an empty task");
         }
 
-        auto scheduled_task = std::make_shared<std::packaged_task<void()>>(
-            std::move(task));
+        auto scheduled_task =
+            std::make_shared<std::packaged_task<void()>>(std::move(task));
         std::future<void> result = scheduled_task->get_future();
         {
             const std::lock_guard lock(m_mutex);
@@ -74,9 +73,7 @@ namespace Comet {
 
     void TaskScheduler::wait_idle() {
         std::unique_lock lock(m_mutex);
-        m_idle.wait(lock, [this] {
-            return m_tasks.empty() && m_active_tasks == 0;
-        });
+        m_idle.wait(lock, [this] { return m_tasks.empty() && m_active_tasks == 0; });
     }
 
     std::size_t TaskScheduler::get_worker_count() const noexcept {
@@ -88,9 +85,8 @@ namespace Comet {
             Task task;
             {
                 std::unique_lock lock(m_mutex);
-                m_task_available.wait(lock, [this] {
-                    return m_stopping || !m_tasks.empty();
-                });
+                m_task_available.wait(
+                    lock, [this] { return m_stopping || !m_tasks.empty(); });
                 if(m_stopping && m_tasks.empty()) {
                     return;
                 }

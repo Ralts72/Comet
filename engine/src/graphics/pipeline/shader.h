@@ -14,7 +14,8 @@ namespace Comet {
 
     class Shader {
     public:
-        Shader(Device& device, const std::string& name, std::span<const std::uint32_t> spv_data);
+        Shader(Device& device, const std::string& name,
+            std::span<const std::uint32_t> spv_data);
 
         ~Shader();
 
@@ -37,7 +38,8 @@ namespace Comet {
     public:
         explicit ShaderManager(Device& device) : m_device(device) {}
 
-        std::shared_ptr<Shader> load_shader(const std::string& name, std::span<const std::uint32_t> spv_data);
+        std::shared_ptr<Shader> load_shader(
+            const std::string& name, std::span<const std::uint32_t> spv_data);
 
     private:
         Device& m_device;

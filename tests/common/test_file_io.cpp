@@ -14,8 +14,7 @@ namespace Comet::Tests {
     TEST(FileIoTest, AtomicallyCreatesAndReplacesTextFiles) {
         const std::filesystem::path root =
             std::filesystem::temp_directory_path()
-            / ("comet_file_io_test_"
-               + std::to_string(AssetHandle::generate().value()));
+            / ("comet_file_io_test_" + std::to_string(AssetHandle::generate().value()));
         const std::filesystem::path path = root / "nested" / "asset.yaml";
 
         write_text_file_atomic(path, "first\n");
@@ -25,8 +24,7 @@ namespace Comet::Tests {
         EXPECT_EQ(read_text_file(path), "second value\n");
 
         std::size_t file_count = 0;
-        for(const auto& entry:
-            std::filesystem::directory_iterator(path.parent_path())) {
+        for(const auto& entry : std::filesystem::directory_iterator(path.parent_path())) {
             if(entry.is_regular_file()) {
                 ++file_count;
             }
@@ -41,10 +39,9 @@ namespace Comet::Tests {
         const std::filesystem::path root =
             std::filesystem::temp_directory_path()
             / ("comet_binary_file_io_test_"
-               + std::to_string(AssetHandle::generate().value()));
+                + std::to_string(AssetHandle::generate().value()));
         const std::filesystem::path path = root / "nested" / "mesh.bin";
-        constexpr std::array contents{
-            std::byte{0x00}, std::byte{0x7F}, std::byte{0xFF}};
+        constexpr std::array contents{std::byte{0x00}, std::byte{0x7F}, std::byte{0xFF}};
 
         write_binary_file_atomic(path, contents);
 
@@ -62,10 +59,8 @@ namespace Comet::Tests {
         const std::filesystem::path path =
             std::filesystem::temp_directory_path()
             / ("comet_missing_file_io_test_"
-               + std::to_string(AssetHandle::generate().value()));
+                + std::to_string(AssetHandle::generate().value()));
 
-        EXPECT_THROW(
-            static_cast<void>(read_text_file(path)),
-            std::runtime_error);
+        EXPECT_THROW(static_cast<void>(read_text_file(path)), std::runtime_error);
     }
 }

@@ -19,13 +19,20 @@ namespace Comet {
     std::string Logger::s_current_log_file_path;
 
     static spdlog::level::level_enum parse_log_level(const std::string& level_str) {
-        if(level_str == "trace") return spdlog::level::trace;
-        if(level_str == "debug") return spdlog::level::debug;
-        if(level_str == "info") return spdlog::level::info;
-        if(level_str == "warn") return spdlog::level::warn;
-        if(level_str == "error") return spdlog::level::err;
-        if(level_str == "critical") return spdlog::level::critical;
-        if(level_str == "off") return spdlog::level::off;
+        if(level_str == "trace")
+            return spdlog::level::trace;
+        if(level_str == "debug")
+            return spdlog::level::debug;
+        if(level_str == "info")
+            return spdlog::level::info;
+        if(level_str == "warn")
+            return spdlog::level::warn;
+        if(level_str == "error")
+            return spdlog::level::err;
+        if(level_str == "critical")
+            return spdlog::level::critical;
+        if(level_str == "off")
+            return spdlog::level::off;
         return spdlog::level::info; // 默认级别
     }
 
@@ -51,11 +58,12 @@ namespace Comet {
             auto now = std::chrono::system_clock::now();
             auto time_t = std::chrono::system_clock::to_time_t(now);
             auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                          now.time_since_epoch()) % 1000;
+                          now.time_since_epoch())
+                      % 1000;
 
             std::stringstream ss;
-            ss << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
-                    << "_" << std::setfill('0') << std::setw(3) << ms.count();
+            ss << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S") << "_"
+               << std::setfill('0') << std::setw(3) << ms.count();
             shared_timestamp = ss.str();
         }
 
@@ -68,14 +76,16 @@ namespace Comet {
             log_filename = (logs_dir / ("comet_" + shared_timestamp + ".log")).string();
 #ifdef COMET_ENABLE_PROFILER
             if(enable_profiler) {
-                profiler_filename = (logs_dir / ("profiler_" + shared_timestamp + ".log")).string();
+                profiler_filename =
+                    (logs_dir / ("profiler_" + shared_timestamp + ".log")).string();
             }
 #endif
             s_current_log_file_path = log_filename;
         }
 
         // 创建共享的 console sink
-        auto shared_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        auto shared_console_sink =
+            std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
         // 创建 console logger（控制台 + 文件）
         s_console_logger = spdlog::get("console");
@@ -84,15 +94,17 @@ namespace Comet {
             shared_console_sink->set_pattern("%^[%T] [%l] %v%$");
 
             if(config.enable_file_logging) {
-                auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename, false);
+                auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+                    log_filename, false);
                 file_sink->set_pattern("[%Y-%m-%d %T.%e] [%l] %v");
 
                 // 创建组合 logger（控制台 + 文件）
-                s_console_logger = std::make_shared<spdlog::logger>("console",
-                    spdlog::sinks_init_list{shared_console_sink, file_sink});
+                s_console_logger = std::make_shared<spdlog::logger>(
+                    "console", spdlog::sinks_init_list{shared_console_sink, file_sink});
             } else {
                 // 仅控制台输出
-                s_console_logger = std::make_shared<spdlog::logger>("console", shared_console_sink);
+                s_console_logger =
+                    std::make_shared<spdlog::logger>("console", shared_console_sink);
             }
 
             spdlog::level::level_enum log_level = parse_log_level(config.level);
@@ -110,11 +122,14 @@ namespace Comet {
             s_profiler_logger = spdlog::get("profiler");
         }
         if(enable_profiler && !s_profiler_logger) {
-            auto profiler_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+            auto profiler_console_sink =
+                std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
             profiler_console_sink->set_pattern("%^[Profiler] %-50v%$");
 
             if(config.enable_file_logging) {
-                auto profiler_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(profiler_filename, false);
+                auto profiler_file_sink =
+                    std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+                        profiler_filename, false);
                 profiler_file_sink->set_pattern("[%Y-%m-%d %T.%e] [Profiler] %v");
 
                 // 创建组合 logger（控制台 + 文件）
@@ -122,7 +137,8 @@ namespace Comet {
                     spdlog::sinks_init_list{profiler_console_sink, profiler_file_sink});
             } else {
                 // 仅控制台输出
-                s_profiler_logger = std::make_shared<spdlog::logger>("profiler", profiler_console_sink);
+                s_profiler_logger =
+                    std::make_shared<spdlog::logger>("profiler", profiler_console_sink);
             }
 
             // profiler logger 始终使用 trace 级别
@@ -174,14 +190,15 @@ namespace Comet {
 
         // 移除控制台输出（stdout_color_sink），只保留文件输出
         auto& sinks = logger->sinks();
-        std::erase_if(sinks,
-            [](const std::shared_ptr<spdlog::sinks::sink>& sink) {
-                // 检查是否是 stdout_color_sink 或 stdout_sink
-                return dynamic_cast<spdlog::sinks::stdout_color_sink_mt*>(sink.get()) != nullptr ||
-                       dynamic_cast<spdlog::sinks::stdout_color_sink_st*>(sink.get()) != nullptr ||
-                       dynamic_cast<spdlog::sinks::stdout_sink_mt*>(sink.get()) != nullptr ||
-                       dynamic_cast<spdlog::sinks::stdout_sink_st*>(sink.get()) != nullptr;
-            });
+        std::erase_if(sinks, [](const std::shared_ptr<spdlog::sinks::sink>& sink) {
+            // 检查是否是 stdout_color_sink 或 stdout_sink
+            return dynamic_cast<spdlog::sinks::stdout_color_sink_mt*>(sink.get())
+                       != nullptr
+                   || dynamic_cast<spdlog::sinks::stdout_color_sink_st*>(sink.get())
+                          != nullptr
+                   || dynamic_cast<spdlog::sinks::stdout_sink_mt*>(sink.get()) != nullptr
+                   || dynamic_cast<spdlog::sinks::stdout_sink_st*>(sink.get()) != nullptr;
+        });
     }
 
     void Logger::add_custom_sink(const std::shared_ptr<spdlog::sinks::sink>& sink) {

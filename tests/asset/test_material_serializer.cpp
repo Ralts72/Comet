@@ -14,9 +14,8 @@ namespace Comet::Tests {
         public:
             explicit TemporaryMaterial(const std::string& contents) {
                 m_path = std::filesystem::temp_directory_path()
-                    / ("comet_material_serializer_test_"
-                       + std::to_string(AssetHandle::generate().value())
-                       + ".mat");
+                         / ("comet_material_serializer_test_"
+                             + std::to_string(AssetHandle::generate().value()) + ".mat");
                 std::ofstream output(m_path, std::ios::binary);
                 output << contents;
             }
@@ -26,9 +25,7 @@ namespace Comet::Tests {
                 std::filesystem::remove(m_path, error);
             }
 
-            [[nodiscard]] const std::filesystem::path& path() const {
-                return m_path;
-            }
+            [[nodiscard]] const std::filesystem::path& path() const { return m_path; }
 
         private:
             std::filesystem::path m_path;
@@ -57,21 +54,15 @@ properties:
     }
 
     TEST(MaterialSerializerTest, SerializesAndSavesDeterministically) {
-        const MaterialData data{
-            .template_name = "cube_texture",
+        const MaterialData data{.template_name = "cube_texture",
             .texture_properties = {
-                {"u_Texture0", AssetHandle(42)},
-                {"u_Texture1", AssetHandle(73)}
-            }
-        };
+                {"u_Texture0", AssetHandle(42)}, {"u_Texture1", AssetHandle(73)}}};
         const MaterialSerializer serializer;
         const std::string contents = serializer.serialize(data);
 
-        EXPECT_EQ(
-            contents,
-            "version: 1\ntemplate: cube_texture\nproperties:\n"
-            "  u_Texture0:\n    type: texture\n    asset: 42\n"
-            "  u_Texture1:\n    type: texture\n    asset: 73\n");
+        EXPECT_EQ(contents, "version: 1\ntemplate: cube_texture\nproperties:\n"
+                            "  u_Texture0:\n    type: texture\n    asset: 42\n"
+                            "  u_Texture1:\n    type: texture\n    asset: 73\n");
         EXPECT_EQ(serializer.deserialize(contents), data);
 
         const TemporaryMaterial material("");
@@ -89,8 +80,7 @@ properties:
     asset: 0
 )");
 
-        EXPECT_THROW(
-            static_cast<void>(MaterialSerializer{}.load(material.path())),
+        EXPECT_THROW(static_cast<void>(MaterialSerializer{}.load(material.path())),
             std::runtime_error);
     }
 
@@ -104,8 +94,7 @@ properties:
     asset: 42
 )");
 
-        EXPECT_THROW(
-            static_cast<void>(MaterialSerializer{}.load(material.path())),
+        EXPECT_THROW(static_cast<void>(MaterialSerializer{}.load(material.path())),
             std::runtime_error);
     }
 
@@ -117,8 +106,7 @@ properties: {}
 extra: true
 )");
 
-        EXPECT_THROW(
-            static_cast<void>(MaterialSerializer{}.load(material.path())),
+        EXPECT_THROW(static_cast<void>(MaterialSerializer{}.load(material.path())),
             std::runtime_error);
     }
 
@@ -128,27 +116,15 @@ extra: true
             "version: 1\ntemplate: cube_texture\nproperties: {}\n");
         const MaterialData original = serializer.load(material.path());
 
-        EXPECT_THROW(
-            static_cast<void>(serializer.serialize({
-                .template_name = "",
-                .texture_properties = {}
-            })),
+        EXPECT_THROW(static_cast<void>(serializer.serialize(
+                         {.template_name = "", .texture_properties = {}})),
             std::runtime_error);
         EXPECT_THROW(
-            static_cast<void>(serializer.serialize({
-                .template_name = "cube_texture",
-                .texture_properties = {
-                    {"u_Texture0", INVALID_ASSET_HANDLE}
-                }
-            })),
+            static_cast<void>(serializer.serialize({.template_name = "cube_texture",
+                .texture_properties = {{"u_Texture0", INVALID_ASSET_HANDLE}}})),
             std::runtime_error);
-        EXPECT_THROW(
-            serializer.save(
-                {
-                    .template_name = "",
-                    .texture_properties = {}
-                },
-                material.path()),
+        EXPECT_THROW(serializer.save({.template_name = "", .texture_properties = {}},
+                         material.path()),
             std::runtime_error);
         EXPECT_EQ(serializer.load(material.path()), original);
     }

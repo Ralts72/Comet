@@ -15,8 +15,8 @@ namespace Comet::Tests {
         public:
             TemporaryProject() {
                 m_root = std::filesystem::temp_directory_path()
-                    / ("comet_asset_database_test_"
-                       + std::to_string(AssetHandle::generate().value()));
+                         / ("comet_asset_database_test_"
+                             + std::to_string(AssetHandle::generate().value()));
                 std::filesystem::create_directories(paths().assets());
             }
 
@@ -25,12 +25,9 @@ namespace Comet::Tests {
                 std::filesystem::remove_all(m_root, error);
             }
 
-            [[nodiscard]] ProjectPaths paths() const {
-                return ProjectPaths(m_root);
-            }
+            [[nodiscard]] ProjectPaths paths() const { return ProjectPaths(m_root); }
 
-            std::filesystem::path add_file(
-                const std::filesystem::path& relative_path,
+            std::filesystem::path add_file(const std::filesystem::path& relative_path,
                 const std::string& contents = "asset") const {
                 const std::filesystem::path path = paths().assets() / relative_path;
                 std::filesystem::create_directories(path.parent_path());
@@ -44,8 +41,7 @@ namespace Comet::Tests {
         };
 
         bool has_issue_containing(
-            const AssetScanReport& report,
-            const std::string_view text) {
+            const AssetScanReport& report, const std::string_view text) {
             return std::ranges::any_of(report.issues, [&](const AssetScanIssue& issue) {
                 return issue.message.find(text) != std::string::npos;
             });
@@ -73,13 +69,11 @@ namespace Comet::Tests {
         ASSERT_NE(texture, nullptr);
         EXPECT_EQ(texture->type, AssetType::Texture);
         EXPECT_EQ(database.find(texture->handle), texture);
-        const std::filesystem::path sidecar = metadata_path(
-            project.paths().assets() / texture->path);
+        const std::filesystem::path sidecar =
+            metadata_path(project.paths().assets() / texture->path);
         EXPECT_TRUE(std::filesystem::exists(sidecar));
         const AssetMetadata metadata = AssetMetadataSerializer{}.load(sidecar);
-        EXPECT_EQ(
-            metadata.import_settings,
-            AssetImportSettings(TextureImportSettings{}));
+        EXPECT_EQ(metadata.import_settings, AssetImportSettings(TextureImportSettings{}));
         EXPECT_EQ(texture->import_settings, metadata.import_settings);
     }
 
@@ -120,14 +114,11 @@ namespace Comet::Tests {
 
         const AssetScanReport modified_scan = database.scan();
 
-        EXPECT_TRUE(std::ranges::find(
-            modified_scan.modified_assets,
-            handle) != modified_scan.modified_assets.end());
+        EXPECT_TRUE(std::ranges::find(modified_scan.modified_assets, handle)
+                    != modified_scan.modified_assets.end());
         EXPECT_GT(database.get_revision(handle), initial_revision);
         EXPECT_FALSE(database.is_current(handle, initial_revision));
-        EXPECT_TRUE(database.is_current(
-            handle,
-            database.get_revision(handle)));
+        EXPECT_TRUE(database.is_current(handle, database.get_revision(handle)));
     }
 
     TEST(AssetDatabaseTest, TracksImporterSourceDependencies) {
@@ -144,19 +135,15 @@ namespace Comet::Tests {
         const AssetRecord* mesh = database.find("meshes/model.gltf");
         ASSERT_NE(mesh, nullptr);
         const AssetHandle handle = mesh->handle;
-        database.update_import_dependencies(
-            handle,
-            {dependency, dependency});
+        database.update_import_dependencies(handle, {dependency, dependency});
 
-        EXPECT_EQ(
-            std::vector<std::filesystem::path>(
-                database.get_import_dependencies(handle).begin(),
-                database.get_import_dependencies(handle).end()),
+        EXPECT_EQ(std::vector<std::filesystem::path>(
+                      database.get_import_dependencies(handle).begin(),
+                      database.get_import_dependencies(handle).end()),
             (std::vector<std::filesystem::path>{"meshes/model.bin"}));
-        EXPECT_EQ(
-            std::vector<AssetHandle>(
-                database.get_import_dependents("meshes/model.bin").begin(),
-                database.get_import_dependents("meshes/model.bin").end()),
+        EXPECT_EQ(std::vector<AssetHandle>(
+                      database.get_import_dependents("meshes/model.bin").begin(),
+                      database.get_import_dependents("meshes/model.bin").end()),
             (std::vector{handle}));
         EXPECT_FALSE(std::filesystem::exists(metadata_path(dependency)));
 
@@ -166,9 +153,8 @@ namespace Comet::Tests {
 
         const AssetScanReport modified_scan = database.scan();
 
-        EXPECT_TRUE(std::ranges::find(
-            modified_scan.modified_assets,
-            handle) != modified_scan.modified_assets.end());
+        EXPECT_TRUE(std::ranges::find(modified_scan.modified_assets, handle)
+                    != modified_scan.modified_assets.end());
         EXPECT_GT(database.get_revision(handle), initial_revision);
     }
 
@@ -182,9 +168,7 @@ namespace Comet::Tests {
         const AssetHandle handle = original->handle;
         const AssetRevision original_revision = database.get_revision(handle);
         const TextureImportSettings settings{
-            .color_space = TextureColorSpace::Linear,
-            .flip_y = true
-        };
+            .color_space = TextureColorSpace::Linear, .flip_y = true};
 
         database.update_import_settings(handle, settings);
 
@@ -208,16 +192,12 @@ namespace Comet::Tests {
             metadata_path(project.paths().assets() / material->path));
 
         EXPECT_THROW(
-            database.update_import_settings(
-                material->handle,
-                TextureImportSettings{}),
+            database.update_import_settings(material->handle, TextureImportSettings{}),
             std::runtime_error);
-        EXPECT_EQ(
-            database.find(material->handle)->import_settings,
+        EXPECT_EQ(database.find(material->handle)->import_settings,
             AssetImportSettings(std::monostate{}));
-        EXPECT_EQ(
-            AssetMetadataSerializer{}.load(
-                metadata_path(project.paths().assets() / material->path)),
+        EXPECT_EQ(AssetMetadataSerializer{}.load(
+                      metadata_path(project.paths().assets() / material->path)),
             original_metadata);
     }
 
@@ -227,32 +207,21 @@ namespace Comet::Tests {
             project.add_file("textures/first.png");
         const std::filesystem::path second_texture =
             project.add_file("textures/second.png");
-        const std::filesystem::path material = project.add_file(
-            "materials/default.mat",
+        const std::filesystem::path material = project.add_file("materials/default.mat",
             "version: 1\ntemplate: cube_texture\nproperties:\n"
             "  first:\n    type: texture\n    asset: 42\n"
             "  repeated:\n    type: texture\n    asset: 42\n"
             "  second:\n    type: texture\n    asset: 73\n");
         const AssetMetadataSerializer serializer;
-        serializer.save(
-            {
-                .handle = AssetHandle(42),
-                .type = AssetType::Texture,
-                .import_settings = TextureImportSettings{}
-            },
+        serializer.save({.handle = AssetHandle(42),
+                            .type = AssetType::Texture,
+                            .import_settings = TextureImportSettings{}},
             metadata_path(first_texture));
-        serializer.save(
-            {
-                .handle = AssetHandle(73),
-                .type = AssetType::Texture,
-                .import_settings = TextureImportSettings{}
-            },
+        serializer.save({.handle = AssetHandle(73),
+                            .type = AssetType::Texture,
+                            .import_settings = TextureImportSettings{}},
             metadata_path(second_texture));
-        serializer.save(
-            {
-                .handle = AssetHandle(100),
-                .type = AssetType::Material
-            },
+        serializer.save({.handle = AssetHandle(100), .type = AssetType::Material},
             metadata_path(material));
         AssetDatabase database(project.paths());
 
@@ -260,68 +229,51 @@ namespace Comet::Tests {
 
         EXPECT_TRUE(report.succeeded());
         EXPECT_EQ(
-            std::vector<AssetHandle>(
-                database.get_dependencies(AssetHandle(100)).begin(),
+            std::vector<AssetHandle>(database.get_dependencies(AssetHandle(100)).begin(),
                 database.get_dependencies(AssetHandle(100)).end()),
             (std::vector{AssetHandle(42), AssetHandle(73)}));
         EXPECT_EQ(
-            std::vector<AssetHandle>(
-                database.get_dependents(AssetHandle(42)).begin(),
+            std::vector<AssetHandle>(database.get_dependents(AssetHandle(42)).begin(),
                 database.get_dependents(AssetHandle(42)).end()),
             (std::vector{AssetHandle(100)}));
 
         database.update_dependencies(
-            AssetHandle(100),
-            {AssetHandle(73), AssetHandle(73)});
+            AssetHandle(100), {AssetHandle(73), AssetHandle(73)});
 
         EXPECT_TRUE(database.get_dependents(AssetHandle(42)).empty());
         EXPECT_EQ(
-            std::vector<AssetHandle>(
-                database.get_dependencies(AssetHandle(100)).begin(),
+            std::vector<AssetHandle>(database.get_dependencies(AssetHandle(100)).begin(),
                 database.get_dependencies(AssetHandle(100)).end()),
             (std::vector{AssetHandle(73)}));
         EXPECT_EQ(
-            std::vector<AssetHandle>(
-                database.get_dependents(AssetHandle(73)).begin(),
+            std::vector<AssetHandle>(database.get_dependents(AssetHandle(73)).begin(),
                 database.get_dependents(AssetHandle(73)).end()),
             (std::vector{AssetHandle(100)}));
     }
 
     TEST(AssetDatabaseTest, ReportsMissingAndWrongTypeDependencies) {
         const TemporaryProject project;
-        const std::filesystem::path referenced_material = project.add_file(
-            "materials/referenced.mat", std::string(EMPTY_MATERIAL));
+        const std::filesystem::path referenced_material =
+            project.add_file("materials/referenced.mat", std::string(EMPTY_MATERIAL));
         const std::filesystem::path owner_material = project.add_file(
-            "materials/owner.mat",
-            "version: 1\ntemplate: cube_texture\nproperties:\n"
-            "  missing:\n    type: texture\n    asset: 999\n"
-            "  wrong_type:\n    type: texture\n    asset: 73\n");
+            "materials/owner.mat", "version: 1\ntemplate: cube_texture\nproperties:\n"
+                                   "  missing:\n    type: texture\n    asset: 999\n"
+                                   "  wrong_type:\n    type: texture\n    asset: 73\n");
         const AssetMetadataSerializer serializer;
-        serializer.save(
-            {
-                .handle = AssetHandle(73),
-                .type = AssetType::Material
-            },
+        serializer.save({.handle = AssetHandle(73), .type = AssetType::Material},
             metadata_path(referenced_material));
-        serializer.save(
-            {
-                .handle = AssetHandle(100),
-                .type = AssetType::Material
-            },
+        serializer.save({.handle = AssetHandle(100), .type = AssetType::Material},
             metadata_path(owner_material));
         AssetDatabase database(project.paths());
 
         const AssetScanReport report = database.scan();
 
         EXPECT_FALSE(report.succeeded());
+        EXPECT_TRUE(has_issue_containing(report, "dependency handle 999 is not indexed"));
         EXPECT_TRUE(has_issue_containing(
-            report, "dependency handle 999 is not indexed"));
-        EXPECT_TRUE(has_issue_containing(
-            report,
-            "dependency handle 73 has type 'material', expected 'texture'"));
+            report, "dependency handle 73 has type 'material', expected 'texture'"));
         EXPECT_EQ(
-            std::vector<AssetHandle>(
-                database.get_dependents(AssetHandle(999)).begin(),
+            std::vector<AssetHandle>(database.get_dependents(AssetHandle(999)).begin(),
                 database.get_dependents(AssetHandle(999)).end()),
             (std::vector{AssetHandle(100)}));
     }
@@ -330,11 +282,9 @@ namespace Comet::Tests {
         const TemporaryProject project;
         const std::filesystem::path first = project.add_file("a.png");
         const std::filesystem::path second = project.add_file("b.png");
-        const AssetMetadata metadata{
-            .handle = AssetHandle(42),
+        const AssetMetadata metadata{.handle = AssetHandle(42),
             .type = AssetType::Texture,
-            .import_settings = TextureImportSettings{}
-        };
+            .import_settings = TextureImportSettings{}};
         const AssetMetadataSerializer serializer;
         serializer.save(metadata, metadata_path(first));
         serializer.save(metadata, metadata_path(second));
@@ -360,7 +310,8 @@ namespace Comet::Tests {
         const AssetScanReport report = database.scan();
 
         EXPECT_FALSE(report.succeeded());
-        EXPECT_TRUE(has_issue_containing(report, "metadata has no matching source asset"));
+        EXPECT_TRUE(
+            has_issue_containing(report, "metadata has no matching source asset"));
         EXPECT_TRUE(has_issue_containing(report, "unsupported asset extension '.txt'"));
         EXPECT_TRUE(has_issue_containing(report, "Invalid asset metadata"));
         EXPECT_EQ(database.size(), 1u);
@@ -392,8 +343,8 @@ namespace Comet::Tests {
         const AssetScanReport failed_rescan = database.scan();
 
         EXPECT_FALSE(failed_rescan.snapshot_updated);
-        EXPECT_TRUE(has_issue_containing(
-            failed_rescan, "assets directory does not exist"));
+        EXPECT_TRUE(
+            has_issue_containing(failed_rescan, "assets directory does not exist"));
         EXPECT_EQ(database.size(), 1u);
         ASSERT_NE(database.find(handle), nullptr);
         EXPECT_EQ(database.find(handle)->path, "valid.scene");

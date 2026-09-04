@@ -7,7 +7,7 @@ namespace Comet {
     class Device;
     class FrameBuffer;
 
-    struct RenderSubPass{
+    struct RenderSubPass {
         std::vector<SubpassInputAttachment> input_attachments;
         std::vector<SubpassColorAttachment> color_attachments;
         std::vector<SubpassDepthStencilAttachment> depth_stencil_attachments;
@@ -16,10 +16,12 @@ namespace Comet {
         Flags<ImageUsage> resolve_usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
     };
 
-    class COMET_API RenderPass{
+    class COMET_API RenderPass {
     public:
-        explicit RenderPass(Device& device, const std::vector<Attachment>& attachments = {},
-            const std::vector<RenderSubPass>& sub_passes = {}, Format surface_format = Format::B8G8R8A8_SRGB);
+        explicit RenderPass(Device& device,
+            const std::vector<Attachment>& attachments = {},
+            const std::vector<RenderSubPass>& sub_passes = {},
+            Format surface_format = Format::B8G8R8A8_SRGB);
         ~RenderPass();
 
         RenderPass(const RenderPass&) = delete;
@@ -28,7 +30,9 @@ namespace Comet {
         RenderPass& operator=(RenderPass&&) noexcept = delete;
 
         [[nodiscard]] vk::RenderPass get() const { return m_render_pass; }
-        [[nodiscard]] const std::vector<Attachment>& get_attachments() const { return m_attachments; }
+        [[nodiscard]] const std::vector<Attachment>& get_attachments() const {
+            return m_attachments;
+        }
 
     private:
         vk::RenderPass m_render_pass;

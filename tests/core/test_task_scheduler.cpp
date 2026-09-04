@@ -12,12 +12,8 @@ namespace Comet::Tests {
         TaskScheduler scheduler(2);
         std::atomic<int> completed_tasks = 0;
 
-        std::future<void> first = scheduler.submit([&] {
-            ++completed_tasks;
-        });
-        std::future<void> second = scheduler.submit([&] {
-            ++completed_tasks;
-        });
+        std::future<void> first = scheduler.submit([&] { ++completed_tasks; });
+        std::future<void> second = scheduler.submit([&] { ++completed_tasks; });
 
         scheduler.wait_idle();
 
@@ -28,9 +24,8 @@ namespace Comet::Tests {
 
     TEST(TaskSchedulerTest, DeliversTaskExceptionsThroughFuture) {
         TaskScheduler scheduler(1);
-        std::future<void> result = scheduler.submit([] {
-            throw std::runtime_error("task failed");
-        });
+        std::future<void> result =
+            scheduler.submit([] { throw std::runtime_error("task failed"); });
 
         EXPECT_THROW(result.get(), std::runtime_error);
         scheduler.wait_idle();
@@ -40,12 +35,8 @@ namespace Comet::Tests {
         std::atomic<int> completed_tasks = 0;
         {
             TaskScheduler scheduler(1);
-            static_cast<void>(scheduler.submit([&] {
-                ++completed_tasks;
-            }));
-            static_cast<void>(scheduler.submit([&] {
-                ++completed_tasks;
-            }));
+            static_cast<void>(scheduler.submit([&] { ++completed_tasks; }));
+            static_cast<void>(scheduler.submit([&] { ++completed_tasks; }));
         }
 
         EXPECT_EQ(completed_tasks.load(), 2);

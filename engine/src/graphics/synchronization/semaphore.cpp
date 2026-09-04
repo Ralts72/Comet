@@ -5,10 +5,7 @@
 #include <limits>
 
 namespace Comet {
-    Semaphore::Semaphore(
-        Device& device,
-        const Type type,
-        const uint64_t initial_value)
+    Semaphore::Semaphore(Device& device, const Type type, const uint64_t initial_value)
         : m_device(&device), m_type(type) {
         if(type == Type::Binary && initial_value != 0) {
             LOG_FATAL("Binary semaphore initial value must be zero");
@@ -25,23 +22,21 @@ namespace Comet {
     }
 
     Semaphore::~Semaphore() {
-        if (m_semaphore != VK_NULL_HANDLE && m_device) {
+        if(m_semaphore != VK_NULL_HANDLE && m_device) {
             m_device->get().destroySemaphore(m_semaphore);
         }
     }
 
     Semaphore::Semaphore(Semaphore&& other) noexcept
-        : m_device(other.m_device),
-          m_semaphore(other.m_semaphore),
-          m_type(other.m_type) {
+        : m_device(other.m_device), m_semaphore(other.m_semaphore), m_type(other.m_type) {
         other.m_device = nullptr;
         other.m_semaphore = VK_NULL_HANDLE;
         other.m_type = Type::Binary;
     }
 
     Semaphore& Semaphore::operator=(Semaphore&& other) noexcept {
-        if (this != &other) {
-            if (m_semaphore != VK_NULL_HANDLE && m_device) {
+        if(this != &other) {
+            if(m_semaphore != VK_NULL_HANDLE && m_device) {
                 m_device->get().destroySemaphore(m_semaphore);
             }
             m_device = other.m_device;
@@ -56,7 +51,8 @@ namespace Comet {
 
     uint64_t Semaphore::get_counter_value() const {
         if(m_type != Type::Timeline || !m_device || !m_semaphore) {
-            LOG_FATAL("Semaphore counter is only available for a valid timeline semaphore");
+            LOG_FATAL(
+                "Semaphore counter is only available for a valid timeline semaphore");
         }
         return m_device->get().getSemaphoreCounterValue(m_semaphore);
     }
@@ -67,20 +63,17 @@ namespace Comet {
         }
     }
 
-    bool Semaphore::wait_for(
-        const uint64_t value,
-        const uint64_t timeout) const {
+    bool Semaphore::wait_for(const uint64_t value, const uint64_t timeout) const {
         if(m_type != Type::Timeline || !m_device || !m_semaphore) {
-            LOG_FATAL("Semaphore wait value is only available for a valid timeline semaphore");
+            LOG_FATAL(
+                "Semaphore wait value is only available for a valid timeline semaphore");
         }
 
         vk::SemaphoreWaitInfo wait_info{};
         wait_info.semaphoreCount = 1;
         wait_info.pSemaphores = &m_semaphore;
         wait_info.pValues = &value;
-        const vk::Result result = m_device->get().waitSemaphores(
-            wait_info,
-            timeout);
+        const vk::Result result = m_device->get().waitSemaphores(wait_info, timeout);
         if(result == vk::Result::eTimeout) {
             return false;
         }

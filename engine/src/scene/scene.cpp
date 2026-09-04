@@ -26,8 +26,7 @@ namespace Comet {
 
         m_registry.emplace<IdComponent>(handle, m_next_entity_id++);
         m_registry.emplace<UuidComponent>(handle, uuid);
-        m_registry.emplace<NameComponent>(
-            handle, name.empty() ? "Entity" : name);
+        m_registry.emplace<NameComponent>(handle, name.empty() ? "Entity" : name);
         m_registry.emplace<TransformComponent>(handle);
         m_registry.emplace<RelationshipComponent>(handle);
         m_registry.emplace<WorldTransformComponent>(handle);
@@ -41,14 +40,13 @@ namespace Comet {
         }
 
         std::unordered_set<EntityId> destroying;
-        const auto destroy_subtree = [this, &destroying](
-            const Entity current,
-            const auto& destroy_subtree_ref) -> void {
+        const auto destroy_subtree = [this, &destroying](const Entity current,
+                                         const auto& destroy_subtree_ref) -> void {
             if(!is_valid(current) || !destroying.insert(current.get_id()).second) {
                 return;
             }
 
-            for(const Entity child: get_children(current)) {
+            for(const Entity child : get_children(current)) {
                 destroy_subtree_ref(child, destroy_subtree_ref);
             }
             m_registry.destroy(current.m_handle);
@@ -57,8 +55,8 @@ namespace Comet {
     }
 
     bool Scene::set_parent(const Entity child, const Entity parent) {
-        if(!is_valid(child) || !is_valid(parent)
-           || child == parent || has_cycle(child, parent)) {
+        if(!is_valid(child) || !is_valid(parent) || child == parent
+            || has_cycle(child, parent)) {
             return false;
         }
 
@@ -103,7 +101,7 @@ namespace Comet {
 
         const EntityId parent_id = entity.get_id();
         const auto view = m_registry.view<IdComponent, RelationshipComponent>();
-        for(const entt::entity handle: view) {
+        for(const entt::entity handle : view) {
             if(view.get<RelationshipComponent>(handle).parent == parent_id) {
                 children.push_back(Entity(handle, this));
             }
@@ -114,7 +112,7 @@ namespace Comet {
 
     std::vector<Entity> Scene::get_root_entities() {
         std::vector<Entity> roots;
-        for(const Entity entity: get_entities()) {
+        for(const Entity entity : get_entities()) {
             if(!get_parent(entity)) {
                 roots.push_back(entity);
             }
@@ -139,20 +137,19 @@ namespace Comet {
         std::unordered_map<EntityId, entt::entity> handles;
         const auto id_view = m_registry.view<IdComponent>();
         handles.reserve(entity_count());
-        for(const entt::entity handle: id_view) {
+        for(const entt::entity handle : id_view) {
             handles.emplace(id_view.get<IdComponent>(handle).id, handle);
         }
 
         std::unordered_map<EntityId, std::vector<entt::entity>> children;
         std::vector<entt::entity> roots;
         roots.reserve(handles.size());
-        for(const auto& [id, handle]: handles) {
+        for(const auto& [id, handle] : handles) {
             const auto* relationship = m_registry.try_get<RelationshipComponent>(handle);
-            const EntityId parent_id = relationship
-                ? relationship->parent
-                : INVALID_ENTITY_ID;
+            const EntityId parent_id =
+                relationship ? relationship->parent : INVALID_ENTITY_ID;
             if(parent_id != INVALID_ENTITY_ID && parent_id != id
-               && handles.contains(parent_id)) {
+                && handles.contains(parent_id)) {
                 children[parent_id].push_back(handle);
             } else {
                 roots.push_back(handle);
@@ -162,10 +159,9 @@ namespace Comet {
         std::unordered_set<EntityId> visited;
         visited.reserve(handles.size());
 
-        const auto update_subtree = [this, &children, &visited](
-            const entt::entity handle,
-            const Math::Mat4& parent_world,
-            const auto& update_subtree_ref) -> void {
+        const auto update_subtree = [this, &children, &visited](const entt::entity handle,
+                                        const Math::Mat4& parent_world,
+                                        const auto& update_subtree_ref) -> void {
             const EntityId id = m_registry.get<IdComponent>(handle).id;
             if(!visited.insert(id).second) {
                 return;
@@ -175,34 +171,28 @@ namespace Comet {
             auto& world_transform =
                 m_registry.get_or_emplace<WorldTransformComponent>(handle);
 
-            const Math::Mat4 local_matrix = transform
-                ? transform->to_matrix()
-                : Math::Mat4(1.0f);
-            const Math::Mat4 camera_local_matrix = transform
-                ? Math::compose_trs(
-                    transform->translation,
-                    transform->rotation,
-                    Math::Vec3(1.0f))
-                : Math::Mat4(1.0f);
+            const Math::Mat4 local_matrix =
+                transform ? transform->to_matrix() : Math::Mat4(1.0f);
+            const Math::Mat4 camera_local_matrix =
+                transform ? Math::compose_trs(transform->translation, transform->rotation,
+                                Math::Vec3(1.0f))
+                          : Math::Mat4(1.0f);
             world_transform.world_matrix = parent_world * local_matrix;
-            world_transform.camera_world_matrix =
-                parent_world * camera_local_matrix;
+            world_transform.camera_world_matrix = parent_world * camera_local_matrix;
 
             if(const auto child_handles = children.find(id);
-               child_handles != children.end()) {
-                for(const entt::entity child_handle: child_handles->second) {
+                child_handles != children.end()) {
+                for(const entt::entity child_handle : child_handles->second) {
                     update_subtree_ref(
-                        child_handle,
-                        world_transform.world_matrix,
-                        update_subtree_ref);
+                        child_handle, world_transform.world_matrix, update_subtree_ref);
                 }
             }
         };
 
-        for(const entt::entity root: roots) {
+        for(const entt::entity root : roots) {
             update_subtree(root, Math::Mat4(1.0f), update_subtree);
         }
-        for(const auto& [id, handle]: handles) {
+        for(const auto& [id, handle] : handles) {
             if(!visited.contains(id)) {
                 update_subtree(handle, Math::Mat4(1.0f), update_subtree);
             }
@@ -224,7 +214,7 @@ namespace Comet {
         }
 
         const auto view = m_registry.view<IdComponent>();
-        for(const entt::entity handle: view) {
+        for(const entt::entity handle : view) {
             if(view.get<IdComponent>(handle).id == id) {
                 return {handle, this};
             }
@@ -239,7 +229,7 @@ namespace Comet {
         }
 
         const auto view = m_registry.view<UuidComponent>();
-        for(const entt::entity handle: view) {
+        for(const entt::entity handle : view) {
             if(view.get<UuidComponent>(handle).uuid == uuid) {
                 return {handle, this};
             }
@@ -253,7 +243,7 @@ namespace Comet {
         entities.reserve(entity_count());
 
         const auto view = m_registry.view<IdComponent>();
-        for(const entt::entity handle: view) {
+        for(const entt::entity handle : view) {
             entities.push_back(Entity(handle, this));
         }
 
@@ -261,8 +251,7 @@ namespace Comet {
     }
 
     bool Scene::is_valid(const Entity entity) const {
-        return entity.m_scene == this
-               && entity.m_handle != entt::null
+        return entity.m_scene == this && entity.m_handle != entt::null
                && m_registry.valid(entity.m_handle);
     }
 

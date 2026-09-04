@@ -9,15 +9,13 @@ namespace Comet {
 namespace CometEditor {
     class SelectionService;
 
-    class HierarchyPanel : public EditorPanel {
+    class HierarchyPanel: public EditorPanel {
     public:
         HierarchyPanel(Comet::Scene& scene, SelectionService& selection);
 
         void render() override;
 
-        void set_scene(Comet::Scene& scene) {
-            m_scene = &scene;
-        }
+        void set_scene(Comet::Scene& scene) { m_scene = &scene; }
 
     private:
         void render_entity_node(Comet::Entity entity);

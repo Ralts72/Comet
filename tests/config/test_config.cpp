@@ -29,7 +29,7 @@ namespace {
         explicit TemporaryConfigFile(const std::string& contents) {
             const auto id = std::random_device{}();
             m_path = std::filesystem::temp_directory_path()
-                / ("comet_config_test_" + std::to_string(id) + ".yaml");
+                     / ("comet_config_test_" + std::to_string(id) + ".yaml");
 
             std::ofstream output(m_path);
             output << contents;
@@ -40,9 +40,7 @@ namespace {
             std::filesystem::remove(m_path, error);
         }
 
-        [[nodiscard]] std::string path() const {
-            return m_path.string();
-        }
+        [[nodiscard]] std::string path() const { return m_path.string(); }
 
     private:
         std::filesystem::path m_path;
@@ -66,17 +64,16 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
     constexpr std::array expectations = {
         ProfileExpectation{"dev-debug", "trace", true, true},
         ProfileExpectation{"editor-dev", "info", false, false},
-        ProfileExpectation{"app-release", "warn", false, false}
-    };
+        ProfileExpectation{"app-release", "warn", false, false}};
 
     const std::filesystem::path config_directory =
         std::filesystem::path(std::string(PROJECT_ROOT_DIR)) / "config";
-    for(const auto& expectation: expectations) {
+    for(const auto& expectation : expectations) {
         SCOPED_TRACE(expectation.name);
         const Config config = ConfigLoader{}.load(std::vector<std::string>{
             (config_directory / "common.yaml").string(),
-            (config_directory / "profiles" / (std::string(expectation.name) + ".yaml")).string()
-        });
+            (config_directory / "profiles" / (std::string(expectation.name) + ".yaml"))
+                .string()});
 
         EXPECT_EQ(config.diagnostics.log.level, expectation.log_level);
         EXPECT_FALSE(config.diagnostics.log.enable_file_logging);
@@ -152,9 +149,8 @@ TEST(ConfigTest, UsesDefaultsForMissingFields) {
 
 TEST(ConfigTest, ExplicitValidationSettingOverridesDefault) {
     const bool expected = !Config::Vulkan{}.enable_validation;
-    const TemporaryConfigFile file(
-        std::string("diagnostics:\n  enable_validation: ")
-        + (expected ? "true\n" : "false\n"));
+    const TemporaryConfigFile file(std::string("diagnostics:\n  enable_validation: ")
+                                   + (expected ? "true\n" : "false\n"));
 
     const Config config = ConfigLoader{}.load(file.path());
 
@@ -179,8 +175,8 @@ diagnostics:
   log_level: warn
 )");
 
-    const Config config = ConfigLoader{}.load(
-        std::vector<std::string>{common.path(), profile.path()});
+    const Config config =
+        ConfigLoader{}.load(std::vector<std::string>{common.path(), profile.path()});
 
     EXPECT_EQ(config.window.width, 1200);
     EXPECT_EQ(config.window.title, "Shared Title");
@@ -241,11 +237,11 @@ TEST(ConfigTest, RejectsUnsupportedMsaaSampleCount) {
 }
 
 TEST(ConfigTest, ThrowsForMissingFile) {
-    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load("missing-config.yaml")), std::runtime_error);
+    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load("missing-config.yaml")),
+        std::runtime_error);
 }
 
 TEST(ConfigTest, RejectsEmptyLayerList) {
-    EXPECT_THROW(
-        static_cast<void>(ConfigLoader{}.load(std::vector<std::string>{})),
+    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load(std::vector<std::string>{})),
         std::runtime_error);
 }

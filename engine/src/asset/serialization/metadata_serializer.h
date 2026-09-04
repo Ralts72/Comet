@@ -15,12 +15,9 @@ namespace Comet {
 
         [[nodiscard]] std::string serialize(const AssetMetadata& metadata) const;
         [[nodiscard]] AssetMetadata deserialize(
-            std::string_view contents,
-            std::string_view source = "<memory>") const;
+            std::string_view contents, std::string_view source = "<memory>") const;
 
-        void save(
-            const AssetMetadata& metadata,
-            const std::filesystem::path& path) const;
+        void save(const AssetMetadata& metadata, const std::filesystem::path& path) const;
         [[nodiscard]] AssetMetadata load(const std::filesystem::path& path) const;
     };
 }

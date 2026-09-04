@@ -25,17 +25,13 @@ using namespace Comet;
 namespace {
     template<typename T>
     constexpr bool NONCOPYABLE_IMMOVABLE_OWNER =
-        !std::is_copy_constructible_v<T>
-        && !std::is_copy_assignable_v<T>
-        && !std::is_move_constructible_v<T>
-        && !std::is_move_assignable_v<T>;
+        !std::is_copy_constructible_v<T> && !std::is_copy_assignable_v<T>
+        && !std::is_move_constructible_v<T> && !std::is_move_assignable_v<T>;
 
     template<typename T>
     constexpr bool NONCOPYABLE_MOVABLE_OWNER =
-        !std::is_copy_constructible_v<T>
-        && !std::is_copy_assignable_v<T>
-        && std::is_move_constructible_v<T>
-        && std::is_move_assignable_v<T>;
+        !std::is_copy_constructible_v<T> && !std::is_copy_assignable_v<T>
+        && std::is_move_constructible_v<T> && std::is_move_assignable_v<T>;
 
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Buffer>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<GPUBuffer>);

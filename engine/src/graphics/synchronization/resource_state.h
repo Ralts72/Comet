@@ -44,13 +44,10 @@ namespace Comet {
         std::uint32_t layer_count = 1;
 
         [[nodiscard]] bool is_valid() const noexcept {
-            return static_cast<bool>(aspects)
-                && level_count > 0
-                && layer_count > 0;
+            return static_cast<bool>(aspects) && level_count > 0 && layer_count > 0;
         }
 
-        bool operator==(
-            const ImageSubresourceRange&) const noexcept = default;
+        bool operator==(const ImageSubresourceRange&) const noexcept = default;
     };
 
     struct ImageState {
@@ -61,15 +58,12 @@ namespace Comet {
         bool operator==(const ImageState&) const noexcept = default;
     };
 
-    [[nodiscard]] COMET_API std::optional<ResourceState>
-    resolve_resource_state(
-        ResourceUsage usage,
-        Flags<PipelineStage> shader_stages = {},
+    [[nodiscard]] COMET_API std::optional<ResourceState> resolve_resource_state(
+        ResourceUsage usage, Flags<PipelineStage> shader_stages = {},
         std::uint32_t queue_family = UNSPECIFIED_QUEUE_FAMILY);
 
     [[nodiscard]] COMET_API std::optional<ImageState> resolve_image_state(
-        ResourceUsage usage,
-        ImageSubresourceRange subresources,
+        ResourceUsage usage, ImageSubresourceRange subresources,
         Flags<PipelineStage> shader_stages = {},
         std::uint32_t queue_family = UNSPECIFIED_QUEUE_FAMILY);
 }

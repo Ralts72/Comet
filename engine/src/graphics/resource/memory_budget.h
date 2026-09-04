@@ -16,14 +16,11 @@ namespace Comet {
         uint64_t budget_bytes = 0;
 
         [[nodiscard]] uint64_t available_bytes() const noexcept {
-            return budget_bytes > usage_bytes
-                ? budget_bytes - usage_bytes
-                : 0;
+            return budget_bytes > usage_bytes ? budget_bytes - usage_bytes : 0;
         }
 
         [[nodiscard]] bool reaches_usage_percentage(
-            uint64_t additional_bytes,
-            uint32_t percentage) const noexcept {
+            uint64_t additional_bytes, uint32_t percentage) const noexcept {
             if(budget_bytes == 0 || percentage == 0 || percentage > 100) {
                 return false;
             }
@@ -32,10 +29,9 @@ namespace Comet {
             const uint64_t remainder = budget_bytes % 100 * percentage;
             const uint64_t threshold = whole + (remainder + 99) / 100;
             const uint64_t projected_usage =
-                additional_bytes >
-                    std::numeric_limits<uint64_t>::max() - usage_bytes
-                ? std::numeric_limits<uint64_t>::max()
-                : usage_bytes + additional_bytes;
+                additional_bytes > std::numeric_limits<uint64_t>::max() - usage_bytes
+                    ? std::numeric_limits<uint64_t>::max()
+                    : usage_bytes + additional_bytes;
             return projected_usage >= threshold;
         }
     };

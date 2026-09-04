@@ -24,9 +24,7 @@ namespace Comet {
 namespace CometEditor {
     class ImGuiContext {
     public:
-        ImGuiContext(
-            const Comet::Window& window,
-            Comet::RenderContext& render_context,
+        ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context,
             std::filesystem::path ini_path);
         ~ImGuiContext();
 
@@ -65,8 +63,7 @@ namespace CometEditor {
         std::vector<std::unique_ptr<TextureBinding>> m_viewport_textures;
         UICallback m_ui_callback;
         bool m_initialized = false;
-        bool m_is_recreating = false;  // 标记是否正在重建 Swapchain
+        bool m_is_recreating = false; // 标记是否正在重建 Swapchain
         uint32_t m_backend_image_count = 0;
-
     };
 }

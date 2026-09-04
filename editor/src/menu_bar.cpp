@@ -4,7 +4,7 @@
 namespace CometEditor {
 
     void MenuBar::render() {
-        if (ImGui::BeginMainMenuBar()) {
+        if(ImGui::BeginMainMenuBar()) {
             render_file_menu();
             render_edit_menu();
             render_view_menu();
@@ -13,7 +13,8 @@ namespace CometEditor {
             render_help_menu();
 
             float fps_text_width = ImGui::CalcTextSize("FPS: 999.9").x;
-            ImGui::SameLine(ImGui::GetWindowWidth() - fps_text_width - ImGui::GetStyle().WindowPadding.x);
+            ImGui::SameLine(ImGui::GetWindowWidth() - fps_text_width
+                            - ImGui::GetStyle().WindowPadding.x);
             ImGui::Text("FPS: %.1f", m_fps);
 
             ImGui::EndMainMenuBar();
@@ -21,24 +22,24 @@ namespace CometEditor {
     }
 
     void MenuBar::render_file_menu() const {
-        if (ImGui::BeginMenu("File", m_state.mode == EditorMode::Edit)) {
-            if (ImGui::MenuItem("New Scene", "Ctrl+N")) {
+        if(ImGui::BeginMenu("File", m_state.mode == EditorMode::Edit)) {
+            if(ImGui::MenuItem("New Scene", "Ctrl+N")) {
                 if(m_file_command_callback) {
                     m_file_command_callback(FileCommand::NewScene);
                 }
             }
-            if (ImGui::MenuItem("Open Scene", "Ctrl+O")) {
+            if(ImGui::MenuItem("Open Scene", "Ctrl+O")) {
                 if(m_file_command_callback) {
                     m_file_command_callback(FileCommand::OpenScene);
                 }
             }
-            if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
+            if(ImGui::MenuItem("Save Scene", "Ctrl+S")) {
                 if(m_file_command_callback) {
                     m_file_command_callback(FileCommand::SaveScene);
                 }
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Exit", "Alt+F4")) {
+            if(ImGui::MenuItem("Exit", "Alt+F4")) {
                 // TODO: 实现退出
             }
             ImGui::EndMenu();
@@ -49,11 +50,11 @@ namespace CometEditor {
         if(ImGui::BeginMenu("Game")) {
             const bool is_playing = m_state.mode == EditorMode::Play;
             if(ImGui::MenuItem("Play", nullptr, false, !is_playing)
-               && m_editor_mode_callback) {
+                && m_editor_mode_callback) {
                 m_editor_mode_callback(EditorMode::Play);
             }
             if(ImGui::MenuItem("Stop", nullptr, false, is_playing)
-               && m_editor_mode_callback) {
+                && m_editor_mode_callback) {
                 m_editor_mode_callback(EditorMode::Edit);
             }
             ImGui::EndMenu();
@@ -61,21 +62,21 @@ namespace CometEditor {
     }
 
     void MenuBar::render_edit_menu() {
-        if (ImGui::BeginMenu("Edit")) {
-            if (ImGui::MenuItem("Undo", "Ctrl+Z")) {}
-            if (ImGui::MenuItem("Redo", "Ctrl+Y")) {}
+        if(ImGui::BeginMenu("Edit")) {
+            if(ImGui::MenuItem("Undo", "Ctrl+Z")) {}
+            if(ImGui::MenuItem("Redo", "Ctrl+Y")) {}
             ImGui::Separator();
-            if (ImGui::MenuItem("Preferences", "Ctrl+,")) {}
+            if(ImGui::MenuItem("Preferences", "Ctrl+,")) {}
             ImGui::EndMenu();
         }
     }
 
     void MenuBar::render_view_menu() {
-        if (ImGui::BeginMenu("View")) {
-            for (auto& [name, visible] : m_panel_visibility) {
-                if (ImGui::MenuItem(name.c_str(), nullptr, visible)) {
+        if(ImGui::BeginMenu("View")) {
+            for(auto& [name, visible] : m_panel_visibility) {
+                if(ImGui::MenuItem(name.c_str(), nullptr, visible)) {
                     visible = !visible;
-                    if (m_panel_callbacks.contains(name)) {
+                    if(m_panel_callbacks.contains(name)) {
                         m_panel_callbacks.at(name)(visible);
                     }
                 }
@@ -85,24 +86,25 @@ namespace CometEditor {
     }
 
     void MenuBar::render_gameobject_menu() {
-        if (ImGui::BeginMenu("GameObject")) {
-            if (ImGui::MenuItem("Create Empty", "Ctrl+Shift+N")) {}
-            if (ImGui::MenuItem("3D Object", nullptr, false)) {}
-            if (ImGui::MenuItem("Light", nullptr, false)) {}
-            if (ImGui::MenuItem("Camera", nullptr, false)) {}
+        if(ImGui::BeginMenu("GameObject")) {
+            if(ImGui::MenuItem("Create Empty", "Ctrl+Shift+N")) {}
+            if(ImGui::MenuItem("3D Object", nullptr, false)) {}
+            if(ImGui::MenuItem("Light", nullptr, false)) {}
+            if(ImGui::MenuItem("Camera", nullptr, false)) {}
             ImGui::EndMenu();
         }
     }
 
     void MenuBar::render_help_menu() {
-        if (ImGui::BeginMenu("Help")) {
-            if (ImGui::MenuItem("About")) {}
+        if(ImGui::BeginMenu("Help")) {
+            if(ImGui::MenuItem("About")) {}
             ImGui::EndMenu();
         }
     }
 
-    void MenuBar::set_panel_visibility_callback(const std::string& panel_name, PanelVisibilityCallback callback) {
-        if (m_panel_visibility.contains(panel_name)) {
+    void MenuBar::set_panel_visibility_callback(
+        const std::string& panel_name, PanelVisibilityCallback callback) {
+        if(m_panel_visibility.contains(panel_name)) {
             m_panel_callbacks[panel_name] = callback;
         } else {
             m_panel_visibility[panel_name] = true;
@@ -111,7 +113,7 @@ namespace CometEditor {
     }
 
     bool MenuBar::is_panel_visible(const std::string& panel_name) const {
-        if (m_panel_visibility.contains(panel_name)) {
+        if(m_panel_visibility.contains(panel_name)) {
             return m_panel_visibility.at(panel_name);
         }
         return false;

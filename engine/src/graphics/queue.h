@@ -16,13 +16,11 @@ namespace Comet {
         Flags<PipelineStage> stage_mask;
 
         QueueSemaphoreSubmit(const Semaphore& semaphore,
-                             const Flags<PipelineStage> stage_mask,
-                             const uint64_t value = 0)
+            const Flags<PipelineStage> stage_mask, const uint64_t value = 0)
             : semaphore(&semaphore), value(value), stage_mask(stage_mask) {}
 
         QueueSemaphoreSubmit(
-            const GpuCompletionPoint& completion,
-            Flags<PipelineStage> stage_mask);
+            const GpuCompletionPoint& completion, Flags<PipelineStage> stage_mask);
     };
 
     class Queue {
@@ -39,11 +37,10 @@ namespace Comet {
         [[nodiscard]] GpuCompletionPoint submit2(
             std::span<const QueueSemaphoreSubmit> waits,
             std::span<const CommandBuffer> command_buffers,
-            std::span<const QueueSemaphoreSubmit> signals,
-            const Fence* fence);
+            std::span<const QueueSemaphoreSubmit> signals, const Fence* fence);
 
-        [[nodiscard]] vk::Result present(const Swapchain& swapchain, std::span<const Semaphore> wait_semaphores,
-                                         uint32_t image_index) const;
+        [[nodiscard]] vk::Result present(const Swapchain& swapchain,
+            std::span<const Semaphore> wait_semaphores, uint32_t image_index) const;
 
         [[nodiscard]] vk::Queue get() const { return m_queue; }
 

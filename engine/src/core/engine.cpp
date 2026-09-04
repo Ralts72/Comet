@@ -24,8 +24,7 @@ namespace Comet {
         m_window = std::make_unique<Window>(config.window);
 
         LOG_INFO("init renderer");
-        m_renderer = std::make_unique<Renderer>(
-            *m_window, config, *m_asset_registry);
+        m_renderer = std::make_unique<Renderer>(*m_window, config, *m_asset_registry);
     }
 
     Engine::~Engine() {
@@ -44,8 +43,7 @@ namespace Comet {
         m_scene = std::move(scene);
     }
 
-    std::unique_ptr<Scene> Engine::replace_scene(
-        std::unique_ptr<Scene> scene) noexcept {
+    std::unique_ptr<Scene> Engine::replace_scene(std::unique_ptr<Scene> scene) noexcept {
         m_scene.swap(scene);
         return scene;
     }
@@ -70,7 +68,7 @@ namespace Comet {
             m_timer->tick();
             const auto update_context = m_timer->get_update_context();
 
-            for(auto& callback: m_update_callbacks) {
+            for(auto& callback : m_update_callbacks) {
                 callback(update_context);
             }
 

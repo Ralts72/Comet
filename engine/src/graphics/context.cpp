@@ -13,8 +13,7 @@ namespace Comet {
         };
 
         void log_validation_message(
-            const uint32_t message_severity,
-            const char* message) noexcept {
+            const uint32_t message_severity, const char* message) noexcept {
             const auto logger = Logger::get_console_logger();
             if(!logger) {
                 return;
@@ -22,11 +21,13 @@ namespace Comet {
 
             if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
                 logger->error("Vulkan Validation: {}", message);
-            } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+            } else if(message_severity
+                      & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
                 logger->warn("Vulkan Validation: {}", message);
             } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
                 logger->info("Vulkan Validation: {}", message);
-            } else if(message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+            } else if(message_severity
+                      & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
                 logger->debug("Vulkan Validation: {}", message);
             }
         }
@@ -34,18 +35,17 @@ namespace Comet {
         [[maybe_unused]] VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_utils_messenger_callback(
             const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
             VkDebugUtilsMessageTypeFlagsEXT,
-            const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
-            void*) noexcept {
+            const VkDebugUtilsMessengerCallbackDataEXT* callback_data, void*) noexcept {
             log_validation_message(
                 static_cast<uint32_t>(message_severity), callback_data->pMessage);
             return VK_FALSE;
         }
 
-        [[maybe_unused]] VKAPI_ATTR vk::Bool32 VKAPI_CALL vk_debug_utils_messenger_callback(
+        [[maybe_unused]] VKAPI_ATTR vk::Bool32 VKAPI_CALL
+        vk_debug_utils_messenger_callback(
             const vk::DebugUtilsMessageSeverityFlagBitsEXT message_severity,
             vk::DebugUtilsMessageTypeFlagsEXT,
-            const vk::DebugUtilsMessengerCallbackDataEXT* callback_data,
-            void*) noexcept {
+            const vk::DebugUtilsMessengerCallbackDataEXT* callback_data, void*) noexcept {
             log_validation_message(
                 static_cast<uint32_t>(message_severity), callback_data->pMessage);
             return VK_FALSE;
@@ -53,32 +53,32 @@ namespace Comet {
 
         vk::DebugUtilsMessengerCreateInfoEXT make_debug_messenger_create_info() {
             vk::DebugUtilsMessengerCreateInfoEXT create_info{};
-            create_info.messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning
-                                          | vk::DebugUtilsMessageSeverityFlagBitsEXT::eError;
-            create_info.messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral
-                                      | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation
-                                      | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
+            create_info.messageSeverity =
+                vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning
+                | vk::DebugUtilsMessageSeverityFlagBitsEXT::eError;
+            create_info.messageType =
+                vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral
+                | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation
+                | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
             create_info.pfnUserCallback =
                 static_cast<decltype(create_info.pfnUserCallback)>(
                     vk_debug_utils_messenger_callback);
             return create_info;
         }
 
-        vk::DebugUtilsMessengerEXT create_debug_messenger(
-            const vk::Instance instance,
+        vk::DebugUtilsMessengerEXT create_debug_messenger(const vk::Instance instance,
             const vk::DebugUtilsMessengerCreateInfoEXT& create_info) {
-            const auto create_function = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
-                instance.getProcAddr("vkCreateDebugUtilsMessengerEXT"));
+            const auto create_function =
+                reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+                    instance.getProcAddr("vkCreateDebugUtilsMessengerEXT"));
             if(!create_function) {
                 LOG_FATAL("Failed to load vkCreateDebugUtilsMessengerEXT");
             }
 
             VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
-            const VkResult result = create_function(
-                static_cast<VkInstance>(instance),
+            const VkResult result = create_function(static_cast<VkInstance>(instance),
                 reinterpret_cast<const VkDebugUtilsMessengerCreateInfoEXT*>(&create_info),
-                nullptr,
-                &messenger);
+                nullptr, &messenger);
             if(result != VK_SUCCESS) {
                 LOG_FATAL("Failed to create Vulkan debug messenger: {}",
                     static_cast<int>(result));
@@ -87,17 +87,15 @@ namespace Comet {
         }
 
         void destroy_debug_messenger(
-            const vk::Instance instance,
-            const vk::DebugUtilsMessengerEXT messenger) {
-            const auto destroy_function = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
-                instance.getProcAddr("vkDestroyDebugUtilsMessengerEXT"));
+            const vk::Instance instance, const vk::DebugUtilsMessengerEXT messenger) {
+            const auto destroy_function =
+                reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+                    instance.getProcAddr("vkDestroyDebugUtilsMessengerEXT"));
             if(!destroy_function) {
                 LOG_FATAL("Failed to load vkDestroyDebugUtilsMessengerEXT");
             }
-            destroy_function(
-                static_cast<VkInstance>(instance),
-                static_cast<VkDebugUtilsMessengerEXT>(messenger),
-                nullptr);
+            destroy_function(static_cast<VkInstance>(instance),
+                static_cast<VkDebugUtilsMessengerEXT>(messenger), nullptr);
         }
     }
 
@@ -123,8 +121,7 @@ namespace Comet {
     void Context::create_instance(const bool validation_requested) {
         const uint32_t loader_api_version = vk::enumerateInstanceVersion();
         if(loader_api_version < REQUIRED_VULKAN_API_VERSION) {
-            LOG_FATAL(
-                "Vulkan loader API version {}.{}.{} is below required {}.{}.{}",
+            LOG_FATAL("Vulkan loader API version {}.{}.{} is below required {}.{}.{}",
                 VK_API_VERSION_MAJOR(loader_api_version),
                 VK_API_VERSION_MINOR(loader_api_version),
                 VK_API_VERSION_PATCH(loader_api_version),
@@ -145,20 +142,21 @@ namespace Comet {
         }
 
         std::set<std::string> available_layers;
-        for(const auto& properties: vk::enumerateInstanceLayerProperties()) {
+        for(const auto& properties : vk::enumerateInstanceLayerProperties()) {
             available_layers.emplace(properties.layerName);
         }
-        const std::vector<const char*> enabled_layers = get_available_names(
-            requested_layers, available_layers, "layer");
+        const std::vector<const char*> enabled_layers =
+            get_available_names(requested_layers, available_layers, "layer");
         const bool validation_enabled = !enabled_layers.empty();
 
         std::set<std::string> available_extension_names;
-        for(const auto& extension: vk::enumerateInstanceExtensionProperties()) {
+        for(const auto& extension : vk::enumerateInstanceExtensionProperties()) {
             available_extension_names.emplace(extension.extensionName);
         }
 
         unsigned int glfw_extension_count = 0;
-        const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
+        const char** glfw_extensions =
+            glfwGetRequiredInstanceExtensions(&glfw_extension_count);
         if(!glfw_extensions || glfw_extension_count == 0) {
             LOG_FATAL("GLFW did not provide the required Vulkan instance extensions");
         }
@@ -175,14 +173,11 @@ namespace Comet {
             LOG_INFO("Enabled GLFW instance extension: {}", glfw_extensions[i]);
         }
 
-        const auto custom_extensions = get_available_names(
-            requested_instance_extensions,
-            available_extension_names,
-            "instance extension");
-        for(const char* extension: custom_extensions) {
+        const auto custom_extensions = get_available_names(requested_instance_extensions,
+            available_extension_names, "instance extension");
+        for(const char* extension : custom_extensions) {
             const bool already_enabled = std::ranges::any_of(
-                enabled_extensions,
-                [extension](const char* enabled_extension) {
+                enabled_extensions, [extension](const char* enabled_extension) {
                     return std::string_view(enabled_extension) == extension;
                 });
             if(!already_enabled) {
@@ -195,13 +190,16 @@ namespace Comet {
             if(available_extension_names.contains(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
                 enabled_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
                 debug_utils_enabled = true;
-                LOG_INFO("Enabled instance extension: {}", VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+                LOG_INFO(
+                    "Enabled instance extension: {}", VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
             } else {
-                LOG_WARN("Vulkan validation is enabled, but {} is unavailable; validation messages cannot be captured",
+                LOG_WARN(
+                    "Vulkan validation is enabled, but {} is unavailable; validation messages cannot be captured",
                     VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
             }
         } else if(validation_requested) {
-            LOG_WARN("Vulkan validation was requested, but no validation layer is available");
+            LOG_WARN(
+                "Vulkan validation was requested, but no validation layer is available");
         }
 
         const auto debug_messenger_create_info = make_debug_messenger_create_info();
@@ -215,13 +213,14 @@ namespace Comet {
         create_info.pApplicationInfo = &app_info;
         create_info.enabledLayerCount = static_cast<uint32_t>(enabled_layers.size());
         create_info.ppEnabledLayerNames = enabled_layers.data();
-        create_info.enabledExtensionCount = static_cast<uint32_t>(enabled_extensions.size());
+        create_info.enabledExtensionCount =
+            static_cast<uint32_t>(enabled_extensions.size());
         create_info.ppEnabledExtensionNames = enabled_extensions.data();
         m_instance = vk::createInstance(create_info);
 
         if(debug_utils_enabled) {
-            m_debug_messenger = create_debug_messenger(
-                m_instance, debug_messenger_create_info);
+            m_debug_messenger =
+                create_debug_messenger(m_instance, debug_messenger_create_info);
             LOG_INFO("Vulkan debug messenger created successfully");
         }
         LOG_INFO("Vulkan instance created successfully (validation: {})",
@@ -235,8 +234,7 @@ namespace Comet {
         }
 
         m_device_capability = select_physical_device(
-            m_instance.enumeratePhysicalDevices(),
-            m_surface, capability_request);
+            m_instance.enumeratePhysicalDevices(), m_surface, capability_request);
     }
 
     void Context::create_surface(const Window& window) {
@@ -245,7 +243,8 @@ namespace Comet {
             LOG_FATAL("GLFW window not created");
         }
         VkSurfaceKHR surface = VK_NULL_HANDLE;
-        if(glfwCreateWindowSurface(m_instance, glfw_window, nullptr, &surface) != VK_SUCCESS) {
+        if(glfwCreateWindowSurface(m_instance, glfw_window, nullptr, &surface)
+            != VK_SUCCESS) {
             LOG_FATAL("Create Vulkan surface failed");
         }
         m_surface = vk::SurfaceKHR(surface);

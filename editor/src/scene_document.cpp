@@ -8,12 +8,9 @@
 #include <utility>
 
 namespace CometEditor {
-    SceneDocument::SceneDocument(
-        const Comet::SceneSerializer& serializer,
-        ActiveSceneGetter get_active_scene,
-        ActiveSceneReplacer replace_active_scene)
-        : m_serializer(serializer),
-          m_get_active_scene(std::move(get_active_scene)),
+    SceneDocument::SceneDocument(const Comet::SceneSerializer& serializer,
+        ActiveSceneGetter get_active_scene, ActiveSceneReplacer replace_active_scene)
+        : m_serializer(serializer), m_get_active_scene(std::move(get_active_scene)),
           m_replace_active_scene(std::move(replace_active_scene)) {}
 
     bool SceneDocument::create_new() {
@@ -69,8 +66,7 @@ namespace CometEditor {
     }
 
     bool SceneDocument::replace_scene(
-        std::unique_ptr<Comet::Scene> scene,
-        std::string path) {
+        std::unique_ptr<Comet::Scene> scene, std::string path) {
         if(!scene) {
             m_last_error = "Cannot activate an empty scene";
             LOG_ERROR("{}", m_last_error);

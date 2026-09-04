@@ -12,7 +12,8 @@ namespace Comet {
         Profiler::set_enabled(profiler_enabled);
 
         if(config.enable_profiler && !profiler_available) {
-            LOG_WARN("Profiler was requested by configuration but is not available in this build");
+            LOG_WARN(
+                "Profiler was requested by configuration but is not available in this build");
         }
     }
 

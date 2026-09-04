@@ -19,21 +19,17 @@ namespace CometEditor {
     class PropertyEditorRegistry;
     class SelectionService;
 
-    class InspectorPanel : public EditorPanel {
+    class InspectorPanel: public EditorPanel {
     public:
-        using UpdateMaterialCallback = std::function<bool(
-            Comet::AssetHandle,
-            const Comet::MaterialData&)>;
-        using ReimportTextureCallback = std::function<bool(
-            Comet::AssetHandle,
-            Comet::TextureImportSettings)>;
+        using UpdateMaterialCallback =
+            std::function<bool(Comet::AssetHandle, const Comet::MaterialData&)>;
+        using ReimportTextureCallback =
+            std::function<bool(Comet::AssetHandle, Comet::TextureImportSettings)>;
 
-        InspectorPanel(
-            SelectionService& selection,
+        InspectorPanel(SelectionService& selection,
             const Comet::ComponentRegistry& component_registry,
             const PropertyEditorRegistry& property_editor_registry,
-            const Comet::AssetDatabase& asset_database,
-            std::filesystem::path assets_root,
+            const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root,
             UpdateMaterialCallback update_material_callback,
             ReimportTextureCallback reimport_texture_callback);
 
@@ -46,12 +42,10 @@ namespace CometEditor {
         void render_texture(const Comet::AssetRecord& record);
         void render_material(const Comet::AssetRecord& record);
         void load_asset(const Comet::AssetRecord& record);
-        void reimport_texture(
-            const Comet::AssetRecord& record,
+        void reimport_texture(const Comet::AssetRecord& record,
             const Comet::TextureImportSettings& previous_settings);
         void update_material(
-            const Comet::AssetRecord& record,
-            const Comet::MaterialData& previous_data);
+            const Comet::AssetRecord& record, const Comet::MaterialData& previous_data);
         [[nodiscard]] std::string validate_material() const;
 
         SelectionService& m_selection;

@@ -23,8 +23,7 @@ namespace Comet {
     }
 
     Entity::operator bool() const {
-        return m_scene != nullptr
-               && m_handle != entt::null
+        return m_scene != nullptr && m_handle != entt::null
                && m_scene->m_registry.valid(m_handle);
     }
 }

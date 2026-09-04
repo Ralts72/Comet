@@ -9,13 +9,9 @@
 #include <variant>
 
 namespace Comet {
-    enum class TextureColorSpace : std::uint8_t {
-        Srgb,
-        Linear
-    };
+    enum class TextureColorSpace : std::uint8_t { Srgb, Linear };
 
-    [[nodiscard]] COMET_API std::string_view to_string(
-        TextureColorSpace value) noexcept;
+    [[nodiscard]] COMET_API std::string_view to_string(TextureColorSpace value) noexcept;
     [[nodiscard]] COMET_API std::optional<TextureColorSpace>
     texture_color_space_from_string(std::string_view value) noexcept;
 
@@ -26,7 +22,5 @@ namespace Comet {
         auto operator<=>(const TextureImportSettings&) const noexcept = default;
     };
 
-    using AssetImportSettings = std::variant<
-        std::monostate,
-        TextureImportSettings>;
+    using AssetImportSettings = std::variant<std::monostate, TextureImportSettings>;
 }

@@ -4,12 +4,18 @@
 namespace Comet {
 #ifdef COMET_ENABLE_PROFILER
     namespace {
-        spdlog::level::level_enum select_profile_log_level(const int call_count, const double average) {
-            if(call_count == 1) return spdlog::level::info;
-            if(average > 50.0) return spdlog::level::critical;
-            if(average > 10.0) return spdlog::level::err;
-            if(average > 5.0) return spdlog::level::warn;
-            if(average > 1.0) return spdlog::level::info;
+        spdlog::level::level_enum select_profile_log_level(
+            const int call_count, const double average) {
+            if(call_count == 1)
+                return spdlog::level::info;
+            if(average > 50.0)
+                return spdlog::level::critical;
+            if(average > 10.0)
+                return spdlog::level::err;
+            if(average > 5.0)
+                return spdlog::level::warn;
+            if(average > 1.0)
+                return spdlog::level::info;
             return spdlog::level::debug;
         }
     }
@@ -47,7 +53,8 @@ namespace Comet {
         }
 
         auto& stack = get_thread_stack();
-        stack.push_back({.label = label, .start = std::chrono::high_resolution_clock::now()});
+        stack.push_back(
+            {.label = label, .start = std::chrono::high_resolution_clock::now()});
         return true;
 #else
         static_cast<void>(label);
@@ -58,14 +65,15 @@ namespace Comet {
     void Profiler::end_sample() {
 #ifdef COMET_ENABLE_PROFILER
         auto& stack = get_thread_stack();
-        if(stack.empty()) return;
+        if(stack.empty())
+            return;
 
         auto [label, start] = stack.back();
         stack.pop_back();
 
         const auto duration = std::chrono::duration<double, std::milli>(
-            std::chrono::high_resolution_clock::now() - start
-        ).count();
+            std::chrono::high_resolution_clock::now() - start)
+                                  .count();
 
         std::lock_guard<std::mutex> lock(s_mtx);
         auto& [total_time, call_count] = s_records[label];
@@ -76,31 +84,30 @@ namespace Comet {
 
     void Profiler::dump_results() {
 #ifdef COMET_ENABLE_PROFILER
-        if(!is_enabled()) return;
+        if(!is_enabled())
+            return;
 
         const auto logger = Logger::get_profiler_logger();
-        if(!logger) return;
+        if(!logger)
+            return;
 
-        decltype(s_records) records; {
+        decltype(s_records) records;
+        {
             std::lock_guard<std::mutex> lock(s_mtx);
             records = s_records;
         }
 
-        for(const auto& [label, record]: records) {
+        for(const auto& [label, record] : records) {
             const auto& [total_time, call_count] = record;
-            if(call_count <= 0) continue;
+            if(call_count <= 0)
+                continue;
 
             const double average = total_time / call_count;
             const auto level = select_profile_log_level(call_count, average);
 
-            logger->log(
-                level,
-                "{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms",
-                label,
-                call_count,
-                total_time,
-                average
-            );
+            logger->log(level,
+                "{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms", label,
+                call_count, total_time, average);
         }
 #endif
     }

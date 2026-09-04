@@ -30,8 +30,7 @@ namespace Comet::Tests {
         }
 
         const ComponentRegistry& component_registry() {
-            static const ComponentRegistry registry =
-                create_scene_component_registry();
+            static const ComponentRegistry registry = create_scene_component_registry();
             return registry;
         }
 
@@ -44,7 +43,7 @@ namespace Comet::Tests {
             TemporarySceneFile() {
                 const auto id = std::random_device{}();
                 m_path = std::filesystem::temp_directory_path()
-                    / ("comet_scene_test_" + std::to_string(id) + ".scene");
+                         / ("comet_scene_test_" + std::to_string(id) + ".scene");
             }
 
             ~TemporarySceneFile() {
@@ -52,9 +51,7 @@ namespace Comet::Tests {
                 std::filesystem::remove(m_path, error);
             }
 
-            [[nodiscard]] std::string path() const {
-                return m_path.string();
-            }
+            [[nodiscard]] std::string path() const { return m_path.string(); }
 
         private:
             std::filesystem::path m_path;
@@ -65,7 +62,7 @@ namespace Comet::Tests {
             TemporarySceneDirectory() {
                 const auto id = std::random_device{}();
                 m_root = std::filesystem::temp_directory_path()
-                    / ("comet_scene_directory_test_" + std::to_string(id));
+                         / ("comet_scene_directory_test_" + std::to_string(id));
             }
 
             ~TemporarySceneDirectory() {
@@ -82,33 +79,27 @@ namespace Comet::Tests {
         };
 
         void expect_scene_error(const SceneSerializer& serializer,
-                                const std::string_view contents,
-                                const std::string_view expected_detail) {
+            const std::string_view contents, const std::string_view expected_detail) {
             try {
-                static_cast<void>(serializer.deserialize(
-                    contents, "invalid.scene"));
+                static_cast<void>(serializer.deserialize(contents, "invalid.scene"));
                 FAIL() << "Expected scene deserialization to fail";
             } catch(const std::runtime_error& error) {
                 const std::string message = error.what();
                 EXPECT_NE(message.find("invalid.scene"), std::string::npos);
-                EXPECT_NE(
-                    message.find(expected_detail), std::string::npos)
-                    << message;
+                EXPECT_NE(message.find(expected_detail), std::string::npos) << message;
             }
         }
 
-        void expect_scene_error(const std::string_view contents,
-                                const std::string_view expected_detail) {
+        void expect_scene_error(
+            const std::string_view contents, const std::string_view expected_detail) {
             const SceneSerializer serializer = make_scene_serializer();
             expect_scene_error(serializer, contents, expected_detail);
         }
     }
 
     TEST(SceneSerializerTest, RoundTripsComponentsAndHierarchy) {
-        const EntityUuid root_uuid = uuid(
-            "00000000-0000-4000-8000-000000000010");
-        const EntityUuid child_uuid = uuid(
-            "00000000-0000-4000-8000-000000000020");
+        const EntityUuid root_uuid = uuid("00000000-0000-4000-8000-000000000010");
+        const EntityUuid child_uuid = uuid("00000000-0000-4000-8000-000000000020");
         Scene scene;
         Entity root = scene.create_entity_with_uuid(root_uuid, "Root");
         Entity child = scene.create_entity_with_uuid(child_uuid, "Child");
@@ -123,8 +114,7 @@ namespace Comet::Tests {
         child_transform.translation = Math::Vec3(1.0f, 2.0f, 3.0f);
         child_transform.rotation = Math::Vec3(-15.0f, 45.0f, 5.0f);
         child_transform.scale = Math::Vec3(0.5f, 1.5f, 2.0f);
-        child.add_component<MeshRendererComponent>(
-            AssetHandle(101), AssetHandle(202));
+        child.add_component<MeshRendererComponent>(AssetHandle(101), AssetHandle(202));
         auto& camera = root.add_component<CameraComponent>();
         camera.primary = true;
         camera.fov = 60.0f;
@@ -139,8 +129,8 @@ namespace Comet::Tests {
         EXPECT_EQ(contents.find("entity_id"), std::string::npos);
         EXPECT_EQ(contents.find("world_matrix"), std::string::npos);
 
-        std::unique_ptr<Scene> loaded = serializer.deserialize(
-            contents, "round-trip.scene");
+        std::unique_ptr<Scene> loaded =
+            serializer.deserialize(contents, "round-trip.scene");
         ASSERT_NE(loaded, nullptr);
         ASSERT_EQ(loaded->entity_count(), 2u);
 
@@ -156,22 +146,17 @@ namespace Comet::Tests {
             loaded_root.get_component<TransformComponent>();
         const auto& loaded_child_transform =
             loaded_child.get_component<TransformComponent>();
-        EXPECT_VEC3_EQ(
-            root_transform.translation, loaded_root_transform.translation);
+        EXPECT_VEC3_EQ(root_transform.translation, loaded_root_transform.translation);
         EXPECT_VEC3_EQ(root_transform.rotation, loaded_root_transform.rotation);
         EXPECT_VEC3_EQ(root_transform.scale, loaded_root_transform.scale);
-        EXPECT_VEC3_EQ(
-            child_transform.translation, loaded_child_transform.translation);
-        EXPECT_VEC3_EQ(
-            child_transform.rotation, loaded_child_transform.rotation);
+        EXPECT_VEC3_EQ(child_transform.translation, loaded_child_transform.translation);
+        EXPECT_VEC3_EQ(child_transform.rotation, loaded_child_transform.rotation);
         EXPECT_VEC3_EQ(child_transform.scale, loaded_child_transform.scale);
 
-        const auto& mesh =
-            loaded_child.get_component<MeshRendererComponent>();
+        const auto& mesh = loaded_child.get_component<MeshRendererComponent>();
         EXPECT_EQ(mesh.mesh, AssetHandle(101));
         EXPECT_EQ(mesh.material, AssetHandle(202));
-        const auto& loaded_camera =
-            loaded_root.get_component<CameraComponent>();
+        const auto& loaded_camera = loaded_root.get_component<CameraComponent>();
         EXPECT_TRUE(loaded_camera.primary);
         EXPECT_FLOAT_EQ(loaded_camera.fov, 60.0f);
         EXPECT_FLOAT_EQ(loaded_camera.near_clip, 0.25f);
@@ -179,15 +164,13 @@ namespace Comet::Tests {
 
         const Math::Mat4 expected_world =
             root_transform.to_matrix() * child_transform.to_matrix();
-        EXPECT_MAT4_EQ(
-            expected_world,
+        EXPECT_MAT4_EQ(expected_world,
             loaded_child.get_component<WorldTransformComponent>().world_matrix);
         EXPECT_EQ(serializer.serialize(*loaded), contents);
     }
 
     TEST(SceneSerializerTest, PreservesMissingOptionalComponents) {
-        const EntityUuid entity_uuid = uuid(
-            "00000000-0000-4000-8000-000000000030");
+        const EntityUuid entity_uuid = uuid("00000000-0000-4000-8000-000000000030");
         Scene scene;
         Entity entity = scene.create_entity_with_uuid(entity_uuid, "Data Only");
         ASSERT_TRUE(entity);
@@ -206,15 +189,12 @@ namespace Comet::Tests {
     }
 
     TEST(SceneSerializerTest, ClonesIndependentRuntimeScene) {
-        const EntityUuid parent_uuid = uuid(
-            "00000000-0000-4000-8000-000000000060");
-        const EntityUuid child_uuid = uuid(
-            "00000000-0000-4000-8000-000000000061");
+        const EntityUuid parent_uuid = uuid("00000000-0000-4000-8000-000000000060");
+        const EntityUuid child_uuid = uuid("00000000-0000-4000-8000-000000000061");
         Scene edit_scene;
-        Entity edit_parent = edit_scene.create_entity_with_uuid(
-            parent_uuid, "Edit Parent");
-        Entity edit_child = edit_scene.create_entity_with_uuid(
-            child_uuid, "Edit Child");
+        Entity edit_parent =
+            edit_scene.create_entity_with_uuid(parent_uuid, "Edit Parent");
+        Entity edit_child = edit_scene.create_entity_with_uuid(child_uuid, "Edit Child");
         ASSERT_TRUE(edit_parent);
         ASSERT_TRUE(edit_child);
         edit_child.get_component<TransformComponent>().translation =
@@ -231,39 +211,31 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime_parent);
         ASSERT_TRUE(runtime_child);
         EXPECT_EQ(runtime_scene->get_parent(runtime_child), runtime_parent);
-        EXPECT_VEC3_EQ(
-            runtime_child.get_component<TransformComponent>().translation,
+        EXPECT_VEC3_EQ(runtime_child.get_component<TransformComponent>().translation,
             Math::Vec3(1.0f, 2.0f, 3.0f));
 
         runtime_parent.get_component<NameComponent>().name = "Runtime Parent";
         runtime_child.get_component<TransformComponent>().translation.x = 9.0f;
 
-        EXPECT_EQ(
-            edit_parent.get_component<NameComponent>().name, "Edit Parent");
+        EXPECT_EQ(edit_parent.get_component<NameComponent>().name, "Edit Parent");
         EXPECT_FLOAT_EQ(
-            edit_child.get_component<TransformComponent>().translation.x,
-            1.0f);
+            edit_child.get_component<TransformComponent>().translation.x, 1.0f);
     }
 
     TEST(SceneSerializerTest, OrdersEntitiesByUuid) {
         Scene scene;
-        const EntityUuid later = uuid(
-            "00000000-0000-4000-8000-000000000200");
-        const EntityUuid earlier = uuid(
-            "00000000-0000-4000-8000-000000000100");
+        const EntityUuid later = uuid("00000000-0000-4000-8000-000000000200");
+        const EntityUuid earlier = uuid("00000000-0000-4000-8000-000000000100");
         ASSERT_TRUE(scene.create_entity_with_uuid(later, "Later"));
         ASSERT_TRUE(scene.create_entity_with_uuid(earlier, "Earlier"));
 
         const std::string contents = make_scene_serializer().serialize(scene);
 
-        EXPECT_LT(
-            contents.find(earlier.to_string()),
-            contents.find(later.to_string()));
+        EXPECT_LT(contents.find(earlier.to_string()), contents.find(later.to_string()));
     }
 
     TEST(SceneSerializerTest, SavesAndLoadsSceneFile) {
-        const EntityUuid entity_uuid = uuid(
-            "00000000-0000-4000-8000-000000000040");
+        const EntityUuid entity_uuid = uuid("00000000-0000-4000-8000-000000000040");
         Scene scene;
         ASSERT_TRUE(scene.create_entity_with_uuid(entity_uuid, "Saved"));
         const TemporarySceneFile file;
@@ -283,8 +255,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(scene.create_entity("Saved"));
         const TemporarySceneDirectory directory;
         const std::string path = directory.scene_path();
-        ASSERT_FALSE(std::filesystem::exists(
-            std::filesystem::path(path).parent_path()));
+        ASSERT_FALSE(std::filesystem::exists(std::filesystem::path(path).parent_path()));
 
         const SceneSerializer serializer = make_scene_serializer();
         serializer.save(scene, path);
@@ -303,7 +274,8 @@ entities:
     components: {name: First}
   - uuid: 00000000-0000-4000-8000-000000000001
     components: {name: Second}
-)", "duplicate UUID");
+)",
+            "duplicate UUID");
     }
 
     TEST(SceneSerializerTest, RejectsMissingParent) {
@@ -313,7 +285,8 @@ entities:
   - uuid: 00000000-0000-4000-8000-000000000001
     parent: 00000000-0000-4000-8000-000000000099
     components: {name: Child}
-)", "missing parent UUID");
+)",
+            "missing parent UUID");
     }
 
     TEST(SceneSerializerTest, RejectsParentCycle) {
@@ -326,7 +299,8 @@ entities:
   - uuid: 00000000-0000-4000-8000-000000000002
     parent: 00000000-0000-4000-8000-000000000001
     components: {name: Second}
-)", "forms a cycle");
+)",
+            "forms a cycle");
     }
 
     TEST(SceneSerializerTest, RejectsUnknownAndMalformedFields) {
@@ -340,13 +314,15 @@ entities:
         translation: [1, 2]
         rotation: [0, 0, 0]
         scale: [1, 1, 1]
-)", "exactly three numbers");
+)",
+            "exactly three numbers");
 
         expect_scene_error(R"(
 version: 1
 entities: []
 runtime_id: 1
-)", "unknown field 'runtime_id'");
+)",
+            "unknown field 'runtime_id'");
 
         expect_scene_error(R"(
 version: 1
@@ -355,7 +331,8 @@ entities:
     components:
       name: Invalid
       mesh_renderer: {mesh: -1, material: 2}
-)", "expected a non-negative integer");
+)",
+            "expected a non-negative integer");
 
         expect_scene_error(R"(
 version: 1
@@ -364,7 +341,8 @@ entities:
     components:
       name: First
       name: Second
-)", "duplicate field 'name'");
+)",
+            "duplicate field 'name'");
     }
 
     TEST(SceneSerializerTest, RejectsUnsupportedVersionAndNonFiniteValues) {
@@ -374,45 +352,30 @@ entities:
         Entity entity = scene.create_entity("Invalid");
         entity.get_component<TransformComponent>().translation.x =
             std::numeric_limits<float>::infinity();
-        EXPECT_THROW(
-            static_cast<void>(make_scene_serializer().serialize(scene)),
+        EXPECT_THROW(static_cast<void>(make_scene_serializer().serialize(scene)),
             std::runtime_error);
     }
 
     TEST(SceneSerializerTest, UsesDescriptorIdsAndSerializationFlags) {
         ComponentRegistry registry = create_scene_component_registry();
         ASSERT_TRUE(registry.register_component(
-            make_component_descriptor<DescriptorTestComponent>(
-                "descriptor_component",
+            make_component_descriptor<DescriptorTestComponent>("descriptor_component",
                 "Descriptor Component",
-                {
-                    make_property_descriptor(
-                        "persisted_value",
-                        "Persisted Value",
-                        &DescriptorTestComponent::persisted),
-                    make_property_descriptor(
-                        "runtime_value",
-                        "Runtime Value",
+                {make_property_descriptor("persisted_value", "Persisted Value",
+                     &DescriptorTestComponent::persisted),
+                    make_property_descriptor("runtime_value", "Runtime Value",
                         &DescriptorTestComponent::runtime_only,
-                        {.serializable = false})
-                })));
+                        {.serializable = false})})));
         ASSERT_TRUE(registry.register_component(
-            make_component_descriptor<RuntimeOnlyTestComponent>(
-                "runtime_component",
+            make_component_descriptor<RuntimeOnlyTestComponent>("runtime_component",
                 "Runtime Component",
-                {
-                    make_property_descriptor(
-                        "enabled",
-                        "Enabled",
-                        &RuntimeOnlyTestComponent::enabled)
-                },
+                {make_property_descriptor(
+                    "enabled", "Enabled", &RuntimeOnlyTestComponent::enabled)},
                 false)));
 
         Scene scene;
-        const EntityUuid entity_uuid = uuid(
-            "00000000-0000-4000-8000-000000000050");
-        Entity entity = scene.create_entity_with_uuid(
-            entity_uuid, "Descriptor Driven");
+        const EntityUuid entity_uuid = uuid("00000000-0000-4000-8000-000000000050");
+        Entity entity = scene.create_entity_with_uuid(entity_uuid, "Descriptor Driven");
         auto& component = entity.add_component<DescriptorTestComponent>();
         component.persisted = 42.0f;
         component.runtime_only = 99.0f;
@@ -444,6 +407,7 @@ entities:
       descriptor_component:
         persisted_value: 42
         runtime_value: 99
-)", "unknown field 'runtime_value'");
+)",
+            "unknown field 'runtime_value'");
     }
 }

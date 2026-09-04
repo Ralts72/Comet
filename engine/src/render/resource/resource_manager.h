@@ -11,20 +11,23 @@
 namespace Comet {
     class UploadManager;
 
-    class COMET_API ResourceManager final : public RenderResourceFactory {
+    class COMET_API ResourceManager final: public RenderResourceFactory {
     public:
         explicit ResourceManager(Device& device);
         ~ResourceManager() override;
-        
+
         [[nodiscard]] ShaderManager& get_shader_manager() { return *m_shader_manager; }
-        [[nodiscard]] const ShaderManager& get_shader_manager() const { return *m_shader_manager; }
+        [[nodiscard]] const ShaderManager& get_shader_manager() const {
+            return *m_shader_manager;
+        }
         [[nodiscard]] SamplerManager& get_sampler_manager() { return *m_sampler_manager; }
-        [[nodiscard]] const SamplerManager& get_sampler_manager() const { return *m_sampler_manager; }
+        [[nodiscard]] const SamplerManager& get_sampler_manager() const {
+            return *m_sampler_manager;
+        }
 
         [[nodiscard]] std::shared_ptr<Texture> create_texture(
             const TextureData& data) override;
-        [[nodiscard]] std::shared_ptr<Mesh> create_mesh(
-            const MeshData& data) override;
+        [[nodiscard]] std::shared_ptr<Mesh> create_mesh(const MeshData& data) override;
         void collect_completed_uploads();
 
     private:

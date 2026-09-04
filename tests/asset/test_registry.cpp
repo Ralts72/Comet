@@ -96,9 +96,8 @@ namespace Comet::Tests {
         EXPECT_TRUE(registry.replace_asset(handle, replacement));
         EXPECT_EQ(registry.resolve<TestMesh>(handle), replacement);
         EXPECT_EQ(original->vertex_count, 1);
-        EXPECT_FALSE(registry.replace_asset(
-            AssetHandle(73), std::make_shared<TestMesh>()));
-        EXPECT_FALSE(registry.replace_asset(
-            handle, std::make_shared<TestMaterial>()));
+        EXPECT_FALSE(
+            registry.replace_asset(AssetHandle(73), std::make_shared<TestMesh>()));
+        EXPECT_FALSE(registry.replace_asset(handle, std::make_shared<TestMaterial>()));
     }
 }

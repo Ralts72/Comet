@@ -2,12 +2,13 @@
 #include "diagnostics/logger.h"
 
 namespace Comet::Graphics {
-    #define CASE(a, b) \
-    case (a):      \
+#define CASE(a, b)                                                                       \
+    case(a):                                                                             \
         return (b);
 
-#define TRY_SET_BIT(src, dst) \
-    if (flags & (src)) bits |= (dst);
+#define TRY_SET_BIT(src, dst)                                                            \
+    if(flags & (src))                                                                    \
+        bits |= (dst);
 
     vk::Filter filter_to_vk(const Filter filter) {
         switch(filter) {
@@ -21,8 +22,10 @@ namespace Comet::Graphics {
         switch(mode) {
             CASE(SamplerAddressMode::ClampToEdge, vk::SamplerAddressMode::eClampToEdge)
             CASE(SamplerAddressMode::Repeat, vk::SamplerAddressMode::eRepeat)
-            CASE(SamplerAddressMode::MirrorRepeat, vk::SamplerAddressMode::eMirroredRepeat)
-            CASE(SamplerAddressMode::ClampToBorder, vk::SamplerAddressMode::eClampToBorder)
+            CASE(
+                SamplerAddressMode::MirrorRepeat, vk::SamplerAddressMode::eMirroredRepeat)
+            CASE(
+                SamplerAddressMode::ClampToBorder, vk::SamplerAddressMode::eClampToBorder)
         }
         LOG_FATAL("can't reach");
     }
@@ -136,9 +139,11 @@ namespace Comet::Graphics {
             CASE(BlendFactor::DstAlpha, vk::BlendFactor::eDstAlpha);
             CASE(BlendFactor::OneMinusDstAlpha, vk::BlendFactor::eOneMinusDstAlpha);
             CASE(BlendFactor::ConstantColor, vk::BlendFactor::eConstantColor);
-            CASE(BlendFactor::OneMinusConstantColor, vk::BlendFactor::eOneMinusConstantColor);
+            CASE(BlendFactor::OneMinusConstantColor,
+                vk::BlendFactor::eOneMinusConstantColor);
             CASE(BlendFactor::ConstantAlpha, vk::BlendFactor::eConstantAlpha);
-            CASE(BlendFactor::OneMinusConstantAlpha, vk::BlendFactor::eOneMinusConstantAlpha);
+            CASE(BlendFactor::OneMinusConstantAlpha,
+                vk::BlendFactor::eOneMinusConstantAlpha);
             CASE(BlendFactor::SrcAlphaSaturate, vk::BlendFactor::eSrcAlphaSaturate);
         }
         LOG_FATAL("can't reach");
@@ -228,8 +233,10 @@ namespace Comet::Graphics {
         }
         vk::ShaderStageFlags bits{};
         TRY_SET_BIT(ShaderStage::Vertex, vk::ShaderStageFlagBits::eVertex)
-        TRY_SET_BIT(ShaderStage::TessellationControl, vk::ShaderStageFlagBits::eTessellationControl)
-        TRY_SET_BIT(ShaderStage::TessellationEvaluation, vk::ShaderStageFlagBits::eTessellationEvaluation)
+        TRY_SET_BIT(ShaderStage::TessellationControl,
+            vk::ShaderStageFlagBits::eTessellationControl)
+        TRY_SET_BIT(ShaderStage::TessellationEvaluation,
+            vk::ShaderStageFlagBits::eTessellationEvaluation)
         TRY_SET_BIT(ShaderStage::Geometry, vk::ShaderStageFlagBits::eGeometry)
         TRY_SET_BIT(ShaderStage::Fragment, vk::ShaderStageFlagBits::eFragment)
         TRY_SET_BIT(ShaderStage::Compute, vk::ShaderStageFlagBits::eCompute)
@@ -238,7 +245,8 @@ namespace Comet::Graphics {
 
     vk::BorderColor border_color_to_vk(const BorderColor color) {
         switch(color) {
-            CASE(BorderColor::FloatTransparentBlack, vk::BorderColor::eFloatTransparentBlack);
+            CASE(BorderColor::FloatTransparentBlack,
+                vk::BorderColor::eFloatTransparentBlack);
             CASE(BorderColor::IntTransparentBlack, vk::BorderColor::eIntTransparentBlack);
             CASE(BorderColor::FloatOpaqueBlack, vk::BorderColor::eFloatOpaqueBlack);
             CASE(BorderColor::IntOpaqueBlack, vk::BorderColor::eIntOpaqueBlack);
@@ -259,25 +267,34 @@ namespace Comet::Graphics {
     vk::DescriptorType description_type_to_vk(const DescriptorType type) {
         switch(type) {
             CASE(DescriptorType::Sampler, vk::DescriptorType::eSampler)
-            CASE(DescriptorType::CombinedImageSampler, vk::DescriptorType::eCombinedImageSampler)
+            CASE(DescriptorType::CombinedImageSampler,
+                vk::DescriptorType::eCombinedImageSampler)
             CASE(DescriptorType::SampledImage, vk::DescriptorType::eSampledImage)
             CASE(DescriptorType::StorageImage, vk::DescriptorType::eStorageImage)
-            CASE(DescriptorType::UniformTexelBuffer, vk::DescriptorType::eUniformTexelBuffer)
-            CASE(DescriptorType::StorageTexelBuffer, vk::DescriptorType::eStorageTexelBuffer)
+            CASE(DescriptorType::UniformTexelBuffer,
+                vk::DescriptorType::eUniformTexelBuffer)
+            CASE(DescriptorType::StorageTexelBuffer,
+                vk::DescriptorType::eStorageTexelBuffer)
             CASE(DescriptorType::UniformBuffer, vk::DescriptorType::eUniformBuffer)
             CASE(DescriptorType::StorageBuffer, vk::DescriptorType::eStorageBuffer)
-            CASE(DescriptorType::UniformBufferDynamic, vk::DescriptorType::eUniformBufferDynamic)
-            CASE(DescriptorType::StoragesBufferDynamic, vk::DescriptorType::eStorageBufferDynamic)
+            CASE(DescriptorType::UniformBufferDynamic,
+                vk::DescriptorType::eUniformBufferDynamic)
+            CASE(DescriptorType::StoragesBufferDynamic,
+                vk::DescriptorType::eStorageBufferDynamic)
             CASE(DescriptorType::InputAttachment, vk::DescriptorType::eInputAttachment)
-            CASE(DescriptorType::InlineUniformBlock, vk::DescriptorType::eUniformBufferDynamic)
+            CASE(DescriptorType::InlineUniformBlock,
+                vk::DescriptorType::eUniformBufferDynamic)
         }
         LOG_FATAL("can't reach");
     }
 
-    vk::DescriptorPoolCreateFlags descriptor_pool_create_flags_to_vk(const Flags<DescriptorPoolCreateFlag> flags) {
+    vk::DescriptorPoolCreateFlags descriptor_pool_create_flags_to_vk(
+        const Flags<DescriptorPoolCreateFlag> flags) {
         vk::DescriptorPoolCreateFlags bits{};
-        TRY_SET_BIT(DescriptorPoolCreateFlag::FreeDescriptorSet, vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-        TRY_SET_BIT(DescriptorPoolCreateFlag::UpdateAfterBind, vk::DescriptorPoolCreateFlagBits::eUpdateAfterBind)
+        TRY_SET_BIT(DescriptorPoolCreateFlag::FreeDescriptorSet,
+            vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
+        TRY_SET_BIT(DescriptorPoolCreateFlag::UpdateAfterBind,
+            vk::DescriptorPoolCreateFlagBits::eUpdateAfterBind)
         return bits;
     }
 
@@ -307,16 +324,15 @@ namespace Comet::Graphics {
         TRY_SET_BIT(ImageUsage::CopyDst, vk::ImageUsageFlagBits::eTransferDst)
         TRY_SET_BIT(ImageUsage::StorageBinding, vk::ImageUsageFlagBits::eStorage)
         TRY_SET_BIT(ImageUsage::ColorAttachment, vk::ImageUsageFlagBits::eColorAttachment)
-        TRY_SET_BIT(ImageUsage::DepthStencilAttachment, vk::ImageUsageFlagBits::eDepthStencilAttachment)
+        TRY_SET_BIT(ImageUsage::DepthStencilAttachment,
+            vk::ImageUsageFlagBits::eDepthStencilAttachment)
         return bits;
     }
 
     vk::ColorComponentFlags color_write_mask_to_vk(const Flags<ColorWriteMask> flags) {
         if(flags == ColorWriteMask::All) {
-            return vk::ColorComponentFlagBits::eA |
-                   vk::ColorComponentFlagBits::eB |
-                   vk::ColorComponentFlagBits::eG |
-                   vk::ColorComponentFlagBits::eR;
+            return vk::ColorComponentFlagBits::eA | vk::ColorComponentFlagBits::eB
+                   | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eR;
         }
         vk::ColorComponentFlags bits{};
         TRY_SET_BIT(ColorWriteMask::Alpha, vk::ColorComponentFlagBits::eA)
@@ -351,18 +367,29 @@ namespace Comet::Graphics {
         TRY_SET_BIT(PipelineStage::Transfer, vk::PipelineStageFlagBits2::eTransfer)
         TRY_SET_BIT(PipelineStage::AllCommands, vk::PipelineStageFlagBits2::eAllCommands)
         TRY_SET_BIT(PipelineStage::AllGraphics, vk::PipelineStageFlagBits2::eAllGraphics)
-        TRY_SET_BIT(PipelineStage::ComputeShader, vk::PipelineStageFlagBits2::eComputeShader)
-        TRY_SET_BIT(PipelineStage::DrawIndirect, vk::PipelineStageFlagBits2::eDrawIndirect)
-        TRY_SET_BIT(PipelineStage::FragmentShader, vk::PipelineStageFlagBits2::eFragmentShader)
+        TRY_SET_BIT(
+            PipelineStage::ComputeShader, vk::PipelineStageFlagBits2::eComputeShader)
+        TRY_SET_BIT(
+            PipelineStage::DrawIndirect, vk::PipelineStageFlagBits2::eDrawIndirect)
+        TRY_SET_BIT(
+            PipelineStage::FragmentShader, vk::PipelineStageFlagBits2::eFragmentShader)
         TRY_SET_BIT(PipelineStage::VertexInput, vk::PipelineStageFlagBits2::eVertexInput)
-        TRY_SET_BIT(PipelineStage::VertexShader, vk::PipelineStageFlagBits2::eVertexShader)
-        TRY_SET_BIT(PipelineStage::GeometryShader, vk::PipelineStageFlagBits2::eGeometryShader)
-        TRY_SET_BIT(PipelineStage::BottomOfPipe, vk::PipelineStageFlagBits2::eBottomOfPipe)
-        TRY_SET_BIT(PipelineStage::ColorAttachmentOutput, vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-        TRY_SET_BIT(PipelineStage::EarlyFragmentTests, vk::PipelineStageFlagBits2::eEarlyFragmentTests)
-        TRY_SET_BIT(PipelineStage::LateFragmentTests, vk::PipelineStageFlagBits2::eLateFragmentTests)
-        TRY_SET_BIT(PipelineStage::TessellationControlShader, vk::PipelineStageFlagBits2::eTessellationControlShader)
-        TRY_SET_BIT(PipelineStage::TessellationEvaluationShader, vk::PipelineStageFlagBits2::eTessellationEvaluationShader)
+        TRY_SET_BIT(
+            PipelineStage::VertexShader, vk::PipelineStageFlagBits2::eVertexShader)
+        TRY_SET_BIT(
+            PipelineStage::GeometryShader, vk::PipelineStageFlagBits2::eGeometryShader)
+        TRY_SET_BIT(
+            PipelineStage::BottomOfPipe, vk::PipelineStageFlagBits2::eBottomOfPipe)
+        TRY_SET_BIT(PipelineStage::ColorAttachmentOutput,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput)
+        TRY_SET_BIT(PipelineStage::EarlyFragmentTests,
+            vk::PipelineStageFlagBits2::eEarlyFragmentTests)
+        TRY_SET_BIT(PipelineStage::LateFragmentTests,
+            vk::PipelineStageFlagBits2::eLateFragmentTests)
+        TRY_SET_BIT(PipelineStage::TessellationControlShader,
+            vk::PipelineStageFlagBits2::eTessellationControlShader)
+        TRY_SET_BIT(PipelineStage::TessellationEvaluationShader,
+            vk::PipelineStageFlagBits2::eTessellationEvaluationShader)
         TRY_SET_BIT(PipelineStage::TopOfPipe, vk::PipelineStageFlagBits2::eTopOfPipe)
         return bits;
     }
@@ -382,13 +409,20 @@ namespace Comet::Graphics {
         TRY_SET_BIT(Access::TransferRead, vk::AccessFlagBits2::eTransferRead)
         TRY_SET_BIT(Access::TransferWrite, vk::AccessFlagBits2::eTransferWrite)
         TRY_SET_BIT(Access::UniformRead, vk::AccessFlagBits2::eUniformRead)
-        TRY_SET_BIT(Access::ColorAttachmentRead, vk::AccessFlagBits2::eColorAttachmentRead)
-        TRY_SET_BIT(Access::ColorAttachmentWrite, vk::AccessFlagBits2::eColorAttachmentWrite)
-        TRY_SET_BIT(Access::IndirectCommandRead, vk::AccessFlagBits2::eIndirectCommandRead)
-        TRY_SET_BIT(Access::InputAttachmentRead, vk::AccessFlagBits2::eInputAttachmentRead)
-        TRY_SET_BIT(Access::VertexAttributeRead, vk::AccessFlagBits2::eVertexAttributeRead)
-        TRY_SET_BIT(Access::DepthStencilAttachmentRead, vk::AccessFlagBits2::eDepthStencilAttachmentRead)
-        TRY_SET_BIT(Access::DepthStencilAttachmentWrite, vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+        TRY_SET_BIT(
+            Access::ColorAttachmentRead, vk::AccessFlagBits2::eColorAttachmentRead)
+        TRY_SET_BIT(
+            Access::ColorAttachmentWrite, vk::AccessFlagBits2::eColorAttachmentWrite)
+        TRY_SET_BIT(
+            Access::IndirectCommandRead, vk::AccessFlagBits2::eIndirectCommandRead)
+        TRY_SET_BIT(
+            Access::InputAttachmentRead, vk::AccessFlagBits2::eInputAttachmentRead)
+        TRY_SET_BIT(
+            Access::VertexAttributeRead, vk::AccessFlagBits2::eVertexAttributeRead)
+        TRY_SET_BIT(Access::DepthStencilAttachmentRead,
+            vk::AccessFlagBits2::eDepthStencilAttachmentRead)
+        TRY_SET_BIT(Access::DepthStencilAttachmentWrite,
+            vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
 
         return bits;
     }
@@ -409,18 +443,28 @@ namespace Comet::Graphics {
             CASE(ImageLayout::PresentSrcKHR, vk::ImageLayout::ePresentSrcKHR)
             CASE(ImageLayout::AttachmentOptimal, vk::ImageLayout::eColorAttachmentOptimal)
             CASE(ImageLayout::ReadOnly_optimal, vk::ImageLayout::eReadOnlyOptimal)
-            CASE(ImageLayout::ColorAttachmentOptimal, vk::ImageLayout::eColorAttachmentOptimal)
-            CASE(ImageLayout::DepthAttachmentOptimal, vk::ImageLayout::eDepthStencilAttachmentOptimal)
-            CASE(ImageLayout::StencilAttachmentOptimal, vk::ImageLayout::eStencilAttachmentOptimal)
+            CASE(ImageLayout::ColorAttachmentOptimal,
+                vk::ImageLayout::eColorAttachmentOptimal)
+            CASE(ImageLayout::DepthAttachmentOptimal,
+                vk::ImageLayout::eDepthStencilAttachmentOptimal)
+            CASE(ImageLayout::StencilAttachmentOptimal,
+                vk::ImageLayout::eStencilAttachmentOptimal)
             CASE(ImageLayout::TransferDstOptimal, vk::ImageLayout::eTransferDstOptimal)
             CASE(ImageLayout::TransferSrcOptimal, vk::ImageLayout::eTransferSrcOptimal)
-            CASE(ImageLayout::DepthReadOnlyOptimal, vk::ImageLayout::eDepthReadOnlyOptimal)
-            CASE(ImageLayout::DepthStencilAttachmentOptimal, vk::ImageLayout::eDepthStencilAttachmentOptimal)
-            CASE(ImageLayout::DepthStencilReadOnlyOptimal, vk::ImageLayout::eDepthStencilReadOnlyOptimal)
-            CASE(ImageLayout::ShaderReadOnlyOptimal, vk::ImageLayout::eShaderReadOnlyOptimal)
-            CASE(ImageLayout::StencilReadOnlyOptimal, vk::ImageLayout::eStencilReadOnlyOptimal)
-            CASE(ImageLayout::DepthAttachmentStencilReadOnlyOptimal, vk::ImageLayout::eDepthAttachmentStencilReadOnlyOptimal)
-            CASE(ImageLayout::DepthReadOnlyStencilAttachmentOptimal, vk::ImageLayout::eDepthReadOnlyStencilAttachmentOptimal)
+            CASE(
+                ImageLayout::DepthReadOnlyOptimal, vk::ImageLayout::eDepthReadOnlyOptimal)
+            CASE(ImageLayout::DepthStencilAttachmentOptimal,
+                vk::ImageLayout::eDepthStencilAttachmentOptimal)
+            CASE(ImageLayout::DepthStencilReadOnlyOptimal,
+                vk::ImageLayout::eDepthStencilReadOnlyOptimal)
+            CASE(ImageLayout::ShaderReadOnlyOptimal,
+                vk::ImageLayout::eShaderReadOnlyOptimal)
+            CASE(ImageLayout::StencilReadOnlyOptimal,
+                vk::ImageLayout::eStencilReadOnlyOptimal)
+            CASE(ImageLayout::DepthAttachmentStencilReadOnlyOptimal,
+                vk::ImageLayout::eDepthAttachmentStencilReadOnlyOptimal)
+            CASE(ImageLayout::DepthReadOnlyStencilAttachmentOptimal,
+                vk::ImageLayout::eDepthReadOnlyStencilAttachmentOptimal)
         }
         LOG_FATAL("can't reach");
     }
@@ -473,22 +517,30 @@ namespace Comet::Graphics {
 
     vk::ColorSpaceKHR image_color_space_to_vk(const ImageColorSpace space) {
         switch(space) {
-                // CASE(ImageColorSpace::DolbyvisionEXT,         vk::ColorSpaceKHR::eDolbyvisionEXT)
-            CASE(ImageColorSpace::AdobergbLinearEXT, vk::ColorSpaceKHR::eAdobergbLinearEXT)
-            CASE(ImageColorSpace::AdobergbNonlinearEXT, vk::ColorSpaceKHR::eAdobergbNonlinearEXT)
+            // CASE(ImageColorSpace::DolbyvisionEXT,         vk::ColorSpaceKHR::eDolbyvisionEXT)
+            CASE(
+                ImageColorSpace::AdobergbLinearEXT, vk::ColorSpaceKHR::eAdobergbLinearEXT)
+            CASE(ImageColorSpace::AdobergbNonlinearEXT,
+                vk::ColorSpaceKHR::eAdobergbNonlinearEXT)
             CASE(ImageColorSpace::Bt709LinearEXT, vk::ColorSpaceKHR::eBt709LinearEXT)
-            CASE(ImageColorSpace::Bt709NonlinearEXT, vk::ColorSpaceKHR::eBt709NonlinearEXT)
+            CASE(
+                ImageColorSpace::Bt709NonlinearEXT, vk::ColorSpaceKHR::eBt709NonlinearEXT)
             CASE(ImageColorSpace::Bt2020LinearEXT, vk::ColorSpaceKHR::eBt2020LinearEXT)
             CASE(ImageColorSpace::DisplayNativeAMD, vk::ColorSpaceKHR::eDisplayNativeAMD)
             CASE(ImageColorSpace::Hdr10HlgEXT, vk::ColorSpaceKHR::eHdr10HlgEXT)
             CASE(ImageColorSpace::Hdr10St2084EXT, vk::ColorSpaceKHR::eHdr10St2084EXT)
             CASE(ImageColorSpace::PassThroughEXT, vk::ColorSpaceKHR::ePassThroughEXT)
             CASE(ImageColorSpace::SrgbNonlinearKHR, vk::ColorSpaceKHR::eSrgbNonlinear)
-            CASE(ImageColorSpace::DciP3NonlinearEXT, vk::ColorSpaceKHR::eDciP3NonlinearEXT)
-            CASE(ImageColorSpace::DisplayP3LinearEXT, vk::ColorSpaceKHR::eDisplayP3LinearEXT)
-            CASE(ImageColorSpace::DisplayP3NonlinearEXT, vk::ColorSpaceKHR::eDisplayP3NonlinearEXT)
-            CASE(ImageColorSpace::ExtendedSrgbLinearEXT, vk::ColorSpaceKHR::eExtendedSrgbLinearEXT)
-            CASE(ImageColorSpace::ExtendedSrgbNonlinearEXT, vk::ColorSpaceKHR::eExtendedSrgbNonlinearEXT)
+            CASE(
+                ImageColorSpace::DciP3NonlinearEXT, vk::ColorSpaceKHR::eDciP3NonlinearEXT)
+            CASE(ImageColorSpace::DisplayP3LinearEXT,
+                vk::ColorSpaceKHR::eDisplayP3LinearEXT)
+            CASE(ImageColorSpace::DisplayP3NonlinearEXT,
+                vk::ColorSpaceKHR::eDisplayP3NonlinearEXT)
+            CASE(ImageColorSpace::ExtendedSrgbLinearEXT,
+                vk::ColorSpaceKHR::eExtendedSrgbLinearEXT)
+            CASE(ImageColorSpace::ExtendedSrgbNonlinearEXT,
+                vk::ColorSpaceKHR::eExtendedSrgbNonlinearEXT)
         }
         LOG_FATAL("can't reach");
     }
@@ -496,21 +548,29 @@ namespace Comet::Graphics {
     ImageColorSpace vk_to_image_color_space(const vk::ColorSpaceKHR space) {
         switch(space) {
             // CASE(vk::ColorSpaceKHR::eDolbyvisionEXT, ImageColorSpace::DolbyvisionEXT)
-            CASE(vk::ColorSpaceKHR::eAdobergbLinearEXT, ImageColorSpace::AdobergbLinearEXT)
-            CASE(vk::ColorSpaceKHR::eAdobergbNonlinearEXT, ImageColorSpace::AdobergbNonlinearEXT)
+            CASE(
+                vk::ColorSpaceKHR::eAdobergbLinearEXT, ImageColorSpace::AdobergbLinearEXT)
+            CASE(vk::ColorSpaceKHR::eAdobergbNonlinearEXT,
+                ImageColorSpace::AdobergbNonlinearEXT)
             CASE(vk::ColorSpaceKHR::eBt709LinearEXT, ImageColorSpace::Bt709LinearEXT)
-            CASE(vk::ColorSpaceKHR::eBt709NonlinearEXT, ImageColorSpace::Bt709NonlinearEXT)
+            CASE(
+                vk::ColorSpaceKHR::eBt709NonlinearEXT, ImageColorSpace::Bt709NonlinearEXT)
             CASE(vk::ColorSpaceKHR::eBt2020LinearEXT, ImageColorSpace::Bt2020LinearEXT)
             CASE(vk::ColorSpaceKHR::eDisplayNativeAMD, ImageColorSpace::DisplayNativeAMD)
             CASE(vk::ColorSpaceKHR::eHdr10HlgEXT, ImageColorSpace::Hdr10HlgEXT)
             CASE(vk::ColorSpaceKHR::eHdr10St2084EXT, ImageColorSpace::Hdr10St2084EXT)
             CASE(vk::ColorSpaceKHR::ePassThroughEXT, ImageColorSpace::PassThroughEXT)
             CASE(vk::ColorSpaceKHR::eSrgbNonlinear, ImageColorSpace::SrgbNonlinearKHR)
-            CASE(vk::ColorSpaceKHR::eDciP3NonlinearEXT, ImageColorSpace::DciP3NonlinearEXT)
-            CASE(vk::ColorSpaceKHR::eDisplayP3LinearEXT, ImageColorSpace::DisplayP3LinearEXT)
-            CASE(vk::ColorSpaceKHR::eDisplayP3NonlinearEXT, ImageColorSpace::DisplayP3NonlinearEXT)
-            CASE(vk::ColorSpaceKHR::eExtendedSrgbLinearEXT, ImageColorSpace::ExtendedSrgbLinearEXT)
-            CASE(vk::ColorSpaceKHR::eExtendedSrgbNonlinearEXT, ImageColorSpace::ExtendedSrgbNonlinearEXT)
+            CASE(
+                vk::ColorSpaceKHR::eDciP3NonlinearEXT, ImageColorSpace::DciP3NonlinearEXT)
+            CASE(vk::ColorSpaceKHR::eDisplayP3LinearEXT,
+                ImageColorSpace::DisplayP3LinearEXT)
+            CASE(vk::ColorSpaceKHR::eDisplayP3NonlinearEXT,
+                ImageColorSpace::DisplayP3NonlinearEXT)
+            CASE(vk::ColorSpaceKHR::eExtendedSrgbLinearEXT,
+                ImageColorSpace::ExtendedSrgbLinearEXT)
+            CASE(vk::ColorSpaceKHR::eExtendedSrgbNonlinearEXT,
+                ImageColorSpace::ExtendedSrgbNonlinearEXT)
             default:
                 LOG_FATAL("can't reach");
         }
