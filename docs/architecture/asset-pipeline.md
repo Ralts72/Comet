@@ -150,6 +150,7 @@ Mesh 和 Texture 保持分立文件：它们的 CPU 数据、导入契约、Arti
 - `AssetRegistry`：作为唯一的 Handle 缓存，保存已发布运行时对象的带类型共享引用，并允许同类型候选对象替换；Scene 中仍只保存 Handle。
 - `ProjectPanel`：显示 Asset Database 的快照和扫描问题，并向共享 Selection 发布 Asset Handle；移动/重命名时只通过回调提交 Handle
   和项目相对目标路径。文件事务、数据库扫描和 Runtime 刷新仍由 AssetManager 完成，面板不自己访问文件系统或创建 GPU 资源。
+  最新一次扫描报告只作为面板的诊断展示状态保存，Editor 不再维护重复副本。
 - `Inspector`：根据共享 Selection 显示 Entity 或 Asset；Material 编辑器只允许从已索引 Texture 中选择属性，模板身份仍只读；Material 和 Texture 控件都只在值变化事件发生时自动提交，失败时恢复旧值。更新成功或失败统一写入 Logger 并由 Log 面板展示，Inspector 只显示当前资产的加载或字段校验错误。
 
 ## 生命周期
