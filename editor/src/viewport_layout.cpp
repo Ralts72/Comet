@@ -57,6 +57,30 @@ namespace CometEditor {
             }
             return display_size;
         }
+
+        std::uint32_t scale_extent(const std::uint32_t extent,
+            const std::uint32_t source_dimension, const std::uint32_t target_dimension) {
+            const std::uint64_t numerator =
+                static_cast<std::uint64_t>(extent)
+                * static_cast<std::uint64_t>(target_dimension);
+            const std::uint64_t scaled = numerator / source_dimension;
+            return static_cast<std::uint32_t>(std::max<std::uint64_t>(scaled, 1));
+        }
+
+        Comet::Math::Vec2u constrain_render_resolution(
+            const Comet::Math::Vec2u resolution, const std::uint32_t max_dimension) {
+            if(resolution.x == 0 || resolution.y == 0 || max_dimension == 0
+                || (resolution.x <= max_dimension && resolution.y <= max_dimension)) {
+                return resolution;
+            }
+
+            if(resolution.x >= resolution.y) {
+                return {max_dimension,
+                    scale_extent(resolution.y, resolution.x, max_dimension)};
+            }
+            return {
+                scale_extent(resolution.x, resolution.y, max_dimension), max_dimension};
+        }
     }
 
     ViewportLayout calculate_viewport_layout(const ViewportLayout::Input& input) {
@@ -85,6 +109,8 @@ namespace CometEditor {
                 layout.render_resolution = free_resolution;
                 break;
         }
+        layout.render_resolution = constrain_render_resolution(
+            layout.render_resolution, input.max_render_dimension);
 
         const bool has_current_render_resolution =
             input.current_render_resolution.x > 0

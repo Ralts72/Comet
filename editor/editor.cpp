@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -36,6 +37,7 @@
 
 namespace {
     constexpr std::size_t SCENE_PATH_CAPACITY = 1024;
+    constexpr std::uint32_t EDITOR_VIEWPORT_MAX_RENDER_DIMENSION = 4096;
     const std::filesystem::path DEMO_MESH = "meshes/cube.gltf";
     const std::filesystem::path DEMO_MATERIAL = "materials/demo.mat";
 
@@ -507,7 +509,16 @@ namespace {
             // 创建面板
             m_hierarchy_panel =
                 std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
-            m_viewport_panel = std::make_unique<CometEditor::ViewPanel>(m_editor_state);
+            const auto& render_context = get_engine().get_renderer().get_render_context();
+            const std::uint32_t device_max_render_dimension =
+                render_context.get_device().get_capability().max_image_dimension_2d;
+            if(device_max_render_dimension == 0) {
+                LOG_FATAL("Selected Vulkan device has no valid 2D image dimension limit");
+            }
+            const std::uint32_t max_render_dimension = std::min(
+                device_max_render_dimension, EDITOR_VIEWPORT_MAX_RENDER_DIMENSION);
+            m_viewport_panel = std::make_unique<CometEditor::ViewPanel>(
+                m_editor_state, max_render_dimension);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
                 *m_selection, m_component_registry, m_property_editor_registry,
                 m_asset_manager->get_database(), m_project_paths.assets(),

@@ -57,8 +57,9 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
 - Viewport 通过纯值 `RenderView` 传递可见性、稳定后的物理像素目标尺寸和 Camera 选择方式。Edit 使用不进入 Scene 与序列化的
   editor camera，Play 使用 Runtime Scene 的 primary Camera；`SceneRenderer` 不感知 `EditorMode` 或 ImGui 状态。`ViewPanel`
   通过纯布局计算分离 ImGui 逻辑内容区、结合当前窗口 framebuffer scale 的渲染分辨率，以及保持纹理宽高比的屏幕显示矩形；
-  Play 可独立选择 Free、16:9 或固定像素分辨率，并以 Fit 或 1x 显示，Renderer 仍只接收最终物理尺寸。Viewport
-  resize 会先完整创建新的离屏目标再切换；旧目标和对应 ImGui 绑定按 frame slot 保留到 fence 完成，不再等待全部在途帧。
+  Play 可独立选择 Free、16:9 或固定像素分辨率，并以 Fit 或 1x 显示。最终物理尺寸会按比例限制在设备
+  `maxImageDimension2D` 和 editor 4096 软上限以内，Renderer 只接收约束后的结果。Viewport resize 会先完整创建新的
+  离屏目标再切换；旧目标和对应 ImGui 绑定按 frame slot 保留到 fence 完成，不再等待全部在途帧。
 - 场景渲染主链路为 `Scene -> SceneExtractor -> RenderScene -> SceneResolver -> RenderSubmission -> SceneRenderer`。
   Scene 只保存组件和 `AssetHandle`，不持有 GPU Resource。
 - 资产主链路为 `assets + .meta -> AssetDatabase -> ImportService -> Artifact -> AssetManager -> AssetRegistry`。

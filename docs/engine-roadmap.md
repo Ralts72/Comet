@@ -934,7 +934,7 @@ Scene Component / RenderItem
   dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
 - old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
   present-queue idle 回退，不用不相关的全局 Device idle 代替依赖判断。
-- 为超大 View 增加最大尺寸或 render scale 约束，避免无上限重建离屏资源。
+- [x] 为超大 View 增加设备硬上限与 editor 软上限，等比约束最终物理分辨率，避免无上限重建离屏资源。
 
 验收标准：
 
@@ -1133,8 +1133,11 @@ Scene Component / RenderItem
 Viewport RenderTarget generation 已完成：完整的 `MultiTarget` 作为一代，创建成功后才切换；旧目标由实际使用它的
 FrameSlot 保留到 fence 完成，ImGui binding 也按 slot 安全替换。本步没有同时重写 swapchain generation。
 
-下一步为 Viewport 目标尺寸增加设备上限和项目级 render scale 约束，避免 Retina/HiDPI、大窗口或固定分辨率策略请求
-超大离屏附件，并让 UI 显示最终采用的物理渲染尺寸。
+Viewport 物理分辨率约束已完成：Editor 将设备 `maxImageDimension2D` 与 4096 软上限合并后传入纯 `ViewportLayout`，
+Free、16:9 和 Fixed 的最终结果都会等比收敛到有效范围，Renderer 不再接收无上限的附件尺寸。
+
+下一步先审计 swapchain generation 边界，明确 Swapchain core、runtime `SwapchainTarget`、FrameScheduler image state、
+RenderPass/Pipeline 兼容对象和 editor ImGui backend 各自的 prepare、commit 与 retire 顺序，再开始迁移代码。
 
 阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。

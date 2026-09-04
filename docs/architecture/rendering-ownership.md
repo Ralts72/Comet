@@ -176,6 +176,8 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
 - editor 的 `MultiTarget` 按 frame slot 持有 framebuffer 和对外暴露的离屏颜色/resolve image view；深度等内部
   attachment 由 framebuffer 保留。resize 不原地重建这些资源，而是完整创建新 `MultiTarget` 后一次切换；同一 slot
   的 fence 完成后才会释放旧目标引用并替换对应 ImGui binding。
+- Editor 从选中 `DeviceCapability` 读取 Vulkan `maxImageDimension2D`，再与 4096 的 editor 单 Viewport 软上限取较小值。
+  `ViewportLayout` 在 Free、16:9 或 Fixed 策略得到目标后统一等比约束长边，`SceneRenderer` 只接收最终物理像素尺寸。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture

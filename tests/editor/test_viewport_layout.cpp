@@ -88,6 +88,43 @@ namespace CometEditor::Tests {
         EXPECT_EQ(large.render_resolution, Comet::Math::Vec2u(1920, 1080));
     }
 
+    TEST(ViewportLayoutTest, ConstrainsFreeResolutionWithoutChangingAspect) {
+        const ViewportLayout landscape = calculate_viewport_layout({
+            .content_size = Comet::Math::Vec2(8000.0f, 4000.0f),
+            .max_render_dimension = 4096,
+        });
+        const ViewportLayout portrait = calculate_viewport_layout({
+            .content_size = Comet::Math::Vec2(2000.0f, 8000.0f),
+            .max_render_dimension = 4096,
+        });
+
+        EXPECT_EQ(landscape.render_resolution, Comet::Math::Vec2u(4096, 2048));
+        EXPECT_EQ(portrait.render_resolution, Comet::Math::Vec2u(1024, 4096));
+    }
+
+    TEST(ViewportLayoutTest, ConstrainsPolicyResultRatherThanPanelInput) {
+        const ViewportLayout aspect = calculate_viewport_layout({
+            .content_size = Comet::Math::Vec2(8000.0f, 6000.0f),
+            .max_render_dimension = 4096,
+            .resolution_policy =
+                {
+                    .mode = ViewportLayout::ResolutionPolicy::Mode::Aspect16By9,
+                },
+        });
+        const ViewportLayout fixed = calculate_viewport_layout({
+            .content_size = Comet::Math::Vec2(800.0f, 600.0f),
+            .max_render_dimension = 4096,
+            .resolution_policy =
+                {
+                    .mode = ViewportLayout::ResolutionPolicy::Mode::Fixed,
+                    .fixed_resolution = Comet::Math::Vec2u(8192, 4096),
+                },
+        });
+
+        EXPECT_EQ(aspect.render_resolution, Comet::Math::Vec2u(4096, 2304));
+        EXPECT_EQ(fixed.render_resolution, Comet::Math::Vec2u(4096, 2048));
+    }
+
     TEST(ViewportLayoutTest, RejectsEmptyFixedResolution) {
         const ViewportLayout layout = calculate_viewport_layout({
             .content_size = Comet::Math::Vec2(800.0f, 600.0f),

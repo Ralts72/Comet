@@ -6,8 +6,10 @@ namespace CometEditor {
         constexpr std::uint32_t RESIZE_STABLE_FRAME_COUNT = 2;
     }
 
-    ViewPanel::ViewPanel(const EditorState& state)
-        : EditorPanel("Viewport"), m_state(state) {}
+    ViewPanel::ViewPanel(
+        const EditorState& state, const std::uint32_t max_render_dimension)
+        : EditorPanel("Viewport"), m_state(state),
+          m_max_render_dimension(max_render_dimension) {}
 
     void ViewPanel::render() {
         m_actually_visible = false;
@@ -143,6 +145,7 @@ namespace CometEditor {
             .content_size = {content_size.x, content_size.y},
             .framebuffer_scale = {framebuffer_scale.x, framebuffer_scale.y},
             .current_render_resolution = m_texture_resolution,
+            .max_render_dimension = m_max_render_dimension,
             .resolution_policy = m_state.mode == EditorMode::Play
                                      ? m_play_resolution_policy
                                      : ViewportLayout::ResolutionPolicy{},
