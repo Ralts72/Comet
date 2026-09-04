@@ -6,7 +6,9 @@
 #include "graphics/synchronization/resource_state.h"
 
 #include <cstddef>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -20,10 +22,14 @@ namespace Comet {
 
     class COMET_API UploadManager {
     public:
+        using StagingGrowthGuard =
+            std::function<std::optional<vk::Result>(size_t capacity, bool within_budget)>;
+
         struct CreateInfo {
             size_t staging_page_size = 4 * 1024 * 1024;
             size_t max_cached_staging_pages = 4;
             uint32_t memory_pressure_threshold_percent = 90;
+            StagingGrowthGuard staging_growth_guard;
         };
 
         explicit UploadManager(Device& device);

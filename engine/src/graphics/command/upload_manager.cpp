@@ -255,6 +255,13 @@ namespace Comet {
         } else {
             const size_t capacity =
                 std::max(m_create_info.staging_page_size, required_capacity);
+            if(m_create_info.staging_growth_guard) {
+                const auto rejection =
+                    m_create_info.staging_growth_guard(capacity, within_budget);
+                if(rejection) {
+                    return GpuResourceResult<StagingAllocation>::failure(*rejection);
+                }
+            }
             prepare_for_staging_growth(capacity);
             auto buffer = Buffer::try_create_upload_buffer(m_device,
                 Flags<BufferUsage>(BufferUsage::CopySrc), capacity, within_budget,

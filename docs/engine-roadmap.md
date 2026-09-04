@@ -1119,9 +1119,9 @@ Scene Component / RenderItem
 
 ## 下一步
 
-下一步补充 **UploadBatch staging 失败注入测试**：可恢复结果和资产发布边界已经成立，显式 UploadBatch 也已隔离各自的
-CommandContext、目标资源与 staging page；接下来增加无副作用的 staging growth 拒绝点，确定性验证一个 batch 失败不会
-污染其他开放 batch。完成后再把 Texture CPU 导入迁到后台任务。
+下一步推进 **Texture 后台 CPU 导入与 revision 验票**：真实 GPU fault-injection 测试已经确认一个 UploadBatch 的 staging
+增长失败不会影响另一个 open batch；接下来复用 TaskScheduler 模型，让 Worker 只读取和解码 TextureData，Owner Thread
+执行可恢复 GPU 创建和 Registry replace，并阻止旧候选覆盖新 revision。
 
 格式演进保持以下边界：运行配置继续使用 YAML；项目文档只在编辑器写入链路和 Schema 稳定后整体评估 JSON 迁移；
 `.comet/cache/` 与 Shipping 资源继续使用面向 Runtime 的二进制产物和索引。

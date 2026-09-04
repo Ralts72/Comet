@@ -4,11 +4,12 @@
 
 #include <GLFW/glfw3.h>
 
+#include "common/export.h"
 #include "config/config.h"
 #include "core/math_utils.h"
 
 namespace Comet {
-    class Window {
+    class COMET_API Window {
     public:
         explicit Window(const Config::Window& config);
 
