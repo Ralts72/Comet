@@ -9,20 +9,18 @@ namespace Comet {
 
         LOG_INFO("create shader manager");
         m_shader_manager = std::make_unique<ShaderManager>(device);
-        
+
         LOG_INFO("create sampler manager");
         m_sampler_manager = std::make_unique<SamplerManager>(device);
     }
 
     ResourceManager::~ResourceManager() = default;
 
-    std::shared_ptr<Texture> ResourceManager::create_texture(
-        const TextureData& data) {
-        return std::make_shared<Texture>(m_device, *m_upload_manager, data);
+    std::shared_ptr<Texture> ResourceManager::create_texture(const TextureData& data) {
+        return Texture::create(m_device, *m_upload_manager, data);
     }
 
-    std::shared_ptr<Mesh> ResourceManager::create_mesh(
-        const MeshData& data) {
+    std::shared_ptr<Mesh> ResourceManager::create_mesh(const MeshData& data) {
         return Mesh::create(m_device, *m_upload_manager, data);
     }
 

@@ -18,39 +18,39 @@ namespace Comet::Tests {
         };
 
         template<typename T>
-        concept CollectsCompletedUploads = requires(T& manager) {
-            manager.collect_completed_uploads();
-        };
+        concept CollectsCompletedUploads =
+            requires(T& manager) { manager.collect_completed_uploads(); };
 
         template<typename T>
-        concept SubmitsResourceWaits = requires(
-            T& renderer,
-            std::span<const QueueSemaphoreSubmit> waits) {
-            renderer.end_frame(waits);
-        };
+        concept SubmitsResourceWaits = requires(T& renderer,
+            std::span<const QueueSemaphoreSubmit> waits) { renderer.end_frame(waits); };
 
         template<typename T>
-        concept BuildsResourceWaits = requires(
-            T& renderer,
-            const RenderSubmission& submission) {
-            {
-                renderer.render_scene_pass(submission)
-            } -> std::same_as<std::vector<QueueSemaphoreSubmit>>;
-        };
+        concept BuildsResourceWaits =
+            requires(T& renderer, const RenderSubmission& submission) {
+                {
+                    renderer.render_scene_pass(submission)
+                } -> std::same_as<std::vector<QueueSemaphoreSubmit>>;
+            };
 
         template<typename T>
-        concept StoresResourceWaits = requires(T& submission) {
-            submission.resource_waits;
-        };
+        concept StoresResourceWaits =
+            requires(T& submission) { submission.resource_waits; };
 
         template<typename T>
         concept HasRecoverableMeshFactory = requires(
-            Device& device,
-            UploadManager& upload_manager,
-            const MeshData& data) {
+            Device& device, UploadManager& upload_manager, const MeshData& data) {
             {
                 T::try_create(device, upload_manager, data, true)
             } -> std::same_as<GpuResourceResult<std::shared_ptr<Mesh>>>;
+        };
+
+        template<typename T>
+        concept HasRecoverableTextureFactory = requires(
+            Device& device, UploadManager& upload_manager, const TextureData& data) {
+            {
+                T::try_create(device, upload_manager, data, true)
+            } -> std::same_as<GpuResourceResult<std::shared_ptr<Texture>>>;
         };
     }
 
@@ -62,7 +62,12 @@ namespace Comet::Tests {
         EXPECT_TRUE(BuildsResourceWaits<SceneRenderer>);
         EXPECT_FALSE(StoresResourceWaits<RenderSubmission>);
         EXPECT_TRUE(HasRecoverableMeshFactory<Mesh>);
-        EXPECT_FALSE((std::constructible_from<
-            Mesh, Device&, UploadManager&, const MeshData&>));
+        EXPECT_FALSE(
+            (std::constructible_from<Mesh, Device&, UploadManager&, const MeshData&>));
+        EXPECT_TRUE(HasRecoverableTextureFactory<Texture>);
+        EXPECT_FALSE((std::constructible_from<Texture, Device&, UploadManager&,
+            const TextureData&>));
+        EXPECT_FALSE((std::constructible_from<Texture, Device&, UploadManager&, int, int,
+            Math::Vec4u>));
     }
 }
