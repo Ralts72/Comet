@@ -1119,10 +1119,10 @@ Scene Component / RenderItem
 
 ## 下一步
 
-下一步推进 **资产管线阶段性架构复盘**。Editor 已通过轻量 `AssetSourceMonitor` 自动触发现有 `AssetManager::scan()`，
-Mesh/Texture 共享通用异步任务占位与 revision 去重，Worker 只生成类型化 CPU candidate，Owner Thread 完成 GPU 创建和发布。
-复盘需要核对监视、数据库快照、任务占位、导入缓存、GPU 发布和旧资源保留是否存在重复状态或职责倒置，再决定阶段 3
-剩余的最小闭环，不直接扩展新的资产类型。
+下一步推进 **metadata 失败安全扫描**。资产管线复盘确认 monitor、数据库签名、revision、任务占位和导入缓存分别
+承担不同职责，但已有资产的 `.meta` 暂时损坏或类型不匹配时，当前候选快照会把它当作 removed 并卸载上一份 Runtime
+Resource。下一步区分真实删除与无效 sidecar：已有资产保留上一份有效记录、revision 和依赖并报告问题，新资产只报告
+问题，重复 GUID 等身份歧义不得按遍历顺序任意提交。
 
 格式演进保持以下边界：运行配置继续使用 YAML；项目文档只在编辑器写入链路和 Schema 稳定后整体评估 JSON 迁移；
 `.comet/cache/` 与 Shipping 资源继续使用面向 Runtime 的二进制产物和索引。
