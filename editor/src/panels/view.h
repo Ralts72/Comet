@@ -29,10 +29,15 @@ namespace CometEditor {
         [[nodiscard]] const ViewportLayout& get_layout() const { return m_layout; }
 
     private:
+        void render_edit_toolbar();
+        void render_play_toolbar();
         void render_view_content();
 
         const EditorState& m_state;
         bool m_2d_mode = false;
+        ViewportLayout::ResolutionPolicy m_play_resolution_policy;
+        ViewportLayout::DisplayMode m_play_display_mode =
+            ViewportLayout::DisplayMode::Fit;
 
         ImTextureID m_texture_id = ImTextureID_Invalid;
         Comet::Math::Vec2u m_texture_resolution{};

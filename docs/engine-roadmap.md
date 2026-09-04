@@ -901,6 +901,8 @@ Scene Component / RenderItem
 - resize debounce 由 ViewPanel 持有；尺寸连续稳定后产生一次请求，Renderer 等待所有 FrameSlot 后重建离屏 image、image view 和 framebuffer，不再等待整个 Device idle。
 - Camera 垂直 FOV 与实体 Transform 不变，RenderTarget 尺寸只改变 projection aspect；ImGui 再把纹理等比放入面板。
 - Edit 模式结合当前 ImGui platform viewport 的 framebuffer scale，把面板逻辑尺寸转换为 RenderTarget 物理像素尺寸。
+- Play 模式可选择 Free、16:9、1280x720 或 1920x1080 渲染分辨率，并以 Fit 或 1x 显示；这些策略由单个
+  ViewPanel 持有，不进入 Renderer 或 Scene Camera。
 
 #### 阶段 4A：单 Viewport 的模式化 Camera 与输入
 
@@ -920,8 +922,8 @@ Scene Component / RenderItem
 
 - [x] 明确区分 panel content size、render resolution 和 image display rect，不再把三者视为同一尺寸。
 - [x] Edit 模式默认按面板物理像素尺寸渲染，并结合当前 ImGui platform viewport 的 framebuffer scale 处理 Retina/HiDPI。
-- Play 模式支持固定分辨率和宽高比预设，例如 Free、16:9、1920x1080；面板 resize 默认只改变显示缩放，不改变固定 render resolution。
-- 提供 Fit、1x 等显示倍率，保持宽高比并记录 letterbox/pillarbox 后的真实 image display rect。
+- [x] Play 模式支持固定分辨率和宽高比预设，例如 Free、16:9、1920x1080；面板 resize 默认只改变显示缩放，不改变固定 render resolution。
+- [x] 提供 Fit、1x 等显示倍率，保持宽高比并记录 letterbox/pillarbox 后的真实 image display rect。
 - 保留 ViewPanel 的 resize debounce；在现有全 FrameSlot fence 等待基础上继续引入 generation 与延迟销毁，避免 resize 时同步等待全部在途 frame。
 - resize 创建新的 `RenderTargetGeneration`，成功后切换 viewport 引用，并按最后使用它的 frame submission 延迟释放
   旧 image、image view、framebuffer 和 ImGui descriptor；创建失败时继续使用旧 generation。
@@ -1125,8 +1127,8 @@ Scene Component / RenderItem
 阶段 3 → 阶段 4 架构复盘已完成：删除 Editor 与 ProjectPanel 重复保存的扫描报告；`RenderView` 只保留 Renderer
 真实消费的可见性、渲染尺寸和 Camera 选择，并且 `SceneResolver` 只保留统一入口。
 
-下一步继续阶段 4B，在 `ViewportLayout` 上增加 Play 模式的 Free、固定宽高比和固定像素分辨率策略；Edit 默认继续使用面板
-物理像素尺寸。先完成纯策略与 UI 接线，不与 RenderTarget generation 和延迟销毁合并。
+下一步把 Viewport RenderTarget 演进为 generation：先完整创建新一代资源，成功后再切换，旧 generation 根据最后一次使用它的
+frame completion 延迟释放；创建失败时继续使用当前目标。本步先不同时重写 swapchain generation。
 
 阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。

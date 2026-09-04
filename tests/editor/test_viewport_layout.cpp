@@ -53,6 +53,85 @@ namespace CometEditor::Tests {
         expect_vec2(layout.image_display_rect.max, Comet::Math::Vec2(800.0f, 450.0f));
     }
 
+    TEST(ViewportLayoutTest, FitsSixteenByNineResolutionInsidePhysicalPanel) {
+        const ViewportLayout layout = calculate_viewport_layout({
+            .content_size = Comet::Math::Vec2(1000.0f, 800.0f),
+            .framebuffer_scale = Comet::Math::Vec2(2.0f),
+            .resolution_policy =
+                {
+                    .mode = ViewportLayout::ResolutionPolicy::Mode::Aspect16By9,
+                },
+        });
+
+        EXPECT_EQ(layout.render_resolution, Comet::Math::Vec2u(2000, 1125));
+        expect_vec2(layout.image_display_rect.min, Comet::Math::Vec2(0.0f, 118.75f));
+        expect_vec2(layout.image_display_rect.max, Comet::Math::Vec2(1000.0f, 681.25f));
+    }
+
+    TEST(ViewportLayoutTest, FixedResolutionDoesNotFollowPanelSize) {
+        const ViewportLayout::ResolutionPolicy fixed{
+            .mode = ViewportLayout::ResolutionPolicy::Mode::Fixed,
+            .fixed_resolution = Comet::Math::Vec2u(1920, 1080),
+        };
+        const ViewportLayout small = calculate_viewport_layout({
+            .content_size = Comet::Math::Vec2(640.0f, 480.0f),
+            .framebuffer_scale = Comet::Math::Vec2(2.0f),
+            .resolution_policy = fixed,
+        });
+        const ViewportLayout large = calculate_viewport_layout({
+            .content_size = Comet::Math::Vec2(1200.0f, 900.0f),
+            .framebuffer_scale = Comet::Math::Vec2(1.0f),
+            .resolution_policy = fixed,
+        });
+
+        EXPECT_EQ(small.render_resolution, Comet::Math::Vec2u(1920, 1080));
+        EXPECT_EQ(large.render_resolution, Comet::Math::Vec2u(1920, 1080));
+    }
+
+    TEST(ViewportLayoutTest, RejectsEmptyFixedResolution) {
+        const ViewportLayout layout = calculate_viewport_layout({
+            .content_size = Comet::Math::Vec2(800.0f, 600.0f),
+            .resolution_policy =
+                {
+                    .mode = ViewportLayout::ResolutionPolicy::Mode::Fixed,
+                },
+        });
+
+        EXPECT_EQ(layout.render_resolution, Comet::Math::Vec2u(0));
+        EXPECT_EQ(layout.image_display_rect.size(), Comet::Math::Vec2(0.0f));
+    }
+
+    TEST(ViewportLayoutTest, OneToOneUsesOnePhysicalPixelPerDisplayPixel) {
+        const ViewportLayout layout = calculate_viewport_layout({
+            .content_origin = Comet::Math::Vec2(100.0f, 200.0f),
+            .content_size = Comet::Math::Vec2(800.0f, 600.0f),
+            .framebuffer_scale = Comet::Math::Vec2(2.0f),
+            .current_render_resolution = Comet::Math::Vec2u(1920, 1080),
+            .resolution_policy =
+                {
+                    .mode = ViewportLayout::ResolutionPolicy::Mode::Fixed,
+                    .fixed_resolution = Comet::Math::Vec2u(1920, 1080),
+                },
+            .display_mode = ViewportLayout::DisplayMode::OneToOne,
+        });
+
+        expect_vec2(layout.image_display_rect.min, Comet::Math::Vec2(100.0f, 230.0f));
+        expect_vec2(layout.image_display_rect.max, Comet::Math::Vec2(1060.0f, 770.0f));
+    }
+
+    TEST(ViewportLayoutTest, OneToOneDoesNotCoverContentBeforeItsOrigin) {
+        const ViewportLayout layout = calculate_viewport_layout({
+            .content_origin = Comet::Math::Vec2(100.0f, 200.0f),
+            .content_size = Comet::Math::Vec2(800.0f, 400.0f),
+            .framebuffer_scale = Comet::Math::Vec2(2.0f),
+            .current_render_resolution = Comet::Math::Vec2u(1920, 1080),
+            .display_mode = ViewportLayout::DisplayMode::OneToOne,
+        });
+
+        expect_vec2(layout.image_display_rect.min, Comet::Math::Vec2(100.0f, 200.0f));
+        expect_vec2(layout.image_display_rect.max, Comet::Math::Vec2(1060.0f, 740.0f));
+    }
+
     TEST(ViewportLayoutTest, SanitizesInvalidInputWithoutCreatingPixels) {
         const float invalid = std::numeric_limits<float>::quiet_NaN();
         const ViewportLayout empty = calculate_viewport_layout({

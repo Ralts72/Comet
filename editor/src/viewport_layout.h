@@ -4,6 +4,15 @@
 
 namespace CometEditor {
     struct ViewportLayout {
+        struct ResolutionPolicy {
+            enum class Mode { Free, Aspect16By9, Fixed };
+
+            Mode mode = Mode::Free;
+            Comet::Math::Vec2u fixed_resolution{};
+        };
+
+        enum class DisplayMode { Fit, OneToOne };
+
         struct Rect {
             Comet::Math::Vec2 min{};
             Comet::Math::Vec2 max{};
@@ -21,6 +30,8 @@ namespace CometEditor {
             Comet::Math::Vec2 content_size{};
             Comet::Math::Vec2 framebuffer_scale{1.0f, 1.0f};
             Comet::Math::Vec2u current_render_resolution{};
+            ResolutionPolicy resolution_policy;
+            DisplayMode display_mode = DisplayMode::Fit;
         };
 
         Comet::Math::Vec2 panel_content_size{};
