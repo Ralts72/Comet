@@ -1119,9 +1119,9 @@ Scene Component / RenderItem
 
 ## 下一步
 
-先完成 **可恢复 GPU 创建纵向链的阶段性架构复盘**：Allocator、Buffer/Image/ImageView、UploadManager、
-Mesh/Texture、RenderResourceFactory 与 AssetManager 已形成完整失败传播；接下来检查双轨工厂、结果类型、batch 边界、日志和
-依赖方向是否仍有冗余或职责泄漏，再决定优先补 fault injection 还是把 Texture CPU 导入迁到后台任务。
+下一步补充 **UploadBatch staging 失败注入测试**：可恢复结果和资产发布边界已经成立，显式 UploadBatch 也已隔离各自的
+CommandContext、目标资源与 staging page；接下来增加无副作用的 staging growth 拒绝点，确定性验证一个 batch 失败不会
+污染其他开放 batch。完成后再把 Texture CPU 导入迁到后台任务。
 
 格式演进保持以下边界：运行配置继续使用 YAML；项目文档只在编辑器写入链路和 Schema 稳定后整体评估 JSON 迁移；
 `.comet/cache/` 与 Shipping 资源继续使用面向 Runtime 的二进制产物和索引。

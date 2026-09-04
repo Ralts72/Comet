@@ -2,9 +2,7 @@
 #include "common/export.h"
 #include "graphics/pipeline/shader.h"
 #include "graphics/resource/sampler.h"
-#include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
-#include "render/resource/texture.h"
 
 #include <memory>
 
@@ -25,8 +23,6 @@ namespace Comet {
             return *m_sampler_manager;
         }
 
-        [[nodiscard]] std::shared_ptr<Texture> create_texture(const TextureData& data);
-        [[nodiscard]] std::shared_ptr<Mesh> create_mesh(const MeshData& data);
         [[nodiscard]] GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(
             const TextureData& data) override;
         [[nodiscard]] GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(

@@ -1,6 +1,8 @@
 #include "render/resource/resource_manager.h"
 #include "diagnostics/logger.h"
 #include "graphics/command/upload_manager.h"
+#include "render/resource/mesh.h"
+#include "render/resource/texture.h"
 
 namespace Comet {
     ResourceManager::ResourceManager(Device& device) : m_device(device) {
@@ -15,14 +17,6 @@ namespace Comet {
     }
 
     ResourceManager::~ResourceManager() = default;
-
-    std::shared_ptr<Texture> ResourceManager::create_texture(const TextureData& data) {
-        return Texture::create(m_device, *m_upload_manager, data);
-    }
-
-    std::shared_ptr<Mesh> ResourceManager::create_mesh(const MeshData& data) {
-        return Mesh::create(m_device, *m_upload_manager, data);
-    }
 
     GpuResourceResult<std::shared_ptr<Texture>> ResourceManager::try_create_texture(
         const TextureData& data) {

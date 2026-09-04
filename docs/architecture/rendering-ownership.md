@@ -102,7 +102,8 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
 - `RenderResourceFactory`：向资产层暴露从 CPU `TextureData`/`MeshData` 尝试创建 Runtime 资源的窄接口；返回类型化 GPU
   错误，不决定 Registry 发布或旧资源保留策略。
 - `ResourceManager`：创建 Device 相关的 Texture/Mesh，独占 UploadManager，并维护 Shader/Sampler 等设备级共享资源；
-  不认识或缓存 `AssetHandle`。资产侧 `try_create_*` 固定遵守 memory budget；显式 `create_*` 保留给关键资源。
+  不认识或缓存 `AssetHandle`。它通过 RenderResourceFactory 只暴露资产侧 `try_create_*`，并固定遵守 memory budget；
+  Mesh/Texture primitive 自身保留强失败工厂，但 ResourceManager 不复制无调用方的强失败转发入口。
 - `UploadManager`：在 owner thread 从可复用 staging page 子分配上传范围，合并 buffer/image copy 与 Barrier2；每个
   pending batch 独占所用 page、CommandContext 和目标资源直到 timeline completion，随后有界缓存默认尺寸页并释放
   临时超大页。它不认识 AssetHandle、Importer 或资产发布策略。
