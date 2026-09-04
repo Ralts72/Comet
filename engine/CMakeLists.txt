@@ -9,13 +9,15 @@ add_subdirectory(shaders)
 find_package(Threads REQUIRED)
 
 set(SOURCES
-        src/asset/cache/mesh_import_cache.cpp
+        src/asset/artifact/mesh_artifact.cpp
         src/asset/database.cpp
         src/asset/handle.cpp
         src/asset/import_settings.cpp
+        src/asset/import/input_snapshot.cpp
         src/asset/import/mesh_importer.cpp
+        src/asset/import/import_service.cpp
         src/asset/import/texture_importer.cpp
-        src/asset/manager.cpp
+        src/asset/asset_manager.cpp
         src/asset/material_data.cpp
         src/asset/metadata.cpp
         src/asset/registry.cpp

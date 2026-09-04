@@ -276,9 +276,7 @@ namespace Comet {
 
     MeshImportResult MeshImporter::import_with_dependencies(
         const std::filesystem::path& source_path) const {
-        std::vector<std::filesystem::path> dependencies =
-            collect_source_dependencies(source_path);
-        return {
-            .data = import(source_path), .source_dependencies = std::move(dependencies)};
+        return {.data = import(source_path),
+            .source_dependencies = collect_source_dependencies(source_path)};
     }
 }

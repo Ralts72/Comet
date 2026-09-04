@@ -1,4 +1,4 @@
-#include "asset/cache/mesh_import_cache.h"
+#include "asset/artifact/mesh_artifact.h"
 
 #include "asset/handle.h"
 #include "asset/import/mesh_importer.h"
@@ -13,16 +13,16 @@
 
 namespace Comet::Tests {
     namespace {
-        class TemporaryCacheProject final {
+        class TemporaryArtifactProject final {
         public:
-            TemporaryCacheProject() {
+            TemporaryArtifactProject() {
                 m_root = std::filesystem::temp_directory_path()
-                         / ("comet_mesh_import_cache_test_"
+                         / ("comet_mesh_artifact_test_"
                              + std::to_string(AssetHandle::generate().value()));
                 std::filesystem::create_directories(asset_root());
             }
 
-            ~TemporaryCacheProject() {
+            ~TemporaryArtifactProject() {
                 std::error_code error;
                 std::filesystem::remove_all(m_root, error);
             }
@@ -31,7 +31,7 @@ namespace Comet::Tests {
                 return m_root / "assets";
             }
 
-            [[nodiscard]] std::filesystem::path cache_path() const {
+            [[nodiscard]] std::filesystem::path artifact_path() const {
                 return m_root / ".comet/cache/imported/mesh/42.bin";
             }
 
@@ -71,65 +71,73 @@ namespace Comet::Tests {
         }
     }
 
-    TEST(MeshImportCacheTest, RoundTripsCurrentEntry) {
-        const TemporaryCacheProject project;
+    TEST(MeshArtifactTest, RoundTripsArtifact) {
+        const TemporaryArtifactProject project;
         const std::filesystem::path source = project.write_source();
         const MeshData expected = make_mesh_data();
 
-        MeshImportCache::store(project.cache_path(), project.asset_root(), source, {},
-            MeshImporter::OUTPUT_VERSION, expected);
-        const auto loaded = MeshImportCache::load_if_current(project.cache_path(),
-            project.asset_root(), source, MeshImporter::OUTPUT_VERSION);
+        const MeshArtifact artifact{.handle = AssetHandle(42),
+            .importer_version = MeshImporter::VERSION,
+            .source_inputs = capture_import_inputs(project.asset_root(), source, {}),
+            .data = expected};
+        artifact.publish_atomic(project.artifact_path());
+        EXPECT_FALSE(MeshArtifact::load(project.artifact_path(), AssetHandle(43)));
+        const auto loaded = MeshArtifact::load(project.artifact_path(), AssetHandle(42));
 
         ASSERT_TRUE(loaded.has_value());
         expect_mesh_equal(loaded->data, expected);
-        EXPECT_TRUE(loaded->source_dependencies.empty());
+        EXPECT_EQ(loaded->importer_version, MeshImporter::VERSION);
+        EXPECT_EQ(loaded->handle, AssetHandle(42));
+        EXPECT_TRUE(
+            import_inputs_are_current(project.asset_root(), loaded->source_inputs));
     }
 
-    TEST(MeshImportCacheTest, InvalidatesWhenSourceContentChanges) {
-        const TemporaryCacheProject project;
+    TEST(MeshArtifactTest, LoadingDoesNotInspectSourceFiles) {
+        const TemporaryArtifactProject project;
         const std::filesystem::path source = project.write_source("source-a");
-        MeshImportCache::store(project.cache_path(), project.asset_root(), source, {},
-            MeshImporter::OUTPUT_VERSION, make_mesh_data());
+        const MeshArtifact artifact{.handle = AssetHandle(42),
+            .importer_version = MeshImporter::VERSION,
+            .source_inputs = capture_import_inputs(project.asset_root(), source, {}),
+            .data = make_mesh_data()};
+        artifact.publish_atomic(project.artifact_path());
 
         static_cast<void>(project.write_source("source-b"));
 
-        EXPECT_FALSE(MeshImportCache::load_if_current(project.cache_path(),
-            project.asset_root(), source, MeshImporter::OUTPUT_VERSION));
+        EXPECT_TRUE(
+            MeshArtifact::load(project.artifact_path(), AssetHandle(42)).has_value());
     }
 
-    TEST(MeshImportCacheTest, InvalidatesWhenExternalDependencyChanges) {
-        const TemporaryCacheProject project;
+    TEST(MeshArtifactTest, PersistsExternalSourceInputs) {
+        const TemporaryArtifactProject project;
         const std::filesystem::path source = project.write_source();
         const std::filesystem::path dependency = project.write_dependency("buffer-a");
         const std::array dependencies{dependency};
-        MeshImportCache::store(project.cache_path(), project.asset_root(), source,
-            dependencies, MeshImporter::OUTPUT_VERSION, make_mesh_data());
+        const MeshArtifact artifact{.handle = AssetHandle(42),
+            .importer_version = MeshImporter::VERSION,
+            .source_inputs =
+                capture_import_inputs(project.asset_root(), source, dependencies),
+            .data = make_mesh_data()};
+        artifact.publish_atomic(project.artifact_path());
 
-        const auto loaded = MeshImportCache::load_if_current(project.cache_path(),
-            project.asset_root(), source, MeshImporter::OUTPUT_VERSION);
+        const auto loaded = MeshArtifact::load(project.artifact_path(), AssetHandle(42));
 
         ASSERT_TRUE(loaded.has_value());
-        EXPECT_EQ(loaded->source_dependencies,
-            (std::vector<std::filesystem::path>{dependency}));
-
-        static_cast<void>(project.write_dependency("buffer-b"));
-
-        EXPECT_FALSE(MeshImportCache::load_if_current(project.cache_path(),
-            project.asset_root(), source, MeshImporter::OUTPUT_VERSION));
+        ASSERT_EQ(loaded->source_inputs.files.size(), 2);
+        EXPECT_EQ(loaded->source_inputs.files[1].relative_path, "buffers/model.bin");
+        EXPECT_EQ(loaded->source_dependencies(),
+            (std::vector<std::filesystem::path>{"buffers/model.bin"}));
     }
 
-    TEST(MeshImportCacheTest, RejectsCorruptionAndImporterVersionMismatch) {
-        const TemporaryCacheProject project;
+    TEST(MeshArtifactTest, RejectsCorruption) {
+        const TemporaryArtifactProject project;
         const std::filesystem::path source = project.write_source();
-        MeshImportCache::store(project.cache_path(), project.asset_root(), source, {},
-            MeshImporter::OUTPUT_VERSION, make_mesh_data());
+        const MeshArtifact artifact{.handle = AssetHandle(42),
+            .importer_version = MeshImporter::VERSION,
+            .source_inputs = capture_import_inputs(project.asset_root(), source, {}),
+            .data = make_mesh_data()};
+        artifact.publish_atomic(project.artifact_path());
 
-        EXPECT_FALSE(MeshImportCache::load_if_current(project.cache_path(),
-            project.asset_root(), source, MeshImporter::OUTPUT_VERSION + 1));
-
-        write_text_file_atomic(project.cache_path(), "corrupted");
-        EXPECT_FALSE(MeshImportCache::load_if_current(project.cache_path(),
-            project.asset_root(), source, MeshImporter::OUTPUT_VERSION));
+        write_text_file_atomic(project.artifact_path(), "corrupted");
+        EXPECT_FALSE(MeshArtifact::load(project.artifact_path(), AssetHandle(42)));
     }
 }

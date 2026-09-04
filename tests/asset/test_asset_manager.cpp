@@ -1,4 +1,4 @@
-#include "asset/manager.h"
+#include "asset/asset_manager.h"
 
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
@@ -207,7 +207,7 @@ namespace Comet::Tests {
         }
     }
 
-    TEST(AssetManagerTest, LoadsAndCachesMeshByAssetHandle) {
+    TEST(AssetManagerTest, ImportsAndLoadsMeshArtifactByAssetHandle) {
         const TemporaryProject project;
         constexpr AssetHandle handle(42);
         project.add_mesh(handle);
@@ -217,6 +217,8 @@ namespace Comet::Tests {
         AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
+        EXPECT_EQ(manager.load_mesh(handle), nullptr);
+        ASSERT_TRUE(manager.import_mesh(handle));
         const std::shared_ptr<Mesh> mesh = manager.load_mesh(handle);
 
         ASSERT_NE(mesh, nullptr);
@@ -228,11 +230,11 @@ namespace Comet::Tests {
             project.paths().cache() / "imported" / "mesh" / "42.bin"));
     }
 
-    TEST(AssetManagerTest, RebuildsCorruptedMeshImportCache) {
+    TEST(AssetManagerTest, RebuildsCorruptedMeshArtifactDuringImport) {
         const TemporaryProject project;
         constexpr AssetHandle handle(42);
         project.add_mesh(handle);
-        const std::filesystem::path cache_path =
+        const std::filesystem::path artifact_path =
             project.paths().cache() / "imported" / "mesh" / "42.bin";
         {
             AssetRegistry registry;
@@ -241,10 +243,11 @@ namespace Comet::Tests {
             AssetManager manager(
                 project.paths(), registry, resource_factory, task_scheduler);
             ASSERT_TRUE(manager.scan().snapshot_updated);
+            ASSERT_TRUE(manager.import_mesh(handle));
             ASSERT_NE(manager.load_mesh(handle), nullptr);
         }
         {
-            std::ofstream output(cache_path, std::ios::binary | std::ios::trunc);
+            std::ofstream output(artifact_path, std::ios::binary | std::ios::trunc);
             output << "corrupted";
         }
 
@@ -254,8 +257,32 @@ namespace Comet::Tests {
         AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
         ASSERT_TRUE(manager.scan().snapshot_updated);
 
+        EXPECT_EQ(manager.load_mesh(handle), nullptr);
+        ASSERT_TRUE(manager.import_mesh(handle));
         EXPECT_NE(manager.load_mesh(handle), nullptr);
-        EXPECT_GT(std::filesystem::file_size(cache_path), 9u);
+        EXPECT_GT(std::filesystem::file_size(artifact_path), 9u);
+    }
+
+    TEST(AssetManagerTest, LoadsPublishedMeshArtifactWithoutReadingSource) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path mesh_path = project.add_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        ASSERT_TRUE(manager.import_mesh(handle));
+        {
+            std::ofstream output(mesh_path, std::ios::binary | std::ios::trunc);
+            output << "source is no longer readable as glTF";
+        }
+
+        const std::shared_ptr<Mesh> mesh = manager.load_mesh(handle);
+
+        EXPECT_NE(mesh, nullptr);
+        EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 3);
     }
 
     TEST(AssetManagerTest, RefreshesModifiedLoadedMeshAfterScan) {
@@ -268,6 +295,7 @@ namespace Comet::Tests {
         AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
+        ASSERT_TRUE(manager.import_mesh(handle));
         const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
         ASSERT_NE(original, nullptr);
         TemporaryProject::write_mesh(mesh_path,
@@ -301,6 +329,7 @@ namespace Comet::Tests {
             AssetManager manager(
                 project.paths(), registry, resource_factory, task_scheduler);
             ASSERT_TRUE(manager.scan().succeeded());
+            ASSERT_TRUE(manager.import_mesh(handle));
             ASSERT_NE(manager.load_mesh(handle), nullptr);
         }
 
@@ -309,6 +338,7 @@ namespace Comet::Tests {
         TaskScheduler task_scheduler(1);
         AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
         ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_mesh(handle));
         const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
         ASSERT_NE(original, nullptr);
         EXPECT_EQ(std::vector<std::filesystem::path>(
@@ -344,6 +374,7 @@ namespace Comet::Tests {
         AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
+        ASSERT_TRUE(manager.import_mesh(handle));
         const AssetRevision requested_revision =
             manager.get_database().get_revision(handle);
         bool rescan_detected_change = false;
@@ -373,6 +404,7 @@ namespace Comet::Tests {
         AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
+        ASSERT_TRUE(manager.import_mesh(handle));
         const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
         ASSERT_NE(original, nullptr);
 
@@ -414,6 +446,7 @@ namespace Comet::Tests {
         AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
+        ASSERT_TRUE(manager.import_mesh(handle));
         const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
         ASSERT_NE(original, nullptr);
         {
@@ -441,6 +474,7 @@ namespace Comet::Tests {
         AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
+        ASSERT_TRUE(manager.import_mesh(handle));
         const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
         ASSERT_NE(original, nullptr);
         resource_factory.fail_mesh_creation(true);

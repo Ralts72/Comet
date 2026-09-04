@@ -56,12 +56,14 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
 - app 与 editor 共同链接 `engine`。app 直接运行 Runtime；editor 额外管理 Edit/Play Scene、Selection、面板和离屏 Viewport。
 - 场景渲染主链路为 `Scene -> SceneExtractor -> RenderScene -> SceneResolver -> RenderSubmission -> SceneRenderer`。
   Scene 只保存组件和 `AssetHandle`，不持有 GPU Resource。
-- 资产主链路为 `assets + .meta -> AssetDatabase -> Importer/Cache -> AssetManager -> AssetRegistry`。
-  `.comet/cache/` 中的导入产物可以重建，不属于源资产；GPU 创建失败时不会发布不完整的 Runtime 资产，
+- 资产主链路为 `assets + .meta -> AssetDatabase -> ImportService -> Artifact -> AssetManager -> AssetRegistry`。
+  glTF 只由导入链路读取并原子发布 Mesh Artifact，`AssetManager::load_mesh()` 只消费 Artifact，不会回退解析源文件；
+  `.comet/cache/` 中的导入产物可以重建，不属于源资产。GPU 创建失败时不会发布不完整的 Runtime 资产，
   已加载 Mesh/Texture 的扫描刷新会在 Worker 生成 CPU 候选，再由 Owner Thread 验证 revision、创建 GPU 资源并发布；
   后台处理期间及刷新失败时都会保留上一份有效对象。Editor 低频监视 `assets/` 文件树，只有快照变化时才触发同一个
   `AssetManager::scan()`，不会在监视器中直接导入或修改 Registry。
   Handle 可随资产移动保持稳定，但对应的 AssetType 不可改变；类型转换必须分配新 Handle，否则数据库拒绝候选快照。
+  Mesh Artifact 保存主 glTF 和外部 buffer 的内容快照，导入服务据此判断是否需要重建；Runtime 加载不检查源文件。
 - Graphics 后端使用 Vulkan 1.3、VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
   Vulkan 类型应限制在 Graphics 后端及明确需要底层能力的 Render 实现中。
 - 世界与编辑器坐标约定 `+Y` 向上；Vulkan Viewport 使用负高度完成画面坐标转换。Texture 是否翻转仅由对应

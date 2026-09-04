@@ -1,5 +1,5 @@
 #include "runtime/entry.h"
-#include "asset/manager.h"
+#include "asset/asset_manager.h"
 #include "core/project_paths.h"
 #include "scene/scene.h"
 
@@ -22,7 +22,8 @@ namespace {
                 relative_path.generic_string());
         }
 
-        if(!asset_manager.load_mesh(record->handle)) {
+        if(!asset_manager.import_mesh(record->handle)
+            || !asset_manager.load_mesh(record->handle)) {
             LOG_FATAL("Failed to load required mesh asset '{}'",
                 relative_path.generic_string());
         }

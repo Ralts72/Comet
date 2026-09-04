@@ -9,6 +9,7 @@
 
 namespace Comet {
     class AssetRegistry;
+    class ImportService;
     class Material;
     class Mesh;
     class RenderResourceFactory;
@@ -24,6 +25,7 @@ namespace Comet {
 
         [[nodiscard]] AssetScanReport scan();
         void process_completions();
+        [[nodiscard]] bool import_mesh(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Mesh> load_mesh(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Texture> load_texture(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Texture> reimport_texture(
@@ -57,6 +59,7 @@ namespace Comet {
 
         ProjectPaths m_paths;
         AssetDatabase m_database;
+        std::unique_ptr<ImportService> m_import_service;
         AssetRegistry& m_registry;
         RenderResourceFactory& m_resource_factory;
         TaskScheduler& m_task_scheduler;

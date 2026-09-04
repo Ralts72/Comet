@@ -16,7 +16,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 - C++20/CMake 工程、分层运行配置、Diagnostics 和 GoogleTest 基础已经建立。
 - Scene/ECS、Transform 层级、组件元数据、场景序列化和隔离的 Edit/Play Scene 已形成闭环。
-- AssetHandle、Asset Database、Texture/Material/glTF Mesh 导入、Mesh Import Cache、Mesh/Texture 后台刷新与 Editor 自动监视已经可用。
+- AssetHandle、Asset Database、Texture/Material/glTF Mesh 导入、Mesh Artifact、Mesh/Texture 后台刷新与 Editor 自动监视已经可用。
 - Vulkan 1.3 后端已采用 VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
 - ImGui 编辑器已接通 Hierarchy、Inspector、Project、Log 和单一离屏 Viewport。
 - Shader 由 CMake 显式选择 GLSL，并在构建目录生成 `.spv` 与嵌入式 Header。
@@ -67,8 +67,8 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 
 ### 3. 资产系统与导入管线
 
-当前已经建立 `AssetHandle`、相邻 `.meta`、Asset Database、Texture/Material/Mesh 的同步加载纵向链路，以及第一种
-版本化 Mesh 二进制产物；Asset Registry 是运行时 Handle 缓存，ResourceManager 不再承担资产身份或缓存职责。距离成熟管线仍缺少：
+当前已经建立 `AssetHandle`、相邻 `.meta`、Asset Database、Texture/Material 加载纵向链路，以及第一种
+显式导入、原子发布并由 Runtime 单独消费的 Mesh Artifact；Asset Registry 是运行时 Handle 缓存，ResourceManager 不再承担资产身份或缓存职责。距离成熟管线仍缺少：
 
 - Texture/Shader 等更多 `.comet/cache/` 产物、统一缓存状态和重新导入调度。
 - 更通用的递归失效传播和文件监听热重载。
@@ -847,7 +847,7 @@ Viewport 均已接通。Scene 不持有路径或 GPU Resource，`LightComponent`
 - 非零 64 位 GUID 直接作为 `AssetHandle`，Scene 只持有 Handle；`.meta` 保存身份、类型和 Importer 设置。
 - Asset Database 事务式扫描并维护路径、Handle、revision、资产依赖和 Importer 源依赖，单个坏文件不会清空上一份有效快照。
 - Asset Manager 负责导入、依赖解析与 Runtime Asset 发布；ResourceManager 只创建 Device 相关资源。
-- Texture、Material 和 glTF Mesh 已接通导入与刷新；Mesh Import Cache、Mesh/Texture 后台 CPU 导入和 revision 验票已经落地。
+- Texture、Material 和 glTF Mesh 已接通导入与刷新；Mesh Artifact、Mesh/Texture 后台 CPU 导入和 revision 验票已经落地。
 - GPU 路径已采用 Synchronization 2、Timeline Semaphore、UploadManager、FrameScheduler retention 与 VMA budget 诊断。
 - Mesh/Texture 的可恢复创建结果已接入资产发布边界；首次创建失败不注册，热刷新失败保留旧对象。
 
@@ -858,7 +858,7 @@ Viewport 均已接通。Scene 不持有路径或 GPU Resource，`LightComponent`
 - 为非关键 streaming 资源建立占位、重试或淘汰策略后，再选择性启用 `WITHIN_BUDGET`；RenderTarget 等关键资源继续强失败。
 - 完成项目创建、打开和校验，以及资产改名、移动时连同 `.meta` 保持引用稳定的编辑器操作。
 - 让 `Device` 提供实际启用 feature、extension、queue、limit 和 format 的不可变 CapabilitySet。
-- 在 metadata 与导入产物契约稳定后，设计 Shader Importer、编译产物、缓存键和打包边界；当前不预设 Artifact/Manifest 细节。
+- 在 metadata 与导入产物契约稳定后，沿用 Mesh 已建立的“Importer → Artifact → Runtime”边界设计 Shader 编译产物、缓存键和打包 Manifest。
 - 仅在出现无法绑定到单一 FrameSlot 的真实退休需求后引入 `GpuRetirementQueue`。
 
 完整资源路径：
@@ -1119,10 +1119,11 @@ Scene Component / RenderItem
 
 ## 下一步
 
-下一步推进 **Mesh Importer 输入一致性**。Asset Handle 可以跨路径移动，但在连续数据库快照中不能改变 AssetType；
-类型变化会作为身份冲突拒绝提交，转换资产必须使用新 Handle。`.meta` 和 Material 文档继续依靠编辑器校验与原子写入，
-不为外部手动写坏的中间状态增加旧记录合并逻辑。下一步处理 Worker 导入与 Owner Thread 发布之间的输入变化窗口：
-Mesh 候选应携带本次实际读取的 glTF 和外部 buffer 内容指纹，发布前再次验证。
+下一步完成 **Editor Mesh 导入入口与 Artifact 状态展示**。当前 Mesh 已建立显式 `ImportService`、原子发布的
+`MeshArtifact` 和 Artifact-only Runtime 加载边界；Editor 的示例资产启动路径已经显式准备 Artifact，但 Project 面板还需要
+面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。
+
+随后再把同一边界扩展到 Texture；不直接复制旧的源文件多阶段验票方案，而是让 Runtime 同样只消费已发布 Artifact。
 
 格式演进保持以下边界：运行配置继续使用 YAML；项目文档只在编辑器写入链路和 Schema 稳定后整体评估 JSON 迁移；
 `.comet/cache/` 与 Shipping 资源继续使用面向 Runtime 的二进制产物和索引。
