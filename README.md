@@ -58,7 +58,8 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
   Scene 只保存组件和 `AssetHandle`，不持有 GPU Resource。
 - 资产主链路为 `assets + .meta -> AssetDatabase -> Importer/Cache -> AssetManager -> AssetRegistry`。
   `.comet/cache/` 中的导入产物可以重建，不属于源资产；GPU 创建失败时不会发布不完整的 Runtime 资产，
-  热刷新会保留上一份有效对象。
+  已加载 Mesh/Texture 的扫描刷新会在 Worker 生成 CPU 候选，再由 Owner Thread 验证 revision、创建 GPU 资源并发布；
+  后台处理期间及刷新失败时都会保留上一份有效对象。
 - Graphics 后端使用 Vulkan 1.3、VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
   Vulkan 类型应限制在 Graphics 后端及明确需要底层能力的 Render 实现中。
 - 世界与编辑器坐标约定 `+Y` 向上；Vulkan Viewport 使用负高度完成画面坐标转换。Texture 是否翻转仅由对应

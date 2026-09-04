@@ -4,6 +4,7 @@
 #include "common/export.h"
 #include "core/project_paths.h"
 
+#include <functional>
 #include <memory>
 
 namespace Comet {
@@ -44,9 +45,11 @@ namespace Comet {
         void record_import_dependencies(
             AssetHandle handle, const std::vector<std::filesystem::path>& dependencies);
         [[nodiscard]] bool schedule_loaded_mesh_refresh(const AssetRecord& record);
+        [[nodiscard]] bool schedule_loaded_texture_refresh(const AssetRecord& record);
+        [[nodiscard]] bool schedule_refresh_task(AssetHandle handle,
+            AssetRevision revision, AssetType type, std::function<void()> task);
         [[nodiscard]] std::shared_ptr<Texture> create_runtime_texture(
             const AssetRecord& record, const TextureImportSettings& import_settings);
-        [[nodiscard]] bool refresh_loaded_texture(const AssetRecord& record);
         [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
             const AssetRecord& record);
         [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
