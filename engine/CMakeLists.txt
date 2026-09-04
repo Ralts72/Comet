@@ -21,7 +21,6 @@ set(SOURCES
         src/asset/registry.cpp
         src/asset/serialization/material_serializer.cpp
         src/asset/serialization/metadata_serializer.cpp
-        src/render/resource/mesh_primitives.cpp
         src/common/file_io.cpp
         src/config/config_loader.cpp
         src/diagnostics/diagnostics.cpp
