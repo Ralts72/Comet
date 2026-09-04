@@ -7,6 +7,7 @@
 #include "render/material.h"
 #include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
+#include "render/resource/texture.h"
 
 #include <gtest/gtest.h>
 
@@ -52,6 +53,26 @@ namespace Comet::Tests {
                 AssetMetadataSerializer{}.save(
                     {.handle = handle, .type = AssetType::Material}, metadata_path(path));
                 return path;
+            }
+
+            std::filesystem::path add_texture(const AssetHandle handle) const {
+                const std::filesystem::path path = paths().assets() / "textures/test.png";
+                std::filesystem::create_directories(path.parent_path());
+                std::filesystem::copy_file(std::filesystem::path(PROJECT_ROOT_DIR)
+                                               / "assets/textures/awesomeface.png",
+                    path, std::filesystem::copy_options::overwrite_existing);
+                AssetMetadataSerializer{}.save(
+                    {.handle = handle,
+                        .type = AssetType::Texture,
+                        .import_settings = TextureImportSettings{}},
+                    metadata_path(path));
+                return path;
+            }
+
+            static void replace_texture(const std::filesystem::path& path) {
+                std::filesystem::copy_file(
+                    std::filesystem::path(PROJECT_ROOT_DIR) / "assets/textures/R-C.jpeg",
+                    path, std::filesystem::copy_options::overwrite_existing);
             }
 
             std::filesystem::path add_mesh(const AssetHandle handle,
@@ -109,11 +130,22 @@ namespace Comet::Tests {
 
         class FakeRenderResourceFactory final: public RenderResourceFactory {
         public:
-            std::shared_ptr<Texture> create_texture(const TextureData&) override {
-                return nullptr;
+            GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(
+                const TextureData&) override {
+                ++m_texture_creation_count;
+                if(m_fail_texture_creation) {
+                    return GpuResourceResult<std::shared_ptr<Texture>>::failure(
+                        vk::Result::eErrorOutOfDeviceMemory);
+                }
+
+                auto owner = std::make_shared<std::uint8_t>(0);
+                return GpuResourceResult<std::shared_ptr<Texture>>::success(
+                    std::shared_ptr<Texture>(
+                        owner, reinterpret_cast<Texture*>(owner.get())));
             }
 
-            std::shared_ptr<Mesh> create_mesh(const MeshData& data) override {
+            GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(
+                const MeshData& data) override {
                 ++m_mesh_creation_count;
                 m_last_mesh_vertex_count = data.vertices.size();
                 if(m_on_mesh_creation) {
@@ -121,14 +153,20 @@ namespace Comet::Tests {
                     callback();
                 }
                 if(m_fail_mesh_creation) {
-                    return nullptr;
+                    return GpuResourceResult<std::shared_ptr<Mesh>>::failure(
+                        vk::Result::eErrorOutOfDeviceMemory);
                 }
 
                 auto owner = std::make_shared<std::uint8_t>(0);
-                return std::shared_ptr<Mesh>(owner, reinterpret_cast<Mesh*>(owner.get()));
+                return GpuResourceResult<std::shared_ptr<Mesh>>::success(
+                    std::shared_ptr<Mesh>(owner, reinterpret_cast<Mesh*>(owner.get())));
             }
 
             void fail_mesh_creation(const bool fail) { m_fail_mesh_creation = fail; }
+
+            void fail_texture_creation(const bool fail) {
+                m_fail_texture_creation = fail;
+            }
 
             void on_next_mesh_creation(std::function<void()> callback) {
                 m_on_mesh_creation = std::move(callback);
@@ -142,10 +180,16 @@ namespace Comet::Tests {
                 return m_last_mesh_vertex_count;
             }
 
+            [[nodiscard]] std::size_t texture_creation_count() const {
+                return m_texture_creation_count;
+            }
+
         private:
             bool m_fail_mesh_creation = false;
+            bool m_fail_texture_creation = false;
             std::size_t m_mesh_creation_count = 0;
             std::size_t m_last_mesh_vertex_count = 0;
+            std::size_t m_texture_creation_count = 0;
             std::function<void()> m_on_mesh_creation;
         };
 
@@ -406,6 +450,47 @@ namespace Comet::Tests {
 
         EXPECT_EQ(registry.resolve<Mesh>(handle), original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
+    }
+
+    TEST(AssetManagerTest, LoadsAndCachesTextureByAssetHandle) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(84);
+        project.add_texture(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const std::shared_ptr<Texture> texture = manager.load_texture(handle);
+
+        ASSERT_NE(texture, nullptr);
+        EXPECT_EQ(registry.resolve<Texture>(handle), texture);
+        EXPECT_EQ(manager.load_texture(handle), texture);
+        EXPECT_EQ(resource_factory.texture_creation_count(), 1);
+    }
+
+    TEST(AssetManagerTest, KeepsPreviousTextureWhenRuntimeCreationFails) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(84);
+        const std::filesystem::path texture_path = project.add_texture(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        const std::shared_ptr<Texture> original = manager.load_texture(handle);
+        ASSERT_NE(original, nullptr);
+        resource_factory.fail_texture_creation(true);
+        TemporaryProject::replace_texture(texture_path);
+
+        const AssetScanReport refresh = manager.scan();
+
+        ASSERT_TRUE(refresh.snapshot_updated);
+        EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
+        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_EQ(resource_factory.texture_creation_count(), 2);
     }
 
     TEST(AssetManagerTest, ReloadsModifiedLoadedMaterialAfterScan) {

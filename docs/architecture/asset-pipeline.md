@@ -106,15 +106,15 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 
 - `AssetDatabase`：扫描 `assets/`，通过 `AssetMetadataSerializer` 校验/生成 `.meta`，维护 Handle、项目相对路径、已校验 Importer 设置以及两类正向/反向依赖索引；Material 的 AssetHandle 依赖由 `MaterialData` 提取，Importer 源依赖由成功导入或缓存命中结果登记。缺失资产引用和错误类型进入扫描报告，`.bin` 等明确的导入辅助输入不单独建档。扫描先完整构建候选快照，再一次替换当前快照并报告新增、删除和修改 Handle；目录发现不完整时保留上一份有效快照。顶层源文件、`.meta` 和已登记的 Importer 输入签名共同负责检测变化，每次提交的资产变化会获得独立、单调的 `AssetRevision`，供结果发布时验票。Revision 是当前进程内的不透明版本，不持久化，也不承担内容哈希职责。设置更新先成功写入 `.meta`，再更新内存记录。
 - `AssetMetadataSerializer`：只负责 `.meta` 的 YAML 读写和类型/设置契约校验；`AssetMetadata` 本身仍是独立于文件格式的数据类型。
-- `AssetManager`：协调数据库、Importer、派生数据、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载、Texture 重新导入和 Mesh 刷新都会先完整构建候选对象，失败时保留旧对象。同步 Mesh 首载在调用线程完成；已加载 Mesh 的刷新向 TaskScheduler 提交纯 CPU 工作，由 `process_completions()` 在 Owner Thread 验票后写缓存、创建 Runtime Mesh 并发布。手动扫描提交后会卸载已删除资产及仍依赖它们的 Runtime 对象，并刷新发生修改且当前已加载的 Texture/Material/Mesh。
+- `AssetManager`：协调数据库、Importer、派生数据、依赖解析、运行时对象组装和 `AssetRegistry` 发布；Material 数据更新、显式重载、Texture 重新导入和 Mesh 刷新都会先完整构建候选对象，失败时保留旧对象。同步 Mesh 首载在调用线程完成；已加载 Mesh 的刷新向 TaskScheduler 提交纯 CPU 工作，由 `process_completions()` 在 Owner Thread 验票后写缓存、尝试创建 Runtime Mesh 并发布。Runtime Mesh/Texture 创建返回类型化 GPU 错误，首次加载失败不注册，刷新失败不替换上一有效对象。手动扫描提交后会卸载已删除资产及仍依赖它们的 Runtime 对象，并刷新发生修改且当前已加载的 Texture/Material/Mesh。
 - `TaskScheduler`：Engine 持有的通用固定 Worker 池，提供 FIFO 任务提交、Future、等待空闲和 drain-on-destruction；不认识资产类型、Registry 或 Vulkan。显式传入单 Worker 可让并发测试保持确定性。
 - `MeshImporter`：唯一接触 glTF Mesh 格式的解析边界，使用 fastgltf 读取 `.gltf`/`.glb`，输出不包含 GPU 对象的 `MeshData`，并报告参与导入的外部 buffer 路径；fastgltf 类型不进入 Comet 公共头文件。
 - `MeshImportCache`：确定性读写版本化 Mesh 导入缓存，记录项目内源文件和外部 buffer 的相对路径及内容指纹；命中时同时恢复 `MeshData` 和源依赖路径，格式版本、Importer 输出版本、输入内容或缓存校验和不匹配时返回 miss。它不创建 GPU 对象，也不管理运行时资源生命周期。
 - `TextureImporter`：唯一接触 Texture 源文件路径的解码边界，应用色彩空间和垂直翻转设置，输出不包含 GPU 对象的 `TextureData`。
 - `MaterialSerializer`：确定性读写 Comet 原生 `.mat` 与不包含运行时对象的 `MaterialData`；Texture 属性只保存项目 `AssetHandle`。`get_asset_dependencies(MaterialData)` 负责生成排序、去重的依赖列表，供扫描和编辑更新共同复用。
 - `Material`：运行时材质保存模板身份和已解析属性；不读取 `.mat`，当前渲染管线是否支持该模板由 `SceneResolver` 在提交边界判断。
-- `RenderResourceFactory`：AssetManager 创建 Runtime Texture/Mesh 所需的窄接口，不暴露 Shader/Sampler 等无关能力。
-- `ResourceManager`：实现 `RenderResourceFactory`，使用 Device 从 CPU 数据创建 Texture/Mesh，并维护 Shader/Sampler 等设备级共享资源；不认识 `AssetHandle`、`MaterialData`、`.meta` 或源文件路径。
+- `RenderResourceFactory`：AssetManager 尝试创建 Runtime Texture/Mesh 所需的窄接口，返回 `GpuResourceResult`，不暴露 Shader/Sampler 等无关能力。
+- `ResourceManager`：实现 `RenderResourceFactory`，对资产创建使用受 memory budget 约束的 try path，并维护 Shader/Sampler 等设备级共享资源；不认识 `AssetHandle`、`MaterialData`、`.meta` 或源文件路径。
 - `AssetRegistry`：作为唯一的 Handle 缓存，保存已发布运行时对象的带类型共享引用，并允许同类型候选对象替换；Scene 中仍只保存 Handle。
 - `ProjectPanel`：显示 Asset Database 的快照和扫描问题，并向共享 Selection 发布 Asset Handle；不自己访问文件系统或创建 GPU 资源。
 - `Inspector`：根据共享 Selection 显示 Entity 或 Asset；Material 编辑器只允许从已索引 Texture 中选择属性，模板身份仍只读；Material 和 Texture 控件都只在值变化事件发生时自动提交，失败时恢复旧值。更新成功或失败统一写入 Logger 并由 Log 面板展示，Inspector 只显示当前资产的加载或字段校验错误。

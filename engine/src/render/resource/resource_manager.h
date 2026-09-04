@@ -25,9 +25,12 @@ namespace Comet {
             return *m_sampler_manager;
         }
 
-        [[nodiscard]] std::shared_ptr<Texture> create_texture(
+        [[nodiscard]] std::shared_ptr<Texture> create_texture(const TextureData& data);
+        [[nodiscard]] std::shared_ptr<Mesh> create_mesh(const MeshData& data);
+        [[nodiscard]] GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(
             const TextureData& data) override;
-        [[nodiscard]] std::shared_ptr<Mesh> create_mesh(const MeshData& data) override;
+        [[nodiscard]] GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(
+            const MeshData& data) override;
         void collect_completed_uploads();
 
     private:

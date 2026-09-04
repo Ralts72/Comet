@@ -284,16 +284,18 @@ namespace Comet {
 
             std::shared_ptr<Mesh> mesh;
             try {
-                mesh = m_resource_factory.create_mesh(candidate.data);
+                auto mesh_attempt = m_resource_factory.try_create_mesh(candidate.data);
+                if(!mesh_attempt) {
+                    LOG_ERROR(
+                        "Failed to create refreshed runtime mesh for asset handle {}: {}",
+                        candidate.handle.value(), vk::to_string(mesh_attempt.result()));
+                    continue;
+                }
+                mesh = std::move(mesh_attempt).value();
             } catch(const std::exception& exception) {
                 LOG_ERROR(
                     "Failed to create refreshed runtime mesh for asset handle {}: {}",
                     candidate.handle.value(), exception.what());
-                continue;
-            }
-            if(!mesh) {
-                LOG_ERROR("Failed to create refreshed runtime mesh for asset handle {}",
-                    candidate.handle.value());
                 continue;
             }
             if(!m_database.is_current(candidate.handle, candidate.revision)) {
@@ -615,7 +617,13 @@ namespace Comet {
             return nullptr;
         }
         record_import_dependencies(record.handle, candidate.source_dependencies);
-        return m_resource_factory.create_mesh(candidate.data);
+        auto mesh_attempt = m_resource_factory.try_create_mesh(candidate.data);
+        if(!mesh_attempt) {
+            LOG_ERROR("Failed to create runtime mesh for asset handle {}: {}",
+                record.handle.value(), vk::to_string(mesh_attempt.result()));
+            return nullptr;
+        }
+        return std::move(mesh_attempt).value();
     }
 
     void AssetManager::record_import_dependencies(const AssetHandle handle,
@@ -683,7 +691,13 @@ namespace Comet {
             LOG_ERROR("{}", exception.what());
             return nullptr;
         }
-        return m_resource_factory.create_texture(data);
+        auto texture_attempt = m_resource_factory.try_create_texture(data);
+        if(!texture_attempt) {
+            LOG_ERROR("Failed to create runtime texture for asset handle {}: {}",
+                record.handle.value(), vk::to_string(texture_attempt.result()));
+            return nullptr;
+        }
+        return std::move(texture_attempt).value();
     }
 
     bool AssetManager::refresh_loaded_texture(const AssetRecord& record) {

@@ -849,13 +849,12 @@ Viewport 均已接通。Scene 不持有路径或 GPU Resource，`LightComponent`
 - Asset Manager 负责导入、依赖解析与 Runtime Asset 发布；ResourceManager 只创建 Device 相关资源。
 - Texture、Material 和 glTF Mesh 已接通导入与刷新；Mesh Import Cache、后台 CPU 导入和 revision 验票已经落地。
 - GPU 路径已采用 Synchronization 2、Timeline Semaphore、UploadManager、FrameScheduler retention 与 VMA budget 诊断。
+- Mesh/Texture 的可恢复创建结果已接入资产发布边界；首次创建失败不注册，热刷新失败保留旧对象。
 
 完整资产边界见 [资产管线边界](./architecture/asset-pipeline.md)。
 
 剩余任务：
 
-- 将 Mesh/Texture 的可恢复创建结果接入 RenderResourceFactory 与 ResourceManager，并由 AssetManager 在创建失败时保留
-  Registry 中的旧版本或使用占位资源；两个 Runtime wrapper 已完成事务式创建边界。
 - 为非关键 streaming 资源建立占位、重试或淘汰策略后，再选择性启用 `WITHIN_BUDGET`；RenderTarget 等关键资源继续强失败。
 - 完成项目创建、打开和校验，以及资产改名、移动时连同 `.meta` 保持引用稳定的编辑器操作。
 - 让 `Device` 提供实际启用 feature、extension、queue、limit 和 format 的不可变 CapabilitySet。
@@ -1110,7 +1109,7 @@ Scene Component / RenderItem
 
 ## 当前优先级
 
-1. 完成阶段 3 的可恢复 GPU 创建结果传播、资产失败发布策略和资产移动/改名闭环。
+1. 完成阶段 3 的可恢复 GPU 创建架构复盘和资产移动/改名闭环。
 2. 推进阶段 4A/4B：editor-only Camera、Viewport 输入、HiDPI 与渲染分辨率策略。
 3. 推进阶段 4C：拾取、Gizmo、Undo/Redo 和 Prefab MVP。
 4. 进入阶段 5 后先解除材质两张 Texture 的硬编码，再建立 ShaderInterface、MaterialLayout 和 PipelineKey。
@@ -1120,9 +1119,9 @@ Scene Component / RenderItem
 
 ## 下一步
 
-先完成 **可恢复 GPU 创建结果向资产发布边界的传播**：Mesh/Texture 已按“完整 GPU owner → 可回滚 enqueue → submit →
-构造 wrapper”收敛；接下来让 RenderResourceFactory/ResourceManager 返回失败结果，由 AssetManager 在同步加载与热刷新
-候选创建失败时记录错误并保留旧 Runtime Resource。关键 RenderTarget 继续使用明确的强失败路径。
+先完成 **可恢复 GPU 创建纵向链的阶段性架构复盘**：Allocator、Buffer/Image/ImageView、UploadManager、
+Mesh/Texture、RenderResourceFactory 与 AssetManager 已形成完整失败传播；接下来检查双轨工厂、结果类型、batch 边界、日志和
+依赖方向是否仍有冗余或职责泄漏，再决定优先补 fault injection 还是把 Texture CPU 导入迁到后台任务。
 
 格式演进保持以下边界：运行配置继续使用 YAML；项目文档只在编辑器写入链路和 Schema 稳定后整体评估 JSON 迁移；
 `.comet/cache/` 与 Shipping 资源继续使用面向 Runtime 的二进制产物和索引。
