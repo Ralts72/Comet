@@ -54,8 +54,9 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
 ## 开发说明
 
 - app 与 editor 共同链接 `engine`。app 直接运行 Runtime；editor 额外管理 Edit/Play Scene、Selection、面板和离屏 Viewport。
-- Viewport 通过纯值 `RenderView` 传递可见性、稳定后的目标尺寸和 Camera 选择方式。Edit 使用不进入 Scene 与序列化的
-  editor camera，Play 使用 Runtime Scene 的 primary Camera；`SceneRenderer` 不感知 `EditorMode` 或 ImGui 状态。
+- Viewport 通过纯值 `RenderView` 传递可见性、稳定后的物理像素目标尺寸和 Camera 选择方式。Edit 使用不进入 Scene 与序列化的
+  editor camera，Play 使用 Runtime Scene 的 primary Camera；`SceneRenderer` 不感知 `EditorMode` 或 ImGui 状态。`ViewPanel`
+  通过纯布局计算分离 ImGui 逻辑内容区、结合当前窗口 framebuffer scale 的渲染分辨率，以及保持纹理宽高比的屏幕显示矩形。
 - 场景渲染主链路为 `Scene -> SceneExtractor -> RenderScene -> SceneResolver -> RenderSubmission -> SceneRenderer`。
   Scene 只保存组件和 `AssetHandle`，不持有 GPU Resource。
 - 资产主链路为 `assets + .meta -> AssetDatabase -> ImportService -> Artifact -> AssetManager -> AssetRegistry`。

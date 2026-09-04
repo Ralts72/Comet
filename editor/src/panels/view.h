@@ -1,7 +1,7 @@
 #pragma once
 #include "editor_state.h"
 #include "editor.h"
-#include "core/math_utils.h"
+#include "viewport_layout.h"
 
 #include <imgui.h>
 #include <cstdint>
@@ -26,6 +26,8 @@ namespace CometEditor {
             return m_requested_render_size;
         }
 
+        [[nodiscard]] const ViewportLayout& get_layout() const { return m_layout; }
+
     private:
         void render_view_content();
 
@@ -33,10 +35,10 @@ namespace CometEditor {
         bool m_2d_mode = false;
 
         ImTextureID m_texture_id = ImTextureID_Invalid;
-        std::uint32_t m_texture_width = 0;
-        std::uint32_t m_texture_height = 0;
-        Comet::Math::Vec2u m_viewport_size = Comet::Math::Vec2u(0);
-        Comet::Math::Vec2u m_requested_render_size = Comet::Math::Vec2u(0);
-        std::uint32_t m_viewport_size_stable_frames = 0;
+        Comet::Math::Vec2u m_texture_resolution{};
+        ViewportLayout m_layout;
+        Comet::Math::Vec2u m_observed_render_resolution{};
+        Comet::Math::Vec2u m_requested_render_size{};
+        std::uint32_t m_render_resolution_stable_frames = 0;
     };
 }
