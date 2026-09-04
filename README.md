@@ -6,7 +6,7 @@ Vulkan 渲染资源管理和 ImGui 编辑器工作流持续演进。
 ## 项目结构
 
 - `engine/`：共享引擎库；源码位于 `engine/src/`，GLSL Shader 位于 `engine/shaders/`。
-- `editor/`：ImGui 编辑器入口、面板和编辑器私有资源。
+- `editor/`：ImGui 编辑器入口、面板和编辑器私有资源；Project 会在资产源文件树变化时自动刷新。
 - `app/`：Runtime 示例程序。
 - `assets/`：项目源资产及其 `.meta`；资产身份随源码进入版本控制。
 - `config/`：共享配置与 `dev-debug`、`editor-dev`、`app-release` Profile。
@@ -59,7 +59,8 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
 - 资产主链路为 `assets + .meta -> AssetDatabase -> Importer/Cache -> AssetManager -> AssetRegistry`。
   `.comet/cache/` 中的导入产物可以重建，不属于源资产；GPU 创建失败时不会发布不完整的 Runtime 资产，
   已加载 Mesh/Texture 的扫描刷新会在 Worker 生成 CPU 候选，再由 Owner Thread 验证 revision、创建 GPU 资源并发布；
-  后台处理期间及刷新失败时都会保留上一份有效对象。
+  后台处理期间及刷新失败时都会保留上一份有效对象。Editor 低频监视 `assets/` 文件树，只有快照变化时才触发同一个
+  `AssetManager::scan()`，不会在监视器中直接导入或修改 Registry。
 - Graphics 后端使用 Vulkan 1.3、VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
   Vulkan 类型应限制在 Graphics 后端及明确需要底层能力的 Render 实现中。
 - 世界与编辑器坐标约定 `+Y` 向上；Vulkan Viewport 使用负高度完成画面坐标转换。Texture 是否翻转仅由对应

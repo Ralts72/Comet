@@ -16,7 +16,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 - C++20/CMake 工程、分层运行配置、Diagnostics 和 GoogleTest 基础已经建立。
 - Scene/ECS、Transform 层级、组件元数据、场景序列化和隔离的 Edit/Play Scene 已形成闭环。
-- AssetHandle、Asset Database、Texture/Material/glTF Mesh 导入、Mesh Import Cache 与 Mesh/Texture 后台刷新链路已经可用。
+- AssetHandle、Asset Database、Texture/Material/glTF Mesh 导入、Mesh Import Cache、Mesh/Texture 后台刷新与 Editor 自动监视已经可用。
 - Vulkan 1.3 后端已采用 VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
 - ImGui 编辑器已接通 Hierarchy、Inspector、Project、Log 和单一离屏 Viewport。
 - Shader 由 CMake 显式选择 GLSL，并在构建目录生成 `.spv` 与嵌入式 Header。
@@ -24,8 +24,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 ### 当前主要形态
 
 Comet 目前仍是编辑器型引擎原型，但已经跨过“Renderer 内硬编码 demo”的阶段。当前位于阶段 3 收尾：Mesh/Texture
-已经接入可恢复创建和后台 CPU 刷新边界，接下来补齐文件监听、项目与资产操作，再进入阶段 4 的 editor-only Camera、Viewport
-输入和交互闭环。
+已经接入可恢复创建和后台 CPU 刷新边界，Editor 也能自动发现资产源变化；接下来复盘资产管线并补齐项目与资产操作，
+再进入阶段 4 的 editor-only Camera、Viewport 输入和交互闭环。
 渲染端仍使用固定 Pipeline 与两张 Texture 的材质假设，运行时 System 调度、完整 RenderGraph 和独立 RenderThread 尚未建立。
 
 ## 距离成熟编辑器型引擎的核心缺口
@@ -1119,9 +1119,10 @@ Scene Component / RenderItem
 
 ## 下一步
 
-下一步推进 **Editor 项目文件监听入口**。Mesh/Texture 已共享通用异步任务占位与 revision 去重，Worker 只生成类型化
-CPU candidate，Owner Thread 完成 GPU 创建和发布；接下来建立只负责触发现有 `AssetDatabase::scan()` 的轻量 watcher，
-先明确事件合并、编辑器自身写入抑制和目录不可访问策略，不在 watcher 线程执行导入或修改 Registry。
+下一步推进 **资产管线阶段性架构复盘**。Editor 已通过轻量 `AssetSourceMonitor` 自动触发现有 `AssetManager::scan()`，
+Mesh/Texture 共享通用异步任务占位与 revision 去重，Worker 只生成类型化 CPU candidate，Owner Thread 完成 GPU 创建和发布。
+复盘需要核对监视、数据库快照、任务占位、导入缓存、GPU 发布和旧资源保留是否存在重复状态或职责倒置，再决定阶段 3
+剩余的最小闭环，不直接扩展新的资产类型。
 
 格式演进保持以下边界：运行配置继续使用 YAML；项目文档只在编辑器写入链路和 Schema 稳定后整体评估 JSON 迁移；
 `.comet/cache/` 与 Shipping 资源继续使用面向 Runtime 的二进制产物和索引。

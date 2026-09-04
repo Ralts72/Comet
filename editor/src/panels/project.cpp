@@ -77,12 +77,7 @@ namespace CometEditor {
         }
         ImGui::SameLine();
         if(ImGui::Button("Refresh") && m_refresh_callback) {
-            m_scan_report = m_refresh_callback();
-            m_assets = m_database.get_assets();
-            const Comet::AssetHandle selected_asset = m_selection.get_selected_asset();
-            if(selected_asset && !m_database.find(selected_asset)) {
-                m_selection.clear();
-            }
+            update_scan_report(m_refresh_callback());
         }
 
         ImGui::Separator();
@@ -110,5 +105,14 @@ namespace CometEditor {
         }
 
         ImGui::End();
+    }
+
+    void ProjectPanel::update_scan_report(Comet::AssetScanReport scan_report) {
+        m_scan_report = std::move(scan_report);
+        m_assets = m_database.get_assets();
+        const Comet::AssetHandle selected_asset = m_selection.get_selected_asset();
+        if(selected_asset && !m_database.find(selected_asset)) {
+            m_selection.clear();
+        }
     }
 }

@@ -1,5 +1,6 @@
 #include "runtime/entry.h"
 #include "asset/manager.h"
+#include "asset/source_monitor.h"
 #include "src/editor_scene_session.h"
 #include "src/editor_state.h"
 #include "src/imgui_context.h"
@@ -124,6 +125,9 @@ namespace {
                 engine.get_task_scheduler());
             m_asset_scan_report = m_asset_manager->scan();
             log_asset_scan_issues(m_asset_scan_report);
+            m_asset_source_monitor =
+                std::make_unique<Comet::AssetSourceMonitor>(m_project_paths.assets());
+            handle_asset_source_poll(m_asset_source_monitor->poll());
 
             const EditorRenderAssets render_assets{
                 .mesh = load_required_mesh(*m_asset_manager, DEMO_MESH),
@@ -167,6 +171,7 @@ namespace {
         }
 
         void on_update(const Comet::UpdateContext context) override {
+            monitor_asset_sources();
             m_asset_manager->process_completions();
             apply_editor_mode_request();
 
@@ -207,10 +212,104 @@ namespace {
             m_selection.reset();
             m_scene_session.reset();
             m_scene_document.reset();
+            m_asset_source_monitor.reset();
             m_asset_manager.reset();
         }
 
     private:
+        void handle_asset_source_poll(
+            const Comet::AssetSourceMonitor::PollResult& result) {
+            if(result.state == Comet::AssetSourceMonitor::PollState::NotPolled) {
+                return;
+            }
+            if(result.state != Comet::AssetSourceMonitor::PollState::Failed) {
+                m_asset_source_monitor_error.clear();
+                return;
+            }
+
+            const std::string error =
+                result.issue_path.generic_string() + ": " + result.message;
+            if(error != m_asset_source_monitor_error) {
+                LOG_WARN("Asset source monitor issue at '{}': {}",
+                    result.issue_path.generic_string(), result.message);
+                m_asset_source_monitor_error = error;
+            }
+        }
+
+        void acknowledge_generated_metadata(const Comet::AssetScanReport& report) {
+            if(report.generated_metadata == 0 || !m_asset_source_monitor) {
+                return;
+            }
+            for(const Comet::AssetHandle handle : report.added_assets) {
+                const Comet::AssetRecord* record =
+                    m_asset_manager->get_database().find(handle);
+                if(record) {
+                    static_cast<void>(m_asset_source_monitor->acknowledge(
+                        Comet::metadata_path(record->path)));
+                }
+            }
+        }
+
+        Comet::AssetScanReport refresh_project_assets(
+            const bool source_state_already_observed) {
+            if(!source_state_already_observed && m_asset_source_monitor) {
+                handle_asset_source_poll(m_asset_source_monitor->poll_now());
+            }
+
+            Comet::AssetScanReport report = m_asset_manager->scan();
+            if(report.snapshot_updated && m_inspector_panel) {
+                m_inspector_panel->invalidate_asset_cache();
+            }
+            acknowledge_generated_metadata(report);
+            log_asset_scan_issues(report);
+            m_asset_scan_report = report;
+            return report;
+        }
+
+        void monitor_asset_sources() {
+            if(!m_asset_source_monitor || !m_project_panel) {
+                return;
+            }
+
+            const Comet::AssetSourceMonitor::PollResult result =
+                m_asset_source_monitor->poll();
+            handle_asset_source_poll(result);
+            if(result.state != Comet::AssetSourceMonitor::PollState::Changed) {
+                return;
+            }
+
+            m_project_panel->update_scan_report(refresh_project_assets(true));
+        }
+
+        bool update_material(
+            const Comet::AssetHandle handle, const Comet::MaterialData& data) {
+            const Comet::AssetRecord* record =
+                m_asset_manager->get_database().find(handle);
+            const std::filesystem::path relative_path =
+                record ? record->path : std::filesystem::path{};
+            const bool updated =
+                static_cast<bool>(m_asset_manager->update_material(handle, data));
+            if(updated && !relative_path.empty()) {
+                static_cast<void>(m_asset_source_monitor->acknowledge(relative_path));
+            }
+            return updated;
+        }
+
+        bool reimport_texture(const Comet::AssetHandle handle,
+            const Comet::TextureImportSettings settings) {
+            const Comet::AssetRecord* record =
+                m_asset_manager->get_database().find(handle);
+            const std::filesystem::path relative_path =
+                record ? record->path : std::filesystem::path{};
+            const bool reimported =
+                static_cast<bool>(m_asset_manager->reimport_texture(handle, settings));
+            if(reimported && !relative_path.empty()) {
+                static_cast<void>(m_asset_source_monitor->acknowledge(
+                    Comet::metadata_path(relative_path)));
+            }
+            return reimported;
+        }
+
         void handle_file_command(const CometEditor::FileCommand command) {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
                 LOG_WARN("Scene file commands are disabled in Play mode");
@@ -368,25 +467,15 @@ namespace {
                 *m_selection, m_component_registry, m_property_editor_registry,
                 m_asset_manager->get_database(), m_project_paths.assets(),
                 [this](const Comet::AssetHandle handle, const Comet::MaterialData& data) {
-                    return static_cast<bool>(
-                        m_asset_manager->update_material(handle, data));
+                    return update_material(handle, data);
                 },
                 [this](const Comet::AssetHandle handle,
                     const Comet::TextureImportSettings settings) {
-                    return static_cast<bool>(
-                        m_asset_manager->reimport_texture(handle, settings));
+                    return reimport_texture(handle, settings);
                 });
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(
                 m_asset_manager->get_database(), m_asset_scan_report,
-                [this]() {
-                    Comet::AssetScanReport report = m_asset_manager->scan();
-                    if(report.snapshot_updated) {
-                        m_inspector_panel->invalidate_asset_cache();
-                    }
-                    log_asset_scan_issues(report);
-                    return report;
-                },
-                *m_selection);
+                [this]() { return refresh_project_assets(false); }, *m_selection);
             m_console_panel = std::make_unique<CometEditor::ConsolePanel>();
 
             // 设置菜单栏面板可见性回调
@@ -420,6 +509,8 @@ namespace {
         Comet::ProjectPaths m_project_paths{PROJECT_ROOT_DIR};
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
+        std::unique_ptr<Comet::AssetSourceMonitor> m_asset_source_monitor;
+        std::string m_asset_source_monitor_error;
         Comet::AssetScanReport m_asset_scan_report;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry =
