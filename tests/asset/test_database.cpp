@@ -97,6 +97,38 @@ namespace Comet::Tests {
         EXPECT_EQ(database.find("old.png"), nullptr);
     }
 
+    TEST(AssetDatabaseTest, RejectsTypeChangesForExistingIdentity) {
+        const TemporaryProject project;
+        const std::filesystem::path texture_path = project.add_file("test.png");
+        constexpr AssetHandle handle(42);
+        AssetMetadataSerializer{}.save({.handle = handle,
+                                           .type = AssetType::Texture,
+                                           .import_settings = TextureImportSettings{}},
+            metadata_path(texture_path));
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+
+        const std::filesystem::path material_path =
+            texture_path.parent_path() / "test.mat";
+        std::filesystem::rename(texture_path, material_path);
+        std::filesystem::remove(metadata_path(texture_path));
+        project.add_file("test.mat", std::string(EMPTY_MATERIAL));
+        AssetMetadataSerializer{}.save({.handle = handle, .type = AssetType::Material},
+            metadata_path(material_path));
+
+        const AssetScanReport report = database.scan();
+
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_TRUE(has_issue_containing(
+            report, "asset guid 42 cannot change type from 'texture' to 'material'"));
+        ASSERT_EQ(database.size(), 1u);
+        const AssetRecord* record = database.find(handle);
+        ASSERT_NE(record, nullptr);
+        EXPECT_EQ(record->type, AssetType::Texture);
+        EXPECT_EQ(record->path, "test.png");
+    }
+
     TEST(AssetDatabaseTest, AdvancesRevisionOnlyWhenAssetChanges) {
         const TemporaryProject project;
         project.add_file("textures/albedo.png", "first");

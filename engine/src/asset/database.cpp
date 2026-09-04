@@ -318,12 +318,26 @@ namespace Comet {
         }
 
         std::unordered_map<AssetHandle, std::filesystem::path> known_handles;
+        bool identity_conflict = false;
         for(const AssetCandidate& candidate : candidates) {
             if(!candidate.metadata) {
                 continue;
             }
 
             const AssetHandle handle = candidate.metadata->handle;
+            const auto previous = m_assets.find(handle);
+            if(previous != m_assets.end()
+                && previous->second.type != candidate.metadata->type) {
+                add_issue(report, candidate.relative_path,
+                    "asset guid " + std::to_string(handle.value())
+                        + " cannot change type from '"
+                        + std::string(to_string(previous->second.type)) + "' to '"
+                        + std::string(to_string(candidate.metadata->type))
+                        + "'; assign a new guid");
+                identity_conflict = true;
+                continue;
+            }
+
             const auto [existing, inserted] =
                 known_handles.emplace(handle, candidate.relative_path);
             if(!inserted) {
@@ -341,6 +355,10 @@ namespace Comet {
             handles_by_path.emplace(record.path, handle);
         }
 
+        if(identity_conflict) {
+            return report;
+        }
+
         for(AssetCandidate& candidate : candidates) {
             if(candidate.metadata) {
                 continue;
@@ -349,7 +367,7 @@ namespace Comet {
             AssetHandle handle;
             do {
                 handle = AssetHandle::generate();
-            } while(known_handles.contains(handle));
+            } while(known_handles.contains(handle) || m_assets.contains(handle));
 
             const AssetMetadata metadata{.handle = handle,
                 .type = candidate.expected_type,

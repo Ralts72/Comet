@@ -166,20 +166,6 @@ namespace Comet {
             }
             return published;
         }
-
-        template<typename T>
-        bool keep_runtime_asset_if_type_matches(AssetRegistry& registry,
-            const AssetHandle handle, const AssetType indexed_type) {
-            if(registry.resolve<T>(handle)) {
-                return true;
-            }
-
-            static_cast<void>(registry.unregister_asset(handle));
-            LOG_WARN(
-                "Unloaded runtime asset handle {} because its indexed type changed to '{}'",
-                handle.value(), to_string(indexed_type));
-            return false;
-        }
     }
 
     struct AssetManager::AsyncState {
@@ -245,10 +231,6 @@ namespace Comet {
             }
             switch(record->type) {
                 case AssetType::Texture:
-                    if(!keep_runtime_asset_if_type_matches<Texture>(
-                           m_registry, handle, record->type)) {
-                        break;
-                    }
                     if(!schedule_loaded_texture_refresh(*record)) {
                         LOG_ERROR(
                             "Failed to schedule refresh for modified texture asset handle {}",
@@ -256,20 +238,12 @@ namespace Comet {
                     }
                     break;
                 case AssetType::Material:
-                    if(!keep_runtime_asset_if_type_matches<Material>(
-                           m_registry, handle, record->type)) {
-                        break;
-                    }
                     if(!reload_material(handle)) {
                         LOG_ERROR("Failed to refresh modified material asset handle {}",
                             handle.value());
                     }
                     break;
                 case AssetType::Mesh:
-                    if(!keep_runtime_asset_if_type_matches<Mesh>(
-                           m_registry, handle, record->type)) {
-                        break;
-                    }
                     if(!schedule_loaded_mesh_refresh(*record)) {
                         LOG_ERROR(
                             "Failed to schedule refresh for modified mesh asset handle {}",

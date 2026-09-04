@@ -61,6 +61,7 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
   已加载 Mesh/Texture 的扫描刷新会在 Worker 生成 CPU 候选，再由 Owner Thread 验证 revision、创建 GPU 资源并发布；
   后台处理期间及刷新失败时都会保留上一份有效对象。Editor 低频监视 `assets/` 文件树，只有快照变化时才触发同一个
   `AssetManager::scan()`，不会在监视器中直接导入或修改 Registry。
+  Handle 可随资产移动保持稳定，但对应的 AssetType 不可改变；类型转换必须分配新 Handle，否则数据库拒绝候选快照。
 - Graphics 后端使用 Vulkan 1.3、VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
   Vulkan 类型应限制在 Graphics 后端及明确需要底层能力的 Render 实现中。
 - 世界与编辑器坐标约定 `+Y` 向上；Vulkan Viewport 使用负高度完成画面坐标转换。Texture 是否翻转仅由对应

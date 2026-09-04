@@ -1119,10 +1119,10 @@ Scene Component / RenderItem
 
 ## 下一步
 
-下一步推进 **metadata 失败安全扫描**。资产管线复盘确认 monitor、数据库签名、revision、任务占位和导入缓存分别
-承担不同职责，但已有资产的 `.meta` 暂时损坏或类型不匹配时，当前候选快照会把它当作 removed 并卸载上一份 Runtime
-Resource。下一步区分真实删除与无效 sidecar：已有资产保留上一份有效记录、revision 和依赖并报告问题，新资产只报告
-问题，重复 GUID 等身份歧义不得按遍历顺序任意提交。
+下一步推进 **Mesh Importer 输入一致性**。Asset Handle 可以跨路径移动，但在连续数据库快照中不能改变 AssetType；
+类型变化会作为身份冲突拒绝提交，转换资产必须使用新 Handle。`.meta` 和 Material 文档继续依靠编辑器校验与原子写入，
+不为外部手动写坏的中间状态增加旧记录合并逻辑。下一步处理 Worker 导入与 Owner Thread 发布之间的输入变化窗口：
+Mesh 候选应携带本次实际读取的 glTF 和外部 buffer 内容指纹，发布前再次验证。
 
 格式演进保持以下边界：运行配置继续使用 YAML；项目文档只在编辑器写入链路和 Schema 稳定后整体评估 JSON 迁移；
 `.comet/cache/` 与 Shipping 资源继续使用面向 Runtime 的二进制产物和索引。
