@@ -1,5 +1,6 @@
 #include "asset/asset_manager.h"
 
+#include "asset/artifact/mesh_artifact.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
@@ -205,6 +206,13 @@ namespace Comet::Tests {
             const std::vector<AssetHandle>& handles, const AssetHandle expected) {
             return std::ranges::find(handles, expected) != handles.end();
         }
+
+        bool has_issue_containing(
+            const AssetScanReport& report, const std::string_view text) {
+            return std::ranges::any_of(report.issues, [&](const AssetScanIssue& issue) {
+                return issue.message.find(text) != std::string::npos;
+            });
+        }
     }
 
     TEST(AssetManagerTest, ImportsAndLoadsMeshArtifactByAssetHandle) {
@@ -228,6 +236,143 @@ namespace Comet::Tests {
         EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 3);
         EXPECT_TRUE(std::filesystem::is_regular_file(
             project.paths().cache() / "imported" / "mesh" / "42.bin"));
+    }
+
+    TEST(AssetManagerTest, MovesSourceAndMetadataWithoutChangingHandle) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path source = project.add_material(handle, "move_test");
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().succeeded());
+        const std::shared_ptr<Material> original = manager.load_material(handle);
+        ASSERT_NE(original, nullptr);
+
+        const AssetScanReport report = manager.move_asset(handle, "renamed/moved.mat");
+
+        EXPECT_TRUE(report.succeeded());
+        EXPECT_TRUE(report.snapshot_updated);
+        EXPECT_TRUE(contains_handle(report.modified_assets, handle));
+        EXPECT_FALSE(std::filesystem::exists(source));
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
+        const std::filesystem::path moved =
+            project.paths().assets() / "renamed/moved.mat";
+        EXPECT_TRUE(std::filesystem::is_regular_file(moved));
+        EXPECT_TRUE(std::filesystem::is_regular_file(metadata_path(moved)));
+        EXPECT_EQ(AssetMetadataSerializer{}.load(metadata_path(moved)).handle, handle);
+        ASSERT_NE(manager.get_database().find(handle), nullptr);
+        EXPECT_EQ(manager.get_database().find(handle)->path, "renamed/moved.mat");
+        EXPECT_NE(registry.resolve<Material>(handle), original);
+    }
+
+    TEST(AssetManagerTest, MovesLoadedMeshAndRepublishesArtifact) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path source = project.add_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        ASSERT_TRUE(manager.import_mesh(handle));
+        const std::shared_ptr<Mesh> original = manager.load_mesh(handle);
+        ASSERT_NE(original, nullptr);
+
+        const AssetScanReport report = manager.move_asset(handle, "renamed/moved.gltf");
+
+        EXPECT_TRUE(report.succeeded());
+        EXPECT_TRUE(report.snapshot_updated);
+        EXPECT_TRUE(contains_handle(report.modified_assets, handle));
+        EXPECT_FALSE(std::filesystem::exists(source));
+        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+
+        task_scheduler.wait_idle();
+        manager.process_completions();
+
+        EXPECT_NE(registry.resolve<Mesh>(handle), original);
+        const auto artifact =
+            MeshArtifact::load(project.paths().cache() / "imported/mesh/42.bin", handle);
+        ASSERT_TRUE(artifact.has_value());
+        ASSERT_FALSE(artifact->source_inputs.files.empty());
+        EXPECT_EQ(
+            artifact->source_inputs.files.front().relative_path, "renamed/moved.gltf");
+    }
+
+    TEST(AssetManagerTest, RejectsMoveWhenDestinationAlreadyExists) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path source = project.add_material(handle, "move_test");
+        const std::filesystem::path target = project.paths().assets() / "occupied.mat";
+        MaterialSerializer{}.save(
+            {.template_name = "occupied", .texture_properties = {}}, target);
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+
+        const AssetScanReport report = manager.move_asset(handle, "occupied.mat");
+
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_TRUE(has_issue_containing(report, "destination already exists"));
+        EXPECT_TRUE(std::filesystem::is_regular_file(source));
+        EXPECT_TRUE(std::filesystem::is_regular_file(metadata_path(source)));
+        EXPECT_EQ(manager.get_database().find(handle)->path, "materials/test.mat");
+    }
+
+    TEST(AssetManagerTest, RejectsMoveOutsideAssetRoot) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path source = project.add_material(handle, "move_test");
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+
+        const AssetScanReport report = manager.move_asset(handle, "../outside.mat");
+
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_TRUE(
+            has_issue_containing(report, "project-relative file path inside assets"));
+        EXPECT_TRUE(std::filesystem::is_regular_file(source));
+        EXPECT_TRUE(std::filesystem::is_regular_file(metadata_path(source)));
+        EXPECT_FALSE(std::filesystem::exists(project.paths().root() / "outside.mat"));
+    }
+
+    TEST(AssetManagerTest, RollsBackMoveWhenScanFindsIdentityConflict) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const std::filesystem::path source = project.add_material(handle, "move_test");
+        AssetRegistry registry;
+        FakeRenderResourceFactory resource_factory;
+        TaskScheduler task_scheduler(1);
+        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+
+        const std::filesystem::path duplicate =
+            project.paths().assets() / "duplicate.mat";
+        MaterialSerializer{}.save(
+            {.template_name = "duplicate", .texture_properties = {}}, duplicate);
+        AssetMetadataSerializer{}.save(
+            {.handle = handle, .type = AssetType::Material}, metadata_path(duplicate));
+
+        const AssetScanReport report = manager.move_asset(handle, "renamed/moved.mat");
+
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_TRUE(has_issue_containing(report, "duplicate guid 42"));
+        EXPECT_TRUE(has_issue_containing(report, "move was rolled back"));
+        EXPECT_TRUE(std::filesystem::is_regular_file(source));
+        EXPECT_TRUE(std::filesystem::is_regular_file(metadata_path(source)));
+        EXPECT_FALSE(
+            std::filesystem::exists(project.paths().assets() / "renamed/moved.mat"));
+        EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / "renamed"));
+        ASSERT_NE(manager.get_database().find(handle), nullptr);
+        EXPECT_EQ(manager.get_database().find(handle)->path, "materials/test.mat");
     }
 
     TEST(AssetManagerTest, RebuildsCorruptedMeshArtifactDuringImport) {

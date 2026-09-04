@@ -5,6 +5,7 @@
 #include "asset/import/texture_importer.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
+#include "asset/source_operations.h"
 #include "common/file_io.h"
 #include "core/task_scheduler.h"
 #include "diagnostics/logger.h"
@@ -169,8 +170,21 @@ namespace Comet {
 
     AssetScanReport AssetManager::scan() {
         AssetScanReport report = m_database.scan();
+        apply_scan_report(report);
+        return report;
+    }
+
+    AssetScanReport AssetManager::move_asset(
+        const AssetHandle handle, const std::filesystem::path& destination) {
+        AssetScanReport report =
+            AssetSourceOperations::move(m_database, m_paths, handle, destination);
+        apply_scan_report(report);
+        return report;
+    }
+
+    void AssetManager::apply_scan_report(const AssetScanReport& report) {
         if(!report.snapshot_updated) {
-            return report;
+            return;
         }
 
         std::unordered_set<AssetHandle> invalidated(
@@ -230,7 +244,6 @@ namespace Comet {
                     break;
             }
         }
-        return report;
     }
 
     void AssetManager::process_completions() {

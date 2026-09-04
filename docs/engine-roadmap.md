@@ -16,7 +16,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 - C++20/CMake 工程、分层运行配置、Diagnostics 和 GoogleTest 基础已经建立。
 - Scene/ECS、Transform 层级、组件元数据、场景序列化和隔离的 Edit/Play Scene 已形成闭环。
-- AssetHandle、Asset Database、Texture/Material/glTF Mesh 导入、Mesh Artifact、Mesh/Texture 后台刷新与 Editor 自动监视已经可用。
+- AssetHandle、Asset Database、Texture/Material/glTF Mesh 导入、Mesh Artifact、事务式资产移动后端、Mesh/Texture 后台刷新与 Editor 自动监视已经可用。
 - Vulkan 1.3 后端已采用 VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
 - ImGui 编辑器已接通 Hierarchy、Inspector、Project、Log 和单一离屏 Viewport。
 - Shader 由 CMake 显式选择 GLSL，并在构建目录生成 `.spv` 与嵌入式 Header。
@@ -24,7 +24,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 ### 当前主要形态
 
 Comet 目前仍是编辑器型引擎原型，但已经跨过“Renderer 内硬编码 demo”的阶段。当前位于阶段 3 收尾：Mesh/Texture
-已经接入可恢复创建和后台 CPU 刷新边界，Editor 也能自动发现资产源变化；接下来复盘资产管线并补齐项目与资产操作，
+已经接入可恢复创建和后台 CPU 刷新边界，Editor 也能自动发现资产源变化；资产移动后端已经完成，接下来补齐对应 Project UI，
 再进入阶段 4 的 editor-only Camera、Viewport 输入和交互闭环。
 渲染端仍使用固定 Pipeline 与两张 Texture 的材质假设，运行时 System 调度、完整 RenderGraph 和独立 RenderThread 尚未建立。
 
@@ -848,6 +848,7 @@ Viewport 均已接通。Scene 不持有路径或 GPU Resource，`LightComponent`
 - Asset Database 事务式扫描并维护路径、Handle、revision、资产依赖和 Importer 源依赖，单个坏文件不会清空上一份有效快照。
 - Asset Manager 负责导入、依赖解析与 Runtime Asset 发布；ResourceManager 只创建 Device 相关资源。
 - Texture、Material 和 glTF Mesh 已接通导入与刷新；Mesh Artifact、Mesh/Texture 后台 CPU 导入和 revision 验票已经落地。
+- 资产源文件与 `.meta` 已支持保持 Handle 的事务式移动，失败时回滚文件与数据库候选状态。
 - GPU 路径已采用 Synchronization 2、Timeline Semaphore、UploadManager、FrameScheduler retention 与 VMA budget 诊断。
 - Mesh/Texture 的可恢复创建结果已接入资产发布边界；首次创建失败不注册，热刷新失败保留旧对象。
 
@@ -856,7 +857,7 @@ Viewport 均已接通。Scene 不持有路径或 GPU Resource，`LightComponent`
 剩余任务：
 
 - 为非关键 streaming 资源建立占位、重试或淘汰策略后，再选择性启用 `WITHIN_BUDGET`；RenderTarget 等关键资源继续强失败。
-- 完成项目创建、打开和校验，以及资产改名、移动时连同 `.meta` 保持引用稳定的编辑器操作。
+- 在 Project 面板接入资产改名/移动交互，并让 AssetSourceMonitor 精确确认已知移动路径。
 - 让 `Device` 提供实际启用 feature、extension、queue、limit 和 format 的不可变 CapabilitySet。
 - 在 metadata 与导入产物契约稳定后，沿用 Mesh 已建立的“Importer → Artifact → Runtime”边界设计 Shader 编译产物、缓存键和打包 Manifest。
 - 仅在出现无法绑定到单一 FrameSlot 的真实退休需求后引入 `GpuRetirementQueue`。
@@ -1119,9 +1120,11 @@ Scene Component / RenderItem
 
 ## 下一步
 
-下一步完成 **Editor Mesh 导入入口与 Artifact 状态展示**。当前 Mesh 已建立显式 `ImportService`、原子发布的
-`MeshArtifact` 和 Artifact-only Runtime 加载边界；Editor 的示例资产启动路径已经显式准备 Artifact，但 Project 面板还需要
-面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。
+下一步完成 **Project 资产移动/重命名 UI**。后端已经通过 `AssetManager::move_asset()` 建立源文件、`.meta`、候选数据库扫描和
+Runtime 刷新的事务闭环；Project 面板需要以选中 Handle 发起操作，统一显示返回诊断，并让 `AssetSourceMonitor` 确认旧/新路径，避免下一轮轮询重复扫描。
+
+随后完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
+Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。
 
 随后再把同一边界扩展到 Texture；不直接复制旧的源文件多阶段验票方案，而是让 Runtime 同样只消费已发布 Artifact。
 

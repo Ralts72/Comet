@@ -24,6 +24,8 @@ namespace Comet {
         ~AssetManager();
 
         [[nodiscard]] AssetScanReport scan();
+        [[nodiscard]] AssetScanReport move_asset(
+            AssetHandle handle, const std::filesystem::path& destination);
         void process_completions();
         [[nodiscard]] bool import_mesh(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Mesh> load_mesh(AssetHandle handle);
@@ -42,6 +44,7 @@ namespace Comet {
     private:
         struct AsyncState;
 
+        void apply_scan_report(const AssetScanReport& report);
         [[nodiscard]] std::shared_ptr<Mesh> create_runtime_mesh(
             const AssetRecord& record);
         void record_import_dependencies(

@@ -22,6 +22,7 @@ set(SOURCES
         src/asset/metadata.cpp
         src/asset/registry.cpp
         src/asset/source_monitor.cpp
+        src/asset/source_operations.cpp
         src/asset/serialization/material_serializer.cpp
         src/asset/serialization/metadata_serializer.cpp
         src/common/file_io.cpp
