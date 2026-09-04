@@ -1,5 +1,6 @@
 #pragma once
 #include "graphics/vk_common.h"
+#include "graphics/resource/resource_result.h"
 #include "core/math_utils.h"
 #include "common/export.h"
 
@@ -25,6 +26,10 @@ namespace Comet {
 
         static std::unique_ptr<RenderTarget> create_multi_target(Device& device,
             RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);
+
+        [[nodiscard]] static GpuResourceResult<std::unique_ptr<RenderTarget>>
+        try_create_multi_target(Device& device, RenderPass& render_pass, Math::Vec2u size,
+            uint32_t frame_count);
 
         virtual ~RenderTarget() = default;
 
@@ -96,9 +101,6 @@ namespace Comet {
 
     class COMET_API MultiTarget final: public RenderTarget {
     public:
-        MultiTarget(Device& device, RenderPass& render_pass, Math::Vec2u size,
-            uint32_t frame_count);
-
         ~MultiTarget() override;
 
         void recreate() override;
@@ -114,6 +116,13 @@ namespace Comet {
         }
 
     private:
+        friend class RenderTarget;
+
+        MultiTarget(Device& device, RenderPass& render_pass, Math::Vec2u size,
+            uint32_t frame_count);
+
+        [[nodiscard]] GpuResourceResult<void> try_initialize();
+
         std::vector<RenderResource> m_render_resources;
     };
 }

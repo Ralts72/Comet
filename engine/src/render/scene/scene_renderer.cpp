@@ -246,6 +246,7 @@ namespace Comet {
 
         auto& command_buffer = m_frame_scheduler->get_current_command_buffer();
         if(m_uses_offscreen_target) {
+            m_frame_scheduler->retain_current_frame_resource(m_render_target);
             m_render_target->begin_render_target(
                 command_buffer, m_frame_scheduler->get_current_frame_slot_index());
         } else {
@@ -398,27 +399,38 @@ namespace Comet {
             return;
         }
 
-        m_frame_scheduler->wait_for_all_slots();
-        m_render_target->resize(size.x, size.y);
+        auto candidate = RenderTarget::try_create_multi_target(m_context.get_device(),
+            *m_render_pass, size, m_frame_scheduler->get_frame_slot_count());
+        if(!candidate) {
+            const Math::Vec2u current_size = m_render_target->get_size();
+            LOG_ERROR("Keeping offscreen render target at {}x{} after {}x{} generation "
+                      "creation failed: {}",
+                current_size.x, current_size.y, size.x, size.y,
+                vk::to_string(candidate.result()));
+            return;
+        }
+
+        std::shared_ptr<RenderTarget> next_generation(std::move(candidate).value());
+        next_generation->set_clear_value(m_color_clear_value);
+        LOG_INFO("Commit offscreen render target generation {}x{}", size.x, size.y);
+        m_render_target = std::move(next_generation);
     }
 
     CommandBuffer& SceneRenderer::get_current_command_buffer() const {
         return m_frame_scheduler->get_current_command_buffer();
     }
 
-    std::vector<std::shared_ptr<ImageView>> SceneRenderer::get_offscreen_color_views()
-        const {
-        std::vector<std::shared_ptr<ImageView>> color_views;
+    std::shared_ptr<ImageView> SceneRenderer::get_offscreen_color_view(
+        const uint32_t frame_slot_index) const {
         if(!m_uses_offscreen_target) {
-            return color_views;
+            return nullptr;
         }
 
-        const uint32_t frame_slot_count = m_frame_scheduler->get_frame_slot_count();
-        color_views.reserve(frame_slot_count);
-        for(uint32_t index = 0; index < frame_slot_count; ++index) {
-            color_views.push_back(m_render_target->get_color_view(index));
+        if(frame_slot_index >= m_frame_scheduler->get_frame_slot_count()) {
+            LOG_FATAL("Offscreen frame slot {} exceeds frame slot count {}",
+                frame_slot_index, m_frame_scheduler->get_frame_slot_count());
         }
-        return color_views;
+        return m_render_target->get_color_view(frame_slot_index);
     }
 
     bool SceneRenderer::recreate_swapchain() {

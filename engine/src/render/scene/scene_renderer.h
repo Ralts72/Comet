@@ -56,8 +56,8 @@ namespace Comet {
             return *m_render_target;
         }
         [[nodiscard]] CommandBuffer& get_current_command_buffer() const;
-        [[nodiscard]] std::vector<std::shared_ptr<ImageView>> get_offscreen_color_views()
-            const;
+        [[nodiscard]] std::shared_ptr<ImageView> get_offscreen_color_view(
+            uint32_t frame_slot_index) const;
 
         [[nodiscard]] bool recreate_swapchain();
 
@@ -101,7 +101,7 @@ namespace Comet {
         std::shared_ptr<RenderPass> m_render_pass;
         std::unique_ptr<PipelineManager> m_pipeline_manager;
         std::unique_ptr<FrameScheduler> m_frame_scheduler;
-        std::unique_ptr<RenderTarget> m_render_target;
+        std::shared_ptr<RenderTarget> m_render_target;
         bool m_uses_offscreen_target = false;
         std::shared_ptr<Pipeline> m_pipeline;
         std::shared_ptr<Sampler> m_default_sampler;

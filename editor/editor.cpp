@@ -151,11 +151,7 @@ namespace {
             m_selection.emplace(scene);
             setup_panels(scene, std::move(initial_asset_scan));
 
-            m_imgui_context->set_viewport_images(
-                scene_renderer.get_offscreen_color_views(),
-                renderer.get_resource_manager()
-                    .get_sampler_manager()
-                    .get_nearest_clamp());
+            initialize_viewport_textures(scene_renderer);
 
             // 注册 ImGui 渲染回调
             renderer.set_on_imgui_render([this](Comet::CommandBuffer& cmd) {
@@ -190,18 +186,32 @@ namespace {
 
         void update_viewport_texture(Comet::SceneRenderer& scene_renderer) {
             auto& renderer = get_engine().get_renderer();
-            m_imgui_context->set_viewport_images(
-                scene_renderer.get_offscreen_color_views(),
+            const uint32_t frame_slot =
+                scene_renderer.get_frame_scheduler().get_current_frame_slot_index();
+            m_imgui_context->set_viewport_image(frame_slot,
+                scene_renderer.get_offscreen_color_view(frame_slot),
                 renderer.get_resource_manager()
                     .get_sampler_manager()
                     .get_nearest_clamp());
 
-            const uint32_t frame_slot =
-                scene_renderer.get_frame_scheduler().get_current_frame_slot_index();
             const ImTextureID texture_id =
                 m_imgui_context->get_viewport_texture_id(frame_slot);
             const Comet::Math::Vec2u size = scene_renderer.get_render_target().get_size();
             m_viewport_panel->set_texture_id(texture_id, size.x, size.y);
+        }
+
+        void initialize_viewport_textures(Comet::SceneRenderer& scene_renderer) {
+            auto sampler = get_engine()
+                               .get_renderer()
+                               .get_resource_manager()
+                               .get_sampler_manager()
+                               .get_nearest_clamp();
+            const uint32_t frame_slot_count =
+                scene_renderer.get_frame_scheduler().get_frame_slot_count();
+            for(uint32_t frame_slot = 0; frame_slot < frame_slot_count; ++frame_slot) {
+                m_imgui_context->set_viewport_image(frame_slot,
+                    scene_renderer.get_offscreen_color_view(frame_slot), sampler);
+            }
         }
 
         void on_shutdown() override {

@@ -383,8 +383,9 @@ frame-compile tracker，持久资源通过明确 handoff state 连接两者；�
 ### GPU Completion 与延迟释放
 
 当前 `FrameSlot` 持有 in-flight fence、submission serial 和实际录制所引用的 Runtime owner；`FrameScheduler` 会在
-复用 slot 前等待该 fence 并释放 RetainedResources。viewport resize 已缩小为等待所有 FrameSlot，swapchain
-recreation、渲染模式切换和 renderer cleanup 仍通过 `Device::wait_idle()` 保证旧资源不再被 GPU 使用。这对当前阶段是
+复用 slot 前等待该 fence 并释放 RetainedResources。viewport resize 已改为完整创建并切换新的离屏目标，旧目标也由
+引用它的 FrameSlot 延迟释放；swapchain recreation、渲染模式切换和 renderer cleanup 仍通过 `Device::wait_idle()`
+保证旧资源不再被 GPU 使用。这对当前阶段是
 安全且简单的基线，但不能作为 texture/shader/pipeline 热重载、资产卸载、streaming 和持续 resize 的常规资源替换机制。
 
 目标模型分为两层：
@@ -898,7 +899,8 @@ Scene Component / RenderItem
 - Edit 使用 Edit Scene 和不属于 Scene 的 editor camera；Play 使用 Runtime Scene 的 primary Camera。Viewport 可见性、稳定后的目标尺寸
   和 Camera 选择方式由 `RenderView` 表达，SceneRenderer 不依赖 EditorMode。
 - 2D/3D 是单个 Edit Viewport 的观察和交互方式，不是两个独立 Viewport；当前按钮只保存 UI 状态，尚未真正切换 editor camera 投影和操作逻辑。
-- resize debounce 由 ViewPanel 持有；尺寸连续稳定后产生一次请求，Renderer 等待所有 FrameSlot 后重建离屏 image、image view 和 framebuffer，不再等待整个 Device idle。
+- resize debounce 由 ViewPanel 持有；尺寸连续稳定后产生一次请求，Renderer 完整创建新的离屏 image、image view 和
+  framebuffer 后再切换活动目标，不等待全部 FrameSlot 或 Device idle。
 - Camera 垂直 FOV 与实体 Transform 不变，RenderTarget 尺寸只改变 projection aspect；ImGui 再把纹理等比放入面板。
 - Edit 模式结合当前 ImGui platform viewport 的 framebuffer scale，把面板逻辑尺寸转换为 RenderTarget 物理像素尺寸。
 - Play 模式可选择 Free、16:9、1280x720 或 1920x1080 渲染分辨率，并以 Fit 或 1x 显示；这些策略由单个
@@ -924,9 +926,10 @@ Scene Component / RenderItem
 - [x] Edit 模式默认按面板物理像素尺寸渲染，并结合当前 ImGui platform viewport 的 framebuffer scale 处理 Retina/HiDPI。
 - [x] Play 模式支持固定分辨率和宽高比预设，例如 Free、16:9、1920x1080；面板 resize 默认只改变显示缩放，不改变固定 render resolution。
 - [x] 提供 Fit、1x 等显示倍率，保持宽高比并记录 letterbox/pillarbox 后的真实 image display rect。
-- 保留 ViewPanel 的 resize debounce；在现有全 FrameSlot fence 等待基础上继续引入 generation 与延迟销毁，避免 resize 时同步等待全部在途 frame。
-- resize 创建新的 `RenderTargetGeneration`，成功后切换 viewport 引用，并按最后使用它的 frame submission 延迟释放
-  旧 image、image view、framebuffer 和 ImGui descriptor；创建失败时继续使用旧 generation。
+- [x] 保留 ViewPanel 的 resize debounce，并把完整的 `MultiTarget` 作为一代资源；所有 frame slot 的 image、image view
+  和 framebuffer 创建成功后才切换，创建失败时继续使用旧目标。
+- [x] 当前提交通过 FrameSlot RetainedResources 保留所用的 RenderTarget；ImGui 只替换已完成 slot 的 descriptor 和
+  image view，旧一代按实际 frame completion 释放，resize 不再同步等待全部在途 frame。
 - 将 swapchain 重建改为 prepare/create/commit/retire generation 流程。engine core、runtime present target 和 editor ImGui
   dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
 - old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
@@ -1127,8 +1130,11 @@ Scene Component / RenderItem
 阶段 3 → 阶段 4 架构复盘已完成：删除 Editor 与 ProjectPanel 重复保存的扫描报告；`RenderView` 只保留 Renderer
 真实消费的可见性、渲染尺寸和 Camera 选择，并且 `SceneResolver` 只保留统一入口。
 
-下一步把 Viewport RenderTarget 演进为 generation：先完整创建新一代资源，成功后再切换，旧 generation 根据最后一次使用它的
-frame completion 延迟释放；创建失败时继续使用当前目标。本步先不同时重写 swapchain generation。
+Viewport RenderTarget generation 已完成：完整的 `MultiTarget` 作为一代，创建成功后才切换；旧目标由实际使用它的
+FrameSlot 保留到 fence 完成，ImGui binding 也按 slot 安全替换。本步没有同时重写 swapchain generation。
+
+下一步为 Viewport 目标尺寸增加设备上限和项目级 render scale 约束，避免 Retina/HiDPI、大窗口或固定分辨率策略请求
+超大离屏附件，并让 UI 显示最终采用的物理渲染尺寸。
 
 阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。

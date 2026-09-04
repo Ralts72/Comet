@@ -31,7 +31,7 @@ Engine
         │   │   └── RetainedResources
         │   └── SwapchainImageState[swapchain images]
         ├── ViewProjectBuffer[frames-in-flight]
-        ├── RenderTarget
+        ├── active RenderTarget generation (shared)
         │   ├── runtime: SwapchainTarget[swapchain image]
         │   └── editor: MultiTarget[frame slot]
         └── MaterialDescriptorState[material][frame slot]
@@ -72,6 +72,11 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
 `RenderView` 是 Renderer 与 SceneResolver 共同消费的纯值：它通过内嵌的 `CameraSelection` 选择 Scene primary Camera 或请求携带的
 `RenderCamera` override，不包含 `EditorMode`、ImGui 类型或尚无消费者的输入策略。
 
+离屏目标的一整套 `MultiTarget` 就是一代资源，不额外创建只为 Viewport 服务的 generation 包装类。resize 先通过可恢复工厂
+完整创建所有 frame slot 的 image、image view 和 framebuffer；成功后才替换活动目标，失败时继续使用旧目标。每个提交过的
+活动目标由对应 `FrameSlot` 保留到 fence 完成；ImGui 也只在当前已完成的 frame slot 上替换 descriptor 和 `ImageView`，
+因此其他在途 slot 可以继续使用旧一代。
+
 ## 生命周期约束
 
 关闭时必须遵循以下顺序：
@@ -89,7 +94,8 @@ runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slo
 `ImageView` 持有父 `Image` 的共享引用，并在释放该引用前销毁原生 image view；因此任何持有 `ImageView` 的消费者都会
 自动延长对应 C++ `Image` 对象的生命周期。ImageView 通过强失败/可恢复静态工厂创建，原生 view handle 成功后才构造
 wrapper，失败时不会发布空句柄对象。`BorrowedImage` 对应的原生 image 生命周期仍由 Swapchain 等外部所有者负责。
-`FrameBuffer` 持有全部 attachment `ImageView` 的共享引用，并在释放 attachment 前销毁原生 framebuffer，
+`FrameBuffer` 通过强失败/可恢复静态工厂创建，只有原生 framebuffer 创建成功后才发布 owner；它持有全部 attachment
+`ImageView` 的共享引用，并在释放 attachment 前销毁原生 framebuffer，
 由此形成 `FrameBuffer → ImageView → Image` 的完整所有权链。`Texture` 和 `RenderTarget` 不再并行保存同一资源的
 `Image`/`ImageView` 共享引用；需要 image 时统一通过 `ImageView::get_image()` 访问。
 
@@ -124,17 +130,18 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
   的中间状态。当前 upload 与 draw 使用同一 graphics queue；SceneRenderer 根据实际绑定用途把 completion 编译为准确
   stage 的 timeline wait，因此未来切换 transfer queue 不改变资源与资产接口。
 - `FrameScheduler`：拥有 FrameSlot 轮转、fence 等待、swapchain image 关联、submission serial 和当前 slot 的
-  RetainedResources；实际 draw 的 Mesh/Texture owner 在该 slot fence 完成后统一释放。
+  RetainedResources；实际 draw 的 Mesh/Texture owner 及当前离屏 RenderTarget generation 在该 slot fence 完成后统一释放。
 - `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。Runtime Mesh/Texture 创建失败时记录具体结果，首次加载不注册，刷新不替换旧对象。
 - `Renderer`：保存当前 RenderView，应用可见 Viewport 的稳定目标尺寸，并在解析前以实际 RenderTarget 尺寸覆盖目标尺寸；
   编排 RenderScene 解析、帧开始/结束和 ImGui 回调，不读取 Material 属性或管理 descriptor。
 - `SceneResolver`：按 RenderView 选择 Camera override 或 Scene primary Camera，根据实际 RenderTarget 尺寸生成 view/projection，
   将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断；请求 override 却未提供 Camera 时不会静默回退。
-- `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；从实际 Mesh/Texture 绑定汇总 ready wait，并向 FrameScheduler 登记当前帧使用的 owner；没有有效主 Camera 时不提交场景 draw。
+- `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；从实际 Mesh/Texture 绑定汇总 ready wait，并向 FrameScheduler 登记当前帧使用的 owner；离屏 resize 通过完整候选目标提交，不原地改写活动目标；没有有效主 Camera 时不提交场景 draw。
 - `ViewPanel`：拥有面板逻辑尺寸和 resize debounce；尺寸连续稳定后更新请求使用的目标尺寸。Renderer 不保存编辑器面板的稳定帧状态，
   只对可见 Viewport 应用该稳定尺寸并调整离屏 RenderTarget。
-- `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；通过私有绑定共享
-  SceneRenderer 的离屏 `ImageView` 生命周期，但不创建或直接销毁这些 engine 图形资源。
+- `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；只在当前已完成的
+  frame slot 上替换 viewport binding，通过私有绑定共享 SceneRenderer 的离屏 `ImageView` 生命周期，但不创建或直接
+  销毁这些 engine 图形资源。
 - `Scene`：只保存实体、可序列化组件和 `AssetHandle`，不保存 Device、GPU对象或文件路径。
 - `AssetRegistry`：唯一按 `AssetHandle` 缓存、注册和解析已发布运行时资源；不保存源路径或执行导入。
 
@@ -167,8 +174,8 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
   最近关联的 frame slot。
 - `SwapchainTarget` 按 image 持有 framebuffer 和对外暴露的颜色 image view；framebuffer 内部保留全部 attachment。
 - editor 的 `MultiTarget` 按 frame slot 持有 framebuffer 和对外暴露的离屏颜色/resolve image view；深度等内部
-  attachment 由 framebuffer 保留。同一 slot 的 fence
-  完成后才会重新写入对应离屏资源。
+  attachment 由 framebuffer 保留。resize 不原地重建这些资源，而是完整创建新 `MultiTarget` 后一次切换；同一 slot
+  的 fence 完成后才会释放旧目标引用并替换对应 ImGui binding。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture
@@ -179,9 +186,9 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
   生成 release/acquire barrier，并使用 semaphore/timeline 连接，不能靠一次 transition 冒充完整 ownership transfer。
 
 交换链重建只重建 image state 和 swapchain target，不改变 frame slot 数量，也不重建 editor 离屏目标。
-ViewPanel 尺寸稳定后才触发离屏目标重建；当前实现会在该低频操作前等待 Device idle。正常呈现路径不得依赖每帧
-`queue.waitIdle()`；阻塞式资源上传也只等待自己的 timeline completion。Device idle 仅用于关闭、swapchain 重建和
-离屏目标 resize 等全局资源切换点。
+ViewPanel 尺寸稳定后才触发离屏目标 generation 创建，提交后旧目标由实际引用它的 FrameSlot 延迟释放，不等待全部
+FrameSlot 或 Device idle。正常呈现路径不得依赖每帧 `queue.waitIdle()`；阻塞式资源上传也只等待自己的 timeline
+completion。Device idle 目前只用于关闭和 swapchain 重建等全局资源切换点。
 
 ## 错误处理
 
