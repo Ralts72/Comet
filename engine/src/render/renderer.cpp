@@ -3,6 +3,8 @@
 #include "diagnostics/profiler.h"
 #include "render/scene/render_types.h"
 
+#include <utility>
+
 namespace Comet {
     Renderer::Renderer(
         const Window& window, const Config& config, const AssetRegistry& asset_registry)
@@ -37,8 +39,10 @@ namespace Comet {
         if(!m_scene_renderer->begin_frame()) {
             return;
         }
-        const RenderSubmission submission = m_scene_resolver.resolve(
-            render_scene, m_scene_renderer->get_render_target().get_size());
+        RenderView frame_view = m_render_view;
+        frame_view.render_size = m_scene_renderer->get_render_target().get_size();
+        const RenderSubmission submission =
+            m_scene_resolver.resolve(render_scene, frame_view);
         const auto resource_waits = m_scene_renderer->render_scene_pass(submission);
 
         if(m_on_imgui_render) {
@@ -55,8 +59,12 @@ namespace Comet {
         m_scene_renderer->setup_pipeline(*m_resource_manager);
     }
 
-    void Renderer::resize_offscreen_target(const Math::Vec2u size) const {
-        m_scene_renderer->resize_offscreen_target(size);
+    void Renderer::set_render_view(RenderView view) {
+        m_render_view = std::move(view);
+        if(m_render_view.visible && m_render_view.render_size.x > 0
+            && m_render_view.render_size.y > 0) {
+            m_scene_renderer->resize_offscreen_target(m_render_view.render_size);
+        }
     }
 
     Renderer::~Renderer() {

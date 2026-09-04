@@ -23,9 +23,9 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 ### 当前主要形态
 
-Comet 目前仍是编辑器型引擎原型，但已经跨过“Renderer 内硬编码 demo”的阶段。当前位于阶段 3 收尾：Mesh/Texture
-已经接入可恢复创建和后台 CPU 刷新边界，Editor 能自动发现资产源变化，并已打通资产移动/重命名交互；接下来进入阶段 4 的
-editor-only Camera、Viewport 输入和交互闭环。
+Comet 目前仍是编辑器型引擎原型，但已经跨过“Renderer 内硬编码 demo”的阶段。当前位于阶段 3 收尾并进入阶段 4A：Mesh/Texture
+已经接入可恢复创建和后台 CPU 刷新边界，Editor 能自动发现资产源变化并完成资产移动/重命名；Viewport 已建立 editor-only Camera
+和显式渲染请求，输入与更完整的交互闭环仍待推进。
 渲染端仍使用固定 Pipeline 与两张 Texture 的材质假设，运行时 System 调度、完整 RenderGraph 和独立 RenderThread 尚未建立。
 
 ## 距离成熟编辑器型引擎的核心缺口
@@ -85,7 +85,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 接下来仍缺少：
 
 - Project 缩略图、搜索、拖拽、创建资产与显式导入工作流；基础移动/重命名已经可用。
-- Viewport 在 Edit 时使用 editor camera、选择、高亮、gizmo 和拾取，在 Play 时使用场景 primary camera 与游戏输入。
+- Viewport 已在 Edit 时使用 editor camera、在 Play 时使用场景 primary camera；选择、高亮、gizmo、拾取和游戏输入仍待接入。
 - Viewport 在 resize 后保持交互坐标、渲染分辨率与显示区域一致。
 - Add Component、Remove Component 和组件搜索菜单。
 - Undo/Redo、复制粘贴、duplicate 和拖拽资源到实体。
@@ -894,7 +894,8 @@ Scene Component / RenderItem
 当前基线：
 
 - editor 只有一个 ViewportPanel 和一组按 frame slot 分配的离屏纹理，面板尺寸直接驱动同一个 RenderTarget。
-- Edit 使用 Edit Scene 并显示 2D/3D 编辑工具；Play 使用 Runtime Scene 并隐藏编辑工具，两种模式当前都使用活动 Scene 的主 Camera。
+- Edit 使用 Edit Scene 和不属于 Scene 的 editor camera；Play 使用 Runtime Scene 的 primary Camera。Viewport 可见性、稳定后的目标尺寸
+  和 Camera 选择方式由 `RenderView` 表达，SceneRenderer 不依赖 EditorMode。
 - 2D/3D 是单个 Edit Viewport 的观察和交互方式，不是两个独立 Viewport；当前按钮只保存 UI 状态，尚未真正切换 editor camera 投影和操作逻辑。
 - resize debounce 由 ViewPanel 持有；尺寸连续稳定后产生一次请求，Renderer 等待所有 FrameSlot 后重建离屏 image、image view 和 framebuffer，不再等待整个 Device idle。
 - Camera 垂直 FOV 与实体 Transform 不变，RenderTarget 尺寸只改变 projection aspect；ImGui 再把纹理等比放入面板。
@@ -902,10 +903,10 @@ Scene Component / RenderItem
 
 #### 阶段 4A：单 Viewport 的模式化 Camera 与输入
 
-- 建立明确的 viewport render request，保存 EditorMode、Camera 来源、RenderTarget 尺寸和输入策略，不把 UI 模式塞入 `SceneRenderer`。
-- Edit 使用 editor-only camera；该 Camera 不属于 Scene entity，不参与场景保存，也不影响 runtime 主 Camera。
-- Play 使用 Runtime Scene 中的 primary Camera，并在没有有效主 Camera 时只清屏和显示诊断。
-- Viewport 隐藏或折叠时跳过 resize；输入焦点只在 Play 且画面区域获得焦点时转发给游戏。
+- [x] 建立明确的 viewport render request，保存可见性、Camera 来源和 RenderTarget 目标尺寸，不把 UI 模式塞入 `SceneRenderer`。
+- [x] Edit 使用 editor-only camera；该 Camera 不属于 Scene entity，不参与场景保存，也不影响 runtime 主 Camera。
+- [x] Play 使用 Runtime Scene 中的 primary Camera，并在没有有效主 Camera 时只清屏和显示诊断。
+- [x] Viewport 隐藏或折叠时跳过 resize；输入焦点和转发策略等出现真实 Editor Camera Controller 或 Runtime Input 消费者后再引入。
 - 只有出现 Play 中脱离游戏相机调试 Runtime Scene 的真实需求后，再增加 Eject/Debug Camera，不提前维护第二套 Viewport。
 
 验收标准：
@@ -1120,8 +1121,9 @@ Scene Component / RenderItem
 
 ## 下一步
 
-下一步进入 **阶段 4A：Viewport Render Request 与 editor-only camera 边界**。先建立不依赖 ImGui 的请求值对象，明确 Edit/Play 的
-Camera 来源、RenderTarget 尺寸和输入策略，再让现有单 Viewport 提交链消费它；本步不混入相机操控、HiDPI、拾取或多 Viewport。
+下一步先做一次 **阶段 3 → 阶段 4 架构复盘**。重点检查资产管线的 database/import/task/operation 边界，以及
+`RenderView`、`EditorState`、`Renderer`、`SceneResolver` 的依赖方向；只处理真实重复状态、越权依赖和无生产调用方的接口。
+复盘后进入阶段 4B，分离 panel content size、render resolution 和 image display rect。
 
 阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。

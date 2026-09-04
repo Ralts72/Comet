@@ -4,6 +4,7 @@
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
 
+#include <optional>
 #include <vector>
 
 namespace Comet {
@@ -26,5 +27,14 @@ namespace Comet {
     struct RenderScene {
         std::vector<RenderCamera> cameras;
         std::vector<RenderItem> render_items;
+    };
+
+    struct RenderView {
+        enum class CameraSelection { ScenePrimary, Override };
+
+        bool visible = true;
+        Math::Vec2u render_size{};
+        CameraSelection camera_selection = CameraSelection::ScenePrimary;
+        std::optional<RenderCamera> camera_override;
     };
 }

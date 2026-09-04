@@ -16,11 +16,11 @@ namespace Comet {
         explicit SceneResolver(const AssetRegistry& asset_registry);
 
         [[nodiscard]] RenderSubmission resolve(
-            const RenderScene& render_scene, Math::Vec2u render_size);
+            const RenderScene& render_scene, const RenderView& view);
 
     private:
         [[nodiscard]] std::optional<ViewProjectMatrix> resolve_camera(
-            const RenderScene& render_scene, Math::Vec2u render_size);
+            const RenderScene& render_scene, const RenderView& view);
 
         [[nodiscard]] std::optional<ResolvedRenderItem> resolve_item(
             const RenderItem& render_item);
@@ -32,6 +32,7 @@ namespace Comet {
         std::optional<EntityId> m_invalid_camera_fov;
         std::optional<EntityId> m_invalid_camera_clip_planes;
         bool m_missing_primary_camera = false;
+        bool m_missing_camera_override = false;
         bool m_multiple_primary_cameras = false;
         bool m_invalid_render_size = false;
     };

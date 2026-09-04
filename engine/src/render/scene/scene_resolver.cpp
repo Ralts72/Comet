@@ -14,9 +14,9 @@ namespace Comet {
         : m_asset_registry(asset_registry) {}
 
     RenderSubmission SceneResolver::resolve(
-        const RenderScene& render_scene, const Math::Vec2u render_size) {
+        const RenderScene& render_scene, const RenderView& view) {
         RenderSubmission submission;
-        submission.view_project_matrix = resolve_camera(render_scene, render_size);
+        submission.view_project_matrix = resolve_camera(render_scene, view);
         submission.render_items.reserve(render_scene.render_items.size());
 
         for(const RenderItem& render_item : render_scene.render_items) {
@@ -29,46 +29,65 @@ namespace Comet {
     }
 
     std::optional<ViewProjectMatrix> SceneResolver::resolve_camera(
-        const RenderScene& render_scene, const Math::Vec2u render_size) {
-        const RenderCamera* primary_camera = nullptr;
+        const RenderScene& render_scene, const RenderView& view) {
+        const RenderCamera* camera = nullptr;
         std::size_t primary_camera_count = 0;
-        for(const RenderCamera& camera : render_scene.cameras) {
-            if(!camera.primary)
-                continue;
+        if(view.camera_selection == RenderView::CameraSelection::Override) {
+            if(view.camera_override) {
+                camera = &*view.camera_override;
+                m_missing_camera_override = false;
+            } else if(!m_missing_camera_override) {
+                LOG_WARN("Render view requested a camera override but none was provided; "
+                         "scene drawing is skipped");
+                m_missing_camera_override = true;
+            }
+            m_missing_primary_camera = false;
+            m_multiple_primary_cameras = false;
+        } else {
+            m_missing_camera_override = false;
+            for(const RenderCamera& scene_camera : render_scene.cameras) {
+                if(!scene_camera.primary)
+                    continue;
 
-            ++primary_camera_count;
-            if(!primary_camera || camera.entity_id < primary_camera->entity_id) {
-                primary_camera = &camera;
+                ++primary_camera_count;
+                if(!camera || scene_camera.entity_id < camera->entity_id) {
+                    camera = &scene_camera;
+                }
+            }
+
+            if(!camera) {
+                if(!m_missing_primary_camera) {
+                    LOG_WARN(
+                        "Render scene has no primary camera; scene drawing is skipped");
+                    m_missing_primary_camera = true;
+                }
+            } else {
+                m_missing_primary_camera = false;
             }
         }
 
-        if(!primary_camera) {
-            if(!m_missing_primary_camera) {
-                LOG_WARN("Render scene has no primary camera; scene drawing is skipped");
-                m_missing_primary_camera = true;
-            }
-            m_multiple_primary_cameras = false;
+        if(!camera) {
             m_invalid_camera_fov.reset();
             m_invalid_camera_clip_planes.reset();
             m_invalid_render_size = false;
             return std::nullopt;
         }
-        m_missing_primary_camera = false;
 
-        if(primary_camera_count > 1) {
+        if(view.camera_selection == RenderView::CameraSelection::ScenePrimary
+            && primary_camera_count > 1) {
             if(!m_multiple_primary_cameras) {
                 LOG_WARN("Render scene has {} primary cameras; using entity {}",
-                    primary_camera_count, primary_camera->entity_id);
+                    primary_camera_count, camera->entity_id);
                 m_multiple_primary_cameras = true;
             }
         } else {
             m_multiple_primary_cameras = false;
         }
 
-        if(render_size.x == 0 || render_size.y == 0) {
+        if(view.render_size.x == 0 || view.render_size.y == 0) {
             if(!m_invalid_render_size) {
                 LOG_WARN("Cannot build camera projection for render size {}x{}",
-                    render_size.x, render_size.y);
+                    view.render_size.x, view.render_size.y);
                 m_invalid_render_size = true;
             }
             m_invalid_camera_fov.reset();
@@ -77,39 +96,35 @@ namespace Comet {
         }
         m_invalid_render_size = false;
 
-        if(!std::isfinite(primary_camera->fov_degrees)
-            || primary_camera->fov_degrees <= 0.0f
-            || primary_camera->fov_degrees >= 180.0f) {
-            if(m_invalid_camera_fov != primary_camera->entity_id) {
+        if(!std::isfinite(camera->fov_degrees) || camera->fov_degrees <= 0.0f
+            || camera->fov_degrees >= 180.0f) {
+            if(m_invalid_camera_fov != camera->entity_id) {
                 LOG_ERROR("Primary camera entity {} has invalid FOV {} degrees",
-                    primary_camera->entity_id, primary_camera->fov_degrees);
+                    camera->entity_id, camera->fov_degrees);
             }
-            m_invalid_camera_fov = primary_camera->entity_id;
+            m_invalid_camera_fov = camera->entity_id;
             m_invalid_camera_clip_planes.reset();
             return std::nullopt;
         }
         m_invalid_camera_fov.reset();
 
-        if(!std::isfinite(primary_camera->near_clip)
-            || !std::isfinite(primary_camera->far_clip)
-            || primary_camera->near_clip <= 0.0f
-            || primary_camera->far_clip <= primary_camera->near_clip) {
-            if(m_invalid_camera_clip_planes != primary_camera->entity_id) {
+        if(!std::isfinite(camera->near_clip) || !std::isfinite(camera->far_clip)
+            || camera->near_clip <= 0.0f || camera->far_clip <= camera->near_clip) {
+            if(m_invalid_camera_clip_planes != camera->entity_id) {
                 LOG_ERROR(
                     "Primary camera entity {} has invalid clip planes: near={}, far={}",
-                    primary_camera->entity_id, primary_camera->near_clip,
-                    primary_camera->far_clip);
+                    camera->entity_id, camera->near_clip, camera->far_clip);
             }
-            m_invalid_camera_clip_planes = primary_camera->entity_id;
+            m_invalid_camera_clip_planes = camera->entity_id;
             return std::nullopt;
         }
         m_invalid_camera_clip_planes.reset();
 
-        const float aspect =
-            static_cast<float>(render_size.x) / static_cast<float>(render_size.y);
-        return ViewProjectMatrix{.view = primary_camera->view_matrix,
-            .projection = Math::perspective(primary_camera->fov_degrees, aspect,
-                primary_camera->near_clip, primary_camera->far_clip)};
+        const float aspect = static_cast<float>(view.render_size.x)
+                             / static_cast<float>(view.render_size.y);
+        return ViewProjectMatrix{.view = camera->view_matrix,
+            .projection = Math::perspective(
+                camera->fov_degrees, aspect, camera->near_clip, camera->far_clip)};
     }
 
     std::optional<ResolvedRenderItem> SceneResolver::resolve_item(

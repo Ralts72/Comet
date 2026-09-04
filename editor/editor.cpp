@@ -183,9 +183,9 @@ namespace {
         }
 
         void update_viewport_state() {
-            if(const auto resize_request = m_viewport_panel->take_resize_request()) {
-                get_engine().get_renderer().resize_offscreen_target(*resize_request);
-            }
+            get_engine().get_renderer().set_render_view(CometEditor::make_render_view(
+                m_editor_state, m_viewport_panel->is_visible(),
+                m_viewport_panel->get_requested_render_size()));
         }
 
         void update_viewport_texture(Comet::SceneRenderer& scene_renderer) {

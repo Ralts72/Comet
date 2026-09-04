@@ -5,12 +5,18 @@
 #include "../test_utils.h"
 
 namespace Comet::Tests {
+    namespace {
+        RenderView runtime_view(const Math::Vec2u size) {
+            return RenderView{.render_size = size};
+        }
+    }
+
     TEST(SceneResolverTest, EmptySceneProducesEmptySubmission) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);
 
         const RenderSubmission submission =
-            resolver.resolve(RenderScene{}, Math::Vec2u(1280, 720));
+            resolver.resolve(RenderScene{}, runtime_view(Math::Vec2u(1280, 720)));
 
         EXPECT_FALSE(submission.view_project_matrix);
         EXPECT_TRUE(submission.render_items.empty());
@@ -26,7 +32,7 @@ namespace Comet::Tests {
             .material_handle = AssetHandle(12)});
 
         const RenderSubmission submission =
-            resolver.resolve(render_scene, Math::Vec2u(1280, 720));
+            resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)));
 
         EXPECT_TRUE(submission.render_items.empty());
     }
@@ -45,13 +51,52 @@ namespace Comet::Tests {
             .far_clip = 500.0f});
 
         const RenderSubmission submission =
-            resolver.resolve(render_scene, Math::Vec2u(1600, 900));
+            resolver.resolve(render_scene, runtime_view(Math::Vec2u(1600, 900)));
 
         ASSERT_TRUE(submission.view_project_matrix);
         EXPECT_TRUE(
             TestUtils::Mat4Equal(submission.view_project_matrix->view, view_matrix));
         EXPECT_TRUE(TestUtils::Mat4Equal(submission.view_project_matrix->projection,
             Math::perspective(60.0f, 1600.0f / 900.0f, 0.2f, 500.0f)));
+    }
+
+    TEST(SceneResolverTest, CameraOverrideWinsOverScenePrimary) {
+        const AssetRegistry asset_registry;
+        SceneResolver resolver(asset_registry);
+        RenderScene render_scene;
+        render_scene.cameras.push_back({.entity_id = 7,
+            .primary = true,
+            .view_matrix = Math::Mat4(1.0f),
+            .fov_degrees = 45.0f});
+        const Math::Mat4 editor_view = Math::look_at(
+            Math::Vec3(4.0f, 3.0f, 2.0f), Math::Vec3(0.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
+
+        const RenderSubmission submission = resolver.resolve(
+            render_scene, RenderView{.render_size = Math::Vec2u(1600, 900),
+                              .camera_selection = RenderView::CameraSelection::Override,
+                              .camera_override = RenderCamera{.view_matrix = editor_view,
+                                  .fov_degrees = 70.0f,
+                                  .near_clip = 0.5f,
+                                  .far_clip = 250.0f}});
+
+        ASSERT_TRUE(submission.view_project_matrix);
+        EXPECT_TRUE(
+            TestUtils::Mat4Equal(submission.view_project_matrix->view, editor_view));
+        EXPECT_TRUE(TestUtils::Mat4Equal(submission.view_project_matrix->projection,
+            Math::perspective(70.0f, 1600.0f / 900.0f, 0.5f, 250.0f)));
+    }
+
+    TEST(SceneResolverTest, MissingCameraOverrideDoesNotFallBackToScene) {
+        const AssetRegistry asset_registry;
+        SceneResolver resolver(asset_registry);
+        RenderScene render_scene;
+        render_scene.cameras.push_back({.entity_id = 7, .primary = true});
+
+        const RenderSubmission submission = resolver.resolve(
+            render_scene, RenderView{.render_size = Math::Vec2u(1280, 720),
+                              .camera_selection = RenderView::CameraSelection::Override});
+
+        EXPECT_FALSE(submission.view_project_matrix);
     }
 
     TEST(SceneResolverTest, SelectsLowestEntityIdWhenMultipleCamerasArePrimary) {
@@ -66,7 +111,7 @@ namespace Comet::Tests {
             {.entity_id = 3, .primary = true, .view_matrix = selected_view});
 
         const RenderSubmission submission =
-            resolver.resolve(render_scene, Math::Vec2u(1280, 720));
+            resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)));
 
         ASSERT_TRUE(submission.view_project_matrix);
         EXPECT_TRUE(
@@ -80,19 +125,19 @@ namespace Comet::Tests {
         render_scene.cameras.push_back(
             {.entity_id = 7, .primary = true, .fov_degrees = 180.0f});
 
-        EXPECT_FALSE(
-            resolver.resolve(render_scene, Math::Vec2u(1280, 720)).view_project_matrix);
+        EXPECT_FALSE(resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)))
+                .view_project_matrix);
 
         render_scene.cameras.front().fov_degrees = 45.0f;
         render_scene.cameras.front().near_clip = 1.0f;
         render_scene.cameras.front().far_clip = 0.5f;
-        EXPECT_FALSE(
-            resolver.resolve(render_scene, Math::Vec2u(1280, 720)).view_project_matrix);
+        EXPECT_FALSE(resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)))
+                .view_project_matrix);
 
         render_scene.cameras.front().far_clip = 100.0f;
-        EXPECT_FALSE(
-            resolver.resolve(render_scene, Math::Vec2u(0, 720)).view_project_matrix);
-        EXPECT_TRUE(
-            resolver.resolve(render_scene, Math::Vec2u(1280, 720)).view_project_matrix);
+        EXPECT_FALSE(resolver.resolve(render_scene, runtime_view(Math::Vec2u(0, 720)))
+                .view_project_matrix);
+        EXPECT_TRUE(resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)))
+                .view_project_matrix);
     }
 }

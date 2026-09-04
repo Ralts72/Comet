@@ -23,7 +23,7 @@ namespace Comet {
 
         void enable_offscreen_rendering(Math::Vec2u initial_size);
 
-        void resize_offscreen_target(Math::Vec2u size) const;
+        void set_render_view(RenderView view);
 
         using ImGuiRenderDelegate = std::function<void(CommandBuffer&)>;
 
@@ -51,6 +51,7 @@ namespace Comet {
         std::unique_ptr<ResourceManager> m_resource_manager;
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         SceneResolver m_scene_resolver;
+        RenderView m_render_view;
         ImGuiRenderDelegate m_on_imgui_render;
     };
 }

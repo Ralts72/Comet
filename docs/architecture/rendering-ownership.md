@@ -22,6 +22,7 @@ Engine
     │   ├── UploadManager
     │   ├── ShaderManager
     │   └── SamplerManager
+    ├── RenderView
     ├── SceneResolver
     └── SceneRenderer
         ├── RenderPass/PipelineManager/Pipeline
@@ -36,6 +37,8 @@ Engine
         └── MaterialDescriptorState[material][frame slot]
 
 Editor
+├── EditorState
+│   └── EditorCameraState
 ├── SceneDocument (New/Open/Save + current path)
 ├── EditorSceneSession (Edit/Play scene switching)
 └── ImGuiContext
@@ -65,7 +68,9 @@ Editor
 runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slot 分配的 `MultiTarget` 生成离屏颜色纹理，
 `ImGuiContext` 通过私有纹理绑定持有离屏 `ImageView` 和 `Sampler` 的共享引用，并拥有对应的 ImGui descriptor；
 最终 swapchain 只由 ImGui render pass 清屏、合成和呈现。editor 只有一个 Viewport，Edit/Play 复用同一组离屏输出
-并切换活动 Scene 与交互状态。
+并切换活动 Scene 与 Camera 来源：Edit 提交不属于 Scene 的 editor camera 快照，Play 请求 Runtime Scene 的 primary Camera。
+`RenderView` 是 Renderer 与 SceneResolver 共同消费的纯值：它通过内嵌的 `CameraSelection` 选择 Scene primary Camera 或请求携带的
+`RenderCamera` override，不包含 `EditorMode`、ImGui 类型或尚无消费者的输入策略。
 
 ## 生命周期约束
 
@@ -121,9 +126,13 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
 - `FrameScheduler`：拥有 FrameSlot 轮转、fence 等待、swapchain image 关联、submission serial 和当前 slot 的
   RetainedResources；实际 draw 的 Mesh/Texture owner 在该 slot fence 完成后统一释放。
 - `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。Runtime Mesh/Texture 创建失败时记录具体结果，首次加载不注册，刷新不替换旧对象。
-- `SceneResolver`：选择并校验主 Camera，根据 RenderTarget 尺寸生成 view/projection，将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断。
+- `Renderer`：保存当前 RenderView，应用可见 Viewport 的稳定目标尺寸，并在解析前以实际 RenderTarget 尺寸覆盖目标尺寸；
+  编排 RenderScene 解析、帧开始/结束和 ImGui 回调，不读取 Material 属性或管理 descriptor。
+- `SceneResolver`：按 RenderView 选择 Camera override 或 Scene primary Camera，根据实际 RenderTarget 尺寸生成 view/projection，
+  将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断；请求 override 却未提供 Camera 时不会静默回退。
 - `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；从实际 Mesh/Texture 绑定汇总 ready wait，并向 FrameScheduler 登记当前帧使用的 owner；没有有效主 Camera 时不提交场景 draw。
-- `ViewPanel`：拥有面板逻辑尺寸和 resize debounce；尺寸连续稳定后只产生一次 resize request。Renderer 不保存编辑器面板的稳定帧状态，只在请求到达后等待相关 FrameSlot 并调整离屏 RenderTarget。
+- `ViewPanel`：拥有面板逻辑尺寸和 resize debounce；尺寸连续稳定后更新请求使用的目标尺寸。Renderer 不保存编辑器面板的稳定帧状态，
+  只对可见 Viewport 应用该稳定尺寸并调整离屏 RenderTarget。
 - `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；通过私有绑定共享
   SceneRenderer 的离屏 `ImageView` 生命周期，但不创建或直接销毁这些 engine 图形资源。
 - `Scene`：只保存实体、可序列化组件和 `AssetHandle`，不保存 Device、GPU对象或文件路径。
@@ -131,7 +140,6 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
 
 Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/resource/`；Material 保留在渲染语义层，不归入设备资源创建子目录。
 `RenderScene → SceneExtractor → SceneResolver → RenderSubmission → SceneRenderer` 流水线集中在 `engine/src/render/scene/`，顶层 `Renderer` 只负责编排渲染上下文、资源管理器和这条场景渲染链路。
-- `Renderer`：编排 RenderScene 解析、帧开始/结束和 ImGui 回调，不读取 Material 属性或管理 descriptor。
 
 ## 帧同步
 
@@ -180,5 +188,5 @@ ViewPanel 尺寸稳定后才触发离屏目标重建；当前实现会在该低�
 - 违反引擎内部构造前置条件时使用 `LOG_FATAL` 记录诊断并立即终止，禁止部分初始化对象继续传播。
 - Vulkan/VMA 创建失败必须立即终止当前创建流程，不能返回带空 handle 的可用对象。
 - 可恢复的运行时状态，例如无效 AssetHandle 或缺失资源，应返回空结果并由提交层跳过，同时输出诊断。
-- 缺少主 Camera、Camera 参数非法或渲染尺寸为零时保留清屏和编辑器 UI，但跳过场景 draw；重复状态不得每帧刷屏。
+- 缺少请求指定的 Camera、Camera 参数非法或渲染尺寸为零时保留清屏和编辑器 UI，但跳过场景 draw；重复状态不得每帧刷屏。
 - `eErrorOutOfDateKHR` 和 `eSuboptimalKHR` 触发 swapchain 重建；其他 present/acquire 错误不得被静默忽略。

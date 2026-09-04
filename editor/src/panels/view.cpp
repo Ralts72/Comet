@@ -15,12 +15,14 @@ namespace CometEditor {
 
         if(!m_user_visible) {
             m_viewport_size = Comet::Math::Vec2u(0);
+            m_requested_render_size = Comet::Math::Vec2u(0);
             m_viewport_size_stable_frames = 0;
             return;
         }
 
         if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
             m_viewport_size = Comet::Math::Vec2u(0);
+            m_requested_render_size = Comet::Math::Vec2u(0);
             m_viewport_size_stable_frames = 0;
             ImGui::End();
             return;
@@ -28,6 +30,7 @@ namespace CometEditor {
 
         if(ImGui::IsWindowCollapsed()) {
             m_viewport_size = Comet::Math::Vec2u(0);
+            m_requested_render_size = Comet::Math::Vec2u(0);
             m_viewport_size_stable_frames = 0;
             ImGui::End();
             return;
@@ -67,6 +70,9 @@ namespace CometEditor {
             m_viewport_size_stable_frames = 0;
         } else if(m_viewport_size_stable_frames < RESIZE_STABLE_FRAME_COUNT) {
             ++m_viewport_size_stable_frames;
+            if(m_viewport_size_stable_frames == RESIZE_STABLE_FRAME_COUNT) {
+                m_requested_render_size = m_viewport_size;
+            }
         }
 
         if(m_texture_id != ImTextureID_Invalid && m_texture_width > 0
@@ -103,14 +109,4 @@ namespace CometEditor {
         m_texture_height = 0;
     }
 
-    std::optional<Comet::Math::Vec2u> ViewPanel::take_resize_request() {
-        if(m_viewport_size_stable_frames < RESIZE_STABLE_FRAME_COUNT
-            || m_viewport_size == Comet::Math::Vec2u(0)
-            || m_viewport_size == m_last_requested_size) {
-            return std::nullopt;
-        }
-
-        m_last_requested_size = m_viewport_size;
-        return m_viewport_size;
-    }
 }
