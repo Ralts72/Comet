@@ -6,7 +6,7 @@ Vulkan 渲染资源管理和 ImGui 编辑器工作流持续演进。
 ## 项目结构
 
 - `engine/`：共享引擎库；源码位于 `engine/src/`，GLSL Shader 位于 `engine/shaders/`。
-- `editor/`：ImGui 编辑器入口、面板和编辑器私有资源；Project 会在资产源文件树变化时自动刷新。
+- `editor/`：ImGui 编辑器入口、面板和编辑器私有资源；Project 会自动刷新资产源文件树，并提供资产移动与重命名入口。
 - `app/`：Runtime 示例程序。
 - `assets/`：项目源资产及其 `.meta`；资产身份随源码进入版本控制。
 - `config/`：共享配置与 `dev-debug`、`editor-dev`、`app-release` Profile。
@@ -64,6 +64,7 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
   `AssetManager::scan()`，不会在监视器中直接导入或修改 Registry。
   Handle 可随资产移动保持稳定，但对应的 AssetType 不可改变；类型转换必须分配新 Handle，否则数据库拒绝候选快照。
   `AssetManager::move_asset()` 会把源文件与相邻 `.meta` 作为同一事务移动，扫描无法形成可信快照时回滚文件和数据库候选状态。
+  Project 面板只提交选中的 Handle 和 `assets/` 相对目标路径；成功后保持选中状态，并同步 Inspector、Log 和资产源监视器。
   Mesh Artifact 保存主 glTF 和外部 buffer 的内容快照，导入服务据此判断是否需要重建；Runtime 加载不检查源文件。
 - Graphics 后端使用 Vulkan 1.3、VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
   Vulkan 类型应限制在 Graphics 后端及明确需要底层能力的 Render 实现中。

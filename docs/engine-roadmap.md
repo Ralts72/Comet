@@ -2,7 +2,7 @@
 
 首次生成：2026-07-05
 
-最近更新：2026-09-01
+最近更新：2026-09-04
 
 ## 目标定位
 
@@ -16,7 +16,7 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 
 - C++20/CMake 工程、分层运行配置、Diagnostics 和 GoogleTest 基础已经建立。
 - Scene/ECS、Transform 层级、组件元数据、场景序列化和隔离的 Edit/Play Scene 已形成闭环。
-- AssetHandle、Asset Database、Texture/Material/glTF Mesh 导入、Mesh Artifact、事务式资产移动后端、Mesh/Texture 后台刷新与 Editor 自动监视已经可用。
+- AssetHandle、Asset Database、Texture/Material/glTF Mesh 导入、Mesh Artifact、事务式资产移动与 Project 操作入口、Mesh/Texture 后台刷新及 Editor 自动监视已经可用。
 - Vulkan 1.3 后端已采用 VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
 - ImGui 编辑器已接通 Hierarchy、Inspector、Project、Log 和单一离屏 Viewport。
 - Shader 由 CMake 显式选择 GLSL，并在构建目录生成 `.spv` 与嵌入式 Header。
@@ -24,8 +24,8 @@ Comet 的长期目标建议定位为 **Unity/Godot 风格的编辑器型游戏�
 ### 当前主要形态
 
 Comet 目前仍是编辑器型引擎原型，但已经跨过“Renderer 内硬编码 demo”的阶段。当前位于阶段 3 收尾：Mesh/Texture
-已经接入可恢复创建和后台 CPU 刷新边界，Editor 也能自动发现资产源变化；资产移动后端已经完成，接下来补齐对应 Project UI，
-再进入阶段 4 的 editor-only Camera、Viewport 输入和交互闭环。
+已经接入可恢复创建和后台 CPU 刷新边界，Editor 能自动发现资产源变化，并已打通资产移动/重命名交互；接下来进入阶段 4 的
+editor-only Camera、Viewport 输入和交互闭环。
 渲染端仍使用固定 Pipeline 与两张 Texture 的材质假设，运行时 System 调度、完整 RenderGraph 和独立 RenderThread 尚未建立。
 
 ## 距离成熟编辑器型引擎的核心缺口
@@ -84,7 +84,7 @@ Scene 数据模型已经有了地基，但只有完成渲染和编辑器闭环�
 创建、删除、重命名和场景文件操作会作用于真实 Scene，场景输出已通过离屏目标进入 View 面板。
 接下来仍缺少：
 
-- Project 缩略图、搜索、拖拽与创建/重命名资产工作流。
+- Project 缩略图、搜索、拖拽、创建资产与显式导入工作流；基础移动/重命名已经可用。
 - Viewport 在 Edit 时使用 editor camera、选择、高亮、gizmo 和拾取，在 Play 时使用场景 primary camera 与游戏输入。
 - Viewport 在 resize 后保持交互坐标、渲染分辨率与显示区域一致。
 - Add Component、Remove Component 和组件搜索菜单。
@@ -857,7 +857,7 @@ Viewport 均已接通。Scene 不持有路径或 GPU Resource，`LightComponent`
 剩余任务：
 
 - 为非关键 streaming 资源建立占位、重试或淘汰策略后，再选择性启用 `WITHIN_BUDGET`；RenderTarget 等关键资源继续强失败。
-- 在 Project 面板接入资产改名/移动交互，并让 AssetSourceMonitor 精确确认已知移动路径。
+- 在 Project 面板补充 Mesh 显式导入/重新导入入口和 Artifact 状态展示。
 - 让 `Device` 提供实际启用 feature、extension、queue、limit 和 format 的不可变 CapabilitySet。
 - 在 metadata 与导入产物契约稳定后，沿用 Mesh 已建立的“Importer → Artifact → Runtime”边界设计 Shader 编译产物、缓存键和打包 Manifest。
 - 仅在出现无法绑定到单一 FrameSlot 的真实退休需求后引入 `GpuRetirementQueue`。
@@ -1110,7 +1110,7 @@ Scene Component / RenderItem
 
 ## 当前优先级
 
-1. 完成阶段 3 的可恢复 GPU 创建架构复盘和资产移动/改名闭环。
+1. 完成阶段 3 的可恢复 GPU 创建架构复盘和 Mesh 显式导入编辑器入口。
 2. 推进阶段 4A/4B：editor-only Camera、Viewport 输入、HiDPI 与渲染分辨率策略。
 3. 推进阶段 4C：拾取、Gizmo、Undo/Redo 和 Prefab MVP。
 4. 进入阶段 5 后先解除材质两张 Texture 的硬编码，再建立 ShaderInterface、MaterialLayout 和 PipelineKey。
@@ -1120,10 +1120,10 @@ Scene Component / RenderItem
 
 ## 下一步
 
-下一步完成 **Project 资产移动/重命名 UI**。后端已经通过 `AssetManager::move_asset()` 建立源文件、`.meta`、候选数据库扫描和
-Runtime 刷新的事务闭环；Project 面板需要以选中 Handle 发起操作，统一显示返回诊断，并让 `AssetSourceMonitor` 确认旧/新路径，避免下一轮轮询重复扫描。
+下一步进入 **阶段 4A：Viewport Render Request 与 editor-only camera 边界**。先建立不依赖 ImGui 的请求值对象，明确 Edit/Play 的
+Camera 来源、RenderTarget 尺寸和输入策略，再让现有单 Viewport 提交链消费它；本步不混入相机操控、HiDPI、拾取或多 Viewport。
 
-随后完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
+阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。
 
 随后再把同一边界扩展到 Texture；不直接复制旧的源文件多阶段验票方案，而是让 Runtime 同样只消费已发布 Artifact。

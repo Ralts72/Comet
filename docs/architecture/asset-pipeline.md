@@ -27,7 +27,7 @@ Mesh 外部 buffer 的导入源依赖也已接入 Asset Database 精确失效。
 
 ```text
 ProjectPanel
-    ↓ 只读 AssetRecord / 请求刷新
+    ↓ 只读 AssetRecord / 请求刷新或提交移动请求
 AssetDatabase
     ↓ AssetHandle → AssetRecord(type, relative path, validated import settings, dependencies)
     ↓ 每次已提交变化 → 单调 AssetRevision
@@ -100,7 +100,7 @@ ProjectPanel → SelectionService(AssetHandle) → Inspector
 资产移动复用同一个扫描提交与 Runtime 刷新入口：
 
 ```text
-Project UI / future CLI → AssetManager::move_asset(Handle, destination)
+ProjectPanel / future CLI → AssetManager::move_asset(Handle, destination)
     → AssetSourceOperations 前置校验源文件、.meta、目标路径和资产身份
     → 成对移动 source 与 sidecar
     → AssetDatabase 候选副本执行 scan()
@@ -148,7 +148,8 @@ Mesh 和 Texture 保持分立文件：它们的 CPU 数据、导入契约、Arti
 - `RenderResourceFactory`：AssetManager 尝试创建 Runtime Texture/Mesh 所需的窄接口，返回 `GpuResourceResult`，不暴露 Shader/Sampler 等无关能力。
 - `ResourceManager`：实现 `RenderResourceFactory`，对资产创建使用受 memory budget 约束的 try path，并维护 Shader/Sampler 等设备级共享资源；不认识 `AssetHandle`、`MaterialData`、`.meta` 或源文件路径。
 - `AssetRegistry`：作为唯一的 Handle 缓存，保存已发布运行时对象的带类型共享引用，并允许同类型候选对象替换；Scene 中仍只保存 Handle。
-- `ProjectPanel`：显示 Asset Database 的快照和扫描问题，并向共享 Selection 发布 Asset Handle；不自己访问文件系统或创建 GPU 资源。
+- `ProjectPanel`：显示 Asset Database 的快照和扫描问题，并向共享 Selection 发布 Asset Handle；移动/重命名时只通过回调提交 Handle
+  和项目相对目标路径。文件事务、数据库扫描和 Runtime 刷新仍由 AssetManager 完成，面板不自己访问文件系统或创建 GPU 资源。
 - `Inspector`：根据共享 Selection 显示 Entity 或 Asset；Material 编辑器只允许从已索引 Texture 中选择属性，模板身份仍只读；Material 和 Texture 控件都只在值变化事件发生时自动提交，失败时恢复旧值。更新成功或失败统一写入 Logger 并由 Log 面板展示，Inspector 只显示当前资产的加载或字段校验错误。
 
 ## 生命周期
@@ -163,6 +164,9 @@ Material/Texture/Mesh 替换只交换 Registry 中的 `shared_ptr`，已取得�
 
 Project 手动刷新或 `AssetSourceMonitor` 发现变化后都复用同一个 `AssetManager::scan()`：成功提交快照后，会通过变化集清理删除资产及其依赖对象、刷新已加载的修改资产，并以事件方式使 Inspector
 丢弃同一 Handle 的旧编辑缓存；扫描目录暂时不可访问时三者继续使用上一份有效快照。更通用的递归 AssetHandle 依赖 revision、原生文件事件后端和 GPU retirement 仍属于后续工作。
+
+Project 面板发起的移动成功后，Editor 会确认监视器中的旧 source、旧 `.meta`、新 source 和新 `.meta` 路径，避免下一次轮询把自身操作
+重复识别为外部变化；同一 Handle 的 Selection 会保留，Inspector 缓存按事件失效。失败诊断留在移动对话框和 Log 中，后端已回滚的文件与数据库不会由 UI 再次补偿。
 
 Scene、Material 和 `.meta` 使用同一原子文本写入函数：先在目标目录写完临时文件，再原子替换正式文件，避免直接截断造成半写文件。
 Mesh Artifact 复用同一临时文件替换机制写入二进制数据；发布失败意味着本次导入没有完成，旧 Artifact 和旧 Runtime Mesh 继续有效。
