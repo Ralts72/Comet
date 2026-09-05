@@ -42,6 +42,8 @@ namespace Comet {
         [[nodiscard]] vk::Result present(const Swapchain& swapchain,
             std::span<const Semaphore> wait_semaphores, uint32_t image_index) const;
 
+        void wait_idle() const;
+
         [[nodiscard]] vk::Queue get() const { return m_queue; }
 
     private:

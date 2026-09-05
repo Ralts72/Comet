@@ -384,7 +384,8 @@ frame-compile tracker，持久资源通过明确 handoff state 连接两者；�
 
 当前 `FrameSlot` 持有 in-flight fence、submission serial 和实际录制所引用的 Runtime owner；`FrameScheduler` 会在
 复用 slot 前等待该 fence 并释放 RetainedResources。viewport resize 已改为完整创建并切换新的离屏目标，旧目标也由
-引用它的 FrameSlot 延迟释放；swapchain recreation、渲染模式切换和 renderer cleanup 仍通过 `Device::wait_idle()`
+引用它的 FrameSlot 延迟释放；swapchain recreation 会等待全部 graphics frame-slot fence，并在没有 present
+completion 时使用 present queue idle 回退；渲染模式切换和 renderer cleanup 仍通过 `Device::wait_idle()`
 保证旧资源不再被 GPU 使用。这对当前阶段是
 安全且简单的基线，但不能作为 texture/shader/pipeline 热重载、资产卸载、streaming 和持续 resize 的常规资源替换机制。
 
@@ -429,12 +430,12 @@ record draw using resource R
 
 ### Swapchain Generation 与重建事务
 
-当前 `SceneRenderer::recreate_swapchain()` 仍使用 `Device::wait_idle()` 基线，但已经明确 dependent 生命周期边界：
-idle 后先释放 runtime `SwapchainTarget` 和 editor ImGui target，再由 `Swapchain::recreate()` 构建局部
-`Swapchain::Generation` 候选。generation 收拢 handle、borrowed images、config 与 current index，全部就绪后才替换
-active shared owner；窗口最小化延期或 `vkCreateSwapchainKHR` 失败时保留旧 core 并恢复 dependent。
-父子对象顺序、core active 字段事务、config compatibility diff 和 dependent 对 core generation 的
-shared ownership 已建立；present completion 与完整 RenderPass/Pipeline generation 尚未完成。
+当前 `SceneRenderer::recreate_swapchain()` 会等待全部 graphics frame-slot fence，并在没有 present completion 的平台
+只等待 present queue；之后释放 runtime `SwapchainTarget` 和 editor ImGui target，再由 `Swapchain::recreate()` 构建
+局部 `Swapchain::Generation` 候选。generation 收拢 handle、borrowed images、config 与 current index，全部就绪后
+才替换 active shared owner；窗口最小化延期或 `vkCreateSwapchainKHR` 失败时保留旧 core 并恢复 dependent。
+父子对象顺序、core active 字段事务、config compatibility diff 和 dependent 对 core generation 的 shared ownership
+已建立；完整 RenderPass/Pipeline generation 尚未完成。
 
 目标结构按代际管理：
 
@@ -480,8 +481,8 @@ prepare CPU plan + validate format-dependent compatibility
 
 graphics FrameSlot fence 只证明相关 graphics submission 完成，不自动证明 presentation engine 已释放旧 presentable
 image。旧 swapchain 的回收必须使用可用的 present completion/fence；平台不支持时，对 present queue 执行局部
-`waitIdle()` 作为兼容回退。不能仅把 old swapchain 放入任意 FrameSlot 的 deferred batch。现阶段继续使用
-`Device::wait_idle()` 是可接受基线，先建立 generation 所有权和事务，再缩小等待范围。
+`waitIdle()` 作为兼容回退。不能仅把 old swapchain 放入任意 FrameSlot 的 deferred batch。当前实现已经按这两个
+依赖范围等待，不再用全局 `Device::wait_idle()` 阻塞无关 queue。
 
 ### Vulkan 同步演进顺序
 
@@ -937,7 +938,7 @@ Scene Component / RenderItem
   extent、format 和 image count 失效；editor 按 diff 精确重建 backend。
 - 将 swapchain 重建改为 prepare/create/commit/retire generation 流程。engine core、runtime present target 和 editor ImGui
   dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
-- old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
+- [x] old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
   present-queue idle 回退，不用不相关的全局 Device idle 代替依赖判断。
 - [x] 为超大 View 增加设备硬上限与 editor 软上限，等比约束最终物理分辨率，避免无上限重建离屏资源。
 
@@ -1141,9 +1142,8 @@ FrameSlot 保留到 fence 完成，ImGui binding 也按 slot 安全替换。本�
 Viewport 物理分辨率约束已完成：Editor 将设备 `maxImageDimension2D` 与 4096 软上限合并后传入纯 `ViewportLayout`，
 Free、16:9 和 Fixed 的最终结果都会等比收敛到有效范围，Renderer 不再接收无上限的附件尺寸。
 
-下一步继续建立 swapchain retirement：记录最后一次使用旧 generation 的 graphics completion，并在无法获得
-presentation completion 的平台使用最窄 present-queue idle 回退；随后移除 swapchain 正常重建路径中的全
-Device idle。shutdown 和 device-lost 回退中的 idle 仍保留。
+下一步做一次阶段 4B 完成审计：核对离屏/swapchain generation、compatibility、失败状态和等待范围，清理过渡期
+重复接口，并决定 runtime format-dependent Pipeline generation 是进入阶段 4C 前补齐，还是归入后续渲染管线阶段。
 
 阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。

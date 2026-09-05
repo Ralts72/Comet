@@ -194,8 +194,9 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
   生成 release/acquire barrier，并使用 semaphore/timeline 连接，不能靠一次 transition 冒充完整 ownership transfer。
 
 交换链重建只重建 image state 和 swapchain target，不改变 frame slot 数量，也不重建 editor 离屏目标。
-当前重建由 SceneRenderer 统一编排：先等待 Device idle，再释放 runtime `SwapchainTarget` 和 editor ImGui
-swapchain target，之后才允许 Swapchain 创建 core 候选。`Swapchain::Generation` 把 handle、borrowed images、
+当前重建由 SceneRenderer 统一编排：先等待全部 graphics frame-slot fence，并在缺少 present completion 时只等待
+present queue，再释放 runtime `SwapchainTarget` 和 editor ImGui swapchain target，之后才允许 Swapchain 创建 core
+候选。`Swapchain::Generation` 把 handle、borrowed images、
 config 和 current image index 收拢为单一 shared owner；候选全部就绪后才替换 active generation，
 `vkCreateSwapchainKHR` 失败不会覆盖旧 active 状态。成功后重建 runtime target、FrameScheduler per-image
 state 和 ImGui target。runtime `SwapchainTarget` 与 editor ImGui target 都共享持有各自构造时使用的 core
@@ -206,7 +207,8 @@ surface format 和 image count 变化；editor 只在 format/image count 失效�
 swapchain 恢复 dependent，不会留下半释放的活动渲染器。Editor shutdown 会先解绑捕获 ImGuiContext 的回调。
 ViewPanel 尺寸稳定后才触发离屏目标 generation 创建，提交后旧目标由实际引用它的 FrameSlot 延迟释放，不等待全部
 FrameSlot 或 Device idle。正常呈现路径不得依赖每帧 `queue.waitIdle()`；阻塞式资源上传也只等待自己的 timeline
-completion。Device idle 目前只用于关闭和 swapchain 重建等全局资源切换点。
+completion。Device idle 目前只用于关闭、渲染模式初始化和 device-lost 等全局安全边界；swapchain 在没有
+present completion 的平台仅使用 present queue idle 回退。
 
 ## 错误处理
 

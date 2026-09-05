@@ -73,10 +73,12 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
   Project 面板只提交选中的 Handle 和 `assets/` 相对目标路径；成功后保持选中状态，并同步 Inspector、Log 和资产源监视器。
   Mesh Artifact 保存主 glTF 和外部 buffer 的内容快照，导入服务据此判断是否需要重建；Runtime 加载不检查源文件。
 - Graphics 后端使用 Vulkan 1.3、VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
-- Swapchain 重建当前保留 Device idle 安全基线，但会先释放 runtime/ImGui framebuffer target。
-  core handle、borrowed images、config 和 current index 会先组成完整 `Swapchain::Generation` 候选，
+- Swapchain 重建会先等待全部 graphics frame-slot fence，并在缺少 present completion 时只等待 present queue，
+  再释放 runtime/ImGui framebuffer target。core handle、borrowed images、config 和 current index 会先组成完整
+  `Swapchain::Generation` 候选，
   成功后才整体替换 active owner。`SwapchainTarget` 显式共享对应 core，并按 extent、format 和
-  image count 变化精确重建 editor backend；创建失败或窗口最小化延期时保留旧 core 并恢复 dependent。
+  image count 变化精确重建 editor backend；创建失败或窗口最小化延期时保留旧 core 并恢复 dependent，
+  正常重建不再等待整个 Device idle。
   Vulkan 类型应限制在 Graphics 后端及明确需要底层能力的 Render 实现中。
 - 世界与编辑器坐标约定 `+Y` 向上；Vulkan Viewport 使用负高度完成画面坐标转换。Texture 是否翻转仅由对应
   `.meta` 的 `flip_y` 导入设置决定，不用于修正世界坐标。

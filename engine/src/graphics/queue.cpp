@@ -112,4 +112,8 @@ namespace Comet {
         }
         return result;
     }
+
+    void Queue::wait_idle() const {
+        m_queue.waitIdle();
+    }
 }

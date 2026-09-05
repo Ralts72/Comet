@@ -64,6 +64,7 @@ namespace {
     static_assert(!std::is_copy_assignable_v<Queue>);
     static_assert(std::is_move_constructible_v<Queue>);
     static_assert(!std::is_move_assignable_v<Queue>);
+    static_assert(std::is_invocable_r_v<void, decltype(&Queue::wait_idle), const Queue&>);
 
     static_assert(
         std::is_same_v<decltype(std::declval<const Swapchain&>().get_active_generation()),
