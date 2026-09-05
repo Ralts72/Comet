@@ -1,4 +1,5 @@
 #pragma once
+#include "graphics/swapchain.h"
 #include "graphics/vk_common.h"
 #include "graphics/resource/resource_result.h"
 #include "core/math_utils.h"
@@ -10,7 +11,6 @@ namespace Comet {
     class ImageView;
     class FrameBuffer;
     class RenderPass;
-    class Swapchain;
     class Device;
     class CommandBuffer;
 
@@ -76,8 +76,6 @@ namespace Comet {
 
     class COMET_API SwapchainTarget final: public RenderTarget {
     public:
-        SwapchainTarget(Device& device, RenderPass& render_pass, Swapchain& swapchain);
-
         ~SwapchainTarget() override;
 
         void recreate() override;
@@ -95,7 +93,12 @@ namespace Comet {
         }
 
     private:
-        Swapchain& m_swapchain;
+        friend class RenderTarget;
+
+        SwapchainTarget(Device& device, RenderPass& render_pass,
+            std::shared_ptr<Swapchain::Generation> swapchain_generation);
+
+        std::shared_ptr<Swapchain::Generation> m_swapchain_generation;
         std::vector<RenderResource> m_render_resources;
     };
 

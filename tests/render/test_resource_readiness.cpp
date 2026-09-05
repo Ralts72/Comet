@@ -36,8 +36,8 @@ namespace Comet::Tests {
 
         template<typename T>
         concept ConfiguresSwapchainResourceLifecycle = requires(T& renderer) {
-            renderer.set_swapchain_resource_callbacks(
-                std::function<void()>{}, std::function<void()>{});
+            renderer.set_swapchain_resource_callbacks(std::function<void()>{},
+                std::function<void(const SwapchainCompatibility&)>{});
         };
 
         template<typename T>

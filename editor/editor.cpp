@@ -165,7 +165,9 @@ namespace {
             // 注册 Swapchain dependent 资源的 release/rebuild 边界
             scene_renderer.set_swapchain_resource_callbacks(
                 [this]() { m_imgui_context->release_swapchain_resources(); },
-                [this]() { m_imgui_context->rebuild_swapchain_resources(); });
+                [this](const Comet::SwapchainCompatibility& compatibility) {
+                    m_imgui_context->rebuild_swapchain_resources(compatibility);
+                });
 
             LOG_INFO("Editor initialized");
         }

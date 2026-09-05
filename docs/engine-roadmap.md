@@ -433,8 +433,8 @@ record draw using resource R
 idle 后先释放 runtime `SwapchainTarget` 和 editor ImGui target，再由 `Swapchain::recreate()` 构建局部
 `Swapchain::Generation` 候选。generation 收拢 handle、borrowed images、config 与 current index，全部就绪后才替换
 active shared owner；窗口最小化延期或 `vkCreateSwapchainKHR` 失败时保留旧 core 并恢复 dependent。
-父子对象顺序和 core active 字段事务已建立，format compatibility、dependent generation 与 present
-completion 尚未完成。
+父子对象顺序、core active 字段事务、config compatibility diff 和 dependent 对 core generation 的
+shared ownership 已建立；present completion 与完整 RenderPass/Pipeline generation 尚未完成。
 
 目标结构按代际管理：
 
@@ -933,6 +933,8 @@ Scene Component / RenderItem
   和 framebuffer 创建成功后才切换，创建失败时继续使用旧目标。
 - [x] 当前提交通过 FrameSlot RetainedResources 保留所用的 RenderTarget；ImGui 只替换已完成 slot 的 descriptor 和
   image view，旧一代按实际 frame completion 释放，resize 不再同步等待全部在途 frame。
+- [x] runtime/ImGui `SwapchainTarget` 显式共享其 core generation，并用纯 compatibility diff 区分
+  extent、format 和 image count 失效；editor 按 diff 精确重建 backend。
 - 将 swapchain 重建改为 prepare/create/commit/retire generation 流程。engine core、runtime present target 和 editor ImGui
   dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
 - old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
@@ -1139,9 +1141,9 @@ FrameSlot 保留到 fence 完成，ImGui binding 也按 slot 安全替换。本�
 Viewport 物理分辨率约束已完成：Editor 将设备 `maxImageDimension2D` 与 4096 软上限合并后传入纯 `ViewportLayout`，
 Free、16:9 和 Fixed 的最终结果都会等比收敛到有效范围，Renderer 不再接收无上限的附件尺寸。
 
-下一步继续建立 swapchain dependent generation：让 runtime `SwapchainTarget` 与 editor ImGui target 显式共享
-它们所基于的 `Swapchain::Generation`，并先建立可纯测试的 config compatibility diff（extent、format、image count）。
-当前仍保留 idle，先让 parent owner 与精确失效传播成立，再接入 graphics/present completion 退休。
+下一步继续建立 swapchain retirement：记录最后一次使用旧 generation 的 graphics completion，并在无法获得
+presentation completion 的平台使用最窄 present-queue idle 回退；随后移除 swapchain 正常重建路径中的全
+Device idle。shutdown 和 device-lost 回退中的 idle 仍保留。
 
 阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。

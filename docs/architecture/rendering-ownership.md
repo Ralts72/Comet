@@ -69,8 +69,10 @@ Editor
 - `std::unique_ptr` 表示独占所有权，`std::shared_ptr` 表示共享生命周期；引用和裸指针都不会延长依赖生命周期。
 - GLFW、Vulkan 等 C API handle 保持各自的原生值或指针形式，不属于 C++ 对象借用约定。
 
-runtime 使用 `SwapchainTarget` 直接呈现场景。editor 使用按 frame slot 分配的 `MultiTarget` 生成离屏颜色纹理，
-`ImGuiContext` 通过私有纹理绑定持有离屏 `ImageView` 和 `Sampler` 的共享引用，并拥有对应的 ImGui descriptor；
+runtime 使用 `SwapchainTarget` 直接呈现场景。公共工厂只临时接收 `Swapchain&`，并在创建时截取当前
+`Swapchain::Generation` 的共享所有权；`MultiTarget` 与它是显式的同级类型，但自身不保存或访问交换链状态。
+editor 使用按 frame slot 分配的 `MultiTarget` 生成离屏颜色纹理，`ImGuiContext` 通过私有纹理绑定持有离屏
+`ImageView` 和 `Sampler` 的共享引用，并拥有对应的 ImGui descriptor；
 最终 swapchain 只由 ImGui render pass 清屏、合成和呈现。editor 只有一个 Viewport，Edit/Play 复用同一组离屏输出
 并切换活动 Scene 与 Camera 来源：Edit 提交不属于 Scene 的 editor camera 快照，Play 请求 Runtime Scene 的 primary Camera。
 `RenderView` 是 Renderer 与 SceneResolver 共同消费的纯值：它通过内嵌的 `CameraSelection` 选择 Scene primary Camera 或请求携带的
@@ -196,7 +198,11 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
 swapchain target，之后才允许 Swapchain 创建 core 候选。`Swapchain::Generation` 把 handle、borrowed images、
 config 和 current image index 收拢为单一 shared owner；候选全部就绪后才替换 active generation，
 `vkCreateSwapchainKHR` 失败不会覆盖旧 active 状态。成功后重建 runtime target、FrameScheduler per-image
-state 和 ImGui target。窗口零尺寸导致 core 重建延期时，会从仍有效的旧
+state 和 ImGui target。runtime `SwapchainTarget` 与 editor ImGui target 都共享持有各自构造时使用的 core
+generation，不再通过可变 `Swapchain&` 查询 images/index。config compatibility diff 明确报告 extent、
+surface format 和 image count 变化；editor 只在 format/image count 失效时重建 ImGui backend，单纯 extent
+变化只重建 target attachments。runtime format 变化在完整 RenderPass/Pipeline generation 接入前会明确终止。
+窗口零尺寸导致 core 重建延期时，会从仍有效的旧
 swapchain 恢复 dependent，不会留下半释放的活动渲染器。Editor shutdown 会先解绑捕获 ImGuiContext 的回调。
 ViewPanel 尺寸稳定后才触发离屏目标 generation 创建，提交后旧目标由实际引用它的 FrameSlot 延迟释放，不等待全部
 FrameSlot 或 Device idle。正常呈现路径不得依赖每帧 `queue.waitIdle()`；阻塞式资源上传也只等待自己的 timeline

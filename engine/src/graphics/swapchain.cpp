@@ -57,6 +57,13 @@ namespace Comet {
         }
     }
 
+    SwapchainCompatibility compare_swapchain_configs(
+        const SwapchainConfig& previous, const SwapchainConfig& current) {
+        return {.extent_changed = previous.extent != current.extent,
+            .format_changed = previous.surface_format != current.surface_format,
+            .image_count_changed = previous.image_count != current.image_count};
+    }
+
     Swapchain::Swapchain(const Window& window, Context& context, Device& device,
         const SwapchainRequest& request)
         : m_window(window), m_context(context), m_device(device), m_request(request) {

@@ -436,6 +436,8 @@ namespace Comet {
     bool SceneRenderer::recreate_swapchain() {
         PROFILE_SCOPE("SceneRenderer::recreate_swapchain");
         auto& swapchain = m_context.get_swapchain();
+        const SwapchainConfig previous_config =
+            swapchain.get_active_generation()->get_config();
 
         m_context.wait_idle();
         if(!m_uses_offscreen_target) {
@@ -452,14 +454,20 @@ namespace Comet {
                 set_render_target_clear_color();
             }
             if(m_rebuild_swapchain_resources) {
-                m_rebuild_swapchain_resources();
+                m_rebuild_swapchain_resources({});
             }
             return false;
         }
 
+        const SwapchainCompatibility compatibility = compare_swapchain_configs(
+            previous_config, swapchain.get_active_generation()->get_config());
+        if(!m_uses_offscreen_target && compatibility.format_changed) {
+            LOG_FATAL("Runtime swapchain format changed; RenderPass/Pipeline generation "
+                      "rebuild is not implemented yet");
+        }
         if(!m_uses_offscreen_target) {
             m_render_target = RenderTarget::create_swapchain_target(
-                m_context.get_device(), *m_render_pass, m_context.get_swapchain());
+                m_context.get_device(), *m_render_pass, swapchain);
             set_render_target_clear_color();
         }
 
@@ -467,7 +475,7 @@ namespace Comet {
         m_frame_scheduler->initialize_swapchain_images(image_count);
 
         if(m_rebuild_swapchain_resources) {
-            m_rebuild_swapchain_resources();
+            m_rebuild_swapchain_resources(compatibility);
         }
         return true;
     }

@@ -15,6 +15,15 @@ namespace Comet {
     class Fence;
     class Window;
 
+    struct SwapchainCompatibility {
+        bool extent_changed = false;
+        bool format_changed = false;
+        bool image_count_changed = false;
+    };
+
+    [[nodiscard]] COMET_API SwapchainCompatibility compare_swapchain_configs(
+        const SwapchainConfig& previous, const SwapchainConfig& current);
+
     class COMET_API Swapchain {
     public:
         class COMET_API Generation {

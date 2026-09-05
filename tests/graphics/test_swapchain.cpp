@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "graphics/swapchain.h"
 #include "graphics/vk_capability.h"
 
 #include <limits>
@@ -147,5 +148,29 @@ namespace Comet::Tests {
             make_present_modes(), vk::Extent2D{800, 600}, make_request());
         EXPECT_EQ(missing_alpha.status, SwapchainStatus::Unsupported);
         EXPECT_NE(missing_alpha.message.find("composite alpha"), std::string::npos);
+    }
+
+    TEST(SwapchainConfigTest, ReportsDependentCompatibilityChanges) {
+        SwapchainConfig previous{.image_count = 3,
+            .extent = vk::Extent2D{1280, 720},
+            .surface_format = {
+                vk::Format::eB8G8R8A8Srgb, vk::ColorSpaceKHR::eSrgbNonlinear}};
+        SwapchainConfig current = previous;
+
+        const SwapchainCompatibility unchanged =
+            compare_swapchain_configs(previous, current);
+        EXPECT_FALSE(unchanged.extent_changed);
+        EXPECT_FALSE(unchanged.format_changed);
+        EXPECT_FALSE(unchanged.image_count_changed);
+
+        current.extent = vk::Extent2D{1920, 1080};
+        current.image_count = 2;
+        current.surface_format.format = vk::Format::eR8G8B8A8Srgb;
+        const SwapchainCompatibility changes =
+            compare_swapchain_configs(previous, current);
+
+        EXPECT_TRUE(changes.extent_changed);
+        EXPECT_TRUE(changes.format_changed);
+        EXPECT_TRUE(changes.image_count_changed);
     }
 }
