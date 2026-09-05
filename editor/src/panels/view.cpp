@@ -199,28 +199,44 @@ namespace CometEditor {
             ImGui::IsItemHovered()
             && map_viewport_point_to_pixel(m_layout, mouse_position).has_value();
 
-        if(m_camera_drag_mode == CameraDragMode::None && pointer_over_image) {
-            if(ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-                m_camera_drag_mode = CameraDragMode::Orbit;
-            } else if(ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
-                m_camera_drag_mode = CameraDragMode::Pan;
-            }
-        }
-        if((m_camera_drag_mode == CameraDragMode::Orbit
-               && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
-            || (m_camera_drag_mode == CameraDragMode::Pan
-                && !ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
-            m_camera_drag_mode = CameraDragMode::None;
+        if(pointer_over_image) {
+            ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
         }
 
+        if(!m_camera_drag && pointer_over_image) {
+            if(ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                m_camera_drag = CameraDrag{
+                    .mode = CameraDragMode::Orbit,
+                    .button = ImGuiMouseButton_Right,
+                };
+            } else if(ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
+                m_camera_drag = CameraDrag{
+                    .mode = CameraDragMode::Pan,
+                    .button = ImGuiMouseButton_Middle,
+                };
+            } else if(ImGui::IsKeyDown(ImGuiMod_Alt)
+                      && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                m_camera_drag = CameraDrag{
+                    .mode = ImGui::IsKeyDown(ImGuiMod_Shift) ? CameraDragMode::Pan
+                                                             : CameraDragMode::Orbit,
+                    .button = ImGuiMouseButton_Left,
+                };
+            }
+        }
+
+        if(m_camera_drag && !ImGui::IsMouseDown(m_camera_drag->button)) {
+            m_camera_drag.reset();
+        }
+
+        const bool orbit_drag =
+            m_camera_drag && m_camera_drag->mode == CameraDragMode::Orbit;
+        const bool pan_drag = m_camera_drag && m_camera_drag->mode == CameraDragMode::Pan;
         const Comet::Math::Vec2 orbit_delta =
-            m_camera_drag_mode == CameraDragMode::Orbit
-                ? Comet::Math::Vec2(io.MouseDelta.x, io.MouseDelta.y)
-                : Comet::Math::Vec2(0.0f);
+            orbit_drag ? Comet::Math::Vec2(io.MouseDelta.x, io.MouseDelta.y)
+                       : Comet::Math::Vec2(0.0f);
         const Comet::Math::Vec2 pan_delta =
-            m_camera_drag_mode == CameraDragMode::Pan
-                ? Comet::Math::Vec2(io.MouseDelta.x, io.MouseDelta.y)
-                : Comet::Math::Vec2(0.0f);
+            pan_drag ? Comet::Math::Vec2(io.MouseDelta.x, io.MouseDelta.y)
+                     : Comet::Math::Vec2(0.0f);
         const float zoom_delta = pointer_over_image ? io.MouseWheel : 0.0f;
         if(orbit_delta == Comet::Math::Vec2(0.0f) && pan_delta == Comet::Math::Vec2(0.0f)
             && zoom_delta == 0.0f) {
@@ -236,7 +252,7 @@ namespace CometEditor {
     }
 
     void ViewPanel::reset_camera_interaction() {
-        m_camera_drag_mode = CameraDragMode::None;
+        m_camera_drag.reset();
     }
 
     std::optional<EditorCameraInput> ViewPanel::take_camera_input() {

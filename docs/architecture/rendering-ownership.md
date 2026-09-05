@@ -149,8 +149,9 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
   将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断；请求 override 却未提供 Camera 时不会静默回退。
 - `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；从实际 Mesh/Texture 绑定汇总 ready wait，并向 FrameScheduler 登记当前帧使用的 owner；离屏 resize 通过完整候选目标提交，不原地改写活动目标；没有有效主 Camera 时不提交场景 draw。
 - `ViewPanel`：拥有面板逻辑尺寸和 resize debounce；尺寸连续稳定后更新请求使用的目标尺寸。Renderer 不保存编辑器面板的稳定帧状态，
-  只对可见 Viewport 应用该稳定尺寸并调整离屏 RenderTarget。它还负责从 ImGui 采样 editor camera 输入：RMB/MMB
-  必须从可见画面内激活，拖拽激活后可越过边缘并持续到释放，滚轮只在指针仍位于画面内时生效。
+  只对可见 Viewport 应用该稳定尺寸并调整离屏 RenderTarget。它还负责从 ImGui 采样 editor camera 输入：RMB 或
+  Alt（macOS Option）+LMB 环绕，MMB 或 Alt+Shift+LMB 平移；拖拽必须从可见画面内激活，之后可越过边缘并持续到对应
+  鼠标键释放。滚轮或触控板双指垂直滚动只在指针仍位于画面内时缩放，并由 Viewport 独占纵向滚轮事件。
 - `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；只在当前已完成的
   frame slot 上替换 viewport binding，通过私有绑定共享 SceneRenderer 的离屏 `ImageView` 生命周期，但不创建或直接
   销毁这些 engine 图形资源。

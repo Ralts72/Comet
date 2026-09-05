@@ -957,8 +957,9 @@ Scene Component / RenderItem
 
 - [x] 基于 image display/visible rect 将屏幕坐标映射到当前实际 RenderTarget 像素，排除工具栏、
   letterbox/pillarbox、最大边界和 OneToOne 裁切区域；resize debounce 期间不使用尚未发布的请求分辨率。
-- [x] Viewport 在 Edit 模式实现 editor camera 的 RMB 环绕、MMB 平移和滚轮缩放；UI prepare 在场景解析前执行，
-  当前帧直接消费最新 camera snapshot。
+- [x] Viewport 在 Edit 模式实现 editor camera 的 RMB 或 Alt（macOS Option）+LMB 环绕、MMB 或
+  Alt+Shift+LMB 平移，以及滚轮或触控板双指垂直滚动缩放；Viewport 独占用于缩放的纵向滚轮，UI prepare 在场景解析前
+  执行，当前帧直接消费最新 camera snapshot。
 - [ ] 让 2D/3D 按钮切换真正的投影与操作策略；2D 使用正交投影和独立 zoom 语义，不以极端透视参数模拟。
 - 默认保持一个 Viewport 并在内部切换 2D/3D，共享同一组 RenderTarget、拾取和 gizmo 上下文。只有当多视图同时对照成为明确工作流时，
   才增加可停靠的多 Viewport；每个同时可见视口应拥有独立 Camera、尺寸、frame-slot RenderTarget 和渲染提交，隐藏时必须跳过渲染。
@@ -1154,7 +1155,8 @@ Viewport 屏幕点到当前纹理像素的纯映射已经建立：布局显式�
 留白、最大边界、OneToOne 不可见区域以及 debounce 期间尚未发布的请求尺寸。
 
 Viewport editor camera 输入闭环已经建立：Renderer 将 overlay 拆为场景解析前的 prepare 和场景后的 render，
-`ViewPanel` 只允许从可见画面激活 RMB 环绕、MMB 平移和滚轮缩放，纯 controller 独立更新 editor-only camera。
+`ViewPanel` 只允许从可见画面激活 RMB 或 Alt+LMB 环绕、MMB 或 Alt+Shift+LMB 平移和纵向滚动缩放，并在缩放时独占
+纵向滚轮；纯 controller 独立更新 editor-only camera。
 
 下一步让 2D/3D 观察模式真正生效：扩展显式 camera snapshot 以表达 Perspective/Orthographic 投影；2D 模式固定观察轴、
 禁用 orbit、保留平移与正交缩放，3D 延用当前 orbit/pan/dolly。投影选择由 `SceneResolver` 消费，不把 EditorMode 或

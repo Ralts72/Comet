@@ -33,7 +33,12 @@ namespace CometEditor {
         [[nodiscard]] std::optional<EditorCameraInput> take_camera_input();
 
     private:
-        enum class CameraDragMode { None, Orbit, Pan };
+        enum class CameraDragMode { Orbit, Pan };
+
+        struct CameraDrag {
+            CameraDragMode mode;
+            ImGuiMouseButton button;
+        };
 
         void render_edit_toolbar();
         void render_play_toolbar();
@@ -55,6 +60,6 @@ namespace CometEditor {
         Comet::Math::Vec2u m_requested_render_size{};
         std::uint32_t m_render_resolution_stable_frames = 0;
         std::optional<EditorCameraInput> m_camera_input;
-        CameraDragMode m_camera_drag_mode = CameraDragMode::None;
+        std::optional<CameraDrag> m_camera_drag;
     };
 }
