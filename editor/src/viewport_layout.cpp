@@ -81,6 +81,18 @@ namespace CometEditor {
             return {
                 scale_extent(resolution.x, resolution.y, max_dimension), max_dimension};
         }
+
+        ViewportLayout::Rect intersect_rects(
+            const ViewportLayout::Rect& first, const ViewportLayout::Rect& second) {
+            const Comet::Math::Vec2 minimum{
+                std::max(first.min.x, second.min.x), std::max(first.min.y, second.min.y)};
+            const Comet::Math::Vec2 maximum{
+                std::min(first.max.x, second.max.x), std::min(first.max.y, second.max.y)};
+            if(maximum.x <= minimum.x || maximum.y <= minimum.y) {
+                return {.min = minimum, .max = minimum};
+            }
+            return {.min = minimum, .max = maximum};
+        }
     }
 
     ViewportLayout calculate_viewport_layout(const ViewportLayout::Input& input) {
@@ -112,24 +124,23 @@ namespace CometEditor {
         layout.render_resolution = constrain_render_resolution(
             layout.render_resolution, input.max_render_dimension);
 
-        const bool has_current_render_resolution =
-            input.current_render_resolution.x > 0
-            && input.current_render_resolution.y > 0;
-        const Comet::Math::Vec2u display_resolution =
-            has_current_render_resolution ? input.current_render_resolution
-                                          : layout.render_resolution;
+        layout.image_resolution =
+            input.current_render_resolution.x > 0 && input.current_render_resolution.y > 0
+                ? input.current_render_resolution : layout.render_resolution;
         if(layout.panel_content_size.x <= 0.0f || layout.panel_content_size.y <= 0.0f
-            || display_resolution.x == 0 || display_resolution.y == 0) {
+            || layout.image_resolution.x == 0 || layout.image_resolution.y == 0) {
             layout.image_display_rect = {
                 .min = input.content_origin, .max = input.content_origin};
+            layout.image_visible_rect = layout.image_display_rect;
             return layout;
         }
 
         const Comet::Math::Vec2 display_size =
             input.display_mode == ViewportLayout::DisplayMode::OneToOne
-                ? Comet::Math::Vec2(static_cast<float>(display_resolution.x) / scale.x,
-                      static_cast<float>(display_resolution.y) / scale.y)
-                : fit_display_size(layout.panel_content_size, display_resolution);
+                ? Comet::Math::Vec2(
+                      static_cast<float>(layout.image_resolution.x) / scale.x,
+                      static_cast<float>(layout.image_resolution.y) / scale.y)
+                : fit_display_size(layout.panel_content_size, layout.image_resolution);
 
         const Comet::Math::Vec2 centered_offset =
             (layout.panel_content_size - display_size) * 0.5f;
@@ -137,6 +148,39 @@ namespace CometEditor {
             std::max(centered_offset.x, 0.0f), std::max(centered_offset.y, 0.0f)};
         layout.image_display_rect = {.min = input.content_origin + offset,
             .max = input.content_origin + offset + display_size};
+        layout.image_visible_rect = intersect_rects(layout.image_display_rect,
+            {.min = input.content_origin,
+                .max = input.content_origin + layout.panel_content_size});
         return layout;
+    }
+
+    std::optional<Comet::Math::Vec2u> map_viewport_point_to_pixel(
+        const ViewportLayout& layout, const Comet::Math::Vec2 screen_point) {
+        if(!layout.image_visible_rect.contains(screen_point)
+            || layout.image_resolution.x == 0 || layout.image_resolution.y == 0) {
+            return std::nullopt;
+        }
+
+        const Comet::Math::Vec2 display_size = layout.image_display_rect.size();
+        if(!std::isfinite(display_size.x) || !std::isfinite(display_size.y)
+            || display_size.x <= 0.0f || display_size.y <= 0.0f) {
+            return std::nullopt;
+        }
+
+        const double normalized_x =
+            (static_cast<double>(screen_point.x)
+                - static_cast<double>(layout.image_display_rect.min.x))
+            / static_cast<double>(display_size.x);
+        const double normalized_y =
+            (static_cast<double>(screen_point.y)
+                - static_cast<double>(layout.image_display_rect.min.y))
+            / static_cast<double>(display_size.y);
+        const auto pixel_x = static_cast<std::uint32_t>(
+            std::clamp(std::floor(normalized_x * layout.image_resolution.x), 0.0,
+                static_cast<double>(layout.image_resolution.x - 1)));
+        const auto pixel_y = static_cast<std::uint32_t>(
+            std::clamp(std::floor(normalized_y * layout.image_resolution.y), 0.0,
+                static_cast<double>(layout.image_resolution.y - 1)));
+        return Comet::Math::Vec2u(pixel_x, pixel_y);
     }
 }

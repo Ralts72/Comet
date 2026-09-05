@@ -39,14 +39,17 @@ namespace Comet {
         if(!m_scene_renderer->begin_frame()) {
             return;
         }
+        if(m_prepare_overlay) {
+            m_prepare_overlay();
+        }
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
         const RenderSubmission submission =
             m_scene_resolver.resolve(render_scene, frame_view);
         const auto resource_waits = m_scene_renderer->render_scene_pass(submission);
 
-        if(m_on_imgui_render) {
-            m_on_imgui_render(m_scene_renderer->get_current_command_buffer());
+        if(m_render_overlay) {
+            m_render_overlay(m_scene_renderer->get_current_command_buffer());
         }
 
         // End frame (submits and presents)
@@ -65,6 +68,12 @@ namespace Comet {
             && m_render_view.render_size.y > 0) {
             m_scene_renderer->resize_offscreen_target(m_render_view.render_size);
         }
+    }
+
+    void Renderer::set_overlay_callbacks(
+        OverlayPrepareCallback prepare, OverlayRenderCallback render) {
+        m_prepare_overlay = std::move(prepare);
+        m_render_overlay = std::move(render);
     }
 
     Renderer::~Renderer() {

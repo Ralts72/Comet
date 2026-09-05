@@ -25,11 +25,11 @@ namespace Comet {
 
         void set_render_view(RenderView view);
 
-        using ImGuiRenderDelegate = std::function<void(CommandBuffer&)>;
+        using OverlayPrepareCallback = std::function<void()>;
+        using OverlayRenderCallback = std::function<void(CommandBuffer&)>;
 
-        void set_on_imgui_render(ImGuiRenderDelegate delegate) {
-            m_on_imgui_render = std::move(delegate);
-        }
+        void set_overlay_callbacks(
+            OverlayPrepareCallback prepare, OverlayRenderCallback render);
 
         [[nodiscard]] ResourceManager& get_resource_manager() {
             return *m_resource_manager;
@@ -52,6 +52,7 @@ namespace Comet {
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         SceneResolver m_scene_resolver;
         RenderView m_render_view;
-        ImGuiRenderDelegate m_on_imgui_render;
+        OverlayPrepareCallback m_prepare_overlay;
+        OverlayRenderCallback m_render_overlay;
     };
 }

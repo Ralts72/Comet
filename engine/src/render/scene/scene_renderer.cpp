@@ -18,6 +18,7 @@
 #include "render/resource/resource_manager.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace Comet {
     namespace {
@@ -70,6 +71,13 @@ namespace Comet {
                 context.get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
                 sizeof(ViewProjectMatrix), nullptr, "view-project uniform buffer"));
         }
+    }
+
+    void SceneRenderer::set_swapchain_resource_callbacks(
+        SwapchainReleaseCallback release_resources,
+        SwapchainRebuildCallback rebuild_resources) {
+        m_release_swapchain_resources = std::move(release_resources);
+        m_rebuild_swapchain_resources = std::move(rebuild_resources);
     }
 
     void SceneRenderer::setup_render_pass() {

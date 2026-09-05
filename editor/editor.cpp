@@ -1,6 +1,7 @@
 #include "runtime/entry.h"
 #include "asset/asset_manager.h"
 #include "asset/source_monitor.h"
+#include "src/camera_controller.h"
 #include "src/editor_scene_session.h"
 #include "src/editor_state.h"
 #include "src/imgui_context.h"
@@ -155,12 +156,17 @@ namespace {
 
             initialize_viewport_textures(scene_renderer);
 
-            // 注册 ImGui 渲染回调
-            renderer.set_on_imgui_render([this](Comet::CommandBuffer& cmd) {
-                update_viewport_texture(get_engine().get_renderer().get_scene_renderer());
-                m_imgui_context->update_frame();
-                m_imgui_context->render(cmd);
-            });
+            renderer.set_overlay_callbacks(
+                [this]() {
+                    update_viewport_texture(
+                        get_engine().get_renderer().get_scene_renderer());
+                    m_imgui_context->update_frame();
+                    apply_viewport_camera_input();
+                    update_viewport_state();
+                },
+                [this](Comet::CommandBuffer& command_buffer) {
+                    m_imgui_context->render(command_buffer);
+                });
 
             // 注册 Swapchain dependent 资源的 release/rebuild 边界
             scene_renderer.set_swapchain_resource_callbacks(
@@ -179,8 +185,18 @@ namespace {
 
             // 更新 FPS 显示
             m_menu_bar->set_fps(context.fps);
+        }
 
-            update_viewport_state();
+        void apply_viewport_camera_input() {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
+                return;
+            }
+
+            const std::optional<CometEditor::EditorCameraInput> input =
+                m_viewport_panel->take_camera_input();
+            if(input) {
+                CometEditor::apply_editor_camera_input(m_editor_state.camera, *input);
+            }
         }
 
         void update_viewport_state() {
@@ -221,6 +237,7 @@ namespace {
 
         void on_shutdown() override {
             LOG_INFO("Editor shutting down...");
+            get_engine().get_renderer().set_overlay_callbacks({}, {});
             auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
             scene_renderer.set_swapchain_resource_callbacks({}, {});
             m_imgui_context.reset();

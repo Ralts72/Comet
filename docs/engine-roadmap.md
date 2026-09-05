@@ -955,8 +955,11 @@ Scene Component / RenderItem
 
 #### 阶段 4C：视口交互闭环
 
-- 基于 image display rect 将鼠标坐标映射到 RenderTarget 像素坐标，排除工具栏和 letterbox 区域。
-- Viewport 在 Edit 模式实现 editor camera 的平移、环绕、缩放，以及真正生效的 2D/3D 观察模式。
+- [x] 基于 image display/visible rect 将屏幕坐标映射到当前实际 RenderTarget 像素，排除工具栏、
+  letterbox/pillarbox、最大边界和 OneToOne 裁切区域；resize debounce 期间不使用尚未发布的请求分辨率。
+- [x] Viewport 在 Edit 模式实现 editor camera 的 RMB 环绕、MMB 平移和滚轮缩放；UI prepare 在场景解析前执行，
+  当前帧直接消费最新 camera snapshot。
+- [ ] 让 2D/3D 按钮切换真正的投影与操作策略；2D 使用正交投影和独立 zoom 语义，不以极端透视参数模拟。
 - 默认保持一个 Viewport 并在内部切换 2D/3D，共享同一组 RenderTarget、拾取和 gizmo 上下文。只有当多视图同时对照成为明确工作流时，
   才增加可停靠的多 Viewport；每个同时可见视口应拥有独立 Camera、尺寸、frame-slot RenderTarget 和渲染提交，隐藏时必须跳过渲染。
 - 实现对象拾取、Selection 同步、移动/旋转/缩放 gizmo 和选中对象高亮。
@@ -1147,8 +1150,15 @@ Free、16:9 和 Fixed 的最终结果都会等比收敛到有效范围，Rendere
 阶段 4B 完成审计已结束：RenderTarget generation 删除原地 resize/dirty/recreate API，extent 和 frame count 构造后
 只读；初始 RenderPass 使用 active swapchain 的实际格式。runtime format-dependent Pipeline generation 归入阶段 5。
 
-下一步进入阶段 4C 视口交互闭环：先提取 screen point 到 RenderTarget pixel 的纯映射，严格排除工具栏、letterbox、
-pillarbox 和 1x 裁切区域；随后让 editor camera 输入和对象拾取复用同一坐标契约。
+Viewport 屏幕点到当前纹理像素的纯映射已经建立：布局显式输出 image resolution 和裁切后的 visible rect，排除工具栏、
+留白、最大边界、OneToOne 不可见区域以及 debounce 期间尚未发布的请求尺寸。
+
+Viewport editor camera 输入闭环已经建立：Renderer 将 overlay 拆为场景解析前的 prepare 和场景后的 render，
+`ViewPanel` 只允许从可见画面激活 RMB 环绕、MMB 平移和滚轮缩放，纯 controller 独立更新 editor-only camera。
+
+下一步让 2D/3D 观察模式真正生效：扩展显式 camera snapshot 以表达 Perspective/Orthographic 投影；2D 模式固定观察轴、
+禁用 orbit、保留平移与正交缩放，3D 延用当前 orbit/pan/dolly。投影选择由 `SceneResolver` 消费，不把 EditorMode 或
+ImGui 状态传入 Renderer。
 
 阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。

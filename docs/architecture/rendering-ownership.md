@@ -143,12 +143,14 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
   RetainedResources；实际 draw 的 Mesh/Texture owner 及当前离屏 RenderTarget generation 在该 slot fence 完成后统一释放。
 - `AssetManager`：按 `AssetHandle` 协调 Asset Database、Importer、依赖解析、运行时 Material 组装和 Asset Registry 发布；不拥有 Device 或 GPU 资源。Runtime Mesh/Texture 创建失败时记录具体结果，首次加载不注册，刷新不替换旧对象。
 - `Renderer`：保存当前 RenderView，应用可见 Viewport 的稳定目标尺寸，并在解析前以实际 RenderTarget 尺寸覆盖目标尺寸；
-  编排 RenderScene 解析、帧开始/结束和 ImGui 回调，不读取 Material 属性或管理 descriptor。
+  编排 RenderScene 解析、帧开始/结束和通用 overlay prepare/render 回调，不依赖 ImGui 类型，不读取 Material 属性或
+  管理 descriptor。
 - `SceneResolver`：按 RenderView 选择 Camera override 或 Scene primary Camera，根据实际 RenderTarget 尺寸生成 view/projection，
   将 Handle 解析为运行时 Mesh 和材质绑定，并集中处理可恢复诊断；请求 override 却未提供 Camera 时不会静默回退。
 - `SceneRenderer`：消费包含可选 view/projection 的整批 RenderSubmission，管理 per-frame uniform buffer、render target、pipeline、descriptor 和 draw command 录制；从实际 Mesh/Texture 绑定汇总 ready wait，并向 FrameScheduler 登记当前帧使用的 owner；离屏 resize 通过完整候选目标提交，不原地改写活动目标；没有有效主 Camera 时不提交场景 draw。
 - `ViewPanel`：拥有面板逻辑尺寸和 resize debounce；尺寸连续稳定后更新请求使用的目标尺寸。Renderer 不保存编辑器面板的稳定帧状态，
-  只对可见 Viewport 应用该稳定尺寸并调整离屏 RenderTarget。
+  只对可见 Viewport 应用该稳定尺寸并调整离屏 RenderTarget。它还负责从 ImGui 采样 editor camera 输入：RMB/MMB
+  必须从可见画面内激活，拖拽激活后可越过边缘并持续到释放，滚轮只在指针仍位于画面内时生效。
 - `ImGuiContext`：拥有 editor 最终呈现所需的 render pass、swapchain target 和 viewport descriptor；只在当前已完成的
   frame slot 上替换 viewport binding，通过私有绑定共享 SceneRenderer 的离屏 `ImageView` 生命周期，但不创建或直接
   销毁这些 engine 图形资源。
@@ -157,6 +159,12 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
 
 Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/resource/`；Material 保留在渲染语义层，不归入设备资源创建子目录。
 `RenderScene → SceneExtractor → SceneResolver → RenderSubmission → SceneRenderer` 流水线集中在 `engine/src/render/scene/`，顶层 `Renderer` 只负责编排渲染上下文、资源管理器和这条场景渲染链路。
+
+Editor overlay 分为 CPU prepare 与 GPU render 两个阶段。`SceneRenderer::begin_frame()` 得到可用 frame slot 后，prepare
+阶段先更新该 slot 的 Viewport descriptor、执行 ImGui NewFrame 和面板逻辑、消费 editor camera 输入并提交最新
+`RenderView`；随后 `SceneResolver` 与场景 draw 使用同一帧更新后的 camera snapshot。场景 render pass 结束后，render
+阶段只录制已经生成的 ImGui draw data。Editor shutdown 会先解绑两个 callback，避免 Renderer 保留指向已销毁
+`ImGuiContext` 的闭包。
 
 ## 帧同步
 
@@ -188,6 +196,13 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
   的 fence 完成后才会释放旧目标引用并替换对应 ImGui binding。
 - Editor 从选中 `DeviceCapability` 读取 Vulkan `maxImageDimension2D`，再与 4096 的 editor 单 Viewport 软上限取较小值。
   `ViewportLayout` 在 Free、16:9 或 Fixed 策略得到目标后统一等比约束长边，`SceneRenderer` 只接收最终物理像素尺寸。
+- `ViewportLayout` 同时保存当前实际显示纹理的 `image_resolution`、完整 `image_display_rect` 和与 panel content
+  相交后的 `image_visible_rect`。屏幕点只有位于 visible rect 时才按完整 display rect 归一化并映射到左上闭、右下开
+  的纹理像素；工具栏、letterbox/pillarbox、Fit 最大边界和 OneToOne 被裁掉的区域都不会进入相机或拾取输入。
+  resize debounce 期间映射继续使用当前纹理分辨率，不提前使用尚未发布的请求尺寸。
+- Editor camera 输入被分成三层：`ViewPanel` 只采样 ImGui 并维护拖拽激活状态，Editor composition root 取走一次性输入，
+  backend-neutral `camera_controller` 只执行 camera 数学。Play 模式和不可见/折叠 Viewport 会清除拖拽状态，
+  editor camera 不会写入 Scene entity 或序列化数据。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture

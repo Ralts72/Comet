@@ -65,10 +65,7 @@ namespace Comet {
         using SwapchainRebuildCallback =
             std::function<void(const SwapchainCompatibility&)>;
         void set_swapchain_resource_callbacks(SwapchainReleaseCallback release_resources,
-            SwapchainRebuildCallback rebuild_resources) {
-            m_release_swapchain_resources = std::move(release_resources);
-            m_rebuild_swapchain_resources = std::move(rebuild_resources);
-        }
+            SwapchainRebuildCallback rebuild_resources);
 
     private:
         struct DescriptorResources {

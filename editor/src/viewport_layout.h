@@ -3,6 +3,7 @@
 #include "core/math_utils.h"
 
 #include <cstdint>
+#include <optional>
 
 namespace CometEditor {
     struct ViewportLayout {
@@ -39,9 +40,14 @@ namespace CometEditor {
 
         Comet::Math::Vec2 panel_content_size{};
         Comet::Math::Vec2u render_resolution{};
+        Comet::Math::Vec2u image_resolution{};
         Rect image_display_rect;
+        Rect image_visible_rect;
     };
 
     [[nodiscard]] ViewportLayout calculate_viewport_layout(
         const ViewportLayout::Input& input);
+
+    [[nodiscard]] std::optional<Comet::Math::Vec2u> map_viewport_point_to_pixel(
+        const ViewportLayout& layout, Comet::Math::Vec2 screen_point);
 }

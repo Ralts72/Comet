@@ -1,6 +1,8 @@
 #include "view.h"
 #include <imgui.h>
 
+#include <utility>
+
 namespace CometEditor {
     namespace {
         constexpr std::uint32_t RESIZE_STABLE_FRAME_COUNT = 2;
@@ -13,12 +15,14 @@ namespace CometEditor {
 
     void ViewPanel::render() {
         m_actually_visible = false;
+        m_camera_input.reset();
 
         if(!m_user_visible) {
             m_layout = {};
             m_observed_render_resolution = {};
             m_requested_render_size = {};
             m_render_resolution_stable_frames = 0;
+            reset_camera_interaction();
             return;
         }
 
@@ -27,6 +31,7 @@ namespace CometEditor {
             m_observed_render_resolution = {};
             m_requested_render_size = {};
             m_render_resolution_stable_frames = 0;
+            reset_camera_interaction();
             ImGui::End();
             return;
         }
@@ -36,6 +41,7 @@ namespace CometEditor {
             m_observed_render_resolution = {};
             m_requested_render_size = {};
             m_render_resolution_stable_frames = 0;
+            reset_camera_interaction();
             ImGui::End();
             return;
         }
@@ -166,6 +172,7 @@ namespace CometEditor {
 
         const Comet::Math::Vec2 display_size = m_layout.image_display_rect.size();
         if(display_size.x <= 0.0f || display_size.y <= 0.0f) {
+            reset_camera_interaction();
             return;
         }
 
@@ -177,6 +184,63 @@ namespace CometEditor {
         } else {
             ImGui::InvisibleButton("View", ImVec2(display_size.x, display_size.y));
         }
+        update_camera_input();
+    }
+
+    void ViewPanel::update_camera_input() {
+        if(m_state.mode != EditorMode::Edit) {
+            reset_camera_interaction();
+            return;
+        }
+
+        const ImGuiIO& io = ImGui::GetIO();
+        const Comet::Math::Vec2 mouse_position(io.MousePos.x, io.MousePos.y);
+        const bool pointer_over_image =
+            ImGui::IsItemHovered()
+            && map_viewport_point_to_pixel(m_layout, mouse_position).has_value();
+
+        if(m_camera_drag_mode == CameraDragMode::None && pointer_over_image) {
+            if(ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                m_camera_drag_mode = CameraDragMode::Orbit;
+            } else if(ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
+                m_camera_drag_mode = CameraDragMode::Pan;
+            }
+        }
+        if((m_camera_drag_mode == CameraDragMode::Orbit
+               && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
+            || (m_camera_drag_mode == CameraDragMode::Pan
+                && !ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
+            m_camera_drag_mode = CameraDragMode::None;
+        }
+
+        const Comet::Math::Vec2 orbit_delta =
+            m_camera_drag_mode == CameraDragMode::Orbit
+                ? Comet::Math::Vec2(io.MouseDelta.x, io.MouseDelta.y)
+                : Comet::Math::Vec2(0.0f);
+        const Comet::Math::Vec2 pan_delta =
+            m_camera_drag_mode == CameraDragMode::Pan
+                ? Comet::Math::Vec2(io.MouseDelta.x, io.MouseDelta.y)
+                : Comet::Math::Vec2(0.0f);
+        const float zoom_delta = pointer_over_image ? io.MouseWheel : 0.0f;
+        if(orbit_delta == Comet::Math::Vec2(0.0f) && pan_delta == Comet::Math::Vec2(0.0f)
+            && zoom_delta == 0.0f) {
+            return;
+        }
+
+        m_camera_input = EditorCameraInput{
+            .orbit_delta = orbit_delta,
+            .pan_delta = pan_delta,
+            .zoom_delta = zoom_delta,
+            .viewport_height = m_layout.image_display_rect.size().y,
+        };
+    }
+
+    void ViewPanel::reset_camera_interaction() {
+        m_camera_drag_mode = CameraDragMode::None;
+    }
+
+    std::optional<EditorCameraInput> ViewPanel::take_camera_input() {
+        return std::exchange(m_camera_input, std::nullopt);
     }
 
     void ViewPanel::set_texture_id(const ImTextureID texture_id,
