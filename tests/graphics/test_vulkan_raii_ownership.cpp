@@ -1,4 +1,5 @@
 #include <type_traits>
+#include <utility>
 
 #include "graphics/resource/buffer.h"
 #include "graphics/resource/allocator.h"
@@ -51,6 +52,7 @@ namespace {
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<CommandPool>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<CommandContext>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<UploadManager>);
+    static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Swapchain::Generation>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Swapchain>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Allocator>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Device>);
@@ -62,4 +64,8 @@ namespace {
     static_assert(!std::is_copy_assignable_v<Queue>);
     static_assert(std::is_move_constructible_v<Queue>);
     static_assert(!std::is_move_assignable_v<Queue>);
+
+    static_assert(
+        std::is_same_v<decltype(std::declval<const Swapchain&>().get_active_generation()),
+            const std::shared_ptr<Swapchain::Generation>&>);
 }
