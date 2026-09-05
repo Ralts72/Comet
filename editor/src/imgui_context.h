@@ -34,7 +34,8 @@ namespace CometEditor {
         void update_frame() const;
         void render(Comet::CommandBuffer& command_buffer) const;
 
-        void recreate_swapchain();
+        void release_swapchain_resources();
+        void rebuild_swapchain_resources();
 
         void set_viewport_image(uint32_t frame_slot_index,
             std::shared_ptr<Comet::ImageView> image_view,

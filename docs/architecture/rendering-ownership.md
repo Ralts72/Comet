@@ -188,6 +188,10 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
   生成 release/acquire barrier，并使用 semaphore/timeline 连接，不能靠一次 transition 冒充完整 ownership transfer。
 
 交换链重建只重建 image state 和 swapchain target，不改变 frame slot 数量，也不重建 editor 离屏目标。
+当前重建由 SceneRenderer 统一编排：先等待 Device idle，再释放 runtime `SwapchainTarget` 和 editor ImGui
+swapchain target，之后才允许 Swapchain 替换/销毁 core handle 与 borrowed images；成功后重建 runtime target、
+FrameScheduler per-image state 和 ImGui target。窗口零尺寸导致 core 重建延期时，会从仍有效的旧
+swapchain 恢复 dependent，不会留下半释放的活动渲染器。Editor shutdown 会先解绑捕获 ImGuiContext 的回调。
 ViewPanel 尺寸稳定后才触发离屏目标 generation 创建，提交后旧目标由实际引用它的 FrameSlot 延迟释放，不等待全部
 FrameSlot 或 Device idle。正常呈现路径不得依赖每帧 `queue.waitIdle()`；阻塞式资源上传也只等待自己的 timeline
 completion。Device idle 目前只用于关闭和 swapchain 重建等全局资源切换点。

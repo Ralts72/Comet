@@ -429,9 +429,11 @@ record draw using resource R
 
 ### Swapchain Generation 与重建事务
 
-当前 `SceneRenderer::recreate_swapchain()` 先执行 `Device::wait_idle()`，随后 `Swapchain::recreate()` 原地替换 handle 和
-borrowed images，并在返回前销毁 old swapchain；runtime `SwapchainTarget`、FrameScheduler image state 和 editor ImGui
-target 再由外层依次重建。该流程当前可工作，但所有权和失效传播分散，创建中途失败也难以保留一份完整旧状态。
+当前 `SceneRenderer::recreate_swapchain()` 仍使用 `Device::wait_idle()` 基线，但已经明确 dependent 生命周期边界：
+idle 后先释放 runtime `SwapchainTarget` 和 editor ImGui target，再由 `Swapchain::recreate()` 原地替换
+handle/borrowed images，随后重建 target 与 FrameScheduler image state；窗口最小化导致重建延期时会从仍有效的
+旧 core 恢复 dependent。父子对象销毁顺序已正确，但 core 创建中途失败仍难以保留一份完整旧状态，format
+compatibility 和 present completion 也尚未进入 generation 对象。
 
 目标结构按代际管理：
 
@@ -1136,8 +1138,8 @@ FrameSlot 保留到 fence 完成，ImGui binding 也按 slot 安全替换。本�
 Viewport 物理分辨率约束已完成：Editor 将设备 `maxImageDimension2D` 与 4096 软上限合并后传入纯 `ViewportLayout`，
 Free、16:9 和 Fixed 的最终结果都会等比收敛到有效范围，Renderer 不再接收无上限的附件尺寸。
 
-下一步先审计 swapchain generation 边界，明确 Swapchain core、runtime `SwapchainTarget`、FrameScheduler image state、
-RenderPass/Pipeline 兼容对象和 editor ImGui backend 各自的 prepare、commit 与 retire 顺序，再开始迁移代码。
+下一步继续建立 swapchain core 候选事务：把 config 选择、`vkCreateSwapchainKHR` 和 borrowed image 包装先放入
+未发布候选，创建失败时不覆盖 active core；成功后再进入 dependent rebuild/commit。当前仍保留 idle 安全基线。
 
 阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。

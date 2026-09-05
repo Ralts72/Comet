@@ -61,9 +61,11 @@ namespace Comet {
 
         [[nodiscard]] bool recreate_swapchain();
 
-        using SwapchainRecreateCallback = std::function<void()>;
-        void set_swapchain_recreate_callback(SwapchainRecreateCallback callback) {
-            m_swapchain_recreate_callback = std::move(callback);
+        using SwapchainResourceCallback = std::function<void()>;
+        void set_swapchain_resource_callbacks(SwapchainResourceCallback release_resources,
+            SwapchainResourceCallback rebuild_resources) {
+            m_release_swapchain_resources = std::move(release_resources);
+            m_rebuild_swapchain_resources = std::move(rebuild_resources);
         }
 
     private:
@@ -96,7 +98,8 @@ namespace Comet {
         void collect_completed_material_descriptors();
         void set_render_target_clear_color() const;
 
-        SwapchainRecreateCallback m_swapchain_recreate_callback;
+        SwapchainResourceCallback m_release_swapchain_resources;
+        SwapchainResourceCallback m_rebuild_swapchain_resources;
         RenderContext& m_context;
         std::shared_ptr<RenderPass> m_render_pass;
         std::unique_ptr<PipelineManager> m_pipeline_manager;
