@@ -66,6 +66,15 @@ namespace Comet::Tests {
         template<typename T>
         concept SupportsSeparatedVertexBufferBinding = requires(const T& command_buffer,
             const Buffer& buffer) { command_buffer.bind_vertex_buffer(buffer, 0); };
+
+        template<typename T>
+        concept SupportsRenderTargetResize =
+            requires(T& target) { target.resize(1280, 720); };
+
+        template<typename T>
+        concept SupportsRenderTargetRecreation =
+            requires(T& target) { target.recreate(); };
+
         using CpuBufferFactory = decltype(&Buffer::create_cpu_buffer);
         using ImageFactory = decltype(&Image::create);
         using RecoverableImageFactory = decltype(&Image::try_create);
@@ -121,6 +130,8 @@ namespace Comet::Tests {
             const std::vector<std::shared_ptr<ImageView>>&, uint32_t, uint32_t>);
         static_assert(!std::is_constructible_v<MultiTarget, Device&, RenderPass&,
             Math::Vec2u, uint32_t>);
+        static_assert(!SupportsRenderTargetResize<RenderTarget>);
+        static_assert(!SupportsRenderTargetRecreation<RenderTarget>);
 
         static_assert(SupportsBufferReferenceCopy<CommandContext>);
         static_assert(!SupportsBufferPointerCopy<CommandContext>);

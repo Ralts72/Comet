@@ -33,10 +33,6 @@ namespace Comet {
 
         virtual ~RenderTarget() = default;
 
-        virtual void recreate() = 0;
-
-        void resize(uint32_t width, uint32_t height);
-
         void set_clear_value(const ClearValue& clear_value);
 
         void set_clear_value(const ClearValue& clear_value, std::size_t index);
@@ -60,25 +56,21 @@ namespace Comet {
         RenderTarget(Device& device, RenderPass& render_pass, const Math::Vec2u size,
             const uint32_t frame_count)
             : m_device(device), m_render_pass(render_pass), m_extent(size),
-              m_frame_count(frame_count), m_clear_values({}), m_needs_recreate(false),
-              m_current_image_index(0) {}
+              m_frame_count(frame_count), m_clear_values({}), m_current_image_index(0) {}
 
         void clear_render_resources(std::vector<RenderResource>& resources);
 
         Device& m_device;
         RenderPass& m_render_pass;
-        Math::Vec2u m_extent;
-        uint32_t m_frame_count;
+        const Math::Vec2u m_extent;
+        const uint32_t m_frame_count;
         std::vector<ClearValue> m_clear_values;
-        bool m_needs_recreate;
         uint32_t m_current_image_index;
     };
 
     class COMET_API SwapchainTarget final: public RenderTarget {
     public:
         ~SwapchainTarget() override;
-
-        void recreate() override;
 
         void begin_render_target(CommandBuffer& command_buffer) override;
 
@@ -105,8 +97,6 @@ namespace Comet {
     class COMET_API MultiTarget final: public RenderTarget {
     public:
         ~MultiTarget() override;
-
-        void recreate() override;
 
         [[nodiscard]] std::shared_ptr<FrameBuffer> get_framebuffer(
             const uint32_t index) const override {

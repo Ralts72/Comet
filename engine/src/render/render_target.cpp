@@ -96,16 +96,6 @@ namespace Comet {
             std::move(target));
     }
 
-    // RenderTarget
-    void RenderTarget::resize(const uint32_t width, const uint32_t height) {
-        if(m_extent.x == width && m_extent.y == height) {
-            return;
-        }
-        m_extent.x = width;
-        m_extent.y = height;
-        m_needs_recreate = true;
-    }
-
     void RenderTarget::set_clear_value(const ClearValue& clear_value) {
         const auto& attachments = m_render_pass.get_attachments();
         for(std::size_t index = 0; index < attachments.size(); ++index) {
@@ -137,10 +127,6 @@ namespace Comet {
 
     void RenderTarget::begin_render_target(
         const CommandBuffer& command_buffer, const uint32_t frame_index) {
-        if(m_needs_recreate) {
-            recreate();
-            m_needs_recreate = false;
-        }
         if(frame_index >= m_frame_count) {
             LOG_FATAL("Render target frame index {} exceeds frame count {}", frame_index,
                 m_frame_count);
@@ -172,19 +158,6 @@ namespace Comet {
         m_clear_values.resize(m_render_pass.get_attachments().size());
         set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
         set_clear_value(ClearValue(1.0f, 0));
-        recreate();
-    }
-
-    SwapchainTarget::~SwapchainTarget() {
-        clear_render_resources(m_render_resources);
-    }
-
-    void SwapchainTarget::recreate() {
-        const auto& config = m_swapchain_generation->get_config();
-        m_extent.x = config.extent.width;
-        m_extent.y = config.extent.height;
-        m_frame_count =
-            static_cast<uint32_t>(m_swapchain_generation->get_images().size());
 
         if(m_extent.x == 0 || m_extent.y == 0) {
             return;
@@ -234,6 +207,10 @@ namespace Comet {
         }
     }
 
+    SwapchainTarget::~SwapchainTarget() {
+        clear_render_resources(m_render_resources);
+    }
+
     void SwapchainTarget::begin_render_target(CommandBuffer& command_buffer) {
         RenderTarget::begin_render_target(
             command_buffer, m_swapchain_generation->get_current_index());
@@ -251,14 +228,6 @@ namespace Comet {
         clear_render_resources(m_render_resources);
     }
 
-    void MultiTarget::recreate() {
-        const auto attempt = try_initialize();
-        if(!attempt) {
-            LOG_FATAL("Failed to recreate multi render target: {}",
-                vk::to_string(attempt.result()));
-        }
-    }
-
     GpuResourceResult<void> MultiTarget::try_initialize() {
         std::vector<RenderResource> resources;
         resources.reserve(m_frame_count);
@@ -273,7 +242,6 @@ namespace Comet {
 
         clear_render_resources(m_render_resources);
         m_render_resources = std::move(resources);
-        m_needs_recreate = false;
         return GpuResourceResult<void>::success();
     }
 }

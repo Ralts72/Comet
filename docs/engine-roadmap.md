@@ -936,8 +936,10 @@ Scene Component / RenderItem
   image view，旧一代按实际 frame completion 释放，resize 不再同步等待全部在途 frame。
 - [x] runtime/ImGui `SwapchainTarget` 显式共享其 core generation，并用纯 compatibility diff 区分
   extent、format 和 image count 失效；editor 按 diff 精确重建 backend。
-- 将 swapchain 重建改为 prepare/create/commit/retire generation 流程。engine core、runtime present target 和 editor ImGui
-  dependent generation 分层持有；format、sample count 或 image count 变化时精确重建兼容性相关对象。
+- [x] 将 swapchain core 与 runtime/editor dependent 分层持有，并按 extent、format、image count compatibility 精确
+  失效；core 创建失败不提交候选，dependent 始终共享其构造时对应的 core generation。
+- [ ] 将 runtime format/sample-count-dependent RenderPass 与 Pipeline 收敛为可事务替换的 generation；该工作与
+  阶段 5 的 PipelineKey/RenderGraph 生命周期一起完成，当前 format 变化明确终止，不继续使用不兼容 pipeline。
 - [x] old swapchain 只有在 graphics use 和 presentation use 都完成后释放；没有 present completion 能力的平台保留
   present-queue idle 回退，不用不相关的全局 Device idle 代替依赖判断。
 - [x] 为超大 View 增加设备硬上限与 editor 软上限，等比约束最终物理分辨率，避免无上限重建离屏资源。
@@ -1142,8 +1144,11 @@ FrameSlot 保留到 fence 完成，ImGui binding 也按 slot 安全替换。本�
 Viewport 物理分辨率约束已完成：Editor 将设备 `maxImageDimension2D` 与 4096 软上限合并后传入纯 `ViewportLayout`，
 Free、16:9 和 Fixed 的最终结果都会等比收敛到有效范围，Renderer 不再接收无上限的附件尺寸。
 
-下一步做一次阶段 4B 完成审计：核对离屏/swapchain generation、compatibility、失败状态和等待范围，清理过渡期
-重复接口，并决定 runtime format-dependent Pipeline generation 是进入阶段 4C 前补齐，还是归入后续渲染管线阶段。
+阶段 4B 完成审计已结束：RenderTarget generation 删除原地 resize/dirty/recreate API，extent 和 frame count 构造后
+只读；初始 RenderPass 使用 active swapchain 的实际格式。runtime format-dependent Pipeline generation 归入阶段 5。
+
+下一步进入阶段 4C 视口交互闭环：先提取 screen point 到 RenderTarget pixel 的纯映射，严格排除工具栏、letterbox、
+pillarbox 和 1x 裁切区域；随后让 editor camera 输入和对象拾取复用同一坐标契约。
 
 阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。

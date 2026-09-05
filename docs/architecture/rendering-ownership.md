@@ -78,6 +78,10 @@ editor 使用按 frame slot 分配的 `MultiTarget` 生成离屏颜色纹理，`
 `RenderView` 是 Renderer 与 SceneResolver 共同消费的纯值：它通过内嵌的 `CameraSelection` 选择 Scene primary Camera 或请求携带的
 `RenderCamera` override，不包含 `EditorMode`、ImGui 类型或尚无消费者的输入策略。
 
+`RenderTarget` 的 extent 和 frame count 在构造后不可修改，也不提供 `resize`、dirty flag 或公开 `recreate`。resize
+和 swapchain 变化必须在 active target 之外创建完整候选，再替换 shared owner；渲染开始时不会隐式分配或重建 GPU
+对象。单帧离屏目标与 `MultiTarget(frame_count = 1)` 使用相同所有权模型，不需要重复的 target 实现。
+
 离屏目标的一整套 `MultiTarget` 就是一代资源，不额外创建只为 Viewport 服务的 generation 包装类。resize 先通过可恢复工厂
 完整创建所有 frame slot 的 image、image view 和 framebuffer；成功后才替换活动目标，失败时继续使用旧目标。每个提交过的
 活动目标由对应 `FrameSlot` 保留到 fence 完成；ImGui 也只在当前已完成的 frame slot 上替换 descriptor 和 `ImageView`，
@@ -203,6 +207,8 @@ state 和 ImGui target。runtime `SwapchainTarget` 与 editor ImGui target 都�
 generation，不再通过可变 `Swapchain&` 查询 images/index。config compatibility diff 明确报告 extent、
 surface format 和 image count 变化；editor 只在 format/image count 失效时重建 ImGui backend，单纯 extent
 变化只重建 target attachments。runtime format 变化在完整 RenderPass/Pipeline generation 接入前会明确终止。
+初始 runtime RenderPass 的颜色格式来自 active `Swapchain::Generation` 实际选中的 surface format，而不是配置中的
+首选请求；配置只提出选择偏好，不能作为设备选择后的事实来源。
 窗口零尺寸导致 core 重建延期时，会从仍有效的旧
 swapchain 恢复 dependent，不会留下半释放的活动渲染器。Editor shutdown 会先解绑捕获 ImGuiContext 的回调。
 ViewPanel 尺寸稳定后才触发离屏目标 generation 创建，提交后旧目标由实际引用它的 FrameSlot 延迟释放，不等待全部
