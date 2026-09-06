@@ -36,6 +36,9 @@ Mesh/Texture 的 CPU DTO、Runtime 对象和工厂集中于 render/resource，�
 MaterialData 是可序列化的 template + Texture Handle、scalar、四分量 vector 参数；Runtime Material 保存解析后的 Texture 引用及数值。
 `.mat` v1 保持纹理字段兼容：texture 用 `asset`，scalar/vector 用 `value`，跨类型同名、非有限值和非四分量 vector 拒绝发布。
 MaterialLayout 定义参数默认值及 std140 字节位置；文件中省略的数值参数使用布局默认值，不往文件写入 GPU binding。
+内置布局通过不可变 `MaterialLayout::find_builtin` 供渲染器和 Inspector 共用，另带显示名、scalar 编辑范围/步长及 vector 颜色语义。
+Inspector 只在值变化时调用定向更新回调；缺失纹理会先保留本资产草稿，补齐后发布，失败恢复本次交互前的值。
+未知/错误类型字段不自动删除，也不强行发布；需修正源文件或对应已知槽。仅浏览省略的默认参数不会把它们写回 .mat。
 Scene Serializer 和 ConfigLoader 留在各自模块，不强行纳入 AssetManager。
 
 ## 三种加载路径

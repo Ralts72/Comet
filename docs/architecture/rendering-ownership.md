@@ -94,6 +94,7 @@ Engine：事件 → Application 更新
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 SceneRenderer 不读 EditorMode/ImGui。SceneResolver 只解析 Mesh/Material，不检查 template、属性名称和数量。
 MaterialRenderer 选择 MaterialLayout，MaterialRuntimeCache 按材质身份/revision 和不可变 layout 身份准备纹理 binding 与参数字节。
+内置 MaterialLayout 的只读描述同时供 Inspector 生成控件，不依赖 Device 或 ImGui；显示语义不是 SPIR-V 反射信息。
 缺槽或不匹配在缓存层记录诊断；同版本不重复解析。未使用缓存按帧回收，已交付的 PreparedMaterial 快照独立保活。
 生产 GPU 支持 cube_texture 和 unlit_color 两套 MaterialSet 布局；FrameSet 共用相机契约。
 当前仅不透明物体按 pipeline/material 排序；布局手写，不等同于已经支持任意 Shader 或透明排序。

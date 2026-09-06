@@ -11,6 +11,29 @@
 #include <utility>
 
 namespace Comet {
+    std::shared_ptr<const MaterialLayout> MaterialLayout::find_builtin(
+        const std::string_view name) {
+        static const std::array<std::shared_ptr<const MaterialLayout>, 2> layouts{
+            std::make_shared<MaterialLayout>("cube_texture", 2,
+                std::vector<TextureProperty>{
+                    {"u_Texture0", 1, "Texture 0"}, {"u_Texture1", 2, "Texture 1"}},
+                32,
+                std::vector<ScalarProperty>{{"blend", 16, 0.5f, 0, 1, 0.01f, "Blend"}},
+                std::vector<VectorProperty>{
+                    {"tint", 0, {1, 1, 1, 1}, VectorProperty::Semantic::Color, "Tint"}}),
+            std::make_shared<MaterialLayout>("unlit_color", 1,
+                std::vector<TextureProperty>{}, 32,
+                std::vector<ScalarProperty>{
+                    {"intensity", 16, 1.0f, 0, 10, 0.05f, "Intensity"}},
+                std::vector<VectorProperty>{{"color", 0, {1, 1, 1, 1},
+                    VectorProperty::Semantic::Color, "Color"}})};
+        const auto found = std::ranges::find_if(
+            layouts, [&](const auto& layout) { return layout->get_name() == name; });
+        if(found == layouts.end())
+            return nullptr;
+        return *found;
+    }
+
     MaterialLayout::MaterialLayout(std::string name, const uint64_t revision,
         std::vector<TextureProperty> textures, const uint32_t parameter_size,
         std::vector<ScalarProperty> scalars, std::vector<VectorProperty> vectors)
@@ -53,6 +76,11 @@ namespace Comet {
             validate_parameter(scalar.name, scalar.offset, sizeof(float), 4);
             if(!std::isfinite(scalar.default_value)) {
                 throw std::invalid_argument("Material default must be finite");
+            }
+            if(!std::isfinite(scalar.min_value) || !std::isfinite(scalar.max_value)
+                || scalar.min_value > scalar.max_value || !std::isfinite(scalar.step)
+                || scalar.step <= 0) {
+                throw std::invalid_argument("Invalid material scalar editing metadata");
             }
         }
         for(const auto& vector : m_vectors) {

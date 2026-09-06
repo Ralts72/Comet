@@ -15,6 +15,23 @@
 #include <spdlog/sinks/ostream_sink.h>
 
 namespace Comet::Tests {
+    TEST(MaterialRuntimeTest, BuiltinLayoutsShareIdentityAndCarryAuthoringMetadata) {
+        const auto textured = MaterialLayout::find_builtin("cube_texture");
+        ASSERT_TRUE(textured);
+        EXPECT_EQ(textured, MaterialLayout::find_builtin("cube_texture"));
+        EXPECT_EQ(textured->get_scalars().front().display_name, "Blend");
+        EXPECT_FLOAT_EQ(textured->get_scalars().front().min_value, 0);
+        EXPECT_FLOAT_EQ(textured->get_scalars().front().max_value, 1);
+        EXPECT_EQ(textured->get_vectors().front().semantic,
+            MaterialLayout::VectorProperty::Semantic::Color);
+        const auto solid = MaterialLayout::find_builtin("unlit_color");
+        ASSERT_TRUE(solid);
+        EXPECT_TRUE(solid->get_textures().empty());
+        EXPECT_FALSE(MaterialLayout::find_builtin("unknown"));
+        EXPECT_THROW(MaterialLayout("invalid", 1, {}, 16,
+                         std::vector<MaterialLayout::ScalarProperty>{{"x", 0, 0, 1, 0}}),
+            std::invalid_argument);
+    }
     TEST(MaterialRuntimeTest, ValidatesAndOrdersLayoutSlots) {
         const MaterialLayout layout("textured", 2, {{"detail", 7}, {"albedo", 1}});
         EXPECT_EQ(layout.get_revision(), 2u);

@@ -78,19 +78,10 @@ namespace Comet {
         const auto vertex = shaders.load_shader("material_mesh", MATERIAL_MESH_VERT);
         add_pipeline(pipelines, vertex,
             shaders.load_shader("material_textured", MATERIAL_TEXTURED_FRAG),
-            std::make_shared<MaterialLayout>("cube_texture", 2,
-                std::vector<MaterialLayout::TextureProperty>{
-                    {"u_Texture0", 1}, {"u_Texture1", 2}},
-                32, std::vector<MaterialLayout::ScalarProperty>{{"blend", 16, 0.5f}},
-                std::vector<MaterialLayout::VectorProperty>{{"tint", 0, {1, 1, 1, 1}}}),
-            samples);
+            MaterialLayout::find_builtin("cube_texture"), samples);
         add_pipeline(pipelines, vertex,
             shaders.load_shader("material_solid", MATERIAL_SOLID_FRAG),
-            std::make_shared<MaterialLayout>("unlit_color", 1,
-                std::vector<MaterialLayout::TextureProperty>{}, 32,
-                std::vector<MaterialLayout::ScalarProperty>{{"intensity", 16, 1.0f}},
-                std::vector<MaterialLayout::VectorProperty>{{"color", 0, {1, 1, 1, 1}}}),
-            samples);
+            MaterialLayout::find_builtin("unlit_color"), samples);
     }
 
     void MaterialRenderer::add_pipeline(PipelineManager& pipelines,

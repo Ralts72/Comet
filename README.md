@@ -70,7 +70,8 @@ ctest --preset dev-debug
   拖入只加载已发布 Artifact（或已驻留 Mesh），不会隐式导入源模型；缺少缓存时先在 Project 执行 Import。
   选中材质后可把 Project 的 Texture 拖入纹理槽，沿用材质保存／更新流程，不进入场景撤销历史。
   `materials/demo.mat` 使用双纹理混合，`materials/solid.mat` 使用纯色布局；可通过 MeshRenderer 的 Material 引用切换。
-  `.mat` 支持 texture/scalar/vector 参数；新增数值参数目前通过文件配置，布局驱动的 Inspector 控件待补。
+  `.mat` 的 texture/scalar/vector 参数由布局生成 Inspector 控件，实际变化才保存并更新材质，浏览默认值不改写文件。
+  缺失纹理槽可逐个补齐，完整后自动发布；未完整的编辑仅保留在当前资产草稿中，切换资产或刷新会丢弃草稿。
 
 ## 架构入口
 

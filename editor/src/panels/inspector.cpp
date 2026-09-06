@@ -6,6 +6,7 @@
 
 #include "asset/serialization/material_serializer.h"
 #include "scene/component_registry.h"
+#include "render/material_runtime.h"
 
 #include <algorithm>
 #include <array>
@@ -360,19 +361,44 @@ namespace CometEditor {
         std::optional<Comet::MaterialData> previous_data;
         ImGui::Text("Template: %s", m_material_data->template_name.c_str());
         ImGui::TextDisabled("Template editing is not available yet");
-        ImGui::SeparatorText("Texture Properties");
+        const auto layout =
+            Comet::MaterialLayout::find_builtin(m_material_data->template_name);
+        if(!layout) {
+            ImGui::TextDisabled("No registered layout for this material");
+            return;
+        }
+        const auto remember_previous = [&] {
+            if(!previous_data)
+                previous_data = *m_material_data;
+        };
+        if(!layout->get_textures().empty())
+            ImGui::SeparatorText("Textures");
 
-        for(auto& [property_name, texture_handle] : m_material_data->texture_properties) {
+        for(const auto& property : layout->get_textures()) {
+            const auto& property_name = property.name;
+            const auto found = m_material_data->texture_properties.find(property_name);
+            Comet::AssetHandle texture_handle;
+            if(found != m_material_data->texture_properties.end())
+                texture_handle = found->second;
             const std::string preview = texture_preview(m_asset_database, texture_handle);
             ImGui::PushID(property_name.c_str());
-            if(ImGui::BeginCombo(property_name.c_str(), preview.c_str())) {
+            const auto& label =
+                property.display_name.empty() ? property.name : property.display_name;
+            const auto assign = [&](Comet::AssetHandle value) {
+                if(value == texture_handle)
+                    return;
+                remember_previous();
+                m_material_data->scalar_properties.erase(property_name);
+                m_material_data->vector_properties.erase(property_name);
+                m_material_data->texture_properties[property_name] = value;
+                texture_handle = value;
+            };
+            if(ImGui::BeginCombo(label.c_str(), preview.c_str())) {
                 for(const Comet::AssetRecord& candidate : m_texture_assets) {
                     const bool selected = candidate.handle == texture_handle;
                     const std::string label = candidate.path.generic_string();
                     if(ImGui::Selectable(label.c_str(), selected) && !selected) {
-                        if(!previous_data)
-                            previous_data = *m_material_data;
-                        texture_handle = candidate.handle;
+                        assign(candidate.handle);
                     }
                     if(selected) {
                         ImGui::SetItemDefaultFocus();
@@ -382,9 +408,54 @@ namespace CometEditor {
             }
             if(const auto asset = accept_asset_drop(Comet::AssetType::Texture);
                 asset && asset->handle != texture_handle) {
-                if(!previous_data)
-                    previous_data = *m_material_data;
-                texture_handle = asset->handle;
+                assign(asset->handle);
+            }
+            ImGui::PopID();
+        }
+
+        if(!layout->get_scalars().empty() || !layout->get_vectors().empty())
+            ImGui::SeparatorText("Parameters");
+        for(const auto& property : layout->get_scalars()) {
+            const auto found = m_material_data->scalar_properties.find(property.name);
+            float value = property.default_value;
+            if(found != m_material_data->scalar_properties.end())
+                value = found->second;
+            const float before = value;
+            const auto& label =
+                property.display_name.empty() ? property.name : property.display_name;
+            ImGui::PushID(property.name.c_str());
+            if(ImGui::DragFloat(label.c_str(), &value, property.step, property.min_value,
+                   property.max_value, "%.3f", ImGuiSliderFlags_AlwaysClamp)
+                && value != before) {
+                remember_previous();
+                m_material_data->texture_properties.erase(property.name);
+                m_material_data->vector_properties.erase(property.name);
+                m_material_data->scalar_properties[property.name] = value;
+            }
+            ImGui::PopID();
+        }
+        for(const auto& property : layout->get_vectors()) {
+            const auto found = m_material_data->vector_properties.find(property.name);
+            auto value = property.default_value;
+            if(found != m_material_data->vector_properties.end())
+                value = found->second;
+            const auto before = value;
+            const auto& label =
+                property.display_name.empty() ? property.name : property.display_name;
+            ImGui::PushID(property.name.c_str());
+            bool changed = false;
+            if(property.semantic
+                == Comet::MaterialLayout::VectorProperty::Semantic::Color) {
+                changed = ImGui::ColorEdit4(
+                    label.c_str(), value.data(), ImGuiColorEditFlags_Float);
+            } else {
+                changed = ImGui::DragFloat4(label.c_str(), value.data(), 0.01f);
+            }
+            if(changed && value != before) {
+                remember_previous();
+                m_material_data->texture_properties.erase(property.name);
+                m_material_data->scalar_properties.erase(property.name);
+                m_material_data->vector_properties[property.name] = value;
             }
             ImGui::PopID();
         }
@@ -395,12 +466,8 @@ namespace CometEditor {
                 ImVec4(0.9f, 0.25f, 0.2f, 1.0f), "%s", validation_error.c_str());
         }
 
-        if(previous_data) {
-            if(validation_error.empty()) {
-                update_material(record, *previous_data);
-            } else {
-                m_material_data = *previous_data;
-            }
+        if(previous_data && validation_error.empty()) {
+            update_material(record, *previous_data);
         }
     }
 
@@ -453,11 +520,12 @@ namespace CometEditor {
 
     void InspectorPanel::update_material(
         const Comet::AssetRecord& record, const Comet::MaterialData& previous_data) {
-        if(!m_material_data || !m_update_material_callback) {
+        if(!m_material_data) {
             return;
         }
 
-        if(!m_update_material_callback(record.handle, *m_material_data)) {
+        if(!m_update_material_callback
+            || !m_update_material_callback(record.handle, *m_material_data)) {
             m_material_data = previous_data;
             return;
         }
@@ -466,6 +534,34 @@ namespace CometEditor {
     std::string InspectorPanel::validate_material() const {
         if(!m_material_data) {
             return "Material data is not loaded";
+        }
+
+        const auto layout =
+            Comet::MaterialLayout::find_builtin(m_material_data->template_name);
+        if(!layout)
+            return "Material layout is not registered";
+        const auto unknown_property = [](const auto& values, const auto& properties) {
+            for(const auto& [name, value] : values) {
+                if(!std::ranges::any_of(properties,
+                       [&](const auto& property) { return property.name == name; }))
+                    return name;
+            }
+            return std::string{};
+        };
+        for(const auto& name : {unknown_property(m_material_data->texture_properties,
+                                    layout->get_textures()),
+                unknown_property(
+                    m_material_data->scalar_properties, layout->get_scalars()),
+                unknown_property(
+                    m_material_data->vector_properties, layout->get_vectors())}) {
+            if(!name.empty())
+                return "Unknown or incorrectly typed property '" + name
+                       + "' in this layout";
+        }
+        for(const auto& property : layout->get_textures()) {
+            if(!m_material_data->texture_properties.contains(property.name)) {
+                return "Complete texture slot '" + property.name + "' to publish changes";
+            }
         }
 
         for(const auto& [property_name, texture_handle] :

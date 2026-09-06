@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -20,17 +21,28 @@ namespace Comet {
         struct TextureProperty {
             std::string name;
             uint32_t binding;
+            std::string display_name;
         };
         struct ScalarProperty {
             std::string name;
             uint32_t offset;
             float default_value;
+            float min_value = 0;
+            float max_value = 0;
+            float step = 0.01f;
+            std::string display_name;
         };
         struct VectorProperty {
+            enum class Semantic { Vector, Color };
             std::string name;
             uint32_t offset;
             std::array<float, 4> default_value;
+            Semantic semantic = Semantic::Vector;
+            std::string display_name;
         };
+
+        [[nodiscard]] static std::shared_ptr<const MaterialLayout> find_builtin(
+            std::string_view name);
 
         MaterialLayout(std::string name, uint64_t revision,
             std::vector<TextureProperty> textures, uint32_t parameter_size = 0,
