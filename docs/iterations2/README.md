@@ -80,11 +80,12 @@
 | 032 | 金属粗糙度 PBR、相机帧 ABI、共享 Shader 消费者闭包与斜面阴影修正 | Debug/Release 各 5 个 CTest；526 单元、10 WSI、2 契约；16 GPU 项 ×20；两次 Cocoa 停滞另行记录；Linux CI 34063934553 成功 |
 | 033 | 半分辨率 Bloom、后处理图组合、配置／帧边界参数及在途目标代 | Debug/Release 各 5 个 CTest；532 单元、10 WSI、2 契约；19 GPU 项 ×20；Linux CI 34064473387 成功 |
 | 034 | CPU/GPU 帧诊断、完成后查询、低频预算与手动 VMA 报告 | Debug/Release 各 5 个 CTest；539 单元、25 同步 GPU、10 WSI、2 契约；重复验证在旧 GLFW 路径超时、035 修正；Linux CI 34065505083 成功 |
-| 035 | GLFW 进程生命周期、面板可见性单一来源及定期架构审查 | Debug/Release 各 5 个 CTest；542 单元、10 WSI、2 契约；25 GPU 项 ×20；此前 Cocoa 重复初始化路径不再复现 |
-| 036 | 可复现 forward 场景测量与阶段 5 核心回顾 | Debug/Release 各 6 个 CTest；542 单元及原有 GPU/WSI/契约；新增 profile smoke；12 次 Release 测量各 240 个 CPU/GPU 样本 |
+| 035 | GLFW 进程生命周期、面板可见性单一来源及定期架构审查 | Debug/Release 各 5 个 CTest；542 单元、10 WSI、2 契约；25 GPU 项 ×20；Linux CI 34065767335 成功 |
+| 036 | 可复现 forward 场景测量与阶段 5 核心回顾 | Debug/Release 各 6 个 CTest；542 单元及原有 GPU/WSI/契约；新增 profile smoke；12 次 Release 测量各 240 个 CPU/GPU 样本；Linux CI 34066231351 成功 |
+| 037 | 键鼠／手柄稳定输入帧、失焦／断连、ImGui 串接及 app 消费 | Debug/Release 各 6 个 CTest；551 单元及原有 GPU/WSI/契约/profile；12 输入／窗口项 ×20 |
 
 阶段 4、5 本轮核心验收通过，扩展项保留在路线图；阶段 6 尚未完成。
-阶段 3 的主线负载控制已补齐。下一项：037 键鼠／手柄输入的稳定帧快照和生命周期边界。
+阶段 3 的主线负载控制已补齐。下一项：038 Fixed Update／普通 Update、输入边沿消费及明确的系统执行时序。
 已完成定期架构回顾：005、010、015、020、025、030、035；阶段边界回顾：013、036。下一次：040 或阶段 6 边界（取先到者）。
 
 远端推送结果与 CI 以 git 远端 refs 和 CI 实际运行状态为准，不能将本表视为远端成功证明。

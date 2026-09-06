@@ -51,6 +51,9 @@ cmake --build build-profile --target render_profile --parallel
 报告记录实际 framebuffer 尺寸、CPU/GPU 分段、样本数和 P50/P95；测试进程串行运行，测量期间不要同时构建或运行其他 GPU 测试。
 该入口关闭请求的 validation，不修改源资产；它是固定场景基线，不代表编辑器 UI 或真实游戏项目性能。
 
+示例 app：W/A/S/D 在世界水平面移动 Main Camera，Q/E 降低／升高，左 Shift 加速，滚轮前后移动，Escape 退出。
+标准映射手柄使用第一个已连接设备的左摇杆移动，左右扳机降低／升高；失焦不移动。它目前是相机演示，不是角色／物理控制器。
+
 ## 编辑器使用
 
 - Edit 使用独立编辑器相机；Play 使用克隆场景的 primary Camera，Stop 后返回 Edit，不回写运行时修改。
@@ -106,6 +109,9 @@ cmake --build build-profile --target render_profile --parallel
 - 平台：Window 只拥有自己的原生窗口；GLFW 在首次创建窗口时初始化，正常进程退出时统一终止。
   创建／销毁窗口和平台事件处理必须在主线程，应用及测试不得另行调用 `glfwTerminate()`。
   关闭一扇窗口不会销毁其他窗口，连续启动 Engine 不反复初始化平台；这不代表已支持多窗口多 Renderer 编排。
+- 输入：Window 在事件轮询后发布 `Input::Frame`，Engine 提供只读快照；键鼠边沿、位移／滚轮与标准手柄状态均有界保存。
+  帧快照可复制，后续平台事件不改写已发布数据；失焦释放控制，ImGui 串接原回调，底层不决定编辑器 Viewport 的游戏输入路由。
+  原生窗口 user pointer 归 Window；外部替换输入回调时须保留调用链，不能绕过输入采集。
 - 编辑器：面板是可见状态的唯一 owner；View 菜单只观察已登记面板并切换状态，关闭按钮和菜单不会各存一份 bool。
   Editor 在释放面板前移除 UI 回调并销毁菜单；业务编辑仍走既有命令历史，不引入全局 EventBus。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。

@@ -4,6 +4,8 @@
 #include "scene/scene.h"
 
 #include <array>
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -71,6 +73,7 @@ namespace {
 
             auto scene = std::make_unique<Comet::Scene>();
             Comet::Entity main_camera = scene->create_entity("Main Camera");
+            m_camera_entity_id = main_camera.get_id();
             main_camera.get_component<Comet::TransformComponent>().translation.z = 3.0f;
             main_camera.add_component<Comet::CameraComponent>().primary = true;
 
@@ -113,6 +116,42 @@ namespace {
                 return;
             }
 
+            const auto& input = get_engine().get_input_frame();
+            if(input.focused) {
+                using Key = Comet::Input::Key;
+                if(input.key(Key::Escape).pressed)
+                    get_engine().get_window().request_close();
+                Comet::Math::Vec3 direction{
+                    float(input.key(Key::D).down) - float(input.key(Key::A).down),
+                    float(input.key(Key::E).down) - float(input.key(Key::Q).down),
+                    float(input.key(Key::S).down) - float(input.key(Key::W).down)};
+                const auto stick = [](float value) {
+                    const float magnitude = std::abs(value);
+                    if(magnitude <= 0.15f)
+                        return 0.0f;
+                    return std::copysign((magnitude - 0.15f) / 0.85f, value);
+                };
+                for(const auto& pad : input.gamepads) {
+                    if(!pad.connected)
+                        continue;
+                    using Axis = Comet::Input::GamepadAxis;
+                    direction.x += stick(pad.axis(Axis::LeftX));
+                    direction.z += stick(pad.axis(Axis::LeftY));
+                    direction.y +=
+                        pad.axis(Axis::RightTrigger) - pad.axis(Axis::LeftTrigger);
+                    break;
+                }
+                if(Comet::Math::length(direction) > 1)
+                    direction = Comet::Math::normalize(direction);
+                if(auto camera = scene->find_entity(m_camera_entity_id)) {
+                    auto& transform = camera.get_component<Comet::TransformComponent>();
+                    const float speed = input.key(Key::LeftShift).down ? 6.0f : 3.0f;
+                    transform.translation +=
+                        direction * speed * std::clamp(context.delta_time, 0.0f, 0.1f);
+                    transform.translation.z -= input.scroll.y * 0.2f;
+                }
+            }
+
             for(std::size_t index = 0; index < m_cube_entity_ids.size(); ++index) {
                 if(Comet::Entity cube = scene->find_entity(m_cube_entity_ids[index])) {
                     const float direction = index == 0 ? 1.0f : -1.0f;
@@ -130,6 +169,7 @@ namespace {
 
     private:
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
+        Comet::EntityId m_camera_entity_id = Comet::INVALID_ENTITY_ID;
         std::array<Comet::EntityId, 2> m_cube_entity_ids = {
             Comet::INVALID_ENTITY_ID, Comet::INVALID_ENTITY_ID};
     };

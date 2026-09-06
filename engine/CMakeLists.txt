@@ -27,6 +27,7 @@ set(SOURCES
         src/diagnostics/profiler.cpp
         src/diagnostics/logger.cpp
         src/core/window.cpp
+        src/core/input.cpp
         src/core/timer.cpp
         src/core/project_paths.cpp
         src/core/task_scheduler.cpp

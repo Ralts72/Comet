@@ -7,6 +7,7 @@
 #include "common/export.h"
 #include "config/config.h"
 #include "core/math_utils.h"
+#include "core/input.h"
 
 namespace Comet {
     class COMET_API Window {
@@ -18,9 +19,14 @@ namespace Comet {
         Window(const Window&) = delete;
         Window& operator=(const Window&) = delete;
 
+        // 原生互操作借用句柄；user pointer 归 Window，替换输入回调须串接原回调。
         [[nodiscard]] GLFWwindow* get() const { return m_window; }
 
         [[nodiscard]] bool should_close() const;
+        void request_close();
+        [[nodiscard]] const Input::Frame& get_input_frame() const {
+            return m_input.get_frame();
+        }
 
         [[nodiscard]] Math::Vec2u get_framebuffer_size() const;
 
@@ -30,5 +36,6 @@ namespace Comet {
 
     private:
         GLFWwindow* m_window = nullptr;
+        Input m_input;
     };
 }

@@ -205,6 +205,7 @@ namespace Comet::Tests {
         diagnostics.set_enabled(true);
         unsigned updates = 0;
         engine->register_update_callback([&](UpdateContext) {
+            EXPECT_EQ(engine->get_input_frame().serial, updates + 1);
             if(++updates == 3)
                 glfwSetWindowShouldClose(engine->get_window().get(), GLFW_TRUE);
         });

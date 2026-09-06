@@ -67,6 +67,9 @@ namespace Comet {
 
         [[nodiscard]] Window& get_window() { return *m_window; }
         [[nodiscard]] const Window& get_window() const { return *m_window; }
+        [[nodiscard]] const Input::Frame& get_input_frame() const {
+            return m_window->get_input_frame();
+        }
         [[nodiscard]] Renderer& get_renderer() { return *m_renderer; }
         [[nodiscard]] const Renderer& get_renderer() const { return *m_renderer; }
 
