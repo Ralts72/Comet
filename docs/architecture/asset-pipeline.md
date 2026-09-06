@@ -103,7 +103,14 @@ AssetManager 默认最多 8 个在途任务（含已完成但 owner 尚未回收
 process_completions 在回收完成任务之后继续派发；因此 scheduler.wait_idle 不等于资产管线已排空。
 资产等待队列满时新请求返回失败并记录日志，需要调用方重试；未提交的请求不会静默视作成功。
 Checking／Importing 包括已接收但尚未执行的阶段，get_async_status 可查询 queued／in_flight 数量。
-这些是任务数量限制，不是单个模型大小／总解码字节限制，也不限制一次 GPU 创建耗时；主线程发布预算仍待补充。
+
+每个在途槽共同持有 future 和独立 ImportResult；Worker 只写自己的结果，future 完成后 owner 才读取。
+不再维护 Mesh／Texture 两个完成队列或完成 mutex，AsyncState 由 AssetManager 独占。
+默认 process_completions 每次最多处理 2 个结果，并在约 2 ms 后停止开启下一个发布；正预算至少推进一个已就绪结果。
+失败、检查和过期项也计数，Mesh／Texture 共用预算；未就绪任务不阻塞后面的已就绪任务。
+未处理结果继续占据在途槽，不会因 Worker 已结束就不断放入更多重型候选。
+CompletionBudget 可显式调整；零数量或非正时间暂停结果处理，仍允许派发等待任务。递归处理请求被拒绝。
+这是非抢占的软时间预算，不限制单个模型大小、一次 GPU 创建／原子文件替换耗时，也不涵盖扫描或同步显式加载。
 
 依赖索引分两类：
 
@@ -128,7 +135,7 @@ Texture 后台刷新和显式重导入共用 `reload_loaded_material_dependents(
 ## 生命周期与文件写入
 
 AssetManager 持有数据库，借用 Registry、RenderResourceFactory 和 TaskScheduler；必须先于这些依赖销毁，
-析构先取消未派发请求，再等自己的已派发任务结束；闭包不形成遗留的 AsyncState 自引用。
+析构先取消未派发请求，再等自己的已派发任务结束并丢弃未发布结果；Worker 不持有 AssetManager 或 AsyncState。
 TaskScheduler 是通用固定 Worker 池，不认识资产，析构 drain 已接收任务后 join。
 Registry 保存 Runtime 的共享引用；替换条目不影响仍持有旧对象的 Material 或在途帧。
 GPU ready/retention 规则见[渲染所有权](rendering-ownership.md)，资产 revision 不代替 GPU completion。
