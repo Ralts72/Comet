@@ -4,6 +4,8 @@
 #include <vulkan/vulkan.hpp>
 
 #include <cstdint>
+#include <bit>
+#include <map>
 #include <span>
 #include <string>
 #include <vector>
@@ -12,6 +14,30 @@ namespace Comet {
     // 只拥有 CPU 值；不保留反射库指针、SPIR-V 输入或 Vulkan 对象。
     class COMET_API ShaderInterface {
     public:
+        class ConstantValue {
+        public:
+            enum class Type { Boolean, SignedInteger, UnsignedInteger, Float };
+            ConstantValue(bool value) : m_type(Type::Boolean), m_bits(value ? 1u : 0u) {}
+            ConstantValue(int32_t value)
+                : m_type(Type::SignedInteger), m_bits(std::bit_cast<uint32_t>(value)) {}
+            ConstantValue(uint32_t value)
+                : m_type(Type::UnsignedInteger), m_bits(value) {}
+            ConstantValue(float value)
+                : m_type(Type::Float), m_bits(std::bit_cast<uint32_t>(value)) {}
+            [[nodiscard]] Type get_type() const { return m_type; }
+            [[nodiscard]] uint32_t get_bits() const { return m_bits; }
+            bool operator==(const ConstantValue&) const = default;
+
+        private:
+            Type m_type;
+            uint32_t m_bits;
+        };
+        using Specialization = std::map<uint32_t, ConstantValue>;
+        struct SpecializationConstant {
+            uint32_t id;
+            std::string name;
+            ConstantValue default_value;
+        };
         struct BlockMember {
             std::string name;
             uint32_t offset;
@@ -45,11 +71,18 @@ namespace Comet {
         void validate_set(
             uint32_t set, std::span<const vk::DescriptorSetLayoutBinding> bindings) const;
         void validate_push_constants(std::span<const vk::PushConstantRange> ranges) const;
+        [[nodiscard]] const std::vector<SpecializationConstant>&
+        get_specialization_constants() const {
+            return m_specialization_constants;
+        }
+        // 校验类型/ID，并移除与默认位模式相同的显式覆盖。
+        void canonicalize_specialization(Specialization& values) const;
 
     private:
         std::string m_entry_point;
         vk::ShaderStageFlagBits m_stage;
         std::vector<DescriptorBinding> m_bindings;
         std::vector<vk::PushConstantRange> m_push_constants;
+        std::vector<SpecializationConstant> m_specialization_constants;
     };
 }

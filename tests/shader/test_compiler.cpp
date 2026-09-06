@@ -28,6 +28,32 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(ShaderCompilerTest, RejectsSpecializationDependentArrayReflection) {
+        for(const std::string length : {"COUNT", "COUNT + 1"}) {
+            write("source.vert",
+                "#version 450\nlayout(constant_id=0) const int COUNT=2;\nlayout(set=0,binding=0) uniform sampler2D textures["
+                    + length
+                    + "];\nvoid main(){gl_Position=texture(textures[0],vec2(0));}");
+            const auto result = ShaderCompiler::compile(request);
+            ASSERT_TRUE(result.succeeded()) << result.diagnostics;
+            EXPECT_THROW(ShaderInterface(result.words), std::invalid_argument) << length;
+        }
+    }
+
+    TEST_F(ShaderCompilerTest, CompileTimeArrayVariantsReflectActualLayout) {
+        write("source.vert",
+            "#version 450\nlayout(set=0,binding=0) uniform sampler2D textures[COUNT+1];\nvoid main(){gl_Position=texture(textures[0],vec2(0));}");
+        for(const uint32_t count : {2u, 7u}) {
+            request.defines = {{"COUNT", std::to_string(count)}};
+            const auto result = ShaderCompiler::compile(request);
+            ASSERT_TRUE(result.succeeded()) << result.diagnostics;
+            const ShaderInterface reflected(result.words);
+            ASSERT_EQ(reflected.get_bindings().size(), 1u);
+            EXPECT_EQ(reflected.get_bindings()[0].count, count + 1);
+            EXPECT_TRUE(reflected.get_specialization_constants().empty());
+        }
+    }
+
     TEST_F(ShaderCompilerTest, MatchesBuildTimeBytecodeForEveryProductionShader) {
         const auto compare = [](const char* filename, ShaderCompiler::Stage stage,
                                  std::span<const uint32_t> embedded) {

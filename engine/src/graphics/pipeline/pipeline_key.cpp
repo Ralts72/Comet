@@ -69,6 +69,10 @@ namespace Comet {
         if(config.subpass >= pass.get_subpass_count())
             throw std::invalid_argument("Pipeline subpass is outside render pass");
         canonicalize(config);
+        vertex_shader.get_interface().canonicalize_specialization(
+            config.vertex_specialization);
+        fragment_shader.get_interface().canonicalize_specialization(
+            config.fragment_specialization);
         for(const auto& set : layout.descriptor_set_layouts) {
             if(!set)
                 throw std::invalid_argument("Pipeline key requires non-null set layouts");
@@ -162,6 +166,15 @@ namespace Comet {
         hash_value(seed, config.color_blend_state);
         hash_values(seed, config.dynamic_state.dynamic_states);
         hash_value(seed, config.subpass);
+        for(const auto* values :
+            {&config.vertex_specialization, &config.fragment_specialization}) {
+            hash_value(seed, values->size());
+            for(const auto& [id, value] : *values) {
+                hash_value(seed, id);
+                hash_value(seed, value.get_type());
+                hash_value(seed, value.get_bits());
+            }
+        }
         return seed;
     }
 }

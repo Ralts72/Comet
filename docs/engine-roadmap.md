@@ -168,7 +168,9 @@ GPU 材质缓存命中也必须检查 PipelineState 版本，不能只检查 Pre
   attachment formats/sample count/subpass。名称仅作标签，hash 索引后必须完整相等比较；旧 key 对象按 last use 释放。
 - 当前已实现全部已开放创建配置的结构化键；Shader 的不可变字节码内容表达 GPU 版本，编译请求 revision 仍需在发布时验票。
   同内容可跨标签复用，动态 viewport/scissor 和无关数组顺序规范化；GPU 缓存为弱引用，过期 key 按需清理。
-  specialization API 尚未开放（实际为 nullptr），应随编译契约独立补齐值、键及反射一致性测试，不能当作已完成。
+  已接通顶点/片元 specialization：bool/int32/uint32/float32 的 ID/类型/默认值反射、位模式键和真实 Vulkan 传参，
+  显式默认值与省略配置等价。其契约保持接口形状不变；所有 specialization 长度数组明确拒绝，改用编译期 defines
+  生成字节码并重新反射布局；64 位等其他标量宽度随设备能力与实际 Shader 需求扩展。
   缓存域固定于 Device/RenderPass，不做跨 RenderPass 兼容复用；不使用原始 struct 内存或 hash 单值判等。
 - 驱动 PipelineCache blob 用于跨进程加速，不代替对象 key。放在 .comet/cache/vulkan 或平台缓存，
   校验 header size/version、vendorID、deviceID、pipelineCacheUUID，以及 envelope 长度/校验和。

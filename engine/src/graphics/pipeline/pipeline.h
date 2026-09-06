@@ -1,6 +1,7 @@
 #pragma once
 #include "graphics/vk_common.h"
 #include "graphics/pipeline/vertex_description.h"
+#include "graphics/pipeline/shader_interface.h"
 
 namespace Comet {
     class Device;
@@ -110,6 +111,8 @@ namespace Comet {
         };
         PipelineDynamicState dynamic_state;
         uint32_t subpass = 0;
+        ShaderInterface::Specialization vertex_specialization;
+        ShaderInterface::Specialization fragment_specialization;
 
         bool operator==(const PipelineConfig&) const = default;
 
