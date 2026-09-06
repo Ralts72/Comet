@@ -14,6 +14,7 @@
 #include "render/resource/resource_factory.h"
 #include "render/resource/texture.h"
 
+#include <algorithm>
 #include <chrono>
 #include <deque>
 #include <exception>
@@ -21,6 +22,7 @@
 #include <map>
 #include <mutex>
 #include <queue>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -168,27 +170,51 @@ namespace Comet {
             AssetType type = AssetType::Unknown;
             std::future<void> completion;
         };
+        struct QueuedAssetTask {
+            AssetHandle handle;
+            AssetRevision revision;
+            AssetType type;
+            std::function<void()> task;
+        };
 
         std::mutex completed_mutex;
         std::deque<MeshArtifactCandidate> completed_meshes;
         std::deque<TextureImportCandidate> completed_textures;
         std::unordered_map<AssetHandle, AssetRevision> pending_assets;
         std::vector<ScheduledAssetTask> scheduled_tasks;
+        std::deque<QueuedAssetTask> queued_tasks;
         std::unordered_map<AssetHandle, MeshStatus> mesh_status;
     };
 
     AssetManager::AssetManager(ProjectPaths paths, AssetRegistry& registry,
         RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler)
+        : AssetManager(std::move(paths), registry, resource_factory, task_scheduler,
+              AsyncLimits{}) {}
+
+    AssetManager::AssetManager(ProjectPaths paths, AssetRegistry& registry,
+        RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler,
+        const AsyncLimits limits)
         : m_paths(std::move(paths)), m_database(m_paths),
           m_import_service(std::make_unique<ImportService>(m_paths)),
           m_registry(registry), m_resource_factory(resource_factory),
-          m_task_scheduler(task_scheduler),
-          m_async_state(std::make_shared<AsyncState>()) {}
+          m_task_scheduler(task_scheduler), m_async_limits(limits),
+          m_async_state(std::make_shared<AsyncState>()) {
+        if(limits.in_flight == 0 || limits.queued == 0)
+            throw std::invalid_argument("Asset async limits must be positive");
+        m_async_state->scheduled_tasks.reserve(limits.in_flight);
+    }
 
     AssetManager::~AssetManager() {
+        // 未交给 Worker 的请求取消；同时解除请求闭包对 AsyncState 的共享引用。
+        m_async_state->queued_tasks.clear();
         for(AsyncState::ScheduledAssetTask& task : m_async_state->scheduled_tasks) {
             task.completion.wait();
         }
+    }
+
+    AssetManager::AsyncStatus AssetManager::get_async_status() const {
+        return {.in_flight = m_async_state->scheduled_tasks.size(),
+            .queued = m_async_state->queued_tasks.size()};
     }
 
     AssetScanReport AssetManager::scan() {
@@ -479,6 +505,7 @@ namespace Comet {
             }
             task = tasks.erase(task);
         }
+        dispatch_queued_tasks();
         return published;
     }
 
@@ -884,6 +911,8 @@ namespace Comet {
             return inspect_only
                    || get_mesh_import_state(handle) == MeshImportState::Importing;
         }
+        m_async_state->mesh_status[handle] = {revision,
+            inspect_only ? MeshImportState::Checking : MeshImportState::Importing};
         const bool scheduled = schedule_refresh_task(handle, revision, AssetType::Mesh,
             [state = m_async_state, paths = m_paths, handle, revision,
                 relative_path = record.path, inspect_only] {
@@ -892,11 +921,8 @@ namespace Comet {
                 const std::lock_guard lock(state->completed_mutex);
                 state->completed_meshes.push_back(std::move(candidate));
             });
-        auto status = MeshImportState::Failed;
-        if(scheduled)
-            status =
-                inspect_only ? MeshImportState::Checking : MeshImportState::Importing;
-        m_async_state->mesh_status[handle] = {revision, status};
+        if(!scheduled)
+            m_async_state->mesh_status[handle] = {revision, MeshImportState::Failed};
         return scheduled;
     }
 
@@ -934,28 +960,76 @@ namespace Comet {
             return true;
         }
 
-        m_async_state->pending_assets[handle] = revision;
-        bool task_slot_created = false;
+        auto& queue = m_async_state->queued_tasks;
+        const auto queued =
+            std::ranges::find(queue, handle, &AsyncState::QueuedAssetTask::handle);
+        if(queued == queue.end() && queue.size() >= m_async_limits.queued) {
+            LOG_WARN(
+                "Asset request queue is full; retry asset handle {}", handle.value());
+            return false;
+        }
+        std::optional<AssetRevision> previous_revision;
+        if(pending != m_async_state->pending_assets.end())
+            previous_revision = pending->second;
         try {
-            m_async_state->scheduled_tasks.push_back(
-                {.handle = handle, .revision = revision, .type = type, .completion = {}});
-            task_slot_created = true;
-            m_async_state->scheduled_tasks.back().completion =
-                m_task_scheduler.submit(std::move(task));
+            m_async_state->pending_assets[handle] = revision;
+            if(queued != queue.end())
+                *queued = {handle, revision, type, std::move(task)};
+            else
+                queue.push_back({handle, revision, type, std::move(task)});
         } catch(const std::exception& exception) {
-            if(task_slot_created) {
-                m_async_state->scheduled_tasks.pop_back();
-            }
-            const auto current_pending = m_async_state->pending_assets.find(handle);
-            if(current_pending != m_async_state->pending_assets.end()
-                && current_pending->second == revision) {
-                m_async_state->pending_assets.erase(current_pending);
-            }
+            if(previous_revision)
+                m_async_state->pending_assets[handle] = *previous_revision;
+            else
+                m_async_state->pending_assets.erase(handle);
             LOG_ERROR("Failed to schedule {} refresh for asset handle {}: {}",
                 to_string(type), handle.value(), exception.what());
             return false;
         }
+        dispatch_queued_tasks();
         return true;
+    }
+
+    void AssetManager::dispatch_queued_tasks() {
+        auto& queue = m_async_state->queued_tasks;
+        auto& scheduled = m_async_state->scheduled_tasks;
+        for(auto request = queue.begin();
+            request != queue.end() && scheduled.size() < m_async_limits.in_flight;) {
+            const auto clear_pending = [&] {
+                const auto pending = m_async_state->pending_assets.find(request->handle);
+                if(pending != m_async_state->pending_assets.end()
+                    && pending->second == request->revision)
+                    m_async_state->pending_assets.erase(pending);
+            };
+            if(!m_database.is_current(request->handle, request->revision)) {
+                clear_pending();
+                request = queue.erase(request);
+                continue;
+            }
+            if(std::ranges::any_of(scheduled,
+                   [&](const auto& task) { return task.handle == request->handle; })) {
+                ++request;
+                continue;
+            }
+            scheduled.push_back({request->handle, request->revision, request->type, {}});
+            try {
+                auto completion = m_task_scheduler.try_submit(request->task);
+                if(!completion) {
+                    scheduled.pop_back();
+                    break;
+                }
+                scheduled.back().completion = std::move(*completion);
+            } catch(const std::exception& error) {
+                scheduled.pop_back();
+                clear_pending();
+                if(request->type == AssetType::Mesh)
+                    m_async_state->mesh_status[request->handle] = {
+                        request->revision, MeshImportState::Failed};
+                LOG_ERROR("Failed to dispatch asset handle {}: {}",
+                    request->handle.value(), error.what());
+            }
+            request = queue.erase(request);
+        }
     }
 
     std::shared_ptr<Texture> AssetManager::create_runtime_texture(

@@ -96,6 +96,15 @@ Artifact 已成功发布后若 GPU 创建失败，旧 Runtime Mesh 仍保留，�
 Mesh 项表示 Artifact 发布，不保证 GPU 已驻留；Texture 项表示 Runtime 发布成功。
 编辑器据此尝试恢复当前场景所需的资源，未被场景引用的模型仍只生成 Artifact，不主动上传。
 
+后台 admission 分两层：TaskScheduler 默认最多 128 个等待任务，满时 try_submit 立即返回空；
+AssetManager 默认最多 8 个在途任务（含已完成但 owner 尚未回收的任务）和 128 个轻量待执行请求。
+同 Handle 最多一个在途任务、一个最新待执行请求；重复同 revision 合并，较新 revision 替换尚未执行的请求。
+派发前和发布前都验 revision，不会因压力退回主线程执行。全局调度队列满时保留资产请求，
+process_completions 在回收完成任务之后继续派发；因此 scheduler.wait_idle 不等于资产管线已排空。
+资产等待队列满时新请求返回失败并记录日志，需要调用方重试；未提交的请求不会静默视作成功。
+Checking／Importing 包括已接收但尚未执行的阶段，get_async_status 可查询 queued／in_flight 数量。
+这些是任务数量限制，不是单个模型大小／总解码字节限制，也不限制一次 GPU 创建耗时；主线程发布预算仍待补充。
+
 依赖索引分两类：
 
 - AssetHandle 依赖：例如 Material → Texture。
@@ -119,7 +128,8 @@ Texture 后台刷新和显式重导入共用 `reload_loaded_material_dependents(
 ## 生命周期与文件写入
 
 AssetManager 持有数据库，借用 Registry、RenderResourceFactory 和 TaskScheduler；必须先于这些依赖销毁，
-并在析构时等自己的任务结束。TaskScheduler 是通用固定 Worker 池，不认识资产。
+析构先取消未派发请求，再等自己的已派发任务结束；闭包不形成遗留的 AsyncState 自引用。
+TaskScheduler 是通用固定 Worker 池，不认识资产，析构 drain 已接收任务后 join。
 Registry 保存 Runtime 的共享引用；替换条目不影响仍持有旧对象的 Material 或在途帧。
 GPU ready/retention 规则见[渲染所有权](rendering-ownership.md)，资产 revision 不代替 GPU completion。
 

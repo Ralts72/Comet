@@ -80,6 +80,8 @@ ctest --preset dev-debug
   `AssetRegistry` 是唯一 Handle 缓存；`ResourceManager` 只创建设备资源。
 - Mesh Runtime 只读已发布的 Mesh Artifact；缓存丢失需先导入，不自动回退解析 glTF。
   Texture 暂时直接解码源文件，后续再引入 Artifact。
+- 后台任务有容量限制；AssetManager 合并同资产的最新待执行请求，owner 后续处理周期继续派发。
+  超过资产等待队列容量的请求会明确拒绝并进入 Log，需重试导入；不会阻塞界面或替换旧 Runtime 资源。
 - 世界 +Y 向上，Vulkan Viewport 用负高度转换画面坐标；`flip_y` 仅控制纹理导入。
   Shader 编译产物只进入构建目录，学习源码不作为生产 Shader 的隐式依赖。
 
