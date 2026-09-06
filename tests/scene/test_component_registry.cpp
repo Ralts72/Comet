@@ -34,10 +34,29 @@ namespace {
         const auto& mesh_renderer = *registry.find_component("mesh_renderer");
         EXPECT_EQ(require_property(mesh_renderer, "mesh").type,
             Comet::PropertyType::AssetHandle);
+        EXPECT_EQ(
+            require_property(mesh_renderer, "mesh").asset_type, Comet::AssetType::Mesh);
+        EXPECT_EQ(require_property(mesh_renderer, "material").asset_type,
+            Comet::AssetType::Material);
 
         const auto& camera = *registry.find_component("camera");
         EXPECT_EQ(require_property(camera, "primary").type, Comet::PropertyType::Bool);
         EXPECT_EQ(require_property(camera, "fov").type, Comet::PropertyType::Float);
+    }
+
+    TEST(ComponentRegistryTest, RejectsAssetTypeMetadataOnNonAssetAndUnknownType) {
+        Comet::ComponentRegistry registry;
+        auto invalid = Comet::make_component_descriptor<Comet::CameraComponent>("camera",
+            "Camera",
+            {Comet::make_property_descriptor("fov", "FOV", &Comet::CameraComponent::fov,
+                {.asset_type = Comet::AssetType::Mesh})});
+        EXPECT_FALSE(registry.register_component(std::move(invalid)));
+        auto unknown =
+            Comet::make_component_descriptor<Comet::MeshRendererComponent>("mesh", "Mesh",
+                {Comet::make_property_descriptor("mesh", "Mesh",
+                    &Comet::MeshRendererComponent::mesh,
+                    {.asset_type = Comet::AssetType::Unknown})});
+        EXPECT_FALSE(registry.register_component(std::move(unknown)));
     }
 
     TEST(ComponentRegistryTest, AccessesAndNormalizesEntityComponentProperties) {

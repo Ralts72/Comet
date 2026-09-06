@@ -48,6 +48,7 @@ ctest --preset dev-debug
 - Edit 选中实体后可左键拖动红／绿／蓝箭头，沿世界 X／Y／Z 轴平移；操作手柄覆盖在模型上，不受深度遮挡。
   一次拖动只记一条撤销，Escape 取消；拖动期间不响应相机导航，失焦或隐藏视口会回退未完成的拖动。
 - Edit 中 Inspector 的名称、Transform、Camera、Mesh/Material 引用支持撤销／重做，一次编辑手势记一条，Escape 取消。
+  Mesh/Material 引用可按路径选择或从 Project 拖入；按资产类型过滤，加载失败保留旧引用，None 清空引用。
   使用 Edit 菜单或 Ctrl+Z / Ctrl+Y（macOS 为 Cmd+Z / Cmd+Shift+Z）；文本框编辑时不抢占输入控件的撤销。
   New/Open 成功及 Edit/Play 切换清空历史；Play 属性仍可实时调试，但不记入 Edit 历史。
   Inspector 底部 Add Component 添加可选组件，右键组件标题可移除；均支持撤销，名称和 Transform 不开放增删。
@@ -60,6 +61,7 @@ ctest --preset dev-debug
   检查与解码在后台进行，未加载模型只生成缓存；手动删除缓存后 Refresh 可重新检查，错误见 Log。
   Edit 中可将 Mesh 拖入 Viewport：在鼠标对应的相机关注平面创建实体，使用项目 demo 材质，支持一次撤销。
   拖入只加载已发布 Artifact（或已驻留 Mesh），不会隐式导入源模型；缺少缓存时先在 Project 执行 Import。
+  选中材质后可把 Project 的 Texture 拖入纹理槽，沿用材质保存／更新流程，不进入场景撤销历史。
 
 ## 架构入口
 

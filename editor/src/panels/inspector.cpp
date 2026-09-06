@@ -57,6 +57,7 @@ namespace CometEditor {
           m_reimport_texture_callback(std::move(reimport_texture_callback)) {}
 
     void InspectorPanel::render() {
+        m_asset_assignment.reset();
         if(!m_user_visible) {
             static_cast<void>(m_property_edit.commit());
             return;
@@ -166,14 +167,19 @@ namespace CometEditor {
     void InspectorPanel::render_property(Comet::Entity entity,
         const Comet::ComponentDescriptor& component,
         const Comet::PropertyDescriptor& property) {
-        if(!property.editable || property.read_only
-            || !m_property_editor_registry.contains(property.type))
+        if(!property.editable || property.read_only)
             return;
         auto value = property.copy_value(component.get_component(entity));
         if(!value)
             return;
         const PropertyEditTransaction::Target target{
             entity.get_uuid(), component.id, property.id};
+        if(property.type == Comet::PropertyType::AssetHandle && property.asset_type) {
+            render_asset_property(target, property, std::get<Comet::AssetHandle>(*value));
+            return;
+        }
+        if(!m_property_editor_registry.contains(property.type))
+            return;
         const bool changed = std::visit(
             [&](auto& edited) {
                 return m_property_editor_registry.edit_property(property, &edited);
@@ -212,6 +218,62 @@ namespace CometEditor {
                     LOG_ERROR("Cannot commit property edit");
             }
         }
+    }
+
+    std::optional<InspectorPanel::AssetAssignment> InspectorPanel::
+        take_asset_assignment() {
+        return std::exchange(m_asset_assignment, std::nullopt);
+    }
+
+    std::optional<AssetDragPayload> InspectorPanel::accept_asset_drop(
+        const Comet::AssetType expected_type) {
+        std::optional<AssetDragPayload> result;
+        if(ImGui::BeginDragDropTarget()) {
+            const auto* payload = ImGui::GetDragDropPayload();
+            if(payload && payload->IsDataType(AssetDragPayload::TYPE)
+                && payload->DataSize == sizeof(AssetDragPayload)) {
+                const auto asset = *static_cast<const AssetDragPayload*>(payload->Data);
+                const auto* record = m_asset_database.find(asset.handle);
+                if(asset.type == expected_type && record && record->type == expected_type
+                    && asset.generation == m_history.generation()
+                    && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE))
+                    result = asset;
+            }
+            ImGui::EndDragDropTarget();
+        }
+        return result;
+    }
+
+    void InspectorPanel::render_asset_property(
+        const PropertyEditTransaction::Target& target,
+        const Comet::PropertyDescriptor& property, const Comet::AssetHandle handle) {
+        const auto type = *property.asset_type;
+        const auto* record = m_asset_database.find(handle);
+        std::string preview = "None";
+        if(handle) {
+            if(record && record->type == type)
+                preview = record->path.generic_string();
+            else
+                preview = "Missing / invalid (" + std::to_string(handle.value()) + ")";
+        }
+        const auto request = [&](const Comet::AssetHandle selected) {
+            if(selected != handle)
+                m_asset_assignment =
+                    AssetAssignment{target, {selected, m_history.generation(), type}};
+        };
+        if(ImGui::BeginCombo(property.display_name.c_str(), preview.c_str())) {
+            if(ImGui::Selectable("None", !handle))
+                request({});
+            for(const auto& asset : m_asset_database.get_assets()) {
+                if(asset.type == type
+                    && ImGui::Selectable(
+                        asset.path.generic_string().c_str(), asset.handle == handle))
+                    request(asset.handle);
+            }
+            ImGui::EndCombo();
+        }
+        if(const auto asset = accept_asset_drop(type); asset && asset->handle != handle)
+            m_asset_assignment = AssetAssignment{target, *asset};
     }
 
     void InspectorPanel::render_asset(const Comet::AssetHandle handle) {
@@ -308,7 +370,8 @@ namespace CometEditor {
                     const bool selected = candidate.handle == texture_handle;
                     const std::string label = candidate.path.generic_string();
                     if(ImGui::Selectable(label.c_str(), selected) && !selected) {
-                        previous_data = *m_material_data;
+                        if(!previous_data)
+                            previous_data = *m_material_data;
                         texture_handle = candidate.handle;
                     }
                     if(selected) {
@@ -316,6 +379,12 @@ namespace CometEditor {
                     }
                 }
                 ImGui::EndCombo();
+            }
+            if(const auto asset = accept_asset_drop(Comet::AssetType::Texture);
+                asset && asset->handle != texture_handle) {
+                if(!previous_data)
+                    previous_data = *m_material_data;
+                texture_handle = asset->handle;
             }
             ImGui::PopID();
         }

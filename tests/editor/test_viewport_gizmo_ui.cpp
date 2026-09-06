@@ -21,7 +21,7 @@ namespace CometEditor::Tests {
         ViewPanel viewport{state, selection, gizmo, property_edit, 4096};
         int gizmo_vertices = 0;
         bool mesh_drag = false;
-        AssetDragPayload mesh_payload{Comet::AssetHandle(42), 0};
+        AssetDragPayload mesh_payload{Comet::AssetHandle(42), 0, Comet::AssetType::Mesh};
         std::size_t payload_size = sizeof(AssetDragPayload);
 
         void SetUp() override {
@@ -46,7 +46,7 @@ namespace CometEditor::Tests {
             ImGui::NewFrame();
             if(mesh_drag && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceExtern)) {
                 ImGui::SetDragDropPayload(
-                    AssetDragPayload::MESH, &mesh_payload, payload_size, ImGuiCond_Once);
+                    AssetDragPayload::TYPE, &mesh_payload, payload_size, ImGuiCond_Once);
                 ImGui::TextUnformatted("Mesh");
                 ImGui::EndDragDropSource();
             }
@@ -139,6 +139,9 @@ namespace CometEditor::Tests {
         payload_size = sizeof(std::uint64_t);
         attempt(rect.min + rect.size() * 0.5f);
         payload_size = sizeof(AssetDragPayload);
+        mesh_payload.type = Comet::AssetType::Material;
+        attempt(rect.min + rect.size() * 0.5f);
+        mesh_payload.type = Comet::AssetType::Mesh;
         state.mode = EditorMode::Play;
         attempt(rect.min + rect.size() * 0.5f);
         EXPECT_EQ(scene.entity_count(), 1);

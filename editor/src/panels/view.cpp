@@ -253,9 +253,12 @@ namespace CometEditor {
             const auto& io = ImGui::GetIO();
             const Comet::Math::Vec2 point{io.MousePos.x, io.MousePos.y};
             if(map_viewport_point_to_pixel(m_layout, point)) {
-                if(const auto* payload =
-                        ImGui::AcceptDragDropPayload(AssetDragPayload::MESH)) {
-                    if(payload->DataSize == sizeof(AssetDragPayload)) {
+                if(const auto* payload = ImGui::GetDragDropPayload();
+                    payload && payload->IsDataType(AssetDragPayload::TYPE)) {
+                    if(payload->DataSize == sizeof(AssetDragPayload)
+                        && static_cast<const AssetDragPayload*>(payload->Data)->type
+                               == Comet::AssetType::Mesh
+                        && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
                         const auto uv =
                             (point - m_layout.image_display_rect.min) / display_size;
                         if(const auto position = camera_focus_plane_point(

@@ -485,6 +485,66 @@ namespace {
             return reimported;
         }
 
+        void handle_asset_assignment(
+            const CometEditor::InspectorPanel::AssetAssignment& request) {
+            auto* scene = get_engine().get_scene();
+            if(!scene || request.asset.generation != m_command_history.generation())
+                return;
+            auto entity = scene->find_entity(request.target.entity);
+            const auto* component =
+                m_component_registry.find_component(request.target.component);
+            const auto* property =
+                component ? component->find_property(request.target.property) : nullptr;
+            if(!entity || !component || !component->has_component(entity) || !property
+                || !property->editable || property->read_only
+                || property->type != Comet::PropertyType::AssetHandle
+                || property->asset_type != request.asset.type)
+                return;
+            m_viewport_panel->cancel_interaction();
+            if(!m_property_edit.commit())
+                return;
+            const auto handle = request.asset.handle;
+            if(handle) {
+                const auto* record = m_asset_manager->get_database().find(handle);
+                if(!record || record->type != request.asset.type)
+                    return;
+                bool loaded = false;
+                switch(record->type) {
+                    case Comet::AssetType::Mesh:
+                        loaded = static_cast<bool>(m_asset_manager->load_mesh(handle));
+                        break;
+                    case Comet::AssetType::Material:
+                        loaded =
+                            static_cast<bool>(m_asset_manager->load_material(handle));
+                        break;
+                    case Comet::AssetType::Texture:
+                        loaded = static_cast<bool>(m_asset_manager->load_texture(handle));
+                        break;
+                    default:
+                        break;
+                }
+                if(!loaded) {
+                    LOG_WARN("Cannot assign asset {}; previous reference is unchanged",
+                        handle.value());
+                    return;
+                }
+            }
+            if(m_editor_state.mode == CometEditor::EditorMode::Play) {
+                if(!property->assign_value(component->get_component(entity), handle))
+                    LOG_ERROR("Cannot update runtime asset reference");
+                return;
+            }
+            if(m_command_history.get_scene() != scene
+                || !m_property_edit.begin(request.target))
+                return;
+            if(!m_property_edit.preview(handle)) {
+                static_cast<void>(m_property_edit.cancel());
+                return;
+            }
+            if(!m_property_edit.commit())
+                LOG_ERROR("Cannot commit asset reference");
+        }
+
         void handle_mesh_drop(const CometEditor::ViewPanel::MeshDrop& request) {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit
                 || request.asset.generation != m_command_history.generation())
@@ -790,6 +850,8 @@ namespace {
                     handle_scene_request(*request);
                 if(const auto request = m_viewport_panel->take_mesh_drop())
                     handle_mesh_drop(*request);
+                if(const auto request = m_inspector_panel->take_asset_assignment())
+                    handle_asset_assignment(*request);
                 if(const auto mode = m_viewport_panel->take_mode_request()) {
                     m_viewport_panel->cancel_interaction();
                     if(m_property_edit.commit()) {

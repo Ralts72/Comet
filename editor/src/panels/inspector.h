@@ -4,6 +4,7 @@
 #include "asset/material_data.h"
 #include "editor_panel.h"
 #include "command_history.h"
+#include "asset_drag_drop.h"
 
 #include <filesystem>
 #include <functional>
@@ -22,6 +23,10 @@ namespace CometEditor {
 
     class InspectorPanel: public EditorPanel {
     public:
+        struct AssetAssignment {
+            PropertyEditTransaction::Target target;
+            AssetDragPayload asset;
+        };
         using UpdateMaterialCallback =
             std::function<bool(Comet::AssetHandle, const Comet::MaterialData&)>;
         using ReimportTextureCallback =
@@ -37,12 +42,17 @@ namespace CometEditor {
 
         void render() override;
         void invalidate_asset_cache();
+        [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
 
     private:
         void render_entity(Comet::Entity entity);
         void render_property(Comet::Entity entity,
             const Comet::ComponentDescriptor& component,
             const Comet::PropertyDescriptor& property);
+        void render_asset_property(const PropertyEditTransaction::Target& target,
+            const Comet::PropertyDescriptor& property, Comet::AssetHandle handle);
+        [[nodiscard]] std::optional<AssetDragPayload> accept_asset_drop(
+            Comet::AssetType expected_type);
         void render_asset(Comet::AssetHandle handle);
         void render_texture(const Comet::AssetRecord& record);
         void render_material(const Comet::AssetRecord& record);
@@ -67,6 +77,7 @@ namespace CometEditor {
         std::optional<Comet::MaterialData> m_material_data;
         std::vector<Comet::AssetRecord> m_texture_assets;
         std::string m_asset_error;
+        std::optional<AssetAssignment> m_asset_assignment;
     };
 
 }

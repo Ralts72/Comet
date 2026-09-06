@@ -68,10 +68,13 @@ namespace CometEditor {
                        name.c_str(), selection.is_selected(asset->handle))) {
                     selection.select_asset(asset->handle);
                 }
-                if(asset->type == Comet::AssetType::Mesh && history.get_scene()
-                    && ImGui::BeginDragDropSource()) {
-                    const AssetDragPayload payload{asset->handle, history.generation()};
-                    ImGui::SetDragDropPayload(AssetDragPayload::MESH, &payload,
+                if((asset->type == Comet::AssetType::Mesh
+                       || asset->type == Comet::AssetType::Material
+                       || asset->type == Comet::AssetType::Texture)
+                    && history.get_scene() && ImGui::BeginDragDropSource()) {
+                    const AssetDragPayload payload{
+                        asset->handle, history.generation(), asset->type};
+                    ImGui::SetDragDropPayload(AssetDragPayload::TYPE, &payload,
                         sizeof(payload), ImGuiCond_Once);
                     ImGui::TextUnformatted(name.c_str());
                     ImGui::EndDragDropSource();

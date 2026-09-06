@@ -103,6 +103,9 @@ namespace Comet {
             if(property.id.empty() || property.display_name.empty()
                 || !property.mutable_accessor || !property.const_accessor
                 || (property.transient && property.serializable)
+                || (property.asset_type
+                    && (property.type != PropertyType::AssetHandle
+                        || *property.asset_type == AssetType::Unknown))
                 || !property_ids.insert(property.id).second) {
                 return false;
             }
@@ -168,9 +171,11 @@ namespace Comet {
 
         register_component(make_component_descriptor<MeshRendererComponent>(
             "mesh_renderer", "Mesh Renderer",
-            {make_property_descriptor("mesh", "Mesh", &MeshRendererComponent::mesh),
-                make_property_descriptor(
-                    "material", "Material", &MeshRendererComponent::material)}));
+            {make_property_descriptor("mesh", "Mesh", &MeshRendererComponent::mesh,
+                 {.asset_type = AssetType::Mesh}),
+                make_property_descriptor("material", "Material",
+                    &MeshRendererComponent::material,
+                    {.asset_type = AssetType::Material})}));
 
         register_component(make_component_descriptor<CameraComponent>("camera", "Camera",
             {make_property_descriptor("primary", "Primary", &CameraComponent::primary),
