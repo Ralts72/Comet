@@ -11,6 +11,7 @@ namespace CometEditor {
         constexpr float MAX_DISTANCE = 10000.0f;
         constexpr float MIN_ORTHOGRAPHIC_HEIGHT = 0.01f;
         constexpr float MAX_ORTHOGRAPHIC_HEIGHT = 10000.0f;
+        constexpr float FOCUS_PADDING = 1.2f;
         constexpr float MAX_VERTICAL_ALIGNMENT = 0.995f;
         constexpr float MIN_DIRECTION_LENGTH = 0.00001f;
 
@@ -21,6 +22,69 @@ namespace CometEditor {
         bool has_delta(const Comet::Math::Vec2 value) {
             return value.x != 0.0f || value.y != 0.0f;
         }
+
+        bool is_finite(const Comet::Math::Vec3 value) {
+            return std::isfinite(value.x) && std::isfinite(value.y)
+                   && std::isfinite(value.z);
+        }
+    }
+
+    void focus_editor_camera(EditorCameraState& camera,
+        const Comet::BoundingBox& world_bounds, const float viewport_aspect) {
+        if(!world_bounds.is_valid() || !std::isfinite(viewport_aspect)
+            || viewport_aspect <= 0.0f) {
+            return;
+        }
+
+        const Comet::Math::Vec3 offset = camera.perspective.position - camera.target;
+        const float previous_distance = Comet::Math::length(offset);
+        const Comet::Math::Vec3 center = world_bounds.center();
+        const Comet::Math::Vec3 size = world_bounds.size();
+        if(!std::isfinite(previous_distance) || previous_distance < MIN_DIRECTION_LENGTH
+            || !is_finite(center) || !is_finite(size)) {
+            return;
+        }
+
+        if(camera.projection == Comet::RenderCamera::Projection::Orthographic) {
+            const double required_height =
+                std::max(static_cast<double>(size.y),
+                    static_cast<double>(size.x) / viewport_aspect)
+                * FOCUS_PADDING;
+            const Comet::Math::Vec3 position = center + offset;
+            if(!is_finite(position)) {
+                return;
+            }
+            camera.orthographic.height = static_cast<float>(
+                std::clamp(required_height, static_cast<double>(MIN_ORTHOGRAPHIC_HEIGHT),
+                    static_cast<double>(MAX_ORTHOGRAPHIC_HEIGHT)));
+            camera.target = center;
+            camera.perspective.position = position;
+            return;
+        }
+
+        if(!std::isfinite(camera.perspective.fov_degrees)
+            || camera.perspective.fov_degrees <= 0.0f
+            || camera.perspective.fov_degrees >= 179.0f) {
+            return;
+        }
+        const double vertical_half_fov =
+            Comet::Math::radians(static_cast<double>(camera.perspective.fov_degrees))
+            * 0.5;
+        const double horizontal_half_fov =
+            std::atan(std::tan(vertical_half_fov) * viewport_aspect);
+        const double radius =
+            std::hypot(static_cast<double>(size.x), static_cast<double>(size.y),
+                static_cast<double>(size.z)) * 0.5;
+        const double required_distance = radius * FOCUS_PADDING
+            / std::sin(std::min(vertical_half_fov, horizontal_half_fov));
+        const float distance = static_cast<float>(std::clamp(required_distance,
+            static_cast<double>(MIN_DISTANCE), static_cast<double>(MAX_DISTANCE)));
+        const Comet::Math::Vec3 position = center + offset / previous_distance * distance;
+        if(!is_finite(position)) {
+            return;
+        }
+        camera.target = center;
+        camera.perspective.position = position;
     }
 
     void apply_editor_camera_input(

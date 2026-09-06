@@ -28,6 +28,10 @@ namespace Comet {
         [[nodiscard]] bool is_valid() const;
     };
 
+    // Returns world-aligned bounds for an affine transform; not a projection matrix.
+    [[nodiscard]] COMET_API std::optional<BoundingBox> transform_box(
+        const BoundingBox& box, const Math::Mat4& transform);
+
     [[nodiscard]] COMET_API std::optional<float> intersect_ray_box(
         const Ray& ray, const BoundingBox& box);
 }

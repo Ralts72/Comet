@@ -10,6 +10,47 @@ namespace Comet::Tests {
             .minimum = Math::Vec3(-1.0f), .maximum = Math::Vec3(1.0f)};
     }
 
+    TEST(BoundingBoxTest, TransformsAllCornersIntoWorldBounds) {
+        const BoundingBox local{.minimum = Math::Vec3(-1.0f, -2.0f, -0.5f),
+            .maximum = Math::Vec3(1.0f, 2.0f, 0.5f)};
+        Math::Mat4 transform =
+            Math::translate(Math::Mat4(1.0f), Math::Vec3(3.0f, -1.0f, 2.0f));
+        transform =
+            Math::rotate(transform, Math::radians(90.0f), Math::Vec3(0.0f, 0.0f, 1.0f));
+        transform = Math::scale(transform, Math::Vec3(-3.0f, 1.0f, 1.0f));
+
+        const auto world = transform_box(local, transform);
+
+        ASSERT_TRUE(world);
+        EXPECT_NEAR(world->center().x, 3.0f, 0.0001f);
+        EXPECT_NEAR(world->center().y, -1.0f, 0.0001f);
+        EXPECT_NEAR(world->center().z, 2.0f, 0.0001f);
+        EXPECT_NEAR(world->size().x, 4.0f, 0.0001f);
+        EXPECT_NEAR(world->size().y, 6.0f, 0.0001f);
+        EXPECT_NEAR(world->size().z, 1.0f, 0.0001f);
+    }
+
+    TEST(BoundingBoxTest, RejectsNonFiniteTransform) {
+        Math::Mat4 transform(1.0f);
+        transform[0][0] = std::numeric_limits<float>::quiet_NaN();
+
+        EXPECT_FALSE(transform_box(UNIT_BOX, transform));
+    }
+
+    TEST(BoundingBoxTest, TransformRejectsProjectiveAndOverflowButAllowsZeroScale) {
+        Math::Mat4 transform(1.0f);
+        transform[0][3] = 2.0f;
+        EXPECT_FALSE(transform_box(UNIT_BOX, transform));
+        transform = Math::scale(Math::Mat4(1.0f), Math::Vec3(0.0f));
+        const auto collapsed = transform_box(UNIT_BOX, transform);
+        ASSERT_TRUE(collapsed);
+        EXPECT_EQ(collapsed->size(), Math::Vec3(0.0f));
+        transform = Math::Mat4(1.0f);
+        transform[0][0] = std::numeric_limits<float>::max();
+        EXPECT_FALSE(transform_box(
+            {.minimum = Math::Vec3(-2.0f), .maximum = Math::Vec3(2.0f)}, transform));
+    }
+
     TEST(RayBoxTest, ReturnsNearestNonNegativeIntersection) {
         const auto hit =
             intersect_ray_box({.origin = Math::Vec3(0.0f, 0.0f, 5.0f),

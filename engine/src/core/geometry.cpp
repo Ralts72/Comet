@@ -46,6 +46,35 @@ namespace Comet {
                && std::isfinite(max_parameter) && max_parameter >= 0.0f;
     }
 
+    std::optional<BoundingBox> transform_box(
+        const BoundingBox& box, const Math::Mat4& transform) {
+        if(!box.is_valid() || transform[0][3] != 0.0f || transform[1][3] != 0.0f
+            || transform[2][3] != 0.0f || transform[3][3] != 1.0f) {
+            return std::nullopt;
+        }
+
+        std::optional<BoundingBox> result;
+        for(int corner_index = 0; corner_index < 8; ++corner_index) {
+            Math::Vec3 corner = box.minimum;
+            for(int axis = 0; axis < 3; ++axis) {
+                if((corner_index & (1 << axis)) != 0) {
+                    corner[axis] = box.maximum[axis];
+                }
+            }
+            const Math::Vec3 point(transform * Math::Vec4(corner, 1.0f));
+            if(!std::isfinite(point.x) || !std::isfinite(point.y)
+                || !std::isfinite(point.z)) {
+                return std::nullopt;
+            }
+            if(result) {
+                result->include(point);
+            } else {
+                result = BoundingBox::from_point(point);
+            }
+        }
+        return result;
+    }
+
     std::optional<float> intersect_ray_box(const Ray& ray, const BoundingBox& box) {
         if(!ray.is_valid() || !box.is_valid()) {
             return std::nullopt;

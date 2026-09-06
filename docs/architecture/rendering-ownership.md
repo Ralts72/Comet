@@ -250,6 +250,10 @@ FrameSlot 或 Device idle。正常呈现路径不得依赖每帧 `queue.waitIdle
 completion。Device idle 目前只用于关闭、渲染模式初始化和 device-lost 等全局安全边界；swapchain 在没有
 present completion 的平台仅使用 present queue idle 回退。
 
+Edit 视口的 F 聚焦由 ViewPanel 产生一次性请求，Editor 解析 Selection、Runtime Mesh 和实体最新 world matrix，
+通过通用 `transform_box()` 与 camera controller 更新 editor camera，再提交 RenderView；不经过 Renderer 拾取回调。
+Mesh 仅保存 local bounds，world bounds 在事件发生时计算，不新增缓存或 Selection 专用引擎类。
+
 ## 错误处理
 
 - 违反引擎内部构造前置条件时使用 `LOG_FATAL` 记录诊断并立即终止，禁止部分初始化对象继续传播。

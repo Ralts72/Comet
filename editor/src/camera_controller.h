@@ -1,6 +1,7 @@
 #pragma once
 
 #include "editor_state.h"
+#include "core/geometry.h"
 
 namespace CometEditor {
     struct EditorCameraInput {
@@ -12,4 +13,7 @@ namespace CometEditor {
 
     void apply_editor_camera_input(
         EditorCameraState& camera, const EditorCameraInput& input);
+
+    void focus_editor_camera(EditorCameraState& camera,
+        const Comet::BoundingBox& world_bounds, float viewport_aspect);
 }

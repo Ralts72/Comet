@@ -35,6 +35,8 @@ namespace CometEditor {
 
         [[nodiscard]] std::optional<Comet::Math::Vec2u> take_pick_request();
 
+        [[nodiscard]] bool take_focus_request();
+
     private:
         enum class CameraDragMode { Orbit, Pan };
 
@@ -66,6 +68,7 @@ namespace CometEditor {
         std::optional<Comet::RenderCamera::Projection> m_camera_projection_request;
         std::optional<EditorMode> m_mode_request;
         std::optional<Comet::Math::Vec2u> m_pick_request;
+        bool m_focus_request = false;
         std::optional<CameraDrag> m_camera_drag;
     };
 }

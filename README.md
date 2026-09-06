@@ -69,6 +69,8 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
   面板输入在场景解析前更新，因此当前帧直接使用新的 camera snapshot。
   Edit 模式在画面内左键可选择最近的模型包围盒，画面内空白点击清空 Selection，Hierarchy/Inspector 随之更新；
   Alt/Option 相机操作、工具栏与留白不触发拾取。当前为 CPU 包围盒粗拾取，不具备三角形级精度。
+  Edit 视口获得键盘焦点时，按 `F` 聚焦选中 Mesh；3D 调整观察距离，2D 调整正交高度，均保持原有观察方向，
+  不修改场景相机或实体 Transform。文本输入、组合快捷键、无有效 Mesh 和 Play 模式不触发聚焦。
 - 场景渲染主链路为 `Scene -> SceneExtractor -> RenderScene -> SceneResolver -> RenderSubmission -> SceneRenderer`。
   Scene 只保存组件和 `AssetHandle`，不持有 GPU Resource。
   Runtime Mesh 在 GPU 创建前从顶点计算并保存只读局部 AABB，供后续拾取、聚焦和裁剪复用；不额外保留完整 CPU 顶点副本。
