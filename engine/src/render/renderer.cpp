@@ -33,6 +33,7 @@ namespace Comet {
 
         if(!m_scene_renderer->begin_frame()) {
             m_viewport_pick_request.reset();
+            m_line_draw_list.clear();
             return false;
         }
         if(m_prepare_overlay) {
@@ -54,7 +55,12 @@ namespace Comet {
             m_viewport_pick_callback(pick_render_submission(
                 submission, pick_request->pixel, frame_view.render_size));
         }
-        const auto resource_waits = m_scene_renderer->render_scene_pass(submission);
+        if(!frame_view.visible) {
+            m_line_draw_list.clear();
+        }
+        const auto resource_waits =
+            m_scene_renderer->render_scene_pass(submission, m_line_draw_list);
+        m_line_draw_list.clear();
 
         if(m_render_overlay) {
             m_render_overlay(m_scene_renderer->get_current_command_buffer());
@@ -91,6 +97,10 @@ namespace Comet {
     void Renderer::set_viewport_pick_callback(ViewportPickCallback callback) {
         m_viewport_pick_callback = std::move(callback);
         m_viewport_pick_request.reset();
+    }
+
+    void Renderer::submit_lines(const LineDrawList& draw_list) {
+        m_line_draw_list.append(draw_list);
     }
 
     Renderer::~Renderer() {

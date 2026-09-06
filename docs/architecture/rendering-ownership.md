@@ -12,6 +12,7 @@
 | `render/scene/scene_resolver.h` | Handle/Camera → RenderSubmission |
 | `render/scene/scene_renderer.h` | Target、Pipeline、材质 descriptor 与命令录制 |
 | `render/frame_scheduler.h` | FrameSlot 复用、image 关联、完成序号与 retention |
+| `render/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
 | `render/resource/resource_manager.h` | 设备资源工厂、上传及 Shader/Sampler 共享资源 |
 | `graphics/` | Vulkan 对象与显式同步后端 |
 | `editor/src/imgui_context.h` | 编辑器 UI 最终呈现和私有纹理绑定，不属于 engine |
@@ -32,10 +33,12 @@ Engine
     │                    Swapchain → active Generation
     ├── ResourceManager → UploadManager / ShaderManager / SamplerManager
     ├── RenderView / SceneResolver
+    ├── LineDrawList（单帧 CPU 请求）
     └── SceneRenderer
         ├── RenderPass / PipelineManager / Pipeline
         ├── FrameScheduler → FrameSlot[N] / SwapchainImageState[M]
         ├── ViewProjectBuffer[N]
+        ├── DebugRenderer → 线段 Pipeline / VertexBuffer[slot]
         ├── RenderTarget：runtime SwapchainTarget 或 editor MultiTarget
         └── MaterialDescriptorState[material][slot]
 
@@ -77,7 +80,7 @@ Engine：事件 → Application 更新
   → SceneExtractor（读取此时的活动 Scene，更新 world transform）
   → Renderer::render_frame
   → SceneResolver（使用实际 Target 尺寸）
-  → 按请求 CPU pick → scene pass
+  → 按请求 CPU pick → scene pass（场景物体 → DebugDraw）
   → overlay render（录制已生成的 ImGui 数据）
   → submit / present
 ```
@@ -88,6 +91,13 @@ SceneRenderer 不读 EditorMode/ImGui。SceneResolver 当前仍有固定两纹�
 只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。
 编辑命令完成后提取，因此组件修改、Undo/Redo 和当前帧拾取使用同一份场景快照。
+
+LineDrawList 只保存世界空间端点与颜色，Renderer 在 update/prepare 阶段接受多次追加并持有副本。
+render_frame 消费后清空，准备失败、隐藏视口或无合法相机时丢弃，不跨帧保留。
+DebugRenderer 使用场景的相机矩阵、RenderPass 格式和 MSAA；LineList、深度测试 LessEqual、不写深度、alpha 混合。
+每 slot 独立的持久映射 CPU-to-GPU vertex buffer，只在等待当前 slot 完成后写入或扩容；
+绘制使用的 buffer/Pipeline 同时被 FrameSlot 保留至 GPU 完成。扩容失败保留旧 buffer 并跳过本批，延后重试。
+它不持有 Scene、Selection 或 ImGui；选中框/Gizmo 等调用方自行转换成世界空间请求。
 
 RenderView 的 CameraSelection 选择显式 editor camera 或 Scene primary camera；
 请求 override 却缺少数据时不静默回退。没有合法 Camera 时清屏并保留 UI，不录制场景 draw。

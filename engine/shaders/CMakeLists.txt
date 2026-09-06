@@ -4,6 +4,8 @@ set(TARGET_NAME ${SHADER_COMPILE_TARGET})
 set(SHADER_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/cube_texture.vert"
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/cube_texture.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/debug_line.vert"
+        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/debug_line.frag"
 )
 
 source_group("shaders" FILES ${SHADER_FILES})

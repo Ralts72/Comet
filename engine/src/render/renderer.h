@@ -6,6 +6,7 @@
 #include "render/scene/scene_picking.h"
 #include "render/resource/resource_manager.h"
 #include "render/scene/scene_renderer.h"
+#include "render/line_draw_list.h"
 
 #include <functional>
 #include <memory>
@@ -40,6 +41,9 @@ namespace Comet {
         void request_viewport_pick(Math::Vec2u pixel, Math::Vec2u image_resolution);
         void set_viewport_pick_callback(ViewportPickCallback callback);
 
+        // 在 update/prepare 阶段追加，仅用于本帧；没有有效视图时也会消费并清空。
+        void submit_lines(const LineDrawList& draw_list);
+
         [[nodiscard]] ResourceManager& get_resource_manager() {
             return *m_resource_manager;
         }
@@ -70,5 +74,6 @@ namespace Comet {
         OverlayRenderCallback m_render_overlay;
         std::optional<ViewportPickRequest> m_viewport_pick_request;
         ViewportPickCallback m_viewport_pick_callback;
+        LineDrawList m_line_draw_list;
     };
 }

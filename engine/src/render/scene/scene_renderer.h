@@ -16,6 +16,7 @@
 #include "render/scene/render_submission.h"
 #include "render/render_target.h"
 #include "render/resource/texture.h"
+#include "render/debug/debug_renderer.h"
 
 #include <array>
 #include <functional>
@@ -39,7 +40,7 @@ namespace Comet {
         void setup_pipeline(ResourceManager& resource_manager);
 
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render_scene_pass(
-            const RenderSubmission& submission);
+            const RenderSubmission& submission, const LineDrawList& lines = {});
 
         [[nodiscard]] bool begin_frame();
 
@@ -106,6 +107,7 @@ namespace Comet {
         std::shared_ptr<RenderTarget> m_render_target;
         bool m_uses_offscreen_target = false;
         std::shared_ptr<Pipeline> m_pipeline;
+        std::unique_ptr<DebugRenderer> m_debug_renderer;
         std::shared_ptr<Sampler> m_default_sampler;
         std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;
         std::unordered_map<AssetHandle, MaterialDescriptorState> m_material_descriptors;

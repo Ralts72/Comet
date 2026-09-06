@@ -208,6 +208,9 @@ namespace Comet {
 
         m_pipeline = m_pipeline_manager->create_pipeline(
             "cube_pipeline", layout, pipeline_config, vert_shader, frag_shader);
+        m_debug_renderer = std::make_unique<DebugRenderer>(m_context.get_device(),
+            *m_pipeline_manager, resource_manager,
+            m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
     }
 
     const DescriptorSet& SceneRenderer::prepare_material_descriptor_set(
@@ -252,7 +255,7 @@ namespace Comet {
     }
 
     std::vector<QueueSemaphoreSubmit> SceneRenderer::render_scene_pass(
-        const RenderSubmission& submission) {
+        const RenderSubmission& submission, const LineDrawList& lines) {
         PROFILE_SCOPE("SceneRenderer::render_scene_pass");
 
         auto& command_buffer = m_frame_scheduler->get_current_command_buffer();
@@ -266,6 +269,11 @@ namespace Comet {
 
         std::vector<QueueSemaphoreSubmit> resource_waits;
         if(submission.view_project_matrix) {
+            const auto size = m_render_target->get_size();
+            command_buffer.set_viewport(Graphics::get_viewport(
+                static_cast<float>(size.x), static_cast<float>(size.y)));
+            command_buffer.set_scissor(Graphics::get_scissor(
+                static_cast<float>(size.x), static_cast<float>(size.y)));
             if(!m_pipeline || !m_default_sampler) {
                 LOG_ERROR(
                     "SceneRenderer resources are not set up. Call setup_pipeline() first.");
@@ -278,12 +286,6 @@ namespace Comet {
                     ->write(&*submission.view_project_matrix);
 
                 command_buffer.bind_pipeline(*m_pipeline);
-
-                const auto size = m_render_target->get_size();
-                command_buffer.set_viewport(Graphics::get_viewport(
-                    static_cast<float>(size.x), static_cast<float>(size.y)));
-                command_buffer.set_scissor(Graphics::get_scissor(
-                    static_cast<float>(size.x), static_cast<float>(size.y)));
 
                 for(const ResolvedRenderItem& item : submission.render_items) {
                     m_frame_scheduler->retain_current_frame_resource(item.mesh);
@@ -301,6 +303,10 @@ namespace Comet {
                     render_item(item, descriptor_set);
                 }
                 remove_completed_resource_waits(resource_waits);
+            }
+            if(m_debug_renderer) {
+                m_debug_renderer->render(
+                    *m_frame_scheduler, *submission.view_project_matrix, lines);
             }
         }
 
@@ -487,6 +493,7 @@ namespace Comet {
     }
 
     void SceneRenderer::reset_render_pipeline() {
+        m_debug_renderer.reset();
         m_pipeline.reset();
         m_pipeline_manager.reset();
         m_render_target.reset();
