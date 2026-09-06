@@ -97,6 +97,11 @@ namespace Comet {
         }
         auto candidate = try_create_generation(config);
         if(!candidate) {
+            if(candidate.result() == vk::Result::eErrorDeviceLost
+                || candidate.result() == vk::Result::eErrorSurfaceLostKHR) {
+                LOG_FATAL("Swapchain requires device/surface recovery: {}",
+                    vk::to_string(candidate.result()));
+            }
             LOG_ERROR("Failed to create swapchain candidate: {}",
                 vk::to_string(candidate.result()));
             return false;
@@ -149,28 +154,20 @@ namespace Comet {
         create_info.clipped = config.clipped ? VK_TRUE : VK_FALSE;
         create_info.oldSwapchain = old_swapchain;
 
+        // 在调用边界撤销 active；旧 owner 只保寿命，失败后不能再次 acquire 或复用。
+        std::shared_ptr<Generation> generation(new Generation(m_device, {}, {}, config));
+        auto retired = std::move(m_active_generation);
         vk::SwapchainKHR swapchain{};
         const vk::Result create_result =
             m_device.get().createSwapchainKHR(&create_info, nullptr, &swapchain);
         if(create_result != vk::Result::eSuccess) {
-            // 传入 oldSwapchain 即退休旧交换链，即使创建失败。
-            // 当前尚无无呈现恢复状态，不能返回 false，
-            // 否则调用方会恢复依赖资源并从已退休的交换链获取图像。
-            if(old_swapchain) {
-                LOG_FATAL("Swapchain recreation failed and retired the old swapchain; "
-                    "cannot resume presentation: {}", vk::to_string(create_result));
-            }
             return GenerationResult::failure(create_result);
         }
 
-        std::shared_ptr<Generation> generation(
-            new Generation(m_device, swapchain, {}, config));
+        generation->m_swapchain = swapchain;
         auto images_attempt = get_swapchain_images(m_device.get(), swapchain);
         if(!images_attempt) {
-            generation.reset();
-            LOG_FATAL("Created a new swapchain handle but failed to query its images; "
-                      "the old swapchain is retired: {}",
-                vk::to_string(images_attempt.result()));
+            return GenerationResult::failure(images_attempt.result());
         }
 
         const auto images = std::move(images_attempt).value();
@@ -190,6 +187,9 @@ namespace Comet {
 
     std::pair<uint32_t, vk::Result> Swapchain::acquire_next_image(
         const Semaphore& semaphore) {
+        if(!m_active_generation) {
+            return {0, vk::Result::eErrorOutOfDateKHR};
+        }
         uint32_t image_index = 0;
         auto& generation = active_generation();
         const auto result = m_device.get().acquireNextImageKHR(generation.m_swapchain,

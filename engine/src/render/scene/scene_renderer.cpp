@@ -185,6 +185,12 @@ namespace Comet {
 
     bool SceneRenderer::begin_frame() {
         PROFILE_SCOPE("SceneRenderer::begin_frame");
+        if(m_swapchain_rebuild_from) {
+            if(std::chrono::steady_clock::now() < m_swapchain_retry_after
+                || !recreate_swapchain()) {
+                return false;
+            }
+        }
         m_frame_scheduler->wait_for_current_slot();
         m_context.get_device().set_allocator_frame_index(
             m_frame_scheduler->get_current_frame_serial());
@@ -202,7 +208,8 @@ namespace Comet {
                 swapchain.acquire_next_image(frame_slot.image_available_semaphore);
             if(acquire_result != vk::Result::eSuccess
                 && acquire_result != vk::Result::eSuboptimalKHR) {
-                LOG_FATAL("can't acquire swapchain image");
+                // 窗口可能在重建与第二次 acquire 之间再次变化；下一帧重新尝试。
+                return false;
             }
         }
 
@@ -297,32 +304,26 @@ namespace Comet {
     bool SceneRenderer::recreate_swapchain() {
         PROFILE_SCOPE("SceneRenderer::recreate_swapchain");
         auto& swapchain = m_context.get_swapchain();
-        const SwapchainConfig previous_config =
-            swapchain.get_active_generation()->get_config();
-
-        m_frame_scheduler->wait_for_all_slots();
-        m_context.get_device().get_present_queue(0).wait_idle();
-        if(!m_uses_offscreen_target) {
-            m_render_target.reset();
-        }
-        if(m_release_swapchain_resources) {
-            m_release_swapchain_resources();
+        if(!m_swapchain_rebuild_from) {
+            m_swapchain_rebuild_from = swapchain.get_active_generation()->get_config();
+            m_frame_scheduler->wait_for_all_slots();
+            m_context.get_device().get_present_queue(0).wait_idle();
+            if(!m_uses_offscreen_target) {
+                m_render_target.reset();
+            }
+            if(m_release_swapchain_resources) {
+                m_release_swapchain_resources();
+            }
         }
 
         if(!swapchain.recreate()) {
-            if(!m_uses_offscreen_target) {
-                m_render_target = RenderTarget::create_swapchain_target(
-                    m_context.get_device(), *m_render_pass, swapchain);
-                set_render_target_clear_color();
-            }
-            if(m_rebuild_swapchain_resources) {
-                m_rebuild_swapchain_resources({});
-            }
+            m_swapchain_retry_after =
+                std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
             return false;
         }
 
         const SwapchainCompatibility compatibility = compare_swapchain_configs(
-            previous_config, swapchain.get_active_generation()->get_config());
+            *m_swapchain_rebuild_from, swapchain.get_active_generation()->get_config());
         if(!m_uses_offscreen_target && compatibility.format_changed) {
             LOG_FATAL("Runtime swapchain format changed; RenderPass/Pipeline generation "
                       "rebuild is not implemented yet");
@@ -339,6 +340,7 @@ namespace Comet {
         if(m_rebuild_swapchain_resources) {
             m_rebuild_swapchain_resources(compatibility);
         }
+        m_swapchain_rebuild_from.reset();
         return true;
     }
 

@@ -79,6 +79,7 @@ ctest --preset dev-debug
 
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
+  交换链创建／图像枚举失败会暂停呈现并间隔重试，不复用已退休图像；设备／surface 丢失仍需专门恢复。
   SceneResolver 不解析材质属性；渲染侧按 MaterialLayout 准备并缓存材质绑定，按对象身份与 revision 失效。
   MaterialRenderer 负责排序和绘制 Mesh：FrameSet 按 slot 更新，MaterialSet 按版本创建并跨 slot 复用。
 - Shader：构建 CLI 与工具层 `ShaderCompiler` 共用 stage、entry、defines、target、include 快照契约，

@@ -3,6 +3,7 @@ file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
 )
 list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/graphics/pipeline_cache_probe.cpp")
+list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/graphics/test_swapchain_recovery.cpp")
 list(APPEND TEST_SOURCES
         "${CMAKE_SOURCE_DIR}/editor/src/command_history.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/scene_commands.cpp"
@@ -87,7 +88,22 @@ add_test(NAME pipeline_cache_process COMMAND "${CMAKE_COMMAND}"
         "-DPROBE=$<TARGET_FILE:pipeline_cache_probe>"
         "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/pipeline-cache-process"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/graphics/test_pipeline_cache_process.cmake")
-set_tests_properties(unit_testing pipeline_cache_process PROPERTIES RESOURCE_LOCK comet_graphics)
+# 独立进程编译真实生产源，仅重命名四个 WSI 入口；不向 engine 注入故障开关。
+add_executable(swapchain_recovery
+        graphics/test_swapchain_recovery.cpp
+        "${CMAKE_SOURCE_DIR}/engine/src/graphics/swapchain.cpp"
+        "${CMAKE_SOURCE_DIR}/engine/src/graphics/queue.cpp"
+        "${CMAKE_SOURCE_DIR}/engine/src/graphics/convert.cpp"
+        "${CMAKE_SOURCE_DIR}/engine/src/render/scene/scene_renderer.cpp")
+target_link_libraries(swapchain_recovery PRIVATE engine gtest_main glfw Vulkan::Vulkan)
+target_compile_definitions(swapchain_recovery PRIVATE
+        vkCreateSwapchainKHR=comet_test_create_swapchain
+        vkGetSwapchainImagesKHR=comet_test_get_swapchain_images
+        vkAcquireNextImageKHR=comet_test_acquire_next_image
+        vkQueuePresentKHR=comet_test_queue_present)
+add_test(NAME swapchain_recovery COMMAND swapchain_recovery)
+set_tests_properties(unit_testing pipeline_cache_process swapchain_recovery
+        PROPERTIES RESOURCE_LOCK comet_graphics)
 add_test(NAME shader_build_contract COMMAND "${CMAKE_COMMAND}"
         "-DCOMPILE_TOOL=$<TARGET_FILE:comet_shader_compiler>"
         "-DCOMET_ROOT=${CMAKE_SOURCE_DIR}"

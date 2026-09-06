@@ -101,7 +101,7 @@ namespace Comet {
         present_info.swapchainCount = 1;
         present_info.pSwapchains = &swapchain.get();
         present_info.pImageIndices = &image_index;
-        const auto result = m_queue.presentKHR(present_info);
+        const auto result = m_queue.presentKHR(&present_info);
         if(result == vk::Result::eSuboptimalKHR
             || result == vk::Result::eErrorOutOfDateKHR) {
             LOG_WARN("swapchain requires recreation: {}", vk::to_string(result));

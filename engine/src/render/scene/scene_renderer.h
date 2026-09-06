@@ -15,7 +15,9 @@
 #include "render/material_renderer.h"
 
 #include <functional>
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -84,6 +86,8 @@ namespace Comet {
         std::unique_ptr<FrameScheduler> m_frame_scheduler;
         std::shared_ptr<RenderTarget> m_render_target;
         bool m_uses_offscreen_target = false;
+        std::optional<SwapchainConfig> m_swapchain_rebuild_from;
+        std::chrono::steady_clock::time_point m_swapchain_retry_after{};
         std::unique_ptr<MaterialRenderer> m_material_renderer;
         std::unique_ptr<DebugRenderer> m_debug_renderer;
         Format m_surface_format;

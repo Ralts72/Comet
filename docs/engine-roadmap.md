@@ -12,7 +12,7 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、有界队列及发布预算可用 | 更多导入能力与按需字节预算 |
 | 4 视口与交互 | 本轮核心验收通过，扩展保留 | Prefab、搜索、按需通知和更精细拾取 |
-| 5 渲染升级 | 多布局材质、Inspector、反射及当前 Pipeline 结构化缓存已接通 | Shader 编译/更新、缓存恢复、多 pass、线程边界 |
+| 5 渲染升级 | 多布局材质、反射、Shader 更新、Pipeline 缓存及 WSI 重试已接通 | 多 pass、forward 场景、线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 规划 | 项目设置、格式迁移、打包 |
 
@@ -23,9 +23,9 @@
    Gizmo 已支持平移／旋转／缩放及对应吸附，核心编辑闭环进入维护回归。
    保持修改、world transform 更新、提取与绘制的时序一致；结构修改不能简单套属性快照。
 2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
-3. **渲染主线**：后台背压／发布预算、多布局材质、接口反射及当前 PipelineKey 已接通，下一项 Shader 编译契约，再接安全更新及多 pass。
+3. **渲染主线**：后台背压／发布预算、多布局材质、反射、Shader 编译／安全更新及 Pipeline 缓存已接通，下一项多 pass 资源状态编排。
 
-WSI 失败后的无呈现重试仍是应独立验收的恢复性缺口，不与材质改造捆绑完成。
+WSI 创建／枚举失败后的无呈现重试已接通；surface/device 丢失与不兼容格式的完整恢复仍保留，不与一般重试混为一谈。
 
 ## 基本边界
 
@@ -206,8 +206,10 @@ Frame、顶点输入和 push constant 的固定 C++ 契约不自动重写。
 - 运行时 format/sample-dependent RenderPass/Pipeline 需与 target 形成兼容、可替换的 generation；
   当前不兼容格式仍明确终止，不能继续绑定旧 Pipeline。
 - **WSI 无呈现恢复**：传入非空 oldSwapchain 调用创建后，无论成功失败，旧交换链都已退休。
-  当前最小安全策略是新建失败明确终止；只有创建调用前的零尺寸延期可以恢复旧 dependent。
-  后续设计 no-present/retry/surface-lost 状态，禁止从退休对象 acquire，禁止把它再次作为非退休 oldSwapchain。
+  当前调用边界撤销 active，创建／图像枚举失败丢弃候选，SceneRenderer 保留重建前配置并暂停呈现，100 ms 间隔自动重试。
+  不重复释放 dependent，不从退休对象 acquire、不把退休对象再次作为 oldSwapchain；零尺寸延期也保持暂停，不无效重建旧 dependent。
+  Vulkan-Hpp present 使用显式返回 Result 的重载，让 OutOfDate 到达恢复分支；连续两次 acquire OutOfDate 跳过当前帧。
+  surface/device 丢失及 runtime 不兼容格式仍明确失败，后续另做完整恢复，不声称已实现设备重建。
   旧资源仍须等待 graphics/present completion，再按 framebuffer → view → swapchain 顺序释放。
   规则来源：[Khronos](https://docs.vulkan.org/refpages/latest/refpages/source/VkSwapchainCreateInfoKHR.html)。
 

@@ -193,8 +193,14 @@ extent 变化只重建 target；format/image count 变化还会影响 ImGui back
 初始 RenderPass 使用实际选定的 surface format，runtime 不兼容格式目前明确终止。
 
 Generation 的 shared ownership 只解决寿命，不保证 WSI 可继续 acquire：
-传入 oldSwapchain 调用创建后，无论成功失败旧 core 都退休。本阶段失败明确终止；
-只有调用创建前的零尺寸延期才允许恢复旧 dependent；创建失败后的无呈现恢复见[路线图](../engine-roadmap.md)。
+传入 oldSwapchain 调用创建后，无论成功失败旧 core 都退休；调用前移走 active，只由局部 owner 保证旧句柄活到调用结束。
+创建或图像枚举失败时没有 active，新候选自动销毁，后续以空 oldSwapchain 重试。无 active 的 acquire 返回 OutOfDate，不调用驱动。
+SceneRenderer 用 optional 重建前配置表示暂停呈现；只在首次进入时等待并释放 dependent，失败不恢复旧目标。
+begin_frame 在 100 ms 重试间隔内直接返回 false，不 reset fence、不调用 overlay、不录制或提交；旧 scene、资产和 MultiTarget 仍保留。
+成功后相对最初配置计算 compatibility，再重建 per-image state／dependent 并清除 pending。显式 recreate 可立即重试。
+present 后失败仍正常结束已提交的 FrameSlot；连续两次 acquire OutOfDate 则不开始 FrameSlot。
+Queue 使用 Vulkan-Hpp 指针重载返回 Result，避免增强重载在 OutOfDate 时抛异常绕过恢复。
+surface/device 丢失、初始创建失败和 runtime 不兼容格式仍明确终止；完整设备／surface 重建见[路线图](../engine-roadmap.md)。
 
 关闭先解绑捕获 Editor/ImGuiContext 的 callback，结束后台工作并等待必要 GPU 完成，再释放：
 ImGui dependent → Registry/SceneRenderer → ResourceManager → Swapchain/Device/Context → Window。
