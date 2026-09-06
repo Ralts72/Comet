@@ -4,6 +4,8 @@
 
 #include <array>
 #include <string>
+#include <memory>
+#include <stdexcept>
 
 namespace Comet {
     Allocation& Allocation::operator=(Allocation&& other) noexcept {
@@ -247,6 +249,19 @@ namespace Comet {
             return;
         }
         vmaSetCurrentFrameIndex(m_allocator, static_cast<uint32_t>(frame_serial));
+    }
+
+    std::string Allocator::build_allocation_report() const {
+        char* raw = nullptr;
+        vmaBuildStatsString(m_allocator, &raw, VK_TRUE);
+        const auto release = [allocator = m_allocator](char* data) {
+            if(data)
+                vmaFreeStatsString(allocator, data);
+        };
+        const std::unique_ptr<char, decltype(release)> report(raw, release);
+        if(!report)
+            throw std::runtime_error("VMA did not produce an allocation report");
+        return std::string(report.get());
     }
 
     MemoryBudgetSnapshot Allocator::query_memory_budget() const {

@@ -83,6 +83,11 @@ ctest --preset dev-debug
   强度为 0 时跳过 Bloom pass。默认阈值为线性 HDR 的 1，可提高 Key Light 强度观察光晕，普通低亮度颜色不会自行发光。
   `.mat` 的 texture/scalar/vector 参数由布局生成 Inspector 控件，实际变化才保存并更新材质，浏览默认值不改写文件。
   缺失纹理槽可逐个补齐，完整后自动发布；未完整的编辑仅保留在当前资产草稿中，切换资产或刷新会丢弃草稿。
+- View → Render Stats 打开默认隐藏的渲染诊断面板；Capture 开关整帧 CPU 墙钟、场景图 CPU 录制与延迟 GPU pass 计时。
+  CPU 墙钟包含等待／UI／提交，GPU 结果标明已完成的 submission，不应把两者当作同一帧的纯计算耗时。
+  `diagnostics.enable_render_diagnostics` 独立于编译期开关控制的 CPU Profiler；dev-debug/editor-dev 默认开启，app-release 默认关闭。
+  显存预算至多每秒采样一次，并区分驱动报告与 VMA 估算；Save allocation report 手动生成
+  `.comet/editor/diagnostics/gpu-allocations.json`，原子替换上次报告，成功／失败只进入 Log。
 
 ## 架构入口
 
@@ -100,6 +105,8 @@ ctest --preset dev-debug
   后处理参数在帧边界更新，开关 Bloom 时才重编图；HDR／SDR／Bloom resize 候选就绪后一起切换，旧 GPU 资源由在途帧保留。
   RenderGraph 将有序 pass 的显式资源读写编译为 Barrier2，管理 HDR 附件和后处理采样依赖；最终输出转换仍由 RenderPass 负责。
   图不自动分配资源、不持有全局 Image layout；跨 submission 由调用方传递导出状态，跨队列调度尚未实现。
+  RenderDiagnostics 绑定既有 FrameScheduler，逐 slot 保留查询池，只读取已确认完成的提交，不为计时增加 GPU 等待。
+  每图最多记录 32 个 pass 明细；设备不支持时间戳时保留 CPU 诊断，超限图继续绘制但跳过该图 GPU 计时。
 - Shader：构建 CLI 与工具层 `ShaderCompiler` 共用 stage、entry、defines、target、include 快照契约，
   通过 depfile 跟踪已有共享头文件；失败不覆盖旧字节码。运行时不带源编译器。
   编辑器监控 `engine/shaders/glsl/` 的六个 `material_*` 生产 Shader 和 `debug_line.vert/frag` 及实际 include，

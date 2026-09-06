@@ -23,8 +23,8 @@ namespace CometEditor {
         void collect_shortcuts();
         [[nodiscard]] std::optional<Command> take_command();
 
-        void set_panel_visibility_callback(
-            const std::string& panel_name, PanelVisibilityCallback callback);
+        void set_panel_visibility_callback(const std::string& panel_name,
+            PanelVisibilityCallback callback, bool initially_visible = true);
 
         [[nodiscard]] bool is_panel_visible(const std::string& panel_name) const;
 

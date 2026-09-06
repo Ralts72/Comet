@@ -6,5 +6,6 @@ diagnostics:
   enable_file_logging: false
   # 启用 Profiler 采样。
   enable_profiler: true
+  enable_render_diagnostics: true
   # 启用 Vulkan Validation Layer 和 Debug Utils Messenger。
   enable_validation: true

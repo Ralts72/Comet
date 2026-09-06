@@ -24,6 +24,8 @@
 #include "src/panels/project.h"
 #include "src/panels/view.h"
 #include "src/panels/hierarchy.h"
+#include "src/panels/render_stats.h"
+#include "common/file_io.h"
 #include "src/selection.h"
 #include "src/transform_gizmo.h"
 #include "scene/scene.h"
@@ -441,6 +443,7 @@ namespace {
             m_hierarchy_panel.reset();
             m_inspector_panel.reset();
             m_viewport_panel.reset();
+            m_render_stats_panel.reset();
             m_menu_bar.reset();
             m_selection.reset();
             m_scene_session.reset();
@@ -836,6 +839,24 @@ namespace {
             ImGui::EndPopup();
         }
 
+        void handle_render_diagnostics_requests() {
+            auto& renderer = get_engine().get_renderer();
+            if(const auto enabled = m_render_stats_panel->take_capture_request())
+                renderer.get_scene_renderer().get_diagnostics().set_enabled(*enabled);
+            if(m_render_stats_panel->take_allocation_report_request()) {
+                try {
+                    const auto path = m_project_paths.editor_state() / "diagnostics"
+                                      / "gpu-allocations.json";
+                    Comet::write_text_file_atomic(path, renderer.get_render_context()
+                                                            .get_device()
+                                                            .build_allocation_report());
+                    LOG_INFO("Saved VMA allocation report to {}", path.string());
+                } catch(const std::exception& error) {
+                    LOG_ERROR("Failed to save VMA allocation report: {}", error.what());
+                }
+            }
+        }
+
         void setup_log_redirect() const {
             // 日志改由编辑器面板展示，文件输出不受影响。
             Comet::Logger::remove_console_sinks();
@@ -858,6 +879,8 @@ namespace {
             Comet::Scene& scene, Comet::AssetScanReport initial_asset_scan) {
             m_menu_bar =
                 std::make_unique<CometEditor::MenuBar>(m_editor_state, m_command_history);
+            m_render_stats_panel =
+                std::make_unique<CometEditor::RenderStatsPanel>(get_engine());
 
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
                 scene, *m_selection, m_command_history);
@@ -903,6 +926,11 @@ namespace {
                 [this](const bool visible) { m_project_panel->set_visible(visible); });
             m_menu_bar->set_panel_visibility_callback("Log",
                 [this](const bool visible) { m_console_panel->set_visible(visible); });
+            m_menu_bar->set_panel_visibility_callback(
+                "Render Stats",
+                [this](
+                    const bool visible) { m_render_stats_panel->set_visible(visible); },
+                false);
 
             m_imgui_context->set_ui_callback([this]() {
                 constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
@@ -915,6 +943,8 @@ namespace {
                 m_inspector_panel->render();
                 m_project_panel->render();
                 m_console_panel->render();
+                m_render_stats_panel->render();
+                handle_render_diagnostics_requests();
                 render_scene_file_dialog();
                 m_menu_bar->collect_shortcuts();
 
@@ -980,6 +1010,7 @@ namespace {
         std::unique_ptr<CometEditor::ViewPanel> m_viewport_panel;
         std::unique_ptr<CometEditor::InspectorPanel> m_inspector_panel;
         std::unique_ptr<CometEditor::ProjectPanel> m_project_panel;
+        std::unique_ptr<CometEditor::RenderStatsPanel> m_render_stats_panel;
         std::shared_ptr<CometEditor::ConsolePanel> m_console_panel;
     };
 }

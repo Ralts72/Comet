@@ -17,6 +17,7 @@ set(SOURCES
         src/panels/view.cpp
         src/panels/hierarchy.cpp
         src/panels/project.cpp
+        src/panels/render_stats.cpp
 )
 
 add_executable(editor ${SOURCES})

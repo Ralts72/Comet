@@ -115,12 +115,12 @@ namespace CometEditor {
         }
     }
 
-    void MenuBar::set_panel_visibility_callback(
-        const std::string& panel_name, PanelVisibilityCallback callback) {
+    void MenuBar::set_panel_visibility_callback(const std::string& panel_name,
+        PanelVisibilityCallback callback, const bool initially_visible) {
         if(m_panel_visibility.contains(panel_name)) {
             m_panel_callbacks[panel_name] = callback;
         } else {
-            m_panel_visibility[panel_name] = true;
+            m_panel_visibility[panel_name] = initially_visible;
             m_panel_callbacks[panel_name] = callback;
         }
     }

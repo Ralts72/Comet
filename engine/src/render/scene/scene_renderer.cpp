@@ -36,6 +36,8 @@ namespace Comet {
         LOG_INFO("create frame scheduler");
         m_frame_scheduler = std::make_unique<FrameScheduler>(
             context.get_device(), render_config.max_frames_in_flight);
+        m_diagnostics =
+            std::make_unique<RenderDiagnostics>(context.get_device(), *m_frame_scheduler);
     }
 
     void SceneRenderer::set_swapchain_resource_callbacks(
@@ -207,8 +209,8 @@ namespace Comet {
             m_post_settings.uses_bloom());
         const auto lighting = ShadowRenderer::prepare(submission);
         std::vector<QueueSemaphoreSubmit> waits;
-        m_render_plan->record(
-            *m_frame_scheduler, bindings, [&](size_t pass, const CommandBuffer&) {
+        m_diagnostics->record(
+            *m_render_plan, bindings, [&](size_t pass, const CommandBuffer&) {
                 if(pass == 0) {
                     waits = m_shadow_renderer->render(
                         *m_frame_scheduler, lighting, submission.render_items);

@@ -7,6 +7,8 @@
 #include "vk_capability.h"
 #include "graphics/pipeline/pipeline_cache.h"
 
+#include <string>
+
 namespace Comet {
     class Context;
     class Queue;
@@ -51,6 +53,7 @@ namespace Comet {
         void set_allocator_frame_index(uint64_t frame_serial) const;
 
         [[nodiscard]] MemoryBudgetSnapshot query_memory_budget() const;
+        [[nodiscard]] std::string build_allocation_report() const;
 
         [[nodiscard]] vk::Device get() const { return m_device; }
 

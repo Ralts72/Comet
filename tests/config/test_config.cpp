@@ -62,6 +62,8 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
         EXPECT_FALSE(config.diagnostics.log.enable_file_logging);
         EXPECT_EQ(config.diagnostics.enable_profiler, expectation.enable_profiler);
         EXPECT_EQ(config.vulkan.enable_validation, expectation.enable_validation);
+        EXPECT_EQ(config.diagnostics.enable_render_diagnostics,
+            std::string_view(expectation.name) != "app-release");
     }
 }
 
@@ -93,6 +95,7 @@ diagnostics:
   enable_file_logging: true
   enable_profiler: false
   enable_validation: false
+  enable_render_diagnostics: true
 )");
 
     const Config config = ConfigLoader{}.load(file.path());
@@ -100,6 +103,7 @@ diagnostics:
     EXPECT_EQ(config.diagnostics.log.level, "warn");
     EXPECT_TRUE(config.diagnostics.log.enable_file_logging);
     EXPECT_FALSE(config.diagnostics.enable_profiler);
+    EXPECT_TRUE(config.diagnostics.enable_render_diagnostics);
 
     EXPECT_EQ(config.window.width, 901);
     EXPECT_EQ(config.window.height, 517);
@@ -132,6 +136,7 @@ TEST(ConfigTest, UsesDefaultsForMissingFields) {
     EXPECT_EQ(config.window.width, 960);
     EXPECT_EQ(config.window.height, Config::Window{}.height);
     EXPECT_EQ(config.diagnostics.log.level, Config::Log{}.level);
+    EXPECT_FALSE(config.diagnostics.enable_render_diagnostics);
     EXPECT_EQ(config.render.clear_color, Config::Render{}.clear_color);
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, Config::Render{}.max_anisotropy);
     EXPECT_FLOAT_EQ(config.render.exposure, 1);

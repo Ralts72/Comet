@@ -7,6 +7,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -17,11 +18,23 @@ namespace Comet {
 
     class COMET_API Engine {
     public:
+        struct FrameTiming {
+            int frame_index = 0;
+            double events_ms = 0;
+            double update_ms = 0;
+            double prepare_ms = 0;
+            double render_submit_ms = 0;
+            double total_ms = 0;
+            bool rendered = false;
+        };
         explicit Engine(const Config& config);
 
         ~Engine();
 
-        void on_update() const;
+        void on_update();
+        [[nodiscard]] const std::optional<FrameTiming>& get_frame_timing() const {
+            return m_frame_timing;
+        }
 
         void register_update_callback(std::function<void(UpdateContext)> callback) {
             m_update_callbacks.push_back(std::move(callback));
@@ -65,5 +78,6 @@ namespace Comet {
         std::unique_ptr<Scene> m_scene;
         std::unique_ptr<Renderer> m_renderer;
         std::vector<std::function<void(UpdateContext)>> m_update_callbacks;
+        std::optional<FrameTiming> m_frame_timing;
     };
 }

@@ -250,6 +250,9 @@ namespace Comet {
             config.vulkan.enable_validation =
                 read_value<bool>(root, "diagnostics.enable_validation",
                     config.vulkan.enable_validation, "a boolean", config_path);
+            config.diagnostics.enable_render_diagnostics = read_value<bool>(root,
+                "diagnostics.enable_render_diagnostics",
+                config.diagnostics.enable_render_diagnostics, "a boolean", config_path);
 
             config.render.max_frames_in_flight = read_value<std::uint32_t>(root,
                 "render.max_frames_in_flight", config.render.max_frames_in_flight,

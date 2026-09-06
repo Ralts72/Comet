@@ -16,6 +16,7 @@
 #include "render/render_graph.h"
 #include "render/post_process_renderer.h"
 #include "render/shadow_renderer.h"
+#include "render/render_diagnostics.h"
 
 #include <functional>
 #include <chrono>
@@ -62,6 +63,10 @@ namespace Comet {
         [[nodiscard]] const FrameScheduler& get_frame_scheduler() const {
             return *m_frame_scheduler;
         }
+        [[nodiscard]] RenderDiagnostics& get_diagnostics() { return *m_diagnostics; }
+        [[nodiscard]] const RenderDiagnostics& get_diagnostics() const {
+            return *m_diagnostics;
+        }
         [[nodiscard]] RenderTarget& get_render_target() { return *m_render_target; }
         [[nodiscard]] const RenderTarget& get_render_target() const {
             return *m_render_target;
@@ -97,6 +102,7 @@ namespace Comet {
         std::shared_ptr<RenderPass> m_render_pass;
         std::unique_ptr<PipelineManager> m_pipeline_manager;
         std::unique_ptr<FrameScheduler> m_frame_scheduler;
+        std::unique_ptr<RenderDiagnostics> m_diagnostics;
         std::unique_ptr<PostProcessRenderer> m_post_processor;
         std::unique_ptr<ShadowRenderer> m_shadow_renderer;
         std::shared_ptr<RenderTarget> m_scene_target;

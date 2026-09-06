@@ -63,6 +63,7 @@ set(SOURCES
         src/graphics/resource/sampler.cpp
         src/render/renderer.cpp
         src/render/render_graph.cpp
+        src/render/render_diagnostics.cpp
         src/render/post_process_renderer.cpp
         src/render/lighting.cpp
         src/render/shadow_renderer.cpp

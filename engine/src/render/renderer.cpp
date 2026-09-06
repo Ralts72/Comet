@@ -21,6 +21,8 @@ namespace Comet {
         LOG_INFO("create scene renderer");
         m_scene_renderer = std::make_unique<SceneRenderer>(
             *m_render_context, config.vulkan, config.render);
+        m_scene_renderer->get_diagnostics().set_enabled(
+            config.diagnostics.enable_render_diagnostics);
 
         m_scene_renderer->setup_render_pass();
 

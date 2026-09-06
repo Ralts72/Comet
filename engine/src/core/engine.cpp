@@ -48,11 +48,18 @@ namespace Comet {
         return scene;
     }
 
-    void Engine::on_update() const {
+    void Engine::on_update() {
         LOG_INFO("running engine...");
 
         while(!m_window->should_close()) {
             PROFILE_SCOPE("Engine::Frame");
+            const bool measure =
+                m_renderer->get_scene_renderer().get_diagnostics().is_enabled();
+            const auto now = [measure] {
+                return measure ? std::chrono::steady_clock::now()
+                               : std::chrono::steady_clock::time_point{};
+            };
+            const auto frame_start = now();
             m_window->poll_events();
             if(m_window->should_close()) {
                 break;
@@ -60,11 +67,13 @@ namespace Comet {
 
             const auto framebuffer_size = m_window->get_framebuffer_size();
             if(framebuffer_size.x == 0 || framebuffer_size.y == 0) {
+                m_frame_timing.reset();
                 m_window->wait_events();
                 m_timer->tick();
                 continue;
             }
 
+            const auto events_end = now();
             m_timer->tick();
             const auto update_context = m_timer->get_update_context();
 
@@ -72,16 +81,28 @@ namespace Comet {
                 callback(update_context);
             }
 
-            if(!m_renderer->prepare_frame()) {
-                continue;
+            const auto update_end = now();
+            const bool prepared = m_renderer->prepare_frame();
+            const auto prepare_end = now();
+            if(prepared) {
+                RenderScene render_scene;
+                if(m_scene)
+                    render_scene = SceneExtractor::extract(*m_scene);
+                m_renderer->render_frame(render_scene);
             }
-
-            RenderScene render_scene;
-            if(m_scene) {
-                render_scene = SceneExtractor::extract(*m_scene);
+            const auto frame_end = now();
+            if(measure) {
+                const auto ms = [](auto first, auto last) {
+                    return std::chrono::duration<double, std::milli>(last - first)
+                        .count();
+                };
+                m_frame_timing =
+                    FrameTiming{update_context.frame_index, ms(frame_start, events_end),
+                        ms(events_end, update_end), ms(update_end, prepare_end),
+                        ms(prepare_end, frame_end), ms(frame_start, frame_end), prepared};
+            } else {
+                m_frame_timing.reset();
             }
-
-            m_renderer->render_frame(render_scene);
         }
     }
 }

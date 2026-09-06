@@ -6,6 +6,7 @@
 #include "graphics/vk_common.h"
 
 #include <string_view>
+#include <string>
 #include <utility>
 
 #include <vk_mem_alloc.h>
@@ -101,6 +102,8 @@ namespace Comet {
         void set_current_frame_index(uint64_t frame_serial) const;
 
         [[nodiscard]] MemoryBudgetSnapshot query_memory_budget() const;
+        // 昂贵的完整 VMA 分配快照，仅供显式诊断请求。
+        [[nodiscard]] std::string build_allocation_report() const;
 
     private:
         VmaAllocator m_allocator = VK_NULL_HANDLE;
