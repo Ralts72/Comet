@@ -20,6 +20,9 @@ namespace CometEditor::Tests {
         EditorState state;
         ViewPanel viewport{state, selection, gizmo, property_edit, 4096};
         int gizmo_vertices = 0;
+        bool mesh_drag = false;
+        AssetDragPayload mesh_payload{Comet::AssetHandle(42), 0};
+        std::size_t payload_size = sizeof(AssetDragPayload);
 
         void SetUp() override {
             ImGui::CreateContext();
@@ -41,6 +44,12 @@ namespace CometEditor::Tests {
 
         void frame() {
             ImGui::NewFrame();
+            if(mesh_drag && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceExtern)) {
+                ImGui::SetDragDropPayload(
+                    AssetDragPayload::MESH, &mesh_payload, payload_size, ImGuiCond_Once);
+                ImGui::TextUnformatted("Mesh");
+                ImGui::EndDragDropSource();
+            }
             ImGui::SetNextWindowPos(ImVec2(20, 40));
             ImGui::SetNextWindowSize(ImVec2(900, 700));
             viewport.render();
@@ -81,6 +90,60 @@ namespace CometEditor::Tests {
             return entity.get_component<Comet::TransformComponent>().translation.x;
         }
     };
+
+    TEST_F(ViewportGizmoUiTest, MeshDropReportsOnePositionedRequestWithoutEditingScene) {
+        mesh_payload.generation = history.generation();
+        const auto& rect = viewport.get_layout().image_display_rect;
+        const auto point = rect.min + rect.size() * Comet::Math::Vec2(0.75f, 0.25f);
+        move_pointer(point);
+        mesh_drag = true;
+        ImGui::GetIO().AddMouseButtonEvent(0, true);
+        frame();
+        frame();
+        EXPECT_FALSE(viewport.take_mesh_drop());
+        EXPECT_FALSE(viewport.take_pick_request());
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        const auto request = viewport.take_mesh_drop();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->asset.handle, mesh_payload.handle);
+        EXPECT_EQ(request->asset.generation, history.generation());
+        const auto mouse = ImGui::GetIO().MousePos;
+        const auto uv = (Comet::Math::Vec2(mouse.x, mouse.y) - rect.min) / rect.size();
+        const auto expected =
+            camera_focus_plane_point(state.camera, uv, rect.size().x / rect.size().y);
+        ASSERT_TRUE(expected);
+        EXPECT_LT(Comet::Math::length(request->position - *expected), 0.001f);
+        EXPECT_FALSE(viewport.take_mesh_drop());
+        EXPECT_EQ(scene.entity_count(), 1);
+        EXPECT_EQ(history.undo_size(), 0);
+        EXPECT_FALSE(gizmo.active());
+    }
+
+    TEST_F(ViewportGizmoUiTest, MeshDropRejectsPlayOutsideImageAndMalformedPayload) {
+        const auto attempt = [&](const Comet::Math::Vec2 point) {
+            mesh_drag = true;
+            ImGui::GetIO().AddMousePosEvent(point.x, point.y);
+            ImGui::GetIO().AddMouseButtonEvent(0, true);
+            frame();
+            frame();
+            ImGui::GetIO().AddMouseButtonEvent(0, false);
+            frame();
+            EXPECT_FALSE(viewport.take_mesh_drop());
+            mesh_drag = false;
+            frame();
+            frame();
+        };
+        const auto rect = viewport.get_layout().image_display_rect;
+        attempt(rect.min - Comet::Math::Vec2(0, 10));
+        payload_size = sizeof(std::uint64_t);
+        attempt(rect.min + rect.size() * 0.5f);
+        payload_size = sizeof(AssetDragPayload);
+        state.mode = EditorMode::Play;
+        attempt(rect.min + rect.size() * 0.5f);
+        EXPECT_EQ(scene.entity_count(), 1);
+        EXPECT_EQ(history.undo_size(), 0);
+    }
 
     TEST_F(ViewportGizmoUiTest, AxisDragCapturesInputAndCommitsOneUndoOnRelease) {
         EXPECT_GT(gizmo_vertices, 0);

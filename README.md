@@ -58,6 +58,8 @@ ctest --preset dev-debug
 - Project 支持刷新、移动与重命名；Inspector 的材质和纹理设置按变化事件提交，更新日志统一进入 Log。
   将 glTF/GLB 及依赖文件放入 assets 后 Refresh，选择模型即可查看 Artifact 状态并 Import/Reimport。
   检查与解码在后台进行，未加载模型只生成缓存；手动删除缓存后 Refresh 可重新检查，错误见 Log。
+  Edit 中可将 Mesh 拖入 Viewport：在鼠标对应的相机关注平面创建实体，使用项目 demo 材质，支持一次撤销。
+  拖入只加载已发布 Artifact（或已驻留 Mesh），不会隐式导入源模型；缺少缓存时先在 Project 执行 Import。
 
 ## 架构入口
 

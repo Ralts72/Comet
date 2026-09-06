@@ -5,6 +5,9 @@
 namespace CometEditor::SceneCommands {
     [[nodiscard]] Comet::EntityUuid create_entity(CommandHistory& history,
         const Comet::ComponentRegistry& registry, std::string name = "Entity");
+    [[nodiscard]] Comet::EntityUuid create_mesh_entity(CommandHistory& history,
+        const Comet::ComponentRegistry& registry, std::string name,
+        Comet::AssetHandle mesh, Comet::AssetHandle material, Comet::Math::Vec3 position);
     [[nodiscard]] bool delete_entity(CommandHistory& history,
         const Comet::ComponentRegistry& registry, Comet::EntityUuid entity);
     [[nodiscard]] Comet::EntityUuid duplicate_entity(CommandHistory& history,

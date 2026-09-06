@@ -24,6 +24,50 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(SceneCommandsTest, MeshPlacementIsOneUndoableSerializableEntity) {
+        const auto uuid = SceneCommands::create_mesh_entity(history, registry, "Placed",
+            Comet::AssetHandle(8), Comet::AssetHandle(9), {2, 3, 4});
+        ASSERT_TRUE(uuid);
+        EXPECT_EQ(history.undo_size(), 1);
+        auto placed = scene.find_entity(uuid);
+        EXPECT_EQ(placed.get_component<Comet::NameComponent>().name, "Placed");
+        EXPECT_EQ(placed.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(2, 3, 4));
+        const auto original_id = placed.get_id();
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(scene.find_entity(uuid));
+        ASSERT_TRUE(history.redo());
+        placed = scene.find_entity(uuid);
+        EXPECT_NE(placed.get_id(), original_id);
+        EXPECT_EQ(placed.get_component<Comet::MeshRendererComponent>().mesh,
+            Comet::AssetHandle(8));
+        Comet::SceneSerializer serializer(registry);
+        auto reopened = serializer.deserialize(serializer.serialize(scene));
+        auto restored = reopened->find_entity(uuid);
+        ASSERT_TRUE(restored);
+        EXPECT_EQ(restored.get_component<Comet::MeshRendererComponent>().material,
+            Comet::AssetHandle(9));
+        EXPECT_EQ(restored.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(2, 3, 4));
+    }
+
+    TEST_F(SceneCommandsTest, InvalidMeshPlacementPreservesHistoryAndScene) {
+        ASSERT_TRUE(SceneCommands::create_entity(history, registry));
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(SceneCommands::create_mesh_entity(
+            history, registry, "Bad", {}, Comet::AssetHandle(9), {}));
+        EXPECT_FALSE(SceneCommands::create_mesh_entity(
+            history, registry, "Bad", Comet::AssetHandle(8), {}, {}));
+        Comet::ComponentRegistry missing_descriptors;
+        EXPECT_FALSE(SceneCommands::create_mesh_entity(history, missing_descriptors,
+            "Bad", Comet::AssetHandle(8), Comet::AssetHandle(9), {}));
+        EXPECT_EQ(scene.entity_count(), 1);
+        EXPECT_EQ(history.redo_size(), 1);
+        history.bind_scene(nullptr);
+        EXPECT_FALSE(SceneCommands::create_mesh_entity(
+            history, registry, "Bad", Comet::AssetHandle(8), Comet::AssetHandle(9), {}));
+    }
+
     TEST_F(SceneCommandsTest, DuplicateRemapsSubtreeAndPreservesExternalParentAndAssets) {
         const auto parent = scene.create_entity("Parent");
         auto child = scene.create_entity("Child");

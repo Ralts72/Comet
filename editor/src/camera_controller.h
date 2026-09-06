@@ -16,4 +16,8 @@ namespace CometEditor {
 
     void focus_editor_camera(EditorCameraState& camera,
         const Comet::BoundingBox& world_bounds, float viewport_aspect);
+
+    // uv 从图像左上角开始；放置平面经过 target，且平行于相机画面。
+    [[nodiscard]] std::optional<Comet::Math::Vec3> camera_focus_plane_point(
+        const EditorCameraState& camera, Comet::Math::Vec2 uv, float aspect);
 }

@@ -141,6 +141,7 @@ namespace {
             const EditorRenderAssets render_assets{
                 .mesh = load_required_mesh(*m_asset_manager, DEMO_MESH),
                 .material = load_required_material(*m_asset_manager, DEMO_MATERIAL)};
+            m_placement_material = render_assets.material;
             engine.set_scene(create_editor_scene(render_assets));
             Comet::Engine* engine_ptr = &engine;
             const auto get_active_scene = [engine_ptr]() {
@@ -484,6 +485,37 @@ namespace {
             return reimported;
         }
 
+        void handle_mesh_drop(const CometEditor::ViewPanel::MeshDrop& request) {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit
+                || request.asset.generation != m_command_history.generation())
+                return;
+            m_viewport_panel->cancel_interaction();
+            if(!m_property_edit.commit())
+                return;
+            const auto& database = m_asset_manager->get_database();
+            const auto* mesh = database.find(request.asset.handle);
+            const auto* material = database.find(m_placement_material);
+            if(!mesh || mesh->type != Comet::AssetType::Mesh || !material
+                || material->type != Comet::AssetType::Material) {
+                LOG_WARN("Mesh drop requires an indexed mesh and project demo material");
+                return;
+            }
+            // 只消费已发布 Artifact；缺失时由 Project 的显式导入入口处理。
+            if(!m_asset_manager->load_mesh(mesh->handle)
+                || !m_asset_manager->load_material(material->handle)) {
+                LOG_WARN("Cannot place mesh; import it in Project and check Log");
+                return;
+            }
+            const auto uuid = CometEditor::SceneCommands::create_mesh_entity(
+                m_command_history, m_component_registry, mesh->path.stem().string(),
+                mesh->handle, material->handle, request.position);
+            if(uuid)
+                m_selection->select_entity(
+                    m_command_history.get_scene()->find_entity(uuid).get_id());
+            else
+                LOG_WARN("Cannot create mesh entity");
+        }
+
         void handle_scene_request(const CometEditor::HierarchyPanel::Request& request) {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit
                 || request.generation != m_command_history.generation())
@@ -718,7 +750,7 @@ namespace {
                     const std::filesystem::path& destination) {
                     return move_project_asset(handle, destination);
                 },
-                *m_selection);
+                *m_selection, m_command_history);
             m_menu_bar->set_panel_visibility_callback("Hierarchy",
                 [this](const bool visible) { m_hierarchy_panel->set_visible(visible); });
             m_menu_bar->set_panel_visibility_callback("Viewport",
@@ -756,6 +788,8 @@ namespace {
                 }
                 if(const auto request = m_hierarchy_panel->take_request())
                     handle_scene_request(*request);
+                if(const auto request = m_viewport_panel->take_mesh_drop())
+                    handle_mesh_drop(*request);
                 if(const auto mode = m_viewport_panel->take_mode_request()) {
                     m_viewport_panel->cancel_interaction();
                     if(m_property_edit.commit()) {
@@ -774,6 +808,7 @@ namespace {
         Comet::ProjectPaths m_project_paths{PROJECT_ROOT_DIR};
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
+        Comet::AssetHandle m_placement_material;
         std::unique_ptr<Comet::AssetSourceMonitor> m_asset_source_monitor;
         std::string m_asset_source_monitor_error;
         std::optional<CometEditor::SelectionService> m_selection;

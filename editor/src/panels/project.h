@@ -12,6 +12,7 @@
 
 namespace CometEditor {
     class SelectionService;
+    class CommandHistory;
 
     class ProjectPanel: public EditorPanel {
     public:
@@ -21,7 +22,8 @@ namespace CometEditor {
 
         ProjectPanel(const Comet::AssetDatabase& database,
             Comet::AssetScanReport scan_report, RefreshCallback refresh_callback,
-            MoveAssetCallback move_asset_callback, SelectionService& selection);
+            MoveAssetCallback move_asset_callback, SelectionService& selection,
+            const CommandHistory& history);
 
         void render() override;
         void update_scan_report(Comet::AssetScanReport scan_report);
@@ -40,6 +42,7 @@ namespace CometEditor {
         RefreshCallback m_refresh_callback;
         MoveAssetCallback m_move_asset_callback;
         SelectionService& m_selection;
+        const CommandHistory& m_history;
         Comet::AssetHandle m_import_status_handle;
         Comet::AssetManager::MeshImportState m_import_state =
             Comet::AssetManager::MeshImportState::Unknown;

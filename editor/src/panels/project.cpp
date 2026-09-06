@@ -1,5 +1,7 @@
 #include "project.h"
 #include "selection.h"
+#include "asset_drag_drop.h"
+#include "command_history.h"
 
 #include <imgui.h>
 
@@ -50,19 +52,29 @@ namespace CometEditor {
             return root;
         }
 
-        void render_asset_tree(const AssetTreeNode& node, SelectionService& selection) {
+        void render_asset_tree(const AssetTreeNode& node, SelectionService& selection,
+            const CommandHistory& history) {
             for(const auto& [name, directory] : node.directories) {
                 if(ImGui::TreeNodeEx(name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                    render_asset_tree(directory, selection);
+                    render_asset_tree(directory, selection, history);
                     ImGui::TreePop();
                 }
             }
 
             for(const Comet::AssetRecord* asset : node.assets) {
                 const std::string name = asset->path.filename().string();
+                ImGui::PushID(std::to_string(asset->handle.value()).c_str());
                 if(ImGui::Selectable(
                        name.c_str(), selection.is_selected(asset->handle))) {
                     selection.select_asset(asset->handle);
+                }
+                if(asset->type == Comet::AssetType::Mesh && history.get_scene()
+                    && ImGui::BeginDragDropSource()) {
+                    const AssetDragPayload payload{asset->handle, history.generation()};
+                    ImGui::SetDragDropPayload(AssetDragPayload::MESH, &payload,
+                        sizeof(payload), ImGuiCond_Once);
+                    ImGui::TextUnformatted(name.c_str());
+                    ImGui::EndDragDropSource();
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("(%s)", Comet::to_string(asset->type).data());
@@ -71,17 +83,20 @@ namespace CometEditor {
                         asset->path.generic_string().c_str(),
                         static_cast<unsigned long long>(asset->handle.value()));
                 }
+                ImGui::PopID();
             }
         }
     }
 
     ProjectPanel::ProjectPanel(const Comet::AssetDatabase& database,
         Comet::AssetScanReport scan_report, RefreshCallback refresh_callback,
-        MoveAssetCallback move_asset_callback, SelectionService& selection)
+        MoveAssetCallback move_asset_callback, SelectionService& selection,
+        const CommandHistory& history)
         : EditorPanel("Project"), m_database(database), m_assets(database.get_assets()),
           m_scan_report(std::move(scan_report)),
           m_refresh_callback(std::move(refresh_callback)),
-          m_move_asset_callback(std::move(move_asset_callback)), m_selection(selection) {}
+          m_move_asset_callback(std::move(move_asset_callback)), m_selection(selection),
+          m_history(history) {}
 
     void ProjectPanel::render() {
         if(!m_user_visible)
@@ -126,7 +141,7 @@ namespace CometEditor {
                 if(m_assets.empty()) {
                     ImGui::TextDisabled("No indexed assets");
                 } else {
-                    render_asset_tree(tree, m_selection);
+                    render_asset_tree(tree, m_selection, m_history);
                 }
                 ImGui::TreePop();
             }

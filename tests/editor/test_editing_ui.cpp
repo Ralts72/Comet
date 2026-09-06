@@ -142,7 +142,7 @@ namespace CometEditor::Tests {
         auto report = database.scan();
         ASSERT_TRUE(report.succeeded());
         selection.select_asset(handle);
-        ProjectPanel project(database, report, nullptr, nullptr, selection);
+        ProjectPanel project(database, report, nullptr, nullptr, selection, history);
         const auto draw = [&]() {
             ImGui::NewFrame();
             ImGui::SetNextWindowPos(ImVec2(0, 0));
