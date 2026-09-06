@@ -1,6 +1,6 @@
 #include "view.h"
 #include "selection.h"
-#include "translation_gizmo.h"
+#include "transform_gizmo.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -14,7 +14,7 @@ namespace CometEditor {
     }
 
     ViewPanel::ViewPanel(const EditorState& state, SelectionService& selection,
-        TranslationGizmo& gizmo, PropertyEditTransaction& inspector_edit,
+        TransformGizmo& gizmo, PropertyEditTransaction& inspector_edit,
         const std::uint32_t max_render_dimension)
         : EditorPanel("Viewport"), m_state(state), m_selection(selection), m_gizmo(gizmo),
           m_inspector_edit(inspector_edit), m_max_render_dimension(max_render_dimension) {
@@ -60,7 +60,7 @@ namespace CometEditor {
         }
 
         m_actually_visible = true;
-        m_gizmo_id = ImGui::GetID("TranslationGizmo");
+        m_gizmo_id = ImGui::GetID("TransformGizmo");
         if(m_gizmo.active()) {
             ImGui::KeepAliveID(m_gizmo_id);
         }
@@ -121,15 +121,28 @@ namespace CometEditor {
         if(!ImGui::BeginPopup("Gizmo Settings"))
             return;
         auto settings = m_gizmo.settings();
+        int mode = static_cast<int>(settings.mode);
+        ImGui::SetNextItemWidth(120);
+        bool changed = ImGui::Combo("Mode", &mode, "Move\0Rotate\0");
+        settings.mode = static_cast<TransformGizmo::Mode>(mode);
         int space = static_cast<int>(settings.space);
         ImGui::SetNextItemWidth(120);
-        bool changed = ImGui::Combo("Space", &space, "World\0Local\0");
-        settings.space = static_cast<TranslationGizmo::Space>(space);
+        changed |= ImGui::Combo("Space", &space, "World\0Local\0");
+        settings.space = static_cast<TransformGizmo::Space>(space);
         changed |= ImGui::Checkbox("Snap", &settings.snap);
         ImGui::BeginDisabled(!settings.snap);
         ImGui::SetNextItemWidth(120);
-        changed |= ImGui::InputFloat("Step", &settings.step, 0, 0, "%.3f");
+        if(settings.mode == TransformGizmo::Mode::Rotate)
+            changed |= ImGui::InputFloat(
+                "Angle step", &settings.rotation_step_degrees, 0, 0, "%.1f");
+        else
+            changed |=
+                ImGui::InputFloat("Move step", &settings.translation_step, 0, 0, "%.3f");
         ImGui::EndDisabled();
+        if(settings.mode == TransformGizmo::Mode::Rotate
+            && settings.space == TransformGizmo::Space::World)
+            ImGui::TextDisabled(
+                "World rotation needs uniform parent scale.\nUse Local for non-uniform parents.");
         if(changed)
             static_cast<void>(m_gizmo.set_settings(settings));
         ImGui::EndPopup();
@@ -449,26 +462,33 @@ namespace CometEditor {
                 continue;
             }
             ImU32 color = IM_COL32(65, 125, 255, 255);
-            if(handle->axis == TranslationGizmo::Axis::X) {
+            if(handle->axis == TransformGizmo::Axis::X) {
                 color = IM_COL32(240, 65, 55, 255);
-            } else if(handle->axis == TranslationGizmo::Axis::Y) {
+            } else if(handle->axis == TransformGizmo::Axis::Y) {
                 color = IM_COL32(65, 225, 85, 255);
             }
             if(m_gizmo.active_axis() == handle->axis
                 || (!m_gizmo.active() && m_gizmo.hovered_axis() == handle->axis)) {
                 color = IM_COL32(255, 220, 50, 255);
             }
-            const auto direction = handle->end - handle->start;
+            if(m_gizmo.settings().mode == TransformGizmo::Mode::Rotate) {
+                for(const auto& segment : handle->segments)
+                    draw_list->AddLine(ImVec2(segment.start.x, segment.start.y),
+                        ImVec2(segment.end.x, segment.end.y), color, 2.5f);
+                continue;
+            }
+            const auto& segment = handle->segments.front();
+            const auto direction = segment.end - segment.start;
             const float length =
                 std::sqrt(direction.x * direction.x + direction.y * direction.y);
             const auto unit = direction / length;
             const Comet::Math::Vec2 side(-unit.y, unit.x);
-            const auto base = handle->end - unit * std::min(9.0f, length * 0.4f);
+            const auto base = segment.end - unit * std::min(9.0f, length * 0.4f);
             const auto left = base + side * 4.0f;
             const auto right = base - side * 4.0f;
-            draw_list->AddLine(ImVec2(handle->start.x, handle->start.y),
+            draw_list->AddLine(ImVec2(segment.start.x, segment.start.y),
                 ImVec2(base.x, base.y), color, 2.5f);
-            draw_list->AddTriangleFilled(ImVec2(handle->end.x, handle->end.y),
+            draw_list->AddTriangleFilled(ImVec2(segment.end.x, segment.end.y),
                 ImVec2(left.x, left.y), ImVec2(right.x, right.y), color);
         }
         draw_list->PopClipRect();

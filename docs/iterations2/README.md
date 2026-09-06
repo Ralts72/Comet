@@ -53,10 +53,11 @@
 | 007 | Project Mesh 后台导入与 Artifact 状态 | Debug/Release 各 371 tests 通过；Linux CI 34049335440 成功 |
 | 008 | Mesh 拖入 Viewport、关注平面放置与单条撤销 | Debug/Release 各 377 tests 通过；Linux CI 34049739269 成功 |
 | 009 | 类型化资产引用选择／拖拽与材质纹理槽拖拽 | Debug/Release 各 382 tests 通过；Linux CI 34050111746 成功 |
-| 010 | 场景资产加载／修复闭环与第二次架构回顾 | Debug/Release 各 386 tests 通过 |
-| 011 | 平移 Gizmo 本地轴和相对步长吸附 | Debug/Release 各 391 tests 通过 |
+| 010 | 场景资产加载／修复闭环与第二次架构回顾 | Debug/Release 各 386 tests 通过；Linux CI 34050484992 成功 |
+| 011 | 平移 Gizmo 本地轴和相对步长吸附 | Debug/Release 各 391 tests 通过；Linux CI 34050761975 成功 |
+| 012 | 旋转 Gizmo、本地／世界轴、角度吸附及共享变换事务 | Debug/Release 各 398 tests 通过 |
 
-下一项：Gizmo 旋转／缩放；任务背压／发布预算按独立项补完。
+下一项：Gizmo 缩放；任务背压／发布预算按独立项补完。
 已完成定期架构回顾：005、010；下一次：015 或阶段 4 核心验收边界（取先发生者）。
 
 远端推送结果与 CI 以 git 远端 refs 和 CI 实际运行状态为准，不能将本表视为远端成功证明。

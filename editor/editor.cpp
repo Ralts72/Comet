@@ -24,7 +24,7 @@
 #include "src/panels/view.h"
 #include "src/panels/hierarchy.h"
 #include "src/selection.h"
-#include "src/translation_gizmo.h"
+#include "src/transform_gizmo.h"
 #include "scene/scene.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
@@ -798,7 +798,7 @@ namespace {
             const std::uint32_t max_render_dimension = std::min(
                 device_max_render_dimension, EDITOR_VIEWPORT_MAX_RENDER_DIMENSION);
             m_viewport_panel = std::make_unique<CometEditor::ViewPanel>(m_editor_state,
-                *m_selection, m_translation_gizmo, m_property_edit, max_render_dimension);
+                *m_selection, m_transform_gizmo, m_property_edit, max_render_dimension);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_asset_manager->get_database(),
@@ -886,7 +886,7 @@ namespace {
         CometEditor::CommandHistory m_command_history;
         CometEditor::PropertyEditTransaction m_property_edit{
             m_command_history, m_component_registry};
-        CometEditor::TranslationGizmo m_translation_gizmo{
+        CometEditor::TransformGizmo m_transform_gizmo{
             m_command_history, m_component_registry};
         CometEditor::PropertyEditorRegistry m_property_editor_registry =
             CometEditor::create_property_editor_registry();

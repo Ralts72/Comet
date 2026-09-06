@@ -45,10 +45,11 @@ ctest --preset dev-debug
 - Edit 画面内左键选择最近的模型包围盒，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。
   选中 Mesh 显示随实体变换的橙色包围盒，受场景深度遮挡；清空选择或进入 Play 后不显示。
   当前是包围盒粗拾取，不是三角形级拾取或模型轮廓描边。
-- Edit 选中实体后可左键拖动红／绿／蓝箭头，沿世界 X／Y／Z 轴平移；操作手柄覆盖在模型上，不受深度遮挡。
+- Edit 选中实体后可左键拖动红／绿／蓝手柄，沿 X／Y／Z 轴平移或旋转；操作手柄覆盖在模型上，不受深度遮挡。
   一次拖动只记一条撤销，Escape 取消；拖动期间不响应相机导航，失焦或隐藏视口会回退未完成的拖动。
-  Viewport 的 Tool 菜单可切换 World／Local 轴，开启 Snap 并设置 Step；按相对拖动距离吸附，单位为世界单位。
-  Local 跟随实体旋转及父级变换，不受实体自身负／零缩放反转；设置不改变 Scene Camera，也不写入场景文件。
+  Viewport 的 Tool 菜单选择 Move／Rotate、World／Local 和 Snap；Move step 是相对世界距离，Angle step 是相对角度。
+  Local 跟随实体旋转及父级变换，不受实体自身负／零缩放反转；非均匀缩放／剪切父级下旋转需选 Local。
+  设置不改变 Scene Camera，也不写入场景文件。
 - Edit 中 Inspector 的名称、Transform、Camera、Mesh/Material 引用支持撤销／重做，一次编辑手势记一条，Escape 取消。
   Mesh/Material 引用可按路径选择或从 Project 拖入；按资产类型过滤，加载失败保留旧引用，None 清空引用。
   使用 Edit 菜单或 Ctrl+Z / Ctrl+Y（macOS 为 Cmd+Z / Cmd+Shift+Z）；文本框编辑时不抢占输入控件的撤销。

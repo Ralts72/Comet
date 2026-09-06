@@ -5,7 +5,7 @@ file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
 list(APPEND TEST_SOURCES
         "${CMAKE_SOURCE_DIR}/editor/src/command_history.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/scene_commands.cpp"
-        "${CMAKE_SOURCE_DIR}/editor/src/translation_gizmo.cpp"
+        "${CMAKE_SOURCE_DIR}/editor/src/transform_gizmo.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/camera_controller.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/editor_state.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/editor_scene_session.cpp"
