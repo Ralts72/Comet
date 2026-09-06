@@ -647,6 +647,132 @@ namespace Comet::Tests {
     }
 
     TEST_F(RenderGraphGpuTest,
+        DirectionalShadowsMoveToggleAndKeepInFlightFramesIndependent) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        Config config;
+        config.vulkan.msaa_samples = SampleCount::Count1;
+        config.render.clear_color = {0, 0, 0, 1};
+        SceneRenderer scene(context, config.vulkan, config.render);
+        scene.setup_offscreen_render_pass({33, 33});
+        scene.setup_pipeline(engine->get_resource_manager());
+        auto mesh = lit_quad();
+        auto material = std::make_shared<Material>("shadow receiver", "lit_color");
+        material->set_vector_property("albedo", {1, 1, 1, 1});
+        auto& frames = scene.get_frame_scheduler();
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 2> outputs;
+        for(unsigned batch = 0; batch < 3; ++batch) {
+            for(unsigned index = 0; index < 2; ++index) {
+                const float x = index == 0 ? -0.5f : 0.5f;
+                const auto occluder =
+                    Math::scale(Math::translate(Math::Mat4(1), {x, 0, 0.625f}),
+                        {0.25f, 0.25f, 0.25f});
+                RenderSubmission submission{
+                    .view_project_matrix =
+                        ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
+                    .render_items = {{.mesh = mesh,
+                                         .material = {AssetHandle(559), material}},
+                        {.model_matrix = occluder,
+                            .mesh = mesh,
+                            .material = {AssetHandle(559), material}}},
+                    .lights = {{.entity_id = 1,
+                        .intensity = Math::PI,
+                        .casts_shadow = batch != 1}}};
+                if(batch == 2 && index == 1)
+                    submission.render_items.pop_back();
+                const auto lighting = ShadowRenderer::prepare(submission);
+                EXPECT_EQ(lighting.shadow_parameters.x, batch == 1 ? -1 : 0);
+                frames.wait_for_current_slot();
+                frames.begin_frame(0);
+                frames.get_current_command_buffer().begin();
+                EXPECT_TRUE(scene.render_scene_pass(submission).empty());
+                outputs[index] = std::make_shared<Readback>(
+                    device, context.get_context().get_physical_device(), 33 * 33 * 4);
+                copy_output(frames,
+                    scene.get_offscreen_color_view(frames.get_current_frame_slot_index())
+                        ->get_image(),
+                    outputs[index], {33, 33});
+                submit(device, frames);
+            }
+            // 两帧均提交后才等待，读回各自阴影，不能让后帧覆盖前帧的 depth/UBO。
+            frames.wait_for_all_slots();
+            for(unsigned index = 0; index < 2; ++index) {
+                const auto bytes = outputs[index]->read();
+                const unsigned shadow_x = index == 0 ? 8 : 24;
+                const unsigned other_x = index == 0 ? 24 : 8;
+                const bool shadow = batch != 1 && !(batch == 2 && index == 1);
+                for(unsigned channel = 0; channel < 3; ++channel) {
+                    const auto at = [&](unsigned x, unsigned y) {
+                        return std::to_integer<int>(bytes[(y * 33 + x) * 4 + channel]);
+                    };
+                    EXPECT_NEAR(at(shadow_x, 16), shadow ? 0 : mapped_byte(1), 3)
+                        << "batch " << batch << " frame " << index;
+                    EXPECT_NEAR(at(other_x, 16), mapped_byte(1), 3);
+                    EXPECT_NEAR(at(16, 3), mapped_byte(1), 3);
+                }
+            }
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, ShadowAndMaterialUploadWaitsMergeStagesAndTimelineValues) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        Semaphore upload(device, Semaphore::Type::Timeline);
+        Semaphore other(device, Semaphore::Type::Timeline);
+        std::vector<QueueSemaphoreSubmit> waits;
+        merge_semaphore_wait(
+            waits, {upload, Flags<PipelineStage>(PipelineStage::VertexInput), 7});
+        merge_semaphore_wait(
+            waits, {upload, Flags<PipelineStage>(PipelineStage::FragmentShader), 3});
+        merge_semaphore_wait(
+            waits, {other, Flags<PipelineStage>(PipelineStage::Transfer), 5});
+        ASSERT_EQ(waits.size(), 2);
+        EXPECT_EQ(waits.front().value, 7);
+        EXPECT_EQ(
+            waits.front().stage_mask, Flags<PipelineStage>(PipelineStage::VertexInput)
+                                          | PipelineStage::FragmentShader);
+        EXPECT_EQ(waits.back().value, 5);
+    }
+
+    TEST_F(RenderGraphGpuTest, ShadowPassRetainsOwnersAfterRendererDestruction) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        auto shadow = std::make_unique<ShadowRenderer>(device, 2);
+        std::weak_ptr<ImageView> view = shadow->get_depth_view(0);
+        auto image = shadow->get_depth_view(0)->get_image();
+        RenderSubmission submission{
+            .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
+            .render_items = {{.mesh = lit_quad()}},
+            .lights = {{.casts_shadow = true}}};
+        const auto lighting = ShadowRenderer::prepare(submission);
+        ASSERT_EQ(lighting.shadow_parameters.x, 0);
+        RenderGraph graph;
+        const auto depth = graph.import_image(
+            "shadow depth", *resolve_image_state(ResourceUsage::Undefined,
+                                {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}));
+        graph.add_pass(
+            {"write shadow", {{depth, ResourceUsage::DepthStencilAttachmentWrite, {}}}});
+        graph.export_resource({depth, ResourceUsage::SampledRead,
+            Flags<PipelineStage>(PipelineStage::FragmentShader)});
+        const std::vector<RenderGraph::Binding> bindings{image};
+        frames.wait_for_current_slot();
+        frames.begin_frame(0);
+        frames.get_current_command_buffer().begin();
+        graph.compile().record(frames, bindings, [&](size_t, const CommandBuffer&) {
+            EXPECT_TRUE(
+                shadow->render(frames, lighting, submission.render_items).empty());
+        });
+        shadow.reset();
+        EXPECT_FALSE(view.expired());
+        submit(device, frames);
+        frames.wait_for_all_slots();
+        EXPECT_TRUE(view.expired());
+    }
+
+    TEST_F(RenderGraphGpuTest,
         LitShaderPublishesAtFrameBoundaryWithoutReplacingOldFramePixels) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
@@ -707,7 +833,7 @@ namespace Comet::Tests {
                 auto header = read_text_file(shader_directory / "lighting.glsl");
                 const auto binding = header.find("binding = 1");
                 ASSERT_NE(binding, std::string::npos);
-                header.replace(binding, std::string("binding = 1").size(), "binding = 2");
+                header.replace(binding, std::string("binding = 1").size(), "binding = 7");
                 write_text_file_atomic(temporary / "lighting.glsl", header);
                 const auto incompatible =
                     ShaderCompiler::compile({.source = temporary / "lit.frag",

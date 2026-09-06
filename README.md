@@ -75,7 +75,9 @@ ctest --preset dev-debug
   默认示例使用 `materials/lit.mat` 和 Key Light；`lit_color` 响应灯光，原来的两种材质仍不受灯光影响。
   Inspector 的 Add Component 可添加 Light，Type 选择 Directional/Point/Spot；Transform 的本地 -Z 是出光方向。
   Intensity/Color 控制照明，Range 仅用于点光/聚光，Inner/Outer angle 为聚光半锥角且须满足内角小于外角。
-  灯光没有隐式环境光，全部关闭时 lit 物体为黑色；当前是 Lambert 漫反射，尚无阴影或 PBR 高光。
+  Directional 可勾选 Cast directional shadow；当前为单张 1024² 阴影图，按实体 ID 选择首个有效投影方向光。
+  默认 Ground 接收立方体阴影，移动物体或开关投影可直接观察；点光和聚光暂不投影。
+  灯光没有隐式环境光，全部关闭时 lit 物体为黑色；当前是 Lambert 漫反射，尚无 PBR 高光。
   `.mat` 的 texture/scalar/vector 参数由布局生成 Inspector 控件，实际变化才保存并更新材质，浏览默认值不改写文件。
   缺失纹理槽可逐个补齐，完整后自动发布；未完整的编辑仅保留在当前资产草稿中，切换资产或刷新会丢弃草稿。
 

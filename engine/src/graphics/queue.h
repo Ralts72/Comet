@@ -23,6 +23,10 @@ namespace Comet {
             const GpuCompletionPoint& completion, Flags<PipelineStage> stage_mask);
     };
 
+    // 同一 semaphore 只等待一次：timeline 取最大值，消费阶段取并集。
+    COMET_API void merge_semaphore_wait(
+        std::vector<QueueSemaphoreSubmit>& waits, const QueueSemaphoreSubmit& candidate);
+
     class COMET_API Queue {
     public:
         Queue(Device& device, vk::Queue queue);

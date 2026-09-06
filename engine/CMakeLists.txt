@@ -65,6 +65,7 @@ set(SOURCES
         src/render/render_graph.cpp
         src/render/post_process_renderer.cpp
         src/render/lighting.cpp
+        src/render/shadow_renderer.cpp
         src/render/line_draw_list.cpp
         src/render/debug/debug_renderer.cpp
         src/render/render_target.cpp

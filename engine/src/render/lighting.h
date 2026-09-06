@@ -1,6 +1,7 @@
 #pragma once
 
 #include "scene/components.h"
+#include "core/geometry.h"
 #include <array>
 #include <span>
 
@@ -15,6 +16,7 @@ namespace Comet {
         float range = 10;
         float inner_angle = 20;
         float outer_angle = 30;
+        bool casts_shadow = false;
     };
 
     // 与 lighting.glsl 的 std140 布局匹配；不是 Scene 组件或 GPU owner。
@@ -28,6 +30,9 @@ namespace Comet {
         };
         std::array<Light, MAX_LIGHTS> lights{};
         Math::Vec4 counts{}; // 有效数量、超限数量、无效数量、保留。
+        Math::Mat4 shadow_view_projection{1};
+        Math::Vec4 shadow_parameters{-1, 0, 0, 0}; // 灯索引、深度偏移、texel 大小、保留。
         [[nodiscard]] static LightingData prepare(std::span<const RenderLight> lights);
+        void prepare_shadow(const BoundingBox& world_bounds, uint32_t resolution);
     };
 }

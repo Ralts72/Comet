@@ -217,7 +217,8 @@ namespace Comet {
         create_depth_stencil_state(const PipelineConfig& config);
 
         [[nodiscard]] static vk::PipelineColorBlendStateCreateInfo
-        create_color_blend_state(const PipelineConfig& config);
+        create_color_blend_state(
+            std::span<const vk::PipelineColorBlendAttachmentState> attachments);
 
         [[nodiscard]] static vk::PipelineViewportStateCreateInfo create_viewport_state(
             const vk::Viewport& viewport, const vk::Rect2D& scissor);

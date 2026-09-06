@@ -19,6 +19,7 @@ namespace Comet {
     class ResourceManager;
     class Sampler;
     class Shader;
+    class ImageView;
 
     // 在已开启的场景 pass 内绘制 Mesh；调用方负责等待 slot 和设置 viewport/scissor。
     class COMET_API MaterialRenderer {
@@ -45,7 +46,8 @@ namespace Comet {
             ResourceManager& resources, uint32_t frame_slot_count, SampleCount samples);
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(FrameScheduler& frames,
             const ViewProjectMatrix& view, std::span<const ResolvedRenderItem> items,
-            std::span<const RenderLight> lights = {});
+            const LightingData& lighting = {},
+            std::shared_ptr<ImageView> shadow_map = {});
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
         // owner 帧边界调用；Shader、布局和所有驻留材质候选全部成功才发布。
         ReloadReport reload_shaders(PipelineManager& pipelines, ShaderManager& shaders,
@@ -65,6 +67,8 @@ namespace Comet {
             std::shared_ptr<DescriptorPool> pool;
             std::shared_ptr<CPUBuffer> buffer;
             std::shared_ptr<CPUBuffer> lighting;
+            std::shared_ptr<ImageView> shadow_map;
+            std::shared_ptr<Sampler> shadow_sampler;
             std::optional<DescriptorSet> descriptor;
         };
         struct MaterialResources {
@@ -101,6 +105,7 @@ namespace Comet {
 
         Device& m_device;
         std::shared_ptr<Sampler> m_sampler;
+        std::shared_ptr<ImageView> m_fallback_shadow;
         std::shared_ptr<DescriptorSetLayout> m_frame_layout;
         std::vector<std::shared_ptr<FrameResources>> m_frames;
         std::unordered_map<std::string, std::shared_ptr<const PipelineState>> m_pipelines;

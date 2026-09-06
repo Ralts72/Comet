@@ -41,7 +41,8 @@ entities:
 stable ID，值通过 descriptor 的类型访问器读写；只有 `serializable=true` 且非 transient 的属性会进入文件。
 新增一个已支持属性类型的可序列化组件时，只需注册 descriptor，不需要再给 serializer 添加组件专用分支。
 
-`light` 的字段为 `type`、`enabled`、`color`、`intensity`、`range`、`inner_angle`、`outer_angle`。
+`light` 的字段为 `type`、`enabled`、`color`、`intensity`、`range`、`inner_angle`、`outer_angle`、`casts_shadow`。
+`casts_shadow` 默认 false，当前只为选中的一个方向光生成阴影；点光/聚光保留该值但暂不执行阴影。
 `type` 是 `directional` / `point` / `spot` 字符串，不是 C++ 枚举的整数内存值；未知枚举值拒绝加载。
 PropertyDescriptor 的 Enum 元数据统一服务 Inspector 下拉选项、typed assignment、撤销快照和序列化。
 相机和灯光共用派生的 `pose_world_matrix`（父 world × 本地 TR，不含本地 scale），不把它写进文件；

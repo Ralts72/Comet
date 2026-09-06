@@ -107,7 +107,14 @@ namespace {
         cube.add_component<Comet::MeshRendererComponent>(assets.mesh, assets.material);
         auto light = scene->create_entity("Key Light");
         light.get_component<Comet::TransformComponent>().rotation = {-30, -35, 0};
-        light.add_component<Comet::LightComponent>().intensity = 4.0f;
+        auto& light_component = light.add_component<Comet::LightComponent>();
+        light_component.intensity = 4.0f;
+        light_component.casts_shadow = true;
+        auto ground = scene->create_entity("Ground");
+        auto& ground_transform = ground.get_component<Comet::TransformComponent>();
+        ground_transform.translation.y = -0.8f;
+        ground_transform.scale = {4.0f, 0.1f, 4.0f};
+        ground.add_component<Comet::MeshRendererComponent>(assets.mesh, assets.material);
 
         return scene;
     }

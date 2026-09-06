@@ -59,7 +59,8 @@ namespace Comet {
                     .intensity = light.intensity,
                     .range = light.range,
                     .inner_angle = light.inner_angle,
-                    .outer_angle = light.outer_angle});
+                    .outer_angle = light.outer_angle,
+                    .casts_shadow = light.casts_shadow});
         }
         return render_scene;
     }

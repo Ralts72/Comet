@@ -15,6 +15,7 @@
 #include "render/material_renderer.h"
 #include "render/render_graph.h"
 #include "render/post_process_renderer.h"
+#include "render/shadow_renderer.h"
 
 #include <functional>
 #include <chrono>
@@ -78,7 +79,8 @@ namespace Comet {
 
     private:
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> record_scene_pass(
-            const RenderSubmission& submission, const LineDrawList& lines);
+            const RenderSubmission& submission, const LineDrawList& lines,
+            const LightingData& lighting);
         void reset_render_pipeline();
         void setup_targets(Math::Vec2u size, bool offscreen);
         [[nodiscard]] bool resize_targets(Math::Vec2u size);
@@ -90,6 +92,7 @@ namespace Comet {
         std::unique_ptr<PipelineManager> m_pipeline_manager;
         std::unique_ptr<FrameScheduler> m_frame_scheduler;
         std::unique_ptr<PostProcessRenderer> m_post_processor;
+        std::unique_ptr<ShadowRenderer> m_shadow_renderer;
         std::shared_ptr<RenderTarget> m_scene_target;
         std::shared_ptr<RenderTarget> m_render_target;
         std::optional<RenderGraph::Plan> m_render_plan;

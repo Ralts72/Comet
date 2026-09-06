@@ -8,7 +8,9 @@ namespace Comet {
     LightingData LightingData::prepare(const std::span<const RenderLight> input) {
         static_assert(sizeof(Light) == 64);
         static_assert(offsetof(LightingData, counts) == MAX_LIGHTS * 64);
-        static_assert(sizeof(LightingData) == MAX_LIGHTS * 64 + 16);
+        static_assert(
+            offsetof(LightingData, shadow_view_projection) == MAX_LIGHTS * 64 + 16);
+        static_assert(sizeof(LightingData) == MAX_LIGHTS * 64 + 96);
         LightingData result;
         std::vector<const RenderLight*> sorted;
         for(const auto& light : input) {
@@ -61,7 +63,47 @@ namespace Comet {
             if(light.type == LightType::Spot)
                 packed.cone = {std::cos(Math::radians(light.inner_angle)),
                     std::cos(Math::radians(light.outer_angle)), 0, 0};
+            packed.cone.z = light.casts_shadow ? 1.0f : 0.0f;
         }
         return result;
+    }
+
+    void LightingData::prepare_shadow(
+        const BoundingBox& world_bounds, const uint32_t resolution) {
+        shadow_view_projection = Math::Mat4(1);
+        shadow_parameters = {-1, 0, 0, 0};
+        if(!world_bounds.is_valid() || resolution == 0 || !std::isfinite(counts.x))
+            return;
+        const float radius = Math::length(world_bounds.size()) * 0.5f;
+        if(!std::isfinite(radius) || radius < 1e-5f)
+            return;
+        const auto count = uint32_t(std::clamp(counts.x, 0.0f, float(MAX_LIGHTS)));
+        for(uint32_t index = 0; index < count; ++index) {
+            const auto& light = lights[index];
+            if(light.position_type.w != float(LightType::Directional) || light.cone.z == 0
+                || light.color_intensity.w <= 0)
+                continue;
+            const Math::Vec3 direction(light.direction_range);
+            const auto center = world_bounds.center();
+            const float padding = std::max(radius * 0.05f, 0.01f);
+            const Math::Vec3 up =
+                std::abs(direction.y) > 0.95f ? Math::Vec3(1, 0, 0) : Math::Vec3(0, 1, 0);
+            const auto view =
+                Math::look_at(center - direction * (radius + 2 * padding), center, up);
+            const auto box = transform_box(world_bounds, view);
+            if(!box)
+                return;
+            const auto projection =
+                Math::ortho(box->minimum.x - padding, box->maximum.x + padding,
+                    box->minimum.y - padding, box->maximum.y + padding,
+                    -box->maximum.z - padding, -box->minimum.z + padding);
+            const auto matrix = projection * view;
+            for(int column = 0; column < 4; ++column)
+                if(!Math::is_finite(matrix[column]))
+                    return;
+            shadow_view_projection = matrix;
+            shadow_parameters = {float(index), 0.0005f, 1.0f / float(resolution), 0};
+            return;
+        }
     }
 }

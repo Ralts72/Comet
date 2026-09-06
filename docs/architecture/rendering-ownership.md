@@ -13,6 +13,7 @@
 | `render/scene/scene_renderer.h` | Target、RenderPass、帧与场景 pass 编排 |
 | `render/material_runtime.h` | 布局契约、PreparedMaterial 快照与 revision 缓存 |
 | `render/material_renderer.h` | Mesh 队列排序、多布局 Pipeline、FrameSet/MaterialSet 与物体绘制 |
+| `render/shadow_renderer.h` | 场景边界准备、方向光深度 pass 及每 slot 阴影图；不读取 Scene |
 | `render/frame_scheduler.h` | FrameSlot 复用、image 关联、完成序号与 retention |
 | `render/render_graph.h` | 有序 pass 声明、不可变 Barrier2 计划、导入／导出状态和 frame 录制；实现同目录 .cpp |
 | `render/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
@@ -45,13 +46,15 @@ Engine
     └── SceneRenderer
         ├── RenderPass / PipelineManager（结构化 key → weak Pipeline）
         ├── FrameScheduler → FrameSlot[N] / SwapchainImageState[M]
-        ├── RenderGraph::Plan（HDR Scene→后处理采样，只有 CPU 状态）
+        ├── RenderGraph::Plan（Shadow→HDR Scene→后处理采样，只有 CPU 状态）
         ├── MaterialRenderer
         │   ├── FrameResources[slot] → FrameSet / ViewProjectBuffer / LightingBuffer
+        │   │                           / shadow ImageView / nearest Sampler
         │   ├── PipelineState[layout] → MaterialLayout / set layouts / Pipeline
         │   ├── MaterialRuntimeCache → PreparedMaterial → Texture / parameter bytes
         │   └── MaterialResources[revision] → PreparedMaterial / MaterialSet / parameter buffer
         ├── DebugRenderer → 线段 Pipeline / VertexBuffer[slot]
+        ├── ShadowRenderer → 深度 RenderPass / Pipeline / D32 MultiTarget[slot]
         ├── HDR MultiTarget[slot]（RGBA16F / depth / 可选 resolve）
         ├── PostProcessRenderer → 输出 RenderPass / Pipeline / Sampler / Binding[slot]
         └── SDR RenderTarget：runtime SwapchainTarget 或 editor MultiTarget
@@ -96,7 +99,7 @@ Engine：事件 → Application 更新
   → SceneExtractor（读取此时的活动 Scene，更新 world transform）
   → Renderer::render_frame
   → SceneResolver（使用实际 Target 尺寸）
-  → 按请求 CPU pick → HDR scene pass（场景物体 → DebugRenderer）→ fullscreen SDR 输出
+  → 按请求 CPU pick → Shadow 深度 pass → HDR scene pass（物体 → DebugRenderer）→ fullscreen SDR 输出
   → overlay render（录制已生成的 ImGui 数据）
   → submit / present
 ```
@@ -110,6 +113,15 @@ LightComponent 是场景数据，LightType 是被组件/渲染快照共用的 CP
 lit_color 使用独立 vertex/fragment Shader，原 unlit 材质不改变语义。FrameSet 每 slot 更新，灯光变化不失效 MaterialSet。
 热更新 API 接受完整 unlit 三 Shader、完整 lit 两 Shader或完整五 Shader；editor 当前整组编译五个，失败不部分发布。
 lighting.glsl 是实际共享头文件，构建 depfile 和 editor 输入快照都跟踪它；Frame ABI 变化仍拒绝热发布。
+
+ShadowRenderer 从 resolved Mesh 的 local bounds 和 model matrix 求世界边界，LightingData::prepare_shadow 做纯 CPU 正交投影拟合。
+选中已保留的首个 casts_shadow 方向光；1024² D32 深度图按 slot 分配，3×3 PCF 与偏移在 lighting.glsl 中计算。
+RenderGraph 管理 DepthStencilAttachmentWrite→fragment SampledRead，RenderPass 不重复改变最终 layout。
+FrameSet binding 2 采样当前 slot 深度 view，只在 view 改变且 slot 已等待后更新 descriptor；没有每材质阴影 binding。
+独立 MaterialRenderer 用 1×1 白色中性图保证 sampler descriptor 有效，构造阶段等待该微小上传，正常帧不 CPU 等待阴影。
+阴影 owner 可以在录制后释放，FrameScheduler 保留 pass/target/pipeline/Mesh 到完成；多个 pass 的上传 wait 合并最大 timeline 和阶段并集。
+没有阴影灯时仍清除深度图，避免复用旧阴影；普通 viewport resize 不改变固定阴影分辨率。
+当前无级联、点光/聚光阴影、透明裁切或静态缓存，全部 resolved Mesh 都按不透明几何投影；shadow Shader 暂随构建更新，不加入热编译组。
 SceneRenderer 不读 EditorMode/ImGui。SceneResolver 只解析 Mesh/Material，不检查 template、属性名称和数量。
 MaterialRenderer 选择 MaterialLayout，MaterialRuntimeCache 按材质身份/revision 和不可变 layout 身份准备纹理 binding 与参数字节。
 MaterialLayout 从反射重绑定 offset／块大小／binding，保留显式编辑语义；发布后的只读描述交付 Inspector 生成控件，

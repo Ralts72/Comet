@@ -27,8 +27,9 @@ namespace Comet {
             m_attachments.push_back(attachment);
             actual_sub_passes.push_back(render_sub_pass);
         }
-        m_subpass_count = static_cast<uint32_t>(actual_sub_passes.size());
         for(const auto& sub_pass : actual_sub_passes) {
+            m_color_attachment_counts.push_back(
+                static_cast<uint32_t>(sub_pass.color_attachments.size()));
             for(const auto& attachment : sub_pass.input_attachments) {
                 if(attachment.index >= m_attachments.size()) {
                     LOG_FATAL("input attachment index exceeds attachment pool ");

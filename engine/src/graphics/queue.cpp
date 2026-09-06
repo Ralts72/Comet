@@ -4,6 +4,7 @@
 #include "graphics/synchronization/fence.h"
 #include "diagnostics/profiler.h"
 #include "swapchain.h"
+#include <algorithm>
 
 namespace Comet {
     namespace {
@@ -33,6 +34,19 @@ namespace Comet {
           stage_mask(stage_mask) {
         if(!completion.is_valid()) {
             LOG_FATAL("Cannot submit an invalid GPU completion point");
+        }
+    }
+
+    void merge_semaphore_wait(
+        std::vector<QueueSemaphoreSubmit>& waits, const QueueSemaphoreSubmit& candidate) {
+        const auto found = std::ranges::find_if(waits, [&](const auto& wait) {
+            return wait.semaphore->get() == candidate.semaphore->get();
+        });
+        if(found == waits.end()) {
+            waits.push_back(candidate);
+        } else {
+            found->value = std::max(found->value, candidate.value);
+            found->stage_mask = found->stage_mask | candidate.stage_mask;
         }
     }
 

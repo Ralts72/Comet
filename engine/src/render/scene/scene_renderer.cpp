@@ -94,6 +94,8 @@ namespace Comet {
         m_scene_target = RenderTarget::create_multi_target(m_context.get_device(),
             *m_render_pass, size, m_frame_scheduler->get_frame_slot_count());
         m_scene_target->set_clear_value(m_color_clear_value);
+        m_shadow_renderer = std::make_unique<ShadowRenderer>(
+            m_context.get_device(), m_frame_scheduler->get_frame_slot_count());
         // 与窗口编码一致：sRGB 采样解码/附件编码，UNORM 则传递已编码的 SDR 值。
         m_post_processor = std::make_unique<PostProcessRenderer>(m_context.get_device(),
             m_surface_format, offscreen, m_frame_scheduler->get_frame_slot_count());
@@ -127,6 +129,13 @@ namespace Comet {
                 post_pass.uses.push_back({id, ResourceUsage::SampledRead,
                     Flags<PipelineStage>(PipelineStage::FragmentShader)});
         }
+        const auto shadow = graph.import_image("directional shadow",
+            *resolve_image_state(ResourceUsage::Undefined,
+                {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}));
+        graph.add_pass(
+            {"shadow", {{shadow, ResourceUsage::DepthStencilAttachmentWrite, {}}}});
+        scene_pass.uses.push_back({shadow, ResourceUsage::SampledRead,
+            Flags<PipelineStage>(PipelineStage::FragmentShader)});
         graph.add_pass(std::move(scene_pass));
         graph.add_pass(std::move(post_pass));
         m_render_plan = graph.compile();
@@ -176,11 +185,19 @@ namespace Comet {
         std::vector<RenderGraph::Binding> bindings;
         for(const auto& view : frame_buffer->get_attachments())
             bindings.emplace_back(view->get_image());
+        bindings.emplace_back(m_shadow_renderer
+                ->get_depth_view(m_frame_scheduler->get_current_frame_slot_index())
+                ->get_image());
+        const auto lighting = ShadowRenderer::prepare(submission);
         std::vector<QueueSemaphoreSubmit> waits;
         m_render_plan->record(
             *m_frame_scheduler, bindings, [&](size_t pass, const CommandBuffer&) {
                 if(pass == 0) {
-                    waits = record_scene_pass(submission, lines);
+                    waits = m_shadow_renderer->render(
+                        *m_frame_scheduler, lighting, submission.render_items);
+                } else if(pass == 1) {
+                    for(const auto& wait : record_scene_pass(submission, lines, lighting))
+                        merge_semaphore_wait(waits, wait);
                 } else {
                     const auto slot = m_frame_scheduler->get_current_frame_slot_index();
                     const auto index =
@@ -195,7 +212,8 @@ namespace Comet {
     }
 
     std::vector<QueueSemaphoreSubmit> SceneRenderer::record_scene_pass(
-        const RenderSubmission& submission, const LineDrawList& lines) {
+        const RenderSubmission& submission, const LineDrawList& lines,
+        const LightingData& lighting) {
 
         auto& command_buffer = m_frame_scheduler->get_current_command_buffer();
         m_frame_scheduler->retain_current_frame_resource(m_scene_target);
@@ -212,8 +230,9 @@ namespace Comet {
                 static_cast<float>(size.x), static_cast<float>(size.y)));
             if(m_material_renderer) {
                 resource_waits = m_material_renderer->render(*m_frame_scheduler,
-                    *submission.view_project_matrix, submission.render_items,
-                    submission.lights);
+                    *submission.view_project_matrix, submission.render_items, lighting,
+                    m_shadow_renderer->get_depth_view(
+                        m_frame_scheduler->get_current_frame_slot_index()));
             }
             if(m_debug_renderer) {
                 m_debug_renderer->render(
@@ -419,6 +438,7 @@ namespace Comet {
         m_render_target.reset();
         m_scene_target.reset();
         m_post_processor.reset();
+        m_shadow_renderer.reset();
         m_render_pass.reset();
     }
 

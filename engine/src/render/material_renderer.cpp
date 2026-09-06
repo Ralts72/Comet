@@ -29,15 +29,7 @@ namespace Comet {
             const GpuCompletionPoint& completion, const Flags<PipelineStage> stages) {
             if(!completion.is_valid())
                 return;
-            const QueueSemaphoreSubmit candidate(completion, stages);
-            const auto found = std::ranges::find_if(waits,
-                [&](const auto& wait) { return wait.semaphore == candidate.semaphore; });
-            if(found == waits.end()) {
-                waits.push_back(candidate);
-            } else {
-                found->value = std::max(found->value, candidate.value);
-                found->stage_mask = found->stage_mask | candidate.stage_mask;
-            }
+            merge_semaphore_wait(waits, QueueSemaphoreSubmit(completion, stages));
         }
     }
 
@@ -46,20 +38,33 @@ namespace Comet {
         const SampleCount samples)
         : m_device(device) {
         m_sampler = resources.get_sampler_manager().get_linear_repeat();
+        // 独立使用 MaterialRenderer 时也必须提供有效的 sampler descriptor。
+        const auto fallback =
+            resources
+                .try_create_texture(
+                    {.width = 1, .height = 1, .pixels = {255, 255, 255, 255}})
+                .value();
+        if(fallback->get_ready_completion().is_valid())
+            fallback->get_ready_completion().wait();
+        m_fallback_shadow = fallback->get_image_view();
         DescriptorSetLayoutBindings frame_bindings;
         frame_bindings.add_binding(
             0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
         frame_bindings.add_binding(
             1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
+        frame_bindings.add_binding(2, DescriptorType::CombinedImageSampler,
+            Flags<ShaderStage>(ShaderStage::Fragment));
         m_frame_layout = std::make_shared<DescriptorSetLayout>(device, frame_bindings);
         DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count * 2);
+        pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, frame_slot_count);
         const auto pool =
             std::make_shared<DescriptorPool>(device, frame_slot_count, pool_sizes);
         const auto descriptors =
             pool->allocate_descriptor_set(*m_frame_layout, frame_slot_count);
         for(uint32_t slot = 0; slot < frame_slot_count; ++slot) {
             auto frame = std::make_shared<FrameResources>();
+            frame->shadow_sampler = resources.get_sampler_manager().get_nearest_clamp();
             frame->layout = m_frame_layout;
             frame->pool = pool;
             frame->buffer = Buffer::try_create_cpu_buffer(device,
@@ -350,15 +355,31 @@ namespace Comet {
 
     std::vector<QueueSemaphoreSubmit> MaterialRenderer::render(FrameScheduler& frames,
         const ViewProjectMatrix& view, const std::span<const ResolvedRenderItem> items,
-        const std::span<const RenderLight> lights) {
+        const LightingData& lighting, std::shared_ptr<ImageView> shadow_map) {
+        if(!frames.is_recording_frame())
+            throw std::logic_error(
+                "Material rendering requires an active recording frame");
         const auto previous_omissions =
             std::pair(m_statistics.excess_lights, m_statistics.invalid_lights);
         m_statistics = {};
         m_statistics.frame_set_count = static_cast<uint32_t>(m_frames.size());
         const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
         frame->buffer->write(&view);
-        const auto lighting = LightingData::prepare(lights);
         frame->lighting->write(&lighting);
+        if(!shadow_map)
+            shadow_map = m_fallback_shadow;
+        if(frame->shadow_map != shadow_map) {
+            const vk::DescriptorImageInfo image(frame->shadow_sampler->get(),
+                shadow_map->get(), vk::ImageLayout::eShaderReadOnlyOptimal);
+            vk::WriteDescriptorSet write;
+            write.dstSet = frame->descriptor->get();
+            write.dstBinding = 2;
+            write.descriptorCount = 1;
+            write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+            write.pImageInfo = &image;
+            m_device.get().updateDescriptorSets(write, {});
+            frame->shadow_map = std::move(shadow_map);
+        }
         m_statistics.light_count = static_cast<uint32_t>(lighting.counts.x);
         m_statistics.excess_lights = static_cast<uint32_t>(lighting.counts.y);
         m_statistics.invalid_lights = static_cast<uint32_t>(lighting.counts.z);

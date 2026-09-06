@@ -12,6 +12,7 @@ namespace Comet {
         SamplerAddressMode address_mode_v = SamplerAddressMode::Repeat;
         SamplerAddressMode address_mode_w = SamplerAddressMode::Repeat;
         float max_anisotropy = 1.0f;
+        SamplerMipmapMode mipmap_mode = SamplerMipmapMode::Linear;
     };
 
     class COMET_API Sampler {

@@ -148,7 +148,10 @@ namespace Comet {
         auto rasterization_state = create_rasterization_state(config);
         auto multisample_state = create_multisample_state(config);
         auto depth_stencil_state = create_depth_stencil_state(config);
-        auto color_blend_state = create_color_blend_state(config);
+        const std::vector blend_attachments(
+            render_pass.get_color_attachment_count(config.subpass),
+            config.color_blend_state);
+        auto color_blend_state = create_color_blend_state(blend_attachments);
         auto viewport_state = create_viewport_state(config.viewport, config.scissor);
         auto dynamic_state = create_dynamic_state(config);
 
@@ -303,12 +306,13 @@ namespace Comet {
     }
 
     vk::PipelineColorBlendStateCreateInfo Pipeline::create_color_blend_state(
-        const PipelineConfig& config) {
+        const std::span<const vk::PipelineColorBlendAttachmentState> attachments) {
         vk::PipelineColorBlendStateCreateInfo color_blend_state_info = {};
         color_blend_state_info.logicOpEnable = VK_FALSE;
         color_blend_state_info.logicOp = vk::LogicOp::eClear;
-        color_blend_state_info.attachmentCount = 1;
-        color_blend_state_info.pAttachments = &config.color_blend_state;
+        color_blend_state_info.attachmentCount =
+            static_cast<uint32_t>(attachments.size());
+        color_blend_state_info.pAttachments = attachments.data();
         color_blend_state_info.blendConstants[0] = 0.0f;
         color_blend_state_info.blendConstants[1] = 0.0f;
         color_blend_state_info.blendConstants[2] = 0.0f;

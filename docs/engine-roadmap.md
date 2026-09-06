@@ -12,7 +12,7 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、有界队列及发布预算可用 | 更多导入能力与按需字节预算 |
 | 4 视口与交互 | 本轮核心验收通过，扩展保留 | Prefab、搜索、按需通知和更精细拾取 |
-| 5 渲染升级 | 材质／Shader、缓存、WSI、RenderGraph、HDR 输出及 forward 三类灯光已接通 | 阴影／PBR／Bloom、诊断及线程边界 |
+| 5 渲染升级 | 材质／Shader、缓存、WSI、RenderGraph、HDR、三类灯光及方向光阴影已接通 | PBR／Bloom、诊断及线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 规划 | 项目设置、格式迁移、打包 |
 
@@ -23,7 +23,7 @@
    Gizmo 已支持平移／旋转／缩放及对应吸附，核心编辑闭环进入维护回归。
    保持修改、world transform 更新、提取与绘制的时序一致；结构修改不能简单套属性快照。
 2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
-3. **渲染主线**：HDR 输出与 forward 三类灯光已接通，030 完成属性、快照与帧资源架构回顾；下一项方向光 shadow pass 与场景采样链路。
+3. **渲染主线**：HDR、forward 三类灯光和方向光阴影已接通，030 完成属性、快照与帧资源架构回顾；下一项 PBR 材质与高光照明。
 
 WSI 创建／枚举失败后的无呈现重试已接通；surface/device 丢失与不兼容格式的完整恢复仍保留，不与一般重试混为一谈。
 
@@ -218,7 +218,7 @@ Frame、顶点输入和 push constant 的固定 C++ 契约不自动重写。
 - Pass 声明读写 usage/subresource；imported/exported 资源明确边界状态，tracker 编译 Barrier2。
   Image 不保存单一全局 current_layout；状态属于录制/编译上下文，持久资源在提交边界交接 handoff state。
   当前 RenderGraph 以固定子资源／buffer 区间为声明单位，按显式 pass 顺序生成不可变 Plan；
-  不自动重排或分配 GPU 资源。app/editor 的 HDR Scene→tone mapping 采样依赖已接通，计划复用、每 slot 绑定当前 target。
+  不自动重排或分配 GPU 资源。app/editor 的 Shadow→HDR Scene→tone mapping 采样依赖已接通，计划复用、每 slot 绑定当前 target。
   最终 SDR 输出仍由固定 RenderPass 清除并转换到 Present/ShaderReadOnly，不重复让图跟踪相同转换。
   实际四 pass 图、不同 mip/layer、不同 buffer 区间、跨 submission 状态交接和同步校验已验证。
 - 处理 layout 变化、RAW/WAR/WAW 和 ownership，兼容 read-after-read 不机械加全 barrier。
@@ -231,7 +231,10 @@ Frame、顶点输入和 push constant 的固定 C++ 契约不自动重写。
 - Forward Lighting → LightComponent（方向/点/聚光）→ shadow → PBR → tone mapping/gamma/bloom。
   LightComponent、typed enum Inspector/序列化/撤销、RenderLight 快照、32 灯 FrameSet 和 lit_color Lambert 已完成。
   app/editor 默认示例使用 lit 材质与 Key Light；方向光、点光衰减、聚光锥及 HDR 像素已验证。
-  不是 PBR 或完整物理光度单位系统；当前无环境光/阴影，有限灯数量不是 tiled/clustered lighting。
+  单张方向光阴影已接通：casts_shadow 属性、1024² D32/slot、世界边界正交拟合、深度写→fragment 采样及 3×3 PCF。
+  app/editor 添加 Ground 演示投影；开关/移动、相邻在途帧隔离与录制后 owner 释放经过 GPU 验证。
+  级联、点光/聚光阴影、透明裁切和静态缓存按实际需求扩展，不视为当前已支持。
+  不是 PBR 或完整物理光度单位系统；当前无环境光，有限灯数量不是 tiled/clustered lighting。
   HDR RGBA16F + 单采样 fullscreen tone mapping/gamma 已完成；固定曝光 1 的指数映射不是最终艺术参数系统。
   sRGB 附件硬件编码，UNORM 附件 Shader 编码；editor 输出与窗口编码一致。Bloom、曝光编辑/自动曝光和 HDR 显示器输出尚未实现。
   先完成小型 forward 场景，不一次构建完整 deferred renderer。

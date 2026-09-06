@@ -7,7 +7,31 @@ struct Light {
 layout(set = 0, binding = 1, std140) uniform LightingData {
     Light lights[32];
     vec4 counts;
+    mat4 shadow_view_projection;
+    vec4 shadow_parameters;
 } lighting;
+layout(set = 0, binding = 2) uniform sampler2D shadow_map;
+
+float shadow_visibility(int light_index, vec3 position, float n_dot_l) {
+    if(light_index != int(lighting.shadow_parameters.x))
+        return 1.0;
+    vec3 projected = (lighting.shadow_view_projection * vec4(position, 1.0)).xyz;
+    vec2 uv = projected.xy * 0.5 + 0.5;
+    if(projected.z <= 0.0 || projected.z >= 1.0
+        || any(lessThan(uv, vec2(0))) || any(greaterThan(uv, vec2(1))))
+        return 1.0;
+    float bias = lighting.shadow_parameters.y * (1.0 + 4.0 * (1.0 - n_dot_l));
+    float visibility = 0.0;
+    for(int y = -1; y <= 1; ++y)
+        for(int x = -1; x <= 1; ++x) {
+            vec2 sample_uv = uv + vec2(x, y) * lighting.shadow_parameters.z;
+            if(any(lessThan(sample_uv, vec2(0))) || any(greaterThan(sample_uv, vec2(1))))
+                visibility += 1.0;
+            else
+                visibility += projected.z - bias <= textureLod(shadow_map, sample_uv, 0.0).r ? 1.0 : 0.0;
+        }
+    return visibility / 9.0;
+}
 
 vec3 diffuse_lighting(vec3 position, vec3 normal) {
     float normal_length = length(normal);
@@ -38,8 +62,9 @@ vec3 diffuse_lighting(vec3 position, vec3 normal) {
                 attenuation *= cone_weight;
             }
         }
+        float n_dot_l = max(dot(n, l), 0.0);
         result += light.color_intensity.rgb * light.color_intensity.w * attenuation
-            * max(dot(n, l), 0.0) / 3.141592653589793;
+            * n_dot_l * shadow_visibility(index, position, n_dot_l) / 3.141592653589793;
     }
     return result;
 }

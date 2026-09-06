@@ -34,7 +34,8 @@ namespace Comet {
         sampler_create_info.maxAnisotropy = desc.max_anisotropy;
         sampler_create_info.borderColor = vk::BorderColor::eIntOpaqueBlack;
         sampler_create_info.unnormalizedCoordinates = VK_FALSE;
-        sampler_create_info.mipmapMode = vk::SamplerMipmapMode::eLinear;
+        sampler_create_info.mipmapMode =
+            Graphics::sampler_mipmap_mode_to_vk(desc.mipmap_mode);
         sampler_create_info.mipLodBias = 0.0f;
         sampler_create_info.minLod = 0.0f;
         sampler_create_info.maxLod = VK_LOD_CLAMP_NONE;
@@ -59,6 +60,7 @@ namespace Comet {
 
     std::shared_ptr<Sampler> Sampler::create_nearest_clamp(Device& device) {
         SamplerDesc desc{};
+        desc.mipmap_mode = SamplerMipmapMode::Nearest;
         desc.mag_filter = Filter::Nearest;
         desc.min_filter = Filter::Nearest;
         desc.address_mode_u = SamplerAddressMode::ClampToEdge;
