@@ -13,6 +13,7 @@ set(COMET_CONFIG_PROFILE "" CACHE STRING "Runtime configuration profile")
 find_package(Vulkan REQUIRED)
 
 add_subdirectory(3rdparty)
+add_subdirectory(tools/shader)
 
 add_compile_definitions(
     "$<$<CONFIG:Debug>:COMET_ENABLE_DEBUG_LOGS>"

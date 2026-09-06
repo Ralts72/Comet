@@ -19,6 +19,7 @@
 | `graphics/` | Vulkan 对象与显式同步后端 |
 | `graphics/pipeline/pipeline.h` | PipelineConfig/Key、设备 Pipeline 与弱引用缓存；键实现见 pipeline_key.cpp |
 | `graphics/pipeline/shader_interface.h` | SPIR-V 的自有 CPU 接口值，不持有设备或反射库指针 |
+| `tools/shader/compiler.h`（仓库根路径） | CPU GLSL 编译与输入快照；构建 CLI 共用，engine 不依赖该工具库 |
 | `editor/src/imgui_context.h` | 编辑器 UI 最终呈现和私有纹理绑定，不属于 engine |
 
 engine 入口路径相对 `engine/src/`。Graphics 的 command/resource/pipeline/synchronization 按职责分目录；

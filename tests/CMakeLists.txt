@@ -17,10 +17,9 @@ list(APPEND TEST_SOURCES
 add_executable(unit_testing ${TEST_SOURCES})
 
 include("${CMAKE_SOURCE_DIR}/engine/cmake/compile_shader.cmake")
-find_program(TEST_SHADER_COMPILER glslangValidator REQUIRED)
 compile_shaders(
         TARGET test_shader_compile
-        COMPILER "${TEST_SHADER_COMPILER}"
+        COMPILER comet_shader_compiler
         OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders"
         SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/graphics/shaders/interface_array.vert"
@@ -37,6 +36,7 @@ target_include_directories(unit_testing PRIVATE
 # 链接库，确保正确的依赖顺序
 target_link_libraries(unit_testing PRIVATE
         engine
+        comet_shader_tools
         gtest
         glfw
         Vulkan::Vulkan
@@ -77,3 +77,10 @@ elseif (UNIX)
 endif ()
 
 add_test(NAME unit_testing COMMAND unit_testing)
+add_test(NAME shader_build_contract COMMAND "${CMAKE_COMMAND}"
+        "-DCOMPILE_TOOL=$<TARGET_FILE:comet_shader_compiler>"
+        "-DCOMET_ROOT=${CMAKE_SOURCE_DIR}"
+        "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/shader-build-contract"
+        "-DGENERATOR=${CMAKE_GENERATOR}"
+        "-DBUILD_CONFIG=$<CONFIG>"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/shader/test_build.cmake")

@@ -154,7 +154,9 @@ SceneRenderer 编排 pass，MaterialRenderer 消费 Mesh 队列；不是仅把 a
 6. 已接通内置 Material Inspector 的布局控件：共享默认值/范围/颜色语义，仅变化时保存并更新对应资产，未变化材质保持缓存。
    缺失必需纹理先保留草稿、补齐自动发布；当前不引入 bindless。自定义布局注册和反射驱动的接口重建后续扩展。
 
-Shader 源码、CPU 编译结果和 Vulkan 对象分层；build-time/editor 编译共用 stage、entry、defines/variants、target 和依赖契约。
+Shader 源码、CPU 编译结果和 Vulkan 对象分层；已在 tools/shader 建立 CPU 编译契约并接通 build-time CLI，
+共用固定 glslang、stage、输出 entry（GLSL 源入口 main）、defines、target 和 include 内容快照。
+构建已有头文件依赖通过 depfile 重建；编译失败保留旧 SPIR-V；编辑器侧调用、variants 管理与热更新仍待接入。
 Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验票 → owner 帧边界切换。
 接口兼容时换 Pipeline；接口变化时同时重建 Layout 并失效材质缓存。失败保留旧版本并输出文件/行号诊断；
 GPU 材质缓存命中也必须检查 PipelineState 版本，不能只检查 PreparedMaterial，否则仅修改 Shader 无法更新绘制。

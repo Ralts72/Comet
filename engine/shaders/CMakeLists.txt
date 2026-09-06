@@ -15,7 +15,7 @@ include("../cmake/compile_shader.cmake")
 
 compile_shaders(
         TARGET ${TARGET_NAME}
-        COMPILER "${glslangValidator_executable}"
+        COMPILER comet_shader_compiler
         OUTPUT_DIRECTORY "${SHADER_GENERATED_DIRECTORY}"
         SOURCES ${SHADER_FILES}
 )

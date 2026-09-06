@@ -1,7 +1,3 @@
-find_program(glslangValidator_executable glslangValidator)
-if (NOT glslangValidator_executable)
-    message(FATAL_ERROR "glslangValidator not found, please install it to compile shaders")
-endif ()
 set(SHADER_COMPILE_TARGET shader_compile)
 set(SHADER_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders")
 add_subdirectory(shaders)

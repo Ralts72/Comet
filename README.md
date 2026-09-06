@@ -8,6 +8,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | --- | --- |
 | `engine/src/` | 引擎库：core、scene、asset、render、graphics、config、diagnostics |
 | `engine/shaders/` | 引擎 Shader；只编译 CMake 显式列表，其余源码保留供学习 |
+| `tools/shader/` | 共用 CPU ShaderCompiler 与构建 CLI；不链接进运行时 engine |
 | `editor/` | 编辑器入口、面板及 `resources/` 私有字体等资源 |
 | `app/` | Runtime 示例入口 |
 | `assets/` | 项目源资产与相邻 `.meta`，进入版本控制 |
@@ -17,7 +18,8 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 
 ## 构建与运行
 
-需要 CMake 3.31+、C++20 编译器、Vulkan SDK（含 `glslangValidator`）、Git LFS 和 Submodule。
+需要 CMake 3.31+、C++20 编译器、Vulkan SDK、Git LFS 和 Submodule。
+Shader 编译器由固定版本 glslang 子模块构建，无需额外安装 `glslangValidator`。
 
 ```bash
 git lfs install
@@ -79,7 +81,9 @@ ctest --preset dev-debug
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
   SceneResolver 不解析材质属性；渲染侧按 MaterialLayout 准备并缓存材质绑定，按对象身份与 revision 失效。
   MaterialRenderer 负责排序和绘制 Mesh：FrameSet 按 slot 更新，MaterialSet 按版本创建并跨 slot 复用。
-- Shader：SPIRV-Reflect 子模块从实际字节码生成 CPU `ShaderInterface`；创建 Pipeline 前校验绑定及 push constant，
+- Shader：构建 CLI 与工具层 `ShaderCompiler` 共用 stage、entry、defines、target、include 快照契约，
+  通过 depfile 跟踪已有共享头文件；失败不覆盖旧字节码。运行时不带源编译器，编辑器热更新尚未接入。
+  SPIRV-Reflect 子模块从实际字节码生成 CPU `ShaderInterface`；创建 Pipeline 前校验绑定及 push constant，
   材质另核对参数块大小、偏移和类型。显示名、默认值、颜色及编辑范围仍由 MaterialLayout 定义，不从反射猜测。
 - Pipeline：在当前 Device/RenderPass 内按 Shader 内容、布局及完整配置复用，名称只作标签；
   缓存不强持有 GPU Pipeline，最后一个实际使用者（含 FrameSlot）释放后回收。
