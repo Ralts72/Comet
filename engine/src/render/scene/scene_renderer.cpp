@@ -20,6 +20,8 @@ namespace Comet {
     SceneRenderer::SceneRenderer(RenderContext& context,
         const Config::Vulkan& vulkan_config, const Config::Render& render_config)
         : m_context(context),
+          m_post_settings{render_config.exposure, render_config.bloom_strength,
+              render_config.bloom_threshold},
           m_surface_format(Graphics::vk_to_format(context.get_swapchain()
                   .get_active_generation()
                   ->get_config()
@@ -29,6 +31,8 @@ namespace Comet {
           m_color_clear_value(
               Math::Vec4(render_config.clear_color[0], render_config.clear_color[1],
                   render_config.clear_color[2], render_config.clear_color[3])) {
+        if(!m_post_settings.is_valid())
+            throw std::invalid_argument("Invalid post process settings");
         LOG_INFO("create frame scheduler");
         m_frame_scheduler = std::make_unique<FrameScheduler>(
             context.get_device(), render_config.max_frames_in_flight);
@@ -108,9 +112,18 @@ namespace Comet {
                 RenderTarget::create_swapchain_target(m_context.get_device(),
                     m_post_processor->get_render_pass(), m_context.get_swapchain());
 
+        if(m_post_settings.uses_bloom()) {
+            const auto resized = m_post_processor->try_resize_bloom(size);
+            if(!resized)
+                fail_gpu_resource_result_value_access(resized.result());
+        }
+        m_render_plan = build_render_plan(m_post_settings.uses_bloom());
+    }
+
+    RenderGraph::Plan SceneRenderer::build_render_plan(const bool bloom) const {
         RenderGraph graph;
         RenderGraph::Pass scene_pass{"scene", {}};
-        RenderGraph::Pass post_pass{"tone map", {}};
+        std::optional<RenderGraph::ResourceId> hdr;
         for(const auto& attachment : m_render_pass->get_attachments()) {
             const bool depth =
                 Graphics::is_depth_stencil_format(attachment.description.format);
@@ -126,8 +139,7 @@ namespace Comet {
                       : ResourceUsage::ColorAttachmentWrite,
                 {}});
             if(static_cast<bool>(attachment.usage & ImageUsage::Sampled))
-                post_pass.uses.push_back({id, ResourceUsage::SampledRead,
-                    Flags<PipelineStage>(PipelineStage::FragmentShader)});
+                hdr = id;
         }
         const auto shadow = graph.import_image("directional shadow",
             *resolve_image_state(ResourceUsage::Undefined,
@@ -137,8 +149,10 @@ namespace Comet {
         scene_pass.uses.push_back({shadow, ResourceUsage::SampledRead,
             Flags<PipelineStage>(PipelineStage::FragmentShader)});
         graph.add_pass(std::move(scene_pass));
-        graph.add_pass(std::move(post_pass));
-        m_render_plan = graph.compile();
+        if(!hdr)
+            throw std::logic_error("Scene pass has no sampled HDR output");
+        PostProcessRenderer::append_passes(graph, *hdr, bloom);
+        return graph.compile();
     }
 
     void SceneRenderer::setup_pipeline(ResourceManager& resource_manager) {
@@ -188,6 +202,9 @@ namespace Comet {
         bindings.emplace_back(m_shadow_renderer
                 ->get_depth_view(m_frame_scheduler->get_current_frame_slot_index())
                 ->get_image());
+        m_post_processor->append_bindings(bindings,
+            m_frame_scheduler->get_current_frame_slot_index(),
+            m_post_settings.uses_bloom());
         const auto lighting = ShadowRenderer::prepare(submission);
         std::vector<QueueSemaphoreSubmit> waits;
         m_render_plan->record(
@@ -204,8 +221,9 @@ namespace Comet {
                         m_uses_offscreen_target
                             ? slot
                             : m_context.get_swapchain().get_current_index();
-                    m_post_processor->render(*m_frame_scheduler, m_render_target, index,
-                        m_scene_target->get_color_view(slot));
+                    m_post_processor->render_pass(pass - 2, *m_frame_scheduler,
+                        m_render_target, index, m_scene_target->get_color_view(slot),
+                        m_post_settings);
                 }
             });
         return waits;
@@ -361,10 +379,38 @@ namespace Comet {
             output = RenderTarget::create_swapchain_target(m_context.get_device(),
                 m_post_processor->get_render_pass(), m_context.get_swapchain());
         }
+        if(m_post_settings.uses_bloom()) {
+            const auto attempt = m_post_processor->try_resize_bloom(size);
+            if(!attempt) {
+                LOG_ERROR(
+                    "Keeping HDR/output targets after Bloom target creation failed: {}",
+                    vk::to_string(attempt.result()));
+                return false;
+            }
+        }
         LOG_INFO("Commit HDR/output render target generation {}x{}", size.x, size.y);
         m_scene_target = std::move(next_generation);
         m_render_target = std::move(output);
         return true;
+    }
+
+    void SceneRenderer::set_post_process_settings(
+        const PostProcessRenderer::Settings& settings) {
+        if(!settings.is_valid())
+            throw std::invalid_argument("Invalid post process settings");
+        if(m_frame_scheduler->is_frame_active())
+            throw std::logic_error("Post process changes require a frame boundary");
+        if(m_post_processor && settings.uses_bloom() != m_post_settings.uses_bloom()) {
+            auto plan = build_render_plan(settings.uses_bloom());
+            if(settings.uses_bloom()) {
+                const auto resized =
+                    m_post_processor->try_resize_bloom(m_scene_target->get_size());
+                if(!resized)
+                    fail_gpu_resource_result_value_access(resized.result());
+            }
+            m_render_plan = std::move(plan);
+        }
+        m_post_settings = settings;
     }
 
     CommandBuffer& SceneRenderer::get_current_command_buffer() const {

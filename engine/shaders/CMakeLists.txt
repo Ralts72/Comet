@@ -14,6 +14,7 @@ set(SHADER_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/debug_line.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/fullscreen.vert"
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/tone_map.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/bloom.frag"
 )
 
 source_group("shaders" FILES ${SHADER_FILES})

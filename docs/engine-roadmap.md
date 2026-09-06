@@ -12,7 +12,7 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、有界队列及发布预算可用 | 更多导入能力与按需字节预算 |
 | 4 视口与交互 | 本轮核心验收通过，扩展保留 | Prefab、搜索、按需通知和更精细拾取 |
-| 5 渲染升级 | 材质／Shader、缓存、WSI、RenderGraph、HDR、灯光／阴影与基础 PBR 已接通 | Bloom、诊断及线程边界 |
+| 5 渲染升级 | 材质／Shader、缓存、WSI、RenderGraph、HDR、灯光／阴影、PBR 与 Bloom 已接通 | 诊断及线程边界回顾 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 规划 | 项目设置、格式迁移、打包 |
 
@@ -23,7 +23,7 @@
    Gizmo 已支持平移／旋转／缩放及对应吸附，核心编辑闭环进入维护回归。
    保持修改、world transform 更新、提取与绘制的时序一致；结构修改不能简单套属性快照。
 2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
-3. **渲染主线**：HDR、forward 三类灯光、方向光阴影及纯色金属粗糙度 PBR 已接通；下一项 Bloom，随后诊断与阶段边界回顾。
+3. **渲染主线**：HDR、forward 三类灯光、方向光阴影、纯色金属粗糙度 PBR 及 Bloom 已接通；下一项 CPU/GPU 与内存诊断，随后阶段边界回顾。
 
 WSI 创建／枚举失败后的无呈现重试已接通；surface/device 丢失与不兼容格式的完整恢复仍保留，不与一般重试混为一谈。
 
@@ -236,8 +236,10 @@ Frame、顶点输入和 push constant 的固定 C++ 契约不自动重写。
   级联、点光/聚光阴影、透明裁切和静态缓存按实际需求扩展，不视为当前已支持。
   pbr_color 已实现 GGX／Smith／Schlick 金属粗糙度直接照明，参数复用材质 Inspector；透视／正交视线及共享顶点热更新经过 GPU 验证。
   当前不含材质纹理、IBL、多次散射或完整物理光度单位系统；无隐式环境光，有限灯数量不是 tiled/clustered lighting。
-  HDR RGBA16F + 单采样 fullscreen tone mapping/gamma 已完成；固定曝光 1 的指数映射不是最终艺术参数系统。
-  sRGB 附件硬件编码，UNORM 附件 Shader 编码；editor 输出与窗口编码一致。Bloom、曝光编辑/自动曝光和 HDR 显示器输出尚未实现。
+  HDR RGBA16F + 单采样 fullscreen tone mapping/gamma 已完成；曝光可由配置／帧边界 API 修改，默认 1。
+  sRGB 附件硬件编码，UNORM 附件 Shader 编码；editor 输出与窗口编码一致。
+  半分辨率高亮提取、九 tap 分离模糊与线性 HDR Bloom 合成已完成，支持强度／阈值、关闭时跳过 pass、奇数尺寸与在途 resize。
+  更宽的多级 Bloom、后处理编辑面板、自动曝光和 HDR 显示器输出仍待实际需求；指数映射不是最终艺术参数系统。
   先完成小型 forward 场景，不一次构建完整 deferred renderer。
 - 低频采样 GPU memory budget，详细 allocation dump 手动触发；补足 CPU/GPU frame-time 诊断。
 

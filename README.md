@@ -79,6 +79,8 @@ ctest --preset dev-debug
   Directional 可勾选 Cast directional shadow；当前为单张 1024² 阴影图，按实体 ID 选择首个有效投影方向光。
   默认 Ground 接收立方体阴影，移动物体或开关投影可直接观察；点光和聚光暂不投影。
   灯光没有隐式环境光，全部关闭时 lit/PBR 物体为黑色；PBR 当前为不透明纯色金属粗糙度模型，尚无 IBL 或材质贴图。
+  `config/common.yaml` 的 `render.exposure` 控制曝光，`bloom_strength`／`bloom_threshold` 控制高亮光晕；
+  强度为 0 时跳过 Bloom pass。默认阈值为线性 HDR 的 1，可提高 Key Light 强度观察光晕，普通低亮度颜色不会自行发光。
   `.mat` 的 texture/scalar/vector 参数由布局生成 Inspector 控件，实际变化才保存并更新材质，浏览默认值不改写文件。
   缺失纹理槽可逐个补齐，完整后自动发布；未完整的编辑仅保留在当前资产草稿中，切换资产或刷新会丢弃草稿。
 
@@ -92,8 +94,10 @@ ctest --preset dev-debug
   LightComponent 经 RenderLight 值快照进入 FrameSet 的 LightingData；每帧最多按 EntityId 选取 32 个有效灯光。
   超限/无效灯光跳过，数量变化时进入 Log；灯光变化不重建材质 descriptor。
   Lambert/PBR 共用灯光衰减与阴影采样；PBR 的相机位置／正交观察方向属于 FrameSet，不进入材质版本。
-  app/editor 共用 `HDR Scene → fullscreen tone mapping → SDR output`；场景和 MSAA resolve 使用 RGBA16F，最终目标仍供窗口或 Viewport 消费。
-  固定曝光 1，采用 `1-exp(-color)` 映射高亮，输出按 sRGB/UNORM 附件选择硬件或 Shader 编码；画面不再等同于直接写入材质颜色。
+  app/editor 共用 `Shadow → HDR Scene → 可选 Bloom → tone mapping → SDR output`；场景和 MSAA resolve 使用 RGBA16F，最终目标仍供窗口或 Viewport 消费。
+  PostProcessRenderer 拥有半分辨率 Bloom ping-pong 目标，先提取高亮、分离模糊，再在线性 HDR 中合成；不依赖 HDR 线性过滤能力。
+  曝光默认 1，采用 `1-exp(-color*exposure)` 映射高亮，输出按 sRGB/UNORM 附件选择硬件或 Shader 编码；画面不再等同于直接写入材质颜色。
+  后处理参数在帧边界更新，开关 Bloom 时才重编图；HDR／SDR／Bloom resize 候选就绪后一起切换，旧 GPU 资源由在途帧保留。
   RenderGraph 将有序 pass 的显式资源读写编译为 Barrier2，管理 HDR 附件和后处理采样依赖；最终输出转换仍由 RenderPass 负责。
   图不自动分配资源、不持有全局 Image layout；跨 submission 由调用方传递导出状态，跨队列调度尚未实现。
 - Shader：构建 CLI 与工具层 `ShaderCompiler` 共用 stage、entry、defines、target、include 快照契约，

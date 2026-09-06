@@ -79,6 +79,9 @@ render:
   clear_color: [0.9, 0.7, 0.5, 0.3]
   enable_vsync: true
   max_anisotropy: 16
+  exposure: 2
+  bloom_strength: 0.25
+  bloom_threshold: 1.5
 window:
   width: 901
   height: 517
@@ -115,6 +118,9 @@ diagnostics:
     EXPECT_EQ(config.render.max_frames_in_flight, 3u);
     EXPECT_TRUE(config.render.enable_vsync);
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, 16.0f);
+    EXPECT_FLOAT_EQ(config.render.exposure, 2);
+    EXPECT_FLOAT_EQ(config.render.bloom_strength, 0.25f);
+    EXPECT_FLOAT_EQ(config.render.bloom_threshold, 1.5f);
     EXPECT_EQ(config.render.clear_color, (std::array<float, 4>{0.9f, 0.7f, 0.5f, 0.3f}));
 }
 
@@ -128,6 +134,19 @@ TEST(ConfigTest, UsesDefaultsForMissingFields) {
     EXPECT_EQ(config.diagnostics.log.level, Config::Log{}.level);
     EXPECT_EQ(config.render.clear_color, Config::Render{}.clear_color);
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, Config::Render{}.max_anisotropy);
+    EXPECT_FLOAT_EQ(config.render.exposure, 1);
+    EXPECT_FLOAT_EQ(config.render.bloom_strength, 0);
+    EXPECT_FLOAT_EQ(config.render.bloom_threshold, 1);
+}
+
+TEST(ConfigTest, RejectsInvalidPostProcessRangesAndNonFiniteValues) {
+    for(const auto* value : {"exposure: -1", "exposure: 101", "bloom_strength: -0.1",
+            "bloom_strength: 11", "bloom_threshold: -1", "bloom_threshold: 65505",
+            "bloom_strength: .nan", "exposure: .inf", "bloom_threshold: .inf"}) {
+        SCOPED_TRACE(value);
+        const TemporaryConfigFile file(std::string("render:\n  ") + value + "\n");
+        EXPECT_THROW(ConfigLoader{}.load(file.path()), std::runtime_error);
+    }
 }
 
 TEST(ConfigTest, ExplicitValidationSettingOverridesDefault) {

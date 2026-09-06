@@ -185,6 +185,15 @@ namespace Comet {
                 throw config_error(config_path, "render.max_anisotropy",
                     "must be a finite number of at least 1.0");
             }
+            const auto bounded = [&](const char* key, const float value,
+                                     const float maximum) {
+                if(!std::isfinite(value) || value < 0 || value > maximum)
+                    throw config_error(config_path, key,
+                        "must be finite and between 0 and " + std::to_string(maximum));
+            };
+            bounded("render.exposure", config.render.exposure, 100);
+            bounded("render.bloom_strength", config.render.bloom_strength, 10);
+            bounded("render.bloom_threshold", config.render.bloom_threshold, 65504);
         }
 
         void merge_config_file(Config& config, const std::string& config_path) {
@@ -252,6 +261,14 @@ namespace Comet {
             config.render.max_anisotropy =
                 read_value<float>(root, "render.max_anisotropy",
                     config.render.max_anisotropy, "a number", config_path);
+            config.render.exposure = read_value<float>(
+                root, "render.exposure", config.render.exposure, "a number", config_path);
+            config.render.bloom_strength =
+                read_value<float>(root, "render.bloom_strength",
+                    config.render.bloom_strength, "a number", config_path);
+            config.render.bloom_threshold =
+                read_value<float>(root, "render.bloom_threshold",
+                    config.render.bloom_threshold, "a number", config_path);
         }
     }
 

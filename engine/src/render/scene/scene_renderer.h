@@ -52,6 +52,11 @@ namespace Comet {
         void end_frame(std::span<const QueueSemaphoreSubmit> resource_waits);
 
         void resize_offscreen_target(Math::Vec2u size);
+        void set_post_process_settings(const PostProcessRenderer::Settings& settings);
+        [[nodiscard]] const PostProcessRenderer::Settings& get_post_process_settings()
+            const {
+            return m_post_settings;
+        }
 
         [[nodiscard]] FrameScheduler& get_frame_scheduler() { return *m_frame_scheduler; }
         [[nodiscard]] const FrameScheduler& get_frame_scheduler() const {
@@ -84,6 +89,7 @@ namespace Comet {
         void reset_render_pipeline();
         void setup_targets(Math::Vec2u size, bool offscreen);
         [[nodiscard]] bool resize_targets(Math::Vec2u size);
+        [[nodiscard]] RenderGraph::Plan build_render_plan(bool bloom) const;
 
         SwapchainReleaseCallback m_release_swapchain_resources;
         SwapchainRebuildCallback m_rebuild_swapchain_resources;
@@ -96,6 +102,7 @@ namespace Comet {
         std::shared_ptr<RenderTarget> m_scene_target;
         std::shared_ptr<RenderTarget> m_render_target;
         std::optional<RenderGraph::Plan> m_render_plan;
+        PostProcessRenderer::Settings m_post_settings;
         bool m_uses_offscreen_target = false;
         std::optional<SwapchainConfig> m_swapchain_rebuild_from;
         std::chrono::steady_clock::time_point m_swapchain_retry_after{};

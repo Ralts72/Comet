@@ -83,7 +83,7 @@ endif ()
 
 add_test(NAME unit_testing COMMAND unit_testing)
 add_test(NAME render_graph_sync_validation COMMAND unit_testing
-        "--gtest_filter=RenderGraphGpuTest.*")
+        "--gtest_filter=RenderGraphGpuTest.*:PostProcessGpuTest.*")
 set_tests_properties(render_graph_sync_validation PROPERTIES
         ENVIRONMENT "VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT")
 add_executable(pipeline_cache_probe graphics/pipeline_cache_probe.cpp)
