@@ -82,6 +82,10 @@ elseif (UNIX)
 endif ()
 
 add_test(NAME unit_testing COMMAND unit_testing)
+add_test(NAME render_graph_sync_validation COMMAND unit_testing
+        "--gtest_filter=RenderGraphGpuTest.*")
+set_tests_properties(render_graph_sync_validation PROPERTIES
+        ENVIRONMENT "VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT")
 add_executable(pipeline_cache_probe graphics/pipeline_cache_probe.cpp)
 target_link_libraries(pipeline_cache_probe PRIVATE engine glfw)
 add_test(NAME pipeline_cache_process COMMAND "${CMAKE_COMMAND}"
@@ -102,7 +106,7 @@ target_compile_definitions(swapchain_recovery PRIVATE
         vkAcquireNextImageKHR=comet_test_acquire_next_image
         vkQueuePresentKHR=comet_test_queue_present)
 add_test(NAME swapchain_recovery COMMAND swapchain_recovery)
-set_tests_properties(unit_testing pipeline_cache_process swapchain_recovery
+set_tests_properties(unit_testing pipeline_cache_process swapchain_recovery render_graph_sync_validation
         PROPERTIES RESOURCE_LOCK comet_graphics)
 add_test(NAME shader_build_contract COMMAND "${CMAKE_COMMAND}"
         "-DCOMPILE_TOOL=$<TARGET_FILE:comet_shader_compiler>"

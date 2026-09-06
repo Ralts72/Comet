@@ -8,6 +8,8 @@
 #include "graphics/pipeline/pipeline.h"
 #include "graphics/render_pass.h"
 #include "graphics/attachment.h"
+#include "graphics/resource/image_view.h"
+#include "graphics/frame_buffer.h"
 #include "render/resource/resource_manager.h"
 
 #include <algorithm>
@@ -84,10 +86,10 @@ namespace Comet {
 
         Attachment color_attachment =
             Attachment::get_color_attachment(m_surface_format, m_msaa_samples);
+        color_attachment.description.initial_layout = ImageLayout::ColorAttachmentOptimal;
+        color_attachment.description.final_layout = ImageLayout::ColorAttachmentOptimal;
         if(m_msaa_samples == SampleCount::Count1) {
             color_attachment.description.store_op = AttachmentStoreOp::Store;
-            color_attachment.description.final_layout =
-                ImageLayout::ShaderReadOnlyOptimal;
             color_attachment.usage |= ImageUsage::Sampled;
         }
 
@@ -95,10 +97,13 @@ namespace Comet {
         attachments.emplace_back(color_attachment);
         attachments.emplace_back(
             Attachment::get_depth_attachment(m_depth_format, m_msaa_samples));
+        attachments.back().description.initial_layout =
+            ImageLayout::DepthStencilAttachmentOptimal;
 
         RenderSubPass render_sub_pass = {{}, {SubpassColorAttachment(0)},
             {SubpassDepthStencilAttachment(1)}, m_msaa_samples};
-        render_sub_pass.resolve_final_layout = ImageLayout::ShaderReadOnlyOptimal;
+        render_sub_pass.resolve_initial_layout = ImageLayout::ColorAttachmentOptimal;
+        render_sub_pass.resolve_final_layout = ImageLayout::ColorAttachmentOptimal;
         render_sub_pass.resolve_usage =
             Flags<ImageUsage>(ImageUsage::ColorAttachment) | ImageUsage::Sampled;
 
@@ -111,6 +116,28 @@ namespace Comet {
         set_render_target_clear_color();
 
         m_uses_offscreen_target = true;
+        RenderGraph graph;
+        RenderGraph::Pass scene_pass{"scene", {}};
+        for(const auto& attachment : m_render_pass->get_attachments()) {
+            const bool depth =
+                Graphics::is_depth_stencil_format(attachment.description.format);
+            auto aspects =
+                Flags<ImageAspect>(depth ? ImageAspect::Depth : ImageAspect::Color);
+            if(depth && !Graphics::is_depth_only_format(attachment.description.format))
+                aspects |= ImageAspect::Stencil;
+            const auto id = graph.import_image(
+                "scene attachment " + std::to_string(scene_pass.uses.size()),
+                *resolve_image_state(ResourceUsage::Undefined, {.aspects = aspects}));
+            scene_pass.uses.push_back({id,
+                depth ? ResourceUsage::DepthStencilAttachmentWrite
+                      : ResourceUsage::ColorAttachmentWrite,
+                {}});
+            if(static_cast<bool>(attachment.usage & ImageUsage::Sampled))
+                graph.export_resource({id, ResourceUsage::SampledRead,
+                    Flags<PipelineStage>(PipelineStage::FragmentShader)});
+        }
+        graph.add_pass(std::move(scene_pass));
+        m_offscreen_plan = graph.compile();
     }
 
     void SceneRenderer::setup_pipeline(ResourceManager& resource_manager) {
@@ -152,6 +179,23 @@ namespace Comet {
     std::vector<QueueSemaphoreSubmit> SceneRenderer::render_scene_pass(
         const RenderSubmission& submission, const LineDrawList& lines) {
         PROFILE_SCOPE("SceneRenderer::render_scene_pass");
+        if(!m_offscreen_plan)
+            return record_scene_pass(submission, lines);
+        const auto frame_buffer = m_render_target->get_framebuffer(
+            m_frame_scheduler->get_current_frame_slot_index());
+        std::vector<RenderGraph::Binding> bindings;
+        for(const auto& view : frame_buffer->get_attachments())
+            bindings.emplace_back(view->get_image());
+        std::vector<QueueSemaphoreSubmit> waits;
+        m_offscreen_plan->record(
+            *m_frame_scheduler, bindings, [&](size_t, const CommandBuffer&) {
+                waits = record_scene_pass(submission, lines);
+            });
+        return waits;
+    }
+
+    std::vector<QueueSemaphoreSubmit> SceneRenderer::record_scene_pass(
+        const RenderSubmission& submission, const LineDrawList& lines) {
 
         auto& command_buffer = m_frame_scheduler->get_current_command_buffer();
         if(m_uses_offscreen_target) {
@@ -345,6 +389,7 @@ namespace Comet {
     }
 
     void SceneRenderer::reset_render_pipeline() {
+        m_offscreen_plan.reset();
         m_debug_renderer.reset();
         m_material_renderer.reset();
         m_pipeline_manager.reset();

@@ -12,7 +12,7 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、有界队列及发布预算可用 | 更多导入能力与按需字节预算 |
 | 4 视口与交互 | 本轮核心验收通过，扩展保留 | Prefab、搜索、按需通知和更精细拾取 |
-| 5 渲染升级 | 多布局材质、反射、Shader 更新、Pipeline 缓存及 WSI 重试已接通 | 多 pass、forward 场景、线程边界 |
+| 5 渲染升级 | 材质／Shader、缓存、WSI 重试及有序 pass 同步计划已接通 | HDR／后处理、forward 场景、线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 规划 | 项目设置、格式迁移、打包 |
 
@@ -23,7 +23,7 @@
    Gizmo 已支持平移／旋转／缩放及对应吸附，核心编辑闭环进入维护回归。
    保持修改、world transform 更新、提取与绘制的时序一致；结构修改不能简单套属性快照。
 2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
-3. **渲染主线**：后台背压／发布预算、多布局材质、反射、Shader 编译／安全更新及 Pipeline 缓存已接通，下一项多 pass 资源状态编排。
+3. **渲染主线**：后台背压、多布局材质、Shader 更新／缓存及有序 pass 同步计划已接通，下一项 HDR 场景与 fullscreen 后处理链路。
 
 WSI 创建／枚举失败后的无呈现重试已接通；surface/device 丢失与不兼容格式的完整恢复仍保留，不与一般重试混为一谈。
 
@@ -217,8 +217,13 @@ Frame、顶点输入和 push constant 的固定 C++ 契约不自动重写。
 
 - Pass 声明读写 usage/subresource；imported/exported 资源明确边界状态，tracker 编译 Barrier2。
   Image 不保存单一全局 current_layout；状态属于录制/编译上下文，持久资源在提交边界交接 handoff state。
+  当前 RenderGraph 以固定子资源／buffer 区间为声明单位，按显式 pass 顺序生成不可变 Plan；
+  不自动重排或分配 GPU 资源。离屏 Scene 附件和对 UI 的 SampledRead 导出已接通，计划复用、每 slot 绑定当前 target。
+  实际四 pass 图、不同 mip/layer、不同 buffer 区间、跨 submission 状态交接和同步校验已验证。
 - 处理 layout 变化、RAW/WAR/WAW 和 ownership，兼容 read-after-read 不机械加全 barrier。
   跨 queue family 要成对 release/acquire + semaphore；未知输入状态或绕过 tracker 的操作必须明确声明或拒绝。
+  当前只接单 graphics queue，拒绝异 owner 和重叠 alias；同一资源不同 stage/access 的读可见范围分别跟踪，后续写等待全部读者。
+  可动态拆分／合并的重叠区间、DAG 重排／裁剪、瞬态资源池及跨队列调度仍待真实使用场景驱动。
 - Synchronization 2 / Timeline 已启用；API version 为 1.3 不代表所有可选 feature 自动启用。
 - Dynamic Rendering 在真实多 pass/attachment 需求下评估，不为 API 更换重写阶段 4。
   检查显式 feature、ImGui/MSAA/resize、调试工具和目标 GPU；可按 pass 保留传统 RenderPass。

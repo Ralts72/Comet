@@ -98,7 +98,7 @@ namespace Comet {
                 msaa_description.store_op = AttachmentStoreOp::Store;
                 msaa_description.stencil_load_op = AttachmentLoadOp::DontCare;
                 msaa_description.stencil_store_op = AttachmentStoreOp::DontCare;
-                msaa_description.initial_layout = ImageLayout::Undefined;
+                msaa_description.initial_layout = sub_pass.resolve_initial_layout;
                 msaa_description.final_layout = sub_pass.resolve_final_layout;
 
                 Attachment msaa_attachment = {
@@ -131,6 +131,28 @@ namespace Comet {
             sub_pass_descriptions[i].pPreserveAttachments = nullptr;
         }
         std::vector<vk::SubpassDependency> dependencies;
+        for(uint32_t index = 0; index < actual_sub_passes.size(); ++index) {
+            const auto& subpass = actual_sub_passes[index];
+            const bool presents =
+                std::ranges::any_of(subpass.color_attachments,
+                    [&](const auto& reference) {
+                        return m_attachments[reference.index].description.final_layout
+                               == ImageLayout::PresentSrcKHR;
+                    })
+                || (subpass.sample_count > SampleCount::Count1
+                    && subpass.resolve_final_layout == ImageLayout::PresentSrcKHR);
+            if(!presents)
+                continue;
+            // acquire 在 ColorAttachmentOutput 等待，自动 layout transition 也必须接上这条执行依赖。
+            vk::SubpassDependency dependency{};
+            dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+            dependency.dstSubpass = index;
+            dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+            dependency.dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+            dependency.dstAccessMask = vk::AccessFlagBits::eColorAttachmentRead
+                                       | vk::AccessFlagBits::eColorAttachmentWrite;
+            dependencies.push_back(dependency);
+        }
         if(actual_sub_passes.size() > 1) {
             dependencies.reserve(actual_sub_passes.size());
             for(uint32_t j = 0; j + 1 < actual_sub_passes.size(); ++j) {

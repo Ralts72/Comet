@@ -13,6 +13,7 @@
 #include "render/render_target.h"
 #include "render/debug/debug_renderer.h"
 #include "render/material_renderer.h"
+#include "render/render_graph.h"
 
 #include <functional>
 #include <chrono>
@@ -75,6 +76,8 @@ namespace Comet {
             SwapchainRebuildCallback rebuild_resources);
 
     private:
+        [[nodiscard]] std::vector<QueueSemaphoreSubmit> record_scene_pass(
+            const RenderSubmission& submission, const LineDrawList& lines);
         void reset_render_pipeline();
         void set_render_target_clear_color() const;
 
@@ -85,6 +88,7 @@ namespace Comet {
         std::unique_ptr<PipelineManager> m_pipeline_manager;
         std::unique_ptr<FrameScheduler> m_frame_scheduler;
         std::shared_ptr<RenderTarget> m_render_target;
+        std::optional<RenderGraph::Plan> m_offscreen_plan;
         bool m_uses_offscreen_target = false;
         std::optional<SwapchainConfig> m_swapchain_rebuild_from;
         std::chrono::steady_clock::time_point m_swapchain_retry_after{};

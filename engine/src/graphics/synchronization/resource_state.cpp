@@ -63,6 +63,14 @@ namespace Comet {
                     .stages = Flags<PipelineStage>(PipelineStage::Transfer),
                     .access = Flags<Access>(Access::TransferRead),
                     .queue_family = queue_family};
+            case ResourceUsage::HostRead:
+                return ResourceState{.stages = Flags<PipelineStage>(PipelineStage::Host),
+                    .access = Flags<Access>(Access::HostRead),
+                    .queue_family = queue_family};
+            case ResourceUsage::HostWrite:
+                return ResourceState{.stages = Flags<PipelineStage>(PipelineStage::Host),
+                    .access = Flags<Access>(Access::HostWrite),
+                    .queue_family = queue_family};
             case ResourceUsage::TransferDestination:
                 return ResourceState{
                     .stages = Flags<PipelineStage>(PipelineStage::Transfer),
@@ -132,6 +140,9 @@ namespace Comet {
             case ResourceUsage::IndirectBuffer:
             case ResourceUsage::UniformRead:
                 return std::nullopt;
+            case ResourceUsage::HostRead:
+            case ResourceUsage::HostWrite:
+                return std::nullopt;
             default:
                 break;
         }
@@ -175,6 +186,9 @@ namespace Comet {
             case ResourceUsage::IndexBuffer:
             case ResourceUsage::IndirectBuffer:
             case ResourceUsage::UniformRead:
+                return std::nullopt;
+            case ResourceUsage::HostRead:
+            case ResourceUsage::HostWrite:
                 return std::nullopt;
         }
         return ImageState{

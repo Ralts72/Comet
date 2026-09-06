@@ -25,7 +25,9 @@ namespace Comet {
         ColorAttachmentWrite,
         DepthStencilAttachmentWrite,
         DepthStencilAttachmentRead,
-        Present
+        Present,
+        HostRead,
+        HostWrite
     };
 
     struct ResourceState {

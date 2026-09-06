@@ -14,6 +14,7 @@
 | `render/material_runtime.h` | 布局契约、PreparedMaterial 快照与 revision 缓存 |
 | `render/material_renderer.h` | Mesh 队列排序、多布局 Pipeline、FrameSet/MaterialSet 与物体绘制 |
 | `render/frame_scheduler.h` | FrameSlot 复用、image 关联、完成序号与 retention |
+| `render/render_graph.h` | 有序 pass 声明、不可变 Barrier2 计划、导入／导出状态和 frame 录制；实现同目录 .cpp |
 | `render/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
 | `render/resource/resource_manager.h` | 设备资源工厂、上传及 Shader/Sampler 共享资源 |
 | `graphics/` | Vulkan 对象与显式同步后端 |
@@ -44,6 +45,7 @@ Engine
     └── SceneRenderer
         ├── RenderPass / PipelineManager（结构化 key → weak Pipeline）
         ├── FrameScheduler → FrameSlot[N] / SwapchainImageState[M]
+        ├── RenderGraph::Plan（离屏附件转换和 SampledRead 导出，只有 CPU 状态）
         ├── MaterialRenderer
         │   ├── FrameResources[slot] → FrameSet / ViewProjectBuffer
         │   ├── PipelineState[layout] → MaterialLayout / set layouts / Pipeline
@@ -184,6 +186,23 @@ VMA memory budget 只在扩展确实启用后使用；估算值不当作硬上�
 
 ResourceState/ImageState 描述 stage/access/layout/subresource/queue owner，不保存在 Image 的单一 current_layout 中。
 Barrier2 描述访问依赖，timeline 描述完成；跨 queue family 需配对 release/acquire 和 semaphore，不能只改 index。
+
+RenderGraph 以资源的固定 image subresource range／buffer byte range 声明 imported 状态，Pass 只引用本图的 ResourceId 和 usage。
+compile 不接触设备；按显式顺序生成 Plan，在读前拒绝未初始化资源，编排 layout、RAW/WAR/WAW。
+读可见性按 stage/access 成对保存，不错误地做两个独立并集；写入前等待全部 reader。
+导出只转换边界状态，不凭空生产内容，final state 保留实际生产者／读者的保守 scope，供下一个 submission 显式 import。
+跨提交示例使用同一 graphics queue，靠 barrier 建依赖；需要其他队列时仍须独立的 ownership/semaphore 协议。
+
+Plan::record 先验证全部 binding、区间、图像 usage／aspect、queue family 及别名重叠，再生成原生 barrier 并录制。
+绑定的 Image/Buffer 留在 FrameSlot 至完成；Plan 自身不持有 GPU owner。record callback 是同步命令录制入口，调用后不保存，
+不是 EventBus 或线程任务。调用方必须保证 callback 的访问与声明一致、开始／结束自己的 RenderPass，并另外保留 Pipeline/Framebuffer 等 owner。
+HostRead/HostWrite 只允许作外部 handoff，CPU 仍需等待 GPU completion，不能在 pass callback 中直接读回尚未执行的数据。
+
+离屏 Scene 的 Plan 在 setup 时编译一次，resize 只重新绑定当前 slot 的 FrameBuffer attachments。
+每 slot 在 fence 完成后可丢弃旧内容，从 Undefined 转到 Color/Depth attachment；RenderPass 内不再隐式转到 ShaderReadOnly。
+MSAA resolve 的 initial/final layout 同为 ColorAttachmentOptimal，Graph 在 pass 后统一导出 SampledRead 给 UI。
+普通 runtime 直绘仍使用原 RenderPass/WSI 链路；所有 present 输出的 RenderPass 都补上 external→color dependency，衔接 acquire 等待阶段。
+ImageInfo 的 mip_levels/array_layers 会真实进入 Vulkan 创建参数，默认均为 1；这不等于已经实现 Texture 自动生成 mip 或数组采样 View。
 
 ## Swapchain 与关闭
 

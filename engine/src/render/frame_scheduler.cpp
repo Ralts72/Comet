@@ -35,6 +35,10 @@ namespace Comet {
         m_current_slot_ready = true;
     }
 
+    uint32_t FrameScheduler::get_queue_family_index() const {
+        return m_device.get_capability().graphics_queue_family.queue_family_index.value();
+    }
+
     void FrameScheduler::wait_for_all_slots() {
         if(m_frame_active && !m_submission_recorded) {
             LOG_FATAL(

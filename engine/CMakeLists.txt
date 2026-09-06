@@ -62,6 +62,7 @@ set(SOURCES
         src/graphics/pipeline/descriptor_set.cpp
         src/graphics/resource/sampler.cpp
         src/render/renderer.cpp
+        src/render/render_graph.cpp
         src/render/line_draw_list.cpp
         src/render/debug/debug_renderer.cpp
         src/render/render_target.cpp

@@ -82,6 +82,8 @@ ctest --preset dev-debug
   交换链创建／图像枚举失败会暂停呈现并间隔重试，不复用已退休图像；设备／surface 丢失仍需专门恢复。
   SceneResolver 不解析材质属性；渲染侧按 MaterialLayout 准备并缓存材质绑定，按对象身份与 revision 失效。
   MaterialRenderer 负责排序和绘制 Mesh：FrameSet 按 slot 更新，MaterialSet 按版本创建并跨 slot 复用。
+  RenderGraph 将有序 pass 的显式资源读写编译为 Barrier2；离屏 Scene 的附件转换和采样状态导出已接入。
+  图不自动分配资源、不持有全局 Image layout；跨 submission 由调用方传递导出状态，跨队列调度尚未实现。
 - Shader：构建 CLI 与工具层 `ShaderCompiler` 共用 stage、entry、defines、target、include 快照契约，
   通过 depfile 跟踪已有共享头文件；失败不覆盖旧字节码。运行时不带源编译器。
   编辑器监控 `engine/shaders/glsl/` 的三个 `material_*` 生产 Shader 和 `debug_line.vert/frag` 及实际 include，

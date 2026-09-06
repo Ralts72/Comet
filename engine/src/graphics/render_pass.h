@@ -14,6 +14,7 @@ namespace Comet {
         SampleCount sample_count = SampleCount::Count1;
         ImageLayout resolve_final_layout = ImageLayout::PresentSrcKHR;
         Flags<ImageUsage> resolve_usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
+        ImageLayout resolve_initial_layout = ImageLayout::Undefined;
     };
 
     class COMET_API RenderPass {

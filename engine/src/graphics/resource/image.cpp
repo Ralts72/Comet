@@ -1,6 +1,8 @@
 #include "graphics/resource/image.h"
 #include "graphics/device.h"
 #include "diagnostics/logger.h"
+#include <algorithm>
+#include <bit>
 
 namespace Comet {
     namespace {
@@ -14,17 +16,24 @@ namespace Comet {
             if(!info.usage) {
                 LOG_FATAL("Image usage must not be empty");
             }
+            if(info.extent.z != 1 || info.array_layers == 0 || info.mip_levels == 0
+                || info.mip_levels
+                       > std::bit_width(std::max(info.extent.x, info.extent.y))) {
+                LOG_FATAL("Invalid 2D image layer/mip extent");
+            }
         }
 
         vk::ImageCreateInfo build_image_create_info(
             const ImageInfo& info, const SampleCount sample_count) {
+            if(sample_count != SampleCount::Count1 && info.mip_levels != 1)
+                LOG_FATAL("Multisampled images require one mip level");
             vk::ImageCreateInfo create_info{};
             create_info.imageType = vk::ImageType::e2D;
             create_info.format = Graphics::format_to_vk(info.format);
             create_info.extent =
                 Graphics::get_extent(info.extent.x, info.extent.y, info.extent.z);
-            create_info.mipLevels = 1;
-            create_info.arrayLayers = 1;
+            create_info.mipLevels = info.mip_levels;
+            create_info.arrayLayers = info.array_layers;
             create_info.samples = Graphics::sample_count_to_vk(sample_count);
             create_info.tiling = vk::ImageTiling::eOptimal;
             create_info.usage = Graphics::image_usage_to_vk(info.usage);
