@@ -962,6 +962,7 @@ Scene Component / RenderItem
   执行，当前帧直接消费最新 camera snapshot。
 - [x] 让 2D/3D 按钮切换真实投影与操作策略：`RenderCamera::Projection` 表达 Perspective/Orthographic，2D 固定
   +Z 观察轴、使用屏幕 XY 平移与独立正交高度缩放并禁用 orbit，不以极端透视参数模拟。
+- [x] 为 Runtime Mesh 保存只读局部 AABB，完成 CPU 包围盒粗拾取的数据基础；GPU ID 拾取暂不引入。
 - 默认保持一个 Viewport 并在内部切换 2D/3D，共享同一组 RenderTarget、拾取和 gizmo 上下文。只有当多视图同时对照成为明确工作流时，
   才增加可停靠的多 Viewport；每个同时可见视口应拥有独立 Camera、尺寸、frame-slot RenderTarget 和渲染提交，隐藏时必须跳过渲染。
 - 实现对象拾取、Selection 同步、移动/旋转/缩放 gizmo 和选中对象高亮。
@@ -1163,9 +1164,12 @@ Viewport 2D/3D 观察模式已经接通真实投影：`RenderCamera::Projection`
 固定从 +Z 观察 target，controller 使用屏幕 XY 平移与独立正交高度缩放；切换模式不会创建第二台相机或覆盖保存的 3D
 观察方向。
 
-下一步进入对象拾取的数据基础审计：先确认 Runtime Mesh 是否已有可复用 bounds/CPU geometry，并比较 CPU ray cast 与当前
-传统 RenderPass 增加 GPU ID attachment/readback 的所有权和同步代价；不在 `ViewPanel` 内直接读取 GPU，也不提前建立只
-服务一次点击的通用系统。
+对象拾取的数据基础审计已完成：Runtime Mesh 保存通用 local AABB，创建前扫描并验证 MeshData 顶点，不保留完整 CPU geometry。
+包围盒与 GPU buffers 随同一个 Mesh 发布；当前 Mesh Artifact 已包含顶点，因此不增加缓存字段或变更产物版本。
+
+下一步实现 CPU ray-local-AABB 粗拾取：从当前视图矩阵和纹理像素构造射线，变换到对象局部空间并选择最近有效命中，
+再接通 Selection。该方案是包围盒级精度，可能选中模型包围盒内的空白；三角形级精度及 GPU ID attachment/readback
+留待后续需求与阶段 5 资源契约建立后评估，不在 `ViewPanel` 内引入 GPU 读取和同步生命周期。
 
 阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。

@@ -26,15 +26,19 @@ namespace Comet {
         [[nodiscard]] const GpuCompletionPoint& get_ready_completion() const {
             return m_ready_completion;
         }
+        [[nodiscard]] const BoundingBox& get_local_bounds() const {
+            return m_local_bounds;
+        }
 
     private:
         Mesh(std::shared_ptr<Buffer> vertex_buffer, std::shared_ptr<Buffer> index_buffer,
-            GpuCompletionPoint ready_completion, uint32_t vertex_count,
-            uint32_t index_count);
+            GpuCompletionPoint ready_completion, BoundingBox local_bounds,
+            uint32_t vertex_count, uint32_t index_count);
 
         std::shared_ptr<Buffer> m_vertex_buffer;
         std::shared_ptr<Buffer> m_index_buffer;
         GpuCompletionPoint m_ready_completion;
+        BoundingBox m_local_bounds;
         uint32_t m_vertex_count;
         uint32_t m_index_count;
     };

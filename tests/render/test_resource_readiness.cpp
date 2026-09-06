@@ -8,9 +8,14 @@
 #include <concepts>
 #include <functional>
 #include <gtest/gtest.h>
+#include <utility>
 
 namespace Comet::Tests {
     namespace {
+        static_assert(
+            std::same_as<decltype(std::declval<const Mesh&>().get_local_bounds()),
+                const BoundingBox&>);
+
         template<typename T>
         concept ExposesReadyCompletion = requires(const T& resource) {
             {

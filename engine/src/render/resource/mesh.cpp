@@ -6,6 +6,7 @@
 #include "graphics/resource/buffer.h"
 
 #include <limits>
+#include <optional>
 #include <span>
 
 namespace Comet {
@@ -26,6 +27,11 @@ namespace Comet {
         if(data.vertices.size() > std::numeric_limits<uint32_t>::max()
             || data.indices.size() > std::numeric_limits<uint32_t>::max()) {
             LOG_FATAL("Mesh vertex or index count exceeds uint32_t range");
+        }
+
+        const std::optional<BoundingBox> local_bounds = calculate_mesh_bounds(data);
+        if(!local_bounds) {
+            LOG_FATAL("Mesh vertex positions must define finite local bounds");
         }
 
         const auto vertex_state = resolve_resource_state(ResourceUsage::VertexBuffer);
@@ -79,17 +85,19 @@ namespace Comet {
         const GpuCompletionPoint completion = upload_batch.submit();
         std::shared_ptr<Mesh> mesh(
             new Mesh(std::move(vertex_buffer), std::move(index_buffer), completion,
-                static_cast<uint32_t>(data.vertices.size()),
+                *local_bounds, static_cast<uint32_t>(data.vertices.size()),
                 static_cast<uint32_t>(data.indices.size())));
         return GpuResourceResult<std::shared_ptr<Mesh>>::success(std::move(mesh));
     }
 
     Mesh::Mesh(std::shared_ptr<Buffer> vertex_buffer,
         std::shared_ptr<Buffer> index_buffer, const GpuCompletionPoint ready_completion,
-        const uint32_t vertex_count, const uint32_t index_count)
+        const BoundingBox local_bounds, const uint32_t vertex_count,
+        const uint32_t index_count)
         : m_vertex_buffer(std::move(vertex_buffer)),
           m_index_buffer(std::move(index_buffer)), m_ready_completion(ready_completion),
-          m_vertex_count(vertex_count), m_index_count(index_count) {}
+          m_local_bounds(local_bounds), m_vertex_count(vertex_count),
+          m_index_count(index_count) {}
 
     void Mesh::draw(const CommandBuffer& command_buffer) const {
         command_buffer.bind_vertex_buffer({*m_vertex_buffer, 0});

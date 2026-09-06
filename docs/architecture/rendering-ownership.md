@@ -159,6 +159,10 @@ handoff state。这样可以分别表达不同 mip/layer 的状态，也不会�
 - `AssetRegistry`：唯一按 `AssetHandle` 缓存、注册和解析已发布运行时资源；不保存源路径或执行导入。
 
 Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/resource/`；Material 保留在渲染语义层，不归入设备资源创建子目录。
+
+`Mesh` 拥有只读 local `BoundingBox`。`calculate_mesh_bounds(MeshData)` 在任何 GPU allocation/upload 前验证顶点位置并
+扫描计算局部包围盒；它与 buffers、counts、ready completion 一起构造和发布，热刷新失败时旧 Mesh 及其 bounds 一起保留。
+Runtime 不因此保留完整 CPU geometry。当前 Mesh Artifact 已包含顶点，加载后可直接计算 bounds，无需扩充二进制格式或保存重复字段。
 `RenderScene → SceneExtractor → SceneResolver → RenderSubmission → SceneRenderer` 流水线集中在 `engine/src/render/scene/`，顶层 `Renderer` 只负责编排渲染上下文、资源管理器和这条场景渲染链路。
 
 Editor overlay 分为 CPU prepare 与 GPU render 两个阶段。`SceneRenderer::begin_frame()` 得到可用 frame slot 后，prepare

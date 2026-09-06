@@ -69,6 +69,7 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
   面板输入在场景解析前更新，因此当前帧直接使用新的 camera snapshot。
 - 场景渲染主链路为 `Scene -> SceneExtractor -> RenderScene -> SceneResolver -> RenderSubmission -> SceneRenderer`。
   Scene 只保存组件和 `AssetHandle`，不持有 GPU Resource。
+  Runtime Mesh 在 GPU 创建前从顶点计算并保存只读局部 AABB，供后续拾取、聚焦和裁剪复用；不额外保留完整 CPU 顶点副本。
 - 资产主链路为 `assets + .meta -> AssetDatabase -> ImportService -> Artifact -> AssetManager -> AssetRegistry`。
   glTF 只由导入链路读取并原子发布 Mesh Artifact，`AssetManager::load_mesh()` 只消费 Artifact，不会回退解析源文件；
   `.comet/cache/` 中的导入产物可以重建，不属于源资产。GPU 创建失败时不会发布不完整的 Runtime 资产，
