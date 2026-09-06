@@ -23,6 +23,7 @@ namespace CometEditor::Tests {
         ViewPanel viewport{state, runtime, selection, gizmo, property_edit, 4096};
         int gizmo_vertices = 0;
         bool mesh_drag = false;
+        bool input_popup = false;
         AssetDragPayload mesh_payload{Comet::AssetHandle(42), 0, Comet::AssetType::Mesh};
         std::size_t payload_size = sizeof(AssetDragPayload);
 
@@ -55,6 +56,13 @@ namespace CometEditor::Tests {
             ImGui::SetNextWindowPos(ImVec2(20, 40));
             ImGui::SetNextWindowSize(ImVec2(900, 700));
             viewport.render();
+            if(input_popup) {
+                ImGui::OpenPopup("Input blocker");
+                if(ImGui::BeginPopup("Input blocker")) {
+                    ImGui::TextUnformatted("Popup owns input");
+                    ImGui::EndPopup();
+                }
+            }
             auto* window = ImGui::FindWindowByName("Viewport");
             const int before = window ? window->DrawList->VtxBuffer.Size : 0;
             viewport.draw_gizmo();
@@ -182,6 +190,54 @@ namespace CometEditor::Tests {
         frame();
         EXPECT_FALSE(viewport.take_runtime_command());
         EXPECT_EQ(history.undo_size(), 0U);
+    }
+
+    TEST_F(ViewportGizmoUiTest, GameInputRequiresFocusedVisibleImageAndNoEditorCapture) {
+        auto* window = ImGui::FindWindowByName("Viewport");
+        ASSERT_NE(window, nullptr);
+        const auto rect = viewport.get_layout().image_visible_rect;
+        const auto center = rect.min + rect.size() * 0.5f;
+        ImGui::FocusWindow(window);
+        move_pointer(center);
+        EXPECT_FALSE(viewport.accepts_game_input());
+        state.mode = EditorMode::Play;
+        runtime.start(scene);
+        frame();
+        EXPECT_TRUE(viewport.accepts_game_input());
+        EXPECT_NE(ImGui::GetKeyOwner(ImGuiKey_MouseWheelX), ImGuiKeyOwner_NoOwner);
+        EXPECT_NE(ImGui::GetKeyOwner(ImGuiKey_MouseWheelY), ImGuiKeyOwner_NoOwner);
+        move_pointer(rect.min - Comet::Math::Vec2(0, 5));
+        EXPECT_FALSE(viewport.accepts_game_input());
+        move_pointer(center);
+        EXPECT_TRUE(viewport.accepts_game_input());
+        ImGui::GetIO().WantTextInput = true;
+        EXPECT_FALSE(viewport.accepts_game_input());
+        ImGui::GetIO().WantTextInput = false;
+        ImGui::SetActiveID(window->GetID("Other widget"), window);
+        EXPECT_FALSE(viewport.accepts_game_input());
+        ImGui::ClearActiveID();
+        ImGui::FocusWindow(nullptr);
+        frame();
+        EXPECT_FALSE(viewport.accepts_game_input());
+        ImGui::FocusWindow(window);
+        frame();
+        EXPECT_TRUE(viewport.accepts_game_input());
+        viewport.set_visible(false);
+        frame();
+        EXPECT_FALSE(viewport.accepts_game_input());
+    }
+
+    TEST_F(ViewportGizmoUiTest, PopupOpenedAfterViewportAlsoBlocksGameInput) {
+        state.mode = EditorMode::Play;
+        runtime.start(scene);
+        auto* window = ImGui::FindWindowByName("Viewport");
+        ImGui::FocusWindow(window);
+        const auto rect = viewport.get_layout().image_visible_rect;
+        move_pointer(rect.min + rect.size() * 0.5f);
+        ASSERT_TRUE(viewport.accepts_game_input());
+        input_popup = true;
+        frame();
+        EXPECT_FALSE(viewport.accepts_game_input());
     }
 
     TEST_F(ViewportGizmoUiTest, CenterScaleCapturesInputAndPreservesComponentRatios) {

@@ -1,6 +1,7 @@
 #include "core/input.h"
 
 #include <algorithm>
+#include <stdexcept>
 
 namespace Comet {
     namespace {
@@ -67,12 +68,7 @@ namespace Comet {
             m_gamepad_baseline.fill(true);
             return;
         }
-        release_buttons(m_pending.keys);
-        release_buttons(m_pending.mouse_buttons);
-        for(auto& gamepad : m_pending.gamepads) {
-            release_buttons(gamepad.buttons);
-            gamepad.axes.fill(0);
-        }
+        m_pending.release_controls();
     }
 
     void Input::gamepad_sample(
@@ -101,12 +97,75 @@ namespace Comet {
     const Input::Frame& Input::publish_frame() {
         ++m_pending.serial;
         m_frame = m_pending;
-        clear_edges(m_pending.keys);
-        clear_edges(m_pending.mouse_buttons);
-        for(auto& gamepad : m_pending.gamepads)
+        m_pending.clear_transients();
+        return m_frame;
+    }
+
+    void Input::Frame::clear_transients() {
+        clear_edges(keys);
+        clear_edges(mouse_buttons);
+        for(auto& gamepad : gamepads)
             clear_edges(gamepad.buttons);
-        m_pending.cursor_delta = {};
-        m_pending.scroll = {};
+        cursor_delta = {};
+        scroll = {};
+    }
+
+    void Input::Frame::release_controls() {
+        release_buttons(keys);
+        release_buttons(mouse_buttons);
+        for(auto& gamepad : gamepads) {
+            release_buttons(gamepad.buttons);
+            gamepad.axes.fill(0);
+        }
+        cursor_delta = {};
+        scroll = {};
+    }
+
+    const Input::Frame& Input::Gate::read(const Frame& source, bool enabled) {
+        if(m_source_serial && source.serial < *m_source_serial)
+            throw std::invalid_argument("Input source serial moved backwards");
+        const bool accepting = enabled && source.focused && !m_interrupted;
+        const bool fresh = !m_source_serial || source.serial != *m_source_serial;
+        if(!fresh && accepting == m_accepting && !m_interrupted)
+            return m_frame;
+        const bool acquiring = accepting && !m_accepting;
+        Frame next = source;
+        next.serial = m_frame.serial + 1;
+        next.focused = accepting;
+        size_t index = 0;
+        const auto route = [&](auto& target, const auto& previous) {
+            for(size_t i = 0; i < target.size(); ++i, ++index) {
+                auto& button = target[i];
+                if(!accepting) {
+                    m_blocked[index] = button.down;
+                    button = {.released = previous[i].down};
+                    continue;
+                }
+                const bool blocked = m_blocked[index] || acquiring;
+                m_blocked[index] = blocked && button.down;
+                if(blocked) {
+                    button = {};
+                } else if(!fresh) {
+                    button.pressed = false;
+                    button.released = false;
+                }
+            }
+        };
+        route(next.keys, m_frame.keys);
+        route(next.mouse_buttons, m_frame.mouse_buttons);
+        for(size_t pad = 0; pad < next.gamepads.size(); ++pad) {
+            route(next.gamepads[pad].buttons, m_frame.gamepads[pad].buttons);
+            if(!accepting || acquiring)
+                next.gamepads[pad].axes.fill(0);
+        }
+        if(!accepting || acquiring || !fresh) {
+            next.cursor_delta = {};
+            next.scroll = {};
+        }
+        m_frame = next;
+        m_source_serial = source.serial;
+        m_accepting = accepting;
+        m_interrupted = false;
         return m_frame;
     }
 }

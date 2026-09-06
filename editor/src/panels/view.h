@@ -47,6 +47,7 @@ namespace CometEditor {
         [[nodiscard]] const ViewportLayout& get_layout() const { return m_layout; }
 
         [[nodiscard]] bool is_visible() const { return m_actually_visible; }
+        [[nodiscard]] bool accepts_game_input() const;
 
         [[nodiscard]] std::optional<EditorCameraInput> take_camera_input();
 
@@ -82,9 +83,10 @@ namespace CometEditor {
         SelectionService& m_selection;
         TransformGizmo& m_gizmo;
         PropertyEditTransaction& m_inspector_edit;
-        ImGuiID m_gizmo_id = 0;
+        ImGuiID m_interaction_id = 0;
         ImDrawList* m_gizmo_draw_list = nullptr;
         bool m_actually_visible = false;
+        bool m_game_input_region = false;
         std::uint32_t m_max_render_dimension = 0;
         ViewportLayout::ResolutionPolicy m_play_resolution_policy;
         ViewportLayout::DisplayMode m_play_display_mode =

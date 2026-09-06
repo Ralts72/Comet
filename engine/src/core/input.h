@@ -4,6 +4,7 @@
 #include "core/math_utils.h"
 
 #include <array>
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -208,12 +209,33 @@ namespace Comet {
             Math::Vec2 scroll{};
             std::array<GamepadState, MAX_GAMEPADS> gamepads{};
 
+            void COMET_API clear_transients();
+            void COMET_API release_controls();
+
             [[nodiscard]] const ButtonState& key(Key value) const {
                 return keys.at(static_cast<size_t>(value));
             }
             [[nodiscard]] const ButtonState& mouse(MouseButton value) const {
                 return mouse_buttons.at(static_cast<size_t>(value));
             }
+        };
+
+        // 独立消费者的输入门控；调用者决定是否接收，不依赖任何 UI 库。
+        class COMET_API Gate {
+        public:
+            explicit Gate(bool accepting = true) : m_accepting(accepting) {}
+            const Frame& read(const Frame& source, bool enabled);
+            void interrupt() { m_interrupted = true; }
+
+        private:
+            static constexpr size_t BUTTON_COUNT =
+                static_cast<size_t>(Key::Count) + static_cast<size_t>(MouseButton::Count)
+                + MAX_GAMEPADS * static_cast<size_t>(GamepadButton::Count);
+            Frame m_frame;
+            std::optional<uint64_t> m_source_serial;
+            std::bitset<BUTTON_COUNT> m_blocked;
+            bool m_accepting;
+            bool m_interrupted = false;
         };
 
         void key_event(Key key, bool down);

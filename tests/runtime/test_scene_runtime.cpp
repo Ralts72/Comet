@@ -250,6 +250,8 @@ namespace Comet::Tests {
                 EXPECT_THROW(
                     runtime.set_state(SceneRuntime::State::Paused), std::logic_error);
                 EXPECT_THROW(runtime.request_step(), std::logic_error);
+                EXPECT_THROW(runtime.set_input_enabled(false), std::logic_error);
+                EXPECT_THROW(runtime.discard_input(), std::logic_error);
                 EXPECT_THROW(runtime.clear_systems(), std::logic_error);
             }
         };
@@ -361,5 +363,77 @@ namespace Comet::Tests {
         EXPECT_EQ(limited.get_timing().fixed_steps, 1U);
         EXPECT_DOUBLE_EQ(limited.get_timing().total_time, 0.02);
         EXPECT_DOUBLE_EQ(limited.get_timing().dropped_time, 0);
+    }
+
+    TEST_F(SceneRuntimeTest, InputGateReleasesBothPhasesEvenWhenSourceSerialIsUnchanged) {
+        add(1);
+        start();
+        input.key_event(Input::Key::W, true);
+        const auto frame = input.publish_frame();
+        runtime.advance(0.01, frame);
+        runtime.set_input_enabled(false);
+        runtime.advance(0.01, frame);
+        ASSERT_EQ(samples.size(), 4U);
+        EXPECT_TRUE(samples[2].input.key(Input::Key::W).released);
+        EXPECT_TRUE(samples[3].input.key(Input::Key::W).released);
+        EXPECT_FALSE(samples[2].input.focused);
+        EXPECT_FALSE(samples[3].input.key(Input::Key::W).down);
+        runtime.set_input_enabled(true);
+        runtime.advance(0.01, frame);
+        EXPECT_FALSE(samples[4].input.key(Input::Key::W).down);
+        EXPECT_FALSE(samples[4].input.key(Input::Key::W).pressed);
+        EXPECT_TRUE(frame.key(Input::Key::W).down);
+    }
+
+    TEST_F(SceneRuntimeTest, InitialDisabledPolicySurvivesStartAndBlocksActivationClick) {
+        add(1);
+        runtime.set_input_enabled(false);
+        start();
+        input.mouse_button_event(Input::MouseButton::Left, true);
+        runtime.set_input_enabled(true);
+        runtime.advance(0.01, input.publish_frame());
+        ASSERT_EQ(samples.size(), 2U);
+        EXPECT_FALSE(samples[0].input.mouse(Input::MouseButton::Left).down);
+        EXPECT_FALSE(samples[1].input.mouse(Input::MouseButton::Left).pressed);
+    }
+
+    TEST_F(SceneRuntimeTest, SamplingInterruptionDiscardsPendingEdgesWithoutPausingTime) {
+        add(1);
+        start();
+        input.key_event(Input::Key::W, true);
+        runtime.advance(0.004, input.publish_frame());
+        const auto before = runtime.get_timing();
+        runtime.discard_input();
+        EXPECT_TRUE(runtime.is_active());
+        EXPECT_EQ(runtime.get_state(), SceneRuntime::State::Running);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().total_time, before.total_time);
+        samples.clear();
+        runtime.advance(0.006, input.publish_frame());
+        ASSERT_EQ(samples.size(), 2U);
+        EXPECT_FALSE(samples[0].input.key(Input::Key::W).pressed);
+        EXPECT_FALSE(samples[0].input.key(Input::Key::W).down);
+        EXPECT_TRUE(samples[0].input.key(Input::Key::W).released);
+        EXPECT_TRUE(samples[1].input.key(Input::Key::W).released);
+        input.key_event(Input::Key::W, false);
+        runtime.advance(0.01, input.publish_frame());
+        input.key_event(Input::Key::W, true);
+        runtime.advance(0.01, input.publish_frame());
+        EXPECT_TRUE(samples[4].input.key(Input::Key::W).pressed);
+    }
+
+    TEST_F(SceneRuntimeTest, InterruptionPreservesReleaseNotYetSeenByFixedUpdate) {
+        add(1);
+        start();
+        input.key_event(Input::Key::W, true);
+        runtime.advance(0.01, input.publish_frame());
+        runtime.set_input_enabled(false);
+        runtime.advance(0.004, input.publish_frame());
+        runtime.discard_input();
+        samples.clear();
+        runtime.advance(0.006, input.publish_frame());
+        ASSERT_EQ(samples.size(), 2U);
+        EXPECT_TRUE(samples[0].input.key(Input::Key::W).released);
+        EXPECT_FALSE(samples[0].input.key(Input::Key::W).pressed);
+        EXPECT_FALSE(samples[1].input.key(Input::Key::W).released);
     }
 }

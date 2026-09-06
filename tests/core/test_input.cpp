@@ -15,6 +15,120 @@ namespace Comet::Tests {
         void SetUp() override { input.focus_event(true); }
     };
 
+    TEST_F(InputTest, GatesAreIndependentAndPublishStableConsumerSerials) {
+        Input::Gate game;
+        Input::Gate other(false);
+        input.key_event(Input::Key::W, true);
+        const auto source = input.publish_frame();
+        const auto first = game.read(source, true);
+        EXPECT_TRUE(first.key(Input::Key::W).pressed);
+        EXPECT_FALSE(other.read(source, false).key(Input::Key::W).down);
+        EXPECT_EQ(game.read(source, true).serial, first.serial);
+        const auto disabled = game.read(source, false);
+        EXPECT_GT(disabled.serial, first.serial);
+        EXPECT_TRUE(disabled.key(Input::Key::W).released);
+        EXPECT_FALSE(disabled.focused);
+        EXPECT_EQ(game.read(source, false).serial, disabled.serial);
+        EXPECT_FALSE(other.read(source, true).key(Input::Key::W).down);
+        EXPECT_TRUE(source.key(Input::Key::W).pressed);
+        EXPECT_TRUE(first.key(Input::Key::W).pressed);
+        EXPECT_THROW(game.read(Input::Frame{}, true), std::invalid_argument);
+    }
+
+    TEST_F(InputTest, GateReacquisitionBlocksHeldButtonsUntilPhysicalRelease) {
+        Input::Gate gate;
+        input.key_event(Input::Key::W, true);
+        input.mouse_button_event(Input::MouseButton::Left, true);
+        gate.read(input.publish_frame(), true);
+        const auto closed = gate.read(input.publish_frame(), false);
+        EXPECT_TRUE(closed.key(Input::Key::W).released);
+        EXPECT_TRUE(closed.mouse(Input::MouseButton::Left).released);
+        EXPECT_FALSE(gate.read(input.publish_frame(), false).key(Input::Key::W).released);
+        const auto reopened = gate.read(input.publish_frame(), true);
+        EXPECT_TRUE(reopened.focused);
+        EXPECT_FALSE(reopened.key(Input::Key::W).down);
+        EXPECT_FALSE(reopened.mouse(Input::MouseButton::Left).down);
+        EXPECT_FALSE(gate.read(input.publish_frame(), true).key(Input::Key::W).down);
+        input.key_event(Input::Key::W, false);
+        input.mouse_button_event(Input::MouseButton::Left, false);
+        const auto released = gate.read(input.publish_frame(), true);
+        EXPECT_FALSE(released.key(Input::Key::W).released);
+        input.key_event(Input::Key::W, true);
+        input.mouse_button_event(Input::MouseButton::Left, true);
+        const auto pressed = gate.read(input.publish_frame(), true);
+        EXPECT_TRUE(pressed.key(Input::Key::W).pressed);
+        EXPECT_TRUE(pressed.mouse(Input::MouseButton::Left).pressed);
+    }
+
+    TEST_F(InputTest,
+        GateSuppressesActivationMotionAndRoutesGamepadWithoutChoosingDeadzone) {
+        Input::Gate gate(false);
+        Input::GamepadSample pad;
+        pad.buttons.back() = true;
+        pad.axes[0] = 0.7f;
+        input.gamepad_sample(Input::MAX_GAMEPADS - 1, pad);
+        input.cursor_event({0, 0});
+        input.cursor_event({100, 30});
+        input.scroll_event({2, 3});
+        const auto acquiring = gate.read(input.publish_frame(), true);
+        EXPECT_FALSE(acquiring.gamepads.back().buttons.back().down);
+        EXPECT_EQ(acquiring.gamepads.back().axes[0], 0);
+        EXPECT_EQ(acquiring.cursor_delta, Math::Vec2(0));
+        EXPECT_EQ(acquiring.scroll, Math::Vec2(0));
+        input.cursor_event({105, 33});
+        input.scroll_event({0, 1});
+        const auto active = gate.read(input.publish_frame(), true);
+        EXPECT_EQ(active.gamepads.back().axes[0], 0.7f);
+        EXPECT_FALSE(active.gamepads.back().buttons.back().down);
+        EXPECT_EQ(active.cursor_delta, Math::Vec2(5, 3));
+        EXPECT_EQ(active.scroll, Math::Vec2(0, 1));
+        input.gamepad_sample(Input::MAX_GAMEPADS - 1, std::nullopt);
+        gate.read(input.publish_frame(), true);
+        pad.buttons.back() = false;
+        input.gamepad_sample(Input::MAX_GAMEPADS - 1, pad);
+        gate.read(input.publish_frame(), true);
+        pad.buttons.back() = true;
+        input.gamepad_sample(Input::MAX_GAMEPADS - 1, pad);
+        EXPECT_TRUE(gate.read(input.publish_frame(), true)
+                .gamepads.back()
+                .buttons.back()
+                .pressed);
+    }
+
+    TEST_F(InputTest, GateHonorsPlatformFocusAndFrameTransientResetPreservesLevels) {
+        Input::Gate gate;
+        input.key_event(Input::Key::Space, true);
+        auto frame = input.publish_frame();
+        gate.read(frame, true);
+        frame.clear_transients();
+        EXPECT_TRUE(frame.key(Input::Key::Space).down);
+        EXPECT_FALSE(frame.key(Input::Key::Space).pressed);
+        EXPECT_TRUE(frame.focused);
+        input.focus_event(false);
+        const auto unfocused = gate.read(input.publish_frame(), true);
+        EXPECT_FALSE(unfocused.focused);
+        EXPECT_TRUE(unfocused.key(Input::Key::Space).released);
+        input.focus_event(true);
+        input.key_event(Input::Key::Space, true);
+        EXPECT_FALSE(gate.read(input.publish_frame(), true).key(Input::Key::Space).down);
+    }
+
+    TEST_F(InputTest, GateInterruptionPublishesReleaseBeforeReacquisition) {
+        Input::Gate gate;
+        input.key_event(Input::Key::W, true);
+        const auto source = input.publish_frame();
+        gate.read(source, true);
+        gate.interrupt();
+        const auto release = gate.read(source, true);
+        EXPECT_TRUE(release.key(Input::Key::W).released);
+        EXPECT_FALSE(release.focused);
+        const auto regain = gate.read(source, true);
+        EXPECT_TRUE(regain.focused);
+        EXPECT_FALSE(regain.key(Input::Key::W).down);
+        EXPECT_FALSE(regain.key(Input::Key::W).released);
+        EXPECT_GT(regain.serial, release.serial);
+    }
+
     TEST_F(InputTest, PublishesStableFramesAndKeepsHeldStateWithoutRepeatingPress) {
         input.key_event(Input::Key::W, true);
         EXPECT_FALSE(input.get_frame().key(Input::Key::W).down);

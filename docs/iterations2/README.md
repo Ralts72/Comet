@@ -83,11 +83,12 @@
 | 035 | GLFW 进程生命周期、面板可见性单一来源及定期架构审查 | Debug/Release 各 5 个 CTest；542 单元、10 WSI、2 契约；25 GPU 项 ×20；Linux CI 34065767335 成功 |
 | 036 | 可复现 forward 场景测量与阶段 5 核心回顾 | Debug/Release 各 6 个 CTest；542 单元及原有 GPU/WSI/契约；新增 profile smoke；12 次 Release 测量各 240 个 CPU/GPU 样本；Linux CI 34066231351 成功 |
 | 037 | 键鼠／手柄稳定输入帧、失焦／断连、ImGui 串接及 app 消费 | Debug/Release 各 6 个 CTest；551 单元及原有 GPU/WSI/契约/profile；12 输入／窗口项 ×20；Linux CI 34066986088 成功 |
-| 038 | System 生命周期、有界 Fixed／普通 Update、输入消费与真实帧顺序 | Debug/Release 各 6 个 CTest；561 单元及原有 GPU/WSI/契约/profile；12 项 ×10 |
+| 038 | System 生命周期、有界 Fixed／普通 Update、输入消费与真实帧顺序 | Debug/Release 各 6 个 CTest；561 单元及原有 GPU/WSI/契约/profile；12 项 ×10；Linux CI 34067499081 成功 |
 | 039 | Play Runtime 启停、暂停／单步与 UI／游戏状态隔离 | Debug/Release 各 6 个 CTest；570 单元及原有 GPU/WSI/契约/profile；21 项 ×10 |
+| 040 | Viewport 游戏输入路由、采样中断边界与定期架构回顾 | Debug/Release 各 6 个 CTest；581 单元及原有 GPU/WSI/契约/profile；输入／Runtime／Viewport UI ×10 |
 
 阶段 4、5 本轮核心验收通过，扩展项保留在路线图；阶段 6 尚未完成。
-阶段 3 的主线负载控制已补齐。下一项：040 Viewport 游戏输入路由与定期架构回顾。
-已完成定期架构回顾：005、010、015、020、025、030、035；阶段边界回顾：013、036。下一次：040 或阶段 6 边界（取先到者）。
+阶段 3 的主线负载控制已补齐。下一项：041 Native Script 生命周期与共享描述符字段。
+已完成定期架构回顾：005、010、015、020、025、030、035、040；阶段边界回顾：013、036。下一次：045 或阶段 6 边界（取先到者）。
 
 远端推送结果与 CI 以 git 远端 refs 和 CI 实际运行状态为准，不能将本表视为远端成功证明。

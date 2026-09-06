@@ -57,6 +57,8 @@ namespace Comet {
         void stop();
         void set_state(State state);
         void request_step();
+        void set_input_enabled(bool enabled);
+        void discard_input();
         void advance(double delta_time, const Input::Frame& input);
         [[nodiscard]] bool is_active() const { return m_scene != nullptr; }
         [[nodiscard]] State get_state() const { return m_state; }
@@ -75,6 +77,8 @@ namespace Comet {
         State m_state = State::Running;
         bool m_step_pending = false;
         bool m_rebase_input = false;
+        bool m_input_enabled = true;
+        Input::Gate m_input_gate;
         double m_accumulator = 0;
         Input::Frame m_fixed_input;
         std::optional<uint64_t> m_input_serial;

@@ -187,6 +187,7 @@ namespace {
                 .material = load_required_material(*m_asset_manager, DEMO_MATERIAL)};
             m_placement_material = render_assets.material;
             engine.set_scene(create_editor_scene(render_assets));
+            engine.get_scene_runtime().set_input_enabled(false);
             Comet::Engine* engine_ptr = &engine;
             const auto get_active_scene = [engine_ptr]() {
                 return engine_ptr->get_scene();
@@ -245,6 +246,8 @@ namespace {
         }
 
         void on_update(const Comet::UpdateContext context) override {
+            // UI 本帧确认有效游戏区域后才放行；WSI 未准备好时不沿用旧策略。
+            get_engine().get_scene_runtime().set_input_enabled(false);
             if(auto shaders = m_material_shader_reload->update()) {
                 try {
                     auto& renderer = get_engine().get_renderer();
@@ -989,6 +992,9 @@ namespace {
                 apply_viewport_focus();
                 update_viewport_state();
                 m_viewport_panel->draw_gizmo();
+                get_engine().get_scene_runtime().set_input_enabled(
+                    m_editor_state.mode == CometEditor::EditorMode::Play
+                    && m_viewport_panel->accepts_game_input());
             });
         }
 

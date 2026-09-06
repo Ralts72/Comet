@@ -6,21 +6,6 @@
 
 namespace Comet {
     namespace {
-        void clear_edges(Input::Frame& frame) {
-            const auto clear = [](auto& buttons) {
-                for(auto& button : buttons) {
-                    button.pressed = false;
-                    button.released = false;
-                }
-            };
-            clear(frame.keys);
-            clear(frame.mouse_buttons);
-            for(auto& pad : frame.gamepads)
-                clear(pad.buttons);
-            frame.cursor_delta = {};
-            frame.scroll = {};
-        }
-
         void merge_input(Input::Frame& pending, const Input::Frame& latest) {
             auto merged = latest;
             const auto merge = [](auto& target, const auto& previous, bool accept_press) {
@@ -89,6 +74,7 @@ namespace Comet {
         m_timing = {};
         m_accumulator = 0;
         m_fixed_input = {};
+        m_input_gate = Input::Gate(m_input_enabled);
         m_input_serial.reset();
         m_executing = true;
         try {
@@ -133,7 +119,7 @@ namespace Comet {
         m_step_pending = false;
         m_rebase_input = true;
         m_accumulator = 0;
-        clear_edges(m_fixed_input);
+        m_fixed_input.clear_transients();
         m_timing.fixed_steps = 0;
         m_timing.interpolation = 0;
         m_timing.dropped_time = 0;
@@ -146,25 +132,38 @@ namespace Comet {
         m_step_pending = true;
     }
 
-    void SceneRuntime::advance(double delta_time, const Input::Frame& input) {
+    void SceneRuntime::set_input_enabled(bool enabled) {
+        require_idle();
+        m_input_enabled = enabled;
+    }
+
+    void SceneRuntime::discard_input() {
+        require_idle();
+        m_fixed_input.release_controls();
+        m_fixed_input.focused = false;
+        m_input_gate.interrupt();
+        m_input_serial.reset();
+        m_rebase_input = false;
+    }
+
+    void SceneRuntime::advance(double delta_time, const Input::Frame& source) {
         require_idle();
         if(!is_active())
             return;
         if(!std::isfinite(delta_time) || delta_time < 0)
             throw std::invalid_argument(
                 "Scene runtime delta must be finite and nonnegative");
-        if(m_input_serial && input.serial < *m_input_serial)
-            throw std::invalid_argument("Input serial moved backwards");
+        const auto& input = m_input_gate.read(source, m_input_enabled);
         auto frame_input = input;
         const bool stepping = m_state == State::Paused && m_step_pending;
         if(m_state == State::Paused || m_rebase_input) {
             // 暂停／恢复／单步只采样当前电平，不回放编辑操作的边沿。
-            clear_edges(frame_input);
+            frame_input.clear_transients();
             m_fixed_input = frame_input;
             m_input_serial = input.serial;
             m_rebase_input = false;
         } else if(m_input_serial && input.serial == *m_input_serial) {
-            clear_edges(frame_input);
+            frame_input.clear_transients();
         } else {
             merge_input(m_fixed_input, input);
             m_input_serial = input.serial;
@@ -194,7 +193,7 @@ namespace Comet {
                     step, m_timing.fixed_time, m_timing.fixed_index, m_fixed_input};
                 for(auto& system : m_systems)
                     system->fixed_update(*m_scene, context);
-                clear_edges(m_fixed_input);
+                m_fixed_input.clear_transients();
                 m_accumulator = std::max(0.0, m_accumulator - step);
             }
             // 只丢弃整步积压，避免长帧形成无限追赶；保留插值余量。

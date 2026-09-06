@@ -23,6 +23,7 @@ namespace CometEditor {
 
     void ViewPanel::render() {
         m_actually_visible = false;
+        m_game_input_region = false;
         m_camera_input.reset();
         m_camera_projection_request.reset();
         m_mode_request.reset();
@@ -62,9 +63,9 @@ namespace CometEditor {
         }
 
         m_actually_visible = true;
-        m_gizmo_id = ImGui::GetID("TransformGizmo");
+        m_interaction_id = ImGui::GetID("ViewportInteraction");
         if(m_gizmo.active()) {
-            ImGui::KeepAliveID(m_gizmo_id);
+            ImGui::KeepAliveID(m_interaction_id);
         }
 
         ImGui::BeginDisabled(m_gizmo.active());
@@ -314,6 +315,17 @@ namespace CometEditor {
             ImGui::InvisibleButton("View", ImVec2(display_size.x, display_size.y));
         }
         m_gizmo_draw_list = ImGui::GetWindowDrawList();
+        const auto& io = ImGui::GetIO();
+        m_game_input_region =
+            m_state.mode == EditorMode::Play && m_runtime.is_active()
+            && m_texture_id != ImTextureID_Invalid && ImGui::IsItemHovered()
+            && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+            && map_viewport_point_to_pixel(m_layout, {io.MousePos.x, io.MousePos.y})
+                   .has_value();
+        if(accepts_game_input()) {
+            ImGui::SetKeyOwner(ImGuiKey_MouseWheelX, m_interaction_id);
+            ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_interaction_id);
+        }
         if(m_state.mode == EditorMode::Edit && ImGui::BeginDragDropTarget()) {
             const auto& io = ImGui::GetIO();
             const Comet::Math::Vec2 point{io.MousePos.x, io.MousePos.y};
@@ -343,6 +355,13 @@ namespace CometEditor {
         return std::exchange(m_mesh_drop, std::nullopt);
     }
 
+    bool ViewPanel::accepts_game_input() const {
+        return m_game_input_region && !ImGui::GetIO().WantTextInput
+               && !ImGui::IsAnyItemActive() && !ImGui::IsDragDropActive()
+               && !ImGui::IsPopupOpen(
+                   nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    }
+
     void ViewPanel::update_view_interaction() {
         if(m_state.mode != EditorMode::Edit || ImGui::IsDragDropActive()) {
             cancel_interaction();
@@ -357,7 +376,7 @@ namespace CometEditor {
 
         if(pointer_over_image || m_gizmo.active()) {
             // Image 没有 item ID；直接指定 owner，拖动期间也阻止窗口滚动。
-            ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_gizmo_id);
+            ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_interaction_id);
         }
 
         const bool was_dragging = m_gizmo.active();
@@ -388,9 +407,9 @@ namespace CometEditor {
                         || m_texture_id == ImTextureID_Invalid,
                 });
         if(m_gizmo.active()) {
-            ImGui::SetActiveID(m_gizmo_id, ImGui::GetCurrentWindow());
-            ImGui::KeepAliveID(m_gizmo_id);
-        } else if(was_dragging && ImGui::GetActiveID() == m_gizmo_id) {
+            ImGui::SetActiveID(m_interaction_id, ImGui::GetCurrentWindow());
+            ImGui::KeepAliveID(m_interaction_id);
+        } else if(was_dragging && ImGui::GetActiveID() == m_interaction_id) {
             ImGui::ClearActiveID();
         }
         if(consumed) {
@@ -467,7 +486,7 @@ namespace CometEditor {
 
     void ViewPanel::cancel_interaction() {
         static_cast<void>(m_gizmo.cancel());
-        if(m_gizmo_id != 0 && ImGui::GetActiveID() == m_gizmo_id) {
+        if(m_interaction_id != 0 && ImGui::GetActiveID() == m_interaction_id) {
             ImGui::ClearActiveID();
         }
         reset_camera_interaction();
