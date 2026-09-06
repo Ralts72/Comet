@@ -57,6 +57,8 @@ cmake --build build-profile --target render_profile --parallel
 ## 编辑器使用
 
 - Edit 使用独立编辑器相机；Play 使用克隆场景的 primary Camera，Stop 后返回 Edit，不回写运行时修改。
+  Play 工具栏的 `||` 暂停游戏更新，`>` 恢复，`|>` 单步；单步执行一个固定步及一次同等时长的普通更新后保持暂停。
+  暂停不冻结 UI、渲染或资产处理；按键边沿／滚轮不会在恢复时补放，单步只采样当前按住状态。
 - 画面内右键或 Alt/Option+左键环绕，中键或 Alt/Option+Shift+左键平移，滚轮/双指垂直滚动缩放。
 - 2D/3D 切换编辑器相机的正交/透视投影，不修改 Scene Camera；Play 中不可切换。
 - Edit 画面内左键选择最近的模型包围盒，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。
@@ -116,7 +118,8 @@ cmake --build build-profile --target render_profile --parallel
   帧准备／UI 后执行有界 Fixed Update，再执行一次普通 Update，最后提取场景；场景替换先停止运行时。
   默认固定步 1/60 秒，每帧最多 8 步、接收最多 0.25 秒，超额整步丢弃并计入 Timing，不无限追赶。
   固定输入的边沿／位移跨零步帧累积、只由首个固定步消费；同一输入 serial 不重复触发边沿。
-  app 方块旋转走固定更新、相机走普通更新；编辑器 Play 的运行控制与脚本仍单独推进。
+  app 方块旋转走固定更新、相机走普通更新；编辑器 Play 启动克隆场景的 Runtime，Stop 先停止再恢复 Edit 原件。
+  Running／Paused 是 Runtime 自身状态，不增加 EditorMode::Paused；脚本与游戏 Viewport 输入路由仍待接入。
 - 编辑器：面板是可见状态的唯一 owner；View 菜单只观察已登记面板并切换状态，关闭按钮和菜单不会各存一份 bool。
   Editor 在释放面板前移除 UI 回调并销毁菜单；业务编辑仍走既有命令历史，不引入全局 EventBus。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。

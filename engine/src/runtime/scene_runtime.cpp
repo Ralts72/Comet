@@ -83,6 +83,9 @@ namespace Comet {
         if(is_active())
             throw std::logic_error("Scene runtime is already active");
         m_scene = &scene;
+        m_state = State::Running;
+        m_step_pending = false;
+        m_rebase_input = false;
         m_timing = {};
         m_accumulator = 0;
         m_fixed_input = {};
@@ -105,6 +108,8 @@ namespace Comet {
         while(m_started > 0)
             m_systems[--m_started]->on_stop(*m_scene);
         m_scene = nullptr;
+        m_step_pending = false;
+        m_rebase_input = false;
         m_accumulator = 0;
         m_fixed_input = {};
         m_input_serial.reset();
@@ -114,6 +119,31 @@ namespace Comet {
     void SceneRuntime::stop() {
         require_idle();
         stop_systems();
+    }
+
+    void SceneRuntime::set_state(State state) {
+        require_idle();
+        if(!is_active())
+            throw std::logic_error("Cannot pause or resume an inactive scene runtime");
+        if(state != State::Running && state != State::Paused)
+            throw std::invalid_argument("Invalid scene runtime state");
+        if(m_state == state)
+            return;
+        m_state = state;
+        m_step_pending = false;
+        m_rebase_input = true;
+        m_accumulator = 0;
+        clear_edges(m_fixed_input);
+        m_timing.fixed_steps = 0;
+        m_timing.interpolation = 0;
+        m_timing.dropped_time = 0;
+    }
+
+    void SceneRuntime::request_step() {
+        require_idle();
+        if(!is_active() || m_state != State::Paused)
+            throw std::logic_error("Single step requires a paused scene runtime");
+        m_step_pending = true;
     }
 
     void SceneRuntime::advance(double delta_time, const Input::Frame& input) {
@@ -126,16 +156,30 @@ namespace Comet {
         if(m_input_serial && input.serial < *m_input_serial)
             throw std::invalid_argument("Input serial moved backwards");
         auto frame_input = input;
-        if(m_input_serial && input.serial == *m_input_serial)
+        const bool stepping = m_state == State::Paused && m_step_pending;
+        if(m_state == State::Paused || m_rebase_input) {
+            // 暂停／恢复／单步只采样当前电平，不回放编辑操作的边沿。
             clear_edges(frame_input);
-        else {
+            m_fixed_input = frame_input;
+            m_input_serial = input.serial;
+            m_rebase_input = false;
+        } else if(m_input_serial && input.serial == *m_input_serial) {
+            clear_edges(frame_input);
+        } else {
             merge_input(m_fixed_input, input);
             m_input_serial = input.serial;
         }
 
-        const double delta = std::min(delta_time, m_settings.max_frame_delta);
-        m_timing.dropped_time = delta_time - delta;
+        m_step_pending = false;
         m_timing.fixed_steps = 0;
+        m_timing.dropped_time = 0;
+        if(m_state == State::Paused && !stepping)
+            return;
+
+        const double delta = stepping ? m_settings.fixed_delta
+                                      : std::min(delta_time, m_settings.max_frame_delta);
+        if(!stepping)
+            m_timing.dropped_time = delta_time - delta;
         m_accumulator += delta;
         const double step = m_settings.fixed_delta;
         const double epsilon = step * 1e-9;

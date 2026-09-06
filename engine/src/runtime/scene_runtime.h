@@ -29,6 +29,7 @@ namespace Comet {
     // 主线程串行执行；Scene 必须比其活动的 Runtime 活得更久。
     class COMET_API SceneRuntime {
     public:
+        enum class State { Running, Paused };
         struct Settings {
             double fixed_delta = 1.0 / 60.0;
             double max_frame_delta = 0.25;
@@ -54,8 +55,11 @@ namespace Comet {
         void clear_systems();
         void start(Scene& scene);
         void stop();
+        void set_state(State state);
+        void request_step();
         void advance(double delta_time, const Input::Frame& input);
         [[nodiscard]] bool is_active() const { return m_scene != nullptr; }
+        [[nodiscard]] State get_state() const { return m_state; }
         [[nodiscard]] const Timing& get_timing() const { return m_timing; }
 
     private:
@@ -68,6 +72,9 @@ namespace Comet {
         Scene* m_scene = nullptr;
         size_t m_started = 0;
         bool m_executing = false;
+        State m_state = State::Running;
+        bool m_step_pending = false;
+        bool m_rebase_input = false;
         double m_accumulator = 0;
         Input::Frame m_fixed_input;
         std::optional<uint64_t> m_input_serial;

@@ -247,6 +247,9 @@ namespace Comet::Tests {
                 EXPECT_THROW(runtime.advance(0, context.input), std::logic_error);
                 EXPECT_THROW(runtime.start(scene), std::logic_error);
                 EXPECT_THROW(runtime.stop(), std::logic_error);
+                EXPECT_THROW(
+                    runtime.set_state(SceneRuntime::State::Paused), std::logic_error);
+                EXPECT_THROW(runtime.request_step(), std::logic_error);
                 EXPECT_THROW(runtime.clear_systems(), std::logic_error);
             }
         };
@@ -254,5 +257,109 @@ namespace Comet::Tests {
         start();
         runtime.advance(0, input.publish_frame());
         EXPECT_TRUE(runtime.is_active());
+    }
+
+    TEST_F(SceneRuntimeTest, PauseFreezesBothPhasesAndDropsTimeAndPendingEdges) {
+        add(1);
+        start();
+        input.key_event(Input::Key::W, true);
+        runtime.advance(0.004, input.publish_frame());
+        runtime.set_state(SceneRuntime::State::Paused);
+        const auto timing = runtime.get_timing();
+        samples.clear();
+        input.key_event(Input::Key::W, false);
+        input.scroll_event({0, 20});
+        runtime.advance(100, input.publish_frame());
+        EXPECT_TRUE(samples.empty());
+        EXPECT_EQ(runtime.get_timing().frame_index, timing.frame_index);
+        EXPECT_EQ(runtime.get_timing().fixed_index, timing.fixed_index);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().total_time, timing.total_time);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().dropped_time, 0);
+        runtime.set_state(SceneRuntime::State::Running);
+        runtime.advance(0.01, input.publish_frame());
+        ASSERT_EQ(samples.size(), 2U);
+        EXPECT_FALSE(samples[0].input.key(Input::Key::W).pressed);
+        EXPECT_FALSE(samples[0].input.key(Input::Key::W).released);
+        EXPECT_EQ(samples[0].input.scroll.y, 0);
+        EXPECT_EQ(runtime.get_timing().fixed_index, 1U);
+    }
+
+    TEST_F(
+        SceneRuntimeTest, SingleStepRunsExactlyOneFixedAndOrdinaryUpdateAndStaysPaused) {
+        add(1);
+        start();
+        runtime.set_state(SceneRuntime::State::Paused);
+        input.key_event(Input::Key::W, true);
+        runtime.request_step();
+        runtime.request_step();
+        runtime.advance(123, input.publish_frame());
+        ASSERT_EQ(samples.size(), 2U);
+        EXPECT_EQ(samples[0].phase, 'f');
+        EXPECT_EQ(samples[1].phase, 'u');
+        EXPECT_DOUBLE_EQ(samples[0].delta, 0.01);
+        EXPECT_DOUBLE_EQ(samples[1].delta, 0.01);
+        EXPECT_TRUE(samples[0].input.key(Input::Key::W).down);
+        EXPECT_FALSE(samples[0].input.key(Input::Key::W).pressed);
+        EXPECT_EQ(runtime.get_state(), SceneRuntime::State::Paused);
+        EXPECT_EQ(runtime.get_timing().fixed_steps, 1U);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().total_time, 0.01);
+        runtime.advance(123, input.publish_frame());
+        EXPECT_EQ(samples.size(), 2U);
+        EXPECT_EQ(runtime.get_timing().fixed_steps, 0U);
+        runtime.request_step();
+        runtime.advance(0, input.publish_frame());
+        EXPECT_EQ(runtime.get_timing().fixed_index, 2U);
+        EXPECT_EQ(runtime.get_timing().frame_index, 2U);
+    }
+
+    TEST_F(SceneRuntimeTest, ResumeRebasesEvenWithoutAnInterveningPausedFrame) {
+        add(1);
+        start();
+        input.key_event(Input::Key::W, true);
+        const auto frame = input.publish_frame();
+        runtime.advance(0.004, frame);
+        runtime.set_state(SceneRuntime::State::Paused);
+        runtime.set_state(SceneRuntime::State::Running);
+        samples.clear();
+        runtime.advance(0.01, frame);
+        ASSERT_EQ(samples.size(), 2U);
+        EXPECT_TRUE(samples[0].input.key(Input::Key::W).down);
+        EXPECT_FALSE(samples[0].input.key(Input::Key::W).pressed);
+        input.key_event(Input::Key::W, false);
+        runtime.advance(0.01, input.publish_frame());
+        EXPECT_TRUE(samples[2].input.key(Input::Key::W).released);
+    }
+
+    TEST_F(SceneRuntimeTest, RestartAndResumeCancelQueuedStepsAndValidateState) {
+        EXPECT_THROW(runtime.request_step(), std::logic_error);
+        EXPECT_THROW(runtime.set_state(SceneRuntime::State::Paused), std::logic_error);
+        add(1);
+        start();
+        EXPECT_THROW(runtime.request_step(), std::logic_error);
+        EXPECT_THROW(runtime.set_state(static_cast<SceneRuntime::State>(99)),
+            std::invalid_argument);
+        runtime.set_state(SceneRuntime::State::Paused);
+        runtime.request_step();
+        runtime.set_state(SceneRuntime::State::Running);
+        runtime.advance(0, input.publish_frame());
+        EXPECT_EQ(runtime.get_timing().fixed_index, 0U);
+        runtime.set_state(SceneRuntime::State::Paused);
+        runtime.request_step();
+        runtime.stop();
+        runtime.start(scene);
+        EXPECT_EQ(runtime.get_state(), SceneRuntime::State::Running);
+        runtime.advance(0, input.publish_frame());
+        EXPECT_EQ(runtime.get_timing().fixed_index, 0U);
+    }
+
+    TEST_F(SceneRuntimeTest, ExplicitStepIsNotClampedByWallFrameLimit) {
+        SceneRuntime limited({.fixed_delta = 0.02, .max_frame_delta = 0.001});
+        limited.start(scene);
+        limited.set_state(SceneRuntime::State::Paused);
+        limited.request_step();
+        limited.advance(0, input.publish_frame());
+        EXPECT_EQ(limited.get_timing().fixed_steps, 1U);
+        EXPECT_DOUBLE_EQ(limited.get_timing().total_time, 0.02);
+        EXPECT_DOUBLE_EQ(limited.get_timing().dropped_time, 0);
     }
 }

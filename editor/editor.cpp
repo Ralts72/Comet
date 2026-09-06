@@ -1,4 +1,5 @@
 #include "runtime/entry.h"
+#include "runtime/scene_runtime.h"
 #include "asset/asset_manager.h"
 #include "asset/registry.h"
 #include "asset/source_monitor.h"
@@ -198,9 +199,9 @@ namespace {
             };
             m_scene_document = std::make_unique<CometEditor::SceneDocument>(
                 m_scene_serializer, get_active_scene, replace_active_scene);
-            m_scene_session =
-                std::make_unique<CometEditor::EditorSceneSession>(m_editor_state,
-                    m_scene_serializer, get_active_scene, replace_active_scene);
+            m_scene_session = std::make_unique<CometEditor::EditorSceneSession>(
+                m_editor_state, engine.get_scene_runtime(), m_scene_serializer,
+                get_active_scene, replace_active_scene);
             auto& scene = *engine.get_scene();
             m_command_history.bind_scene(&scene);
             m_selection.emplace(scene);
@@ -767,6 +768,7 @@ namespace {
                     bind_active_scene();
                 }
             } catch(const std::exception& error) {
+                bind_active_scene();
                 LOG_ERROR("Failed to change editor mode: {}", error.what());
             }
         }
@@ -893,7 +895,8 @@ namespace {
             const std::uint32_t max_render_dimension = std::min(
                 device_max_render_dimension, EDITOR_VIEWPORT_MAX_RENDER_DIMENSION);
             m_viewport_panel = std::make_unique<CometEditor::ViewPanel>(m_editor_state,
-                *m_selection, m_transform_gizmo, m_property_edit, max_render_dimension);
+                get_engine().get_scene_runtime(), *m_selection, m_transform_gizmo,
+                m_property_edit, max_render_dimension);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_asset_manager->get_database(),
@@ -961,6 +964,25 @@ namespace {
                         m_scene_session->request_mode(*mode);
                     } else {
                         LOG_ERROR("Cannot finish property edit before mode change");
+                    }
+                }
+                if(const auto command = m_viewport_panel->take_runtime_command()) {
+                    auto& runtime = get_engine().get_scene_runtime();
+                    if(m_editor_state.mode == CometEditor::EditorMode::Play
+                        && runtime.is_active()) {
+                        using Command = CometEditor::ViewPanel::RuntimeCommand;
+                        using State = Comet::SceneRuntime::State;
+                        switch(*command) {
+                            case Command::Pause:
+                                runtime.set_state(State::Paused);
+                                break;
+                            case Command::Resume:
+                                runtime.set_state(State::Running);
+                                break;
+                            case Command::Step:
+                                runtime.request_step();
+                                break;
+                        }
                     }
                 }
                 apply_viewport_camera_updates();

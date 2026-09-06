@@ -1,6 +1,7 @@
 #include "view.h"
 #include "selection.h"
 #include "transform_gizmo.h"
+#include "runtime/scene_runtime.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -13,18 +14,19 @@ namespace CometEditor {
         constexpr float TOOLBAR_BUTTON_WIDTH = 40.0f;
     }
 
-    ViewPanel::ViewPanel(const EditorState& state, SelectionService& selection,
-        TransformGizmo& gizmo, PropertyEditTransaction& inspector_edit,
-        const std::uint32_t max_render_dimension)
-        : EditorPanel("Viewport"), m_state(state), m_selection(selection), m_gizmo(gizmo),
-          m_inspector_edit(inspector_edit), m_max_render_dimension(max_render_dimension) {
-    }
+    ViewPanel::ViewPanel(const EditorState& state, const Comet::SceneRuntime& runtime,
+        SelectionService& selection, TransformGizmo& gizmo,
+        PropertyEditTransaction& inspector_edit, const std::uint32_t max_render_dimension)
+        : EditorPanel("Viewport"), m_state(state), m_runtime(runtime),
+          m_selection(selection), m_gizmo(gizmo), m_inspector_edit(inspector_edit),
+          m_max_render_dimension(max_render_dimension) {}
 
     void ViewPanel::render() {
         m_actually_visible = false;
         m_camera_input.reset();
         m_camera_projection_request.reset();
         m_mode_request.reset();
+        m_runtime_command.reset();
         m_pick_request.reset();
         m_focus_request = false;
         m_mesh_drop.reset();
@@ -76,10 +78,16 @@ namespace CometEditor {
 
     void ViewPanel::render_toolbar() {
         const bool is_playing = m_state.mode == EditorMode::Play;
+        const bool paused = m_runtime.get_state() == Comet::SceneRuntime::State::Paused;
         const ImVec2 button_size(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight());
         ImGui::AlignTextToFramePadding();
         if(is_playing) {
-            ImGui::TextUnformatted("Play (Scene Camera)");
+            if(!m_runtime.is_active())
+                ImGui::TextUnformatted("Play (Stopped)");
+            else if(paused)
+                ImGui::TextUnformatted("Play (Paused)");
+            else
+                ImGui::TextUnformatted("Play (Scene Camera)");
         } else {
             ImGui::TextUnformatted("Edit (Editor Camera)");
         }
@@ -106,6 +114,20 @@ namespace CometEditor {
         ImGui::EndDisabled();
 
         if(is_playing) {
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!m_runtime.is_active());
+            if(paused) {
+                if(ImGui::Button(">##Resume", button_size))
+                    m_runtime_command = RuntimeCommand::Resume;
+            } else if(ImGui::Button("||##Pause", button_size)) {
+                m_runtime_command = RuntimeCommand::Pause;
+            }
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!paused);
+            if(ImGui::Button("|>##Step", button_size))
+                m_runtime_command = RuntimeCommand::Step;
+            ImGui::EndDisabled();
+            ImGui::EndDisabled();
             ImGui::SameLine();
             render_play_toolbar();
         } else {
@@ -524,6 +546,10 @@ namespace CometEditor {
 
     std::optional<EditorMode> ViewPanel::take_mode_request() {
         return std::exchange(m_mode_request, std::nullopt);
+    }
+
+    std::optional<ViewPanel::RuntimeCommand> ViewPanel::take_runtime_command() {
+        return std::exchange(m_runtime_command, std::nullopt);
     }
 
     std::optional<Comet::Math::Vec2u> ViewPanel::take_pick_request() {

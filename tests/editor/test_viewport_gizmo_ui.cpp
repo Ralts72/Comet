@@ -2,6 +2,7 @@
 #include "panels/view.h"
 #include "selection.h"
 #include "transform_gizmo.h"
+#include "runtime/scene_runtime.h"
 
 #include <gtest/gtest.h>
 #include <imgui.h>
@@ -18,7 +19,8 @@ namespace CometEditor::Tests {
         TransformGizmo gizmo{history, components};
         SelectionService selection{scene};
         EditorState state;
-        ViewPanel viewport{state, selection, gizmo, property_edit, 4096};
+        Comet::SceneRuntime runtime;
+        ViewPanel viewport{state, runtime, selection, gizmo, property_edit, 4096};
         int gizmo_vertices = 0;
         bool mesh_drag = false;
         AssetDragPayload mesh_payload{Comet::AssetHandle(42), 0, Comet::AssetType::Mesh};
@@ -146,6 +148,40 @@ namespace CometEditor::Tests {
         EXPECT_EQ(gizmo.settings().mode, TransformGizmo::Mode::Scale);
         EXPECT_FLOAT_EQ(gizmo.settings().scale_step, 0.1f);
         EXPECT_EQ(history.undo_size(), 0);
+    }
+
+    TEST_F(ViewportGizmoUiTest, RuntimeButtonsReadAuthoritativeStateAndEmitOneRequest) {
+        auto* window = ImGui::FindWindowByName("Viewport");
+        ASSERT_NE(window, nullptr);
+        ImGui::ActivateItemByID(window->GetID("||##Pause"));
+        frame();
+        EXPECT_FALSE(viewport.take_runtime_command());
+        state.mode = EditorMode::Play;
+        runtime.start(scene);
+        frame();
+        ImGui::ActivateItemByID(window->GetID("|>##Step"));
+        frame();
+        EXPECT_FALSE(viewport.take_runtime_command());
+        ImGui::ActivateItemByID(window->GetID("||##Pause"));
+        frame();
+        EXPECT_EQ(viewport.take_runtime_command(), ViewPanel::RuntimeCommand::Pause);
+        EXPECT_FALSE(viewport.take_runtime_command());
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Running);
+        runtime.set_state(Comet::SceneRuntime::State::Paused);
+        frame();
+        ImGui::ActivateItemByID(window->GetID("|>##Step"));
+        frame();
+        EXPECT_EQ(viewport.take_runtime_command(), ViewPanel::RuntimeCommand::Step);
+        EXPECT_FALSE(viewport.take_runtime_command());
+        ImGui::ActivateItemByID(window->GetID(">##Resume"));
+        frame();
+        EXPECT_EQ(viewport.take_runtime_command(), ViewPanel::RuntimeCommand::Resume);
+        runtime.stop();
+        frame();
+        ImGui::ActivateItemByID(window->GetID("|>##Step"));
+        frame();
+        EXPECT_FALSE(viewport.take_runtime_command());
+        EXPECT_EQ(history.undo_size(), 0U);
     }
 
     TEST_F(ViewportGizmoUiTest, CenterScaleCapturesInputAndPreservesComponentRatios) {

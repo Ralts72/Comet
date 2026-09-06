@@ -9,6 +9,10 @@
 #include <cstdint>
 #include <optional>
 
+namespace Comet {
+    class SceneRuntime;
+}
+
 namespace CometEditor {
     class SelectionService;
     class TransformGizmo;
@@ -16,13 +20,14 @@ namespace CometEditor {
 
     class ViewPanel: public EditorPanel {
     public:
+        enum class RuntimeCommand { Pause, Resume, Step };
         struct MeshDrop {
             AssetDragPayload asset;
             Comet::Math::Vec3 position;
         };
-        ViewPanel(const EditorState& state, SelectionService& selection,
-            TransformGizmo& gizmo, PropertyEditTransaction& inspector_edit,
-            std::uint32_t max_render_dimension);
+        ViewPanel(const EditorState& state, const Comet::SceneRuntime& runtime,
+            SelectionService& selection, TransformGizmo& gizmo,
+            PropertyEditTransaction& inspector_edit, std::uint32_t max_render_dimension);
 
         void render() override;
 
@@ -49,6 +54,7 @@ namespace CometEditor {
         take_projection_request();
 
         [[nodiscard]] std::optional<EditorMode> take_mode_request();
+        [[nodiscard]] std::optional<RuntimeCommand> take_runtime_command();
 
         [[nodiscard]] std::optional<Comet::Math::Vec2u> take_pick_request();
 
@@ -72,6 +78,7 @@ namespace CometEditor {
         void reset_camera_interaction();
 
         const EditorState& m_state;
+        const Comet::SceneRuntime& m_runtime;
         SelectionService& m_selection;
         TransformGizmo& m_gizmo;
         PropertyEditTransaction& m_inspector_edit;
@@ -92,6 +99,7 @@ namespace CometEditor {
         std::optional<EditorCameraInput> m_camera_input;
         std::optional<Comet::RenderCamera::Projection> m_camera_projection_request;
         std::optional<EditorMode> m_mode_request;
+        std::optional<RuntimeCommand> m_runtime_command;
         std::optional<Comet::Math::Vec2u> m_pick_request;
         bool m_focus_request = false;
         std::optional<CameraDrag> m_camera_drag;

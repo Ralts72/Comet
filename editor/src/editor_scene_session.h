@@ -9,6 +9,7 @@
 namespace Comet {
     class Scene;
     class SceneSerializer;
+    class SceneRuntime;
 }
 
 namespace CometEditor {
@@ -18,8 +19,9 @@ namespace CometEditor {
         using ActiveSceneReplacer =
             std::function<std::unique_ptr<Comet::Scene>(std::unique_ptr<Comet::Scene>)>;
 
-        EditorSceneSession(EditorState& state, const Comet::SceneSerializer& serializer,
-            ActiveSceneGetter get_active_scene, ActiveSceneReplacer replace_active_scene);
+        EditorSceneSession(EditorState& state, Comet::SceneRuntime& runtime,
+            const Comet::SceneSerializer& serializer, ActiveSceneGetter get_active_scene,
+            ActiveSceneReplacer replace_active_scene);
 
         ~EditorSceneSession();
 
@@ -35,6 +37,7 @@ namespace CometEditor {
         [[nodiscard]] bool exit_play_mode();
 
         EditorState& m_state;
+        Comet::SceneRuntime& m_runtime;
         const Comet::SceneSerializer& m_serializer;
         ActiveSceneGetter m_get_active_scene;
         ActiveSceneReplacer m_replace_active_scene;

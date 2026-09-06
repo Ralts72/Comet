@@ -3,18 +3,21 @@
 #include "diagnostics/logger.h"
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
+#include "runtime/scene_runtime.h"
 
 #include <utility>
 
 namespace CometEditor {
     EditorSceneSession::EditorSceneSession(EditorState& state,
-        const Comet::SceneSerializer& serializer, ActiveSceneGetter get_active_scene,
-        ActiveSceneReplacer replace_active_scene)
-        : m_state(state), m_serializer(serializer),
+        Comet::SceneRuntime& runtime, const Comet::SceneSerializer& serializer,
+        ActiveSceneGetter get_active_scene, ActiveSceneReplacer replace_active_scene)
+        : m_state(state), m_runtime(runtime), m_serializer(serializer),
           m_get_active_scene(std::move(get_active_scene)),
           m_replace_active_scene(std::move(replace_active_scene)) {}
 
-    EditorSceneSession::~EditorSceneSession() = default;
+    EditorSceneSession::~EditorSceneSession() {
+        m_runtime.stop();
+    }
 
     void EditorSceneSession::request_mode(const EditorMode mode) {
         if(mode == m_state.mode) {
@@ -51,6 +54,8 @@ namespace CometEditor {
         }
 
         m_state.mode = EditorMode::Play;
+        // 启动失败时保留 Play 副本与 Edit 原件，允许 Stop 恢复，不悬空面板。
+        m_runtime.start(*m_get_active_scene());
         LOG_INFO("Entered Play mode");
         return true;
     }
@@ -61,6 +66,7 @@ namespace CometEditor {
             return false;
         }
 
+        m_runtime.stop();
         std::unique_ptr<Comet::Scene> runtime_scene =
             m_replace_active_scene(std::move(m_edit_scene));
         m_state.mode = EditorMode::Edit;

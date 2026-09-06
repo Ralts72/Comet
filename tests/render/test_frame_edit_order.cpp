@@ -126,4 +126,51 @@ namespace Comet::Tests {
     }
 
     INSTANTIATE_TEST_SUITE_P(MutateOrReplaceScene, FrameEditOrderTest, ::testing::Bool());
+
+    TEST(FrameRuntimeControlTest, PauseAndStepDoNotFreezeHostUiOrRendering) {
+        Config config;
+        config.window.width = 320;
+        config.window.height = 240;
+        config.vulkan.msaa_samples = SampleCount::Count1;
+        Engine engine(config);
+        engine.set_scene(std::make_unique<Scene>());
+        auto& runtime = engine.get_scene_runtime();
+        runtime.start(*engine.get_scene());
+        int host_updates = 0;
+        int preparations = 0;
+        int renders = 0;
+        engine.register_update_callback([&](UpdateContext) {
+            if(++host_updates > 8)
+                engine.get_window().request_close();
+        });
+        engine.get_renderer().set_overlay_callbacks(
+            [&] {
+                ++preparations;
+                if(preparations == 1)
+                    runtime.set_state(SceneRuntime::State::Paused);
+                else if(preparations == 2)
+                    runtime.request_step();
+                else if(preparations == 4)
+                    runtime.set_state(SceneRuntime::State::Running);
+            },
+            [&](CommandBuffer&) {
+                ++renders;
+                const auto& timing = runtime.get_timing();
+                if(renders == 1)
+                    EXPECT_EQ(timing.frame_index, 0U);
+                else if(renders == 2 || renders == 3) {
+                    EXPECT_EQ(timing.frame_index, 1U);
+                    EXPECT_EQ(timing.fixed_index, 1U);
+                } else if(renders == 4) {
+                    EXPECT_EQ(timing.frame_index, 2U);
+                    engine.get_window().request_close();
+                }
+            });
+        engine.on_update();
+        engine.get_renderer().set_overlay_callbacks({}, {});
+        EXPECT_EQ(host_updates, 4);
+        EXPECT_EQ(preparations, 4);
+        EXPECT_EQ(renders, 4);
+        EXPECT_EQ(runtime.get_state(), SceneRuntime::State::Running);
+    }
 }
