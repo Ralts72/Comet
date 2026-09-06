@@ -45,14 +45,16 @@ Engine
     └── SceneRenderer
         ├── RenderPass / PipelineManager（结构化 key → weak Pipeline）
         ├── FrameScheduler → FrameSlot[N] / SwapchainImageState[M]
-        ├── RenderGraph::Plan（离屏附件转换和 SampledRead 导出，只有 CPU 状态）
+        ├── RenderGraph::Plan（HDR Scene→后处理采样，只有 CPU 状态）
         ├── MaterialRenderer
         │   ├── FrameResources[slot] → FrameSet / ViewProjectBuffer
         │   ├── PipelineState[layout] → MaterialLayout / set layouts / Pipeline
         │   ├── MaterialRuntimeCache → PreparedMaterial → Texture / parameter bytes
         │   └── MaterialResources[revision] → PreparedMaterial / MaterialSet / parameter buffer
         ├── DebugRenderer → 线段 Pipeline / VertexBuffer[slot]
-        └── RenderTarget：runtime SwapchainTarget 或 editor MultiTarget
+        ├── HDR MultiTarget[slot]（RGBA16F / depth / 可选 resolve）
+        ├── PostProcessRenderer → 输出 RenderPass / Pipeline / Sampler / Binding[slot]
+        └── SDR RenderTarget：runtime SwapchainTarget 或 editor MultiTarget
 
 Editor
 ├── AssetManager（借用 Engine 的服务）
@@ -198,10 +200,18 @@ Plan::record 先验证全部 binding、区间、图像 usage／aspect、queue fa
 不是 EventBus 或线程任务。调用方必须保证 callback 的访问与声明一致、开始／结束自己的 RenderPass，并另外保留 Pipeline/Framebuffer 等 owner。
 HostRead/HostWrite 只允许作外部 handoff，CPU 仍需等待 GPU completion，不能在 pass callback 中直接读回尚未执行的数据。
 
-离屏 Scene 的 Plan 在 setup 时编译一次，resize 只重新绑定当前 slot 的 FrameBuffer attachments。
+Scene 的双 pass Plan 在 setup 时编译一次，resize 只重新绑定当前 slot 的 HDR FrameBuffer attachments。
 每 slot 在 fence 完成后可丢弃旧内容，从 Undefined 转到 Color/Depth attachment；RenderPass 内不再隐式转到 ShaderReadOnly。
-MSAA resolve 的 initial/final layout 同为 ColorAttachmentOptimal，Graph 在 pass 后统一导出 SampledRead 给 UI。
-普通 runtime 直绘仍使用原 RenderPass/WSI 链路；所有 present 输出的 RenderPass 都补上 external→color dependency，衔接 acquire 等待阶段。
+MSAA resolve 的 initial/final layout 同为 ColorAttachmentOptimal，Graph 在 tone mapping 前转换 HDR 为 SampledRead。
+最终 SDR 附件是图外的固定输出：PostProcessRenderer 的 RenderPass 清除、写入、转换到 Present 或 ShaderReadOnly；
+不把 RenderPass 已改变的输出 layout 再当作图内未改变的状态。未来更多后处理节点再扩展图的输出边界。
+PostProcessRenderer 不拥有 Scene、Window、FrameScheduler；它缓存各 slot 的 HDR View 绑定，View 变化时创建新 descriptor，不覆盖在途 set。
+record 时 FrameSlot 保留输出 target、Pipeline、RenderPass、Sampler、layout 及 Binding；Scene 同时保留 HDR target/pass。
+resize 先准备 HDR 与 SDR 两套候选，再成对替换；GPU 帧保留旧代，普通 resize 不等待整个 device。
+get_render_target/get_offscreen_color_view 始终暴露最终 SDR，HDR 不泄漏到 app/editor 的取图接口。
+两种模式只在最终输出 owner 不同；所有 present 输出的 RenderPass 衔接 external→color dependency 和 acquire 等待阶段。
+指数 tone mapping 输出线性 SDR；sRGB 附件自动编码，UNORM 输出由 Shader 编码。编辑器纹理沿用窗口编码，避免重复编码或遗漏编码。
+fullscreen 正高度 viewport 保留图像上下方向，场景负高度 viewport 仍负责世界坐标转换。
 ImageInfo 的 mip_levels/array_layers 会真实进入 Vulkan 创建参数，默认均为 1；这不等于已经实现 Texture 自动生成 mip 或数组采样 View。
 
 ## Swapchain 与关闭

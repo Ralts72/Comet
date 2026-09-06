@@ -10,6 +10,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <sstream>
+#include <cmath>
 
 namespace Comet::Tests {
     class RenderGraphGpuTest: public testing::Test {
@@ -93,6 +94,40 @@ namespace Comet::Tests {
                 frames.wait_for_all_slots();
             }
         };
+        static void copy_output(FrameScheduler& frames,
+            const std::shared_ptr<Image>& image,
+            const std::shared_ptr<Readback>& readback, Math::Vec2u size) {
+            RenderGraph graph;
+            auto state = *resolve_image_state(ResourceUsage::SampledRead,
+                {.aspects = Flags<ImageAspect>(ImageAspect::Color)},
+                Flags<PipelineStage>(PipelineStage::FragmentShader));
+            // RenderPass 的 final layout 已生效，但最后的数据生产者仍是颜色附件写入。
+            state.resource = *resolve_resource_state(ResourceUsage::ColorAttachmentWrite);
+            const auto source = graph.import_image("SDR", state);
+            const auto destination =
+                graph.import_buffer("host", {{}, 0, readback->get_size()});
+            graph.add_pass(
+                {"readback", {{source, ResourceUsage::TransferSource, {}},
+                                 {destination, ResourceUsage::TransferDestination, {}}}});
+            graph.export_resource({destination, ResourceUsage::HostRead, {}});
+            const std::vector<RenderGraph::Binding> bindings{
+                image, std::static_pointer_cast<Buffer>(readback)};
+            graph.compile().record(
+                frames, bindings, [&](size_t, const CommandBuffer& command) {
+                    vk::BufferImageCopy region;
+                    region.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+                    region.imageExtent = vk::Extent3D(size.x, size.y, 1);
+                    command.get().copyImageToBuffer(image->get(),
+                        vk::ImageLayout::eTransferSrcOptimal, readback->get(), region);
+                });
+        }
+        static int mapped_byte(float hdr, float exposure = 1.0f) {
+            const auto linear = 1.0f - std::exp(-std::max(hdr, 0.0f) * exposure);
+            const auto encoded = linear <= 0.0031308f
+                                     ? 12.92f * linear
+                                     : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+            return static_cast<int>(std::lround(encoded * 255.0f));
+        }
     };
 
     TEST_F(RenderGraphGpuTest, ExecutesFourPassesOnDisjointMipsLayersAndBufferRanges) {
@@ -353,6 +388,139 @@ namespace Comet::Tests {
             }
             context.wait_idle();
             renderer.set_overlay_callbacks({}, {});
+        }
+    }
+
+    TEST_F(
+        RenderGraphGpuTest, ToneMapsHdrWithoutClippingOrVerticalFlipInBothSdrEncodings) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        for(const auto format : {Format::R8G8B8A8_SRGB, Format::R8G8B8A8_UNORM}) {
+            PostProcessRenderer post(device, format, true, 2);
+            auto color = Attachment::get_color_attachment(Format::R16G16B16A16_SFLOAT);
+            color.description.initial_layout = color.description.final_layout =
+                ImageLayout::ColorAttachmentOptimal;
+            color.description.store_op = AttachmentStoreOp::Store;
+            color.usage |= ImageUsage::Sampled;
+            RenderPass source_pass(device, {color},
+                {{{}, {SubpassColorAttachment(0)}, {}}}, Format::R16G16B16A16_SFLOAT);
+            auto source =
+                RenderTarget::create_multi_target(device, source_pass, {4, 4}, 2);
+            std::shared_ptr<RenderTarget> output = RenderTarget::create_multi_target(
+                device, post.get_render_pass(), {4, 4}, 2);
+            source->set_clear_value(ClearValue(Math::Vec4(4.0f, 0.5f, 0.001f, 1.0f)));
+            auto readback = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 64);
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            RenderGraph graph;
+            const auto hdr = graph.import_image(
+                "HDR", *resolve_image_state(ResourceUsage::Undefined,
+                           {.aspects = Flags<ImageAspect>(ImageAspect::Color)}));
+            graph.add_pass({"scene", {{hdr, ResourceUsage::ColorAttachmentWrite, {}}}});
+            graph.add_pass(
+                {"post", {{hdr, ResourceUsage::SampledRead,
+                             Flags<PipelineStage>(PipelineStage::FragmentShader)}}});
+            const auto plan = graph.compile();
+            for(const auto exposure : {1.0f, 0.25f, 0.0f}) {
+                frames.wait_for_current_slot();
+                frames.begin_frame(0);
+                frames.get_current_command_buffer().begin();
+                const auto slot = frames.get_current_frame_slot_index();
+                const std::vector<RenderGraph::Binding> bindings{
+                    source->get_color_view(slot)->get_image()};
+                plan.record(
+                    frames, bindings, [&](size_t pass, const CommandBuffer& command) {
+                        if(pass == 0) {
+                            source->begin_render_target(command, slot);
+                            const vk::ClearAttachment lower(
+                                vk::ImageAspectFlagBits::eColor, 0,
+                                vk::ClearColorValue(
+                                    std::array<float, 4>{0.0f, 2.0f, 0.5f, 1.0f}));
+                            command.get().clearAttachments(
+                                lower, vk::ClearRect(vk::Rect2D({0, 2}, {4, 2}), 0, 1));
+                            command.end_render_pass();
+                        } else {
+                            post.render(frames, output, slot,
+                                source->get_color_view(slot), exposure);
+                        }
+                    });
+                copy_output(
+                    frames, output->get_color_view(slot)->get_image(), readback, {4, 4});
+                submit(device, frames);
+                frames.wait_for_all_slots();
+                const auto bytes = readback->read();
+                for(size_t y = 0; y < 4; ++y) {
+                    const std::array<float, 3> expected =
+                        y < 2 ? std::array<float, 3>{4.0f, 0.5f, 0.001f}
+                              : std::array<float, 3>{0.0f, 2.0f, 0.5f};
+                    for(size_t x = 0; x < 4; ++x) {
+                        for(size_t channel = 0; channel < 3; ++channel)
+                            EXPECT_NEAR(
+                                std::to_integer<int>(bytes[(y * 4 + x) * 4 + channel]),
+                                mapped_byte(expected[channel], exposure), 2)
+                                << "format=" << static_cast<int>(format) << " pixel=" << x
+                                << ',' << y;
+                        EXPECT_EQ(bytes[(y * 4 + x) * 4 + 3], std::byte{255});
+                    }
+                }
+            }
+            EXPECT_THROW(
+                PostProcessRenderer(device, Format::R16G16B16A16_SFLOAT, true, 2),
+                std::invalid_argument);
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, ProductionHdrClearSurvivesMsaaAndTargetGenerationChanges) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
+            Config config;
+            config.vulkan.msaa_samples = samples;
+            config.render.clear_color = {4.0f, 0.5f, 0.02f, 1.0f};
+            SceneRenderer scene(context, config.vulkan, config.render);
+            scene.setup_offscreen_render_pass({4, 4});
+            auto& frames = scene.get_frame_scheduler();
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            std::weak_ptr<ImageView> old;
+            for(unsigned iteration = 0; iteration < 4; ++iteration) {
+                const Math::Vec2u size =
+                    iteration < 2 ? Math::Vec2u(4, 4) : Math::Vec2u(8, 6);
+                scene.resize_offscreen_target(size);
+                frames.wait_for_current_slot();
+                frames.begin_frame(0);
+                frames.get_current_command_buffer().begin();
+                const auto slot = frames.get_current_frame_slot_index();
+                auto readback = std::make_shared<Readback>(device,
+                    context.get_context().get_physical_device(), size.x * size.y * 4);
+                auto view = scene.get_offscreen_color_view(slot);
+                const auto format = view->get_image()->get_info().format;
+                EXPECT_NE(format, Format::R16G16B16A16_SFLOAT);
+                EXPECT_TRUE(scene.render_scene_pass({}).empty());
+                copy_output(frames, view->get_image(), readback, size);
+                if(iteration == 0) {
+                    old = view;
+                    scene.resize_offscreen_target({8, 6});
+                    view.reset();
+                    EXPECT_FALSE(old.expired());
+                }
+                submit(device, frames);
+                frames.wait_for_all_slots();
+                if(iteration == 0)
+                    EXPECT_TRUE(old.expired());
+                const bool bgra =
+                    format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+                const auto bytes = readback->read();
+                const std::array<float, 3> hdr{4.0f, 0.5f, 0.02f};
+                for(size_t pixel = 0; pixel < size.x * size.y; ++pixel)
+                    for(size_t channel = 0; channel < 3; ++channel) {
+                        const auto component = bgra ? 2 - channel : channel;
+                        EXPECT_NEAR(std::to_integer<int>(bytes[pixel * 4 + component]),
+                            mapped_byte(hdr[channel]), 2);
+                    }
+            }
         }
     }
 

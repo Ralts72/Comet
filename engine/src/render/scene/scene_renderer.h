@@ -14,6 +14,7 @@
 #include "render/debug/debug_renderer.h"
 #include "render/material_renderer.h"
 #include "render/render_graph.h"
+#include "render/post_process_renderer.h"
 
 #include <functional>
 #include <chrono>
@@ -79,7 +80,8 @@ namespace Comet {
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> record_scene_pass(
             const RenderSubmission& submission, const LineDrawList& lines);
         void reset_render_pipeline();
-        void set_render_target_clear_color() const;
+        void setup_targets(Math::Vec2u size, bool offscreen);
+        [[nodiscard]] bool resize_targets(Math::Vec2u size);
 
         SwapchainReleaseCallback m_release_swapchain_resources;
         SwapchainRebuildCallback m_rebuild_swapchain_resources;
@@ -87,8 +89,10 @@ namespace Comet {
         std::shared_ptr<RenderPass> m_render_pass;
         std::unique_ptr<PipelineManager> m_pipeline_manager;
         std::unique_ptr<FrameScheduler> m_frame_scheduler;
+        std::unique_ptr<PostProcessRenderer> m_post_processor;
+        std::shared_ptr<RenderTarget> m_scene_target;
         std::shared_ptr<RenderTarget> m_render_target;
-        std::optional<RenderGraph::Plan> m_offscreen_plan;
+        std::optional<RenderGraph::Plan> m_render_plan;
         bool m_uses_offscreen_target = false;
         std::optional<SwapchainConfig> m_swapchain_rebuild_from;
         std::chrono::steady_clock::time_point m_swapchain_retry_after{};

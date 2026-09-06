@@ -42,50 +42,30 @@ namespace Comet {
     }
 
     void SceneRenderer::setup_render_pass() {
-        LOG_INFO("create render pass");
-
-        reset_render_pipeline();
-
-        std::vector<Attachment> attachments;
-        attachments.emplace_back(
-            Attachment::get_color_attachment(m_surface_format, m_msaa_samples));
-        attachments.emplace_back(
-            Attachment::get_depth_attachment(m_depth_format, m_msaa_samples));
-
-        std::vector<RenderSubPass> render_sub_passes;
-        RenderSubPass render_sub_pass_0 = {{}, {SubpassColorAttachment(0)},
-            {SubpassDepthStencilAttachment(1)}, m_msaa_samples};
-        render_sub_passes.emplace_back(render_sub_pass_0);
-
-        m_render_pass = std::make_shared<RenderPass>(
-            m_context.get_device(), attachments, render_sub_passes, m_surface_format);
-
-        LOG_INFO("create render pipeline manager");
-        m_pipeline_manager =
-            std::make_unique<PipelineManager>(m_context.get_device(), *m_render_pass);
-
-        LOG_INFO("create render target");
-        m_render_target = RenderTarget::create_swapchain_target(
-            m_context.get_device(), *m_render_pass, m_context.get_swapchain());
-        set_render_target_clear_color();
-
+        const auto extent =
+            m_context.get_swapchain().get_active_generation()->get_config().extent;
+        setup_targets({extent.width, extent.height}, false);
         const auto image_count =
             static_cast<uint32_t>(m_context.get_swapchain().get_images().size());
         m_frame_scheduler->initialize_swapchain_images(image_count);
-
-        m_uses_offscreen_target = false;
     }
 
     void SceneRenderer::setup_offscreen_render_pass(const Math::Vec2u size) {
+        setup_targets(size, true);
+    }
+
+    void SceneRenderer::setup_targets(const Math::Vec2u size, const bool offscreen) {
         if(size.x == 0 || size.y == 0) {
-            LOG_FATAL("Offscreen render target size must be greater than zero");
+            LOG_FATAL("Render target size must be greater than zero");
         }
 
-        LOG_INFO("create offscreen render pass at {}x{}", size.x, size.y);
+        LOG_INFO("Create HDR scene and SDR output passes at {}x{}", size.x, size.y);
         reset_render_pipeline();
+        m_uses_offscreen_target = offscreen;
+        constexpr auto hdr_format = Format::R16G16B16A16_SFLOAT;
 
         Attachment color_attachment =
-            Attachment::get_color_attachment(m_surface_format, m_msaa_samples);
+            Attachment::get_color_attachment(hdr_format, m_msaa_samples);
         color_attachment.description.initial_layout = ImageLayout::ColorAttachmentOptimal;
         color_attachment.description.final_layout = ImageLayout::ColorAttachmentOptimal;
         if(m_msaa_samples == SampleCount::Count1) {
@@ -108,16 +88,27 @@ namespace Comet {
             Flags<ImageUsage>(ImageUsage::ColorAttachment) | ImageUsage::Sampled;
 
         m_render_pass = std::make_shared<RenderPass>(m_context.get_device(), attachments,
-            std::vector<RenderSubPass>{render_sub_pass}, m_surface_format);
+            std::vector<RenderSubPass>{render_sub_pass}, hdr_format);
         m_pipeline_manager =
             std::make_unique<PipelineManager>(m_context.get_device(), *m_render_pass);
-        m_render_target = RenderTarget::create_multi_target(m_context.get_device(),
+        m_scene_target = RenderTarget::create_multi_target(m_context.get_device(),
             *m_render_pass, size, m_frame_scheduler->get_frame_slot_count());
-        set_render_target_clear_color();
+        m_scene_target->set_clear_value(m_color_clear_value);
+        // 与窗口编码一致：sRGB 采样解码/附件编码，UNORM 则传递已编码的 SDR 值。
+        m_post_processor = std::make_unique<PostProcessRenderer>(m_context.get_device(),
+            m_surface_format, offscreen, m_frame_scheduler->get_frame_slot_count());
+        if(offscreen)
+            m_render_target = RenderTarget::create_multi_target(m_context.get_device(),
+                m_post_processor->get_render_pass(), size,
+                m_frame_scheduler->get_frame_slot_count());
+        else
+            m_render_target =
+                RenderTarget::create_swapchain_target(m_context.get_device(),
+                    m_post_processor->get_render_pass(), m_context.get_swapchain());
 
-        m_uses_offscreen_target = true;
         RenderGraph graph;
         RenderGraph::Pass scene_pass{"scene", {}};
+        RenderGraph::Pass post_pass{"tone map", {}};
         for(const auto& attachment : m_render_pass->get_attachments()) {
             const bool depth =
                 Graphics::is_depth_stencil_format(attachment.description.format);
@@ -133,11 +124,12 @@ namespace Comet {
                       : ResourceUsage::ColorAttachmentWrite,
                 {}});
             if(static_cast<bool>(attachment.usage & ImageUsage::Sampled))
-                graph.export_resource({id, ResourceUsage::SampledRead,
+                post_pass.uses.push_back({id, ResourceUsage::SampledRead,
                     Flags<PipelineStage>(PipelineStage::FragmentShader)});
         }
         graph.add_pass(std::move(scene_pass));
-        m_offscreen_plan = graph.compile();
+        graph.add_pass(std::move(post_pass));
+        m_render_plan = graph.compile();
     }
 
     void SceneRenderer::setup_pipeline(ResourceManager& resource_manager) {
@@ -179,17 +171,25 @@ namespace Comet {
     std::vector<QueueSemaphoreSubmit> SceneRenderer::render_scene_pass(
         const RenderSubmission& submission, const LineDrawList& lines) {
         PROFILE_SCOPE("SceneRenderer::render_scene_pass");
-        if(!m_offscreen_plan)
-            return record_scene_pass(submission, lines);
-        const auto frame_buffer = m_render_target->get_framebuffer(
+        const auto frame_buffer = m_scene_target->get_framebuffer(
             m_frame_scheduler->get_current_frame_slot_index());
         std::vector<RenderGraph::Binding> bindings;
         for(const auto& view : frame_buffer->get_attachments())
             bindings.emplace_back(view->get_image());
         std::vector<QueueSemaphoreSubmit> waits;
-        m_offscreen_plan->record(
-            *m_frame_scheduler, bindings, [&](size_t, const CommandBuffer&) {
-                waits = record_scene_pass(submission, lines);
+        m_render_plan->record(
+            *m_frame_scheduler, bindings, [&](size_t pass, const CommandBuffer&) {
+                if(pass == 0) {
+                    waits = record_scene_pass(submission, lines);
+                } else {
+                    const auto slot = m_frame_scheduler->get_current_frame_slot_index();
+                    const auto index =
+                        m_uses_offscreen_target
+                            ? slot
+                            : m_context.get_swapchain().get_current_index();
+                    m_post_processor->render(*m_frame_scheduler, m_render_target, index,
+                        m_scene_target->get_color_view(slot));
+                }
             });
         return waits;
     }
@@ -198,17 +198,14 @@ namespace Comet {
         const RenderSubmission& submission, const LineDrawList& lines) {
 
         auto& command_buffer = m_frame_scheduler->get_current_command_buffer();
-        if(m_uses_offscreen_target) {
-            m_frame_scheduler->retain_current_frame_resource(m_render_target);
-            m_render_target->begin_render_target(
-                command_buffer, m_frame_scheduler->get_current_frame_slot_index());
-        } else {
-            m_render_target->begin_render_target(command_buffer);
-        }
+        m_frame_scheduler->retain_current_frame_resource(m_scene_target);
+        m_frame_scheduler->retain_current_frame_resource(m_render_pass);
+        m_scene_target->begin_render_target(
+            command_buffer, m_frame_scheduler->get_current_frame_slot_index());
 
         std::vector<QueueSemaphoreSubmit> resource_waits;
         if(submission.view_project_matrix) {
-            const auto size = m_render_target->get_size();
+            const auto size = m_scene_target->get_size();
             command_buffer.set_viewport(Graphics::get_viewport(
                 static_cast<float>(size.x), static_cast<float>(size.y)));
             command_buffer.set_scissor(Graphics::get_scissor(
@@ -223,7 +220,7 @@ namespace Comet {
             }
         }
 
-        m_render_target->end_render_target(command_buffer);
+        m_scene_target->end_render_target(command_buffer);
         return resource_waits;
     }
 
@@ -311,21 +308,43 @@ namespace Comet {
             return;
         }
 
+        static_cast<void>(resize_targets(size));
+    }
+
+    bool SceneRenderer::resize_targets(const Math::Vec2u size) {
         auto candidate = RenderTarget::try_create_multi_target(m_context.get_device(),
             *m_render_pass, size, m_frame_scheduler->get_frame_slot_count());
         if(!candidate) {
-            const Math::Vec2u current_size = m_render_target->get_size();
+            const Math::Vec2u current_size = m_scene_target->get_size();
             LOG_ERROR("Keeping offscreen render target at {}x{} after {}x{} generation "
                       "creation failed: {}",
                 current_size.x, current_size.y, size.x, size.y,
                 vk::to_string(candidate.result()));
-            return;
+            return false;
         }
 
         std::shared_ptr<RenderTarget> next_generation(std::move(candidate).value());
         next_generation->set_clear_value(m_color_clear_value);
-        LOG_INFO("Commit offscreen render target generation {}x{}", size.x, size.y);
-        m_render_target = std::move(next_generation);
+        std::shared_ptr<RenderTarget> output;
+        if(m_uses_offscreen_target) {
+            auto attempt = RenderTarget::try_create_multi_target(m_context.get_device(),
+                m_post_processor->get_render_pass(), size,
+                m_frame_scheduler->get_frame_slot_count());
+            if(!attempt) {
+                LOG_ERROR(
+                    "Keeping HDR/output targets after SDR target creation failed: {}",
+                    vk::to_string(attempt.result()));
+                return false;
+            }
+            output = std::move(attempt).value();
+        } else {
+            output = RenderTarget::create_swapchain_target(m_context.get_device(),
+                m_post_processor->get_render_pass(), m_context.get_swapchain());
+        }
+        LOG_INFO("Commit HDR/output render target generation {}x{}", size.x, size.y);
+        m_scene_target = std::move(next_generation);
+        m_render_target = std::move(output);
+        return true;
     }
 
     CommandBuffer& SceneRenderer::get_current_command_buffer() const {
@@ -373,9 +392,12 @@ namespace Comet {
                       "rebuild is not implemented yet");
         }
         if(!m_uses_offscreen_target) {
-            m_render_target = RenderTarget::create_swapchain_target(
-                m_context.get_device(), *m_render_pass, swapchain);
-            set_render_target_clear_color();
+            const auto extent = swapchain.get_active_generation()->get_config().extent;
+            if(!resize_targets({extent.width, extent.height})) {
+                m_swapchain_retry_after =
+                    std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+                return false;
+            }
         }
 
         const auto image_count = static_cast<uint32_t>(swapchain.get_images().size());
@@ -389,16 +411,14 @@ namespace Comet {
     }
 
     void SceneRenderer::reset_render_pipeline() {
-        m_offscreen_plan.reset();
+        m_render_plan.reset();
         m_debug_renderer.reset();
         m_material_renderer.reset();
         m_pipeline_manager.reset();
         m_render_target.reset();
+        m_scene_target.reset();
+        m_post_processor.reset();
         m_render_pass.reset();
-    }
-
-    void SceneRenderer::set_render_target_clear_color() const {
-        m_render_target->set_clear_value(m_color_clear_value);
     }
 
 }

@@ -82,7 +82,9 @@ ctest --preset dev-debug
   交换链创建／图像枚举失败会暂停呈现并间隔重试，不复用已退休图像；设备／surface 丢失仍需专门恢复。
   SceneResolver 不解析材质属性；渲染侧按 MaterialLayout 准备并缓存材质绑定，按对象身份与 revision 失效。
   MaterialRenderer 负责排序和绘制 Mesh：FrameSet 按 slot 更新，MaterialSet 按版本创建并跨 slot 复用。
-  RenderGraph 将有序 pass 的显式资源读写编译为 Barrier2；离屏 Scene 的附件转换和采样状态导出已接入。
+  app/editor 共用 `HDR Scene → fullscreen tone mapping → SDR output`；场景和 MSAA resolve 使用 RGBA16F，最终目标仍供窗口或 Viewport 消费。
+  固定曝光 1，采用 `1-exp(-color)` 映射高亮，输出按 sRGB/UNORM 附件选择硬件或 Shader 编码；画面不再等同于直接写入材质颜色。
+  RenderGraph 将有序 pass 的显式资源读写编译为 Barrier2，管理 HDR 附件和后处理采样依赖；最终输出转换仍由 RenderPass 负责。
   图不自动分配资源、不持有全局 Image layout；跨 submission 由调用方传递导出状态，跨队列调度尚未实现。
 - Shader：构建 CLI 与工具层 `ShaderCompiler` 共用 stage、entry、defines、target、include 快照契约，
   通过 depfile 跟踪已有共享头文件；失败不覆盖旧字节码。运行时不带源编译器。
@@ -109,7 +111,7 @@ ctest --preset dev-debug
 - 后台任务有容量限制；AssetManager 合并同资产的最新待执行请求，owner 后续处理周期继续派发。
   超过资产等待队列容量的请求会明确拒绝并进入 Log，需重试导入；不会阻塞界面或替换旧 Runtime 资源。
   默认每次处理最多 2 个完成结果、约 2 ms 软预算；失败和过期结果也计数，未处理结果继续占用在途额度。
-- 世界 +Y 向上，Vulkan Viewport 用负高度转换画面坐标；`flip_y` 仅控制纹理导入。
+- 世界 +Y 向上，场景 Vulkan Viewport 用负高度转换画面坐标；fullscreen 用正高度保持纹理行方向，`flip_y` 仅控制纹理导入。
   Shader 编译产物只进入构建目录，学习源码不作为生产 Shader 的隐式依赖。
 
 详细说明：[资源所有权](docs/architecture/rendering-ownership.md) ·

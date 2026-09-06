@@ -73,10 +73,11 @@
 | 025 | Debug Shader 整组热更新、轮询基线修复与阶段性架构回顾 | Debug/Release 各 484 tests + 1 构建契约测试通过；Linux CI 34058803915 成功 |
 | 026 | 驱动 PipelineCache 校验恢复、原子保存及独立进程启动验证 | Debug/Release 各 490 tests + 2 独立契约测试通过；Linux CI 34059473777 成功 |
 | 027 | WSI 失败暂停呈现、退休句柄隔离、间隔重试及 present Result 修复 | Debug/Release 各 490 单元 + 10 WSI + 2 契约测试通过；Linux CI 34059790706 成功 |
-| 028 | 有序 RenderGraph、跨提交状态交接、离屏接入及 acquire 同步修复 | Debug/Release 5 个 CTest 项通过；505 单元含专门运行的同步对照、10 WSI、2 契约 |
+| 028 | 有序 RenderGraph、跨提交状态交接、离屏接入及 acquire 同步修复 | Debug/Release 5 个 CTest 项通过；505 单元含专门运行的同步对照、10 WSI、2 契约；Linux CI 34060940872 成功 |
+| 029 | app/editor HDR 场景、fullscreen 色调映射／编码及成对 resize | Debug/Release 各 5 个 CTest；507 单元含专门同步对照、10 WSI、2 契约；8 GPU 项 ×20 |
 
 阶段 4 本轮核心验收通过，扩展项保留在路线图；阶段 5／6 尚未完成。
-阶段 3 的主线负载控制已补齐。下一项：阶段 5 HDR 场景与 fullscreen 后处理链路。
+阶段 3 的主线负载控制已补齐。下一项：阶段 5 LightComponent／forward 光照和 030 定期架构回顾。
 已完成定期架构回顾：005、010、015、020、025；阶段边界回顾：013。下一次：030 或阶段 5 边界（取先到者）。
 
 远端推送结果与 CI 以 git 远端 refs 和 CI 实际运行状态为准，不能将本表视为远端成功证明。
