@@ -33,6 +33,8 @@ namespace CometEditor {
 
         [[nodiscard]] std::optional<EditorMode> take_mode_request();
 
+        [[nodiscard]] std::optional<Comet::Math::Vec2u> take_pick_request();
+
     private:
         enum class CameraDragMode { Orbit, Pan };
 
@@ -45,7 +47,7 @@ namespace CometEditor {
         void render_projection_controls();
         void render_play_toolbar();
         void render_view_content();
-        void update_camera_input();
+        void update_view_interaction();
         void reset_camera_interaction();
 
         const EditorState& m_state;
@@ -63,6 +65,7 @@ namespace CometEditor {
         std::optional<EditorCameraInput> m_camera_input;
         std::optional<Comet::RenderCamera::Projection> m_camera_projection_request;
         std::optional<EditorMode> m_mode_request;
+        std::optional<Comet::Math::Vec2u> m_pick_request;
         std::optional<CameraDrag> m_camera_drag;
     };
 }

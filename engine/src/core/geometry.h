@@ -1,45 +1,33 @@
 #pragma once
 
+#include "common/export.h"
 #include "core/math_utils.h"
 
-#include <algorithm>
-#include <cmath>
+#include <limits>
+#include <optional>
 
 namespace Comet {
     // Axis-aligned bounds in the coordinate space of the supplied points.
-    struct BoundingBox {
+    struct COMET_API BoundingBox {
         Math::Vec3 minimum{};
         Math::Vec3 maximum{};
 
-        [[nodiscard]] static BoundingBox from_point(const Math::Vec3 point) {
-            return {.minimum = point, .maximum = point};
-        }
-
-        void include(const Math::Vec3 point) {
-            minimum = {
-                std::min(minimum.x, point.x),
-                std::min(minimum.y, point.y),
-                std::min(minimum.z, point.z),
-            };
-            maximum = {
-                std::max(maximum.x, point.x),
-                std::max(maximum.y, point.y),
-                std::max(maximum.z, point.z),
-            };
-        }
-
-        [[nodiscard]] bool is_valid() const {
-            return std::isfinite(minimum.x) && std::isfinite(minimum.y)
-                   && std::isfinite(minimum.z) && std::isfinite(maximum.x)
-                   && std::isfinite(maximum.y) && std::isfinite(maximum.z)
-                   && minimum.x <= maximum.x && minimum.y <= maximum.y
-                   && minimum.z <= maximum.z;
-        }
-
-        [[nodiscard]] Math::Vec3 center() const {
-            return minimum * 0.5f + maximum * 0.5f;
-        }
-
-        [[nodiscard]] Math::Vec3 size() const { return maximum - minimum; }
+        [[nodiscard]] static BoundingBox from_point(Math::Vec3 point);
+        void include(Math::Vec3 point);
+        [[nodiscard]] bool is_valid() const;
+        [[nodiscard]] Math::Vec3 center() const;
+        [[nodiscard]] Math::Vec3 size() const;
     };
+
+    struct COMET_API Ray {
+        Math::Vec3 origin{};
+        Math::Vec3 direction{0.0f, 0.0f, -1.0f};
+        // Parameter limit in origin + t * direction; distance only for unit directions.
+        float max_parameter = std::numeric_limits<float>::max();
+
+        [[nodiscard]] bool is_valid() const;
+    };
+
+    [[nodiscard]] COMET_API std::optional<float> intersect_ray_box(
+        const Ray& ray, const BoundingBox& box);
 }

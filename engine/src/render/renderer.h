@@ -3,11 +3,13 @@
 #include "render_context.h"
 #include "render/scene/render_scene.h"
 #include "render/scene/scene_resolver.h"
+#include "render/scene/scene_picking.h"
 #include "render/resource/resource_manager.h"
 #include "render/scene/scene_renderer.h"
 
 #include <functional>
 #include <memory>
+#include <optional>
 
 namespace Comet {
     class AssetRegistry;
@@ -31,6 +33,10 @@ namespace Comet {
         void set_overlay_callbacks(
             OverlayPrepareCallback prepare, OverlayRenderCallback render);
 
+        using ViewportPickCallback = std::function<void(std::optional<ScenePickHit>)>;
+        void request_viewport_pick(Math::Vec2u pixel, Math::Vec2u image_resolution);
+        void set_viewport_pick_callback(ViewportPickCallback callback);
+
         [[nodiscard]] ResourceManager& get_resource_manager() {
             return *m_resource_manager;
         }
@@ -47,6 +53,11 @@ namespace Comet {
         }
 
     private:
+        struct ViewportPickRequest {
+            Math::Vec2u pixel;
+            Math::Vec2u image_resolution;
+        };
+
         std::unique_ptr<RenderContext> m_render_context;
         std::unique_ptr<ResourceManager> m_resource_manager;
         std::unique_ptr<SceneRenderer> m_scene_renderer;
@@ -54,5 +65,7 @@ namespace Comet {
         RenderView m_render_view;
         OverlayPrepareCallback m_prepare_overlay;
         OverlayRenderCallback m_render_overlay;
+        std::optional<ViewportPickRequest> m_viewport_pick_request;
+        ViewportPickCallback m_viewport_pick_callback;
     };
 }

@@ -166,6 +166,7 @@ namespace {
                     }
                     apply_viewport_camera_updates();
                     update_viewport_state();
+                    submit_viewport_pick();
                 },
                 [this](Comet::CommandBuffer& command_buffer) {
                     m_imgui_context->render(command_buffer);
@@ -176,6 +177,19 @@ namespace {
                 [this]() { m_imgui_context->release_swapchain_resources(); },
                 [this](const Comet::SwapchainCompatibility& compatibility) {
                     m_imgui_context->rebuild_swapchain_resources(compatibility);
+                });
+
+            renderer.set_viewport_pick_callback(
+                [this](const std::optional<Comet::ScenePickHit> hit) {
+                    if(!m_selection
+                        || m_editor_state.mode != CometEditor::EditorMode::Edit) {
+                        return;
+                    }
+                    if(hit) {
+                        m_selection->select_entity(hit->entity_id);
+                    } else {
+                        m_selection->clear();
+                    }
                 });
 
             LOG_INFO("Editor initialized");
@@ -211,6 +225,16 @@ namespace {
                 m_viewport_panel->get_requested_render_size()));
         }
 
+        void submit_viewport_pick() {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
+                return;
+            }
+            if(const auto pixel = m_viewport_panel->take_pick_request()) {
+                get_engine().get_renderer().request_viewport_pick(
+                    *pixel, m_viewport_panel->get_layout().image_resolution);
+            }
+        }
+
         void update_viewport_texture(Comet::SceneRenderer& scene_renderer) {
             auto& renderer = get_engine().get_renderer();
             const uint32_t frame_slot =
@@ -244,6 +268,7 @@ namespace {
         void on_shutdown() override {
             LOG_INFO("Editor shutting down...");
             get_engine().get_renderer().set_overlay_callbacks({}, {});
+            get_engine().get_renderer().set_viewport_pick_callback({});
             auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
             scene_renderer.set_swapchain_resource_callbacks({}, {});
             m_imgui_context.reset();

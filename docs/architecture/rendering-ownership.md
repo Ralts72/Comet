@@ -163,6 +163,12 @@ Texture/Mesh DTO、Runtime 类型和创建边界集中在 `engine/src/render/res
 `Mesh` 拥有只读 local `BoundingBox`。`calculate_mesh_bounds(MeshData)` 在任何 GPU allocation/upload 前验证顶点位置并
 扫描计算局部包围盒；它与 buffers、counts、ready completion 一起构造和发布，热刷新失败时旧 Mesh 及其 bounds 一起保留。
 Runtime 不因此保留完整 CPU geometry。当前 Mesh Artifact 已包含顶点，加载后可直接计算 bounds，无需扩充二进制格式或保存重复字段。
+
+CPU 拾取由 `scene_picking` 消费当前 `RenderSubmission`：从 near/far 反投影生成有限长度 world ray，逆变换至各 Mesh
+局部坐标后与 `BoundingBox` 求交。局部方向不重新归一化，保证非均匀缩放后的参数仍可比较；最近命中通过回调交还 Editor Selection。
+ViewPanel 只产生一次性像素事件，Editor 同时传递其源图像分辨率；Renderer 在解析后、draw 前执行查询，尺寸不匹配或隐藏时
+丢弃请求，不清空旧选择。普通 miss 才清空 Selection；相机拖拽与 Alt/Option 左键不触发拾取。没有 GPU readback 或新增等待。
+
 `RenderScene → SceneExtractor → SceneResolver → RenderSubmission → SceneRenderer` 流水线集中在 `engine/src/render/scene/`，顶层 `Renderer` 只负责编排渲染上下文、资源管理器和这条场景渲染链路。
 
 Editor overlay 分为 CPU prepare 与 GPU render 两个阶段。`SceneRenderer::begin_frame()` 得到可用 frame slot 后，prepare

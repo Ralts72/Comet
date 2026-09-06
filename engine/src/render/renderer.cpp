@@ -37,6 +37,7 @@ namespace Comet {
 
         // Begin frame (acquires image and begins command buffer)
         if(!m_scene_renderer->begin_frame()) {
+            m_viewport_pick_request.reset();
             return;
         }
         if(m_prepare_overlay) {
@@ -46,6 +47,13 @@ namespace Comet {
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
         const RenderSubmission submission =
             m_scene_resolver.resolve(render_scene, frame_view);
+        const auto pick_request = std::exchange(m_viewport_pick_request, std::nullopt);
+        if(pick_request && frame_view.visible
+            && pick_request->image_resolution == frame_view.render_size
+            && m_viewport_pick_callback) {
+            m_viewport_pick_callback(pick_render_submission(
+                submission, pick_request->pixel, frame_view.render_size));
+        }
         const auto resource_waits = m_scene_renderer->render_scene_pass(submission);
 
         if(m_render_overlay) {
@@ -74,6 +82,16 @@ namespace Comet {
         OverlayPrepareCallback prepare, OverlayRenderCallback render) {
         m_prepare_overlay = std::move(prepare);
         m_render_overlay = std::move(render);
+    }
+
+    void Renderer::request_viewport_pick(
+        const Math::Vec2u pixel, const Math::Vec2u image_resolution) {
+        m_viewport_pick_request = ViewportPickRequest{pixel, image_resolution};
+    }
+
+    void Renderer::set_viewport_pick_callback(ViewportPickCallback callback) {
+        m_viewport_pick_callback = std::move(callback);
+        m_viewport_pick_request.reset();
     }
 
     Renderer::~Renderer() {

@@ -67,6 +67,8 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
   屏幕 XY 平移与独立正交缩放。Viewport 左侧工具栏集中放置 2D/3D 与 Play/Stop，Play 时禁用编辑器投影切换，
   最左侧的 Edit/Play 标签区分编辑器相机和场景主相机，Play/Stop 统一从 Viewport 工具栏操作。
   面板输入在场景解析前更新，因此当前帧直接使用新的 camera snapshot。
+  Edit 模式在画面内左键可选择最近的模型包围盒，画面内空白点击清空 Selection，Hierarchy/Inspector 随之更新；
+  Alt/Option 相机操作、工具栏与留白不触发拾取。当前为 CPU 包围盒粗拾取，不具备三角形级精度。
 - 场景渲染主链路为 `Scene -> SceneExtractor -> RenderScene -> SceneResolver -> RenderSubmission -> SceneRenderer`。
   Scene 只保存组件和 `AssetHandle`，不持有 GPU Resource。
   Runtime Mesh 在 GPU 创建前从顶点计算并保存只读局部 AABB，供后续拾取、聚焦和裁剪复用；不额外保留完整 CPU 顶点副本。
