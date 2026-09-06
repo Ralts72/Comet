@@ -169,12 +169,15 @@ namespace Comet {
         LOG_INFO("setup pipeline");
 
         DescriptorSetLayoutBindings bindings;
+        m_material_layout = std::make_shared<MaterialLayout>("cube_texture", 1,
+            std::vector<MaterialLayout::TextureProperty>{
+                {"u_Texture0", 2}, {"u_Texture1", 3}});
         bindings.add_binding(
             0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
-        bindings.add_binding(2, DescriptorType::CombinedImageSampler,
-            Flags<ShaderStage>(ShaderStage::Fragment));
-        bindings.add_binding(3, DescriptorType::CombinedImageSampler,
-            Flags<ShaderStage>(ShaderStage::Fragment));
+        for(const auto& property : m_material_layout->get_textures()) {
+            bindings.add_binding(property.binding, DescriptorType::CombinedImageSampler,
+                Flags<ShaderStage>(ShaderStage::Fragment));
+        }
         auto descriptor_set_layout = create_descriptor_set_layout(bindings);
 
         ShaderLayout layout = {};
@@ -214,15 +217,14 @@ namespace Comet {
     }
 
     const DescriptorSet& SceneRenderer::prepare_material_descriptor_set(
-        const MaterialBinding& material,
+        const AssetHandle handle, const PreparedMaterial& material,
         const std::shared_ptr<Buffer>& view_project_buffer, const Sampler& sampler) {
         if(!m_descriptor_set_layout) {
             LOG_FATAL(
                 "Descriptor set layout must be created before preparing material descriptors");
         }
 
-        auto [iterator, inserted] =
-            m_material_descriptors.try_emplace(material.material_handle);
+        auto [iterator, inserted] = m_material_descriptors.try_emplace(handle);
         MaterialDescriptorState& state = iterator->second;
         state.last_used_frame_serial = m_frame_scheduler->get_current_frame_serial();
         if(inserted) {
@@ -230,8 +232,10 @@ namespace Comet {
             DescriptorPoolSizes descriptor_pool_sizes;
             descriptor_pool_sizes.add_pool_size(
                 DescriptorType::UniformBuffer, frame_slot_count);
-            descriptor_pool_sizes.add_pool_size(
-                DescriptorType::CombinedImageSampler, 2 * frame_slot_count);
+            if(!material.textures.empty()) {
+                descriptor_pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler,
+                    static_cast<uint32_t>(material.textures.size()) * frame_slot_count);
+            }
             state.pool = std::make_shared<DescriptorPool>(
                 m_context.get_device(), frame_slot_count, descriptor_pool_sizes);
             state.descriptor_sets = state.pool->allocate_descriptor_set(
@@ -288,18 +292,26 @@ namespace Comet {
                 command_buffer.bind_pipeline(*m_pipeline);
 
                 for(const ResolvedRenderItem& item : submission.render_items) {
+                    const auto material =
+                        m_material_cache.prepare(item.material.material_handle,
+                            item.material.resource, m_material_layout);
+                    if(!material) {
+                        continue;
+                    }
                     m_frame_scheduler->retain_current_frame_resource(item.mesh);
                     append_resource_wait(resource_waits,
                         item.mesh->get_ready_completion(),
                         Flags<PipelineStage>(PipelineStage::VertexInput));
-                    for(const auto& texture : item.material.textures) {
+                    for(const auto& binding : material->textures) {
+                        const auto& texture = binding.texture;
                         m_frame_scheduler->retain_current_frame_resource(texture);
                         append_resource_wait(resource_waits,
                             texture->get_ready_completion(),
                             Flags<PipelineStage>(PipelineStage::FragmentShader));
                     }
-                    const DescriptorSet& descriptor_set = prepare_material_descriptor_set(
-                        item.material, view_project_buffer, *m_default_sampler);
+                    const DescriptorSet& descriptor_set =
+                        prepare_material_descriptor_set(item.material.material_handle,
+                            *material, view_project_buffer, *m_default_sampler);
                     render_item(item, descriptor_set);
                 }
                 remove_completed_resource_waits(resource_waits);
@@ -312,6 +324,7 @@ namespace Comet {
 
         m_render_target->end_render_target(command_buffer);
         collect_completed_material_descriptors();
+        m_material_cache.collect_unused();
         return resource_waits;
     }
 
@@ -518,15 +531,7 @@ namespace Comet {
         buffer_info.offset = 0;
         buffer_info.range = sizeof(ViewProjectMatrix);
 
-        vk::DescriptorImageInfo image_info0{};
-        image_info0.sampler = sampler.get();
-        image_info0.imageView = resources.textures[0]->get_image_view()->get();
-        image_info0.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-
-        vk::DescriptorImageInfo image_info1{};
-        image_info1.sampler = sampler.get();
-        image_info1.imageView = resources.textures[1]->get_image_view()->get();
-        image_info1.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+        std::vector<vk::DescriptorImageInfo> image_infos(resources.textures.size());
 
         std::vector<vk::WriteDescriptorSet> write_sets;
 
@@ -539,23 +544,21 @@ namespace Comet {
         view_project_write.pBufferInfo = &buffer_info;
         write_sets.emplace_back(view_project_write);
 
-        vk::WriteDescriptorSet texture0_write{};
-        texture0_write.dstSet = descriptor_set.get();
-        texture0_write.dstBinding = 2;
-        texture0_write.dstArrayElement = 0;
-        texture0_write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-        texture0_write.descriptorCount = 1;
-        texture0_write.pImageInfo = &image_info0;
-        write_sets.emplace_back(texture0_write);
+        for(std::size_t index = 0; index < resources.textures.size(); ++index) {
+            const auto& binding = resources.textures[index];
+            auto& image_info = image_infos[index];
+            image_info.sampler = sampler.get();
+            image_info.imageView = binding.texture->get_image_view()->get();
+            image_info.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-        vk::WriteDescriptorSet texture1_write{};
-        texture1_write.dstSet = descriptor_set.get();
-        texture1_write.dstBinding = 3;
-        texture1_write.dstArrayElement = 0;
-        texture1_write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-        texture1_write.descriptorCount = 1;
-        texture1_write.pImageInfo = &image_info1;
-        write_sets.emplace_back(texture1_write);
+            vk::WriteDescriptorSet texture_write{};
+            texture_write.dstSet = descriptor_set.get();
+            texture_write.dstBinding = binding.binding;
+            texture_write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+            texture_write.descriptorCount = 1;
+            texture_write.pImageInfo = &image_info;
+            write_sets.emplace_back(texture_write);
+        }
 
         m_context.get_device().get().updateDescriptorSets(write_sets, {});
     }

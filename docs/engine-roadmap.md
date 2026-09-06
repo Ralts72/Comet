@@ -12,7 +12,7 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、有界队列及发布预算可用 | 更多导入能力与按需字节预算 |
 | 4 视口与交互 | 本轮核心验收通过，扩展保留 | Prefab、搜索、按需通知和更精细拾取 |
-| 5 渲染升级 | 未开始整体迁移 | 通用材质、PipelineKey、多 pass、线程边界 |
+| 5 渲染升级 | 材质解析边界与 revision 缓存已接通 | 多布局 GPU 材质、PipelineKey、多 pass、线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 规划 | 项目设置、格式迁移、打包 |
 
@@ -138,11 +138,13 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 ### 材质与 Shader
 
-当前固定 cube pipeline、两张 Texture、u_Texture0/1 和逐帧属性解析都是 MVP 约束，不能只把 array 换成 vector。
+当前生产 GPU 仍使用 cube pipeline；固定两纹理映射已集中到手工布局，场景解析不再读取属性。
+下一步必须实际验证多布局 GPU 参数与按 revision 的 descriptor 所有权，不能只把 array 换成 vector。
 
-1. SceneResolver 只解析 Mesh/Material，不知道材质属性名、纹理数量或 binding。
-2. 建立 material/layout revision、手工 MaterialLayout 与渲染侧 MaterialRuntimeCache。
-   材质资产保存 layout/template 和参数 Handle；缓存解析资源并生成 PreparedMaterial。
+1. 已完成：SceneResolver 只解析 Mesh/Material，不知道材质属性名、纹理数量或 binding。
+2. 已接通：material revision、不可变手工 MaterialLayout/revision 与 MaterialRuntimeCache。
+   缓存按源对象/revision 和布局身份生成 PreparedMaterial 纹理快照；资产仍保存 template/Texture Handle。
+   后续扩展标量/向量参数及 GPU 不可变版本，不把当前 CPU 绑定缓存当作完整 MaterialSet。
 3. 按 Frame / Material / Object 分层：FrameSet 按 slot；MaterialSet 按 revision 创建不可变版本并跨 slot 复用；
    model matrix/object ID 可继续用 push constant，只有 per-frame backing 参数单独维护 slot state。
 4. Render Queue 按 pipeline/material 排序，至少验证两种布局及纹理、标量、向量参数。

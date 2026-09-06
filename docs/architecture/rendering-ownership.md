@@ -1,6 +1,6 @@
 # 渲染资源所有权
 
-描述当前 owner、调用边界和销毁规则；未来 MaterialLayout/RenderGraph/RenderThread 设计见[路线图](../engine-roadmap.md)。
+描述当前 owner、调用边界和销毁规则；多布局 GPU 材质、RenderGraph/RenderThread 设计见[路线图](../engine-roadmap.md)。
 
 ## 先看哪个类
 
@@ -11,6 +11,7 @@
 | `render/scene/scene_extractor.h` | Scene → 不含 GPU 对象的 RenderScene 快照 |
 | `render/scene/scene_resolver.h` | Handle/Camera → RenderSubmission |
 | `render/scene/scene_renderer.h` | Target、Pipeline、材质 descriptor 与命令录制 |
+| `render/material_runtime.h` | 布局契约、PreparedMaterial 快照与 revision 缓存 |
 | `render/frame_scheduler.h` | FrameSlot 复用、image 关联、完成序号与 retention |
 | `render/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
 | `render/resource/resource_manager.h` | 设备资源工厂、上传及 Shader/Sampler 共享资源 |
@@ -38,6 +39,7 @@ Engine
         ├── RenderPass / PipelineManager / Pipeline
         ├── FrameScheduler → FrameSlot[N] / SwapchainImageState[M]
         ├── ViewProjectBuffer[N]
+        ├── MaterialLayout / MaterialRuntimeCache → PreparedMaterial → Texture
         ├── DebugRenderer → 线段 Pipeline / VertexBuffer[slot]
         ├── RenderTarget：runtime SwapchainTarget 或 editor MultiTarget
         └── MaterialDescriptorState[material][slot]
@@ -87,7 +89,10 @@ Engine：事件 → Application 更新
 ```
 
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
-SceneRenderer 不读 EditorMode/ImGui。SceneResolver 当前仍有固定两纹理材质规则，阶段 5 才解除，不把它描述成已通用化。
+SceneRenderer 不读 EditorMode/ImGui。SceneResolver 只解析 Mesh/Material，不检查 template、属性名称和数量。
+SceneRenderer 选择 MaterialLayout，MaterialRuntimeCache 按材质身份/revision 和不可变 layout 身份准备纹理 binding。
+缺槽或不匹配在缓存层记录诊断；同版本不重复解析。未使用缓存按帧回收，已交付的 PreparedMaterial 快照独立保活。
+当前生产 GPU 仍只有 cube_texture 布局；多布局参数、FrameSet/MaterialSet 分离尚待后续，不等同于已经支持任意 Shader。
 
 只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。

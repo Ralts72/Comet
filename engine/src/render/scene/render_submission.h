@@ -5,18 +5,17 @@
 #include "render/scene/render_types.h"
 #include "scene/entity_id.h"
 
-#include <array>
 #include <memory>
 #include <optional>
 #include <vector>
 
 namespace Comet {
     class Mesh;
-    class Texture;
+    class Material;
 
     struct MaterialBinding {
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
-        std::array<std::shared_ptr<Texture>, 2> textures;
+        std::shared_ptr<const Material> resource;
     };
 
     struct ResolvedRenderItem {

@@ -8,7 +8,12 @@ namespace Comet {
 
     void Material::set_texture_property(
         const std::string& name, std::shared_ptr<Texture> texture) {
+        const auto found = m_texture_properties.find(name);
+        if(found != m_texture_properties.end() && found->second == texture) {
+            return;
+        }
         m_texture_properties[name] = std::move(texture);
+        ++m_revision;
     }
 
     std::shared_ptr<Texture> Material::get_texture_property(

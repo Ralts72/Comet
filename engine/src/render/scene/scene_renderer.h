@@ -17,8 +17,8 @@
 #include "render/render_target.h"
 #include "render/resource/texture.h"
 #include "render/debug/debug_renderer.h"
+#include "render/material_runtime.h"
 
-#include <array>
 #include <functional>
 #include <memory>
 #include <span>
@@ -71,7 +71,7 @@ namespace Comet {
     private:
         struct DescriptorResources {
             std::shared_ptr<Buffer> view_project_buffer;
-            std::array<std::shared_ptr<Texture>, 2> textures;
+            std::vector<PreparedMaterial::TextureBinding> textures;
         };
 
         struct MaterialDescriptorState {
@@ -82,7 +82,7 @@ namespace Comet {
         };
 
         [[nodiscard]] const DescriptorSet& prepare_material_descriptor_set(
-            const MaterialBinding& material,
+            AssetHandle handle, const PreparedMaterial& material,
             const std::shared_ptr<Buffer>& view_project_buffer, const Sampler& sampler);
 
         std::shared_ptr<DescriptorSetLayout> create_descriptor_set_layout(
@@ -110,6 +110,8 @@ namespace Comet {
         std::unique_ptr<DebugRenderer> m_debug_renderer;
         std::shared_ptr<Sampler> m_default_sampler;
         std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;
+        std::shared_ptr<const MaterialLayout> m_material_layout;
+        MaterialRuntimeCache m_material_cache;
         std::unordered_map<AssetHandle, MaterialDescriptorState> m_material_descriptors;
         std::vector<std::shared_ptr<Buffer>> m_view_project_uniform_buffers;
         Format m_surface_format;
