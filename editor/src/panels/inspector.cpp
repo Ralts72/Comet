@@ -1,6 +1,7 @@
 #include "inspector.h"
 #include "property_editor_registry.h"
 #include "selection.h"
+#include "scene_commands.h"
 #include "diagnostics/logger.h"
 
 #include "asset/serialization/material_serializer.h"
@@ -92,6 +93,10 @@ namespace CometEditor {
         ImGui::Text("Entity ID: %llu", static_cast<unsigned long long>(entity.get_id()));
 
         bool active_property_visible = false;
+        const bool edit_structure =
+            m_history.get_scene()
+            && m_history.get_scene()->find_entity(entity.get_uuid()) == entity;
+        const Comet::ComponentDescriptor* remove = nullptr;
         for(const Comet::ComponentDescriptor& component_descriptor :
             m_component_registry.components()) {
             if(!component_descriptor.has_component(entity)) {
@@ -100,9 +105,19 @@ namespace CometEditor {
 
             ImGui::PushID(component_descriptor.id.c_str());
             const bool is_name = component_descriptor.id == "name";
-            if(is_name
+            const bool expanded =
+                is_name
                 || ImGui::CollapsingHeader(component_descriptor.display_name.c_str(),
-                    ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGuiTreeNodeFlags_DefaultOpen);
+            if(!is_name && ImGui::BeginPopupContextItem("Component actions")) {
+                if(ImGui::MenuItem("Remove Component", nullptr, false,
+                       edit_structure
+                           && SceneCommands::can_edit_component_structure(
+                               component_descriptor)))
+                    remove = &component_descriptor;
+                ImGui::EndPopup();
+            }
+            if(expanded) {
                 for(const Comet::PropertyDescriptor& property :
                     component_descriptor.properties) {
                     ImGui::PushID(property.id.c_str());
@@ -119,6 +134,32 @@ namespace CometEditor {
         }
         if(!active_property_visible && !m_property_edit.commit()) {
             LOG_ERROR("Cannot finish hidden property edit");
+        }
+        const Comet::ComponentDescriptor* add = nullptr;
+        ImGui::BeginDisabled(!edit_structure);
+        if(ImGui::Button("Add Component"))
+            ImGui::OpenPopup("Add Component");
+        if(ImGui::BeginPopup("Add Component")) {
+            for(const auto& component : m_component_registry.components()) {
+                if(SceneCommands::can_edit_component_structure(component)
+                    && !component.has_component(entity)
+                    && ImGui::MenuItem(component.display_name.c_str()))
+                    add = &component;
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::EndDisabled();
+        // 结束本轮属性访问后再修改结构，避免移除正在访问的组件。
+        if((add || remove) && m_property_edit.commit()) {
+            bool changed = false;
+            if(add)
+                changed = SceneCommands::add_component(
+                    m_history, m_component_registry, entity.get_uuid(), add->id);
+            else
+                changed = SceneCommands::remove_component(
+                    m_history, m_component_registry, entity.get_uuid(), remove->id);
+            if(!changed)
+                LOG_ERROR("Cannot change component structure");
         }
     }
 

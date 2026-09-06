@@ -108,6 +108,27 @@ namespace {
         EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "名称");
     }
 
+    TEST(ComponentRegistryTest, ComponentSnapshotIsOwnedAndRejectsInvalidRestore) {
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<Comet::CameraComponent>().fov = 73;
+        const auto registry = Comet::create_scene_component_registry();
+        const auto& camera = *registry.find_component("camera");
+        const auto snapshot = camera.capture_component(entity);
+        EXPECT_FALSE(camera.restore_component(entity, snapshot));
+        entity.get_component<Comet::CameraComponent>().fov = 91;
+        ASSERT_TRUE(camera.remove_component(entity));
+        EXPECT_FALSE(camera.capture_component(entity).has_value());
+        EXPECT_FALSE(camera.restore_component(entity, std::any(12)));
+        EXPECT_FALSE(entity.has_component<Comet::CameraComponent>());
+        ASSERT_TRUE(camera.restore_component(entity, snapshot));
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::CameraComponent>().fov, 73);
+        EXPECT_FALSE(
+            registry.find_component("name")->capture_component(entity).has_value());
+        scene.destroy_entity(entity);
+        EXPECT_FALSE(camera.restore_component(entity, snapshot));
+    }
+
     TEST(ComponentRegistryTest, RejectsDuplicateStableIds) {
         Comet::ComponentRegistry registry;
         auto first = Comet::make_component_descriptor<Comet::TransformComponent>(

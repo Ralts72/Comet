@@ -19,7 +19,7 @@
 以当前 main 的功能与验收为准，不再按 feat/auto 提交编号逐个迁移；旧分支仅作为算法、测试及设计参考。
 编辑命令历史、帧准备后提取、通用线段绘制、选中包围盒及平移 Gizmo 已接通，后续顺序：
 
-1. **扩展编辑命令覆盖**：实现实体／组件结构和层级编辑的撤销协议，名称已接入属性事务。
+1. **扩展编辑命令覆盖**：实现实体结构和层级编辑的撤销协议，名称及可选组件增删已接入历史。
    保持修改、world transform 更新、提取与绘制的时序一致；结构修改不能简单套属性快照。
 2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
 
@@ -72,6 +72,7 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 - Swapchain core/dependent 共享所有权与 compatibility diff；重建分别等待 graphics 与 present 使用完成。
 - CommandHistory 有界历史、UUID 定位及 PropertyEditTransaction；Inspector 注册属性拖动只记录一次，取消恢复。
   实体名称使用同一个 String 属性描述／事务，文本输入结束提交一次，长名称不再被固定缓冲区截断。
+  Inspector 添加／移除可选组件经 SceneCommands 进入同一历史；UUID 定位，完整值快照恢复，Play 不开放结构编辑。
   菜单／快捷键请求由 Editor 在 UI 准备后处理；New/Open 成功及 Edit/Play 切换清空历史，Play 修改不记录。
 - Engine 在 Renderer::prepare_frame 完成 UI 准备之后读取活动 Scene 并提取，随后 render_frame；不新增快照 provider 回调。
 - LineDrawList 接收单帧线段/包围盒；执行器使用场景 pass、相机和 MSAA，正常深度测试且不写深度。
@@ -86,8 +87,8 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 - Gizmo 后续增加旋转／缩放、本地轴和吸附；持续验证当前帧快照一致性。
   多 pass outline 留到阶段 5，不与包围盒反馈混淆。
-- 扩展撤销到实体/组件结构修改与层级操作；资产修改需独立定义文件事务，不与场景历史混用。
-- Add/Remove Component、搜索、复制粘贴、删除、duplicate、拖拽资产、Prefab MVP。
+- 扩展撤销到实体结构修改与层级操作；资产修改需独立定义文件事务，不与场景历史混用。
+- 搜索、复制粘贴、删除、duplicate、拖拽资产、Prefab MVP。
 - Project 缩略图、搜索和资产创建；与阶段 3 导入入口共用事务服务。
 - Runtime Camera 的投影设置应通过场景组件/Inspector 表达，不让 Edit 的 2D/3D 开关影响 Play。
 - Runtime 输入单独路由；有真实需求才增加 Eject/Debug Camera 或多 Viewport。
