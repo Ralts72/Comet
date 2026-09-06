@@ -71,6 +71,7 @@ namespace Comet::Tests {
         PipelineManager pipelines(device, pass);
         MaterialRenderer materials(
             device, pipelines, engine->get_resource_manager(), 2, SampleCount::Count1);
+        const auto initial_pipeline_count = pipelines.get_cached_pipeline_count();
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         const MeshData mesh_data{
@@ -191,6 +192,8 @@ namespace Comet::Tests {
                     EXPECT_EQ(report.material_bindings, change_layout ? 2u : 0u);
                     if(change_layout) {
                         for(const auto& layout : materials.get_material_layouts()) {
+                            if(layout->get_name() == "lit_color")
+                                continue;
                             EXPECT_EQ(layout->get_parameter_size(), 48u);
                             EXPECT_EQ(layout->get_parameter_binding(), 5u);
                             EXPECT_EQ(layout->get_scalars().front().offset, 0u);
@@ -224,6 +227,8 @@ namespace Comet::Tests {
                         engine->get_resource_manager(), 2, SampleCount::Count1);
                     if(change_layout) {
                         for(const auto& layout : rebuilt.get_material_layouts()) {
+                            if(layout->get_name() == "lit_color")
+                                continue;
                             EXPECT_EQ(layout->get_parameter_size(), 48u);
                             EXPECT_EQ(layout->get_parameter_binding(), 5u);
                         }
@@ -286,12 +291,12 @@ namespace Comet::Tests {
         EXPECT_FALSE(retired.expired());
         if(reload_shaders) {
             pipelines.collect_unused();
-            EXPECT_EQ(pipelines.get_cached_pipeline_count(), 4u);
+            EXPECT_EQ(pipelines.get_cached_pipeline_count(), initial_pipeline_count + 2);
         }
         frames.wait_for_all_slots();
         if(reload_shaders) {
             pipelines.collect_unused();
-            EXPECT_EQ(pipelines.get_cached_pipeline_count(), 2u);
+            EXPECT_EQ(pipelines.get_cached_pipeline_count(), initial_pipeline_count);
         } else {
             EXPECT_TRUE(retired.expired());
         }

@@ -15,6 +15,8 @@
 #include "material_mesh_vert.h"
 #include "material_textured_frag.h"
 #include "material_solid_frag.h"
+#include "material_lit_vert.h"
+#include "material_lit_frag.h"
 
 #include <algorithm>
 #include <array>
@@ -47,9 +49,11 @@ namespace Comet {
         DescriptorSetLayoutBindings frame_bindings;
         frame_bindings.add_binding(
             0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
+        frame_bindings.add_binding(
+            1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
         m_frame_layout = std::make_shared<DescriptorSetLayout>(device, frame_bindings);
         DescriptorPoolSizes pool_sizes;
-        pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count);
+        pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count * 2);
         const auto pool =
             std::make_shared<DescriptorPool>(device, frame_slot_count, pool_sizes);
         const auto descriptors =
@@ -72,6 +76,15 @@ namespace Comet {
             write.descriptorCount = 1;
             write.pBufferInfo = &info;
             device.get().updateDescriptorSets(write, {});
+            frame->lighting = Buffer::try_create_cpu_buffer(device,
+                Flags<BufferUsage>(BufferUsage::Uniform), sizeof(LightingData), false,
+                nullptr, "frame lighting")
+                                  .value();
+            const vk::DescriptorBufferInfo lighting_info(
+                frame->lighting->get(), 0, sizeof(LightingData));
+            write.dstBinding = 1;
+            write.pBufferInfo = &lighting_info;
+            device.get().updateDescriptorSets(write, {});
             m_frames.push_back(std::move(frame));
         }
         auto& shaders = resources.get_shader_manager();
@@ -86,6 +99,11 @@ namespace Comet {
             create_pipeline(pipelines, vertex,
                 shaders.load_shader_if_missing("material_solid", MATERIAL_SOLID_FRAG),
                 MaterialLayout::find_builtin("unlit_color"), samples));
+        m_pipelines.emplace("lit_color",
+            create_pipeline(pipelines,
+                shaders.load_shader_if_missing("material_lit_vert", MATERIAL_LIT_VERT),
+                shaders.load_shader_if_missing("material_lit_frag", MATERIAL_LIT_FRAG),
+                MaterialLayout::find_builtin("lit_color"), samples));
     }
 
     std::shared_ptr<const MaterialRenderer::PipelineState> MaterialRenderer::
@@ -134,17 +152,20 @@ namespace Comet {
     MaterialRenderer::ReloadReport MaterialRenderer::reload_shaders(
         PipelineManager& pipelines, ShaderManager& shaders,
         const ShaderManager::Bytecodes& bytecodes, const SampleCount samples) {
-        if(bytecodes.size() != 3 || !bytecodes.contains("material_mesh")
-            || !bytecodes.contains("material_textured")
-            || !bytecodes.contains("material_solid"))
+        const bool legacy = bytecodes.contains("material_mesh")
+                            && bytecodes.contains("material_textured")
+                            && bytecodes.contains("material_solid");
+        const bool lit = bytecodes.contains("material_lit_vert")
+                         && bytecodes.contains("material_lit_frag");
+        if(bytecodes.empty() || bytecodes.size() != (legacy ? 3u : 0u) + (lit ? 2u : 0u))
             throw std::invalid_argument(
-                "Material Shader reload requires the complete three-Shader cohort");
+                "Material Shader reload requires complete unlit and/or lit cohorts");
         auto candidate_shaders = shaders.prepare_update(bytecodes);
         for(const auto& [name, candidate] : candidate_shaders) {
             if(!bytecodes.contains(name))
                 continue;
             std::optional<uint32_t> ignored_set;
-            if(name != "material_mesh")
+            if(name != "material_mesh" && name != "material_lit_vert")
                 ignored_set = 1;
             if(!shaders.get_shader(name)->get_interface().has_same_layout(
                    candidate->get_interface(), ignored_set))
@@ -153,18 +174,21 @@ namespace Comet {
         }
         ReloadReport report;
         auto candidate_pipelines = m_pipelines;
-        for(const auto& [layout, fragment] :
-            {std::pair("cube_texture", "material_textured"),
-                std::pair("unlit_color", "material_solid")}) {
+        for(const auto& [layout, vertex, fragment] :
+            {std::tuple("cube_texture", "material_mesh", "material_textured"),
+                std::tuple("unlit_color", "material_mesh", "material_solid"),
+                std::tuple("lit_color", "material_lit_vert", "material_lit_frag")}) {
+            if(!bytecodes.contains(fragment))
+                continue;
             const auto& old = m_pipelines.at(layout);
             const auto reflected = MaterialLayout::reflect(
                 old->layout, candidate_shaders.at(fragment)->get_interface());
             std::shared_ptr<DescriptorSetLayout> descriptor_layout;
             if(reflected == old->layout)
                 descriptor_layout = old->material_layout;
-            auto candidate = create_pipeline(pipelines,
-                candidate_shaders.at("material_mesh"), candidate_shaders.at(fragment),
-                reflected, samples, std::move(descriptor_layout));
+            auto candidate = create_pipeline(pipelines, candidate_shaders.at(vertex),
+                candidate_shaders.at(fragment), reflected, samples,
+                std::move(descriptor_layout));
             if(candidate->pipeline != old->pipeline) {
                 candidate_pipelines.at(layout) = std::move(candidate);
                 ++report.pipelines;
@@ -325,11 +349,26 @@ namespace Comet {
     }
 
     std::vector<QueueSemaphoreSubmit> MaterialRenderer::render(FrameScheduler& frames,
-        const ViewProjectMatrix& view, const std::span<const ResolvedRenderItem> items) {
+        const ViewProjectMatrix& view, const std::span<const ResolvedRenderItem> items,
+        const std::span<const RenderLight> lights) {
+        const auto previous_omissions =
+            std::pair(m_statistics.excess_lights, m_statistics.invalid_lights);
         m_statistics = {};
         m_statistics.frame_set_count = static_cast<uint32_t>(m_frames.size());
         const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
         frame->buffer->write(&view);
+        const auto lighting = LightingData::prepare(lights);
+        frame->lighting->write(&lighting);
+        m_statistics.light_count = static_cast<uint32_t>(lighting.counts.x);
+        m_statistics.excess_lights = static_cast<uint32_t>(lighting.counts.y);
+        m_statistics.invalid_lights = static_cast<uint32_t>(lighting.counts.z);
+        if((m_statistics.excess_lights > 0 || m_statistics.invalid_lights > 0)
+            && previous_omissions
+                   != std::pair(m_statistics.excess_lights, m_statistics.invalid_lights))
+            LOG_WARN(
+                "Lighting omitted {} lights beyond the {}-light limit and {} invalid lights",
+                m_statistics.excess_lights, LightingData::MAX_LIGHTS,
+                m_statistics.invalid_lights);
         frames.retain_current_frame_resource(frame);
         std::vector<DrawItem> queue;
         queue.reserve(items.size());

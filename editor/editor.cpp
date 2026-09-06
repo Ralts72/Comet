@@ -46,7 +46,7 @@ namespace {
     constexpr std::size_t SCENE_PATH_CAPACITY = 1024;
     constexpr std::uint32_t EDITOR_VIEWPORT_MAX_RENDER_DIMENSION = 4096;
     const std::filesystem::path DEMO_MESH = "meshes/cube.gltf";
-    const std::filesystem::path DEMO_MATERIAL = "materials/demo.mat";
+    const std::filesystem::path DEMO_MATERIAL = "materials/lit.mat";
 
     struct EditorRenderAssets {
         Comet::AssetHandle mesh;
@@ -105,6 +105,9 @@ namespace {
         auto& transform = cube.get_component<Comet::TransformComponent>();
         transform.rotation = Comet::Math::Vec3(-20.0f, 30.0f, 0.0f);
         cube.add_component<Comet::MeshRendererComponent>(assets.mesh, assets.material);
+        auto light = scene->create_entity("Key Light");
+        light.get_component<Comet::TransformComponent>().rotation = {-30, -35, 0};
+        light.add_component<Comet::LightComponent>().intensity = 4.0f;
 
         return scene;
     }
@@ -140,6 +143,12 @@ namespace {
                             .stage = Comet::ShaderCompiler::Stage::Fragment}},
                     {"material_solid",
                         {.source = shader_directory / "material_solid.frag",
+                            .stage = Comet::ShaderCompiler::Stage::Fragment}},
+                    {"material_lit_vert",
+                        {.source = shader_directory / "material_lit.vert",
+                            .stage = Comet::ShaderCompiler::Stage::Vertex}},
+                    {"material_lit_frag",
+                        {.source = shader_directory / "material_lit.frag",
                             .stage = Comet::ShaderCompiler::Stage::Fragment}}});
             m_debug_shader_reload =
                 std::make_unique<CometEditor::ShaderReload>(engine.get_task_scheduler(),

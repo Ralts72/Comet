@@ -21,7 +21,7 @@ namespace Comet {
 
             render_scene.cameras.push_back({.entity_id = id,
                 .primary = primary,
-                .view_matrix = Math::inverse(world_transform.camera_world_matrix),
+                .view_matrix = Math::inverse(world_transform.pose_world_matrix),
                 .fov_degrees = fov,
                 .near_clip = near_clip,
                 .far_clip = far_clip});
@@ -42,6 +42,25 @@ namespace Comet {
                 .material_handle = material});
         }
 
+        const auto light_view =
+            scene.m_registry.view<IdComponent, WorldTransformComponent, LightComponent>();
+        render_scene.lights.reserve(light_view.size_hint());
+        for(const entt::entity handle : light_view) {
+            const auto& light = light_view.get<LightComponent>(handle);
+            if(!light.enabled)
+                continue;
+            const auto& world = light_view.get<WorldTransformComponent>(handle);
+            render_scene.lights.push_back(
+                {.entity_id = light_view.get<IdComponent>(handle).id,
+                    .type = light.type,
+                    .position = Math::Vec3(world.world_matrix[3]),
+                    .direction = -Math::Vec3(world.pose_world_matrix[2]),
+                    .color = light.color,
+                    .intensity = light.intensity,
+                    .range = light.range,
+                    .inner_angle = light.inner_angle,
+                    .outer_angle = light.outer_angle});
+        }
         return render_scene;
     }
 }

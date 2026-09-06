@@ -17,7 +17,7 @@
 #include <vector>
 
 namespace Comet {
-    enum class PropertyType { Bool, Float, Vec3, AssetHandle, String };
+    enum class PropertyType { Bool, Float, Vec3, AssetHandle, String, Enum };
 
     using PropertyValue = std::variant<bool, float, Math::Vec3, AssetHandle, std::string>;
 
@@ -40,6 +40,10 @@ namespace Comet {
     };
 
     struct PropertyDescriptor {
+        struct EnumOption {
+            std::string id;
+            std::string display_name;
+        };
         [[nodiscard]] COMET_API std::optional<PropertyValue> copy_value(
             const void* component) const;
         [[nodiscard]] COMET_API bool assign_value(
@@ -57,6 +61,9 @@ namespace Comet {
         std::function<void*(void*)> mutable_accessor;
         std::function<const void*(const void*)> const_accessor;
         std::function<void(void*)> on_changed;
+        std::vector<EnumOption> enum_options;
+        std::function<std::optional<std::string>(const void*)> read_enum;
+        std::function<bool(void*, std::string_view)> write_enum;
 
         [[nodiscard]] void* get_value(void* component) const {
             if(component == nullptr || !mutable_accessor) {
@@ -217,6 +224,41 @@ namespace Comet {
         descriptor.on_changed = [callback = std::forward<Callback>(on_changed)](
                                     void* value) mutable {
             callback(*static_cast<Value*>(value));
+        };
+        return descriptor;
+    }
+
+    // 枚举仍以实际 C++ 类型存储；快照/场景文件使用稳定字符串，不重解释 underlying type。
+    template<typename Component, typename Enum>
+        requires std::is_enum_v<Enum>
+    PropertyDescriptor make_enum_property_descriptor(std::string id,
+        std::string display_name, Enum Component::* member,
+        std::vector<std::pair<Enum, PropertyDescriptor::EnumOption>> options) {
+        PropertyDescriptor descriptor{.id = std::move(id),
+            .display_name = std::move(display_name),
+            .type = PropertyType::Enum,
+            .mutable_accessor = [member](void* component) -> void* {
+                return &(static_cast<Component*>(component)->*member);
+            },
+            .const_accessor = [member](const void* component) -> const void* {
+                return &(static_cast<const Component*>(component)->*member);
+            }};
+        for(const auto& [value, option] : options)
+            descriptor.enum_options.push_back(option);
+        descriptor.read_enum = [options](
+                                   const void* value) -> std::optional<std::string> {
+            for(const auto& [enumerator, option] : options)
+                if(*static_cast<const Enum*>(value) == enumerator)
+                    return option.id;
+            return std::nullopt;
+        };
+        descriptor.write_enum = [options](void* value, std::string_view id) {
+            for(const auto& [enumerator, option] : options)
+                if(option.id == id) {
+                    *static_cast<Enum*>(value) = enumerator;
+                    return true;
+                }
+            return false;
         };
         return descriptor;
     }

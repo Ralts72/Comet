@@ -32,7 +32,7 @@ entities:
 `RelationshipComponent` 中的运行时 ID 和派生的 `WorldTransformComponent` 矩阵都不会序列化。实体按 UUID 排序输出，
 保证内容稳定且便于 diff。
 
-当前内置 registry 支持 `name`、`transform`、`mesh_renderer` 和 `camera`。`name` 是 Scene 格式显式管理的必填字段，其余组件可选。
+当前内置 registry 支持 `name`、`transform`、`mesh_renderer`、`camera` 和 `light`。`name` 是 Scene 格式显式管理的必填字段，其余组件可选。
 `mesh_renderer.mesh` 和 `mesh_renderer.material` 保存 `AssetHandle` 的无符号整数值；源文件路径和 GPU 对象不会落盘。
 `NameComponent` 可以编辑但不能通过通用 Entity API 添加或移除；`IdComponent`、`UuidComponent`、
 `RelationshipComponent` 和 `WorldTransformComponent` 只允许只读访问，由 Scene 负责创建和维护。
@@ -40,6 +40,12 @@ entities:
 `SceneSerializer` 与 Inspector 共享同一个 `ComponentRegistry`。除 `name` 外，组件键和属性键来自 descriptor 的
 stable ID，值通过 descriptor 的类型访问器读写；只有 `serializable=true` 且非 transient 的属性会进入文件。
 新增一个已支持属性类型的可序列化组件时，只需注册 descriptor，不需要再给 serializer 添加组件专用分支。
+
+`light` 的字段为 `type`、`enabled`、`color`、`intensity`、`range`、`inner_angle`、`outer_angle`。
+`type` 是 `directional` / `point` / `spot` 字符串，不是 C++ 枚举的整数内存值；未知枚举值拒绝加载。
+PropertyDescriptor 的 Enum 元数据统一服务 Inspector 下拉选项、typed assignment、撤销快照和序列化。
+相机和灯光共用派生的 `pose_world_matrix`（父 world × 本地 TR，不含本地 scale），不把它写进文件；
+这不是完全去除父级缩放的刚体矩阵，灯光使用该矩阵的 -Z 列并归一化方向。
 
 descriptor 描述当前代码所使用的活动格式。引擎开发阶段可以直接调整 stable ID、字段和类型，已有开发场景可能因此
 无法加载，需要重新保存或重建；暂不为这些变化编写迁移器。等项目格式进入稳定阶段后，再冻结 schema，并要求不兼容

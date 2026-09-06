@@ -37,6 +37,12 @@ namespace Comet {
                 return *static_cast<const AssetHandle*>(value);
             case PropertyType::String:
                 return *static_cast<const std::string*>(value);
+            case PropertyType::Enum:
+                if(read_enum) {
+                    if(auto name = read_enum(value))
+                        return PropertyValue(*name);
+                }
+                return std::nullopt;
         }
         return std::nullopt;
     }
@@ -46,6 +52,13 @@ namespace Comet {
         void* destination = get_value(component);
         if(!destination || !editable || read_only) {
             return false;
+        }
+        if(type == PropertyType::Enum) {
+            const auto* name = std::get_if<std::string>(&value);
+            if(!name || !write_enum || !write_enum(destination, *name))
+                return false;
+            notify_changed(destination);
+            return true;
         }
         const bool assigned = std::visit(
             [this, destination](const auto& source) {
@@ -108,6 +121,19 @@ namespace Comet {
                     && (property.type != PropertyType::AssetHandle
                         || *property.asset_type == AssetType::Unknown))
                 || !property_ids.insert(property.id).second) {
+                return false;
+            }
+            if(property.type == PropertyType::Enum) {
+                if(property.enum_options.empty() || !property.read_enum
+                    || !property.write_enum)
+                    return false;
+                std::unordered_set<std::string> names;
+                for(const auto& option : property.enum_options)
+                    if(option.id.empty() || option.display_name.empty()
+                        || !names.insert(option.id).second)
+                        return false;
+            } else if(!property.enum_options.empty() || property.read_enum
+                      || property.write_enum) {
                 return false;
             }
         }
@@ -214,6 +240,28 @@ namespace Comet {
                     &CameraComponent::far_clip,
                     {.numeric = {.speed = 1.0f, .minimum = 0.001f}})}));
 
+        register_component(make_component_descriptor<LightComponent>("light", "Light",
+            {make_enum_property_descriptor<LightComponent, LightType>("type", "Type",
+                 &LightComponent::type,
+                 {{LightType::Directional, {"directional", "Directional"}},
+                     {LightType::Point, {"point", "Point"}},
+                     {LightType::Spot, {"spot", "Spot"}}}),
+                make_property_descriptor("enabled", "Enabled", &LightComponent::enabled),
+                make_property_descriptor("color", "Color (linear)",
+                    &LightComponent::color,
+                    {.numeric = {.speed = 0.01f, .minimum = 0.0f, .maximum = 1.0f}}),
+                make_property_descriptor("intensity", "Intensity",
+                    &LightComponent::intensity,
+                    {.numeric = {.speed = 0.1f, .minimum = 0.0f, .maximum = 10000.0f}}),
+                make_property_descriptor("range", "Range", &LightComponent::range,
+                    {.numeric =
+                            {.speed = 0.1f, .minimum = 0.001f, .maximum = 1000000.0f}}),
+                make_property_descriptor("inner_angle", "Inner angle",
+                    &LightComponent::inner_angle,
+                    {.numeric = {.speed = 0.5f, .minimum = 0.0f, .maximum = 89.0f}}),
+                make_property_descriptor("outer_angle", "Outer angle",
+                    &LightComponent::outer_angle,
+                    {.numeric = {.speed = 0.5f, .minimum = 0.01f, .maximum = 89.0f}})}));
         return registry;
     }
 }

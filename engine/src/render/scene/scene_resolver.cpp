@@ -16,6 +16,7 @@ namespace Comet {
         const RenderScene& render_scene, const RenderView& view) {
         RenderSubmission submission;
         submission.view_project_matrix = resolve_camera(render_scene, view);
+        submission.lights = render_scene.lights;
         submission.render_items.reserve(render_scene.render_items.size());
 
         for(const RenderItem& render_item : render_scene.render_items) {

@@ -12,7 +12,7 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、有界队列及发布预算可用 | 更多导入能力与按需字节预算 |
 | 4 视口与交互 | 本轮核心验收通过，扩展保留 | Prefab、搜索、按需通知和更精细拾取 |
-| 5 渲染升级 | 材质／Shader、缓存、WSI、RenderGraph 及 HDR→SDR 输出已接通 | forward 光照／阴影／PBR／Bloom、诊断及线程边界 |
+| 5 渲染升级 | 材质／Shader、缓存、WSI、RenderGraph、HDR 输出及 forward 三类灯光已接通 | 阴影／PBR／Bloom、诊断及线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 规划 | 项目设置、格式迁移、打包 |
 
@@ -23,7 +23,7 @@
    Gizmo 已支持平移／旋转／缩放及对应吸附，核心编辑闭环进入维护回归。
    保持修改、world transform 更新、提取与绘制的时序一致；结构修改不能简单套属性快照。
 2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
-3. **渲染主线**：后台背压、多布局材质、Shader 更新／缓存、RenderGraph 与 HDR fullscreen 输出已接通，下一项 LightComponent／forward 光照，并进行 030 架构回顾。
+3. **渲染主线**：HDR 输出与 forward 三类灯光已接通，030 完成属性、快照与帧资源架构回顾；下一项方向光 shadow pass 与场景采样链路。
 
 WSI 创建／枚举失败后的无呈现重试已接通；surface/device 丢失与不兼容格式的完整恢复仍保留，不与一般重试混为一谈。
 
@@ -229,6 +229,9 @@ Frame、顶点输入和 push constant 的固定 C++ 契约不自动重写。
 - Dynamic Rendering 在真实多 pass/attachment 需求下评估，不为 API 更换重写阶段 4。
   检查显式 feature、ImGui/MSAA/resize、调试工具和目标 GPU；可按 pass 保留传统 RenderPass。
 - Forward Lighting → LightComponent（方向/点/聚光）→ shadow → PBR → tone mapping/gamma/bloom。
+  LightComponent、typed enum Inspector/序列化/撤销、RenderLight 快照、32 灯 FrameSet 和 lit_color Lambert 已完成。
+  app/editor 默认示例使用 lit 材质与 Key Light；方向光、点光衰减、聚光锥及 HDR 像素已验证。
+  不是 PBR 或完整物理光度单位系统；当前无环境光/阴影，有限灯数量不是 tiled/clustered lighting。
   HDR RGBA16F + 单采样 fullscreen tone mapping/gamma 已完成；固定曝光 1 的指数映射不是最终艺术参数系统。
   sRGB 附件硬件编码，UNORM 附件 Shader 编码；editor 输出与窗口编码一致。Bloom、曝光编辑/自动曝光和 HDR 显示器输出尚未实现。
   先完成小型 forward 场景，不一次构建完整 deferred renderer。

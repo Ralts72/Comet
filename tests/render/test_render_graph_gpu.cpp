@@ -4,6 +4,10 @@
 #include "graphics/resource/buffer.h"
 #include "graphics/resource/image_view.h"
 #include "diagnostics/logger.h"
+#include "render/resource/mesh.h"
+#include "render/material.h"
+#include "common/file_io.h"
+#include "shader/compiler.h"
 
 #include <gtest/gtest.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -127,6 +131,15 @@ namespace Comet::Tests {
                                      ? 12.92f * linear
                                      : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
             return static_cast<int>(std::lround(encoded * 255.0f));
+        }
+        std::shared_ptr<Mesh> lit_quad(Math::Vec3 normal = {0, 0, 1}) {
+            MeshData data{
+                .vertices = {{{-1, -1, 0.5f}, {}, normal}, {{1, -1, 0.5f}, {}, normal},
+                    {{1, 1, 0.5f}, {}, normal}, {{-1, 1, 0.5f}, {}, normal}},
+                .indices = {0, 1, 2, 2, 3, 0}};
+            auto mesh = engine->get_resource_manager().try_create_mesh(data).value();
+            mesh->get_ready_completion().wait();
+            return mesh;
         }
     };
 
@@ -521,6 +534,209 @@ namespace Comet::Tests {
                             mapped_byte(hdr[channel]), 2);
                     }
             }
+        }
+    }
+
+    TEST_F(
+        RenderGraphGpuTest, ForwardLightsProduceExpectedPixelsAndReuseMaterialBindings) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        Config config;
+        config.vulkan.msaa_samples = SampleCount::Count1;
+        config.render.clear_color = {0, 0, 0, 1};
+        SceneRenderer scene(context, config.vulkan, config.render);
+        scene.setup_offscreen_render_pass({17, 17});
+        scene.setup_pipeline(engine->get_resource_manager());
+        auto mesh = lit_quad();
+        auto tilted = lit_quad({1, 0, 1});
+        auto material = std::make_shared<Material>("lit", "lit_color");
+        material->set_vector_property("albedo", {0.5f, 0.25f, 0.125f, 1});
+        auto& frames = scene.get_frame_scheduler();
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        auto readback = std::make_shared<Readback>(
+            device, context.get_context().get_physical_device(), 17 * 17 * 4);
+        for(unsigned mode = 0; mode < 7; ++mode) {
+            RenderLight light{.entity_id = 1,
+                .position = {0, 0, 2.5f},
+                .intensity = Math::PI,
+                .range = 10,
+                .inner_angle = 5,
+                .outer_angle = 20};
+            if(mode == 1 || mode == 2 || mode == 6) {
+                light.type = mode == 1 ? LightType::Point : LightType::Spot;
+                light.intensity = 4 * Math::PI;
+            }
+            if(mode == 6) {
+                light.inner_angle = 0;
+                light.outer_angle = 0.0001f;
+            }
+            if(mode == 3)
+                light.direction = {0, 0, 1};
+            auto model = Math::Mat4(1);
+            if(mode == 4)
+                model = Math::scale(model, {2, 1, 1});
+            if(mode == 5)
+                model = Math::scale(model, {1, 1, 0});
+            RenderSubmission submission{
+                .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
+                .render_items = {{.model_matrix = model,
+                    .mesh = mode == 4 ? tilted : mesh,
+                    .material = {AssetHandle(555), material}}},
+                .lights = {light}};
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            EXPECT_TRUE(scene.render_scene_pass(submission).empty());
+            const auto& statistics = scene.get_material_statistics();
+            EXPECT_EQ(statistics.draw_calls, 1);
+            EXPECT_EQ(statistics.light_count, 1);
+            if(mode > 0)
+                EXPECT_EQ(statistics.material_bindings_created, 0);
+            auto view =
+                scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
+            copy_output(frames, view->get_image(), readback, {17, 17});
+            submit(device, frames);
+            frames.wait_for_all_slots();
+            const auto bytes = readback->read();
+            const auto format = view->get_image()->get_info().format;
+            const bool bgra =
+                format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+            for(unsigned y = 0; y < 17; ++y) {
+                for(unsigned x = 0; x < 17; ++x) {
+                    float irradiance = 1;
+                    if(mode == 1 || mode == 2 || mode == 6) {
+                        const Math::Vec3 position{
+                            (x + 0.5f) / 8.5f - 1, 1 - (y + 0.5f) / 8.5f, 0.5f};
+                        const auto delta = light.position - position;
+                        const float distance = Math::length(delta);
+                        const float falloff =
+                            std::max(1.0f - std::pow(distance / light.range, 4.0f), 0.0f);
+                        irradiance = 4 * falloff * falloff / (distance * distance)
+                                     * delta.z / distance;
+                        if(mode == 2 || mode == 6) {
+                            const float inner =
+                                std::cos(Math::radians(light.inner_angle));
+                            const float outer =
+                                std::cos(Math::radians(light.outer_angle));
+                            if(inner - outer > 1e-6f) {
+                                const float t = std::clamp(
+                                    (delta.z / distance - outer) / (inner - outer), 0.0f,
+                                    1.0f);
+                                irradiance *= t * t * (3 - 2 * t);
+                            } else if(delta.z / distance < outer) {
+                                irradiance = 0;
+                            }
+                        }
+                    }
+                    if(mode == 3 || mode == 5)
+                        irradiance = 0;
+                    if(mode == 4)
+                        irradiance = 1 / std::sqrt(1.25f);
+                    const std::array<float, 3> albedo{0.5f, 0.25f, 0.125f};
+                    for(size_t channel = 0; channel < 3; ++channel) {
+                        const auto component = bgra ? 2 - channel : channel;
+                        EXPECT_NEAR(
+                            std::to_integer<int>(bytes[(y * 17 + x) * 4 + component]),
+                            mapped_byte(albedo[channel] * irradiance), 3)
+                            << "mode " << mode << " at " << x << ',' << y;
+                    }
+                }
+            }
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest,
+        LitShaderPublishesAtFrameBoundaryWithoutReplacingOldFramePixels) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        auto& resources = engine->get_resource_manager();
+        const auto shader_directory =
+            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/glsl";
+        const auto temporary =
+            std::filesystem::temp_directory_path()
+            / ("comet_lit_reload_" + std::to_string(AssetHandle::generate().value()));
+        struct Cleanup {
+            std::filesystem::path path;
+            ~Cleanup() {
+                std::error_code error;
+                std::filesystem::remove_all(path, error);
+            }
+        } cleanup{temporary};
+        auto source = read_text_file(shader_directory / "material_lit.frag");
+        source.insert(source.rfind('}'), "    color.rgb *= 0.5;\n");
+        write_text_file_atomic(temporary / "lit.frag", source);
+        const auto compiled = ShaderCompiler::compile({.source = temporary / "lit.frag",
+            .stage = ShaderCompiler::Stage::Fragment,
+            .include_directories = {shader_directory}});
+        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+        auto& shaders = resources.get_shader_manager();
+        ShaderManager::Bytecodes candidate{
+            {"material_lit_vert", {shaders.get_shader("material_lit_vert")->get_code()}},
+            {"material_lit_frag", {compiled.words}}};
+        Config config;
+        config.vulkan.msaa_samples = SampleCount::Count1;
+        SceneRenderer scene(context, config.vulkan, config.render);
+        scene.setup_offscreen_render_pass({4, 4});
+        scene.setup_pipeline(resources);
+        auto mesh = lit_quad();
+        auto material = std::make_shared<Material>("lit", "lit_color");
+        material->set_vector_property("albedo", {0.5f, 0.5f, 0.5f, 1});
+        auto& frames = scene.get_frame_scheduler();
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 2> outputs;
+        RenderSubmission submission{
+            .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
+            .render_items = {{.mesh = mesh, .material = {AssetHandle(556), material}}},
+            .lights = {{.intensity = Math::PI}}};
+        const auto legacy = shaders.get_shader("material_mesh");
+        for(unsigned index = 0; index < 2; ++index) {
+            if(index == 1) {
+                const auto report = scene.reload_material_shaders(resources, candidate);
+                EXPECT_EQ(report.pipelines, 1);
+                EXPECT_EQ(report.material_versions, 1);
+                EXPECT_EQ(report.material_bindings, 0);
+                EXPECT_EQ(shaders.get_shader("material_mesh"), legacy);
+                auto broken = candidate;
+                broken.at("material_lit_frag").words.clear();
+                const auto current = shaders.get_shader("material_lit_frag");
+                EXPECT_THROW(scene.reload_material_shaders(resources, broken),
+                    std::invalid_argument);
+                EXPECT_EQ(shaders.get_shader("material_lit_frag"), current);
+                auto header = read_text_file(shader_directory / "lighting.glsl");
+                const auto binding = header.find("binding = 1");
+                ASSERT_NE(binding, std::string::npos);
+                header.replace(binding, std::string("binding = 1").size(), "binding = 2");
+                write_text_file_atomic(temporary / "lighting.glsl", header);
+                const auto incompatible =
+                    ShaderCompiler::compile({.source = temporary / "lit.frag",
+                        .stage = ShaderCompiler::Stage::Fragment});
+                ASSERT_TRUE(incompatible.succeeded()) << incompatible.diagnostics;
+                broken.at("material_lit_frag").words = incompatible.words;
+                EXPECT_THROW(scene.reload_material_shaders(resources, broken),
+                    std::invalid_argument);
+                EXPECT_EQ(shaders.get_shader("material_lit_frag"), current);
+            }
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            EXPECT_TRUE(scene.render_scene_pass(submission).empty());
+            outputs[index] = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 64);
+            copy_output(frames,
+                scene.get_offscreen_color_view(frames.get_current_frame_slot_index())
+                    ->get_image(),
+                outputs[index], {4, 4});
+            submit(device, frames);
+        }
+        frames.wait_for_all_slots();
+        for(unsigned index = 0; index < 2; ++index) {
+            const auto bytes = outputs[index]->read();
+            for(unsigned pixel = 0; pixel < 16; ++pixel)
+                for(unsigned channel = 0; channel < 3; ++channel)
+                    EXPECT_NEAR(std::to_integer<int>(bytes[pixel * 4 + channel]),
+                        mapped_byte(index == 0 ? 0.5f : 0.25f), 2);
         }
     }
 

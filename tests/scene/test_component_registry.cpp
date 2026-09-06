@@ -15,11 +15,12 @@ namespace {
         const Comet::ComponentRegistry registry =
             Comet::create_scene_component_registry();
 
-        ASSERT_EQ(registry.components().size(), 4U);
+        ASSERT_EQ(registry.components().size(), 5U);
         EXPECT_NE(registry.find_component("name"), nullptr);
         EXPECT_NE(registry.find_component("transform"), nullptr);
         EXPECT_NE(registry.find_component("mesh_renderer"), nullptr);
         EXPECT_NE(registry.find_component("camera"), nullptr);
+        EXPECT_NE(registry.find_component("light"), nullptr);
 
         const auto& transform = *registry.find_component("transform");
         EXPECT_EQ(transform.display_name, "Transform");

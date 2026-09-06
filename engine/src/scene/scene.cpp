@@ -179,13 +179,13 @@ namespace Comet {
 
             const Math::Mat4 local_matrix =
                 transform ? transform->to_matrix() : Math::Mat4(1.0f);
-            Math::Mat4 camera_local_matrix(1.0f);
+            Math::Mat4 pose_local_matrix(1.0f);
             if(transform) {
-                camera_local_matrix = Math::compose_trs(
+                pose_local_matrix = Math::compose_trs(
                     transform->translation, transform->rotation, Math::Vec3(1.0f));
             }
             world_transform.world_matrix = parent_world * local_matrix;
-            world_transform.camera_world_matrix = parent_world * camera_local_matrix;
+            world_transform.pose_world_matrix = parent_world * pose_local_matrix;
 
             if(const auto child_handles = children.find(id);
                 child_handles != children.end()) {

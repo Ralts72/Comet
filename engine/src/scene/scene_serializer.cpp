@@ -145,6 +145,14 @@ namespace Comet {
                     return read_scalar<bool>(node, source, location, "a boolean");
                 case PropertyType::String:
                     return read_scalar<std::string>(node, source, location, "a string");
+                case PropertyType::Enum: {
+                    const auto name =
+                        read_scalar<std::string>(node, source, location, "an enum name");
+                    for(const auto& option : property.enum_options)
+                        if(option.id == name)
+                            return name;
+                    throw scene_error(source, location, "unknown enum name: " + name);
+                }
                 case PropertyType::Float: {
                     const float value =
                         read_scalar<float>(node, source, location, "a finite number");
@@ -164,37 +172,24 @@ namespace Comet {
 
         PropertyValue copy_property_value(const PropertyDescriptor& property,
             const void* component, const std::string_view location) {
-            const void* value = property.get_value(component);
-            if(value == nullptr) {
+            auto value = property.copy_value(component);
+            if(!value)
                 throw scene_error(
-                    "<memory>", location, "property accessor returned null");
-            }
-
-            switch(property.type) {
-                case PropertyType::Bool:
-                    return *static_cast<const bool*>(value);
-                case PropertyType::String:
-                    return *static_cast<const std::string*>(value);
-                case PropertyType::Float: {
-                    const float result = *static_cast<const float*>(value);
-                    if(!std::isfinite(result)) {
-                        throw scene_error(
-                            "<memory>", location, "expected a finite number");
-                    }
-                    return result;
-                }
-                case PropertyType::Vec3: {
-                    const Math::Vec3 result = *static_cast<const Math::Vec3*>(value);
-                    if(!Math::is_finite(result)) {
-                        throw scene_error(
-                            "<memory>", location, "expected finite numbers");
-                    }
-                    return result;
-                }
-                case PropertyType::AssetHandle:
-                    return *static_cast<const AssetHandle*>(value);
-            }
-            throw scene_error("<memory>", location, "unsupported property type");
+                    "<memory>", location, "property accessor or enum value is invalid");
+            const bool finite = std::visit(
+                [](const auto& item) {
+                    using Value = std::remove_cvref_t<decltype(item)>;
+                    if constexpr(std::is_same_v<Value, float>)
+                        return std::isfinite(item);
+                    else if constexpr(std::is_same_v<Value, Math::Vec3>)
+                        return Math::is_finite(item);
+                    else
+                        return true;
+                },
+                *value);
+            if(!finite)
+                throw scene_error("<memory>", location, "expected finite numbers");
+            return *value;
         }
 
         YAML::Node write_property_value(const PropertyRecord& property) {
@@ -202,6 +197,7 @@ namespace Comet {
                 case PropertyType::Bool:
                     return YAML::Node(std::get<bool>(property.value));
                 case PropertyType::String:
+                case PropertyType::Enum:
                     return YAML::Node(std::get<std::string>(property.value));
                 case PropertyType::Float:
                     return YAML::Node(std::get<float>(property.value));
@@ -228,6 +224,11 @@ namespace Comet {
                     *static_cast<std::string*>(value) =
                         std::get<std::string>(property.value);
                     return;
+                case PropertyType::Enum:
+                    if(property.descriptor->write_enum(
+                           value, std::get<std::string>(property.value)))
+                        return;
+                    throw scene_error(source, location, "invalid enum value");
                 case PropertyType::Float:
                     *static_cast<float*>(value) = std::get<float>(property.value);
                     return;

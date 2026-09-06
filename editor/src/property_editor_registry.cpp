@@ -75,6 +75,29 @@ namespace CometEditor {
                     &text);
             });
 
+        register_editor(Comet::PropertyType::Enum,
+            [](const Comet::PropertyDescriptor& property, void* value) {
+                auto& selected = *static_cast<std::string*>(value);
+                const char* preview = selected.c_str();
+                for(const auto& option : property.enum_options)
+                    if(option.id == selected)
+                        preview = option.display_name.c_str();
+                bool changed = false;
+                if(ImGui::BeginCombo(property.display_name.c_str(), preview)) {
+                    for(const auto& option : property.enum_options) {
+                        ImGui::PushID(option.id.c_str());
+                        if(ImGui::Selectable(
+                               option.display_name.c_str(), option.id == selected)
+                            && option.id != selected) {
+                            selected = option.id;
+                            changed = true;
+                        }
+                        ImGui::PopID();
+                    }
+                    ImGui::EndCombo();
+                }
+                return changed;
+            });
         return registry;
     }
 }

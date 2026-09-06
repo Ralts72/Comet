@@ -1,0 +1,6 @@
+version: 1
+template: lit_color
+properties:
+  albedo:
+    type: vector
+    value: [0.8, 0.55, 0.25, 1.0]

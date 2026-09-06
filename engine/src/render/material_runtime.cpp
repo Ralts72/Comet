@@ -65,7 +65,7 @@ namespace Comet {
 
     std::shared_ptr<const MaterialLayout> MaterialLayout::find_builtin(
         const std::string_view name) {
-        static const std::array<std::shared_ptr<const MaterialLayout>, 2> layouts{
+        static const std::array<std::shared_ptr<const MaterialLayout>, 3> layouts{
             std::make_shared<MaterialLayout>("cube_texture", 2,
                 std::vector<TextureProperty>{{"u_Texture0", 1, "Texture 0", "texture0"},
                     {"u_Texture1", 2, "Texture 1", "texture1"}},
@@ -78,7 +78,11 @@ namespace Comet {
                 std::vector<ScalarProperty>{
                     {"intensity", 16, 1.0f, 0, 10, 0.05f, "Intensity"}},
                 std::vector<VectorProperty>{{"color", 0, {1, 1, 1, 1},
-                    VectorProperty::Semantic::Color, "Color"}})};
+                    VectorProperty::Semantic::Color, "Color"}}),
+            std::make_shared<MaterialLayout>("lit_color", 1,
+                std::vector<TextureProperty>{}, 16, std::vector<ScalarProperty>{},
+                std::vector<VectorProperty>{{"albedo", 0, {0.8f, 0.8f, 0.8f, 1},
+                    VectorProperty::Semantic::Color, "Albedo"}})};
         const auto found = std::ranges::find_if(
             layouts, [&](const auto& layout) { return layout->get_name() == name; });
         if(found == layouts.end())

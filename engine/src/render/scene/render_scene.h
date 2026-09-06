@@ -3,6 +3,7 @@
 #include "asset/handle.h"
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
+#include "render/lighting.h"
 
 #include <optional>
 #include <vector>
@@ -31,6 +32,7 @@ namespace Comet {
     struct RenderScene {
         std::vector<RenderCamera> cameras;
         std::vector<RenderItem> render_items;
+        std::vector<RenderLight> lights;
     };
 
     struct RenderView {

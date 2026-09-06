@@ -47,7 +47,7 @@ Engine
         ├── FrameScheduler → FrameSlot[N] / SwapchainImageState[M]
         ├── RenderGraph::Plan（HDR Scene→后处理采样，只有 CPU 状态）
         ├── MaterialRenderer
-        │   ├── FrameResources[slot] → FrameSet / ViewProjectBuffer
+        │   ├── FrameResources[slot] → FrameSet / ViewProjectBuffer / LightingBuffer
         │   ├── PipelineState[layout] → MaterialLayout / set layouts / Pipeline
         │   ├── MaterialRuntimeCache → PreparedMaterial → Texture / parameter bytes
         │   └── MaterialResources[revision] → PreparedMaterial / MaterialSet / parameter buffer
@@ -58,7 +58,7 @@ Engine
 
 Editor
 ├── AssetManager（借用 Engine 的服务）
-├── ShaderReload：Material 三 Shader 组 / Debug 两 Shader 组（只产生 CPU 候选）
+├── ShaderReload：Material 五 Shader 组 / Debug 两 Shader 组（只产生 CPU 候选）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
 ├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
 └── ImGuiContext
@@ -96,12 +96,20 @@ Engine：事件 → Application 更新
   → SceneExtractor（读取此时的活动 Scene，更新 world transform）
   → Renderer::render_frame
   → SceneResolver（使用实际 Target 尺寸）
-  → 按请求 CPU pick → scene pass（场景物体 → DebugDraw）
+  → 按请求 CPU pick → HDR scene pass（场景物体 → DebugRenderer）→ fullscreen SDR 输出
   → overlay render（录制已生成的 ImGui 数据）
   → submit / present
 ```
 
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
+
+LightComponent 是场景数据，LightType 是被组件/渲染快照共用的 CPU 枚举；RenderLight 不持有 Entity 或 Scene 指针。
+`render/lighting.h/.cpp` 集中 RenderLight 和 GPU ABI 的 LightingData，prepare 校验、按 EntityId 稳定排序并限制 32 灯；
+灯光位置/方向、线性颜色/强度和锥角打包为 vec4，固定 FrameSet binding 1。GPU owner 仍是 MaterialRenderer::FrameResources，
+不为灯光新增 LightManager、EventBus 或持有 Scene 的渲染 System。
+lit_color 使用独立 vertex/fragment Shader，原 unlit 材质不改变语义。FrameSet 每 slot 更新，灯光变化不失效 MaterialSet。
+热更新 API 接受完整 unlit 三 Shader、完整 lit 两 Shader或完整五 Shader；editor 当前整组编译五个，失败不部分发布。
+lighting.glsl 是实际共享头文件，构建 depfile 和 editor 输入快照都跟踪它；Frame ABI 变化仍拒绝热发布。
 SceneRenderer 不读 EditorMode/ImGui。SceneResolver 只解析 Mesh/Material，不检查 template、属性名称和数量。
 MaterialRenderer 选择 MaterialLayout，MaterialRuntimeCache 按材质身份/revision 和不可变 layout 身份准备纹理 binding 与参数字节。
 MaterialLayout 从反射重绑定 offset／块大小／binding，保留显式编辑语义；发布后的只读描述交付 Inspector 生成控件，

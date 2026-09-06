@@ -31,6 +31,9 @@ namespace Comet {
             uint32_t material_bindings_created = 0;
             uint32_t cached_material_versions = 0;
             uint32_t frame_set_count = 0;
+            uint32_t light_count = 0;
+            uint32_t excess_lights = 0;
+            uint32_t invalid_lights = 0;
         };
         struct ReloadReport {
             uint32_t pipelines = 0;
@@ -41,7 +44,8 @@ namespace Comet {
         MaterialRenderer(Device& device, PipelineManager& pipelines,
             ResourceManager& resources, uint32_t frame_slot_count, SampleCount samples);
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(FrameScheduler& frames,
-            const ViewProjectMatrix& view, std::span<const ResolvedRenderItem> items);
+            const ViewProjectMatrix& view, std::span<const ResolvedRenderItem> items,
+            std::span<const RenderLight> lights = {});
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
         // owner 帧边界调用；Shader、布局和所有驻留材质候选全部成功才发布。
         ReloadReport reload_shaders(PipelineManager& pipelines, ShaderManager& shaders,
@@ -60,6 +64,7 @@ namespace Comet {
             std::shared_ptr<DescriptorSetLayout> layout;
             std::shared_ptr<DescriptorPool> pool;
             std::shared_ptr<CPUBuffer> buffer;
+            std::shared_ptr<CPUBuffer> lighting;
             std::optional<DescriptorSet> descriptor;
         };
         struct MaterialResources {

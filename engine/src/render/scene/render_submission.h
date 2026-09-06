@@ -4,6 +4,7 @@
 #include "core/math_utils.h"
 #include "render/scene/render_types.h"
 #include "scene/entity_id.h"
+#include "render/lighting.h"
 
 #include <memory>
 #include <optional>
@@ -28,5 +29,6 @@ namespace Comet {
     struct RenderSubmission {
         std::optional<ViewProjectMatrix> view_project_matrix;
         std::vector<ResolvedRenderItem> render_items;
+        std::vector<RenderLight> lights;
     };
 }

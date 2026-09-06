@@ -212,7 +212,8 @@ namespace Comet {
                 static_cast<float>(size.x), static_cast<float>(size.y)));
             if(m_material_renderer) {
                 resource_waits = m_material_renderer->render(*m_frame_scheduler,
-                    *submission.view_project_matrix, submission.render_items);
+                    *submission.view_project_matrix, submission.render_items,
+                    submission.lights);
             }
             if(m_debug_renderer) {
                 m_debug_renderer->render(

@@ -43,7 +43,8 @@ namespace Comet {
 
     struct COMET_API WorldTransformComponent {
         Math::Mat4 world_matrix = Math::Mat4(1.0f);
-        Math::Mat4 camera_world_matrix = Math::Mat4(1.0f);
+        // 父变换 × 本地 TR，不含本地 scale；供相机和灯光姿态使用。
+        Math::Mat4 pose_world_matrix = Math::Mat4(1.0f);
     };
 
     template<typename T>
@@ -72,5 +73,18 @@ namespace Comet {
         float fov = 45.0f;
         float near_clip = 0.1f;
         float far_clip = 1000.0f;
+    };
+
+    enum class LightType { Directional = 0, Point = 1, Spot = 2 };
+
+    struct COMET_API LightComponent {
+        LightType type = LightType::Directional;
+        bool enabled = true;
+        Math::Vec3 color{1.0f};
+        float intensity = 1.0f;
+        float range = 10.0f;
+        // 以本地 -Z 为出光方向，角度为半锥角，单位为度。
+        float inner_angle = 20.0f;
+        float outer_angle = 30.0f;
     };
 }

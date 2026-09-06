@@ -11,7 +11,7 @@
 
 namespace {
     const std::filesystem::path DEMO_MESH = "meshes/cube.gltf";
-    const std::filesystem::path DEMO_MATERIAL = "materials/demo.mat";
+    const std::filesystem::path DEMO_MATERIAL = "materials/lit.mat";
 
     Comet::AssetHandle load_required_mesh(
         Comet::AssetManager& asset_manager, const std::filesystem::path& relative_path) {
@@ -92,6 +92,9 @@ namespace {
                 mesh_handle, material_handle);
 
             m_cube_entity_ids = {first_cube.get_id(), second_cube.get_id()};
+            auto light = scene->create_entity("Key Light");
+            light.get_component<Comet::TransformComponent>().rotation = {-30, -35, 0};
+            light.add_component<Comet::LightComponent>().intensity = 4.0f;
             engine.set_scene(std::move(scene));
         }
 

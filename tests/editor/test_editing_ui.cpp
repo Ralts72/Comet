@@ -377,6 +377,48 @@ namespace CometEditor::Tests {
         EXPECT_FLOAT_EQ(x(), 0);
     }
 
+    TEST_F(EditingUiTest, EnumComboSelectsTypedLightAndRecordsOneUndo) {
+        entity.add_component<Comet::LightComponent>();
+        ImVec2 combo{};
+        ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::Enum,
+            [&combo, builtin = create_property_editor_registry()](
+                const Comet::PropertyDescriptor& property, void* value) {
+                combo = ImGui::GetCursorScreenPos();
+                return builtin.edit_property(property, value);
+            }));
+        frame();
+        frame();
+        auto click = [&](ImVec2 position) {
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(position.x, position.y);
+            frame();
+            io.AddMouseButtonEvent(0, true);
+            frame();
+            io.AddMouseButtonEvent(0, false);
+            frame();
+        };
+        click({combo.x + 30, combo.y + 8});
+        frame();
+        auto& popups = ImGui::GetCurrentContext()->OpenPopupStack;
+        ASSERT_FALSE(popups.empty());
+        const auto* popup = popups.back().Window;
+        ASSERT_NE(popup, nullptr);
+        click({popup->Pos.x + popup->WindowPadding.x + 30,
+            popup->Pos.y + popup->WindowPadding.y + ImGui::GetTextLineHeightWithSpacing()
+                + ImGui::GetTextLineHeight() * 0.5f});
+        frame();
+        EXPECT_EQ(
+            entity.get_component<Comet::LightComponent>().type, Comet::LightType::Point);
+        EXPECT_EQ(history.undo_size(), 1);
+        EXPECT_FALSE(edit.active());
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<Comet::LightComponent>().type,
+            Comet::LightType::Directional);
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(
+            entity.get_component<Comet::LightComponent>().type, Comet::LightType::Point);
+    }
+
     TEST_F(EditingUiTest, PlayEditsRuntimeWithoutAddingHistory) {
         history.bind_scene(nullptr);
         state.mode = EditorMode::Play;
