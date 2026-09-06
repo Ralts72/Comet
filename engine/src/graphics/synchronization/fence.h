@@ -4,7 +4,7 @@
 namespace Comet {
     class Device;
 
-    class Fence {
+    class COMET_API Fence {
     public:
         explicit Fence(Device& device);
         ~Fence();

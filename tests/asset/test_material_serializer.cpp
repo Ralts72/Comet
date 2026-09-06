@@ -7,6 +7,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <limits>
 
 namespace Comet::Tests {
     namespace {
@@ -51,6 +52,43 @@ properties:
         ASSERT_EQ(data.texture_properties.size(), 2u);
         EXPECT_EQ(data.texture_properties.at("u_Texture0"), AssetHandle(42));
         EXPECT_EQ(data.texture_properties.at("u_Texture1"), AssetHandle(73));
+    }
+
+    TEST(MaterialSerializerTest,
+        RoundTripsTypedParametersAndOnlyCollectsTextureDependencies) {
+        const MaterialData data{.template_name = "cube_texture",
+            .texture_properties = {{"u_Texture0", AssetHandle(42)}},
+            .scalar_properties = {{"blend", 0.25f}},
+            .vector_properties = {{"tint", {1, 0.5f, 0.25f, 1}}}};
+        const MaterialSerializer serializer;
+        const auto text = serializer.serialize(data);
+        EXPECT_EQ(serializer.deserialize(text), data);
+        EXPECT_EQ(get_asset_dependencies(data), std::vector{AssetHandle(42)});
+    }
+
+    TEST(MaterialSerializerTest, RejectsInvalidParametersBeforePublication) {
+        const MaterialSerializer serializer;
+        EXPECT_THROW(static_cast<void>(serializer.deserialize(
+                         "version: 1\ntemplate: unlit_color\nproperties:\n"
+                         "  color: {type: vector, value: [1, 2, 3]}\n")),
+            std::runtime_error);
+        EXPECT_THROW(static_cast<void>(serializer.deserialize(
+                         "version: 1\ntemplate: unlit_color\nproperties:\n"
+                         "  intensity: {type: scalar, value: .nan}\n")),
+            std::runtime_error);
+        EXPECT_THROW(
+            static_cast<void>(serializer.deserialize(
+                "version: 1\ntemplate: unlit_color\nproperties:\n"
+                "  x: {type: scalar, value: 1}\n  x: {type: vector, value: [1, 1, 1, 1]}\n")),
+            std::runtime_error);
+        EXPECT_THROW(static_cast<void>(serializer.serialize({.template_name = "test",
+                         .texture_properties = {{"same", AssetHandle(1)}},
+                         .scalar_properties = {{"same", 1}}})),
+            std::runtime_error);
+        EXPECT_THROW(static_cast<void>(serializer.serialize({.template_name = "test",
+                         .vector_properties = {{"color",
+                             {1, 1, std::numeric_limits<float>::infinity(), 1}}}})),
+            std::runtime_error);
     }
 
     TEST(MaterialSerializerTest, SerializesAndSavesDeterministically) {

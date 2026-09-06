@@ -1,6 +1,12 @@
 version: 1
 template: cube_texture
 properties:
+  blend:
+    type: scalar
+    value: 0.5
+  tint:
+    type: vector
+    value: [1, 1, 1, 1]
   u_Texture0:
     type: texture
     asset: 15538271868700781231

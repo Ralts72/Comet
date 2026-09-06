@@ -9,6 +9,8 @@
 
 #include <gtest/gtest.h>
 #include <stdexcept>
+#include <cstring>
+#include <limits>
 #include <sstream>
 #include <spdlog/sinks/ostream_sink.h>
 
@@ -24,6 +26,64 @@ namespace Comet::Tests {
             MaterialLayout("test", 1, {{"a", 2}, {"a", 3}}), std::invalid_argument);
         EXPECT_THROW(
             MaterialLayout("test", 1, {{"a", 2}, {"b", 2}}), std::invalid_argument);
+    }
+
+    TEST(MaterialRuntimeTest, PacksDefaultsAndParametersWithoutChangingOldSnapshots) {
+        MaterialRuntimeCache cache;
+        const auto layout = std::make_shared<MaterialLayout>("solid", 1,
+            std::vector<MaterialLayout::TextureProperty>{}, 32,
+            std::vector<MaterialLayout::ScalarProperty>{{"intensity", 16, 1.0f}},
+            std::vector<MaterialLayout::VectorProperty>{{"color", 0, {1, 1, 1, 1}}});
+        const auto material = std::make_shared<Material>("solid", "solid");
+        const auto original = cache.prepare(AssetHandle(1), material, layout);
+        ASSERT_TRUE(original);
+        ASSERT_EQ(original->parameters.size(), 32u);
+        std::array<float, 8> values;
+        std::memcpy(values.data(), original->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[0], 1);
+        EXPECT_FLOAT_EQ(values[4], 1);
+        EXPECT_FLOAT_EQ(values[7], 0);
+        material->set_scalar_property("intensity", 0.25f);
+        material->set_vector_property("color", {1, 0, 0, 1});
+        const auto updated = cache.prepare(AssetHandle(1), material, layout);
+        ASSERT_TRUE(updated);
+        std::memcpy(values.data(), updated->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[1], 0);
+        EXPECT_FLOAT_EQ(values[4], 0.25f);
+        const auto revision = material->get_revision();
+        material->set_scalar_property("intensity", 0.25f);
+        material->set_vector_property("color", {1, 0, 0, 1});
+        EXPECT_EQ(revision, material->get_revision());
+        EXPECT_EQ(updated, cache.prepare(AssetHandle(1), material, layout));
+        std::memcpy(values.data(), original->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[1], 1);
+        EXPECT_FLOAT_EQ(values[4], 1);
+        EXPECT_THROW(
+            material->set_scalar_property("bad", std::numeric_limits<float>::infinity()),
+            std::invalid_argument);
+        EXPECT_THROW(material->set_vector_property(
+                         "bad", {0, 0, std::numeric_limits<float>::quiet_NaN(), 1}),
+            std::invalid_argument);
+    }
+
+    TEST(MaterialRuntimeTest, RejectsInvalidParameterMemoryLayouts) {
+        using Scalars = std::vector<MaterialLayout::ScalarProperty>;
+        using Vectors = std::vector<MaterialLayout::VectorProperty>;
+        EXPECT_THROW(MaterialLayout("test", 1, {}, 17), std::invalid_argument);
+        EXPECT_THROW(
+            MaterialLayout("test", 1, {{"texture", 0}}, 16), std::invalid_argument);
+        EXPECT_THROW(MaterialLayout("test", 1, {}, 16, Scalars{{"x", 16, 1}}),
+            std::invalid_argument);
+        EXPECT_THROW(MaterialLayout("test", 1, {}, 16, Scalars{{"x", 2, 1}}),
+            std::invalid_argument);
+        EXPECT_THROW(MaterialLayout("test", 1, {}, 32, {}, Vectors{{"v", 4, {}}}),
+            std::invalid_argument);
+        EXPECT_THROW(MaterialLayout(
+                         "test", 1, {}, 32, Scalars{{"x", 4, 1}}, Vectors{{"v", 0, {}}}),
+            std::invalid_argument);
+        EXPECT_THROW(MaterialLayout(
+                         "test", 1, {}, 32, Scalars{{"v", 16, 1}}, Vectors{{"v", 0, {}}}),
+            std::invalid_argument);
     }
 
     TEST(MaterialRuntimeTest, ReusesSnapshotAndInvalidatesMaterialOrLayoutIdentity) {
@@ -125,7 +185,8 @@ namespace Comet::Tests {
             .indices = {0, 1, 2}};
         auto mesh = engine->get_resource_manager().try_create_mesh(data);
         ASSERT_TRUE(mesh);
-        const auto first = texture();
+        auto first = texture();
+        const std::weak_ptr<Texture> retired_texture = first;
         const auto second = texture();
         auto material = std::make_shared<Material>("test", "cube_texture");
         material->set_texture_property("u_Texture0", first);
@@ -133,12 +194,20 @@ namespace Comet::Tests {
         auto& registry = engine->get_asset_registry();
         ASSERT_TRUE(registry.register_asset(AssetHandle(11), mesh.value()));
         ASSERT_TRUE(registry.register_asset(AssetHandle(12), material));
+        const auto solid = std::make_shared<Material>("solid", "unlit_color");
+        solid->set_vector_property("color", {0.25f, 0.75f, 0.5f, 1});
+        solid->set_scalar_property("intensity", 0.5f);
+        ASSERT_TRUE(registry.register_asset(AssetHandle(13), solid));
         RenderScene scene;
         scene.cameras.push_back({.primary = true});
         scene.render_items.push_back({.entity_id = 7,
             .mesh_handle = AssetHandle(11),
             .material_handle = AssetHandle(12)});
         auto& renderer = engine->get_renderer();
+        scene.render_items.push_back({.entity_id = 8,
+            .mesh_handle = AssetHandle(11),
+            .material_handle = AssetHandle(13)});
+        scene.render_items.push_back(scene.render_items.front());
         int frames = 0;
         for(int attempt = 0; attempt < 20 && frames < 8; ++attempt) {
             engine->get_window().poll_events();
@@ -154,10 +223,34 @@ namespace Comet::Tests {
                 material->set_texture_property("u_Texture1", second);
                 EXPECT_TRUE(registry.replace_asset(AssetHandle(12), material));
             }
+            if(frames == 3)
+                solid->set_scalar_property("intensity", 0.75f);
+            if(frames == 6)
+                solid->set_scalar_property("intensity", 0.75f);
+            if(frames == 7) {
+                material = std::make_shared<Material>("replacement", "unlit_color");
+                EXPECT_TRUE(registry.replace_asset(AssetHandle(12), material));
+                first.reset();
+            }
             renderer.render_frame(scene);
+            const auto& stats = renderer.get_scene_renderer().get_material_statistics();
+            EXPECT_EQ(stats.frame_set_count, 2u);
+            EXPECT_EQ(stats.draw_calls, 3u);
+            EXPECT_EQ(stats.material_binds, 2u);
+            EXPECT_EQ(stats.cached_material_versions, 2u);
+            EXPECT_EQ(stats.pipeline_binds, frames == 7 ? 1u : 2u);
+            uint32_t expected_versions = 0;
+            if(frames == 0)
+                expected_versions = 2;
+            else if(frames == 2 || frames == 3 || frames == 4 || frames == 7)
+                expected_versions = 1;
+            EXPECT_EQ(stats.material_versions_created, expected_versions);
             ++frames;
         }
         EXPECT_EQ(frames, 8);
+        // WSI acquire 可能已经等待并回收旧 slot；这里仅检查最终回收。
+        renderer.get_scene_renderer().get_frame_scheduler().wait_for_all_slots();
+        EXPECT_TRUE(retired_texture.expired());
         renderer.get_render_context().wait_idle();
     }
 

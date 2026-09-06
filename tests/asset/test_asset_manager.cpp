@@ -1542,12 +1542,19 @@ namespace Comet::Tests {
         const std::shared_ptr<Material> original = manager.load_material(handle);
         ASSERT_NE(original, nullptr);
 
-        const std::shared_ptr<Material> updated = manager.update_material(
-            handle, {.template_name = "updated_template", .texture_properties = {}});
+        const MaterialData parameters{.template_name = "updated_template",
+            .scalar_properties = {{"intensity", 0.75f}},
+            .vector_properties = {{"color", {0.2f, 0.4f, 0.6f, 1}}}};
+        const std::shared_ptr<Material> updated =
+            manager.update_material(handle, parameters);
 
         ASSERT_NE(updated, nullptr);
         EXPECT_NE(updated, original);
         EXPECT_EQ(registry.resolve<Material>(handle), updated);
+        EXPECT_EQ(updated->get_scalar_property("intensity"), 0.75f);
+        EXPECT_EQ(updated->get_vector_property("color"),
+            parameters.vector_properties.at("color"));
+        EXPECT_EQ(MaterialSerializer{}.load(material_path), parameters);
         EXPECT_EQ(
             MaterialSerializer{}.load(material_path).template_name, "updated_template");
 

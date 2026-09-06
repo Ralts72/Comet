@@ -72,7 +72,11 @@ namespace Comet::Tests {
             [&](CommandBuffer&) {
                 // 结果回调提交的线段必须已在当前 scene pass 分配并录制。
                 if(allocations_before_lines) {
-                    EXPECT_EQ(allocation_count(), *allocations_before_lines + 1);
+                    const auto& materials =
+                        renderer.get_scene_renderer().get_material_statistics();
+                    EXPECT_EQ(
+                        allocation_count(), *allocations_before_lines + 1
+                                                + materials.material_versions_created);
                 }
                 glfwSetWindowShouldClose(engine.get_window().get(), GLFW_TRUE);
             });

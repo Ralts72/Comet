@@ -8,6 +8,8 @@
 #include <string>
 #include <string_view>
 #include <unordered_set>
+#include <cmath>
+#include <algorithm>
 
 namespace Comet {
     namespace {
@@ -45,7 +47,15 @@ namespace Comet {
             if(data.template_name.empty()) {
                 throw material_error(source, "template", "expected a non-empty string");
             }
+            std::unordered_set<std::string> names;
+            const auto validate_name = [&](const std::string& name) {
+                if(name.empty() || !names.insert(name).second) {
+                    throw material_error(
+                        source, "properties", "empty or duplicate property name");
+                }
+            };
             for(const auto& [property_name, texture_handle] : data.texture_properties) {
+                validate_name(property_name);
                 if(property_name.empty()) {
                     throw material_error(
                         source, "properties", "property names cannot be empty");
@@ -53,6 +63,21 @@ namespace Comet {
                 if(!texture_handle) {
                     throw material_error(source, "properties." + property_name + ".asset",
                         "expected a non-zero unsigned integer");
+                }
+            }
+            for(const auto& [name, value] : data.scalar_properties) {
+                validate_name(name);
+                if(!std::isfinite(value)) {
+                    throw material_error(
+                        source, "properties." + name, "expected a finite scalar");
+                }
+            }
+            for(const auto& [name, value] : data.vector_properties) {
+                validate_name(name);
+                if(!std::ranges::all_of(
+                       value, [](float item) { return std::isfinite(item); })) {
+                    throw material_error(
+                        source, "properties." + name, "expected four finite components");
                 }
             }
         }
@@ -71,6 +96,17 @@ namespace Comet {
             property["type"] = "texture";
             property["asset"] = texture_handle.value();
             properties[property_name] = property;
+        }
+        for(const auto& [name, value] : data.scalar_properties) {
+            properties[name]["type"] = "scalar";
+            properties[name]["value"] = value;
+        }
+        for(const auto& [name, value] : data.vector_properties) {
+            properties[name]["type"] = "vector";
+            YAML::Node components(YAML::NodeType::Sequence);
+            for(const float component : value)
+                components.push_back(component);
+            properties[name]["value"] = components;
         }
         root["properties"] = properties;
 
@@ -114,6 +150,7 @@ namespace Comet {
         const YAML::Node properties =
             required_child(root, "properties", source, "<root>");
         require_map(properties, source, "properties");
+        std::unordered_set<std::string> names;
         for(const auto& entry : properties) {
             if(!entry.first.IsScalar()) {
                 throw material_error(source, "properties", "expected string keys");
@@ -124,7 +161,7 @@ namespace Comet {
                 throw material_error(
                     source, "properties", "property names cannot be empty");
             }
-            if(data.texture_properties.contains(property_name)) {
+            if(!names.insert(property_name).second) {
                 throw material_error(
                     source, "properties", "duplicate property '" + property_name + "'");
             }
@@ -132,15 +169,38 @@ namespace Comet {
             const std::string property_location = "properties." + property_name;
             const YAML::Node property = entry.second;
             require_map(property, source, property_location);
-            validate_keys(property, {"type", "asset"}, source, property_location);
 
             const std::string type = read_scalar<std::string>(
                 required_child(property, "type", source, property_location), source,
                 property_location + ".type", "a string");
-            if(type != "texture") {
+            if(type == "scalar" || type == "vector") {
+                validate_keys(property, {"type", "value"}, source, property_location);
+                const auto value =
+                    required_child(property, "value", source, property_location);
+                if(type == "scalar") {
+                    data.scalar_properties.emplace(property_name,
+                        read_scalar<float>(value, source, property_location + ".value",
+                            "a finite scalar"));
+                } else {
+                    if(!value.IsSequence() || value.size() != 4) {
+                        throw material_error(source, property_location + ".value",
+                            "expected four components");
+                    }
+                    std::array<float, 4> components;
+                    for(std::size_t index = 0; index < components.size(); ++index) {
+                        components[index] = read_scalar<float>(value[index], source,
+                            property_location + ".value[" + std::to_string(index) + "]",
+                            "a finite scalar");
+                    }
+                    data.vector_properties.emplace(property_name, components);
+                }
+                continue;
+            } else if(type != "texture") {
                 throw material_error(source, property_location + ".type",
                     "unsupported property type '" + type + "'");
             }
+
+            validate_keys(property, {"type", "asset"}, source, property_location);
 
             const std::uint64_t asset = read_scalar<std::uint64_t>(
                 required_child(property, "asset", source, property_location), source,
@@ -153,6 +213,7 @@ namespace Comet {
             data.texture_properties.emplace(property_name, texture_handle);
         }
 
+        validate_material_data(data, source);
         return data;
     }
 

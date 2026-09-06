@@ -35,7 +35,7 @@ namespace Comet {
             : render_finished_semaphore(device) {}
     };
 
-    class FrameScheduler {
+    class COMET_API FrameScheduler {
     public:
         explicit FrameScheduler(Device& device, uint32_t frame_slot_count);
 

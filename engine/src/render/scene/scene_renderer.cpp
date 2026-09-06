@@ -2,53 +2,18 @@
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 #include "render/scene/render_types.h"
-#include "cube_texture_frag.h"
-#include "cube_texture_vert.h"
 #include "graphics/convert.h"
 #include "graphics/queue.h"
-#include "graphics/resource/image_view.h"
 #include "graphics/vk_common.h"
-#include "graphics/resource/buffer.h"
-#include "graphics/resource/sampler.h"
 #include "graphics/pipeline/pipeline.h"
 #include "graphics/render_pass.h"
 #include "graphics/attachment.h"
-#include "graphics/pipeline/vertex_description.h"
-#include "render/resource/mesh_data.h"
 #include "render/resource/resource_manager.h"
 
 #include <algorithm>
 #include <utility>
 
 namespace Comet {
-    namespace {
-        void append_resource_wait(std::vector<QueueSemaphoreSubmit>& waits,
-            const GpuCompletionPoint& completion, const Flags<PipelineStage> stages) {
-            if(!completion.is_valid()) {
-                return;
-            }
-
-            const QueueSemaphoreSubmit candidate(completion, stages);
-            const auto existing = std::find_if(waits.begin(), waits.end(),
-                [&candidate](const QueueSemaphoreSubmit& wait) {
-                    return wait.semaphore == candidate.semaphore;
-                });
-            if(existing == waits.end()) {
-                waits.push_back(candidate);
-                return;
-            }
-
-            existing->value = std::max(existing->value, candidate.value);
-            existing->stage_mask = existing->stage_mask | candidate.stage_mask;
-        }
-
-        void remove_completed_resource_waits(std::vector<QueueSemaphoreSubmit>& waits) {
-            std::erase_if(waits, [](const QueueSemaphoreSubmit& wait) {
-                return wait.semaphore->get_counter_value() >= wait.value;
-            });
-        }
-    }
-
     SceneRenderer::SceneRenderer(RenderContext& context,
         const Config::Vulkan& vulkan_config, const Config::Render& render_config)
         : m_context(context),
@@ -64,15 +29,6 @@ namespace Comet {
         LOG_INFO("create frame scheduler");
         m_frame_scheduler = std::make_unique<FrameScheduler>(
             context.get_device(), render_config.max_frames_in_flight);
-
-        LOG_INFO("create per-frame uniform buffers");
-        const uint32_t frame_slot_count = m_frame_scheduler->get_frame_slot_count();
-        m_view_project_uniform_buffers.reserve(frame_slot_count);
-        for(uint32_t index = 0; index < frame_slot_count; ++index) {
-            m_view_project_uniform_buffers.push_back(Buffer::create_cpu_buffer(
-                context.get_device(), Flags<BufferUsage>(BufferUsage::Uniform),
-                sizeof(ViewProjectMatrix), nullptr, "view-project uniform buffer"));
-        }
     }
 
     void SceneRenderer::set_swapchain_resource_callbacks(
@@ -156,106 +112,13 @@ namespace Comet {
         m_uses_offscreen_target = true;
     }
 
-    std::shared_ptr<DescriptorSetLayout> SceneRenderer::create_descriptor_set_layout(
-        const DescriptorSetLayoutBindings& bindings) {
-        if(!m_descriptor_set_layout) {
-            m_descriptor_set_layout =
-                std::make_shared<DescriptorSetLayout>(m_context.get_device(), bindings);
-        }
-        return m_descriptor_set_layout;
-    }
-
     void SceneRenderer::setup_pipeline(ResourceManager& resource_manager) {
-        LOG_INFO("setup pipeline");
-
-        DescriptorSetLayoutBindings bindings;
-        m_material_layout = std::make_shared<MaterialLayout>("cube_texture", 1,
-            std::vector<MaterialLayout::TextureProperty>{
-                {"u_Texture0", 2}, {"u_Texture1", 3}});
-        bindings.add_binding(
-            0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
-        for(const auto& property : m_material_layout->get_textures()) {
-            bindings.add_binding(property.binding, DescriptorType::CombinedImageSampler,
-                Flags<ShaderStage>(ShaderStage::Fragment));
-        }
-        auto descriptor_set_layout = create_descriptor_set_layout(bindings);
-
-        ShaderLayout layout = {};
-        layout.descriptor_set_layouts.push_back(descriptor_set_layout);
-        layout.push_constants.push_back(std::make_shared<PushConstantRange>(
-            ShaderStage::Vertex, 0, sizeof(PushConstant)));
-
-        VertexInputDescription vertex_input_description;
-        vertex_input_description.add_binding(
-            0, sizeof(MeshVertex), VertexInputRate::Vertex);
-        vertex_input_description.add_attribute(
-            0, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, position));
-        vertex_input_description.add_attribute(
-            1, 0, Format::R32G32_SFLOAT, offsetof(MeshVertex, texcoord));
-        vertex_input_description.add_attribute(
-            2, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, normal));
-
-        PipelineConfig pipeline_config = {};
-        pipeline_config.set_vertex_input_state(vertex_input_description);
-        pipeline_config.set_input_assembly_state(Topology::TriangleList);
-        pipeline_config.set_dynamic_state(
-            {DynamicState::Viewport, DynamicState::Scissor});
-        pipeline_config.enable_depth_test();
-        pipeline_config.set_multisample_state(m_msaa_samples, false, 0.2f);
-
-        const auto vert_shader = resource_manager.get_shader_manager().load_shader(
-            "cube_texture_vert", CUBE_TEXTURE_VERT);
-        const auto frag_shader = resource_manager.get_shader_manager().load_shader(
-            "cube_texture_frag", CUBE_TEXTURE_FRAG);
-        m_default_sampler = resource_manager.get_sampler_manager().get_linear_repeat();
-
-        m_pipeline = m_pipeline_manager->create_pipeline(
-            "cube_pipeline", layout, pipeline_config, vert_shader, frag_shader);
+        m_material_renderer = std::make_unique<MaterialRenderer>(m_context.get_device(),
+            *m_pipeline_manager, resource_manager,
+            m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
         m_debug_renderer = std::make_unique<DebugRenderer>(m_context.get_device(),
             *m_pipeline_manager, resource_manager,
             m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
-    }
-
-    const DescriptorSet& SceneRenderer::prepare_material_descriptor_set(
-        const AssetHandle handle, const PreparedMaterial& material,
-        const std::shared_ptr<Buffer>& view_project_buffer, const Sampler& sampler) {
-        if(!m_descriptor_set_layout) {
-            LOG_FATAL(
-                "Descriptor set layout must be created before preparing material descriptors");
-        }
-
-        auto [iterator, inserted] = m_material_descriptors.try_emplace(handle);
-        MaterialDescriptorState& state = iterator->second;
-        state.last_used_frame_serial = m_frame_scheduler->get_current_frame_serial();
-        if(inserted) {
-            const uint32_t frame_slot_count = m_frame_scheduler->get_frame_slot_count();
-            DescriptorPoolSizes descriptor_pool_sizes;
-            descriptor_pool_sizes.add_pool_size(
-                DescriptorType::UniformBuffer, frame_slot_count);
-            if(!material.textures.empty()) {
-                descriptor_pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler,
-                    static_cast<uint32_t>(material.textures.size()) * frame_slot_count);
-            }
-            state.pool = std::make_shared<DescriptorPool>(
-                m_context.get_device(), frame_slot_count, descriptor_pool_sizes);
-            state.descriptor_sets = state.pool->allocate_descriptor_set(
-                *m_descriptor_set_layout, frame_slot_count);
-            state.resources.resize(frame_slot_count);
-        }
-
-        const uint32_t frame_slot_index =
-            m_frame_scheduler->get_current_frame_slot_index();
-        const DescriptorSet& descriptor_set = state.descriptor_sets.at(frame_slot_index);
-        DescriptorResources& current_resources = state.resources.at(frame_slot_index);
-        if(current_resources.view_project_buffer != view_project_buffer
-            || current_resources.textures != material.textures) {
-            const DescriptorResources resources = {
-                .view_project_buffer = view_project_buffer,
-                .textures = material.textures};
-            update_descriptor_set(descriptor_set, resources, sampler);
-            current_resources = resources;
-        }
-        return descriptor_set;
     }
 
     std::vector<QueueSemaphoreSubmit> SceneRenderer::render_scene_pass(
@@ -278,43 +141,9 @@ namespace Comet {
                 static_cast<float>(size.x), static_cast<float>(size.y)));
             command_buffer.set_scissor(Graphics::get_scissor(
                 static_cast<float>(size.x), static_cast<float>(size.y)));
-            if(!m_pipeline || !m_default_sampler) {
-                LOG_ERROR(
-                    "SceneRenderer resources are not set up. Call setup_pipeline() first.");
-            } else {
-                const uint32_t frame_slot_index =
-                    m_frame_scheduler->get_current_frame_slot_index();
-                const auto& view_project_buffer =
-                    m_view_project_uniform_buffers.at(frame_slot_index);
-                std::static_pointer_cast<CPUBuffer>(view_project_buffer)
-                    ->write(&*submission.view_project_matrix);
-
-                command_buffer.bind_pipeline(*m_pipeline);
-
-                for(const ResolvedRenderItem& item : submission.render_items) {
-                    const auto material =
-                        m_material_cache.prepare(item.material.material_handle,
-                            item.material.resource, m_material_layout);
-                    if(!material) {
-                        continue;
-                    }
-                    m_frame_scheduler->retain_current_frame_resource(item.mesh);
-                    append_resource_wait(resource_waits,
-                        item.mesh->get_ready_completion(),
-                        Flags<PipelineStage>(PipelineStage::VertexInput));
-                    for(const auto& binding : material->textures) {
-                        const auto& texture = binding.texture;
-                        m_frame_scheduler->retain_current_frame_resource(texture);
-                        append_resource_wait(resource_waits,
-                            texture->get_ready_completion(),
-                            Flags<PipelineStage>(PipelineStage::FragmentShader));
-                    }
-                    const DescriptorSet& descriptor_set =
-                        prepare_material_descriptor_set(item.material.material_handle,
-                            *material, view_project_buffer, *m_default_sampler);
-                    render_item(item, descriptor_set);
-                }
-                remove_completed_resource_waits(resource_waits);
+            if(m_material_renderer) {
+                resource_waits = m_material_renderer->render(*m_frame_scheduler,
+                    *submission.view_project_matrix, submission.render_items);
             }
             if(m_debug_renderer) {
                 m_debug_renderer->render(
@@ -323,8 +152,6 @@ namespace Comet {
         }
 
         m_render_target->end_render_target(command_buffer);
-        collect_completed_material_descriptors();
-        m_material_cache.collect_unused();
         return resource_waits;
     }
 
@@ -356,24 +183,6 @@ namespace Comet {
         command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 
         return true;
-    }
-
-    void SceneRenderer::render_item(const ResolvedRenderItem& render_item,
-        const DescriptorSet& descriptor_set) const {
-        PROFILE_SCOPE("SceneRenderer::render_item");
-
-        const auto& command_buffer = m_frame_scheduler->get_current_command_buffer();
-
-        const vk::DescriptorSet vk_descriptor_set = descriptor_set.get();
-        command_buffer.get().bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-            m_pipeline->get_layout()->get(), 0, 1, &vk_descriptor_set, 0, nullptr);
-
-        const PushConstant push_constant{.model = render_item.model_matrix};
-        command_buffer.push_constants(*m_pipeline->get_layout(),
-            Flags<ShaderStage>(ShaderStage::Vertex), 0, &push_constant,
-            sizeof(push_constant));
-
-        render_item.mesh->draw(command_buffer);
     }
 
     void SceneRenderer::end_frame(
@@ -507,60 +316,14 @@ namespace Comet {
 
     void SceneRenderer::reset_render_pipeline() {
         m_debug_renderer.reset();
-        m_pipeline.reset();
+        m_material_renderer.reset();
         m_pipeline_manager.reset();
         m_render_target.reset();
         m_render_pass.reset();
     }
 
-    void SceneRenderer::collect_completed_material_descriptors() {
-        std::erase_if(m_material_descriptors, [this](const auto& entry) {
-            return m_frame_scheduler->is_frame_serial_complete(
-                entry.second.last_used_frame_serial);
-        });
-    }
-
     void SceneRenderer::set_render_target_clear_color() const {
         m_render_target->set_clear_value(m_color_clear_value);
-    }
-
-    void SceneRenderer::update_descriptor_set(const DescriptorSet& descriptor_set,
-        const DescriptorResources& resources, const Sampler& sampler) const {
-        vk::DescriptorBufferInfo buffer_info{};
-        buffer_info.buffer = resources.view_project_buffer->get();
-        buffer_info.offset = 0;
-        buffer_info.range = sizeof(ViewProjectMatrix);
-
-        std::vector<vk::DescriptorImageInfo> image_infos(resources.textures.size());
-
-        std::vector<vk::WriteDescriptorSet> write_sets;
-
-        vk::WriteDescriptorSet view_project_write{};
-        view_project_write.dstSet = descriptor_set.get();
-        view_project_write.dstBinding = 0;
-        view_project_write.dstArrayElement = 0;
-        view_project_write.descriptorType = vk::DescriptorType::eUniformBuffer;
-        view_project_write.descriptorCount = 1;
-        view_project_write.pBufferInfo = &buffer_info;
-        write_sets.emplace_back(view_project_write);
-
-        for(std::size_t index = 0; index < resources.textures.size(); ++index) {
-            const auto& binding = resources.textures[index];
-            auto& image_info = image_infos[index];
-            image_info.sampler = sampler.get();
-            image_info.imageView = binding.texture->get_image_view()->get();
-            image_info.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-
-            vk::WriteDescriptorSet texture_write{};
-            texture_write.dstSet = descriptor_set.get();
-            texture_write.dstBinding = binding.binding;
-            texture_write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-            texture_write.descriptorCount = 1;
-            texture_write.pImageInfo = &image_info;
-            write_sets.emplace_back(texture_write);
-        }
-
-        m_context.get_device().get().updateDescriptorSets(write_sets, {});
     }
 
 }

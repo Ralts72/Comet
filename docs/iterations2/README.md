@@ -59,10 +59,11 @@
 | 013 | 缩放 Gizmo、序列化联合验证与阶段 4 核心回顾 | Debug/Release 各 404 tests 通过；Linux CI 34051606376 成功 |
 | 014 | 调度队列／资产在途背压与最新请求合并 | Debug/Release 各 413 tests 通过；Linux CI 34052025797 成功 |
 | 015 | 完成发布预算、候选生命周期收敛与定期架构回顾 | Debug/Release 各 420 tests 通过；Linux CI 34052585677 成功 |
-| 016 | 场景／材质解析边界、布局驱动绑定与 revision 缓存 | Debug/Release 各 427 tests 通过 |
+| 016 | 场景／材质解析边界、布局驱动绑定与 revision 缓存 | Debug/Release 各 427 tests 通过；Linux CI 34053125063 成功 |
+| 017 | Frame/Material 分层、多布局 GPU 参数、排序及像素读回 | Debug/Release 各 432 tests 通过 |
 
 阶段 4 本轮核心验收通过，扩展项保留在路线图；阶段 5／6 尚未完成。
-阶段 3 的主线负载控制已补齐。下一项：阶段 5 FrameSet/MaterialSet 分离与多布局 GPU 材质参数。
+阶段 3 的主线负载控制已补齐。下一项：阶段 5 布局驱动 Material Inspector，再接反射与 PipelineKey。
 已完成定期架构回顾：005、010、015；阶段边界回顾：013。下一次：020 或阶段 5 边界（取先到者）。
 
 远端推送结果与 CI 以 git 远端 refs 和 CI 实际运行状态为准，不能将本表视为远端成功证明。

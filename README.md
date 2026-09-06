@@ -69,12 +69,15 @@ ctest --preset dev-debug
   Edit 中可将 Mesh 拖入 Viewport：在鼠标对应的相机关注平面创建实体，使用项目 demo 材质，支持一次撤销。
   拖入只加载已发布 Artifact（或已驻留 Mesh），不会隐式导入源模型；缺少缓存时先在 Project 执行 Import。
   选中材质后可把 Project 的 Texture 拖入纹理槽，沿用材质保存／更新流程，不进入场景撤销历史。
+  `materials/demo.mat` 使用双纹理混合，`materials/solid.mat` 使用纯色布局；可通过 MeshRenderer 的 Material 引用切换。
+  `.mat` 支持 texture/scalar/vector 参数；新增数值参数目前通过文件配置，布局驱动的 Inspector 控件待补。
 
 ## 架构入口
 
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
   SceneResolver 不解析材质属性；渲染侧按 MaterialLayout 准备并缓存材质绑定，按对象身份与 revision 失效。
+  MaterialRenderer 负责排序和绘制 Mesh：FrameSet 按 slot 更新，MaterialSet 按版本创建并跨 slot 复用。
 - 调试绘制：`LineDrawList` 提交单帧世界空间线段/包围盒，`DebugRenderer` 在场景 pass 内绘制，
   使用当前相机和正常深度测试；不依赖 ImGui，编辑器选中框是其中一个调用方。
 - 资产：`AssetDatabase` 管身份与依赖，`ImportService` 管导入，`AssetManager` 协调加载与发布，

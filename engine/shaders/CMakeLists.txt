@@ -2,8 +2,9 @@ set(TARGET_NAME ${SHADER_COMPILE_TARGET})
 
 # 只编译生产 Shader；其余 GLSL 和头文件保留供学习，不作为隐式构建依赖。
 set(SHADER_FILES
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/cube_texture.vert"
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/cube_texture.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/material_mesh.vert"
+        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/material_textured.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/material_solid.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/debug_line.vert"
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/debug_line.frag"
 )

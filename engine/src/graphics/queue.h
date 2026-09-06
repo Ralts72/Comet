@@ -23,7 +23,7 @@ namespace Comet {
             const GpuCompletionPoint& completion, Flags<PipelineStage> stage_mask);
     };
 
-    class Queue {
+    class COMET_API Queue {
     public:
         Queue(Device& device, vk::Queue queue);
 

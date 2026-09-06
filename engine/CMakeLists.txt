@@ -77,6 +77,7 @@ set(SOURCES
         src/render/frame_scheduler.cpp
         src/render/material.cpp
         src/render/material_runtime.cpp
+        src/render/material_renderer.cpp
         src/scene/entity.cpp
         src/scene/entity_uuid.cpp
         src/scene/component_registry.cpp

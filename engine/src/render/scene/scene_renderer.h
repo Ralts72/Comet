@@ -4,25 +4,19 @@
 #include "core/math_utils.h"
 #include "render/frame_scheduler.h"
 #include "graphics/queue.h"
-#include "graphics/resource/buffer.h"
-#include "graphics/pipeline/descriptor_set.h"
 #include "graphics/enums.h"
 #include "graphics/pipeline/pipeline.h"
 #include "graphics/render_pass.h"
-#include "graphics/resource/sampler.h"
 #include "graphics/vk_common.h"
-#include "render/resource/mesh.h"
 #include "render/render_context.h"
 #include "render/scene/render_submission.h"
 #include "render/render_target.h"
-#include "render/resource/texture.h"
 #include "render/debug/debug_renderer.h"
-#include "render/material_runtime.h"
+#include "render/material_renderer.h"
 
 #include <functional>
 #include <memory>
 #include <span>
-#include <unordered_map>
 #include <vector>
 
 namespace Comet {
@@ -56,6 +50,10 @@ namespace Comet {
         [[nodiscard]] const RenderTarget& get_render_target() const {
             return *m_render_target;
         }
+        [[nodiscard]] const MaterialRenderer::Statistics& get_material_statistics()
+            const {
+            return m_material_renderer->get_statistics();
+        }
         [[nodiscard]] CommandBuffer& get_current_command_buffer() const;
         [[nodiscard]] std::shared_ptr<ImageView> get_offscreen_color_view(
             uint32_t frame_slot_index) const;
@@ -69,33 +67,7 @@ namespace Comet {
             SwapchainRebuildCallback rebuild_resources);
 
     private:
-        struct DescriptorResources {
-            std::shared_ptr<Buffer> view_project_buffer;
-            std::vector<PreparedMaterial::TextureBinding> textures;
-        };
-
-        struct MaterialDescriptorState {
-            std::shared_ptr<DescriptorPool> pool;
-            std::vector<DescriptorSet> descriptor_sets;
-            std::vector<DescriptorResources> resources;
-            uint64_t last_used_frame_serial = 0;
-        };
-
-        [[nodiscard]] const DescriptorSet& prepare_material_descriptor_set(
-            AssetHandle handle, const PreparedMaterial& material,
-            const std::shared_ptr<Buffer>& view_project_buffer, const Sampler& sampler);
-
-        std::shared_ptr<DescriptorSetLayout> create_descriptor_set_layout(
-            const DescriptorSetLayoutBindings& bindings);
-
-        void render_item(const ResolvedRenderItem& render_item,
-            const DescriptorSet& descriptor_set) const;
-
-        void update_descriptor_set(const DescriptorSet& descriptor_set,
-            const DescriptorResources& resources, const Sampler& sampler) const;
-
         void reset_render_pipeline();
-        void collect_completed_material_descriptors();
         void set_render_target_clear_color() const;
 
         SwapchainReleaseCallback m_release_swapchain_resources;
@@ -106,14 +78,8 @@ namespace Comet {
         std::unique_ptr<FrameScheduler> m_frame_scheduler;
         std::shared_ptr<RenderTarget> m_render_target;
         bool m_uses_offscreen_target = false;
-        std::shared_ptr<Pipeline> m_pipeline;
+        std::unique_ptr<MaterialRenderer> m_material_renderer;
         std::unique_ptr<DebugRenderer> m_debug_renderer;
-        std::shared_ptr<Sampler> m_default_sampler;
-        std::shared_ptr<DescriptorSetLayout> m_descriptor_set_layout;
-        std::shared_ptr<const MaterialLayout> m_material_layout;
-        MaterialRuntimeCache m_material_cache;
-        std::unordered_map<AssetHandle, MaterialDescriptorState> m_material_descriptors;
-        std::vector<std::shared_ptr<Buffer>> m_view_project_uniform_buffers;
         Format m_surface_format;
         Format m_depth_format;
         SampleCount m_msaa_samples;

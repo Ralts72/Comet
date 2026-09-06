@@ -12,7 +12,7 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、有界队列及发布预算可用 | 更多导入能力与按需字节预算 |
 | 4 视口与交互 | 本轮核心验收通过，扩展保留 | Prefab、搜索、按需通知和更精细拾取 |
-| 5 渲染升级 | 材质解析边界与 revision 缓存已接通 | 多布局 GPU 材质、PipelineKey、多 pass、线程边界 |
+| 5 渲染升级 | 多布局 GPU 材质、版本化 MaterialSet 与排序已接通 | 布局驱动 Inspector、反射、PipelineKey、多 pass、线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 规划 | 项目设置、格式迁移、打包 |
 
@@ -23,7 +23,7 @@
    Gizmo 已支持平移／旋转／缩放及对应吸附，核心编辑闭环进入维护回归。
    保持修改、world transform 更新、提取与绘制的时序一致；结构修改不能简单套属性快照。
 2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
-3. **渲染主线**：后台背压／发布预算已接通，下一项按阶段 5 推进多布局材质，再到 PipelineKey、Shader 更新及多 pass。
+3. **渲染主线**：后台背压／发布预算和多布局材质已接通，补齐布局驱动 Inspector，再到反射、PipelineKey、Shader 更新及多 pass。
 
 WSI 失败后的无呈现重试仍是应独立验收的恢复性缺口，不与材质改造捆绑完成。
 
@@ -138,16 +138,16 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 ### 材质与 Shader
 
-当前生产 GPU 仍使用 cube pipeline；固定两纹理映射已集中到手工布局，场景解析不再读取属性。
-下一步必须实际验证多布局 GPU 参数与按 revision 的 descriptor 所有权，不能只把 array 换成 vector。
+生产 GPU 已支持双纹理和纯色两种布局及 scalar/vector；手工布局驱动 std140 参数和 descriptor。
+SceneRenderer 编排 pass，MaterialRenderer 消费 Mesh 队列；不是仅把 array 换成 vector。
 
 1. 已完成：SceneResolver 只解析 Mesh/Material，不知道材质属性名、纹理数量或 binding。
 2. 已接通：material revision、不可变手工 MaterialLayout/revision 与 MaterialRuntimeCache。
-   缓存按源对象/revision 和布局身份生成 PreparedMaterial 纹理快照；资产仍保存 template/Texture Handle。
-   后续扩展标量/向量参数及 GPU 不可变版本，不把当前 CPU 绑定缓存当作完整 MaterialSet。
-3. 按 Frame / Material / Object 分层：FrameSet 按 slot；MaterialSet 按 revision 创建不可变版本并跨 slot 复用；
-   model matrix/object ID 可继续用 push constant，只有 per-frame backing 参数单独维护 slot state。
-4. Render Queue 按 pipeline/material 排序，至少验证两种布局及纹理、标量、向量参数。
+   缓存按源对象/revision 和布局身份生成 PreparedMaterial 纹理/参数快照，MaterialRenderer 创建对应 GPU 版本。
+3. 已完成 Frame / Material / Object 基础分层：FrameSet 按 slot；MaterialSet 按 revision 创建不可变版本并跨 slot 复用；
+   model matrix 继续用 push constant，物体 ID 随 GPU picking 需要再接入；只有帧相机参数维护 slot state。
+4. 已完成不透明 Render Queue 按 pipeline/material 排序；两种布局及纹理、标量、向量参数通过真实像素读回验证。
+   透明排序仍待对应渲染路径；PipelineKey 尚未用结构化键替代布局名。
 5. 再引入 SPIR-V reflection 生成 ShaderInterface（set/binding/type/count/stage/push constants）。
    显示名、默认值、颜色/法线语义和 Inspector 范围仍由 Material metadata 提供；不与 C++ 反射混淆。
 6. Material Inspector 按布局生成控件，变化时精确失效缓存；当前不引入 bindless。
