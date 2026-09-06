@@ -15,6 +15,7 @@ namespace Comet {
     class AssetRegistry;
     class Scene;
     class TaskScheduler;
+    class SceneRuntime;
 
     class COMET_API Engine {
     public:
@@ -42,8 +43,12 @@ namespace Comet {
 
         void set_scene(std::unique_ptr<Scene> scene);
 
-        [[nodiscard]] std::unique_ptr<Scene> replace_scene(
-            std::unique_ptr<Scene> scene) noexcept;
+        [[nodiscard]] std::unique_ptr<Scene> replace_scene(std::unique_ptr<Scene> scene);
+
+        [[nodiscard]] SceneRuntime& get_scene_runtime() { return *m_scene_runtime; }
+        [[nodiscard]] const SceneRuntime& get_scene_runtime() const {
+            return *m_scene_runtime;
+        }
 
         [[nodiscard]] Scene* get_scene() { return m_scene.get(); }
         [[nodiscard]] const Scene* get_scene() const { return m_scene.get(); }
@@ -79,6 +84,7 @@ namespace Comet {
         std::unique_ptr<Window> m_window;
         std::unique_ptr<AssetRegistry> m_asset_registry;
         std::unique_ptr<Scene> m_scene;
+        std::unique_ptr<SceneRuntime> m_scene_runtime;
         std::unique_ptr<Renderer> m_renderer;
         std::vector<std::function<void(UpdateContext)>> m_update_callbacks;
         std::optional<FrameTiming> m_frame_timing;

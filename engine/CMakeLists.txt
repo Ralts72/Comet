@@ -33,6 +33,7 @@ set(SOURCES
         src/core/task_scheduler.cpp
         src/core/engine.cpp
         src/core/geometry.cpp
+        src/runtime/scene_runtime.cpp
         src/graphics/convert.cpp
         src/graphics/context.cpp
         src/graphics/device.cpp

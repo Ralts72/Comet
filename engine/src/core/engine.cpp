@@ -5,12 +5,14 @@
 #include "diagnostics/profiler.h"
 #include "render/scene/scene_extractor.h"
 #include "scene/scene.h"
+#include "runtime/scene_runtime.h"
 
 namespace Comet {
     Engine::Engine(const Config& config) {
         PROFILE_SCOPE("Engine::Constructor");
         LOG_INFO("init timer");
         m_timer = std::make_unique<Timer>();
+        m_scene_runtime = std::make_unique<SceneRuntime>();
         LOG_INFO("init task scheduler");
         m_task_scheduler = std::make_unique<TaskScheduler>();
         m_asset_registry = std::make_unique<AssetRegistry>();
@@ -24,6 +26,7 @@ namespace Comet {
 
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
+        m_scene_runtime.reset();
         m_task_scheduler->wait_idle();
         m_renderer->get_render_context().wait_idle();
         m_asset_registry->clear();
@@ -35,10 +38,12 @@ namespace Comet {
     }
 
     void Engine::set_scene(std::unique_ptr<Scene> scene) {
+        m_scene_runtime->stop();
         m_scene = std::move(scene);
     }
 
-    std::unique_ptr<Scene> Engine::replace_scene(std::unique_ptr<Scene> scene) noexcept {
+    std::unique_ptr<Scene> Engine::replace_scene(std::unique_ptr<Scene> scene) {
+        m_scene_runtime->stop();
         m_scene.swap(scene);
         return scene;
     }
@@ -79,6 +84,8 @@ namespace Comet {
             const auto update_end = now();
             const bool prepared = m_renderer->prepare_frame();
             const auto prepare_end = now();
+            m_scene_runtime->advance(update_context.delta_time, get_input_frame());
+            const auto simulation_end = now();
             if(prepared) {
                 RenderScene render_scene;
                 if(m_scene)
@@ -93,8 +100,9 @@ namespace Comet {
                 };
                 m_frame_timing =
                     FrameTiming{update_context.frame_index, ms(frame_start, events_end),
-                        ms(events_end, update_end), ms(update_end, prepare_end),
-                        ms(prepare_end, frame_end), ms(frame_start, frame_end), prepared};
+                        ms(events_end, update_end) + ms(prepare_end, simulation_end),
+                        ms(update_end, prepare_end), ms(simulation_end, frame_end),
+                        ms(frame_start, frame_end), prepared};
             } else {
                 m_frame_timing.reset();
             }

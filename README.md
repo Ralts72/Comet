@@ -112,10 +112,15 @@ cmake --build build-profile --target render_profile --parallel
 - 输入：Window 在事件轮询后发布 `Input::Frame`，Engine 提供只读快照；键鼠边沿、位移／滚轮与标准手柄状态均有界保存。
   帧快照可复制，后续平台事件不改写已发布数据；失焦释放控制，ImGui 串接原回调，底层不决定编辑器 Viewport 的游戏输入路由。
   原生窗口 user pointer 归 Window；外部替换输入回调时须保留调用链，不能绕过输入采集。
+- 运行时：Engine 拥有 `SceneRuntime`，按注册顺序串行执行 System；启动正序、停止逆序。
+  帧准备／UI 后执行有界 Fixed Update，再执行一次普通 Update，最后提取场景；场景替换先停止运行时。
+  默认固定步 1/60 秒，每帧最多 8 步、接收最多 0.25 秒，超额整步丢弃并计入 Timing，不无限追赶。
+  固定输入的边沿／位移跨零步帧累积、只由首个固定步消费；同一输入 serial 不重复触发边沿。
+  app 方块旋转走固定更新、相机走普通更新；编辑器 Play 的运行控制与脚本仍单独推进。
 - 编辑器：面板是可见状态的唯一 owner；View 菜单只观察已登记面板并切换状态，关闭按钮和菜单不会各存一份 bool。
   Editor 在释放面板前移除 UI 回调并销毁菜单；业务编辑仍走既有命令历史，不引入全局 EventBus。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
-  帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
+  帧准备、UI 与运行时修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
   交换链创建／图像枚举失败会暂停呈现并间隔重试，不复用已退休图像；设备／surface 丢失仍需专门恢复。
   SceneResolver 不解析材质属性；渲染侧按 MaterialLayout 准备并缓存材质绑定，按对象身份与 revision 失效。
   MaterialRenderer 负责排序和绘制 Mesh：FrameSet 按 slot 更新，MaterialSet 按版本创建并跨 slot 复用。

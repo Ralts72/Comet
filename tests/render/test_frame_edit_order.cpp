@@ -4,6 +4,7 @@
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
 #include "scene/scene.h"
+#include "runtime/scene_runtime.h"
 
 #include <gtest/gtest.h>
 
@@ -42,7 +43,17 @@ namespace Comet::Tests {
             object.add_component<MeshRendererComponent>(AssetHandle(1), AssetHandle(2));
             return scene;
         };
+        struct MoveSystem final: System {
+            void update(Scene& scene, const Context&) override {
+                scene.find_entity(EntityId(2))
+                    .get_component<TransformComponent>()
+                    .translation.x = 0;
+            }
+        };
         engine.set_scene(make_scene(20));
+        auto& runtime = engine.get_scene_runtime();
+        runtime.add_system(std::make_unique<MoveSystem>());
+        runtime.start(*engine.get_scene());
         int preparations = 0;
         bool picked = false;
         std::optional<uint64_t> allocations_before_lines;
@@ -58,12 +69,14 @@ namespace Comet::Tests {
             [&] {
                 ++preparations;
                 if(GetParam()) {
-                    engine.set_scene(make_scene(0));
+                    engine.set_scene(make_scene(10));
+                    EXPECT_FALSE(runtime.is_active());
+                    runtime.start(*engine.get_scene());
                 } else {
                     engine.get_scene()
                         ->find_entity(EntityId(2))
                         .get_component<TransformComponent>()
-                        .translation.x = 0;
+                        .translation.x = 10;
                 }
                 const auto size =
                     renderer.get_scene_renderer().get_render_target().get_size();
@@ -109,6 +122,7 @@ namespace Comet::Tests {
         EXPECT_EQ(preparations, 1);
         EXPECT_TRUE(picked);
         EXPECT_TRUE(allocations_before_lines.has_value());
+        EXPECT_EQ(runtime.get_timing().frame_index, 1U);
     }
 
     INSTANTIATE_TEST_SUITE_P(MutateOrReplaceScene, FrameEditOrderTest, ::testing::Bool());
