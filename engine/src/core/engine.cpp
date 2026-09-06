@@ -15,11 +15,6 @@ namespace Comet {
         m_task_scheduler = std::make_unique<TaskScheduler>();
         m_asset_registry = std::make_unique<AssetRegistry>();
 
-        LOG_INFO("init glfw");
-        if(!glfwInit()) {
-            LOG_FATAL("Failed to init glfw.");
-        }
-
         LOG_INFO("init window");
         m_window = std::make_unique<Window>(config.window);
 

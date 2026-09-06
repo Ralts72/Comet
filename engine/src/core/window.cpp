@@ -2,10 +2,28 @@
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 #include <algorithm>
+#include <stdexcept>
+
+namespace {
+    // GLFW 是进程级平台状态；最后一个窗口关闭后仍保留，避免反复启动 Cocoa。
+    class GlfwRuntime {
+    public:
+        GlfwRuntime() {
+            if(glfwInit() != GLFW_TRUE) {
+                const char* description = nullptr;
+                glfwGetError(&description);
+                throw std::runtime_error(description ? description : "GLFW init failed");
+            }
+        }
+        ~GlfwRuntime() { glfwTerminate(); }
+    };
+}
 
 namespace Comet {
     Window::Window(const Config::Window& config) {
         PROFILE_SCOPE("Window::Constructor");
+        static const GlfwRuntime runtime;
+        glfwDefaultWindowHints();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
@@ -49,8 +67,7 @@ namespace Comet {
 
     Window::~Window() {
         glfwDestroyWindow(m_window);
-        glfwTerminate();
-        LOG_INFO("The window has been destroy.");
+        LOG_INFO("Window destroyed.");
     }
 
     bool Window::should_close() const {

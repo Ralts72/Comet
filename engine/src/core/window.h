@@ -11,9 +11,12 @@
 namespace Comet {
     class COMET_API Window {
     public:
+        // 在主线程创建／销毁；平台初始化由实现管理，外部不可调用 glfwTerminate。
         explicit Window(const Config::Window& config);
 
         ~Window();
+        Window(const Window&) = delete;
+        Window& operator=(const Window&) = delete;
 
         [[nodiscard]] GLFWwindow* get() const { return m_window; }
 

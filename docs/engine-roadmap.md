@@ -23,7 +23,7 @@
    Gizmo 已支持平移／旋转／缩放及对应吸附，核心编辑闭环进入维护回归。
    保持修改、world transform 更新、提取与绘制的时序一致；结构修改不能简单套属性快照。
 2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
-3. **渲染主线**：HDR、forward 灯光／阴影、PBR/Bloom 及 CPU/GPU／显存诊断已接通；下一项阶段边界回顾，结合实测评估线程演进和剩余约束。
+3. **渲染主线**：HDR、forward 灯光／阴影、PBR/Bloom 及 CPU/GPU／显存诊断已接通；平台与面板 owner 已收敛，下一项代表场景实测及阶段边界评估。
 
 WSI 创建／枚举失败后的无呈现重试已接通；surface/device 丢失与不兼容格式的完整恢复仍保留，不与一般重试混为一谈。
 
@@ -138,7 +138,7 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 ### 材质与 Shader
 
-生产 GPU 已支持双纹理和纯色两种布局及 scalar/vector；语义元数据结合 Shader 反射驱动 std140 参数和 descriptor。
+生产 GPU 已支持纹理、纯色、Lambert 和 PBR 布局及 scalar/vector；语义元数据结合 Shader 反射驱动 std140 参数和 descriptor。
 SceneRenderer 编排 pass，MaterialRenderer 消费 Mesh 队列；不是仅把 array 换成 vector。
 
 1. 已完成：SceneResolver 只解析 Mesh/Material，不知道材质属性名、纹理数量或 binding。
@@ -159,7 +159,7 @@ SceneRenderer 编排 pass，MaterialRenderer 消费 Mesh 队列；不是仅把 a
 Shader 源码、CPU 编译结果和 Vulkan 对象分层；已在 tools/shader 建立 CPU 编译契约并接通 build-time CLI，
 共用固定 glslang、stage、输出 entry（GLSL 源入口 main）、defines、target 和 include 内容快照。
 构建已有头文件依赖通过 depfile 重建；编译失败保留旧 SPIR-V；variants 资产管理仍待接入。
-已接通 Editor-only 材质三 Shader 整组热加载：200 ms 轮询、150 ms debounce → 有界 Worker 编译/reflection
+已接通 Editor-only 材质热加载（unlit 与 Lambert/PBR 各三 Shader 一组）：200 ms 轮询、150 ms debounce → 有界 Worker 编译/reflection
 → 输入内容/revision 验票 → owner 帧边界切换；只有一个在途组，新的修改合并为最新待执行请求。
 兼容接口复用原 descriptor/参数；材质接口变化则候选 CPU 缓存和所有驻留 GPU 绑定一起准备，全部成功后以 swap 发布。
 旧帧继续持有旧 Shader/Pipeline/Layout/Material 版本；失败不发生部分材质新旧混合，下一帧不再懒建热更新绑定。
@@ -249,6 +249,8 @@ Frame、顶点输入和 push constant 的固定 C++ 契约不自动重写。
 ### 线程演进
 
 当前 Main 拥有 Scene、UI 和 GPU 可变状态；Worker 只产出 CPU 数据。独立 RenderThread 不是阶段 4 前置任务。
+GLFW 初始化／终止统一属于进程级平台实现，Window 只销毁自身；主线程约束不因窗口 owner 分离而放宽。
+View 菜单观察实际面板，可见状态只有一份；渲染生命周期回调仍保持显式顺序，不并入全局事件总线。
 
 | Owner | 职责 | 边界 |
 | --- | --- | --- |

@@ -1,5 +1,7 @@
 #include "menu_bar.h"
+#include "panels/editor_panel.h"
 #include <imgui.h>
+#include <stdexcept>
 
 namespace CometEditor {
 
@@ -86,13 +88,9 @@ namespace CometEditor {
 
     void MenuBar::render_view_menu() {
         if(ImGui::BeginMenu("View")) {
-            for(auto& [name, visible] : m_panel_visibility) {
-                if(ImGui::MenuItem(name.c_str(), nullptr, visible)) {
-                    visible = !visible;
-                    if(m_panel_callbacks.contains(name)) {
-                        m_panel_callbacks.at(name)(visible);
-                    }
-                }
+            for(auto& [name, panel] : m_panels) {
+                if(ImGui::MenuItem(name.c_str(), nullptr, panel.get().is_visible()))
+                    panel.get().toggle_visible();
             }
             ImGui::EndMenu();
         }
@@ -115,21 +113,10 @@ namespace CometEditor {
         }
     }
 
-    void MenuBar::set_panel_visibility_callback(const std::string& panel_name,
-        PanelVisibilityCallback callback, const bool initially_visible) {
-        if(m_panel_visibility.contains(panel_name)) {
-            m_panel_callbacks[panel_name] = callback;
-        } else {
-            m_panel_visibility[panel_name] = initially_visible;
-            m_panel_callbacks[panel_name] = callback;
-        }
-    }
-
-    bool MenuBar::is_panel_visible(const std::string& panel_name) const {
-        if(m_panel_visibility.contains(panel_name)) {
-            return m_panel_visibility.at(panel_name);
-        }
-        return false;
+    void MenuBar::add_panel(EditorPanel& panel) {
+        const auto [entry, inserted] = m_panels.try_emplace(panel.get_name(), panel);
+        if(!inserted && &entry->second.get() != &panel)
+            throw std::invalid_argument("Duplicate panel name: " + panel.get_name());
     }
 
 }

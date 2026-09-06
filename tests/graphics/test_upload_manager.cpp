@@ -171,22 +171,14 @@ namespace Comet::Tests {
         class UploadBatchGpuTest: public ::testing::Test {
         protected:
             void SetUp() override {
-                if(glfwInit() != GLFW_TRUE) {
-                    GTEST_SKIP() << "GLFW initialization failed";
-                }
-                m_glfw_initialized = true;
-                if(glfwVulkanSupported() != GLFW_TRUE) {
-                    glfwTerminate();
-                    m_glfw_initialized = false;
-                    GTEST_SKIP() << "Vulkan is unavailable through GLFW";
-                }
-
                 Config::Window window_config;
                 window_config.width = 64;
                 window_config.height = 64;
                 window_config.title = "Comet UploadBatch Test";
                 window_config.resizable = false;
                 m_window = std::make_unique<Window>(window_config);
+                if(glfwVulkanSupported() != GLFW_TRUE)
+                    GTEST_SKIP() << "Vulkan is unavailable through GLFW";
                 m_context = std::make_unique<Context>(
                     *m_window, Config::Vulkan{}, DeviceCapabilityRequest{});
                 m_device = std::make_unique<Device>(*m_context);
@@ -195,19 +187,12 @@ namespace Comet::Tests {
             void TearDown() override {
                 m_device.reset();
                 m_context.reset();
-                if(m_window) {
-                    m_window.reset();
-                    m_glfw_initialized = false;
-                }
-                if(m_glfw_initialized) {
-                    glfwTerminate();
-                }
+                m_window.reset();
             }
 
             std::unique_ptr<Window> m_window;
             std::unique_ptr<Context> m_context;
             std::unique_ptr<Device> m_device;
-            bool m_glfw_initialized = false;
         };
     }
 

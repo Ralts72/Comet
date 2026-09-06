@@ -439,12 +439,12 @@ namespace {
             static_cast<void>(m_property_edit.cancel());
             m_command_history.bind_scene(nullptr);
             m_imgui_context.reset();
+            m_menu_bar.reset();
             m_project_panel.reset();
             m_hierarchy_panel.reset();
             m_inspector_panel.reset();
             m_viewport_panel.reset();
             m_render_stats_panel.reset();
-            m_menu_bar.reset();
             m_selection.reset();
             m_scene_session.reset();
             m_scene_document.reset();
@@ -916,21 +916,12 @@ namespace {
                     return move_project_asset(handle, destination);
                 },
                 *m_selection, m_command_history);
-            m_menu_bar->set_panel_visibility_callback("Hierarchy",
-                [this](const bool visible) { m_hierarchy_panel->set_visible(visible); });
-            m_menu_bar->set_panel_visibility_callback("Viewport",
-                [this](const bool visible) { m_viewport_panel->set_visible(visible); });
-            m_menu_bar->set_panel_visibility_callback("Inspector",
-                [this](const bool visible) { m_inspector_panel->set_visible(visible); });
-            m_menu_bar->set_panel_visibility_callback("Project",
-                [this](const bool visible) { m_project_panel->set_visible(visible); });
-            m_menu_bar->set_panel_visibility_callback("Log",
-                [this](const bool visible) { m_console_panel->set_visible(visible); });
-            m_menu_bar->set_panel_visibility_callback(
-                "Render Stats",
-                [this](
-                    const bool visible) { m_render_stats_panel->set_visible(visible); },
-                false);
+            m_menu_bar->add_panel(*m_hierarchy_panel);
+            m_menu_bar->add_panel(*m_viewport_panel);
+            m_menu_bar->add_panel(*m_inspector_panel);
+            m_menu_bar->add_panel(*m_project_panel);
+            m_menu_bar->add_panel(*m_console_panel);
+            m_menu_bar->add_panel(*m_render_stats_panel);
 
             m_imgui_context->set_ui_callback([this]() {
                 constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;

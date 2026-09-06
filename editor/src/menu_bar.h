@@ -10,7 +10,7 @@
 
 namespace CometEditor {
 
-    using PanelVisibilityCallback = std::function<void(bool)>;
+    class EditorPanel;
 
     class MenuBar {
     public:
@@ -23,10 +23,8 @@ namespace CometEditor {
         void collect_shortcuts();
         [[nodiscard]] std::optional<Command> take_command();
 
-        void set_panel_visibility_callback(const std::string& panel_name,
-            PanelVisibilityCallback callback, bool initially_visible = true);
-
-        [[nodiscard]] bool is_panel_visible(const std::string& panel_name) const;
+        // 仅观察现有面板；调用方保证面板比菜单活得更久。
+        void add_panel(EditorPanel& panel);
 
         void set_fps(const float fps) { m_fps = fps; }
 
@@ -39,8 +37,7 @@ namespace CometEditor {
 
         const EditorState& m_state;
         const CommandHistory& m_history;
-        std::map<std::string, bool> m_panel_visibility;
-        std::map<std::string, PanelVisibilityCallback> m_panel_callbacks;
+        std::map<std::string, std::reference_wrapper<EditorPanel>> m_panels;
         std::optional<Command> m_requested_command;
         float m_fps = 0.0f;
     };

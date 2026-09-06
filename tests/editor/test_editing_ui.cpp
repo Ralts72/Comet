@@ -75,8 +75,10 @@ namespace CometEditor::Tests {
         void frame() {
             ImGui::NewFrame();
             menu.render();
-            ImGui::SetNextWindowPos(ImVec2(20, 40));
-            ImGui::SetNextWindowSize(ImVec2(700, 500));
+            if(inspector->is_visible()) {
+                ImGui::SetNextWindowPos(ImVec2(20, 40));
+                ImGui::SetNextWindowSize(ImVec2(700, 500));
+            }
             inspector->render();
             menu.collect_shortcuts();
             ImGui::Render();
@@ -115,6 +117,44 @@ namespace CometEditor::Tests {
             frame();
         }
     };
+
+    TEST_F(EditingUiTest, ViewMenuUsesPanelVisibilityAfterCloseAndProgrammaticChanges) {
+        menu.add_panel(*inspector);
+        EXPECT_NO_THROW(menu.add_panel(*inspector));
+        struct DuplicatePanel: EditorPanel {
+            DuplicatePanel() : EditorPanel("Inspector") {}
+            void render() override {}
+        } duplicate;
+        EXPECT_THROW(menu.add_panel(duplicate), std::invalid_argument);
+        const auto open_from_menu = [&] {
+            auto* bar = ImGui::FindWindowByName("##MainMenuBar");
+            ASSERT_NE(bar, nullptr);
+            ImGui::ActivateItemByID(ImHashStr("View", 0, bar->GetID("##MenuBar")));
+            frame();
+            frame();
+            const auto& popups = ImGui::GetCurrentContext()->OpenPopupStack;
+            ASSERT_FALSE(popups.empty());
+            auto* popup = popups.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID("Inspector"));
+            frame();
+        };
+        inspector->set_visible(false);
+        frame();
+        open_from_menu();
+        EXPECT_TRUE(inspector->is_visible());
+        auto* window = ImGui::FindWindowByName("Inspector");
+        ASSERT_NE(window, nullptr);
+        ImGui::ActivateItemByID(window->GetID("#CLOSE"));
+        frame();
+        ASSERT_FALSE(inspector->is_visible());
+        open_from_menu();
+        EXPECT_TRUE(inspector->is_visible());
+        inspector->set_visible(false);
+        frame();
+        open_from_menu();
+        EXPECT_TRUE(inspector->is_visible());
+    }
 
     TEST_F(EditingUiTest, ProjectImportIsAHandleRequestAndBusyStatesDisableIt) {
         struct TemporaryAssets {

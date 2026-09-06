@@ -91,6 +91,11 @@ ctest --preset dev-debug
 
 ## 架构入口
 
+- 平台：Window 只拥有自己的原生窗口；GLFW 在首次创建窗口时初始化，正常进程退出时统一终止。
+  创建／销毁窗口和平台事件处理必须在主线程，应用及测试不得另行调用 `glfwTerminate()`。
+  关闭一扇窗口不会销毁其他窗口，连续启动 Engine 不反复初始化平台；这不代表已支持多窗口多 Renderer 编排。
+- 编辑器：面板是可见状态的唯一 owner；View 菜单只观察已登记面板并切换状态，关闭按钮和菜单不会各存一份 bool。
+  Editor 在释放面板前移除 UI 回调并销毁菜单；业务编辑仍走既有命令历史，不引入全局 EventBus。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
   交换链创建／图像枚举失败会暂停呈现并间隔重试，不复用已退休图像；设备／surface 丢失仍需专门恢复。

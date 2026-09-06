@@ -93,7 +93,6 @@ namespace Comet::Tests {
             Logger::init();
             sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(messages);
             Logger::add_custom_sink(sink);
-            ASSERT_TRUE(glfwInit());
             config.window.width = 160;
             config.window.height = 120;
             config.vulkan.msaa_samples = SampleCount::Count1;
@@ -146,7 +145,6 @@ namespace Comet::Tests {
             renderer.reset();
             context.reset();
             window.reset();
-            glfwTerminate();
             EXPECT_EQ(messages.str().find("VUID-"), std::string::npos) << messages.str();
             EXPECT_EQ(messages.str().find("Validation Error"), std::string::npos)
                 << messages.str();
