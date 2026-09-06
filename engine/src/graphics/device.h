@@ -5,6 +5,7 @@
 #include "queue.h"
 #include "graphics/command/command_buffer.h"
 #include "vk_capability.h"
+#include "graphics/pipeline/pipeline_cache.h"
 
 namespace Comet {
     class Context;
@@ -23,6 +24,7 @@ namespace Comet {
         struct CreateInfo {
             uint32_t graphics_queue_count = 1;
             uint32_t present_queue_count = 1;
+            std::filesystem::path pipeline_cache_directory;
         };
 
         explicit Device(Context& context);
@@ -68,8 +70,8 @@ namespace Comet {
             return m_present_queues.at(index);
         }
 
-        [[nodiscard]] vk::PipelineCache get_pipeline_cache() const {
-            return m_pipeline_cache;
+        [[nodiscard]] PipelineCache& get_pipeline_cache() const {
+            return *m_pipeline_cache;
         }
 
         [[nodiscard]] const DeviceCapability& get_capability() const {
@@ -92,8 +94,6 @@ namespace Comet {
 
         [[nodiscard]] Allocator& get_allocator() const;
 
-        void create_pipeline_cache();
-
         void create_default_command_pool();
 
         void create_allocator();
@@ -105,7 +105,7 @@ namespace Comet {
         std::vector<Queue> m_graphics_queues;
         std::vector<Queue> m_present_queues;
         DeviceCapability m_capability;
-        vk::PipelineCache m_pipeline_cache;
+        std::unique_ptr<PipelineCache> m_pipeline_cache;
         std::unique_ptr<CommandPool> m_default_command_pool;
     };
 }

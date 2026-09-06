@@ -70,10 +70,11 @@
 | 022 | 固定接口 specialization、类型/默认值反射、位模式键与真实 GPU 变体 | Debug/Release 各 464 tests + 1 构建契约测试通过；Linux CI 34056663399 成功 |
 | 023 | 编辑器材质 Shader 有界热更新、整组发布与在途 GPU 版本保护 | Debug/Release 各 473 tests + 1 构建契约测试通过；Linux CI 34057650139 成功 |
 | 024 | 材质反射布局、所有驻留 CPU/GPU 资源整组重建与 Inspector 发布快照 | Debug/Release 各 478 tests + 1 构建契约测试通过；Linux CI 34058335800 成功 |
-| 025 | Debug Shader 整组热更新、轮询基线修复与阶段性架构回顾 | Debug/Release 各 484 tests + 1 构建契约测试通过 |
+| 025 | Debug Shader 整组热更新、轮询基线修复与阶段性架构回顾 | Debug/Release 各 484 tests + 1 构建契约测试通过；Linux CI 34058803915 成功 |
+| 026 | 驱动 PipelineCache 校验恢复、原子保存及独立进程启动验证 | Debug/Release 各 490 tests + 2 独立契约测试通过 |
 
 阶段 4 本轮核心验收通过，扩展项保留在路线图；阶段 5／6 尚未完成。
-阶段 3 的主线负载控制已补齐。下一项：阶段 5 driver PipelineCache 恢复与原子保存。
+阶段 3 的主线负载控制已补齐。下一项：阶段 5 WSI 创建失败后的无呈现恢复与重试。
 已完成定期架构回顾：005、010、015、020、025；阶段边界回顾：013。下一次：030 或阶段 5 边界（取先到者）。
 
 远端推送结果与 CI 以 git 远端 refs 和 CI 实际运行状态为准，不能将本表视为远端成功证明。

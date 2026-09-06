@@ -93,6 +93,8 @@ ctest --preset dev-debug
   材质另核对参数块大小、偏移和类型。显示名、默认值、颜色及编辑范围仍由 MaterialLayout 定义，不从反射猜测。
 - Pipeline：在当前 Device/RenderPass 内按 Shader 内容、布局及完整配置复用，名称只作标签；
   缓存不强持有 GPU Pipeline，最后一个实际使用者（含 FrameSlot）释放后回收。
+  Device 的驱动 PipelineCache 独立保存到 `.comet/cache/vulkan/`，按设备与 UUID 分文件；启动校验版本、长度和校验和，
+  损坏或不兼容时回退为空缓存，正常关闭时原子保存。它是可删除的加速数据，不是 Shader 或 Pipeline 资产。
   顶点/片元 specialization 支持 bool 与 32 位 int/uint/float，按反射校验 ID/类型并实际传给 Vulkan；
   改变数组长度的接口变体使用编译期 defines，不能用 specialization 绕过布局校验。
 - 调试绘制：`LineDrawList` 提交单帧世界空间线段/包围盒，`DebugRenderer` 在场景 pass 内绘制，

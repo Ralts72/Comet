@@ -181,12 +181,13 @@ Frame、顶点输入和 push constant 的固定 C++ 契约不自动重写。
   显式默认值与省略配置等价。其契约保持接口形状不变；所有 specialization 长度数组明确拒绝，改用编译期 defines
   生成字节码并重新反射布局；64 位等其他标量宽度随设备能力与实际 Shader 需求扩展。
   缓存域固定于 Device/RenderPass，不做跨 RenderPass 兼容复用；不使用原始 struct 内存或 hash 单值判等。
-- 驱动 PipelineCache blob 用于跨进程加速，不代替对象 key。放在 .comet/cache/vulkan 或平台缓存，
+- 驱动 PipelineCache blob 已接通跨进程恢复与关闭保存，不代替对象 key。当前放在 `.comet/cache/vulkan`，
   校验 header size/version、vendorID、deviceID、pipelineCacheUUID，以及 envelope 长度/校验和。
-  损坏或不兼容回退空 cache，不影响启动。
-- 先做结构化 key，再接热加载，最后加 cache load/atomic save；编译批次后节流或关机保存，不每帧写磁盘。
+  单文件最多 64 MiB 驱动数据；按设备／UUID 分文件，损坏或不兼容回退空 cache，不影响启动。
+- 已实现结构化 key、热加载、cache load/atomic save；目前正常关闭自动保存，owner 也可显式在批次后保存，不每帧写磁盘。
   Pipeline 创建/合并/保存由同一 owner 串行访问；后台 ShaderCompiler 不直接操作 Vulkan cache。
-- 测试 key 等价性、兼容性和损坏输入；cold/warm 性能只做测量，不要求固定加速比例。
+- 已测试 key 等价性、兼容性、损坏输入、失败保存以及两个独立进程通过完整 Application 链路冷／热启动并绘制。
+  cold/warm 性能只做测量，不要求固定加速比例；驱动可忽略传入缓存，恢复成功不等于必然加速。
 
 ### GPU 资源、同步与 WSI
 

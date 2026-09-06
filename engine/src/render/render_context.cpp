@@ -26,7 +26,9 @@ namespace Comet {
         m_context = std::make_unique<Context>(window, vulkan_config, capability_request);
 
         LOG_INFO("create device");
-        m_device = std::make_unique<Device>(*m_context);
+        m_device = std::make_unique<Device>(*m_context,
+            Device::CreateInfo{
+                .pipeline_cache_directory = vulkan_config.pipeline_cache_directory});
 
         LOG_INFO("create swapchain");
         m_swapchain =

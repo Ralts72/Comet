@@ -87,7 +87,8 @@ namespace Comet {
             m_present_queues.emplace_back(*this, vk_queue);
         }
 
-        create_pipeline_cache();
+        m_pipeline_cache = std::make_unique<PipelineCache>(
+            *this, physical_device.getProperties(), create_info.pipeline_cache_directory);
         create_default_command_pool();
     }
 
@@ -98,9 +99,7 @@ namespace Comet {
         m_default_command_pool.reset();
         m_present_queues.clear();
         m_graphics_queues.clear();
-        if(m_pipeline_cache) {
-            m_device.destroyPipelineCache(m_pipeline_cache);
-        }
+        m_pipeline_cache.reset();
         m_allocator.reset();
         if(m_device) {
             m_device.destroy();
@@ -169,9 +168,4 @@ namespace Comet {
         return *m_allocator;
     }
 
-    void Device::create_pipeline_cache() {
-        constexpr vk::PipelineCacheCreateInfo pcache_create_info = {};
-        m_pipeline_cache = m_device.createPipelineCache(pcache_create_info);
-        LOG_INFO("Vulkan pipeline cache created successfully");
-    }
 }

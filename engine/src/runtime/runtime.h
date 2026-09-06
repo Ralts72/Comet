@@ -15,6 +15,7 @@ namespace Comet {
     struct LaunchOptions {
         std::filesystem::path config_directory;
         std::string config_profile;
+        std::filesystem::path cache_directory;
     };
 
     class Application {
@@ -61,6 +62,8 @@ namespace Comet {
                 (config_directory / "profiles" / (options.config_profile + ".yaml"))
                     .string()});
 
+        if(!options.cache_directory.empty())
+            config.vulkan.pipeline_cache_directory = options.cache_directory / "vulkan";
         app->start(std::move(config));
         app->main_loop();
         app->end();

@@ -170,7 +170,7 @@ namespace Comet {
         pipeline_create_info.basePipelineIndex = 0;
 
         auto result = m_device.get().createGraphicsPipeline(
-            m_device.get_pipeline_cache(), pipeline_create_info);
+            m_device.get_pipeline_cache().get(), pipeline_create_info);
         if(result.result != vk::Result::eSuccess) {
             LOG_FATAL("Failed to create graphics pipeline");
         }

@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 
 namespace Comet {
@@ -36,6 +37,8 @@ namespace Comet {
             std::uint32_t swapchain_image_count = 3;
             SampleCount msaa_samples = SampleCount::Count4;
             bool enable_validation = false;
+            // 启动层提供本机路径；空值只使用内存缓存，不写入共享 YAML。
+            std::filesystem::path pipeline_cache_directory;
         };
 
         struct Render {

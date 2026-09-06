@@ -18,6 +18,7 @@
 | `render/resource/resource_manager.h` | 设备资源工厂、上传及 Shader/Sampler 共享资源 |
 | `graphics/` | Vulkan 对象与显式同步后端 |
 | `graphics/pipeline/pipeline.h` | PipelineConfig/Key、设备 Pipeline 与弱引用缓存；键实现见 pipeline_key.cpp |
+| `graphics/pipeline/pipeline_cache.h` | Device 拥有的驱动缓存、磁盘封装校验与原子保存；不保存业务 Pipeline 索引 |
 | `graphics/pipeline/shader_interface.h` | SPIR-V 的自有 CPU 接口值，不持有设备或反射库指针 |
 | `tools/shader/compiler.h`（仓库根路径） | CPU GLSL 编译与输入快照；构建 CLI 共用，engine 不依赖该工具库 |
 | `editor/src/imgui_context.h` | 编辑器 UI 最终呈现和私有纹理绑定，不属于 engine |
@@ -111,6 +112,10 @@ PipelineKey 使用完整字节码/入口、descriptor/push 范围、PipelineConf
 键相等不依赖名字、Shader 地址、VkShaderModule 或 VkDescriptorSetLayout 的句柄相等。
 specialization 按 stage/ID/类型/原始位模式参与键，显式默认值规范化后传入 Vulkan；不同 RenderPass 不尝试兼容复用。
 PipelineKey 不是跨进程磁盘格式。
+`LaunchOptions.cache_directory` 经 Config/RenderContext 传给 Device；app/editor 的启动入口默认提供项目 `.comet/cache`。
+PipelineCache 按 vendor/device/UUID 读取 `vulkan/*.bin`，先检查封装版本／长度／FNV-1a 校验和，再检查 Vulkan 32 字节小端头；
+缺失／损坏／不匹配使用空缓存，正常关闭原子保存。空路径禁用磁盘但仍保留内存驱动缓存；路径不写入共享 YAML。
+Pipeline 和 ImGui backend 只借用原生 cache handle，Device 最后释放 owner；磁盘缓存不延长 Pipeline 生命周期。
 PipelineManager 只弱引用 Pipeline，实际 owner 是 MaterialRenderer、DebugRenderer 和录制过它的 FrameSlot。
 最后一个实际 owner 释放即销毁 GPU 对象；过期 key 在下次创建或 collect_unused 时清理，不阻塞 GPU 等待。
 
