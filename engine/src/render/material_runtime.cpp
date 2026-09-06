@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <unordered_set>
 #include <utility>
@@ -25,6 +26,9 @@ namespace Comet {
             if(binding.count != 1)
                 fail("descriptor arrays are not material properties");
             if(binding.type == vk::DescriptorType::eCombinedImageSampler) {
+                if(!binding.image || !binding.image->is_float_2d())
+                    fail(
+                        "material textures require single-sample floating-point sampler2D");
                 if(std::ranges::find(
                        m_textures, binding.binding, &TextureProperty::binding)
                     == m_textures.end()) {
@@ -33,7 +37,8 @@ namespace Comet {
                 ++texture_count;
                 continue;
             }
-            if(binding.binding != 0 || binding.type != vk::DescriptorType::eUniformBuffer
+            if(binding.binding != m_parameter_binding
+                || binding.type != vk::DescriptorType::eUniformBuffer
                 || m_parameter_size == 0 || binding.block_size != m_parameter_size) {
                 fail("parameter block type, binding or size mismatch");
             }
@@ -62,8 +67,8 @@ namespace Comet {
         const std::string_view name) {
         static const std::array<std::shared_ptr<const MaterialLayout>, 2> layouts{
             std::make_shared<MaterialLayout>("cube_texture", 2,
-                std::vector<TextureProperty>{
-                    {"u_Texture0", 1, "Texture 0"}, {"u_Texture1", 2, "Texture 1"}},
+                std::vector<TextureProperty>{{"u_Texture0", 1, "Texture 0", "texture0"},
+                    {"u_Texture1", 2, "Texture 1", "texture1"}},
                 32,
                 std::vector<ScalarProperty>{{"blend", 16, 0.5f, 0, 1, 0.01f, "Blend"}},
                 std::vector<VectorProperty>{
@@ -83,10 +88,11 @@ namespace Comet {
 
     MaterialLayout::MaterialLayout(std::string name, const uint64_t revision,
         std::vector<TextureProperty> textures, const uint32_t parameter_size,
-        std::vector<ScalarProperty> scalars, std::vector<VectorProperty> vectors)
+        std::vector<ScalarProperty> scalars, std::vector<VectorProperty> vectors,
+        const uint32_t parameter_binding)
         : m_name(std::move(name)), m_revision(revision), m_textures(std::move(textures)),
-          m_parameter_size(parameter_size), m_scalars(std::move(scalars)),
-          m_vectors(std::move(vectors)) {
+          m_parameter_size(parameter_size), m_parameter_binding(parameter_binding),
+          m_scalars(std::move(scalars)), m_vectors(std::move(vectors)) {
         if(m_name.empty() || m_revision == 0) {
             throw std::invalid_argument("Material layout requires a name and revision");
         }
@@ -100,9 +106,9 @@ namespace Comet {
         }
         std::ranges::sort(m_textures, {}, &TextureProperty::binding);
         if(parameter_size % 16 != 0 || parameter_size > 65536
-            || (parameter_size > 0 && bindings.contains(0))) {
+            || (parameter_size > 0 && bindings.contains(parameter_binding))) {
             throw std::invalid_argument(
-                "Material parameters require a bounded std140 block at binding 0");
+                "Material parameters require a bounded std140 block and unique binding");
         }
         std::vector<bool> occupied(parameter_size);
         const auto validate_parameter = [&](const std::string& property_name,
@@ -187,6 +193,107 @@ namespace Comet {
         }
         entry.prepared = std::move(prepared);
         return entry.prepared;
+    }
+
+    std::shared_ptr<const MaterialLayout> MaterialLayout::reflect(
+        const std::shared_ptr<const MaterialLayout>& metadata,
+        const ShaderInterface& shader) {
+        if(!metadata)
+            throw std::invalid_argument("Material reflection requires semantic metadata");
+        auto textures = metadata->m_textures;
+        auto scalars = metadata->m_scalars;
+        auto vectors = metadata->m_vectors;
+        uint32_t size = 0;
+        uint32_t parameter_binding = 0;
+        std::vector<const ShaderInterface::DescriptorBinding*> texture_bindings;
+        const ShaderInterface::DescriptorBinding* parameters = nullptr;
+        for(const auto& binding : shader.get_bindings()) {
+            if(binding.set != 1)
+                continue;
+            if(binding.count != 1)
+                throw std::invalid_argument(
+                    "Material descriptor arrays require explicit metadata support");
+            if(binding.type == vk::DescriptorType::eCombinedImageSampler)
+                texture_bindings.push_back(&binding);
+            else if(binding.type == vk::DescriptorType::eUniformBuffer && !parameters)
+                parameters = &binding;
+            else
+                throw std::invalid_argument("Unsupported material resource shape");
+        }
+        if(texture_bindings.size() != textures.size())
+            throw std::invalid_argument(
+                "Shader textures do not match registered material metadata");
+        const auto shader_name = [](const auto& property) -> const std::string& {
+            if(!property.shader_name.empty())
+                return property.shader_name;
+            return property.name;
+        };
+        bool changed = false;
+        std::unordered_set<uint32_t> matched_textures;
+        for(auto& property : textures) {
+            const auto found =
+                std::ranges::find_if(texture_bindings, [&](const auto* binding) {
+                    return binding->name == shader_name(property);
+                });
+            if(found == texture_bindings.end()
+                || !matched_textures.insert((*found)->binding).second)
+                throw std::invalid_argument(
+                    "Missing or repeated Shader texture for material property: "
+                    + property.name);
+            changed |= property.binding != (*found)->binding;
+            property.binding = (*found)->binding;
+        }
+        if(parameters) {
+            size = parameters->block_size;
+            parameter_binding = parameters->binding;
+            if(parameters->members.size() != scalars.size() + vectors.size())
+                throw std::invalid_argument(
+                    "Shader parameters do not match registered material metadata");
+            std::unordered_set<uint32_t> matched_offsets;
+            const auto assign = [&](auto& properties, vk::Format format) {
+                for(auto& property : properties) {
+                    const auto found = std::ranges::find(parameters->members,
+                        shader_name(property), &ShaderInterface::BlockMember::name);
+                    if(found == parameters->members.end() || found->format != format
+                        || !matched_offsets.insert(found->offset).second)
+                        throw std::invalid_argument(
+                            "Missing, repeated or incompatible Shader parameter: "
+                            + property.name);
+                    changed |= property.offset != found->offset;
+                    property.offset = found->offset;
+                }
+            };
+            assign(scalars, vk::Format::eR32Sfloat);
+            assign(vectors, vk::Format::eR32G32B32A32Sfloat);
+        } else if(!scalars.empty() || !vectors.empty()) {
+            throw std::invalid_argument("Material parameter block is missing");
+        }
+        changed |= size != metadata->m_parameter_size
+                   || parameter_binding != metadata->m_parameter_binding;
+        if(!changed) {
+            metadata->validate(shader);
+            return metadata;
+        }
+        if(metadata->m_revision == std::numeric_limits<uint64_t>::max())
+            throw std::overflow_error("Material layout revision exhausted");
+        auto result = std::make_shared<MaterialLayout>(metadata->m_name,
+            metadata->m_revision + 1, std::move(textures), size, std::move(scalars),
+            std::move(vectors), parameter_binding);
+        result->validate(shader);
+        return result;
+    }
+
+    std::shared_ptr<const PreparedMaterial> MaterialRuntimeCache::rebind(
+        const AssetHandle handle, const std::shared_ptr<const MaterialLayout>& layout) {
+        const auto found = m_entries.find(handle);
+        if(found == m_entries.end())
+            return nullptr;
+        const auto source = found->second.source;
+        return prepare(handle, source, layout);
+    }
+
+    void MaterialRuntimeCache::swap(MaterialRuntimeCache& other) noexcept {
+        m_entries.swap(other.m_entries);
     }
 
     void MaterialRuntimeCache::collect_unused() {

@@ -23,6 +23,7 @@ namespace Comet {
             std::string name;
             uint32_t binding;
             std::string display_name;
+            std::string shader_name;
         };
         struct ScalarProperty {
             std::string name;
@@ -32,6 +33,7 @@ namespace Comet {
             float max_value = 0;
             float step = 0.01f;
             std::string display_name;
+            std::string shader_name;
         };
         struct VectorProperty {
             enum class Semantic { Vector, Color };
@@ -40,15 +42,19 @@ namespace Comet {
             std::array<float, 4> default_value;
             Semantic semantic = Semantic::Vector;
             std::string display_name;
+            std::string shader_name;
         };
 
         [[nodiscard]] static std::shared_ptr<const MaterialLayout> find_builtin(
             std::string_view name);
+        [[nodiscard]] static std::shared_ptr<const MaterialLayout> reflect(
+            const std::shared_ptr<const MaterialLayout>& metadata,
+            const ShaderInterface& shader);
 
         MaterialLayout(std::string name, uint64_t revision,
             std::vector<TextureProperty> textures, uint32_t parameter_size = 0,
             std::vector<ScalarProperty> scalars = {},
-            std::vector<VectorProperty> vectors = {});
+            std::vector<VectorProperty> vectors = {}, uint32_t parameter_binding = 0);
         MaterialLayout(const MaterialLayout&) = default;
         MaterialLayout& operator=(const MaterialLayout&) = delete;
 
@@ -58,6 +64,9 @@ namespace Comet {
             return m_textures;
         }
         [[nodiscard]] uint32_t get_parameter_size() const { return m_parameter_size; }
+        [[nodiscard]] uint32_t get_parameter_binding() const {
+            return m_parameter_binding;
+        }
         [[nodiscard]] const std::vector<ScalarProperty>& get_scalars() const {
             return m_scalars;
         }
@@ -72,6 +81,7 @@ namespace Comet {
         uint64_t m_revision;
         std::vector<TextureProperty> m_textures;
         uint32_t m_parameter_size;
+        uint32_t m_parameter_binding;
         std::vector<ScalarProperty> m_scalars;
         std::vector<VectorProperty> m_vectors;
     };
@@ -89,7 +99,7 @@ namespace Comet {
         std::vector<std::byte> parameters;
     };
 
-    // 仅 owner 线程访问；缓存值是不可变快照，不持有可变材质的引用。
+    // 仅 owner 线程访问；输出不可变快照，源引用仅用于 revision 检查和重绑定。
     class COMET_API MaterialRuntimeCache {
     public:
         [[nodiscard]] std::shared_ptr<const PreparedMaterial> prepare(AssetHandle handle,
@@ -97,6 +107,9 @@ namespace Comet {
             const std::shared_ptr<const MaterialLayout>& layout);
 
         void collect_unused();
+        [[nodiscard]] std::shared_ptr<const PreparedMaterial> rebind(
+            AssetHandle handle, const std::shared_ptr<const MaterialLayout>& layout);
+        void swap(MaterialRuntimeCache& other) noexcept;
 
     private:
         struct Entry {

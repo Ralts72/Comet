@@ -56,6 +56,7 @@ namespace Comet {
             std::span<const std::uint32_t> spv_data, std::string entry_point = "main");
         std::shared_ptr<Shader> load_shader_if_missing(
             const std::string& name, std::span<const uint32_t> words);
+        // 仅准备对象；调用方校验消费端接口并准备依赖资源后才能发布。
         [[nodiscard]] Snapshot prepare_update(const Bytecodes& bytecodes) const;
         void publish_update(Snapshot& candidate) noexcept;
         [[nodiscard]] std::shared_ptr<Shader> get_shader(const std::string& name) const;

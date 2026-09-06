@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <ranges>
 #include <stdexcept>
 #include <utility>
 #include <cstring>
@@ -212,6 +213,19 @@ namespace Comet {
             DescriptorBinding binding{source->set, source->binding,
                 static_cast<vk::DescriptorType>(source->descriptor_type), source->count,
                 m_stage, source->block.padded_size, {}};
+            if(source->name)
+                binding.name = source->name;
+            if(source->type_description
+                && (source->type_description->type_flags
+                    & SPV_REFLECT_TYPE_FLAG_EXTERNAL_IMAGE)) {
+                const auto& numeric = source->type_description->traits.numeric;
+                binding.image = DescriptorBinding::ImageShape{source->image.dim,
+                    source->image.depth, source->image.arrayed, source->image.ms,
+                    source->image.sampled, source->image.image_format,
+                    numeric.scalar.width, numeric.scalar.signedness,
+                    (source->type_description->type_flags & SPV_REFLECT_TYPE_FLAG_FLOAT)
+                        != 0};
+            }
             for(uint32_t index = 0; index < source->block.member_count; ++index) {
                 binding.members.push_back(reflect_member(source->block.members[index]));
             }
@@ -286,8 +300,19 @@ namespace Comet {
         });
     }
 
-    bool ShaderInterface::has_same_layout(const ShaderInterface& other) const {
-        return m_stage == other.m_stage && m_bindings == other.m_bindings
+    bool ShaderInterface::DescriptorBinding::ImageShape::is_float_2d() const {
+        return dimension == SpvDim2D && depth == 0 && arrayed == 0 && multisampled == 0
+               && sampled == 1 && scalar_width == 32 && floating_point;
+    }
+
+    bool ShaderInterface::has_same_layout(const ShaderInterface& other,
+        std::optional<uint32_t> ignored_descriptor_set) const {
+        const auto include = [&](const DescriptorBinding& binding) {
+            return !ignored_descriptor_set || binding.set != *ignored_descriptor_set;
+        };
+        return m_stage == other.m_stage
+               && std::ranges::equal(m_bindings | std::views::filter(include),
+                   other.m_bindings | std::views::filter(include))
                && m_push_constants == other.m_push_constants
                && m_push_members == other.m_push_members && m_inputs == other.m_inputs
                && m_outputs == other.m_outputs;

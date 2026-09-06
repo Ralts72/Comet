@@ -32,8 +32,10 @@ namespace Comet {
         void setup_offscreen_render_pass(Math::Vec2u size);
 
         void setup_pipeline(ResourceManager& resource_manager);
-        void reload_material_shaders(
+        MaterialRenderer::ReloadReport reload_material_shaders(
             ResourceManager& resources, const ShaderManager::Bytecodes& bytecodes);
+        [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>>
+        get_material_layouts() const;
 
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render_scene_pass(
             const RenderSubmission& submission, const LineDrawList& lines = {});

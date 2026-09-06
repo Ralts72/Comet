@@ -32,15 +32,22 @@ namespace Comet {
             uint32_t cached_material_versions = 0;
             uint32_t frame_set_count = 0;
         };
+        struct ReloadReport {
+            uint32_t pipelines = 0;
+            uint32_t material_versions = 0;
+            uint32_t material_bindings = 0;
+        };
 
         MaterialRenderer(Device& device, PipelineManager& pipelines,
             ResourceManager& resources, uint32_t frame_slot_count, SampleCount samples);
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(FrameScheduler& frames,
             const ViewProjectMatrix& view, std::span<const ResolvedRenderItem> items);
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
-        // owner 帧边界调用；整组候选成功后才替换 Shader/Pipeline。
-        void reload_shaders(PipelineManager& pipelines, ShaderManager& shaders,
+        // owner 帧边界调用；Shader、布局和所有驻留材质候选全部成功才发布。
+        ReloadReport reload_shaders(PipelineManager& pipelines, ShaderManager& shaders,
             const ShaderManager::Bytecodes& bytecodes, SampleCount samples);
+        [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>>
+        get_material_layouts() const;
 
     private:
         struct PipelineState {
@@ -82,6 +89,10 @@ namespace Comet {
             std::shared_ptr<DescriptorSetLayout> material_layout = {});
         [[nodiscard]] std::shared_ptr<MaterialResources> prepare_material(
             const MaterialBinding& material, uint64_t frame_serial);
+        [[nodiscard]] std::shared_ptr<MaterialResources> create_material(
+            const std::shared_ptr<const PreparedMaterial>& prepared,
+            const std::shared_ptr<const PipelineState>& pipeline,
+            const std::shared_ptr<MaterialResources>& previous);
 
         Device& m_device;
         std::shared_ptr<Sampler> m_sampler;

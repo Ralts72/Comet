@@ -72,9 +72,6 @@ namespace Comet {
                 continue;
             auto shader = std::make_shared<Shader>(
                 m_device, name, source.words, source.entry_point);
-            if(!old->get_interface().has_same_layout(shader->get_interface()))
-                throw std::invalid_argument(
-                    "Shader layout change requires a layout rebuild: " + name);
             candidate.at(name) = std::move(shader);
         }
         return candidate;

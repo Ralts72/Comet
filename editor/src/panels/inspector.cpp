@@ -357,12 +357,25 @@ namespace CometEditor {
         }
     }
 
+    void InspectorPanel::set_material_layout(
+        std::shared_ptr<const Comet::MaterialLayout> layout) {
+        if(layout)
+            m_material_layouts.insert_or_assign(layout->get_name(), std::move(layout));
+    }
+
+    std::shared_ptr<const Comet::MaterialLayout> InspectorPanel::find_material_layout(
+        const std::string& name) const {
+        const auto found = m_material_layouts.find(name);
+        if(found != m_material_layouts.end())
+            return found->second;
+        return Comet::MaterialLayout::find_builtin(name);
+    }
+
     void InspectorPanel::render_material(const Comet::AssetRecord& record) {
         std::optional<Comet::MaterialData> previous_data;
         ImGui::Text("Template: %s", m_material_data->template_name.c_str());
         ImGui::TextDisabled("Template editing is not available yet");
-        const auto layout =
-            Comet::MaterialLayout::find_builtin(m_material_data->template_name);
+        const auto layout = find_material_layout(m_material_data->template_name);
         if(!layout) {
             ImGui::TextDisabled("No registered layout for this material");
             return;
@@ -536,8 +549,7 @@ namespace CometEditor {
             return "Material data is not loaded";
         }
 
-        const auto layout =
-            Comet::MaterialLayout::find_builtin(m_material_data->template_name);
+        const auto layout = find_material_layout(m_material_data->template_name);
         if(!layout)
             return "Material layout is not registered";
         const auto unknown_property = [](const auto& values, const auto& properties) {

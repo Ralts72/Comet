@@ -5,6 +5,7 @@
 #include "editor_panel.h"
 #include "command_history.h"
 #include "asset_drag_drop.h"
+#include "render/material_runtime.h"
 
 #include <filesystem>
 #include <functional>
@@ -42,6 +43,7 @@ namespace CometEditor {
 
         void render() override;
         void invalidate_asset_cache();
+        void set_material_layout(std::shared_ptr<const Comet::MaterialLayout> layout);
         [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
 
     private:
@@ -62,6 +64,8 @@ namespace CometEditor {
         void update_material(
             const Comet::AssetRecord& record, const Comet::MaterialData& previous_data);
         [[nodiscard]] std::string validate_material() const;
+        [[nodiscard]] std::shared_ptr<const Comet::MaterialLayout> find_material_layout(
+            const std::string& name) const;
 
         SelectionService& m_selection;
         CommandHistory& m_history;
@@ -78,6 +82,8 @@ namespace CometEditor {
         std::vector<Comet::AssetRecord> m_texture_assets;
         std::string m_asset_error;
         std::optional<AssetAssignment> m_asset_assignment;
+        std::unordered_map<std::string, std::shared_ptr<const Comet::MaterialLayout>>
+            m_material_layouts;
     };
 
 }

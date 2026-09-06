@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <bit>
 #include <map>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -71,6 +72,19 @@ namespace Comet {
             bool operator==(const StageVariable&) const = default;
         };
         struct DescriptorBinding {
+            struct ImageShape {
+                uint32_t dimension = 0;
+                uint32_t depth = 0;
+                uint32_t arrayed = 0;
+                uint32_t multisampled = 0;
+                uint32_t sampled = 0;
+                uint32_t format = 0;
+                uint32_t scalar_width = 0;
+                uint32_t scalar_signedness = 0;
+                bool floating_point = false;
+                [[nodiscard]] bool is_float_2d() const;
+                bool operator==(const ImageShape&) const = default;
+            };
             uint32_t set;
             uint32_t binding;
             vk::DescriptorType type;
@@ -78,6 +92,8 @@ namespace Comet {
             vk::ShaderStageFlags stages;
             uint32_t block_size;
             std::vector<BlockMember> members;
+            std::string name;
+            std::optional<ImageShape> image;
             bool operator==(const DescriptorBinding&) const = default;
         };
 
@@ -103,7 +119,8 @@ namespace Comet {
         }
         // 校验类型/ID，并移除与默认位模式相同的显式覆盖。
         void canonicalize_specialization(Specialization& values) const;
-        [[nodiscard]] bool has_same_layout(const ShaderInterface& other) const;
+        [[nodiscard]] bool has_same_layout(const ShaderInterface& other,
+            std::optional<uint32_t> ignored_descriptor_set = std::nullopt) const;
 
     private:
         std::string m_entry_point;

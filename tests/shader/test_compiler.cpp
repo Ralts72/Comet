@@ -7,6 +7,9 @@
 #include "material_solid_frag.h"
 #include "debug_line_vert.h"
 #include "debug_line_frag.h"
+#include "render/material_runtime.h"
+#include "render/material.h"
+#include <cstring>
 
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -27,6 +30,94 @@ namespace Comet::Tests {
             write_text_file_atomic(root / path, source);
         }
     };
+
+    TEST_F(ShaderCompilerTest, RebindsMaterialOffsetsAndPreservesSemanticMetadata) {
+        request.stage = ShaderCompiler::Stage::Fragment;
+        write("source.vert",
+            "#version 450\nlayout(location=0) out vec4 result;\nlayout(set=1,binding=5,std140) uniform Data { layout(offset=0) float intensity; layout(offset=32) vec4 color; } material;\nvoid main(){result=material.color*material.intensity;}");
+        const auto compiled = ShaderCompiler::compile(request);
+        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+        const auto original = MaterialLayout::find_builtin("unlit_color");
+        const ShaderInterface original_shader(MATERIAL_SOLID_FRAG);
+        const ShaderInterface new_shader(compiled.words);
+        EXPECT_FALSE(original_shader.has_same_layout(new_shader));
+        EXPECT_TRUE(original_shader.has_same_layout(new_shader, 1));
+        const auto reflected =
+            MaterialLayout::reflect(original, ShaderInterface(compiled.words));
+        EXPECT_NE(reflected, original);
+        EXPECT_EQ(reflected->get_revision(), original->get_revision() + 1);
+        EXPECT_EQ(reflected->get_parameter_binding(), 5u);
+        EXPECT_EQ(reflected->get_parameter_size(), 48u);
+        EXPECT_EQ(reflected->get_vectors()[0].semantic,
+            MaterialLayout::VectorProperty::Semantic::Color);
+        EXPECT_EQ(reflected->get_scalars()[0].display_name, "Intensity");
+        EXPECT_EQ(reflected->get_scalars()[0].default_value, 1.0f);
+        EXPECT_EQ(MaterialLayout::reflect(reflected, ShaderInterface(compiled.words)),
+            reflected);
+        const auto source = std::make_shared<Material>("test", "unlit_color");
+        source->set_scalar_property("intensity", 0.75f);
+        MaterialRuntimeCache cache;
+        const auto old = cache.prepare(AssetHandle(1), source, original);
+        auto candidate = cache;
+        const auto prepared = candidate.rebind(AssetHandle(1), reflected);
+        ASSERT_TRUE(prepared);
+        float value = 0;
+        std::memcpy(&value, prepared->parameters.data(), sizeof(value));
+        EXPECT_EQ(value, 0.75f);
+        EXPECT_EQ(cache.prepare(AssetHandle(1), source, original), old);
+        cache.swap(candidate);
+        EXPECT_EQ(cache.prepare(AssetHandle(1), source, reflected), prepared);
+        EXPECT_FALSE(cache.rebind(AssetHandle(2), reflected));
+    }
+
+    TEST_F(ShaderCompilerTest, RejectsUnregisteredOrIncompatibleMaterialParameters) {
+        request.stage = ShaderCompiler::Stage::Fragment;
+        for(const std::string fields :
+            {"vec4 color; float renamed;", "vec4 color; int intensity;",
+                "vec4 color; float intensity; float added;", "vec4 color;"}) {
+            write("source.vert",
+                "#version 450\nlayout(location=0) out vec4 result; layout(set=1,binding=0,std140) uniform Data {"
+                    + fields + "} material; void main(){result=material.color;}");
+            const auto compiled = ShaderCompiler::compile(request);
+            ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+            EXPECT_THROW(static_cast<void>(MaterialLayout::reflect(
+                             MaterialLayout::find_builtin("unlit_color"),
+                             ShaderInterface(compiled.words))),
+                std::invalid_argument)
+                << fields;
+        }
+    }
+
+    TEST_F(
+        ShaderCompilerTest, MaterialTextureShapeRejectsCubeArrayDepthAndIntegerImages) {
+        request.stage = ShaderCompiler::Stage::Fragment;
+        const auto metadata = std::make_shared<MaterialLayout>("sample", 1,
+            std::vector<MaterialLayout::TextureProperty>{{"image", 2, "Image"}});
+        for(const auto& [type, expression] :
+            {std::pair("sampler2D", "texture(image,vec2(0))"),
+                std::pair("samplerCube", "texture(image,vec3(0,0,1))"),
+                std::pair("sampler2DArray", "texture(image,vec3(0))"),
+                std::pair("sampler2DShadow", "vec4(texture(image,vec3(0)))"),
+                std::pair("isampler2D", "vec4(texture(image,vec2(0)))"),
+                std::pair("usampler2D", "vec4(texture(image,vec2(0)))"),
+                std::pair("sampler2DMS", "texelFetch(image,ivec2(0),0)")}) {
+            write("source.vert",
+                std::string(
+                    "#version 450\nlayout(location=0) out vec4 result; layout(set=1,binding=2) uniform ")
+                    + type + " image; void main(){result=" + expression + ";}");
+            const auto compiled = ShaderCompiler::compile(request);
+            ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+            const ShaderInterface reflected(compiled.words);
+            if(std::string_view(type) == "sampler2D") {
+                EXPECT_EQ(MaterialLayout::reflect(metadata, reflected), metadata);
+            } else {
+                EXPECT_THROW(
+                    static_cast<void>(MaterialLayout::reflect(metadata, reflected)),
+                    std::invalid_argument)
+                    << type;
+            }
+        }
+    }
 
     TEST_F(ShaderCompilerTest, RejectsSpecializationDependentArrayReflection) {
         for(const std::string length : {"COUNT", "COUNT + 1"}) {

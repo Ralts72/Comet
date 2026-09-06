@@ -217,9 +217,16 @@ namespace {
             if(auto shaders = m_shader_reload->update()) {
                 try {
                     auto& renderer = get_engine().get_renderer();
-                    renderer.get_scene_renderer().reload_material_shaders(
-                        renderer.get_resource_manager(), *shaders);
-                    LOG_INFO("Material Shader reload published at frame boundary");
+                    const auto report =
+                        renderer.get_scene_renderer().reload_material_shaders(
+                            renderer.get_resource_manager(), *shaders);
+                    for(auto& layout :
+                        renderer.get_scene_renderer().get_material_layouts())
+                        m_inspector_panel->set_material_layout(std::move(layout));
+                    LOG_INFO(
+                        "Material Shader reload published: {} pipelines, {} material versions, {} new bindings",
+                        report.pipelines, report.material_versions,
+                        report.material_bindings);
                 } catch(const std::exception& error) {
                     LOG_ERROR("Material Shader reload kept previous GPU version: {}",
                         error.what());
@@ -835,6 +842,9 @@ namespace {
                     const Comet::TextureImportSettings settings) {
                     return reimport_texture(handle, settings);
                 });
+            for(auto& layout :
+                get_engine().get_renderer().get_scene_renderer().get_material_layouts())
+                m_inspector_panel->set_material_layout(std::move(layout));
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(
                 m_asset_manager->get_database(), std::move(initial_asset_scan),
                 [this]() { return refresh_project_assets(false); },

@@ -317,6 +317,33 @@ namespace CometEditor::Tests {
         EXPECT_EQ(material_updates, 1);
     }
 
+    TEST_F(AssetEditingUiTest, UsesPublishedLayoutSnapshotWithoutResettingMaterialDraft) {
+        Comet::MaterialSerializer{}.save(
+            {.template_name = "unlit_color"}, paths.assets() / "material.mat");
+        selection.select_asset(material);
+        frame();
+        auto layout = std::make_shared<Comet::MaterialLayout>("unlit_color", 2,
+            std::vector<Comet::MaterialLayout::TextureProperty>{}, 48,
+            std::vector<Comet::MaterialLayout::ScalarProperty>{
+                {"intensity", 0, 2.0f, 0, 10, 0.05f, "Published intensity"}},
+            std::vector<Comet::MaterialLayout::VectorProperty>{{"color", 32, {1, 1, 1, 1},
+                Comet::MaterialLayout::VectorProperty::Semantic::Color, "Color"}},
+            5);
+        inspector->set_material_layout(layout);
+        inspector->set_material_layout(nullptr);
+        frame();
+        frame();
+        EXPECT_EQ(material_updates, 0);
+        drag_value(material_point("intensity", "Published intensity"), 20);
+        ASSERT_GT(material_updates, 0);
+        EXPECT_GT(submitted_material.scalar_properties.at("intensity"), 2.0f);
+        EXPECT_TRUE(submitted_material.texture_properties.empty());
+        const auto updates = material_updates;
+        inspector->set_material_layout(layout);
+        frame();
+        EXPECT_EQ(material_updates, updates);
+    }
+
     TEST_F(AssetEditingUiTest, SolidLayoutNeedsNoTextureAndPublishesNumericParameter) {
         Comet::MaterialSerializer{}.save(
             {.template_name = "unlit_color"}, paths.assets() / "material.mat");

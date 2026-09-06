@@ -93,14 +93,14 @@ namespace Comet {
             const std::shared_ptr<Shader>& fragment,
             std::shared_ptr<const MaterialLayout> layout, const SampleCount samples,
             std::shared_ptr<DescriptorSetLayout> material_layout) {
-        layout->validate(fragment->get_interface());
+        layout = MaterialLayout::reflect(layout, fragment->get_interface());
         auto state = std::make_shared<PipelineState>();
         state->layout = std::move(layout);
         state->frame_layout = m_frame_layout;
         DescriptorSetLayoutBindings bindings;
         if(state->layout->get_parameter_size() > 0) {
-            bindings.add_binding(0, DescriptorType::UniformBuffer,
-                Flags<ShaderStage>(ShaderStage::Fragment));
+            bindings.add_binding(state->layout->get_parameter_binding(),
+                DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
         }
         for(const auto& texture : state->layout->get_textures()) {
             bindings.add_binding(texture.binding, DescriptorType::CombinedImageSampler,
@@ -131,28 +131,80 @@ namespace Comet {
         return state;
     }
 
-    void MaterialRenderer::reload_shaders(PipelineManager& pipelines,
-        ShaderManager& shaders, const ShaderManager::Bytecodes& bytecodes,
-        const SampleCount samples) {
+    MaterialRenderer::ReloadReport MaterialRenderer::reload_shaders(
+        PipelineManager& pipelines, ShaderManager& shaders,
+        const ShaderManager::Bytecodes& bytecodes, const SampleCount samples) {
         if(bytecodes.size() != 3 || !bytecodes.contains("material_mesh")
             || !bytecodes.contains("material_textured")
             || !bytecodes.contains("material_solid"))
             throw std::invalid_argument(
                 "Material Shader reload requires the complete three-Shader cohort");
         auto candidate_shaders = shaders.prepare_update(bytecodes);
+        for(const auto& [name, candidate] : candidate_shaders) {
+            if(!bytecodes.contains(name))
+                continue;
+            std::optional<uint32_t> ignored_set;
+            if(name != "material_mesh")
+                ignored_set = 1;
+            if(!shaders.get_shader(name)->get_interface().has_same_layout(
+                   candidate->get_interface(), ignored_set))
+                throw std::invalid_argument(
+                    "Shader changed a fixed renderer interface: " + name);
+        }
+        ReloadReport report;
         auto candidate_pipelines = m_pipelines;
         for(const auto& [layout, fragment] :
             {std::pair("cube_texture", "material_textured"),
                 std::pair("unlit_color", "material_solid")}) {
             const auto& old = m_pipelines.at(layout);
+            const auto reflected = MaterialLayout::reflect(
+                old->layout, candidate_shaders.at(fragment)->get_interface());
+            std::shared_ptr<DescriptorSetLayout> descriptor_layout;
+            if(reflected == old->layout)
+                descriptor_layout = old->material_layout;
             auto candidate = create_pipeline(pipelines,
                 candidate_shaders.at("material_mesh"), candidate_shaders.at(fragment),
-                old->layout, samples, old->material_layout);
-            if(candidate->pipeline != old->pipeline)
+                reflected, samples, std::move(descriptor_layout));
+            if(candidate->pipeline != old->pipeline) {
                 candidate_pipelines.at(layout) = std::move(candidate);
+                ++report.pipelines;
+            }
+        }
+        auto candidate_prepared = m_prepared;
+        auto candidate_materials = m_materials;
+        for(auto& [handle, cached] : candidate_materials) {
+            if(!cached.resources)
+                continue;
+            const auto& pipeline =
+                candidate_pipelines.at(cached.resources->prepared->layout->get_name());
+            if(pipeline == cached.resources->pipeline)
+                continue;
+            const auto prepared = candidate_prepared.rebind(handle, pipeline->layout);
+            if(!prepared)
+                throw std::runtime_error(
+                    "Cannot rebuild resident material " + std::to_string(handle.value()));
+            auto candidate = create_material(prepared, pipeline, cached.resources);
+            if(candidate->pool != cached.resources->pool)
+                ++report.material_bindings;
+            cached.resources = std::move(candidate);
+            cached.failed_candidate.reset();
+            cached.failed_pipeline.reset();
+            cached.retry_after_serial = 0;
+            ++report.material_versions;
         }
         shaders.publish_update(candidate_shaders);
         m_pipelines.swap(candidate_pipelines);
+        m_prepared.swap(candidate_prepared);
+        m_materials.swap(candidate_materials);
+        return report;
+    }
+
+    std::vector<std::shared_ptr<const MaterialLayout>> MaterialRenderer::
+        get_material_layouts() const {
+        std::vector<std::shared_ptr<const MaterialLayout>> layouts;
+        for(const auto& [name, pipeline] : m_pipelines)
+            layouts.push_back(pipeline->layout);
+        return layouts;
     }
 
     std::shared_ptr<MaterialRenderer::MaterialResources> MaterialRenderer::
@@ -187,71 +239,10 @@ namespace Comet {
             return cached.resources;
         }
         try {
-            if(cached.resources && cached.resources->prepared == prepared
-                && cached.resources->pipeline->material_layout
-                       == pipeline->second->material_layout) {
-                auto candidate = std::make_shared<MaterialResources>(*cached.resources);
-                candidate->pipeline = pipeline->second;
-                cached.resources = candidate;
-                cached.failed_candidate.reset();
-                cached.failed_pipeline.reset();
-                ++m_statistics.material_versions_created;
-                return candidate;
-            }
-            auto candidate = std::make_shared<MaterialResources>();
-            candidate->pipeline = pipeline->second;
-            candidate->prepared = prepared;
-            candidate->sampler = m_sampler;
-            DescriptorPoolSizes sizes;
-            if(!prepared->parameters.empty()) {
-                auto buffer = Buffer::try_create_cpu_buffer(m_device,
-                    Flags<BufferUsage>(BufferUsage::Uniform), prepared->parameters.size(),
-                    true, prepared->parameters.data(), "immutable material parameters");
-                if(!buffer) {
-                    throw std::runtime_error("Material parameter allocation failed: "
-                                             + vk::to_string(buffer.result()));
-                }
-                candidate->parameters = std::move(buffer).value();
-                sizes.add_pool_size(DescriptorType::UniformBuffer, 1);
-            }
-            if(!prepared->textures.empty()) {
-                sizes.add_pool_size(DescriptorType::CombinedImageSampler,
-                    static_cast<uint32_t>(prepared->textures.size()));
-            }
-            candidate->pool = std::make_shared<DescriptorPool>(m_device, 1, sizes);
-            candidate->descriptor =
-                candidate->pool
-                    ->allocate_descriptor_set(*candidate->pipeline->material_layout, 1)
-                    .front();
-            std::vector<vk::WriteDescriptorSet> writes;
-            vk::DescriptorBufferInfo buffer_info;
-            if(candidate->parameters) {
-                buffer_info = vk::DescriptorBufferInfo(
-                    candidate->parameters->get(), 0, candidate->parameters->get_size());
-                vk::WriteDescriptorSet write;
-                write.dstSet = candidate->descriptor->get();
-                write.dstBinding = 0;
-                write.descriptorCount = 1;
-                write.descriptorType = vk::DescriptorType::eUniformBuffer;
-                write.pBufferInfo = &buffer_info;
-                writes.push_back(write);
-            }
-            std::vector<vk::DescriptorImageInfo> images(prepared->textures.size());
-            for(std::size_t index = 0; index < images.size(); ++index) {
-                const auto& binding = prepared->textures[index];
-                images[index] = vk::DescriptorImageInfo(m_sampler->get(),
-                    binding.texture->get_image_view()->get(),
-                    vk::ImageLayout::eShaderReadOnlyOptimal);
-                vk::WriteDescriptorSet write;
-                write.dstSet = candidate->descriptor->get();
-                write.dstBinding = binding.binding;
-                write.descriptorCount = 1;
-                write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-                write.pImageInfo = &images[index];
-                writes.push_back(write);
-            }
-            m_device.get().updateDescriptorSets(writes, {});
-            ++m_statistics.material_bindings_created;
+            auto candidate =
+                create_material(prepared, pipeline->second, cached.resources);
+            if(!cached.resources || candidate->pool != cached.resources->pool)
+                ++m_statistics.material_bindings_created;
             cached.resources = candidate;
             cached.failed_candidate.reset();
             cached.failed_pipeline.reset();
@@ -265,6 +256,72 @@ namespace Comet {
             cached.retry_after_serial = frame_serial + 60;
             return cached.resources;
         }
+    }
+
+    std::shared_ptr<MaterialRenderer::MaterialResources> MaterialRenderer::
+        create_material(const std::shared_ptr<const PreparedMaterial>& prepared,
+            const std::shared_ptr<const PipelineState>& pipeline,
+            const std::shared_ptr<MaterialResources>& previous) {
+        if(previous && previous->prepared == prepared
+            && previous->pipeline->material_layout == pipeline->material_layout) {
+            auto candidate = std::make_shared<MaterialResources>(*previous);
+            candidate->pipeline = pipeline;
+            return candidate;
+        }
+        auto candidate = std::make_shared<MaterialResources>();
+        candidate->pipeline = pipeline;
+        candidate->prepared = prepared;
+        candidate->sampler = m_sampler;
+        DescriptorPoolSizes sizes;
+        if(!prepared->parameters.empty()) {
+            auto buffer = Buffer::try_create_cpu_buffer(m_device,
+                Flags<BufferUsage>(BufferUsage::Uniform), prepared->parameters.size(),
+                true, prepared->parameters.data(), "immutable material parameters");
+            if(!buffer) {
+                throw std::runtime_error("Material parameter allocation failed: "
+                                         + vk::to_string(buffer.result()));
+            }
+            candidate->parameters = std::move(buffer).value();
+            sizes.add_pool_size(DescriptorType::UniformBuffer, 1);
+        }
+        if(!prepared->textures.empty()) {
+            sizes.add_pool_size(DescriptorType::CombinedImageSampler,
+                static_cast<uint32_t>(prepared->textures.size()));
+        }
+        candidate->pool = std::make_shared<DescriptorPool>(m_device, 1, sizes);
+        candidate->descriptor =
+            candidate->pool
+                ->allocate_descriptor_set(*candidate->pipeline->material_layout, 1)
+                .front();
+        std::vector<vk::WriteDescriptorSet> writes;
+        vk::DescriptorBufferInfo buffer_info;
+        if(candidate->parameters) {
+            buffer_info = vk::DescriptorBufferInfo(
+                candidate->parameters->get(), 0, candidate->parameters->get_size());
+            vk::WriteDescriptorSet write;
+            write.dstSet = candidate->descriptor->get();
+            write.dstBinding = prepared->layout->get_parameter_binding();
+            write.descriptorCount = 1;
+            write.descriptorType = vk::DescriptorType::eUniformBuffer;
+            write.pBufferInfo = &buffer_info;
+            writes.push_back(write);
+        }
+        std::vector<vk::DescriptorImageInfo> images(prepared->textures.size());
+        for(std::size_t index = 0; index < images.size(); ++index) {
+            const auto& binding = prepared->textures[index];
+            images[index] = vk::DescriptorImageInfo(m_sampler->get(),
+                binding.texture->get_image_view()->get(),
+                vk::ImageLayout::eShaderReadOnlyOptimal);
+            vk::WriteDescriptorSet write;
+            write.dstSet = candidate->descriptor->get();
+            write.dstBinding = binding.binding;
+            write.descriptorCount = 1;
+            write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+            write.pImageInfo = &images[index];
+            writes.push_back(write);
+        }
+        m_device.get().updateDescriptorSets(writes, {});
+        return candidate;
     }
 
     std::vector<QueueSemaphoreSubmit> MaterialRenderer::render(FrameScheduler& frames,

@@ -38,7 +38,7 @@ namespace Comet::Tests {
             std::error_code error;
             std::filesystem::remove_all(shader_root, error);
         }
-        void verify_versions(bool reload_shaders);
+        void verify_versions(bool reload_shaders, bool change_layout = false);
         std::shared_ptr<Texture> texture(std::vector<uint8_t> rgba) {
             return engine->get_resource_manager()
                 .try_create_texture({.width = 1, .height = 1, .pixels = std::move(rgba)})
@@ -53,7 +53,8 @@ namespace Comet::Tests {
                 + std::to_string(AssetHandle::generate().value()));
     };
 
-    void MaterialRenderingTest::verify_versions(const bool reload_shaders) {
+    void MaterialRenderingTest::verify_versions(
+        const bool reload_shaders, const bool change_layout) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
         auto color = Attachment::get_color_attachment(Format::R8G8B8A8_UNORM);
@@ -137,6 +138,24 @@ namespace Comet::Tests {
                         if(stage == ShaderCompiler::Stage::Fragment)
                             source.insert(
                                 source.rfind('}'), "    color.rgb = color.bgr;\n");
+                        if(change_layout && stage == ShaderCompiler::Stage::Fragment) {
+                            const auto replace = [&](const std::string& from,
+                                                     const std::string& to) {
+                                const auto offset = source.find(from);
+                                ASSERT_NE(offset, std::string::npos);
+                                source.replace(offset, from.size(), to);
+                            };
+                            replace("binding = 0, std140", "binding = 5, std140");
+                            if(std::string_view(name) == "material_textured") {
+                                replace("vec4 tint;\n    float blend;",
+                                    "layout(offset=0) float blend;\n    layout(offset=32) vec4 tint;");
+                                replace("binding = 1)", "binding = 4)");
+                                replace("binding = 2)", "binding = 0)");
+                            } else {
+                                replace("vec4 color;\n    float intensity;",
+                                    "layout(offset=0) float intensity;\n    layout(offset=32) vec4 color;");
+                            }
+                        }
                         write_text_file_atomic(shader_root / filename, source);
                         requests.emplace(
                             name, ShaderCompiler::Request{
@@ -150,8 +169,34 @@ namespace Comet::Tests {
                     ASSERT_TRUE(candidate);
                     auto& shader_manager =
                         engine->get_resource_manager().get_shader_manager();
-                    materials.reload_shaders(
+                    if(change_layout) {
+                        const auto old_layouts = materials.get_material_layouts();
+                        const auto old_shader =
+                            shader_manager.get_shader("material_solid");
+                        const auto old_texture =
+                            textured->get_texture_property("u_Texture0");
+                        textured->set_texture_property("u_Texture0", nullptr);
+                        EXPECT_THROW(materials.reload_shaders(pipelines, shader_manager,
+                                         *candidate, SampleCount::Count1),
+                            std::runtime_error);
+                        EXPECT_EQ(
+                            shader_manager.get_shader("material_solid"), old_shader);
+                        EXPECT_EQ(materials.get_material_layouts(), old_layouts);
+                        textured->set_texture_property("u_Texture0", old_texture);
+                    }
+                    const auto report = materials.reload_shaders(
                         pipelines, shader_manager, *candidate, SampleCount::Count1);
+                    EXPECT_EQ(report.pipelines, 2u);
+                    EXPECT_EQ(report.material_versions, 2u);
+                    EXPECT_EQ(report.material_bindings, change_layout ? 2u : 0u);
+                    if(change_layout) {
+                        for(const auto& layout : materials.get_material_layouts()) {
+                            EXPECT_EQ(layout->get_parameter_size(), 48u);
+                            EXPECT_EQ(layout->get_parameter_binding(), 5u);
+                            EXPECT_EQ(layout->get_scalars().front().offset, 0u);
+                            EXPECT_EQ(layout->get_vectors().front().offset, 32u);
+                        }
+                    }
                     EXPECT_EQ(shader_manager.get_shader("material_solid")->get_code(),
                         candidate->at("material_solid").words);
                     auto broken = *candidate;
@@ -177,6 +222,12 @@ namespace Comet::Tests {
                     // 重建使用已发布的 Shader，不重新覆盖成嵌入的初始版本。
                     MaterialRenderer rebuilt(device, pipelines,
                         engine->get_resource_manager(), 2, SampleCount::Count1);
+                    if(change_layout) {
+                        for(const auto& layout : rebuilt.get_material_layouts()) {
+                            EXPECT_EQ(layout->get_parameter_size(), 48u);
+                            EXPECT_EQ(layout->get_parameter_binding(), 5u);
+                        }
+                    }
                     EXPECT_EQ(shader_manager.get_shader("material_solid")->get_code(),
                         candidate->at("material_solid").words);
                 } else {
@@ -220,10 +271,14 @@ namespace Comet::Tests {
                     &frames.get_current_frame_slot().in_flight_fence));
             frames.record_submission();
             frames.end_frame();
-            EXPECT_EQ(materials.get_statistics().material_versions_created, 2u);
+            uint32_t expected_versions = 2;
             uint32_t expected_bindings = 2;
-            if(iteration == 1 && reload_shaders)
+            if(iteration == 1 && reload_shaders) {
                 expected_bindings = 0;
+                expected_versions = 0;
+            }
+            EXPECT_EQ(
+                materials.get_statistics().material_versions_created, expected_versions);
             EXPECT_EQ(
                 materials.get_statistics().material_bindings_created, expected_bindings);
         }
@@ -275,6 +330,11 @@ namespace Comet::Tests {
         verify_versions(true);
     }
 
+    TEST_F(
+        MaterialRenderingTest, RebuildsAllResidentBindingsAtomicallyAndRetainsOldFrames) {
+        verify_versions(true, true);
+    }
+
     TEST_F(MaterialRenderingTest, SceneRendererOnlyPublishesBetweenFrames) {
         auto& renderer = engine->get_renderer();
         auto& scene = renderer.get_scene_renderer();
@@ -301,5 +361,26 @@ namespace Comet::Tests {
         frames.end_frame();
         EXPECT_NO_THROW(scene.reload_material_shaders(resources, unchanged));
         frames.wait_for_all_slots();
+        const auto report = scene.reload_material_shaders(resources, unchanged);
+        EXPECT_EQ(report.pipelines, 0u);
+        EXPECT_EQ(report.material_versions, 0u);
+        const auto old_shader =
+            resources.get_shader_manager().get_shader("material_mesh");
+        auto source = read_text_file(std::filesystem::path(PROJECT_ROOT_DIR)
+                                     / "engine/shaders/glsl/material_mesh.vert");
+        const std::string original_fields = "mat4 view;\n    mat4 projection;";
+        const auto offset = source.find(original_fields);
+        ASSERT_NE(offset, std::string::npos);
+        source.replace(
+            offset, original_fields.size(), "mat4 projection;\n    mat4 view;");
+        write_text_file_atomic(shader_root / "fixed.vert", source);
+        const auto compiled =
+            ShaderCompiler::compile({.source = shader_root / "fixed.vert",
+                .stage = ShaderCompiler::Stage::Vertex});
+        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+        unchanged.at("material_mesh").words = compiled.words;
+        EXPECT_THROW(
+            scene.reload_material_shaders(resources, unchanged), std::invalid_argument);
+        EXPECT_EQ(resources.get_shader_manager().get_shader("material_mesh"), old_shader);
     }
 }

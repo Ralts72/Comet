@@ -138,11 +138,11 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 ### 材质与 Shader
 
-生产 GPU 已支持双纹理和纯色两种布局及 scalar/vector；手工布局驱动 std140 参数和 descriptor。
+生产 GPU 已支持双纹理和纯色两种布局及 scalar/vector；语义元数据结合 Shader 反射驱动 std140 参数和 descriptor。
 SceneRenderer 编排 pass，MaterialRenderer 消费 Mesh 队列；不是仅把 array 换成 vector。
 
 1. 已完成：SceneResolver 只解析 Mesh/Material，不知道材质属性名、纹理数量或 binding。
-2. 已接通：material revision、不可变手工 MaterialLayout/revision 与 MaterialRuntimeCache。
+2. 已接通：material revision、不可变语义／反射 MaterialLayout/revision 与 MaterialRuntimeCache。
    缓存按源对象/revision 和布局身份生成 PreparedMaterial 纹理/参数快照，MaterialRenderer 创建对应 GPU 版本。
 3. 已完成 Frame / Material / Object 基础分层：FrameSet 按 slot；MaterialSet 按 revision 创建不可变版本并跨 slot 复用；
    model matrix 继续用 push constant，物体 ID 随 GPU picking 需要再接入；只有帧相机参数维护 slot state。
@@ -152,16 +152,20 @@ SceneRenderer 编排 pass，MaterialRenderer 消费 Mesh 队列；不是仅把 a
    Pipeline 创建前校验接口覆盖，MaterialLayout 另校验参数块大小/偏移/类型；runtime descriptor array 暂明确拒绝。
    显示名、默认值、颜色/法线语义和 Inspector 范围仍由 Material metadata 提供；不与 C++ 反射混淆。
 6. 已接通内置 Material Inspector 的布局控件：共享默认值/范围/颜色语义，仅变化时保存并更新对应资产，未变化材质保持缓存。
-   缺失必需纹理先保留草稿、补齐自动发布；当前不引入 bindless。自定义布局注册和反射驱动的接口重建后续扩展。
+   缺失必需纹理先保留草稿、补齐自动发布；当前不引入 bindless。自定义布局注册仍待扩展。
+7. 已接通既有材质字段的反射重绑定：按 Shader 字段名关联逻辑属性，允许 offset、块大小、纹理／UBO binding 变化；
+   保留默认值／颜色语义／编辑范围，Inspector 从当前发布布局读取。新属性、删属性、改类型需要显式元数据支持。
 
 Shader 源码、CPU 编译结果和 Vulkan 对象分层；已在 tools/shader 建立 CPU 编译契约并接通 build-time CLI，
 共用固定 glslang、stage、输出 entry（GLSL 源入口 main）、defines、target 和 include 内容快照。
 构建已有头文件依赖通过 depfile 重建；编译失败保留旧 SPIR-V；variants 资产管理仍待接入。
 已接通 Editor-only 材质三 Shader 整组热加载：200 ms 轮询、150 ms debounce → 有界 Worker 编译/reflection
 → 输入内容/revision 验票 → owner 帧边界切换；只有一个在途组，新的修改合并为最新待执行请求。
-兼容接口已换 Pipeline；GPU 材质缓存已检查 PipelineState 版本，兼容版本复用原 descriptor/参数，旧帧继续持有旧 Pipeline。
+兼容接口复用原 descriptor/参数；材质接口变化则候选 CPU 缓存和所有驻留 GPU 绑定一起准备，全部成功后以 swap 发布。
+旧帧继续持有旧 Shader/Pipeline/Layout/Material 版本；失败不发生部分材质新旧混合，下一帧不再懒建热更新绑定。
 失败保留旧版本并输出文件/行号诊断，渲染目标重建不覆盖已更新 Shader。
-待办：DebugRenderer Shader 同样接入；接口变化时整组重建 Layout 并失效材质缓存，目前显式拒绝。
+待办：DebugRenderer Shader 同样接入；Frame、顶点输入和 push constant 的固定 C++ 契约不自动重写。
+材质只接收非数组、非比较、单采样的 float sampler2D；反射记录图片维度与采样类型，不把 descriptor 类型相同误判为资源兼容。
 兼容性已比较 descriptor/block/push 和阶段输入输出的递归类型形状，不能只检查总字节大小。
 成功也不能提前释放在途帧引用的 Shader/Pipeline/Layout。Shipping 只消费预编译打包数据，不要求松散 .spv。
 
