@@ -3,7 +3,29 @@
 #include "core/math_utils.h"
 #include "test_utils.h"
 
+#include <limits>
+
 namespace Comet::Tests {
+
+    TEST(MathUtilsTest, ChecksEveryVectorComponentForFiniteValues) {
+        const auto check = []<typename Vector>() {
+            EXPECT_TRUE(Math::is_finite(Vector(0.0f)));
+            EXPECT_TRUE(Math::is_finite(Vector(std::numeric_limits<float>::max())));
+            EXPECT_TRUE(Math::is_finite(Vector(-std::numeric_limits<float>::max())));
+            for(int component = 0; component < Vector::length(); ++component) {
+                for(const float invalid : {std::numeric_limits<float>::infinity(),
+                        -std::numeric_limits<float>::infinity(),
+                        std::numeric_limits<float>::quiet_NaN()}) {
+                    Vector value(1.0f);
+                    value[component] = invalid;
+                    EXPECT_FALSE(Math::is_finite(value));
+                }
+            }
+        };
+        check.operator()<Math::Vec2>();
+        check.operator()<Math::Vec3>();
+        check.operator()<Math::Vec4>();
+    }
 
     TEST(MathUtilsTest, WrapsDegreesToSignedCycle) {
         EXPECT_FLOAT_EQ(Math::wrap_degrees(0.0f), 0.0f);
@@ -59,4 +81,4 @@ namespace Comet::Tests {
         EXPECT_TRUE(TestUtils::Mat4Equal(actual, expected));
     }
 
-} // namespace Comet::Tests
+}

@@ -23,9 +23,7 @@ namespace Comet {
     }
 
     bool BoundingBox::is_valid() const {
-        return std::isfinite(minimum.x) && std::isfinite(minimum.y)
-               && std::isfinite(minimum.z) && std::isfinite(maximum.x)
-               && std::isfinite(maximum.y) && std::isfinite(maximum.z)
+        return Math::is_finite(minimum) && Math::is_finite(maximum)
                && minimum.x <= maximum.x && minimum.y <= maximum.y
                && minimum.z <= maximum.z;
     }
@@ -39,9 +37,7 @@ namespace Comet {
     }
 
     bool Ray::is_valid() const {
-        return std::isfinite(origin.x) && std::isfinite(origin.y)
-               && std::isfinite(origin.z) && std::isfinite(direction.x)
-               && std::isfinite(direction.y) && std::isfinite(direction.z)
+        return Math::is_finite(origin) && Math::is_finite(direction)
                && (direction.x != 0.0f || direction.y != 0.0f || direction.z != 0.0f)
                && std::isfinite(max_parameter) && max_parameter >= 0.0f;
     }
@@ -62,8 +58,7 @@ namespace Comet {
                 }
             }
             const Math::Vec3 point(transform * Math::Vec4(corner, 1.0f));
-            if(!std::isfinite(point.x) || !std::isfinite(point.y)
-                || !std::isfinite(point.z)) {
+            if(!Math::is_finite(point)) {
                 return std::nullopt;
             }
             if(result) {

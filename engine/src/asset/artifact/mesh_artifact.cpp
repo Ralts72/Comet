@@ -218,10 +218,8 @@ namespace Comet {
                    && reader.read_float(vertex.normal.x)
                    && reader.read_float(vertex.normal.y)
                    && reader.read_float(vertex.normal.z)
-                   && std::isfinite(vertex.position.x) && std::isfinite(vertex.position.y)
-                   && std::isfinite(vertex.position.z) && std::isfinite(vertex.texcoord.x)
-                   && std::isfinite(vertex.texcoord.y) && std::isfinite(vertex.normal.x)
-                   && std::isfinite(vertex.normal.y) && std::isfinite(vertex.normal.z);
+                   && Math::is_finite(vertex.position) && Math::is_finite(vertex.texcoord)
+                   && Math::is_finite(vertex.normal);
         }
 
         void write_vertex(BinaryWriter& writer, const MeshVertex& vertex) {

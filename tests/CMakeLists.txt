@@ -21,6 +21,14 @@ target_link_libraries(unit_testing PRIVATE
         Vulkan::Vulkan
 )
 
+# 仅启用编辑器时测试 UI 数据寿命，无需窗口或 Vulkan 后端。
+if (COMET_BUILD_EDITOR)
+    target_sources(unit_testing PRIVATE
+            "${CMAKE_SOURCE_DIR}/editor/src/panels/console.cpp")
+    target_link_libraries(unit_testing PRIVATE imgui)
+    target_compile_definitions(unit_testing PRIVATE COMET_TEST_EDITOR_UI)
+endif ()
+
 # 设置包含目录
 target_include_directories(unit_testing PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}

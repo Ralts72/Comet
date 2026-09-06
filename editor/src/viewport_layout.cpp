@@ -167,8 +167,8 @@ namespace CometEditor {
         }
 
         const Comet::Math::Vec2 display_size = layout.image_display_rect.size();
-        if(!std::isfinite(display_size.x) || !std::isfinite(display_size.y)
-            || display_size.x <= 0.0f || display_size.y <= 0.0f) {
+        if(!Comet::Math::is_finite(display_size) || display_size.x <= 0.0f
+            || display_size.y <= 0.0f) {
             return std::nullopt;
         }
 

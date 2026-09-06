@@ -145,4 +145,4 @@ namespace Comet::Tests {
         static_assert(!SupportsSeparatedVertexBufferBinding<CommandBuffer>);
     }
 
-} // namespace Comet::Tests
+}

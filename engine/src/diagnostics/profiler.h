@@ -32,7 +32,7 @@ namespace Comet {
         static void reset();
 
     private:
-        using TimePoint = std::chrono::high_resolution_clock::time_point;
+        using TimePoint = std::chrono::steady_clock::time_point;
 
         struct ActiveBlock {
             const char* label{};
@@ -53,13 +53,21 @@ namespace Comet {
 
         ~ScopedSample();
 
+        ScopedSample(const ScopedSample&) = delete;
+        ScopedSample& operator=(const ScopedSample&) = delete;
+        ScopedSample(ScopedSample&&) = delete;
+        ScopedSample& operator=(ScopedSample&&) = delete;
+
     private:
         bool m_active = false;
     };
 }
 
 #ifdef COMET_ENABLE_PROFILER
-#define PROFILE_SCOPE(name) Comet::ScopedSample __scope_##__LINE__(name)
+#define COMET_PROFILE_CONCAT_IMPL(a, b) a##b
+#define COMET_PROFILE_CONCAT(a, b) COMET_PROFILE_CONCAT_IMPL(a, b)
+#define PROFILE_SCOPE(name)                                                              \
+    Comet::ScopedSample COMET_PROFILE_CONCAT(comet_profile_scope_, __LINE__)(name)
 #define PROFILE_RESULTS() Comet::Profiler::dump_results()
 #else
 #define PROFILE_SCOPE(name) ((void)0)

@@ -132,7 +132,6 @@ namespace CometEditor {
             device, *m_render_pass, swapchain);
         m_render_target->set_clear_value(
             Comet::ClearValue(Comet::Math::Vec4(0.0f, 0.0f, 0.0f, 0.0f)), 0);
-        // 初始化 Vulkan backend
         init_vulkan();
 
         m_initialized = true;
@@ -153,7 +152,6 @@ namespace CometEditor {
         color_attachment.description.store_op = Comet::AttachmentStoreOp::Store;
         attachments.emplace_back(color_attachment);
 
-        // 创建 SubPass
         std::vector<Comet::RenderSubPass> render_sub_passes;
         Comet::RenderSubPass render_sub_pass = {
             {}, {Comet::SubpassColorAttachment(0)}, {}, // ImGui 不需要深度测试
@@ -161,7 +159,6 @@ namespace CometEditor {
         };
         render_sub_passes.emplace_back(render_sub_pass);
 
-        // 创建独立的 RenderPass
         auto& device = m_render_context.get_device();
         m_render_pass =
             std::make_unique<Comet::RenderPass>(device, attachments, render_sub_passes);
@@ -176,7 +173,6 @@ namespace CometEditor {
             LOG_FATAL("ImGui Vulkan backend requires at least two swapchain images");
         }
 
-        // 使用自定义 DescriptorPool
         Comet::DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(Comet::DescriptorType::CombinedImageSampler, 100);
 
@@ -219,18 +215,15 @@ namespace CometEditor {
 
         unregister_viewport_textures();
 
-        // 先关闭 ImGui Vulkan backend，让 ImGui 释放 DescriptorPool 引用
+        // 先关闭 ImGui Vulkan 后端，释放描述符池引用，再销毁池。
         ImGui_ImplVulkan_Shutdown();
 
-        // 销毁 DescriptorPool（必须在关闭 backend 之后）
         m_descriptor_pool.reset();
 
-        // 销毁其他资源
         m_render_target.reset();
         m_render_pass.reset();
         m_viewport_textures.clear();
 
-        // 销毁 GLFW backend 和 ImGui context
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
 
@@ -243,12 +236,10 @@ namespace CometEditor {
             return;
         }
 
-        // 如果正在重建 Swapchain，跳过 ImGui 更新
         if(m_is_recreating) {
             return;
         }
 
-        // 检查窗口有效性
         if(!m_window.get()) {
             LOG_WARN("Window is invalid, skipping ImGui frame");
             return;
@@ -256,21 +247,18 @@ namespace CometEditor {
 
         ImGui_ImplVulkan_NewFrame();
 
-        // 检查窗口是否最小化（最小化时跳过 GLFW backend 更新）
+        // 窗口最小化时跳过 GLFW 后端更新。
         if(glfwGetWindowAttrib(m_window.get(), GLFW_ICONIFIED)) {
             ImGui::NewFrame();
         } else {
-            // 正常更新 GLFW backend
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
         }
 
-        // 添加 UI 元素
         if(m_ui_callback) {
             m_ui_callback();
         }
 
-        // 生成绘制命令
         ImGui::Render();
     }
 

@@ -15,12 +15,10 @@ namespace Comet {
 
         ~CommandContext();
 
-        // 禁止拷贝
         CommandContext(const CommandContext&) = delete;
 
         CommandContext& operator=(const CommandContext&) = delete;
 
-        // GPU 操作接口
         void copy_buffer(const Buffer& src, const Buffer& dst, size_t size,
             size_t src_offset = 0, size_t dst_offset = 0);
 

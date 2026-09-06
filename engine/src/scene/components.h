@@ -23,7 +23,7 @@ namespace Comet {
 
     struct TransformComponent {
         Math::Vec3 translation = Math::Vec3(0.0f);
-        // Euler angles in degrees.
+        // 欧拉角，单位为度。
         Math::Vec3 rotation = Math::Vec3(0.0f);
         Math::Vec3 scale = Math::Vec3(1.0f);
 
@@ -67,7 +67,7 @@ namespace Comet {
 
     struct CameraComponent {
         bool primary = false;
-        // Vertical field of view in degrees.
+        // 垂直视场角，单位为度。
         float fov = 45.0f;
         float near_clip = 0.1f;
         float far_clip = 1000.0f;

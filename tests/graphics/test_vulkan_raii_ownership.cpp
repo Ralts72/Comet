@@ -20,6 +20,9 @@
 #include "graphics/pipeline/shader.h"
 #include "graphics/queue.h"
 #include "graphics/swapchain.h"
+#include "render/frame_scheduler.h"
+#include "render/resource/mesh.h"
+#include "render/resource/texture.h"
 
 using namespace Comet;
 
@@ -57,14 +60,21 @@ namespace {
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Allocator>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Device>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Context>);
+    static_assert(NONCOPYABLE_IMMOVABLE_OWNER<FrameScheduler>);
 
+    static_assert(NONCOPYABLE_MOVABLE_OWNER<Allocation>);
     static_assert(NONCOPYABLE_MOVABLE_OWNER<Fence>);
     static_assert(NONCOPYABLE_MOVABLE_OWNER<Semaphore>);
     static_assert(!std::is_copy_constructible_v<Queue>);
     static_assert(!std::is_copy_assignable_v<Queue>);
     static_assert(std::is_move_constructible_v<Queue>);
     static_assert(!std::is_move_assignable_v<Queue>);
-    static_assert(std::is_invocable_r_v<void, decltype(&Queue::wait_idle), const Queue&>);
+    static_assert(
+        !std::is_constructible_v<Mesh, Device&, UploadManager&, const MeshData&>);
+    static_assert(
+        !std::is_constructible_v<Texture, Device&, UploadManager&, const TextureData&>);
+    static_assert(std::is_same_v<decltype(std::declval<const Mesh&>().get_local_bounds()),
+        const BoundingBox&>);
 
     static_assert(
         std::is_same_v<decltype(std::declval<const Swapchain&>().get_active_generation()),

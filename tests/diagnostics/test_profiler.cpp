@@ -2,7 +2,24 @@
 
 #include "diagnostics/profiler.h"
 
+#include <type_traits>
+
 using namespace Comet;
+
+static_assert(!std::is_copy_constructible_v<ScopedSample>);
+static_assert(!std::is_copy_assignable_v<ScopedSample>);
+static_assert(!std::is_move_constructible_v<ScopedSample>);
+static_assert(!std::is_move_assignable_v<ScopedSample>);
+
+TEST(ProfilerTest, AllowsMultipleSamplesInOneScope) {
+    const bool was_enabled = Profiler::is_enabled();
+    Profiler::set_enabled(true);
+    {
+        PROFILE_SCOPE("first");
+        PROFILE_SCOPE("second");
+    }
+    Profiler::set_enabled(was_enabled);
+}
 
 TEST(ProfilerTest, RuntimeSwitchCannotBypassBuildCapability) {
     const bool was_enabled = Profiler::is_enabled();

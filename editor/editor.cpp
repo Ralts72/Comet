@@ -123,7 +123,7 @@ namespace {
                 std::make_unique<CometEditor::ImGuiContext>(engine.get_window(),
                     render_context, m_project_paths.editor_state() / "imgui.ini");
 
-            // 设置日志重定向
+            m_console_panel = std::make_shared<CometEditor::ConsolePanel>();
             setup_log_redirect();
 
             m_asset_manager = std::make_unique<Comet::AssetManager>(m_project_paths,
@@ -175,7 +175,7 @@ namespace {
                     m_imgui_context->render(command_buffer);
                 });
 
-            // 注册 Swapchain dependent 资源的 release/rebuild 边界
+            // 注册交换链依赖资源的释放／重建钩子。
             scene_renderer.set_swapchain_resource_callbacks(
                 [this]() { m_imgui_context->release_swapchain_resources(); },
                 [this](const Comet::SwapchainCompatibility& compatibility) {
@@ -203,7 +203,6 @@ namespace {
             m_asset_manager->process_completions();
             apply_editor_mode_request();
 
-            // 更新 FPS 显示
             m_menu_bar->set_fps(context.fps);
         }
 
@@ -561,33 +560,31 @@ namespace {
         }
 
         void setup_log_redirect() const {
-            // 移除控制台输出，只保留文件输出和 GUI 输出
+            // 日志改由编辑器面板展示，文件输出不受影响。
             Comet::Logger::remove_console_sinks();
 
-            // 创建 callback sink，将日志发送到 ConsolePanel
+            // 面板必须先创建；弱引用使延迟到达的日志不会访问已销毁的面板。
             const auto gui_sink = std::make_shared<spdlog::sinks::callback_sink_mt>(
-                [this](const spdlog::details::log_msg& msg) {
-                    const Comet::LogLevel level = Comet::log_level_from_spdlog(msg.level);
-                    const std::string message(msg.payload.data(), msg.payload.size());
-                    if(m_console_panel) {
-                        m_console_panel->add_log(level, message);
+                [panel = std::weak_ptr(m_console_panel)](
+                    const spdlog::details::log_msg& msg) {
+                    if(const auto console = panel.lock()) {
+                        const auto level = Comet::log_level_from_spdlog(msg.level);
+                        console->add_log(
+                            level, std::string(msg.payload.data(), msg.payload.size()));
                     }
                 });
 
-            // 将 GUI sink 添加到 logger
             Comet::Logger::add_custom_sink(gui_sink);
         }
 
         void setup_panels(
             Comet::Scene& scene, Comet::AssetScanReport initial_asset_scan) {
-            // 创建菜单栏
             m_menu_bar = std::make_unique<CometEditor::MenuBar>(m_editor_state);
             m_menu_bar->set_file_command_callback(
                 [this](const CometEditor::FileCommand command) {
                     handle_file_command(command);
                 });
 
-            // 创建面板
             m_hierarchy_panel =
                 std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
             const auto& render_context = get_engine().get_renderer().get_render_context();
@@ -618,9 +615,6 @@ namespace {
                     return move_project_asset(handle, destination);
                 },
                 *m_selection);
-            m_console_panel = std::make_unique<CometEditor::ConsolePanel>();
-
-            // 设置菜单栏面板可见性回调
             m_menu_bar->set_panel_visibility_callback("Hierarchy",
                 [this](const bool visible) { m_hierarchy_panel->set_visible(visible); });
             m_menu_bar->set_panel_visibility_callback("Viewport",
@@ -632,7 +626,6 @@ namespace {
             m_menu_bar->set_panel_visibility_callback("Log",
                 [this](const bool visible) { m_console_panel->set_visible(visible); });
 
-            // 设置 UI 回调
             m_imgui_context->set_ui_callback([this]() {
                 constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
                 ImGui::DockSpaceOverViewport(
@@ -671,7 +664,7 @@ namespace {
         std::unique_ptr<CometEditor::ViewPanel> m_viewport_panel;
         std::unique_ptr<CometEditor::InspectorPanel> m_inspector_panel;
         std::unique_ptr<CometEditor::ProjectPanel> m_project_panel;
-        std::unique_ptr<CometEditor::ConsolePanel> m_console_panel;
+        std::shared_ptr<CometEditor::ConsolePanel> m_console_panel;
     };
 }
 

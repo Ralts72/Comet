@@ -77,10 +77,8 @@ namespace Comet {
             return {};
         }
 
-        // 结束命令缓冲区
         m_command_buffer.end();
 
-        // 提交到队列
         auto& graphics_queue = m_device.get_graphics_queue(0);
         const auto completion =
             graphics_queue.submit2({}, std::span(&m_command_buffer, 1), {}, nullptr);

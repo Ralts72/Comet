@@ -66,7 +66,7 @@ namespace CometEditor {
         std::vector<std::unique_ptr<TextureBinding>> m_viewport_textures;
         UICallback m_ui_callback;
         bool m_initialized = false;
-        bool m_is_recreating = false; // 标记是否正在重建 Swapchain
+        bool m_is_recreating = false;
         uint32_t m_backend_image_count = 0;
     };
 }

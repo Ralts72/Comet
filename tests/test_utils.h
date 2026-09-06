@@ -42,4 +42,4 @@ namespace Comet::Tests {
 #define EXPECT_MAT4_EQ(expected, actual)                                                 \
     EXPECT_TRUE(TestUtils::Mat4Equal(expected, actual)) << "Matrices are not equal"
 
-} // namespace Comet::Tests
+}

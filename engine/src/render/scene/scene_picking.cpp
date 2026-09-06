@@ -7,11 +7,6 @@
 
 namespace Comet {
     namespace {
-        bool is_finite(const Math::Vec4 value) {
-            return std::isfinite(value.x) && std::isfinite(value.y)
-                   && std::isfinite(value.z) && std::isfinite(value.w);
-        }
-
         std::optional<Ray> transform_ray_to_local(
             const Ray& world_ray, const Math::Mat4& model_matrix) {
             if(model_matrix[0][3] != 0.0f || model_matrix[1][3] != 0.0f
@@ -23,7 +18,7 @@ namespace Comet {
                 inverse_model * Math::Vec4(world_ray.origin, 1.0f);
             const Math::Vec4 local_direction =
                 inverse_model * Math::Vec4(world_ray.direction, 0.0f);
-            if(!is_finite(local_origin) || !is_finite(local_direction)
+            if(!Math::is_finite(local_origin) || !Math::is_finite(local_direction)
                 || std::abs(local_origin.w) <= 0.000001f) {
                 return std::nullopt;
             }
@@ -52,21 +47,22 @@ namespace Comet {
         const float normalized_y = (static_cast<float>(pixel.y) + 0.5f)
                                    / static_cast<float>(render_resolution.y);
         const float ndc_x = normalized_x * 2.0f - 1.0f;
-        const float ndc_y = normalized_y * 2.0f - 1.0f;
+        // 纹理像素以左上角为原点，与渲染时的负高度 Viewport 对应。
+        const float ndc_y = 1.0f - normalized_y * 2.0f;
         const Math::Mat4 inverse_view_projection =
             Math::inverse(view_project.projection * view_project.view);
         Math::Vec4 near_point =
             inverse_view_projection * Math::Vec4(ndc_x, ndc_y, 0.0f, 1.0f);
         Math::Vec4 far_point =
             inverse_view_projection * Math::Vec4(ndc_x, ndc_y, 1.0f, 1.0f);
-        if(!is_finite(near_point) || !is_finite(far_point)
+        if(!Math::is_finite(near_point) || !Math::is_finite(far_point)
             || std::abs(near_point.w) <= 0.000001f
             || std::abs(far_point.w) <= 0.000001f) {
             return std::nullopt;
         }
         near_point /= near_point.w;
         far_point /= far_point.w;
-        if(!is_finite(near_point) || !is_finite(far_point)) {
+        if(!Math::is_finite(near_point) || !Math::is_finite(far_point)) {
             return std::nullopt;
         }
 

@@ -10,38 +10,31 @@
 #include <spdlog/spdlog.h>
 
 namespace Comet {
-    // 统一的日志级别枚举
     enum class COMET_API LogLevel { Trace, Debug, Info, Warning, Error, Critical };
 
     COMET_API LogLevel log_level_from_spdlog(spdlog::level::level_enum level);
     class COMET_API Logger {
     public:
-        // 禁止实例化
         Logger() = delete;
 
         Logger(const Logger&) = delete;
 
         Logger& operator=(const Logger&) = delete;
 
-        // 静态初始化和清理
         static void init(const Config::Log& config = {}, bool enable_profiler = false);
 
         static void shutdown();
 
-        // 获取 logger
         static std::shared_ptr<spdlog::logger> get_console_logger();
 
         static std::shared_ptr<spdlog::logger> get_profiler_logger();
 
-        // 获取日志文件路径
         static std::string get_log_file_path();
 
-        // 移除控制台输出 sink（stdout/console sinks）
-        // 用于在编辑器等场景中禁用控制台输出，只保留文件输出
+        // 仅移除标准输出端，保留文件及自定义输出端。
         static void remove_console_sinks();
 
-        // 向 console logger 添加自定义 sink
-        // 允许外部（如编辑器）注册自定义的日志处理逻辑
+        // 向应用日志添加输出端，不影响性能采样日志。
         static void add_custom_sink(const std::shared_ptr<spdlog::sinks::sink>& sink);
 
     private:

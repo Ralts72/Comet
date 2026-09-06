@@ -7,7 +7,7 @@
 #include <optional>
 
 namespace Comet {
-    // Axis-aligned bounds in the coordinate space of the supplied points.
+    // 输入点所在坐标系中的轴对齐包围盒。
     struct COMET_API BoundingBox {
         Math::Vec3 minimum{};
         Math::Vec3 maximum{};
@@ -22,13 +22,13 @@ namespace Comet {
     struct COMET_API Ray {
         Math::Vec3 origin{};
         Math::Vec3 direction{0.0f, 0.0f, -1.0f};
-        // Parameter limit in origin + t * direction; distance only for unit directions.
+        // origin + t * direction 的参数上限；仅当方向归一化时才表示距离。
         float max_parameter = std::numeric_limits<float>::max();
 
         [[nodiscard]] bool is_valid() const;
     };
 
-    // Returns world-aligned bounds for an affine transform; not a projection matrix.
+    // 仿射变换后的世界轴对齐包围盒；不接受投影矩阵。
     [[nodiscard]] COMET_API std::optional<BoundingBox> transform_box(
         const BoundingBox& box, const Math::Mat4& transform);
 

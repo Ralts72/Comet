@@ -107,7 +107,7 @@ namespace {
                     const float direction = index == 0 ? 1.0f : -1.0f;
                     auto& transform = cube.get_component<Comet::TransformComponent>();
                     transform.rotate(Comet::Math::Vec3(
-                        0.0f, context.deltaTime * 100.0f * direction, 0.0f));
+                        0.0f, context.delta_time * 100.0f * direction, 0.0f));
                 }
             }
         }

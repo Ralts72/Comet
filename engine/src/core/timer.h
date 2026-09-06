@@ -7,24 +7,23 @@
 namespace Comet {
 
     struct COMET_API UpdateContext {
-        float deltaTime = 0.0f;
-        float totalTime = 0.0f;
-        int frameIndex = 0;
+        float delta_time = 0.0f;
+        float total_time = 0.0f;
+        int frame_index = 0;
         float fps = 0.0f;
     };
 
-    class Timer {
+    class COMET_API Timer {
     public:
-        Timer();
+        Timer() = default;
         ~Timer() = default;
         void tick();
 
         [[nodiscard]] UpdateContext get_update_context() const;
 
     private:
-        void reset();
-
-        std::chrono::time_point<std::chrono::high_resolution_clock> m_last_frame;
+        std::chrono::steady_clock::time_point m_last_frame =
+            std::chrono::steady_clock::now();
         float m_total_time = 0.0f;
         float m_delta_time = 0.0f;
 

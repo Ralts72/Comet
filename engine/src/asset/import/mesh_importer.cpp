@@ -33,15 +33,6 @@ namespace Comet {
             return asset.accessors[index];
         }
 
-        [[nodiscard]] bool is_finite(const Math::Vec2& value) {
-            return std::isfinite(value.x) && std::isfinite(value.y);
-        }
-
-        [[nodiscard]] bool is_finite(const Math::Vec3& value) {
-            return std::isfinite(value.x) && std::isfinite(value.y)
-                   && std::isfinite(value.z);
-        }
-
         void generate_normals(MeshData& data, const std::size_t first_vertex,
             const std::size_t vertex_count, const std::size_t first_index,
             const std::filesystem::path& source_path) {
@@ -170,7 +161,7 @@ namespace Comet {
                 position_accessor,
                 [&](const fastgltf::math::fvec3 position, const std::size_t index) {
                     const Math::Vec3 value(position.x(), position.y(), position.z());
-                    if(!is_finite(value)) {
+                    if(!Math::is_finite(value)) {
                         fail_import(source_path, "POSITION contains a non-finite value");
                     }
                     data.vertices[first_vertex + index].position = value;
@@ -190,7 +181,7 @@ namespace Comet {
                     normal_accessor,
                     [&](const fastgltf::math::fvec3 normal, const std::size_t index) {
                         const Math::Vec3 value(normal.x(), normal.y(), normal.z());
-                        if(!is_finite(value)) {
+                        if(!Math::is_finite(value)) {
                             fail_import(
                                 source_path, "NORMAL contains a non-finite value");
                         }
@@ -212,7 +203,7 @@ namespace Comet {
                     texcoord_accessor,
                     [&](const fastgltf::math::fvec2 texcoord, const std::size_t index) {
                         const Math::Vec2 value(texcoord.x(), texcoord.y());
-                        if(!is_finite(value)) {
+                        if(!Math::is_finite(value)) {
                             fail_import(
                                 source_path, "TEXCOORD_0 contains a non-finite value");
                         }

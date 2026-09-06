@@ -32,6 +32,19 @@ namespace Comet::Math {
 
     using Quat = glm::quat;
 
+    [[nodiscard]] inline bool is_finite(const Vec2& value) {
+        return std::isfinite(value.x) && std::isfinite(value.y);
+    }
+
+    [[nodiscard]] inline bool is_finite(const Vec3& value) {
+        return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+    }
+
+    [[nodiscard]] inline bool is_finite(const Vec4& value) {
+        return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z)
+               && std::isfinite(value.w);
+    }
+
     template<typename T> T identity() {
         return glm::identity<T>();
     }
@@ -86,7 +99,7 @@ namespace Comet::Math {
 
     inline Mat4 compose_trs(
         const Vec3& translation, const Vec3& rotation_degrees, const Vec3& scale_vector) {
-        // Euler rotations are applied in X/Y/Z order: T * Rz * Ry * Rx * S.
+        // 欧拉旋转按 X/Y/Z 顺序应用：T * Rz * Ry * Rx * S。
         const Vec3 wrapped_rotation = wrap_degrees(rotation_degrees);
         Mat4 matrix = translate(Mat4(1.0f), translation);
         matrix = rotate(matrix, radians(wrapped_rotation.z), Vec3(0.0f, 0.0f, 1.0f));

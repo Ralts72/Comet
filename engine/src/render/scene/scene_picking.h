@@ -16,10 +16,11 @@ namespace Comet {
 
     struct ScenePickHit {
         EntityId entity_id = INVALID_ENTITY_ID;
-        // Ray parameter; world distance from the near plane for make_world_ray().
+        // 射线参数；在 make_world_ray() 中表示距近裁剪面的世界距离。
         float distance = 0.0f;
     };
 
+    // 像素坐标以显示纹理的左上角为原点。
     [[nodiscard]] COMET_API std::optional<Ray> make_world_ray(
         const ViewProjectMatrix& view_project, Math::Vec2u pixel,
         Math::Vec2u render_resolution);

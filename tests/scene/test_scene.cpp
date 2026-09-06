@@ -318,4 +318,4 @@ namespace Comet::Tests {
         EXPECT_FALSE(mesh_renderer.material);
     }
 
-} // namespace Comet::Tests
+}

@@ -22,13 +22,10 @@ namespace Comet {
         virtual ~Application() = default;
 
         void start(Config config) {
-            // 1. 根据入口提供的配置初始化运行期诊断
             m_diagnostics = std::make_unique<Diagnostics>(config.diagnostics);
 
-            // 2. 创建引擎
             m_engine = std::make_unique<Engine>(config);
 
-            // 3. 用户初始化代码
             on_init();
 
             m_engine->register_update_callback(

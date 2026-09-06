@@ -56,6 +56,7 @@ namespace Comet {
 
         [[nodiscard]] const AssetRecord* find(AssetHandle handle) const;
         [[nodiscard]] const AssetRecord* find(const std::filesystem::path& path) const;
+        // 借用视图：数据库修改后，不可继续持有或遍历。
         [[nodiscard]] std::span<const AssetHandle> get_dependencies(
             AssetHandle handle) const;
         [[nodiscard]] std::span<const AssetHandle> get_dependents(

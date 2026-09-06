@@ -1,5 +1,5 @@
 #pragma once
-#include "editor.h"
+#include "editor_panel.h"
 
 namespace Comet {
     class Entity;

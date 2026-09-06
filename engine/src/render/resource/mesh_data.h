@@ -3,7 +3,6 @@
 #include "core/math_utils.h"
 #include "core/geometry.h"
 
-#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -29,8 +28,7 @@ namespace Comet {
         BoundingBox bounds = BoundingBox::from_point(data.vertices.front().position);
         for(const MeshVertex& vertex : data.vertices) {
             const Math::Vec3 position = vertex.position;
-            if(!std::isfinite(position.x) || !std::isfinite(position.y)
-                || !std::isfinite(position.z)) {
+            if(!Math::is_finite(position)) {
                 return std::nullopt;
             }
             bounds.include(position);

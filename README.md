@@ -1,110 +1,66 @@
 # Comet 引擎
 
-Comet 是一个使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与编辑器。项目目前围绕 Scene/ECS、资产导入、
-Vulkan 渲染资源管理和 ImGui 编辑器工作流持续演进。
+Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui 编辑器，目前重点是场景编辑、资产导入和单视口交互。
 
 ## 项目结构
 
-- `engine/`：共享引擎库；源码位于 `engine/src/`，GLSL Shader 位于 `engine/shaders/`。
-- `editor/`：ImGui 编辑器入口、面板和编辑器私有资源；Project 会自动刷新资产源文件树，并提供资产移动与重命名入口。
-- `app/`：Runtime 示例程序。
-- `assets/`：项目源资产及其 `.meta`；资产身份随源码进入版本控制。
-- `config/`：共享配置与 `dev-debug`、`editor-dev`、`app-release` Profile。
-- `.comet/`：本机缓存和编辑器状态，不进入版本控制。
-- `tests/`：GoogleTest 单元测试和集成测试。
-- `3rdparty/`：Submodule 与仓库内维护的第三方依赖。
+| 目录 | 职责 |
+| --- | --- |
+| `engine/src/` | 引擎库：core、scene、asset、render、graphics、config、diagnostics |
+| `engine/shaders/` | 引擎 Shader；只编译 CMake 显式列表，其余源码保留供学习 |
+| `editor/` | 编辑器入口、面板及 `resources/` 私有字体等资源 |
+| `app/` | Runtime 示例入口 |
+| `assets/` | 项目源资产与相邻 `.meta`，进入版本控制 |
+| `config/` | `common.yaml` 与各 Profile 配置 |
+| `.comet/` | 本机缓存与编辑器布局，不进入版本控制 |
+| `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
-## 环境依赖
+## 构建与运行
 
-- CMake 3.31 或更新版本。
-- 支持 C++20 的编译器。
-- Vulkan SDK 与 `glslangValidator`。
-- Git LFS 与 Git Submodule。
-
-初始化依赖：
+需要 CMake 3.31+、C++20 编译器、Vulkan SDK（含 `glslangValidator`）、Git LFS 和 Submodule。
 
 ```bash
 git lfs install
 git lfs pull
 git submodule update --init --recursive
-```
-
-## 构建与运行
-
-| Profile | 构建类型 | 目标 | 常用入口 |
-| --- | --- | --- | --- |
-| `dev-debug` | Debug | app、editor、tests | `./build.sh` |
-| `editor-dev` | RelWithDebInfo | editor | `./editor.sh` |
-| `app-release` | Release | app | `./release.sh` |
-
-脚本分别使用对应的 CMake Preset。也可以直接执行：
-
-```bash
 cmake --preset dev-debug
 cmake --build --preset dev-debug --parallel
 ctest --preset dev-debug
 ```
 
-手动配置时，可通过 `COMET_BUILD_APP`、`COMET_BUILD_EDITOR` 和 `COMET_BUILD_TESTS` 组合目标，并必须显式指定
-`COMET_CONFIG_PROFILE`。`COMET_NATIVE_OPTIMIZATION` 仅适合本机构建，不应为可分发二进制启用。
+| Profile | 类型 / 目标 | 脚本 |
+| --- | --- | --- |
+| `dev-debug` | Debug：app、editor、tests | `./build.sh` |
+| `editor-dev` | RelWithDebInfo：editor | `./editor.sh` |
+| `app-release` | Release：app | `./release.sh` |
 
-C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多参数声明和调用在需要换行时会继续成组排列，不会强制
-每个参数独占一行。提交前只需对本次改动的 C++ 文件运行 `clang-format -i <files...>`，不要求为单次功能改动重排整个仓库。
+手动配置需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS`。
+`COMET_NATIVE_OPTIMIZATION` 只适合本机构建。配置与诊断采用“编译期能力 + Profile 运行时策略”。
 
-## 开发说明
+## 编辑器使用
 
-- app 与 editor 共同链接 `engine`。app 直接运行 Runtime；editor 额外管理 Edit/Play Scene、Selection、面板和离屏 Viewport。
-- Viewport 通过纯值 `RenderView` 传递可见性、稳定后的物理像素目标尺寸和 Camera 选择方式。Edit 使用不进入 Scene 与序列化的
-  editor camera，Play 使用 Runtime Scene 的 primary Camera；`SceneRenderer` 不感知 `EditorMode` 或 ImGui 状态。`ViewPanel`
-  通过纯布局计算分离 ImGui 逻辑内容区、结合当前窗口 framebuffer scale 的渲染分辨率，以及保持纹理宽高比的屏幕显示矩形；
-  Play 可独立选择 Free、16:9 或固定像素分辨率，并以 Fit 或 1x 显示；工具栏以 HD/FHD 简写 1280×720/1920×1080，
-  点击可展开完整选项。最终物理尺寸会按比例限制在设备
-  `maxImageDimension2D` 和 editor 4096 软上限以内，Renderer 只接收约束后的结果。Viewport resize 会先完整创建新的
-  离屏目标再切换；旧目标和对应 ImGui 绑定按 frame slot 保留到 fence 完成，不再等待全部在途帧。屏幕坐标统一映射到
-  当前实际纹理像素，工具栏、留白、最大边界和 1x 裁切的不可见区域不会进入相机或拾取输入。Edit 模式可在画面内以
-  RMB 或 Alt（macOS Option）+LMB 环绕、MMB 或 Alt+Shift+LMB 平移、滚轮或触控板双指垂直滚动缩放 editor camera；
-  Viewport 消费缩放时独占纵向滚轮，避免 ImGui 面板同时滚动。2D/3D 会真正切换正交/透视投影，2D 固定观察轴并使用
-  屏幕 XY 平移与独立正交缩放。Viewport 左侧工具栏集中放置 2D/3D 与 Play/Stop，Play 时禁用编辑器投影切换，
-  最左侧的 Edit/Play 标签区分编辑器相机和场景主相机，Play/Stop 统一从 Viewport 工具栏操作。
-  面板输入在场景解析前更新，因此当前帧直接使用新的 camera snapshot。
-  Edit 模式在画面内左键可选择最近的模型包围盒，画面内空白点击清空 Selection，Hierarchy/Inspector 随之更新；
-  Alt/Option 相机操作、工具栏与留白不触发拾取。当前为 CPU 包围盒粗拾取，不具备三角形级精度。
-  Edit 视口获得键盘焦点时，按 `F` 聚焦选中 Mesh；3D 调整观察距离，2D 调整正交高度，均保持原有观察方向，
-  不修改场景相机或实体 Transform。文本输入、组合快捷键、无有效 Mesh 和 Play 模式不触发聚焦。
-- 场景渲染主链路为 `Scene -> SceneExtractor -> RenderScene -> SceneResolver -> RenderSubmission -> SceneRenderer`。
-  Scene 只保存组件和 `AssetHandle`，不持有 GPU Resource。
-  Runtime Mesh 在 GPU 创建前从顶点计算并保存只读局部 AABB，供后续拾取、聚焦和裁剪复用；不额外保留完整 CPU 顶点副本。
-- 资产主链路为 `assets + .meta -> AssetDatabase -> ImportService -> Artifact -> AssetManager -> AssetRegistry`。
-  glTF 只由导入链路读取并原子发布 Mesh Artifact，`AssetManager::load_mesh()` 只消费 Artifact，不会回退解析源文件；
-  `.comet/cache/` 中的导入产物可以重建，不属于源资产。GPU 创建失败时不会发布不完整的 Runtime 资产，
-  已加载 Mesh/Texture 的扫描刷新会在 Worker 生成 CPU 候选，再由 Owner Thread 验证 revision、创建 GPU 资源并发布；
-  后台处理期间及刷新失败时都会保留上一份有效对象。Editor 低频监视 `assets/` 文件树，只有快照变化时才触发同一个
-  `AssetManager::scan()`，不会在监视器中直接导入或修改 Registry。
-  Handle 可随资产移动保持稳定，但对应的 AssetType 不可改变；类型转换必须分配新 Handle，否则数据库拒绝候选快照。
-  `AssetManager::move_asset()` 会把源文件与相邻 `.meta` 作为同一事务移动，扫描无法形成可信快照时回滚文件和数据库候选状态。
-  Project 面板只提交选中的 Handle 和 `assets/` 相对目标路径；成功后保持选中状态，并同步 Inspector、Log 和资产源监视器。
-  Mesh Artifact 保存主 glTF 和外部 buffer 的内容快照，导入服务据此判断是否需要重建；Runtime 加载不检查源文件。
-- Graphics 后端使用 Vulkan 1.3、VMA、Synchronization 2、Timeline Semaphore、FrameScheduler 和 UploadManager。
-- RenderTarget 的 extent 和 frame count 在构造后保持不变；尺寸或交换链变化时在活动对象之外创建完整候选，
-  成功后再替换 owner，command recording 不会隐式重建 GPU 资源。
-- Swapchain 重建会先等待全部 graphics frame-slot fence，并在缺少 present completion 时只等待 present queue，
-  再释放 runtime/ImGui framebuffer target。core handle、borrowed images、config 和 current index 会先组成完整
-  `Swapchain::Generation` 候选，
-  成功后才整体替换 active owner。`SwapchainTarget` 显式共享对应 core，并按 extent、format 和
-  image count 变化精确重建 editor backend；创建失败或窗口最小化延期时保留旧 core 并恢复 dependent，
-  正常重建不再等待整个 Device idle。初始 RenderPass 使用交换链实际选中的 surface format，而不是配置首选值。
-  Vulkan 类型应限制在 Graphics 后端及明确需要底层能力的 Render 实现中。
-- 世界与编辑器坐标约定 `+Y` 向上；Vulkan Viewport 使用负高度完成画面坐标转换。Texture 是否翻转仅由对应
-  `.meta` 的 `flip_y` 导入设置决定，不用于修正世界坐标。
-- CMake 只编译 `engine/shaders/CMakeLists.txt` 中显式列出的 Shader；`.spv` 和嵌入式 C++ Header 都生成到构建目录。
-- 运行配置采用“编译期能力 + Profile 运行时策略”：Logger 在所有构建中保留基础级别，Profiler 只在 Debug 和
-  RelWithDebInfo 中编译，Vulkan Validation 由配置按运行环境启用。
+- Edit 使用独立编辑器相机；Play 使用克隆场景的 primary Camera，Stop 后返回 Edit，不回写运行时修改。
+- 画面内右键或 Alt/Option+左键环绕，中键或 Alt/Option+Shift+左键平移，滚轮/双指垂直滚动缩放。
+- 2D/3D 切换编辑器相机的正交/透视投影，不修改 Scene Camera；Play 中不可切换。
+- Edit 画面内左键选择最近的模型包围盒，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。
+  当前是包围盒粗拾取，不是三角形级拾取；尚无选中线框、Gizmo 和 Undo/Redo。
+- Play 分辨率可选 Free、16:9、HD（1280×720）、FHD（1920×1080）；Fit 等比适应面板，1x 按原尺寸显示并裁切。
+- Project 支持刷新、移动与重命名；Inspector 的材质和纹理设置按变化事件提交，更新日志统一进入 Log。
 
-## 设计文档
+## 架构入口
 
-- [长期开发路线图](./docs/engine-roadmap.md)
-- [渲染资源所有权](./docs/architecture/rendering-ownership.md)
-- [资产管线边界](./docs/architecture/asset-pipeline.md)
-- [场景文件格式](./docs/architecture/scene-format.md)
+- 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
+  Scene 只保存组件和资产 Handle；GPU 生命周期由渲染层管理。
+- 资产：`AssetDatabase` 管身份与依赖，`ImportService` 管导入，`AssetManager` 协调加载与发布，
+  `AssetRegistry` 是唯一 Handle 缓存；`ResourceManager` 只创建设备资源。
+- Mesh Runtime 只读已发布的 Mesh Artifact；缓存丢失需先导入，不自动回退解析 glTF。
+  Texture 暂时直接解码源文件，后续再引入 Artifact。
+- 世界 +Y 向上，Vulkan Viewport 用负高度转换画面坐标；`flip_y` 仅控制纹理导入。
+  Shader 编译产物只进入构建目录，学习源码不作为生产 Shader 的隐式依赖。
 
-贡献约定见 [AGENTS.md](./AGENTS.md)。
+详细说明：[资源所有权](docs/architecture/rendering-ownership.md) ·
+[资产管线](docs/architecture/asset-pipeline.md) · [场景格式](docs/architecture/scene-format.md) ·
+[路线图](docs/engine-roadmap.md)。
+
+C++ 遵循根目录 `.clang-format`（90 列），只格式化相关代码，不处理 Shader 和第三方源码。
+贡献约定见 [AGENTS.md](AGENTS.md)。

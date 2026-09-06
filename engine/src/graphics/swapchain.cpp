@@ -153,6 +153,13 @@ namespace Comet {
         const vk::Result create_result =
             m_device.get().createSwapchainKHR(&create_info, nullptr, &swapchain);
         if(create_result != vk::Result::eSuccess) {
+            // 传入 oldSwapchain 即退休旧交换链，即使创建失败。
+            // 当前尚无无呈现恢复状态，不能返回 false，
+            // 否则调用方会恢复依赖资源并从已退休的交换链获取图像。
+            if(old_swapchain) {
+                LOG_FATAL("Swapchain recreation failed and retired the old swapchain; "
+                    "cannot resume presentation: {}", vk::to_string(create_result));
+            }
             return GenerationResult::failure(create_result);
         }
 

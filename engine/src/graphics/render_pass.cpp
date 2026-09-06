@@ -8,7 +8,7 @@ namespace Comet {
         const std::vector<RenderSubPass>& sub_passes, const Format surface_format)
         : m_device(device), m_attachments(attachments) {
         std::vector<RenderSubPass> actual_sub_passes = sub_passes;
-        // 1. default subpass and attachment
+        // 未指定附件和子通道时，构造最小呈现通道。
         if(sub_passes.empty() && attachments.empty()) {
             Attachment::Description description{};
             description.format = surface_format;
@@ -27,8 +27,6 @@ namespace Comet {
             m_attachments.push_back(attachment);
             actual_sub_passes.push_back(render_sub_pass);
         }
-        // 2.subpass
-        // index check
         for(const auto& sub_pass : actual_sub_passes) {
             for(const auto& attachment : sub_pass.input_attachments) {
                 if(attachment.index >= m_attachments.size()) {
@@ -164,7 +162,6 @@ namespace Comet {
             dependency.dependencyFlags = vk::DependencyFlagBits::eByRegion;
             dependencies.push_back(dependency);
         }
-        // 3. create info
         std::vector<vk::AttachmentDescription> attachment_descriptions;
         attachment_descriptions.reserve(m_attachments.size());
         for(const auto& [description, usage] : m_attachments) {

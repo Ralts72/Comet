@@ -70,6 +70,19 @@ namespace Comet::Tests {
                 return path;
             }
 
+            void add_textured_material(
+                const AssetHandle handle, const AssetHandle texture_handle) const {
+                const auto path = paths().assets() / "materials"
+                                  / (std::to_string(handle.value()) + ".mat");
+                std::filesystem::create_directories(path.parent_path());
+                MaterialSerializer{}.save(
+                    {.template_name = "test_template",
+                        .texture_properties = {{"u_Texture0", texture_handle}}},
+                    path);
+                AssetMetadataSerializer{}.save(
+                    {.handle = handle, .type = AssetType::Material}, metadata_path(path));
+            }
+
             static void replace_texture(
                 const std::filesystem::path& path, const bool restore_original = false) {
                 std::filesystem::path source = "assets/textures/R-C.jpeg";
@@ -715,6 +728,85 @@ namespace Comet::Tests {
         EXPECT_NE(registry.resolve<Texture>(handle), original);
         EXPECT_EQ(resource_factory.texture_creation_count(), 2);
     }
+
+    class TextureDependentRefreshTest: public ::testing::TestWithParam<bool> {};
+
+    TEST_P(
+        TextureDependentRefreshTest, RefreshesEveryLoadedMaterialFromDependencySnapshot) {
+        // 同时覆盖移除最后一个反向索引条目和修改共享依赖列表。
+        for(const int loaded_count : {1, 3}) {
+            for(const bool include_unloaded : {false, true}) {
+                SCOPED_TRACE(::testing::Message() << "loaded=" << loaded_count
+                                                  << ", unloaded=" << include_unloaded);
+                const TemporaryProject project;
+                constexpr AssetHandle texture_handle(84);
+                const auto texture_path = project.add_texture(texture_handle);
+                std::vector<AssetHandle> handles;
+                for(int i = 0; i < loaded_count; ++i) {
+                    handles.emplace_back(100 + i);
+                    project.add_textured_material(handles.back(), texture_handle);
+                }
+                constexpr AssetHandle unloaded_handle(200);
+                if(include_unloaded) {
+                    project.add_textured_material(unloaded_handle, texture_handle);
+                }
+                AssetRegistry registry;
+                FakeRenderResourceFactory resource_factory;
+                TaskScheduler scheduler(1);
+                AssetManager manager(
+                    project.paths(), registry, resource_factory, scheduler);
+                ASSERT_TRUE(manager.scan().snapshot_updated);
+                std::vector<std::shared_ptr<Material>> originals;
+                for(const auto handle : handles) {
+                    originals.push_back(manager.load_material(handle));
+                    ASSERT_NE(originals.back(), nullptr);
+                }
+                const auto original_texture = registry.resolve<Texture>(texture_handle);
+                ASSERT_NE(original_texture, nullptr);
+
+                if(GetParam()) {
+                    ASSERT_NE(manager.reimport_texture(texture_handle, {.flip_y = true}),
+                        nullptr);
+                } else {
+                    TemporaryProject::replace_texture(texture_path);
+                    ASSERT_TRUE(manager.scan().snapshot_updated);
+                    scheduler.wait_idle();
+                    manager.process_completions();
+                }
+
+                const auto updated_texture = registry.resolve<Texture>(texture_handle);
+                ASSERT_NE(updated_texture, nullptr);
+                EXPECT_NE(updated_texture, original_texture);
+                EXPECT_EQ(resource_factory.texture_creation_count(), 2);
+                for(std::size_t i = 0; i < handles.size(); ++i) {
+                    const auto material = registry.resolve<Material>(handles[i]);
+                    ASSERT_NE(material, nullptr);
+                    EXPECT_NE(material, originals[i]);
+                    EXPECT_EQ(
+                        material->get_texture_property("u_Texture0"), updated_texture);
+                    EXPECT_EQ(originals[i]->get_texture_property("u_Texture0"),
+                        original_texture);
+                }
+                EXPECT_EQ(registry.resolve<Material>(unloaded_handle), nullptr);
+                const auto dependents =
+                    manager.get_database().get_dependents(texture_handle);
+                EXPECT_EQ(
+                    dependents.size(), loaded_count + static_cast<int>(include_unloaded));
+                for(const auto handle : handles) {
+                    EXPECT_NE(std::ranges::find(dependents, handle), dependents.end());
+                }
+                if(include_unloaded) {
+                    EXPECT_NE(
+                        std::ranges::find(dependents, unloaded_handle), dependents.end());
+                }
+            }
+        }
+    }
+
+    INSTANTIATE_TEST_SUITE_P(BackgroundAndExplicit, TextureDependentRefreshTest,
+        ::testing::Bool(), [](const ::testing::TestParamInfo<bool>& info) {
+            return info.param ? "ExplicitReimport" : "BackgroundRefresh";
+        });
 
     TEST(AssetManagerTest, PublishesOnlyLatestBackgroundTextureRevision) {
         const TemporaryProject project;

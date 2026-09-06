@@ -685,7 +685,6 @@ namespace Comet {
         Bt709NonlinearEXT,
         Bt2020LinearEXT,
         Hdr10St2084EXT,
-        // DolbyvisionEXT,
         Hdr10HlgEXT,
         AdobergbLinearEXT,
         AdobergbNonlinearEXT,

@@ -45,6 +45,7 @@ namespace Comet {
         struct AsyncState;
 
         void apply_scan_report(const AssetScanReport& report);
+        void reload_loaded_material_dependents(AssetHandle texture_handle);
         [[nodiscard]] std::shared_ptr<Mesh> create_runtime_mesh(
             const AssetRecord& record);
         void record_import_dependencies(

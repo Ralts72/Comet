@@ -53,8 +53,7 @@ namespace Comet {
         }
 
         auto& stack = get_thread_stack();
-        stack.push_back(
-            {.label = label, .start = std::chrono::high_resolution_clock::now()});
+        stack.push_back({.label = label, .start = std::chrono::steady_clock::now()});
         return true;
 #else
         static_cast<void>(label);
@@ -72,8 +71,7 @@ namespace Comet {
         stack.pop_back();
 
         const auto duration = std::chrono::duration<double, std::milli>(
-            std::chrono::high_resolution_clock::now() - start)
-                                  .count();
+            std::chrono::steady_clock::now() - start).count();
 
         std::lock_guard<std::mutex> lock(s_mtx);
         auto& [total_time, call_count] = s_records[label];

@@ -9,36 +9,52 @@ namespace CometEditor {
         if(!m_user_visible)
             return;
 
-        ImGui::Begin(m_name.c_str(), &m_user_visible);
+        if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
+            ImGui::End();
+            return;
+        }
 
-        // 工具栏
         if(ImGui::Button("Clear")) {
             clear_logs();
         }
         ImGui::SameLine();
 
-        // 日志类型过滤
-        ImGui::Checkbox("Trace", &m_show_trace);
+        bool filters_changed = ImGui::Checkbox("Trace", &m_show_trace);
         ImGui::SameLine();
-        ImGui::Checkbox("Debug", &m_show_debug);
+        filters_changed |= ImGui::Checkbox("Debug", &m_show_debug);
         ImGui::SameLine();
-        ImGui::Checkbox("Info", &m_show_info);
+        filters_changed |= ImGui::Checkbox("Info", &m_show_info);
         ImGui::SameLine();
-        ImGui::Checkbox("Warning", &m_show_warning);
+        filters_changed |= ImGui::Checkbox("Warning", &m_show_warning);
         ImGui::SameLine();
-        ImGui::Checkbox("Error", &m_show_error);
+        filters_changed |= ImGui::Checkbox("Error", &m_show_error);
         ImGui::SameLine();
-        ImGui::Checkbox("Critical", &m_show_critical);
+        filters_changed |= ImGui::Checkbox("Critical", &m_show_critical);
 
         ImGui::Separator();
 
-        // 日志列表
         ImGui::BeginChild(
             "LogScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
 
-        // 构建所有可见日志的文本
-        static std::string log_buffer;
-        log_buffer.clear();
+        update_log_buffer(filters_changed);
+        ImGui::InputTextMultiline("##LogContent", m_log_buffer.data(),
+            m_log_buffer.size() + 1, ImVec2(-1, -1), ImGuiInputTextFlags_ReadOnly);
+
+        if(!m_log_buffer.empty()
+            && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 10.0f) {
+            ImGui::SetScrollHereY(1.0f);
+        }
+
+        ImGui::EndChild();
+        ImGui::End();
+    }
+
+    void ConsolePanel::update_log_buffer(const bool filters_changed) {
+        std::lock_guard lock(m_logs_mutex);
+        if(!m_logs_dirty && !filters_changed) {
+            return;
+        }
+        m_log_buffer.clear();
         for(const auto& [level, message] : m_logs) {
             bool should_show = false;
             const char* level_str = nullptr;
@@ -71,29 +87,17 @@ namespace CometEditor {
             }
 
             if(should_show && level_str) {
-                log_buffer += std::string(level_str) + " " + message + "\n";
+                m_log_buffer += std::string(level_str) + " " + message + "\n";
             }
         }
 
-        static ImGuiInputTextFlags flags = ImGuiInputTextFlags_ReadOnly;
-        ImGui::InputTextMultiline("##LogContent", const_cast<char*>(log_buffer.c_str()),
-            log_buffer.size() + 1, ImVec2(-1, -1), flags);
-
-        // 自动滚动到底部
-        static bool auto_scroll = true;
-        if(auto_scroll && !log_buffer.empty()) {
-            if(ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 10.0f) {
-                ImGui::SetScrollHereY(1.0f);
-            }
-        }
-
-        ImGui::EndChild();
-
-        ImGui::End();
+        m_logs_dirty = false;
     }
 
     void ConsolePanel::add_log(const Comet::LogLevel level, const std::string& message) {
+        std::lock_guard lock(m_logs_mutex);
         m_logs.push_back({.level = level, .message = message});
+        m_logs_dirty = true;
 
         if(m_logs.size() > MAX_LOGS) {
             m_logs.pop_front();
@@ -101,6 +105,8 @@ namespace CometEditor {
     }
 
     void ConsolePanel::clear_logs() {
+        std::lock_guard lock(m_logs_mutex);
         m_logs.clear();
+        m_logs_dirty = true;
     }
 }

@@ -46,4 +46,4 @@ namespace CometEditor {
         float m_fps = 0.0f;
     };
 
-} // namespace CometEditor
+}

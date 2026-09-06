@@ -1,7 +1,7 @@
 #pragma once
 #include "camera_controller.h"
 #include "editor_state.h"
-#include "editor.h"
+#include "editor_panel.h"
 #include "viewport_layout.h"
 
 #include <imgui.h>
@@ -25,6 +25,8 @@ namespace CometEditor {
         }
 
         [[nodiscard]] const ViewportLayout& get_layout() const { return m_layout; }
+
+        [[nodiscard]] bool is_visible() const { return m_actually_visible; }
 
         [[nodiscard]] std::optional<EditorCameraInput> take_camera_input();
 
@@ -53,6 +55,7 @@ namespace CometEditor {
         void reset_camera_interaction();
 
         const EditorState& m_state;
+        bool m_actually_visible = false;
         std::uint32_t m_max_render_dimension = 0;
         ViewportLayout::ResolutionPolicy m_play_resolution_policy;
         ViewportLayout::DisplayMode m_play_display_mode =

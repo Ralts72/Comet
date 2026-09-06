@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "render/scene/scene_picking.h"
+#include "graphics/vk_common.h"
 #include "../test_utils.h"
 
 #include <array>
@@ -45,11 +46,43 @@ namespace Comet::Tests {
         ASSERT_TRUE(top_left);
         ASSERT_TRUE(bottom_right);
         EXPECT_NEAR(top_left->origin.x, -1.0f, 0.0001f);
-        EXPECT_NEAR(top_left->origin.y, -0.5f, 0.0001f);
+        EXPECT_NEAR(top_left->origin.y, 0.5f, 0.0001f);
         EXPECT_NEAR(bottom_right->origin.x, 1.0f, 0.0001f);
-        EXPECT_NEAR(bottom_right->origin.y, 0.5f, 0.0001f);
+        EXPECT_NEAR(bottom_right->origin.y, -0.5f, 0.0001f);
         EXPECT_TRUE(
             TestUtils::Vec3Equal(top_left->direction, bottom_right->direction, 0.0001f));
+    }
+
+    TEST(ScenePickingTest, PicksObjectsAtTheirRenderedPixelsInBothProjections) {
+        const Math::Vec2u resolution(640, 480);
+        const auto viewport = Graphics::get_viewport(resolution.x, resolution.y);
+        const auto view =
+            Math::look_at(Math::Vec3(0, 0, 5), Math::Vec3(0), Math::Vec3(0, 1, 0));
+        const std::array positions{Math::Vec3(0, 1, 0), Math::Vec3(0, -1, 0)};
+        std::array<ScenePickCandidate, 2> candidates;
+        for(std::size_t i = 0; i < positions.size(); ++i) {
+            candidates[i] = {.entity_id = static_cast<EntityId>(i + 1),
+                .model_matrix = Math::translate(Math::Mat4(1), positions[i]),
+                .local_bounds = {
+                    .minimum = Math::Vec3(-0.1f), .maximum = Math::Vec3(0.1f)}};
+        }
+        for(const auto& projection : {Math::perspective(60.0f, 4.0f / 3.0f, 0.1f, 100.0f),
+                Math::ortho(-4.0f, 4.0f, -3.0f, 3.0f, 0.1f, 100.0f)}) {
+            for(std::size_t i = 0; i < positions.size(); ++i) {
+                const auto clip = projection * view * Math::Vec4(positions[i], 1);
+                const auto ndc = Math::Vec3(clip) / clip.w;
+                // 正向映射使用实际后端 Viewport，避免重复拾取公式中的假设。
+                const Math::Vec2u pixel(
+                    viewport.x + viewport.width * (ndc.x + 1.0f) * 0.5f,
+                    viewport.y + viewport.height * (ndc.y + 1.0f) * 0.5f);
+                const auto ray = make_world_ray(
+                    {.view = view, .projection = projection}, pixel, resolution);
+                ASSERT_TRUE(ray);
+                const auto hit = pick_scene_candidates(*ray, candidates);
+                ASSERT_TRUE(hit);
+                EXPECT_EQ(hit->entity_id, candidates[i].entity_id);
+            }
+        }
     }
 
     TEST(ScenePickingTest, SelectsNearestTransformedCandidate) {
@@ -68,19 +101,6 @@ namespace Comet::Tests {
         ASSERT_TRUE(hit);
         EXPECT_EQ(hit->entity_id, 3u);
         EXPECT_FLOAT_EQ(hit->distance, 4.0f);
-    }
-
-    TEST(ScenePickingTest, ResolvesEqualDistanceByStableEntityId) {
-        const Ray ray{.origin = Math::Vec3(0.0f, 0.0f, 5.0f),
-            .direction = Math::Vec3(0.0f, 0.0f, -1.0f)};
-        const std::array candidates{
-            ScenePickCandidate{.entity_id = 9, .local_bounds = unit_box()},
-            ScenePickCandidate{.entity_id = 3, .local_bounds = unit_box()}};
-
-        const auto hit = pick_scene_candidates(ray, candidates);
-
-        ASSERT_TRUE(hit);
-        EXPECT_EQ(hit->entity_id, 3u);
     }
 
     TEST(ScenePickingTest, PreservesWorldDistanceUnderNonUniformAndNegativeScale) {
@@ -152,6 +172,7 @@ namespace Comet::Tests {
         const auto reversed = pick_scene_candidates(ray, candidates);
         ASSERT_TRUE(first);
         ASSERT_TRUE(reversed);
+        EXPECT_EQ(first->entity_id, 3u);
         EXPECT_EQ(first->entity_id, reversed->entity_id);
     }
 

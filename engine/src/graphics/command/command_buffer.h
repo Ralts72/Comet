@@ -31,17 +31,14 @@ namespace Comet {
 
         void reset() const;
 
-        // render pass
         void begin_render_pass(const RenderPass& render_pass,
             const FrameBuffer& frame_buffer,
             const std::vector<ClearValue>& clear_values) const;
 
         void end_render_pass() const;
 
-        // bind
         void bind_pipeline(const Pipeline& pipeline) const;
 
-        // dynamic state
         void set_viewport(const vk::Viewport& viewport) const;
 
         void set_scissor(const vk::Rect2D& scissor) const;
@@ -58,7 +55,6 @@ namespace Comet {
         void push_constants(const PipelineLayout& layout, Flags<ShaderStage> stage_flags,
             uint32_t offset, const void* data, size_t size) const;
 
-        // draw
         void draw(uint32_t vertex_count, uint32_t instance_count = 1,
             uint32_t first_vertex = 0, uint32_t first_instance = 0) const;
 

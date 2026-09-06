@@ -1,6 +1,6 @@
 #pragma once
 #include "asset/database.h"
-#include "editor.h"
+#include "editor_panel.h"
 
 #include <array>
 #include <filesystem>
@@ -38,6 +38,6 @@ namespace CometEditor {
         std::string m_move_error;
         Comet::AssetHandle m_moving_asset;
         bool m_move_dialog_open_requested = false;
-        int m_view_mode = 0; // 0: Assets, 1: Packages
+        int m_view_mode = 0; // 0：资产，1：包
     };
 }

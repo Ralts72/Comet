@@ -374,17 +374,7 @@ namespace Comet {
                 continue;
             }
 
-            for(const AssetHandle dependent :
-                m_database.get_dependents(candidate.handle)) {
-                const AssetRecord* dependent_record = m_database.find(dependent);
-                if(dependent_record && dependent_record->type == AssetType::Material
-                    && m_registry.resolve<Material>(dependent)
-                    && !reload_material(dependent)) {
-                    LOG_ERROR(
-                        "Texture handle {} was refreshed, but dependent material handle {} could not be refreshed",
-                        candidate.handle.value(), dependent.value());
-                }
-            }
+            reload_loaded_material_dependents(candidate.handle);
             LOG_INFO("Reloaded texture asset '{}' (handle {})",
                 candidate.relative_path.generic_string(), candidate.handle.value());
         }
@@ -567,15 +557,6 @@ namespace Comet {
         }
         const auto& previous_texture = runtime.asset;
 
-        std::vector<AssetHandle> dependent_materials;
-        for(const AssetHandle dependent : m_database.get_dependents(handle)) {
-            const AssetRecord* dependent_record = m_database.find(dependent);
-            if(dependent_record && dependent_record->type == AssetType::Material
-                && m_registry.resolve<Material>(dependent)) {
-                dependent_materials.push_back(dependent);
-            }
-        }
-
         auto texture = create_runtime_texture(*record, import_settings);
         if(!texture) {
             return nullptr;
@@ -593,17 +574,27 @@ namespace Comet {
             return nullptr;
         }
 
-        for(const AssetHandle material_handle : dependent_materials) {
-            if(!reload_material(material_handle)) {
-                LOG_ERROR(
-                    "Texture handle {} was reimported, but dependent material handle {} could not be refreshed",
-                    handle.value(), material_handle.value());
-            }
-        }
+        reload_loaded_material_dependents(handle);
         LOG_INFO("Reimported texture asset '{}' (handle {}, color_space={}, flip_y={})",
             record->path.generic_string(), handle.value(),
             to_string(import_settings.color_space), import_settings.flip_y);
         return texture;
+    }
+
+    void AssetManager::reload_loaded_material_dependents(
+        const AssetHandle texture_handle) {
+        const auto dependents = m_database.get_dependents(texture_handle);
+        // 材质重载会修改依赖索引，先复制句柄，避免遍历失效。
+        const std::vector<AssetHandle> snapshot(dependents.begin(), dependents.end());
+        for(const AssetHandle handle : snapshot) {
+            const AssetRecord* record = m_database.find(handle);
+            if(record && record->type == AssetType::Material
+                && m_registry.resolve<Material>(handle) && !reload_material(handle)) {
+                LOG_ERROR(
+                    "Texture handle {} was updated, but dependent material handle {} could not be refreshed",
+                    texture_handle.value(), handle.value());
+            }
+        }
     }
 
     std::shared_ptr<Material> AssetManager::load_material(const AssetHandle handle) {

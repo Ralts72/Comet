@@ -200,14 +200,12 @@ namespace Comet {
         pipeline_config.enable_depth_test();
         pipeline_config.set_multisample_state(m_msaa_samples, false, 0.2f);
 
-        // 创建着色器
         const auto vert_shader = resource_manager.get_shader_manager().load_shader(
             "cube_texture_vert", CUBE_TEXTURE_VERT);
         const auto frag_shader = resource_manager.get_shader_manager().load_shader(
             "cube_texture_frag", CUBE_TEXTURE_FRAG);
         m_default_sampler = resource_manager.get_sampler_manager().get_linear_repeat();
 
-        // 创建 Pipeline
         m_pipeline = m_pipeline_manager->create_pipeline(
             "cube_pipeline", layout, pipeline_config, vert_shader, frag_shader);
     }
@@ -320,7 +318,6 @@ namespace Comet {
         auto& swapchain = m_context.get_swapchain();
         auto& frame_slot = m_frame_scheduler->get_current_frame_slot();
 
-        // Acquire next image
         auto [image_index, acquire_result] =
             swapchain.acquire_next_image(frame_slot.image_available_semaphore);
         if(acquire_result == vk::Result::eErrorOutOfDateKHR) {
@@ -348,7 +345,6 @@ namespace Comet {
 
         const auto& command_buffer = m_frame_scheduler->get_current_command_buffer();
 
-        // Bind descriptor sets
         const vk::DescriptorSet vk_descriptor_set = descriptor_set.get();
         command_buffer.get().bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
             m_pipeline->get_layout()->get(), 0, 1, &vk_descriptor_set, 0, nullptr);
@@ -358,7 +354,6 @@ namespace Comet {
             Flags<ShaderStage>(ShaderStage::Vertex), 0, &push_constant,
             sizeof(push_constant));
 
-        // Draw
         render_item.mesh->draw(command_buffer);
     }
 
@@ -372,10 +367,8 @@ namespace Comet {
         auto& frame_slot = m_frame_scheduler->get_current_frame_slot();
         auto& image_state = m_frame_scheduler->get_swapchain_image_state(image_index);
 
-        // End command buffer
         frame_slot.command_buffer.end();
 
-        // Submit
         auto& graphics_queue = device.get_graphics_queue(0);
         std::vector<QueueSemaphoreSubmit> waits;
         waits.reserve(1 + resource_waits.size());
@@ -390,7 +383,6 @@ namespace Comet {
                 std::span(&render_finished_signal, 1), &frame_slot.in_flight_fence));
         m_frame_scheduler->record_submission();
 
-        // Present
         auto& present_queue = device.get_present_queue(0);
         const auto result = present_queue.present(
             swapchain, std::span(&image_state.render_finished_semaphore, 1), image_index);

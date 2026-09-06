@@ -517,7 +517,6 @@ namespace Comet::Graphics {
 
     vk::ColorSpaceKHR image_color_space_to_vk(const ImageColorSpace space) {
         switch(space) {
-            // CASE(ImageColorSpace::DolbyvisionEXT,         vk::ColorSpaceKHR::eDolbyvisionEXT)
             CASE(
                 ImageColorSpace::AdobergbLinearEXT, vk::ColorSpaceKHR::eAdobergbLinearEXT)
             CASE(ImageColorSpace::AdobergbNonlinearEXT,
@@ -547,7 +546,6 @@ namespace Comet::Graphics {
 
     ImageColorSpace vk_to_image_color_space(const vk::ColorSpaceKHR space) {
         switch(space) {
-            // CASE(vk::ColorSpaceKHR::eDolbyvisionEXT, ImageColorSpace::DolbyvisionEXT)
             CASE(
                 vk::ColorSpaceKHR::eAdobergbLinearEXT, ImageColorSpace::AdobergbLinearEXT)
             CASE(vk::ColorSpaceKHR::eAdobergbNonlinearEXT,
@@ -616,7 +614,7 @@ namespace Comet::Graphics {
             CASE(vk::PresentModeKHR::eMailbox, PresentMode::Mailbox);
             CASE(vk::PresentModeKHR::eFifo, PresentMode::Fifo);
             CASE(vk::PresentModeKHR::eFifoRelaxed, PresentMode::FifoRelaxed);
-            // Shared present modes (rarely used, fallback to Fifo)
+            // 共享呈现模式尚未支持，回退到 FIFO。
             case vk::PresentModeKHR::eSharedDemandRefresh:
             case vk::PresentModeKHR::eSharedContinuousRefresh:
                 LOG_WARN("Shared present mode not fully supported, falling back to Fifo");

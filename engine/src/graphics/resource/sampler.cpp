@@ -76,7 +76,6 @@ namespace Comet {
         desc.address_mode_v = SamplerAddressMode::ClampToBorder;
         desc.address_mode_w = SamplerAddressMode::ClampToBorder;
         desc.max_anisotropy = 1.0f;
-        // 边界颜色可在构造中单独处理
         return std::make_shared<Sampler>(device, desc);
     }
 

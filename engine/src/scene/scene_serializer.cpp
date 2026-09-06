@@ -139,11 +139,6 @@ namespace Comet {
             return node;
         }
 
-        bool is_finite(const Math::Vec3& value) {
-            return std::isfinite(value.x) && std::isfinite(value.y)
-                   && std::isfinite(value.z);
-        }
-
         PropertyValue read_property_value(const PropertyDescriptor& property,
             const YAML::Node& node, const std::string_view source,
             const std::string_view location) {
@@ -188,7 +183,7 @@ namespace Comet {
                 }
                 case PropertyType::Vec3: {
                     const Math::Vec3 result = *static_cast<const Math::Vec3*>(value);
-                    if(!is_finite(result)) {
+                    if(!Math::is_finite(result)) {
                         throw scene_error(
                             "<memory>", location, "expected finite numbers");
                     }

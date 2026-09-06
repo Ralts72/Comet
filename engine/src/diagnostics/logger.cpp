@@ -33,7 +33,7 @@ namespace Comet {
             return spdlog::level::critical;
         if(level_str == "off")
             return spdlog::level::off;
-        return spdlog::level::info; // 默认级别
+        return spdlog::level::info;
     }
 
     void Logger::init(const Config::Log& config, const bool enable_profiler) {
@@ -41,12 +41,10 @@ namespace Comet {
             return;
         }
 
-        // 直接使用绝对路径到logs目录
         std::filesystem::path logs_dir(std::string(PROJECT_ROOT_DIR));
         logs_dir /= "logs";
 
         if(config.enable_file_logging) {
-            // 确保logs目录存在
             if(!std::filesystem::exists(logs_dir)) {
                 std::filesystem::create_directories(logs_dir);
             }
@@ -67,7 +65,6 @@ namespace Comet {
             shared_timestamp = ss.str();
         }
 
-        // 生成日志文件名
         std::string log_filename;
 #ifdef COMET_ENABLE_PROFILER
         std::string profiler_filename;
@@ -83,14 +80,11 @@ namespace Comet {
             s_current_log_file_path = log_filename;
         }
 
-        // 创建共享的 console sink
         auto shared_console_sink =
             std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
-        // 创建 console logger（控制台 + 文件）
         s_console_logger = spdlog::get("console");
         if(!s_console_logger) {
-            // 设置格式
             shared_console_sink->set_pattern("%^[%T] [%l] %v%$");
 
             if(config.enable_file_logging) {
@@ -98,11 +92,9 @@ namespace Comet {
                     log_filename, false);
                 file_sink->set_pattern("[%Y-%m-%d %T.%e] [%l] %v");
 
-                // 创建组合 logger（控制台 + 文件）
                 s_console_logger = std::make_shared<spdlog::logger>(
                     "console", spdlog::sinks_init_list{shared_console_sink, file_sink});
             } else {
-                // 仅控制台输出
                 s_console_logger =
                     std::make_shared<spdlog::logger>("console", shared_console_sink);
             }
@@ -112,13 +104,11 @@ namespace Comet {
             s_console_logger->set_level(log_level);
             s_console_logger->flush_on(spdlog::level::err);
 
-            // 注册 logger
             spdlog::register_logger(s_console_logger);
         }
 
 #ifdef COMET_ENABLE_PROFILER
         if(enable_profiler) {
-            // 创建 profiler logger
             s_profiler_logger = spdlog::get("profiler");
         }
         if(enable_profiler && !s_profiler_logger) {
@@ -132,37 +122,32 @@ namespace Comet {
                         profiler_filename, false);
                 profiler_file_sink->set_pattern("[%Y-%m-%d %T.%e] [Profiler] %v");
 
-                // 创建组合 logger（控制台 + 文件）
                 s_profiler_logger = std::make_shared<spdlog::logger>("profiler",
                     spdlog::sinks_init_list{profiler_console_sink, profiler_file_sink});
             } else {
-                // 仅控制台输出
                 s_profiler_logger =
                     std::make_shared<spdlog::logger>("profiler", profiler_console_sink);
             }
 
-            // profiler logger 始终使用 trace 级别
             s_profiler_logger->set_level(spdlog::level::trace);
             s_profiler_logger->flush_on(spdlog::level::err);
 
-            // 注册 logger
             spdlog::register_logger(s_profiler_logger);
         }
 #endif
 
-        // 设置全局刷新策略
-        spdlog::flush_every(std::chrono::seconds(1)); // 每秒自动刷新
+        spdlog::flush_every(std::chrono::seconds(1));
 
         s_initialized = true;
     }
 
     void Logger::shutdown() {
         if(s_console_logger) {
-            s_console_logger->flush(); // 强制刷新缓冲区
+            s_console_logger->flush();
             s_console_logger.reset();
         }
         if(s_profiler_logger) {
-            s_profiler_logger->flush(); // 强制刷新缓冲区
+            s_profiler_logger->flush();
             s_profiler_logger.reset();
         }
         spdlog::shutdown();
@@ -188,10 +173,8 @@ namespace Comet {
             return;
         }
 
-        // 移除控制台输出（stdout_color_sink），只保留文件输出
         auto& sinks = logger->sinks();
         std::erase_if(sinks, [](const std::shared_ptr<spdlog::sinks::sink>& sink) {
-            // 检查是否是 stdout_color_sink 或 stdout_sink
             return dynamic_cast<spdlog::sinks::stdout_color_sink_mt*>(sink.get())
                        != nullptr
                    || dynamic_cast<spdlog::sinks::stdout_color_sink_st*>(sink.get())

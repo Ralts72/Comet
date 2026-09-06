@@ -11,21 +11,17 @@ namespace Comet {
         : m_scene_resolver(asset_registry) {
         PROFILE_SCOPE("Renderer::Constructor");
 
-        // Create render context
         m_render_context =
             std::make_unique<RenderContext>(window, config.vulkan, config.render);
 
-        // Create resource manager
         LOG_INFO("create resource manager");
         m_resource_manager =
             std::make_unique<ResourceManager>(m_render_context->get_device());
 
-        // Create scene renderer
         LOG_INFO("create scene renderer");
         m_scene_renderer = std::make_unique<SceneRenderer>(
             *m_render_context, config.vulkan, config.render);
 
-        // Setup render pass (moved to SceneRenderer)
         m_scene_renderer->setup_render_pass();
 
         m_scene_renderer->setup_pipeline(*m_resource_manager);
@@ -35,7 +31,6 @@ namespace Comet {
         PROFILE_SCOPE("render frame");
         m_resource_manager->collect_completed_uploads();
 
-        // Begin frame (acquires image and begins command buffer)
         if(!m_scene_renderer->begin_frame()) {
             m_viewport_pick_request.reset();
             return;
@@ -60,7 +55,6 @@ namespace Comet {
             m_render_overlay(m_scene_renderer->get_current_command_buffer());
         }
 
-        // End frame (submits and presents)
         m_scene_renderer->end_frame(resource_waits);
     }
 

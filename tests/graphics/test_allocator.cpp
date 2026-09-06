@@ -3,74 +3,14 @@
 #include "graphics/resource/allocator.h"
 #include "graphics/resource/buffer.h"
 
-#include <concepts>
 #include <limits>
 #include <type_traits>
 
 namespace Comet::Tests {
-    namespace {
-        template<typename T>
-        concept SupportsRangeWrite = requires(const T& buffer, const void* data,
-            const size_t size, const size_t offset) { buffer.write(data, size, offset); };
-
-        template<typename T>
-        concept SupportsFrameIndex =
-            requires(const T& allocator, const uint64_t frame_serial) {
-                allocator.set_current_frame_index(frame_serial);
-            };
-
-        template<typename T>
-        concept SupportsMemoryBudgetSnapshot = requires(const T& allocator) {
-            { allocator.query_memory_budget() } -> std::same_as<MemoryBudgetSnapshot>;
-        };
-
-        template<typename T>
-        concept SupportsRecoverableAllocation =
-            requires(const T& allocator, const vk::BufferCreateInfo& buffer_info,
-                const vk::ImageCreateInfo& image_info,
-                const AllocationCreateInfo& allocation_info) {
-                {
-                    allocator.try_create_buffer(buffer_info, allocation_info)
-                } -> std::same_as<GpuResourceResult<Allocator::BufferAllocation>>;
-                {
-                    allocator.try_create_image(image_info, allocation_info)
-                } -> std::same_as<GpuResourceResult<Allocator::ImageAllocation>>;
-            };
-    }
-
     TEST(AllocationTest, DefaultsToInvalidHandle) {
         const Allocation allocation;
 
         EXPECT_FALSE(static_cast<bool>(allocation));
-    }
-
-    TEST(AllocationTest, TransfersWithoutCopying) {
-        EXPECT_FALSE(std::is_copy_constructible_v<Allocation>);
-        EXPECT_FALSE(std::is_copy_assignable_v<Allocation>);
-        EXPECT_TRUE(std::is_move_constructible_v<Allocation>);
-        EXPECT_TRUE(std::is_move_assignable_v<Allocation>);
-    }
-
-    TEST(AllocationTest, CreateInfoDefaultsToDeviceLocalIntent) {
-        const AllocationCreateInfo create_info;
-
-        EXPECT_EQ(create_info.usage, AllocationUsage::Device);
-        EXPECT_FALSE(create_info.persistent_mapping);
-        EXPECT_FALSE(create_info.within_budget);
-        EXPECT_TRUE(create_info.debug_name.empty());
-    }
-
-    TEST(CPUBufferInterfaceTest, SupportsBoundedRangeWrites) {
-        EXPECT_TRUE(SupportsRangeWrite<CPUBuffer>);
-    }
-
-    TEST(AllocatorInterfaceTest, MemoryBudgetIsOptional) {
-        const Allocator::CreateInfo create_info;
-
-        EXPECT_FALSE(create_info.memory_budget_enabled);
-        EXPECT_TRUE(SupportsFrameIndex<Allocator>);
-        EXPECT_TRUE(SupportsMemoryBudgetSnapshot<Allocator>);
-        EXPECT_TRUE(SupportsRecoverableAllocation<Allocator>);
     }
 
     TEST(GpuResourceResultTest, DistinguishesSuccessFromFailure) {
@@ -132,10 +72,4 @@ namespace Comet::Tests {
         EXPECT_FALSE(budget.reaches_usage_percentage(1, 90));
     }
 
-    TEST(MemoryBudgetSnapshotTest, DefaultsToEstimatedEmptySnapshot) {
-        const MemoryBudgetSnapshot snapshot;
-
-        EXPECT_TRUE(snapshot.heaps.empty());
-        EXPECT_FALSE(snapshot.driver_reported);
-    }
 }

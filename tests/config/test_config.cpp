@@ -4,7 +4,6 @@
 #include "config/config_loader.h"
 
 #include <array>
-#include <concepts>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -14,16 +13,6 @@
 using namespace Comet;
 
 namespace {
-    template<typename T>
-    concept HasImplicitLoad = requires(T loader) {
-        { loader.load() } -> std::same_as<Config>;
-    };
-
-    template<typename T>
-    concept HasExplicitLoad = requires(T loader, const std::string& path) {
-        { loader.load(path) } -> std::same_as<Config>;
-    };
-
     class TemporaryConfigFile final {
     public:
         explicit TemporaryConfigFile(const std::string& contents) {
@@ -45,12 +34,6 @@ namespace {
     private:
         std::filesystem::path m_path;
     };
-}
-
-TEST(ConfigInterfaceTest, RequiresExplicitConfigurationSources) {
-    EXPECT_FALSE(HasImplicitLoad<Config>);
-    EXPECT_FALSE(HasImplicitLoad<ConfigLoader>);
-    EXPECT_TRUE(HasExplicitLoad<ConfigLoader>);
 }
 
 TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {

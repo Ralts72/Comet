@@ -2,7 +2,7 @@
 
 #include "asset/database.h"
 #include "asset/material_data.h"
-#include "editor.h"
+#include "editor_panel.h"
 
 #include <filesystem>
 #include <functional>
