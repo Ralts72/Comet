@@ -92,12 +92,18 @@ SceneRenderer 不读 EditorMode/ImGui。SceneResolver 当前仍有固定两纹�
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。
 编辑命令完成后提取，因此组件修改、Undo/Redo 和当前帧拾取使用同一份场景快照。
 
-LineDrawList 只保存世界空间端点与颜色，Renderer 在 update/prepare 阶段接受多次追加并持有副本。
+LineDrawList 只保存世界空间端点与颜色，Renderer 在场景 pass 录制前接受多次追加并持有副本。
+通常在 update/prepare 提交；本帧拾取的结果回调也可提交，因此点击产生的选择反馈不必等下一帧。
 render_frame 消费后清空，准备失败、隐藏视口或无合法相机时丢弃，不跨帧保留。
 DebugRenderer 使用场景的相机矩阵、RenderPass 格式和 MSAA；LineList、深度测试 LessEqual、不写深度、alpha 混合。
 每 slot 独立的持久映射 CPU-to-GPU vertex buffer，只在等待当前 slot 完成后写入或扩容；
 绘制使用的 buffer/Pipeline 同时被 FrameSlot 保留至 GPU 完成。扩容失败保留旧 buffer 并跳过本批，延后重试。
 它不持有 Scene、Selection 或 ImGui；选中框/Gizmo 等调用方自行转换成世界空间请求。
+
+Editor 在 UI 编辑命令完成后读取选中实体的 Mesh local bounds 和最新 world matrix，
+用 LineDrawList::add_box(box, transform, color) 变换八角点并连接十二条边，不重新拟合世界 AABB。
+普通帧在 prepare 提交；有视口拾取请求时，等结果更新 Selection 后再提交，避免旧框和新框同时出现。
+选择状态仍由 SelectionService 持有，Scene/Mesh/Material 不保存 selected 标记；Play、隐藏视口或无有效 Mesh 时不提交。
 
 RenderView 的 CameraSelection 选择显式 editor camera 或 Scene primary camera；
 请求 override 却缺少数据时不静默回退。没有合法 Camera 时清屏并保留 UI，不录制场景 draw。

@@ -41,7 +41,8 @@ namespace Comet {
         void request_viewport_pick(Math::Vec2u pixel, Math::Vec2u image_resolution);
         void set_viewport_pick_callback(ViewportPickCallback callback);
 
-        // 在 update/prepare 阶段追加，仅用于本帧；没有有效视图时也会消费并清空。
+        // 在场景 pass 录制前追加（update/prepare 或拾取回调），仅用于本帧。
+        // 没有有效视图时也会消费并清空。
         void submit_lines(const LineDrawList& draw_list);
 
         [[nodiscard]] ResourceManager& get_resource_manager() {

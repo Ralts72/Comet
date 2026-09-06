@@ -1,6 +1,6 @@
 # Comet 引擎路线图
 
-更新：2026-09-06。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
+更新：2026-09-07。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
 本文只维护阶段、待办和设计约束，不累计每次迁移的完成日志。
 
 ## 当前阶段与下一步
@@ -11,19 +11,17 @@
 | 1 Scene/ECS 与渲染提交 | MVP 已完成 | 系统化更新留到阶段 6 |
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路可用，仍有收尾 | Mesh 导入 UI、Artifact 状态、任务背压 |
-| 4 视口与交互 | 4A/4B 主链路完成，4C 进行中 | 选中框、Gizmo、扩展撤销范围 |
+| 4 视口与交互 | 4A/4B 主链路完成，4C 进行中 | Gizmo、扩展撤销范围 |
 | 5 渲染升级 | 未开始整体迁移 | 通用材质、PipelineKey、多 pass、线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 规划 | 项目设置、格式迁移、打包 |
 
 以当前 main 的功能与验收为准，不再按 feat/auto 提交编号逐个迁移；旧分支仅作为算法、测试及设计参考。
-编辑命令历史、帧准备后提取与通用 DebugDraw 线段绘制已接通，后续顺序：
+编辑命令历史、帧准备后提取、通用线段绘制及选中包围盒已接通，后续顺序：
 
-1. **选中包围盒**：Editor 解析 Selection，用 Mesh local bounds 和 world transform 向 DebugDraw 提交 12 条世界空间边；
-   不给 Scene、Mesh、Material 增加 selected 标记。
-2. **Gizmo 事务**：复用 Inspector 已有 PropertyEditTransaction，开始保存 before，拖动预览，释放提交，取消恢复。
+1. **Gizmo 事务**：复用 Inspector 已有 PropertyEditTransaction，开始保存 before，拖动预览，释放提交，取消恢复。
    保持修改、world transform 更新、提取与绘制的时序一致，不另造一套撤销或组件写入路径。
-3. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
+2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
 
 另有两项应独立安排：阶段 3 的 Mesh 导入 UI/状态，以及 WSI 失败后的无呈现重试。
 前者是工作流缺口，后者是可恢复性缺口，不用一个大重构捆绑完成。
@@ -77,10 +75,12 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 - Engine 在 Renderer::prepare_frame 完成 UI 准备之后读取活动 Scene 并提取，随后 render_frame；不新增快照 provider 回调。
 - LineDrawList 接收单帧线段/包围盒；执行器使用场景 pass、相机和 MSAA，正常深度测试且不写深度。
   CPU 请求不依赖 Vulkan/ImGui；slot 独立 vertex buffer 安全复用，扩容失败跳过调试批次并延后重试。
+- Edit 选中 Mesh 的局部包围盒八角点经过 world transform 后连十二条边；普通帧在 UI 命令完成后提交，
+  点击帧在拾取结果更新 Selection 后提交，不画旧选择；Scene/Mesh/Material 不保存 selected 状态。
 
 剩余：
 
-- 按上面的顺序接通选中框与 Gizmo，持续验证当前帧快照一致性。
+- 接通 Gizmo，持续验证当前帧快照一致性；多 pass outline 留到阶段 5，不与包围盒反馈混淆。
 - 扩展撤销到实体名称、实体/组件结构修改与层级操作；资产修改需独立定义文件事务，不与场景历史混用。
 - Add/Remove Component、搜索、复制粘贴、删除、duplicate、拖拽资产、Prefab MVP。
 - Project 缩略图、搜索和资产创建；与阶段 3 导入入口共用事务服务。

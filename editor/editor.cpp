@@ -178,7 +178,7 @@ namespace {
                     apply_viewport_camera_updates();
                     apply_viewport_focus();
                     update_viewport_state();
-                    submit_viewport_pick();
+                    submit_viewport_feedback();
                 },
                 [this](Comet::CommandBuffer& command_buffer) {
                     m_imgui_context->render(command_buffer);
@@ -202,6 +202,7 @@ namespace {
                     } else {
                         m_selection->clear();
                     }
+                    submit_selection_bounds();
                 });
 
             LOG_INFO("Editor initialized");
@@ -265,14 +266,41 @@ namespace {
                 m_editor_state.camera, *world_bounds, aspect);
         }
 
-        void submit_viewport_pick() {
-            if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
+        void submit_selection_bounds() {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit
+                || !m_viewport_panel->is_visible() || !m_selection) {
+                return;
+            }
+            const Comet::Entity entity = m_selection->get_selected_entity();
+            Comet::Scene* scene = get_engine().get_scene();
+            if(!scene || !scene->is_valid(entity)
+                || !entity.has_component<Comet::MeshRendererComponent>()) {
+                return;
+            }
+            const auto mesh = get_engine().get_asset_registry().resolve<Comet::Mesh>(
+                entity.get_component<Comet::MeshRendererComponent>().mesh);
+            if(!mesh) {
+                return;
+            }
+            Comet::LineDrawList lines;
+            if(lines.add_box(mesh->get_local_bounds(), scene->get_world_matrix(entity),
+                   Comet::Math::Vec4(1.0f, 0.65f, 0.1f, 1.0f))) {
+                get_engine().get_renderer().submit_lines(lines);
+            }
+        }
+
+        void submit_viewport_feedback() {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit
+                || !m_viewport_panel->is_visible()) {
                 return;
             }
             if(const auto pixel = m_viewport_panel->take_pick_request()) {
                 get_engine().get_renderer().request_viewport_pick(
                     *pixel, m_viewport_panel->get_layout().image_resolution);
+                // 本帧有拾取时，由结果回调提交新选择的框，不先画旧选择。
+                return;
             }
+            submit_selection_bounds();
         }
 
         void update_viewport_texture(Comet::SceneRenderer& scene_renderer) {

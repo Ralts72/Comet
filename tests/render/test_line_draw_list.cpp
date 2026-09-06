@@ -81,4 +81,47 @@ namespace Comet::Tests {
         EXPECT_TRUE(list.add_box(BoundingBox::from_point({1, 1, 1})));
         EXPECT_EQ(list.line_count(), 12U);
     }
+
+    TEST_F(LineDrawListTest, TransformedBoxPreservesEdgesUnderRotationScaleAndShear) {
+        const BoundingBox box{.minimum = {-1, -2, -3}, .maximum = {1, 2, 3}};
+        const auto parent = Math::compose_trs({3, 4, 5}, {0, 35, 0}, {-2, 1, 0.5f});
+        const auto local = Math::compose_trs({1, 0, 2}, {20, 0, 30}, {1, 2, 3});
+        const auto transform = parent * local;
+        LineDrawList local_lines;
+        ASSERT_TRUE(local_lines.add_box(box));
+        ASSERT_TRUE(list.add_box(box, transform, Math::Vec4(1, 0, 0, 1)));
+        ASSERT_EQ(list.vertices().size(), local_lines.vertices().size());
+        for(std::size_t index = 0; index < list.vertices().size(); ++index) {
+            const auto expected = Math::Vec3(
+                transform * Math::Vec4(local_lines.vertices()[index].position, 1));
+            EXPECT_LT(Math::length(list.vertices()[index].position - expected), 0.0001f);
+            EXPECT_EQ(list.vertices()[index].color, Math::Vec4(1, 0, 0, 1));
+        }
+    }
+
+    TEST_F(LineDrawListTest, RejectsInvalidTransformWithoutPartialBox) {
+        ASSERT_TRUE(list.add_line({0, 0, 0}, {1, 0, 0}));
+        const BoundingBox box{.minimum = {-1, -1, -1}, .maximum = {1, 1, 1}};
+        auto transform = Math::Mat4(1);
+        transform[0][3] = 0.5f;
+        EXPECT_FALSE(list.add_box(box, transform));
+        transform = Math::Mat4(1);
+        transform[3][0] = std::numeric_limits<float>::quiet_NaN();
+        EXPECT_FALSE(list.add_box(box, transform));
+        transform = Math::Mat4(std::numeric_limits<float>::max());
+        transform[3][3] = 1;
+        EXPECT_FALSE(
+            list.add_box({.minimum = {0, 0, 0}, .maximum = {2, 2, 2}}, transform));
+        EXPECT_EQ(list.line_count(), 1U);
+    }
+
+    TEST_F(LineDrawListTest, CollapsedScaleProducesFiniteDegenerateEdges) {
+        const auto transform = Math::compose_trs({1, 2, 3}, {0, 0, 0}, {0, 0, 0});
+        ASSERT_TRUE(
+            list.add_box({.minimum = {-1, -1, -1}, .maximum = {1, 1, 1}}, transform));
+        ASSERT_EQ(list.line_count(), 12U);
+        for(const auto& vertex : list.vertices()) {
+            EXPECT_EQ(vertex.position, Math::Vec3(1, 2, 3));
+        }
+    }
 }

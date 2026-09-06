@@ -10,7 +10,7 @@
 namespace Comet::Tests {
     class FrameEditOrderTest: public ::testing::TestWithParam<bool> {};
 
-    TEST_P(FrameEditOrderTest, PickConsumesSceneChangedDuringCurrentPreparation) {
+    TEST_P(FrameEditOrderTest, PickAndLinesConsumeSceneChangedDuringCurrentPreparation) {
         Config config;
         config.window.width = 320;
         config.window.height = 240;
@@ -45,6 +45,15 @@ namespace Comet::Tests {
         engine.set_scene(make_scene(20));
         int preparations = 0;
         bool picked = false;
+        std::optional<uint64_t> allocations_before_lines;
+        const auto allocation_count = [&] {
+            uint64_t count = 0;
+            for(const auto& heap :
+                renderer.get_render_context().get_device().query_memory_budget().heaps) {
+                count += heap.allocation_count;
+            }
+            return count;
+        };
         renderer.set_overlay_callbacks(
             [&] {
                 ++preparations;
@@ -61,10 +70,29 @@ namespace Comet::Tests {
                 renderer.request_viewport_pick(size / 2u, size);
             },
             [&](CommandBuffer&) {
+                // 结果回调提交的线段必须已在当前 scene pass 分配并录制。
+                if(allocations_before_lines) {
+                    EXPECT_EQ(allocation_count(), *allocations_before_lines + 1);
+                }
                 glfwSetWindowShouldClose(engine.get_window().get(), GLFW_TRUE);
             });
         renderer.set_viewport_pick_callback([&](std::optional<ScenePickHit> hit) {
             picked = hit && hit->entity_id == EntityId(2);
+            if(hit) {
+                auto& scene = *engine.get_scene();
+                const auto entity = scene.find_entity(hit->entity_id);
+                LineDrawList lines;
+                EXPECT_TRUE(lines.add_box(
+                    mesh.value()->get_local_bounds(), scene.get_world_matrix(entity)));
+                EXPECT_EQ(lines.line_count(), 12U);
+                // 场景修改/替换前对象在 x=20，本帧框应已回到原点附近。
+                for(const auto& vertex : lines.vertices()) {
+                    EXPECT_GE(vertex.position.x, -1.0f);
+                    EXPECT_LE(vertex.position.x, 1.0f);
+                }
+                allocations_before_lines = allocation_count();
+                renderer.submit_lines(lines);
+            }
         });
         int updates = 0;
         engine.register_update_callback([&](UpdateContext) {
@@ -76,6 +104,7 @@ namespace Comet::Tests {
         renderer.set_viewport_pick_callback({});
         EXPECT_EQ(preparations, 1);
         EXPECT_TRUE(picked);
+        EXPECT_TRUE(allocations_before_lines.has_value());
     }
 
     INSTANTIATE_TEST_SUITE_P(MutateOrReplaceScene, FrameEditOrderTest, ::testing::Bool());

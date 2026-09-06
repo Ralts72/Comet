@@ -17,10 +17,24 @@ namespace Comet {
     }
 
     bool LineDrawList::add_box(const BoundingBox& box, const Math::Vec4 color) {
+        return add_box(box, Math::Mat4(1.0f), color);
+    }
+
+    bool LineDrawList::add_box(
+        const BoundingBox& box, const Math::Mat4& transform, const Math::Vec4 color) {
         if(!box.is_valid() || !Math::is_finite(color)) {
             return false;
         }
-        const std::array corners{Math::Vec3(box.minimum.x, box.minimum.y, box.minimum.z),
+        for(int column = 0; column < 4; ++column) {
+            if(!Math::is_finite(transform[column])) {
+                return false;
+            }
+        }
+        if(transform[0][3] != 0.0f || transform[1][3] != 0.0f || transform[2][3] != 0.0f
+            || transform[3][3] != 1.0f) {
+            return false;
+        }
+        std::array corners{Math::Vec3(box.minimum.x, box.minimum.y, box.minimum.z),
             Math::Vec3(box.maximum.x, box.minimum.y, box.minimum.z),
             Math::Vec3(box.maximum.x, box.maximum.y, box.minimum.z),
             Math::Vec3(box.minimum.x, box.maximum.y, box.minimum.z),
@@ -28,6 +42,12 @@ namespace Comet {
             Math::Vec3(box.maximum.x, box.minimum.y, box.maximum.z),
             Math::Vec3(box.maximum.x, box.maximum.y, box.maximum.z),
             Math::Vec3(box.minimum.x, box.maximum.y, box.maximum.z)};
+        for(auto& corner : corners) {
+            corner = Math::Vec3(transform * Math::Vec4(corner, 1.0f));
+            if(!Math::is_finite(corner)) {
+                return false;
+            }
+        }
         constexpr std::array<std::array<std::size_t, 2>, 12> edges{
             {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4},
                 {1, 5}, {2, 6}, {3, 7}}};
