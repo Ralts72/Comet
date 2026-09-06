@@ -39,6 +39,18 @@ ctest --preset dev-debug
 手动配置需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS`。
 `COMET_NATIVE_OPTIMIZATION` 只适合本机构建。配置与诊断采用“编译期能力 + Profile 运行时策略”。
 
+测试构建另提供可复现 forward 测量入口（CSV、对象数、逻辑窗口宽高、采样帧数、Bloom 0/1）：
+
+```bash
+cmake --preset ci-release -B build-profile
+cmake --build build-profile --target render_profile --parallel
+./build-profile/tests/render_profile /tmp/comet-profile.csv 64 640 360 240 1
+```
+
+它在临时项目导入内置 cube/PBR 资源，运行三灯、方向光阴影、4×MSAA 和可选 Bloom；跳过 32 帧预热。
+报告记录实际 framebuffer 尺寸、CPU/GPU 分段、样本数和 P50/P95；测试进程串行运行，测量期间不要同时构建或运行其他 GPU 测试。
+该入口关闭请求的 validation，不修改源资产；它是固定场景基线，不代表编辑器 UI 或真实游戏项目性能。
+
 ## 编辑器使用
 
 - Edit 使用独立编辑器相机；Play 使用克隆场景的 primary Camera，Stop 后返回 Edit，不回写运行时修改。

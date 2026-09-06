@@ -4,6 +4,7 @@ file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
 )
 list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/graphics/pipeline_cache_probe.cpp")
 list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/graphics/test_swapchain_recovery.cpp")
+list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/render/render_profile.cpp")
 list(APPEND TEST_SOURCES
         "${CMAKE_SOURCE_DIR}/editor/src/command_history.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/scene_commands.cpp"
@@ -107,7 +108,13 @@ target_compile_definitions(swapchain_recovery PRIVATE
         vkAcquireNextImageKHR=comet_test_acquire_next_image
         vkQueuePresentKHR=comet_test_queue_present)
 add_test(NAME swapchain_recovery COMMAND swapchain_recovery)
-set_tests_properties(unit_testing pipeline_cache_process swapchain_recovery render_graph_sync_validation
+add_executable(render_profile render/render_profile.cpp)
+target_link_libraries(render_profile PRIVATE engine glfw)
+target_compile_definitions(render_profile PRIVATE COMET_PROFILE_BUILD_TYPE="$<CONFIG>")
+add_dependencies(render_profile shader_compile)
+add_test(NAME render_profile_smoke COMMAND render_profile
+        "${CMAKE_CURRENT_BINARY_DIR}/render-profile-smoke.csv" 4 160 120 8 1)
+set_tests_properties(unit_testing pipeline_cache_process swapchain_recovery render_graph_sync_validation render_profile_smoke
         PROPERTIES RESOURCE_LOCK comet_graphics)
 add_test(NAME shader_build_contract COMMAND "${CMAKE_COMMAND}"
         "-DCOMPILE_TOOL=$<TARGET_FILE:comet_shader_compiler>"
