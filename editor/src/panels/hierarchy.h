@@ -1,5 +1,9 @@
 #pragma once
 #include "editor_panel.h"
+#include "scene/entity_uuid.h"
+
+#include <cstdint>
+#include <optional>
 
 namespace Comet {
     class Entity;
@@ -8,14 +12,25 @@ namespace Comet {
 
 namespace CometEditor {
     class SelectionService;
+    class CommandHistory;
 
     class HierarchyPanel: public EditorPanel {
     public:
-        HierarchyPanel(Comet::Scene& scene, SelectionService& selection);
+        struct Request {
+            enum class Type { Create, Delete, Reparent };
+            Type type;
+            Comet::EntityUuid entity;
+            Comet::EntityUuid parent;
+            std::uint64_t generation;
+        };
+
+        HierarchyPanel(Comet::Scene& scene, SelectionService& selection,
+            const CommandHistory& history);
 
         void render() override;
 
-        void set_scene(Comet::Scene& scene) { m_scene = &scene; }
+        void set_scene(Comet::Scene& scene);
+        [[nodiscard]] std::optional<Request> take_request();
 
     private:
         void render_entity_node(Comet::Entity entity);
@@ -24,6 +39,8 @@ namespace CometEditor {
 
         Comet::Scene* m_scene;
         SelectionService& m_selection;
+        const CommandHistory& m_history;
+        std::optional<Request> m_request;
     };
 
 }

@@ -4,6 +4,7 @@
 #include "asset/source_monitor.h"
 #include "src/camera_controller.h"
 #include "src/command_history.h"
+#include "src/scene_commands.h"
 #include "src/editor_scene_session.h"
 #include "src/editor_state.h"
 #include "src/imgui_context.h"
@@ -328,10 +329,14 @@ namespace {
             auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
             scene_renderer.set_swapchain_resource_callbacks({}, {});
             m_viewport_panel->cancel_interaction();
+            static_cast<void>(m_property_edit.cancel());
+            m_command_history.bind_scene(nullptr);
             m_imgui_context.reset();
             m_project_panel.reset();
             m_hierarchy_panel.reset();
             m_inspector_panel.reset();
+            m_viewport_panel.reset();
+            m_menu_bar.reset();
             m_selection.reset();
             m_scene_session.reset();
             m_scene_document.reset();
@@ -464,6 +469,43 @@ namespace {
                     Comet::metadata_path(relative_path)));
             }
             return reimported;
+        }
+
+        void handle_scene_request(const CometEditor::HierarchyPanel::Request& request) {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit
+                || request.generation != m_command_history.generation())
+                return;
+            m_viewport_panel->cancel_interaction();
+            if(!m_property_edit.commit()) {
+                LOG_ERROR("Cannot finish property edit before structure command");
+                return;
+            }
+            using Type = CometEditor::HierarchyPanel::Request::Type;
+            namespace Commands = CometEditor::SceneCommands;
+            bool changed = false;
+            switch(request.type) {
+                case Type::Create: {
+                    const auto uuid =
+                        Commands::create_entity(m_command_history, m_component_registry);
+                    changed = static_cast<bool>(uuid);
+                    if(changed)
+                        m_selection->select_entity(
+                            m_command_history.get_scene()->find_entity(uuid).get_id());
+                    break;
+                }
+                case Type::Delete:
+                    changed = Commands::delete_entity(
+                        m_command_history, m_component_registry, request.entity);
+                    if(changed)
+                        m_selection->clear();
+                    break;
+                case Type::Reparent:
+                    changed = Commands::reparent_entity(
+                        m_command_history, request.entity, request.parent);
+                    break;
+            }
+            if(!changed)
+                LOG_WARN("Scene structure request was rejected or had no effect");
         }
 
         void handle_command(const CometEditor::MenuBar::Command command) {
@@ -627,8 +669,8 @@ namespace {
             m_menu_bar =
                 std::make_unique<CometEditor::MenuBar>(m_editor_state, m_command_history);
 
-            m_hierarchy_panel =
-                std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
+            m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
+                scene, *m_selection, m_command_history);
             const auto& render_context = get_engine().get_renderer().get_render_context();
             const std::uint32_t device_max_render_dimension =
                 render_context.get_device().get_capability().max_image_dimension_2d;
@@ -686,6 +728,8 @@ namespace {
                 if(const auto command = m_menu_bar->take_command()) {
                     handle_command(*command);
                 }
+                if(const auto request = m_hierarchy_panel->take_request())
+                    handle_scene_request(*request);
                 if(const auto mode = m_viewport_panel->take_mode_request()) {
                     m_viewport_panel->cancel_interaction();
                     if(m_property_edit.commit()) {

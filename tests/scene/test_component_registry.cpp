@@ -108,6 +108,22 @@ namespace {
         EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "名称");
     }
 
+    TEST(ComponentRegistryTest, RestoresSnapshotConstructedOutsideSharedEngine) {
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        const auto registry = Comet::create_scene_component_registry();
+        const std::any camera = Comet::CameraComponent{.fov = 67};
+        ASSERT_TRUE(registry.find_component("camera")->restore_component(entity, camera));
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::CameraComponent>().fov, 67);
+        const std::any transform =
+            Comet::TransformComponent{.translation = Comet::Math::Vec3(9)};
+        entity.remove_component<Comet::TransformComponent>();
+        ASSERT_TRUE(
+            registry.find_component("transform")->restore_component(entity, transform));
+        EXPECT_EQ(entity.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(9));
+    }
+
     TEST(ComponentRegistryTest, ComponentSnapshotIsOwnedAndRejectsInvalidRestore) {
         Comet::Scene scene;
         auto entity = scene.create_entity();

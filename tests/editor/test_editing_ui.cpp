@@ -2,6 +2,8 @@
 #include "command_history.h"
 #include "menu_bar.h"
 #include "panels/inspector.h"
+#include "panels/hierarchy.h"
+#include "scene_commands.h"
 #include "property_editor_registry.h"
 #include "selection.h"
 
@@ -110,6 +112,48 @@ namespace CometEditor::Tests {
             frame();
         }
     };
+
+    TEST_F(EditingUiTest, HierarchyQueuesOneRequestWithoutMutatingDuringUiTraversal) {
+        HierarchyPanel hierarchy(scene, selection, history);
+        const auto draw = [&]() {
+            ImGui::NewFrame();
+            ImGui::SetNextWindowPos(ImVec2(0, 0));
+            ImGui::SetNextWindowSize(ImVec2(400, 400));
+            hierarchy.render();
+            ImGui::Render();
+        };
+        draw();
+        draw();
+        auto* window = ImGui::FindWindowByName("Hierarchy");
+        ASSERT_NE(window, nullptr);
+        ImGui::ActivateItemByID(window->GetID("+"));
+        draw();
+        EXPECT_EQ(scene.entity_count(), 1);
+        auto request = hierarchy.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->type, HierarchyPanel::Request::Type::Create);
+        EXPECT_EQ(request->generation, history.generation());
+        EXPECT_FALSE(hierarchy.take_request());
+        ImGui::ActivateItemByID(window->GetID("-"));
+        draw();
+        request = hierarchy.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->type, HierarchyPanel::Request::Type::Delete);
+        EXPECT_EQ(request->entity, entity.get_uuid());
+        EXPECT_TRUE(entity);
+        history.bind_scene(nullptr);
+        ImGui::ActivateItemByID(window->GetID("+"));
+        draw();
+        EXPECT_FALSE(hierarchy.take_request());
+        ImGui::ActivateItemByID(window->GetID("-"));
+        draw();
+        EXPECT_FALSE(hierarchy.take_request());
+        history.bind_scene(&scene);
+        ImGui::ActivateItemByID(window->GetID("+"));
+        draw();
+        hierarchy.set_scene(scene);
+        EXPECT_FALSE(hierarchy.take_request());
+    }
 
     TEST_F(EditingUiTest, AddComponentMenuUsesHistoryAndIsDisabledInPlay) {
         auto* window = ImGui::FindWindowByName("Inspector");

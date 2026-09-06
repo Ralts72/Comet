@@ -79,6 +79,7 @@ namespace Comet {
     struct ComponentDescriptor {
         std::string id;
         std::string display_name;
+        entt::id_type type_id = 0; // 进程内类型标识，不写入场景文件。
         bool serializable = true;
         std::vector<PropertyDescriptor> properties;
         std::function<bool(const Entity&)> has_component_callback;
@@ -145,6 +146,7 @@ namespace Comet {
 
         [[nodiscard]] const ComponentDescriptor* find_component(
             std::string_view component_id) const;
+        [[nodiscard]] bool covers_entity(const Entity& entity) const;
 
         [[nodiscard]] const std::vector<ComponentDescriptor>& components() const {
             return m_components;
@@ -213,6 +215,7 @@ namespace Comet {
         const bool serializable = true) {
         ComponentDescriptor descriptor{.id = std::move(id),
             .display_name = std::move(display_name),
+            .type_id = entt::type_hash<Component>::value(),
             .serializable = serializable,
             .properties = std::move(properties),
             .has_component_callback =
