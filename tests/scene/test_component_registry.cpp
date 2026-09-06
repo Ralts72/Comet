@@ -59,6 +59,30 @@ namespace {
         EXPECT_FALSE(registry.register_component(std::move(unknown)));
     }
 
+    TEST(ComponentRegistryTest, CollectsOwnedTypedAssetReferencesWithoutDuplicates) {
+        auto registry = Comet::create_scene_component_registry();
+        Comet::Scene scene;
+        auto first = scene.create_entity();
+        auto second = scene.create_entity();
+        first.add_component<Comet::MeshRendererComponent>(
+            Comet::AssetHandle(42), Comet::AssetHandle(43));
+        second.add_component<Comet::MeshRendererComponent>(
+            Comet::AssetHandle(42), Comet::AssetHandle(43));
+        const auto references = registry.collect_asset_references(scene);
+        EXPECT_EQ(references, (std::vector<Comet::ComponentRegistry::AssetReference>{
+                                  {Comet::AssetHandle(42), Comet::AssetType::Mesh},
+                                  {Comet::AssetHandle(43), Comet::AssetType::Material}}));
+        first.get_component<Comet::MeshRendererComponent>().material =
+            Comet::AssetHandle(42);
+        EXPECT_EQ(registry.collect_asset_references(scene).size(), 3);
+        scene.destroy_entity(first);
+        scene.destroy_entity(second);
+        EXPECT_TRUE(registry.collect_asset_references(scene).empty());
+        EXPECT_EQ(references.size(), 2);
+        scene.create_entity().add_component<Comet::MeshRendererComponent>();
+        EXPECT_TRUE(registry.collect_asset_references(scene).empty());
+    }
+
     TEST(ComponentRegistryTest, AccessesAndNormalizesEntityComponentProperties) {
         Comet::Scene scene;
         Comet::Entity entity = scene.create_entity("Camera");

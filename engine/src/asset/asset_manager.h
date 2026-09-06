@@ -35,7 +35,9 @@ namespace Comet {
         [[nodiscard]] AssetScanReport scan();
         [[nodiscard]] AssetScanReport move_asset(
             AssetHandle handle, const std::filesystem::path& destination);
-        void process_completions();
+        // 本次已发布的导入结果；Mesh Artifact 发布成功不等于 GPU 已驻留。
+        std::vector<AssetHandle> process_completions();
+        [[nodiscard]] bool ensure_loaded(AssetHandle handle, AssetType expected_type);
         [[nodiscard]] bool import_mesh(AssetHandle handle);
         [[nodiscard]] bool import_mesh_async(AssetHandle handle);
         [[nodiscard]] bool inspect_mesh(AssetHandle handle);

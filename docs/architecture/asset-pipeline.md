@@ -67,6 +67,12 @@ Checking 期间不启动同 revision 的导入；检查结束可重试，避免�
 状态 Ready 只表示 Artifact 就绪，GPU 刷新失败时旧 Runtime 可继续使用，错误写入 Log。
 显式 Refresh 失效已完成的状态缓存，之后后台复查；UI 不逐帧读文件，也不自动解码未使用的模型。
 
+场景激活时，编辑应用通过 `ComponentRegistry::collect_asset_references()` 收集并去重类型化 Handle，
+然后调用 `AssetManager::ensure_loaded(handle, expected_type)`。收集不改 Scene、不持有组件地址；
+加载器不认识 Scene 或 ImGui，沿用唯一 Registry 和现有 Mesh／Texture／Material 加载路径。
+失败保留场景引用供修复，不阻止打开整个文档；已驻留资源不重复创建。
+编辑器只在场景替换、资产刷新、导入发布或显式纹理重导入成功时重查资源，不每帧遍历场景加载。
+
 ## 扫描、后台刷新与发布
 
 ```text
@@ -86,6 +92,9 @@ Project Refresh / AssetSourceMonitor
 Worker 只接收路径、Handle、revision、导入设置的值拷贝，不访问数据库、Registry、ImGui 或 Vulkan。
 过期候选丢弃；解码/GPU 创建失败不替换旧 Runtime 对象。Mesh Artifact 与 Runtime 发布是两个边界：
 Artifact 已成功发布后若 GPU 创建失败，旧 Runtime Mesh 仍保留，磁盘产物可以已更新。
+`process_completions()` 返回本次成功发布导入结果的 Handle 值列表；检查、失败和过期任务不会产生成功项。
+Mesh 项表示 Artifact 发布，不保证 GPU 已驻留；Texture 项表示 Runtime 发布成功。
+编辑器据此尝试恢复当前场景所需的资源，未被场景引用的模型仍只生成 Artifact，不主动上传。
 
 依赖索引分两类：
 

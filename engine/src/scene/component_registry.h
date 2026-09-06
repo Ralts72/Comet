@@ -145,11 +145,19 @@ namespace Comet {
 
     class COMET_API ComponentRegistry {
     public:
+        struct AssetReference {
+            AssetHandle handle;
+            AssetType type;
+            auto operator<=>(const AssetReference&) const = default;
+        };
+
         [[nodiscard]] bool register_component(ComponentDescriptor descriptor);
 
         [[nodiscard]] const ComponentDescriptor* find_component(
             std::string_view component_id) const;
         [[nodiscard]] bool covers_entity(const Entity& entity) const;
+        [[nodiscard]] std::vector<AssetReference> collect_asset_references(
+            Scene& scene) const;
 
         [[nodiscard]] const std::vector<ComponentDescriptor>& components() const {
             return m_components;

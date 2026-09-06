@@ -147,8 +147,10 @@ namespace {
             const auto get_active_scene = [engine_ptr]() {
                 return engine_ptr->get_scene();
             };
-            const auto replace_active_scene = [engine_ptr](
+            const auto replace_active_scene = [this, engine_ptr](
                                                   std::unique_ptr<Comet::Scene> scene) {
+                if(scene)
+                    prepare_scene_assets(*scene);
                 return engine_ptr->replace_scene(std::move(scene));
             };
             m_scene_document = std::make_unique<CometEditor::SceneDocument>(
@@ -200,11 +202,28 @@ namespace {
 
         void on_update(const Comet::UpdateContext context) override {
             monitor_asset_sources();
-            m_asset_manager->process_completions();
+            const auto published = m_asset_manager->process_completions();
+            if(!published.empty()) {
+                if(auto* scene = get_engine().get_scene())
+                    prepare_scene_assets(*scene);
+            }
             update_project_import_state();
             apply_editor_mode_request();
 
             m_menu_bar->set_fps(context.fps);
+        }
+
+        void prepare_scene_assets(Comet::Scene& scene) {
+            std::size_t missing = 0;
+            for(const auto& reference :
+                m_component_registry.collect_asset_references(scene)) {
+                if(!m_asset_manager->ensure_loaded(reference.handle, reference.type))
+                    ++missing;
+            }
+            if(missing != 0)
+                LOG_WARN(
+                    "Scene has {} unresolved asset references; data is preserved for repair",
+                    missing);
         }
 
         void update_project_import_state() {
@@ -404,6 +423,10 @@ namespace {
             }
             acknowledge_generated_metadata(report);
             log_asset_scan_issues(report);
+            if(report.snapshot_updated) {
+                if(auto* scene = get_engine().get_scene())
+                    prepare_scene_assets(*scene);
+            }
             return report;
         }
 
@@ -482,6 +505,10 @@ namespace {
                 static_cast<void>(m_asset_source_monitor->acknowledge(
                     Comet::metadata_path(relative_path)));
             }
+            if(reimported) {
+                if(auto* scene = get_engine().get_scene())
+                    prepare_scene_assets(*scene);
+            }
             return reimported;
         }
 
@@ -504,30 +531,10 @@ namespace {
             if(!m_property_edit.commit())
                 return;
             const auto handle = request.asset.handle;
-            if(handle) {
-                const auto* record = m_asset_manager->get_database().find(handle);
-                if(!record || record->type != request.asset.type)
-                    return;
-                bool loaded = false;
-                switch(record->type) {
-                    case Comet::AssetType::Mesh:
-                        loaded = static_cast<bool>(m_asset_manager->load_mesh(handle));
-                        break;
-                    case Comet::AssetType::Material:
-                        loaded =
-                            static_cast<bool>(m_asset_manager->load_material(handle));
-                        break;
-                    case Comet::AssetType::Texture:
-                        loaded = static_cast<bool>(m_asset_manager->load_texture(handle));
-                        break;
-                    default:
-                        break;
-                }
-                if(!loaded) {
-                    LOG_WARN("Cannot assign asset {}; previous reference is unchanged",
-                        handle.value());
-                    return;
-                }
+            if(handle && !m_asset_manager->ensure_loaded(handle, request.asset.type)) {
+                LOG_WARN("Cannot assign asset {}; previous reference is unchanged",
+                    handle.value());
+                return;
             }
             if(m_editor_state.mode == CometEditor::EditorMode::Play) {
                 if(!property->assign_value(component->get_component(entity), handle))

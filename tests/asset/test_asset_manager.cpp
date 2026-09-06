@@ -9,6 +9,9 @@
 #include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
 #include "render/resource/texture.h"
+#include "scene/component_registry.h"
+#include "scene/scene_serializer.h"
+#include "scene_document.h"
 
 #include <gtest/gtest.h>
 
@@ -173,7 +176,7 @@ namespace Comet::Tests {
                 ++m_mesh_creation_count;
                 m_last_mesh_vertex_count = data.vertices.size();
                 if(m_on_mesh_creation) {
-                    auto callback = std::move(m_on_mesh_creation);
+                    auto callback = std::exchange(m_on_mesh_creation, {});
                     callback();
                 }
                 if(m_fail_mesh_creation) {
@@ -253,6 +256,99 @@ namespace Comet::Tests {
             return project.paths().cache() / "imported/mesh/42.bin";
         }
     };
+
+    TEST_F(MeshImportStateTest, EnsureLoadedValidatesTypeAndContainsFactoryExceptions) {
+        EXPECT_FALSE(manager.ensure_loaded({}, AssetType::Mesh));
+        EXPECT_FALSE(manager.ensure_loaded(AssetHandle(999), AssetType::Mesh));
+        EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Material));
+        EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Unknown));
+        EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Mesh));
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+        ASSERT_TRUE(manager.import_mesh(handle));
+        factory.on_next_mesh_creation(
+            [] { throw std::runtime_error("test allocation failure"); });
+        EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Mesh));
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_TRUE(manager.ensure_loaded(handle, AssetType::Mesh));
+        EXPECT_EQ(factory.mesh_creation_count(), 2);
+        EXPECT_TRUE(manager.ensure_loaded(handle, AssetType::Mesh));
+        EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Texture));
+        EXPECT_EQ(factory.mesh_creation_count(), 2);
+    }
+
+    TEST_F(
+        MeshImportStateTest, ReopenedSceneLoadsPublishedAssetsIntoFreshRuntimeRegistry) {
+        const AssetHandle material_handle(84);
+        project.add_material(material_handle, "test_template");
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_mesh(handle));
+        const auto components = Comet::create_scene_component_registry();
+        const SceneSerializer serializer(components);
+        auto active = std::make_unique<Scene>();
+        auto entity = active->create_entity("Saved");
+        const auto uuid = entity.get_uuid();
+        entity.add_component<MeshRendererComponent>(handle, material_handle);
+        active->create_entity("Shared").add_component<MeshRendererComponent>(
+            handle, material_handle);
+        const auto path = (project.paths().root() / "saved.scene").string();
+        serializer.save(*active, path);
+        // 完整 Artifact 已发布；新进程缓存为空，源模型损坏也不回退 glTF 解析。
+        std::ofstream(source, std::ios::trunc) << "invalid gltf";
+        AssetRegistry fresh_registry;
+        FakeRenderResourceFactory fresh_factory;
+        AssetManager reopened(project.paths(), fresh_registry, fresh_factory, scheduler);
+        ASSERT_TRUE(reopened.scan().succeeded());
+        CometEditor::SceneDocument document(
+            serializer, [&] { return active.get(); },
+            [&](std::unique_ptr<Scene> scene) {
+                for(const auto& reference : components.collect_asset_references(*scene))
+                    EXPECT_TRUE(reopened.ensure_loaded(reference.handle, reference.type));
+                active.swap(scene);
+                return scene;
+            });
+        ASSERT_TRUE(document.open(path));
+        EXPECT_EQ(active->find_entity(uuid).get_component<MeshRendererComponent>().mesh,
+            handle);
+        EXPECT_TRUE(fresh_registry.resolve<Mesh>(handle));
+        EXPECT_TRUE(fresh_registry.resolve<Material>(material_handle));
+        EXPECT_EQ(fresh_factory.mesh_creation_count(), 1);
+        ASSERT_TRUE(document.open(path));
+        EXPECT_EQ(fresh_factory.mesh_creation_count(), 1);
+    }
+
+    TEST_F(MeshImportStateTest,
+        PublishedImportCanRepairUnresolvedSceneWithoutChangingReferences) {
+        auto components = create_scene_component_registry();
+        Scene scene;
+        auto entity = scene.create_entity("Unresolved");
+        entity.add_component<MeshRendererComponent>(handle, AssetHandle(999));
+        const auto before = SceneSerializer(components).serialize(scene);
+        for(const auto& reference : components.collect_asset_references(scene))
+            EXPECT_FALSE(manager.ensure_loaded(reference.handle, reference.type));
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_TRUE(manager.process_completions().empty());
+        ASSERT_TRUE(manager.inspect_mesh(handle));
+        scheduler.wait_idle();
+        EXPECT_TRUE(manager.process_completions().empty());
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        scheduler.wait_idle();
+        const auto published = manager.process_completions();
+        EXPECT_EQ(published, std::vector<AssetHandle>{handle});
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+        std::size_t missing = 0;
+        for(const auto& reference : components.collect_asset_references(scene))
+            missing += !manager.ensure_loaded(reference.handle, reference.type);
+        EXPECT_EQ(missing, 1);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle));
+        EXPECT_EQ(SceneSerializer(components).serialize(scene), before);
+        EXPECT_TRUE(manager.process_completions().empty());
+        std::ofstream(source, std::ios::trunc) << "invalid gltf";
+        ASSERT_TRUE(manager.scan().succeeded());
+        scheduler.wait_idle();
+        EXPECT_TRUE(manager.process_completions().empty());
+        EXPECT_TRUE(registry.resolve<Mesh>(handle));
+    }
 
     TEST_F(MeshImportStateTest,
         InspectionAndImportAreAsyncAndUnloadedMeshesDoNotAllocateGpu) {
