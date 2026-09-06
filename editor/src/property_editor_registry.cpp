@@ -60,6 +60,21 @@ namespace CometEditor {
                 return true;
             });
 
+        register_editor(Comet::PropertyType::String,
+            [](const Comet::PropertyDescriptor& property, void* value) {
+                auto& text = *static_cast<std::string*>(value);
+                return ImGui::InputText(
+                    property.display_name.c_str(), text.data(), text.capacity() + 1,
+                    ImGuiInputTextFlags_CallbackResize,
+                    [](ImGuiInputTextCallbackData* data) {
+                        auto& text = *static_cast<std::string*>(data->UserData);
+                        text.resize(static_cast<std::size_t>(data->BufTextLen));
+                        data->Buf = text.data();
+                        return 0;
+                    },
+                    &text);
+            });
+
         return registry;
     }
 }

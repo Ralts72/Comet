@@ -19,6 +19,7 @@ namespace Comet::Tests {
         struct DescriptorTestComponent {
             float persisted = 0.0f;
             float runtime_only = 17.0f;
+            std::string text;
         };
 
         struct RuntimeOnlyTestComponent {
@@ -363,6 +364,8 @@ entities:
                 "Descriptor Component",
                 {make_property_descriptor("persisted_value", "Persisted Value",
                      &DescriptorTestComponent::persisted),
+                    make_property_descriptor(
+                        "text", "Text", &DescriptorTestComponent::text),
                     make_property_descriptor("runtime_value", "Runtime Value",
                         &DescriptorTestComponent::runtime_only,
                         {.serializable = false})})));
@@ -379,6 +382,7 @@ entities:
         auto& component = entity.add_component<DescriptorTestComponent>();
         component.persisted = 42.0f;
         component.runtime_only = 99.0f;
+        component.text = "文本: \"quoted\"\n" + std::string(1024, 'x');
         entity.add_component<RuntimeOnlyTestComponent>().enabled = false;
 
         const SceneSerializer serializer(registry);
@@ -396,6 +400,7 @@ entities:
             loaded_entity.get_component<DescriptorTestComponent>();
         EXPECT_FLOAT_EQ(loaded_component.persisted, 42.0f);
         EXPECT_FLOAT_EQ(loaded_component.runtime_only, 17.0f);
+        EXPECT_EQ(loaded_component.text, component.text);
         EXPECT_FALSE(loaded_entity.has_component<RuntimeOnlyTestComponent>());
 
         expect_scene_error(serializer, R"(

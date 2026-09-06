@@ -15,9 +15,9 @@
 #include <vector>
 
 namespace Comet {
-    enum class PropertyType { Bool, Float, Vec3, AssetHandle };
+    enum class PropertyType { Bool, Float, Vec3, AssetHandle, String };
 
-    using PropertyValue = std::variant<bool, float, Math::Vec3, AssetHandle>;
+    using PropertyValue = std::variant<bool, float, Math::Vec3, AssetHandle, std::string>;
 
     [[nodiscard]] COMET_API bool property_values_equal(
         const PropertyValue& left, const PropertyValue& right);
@@ -153,7 +153,8 @@ namespace Comet {
         static_assert(std::is_same_v<PropertyValue, bool>
                           || std::is_same_v<PropertyValue, float>
                           || std::is_same_v<PropertyValue, Math::Vec3>
-                          || std::is_same_v<PropertyValue, AssetHandle>,
+                          || std::is_same_v<PropertyValue, AssetHandle>
+                          || std::is_same_v<PropertyValue, std::string>,
             "Unsupported property type");
 
         constexpr PropertyType type = [] {
@@ -163,6 +164,8 @@ namespace Comet {
                 return PropertyType::Float;
             } else if constexpr(std::is_same_v<PropertyValue, Math::Vec3>) {
                 return PropertyType::Vec3;
+            } else if constexpr(std::is_same_v<PropertyValue, std::string>) {
+                return PropertyType::String;
             } else {
                 return PropertyType::AssetHandle;
             }
@@ -200,22 +203,27 @@ namespace Comet {
     ComponentDescriptor make_component_descriptor(std::string id,
         std::string display_name, std::vector<PropertyDescriptor> properties,
         const bool serializable = true) {
-        return {.id = std::move(id),
+        ComponentDescriptor descriptor{.id = std::move(id),
             .display_name = std::move(display_name),
             .serializable = serializable,
             .properties = std::move(properties),
             .has_component_callback =
                 [](const Entity& entity) { return entity.has_component<Component>(); },
-            .add_component_callback =
-                [](Entity& entity) { entity.add_component<Component>(); },
-            .remove_component_callback =
-                [](const Entity& entity) { entity.remove_component<Component>(); },
             .mutable_component_accessor = [](Entity& entity) -> void* {
                 return &entity.get_component<Component>();
             },
             .const_component_accessor = [](const Entity& entity) -> const void* {
                 return &entity.get_component<Component>();
             }};
+        if constexpr(!is_scene_managed_component_v<Component>) {
+            descriptor.add_component_callback = [](Entity& entity) {
+                entity.add_component<Component>();
+            };
+            descriptor.remove_component_callback = [](Entity& entity) {
+                entity.remove_component<Component>();
+            };
+        }
+        return descriptor;
     }
 
     [[nodiscard]] COMET_API ComponentRegistry create_scene_component_registry();

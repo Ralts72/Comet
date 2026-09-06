@@ -43,6 +43,29 @@ namespace {
         EXPECT_FLOAT_EQ(x(), 3);
     }
 
+    TEST_F(CommandHistoryTest, NameTransactionSharesHistoryAndPreservesSceneFormat) {
+        const PropertyEditTransaction::Target name{entity.get_uuid(), "name", "name"};
+        ASSERT_TRUE(edit.begin(name));
+        ASSERT_TRUE(edit.preview(std::string("Renamed")));
+        ASSERT_TRUE(edit.preview(std::string("长名称: ") + std::string(512, 'x')));
+        ASSERT_TRUE(edit.commit());
+        EXPECT_EQ(history.undo_size(), 1);
+        const auto after = entity.get_component<NameComponent>().name;
+        const SceneSerializer serializer(registry);
+        const auto loaded = serializer.deserialize(serializer.serialize(scene));
+        EXPECT_EQ(
+            loaded->find_entity(entity.get_uuid()).get_component<NameComponent>().name,
+            after);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<NameComponent>().name, "Edited");
+        ASSERT_TRUE(edit.begin(name));
+        ASSERT_TRUE(edit.preview(std::string("Cancelled")));
+        ASSERT_TRUE(edit.cancel());
+        EXPECT_EQ(entity.get_component<NameComponent>().name, "Edited");
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(entity.get_component<NameComponent>().name, after);
+    }
+
     TEST_F(CommandHistoryTest, CancelAndNoOpKeepRedoBranch) {
         change(2);
         ASSERT_TRUE(history.undo());

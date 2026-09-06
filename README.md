@@ -47,7 +47,7 @@ ctest --preset dev-debug
   当前是包围盒粗拾取，不是三角形级拾取或模型轮廓描边。
 - Edit 选中实体后可左键拖动红／绿／蓝箭头，沿世界 X／Y／Z 轴平移；操作手柄覆盖在模型上，不受深度遮挡。
   一次拖动只记一条撤销，Escape 取消；拖动期间不响应相机导航，失焦或隐藏视口会回退未完成的拖动。
-- Edit 中 Inspector 的 Transform、Camera、Mesh/Material 引用支持撤销／重做，一次拖动记一条，Escape 取消。
+- Edit 中 Inspector 的名称、Transform、Camera、Mesh/Material 引用支持撤销／重做，一次编辑手势记一条，Escape 取消。
   使用 Edit 菜单或 Ctrl+Z / Ctrl+Y（macOS 为 Cmd+Z / Cmd+Shift+Z）；文本框编辑时不抢占输入控件的撤销。
   New/Open 成功及 Edit/Play 切换清空历史；Play 属性仍可实时调试，但不记入 Edit 历史。
   实体名称、资产文件修改和保存暂不纳入撤销历史。

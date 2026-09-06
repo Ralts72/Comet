@@ -29,6 +29,7 @@ if (COMET_BUILD_EDITOR)
             "${CMAKE_SOURCE_DIR}/editor/src/panels/console.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/panels/inspector.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/menu_bar.cpp"
+            "${CMAKE_SOURCE_DIR}/editor/src/property_editor_registry.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/panels/view.cpp")
     target_link_libraries(unit_testing PRIVATE imgui)
     target_compile_definitions(unit_testing PRIVATE COMET_TEST_EDITOR_UI)
