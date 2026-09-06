@@ -3,11 +3,14 @@
 #include "menu_bar.h"
 #include "panels/inspector.h"
 #include "panels/hierarchy.h"
+#include "panels/project.h"
+#include "asset/serialization/metadata_serializer.h"
 #include "scene_commands.h"
 #include "property_editor_registry.h"
 #include "selection.h"
 
 #include <gtest/gtest.h>
+#include <fstream>
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -112,6 +115,64 @@ namespace CometEditor::Tests {
             frame();
         }
     };
+
+    TEST_F(EditingUiTest, ProjectImportIsAHandleRequestAndBusyStatesDisableIt) {
+        struct TemporaryAssets {
+            std::filesystem::path root =
+                std::filesystem::temp_directory_path()
+                / ("comet_import_ui_"
+                    + std::to_string(Comet::AssetHandle::generate().value()));
+            ~TemporaryAssets() {
+                std::error_code error;
+                std::filesystem::remove_all(root, error);
+            }
+        } temporary;
+        Comet::ProjectPaths paths(temporary.root);
+        std::filesystem::create_directories(paths.assets());
+        const auto source = paths.assets() / "mesh.gltf";
+        {
+            std::ofstream output(source);
+            output << "{}";
+        }
+        const Comet::AssetHandle handle(42);
+        Comet::AssetMetadataSerializer{}.save(
+            {.handle = handle, .type = Comet::AssetType::Mesh},
+            Comet::metadata_path(source));
+        Comet::AssetDatabase database(paths);
+        auto report = database.scan();
+        ASSERT_TRUE(report.succeeded());
+        selection.select_asset(handle);
+        ProjectPanel project(database, report, nullptr, nullptr, selection);
+        const auto draw = [&]() {
+            ImGui::NewFrame();
+            ImGui::SetNextWindowPos(ImVec2(0, 0));
+            ImGui::SetNextWindowSize(ImVec2(600, 400));
+            project.render();
+            ImGui::Render();
+        };
+        draw();
+        draw();
+        auto* window = ImGui::FindWindowByName("Project");
+        ASSERT_NE(window, nullptr);
+        using State = Comet::AssetManager::MeshImportState;
+        for(const auto state : {State::Checking, State::Importing}) {
+            project.set_mesh_import_state(handle, state);
+            ImGui::ActivateItemByID(window->GetID("###MeshImport"));
+            draw();
+            EXPECT_FALSE(project.take_mesh_import_request());
+        }
+        for(const auto state :
+            {State::Missing, State::Stale, State::Ready, State::Failed}) {
+            project.set_mesh_import_state(handle, state);
+            ImGui::ActivateItemByID(window->GetID("###MeshImport"));
+            draw();
+            const auto request = project.take_mesh_import_request();
+            ASSERT_TRUE(request);
+            EXPECT_EQ(*request, handle);
+            EXPECT_FALSE(project.take_mesh_import_request());
+            EXPECT_FALSE(std::filesystem::exists(paths.cache()));
+        }
+    }
 
     TEST_F(EditingUiTest, HierarchyQueuesOneRequestWithoutMutatingDuringUiTraversal) {
         HierarchyPanel hierarchy(scene, selection, history);

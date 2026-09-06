@@ -56,6 +56,8 @@ ctest --preset dev-debug
   Play 不开放场景结构编辑；资产文件修改和保存暂不纳入撤销历史。
 - Play 分辨率可选 Free、16:9、HD（1280×720）、FHD（1920×1080）；Fit 等比适应面板，1x 按原尺寸显示并裁切。
 - Project 支持刷新、移动与重命名；Inspector 的材质和纹理设置按变化事件提交，更新日志统一进入 Log。
+  将 glTF/GLB 及依赖文件放入 assets 后 Refresh，选择模型即可查看 Artifact 状态并 Import/Reimport。
+  检查与解码在后台进行，未加载模型只生成缓存；手动删除缓存后 Refresh 可重新检查，错误见 Log。
 
 ## 架构入口
 

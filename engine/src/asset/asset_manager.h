@@ -19,6 +19,15 @@ namespace Comet {
 
     class COMET_API AssetManager final {
     public:
+        enum class MeshImportState {
+            Unknown,
+            Checking,
+            Missing,
+            Stale,
+            Importing,
+            Ready,
+            Failed
+        };
         AssetManager(ProjectPaths paths, AssetRegistry& registry,
             RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler);
         ~AssetManager();
@@ -28,6 +37,9 @@ namespace Comet {
             AssetHandle handle, const std::filesystem::path& destination);
         void process_completions();
         [[nodiscard]] bool import_mesh(AssetHandle handle);
+        [[nodiscard]] bool import_mesh_async(AssetHandle handle);
+        [[nodiscard]] bool inspect_mesh(AssetHandle handle);
+        [[nodiscard]] MeshImportState get_mesh_import_state(AssetHandle handle) const;
         [[nodiscard]] std::shared_ptr<Mesh> load_mesh(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Texture> load_texture(AssetHandle handle);
         [[nodiscard]] std::shared_ptr<Texture> reimport_texture(
@@ -51,6 +63,8 @@ namespace Comet {
         void record_import_dependencies(
             AssetHandle handle, const std::vector<std::filesystem::path>& dependencies);
         [[nodiscard]] bool schedule_loaded_mesh_refresh(const AssetRecord& record);
+        [[nodiscard]] bool schedule_mesh_task(
+            const AssetRecord& record, bool inspect_only);
         [[nodiscard]] bool schedule_loaded_texture_refresh(const AssetRecord& record);
         [[nodiscard]] bool schedule_refresh_task(AssetHandle handle,
             AssetRevision revision, AssetType type, std::function<void()> task);

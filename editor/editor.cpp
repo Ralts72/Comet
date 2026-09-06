@@ -200,9 +200,22 @@ namespace {
         void on_update(const Comet::UpdateContext context) override {
             monitor_asset_sources();
             m_asset_manager->process_completions();
+            update_project_import_state();
             apply_editor_mode_request();
 
             m_menu_bar->set_fps(context.fps);
+        }
+
+        void update_project_import_state() {
+            const auto handle = m_selection->get_selected_asset();
+            const auto* record = m_asset_manager->get_database().find(handle);
+            if(!record || record->type != Comet::AssetType::Mesh)
+                return;
+            using State = Comet::AssetManager::MeshImportState;
+            if(m_asset_manager->get_mesh_import_state(handle) == State::Unknown)
+                static_cast<void>(m_asset_manager->inspect_mesh(handle));
+            m_project_panel->set_mesh_import_state(
+                handle, m_asset_manager->get_mesh_import_state(handle));
         }
 
         void apply_viewport_camera_updates() {
@@ -730,6 +743,13 @@ namespace {
                 m_console_panel->render();
                 render_scene_file_dialog();
                 m_menu_bar->collect_shortcuts();
+
+                if(const auto handle = m_project_panel->take_mesh_import_request()) {
+                    if(!m_asset_manager->import_mesh_async(*handle))
+                        LOG_WARN("Mesh import request was not accepted for handle {}",
+                            handle->value());
+                    update_project_import_state();
+                }
 
                 if(const auto command = m_menu_bar->take_command()) {
                     handle_command(*command);

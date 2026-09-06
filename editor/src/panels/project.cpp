@@ -16,6 +16,28 @@ namespace CometEditor {
             std::vector<const Comet::AssetRecord*> assets;
         };
 
+        const char* mesh_import_state_label(
+            const Comet::AssetManager::MeshImportState state) {
+            using State = Comet::AssetManager::MeshImportState;
+            switch(state) {
+                case State::Unknown:
+                    return "Not checked";
+                case State::Checking:
+                    return "Checking";
+                case State::Missing:
+                    return "Missing";
+                case State::Stale:
+                    return "Out of date";
+                case State::Importing:
+                    return "Importing";
+                case State::Ready:
+                    return "Ready";
+                case State::Failed:
+                    return "Failed (see Log)";
+            }
+            return "Unknown";
+        }
+
         AssetTreeNode build_asset_tree(const std::vector<Comet::AssetRecord>& assets) {
             AssetTreeNode root;
             for(const Comet::AssetRecord& asset : assets) {
@@ -94,6 +116,8 @@ namespace CometEditor {
         }
         ImGui::EndDisabled();
 
+        if(selected_record && selected_record->type == Comet::AssetType::Mesh)
+            render_mesh_import(*selected_record);
         ImGui::Separator();
 
         if(m_view_mode == 0) {
@@ -120,6 +144,32 @@ namespace CometEditor {
 
         render_asset_move_dialog();
         ImGui::End();
+    }
+
+    void ProjectPanel::set_mesh_import_state(const Comet::AssetHandle handle,
+        const Comet::AssetManager::MeshImportState state) {
+        m_import_status_handle = handle;
+        m_import_state = state;
+    }
+
+    std::optional<Comet::AssetHandle> ProjectPanel::take_mesh_import_request() {
+        return std::exchange(m_import_request, std::nullopt);
+    }
+
+    void ProjectPanel::render_mesh_import(const Comet::AssetRecord& record) {
+        using State = Comet::AssetManager::MeshImportState;
+        auto state = State::Unknown;
+        if(record.handle == m_import_status_handle)
+            state = m_import_state;
+        ImGui::Text("Artifact: %s", mesh_import_state_label(state));
+        ImGui::SameLine();
+        ImGui::BeginDisabled(state == State::Checking || state == State::Importing);
+        const char* label = "Import###MeshImport";
+        if(state == State::Ready)
+            label = "Reimport###MeshImport";
+        if(ImGui::Button(label))
+            m_import_request = record.handle;
+        ImGui::EndDisabled();
     }
 
     void ProjectPanel::request_asset_move(const Comet::AssetRecord& record) {

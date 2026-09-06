@@ -60,6 +60,13 @@ Texture 源文件 + TextureImportSettings
   缺 NORMAL 生成平滑法线，缺 TEXCOORD_0 填零。node transform/material/animation/skin/morph/多 mesh 子资产尚未导入。
 - fastgltf 类型不进入 Comet 公共头文件。
 
+Project 选中 Mesh 后通过 `inspect_mesh()` 后台检查 Artifact，`get_mesh_import_state()` 只读 owner 的状态缓存；
+Import/Reimport 发 `import_mesh_async()` 请求，同一 Handle/revision 的重复导入合并。
+Checking 期间不启动同 revision 的导入；检查结束可重试，避免只靠 revision 无法区分并行检查和发布。
+首次导入未加载模型仅原子发布 Artifact，后续 `load_mesh()` 才创建 GPU 对象；已经加载的模型仍走安全刷新。
+状态 Ready 只表示 Artifact 就绪，GPU 刷新失败时旧 Runtime 可继续使用，错误写入 Log。
+显式 Refresh 失效已完成的状态缓存，之后后台复查；UI 不逐帧读文件，也不自动解码未使用的模型。
+
 ## 扫描、后台刷新与发布
 
 ```text

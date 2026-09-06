@@ -30,6 +30,7 @@ if (COMET_BUILD_EDITOR)
             "${CMAKE_SOURCE_DIR}/editor/src/panels/console.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/panels/inspector.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/panels/hierarchy.cpp"
+            "${CMAKE_SOURCE_DIR}/editor/src/panels/project.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/menu_bar.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/property_editor_registry.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/panels/view.cpp")

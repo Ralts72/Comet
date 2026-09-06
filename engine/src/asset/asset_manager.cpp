@@ -35,6 +35,7 @@ namespace Comet {
             AssetRevision revision = INVALID_ASSET_REVISION;
             std::filesystem::path relative_path;
             MeshArtifact artifact;
+            std::optional<AssetManager::MeshImportState> inspected_state;
             std::string error;
         };
 
@@ -48,13 +49,27 @@ namespace Comet {
 
         MeshArtifactCandidate build_mesh_artifact_candidate(const ProjectPaths& paths,
             const AssetHandle handle, const AssetRevision revision,
-            const std::filesystem::path& relative_path) {
+            const std::filesystem::path& relative_path, const bool inspect_only = false) {
             MeshArtifactCandidate candidate{
                 .handle = handle, .revision = revision, .relative_path = relative_path};
 
             try {
-                candidate.artifact =
-                    ImportService(paths).build_mesh_artifact(handle, relative_path);
+                const ImportService imports(paths);
+                if(inspect_only) {
+                    candidate.inspected_state = AssetManager::MeshImportState::Missing;
+                    if(std::filesystem::exists(imports.mesh_artifact_path(handle))) {
+                        candidate.inspected_state = AssetManager::MeshImportState::Stale;
+                        if(auto artifact = imports.find_current_mesh_artifact(
+                               handle, relative_path)) {
+                            candidate.artifact = std::move(*artifact);
+                            candidate.inspected_state =
+                                AssetManager::MeshImportState::Ready;
+                        }
+                    }
+                } else {
+                    candidate.artifact =
+                        imports.build_mesh_artifact(handle, relative_path);
+                }
             } catch(const std::exception& exception) {
                 candidate.error = exception.what();
             } catch(...) {
@@ -143,6 +158,10 @@ namespace Comet {
     }
 
     struct AssetManager::AsyncState {
+        struct MeshStatus {
+            AssetRevision revision;
+            MeshImportState state;
+        };
         struct ScheduledAssetTask {
             AssetHandle handle;
             AssetRevision revision = INVALID_ASSET_REVISION;
@@ -155,6 +174,7 @@ namespace Comet {
         std::deque<TextureImportCandidate> completed_textures;
         std::unordered_map<AssetHandle, AssetRevision> pending_assets;
         std::vector<ScheduledAssetTask> scheduled_tasks;
+        std::unordered_map<AssetHandle, MeshStatus> mesh_status;
     };
 
     AssetManager::AssetManager(ProjectPaths paths, AssetRegistry& registry,
@@ -173,6 +193,10 @@ namespace Comet {
 
     AssetScanReport AssetManager::scan() {
         AssetScanReport report = m_database.scan();
+        // 显式 Refresh 也会重新检查磁盘缓存；运行中的任务仍由 revision 验票。
+        std::erase_if(m_async_state->mesh_status, [this](const auto& entry) {
+            return !m_async_state->pending_assets.contains(entry.first);
+        });
         apply_scan_report(report);
         return report;
     }
@@ -272,9 +296,19 @@ namespace Comet {
                 continue;
             }
             if(!candidate.error.empty()) {
-                LOG_ERROR("Failed to import modified mesh asset '{}' (handle {}): {}",
+                m_async_state->mesh_status[candidate.handle] = {
+                    candidate.revision, MeshImportState::Failed};
+                LOG_ERROR("Failed to prepare mesh artifact '{}' (handle {}): {}",
                     candidate.relative_path.generic_string(), candidate.handle.value(),
                     candidate.error);
+                continue;
+            }
+            if(candidate.inspected_state) {
+                if(*candidate.inspected_state == MeshImportState::Ready)
+                    record_import_dependencies(
+                        candidate.handle, candidate.artifact.source_dependencies());
+                m_async_state->mesh_status[candidate.handle] = {
+                    candidate.revision, *candidate.inspected_state};
                 continue;
             }
             try {
@@ -283,9 +317,22 @@ namespace Comet {
                 record_import_dependencies(
                     candidate.handle, candidate.artifact.source_dependencies());
             } catch(const std::exception& exception) {
+                m_async_state->mesh_status[candidate.handle] = {
+                    candidate.revision, MeshImportState::Failed};
                 LOG_ERROR("Failed to publish mesh artifact '{}' (handle {}): {}",
                     candidate.relative_path.generic_string(), candidate.handle.value(),
                     exception.what());
+                continue;
+            }
+
+            m_async_state->mesh_status[candidate.handle] = {
+                candidate.revision, MeshImportState::Ready};
+            const auto runtime = find_runtime_asset<Mesh>(m_registry, candidate.handle);
+            if(runtime.type_conflict)
+                continue;
+            if(!runtime.asset) {
+                LOG_INFO("Imported mesh artifact '{}' (handle {})",
+                    candidate.relative_path.generic_string(), candidate.handle.value());
                 continue;
             }
 
@@ -394,6 +441,10 @@ namespace Comet {
                 if(pending != m_async_state->pending_assets.end()
                     && pending->second == task->revision) {
                     m_async_state->pending_assets.erase(pending);
+                    if(task->type == AssetType::Mesh
+                        && m_database.is_current(task->handle, task->revision))
+                        m_async_state->mesh_status[task->handle] = {
+                            task->revision, MeshImportState::Failed};
                 }
                 LOG_ERROR("Background {} task failed for asset handle {}: {}",
                     to_string(task->type), task->handle.value(), exception.what());
@@ -414,11 +465,19 @@ namespace Comet {
         }
         const AssetRevision revision = m_database.get_revision(handle);
 
+        if(const auto pending = m_async_state->pending_assets.find(handle);
+            pending != m_async_state->pending_assets.end()
+            && pending->second == revision) {
+            LOG_WARN("Mesh import is already running for handle {}", handle.value());
+            return false;
+        }
+        m_async_state->mesh_status[handle] = {revision, MeshImportState::Failed};
         if(auto artifact =
                 m_import_service->find_current_mesh_artifact(handle, record->path)) {
             record_import_dependencies(handle, artifact->source_dependencies());
             LOG_DEBUG("Mesh artifact is current '{}' (handle {})",
                 record->path.generic_string(), handle.value());
+            m_async_state->mesh_status[handle] = {revision, MeshImportState::Ready};
             return true;
         }
 
@@ -444,6 +503,7 @@ namespace Comet {
             return false;
         }
 
+        m_async_state->mesh_status[handle] = {revision, MeshImportState::Ready};
         const auto runtime = find_runtime_asset<Mesh>(m_registry, handle);
         if(runtime.type_conflict) {
             return false;
@@ -464,6 +524,25 @@ namespace Comet {
         LOG_INFO("Imported mesh artifact '{}' (handle {})", record->path.generic_string(),
             handle.value());
         return true;
+    }
+
+    AssetManager::MeshImportState AssetManager::get_mesh_import_state(
+        const AssetHandle handle) const {
+        const auto status = m_async_state->mesh_status.find(handle);
+        if(status == m_async_state->mesh_status.end()
+            || !m_database.is_current(handle, status->second.revision))
+            return MeshImportState::Unknown;
+        return status->second.state;
+    }
+
+    bool AssetManager::inspect_mesh(const AssetHandle handle) {
+        const auto* record = find_asset_record(m_database, handle, AssetType::Mesh);
+        return record && schedule_mesh_task(*record, true);
+    }
+
+    bool AssetManager::import_mesh_async(const AssetHandle handle) {
+        const auto* record = find_asset_record(m_database, handle, AssetType::Mesh);
+        return record && schedule_mesh_task(*record, false);
     }
 
     std::shared_ptr<Mesh> AssetManager::load_mesh(const AssetHandle handle) {
@@ -757,20 +836,39 @@ namespace Comet {
 
     bool AssetManager::schedule_loaded_mesh_refresh(const AssetRecord& record) {
         const AssetHandle handle = record.handle;
-        const AssetRevision revision = m_database.get_revision(handle);
         const auto previous_mesh = m_registry.resolve<Mesh>(handle);
         if(!previous_mesh) {
             return !m_registry.contains(handle);
         }
 
-        return schedule_refresh_task(handle, revision, AssetType::Mesh,
+        return schedule_mesh_task(record, false);
+    }
+
+    bool AssetManager::schedule_mesh_task(
+        const AssetRecord& record, const bool inspect_only) {
+        const auto handle = record.handle;
+        const auto revision = m_database.get_revision(handle);
+        if(const auto pending = m_async_state->pending_assets.find(handle);
+            pending != m_async_state->pending_assets.end()
+            && pending->second == revision) {
+            // 不在同一 revision 上并行检查与导入；Importing 请求可合并，Checking 完成后再导入。
+            return inspect_only
+                   || get_mesh_import_state(handle) == MeshImportState::Importing;
+        }
+        const bool scheduled = schedule_refresh_task(handle, revision, AssetType::Mesh,
             [state = m_async_state, paths = m_paths, handle, revision,
-                relative_path = record.path] {
-                MeshArtifactCandidate candidate =
-                    build_mesh_artifact_candidate(paths, handle, revision, relative_path);
+                relative_path = record.path, inspect_only] {
+                MeshArtifactCandidate candidate = build_mesh_artifact_candidate(
+                    paths, handle, revision, relative_path, inspect_only);
                 const std::lock_guard lock(state->completed_mutex);
                 state->completed_meshes.push_back(std::move(candidate));
             });
+        auto status = MeshImportState::Failed;
+        if(scheduled)
+            status =
+                inspect_only ? MeshImportState::Checking : MeshImportState::Importing;
+        m_async_state->mesh_status[handle] = {revision, status};
+        return scheduled;
     }
 
     bool AssetManager::schedule_loaded_texture_refresh(const AssetRecord& record) {

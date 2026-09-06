@@ -48,10 +48,11 @@
 | 002 | 名称的描述符、编辑事务及字符串序列化 | Debug/Release 各 344 tests 通过 |
 | 003 | CI 有界构建与测试超时（跨平台验证前置修复） | Linux CI run 34048158962：344 tests 通过 |
 | 004 | 可选组件增删、完整值快照与共享撤销历史 | Debug/Release 各 353 tests 通过；Linux CI 34048392036 成功 |
-| 005 | Hierarchy 结构命令与首次架构回顾 | Debug/Release 各 362 tests 通过 |
+| 005 | Hierarchy 结构命令与首次架构回顾 | Debug/Release 各 362 tests 通过；Linux CI 34048809364 成功 |
 | 006 | 子树 duplicate、UUID 重映射与撤销 | Debug/Release 各 365 tests 通过 |
+| 007 | Project Mesh 后台导入与 Artifact 状态 | Debug/Release 各 371 tests 通过 |
 
-下一项：先补资产拖拽所需的 Mesh 导入 UI/状态，再接资产拖拽及 Gizmo 模式。
+下一项：Project 资产拖拽到场景，随后继续 Gizmo 模式；任务背压／发布预算按独立项补完。
 已完成定期架构回顾：005；下一次：010。
 
 远端推送结果与 CI 以 git 远端 refs 和 CI 实际运行状态为准，不能将本表视为远端成功证明。
