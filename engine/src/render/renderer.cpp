@@ -27,17 +27,22 @@ namespace Comet {
         m_scene_renderer->setup_pipeline(*m_resource_manager);
     }
 
-    void Renderer::on_render(const RenderScene& render_scene) {
-        PROFILE_SCOPE("render frame");
+    bool Renderer::prepare_frame() {
+        PROFILE_SCOPE("prepare frame");
         m_resource_manager->collect_completed_uploads();
 
         if(!m_scene_renderer->begin_frame()) {
             m_viewport_pick_request.reset();
-            return;
+            return false;
         }
         if(m_prepare_overlay) {
             m_prepare_overlay();
         }
+        return true;
+    }
+
+    void Renderer::render_frame(const RenderScene& render_scene) {
+        PROFILE_SCOPE("render frame");
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
         const RenderSubmission submission =

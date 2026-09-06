@@ -1,6 +1,7 @@
 #pragma once
 
 #include "editor_state.h"
+#include "command_history.h"
 
 #include <functional>
 #include <map>
@@ -11,38 +12,36 @@ namespace CometEditor {
 
     using PanelVisibilityCallback = std::function<void(bool)>;
 
-    enum class FileCommand { NewScene, OpenScene, SaveScene };
-
-    using FileCommandCallback = std::function<void(FileCommand)>;
-
     class MenuBar {
     public:
-        explicit MenuBar(const EditorState& state) : m_state(state) {}
+        enum class Command { NewScene, OpenScene, SaveScene, Undo, Redo };
+
+        MenuBar(const EditorState& state, const CommandHistory& history)
+            : m_state(state), m_history(history) {}
 
         void render();
+        void collect_shortcuts();
+        [[nodiscard]] std::optional<Command> take_command();
 
         void set_panel_visibility_callback(
             const std::string& panel_name, PanelVisibilityCallback callback);
-
-        void set_file_command_callback(FileCommandCallback callback) {
-            m_file_command_callback = std::move(callback);
-        }
 
         [[nodiscard]] bool is_panel_visible(const std::string& panel_name) const;
 
         void set_fps(const float fps) { m_fps = fps; }
 
     private:
-        void render_file_menu() const;
+        void render_file_menu();
         void render_edit_menu();
         void render_view_menu();
         void render_gameobject_menu();
         void render_help_menu();
 
         const EditorState& m_state;
+        const CommandHistory& m_history;
         std::map<std::string, bool> m_panel_visibility;
         std::map<std::string, PanelVisibilityCallback> m_panel_callbacks;
-        FileCommandCallback m_file_command_callback;
+        std::optional<Command> m_requested_command;
         float m_fps = 0.0f;
     };
 

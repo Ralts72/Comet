@@ -21,7 +21,10 @@ namespace Comet {
 
         ~Renderer();
 
-        void on_render(const RenderScene& render_scene);
+        // 成功后才能提取场景并调用 render_frame；准备阶段允许 UI 修改或替换 Scene。
+        [[nodiscard]] bool prepare_frame();
+        // 消费场景快照，完成绘制、提交和呈现。
+        void render_frame(const RenderScene& render_scene);
 
         void enable_offscreen_rendering(Math::Vec2u initial_size);
 

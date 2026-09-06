@@ -70,11 +70,12 @@ SwapchainTarget 与 MultiTarget 是公开同级类型：
 ## 一帧经过哪里
 
 ```text
-Engine：事件 → Application 更新 → SceneExtractor
-Renderer：
-  回收完成的 upload
-  → begin_frame（等待 slot / acquire / 开始录制）
-  → overlay prepare（UI、相机输入、最新 RenderView）
+Engine：事件 → Application 更新
+  → Renderer::prepare_frame
+      回收完成的 upload → 等待 slot / acquire / 开始录制
+      → overlay prepare（UI、编辑命令、相机输入、最新 RenderView）
+  → SceneExtractor（读取此时的活动 Scene，更新 world transform）
+  → Renderer::render_frame
   → SceneResolver（使用实际 Target 尺寸）
   → 按请求 CPU pick → scene pass
   → overlay render（录制已生成的 ImGui 数据）
@@ -84,8 +85,9 @@ Renderer：
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 SceneRenderer 不读 EditorMode/ImGui。SceneResolver 当前仍有固定两纹理材质规则，阶段 5 才解除，不把它描述成已通用化。
 
-注意：overlay prepare 在解析之前，但仍在 Scene 提取之后。因此 editor camera 能同帧生效，
-prepare 内的实体/组件修改可能下一帧才进入 RenderScene；快照时点收口是路线图明确的后续任务。
+只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
+Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。
+编辑命令完成后提取，因此组件修改、Undo/Redo 和当前帧拾取使用同一份场景快照。
 
 RenderView 的 CameraSelection 选择显式 editor camera 或 Scene primary camera；
 请求 override 却缺少数据时不静默回退。没有合法 Camera 时清屏并保留 UI，不录制场景 draw。

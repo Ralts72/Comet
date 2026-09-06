@@ -72,12 +72,16 @@ namespace Comet {
                 callback(update_context);
             }
 
+            if(!m_renderer->prepare_frame()) {
+                continue;
+            }
+
             RenderScene render_scene;
             if(m_scene) {
                 render_scene = SceneExtractor::extract(*m_scene);
             }
 
-            m_renderer->on_render(render_scene);
+            m_renderer->render_frame(render_scene);
         }
     }
 }

@@ -31,7 +31,6 @@ namespace CometEditor {
                 return false;
             }
 
-            property.notify_changed(value);
             return true;
         }
 

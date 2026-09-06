@@ -3,6 +3,7 @@
 #include "asset/database.h"
 #include "asset/material_data.h"
 #include "editor_panel.h"
+#include "command_history.h"
 
 #include <filesystem>
 #include <functional>
@@ -26,7 +27,8 @@ namespace CometEditor {
         using ReimportTextureCallback =
             std::function<bool(Comet::AssetHandle, Comet::TextureImportSettings)>;
 
-        InspectorPanel(SelectionService& selection,
+        InspectorPanel(SelectionService& selection, CommandHistory& history,
+            PropertyEditTransaction& property_edit,
             const Comet::ComponentRegistry& component_registry,
             const PropertyEditorRegistry& property_editor_registry,
             const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root,
@@ -37,7 +39,10 @@ namespace CometEditor {
         void invalidate_asset_cache();
 
     private:
-        void render_entity(Comet::Entity entity) const;
+        void render_entity(Comet::Entity entity);
+        void render_property(Comet::Entity entity,
+            const Comet::ComponentDescriptor& component,
+            const Comet::PropertyDescriptor& property);
         void render_asset(Comet::AssetHandle handle);
         void render_texture(const Comet::AssetRecord& record);
         void render_material(const Comet::AssetRecord& record);
@@ -49,6 +54,8 @@ namespace CometEditor {
         [[nodiscard]] std::string validate_material() const;
 
         SelectionService& m_selection;
+        CommandHistory& m_history;
+        PropertyEditTransaction& m_property_edit;
         const Comet::ComponentRegistry& m_component_registry;
         const PropertyEditorRegistry& m_property_editor_registry;
         const Comet::AssetDatabase& m_asset_database;

@@ -1,6 +1,7 @@
 #include "inspector.h"
 #include "property_editor_registry.h"
 #include "selection.h"
+#include "diagnostics/logger.h"
 
 #include "asset/serialization/material_serializer.h"
 #include "scene/component_registry.h"
@@ -9,6 +10,7 @@
 #include <array>
 #include <exception>
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,24 +43,28 @@ namespace CometEditor {
         }
     }
 
-    InspectorPanel::InspectorPanel(SelectionService& selection,
+    InspectorPanel::InspectorPanel(SelectionService& selection, CommandHistory& history,
+        PropertyEditTransaction& property_edit,
         const Comet::ComponentRegistry& component_registry,
         const PropertyEditorRegistry& property_editor_registry,
         const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root,
         UpdateMaterialCallback update_material_callback,
         ReimportTextureCallback reimport_texture_callback)
-        : EditorPanel("Inspector"), m_selection(selection),
-          m_component_registry(component_registry),
+        : EditorPanel("Inspector"), m_selection(selection), m_history(history),
+          m_property_edit(property_edit), m_component_registry(component_registry),
           m_property_editor_registry(property_editor_registry),
           m_asset_database(asset_database), m_assets_root(std::move(assets_root)),
           m_update_material_callback(std::move(update_material_callback)),
           m_reimport_texture_callback(std::move(reimport_texture_callback)) {}
 
     void InspectorPanel::render() {
-        if(!m_user_visible)
+        if(!m_user_visible) {
+            static_cast<void>(m_property_edit.commit());
             return;
+        }
 
         if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
+            static_cast<void>(m_property_edit.commit());
             ImGui::End();
             return;
         }
@@ -66,8 +72,10 @@ namespace CometEditor {
         if(Comet::Entity entity = m_selection.get_selected_entity()) {
             render_entity(entity);
         } else if(const Comet::AssetHandle asset = m_selection.get_selected_asset()) {
+            static_cast<void>(m_property_edit.commit());
             render_asset(asset);
         } else {
+            static_cast<void>(m_property_edit.commit());
             ImGui::TextUnformatted("No entity or asset selected");
         }
 
@@ -82,7 +90,7 @@ namespace CometEditor {
         m_asset_error.clear();
     }
 
-    void InspectorPanel::render_entity(Comet::Entity entity) const {
+    void InspectorPanel::render_entity(Comet::Entity entity) {
         auto& name = entity.get_component<Comet::NameComponent>().name;
         std::array<char, ENTITY_NAME_CAPACITY> name_buffer{};
         std::copy_n(name.data(), std::min(name.size(), name_buffer.size() - 1),
@@ -95,6 +103,7 @@ namespace CometEditor {
 
         ImGui::Separator();
 
+        bool active_property_visible = false;
         for(const Comet::ComponentDescriptor& component_descriptor :
             m_component_registry.components()) {
             if(!component_descriptor.has_component(entity)) {
@@ -104,16 +113,70 @@ namespace CometEditor {
             ImGui::PushID(component_descriptor.id.c_str());
             if(ImGui::CollapsingHeader(component_descriptor.display_name.c_str(),
                    ImGuiTreeNodeFlags_DefaultOpen)) {
-                void* component = component_descriptor.get_component(entity);
                 for(const Comet::PropertyDescriptor& property :
                     component_descriptor.properties) {
                     ImGui::PushID(property.id.c_str());
-                    static_cast<void>(m_property_editor_registry.edit_property(
-                        property, property.get_value(component)));
+                    render_property(entity, component_descriptor, property);
+                    active_property_visible |= m_property_edit.targets(
+                        {entity.get_uuid(), component_descriptor.id, property.id});
                     ImGui::PopID();
                 }
             }
             ImGui::PopID();
+        }
+        if(!active_property_visible && !m_property_edit.commit()) {
+            LOG_ERROR("Cannot finish hidden property edit");
+        }
+    }
+
+    void InspectorPanel::render_property(Comet::Entity entity,
+        const Comet::ComponentDescriptor& component,
+        const Comet::PropertyDescriptor& property) {
+        if(!property.editable || property.read_only
+            || !m_property_editor_registry.contains(property.type))
+            return;
+        auto value = property.copy_value(component.get_component(entity));
+        if(!value)
+            return;
+        const PropertyEditTransaction::Target target{
+            entity.get_uuid(), component.id, property.id};
+        const bool changed = std::visit(
+            [&](auto& edited) {
+                return m_property_editor_registry.edit_property(property, &edited);
+            },
+            *value);
+        const bool active = ImGui::IsItemActive();
+        const bool activated = ImGui::IsItemActivated();
+        const bool deactivated = ImGui::IsItemDeactivated();
+        if(m_history.get_scene() == nullptr) {
+            // Play 中仍可调试 Runtime 属性，但不写入 Edit 文档历史。
+            if(changed
+                && !property.assign_value(component.get_component(entity), *value)) {
+                LOG_ERROR("Cannot update runtime property");
+            }
+            return;
+        }
+
+        if((activated || changed) && !m_property_edit.targets(target)) {
+            if(!m_property_edit.begin(target)) {
+                LOG_ERROR("Cannot begin edit of {}.{}", component.id, property.id);
+                return;
+            }
+        }
+        if(m_property_edit.targets(target)) {
+            if(ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                if(!m_property_edit.cancel())
+                    LOG_ERROR("Cannot cancel property edit");
+                ImGui::ClearActiveID();
+                return;
+            }
+            if(changed && !m_property_edit.preview(*value)) {
+                LOG_ERROR("Cannot preview edit of {}.{}", component.id, property.id);
+            }
+            if(deactivated || (changed && !active)) {
+                if(!m_property_edit.commit())
+                    LOG_ERROR("Cannot commit property edit");
+            }
         }
     }
 

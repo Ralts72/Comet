@@ -28,7 +28,7 @@ namespace {
         EXPECT_FALSE(registry.contains(Comet::PropertyType::Bool));
     }
 
-    TEST(PropertyEditorRegistryTest, AppliesChangeCallbackAfterEditing) {
+    TEST(PropertyEditorRegistryTest, LeavesCommitAndNormalizationToPropertyAssignment) {
         CometEditor::PropertyEditorRegistry registry;
         ASSERT_TRUE(registry.register_editor(Comet::PropertyType::Float,
             [](const Comet::PropertyDescriptor&, void* value) {
@@ -42,6 +42,8 @@ namespace {
                 [](float& value) { value = 5.0f; });
 
         EXPECT_TRUE(registry.edit_property(property, &component.value));
+        EXPECT_FLOAT_EQ(component.value, 12.0f);
+        ASSERT_TRUE(property.assign_value(&component, component.value));
         EXPECT_FLOAT_EQ(component.value, 5.0f);
     }
 

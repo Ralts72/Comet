@@ -3,6 +3,7 @@
 #include "asset/registry.h"
 #include "asset/source_monitor.h"
 #include "src/camera_controller.h"
+#include "src/command_history.h"
 #include "src/editor_scene_session.h"
 #include "src/editor_state.h"
 #include "src/imgui_context.h"
@@ -153,6 +154,7 @@ namespace {
                 std::make_unique<CometEditor::EditorSceneSession>(m_editor_state,
                     m_scene_serializer, get_active_scene, replace_active_scene);
             auto& scene = *engine.get_scene();
+            m_command_history.bind_scene(&scene);
             m_selection.emplace(scene);
             setup_panels(scene, std::move(initial_asset_scan));
 
@@ -163,8 +165,15 @@ namespace {
                     update_viewport_texture(
                         get_engine().get_renderer().get_scene_renderer());
                     m_imgui_context->update_frame();
+                    if(const auto command = m_menu_bar->take_command()) {
+                        handle_command(*command);
+                    }
                     if(const auto mode = m_viewport_panel->take_mode_request()) {
-                        m_scene_session->request_mode(*mode);
+                        if(m_property_edit.commit()) {
+                            m_scene_session->request_mode(*mode);
+                        } else {
+                            LOG_ERROR("Cannot finish property edit before mode change");
+                        }
                     }
                     apply_viewport_camera_updates();
                     apply_viewport_focus();
@@ -440,22 +449,35 @@ namespace {
             return reimported;
         }
 
-        void handle_file_command(const CometEditor::FileCommand command) {
+        void handle_command(const CometEditor::MenuBar::Command command) {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
-                LOG_WARN("Scene file commands are disabled in Play mode");
+                LOG_WARN("Scene commands are disabled in Play mode");
+                return;
+            }
+
+            if(!m_property_edit.commit()) {
+                LOG_ERROR("Cannot finish property edit before scene command");
                 return;
             }
 
             switch(command) {
-                case CometEditor::FileCommand::NewScene:
+                case CometEditor::MenuBar::Command::Undo:
+                    if(!m_command_history.undo())
+                        LOG_WARN("Cannot undo scene edit");
+                    break;
+                case CometEditor::MenuBar::Command::Redo:
+                    if(!m_command_history.redo())
+                        LOG_WARN("Cannot redo scene edit");
+                    break;
+                case CometEditor::MenuBar::Command::NewScene:
                     if(m_scene_document->create_new()) {
                         bind_active_scene();
                     }
                     break;
-                case CometEditor::FileCommand::OpenScene:
+                case CometEditor::MenuBar::Command::OpenScene:
                     request_scene_file_dialog(SceneFileDialog::Open);
                     break;
-                case CometEditor::FileCommand::SaveScene:
+                case CometEditor::MenuBar::Command::SaveScene:
                     if(m_scene_document->get_path().empty()) {
                         request_scene_file_dialog(SceneFileDialog::Save);
                     } else {
@@ -475,6 +497,11 @@ namespace {
             }
             m_selection->set_scene(*active_scene);
             m_hierarchy_panel->set_scene(*active_scene);
+            if(m_editor_state.mode == CometEditor::EditorMode::Edit) {
+                m_command_history.bind_scene(active_scene);
+            } else {
+                m_command_history.bind_scene(nullptr);
+            }
         }
 
         void apply_editor_mode_request() {
@@ -579,11 +606,8 @@ namespace {
 
         void setup_panels(
             Comet::Scene& scene, Comet::AssetScanReport initial_asset_scan) {
-            m_menu_bar = std::make_unique<CometEditor::MenuBar>(m_editor_state);
-            m_menu_bar->set_file_command_callback(
-                [this](const CometEditor::FileCommand command) {
-                    handle_file_command(command);
-                });
+            m_menu_bar =
+                std::make_unique<CometEditor::MenuBar>(m_editor_state, m_command_history);
 
             m_hierarchy_panel =
                 std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
@@ -598,8 +622,9 @@ namespace {
             m_viewport_panel = std::make_unique<CometEditor::ViewPanel>(
                 m_editor_state, max_render_dimension);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
-                *m_selection, m_component_registry, m_property_editor_registry,
-                m_asset_manager->get_database(), m_project_paths.assets(),
+                *m_selection, m_command_history, m_property_edit, m_component_registry,
+                m_property_editor_registry, m_asset_manager->get_database(),
+                m_project_paths.assets(),
                 [this](const Comet::AssetHandle handle, const Comet::MaterialData& data) {
                     return update_material(handle, data);
                 },
@@ -638,6 +663,7 @@ namespace {
                 m_project_panel->render();
                 m_console_panel->render();
                 render_scene_file_dialog();
+                m_menu_bar->collect_shortcuts();
             });
         }
 
@@ -649,6 +675,9 @@ namespace {
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry =
             Comet::create_scene_component_registry();
+        CometEditor::CommandHistory m_command_history;
+        CometEditor::PropertyEditTransaction m_property_edit{
+            m_command_history, m_component_registry};
         CometEditor::PropertyEditorRegistry m_property_editor_registry =
             CometEditor::create_property_editor_registry();
         Comet::SceneSerializer m_scene_serializer{m_component_registry};

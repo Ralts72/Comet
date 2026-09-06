@@ -20,22 +20,17 @@ namespace CometEditor {
         }
     }
 
-    void MenuBar::render_file_menu() const {
+    void MenuBar::render_file_menu() {
         if(ImGui::BeginMenu("File", m_state.mode == EditorMode::Edit)) {
-            if(ImGui::MenuItem("New Scene", "Ctrl+N")) {
-                if(m_file_command_callback) {
-                    m_file_command_callback(FileCommand::NewScene);
-                }
+            const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
+            if(ImGui::MenuItem("New Scene", mac ? "Cmd+N" : "Ctrl+N")) {
+                m_requested_command = Command::NewScene;
             }
-            if(ImGui::MenuItem("Open Scene", "Ctrl+O")) {
-                if(m_file_command_callback) {
-                    m_file_command_callback(FileCommand::OpenScene);
-                }
+            if(ImGui::MenuItem("Open Scene", mac ? "Cmd+O" : "Ctrl+O")) {
+                m_requested_command = Command::OpenScene;
             }
-            if(ImGui::MenuItem("Save Scene", "Ctrl+S")) {
-                if(m_file_command_callback) {
-                    m_file_command_callback(FileCommand::SaveScene);
-                }
+            if(ImGui::MenuItem("Save Scene", mac ? "Cmd+S" : "Ctrl+S")) {
+                m_requested_command = Command::SaveScene;
             }
             ImGui::Separator();
             if(ImGui::MenuItem("Exit", "Alt+F4")) {
@@ -46,13 +41,47 @@ namespace CometEditor {
     }
 
     void MenuBar::render_edit_menu() {
-        if(ImGui::BeginMenu("Edit")) {
-            if(ImGui::MenuItem("Undo", "Ctrl+Z")) {}
-            if(ImGui::MenuItem("Redo", "Ctrl+Y")) {}
+        if(ImGui::BeginMenu("Edit", m_state.mode == EditorMode::Edit)) {
+            const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
+            if(ImGui::MenuItem(
+                   "Undo", mac ? "Cmd+Z" : "Ctrl+Z", false, m_history.can_undo())) {
+                m_requested_command = Command::Undo;
+            }
+            if(ImGui::MenuItem(
+                   "Redo", mac ? "Cmd+Shift+Z" : "Ctrl+Y", false, m_history.can_redo())) {
+                m_requested_command = Command::Redo;
+            }
             ImGui::Separator();
             if(ImGui::MenuItem("Preferences", "Ctrl+,")) {}
             ImGui::EndMenu();
         }
+    }
+
+    void MenuBar::collect_shortcuts() {
+        if(m_requested_command || m_state.mode != EditorMode::Edit
+            || ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive()
+            || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
+            return;
+        constexpr auto flags = ImGuiInputFlags_RouteGlobal;
+        // ImGui 在 macOS 上自动把快捷键中的 Ctrl 映射为 Cmd。
+        if(ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, flags)
+            || ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Y, flags)) {
+            if(m_history.can_redo())
+                m_requested_command = Command::Redo;
+        } else if(ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Z, flags)) {
+            if(m_history.can_undo())
+                m_requested_command = Command::Undo;
+        } else if(ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_N, flags)) {
+            m_requested_command = Command::NewScene;
+        } else if(ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, flags)) {
+            m_requested_command = Command::OpenScene;
+        } else if(ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, flags)) {
+            m_requested_command = Command::SaveScene;
+        }
+    }
+
+    std::optional<MenuBar::Command> MenuBar::take_command() {
+        return std::exchange(m_requested_command, std::nullopt);
     }
 
     void MenuBar::render_view_menu() {

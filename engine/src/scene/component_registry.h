@@ -11,10 +11,16 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace Comet {
     enum class PropertyType { Bool, Float, Vec3, AssetHandle };
+
+    using PropertyValue = std::variant<bool, float, Math::Vec3, AssetHandle>;
+
+    [[nodiscard]] COMET_API bool property_values_equal(
+        const PropertyValue& left, const PropertyValue& right);
 
     struct NumericPropertyMetadata {
         float speed = 0.1f;
@@ -31,6 +37,11 @@ namespace Comet {
     };
 
     struct PropertyDescriptor {
+        [[nodiscard]] COMET_API std::optional<PropertyValue> copy_value(
+            const void* component) const;
+        [[nodiscard]] COMET_API bool assign_value(
+            void* component, const PropertyValue& value) const;
+
         std::string id;
         std::string display_name;
         PropertyType type = PropertyType::Float;

@@ -3,6 +3,7 @@ file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
 )
 list(APPEND TEST_SOURCES
+        "${CMAKE_SOURCE_DIR}/editor/src/command_history.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/camera_controller.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/editor_state.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/editor_scene_session.cpp"
@@ -24,7 +25,9 @@ target_link_libraries(unit_testing PRIVATE
 # 仅启用编辑器时测试 UI 数据寿命，无需窗口或 Vulkan 后端。
 if (COMET_BUILD_EDITOR)
     target_sources(unit_testing PRIVATE
-            "${CMAKE_SOURCE_DIR}/editor/src/panels/console.cpp")
+            "${CMAKE_SOURCE_DIR}/editor/src/panels/console.cpp"
+            "${CMAKE_SOURCE_DIR}/editor/src/panels/inspector.cpp"
+            "${CMAKE_SOURCE_DIR}/editor/src/menu_bar.cpp")
     target_link_libraries(unit_testing PRIVATE imgui)
     target_compile_definitions(unit_testing PRIVATE COMET_TEST_EDITOR_UI)
 endif ()
