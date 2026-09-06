@@ -1,5 +1,6 @@
 #include "transform_gizmo.h"
 #include "render/scene/scene_extractor.h"
+#include "scene/scene_serializer.h"
 
 #include <gtest/gtest.h>
 #include <limits>
@@ -104,6 +105,139 @@ namespace {
             ASSERT_TRUE(history.undo());
             history.clear();
         }
+    }
+
+    TEST_F(TransformGizmoTest, ScaleUsesLocalAxisAndCanRecoverZeroComponent) {
+        auto parent = scene.create_entity();
+        auto& parent_transform = parent.get_component<TransformComponent>();
+        parent_transform.rotation.z = 45;
+        parent_transform.scale = {-2, 3, 1};
+        ASSERT_TRUE(scene.set_parent(entity, parent));
+        auto& transform = entity.get_component<TransformComponent>();
+        transform.rotation.z = 30;
+        transform.scale = {0, -2, 3};
+        const auto parent_before = scene.get_world_matrix(parent);
+        ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Scale}));
+        const auto handle = gizmo.handles(entity.get_uuid(), camera, layout)[0];
+        ASSERT_TRUE(handle);
+        const auto segment = handle->segments.front();
+        const auto start = begin_x();
+        ASSERT_TRUE(
+            update({.position = start + segment.end - segment.start, .released = true}));
+        expect_vector(transform.scale, {1, -2, 3});
+        EXPECT_EQ(transform.rotation, Math::Vec3(0, 0, 30));
+        EXPECT_EQ(transform.translation, Math::Vec3(0));
+        EXPECT_EQ(scene.get_world_matrix(parent), parent_before);
+        EXPECT_EQ(history.undo_size(), 1);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(transform.scale, Math::Vec3(0, -2, 3));
+        ASSERT_TRUE(history.redo());
+        expect_vector(transform.scale, {1, -2, 3});
+    }
+
+    TEST_F(TransformGizmoTest, UniformScalePreservesRatiosAcrossZeroAndNegativeFactor) {
+        auto& transform = entity.get_component<TransformComponent>();
+        transform.scale = {2, -3, 0};
+        ASSERT_TRUE(gizmo.set_settings(
+            {.mode = TransformGizmo::Mode::Scale, .snap = true, .scale_step = 0.25f}));
+        const auto handle = gizmo.handles(entity.get_uuid(), camera, layout)[3];
+        ASSERT_TRUE(handle);
+        const auto center =
+            (handle->segments.front().start + handle->segments.front().end) * 0.5f;
+        ASSERT_TRUE(
+            update({.position = center, .hovered = true, .pressed = true, .down = true}));
+        EXPECT_EQ(gizmo.active_axis(), TransformGizmo::Axis::All);
+        const auto movement = glm::normalize(Math::Vec2(1, -1)) * 90.0f;
+        ASSERT_TRUE(update({.position = center + movement, .down = true}));
+        expect_vector(transform.scale, {4, -6, 0});
+        ASSERT_TRUE(update({.position = center - movement, .down = true}));
+        expect_vector(transform.scale, Math::Vec3(0));
+        EXPECT_TRUE(gizmo.active());
+        ASSERT_TRUE(update({.position = center - movement * 2.0f, .released = true}));
+        expect_vector(transform.scale, {-2, 3, 0});
+        EXPECT_EQ(history.undo_size(), 1);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(transform.scale, Math::Vec3(2, -3, 0));
+    }
+
+    TEST_F(TransformGizmoTest, ScaleSnapIsRelativeAndLogicalPointSensitivityIsStable) {
+        for(const auto projection : {RenderCamera::Projection::Perspective,
+                RenderCamera::Projection::Orthographic}) {
+            camera.projection = projection;
+            for(const auto multiplier : {1U, 2U}) {
+                layout.image_resolution = Math::Vec2u(1600, 1200) * multiplier;
+                auto& transform = entity.get_component<TransformComponent>();
+                transform.scale = {0.13f, 2, 3};
+                ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Scale,
+                    .snap = true,
+                    .scale_step = 0.25f}));
+                auto start = begin_x();
+                ASSERT_TRUE(
+                    update({.position = start + Math::Vec2(5, 0), .released = true}));
+                EXPECT_EQ(transform.scale, Math::Vec3(0.13f, 2, 3));
+                EXPECT_EQ(history.undo_size(), 0);
+                start = begin_x();
+                ASSERT_TRUE(
+                    update({.position = start + Math::Vec2(45, 0), .released = true}));
+                expect_vector(transform.scale, {0.63f, 2, 3});
+                ASSERT_TRUE(history.undo());
+                history.clear();
+            }
+        }
+    }
+
+    TEST_F(TransformGizmoTest, ScaleCancelsOnContextChangesAndRejectsInvalidStep) {
+        auto& transform = entity.get_component<TransformComponent>();
+        ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Scale}));
+        const auto start = begin_x();
+        ASSERT_TRUE(update({.position = start + Math::Vec2(45, 0), .down = true}));
+        EXPECT_GT(transform.scale.x, 1);
+        EXPECT_FALSE(gizmo.set_settings({.mode = TransformGizmo::Mode::Scale,
+            .scale_step = std::numeric_limits<float>::infinity()}));
+        EXPECT_FALSE(
+            gizmo.set_settings({.mode = TransformGizmo::Mode::Scale, .scale_step = -1}));
+        EXPECT_TRUE(gizmo.active());
+        transform.rotation.z = 30;
+        ASSERT_TRUE(update({.position = start + Math::Vec2(60, 0), .down = true}));
+        EXPECT_FALSE(gizmo.active());
+        EXPECT_EQ(transform.scale, Math::Vec3(1));
+        EXPECT_EQ(transform.rotation, Math::Vec3(0, 0, 30));
+        EXPECT_EQ(history.undo_size(), 0);
+    }
+
+    TEST_F(TransformGizmoTest, TransformGesturesRoundTripThroughSceneSerialization) {
+        auto start = begin_x();
+        ASSERT_TRUE(update({.position = start + Math::Vec2(30, 0), .released = true}));
+        ASSERT_TRUE(
+            gizmo.set_settings({.mode = TransformGizmo::Mode::Rotate, .snap = true}));
+        const auto ring = begin_z_rotation();
+        ASSERT_TRUE(update({.position = ring.segments[12].start, .released = true}));
+        ASSERT_TRUE(
+            gizmo.set_settings({.mode = TransformGizmo::Mode::Scale, .snap = true}));
+        const auto handle = gizmo.handles(entity.get_uuid(), camera, layout)[0];
+        ASSERT_TRUE(handle);
+        const auto segment = handle->segments.front();
+        start = begin_x();
+        ASSERT_TRUE(
+            update({.position = start + segment.end - segment.start, .released = true}));
+        EXPECT_EQ(history.undo_size(), 3);
+        const auto expected = entity.get_component<TransformComponent>();
+        const auto expected_world = scene.get_world_matrix(entity);
+        const SceneSerializer serializer(registry);
+        auto reopened = serializer.deserialize(serializer.serialize(scene));
+        const auto restored = reopened->find_entity(entity.get_uuid());
+        ASSERT_TRUE(restored);
+        const auto& transform = restored.get_component<TransformComponent>();
+        expect_vector(transform.translation, expected.translation);
+        expect_vector(transform.rotation, expected.rotation);
+        expect_vector(transform.scale, expected.scale);
+        for(int column = 0; column < 4; ++column)
+            expect_vector(Math::Vec3(reopened->get_world_matrix(restored)[column]),
+                Math::Vec3(expected_world[column]));
+        history.bind_scene(reopened.get());
+        EXPECT_EQ(history.undo_size(), 0);
+        EXPECT_FALSE(gizmo.active());
+        history.bind_scene(nullptr);
     }
 
     TEST_F(TransformGizmoTest, LocalRotationPreservesNonUniformParentAndOwnScale) {

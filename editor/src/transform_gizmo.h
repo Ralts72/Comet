@@ -12,9 +12,9 @@
 namespace CometEditor {
     class TransformGizmo {
     public:
-        enum class Axis { X, Y, Z };
+        enum class Axis { X, Y, Z, All };
         enum class Space { World, Local };
-        enum class Mode { Translate, Rotate };
+        enum class Mode { Translate, Rotate, Scale };
 
         struct Settings {
             Mode mode = Mode::Translate;
@@ -22,6 +22,7 @@ namespace CometEditor {
             bool snap = false;
             float translation_step = 0.25f;
             float rotation_step_degrees = 15.0f;
+            float scale_step = 0.1f;
             bool operator==(const Settings&) const = default;
         };
 
@@ -56,7 +57,7 @@ namespace CometEditor {
         [[nodiscard]] bool active() const;
         [[nodiscard]] std::optional<Axis> hovered_axis() const { return m_hovered_axis; }
         [[nodiscard]] std::optional<Axis> active_axis() const;
-        [[nodiscard]] std::array<std::optional<Handle>, 3> handles(
+        [[nodiscard]] std::array<std::optional<Handle>, 4> handles(
             Comet::EntityUuid selected, const Comet::RenderCamera& camera,
             const ViewportLayout& layout) const;
 
@@ -66,6 +67,7 @@ namespace CometEditor {
             Comet::Math::Vec3 origin{};
             Comet::Math::Vec3 translation{};
             Comet::Math::Vec3 rotation{};
+            Comet::Math::Vec3 scale{1.0f};
             std::array<Comet::Math::Vec3, 3> directions;
             Comet::Math::Mat3 rotation_frame{1.0f};
             Comet::Math::Mat3 inverse_rotation_frame{1.0f};
@@ -90,7 +92,7 @@ namespace CometEditor {
 
         [[nodiscard]] std::optional<Context> make_context(Comet::EntityUuid selected,
             const Comet::RenderCamera& camera, const ViewportLayout& layout) const;
-        [[nodiscard]] std::array<std::optional<Handle>, 3> make_handles(
+        [[nodiscard]] std::array<std::optional<Handle>, 4> make_handles(
             const Context& context) const;
         [[nodiscard]] static std::optional<Comet::Ray> pointer_ray(
             const Context& context, Comet::Math::Vec2 position);

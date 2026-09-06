@@ -133,6 +133,52 @@ namespace CometEditor::Tests {
         EXPECT_EQ(gizmo.settings().mode, TransformGizmo::Mode::Rotate);
         EXPECT_FLOAT_EQ(gizmo.settings().rotation_step_degrees, 15);
         EXPECT_EQ(history.undo_size(), 0);
+        ImGui::ActivateItemByID(popup->GetID("Mode"));
+        frame();
+        frame();
+        ASSERT_GE(GImGui->OpenPopupStack.Size, 2);
+        options = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(options, nullptr);
+        const int scale_index = 2;
+        ImGui::ActivateItemByID(ImHashStr(
+            "Scale", 0, ImHashData(&scale_index, sizeof(scale_index), options->ID)));
+        frame();
+        EXPECT_EQ(gizmo.settings().mode, TransformGizmo::Mode::Scale);
+        EXPECT_FLOAT_EQ(gizmo.settings().scale_step, 0.1f);
+        EXPECT_EQ(history.undo_size(), 0);
+    }
+
+    TEST_F(ViewportGizmoUiTest, CenterScaleCapturesInputAndPreservesComponentRatios) {
+        state.camera.perspective.position = {0, 0, 3};
+        state.camera.target = {};
+        auto& transform = entity.get_component<Comet::TransformComponent>();
+        transform.scale = {1, -2, 3};
+        ASSERT_TRUE(gizmo.set_settings(
+            {.mode = TransformGizmo::Mode::Scale, .snap = true, .scale_step = 0.25f}));
+        frame();
+        const auto handle = gizmo.handles(
+            entity.get_uuid(), state.camera.snapshot(), viewport.get_layout())[3];
+        ASSERT_TRUE(handle);
+        const auto point =
+            (handle->segments.front().start + handle->segments.front().end) * 0.5f;
+        move_pointer(point);
+        ImGui::GetIO().AddMouseButtonEvent(0, true);
+        frame();
+        ASSERT_EQ(gizmo.active_axis(), TransformGizmo::Axis::All);
+        move_pointer(point + glm::normalize(Comet::Math::Vec2(1, -1)) * 45.0f);
+        EXPECT_EQ(transform.scale, Comet::Math::Vec3(1.5f, -3, 4.5f));
+        EXPECT_FALSE(viewport.take_pick_request());
+        EXPECT_FALSE(viewport.take_camera_input());
+        EXPECT_EQ(history.undo_size(), 0);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_FALSE(gizmo.active());
+        EXPECT_EQ(ImGui::GetActiveID(), 0);
+        EXPECT_EQ(history.undo_size(), 1);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(transform.scale, Comet::Math::Vec3(1, -2, 3));
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(transform.scale, Comet::Math::Vec3(1.5f, -3, 4.5f));
     }
 
     TEST_F(ViewportGizmoUiTest, RotationRingUsesSharedCaptureAndUndoTransaction) {
