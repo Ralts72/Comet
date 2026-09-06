@@ -9,11 +9,21 @@
 #include <optional>
 
 namespace CometEditor {
+    class SelectionService;
+    class TranslationGizmo;
+    class PropertyEditTransaction;
+
     class ViewPanel: public EditorPanel {
     public:
-        ViewPanel(const EditorState& state, std::uint32_t max_render_dimension);
+        ViewPanel(const EditorState& state, SelectionService& selection,
+            TranslationGizmo& gizmo, PropertyEditTransaction& inspector_edit,
+            std::uint32_t max_render_dimension);
 
         void render() override;
+
+        // 在 UI 帧结束前，用处理完相机输入后的状态追加操作手柄。
+        void draw_gizmo();
+        void cancel_interaction();
 
         void set_texture_id(
             ImTextureID texture_id, std::uint32_t width, std::uint32_t height);
@@ -55,6 +65,11 @@ namespace CometEditor {
         void reset_camera_interaction();
 
         const EditorState& m_state;
+        SelectionService& m_selection;
+        TranslationGizmo& m_gizmo;
+        PropertyEditTransaction& m_inspector_edit;
+        ImGuiID m_gizmo_id = 0;
+        ImDrawList* m_gizmo_draw_list = nullptr;
         bool m_actually_visible = false;
         std::uint32_t m_max_render_dimension = 0;
         ViewportLayout::ResolutionPolicy m_play_resolution_policy;

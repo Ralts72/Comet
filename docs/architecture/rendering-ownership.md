@@ -45,6 +45,7 @@ Engine
 Editor
 ├── AssetManager（借用 Engine 的服务）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
+├── CommandHistory ← Inspector / TranslationGizmo 各自的属性事务
 └── ImGuiContext
     ├── RenderPass / SwapchainTarget / DescriptorPool
     └── TextureBinding[slot] → ImageView / Sampler / ImGui descriptor
@@ -98,12 +99,19 @@ render_frame 消费后清空，准备失败、隐藏视口或无合法相机时�
 DebugRenderer 使用场景的相机矩阵、RenderPass 格式和 MSAA；LineList、深度测试 LessEqual、不写深度、alpha 混合。
 每 slot 独立的持久映射 CPU-to-GPU vertex buffer，只在等待当前 slot 完成后写入或扩容；
 绘制使用的 buffer/Pipeline 同时被 FrameSlot 保留至 GPU 完成。扩容失败保留旧 buffer 并跳过本批，延后重试。
-它不持有 Scene、Selection 或 ImGui；选中框/Gizmo 等调用方自行转换成世界空间请求。
+它不持有 Scene、Selection 或 ImGui；选中框等调用方自行转换成世界空间请求。
 
 Editor 在 UI 编辑命令完成后读取选中实体的 Mesh local bounds 和最新 world matrix，
 用 LineDrawList::add_box(box, transform, color) 变换八角点并连接十二条边，不重新拟合世界 AABB。
 普通帧在 prepare 提交；有视口拾取请求时，等结果更新 Selection 后再提交，避免旧框和新框同时出现。
 选择状态仍由 SelectionService 持有，Scene/Mesh/Material 不保存 selected 标记；Play、隐藏视口或无有效 Mesh 时不提交。
+
+TranslationGizmo 是编辑器侧的投影、命中与平移事务，不是渲染资源。它与 Inspector 各自持有 PropertyEditTransaction，
+共享同一个 CommandHistory；拖动用 UUID 定位并预览 translation，释放提交一次，取消恢复。
+ViewPanel 优先将普通左键交给 Gizmo，未命中才请求场景拾取；拖动时占有 ImGui active ID，阻止快捷键和相机导航。
+UI 回调完成命令／相机更新后，ViewPanel::draw_gizmo 将最新句柄追加到本帧窗口 draw list，随后 ImGui::Render。
+箭头作为可操作的 UI 覆盖层不受场景深度遮挡，不需要修改 DebugRenderer 或向 engine 注入编辑器状态。
+点击拾取帧不显示旧选择的箭头，新选择箭头在下一 UI 帧出现；选中包围盒仍由拾取回调在当帧提交。
 
 RenderView 的 CameraSelection 选择显式 editor camera 或 Scene primary camera；
 请求 override 却缺少数据时不静默回退。没有合法 Camera 时清屏并保留 UI，不录制场景 draw。
@@ -161,4 +169,4 @@ camera_controller 只做纯数学，不依赖 ImGui。
 Mesh 在 GPU 创建前验证顶点并计算只读 local BoundingBox，不保留整份 CPU geometry。
 CPU pick 反投影 near/far 射线，变换到局部后测包围盒，方向不再次归一化，保证非均匀缩放下距离参数可比较。
 尺寸不符/隐藏丢弃请求，普通 miss 清空 Selection。F 聚焦由 Editor 按事件取最新 world bounds 后调整相机，
-不改实体或 Scene Camera。当前没有 GPU readback、选中线框或 Gizmo。
+不改实体或 Scene Camera。当前没有 GPU readback 或三角形级选中轮廓。

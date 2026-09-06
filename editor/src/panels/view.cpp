@@ -1,6 +1,10 @@
 #include "view.h"
+#include "selection.h"
+#include "translation_gizmo.h"
 #include <imgui.h>
+#include <imgui_internal.h>
 
+#include <cmath>
 #include <utility>
 
 namespace CometEditor {
@@ -9,10 +13,12 @@ namespace CometEditor {
         constexpr float TOOLBAR_BUTTON_WIDTH = 40.0f;
     }
 
-    ViewPanel::ViewPanel(
-        const EditorState& state, const std::uint32_t max_render_dimension)
-        : EditorPanel("Viewport"), m_state(state),
-          m_max_render_dimension(max_render_dimension) {}
+    ViewPanel::ViewPanel(const EditorState& state, SelectionService& selection,
+        TranslationGizmo& gizmo, PropertyEditTransaction& inspector_edit,
+        const std::uint32_t max_render_dimension)
+        : EditorPanel("Viewport"), m_state(state), m_selection(selection), m_gizmo(gizmo),
+          m_inspector_edit(inspector_edit), m_max_render_dimension(max_render_dimension) {
+    }
 
     void ViewPanel::render() {
         m_actually_visible = false;
@@ -21,13 +27,14 @@ namespace CometEditor {
         m_mode_request.reset();
         m_pick_request.reset();
         m_focus_request = false;
+        m_gizmo_draw_list = nullptr;
 
         if(!m_user_visible) {
             m_layout = {};
             m_observed_render_resolution = {};
             m_requested_render_size = {};
             m_render_resolution_stable_frames = 0;
-            reset_camera_interaction();
+            cancel_interaction();
             return;
         }
 
@@ -36,7 +43,7 @@ namespace CometEditor {
             m_observed_render_resolution = {};
             m_requested_render_size = {};
             m_render_resolution_stable_frames = 0;
-            reset_camera_interaction();
+            cancel_interaction();
             ImGui::End();
             return;
         }
@@ -46,14 +53,20 @@ namespace CometEditor {
             m_observed_render_resolution = {};
             m_requested_render_size = {};
             m_render_resolution_stable_frames = 0;
-            reset_camera_interaction();
+            cancel_interaction();
             ImGui::End();
             return;
         }
 
         m_actually_visible = true;
+        m_gizmo_id = ImGui::GetID("TranslationGizmo");
+        if(m_gizmo.active()) {
+            ImGui::KeepAliveID(m_gizmo_id);
+        }
 
+        ImGui::BeginDisabled(m_gizmo.active());
         render_toolbar();
+        ImGui::EndDisabled();
 
         render_view_content();
 
@@ -222,7 +235,7 @@ namespace CometEditor {
 
         const Comet::Math::Vec2 display_size = m_layout.image_display_rect.size();
         if(display_size.x <= 0.0f || display_size.y <= 0.0f) {
-            reset_camera_interaction();
+            cancel_interaction();
             return;
         }
 
@@ -234,12 +247,13 @@ namespace CometEditor {
         } else {
             ImGui::InvisibleButton("View", ImVec2(display_size.x, display_size.y));
         }
+        m_gizmo_draw_list = ImGui::GetWindowDrawList();
         update_view_interaction();
     }
 
     void ViewPanel::update_view_interaction() {
         if(m_state.mode != EditorMode::Edit) {
-            reset_camera_interaction();
+            cancel_interaction();
             return;
         }
 
@@ -249,22 +263,57 @@ namespace CometEditor {
         const bool pointer_over_image =
             ImGui::IsItemHovered() && mapped_pixel.has_value();
 
+        if(pointer_over_image || m_gizmo.active()) {
+            // Image 没有 item ID；直接指定 owner，拖动期间也阻止窗口滚动。
+            ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_gizmo_id);
+        }
+
+        const bool was_dragging = m_gizmo.active();
+        const bool navigation_input = m_camera_drag || io.KeyAlt
+                                      || ImGui::IsMouseDown(ImGuiMouseButton_Right)
+                                      || ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+        const bool available = pointer_over_image && !navigation_input
+                               && !ImGui::IsAnyItemActive() && !io.WantTextInput
+                               && m_texture_id != ImTextureID_Invalid;
+        bool pressed = available && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+        if(pressed && !m_inspector_edit.commit()) {
+            pressed = false;
+        }
+        const auto entity = m_selection.get_selected_entity();
+        const bool consumed =
+            m_gizmo.update(entity.get_uuid(), m_state.camera.snapshot(), m_layout,
+                {
+                    .position = mouse_position,
+                    .hovered = available,
+                    .pressed = pressed,
+                    .down = ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                    .released = ImGui::IsMouseReleased(ImGuiMouseButton_Left),
+                    .cancel =
+                        ImGui::IsKeyPressed(ImGuiKey_Escape, false) || io.AppFocusLost
+                        || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+                        || ImGui::IsPopupOpen(nullptr,
+                            ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)
+                        || m_texture_id == ImTextureID_Invalid,
+                });
+        if(m_gizmo.active()) {
+            ImGui::SetActiveID(m_gizmo_id, ImGui::GetCurrentWindow());
+            ImGui::KeepAliveID(m_gizmo_id);
+        } else if(was_dragging && ImGui::GetActiveID() == m_gizmo_id) {
+            ImGui::ClearActiveID();
+        }
+        if(consumed) {
+            reset_camera_interaction();
+            return;
+        }
+
         if(ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
             && !io.WantTextInput && !io.KeyCtrl && !io.KeyAlt && !io.KeySuper
             && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_F, false)) {
             m_focus_request = true;
         }
 
-        if(pointer_over_image && m_texture_id != ImTextureID_Invalid && !m_camera_drag
-            && !ImGui::IsKeyDown(ImGuiMod_Alt)
-            && !ImGui::IsMouseDown(ImGuiMouseButton_Right)
-            && !ImGui::IsMouseDown(ImGuiMouseButton_Middle)
-            && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        if(pressed) {
             m_pick_request = *mapped_pixel;
-        }
-
-        if(pointer_over_image) {
-            ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
         }
 
         if(!m_camera_drag && pointer_over_image) {
@@ -322,6 +371,57 @@ namespace CometEditor {
 
     void ViewPanel::reset_camera_interaction() {
         m_camera_drag.reset();
+    }
+
+    void ViewPanel::cancel_interaction() {
+        static_cast<void>(m_gizmo.cancel());
+        if(m_gizmo_id != 0 && ImGui::GetActiveID() == m_gizmo_id) {
+            ImGui::ClearActiveID();
+        }
+        reset_camera_interaction();
+    }
+
+    void ViewPanel::draw_gizmo() {
+        // draw list 只借用到当前 UI 帧结束，不跨帧保存或交给渲染线程。
+        ImDrawList* draw_list = std::exchange(m_gizmo_draw_list, nullptr);
+        if(!draw_list || m_state.mode != EditorMode::Edit || m_pick_request
+            || m_mode_request || m_texture_id == ImTextureID_Invalid) {
+            return;
+        }
+        const auto entity = m_selection.get_selected_entity();
+        const auto handles =
+            m_gizmo.handles(entity.get_uuid(), m_state.camera.snapshot(), m_layout);
+        const auto& clip = m_layout.image_visible_rect;
+        draw_list->PushClipRect(
+            ImVec2(clip.min.x, clip.min.y), ImVec2(clip.max.x, clip.max.y), true);
+        for(const auto& handle : handles) {
+            if(!handle) {
+                continue;
+            }
+            ImU32 color = IM_COL32(65, 125, 255, 255);
+            if(handle->axis == TranslationGizmo::Axis::X) {
+                color = IM_COL32(240, 65, 55, 255);
+            } else if(handle->axis == TranslationGizmo::Axis::Y) {
+                color = IM_COL32(65, 225, 85, 255);
+            }
+            if(m_gizmo.active_axis() == handle->axis
+                || (!m_gizmo.active() && m_gizmo.hovered_axis() == handle->axis)) {
+                color = IM_COL32(255, 220, 50, 255);
+            }
+            const auto direction = handle->end - handle->start;
+            const float length =
+                std::sqrt(direction.x * direction.x + direction.y * direction.y);
+            const auto unit = direction / length;
+            const Comet::Math::Vec2 side(-unit.y, unit.x);
+            const auto base = handle->end - unit * std::min(9.0f, length * 0.4f);
+            const auto left = base + side * 4.0f;
+            const auto right = base - side * 4.0f;
+            draw_list->AddLine(ImVec2(handle->start.x, handle->start.y),
+                ImVec2(base.x, base.y), color, 2.5f);
+            draw_list->AddTriangleFilled(ImVec2(handle->end.x, handle->end.y),
+                ImVec2(left.x, left.y), ImVec2(right.x, right.y), color);
+        }
+        draw_list->PopClipRect();
     }
 
     std::optional<EditorCameraInput> ViewPanel::take_camera_input() {

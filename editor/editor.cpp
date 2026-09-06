@@ -23,6 +23,7 @@
 #include "src/panels/view.h"
 #include "src/panels/hierarchy.h"
 #include "src/selection.h"
+#include "src/translation_gizmo.h"
 #include "scene/scene.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
@@ -165,19 +166,6 @@ namespace {
                     update_viewport_texture(
                         get_engine().get_renderer().get_scene_renderer());
                     m_imgui_context->update_frame();
-                    if(const auto command = m_menu_bar->take_command()) {
-                        handle_command(*command);
-                    }
-                    if(const auto mode = m_viewport_panel->take_mode_request()) {
-                        if(m_property_edit.commit()) {
-                            m_scene_session->request_mode(*mode);
-                        } else {
-                            LOG_ERROR("Cannot finish property edit before mode change");
-                        }
-                    }
-                    apply_viewport_camera_updates();
-                    apply_viewport_focus();
-                    update_viewport_state();
                     submit_viewport_feedback();
                 },
                 [this](Comet::CommandBuffer& command_buffer) {
@@ -339,6 +327,7 @@ namespace {
             get_engine().get_renderer().set_viewport_pick_callback({});
             auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
             scene_renderer.set_swapchain_resource_callbacks({}, {});
+            m_viewport_panel->cancel_interaction();
             m_imgui_context.reset();
             m_project_panel.reset();
             m_hierarchy_panel.reset();
@@ -483,6 +472,7 @@ namespace {
                 return;
             }
 
+            m_viewport_panel->cancel_interaction();
             if(!m_property_edit.commit()) {
                 LOG_ERROR("Cannot finish property edit before scene command");
                 return;
@@ -647,8 +637,8 @@ namespace {
             }
             const std::uint32_t max_render_dimension = std::min(
                 device_max_render_dimension, EDITOR_VIEWPORT_MAX_RENDER_DIMENSION);
-            m_viewport_panel = std::make_unique<CometEditor::ViewPanel>(
-                m_editor_state, max_render_dimension);
+            m_viewport_panel = std::make_unique<CometEditor::ViewPanel>(m_editor_state,
+                *m_selection, m_translation_gizmo, m_property_edit, max_render_dimension);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_asset_manager->get_database(),
@@ -692,6 +682,22 @@ namespace {
                 m_console_panel->render();
                 render_scene_file_dialog();
                 m_menu_bar->collect_shortcuts();
+
+                if(const auto command = m_menu_bar->take_command()) {
+                    handle_command(*command);
+                }
+                if(const auto mode = m_viewport_panel->take_mode_request()) {
+                    m_viewport_panel->cancel_interaction();
+                    if(m_property_edit.commit()) {
+                        m_scene_session->request_mode(*mode);
+                    } else {
+                        LOG_ERROR("Cannot finish property edit before mode change");
+                    }
+                }
+                apply_viewport_camera_updates();
+                apply_viewport_focus();
+                update_viewport_state();
+                m_viewport_panel->draw_gizmo();
             });
         }
 
@@ -705,6 +711,8 @@ namespace {
             Comet::create_scene_component_registry();
         CometEditor::CommandHistory m_command_history;
         CometEditor::PropertyEditTransaction m_property_edit{
+            m_command_history, m_component_registry};
+        CometEditor::TranslationGizmo m_translation_gizmo{
             m_command_history, m_component_registry};
         CometEditor::PropertyEditorRegistry m_property_editor_registry =
             CometEditor::create_property_editor_registry();
