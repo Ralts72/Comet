@@ -1,6 +1,7 @@
 #include "graphics/pipeline/pipeline.h"
 
 #include <utility>
+#include <stdexcept>
 #include "graphics/device.h"
 #include "graphics/pipeline/shader.h"
 #include "graphics/render_pass.h"
@@ -157,13 +158,15 @@ namespace Comet {
         vk::PipelineShaderStageCreateInfo vertex_shader_stage_info = {};
         vertex_shader_stage_info.stage = vk::ShaderStageFlagBits::eVertex;
         vertex_shader_stage_info.module = vertex_shader->get();
-        vertex_shader_stage_info.pName = "main";
+        vertex_shader_stage_info.pName =
+            vertex_shader->get_interface().get_entry_point().c_str();
         vertex_shader_stage_info.pSpecializationInfo = nullptr;
         pipeline_shader_stage[0] = vertex_shader_stage_info;
         vk::PipelineShaderStageCreateInfo fragment_shader_stage_info = {};
         fragment_shader_stage_info.stage = vk::ShaderStageFlagBits::eFragment;
         fragment_shader_stage_info.module = fragment_shader->get();
-        fragment_shader_stage_info.pName = "main";
+        fragment_shader_stage_info.pName =
+            fragment_shader->get_interface().get_entry_point().c_str();
         fragment_shader_stage_info.pSpecializationInfo = nullptr;
         pipeline_shader_stage[1] = fragment_shader_stage_info;
         return pipeline_shader_stage;
@@ -299,6 +302,16 @@ namespace Comet {
         const ShaderLayout& layout, const PipelineConfig& config,
         const std::shared_ptr<Shader>& vert_shader,
         const std::shared_ptr<Shader>& frag_shader) {
+        if(!vert_shader || !frag_shader
+            || vert_shader->get_interface().get_stage()
+                   != vk::ShaderStageFlagBits::eVertex
+            || frag_shader->get_interface().get_stage()
+                   != vk::ShaderStageFlagBits::eFragment) {
+            throw std::invalid_argument(
+                "Graphics pipeline requires vertex/fragment shaders");
+        }
+        layout.validate(vert_shader->get_interface());
+        layout.validate(frag_shader->get_interface());
         const auto it = m_pipelines.find(name);
         if(it != m_pipelines.end()) {
             LOG_DEBUG("Pipeline '{}' already exists, returning cached version", name);

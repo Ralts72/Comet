@@ -15,6 +15,7 @@
 namespace Comet {
     class Material;
     class Texture;
+    class ShaderInterface;
 
     class COMET_API MaterialLayout {
     public:
@@ -63,6 +64,8 @@ namespace Comet {
         [[nodiscard]] const std::vector<VectorProperty>& get_vectors() const {
             return m_vectors;
         }
+
+        void validate(const ShaderInterface& shader, uint32_t material_set = 1) const;
 
     private:
         std::string m_name;

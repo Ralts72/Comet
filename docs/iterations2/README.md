@@ -60,11 +60,12 @@
 | 014 | 调度队列／资产在途背压与最新请求合并 | Debug/Release 各 413 tests 通过；Linux CI 34052025797 成功 |
 | 015 | 完成发布预算、候选生命周期收敛与定期架构回顾 | Debug/Release 各 420 tests 通过；Linux CI 34052585677 成功 |
 | 016 | 场景／材质解析边界、布局驱动绑定与 revision 缓存 | Debug/Release 各 427 tests 通过；Linux CI 34053125063 成功 |
-| 017 | Frame/Material 分层、多布局 GPU 参数、排序及像素读回 | Debug/Release 各 432 tests 通过 |
-| 018 | 布局驱动 Material Inspector、事件更新与草稿修复 | Debug/Release 各 439 tests 通过；17 个相关测试重复 30 轮通过 |
+| 017 | Frame/Material 分层、多布局 GPU 参数、排序及像素读回 | Debug/Release 各 432 tests 通过；Linux CI 34053891913 成功 |
+| 018 | 布局驱动 Material Inspector、事件更新与草稿修复 | Debug/Release 各 439 tests 通过；Linux CI 34054327743 成功 |
+| 019 | SPIR-V 接口反射、Pipeline 覆盖检查及材质 ABI 校验 | Debug/Release 各 446 tests 通过 |
 
 阶段 4 本轮核心验收通过，扩展项保留在路线图；阶段 5／6 尚未完成。
-阶段 3 的主线负载控制已补齐。下一项：阶段 5 ShaderInterface / SPIR-V 反射，再接 PipelineKey。
+阶段 3 的主线负载控制已补齐。下一项：阶段 5 结构化 PipelineKey，并做第 020 项定期架构回顾。
 已完成定期架构回顾：005、010、015；阶段边界回顾：013。下一次：020 或阶段 5 边界（取先到者）。
 
 远端推送结果与 CI 以 git 远端 refs 和 CI 实际运行状态为准，不能将本表视为远端成功证明。

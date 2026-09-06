@@ -2,6 +2,7 @@
 
 #include "diagnostics/logger.h"
 #include "render/material.h"
+#include "graphics/pipeline/shader_interface.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,6 +12,52 @@
 #include <utility>
 
 namespace Comet {
+    void MaterialLayout::validate(
+        const ShaderInterface& shader, const uint32_t material_set) const {
+        const auto fail = [&](const std::string& reason) {
+            throw std::invalid_argument("Material layout '" + m_name + "': " + reason);
+        };
+        size_t texture_count = 0;
+        bool parameter_block_found = false;
+        for(const auto& binding : shader.get_bindings()) {
+            if(binding.set != material_set)
+                continue;
+            if(binding.count != 1)
+                fail("descriptor arrays are not material properties");
+            if(binding.type == vk::DescriptorType::eCombinedImageSampler) {
+                if(std::ranges::find(
+                       m_textures, binding.binding, &TextureProperty::binding)
+                    == m_textures.end()) {
+                    fail("missing texture binding " + std::to_string(binding.binding));
+                }
+                ++texture_count;
+                continue;
+            }
+            if(binding.binding != 0 || binding.type != vk::DescriptorType::eUniformBuffer
+                || m_parameter_size == 0 || binding.block_size != m_parameter_size) {
+                fail("parameter block type, binding or size mismatch");
+            }
+            parameter_block_found = true;
+            if(binding.members.size() != m_scalars.size() + m_vectors.size())
+                fail("parameter member count mismatch");
+            const auto check_member = [&](uint32_t offset, vk::Format format,
+                                          const std::string& name) {
+                const auto found = std::ranges::find(
+                    binding.members, offset, &ShaderInterface::BlockMember::offset);
+                if(found == binding.members.end() || found->format != format)
+                    fail("parameter '" + name + "' offset or type mismatch");
+            };
+            for(const auto& scalar : m_scalars)
+                check_member(scalar.offset, vk::Format::eR32Sfloat, scalar.name);
+            for(const auto& vector : m_vectors)
+                check_member(vector.offset, vk::Format::eR32G32B32A32Sfloat, vector.name);
+        }
+        if(texture_count != m_textures.size())
+            fail("texture properties do not match shader bindings");
+        if(parameter_block_found != (m_parameter_size > 0))
+            fail("parameter block is missing from shader");
+    }
+
     std::shared_ptr<const MaterialLayout> MaterialLayout::find_builtin(
         const std::string_view name) {
         static const std::array<std::shared_ptr<const MaterialLayout>, 2> layouts{

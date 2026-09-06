@@ -87,6 +87,7 @@ namespace Comet {
     void MaterialRenderer::add_pipeline(PipelineManager& pipelines,
         const std::shared_ptr<Shader>& vertex, const std::shared_ptr<Shader>& fragment,
         std::shared_ptr<const MaterialLayout> layout, const SampleCount samples) {
+        layout->validate(fragment->get_interface());
         auto state = std::make_shared<PipelineState>();
         state->layout = std::move(layout);
         state->frame_layout = m_frame_layout;

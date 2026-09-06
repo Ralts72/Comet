@@ -3,13 +3,36 @@
 #include "graphics/device.h"
 #include "diagnostics/logger.h"
 
+#include <stdexcept>
+#include <utility>
+
 namespace Comet {
-    Shader::Shader(Device& device, const std::string& name,
-        std::span<const std::uint32_t> spirv_words)
-        : m_device(device) {
-        if(spirv_words.empty()) {
-            LOG_FATAL("Shader '{}' has empty SPIR-V bytecode", name);
+    void ShaderLayout::validate(const ShaderInterface& shader) const {
+        for(const auto& required : shader.get_bindings()) {
+            if(required.set >= descriptor_set_layouts.size()
+                || !descriptor_set_layouts[required.set]) {
+                throw std::invalid_argument("Shader descriptor set "
+                                            + std::to_string(required.set)
+                                            + " is missing from pipeline layout");
+            }
         }
+        for(uint32_t set = 0; set < descriptor_set_layouts.size(); ++set) {
+            if(!descriptor_set_layouts[set])
+                throw std::invalid_argument("Pipeline layout contains a null set layout");
+            shader.validate_set(set, descriptor_set_layouts[set]->get_bindings());
+        }
+        std::vector<vk::PushConstantRange> ranges;
+        for(const auto& range : push_constants) {
+            if(!range)
+                throw std::invalid_argument("Pipeline layout contains a null push range");
+            ranges.push_back(range->get());
+        }
+        shader.validate_push_constants(ranges);
+    }
+
+    Shader::Shader(Device& device, const std::string& name,
+        std::span<const std::uint32_t> spirv_words, std::string entry_point)
+        : m_device(device), m_interface(spirv_words, std::move(entry_point)) {
         vk::ShaderModuleCreateInfo create_info{};
         create_info.codeSize = spirv_words.size_bytes();
         create_info.pCode = spirv_words.data();

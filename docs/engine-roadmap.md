@@ -12,7 +12,7 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、有界队列及发布预算可用 | 更多导入能力与按需字节预算 |
 | 4 视口与交互 | 本轮核心验收通过，扩展保留 | Prefab、搜索、按需通知和更精细拾取 |
-| 5 渲染升级 | 多布局材质、版本化 MaterialSet、排序及布局驱动 Inspector 已接通 | 反射、PipelineKey、多 pass、线程边界 |
+| 5 渲染升级 | 多布局材质、Inspector、SPIR-V 接口及布局校验已接通 | PipelineKey、Shader 更新、多 pass、线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 规划 | 项目设置、格式迁移、打包 |
 
@@ -23,7 +23,7 @@
    Gizmo 已支持平移／旋转／缩放及对应吸附，核心编辑闭环进入维护回归。
    保持修改、world transform 更新、提取与绘制的时序一致；结构修改不能简单套属性快照。
 2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
-3. **渲染主线**：后台背压／发布预算、多布局材质及布局驱动 Inspector 已接通，下一项反射，再到 PipelineKey、Shader 更新及多 pass。
+3. **渲染主线**：后台背压／发布预算、多布局材质、Inspector 及接口反射已接通，下一项 PipelineKey，再到 Shader 更新及多 pass。
 
 WSI 失败后的无呈现重试仍是应独立验收的恢复性缺口，不与材质改造捆绑完成。
 
@@ -148,10 +148,11 @@ SceneRenderer 编排 pass，MaterialRenderer 消费 Mesh 队列；不是仅把 a
    model matrix 继续用 push constant，物体 ID 随 GPU picking 需要再接入；只有帧相机参数维护 slot state。
 4. 已完成不透明 Render Queue 按 pipeline/material 排序；两种布局及纹理、标量、向量参数通过真实像素读回验证。
    透明排序仍待对应渲染路径；PipelineKey 尚未用结构化键替代布局名。
-5. 再引入 SPIR-V reflection 生成 ShaderInterface（set/binding/type/count/stage/push constants）。
+5. 已引入 SPIRV-Reflect 生成 CPU ShaderInterface（set/binding/type/count/stage/push constants）。
+   Pipeline 创建前校验接口覆盖，MaterialLayout 另校验参数块大小/偏移/类型；runtime descriptor array 暂明确拒绝。
    显示名、默认值、颜色/法线语义和 Inspector 范围仍由 Material metadata 提供；不与 C++ 反射混淆。
 6. 已接通内置 Material Inspector 的布局控件：共享默认值/范围/颜色语义，仅变化时保存并更新对应资产，未变化材质保持缓存。
-   缺失必需纹理先保留草稿、补齐自动发布；当前不引入 bindless。自定义布局注册与 Shader 反射后续扩展。
+   缺失必需纹理先保留草稿、补齐自动发布；当前不引入 bindless。自定义布局注册和反射驱动的接口重建后续扩展。
 
 Shader 源码、CPU 编译结果和 Vulkan 对象分层；build-time/editor 编译共用 stage、entry、defines/variants、target 和依赖契约。
 Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验票 → owner 帧边界切换。

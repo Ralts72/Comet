@@ -16,6 +16,22 @@ list(APPEND TEST_SOURCES
 # 创建单元测试可执行文件
 add_executable(unit_testing ${TEST_SOURCES})
 
+include("${CMAKE_SOURCE_DIR}/engine/cmake/compile_shader.cmake")
+find_program(TEST_SHADER_COMPILER glslangValidator REQUIRED)
+compile_shaders(
+        TARGET test_shader_compile
+        COMPILER "${TEST_SHADER_COMPILER}"
+        OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders"
+        SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/shaders/interface_array.vert"
+        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/shaders/material_integer.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/shaders/runtime_array.frag"
+)
+add_dependencies(unit_testing shader_compile test_shader_compile)
+target_include_directories(unit_testing PRIVATE
+        "${CMAKE_BINARY_DIR}/engine/generated/shaders/include"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders/include")
+
 # 链接库，确保正确的依赖顺序
 target_link_libraries(unit_testing PRIVATE
         engine
