@@ -17,7 +17,7 @@ namespace CometEditor {
     class HierarchyPanel: public EditorPanel {
     public:
         struct Request {
-            enum class Type { Create, Delete, Reparent };
+            enum class Type { Create, Delete, Reparent, Duplicate };
             Type type;
             Comet::EntityUuid entity;
             Comet::EntityUuid parent;

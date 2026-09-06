@@ -24,6 +24,75 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(SceneCommandsTest, DuplicateRemapsSubtreeAndPreservesExternalParentAndAssets) {
+        const auto parent = scene.create_entity("Parent");
+        auto child = scene.create_entity("Child");
+        auto grandchild = scene.create_entity("Grandchild");
+        ASSERT_TRUE(scene.set_parent(entity, parent));
+        ASSERT_TRUE(scene.set_parent(child, entity));
+        ASSERT_TRUE(scene.set_parent(grandchild, child));
+        child.add_component<Comet::MeshRendererComponent>(
+            Comet::AssetHandle(8), Comet::AssetHandle(9));
+        child.get_component<Comet::TransformComponent>().translation.x = 6;
+        const auto copy_uuid =
+            SceneCommands::duplicate_entity(history, registry, entity.get_uuid());
+        ASSERT_TRUE(copy_uuid);
+        auto copy = scene.find_entity(copy_uuid);
+        EXPECT_NE(copy_uuid, entity.get_uuid());
+        EXPECT_EQ(copy.get_component<Comet::NameComponent>().name, "Edited Copy");
+        EXPECT_EQ(scene.get_parent(copy), parent);
+        auto copy_children = scene.get_children(copy);
+        ASSERT_EQ(copy_children.size(), 1);
+        auto copied_child = copy_children.front();
+        EXPECT_NE(copied_child.get_uuid(), child.get_uuid());
+        EXPECT_EQ(copied_child.get_component<Comet::NameComponent>().name, "Child");
+        EXPECT_EQ(copied_child.get_component<Comet::MeshRendererComponent>().material,
+            Comet::AssetHandle(9));
+        EXPECT_FLOAT_EQ(
+            copied_child.get_component<Comet::TransformComponent>().translation.x, 6);
+        auto copy_grandchildren = scene.get_children(copied_child);
+        ASSERT_EQ(copy_grandchildren.size(), 1);
+        EXPECT_NE(copy_grandchildren.front().get_uuid(), grandchild.get_uuid());
+        const auto copied_child_uuid = copied_child.get_uuid();
+        child.get_component<Comet::TransformComponent>().translation.x = 12;
+        EXPECT_FLOAT_EQ(
+            copied_child.get_component<Comet::TransformComponent>().translation.x, 6);
+        EXPECT_EQ(history.undo_size(), 1);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.entity_count(), 4);
+        EXPECT_TRUE(entity);
+        EXPECT_TRUE(child);
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(scene.entity_count(), 7);
+        EXPECT_EQ(
+            scene.get_parent(scene.find_entity(copied_child_uuid)).get_uuid(), copy_uuid);
+        EXPECT_FLOAT_EQ(scene.find_entity(copied_child_uuid)
+                            .get_component<Comet::TransformComponent>()
+                            .translation.x,
+            6);
+    }
+
+    TEST_F(SceneCommandsTest, InvalidDuplicateKeepsRedoAndDoesNotPartiallyCopy) {
+        const auto uuid = SceneCommands::create_entity(history, registry);
+        ASSERT_TRUE(uuid);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(SceneCommands::duplicate_entity(history, registry, uuid));
+        struct UnknownComponent {
+            int value = 1;
+        };
+        auto child = scene.create_entity();
+        child.add_component<UnknownComponent>();
+        ASSERT_TRUE(scene.set_parent(child, entity));
+        EXPECT_FALSE(
+            SceneCommands::duplicate_entity(history, registry, entity.get_uuid()));
+        EXPECT_EQ(scene.entity_count(), 2);
+        EXPECT_EQ(history.redo_size(), 1);
+        ASSERT_TRUE(history.redo());
+        history.bind_scene(nullptr);
+        EXPECT_FALSE(
+            SceneCommands::duplicate_entity(history, registry, entity.get_uuid()));
+    }
+
     TEST_F(SceneCommandsTest, CreateRenameDeleteUseOneHistoryAndStableUuid) {
         const auto uuid = SceneCommands::create_entity(history, registry, "Created");
         ASSERT_TRUE(uuid);

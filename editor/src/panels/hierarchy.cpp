@@ -69,6 +69,13 @@ namespace CometEditor {
         if(ImGui::IsItemClicked()) {
             m_selection.select_entity(entity.get_id());
         }
+        if(ImGui::BeginPopupContextItem()) {
+            if(ImGui::MenuItem(
+                   "Duplicate", nullptr, false, m_history.get_scene() == m_scene))
+                m_request = Request{Request::Type::Duplicate, entity.get_uuid(), {},
+                    m_history.generation()};
+            ImGui::EndPopup();
+        }
 
         if(m_history.get_scene() == m_scene && ImGui::BeginDragDropSource()) {
             const EntityPayload payload{entity.get_uuid(), m_history.generation()};

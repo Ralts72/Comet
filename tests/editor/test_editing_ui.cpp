@@ -155,6 +155,41 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(hierarchy.take_request());
     }
 
+    TEST_F(EditingUiTest, HierarchyContextMenuQueuesDuplicateForClickedEntity) {
+        HierarchyPanel hierarchy(scene, selection, history);
+        const auto draw = [&]() {
+            ImGui::NewFrame();
+            ImGui::SetNextWindowPos(ImVec2(0, 0));
+            ImGui::SetNextWindowSize(ImVec2(400, 400));
+            hierarchy.render();
+            ImGui::Render();
+        };
+        draw();
+        draw();
+        auto* window = ImGui::FindWindowByName("Hierarchy");
+        ASSERT_NE(window, nullptr);
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(window->WorkRect.Min.x + 70,
+            window->DC.CursorPosPrevLine.y + ImGui::GetTextLineHeight() * 0.5f);
+        draw();
+        io.AddMouseButtonEvent(1, true);
+        draw();
+        io.AddMouseButtonEvent(1, false);
+        draw();
+        draw();
+        auto& context = *ImGui::GetCurrentContext();
+        ASSERT_EQ(context.OpenPopupStack.Size, 1);
+        auto* popup = context.OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Duplicate"));
+        draw();
+        const auto request = hierarchy.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->type, HierarchyPanel::Request::Type::Duplicate);
+        EXPECT_EQ(request->entity, entity.get_uuid());
+        EXPECT_EQ(scene.entity_count(), 1);
+    }
+
     TEST_F(EditingUiTest, AddComponentMenuUsesHistoryAndIsDisabledInPlay) {
         auto* window = ImGui::FindWindowByName("Inspector");
         ASSERT_NE(window, nullptr);

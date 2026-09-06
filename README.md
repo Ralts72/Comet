@@ -52,6 +52,7 @@ ctest --preset dev-debug
   New/Open 成功及 Edit/Play 切换清空历史；Play 属性仍可实时调试，但不记入 Edit 历史。
   Inspector 底部 Add Component 添加可选组件，右键组件标题可移除；均支持撤销，名称和 Transform 不开放增删。
   Hierarchy 的 + 创建、- 删除子树及拖拽调整父级也支持撤销；拖拽保留本地 Transform，世界位置可能改变。
+  右键实体选择 Duplicate 复制整棵子树，生成新 UUID、保留资产引用，整次复制只记一条历史。
   Play 不开放场景结构编辑；资产文件修改和保存暂不纳入撤销历史。
 - Play 分辨率可选 Free、16:9、HD（1280×720）、FHD（1920×1080）；Fit 等比适应面板，1x 按原尺寸显示并裁切。
 - Project 支持刷新、移动与重命名；Inspector 的材质和纹理设置按变化事件提交，更新日志统一进入 Log。

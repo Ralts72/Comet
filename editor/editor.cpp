@@ -484,9 +484,15 @@ namespace {
             namespace Commands = CometEditor::SceneCommands;
             bool changed = false;
             switch(request.type) {
-                case Type::Create: {
-                    const auto uuid =
-                        Commands::create_entity(m_command_history, m_component_registry);
+                case Type::Create:
+                case Type::Duplicate: {
+                    Comet::EntityUuid uuid;
+                    if(request.type == Type::Create)
+                        uuid = Commands::create_entity(
+                            m_command_history, m_component_registry);
+                    else
+                        uuid = Commands::duplicate_entity(
+                            m_command_history, m_component_registry, request.entity);
                     changed = static_cast<bool>(uuid);
                     if(changed)
                         m_selection->select_entity(

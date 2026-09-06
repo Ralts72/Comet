@@ -1,6 +1,7 @@
 #include "scene_commands.h"
 
 #include <unordered_set>
+#include <unordered_map>
 
 namespace CometEditor::SceneCommands {
     namespace {
@@ -245,6 +246,40 @@ namespace CometEditor::SceneCommands {
         return snapshots
                && history.execute(std::make_unique<EntityTreeCommand>(
                    registry, std::move(*snapshots), false));
+    }
+
+    Comet::EntityUuid duplicate_entity(CommandHistory& history,
+        const Comet::ComponentRegistry& registry, Comet::EntityUuid entity) {
+        auto* scene = history.get_scene();
+        if(!scene)
+            return {};
+        auto snapshots = capture_tree(*scene, registry, scene->find_entity(entity));
+        if(!snapshots)
+            return {};
+        std::unordered_map<Comet::EntityUuid, Comet::EntityUuid> remap;
+        std::unordered_set<Comet::EntityUuid> reserved;
+        for(const auto& snapshot : *snapshots) {
+            Comet::EntityUuid uuid;
+            do {
+                uuid = Comet::EntityUuid::generate();
+            } while(scene->find_entity(uuid) || reserved.contains(uuid));
+            reserved.insert(uuid);
+            remap.emplace(snapshot.uuid, uuid);
+        }
+        for(auto& snapshot : *snapshots) {
+            snapshot.uuid = remap.at(snapshot.uuid);
+            if(const auto parent = remap.find(snapshot.parent); parent != remap.end())
+                snapshot.parent = parent->second;
+        }
+        auto& root = snapshots->front();
+        if(root.name.empty())
+            root.name = "Entity";
+        root.name += " Copy";
+        const auto uuid = root.uuid;
+        if(!history.execute(std::make_unique<EntityTreeCommand>(
+               registry, std::move(*snapshots), true)))
+            return {};
+        return uuid;
     }
 
     bool reparent_entity(
