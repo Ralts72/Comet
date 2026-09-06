@@ -7,10 +7,13 @@
 #include "render/material_renderer.h"
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
+#include "shader_reload.h"
+#include "common/file_io.h"
 
 #include <gtest/gtest.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <sstream>
+#include <tuple>
 
 namespace Comet::Tests {
     class MaterialRenderingTest: public ::testing::Test {
@@ -32,7 +35,10 @@ namespace Comet::Tests {
             EXPECT_EQ(messages.str().find("VUID-"), std::string::npos) << messages.str();
             EXPECT_EQ(messages.str().find("Validation Error"), std::string::npos)
                 << messages.str();
+            std::error_code error;
+            std::filesystem::remove_all(shader_root, error);
         }
+        void verify_versions(bool reload_shaders);
         std::shared_ptr<Texture> texture(std::vector<uint8_t> rgba) {
             return engine->get_resource_manager()
                 .try_create_texture({.width = 1, .height = 1, .pixels = std::move(rgba)})
@@ -41,10 +47,13 @@ namespace Comet::Tests {
         std::unique_ptr<Engine> engine;
         std::ostringstream messages;
         std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink;
+        std::filesystem::path shader_root =
+            std::filesystem::temp_directory_path()
+            / ("comet_material_shader_test_"
+                + std::to_string(AssetHandle::generate().value()));
     };
 
-    TEST_F(
-        MaterialRenderingTest, ReadsPixelsFromTwoLayoutsBeforeAndAfterParameterChanges) {
+    void MaterialRenderingTest::verify_versions(const bool reload_shaders) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
         auto color = Attachment::get_color_attachment(Format::R8G8B8A8_UNORM);
@@ -113,9 +122,69 @@ namespace Comet::Tests {
         engine->get_resource_manager().collect_completed_uploads();
         for(int iteration = 0; iteration < 2; ++iteration) {
             if(iteration == 1) {
-                textured->set_texture_property("u_Texture0", texture({255, 0, 0, 255}));
-                textured->set_scalar_property("blend", 0.75f);
-                solid->set_scalar_property("intensity", 0.25f);
+                if(reload_shaders) {
+                    CometEditor::ShaderReload::Requests requests;
+                    for(const auto& [name, filename, stage] :
+                        {std::tuple("material_mesh", "material_mesh.vert",
+                             ShaderCompiler::Stage::Vertex),
+                            std::tuple("material_textured", "material_textured.frag",
+                                ShaderCompiler::Stage::Fragment),
+                            std::tuple("material_solid", "material_solid.frag",
+                                ShaderCompiler::Stage::Fragment)}) {
+                        auto source =
+                            read_text_file(std::filesystem::path(PROJECT_ROOT_DIR)
+                                           / "engine/shaders/glsl" / filename);
+                        if(stage == ShaderCompiler::Stage::Fragment)
+                            source.insert(
+                                source.rfind('}'), "    color.rgb = color.bgr;\n");
+                        write_text_file_atomic(shader_root / filename, source);
+                        requests.emplace(
+                            name, ShaderCompiler::Request{
+                                      .source = shader_root / filename, .stage = stage});
+                    }
+                    CometEditor::ShaderReload reload(
+                        engine->get_task_scheduler(), requests);
+                    EXPECT_FALSE(reload.update());
+                    engine->get_task_scheduler().wait_idle();
+                    const auto candidate = reload.update();
+                    ASSERT_TRUE(candidate);
+                    auto& shader_manager =
+                        engine->get_resource_manager().get_shader_manager();
+                    materials.reload_shaders(
+                        pipelines, shader_manager, *candidate, SampleCount::Count1);
+                    EXPECT_EQ(shader_manager.get_shader("material_solid")->get_code(),
+                        candidate->at("material_solid").words);
+                    auto broken = *candidate;
+                    auto changed_vertex =
+                        read_text_file(shader_root / "material_mesh.vert");
+                    changed_vertex.insert(
+                        changed_vertex.rfind('}'), "    gl_Position.x += 0.0;\n");
+                    write_text_file_atomic(
+                        shader_root / "material_mesh.vert", changed_vertex);
+                    const auto compiled_vertex =
+                        ShaderCompiler::compile(requests.at("material_mesh"));
+                    ASSERT_TRUE(compiled_vertex.succeeded())
+                        << compiled_vertex.diagnostics;
+                    broken.at("material_mesh").words = compiled_vertex.words;
+                    broken.at("material_solid").words.clear();
+                    const auto old_vertex = shader_manager.get_shader("material_mesh");
+                    EXPECT_THROW(materials.reload_shaders(pipelines, shader_manager,
+                                     broken, SampleCount::Count1),
+                        std::invalid_argument);
+                    EXPECT_EQ(shader_manager.get_shader("material_solid")->get_code(),
+                        candidate->at("material_solid").words);
+                    EXPECT_EQ(shader_manager.get_shader("material_mesh"), old_vertex);
+                    // 重建使用已发布的 Shader，不重新覆盖成嵌入的初始版本。
+                    MaterialRenderer rebuilt(device, pipelines,
+                        engine->get_resource_manager(), 2, SampleCount::Count1);
+                    EXPECT_EQ(shader_manager.get_shader("material_solid")->get_code(),
+                        candidate->at("material_solid").words);
+                } else {
+                    textured->set_texture_property(
+                        "u_Texture0", texture({255, 0, 0, 255}));
+                    textured->set_scalar_property("blend", 0.75f);
+                    solid->set_scalar_property("intensity", 0.25f);
+                }
             }
             frames.wait_for_current_slot();
             const auto slot = frames.get_current_frame_slot_index();
@@ -152,11 +221,25 @@ namespace Comet::Tests {
             frames.record_submission();
             frames.end_frame();
             EXPECT_EQ(materials.get_statistics().material_versions_created, 2u);
+            uint32_t expected_bindings = 2;
+            if(iteration == 1 && reload_shaders)
+                expected_bindings = 0;
+            EXPECT_EQ(
+                materials.get_statistics().material_bindings_created, expected_bindings);
         }
         // 两个独立 slot 已提交，但尚未进行完成回收；旧版本必须仍有 owner。
         EXPECT_FALSE(retired.expired());
+        if(reload_shaders) {
+            pipelines.collect_unused();
+            EXPECT_EQ(pipelines.get_cached_pipeline_count(), 4u);
+        }
         frames.wait_for_all_slots();
-        EXPECT_TRUE(retired.expired());
+        if(reload_shaders) {
+            pipelines.collect_unused();
+            EXPECT_EQ(pipelines.get_cached_pipeline_count(), 2u);
+        } else {
+            EXPECT_TRUE(retired.expired());
+        }
         const auto* all_pixels = static_cast<const uint8_t*>(
             device.get().mapMemory(*memory, 0, VK_WHOLE_SIZE));
         for(int iteration = 0; iteration < 2; ++iteration) {
@@ -171,11 +254,52 @@ namespace Comet::Tests {
             if(iteration == 0) {
                 check(16, {191, 0, 32});
                 check(48, {26, 102, 51});
+            } else if(reload_shaders) {
+                check(16, {32, 0, 191});
+                check(48, {51, 102, 26});
             } else {
                 check(16, {64, 0, 96});
                 check(48, {13, 51, 26});
             }
         }
         device.get().unmapMemory(*memory);
+    }
+
+    TEST_F(
+        MaterialRenderingTest, ReadsPixelsFromTwoLayoutsBeforeAndAfterParameterChanges) {
+        verify_versions(false);
+    }
+
+    TEST_F(MaterialRenderingTest,
+        ReloadsShadersWithoutChangingMaterialOrRetiringInFlightPipelines) {
+        verify_versions(true);
+    }
+
+    TEST_F(MaterialRenderingTest, SceneRendererOnlyPublishesBetweenFrames) {
+        auto& renderer = engine->get_renderer();
+        auto& scene = renderer.get_scene_renderer();
+        auto& frames = scene.get_frame_scheduler();
+        auto& resources = renderer.get_resource_manager();
+        ShaderManager::Bytecodes unchanged;
+        for(const auto* name : {"material_mesh", "material_textured", "material_solid"}) {
+            const auto shader = resources.get_shader_manager().get_shader(name);
+            unchanged.emplace(name, ShaderManager::Bytecode{shader->get_code(),
+                                        shader->get_interface().get_entry_point()});
+        }
+        frames.wait_for_current_slot();
+        frames.begin_frame(0);
+        EXPECT_THROW(
+            scene.reload_material_shaders(resources, unchanged), std::logic_error);
+        auto& command = frames.get_current_command_buffer();
+        command.begin();
+        command.end();
+        static_cast<void>(
+            renderer.get_render_context().get_device().get_graphics_queue().submit2({},
+                std::span(&command, 1), {},
+                &frames.get_current_frame_slot().in_flight_fence));
+        frames.record_submission();
+        frames.end_frame();
+        EXPECT_NO_THROW(scene.reload_material_shaders(resources, unchanged));
+        frames.wait_for_all_slots();
     }
 }

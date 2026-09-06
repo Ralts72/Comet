@@ -75,18 +75,24 @@ namespace Comet {
             m_frames.push_back(std::move(frame));
         }
         auto& shaders = resources.get_shader_manager();
-        const auto vertex = shaders.load_shader("material_mesh", MATERIAL_MESH_VERT);
-        add_pipeline(pipelines, vertex,
-            shaders.load_shader("material_textured", MATERIAL_TEXTURED_FRAG),
-            MaterialLayout::find_builtin("cube_texture"), samples);
-        add_pipeline(pipelines, vertex,
-            shaders.load_shader("material_solid", MATERIAL_SOLID_FRAG),
-            MaterialLayout::find_builtin("unlit_color"), samples);
+        const auto vertex =
+            shaders.load_shader_if_missing("material_mesh", MATERIAL_MESH_VERT);
+        m_pipelines.emplace(
+            "cube_texture", create_pipeline(pipelines, vertex,
+                                shaders.load_shader_if_missing(
+                                    "material_textured", MATERIAL_TEXTURED_FRAG),
+                                MaterialLayout::find_builtin("cube_texture"), samples));
+        m_pipelines.emplace("unlit_color",
+            create_pipeline(pipelines, vertex,
+                shaders.load_shader_if_missing("material_solid", MATERIAL_SOLID_FRAG),
+                MaterialLayout::find_builtin("unlit_color"), samples));
     }
 
-    void MaterialRenderer::add_pipeline(PipelineManager& pipelines,
-        const std::shared_ptr<Shader>& vertex, const std::shared_ptr<Shader>& fragment,
-        std::shared_ptr<const MaterialLayout> layout, const SampleCount samples) {
+    std::shared_ptr<const MaterialRenderer::PipelineState> MaterialRenderer::
+        create_pipeline(PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
+            const std::shared_ptr<Shader>& fragment,
+            std::shared_ptr<const MaterialLayout> layout, const SampleCount samples,
+            std::shared_ptr<DescriptorSetLayout> material_layout) {
         layout->validate(fragment->get_interface());
         auto state = std::make_shared<PipelineState>();
         state->layout = std::move(layout);
@@ -100,8 +106,10 @@ namespace Comet {
             bindings.add_binding(texture.binding, DescriptorType::CombinedImageSampler,
                 Flags<ShaderStage>(ShaderStage::Fragment));
         }
-        state->material_layout =
-            std::make_shared<DescriptorSetLayout>(m_device, bindings);
+        state->material_layout = std::move(material_layout);
+        if(!state->material_layout)
+            state->material_layout =
+                std::make_shared<DescriptorSetLayout>(m_device, bindings);
         ShaderLayout shader_layout;
         shader_layout.descriptor_set_layouts = {m_frame_layout, state->material_layout};
         shader_layout.push_constants.push_back(std::make_shared<PushConstantRange>(
@@ -120,7 +128,31 @@ namespace Comet {
         config.set_multisample_state(samples, false, 0.2f);
         state->pipeline = pipelines.create_pipeline(
             state->layout->get_name(), shader_layout, config, vertex, fragment);
-        m_pipelines.emplace(state->layout->get_name(), std::move(state));
+        return state;
+    }
+
+    void MaterialRenderer::reload_shaders(PipelineManager& pipelines,
+        ShaderManager& shaders, const ShaderManager::Bytecodes& bytecodes,
+        const SampleCount samples) {
+        if(bytecodes.size() != 3 || !bytecodes.contains("material_mesh")
+            || !bytecodes.contains("material_textured")
+            || !bytecodes.contains("material_solid"))
+            throw std::invalid_argument(
+                "Material Shader reload requires the complete three-Shader cohort");
+        auto candidate_shaders = shaders.prepare_update(bytecodes);
+        auto candidate_pipelines = m_pipelines;
+        for(const auto& [layout, fragment] :
+            {std::pair("cube_texture", "material_textured"),
+                std::pair("unlit_color", "material_solid")}) {
+            const auto& old = m_pipelines.at(layout);
+            auto candidate = create_pipeline(pipelines,
+                candidate_shaders.at("material_mesh"), candidate_shaders.at(fragment),
+                old->layout, samples, old->material_layout);
+            if(candidate->pipeline != old->pipeline)
+                candidate_pipelines.at(layout) = std::move(candidate);
+        }
+        shaders.publish_update(candidate_shaders);
+        m_pipelines.swap(candidate_pipelines);
     }
 
     std::shared_ptr<MaterialRenderer::MaterialResources> MaterialRenderer::
@@ -146,13 +178,26 @@ namespace Comet {
             return nullptr;
         auto& cached = m_materials[material.material_handle];
         cached.used = true;
-        if(cached.resources && cached.resources->prepared == prepared)
+        if(cached.resources && cached.resources->prepared == prepared
+            && cached.resources->pipeline == pipeline->second)
             return cached.resources;
         if(cached.failed_candidate == prepared
+            && cached.failed_pipeline == pipeline->second
             && frame_serial < cached.retry_after_serial) {
             return cached.resources;
         }
         try {
+            if(cached.resources && cached.resources->prepared == prepared
+                && cached.resources->pipeline->material_layout
+                       == pipeline->second->material_layout) {
+                auto candidate = std::make_shared<MaterialResources>(*cached.resources);
+                candidate->pipeline = pipeline->second;
+                cached.resources = candidate;
+                cached.failed_candidate.reset();
+                cached.failed_pipeline.reset();
+                ++m_statistics.material_versions_created;
+                return candidate;
+            }
             auto candidate = std::make_shared<MaterialResources>();
             candidate->pipeline = pipeline->second;
             candidate->prepared = prepared;
@@ -206,14 +251,17 @@ namespace Comet {
                 writes.push_back(write);
             }
             m_device.get().updateDescriptorSets(writes, {});
+            ++m_statistics.material_bindings_created;
             cached.resources = candidate;
             cached.failed_candidate.reset();
+            cached.failed_pipeline.reset();
             ++m_statistics.material_versions_created;
             return candidate;
         } catch(const std::exception& exception) {
             LOG_ERROR("Keeping previous GPU material for handle {}: {}",
                 material.material_handle.value(), exception.what());
             cached.failed_candidate = prepared;
+            cached.failed_pipeline = pipeline->second;
             cached.retry_after_serial = frame_serial + 60;
             return cached.resources;
         }

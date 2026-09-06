@@ -46,6 +46,44 @@ namespace Comet {
         m_device.get().destroyShaderModule(m_shader_module);
     }
 
+    std::shared_ptr<Shader> ShaderManager::get_shader(const std::string& name) const {
+        const auto found = m_shaders.find(name);
+        if(found == m_shaders.end())
+            return nullptr;
+        return found->second;
+    }
+
+    std::shared_ptr<Shader> ShaderManager::load_shader_if_missing(
+        const std::string& name, std::span<const uint32_t> words) {
+        if(auto shader = get_shader(name))
+            return shader;
+        return load_shader(name, words);
+    }
+
+    ShaderManager::Snapshot ShaderManager::prepare_update(
+        const Bytecodes& bytecodes) const {
+        auto candidate = m_shaders;
+        for(const auto& [name, source] : bytecodes) {
+            auto old = get_shader(name);
+            if(!old)
+                throw std::invalid_argument("Cannot reload unknown Shader: " + name);
+            if(old->get_code() == source.words
+                && old->get_interface().get_entry_point() == source.entry_point)
+                continue;
+            auto shader = std::make_shared<Shader>(
+                m_device, name, source.words, source.entry_point);
+            if(!old->get_interface().has_same_layout(shader->get_interface()))
+                throw std::invalid_argument(
+                    "Shader layout change requires a layout rebuild: " + name);
+            candidate.at(name) = std::move(shader);
+        }
+        return candidate;
+    }
+
+    void ShaderManager::publish_update(Snapshot& candidate) noexcept {
+        m_shaders.swap(candidate);
+    }
+
     std::shared_ptr<Shader> ShaderManager::load_shader(const std::string& name,
         std::span<const std::uint32_t> spirv_words, std::string entry_point) {
         if(const auto it = m_shaders.find(name); it != m_shaders.end()) {

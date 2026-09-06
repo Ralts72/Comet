@@ -56,6 +56,7 @@ namespace Comet {
         [[nodiscard]] uint32_t get_current_frame_slot_index() const {
             return m_current_frame_slot;
         }
+        [[nodiscard]] bool is_frame_active() const { return m_frame_active; }
         [[nodiscard]] uint32_t get_frame_slot_count() const { return m_frame_slot_count; }
         [[nodiscard]] uint64_t get_current_frame_serial() const {
             return m_current_frame_serial;

@@ -82,7 +82,10 @@ ctest --preset dev-debug
   SceneResolver 不解析材质属性；渲染侧按 MaterialLayout 准备并缓存材质绑定，按对象身份与 revision 失效。
   MaterialRenderer 负责排序和绘制 Mesh：FrameSet 按 slot 更新，MaterialSet 按版本创建并跨 slot 复用。
 - Shader：构建 CLI 与工具层 `ShaderCompiler` 共用 stage、entry、defines、target、include 快照契约，
-  通过 depfile 跟踪已有共享头文件；失败不覆盖旧字节码。运行时不带源编译器，编辑器热更新尚未接入。
+  通过 depfile 跟踪已有共享头文件；失败不覆盖旧字节码。运行时不带源编译器。
+  编辑器自动监控 `engine/shaders/glsl/` 的 `material_mesh.vert`、`material_textured.frag`、`material_solid.frag` 及实际 include，
+  约 200 ms 检查、150 ms 防抖后后台整组编译；兼容接口在帧边界生效，错误仅进入 Log 并保留旧画面。
+  改变绑定、参数布局或阶段输入/输出目前明确拒绝；DebugRenderer Shader 热更新和接口重建仍待接入。
   SPIRV-Reflect 子模块从实际字节码生成 CPU `ShaderInterface`；创建 Pipeline 前校验绑定及 push constant，
   材质另核对参数块大小、偏移和类型。显示名、默认值、颜色及编辑范围仍由 MaterialLayout 定义，不从反射猜测。
 - Pipeline：在当前 Device/RenderPass 内按 Shader 内容、布局及完整配置复用，名称只作标签；

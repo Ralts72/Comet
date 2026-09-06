@@ -66,11 +66,12 @@
 | 018 | 布局驱动 Material Inspector、事件更新与草稿修复 | Debug/Release 各 439 tests 通过；Linux CI 34054327743 成功 |
 | 019 | SPIR-V 接口反射、Pipeline 覆盖检查及材质 ABI 校验 | Debug/Release 各 446 tests 通过；Linux CI 34054932834 成功 |
 | 020 | 当前 Pipeline API 结构化键、弱缓存、配置生效及架构回顾 | Debug/Release 各 452 tests 通过；Release 首轮 Cocoa 超时后串行复核；Linux CI 34055640202 成功 |
-| 021 | 共用 CPU Shader 编译契约、构建 CLI、输入快照与 depfile | Debug/Release 各 460 tests + 1 构建契约测试通过 |
-| 022 | 固定接口 specialization、类型/默认值反射、位模式键与真实 GPU 变体 | Debug/Release 各 464 tests + 1 构建契约测试通过 |
+| 021 | 共用 CPU Shader 编译契约、构建 CLI、输入快照与 depfile | Debug/Release 各 460 tests + 1 构建契约测试通过；Linux CI 34056281827 成功 |
+| 022 | 固定接口 specialization、类型/默认值反射、位模式键与真实 GPU 变体 | Debug/Release 各 464 tests + 1 构建契约测试通过；Linux CI 34056663399 成功 |
+| 023 | 编辑器材质 Shader 有界热更新、整组发布与在途 GPU 版本保护 | Debug/Release 各 473 tests + 1 构建契约测试通过 |
 
 阶段 4 本轮核心验收通过，扩展项保留在路线图；阶段 5／6 尚未完成。
-阶段 3 的主线负载控制已补齐。下一项：阶段 5 Shader 安全热更新，接通有界 Worker、revision 验票及 owner 发布。
+阶段 3 的主线负载控制已补齐。下一项：阶段 5 Material Shader 接口重建，再补 Debug Shader 热更新与阶段性回顾。
 已完成定期架构回顾：005、010、015、020；阶段边界回顾：013。下一次：025 或阶段 5 边界（取先到者）。
 
 远端推送结果与 CI 以 git 远端 refs 和 CI 实际运行状态为准，不能将本表视为远端成功证明。

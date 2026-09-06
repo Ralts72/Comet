@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <span>
+#include <map>
 namespace Comet {
     class Device;
 
@@ -43,13 +44,24 @@ namespace Comet {
 
     class COMET_API ShaderManager {
     public:
+        struct Bytecode {
+            std::vector<uint32_t> words;
+            std::string entry_point = "main";
+        };
+        using Bytecodes = std::map<std::string, Bytecode>;
+        using Snapshot = std::unordered_map<std::string, std::shared_ptr<Shader>>;
         explicit ShaderManager(Device& device) : m_device(device) {}
 
         std::shared_ptr<Shader> load_shader(const std::string& name,
             std::span<const std::uint32_t> spv_data, std::string entry_point = "main");
+        std::shared_ptr<Shader> load_shader_if_missing(
+            const std::string& name, std::span<const uint32_t> words);
+        [[nodiscard]] Snapshot prepare_update(const Bytecodes& bytecodes) const;
+        void publish_update(Snapshot& candidate) noexcept;
+        [[nodiscard]] std::shared_ptr<Shader> get_shader(const std::string& name) const;
 
     private:
         Device& m_device;
-        std::unordered_map<std::string, std::shared_ptr<Shader>> m_shaders;
+        Snapshot m_shaders;
     };
 }

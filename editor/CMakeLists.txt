@@ -7,6 +7,7 @@ set(SOURCES
         src/editor_state.cpp
         src/editor_scene_session.cpp
         src/scene_document.cpp
+        src/shader_reload.cpp
         src/imgui_context.cpp
         src/menu_bar.cpp
         src/property_editor_registry.cpp
@@ -19,10 +20,11 @@ set(SOURCES
 )
 
 add_executable(editor ${SOURCES})
-target_link_libraries(editor PRIVATE engine imgui glfw)
+target_link_libraries(editor PRIVATE engine imgui glfw comet_shader_tools)
 target_include_directories(editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(editor PRIVATE
         COMET_CONFIG_DIRECTORY="${CMAKE_SOURCE_DIR}/config"
         COMET_CONFIG_PROFILE="${COMET_CONFIG_PROFILE}"
         COMET_EDITOR_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources"
+        COMET_ENGINE_SHADER_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/shaders/glsl"
 )

@@ -156,10 +156,13 @@ SceneRenderer 编排 pass，MaterialRenderer 消费 Mesh 队列；不是仅把 a
 
 Shader 源码、CPU 编译结果和 Vulkan 对象分层；已在 tools/shader 建立 CPU 编译契约并接通 build-time CLI，
 共用固定 glslang、stage、输出 entry（GLSL 源入口 main）、defines、target 和 include 内容快照。
-构建已有头文件依赖通过 depfile 重建；编译失败保留旧 SPIR-V；编辑器侧调用、variants 管理与热更新仍待接入。
-Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验票 → owner 帧边界切换。
-接口兼容时换 Pipeline；接口变化时同时重建 Layout 并失效材质缓存。失败保留旧版本并输出文件/行号诊断；
-GPU 材质缓存命中也必须检查 PipelineState 版本，不能只检查 PreparedMaterial，否则仅修改 Shader 无法更新绘制。
+构建已有头文件依赖通过 depfile 重建；编译失败保留旧 SPIR-V；variants 资产管理仍待接入。
+已接通 Editor-only 材质三 Shader 整组热加载：200 ms 轮询、150 ms debounce → 有界 Worker 编译/reflection
+→ 输入内容/revision 验票 → owner 帧边界切换；只有一个在途组，新的修改合并为最新待执行请求。
+兼容接口已换 Pipeline；GPU 材质缓存已检查 PipelineState 版本，兼容版本复用原 descriptor/参数，旧帧继续持有旧 Pipeline。
+失败保留旧版本并输出文件/行号诊断，渲染目标重建不覆盖已更新 Shader。
+待办：DebugRenderer Shader 同样接入；接口变化时整组重建 Layout 并失效材质缓存，目前显式拒绝。
+兼容性已比较 descriptor/block/push 和阶段输入输出的递归类型形状，不能只检查总字节大小。
 成功也不能提前释放在途帧引用的 Shader/Pipeline/Layout。Shipping 只消费预编译打包数据，不要求松散 .spv。
 
 ### Pipeline 两级缓存

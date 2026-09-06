@@ -5,6 +5,7 @@
 #include "graphics/queue.h"
 #include "render/material_runtime.h"
 #include "render/scene/render_submission.h"
+#include "graphics/pipeline/shader.h"
 
 #include <optional>
 #include <span>
@@ -27,6 +28,7 @@ namespace Comet {
             uint32_t pipeline_binds = 0;
             uint32_t material_binds = 0;
             uint32_t material_versions_created = 0;
+            uint32_t material_bindings_created = 0;
             uint32_t cached_material_versions = 0;
             uint32_t frame_set_count = 0;
         };
@@ -36,6 +38,9 @@ namespace Comet {
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(FrameScheduler& frames,
             const ViewProjectMatrix& view, std::span<const ResolvedRenderItem> items);
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
+        // owner 帧边界调用；整组候选成功后才替换 Shader/Pipeline。
+        void reload_shaders(PipelineManager& pipelines, ShaderManager& shaders,
+            const ShaderManager::Bytecodes& bytecodes, SampleCount samples);
 
     private:
         struct PipelineState {
@@ -61,6 +66,7 @@ namespace Comet {
         struct CachedMaterial {
             std::shared_ptr<MaterialResources> resources;
             std::shared_ptr<const PreparedMaterial> failed_candidate;
+            std::shared_ptr<const PipelineState> failed_pipeline;
             uint64_t retry_after_serial = 0;
             bool used = false;
         };
@@ -69,10 +75,11 @@ namespace Comet {
             std::shared_ptr<MaterialResources> material;
         };
 
-        void add_pipeline(PipelineManager& pipelines,
-            const std::shared_ptr<Shader>& vertex,
+        [[nodiscard]] std::shared_ptr<const PipelineState> create_pipeline(
+            PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
             const std::shared_ptr<Shader>& fragment,
-            std::shared_ptr<const MaterialLayout> layout, SampleCount samples);
+            std::shared_ptr<const MaterialLayout> layout, SampleCount samples,
+            std::shared_ptr<DescriptorSetLayout> material_layout = {});
         [[nodiscard]] std::shared_ptr<MaterialResources> prepare_material(
             const MaterialBinding& material, uint64_t frame_serial);
 

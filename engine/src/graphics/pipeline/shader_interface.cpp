@@ -9,6 +9,7 @@
 #include <utility>
 #include <cstring>
 #include <unordered_set>
+#include <tuple>
 
 namespace Comet {
     namespace {
@@ -115,6 +116,48 @@ namespace Comet {
                    || (shader == vk::DescriptorType::eStorageBuffer
                        && layout == vk::DescriptorType::eStorageBufferDynamic);
         }
+
+        template<typename Source>
+        ShaderInterface::TypeShape reflect_shape(const Source& source) {
+            ShaderInterface::TypeShape result;
+            if(source.type_description)
+                result.type_flags = source.type_description->type_flags;
+            result.scalar_width = source.numeric.scalar.width;
+            result.scalar_signedness = source.numeric.scalar.signedness;
+            result.vector_components = source.numeric.vector.component_count;
+            result.matrix_rows = source.numeric.matrix.row_count;
+            result.matrix_columns = source.numeric.matrix.column_count;
+            result.matrix_stride = source.numeric.matrix.stride;
+            result.row_major =
+                (source.decoration_flags & SPV_REFLECT_DECORATION_ROW_MAJOR) != 0;
+            result.array_stride = source.array.stride;
+            result.array_dimensions.assign(
+                source.array.dims, source.array.dims + source.array.dims_count);
+            return result;
+        }
+
+        ShaderInterface::BlockMember reflect_member(
+            const SpvReflectBlockVariable& source) {
+            ShaderInterface::BlockMember result;
+            if(source.name)
+                result.name = source.name;
+            result.offset = source.offset;
+            result.size = source.size;
+            result.format = member_format(source);
+            result.shape = reflect_shape(source);
+            for(uint32_t index = 0; index < source.member_count; ++index)
+                result.members.push_back(reflect_member(source.members[index]));
+            return result;
+        }
+
+        ShaderInterface::StageVariable reflect_stage_variable(
+            const SpvReflectInterfaceVariable& source) {
+            ShaderInterface::StageVariable result{source.location, source.component,
+                source.built_in, source.decoration_flags, reflect_shape(source), {}};
+            for(uint32_t index = 0; index < source.member_count; ++index)
+                result.members.push_back(reflect_stage_variable(source.members[index]));
+            return result;
+        }
     }
 
     ShaderInterface::ShaderInterface(
@@ -134,6 +177,15 @@ namespace Comet {
             throw std::invalid_argument("SPIR-V entry point not found: " + m_entry_point);
         }
         m_stage = static_cast<vk::ShaderStageFlagBits>(entry->shader_stage);
+        for(uint32_t index = 0; index < entry->input_variable_count; ++index)
+            m_inputs.push_back(reflect_stage_variable(*entry->input_variables[index]));
+        for(uint32_t index = 0; index < entry->output_variable_count; ++index)
+            m_outputs.push_back(reflect_stage_variable(*entry->output_variables[index]));
+        const auto order = [](const StageVariable& variable) {
+            return std::tuple(variable.location, variable.component, variable.built_in);
+        };
+        std::ranges::sort(m_inputs, {}, order);
+        std::ranges::sort(m_outputs, {}, order);
         uint32_t count = 0;
         require_success(module.EnumerateSpecializationConstants(&count, nullptr));
         std::vector<SpvReflectSpecializationConstant*> constants(count);
@@ -161,12 +213,7 @@ namespace Comet {
                 static_cast<vk::DescriptorType>(source->descriptor_type), source->count,
                 m_stage, source->block.padded_size, {}};
             for(uint32_t index = 0; index < source->block.member_count; ++index) {
-                const auto& member = source->block.members[index];
-                std::string name;
-                if(member.name)
-                    name = member.name;
-                binding.members.push_back(
-                    {std::move(name), member.offset, member.size, member_format(member)});
+                binding.members.push_back(reflect_member(source->block.members[index]));
             }
             m_bindings.push_back(std::move(binding));
         }
@@ -182,6 +229,7 @@ namespace Comet {
             uint64_t end = block->offset;
             for(uint32_t index = 0; index < block->member_count; ++index) {
                 const auto& member = block->members[index];
+                m_push_members.push_back(reflect_member(member));
                 end = std::max(end, uint64_t(member.offset) + member.size);
             }
             if(end <= block->offset || end > std::numeric_limits<uint32_t>::max())
@@ -236,6 +284,13 @@ namespace Comet {
                            || constant.default_value == entry.second;
                 });
         });
+    }
+
+    bool ShaderInterface::has_same_layout(const ShaderInterface& other) const {
+        return m_stage == other.m_stage && m_bindings == other.m_bindings
+               && m_push_constants == other.m_push_constants
+               && m_push_members == other.m_push_members && m_inputs == other.m_inputs
+               && m_outputs == other.m_outputs;
     }
 
     void ShaderInterface::validate_push_constants(

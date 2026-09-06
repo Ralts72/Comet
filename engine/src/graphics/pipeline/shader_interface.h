@@ -38,12 +38,37 @@ namespace Comet {
             std::string name;
             ConstantValue default_value;
         };
+        struct TypeShape {
+            uint32_t type_flags = 0;
+            uint32_t scalar_width = 0;
+            uint32_t scalar_signedness = 0;
+            uint32_t vector_components = 0;
+            uint32_t matrix_rows = 0;
+            uint32_t matrix_columns = 0;
+            uint32_t matrix_stride = 0;
+            bool row_major = false;
+            uint32_t array_stride = 0;
+            std::vector<uint32_t> array_dimensions;
+            bool operator==(const TypeShape&) const = default;
+        };
         struct BlockMember {
             std::string name;
             uint32_t offset;
             uint32_t size;
             // 当前参数编辑支持标量／向量；矩阵、数组、结构体保留为 Undefined。
             vk::Format format = vk::Format::eUndefined;
+            TypeShape shape;
+            std::vector<BlockMember> members;
+            bool operator==(const BlockMember&) const = default;
+        };
+        struct StageVariable {
+            uint32_t location;
+            uint32_t component;
+            int32_t built_in;
+            uint32_t decorations;
+            TypeShape shape;
+            std::vector<StageVariable> members;
+            bool operator==(const StageVariable&) const = default;
         };
         struct DescriptorBinding {
             uint32_t set;
@@ -53,6 +78,7 @@ namespace Comet {
             vk::ShaderStageFlags stages;
             uint32_t block_size;
             std::vector<BlockMember> members;
+            bool operator==(const DescriptorBinding&) const = default;
         };
 
         explicit ShaderInterface(
@@ -77,12 +103,16 @@ namespace Comet {
         }
         // 校验类型/ID，并移除与默认位模式相同的显式覆盖。
         void canonicalize_specialization(Specialization& values) const;
+        [[nodiscard]] bool has_same_layout(const ShaderInterface& other) const;
 
     private:
         std::string m_entry_point;
         vk::ShaderStageFlagBits m_stage;
         std::vector<DescriptorBinding> m_bindings;
         std::vector<vk::PushConstantRange> m_push_constants;
+        std::vector<BlockMember> m_push_members;
+        std::vector<StageVariable> m_inputs;
+        std::vector<StageVariable> m_outputs;
         std::vector<SpecializationConstant> m_specialization_constants;
     };
 }

@@ -10,6 +10,7 @@ list(APPEND TEST_SOURCES
         "${CMAKE_SOURCE_DIR}/editor/src/editor_state.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/editor_scene_session.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/scene_document.cpp"
+        "${CMAKE_SOURCE_DIR}/editor/src/shader_reload.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/viewport_layout.cpp"
 )
 

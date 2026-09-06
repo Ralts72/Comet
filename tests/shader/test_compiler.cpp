@@ -54,6 +54,33 @@ namespace Comet::Tests {
         }
     }
 
+    TEST_F(ShaderCompilerTest, LayoutCompatibilityIncludesMatrixStorageAndStageInputs) {
+        const auto reflect = [&](const std::string& declaration,
+                                 const std::string& body) {
+            write("source.vert",
+                "#version 450\n" + declaration + "\nvoid main(){" + body + "}");
+            const auto compiled = ShaderCompiler::compile(request);
+            if(!compiled.succeeded())
+                throw std::runtime_error(compiled.diagnostics);
+            return ShaderInterface(compiled.words);
+        };
+        const std::string declarations =
+            "layout(location=0) in vec3 position; layout(set=0,binding=0,std140) uniform Frame { mat4 transform; } frame;";
+        const auto original =
+            reflect(declarations, "gl_Position=frame.transform*vec4(position,1);");
+        const auto body_change =
+            reflect(declarations, "gl_Position=frame.transform*vec4(position*0.5,1);");
+        EXPECT_TRUE(original.has_same_layout(body_change));
+        const auto row_major = reflect(
+            "layout(location=0) in vec3 position; layout(set=0,binding=0,std140,row_major) uniform Frame { mat4 transform; } frame;",
+            "gl_Position=frame.transform*vec4(position,1);");
+        EXPECT_FALSE(original.has_same_layout(row_major));
+        const auto input_change = reflect(
+            "layout(location=0) in vec2 position; layout(set=0,binding=0,std140) uniform Frame { mat4 transform; } frame;",
+            "gl_Position=frame.transform*vec4(position,0,1);");
+        EXPECT_FALSE(original.has_same_layout(input_change));
+    }
+
     TEST_F(ShaderCompilerTest, MatchesBuildTimeBytecodeForEveryProductionShader) {
         const auto compare = [](const char* filename, ShaderCompiler::Stage stage,
                                  std::span<const uint32_t> embedded) {

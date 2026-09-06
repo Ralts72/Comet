@@ -1,6 +1,6 @@
 # 渲染资源所有权
 
-描述当前 owner、调用边界和销毁规则；Shader 后台更新、RenderGraph/RenderThread 设计见[路线图](../engine-roadmap.md)。
+描述当前 owner、调用边界和销毁规则；Shader 接口重建、RenderGraph/RenderThread 后续设计见[路线图](../engine-roadmap.md)。
 
 ## 先看哪个类
 
@@ -21,6 +21,7 @@
 | `graphics/pipeline/shader_interface.h` | SPIR-V 的自有 CPU 接口值，不持有设备或反射库指针 |
 | `tools/shader/compiler.h`（仓库根路径） | CPU GLSL 编译与输入快照；构建 CLI 共用，engine 不依赖该工具库 |
 | `editor/src/imgui_context.h` | 编辑器 UI 最终呈现和私有纹理绑定，不属于 engine |
+| `editor/src/shader_reload.h` | 单个 Shader 编译组的监控、防抖、有界后台编译和 CPU 候选；不持有 Device/Renderer |
 
 engine 入口路径相对 `engine/src/`。Graphics 的 command/resource/pipeline/synchronization 按职责分目录；
 Context、Device、Queue、Swapchain、RenderPass、FrameBuffer 保留在根层，因为它们跨越多个职责组。
@@ -106,9 +107,17 @@ Shader 保存不可变 SPIR-V 内容与 ShaderInterface；同标签加载不同�
 ShaderInterface 校验 GPU 布局覆盖，MaterialLayout 另校验参数块大小、偏移与类型；不是从反射推断编辑语义。
 PipelineKey 使用完整字节码/入口、descriptor/push 范围、PipelineConfig、RenderPass 身份及附件格式/采样数；
 键相等不依赖名字、Shader 地址、VkShaderModule 或 VkDescriptorSetLayout 的句柄相等。
-目前 specialization 固定为空，不同 RenderPass 之间不尝试兼容复用；它不是跨进程磁盘格式。
+specialization 按 stage/ID/类型/原始位模式参与键，显式默认值规范化后传入 Vulkan；不同 RenderPass 不尝试兼容复用。
+PipelineKey 不是跨进程磁盘格式。
 PipelineManager 只弱引用 Pipeline，实际 owner 是 MaterialRenderer、DebugRenderer 和录制过它的 FrameSlot。
 最后一个实际 owner 释放即销毁 GPU 对象；过期 key 在下次创建或 collect_unused 时清理，不阻塞 GPU 等待。
+
+编辑器 ShaderReload 只有一个在途编译组，Worker 捕获自有请求和 CPU 结果，不捕获 this 或设备。
+on_update 消费最新且输入仍匹配的材质组三 Shader 候选，SceneRenderer 拒绝在活动帧内发布。
+MaterialRenderer 先创建全部兼容 Pipeline，成功后以不抛异常的 swap 同时发布 ShaderManager 快照和 PipelineSet。
+同 PreparedMaterial、不同 PipelineState 时建立新 MaterialResources 版本，但共享原参数 buffer/descriptor/pool；
+旧帧的 MaterialResources 继续保留旧 Pipeline，不能直接改旧对象中的指针。重建 Renderer 时只补缺失的内置 Shader。
+接口变化和 Debug Shader 热更新仍是后续项；兼容检查不把矩阵 row/column-major、数组或阶段输入输出变化当成相同布局。
 
 只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。

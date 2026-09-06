@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <stdexcept>
 
 namespace Comet {
     SceneRenderer::SceneRenderer(RenderContext& context,
@@ -119,6 +120,16 @@ namespace Comet {
         m_debug_renderer = std::make_unique<DebugRenderer>(m_context.get_device(),
             *m_pipeline_manager, resource_manager,
             m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
+    }
+
+    void SceneRenderer::reload_material_shaders(
+        ResourceManager& resources, const ShaderManager::Bytecodes& bytecodes) {
+        if(m_frame_scheduler->is_frame_active())
+            throw std::logic_error("Shader publication requires a frame boundary");
+        if(!m_material_renderer || !m_pipeline_manager)
+            throw std::logic_error("Material renderer is not initialized");
+        m_material_renderer->reload_shaders(*m_pipeline_manager,
+            resources.get_shader_manager(), bytecodes, m_msaa_samples);
     }
 
     std::vector<QueueSemaphoreSubmit> SceneRenderer::render_scene_pass(

@@ -10,6 +10,7 @@
 #include "src/imgui_context.h"
 #include "src/property_editor_registry.h"
 #include "src/scene_document.h"
+#include "src/shader_reload.h"
 #include "core/engine.h"
 #include "core/project_paths.h"
 #include "render/renderer.h"
@@ -128,6 +129,18 @@ namespace {
 
             m_console_panel = std::make_shared<CometEditor::ConsolePanel>();
             setup_log_redirect();
+            const std::filesystem::path shader_directory(COMET_ENGINE_SHADER_DIRECTORY);
+            m_shader_reload = std::make_unique<CometEditor::ShaderReload>(
+                engine.get_task_scheduler(),
+                CometEditor::ShaderReload::Requests{
+                    {"material_mesh", {.source = shader_directory / "material_mesh.vert",
+                                          .stage = Comet::ShaderCompiler::Stage::Vertex}},
+                    {"material_textured",
+                        {.source = shader_directory / "material_textured.frag",
+                            .stage = Comet::ShaderCompiler::Stage::Fragment}},
+                    {"material_solid",
+                        {.source = shader_directory / "material_solid.frag",
+                            .stage = Comet::ShaderCompiler::Stage::Fragment}}});
 
             m_asset_manager = std::make_unique<Comet::AssetManager>(m_project_paths,
                 engine.get_asset_registry(), engine.get_resource_manager(),
@@ -201,6 +214,17 @@ namespace {
         }
 
         void on_update(const Comet::UpdateContext context) override {
+            if(auto shaders = m_shader_reload->update()) {
+                try {
+                    auto& renderer = get_engine().get_renderer();
+                    renderer.get_scene_renderer().reload_material_shaders(
+                        renderer.get_resource_manager(), *shaders);
+                    LOG_INFO("Material Shader reload published at frame boundary");
+                } catch(const std::exception& error) {
+                    LOG_ERROR("Material Shader reload kept previous GPU version: {}",
+                        error.what());
+                }
+            }
             monitor_asset_sources();
             const auto published = m_asset_manager->process_completions();
             if(!published.empty()) {
@@ -357,6 +381,7 @@ namespace {
 
         void on_shutdown() override {
             LOG_INFO("Editor shutting down...");
+            m_shader_reload.reset();
             get_engine().get_renderer().set_overlay_callbacks({}, {});
             get_engine().get_renderer().set_viewport_pick_callback({});
             auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
@@ -879,6 +904,7 @@ namespace {
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
         Comet::AssetHandle m_placement_material;
         std::unique_ptr<Comet::AssetSourceMonitor> m_asset_source_monitor;
+        std::unique_ptr<CometEditor::ShaderReload> m_shader_reload;
         std::string m_asset_source_monitor_error;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry =
