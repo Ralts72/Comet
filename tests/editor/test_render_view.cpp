@@ -6,7 +6,7 @@
 namespace CometEditor::Tests {
     TEST(RenderViewTest, EditModeUsesCameraOverride) {
         EditorState state;
-        state.camera.position = Comet::Math::Vec3(4.0f, 3.0f, 2.0f);
+        state.camera.perspective.position = Comet::Math::Vec3(4.0f, 3.0f, 2.0f);
 
         const Comet::RenderView view =
             make_render_view(state, true, Comet::Math::Vec2u(1280, 720));
@@ -16,8 +16,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(view.camera_selection, Comet::RenderView::CameraSelection::Override);
         ASSERT_TRUE(view.camera_override);
         EXPECT_TRUE(Comet::Tests::TestUtils::Mat4Equal(view.camera_override->view_matrix,
-            Comet::Math::look_at(
-                state.camera.position, state.camera.target, state.camera.up)));
+            Comet::Math::look_at(state.camera.perspective.position, state.camera.target,
+                state.camera.perspective.up)));
     }
 
     TEST(RenderViewTest, PlayModeUsesScenePrimaryCamera) {
@@ -30,6 +30,29 @@ namespace CometEditor::Tests {
         EXPECT_EQ(
             view.camera_selection, Comet::RenderView::CameraSelection::ScenePrimary);
         EXPECT_FALSE(view.camera_override);
+    }
+
+    TEST(RenderViewTest, OrthographicEditorCameraUsesFixedAxis) {
+        EditorState state;
+        state.camera.perspective.position = Comet::Math::Vec3(4.0f, 3.0f, 2.0f);
+        state.camera.target = Comet::Math::Vec3(1.0f, 2.0f, 0.0f);
+        state.camera.perspective.up = Comet::Math::Vec3(1.0f, 0.0f, 0.0f);
+        state.camera.projection = Comet::RenderCamera::Projection::Orthographic;
+        state.camera.orthographic.height = 12.0f;
+
+        const Comet::RenderView view =
+            make_render_view(state, true, Comet::Math::Vec2u(1280, 720));
+
+        ASSERT_TRUE(view.camera_override);
+        EXPECT_EQ(view.camera_override->projection,
+            Comet::RenderCamera::Projection::Orthographic);
+        EXPECT_FLOAT_EQ(view.camera_override->orthographic_height, 12.0f);
+        const float distance =
+            Comet::Math::length(state.camera.perspective.position - state.camera.target);
+        EXPECT_TRUE(Comet::Tests::TestUtils::Mat4Equal(view.camera_override->view_matrix,
+            Comet::Math::look_at(
+                state.camera.target + Comet::Math::Vec3(0.0f, 0.0f, distance),
+                state.camera.target, Comet::Math::Vec3(0.0f, 1.0f, 0.0f))));
     }
 
     TEST(RenderViewTest, HiddenViewportPreservesCameraSelection) {

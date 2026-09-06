@@ -153,8 +153,10 @@ namespace CometEditor {
                 m_moving_asset, std::filesystem::path(m_move_path_buffer.data()));
             const bool moved = report.snapshot_updated;
             if(!moved) {
-                m_move_error = report.issues.empty() ? "Asset move could not be committed"
-                                                     : report.issues.front().message;
+                m_move_error = "Asset move could not be committed";
+                if(!report.issues.empty()) {
+                    m_move_error = report.issues.front().message;
+                }
             }
 
             update_scan_report(std::move(report));

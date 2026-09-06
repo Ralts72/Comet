@@ -67,8 +67,7 @@ namespace Comet {
         }
 
         if(!camera) {
-            m_invalid_camera_fov.reset();
-            m_invalid_camera_clip_planes.reset();
+            m_camera_diagnostic.reset();
             m_invalid_render_size = false;
             return std::nullopt;
         }
@@ -90,41 +89,74 @@ namespace Comet {
                     view.render_size.x, view.render_size.y);
                 m_invalid_render_size = true;
             }
-            m_invalid_camera_fov.reset();
-            m_invalid_camera_clip_planes.reset();
+            m_camera_diagnostic.reset();
             return std::nullopt;
         }
         m_invalid_render_size = false;
 
-        if(!std::isfinite(camera->fov_degrees) || camera->fov_degrees <= 0.0f
-            || camera->fov_degrees >= 180.0f) {
-            if(m_invalid_camera_fov != camera->entity_id) {
-                LOG_ERROR("Primary camera entity {} has invalid FOV {} degrees",
-                    camera->entity_id, camera->fov_degrees);
+        if(camera->projection == RenderCamera::Projection::Perspective) {
+            if(!std::isfinite(camera->fov_degrees) || camera->fov_degrees <= 0.0f
+                || camera->fov_degrees >= 180.0f) {
+                const CameraDiagnostic diagnostic{
+                    .entity_id = camera->entity_id,
+                    .issue = CameraIssue::InvalidFov,
+                };
+                if(m_camera_diagnostic != diagnostic) {
+                    LOG_ERROR("Render camera entity {} has invalid FOV {} degrees",
+                        camera->entity_id, camera->fov_degrees);
+                }
+                m_camera_diagnostic = diagnostic;
+                return std::nullopt;
             }
-            m_invalid_camera_fov = camera->entity_id;
-            m_invalid_camera_clip_planes.reset();
-            return std::nullopt;
+        } else {
+            if(!std::isfinite(camera->orthographic_height)
+                || camera->orthographic_height <= 0.0f) {
+                const CameraDiagnostic diagnostic{
+                    .entity_id = camera->entity_id,
+                    .issue = CameraIssue::InvalidOrthographicHeight,
+                };
+                if(m_camera_diagnostic != diagnostic) {
+                    LOG_ERROR(
+                        "Render camera entity {} has invalid orthographic height {}",
+                        camera->entity_id, camera->orthographic_height);
+                }
+                m_camera_diagnostic = diagnostic;
+                return std::nullopt;
+            }
         }
-        m_invalid_camera_fov.reset();
 
         if(!std::isfinite(camera->near_clip) || !std::isfinite(camera->far_clip)
             || camera->near_clip <= 0.0f || camera->far_clip <= camera->near_clip) {
-            if(m_invalid_camera_clip_planes != camera->entity_id) {
+            const CameraDiagnostic diagnostic{
+                .entity_id = camera->entity_id,
+                .issue = CameraIssue::InvalidClipPlanes,
+            };
+            if(m_camera_diagnostic != diagnostic) {
                 LOG_ERROR(
-                    "Primary camera entity {} has invalid clip planes: near={}, far={}",
+                    "Render camera entity {} has invalid clip planes: near={}, far={}",
                     camera->entity_id, camera->near_clip, camera->far_clip);
             }
-            m_invalid_camera_clip_planes = camera->entity_id;
+            m_camera_diagnostic = diagnostic;
             return std::nullopt;
         }
-        m_invalid_camera_clip_planes.reset();
+        m_camera_diagnostic.reset();
 
         const float aspect = static_cast<float>(view.render_size.x)
                              / static_cast<float>(view.render_size.y);
-        return ViewProjectMatrix{.view = camera->view_matrix,
-            .projection = Math::perspective(
-                camera->fov_degrees, aspect, camera->near_clip, camera->far_clip)};
+        Math::Mat4 projection;
+        if(camera->projection == RenderCamera::Projection::Perspective) {
+            projection = Math::perspective(
+                camera->fov_degrees, aspect, camera->near_clip, camera->far_clip);
+        } else {
+            const float half_height = camera->orthographic_height * 0.5f;
+            const float half_width = half_height * aspect;
+            projection = Math::ortho(-half_width, half_width, -half_height, half_height,
+                camera->near_clip, camera->far_clip);
+        }
+        return ViewProjectMatrix{
+            .view = camera->view_matrix,
+            .projection = projection,
+        };
     }
 
     std::optional<ResolvedRenderItem> SceneResolver::resolve_item(

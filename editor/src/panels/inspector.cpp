@@ -28,6 +28,17 @@ namespace CometEditor {
             }
             return record->path.generic_string();
         }
+
+        const char* texture_color_space_label(
+            const Comet::TextureColorSpace color_space) {
+            switch(color_space) {
+                case Comet::TextureColorSpace::Srgb:
+                    return "sRGB";
+                case Comet::TextureColorSpace::Linear:
+                    return "Linear";
+            }
+            return "Unknown";
+        }
     }
 
     InspectorPanel::InspectorPanel(SelectionService& selection,
@@ -153,16 +164,13 @@ namespace CometEditor {
     void InspectorPanel::render_texture(const Comet::AssetRecord& record) {
         std::optional<Comet::TextureImportSettings> previous_settings;
         const char* color_space =
-            m_texture_import_settings->color_space == Comet::TextureColorSpace::Srgb
-                ? "sRGB"
-                : "Linear";
+            texture_color_space_label(m_texture_import_settings->color_space);
         if(ImGui::BeginCombo("Color Space", color_space)) {
             constexpr std::array color_spaces{
                 Comet::TextureColorSpace::Srgb, Comet::TextureColorSpace::Linear};
             for(const Comet::TextureColorSpace candidate : color_spaces) {
                 const bool selected = candidate == m_texture_import_settings->color_space;
-                const char* label =
-                    candidate == Comet::TextureColorSpace::Srgb ? "sRGB" : "Linear";
+                const char* label = texture_color_space_label(candidate);
                 if(ImGui::Selectable(label, selected) && !selected) {
                     if(!previous_settings) {
                         previous_settings = *m_texture_import_settings;

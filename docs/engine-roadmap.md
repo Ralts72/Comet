@@ -902,7 +902,7 @@ Scene Component / RenderItem
   纹理在屏幕上的实际显示矩形。
 - Edit 使用 Edit Scene 和不属于 Scene 的 editor camera；Play 使用 Runtime Scene 的 primary Camera。Viewport 可见性、稳定后的目标尺寸
   和 Camera 选择方式由 `RenderView` 表达，SceneRenderer 不依赖 EditorMode。
-- 2D/3D 是单个 Edit Viewport 的观察和交互方式，不是两个独立 Viewport；当前按钮只保存 UI 状态，尚未真正切换 editor camera 投影和操作逻辑。
+- 2D/3D 是单个 Edit Viewport 的观察和交互方式，不是两个独立 Viewport；按钮会切换 editor camera 的真实投影与操作逻辑。
 - resize debounce 由 ViewPanel 持有；尺寸连续稳定后产生一次请求，Renderer 完整创建新的离屏 image、image view 和
   framebuffer 后再切换活动目标，不等待全部 FrameSlot 或 Device idle。
 - Camera 垂直 FOV 与实体 Transform 不变，RenderTarget 尺寸只改变 projection aspect；ImGui 再把纹理等比放入面板。
@@ -960,7 +960,8 @@ Scene Component / RenderItem
 - [x] Viewport 在 Edit 模式实现 editor camera 的 RMB 或 Alt（macOS Option）+LMB 环绕、MMB 或
   Alt+Shift+LMB 平移，以及滚轮或触控板双指垂直滚动缩放；Viewport 独占用于缩放的纵向滚轮，UI prepare 在场景解析前
   执行，当前帧直接消费最新 camera snapshot。
-- [ ] 让 2D/3D 按钮切换真正的投影与操作策略；2D 使用正交投影和独立 zoom 语义，不以极端透视参数模拟。
+- [x] 让 2D/3D 按钮切换真实投影与操作策略：`RenderCamera::Projection` 表达 Perspective/Orthographic，2D 固定
+  +Z 观察轴、使用屏幕 XY 平移与独立正交高度缩放并禁用 orbit，不以极端透视参数模拟。
 - 默认保持一个 Viewport 并在内部切换 2D/3D，共享同一组 RenderTarget、拾取和 gizmo 上下文。只有当多视图同时对照成为明确工作流时，
   才增加可停靠的多 Viewport；每个同时可见视口应拥有独立 Camera、尺寸、frame-slot RenderTarget 和渲染提交，隐藏时必须跳过渲染。
 - 实现对象拾取、Selection 同步、移动/旋转/缩放 gizmo 和选中对象高亮。
@@ -1158,9 +1159,13 @@ Viewport editor camera 输入闭环已经建立：Renderer 将 overlay 拆为场
 `ViewPanel` 只允许从可见画面激活 RMB 或 Alt+LMB 环绕、MMB 或 Alt+Shift+LMB 平移和纵向滚动缩放，并在缩放时独占
 纵向滚轮；纯 controller 独立更新 editor-only camera。
 
-下一步让 2D/3D 观察模式真正生效：扩展显式 camera snapshot 以表达 Perspective/Orthographic 投影；2D 模式固定观察轴、
-禁用 orbit、保留平移与正交缩放，3D 延用当前 orbit/pan/dolly。投影选择由 `SceneResolver` 消费，不把 EditorMode 或
-ImGui 状态传入 Renderer。
+Viewport 2D/3D 观察模式已经接通真实投影：`RenderCamera::Projection` 把投影选择带到 `SceneResolver`，2D snapshot
+固定从 +Z 观察 target，controller 使用屏幕 XY 平移与独立正交高度缩放；切换模式不会创建第二台相机或覆盖保存的 3D
+观察方向。
+
+下一步进入对象拾取的数据基础审计：先确认 Runtime Mesh 是否已有可复用 bounds/CPU geometry，并比较 CPU ray cast 与当前
+传统 RenderPass 增加 GPU ID attachment/readback 的所有权和同步代价；不在 `ViewPanel` 内直接读取 GPU，也不提前建立只
+服务一次点击的通用系统。
 
 阶段 3 后续还需要完成 Editor Mesh 导入入口与 Artifact 状态展示。当前 Mesh 已建立显式 `ImportService`、原子发布的 `MeshArtifact` 和
 Artifact-only Runtime 加载边界，但 Project 面板还需要面向普通资产提供导入/重新导入操作，并展示缺失、过期、就绪和失败状态。

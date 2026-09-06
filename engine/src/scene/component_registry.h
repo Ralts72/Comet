@@ -44,13 +44,17 @@ namespace Comet {
         std::function<void(void*)> on_changed;
 
         [[nodiscard]] void* get_value(void* component) const {
-            return component != nullptr && mutable_accessor ? mutable_accessor(component)
-                                                            : nullptr;
+            if(component == nullptr || !mutable_accessor) {
+                return nullptr;
+            }
+            return mutable_accessor(component);
         }
 
         [[nodiscard]] const void* get_value(const void* component) const {
-            return component != nullptr && const_accessor ? const_accessor(component)
-                                                          : nullptr;
+            if(component == nullptr || !const_accessor) {
+                return nullptr;
+            }
+            return const_accessor(component);
         }
 
         void notify_changed(void* value) const {
@@ -92,15 +96,17 @@ namespace Comet {
         }
 
         [[nodiscard]] void* get_component(Entity& entity) const {
-            return has_component(entity) && mutable_component_accessor
-                       ? mutable_component_accessor(entity)
-                       : nullptr;
+            if(!has_component(entity) || !mutable_component_accessor) {
+                return nullptr;
+            }
+            return mutable_component_accessor(entity);
         }
 
         [[nodiscard]] const void* get_component(const Entity& entity) const {
-            return has_component(entity) && const_component_accessor
-                       ? const_component_accessor(entity)
-                       : nullptr;
+            if(!has_component(entity) || !const_component_accessor) {
+                return nullptr;
+            }
+            return const_component_accessor(entity);
         }
 
         [[nodiscard]] const PropertyDescriptor* find_property(

@@ -167,6 +167,13 @@ Editor overlay 分为 CPU prepare 与 GPU render 两个阶段。`SceneRenderer::
 阶段只录制已经生成的 ImGui draw data。Editor shutdown 会先解绑两个 callback，避免 Renderer 保留指向已销毁
 `ImGuiContext` 的闭包。
 
+`RenderCamera` 是 Scene/Editor 到渲染提交边界的 camera snapshot，内嵌的 `Projection` 显式区分 Perspective 与
+Orthographic，并携带对应的垂直 FOV 或正交高度；`SceneResolver` 是 projection matrix 的唯一构建点。Runtime
+`CameraComponent` 当前仍提取为默认 Perspective，editor camera 可以选择 Orthographic。Editor 2D 使用固定的
+`+Z -> target` 观察轴、世界 `+Y` up、屏幕 XY 平移和独立正交高度。`EditorCameraState` 只共享 target、clip range 和
+活动 projection；`PerspectiveState` 保存 position/up/FOV，`OrthographicState` 保存 height。切换投影不会覆盖保存的
+3D 观察方向和距离，2D 平移则同时移动 perspective position 与共享 target，因此切回 3D 后仍观察同一片区域。
+
 ## 帧同步
 
 `render.max_frames_in_flight` 当前为 2，与实际 swapchain image 数量相互独立。
@@ -203,7 +210,8 @@ Editor overlay 分为 CPU prepare 与 GPU render 两个阶段。`SceneRenderer::
   resize debounce 期间映射继续使用当前纹理分辨率，不提前使用尚未发布的请求尺寸。
 - Editor camera 输入被分成三层：`ViewPanel` 只采样 ImGui 并维护拖拽激活状态，Editor composition root 取走一次性输入，
   backend-neutral `camera_controller` 只执行 camera 数学。Play 模式和不可见/折叠 Viewport 会清除拖拽状态，
-  editor camera 不会写入 Scene entity 或序列化数据。
+  editor camera 不会写入 Scene entity 或序列化数据。2D/3D 工具栏同样只产生一次性投影请求，由 composition root 先
+  更新 editor camera 投影，再在同一帧应用 camera 输入。
 - 离屏 resolve image 在场景 render pass 结束时转为 `ShaderReadOnlyOptimal`，同一 command buffer 随后的 ImGui
   render pass 通过对应 frame slot 的 descriptor 采样它。
 - 显式 image transition 接收前后 `ImageState`，由 synchronization 层校验并生成 `ImageMemoryBarrier2`；Texture

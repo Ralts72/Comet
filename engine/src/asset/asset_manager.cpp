@@ -128,9 +128,12 @@ namespace Comet {
         bool publish_runtime_asset(AssetRegistry& registry, const AssetHandle handle,
             const std::shared_ptr<T>& asset, const bool replace_existing,
             const std::string_view asset_type) {
-            const bool published = replace_existing
-                                       ? registry.replace_asset(handle, asset)
-                                       : registry.register_asset(handle, asset);
+            bool published = false;
+            if(replace_existing) {
+                published = registry.replace_asset(handle, asset);
+            } else {
+                published = registry.register_asset(handle, asset);
+            }
             if(!published) {
                 LOG_ERROR("Failed to publish runtime {} for asset handle {}", asset_type,
                     handle.value());

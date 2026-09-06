@@ -161,7 +161,10 @@ namespace {
                     update_viewport_texture(
                         get_engine().get_renderer().get_scene_renderer());
                     m_imgui_context->update_frame();
-                    apply_viewport_camera_input();
+                    if(const auto mode = m_viewport_panel->take_mode_request()) {
+                        m_scene_session->request_mode(*mode);
+                    }
+                    apply_viewport_camera_updates();
                     update_viewport_state();
                 },
                 [this](Comet::CommandBuffer& command_buffer) {
@@ -187,11 +190,14 @@ namespace {
             m_menu_bar->set_fps(context.fps);
         }
 
-        void apply_viewport_camera_input() {
+        void apply_viewport_camera_updates() {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
                 return;
             }
 
+            if(const auto projection = m_viewport_panel->take_projection_request()) {
+                m_editor_state.camera.projection = *projection;
+            }
             const std::optional<CometEditor::EditorCameraInput> input =
                 m_viewport_panel->take_camera_input();
             if(input) {
@@ -522,10 +528,6 @@ namespace {
             m_menu_bar->set_file_command_callback(
                 [this](const CometEditor::FileCommand command) {
                     handle_file_command(command);
-                });
-            m_menu_bar->set_editor_mode_callback(
-                [this](const CometEditor::EditorMode mode) {
-                    m_scene_session->request_mode(mode);
                 });
 
             // 创建面板

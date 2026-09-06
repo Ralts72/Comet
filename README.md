@@ -57,12 +57,16 @@ C++ 代码格式由根目录 `.clang-format` 统一，默认列宽为 90；多�
 - Viewport 通过纯值 `RenderView` 传递可见性、稳定后的物理像素目标尺寸和 Camera 选择方式。Edit 使用不进入 Scene 与序列化的
   editor camera，Play 使用 Runtime Scene 的 primary Camera；`SceneRenderer` 不感知 `EditorMode` 或 ImGui 状态。`ViewPanel`
   通过纯布局计算分离 ImGui 逻辑内容区、结合当前窗口 framebuffer scale 的渲染分辨率，以及保持纹理宽高比的屏幕显示矩形；
-  Play 可独立选择 Free、16:9 或固定像素分辨率，并以 Fit 或 1x 显示。最终物理尺寸会按比例限制在设备
+  Play 可独立选择 Free、16:9 或固定像素分辨率，并以 Fit 或 1x 显示；工具栏以 HD/FHD 简写 1280×720/1920×1080，
+  点击可展开完整选项。最终物理尺寸会按比例限制在设备
   `maxImageDimension2D` 和 editor 4096 软上限以内，Renderer 只接收约束后的结果。Viewport resize 会先完整创建新的
   离屏目标再切换；旧目标和对应 ImGui 绑定按 frame slot 保留到 fence 完成，不再等待全部在途帧。屏幕坐标统一映射到
   当前实际纹理像素，工具栏、留白、最大边界和 1x 裁切的不可见区域不会进入相机或拾取输入。Edit 模式可在画面内以
   RMB 或 Alt（macOS Option）+LMB 环绕、MMB 或 Alt+Shift+LMB 平移、滚轮或触控板双指垂直滚动缩放 editor camera；
-  Viewport 消费缩放时独占纵向滚轮，避免 ImGui 面板同时滚动。面板输入在场景解析前更新，因此当前帧直接使用新的 camera snapshot。
+  Viewport 消费缩放时独占纵向滚轮，避免 ImGui 面板同时滚动。2D/3D 会真正切换正交/透视投影，2D 固定观察轴并使用
+  屏幕 XY 平移与独立正交缩放。Viewport 左侧工具栏集中放置 2D/3D 与 Play/Stop，Play 时禁用编辑器投影切换，
+  最左侧的 Edit/Play 标签区分编辑器相机和场景主相机，Play/Stop 统一从 Viewport 工具栏操作。
+  面板输入在场景解析前更新，因此当前帧直接使用新的 camera snapshot。
 - 场景渲染主链路为 `Scene -> SceneExtractor -> RenderScene -> SceneResolver -> RenderSubmission -> SceneRenderer`。
   Scene 只保存组件和 `AssetHandle`，不持有 GPU Resource。
 - 资产主链路为 `assets + .meta -> AssetDatabase -> ImportService -> Artifact -> AssetManager -> AssetRegistry`。

@@ -78,9 +78,11 @@ namespace Comet {
                 ++index) {
                 Math::Vec3& normal = data.vertices[index].normal;
                 const float length = Math::length(normal);
-                normal = std::isfinite(length) && length > NORMAL_EPSILON
-                             ? normal / length
-                             : Math::Vec3(0.0f, 1.0f, 0.0f);
+                if(std::isfinite(length) && length > NORMAL_EPSILON) {
+                    normal /= length;
+                } else {
+                    normal = Math::Vec3(0.0f, 1.0f, 0.0f);
+                }
             }
         }
 

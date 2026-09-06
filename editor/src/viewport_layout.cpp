@@ -111,11 +111,12 @@ namespace CometEditor {
                     fit_aspect_resolution(free_resolution, 16.0 / 9.0);
                 break;
             case ResolutionMode::Fixed:
-                layout.render_resolution =
-                    input.resolution_policy.fixed_resolution.x > 0
-                            && input.resolution_policy.fixed_resolution.y > 0
-                        ? input.resolution_policy.fixed_resolution
-                        : Comet::Math::Vec2u{};
+                if(input.resolution_policy.fixed_resolution.x > 0
+                    && input.resolution_policy.fixed_resolution.y > 0) {
+                    layout.render_resolution = input.resolution_policy.fixed_resolution;
+                } else {
+                    layout.render_resolution = {};
+                }
                 break;
             default:
                 layout.render_resolution = free_resolution;
@@ -124,9 +125,11 @@ namespace CometEditor {
         layout.render_resolution = constrain_render_resolution(
             layout.render_resolution, input.max_render_dimension);
 
-        layout.image_resolution =
-            input.current_render_resolution.x > 0 && input.current_render_resolution.y > 0
-                ? input.current_render_resolution : layout.render_resolution;
+        layout.image_resolution = layout.render_resolution;
+        if(input.current_render_resolution.x > 0
+            && input.current_render_resolution.y > 0) {
+            layout.image_resolution = input.current_render_resolution;
+        }
         if(layout.panel_content_size.x <= 0.0f || layout.panel_content_size.y <= 0.0f
             || layout.image_resolution.x == 0 || layout.image_resolution.y == 0) {
             layout.image_display_rect = {
@@ -135,12 +138,14 @@ namespace CometEditor {
             return layout;
         }
 
-        const Comet::Math::Vec2 display_size =
-            input.display_mode == ViewportLayout::DisplayMode::OneToOne
-                ? Comet::Math::Vec2(
-                      static_cast<float>(layout.image_resolution.x) / scale.x,
-                      static_cast<float>(layout.image_resolution.y) / scale.y)
-                : fit_display_size(layout.panel_content_size, layout.image_resolution);
+        Comet::Math::Vec2 display_size =
+            fit_display_size(layout.panel_content_size, layout.image_resolution);
+        if(input.display_mode == ViewportLayout::DisplayMode::OneToOne) {
+            display_size = {
+                static_cast<float>(layout.image_resolution.x) / scale.x,
+                static_cast<float>(layout.image_resolution.y) / scale.y,
+            };
+        }
 
         const Comet::Math::Vec2 centered_offset =
             (layout.panel_content_size - display_size) * 0.5f;

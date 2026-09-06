@@ -14,7 +14,6 @@ namespace CometEditor {
     enum class FileCommand { NewScene, OpenScene, SaveScene };
 
     using FileCommandCallback = std::function<void(FileCommand)>;
-    using EditorModeCallback = std::function<void(EditorMode)>;
 
     class MenuBar {
     public:
@@ -29,10 +28,6 @@ namespace CometEditor {
             m_file_command_callback = std::move(callback);
         }
 
-        void set_editor_mode_callback(EditorModeCallback callback) {
-            m_editor_mode_callback = std::move(callback);
-        }
-
         [[nodiscard]] bool is_panel_visible(const std::string& panel_name) const;
 
         void set_fps(const float fps) { m_fps = fps; }
@@ -41,7 +36,6 @@ namespace CometEditor {
         void render_file_menu() const;
         void render_edit_menu();
         void render_view_menu();
-        void render_game_menu() const;
         void render_gameobject_menu();
         void render_help_menu();
 
@@ -49,7 +43,6 @@ namespace CometEditor {
         std::map<std::string, bool> m_panel_visibility;
         std::map<std::string, PanelVisibilityCallback> m_panel_callbacks;
         FileCommandCallback m_file_command_callback;
-        EditorModeCallback m_editor_mode_callback;
         float m_fps = 0.0f;
     };
 

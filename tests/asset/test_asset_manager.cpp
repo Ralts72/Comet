@@ -72,11 +72,13 @@ namespace Comet::Tests {
 
             static void replace_texture(
                 const std::filesystem::path& path, const bool restore_original = false) {
+                std::filesystem::path source = "assets/textures/R-C.jpeg";
+                if(restore_original) {
+                    source = "assets/textures/awesomeface.png";
+                }
                 std::filesystem::copy_file(
-                    std::filesystem::path(PROJECT_ROOT_DIR)
-                        / (restore_original ? "assets/textures/awesomeface.png"
-                                            : "assets/textures/R-C.jpeg"),
-                    path, std::filesystem::copy_options::overwrite_existing);
+                    std::filesystem::path(PROJECT_ROOT_DIR) / source, path,
+                    std::filesystem::copy_options::overwrite_existing);
             }
 
             static void corrupt_texture(const std::filesystem::path& path) {

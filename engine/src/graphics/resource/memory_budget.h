@@ -28,10 +28,10 @@ namespace Comet {
             const uint64_t whole = budget_bytes / 100 * percentage;
             const uint64_t remainder = budget_bytes % 100 * percentage;
             const uint64_t threshold = whole + (remainder + 99) / 100;
-            const uint64_t projected_usage =
-                additional_bytes > std::numeric_limits<uint64_t>::max() - usage_bytes
-                    ? std::numeric_limits<uint64_t>::max()
-                    : usage_bytes + additional_bytes;
+            uint64_t projected_usage = usage_bytes + additional_bytes;
+            if(additional_bytes > std::numeric_limits<uint64_t>::max() - usage_bytes) {
+                projected_usage = std::numeric_limits<uint64_t>::max();
+            }
             return projected_usage >= threshold;
         }
     };

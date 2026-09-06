@@ -466,9 +466,10 @@ namespace Comet {
             result.config.present_mode = requested_present_mode;
         } else {
             const auto fifo = std::ranges::find(present_modes, vk::PresentModeKHR::eFifo);
-            result.config.present_mode = fifo != present_modes.end()
-                                             ? vk::PresentModeKHR::eFifo
-                                             : present_modes.front();
+            result.config.present_mode = present_modes.front();
+            if(fifo != present_modes.end()) {
+                result.config.present_mode = vk::PresentModeKHR::eFifo;
+            }
             result.message = "requested present mode is unavailable; using "
                              + vk::to_string(result.config.present_mode);
         }

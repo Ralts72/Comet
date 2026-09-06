@@ -105,8 +105,10 @@ namespace Comet {
         }
         if(!std::filesystem::is_directory(m_root, error)) {
             issue_path = m_root;
-            message = error ? "failed to access assets directory: " + error.message()
-                            : "assets path is not a directory";
+            message = "assets path is not a directory";
+            if(error) {
+                message = "failed to access assets directory: " + error.message();
+            }
             return false;
         }
 

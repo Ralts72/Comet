@@ -30,11 +30,11 @@ namespace Comet {
         constexpr int output_channels = STBI_rgb_alpha;
         const std::size_t size = static_cast<std::size_t>(width)
                                  * static_cast<std::size_t>(height) * output_channels;
-        TextureData data{.width = width,
-            .height = height,
-            .format = settings.color_space == TextureColorSpace::Srgb
-                          ? Format::R8G8B8A8_SRGB
-                          : Format::R8G8B8A8_UNORM};
+        Format format = Format::R8G8B8A8_UNORM;
+        if(settings.color_space == TextureColorSpace::Srgb) {
+            format = Format::R8G8B8A8_SRGB;
+        }
+        TextureData data{.width = width, .height = height, .format = format};
         data.pixels.assign(pixels.get(), pixels.get() + size);
         if(settings.flip_y) {
             const std::size_t row_size =

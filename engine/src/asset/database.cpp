@@ -107,9 +107,10 @@ namespace Comet {
             const ImportDependenciesByAsset& dependencies_by_asset,
             const AssetHandle handle) {
             const auto dependencies = dependencies_by_asset.find(handle);
-            return dependencies == dependencies_by_asset.end()
-                       ? std::span<const std::filesystem::path>()
-                       : std::span<const std::filesystem::path>(dependencies->second);
+            if(dependencies == dependencies_by_asset.end()) {
+                return {};
+            }
+            return std::span<const std::filesystem::path>(dependencies->second);
         }
 
         std::filesystem::path normalize_import_dependency(
@@ -208,9 +209,11 @@ namespace Comet {
             return report;
         }
         if(!std::filesystem::is_directory(assets_root, error)) {
-            add_issue(report, assets_root,
-                error ? "failed to access assets directory: " + error.message()
-                      : "assets path is not a directory");
+            std::string message = "assets path is not a directory";
+            if(error) {
+                message = "failed to access assets directory: " + error.message();
+            }
+            add_issue(report, assets_root, std::move(message));
             return report;
         }
 
@@ -632,16 +635,19 @@ namespace Comet {
     std::span<const AssetHandle> AssetDatabase::get_dependencies(
         const AssetHandle handle) const {
         const AssetRecord* asset = find(handle);
-        return asset ? std::span<const AssetHandle>(asset->dependencies)
-                     : std::span<const AssetHandle>();
+        if(!asset) {
+            return {};
+        }
+        return std::span<const AssetHandle>(asset->dependencies);
     }
 
     std::span<const AssetHandle> AssetDatabase::get_dependents(
         const AssetHandle handle) const {
         const auto dependents = m_dependents_by_dependency.find(handle);
-        return dependents == m_dependents_by_dependency.end()
-                   ? std::span<const AssetHandle>()
-                   : std::span<const AssetHandle>(dependents->second);
+        if(dependents == m_dependents_by_dependency.end()) {
+            return {};
+        }
+        return std::span<const AssetHandle>(dependents->second);
     }
 
     std::span<const std::filesystem::path> AssetDatabase::get_import_dependencies(
@@ -658,9 +664,10 @@ namespace Comet {
             return {};
         }
         const auto dependents = m_import_dependents_by_source.find(normalized);
-        return dependents == m_import_dependents_by_source.end()
-                   ? std::span<const AssetHandle>()
-                   : std::span<const AssetHandle>(dependents->second);
+        if(dependents == m_import_dependents_by_source.end()) {
+            return {};
+        }
+        return std::span<const AssetHandle>(dependents->second);
     }
 
     std::vector<AssetRecord> AssetDatabase::get_assets() const {
@@ -676,8 +683,10 @@ namespace Comet {
 
     AssetRevision AssetDatabase::get_revision(const AssetHandle handle) const noexcept {
         const auto revision = m_asset_revisions.find(handle);
-        return revision == m_asset_revisions.end() ? INVALID_ASSET_REVISION
-                                                   : revision->second;
+        if(revision == m_asset_revisions.end()) {
+            return INVALID_ASSET_REVISION;
+        }
+        return revision->second;
     }
 
     bool AssetDatabase::is_current(

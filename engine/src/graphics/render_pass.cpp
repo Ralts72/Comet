@@ -121,9 +121,11 @@ namespace Comet {
                 all_color_attachments_reference[i].size();
             sub_pass_descriptions[i].pColorAttachments =
                 all_color_attachments_reference[i].data();
-            sub_pass_descriptions[i].pResolveAttachments =
-                (sample_count > SampleCount::Count1 ? &resolve_attachments_reference[i]
-                                                    : nullptr);
+            sub_pass_descriptions[i].pResolveAttachments = nullptr;
+            if(sample_count > SampleCount::Count1) {
+                sub_pass_descriptions[i].pResolveAttachments =
+                    &resolve_attachments_reference[i];
+            }
             sub_pass_descriptions[i].pDepthStencilAttachment =
                 all_depth_stencil_attachments_reference[i].data();
             sub_pass_descriptions[i].preserveAttachmentCount = 0;

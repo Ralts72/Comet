@@ -90,23 +90,30 @@ namespace Comet::AssetSourceOperations {
         std::error_code error;
         const bool source_exists = std::filesystem::is_regular_file(source, error);
         if(error || !source_exists) {
-            return operation_error(source_relative,
-                error ? "failed to access asset source: " + error.message()
-                      : "asset source is not a regular file");
+            std::string message = "asset source is not a regular file";
+            if(error) {
+                message = "failed to access asset source: " + error.message();
+            }
+            return operation_error(source_relative, std::move(message));
         }
 
         const bool target_exists = std::filesystem::exists(target, error);
         if(error || target_exists) {
-            return operation_error(destination_relative,
-                error ? "failed to inspect asset destination: " + error.message()
-                      : "asset destination already exists");
+            std::string message = "asset destination already exists";
+            if(error) {
+                message = "failed to inspect asset destination: " + error.message();
+            }
+            return operation_error(destination_relative, std::move(message));
         }
         const bool target_metadata_exists =
             std::filesystem::exists(target_metadata, error);
         if(error || target_metadata_exists) {
-            return operation_error(metadata_path(destination_relative),
-                error ? "failed to inspect destination metadata: " + error.message()
-                      : "destination metadata already exists");
+            std::string message = "destination metadata already exists";
+            if(error) {
+                message = "failed to inspect destination metadata: " + error.message();
+            }
+            return operation_error(
+                metadata_path(destination_relative), std::move(message));
         }
 
         const std::filesystem::path canonical_root =
@@ -164,12 +171,13 @@ namespace Comet::AssetSourceOperations {
             std::error_code rollback_error;
             std::filesystem::rename(target, source, rollback_error);
             remove_created_directories(created_directories);
-            return operation_error(destination_relative,
-                rollback_error
-                    ? "failed to move metadata and failed to roll back source: "
-                          + move_error + "; rollback: " + rollback_error.message()
-                    : "failed to move metadata; source move was rolled back: "
-                          + move_error);
+            std::string message =
+                "failed to move metadata; source move was rolled back: " + move_error;
+            if(rollback_error) {
+                message = "failed to move metadata and failed to roll back source: "
+                          + move_error + "; rollback: " + rollback_error.message();
+            }
+            return operation_error(destination_relative, std::move(message));
         }
 
         AssetScanReport report;
@@ -205,14 +213,16 @@ namespace Comet::AssetSourceOperations {
         std::filesystem::rename(target, source, source_rollback_error);
         remove_created_directories(created_directories);
         if(metadata_rollback_error || source_rollback_error) {
-            report.issues.push_back({.path = destination_relative,
-                .message = "asset scan failed after move and file rollback was incomplete"
-                           + (metadata_rollback_error
-                                   ? "; metadata: " + metadata_rollback_error.message()
-                                   : std::string{})
-                           + (source_rollback_error
-                                   ? "; source: " + source_rollback_error.message()
-                                   : std::string{})});
+            std::string message =
+                "asset scan failed after move and file rollback was incomplete";
+            if(metadata_rollback_error) {
+                message += "; metadata: " + metadata_rollback_error.message();
+            }
+            if(source_rollback_error) {
+                message += "; source: " + source_rollback_error.message();
+            }
+            report.issues.push_back(
+                {.path = destination_relative, .message = std::move(message)});
         } else {
             report.issues.push_back({.path = destination_relative,
                 .message =

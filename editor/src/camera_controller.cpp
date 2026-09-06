@@ -9,6 +9,8 @@ namespace CometEditor {
         constexpr float ZOOM_EXPONENT_PER_STEP = 0.15f;
         constexpr float MIN_DISTANCE = 0.05f;
         constexpr float MAX_DISTANCE = 10000.0f;
+        constexpr float MIN_ORTHOGRAPHIC_HEIGHT = 0.01f;
+        constexpr float MAX_ORTHOGRAPHIC_HEIGHT = 10000.0f;
         constexpr float MAX_VERTICAL_ALIGNMENT = 0.995f;
         constexpr float MIN_DIRECTION_LENGTH = 0.00001f;
 
@@ -28,15 +30,17 @@ namespace CometEditor {
             return;
         }
 
-        Comet::Math::Vec3 offset = camera.position - camera.target;
+        Comet::Math::Vec3 offset = camera.perspective.position - camera.target;
         float distance = Comet::Math::length(offset);
         if(!std::isfinite(distance) || distance < MIN_DIRECTION_LENGTH) {
             return;
         }
 
         const Comet::Math::Vec3 world_up(0.0f, 1.0f, 0.0f);
+        const bool orthographic =
+            camera.projection == Comet::RenderCamera::Projection::Orthographic;
 
-        if(has_delta(input.orbit_delta)) {
+        if(!orthographic && has_delta(input.orbit_delta)) {
             offset = Comet::Math::angle_axis(
                          -input.orbit_delta.x * ORBIT_RADIANS_PER_PIXEL, world_up)
                      * offset;
@@ -57,42 +61,68 @@ namespace CometEditor {
                     offset = pitched;
                 }
             }
-            camera.position = camera.target + offset;
-            camera.up = world_up;
+            camera.perspective.position = camera.target + offset;
+            camera.perspective.up = world_up;
             distance = Comet::Math::length(offset);
         }
 
+        const bool valid_orthographic_pan_scale =
+            orthographic && std::isfinite(camera.orthographic.height)
+            && camera.orthographic.height > 0.0f;
+        const bool valid_perspective_pan_scale =
+            !orthographic && std::isfinite(camera.perspective.fov_degrees)
+            && camera.perspective.fov_degrees > 0.0f
+            && camera.perspective.fov_degrees < 179.0f;
+        const bool valid_pan_scale =
+            valid_orthographic_pan_scale || valid_perspective_pan_scale;
         if(has_delta(input.pan_delta) && std::isfinite(input.viewport_height)
-            && input.viewport_height > 0.0f && std::isfinite(camera.fov_degrees)
-            && camera.fov_degrees > 0.0f && camera.fov_degrees < 179.0f) {
-            const Comet::Math::Vec3 forward =
-                Comet::Math::normalize(camera.target - camera.position);
+            && input.viewport_height > 0.0f && valid_pan_scale) {
+            Comet::Math::Vec3 forward;
+            float visible_world_height = 0.0f;
+            if(orthographic) {
+                forward = Comet::Math::Vec3(0.0f, 0.0f, -1.0f);
+                visible_world_height = camera.orthographic.height;
+            } else {
+                forward =
+                    Comet::Math::normalize(camera.target - camera.perspective.position);
+                visible_world_height = 2.0f * distance * std::tan(
+                        Comet::Math::radians(camera.perspective.fov_degrees) * 0.5f);
+            }
             const Comet::Math::Vec3 right_candidate =
                 Comet::Math::cross(forward, world_up);
             if(Comet::Math::length(right_candidate) >= MIN_DIRECTION_LENGTH) {
                 const Comet::Math::Vec3 right = Comet::Math::normalize(right_candidate);
                 const Comet::Math::Vec3 camera_up =
                     Comet::Math::normalize(Comet::Math::cross(right, forward));
-                const float visible_world_height =
-                    2.0f * distance
-                    * std::tan(Comet::Math::radians(camera.fov_degrees) * 0.5f);
                 const float world_units_per_pixel =
                     visible_world_height / input.viewport_height;
                 const Comet::Math::Vec3 translation =
                     right * (-input.pan_delta.x * world_units_per_pixel)
                     + camera_up * (input.pan_delta.y * world_units_per_pixel);
-                camera.position += translation;
+                camera.perspective.position += translation;
                 camera.target += translation;
             }
         }
 
         if(input.zoom_delta != 0.0f) {
+            if(orthographic) {
+                if(!std::isfinite(camera.orthographic.height)
+                    || camera.orthographic.height <= 0.0f) {
+                    return;
+                }
+                camera.orthographic.height =
+                    std::clamp(camera.orthographic.height * std::exp(
+                        -input.zoom_delta * ZOOM_EXPONENT_PER_STEP),
+                        MIN_ORTHOGRAPHIC_HEIGHT, MAX_ORTHOGRAPHIC_HEIGHT);
+                return;
+            }
+
             const Comet::Math::Vec3 direction =
-                Comet::Math::normalize(camera.position - camera.target);
+                Comet::Math::normalize(camera.perspective.position - camera.target);
             distance = std::clamp(
                 distance * std::exp(-input.zoom_delta * ZOOM_EXPONENT_PER_STEP),
                 MIN_DISTANCE, MAX_DISTANCE);
-            camera.position = camera.target + direction * distance;
+            camera.perspective.position = camera.target + direction * distance;
         }
     }
 }

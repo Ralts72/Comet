@@ -19,6 +19,19 @@ namespace Comet {
             const RenderScene& render_scene, const RenderView& view);
 
     private:
+        enum class CameraIssue {
+            InvalidFov,
+            InvalidOrthographicHeight,
+            InvalidClipPlanes,
+        };
+
+        struct CameraDiagnostic {
+            EntityId entity_id;
+            CameraIssue issue;
+
+            bool operator==(const CameraDiagnostic&) const = default;
+        };
+
         [[nodiscard]] std::optional<ViewProjectMatrix> resolve_camera(
             const RenderScene& render_scene, const RenderView& view);
 
@@ -29,8 +42,7 @@ namespace Comet {
         std::unordered_set<AssetHandle> m_missing_mesh_handles;
         std::unordered_set<AssetHandle> m_missing_material_handles;
         std::unordered_set<AssetHandle> m_invalid_material_handles;
-        std::optional<EntityId> m_invalid_camera_fov;
-        std::optional<EntityId> m_invalid_camera_clip_planes;
+        std::optional<CameraDiagnostic> m_camera_diagnostic;
         bool m_missing_primary_camera = false;
         bool m_missing_camera_override = false;
         bool m_multiple_primary_cameras = false;

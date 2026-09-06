@@ -8,7 +8,6 @@ namespace CometEditor {
             render_file_menu();
             render_edit_menu();
             render_view_menu();
-            render_game_menu();
             render_gameobject_menu();
             render_help_menu();
 
@@ -41,21 +40,6 @@ namespace CometEditor {
             ImGui::Separator();
             if(ImGui::MenuItem("Exit", "Alt+F4")) {
                 // TODO: 实现退出
-            }
-            ImGui::EndMenu();
-        }
-    }
-
-    void MenuBar::render_game_menu() const {
-        if(ImGui::BeginMenu("Game")) {
-            const bool is_playing = m_state.mode == EditorMode::Play;
-            if(ImGui::MenuItem("Play", nullptr, false, !is_playing)
-                && m_editor_mode_callback) {
-                m_editor_mode_callback(EditorMode::Play);
-            }
-            if(ImGui::MenuItem("Stop", nullptr, false, is_playing)
-                && m_editor_mode_callback) {
-                m_editor_mode_callback(EditorMode::Edit);
             }
             ImGui::EndMenu();
         }

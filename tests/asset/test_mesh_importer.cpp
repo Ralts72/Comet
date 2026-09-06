@@ -92,10 +92,11 @@ namespace Comet::Tests {
 
         [[nodiscard]] std::string make_triangle_gltf(
             const std::string_view primitive, const std::string_view buffer_uri = {}) {
-            const std::string uri = buffer_uri.empty()
-                                        ? "data:application/octet-stream;base64,"
-                                              + std::string(TRIANGLE_BUFFER)
-                                        : std::string(buffer_uri);
+            std::string uri(buffer_uri);
+            if(buffer_uri.empty()) {
+                uri = "data:application/octet-stream;base64,"
+                      + std::string(TRIANGLE_BUFFER);
+            }
             return std::string(
                        R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":42,"uri":")")
                    + uri

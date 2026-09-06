@@ -15,10 +15,6 @@ namespace CometEditor {
 
         void render() override;
 
-        [[nodiscard]] bool is_2d_mode() const { return m_2d_mode; }
-
-        void set_2d_mode(const bool is_2d) { m_2d_mode = is_2d; }
-
         void set_texture_id(
             ImTextureID texture_id, std::uint32_t width, std::uint32_t height);
 
@@ -32,6 +28,11 @@ namespace CometEditor {
 
         [[nodiscard]] std::optional<EditorCameraInput> take_camera_input();
 
+        [[nodiscard]] std::optional<Comet::RenderCamera::Projection>
+        take_projection_request();
+
+        [[nodiscard]] std::optional<EditorMode> take_mode_request();
+
     private:
         enum class CameraDragMode { Orbit, Pan };
 
@@ -40,7 +41,8 @@ namespace CometEditor {
             ImGuiMouseButton button;
         };
 
-        void render_edit_toolbar();
+        void render_toolbar();
+        void render_projection_controls();
         void render_play_toolbar();
         void render_view_content();
         void update_camera_input();
@@ -48,7 +50,6 @@ namespace CometEditor {
 
         const EditorState& m_state;
         std::uint32_t m_max_render_dimension = 0;
-        bool m_2d_mode = false;
         ViewportLayout::ResolutionPolicy m_play_resolution_policy;
         ViewportLayout::DisplayMode m_play_display_mode =
             ViewportLayout::DisplayMode::Fit;
@@ -60,6 +61,8 @@ namespace CometEditor {
         Comet::Math::Vec2u m_requested_render_size{};
         std::uint32_t m_render_resolution_stable_frames = 0;
         std::optional<EditorCameraInput> m_camera_input;
+        std::optional<Comet::RenderCamera::Projection> m_camera_projection_request;
+        std::optional<EditorMode> m_mode_request;
         std::optional<CameraDrag> m_camera_drag;
     };
 }
