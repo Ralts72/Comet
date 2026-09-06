@@ -11,6 +11,14 @@ namespace CometEditor {
     class TranslationGizmo {
     public:
         enum class Axis { X, Y, Z };
+        enum class Space { World, Local };
+
+        struct Settings {
+            Space space = Space::World;
+            bool snap = false;
+            float step = 0.25f;
+            bool operator==(const Settings&) const = default;
+        };
 
         struct Handle {
             Axis axis;
@@ -29,6 +37,8 @@ namespace CometEditor {
 
         TranslationGizmo(
             CommandHistory& history, const Comet::ComponentRegistry& registry);
+        [[nodiscard]] bool set_settings(Settings settings);
+        [[nodiscard]] Settings settings() const { return m_settings; }
 
         // 坐标使用界面逻辑点；拖出图像仍继续，取消／释放帧也消费指针。
         [[nodiscard]] bool update(Comet::EntityUuid selected,
@@ -47,6 +57,7 @@ namespace CometEditor {
             Comet::EntityUuid parent;
             Comet::Math::Vec3 origin{};
             Comet::Math::Vec3 translation{};
+            std::array<Comet::Math::Vec3, 3> directions;
             Comet::Math::Mat4 parent_world{1.0f};
             Comet::Math::Mat4 world_to_parent{1.0f};
             Comet::Math::Mat4 view_projection{1.0f};
@@ -74,5 +85,6 @@ namespace CometEditor {
         PropertyEditTransaction m_edit;
         std::optional<Drag> m_drag;
         std::optional<Axis> m_hovered_axis;
+        Settings m_settings;
     };
 }

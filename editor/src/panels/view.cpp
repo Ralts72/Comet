@@ -108,8 +108,31 @@ namespace CometEditor {
         if(is_playing) {
             ImGui::SameLine();
             render_play_toolbar();
+        } else {
+            ImGui::SameLine();
+            render_gizmo_settings();
         }
         ImGui::Separator();
+    }
+
+    void ViewPanel::render_gizmo_settings() {
+        if(ImGui::Button("Tool", ImVec2(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight())))
+            ImGui::OpenPopup("Gizmo Settings");
+        if(!ImGui::BeginPopup("Gizmo Settings"))
+            return;
+        auto settings = m_gizmo.settings();
+        int space = static_cast<int>(settings.space);
+        ImGui::SetNextItemWidth(120);
+        bool changed = ImGui::Combo("Space", &space, "World\0Local\0");
+        settings.space = static_cast<TranslationGizmo::Space>(space);
+        changed |= ImGui::Checkbox("Snap", &settings.snap);
+        ImGui::BeginDisabled(!settings.snap);
+        ImGui::SetNextItemWidth(120);
+        changed |= ImGui::InputFloat("Step", &settings.step, 0, 0, "%.3f");
+        ImGui::EndDisabled();
+        if(changed)
+            static_cast<void>(m_gizmo.set_settings(settings));
+        ImGui::EndPopup();
     }
 
     void ViewPanel::render_projection_controls() {
