@@ -1,6 +1,6 @@
 # 渲染资源所有权
 
-描述当前 owner、调用边界和销毁规则；Shader reflection、RenderGraph/RenderThread 设计见[路线图](../engine-roadmap.md)。
+描述当前 owner、调用边界和销毁规则；Shader 后台更新、RenderGraph/RenderThread 设计见[路线图](../engine-roadmap.md)。
 
 ## 先看哪个类
 
@@ -17,6 +17,8 @@
 | `render/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
 | `render/resource/resource_manager.h` | 设备资源工厂、上传及 Shader/Sampler 共享资源 |
 | `graphics/` | Vulkan 对象与显式同步后端 |
+| `graphics/pipeline/pipeline.h` | PipelineConfig/Key、设备 Pipeline 与弱引用缓存；键实现见 pipeline_key.cpp |
+| `graphics/pipeline/shader_interface.h` | SPIR-V 的自有 CPU 接口值，不持有设备或反射库指针 |
 | `editor/src/imgui_context.h` | 编辑器 UI 最终呈现和私有纹理绑定，不属于 engine |
 
 engine 入口路径相对 `engine/src/`。Graphics 的 command/resource/pipeline/synchronization 按职责分目录；
@@ -37,7 +39,7 @@ Engine
     ├── RenderView / SceneResolver
     ├── LineDrawList（单帧 CPU 请求）
     └── SceneRenderer
-        ├── RenderPass / PipelineManager
+        ├── RenderPass / PipelineManager（结构化 key → weak Pipeline）
         ├── FrameScheduler → FrameSlot[N] / SwapchainImageState[M]
         ├── MaterialRenderer
         │   ├── FrameResources[slot] → FrameSet / ViewProjectBuffer
@@ -50,7 +52,7 @@ Engine
 Editor
 ├── AssetManager（借用 Engine 的服务）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
-├── CommandHistory ← Inspector / TranslationGizmo 各自的属性事务
+├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
 └── ImGuiContext
     ├── RenderPass / SwapchainTarget / DescriptorPool
     └── TextureBinding[slot] → ImageView / Sampler / ImGui descriptor
@@ -99,6 +101,14 @@ MaterialRenderer 选择 MaterialLayout，MaterialRuntimeCache 按材质身份/re
 生产 GPU 支持 cube_texture 和 unlit_color 两套 MaterialSet 布局；FrameSet 共用相机契约。
 当前仅不透明物体按 pipeline/material 排序；布局手写，不等同于已经支持任意 Shader 或透明排序。
 
+Shader 保存不可变 SPIR-V 内容与 ShaderInterface；同标签加载不同内容时先成功创建候选，再替换 ShaderManager 的旧条目。
+ShaderInterface 校验 GPU 布局覆盖，MaterialLayout 另校验参数块大小、偏移与类型；不是从反射推断编辑语义。
+PipelineKey 使用完整字节码/入口、descriptor/push 范围、PipelineConfig、RenderPass 身份及附件格式/采样数；
+键相等不依赖名字、Shader 地址、VkShaderModule 或 VkDescriptorSetLayout 的句柄相等。
+目前 specialization 固定为空，不同 RenderPass 之间不尝试兼容复用；它不是跨进程磁盘格式。
+PipelineManager 只弱引用 Pipeline，实际 owner 是 MaterialRenderer、DebugRenderer 和录制过它的 FrameSlot。
+最后一个实际 owner 释放即销毁 GPU 对象；过期 key 在下次创建或 collect_unused 时清理，不阻塞 GPU 等待。
+
 只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。
 编辑命令完成后提取，因此组件修改、Undo/Redo 和当前帧拾取使用同一份场景快照。
@@ -116,12 +126,12 @@ Editor 在 UI 编辑命令完成后读取选中实体的 Mesh local bounds 和�
 普通帧在 prepare 提交；有视口拾取请求时，等结果更新 Selection 后再提交，避免旧框和新框同时出现。
 选择状态仍由 SelectionService 持有，Scene/Mesh/Material 不保存 selected 标记；Play、隐藏视口或无有效 Mesh 时不提交。
 
-TranslationGizmo 是编辑器侧的投影、命中与平移事务，不是渲染资源。它与 Inspector 各自持有 PropertyEditTransaction，
-共享同一个 CommandHistory；拖动用 UUID 定位并预览 translation，释放提交一次，取消恢复。
+TransformGizmo 是编辑器侧的投影、命中与平移/旋转/缩放事务，不是渲染资源。它与 Inspector 各自持有 PropertyEditTransaction，
+共享同一个 CommandHistory；拖动用 UUID 定位并预览对应 Transform 属性，释放提交一次，取消恢复。
 ViewPanel 优先将普通左键交给 Gizmo，未命中才请求场景拾取；拖动时占有 ImGui active ID，阻止快捷键和相机导航。
 UI 回调完成命令／相机更新后，ViewPanel::draw_gizmo 将最新句柄追加到本帧窗口 draw list，随后 ImGui::Render。
-箭头作为可操作的 UI 覆盖层不受场景深度遮挡，不需要修改 DebugRenderer 或向 engine 注入编辑器状态。
-点击拾取帧不显示旧选择的箭头，新选择箭头在下一 UI 帧出现；选中包围盒仍由拾取回调在当帧提交。
+手柄作为可操作的 UI 覆盖层不受场景深度遮挡，不需要修改 DebugRenderer 或向 engine 注入编辑器状态。
+点击拾取帧不显示旧选择的手柄，新选择手柄在下一 UI 帧出现；选中包围盒仍由拾取回调在当帧提交。
 
 RenderView 的 CameraSelection 选择显式 editor camera 或 Scene primary camera；
 请求 override 却缺少数据时不静默回退。没有合法 Camera 时清屏并保留 UI，不录制场景 draw。

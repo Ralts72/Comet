@@ -2,6 +2,7 @@
 
 #include <utility>
 #include <stdexcept>
+#include <algorithm>
 #include "graphics/device.h"
 #include "graphics/pipeline/shader.h"
 #include "graphics/render_pass.h"
@@ -120,9 +121,7 @@ namespace Comet {
         auto multisample_state = create_multisample_state(config);
         auto depth_stencil_state = create_depth_stencil_state(config);
         auto color_blend_state = create_color_blend_state(config);
-        const vk::Viewport viewport = Graphics::get_viewport(100.0f, 100.0f);
-        const vk::Rect2D scissor = Graphics::get_scissor(100.0f, 100.0f);
-        auto viewport_state = create_viewport_state(viewport, scissor);
+        auto viewport_state = create_viewport_state(config.viewport, config.scissor);
         auto dynamic_state = create_dynamic_state(config);
 
         vk::GraphicsPipelineCreateInfo pipeline_create_info = {};
@@ -138,7 +137,7 @@ namespace Comet {
         pipeline_create_info.pDynamicState = &dynamic_state;
         pipeline_create_info.layout = m_layout->get();
         pipeline_create_info.renderPass = render_pass.get();
-        pipeline_create_info.subpass = 0;
+        pipeline_create_info.subpass = config.subpass;
         pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
         pipeline_create_info.basePipelineIndex = 0;
 
@@ -312,21 +311,30 @@ namespace Comet {
         }
         layout.validate(vert_shader->get_interface());
         layout.validate(frag_shader->get_interface());
-        const auto it = m_pipelines.find(name);
+        PipelineKey key(layout, config, *vert_shader, *frag_shader, m_render_pass);
+        collect_unused();
+        const auto it = m_pipelines.find(key);
         if(it != m_pipelines.end()) {
-            LOG_DEBUG("Pipeline '{}' already exists, returning cached version", name);
-            return it->second;
+            if(auto pipeline = it->second.lock()) {
+                LOG_DEBUG("Pipeline '{}' reuses compatible cached state", name);
+                return pipeline;
+            }
         }
 
         auto pipeline_layout = std::make_shared<PipelineLayout>(m_device, layout);
 
         auto pipeline = std::make_shared<Pipeline>(name, m_device, m_render_pass,
-            pipeline_layout, vert_shader, frag_shader, config);
+            pipeline_layout, vert_shader, frag_shader, key.config);
 
-        m_pipelines[name] = pipeline;
+        m_pipelines.insert_or_assign(std::move(key), pipeline);
 
         LOG_INFO("Pipeline '{}' created successfully", name);
         return pipeline;
+    }
+
+    void PipelineManager::collect_unused() {
+        std::erase_if(
+            m_pipelines, [](const auto& entry) { return entry.second.expired(); });
     }
 
 }

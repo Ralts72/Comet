@@ -32,11 +32,13 @@ namespace Comet {
     struct PipelineVertexInputState {
         std::vector<vk::VertexInputBindingDescription> vertex_bindings;
         std::vector<vk::VertexInputAttributeDescription> vertex_attributes;
+        bool operator==(const PipelineVertexInputState&) const = default;
     };
 
     struct PipelineInputAssemblyState {
         Topology topology = Topology::TriangleList;
         bool primitive_restart_enable = false;
+        bool operator==(const PipelineInputAssemblyState&) const = default;
     };
 
     struct PipelineRasterizationState {
@@ -50,12 +52,14 @@ namespace Comet {
         float depth_bias_clamp = 0.0f;
         float depth_bias_slope_factor = 0.0f;
         float line_width = 1.0f;
+        bool operator==(const PipelineRasterizationState&) const = default;
     };
 
     struct PipelineMultisampleState {
         SampleCount rasterization_samples = SampleCount::Count1;
         bool sample_shading_enable = false;
         float min_sample_shading = 0.2f;
+        bool operator==(const PipelineMultisampleState&) const = default;
     };
 
     struct PipelineDepthStencilState {
@@ -64,6 +68,7 @@ namespace Comet {
         CompareOp depth_compare_op = CompareOp::Never;
         bool depth_bounds_test_enable = false;
         bool stencil_test_enable = false;
+        bool operator==(const PipelineDepthStencilState&) const = default;
     };
 
     struct PipelineColorBlendState {
@@ -80,16 +85,17 @@ namespace Comet {
 
     struct PipelineDynamicState {
         std::vector<vk::DynamicState> dynamic_states;
+        bool operator==(const PipelineDynamicState&) const = default;
     };
 
-    struct PipelineConfig {
+    struct COMET_API PipelineConfig {
         PipelineVertexInputState vertex_input_state;
         PipelineInputAssemblyState input_assembly_state;
         PipelineRasterizationState rasterization_state;
         PipelineMultisampleState multisample_state;
         PipelineDepthStencilState depth_stencil_state;
-        vk::Viewport viewport{};
-        vk::Rect2D scissor{};
+        vk::Viewport viewport{0, 100, 100, -100, 0, 1};
+        vk::Rect2D scissor{{0, 0}, {100, 100}};
         vk::PipelineColorBlendAttachmentState color_blend_state{
             vk::False,              // blendEnable
             vk::BlendFactor::eOne,  // srcColorBlendFactor
@@ -103,6 +109,9 @@ namespace Comet {
                 | vk::ColorComponentFlagBits::eA // colorWriteMask
         };
         PipelineDynamicState dynamic_state;
+        uint32_t subpass = 0;
+
+        bool operator==(const PipelineConfig&) const = default;
 
         void set_vertex_input_state(const VertexInputDescription& description);
 
@@ -123,6 +132,42 @@ namespace Comet {
         void enable_alpha_blend();
 
         void enable_depth_test();
+    };
+
+    // 仅在当前 Device/RenderPass 缓存域内比较，不是磁盘缓存格式。
+    struct COMET_API PipelineKey {
+        struct ShaderCode {
+            std::vector<uint32_t> words;
+            std::string entry_point;
+            bool operator==(const ShaderCode&) const = default;
+        };
+        struct Binding {
+            uint32_t binding;
+            vk::DescriptorType type;
+            uint32_t count;
+            vk::ShaderStageFlags stages;
+            bool operator==(const Binding&) const = default;
+        };
+        struct AttachmentFormat {
+            Format format;
+            SampleCount samples;
+            bool operator==(const AttachmentFormat&) const = default;
+        };
+        struct Hash {
+            size_t operator()(const PipelineKey& key) const;
+        };
+
+        ShaderCode vertex;
+        ShaderCode fragment;
+        std::vector<std::vector<Binding>> descriptor_sets;
+        std::vector<vk::PushConstantRange> push_constants;
+        PipelineConfig config;
+        vk::RenderPass render_pass;
+        std::vector<AttachmentFormat> attachments;
+
+        PipelineKey(const ShaderLayout& layout, const PipelineConfig& config,
+            const Shader& vertex, const Shader& fragment, const RenderPass& render_pass);
+        bool operator==(const PipelineKey&) const = default;
     };
 
     class Pipeline {
@@ -192,9 +237,15 @@ namespace Comet {
             const std::shared_ptr<Shader>& vert_shader,
             const std::shared_ptr<Shader>& frag_shader);
 
+        void collect_unused();
+        [[nodiscard]] size_t get_cached_pipeline_count() const {
+            return m_pipelines.size();
+        }
+
     private:
         Device& m_device;
         RenderPass& m_render_pass;
-        std::unordered_map<std::string, std::shared_ptr<Pipeline>> m_pipelines;
+        std::unordered_map<PipelineKey, std::weak_ptr<Pipeline>, PipelineKey::Hash>
+            m_pipelines;
     };
 }

@@ -11,11 +11,16 @@
 #include "interface_array_vert.h"
 #include "material_integer_frag.h"
 #include "runtime_array_frag.h"
+#include "pipeline_triangle_vert.h"
+#include "pipeline_color_frag.h"
+#include "graphics/resource/image_view.h"
+#include "graphics/resource/image.h"
 
 #include <gtest/gtest.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <sstream>
 #include <stdexcept>
+#include <limits>
 
 namespace Comet::Tests {
     TEST(ShaderInterfaceTest, ReflectsProductionStagesBindingsAndPushConstants) {
@@ -222,5 +227,338 @@ namespace Comet::Tests {
         layout.push_constants = {nullptr};
         EXPECT_THROW(
             layout.validate(ShaderInterface(DEBUG_LINE_FRAG)), std::invalid_argument);
+    }
+
+    TEST_F(ShaderPipelineTest, UsesContentAndStateInsteadOfShaderAndPipelineLabels) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        RenderPass pass(device);
+        PipelineManager pipelines(device, pass);
+        ShaderManager shaders(device);
+        auto vertex = shaders.load_shader("vertex", PIPELINE_TRIANGLE_VERT);
+        auto fragment = shaders.load_shader("fragment", PIPELINE_COLOR_FRAG);
+        ShaderLayout layout;
+        PipelineConfig config;
+        auto original =
+            pipelines.create_pipeline("same", layout, config, vertex, fragment);
+        EXPECT_EQ(
+            original, pipelines.create_pipeline("other", layout, config, vertex,
+                          shaders.load_shader("other_fragment", PIPELINE_COLOR_FRAG)));
+        config.rasterization_state.front_face = FrontFace::CCW;
+        auto changed =
+            pipelines.create_pipeline("same", layout, config, vertex, fragment);
+        EXPECT_NE(original, changed);
+        config.viewport.width = 80;
+        EXPECT_NE(
+            changed, pipelines.create_pipeline("same", layout, config, vertex, fragment));
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 3u);
+        pipelines.collect_unused();
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 2u);
+
+        EXPECT_EQ(fragment, shaders.load_shader("fragment", PIPELINE_COLOR_FRAG));
+        auto new_fragment = shaders.load_shader("fragment", DEBUG_LINE_FRAG);
+        EXPECT_NE(fragment, new_fragment);
+        EXPECT_EQ(fragment->get_code(), std::vector<uint32_t>(PIPELINE_COLOR_FRAG.begin(),
+                                            PIPELINE_COLOR_FRAG.end()));
+        EXPECT_THROW(shaders.load_shader("fragment", std::span<const uint32_t>{}),
+            std::invalid_argument);
+        EXPECT_EQ(new_fragment, shaders.load_shader("fragment", DEBUG_LINE_FRAG));
+    }
+
+    TEST_F(ShaderPipelineTest, CanonicalizesLayoutsAndDynamicViewportState) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        RenderPass pass(device);
+        auto vertex = std::make_shared<Shader>(device, "vertex", PIPELINE_TRIANGLE_VERT);
+        auto fragment = std::make_shared<Shader>(device, "fragment", PIPELINE_COLOR_FRAG);
+        const auto make_layout = [&](bool reverse, uint32_t count) {
+            DescriptorSetLayoutBindings bindings;
+            if(reverse) {
+                bindings.add_binding(2, DescriptorType::UniformBuffer,
+                    Flags<ShaderStage>(ShaderStage::Vertex), count);
+                bindings.add_binding(0, DescriptorType::Sampler,
+                    Flags<ShaderStage>(ShaderStage::Fragment));
+            } else {
+                bindings.add_binding(0, DescriptorType::Sampler,
+                    Flags<ShaderStage>(ShaderStage::Fragment));
+                bindings.add_binding(2, DescriptorType::UniformBuffer,
+                    Flags<ShaderStage>(ShaderStage::Vertex), count);
+            }
+            ShaderLayout layout;
+            layout.descriptor_set_layouts.push_back(
+                std::make_shared<DescriptorSetLayout>(device, bindings));
+            layout.push_constants = {
+                std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 16),
+                std::make_shared<PushConstantRange>(ShaderStage::Fragment, 16, 16)};
+            if(reverse)
+                std::ranges::reverse(layout.push_constants);
+            return layout;
+        };
+        auto a = make_layout(false, 1);
+        auto b = make_layout(true, 1);
+        PipelineConfig first;
+        VertexInputDescription input;
+        input.add_binding(1, 8, VertexInputRate::Vertex);
+        input.add_binding(0, 8, VertexInputRate::Vertex);
+        input.add_attribute(6, 1, Format::R32_SFLOAT, 0);
+        input.add_attribute(5, 0, Format::R32_SFLOAT, 0);
+        first.set_vertex_input_state(input);
+        first.dynamic_state.dynamic_states = {
+            vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+        PipelineConfig second = first;
+        std::ranges::reverse(second.vertex_input_state.vertex_bindings);
+        std::ranges::reverse(second.vertex_input_state.vertex_attributes);
+        second.dynamic_state.dynamic_states = {vk::DynamicState::eScissor,
+            vk::DynamicState::eViewport, vk::DynamicState::eViewport};
+        second.viewport.width = 800;
+        second.scissor.extent = vk::Extent2D(800, 600);
+        const PipelineKey ka(a, first, *vertex, *fragment, pass);
+        const PipelineKey kb(b, second, *vertex, *fragment, pass);
+        EXPECT_EQ(ka, kb);
+        EXPECT_EQ(PipelineKey::Hash{}(ka), PipelineKey::Hash{}(kb));
+        PipelineManager pipelines(device, pass);
+        auto one = pipelines.create_pipeline("a", a, first, vertex, fragment);
+        EXPECT_EQ(one, pipelines.create_pipeline("b", b, second, vertex, fragment));
+        EXPECT_NE(one, pipelines.create_pipeline(
+                           "a", make_layout(false, 2), first, vertex, fragment));
+        second.dynamic_state.dynamic_states.clear();
+        EXPECT_NE(ka, PipelineKey(b, second, *vertex, *fragment, pass));
+        second.viewport.width = std::numeric_limits<float>::quiet_NaN();
+        EXPECT_THROW(pipelines.create_pipeline("bad", b, second, vertex, fragment),
+            std::invalid_argument);
+        second = first;
+        second.subpass = 1;
+        EXPECT_THROW(pipelines.create_pipeline("bad", b, second, vertex, fragment),
+            std::invalid_argument);
+    }
+
+    TEST_F(ShaderPipelineTest, ComparesAllStateEvenWhenHashesCollide) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        RenderPass pass(device);
+        Shader vertex(device, "vertex", PIPELINE_TRIANGLE_VERT);
+        Shader fragment(device, "fragment", PIPELINE_COLOR_FRAG);
+        const PipelineKey base({}, {}, vertex, fragment, pass);
+        struct SameHash {
+            size_t operator()(const PipelineKey&) const { return 0; }
+        };
+        std::unordered_map<PipelineKey, int, SameHash> cache;
+        cache.emplace(base, 0);
+        const std::vector<std::function<void(PipelineKey&)>> changes{
+            [](auto& k) { ++k.vertex.words.back(); },
+            [](auto& k) { k.vertex.entry_point = "other"; },
+            [](auto& k) { ++k.fragment.words.back(); },
+            [](auto& k) { k.fragment.entry_point = "other"; },
+            [](auto& k) {
+                k.descriptor_sets = {{{0, vk::DescriptorType::eSampler, 1,
+                    vk::ShaderStageFlagBits::eFragment}}};
+            },
+            [](auto& k) {
+                k.push_constants = {{vk::ShaderStageFlagBits::eVertex, 0, 16}};
+            },
+            [](auto& k) {
+                k.config.vertex_input_state.vertex_bindings = {
+                    {0, 12, vk::VertexInputRate::eVertex}};
+            },
+            [](auto& k) {
+                k.config.vertex_input_state.vertex_attributes = {
+                    {0, 0, vk::Format::eR32Sfloat, 0}};
+            },
+            [](auto& k) { k.config.input_assembly_state.topology = Topology::LineList; },
+            [](auto& k) {
+                k.config.input_assembly_state.primitive_restart_enable = true;
+            },
+            [](auto& k) { k.config.rasterization_state.depth_clamp_enable = true; },
+            [](auto& k) {
+                k.config.rasterization_state.rasterizer_discard_enable = true;
+            },
+            [](auto& k) {
+                k.config.rasterization_state.polygon_mode = PolygonMode::Line;
+            },
+            [](auto& k) { k.config.rasterization_state.cull_mode = CullMode::Back; },
+            [](auto& k) { k.config.rasterization_state.front_face = FrontFace::CCW; },
+            [](auto& k) { k.config.rasterization_state.depth_bias_enable = true; },
+            [](auto& k) { k.config.rasterization_state.depth_bias_constant_factor = 1; },
+            [](auto& k) { k.config.rasterization_state.depth_bias_clamp = 1; },
+            [](auto& k) { k.config.rasterization_state.depth_bias_slope_factor = 1; },
+            [](auto& k) { k.config.rasterization_state.line_width = 2; },
+            [](auto& k) {
+                k.config.multisample_state.rasterization_samples = SampleCount::Count4;
+            },
+            [](auto& k) { k.config.multisample_state.sample_shading_enable = true; },
+            [](auto& k) { k.config.multisample_state.min_sample_shading = 0.5f; },
+            [](auto& k) { k.config.depth_stencil_state.depth_test_enable = true; },
+            [](auto& k) { k.config.depth_stencil_state.depth_write_enable = true; },
+            [](auto& k) {
+                k.config.depth_stencil_state.depth_compare_op = CompareOp::Less;
+            },
+            [](auto& k) { k.config.depth_stencil_state.depth_bounds_test_enable = true; },
+            [](auto& k) { k.config.depth_stencil_state.stencil_test_enable = true; },
+            [](auto& k) { k.config.viewport.width = 90; },
+            [](auto& k) { k.config.scissor.extent.width = 90; },
+            [](auto& k) { k.config.color_blend_state.blendEnable = true; },
+            [](auto& k) {
+                k.config.dynamic_state.dynamic_states = {vk::DynamicState::eViewport};
+            },
+            [](auto& k) { k.config.subpass = 1; },
+            [](auto& k) { k.attachments[0].format = Format::R8G8B8A8_UNORM; },
+            [](auto& k) { k.attachments[0].samples = SampleCount::Count4; },
+            [](auto& k) { k.render_pass = nullptr; }};
+        for(size_t index = 0; index < changes.size(); ++index) {
+            auto key = base;
+            changes[index](key);
+            EXPECT_NE(key, base) << index;
+            EXPECT_TRUE(cache.emplace(key, static_cast<int>(index + 1)).second) << index;
+            EXPECT_EQ(cache.at(key), index + 1);
+        }
+        auto negative_zero = base;
+        negative_zero.config.rasterization_state.depth_bias_clamp = -0.0f;
+        EXPECT_EQ(base, negative_zero);
+        EXPECT_EQ(PipelineKey::Hash{}(base), PipelineKey::Hash{}(negative_zero));
+    }
+
+    TEST_F(ShaderPipelineTest, ReleasesPipelineAfterItsLastFrameOwnerCompletes) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        RenderPass pass(device);
+        PipelineManager pipelines(device, pass);
+        auto vertex = std::make_shared<Shader>(device, "vertex", PIPELINE_TRIANGLE_VERT);
+        auto fragment = std::make_shared<Shader>(device, "fragment", PIPELINE_COLOR_FRAG);
+        auto pipeline = pipelines.create_pipeline("frame", {}, {}, vertex, fragment);
+        const std::weak_ptr<Pipeline> old = pipeline;
+        FrameScheduler frames(device, 1);
+        frames.initialize_swapchain_images(1);
+        frames.wait_for_current_slot();
+        frames.begin_frame(0);
+        auto& command = frames.get_current_command_buffer();
+        command.begin();
+        command.bind_pipeline(*pipeline);
+        frames.retain_current_frame_resource(pipeline);
+        command.end();
+        static_cast<void>(device.get_graphics_queue().submit2({}, std::span(&command, 1),
+            {}, &frames.get_current_frame_slot().in_flight_fence));
+        frames.record_submission();
+        frames.end_frame();
+        pipeline.reset();
+        pipelines.collect_unused();
+        EXPECT_FALSE(old.expired());
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 1u);
+        frames.wait_for_all_slots();
+        EXPECT_TRUE(old.expired());
+        pipelines.collect_unused();
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
+    }
+
+    TEST_F(ShaderPipelineTest, StaticViewportAndScissorChangeActualPixels) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        auto color = Attachment::get_color_attachment(Format::R8G8B8A8_UNORM);
+        color.description.store_op = AttachmentStoreOp::Store;
+        color.description.final_layout = ImageLayout::TransferSrcOptimal;
+        color.usage |= ImageUsage::CopySrc;
+        RenderPass pass(device, {color},
+            {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}}, Format::R8G8B8A8_UNORM);
+        auto target = RenderTarget::create_multi_target(device, pass, {32, 16}, 2);
+        target->set_clear_value(ClearValue(Math::Vec4(0, 0, 0, 1)));
+        PipelineManager pipelines(device, pass);
+        auto vertex = std::make_shared<Shader>(device, "vertex", PIPELINE_TRIANGLE_VERT);
+        auto fragment = std::make_shared<Shader>(device, "fragment", PIPELINE_COLOR_FRAG);
+        PipelineConfig left;
+        left.viewport = vk::Viewport(0, 16, 16, -16, 0, 1);
+        left.scissor = vk::Rect2D({0, 0}, {8, 16});
+        auto right = left;
+        right.viewport.x = 16;
+        right.scissor.offset.x = 24;
+        const std::array draws{
+            pipelines.create_pipeline("region", {}, left, vertex, fragment),
+            pipelines.create_pipeline("region", {}, right, vertex, fragment)};
+        ASSERT_NE(draws[0], draws[1]);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        vk::UniqueDeviceMemory memory;
+        auto readback =
+            device.get().createBufferUnique(vk::BufferCreateInfo({}, 2 * 32 * 16 * 4,
+                vk::BufferUsageFlagBits::eTransferDst, vk::SharingMode::eExclusive));
+        const auto requirements = device.get().getBufferMemoryRequirements(*readback);
+        const auto properties =
+            context.get_context().get_physical_device().getMemoryProperties();
+        const auto required = vk::MemoryPropertyFlagBits::eHostVisible
+                              | vk::MemoryPropertyFlagBits::eHostCoherent;
+        std::optional<uint32_t> memory_type;
+        for(uint32_t index = 0; index < properties.memoryTypeCount; ++index) {
+            if((requirements.memoryTypeBits & (1u << index))
+                && (properties.memoryTypes[index].propertyFlags & required) == required) {
+                memory_type = index;
+                break;
+            }
+        }
+        ASSERT_TRUE(memory_type);
+        memory = device.get().allocateMemoryUnique(
+            vk::MemoryAllocateInfo(requirements.size, *memory_type));
+        device.get().bindBufferMemory(*readback, *memory, 0);
+        for(uint32_t index = 0; index < 2; ++index) {
+            frames.wait_for_current_slot();
+            frames.begin_frame(index);
+            auto& command = frames.get_current_command_buffer();
+            command.begin();
+            target->begin_render_target(command, index);
+            command.bind_pipeline(*draws[index]);
+            frames.retain_current_frame_resource(draws[index]);
+            command.draw(3);
+            target->end_render_target(command);
+            vk::MemoryBarrier barrier(vk::AccessFlagBits::eColorAttachmentWrite,
+                vk::AccessFlagBits::eTransferRead);
+            command.get().pipelineBarrier(
+                vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                vk::PipelineStageFlagBits::eTransfer, {}, barrier, {}, {});
+            vk::BufferImageCopy copy;
+            copy.bufferOffset = index * 32 * 16 * 4;
+            copy.imageSubresource =
+                vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1);
+            copy.imageExtent = vk::Extent3D(32, 16, 1);
+            command.get().copyImageToBuffer(
+                target->get_color_view(index)->get_image()->get(),
+                vk::ImageLayout::eTransferSrcOptimal, *readback, copy);
+            barrier = vk::MemoryBarrier(
+                vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eHostRead);
+            command.get().pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                vk::PipelineStageFlagBits::eHost, {}, barrier, {}, {});
+            command.end();
+            static_cast<void>(
+                device.get_graphics_queue().submit2({}, std::span(&command, 1), {},
+                    &frames.get_current_frame_slot().in_flight_fence));
+            frames.record_submission();
+            frames.end_frame();
+        }
+        frames.wait_for_all_slots();
+        const auto* pixels = static_cast<const uint8_t*>(
+            device.get().mapMemory(*memory, 0, VK_WHOLE_SIZE));
+        for(uint32_t frame = 0; frame < 2; ++frame) {
+            for(uint32_t x = 0; x < 32; ++x) {
+                const auto offset = (frame * 32 * 16 + 8 * 32 + x) * 4;
+                const bool red = (frame == 0 && x < 8) || (frame == 1 && x >= 24);
+                EXPECT_EQ(pixels[offset], red ? 255 : 0) << frame << ":" << x;
+                EXPECT_EQ(pixels[offset + 1], 0);
+                EXPECT_EQ(pixels[offset + 2], 0);
+            }
+        }
+        device.get().unmapMemory(*memory);
+    }
+
+    TEST_F(ShaderPipelineTest, SelectsSubpassAsPartOfPipelineState) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        RenderPass pass(device,
+            {Attachment::get_color_attachment(Format::R8G8B8A8_UNORM)},
+            {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}},
+                RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}},
+            Format::R8G8B8A8_UNORM);
+        PipelineManager pipelines(device, pass);
+        auto vertex = std::make_shared<Shader>(device, "vertex", PIPELINE_TRIANGLE_VERT);
+        auto fragment = std::make_shared<Shader>(device, "fragment", PIPELINE_COLOR_FRAG);
+        PipelineConfig config;
+        const auto first =
+            pipelines.create_pipeline("pass", {}, config, vertex, fragment);
+        config.subpass = 1;
+        const auto second =
+            pipelines.create_pipeline("pass", {}, config, vertex, fragment);
+        EXPECT_NE(first, second);
+        EXPECT_EQ(
+            second, pipelines.create_pipeline("pass1", {}, config, vertex, fragment));
     }
 }

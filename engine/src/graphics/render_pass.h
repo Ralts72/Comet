@@ -30,6 +30,7 @@ namespace Comet {
         RenderPass& operator=(RenderPass&&) noexcept = delete;
 
         [[nodiscard]] vk::RenderPass get() const { return m_render_pass; }
+        [[nodiscard]] uint32_t get_subpass_count() const { return m_subpass_count; }
         [[nodiscard]] const std::vector<Attachment>& get_attachments() const {
             return m_attachments;
         }
@@ -38,5 +39,6 @@ namespace Comet {
         vk::RenderPass m_render_pass;
         Device& m_device;
         std::vector<Attachment> m_attachments;
+        uint32_t m_subpass_count = 0;
     };
 }

@@ -81,6 +81,8 @@ ctest --preset dev-debug
   MaterialRenderer 负责排序和绘制 Mesh：FrameSet 按 slot 更新，MaterialSet 按版本创建并跨 slot 复用。
 - Shader：SPIRV-Reflect 子模块从实际字节码生成 CPU `ShaderInterface`；创建 Pipeline 前校验绑定及 push constant，
   材质另核对参数块大小、偏移和类型。显示名、默认值、颜色及编辑范围仍由 MaterialLayout 定义，不从反射猜测。
+- Pipeline：在当前 Device/RenderPass 内按 Shader 内容、布局及完整配置复用，名称只作标签；
+  缓存不强持有 GPU Pipeline，最后一个实际使用者（含 FrameSlot）释放后回收。
 - 调试绘制：`LineDrawList` 提交单帧世界空间线段/包围盒，`DebugRenderer` 在场景 pass 内绘制，
   使用当前相机和正常深度测试；不依赖 ImGui，编辑器选中框是其中一个调用方。
 - 资产：`AssetDatabase` 管身份与依赖，`ImportService` 管导入，`AssetManager` 协调加载与发布，

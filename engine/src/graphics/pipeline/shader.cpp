@@ -4,6 +4,7 @@
 #include "diagnostics/logger.h"
 
 #include <stdexcept>
+#include <algorithm>
 #include <utility>
 
 namespace Comet {
@@ -32,7 +33,8 @@ namespace Comet {
 
     Shader::Shader(Device& device, const std::string& name,
         std::span<const std::uint32_t> spirv_words, std::string entry_point)
-        : m_device(device), m_interface(spirv_words, std::move(entry_point)) {
+        : m_device(device), m_interface(spirv_words, std::move(entry_point)),
+          m_code(spirv_words.begin(), spirv_words.end()) {
         vk::ShaderModuleCreateInfo create_info{};
         create_info.codeSize = spirv_words.size_bytes();
         create_info.pCode = spirv_words.data();
@@ -44,13 +46,16 @@ namespace Comet {
         m_device.get().destroyShaderModule(m_shader_module);
     }
 
-    std::shared_ptr<Shader> ShaderManager::load_shader(
-        const std::string& name, std::span<const std::uint32_t> spirv_words) {
+    std::shared_ptr<Shader> ShaderManager::load_shader(const std::string& name,
+        std::span<const std::uint32_t> spirv_words, std::string entry_point) {
         if(const auto it = m_shaders.find(name); it != m_shaders.end()) {
-            LOG_DEBUG("shader {} already exists, skipping load", name);
-            return it->second;
+            if(it->second->get_interface().get_entry_point() == entry_point
+                && std::ranges::equal(it->second->get_code(), spirv_words)) {
+                return it->second;
+            }
         }
-        const auto shader = std::make_shared<Shader>(m_device, name, spirv_words);
+        const auto shader =
+            std::make_shared<Shader>(m_device, name, spirv_words, std::move(entry_point));
         m_shaders[name] = shader;
         LOG_INFO("Shader '{}' loaded and cached successfully", name);
         return shader;
