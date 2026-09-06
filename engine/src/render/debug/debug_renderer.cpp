@@ -13,12 +13,23 @@
 #include "debug_line_vert.h"
 
 #include <limits>
+#include <stdexcept>
 
 namespace Comet {
     DebugRenderer::DebugRenderer(Device& device, PipelineManager& pipeline_manager,
         ResourceManager& resource_manager, const uint32_t frame_slot_count,
         const SampleCount sample_count)
         : m_device(device), m_frame_resources(frame_slot_count) {
+        auto& shaders = resource_manager.get_shader_manager();
+        m_pipeline = create_pipeline(pipeline_manager,
+            shaders.load_shader_if_missing("debug_line_vert", DEBUG_LINE_VERT),
+            shaders.load_shader_if_missing("debug_line_frag", DEBUG_LINE_FRAG),
+            sample_count);
+    }
+
+    std::shared_ptr<Pipeline> DebugRenderer::create_pipeline(
+        PipelineManager& pipeline_manager, const std::shared_ptr<Shader>& vertex_shader,
+        const std::shared_ptr<Shader>& fragment_shader, const SampleCount sample_count) {
         ShaderLayout layout;
         layout.push_constants.push_back(std::make_shared<PushConstantRange>(
             ShaderStage::Vertex, 0, sizeof(Math::Mat4)));
@@ -43,13 +54,30 @@ namespace Comet {
         config.enable_alpha_blend();
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
 
-        auto& shaders = resource_manager.get_shader_manager();
-        const auto vertex_shader =
-            shaders.load_shader("debug_line_vert", DEBUG_LINE_VERT);
-        const auto fragment_shader =
-            shaders.load_shader("debug_line_frag", DEBUG_LINE_FRAG);
-        m_pipeline = pipeline_manager.create_pipeline(
+        return pipeline_manager.create_pipeline(
             "debug_line_pipeline", layout, config, vertex_shader, fragment_shader);
+    }
+
+    bool DebugRenderer::reload_shaders(PipelineManager& pipelines, ShaderManager& shaders,
+        const ShaderManager::Bytecodes& bytecodes, const SampleCount samples) {
+        if(bytecodes.size() != 2 || !bytecodes.contains("debug_line_vert")
+            || !bytecodes.contains("debug_line_frag"))
+            throw std::invalid_argument(
+                "Debug Shader reload requires the complete two-Shader cohort");
+        auto candidate_shaders = shaders.prepare_update(bytecodes);
+        for(const auto* name : {"debug_line_vert", "debug_line_frag"}) {
+            if(!shaders.get_shader(name)->get_interface().has_same_layout(
+                   candidate_shaders.at(name)->get_interface()))
+                throw std::invalid_argument(
+                    std::string("Debug Shader changed a fixed interface: ") + name);
+        }
+        auto candidate =
+            create_pipeline(pipelines, candidate_shaders.at("debug_line_vert"),
+                candidate_shaders.at("debug_line_frag"), samples);
+        const bool changed = candidate != m_pipeline;
+        shaders.publish_update(candidate_shaders);
+        m_pipeline.swap(candidate);
+        return changed;
     }
 
     void DebugRenderer::render(FrameScheduler& frame_scheduler,

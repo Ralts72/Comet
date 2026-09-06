@@ -164,7 +164,9 @@ Shader 源码、CPU 编译结果和 Vulkan 对象分层；已在 tools/shader �
 兼容接口复用原 descriptor/参数；材质接口变化则候选 CPU 缓存和所有驻留 GPU 绑定一起准备，全部成功后以 swap 发布。
 旧帧继续持有旧 Shader/Pipeline/Layout/Material 版本；失败不发生部分材质新旧混合，下一帧不再懒建热更新绑定。
 失败保留旧版本并输出文件/行号诊断，渲染目标重建不覆盖已更新 Shader。
-待办：DebugRenderer Shader 同样接入；Frame、顶点输入和 push constant 的固定 C++ 契约不自动重写。
+DebugRenderer 的两个 Shader 已独立成组接入同一监控／编译器，候选 Pipeline 成功后与 Shader 一起发布，旧帧保留旧版。
+Material 与 Debug 两组互不阻塞、不提供跨组原子发布；每组至多一个在途编译和一个合并的最新请求。
+Frame、顶点输入和 push constant 的固定 C++ 契约不自动重写。
 材质只接收非数组、非比较、单采样的 float sampler2D；反射记录图片维度与采样类型，不把 descriptor 类型相同误判为资源兼容。
 兼容性已比较 descriptor/block/push 和阶段输入输出的递归类型形状，不能只检查总字节大小。
 成功也不能提前释放在途帧引用的 Shader/Pipeline/Layout。Shipping 只消费预编译打包数据，不要求松散 .spv。

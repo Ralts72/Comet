@@ -50,6 +50,41 @@ namespace Comet::Tests {
         EXPECT_FALSE(reload.is_busy());
     }
 
+    TEST_F(ShaderReloadTest, AcceptedSnapshotEstablishesTheNextPollingBaseline) {
+        BlockedWorker blocker(scheduler);
+        Reload reload(scheduler, requests,
+            {.poll_interval = std::chrono::seconds(1), .debounce = {}});
+        EXPECT_FALSE(reload.update(now));
+        write("#version 450\nvoid main(){gl_Position=vec4(2);} // read by queued worker");
+        blocker.release();
+        scheduler.wait_idle();
+        now += std::chrono::milliseconds(1);
+        ASSERT_TRUE(reload.update(now));
+        now += std::chrono::seconds(1);
+        EXPECT_FALSE(reload.update(now));
+        EXPECT_FALSE(reload.is_busy());
+        EXPECT_EQ(reload.get_statistics().submitted, 1u);
+    }
+
+    TEST_F(ShaderReloadTest, SeparateCohortsDoNotBlockEachOthersRecovery) {
+        auto valid = make_reload();
+        write_text_file_atomic(root / "broken.vert", "not a shader");
+        Reload invalid(scheduler, {{"broken", {.source = root / "broken.vert"}}},
+            {.poll_interval = {}, .debounce = {}});
+        EXPECT_FALSE(invalid.update(now));
+        EXPECT_FALSE(complete(invalid));
+        EXPECT_EQ(invalid.get_statistics().failed, 1u);
+        EXPECT_FALSE(valid.update(now));
+        ASSERT_TRUE(complete(valid));
+        EXPECT_FALSE(valid.is_busy());
+        write_text_file_atomic(
+            root / "broken.vert", "#version 450\nvoid main(){gl_Position=vec4(1);}");
+        EXPECT_FALSE(invalid.update(now));
+        ASSERT_TRUE(complete(invalid));
+        EXPECT_FALSE(valid.update(now));
+        EXPECT_EQ(valid.get_statistics().submitted, 1u);
+    }
+
     TEST_F(ShaderReloadTest, CoalescesChangesAndDiscardsOldRequestEvenIfItReadNewBytes) {
         BlockedWorker blocker(scheduler);
         auto reload = make_reload(std::chrono::milliseconds(10));

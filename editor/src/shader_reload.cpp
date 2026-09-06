@@ -41,12 +41,10 @@ namespace CometEditor {
     }
 
     void ShaderReload::watch_inputs(const Job& job) {
+        // Worker 可能读到比上次 poll 更新的版本；内容验票前建立对应的新基线。
         std::map<std::filesystem::path, Stamp> next;
         const auto watch = [&](const std::filesystem::path& path) {
-            const auto old = m_watched.find(path);
-            if(old != m_watched.end())
-                next.emplace(path, old->second);
-            else
+            if(!next.contains(path))
                 next.emplace(path, read_stamp(path));
         };
         for(const auto& [name, request] : m_requests)
@@ -96,7 +94,7 @@ namespace CometEditor {
                     request_update(now);
                 } else if(!job->error.empty()) {
                     ++m_statistics.failed;
-                    LOG_ERROR("Shader reload kept previous GPU version: {}", job->error);
+                    LOG_ERROR("Shader compilation candidate rejected: {}", job->error);
                 } else {
                     return std::move(job->bytecodes);
                 }

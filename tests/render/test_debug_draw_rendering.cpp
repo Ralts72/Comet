@@ -2,6 +2,10 @@
 #include "diagnostics/logger.h"
 #include "render/line_draw_list.h"
 #include "graphics/resource/image.h"
+#include "graphics/resource/image_view.h"
+#include "graphics/convert.h"
+#include "common/file_io.h"
+#include "shader_reload.h"
 
 #include <gtest/gtest.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -56,6 +60,8 @@ namespace Comet::Tests {
                 std::erase(logger->sinks(), log_sink);
             }
             EXPECT_TRUE(errors.str().empty()) << errors.str();
+            std::error_code error;
+            std::filesystem::remove_all(shader_root, error);
         }
 
         struct Allocations {
@@ -109,7 +115,197 @@ namespace Comet::Tests {
         std::unique_ptr<RenderPass> presentation_pass;
         std::unique_ptr<RenderTarget> presentation_target;
         RenderScene scene;
+        std::filesystem::path shader_root =
+            std::filesystem::temp_directory_path()
+            / ("comet_debug_reload_" + std::to_string(AssetHandle::generate().value()));
     };
+
+    TEST_P(
+        DebugDrawRenderingTest, ReloadsBothShadersPreservesOldFramesAndSurvivesRebuild) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        auto& resources = engine->get_resource_manager();
+        auto& shaders = resources.get_shader_manager();
+        const auto initial_fragment = shaders.get_shader("debug_line_frag")->get_code();
+        const auto samples = std::get<1>(GetParam());
+        auto color = Attachment::get_color_attachment(Format::R8G8B8A8_UNORM, samples);
+        if(samples == SampleCount::Count1) {
+            color.description.store_op = AttachmentStoreOp::Store;
+            color.description.final_layout = ImageLayout::TransferSrcOptimal;
+            color.usage |= ImageUsage::CopySrc;
+        }
+        RenderPass pass(device,
+            {color, Attachment::get_depth_attachment(Format::D32_SFLOAT, samples)},
+            {{{}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)},
+                samples, ImageLayout::TransferSrcOptimal,
+                Flags<ImageUsage>(ImageUsage::ColorAttachment) | ImageUsage::CopySrc}},
+            Format::R8G8B8A8_UNORM);
+        auto target = RenderTarget::create_multi_target(device, pass, {32, 32}, 2);
+        target->set_clear_value(ClearValue(Math::Vec4(0, 0, 0, 1)));
+        PipelineManager pipelines(device, pass);
+        DebugRenderer debug(device, pipelines, resources, 2, samples);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        LineDrawList list;
+        ASSERT_TRUE(list.add_line({-0.75f, 0, 0.5f}, {0.75f, 0, 0.5f}, {1, 0, 0, 1}));
+        vk::UniqueDeviceMemory memory;
+        auto readback =
+            device.get().createBufferUnique(vk::BufferCreateInfo({}, 2 * 32 * 32 * 4,
+                vk::BufferUsageFlagBits::eTransferDst, vk::SharingMode::eExclusive));
+        const auto requirements = device.get().getBufferMemoryRequirements(*readback);
+        const auto properties =
+            context.get_context().get_physical_device().getMemoryProperties();
+        std::optional<uint32_t> memory_type;
+        const auto required = vk::MemoryPropertyFlagBits::eHostVisible
+                              | vk::MemoryPropertyFlagBits::eHostCoherent;
+        for(uint32_t index = 0; index < properties.memoryTypeCount; ++index) {
+            if((requirements.memoryTypeBits & (1u << index))
+                && (properties.memoryTypes[index].propertyFlags & required) == required) {
+                memory_type = index;
+                break;
+            }
+        }
+        ASSERT_TRUE(memory_type);
+        memory = device.get().allocateMemoryUnique({requirements.size, *memory_type});
+        device.get().bindBufferMemory(*readback, *memory, 0);
+        struct WaitForFrames {
+            FrameScheduler& frames;
+            ~WaitForFrames() { frames.wait_for_all_slots(); }
+        } wait_for_frames{frames};
+        ShaderManager::Bytecodes published;
+        for(int iteration = 0; iteration < 2; ++iteration) {
+            if(iteration == 1) {
+                CometEditor::ShaderReload::Requests requests;
+                for(const auto& [name, filename, stage] :
+                    {std::tuple("debug_line_vert", "debug_line.vert",
+                         ShaderCompiler::Stage::Vertex),
+                        std::tuple("debug_line_frag", "debug_line.frag",
+                            ShaderCompiler::Stage::Fragment)}) {
+                    auto source = read_text_file(std::filesystem::path(PROJECT_ROOT_DIR)
+                                                 / "engine/shaders/glsl" / filename);
+                    if(stage == ShaderCompiler::Stage::Fragment)
+                        source.insert(
+                            source.rfind('}'), "    o_Color.rgb = o_Color.bgr;\n");
+                    write_text_file_atomic(shader_root / filename, source);
+                    requests.emplace(
+                        name, ShaderCompiler::Request{
+                                  .source = shader_root / filename, .stage = stage});
+                }
+                CometEditor::ShaderReload reload(engine->get_task_scheduler(), requests);
+                EXPECT_FALSE(reload.update());
+                engine->get_task_scheduler().wait_idle();
+                auto candidate = reload.update();
+                ASSERT_TRUE(candidate);
+                published = std::move(*candidate);
+                EXPECT_TRUE(debug.reload_shaders(pipelines, shaders, published, samples));
+                EXPECT_FALSE(
+                    debug.reload_shaders(pipelines, shaders, published, samples));
+                const auto old_vertex = shaders.get_shader("debug_line_vert");
+                const auto old_fragment = shaders.get_shader("debug_line_frag");
+                auto incomplete = published;
+                incomplete.erase("debug_line_vert");
+                EXPECT_THROW(
+                    debug.reload_shaders(pipelines, shaders, incomplete, samples),
+                    std::invalid_argument);
+                auto broken = published;
+                // Bytecodes 按名称遍历：先创建 fragment 候选，再在 vertex 失败。
+                broken.at("debug_line_frag").words = initial_fragment;
+                broken.at("debug_line_vert").words.clear();
+                EXPECT_THROW(debug.reload_shaders(pipelines, shaders, broken, samples),
+                    std::invalid_argument);
+                EXPECT_EQ(shaders.get_shader("debug_line_vert"), old_vertex);
+                EXPECT_EQ(shaders.get_shader("debug_line_frag"), old_fragment);
+                auto source = read_text_file(shader_root / "debug_line.vert");
+                const auto position = source.find("uniform DebugDrawConstants");
+                ASSERT_NE(position, std::string::npos);
+                source.replace(position, std::string("uniform DebugDrawConstants").size(),
+                    "layout(row_major) uniform DebugDrawConstants");
+                write_text_file_atomic(shader_root / "debug_line.vert", source);
+                const auto incompatible =
+                    ShaderCompiler::compile(requests.at("debug_line_vert"));
+                ASSERT_TRUE(incompatible.succeeded()) << incompatible.diagnostics;
+                broken = published;
+                broken.at("debug_line_vert").words = incompatible.words;
+                EXPECT_THROW(debug.reload_shaders(pipelines, shaders, broken, samples),
+                    std::invalid_argument);
+                EXPECT_EQ(shaders.get_shader("debug_line_vert"), old_vertex);
+                DebugRenderer rebuilt(device, pipelines, resources, 2, samples);
+                EXPECT_EQ(shaders.get_shader("debug_line_frag"), old_fragment);
+            }
+            frames.wait_for_current_slot();
+            const auto slot = frames.get_current_frame_slot_index();
+            frames.begin_frame(slot);
+            auto& command = frames.get_current_command_buffer();
+            command.begin();
+            target->begin_render_target(command, slot);
+            command.set_viewport(Graphics::get_viewport(32, 32));
+            command.set_scissor(Graphics::get_scissor(32, 32));
+            debug.render(
+                frames, {.view = Math::Mat4(1), .projection = Math::Mat4(1)}, list);
+            target->end_render_target(command);
+            vk::MemoryBarrier barrier(vk::AccessFlagBits::eColorAttachmentWrite,
+                vk::AccessFlagBits::eTransferRead);
+            command.get().pipelineBarrier(
+                vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                vk::PipelineStageFlagBits::eTransfer, {}, barrier, {}, {});
+            vk::BufferImageCopy copy;
+            copy.bufferOffset = iteration * 32 * 32 * 4;
+            copy.imageSubresource =
+                vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1);
+            copy.imageExtent = vk::Extent3D(32, 32, 1);
+            command.get().copyImageToBuffer(
+                target->get_color_view(slot)->get_image()->get(),
+                vk::ImageLayout::eTransferSrcOptimal, *readback, copy);
+            barrier = vk::MemoryBarrier(
+                vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eHostRead);
+            command.get().pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                vk::PipelineStageFlagBits::eHost, {}, barrier, {}, {});
+            command.end();
+            static_cast<void>(
+                device.get_graphics_queue().submit2({}, std::span(&command, 1), {},
+                    &frames.get_current_frame_slot().in_flight_fence));
+            frames.record_submission();
+            frames.end_frame();
+        }
+        pipelines.collect_unused();
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 2u);
+        frames.wait_for_all_slots();
+        pipelines.collect_unused();
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 1u);
+        const auto* pixels = static_cast<const uint8_t*>(
+            device.get().mapMemory(*memory, 0, VK_WHOLE_SIZE));
+        std::array<std::array<uint32_t, 3>, 2> channels{};
+        for(size_t frame = 0; frame < 2; ++frame)
+            for(size_t pixel = 0; pixel < 32 * 32; ++pixel)
+                for(size_t channel = 0; channel < 3; ++channel)
+                    channels[frame][channel] +=
+                        pixels[(frame * 32 * 32 + pixel) * 4 + channel];
+        device.get().unmapMemory(*memory);
+        EXPECT_GT(channels[0][0], 1000u);
+        EXPECT_EQ(channels[0][1], 0u);
+        EXPECT_EQ(channels[0][2], 0u);
+        EXPECT_EQ(channels[1][0], 0u);
+        EXPECT_EQ(channels[1][1], 0u);
+        EXPECT_EQ(channels[1][2], channels[0][0]);
+
+        auto& scene_renderer = engine->get_renderer().get_scene_renderer();
+        auto& scene_frames = scene_renderer.get_frame_scheduler();
+        scene_frames.wait_for_current_slot();
+        scene_frames.begin_frame(0);
+        EXPECT_THROW(
+            scene_renderer.reload_debug_shaders(resources, published), std::logic_error);
+        auto& command = scene_frames.get_current_command_buffer();
+        command.begin();
+        command.end();
+        static_cast<void>(device.get_graphics_queue().submit2({}, std::span(&command, 1),
+            {}, &scene_frames.get_current_frame_slot().in_flight_fence));
+        scene_frames.record_submission();
+        scene_frames.end_frame();
+        EXPECT_TRUE(scene_renderer.reload_debug_shaders(resources, published));
+        scene_frames.wait_for_all_slots();
+        scene_renderer.setup_pipeline(resources);
+        EXPECT_FALSE(scene_renderer.reload_debug_shaders(resources, published));
+    }
 
     TEST_P(DebugDrawRenderingTest, AppendsProducersConsumesOnceAndReusesSlotBuffers) {
         auto& renderer = engine->get_renderer();

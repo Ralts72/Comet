@@ -139,6 +139,16 @@ namespace Comet {
         return m_material_renderer->get_material_layouts();
     }
 
+    bool SceneRenderer::reload_debug_shaders(
+        ResourceManager& resources, const ShaderManager::Bytecodes& bytecodes) {
+        if(m_frame_scheduler->is_frame_active())
+            throw std::logic_error("Shader publication requires a frame boundary");
+        if(!m_debug_renderer || !m_pipeline_manager)
+            throw std::logic_error("Debug renderer is not initialized");
+        return m_debug_renderer->reload_shaders(*m_pipeline_manager,
+            resources.get_shader_manager(), bytecodes, m_msaa_samples);
+    }
+
     std::vector<QueueSemaphoreSubmit> SceneRenderer::render_scene_pass(
         const RenderSubmission& submission, const LineDrawList& lines) {
         PROFILE_SCOPE("SceneRenderer::render_scene_pass");

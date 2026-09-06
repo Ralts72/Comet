@@ -1,6 +1,6 @@
 # 渲染资源所有权
 
-描述当前 owner、调用边界和销毁规则；Shader 接口重建、RenderGraph/RenderThread 后续设计见[路线图](../engine-roadmap.md)。
+描述当前 owner、调用边界和销毁规则；更广的 Shader 语义、RenderGraph/RenderThread 后续设计见[路线图](../engine-roadmap.md)。
 
 ## 先看哪个类
 
@@ -53,6 +53,7 @@ Engine
 
 Editor
 ├── AssetManager（借用 Engine 的服务）
+├── ShaderReload：Material 三 Shader 组 / Debug 两 Shader 组（只产生 CPU 候选）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
 ├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
 └── ImGuiContext
@@ -98,10 +99,11 @@ Engine：事件 → Application 更新
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 SceneRenderer 不读 EditorMode/ImGui。SceneResolver 只解析 Mesh/Material，不检查 template、属性名称和数量。
 MaterialRenderer 选择 MaterialLayout，MaterialRuntimeCache 按材质身份/revision 和不可变 layout 身份准备纹理 binding 与参数字节。
-内置 MaterialLayout 的只读描述同时供 Inspector 生成控件，不依赖 Device 或 ImGui；显示语义不是 SPIR-V 反射信息。
+MaterialLayout 从反射重绑定 offset／块大小／binding，保留显式编辑语义；发布后的只读描述交付 Inspector 生成控件，
+不依赖 Device 或 ImGui，显示语义不是 SPIR-V 反射信息。
 缺槽或不匹配在缓存层记录诊断；同版本不重复解析。未使用缓存按帧回收，已交付的 PreparedMaterial 快照独立保活。
 生产 GPU 支持 cube_texture 和 unlit_color 两套 MaterialSet 布局；FrameSet 共用相机契约。
-当前仅不透明物体按 pipeline/material 排序；布局手写，不等同于已经支持任意 Shader 或透明排序。
+当前仅不透明物体按 pipeline/material 排序；语义仍需登记，不等同于已经支持任意 Shader 或透明排序。
 
 Shader 保存不可变 SPIR-V 内容与 ShaderInterface；同标签加载不同内容时先成功创建候选，再替换 ShaderManager 的旧条目。
 ShaderInterface 校验 GPU 布局覆盖，MaterialLayout 另校验参数块大小、偏移与类型；不是从反射推断编辑语义。
@@ -112,12 +114,14 @@ PipelineKey 不是跨进程磁盘格式。
 PipelineManager 只弱引用 Pipeline，实际 owner 是 MaterialRenderer、DebugRenderer 和录制过它的 FrameSlot。
 最后一个实际 owner 释放即销毁 GPU 对象；过期 key 在下次创建或 collect_unused 时清理，不阻塞 GPU 等待。
 
-编辑器 ShaderReload 只有一个在途编译组，Worker 捕获自有请求和 CPU 结果，不捕获 this 或设备。
-on_update 消费最新且输入仍匹配的材质组三 Shader 候选，SceneRenderer 拒绝在活动帧内发布。
-MaterialRenderer 先创建全部兼容 Pipeline，成功后以不抛异常的 swap 同时发布 ShaderManager 快照和 PipelineSet。
-同 PreparedMaterial、不同 PipelineState 时建立新 MaterialResources 版本，但共享原参数 buffer/descriptor/pool；
-旧帧的 MaterialResources 继续保留旧 Pipeline，不能直接改旧对象中的指针。重建 Renderer 时只补缺失的内置 Shader。
-接口变化和 Debug Shader 热更新仍是后续项；兼容检查不把矩阵 row/column-major、数组或阶段输入输出变化当成相同布局。
+Editor 持有两个 ShaderReload，分别服务 Material 三 Shader 与 Debug 两 Shader；各自最多一个在途编译和一个最新待执行请求。
+Worker 捕获自有请求和 CPU 结果，不捕获 this 或设备。on_update 只消费最新且输入仍匹配的候选，SceneRenderer 拒绝活动帧内发布。
+MaterialRenderer 先准备 Pipeline、反射布局和全部驻留 CPU/GPU 材质，成功才以 noexcept swap 一起发布。
+兼容更新共享原 buffer/descriptor/pool；布局改变则重打包参数并创建新绑定。Inspector 随成功发布取得新布局快照。
+DebugRenderer 检查完整固定接口，先创建候选 Pipeline，再与 Shader 快照一起切换；不重新创建已有 slot 顶点缓冲。
+每组内部原子发布，两组相互独立；共享 include 变化也不承诺跨组同时生效，若未来形成真实共享 ABI 再合并发布域。
+旧帧持有真实 MaterialResources/Pipeline，不能原地修改旧对象。两种 Renderer 重建时只补缺失 Shader，不覆盖已发布版本。
+固定 Frame/vertex/push 接口、未知材质语义仍拒绝改变；兼容检查包含矩阵布局、数组、图片形状及阶段输入输出。
 
 只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。

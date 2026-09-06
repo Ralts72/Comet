@@ -34,6 +34,8 @@ namespace Comet {
         void setup_pipeline(ResourceManager& resource_manager);
         MaterialRenderer::ReloadReport reload_material_shaders(
             ResourceManager& resources, const ShaderManager::Bytecodes& bytecodes);
+        bool reload_debug_shaders(
+            ResourceManager& resources, const ShaderManager::Bytecodes& bytecodes);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>>
         get_material_layouts() const;
 
