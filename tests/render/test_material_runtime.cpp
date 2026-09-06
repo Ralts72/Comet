@@ -6,6 +6,8 @@
 #include "render/resource/texture.h"
 #include "render/scene/scene_resolver.h"
 #include "diagnostics/logger.h"
+#include "graphics/pipeline/shader_interface.h"
+#include "material_pbr_frag.h"
 
 #include <gtest/gtest.h>
 #include <stdexcept>
@@ -43,6 +45,49 @@ namespace Comet::Tests {
             MaterialLayout("test", 1, {{"a", 2}, {"a", 3}}), std::invalid_argument);
         EXPECT_THROW(
             MaterialLayout("test", 1, {{"a", 2}, {"b", 2}}), std::invalid_argument);
+    }
+
+    TEST(MaterialRuntimeTest, PbrLayoutReflectsAndPacksStableScalarAndVectorParameters) {
+        const auto metadata = MaterialLayout::find_builtin("pbr_color");
+        ASSERT_TRUE(metadata);
+        const ShaderInterface shader(MATERIAL_PBR_FRAG);
+        EXPECT_NO_THROW(metadata->validate(shader));
+        const auto reflected = MaterialLayout::reflect(metadata, shader);
+        EXPECT_EQ(reflected, metadata);
+        EXPECT_EQ(metadata->get_parameter_size(), 32);
+        ASSERT_EQ(metadata->get_scalars().size(), 2);
+        EXPECT_EQ(metadata->get_scalars()[0].name, "metallic");
+        EXPECT_FLOAT_EQ(metadata->get_scalars()[1].min_value, 0.045f);
+        MaterialRuntimeCache cache;
+        auto material = std::make_shared<Material>("pbr", "pbr_color");
+        const auto original = cache.prepare(AssetHandle(782), material, metadata);
+        ASSERT_TRUE(original);
+        std::array<float, 8> bytes{};
+        std::memcpy(bytes.data(), original->parameters.data(), sizeof(bytes));
+        EXPECT_FLOAT_EQ(bytes[0], 0.8f);
+        EXPECT_FLOAT_EQ(bytes[4], 0);
+        EXPECT_FLOAT_EQ(bytes[5], 0.5f);
+        material->set_scalar_property("metallic", 0.75f);
+        material->set_scalar_property("roughness", 0.2f);
+        material->set_vector_property("base_color", {0.3f, 0.1f, 0.05f, 1});
+        const auto next = cache.prepare(AssetHandle(782), material, metadata);
+        ASSERT_TRUE(next);
+        EXPECT_NE(next, original);
+        std::memcpy(bytes.data(), next->parameters.data(), sizeof(bytes));
+        EXPECT_FLOAT_EQ(bytes[0], 0.3f);
+        EXPECT_FLOAT_EQ(bytes[4], 0.75f);
+        EXPECT_FLOAT_EQ(bytes[5], 0.2f);
+        EXPECT_EQ(next, cache.prepare(AssetHandle(782), material, metadata));
+        std::memcpy(bytes.data(), original->parameters.data(), sizeof(bytes));
+        EXPECT_FLOAT_EQ(bytes[4], 0);
+        EXPECT_FLOAT_EQ(bytes[5], 0.5f);
+        const auto frame = std::ranges::find_if(shader.get_bindings(),
+            [](const auto& binding) { return binding.set == 0 && binding.binding == 0; });
+        ASSERT_NE(frame, shader.get_bindings().end());
+        EXPECT_EQ(frame->block_size, 160);
+        ASSERT_EQ(frame->members.size(), 4);
+        EXPECT_EQ(frame->members[2].offset, 128);
+        EXPECT_EQ(frame->members[3].offset, 144);
     }
 
     TEST(MaterialRuntimeTest, PacksDefaultsAndParametersWithoutChangingOldSnapshots) {

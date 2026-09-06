@@ -11,7 +11,7 @@
 
 namespace {
     const std::filesystem::path DEMO_MESH = "meshes/cube.gltf";
-    const std::filesystem::path DEMO_MATERIAL = "materials/lit.mat";
+    const std::filesystem::path DEMO_MATERIAL = "materials/pbr.mat";
 
     Comet::AssetHandle load_required_mesh(
         Comet::AssetManager& asset_manager, const std::filesystem::path& relative_path) {

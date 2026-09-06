@@ -772,6 +772,288 @@ namespace Comet::Tests {
         EXPECT_TRUE(view.expired());
     }
 
+    TEST_F(RenderGraphGpuTest, PbrParametersAndCameraProjectionMatchReferencePixels) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        Config config;
+        config.vulkan.msaa_samples = SampleCount::Count1;
+        config.render.clear_color = {0, 0, 0, 1};
+        SceneRenderer scene(context, config.vulkan, config.render);
+        scene.setup_offscreen_render_pass({33, 33});
+        scene.setup_pipeline(engine->get_resource_manager());
+        auto mesh = lit_quad();
+        auto zero_normal = lit_quad({0, 0, 0});
+        auto back_normal = lit_quad({0, 0, -1});
+        auto material = std::make_shared<Material>("pbr", "pbr_color");
+        material->set_vector_property("base_color", {0.8f, 0.2f, 0.1f, 1});
+        auto& frames = scene.get_frame_scheduler();
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        const auto reference = [](glm::dvec3 n, glm::dvec3 v, glm::dvec3 l,
+                                   double metallic, double roughness, double radiance) {
+            n = glm::normalize(n);
+            v = glm::normalize(v);
+            l = glm::normalize(l);
+            const double nl = std::clamp(glm::dot(n, l), 0.0, 1.0);
+            const double nv = std::clamp(glm::dot(n, v), 0.0, 1.0);
+            if(nl <= 0 || nv <= 0)
+                return glm::dvec3(0);
+            const auto h = glm::normalize(l + v);
+            const double nh = std::clamp(glm::dot(n, h), 0.0, 1.0);
+            const double vh = std::clamp(glm::dot(v, h), 0.0, 1.0);
+            const double a2 = std::pow(std::clamp(roughness, 0.045, 1.0), 4);
+            const double d =
+                a2 / (glm::pi<double>() * std::pow(nh * nh * (a2 - 1) + 1, 2));
+            const double g = 2 * nl * nv
+                             / (nv * std::sqrt(a2 + (1 - a2) * nl * nl)
+                                 + nl * std::sqrt(a2 + (1 - a2) * nv * nv));
+            const double t = std::pow(1 - vh, 5);
+            const double fd = 0.04 + 0.96 * t;
+            const glm::dvec3 base(0.8, 0.2, 0.1);
+            const auto dielectric = base * (1 - fd) / glm::pi<double>()
+                                    + glm::dvec3(fd * d * g / (4 * nl * nv));
+            const auto metal = (base + (1.0 - base) * t) * d * g / (4 * nl * nv);
+            return glm::mix(dielectric, metal, std::clamp(metallic, 0.0, 1.0)) * radiance
+                   * nl;
+        };
+        for(unsigned mode = 0; mode < 12; ++mode) {
+            float metallic = 0;
+            float roughness = 0.6f;
+            Math::Vec3 camera{0, 0, 3};
+            RenderLight light{.direction = {0.5f, 0, -1}, .intensity = 4};
+            auto rendered_mesh = mesh;
+            if(mode == 1)
+                metallic = 1;
+            if(mode == 2) {
+                metallic = 0.5f;
+                roughness = 0.2f;
+            }
+            if(mode == 3) {
+                metallic = -1;
+                roughness = -1;
+            }
+            if(mode == 4) {
+                metallic = 2;
+                roughness = 2;
+            }
+            if(mode == 5)
+                camera = {1, 0, 3};
+            if(mode == 7 || mode == 8) {
+                light.type = mode == 7 ? LightType::Point : LightType::Spot;
+                light.position = {0, 0, 2.5f};
+                light.direction = {0, 0, -1};
+                light.intensity = 4 * Math::PI;
+            }
+            if(mode == 9)
+                rendered_mesh = zero_normal;
+            if(mode == 10)
+                rendered_mesh = back_normal;
+            if(mode == 11) {
+                metallic = 1;
+                roughness = 0.045f;
+                light.direction = {0, 0, -1};
+                light.intensity = 10000;
+            }
+            material->set_scalar_property("metallic", metallic);
+            material->set_scalar_property("roughness", roughness);
+            const bool orthographic = mode == 6;
+            const auto projection = orthographic ? Math::ortho(-1, 1, -1, 1, 0.1f, 10)
+                                                 : Math::perspective(60, 1, 0.1f, 10);
+            RenderSubmission submission{
+                .view_project_matrix =
+                    ViewProjectMatrix{
+                        Math::look_at(camera, {0, 0, 0.5f}, {0, 1, 0}), projection},
+                .render_items = {{.mesh = rendered_mesh,
+                    .material = {AssetHandle(781), material}}},
+                .lights = {light}};
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            EXPECT_TRUE(scene.render_scene_pass(submission).empty());
+            auto output = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            auto view =
+                scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
+            copy_output(frames, view->get_image(), output, {33, 33});
+            submit(device, frames);
+            frames.wait_for_all_slots();
+            auto direction = -glm::dvec3(light.direction);
+            double radiance = light.intensity;
+            if(mode == 7 || mode == 8) {
+                direction = {0, 0, 1};
+                radiance *= std::pow(1 - std::pow(2.0 / light.range, 4), 2) / 4;
+            }
+            auto expected =
+                reference({0, 0, 1}, glm::dvec3(camera) - glm::dvec3(0, 0, 0.5),
+                    direction, metallic, roughness, radiance);
+            if(mode == 9 || mode == 10)
+                expected = glm::dvec3(0);
+            const auto bytes = output->read();
+            const bool bgra =
+                view->get_image()->get_info().format == Format::B8G8R8A8_SRGB
+                || view->get_image()->get_info().format == Format::B8G8R8A8_UNORM;
+            for(unsigned x : {4u, 16u, 28u}) {
+                if(!orthographic && x != 16)
+                    continue;
+                for(unsigned channel = 0; channel < 3; ++channel) {
+                    const auto component = bgra ? 2 - channel : channel;
+                    EXPECT_NEAR(
+                        std::to_integer<int>(bytes[(16 * 33 + x) * 4 + component]),
+                        mapped_byte(static_cast<float>(expected[channel])), 3)
+                        << "mode " << mode;
+                }
+            }
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, PbrReceivesDirectionalShadowWithoutMaterialRebinding) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        Config config;
+        config.vulkan.msaa_samples = SampleCount::Count1;
+        SceneRenderer scene(context, config.vulkan, config.render);
+        scene.setup_offscreen_render_pass({33, 33});
+        scene.setup_pipeline(engine->get_resource_manager());
+        const auto mesh = lit_quad();
+        auto material = std::make_shared<Material>("pbr", "pbr_color");
+        const auto occluder = Math::scale(
+            Math::translate(Math::Mat4(1), {-0.5f, 0, 0.875f}), {0.25f, 0.25f, 0.25f});
+        RenderSubmission submission{
+            .view_project_matrix =
+                ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                    Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
+            .render_items = {{.mesh = mesh, .material = {AssetHandle(780), material}},
+                {.model_matrix = occluder,
+                    .mesh = mesh,
+                    .material = {AssetHandle(780), material}}},
+            .lights = {{.direction = {1, 0, -1}, .intensity = 4}}};
+        auto& frames = scene.get_frame_scheduler();
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::vector<std::byte>, 2> pixels;
+        for(unsigned index = 0; index < 2; ++index) {
+            submission.lights[0].casts_shadow = index == 1;
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            EXPECT_TRUE(scene.render_scene_pass(submission).empty());
+            EXPECT_EQ(scene.get_material_statistics().material_bindings_created,
+                index == 0 ? 1 : 0);
+            auto output = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            copy_output(frames,
+                scene.get_offscreen_color_view(frames.get_current_frame_slot_index())
+                    ->get_image(),
+                output, {33, 33});
+            submit(device, frames);
+            frames.wait_for_all_slots();
+            pixels[index] = output->read();
+        }
+        for(unsigned channel = 0; channel < 3; ++channel) {
+            const unsigned center = (16 * 33 + 16) * 4 + channel;
+            const unsigned lit = (16 * 33 + 28) * 4 + channel;
+            EXPECT_GT(std::to_integer<int>(pixels[0][center]), 50);
+            EXPECT_LE(std::to_integer<int>(pixels[1][center]), 3);
+            EXPECT_NEAR(std::to_integer<int>(pixels[0][lit]),
+                std::to_integer<int>(pixels[1][lit]), 2);
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest,
+        SharedLitVertexReloadUpdatesBothConsumersAndRetainsOldFrames) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        auto& resources = engine->get_resource_manager();
+        auto& shaders = resources.get_shader_manager();
+        const auto directory =
+            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/glsl";
+        const auto temporary =
+            std::filesystem::temp_directory_path()
+            / ("comet_pbr_reload_" + std::to_string(AssetHandle::generate().value()));
+        struct Cleanup {
+            std::filesystem::path path;
+            ~Cleanup() {
+                std::error_code error;
+                std::filesystem::remove_all(path, error);
+            }
+        } cleanup{temporary};
+        auto source = read_text_file(directory / "material_lit.vert");
+        source.insert(source.rfind('}'), "    world_normal = -world_normal;\n");
+        write_text_file_atomic(temporary / "lit.vert", source);
+        const auto compiled = ShaderCompiler::compile({.source = temporary / "lit.vert",
+            .stage = ShaderCompiler::Stage::Vertex,
+            .include_directories = {directory}});
+        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+        ShaderManager::Bytecodes candidate{{"material_lit_vert", {compiled.words}},
+            {"material_lit_frag", {shaders.get_shader("material_lit_frag")->get_code()}},
+            {"material_pbr_frag", {shaders.get_shader("material_pbr_frag")->get_code()}}};
+        Config config;
+        config.vulkan.msaa_samples = SampleCount::Count1;
+        SceneRenderer scene(context, config.vulkan, config.render);
+        scene.setup_offscreen_render_pass({32, 16});
+        scene.setup_pipeline(resources);
+        const auto mesh = lit_quad();
+        auto lambert = std::make_shared<Material>("lambert", "lit_color");
+        lambert->set_vector_property("albedo", {0.5f, 0.5f, 0.5f, 1});
+        auto pbr = std::make_shared<Material>("pbr", "pbr_color");
+        pbr->set_vector_property("base_color", {0.5f, 0.5f, 0.5f, 1});
+        pbr->set_scalar_property("roughness", 0.8f);
+        RenderSubmission submission{
+            .view_project_matrix =
+                ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                    Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
+            .render_items = {{.model_matrix = Math::scale(
+                                  Math::translate(Math::Mat4(1), {-0.5f, 0, 0}),
+                                  {0.5f, 1, 1}),
+                                 .mesh = mesh,
+                                 .material = {AssetHandle(783), lambert}},
+                {.model_matrix = Math::scale(
+                     Math::translate(Math::Mat4(1), {0.5f, 0, 0}), {0.5f, 1, 1}),
+                    .mesh = mesh,
+                    .material = {AssetHandle(784), pbr}}},
+            .lights = {{.intensity = Math::PI}}};
+        const auto original = shaders.get_shader("material_lit_vert");
+        auto incomplete = candidate;
+        incomplete.erase("material_pbr_frag");
+        EXPECT_THROW(
+            scene.reload_material_shaders(resources, incomplete), std::invalid_argument);
+        EXPECT_EQ(shaders.get_shader("material_lit_vert"), original);
+        auto& frames = scene.get_frame_scheduler();
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 2> outputs;
+        for(unsigned index = 0; index < 2; ++index) {
+            if(index == 1) {
+                const auto report = scene.reload_material_shaders(resources, candidate);
+                EXPECT_EQ(report.pipelines, 2);
+                EXPECT_EQ(report.material_versions, 2);
+                EXPECT_EQ(report.material_bindings, 0);
+            }
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            EXPECT_TRUE(scene.render_scene_pass(submission).empty());
+            outputs[index] = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 32 * 16 * 4);
+            copy_output(frames,
+                scene.get_offscreen_color_view(frames.get_current_frame_slot_index())
+                    ->get_image(),
+                outputs[index], {32, 16});
+            submit(device, frames);
+        }
+        frames.wait_for_all_slots();
+        const auto before = outputs[0]->read();
+        const auto after = outputs[1]->read();
+        for(unsigned channel = 0; channel < 3; ++channel) {
+            EXPECT_NEAR(std::to_integer<int>(before[(8 * 32 + 8) * 4 + channel]),
+                mapped_byte(0.5f), 2);
+            EXPECT_NEAR(std::to_integer<int>(before[(8 * 32 + 24) * 4 + channel]),
+                mapped_byte(0.48f + 0.04f / (4 * std::pow(0.8f, 4))), 2);
+            EXPECT_LE(std::to_integer<int>(after[(8 * 32 + 8) * 4 + channel]), 2);
+            EXPECT_LE(std::to_integer<int>(after[(8 * 32 + 24) * 4 + channel]), 2);
+        }
+    }
+
     TEST_F(RenderGraphGpuTest,
         LitShaderPublishesAtFrameBoundaryWithoutReplacingOldFramePixels) {
         auto& context = engine->get_renderer().get_render_context();
@@ -799,6 +1081,7 @@ namespace Comet::Tests {
         auto& shaders = resources.get_shader_manager();
         ShaderManager::Bytecodes candidate{
             {"material_lit_vert", {shaders.get_shader("material_lit_vert")->get_code()}},
+            {"material_pbr_frag", {shaders.get_shader("material_pbr_frag")->get_code()}},
             {"material_lit_frag", {compiled.words}}};
         Config config;
         config.vulkan.msaa_samples = SampleCount::Count1;

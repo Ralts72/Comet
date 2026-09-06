@@ -56,6 +56,12 @@ namespace Comet {
         get_material_layouts() const;
 
     private:
+        // frame.glsl 的 std140 ABI；相机参数是帧数据，不进入 MaterialSet。
+        struct FrameData {
+            ViewProjectMatrix view_project;
+            Math::Vec4 camera_position;
+            Math::Vec4 view_direction; // xyz 朝相机，w 为正交投影标记。
+        };
         struct PipelineState {
             std::shared_ptr<const MaterialLayout> layout;
             std::shared_ptr<DescriptorSetLayout> frame_layout;

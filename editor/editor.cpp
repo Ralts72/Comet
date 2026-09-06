@@ -46,7 +46,7 @@ namespace {
     constexpr std::size_t SCENE_PATH_CAPACITY = 1024;
     constexpr std::uint32_t EDITOR_VIEWPORT_MAX_RENDER_DIMENSION = 4096;
     const std::filesystem::path DEMO_MESH = "meshes/cube.gltf";
-    const std::filesystem::path DEMO_MATERIAL = "materials/lit.mat";
+    const std::filesystem::path DEMO_MATERIAL = "materials/pbr.mat";
 
     struct EditorRenderAssets {
         Comet::AssetHandle mesh;
@@ -156,6 +156,9 @@ namespace {
                             .stage = Comet::ShaderCompiler::Stage::Vertex}},
                     {"material_lit_frag",
                         {.source = shader_directory / "material_lit.frag",
+                            .stage = Comet::ShaderCompiler::Stage::Fragment}},
+                    {"material_pbr_frag",
+                        {.source = shader_directory / "material_pbr.frag",
                             .stage = Comet::ShaderCompiler::Stage::Fragment}}});
             m_debug_shader_reload =
                 std::make_unique<CometEditor::ShaderReload>(engine.get_task_scheduler(),

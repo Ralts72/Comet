@@ -17,14 +17,32 @@
 #include "material_solid_frag.h"
 #include "material_lit_vert.h"
 #include "material_lit_frag.h"
+#include "material_pbr_frag.h"
 
 #include <algorithm>
 #include <array>
-#include <tuple>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace Comet {
     namespace {
+        struct BuiltinPipeline {
+            const char* layout;
+            const char* vertex;
+            const char* fragment;
+            std::span<const uint32_t> vertex_code;
+            std::span<const uint32_t> fragment_code;
+        };
+        constexpr BuiltinPipeline BUILTIN_PIPELINES[]{
+            {"cube_texture", "material_mesh", "material_textured", MATERIAL_MESH_VERT,
+                MATERIAL_TEXTURED_FRAG},
+            {"unlit_color", "material_mesh", "material_solid", MATERIAL_MESH_VERT,
+                MATERIAL_SOLID_FRAG},
+            {"lit_color", "material_lit_vert", "material_lit_frag", MATERIAL_LIT_VERT,
+                MATERIAL_LIT_FRAG},
+            {"pbr_color", "material_lit_vert", "material_pbr_frag", MATERIAL_LIT_VERT,
+                MATERIAL_PBR_FRAG}};
+
         void append_wait(std::vector<QueueSemaphoreSubmit>& waits,
             const GpuCompletionPoint& completion, const Flags<PipelineStage> stages) {
             if(!completion.is_valid())
@@ -37,6 +55,9 @@ namespace Comet {
         ResourceManager& resources, const uint32_t frame_slot_count,
         const SampleCount samples)
         : m_device(device) {
+        static_assert(sizeof(FrameData) == 160);
+        static_assert(offsetof(FrameData, camera_position) == 128);
+        static_assert(offsetof(FrameData, view_direction) == 144);
         m_sampler = resources.get_sampler_manager().get_linear_repeat();
         // 独立使用 MaterialRenderer 时也必须提供有效的 sampler descriptor。
         const auto fallback =
@@ -48,8 +69,8 @@ namespace Comet {
             fallback->get_ready_completion().wait();
         m_fallback_shadow = fallback->get_image_view();
         DescriptorSetLayoutBindings frame_bindings;
-        frame_bindings.add_binding(
-            0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
+        frame_bindings.add_binding(0, DescriptorType::UniformBuffer,
+            Flags<ShaderStage>(ShaderStage::Vertex) | ShaderStage::Fragment);
         frame_bindings.add_binding(
             1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
         frame_bindings.add_binding(2, DescriptorType::CombinedImageSampler,
@@ -68,12 +89,12 @@ namespace Comet {
             frame->layout = m_frame_layout;
             frame->pool = pool;
             frame->buffer = Buffer::try_create_cpu_buffer(device,
-                Flags<BufferUsage>(BufferUsage::Uniform), sizeof(ViewProjectMatrix),
-                false, nullptr, "frame view-project")
+                Flags<BufferUsage>(BufferUsage::Uniform), sizeof(FrameData), false,
+                nullptr, "frame view-project")
                                 .value();
             frame->descriptor = descriptors[slot];
             const vk::DescriptorBufferInfo info(
-                frame->buffer->get(), 0, sizeof(ViewProjectMatrix));
+                frame->buffer->get(), 0, sizeof(FrameData));
             vk::WriteDescriptorSet write;
             write.dstSet = frame->descriptor->get();
             write.dstBinding = 0;
@@ -93,22 +114,13 @@ namespace Comet {
             m_frames.push_back(std::move(frame));
         }
         auto& shaders = resources.get_shader_manager();
-        const auto vertex =
-            shaders.load_shader_if_missing("material_mesh", MATERIAL_MESH_VERT);
-        m_pipelines.emplace(
-            "cube_texture", create_pipeline(pipelines, vertex,
-                                shaders.load_shader_if_missing(
-                                    "material_textured", MATERIAL_TEXTURED_FRAG),
-                                MaterialLayout::find_builtin("cube_texture"), samples));
-        m_pipelines.emplace("unlit_color",
-            create_pipeline(pipelines, vertex,
-                shaders.load_shader_if_missing("material_solid", MATERIAL_SOLID_FRAG),
-                MaterialLayout::find_builtin("unlit_color"), samples));
-        m_pipelines.emplace("lit_color",
-            create_pipeline(pipelines,
-                shaders.load_shader_if_missing("material_lit_vert", MATERIAL_LIT_VERT),
-                shaders.load_shader_if_missing("material_lit_frag", MATERIAL_LIT_FRAG),
-                MaterialLayout::find_builtin("lit_color"), samples));
+        for(const auto& builtin : BUILTIN_PIPELINES)
+            m_pipelines.emplace(builtin.layout,
+                create_pipeline(pipelines,
+                    shaders.load_shader_if_missing(builtin.vertex, builtin.vertex_code),
+                    shaders.load_shader_if_missing(
+                        builtin.fragment, builtin.fragment_code),
+                    MaterialLayout::find_builtin(builtin.layout), samples));
     }
 
     std::shared_ptr<const MaterialRenderer::PipelineState> MaterialRenderer::
@@ -157,20 +169,26 @@ namespace Comet {
     MaterialRenderer::ReloadReport MaterialRenderer::reload_shaders(
         PipelineManager& pipelines, ShaderManager& shaders,
         const ShaderManager::Bytecodes& bytecodes, const SampleCount samples) {
-        const bool legacy = bytecodes.contains("material_mesh")
-                            && bytecodes.contains("material_textured")
-                            && bytecodes.contains("material_solid");
-        const bool lit = bytecodes.contains("material_lit_vert")
-                         && bytecodes.contains("material_lit_frag");
-        if(bytecodes.empty() || bytecodes.size() != (legacy ? 3u : 0u) + (lit ? 2u : 0u))
+        std::unordered_set<std::string_view> known;
+        for(const auto& builtin : BUILTIN_PIPELINES) {
+            known.insert(builtin.vertex);
+            known.insert(builtin.fragment);
+            if(bytecodes.contains(builtin.vertex) != bytecodes.contains(builtin.fragment))
+                throw std::invalid_argument(
+                    "Material Shader reload requires all consumers of a shared vertex");
+        }
+        if(bytecodes.empty() || std::ranges::any_of(bytecodes, [&](const auto& entry) {
+               return !known.contains(entry.first);
+           }))
             throw std::invalid_argument(
-                "Material Shader reload requires complete unlit and/or lit cohorts");
+                "Material Shader reload requires known non-empty cohorts");
         auto candidate_shaders = shaders.prepare_update(bytecodes);
         for(const auto& [name, candidate] : candidate_shaders) {
             if(!bytecodes.contains(name))
                 continue;
             std::optional<uint32_t> ignored_set;
-            if(name != "material_mesh" && name != "material_lit_vert")
+            if(candidate->get_interface().get_stage()
+                == vk::ShaderStageFlagBits::eFragment)
                 ignored_set = 1;
             if(!shaders.get_shader(name)->get_interface().has_same_layout(
                    candidate->get_interface(), ignored_set))
@@ -179,10 +197,8 @@ namespace Comet {
         }
         ReloadReport report;
         auto candidate_pipelines = m_pipelines;
-        for(const auto& [layout, vertex, fragment] :
-            {std::tuple("cube_texture", "material_mesh", "material_textured"),
-                std::tuple("unlit_color", "material_mesh", "material_solid"),
-                std::tuple("lit_color", "material_lit_vert", "material_lit_frag")}) {
+        for(const auto& builtin : BUILTIN_PIPELINES) {
+            const auto& [layout, vertex, fragment, vertex_code, fragment_code] = builtin;
             if(!bytecodes.contains(fragment))
                 continue;
             const auto& old = m_pipelines.at(layout);
@@ -364,7 +380,11 @@ namespace Comet {
         m_statistics = {};
         m_statistics.frame_set_count = static_cast<uint32_t>(m_frames.size());
         const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
-        frame->buffer->write(&view);
+        const auto camera_world = Math::inverse(view.view);
+        const FrameData frame_data{view, camera_world[3],
+            Math::Vec4(
+                Math::Vec3(camera_world[2]), view.projection[2][3] == 0 ? 1.0f : 0.0f)};
+        frame->buffer->write(&frame_data);
         frame->lighting->write(&lighting);
         if(!shadow_map)
             shadow_map = m_fallback_shadow;

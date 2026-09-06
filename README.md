@@ -72,12 +72,13 @@ ctest --preset dev-debug
   拖入只加载已发布 Artifact（或已驻留 Mesh），不会隐式导入源模型；缺少缓存时先在 Project 执行 Import。
   选中材质后可把 Project 的 Texture 拖入纹理槽，沿用材质保存／更新流程，不进入场景撤销历史。
   `materials/demo.mat` 使用双纹理混合，`materials/solid.mat` 使用纯色布局；可通过 MeshRenderer 的 Material 引用切换。
-  默认示例使用 `materials/lit.mat` 和 Key Light；`lit_color` 响应灯光，原来的两种材质仍不受灯光影响。
+  默认示例使用 `materials/pbr.mat` 和 Key Light；调整 Base color、Metallic、Roughness 可观察金属度与高光变化。
+  `materials/lit.mat` 保留 Lambert 漫反射，原来的两种 unlit 材质仍不受灯光影响。
   Inspector 的 Add Component 可添加 Light，Type 选择 Directional/Point/Spot；Transform 的本地 -Z 是出光方向。
   Intensity/Color 控制照明，Range 仅用于点光/聚光，Inner/Outer angle 为聚光半锥角且须满足内角小于外角。
   Directional 可勾选 Cast directional shadow；当前为单张 1024² 阴影图，按实体 ID 选择首个有效投影方向光。
   默认 Ground 接收立方体阴影，移动物体或开关投影可直接观察；点光和聚光暂不投影。
-  灯光没有隐式环境光，全部关闭时 lit 物体为黑色；当前是 Lambert 漫反射，尚无 PBR 高光。
+  灯光没有隐式环境光，全部关闭时 lit/PBR 物体为黑色；PBR 当前为不透明纯色金属粗糙度模型，尚无 IBL 或材质贴图。
   `.mat` 的 texture/scalar/vector 参数由布局生成 Inspector 控件，实际变化才保存并更新材质，浏览默认值不改写文件。
   缺失纹理槽可逐个补齐，完整后自动发布；未完整的编辑仅保留在当前资产草稿中，切换资产或刷新会丢弃草稿。
 
@@ -90,17 +91,19 @@ ctest --preset dev-debug
   MaterialRenderer 负责排序和绘制 Mesh：FrameSet 按 slot 更新，MaterialSet 按版本创建并跨 slot 复用。
   LightComponent 经 RenderLight 值快照进入 FrameSet 的 LightingData；每帧最多按 EntityId 选取 32 个有效灯光。
   超限/无效灯光跳过，数量变化时进入 Log；灯光变化不重建材质 descriptor。
+  Lambert/PBR 共用灯光衰减与阴影采样；PBR 的相机位置／正交观察方向属于 FrameSet，不进入材质版本。
   app/editor 共用 `HDR Scene → fullscreen tone mapping → SDR output`；场景和 MSAA resolve 使用 RGBA16F，最终目标仍供窗口或 Viewport 消费。
   固定曝光 1，采用 `1-exp(-color)` 映射高亮，输出按 sRGB/UNORM 附件选择硬件或 Shader 编码；画面不再等同于直接写入材质颜色。
   RenderGraph 将有序 pass 的显式资源读写编译为 Barrier2，管理 HDR 附件和后处理采样依赖；最终输出转换仍由 RenderPass 负责。
   图不自动分配资源、不持有全局 Image layout；跨 submission 由调用方传递导出状态，跨队列调度尚未实现。
 - Shader：构建 CLI 与工具层 `ShaderCompiler` 共用 stage、entry、defines、target、include 快照契约，
   通过 depfile 跟踪已有共享头文件；失败不覆盖旧字节码。运行时不带源编译器。
-  编辑器监控 `engine/shaders/glsl/` 的五个 `material_*` 生产 Shader 和 `debug_line.vert/frag` 及实际 include，
+  编辑器监控 `engine/shaders/glsl/` 的六个 `material_*` 生产 Shader 和 `debug_line.vert/frag` 及实际 include，
   约 200 ms 检查、150 ms 防抖后后台整组编译；帧边界整组发布，失败仅进入 Log 并保留旧画面。
   已登记材质字段可调整 offset、参数块大小和 binding：同时重建布局及所有驻留材质，再更新 Inspector 的布局快照。
   新增／删除／改类型的属性需显式元数据支持；Frame、阶段输入输出与 push constant 固定契约仍拒绝改变。
   当前材质只支持普通浮点 sampler2D，不能热改成 Cube／数组／整数／深度比较纹理。
+  共用顶点 Shader 的所有材质必须整组发布：unlit 三文件一组，Lambert/PBR 三文件一组，拒绝只更新部分消费者。
   Debug 两 Shader 独立成组，固定顶点／push 接口不变时可热更新；两组各自失败保旧，不阻塞另一组。
   SPIRV-Reflect 子模块从实际字节码生成 CPU `ShaderInterface`；创建 Pipeline 前校验绑定及 push constant，
   材质另核对参数块大小、偏移和类型。显示名、默认值、颜色及编辑范围仍由 MaterialLayout 定义，不从反射猜测。

@@ -344,6 +344,29 @@ namespace CometEditor::Tests {
         EXPECT_EQ(material_updates, updates);
     }
 
+    TEST_F(AssetEditingUiTest, PbrParametersPublishOnChangeWithoutIdleWrites) {
+        Comet::MaterialSerializer{}.save(
+            {.template_name = "pbr_color"}, paths.assets() / "material.mat");
+        selection.select_asset(material);
+        frame();
+        frame();
+        EXPECT_EQ(material_updates, 0);
+        drag_value(material_point("metallic", "Metallic"), 20);
+        ASSERT_GT(material_updates, 0);
+        EXPECT_GT(submitted_material.scalar_properties.at("metallic"), 0);
+        EXPECT_LE(submitted_material.scalar_properties.at("metallic"), 1);
+        const auto first = material_updates;
+        drag_value(material_point("roughness", "Roughness"), -20);
+        EXPECT_GT(material_updates, first);
+        EXPECT_GE(submitted_material.scalar_properties.at("roughness"), 0.045f);
+        EXPECT_LT(submitted_material.scalar_properties.at("roughness"), 0.5f);
+        EXPECT_TRUE(submitted_material.texture_properties.empty());
+        const auto updates = material_updates;
+        frame();
+        frame();
+        EXPECT_EQ(material_updates, updates);
+    }
+
     TEST_F(AssetEditingUiTest, SolidLayoutNeedsNoTextureAndPublishesNumericParameter) {
         Comet::MaterialSerializer{}.save(
             {.template_name = "unlit_color"}, paths.assets() / "material.mat");

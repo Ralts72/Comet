@@ -10,6 +10,6 @@ layout(set = 1, binding = 0, std140) uniform MaterialData {
 } material;
 
 void main() {
-    color = vec4(material.albedo.rgb * diffuse_lighting(world_position, world_normal),
+    color = vec4(clamp(material.albedo.rgb * diffuse_lighting(world_position, world_normal), 0.0, 65504.0),
         material.albedo.a);
 }

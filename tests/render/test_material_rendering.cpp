@@ -192,7 +192,8 @@ namespace Comet::Tests {
                     EXPECT_EQ(report.material_bindings, change_layout ? 2u : 0u);
                     if(change_layout) {
                         for(const auto& layout : materials.get_material_layouts()) {
-                            if(layout->get_name() == "lit_color")
+                            if(layout->get_name() != "cube_texture"
+                                && layout->get_name() != "unlit_color")
                                 continue;
                             EXPECT_EQ(layout->get_parameter_size(), 48u);
                             EXPECT_EQ(layout->get_parameter_binding(), 5u);
@@ -227,7 +228,8 @@ namespace Comet::Tests {
                         engine->get_resource_manager(), 2, SampleCount::Count1);
                     if(change_layout) {
                         for(const auto& layout : rebuilt.get_material_layouts()) {
-                            if(layout->get_name() == "lit_color")
+                            if(layout->get_name() != "cube_texture"
+                                && layout->get_name() != "unlit_color")
                                 continue;
                             EXPECT_EQ(layout->get_parameter_size(), 48u);
                             EXPECT_EQ(layout->get_parameter_binding(), 5u);

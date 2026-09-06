@@ -76,10 +76,11 @@
 | 028 | 有序 RenderGraph、跨提交状态交接、离屏接入及 acquire 同步修复 | Debug/Release 5 个 CTest 项通过；505 单元含专门运行的同步对照、10 WSI、2 契约；Linux CI 34060940872 成功 |
 | 029 | app/editor HDR 场景、fullscreen 色调映射／编码及成对 resize | Debug/Release 各 5 个 CTest；507 单元含专门同步对照、10 WSI、2 契约；8 GPU 项 ×20；Linux CI 34061527931 成功 |
 | 030 | typed enum／LightComponent／三类 forward 灯光及架构回顾 | Debug/Release 各 5 个 CTest；516 单元含专门同步对照、10 WSI、2 契约；17 项 ×20；Linux CI 34062462366 成功 |
-| 031 | 方向光深度 pass、PCF、帧绑定与上传等待合并 | Debug/Release 各 5 个 CTest；521 单元含专门同步对照、10 WSI、2 契约；21 项 ×20 |
+| 031 | 方向光深度 pass、PCF、帧绑定与上传等待合并 | Debug/Release 各 5 个 CTest；521 单元含专门同步对照、10 WSI、2 契约；21 项 ×20；Linux CI 34063046726 成功 |
+| 032 | 金属粗糙度 PBR、相机帧 ABI、共享 Shader 消费者闭包与斜面阴影修正 | Debug/Release 各 5 个 CTest；526 单元、10 WSI、2 契约；16 GPU 项 ×20；两次 Cocoa 停滞另行记录 |
 
 阶段 4 本轮核心验收通过，扩展项保留在路线图；阶段 5／6 尚未完成。
-阶段 3 的主线负载控制已补齐。下一项：阶段 5 PBR 材质与高光照明。
+阶段 3 的主线负载控制已补齐。下一项：阶段 5 Bloom；Cocoa 重复初始化停滞保留为生命周期审查项。
 已完成定期架构回顾：005、010、015、020、025、030；阶段边界回顾：013。下一次：035 或阶段 5 边界（取先到者）。
 
 远端推送结果与 CI 以 git 远端 refs 和 CI 实际运行状态为准，不能将本表视为远端成功证明。

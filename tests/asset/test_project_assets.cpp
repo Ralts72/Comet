@@ -53,5 +53,14 @@ namespace Comet::Tests {
         EXPECT_EQ(solid_data.template_name, "unlit_color");
         EXPECT_TRUE(get_asset_dependencies(solid_data).empty());
         EXPECT_FLOAT_EQ(solid_data.scalar_properties.at("intensity"), 1.0f);
+        const auto pbr_path = paths.assets() / "materials/pbr.mat";
+        const auto pbr_meta = serializer.load(metadata_path(pbr_path));
+        EXPECT_EQ(pbr_meta.type, AssetType::Material);
+        EXPECT_EQ(pbr_meta.handle, AssetHandle(12588451793023491602ull));
+        const auto pbr = MaterialSerializer{}.load(pbr_path);
+        EXPECT_EQ(pbr.template_name, "pbr_color");
+        EXPECT_FLOAT_EQ(pbr.scalar_properties.at("metallic"), 0.4f);
+        EXPECT_FLOAT_EQ(pbr.scalar_properties.at("roughness"), 0.35f);
+        EXPECT_TRUE(get_asset_dependencies(pbr).empty());
     }
 }

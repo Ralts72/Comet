@@ -1,0 +1,12 @@
+version: 1
+template: pbr_color
+properties:
+  base_color:
+    type: vector
+    value: [0.8, 0.55, 0.25, 1.0]
+  metallic:
+    type: scalar
+    value: 0.4
+  roughness:
+    type: scalar
+    value: 0.35

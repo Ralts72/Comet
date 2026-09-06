@@ -7,6 +7,7 @@ set(SHADER_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/material_solid.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/material_lit.vert"
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/material_lit.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/material_pbr.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/shadow_depth.vert"
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/shadow_depth.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/glsl/debug_line.vert"
