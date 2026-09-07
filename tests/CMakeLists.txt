@@ -42,6 +42,7 @@ target_include_directories(unit_testing PRIVATE
 # 链接库，确保正确的依赖顺序
 target_link_libraries(unit_testing PRIVATE
         engine
+        comet_demo
         comet_shader_tools
         gtest
         glfw
@@ -70,18 +71,7 @@ target_include_directories(unit_testing PRIVATE
         ${CMAKE_SOURCE_DIR}/editor/src
 )
 
-# 设置运行时库路径
-if (APPLE)
-    set_target_properties(unit_testing PROPERTIES
-            INSTALL_RPATH "@executable_path/../engine;@loader_path/../engine;/usr/local/lib"
-            BUILD_WITH_INSTALL_RPATH TRUE
-    )
-elseif (UNIX)
-    set_target_properties(unit_testing PROPERTIES
-            INSTALL_RPATH "$ORIGIN/../engine:$ORIGIN/../lib:/usr/local/lib"
-            BUILD_WITH_INSTALL_RPATH TRUE
-    )
-endif ()
+# 构建树的动态库路径交由 CMake 从链接目标生成，不使用安装目录替代。
 
 add_test(NAME unit_testing COMMAND unit_testing)
 add_test(NAME render_graph_sync_validation COMMAND unit_testing

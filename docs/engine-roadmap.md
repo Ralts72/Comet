@@ -13,7 +13,7 @@
 | 3 资产数据库与导入 | 主链路、有界队列及发布预算可用 | 更多导入能力与按需字节预算 |
 | 4 视口与交互 | 本轮核心验收通过，扩展保留 | Prefab、搜索、按需通知和更精细拾取 |
 | 5 渲染升级 | 本轮核心验收通过，扩展保留 | 按实测演进线程／跨队列、设备恢复与更完整渲染能力 |
-| 6 游戏运行时 | 输入路由、串行 System 与暂停／单步已接通 | 脚本、dirty Transform、物理、音频 |
+| 6 游戏运行时 | 输入、System、脚本与暂停／单步已接通 | dirty Transform、物理、音频与角色 demo |
 | 7 内容生产与发布 | 规划 | 项目设置、格式迁移、打包 |
 
 以当前工作分支的功能与验收为准，不再按 feat/auto 提交编号逐个迁移；旧分支仅作为算法、测试及设计参考。
@@ -23,7 +23,7 @@
    Gizmo 已支持平移／旋转／缩放及对应吸附，核心编辑闭环进入维护回归。
    保持修改、world transform 更新、提取与绘制的时序一致；结构修改不能简单套属性快照。
 2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
-3. **运行时主线**：渲染核心和代表场景基线已验收，输入路由、Fixed／普通 Update 和 Play 暂停／单步已接通；下一项 Native Script 生命周期与共享描述符字段，再接 dirty Transform 等阶段 6 能力。
+3. **运行时主线**：渲染核心和代表场景基线已验收，输入路由、更新时序、Native Script 和暂停／单步已接通；下一项 dirty Transform，再接物理／音频与角色 demo 等阶段 6 能力。
 
 WSI 创建／枚举失败后的无呈现重试已接通；surface/device 丢失与不兼容格式的完整恢复仍保留，不与一般重试混为一谈。
 
@@ -284,7 +284,11 @@ validation、同步测试和生命周期回归通过。
 - SceneRuntime 已拥有正序启动／逆序停止的 System；主线程按注册顺序执行 Fixed Update 和普通 Update。
   固定步长、帧增量上限、追赶上限与丢弃统计明确；输入跨零固定步帧累计，只在首固定步消费边沿／位移。
   相同输入 serial 不重放边沿，重启清空旧时间／输入，异常清理后停止；app 旋转已走真实固定更新。
-  Engine 在 UI 后、extraction 前更新，切换 Scene 先停止 System；尚不宣称 Native Script、并行调度或渲染插值已完成。
+  Engine 在 UI 后、extraction 前更新，切换 Scene 先停止 System；并行调度与渲染插值仍待需要时实现。
+- NativeScriptSystem 已从 ComponentDescriptor 建立每实体 C++ 脚本实例，参数仍由同一 PropertyDescriptor 编辑／保存／撤销。
+  ScriptComponent 的瞬态代标识处理同帧删除重建及 Undo 恢复；组件存储搬移不重启，字段修改不重启，停止清理不借用已删除实体。
+  每阶段发现新增／失效组件，每回调前验证实体句柄与组件代；异常沿 SceneRuntime 清理后传播，不静默继续部分执行。
+  demo 模块提供 app／editor 共用 Spin 脚本，可在 Play 调参、暂停／单步并 Stop 恢复。C++ 二进制热重载／外部语言绑定未实现。
 - EditorMode 只含 Edit/Play；RuntimeState（Running/Paused）与之正交，支持暂停/单步，不增加 EditorMode::Paused。
   已由 SceneRuntime::State 实现：暂停冻结两种 System 更新但 UI／渲染继续，单步恰好一固定步加一次普通更新。
   暂停／恢复清除时间债务与瞬态输入；单步只采样当前电平。Play 运行克隆场景，Stop 先停止 System 再恢复原件。

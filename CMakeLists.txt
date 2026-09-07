@@ -12,6 +12,8 @@ set(COMET_CONFIG_PROFILE "" CACHE STRING "Runtime configuration profile")
 
 find_package(Vulkan REQUIRED)
 
+# engine 与宿主必须共享同一份 GLFW 进程状态，不能各自嵌入静态副本。
+set(GLFW_LIBRARY_TYPE SHARED CACHE STRING "GLFW must share process state" FORCE)
 add_subdirectory(3rdparty)
 add_subdirectory(tools/shader)
 
@@ -30,6 +32,10 @@ if ((COMET_BUILD_APP OR COMET_BUILD_EDITOR) AND COMET_CONFIG_PROFILE STREQUAL ""
 endif ()
 
 add_subdirectory(engine)
+
+if (COMET_BUILD_APP OR COMET_BUILD_EDITOR OR COMET_BUILD_TESTS)
+    add_subdirectory(demo)
+endif ()
 
 if (COMET_BUILD_APP)
     add_subdirectory(app)

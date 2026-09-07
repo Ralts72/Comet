@@ -6,11 +6,12 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 
 | 目录 | 职责 |
 | --- | --- |
-| `engine/src/` | 引擎库：core、scene、asset、render、graphics、config、diagnostics |
+| `engine/src/` | 引擎库：core、runtime、scene、asset、render、graphics、config、diagnostics |
 | `engine/shaders/` | 引擎 Shader；只编译 CMake 显式列表，其余源码保留供学习 |
 | `tools/shader/` | 共用 CPU ShaderCompiler 与构建 CLI；不链接进运行时 engine |
 | `editor/` | 编辑器入口、面板及 `resources/` 私有字体等资源 |
 | `app/` | Runtime 示例入口 |
+| `demo/` | app／editor 共用的示例项目组件与原生脚本 |
 | `assets/` | 项目源资产与相邻 `.meta`，进入版本控制 |
 | `config/` | `common.yaml` 与各 Profile 配置 |
 | `.comet/` | 本机缓存与编辑器布局，不进入版本控制 |
@@ -61,6 +62,8 @@ cmake --build build-profile --target render_profile --parallel
   暂停不冻结 UI、渲染或资产处理；按键边沿／滚轮不会在恢复时补放，单步只采样当前按住状态。
   游戏输入要求 Play 画面取得焦点且鼠标位于可见图像内；文本编辑、弹窗、其他活动控件、拖拽或画面外区域均阻断。
   重新进入画面时，原先按住的键／鼠标／手柄按钮需松开再按，取得输入的点击和位移不传给游戏。
+  默认 Editor Cube 的 Spin Script 在 Play 中旋转；Inspector 可调整 Degrees per second／Enabled，暂停后单步观察，Stop 恢复 Edit 原件。
+  旧场景不会自动添加脚本，可通过 Inspector 的 Add Component 添加 Spin Script；参数沿用场景保存与撤销链路。
 - 画面内右键或 Alt/Option+左键环绕，中键或 Alt/Option+Shift+左键平移，滚轮/双指垂直滚动缩放。
 - 2D/3D 切换编辑器相机的正交/透视投影，不修改 Scene Camera；Play 中不可切换。
 - Edit 画面内左键选择最近的模型包围盒，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。
@@ -111,6 +114,7 @@ cmake --build build-profile --target render_profile --parallel
 ## 架构入口
 
 - 平台：Window 只拥有自己的原生窗口；GLFW 在首次创建窗口时初始化，正常进程退出时统一终止。
+  engine、宿主与 ImGui 统一链接共享 GLFW，避免静态副本各自维护一份平台状态；分发程序时需携带 GLFW 动态库。
   创建／销毁窗口和平台事件处理必须在主线程，应用及测试不得另行调用 `glfwTerminate()`。
   关闭一扇窗口不会销毁其他窗口，连续启动 Engine 不反复初始化平台；这不代表已支持多窗口多 Renderer 编排。
 - 输入：Window 在事件轮询后发布 `Input::Frame`，Engine 提供只读快照；键鼠边沿、位移／滚轮与标准手柄状态均有界保存。
@@ -122,7 +126,10 @@ cmake --build build-profile --target render_profile --parallel
   默认固定步 1/60 秒，每帧最多 8 步、接收最多 0.25 秒，超额整步丢弃并计入 Timing，不无限追赶。
   固定输入的边沿／位移跨零步帧累积、只由首个固定步消费；同一输入 serial 不重复触发边沿。
   app 方块旋转走固定更新、相机走普通更新；编辑器 Play 启动克隆场景的 Runtime，Stop 先停止再恢复 Edit 原件。
-  Running／Paused 是 Runtime 自身状态，不增加 EditorMode::Paused；Native Script 及其字段仍待接入。
+  Running／Paused 是 Runtime 自身状态，不增加 EditorMode::Paused。
+- 脚本：`NativeScriptSystem` 从已有 ComponentDescriptor 创建每实体的 C++ 实例；参数仍是 Scene 组件，沿用 Inspector／Serializer／Undo。
+  `ScriptComponent` 的瞬态代标识区分组件删除重建，字段编辑不重启实例；脚本不缓存组件地址，停止清理不依赖实体仍存活。
+  `demo/` 是 app／editor／测试共享的示例项目模块，Spin 参数与行为都在这里；engine 只包含脚本机制，不依赖 demo。
 - 编辑器：面板是可见状态的唯一 owner；View 菜单只观察已登记面板并切换状态，关闭按钮和菜单不会各存一份 bool。
   Editor 在释放面板前移除 UI 回调并销毁菜单；业务编辑仍走既有命令历史，不引入全局 EventBus。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。

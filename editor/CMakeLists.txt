@@ -21,7 +21,7 @@ set(SOURCES
 )
 
 add_executable(editor ${SOURCES})
-target_link_libraries(editor PRIVATE engine imgui glfw comet_shader_tools)
+target_link_libraries(editor PRIVATE engine comet_demo imgui glfw comet_shader_tools)
 target_include_directories(editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(editor PRIVATE
         COMET_CONFIG_DIRECTORY="${CMAKE_SOURCE_DIR}/config"

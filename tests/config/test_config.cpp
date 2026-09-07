@@ -150,7 +150,8 @@ TEST(ConfigTest, RejectsInvalidPostProcessRangesAndNonFiniteValues) {
             "bloom_strength: .nan", "exposure: .inf", "bloom_threshold: .inf"}) {
         SCOPED_TRACE(value);
         const TemporaryConfigFile file(std::string("render:\n  ") + value + "\n");
-        EXPECT_THROW(ConfigLoader{}.load(file.path()), std::runtime_error);
+        EXPECT_THROW(
+            static_cast<void>(ConfigLoader{}.load(file.path())), std::runtime_error);
     }
 }
 

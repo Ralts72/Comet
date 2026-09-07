@@ -3,9 +3,8 @@
 #include "core/project_paths.h"
 #include "scene/scene.h"
 #include "runtime/scene_runtime.h"
+#include "demo/scripts.h"
 
-#include <array>
-#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <memory>
@@ -49,20 +48,9 @@ namespace {
         return record->handle;
     }
 
-    class DemoMotionSystem final: public Comet::System {
+    class DemoCameraSystem final: public Comet::System {
     public:
-        DemoMotionSystem(Comet::EntityId camera, std::array<Comet::EntityId, 2> cubes)
-            : m_camera(camera), m_cubes(cubes) {}
-
-        void fixed_update(Comet::Scene& scene, const Context& context) override {
-            for(std::size_t index = 0; index < m_cubes.size(); ++index) {
-                if(auto cube = scene.find_entity(m_cubes[index])) {
-                    const float direction = index == 0 ? 1.0f : -1.0f;
-                    cube.get_component<Comet::TransformComponent>().rotate(
-                        {0, float(context.delta_time) * 100.0f * direction, 0});
-                }
-            }
-        }
+        explicit DemoCameraSystem(Comet::EntityId camera) : m_camera(camera) {}
 
         void update(Comet::Scene& scene, const Context& context) override {
             const auto& input = context.input;
@@ -100,7 +88,6 @@ namespace {
 
     private:
         Comet::EntityId m_camera;
-        std::array<Comet::EntityId, 2> m_cubes;
     };
 
     class GameApp final: public Comet::Application {
@@ -149,7 +136,8 @@ namespace {
             second_cube.add_component<Comet::MeshRendererComponent>(
                 mesh_handle, material_handle);
 
-            const std::array cube_ids{first_cube.get_id(), second_cube.get_id()};
+            first_cube.add_component<CometDemo::SpinComponent>().speed = 100;
+            second_cube.add_component<CometDemo::SpinComponent>().speed = -100;
             auto light = scene->create_entity("Key Light");
             light.get_component<Comet::TransformComponent>().rotation = {-30, -35, 0};
             auto& light_component = light.add_component<Comet::LightComponent>();
@@ -163,7 +151,9 @@ namespace {
                 mesh_handle, material_handle);
             engine.set_scene(std::move(scene));
             auto& runtime = engine.get_scene_runtime();
-            runtime.add_system(std::make_unique<DemoMotionSystem>(camera_id, cube_ids));
+            runtime.add_system(std::make_unique<Comet::NativeScriptSystem>(
+                CometDemo::create_component_registry()));
+            runtime.add_system(std::make_unique<DemoCameraSystem>(camera_id));
             runtime.start(*engine.get_scene());
         }
 

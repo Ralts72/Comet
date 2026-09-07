@@ -44,6 +44,22 @@
 
 ## 进度与下一项
 
+### 自动迭代停止快照（历史记录）
+
+2026-09-07 **08:11:04 +08:00**，主 codex 周额度 usedPercent=91，剩余 **9%**，触发约定的停止条件。
+未发生额度重置；立即停止开发并终止正在运行的 Release 验证，不自动续跑。
+
+- 最新完成并推送：040，`b2dcf128ab3f5f1c93562b505986bca366905dae`；本地 HEAD 与 origin/feat/auto2 一致。
+- 039／040 Linux CI：34067789073／34068248182 均成功。
+- 041 Native Script 是**未验收、未提交的工作区草稿**，包含代码、README／路线图草稿和说明文档；不计入完成表。
+- 041 Debug／Release 构建通过、11 项重点测试通过；完整 Debug 的 unit_testing 和同步验证各 120 秒超时，
+  采样停在旧 RenderDiagnostics 的 CAMetalLayer.nextDrawable，另外 4 个 CTest 通过。根因未定，不算完整回归成功。
+- 041 Release 全量验证因额度停止而主动终止；后续恢复应先处理／复核 GPU 验证，再决定是否提交 041。
+- 阶段 4、5 核心已验收，**阶段 6 尚未完成**；Native Script 待验收，dirty Transform、物理、音频及角色 demo 仍待实现。
+
+随后用户单独授权完成并推送 041。该项已修复 GLFW 静态副本导致的关闭请求失效，并完成 Debug／Release 回归；
+以下完成表包含此次恢复结果。原自动迭代不恢复，042 不在本次执行范围。
+
 | 编号 | 验收项 | 本地验证 |
 | --- | --- | --- |
 | 001 | 平移 Gizmo；输入互斥、事务与坐标边界 | Debug/Release 各 340 tests 通过 |
@@ -86,9 +102,10 @@
 | 038 | System 生命周期、有界 Fixed／普通 Update、输入消费与真实帧顺序 | Debug/Release 各 6 个 CTest；561 单元及原有 GPU/WSI/契约/profile；12 项 ×10；Linux CI 34067499081 成功 |
 | 039 | Play Runtime 启停、暂停／单步与 UI／游戏状态隔离 | Debug/Release 各 6 个 CTest；570 单元及原有 GPU/WSI/契约/profile；21 项 ×10 |
 | 040 | Viewport 游戏输入路由、采样中断边界与定期架构回顾 | Debug/Release 各 6 个 CTest；581 单元及原有 GPU/WSI/契约/profile；输入／Runtime／Viewport UI ×10 |
+| 041 | Native Script 生命周期、共享描述符字段与 GLFW 跨模块状态修复 | Debug/Release 各 6 个 CTest；593 单元（同步对照在专门任务运行）、25 同步 GPU、10 WSI、契约/profile |
 
 阶段 4、5 本轮核心验收通过，扩展项保留在路线图；阶段 6 尚未完成。
-阶段 3 的主线负载控制已补齐。下一项：041 Native Script 生命周期与共享描述符字段。
+阶段 3 的主线负载控制已补齐。下一项：042 dirty Transform；本次不自动开始。
 已完成定期架构回顾：005、010、015、020、025、030、035、040；阶段边界回顾：013、036。下一次：045 或阶段 6 边界（取先到者）。
 
 远端推送结果与 CI 以 git 远端 refs 和 CI 实际运行状态为准，不能将本表视为远端成功证明。

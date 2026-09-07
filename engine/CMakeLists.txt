@@ -34,6 +34,7 @@ set(SOURCES
         src/core/engine.cpp
         src/core/geometry.cpp
         src/runtime/scene_runtime.cpp
+        src/runtime/native_script.cpp
         src/graphics/convert.cpp
         src/graphics/context.cpp
         src/graphics/device.cpp

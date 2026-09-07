@@ -8,6 +8,7 @@
 
 #include <any>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -17,6 +18,7 @@
 #include <vector>
 
 namespace Comet {
+    class NativeScript;
     enum class PropertyType { Bool, Float, Vec3, AssetHandle, String, Enum };
 
     using PropertyValue = std::variant<bool, float, Math::Vec3, AssetHandle, std::string>;
@@ -100,6 +102,8 @@ namespace Comet {
         // 快照拥有组件值，不持有 EnTT 地址；非值语义组件需自行提供恢复协议。
         std::function<std::any(const Entity&)> capture_component_callback;
         std::function<bool(Entity&, const std::any&)> restore_component_callback;
+        std::function<std::unique_ptr<NativeScript>()> create_script;
+        std::function<uint64_t(const Entity&)> script_instance_key;
 
         [[nodiscard]] COMET_API std::any capture_component(const Entity& entity) const;
         [[nodiscard]] COMET_API bool restore_component(

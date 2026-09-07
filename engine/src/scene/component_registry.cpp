@@ -108,6 +108,7 @@ namespace Comet {
             || !descriptor.has_component_callback
             || !descriptor.mutable_component_accessor
             || !descriptor.const_component_accessor
+            || bool(descriptor.create_script) != bool(descriptor.script_instance_key)
             || find_component(descriptor.id) != nullptr) {
             return false;
         }

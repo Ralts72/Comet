@@ -1,5 +1,6 @@
 #include "runtime/entry.h"
 #include "runtime/scene_runtime.h"
+#include "demo/scripts.h"
 #include "asset/asset_manager.h"
 #include "asset/registry.h"
 #include "asset/source_monitor.h"
@@ -108,6 +109,7 @@ namespace {
         auto& transform = cube.get_component<Comet::TransformComponent>();
         transform.rotation = Comet::Math::Vec3(-20.0f, 30.0f, 0.0f);
         cube.add_component<Comet::MeshRendererComponent>(assets.mesh, assets.material);
+        cube.add_component<CometDemo::SpinComponent>();
         auto light = scene->create_entity("Key Light");
         light.get_component<Comet::TransformComponent>().rotation = {-30, -35, 0};
         auto& light_component = light.add_component<Comet::LightComponent>();
@@ -188,6 +190,8 @@ namespace {
             m_placement_material = render_assets.material;
             engine.set_scene(create_editor_scene(render_assets));
             engine.get_scene_runtime().set_input_enabled(false);
+            engine.get_scene_runtime().add_system(
+                std::make_unique<Comet::NativeScriptSystem>(m_component_registry));
             Comet::Engine* engine_ptr = &engine;
             const auto get_active_scene = [engine_ptr]() {
                 return engine_ptr->get_scene();
@@ -1008,7 +1012,7 @@ namespace {
         std::string m_asset_source_monitor_error;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry =
-            Comet::create_scene_component_registry();
+            CometDemo::create_component_registry();
         CometEditor::CommandHistory m_command_history;
         CometEditor::PropertyEditTransaction m_property_edit{
             m_command_history, m_component_registry};

@@ -37,6 +37,18 @@ namespace Comet::Tests {
         second.poll_events();
     }
 
+    TEST_F(WindowTest, HostAndEngineShareNativePlatformState) {
+        Window window(config);
+        glfwGetError(nullptr);
+        glfwSetWindowShouldClose(window.get(), GLFW_TRUE);
+        ASSERT_EQ(glfwGetError(nullptr), GLFW_NO_ERROR);
+        EXPECT_TRUE(window.should_close());
+        glfwSetWindowShouldClose(window.get(), GLFW_FALSE);
+        EXPECT_FALSE(window.should_close());
+        window.request_close();
+        EXPECT_EQ(glfwWindowShouldClose(window.get()), GLFW_TRUE);
+    }
+
     TEST_F(WindowTest, RepeatedWindowsKeepPlatformAliveAndResetCreationHints) {
         for(unsigned index = 0; index < 24; ++index) {
             {
