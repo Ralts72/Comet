@@ -1,4 +1,5 @@
 #include "view.h"
+#include "shortcuts.h"
 #include "selection.h"
 #include "translation_gizmo.h"
 #include <imgui.h>
@@ -15,10 +16,10 @@ namespace CometEditor {
 
     ViewPanel::ViewPanel(const EditorState& state, SelectionService& selection,
         TranslationGizmo& gizmo, PropertyEditTransaction& inspector_edit,
-        const std::uint32_t max_render_dimension)
+        const std::uint32_t max_render_dimension, const EditorShortcuts& shortcuts)
         : EditorPanel("Viewport"), m_state(state), m_selection(selection), m_gizmo(gizmo),
-          m_inspector_edit(inspector_edit), m_max_render_dimension(max_render_dimension) {
-    }
+          m_inspector_edit(inspector_edit), m_shortcuts(shortcuts),
+          m_max_render_dimension(max_render_dimension) {}
 
     void ViewPanel::render() {
         m_actually_visible = false;
@@ -307,8 +308,10 @@ namespace CometEditor {
         }
 
         if(ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
-            && !io.WantTextInput && !io.KeyCtrl && !io.KeyAlt && !io.KeySuper
-            && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_F, false)) {
+            && !io.WantTextInput && !ImGui::IsAnyItemActive() && !m_camera_drag
+            && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)
+            && m_shortcuts.pressed(
+                EditorShortcuts::Action::FocusSelection, ImGuiInputFlags_RouteGlobal)) {
             m_focus_request = true;
         }
 

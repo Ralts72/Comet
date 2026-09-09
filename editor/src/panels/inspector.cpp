@@ -6,7 +6,6 @@
 #include "asset/serialization/material_serializer.h"
 #include "scene/component_registry.h"
 
-#include <algorithm>
 #include <array>
 #include <exception>
 #include <imgui.h>
@@ -17,8 +16,6 @@
 
 namespace CometEditor {
     namespace {
-        constexpr std::size_t ENTITY_NAME_CAPACITY = 256;
-
         std::string texture_preview(
             const Comet::AssetDatabase& database, const Comet::AssetHandle handle) {
             const Comet::AssetRecord* record = database.find(handle);
@@ -91,17 +88,7 @@ namespace CometEditor {
     }
 
     void InspectorPanel::render_entity(Comet::Entity entity) {
-        auto& name = entity.get_component<Comet::NameComponent>().name;
-        std::array<char, ENTITY_NAME_CAPACITY> name_buffer{};
-        std::copy_n(name.data(), std::min(name.size(), name_buffer.size() - 1),
-            name_buffer.data());
-
         ImGui::Text("Entity ID: %llu", static_cast<unsigned long long>(entity.get_id()));
-        if(ImGui::InputText("Name", name_buffer.data(), name_buffer.size())) {
-            name = name_buffer.data();
-        }
-
-        ImGui::Separator();
 
         bool active_property_visible = false;
         for(const Comet::ComponentDescriptor& component_descriptor :
@@ -111,8 +98,10 @@ namespace CometEditor {
             }
 
             ImGui::PushID(component_descriptor.id.c_str());
-            if(ImGui::CollapsingHeader(component_descriptor.display_name.c_str(),
-                   ImGuiTreeNodeFlags_DefaultOpen)) {
+            const bool is_name = component_descriptor.id == "name";
+            if(is_name
+                || ImGui::CollapsingHeader(component_descriptor.display_name.c_str(),
+                    ImGuiTreeNodeFlags_DefaultOpen)) {
                 for(const Comet::PropertyDescriptor& property :
                     component_descriptor.properties) {
                     ImGui::PushID(property.id.c_str());
@@ -123,6 +112,9 @@ namespace CometEditor {
                 }
             }
             ImGui::PopID();
+            if(is_name) {
+                ImGui::Separator();
+            }
         }
         if(!active_property_visible && !m_property_edit.commit()) {
             LOG_ERROR("Cannot finish hidden property edit");

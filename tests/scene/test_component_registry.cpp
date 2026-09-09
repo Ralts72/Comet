@@ -15,7 +15,8 @@ namespace {
         const Comet::ComponentRegistry registry =
             Comet::create_scene_component_registry();
 
-        ASSERT_EQ(registry.components().size(), 3U);
+        ASSERT_EQ(registry.components().size(), 4U);
+        EXPECT_NE(registry.find_component("name"), nullptr);
         EXPECT_NE(registry.find_component("transform"), nullptr);
         EXPECT_NE(registry.find_component("mesh_renderer"), nullptr);
         EXPECT_NE(registry.find_component("camera"), nullptr);
@@ -84,6 +85,27 @@ namespace {
         EXPECT_FALSE(camera.add_component(entity));
         EXPECT_TRUE(camera.remove_component(entity));
         EXPECT_FALSE(entity.has_component<Comet::CameraComponent>());
+    }
+
+    TEST(ComponentRegistryTest, NameUsesStringValuesButCannotBeAddedOrRemoved) {
+        Comet::Scene scene;
+        auto entity = scene.create_entity("Before");
+        const auto registry = Comet::create_scene_component_registry();
+        const auto& component = *registry.find_component("name");
+        const auto& name = require_property(component, "name");
+        EXPECT_FALSE(component.serializable);
+        EXPECT_FALSE(component.add_component_callback);
+        EXPECT_FALSE(component.remove_component_callback);
+        EXPECT_FALSE(component.add_component(entity));
+        EXPECT_FALSE(component.remove_component(entity));
+        EXPECT_EQ(name.type, Comet::PropertyType::String);
+        ASSERT_TRUE(
+            name.assign_value(component.get_component(entity), std::string("名称")));
+        EXPECT_EQ(
+            std::get<std::string>(*name.copy_value(component.get_component(entity))),
+            "名称");
+        EXPECT_FALSE(name.assign_value(component.get_component(entity), 1.0f));
+        EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "名称");
     }
 
     TEST(ComponentRegistryTest, RejectsDuplicateStableIds) {

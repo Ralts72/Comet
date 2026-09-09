@@ -2,6 +2,7 @@
 #include "panels/view.h"
 #include "selection.h"
 #include "translation_gizmo.h"
+#include "shortcuts.h"
 
 #include <gtest/gtest.h>
 #include <imgui.h>
@@ -18,7 +19,8 @@ namespace CometEditor::Tests {
         TranslationGizmo gizmo{history, components};
         SelectionService selection{scene};
         EditorState state;
-        ViewPanel viewport{state, selection, gizmo, property_edit, 4096};
+        EditorShortcuts shortcuts;
+        ViewPanel viewport{state, selection, gizmo, property_edit, 4096, shortcuts};
         int gizmo_vertices = 0;
 
         void SetUp() override {
@@ -81,6 +83,39 @@ namespace CometEditor::Tests {
             return entity.get_component<Comet::TransformComponent>().translation.x;
         }
     };
+
+    TEST_F(ViewportGizmoUiTest, ConfiguredFocusRequiresViewportFocusAndEditMode) {
+        shortcuts = EditorShortcuts::parse(
+            "editor: {shortcuts: {viewport.focus_selection: [Primary+G]}}");
+        auto& io = ImGui::GetIO();
+        ImGui::FocusWindow(ImGui::FindWindowByName("Viewport"));
+        frame();
+        frame();
+        io.AddKeyEvent(ImGuiKey_F, true);
+        frame();
+        EXPECT_FALSE(viewport.take_focus_request());
+        io.AddKeyEvent(ImGuiKey_F, false);
+        frame();
+        const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+        io.AddKeyEvent(modifier, true);
+        io.AddKeyEvent(ImGuiKey_G, true);
+        frame();
+        EXPECT_TRUE(viewport.take_focus_request());
+        EXPECT_FALSE(viewport.take_focus_request());
+        io.AddKeyEvent(ImGuiKey_G, false);
+        frame();
+        ImGui::FocusWindow(nullptr);
+        io.AddKeyEvent(ImGuiKey_G, true);
+        frame();
+        EXPECT_FALSE(viewport.take_focus_request());
+        io.AddKeyEvent(ImGuiKey_G, false);
+        ImGui::FocusWindow(ImGui::FindWindowByName("Viewport"));
+        state.mode = EditorMode::Play;
+        frame();
+        io.AddKeyEvent(ImGuiKey_G, true);
+        frame();
+        EXPECT_FALSE(viewport.take_focus_request());
+    }
 
     TEST_F(ViewportGizmoUiTest, AxisDragCapturesInputAndCommitsOneUndoOnRelease) {
         EXPECT_GT(gizmo_vertices, 0);

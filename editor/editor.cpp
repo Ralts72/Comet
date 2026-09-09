@@ -9,6 +9,7 @@
 #include "src/imgui_context.h"
 #include "src/property_editor_registry.h"
 #include "src/scene_document.h"
+#include "src/shortcuts.h"
 #include "core/engine.h"
 #include "core/project_paths.h"
 #include "render/renderer.h"
@@ -127,6 +128,14 @@ namespace {
 
             m_console_panel = std::make_shared<CometEditor::ConsolePanel>();
             setup_log_redirect();
+
+            try {
+                m_shortcuts = CometEditor::EditorShortcuts::load(
+                    std::filesystem::path(COMET_CONFIG_DIRECTORY)
+                    / "profiles/editor-dev.yaml");
+            } catch(const std::exception& error) {
+                LOG_ERROR("{}; using default editor shortcuts", error.what());
+            }
 
             m_asset_manager = std::make_unique<Comet::AssetManager>(m_project_paths,
                 engine.get_asset_registry(), engine.get_resource_manager(),
@@ -624,8 +633,8 @@ namespace {
 
         void setup_panels(
             Comet::Scene& scene, Comet::AssetScanReport initial_asset_scan) {
-            m_menu_bar =
-                std::make_unique<CometEditor::MenuBar>(m_editor_state, m_command_history);
+            m_menu_bar = std::make_unique<CometEditor::MenuBar>(
+                m_editor_state, m_command_history, m_shortcuts);
 
             m_hierarchy_panel =
                 std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
@@ -638,7 +647,8 @@ namespace {
             const std::uint32_t max_render_dimension = std::min(
                 device_max_render_dimension, EDITOR_VIEWPORT_MAX_RENDER_DIMENSION);
             m_viewport_panel = std::make_unique<CometEditor::ViewPanel>(m_editor_state,
-                *m_selection, m_translation_gizmo, m_property_edit, max_render_dimension);
+                *m_selection, m_translation_gizmo, m_property_edit, max_render_dimension,
+                m_shortcuts);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_asset_manager->get_database(),
@@ -718,6 +728,7 @@ namespace {
             CometEditor::create_property_editor_registry();
         Comet::SceneSerializer m_scene_serializer{m_component_registry};
         CometEditor::EditorState m_editor_state;
+        CometEditor::EditorShortcuts m_shortcuts;
         std::unique_ptr<CometEditor::SceneDocument> m_scene_document;
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
         std::array<char, SCENE_PATH_CAPACITY> m_scene_path_buffer{};

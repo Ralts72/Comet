@@ -24,8 +24,6 @@
 
 namespace Comet {
     namespace {
-        using PropertyValue = std::variant<bool, float, Math::Vec3, AssetHandle>;
-
         struct PropertyRecord {
             const PropertyDescriptor* descriptor = nullptr;
             PropertyValue value;
@@ -145,6 +143,8 @@ namespace Comet {
             switch(property.type) {
                 case PropertyType::Bool:
                     return read_scalar<bool>(node, source, location, "a boolean");
+                case PropertyType::String:
+                    return read_scalar<std::string>(node, source, location, "a string");
                 case PropertyType::Float: {
                     const float value =
                         read_scalar<float>(node, source, location, "a finite number");
@@ -173,6 +173,8 @@ namespace Comet {
             switch(property.type) {
                 case PropertyType::Bool:
                     return *static_cast<const bool*>(value);
+                case PropertyType::String:
+                    return *static_cast<const std::string*>(value);
                 case PropertyType::Float: {
                     const float result = *static_cast<const float*>(value);
                     if(!std::isfinite(result)) {
@@ -199,6 +201,8 @@ namespace Comet {
             switch(property.descriptor->type) {
                 case PropertyType::Bool:
                     return YAML::Node(std::get<bool>(property.value));
+                case PropertyType::String:
+                    return YAML::Node(std::get<std::string>(property.value));
                 case PropertyType::Float:
                     return YAML::Node(std::get<float>(property.value));
                 case PropertyType::Vec3:
@@ -219,6 +223,10 @@ namespace Comet {
             switch(property.descriptor->type) {
                 case PropertyType::Bool:
                     *static_cast<bool*>(value) = std::get<bool>(property.value);
+                    return;
+                case PropertyType::String:
+                    *static_cast<std::string*>(value) =
+                        std::get<std::string>(property.value);
                     return;
                 case PropertyType::Float:
                     *static_cast<float*>(value) = std::get<float>(property.value);

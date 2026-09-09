@@ -2,6 +2,7 @@
 
 #include "editor_state.h"
 #include "command_history.h"
+#include "shortcuts.h"
 
 #include <functional>
 #include <map>
@@ -16,8 +17,8 @@ namespace CometEditor {
     public:
         enum class Command { NewScene, OpenScene, SaveScene, Undo, Redo };
 
-        MenuBar(const EditorState& state, const CommandHistory& history)
-            : m_state(state), m_history(history) {}
+        MenuBar(const EditorState& state, const CommandHistory& history,
+            const EditorShortcuts& shortcuts);
 
         void render();
         void collect_shortcuts();
@@ -39,6 +40,7 @@ namespace CometEditor {
 
         const EditorState& m_state;
         const CommandHistory& m_history;
+        const EditorShortcuts& m_shortcuts;
         std::map<std::string, bool> m_panel_visibility;
         std::map<std::string, PanelVisibilityCallback> m_panel_callbacks;
         std::optional<Command> m_requested_command;

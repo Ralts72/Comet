@@ -12,12 +12,13 @@ namespace CometEditor {
     class SelectionService;
     class TranslationGizmo;
     class PropertyEditTransaction;
+    class EditorShortcuts;
 
     class ViewPanel: public EditorPanel {
     public:
         ViewPanel(const EditorState& state, SelectionService& selection,
             TranslationGizmo& gizmo, PropertyEditTransaction& inspector_edit,
-            std::uint32_t max_render_dimension);
+            std::uint32_t max_render_dimension, const EditorShortcuts& shortcuts);
 
         void render() override;
 
@@ -68,6 +69,7 @@ namespace CometEditor {
         SelectionService& m_selection;
         TranslationGizmo& m_gizmo;
         PropertyEditTransaction& m_inspector_edit;
+        const EditorShortcuts& m_shortcuts;
         ImGuiID m_gizmo_id = 0;
         ImDrawList* m_gizmo_draw_list = nullptr;
         bool m_actually_visible = false;

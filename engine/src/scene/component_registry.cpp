@@ -34,6 +34,8 @@ namespace Comet {
                 return *static_cast<const Math::Vec3*>(value);
             case PropertyType::AssetHandle:
                 return *static_cast<const AssetHandle*>(value);
+            case PropertyType::String:
+                return *static_cast<const std::string*>(value);
         }
         return std::nullopt;
     }
@@ -56,6 +58,9 @@ namespace Comet {
                 } else if constexpr(std::is_same_v<Value, Math::Vec3>) {
                     if(type != PropertyType::Vec3 || !Math::is_finite(source))
                         return false;
+                } else if constexpr(std::is_same_v<Value, std::string>) {
+                    if(type != PropertyType::String)
+                        return false;
                 } else {
                     if(type != PropertyType::AssetHandle)
                         return false;
@@ -72,8 +77,7 @@ namespace Comet {
 
     bool ComponentRegistry::register_component(ComponentDescriptor descriptor) {
         if(descriptor.id.empty() || descriptor.display_name.empty()
-            || !descriptor.has_component_callback || !descriptor.add_component_callback
-            || !descriptor.remove_component_callback
+            || !descriptor.has_component_callback
             || !descriptor.mutable_component_accessor
             || !descriptor.const_component_accessor
             || find_component(descriptor.id) != nullptr) {
@@ -111,6 +115,10 @@ namespace Comet {
                 throw std::logic_error("Invalid built-in component descriptor");
             }
         };
+
+        // 名称由 Scene 创建，沿用现有 .scene 名称字段，不重复序列化。
+        register_component(make_component_descriptor<NameComponent>("name", "Name",
+            {make_property_descriptor("name", "Name", &NameComponent::name)}, false));
 
         register_component(make_component_descriptor<TransformComponent>("transform",
             "Transform",

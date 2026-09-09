@@ -47,10 +47,13 @@ ctest --preset dev-debug
   当前是包围盒粗拾取，不是三角形级拾取或模型轮廓描边。
 - Edit 选中实体后可左键拖动红／绿／蓝箭头，沿世界 X／Y／Z 轴平移；操作手柄覆盖在模型上，不受深度遮挡。
   一次拖动只记一条撤销，Escape 取消；拖动期间不响应相机导航，失焦或隐藏视口会回退未完成的拖动。
-- Edit 中 Inspector 的 Transform、Camera、Mesh/Material 引用支持撤销／重做，一次拖动记一条，Escape 取消。
+- Edit 中 Inspector 的名称、Transform、Camera、Mesh/Material 引用支持撤销／重做，一次编辑手势记一条，Escape 取消。
   使用 Edit 菜单或 Ctrl+Z / Ctrl+Y（macOS 为 Cmd+Z / Cmd+Shift+Z）；文本框编辑时不抢占输入控件的撤销。
   New/Open 成功及 Edit/Play 切换清空历史；Play 属性仍可实时调试，但不记入 Edit 历史。
-  实体名称、资产文件修改和保存暂不纳入撤销历史。
+  资产文件修改和保存暂不纳入撤销历史。
+- 编辑器快捷键配置在 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启生效。
+  新建／打开／保存、撤销／重做、聚焦支持多绑定；`Primary` 表示 macOS Cmd／其他平台 Ctrl，`[]` 禁用绑定。
+  所有构建的编辑器读取此段，不改变当前 Profile 的诊断配置；缺省项用默认值，绑定错误或冲突会记录日志并回退默认绑定。
 - Play 分辨率可选 Free、16:9、HD（1280×720）、FHD（1920×1080）；Fit 等比适应面板，1x 按原尺寸显示并裁切。
 - Project 支持刷新、移动与重命名；Inspector 的材质和纹理设置按变化事件提交，更新日志统一进入 Log。
 

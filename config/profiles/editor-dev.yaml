@@ -8,3 +8,16 @@ diagnostics:
   enable_profiler: false
   # 启用 Vulkan Validation Layer 和 Debug Utils Messenger。
   enable_validation: false
+
+# 所有构建下的编辑器均读取此段；诊断配置仍由当前构建 Profile 决定。
+# 修改后重启编辑器。缺省项沿用默认值，[] 禁用该动作的快捷键。
+# Primary = macOS Cmd / 其他平台 Ctrl；修饰键支持 Primary、Shift、Alt（Option）。
+# 按键支持 A-Z、0-9、F1-F12 及常用导航键；Escape 保留用于取消操作。
+editor:
+  shortcuts:
+    scene.new: ["Primary+N"]
+    scene.open: ["Primary+O"]
+    scene.save: ["Primary+S"]
+    edit.undo: ["Primary+Z"]
+    edit.redo: ["Primary+Shift+Z", "Primary+Y"]
+    viewport.focus_selection: ["F"]

@@ -8,6 +8,7 @@ set(SOURCES
         src/scene_document.cpp
         src/imgui_context.cpp
         src/menu_bar.cpp
+        src/shortcuts.cpp
         src/property_editor_registry.cpp
         src/viewport_layout.cpp
         src/panels/inspector.cpp
@@ -18,7 +19,7 @@ set(SOURCES
 )
 
 add_executable(editor ${SOURCES})
-target_link_libraries(editor PRIVATE engine imgui glfw)
+target_link_libraries(editor PRIVATE engine imgui glfw yaml-cpp)
 target_include_directories(editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(editor PRIVATE
         COMET_CONFIG_DIRECTORY="${CMAKE_SOURCE_DIR}/config"
