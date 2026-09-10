@@ -3,6 +3,7 @@ set(SOURCES
         src/editor_assets.cpp
         src/scene_file_dialog.cpp
         src/command_history.cpp
+        src/scene_commands.cpp
         src/translation_gizmo.cpp
         src/camera_controller.cpp
         src/editor_state.cpp

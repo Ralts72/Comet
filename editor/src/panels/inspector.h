@@ -30,7 +30,7 @@ namespace CometEditor {
         using PrepareAsset = std::function<bool(Comet::AssetHandle, Comet::AssetType)>;
 
         InspectorPanel(const EditorState& state, SelectionService& selection,
-            PropertyEditTransaction& property_edit,
+            CommandHistory& history, PropertyEditTransaction& property_edit,
             const Comet::ComponentRegistry& component_registry,
             const PropertyEditorRegistry& property_editor_registry,
             const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root,
@@ -59,6 +59,7 @@ namespace CometEditor {
         const EditorState& m_state;
         PrepareAsset m_prepare_asset;
         SelectionService& m_selection;
+        CommandHistory& m_history;
         PropertyEditTransaction& m_property_edit;
         const Comet::ComponentRegistry& m_component_registry;
         const PropertyEditorRegistry& m_property_editor_registry;

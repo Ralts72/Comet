@@ -51,6 +51,8 @@ ctest --preset dev-debug
   使用 Edit 菜单或 Ctrl+Z / Ctrl+Y（macOS 为 Cmd+Z / Cmd+Shift+Z）；文本框编辑时不抢占输入控件的撤销。
   New/Open 成功及 Edit/Play 切换清空历史；Play 属性仍可实时调试，但不记入 Edit 历史。
   实体结构、资产文件修改和保存暂不纳入撤销历史。
+- Edit 中 Inspector 可用 Add Component 添加 Camera／Mesh Renderer，右键组件标题移除并支持撤销／重做。
+  Name 和 Transform 不开放增删；Play 只允许调试现有属性，组件增删禁用。
 - 编辑器快捷键配置在 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启生效。
   新建／打开／保存、撤销／重做、聚焦支持多绑定；`Primary` 表示 macOS Cmd／其他平台 Ctrl，`[]` 禁用绑定。
   所有构建的编辑器读取此段，不改变当前 Profile 的诊断配置；缺省项用默认值，绑定错误或冲突会记录日志并回退默认绑定。

@@ -63,10 +63,10 @@ namespace CometEditor::Tests {
                         ImGui::TextUnformatted("Extra widget content");
                     return result;
                 }));
-            inspector =
-                std::make_unique<InspectorPanel>(state, selection, edit, components,
-                    widgets, assets, Comet::ProjectPaths(PROJECT_ROOT_DIR).assets(),
-                    nullptr, nullptr, prepare_asset);
+            inspector = std::make_unique<InspectorPanel>(state, selection, history, edit,
+                components, widgets, assets,
+                Comet::ProjectPaths(PROJECT_ROOT_DIR).assets(), nullptr, nullptr,
+                prepare_asset);
             frame();
             frame();
         }
@@ -253,6 +253,89 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(assets.scan().succeeded());
         choose(mesh_point, 2);
         EXPECT_EQ(renderer().mesh, assets.find("three/new.gltf")->handle);
+    }
+
+    TEST_F(EditingUiTest, AddComponentMenuUsesHistoryAndIsDisabledInPlay) {
+        auto* window = ImGui::FindWindowByName("Inspector");
+        ASSERT_NE(window, nullptr);
+        ImGui::ActivateItemByID(window->GetID("Add Component"));
+        frame();
+        frame();
+        auto& context = *ImGui::GetCurrentContext();
+        ASSERT_EQ(context.OpenPopupStack.Size, 1);
+        auto* popup = context.OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Camera"));
+        frame();
+        EXPECT_TRUE(entity.has_component<Comet::CameraComponent>());
+        EXPECT_EQ(history.undo_size(), 1);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(entity.has_component<Comet::CameraComponent>());
+        ASSERT_TRUE(history.redo());
+        EXPECT_TRUE(entity.has_component<Comet::CameraComponent>());
+        // 即使历史仍绑定，显式 Play 状态也必须禁止组件增删。
+        state.mode = EditorMode::Play;
+        frame();
+        ImGui::ActivateItemByID(window->GetID("Add Component"));
+        frame();
+        EXPECT_EQ(context.OpenPopupStack.Size, 0);
+        EXPECT_FALSE(entity.has_component<Comet::MeshRendererComponent>());
+    }
+
+    TEST_F(EditingUiTest, ComponentHeaderContextMenuRemovesAndRestoresCamera) {
+        entity.add_component<Comet::CameraComponent>().fov = 63;
+        ASSERT_TRUE(edit.begin({entity.get_uuid(), "camera", "fov"}));
+        ASSERT_TRUE(edit.preview(72.0f));
+        frame();
+        auto* window = ImGui::FindWindowByName("Inspector");
+        ASSERT_NE(window, nullptr);
+        // 此 fixture 未注册 Bool/Float 控件，Camera 标题紧邻 Add 按钮上方。
+        const ImVec2 header(window->WorkRect.Min.x + 30,
+            window->DC.CursorPosPrevLine.y - ImGui::GetStyle().ItemSpacing.y
+                - ImGui::GetFrameHeight() * 0.5f);
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(header.x, header.y);
+        frame();
+        io.AddMouseButtonEvent(1, true);
+        frame();
+        io.AddMouseButtonEvent(1, false);
+        frame();
+        frame();
+        auto& context = *ImGui::GetCurrentContext();
+        ASSERT_EQ(context.OpenPopupStack.Size, 1);
+        auto* popup = context.OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Remove Component"));
+        frame();
+        EXPECT_FALSE(entity.has_component<Comet::CameraComponent>());
+        EXPECT_FALSE(edit.active());
+        EXPECT_EQ(history.undo_size(), 2);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::CameraComponent>().fov, 72);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::CameraComponent>().fov, 63);
+    }
+
+    TEST_F(EditingUiTest, ComponentMenuRequiresMatchingHistoryScene) {
+        const auto try_open = [&] {
+            frame();
+            auto* window = ImGui::FindWindowByName("Inspector");
+            ASSERT_NE(window, nullptr);
+            ImGui::ActivateItemByID(window->GetID("Add Component"));
+            frame();
+            EXPECT_EQ(ImGui::GetCurrentContext()->OpenPopupStack.Size, 0);
+            EXPECT_FALSE(entity.has_component<Comet::CameraComponent>());
+        };
+        history.bind_scene(nullptr);
+        try_open();
+        Comet::Scene other;
+        auto same_uuid = other.create_entity_with_uuid(entity.get_uuid());
+        ASSERT_TRUE(same_uuid);
+        history.bind_scene(&other);
+        try_open();
+        EXPECT_FALSE(same_uuid.has_component<Comet::CameraComponent>());
+        EXPECT_FALSE(history.can_undo());
+        history.bind_scene(&scene);
     }
 
     TEST_F(EditingUiTest, DragFloat3CommitsOneRecordOnRelease) {

@@ -5,6 +5,7 @@
 #include "core/math_utils.h"
 #include "scene/scene.h"
 
+#include <any>
 #include <functional>
 #include <optional>
 #include <string>
@@ -87,6 +88,12 @@ namespace Comet {
         std::function<void(Entity&)> remove_component_callback;
         std::function<void*(Entity&)> mutable_component_accessor;
         std::function<const void*(const Entity&)> const_component_accessor;
+        std::function<std::any(const Entity&)> capture_component_callback;
+        std::function<bool(Entity&, const std::any&)> restore_component_callback;
+
+        [[nodiscard]] COMET_API std::any capture_component(const Entity& entity) const;
+        [[nodiscard]] COMET_API bool restore_component(
+            Entity& entity, const std::any& snapshot) const;
 
         [[nodiscard]] bool has_component(const Entity& entity) const {
             return has_component_callback && has_component_callback(entity);
@@ -225,6 +232,19 @@ namespace Comet {
             descriptor.remove_component_callback = [](Entity& entity) {
                 entity.remove_component<Component>();
             };
+            if constexpr(std::is_copy_constructible_v<Component>) {
+                descriptor.capture_component_callback = [](const Entity& entity) {
+                    return std::any(entity.get_component<Component>());
+                };
+                descriptor.restore_component_callback = [](Entity& entity,
+                                                            const std::any& snapshot) {
+                    const auto* value = std::any_cast<Component>(&snapshot);
+                    if(!value)
+                        return false;
+                    entity.add_component<Component>(*value);
+                    return true;
+                };
+            }
         }
         return descriptor;
     }

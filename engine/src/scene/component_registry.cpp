@@ -75,6 +75,20 @@ namespace Comet {
         return assigned;
     }
 
+    std::any ComponentDescriptor::capture_component(const Entity& entity) const {
+        if(!entity || !has_component(entity) || !capture_component_callback)
+            return {};
+        return capture_component_callback(entity);
+    }
+
+    bool ComponentDescriptor::restore_component(
+        Entity& entity, const std::any& snapshot) const {
+        if(!entity || has_component(entity) || !snapshot.has_value()
+            || !restore_component_callback)
+            return false;
+        return restore_component_callback(entity, snapshot);
+    }
+
     bool ComponentRegistry::register_component(ComponentDescriptor descriptor) {
         if(descriptor.id.empty() || descriptor.display_name.empty()
             || !descriptor.has_component_callback

@@ -434,8 +434,8 @@ namespace {
                 *m_selection, m_translation_gizmo, m_property_edit, max_render_dimension,
                 m_shortcuts);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
-                m_editor_state, *m_selection, m_property_edit, m_component_registry,
-                m_property_editor_registry, m_assets->database(),
+                m_editor_state, *m_selection, m_command_history, m_property_edit,
+                m_component_registry, m_property_editor_registry, m_assets->database(),
                 m_project_paths.assets(),
                 [this](const Comet::AssetHandle handle, const Comet::MaterialData& data) {
                     return m_assets->update_material(handle, data);
