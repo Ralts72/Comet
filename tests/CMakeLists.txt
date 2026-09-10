@@ -3,6 +3,7 @@ file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
 )
 list(APPEND TEST_SOURCES
+        "${CMAKE_SOURCE_DIR}/editor/src/editor_assets.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/command_history.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/translation_gizmo.cpp"
         "${CMAKE_SOURCE_DIR}/editor/src/camera_controller.cpp"
@@ -26,6 +27,8 @@ target_link_libraries(unit_testing PRIVATE
 # 仅启用编辑器时测试 UI 交互与数据寿命，无需窗口或 Vulkan 后端。
 if (COMET_BUILD_EDITOR)
     target_sources(unit_testing PRIVATE
+            "${CMAKE_SOURCE_DIR}/editor/src/scene_file_dialog.cpp"
+            "${CMAKE_SOURCE_DIR}/editor/src/panels/project.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/panels/console.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/panels/inspector.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/menu_bar.cpp"

@@ -1,6 +1,6 @@
 # Comet 引擎路线图
 
-更新：2026-09-07。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
+更新：2026-09-11。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
 本文只维护阶段、待办和设计约束，不累计每次迁移的完成日志。
 
 ## 当前阶段与下一步
@@ -48,6 +48,8 @@ Mesh/Texture 后台 CPU 刷新、Owner Thread 验票发布、源监视、成对�
 待办：
 
 - Project 面板支持 Mesh 导入/重导入，展示 Artifact 缺失、过期、就绪和失败状态。
+- 场景资源加载闭环：打开场景时准备引用资源，缺失或加载失败仍保留场景及引用并报告诊断，
+  在补导入／修复资源后恢复可用性；不以资源就绪作为打开文档的硬性条件，不在每帧遍历引用。
 - 大批量刷新增加任务合并、完成队列/主线程发布预算和背压；当前 Worker 数固定，但待处理任务不是有界的。
   同一 Handle 的旧 revision 可丢弃，不应长期占满解码与上传资源。
 - TextureArtifact 留到实际扩展纹理导入时一起实现原子发布与 Artifact-only 加载；不先复制 Mesh 的所有中间层。
@@ -70,11 +72,14 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 - 完整 MultiTarget 候选替换、FrameSlot retention、ImGui slot 安全更新。
 - 屏幕到实际纹理像素映射；环绕/平移/缩放、CPU 包围盒拾取、F 聚焦。
 - Swapchain core/dependent 共享所有权与 compatibility diff；重建分别等待 graphics 与 present 使用完成。
+- 面板显隐以 EditorPanel 为唯一来源；Project 目录树按扫描快照重建，属性控件显式返回手势状态。
 - CommandHistory 有界历史、UUID 定位及 PropertyEditTransaction；Inspector 注册属性拖动只记录一次，取消恢复。
   实体名称使用同一个 String 属性描述／事务，文本输入结束提交一次，长名称不再被固定缓冲区截断。
   菜单／快捷键请求由 Editor 在 UI 准备后处理；New/Open 成功及 Edit/Play 切换清空历史，Play 修改不记录。
 - 编辑器离散快捷键由 `editor-dev.yaml` 配置；绑定匹配与菜单提示共用 EditorShortcuts，保留模式／焦点／输入保护。
   设置界面和用户级覆盖后续接入同一绑定数据，不另建事件总线，也不与阶段 6 游戏 Input 混为一体。
+- Mesh/Material 引用与材质纹理槽共用按类型过滤的路径下拉选择；底层保存 Handle，组件引用沿用属性编辑事务。
+  选择 Mesh/Material 时按需导入／加载，失败不替换原引用；搜索、拖拽和资产文件撤销仍留在后续工作中。
 - Engine 在 Renderer::prepare_frame 完成 UI 准备之后读取活动 Scene 并提取，随后 render_frame；不新增快照 provider 回调。
 - LineDrawList 接收单帧线段/包围盒；执行器使用场景 pass、相机和 MSAA，正常深度测试且不写深度。
   CPU 请求不依赖 Vulkan/ImGui；slot 独立 vertex buffer 安全复用，扩容失败跳过调试批次并延后重试。

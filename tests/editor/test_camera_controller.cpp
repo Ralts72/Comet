@@ -113,6 +113,27 @@ namespace CometEditor::Tests {
             camera.perspective.up, Comet::Math::Vec3(0.0f, 1.0f, 0.0f)));
     }
 
+    TEST(
+        EditorCameraControllerTest, OrbitDragKeepsHorizontalDirectionAndInvertsVertical) {
+        EditorCameraState horizontal;
+        horizontal.target = Comet::Math::Vec3(0.0f);
+        horizontal.perspective.position = {0.0f, 0.0f, 3.0f};
+        EditorCameraState upward = horizontal;
+        EditorCameraState downward = horizontal;
+
+        apply_editor_camera_input(horizontal, {.orbit_delta = {20.0f, 0.0f}});
+        apply_editor_camera_input(upward, {.orbit_delta = {0.0f, -20.0f}});
+        apply_editor_camera_input(downward, {.orbit_delta = {0.0f, 20.0f}});
+
+        EXPECT_LT(horizontal.perspective.position.x, 0.0f);
+        EXPECT_FLOAT_EQ(horizontal.perspective.position.y, 0.0f);
+        EXPECT_LT(upward.perspective.position.y, 0.0f);
+        EXPECT_GT(downward.perspective.position.y, 0.0f);
+        EXPECT_FLOAT_EQ(upward.perspective.position.x, 0.0f);
+        EXPECT_NEAR(
+            upward.perspective.position.y, -downward.perspective.position.y, 0.0001f);
+    }
+
     TEST(EditorCameraControllerTest, PanMovesPositionAndTargetTogether) {
         EditorCameraState camera;
         const Comet::Math::Vec3 previous_position = camera.perspective.position;

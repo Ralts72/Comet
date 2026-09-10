@@ -56,6 +56,9 @@ ctest --preset dev-debug
   所有构建的编辑器读取此段，不改变当前 Profile 的诊断配置；缺省项用默认值，绑定错误或冲突会记录日志并回退默认绑定。
 - Play 分辨率可选 Free、16:9、HD（1280×720）、FHD（1920×1080）；Fit 等比适应面板，1x 按原尺寸显示并裁切。
 - Project 支持刷新、移动与重命名；Inspector 的材质和纹理设置按变化事件提交，更新日志统一进入 Log。
+- Inspector 的 Mesh、Material 引用和材质纹理槽按资产相对路径下拉选择，按类型过滤，底层仍保存 Handle。
+  Mesh/Material 选择成功前先导入／加载，失败保留原引用；丢失引用显示 Missing，不自动清空。
+- View 菜单直接读取面板开关，关闭窗口后一次点击即可重新打开；暂未实现的菜单项显示为禁用。
 
 ## 架构入口
 
@@ -65,6 +68,8 @@ ctest --preset dev-debug
   使用当前相机和正常深度测试；不依赖 ImGui，编辑器选中框是其中一个调用方。
 - 资产：`AssetDatabase` 管身份与依赖，`ImportService` 管导入，`AssetManager` 协调加载与发布，
   `AssetRegistry` 是唯一 Handle 缓存；`ResourceManager` 只创建设备资源。
+- 编辑器：`Editor` 装配依赖与帧阶段，`EditorAssets` 管引用选择时的资源准备、源监视和写入确认，
+  `SceneFileDialog` 管路径弹窗；属性控件显式返回手势状态，`SceneDocument` 与 Play 会话仍保持独立。
 - Mesh Runtime 只读已发布的 Mesh Artifact；缓存丢失需先导入，不自动回退解析 glTF。
   Texture 暂时直接解码源文件，后续再引入 Artifact。
 - 世界 +Y 向上，Vulkan Viewport 用负高度转换画面坐标；`flip_y` 仅控制纹理导入。

@@ -13,6 +13,7 @@ namespace CometEditor {
         [[nodiscard]] const std::string& get_name() const { return m_name; }
 
         void set_visible(const bool visible) { m_user_visible = visible; }
+        [[nodiscard]] bool is_open() const { return m_user_visible; }
         void toggle_visible() { m_user_visible = !m_user_visible; }
 
     protected:

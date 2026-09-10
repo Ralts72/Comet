@@ -4,14 +4,13 @@
 #include "command_history.h"
 #include "shortcuts.h"
 
-#include <functional>
-#include <map>
+#include <vector>
 #include <string>
 #include <utility>
 
 namespace CometEditor {
 
-    using PanelVisibilityCallback = std::function<void(bool)>;
+    class EditorPanel;
 
     class MenuBar {
     public:
@@ -24,10 +23,7 @@ namespace CometEditor {
         void collect_shortcuts();
         [[nodiscard]] std::optional<Command> take_command();
 
-        void set_panel_visibility_callback(
-            const std::string& panel_name, PanelVisibilityCallback callback);
-
-        [[nodiscard]] bool is_panel_visible(const std::string& panel_name) const;
+        void register_panel(EditorPanel& panel);
 
         void set_fps(const float fps) { m_fps = fps; }
 
@@ -41,8 +37,7 @@ namespace CometEditor {
         const EditorState& m_state;
         const CommandHistory& m_history;
         const EditorShortcuts& m_shortcuts;
-        std::map<std::string, bool> m_panel_visibility;
-        std::map<std::string, PanelVisibilityCallback> m_panel_callbacks;
+        std::vector<EditorPanel*> m_panels;
         std::optional<Command> m_requested_command;
         float m_fps = 0.0f;
     };

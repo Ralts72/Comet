@@ -10,45 +10,37 @@
 #include <vector>
 
 namespace CometEditor {
-    namespace {
-        struct AssetTreeNode {
-            std::map<std::string, AssetTreeNode> directories;
-            std::vector<const Comet::AssetRecord*> assets;
-        };
-
-        AssetTreeNode build_asset_tree(const std::vector<Comet::AssetRecord>& assets) {
-            AssetTreeNode root;
-            for(const Comet::AssetRecord& asset : assets) {
-                AssetTreeNode* node = &root;
-                for(const auto& component : asset.path.parent_path()) {
-                    node = &node->directories[component.string()];
-                }
-                node->assets.push_back(&asset);
+    ProjectPanel::AssetTreeNode ProjectPanel::build_asset_tree(
+        std::vector<Comet::AssetRecord> assets) {
+        AssetTreeNode root;
+        for(Comet::AssetRecord& asset : assets) {
+            AssetTreeNode* node = &root;
+            for(const auto& component : asset.path.parent_path()) {
+                node = &node->directories[component.string()];
             }
-            return root;
+            node->assets.push_back(std::move(asset));
+        }
+        return root;
+    }
+
+    void ProjectPanel::render_asset_tree(const AssetTreeNode& node) {
+        for(const auto& [name, directory] : node.directories) {
+            if(ImGui::TreeNodeEx(name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                render_asset_tree(directory);
+                ImGui::TreePop();
+            }
         }
 
-        void render_asset_tree(const AssetTreeNode& node, SelectionService& selection) {
-            for(const auto& [name, directory] : node.directories) {
-                if(ImGui::TreeNodeEx(name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                    render_asset_tree(directory, selection);
-                    ImGui::TreePop();
-                }
+        for(const Comet::AssetRecord& asset : node.assets) {
+            const std::string name = asset.path.filename().string();
+            if(ImGui::Selectable(name.c_str(), m_selection.is_selected(asset.handle))) {
+                m_selection.select_asset(asset.handle);
             }
-
-            for(const Comet::AssetRecord* asset : node.assets) {
-                const std::string name = asset->path.filename().string();
-                if(ImGui::Selectable(
-                       name.c_str(), selection.is_selected(asset->handle))) {
-                    selection.select_asset(asset->handle);
-                }
-                ImGui::SameLine();
-                ImGui::TextDisabled("(%s)", Comet::to_string(asset->type).data());
-                if(ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("%s\nHandle: %llu",
-                        asset->path.generic_string().c_str(),
-                        static_cast<unsigned long long>(asset->handle.value()));
-                }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%s)", Comet::to_string(asset.type).data());
+            if(ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s\nHandle: %llu", asset.path.generic_string().c_str(),
+                    static_cast<unsigned long long>(asset.handle.value()));
             }
         }
     }
@@ -56,7 +48,8 @@ namespace CometEditor {
     ProjectPanel::ProjectPanel(const Comet::AssetDatabase& database,
         Comet::AssetScanReport scan_report, RefreshCallback refresh_callback,
         MoveAssetCallback move_asset_callback, SelectionService& selection)
-        : EditorPanel("Project"), m_database(database), m_assets(database.get_assets()),
+        : EditorPanel("Project"), m_database(database),
+          m_tree(build_asset_tree(database.get_assets())),
           m_scan_report(std::move(scan_report)),
           m_refresh_callback(std::move(refresh_callback)),
           m_move_asset_callback(std::move(move_asset_callback)), m_selection(selection) {}
@@ -79,7 +72,7 @@ namespace CometEditor {
         }
         ImGui::SameLine();
         if(ImGui::Button("Refresh") && m_refresh_callback) {
-            update_scan_report(m_refresh_callback());
+            m_refresh_callback();
         }
 
         const Comet::AssetRecord* selected_record =
@@ -97,12 +90,11 @@ namespace CometEditor {
         ImGui::Separator();
 
         if(m_view_mode == 0) {
-            const AssetTreeNode tree = build_asset_tree(m_assets);
             if(ImGui::TreeNodeEx("assets", ImGuiTreeNodeFlags_DefaultOpen)) {
-                if(m_assets.empty()) {
+                if(m_tree.assets.empty() && m_tree.directories.empty()) {
                     ImGui::TextDisabled("No indexed assets");
                 } else {
-                    render_asset_tree(tree, m_selection);
+                    render_asset_tree(m_tree);
                 }
                 ImGui::TreePop();
             }
@@ -159,7 +151,6 @@ namespace CometEditor {
                 }
             }
 
-            update_scan_report(std::move(report));
             if(moved) {
                 ImGui::CloseCurrentPopup();
                 m_moving_asset = Comet::INVALID_ASSET_HANDLE;
@@ -185,7 +176,8 @@ namespace CometEditor {
 
     void ProjectPanel::update_scan_report(Comet::AssetScanReport scan_report) {
         m_scan_report = std::move(scan_report);
-        m_assets = m_database.get_assets();
+        if(m_scan_report.snapshot_updated)
+            m_tree = build_asset_tree(m_database.get_assets());
         const Comet::AssetHandle selected_asset = m_selection.get_selected_asset();
         if(selected_asset && !m_database.find(selected_asset)) {
             m_selection.clear();

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "asset/handle.h"
+#include "asset/metadata.h"
 #include "common/export.h"
 #include "core/math_utils.h"
 #include "scene/scene.h"
@@ -34,6 +34,7 @@ namespace Comet {
         bool transient = false;
         bool read_only = false;
         NumericPropertyMetadata numeric;
+        std::optional<AssetType> asset_type;
     };
 
     struct PropertyDescriptor {
@@ -50,6 +51,7 @@ namespace Comet {
         bool transient = false;
         bool read_only = false;
         NumericPropertyMetadata numeric;
+        std::optional<AssetType> asset_type;
         std::function<void*(void*)> mutable_accessor;
         std::function<const void*(const void*)> const_accessor;
         std::function<void(void*)> on_changed;
@@ -179,6 +181,7 @@ namespace Comet {
             .transient = metadata.transient,
             .read_only = metadata.read_only,
             .numeric = std::move(metadata.numeric),
+            .asset_type = metadata.asset_type,
             .mutable_accessor = [member](void* component) -> void* {
                 return &(static_cast<Component*>(component)->*member);
             },

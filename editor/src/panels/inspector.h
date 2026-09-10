@@ -4,12 +4,12 @@
 #include "asset/material_data.h"
 #include "editor_panel.h"
 #include "command_history.h"
+#include "editor_state.h"
 
 #include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
-#include <vector>
 
 namespace Comet {
     class ComponentRegistry;
@@ -27,13 +27,16 @@ namespace CometEditor {
         using ReimportTextureCallback =
             std::function<bool(Comet::AssetHandle, Comet::TextureImportSettings)>;
 
-        InspectorPanel(SelectionService& selection, CommandHistory& history,
+        using PrepareAsset = std::function<bool(Comet::AssetHandle, Comet::AssetType)>;
+
+        InspectorPanel(const EditorState& state, SelectionService& selection,
             PropertyEditTransaction& property_edit,
             const Comet::ComponentRegistry& component_registry,
             const PropertyEditorRegistry& property_editor_registry,
             const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root,
             UpdateMaterialCallback update_material_callback,
-            ReimportTextureCallback reimport_texture_callback);
+            ReimportTextureCallback reimport_texture_callback,
+            PrepareAsset prepare_asset = {});
 
         void render() override;
         void invalidate_asset_cache();
@@ -53,8 +56,9 @@ namespace CometEditor {
             const Comet::AssetRecord& record, const Comet::MaterialData& previous_data);
         [[nodiscard]] std::string validate_material() const;
 
+        const EditorState& m_state;
+        PrepareAsset m_prepare_asset;
         SelectionService& m_selection;
-        CommandHistory& m_history;
         PropertyEditTransaction& m_property_edit;
         const Comet::ComponentRegistry& m_component_registry;
         const PropertyEditorRegistry& m_property_editor_registry;
@@ -65,7 +69,6 @@ namespace CometEditor {
         Comet::AssetHandle m_loaded_asset;
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;
         std::optional<Comet::MaterialData> m_material_data;
-        std::vector<Comet::AssetRecord> m_texture_assets;
         std::string m_asset_error;
     };
 

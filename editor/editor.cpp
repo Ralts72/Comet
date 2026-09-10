@@ -1,7 +1,7 @@
 #include "runtime/entry.h"
-#include "asset/asset_manager.h"
+#include "src/editor_assets.h"
+#include "src/scene_file_dialog.h"
 #include "asset/registry.h"
-#include "asset/source_monitor.h"
 #include "src/camera_controller.h"
 #include "src/command_history.h"
 #include "src/editor_scene_session.h"
@@ -30,7 +30,6 @@
 #include "scene/scene_serializer.h"
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
@@ -42,7 +41,6 @@
 #include <spdlog/sinks/callback_sink.h>
 
 namespace {
-    constexpr std::size_t SCENE_PATH_CAPACITY = 1024;
     constexpr std::uint32_t EDITOR_VIEWPORT_MAX_RENDER_DIMENSION = 4096;
     const std::filesystem::path DEMO_MESH = "meshes/cube.gltf";
     const std::filesystem::path DEMO_MATERIAL = "materials/demo.mat";
@@ -52,44 +50,11 @@ namespace {
         Comet::AssetHandle material;
     };
 
-    enum class SceneFileDialog { None, Open, Save };
-
-    void log_asset_scan_issues(const Comet::AssetScanReport& report) {
-        for(const Comet::AssetScanIssue& issue : report.issues) {
-            LOG_WARN("Asset scan issue at '{}': {}", issue.path.generic_string(),
-                issue.message);
-        }
-    }
-
-    Comet::AssetHandle load_required_material(
-        Comet::AssetManager& asset_manager, const std::filesystem::path& relative_path) {
-        const Comet::AssetRecord* record =
-            asset_manager.get_database().find(relative_path);
-        if(!record) {
-            LOG_FATAL("Required material asset '{}' is not indexed",
-                relative_path.generic_string());
-        }
-
-        if(!asset_manager.load_material(record->handle)) {
-            LOG_FATAL("Failed to load required material asset '{}'",
-                relative_path.generic_string());
-        }
-        return record->handle;
-    }
-
-    Comet::AssetHandle load_required_mesh(
-        Comet::AssetManager& asset_manager, const std::filesystem::path& relative_path) {
-        const Comet::AssetRecord* record =
-            asset_manager.get_database().find(relative_path);
-        if(!record) {
-            LOG_FATAL("Required mesh asset '{}' is not indexed",
-                relative_path.generic_string());
-        }
-
-        if(!asset_manager.import_mesh(record->handle)
-            || !asset_manager.load_mesh(record->handle)) {
-            LOG_FATAL("Failed to load required mesh asset '{}'",
-                relative_path.generic_string());
+    Comet::AssetHandle load_required_asset(CometEditor::EditorAssets& assets,
+        const std::filesystem::path& path, Comet::AssetType type) {
+        const auto* record = assets.database().find(path);
+        if(!record || !assets.prepare_reference(record->handle, type)) {
+            LOG_FATAL("Cannot prepare required asset '{}'", path.generic_string());
         }
         return record->handle;
     }
@@ -137,18 +102,16 @@ namespace {
                 LOG_ERROR("{}; using default editor shortcuts", error.what());
             }
 
-            m_asset_manager = std::make_unique<Comet::AssetManager>(m_project_paths,
+            m_assets = std::make_unique<CometEditor::EditorAssets>(m_project_paths,
                 engine.get_asset_registry(), engine.get_resource_manager(),
                 engine.get_task_scheduler());
-            Comet::AssetScanReport initial_asset_scan = m_asset_manager->scan();
-            log_asset_scan_issues(initial_asset_scan);
-            m_asset_source_monitor =
-                std::make_unique<Comet::AssetSourceMonitor>(m_project_paths.assets());
-            handle_asset_source_poll(m_asset_source_monitor->poll());
-
+            auto initial_asset_scan = m_assets->refresh();
+            m_property_editor_registry =
+                CometEditor::create_property_editor_registry(m_assets->database());
             const EditorRenderAssets render_assets{
-                .mesh = load_required_mesh(*m_asset_manager, DEMO_MESH),
-                .material = load_required_material(*m_asset_manager, DEMO_MATERIAL)};
+                .mesh = load_required_asset(*m_assets, DEMO_MESH, Comet::AssetType::Mesh),
+                .material = load_required_asset(
+                    *m_assets, DEMO_MATERIAL, Comet::AssetType::Material)};
             engine.set_scene(create_editor_scene(render_assets));
             Comet::Engine* engine_ptr = &engine;
             const auto get_active_scene = [engine_ptr]() {
@@ -206,8 +169,8 @@ namespace {
         }
 
         void on_update(const Comet::UpdateContext context) override {
-            monitor_asset_sources();
-            m_asset_manager->process_completions();
+            if(auto report = m_assets->update())
+                apply_asset_scan_report(std::move(*report));
             apply_editor_mode_request();
 
             m_menu_bar->set_fps(context.fps);
@@ -336,143 +299,29 @@ namespace {
             get_engine().get_renderer().set_viewport_pick_callback({});
             auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
             scene_renderer.set_swapchain_resource_callbacks({}, {});
+            m_imgui_context->set_ui_callback({});
             m_viewport_panel->cancel_interaction();
-            m_imgui_context.reset();
+            static_cast<void>(m_property_edit.cancel());
+            m_command_history.bind_scene(nullptr);
+            m_menu_bar.reset();
             m_project_panel.reset();
             m_hierarchy_panel.reset();
             m_inspector_panel.reset();
+            m_viewport_panel.reset();
+            m_property_editor_registry = {};
+            m_imgui_context.reset();
             m_selection.reset();
             m_scene_session.reset();
             m_scene_document.reset();
-            m_asset_source_monitor.reset();
-            m_asset_manager.reset();
+            m_assets.reset();
+            m_console_panel.reset();
         }
 
     private:
-        void handle_asset_source_poll(
-            const Comet::AssetSourceMonitor::PollResult& result) {
-            if(result.state == Comet::AssetSourceMonitor::PollState::NotPolled) {
-                return;
-            }
-            if(result.state != Comet::AssetSourceMonitor::PollState::Failed) {
-                m_asset_source_monitor_error.clear();
-                return;
-            }
-
-            const std::string error =
-                result.issue_path.generic_string() + ": " + result.message;
-            if(error != m_asset_source_monitor_error) {
-                LOG_WARN("Asset source monitor issue at '{}': {}",
-                    result.issue_path.generic_string(), result.message);
-                m_asset_source_monitor_error = error;
-            }
-        }
-
-        void acknowledge_generated_metadata(const Comet::AssetScanReport& report) {
-            if(report.generated_metadata == 0 || !m_asset_source_monitor) {
-                return;
-            }
-            for(const Comet::AssetHandle handle : report.added_assets) {
-                const Comet::AssetRecord* record =
-                    m_asset_manager->get_database().find(handle);
-                if(record) {
-                    static_cast<void>(m_asset_source_monitor->acknowledge(
-                        Comet::metadata_path(record->path)));
-                }
-            }
-        }
-
-        Comet::AssetScanReport refresh_project_assets(
-            const bool source_state_already_observed) {
-            if(!source_state_already_observed && m_asset_source_monitor) {
-                handle_asset_source_poll(m_asset_source_monitor->poll_now());
-            }
-
-            Comet::AssetScanReport report = m_asset_manager->scan();
-            if(report.snapshot_updated && m_inspector_panel) {
+        void apply_asset_scan_report(Comet::AssetScanReport report) {
+            if(report.snapshot_updated)
                 m_inspector_panel->invalidate_asset_cache();
-            }
-            acknowledge_generated_metadata(report);
-            log_asset_scan_issues(report);
-            return report;
-        }
-
-        Comet::AssetScanReport move_project_asset(
-            const Comet::AssetHandle handle, const std::filesystem::path& destination) {
-            const Comet::AssetRecord* old_record =
-                m_asset_manager->get_database().find(handle);
-            const std::filesystem::path old_path =
-                old_record ? old_record->path : std::filesystem::path{};
-
-            Comet::AssetScanReport report =
-                m_asset_manager->move_asset(handle, destination);
-            if(report.snapshot_updated) {
-                const Comet::AssetRecord* new_record =
-                    m_asset_manager->get_database().find(handle);
-                const std::filesystem::path new_path =
-                    new_record ? new_record->path : destination.lexically_normal();
-                if(m_asset_source_monitor && !old_path.empty() && new_record) {
-                    static_cast<void>(m_asset_source_monitor->acknowledge(old_path));
-                    static_cast<void>(m_asset_source_monitor->acknowledge(
-                        Comet::metadata_path(old_path)));
-                    static_cast<void>(
-                        m_asset_source_monitor->acknowledge(new_record->path));
-                    static_cast<void>(m_asset_source_monitor->acknowledge(
-                        Comet::metadata_path(new_record->path)));
-                }
-                if(m_inspector_panel) {
-                    m_inspector_panel->invalidate_asset_cache();
-                }
-                LOG_INFO("Moved asset handle {} from '{}' to '{}'", handle.value(),
-                    old_path.generic_string(), new_path.generic_string());
-            }
-
-            log_asset_scan_issues(report);
-            return report;
-        }
-
-        void monitor_asset_sources() {
-            if(!m_asset_source_monitor || !m_project_panel) {
-                return;
-            }
-
-            const Comet::AssetSourceMonitor::PollResult result =
-                m_asset_source_monitor->poll();
-            handle_asset_source_poll(result);
-            if(result.state != Comet::AssetSourceMonitor::PollState::Changed) {
-                return;
-            }
-
-            m_project_panel->update_scan_report(refresh_project_assets(true));
-        }
-
-        bool update_material(
-            const Comet::AssetHandle handle, const Comet::MaterialData& data) {
-            const Comet::AssetRecord* record =
-                m_asset_manager->get_database().find(handle);
-            const std::filesystem::path relative_path =
-                record ? record->path : std::filesystem::path{};
-            const bool updated =
-                static_cast<bool>(m_asset_manager->update_material(handle, data));
-            if(updated && !relative_path.empty()) {
-                static_cast<void>(m_asset_source_monitor->acknowledge(relative_path));
-            }
-            return updated;
-        }
-
-        bool reimport_texture(const Comet::AssetHandle handle,
-            const Comet::TextureImportSettings settings) {
-            const Comet::AssetRecord* record =
-                m_asset_manager->get_database().find(handle);
-            const std::filesystem::path relative_path =
-                record ? record->path : std::filesystem::path{};
-            const bool reimported =
-                static_cast<bool>(m_asset_manager->reimport_texture(handle, settings));
-            if(reimported && !relative_path.empty()) {
-                static_cast<void>(m_asset_source_monitor->acknowledge(
-                    Comet::metadata_path(relative_path)));
-            }
-            return reimported;
+            m_project_panel->update_scan_report(std::move(report));
         }
 
         void handle_command(const CometEditor::MenuBar::Command command) {
@@ -502,17 +351,20 @@ namespace {
                     }
                     break;
                 case CometEditor::MenuBar::Command::OpenScene:
-                    request_scene_file_dialog(SceneFileDialog::Open);
+                    m_scene_file_dialog.request(
+                        CometEditor::SceneFileDialog::Action::Open, *m_scene_document,
+                        m_project_paths.root());
                     break;
                 case CometEditor::MenuBar::Command::SaveScene:
                     if(m_scene_document->get_path().empty()) {
-                        request_scene_file_dialog(SceneFileDialog::Save);
+                        m_scene_file_dialog.request(
+                            CometEditor::SceneFileDialog::Action::Save, *m_scene_document,
+                            m_project_paths.root());
                     } else {
                         static_cast<void>(
                             m_scene_document->save(m_scene_document->get_path()));
                     }
                     break;
-                default:;
             }
         }
 
@@ -543,74 +395,6 @@ namespace {
             } catch(const std::exception& error) {
                 LOG_ERROR("Failed to change editor mode: {}", error.what());
             }
-        }
-
-        void request_scene_file_dialog(const SceneFileDialog dialog) {
-            m_scene_file_dialog = dialog;
-            m_scene_file_dialog_open_requested = true;
-            m_scene_document->clear_error();
-
-            std::string initial_path = m_scene_document->get_path();
-            if(dialog == SceneFileDialog::Save && initial_path.empty()) {
-                initial_path = std::string(PROJECT_ROOT_DIR) + "/untitled.scene";
-            } else if(dialog == SceneFileDialog::Open && initial_path.empty()) {
-                initial_path = std::string(PROJECT_ROOT_DIR) + "/";
-            }
-            m_scene_path_buffer.fill('\0');
-            std::copy_n(initial_path.data(),
-                std::min(initial_path.size(), m_scene_path_buffer.size() - 1),
-                m_scene_path_buffer.data());
-        }
-
-        void render_scene_file_dialog() {
-            if(m_scene_file_dialog == SceneFileDialog::None) {
-                return;
-            }
-
-            const bool is_open = m_scene_file_dialog == SceneFileDialog::Open;
-            const char* title = is_open ? "Open Scene" : "Save Scene";
-            if(m_scene_file_dialog_open_requested) {
-                ImGui::OpenPopup(title);
-                m_scene_file_dialog_open_requested = false;
-            }
-
-            if(!ImGui::BeginPopupModal(
-                   title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-                return;
-            }
-
-            ImGui::SetNextItemWidth(560.0f);
-            const bool submitted = ImGui::InputText("Path", m_scene_path_buffer.data(),
-                m_scene_path_buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue);
-
-            const char* action = is_open ? "Open" : "Save";
-            if((ImGui::Button(action, ImVec2(100.0f, 0.0f)) || submitted)) {
-                const std::string path(m_scene_path_buffer.data());
-                const bool succeeded =
-                    is_open ? m_scene_document->open(path) : m_scene_document->save(path);
-                if(succeeded) {
-                    if(is_open) {
-                        bind_active_scene();
-                    }
-                    ImGui::CloseCurrentPopup();
-                    m_scene_file_dialog = SceneFileDialog::None;
-                }
-            }
-            ImGui::SameLine();
-            if(ImGui::Button("Cancel", ImVec2(100.0f, 0.0f))) {
-                ImGui::CloseCurrentPopup();
-                m_scene_file_dialog = SceneFileDialog::None;
-                m_scene_document->clear_error();
-            }
-
-            if(!m_scene_document->get_last_error().empty()) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.25f, 0.2f, 1.0f));
-                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 560.0f);
-                ImGui::TextWrapped("%s", m_scene_document->get_last_error().c_str());
-                ImGui::PopTextWrapPos();
-                ImGui::PopStyleColor();
-            }
-            ImGui::EndPopup();
         }
 
         void setup_log_redirect() const {
@@ -650,60 +434,40 @@ namespace {
                 *m_selection, m_translation_gizmo, m_property_edit, max_render_dimension,
                 m_shortcuts);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
-                *m_selection, m_command_history, m_property_edit, m_component_registry,
-                m_property_editor_registry, m_asset_manager->get_database(),
+                m_editor_state, *m_selection, m_property_edit, m_component_registry,
+                m_property_editor_registry, m_assets->database(),
                 m_project_paths.assets(),
                 [this](const Comet::AssetHandle handle, const Comet::MaterialData& data) {
-                    return update_material(handle, data);
+                    return m_assets->update_material(handle, data);
                 },
                 [this](const Comet::AssetHandle handle,
                     const Comet::TextureImportSettings settings) {
-                    return reimport_texture(handle, settings);
+                    return m_assets->reimport_texture(handle, settings);
+                },
+                [this](Comet::AssetHandle handle, Comet::AssetType type) {
+                    return m_assets->prepare_reference(handle, type);
                 });
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(
-                m_asset_manager->get_database(), std::move(initial_asset_scan),
-                [this]() { return refresh_project_assets(false); },
+                m_assets->database(), std::move(initial_asset_scan),
+                [this]() {
+                    auto report = m_assets->refresh();
+                    apply_asset_scan_report(std::move(report));
+                },
                 [this](const Comet::AssetHandle handle,
                     const std::filesystem::path& destination) {
-                    return move_project_asset(handle, destination);
+                    auto report = m_assets->move(handle, destination);
+                    apply_asset_scan_report(report);
+                    return report;
                 },
                 *m_selection);
-            m_menu_bar->set_panel_visibility_callback("Hierarchy",
-                [this](const bool visible) { m_hierarchy_panel->set_visible(visible); });
-            m_menu_bar->set_panel_visibility_callback("Viewport",
-                [this](const bool visible) { m_viewport_panel->set_visible(visible); });
-            m_menu_bar->set_panel_visibility_callback("Inspector",
-                [this](const bool visible) { m_inspector_panel->set_visible(visible); });
-            m_menu_bar->set_panel_visibility_callback("Project",
-                [this](const bool visible) { m_project_panel->set_visible(visible); });
-            m_menu_bar->set_panel_visibility_callback("Log",
-                [this](const bool visible) { m_console_panel->set_visible(visible); });
-
+            m_menu_bar->register_panel(*m_hierarchy_panel);
+            m_menu_bar->register_panel(*m_viewport_panel);
+            m_menu_bar->register_panel(*m_inspector_panel);
+            m_menu_bar->register_panel(*m_project_panel);
+            m_menu_bar->register_panel(*m_console_panel);
             m_imgui_context->set_ui_callback([this]() {
-                constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
-                ImGui::DockSpaceOverViewport(
-                    0, ImGui::GetMainViewport(), dockspace_flags);
-
-                m_menu_bar->render();
-                m_hierarchy_panel->render();
-                m_viewport_panel->render();
-                m_inspector_panel->render();
-                m_project_panel->render();
-                m_console_panel->render();
-                render_scene_file_dialog();
-                m_menu_bar->collect_shortcuts();
-
-                if(const auto command = m_menu_bar->take_command()) {
-                    handle_command(*command);
-                }
-                if(const auto mode = m_viewport_panel->take_mode_request()) {
-                    m_viewport_panel->cancel_interaction();
-                    if(m_property_edit.commit()) {
-                        m_scene_session->request_mode(*mode);
-                    } else {
-                        LOG_ERROR("Cannot finish property edit before mode change");
-                    }
-                }
+                draw_editor_ui();
+                process_editor_requests();
                 apply_viewport_camera_updates();
                 apply_viewport_focus();
                 update_viewport_state();
@@ -711,11 +475,38 @@ namespace {
             });
         }
 
+        void draw_editor_ui() {
+            constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+            ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), dockspace_flags);
+
+            m_menu_bar->render();
+            m_hierarchy_panel->render();
+            m_viewport_panel->render();
+            m_inspector_panel->render();
+            m_project_panel->render();
+            m_console_panel->render();
+            if(m_scene_file_dialog.render(*m_scene_document))
+                bind_active_scene();
+            m_menu_bar->collect_shortcuts();
+        }
+
+        void process_editor_requests() {
+            const auto menu_command = m_menu_bar->take_command();
+            if(menu_command)
+                handle_command(*menu_command);
+            if(const auto mode = m_viewport_panel->take_mode_request()) {
+                m_viewport_panel->cancel_interaction();
+                if(m_property_edit.commit()) {
+                    m_scene_session->request_mode(*mode);
+                } else {
+                    LOG_ERROR("Cannot finish property edit before mode change");
+                }
+            }
+        }
+
         Comet::ProjectPaths m_project_paths{PROJECT_ROOT_DIR};
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
-        std::unique_ptr<Comet::AssetManager> m_asset_manager;
-        std::unique_ptr<Comet::AssetSourceMonitor> m_asset_source_monitor;
-        std::string m_asset_source_monitor_error;
+        std::unique_ptr<CometEditor::EditorAssets> m_assets;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry =
             Comet::create_scene_component_registry();
@@ -724,16 +515,13 @@ namespace {
             m_command_history, m_component_registry};
         CometEditor::TranslationGizmo m_translation_gizmo{
             m_command_history, m_component_registry};
-        CometEditor::PropertyEditorRegistry m_property_editor_registry =
-            CometEditor::create_property_editor_registry();
+        CometEditor::PropertyEditorRegistry m_property_editor_registry;
         Comet::SceneSerializer m_scene_serializer{m_component_registry};
         CometEditor::EditorState m_editor_state;
         CometEditor::EditorShortcuts m_shortcuts;
         std::unique_ptr<CometEditor::SceneDocument> m_scene_document;
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
-        std::array<char, SCENE_PATH_CAPACITY> m_scene_path_buffer{};
-        SceneFileDialog m_scene_file_dialog = SceneFileDialog::None;
-        bool m_scene_file_dialog_open_requested = false;
+        CometEditor::SceneFileDialog m_scene_file_dialog;
 
         std::unique_ptr<CometEditor::MenuBar> m_menu_bar;
         std::unique_ptr<CometEditor::HierarchyPanel> m_hierarchy_panel;

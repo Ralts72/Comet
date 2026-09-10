@@ -1,0 +1,125 @@
+#include "editor_assets.h"
+#include "diagnostics/logger.h"
+
+namespace CometEditor {
+    EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
+        Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler)
+        : m_manager(paths, registry, factory, scheduler), m_monitor(paths.assets()) {}
+
+    void EditorAssets::observe(const Comet::AssetSourceMonitor::PollResult& result) {
+        using State = Comet::AssetSourceMonitor::PollState;
+        if(result.state == State::NotPolled)
+            return;
+        if(result.state != State::Failed) {
+            m_monitor_error.clear();
+            return;
+        }
+        const auto error = result.issue_path.generic_string() + ": " + result.message;
+        if(error != m_monitor_error) {
+            LOG_WARN("Asset source monitor: {}", error);
+            m_monitor_error = error;
+        }
+    }
+
+    void EditorAssets::acknowledge(const std::filesystem::path& path) {
+        if(!path.empty())
+            static_cast<void>(m_monitor.acknowledge(path));
+    }
+
+    void EditorAssets::accept_scan(const Comet::AssetScanReport& report) {
+        if(report.generated_metadata) {
+            for(const auto handle : report.added_assets) {
+                if(const auto* record = database().find(handle))
+                    acknowledge(Comet::metadata_path(record->path));
+            }
+        }
+        for(const auto& issue : report.issues)
+            LOG_WARN("Asset scan issue at '{}': {}", issue.path.generic_string(),
+                issue.message);
+    }
+
+    Comet::AssetScanReport EditorAssets::refresh() {
+        observe(m_monitor.poll_now());
+        auto report = m_manager.scan();
+        accept_scan(report);
+        return report;
+    }
+
+    std::optional<Comet::AssetScanReport> EditorAssets::update() {
+        const auto result = m_monitor.poll();
+        observe(result);
+        std::optional<Comet::AssetScanReport> report;
+        if(result.state == Comet::AssetSourceMonitor::PollState::Changed) {
+            report = m_manager.scan();
+            accept_scan(*report);
+        }
+        m_manager.process_completions();
+        return report;
+    }
+
+    Comet::AssetScanReport EditorAssets::move(
+        const Comet::AssetHandle handle, const std::filesystem::path& destination) {
+        const auto* previous = database().find(handle);
+        const auto old_path = previous ? previous->path : std::filesystem::path{};
+        auto report = m_manager.move_asset(handle, destination);
+        if(report.snapshot_updated) {
+            if(const auto* current = database().find(handle)) {
+                acknowledge(old_path);
+                if(!old_path.empty())
+                    acknowledge(Comet::metadata_path(old_path));
+                acknowledge(current->path);
+                acknowledge(Comet::metadata_path(current->path));
+                LOG_INFO("Moved asset from '{}' to '{}'", old_path.generic_string(),
+                    current->path.generic_string());
+            }
+        }
+        accept_scan(report);
+        return report;
+    }
+
+    bool EditorAssets::update_material(
+        const Comet::AssetHandle handle, const Comet::MaterialData& data) {
+        const auto* record = database().find(handle);
+        const auto path = record ? record->path : std::filesystem::path{};
+        if(!m_manager.update_material(handle, data))
+            return false;
+        acknowledge(path);
+        return true;
+    }
+
+    bool EditorAssets::reimport_texture(
+        const Comet::AssetHandle handle, const Comet::TextureImportSettings settings) {
+        const auto* record = database().find(handle);
+        const auto path = record ? record->path : std::filesystem::path{};
+        if(!m_manager.reimport_texture(handle, settings))
+            return false;
+        if(!path.empty())
+            acknowledge(Comet::metadata_path(path));
+        return true;
+    }
+
+    bool EditorAssets::prepare_reference(
+        const Comet::AssetHandle handle, const Comet::AssetType type) {
+        if(!handle)
+            return true; // 空引用允许保存在场景中。
+        const auto* record = database().find(handle);
+        if(!record || record->type != type) {
+            LOG_ERROR(
+                "Cannot prepare asset {}: missing or incompatible type", handle.value());
+            return false;
+        }
+        switch(type) {
+            case Comet::AssetType::Mesh:
+                return m_manager.import_mesh(handle)
+                       && static_cast<bool>(m_manager.load_mesh(handle));
+            case Comet::AssetType::Material:
+                return static_cast<bool>(m_manager.load_material(handle));
+            case Comet::AssetType::Texture:
+                return static_cast<bool>(m_manager.load_texture(handle));
+            default:
+                LOG_ERROR("Unsupported runtime asset type '{}'", Comet::to_string(type));
+                return false;
+        }
+    }
+
+}

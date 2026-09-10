@@ -29,9 +29,14 @@ namespace {
         EXPECT_EQ(require_property(transform, "rotation").numeric.speed, 1.0f);
         EXPECT_TRUE(require_property(transform, "rotation").editable);
         EXPECT_TRUE(require_property(transform, "rotation").serializable);
+        EXPECT_FALSE(require_property(transform, "rotation").asset_type);
+        const auto& mesh_renderer = *registry.find_component("mesh_renderer");
+        EXPECT_EQ(
+            require_property(mesh_renderer, "mesh").asset_type, Comet::AssetType::Mesh);
+        EXPECT_EQ(require_property(mesh_renderer, "material").asset_type,
+            Comet::AssetType::Material);
         EXPECT_FALSE(require_property(transform, "rotation").transient);
 
-        const auto& mesh_renderer = *registry.find_component("mesh_renderer");
         EXPECT_EQ(require_property(mesh_renderer, "mesh").type,
             Comet::PropertyType::AssetHandle);
 

@@ -12,22 +12,9 @@
 #include <imgui_internal.h>
 #include <string>
 #include <utility>
-#include <vector>
 
 namespace CometEditor {
     namespace {
-        std::string texture_preview(
-            const Comet::AssetDatabase& database, const Comet::AssetHandle handle) {
-            const Comet::AssetRecord* record = database.find(handle);
-            if(!record) {
-                return "Missing texture (" + std::to_string(handle.value()) + ")";
-            }
-            if(record->type != Comet::AssetType::Texture) {
-                return "Invalid asset type (" + std::to_string(handle.value()) + ")";
-            }
-            return record->path.generic_string();
-        }
-
         const char* texture_color_space_label(
             const Comet::TextureColorSpace color_space) {
             switch(color_space) {
@@ -40,14 +27,15 @@ namespace CometEditor {
         }
     }
 
-    InspectorPanel::InspectorPanel(SelectionService& selection, CommandHistory& history,
+    InspectorPanel::InspectorPanel(const EditorState& state, SelectionService& selection,
         PropertyEditTransaction& property_edit,
         const Comet::ComponentRegistry& component_registry,
         const PropertyEditorRegistry& property_editor_registry,
         const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root,
         UpdateMaterialCallback update_material_callback,
-        ReimportTextureCallback reimport_texture_callback)
-        : EditorPanel("Inspector"), m_selection(selection), m_history(history),
+        ReimportTextureCallback reimport_texture_callback, PrepareAsset prepare_asset)
+        : EditorPanel("Inspector"), m_state(state),
+          m_prepare_asset(std::move(prepare_asset)), m_selection(selection),
           m_property_edit(property_edit), m_component_registry(component_registry),
           m_property_editor_registry(property_editor_registry),
           m_asset_database(asset_database), m_assets_root(std::move(assets_root)),
@@ -83,7 +71,6 @@ namespace CometEditor {
         m_loaded_asset = Comet::INVALID_ASSET_HANDLE;
         m_texture_import_settings.reset();
         m_material_data.reset();
-        m_texture_assets.clear();
         m_asset_error.clear();
     }
 
@@ -132,15 +119,23 @@ namespace CometEditor {
             return;
         const PropertyEditTransaction::Target target{
             entity.get_uuid(), component.id, property.id};
-        const bool changed = std::visit(
+        const PropertyEditResult result = std::visit(
             [&](auto& edited) {
                 return m_property_editor_registry.edit_property(property, &edited);
             },
             *value);
-        const bool active = ImGui::IsItemActive();
-        const bool activated = ImGui::IsItemActivated();
-        const bool deactivated = ImGui::IsItemDeactivated();
-        if(m_history.get_scene() == nullptr) {
+        const bool changed = result.changed;
+        const bool active = result.active;
+        const bool activated = result.began;
+        const bool deactivated = result.finished;
+        if(changed && property.type == Comet::PropertyType::AssetHandle
+            && property.asset_type && std::get<Comet::AssetHandle>(*value).is_valid()
+            && m_prepare_asset
+            && !m_prepare_asset(
+                std::get<Comet::AssetHandle>(*value), *property.asset_type)) {
+            return;
+        }
+        if(m_state.mode == EditorMode::Play) {
             // Play 中仍可调试 Runtime 属性，但不写入 Edit 文档历史。
             if(changed
                 && !property.assign_value(component.get_component(entity), *value)) {
@@ -259,21 +254,14 @@ namespace CometEditor {
         ImGui::SeparatorText("Texture Properties");
 
         for(auto& [property_name, texture_handle] : m_material_data->texture_properties) {
-            const std::string preview = texture_preview(m_asset_database, texture_handle);
+            auto selected = texture_handle;
             ImGui::PushID(property_name.c_str());
-            if(ImGui::BeginCombo(property_name.c_str(), preview.c_str())) {
-                for(const Comet::AssetRecord& candidate : m_texture_assets) {
-                    const bool selected = candidate.handle == texture_handle;
-                    const std::string label = candidate.path.generic_string();
-                    if(ImGui::Selectable(label.c_str(), selected) && !selected) {
-                        previous_data = *m_material_data;
-                        texture_handle = candidate.handle;
-                    }
-                    if(selected) {
-                        ImGui::SetItemDefaultFocus();
-                    }
+            if(edit_asset_reference(property_name.c_str(), selected, m_asset_database,
+                   Comet::AssetType::Texture, false)) {
+                if(!previous_data) {
+                    previous_data = *m_material_data;
                 }
-                ImGui::EndCombo();
+                texture_handle = selected;
             }
             ImGui::PopID();
         }
@@ -297,7 +285,6 @@ namespace CometEditor {
         m_loaded_asset = record.handle;
         m_texture_import_settings.reset();
         m_material_data.reset();
-        m_texture_assets.clear();
         m_asset_error.clear();
 
         if(record.type == Comet::AssetType::Texture) {
@@ -318,11 +305,6 @@ namespace CometEditor {
         try {
             m_material_data =
                 Comet::MaterialSerializer{}.load(m_assets_root / record.path);
-            for(const Comet::AssetRecord& asset : m_asset_database.get_assets()) {
-                if(asset.type == Comet::AssetType::Texture) {
-                    m_texture_assets.push_back(asset);
-                }
-            }
         } catch(const std::exception& error) {
             m_asset_error = error.what();
         }

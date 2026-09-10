@@ -108,7 +108,7 @@ namespace CometEditor {
                 const Comet::Math::Vec3 right = Comet::Math::normalize(right_candidate);
                 const Comet::Math::Vec3 pitched =
                     Comet::Math::angle_axis(
-                        input.orbit_delta.y * ORBIT_RADIANS_PER_PIXEL, right)
+                        -input.orbit_delta.y * ORBIT_RADIANS_PER_PIXEL, right)
                     * offset;
                 const Comet::Math::Vec3 pitched_forward =
                     -Comet::Math::normalize(pitched);

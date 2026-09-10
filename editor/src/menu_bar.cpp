@@ -1,4 +1,6 @@
 #include "menu_bar.h"
+#include "panels/editor_panel.h"
+#include <algorithm>
 #include <imgui.h>
 
 namespace CometEditor {
@@ -40,9 +42,7 @@ namespace CometEditor {
                 m_requested_command = Command::SaveScene;
             }
             ImGui::Separator();
-            if(ImGui::MenuItem("Exit", "Alt+F4")) {
-                // TODO: 实现退出
-            }
+            ImGui::MenuItem("Exit", nullptr, false, false);
             ImGui::EndMenu();
         }
     }
@@ -61,7 +61,7 @@ namespace CometEditor {
                 m_requested_command = Command::Redo;
             }
             ImGui::Separator();
-            if(ImGui::MenuItem("Preferences", "Ctrl+,")) {}
+            ImGui::MenuItem("Preferences", nullptr, false, false);
             ImGui::EndMenu();
         }
     }
@@ -95,12 +95,10 @@ namespace CometEditor {
 
     void MenuBar::render_view_menu() {
         if(ImGui::BeginMenu("View")) {
-            for(auto& [name, visible] : m_panel_visibility) {
-                if(ImGui::MenuItem(name.c_str(), nullptr, visible)) {
-                    visible = !visible;
-                    if(m_panel_callbacks.contains(name)) {
-                        m_panel_callbacks.at(name)(visible);
-                    }
+            for(auto* panel : m_panels) {
+                if(ImGui::MenuItem(
+                       panel->get_name().c_str(), nullptr, panel->is_open())) {
+                    panel->toggle_visible();
                 }
             }
             ImGui::EndMenu();
@@ -108,37 +106,24 @@ namespace CometEditor {
     }
 
     void MenuBar::render_gameobject_menu() {
-        if(ImGui::BeginMenu("GameObject")) {
-            if(ImGui::MenuItem("Create Empty", "Ctrl+Shift+N")) {}
-            if(ImGui::MenuItem("3D Object", nullptr, false)) {}
-            if(ImGui::MenuItem("Light", nullptr, false)) {}
-            if(ImGui::MenuItem("Camera", nullptr, false)) {}
+        if(ImGui::BeginMenu("GameObject", m_state.mode == EditorMode::Edit)) {
+            ImGui::MenuItem("Create Empty", nullptr, false, false);
+            ImGui::MenuItem("3D Object", nullptr, false, false);
+            ImGui::MenuItem("Light", nullptr, false, false);
+            ImGui::MenuItem("Camera", nullptr, false, false);
             ImGui::EndMenu();
         }
     }
 
     void MenuBar::render_help_menu() {
         if(ImGui::BeginMenu("Help")) {
-            if(ImGui::MenuItem("About")) {}
+            ImGui::MenuItem("About", nullptr, false, false);
             ImGui::EndMenu();
         }
     }
 
-    void MenuBar::set_panel_visibility_callback(
-        const std::string& panel_name, PanelVisibilityCallback callback) {
-        if(m_panel_visibility.contains(panel_name)) {
-            m_panel_callbacks[panel_name] = callback;
-        } else {
-            m_panel_visibility[panel_name] = true;
-            m_panel_callbacks[panel_name] = callback;
-        }
+    void MenuBar::register_panel(EditorPanel& panel) {
+        if(std::ranges::find(m_panels, &panel) == m_panels.end())
+            m_panels.push_back(&panel);
     }
-
-    bool MenuBar::is_panel_visible(const std::string& panel_name) const {
-        if(m_panel_visibility.contains(panel_name)) {
-            return m_panel_visibility.at(panel_name);
-        }
-        return false;
-    }
-
 }

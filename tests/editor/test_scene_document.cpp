@@ -39,6 +39,35 @@ namespace CometEditor::Tests {
         };
     }
 
+    TEST(SceneDocumentTest, OpenPreservesUnresolvedAssetReferences) {
+        const Comet::SceneSerializer serializer(component_registry());
+        const auto missing_mesh = Comet::AssetHandle::generate();
+        const auto missing_material = Comet::AssetHandle::generate();
+        Comet::Scene saved;
+        auto entity = saved.create_entity("Unresolved assets");
+        entity.add_component<Comet::MeshRendererComponent>(
+            missing_mesh, missing_material);
+        const auto uuid = entity.get_uuid();
+        const TemporarySceneFile file;
+        serializer.save(saved, file.path());
+
+        auto active = std::make_unique<Comet::Scene>();
+        SceneDocument document(
+            serializer, [&] { return active.get(); },
+            [&](std::unique_ptr<Comet::Scene> replacement) {
+                active.swap(replacement);
+                return replacement;
+            });
+        ASSERT_TRUE(document.open(file.path()));
+        EXPECT_EQ(document.get_path(), file.path());
+        EXPECT_TRUE(document.get_last_error().empty());
+        const auto restored = active->find_entity(uuid);
+        ASSERT_TRUE(restored);
+        const auto& renderer = restored.get_component<Comet::MeshRendererComponent>();
+        EXPECT_EQ(renderer.mesh, missing_mesh);
+        EXPECT_EQ(renderer.material, missing_material);
+    }
+
     TEST(SceneDocumentTest, OwnsScenePersistenceLifecycle) {
         const Comet::SceneSerializer serializer(component_registry());
         auto active_scene = std::make_unique<Comet::Scene>();
