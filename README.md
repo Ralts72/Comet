@@ -83,9 +83,10 @@ startup_scene: scenes/main.scene
 - Edit 画面内左键选择最近的模型包围盒，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。
   选中 Mesh 显示随实体变换的橙色包围盒，受场景深度遮挡；清空选择或进入 Play 后不显示。
   当前是包围盒粗拾取，不是三角形级拾取或模型轮廓描边。
-- Edit 选中实体后可左键拖动红／绿／蓝箭头，沿世界 X／Y／Z 轴平移；操作手柄覆盖在模型上，不受深度遮挡。
-  工具栏 Tool 可切换 World／Local；Local 跟随实体旋转及父级变换，不受实体自身零／负缩放影响。
-  Snap 按 Step（默认 0.25 世界单位）吸附相对拖动起点的距离，不对齐绝对网格；工具设置仅保留在当前会话。
+- Edit 选中实体后，Tool → Mode 选择 Move／Rotate，拖动红／绿／蓝箭头或旋转环修改实体，不受场景深度遮挡。
+  Space 切换 World／Local；Local 跟随实体旋转及父级变换，不受实体自身零／负缩放影响。
+  Snap 使用 Move step（默认 0.25 世界单位）或 Angle step（默认 15 度），均相对拖动起点吸附；设置仅保留在当前会话。
+  World 旋转要求父级为均匀缩放的正交基（允许镜像），非均匀父级请用 Local；不静默引入剪切或改写 scale。
   一次拖动只记一条撤销，Escape 取消；拖动期间不响应相机导航，失焦或隐藏视口会回退未完成的拖动。
 - Edit 中 Inspector 的名称、Transform、Camera、Mesh/Material 引用支持撤销／重做，一次编辑手势记一条，Escape 取消。
   使用 Edit 菜单或 Ctrl+Z / Ctrl+Y（macOS 为 Cmd+Z / Cmd+Shift+Z）；文本框编辑时不抢占输入控件的撤销。

@@ -1,7 +1,7 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "panels/view.h"
 #include "selection.h"
-#include "translation_gizmo.h"
+#include "transform_gizmo.h"
 #include "shortcuts.h"
 
 #include <gtest/gtest.h>
@@ -16,7 +16,7 @@ namespace CometEditor::Tests {
         Comet::ComponentRegistry components = Comet::create_scene_component_registry();
         CommandHistory history;
         PropertyEditTransaction property_edit{history, components};
-        TranslationGizmo gizmo{history, components};
+        TransformGizmo gizmo{history, components};
         SelectionService selection{scene};
         EditorState state;
         EditorShortcuts shortcuts;
@@ -72,7 +72,7 @@ namespace CometEditor::Tests {
             if(!handle) {
                 return {};
             }
-            return (handle->start + handle->end) * 0.5f;
+            return (handle->segments.front().start + handle->segments.front().end) * 0.5f;
         }
 
         void move_pointer(const Comet::Math::Vec2 point) {
@@ -85,7 +85,7 @@ namespace CometEditor::Tests {
             move_pointer(point);
             ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, true);
             frame();
-            EXPECT_EQ(gizmo.active_axis(), TranslationGizmo::Axis::X);
+            EXPECT_EQ(gizmo.active_axis(), TransformGizmo::Axis::X);
             EXPECT_FALSE(viewport.take_pick_request());
             move_pointer(point + Comet::Math::Vec2(20, 0));
             move_pointer(point + Comet::Math::Vec2(40, 0));
@@ -108,7 +108,7 @@ namespace CometEditor::Tests {
         ImGui::ActivateItemByID(popup->GetID("Snap"));
         frame();
         EXPECT_TRUE(gizmo.settings().snap);
-        EXPECT_FLOAT_EQ(gizmo.settings().step, 0.25f);
+        EXPECT_FLOAT_EQ(gizmo.settings().translation_step, 0.25f);
         EXPECT_EQ(history.undo_size(), 0);
         EXPECT_FLOAT_EQ(x(), 0);
         ImGui::ActivateItemByID(popup->GetID("Space"));
@@ -123,8 +123,59 @@ namespace CometEditor::Tests {
             "Local", 0, ImHashData(&local_index, sizeof(local_index), options->ID));
         ImGui::ActivateItemByID(local_id);
         frame();
-        EXPECT_EQ(gizmo.settings().space, TranslationGizmo::Space::Local);
+        EXPECT_EQ(gizmo.settings().space, TransformGizmo::Space::Local);
         EXPECT_EQ(history.undo_size(), 0);
+        ImGui::ActivateItemByID(popup->GetID("Mode"));
+        frame();
+        frame();
+        ASSERT_GE(GImGui->OpenPopupStack.Size, 2);
+        options = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(options, nullptr);
+        const int rotate_index = 1;
+        ImGui::ActivateItemByID(ImHashStr(
+            "Rotate", 0, ImHashData(&rotate_index, sizeof(rotate_index), options->ID)));
+        frame();
+        EXPECT_EQ(gizmo.settings().mode, TransformGizmo::Mode::Rotate);
+        EXPECT_FLOAT_EQ(gizmo.settings().rotation_step_degrees, 15);
+        EXPECT_EQ(history.undo_size(), 0);
+    }
+
+    TEST_F(ViewportGizmoUiTest, RotationRingUsesSharedCaptureAndUndoTransaction) {
+        state.camera.perspective.position = {0, 0, 3};
+        state.camera.target = {};
+        // ImGui 将鼠标坐标取整到逻辑像素；这里同时验证角度吸附的 UI 链路。
+        ASSERT_TRUE(
+            gizmo.set_settings({.mode = TransformGizmo::Mode::Rotate, .snap = true}));
+        frame();
+        const auto ring = gizmo.handles(
+            entity.get_uuid(), state.camera.snapshot(), viewport.get_layout())[2];
+        ASSERT_TRUE(ring);
+        ASSERT_EQ(ring->segments.size(), 64);
+        EXPECT_GT(gizmo_vertices, 0);
+        move_pointer(ring->segments[4].start);
+        ImGui::GetIO().AddMouseButtonEvent(0, true);
+        frame();
+        ASSERT_EQ(gizmo.active_axis(), TransformGizmo::Axis::Z);
+        move_pointer(ring->segments[12].start);
+        EXPECT_NEAR(
+            entity.get_component<Comet::TransformComponent>().rotation.z, 45, 0.001f);
+        EXPECT_EQ(history.undo_size(), 0);
+        ImGui::GetIO().AddMouseWheelEvent(0, 1);
+        frame();
+        EXPECT_NE(ImGui::GetKeyOwner(ImGuiKey_MouseWheelY), ImGuiKeyOwner_NoOwner);
+        EXPECT_FALSE(viewport.take_camera_input());
+        EXPECT_FALSE(viewport.take_pick_request());
+        move_pointer(ring->segments[20].start);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_FALSE(gizmo.active());
+        EXPECT_EQ(ImGui::GetActiveID(), 0);
+        EXPECT_EQ(history.undo_size(), 1);
+        EXPECT_NEAR(
+            entity.get_component<Comet::TransformComponent>().rotation.z, 90, 0.001f);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<Comet::TransformComponent>().rotation,
+            Comet::Math::Vec3(0));
     }
 
     TEST_F(ViewportGizmoUiTest, MeshDropReportsOnePositionedRequestWithoutEditingScene) {

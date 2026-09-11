@@ -45,7 +45,7 @@ Engine
 Editor
 ├── AssetManager（借用 Engine 的服务）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
-├── CommandHistory ← Inspector / TranslationGizmo 各自的属性事务
+├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
 └── ImGuiContext
     ├── RenderPass / SwapchainTarget / DescriptorPool
     └── TextureBinding[slot] → ImageView / Sampler / ImGui descriptor
@@ -106,11 +106,11 @@ Editor 在 UI 编辑命令完成后读取选中实体的 Mesh local bounds 和�
 普通帧在 prepare 提交；有视口拾取请求时，等结果更新 Selection 后再提交，避免旧框和新框同时出现。
 选择状态仍由 SelectionService 持有，Scene/Mesh/Material 不保存 selected 标记；Play、隐藏视口或无有效 Mesh 时不提交。
 
-TranslationGizmo 是编辑器侧的投影、命中与平移事务，不是渲染资源。它与 Inspector 各自持有 PropertyEditTransaction，
-共享同一个 CommandHistory；拖动用 UUID 定位并预览 translation，释放提交一次，取消恢复。
+TransformGizmo 是编辑器侧的投影、命中与平移／旋转事务，不是渲染资源。它与 Inspector 各自持有 PropertyEditTransaction，
+共享同一个 CommandHistory；拖动用 UUID 定位，按模式预览 translation 或 rotation，释放提交一次，取消恢复。
 ViewPanel 优先将普通左键交给 Gizmo，未命中才请求场景拾取；拖动时占有 ImGui active ID，阻止快捷键和相机导航。
 UI 回调完成命令／相机更新后，ViewPanel::draw_gizmo 将最新句柄追加到本帧窗口 draw list，随后 ImGui::Render。
-箭头作为可操作的 UI 覆盖层不受场景深度遮挡，不需要修改 DebugRenderer 或向 engine 注入编辑器状态。
+箭头和旋转环作为可操作的 UI 覆盖层不受场景深度遮挡；显示与命中共用线段集合，不需要修改 DebugRenderer 或向 engine 注入编辑器状态。
 点击拾取帧不显示旧选择的箭头，新选择箭头在下一 UI 帧出现；选中包围盒仍由拾取回调在当帧提交。
 
 RenderView 的 CameraSelection 选择显式 editor camera 或 Scene primary camera；

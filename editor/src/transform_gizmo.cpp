@@ -1,4 +1,4 @@
-#include "translation_gizmo.h"
+#include "transform_gizmo.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,6 +9,22 @@ namespace CometEditor {
         constexpr float AXIS_LENGTH = 90.0f;
         constexpr float HIT_RADIUS = 7.0f;
         constexpr float MIN_PROJECTED_LENGTH = 6.0f;
+        constexpr int ROTATION_SEGMENTS = 64;
+
+        bool uniform_orthogonal(const Comet::Math::Mat3& matrix) {
+            const float length = glm::length(matrix[0]);
+            if(!std::isfinite(length) || length <= EPSILON)
+                return false;
+            const auto normalized = matrix / length;
+            for(int i = 0; i < 3; ++i) {
+                if(std::abs(glm::length(normalized[i]) - 1) > 0.0001f)
+                    return false;
+                for(int j = i + 1; j < 3; ++j)
+                    if(std::abs(glm::dot(normalized[i], normalized[j])) > 0.0001f)
+                        return false;
+            }
+            return true;
+        }
 
         bool finite_matrix(const Comet::Math::Mat4& matrix) {
             for(int column = 0; column < 4; ++column) {
@@ -18,7 +34,7 @@ namespace CometEditor {
             return true;
         }
 
-        Comet::Math::Vec3 axis_direction(const TranslationGizmo::Axis axis) {
+        Comet::Math::Vec3 axis_direction(const TransformGizmo::Axis axis) {
             Comet::Math::Vec3 result(0.0f);
             result[static_cast<int>(axis)] = 1.0f;
             return result;
@@ -52,7 +68,7 @@ namespace CometEditor {
         }
 
         float distance_squared(
-            const TranslationGizmo::Handle& handle, const Comet::Math::Vec2 point) {
+            const TransformGizmo::Segment& handle, const Comet::Math::Vec2 point) {
             const auto segment = handle.end - handle.start;
             const float length_squared = glm::dot(segment, segment);
             const float t = std::clamp(
@@ -62,12 +78,15 @@ namespace CometEditor {
         }
     }
 
-    TranslationGizmo::TranslationGizmo(
+    TransformGizmo::TransformGizmo(
         CommandHistory& history, const Comet::ComponentRegistry& registry)
         : m_history(history), m_edit(history, registry) {}
 
-    bool TranslationGizmo::set_settings(const Settings settings) {
-        if(!std::isfinite(settings.step) || settings.step <= 0
+    bool TransformGizmo::set_settings(const Settings settings) {
+        if(!std::isfinite(settings.translation_step) || settings.translation_step <= 0
+            || !std::isfinite(settings.rotation_step_degrees)
+            || settings.rotation_step_degrees <= 0
+            || (settings.mode != Mode::Translate && settings.mode != Mode::Rotate)
             || (settings.space != Space::World && settings.space != Space::Local))
             return false;
         if(settings == m_settings)
@@ -78,7 +97,7 @@ namespace CometEditor {
         return true;
     }
 
-    std::optional<TranslationGizmo::Context> TranslationGizmo::make_context(
+    std::optional<TransformGizmo::Context> TransformGizmo::make_context(
         const Comet::EntityUuid selected, const Comet::RenderCamera& camera,
         const ViewportLayout& layout) const {
         auto* scene = m_history.get_scene();
@@ -99,6 +118,7 @@ namespace CometEditor {
         context.layout = layout;
         context.translation =
             entity.get_component<Comet::TransformComponent>().translation;
+        context.rotation = entity.get_component<Comet::TransformComponent>().rotation;
         const auto world_origin =
             scene->get_world_matrix(entity) * Comet::Math::Vec4(0.0f, 0.0f, 0.0f, 1.0f);
         if(!Comet::Math::is_finite(world_origin) || std::abs(world_origin.w) <= EPSILON)
@@ -113,9 +133,8 @@ namespace CometEditor {
             || !finite_matrix(context.world_to_parent))
             return std::nullopt;
 
-        const auto local_rotation = Comet::Math::compose_trs({},
-            entity.get_component<Comet::TransformComponent>().rotation,
-            Comet::Math::Vec3(1));
+        const auto local_rotation =
+            Comet::Math::compose_trs({}, context.rotation, Comet::Math::Vec3(1));
         for(std::size_t index = 0; index < context.directions.size(); ++index) {
             auto direction = axis_direction(static_cast<Axis>(index));
             if(m_settings.space == Space::Local) {
@@ -128,6 +147,22 @@ namespace CometEditor {
                 || length <= EPSILON)
                 return std::nullopt;
             context.directions[index] = direction / length;
+        }
+        if(m_settings.mode == Mode::Rotate) {
+            if(m_settings.space == Space::World) {
+                if(!uniform_orthogonal(Comet::Math::Mat3(context.parent_world)))
+                    return std::nullopt;
+            } else {
+                context.rotation_frame =
+                    Comet::Math::Mat3(context.parent_world * local_rotation);
+                const float largest = std::max({glm::length(context.rotation_frame[0]),
+                    glm::length(context.rotation_frame[1]),
+                    glm::length(context.rotation_frame[2])});
+                context.rotation_frame /= largest;
+                context.inverse_rotation_frame = glm::inverse(context.rotation_frame);
+                if(!finite_matrix(Comet::Math::Mat4(context.inverse_rotation_frame)))
+                    return std::nullopt;
+            }
         }
 
         const float aspect = static_cast<float>(layout.image_resolution.x)
@@ -162,8 +197,8 @@ namespace CometEditor {
         return context;
     }
 
-    std::array<std::optional<TranslationGizmo::Handle>, 3> TranslationGizmo::make_handles(
-        const Context& context) {
+    std::array<std::optional<TransformGizmo::Handle>, 3> TransformGizmo::make_handles(
+        const Context& context) const {
         std::array<std::optional<Handle>, 3> result{};
         // 裁剪只影响显示和开始命中；已开始的拖动不因自身移动而取消。
         if(context.axis_length <= EPSILON)
@@ -174,25 +209,53 @@ namespace CometEditor {
             return result;
         for(std::size_t index = 0; index < result.size(); ++index) {
             const auto axis = static_cast<Axis>(index);
+            if(m_settings.mode == Mode::Rotate) {
+                Handle handle{.axis = axis};
+                handle.segments.reserve(ROTATION_SEGMENTS);
+                const auto point = [&](const int segment) {
+                    const float angle = 2 * Comet::Math::PI * segment / ROTATION_SEGMENTS;
+                    Comet::Math::Vec3 local(0);
+                    local[(index + 1) % 3] = std::cos(angle);
+                    local[(index + 2) % 3] = std::sin(angle);
+                    return project(context.view_projection, context.layout,
+                        context.origin
+                            + context.rotation_frame * local * context.axis_length
+                                  * 0.8f);
+                };
+                auto previous = point(0);
+                for(int segment = 1; segment <= ROTATION_SEGMENTS; ++segment) {
+                    const auto next = point(segment);
+                    if(previous && next && glm::length(*next - *previous) > EPSILON
+                        && rotation_parameter(context, axis, (*previous + *next) * 0.5f))
+                        handle.segments.push_back({*previous, *next});
+                    previous = next;
+                }
+                if(!handle.segments.empty())
+                    result[index] = std::move(handle);
+                continue;
+            }
             const auto end = project(context.view_projection, context.layout,
                 context.origin + context.directions[index] * context.axis_length);
             if(end && glm::length(*end - *start) >= MIN_PROJECTED_LENGTH)
-                result[index] = Handle{axis, *start, *end};
+                result[index] = Handle{axis, {{*start, *end}}};
         }
         return result;
     }
 
-    std::array<std::optional<TranslationGizmo::Handle>, 3> TranslationGizmo::handles(
+    std::array<std::optional<TransformGizmo::Handle>, 3> TransformGizmo::handles(
         const Comet::EntityUuid selected, const Comet::RenderCamera& camera,
         const ViewportLayout& layout) const {
         const auto context = make_context(selected, camera, layout);
         if(!context)
             return {};
+        if(m_settings.mode == Mode::Rotate && active() && selected == m_drag->entity
+            && m_history.generation() == m_drag->generation)
+            return make_handles(m_drag->context);
         return make_handles(*context);
     }
 
-    std::optional<float> TranslationGizmo::axis_parameter(
-        const Context& context, const Axis axis, const Comet::Math::Vec2 position) {
+    std::optional<Comet::Ray> TransformGizmo::pointer_ray(
+        const Context& context, const Comet::Math::Vec2 position) {
         if(!Comet::Math::is_finite(position))
             return std::nullopt;
         const auto normalized = (position - context.layout.image_display_rect.min)
@@ -212,9 +275,17 @@ namespace CometEditor {
         const float length = Comet::Math::length(delta);
         if(!std::isfinite(length) || length <= EPSILON)
             return std::nullopt;
-        const auto ray_direction = delta / length;
+        return Comet::Ray{Comet::Math::Vec3(near_point), delta / length};
+    }
+
+    std::optional<float> TransformGizmo::axis_parameter(
+        const Context& context, const Axis axis, const Comet::Math::Vec2 position) {
+        const auto ray = pointer_ray(context, position);
+        if(!ray)
+            return std::nullopt;
+        const auto ray_direction = ray->direction;
         const auto direction = context.directions[static_cast<std::size_t>(axis)];
-        const auto offset = context.origin - Comet::Math::Vec3(near_point);
+        const auto offset = context.origin - ray->origin;
         const float parallel = Comet::Math::dot(direction, ray_direction);
         const float denominator = 1.0f - parallel * parallel;
         if(!std::isfinite(denominator) || denominator <= EPSILON)
@@ -227,7 +298,74 @@ namespace CometEditor {
         return parameter;
     }
 
-    bool TranslationGizmo::update(const Comet::EntityUuid selected,
+    std::optional<float> TransformGizmo::rotation_parameter(
+        const Context& context, const Axis axis, const Comet::Math::Vec2 position) {
+        const auto ray = pointer_ray(context, position);
+        if(!ray)
+            return std::nullopt;
+        const auto origin =
+            context.inverse_rotation_frame * (ray->origin - context.origin);
+        const auto direction = context.inverse_rotation_frame * ray->direction;
+        const auto index = static_cast<std::size_t>(axis);
+        if(!Comet::Math::is_finite(direction) || std::abs(direction[index]) <= EPSILON)
+            return std::nullopt;
+        const float parameter = -origin[index] / direction[index];
+        if(!std::isfinite(parameter) || parameter < 0)
+            return std::nullopt;
+        const auto point = origin + direction * parameter;
+        const float u = point[(index + 1) % 3];
+        const float v = point[(index + 2) % 3];
+        if(!Comet::Math::is_finite(point) || std::hypot(u, v) <= EPSILON)
+            return std::nullopt;
+        return std::atan2(v, u);
+    }
+
+    std::optional<float> TransformGizmo::parameter(
+        const Context& context, const Axis axis, const Comet::Math::Vec2 position) const {
+        if(m_settings.mode == Mode::Rotate)
+            return rotation_parameter(context, axis, position);
+        return axis_parameter(context, axis, position);
+    }
+
+    Comet::Math::Vec3 TransformGizmo::preview_value(
+        Drag& drag, const float parameter) const {
+        namespace Math = Comet::Math;
+        if(m_settings.mode == Mode::Translate) {
+            float distance = parameter - drag.start_parameter;
+            if(m_settings.snap)
+                distance = std::round(distance / m_settings.translation_step)
+                           * m_settings.translation_step;
+            const auto world_delta =
+                drag.context.directions[static_cast<std::size_t>(drag.axis)] * distance;
+            const auto local_delta =
+                drag.context.world_to_parent * Math::Vec4(world_delta, 0);
+            return drag.context.translation + Math::Vec3(local_delta);
+        }
+        drag.accumulated_angle +=
+            std::remainder(parameter - drag.last_parameter, 2 * Math::PI);
+        drag.last_parameter = parameter;
+        float degrees = drag.accumulated_angle * Math::RAD_TO_DEG;
+        if(m_settings.snap)
+            degrees = std::round(degrees / m_settings.rotation_step_degrees)
+                      * m_settings.rotation_step_degrees;
+        degrees = Math::wrap_degrees(degrees);
+        if(std::abs(degrees) < 0.0001f)
+            return drag.context.rotation;
+        const auto start =
+            Math::Mat3(Math::compose_trs({}, drag.context.rotation, Math::Vec3(1)));
+        const auto delta = Math::Mat3(Math::rotate(
+            Math::Mat4(1), Math::radians(degrees), axis_direction(drag.axis)));
+        Math::Mat3 rotation;
+        if(m_settings.space == Space::Local)
+            rotation = start * delta;
+        else
+            rotation = Math::Mat3(drag.context.world_to_parent) * delta
+                       * Math::Mat3(drag.context.parent_world) * start;
+        const auto quaternion = glm::normalize(glm::quat_cast(rotation));
+        return Math::wrap_degrees(glm::eulerAngles(quaternion) * Math::RAD_TO_DEG);
+    }
+
+    bool TransformGizmo::update(const Comet::EntityUuid selected,
         const Comet::RenderCamera& camera, const ViewportLayout& layout,
         const Input& input) {
         m_hovered_axis.reset();
@@ -237,33 +375,29 @@ namespace CometEditor {
                 || m_history.generation() != m_drag->generation
                 || context->parent != m_drag->context.parent
                 || context->parent_world != m_drag->context.parent_world
-                || context->directions != m_drag->context.directions
+                || (m_settings.mode == Mode::Translate
+                    && context->directions != m_drag->context.directions)
+                || (m_settings.mode == Mode::Rotate
+                    && (context->origin != m_drag->context.origin
+                        || context->rotation != m_drag->last_value))
                 || context->view_projection != m_drag->context.view_projection
                 || !same_layout(context->layout, m_drag->context.layout)
                 || (!input.down && !input.released)) {
                 static_cast<void>(cancel());
                 return true;
             }
-            const auto parameter =
-                axis_parameter(m_drag->context, m_drag->axis, input.position);
-            if(!parameter) {
+            const auto current_parameter =
+                parameter(m_drag->context, m_drag->axis, input.position);
+            if(!current_parameter) {
                 static_cast<void>(cancel());
                 return true;
             }
-            float distance = *parameter - m_drag->start_parameter;
-            if(m_settings.snap)
-                distance = std::round(distance / m_settings.step) * m_settings.step;
-            const auto world_delta =
-                m_drag->context.directions[static_cast<std::size_t>(m_drag->axis)]
-                * distance;
-            const auto local_delta =
-                m_drag->context.world_to_parent * Comet::Math::Vec4(world_delta, 0.0f);
-            const auto translation =
-                m_drag->context.translation + Comet::Math::Vec3(local_delta);
-            if(!Comet::Math::is_finite(translation) || !m_edit.preview(translation)) {
+            const auto value = preview_value(*m_drag, *current_parameter);
+            if(!Comet::Math::is_finite(value) || !m_edit.preview(value)) {
                 static_cast<void>(cancel());
                 return true;
             }
+            m_drag->last_value = value;
             if(input.released) {
                 if(!m_edit.commit())
                     static_cast<void>(m_edit.cancel());
@@ -280,33 +414,41 @@ namespace CometEditor {
         for(const auto& handle : make_handles(*context)) {
             if(!handle)
                 continue;
-            const float distance = distance_squared(*handle, input.position);
-            if(distance < nearest) {
-                nearest = distance;
-                m_hovered_axis = handle->axis;
+            for(const auto& segment : handle->segments) {
+                const float distance = distance_squared(segment, input.position);
+                if(distance < nearest) {
+                    nearest = distance;
+                    m_hovered_axis = handle->axis;
+                }
             }
         }
         if(!input.pressed || !input.down || !m_hovered_axis)
             return false;
-        const auto parameter = axis_parameter(*context, *m_hovered_axis, input.position);
-        if(!parameter || !m_edit.begin({selected, "transform", "translation"}))
+        const auto start_parameter = parameter(*context, *m_hovered_axis, input.position);
+        const char* property = "translation";
+        auto initial = context->translation;
+        if(m_settings.mode == Mode::Rotate) {
+            property = "rotation";
+            initial = context->rotation;
+        }
+        if(!start_parameter || !m_edit.begin({selected, "transform", property}))
             return false;
-        m_drag =
-            Drag{selected, m_history.generation(), *m_hovered_axis, *context, *parameter};
+        m_drag = Drag{selected, m_history.generation(), *m_hovered_axis, *context,
+            *start_parameter, *start_parameter, 0, initial};
         return true;
     }
 
-    bool TranslationGizmo::cancel() {
+    bool TransformGizmo::cancel() {
         m_drag.reset();
         m_hovered_axis.reset();
         return m_edit.cancel();
     }
 
-    bool TranslationGizmo::active() const {
+    bool TransformGizmo::active() const {
         return m_drag.has_value() && m_edit.active();
     }
 
-    std::optional<TranslationGizmo::Axis> TranslationGizmo::active_axis() const {
+    std::optional<TransformGizmo::Axis> TransformGizmo::active_axis() const {
         if(!active())
             return std::nullopt;
         return m_drag->axis;

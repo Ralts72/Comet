@@ -3,27 +3,36 @@
 #include "command_history.h"
 #include "render/scene/render_scene.h"
 #include "viewport_layout.h"
+#include "core/geometry.h"
 
 #include <array>
 #include <optional>
+#include <vector>
 
 namespace CometEditor {
-    class TranslationGizmo {
+    class TransformGizmo {
     public:
         enum class Axis { X, Y, Z };
         enum class Space { World, Local };
+        enum class Mode { Translate, Rotate };
 
         struct Settings {
+            Mode mode = Mode::Translate;
             Space space = Space::World;
             bool snap = false;
-            float step = 0.25f;
+            float translation_step = 0.25f;
+            float rotation_step_degrees = 15.0f;
             bool operator==(const Settings&) const = default;
+        };
+
+        struct Segment {
+            Comet::Math::Vec2 start;
+            Comet::Math::Vec2 end;
         };
 
         struct Handle {
             Axis axis;
-            Comet::Math::Vec2 start;
-            Comet::Math::Vec2 end;
+            std::vector<Segment> segments;
         };
 
         struct Input {
@@ -35,8 +44,7 @@ namespace CometEditor {
             bool cancel = false;
         };
 
-        TranslationGizmo(
-            CommandHistory& history, const Comet::ComponentRegistry& registry);
+        TransformGizmo(CommandHistory& history, const Comet::ComponentRegistry& registry);
         [[nodiscard]] bool set_settings(Settings settings);
         [[nodiscard]] Settings settings() const { return m_settings; }
 
@@ -57,7 +65,10 @@ namespace CometEditor {
             Comet::EntityUuid parent;
             Comet::Math::Vec3 origin{};
             Comet::Math::Vec3 translation{};
+            Comet::Math::Vec3 rotation{};
             std::array<Comet::Math::Vec3, 3> directions{};
+            Comet::Math::Mat3 rotation_frame{1.0f};
+            Comet::Math::Mat3 inverse_rotation_frame{1.0f};
             Comet::Math::Mat4 parent_world{1.0f};
             Comet::Math::Mat4 world_to_parent{1.0f};
             Comet::Math::Mat4 view_projection{1.0f};
@@ -72,14 +83,24 @@ namespace CometEditor {
             Axis axis;
             Context context;
             float start_parameter;
+            float last_parameter;
+            float accumulated_angle = 0;
+            Comet::Math::Vec3 last_value;
         };
 
         [[nodiscard]] std::optional<Context> make_context(Comet::EntityUuid selected,
             const Comet::RenderCamera& camera, const ViewportLayout& layout) const;
-        [[nodiscard]] static std::array<std::optional<Handle>, 3> make_handles(
-            const Context& context);
+        [[nodiscard]] std::array<std::optional<Handle>, 3> make_handles(
+            const Context& context) const;
+        [[nodiscard]] static std::optional<Comet::Ray> pointer_ray(
+            const Context& context, Comet::Math::Vec2 position);
         [[nodiscard]] static std::optional<float> axis_parameter(
             const Context& context, Axis axis, Comet::Math::Vec2 position);
+        [[nodiscard]] static std::optional<float> rotation_parameter(
+            const Context& context, Axis axis, Comet::Math::Vec2 position);
+        [[nodiscard]] std::optional<float> parameter(
+            const Context& context, Axis axis, Comet::Math::Vec2 position) const;
+        [[nodiscard]] Comet::Math::Vec3 preview_value(Drag& drag, float parameter) const;
 
         CommandHistory& m_history;
         PropertyEditTransaction m_edit;

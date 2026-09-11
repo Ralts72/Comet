@@ -4,7 +4,7 @@ set(SOURCES
         src/scene_file_dialog.cpp
         src/command_history.cpp
         src/scene_commands.cpp
-        src/translation_gizmo.cpp
+        src/transform_gizmo.cpp
         src/camera_controller.cpp
         src/editor_state.cpp
         src/editor_scene_session.cpp
