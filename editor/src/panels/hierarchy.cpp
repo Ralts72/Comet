@@ -30,6 +30,7 @@ namespace CometEditor {
     void HierarchyPanel::set_scene(Comet::Scene& scene) {
         m_scene = &scene;
         m_request.reset();
+        m_expand_entity = {};
     }
 
     std::optional<HierarchyPanel::Request> HierarchyPanel::take_request() {
@@ -74,9 +75,17 @@ namespace CometEditor {
 
         const auto node_id =
             reinterpret_cast<const void*>(static_cast<std::uintptr_t>(entity.get_id()));
+        if(m_expand_entity == entity.get_uuid()) {
+            ImGui::SetNextItemOpen(true);
+            m_expand_entity = {};
+        }
         const bool open = ImGui::TreeNodeEx(node_id, flags, "%s", display_name.c_str());
         if(ImGui::IsItemClicked()) {
             m_selection.select_entity(entity.get_id());
+        }
+        if(ImGui::BeginPopupContextItem()) {
+            render_context_menu(entity);
+            ImGui::EndPopup();
         }
 
         if(can_edit_scene() && ImGui::BeginDragDropSource()) {
@@ -95,6 +104,26 @@ namespace CometEditor {
         }
     }
 
+    void HierarchyPanel::render_context_menu(const Comet::Entity entity) {
+        ImGui::BeginDisabled(!can_edit_scene());
+        if(ImGui::MenuItem(entity ? "Create Child" : "Create Entity")) {
+            const auto parent = entity ? entity.get_uuid() : Comet::EntityUuid{};
+            m_request =
+                Request{Request::Type::Create, {}, parent, m_history.generation()};
+            m_expand_entity = parent;
+        }
+        if(entity) {
+            ImGui::Separator();
+            if(ImGui::MenuItem("Duplicate"))
+                m_request = Request{Request::Type::Duplicate, entity.get_uuid(), {},
+                    m_history.generation()};
+            if(ImGui::MenuItem("Delete"))
+                m_request = Request{
+                    Request::Type::Delete, entity.get_uuid(), {}, m_history.generation()};
+        }
+        ImGui::EndDisabled();
+    }
+
     void HierarchyPanel::render() {
         if(!m_user_visible)
             return;
@@ -104,38 +133,25 @@ namespace CometEditor {
             return;
         }
 
-        Comet::Entity selected_entity = m_selection.get_selected_entity();
-
-        ImGui::BeginDisabled(!can_edit_scene());
-        if(ImGui::Button("+"))
-            m_request = Request{Request::Type::Create, {}, {}, m_history.generation()};
-        if(ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Create entity");
-        }
-
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!selected_entity);
-        if(ImGui::Button("-")) {
-            m_request = Request{Request::Type::Delete, selected_entity.get_uuid(), {},
-                m_history.generation()};
-        }
-        if(ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Delete selected entity");
-        }
-        ImGui::EndDisabled();
-        ImGui::EndDisabled();
-
-        ImGui::Separator();
-
         const bool scene_open = ImGui::TreeNodeEx(
             "Scene", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow
                          | ImGuiTreeNodeFlags_SpanAvailWidth);
+        if(ImGui::BeginPopupContextItem("Scene actions")) {
+            render_context_menu({});
+            ImGui::EndPopup();
+        }
         accept_reparent_drop({});
         if(scene_open) {
             for(const Comet::Entity root : m_scene->get_root_entities()) {
                 render_entity_node(root);
             }
             ImGui::TreePop();
+        }
+
+        if(ImGui::BeginPopupContextWindow("Hierarchy actions",
+               ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+            render_context_menu({});
+            ImGui::EndPopup();
         }
 
         ImGui::End();

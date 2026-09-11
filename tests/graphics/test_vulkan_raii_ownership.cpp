@@ -55,6 +55,7 @@ namespace {
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<CommandPool>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<CommandContext>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<UploadManager>);
+    static_assert(NONCOPYABLE_IMMOVABLE_OWNER<UploadBatch>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Swapchain::Generation>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Swapchain>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Allocator>);

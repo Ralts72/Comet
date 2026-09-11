@@ -6,6 +6,7 @@
 #include <map>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,11 +31,20 @@ namespace CometEditor {
             std::map<std::string, AssetTreeNode> directories;
             std::vector<Comet::AssetRecord> assets;
         };
+        struct MoveRequest {
+            Comet::AssetHandle handle;
+            Comet::AssetRevision revision;
+            std::filesystem::path destination;
+        };
         [[nodiscard]] static AssetTreeNode build_asset_tree(
             std::vector<Comet::AssetRecord> assets);
-        void render_asset_tree(const AssetTreeNode& node);
-        void request_asset_move(const Comet::AssetRecord& record);
-        void render_asset_move_dialog();
+        void render_asset_tree(
+            const AssetTreeNode& node, const std::filesystem::path& path);
+        void accept_asset_drop(const std::filesystem::path& directory);
+        void request_rename(const Comet::AssetRecord& record);
+        void render_rename_dialog();
+        bool move_asset(
+            Comet::AssetHandle handle, const std::filesystem::path& destination);
 
         const Comet::AssetDatabase& m_database;
         AssetTreeNode m_tree;
@@ -42,10 +52,11 @@ namespace CometEditor {
         RefreshCallback m_refresh_callback;
         MoveAssetCallback m_move_asset_callback;
         SelectionService& m_selection;
-        std::array<char, 1024> m_move_path_buffer{};
-        std::string m_move_error;
-        Comet::AssetHandle m_moving_asset;
-        bool m_move_dialog_open_requested = false;
-        int m_view_mode = 0; // 0：资产，1：包
+        std::array<char, 1024> m_name_buffer{};
+        std::string m_operation_error;
+        Comet::AssetHandle m_renaming_asset;
+        bool m_rename_requested = false;
+        bool m_refresh_requested = false;
+        std::optional<MoveRequest> m_pending_move;
     };
 }

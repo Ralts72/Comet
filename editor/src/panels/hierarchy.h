@@ -18,7 +18,7 @@ namespace CometEditor {
     class HierarchyPanel: public EditorPanel {
     public:
         struct Request {
-            enum class Type { Create, Delete, Reparent };
+            enum class Type { Create, Delete, Reparent, Duplicate };
             Type type;
             Comet::EntityUuid entity;
             Comet::EntityUuid parent;
@@ -36,6 +36,7 @@ namespace CometEditor {
     private:
         [[nodiscard]] bool can_edit_scene() const;
         void render_entity_node(Comet::Entity entity);
+        void render_context_menu(Comet::Entity entity);
 
         void accept_reparent_drop(Comet::Entity parent);
 
@@ -44,6 +45,7 @@ namespace CometEditor {
         const CommandHistory& m_history;
         const EditorState& m_state;
         std::optional<Request> m_request;
+        Comet::EntityUuid m_expand_entity;
     };
 
 }

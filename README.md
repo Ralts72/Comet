@@ -9,7 +9,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `engine/src/` | 引擎库：core、scene、asset、render、graphics、config、diagnostics |
 | `engine/shaders/` | 引擎 Shader；只编译 CMake 显式列表，其余源码保留供学习 |
 | `editor/` | 编辑器入口、面板及 `resources/` 私有字体等资源 |
-| `app/` | Runtime 示例入口 |
+| `app/` | Runtime 示例入口及 `resources/` 私有图标 |
 | `assets/` | 项目源资产与相邻 `.meta`，进入版本控制 |
 | `config/` | `common.yaml` 与各 Profile 配置 |
 | `.comet/` | 本机缓存与编辑器布局，不进入版本控制 |
@@ -37,6 +37,11 @@ ctest --preset dev-debug
 手动配置需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS`。
 `COMET_NATIVE_OPTIMIZATION` 只适合本机构建。配置与诊断采用“编译期能力 + Profile 运行时策略”。
 
+macOS 和 Windows 下 app/editor 分别使用橙色、蓝色彗星静态图标，资源位于各自的 `resources/icons/`，不参与项目资产扫描。
+macOS 在构建目录内生成 `app/Comet.app` 和 `editor/CometEditor.app`，内含静态 ICNS 图标；启动脚本自动使用 bundle 内的新入口。
+Windows 通过 `.rc` 将 ICO 编译进 exe，GLFW 自动用作初始窗口图标；不在运行时加载 PNG，Linux 暂不配置图标。
+开发构建仍依赖仓库资源与开发动态库，不是独立分发包。
+
 ## 编辑器使用
 
 - Edit 使用独立编辑器相机；Play 使用克隆场景的 primary Camera，Stop 后返回 Edit，不回写运行时修改。
@@ -54,12 +59,18 @@ ctest --preset dev-debug
 - Edit 中 Inspector 可用 Add Component 添加 Camera／Mesh Renderer，右键组件标题移除并支持撤销／重做。
   Name 和 Transform 不开放增删；Play 只允许调试现有属性，组件增删禁用。
 - Hierarchy 的创建、删除子树和拖拽改父级支持撤销／重做，在 UI 绘制结束后执行；Play 禁用结构操作。
+  右键空白处或 Scene 选择 Create Entity 创建根实体；右键实体选择 Create Child 创建其子实体，并展开父节点。
+  新实体使用默认本地 Transform，创建及父子关系是同一条撤销命令；Delete 删除右键实体及其子树。
   撤销恢复实体 UUID 和组件值，不恢复原 EntityId 或选择状态；改父级保留本地 Transform，世界位置可能改变。
+- Edit 中右键 Hierarchy 实体选择 Duplicate，可复制整棵子树并选中新根节点；一次撤销移除整个副本。
+  副本使用新 UUID，保持原外部父级与资产引用，根名称追加 ` Copy`；不自动偏移，不保证名称唯一。
 - 编辑器快捷键配置在 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启生效。
   新建／打开／保存、撤销／重做、聚焦支持多绑定；`Primary` 表示 macOS Cmd／其他平台 Ctrl，`[]` 禁用绑定。
   所有构建的编辑器读取此段，不改变当前 Profile 的诊断配置；缺省项用默认值，绑定错误或冲突会记录日志并回退默认绑定。
 - Play 分辨率可选 Free、16:9、HD（1280×720）、FHD（1920×1080）；Fit 等比适应面板，1x 按原尺寸显示并裁切。
-- Project 支持刷新、移动与重命名；Inspector 的材质和纹理设置按变化事件提交，更新日志统一进入 Log。
+- Project 自动监视资产变化，右键菜单的 Refresh 可主动重扫；拖动资产到已显示的目录或 assets 根节点可移动。
+  右键资产选择 Rename 修改名称，扩展名保持不变；源文件和 `.meta` 成对移动，冲突不覆盖，暂不支持整目录移动。
+  Inspector 的材质和纹理设置按变化事件提交，更新日志统一进入 Log。
 - Inspector 的 Mesh、Material 引用和材质纹理槽按资产相对路径下拉选择，按类型过滤，底层仍保存 Handle。
   Mesh/Material 选择成功前先导入／加载，失败保留原引用；丢失引用显示 Missing，不自动清空。
 - View 菜单直接读取面板开关，关闭窗口后一次点击即可重新打开；暂未实现的菜单项显示为禁用。

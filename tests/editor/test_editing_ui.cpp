@@ -1,5 +1,6 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "command_history.h"
+#include "scene_commands.h"
 #include "menu_bar.h"
 #include "panels/inspector.h"
 #include "panels/hierarchy.h"
@@ -10,6 +11,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <fstream>
+#include <string_view>
 
 namespace CometEditor::Tests {
     class EditingUiTest: public ::testing::Test {
@@ -256,28 +258,86 @@ namespace CometEditor::Tests {
         EXPECT_EQ(renderer().mesh, assets.find("three/new.gltf")->handle);
     }
 
-    TEST_F(EditingUiTest, HierarchyQueuesOneRequestWithoutMutatingDuringUiTraversal) {
-        HierarchyPanel hierarchy(scene, selection, history, state);
-        const auto draw = [&]() {
+    class HierarchyUiTest: public ::testing::Test {
+    protected:
+        Comet::Scene scene;
+        Comet::Entity entity = scene.create_entity();
+        Comet::ComponentRegistry components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        SelectionService selection{scene};
+        EditorState state;
+        HierarchyPanel hierarchy{scene, selection, history, state};
+
+        void SetUp() override {
+            ImGui::CreateContext();
+            auto& io = ImGui::GetIO();
+            io.IniFilename = nullptr;
+            io.DisplaySize = ImVec2(800, 600);
+            io.DeltaTime = 1.0f / 60.0f;
+            unsigned char* pixels;
+            int width, height;
+            io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+            history.bind_scene(&scene);
+            selection.select_entity(entity.get_id());
+            draw();
+            draw();
+        }
+        void TearDown() override { ImGui::DestroyContext(); }
+        void draw() {
             ImGui::NewFrame();
             ImGui::SetNextWindowPos(ImVec2(0, 0));
             ImGui::SetNextWindowSize(ImVec2(400, 400));
             hierarchy.render();
             ImGui::Render();
-        };
-        draw();
-        draw();
+        }
+    };
+
+    TEST_F(HierarchyUiTest, HierarchyQueuesOneRequestWithoutMutatingDuringUiTraversal) {
         auto* window = ImGui::FindWindowByName("Hierarchy");
         ASSERT_NE(window, nullptr);
-        ImGui::ActivateItemByID(window->GetID("+"));
+        const ImVec2 entity_point(window->WorkRect.Min.x + 70,
+            window->DC.CursorPosPrevLine.y + ImGui::GetTextLineHeight() * 0.5f);
+        const auto choose = [&](const char* action, const bool scene_root = false) {
+            if(!ImGui::GetCurrentContext()->OpenPopupStack.empty())
+                ImGui::ClosePopupToLevel(0, true);
+            auto& io = ImGui::GetIO();
+            const bool create = std::string_view(action) == "Create Entity";
+            ImVec2 point = create ? ImVec2(300, 350) : entity_point;
+            if(scene_root)
+                point = ImVec2(window->WorkRect.Min.x + 70,
+                    window->WorkRect.Min.y + ImGui::GetTextLineHeight() * 0.5f);
+            io.AddMousePosEvent(point.x, point.y);
+            draw();
+            io.AddMouseButtonEvent(1, true);
+            draw();
+            io.AddMouseButtonEvent(1, false);
+            draw();
+            draw();
+            auto& context = *ImGui::GetCurrentContext();
+            ASSERT_EQ(context.OpenPopupStack.Size, 1);
+            auto* popup = context.OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID(action));
+        };
+        choose("Create Entity");
         draw();
         EXPECT_EQ(scene.entity_count(), 1);
         auto request = hierarchy.take_request();
         ASSERT_TRUE(request);
         EXPECT_EQ(request->type, HierarchyPanel::Request::Type::Create);
         EXPECT_EQ(request->generation, history.generation());
+        EXPECT_FALSE(request->parent);
         EXPECT_FALSE(hierarchy.take_request());
-        ImGui::ActivateItemByID(window->GetID("-"));
+        selection.clear();
+        choose("Create Child");
+        draw();
+        request = hierarchy.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->type, HierarchyPanel::Request::Type::Create);
+        EXPECT_EQ(request->parent, entity.get_uuid());
+        EXPECT_FALSE(request->entity);
+        EXPECT_EQ(scene.entity_count(), 1);
+        choose("Delete");
         draw();
         request = hierarchy.take_request();
         ASSERT_TRUE(request);
@@ -285,35 +345,105 @@ namespace CometEditor::Tests {
         EXPECT_EQ(request->entity, entity.get_uuid());
         EXPECT_TRUE(entity);
         state.mode = EditorMode::Play;
-        ImGui::ActivateItemByID(window->GetID("+"));
+        choose("Create Child");
         draw();
         EXPECT_FALSE(hierarchy.take_request());
-        ImGui::ActivateItemByID(window->GetID("-"));
+        choose("Create Entity");
+        draw();
+        EXPECT_FALSE(hierarchy.take_request());
+        choose("Delete");
         draw();
         EXPECT_FALSE(hierarchy.take_request());
         state.mode = EditorMode::Edit;
         history.bind_scene(nullptr);
-        ImGui::ActivateItemByID(window->GetID("+"));
+        choose("Create Child");
         draw();
         EXPECT_FALSE(hierarchy.take_request());
-        ImGui::ActivateItemByID(window->GetID("-"));
+        choose("Create Entity");
+        draw();
+        EXPECT_FALSE(hierarchy.take_request());
+        choose("Delete");
         draw();
         EXPECT_FALSE(hierarchy.take_request());
         history.bind_scene(&scene);
-        ImGui::ActivateItemByID(window->GetID("+"));
+        choose("Create Entity");
         draw();
         hierarchy.set_scene(scene);
         EXPECT_FALSE(hierarchy.take_request());
-        ImGui::ActivateItemByID(window->GetID("+"));
+        choose("Create Entity");
         draw();
         history.bind_scene(&scene);
         // 同一个 Scene 地址也可能已经开始了新的文档历史。
         EXPECT_FALSE(hierarchy.take_request());
-        ImGui::ActivateItemByID(window->GetID("+"));
+        choose("Create Entity");
         draw();
         request = hierarchy.take_request();
         ASSERT_TRUE(request);
         EXPECT_EQ(request->generation, history.generation());
+        EXPECT_EQ(scene.entity_count(), 1);
+        choose("Create Entity", true);
+        draw();
+        request = hierarchy.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->type, HierarchyPanel::Request::Type::Create);
+        EXPECT_FALSE(request->parent);
+        EXPECT_EQ(scene.entity_count(), 1);
+        const float previous_last_row = window->DC.CursorPosPrevLine.y;
+        choose("Create Child");
+        draw();
+        request = hierarchy.take_request();
+        ASSERT_TRUE(request);
+        const auto child =
+            SceneCommands::create_entity(history, components, "Entity", request->parent);
+        ASSERT_TRUE(child);
+        selection.select_entity(scene.find_entity(child).get_id());
+        draw();
+        draw();
+        EXPECT_EQ(scene.get_parent(scene.find_entity(child)), entity);
+        EXPECT_GT(window->DC.CursorPosPrevLine.y, previous_last_row);
+    }
+
+    TEST_F(HierarchyUiTest, HierarchyContextMenuQueuesDuplicateForClickedEntity) {
+        selection.clear();
+        auto* window = ImGui::FindWindowByName("Hierarchy");
+        ASSERT_NE(window, nullptr);
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(window->WorkRect.Min.x + 70,
+            window->DC.CursorPosPrevLine.y + ImGui::GetTextLineHeight() * 0.5f);
+        draw();
+        io.AddMouseButtonEvent(1, true);
+        draw();
+        io.AddMouseButtonEvent(1, false);
+        draw();
+        draw();
+        auto& context = *ImGui::GetCurrentContext();
+        ASSERT_EQ(context.OpenPopupStack.Size, 1);
+        auto* popup = context.OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Duplicate"));
+        draw();
+        const auto request = hierarchy.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->type, HierarchyPanel::Request::Type::Duplicate);
+        EXPECT_EQ(request->entity, entity.get_uuid());
+        EXPECT_EQ(scene.entity_count(), 1);
+        EXPECT_FALSE(selection.get_selected_entity());
+        EXPECT_FALSE(hierarchy.take_request());
+
+        // 历史仍绑定当前 Scene，Play 也必须禁用复制菜单。
+        state.mode = EditorMode::Play;
+        draw();
+        io.AddMouseButtonEvent(1, true);
+        draw();
+        io.AddMouseButtonEvent(1, false);
+        draw();
+        draw();
+        ASSERT_EQ(context.OpenPopupStack.Size, 1);
+        popup = context.OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Duplicate"));
+        draw();
+        EXPECT_FALSE(hierarchy.take_request());
         EXPECT_EQ(scene.entity_count(), 1);
     }
 

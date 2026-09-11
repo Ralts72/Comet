@@ -10,6 +10,14 @@
 #include <vector>
 
 namespace CometEditor {
+    namespace {
+        constexpr const char* ASSET_PAYLOAD_TYPE = "COMET_PROJECT_ASSET";
+        struct AssetPayload {
+            Comet::AssetHandle handle;
+            Comet::AssetRevision revision;
+        };
+    }
+
     ProjectPanel::AssetTreeNode ProjectPanel::build_asset_tree(
         std::vector<Comet::AssetRecord> assets) {
         AssetTreeNode root;
@@ -23,10 +31,15 @@ namespace CometEditor {
         return root;
     }
 
-    void ProjectPanel::render_asset_tree(const AssetTreeNode& node) {
+    void ProjectPanel::render_asset_tree(
+        const AssetTreeNode& node, const std::filesystem::path& path) {
         for(const auto& [name, directory] : node.directories) {
-            if(ImGui::TreeNodeEx(name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                render_asset_tree(directory);
+            const auto directory_path = path / name;
+            const bool open = ImGui::TreeNodeEx(name.c_str(),
+                ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
+            accept_asset_drop(directory_path);
+            if(open) {
+                render_asset_tree(directory, directory_path);
                 ImGui::TreePop();
             }
         }
@@ -35,6 +48,23 @@ namespace CometEditor {
             const std::string name = asset.path.filename().string();
             if(ImGui::Selectable(name.c_str(), m_selection.is_selected(asset.handle))) {
                 m_selection.select_asset(asset.handle);
+            }
+            if(m_move_asset_callback && ImGui::BeginDragDropSource()) {
+                if(!m_selection.is_selected(asset.handle))
+                    m_selection.select_asset(asset.handle);
+                const AssetPayload payload{
+                    asset.handle, m_database.get_revision(asset.handle)};
+                ImGui::SetDragDropPayload(
+                    ASSET_PAYLOAD_TYPE, &payload, sizeof(payload), ImGuiCond_Once);
+                ImGui::TextUnformatted(name.c_str());
+                ImGui::EndDragDropSource();
+            }
+            if(ImGui::BeginPopupContextItem()) {
+                if(ImGui::MenuItem("Rename", nullptr, false, !!m_move_asset_callback))
+                    request_rename(asset);
+                if(ImGui::MenuItem("Refresh", nullptr, false, !!m_refresh_callback))
+                    m_refresh_requested = true;
+                ImGui::EndPopup();
             }
             ImGui::SameLine();
             ImGui::TextDisabled("(%s)", Comet::to_string(asset.type).data());
@@ -63,43 +93,16 @@ namespace CometEditor {
             return;
         }
 
-        if(ImGui::Button("assets##Button")) {
-            m_view_mode = 0;
-        }
-        ImGui::SameLine();
-        if(ImGui::Button("Packages")) {
-            m_view_mode = 1;
-        }
-        ImGui::SameLine();
-        if(ImGui::Button("Refresh") && m_refresh_callback) {
-            m_refresh_callback();
-        }
-
-        const Comet::AssetRecord* selected_record =
-            m_database.find(m_selection.get_selected_asset());
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!selected_record || !m_move_asset_callback);
-        if(ImGui::Button("Move / Rename") && selected_record) {
-            request_asset_move(*selected_record);
-        }
-        if(ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Move or rename the selected asset");
-        }
-        ImGui::EndDisabled();
-
-        ImGui::Separator();
-
-        if(m_view_mode == 0) {
-            if(ImGui::TreeNodeEx("assets", ImGuiTreeNodeFlags_DefaultOpen)) {
-                if(m_tree.assets.empty() && m_tree.directories.empty()) {
-                    ImGui::TextDisabled("No indexed assets");
-                } else {
-                    render_asset_tree(m_tree);
-                }
-                ImGui::TreePop();
+        const bool root_open = ImGui::TreeNodeEx(
+            "assets", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
+        accept_asset_drop({});
+        if(root_open) {
+            if(m_tree.assets.empty() && m_tree.directories.empty()) {
+                ImGui::TextDisabled("No indexed assets");
+            } else {
+                render_asset_tree(m_tree, {});
             }
-        } else {
-            ImGui::TextDisabled("Packages are not available yet");
+            ImGui::TreePop();
         }
 
         if(!m_scan_report.issues.empty()
@@ -110,67 +113,120 @@ namespace CometEditor {
             }
         }
 
-        render_asset_move_dialog();
+        if(ImGui::BeginPopupContextWindow(
+               "Project actions", ImGuiPopupFlags_MouseButtonRight
+                                      | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
+            if(ImGui::MenuItem("Refresh", nullptr, false, !!m_refresh_callback))
+                m_refresh_requested = true;
+            ImGui::EndPopup();
+        }
+
+        // 移动/刷新回调会替换目录树，必须等所有节点遍历结束再执行。
+        if(auto request = std::exchange(m_pending_move, std::nullopt)) {
+            if(m_database.is_current(request->handle, request->revision))
+                move_asset(request->handle, request->destination);
+            else
+                m_operation_error = "Asset changed while dragging; please try again";
+        }
+        if(std::exchange(m_refresh_requested, false) && m_refresh_callback)
+            m_refresh_callback();
+        render_rename_dialog();
+        if(!m_renaming_asset && !m_operation_error.empty()) {
+            ImGui::TextWrapped("%s", m_operation_error.c_str());
+        }
         ImGui::End();
     }
 
-    void ProjectPanel::request_asset_move(const Comet::AssetRecord& record) {
-        m_moving_asset = record.handle;
-        m_move_error.clear();
-        m_move_path_buffer.fill('\0');
-
-        const std::string path = record.path.generic_string();
-        std::copy_n(path.data(), std::min(path.size(), m_move_path_buffer.size() - 1),
-            m_move_path_buffer.data());
-        m_move_dialog_open_requested = true;
+    void ProjectPanel::accept_asset_drop(const std::filesystem::path& directory) {
+        if(!m_move_asset_callback || !ImGui::BeginDragDropTarget())
+            return;
+        if(const auto* payload = ImGui::AcceptDragDropPayload(ASSET_PAYLOAD_TYPE);
+            payload && payload->DataSize == sizeof(AssetPayload)) {
+            const auto& source = *static_cast<const AssetPayload*>(payload->Data);
+            const auto* record = m_database.find(source.handle);
+            if(record) {
+                const auto destination = directory / record->path.filename();
+                if(destination != record->path)
+                    m_pending_move =
+                        MoveRequest{source.handle, source.revision, destination};
+            }
+        }
+        ImGui::EndDragDropTarget();
     }
 
-    void ProjectPanel::render_asset_move_dialog() {
-        constexpr const char* title = "Move / Rename Asset";
-        if(m_move_dialog_open_requested) {
-            ImGui::OpenPopup(title);
-            m_move_dialog_open_requested = false;
-        }
-        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            return;
-        }
+    bool ProjectPanel::move_asset(
+        const Comet::AssetHandle handle, const std::filesystem::path& destination) {
+        m_operation_error.clear();
+        if(!m_move_asset_callback)
+            return false;
+        const auto* record = m_database.find(handle);
+        if(record && record->path == destination)
+            return true;
+        const auto report = m_move_asset_callback(handle, destination);
+        if(report.snapshot_updated)
+            return true;
+        m_operation_error = "Asset operation could not be committed";
+        if(!report.issues.empty())
+            m_operation_error = report.issues.front().message;
+        return false;
+    }
 
-        ImGui::TextUnformatted("Path relative to assets/");
-        ImGui::SetNextItemWidth(520.0f);
-        const bool submitted = ImGui::InputText("##AssetPath", m_move_path_buffer.data(),
-            m_move_path_buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue);
-        if((ImGui::Button("Move", ImVec2(100.0f, 0.0f)) || submitted)
+    void ProjectPanel::request_rename(const Comet::AssetRecord& record) {
+        m_renaming_asset = record.handle;
+        m_operation_error.clear();
+        m_name_buffer.fill('\0');
+        const auto name = record.path.stem().string();
+        std::copy_n(name.data(), std::min(name.size(), m_name_buffer.size() - 1),
+            m_name_buffer.data());
+        m_rename_requested = true;
+    }
+
+    void ProjectPanel::render_rename_dialog() {
+        constexpr const char* title = "Rename Asset";
+        const bool opening = std::exchange(m_rename_requested, false);
+        if(opening)
+            ImGui::OpenPopup(title);
+        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            return;
+
+        const auto* record = m_database.find(m_renaming_asset);
+        if(!record)
+            ImGui::TextDisabled("Asset is no longer available");
+        ImGui::BeginDisabled(!record || !m_move_asset_callback);
+        if(opening)
+            ImGui::SetKeyboardFocusHere();
+        ImGui::SetNextItemWidth(360.0f);
+        const bool submitted =
+            ImGui::InputText("Name", m_name_buffer.data(), m_name_buffer.size(),
+                ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+        if(record) {
+            ImGui::SameLine();
+            ImGui::TextUnformatted(record->path.extension().string().c_str());
+        }
+        if((ImGui::Button("Rename", ImVec2(100.0f, 0.0f)) || submitted) && record
             && m_move_asset_callback) {
-            Comet::AssetScanReport report = m_move_asset_callback(
-                m_moving_asset, std::filesystem::path(m_move_path_buffer.data()));
-            const bool moved = report.snapshot_updated;
-            if(!moved) {
-                m_move_error = "Asset move could not be committed";
-                if(!report.issues.empty()) {
-                    m_move_error = report.issues.front().message;
+            const std::string name(m_name_buffer.data());
+            if(name.empty() || name == "." || name == ".."
+                || name.find_first_of("/\\:") != std::string::npos) {
+                m_operation_error = "Enter a file name, not a path";
+            } else {
+                const auto destination = record->path.parent_path()
+                                         / (name + record->path.extension().string());
+                if(move_asset(m_renaming_asset, destination)) {
+                    ImGui::CloseCurrentPopup();
+                    m_renaming_asset = Comet::INVALID_ASSET_HANDLE;
                 }
             }
-
-            if(moved) {
-                ImGui::CloseCurrentPopup();
-                m_moving_asset = Comet::INVALID_ASSET_HANDLE;
-                m_move_error.clear();
-            }
         }
+        ImGui::EndDisabled();
         ImGui::SameLine();
         if(ImGui::Button("Cancel", ImVec2(100.0f, 0.0f))) {
             ImGui::CloseCurrentPopup();
-            m_moving_asset = Comet::INVALID_ASSET_HANDLE;
-            m_move_error.clear();
+            m_renaming_asset = Comet::INVALID_ASSET_HANDLE;
+            m_operation_error.clear();
         }
-
-        if(!m_move_error.empty()) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.25f, 0.2f, 1.0f));
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 520.0f);
-            ImGui::TextWrapped("%s", m_move_error.c_str());
-            ImGui::PopTextWrapPos();
-            ImGui::PopStyleColor();
-        }
+        if(!m_operation_error.empty())
+            ImGui::TextWrapped("%s", m_operation_error.c_str());
         ImGui::EndPopup();
     }
 

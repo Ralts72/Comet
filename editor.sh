@@ -9,6 +9,9 @@ cmake --preset editor-dev
 cmake --build --preset editor-dev --parallel
 
 EXEC="$ROOT_DIR/build-editor/editor/editor"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    EXEC="$ROOT_DIR/build-editor/editor/CometEditor.app/Contents/MacOS/CometEditor"
+fi
 if [ -x "$EXEC" ]; then
     echo "运行 Editor: $EXEC"
     "$EXEC"

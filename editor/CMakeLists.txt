@@ -22,6 +22,23 @@ set(SOURCES
 )
 
 add_executable(editor ${SOURCES})
+if (APPLE)
+    set_target_properties(editor PROPERTIES
+            MACOSX_BUNDLE TRUE
+            OUTPUT_NAME CometEditor
+            MACOSX_BUNDLE_BUNDLE_NAME "Comet Editor"
+            MACOSX_BUNDLE_GUI_IDENTIFIER org.comet.editor
+            MACOSX_BUNDLE_ICON_FILE editor.icns
+            MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/cmake/Info.plist.in")
+    target_sources(editor PRIVATE resources/icons/editor.icns)
+    set_source_files_properties(resources/icons/editor.icns PROPERTIES
+            MACOSX_PACKAGE_LOCATION Resources)
+elseif (WIN32)
+    target_sources(editor PRIVATE resources/editor.rc)
+    target_include_directories(editor PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+    set_source_files_properties(resources/editor.rc PROPERTIES
+            OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/editor.ico")
+endif ()
 target_link_libraries(editor PRIVATE engine imgui glfw yaml-cpp)
 target_include_directories(editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(editor PRIVATE

@@ -50,18 +50,18 @@ namespace Comet::Tests {
             };
     }
 
-    TEST(QueueSubmitInterfaceTest, UsesSynchronization2SubmissionModel) {
-        EXPECT_TRUE(SupportsSynchronization2Submit<Queue>);
-        EXPECT_FALSE(SupportsLegacyNoWaitSubmit<Queue>);
-        EXPECT_FALSE(SupportsLegacySingleWaitSubmit<Queue>);
+    static_assert(SupportsSynchronization2Submit<Queue>);
+    static_assert(!SupportsLegacyNoWaitSubmit<Queue>);
+    static_assert(!SupportsLegacySingleWaitSubmit<Queue>);
+    static_assert(std::is_constructible_v<QueueSemaphoreSubmit, const GpuCompletionPoint&,
+        Flags<PipelineStage>>);
+    static_assert(std::is_constructible_v<Semaphore, Device&, Semaphore::Type, uint64_t>);
+    static_assert(SupportsExplicitWaitModes<GpuCompletionPoint>);
+    static_assert(SupportsTimelineWaitModes<Semaphore>);
+    static_assert(std::is_copy_constructible_v<GpuCompletionPoint>);
+    static_assert(std::is_copy_assignable_v<GpuCompletionPoint>);
+
+    TEST(GpuCompletionPointTest, DefaultsToInvalidCompletion) {
         EXPECT_FALSE(GpuCompletionPoint{}.is_valid());
-        EXPECT_TRUE((std::is_constructible_v<QueueSemaphoreSubmit,
-            const GpuCompletionPoint&, Flags<PipelineStage>>));
-        EXPECT_TRUE(
-            (std::is_constructible_v<Semaphore, Device&, Semaphore::Type, uint64_t>));
-        EXPECT_TRUE(SupportsExplicitWaitModes<GpuCompletionPoint>);
-        EXPECT_TRUE(SupportsTimelineWaitModes<Semaphore>);
-        EXPECT_TRUE(std::is_copy_constructible_v<GpuCompletionPoint>);
-        EXPECT_TRUE(std::is_copy_assignable_v<GpuCompletionPoint>);
     }
 }

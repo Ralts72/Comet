@@ -130,14 +130,6 @@ namespace Comet::Tests {
         static_assert(!SupportsBatchAbort<UploadManager>);
         static_assert(SupportsCommandDiscard<CommandContext>);
 
-        static_assert(!std::is_copy_constructible_v<UploadManager>);
-        static_assert(!std::is_copy_assignable_v<UploadManager>);
-        static_assert(!std::is_move_constructible_v<UploadManager>);
-        static_assert(!std::is_move_assignable_v<UploadManager>);
-        static_assert(!std::is_copy_constructible_v<UploadBatch>);
-        static_assert(!std::is_copy_assignable_v<UploadBatch>);
-        static_assert(!std::is_move_constructible_v<UploadBatch>);
-        static_assert(!std::is_move_assignable_v<UploadBatch>);
         static_assert(!std::is_constructible_v<UploadBatch, UploadManager&>);
 
         static_assert(std::is_invocable_v<GpuBufferFactory, Device&, Flags<BufferUsage>,

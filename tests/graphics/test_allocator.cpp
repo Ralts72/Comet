@@ -7,6 +7,9 @@
 #include <type_traits>
 
 namespace Comet::Tests {
+    static_assert(!std::is_default_constructible_v<GpuResourceResult<int>>);
+    static_assert(!std::is_default_constructible_v<GpuResourceResult<void>>);
+
     TEST(AllocationTest, DefaultsToInvalidHandle) {
         const Allocation allocation;
 
@@ -20,8 +23,6 @@ namespace Comet::Tests {
         const auto normalized_failure =
             GpuResourceResult<int>::failure(vk::Result::eSuccess);
 
-        EXPECT_FALSE(std::is_default_constructible_v<GpuResourceResult<int>>);
-        EXPECT_FALSE(std::is_default_constructible_v<GpuResourceResult<void>>);
         EXPECT_FALSE(static_cast<bool>(failure));
         EXPECT_EQ(failure.result(), vk::Result::eErrorOutOfDeviceMemory);
         EXPECT_TRUE(static_cast<bool>(success));

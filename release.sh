@@ -9,6 +9,9 @@ cmake --preset app-release
 cmake --build --preset app-release --parallel
 
 EXEC="$ROOT_DIR/build-release/app/app"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    EXEC="$ROOT_DIR/build-release/app/Comet.app/Contents/MacOS/Comet"
+fi
 if [ -x "$EXEC" ]; then
     echo "运行 Release App: $EXEC"
     "$EXEC"

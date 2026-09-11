@@ -4,8 +4,11 @@
 
 namespace CometEditor::SceneCommands {
     [[nodiscard]] Comet::EntityUuid create_entity(CommandHistory& history,
-        const Comet::ComponentRegistry& registry, std::string name = "Entity");
+        const Comet::ComponentRegistry& registry, std::string name = "Entity",
+        Comet::EntityUuid parent = {});
     [[nodiscard]] bool delete_entity(CommandHistory& history,
+        const Comet::ComponentRegistry& registry, Comet::EntityUuid entity);
+    [[nodiscard]] Comet::EntityUuid duplicate_entity(CommandHistory& history,
         const Comet::ComponentRegistry& registry, Comet::EntityUuid entity);
     [[nodiscard]] bool reparent_entity(
         CommandHistory& history, Comet::EntityUuid entity, Comet::EntityUuid parent = {});
