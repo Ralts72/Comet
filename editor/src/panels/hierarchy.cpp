@@ -1,35 +1,58 @@
 #include "hierarchy.h"
 #include "selection.h"
+#include "command_history.h"
+#include "editor_state.h"
 
 #include <cstdint>
 #include <imgui.h>
 #include <string>
 #include <vector>
+#include <utility>
 
 namespace CometEditor {
     namespace {
-        constexpr const char* ENTITY_PAYLOAD_TYPE = "COMET_ENTITY_ID";
+        constexpr const char* ENTITY_PAYLOAD_TYPE = "COMET_ENTITY_UUID";
+        struct EntityPayload {
+            Comet::EntityUuid entity;
+            std::uint64_t generation;
+        };
     }
 
-    HierarchyPanel::HierarchyPanel(Comet::Scene& scene, SelectionService& selection)
-        : EditorPanel("Hierarchy"), m_scene(&scene), m_selection(selection) {}
+    HierarchyPanel::HierarchyPanel(Comet::Scene& scene, SelectionService& selection,
+        const CommandHistory& history, const EditorState& state)
+        : EditorPanel("Hierarchy"), m_scene(&scene), m_selection(selection),
+          m_history(history), m_state(state) {}
+
+    bool HierarchyPanel::can_edit_scene() const {
+        return m_state.mode == EditorMode::Edit && m_history.get_scene() == m_scene;
+    }
+
+    void HierarchyPanel::set_scene(Comet::Scene& scene) {
+        m_scene = &scene;
+        m_request.reset();
+    }
+
+    std::optional<HierarchyPanel::Request> HierarchyPanel::take_request() {
+        auto request = std::exchange(m_request, std::nullopt);
+        if(!can_edit_scene()
+            || (request && request->generation != m_history.generation()))
+            return std::nullopt;
+        return request;
+    }
 
     void HierarchyPanel::accept_reparent_drop(const Comet::Entity parent) {
-        if(!ImGui::BeginDragDropTarget()) {
+        if(!can_edit_scene() || !ImGui::BeginDragDropTarget()) {
             return;
         }
 
         if(const ImGuiPayload* payload =
                 ImGui::AcceptDragDropPayload(ENTITY_PAYLOAD_TYPE);
-            payload && payload->DataSize == sizeof(Comet::EntityId)) {
-            const auto entity_id = *static_cast<const Comet::EntityId*>(payload->Data);
-            if(const Comet::Entity child = m_scene->find_entity(entity_id)) {
-                if(parent) {
-                    static_cast<void>(m_scene->set_parent(child, parent));
-                } else {
-                    static_cast<void>(m_scene->clear_parent(child));
-                }
-            }
+            payload && payload->DataSize == sizeof(EntityPayload)) {
+            const auto& source = *static_cast<const EntityPayload*>(payload->Data);
+            if(source.generation == m_history.generation()
+                && m_scene->find_entity(source.entity))
+                m_request = Request{Request::Type::Reparent, source.entity,
+                    parent ? parent.get_uuid() : Comet::EntityUuid{}, source.generation};
         }
         ImGui::EndDragDropTarget();
     }
@@ -56,9 +79,9 @@ namespace CometEditor {
             m_selection.select_entity(entity.get_id());
         }
 
-        if(ImGui::BeginDragDropSource()) {
-            const Comet::EntityId entity_id = entity.get_id();
-            ImGui::SetDragDropPayload(ENTITY_PAYLOAD_TYPE, &entity_id, sizeof(entity_id));
+        if(can_edit_scene() && ImGui::BeginDragDropSource()) {
+            const EntityPayload payload{entity.get_uuid(), m_history.generation()};
+            ImGui::SetDragDropPayload(ENTITY_PAYLOAD_TYPE, &payload, sizeof(payload));
             ImGui::TextUnformatted(display_name.c_str());
             ImGui::EndDragDropSource();
         }
@@ -83,10 +106,9 @@ namespace CometEditor {
 
         Comet::Entity selected_entity = m_selection.get_selected_entity();
 
-        if(ImGui::Button("+")) {
-            selected_entity = m_scene->create_entity();
-            m_selection.select_entity(selected_entity.get_id());
-        }
+        ImGui::BeginDisabled(!can_edit_scene());
+        if(ImGui::Button("+"))
+            m_request = Request{Request::Type::Create, {}, {}, m_history.generation()};
         if(ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Create entity");
         }
@@ -94,12 +116,13 @@ namespace CometEditor {
         ImGui::SameLine();
         ImGui::BeginDisabled(!selected_entity);
         if(ImGui::Button("-")) {
-            m_scene->destroy_entity(selected_entity);
-            m_selection.clear();
+            m_request = Request{Request::Type::Delete, selected_entity.get_uuid(), {},
+                m_history.generation()};
         }
         if(ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Delete selected entity");
         }
+        ImGui::EndDisabled();
         ImGui::EndDisabled();
 
         ImGui::Separator();

@@ -4,6 +4,7 @@
 #include "asset/registry.h"
 #include "src/camera_controller.h"
 #include "src/command_history.h"
+#include "src/scene_commands.h"
 #include "src/editor_scene_session.h"
 #include "src/editor_state.h"
 #include "src/imgui_context.h"
@@ -324,6 +325,44 @@ namespace {
             m_project_panel->update_scan_report(std::move(report));
         }
 
+        void handle_scene_request(const CometEditor::HierarchyPanel::Request& request) {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit
+                || request.generation != m_command_history.generation()
+                || m_command_history.get_scene() != get_engine().get_scene())
+                return;
+            m_viewport_panel->cancel_interaction();
+            if(!m_property_edit.commit()) {
+                LOG_ERROR("Cannot finish property edit before structure command");
+                return;
+            }
+            using Type = CometEditor::HierarchyPanel::Request::Type;
+            namespace Commands = CometEditor::SceneCommands;
+            bool changed = false;
+            switch(request.type) {
+                case Type::Create: {
+                    const auto uuid =
+                        Commands::create_entity(m_command_history, m_component_registry);
+                    changed = static_cast<bool>(uuid);
+                    if(changed)
+                        m_selection->select_entity(
+                            m_command_history.get_scene()->find_entity(uuid).get_id());
+                    break;
+                }
+                case Type::Delete:
+                    changed = Commands::delete_entity(
+                        m_command_history, m_component_registry, request.entity);
+                    if(changed)
+                        m_selection->clear();
+                    break;
+                case Type::Reparent:
+                    changed = Commands::reparent_entity(
+                        m_command_history, request.entity, request.parent);
+                    break;
+            }
+            if(!changed)
+                LOG_WARN("Scene structure request was rejected or had no effect");
+        }
+
         void handle_command(const CometEditor::MenuBar::Command command) {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
                 LOG_WARN("Scene commands are disabled in Play mode");
@@ -420,8 +459,8 @@ namespace {
             m_menu_bar = std::make_unique<CometEditor::MenuBar>(
                 m_editor_state, m_command_history, m_shortcuts);
 
-            m_hierarchy_panel =
-                std::make_unique<CometEditor::HierarchyPanel>(scene, *m_selection);
+            m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
+                scene, *m_selection, m_command_history, m_editor_state);
             const auto& render_context = get_engine().get_renderer().get_render_context();
             const std::uint32_t device_max_render_dimension =
                 render_context.get_device().get_capability().max_image_dimension_2d;
@@ -491,9 +530,13 @@ namespace {
         }
 
         void process_editor_requests() {
+            const auto hierarchy_request = m_hierarchy_panel->take_request();
             const auto menu_command = m_menu_bar->take_command();
+            // 菜单命令优先，避免同帧场景或历史切换后执行旧层级请求。
             if(menu_command)
                 handle_command(*menu_command);
+            else if(hierarchy_request)
+                handle_scene_request(*hierarchy_request);
             if(const auto mode = m_viewport_panel->take_mode_request()) {
                 m_viewport_panel->cancel_interaction();
                 if(m_property_edit.commit()) {

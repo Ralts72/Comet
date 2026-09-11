@@ -61,6 +61,7 @@ namespace Comet {
         friend class Entity;
         friend class SceneExtractor;
         friend class SceneSerializer;
+        friend class ComponentRegistry;
 
         [[nodiscard]] bool has_cycle(Entity child, Entity parent);
 

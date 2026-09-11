@@ -122,6 +122,27 @@ namespace Comet {
         return nullptr;
     }
 
+    bool ComponentRegistry::covers_entity(const Entity& entity) const {
+        if(!entity)
+            return false;
+        for(auto&& [type, storage] : entity.m_scene->m_registry.storage()) {
+            if(!storage.contains(entity.m_handle))
+                continue;
+            if(type == entt::type_hash<IdComponent>::value()
+                || type == entt::type_hash<UuidComponent>::value()
+                || type == entt::type_hash<NameComponent>::value()
+                || type == entt::type_hash<RelationshipComponent>::value()
+                || type == entt::type_hash<WorldTransformComponent>::value())
+                continue;
+            bool registered = false;
+            for(const auto& component : m_components)
+                registered |= component.type_id == type;
+            if(!registered)
+                return false;
+        }
+        return true;
+    }
+
     ComponentRegistry create_scene_component_registry() {
         ComponentRegistry registry;
         const auto register_component = [&registry](ComponentDescriptor descriptor) {

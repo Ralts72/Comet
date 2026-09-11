@@ -44,6 +44,7 @@ namespace Comet {
     private:
         friend class Scene;
         friend class SceneSerializer;
+        friend class ComponentRegistry;
 
         Entity(entt::entity handle, Scene* scene);
 

@@ -24,12 +24,17 @@ namespace Comet {
         const entt::entity handle = m_registry.create();
         Entity entity(handle, this);
 
-        m_registry.emplace<IdComponent>(handle, m_next_entity_id++);
-        m_registry.emplace<UuidComponent>(handle, uuid);
-        m_registry.emplace<NameComponent>(handle, name.empty() ? "Entity" : name);
-        m_registry.emplace<TransformComponent>(handle);
-        m_registry.emplace<RelationshipComponent>(handle);
-        m_registry.emplace<WorldTransformComponent>(handle);
+        try {
+            m_registry.emplace<IdComponent>(handle, m_next_entity_id++);
+            m_registry.emplace<UuidComponent>(handle, uuid);
+            m_registry.emplace<NameComponent>(handle, name.empty() ? "Entity" : name);
+            m_registry.emplace<TransformComponent>(handle);
+            m_registry.emplace<RelationshipComponent>(handle);
+            m_registry.emplace<WorldTransformComponent>(handle);
+        } catch(...) {
+            m_registry.destroy(handle);
+            throw;
+        }
 
         return entity;
     }
@@ -40,18 +45,19 @@ namespace Comet {
         }
 
         std::unordered_set<EntityId> destroying;
-        const auto destroy_subtree = [this, &destroying](const Entity current,
-                                         const auto& destroy_subtree_ref) -> void {
-            if(!is_valid(current) || !destroying.insert(current.get_id()).second) {
-                return;
-            }
-
-            for(const Entity child : get_children(current)) {
-                destroy_subtree_ref(child, destroy_subtree_ref);
-            }
-            m_registry.destroy(current.m_handle);
-        };
-        destroy_subtree(entity, destroy_subtree);
+        std::vector<Entity> pending{entity};
+        std::vector<Entity> subtree;
+        for(std::size_t i = 0; i < pending.size(); ++i) {
+            const auto current = pending[i];
+            if(!is_valid(current) || !destroying.insert(current.get_id()).second)
+                continue;
+            subtree.push_back(current);
+            const auto children = get_children(current);
+            pending.insert(pending.end(), children.begin(), children.end());
+        }
+        // 所有遍历分配在删除前完成，避免半途分配失败留下半棵树。
+        for(auto it = subtree.rbegin(); it != subtree.rend(); ++it)
+            m_registry.destroy(it->m_handle);
     }
 
     bool Scene::set_parent(const Entity child, const Entity parent) {

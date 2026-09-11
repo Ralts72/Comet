@@ -30,6 +30,7 @@ if (COMET_BUILD_EDITOR)
     target_sources(unit_testing PRIVATE
             "${CMAKE_SOURCE_DIR}/editor/src/scene_file_dialog.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/panels/project.cpp"
+            "${CMAKE_SOURCE_DIR}/editor/src/panels/hierarchy.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/panels/console.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/panels/inspector.cpp"
             "${CMAKE_SOURCE_DIR}/editor/src/menu_bar.cpp"
