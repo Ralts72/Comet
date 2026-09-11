@@ -210,8 +210,8 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(ProjectPanelTest, MeshDragKeepsOriginalIdentityAcrossDocumentChanges) {
-        std::filesystem::copy_file(
-            std::filesystem::path(PROJECT_ROOT_DIR) / "assets/meshes/cube.gltf",
+        std::filesystem::copy_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                                       / "assets/meshes/cube.gltf",
             paths.assets() / "model.gltf");
         project->update_scan_report(manager.scan());
         frame();

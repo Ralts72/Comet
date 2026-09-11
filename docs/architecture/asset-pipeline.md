@@ -4,10 +4,13 @@
 
 ## 目录和身份
 
+下列路径相对项目根目录；仓库自带示例的项目根为 `demo/`，外部项目不依赖此目录名。
+
 - `assets/`：项目源资产和相邻 `.meta`，进入版本控制。
 - `.comet/cache/`：可重建导入产物；`.comet/editor/imgui.ini`：本机编辑器布局。两者不提交。
 - `editor/resources/`：编辑器私有字体等资源，不进入 AssetDatabase，不生成 .meta。
-- `ProjectSettings/`：后续项目设置的预留约定，当前未建立完整项目 manifest。
+- `project.yaml`：项目版本、名称和启动场景；Project 只读取和校验描述，ProjectPaths 统一目录及资产路径边界。
+  编辑器从传入的项目目录／描述文件启动，无参数才打开仓库 `demo/` 示例。项目无须复制引擎／编辑器自带的 config、字体、Shader。
 
 当前 .meta v2 保存 version/guid/type；Texture 另有 importer.color_space（srgb/linear）和 flip_y。
 未知字段、缺失字段或不匹配的类型/设置会被拒绝。新 Texture 默认为 srgb、不翻转。
@@ -54,10 +57,12 @@ Texture 源文件 + TextureImportSettings
 ```
 
 - Mesh Runtime 只读已发布 Artifact，不校验源文件、不回退解析 glTF。缓存缺失/损坏需先导入。
-  Project 模型拖入 Edit Viewport 时，EditorAssets 校验资产类型与 revision 后加载 Mesh／默认材质，成功才执行场景创建命令。
+  Project 模型拖入 Edit Viewport 时，复用 EditorAssets::load_reference 校验类型与 revision 后加载 Mesh，成功才执行场景创建命令。
+  新实体材质引用暂留空，用户通过 Inspector 指定；内置基础材质接通后自动使用内置，不从项目描述读取默认值。
   此入口不触发同步源导入；后台导入未完成且无可用产物时，用户等待后重试。Undo 只撤销实体，不卸载共享资源。
   Inspector 组件引用的下拉／拖放也在 UI 后通过 EditorAssets::load_reference 校验类型与 revision 后加载，成功才提交属性命令。
-  启动关键示例资源仍用 prepare_reference 同步准备；普通引用编辑不调用此导入入口。材质纹理槽继续走共享材质文件更新。
+  编辑器启动通过 SceneDocument::open 读取项目默认 `.scene`，与手工打开共用按引用加载和后台补导入恢复，不再有同步示例 bootstrap。
+  材质纹理槽继续走共享材质文件更新。
 - MeshArtifact 保存源路径/内容指纹，ImportService 据此判断重建；.bin 是辅助输入，不单独生成 Handle/.meta。
 - Texture 仍直接解码源文件，TextureArtifact 后置；不要把当前链路误读为所有资产均有 Artifact。
 - MeshImporter 当前只支持一个 glTF mesh，合并 triangle-list primitives；POSITION 必需，
@@ -65,6 +70,11 @@ Texture 源文件 + TextureImportSettings
 - fastgltf 类型不进入 Comet 公共头文件。
 
 ## 扫描、后台刷新与发布
+
+场景打开和 Edit/Play 激活前，EditorAssets 通过 ComponentRegistry::collect_asset_references 收集、去重 Handle／期望类型，
+再调用 AssetManager::ensure_loaded。描述符只发现引用，Manager 不依赖 Scene；Serializer 不参与资源加载。
+ensure_loaded 复用具体 load_* 与唯一 Registry，先核验身份／类型并捕获加载异常；Mesh 只读已发布 Artifact。
+EditorAssets::load_reference 额外保留 UI 的 revision 和清空引用语义，不再重复类型分发。
 
 ```text
 Project Refresh / AssetSourceMonitor
@@ -83,10 +93,14 @@ Project Refresh / AssetSourceMonitor
 Worker 只接收路径、Handle、revision、导入设置的值拷贝，不访问数据库、Registry、ImGui 或 Vulkan。
 过期候选丢弃；解码/GPU 创建失败不替换旧 Runtime 对象。Mesh Artifact 与 Runtime 发布是两个边界：
 Artifact 已成功发布后若 GPU 创建失败，旧 Runtime Mesh 仍保留，磁盘产物可以已更新。
+process_completions 返回本批成功发布的 Handle：Mesh 指 Artifact，Texture 指 Runtime；缓存复用、失败或过期任务不算发布。
+EditorAssets 将非空发布、已提交扫描及显式纹理重导入成功合并成一次引用重查请求，在 UI 全部结束后消费。
+重查只加载当前活动场景的引用，坏引用不改写，也不制造撤销记录；失败等待下一次明确事件，不每帧重试。
+场景激活时的显式准备同时满足已有重查请求，避免同帧重复准备。大量首次 GPU 创建仍同步，预算和增量需求索引后置。
 
 EditorAssets 在成功提交扫描快照后收集 Mesh Handles，下一次 update 通过 `import_mesh_async(IfNeeded)`
 提交后台检查／导入，不依赖选择或 UI 按钮。有效 Artifact 复用且不重写；缺失、损坏或过期时重建。
-首次扫描只记录请求，避免与启动阶段同步准备关键资源竞争；同步准备成功后移除对应待处理请求。
+扫描先合并待导入请求，在 EditorAssets::update 中提交后台任务；默认场景即使缺少 Artifact 也能先打开，成功发布后再恢复引用。
 Project 右键 Reimport 走 Force 模式；同 Handle + revision 请求合并，自动检查期间的强制重建意图不会丢失。
 未加载模型只发布 Artifact 和源依赖，不分配 GPU；已加载模型继续安全替换 Runtime，失败保留旧对象。
 扫描事件后会检查项目内所有已索引 Mesh，也覆盖尚未成功导入、未登记外部 buffer 依赖的模型；

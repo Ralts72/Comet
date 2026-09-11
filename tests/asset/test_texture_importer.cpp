@@ -13,7 +13,8 @@
 namespace Comet::Tests {
     TEST(TextureImporterTest, DecodesTextureIntoRgbaPixels) {
         const std::filesystem::path source =
-            std::filesystem::path(PROJECT_ROOT_DIR) / "assets/textures/awesomeface.png";
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+            / "assets/textures/awesomeface.png";
 
         const TextureData data = TextureImporter{}.import(source);
 
@@ -26,7 +27,8 @@ namespace Comet::Tests {
 
     TEST(TextureImporterTest, AppliesColorSpaceAndVerticalFlip) {
         const std::filesystem::path source =
-            std::filesystem::path(PROJECT_ROOT_DIR) / "assets/textures/awesomeface.png";
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+            / "assets/textures/awesomeface.png";
         const TextureImporter importer;
         const TextureData original = importer.import(
             source, {.color_space = TextureColorSpace::Linear, .flip_y = false});

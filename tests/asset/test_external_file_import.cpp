@@ -47,8 +47,9 @@ namespace Comet::Tests {
         std::filesystem::path texture(const std::filesystem::path& name = "texture.png") {
             const auto target = external / name;
             std::filesystem::create_directories(target.parent_path());
-            std::filesystem::copy_file(std::filesystem::path(PROJECT_ROOT_DIR)
-                                           / "assets/textures/awesomeface.png",
+            std::filesystem::copy_file(
+                std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                    / "assets/textures/awesomeface.png",
                 target);
             return target;
         }
@@ -126,8 +127,8 @@ namespace Comet::Tests {
     }
 
     TEST_F(ExternalFileImportTest, ImportsGlbToRoot) {
-        std::string json =
-            read(std::filesystem::path(PROJECT_ROOT_DIR) / "assets/meshes/cube.gltf");
+        std::string json = read(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                                / "assets/meshes/cube.gltf");
         while(json.size() % 4)
             json.push_back(' ');
         const auto source = external / "model.glb";

@@ -1,5 +1,7 @@
 #include "editor_assets.h"
 #include "diagnostics/logger.h"
+#include "scene/component_registry.h"
+#include <utility>
 
 namespace CometEditor {
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
@@ -28,6 +30,7 @@ namespace CometEditor {
 
     void EditorAssets::accept_scan(const Comet::AssetScanReport& report) {
         if(report.snapshot_updated) {
+            m_reference_refresh_requested = true;
             // 失败的模型可能尚无 buffer 依赖索引，不能只检查变化的 Handle。
             m_pending_mesh_imports.clear();
             for(const auto& record : database().get_assets()) {
@@ -67,7 +70,8 @@ namespace CometEditor {
                     handle.value());
         }
         m_pending_mesh_imports.clear();
-        m_manager.process_completions();
+        if(!m_manager.process_completions().empty())
+            m_reference_refresh_requested = true;
         return report;
     }
 
@@ -120,6 +124,7 @@ namespace CometEditor {
         const auto path = record ? record->path : std::filesystem::path{};
         if(!m_manager.reimport_texture(handle, settings))
             return false;
+        m_reference_refresh_requested = true;
         if(!path.empty())
             acknowledge(Comet::metadata_path(path));
         return true;
@@ -133,57 +138,35 @@ namespace CometEditor {
                 "Mesh reimport request was not accepted for handle {}", handle.value());
     }
 
-    bool EditorAssets::prepare_mesh_placement(const Comet::AssetHandle mesh,
-        const Comet::AssetRevision revision, const Comet::AssetHandle material) {
-        const auto* mesh_record = database().find(mesh);
-        const auto* material_record = database().find(material);
-        if(!database().is_current(mesh, revision) || !mesh_record
-            || mesh_record->type != Comet::AssetType::Mesh || !material_record
-            || material_record->type != Comet::AssetType::Material) {
-            LOG_ERROR("Cannot place mesh {}: stale or incompatible asset reference",
-                mesh.value());
-            return false;
-        }
-        if(!m_manager.load_mesh(mesh) || !m_manager.load_material(material)) {
-            LOG_ERROR("Cannot place mesh {}: wait for automatic import or use Reimport; "
-                      "see Log for resource errors",
-                mesh.value());
-            return false;
-        }
-        return true;
-    }
-
-    bool EditorAssets::prepare_reference(
-        const Comet::AssetHandle handle, const Comet::AssetType type) {
-        if(handle && type == Comet::AssetType::Mesh) {
-            if(!m_manager.import_mesh(handle))
-                return false;
-            m_pending_mesh_imports.erase(handle);
-        }
-        return load_reference(handle, type, database().get_revision(handle));
-    }
-
     bool EditorAssets::load_reference(const Comet::AssetHandle handle,
         const Comet::AssetType type, const Comet::AssetRevision revision) {
         if(!handle)
             return true; // 空引用允许保存在场景中。
-        const auto* record = database().find(handle);
-        if(!record || record->type != type || !database().is_current(handle, revision)) {
+        if(!database().is_current(handle, revision)) {
             LOG_ERROR(
                 "Cannot load asset {}: stale or incompatible reference", handle.value());
             return false;
         }
-        switch(type) {
-            case Comet::AssetType::Mesh:
-                return static_cast<bool>(m_manager.load_mesh(handle));
-            case Comet::AssetType::Material:
-                return static_cast<bool>(m_manager.load_material(handle));
-            case Comet::AssetType::Texture:
-                return static_cast<bool>(m_manager.load_texture(handle));
-            default:
-                LOG_ERROR("Unsupported runtime asset type '{}'", Comet::to_string(type));
-                return false;
+        return m_manager.ensure_loaded(handle, type);
+    }
+
+    std::size_t EditorAssets::prepare_scene(
+        Comet::Scene& scene, const Comet::ComponentRegistry& components) {
+        m_reference_refresh_requested = false;
+        std::size_t missing = 0;
+        for(const auto& reference : components.collect_asset_references(scene)) {
+            if(!m_manager.ensure_loaded(reference.handle, reference.type))
+                ++missing;
         }
+        if(missing)
+            LOG_WARN(
+                "Scene has {} unresolved asset references; data is preserved for repair",
+                missing);
+        return missing;
+    }
+
+    bool EditorAssets::take_reference_refresh_request() {
+        return std::exchange(m_reference_refresh_requested, false);
     }
 
 }

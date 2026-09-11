@@ -14,8 +14,6 @@ namespace Comet::Tests {
         EXPECT_EQ(paths.cache(), std::filesystem::path("Projects/Sandbox/.comet/cache"));
         EXPECT_EQ(paths.editor_state(),
             std::filesystem::path("Projects/Sandbox/.comet/editor"));
-        EXPECT_EQ(
-            paths.settings(), std::filesystem::path("Projects/Sandbox/ProjectSettings"));
     }
 
     TEST(ProjectPathsTest, NormalizesRootWithoutAccessingFileSystem) {

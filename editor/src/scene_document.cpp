@@ -5,12 +5,15 @@
 #include "scene/scene_serializer.h"
 
 #include <exception>
+#include <stdexcept>
 #include <utility>
 
 namespace CometEditor {
     SceneDocument::SceneDocument(const Comet::SceneSerializer& serializer,
-        ActiveSceneGetter get_active_scene, ActiveSceneReplacer replace_active_scene)
-        : m_serializer(serializer), m_get_active_scene(std::move(get_active_scene)),
+        Comet::ProjectPaths paths, ActiveSceneGetter get_active_scene,
+        ActiveSceneReplacer replace_active_scene)
+        : m_serializer(serializer), m_paths(std::move(paths)),
+          m_get_active_scene(std::move(get_active_scene)),
           m_replace_active_scene(std::move(replace_active_scene)) {}
 
     bool SceneDocument::create_new() {
@@ -28,8 +31,11 @@ namespace CometEditor {
         }
 
         try {
-            std::unique_ptr<Comet::Scene> scene = m_serializer.load(path);
-            if(!replace_scene(std::move(scene), path)) {
+            const auto resolved = m_paths.resolve_asset_path(path);
+            if(resolved.extension() != ".scene")
+                throw std::runtime_error("Scene file must have a .scene extension");
+            std::unique_ptr<Comet::Scene> scene = m_serializer.load(resolved.string());
+            if(!replace_scene(std::move(scene), resolved.string())) {
                 return false;
             }
             LOG_INFO("Opened scene '{}'", path);
@@ -53,8 +59,11 @@ namespace CometEditor {
         }
 
         try {
-            m_serializer.save(*scene, path);
-            m_path = path;
+            const auto resolved = m_paths.resolve_asset_path(path);
+            if(resolved.extension() != ".scene")
+                throw std::runtime_error("Scene file must have a .scene extension");
+            m_serializer.save(*scene, resolved.string());
+            m_path = resolved.string();
             m_last_error.clear();
             LOG_INFO("Saved scene '{}'", path);
             return true;

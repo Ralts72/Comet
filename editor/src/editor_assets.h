@@ -4,6 +4,11 @@
 #include "asset/source_monitor.h"
 #include <unordered_set>
 
+namespace Comet {
+    class Scene;
+    class ComponentRegistry;
+}
+
 namespace CometEditor {
     class EditorAssets {
     public:
@@ -21,12 +26,11 @@ namespace CometEditor {
             Comet::AssetHandle handle, const Comet::MaterialData& data);
         [[nodiscard]] bool reimport_texture(
             Comet::AssetHandle handle, Comet::TextureImportSettings settings);
-        [[nodiscard]] bool prepare_reference(
-            Comet::AssetHandle handle, Comet::AssetType type);
         [[nodiscard]] bool load_reference(Comet::AssetHandle handle,
             Comet::AssetType type, Comet::AssetRevision revision);
-        [[nodiscard]] bool prepare_mesh_placement(Comet::AssetHandle mesh,
-            Comet::AssetRevision revision, Comet::AssetHandle material);
+        [[nodiscard]] std::size_t prepare_scene(
+            Comet::Scene& scene, const Comet::ComponentRegistry& components);
+        [[nodiscard]] bool take_reference_refresh_request();
         void request_mesh_reimport(Comet::AssetHandle handle);
         [[nodiscard]] const Comet::AssetDatabase& database() const {
             return m_manager.get_database();
@@ -41,5 +45,6 @@ namespace CometEditor {
         Comet::AssetSourceMonitor m_monitor;
         std::unordered_set<Comet::AssetHandle> m_pending_mesh_imports;
         std::string m_monitor_error;
+        bool m_reference_refresh_requested = false;
     };
 }

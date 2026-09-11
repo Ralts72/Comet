@@ -4,16 +4,16 @@
 #include <imgui.h>
 namespace CometEditor {
     void SceneFileDialog::request(const Action dialog, SceneDocument& document,
-        const std::filesystem::path& project_root) {
+        const std::filesystem::path& scene_directory) {
         m_action = dialog;
         m_open_requested = true;
         document.clear_error();
 
         std::string initial_path = document.get_path();
         if(dialog == Action::Save && initial_path.empty()) {
-            initial_path = project_root.string() + "/untitled.scene";
+            initial_path = (scene_directory / "untitled.scene").string();
         } else if(dialog == Action::Open && initial_path.empty()) {
-            initial_path = project_root.string() + "/";
+            initial_path = scene_directory.string() + "/";
         }
         m_path_buffer.fill('\0');
         std::copy_n(initial_path.data(),

@@ -9,7 +9,7 @@
 
 namespace Comet::Tests {
     TEST(ProjectAssetsTest, DemoAssetsHaveStableIdentityAndValidReferences) {
-        const ProjectPaths paths(PROJECT_ROOT_DIR);
+        const ProjectPaths paths(COMET_SAMPLE_PROJECT_DIRECTORY);
         const AssetMetadataSerializer serializer;
 
         const std::filesystem::path awesome_face_source =

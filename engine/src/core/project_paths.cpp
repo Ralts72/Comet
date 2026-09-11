@@ -3,6 +3,7 @@
 #include "diagnostics/logger.h"
 
 #include <utility>
+#include <stdexcept>
 
 namespace Comet {
     ProjectPaths::ProjectPaths(std::filesystem::path root)
@@ -20,6 +21,21 @@ namespace Comet {
         return m_root / "assets";
     }
 
+    std::filesystem::path ProjectPaths::resolve_asset_path(
+        const std::filesystem::path& path) const {
+        if(path.empty())
+            throw std::runtime_error("Asset path cannot be empty");
+        const auto directory =
+            std::filesystem::weakly_canonical(std::filesystem::absolute(assets()));
+        const auto resolved = std::filesystem::weakly_canonical(
+            path.is_absolute() ? path : directory / path);
+        const auto relative = resolved.lexically_relative(directory);
+        if(relative.empty() || relative == "." || relative.is_absolute()
+            || *relative.begin() == "..")
+            throw std::runtime_error("Path is outside project assets: " + path.string());
+        return resolved;
+    }
+
     std::filesystem::path ProjectPaths::local_data() const {
         return m_root / ".comet";
     }
@@ -32,7 +48,4 @@ namespace Comet {
         return local_data() / "editor";
     }
 
-    std::filesystem::path ProjectPaths::settings() const {
-        return m_root / "ProjectSettings";
-    }
 }

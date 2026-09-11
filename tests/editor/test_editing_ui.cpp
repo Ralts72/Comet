@@ -20,7 +20,7 @@ namespace CometEditor::Tests {
         Comet::Scene scene;
         Comet::Entity entity = scene.create_entity();
         Comet::ComponentRegistry components = Comet::create_scene_component_registry();
-        Comet::AssetDatabase assets{Comet::ProjectPaths(PROJECT_ROOT_DIR)};
+        Comet::AssetDatabase assets{Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY)};
         CommandHistory history;
         PropertyEditTransaction edit{history, components};
         SelectionService selection{scene};
@@ -67,7 +67,8 @@ namespace CometEditor::Tests {
                 }));
             inspector = std::make_unique<InspectorPanel>(state, selection, history, edit,
                 components, widgets, assets,
-                Comet::ProjectPaths(PROJECT_ROOT_DIR).assets(), nullptr, nullptr);
+                Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY).assets(), nullptr,
+                nullptr);
             frame();
             frame();
         }

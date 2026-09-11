@@ -251,7 +251,7 @@ namespace CometEditor::SceneCommands {
         const Comet::ComponentRegistry& registry, std::string name,
         Comet::AssetHandle mesh, Comet::AssetHandle material,
         const Comet::Math::Vec3 position) {
-        if(!mesh || !material || !Comet::Math::is_finite(position))
+        if(!mesh || !Comet::Math::is_finite(position))
             return {};
         return create_from_components(history, registry, std::move(name),
             {{"transform", Comet::TransformComponent{.translation = position}},

@@ -33,6 +33,8 @@ set(SOURCES
         src/core/window.cpp
         src/core/timer.cpp
         src/core/project_paths.cpp
+        src/core/project.cpp
+        src/runtime/entry.cpp
         src/core/task_scheduler.cpp
         src/core/engine.cpp
         src/core/geometry.cpp

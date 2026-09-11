@@ -3,6 +3,7 @@
 #include "scene/components.h"
 
 #include <stdexcept>
+#include <algorithm>
 #include <unordered_set>
 #include <utility>
 
@@ -144,6 +145,30 @@ namespace Comet {
                 return false;
         }
         return true;
+    }
+
+    std::vector<ComponentRegistry::AssetReference> ComponentRegistry::
+        collect_asset_references(Scene& scene) const {
+        std::vector<AssetReference> references;
+        for(const auto entity : scene.get_entities()) {
+            for(const auto& component : m_components) {
+                const auto* data = component.get_component(entity);
+                if(!data)
+                    continue;
+                for(const auto& property : component.properties) {
+                    if(property.type != PropertyType::AssetHandle || !property.asset_type)
+                        continue;
+                    if(const auto value = property.copy_value(data)) {
+                        if(const auto handle = std::get<AssetHandle>(*value))
+                            references.push_back({handle, *property.asset_type});
+                    }
+                }
+            }
+        }
+        std::ranges::sort(references);
+        references.erase(
+            std::unique(references.begin(), references.end()), references.end());
+        return references;
     }
 
     ComponentRegistry create_scene_component_registry() {

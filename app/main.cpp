@@ -6,6 +6,7 @@
 #include <array>
 #include <filesystem>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -56,8 +57,8 @@ namespace {
             auto& asset_registry = engine.get_asset_registry();
 
             m_asset_manager = std::make_unique<Comet::AssetManager>(
-                Comet::ProjectPaths(PROJECT_ROOT_DIR), asset_registry, resource_manager,
-                engine.get_task_scheduler());
+                Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY), asset_registry,
+                resource_manager, engine.get_task_scheduler());
             const Comet::AssetScanReport scan_report = m_asset_manager->scan();
             for(const Comet::AssetScanIssue& issue : scan_report.issues) {
                 LOG_WARN("Asset scan issue at '{}': {}", issue.path.generic_string(),
@@ -122,6 +123,14 @@ namespace {
         std::array<Comet::EntityId, 2> m_cube_entity_ids = {
             Comet::INVALID_ENTITY_ID, Comet::INVALID_ENTITY_ID};
     };
+
+    std::unique_ptr<Comet::Application> create_game_app(
+        Comet::ApplicationArguments arguments) {
+        if(!arguments.empty())
+            throw std::invalid_argument(
+                "This application does not accept command-line arguments");
+        return std::make_unique<GameApp>();
+    }
 }
 
-RUN_APP(GameApp)
+RUN_APP(create_game_app)

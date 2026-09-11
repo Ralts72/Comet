@@ -10,9 +10,11 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `engine/shaders/` | 引擎 Shader；只编译 CMake 显式列表，其余源码保留供学习 |
 | `editor/` | 编辑器入口、面板及 `resources/` 私有字体等资源 |
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
-| `assets/` | 项目源资产与相邻 `.meta`，进入版本控制 |
+| `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
+| `demo/assets/` | 示例项目场景、源资产及相邻 `.meta`，进入版本控制 |
+| `demo/project.yaml` | 示例项目描述：版本、名称和启动场景 |
 | `config/` | `common.yaml` 与各 Profile 配置 |
-| `.comet/` | 本机缓存与编辑器布局，不进入版本控制 |
+| `demo/.comet/` | 示例项目本机缓存与编辑器布局，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
 ## 构建与运行
@@ -42,9 +44,40 @@ macOS 在构建目录内生成 `app/Comet.app` 和 `editor/CometEditor.app`，�
 Windows 通过 `.rc` 将 ICO 编译进 exe，GLFW 自动用作初始窗口图标；不在运行时加载 PNG，Linux 暂不配置图标。
 开发构建仍依赖仓库资源与开发动态库，不是独立分发包。
 
+## 打开项目
+
+```bash
+./editor.sh                         # 打开仓库 demo/ 中的示例项目
+./editor.sh ./demo                  # 显式打开同一示例项目
+./editor.sh /Projects/MyGame        # 读取该目录的 project.yaml
+./editor.sh /Projects/MyGame/project.yaml
+```
+
+编辑器可执行文件也接受同样的可选路径参数；相对路径以调用者的工作目录为基准。`--help` 显示用法。
+项目需要 `project.yaml` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。
+示例项目根目录是仓库的 `demo/`，不是仓库根；可完整复制该目录作为外部项目。
+旧仓库根 `.comet/` 不自动迁移，新位置缺少缓存／布局时会重新生成，旧数据保留。
+
+```yaml
+version: 1
+name: My Game
+startup_scene: scenes/main.scene
+```
+
+`startup_scene` 相对项目 `assets/`；省略或空字符串表示空场景。项目描述不配置默认材质，场景保存自己的材质引用。
+项目描述错误或缺少 assets 时启动失败，不回退仓库项目；启动场景缺失／损坏则记录错误并打开空场景，不覆盖原文件。
+引擎 Profile、编辑器快捷键仍读取开发构建自带的 `config/`，字体／图标／Shader 不需要复制到每个项目。
+当前支持启动时选择一个项目，尚不支持运行中切换项目、最近项目列表、项目创建向导或独立打包。
+
 ## 编辑器使用
 
+- 启动打开项目描述指定的场景，仓库示例为 `demo/assets/scenes/default.scene`；与 File → Open 共用资源准备流程。
+  Open/Save 的相对路径以当前项目 assets 为基准，只接收该目录内的 `.scene`，拒绝越界和指向外部的符号链接。
+  保存写回当前场景文件；重启仍打开配置的启动场景，尚不恢复上次打开的其他场景。
 - Edit 使用独立编辑器相机；Play 使用克隆场景的 primary Camera，Stop 后返回 Edit，不回写运行时修改。
+- 打开场景及切换 Edit/Play 时，按组件描述收集资源引用并加载；坏引用保留并记录 Log，不阻止打开整个场景。
+  Mesh 只加载已有 Artifact；后台导入发布、扫描或显式纹理重导入成功后，在 UI 结束处合并重查当前场景，不每帧遍历引用。
+  大量资源首次加载仍可能同步停顿；尚未提供增量需求索引和上传预算。
 - 画面内右键或 Alt/Option+左键环绕，中键或 Alt/Option+Shift+左键平移，滚轮/双指垂直滚动缩放。
 - 2D/3D 切换编辑器相机的正交/透视投影，不修改 Scene Camera；Play 中不可切换。
 - Edit 画面内左键选择最近的模型包围盒，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。
@@ -79,7 +112,8 @@ Windows 通过 `.rc` 将 ICO 编译进 exe，GLFW 自动用作初始窗口图标
   未加载模型只生成缓存，不创建 GPU 对象。选中模型不显示额外状态栏；右键 Reimport 可强制重建或重试，错误进入 Log。
   手动删除缓存后用右键 Refresh 或重启编辑器触发补建；不在每帧检查磁盘缓存。
 - Edit 中将 Project 模型拖到 Viewport 图像，可在相机关注平面上创建并选中根实体，支持一次 Undo/Redo。
-  使用启动示例材质，不读取 glTF 材质；放置只加载已发布 Artifact，首次导入未完成时需等待后重试。
+  材质引用暂留空，需要在 Inspector 手动指定后才绘制；后续接入引擎内置基础材质，不再由项目配置默认材质。
+  不读取 glTF 材质；放置只加载已发布 Artifact，首次导入未完成时需等待后重试。
   当前材质方案为 `unlit_texture_blend`：无光照、两张纹理等比例混合；暂不支持在材质中切换项目 Shader。
 - Inspector 的 Mesh、Material 引用和材质纹理槽按资产相对路径下拉选择，按类型过滤，底层仍保存 Handle。
   Edit 中也可把 Project 资产拖到对应引用框；拖动不切换当前选中对象，下拉选择仍保留。
@@ -91,6 +125,9 @@ Windows 通过 `.rc` 将 ICO 编译进 exe，GLFW 自动用作初始窗口图标
 
 ## 架构入口
 
+- 启动：app/editor 共用 `RUN_APP` 和 `Comet::launch`，统一参数传递、`--help`、错误退出和 Application 所有权。
+  各入口显式提供创建函数，负责自己的参数校验和依赖准备；`Editor` 只接收已加载的 `Project`，不解析命令行。
+  之后仍由 `Comet::run` 初始化引擎并进入主循环，不通过构造函数签名推断启动行为。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
 - 调试绘制：`LineDrawList` 提交单帧世界空间线段/包围盒，`DebugRenderer` 在场景 pass 内绘制，

@@ -107,7 +107,8 @@ namespace Comet::Tests {
 
     TEST(MeshImporterTest, ImportsProjectCubeAsset) {
         const std::filesystem::path source =
-            std::filesystem::path(PROJECT_ROOT_DIR) / "assets/meshes/cube.gltf";
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+            / "assets/meshes/cube.gltf";
 
         const MeshData data = MeshImporter{}.import(source);
 

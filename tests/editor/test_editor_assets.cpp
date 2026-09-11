@@ -2,8 +2,16 @@
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/registry.h"
 #include "core/task_scheduler.h"
+#include "core/project.h"
 #include "render/resource/resource_factory.h"
+#include "render/resource/mesh.h"
 #include "render/material.h"
+#include "scene_document.h"
+#include "editor_scene_session.h"
+#include "editor_state.h"
+#include "scene/component_registry.h"
+#include "scene/scene_serializer.h"
+#include "asset/serialization/material_serializer.h"
 #include <gtest/gtest.h>
 #include <chrono>
 #include <array>
@@ -17,6 +25,7 @@ namespace CometEditor::Tests {
         public:
             int mesh_creations = 0;
             bool fail = false;
+            bool fail_texture = true;
             Comet::GpuResourceResult<std::shared_ptr<Comet::Mesh>> try_create_mesh(
                 const Comet::MeshData&) override {
                 ++mesh_creations;
@@ -31,12 +40,18 @@ namespace CometEditor::Tests {
             }
             Comet::GpuResourceResult<std::shared_ptr<Comet::Texture>> try_create_texture(
                 const Comet::TextureData&) override {
+                if(!fail_texture) {
+                    auto owner = std::make_shared<int>(0);
+                    return Comet::GpuResourceResult<std::shared_ptr<Comet::Texture>>::
+                        success(std::shared_ptr<Comet::Texture>(
+                            owner, reinterpret_cast<Comet::Texture*>(owner.get())));
+                }
                 return Comet::GpuResourceResult<std::shared_ptr<Comet::Texture>>::failure(
                     vk::Result::eErrorOutOfDeviceMemory);
             }
         } factory;
         std::filesystem::path root =
-            std::filesystem::temp_directory_path()
+            std::filesystem::canonical(std::filesystem::temp_directory_path())
             / ("comet_editor_assets_"
                 + std::to_string(Comet::AssetHandle::generate().value()));
         Comet::AssetRegistry runtime;
@@ -47,7 +62,8 @@ namespace CometEditor::Tests {
             const auto directory = Comet::ProjectPaths(root).assets();
             std::filesystem::create_directories(directory);
             std::filesystem::copy_file(
-                std::filesystem::path(PROJECT_ROOT_DIR) / "assets/meshes/cube.gltf",
+                std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                    / "assets/meshes/cube.gltf",
                 directory / "model.gltf");
             assets = std::make_unique<EditorAssets>(
                 Comet::ProjectPaths(root), runtime, factory, scheduler);
@@ -84,10 +100,222 @@ namespace CometEditor::Tests {
     };
 
     TEST_F(
+        EditorAssetsTest, ExternalProjectOpensStartupSceneAndRecoversAfterInitialImport) {
+        const auto directory = Comet::ProjectPaths(root).assets();
+        std::filesystem::copy(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets", directory,
+            std::filesystem::copy_options::recursive);
+        std::filesystem::copy_file(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "project.yaml",
+            root / "project.yaml");
+        const auto project = Comet::Project::load(root);
+        assets =
+            std::make_unique<EditorAssets>(project.paths(), runtime, factory, scheduler);
+        ASSERT_TRUE(assets->refresh().succeeded());
+        factory.fail_texture = false;
+        const auto components = Comet::create_scene_component_registry();
+        const Comet::SceneSerializer serializer(components);
+        std::unique_ptr<Comet::Scene> active;
+        std::size_t missing = 0;
+        SceneDocument document(
+            serializer, project.paths(), [&] { return active.get(); },
+            [&](std::unique_ptr<Comet::Scene> replacement) {
+                missing = assets->prepare_scene(*replacement, components);
+                active.swap(replacement);
+                return replacement;
+            });
+
+        const auto path =
+            project.paths().resolve_asset_path(project.startup_scene()).string();
+        ASSERT_TRUE(document.open(project.startup_scene().string()));
+        ASSERT_NE(active, nullptr);
+        EXPECT_EQ(document.get_path(), path);
+        EXPECT_EQ(missing, 1U);
+        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(active->entity_count(), 2U);
+        const auto references = components.collect_asset_references(*active);
+        ASSERT_EQ(references.size(), 2U);
+        for(const auto& reference : references) {
+            const auto* record = assets->database().find(reference.handle);
+            ASSERT_NE(record, nullptr);
+            EXPECT_EQ(record->type, reference.type);
+        }
+        const auto original = serializer.serialize(*active);
+        complete_imports();
+        ASSERT_TRUE(assets->take_reference_refresh_request());
+        EXPECT_EQ(assets->prepare_scene(*active, components), 0U);
+        EXPECT_EQ(factory.mesh_creations, 1);
+        EXPECT_EQ(serializer.serialize(*active), original);
+        for(const auto& reference : references)
+            EXPECT_TRUE(runtime.contains(reference.handle));
+
+        active->create_entity("Saved startup edit");
+        ASSERT_TRUE(document.save(document.get_path()));
+        active.reset();
+        ASSERT_TRUE(document.open(path));
+        EXPECT_EQ(active->entity_count(), 3U);
+        EXPECT_EQ(missing, 0U);
+        EXPECT_EQ(factory.mesh_creations, 1);
+    }
+
+    TEST_F(EditorAssetsTest, ReopenedScenePreparesSharedReferencesFromArtifacts) {
+        const auto material = add_material();
+        complete_imports();
+        const auto components = Comet::create_scene_component_registry();
+        const Comet::SceneSerializer serializer(components);
+        auto active = std::make_unique<Comet::Scene>();
+        auto entity = active->create_entity("Saved");
+        const auto uuid = entity.get_uuid();
+        entity.add_component<Comet::MeshRendererComponent>(mesh, material);
+        active->create_entity("Shared").add_component<Comet::MeshRendererComponent>(
+            mesh, material);
+        const auto path = (Comet::ProjectPaths(root).assets() / "saved.scene").string();
+        serializer.save(*active, path);
+        assets.reset();
+        runtime.clear();
+        std::ofstream(Comet::ProjectPaths(root).assets() / "model.gltf")
+            << "invalid gltf";
+        assets = std::make_unique<EditorAssets>(
+            Comet::ProjectPaths(root), runtime, factory, scheduler);
+        ASSERT_TRUE(assets->refresh().succeeded());
+        SceneDocument document(
+            serializer, Comet::ProjectPaths(root), [&] { return active.get(); },
+            [&](std::unique_ptr<Comet::Scene> replacement) {
+                EXPECT_EQ(assets->prepare_scene(*replacement, components), 0);
+                active.swap(replacement);
+                return replacement;
+            });
+        ASSERT_TRUE(document.open(path));
+        EXPECT_TRUE(runtime.resolve<Comet::Mesh>(mesh));
+        EXPECT_TRUE(runtime.resolve<Comet::Material>(material));
+        EXPECT_EQ(
+            active->find_entity(uuid).get_component<Comet::MeshRendererComponent>().mesh,
+            mesh);
+        EXPECT_EQ(factory.mesh_creations, 1);
+        EXPECT_FALSE(assets->take_reference_refresh_request());
+        ASSERT_TRUE(document.open(path));
+        EXPECT_EQ(factory.mesh_creations, 1);
+    }
+
+    TEST_F(EditorAssetsTest, MissingArtifactRepairsAfterPublicationWithoutChangingScene) {
+        const auto components = Comet::create_scene_component_registry();
+        const Comet::SceneSerializer serializer(components);
+        auto active = std::make_unique<Comet::Scene>();
+        active->create_entity("Missing").add_component<Comet::MeshRendererComponent>(
+            mesh, Comet::AssetHandle(999));
+        const auto before = serializer.serialize(*active);
+        const auto path = (Comet::ProjectPaths(root).assets() / "missing.scene").string();
+        serializer.save(*active, path);
+        SceneDocument document(
+            serializer, Comet::ProjectPaths(root), [&] { return active.get(); },
+            [&](std::unique_ptr<Comet::Scene> replacement) {
+                EXPECT_EQ(assets->prepare_scene(*replacement, components), 2);
+                active.swap(replacement);
+                return replacement;
+            });
+        ASSERT_TRUE(document.open(path));
+        EXPECT_TRUE(document.get_last_error().empty());
+        EXPECT_FALSE(std::filesystem::exists(artifact_path()));
+        EXPECT_EQ(factory.mesh_creations, 0);
+        complete_imports();
+        ASSERT_TRUE(assets->take_reference_refresh_request());
+        EXPECT_FALSE(assets->take_reference_refresh_request());
+        EXPECT_FALSE(runtime.contains(mesh));
+        EXPECT_EQ(assets->prepare_scene(*active, components), 1);
+        EXPECT_TRUE(runtime.contains(mesh));
+        EXPECT_EQ(serializer.serialize(*active), before);
+        for(int frame = 0; frame < 3; ++frame) {
+            static_cast<void>(assets->update());
+            EXPECT_FALSE(assets->take_reference_refresh_request());
+        }
+        EXPECT_EQ(factory.mesh_creations, 1);
+    }
+
+    TEST_F(EditorAssetsTest, SceneRefreshCoalescesSuccessfulScansButNotFailedImports) {
+        const auto components = Comet::create_scene_component_registry();
+        Comet::Scene scene;
+        scene.create_entity().add_component<Comet::MeshRendererComponent>(
+            mesh, Comet::AssetHandle{});
+        std::ofstream(Comet::ProjectPaths(root).assets() / "model.gltf")
+            << "invalid gltf";
+        ASSERT_TRUE(assets->refresh().succeeded());
+        ASSERT_TRUE(assets->refresh().succeeded());
+        EXPECT_TRUE(assets->take_reference_refresh_request());
+        EXPECT_FALSE(assets->take_reference_refresh_request());
+        EXPECT_EQ(assets->prepare_scene(scene, components), 1);
+        complete_imports();
+        EXPECT_FALSE(assets->take_reference_refresh_request());
+        std::filesystem::copy_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                                       / "assets/meshes/cube.gltf",
+            Comet::ProjectPaths(root).assets() / "model.gltf",
+            std::filesystem::copy_options::overwrite_existing);
+        ASSERT_TRUE(assets->refresh().succeeded());
+        complete_imports();
+        EXPECT_TRUE(assets->take_reference_refresh_request());
+        EXPECT_EQ(assets->prepare_scene(scene, components), 0);
+        EXPECT_TRUE(runtime.contains(mesh));
+    }
+
+    TEST_F(EditorAssetsTest, SuccessfulTextureRepairRequestsSceneMaterialPreparation) {
+        const auto directory = Comet::ProjectPaths(root).assets();
+        std::filesystem::copy_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                                       / "assets/textures/awesomeface.png",
+            directory / "texture.png");
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto texture = assets->database().find("texture.png")->handle;
+        Comet::MaterialSerializer{}.save(
+            {.template_name = "test", .texture_properties = {{"albedo", texture}}},
+            directory / "textured.mat");
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto material = assets->database().find("textured.mat")->handle;
+        const auto components = Comet::create_scene_component_registry();
+        Comet::Scene scene;
+        scene.create_entity().add_component<Comet::MeshRendererComponent>(
+            Comet::AssetHandle{}, material);
+        EXPECT_EQ(assets->prepare_scene(scene, components), 1);
+        EXPECT_FALSE(assets->reimport_texture(texture, {}));
+        EXPECT_FALSE(assets->take_reference_refresh_request());
+        factory.fail_texture = false;
+        ASSERT_TRUE(assets->reimport_texture(texture, {}));
+        ASSERT_TRUE(assets->take_reference_refresh_request());
+        EXPECT_FALSE(runtime.contains(material));
+        EXPECT_EQ(assets->prepare_scene(scene, components), 0);
+        EXPECT_TRUE(runtime.contains(material));
+    }
+
+    TEST_F(EditorAssetsTest, PlayAndStopPrepareTheSceneBeingActivated) {
+        const auto components = Comet::create_scene_component_registry();
+        const Comet::SceneSerializer serializer(components);
+        auto active = std::make_unique<Comet::Scene>();
+        active->create_entity().add_component<Comet::MeshRendererComponent>(
+            mesh, Comet::AssetHandle{});
+        complete_imports();
+        EditorState state;
+        int preparations = 0;
+        EditorSceneSession session(
+            state, serializer, [&] { return active.get(); },
+            [&](std::unique_ptr<Comet::Scene> replacement) {
+                ++preparations;
+                EXPECT_EQ(assets->prepare_scene(*replacement, components), 0);
+                active.swap(replacement);
+                return replacement;
+            });
+        session.request_mode(EditorMode::Play);
+        ASSERT_TRUE(session.apply_mode_request());
+        EXPECT_TRUE(runtime.contains(mesh));
+        runtime.clear();
+        session.request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session.apply_mode_request());
+        EXPECT_TRUE(runtime.contains(mesh));
+        EXPECT_EQ(preparations, 2);
+    }
+
+    TEST_F(
         EditorAssetsTest, ExternalFileImportQueuesArtifactWithoutGpuOrExplicitRefresh) {
         const auto source = root / "external.gltf";
-        std::filesystem::copy_file(
-            std::filesystem::path(PROJECT_ROOT_DIR) / "assets/meshes/cube.gltf", source);
+        std::filesystem::copy_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                                       / "assets/meshes/cube.gltf",
+            source);
         const std::array files{source};
         const auto report = assets->import_files(files, {});
         ASSERT_TRUE(report.succeeded());
@@ -102,41 +330,6 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(runtime.contains(handle));
         EXPECT_EQ(factory.mesh_creations, 0);
         EXPECT_TRUE(std::filesystem::exists(source));
-    }
-
-    TEST_F(EditorAssetsTest, PlacementLoadsPublishedArtifactWithoutImportingSource) {
-        const auto material = add_material();
-        ASSERT_TRUE(material);
-        const auto revision = assets->database().get_revision(mesh);
-        EXPECT_FALSE(assets->prepare_mesh_placement(mesh, revision, material));
-        EXPECT_FALSE(std::filesystem::exists(artifact_path()));
-        EXPECT_EQ(factory.mesh_creations, 0);
-
-        complete_imports();
-        ASSERT_TRUE(std::filesystem::exists(artifact_path()));
-        std::ofstream(Comet::ProjectPaths(root).assets() / "model.gltf") << "invalid";
-        ASSERT_TRUE(assets->prepare_mesh_placement(mesh, revision, material));
-        EXPECT_EQ(factory.mesh_creations, 1);
-        EXPECT_TRUE(assets->prepare_mesh_placement(mesh, revision, material));
-        EXPECT_EQ(factory.mesh_creations, 1);
-    }
-
-    TEST_F(EditorAssetsTest, PlacementRejectsStaleOrInvalidReferencesBeforeLoading) {
-        const auto material = add_material();
-        ASSERT_TRUE(material);
-        complete_imports();
-        const auto revision = assets->database().get_revision(mesh);
-        EXPECT_FALSE(assets->prepare_mesh_placement(mesh, revision + 1, material));
-        EXPECT_FALSE(assets->prepare_mesh_placement(mesh, revision, {}));
-        EXPECT_FALSE(assets->prepare_mesh_placement(mesh, revision, mesh));
-        EXPECT_FALSE(assets->prepare_mesh_placement(
-            material, assets->database().get_revision(material), material));
-        EXPECT_EQ(factory.mesh_creations, 0);
-        factory.fail = true;
-        EXPECT_FALSE(assets->prepare_mesh_placement(mesh, revision, material));
-        EXPECT_FALSE(runtime.contains(mesh));
-        factory.fail = false;
-        EXPECT_TRUE(assets->prepare_mesh_placement(mesh, revision, material));
     }
 
     TEST_F(EditorAssetsTest, ReferenceLoadingDoesNotImportAndRejectsStaleRevisions) {
@@ -159,28 +352,11 @@ namespace CometEditor::Tests {
         EXPECT_EQ(factory.mesh_creations, 2);
     }
 
-    TEST_F(EditorAssetsTest, RepeatedReferencePreparationReusesRuntimeResource) {
-        ASSERT_TRUE(assets->prepare_reference(mesh, Comet::AssetType::Mesh));
-        EXPECT_TRUE(runtime.contains(mesh));
-        EXPECT_EQ(factory.mesh_creations, 1);
-        ASSERT_TRUE(assets->prepare_reference(mesh, Comet::AssetType::Mesh));
-        EXPECT_EQ(factory.mesh_creations, 1);
-        EXPECT_FALSE(assets->prepare_reference(mesh, Comet::AssetType::Material));
-    }
-
-    TEST_F(EditorAssetsTest, FailedReferencePreparationDoesNotPublishAndCanBeRetried) {
-        factory.fail = true;
-        EXPECT_FALSE(assets->prepare_reference(mesh, Comet::AssetType::Mesh));
-        EXPECT_FALSE(runtime.contains(mesh));
-        factory.fail = false;
-        ASSERT_TRUE(assets->prepare_reference(mesh, Comet::AssetType::Mesh));
-        EXPECT_TRUE(runtime.contains(mesh));
-    }
-
-    TEST_F(EditorAssetsTest, MissingReferenceCannotBePreparedButEmptyReferenceIsAllowed) {
+    TEST_F(EditorAssetsTest, MissingReferenceCannotBeLoadedButEmptyReferenceIsAllowed) {
         const auto missing = Comet::AssetHandle::generate();
-        EXPECT_FALSE(assets->prepare_reference(missing, Comet::AssetType::Mesh));
-        EXPECT_TRUE(assets->prepare_reference({}, Comet::AssetType::Mesh));
+        EXPECT_FALSE(assets->load_reference(
+            missing, Comet::AssetType::Mesh, assets->database().get_revision(missing)));
+        EXPECT_TRUE(assets->load_reference({}, Comet::AssetType::Mesh, {}));
         EXPECT_EQ(factory.mesh_creations, 0);
     }
 
@@ -199,10 +375,10 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(Comet::MeshArtifact::load(artifact_path(), mesh));
     }
 
-    TEST_F(EditorAssetsTest,
-        DeferredImportDoesNotRaceSynchronousBootstrapOrRebuildCurrentCache) {
-        ASSERT_TRUE(assets->prepare_reference(mesh, Comet::AssetType::Mesh));
+    TEST_F(EditorAssetsTest, AutomaticImportReusesCacheUntilExplicitReimport) {
         complete_imports();
+        ASSERT_TRUE(assets->load_reference(
+            mesh, Comet::AssetType::Mesh, assets->database().get_revision(mesh)));
         EXPECT_EQ(factory.mesh_creations, 1);
         const auto stamp =
             std::filesystem::file_time_type::clock::now() - std::chrono::hours(1);
@@ -245,9 +421,9 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(assets->refresh().succeeded());
         complete_imports();
         EXPECT_FALSE(std::filesystem::exists(artifact_path()));
-        std::filesystem::copy_file(
-            std::filesystem::path(PROJECT_ROOT_DIR) / "assets/meshes/cube.gltf", source,
-            std::filesystem::copy_options::overwrite_existing);
+        std::filesystem::copy_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                                       / "assets/meshes/cube.gltf",
+            source, std::filesystem::copy_options::overwrite_existing);
         ASSERT_TRUE(assets->refresh().succeeded());
         complete_imports();
         EXPECT_TRUE(Comet::MeshArtifact::load(artifact_path(), mesh));

@@ -52,13 +52,29 @@ namespace CometEditor::Tests {
             Comet::Math::Vec3(2, 3, 4));
     }
 
+    TEST_F(SceneCommandsTest, MeshPlacementPreservesEmptyMaterialThroughUndoAndSave) {
+        const auto uuid = SceneCommands::create_mesh_entity(
+            history, registry, "Unassigned", Comet::AssetHandle(8), {}, {});
+        ASSERT_TRUE(uuid);
+        EXPECT_FALSE(scene.find_entity(uuid)
+                .get_component<Comet::MeshRendererComponent>()
+                .material);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(scene.find_entity(uuid));
+        ASSERT_TRUE(history.redo());
+        const Comet::SceneSerializer serializer(registry);
+        auto reopened = serializer.deserialize(serializer.serialize(scene));
+        const auto& renderer =
+            reopened->find_entity(uuid).get_component<Comet::MeshRendererComponent>();
+        EXPECT_EQ(renderer.mesh, Comet::AssetHandle(8));
+        EXPECT_FALSE(renderer.material);
+    }
+
     TEST_F(SceneCommandsTest, InvalidMeshPlacementPreservesHistoryAndScene) {
         ASSERT_TRUE(SceneCommands::create_entity(history, registry));
         ASSERT_TRUE(history.undo());
         EXPECT_FALSE(SceneCommands::create_mesh_entity(
             history, registry, "Bad", {}, Comet::AssetHandle(9), {}));
-        EXPECT_FALSE(SceneCommands::create_mesh_entity(
-            history, registry, "Bad", Comet::AssetHandle(8), {}, {}));
         EXPECT_FALSE(SceneCommands::create_mesh_entity(history, registry, "Bad",
             Comet::AssetHandle(8), Comet::AssetHandle(9),
             {std::numeric_limits<float>::quiet_NaN(), 0, 0}));

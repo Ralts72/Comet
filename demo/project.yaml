@@ -1,0 +1,3 @@
+version: 1
+name: Comet Sample
+startup_scene: scenes/default.scene

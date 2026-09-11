@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CALLER_DIRECTORY="$PWD"
 cd "$ROOT_DIR"
 
 echo "配置 editor-dev（RelWithDebInfo）..."
@@ -14,7 +15,8 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 if [ -x "$EXEC" ]; then
     echo "运行 Editor: $EXEC"
-    "$EXEC"
+    cd "$CALLER_DIRECTORY"
+    exec "$EXEC" "$@"
 else
     echo "Editor executable not found: $EXEC"
     exit 1

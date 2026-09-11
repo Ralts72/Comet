@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/project_paths.h"
+
 #include <functional>
 #include <memory>
 #include <string>
@@ -16,7 +18,7 @@ namespace CometEditor {
         using ActiveSceneReplacer =
             std::function<std::unique_ptr<Comet::Scene>(std::unique_ptr<Comet::Scene>)>;
 
-        SceneDocument(const Comet::SceneSerializer& serializer,
+        SceneDocument(const Comet::SceneSerializer& serializer, Comet::ProjectPaths paths,
             ActiveSceneGetter get_active_scene, ActiveSceneReplacer replace_active_scene);
 
         [[nodiscard]] bool create_new();
@@ -34,6 +36,7 @@ namespace CometEditor {
             std::unique_ptr<Comet::Scene> scene, std::string path);
 
         const Comet::SceneSerializer& m_serializer;
+        Comet::ProjectPaths m_paths;
         ActiveSceneGetter m_get_active_scene;
         ActiveSceneReplacer m_replace_active_scene;
         std::string m_path;

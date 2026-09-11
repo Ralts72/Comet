@@ -30,7 +30,9 @@ namespace Comet {
         [[nodiscard]] AssetScanReport import_files(
             std::span<const std::filesystem::path> sources,
             const std::filesystem::path& directory);
-        void process_completions();
+        // 本次成功发布的结果；Mesh Artifact 发布不代表 GPU 已驻留。
+        std::vector<AssetHandle> process_completions();
+        [[nodiscard]] bool ensure_loaded(AssetHandle handle, AssetType expected_type);
         [[nodiscard]] bool import_mesh(AssetHandle handle);
         [[nodiscard]] bool import_mesh_async(
             AssetHandle handle, MeshImportMode mode = MeshImportMode::IfNeeded);

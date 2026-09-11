@@ -272,7 +272,31 @@ namespace Comet {
         }
     }
 
-    void AssetManager::process_completions() {
+    bool AssetManager::ensure_loaded(
+        const AssetHandle handle, const AssetType expected_type) {
+        if(!validate_asset_handle(handle, "load an asset")
+            || !find_asset_record(m_database, handle, expected_type))
+            return false;
+        try {
+            switch(expected_type) {
+                case AssetType::Mesh:
+                    return static_cast<bool>(load_mesh(handle));
+                case AssetType::Material:
+                    return static_cast<bool>(load_material(handle));
+                case AssetType::Texture:
+                    return static_cast<bool>(load_texture(handle));
+                default:
+                    LOG_WARN("Runtime loading is not implemented for asset type '{}'",
+                        to_string(expected_type));
+                    return false;
+            }
+        } catch(const std::exception& error) {
+            LOG_ERROR("Cannot load asset {}: {}", handle.value(), error.what());
+            return false;
+        }
+    }
+
+    std::vector<AssetHandle> AssetManager::process_completions() {
         std::deque<MeshArtifactCandidate> completed_meshes;
         std::deque<TextureImportCandidate> completed_textures;
         {
@@ -281,6 +305,8 @@ namespace Comet {
             completed_textures.swap(m_async_state->completed_textures);
         }
 
+        std::vector<AssetHandle> published;
+        published.reserve(completed_meshes.size() + completed_textures.size());
         for(MeshArtifactCandidate& candidate : completed_meshes) {
             bool force_rebuild = false;
             const auto pending = m_async_state->pending_assets.find(candidate.handle);
@@ -323,6 +349,7 @@ namespace Comet {
                 continue;
             }
 
+            published.push_back(candidate.handle);
             const auto runtime = find_runtime_asset<Mesh>(m_registry, candidate.handle);
             if(runtime.type_conflict)
                 continue;
@@ -418,6 +445,7 @@ namespace Comet {
             }
 
             reload_loaded_material_dependents(candidate.handle);
+            published.push_back(candidate.handle);
             LOG_INFO("Reloaded texture asset '{}' (handle {})",
                 candidate.relative_path.generic_string(), candidate.handle.value());
         }
@@ -443,6 +471,7 @@ namespace Comet {
             }
             task = tasks.erase(task);
         }
+        return published;
     }
 
     bool AssetManager::import_mesh(const AssetHandle handle) {

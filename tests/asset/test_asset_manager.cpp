@@ -59,8 +59,9 @@ namespace Comet::Tests {
             std::filesystem::path add_texture(const AssetHandle handle) const {
                 const std::filesystem::path path = paths().assets() / "textures/test.png";
                 std::filesystem::create_directories(path.parent_path());
-                std::filesystem::copy_file(std::filesystem::path(PROJECT_ROOT_DIR)
-                                               / "assets/textures/awesomeface.png",
+                std::filesystem::copy_file(
+                    std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                        / "assets/textures/awesomeface.png",
                     path, std::filesystem::copy_options::overwrite_existing);
                 AssetMetadataSerializer{}.save(
                     {.handle = handle,
@@ -90,7 +91,7 @@ namespace Comet::Tests {
                     source = "assets/textures/awesomeface.png";
                 }
                 std::filesystem::copy_file(
-                    std::filesystem::path(PROJECT_ROOT_DIR) / source, path,
+                    std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / source, path,
                     std::filesystem::copy_options::overwrite_existing);
             }
 
@@ -173,7 +174,7 @@ namespace Comet::Tests {
                 ++m_mesh_creation_count;
                 m_last_mesh_vertex_count = data.vertices.size();
                 if(m_on_mesh_creation) {
-                    auto callback = std::move(m_on_mesh_creation);
+                    auto callback = std::exchange(m_on_mesh_creation, {});
                     callback();
                 }
                 if(m_fail_mesh_creation) {
@@ -245,14 +246,55 @@ namespace Comet::Tests {
             source = project.add_mesh(handle);
             ASSERT_TRUE(manager.scan().succeeded());
         }
-        void complete() {
+        std::vector<AssetHandle> complete() {
             scheduler.wait_idle();
-            manager.process_completions();
+            return manager.process_completions();
         }
         std::filesystem::path artifact_path() const {
             return project.paths().cache() / "imported/mesh/42.bin";
         }
     };
+
+    TEST_F(MeshAsyncImportTest, EnsureLoadedValidatesTypeAndContainsFactoryExceptions) {
+        EXPECT_FALSE(manager.ensure_loaded({}, AssetType::Mesh));
+        EXPECT_FALSE(manager.ensure_loaded(AssetHandle(999), AssetType::Mesh));
+        EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Material));
+        EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Unknown));
+        EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Mesh));
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+        ASSERT_TRUE(manager.import_mesh(handle));
+        factory.on_next_mesh_creation(
+            [] { throw std::runtime_error("test allocation failure"); });
+        EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Mesh));
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_TRUE(manager.ensure_loaded(handle, AssetType::Mesh));
+        EXPECT_EQ(factory.mesh_creation_count(), 2);
+        EXPECT_TRUE(manager.ensure_loaded(handle, AssetType::Mesh));
+        EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Texture));
+        EXPECT_EQ(factory.mesh_creation_count(), 2);
+    }
+
+    TEST_F(MeshAsyncImportTest, ReportsOnlyPublishedArtifactsNotReuseFailureOrStaleWork) {
+        EXPECT_TRUE(manager.process_completions().empty());
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        EXPECT_EQ(complete(), std::vector<AssetHandle>{handle});
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_TRUE(manager.process_completions().empty());
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        EXPECT_TRUE(complete().empty());
+        std::ofstream(source, std::ios::trunc) << "invalid gltf";
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        EXPECT_TRUE(complete().empty());
+        TemporaryProject::write_mesh(
+            source, R"({"attributes":{"POSITION":0},"indices":1})");
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_mesh_async(handle, Mode::Force));
+        scheduler.wait_idle();
+        std::ofstream(source, std::ios::app) << " ";
+        ASSERT_TRUE(manager.scan().succeeded());
+        EXPECT_TRUE(manager.process_completions().empty());
+    }
 
     TEST_F(MeshAsyncImportTest, DeduplicatesAndPublishesUnloadedMeshOnlyOnOwner) {
         ASSERT_TRUE(manager.import_mesh_async(handle));
@@ -327,7 +369,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(previous);
         factory.fail_mesh_creation(true);
         ASSERT_TRUE(manager.import_mesh_async(handle, Mode::Force));
-        complete();
+        EXPECT_EQ(complete(), std::vector<AssetHandle>{handle});
         EXPECT_TRUE(MeshArtifact::load(artifact_path(), handle));
         EXPECT_EQ(registry.resolve<Mesh>(handle), previous);
         EXPECT_EQ(factory.mesh_creation_count(), 2);
@@ -830,7 +872,7 @@ namespace Comet::Tests {
         EXPECT_EQ(resource_factory.texture_creation_count(), 1);
 
         task_scheduler.wait_idle();
-        manager.process_completions();
+        EXPECT_TRUE(manager.process_completions().empty());
 
         EXPECT_EQ(registry.resolve<Texture>(handle), original);
         EXPECT_EQ(resource_factory.texture_creation_count(), 2);
@@ -858,7 +900,7 @@ namespace Comet::Tests {
         EXPECT_EQ(resource_factory.texture_creation_count(), 1);
 
         task_scheduler.wait_idle();
-        manager.process_completions();
+        EXPECT_EQ(manager.process_completions(), std::vector<AssetHandle>{handle});
 
         EXPECT_NE(registry.resolve<Texture>(handle), original);
         EXPECT_EQ(resource_factory.texture_creation_count(), 2);
