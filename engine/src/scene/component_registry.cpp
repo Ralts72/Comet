@@ -151,7 +151,7 @@ namespace Comet {
             }
         };
 
-        // 名称由 Scene 创建，沿用现有 .scene 名称字段，不重复序列化。
+        // 名称已由 .scene 单独保存，避免重复序列化。
         register_component(make_component_descriptor<NameComponent>("name", "Name",
             {make_property_descriptor("name", "Name", &NameComponent::name)}, false));
 

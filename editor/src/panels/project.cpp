@@ -60,6 +60,8 @@ namespace CometEditor {
                 ImGui::EndDragDropSource();
             }
             if(ImGui::BeginPopupContextItem()) {
+                if(asset.type == Comet::AssetType::Mesh && ImGui::MenuItem("Reimport"))
+                    m_reimport_request = asset.handle;
                 if(ImGui::MenuItem("Rename", nullptr, false, !!m_move_asset_callback))
                     request_rename(asset);
                 if(ImGui::MenuItem("Refresh", nullptr, false, !!m_refresh_callback))
@@ -135,6 +137,10 @@ namespace CometEditor {
             ImGui::TextWrapped("%s", m_operation_error.c_str());
         }
         ImGui::End();
+    }
+
+    std::optional<Comet::AssetHandle> ProjectPanel::take_mesh_reimport_request() {
+        return std::exchange(m_reimport_request, std::nullopt);
     }
 
     void ProjectPanel::accept_asset_drop(const std::filesystem::path& directory) {

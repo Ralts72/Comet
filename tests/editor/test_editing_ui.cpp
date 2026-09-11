@@ -430,7 +430,6 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(selection.get_selected_entity());
         EXPECT_FALSE(hierarchy.take_request());
 
-        // 历史仍绑定当前 Scene，Play 也必须禁用复制菜单。
         state.mode = EditorMode::Play;
         draw();
         io.AddMouseButtonEvent(1, true);
@@ -465,7 +464,6 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(entity.has_component<Comet::CameraComponent>());
         ASSERT_TRUE(history.redo());
         EXPECT_TRUE(entity.has_component<Comet::CameraComponent>());
-        // 即使历史仍绑定，显式 Play 状态也必须禁止组件增删。
         state.mode = EditorMode::Play;
         frame();
         ImGui::ActivateItemByID(window->GetID("Add Component"));

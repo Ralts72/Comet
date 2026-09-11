@@ -145,7 +145,6 @@ namespace {
                     m_imgui_context->render(command_buffer);
                 });
 
-            // 注册交换链依赖资源的释放／重建钩子。
             scene_renderer.set_swapchain_resource_callbacks(
                 [this]() { m_imgui_context->release_swapchain_resources(); },
                 [this](const Comet::SwapchainCompatibility& compatibility) {
@@ -443,10 +442,9 @@ namespace {
         }
 
         void setup_log_redirect() const {
-            // 日志改由编辑器面板展示，文件输出不受影响。
             Comet::Logger::remove_console_sinks();
 
-            // 面板必须先创建；弱引用使延迟到达的日志不会访问已销毁的面板。
+            // 弱引用避免延迟日志访问已销毁的面板。
             const auto gui_sink = std::make_shared<spdlog::sinks::callback_sink_mt>(
                 [panel = std::weak_ptr(m_console_panel)](
                     const spdlog::details::log_msg& msg) {
@@ -536,6 +534,8 @@ namespace {
         }
 
         void process_editor_requests() {
+            if(const auto handle = m_project_panel->take_mesh_reimport_request())
+                m_assets->request_mesh_reimport(*handle);
             const auto hierarchy_request = m_hierarchy_panel->take_request();
             const auto menu_command = m_menu_bar->take_command();
             // 菜单命令优先，避免同帧场景或历史切换后执行旧层级请求。

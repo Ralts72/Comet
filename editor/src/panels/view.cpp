@@ -385,7 +385,7 @@ namespace CometEditor {
     }
 
     void ViewPanel::draw_gizmo() {
-        // draw list 只借用到当前 UI 帧结束，不跨帧保存或交给渲染线程。
+        // draw list 仅在当前 UI 帧内有效。
         ImDrawList* draw_list = std::exchange(m_gizmo_draw_list, nullptr);
         if(!draw_list || m_state.mode != EditorMode::Edit || m_pick_request
             || m_mode_request || m_texture_id == ImTextureID_Invalid) {

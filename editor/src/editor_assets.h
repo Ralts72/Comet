@@ -2,9 +2,9 @@
 
 #include "asset/asset_manager.h"
 #include "asset/source_monitor.h"
+#include <unordered_set>
 
 namespace CometEditor {
-    // 编辑器拥有文件监视与资源准备策略；不持有面板或 GPU 对象。
     class EditorAssets {
     public:
         EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
@@ -20,6 +20,7 @@ namespace CometEditor {
             Comet::AssetHandle handle, Comet::TextureImportSettings settings);
         [[nodiscard]] bool prepare_reference(
             Comet::AssetHandle handle, Comet::AssetType type);
+        void request_mesh_reimport(Comet::AssetHandle handle);
         [[nodiscard]] const Comet::AssetDatabase& database() const {
             return m_manager.get_database();
         }
@@ -31,6 +32,7 @@ namespace CometEditor {
 
         Comet::AssetManager m_manager;
         Comet::AssetSourceMonitor m_monitor;
+        std::unordered_set<Comet::AssetHandle> m_pending_mesh_imports;
         std::string m_monitor_error;
     };
 }

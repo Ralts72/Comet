@@ -128,7 +128,7 @@ namespace CometEditor {
             }
         }
 
-        // 全局命令与视口命令可同时生效；合并默认值后检查所有绑定。
+        // 全局与视口快捷键可能同时生效，需一起检查冲突。
         std::unordered_map<ImGuiKeyChord, std::string_view> owners;
         for(std::size_t index = 0; index < result.m_bindings.size(); ++index) {
             for(const auto& binding : result.m_bindings[index]) {

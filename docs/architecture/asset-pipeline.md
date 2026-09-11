@@ -80,6 +80,14 @@ Worker 只接收路径、Handle、revision、导入设置的值拷贝，不访�
 过期候选丢弃；解码/GPU 创建失败不替换旧 Runtime 对象。Mesh Artifact 与 Runtime 发布是两个边界：
 Artifact 已成功发布后若 GPU 创建失败，旧 Runtime Mesh 仍保留，磁盘产物可以已更新。
 
+EditorAssets 在成功提交扫描快照后收集 Mesh Handles，下一次 update 通过 `import_mesh_async(IfNeeded)`
+提交后台检查／导入，不依赖选择或 UI 按钮。有效 Artifact 复用且不重写；缺失、损坏或过期时重建。
+首次扫描只记录请求，避免与启动阶段同步准备关键资源竞争；同步准备成功后移除对应待处理请求。
+Project 右键 Reimport 走 Force 模式；同 Handle + revision 请求合并，自动检查期间的强制重建意图不会丢失。
+未加载模型只发布 Artifact 和源依赖，不分配 GPU；已加载模型继续安全替换 Runtime，失败保留旧对象。
+扫描事件后会检查项目内所有已索引 Mesh，也覆盖尚未成功导入、未登记外部 buffer 依赖的模型；
+无事件帧不遍历或检查产物，失败不会每帧自动重试。大项目的检查范围和任务预算仍需后续优化。
+
 依赖索引分两类：
 
 - AssetHandle 依赖：例如 Material → Texture。

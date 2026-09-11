@@ -259,6 +259,46 @@ namespace CometEditor::Tests {
         EXPECT_EQ(destination, "folder/a.png");
     }
 
+    TEST_F(ProjectPanelTest, MeshReimportUsesContextTargetWithoutSelectionStatusUi) {
+        std::ofstream(paths.assets() / "model.gltf") << "{}";
+        project->update_scan_report(manager.scan());
+        const auto* record = database.find("model.gltf");
+        ASSERT_NE(record, nullptr);
+        const auto handle = record->handle;
+        const auto texture = database.find("a.png")->handle;
+        selection.select_asset(texture);
+        frame();
+        const auto* window = ImGui::FindWindowByName("Project");
+        ASSERT_NE(window, nullptr);
+        const auto height = window->DC.CursorMaxPos.y;
+        selection.select_asset(handle);
+        frame();
+        EXPECT_EQ(window->DC.CursorMaxPos.y, height);
+        EXPECT_FALSE(project->take_mesh_reimport_request());
+        selection.select_asset(texture);
+        click(row_point(5), 1);
+        auto& context = *ImGui::GetCurrentContext();
+        ASSERT_EQ(context.OpenPopupStack.Size, 1);
+        auto* popup = context.OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Reimport"));
+        frame();
+        const auto request = project->take_mesh_reimport_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(*request, handle);
+        EXPECT_EQ(selection.get_selected_asset(), texture);
+        EXPECT_FALSE(project->take_mesh_reimport_request());
+        EXPECT_FALSE(std::filesystem::exists(paths.cache()));
+
+        click(row_point(3), 1);
+        ASSERT_EQ(context.OpenPopupStack.Size, 1);
+        popup = context.OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Reimport"));
+        frame();
+        EXPECT_FALSE(project->take_mesh_reimport_request());
+    }
+
     TEST_F(ProjectPanelTest, DragRejectsAssetChangedDuringGesture) {
         begin_drag(3);
         std::ofstream(paths.assets() / "a.png") << "changed content";

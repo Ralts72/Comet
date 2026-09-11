@@ -230,6 +230,141 @@ namespace Comet::Tests {
         }
     }
 
+    class MeshAsyncImportTest: public ::testing::Test {
+    protected:
+        using Mode = AssetManager::MeshImportMode;
+        static constexpr AssetHandle handle{42};
+        TemporaryProject project;
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler{1};
+        AssetManager manager{project.paths(), registry, factory, scheduler};
+        std::filesystem::path source;
+
+        void SetUp() override {
+            source = project.add_mesh(handle);
+            ASSERT_TRUE(manager.scan().succeeded());
+        }
+        void complete() {
+            scheduler.wait_idle();
+            manager.process_completions();
+        }
+        std::filesystem::path artifact_path() const {
+            return project.paths().cache() / "imported/mesh/42.bin";
+        }
+    };
+
+    TEST_F(MeshAsyncImportTest, DeduplicatesAndPublishesUnloadedMeshOnlyOnOwner) {
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        EXPECT_TRUE(manager.import_mesh_async(handle));
+        EXPECT_FALSE(manager.import_mesh(handle));
+        scheduler.wait_idle();
+        EXPECT_FALSE(std::filesystem::exists(artifact_path()));
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+        manager.process_completions();
+        EXPECT_TRUE(MeshArtifact::load(artifact_path(), handle));
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+        ASSERT_NE(manager.load_mesh(handle), nullptr);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
+    }
+
+    TEST_F(MeshAsyncImportTest, ReusesCurrentCacheAndRebuildsCorruptedOrMissingCache) {
+        ASSERT_TRUE(manager.import_mesh(handle));
+        const auto previous = manager.load_mesh(handle);
+        ASSERT_TRUE(previous);
+        const auto stamp =
+            std::filesystem::file_time_type::clock::now() - std::chrono::hours(1);
+        std::filesystem::last_write_time(artifact_path(), stamp);
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        complete();
+        EXPECT_EQ(std::filesystem::last_write_time(artifact_path()), stamp);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
+        EXPECT_EQ(registry.resolve<Mesh>(handle), previous);
+        std::ofstream(artifact_path(), std::ios::trunc) << "broken";
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        complete();
+        EXPECT_TRUE(MeshArtifact::load(artifact_path(), handle));
+        std::filesystem::remove(artifact_path());
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        complete();
+        EXPECT_TRUE(MeshArtifact::load(artifact_path(), handle));
+    }
+
+    TEST_F(MeshAsyncImportTest, ChangedSourceRebuildsWithoutAllocatingUnusedRuntime) {
+        ASSERT_TRUE(manager.import_mesh(handle));
+        TemporaryProject::write_mesh(source,
+            R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})");
+        ASSERT_TRUE(contains_handle(manager.scan().modified_assets, handle));
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        complete();
+        auto artifact = MeshArtifact::load(artifact_path(), handle);
+        ASSERT_TRUE(artifact);
+        EXPECT_EQ(artifact->data.vertices.size(), 6);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+    }
+
+    TEST_F(MeshAsyncImportTest, FailedReimportPreservesArtifactAndCanBeRetried) {
+        ASSERT_TRUE(manager.import_mesh(handle));
+        std::ofstream(source, std::ios::trunc) << "invalid gltf";
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        complete();
+        EXPECT_TRUE(MeshArtifact::load(artifact_path(), handle));
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+        TemporaryProject::write_mesh(
+            source, R"({"attributes":{"POSITION":0},"indices":1})");
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_mesh_async(handle, Mode::Force));
+        complete();
+        EXPECT_TRUE(MeshArtifact::load(artifact_path(), handle));
+        EXPECT_FALSE(manager.import_mesh_async(AssetHandle(999)));
+    }
+
+    TEST_F(MeshAsyncImportTest, ForceRebuildKeepsOldRuntimeOnGpuFailure) {
+        ASSERT_TRUE(manager.import_mesh(handle));
+        const auto previous = manager.load_mesh(handle);
+        ASSERT_TRUE(previous);
+        factory.fail_mesh_creation(true);
+        ASSERT_TRUE(manager.import_mesh_async(handle, Mode::Force));
+        complete();
+        EXPECT_TRUE(MeshArtifact::load(artifact_path(), handle));
+        EXPECT_EQ(registry.resolve<Mesh>(handle), previous);
+        EXPECT_EQ(factory.mesh_creation_count(), 2);
+    }
+
+    TEST_F(MeshAsyncImportTest, ForceRequestDuringCacheCheckIsNotLost) {
+        ASSERT_TRUE(manager.import_mesh(handle));
+        ASSERT_TRUE(manager.load_mesh(handle));
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        scheduler.wait_idle();
+        // Worker 已复用缓存，但 owner 尚未消费，此时仍需兑现强制重建。
+        ASSERT_TRUE(manager.import_mesh_async(handle, Mode::Force));
+        ASSERT_TRUE(manager.import_mesh_async(handle, Mode::Force));
+        manager.process_completions();
+        complete();
+        EXPECT_EQ(factory.mesh_creation_count(), 2);
+    }
+
+    TEST_F(MeshAsyncImportTest, OldRequestCannotOverwriteNewRevisionAfterMove) {
+        std::promise<void> release;
+        const auto gate = release.get_future().share();
+        auto blocker = scheduler.submit([gate] { gate.wait(); });
+        EXPECT_TRUE(manager.import_mesh_async(handle));
+        const auto before = manager.get_database().get_revision(handle);
+        const auto report = manager.move_asset(handle, "moved/new.gltf");
+        EXPECT_TRUE(report.succeeded());
+        EXPECT_NE(manager.get_database().get_revision(handle), before);
+        EXPECT_TRUE(manager.import_mesh_async(handle));
+        release.set_value();
+        complete();
+        blocker.get();
+        const auto artifact = MeshArtifact::load(artifact_path(), handle);
+        ASSERT_TRUE(artifact);
+        EXPECT_EQ(artifact->source_inputs.files.front().relative_path, "moved/new.gltf");
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+    }
+
     TEST(AssetManagerTest, ImportsAndLoadsMeshArtifactByAssetHandle) {
         const TemporaryProject project;
         constexpr AssetHandle handle(42);

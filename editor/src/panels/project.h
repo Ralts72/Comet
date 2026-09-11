@@ -25,6 +25,7 @@ namespace CometEditor {
 
         void render() override;
         void update_scan_report(Comet::AssetScanReport scan_report);
+        [[nodiscard]] std::optional<Comet::AssetHandle> take_mesh_reimport_request();
 
     private:
         struct AssetTreeNode {
@@ -52,6 +53,7 @@ namespace CometEditor {
         RefreshCallback m_refresh_callback;
         MoveAssetCallback m_move_asset_callback;
         SelectionService& m_selection;
+        std::optional<Comet::AssetHandle> m_reimport_request;
         std::array<char, 1024> m_name_buffer{};
         std::string m_operation_error;
         Comet::AssetHandle m_renaming_asset;

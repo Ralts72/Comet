@@ -189,7 +189,7 @@ namespace CometEditor::SceneCommands {
                         return component->restore_component(entity, m_snapshot);
                     if(!component->add_component(entity))
                         return false;
-                    // 默认组件也保存一次，Redo 不依赖之后可能变化的默认值。
+                    // Redo 使用初始快照，不重新取默认值。
                     try {
                         m_snapshot = component->capture_component(entity);
                     } catch(...) {
@@ -299,7 +299,7 @@ namespace CometEditor::SceneCommands {
     }
 
     bool can_edit_component_structure(const Comet::ComponentDescriptor& component) {
-        // Transform 是编辑器实体的基础空间信息，不开放结构编辑；序列化能力不变。
+        // 编辑器实体必须保留 Transform。
         return component.id != "transform" && component.add_component_callback
                && component.remove_component_callback
                && component.capture_component_callback
