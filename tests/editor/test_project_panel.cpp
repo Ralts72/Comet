@@ -68,7 +68,7 @@ namespace CometEditor::Tests {
             int width, height;
             io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
             project = std::make_unique<ProjectPanel>(
-                database, std::move(report),
+                database, paths.assets(), std::move(report),
                 [this]() {
                     ++refresh_count;
                     project->update_scan_report(manager.scan());
@@ -180,6 +180,35 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(
+        ProjectPanelTest, ExternalFileDropUsesFolderRowsAssetParentsAndRootBackground) {
+        const auto directory_at = [&](const ImVec2 point) {
+            return project->file_drop_directory({point.x, point.y});
+        };
+        EXPECT_EQ(directory_at(row_point(0)), std::filesystem::path{});
+        EXPECT_EQ(directory_at(row_point(1)), std::filesystem::path("folder"));
+        EXPECT_EQ(directory_at(row_point(2)), std::filesystem::path("folder"));
+        EXPECT_EQ(directory_at({300, 350}), std::filesystem::path{});
+        EXPECT_FALSE(directory_at({600, 350}));
+        EXPECT_FALSE(directory_at({100, 5}));
+        click(row_point(1));
+        EXPECT_EQ(directory_at(row_point(1)), std::filesystem::path("folder"));
+        project->set_visible(false);
+        frame();
+        EXPECT_FALSE(directory_at(row_point(1)));
+    }
+
+    TEST_F(ProjectPanelTest, ExternalFileDropTargetsEmptyDirectoriesAndRejectsPopups) {
+        std::filesystem::create_directories(paths.assets() / "empty");
+        project->update_scan_report(manager.scan());
+        frame();
+        const auto point = row_point(1);
+        EXPECT_EQ(project->file_drop_directory({point.x, point.y}),
+            std::filesystem::path("empty"));
+        click({300, 350}, 1);
+        EXPECT_FALSE(project->file_drop_directory({point.x, point.y}));
+    }
+
     TEST_F(ProjectPanelTest, MeshDragKeepsOriginalIdentityAcrossDocumentChanges) {
         std::filesystem::copy_file(
             std::filesystem::path(PROJECT_ROOT_DIR) / "assets/meshes/cube.gltf",
@@ -270,17 +299,20 @@ namespace CometEditor::Tests {
 
     TEST_F(ProjectPanelTest, DragMovesToFolderAndBackToRootAfterTraversal) {
         const auto source = database.find("a.png")->handle;
+        const auto selected = database.find("b.png")->handle;
+        selection.select_asset(selected);
         begin_drag(3);
         drop(1);
         EXPECT_EQ(move_count, 1);
         EXPECT_EQ(database.find(source)->path, "folder/a.png");
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "folder/a.png.meta"));
-        EXPECT_EQ(selection.get_selected_asset(), source);
+        EXPECT_EQ(selection.get_selected_asset(), selected);
         begin_drag(2);
         drop(0);
         EXPECT_EQ(move_count, 2);
         EXPECT_EQ(database.find(source)->path, "a.png");
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "a.png.meta"));
+        EXPECT_EQ(selection.get_selected_asset(), selected);
     }
 
     TEST_F(ProjectPanelTest, DragAcceptsClosedFolderAndIgnoresSameDirectory) {

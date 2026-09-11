@@ -4,6 +4,7 @@
 #include "command_history.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <map>
@@ -12,15 +13,26 @@
 #include <vector>
 
 namespace CometEditor {
-    ProjectPanel::AssetTreeNode ProjectPanel::build_asset_tree(
-        std::vector<Comet::AssetRecord> assets) {
+    ProjectPanel::AssetTreeNode ProjectPanel::build_asset_tree() const {
         AssetTreeNode root;
-        for(Comet::AssetRecord& asset : assets) {
+        for(Comet::AssetRecord& asset : m_database.get_assets()) {
             AssetTreeNode* node = &root;
             for(const auto& component : asset.path.parent_path()) {
                 node = &node->directories[component.string()];
             }
             node->assets.push_back(std::move(asset));
+        }
+        std::error_code error;
+        std::filesystem::recursive_directory_iterator iterator(m_asset_root, error), end;
+        while(!error && iterator != end) {
+            if(iterator->is_symlink(error)) {
+                iterator.disable_recursion_pending();
+            } else if(iterator->is_directory(error)) {
+                auto* node = &root;
+                for(const auto& part : iterator->path().lexically_relative(m_asset_root))
+                    node = &node->directories[part.string()];
+            }
+            iterator.increment(error);
         }
         return root;
     }
@@ -31,6 +43,7 @@ namespace CometEditor {
             const auto directory_path = path / name;
             const bool open = ImGui::TreeNodeEx(name.c_str(),
                 ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
+            record_drop_target(directory_path);
             accept_asset_drop(directory_path);
             if(open) {
                 render_asset_tree(directory, directory_path);
@@ -44,12 +57,13 @@ namespace CometEditor {
             if(ImGui::Selectable(name.c_str(), m_selection.is_selected(asset.handle))) {
                 m_selection.select_asset(asset.handle);
             }
-            const bool can_drag =
-                m_move_asset_callback
-                || (asset.type == Comet::AssetType::Mesh && m_history.get_scene());
+            record_drop_target(path);
+            const bool can_drag = m_move_asset_callback
+                                  || ((asset.type == Comet::AssetType::Mesh
+                                          || asset.type == Comet::AssetType::Material
+                                          || asset.type == Comet::AssetType::Texture)
+                                      && m_history.get_scene());
             if(can_drag && ImGui::BeginDragDropSource()) {
-                if(!m_selection.is_selected(asset.handle))
-                    m_selection.select_asset(asset.handle);
                 const AssetDragPayload payload{asset.handle,
                     m_database.get_revision(asset.handle), m_history.generation(),
                     asset.type};
@@ -77,17 +91,18 @@ namespace CometEditor {
     }
 
     ProjectPanel::ProjectPanel(const Comet::AssetDatabase& database,
-        Comet::AssetScanReport scan_report, RefreshCallback refresh_callback,
-        MoveAssetCallback move_asset_callback, SelectionService& selection,
-        const CommandHistory& history)
+        std::filesystem::path asset_root, Comet::AssetScanReport scan_report,
+        RefreshCallback refresh_callback, MoveAssetCallback move_asset_callback,
+        SelectionService& selection, const CommandHistory& history)
         : EditorPanel("Project"), m_database(database),
-          m_tree(build_asset_tree(database.get_assets())),
+          m_asset_root(std::move(asset_root)), m_tree(build_asset_tree()),
           m_scan_report(std::move(scan_report)),
           m_refresh_callback(std::move(refresh_callback)),
           m_move_asset_callback(std::move(move_asset_callback)), m_selection(selection),
           m_history(history) {}
 
     void ProjectPanel::render() {
+        m_drop_targets.clear();
         if(!m_user_visible)
             return;
 
@@ -95,9 +110,13 @@ namespace CometEditor {
             ImGui::End();
             return;
         }
+        const auto& content = ImGui::GetCurrentWindow()->InnerClipRect;
+        m_drop_targets.push_back(
+            {{content.Min.x, content.Min.y}, {content.Max.x, content.Max.y}, {}});
 
         const bool root_open = ImGui::TreeNodeEx(
             "assets", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
+        record_drop_target({});
         accept_asset_drop({});
         if(root_open) {
             if(m_tree.assets.empty() && m_tree.directories.empty()) {
@@ -142,6 +161,34 @@ namespace CometEditor {
 
     std::optional<Comet::AssetHandle> ProjectPanel::take_mesh_reimport_request() {
         return std::exchange(m_reimport_request, std::nullopt);
+    }
+
+    void ProjectPanel::record_drop_target(const std::filesystem::path& directory) {
+        ImRect rect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+        rect.ClipWith(ImGui::GetCurrentWindow()->ClipRect);
+        if(rect.GetWidth() > 0 && rect.GetHeight() > 0)
+            m_drop_targets.push_back(
+                {{rect.Min.x, rect.Min.y}, {rect.Max.x, rect.Max.y}, directory});
+    }
+
+    std::optional<std::filesystem::path> ProjectPanel::file_drop_directory(
+        const Comet::Math::Vec2 position) const {
+        if(!m_user_visible || m_drop_targets.empty()
+            || ImGui::IsPopupOpen(
+                nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+            return std::nullopt;
+        ImGuiWindow* hovered = nullptr;
+        ImGuiWindow* under_moving = nullptr;
+        ImGui::FindHoveredWindowEx(
+            {position.x, position.y}, false, &hovered, &under_moving);
+        if(hovered != ImGui::FindWindowByName(m_name.c_str()))
+            return std::nullopt;
+        for(auto it = m_drop_targets.rbegin(); it != m_drop_targets.rend(); ++it) {
+            if(position.x >= it->minimum.x && position.y >= it->minimum.y
+                && position.x < it->maximum.x && position.y < it->maximum.y)
+                return it->directory;
+        }
+        return std::nullopt;
     }
 
     void ProjectPanel::accept_asset_drop(const std::filesystem::path& directory) {
@@ -240,7 +287,7 @@ namespace CometEditor {
     void ProjectPanel::update_scan_report(Comet::AssetScanReport scan_report) {
         m_scan_report = std::move(scan_report);
         if(m_scan_report.snapshot_updated)
-            m_tree = build_asset_tree(m_database.get_assets());
+            m_tree = build_asset_tree();
         const Comet::AssetHandle selected_asset = m_selection.get_selected_asset();
         if(selected_asset && !m_database.find(selected_asset)) {
             m_selection.clear();

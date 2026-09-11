@@ -83,6 +83,27 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(
+        EditorAssetsTest, ExternalFileImportQueuesArtifactWithoutGpuOrExplicitRefresh) {
+        const auto source = root / "external.gltf";
+        std::filesystem::copy_file(
+            std::filesystem::path(PROJECT_ROOT_DIR) / "assets/meshes/cube.gltf", source);
+        const std::array files{source};
+        const auto report = assets->import_files(files, {});
+        ASSERT_TRUE(report.succeeded());
+        const auto* record = assets->database().find("external.gltf");
+        ASSERT_NE(record, nullptr);
+        const auto handle = record->handle;
+        const auto artifact =
+            artifact_path().parent_path() / (std::to_string(handle.value()) + ".bin");
+        EXPECT_FALSE(std::filesystem::exists(artifact));
+        complete_imports();
+        EXPECT_TRUE(Comet::MeshArtifact::load(artifact, handle));
+        EXPECT_FALSE(runtime.contains(handle));
+        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_TRUE(std::filesystem::exists(source));
+    }
+
     TEST_F(EditorAssetsTest, PlacementLoadsPublishedArtifactWithoutImportingSource) {
         const auto material = add_material();
         ASSERT_TRUE(material);
@@ -116,6 +137,26 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(runtime.contains(mesh));
         factory.fail = false;
         EXPECT_TRUE(assets->prepare_mesh_placement(mesh, revision, material));
+    }
+
+    TEST_F(EditorAssetsTest, ReferenceLoadingDoesNotImportAndRejectsStaleRevisions) {
+        const auto revision = assets->database().get_revision(mesh);
+        EXPECT_TRUE(assets->load_reference({}, Comet::AssetType::Mesh, 0));
+        EXPECT_FALSE(assets->load_reference(mesh, Comet::AssetType::Mesh, revision));
+        EXPECT_FALSE(std::filesystem::exists(artifact_path()));
+        EXPECT_EQ(factory.mesh_creations, 0);
+        complete_imports();
+        EXPECT_FALSE(assets->load_reference(mesh, Comet::AssetType::Mesh, revision + 1));
+        EXPECT_FALSE(assets->load_reference(mesh, Comet::AssetType::Material, revision));
+        EXPECT_EQ(factory.mesh_creations, 0);
+        std::ofstream(Comet::ProjectPaths(root).assets() / "model.gltf") << "invalid";
+        factory.fail = true;
+        EXPECT_FALSE(assets->load_reference(mesh, Comet::AssetType::Mesh, revision));
+        EXPECT_FALSE(runtime.contains(mesh));
+        factory.fail = false;
+        EXPECT_TRUE(assets->load_reference(mesh, Comet::AssetType::Mesh, revision));
+        EXPECT_TRUE(assets->load_reference(mesh, Comet::AssetType::Mesh, revision));
+        EXPECT_EQ(factory.mesh_creations, 2);
     }
 
     TEST_F(EditorAssetsTest, RepeatedReferencePreparationReusesRuntimeResource) {

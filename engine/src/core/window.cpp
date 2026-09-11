@@ -2,6 +2,9 @@
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 #include <algorithm>
+#include <exception>
+#include <string_view>
+#include <utility>
 
 namespace Comet {
     Window::Window(const Config::Window& config) {
@@ -32,6 +35,24 @@ namespace Comet {
         if(!m_window) {
             LOG_FATAL("Failed to create glfw window.");
         }
+        glfwSetWindowUserPointer(m_window, this);
+        glfwSetDropCallback(
+            m_window, [](GLFWwindow* window, int count, const char** paths) {
+                try {
+                    FileDrop drop;
+                    double x, y;
+                    glfwGetCursorPos(window, &x, &y);
+                    drop.position = {static_cast<float>(x), static_cast<float>(y)};
+                    for(int i = 0; i < count; ++i) {
+                        const std::string_view utf8(paths[i]);
+                        drop.paths.emplace_back(std::u8string(utf8.begin(), utf8.end()));
+                    }
+                    static_cast<Window*>(glfwGetWindowUserPointer(window))
+                        ->m_file_drops.push_back(std::move(drop));
+                } catch(const std::exception& error) {
+                    LOG_ERROR("Cannot receive dropped files: {}", error.what());
+                }
+            });
 
         // 窗口模式下居中显示，全屏模式不需要
         if(!config.fullscreen) {
@@ -73,6 +94,10 @@ namespace Comet {
     void Window::wait_events() {
         PROFILE_SCOPE("Window::WaitEvents");
         glfwWaitEvents();
+    }
+
+    std::vector<Window::FileDrop> Window::take_file_drops() {
+        return std::exchange(m_file_drops, {});
     }
 
 }

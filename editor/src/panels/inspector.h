@@ -5,6 +5,7 @@
 #include "editor_panel.h"
 #include "command_history.h"
 #include "editor_state.h"
+#include "asset_drag_drop.h"
 
 #include <filesystem>
 #include <functional>
@@ -22,12 +23,14 @@ namespace CometEditor {
 
     class InspectorPanel: public EditorPanel {
     public:
+        struct AssetAssignment {
+            PropertyEditTransaction::Target target;
+            AssetDragPayload asset;
+        };
         using UpdateMaterialCallback =
             std::function<bool(Comet::AssetHandle, const Comet::MaterialData&)>;
         using ReimportTextureCallback =
             std::function<bool(Comet::AssetHandle, Comet::TextureImportSettings)>;
-
-        using PrepareAsset = std::function<bool(Comet::AssetHandle, Comet::AssetType)>;
 
         InspectorPanel(const EditorState& state, SelectionService& selection,
             CommandHistory& history, PropertyEditTransaction& property_edit,
@@ -35,17 +38,21 @@ namespace CometEditor {
             const PropertyEditorRegistry& property_editor_registry,
             const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root,
             UpdateMaterialCallback update_material_callback,
-            ReimportTextureCallback reimport_texture_callback,
-            PrepareAsset prepare_asset = {});
+            ReimportTextureCallback reimport_texture_callback);
 
         void render() override;
         void invalidate_asset_cache();
+        [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
 
     private:
         void render_entity(Comet::Entity entity);
         void render_property(Comet::Entity entity,
             const Comet::ComponentDescriptor& component,
             const Comet::PropertyDescriptor& property);
+        void render_asset_property(const PropertyEditTransaction::Target& target,
+            const Comet::PropertyDescriptor& property, Comet::AssetHandle handle);
+        [[nodiscard]] std::optional<AssetDragPayload> accept_asset_drop(
+            Comet::AssetType expected_type);
         void render_asset(Comet::AssetHandle handle);
         void render_texture(const Comet::AssetRecord& record);
         void render_material(const Comet::AssetRecord& record);
@@ -57,7 +64,6 @@ namespace CometEditor {
         [[nodiscard]] std::string validate_material() const;
 
         const EditorState& m_state;
-        PrepareAsset m_prepare_asset;
         SelectionService& m_selection;
         CommandHistory& m_history;
         PropertyEditTransaction& m_property_edit;
@@ -71,6 +77,7 @@ namespace CometEditor {
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;
         std::optional<Comet::MaterialData> m_material_data;
         std::string m_asset_error;
+        std::optional<AssetAssignment> m_asset_assignment;
     };
 
 }

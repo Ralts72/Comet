@@ -1,6 +1,7 @@
 #pragma once
 #include "asset/database.h"
 #include "editor_panel.h"
+#include "core/math_utils.h"
 
 #include <array>
 #include <map>
@@ -21,13 +22,15 @@ namespace CometEditor {
             Comet::AssetHandle, const std::filesystem::path&)>;
 
         ProjectPanel(const Comet::AssetDatabase& database,
-            Comet::AssetScanReport scan_report, RefreshCallback refresh_callback,
-            MoveAssetCallback move_asset_callback, SelectionService& selection,
-            const CommandHistory& history);
+            std::filesystem::path asset_root, Comet::AssetScanReport scan_report,
+            RefreshCallback refresh_callback, MoveAssetCallback move_asset_callback,
+            SelectionService& selection, const CommandHistory& history);
 
         void render() override;
         void update_scan_report(Comet::AssetScanReport scan_report);
         [[nodiscard]] std::optional<Comet::AssetHandle> take_mesh_reimport_request();
+        [[nodiscard]] std::optional<std::filesystem::path> file_drop_directory(
+            Comet::Math::Vec2 position) const;
 
     private:
         struct AssetTreeNode {
@@ -39,8 +42,13 @@ namespace CometEditor {
             Comet::AssetRevision revision;
             std::filesystem::path destination;
         };
-        [[nodiscard]] static AssetTreeNode build_asset_tree(
-            std::vector<Comet::AssetRecord> assets);
+        struct DropTarget {
+            Comet::Math::Vec2 minimum;
+            Comet::Math::Vec2 maximum;
+            std::filesystem::path directory;
+        };
+        [[nodiscard]] AssetTreeNode build_asset_tree() const;
+        void record_drop_target(const std::filesystem::path& directory);
         void render_asset_tree(
             const AssetTreeNode& node, const std::filesystem::path& path);
         void accept_asset_drop(const std::filesystem::path& directory);
@@ -50,7 +58,9 @@ namespace CometEditor {
             Comet::AssetHandle handle, const std::filesystem::path& destination);
 
         const Comet::AssetDatabase& m_database;
+        std::filesystem::path m_asset_root;
         AssetTreeNode m_tree;
+        std::vector<DropTarget> m_drop_targets;
         Comet::AssetScanReport m_scan_report;
         RefreshCallback m_refresh_callback;
         MoveAssetCallback m_move_asset_callback;

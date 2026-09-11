@@ -487,12 +487,10 @@ namespace {
                 [this](const Comet::AssetHandle handle,
                     const Comet::TextureImportSettings settings) {
                     return m_assets->reimport_texture(handle, settings);
-                },
-                [this](Comet::AssetHandle handle, Comet::AssetType type) {
-                    return m_assets->prepare_reference(handle, type);
                 });
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(
-                m_assets->database(), std::move(initial_asset_scan),
+                m_assets->database(), m_project_paths.assets(),
+                std::move(initial_asset_scan),
                 [this]() {
                     auto report = m_assets->refresh();
                     apply_asset_scan_report(std::move(report));
@@ -534,6 +532,53 @@ namespace {
             m_menu_bar->collect_shortcuts();
         }
 
+        void handle_asset_assignment(
+            const CometEditor::InspectorPanel::AssetAssignment& request) {
+            auto* scene = get_engine().get_scene();
+            if(!scene || request.asset.generation != m_command_history.generation()
+                || (m_editor_state.mode == CometEditor::EditorMode::Edit
+                    && m_command_history.get_scene() != scene))
+                return;
+            auto entity = scene->find_entity(request.target.entity);
+            const auto* component =
+                m_component_registry.find_component(request.target.component);
+            const auto* property =
+                component ? component->find_property(request.target.property) : nullptr;
+            if(!entity || !component || !component->has_component(entity) || !property
+                || !property->editable || property->read_only
+                || property->type != Comet::PropertyType::AssetHandle
+                || property->asset_type != request.asset.type)
+                return;
+            const auto current = property->copy_value(component->get_component(entity));
+            if(!current || std::get<Comet::AssetHandle>(*current) == request.asset.handle)
+                return;
+            m_viewport_panel->cancel_interaction();
+            if(!m_property_edit.commit()) {
+                LOG_ERROR("Cannot finish property edit before asset assignment");
+                return;
+            }
+            if(!m_assets->load_reference(
+                   request.asset.handle, request.asset.type, request.asset.revision)) {
+                LOG_WARN("Cannot assign asset {}; previous reference is unchanged",
+                    request.asset.handle.value());
+                return;
+            }
+            if(m_editor_state.mode == CometEditor::EditorMode::Play) {
+                if(!property->assign_value(
+                       component->get_component(entity), request.asset.handle))
+                    LOG_ERROR("Cannot update runtime asset reference");
+                return;
+            }
+            if(!m_property_edit.begin(request.target))
+                return;
+            if(!m_property_edit.preview(request.asset.handle)) {
+                static_cast<void>(m_property_edit.cancel());
+                return;
+            }
+            if(!m_property_edit.commit())
+                LOG_ERROR("Cannot commit asset reference");
+        }
+
         void handle_mesh_drop(const CometEditor::ViewPanel::MeshDrop& request) {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit
                 || request.asset.generation != m_command_history.generation()
@@ -560,11 +605,24 @@ namespace {
         }
 
         void process_editor_requests() {
+            for(const auto& drop : get_engine().get_window().take_file_drops()) {
+                // GLFW 与主 ImGui viewport 都使用逻辑坐标，不乘 Retina framebuffer scale。
+                const auto origin = ImGui::GetMainViewport()->Pos;
+                const auto directory = m_project_panel->file_drop_directory(
+                    drop.position + Comet::Math::Vec2(origin.x, origin.y));
+                if(directory)
+                    apply_asset_scan_report(
+                        m_assets->import_files(drop.paths, *directory));
+                else
+                    LOG_WARN(
+                        "Drop external files onto a Project folder or its empty area");
+            }
             if(const auto handle = m_project_panel->take_mesh_reimport_request())
                 m_assets->request_mesh_reimport(*handle);
             const auto hierarchy_request = m_hierarchy_panel->take_request();
             const auto menu_command = m_menu_bar->take_command();
             const auto mesh_drop = m_viewport_panel->take_mesh_drop();
+            const auto asset_assignment = m_inspector_panel->take_asset_assignment();
             const auto mode = m_viewport_panel->take_mode_request();
             // 菜单命令优先，避免同帧场景或历史切换后执行旧编辑请求。
             if(menu_command)
@@ -573,6 +631,8 @@ namespace {
                 handle_scene_request(*hierarchy_request);
             else if(mesh_drop && !mode)
                 handle_mesh_drop(*mesh_drop);
+            else if(asset_assignment && !mode)
+                handle_asset_assignment(*asset_assignment);
             if(mode) {
                 m_viewport_panel->cancel_interaction();
                 if(m_property_edit.commit()) {

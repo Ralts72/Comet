@@ -199,6 +199,15 @@ namespace Comet {
         return report;
     }
 
+    AssetScanReport AssetManager::import_files(
+        const std::span<const std::filesystem::path> sources,
+        const std::filesystem::path& directory) {
+        auto report =
+            AssetSourceOperations::import_files(m_database, m_paths, sources, directory);
+        apply_scan_report(report);
+        return report;
+    }
+
     void AssetManager::apply_scan_report(const AssetScanReport& report) {
         if(!report.snapshot_updated) {
             return;

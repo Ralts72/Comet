@@ -14,12 +14,17 @@ namespace CometEditor {
         [[nodiscard]] std::optional<Comet::AssetScanReport> update();
         [[nodiscard]] Comet::AssetScanReport move(
             Comet::AssetHandle handle, const std::filesystem::path& destination);
+        [[nodiscard]] Comet::AssetScanReport import_files(
+            std::span<const std::filesystem::path> sources,
+            const std::filesystem::path& directory);
         [[nodiscard]] bool update_material(
             Comet::AssetHandle handle, const Comet::MaterialData& data);
         [[nodiscard]] bool reimport_texture(
             Comet::AssetHandle handle, Comet::TextureImportSettings settings);
         [[nodiscard]] bool prepare_reference(
             Comet::AssetHandle handle, Comet::AssetType type);
+        [[nodiscard]] bool load_reference(Comet::AssetHandle handle,
+            Comet::AssetType type, Comet::AssetRevision revision);
         [[nodiscard]] bool prepare_mesh_placement(Comet::AssetHandle mesh,
             Comet::AssetRevision revision, Comet::AssetHandle material);
         void request_mesh_reimport(Comet::AssetHandle handle);

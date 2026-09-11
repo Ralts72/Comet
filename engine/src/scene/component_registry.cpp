@@ -103,6 +103,9 @@ namespace Comet {
             if(property.id.empty() || property.display_name.empty()
                 || !property.mutable_accessor || !property.const_accessor
                 || (property.transient && property.serializable)
+                || (property.asset_type
+                    && (property.type != PropertyType::AssetHandle
+                        || *property.asset_type == AssetType::Unknown))
                 || !property_ids.insert(property.id).second) {
                 return false;
             }

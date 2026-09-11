@@ -27,6 +27,9 @@ namespace Comet {
         [[nodiscard]] AssetScanReport scan();
         [[nodiscard]] AssetScanReport move_asset(
             AssetHandle handle, const std::filesystem::path& destination);
+        [[nodiscard]] AssetScanReport import_files(
+            std::span<const std::filesystem::path> sources,
+            const std::filesystem::path& directory);
         void process_completions();
         [[nodiscard]] bool import_mesh(AssetHandle handle);
         [[nodiscard]] bool import_mesh_async(

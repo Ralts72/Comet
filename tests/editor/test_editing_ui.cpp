@@ -32,7 +32,6 @@ namespace CometEditor::Tests {
         ImVec2 drag_point{};
         ImVec2 name_point{};
         float inspector_width = 700;
-        InspectorPanel::PrepareAsset prepare_asset;
         bool draw_trailing_item = false;
 
         void SetUp() override {
@@ -68,8 +67,7 @@ namespace CometEditor::Tests {
                 }));
             inspector = std::make_unique<InspectorPanel>(state, selection, history, edit,
                 components, widgets, assets,
-                Comet::ProjectPaths(PROJECT_ROOT_DIR).assets(), nullptr, nullptr,
-                prepare_asset);
+                Comet::ProjectPaths(PROJECT_ROOT_DIR).assets(), nullptr, nullptr);
             frame();
             frame();
         }
@@ -151,143 +149,6 @@ namespace CometEditor::Tests {
                 EXPECT_LE(field_width, ImGui::GetFontSize() * 9 + 1);
             }
         }
-    }
-
-    class AssetReferenceUiTest: public EditingUiTest {
-    protected:
-        std::filesystem::path root =
-            std::filesystem::temp_directory_path()
-            / ("comet_asset_picker_"
-                + std::to_string(Comet::AssetHandle::generate().value()));
-        ImVec2 mesh_point{};
-        ImVec2 material_point{};
-        bool load_succeeds = true;
-        int load_count = 0;
-        Comet::AssetHandle last_loaded;
-
-        void add_asset(const std::filesystem::path& path, const char* contents) {
-            const auto source = Comet::ProjectPaths(root).assets() / path;
-            std::filesystem::create_directories(source.parent_path());
-            std::ofstream(source) << contents;
-        }
-
-        void SetUp() override {
-            add_asset("a.png", "texture");
-            add_asset(
-                "b.mat", "version: 1\ntemplate: unlit_texture_blend\nproperties: {}\n");
-            add_asset("one/shared.gltf", R"({"asset":{"version":"2.0"}})");
-            add_asset("two/shared.gltf", R"({"asset":{"version":"2.0"}})");
-            assets = Comet::AssetDatabase(Comet::ProjectPaths(root));
-            ASSERT_TRUE(assets.scan().succeeded());
-            entity.add_component<Comet::MeshRendererComponent>();
-            prepare_asset = [this](Comet::AssetHandle handle, Comet::AssetType) {
-                ++load_count;
-                last_loaded = handle;
-                return load_succeeds;
-            };
-            EditingUiTest::SetUp();
-            ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::AssetHandle,
-                [this, builtin = create_property_editor_registry(assets)](
-                    const Comet::PropertyDescriptor& property, void* value) {
-                    const auto result = builtin.edit_property(property, value);
-                    const auto start = ImGui::GetItemRectMin();
-                    auto& point = property.id == "mesh" ? mesh_point : material_point;
-                    point = {start.x + 20, start.y + 8};
-                    return result;
-                }));
-            frame();
-            frame();
-        }
-
-        void TearDown() override {
-            EditingUiTest::TearDown();
-            std::error_code error;
-            std::filesystem::remove_all(root, error);
-        }
-
-        void click(ImVec2 point) {
-            auto& io = ImGui::GetIO();
-            io.AddMousePosEvent(point.x, point.y);
-            frame();
-            io.AddMouseButtonEvent(0, true);
-            frame();
-            io.AddMouseButtonEvent(0, false);
-            frame();
-        }
-
-        void choose(ImVec2 point, int row) {
-            click(point);
-            frame();
-            const auto* popup = ImGui::FindWindowByName("##Combo_00");
-            ASSERT_NE(popup, nullptr);
-            ASSERT_TRUE(popup->Active);
-            click({popup->DC.CursorStartPos.x + 20,
-                popup->DC.CursorStartPos.y + row * ImGui::GetTextLineHeightWithSpacing()
-                    + ImGui::GetTextLineHeight() * 0.5f});
-            frame();
-        }
-
-        Comet::MeshRendererComponent& renderer() {
-            return entity.get_component<Comet::MeshRendererComponent>();
-        }
-    };
-
-    TEST_F(AssetReferenceUiTest, MeshSelectionFiltersTypesAndSupportsUndoRedo) {
-        choose(mesh_point, 1);
-        const auto selected = assets.find("one/shared.gltf")->handle;
-        EXPECT_EQ(renderer().mesh, selected);
-        EXPECT_EQ(last_loaded, selected);
-        EXPECT_EQ(load_count, 1);
-        ASSERT_EQ(history.undo_size(), 1);
-        ASSERT_TRUE(history.undo());
-        EXPECT_FALSE(renderer().mesh.is_valid());
-        ASSERT_TRUE(history.redo());
-        EXPECT_EQ(renderer().mesh, selected);
-        EXPECT_EQ(load_count, 1);
-    }
-
-    TEST_F(AssetReferenceUiTest, SameFilenameInDifferentFoldersKeepsDistinctIdentity) {
-        choose(mesh_point, 2);
-        EXPECT_EQ(renderer().mesh, assets.find("two/shared.gltf")->handle);
-        EXPECT_NE(renderer().mesh, assets.find("one/shared.gltf")->handle);
-    }
-
-    TEST_F(AssetReferenceUiTest, MaterialSelectionFiltersTypes) {
-        choose(material_point, 1);
-        EXPECT_EQ(renderer().material, assets.find("b.mat")->handle);
-        EXPECT_EQ(history.undo_size(), 1);
-    }
-
-    TEST_F(AssetReferenceUiTest, FailedLoadPreservesReferenceAndHistory) {
-        const auto original = assets.find("two/shared.gltf")->handle;
-        renderer().mesh = original;
-        load_succeeds = false;
-        frame();
-        choose(mesh_point, 1);
-        EXPECT_EQ(renderer().mesh, original);
-        EXPECT_EQ(load_count, 1);
-        EXPECT_EQ(history.undo_size(), 0);
-    }
-
-    TEST_F(AssetReferenceUiTest, MissingReferenceSurvivesFramesAndCanBeClearedWithUndo) {
-        const Comet::AssetHandle missing = Comet::AssetHandle::generate();
-        renderer().mesh = missing;
-        frame();
-        frame();
-        EXPECT_EQ(renderer().mesh, missing);
-        EXPECT_EQ(load_count, 0);
-        choose(mesh_point, 0);
-        EXPECT_FALSE(renderer().mesh.is_valid());
-        EXPECT_EQ(load_count, 0);
-        ASSERT_TRUE(history.undo());
-        EXPECT_EQ(renderer().mesh, missing);
-    }
-
-    TEST_F(AssetReferenceUiTest, OpenPickerUsesRefreshedDatabase) {
-        add_asset("three/new.gltf", R"({"asset":{"version":"2.0"}})");
-        ASSERT_TRUE(assets.scan().succeeded());
-        choose(mesh_point, 2);
-        EXPECT_EQ(renderer().mesh, assets.find("three/new.gltf")->handle);
     }
 
     class HierarchyUiTest: public ::testing::Test {

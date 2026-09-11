@@ -45,6 +45,21 @@ namespace {
         EXPECT_EQ(require_property(camera, "fov").type, Comet::PropertyType::Float);
     }
 
+    TEST(ComponentRegistryTest, RejectsAssetTypeMetadataOnNonAssetAndUnknownType) {
+        Comet::ComponentRegistry registry;
+        auto invalid = Comet::make_component_descriptor<Comet::CameraComponent>("camera",
+            "Camera",
+            {Comet::make_property_descriptor("fov", "FOV", &Comet::CameraComponent::fov,
+                {.asset_type = Comet::AssetType::Mesh})});
+        EXPECT_FALSE(registry.register_component(std::move(invalid)));
+        auto unknown =
+            Comet::make_component_descriptor<Comet::MeshRendererComponent>("mesh", "Mesh",
+                {Comet::make_property_descriptor("mesh", "Mesh",
+                    &Comet::MeshRendererComponent::mesh,
+                    {.asset_type = Comet::AssetType::Unknown})});
+        EXPECT_FALSE(registry.register_component(std::move(unknown)));
+    }
+
     TEST(ComponentRegistryTest, AccessesAndNormalizesEntityComponentProperties) {
         Comet::Scene scene;
         Comet::Entity entity = scene.create_entity("Camera");

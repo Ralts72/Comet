@@ -26,7 +26,7 @@ Handle 可随源文件和 .meta 一起移动，但同一 Handle 不可改变 Ass
 | `asset/import/*_importer.h` | 外部格式 → Comet CPU 数据 | 资产发布策略 |
 | `asset/artifact/mesh_artifact.h` | 版本化 Mesh 产物读写与原子发布 | 读取源 glTF 判断过期 |
 | `asset/serialization/` | .meta/.mat 的严格读写 | 渲染绑定 |
-| `asset/source_operations.h` | source + sidecar 移动、校验、回滚 | 格式解析 |
+| `asset/source_operations.h` | 源文件移动／外部导入事务、依赖收集、校验和回滚 | GPU 对象、Artifact 编码 |
 | `asset/source_monitor.h` | 低频观察源文件树变化 | 分配身份、启动 Importer |
 | `render/resource/resource_factory.h` / RenderResourceFactory | 窄的 CPU → Runtime Mesh/Texture 创建接口 | 材质组装、身份与缓存 |
 | `render/resource/resource_manager.h` / ResourceManager | 实现工厂，管理上传和 Shader/Sampler 共享资源 | AssetHandle 与 .meta |
@@ -56,6 +56,8 @@ Texture 源文件 + TextureImportSettings
 - Mesh Runtime 只读已发布 Artifact，不校验源文件、不回退解析 glTF。缓存缺失/损坏需先导入。
   Project 模型拖入 Edit Viewport 时，EditorAssets 校验资产类型与 revision 后加载 Mesh／默认材质，成功才执行场景创建命令。
   此入口不触发同步源导入；后台导入未完成且无可用产物时，用户等待后重试。Undo 只撤销实体，不卸载共享资源。
+  Inspector 组件引用的下拉／拖放也在 UI 后通过 EditorAssets::load_reference 校验类型与 revision 后加载，成功才提交属性命令。
+  启动关键示例资源仍用 prepare_reference 同步准备；普通引用编辑不调用此导入入口。材质纹理槽继续走共享材质文件更新。
 - MeshArtifact 保存源路径/内容指纹，ImportService 据此判断重建；.bin 是辅助输入，不单独生成 Handle/.meta。
 - Texture 仍直接解码源文件，TextureArtifact 后置；不要把当前链路误读为所有资产均有 Artifact。
 - MeshImporter 当前只支持一个 glTF mesh，合并 triangle-list primitives；POSITION 必需，
@@ -102,6 +104,12 @@ Texture 后台刷新和显式重导入共用 `reload_loaded_material_dependents(
 
 ## 编辑与移动
 
+- 外部导入：Window 在 GLFW drop 回调中复制路径和逻辑坐标 → UI 后 Project 命中目标目录 → EditorAssets → AssetManager → AssetSourceOperations。
+  只接收 PNG/JPEG 和 glTF/GLB；后者收集相对 buffer／图片，在 `.comet/cache/file-import/<批次>/` 准备完整副本并调用现有 Importer 校验。
+  校验不创建 GPU 对象或发布 Artifact；同卷硬链接逐文件无覆盖发布，再扫描候选数据库生成新 `.meta`，成功才提交数据库快照。
+  失败补偿回滚本批文件和生成的 sidecar；成功后 EditorAssets 复用扫描变化集排队后台导入，并同步 Monitor 基线。
+  这不是整批文件的 OS 原子事务：进程崩溃／回滚自身失败可能留下文件，需诊断和后续恢复；跨卷或不支持硬链接的文件系统会明确失败。
+  当前文件复制／校验同步执行；批量异步准备、取消、进度及崩溃恢复留待扩展。不复制外部身份，不自动创建实体，也不进入 Scene 历史。
 - Material：Inspector 值变化 → update_material → 构建候选 → 原子保存 .mat → 更新依赖 → 替换 Registry。
 - Texture：设置变化 → reimport_texture → 解码/GPU 候选 → 保存 .meta → 发布 Texture → 刷新已加载材质。
 - 控件按变化事件提交，不逐帧保存；失败恢复旧控件值。加载/字段错误显示在 Inspector，更新日志只进入 Log。

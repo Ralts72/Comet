@@ -91,6 +91,19 @@ namespace CometEditor {
         return report;
     }
 
+    Comet::AssetScanReport EditorAssets::import_files(
+        const std::span<const std::filesystem::path> sources,
+        const std::filesystem::path& directory) {
+        auto report = m_manager.import_files(sources, directory);
+        if(report.snapshot_updated) {
+            observe(m_monitor.poll_now());
+            LOG_INFO("Imported {} asset(s) into assets/{}", report.added_assets.size(),
+                directory.generic_string());
+        }
+        accept_scan(report);
+        return report;
+    }
+
     bool EditorAssets::update_material(
         const Comet::AssetHandle handle, const Comet::MaterialData& data) {
         const auto* record = database().find(handle);
@@ -142,19 +155,26 @@ namespace CometEditor {
 
     bool EditorAssets::prepare_reference(
         const Comet::AssetHandle handle, const Comet::AssetType type) {
+        if(handle && type == Comet::AssetType::Mesh) {
+            if(!m_manager.import_mesh(handle))
+                return false;
+            m_pending_mesh_imports.erase(handle);
+        }
+        return load_reference(handle, type, database().get_revision(handle));
+    }
+
+    bool EditorAssets::load_reference(const Comet::AssetHandle handle,
+        const Comet::AssetType type, const Comet::AssetRevision revision) {
         if(!handle)
             return true; // 空引用允许保存在场景中。
         const auto* record = database().find(handle);
-        if(!record || record->type != type) {
+        if(!record || record->type != type || !database().is_current(handle, revision)) {
             LOG_ERROR(
-                "Cannot prepare asset {}: missing or incompatible type", handle.value());
+                "Cannot load asset {}: stale or incompatible reference", handle.value());
             return false;
         }
         switch(type) {
             case Comet::AssetType::Mesh:
-                if(!m_manager.import_mesh(handle))
-                    return false;
-                m_pending_mesh_imports.erase(handle);
                 return static_cast<bool>(m_manager.load_mesh(handle));
             case Comet::AssetType::Material:
                 return static_cast<bool>(m_manager.load_material(handle));
