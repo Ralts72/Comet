@@ -1,5 +1,5 @@
 version: 1
-template: cube_texture
+template: unlit_texture_blend
 properties:
   u_Texture0:
     type: texture

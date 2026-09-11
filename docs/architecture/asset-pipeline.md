@@ -54,6 +54,8 @@ Texture 源文件 + TextureImportSettings
 ```
 
 - Mesh Runtime 只读已发布 Artifact，不校验源文件、不回退解析 glTF。缓存缺失/损坏需先导入。
+  Project 模型拖入 Edit Viewport 时，EditorAssets 校验资产类型与 revision 后加载 Mesh／默认材质，成功才执行场景创建命令。
+  此入口不触发同步源导入；后台导入未完成且无可用产物时，用户等待后重试。Undo 只撤销实体，不卸载共享资源。
 - MeshArtifact 保存源路径/内容指纹，ImportService 据此判断重建；.bin 是辅助输入，不单独生成 Handle/.meta。
 - Texture 仍直接解码源文件，TextureArtifact 后置；不要把当前链路误读为所有资产均有 Artifact。
 - MeshImporter 当前只支持一个 glTF mesh，合并 triangle-list primitives；POSITION 必需，

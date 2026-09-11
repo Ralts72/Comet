@@ -40,7 +40,7 @@ namespace Comet::Tests {
         EXPECT_EQ(material.handle, AssetHandle(11364856686536078871ull));
 
         const MaterialData material_data = MaterialSerializer{}.load(material_source);
-        EXPECT_EQ(material_data.template_name, "cube_texture");
+        EXPECT_EQ(material_data.template_name, "unlit_texture_blend");
         EXPECT_EQ(material_data.texture_properties.at("u_Texture0"), awesome_face.handle);
         EXPECT_EQ(
             material_data.texture_properties.at("u_Texture1"), second_texture.handle);

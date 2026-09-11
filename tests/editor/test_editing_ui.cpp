@@ -12,6 +12,7 @@
 #include <imgui_internal.h>
 #include <fstream>
 #include <string_view>
+#include <vector>
 
 namespace CometEditor::Tests {
     class EditingUiTest: public ::testing::Test {
@@ -30,6 +31,7 @@ namespace CometEditor::Tests {
         std::unique_ptr<InspectorPanel> inspector;
         ImVec2 drag_point{};
         ImVec2 name_point{};
+        float inspector_width = 700;
         InspectorPanel::PrepareAsset prepare_asset;
         bool draw_trailing_item = false;
 
@@ -53,11 +55,9 @@ namespace CometEditor::Tests {
                     return result;
                 }));
             ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::Vec3,
-                [this](const Comet::PropertyDescriptor& property, void* value) {
-                    auto& vector = *static_cast<Comet::Math::Vec3*>(value);
-                    const bool changed =
-                        ImGui::DragFloat3(property.display_name.c_str(), &vector.x, 0.1f);
-                    const auto result = PropertyEditResult::from_item(changed);
+                [this, builtin = create_property_editor_registry(assets)](
+                    const Comet::PropertyDescriptor& property, void* value) {
+                    const auto result = builtin.edit_property(property, value);
                     if(property.id == "translation") {
                         const auto start = ImGui::GetItemRectMin();
                         drag_point = ImVec2(start.x + 20, start.y + 8);
@@ -82,7 +82,7 @@ namespace CometEditor::Tests {
             ImGui::NewFrame();
             menu.render();
             ImGui::SetNextWindowPos(ImVec2(20, 40));
-            ImGui::SetNextWindowSize(ImVec2(700, 500));
+            ImGui::SetNextWindowSize(ImVec2(inspector_width, 500));
             inspector->render();
             menu.collect_shortcuts();
             ImGui::Render();
@@ -122,6 +122,37 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(EditingUiTest, CameraInputsStayCompactAndLeaveRoomForLabels) {
+        entity.add_component<Comet::CameraComponent>();
+        std::vector<std::pair<float, float>> bounds;
+        ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::Float,
+            [&bounds, builtin = create_property_editor_registry(assets)](
+                const Comet::PropertyDescriptor& property, void* value) {
+                const auto result = builtin.edit_property(property, value);
+                const float end = ImGui::GetItemRectMax().x;
+                const float field_width =
+                    ImGui::GetItemRectSize().x
+                    - ImGui::CalcTextSize(property.display_name.c_str()).x
+                    - ImGui::GetStyle().ItemInnerSpacing.x;
+                bounds.emplace_back(end, field_width);
+                return result;
+            }));
+        for(const float width : {260.0f, 350.0f, 700.0f}) {
+            inspector_width = width;
+            frame();
+            bounds.clear();
+            frame();
+            const auto* window = ImGui::FindWindowByName("Inspector");
+            ASSERT_NE(window, nullptr);
+            ASSERT_EQ(bounds.size(), 3);
+            for(const auto& [end, field_width] : bounds) {
+                EXPECT_LE(end, window->WorkRect.Max.x + 1);
+                EXPECT_GT(field_width, 0);
+                EXPECT_LE(field_width, ImGui::GetFontSize() * 9 + 1);
+            }
+        }
+    }
+
     class AssetReferenceUiTest: public EditingUiTest {
     protected:
         std::filesystem::path root =
@@ -142,7 +173,8 @@ namespace CometEditor::Tests {
 
         void SetUp() override {
             add_asset("a.png", "texture");
-            add_asset("b.mat", "version: 1\ntemplate: cube_texture\nproperties: {}\n");
+            add_asset(
+                "b.mat", "version: 1\ntemplate: unlit_texture_blend\nproperties: {}\n");
             add_asset("one/shared.gltf", R"({"asset":{"version":"2.0"}})");
             add_asset("two/shared.gltf", R"({"asset":{"version":"2.0"}})");
             assets = Comet::AssetDatabase(Comet::ProjectPaths(root));

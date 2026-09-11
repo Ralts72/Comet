@@ -227,8 +227,6 @@ namespace CometEditor {
         }
 
         ImGui::Text("Path: %s", record->path.generic_string().c_str());
-        ImGui::Text(
-            "Handle: %llu", static_cast<unsigned long long>(record->handle.value()));
         ImGui::Text("Type: %s", Comet::to_string(record->type).data());
         ImGui::Separator();
 

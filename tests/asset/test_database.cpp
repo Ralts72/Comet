@@ -48,7 +48,7 @@ namespace Comet::Tests {
         }
 
         constexpr std::string_view EMPTY_MATERIAL =
-            "version: 1\ntemplate: cube_texture\nproperties: {}\n";
+            "version: 1\ntemplate: unlit_texture_blend\nproperties: {}\n";
     }
 
     TEST(AssetDatabaseTest, GeneratesMetadataAndBuildsBothIndexes) {
@@ -240,7 +240,7 @@ namespace Comet::Tests {
         const std::filesystem::path second_texture =
             project.add_file("textures/second.png");
         const std::filesystem::path material = project.add_file("materials/default.mat",
-            "version: 1\ntemplate: cube_texture\nproperties:\n"
+            "version: 1\ntemplate: unlit_texture_blend\nproperties:\n"
             "  first:\n    type: texture\n    asset: 42\n"
             "  repeated:\n    type: texture\n    asset: 42\n"
             "  second:\n    type: texture\n    asset: 73\n");
@@ -287,10 +287,11 @@ namespace Comet::Tests {
         const TemporaryProject project;
         const std::filesystem::path referenced_material =
             project.add_file("materials/referenced.mat", std::string(EMPTY_MATERIAL));
-        const std::filesystem::path owner_material = project.add_file(
-            "materials/owner.mat", "version: 1\ntemplate: cube_texture\nproperties:\n"
-                                   "  missing:\n    type: texture\n    asset: 999\n"
-                                   "  wrong_type:\n    type: texture\n    asset: 73\n");
+        const std::filesystem::path owner_material =
+            project.add_file("materials/owner.mat",
+                "version: 1\ntemplate: unlit_texture_blend\nproperties:\n"
+                "  missing:\n    type: texture\n    asset: 999\n"
+                "  wrong_type:\n    type: texture\n    asset: 73\n");
         const AssetMetadataSerializer serializer;
         serializer.save({.handle = AssetHandle(73), .type = AssetType::Material},
             metadata_path(referenced_material));

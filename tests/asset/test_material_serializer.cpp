@@ -35,7 +35,7 @@ namespace Comet::Tests {
     TEST(MaterialSerializerTest, LoadsTextureHandleProperties) {
         const TemporaryMaterial material(R"(
 version: 1
-template: cube_texture
+template: unlit_texture_blend
 properties:
   u_Texture0:
     type: texture
@@ -47,20 +47,20 @@ properties:
 
         const MaterialData data = MaterialSerializer{}.load(material.path());
 
-        EXPECT_EQ(data.template_name, "cube_texture");
+        EXPECT_EQ(data.template_name, "unlit_texture_blend");
         ASSERT_EQ(data.texture_properties.size(), 2u);
         EXPECT_EQ(data.texture_properties.at("u_Texture0"), AssetHandle(42));
         EXPECT_EQ(data.texture_properties.at("u_Texture1"), AssetHandle(73));
     }
 
     TEST(MaterialSerializerTest, SerializesAndSavesDeterministically) {
-        const MaterialData data{.template_name = "cube_texture",
+        const MaterialData data{.template_name = "unlit_texture_blend",
             .texture_properties = {
                 {"u_Texture0", AssetHandle(42)}, {"u_Texture1", AssetHandle(73)}}};
         const MaterialSerializer serializer;
         const std::string contents = serializer.serialize(data);
 
-        EXPECT_EQ(contents, "version: 1\ntemplate: cube_texture\nproperties:\n"
+        EXPECT_EQ(contents, "version: 1\ntemplate: unlit_texture_blend\nproperties:\n"
                             "  u_Texture0:\n    type: texture\n    asset: 42\n"
                             "  u_Texture1:\n    type: texture\n    asset: 73\n");
         EXPECT_EQ(serializer.deserialize(contents), data);
@@ -73,7 +73,7 @@ properties:
     TEST(MaterialSerializerTest, RejectsInvalidAssetReference) {
         const TemporaryMaterial material(R"(
 version: 1
-template: cube_texture
+template: unlit_texture_blend
 properties:
   u_Texture0:
     type: texture
@@ -87,7 +87,7 @@ properties:
     TEST(MaterialSerializerTest, RejectsUnsupportedPropertyType) {
         const TemporaryMaterial material(R"(
 version: 1
-template: cube_texture
+template: unlit_texture_blend
 properties:
   roughness:
     type: float
@@ -101,7 +101,7 @@ properties:
     TEST(MaterialSerializerTest, RejectsUnknownFields) {
         const TemporaryMaterial material(R"(
 version: 1
-template: cube_texture
+template: unlit_texture_blend
 properties: {}
 extra: true
 )");
@@ -113,15 +113,15 @@ extra: true
     TEST(MaterialSerializerTest, RejectsInvalidDataBeforeSaving) {
         const MaterialSerializer serializer;
         const TemporaryMaterial material(
-            "version: 1\ntemplate: cube_texture\nproperties: {}\n");
+            "version: 1\ntemplate: unlit_texture_blend\nproperties: {}\n");
         const MaterialData original = serializer.load(material.path());
 
         EXPECT_THROW(static_cast<void>(serializer.serialize(
                          {.template_name = "", .texture_properties = {}})),
             std::runtime_error);
-        EXPECT_THROW(
-            static_cast<void>(serializer.serialize({.template_name = "cube_texture",
-                .texture_properties = {{"u_Texture0", INVALID_ASSET_HANDLE}}})),
+        EXPECT_THROW(static_cast<void>(serializer.serialize({.template_name =
+                                                                 "unlit_texture_blend",
+                         .texture_properties = {{"u_Texture0", INVALID_ASSET_HANDLE}}})),
             std::runtime_error);
         EXPECT_THROW(serializer.save({.template_name = "", .texture_properties = {}},
                          material.path()),

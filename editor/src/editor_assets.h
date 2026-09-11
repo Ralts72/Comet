@@ -20,6 +20,8 @@ namespace CometEditor {
             Comet::AssetHandle handle, Comet::TextureImportSettings settings);
         [[nodiscard]] bool prepare_reference(
             Comet::AssetHandle handle, Comet::AssetType type);
+        [[nodiscard]] bool prepare_mesh_placement(Comet::AssetHandle mesh,
+            Comet::AssetRevision revision, Comet::AssetHandle material);
         void request_mesh_reimport(Comet::AssetHandle handle);
         [[nodiscard]] const Comet::AssetDatabase& database() const {
             return m_manager.get_database();

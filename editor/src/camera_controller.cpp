@@ -20,6 +20,37 @@ namespace CometEditor {
         }
     }
 
+    std::optional<Comet::Math::Vec3> camera_focus_plane_point(
+        const EditorCameraState& camera, const Comet::Math::Vec2 uv, const float aspect) {
+        namespace Math = Comet::Math;
+        if(!Math::is_finite(uv) || uv.x < 0 || uv.y < 0 || uv.x > 1 || uv.y > 1
+            || !std::isfinite(aspect) || aspect <= 0 || !Math::is_finite(camera.target))
+            return std::nullopt;
+        const auto snapshot = camera.snapshot();
+        const auto view_target = snapshot.view_matrix * Math::Vec4(camera.target, 1);
+        const float depth = -view_target.z;
+        if(!std::isfinite(depth) || depth < camera.near_clip || depth > camera.far_clip
+            || !std::isfinite(camera.near_clip) || !std::isfinite(camera.far_clip)
+            || camera.near_clip <= 0 || camera.far_clip <= camera.near_clip)
+            return std::nullopt;
+        float height = camera.orthographic.height;
+        if(camera.projection == Comet::RenderCamera::Projection::Perspective) {
+            const float fov = camera.perspective.fov_degrees;
+            if(!std::isfinite(fov) || fov <= 0 || fov >= 180)
+                return std::nullopt;
+            height = 2 * depth * std::tan(Math::radians(fov) * 0.5f);
+        }
+        if(!std::isfinite(height) || height <= 0)
+            return std::nullopt;
+        const auto offset =
+            Math::inverse(snapshot.view_matrix)
+            * Math::Vec4((uv.x - 0.5f) * height * aspect, (0.5f - uv.y) * height, 0, 0);
+        const auto point = camera.target + Math::Vec3(offset);
+        if(!Math::is_finite(point))
+            return std::nullopt;
+        return point;
+    }
+
     void focus_editor_camera(EditorCameraState& camera,
         const Comet::BoundingBox& world_bounds, const float viewport_aspect) {
         if(!world_bounds.is_valid() || !std::isfinite(viewport_aspect)

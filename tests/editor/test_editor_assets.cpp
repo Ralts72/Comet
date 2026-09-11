@@ -3,6 +3,7 @@
 #include "asset/registry.h"
 #include "core/task_scheduler.h"
 #include "render/resource/resource_factory.h"
+#include "render/material.h"
 #include <gtest/gtest.h>
 #include <chrono>
 #include <array>
@@ -68,7 +69,54 @@ namespace CometEditor::Tests {
             scheduler.wait_idle();
             static_cast<void>(assets->update());
         }
+
+        Comet::AssetHandle add_material() {
+            std::ofstream(Comet::ProjectPaths(root).assets() / "placement.mat")
+                << "version: 1\ntemplate: test\nproperties: {}\n";
+            EXPECT_TRUE(assets->refresh().succeeded());
+            const auto* record = assets->database().find("placement.mat");
+            if(!record)
+                return {};
+            EXPECT_TRUE(runtime.register_asset(
+                record->handle, std::make_shared<Comet::Material>("Placement", "test")));
+            return record->handle;
+        }
     };
+
+    TEST_F(EditorAssetsTest, PlacementLoadsPublishedArtifactWithoutImportingSource) {
+        const auto material = add_material();
+        ASSERT_TRUE(material);
+        const auto revision = assets->database().get_revision(mesh);
+        EXPECT_FALSE(assets->prepare_mesh_placement(mesh, revision, material));
+        EXPECT_FALSE(std::filesystem::exists(artifact_path()));
+        EXPECT_EQ(factory.mesh_creations, 0);
+
+        complete_imports();
+        ASSERT_TRUE(std::filesystem::exists(artifact_path()));
+        std::ofstream(Comet::ProjectPaths(root).assets() / "model.gltf") << "invalid";
+        ASSERT_TRUE(assets->prepare_mesh_placement(mesh, revision, material));
+        EXPECT_EQ(factory.mesh_creations, 1);
+        EXPECT_TRUE(assets->prepare_mesh_placement(mesh, revision, material));
+        EXPECT_EQ(factory.mesh_creations, 1);
+    }
+
+    TEST_F(EditorAssetsTest, PlacementRejectsStaleOrInvalidReferencesBeforeLoading) {
+        const auto material = add_material();
+        ASSERT_TRUE(material);
+        complete_imports();
+        const auto revision = assets->database().get_revision(mesh);
+        EXPECT_FALSE(assets->prepare_mesh_placement(mesh, revision + 1, material));
+        EXPECT_FALSE(assets->prepare_mesh_placement(mesh, revision, {}));
+        EXPECT_FALSE(assets->prepare_mesh_placement(mesh, revision, mesh));
+        EXPECT_FALSE(assets->prepare_mesh_placement(
+            material, assets->database().get_revision(material), material));
+        EXPECT_EQ(factory.mesh_creations, 0);
+        factory.fail = true;
+        EXPECT_FALSE(assets->prepare_mesh_placement(mesh, revision, material));
+        EXPECT_FALSE(runtime.contains(mesh));
+        factory.fail = false;
+        EXPECT_TRUE(assets->prepare_mesh_placement(mesh, revision, material));
+    }
 
     TEST_F(EditorAssetsTest, RepeatedReferencePreparationReusesRuntimeResource) {
         ASSERT_TRUE(assets->prepare_reference(mesh, Comet::AssetType::Mesh));

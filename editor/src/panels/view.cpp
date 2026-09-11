@@ -28,6 +28,7 @@ namespace CometEditor {
         m_mode_request.reset();
         m_pick_request.reset();
         m_focus_request = false;
+        m_mesh_drop.reset();
         m_gizmo_draw_list = nullptr;
 
         if(!m_user_visible) {
@@ -249,11 +250,37 @@ namespace CometEditor {
             ImGui::InvisibleButton("View", ImVec2(display_size.x, display_size.y));
         }
         m_gizmo_draw_list = ImGui::GetWindowDrawList();
+        if(m_state.mode == EditorMode::Edit && m_texture_id != ImTextureID_Invalid
+            && ImGui::BeginDragDropTarget()) {
+            const auto& io = ImGui::GetIO();
+            const Comet::Math::Vec2 point{io.MousePos.x, io.MousePos.y};
+            if(map_viewport_point_to_pixel(m_layout, point)) {
+                if(const auto* payload = ImGui::GetDragDropPayload();
+                    payload && payload->IsDataType(AssetDragPayload::TYPE)
+                    && payload->DataSize == sizeof(AssetDragPayload)) {
+                    const auto& asset =
+                        *static_cast<const AssetDragPayload*>(payload->Data);
+                    if(asset.type == Comet::AssetType::Mesh
+                        && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
+                        const auto uv =
+                            (point - m_layout.image_display_rect.min) / display_size;
+                        if(const auto position = camera_focus_plane_point(
+                               m_state.camera, uv, display_size.x / display_size.y))
+                            m_mesh_drop = MeshDrop{asset, *position};
+                    }
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
         update_view_interaction();
     }
 
+    std::optional<ViewPanel::MeshDrop> ViewPanel::take_mesh_drop() {
+        return std::exchange(m_mesh_drop, std::nullopt);
+    }
+
     void ViewPanel::update_view_interaction() {
-        if(m_state.mode != EditorMode::Edit) {
+        if(m_state.mode != EditorMode::Edit || ImGui::IsDragDropActive()) {
             cancel_interaction();
             return;
         }

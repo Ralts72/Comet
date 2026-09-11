@@ -1,6 +1,8 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "panels/project.h"
 #include "selection.h"
+#include "command_history.h"
+#include "asset_drag_drop.h"
 #include "asset/asset_manager.h"
 #include "asset/registry.h"
 #include "core/task_scheduler.h"
@@ -41,6 +43,7 @@ namespace CometEditor::Tests {
         Comet::AssetManager manager{paths, registry, factory, scheduler};
         const Comet::AssetDatabase& database = manager.get_database();
         Comet::Scene scene;
+        CommandHistory history;
         SelectionService selection{scene};
         std::unique_ptr<ProjectPanel> project;
         int move_count = 0;
@@ -55,6 +58,7 @@ namespace CometEditor::Tests {
             std::ofstream(paths.assets() / "folder/c.png") << "c";
             auto report = manager.scan();
             ASSERT_TRUE(report.succeeded());
+            history.bind_scene(&scene);
             ImGui::CreateContext();
             auto& io = ImGui::GetIO();
             io.IniFilename = nullptr;
@@ -78,7 +82,7 @@ namespace CometEditor::Tests {
                     project->update_scan_report(result);
                     return result;
                 },
-                selection);
+                selection, history);
             frame();
             frame();
         }
@@ -175,6 +179,37 @@ namespace CometEditor::Tests {
             frame();
         }
     };
+
+    TEST_F(ProjectPanelTest, MeshDragKeepsOriginalIdentityAcrossDocumentChanges) {
+        std::filesystem::copy_file(
+            std::filesystem::path(PROJECT_ROOT_DIR) / "assets/meshes/cube.gltf",
+            paths.assets() / "model.gltf");
+        project->update_scan_report(manager.scan());
+        frame();
+        const auto handle = database.find("model.gltf")->handle;
+        const auto revision = database.get_revision(handle);
+        const auto generation = history.generation();
+        begin_drag(5);
+        const auto* payload = ImGui::GetDragDropPayload();
+        ASSERT_NE(payload, nullptr);
+        ASSERT_TRUE(payload->IsDataType(AssetDragPayload::TYPE));
+        ASSERT_EQ(payload->DataSize, sizeof(AssetDragPayload));
+        auto source = *static_cast<const AssetDragPayload*>(payload->Data);
+        EXPECT_EQ(source.handle, handle);
+        EXPECT_EQ(source.revision, revision);
+        EXPECT_EQ(source.generation, generation);
+        EXPECT_EQ(source.type, Comet::AssetType::Mesh);
+        history.bind_scene(&scene);
+        ASSERT_NE(history.generation(), generation);
+        frame();
+        payload = ImGui::GetDragDropPayload();
+        ASSERT_NE(payload, nullptr);
+        source = *static_cast<const AssetDragPayload*>(payload->Data);
+        EXPECT_EQ(source.generation, generation);
+        drop(1);
+        EXPECT_EQ(move_count, 1);
+        EXPECT_EQ(database.find(handle)->path, "folder/model.gltf");
+    }
 
     TEST_F(ProjectPanelTest, ContextMenuRefreshesOnceAndCanReplaceTree) {
         const auto selected = database.find("b.png")->handle;

@@ -2,8 +2,8 @@
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 #include "render/scene/render_types.h"
-#include "cube_texture_frag.h"
-#include "cube_texture_vert.h"
+#include "unlit_texture_blend_frag.h"
+#include "unlit_texture_blend_vert.h"
 #include "graphics/convert.h"
 #include "graphics/queue.h"
 #include "graphics/resource/image_view.h"
@@ -201,9 +201,9 @@ namespace Comet {
         pipeline_config.set_multisample_state(m_msaa_samples, false, 0.2f);
 
         const auto vert_shader = resource_manager.get_shader_manager().load_shader(
-            "cube_texture_vert", CUBE_TEXTURE_VERT);
+            "unlit_texture_blend_vert", UNLIT_TEXTURE_BLEND_VERT);
         const auto frag_shader = resource_manager.get_shader_manager().load_shader(
-            "cube_texture_frag", CUBE_TEXTURE_FRAG);
+            "unlit_texture_blend_frag", UNLIT_TEXTURE_BLEND_FRAG);
         m_default_sampler = resource_manager.get_sampler_manager().get_linear_repeat();
 
         m_pipeline = m_pipeline_manager->create_pipeline(

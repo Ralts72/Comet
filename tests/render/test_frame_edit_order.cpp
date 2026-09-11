@@ -26,7 +26,7 @@ namespace Comet::Tests {
             {.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
         ASSERT_TRUE(mesh);
         ASSERT_TRUE(texture);
-        auto material = std::make_shared<Material>("Test", "cube_texture");
+        auto material = std::make_shared<Material>("Test", "unlit_texture_blend");
         material->set_texture_property("u_Texture0", texture.value());
         material->set_texture_property("u_Texture1", texture.value());
         ASSERT_TRUE(

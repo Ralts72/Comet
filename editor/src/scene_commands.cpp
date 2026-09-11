@@ -215,28 +215,47 @@ namespace CometEditor::SceneCommands {
             bool m_adding;
             std::any m_snapshot;
         };
+
+        Comet::EntityUuid create_from_components(CommandHistory& history,
+            const Comet::ComponentRegistry& registry, std::string name,
+            std::vector<EntitySnapshot::Component> components,
+            const Comet::EntityUuid parent = {}) {
+            auto* scene = history.get_scene();
+            if(!scene)
+                return {};
+            Comet::EntityUuid uuid;
+            do {
+                uuid = Comet::EntityUuid::generate();
+            } while(scene->find_entity(uuid));
+            if(name.empty())
+                name = "Entity";
+            std::vector<EntitySnapshot> snapshots{{.uuid = uuid,
+                .parent = parent,
+                .name = std::move(name),
+                .components = std::move(components)}};
+            if(!history.execute(std::make_unique<EntityTreeCommand>(
+                   registry, std::move(snapshots), true)))
+                return {};
+            return uuid;
+        }
     }
 
     Comet::EntityUuid create_entity(CommandHistory& history,
         const Comet::ComponentRegistry& registry, std::string name,
         const Comet::EntityUuid parent) {
-        auto* scene = history.get_scene();
-        if(!scene)
+        return create_from_components(history, registry, std::move(name),
+            {{"transform", Comet::TransformComponent{}}}, parent);
+    }
+
+    Comet::EntityUuid create_mesh_entity(CommandHistory& history,
+        const Comet::ComponentRegistry& registry, std::string name,
+        Comet::AssetHandle mesh, Comet::AssetHandle material,
+        const Comet::Math::Vec3 position) {
+        if(!mesh || !material || !Comet::Math::is_finite(position))
             return {};
-        Comet::EntityUuid uuid;
-        do {
-            uuid = Comet::EntityUuid::generate();
-        } while(scene->find_entity(uuid));
-        if(name.empty())
-            name = "Entity";
-        std::vector<EntitySnapshot> snapshots{{.uuid = uuid,
-            .parent = parent,
-            .name = std::move(name),
-            .components = {{"transform", Comet::TransformComponent{}}}}};
-        if(!history.execute(
-               std::make_unique<EntityTreeCommand>(registry, std::move(snapshots), true)))
-            return {};
-        return uuid;
+        return create_from_components(history, registry, std::move(name),
+            {{"transform", Comet::TransformComponent{.translation = position}},
+                {"mesh_renderer", Comet::MeshRendererComponent{mesh, material}}});
     }
 
     bool delete_entity(CommandHistory& history, const Comet::ComponentRegistry& registry,

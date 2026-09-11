@@ -6,6 +6,43 @@
 #include <limits>
 
 namespace CometEditor::Tests {
+    TEST(EditorCameraControllerTest, PlacementTracksCameraFocusPlaneInBothProjections) {
+        EditorCameraState camera;
+        camera.target = {2, 3, 4};
+        camera.perspective.position = {2, 3, 9};
+        camera.perspective.fov_degrees = 90;
+        for(const auto projection : {Comet::RenderCamera::Projection::Perspective,
+                Comet::RenderCamera::Projection::Orthographic}) {
+            camera.projection = projection;
+            auto center = camera_focus_plane_point(camera, {0.5f, 0.5f}, 2);
+            ASSERT_TRUE(center);
+            EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(*center, camera.target));
+            auto corner = camera_focus_plane_point(camera, {1, 0}, 2);
+            ASSERT_TRUE(corner);
+            EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(*corner, {12, 8, 4}, 0.0001f));
+        }
+        camera.projection = Comet::RenderCamera::Projection::Perspective;
+        camera.perspective.position = camera.target + Comet::Math::Vec3(5, 0, 0);
+        const auto corner = camera_focus_plane_point(camera, {1, 0}, 2);
+        ASSERT_TRUE(corner);
+        EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(*corner, {2, 8, -6}, 0.0001f));
+    }
+
+    TEST(EditorCameraControllerTest, PlacementRejectsInvalidCameraOrImageCoordinates) {
+        EditorCameraState camera;
+        EXPECT_FALSE(camera_focus_plane_point(camera, {-0.1f, 0.5f}, 1));
+        EXPECT_FALSE(camera_focus_plane_point(camera, {0.5f, 1.1f}, 1));
+        EXPECT_FALSE(camera_focus_plane_point(camera, {0.5f, 0.5f}, 0));
+        camera.perspective.fov_degrees = 180;
+        EXPECT_FALSE(camera_focus_plane_point(camera, {0.5f, 0.5f}, 1));
+        camera.perspective.fov_degrees = 45;
+        camera.perspective.position = camera.target;
+        EXPECT_FALSE(camera_focus_plane_point(camera, {0.5f, 0.5f}, 1));
+        camera.perspective.position = {0, 0, 3};
+        camera.near_clip = std::numeric_limits<float>::quiet_NaN();
+        EXPECT_FALSE(camera_focus_plane_point(camera, {0.5f, 0.5f}, 1));
+    }
+
     TEST(EditorCameraControllerTest, FocusPerspectiveBoundsPreservesViewDirection) {
         EditorCameraState camera;
         camera.perspective.position = Comet::Math::Vec3(3.0f, 2.0f, 4.0f);

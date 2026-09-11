@@ -1,5 +1,7 @@
 #include "project.h"
 #include "selection.h"
+#include "asset_drag_drop.h"
+#include "command_history.h"
 
 #include <imgui.h>
 
@@ -10,14 +12,6 @@
 #include <vector>
 
 namespace CometEditor {
-    namespace {
-        constexpr const char* ASSET_PAYLOAD_TYPE = "COMET_PROJECT_ASSET";
-        struct AssetPayload {
-            Comet::AssetHandle handle;
-            Comet::AssetRevision revision;
-        };
-    }
-
     ProjectPanel::AssetTreeNode ProjectPanel::build_asset_tree(
         std::vector<Comet::AssetRecord> assets) {
         AssetTreeNode root;
@@ -46,16 +40,21 @@ namespace CometEditor {
 
         for(const Comet::AssetRecord& asset : node.assets) {
             const std::string name = asset.path.filename().string();
+            ImGui::PushID(std::to_string(asset.handle.value()).c_str());
             if(ImGui::Selectable(name.c_str(), m_selection.is_selected(asset.handle))) {
                 m_selection.select_asset(asset.handle);
             }
-            if(m_move_asset_callback && ImGui::BeginDragDropSource()) {
+            const bool can_drag =
+                m_move_asset_callback
+                || (asset.type == Comet::AssetType::Mesh && m_history.get_scene());
+            if(can_drag && ImGui::BeginDragDropSource()) {
                 if(!m_selection.is_selected(asset.handle))
                     m_selection.select_asset(asset.handle);
-                const AssetPayload payload{
-                    asset.handle, m_database.get_revision(asset.handle)};
+                const AssetDragPayload payload{asset.handle,
+                    m_database.get_revision(asset.handle), m_history.generation(),
+                    asset.type};
                 ImGui::SetDragDropPayload(
-                    ASSET_PAYLOAD_TYPE, &payload, sizeof(payload), ImGuiCond_Once);
+                    AssetDragPayload::TYPE, &payload, sizeof(payload), ImGuiCond_Once);
                 ImGui::TextUnformatted(name.c_str());
                 ImGui::EndDragDropSource();
             }
@@ -71,20 +70,22 @@ namespace CometEditor {
             ImGui::SameLine();
             ImGui::TextDisabled("(%s)", Comet::to_string(asset.type).data());
             if(ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%s\nHandle: %llu", asset.path.generic_string().c_str(),
-                    static_cast<unsigned long long>(asset.handle.value()));
+                ImGui::SetTooltip("%s", asset.path.generic_string().c_str());
             }
+            ImGui::PopID();
         }
     }
 
     ProjectPanel::ProjectPanel(const Comet::AssetDatabase& database,
         Comet::AssetScanReport scan_report, RefreshCallback refresh_callback,
-        MoveAssetCallback move_asset_callback, SelectionService& selection)
+        MoveAssetCallback move_asset_callback, SelectionService& selection,
+        const CommandHistory& history)
         : EditorPanel("Project"), m_database(database),
           m_tree(build_asset_tree(database.get_assets())),
           m_scan_report(std::move(scan_report)),
           m_refresh_callback(std::move(refresh_callback)),
-          m_move_asset_callback(std::move(move_asset_callback)), m_selection(selection) {}
+          m_move_asset_callback(std::move(move_asset_callback)), m_selection(selection),
+          m_history(history) {}
 
     void ProjectPanel::render() {
         if(!m_user_visible)
@@ -146,9 +147,9 @@ namespace CometEditor {
     void ProjectPanel::accept_asset_drop(const std::filesystem::path& directory) {
         if(!m_move_asset_callback || !ImGui::BeginDragDropTarget())
             return;
-        if(const auto* payload = ImGui::AcceptDragDropPayload(ASSET_PAYLOAD_TYPE);
-            payload && payload->DataSize == sizeof(AssetPayload)) {
-            const auto& source = *static_cast<const AssetPayload*>(payload->Data);
+        if(const auto* payload = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE);
+            payload && payload->DataSize == sizeof(AssetDragPayload)) {
+            const auto& source = *static_cast<const AssetDragPayload*>(payload->Data);
             const auto* record = m_database.find(source.handle);
             if(record) {
                 const auto destination = directory / record->path.filename();

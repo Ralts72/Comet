@@ -120,6 +120,26 @@ namespace CometEditor {
                 "Mesh reimport request was not accepted for handle {}", handle.value());
     }
 
+    bool EditorAssets::prepare_mesh_placement(const Comet::AssetHandle mesh,
+        const Comet::AssetRevision revision, const Comet::AssetHandle material) {
+        const auto* mesh_record = database().find(mesh);
+        const auto* material_record = database().find(material);
+        if(!database().is_current(mesh, revision) || !mesh_record
+            || mesh_record->type != Comet::AssetType::Mesh || !material_record
+            || material_record->type != Comet::AssetType::Material) {
+            LOG_ERROR("Cannot place mesh {}: stale or incompatible asset reference",
+                mesh.value());
+            return false;
+        }
+        if(!m_manager.load_mesh(mesh) || !m_manager.load_material(material)) {
+            LOG_ERROR("Cannot place mesh {}: wait for automatic import or use Reimport; "
+                      "see Log for resource errors",
+                mesh.value());
+            return false;
+        }
+        return true;
+    }
+
     bool EditorAssets::prepare_reference(
         const Comet::AssetHandle handle, const Comet::AssetType type) {
         if(!handle)

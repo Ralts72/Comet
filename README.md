@@ -74,8 +74,12 @@ Windows 通过 `.rc` 将 ICO 编译进 exe，GLFW 自动用作初始窗口图标
 - 模型及外部 buffer 放入 assets 后，编辑器扫描事件会自动触发后台导入；有效 Artifact 直接复用。
   未加载模型只生成缓存，不创建 GPU 对象。选中模型不显示额外状态栏；右键 Reimport 可强制重建或重试，错误进入 Log。
   手动删除缓存后用右键 Refresh 或重启编辑器触发补建；不在每帧检查磁盘缓存。
+- Edit 中将 Project 模型拖到 Viewport 图像，可在相机关注平面上创建并选中根实体，支持一次 Undo/Redo。
+  使用启动示例材质，不读取 glTF 材质；放置只加载已发布 Artifact，首次导入未完成时需等待后重试。
+  当前材质方案为 `unlit_texture_blend`：无光照、两张纹理等比例混合；暂不支持在材质中切换项目 Shader。
 - Inspector 的 Mesh、Material 引用和材质纹理槽按资产相对路径下拉选择，按类型过滤，底层仍保存 Handle。
   Mesh/Material 选择成功前先导入／加载，失败保留原引用；丢失引用显示 Missing，不自动清空。
+  日常面板和资源悬停提示不显示内部 Handle，底层引用及诊断日志保留。
 - View 菜单直接读取面板开关，关闭窗口后一次点击即可重新打开；暂未实现的菜单项显示为禁用。
 
 ## 架构入口
@@ -86,7 +90,7 @@ Windows 通过 `.rc` 将 ICO 编译进 exe，GLFW 自动用作初始窗口图标
   使用当前相机和正常深度测试；不依赖 ImGui，编辑器选中框是其中一个调用方。
 - 资产：`AssetDatabase` 管身份与依赖，`ImportService` 管导入，`AssetManager` 协调加载与发布，
   `AssetRegistry` 是唯一 Handle 缓存；`ResourceManager` 只创建设备资源。
-- 编辑器：`Editor` 装配依赖与帧阶段，`EditorAssets` 管引用选择时的资源准备、源监视和写入确认，
+- 编辑器：`Editor` 装配依赖与帧阶段，`EditorAssets` 管引用选择／模型放置的资源准备、源监视和写入确认，
   `SceneFileDialog` 管路径弹窗；属性控件显式返回手势状态，`SceneDocument` 与 Play 会话仍保持独立。
 - Mesh Runtime 只读已发布的 Mesh Artifact；缓存丢失需先导入，不自动回退解析 glTF。
   Texture 暂时直接解码源文件，后续再引入 Artifact。

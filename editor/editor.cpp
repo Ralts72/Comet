@@ -114,6 +114,7 @@ namespace {
                 .material = load_required_asset(
                     *m_assets, DEMO_MATERIAL, Comet::AssetType::Material)};
             engine.set_scene(create_editor_scene(render_assets));
+            m_placement_material = render_assets.material;
             Comet::Engine* engine_ptr = &engine;
             const auto get_active_scene = [engine_ptr]() {
                 return engine_ptr->get_scene();
@@ -502,7 +503,7 @@ namespace {
                     apply_asset_scan_report(report);
                     return report;
                 },
-                *m_selection);
+                *m_selection, m_command_history);
             m_menu_bar->register_panel(*m_hierarchy_panel);
             m_menu_bar->register_panel(*m_viewport_panel);
             m_menu_bar->register_panel(*m_inspector_panel);
@@ -533,17 +534,46 @@ namespace {
             m_menu_bar->collect_shortcuts();
         }
 
+        void handle_mesh_drop(const CometEditor::ViewPanel::MeshDrop& request) {
+            if(m_editor_state.mode != CometEditor::EditorMode::Edit
+                || request.asset.generation != m_command_history.generation()
+                || !m_command_history.get_scene()
+                || m_command_history.get_scene() != get_engine().get_scene())
+                return;
+            if(!m_assets->prepare_mesh_placement(
+                   request.asset.handle, request.asset.revision, m_placement_material))
+                return;
+            m_viewport_panel->cancel_interaction();
+            if(!m_property_edit.commit()) {
+                LOG_ERROR("Cannot finish property edit before mesh placement");
+                return;
+            }
+            const auto* record = m_assets->database().find(request.asset.handle);
+            const auto uuid = CometEditor::SceneCommands::create_mesh_entity(
+                m_command_history, m_component_registry, record->path.stem().string(),
+                request.asset.handle, m_placement_material, request.position);
+            if(uuid)
+                m_selection->select_entity(
+                    m_command_history.get_scene()->find_entity(uuid).get_id());
+            else
+                LOG_ERROR("Cannot create entity for dropped mesh");
+        }
+
         void process_editor_requests() {
             if(const auto handle = m_project_panel->take_mesh_reimport_request())
                 m_assets->request_mesh_reimport(*handle);
             const auto hierarchy_request = m_hierarchy_panel->take_request();
             const auto menu_command = m_menu_bar->take_command();
-            // 菜单命令优先，避免同帧场景或历史切换后执行旧层级请求。
+            const auto mesh_drop = m_viewport_panel->take_mesh_drop();
+            const auto mode = m_viewport_panel->take_mode_request();
+            // 菜单命令优先，避免同帧场景或历史切换后执行旧编辑请求。
             if(menu_command)
                 handle_command(*menu_command);
             else if(hierarchy_request)
                 handle_scene_request(*hierarchy_request);
-            if(const auto mode = m_viewport_panel->take_mode_request()) {
+            else if(mesh_drop && !mode)
+                handle_mesh_drop(*mesh_drop);
+            if(mode) {
                 m_viewport_panel->cancel_interaction();
                 if(m_property_edit.commit()) {
                     m_scene_session->request_mode(*mode);
@@ -556,6 +586,7 @@ namespace {
         Comet::ProjectPaths m_project_paths{PROJECT_ROOT_DIR};
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
+        Comet::AssetHandle m_placement_material;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry =
             Comet::create_scene_component_registry();

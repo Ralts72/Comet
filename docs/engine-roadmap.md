@@ -20,7 +20,8 @@
 编辑命令历史、帧准备后提取、通用线段绘制、选中包围盒及平移 Gizmo 已接通，后续顺序：
 
 1. **补全内容编辑入口**：组件增删、实体创建／删除、改父级及子树复制已接入撤销；
-   Mesh 自动后台导入与右键重导入已接通，下一步接资产拖入场景。保持编辑、world transform 更新、提取与绘制时序一致。
+   Mesh 自动后台导入、右键重导入与拖入场景已接通，下一步接 Inspector 资产引用拖放，随后接外部文件拖入 Project。
+   保持编辑、world transform 更新、提取与绘制时序一致。
 2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
 
 WSI 失败后的无呈现重试仍应独立安排，不与资产编辑工作流捆绑重构。
@@ -88,6 +89,9 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
   设置界面和用户级覆盖后续接入同一绑定数据，不另建事件总线，也不与阶段 6 游戏 Input 混为一体。
 - Mesh/Material 引用与材质纹理槽共用按类型过滤的路径下拉选择；底层保存 Handle，组件引用沿用属性编辑事务。
   选择 Mesh/Material 时按需导入／加载，失败不替换原引用；搜索、拖拽和资产文件撤销仍留在后续工作中。
+- Project 模型拖入 Edit Viewport 后，在相机关注平面创建根实体；Transform 与 Mesh Renderer 合为一条撤销命令。
+  拖拽载荷以 Handle、revision 和文档 generation 校验身份；放置只加载已有 Artifact，首次导入未完成时不创建实体。
+  暂用启动示例材质，不解析 glTF 材质，不提供放置预览或表面吸附。
 - Engine 在 Renderer::prepare_frame 完成 UI 准备之后读取活动 Scene 并提取，随后 render_frame；不新增快照 provider 回调。
 - LineDrawList 接收单帧线段/包围盒；执行器使用场景 pass、相机和 MSAA，正常深度测试且不写深度。
   CPU 请求不依赖 Vulkan/ImGui；slot 独立 vertex buffer 安全复用，扩容失败跳过调试批次并延后重试。
@@ -101,9 +105,17 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 - Gizmo 后续增加旋转／缩放、本地轴和吸附；持续验证当前帧快照一致性。
   多 pass outline 留到阶段 5，不与包围盒反馈混淆。
-- 搜索、跨场景复制粘贴、拖拽资产、Prefab MVP；资产修改需独立定义文件事务，不与场景历史混用。
+- 搜索、跨场景复制粘贴、资产引用拖放、Prefab MVP；资产修改需独立定义文件事务，不与场景历史混用。
 - 按大场景实际使用测量撤销快照内存；当前仅限制历史条数，巨大子树的内存预算后续按需求完善。
 - Project 缩略图、搜索和资产创建；与阶段 3 导入入口共用事务服务。
+- 外部文件拖入 Project：安排在 Inspector 资产引用拖放之后，作为独立验收项，不依赖阶段 5 Shader 系统。
+  接收 Finder／系统文件管理器的文件拖放，按落点复制到 assets 根目录或对应子目录；不移动、删除外部原文件。
+  明确重名冲突处理，默认不覆盖；导入 glTF 时收集依赖文件并保持相对路径，缺失依赖或不支持的输入需给出诊断。
+  文件复制先准备、校验，再提交给扫描／导入流程，失败不留下被误认为完整资产的半成品，也不破坏已有文件。
+  提交后复用 AssetDatabase 扫描、.meta 身份生成和后台导入，不另建一套资源加载链路，不直接复制外部 .meta 导致身份冲突。
+  文件操作与场景 Undo/Redo 分离，不因拖入 Project 就创建实体。
+  验收：运行中的编辑器可导入支持的单文件资产及带外部 buffer 的 glTF，Project 自动更新；
+  正确落到目标目录，外部原文件不变，重名／复制失败／依赖缺失时无静默覆盖或半成品发布。
 - Runtime Camera 的投影设置应通过场景组件/Inspector 表达，不让 Edit 的 2D/3D 开关影响 Play。
 - Runtime 输入单独路由；有真实需求才增加 Eject/Debug Camera 或多 Viewport。
   多个同时可见视口必须各自拥有 Camera、目标尺寸、FrameSlot 目标和提交；隐藏时跳过场景渲染。
@@ -131,7 +143,7 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 ### 材质与 Shader
 
-当前固定 cube pipeline、两张 Texture、u_Texture0/1 和逐帧属性解析都是 MVP 约束，不能只把 array 换成 vector。
+当前固定 unlit_texture_blend pipeline、两张 Texture、u_Texture0/1 和逐帧属性解析都是 MVP 约束，不能只把 array 换成 vector。
 
 1. SceneResolver 只解析 Mesh/Material，不知道材质属性名、纹理数量或 binding。
 2. 建立 material/layout revision、手工 MaterialLayout 与渲染侧 MaterialRuntimeCache。
@@ -142,6 +154,11 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 5. 再引入 SPIR-V reflection 生成 ShaderInterface（set/binding/type/count/stage/push constants）。
    显示名、默认值、颜色/法线语义和 Inspector 范围仍由 Material metadata 提供；不与 C++ 反射混淆。
 6. Material Inspector 按布局生成控件，变化时精确失效缓存；当前不引入 bindless。
+
+目标编辑流程：项目 Shader 源码及程序描述进入资产管线，描述组合 vertex/fragment 等阶段与入口；
+编译与反射产出可用程序和参数布局，材质按稳定资产引用选择程序／模板，Inspector 按布局显示纹理槽及其他参数。
+反射只负责类型和 binding，名称、默认值、用途与编辑范围由材质 metadata 补充，不把任意单个 GLSL 文件当完整渲染方案。
+切换程序时保留兼容参数，对缺失或类型变化给出默认值／诊断；编译失败不替换当前有效版本。
 
 Shader 源码、CPU 编译结果和 Vulkan 对象分层；build-time/editor 编译共用 stage、entry、defines/variants、target 和依赖契约。
 Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验票 → owner 帧边界切换。

@@ -2,6 +2,7 @@
 #include "asset/database.h"
 
 #include <imgui.h>
+#include <algorithm>
 #include <limits>
 #include <stdexcept>
 
@@ -36,7 +37,7 @@ namespace CometEditor {
         if(handle.is_valid()) {
             const auto* record = database.find(handle);
             if(!record) {
-                preview = "Missing (" + std::to_string(handle.value()) + ")";
+                preview = "Missing";
             } else if(type && record->type != *type) {
                 preview = "Invalid type: " + record->path.generic_string();
             } else {
@@ -93,6 +94,13 @@ namespace CometEditor {
             });
         register_editor(Comet::PropertyType::Float,
             [](const Comet::PropertyDescriptor& property, void* value) {
+                const float available = ImGui::GetContentRegionAvail().x;
+                const float label_width =
+                    ImGui::CalcTextSize(property.display_name.c_str()).x
+                    + ImGui::GetStyle().ItemInnerSpacing.x;
+                const float width = std::min({available * 0.4f, available - label_width,
+                    ImGui::GetFontSize() * 9});
+                ImGui::SetNextItemWidth(std::max(1.0f, width));
                 return PropertyEditResult::from_item(ImGui::DragFloat(
                     property.display_name.c_str(), static_cast<float*>(value),
                     property.numeric.speed, minimum(property), maximum(property)));

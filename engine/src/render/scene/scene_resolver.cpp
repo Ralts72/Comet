@@ -182,7 +182,7 @@ namespace Comet {
         }
         m_missing_material_handles.erase(render_item.material_handle);
 
-        if(material->get_template_name() != "cube_texture") {
+        if(material->get_template_name() != "unlit_texture_blend") {
             if(m_invalid_material_handles.insert(render_item.material_handle).second) {
                 LOG_ERROR("Material handle {} uses unsupported template '{}'",
                     render_item.material_handle.value(), material->get_template_name());
