@@ -96,6 +96,37 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(ViewportGizmoUiTest, ToolMenuChangesInteractionPolicyWithoutEditingScene) {
+        auto* window = ImGui::FindWindowByName("Viewport");
+        ASSERT_NE(window, nullptr);
+        ImGui::ActivateItemByID(window->GetID("Tool"));
+        frame();
+        frame();
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        auto* popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Snap"));
+        frame();
+        EXPECT_TRUE(gizmo.settings().snap);
+        EXPECT_FLOAT_EQ(gizmo.settings().step, 0.25f);
+        EXPECT_EQ(history.undo_size(), 0);
+        EXPECT_FLOAT_EQ(x(), 0);
+        ImGui::ActivateItemByID(popup->GetID("Space"));
+        frame();
+        frame();
+        ASSERT_GE(GImGui->OpenPopupStack.Size, 2);
+        auto* options = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(options, nullptr);
+        // ImGui 的数组式 Combo 为各选项追加索引 ID。
+        const int local_index = 1;
+        const auto local_id = ImHashStr(
+            "Local", 0, ImHashData(&local_index, sizeof(local_index), options->ID));
+        ImGui::ActivateItemByID(local_id);
+        frame();
+        EXPECT_EQ(gizmo.settings().space, TranslationGizmo::Space::Local);
+        EXPECT_EQ(history.undo_size(), 0);
+    }
+
     TEST_F(ViewportGizmoUiTest, MeshDropReportsOnePositionedRequestWithoutEditingScene) {
         mesh_payload.generation = history.generation();
         const auto& rect = viewport.get_layout().image_display_rect;

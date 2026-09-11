@@ -56,6 +56,102 @@ namespace {
         }
     };
 
+    TEST_F(TranslationGizmoTest, LocalAxesFollowRotationAndIgnoreOwnNegativeScale) {
+        auto& transform = entity.get_component<TransformComponent>();
+        transform.rotation.z = 90;
+        transform.scale = {-2, 0, 3};
+        ASSERT_TRUE(gizmo.set_settings({.space = TranslationGizmo::Space::Local}));
+        const auto handles = gizmo.handles(entity.get_uuid(), camera, layout);
+        ASSERT_TRUE(handles[0]);
+        EXPECT_NEAR(handles[0]->end.x, handles[0]->start.x, 0.001f);
+        EXPECT_LT(handles[0]->end.y, handles[0]->start.y);
+        const auto start = begin_x();
+        EXPECT_TRUE(update({.position = start + Math::Vec2(0, -100), .released = true}));
+        EXPECT_NEAR(translation().x, 0, 0.0001f);
+        EXPECT_GT(translation().y, 0);
+        EXPECT_EQ(history.undo_size(), 1);
+        ASSERT_TRUE(history.undo());
+        expect_vector(translation(), Math::Vec3(0));
+        EXPECT_EQ(transform.scale, Math::Vec3(-2, 0, 3));
+    }
+
+    TEST_F(TranslationGizmoTest, LocalDragUsesParentAffineBasisAndWorldUnitSnap) {
+        auto parent = scene.create_entity();
+        auto& parent_transform = parent.get_component<TransformComponent>();
+        parent_transform.rotation.z = 45;
+        parent_transform.scale = {2, 3, 1};
+        ASSERT_TRUE(scene.set_parent(entity, parent));
+        entity.get_component<TransformComponent>().rotation.z = 30;
+        ASSERT_TRUE(gizmo.set_settings(
+            {.space = TranslationGizmo::Space::Local, .snap = true, .step = 0.25f}));
+        const auto handle = gizmo.handles(entity.get_uuid(), camera, layout)[0];
+        ASSERT_TRUE(handle);
+        const auto direction = glm::normalize(handle->end - handle->start);
+        const auto start = begin_x();
+        ASSERT_TRUE(update({.position = start + direction * 100.0f, .released = true}));
+        const auto world_delta = Math::Vec3(scene.get_world_matrix(entity)[3]);
+        EXPECT_NEAR(Math::length(world_delta), 0.5f, 0.0001f);
+        const auto local_axis = Math::normalize(
+            Math::Vec3(Math::compose_trs({}, {0, 0, 30}, Math::Vec3(1))[0]));
+        EXPECT_GT(Math::dot(Math::normalize(translation()), local_axis), 0.9999f);
+        EXPECT_EQ(history.undo_size(), 1);
+    }
+
+    TEST_F(TranslationGizmoTest, SnapUsesStartRelativeDistanceAndSmallMotionIsNoOp) {
+        entity.get_component<TransformComponent>().translation.x = 0.13f;
+        ASSERT_TRUE(gizmo.set_settings({.snap = true, .step = 0.25f}));
+        auto start = begin_x();
+        ASSERT_TRUE(update({.position = start + Math::Vec2(10, 0), .released = true}));
+        EXPECT_FLOAT_EQ(translation().x, 0.13f);
+        EXPECT_EQ(history.undo_size(), 0);
+        start = begin_x();
+        ASSERT_TRUE(update({.position = start + Math::Vec2(100, 0), .released = true}));
+        EXPECT_NEAR(translation().x, 0.63f, 0.0001f);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(translation().x, 0.13f);
+        start = begin_x();
+        ASSERT_TRUE(update({.position = start + Math::Vec2(-100, 0), .released = true}));
+        EXPECT_NEAR(translation().x, -0.37f, 0.0001f);
+        EXPECT_EQ(history.undo_size(), 1);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(translation().x, 0.13f);
+        ASSERT_TRUE(history.redo());
+        EXPECT_NEAR(translation().x, -0.37f, 0.0001f);
+    }
+
+    TEST_F(TranslationGizmoTest, SettingsChangesCancelGestureAndRejectInvalidStep) {
+        const auto start = begin_x();
+        ASSERT_TRUE(update({.position = start + Math::Vec2(60, 0), .down = true}));
+        EXPECT_GT(translation().x, 0);
+        const auto preview = translation();
+        ASSERT_TRUE(gizmo.set_settings(gizmo.settings()));
+        EXPECT_TRUE(gizmo.active());
+        EXPECT_EQ(translation(), preview);
+        EXPECT_FALSE(gizmo.set_settings({.step = 0}));
+        EXPECT_FALSE(gizmo.set_settings({.step = -0.25f}));
+        EXPECT_FALSE(
+            gizmo.set_settings({.step = std::numeric_limits<float>::infinity()}));
+        EXPECT_FALSE(
+            gizmo.set_settings({.space = static_cast<TranslationGizmo::Space>(2)}));
+        EXPECT_FALSE(
+            gizmo.set_settings({.step = std::numeric_limits<float>::quiet_NaN()}));
+        EXPECT_TRUE(gizmo.active());
+        EXPECT_EQ(gizmo.settings(), TranslationGizmo::Settings{});
+        EXPECT_EQ(translation(), preview);
+        ASSERT_TRUE(gizmo.set_settings({.space = TranslationGizmo::Space::Local}));
+        EXPECT_FALSE(gizmo.active());
+        expect_vector(translation(), Math::Vec3(0));
+        EXPECT_EQ(history.undo_size(), 0);
+        const auto local_start = begin_x();
+        ASSERT_TRUE(update({.position = local_start + Math::Vec2(60, 0), .down = true}));
+        entity.get_component<TransformComponent>().rotation.z = 15;
+        ASSERT_TRUE(update({.position = local_start + Math::Vec2(80, 0), .down = true}));
+        EXPECT_FALSE(gizmo.active());
+        expect_vector(translation(), Math::Vec3(0));
+        EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().rotation.z, 15);
+        EXPECT_EQ(history.undo_size(), 0);
+    }
+
     TEST_F(
         TranslationGizmoTest, ProjectsLogicalScreenHandlesWithUpwardYAndNoDegenerateZ) {
         const auto handles = gizmo.handles(entity.get_uuid(), camera, layout);

@@ -66,6 +66,18 @@ namespace CometEditor {
         CommandHistory& history, const Comet::ComponentRegistry& registry)
         : m_history(history), m_edit(history, registry) {}
 
+    bool TranslationGizmo::set_settings(const Settings settings) {
+        if(!std::isfinite(settings.step) || settings.step <= 0
+            || (settings.space != Space::World && settings.space != Space::Local))
+            return false;
+        if(settings == m_settings)
+            return true;
+        if(!cancel())
+            return false;
+        m_settings = settings;
+        return true;
+    }
+
     std::optional<TranslationGizmo::Context> TranslationGizmo::make_context(
         const Comet::EntityUuid selected, const Comet::RenderCamera& camera,
         const ViewportLayout& layout) const {
@@ -100,6 +112,23 @@ namespace CometEditor {
         if(!finite_matrix(context.parent_world)
             || !finite_matrix(context.world_to_parent))
             return std::nullopt;
+
+        const auto local_rotation = Comet::Math::compose_trs({},
+            entity.get_component<Comet::TransformComponent>().rotation,
+            Comet::Math::Vec3(1));
+        for(std::size_t index = 0; index < context.directions.size(); ++index) {
+            auto direction = axis_direction(static_cast<Axis>(index));
+            if(m_settings.space == Space::Local) {
+                // 不让实体自身的零／负缩放反转手柄；父级仿射变换仍影响本地轴。
+                direction = Comet::Math::Vec3(context.parent_world * local_rotation
+                                              * Comet::Math::Vec4(direction, 0));
+            }
+            const float length = Comet::Math::length(direction);
+            if(!Comet::Math::is_finite(direction) || !std::isfinite(length)
+                || length <= EPSILON)
+                return std::nullopt;
+            context.directions[index] = direction / length;
+        }
 
         const float aspect = static_cast<float>(layout.image_resolution.x)
                              / static_cast<float>(layout.image_resolution.y);
@@ -146,7 +175,7 @@ namespace CometEditor {
         for(std::size_t index = 0; index < result.size(); ++index) {
             const auto axis = static_cast<Axis>(index);
             const auto end = project(context.view_projection, context.layout,
-                context.origin + axis_direction(axis) * context.axis_length);
+                context.origin + context.directions[index] * context.axis_length);
             if(end && glm::length(*end - *start) >= MIN_PROJECTED_LENGTH)
                 result[index] = Handle{axis, *start, *end};
         }
@@ -184,7 +213,7 @@ namespace CometEditor {
         if(!std::isfinite(length) || length <= EPSILON)
             return std::nullopt;
         const auto ray_direction = delta / length;
-        const auto direction = axis_direction(axis);
+        const auto direction = context.directions[static_cast<std::size_t>(axis)];
         const auto offset = context.origin - Comet::Math::Vec3(near_point);
         const float parallel = Comet::Math::dot(direction, ray_direction);
         const float denominator = 1.0f - parallel * parallel;
@@ -208,6 +237,7 @@ namespace CometEditor {
                 || m_history.generation() != m_drag->generation
                 || context->parent != m_drag->context.parent
                 || context->parent_world != m_drag->context.parent_world
+                || context->directions != m_drag->context.directions
                 || context->view_projection != m_drag->context.view_projection
                 || !same_layout(context->layout, m_drag->context.layout)
                 || (!input.down && !input.released)) {
@@ -220,8 +250,12 @@ namespace CometEditor {
                 static_cast<void>(cancel());
                 return true;
             }
+            float distance = *parameter - m_drag->start_parameter;
+            if(m_settings.snap)
+                distance = std::round(distance / m_settings.step) * m_settings.step;
             const auto world_delta =
-                axis_direction(m_drag->axis) * (*parameter - m_drag->start_parameter);
+                m_drag->context.directions[static_cast<std::size_t>(m_drag->axis)]
+                * distance;
             const auto local_delta =
                 m_drag->context.world_to_parent * Comet::Math::Vec4(world_delta, 0.0f);
             const auto translation =
