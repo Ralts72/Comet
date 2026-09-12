@@ -13,6 +13,8 @@ compile_shaders(
         "${CMAKE_CURRENT_SOURCE_DIR}/graphics/shaders/runtime_array.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/graphics/shaders/pipeline_triangle.vert"
         "${CMAKE_CURRENT_SOURCE_DIR}/graphics/shaders/pipeline_color.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/shaders/specialization.vert"
+        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/shaders/specialization.frag"
 )
 add_dependencies(unit_testing shader_compile test_shader_compile)
 target_include_directories(unit_testing PRIVATE

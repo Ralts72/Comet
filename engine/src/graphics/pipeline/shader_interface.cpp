@@ -7,6 +7,8 @@
 #include <limits>
 #include <stdexcept>
 #include <utility>
+#include <cstring>
+#include <unordered_set>
 
 namespace Comet {
     namespace {
@@ -27,6 +29,52 @@ namespace Comet {
                     throw std::invalid_argument("Invalid SPIR-V instruction word range");
                 offset += count;
             }
+        }
+
+        void validate_fixed_array_lengths(std::span<const uint32_t> words) {
+            std::unordered_set<uint32_t> constants;
+            std::vector<uint32_t> lengths;
+            for(size_t offset = 5; offset < words.size();) {
+                const auto count = words[offset] >> 16;
+                const auto op = static_cast<SpvOp>(words[offset] & 0xffff);
+                if(op == SpvOpConstant || op == SpvOpTypeArray) {
+                    if(count < 4)
+                        throw std::invalid_argument("Invalid SPIR-V constant or array");
+                    if(op == SpvOpConstant)
+                        constants.insert(words[offset + 2]);
+                    else
+                        lengths.push_back(words[offset + 3]);
+                }
+                offset += count;
+            }
+            for(const auto length : lengths) {
+                if(!constants.contains(length))
+                    throw std::invalid_argument(
+                        "Specialization-dependent array lengths are not supported; use a compile-time define variant");
+            }
+        }
+
+        ShaderInterface::ConstantValue constant_default(
+            const SpvReflectSpecializationConstant& constant) {
+            const auto* type = constant.type_description;
+            if(!type || !constant.default_value || constant.default_value_size != 4)
+                throw std::invalid_argument(
+                    "Only bool and 32-bit specialization constants are supported");
+            uint32_t bits;
+            std::memcpy(&bits, constant.default_value, sizeof(bits));
+            if(type->op == SpvOpTypeBool)
+                return ShaderInterface::ConstantValue(bits != 0);
+            if(type->traits.numeric.scalar.width != 32)
+                throw std::invalid_argument(
+                    "Only 32-bit numeric specialization constants are supported");
+            if(type->op == SpvOpTypeFloat)
+                return ShaderInterface::ConstantValue(std::bit_cast<float>(bits));
+            if(type->op == SpvOpTypeInt) {
+                if(type->traits.numeric.scalar.signedness)
+                    return ShaderInterface::ConstantValue(std::bit_cast<int32_t>(bits));
+                return ShaderInterface::ConstantValue(bits);
+            }
+            throw std::invalid_argument("Unsupported specialization constant type");
         }
 
         Format member_format(const SpvReflectBlockVariable& member) {
@@ -114,6 +162,7 @@ namespace Comet {
             throw std::invalid_argument("Shader requires SPIR-V and a valid entry point");
         }
         validate_word_ranges(spirv_words);
+        validate_fixed_array_lengths(spirv_words);
         spv_reflect::ShaderModule module(spirv_words.size_bytes(), spirv_words.data());
         require_success(module.GetResult());
         const auto* entry =
@@ -123,6 +172,18 @@ namespace Comet {
         }
         m_stage = shader_stage(entry->shader_stage);
         uint32_t count = 0;
+        require_success(module.EnumerateSpecializationConstants(&count, nullptr));
+        std::vector<SpvReflectSpecializationConstant*> constants(count);
+        require_success(
+            module.EnumerateSpecializationConstants(&count, constants.data()));
+        for(const auto* constant : constants) {
+            std::string name;
+            if(constant->name)
+                name = constant->name;
+            m_specialization_constants.push_back(
+                {constant->constant_id, std::move(name), constant_default(*constant)});
+        }
+        std::ranges::sort(m_specialization_constants, {}, &SpecializationConstant::id);
         require_success(module.EnumerateEntryPointDescriptorBindings(
             m_entry_point.c_str(), &count, nullptr));
         std::vector<SpvReflectDescriptorBinding*> bindings(count);
@@ -167,4 +228,27 @@ namespace Comet {
         }
     }
 
+    void ShaderInterface::canonicalize_specialization(Specialization& values) const {
+        for(const auto& [id, value] : values) {
+            bool found = false;
+            for(const auto& constant : m_specialization_constants) {
+                if(constant.id != id)
+                    continue;
+                found = true;
+                if(constant.default_value.get_type() != value.get_type())
+                    throw std::invalid_argument(
+                        "Specialization constant " + std::to_string(id)
+                        + " type mismatch in Shader '" + m_entry_point + "'");
+            }
+            if(!found)
+                throw std::invalid_argument("Unknown specialization constant "
+                    + std::to_string(id) + " in Shader '" + m_entry_point + "'");
+        }
+        std::erase_if(values, [&](const auto& entry) {
+            return std::ranges::all_of(
+                m_specialization_constants, [&](const auto& constant) {
+                    return constant.id != entry.first || constant.default_value == entry.second;
+                });
+        });
+    }
 }

@@ -23,6 +23,8 @@
 #include "runtime_array_frag.h"
 #include "pipeline_triangle_vert.h"
 #include "pipeline_color_frag.h"
+#include "specialization_vert.h"
+#include "specialization_frag.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/resource/image.h"
 #include "graphics/command/command_buffer.h"
@@ -32,6 +34,7 @@
 #include "graphics/context.h"
 
 #include <gtest/gtest.h>
+#include <bit>
 #include <stdexcept>
 #include <functional>
 #include <limits>
@@ -39,6 +42,40 @@
 #include <unordered_map>
 
 namespace Comet::Tests {
+    TEST(ShaderInterfaceTest, ReflectsTypedSpecializationAndNormalizesExactDefaults) {
+        const ShaderInterface shader(SPECIALIZATION_FRAG);
+        const auto& constants = shader.get_specialization_constants();
+        ASSERT_EQ(constants.size(), 4u);
+        EXPECT_EQ(constants[0].id, 0u);
+        EXPECT_EQ(constants[0].name, "enabled");
+        EXPECT_EQ(constants[0].default_value, ShaderInterface::ConstantValue(true));
+        EXPECT_EQ(constants[1].default_value, ShaderInterface::ConstantValue(1.0f));
+        EXPECT_EQ(constants[2].default_value, ShaderInterface::ConstantValue(int32_t(0)));
+        EXPECT_EQ(
+            constants[3].default_value, ShaderInterface::ConstantValue(uint32_t(0)));
+        ShaderInterface::Specialization defaults{
+            {0, true}, {1, 1.0f}, {2, int32_t(0)}, {3, uint32_t(0)}};
+        shader.canonicalize_specialization(defaults);
+        EXPECT_TRUE(defaults.empty());
+        ShaderInterface::Specialization changed{
+            {0, false}, {1, -0.0f}, {2, int32_t(-1)}, {3, uint32_t(2)}};
+        const auto original = changed;
+        shader.canonicalize_specialization(changed);
+        EXPECT_EQ(changed, original);
+        EXPECT_NE(
+            ShaderInterface::ConstantValue(0.0f), ShaderInterface::ConstantValue(-0.0f));
+        EXPECT_NE(ShaderInterface::ConstantValue(0u), ShaderInterface::ConstantValue(0));
+        const auto nan = std::bit_cast<float>(uint32_t(0x7fc00001));
+        EXPECT_EQ(
+            ShaderInterface::ConstantValue(nan), ShaderInterface::ConstantValue(nan));
+        ShaderInterface::Specialization wrong{{0, 1u}};
+        EXPECT_THROW(shader.canonicalize_specialization(wrong), std::invalid_argument);
+        wrong = {{0, true}, {999, true}};
+        const auto rejected = wrong;
+        EXPECT_THROW(shader.canonicalize_specialization(wrong), std::invalid_argument);
+        EXPECT_EQ(wrong, rejected);
+    }
+
     TEST(ShaderInterfaceTest, ReflectsProductionStagesBindingsAndPushConstants) {
         const ShaderInterface vertex(MATERIAL_MESH_VERT);
         EXPECT_EQ(vertex.get_entry_point(), "main");
@@ -498,7 +535,55 @@ namespace Comet::Tests {
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
     }
 
-    TEST_F(ShaderPipelineTest, StaticViewportAndScissorChangeActualPixels) {
+    TEST_F(ShaderPipelineTest, SpecializationCacheUsesStageTypeAndExactBits) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        RenderPass pass(device);
+        PipelineManager pipelines(device, pass);
+        auto vertex = std::make_shared<Shader>(device, "vertex", SPECIALIZATION_VERT);
+        auto fragment = std::make_shared<Shader>(device, "fragment", SPECIALIZATION_FRAG);
+        PipelineConfig config;
+        const auto original =
+            pipelines.create_pipeline("variant", {}, config, vertex, fragment);
+        config.vertex_specialization = {{0, true}};
+        config.fragment_specialization = {
+            {0, true}, {1, 1.0f}, {2, int32_t(0)}, {3, uint32_t(0)}};
+        EXPECT_EQ(original,
+            pipelines.create_pipeline("defaults", {}, config, vertex, fragment));
+        const PipelineKey base({}, {}, *vertex, *fragment, pass);
+        const PipelineKey defaults({}, config, *vertex, *fragment, pass);
+        EXPECT_EQ(base, defaults);
+        EXPECT_EQ(PipelineKey::Hash{}(base), PipelineKey::Hash{}(defaults));
+        config.vertex_specialization = {{0, false}};
+        const PipelineKey vertex_key({}, config, *vertex, *fragment, pass);
+        config.vertex_specialization.clear();
+        config.fragment_specialization = {{0, false}};
+        const PipelineKey fragment_key({}, config, *vertex, *fragment, pass);
+        EXPECT_NE(vertex_key, fragment_key);
+        config.fragment_specialization = {{1, 0.0f}};
+        const PipelineKey positive_zero({}, config, *vertex, *fragment, pass);
+        config.fragment_specialization = {{1, -0.0f}};
+        const PipelineKey negative_zero({}, config, *vertex, *fragment, pass);
+        EXPECT_NE(positive_zero, negative_zero);
+        struct CollisionHash {
+            size_t operator()(const PipelineKey&) const { return 0; }
+        };
+        std::unordered_map<PipelineKey, int, CollisionHash> collisions;
+        for(const auto* key :
+            {&base, &vertex_key, &fragment_key, &positive_zero, &negative_zero})
+            EXPECT_TRUE(collisions.emplace(*key, 1).second);
+        EXPECT_EQ(collisions.size(), 5u);
+        config.fragment_specialization = {{1, 0u}};
+        EXPECT_THROW(pipelines.create_pipeline("variant", {}, config, vertex, fragment),
+            std::invalid_argument);
+        config.fragment_specialization = {{99, true}};
+        EXPECT_THROW(pipelines.create_pipeline("variant", {}, config, vertex, fragment),
+            std::invalid_argument);
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 1u);
+        EXPECT_EQ(
+            original, pipelines.create_pipeline("variant", {}, {}, vertex, fragment));
+    }
+
+    TEST_F(ShaderPipelineTest, StaticViewportScissorAndSpecializationChangeActualPixels) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
         auto color = Attachment::get_color_attachment(Format::R8G8B8A8_UNORM);
@@ -507,26 +592,41 @@ namespace Comet::Tests {
         color.usage |= ImageUsage::CopySrc;
         RenderPass pass(device, {color},
             {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}}, Format::R8G8B8A8_UNORM);
-        auto target = RenderTarget::create_multi_target(device, pass, {32, 16}, 2);
+        constexpr uint32_t VARIANT_COUNT = 5;
+        auto target =
+            RenderTarget::create_multi_target(device, pass, {32, 16}, VARIANT_COUNT);
         target->set_clear_value(ClearValue(Math::Vec4(0, 0, 0, 1)));
         PipelineManager pipelines(device, pass);
-        auto vertex = std::make_shared<Shader>(device, "vertex", PIPELINE_TRIANGLE_VERT);
-        auto fragment = std::make_shared<Shader>(device, "fragment", PIPELINE_COLOR_FRAG);
+        auto vertex = std::make_shared<Shader>(device, "vertex", SPECIALIZATION_VERT);
+        auto fragment = std::make_shared<Shader>(device, "fragment", SPECIALIZATION_FRAG);
         PipelineConfig left;
         left.viewport = vk::Viewport(0, 16, 16, -16, 0, 1);
         left.scissor = vk::Rect2D({0, 0}, {8, 16});
         auto right = left;
         right.viewport.x = 16;
         right.scissor.offset.x = 24;
+        auto cyan = right;
+        cyan.fragment_specialization = {{1, 0.5f}, {2, int32_t(1)}, {3, uint32_t(1)}};
+        auto hidden = left;
+        hidden.vertex_specialization = {{0, false}};
+        auto black = left;
+        black.fragment_specialization = {{0, false}};
         const std::array draws{
             pipelines.create_pipeline("region", {}, left, vertex, fragment),
-            pipelines.create_pipeline("region", {}, right, vertex, fragment)};
+            pipelines.create_pipeline("region", {}, right, vertex, fragment),
+            pipelines.create_pipeline("region", {}, cyan, vertex, fragment),
+            pipelines.create_pipeline("region", {}, hidden, vertex, fragment),
+            pipelines.create_pipeline("region", {}, black, vertex, fragment)};
         ASSERT_NE(draws[0], draws[1]);
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), VARIANT_COUNT);
+        EXPECT_EQ(draws[2],
+            pipelines.create_pipeline("reused cyan", {}, cyan, vertex, fragment));
+        cyan.fragment_specialization = {{1, 1.0f}};
         FrameScheduler frames(device, 2);
-        frames.initialize_swapchain_images(2);
+        frames.initialize_swapchain_images(VARIANT_COUNT);
         vk::UniqueDeviceMemory memory;
-        auto readback =
-            device.get().createBufferUnique(vk::BufferCreateInfo({}, 2 * 32 * 16 * 4,
+        auto readback = device.get().createBufferUnique(
+            vk::BufferCreateInfo({}, VARIANT_COUNT * 32 * 16 * 4,
                 vk::BufferUsageFlagBits::eTransferDst, vk::SharingMode::eExclusive));
         const auto requirements = device.get().getBufferMemoryRequirements(*readback);
         const auto properties =
@@ -545,7 +645,7 @@ namespace Comet::Tests {
         memory = device.get().allocateMemoryUnique(
             vk::MemoryAllocateInfo(requirements.size, *memory_type));
         device.get().bindBufferMemory(*readback, *memory, 0);
-        for(uint32_t index = 0; index < 2; ++index) {
+        for(uint32_t index = 0; index < VARIANT_COUNT; ++index) {
             frames.wait_for_current_slot();
             frames.begin_frame(index);
             auto& command = frames.get_current_command_buffer();
@@ -582,13 +682,19 @@ namespace Comet::Tests {
         frames.wait_for_all_slots();
         const auto* pixels = static_cast<const uint8_t*>(
             device.get().mapMemory(*memory, 0, VK_WHOLE_SIZE));
-        for(uint32_t frame = 0; frame < 2; ++frame) {
+        for(uint32_t frame = 0; frame < VARIANT_COUNT; ++frame) {
             for(uint32_t x = 0; x < 32; ++x) {
                 const auto offset = (frame * 32 * 16 + 8 * 32 + x) * 4;
                 const bool red = (frame == 0 && x < 8) || (frame == 1 && x >= 24);
-                EXPECT_EQ(pixels[offset], red ? 255 : 0) << frame << ":" << x;
-                EXPECT_EQ(pixels[offset + 1], 0);
-                EXPECT_EQ(pixels[offset + 2], 0);
+                const bool cyan_pixel = frame == 2 && x >= 24;
+                int expected_red = 0;
+                if(red)
+                    expected_red = 255;
+                else if(cyan_pixel)
+                    expected_red = 128;
+                EXPECT_NEAR(pixels[offset], expected_red, 1) << frame << ":" << x;
+                EXPECT_EQ(pixels[offset + 1], cyan_pixel ? 255 : 0);
+                EXPECT_EQ(pixels[offset + 2], cyan_pixel ? 255 : 0);
             }
         }
         device.get().unmapMemory(*memory);

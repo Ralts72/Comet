@@ -2,6 +2,7 @@
 
 #include "common/export.h"
 #include "graphics/enums.h"
+#include "graphics/pipeline/shader_interface.h"
 
 #include <vulkan/vulkan.hpp>
 #include <cstdint>
@@ -91,6 +92,8 @@ namespace Comet {
         };
         PipelineDynamicState dynamic_state;
         uint32_t subpass = 0;
+        ShaderInterface::Specialization vertex_specialization;
+        ShaderInterface::Specialization fragment_specialization;
 
         bool operator==(const PipelineConfig&) const = default;
 

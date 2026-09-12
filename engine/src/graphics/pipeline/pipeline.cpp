@@ -8,6 +8,26 @@
 #include "graphics/render_pass.h"
 
 namespace Comet {
+    namespace {
+        struct SpecializationData {
+            std::vector<vk::SpecializationMapEntry> entries;
+            std::vector<uint32_t> words;
+            vk::SpecializationInfo info;
+
+            SpecializationData(
+                const ShaderInterface& shader, ShaderInterface::Specialization values) {
+                shader.canonicalize_specialization(values);
+                for(const auto& [id, value] : values) {
+                    entries.emplace_back(id,
+                        static_cast<uint32_t>(words.size() * sizeof(uint32_t)),
+                        sizeof(uint32_t));
+                    words.push_back(value.get_bits());
+                }
+                info = vk::SpecializationInfo(static_cast<uint32_t>(entries.size()),
+                    entries.data(), words.size() * sizeof(uint32_t), words.data());
+            }
+        };
+    }
     PipelineLayout::PipelineLayout(Device& device, const ShaderLayout& layout)
         : m_device(device) {
         std::vector<vk::DescriptorSetLayout> vk_set_layouts;
@@ -43,7 +63,15 @@ namespace Comet {
         const std::shared_ptr<Shader>& vertex_shader,
         const std::shared_ptr<Shader>& fragment_shader, const PipelineConfig& config)
         : m_name(std::move(name)), m_device(device), m_layout(layout) {
+        const SpecializationData vertex_specialization(
+            vertex_shader->get_interface(), config.vertex_specialization);
+        const SpecializationData fragment_specialization(
+            fragment_shader->get_interface(), config.fragment_specialization);
         auto shader_stages = create_shader_stages(vertex_shader, fragment_shader);
+        if(!vertex_specialization.entries.empty())
+            shader_stages[0].pSpecializationInfo = &vertex_specialization.info;
+        if(!fragment_specialization.entries.empty())
+            shader_stages[1].pSpecializationInfo = &fragment_specialization.info;
         auto vertex_input_state = create_vertex_input_state(config);
         auto input_assembly_state = create_input_assembly_state(config);
         auto rasterization_state = create_rasterization_state(config);

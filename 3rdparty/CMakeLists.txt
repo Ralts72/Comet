@@ -70,11 +70,10 @@ block(SCOPE_FOR VARIABLES)
     add_subdirectory(glslang EXCLUDE_FROM_ALL)
 endblock()
 
-# GCC PR110498: false positive in libstdc++ vector<bool>::reserve.
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
-    AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13
-    AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13.4)
-    target_compile_options(glslang PRIVATE -Wno-array-bounds)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(glslang PRIVATE
+        -Wno-maybe-uninitialized
+        -Wno-array-bounds)
 endif()
 
 if (COMET_BUILD_EDITOR)
