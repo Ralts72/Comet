@@ -4,6 +4,7 @@
 #include "common/export.h"
 #include "core/project_paths.h"
 
+#include <chrono>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -28,6 +29,10 @@ namespace Comet {
             std::size_t in_flight;
             std::size_t queued;
         };
+        struct CompletionBudget {
+            std::size_t max_results = 2;
+            std::chrono::nanoseconds max_time = std::chrono::milliseconds(2);
+        };
         enum class MeshImportMode { IfNeeded, Force };
         AssetManager(ProjectPaths paths, AssetRegistry& registry,
             RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler);
@@ -44,6 +49,8 @@ namespace Comet {
             const std::filesystem::path& directory);
         // 本次成功发布的结果；Mesh Artifact 发布不代表 GPU 已驻留。
         std::vector<AssetHandle> process_completions();
+        // 失败／过期也计数；时间预算不抢占单个发布操作。
+        std::vector<AssetHandle> process_completions(CompletionBudget budget);
         [[nodiscard]] AsyncStatus get_async_status() const;
         [[nodiscard]] bool ensure_loaded(AssetHandle handle, AssetType expected_type);
         [[nodiscard]] bool import_mesh(AssetHandle handle);
@@ -64,6 +71,7 @@ namespace Comet {
 
     private:
         struct AsyncState;
+        struct ImportResult;
 
         void apply_scan_report(const AssetScanReport& report);
         void reload_loaded_material_dependents(AssetHandle texture_handle);
@@ -75,9 +83,11 @@ namespace Comet {
             const AssetRecord& record, MeshImportMode mode);
         [[nodiscard]] bool schedule_loaded_texture_refresh(const AssetRecord& record);
         [[nodiscard]] bool schedule_refresh_task(AssetHandle handle,
-            AssetRevision revision, AssetType type, std::function<void()> task,
-            bool force_mesh_rebuild = false);
+            AssetRevision revision, AssetType type,
+            std::function<void(ImportResult&)> task, bool force_mesh_rebuild = false);
         void dispatch_queued_tasks();
+        void publish_import_result(
+            ImportResult& result, std::vector<AssetHandle>& published);
         [[nodiscard]] std::shared_ptr<Texture> create_runtime_texture(
             const AssetRecord& record, const TextureImportSettings& import_settings);
         [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
@@ -92,6 +102,6 @@ namespace Comet {
         RenderResourceFactory& m_resource_factory;
         TaskScheduler& m_task_scheduler;
         AsyncLimits m_async_limits;
-        std::shared_ptr<AsyncState> m_async_state;
+        std::unique_ptr<AsyncState> m_async_state;
     };
 }

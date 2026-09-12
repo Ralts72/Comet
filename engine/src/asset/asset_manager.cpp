@@ -20,7 +20,6 @@
 #include <exception>
 #include <future>
 #include <map>
-#include <mutex>
 #include <optional>
 #include <queue>
 #include <stdexcept>
@@ -29,6 +28,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace Comet {
@@ -142,6 +142,11 @@ namespace Comet {
         }
     }
 
+    struct AssetManager::ImportResult {
+        std::variant<std::monostate, MeshArtifactCandidate, TextureImportCandidate>
+            candidate;
+    };
+
     struct AssetManager::AsyncState {
         struct PendingAssetTask {
             AssetRevision revision;
@@ -152,20 +157,19 @@ namespace Comet {
             AssetRevision revision = INVALID_ASSET_REVISION;
             AssetType type = AssetType::Unknown;
             std::future<void> completion;
+            std::shared_ptr<ImportResult> result;
         };
         struct QueuedAssetTask {
             AssetHandle handle;
             AssetRevision revision;
             AssetType type;
-            std::function<void()> task;
+            std::function<void(ImportResult&)> task;
         };
 
-        std::mutex completed_mutex;
-        std::deque<MeshArtifactCandidate> completed_meshes;
-        std::deque<TextureImportCandidate> completed_textures;
         std::unordered_map<AssetHandle, PendingAssetTask> pending_assets;
         std::vector<ScheduledAssetTask> scheduled_tasks;
         std::deque<QueuedAssetTask> queued_tasks;
+        bool processing_completions = false;
 
         bool has_queued_task(
             const AssetHandle handle, const AssetRevision revision) const {
@@ -187,14 +191,13 @@ namespace Comet {
           m_import_service(std::make_unique<ImportService>(m_paths)),
           m_registry(registry), m_resource_factory(resource_factory),
           m_task_scheduler(task_scheduler), m_async_limits(limits),
-          m_async_state(std::make_shared<AsyncState>()) {
+          m_async_state(std::make_unique<AsyncState>()) {
         if(limits.in_flight == 0 || limits.queued == 0)
             throw std::invalid_argument("Asset async limits must be positive");
         m_async_state->scheduled_tasks.reserve(limits.in_flight);
     }
 
     AssetManager::~AssetManager() {
-        // 取消未派发工作，并解除请求闭包对 AsyncState 的共享引用。
         m_async_state->queued_tasks.clear();
         for(AsyncState::ScheduledAssetTask& task : m_async_state->scheduled_tasks) {
             task.completion.wait();
@@ -318,183 +321,159 @@ namespace Comet {
     }
 
     std::vector<AssetHandle> AssetManager::process_completions() {
-        std::deque<MeshArtifactCandidate> completed_meshes;
-        std::deque<TextureImportCandidate> completed_textures;
-        {
-            const std::lock_guard lock(m_async_state->completed_mutex);
-            completed_meshes.swap(m_async_state->completed_meshes);
-            completed_textures.swap(m_async_state->completed_textures);
-        }
+        return process_completions(CompletionBudget{});
+    }
 
+    std::vector<AssetHandle> AssetManager::process_completions(
+        const CompletionBudget budget) {
+        if(m_async_state->processing_completions) {
+            LOG_WARN("Ignoring reentrant asset completion processing");
+            return {};
+        }
+        struct ProcessingScope {
+            bool& active;
+            ~ProcessingScope() { active = false; }
+        } scope{m_async_state->processing_completions};
+        scope.active = true;
+
+        const auto start = std::chrono::steady_clock::now();
         std::vector<AssetHandle> published;
-        published.reserve(completed_meshes.size() + completed_textures.size());
-        for(MeshArtifactCandidate& candidate : completed_meshes) {
-            const auto pending = m_async_state->pending_assets.find(candidate.handle);
-            if(pending != m_async_state->pending_assets.end()
-                && pending->second.revision == candidate.revision
-                && !m_async_state->has_queued_task(
-                    candidate.handle, candidate.revision)) {
-                m_async_state->pending_assets.erase(pending);
-            }
-
-            if(!m_database.is_current(candidate.handle, candidate.revision)) {
-                LOG_DEBUG(
-                    "Discarded stale background mesh import for asset handle {} (revision {})",
-                    candidate.handle.value(), candidate.revision);
-                continue;
-            }
-            if(!candidate.result) {
-                LOG_ERROR("Failed to prepare mesh artifact '{}' (handle {}): {}",
-                    candidate.relative_path.generic_string(), candidate.handle.value(),
-                    candidate.result.error());
-                continue;
-            }
-            auto& artifact = candidate.result.value();
-            if(candidate.reused_artifact) {
-                record_import_dependencies(
-                    candidate.handle, artifact.source_dependencies());
-                continue;
-            }
-            if(auto result = artifact.publish_atomic(
-                   m_import_service->mesh_artifact_path(candidate.handle));
-                !result) {
-                LOG_ERROR("Failed to publish mesh artifact '{}' (handle {}): {}",
-                    candidate.relative_path.generic_string(), candidate.handle.value(),
-                    result.error());
-                continue;
-            }
-            record_import_dependencies(candidate.handle, artifact.source_dependencies());
-
-            published.push_back(candidate.handle);
-            const auto runtime = find_runtime_asset<Mesh>(m_registry, candidate.handle);
-            if(runtime.type_conflict)
-                continue;
-            if(!runtime.asset) {
-                LOG_INFO("Imported mesh artifact '{}' (handle {})",
-                    candidate.relative_path.generic_string(), candidate.handle.value());
-                continue;
-            }
-
-            std::shared_ptr<Mesh> mesh;
-            try {
-                auto mesh_attempt = m_resource_factory.try_create_mesh(artifact.data);
-                if(!mesh_attempt) {
-                    LOG_ERROR(
-                        "Failed to create refreshed runtime mesh for asset handle {}: {}",
-                        candidate.handle.value(), vk::to_string(mesh_attempt.result()));
-                    continue;
-                }
-                mesh = std::move(mesh_attempt).value();
-            } catch(const std::exception& exception) {
-                LOG_ERROR(
-                    "Failed to create refreshed runtime mesh for asset handle {}: {}",
-                    candidate.handle.value(), exception.what());
-                continue;
-            }
-            if(!m_database.is_current(candidate.handle, candidate.revision)) {
-                LOG_DEBUG(
-                    "Discarded stale runtime mesh candidate for asset handle {} (revision {})",
-                    candidate.handle.value(), candidate.revision);
-                continue;
-            }
-            if(!m_registry.replace_asset(candidate.handle, mesh)) {
-                LOG_ERROR("Failed to publish refreshed runtime mesh for asset handle {}",
-                    candidate.handle.value());
-                continue;
-            }
-
-            LOG_INFO("Reloaded mesh asset '{}' (handle {})",
-                candidate.relative_path.generic_string(), candidate.handle.value());
-        }
-
-        for(TextureImportCandidate& candidate : completed_textures) {
-            const auto pending = m_async_state->pending_assets.find(candidate.handle);
-            if(pending != m_async_state->pending_assets.end()
-                && pending->second.revision == candidate.revision) {
-                m_async_state->pending_assets.erase(pending);
-            }
-
-            if(!m_database.is_current(candidate.handle, candidate.revision)) {
-                LOG_DEBUG(
-                    "Discarded stale background texture import for asset handle {} (revision {})",
-                    candidate.handle.value(), candidate.revision);
-                continue;
-            }
-            if(!candidate.result) {
-                LOG_ERROR("Failed to import modified texture asset '{}' (handle {}): {}",
-                    candidate.relative_path.generic_string(), candidate.handle.value(),
-                    candidate.result.error());
-                continue;
-            }
-
-            std::shared_ptr<Texture> texture;
-            try {
-                auto texture_attempt =
-                    m_resource_factory.try_create_texture(candidate.result.value());
-                if(!texture_attempt) {
-                    LOG_ERROR(
-                        "Failed to create refreshed runtime texture for asset handle {}: {}",
-                        candidate.handle.value(),
-                        vk::to_string(texture_attempt.result()));
-                    continue;
-                }
-                texture = std::move(texture_attempt).value();
-            } catch(const std::exception& exception) {
-                LOG_ERROR(
-                    "Failed to create refreshed runtime texture for asset handle {}: {}",
-                    candidate.handle.value(), exception.what());
-                continue;
-            }
-
-            if(!m_database.is_current(candidate.handle, candidate.revision)) {
-                LOG_DEBUG(
-                    "Discarded stale runtime texture candidate for asset handle {} (revision {})",
-                    candidate.handle.value(), candidate.revision);
-                continue;
-            }
-            if(!m_registry.replace_asset(candidate.handle, texture)) {
-                LOG_ERROR(
-                    "Failed to publish refreshed runtime texture for asset handle {}",
-                    candidate.handle.value());
-                continue;
-            }
-
-            reload_loaded_material_dependents(candidate.handle);
-            published.push_back(candidate.handle);
-            LOG_INFO("Reloaded texture asset '{}' (handle {})",
-                candidate.relative_path.generic_string(), candidate.handle.value());
-        }
-
         auto& tasks = m_async_state->scheduled_tasks;
+        published.reserve(std::min(budget.max_results, tasks.size()));
+        std::size_t processed = 0;
         for(auto task = tasks.begin(); task != tasks.end();) {
+            if(processed >= budget.max_results
+                || budget.max_time <= std::chrono::nanoseconds::zero()
+                || (processed > 0
+                    && std::chrono::steady_clock::now() - start >= budget.max_time))
+                break;
             if(task->completion.wait_for(std::chrono::seconds(0))
                 != std::future_status::ready) {
                 ++task;
                 continue;
             }
+            ++processed;
+            const auto pending = m_async_state->pending_assets.find(task->handle);
+            if(pending != m_async_state->pending_assets.end()
+                && pending->second.revision == task->revision
+                && !m_async_state->has_queued_task(task->handle, task->revision))
+                m_async_state->pending_assets.erase(pending);
 
-            std::optional<std::string> failure;
             try {
+                // future 同步 Worker 写入；就绪之前 owner 不读取结果。
                 task->completion.get();
-            } catch(const std::exception& exception) {
-                failure = exception.what();
-            } catch(...) {
-                failure = "Unknown background task failure";
-            }
-            if(failure) {
-                const auto pending = m_async_state->pending_assets.find(task->handle);
-                if(pending != m_async_state->pending_assets.end()
-                    && pending->second.revision == task->revision
-                    && !m_async_state->has_queued_task(task->handle, task->revision)) {
-                    m_async_state->pending_assets.erase(pending);
+                if(!m_database.is_current(task->handle, task->revision)) {
+                    LOG_DEBUG("Discarded stale background asset {} (revision {})",
+                        task->handle.value(), task->revision);
+                } else {
+                    publish_import_result(*task->result, published);
                 }
-                LOG_ERROR("Background {} task failed for asset handle {}: {}",
-                    to_string(task->type), task->handle.value(), *failure);
+            } catch(const std::exception& error) {
+                LOG_ERROR("Background {} completion failed for asset handle {}: {}",
+                    to_string(task->type), task->handle.value(), error.what());
+            } catch(...) {
+                LOG_ERROR("Unknown background {} completion failure for asset handle {}",
+                    to_string(task->type), task->handle.value());
             }
+            // 结果发布或丢弃后才归还额度，预算外的就绪结果继续占槽。
             task = tasks.erase(task);
         }
         dispatch_queued_tasks();
         return published;
+    }
+
+    void AssetManager::publish_import_result(
+        ImportResult& result, std::vector<AssetHandle>& published) {
+        if(auto* mesh_candidate = std::get_if<MeshArtifactCandidate>(&result.candidate)) {
+            auto& candidate = *mesh_candidate;
+            if(!candidate.result) {
+                LOG_ERROR("Failed to prepare mesh artifact '{}' (handle {}): {}",
+                    candidate.relative_path.generic_string(), candidate.handle.value(),
+                    candidate.result.error());
+                return;
+            }
+            auto& artifact = candidate.result.value();
+            if(candidate.reused_artifact) {
+                record_import_dependencies(
+                    candidate.handle, artifact.source_dependencies());
+                return;
+            }
+            if(auto publication = artifact.publish_atomic(
+                   m_import_service->mesh_artifact_path(candidate.handle));
+                !publication) {
+                LOG_ERROR("Failed to publish mesh artifact '{}' (handle {}): {}",
+                    candidate.relative_path.generic_string(), candidate.handle.value(),
+                    publication.error());
+                return;
+            }
+            record_import_dependencies(candidate.handle, artifact.source_dependencies());
+
+            // Artifact 已发布；后续 GPU 创建失败不撤销这个事实。
+            published.push_back(candidate.handle);
+            const auto runtime = find_runtime_asset<Mesh>(m_registry, candidate.handle);
+            if(runtime.type_conflict)
+                return;
+            if(!runtime.asset) {
+                LOG_INFO("Imported mesh artifact '{}' (handle {})",
+                    candidate.relative_path.generic_string(), candidate.handle.value());
+                return;
+            }
+
+            auto mesh_attempt = m_resource_factory.try_create_mesh(artifact.data);
+            if(!mesh_attempt) {
+                LOG_ERROR(
+                    "Failed to create refreshed runtime mesh for asset handle {}: {}",
+                    candidate.handle.value(), vk::to_string(mesh_attempt.result()));
+                return;
+            }
+            auto mesh = std::move(mesh_attempt).value();
+            if(!m_database.is_current(candidate.handle, candidate.revision)) {
+                LOG_DEBUG(
+                    "Discarded stale runtime mesh candidate for asset handle {} (revision {})",
+                    candidate.handle.value(), candidate.revision);
+                return;
+            }
+            if(!m_registry.replace_asset(candidate.handle, mesh)) {
+                LOG_ERROR("Failed to publish refreshed runtime mesh for asset handle {}",
+                    candidate.handle.value());
+                return;
+            }
+            LOG_INFO("Reloaded mesh asset '{}' (handle {})",
+                candidate.relative_path.generic_string(), candidate.handle.value());
+            return;
+        }
+
+        auto& candidate = std::get<TextureImportCandidate>(result.candidate);
+        if(!candidate.result) {
+            LOG_ERROR("Failed to import modified texture asset '{}' (handle {}): {}",
+                candidate.relative_path.generic_string(), candidate.handle.value(),
+                candidate.result.error());
+            return;
+        }
+        auto texture_attempt =
+            m_resource_factory.try_create_texture(candidate.result.value());
+        if(!texture_attempt) {
+            LOG_ERROR(
+                "Failed to create refreshed runtime texture for asset handle {}: {}",
+                candidate.handle.value(), vk::to_string(texture_attempt.result()));
+            return;
+        }
+        auto texture = std::move(texture_attempt).value();
+        if(!m_database.is_current(candidate.handle, candidate.revision)) {
+            LOG_DEBUG(
+                "Discarded stale runtime texture candidate for asset handle {} (revision {})",
+                candidate.handle.value(), candidate.revision);
+            return;
+        }
+        if(!m_registry.replace_asset(candidate.handle, texture)) {
+            LOG_ERROR("Failed to publish refreshed runtime texture for asset handle {}",
+                candidate.handle.value());
+            return;
+        }
+        reload_loaded_material_dependents(candidate.handle);
+        published.push_back(candidate.handle);
+        LOG_INFO("Reloaded texture asset '{}' (handle {})",
+            candidate.relative_path.generic_string(), candidate.handle.value());
     }
 
     bool AssetManager::import_mesh(const AssetHandle handle) {
@@ -867,12 +846,10 @@ namespace Comet {
         const auto revision = m_database.get_revision(handle);
         return schedule_refresh_task(
             handle, revision, AssetType::Mesh,
-            [state = m_async_state, paths = m_paths, handle, revision,
-                relative_path = record.path, mode] {
-                MeshArtifactCandidate candidate = build_mesh_artifact_candidate(
+            [paths = m_paths, handle, revision, relative_path = record.path, mode](
+                ImportResult& result) {
+                result.candidate = build_mesh_artifact_candidate(
                     paths, handle, revision, relative_path, mode);
-                const std::lock_guard lock(state->completed_mutex);
-                state->completed_meshes.push_back(std::move(candidate));
             },
             mode == MeshImportMode::Force);
     }
@@ -894,18 +871,16 @@ namespace Comet {
         }
 
         return schedule_refresh_task(handle, revision, AssetType::Texture,
-            [state = m_async_state, asset_root = m_paths.assets(), handle, revision,
-                relative_path = record.path, settings = *settings] {
-                TextureImportCandidate candidate = import_texture_candidate(
+            [asset_root = m_paths.assets(), handle, revision, relative_path = record.path,
+                settings = *settings](ImportResult& result) {
+                result.candidate = import_texture_candidate(
                     asset_root, handle, revision, relative_path, settings);
-                const std::lock_guard lock(state->completed_mutex);
-                state->completed_textures.push_back(std::move(candidate));
             });
     }
 
     bool AssetManager::schedule_refresh_task(const AssetHandle handle,
-        const AssetRevision revision, const AssetType type, std::function<void()> task,
-        const bool force_mesh_rebuild) {
+        const AssetRevision revision, const AssetType type,
+        std::function<void(ImportResult&)> task, const bool force_mesh_rebuild) {
         const auto pending = m_async_state->pending_assets.find(handle);
         if(pending != m_async_state->pending_assets.end()
             && pending->second.revision == revision
@@ -965,14 +940,18 @@ namespace Comet {
                 ++request;
                 continue;
             }
-            scheduled.push_back({request->handle, request->revision, request->type, {}});
+            scheduled.push_back(
+                {request->handle, request->revision, request->type, {}, {}});
             try {
-                auto completion = m_task_scheduler.try_submit(request->task);
+                auto result = std::make_shared<ImportResult>();
+                auto completion = m_task_scheduler.try_submit(
+                    [task = request->task, result] { task(*result); });
                 if(!completion) {
                     scheduled.pop_back();
                     break;
                 }
                 scheduled.back().completion = std::move(*completion);
+                scheduled.back().result = std::move(result);
             } catch(const std::exception& error) {
                 scheduled.pop_back();
                 clear_pending();

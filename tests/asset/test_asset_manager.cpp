@@ -157,6 +157,7 @@ namespace Comet::Tests {
             std::filesystem::path m_root;
         };
 
+        // Mesh／Texture 是身份占位符，只能比较身份，不能解引用或打印对象内容。
         class FakeRenderResourceFactory final: public RenderResourceFactory {
         public:
             GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(
@@ -240,8 +241,13 @@ namespace Comet::Tests {
         TemporaryProject project;
         AssetRegistry registry;
         FakeRenderResourceFactory factory;
-        TaskScheduler scheduler{1, 1};
-        AssetManager manager{project.paths(), registry, factory, scheduler, {1, 1}};
+        TaskScheduler scheduler;
+        AssetManager manager;
+
+        AssetBackpressureTest(AssetManager::AsyncLimits limits = {1, 1},
+            const std::size_t scheduler_capacity = 1)
+            : scheduler(1, scheduler_capacity),
+              manager(project.paths(), registry, factory, scheduler, limits) {}
         std::array<AssetHandle, 3> handles{
             AssetHandle(41), AssetHandle(42), AssetHandle(43)};
 
@@ -437,6 +443,210 @@ namespace Comet::Tests {
         EXPECT_EQ(factory.mesh_creation_count(), 0);
     }
 
+    class AssetCompletionBudgetTest: public AssetBackpressureTest {
+    protected:
+        AssetCompletionBudgetTest() : AssetBackpressureTest({3, 4}, 8) {}
+
+        static constexpr AssetManager::CompletionBudget one_result{
+            .max_results = 1, .max_time = std::chrono::seconds(1)};
+    };
+
+    TEST_F(AssetCompletionBudgetTest, UnpublishedResultsRetainSlotsAndCountBudget) {
+        constexpr AssetHandle fourth(44);
+        project.add_mesh(
+            fourth, R"({"attributes":{"POSITION":0},"indices":1})", "meshes/44.gltf");
+        ASSERT_TRUE(manager.scan().succeeded());
+        for(const auto handle : handles)
+            ASSERT_TRUE(manager.import_mesh_async(handle));
+        ASSERT_TRUE(manager.import_mesh_async(fourth));
+        scheduler.wait_idle();
+        EXPECT_TRUE(manager.process_completions({.max_results = 0}).empty());
+        EXPECT_TRUE(manager.process_completions({.max_time = std::chrono::nanoseconds(0)})
+                .empty());
+        EXPECT_EQ(manager.get_async_status().in_flight, 3);
+        EXPECT_EQ(manager.get_async_status().queued, 1);
+        for(const auto handle : handles)
+            EXPECT_FALSE(std::filesystem::exists(artifact_path(handle)));
+        EXPECT_EQ(manager.process_completions(one_result),
+            std::vector<AssetHandle>{handles[0]});
+        EXPECT_EQ(manager.get_async_status().in_flight, 3);
+        EXPECT_EQ(manager.get_async_status().queued, 0);
+        scheduler.wait_idle();
+        EXPECT_FALSE(std::filesystem::exists(artifact_path(handles[1])));
+        EXPECT_FALSE(std::filesystem::exists(artifact_path(fourth)));
+        for(const auto handle : {handles[1], handles[2], fourth})
+            EXPECT_EQ(manager.process_completions(one_result),
+                std::vector<AssetHandle>{handle});
+        EXPECT_EQ(manager.get_async_status().in_flight, 0);
+    }
+
+    TEST_F(AssetCompletionBudgetTest, TinyPositiveTimeBudgetStillMakesBoundedProgress) {
+        for(const auto handle : handles)
+            ASSERT_TRUE(manager.import_mesh_async(handle));
+        scheduler.wait_idle();
+        for(const auto handle : handles) {
+            const auto published = manager.process_completions(
+                {.max_results = 3, .max_time = std::chrono::nanoseconds(1)});
+            EXPECT_EQ(published, std::vector<AssetHandle>{handle});
+        }
+        EXPECT_EQ(manager.get_async_status().in_flight, 0);
+    }
+
+    TEST_F(AssetCompletionBudgetTest, ZeroBudgetCanDispatchWithoutConsumingResults) {
+        BlockedWorker blocker(scheduler);
+        for(std::size_t i = 0; i < scheduler.get_queue_capacity(); ++i)
+            static_cast<void>(scheduler.submit([] {}));
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        EXPECT_EQ(manager.get_async_status().in_flight, 0);
+        EXPECT_EQ(manager.get_async_status().queued, 1);
+        blocker.release();
+        scheduler.wait_idle();
+        EXPECT_TRUE(manager.process_completions({.max_results = 0}).empty());
+        EXPECT_EQ(manager.get_async_status().in_flight, 1);
+        EXPECT_EQ(manager.get_async_status().queued, 0);
+        scheduler.wait_idle();
+        EXPECT_TRUE(
+            manager.process_completions({.max_time = std::chrono::nanoseconds(-1)})
+                .empty());
+        EXPECT_FALSE(std::filesystem::exists(artifact_path(handles[0])));
+        EXPECT_EQ(manager.get_async_status().in_flight, 1);
+        EXPECT_EQ(manager.process_completions(one_result),
+            std::vector<AssetHandle>{handles[0]});
+    }
+
+    TEST_F(AssetCompletionBudgetTest, BudgetRetainsForceSuccessorAndDeduplication) {
+        ASSERT_TRUE(manager.import_mesh(handles[0]));
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        scheduler.wait_idle();
+        EXPECT_TRUE(manager.process_completions({.max_results = 0}).empty());
+        ASSERT_TRUE(
+            manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        ASSERT_TRUE(
+            manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        EXPECT_EQ(manager.get_async_status().in_flight, 1);
+        EXPECT_EQ(manager.get_async_status().queued, 1);
+        EXPECT_TRUE(manager.process_completions(one_result).empty());
+        scheduler.wait_idle();
+        EXPECT_TRUE(manager.process_completions({.max_results = 0}).empty());
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        ASSERT_TRUE(
+            manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        EXPECT_EQ(manager.get_async_status().in_flight, 1);
+        EXPECT_EQ(manager.get_async_status().queued, 0);
+        EXPECT_EQ(manager.process_completions(one_result),
+            std::vector<AssetHandle>{handles[0]});
+        EXPECT_EQ(manager.get_async_status().in_flight, 0);
+    }
+
+    TEST_F(AssetCompletionBudgetTest, StaleFailedAndInspectionResultsEachConsumeBudget) {
+        const auto bad_path = project.paths().assets() / "meshes/42.gltf";
+        std::ofstream(bad_path, std::ios::trunc) << "invalid mesh";
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        ASSERT_TRUE(manager.import_mesh_async(handles[1]));
+        ASSERT_TRUE(manager.import_mesh(handles[2]));
+        ASSERT_TRUE(manager.import_mesh_async(handles[2]));
+        scheduler.wait_idle();
+        const auto removed = project.paths().assets() / "meshes/41.gltf";
+        std::filesystem::remove(removed);
+        std::filesystem::remove(metadata_path(removed));
+        ASSERT_TRUE(manager.scan().succeeded());
+        EXPECT_TRUE(manager.process_completions(one_result).empty());
+        EXPECT_EQ(manager.get_async_status().in_flight, 2);
+        EXPECT_TRUE(manager.process_completions(one_result).empty());
+        EXPECT_EQ(manager.get_async_status().in_flight, 1);
+        EXPECT_TRUE(manager.process_completions(one_result).empty());
+        EXPECT_EQ(manager.get_async_status().in_flight, 0);
+        EXPECT_FALSE(std::filesystem::exists(artifact_path(handles[0])));
+        EXPECT_FALSE(std::filesystem::exists(artifact_path(handles[1])));
+        EXPECT_TRUE(std::filesystem::exists(artifact_path(handles[2])));
+    }
+
+    TEST_F(AssetCompletionBudgetTest, MeshAndTextureShareOnePublicationBudget) {
+        constexpr AssetHandle texture_handle(84);
+        const auto texture_path = project.add_texture(texture_handle);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto original = manager.load_texture(texture_handle);
+        ASSERT_TRUE(original);
+        TemporaryProject::replace_texture(texture_path);
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        ASSERT_TRUE(manager.import_mesh_async(handles[1]));
+        scheduler.wait_idle();
+        EXPECT_EQ(manager.process_completions(one_result),
+            std::vector<AssetHandle>{texture_handle});
+        EXPECT_TRUE(registry.resolve<Texture>(texture_handle) != original);
+        EXPECT_EQ(factory.texture_creation_count(), 2);
+        EXPECT_FALSE(std::filesystem::exists(artifact_path(handles[0])));
+        EXPECT_EQ(manager.process_completions(one_result),
+            std::vector<AssetHandle>{handles[0]});
+        EXPECT_EQ(manager.process_completions(one_result),
+            std::vector<AssetHandle>{handles[1]});
+    }
+
+    TEST_F(AssetCompletionBudgetTest, ReentrantPublicationIsRejectedAndNewRevisionWaits) {
+        ASSERT_TRUE(manager.import_mesh(handles[0]));
+        const auto original = manager.load_mesh(handles[0]);
+        ASSERT_TRUE(original);
+        change_mesh(2);
+        ASSERT_TRUE(manager.import_mesh_async(handles[1]));
+        ASSERT_TRUE(manager.import_mesh_async(handles[2]));
+        scheduler.wait_idle();
+        factory.on_next_mesh_creation([&] {
+            EXPECT_TRUE(manager.process_completions(one_result).empty());
+            change_mesh(3);
+            EXPECT_EQ(manager.get_async_status().in_flight, 3);
+            EXPECT_EQ(manager.get_async_status().queued, 1);
+        });
+        EXPECT_EQ(manager.process_completions(one_result),
+            std::vector<AssetHandle>{handles[0]});
+        EXPECT_TRUE(registry.resolve<Mesh>(handles[0]) == original);
+        EXPECT_EQ(manager.get_async_status().in_flight, 3);
+        const auto published = drain();
+        EXPECT_EQ(published.size(), 3);
+        EXPECT_TRUE(registry.resolve<Mesh>(handles[0]) != original);
+        EXPECT_EQ(factory.last_mesh_vertex_count(), 9);
+        EXPECT_EQ(factory.mesh_creation_count(), 3);
+    }
+
+    TEST_F(AssetCompletionBudgetTest, UnknownGpuFailureKeepsArtifactAndReleasesTaskSlot) {
+        ASSERT_TRUE(manager.import_mesh(handles[0]));
+        const auto original = manager.load_mesh(handles[0]);
+        ASSERT_TRUE(original);
+        change_mesh(2);
+        scheduler.wait_idle();
+        factory.on_next_mesh_creation([] { throw 7; });
+        EXPECT_EQ(manager.process_completions(one_result),
+            std::vector<AssetHandle>{handles[0]});
+        EXPECT_EQ(manager.get_async_status().in_flight, 0);
+        EXPECT_TRUE(registry.resolve<Mesh>(handles[0]) == original);
+        ASSERT_TRUE(
+            manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        EXPECT_EQ(drain(), std::vector<AssetHandle>{handles[0]});
+        EXPECT_TRUE(registry.resolve<Mesh>(handles[0]) != original);
+    }
+
+    TEST_F(AssetCompletionBudgetTest, DestructionDiscardsCompletedUnpublishedCandidate) {
+        ASSERT_TRUE(manager.import_mesh(handles[0]));
+        const auto original = manager.load_mesh(handles[0]);
+        ASSERT_TRUE(original);
+        {
+            AssetManager temporary(project.paths(), registry, factory, scheduler);
+            ASSERT_TRUE(temporary.scan().succeeded());
+            TemporaryProject::write_mesh(project.paths().assets() / "meshes/41.gltf",
+                R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})");
+            ASSERT_TRUE(temporary.scan().succeeded());
+            scheduler.wait_idle();
+            EXPECT_EQ(temporary.get_async_status().in_flight, 1);
+            EXPECT_TRUE(temporary.process_completions({.max_results = 0}).empty());
+        }
+        EXPECT_TRUE(registry.resolve<Mesh>(handles[0]) == original);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
+        const auto artifact = MeshArtifact::load(artifact_path(handles[0]), handles[0]);
+        ASSERT_TRUE(artifact);
+        EXPECT_EQ(artifact->data.vertices.size(), 3);
+    }
+
     class MeshAsyncImportTest: public ::testing::Test {
     protected:
         using Mode = AssetManager::MeshImportMode;
@@ -528,7 +738,7 @@ namespace Comet::Tests {
         complete();
         EXPECT_EQ(std::filesystem::last_write_time(artifact_path()), stamp);
         EXPECT_EQ(factory.mesh_creation_count(), 1);
-        EXPECT_EQ(registry.resolve<Mesh>(handle), previous);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == previous);
         std::ofstream(artifact_path(), std::ios::trunc) << "broken";
         ASSERT_TRUE(manager.import_mesh_async(handle));
         complete();
@@ -577,7 +787,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(manager.import_mesh_async(handle, Mode::Force));
         EXPECT_EQ(complete(), std::vector<AssetHandle>{handle});
         EXPECT_TRUE(MeshArtifact::load(artifact_path(), handle));
-        EXPECT_EQ(registry.resolve<Mesh>(handle), previous);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == previous);
         EXPECT_EQ(factory.mesh_creation_count(), 2);
     }
 
@@ -624,13 +834,13 @@ namespace Comet::Tests {
         AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
-        EXPECT_EQ(manager.load_mesh(handle), nullptr);
+        EXPECT_TRUE(manager.load_mesh(handle) == nullptr);
         ASSERT_TRUE(manager.import_mesh(handle));
         const std::shared_ptr<Mesh> mesh = manager.load_mesh(handle);
 
         ASSERT_NE(mesh, nullptr);
-        EXPECT_EQ(registry.resolve<Mesh>(handle), mesh);
-        EXPECT_EQ(manager.load_mesh(handle), mesh);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == mesh);
+        EXPECT_TRUE(manager.load_mesh(handle) == mesh);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 1);
         EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 3);
         EXPECT_TRUE(std::filesystem::is_regular_file(
@@ -687,12 +897,12 @@ namespace Comet::Tests {
         EXPECT_TRUE(report.snapshot_updated);
         EXPECT_TRUE(contains_handle(report.modified_assets, handle));
         EXPECT_FALSE(std::filesystem::exists(source));
-        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == original);
 
         task_scheduler.wait_idle();
         manager.process_completions();
 
-        EXPECT_NE(registry.resolve<Mesh>(handle), original);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) != original);
         const auto artifact =
             MeshArtifact::load(project.paths().cache() / "imported/mesh/42.bin", handle);
         ASSERT_TRUE(artifact.has_value());
@@ -801,9 +1011,9 @@ namespace Comet::Tests {
         AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
         ASSERT_TRUE(manager.scan().snapshot_updated);
 
-        EXPECT_EQ(manager.load_mesh(handle), nullptr);
+        EXPECT_TRUE(manager.load_mesh(handle) == nullptr);
         ASSERT_TRUE(manager.import_mesh(handle));
-        EXPECT_NE(manager.load_mesh(handle), nullptr);
+        EXPECT_TRUE(manager.load_mesh(handle) != nullptr);
         EXPECT_GT(std::filesystem::file_size(artifact_path), 9u);
     }
 
@@ -849,7 +1059,7 @@ namespace Comet::Tests {
 
         ASSERT_TRUE(refresh.snapshot_updated);
         EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
-        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 1);
 
         task_scheduler.wait_idle();
@@ -899,11 +1109,11 @@ namespace Comet::Tests {
 
         ASSERT_TRUE(refresh.snapshot_updated);
         EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
-        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == original);
         task_scheduler.wait_idle();
         manager.process_completions();
 
-        EXPECT_NE(registry.resolve<Mesh>(handle), original);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) != original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
         EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 3);
     }
@@ -968,7 +1178,7 @@ namespace Comet::Tests {
         const AssetScanReport second_refresh = manager.scan();
         ASSERT_TRUE(contains_handle(second_refresh.modified_assets, handle));
         EXPECT_GT(manager.get_database().get_revision(handle), first_revision);
-        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == original);
 
         release_worker.set_value();
         task_scheduler.wait_idle();
@@ -977,7 +1187,7 @@ namespace Comet::Tests {
         task_scheduler.wait_idle();
         manager.process_completions();
 
-        EXPECT_NE(registry.resolve<Mesh>(handle), original);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) != original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
         EXPECT_EQ(resource_factory.last_mesh_vertex_count(), 9);
     }
@@ -1006,7 +1216,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
         task_scheduler.wait_idle();
         manager.process_completions();
-        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 1);
     }
 
@@ -1031,12 +1241,12 @@ namespace Comet::Tests {
 
         ASSERT_TRUE(refresh.snapshot_updated);
         EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
-        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == original);
 
         task_scheduler.wait_idle();
         manager.process_completions();
 
-        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
     }
 
@@ -1053,8 +1263,8 @@ namespace Comet::Tests {
         const std::shared_ptr<Texture> texture = manager.load_texture(handle);
 
         ASSERT_NE(texture, nullptr);
-        EXPECT_EQ(registry.resolve<Texture>(handle), texture);
-        EXPECT_EQ(manager.load_texture(handle), texture);
+        EXPECT_TRUE(registry.resolve<Texture>(handle) == texture);
+        EXPECT_TRUE(manager.load_texture(handle) == texture);
         EXPECT_EQ(resource_factory.texture_creation_count(), 1);
     }
 
@@ -1077,13 +1287,13 @@ namespace Comet::Tests {
 
         ASSERT_TRUE(refresh.snapshot_updated);
         EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
-        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_TRUE(registry.resolve<Texture>(handle) == original);
         EXPECT_EQ(resource_factory.texture_creation_count(), 1);
 
         task_scheduler.wait_idle();
         EXPECT_TRUE(manager.process_completions().empty());
 
-        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_TRUE(registry.resolve<Texture>(handle) == original);
         EXPECT_EQ(resource_factory.texture_creation_count(), 2);
     }
 
@@ -1105,13 +1315,13 @@ namespace Comet::Tests {
 
         ASSERT_TRUE(refresh.snapshot_updated);
         EXPECT_TRUE(contains_handle(refresh.modified_assets, handle));
-        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_TRUE(registry.resolve<Texture>(handle) == original);
         EXPECT_EQ(resource_factory.texture_creation_count(), 1);
 
         task_scheduler.wait_idle();
         EXPECT_EQ(manager.process_completions(), std::vector<AssetHandle>{handle});
 
-        EXPECT_NE(registry.resolve<Texture>(handle), original);
+        EXPECT_TRUE(registry.resolve<Texture>(handle) != original);
         EXPECT_EQ(resource_factory.texture_creation_count(), 2);
     }
 
@@ -1221,7 +1431,7 @@ namespace Comet::Tests {
         const AssetScanReport second_refresh = manager.scan();
         ASSERT_TRUE(contains_handle(second_refresh.modified_assets, handle));
         EXPECT_GT(manager.get_database().get_revision(handle), first_revision);
-        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_TRUE(registry.resolve<Texture>(handle) == original);
 
         release_worker.set_value();
         task_scheduler.wait_idle();
@@ -1230,7 +1440,7 @@ namespace Comet::Tests {
         task_scheduler.wait_idle();
         manager.process_completions();
 
-        EXPECT_NE(registry.resolve<Texture>(handle), original);
+        EXPECT_TRUE(registry.resolve<Texture>(handle) != original);
         EXPECT_EQ(resource_factory.texture_creation_count(), 2);
     }
 
@@ -1255,7 +1465,7 @@ namespace Comet::Tests {
         task_scheduler.wait_idle();
         manager.process_completions();
 
-        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_TRUE(registry.resolve<Texture>(handle) == original);
         EXPECT_EQ(resource_factory.texture_creation_count(), 1);
     }
 

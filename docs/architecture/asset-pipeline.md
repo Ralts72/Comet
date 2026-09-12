@@ -58,7 +58,7 @@ Scene Serializer 和 ConfigLoader 留在各自模块，不强行纳入 AssetMana
   Project 直接复用 Json::Context，不依赖资产序列化器；目前只读取项目描述，项目设置 UI/自动保存尚未实现。
   当前尚未发布，FORMAT_VERSION 只用于严格检测；版本不匹配直接报错，不兼容旧 YAML，不提供迁移或旧格式备份。
 - Worker 候选保存结果及 Handle/revision；owner 先验 revision，再处理失败或发布成功值。
-  非预期异常由任务 future 传递，在完成队列边界报告并清除对应 pending，不会留下永久进行中的任务。
+  非预期异常由任务 future 传递，在完成处理边界报告并回收对应任务，不会留下永久进行中的任务。
 - 缓存查找仍用 optional 表示未命中；Runtime 加载入口仍返回共享对象或空值并负责诊断；
   扫描保留可包含多条问题的 AssetScanReport，GPU 创建保留 GpuResourceResult 的 Vulkan 错误码。
 
@@ -141,7 +141,13 @@ Force 请求在接收时直接升级未派发的缓存检查，或为已提交�
 全局队列满时 try_submit 返回空，资产请求留在本地等待 process_completions 再派发，不在 owner 线程执行或等待容量。
 本地请求队列满时返回 false 并记录日志；拒绝的请求不保证自动重试，可显式 Reimport 或等待下一次源变化。
 get_async_status 仅供 owner 查询已提交未回收／未派发数量，不是 Worker 实时运行数。
-当前只限制接收数量，不限制单任务内存和时长，也不保证每帧发布耗时；完成结果与 future 的回收边界将在发布预算阶段收敛。
+每个在途槽持有 future 和独立 ImportResult；Worker 只写自己的结果，owner 在 future 就绪后才读取。
+不再使用 Mesh／Texture 完成队列或完成 mutex，AsyncState 由 AssetManager 独占。
+process_completions 默认共用最多 2 项、2 ms 的消费预算，可传 CompletionBudget 调整。
+成功、失败、过期和缓存复用均计数；数量为零或时间非正暂停消费，但仍可派发等待任务。
+正时间预算至少允许一个就绪结果前进；时间只在开启下一个结果前检查，不抢占单次文件替换、GPU 创建或依赖刷新。
+预算外的就绪结果继续占在途槽，发布／丢弃后才回收；递归 process_completions 被拒绝。
+当前不限制单任务字节数和时长；同步扫描、显式加载／导入与场景引用恢复不受此预算约束。
 
 依赖索引分两类：
 
@@ -172,7 +178,8 @@ Texture 后台刷新和显式重导入共用 `reload_loaded_material_dependents(
 ## 生命周期与文件写入
 
 AssetManager 持有数据库，借用 Registry、RenderResourceFactory 和 TaskScheduler；必须先于这些依赖销毁，
-析构先取消未派发请求（解除闭包对 AsyncState 的共享引用），再等待已提交任务，不在析构中发布 GPU 对象。
+析构先取消未派发请求，再等待已提交任务并丢弃候选，不在析构中发布 GPU 对象。
+Worker 闭包不持有 AsyncState，只与对应在途槽共享单个结果，future 完成建立结果读取的同步关系。
 TaskScheduler 是通用固定 Worker 池，不认识资产；析构仍执行完已接收的任务，wait_idle 不代表资产层排队工作也已排空。
 Registry 保存 Runtime 的共享引用；替换条目不影响仍持有旧对象的 Material 或在途帧。
 GPU ready/retention 规则见[渲染所有权](rendering-ownership.md)，资产 revision 不代替 GPU completion。
