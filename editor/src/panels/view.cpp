@@ -124,18 +124,25 @@ namespace CometEditor {
         auto settings = m_gizmo.settings();
         int mode = static_cast<int>(settings.mode);
         ImGui::SetNextItemWidth(120);
-        bool changed = ImGui::Combo("Mode", &mode, "Move\0Rotate\0");
+        bool changed = ImGui::Combo("Mode", &mode, "Move\0Rotate\0Scale\0");
         settings.mode = static_cast<TransformGizmo::Mode>(mode);
         int space = static_cast<int>(settings.space);
-        ImGui::SetNextItemWidth(120);
-        changed |= ImGui::Combo("Space", &space, "World\0Local\0");
-        settings.space = static_cast<TransformGizmo::Space>(space);
+        if(settings.mode == TransformGizmo::Mode::Scale) {
+            ImGui::TextUnformatted("Space: Local (scale)");
+        } else {
+            ImGui::SetNextItemWidth(120);
+            changed |= ImGui::Combo("Space", &space, "World\0Local\0");
+            settings.space = static_cast<TransformGizmo::Space>(space);
+        }
         changed |= ImGui::Checkbox("Snap", &settings.snap);
         ImGui::BeginDisabled(!settings.snap);
         ImGui::SetNextItemWidth(120);
         if(settings.mode == TransformGizmo::Mode::Rotate)
             changed |= ImGui::InputFloat(
                 "Angle step", &settings.rotation_step_degrees, 0, 0, "%.1f");
+        else if(settings.mode == TransformGizmo::Mode::Scale)
+            changed |=
+                ImGui::InputFloat("Scale step", &settings.scale_step, 0, 0, "%.2f");
         else
             changed |=
                 ImGui::InputFloat("Move step", &settings.translation_step, 0, 0, "%.3f");
@@ -469,6 +476,8 @@ namespace CometEditor {
                 color = IM_COL32(240, 65, 55, 255);
             } else if(handle->axis == TransformGizmo::Axis::Y) {
                 color = IM_COL32(65, 225, 85, 255);
+            } else if(handle->axis == TransformGizmo::Axis::All) {
+                color = IM_COL32(235, 235, 235, 255);
             }
             if(m_gizmo.active_axis() == handle->axis
                 || (!m_gizmo.active() && m_gizmo.hovered_axis() == handle->axis)) {
@@ -481,6 +490,17 @@ namespace CometEditor {
                 continue;
             }
             const auto& segment = handle->segments.front();
+            if(m_gizmo.settings().mode == TransformGizmo::Mode::Scale) {
+                auto point = segment.end;
+                if(handle->axis == TransformGizmo::Axis::All)
+                    point = (segment.start + segment.end) * 0.5f;
+                else
+                    draw_list->AddLine(ImVec2(segment.start.x, segment.start.y),
+                        ImVec2(point.x, point.y), color, 2.5f);
+                draw_list->AddRectFilled(ImVec2(point.x - 4, point.y - 4),
+                    ImVec2(point.x + 4, point.y + 4), color);
+                continue;
+            }
             const auto direction = segment.end - segment.start;
             const float length =
                 std::sqrt(direction.x * direction.x + direction.y * direction.y);

@@ -88,8 +88,9 @@ JSON 解析直接依赖已有 simdjson。
   2D/3D 只切换 Edit 投影；Play 分辨率可选 Free、16:9、HD、FHD，Fit 等比适应，1x 原尺寸裁切。
 - 视口右键或 Option/Alt+左键环绕，中键或 Option/Alt+Shift+左键平移，滚轮／双指滚动缩放。
   左键按模型包围盒粗拾取，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。橙色选中框受场景遮挡。
-- Edit 选中实体后，Tool → Mode 选择 Move／Rotate，拖动轴或圆环；Space 选择 World／Local。
-  Snap 相对拖动起点吸附，默认距离 0.25、角度 15°，设置只保留在会话中。
+- Edit 选中实体后，Tool → Mode 选择 Move／Rotate／Scale，拖动轴、圆环或缩放方块。
+  Move／Rotate 的 Space 可选 World／Local；Scale 固定 Local，轴手柄调整单分量，中心手柄沿屏幕右上拖动等比放大。
+  Snap 相对拖动起点吸附，默认距离 0.25、角度 15°、缩放增量 0.1，设置只保留在会话中。
   World 旋转不接受非均匀缩放父级，此时使用 Local。Escape、失焦或隐藏视口取消拖动。
 - Edit 中名称、Transform、Camera 和 Mesh/Material 引用支持撤销；一次手势只记一条历史。
   Inspector 的 Add Component／组件标题右键支持 Camera、Mesh Renderer 增删，Name／Transform 不开放增删。
