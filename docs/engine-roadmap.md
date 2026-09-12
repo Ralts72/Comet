@@ -12,12 +12,12 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、任务背压与发布预算已接通，仍有扩展 | 增量引用恢复、字节预算与更多导入格式 |
 | 4 视口与交互 | 4A/4B 主链路完成，4C 进行中 | 内容编辑与撤销扩展 |
-| 5 渲染升级 | 材质分层、Inspector 与 SPIR-V 接口校验已接通 | PipelineKey、热更新、多 pass、线程边界 |
+| 5 渲染升级 | 材质分层、Inspector、SPIR-V 接口与 PipelineKey 已接通 | Shader 编译契约、热更新、多 pass、线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
 以当前 main 的功能与验收为准，不再按 feat/auto 提交编号逐个迁移；旧分支仅作为算法、测试及设计参考。
-下一步推进阶段 5 的结构化 PipelineKey，并进行一次材质／Shader 职责与生命周期回顾；阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
+下一步推进阶段 5 的 Shader 编译契约与 CPU 编译结果，再接后台发布和热更新；阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
 WSI 失败后的无呈现重试仍应独立安排，不与资产编辑工作流捆绑重构。
@@ -108,7 +108,7 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 当前已分离场景资源解析、pass 编排和材质绘制：MaterialRenderer 使用手工 MaterialLayout 驱动 descriptor 与参数打包，
 MaterialRuntimeCache 按版本复用快照。FrameSet 按 slot，MaterialSet 按不可变版本；队列支持 unlit_texture_blend/unlit_color 两种 Pipeline。
-这仍是固定内置模板，不等于通用项目 Shader 或结构化 PipelineKey。
+这仍是固定内置模板，不等于通用项目 Shader；对象缓存已按 Shader 内容与实际渲染配置构建 PipelineKey。
 
 - 接通引擎内置基础材质，供新模型未指定材质时自动使用；项目描述不配置 default_material。
   基础材质不依赖 demo 的纹理或材质文件，内置资源有稳定身份／解析入口和明确生命周期，不在编辑器内写死临时 Handle。
@@ -165,14 +165,20 @@ Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验�
 
 ### Pipeline 两级缓存
 
-- Engine PipelineKey 包含 shader 身份/revision/entry/specialization、layout、vertex/topology、raster/depth/blend/dynamic state、
-  attachment formats/sample count/subpass。名称仅作标签，hash 索引后必须完整相等比较；旧 key 对象按 last use 释放。
+- 已接通当前 API 的 PipelineKey：Shader 完整字节码／入口、layout、vertex/topology、raster/depth/blend/dynamic state、
+  静态 viewport/scissor、RenderPass 身份、attachment formats/sample count/subpass。名称仅作标签，hash 索引后完整相等比较。
+  规范化无关顺序与动态 viewport/scissor 的静态值，规范化后的配置也用于实际创建；静态配置和 subpass 已接通 GPU 消费。
+  PipelineManager 弱缓存，使用者和 FrameSlot 持有实际对象；下次创建或 collect_unused 清理过期键，不每帧扫描。
+  ShaderManager 同名比较字节码／入口，候选构造成功才替换；后台请求 revision 验票与内容相等判断分别处理。
+  尚未开放 specialization 值配置，随 Shader 编译契约后续接通键与实际消费，不把保留字段当成功能。
 - 驱动 PipelineCache blob 用于跨进程加速，不代替对象 key。放在 .comet/cache/vulkan 或平台缓存，
   校验 header size/version、vendorID、deviceID、pipelineCacheUUID，以及 envelope 长度/校验和。
   损坏或不兼容回退空 cache，不影响启动。
-- 先做结构化 key，再接热加载，最后加 cache load/atomic save；编译批次后节流或关机保存，不每帧写磁盘。
+- 结构化 key 已完成；接下来编译契约、热加载，随后 cache load/atomic save；编译批次后节流或关机保存，不每帧写磁盘。
   Pipeline 创建/合并/保存由同一 owner 串行访问；后台 ShaderCompiler 不直接操作 Vulkan cache。
 - 测试 key 等价性、兼容性和损坏输入；cold/warm 性能只做测量，不要求固定加速比例。
+- 接入 Shader 发布时，MaterialRenderer 的 GPU 材质缓存必须同时跟踪 PipelineState 版本，不能只比较 PreparedMaterial。
+  当前 key 复制字节码保证完整判等；若实际测量出现开销，再共享不可变代码，不能退化为 hash-only。
 
 ### GPU 资源、同步与 WSI
 

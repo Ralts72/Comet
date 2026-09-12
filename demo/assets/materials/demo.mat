@@ -12,7 +12,7 @@
     },
     "blend": {
       "type": "scalar",
-      "value": 0.03
+      "value": 0.4
     },
     "tint": {
       "type": "vector",

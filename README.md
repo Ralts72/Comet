@@ -134,6 +134,8 @@ JSON 解析直接依赖已有 simdjson。
   相机 FrameSet 按 slot 更新，MaterialSet 按材质版本跨 slot 复用，物体矩阵使用 push constant；在途版本由 FrameSlot 保活。
   Shader 加载时反射实际 SPIR-V，Pipeline 创建／缓存查询前校验绑定及 push constant，材质另检查参数块类型与偏移。
   ShaderInterface 只公开 Comet 值类型；Vulkan 布局转换与覆盖校验留在 ShaderLayout 实现中。
+  Pipeline 按 Shader 字节码／入口、布局、渲染状态及 RenderPass 域复用，名称只作标签；缓存弱引用不代替在途帧保活。
+  `graphics/pipeline/` 中，`pipeline_config` 管配置，`pipeline_key` 管缓存身份，`pipeline` 管 GPU 对象创建与复用。
   反射只验证接口，尚不自动生成材质布局或新增 Inspector 控件；名称、默认值和颜色语义仍来自手工 metadata。
 - 窗口：Window 管 GLFW 初始化与最后一个窗口释放后的终止；上层通过窗口接口请求关闭、查询最小化状态。
   GLFW 是 engine 的私有依赖，原生句柄仅供 Vulkan／ImGui 后端及底层测试对接，不用于普通业务操作。

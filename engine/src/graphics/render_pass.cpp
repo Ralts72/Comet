@@ -27,6 +27,7 @@ namespace Comet {
             m_attachments.push_back(attachment);
             actual_sub_passes.push_back(render_sub_pass);
         }
+        m_subpass_count = static_cast<uint32_t>(actual_sub_passes.size());
         for(const auto& sub_pass : actual_sub_passes) {
             for(const auto& attachment : sub_pass.input_attachments) {
                 if(attachment.index >= m_attachments.size()) {

@@ -123,14 +123,25 @@ MaterialResources 保留 PreparedMaterial、Pipeline/layout、Sampler、参数 b
 实际使用它的 FrameSlot 再保留该整体与 Mesh、FrameResources，直到 GPU 完成；CPU 缓存回收不代表 GPU 完成。
 GPU 候选创建失败时继续使用旧 MaterialResources，同一候选延后 60 个 frame serial 重试；新候选可立即尝试。
 不支持的模板或 CPU 准备失败仍跳过绘制，不承诺任何失败都沿用旧材质。
-当前队列按模板名和材质 Handle 排序，支持 unlit_texture_blend 与 unlit_color；完整 PipelineKey 尚未接通。
+当前队列按模板名和材质 Handle 排序，支持 unlit_texture_blend 与 unlit_color。
 
 Shader 先从指定入口的 SPIR-V 生成自有 ShaderInterface，再创建设备 shader module；反射库和输入字节码不被结果借用。
 DescriptorSetLayout 保存原始 binding 描述；ShaderLayout 检查 descriptor 类型/数量/stage 与 push constant 覆盖范围。
-PipelineManager 在名称缓存查询前执行校验，MaterialRenderer 额外用 MaterialLayout 核对材质 set 的参数块与纹理协议。
+PipelineManager 在结构化缓存查询前执行校验，MaterialRenderer 额外用 MaterialLayout 核对材质 set 的参数块与纹理协议。
 ShaderInterface 只公开 Comet 的 Format、DescriptorType、ShaderStage 和自有范围值，不依赖 Vulkan 头文件。
 反射库类型在 shader_interface.cpp 内显式转换；Vulkan 类型对照留在 ShaderLayout::validate 的实现中，材质层只消费 Comet 描述。
 当前同步反射，不自动生成 MaterialLayout，不新增热更新线程或事件；预检只检查字节码头与指令长度，不是完整 SPIR-V validator。
+
+Shader 保存不可变字节码副本；ShaderManager 按逻辑名称管理当前版本，但仅在字节码和入口相同时复用，候选失败不覆盖旧条目。
+PipelineKey 按完整代码／入口、descriptor 与 push 范围、配置、RenderPass 身份和附件格式／采样数判等，名称只作首次创建标签。
+配置和 State 集中在 pipeline_config.h/.cpp，Key 的值描述与规范化／哈希在 pipeline_key.h/.cpp，
+pipeline.h/.cpp 保留 PipelineLayout、Pipeline 和 PipelineManager；配置与 Key 不反向包含 Pipeline 创建入口。
+动态 viewport/scissor 的无关静态值与不影响语义的顺序会规范化；静态 viewport/scissor 和 subpass 实际进入 Vulkan 创建参数。
+Key 是当前 Device/RenderPass 域的后端对象描述，不是磁盘格式；它使用的 Vulkan 布局值不进入 ShaderInterface 或材质参数 API。
+PipelineManager 只持 weak_ptr；MaterialResources／DebugRenderer 与 FrameSlot 保留实际 Pipeline，最后一个 owner 释放时才销毁。
+过期 key 在创建请求或 collect_unused 时清理，不每帧扫描，不增加退休队列；get_cached_pipeline_count 包含尚未清理的过期条目。
+MaterialRenderer 的模板选择缓存、PipelineManager 的对象复用与驱动 PipelineCache 各有职责，不合并为一个资源管理器。
+未来热发布须同时更新 PipelineState 与对应 GPU 材质缓存；本轮不把 ShaderManager 候选替换当作完整热重载。
 
 只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。

@@ -2,7 +2,7 @@
 #include "graphics/vk_common.h"
 
 namespace Comet {
-    class VertexInputDescription {
+    class COMET_API VertexInputDescription {
     public:
         VertexInputDescription() = default;
 

@@ -2,6 +2,7 @@
 
 #include <utility>
 #include <stdexcept>
+#include <algorithm>
 #include "graphics/device.h"
 #include "graphics/pipeline/shader.h"
 #include "graphics/render_pass.h"
@@ -37,77 +38,6 @@ namespace Comet {
         m_device.get().destroyPipelineLayout(m_pipeline_layout);
     }
 
-    void PipelineConfig::set_vertex_input_state(
-        const VertexInputDescription& description) {
-        vertex_input_state.vertex_bindings = description.get_bindings();
-        vertex_input_state.vertex_attributes = description.get_attributes();
-    }
-
-    void PipelineConfig::set_input_assembly_state(
-        const Topology topology, const bool primitive_restart_enable) {
-        input_assembly_state.topology = topology;
-        input_assembly_state.primitive_restart_enable = primitive_restart_enable;
-    }
-
-    void PipelineConfig::set_rasterization_state(
-        const PipelineRasterizationState& raster_state) {
-        rasterization_state = raster_state;
-    }
-
-    void PipelineConfig::set_multisample_state(const SampleCount samples,
-        const bool sample_shading_enable, const float min_sample_shading) {
-        multisample_state.rasterization_samples = samples;
-        multisample_state.sample_shading_enable = sample_shading_enable;
-        multisample_state.min_sample_shading = min_sample_shading;
-    }
-
-    void PipelineConfig::set_depth_stencil_state(
-        const PipelineDepthStencilState& ds_state) {
-        depth_stencil_state = ds_state;
-    }
-
-    void PipelineConfig::set_color_blend_attachment_state(
-        const PipelineColorBlendState& cb_state) {
-        color_blend_state.blendEnable = cb_state.blend_enable;
-        color_blend_state.srcColorBlendFactor =
-            Graphics::blend_factor_to_vk(cb_state.src_color_blend_factor);
-        color_blend_state.dstColorBlendFactor =
-            Graphics::blend_factor_to_vk(cb_state.dst_color_blend_factor);
-        color_blend_state.colorBlendOp =
-            Graphics::blend_op_to_vk(cb_state.color_blend_op);
-        color_blend_state.srcAlphaBlendFactor =
-            Graphics::blend_factor_to_vk(cb_state.src_alpha_blend_factor);
-        color_blend_state.dstAlphaBlendFactor =
-            Graphics::blend_factor_to_vk(cb_state.dst_alpha_blend_factor);
-        color_blend_state.alphaBlendOp =
-            Graphics::blend_op_to_vk(cb_state.alpha_blend_op);
-    }
-
-    void PipelineConfig::set_dynamic_state(const std::vector<DynamicState>& dy_states) {
-        std::vector<vk::DynamicState> dynamic_states;
-        dynamic_states.reserve(dy_states.size());
-        for(const auto& dy_state : dy_states) {
-            dynamic_states.push_back(Graphics::dynamic_state_to_vk(dy_state));
-        }
-        dynamic_state.dynamic_states = dynamic_states;
-    }
-
-    void PipelineConfig::enable_alpha_blend() {
-        color_blend_state.blendEnable = VK_TRUE;
-        color_blend_state.srcColorBlendFactor = vk::BlendFactor::eSrcAlpha;
-        color_blend_state.dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha;
-        color_blend_state.colorBlendOp = vk::BlendOp::eAdd;
-        color_blend_state.srcAlphaBlendFactor = vk::BlendFactor::eOne;
-        color_blend_state.dstAlphaBlendFactor = vk::BlendFactor::eZero;
-        color_blend_state.alphaBlendOp = vk::BlendOp::eAdd;
-    }
-
-    void PipelineConfig::enable_depth_test() {
-        depth_stencil_state.depth_test_enable = VK_TRUE;
-        depth_stencil_state.depth_write_enable = VK_TRUE;
-        depth_stencil_state.depth_compare_op = CompareOp::Less;
-    }
-
     Pipeline::Pipeline(std::string name, Device& device, RenderPass& render_pass,
         const std::shared_ptr<PipelineLayout>& layout,
         const std::shared_ptr<Shader>& vertex_shader,
@@ -120,9 +50,7 @@ namespace Comet {
         auto multisample_state = create_multisample_state(config);
         auto depth_stencil_state = create_depth_stencil_state(config);
         auto color_blend_state = create_color_blend_state(config);
-        const vk::Viewport viewport = Graphics::get_viewport(100.0f, 100.0f);
-        const vk::Rect2D scissor = Graphics::get_scissor(100.0f, 100.0f);
-        auto viewport_state = create_viewport_state(viewport, scissor);
+        auto viewport_state = create_viewport_state(config.viewport, config.scissor);
         auto dynamic_state = create_dynamic_state(config);
 
         vk::GraphicsPipelineCreateInfo pipeline_create_info = {};
@@ -138,7 +66,7 @@ namespace Comet {
         pipeline_create_info.pDynamicState = &dynamic_state;
         pipeline_create_info.layout = m_layout->get();
         pipeline_create_info.renderPass = render_pass.get();
-        pipeline_create_info.subpass = 0;
+        pipeline_create_info.subpass = config.subpass;
         pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
         pipeline_create_info.basePipelineIndex = 0;
 
@@ -310,21 +238,30 @@ namespace Comet {
         }
         layout.validate(vert_shader->get_interface());
         layout.validate(frag_shader->get_interface());
-        const auto it = m_pipelines.find(name);
+        PipelineKey key(layout, config, *vert_shader, *frag_shader, m_render_pass);
+        collect_unused();
+        const auto it = m_pipelines.find(key);
         if(it != m_pipelines.end()) {
-            LOG_DEBUG("Pipeline '{}' already exists, returning cached version", name);
-            return it->second;
+            if(auto pipeline = it->second.lock()) {
+                LOG_DEBUG("Pipeline '{}' reuses compatible cached state", name);
+                return pipeline;
+            }
         }
 
         auto pipeline_layout = std::make_shared<PipelineLayout>(m_device, layout);
 
         auto pipeline = std::make_shared<Pipeline>(name, m_device, m_render_pass,
-            pipeline_layout, vert_shader, frag_shader, config);
+            pipeline_layout, vert_shader, frag_shader, key.config);
 
-        m_pipelines[name] = pipeline;
+        m_pipelines.insert_or_assign(std::move(key), pipeline);
 
         LOG_INFO("Pipeline '{}' created successfully", name);
         return pipeline;
+    }
+
+    void PipelineManager::collect_unused() {
+        std::erase_if(
+            m_pipelines, [](const auto& entry) { return entry.second.expired(); });
     }
 
 }

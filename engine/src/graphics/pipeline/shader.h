@@ -36,19 +36,21 @@ namespace Comet {
 
         [[nodiscard]] vk::ShaderModule get() const { return m_shader_module; }
         [[nodiscard]] const ShaderInterface& get_interface() const { return m_interface; }
+        [[nodiscard]] const std::vector<uint32_t>& get_code() const { return m_code; }
 
     private:
         Device& m_device;
         ShaderInterface m_interface;
+        std::vector<uint32_t> m_code;
         vk::ShaderModule m_shader_module;
     };
 
-    class ShaderManager {
+    class COMET_API ShaderManager {
     public:
         explicit ShaderManager(Device& device) : m_device(device) {}
 
-        std::shared_ptr<Shader> load_shader(
-            const std::string& name, std::span<const std::uint32_t> spv_data);
+        std::shared_ptr<Shader> load_shader(const std::string& name,
+            std::span<const std::uint32_t> spv_data, std::string entry_point = "main");
 
     private:
         Device& m_device;

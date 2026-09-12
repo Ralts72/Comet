@@ -1,4 +1,4 @@
-#include "graphics/pipeline/pipeline.h"
+#include "graphics/pipeline/pipeline_config.h"
 #include "graphics/vk_common.h"
 
 #include <gtest/gtest.h>
