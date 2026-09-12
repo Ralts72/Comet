@@ -218,22 +218,28 @@ validation、同步测试和生命周期回归通过。
 
 ## 阶段 7：项目格式与发布
 
-- 已提前补齐最小项目入口：`project.yaml` 保存版本、名称和可选启动场景；编辑器接受项目目录／描述文件路径。
+- 已提前补齐最小项目入口：`project.json` 保存版本、名称和可选启动场景；编辑器接受项目目录／描述文件路径。
   项目 roots、资产索引、缓存、布局及 SceneDocument 均绑定同一项目；相对场景路径基于 assets，拒绝越界 Open/Save。
   无参数打开仓库 `demo/` 内的独立示例项目，显式无效项目不回退示例；空启动场景创建空文档，不硬编码示例资源。
-- 编辑器内增加 File → Open Project，与现有 Open Scene 分开；选择目录或 project.yaml，并提供最近项目列表。
+- 编辑器内增加 File → Open Project，与现有 Open Scene 分开；选择目录或 project.json，并提供最近项目列表。
   切换前处理未保存场景和活动属性／Gizmo 编辑，Play 模式先退出；取消或新项目校验失败时保持当前项目不变。
   第一版可通过重启编辑器进程打开新项目，避免直接交换活动 AssetManager；若支持原地切换，须先排空旧任务和在途帧，
   再释放旧场景／选择／历史／资产缓存与监视器，保存旧布局并加载新布局，禁止旧项目结果发布到新项目。
   验收：无需命令行即可选项目；取消／失败不丢修改；同 Handle 的两个项目不串用资源或缓存。
 - 后续扩展项目设置 UI、记录上次文档、Build Settings 和项目模板，去掉发布对源码目录的依赖。
+  项目创建时生成 project.json；项目设置修改并校验成功后自动原子保存，不单独增加 Save Project 按钮。
+  Save Scene 仅保存场景，不连带重写项目描述；只有启动场景等项目设置变化才保存项目，编辑器本地状态仍放 .comet/。
   让 app 读取项目场景，替换当前独立代码示例；编辑器／引擎自带 Profile、字体和 Shader 与项目内容保持分离。
-- 运行配置保持人工友好的 YAML。编辑器成为规范写入入口、Schema 稳定后，将 .scene/.mat/.meta 与项目描述
-  整体迁移为确定性 JSON，配套版本迁移与工具；不因 fastgltf 间接带入 simdjson 就局部替换格式。
-  JSON 需 Comet 自己的直接依赖/读写边界，不暴露 fastgltf 私有依赖。
+- 已提前接入确定性 JSON：编辑器生成的 .scene v2、.mat v2、.meta v3 使用 JSON，扩展名与身份引用不变。
+  .scene 按 children 嵌套保存子实体，保留 UUID，并在根节点和每组兄弟节点内稳定排序；不兼容旧 parent 字段。
+  engine 显式依赖 simdjson，Scene/Material/Metadata 共用 JSON 读写工具。
+  当前尚未发布，FORMAT_VERSION 只做检测报错，不提供旧格式兼容、迁移工具或备份。
+  project.json v1 也使用 JSON，目录入口只查找 project.json；运行 Profile 和编辑器快捷键配置继续使用 YAML。
+  ImGui ini 和二进制缓存不改格式。
+  后续冻结 Schema 时补齐长期版本迁移策略，不提前统一所有文件。
 - .comet/cache 继续存二进制派生产物与索引；Shipping Manifest 只含运行时身份、依赖和打包位置，
   不带松散 .meta、源资产与 editor importer 配置。
 - 另存为、自动保存、崩溃恢复和日志目录规范；项目设置面板、打包播放器、CI 构建测试打包。
-- 开发期 Scene Schema 不承诺兼容；冻结版本前明确迁移规则，不默默读入不兼容数据。
+- 开发期 Scene Schema 不兼容旧版本；不匹配直接报错。首次发布并冻结格式时再制定后续版本迁移规则。
 
 验收：示例可从编辑器打包成独立程序，不依赖仓库源路径；新贡献者能按 README 初始化与验证。

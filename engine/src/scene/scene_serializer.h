@@ -3,6 +3,7 @@
 #include "common/export.h"
 
 #include <cstdint>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -13,7 +14,8 @@ namespace Comet {
 
     class COMET_API SceneSerializer final {
     public:
-        static constexpr std::uint32_t FORMAT_VERSION = 1;
+        static constexpr std::uint32_t FORMAT_VERSION = 2;
+        static constexpr std::size_t MAX_HIERARCHY_DEPTH = 128;
 
         explicit SceneSerializer(const ComponentRegistry& component_registry);
 

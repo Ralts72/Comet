@@ -68,13 +68,13 @@ namespace Comet::Tests {
     }
 
     TEST_F(EntryTest, ForwardsArgumentsWithoutExecutableAndReportsProjectFailure) {
-        const char* arguments[]{"CometEditor", "projects/My Game/project.yaml"};
+        const char* arguments[]{"CometEditor", "projects/My Game/project.json"};
         ::testing::internal::CaptureStderr();
         const int result =
             launch(2, arguments, options, "[project]", create_from_project);
         const auto error = ::testing::internal::GetCapturedStderr();
         EXPECT_EQ(result, 1);
-        EXPECT_EQ(received, std::vector<std::string>{"projects/My Game/project.yaml"});
+        EXPECT_EQ(received, std::vector<std::string>{"projects/My Game/project.json"});
         EXPECT_NE(error.find("Project validation failed"), std::string::npos);
     }
 

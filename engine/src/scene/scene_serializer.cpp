@@ -1,13 +1,12 @@
 #include "scene/scene_serializer.h"
 
 #include "common/file_io.h"
-#include "common/yaml_utils.h"
+#include "common/json.h"
 #include "scene/component_registry.h"
 #include "scene/components.h"
 #include "scene/scene.h"
 
 #include <algorithm>
-#include <charconv>
 #include <cmath>
 #include <filesystem>
 #include <initializer_list>
@@ -19,8 +18,6 @@
 #include <utility>
 #include <variant>
 #include <vector>
-
-#include <yaml-cpp/yaml.h>
 
 namespace Comet {
     namespace {
@@ -47,58 +44,43 @@ namespace Comet {
                                       + std::string(location) + "': " + detail);
         }
 
-        void require_sequence(const YAML::Node& node, const std::string_view source,
-            const std::string_view location) {
-            Yaml::require_sequence(node, source, location, scene_error);
-        }
-
         template<typename AllowedKeys>
-        void validate_keys_in(const YAML::Node& node, const AllowedKeys& allowed,
+        void validate_keys_in(const Json::Node& node, const AllowedKeys& allowed,
             const std::string_view source, const std::string_view location) {
-            Yaml::validate_keys(node, allowed, source, location, scene_error);
+            Json::Context("scene", source).validate_keys(node, allowed, location);
         }
 
-        void validate_keys(const YAML::Node& node,
+        void validate_keys(const Json::Node& node,
             const std::initializer_list<std::string_view> allowed,
             const std::string_view source, const std::string_view location) {
             validate_keys_in(node, allowed, source, location);
         }
 
-        void validate_keys(const YAML::Node& node,
+        void validate_keys(const Json::Node& node,
             const std::vector<std::string_view>& allowed, const std::string_view source,
             const std::string_view location) {
             validate_keys_in(node, allowed, source, location);
         }
 
-        YAML::Node required_child(const YAML::Node& node, const std::string_view key,
+        Json::Node required_child(const Json::Node& node, const std::string_view key,
             const std::string_view source, const std::string_view location) {
-            return Yaml::required_child(node, key, source, location, scene_error);
+            return Json::Context("scene", source).required_child(node, key, location);
         }
 
         template<typename T>
-        T read_scalar(const YAML::Node& node, const std::string_view source,
+        T read_scalar(const Json::Node& node, const std::string_view source,
             const std::string_view location, const std::string_view expected) {
-            return Yaml::read_scalar<T>(node, source, location, expected, scene_error);
+            return Json::Context("scene", source)
+                .read_scalar<T>(node, location, expected);
         }
 
         template<typename T>
-        T read_unsigned_integer(const YAML::Node& node, const std::string_view source,
+        T read_unsigned_integer(const Json::Node& node, const std::string_view source,
             const std::string_view location) {
-            if(!node.IsDefined() || !node.IsScalar()) {
-                throw scene_error(source, location, "expected a non-negative integer");
-            }
-
-            const std::string text = node.Scalar();
-            T value{};
-            const auto [end, error] =
-                std::from_chars(text.data(), text.data() + text.size(), value);
-            if(error != std::errc{} || end != text.data() + text.size()) {
-                throw scene_error(source, location, "expected a non-negative integer");
-            }
-            return value;
+            return read_scalar<T>(node, source, location, "a non-negative integer");
         }
 
-        EntityUuid read_uuid(const YAML::Node& node, const std::string_view source,
+        EntityUuid read_uuid(const Json::Node& node, const std::string_view source,
             const std::string_view location) {
             const std::string value =
                 read_scalar<std::string>(node, source, location, "a UUID string");
@@ -109,36 +91,37 @@ namespace Comet {
             return *uuid;
         }
 
-        Math::Vec3 read_vec3(const YAML::Node& node, const std::string_view source,
+        Math::Vec3 read_vec3(const Json::Node& node, const std::string_view source,
             const std::string_view location) {
-            require_sequence(node, source, location);
-            if(node.size() != 3) {
+            const auto elements = Json::Context("scene", source).array(node, location);
+            if(elements.size() != 3) {
                 throw scene_error(source, location, "expected exactly three numbers");
             }
 
             Math::Vec3 value;
-            for(std::size_t index = 0; index < 3; ++index) {
-                value[index] = read_scalar<float>(node[index], source,
+            std::size_t index = 0;
+            for(const auto element : elements) {
+                value[index] = read_scalar<float>(element, source,
                     std::string(location) + "[" + std::to_string(index) + "]",
                     "a finite number");
                 if(!std::isfinite(value[index])) {
                     throw scene_error(source, location, "expected finite numbers");
                 }
+                ++index;
             }
             return value;
         }
 
-        YAML::Node write_vec3(const Math::Vec3& value) {
-            YAML::Node node(YAML::NodeType::Sequence);
-            node.SetStyle(YAML::EmitterStyle::Flow);
-            node.push_back(value.x);
-            node.push_back(value.y);
-            node.push_back(value.z);
-            return node;
+        void write_vec3(Json::Writer& writer, const Math::Vec3& value) {
+            writer.begin_array();
+            writer.value(value.x);
+            writer.value(value.y);
+            writer.value(value.z);
+            writer.end_array();
         }
 
         PropertyValue read_property_value(const PropertyDescriptor& property,
-            const YAML::Node& node, const std::string_view source,
+            const Json::Node& node, const std::string_view source,
             const std::string_view location) {
             switch(property.type) {
                 case PropertyType::Bool:
@@ -197,20 +180,20 @@ namespace Comet {
             throw scene_error("<memory>", location, "unsupported property type");
         }
 
-        YAML::Node write_property_value(const PropertyRecord& property) {
+        void write_property_value(Json::Writer& writer, const PropertyRecord& property) {
             switch(property.descriptor->type) {
                 case PropertyType::Bool:
-                    return YAML::Node(std::get<bool>(property.value));
+                    return writer.value(std::get<bool>(property.value));
                 case PropertyType::String:
-                    return YAML::Node(std::get<std::string>(property.value));
+                    return writer.value(std::get<std::string>(property.value));
                 case PropertyType::Float:
-                    return YAML::Node(std::get<float>(property.value));
+                    return writer.value(std::get<float>(property.value));
                 case PropertyType::Vec3:
-                    return write_vec3(std::get<Math::Vec3>(property.value));
+                    return write_vec3(writer, std::get<Math::Vec3>(property.value));
                 case PropertyType::AssetHandle:
-                    return YAML::Node(std::get<AssetHandle>(property.value).value());
+                    return writer.value(std::get<AssetHandle>(property.value).value());
             }
-            return {};
+            throw scene_error("<memory>", "<property>", "unsupported property type");
         }
 
         void assign_property_value(const PropertyRecord& property, void* component,
@@ -247,21 +230,16 @@ namespace Comet {
             return "entities[" + std::to_string(index) + "]";
         }
 
-        EntityRecord read_entity_record(const YAML::Node& node, const std::size_t index,
-            const std::string_view source, const ComponentRegistry& component_registry) {
-            const std::string location = entity_location(index);
-            validate_keys(node, {"uuid", "parent", "components"}, source, location);
+        EntityRecord read_entity_record(const Json::Node& node,
+            const std::string& location, const std::string_view source,
+            const ComponentRegistry& component_registry) {
+            validate_keys(node, {"uuid", "components", "children"}, source, location);
 
             EntityRecord record;
             record.uuid = read_uuid(required_child(node, "uuid", source, location),
                 source, location + ".uuid");
 
-            const YAML::Node parent = node["parent"];
-            if(parent.IsDefined() && !parent.IsNull()) {
-                record.parent = read_uuid(parent, source, location + ".parent");
-            }
-
-            const YAML::Node components =
+            const Json::Node components =
                 required_child(node, "components", source, location);
             std::vector<std::string_view> component_ids{"name"};
             component_ids.reserve(component_registry.components().size() + 1);
@@ -282,8 +260,9 @@ namespace Comet {
                     continue;
                 }
 
-                const YAML::Node component = components[component_descriptor.id];
-                if(!component.IsDefined() || component.IsNull()) {
+                Json::Node component;
+                if(components[component_descriptor.id].get(component)
+                    || component.is_null()) {
                     continue;
                 }
 
@@ -320,6 +299,35 @@ namespace Comet {
             return record;
         }
 
+        void read_entity_tree(const Json::Node node,
+            const std::optional<EntityUuid> parent, const std::string& location,
+            const std::string_view source, const ComponentRegistry& component_registry,
+            std::vector<EntityRecord>& records, std::unordered_set<EntityUuid>& uuids,
+            const std::size_t depth) {
+            if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
+                throw scene_error(source, location, "maximum hierarchy depth exceeded");
+            auto record = read_entity_record(node, location, source, component_registry);
+            const EntityUuid uuid = record.uuid;
+            if(!uuids.insert(uuid).second)
+                throw scene_error(
+                    source, location + ".uuid", "duplicate UUID " + uuid.to_string());
+            record.parent = parent;
+            records.push_back(std::move(record));
+
+            Json::Node children;
+            if(!node["children"].get(children)) {
+                const std::string children_location = location + ".children";
+                const auto array =
+                    Json::Context("scene", source).array(children, children_location);
+                std::size_t index = 0;
+                for(const auto child : array) {
+                    read_entity_tree(child, uuid,
+                        children_location + "[" + std::to_string(index++) + "]", source,
+                        component_registry, records, uuids, depth + 1);
+                }
+            }
+        }
+
         void validate_records(
             const std::vector<EntityRecord>& records, const std::string_view source) {
             std::unordered_map<EntityUuid, std::size_t> indices;
@@ -342,8 +350,11 @@ namespace Comet {
             std::unordered_map<EntityUuid, VisitState> states;
             states.reserve(records.size());
             const auto visit = [&records, &indices, &states, source](
-                                   const std::size_t index,
+                                   const std::size_t index, const std::size_t depth,
                                    const auto& visit_ref) -> void {
+                if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
+                    throw scene_error(source, entity_location(index),
+                        "maximum hierarchy depth exceeded");
                 const EntityUuid uuid = records[index].uuid;
                 if(const auto state = states.find(uuid); state != states.end()) {
                     if(state->second == VisitState::Visiting) {
@@ -355,34 +366,49 @@ namespace Comet {
 
                 states.emplace(uuid, VisitState::Visiting);
                 if(records[index].parent) {
-                    visit_ref(indices.at(*records[index].parent), visit_ref);
+                    visit_ref(indices.at(*records[index].parent), depth + 1, visit_ref);
                 }
                 states[uuid] = VisitState::Complete;
             };
 
             for(std::size_t index = 0; index < records.size(); ++index) {
-                visit(index, visit);
+                visit(index, 1, visit);
             }
         }
 
-        YAML::Node write_entity_record(const EntityRecord& record) {
-            YAML::Node entity(YAML::NodeType::Map);
-            entity["uuid"] = record.uuid.to_string();
-            if(record.parent) {
-                entity["parent"] = record.parent->to_string();
-            }
+        using ChildrenIndex = std::unordered_map<EntityUuid, std::vector<std::size_t>>;
 
-            YAML::Node components(YAML::NodeType::Map);
-            components["name"] = record.name;
+        void write_entity_tree(Json::Writer& writer, const EntityRecord& record,
+            const std::vector<EntityRecord>& records, const ChildrenIndex& children,
+            const std::size_t depth) {
+            if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
+                throw scene_error("<memory>", record.uuid.to_string(),
+                    "maximum hierarchy depth exceeded");
+            writer.begin_object();
+            writer.field("uuid", record.uuid.to_string());
+
+            writer.key("components");
+            writer.begin_object();
+            writer.field("name", record.name);
             for(const ComponentRecord& component_record : record.components) {
-                YAML::Node component(YAML::NodeType::Map);
+                writer.key(component_record.descriptor->id);
+                writer.begin_object();
                 for(const PropertyRecord& property : component_record.properties) {
-                    component[property.descriptor->id] = write_property_value(property);
+                    writer.key(property.descriptor->id);
+                    write_property_value(writer, property);
                 }
-                components[component_record.descriptor->id] = component;
+                writer.end_object();
             }
-            entity["components"] = components;
-            return entity;
+            writer.end_object();
+            if(const auto found = children.find(record.uuid); found != children.end()) {
+                writer.key("children");
+                writer.begin_array();
+                for(const auto index : found->second)
+                    write_entity_tree(
+                        writer, records[index], records, children, depth + 1);
+                writer.end_array();
+            }
+            writer.end_object();
         }
     }
 
@@ -468,33 +494,29 @@ namespace Comet {
 
         std::ranges::sort(records, {}, &EntityRecord::uuid);
         validate_records(records, "<memory>");
+        ChildrenIndex children;
+        for(std::size_t index = 0; index < records.size(); ++index)
+            children[records[index].parent.value_or(INVALID_ENTITY_UUID)].push_back(
+                index);
 
-        YAML::Node root(YAML::NodeType::Map);
-        root["version"] = FORMAT_VERSION;
-        YAML::Node entities_node(YAML::NodeType::Sequence);
-        for(const EntityRecord& record : records) {
-            entities_node.push_back(write_entity_record(record));
+        Json::Writer writer;
+        writer.begin_object();
+        writer.field("version", std::uint64_t(FORMAT_VERSION));
+        writer.key("entities");
+        writer.begin_array();
+        for(const auto index : children[INVALID_ENTITY_UUID]) {
+            write_entity_tree(writer, records[index], records, children, 1);
         }
-        root["entities"] = entities_node;
-
-        YAML::Emitter emitter;
-        emitter << root;
-        if(!emitter.good()) {
-            throw std::runtime_error(
-                "Failed to serialize scene: " + emitter.GetLastError());
-        }
-        return std::string(emitter.c_str()) + '\n';
+        writer.end_array();
+        writer.end_object();
+        return std::move(writer).finish();
     }
 
     std::unique_ptr<Scene> SceneSerializer::deserialize(
         const std::string_view contents, const std::string_view source) const {
-        YAML::Node root;
-        try {
-            root = YAML::Load(std::string(contents));
-        } catch(const YAML::Exception& error) {
-            throw std::runtime_error(
-                "Failed to parse scene '" + std::string(source) + "': " + error.what());
-        }
+        simdjson::dom::parser parser;
+        const Json::Context context("scene", source);
+        const Json::Node root = context.parse(parser, contents);
 
         validate_keys(root, {"version", "entities"}, source, "<root>");
         const std::uint32_t version = read_unsigned_integer<std::uint32_t>(
@@ -505,15 +527,16 @@ namespace Comet {
                     + std::to_string(FORMAT_VERSION));
         }
 
-        const YAML::Node entities = required_child(root, "entities", source, "<root>");
-        require_sequence(entities, source, "entities");
+        const auto entities =
+            context.array(required_child(root, "entities", source, "<root>"), "entities");
         std::vector<EntityRecord> records;
         records.reserve(entities.size());
-        for(std::size_t index = 0; index < entities.size(); ++index) {
-            records.push_back(
-                read_entity_record(entities[index], index, source, m_component_registry));
+        std::unordered_set<EntityUuid> uuids;
+        std::size_t index = 0;
+        for(const auto entity : entities) {
+            read_entity_tree(entity, std::nullopt, entity_location(index++), source,
+                m_component_registry, records, uuids, 1);
         }
-        validate_records(records, source);
 
         auto scene = std::make_unique<Scene>();
         std::unordered_map<EntityUuid, Entity> loaded_entities;

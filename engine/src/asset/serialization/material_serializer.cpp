@@ -1,12 +1,12 @@
 #include "asset/serialization/material_serializer.h"
-#include "asset/serialization/yaml_serialization.h"
+#include "asset/serialization/json_serialization.h"
 
 #include <utility>
 
 namespace Comet {
     namespace {
         AssetResult<void> validate_material_data(
-            const MaterialData& data, const AssetSerialization::YamlContext& context) {
+            const MaterialData& data, const Json::Context& context) {
             if(data.template_name.empty()) {
                 return AssetResult<void>::failure(
                     context.error("template", "expected a non-empty string"));
@@ -25,29 +25,32 @@ namespace Comet {
             return AssetResult<void>::success();
         }
 
-        AssetResult<YAML::Node> encode_material(
-            const MaterialData& data, const AssetSerialization::YamlContext& context) {
+        AssetResult<void> encode_material(const MaterialData& data,
+            const Json::Context& context, Json::Writer& writer) {
             if(auto valid = validate_material_data(data, context); !valid)
-                return AssetResult<YAML::Node>::failure(valid.error());
+                return valid;
 
-            YAML::Node root(YAML::NodeType::Map);
-            root["version"] = MaterialSerializer::FORMAT_VERSION;
-            root["template"] = data.template_name;
+            writer.begin_object();
+            writer.field("version", std::uint64_t(MaterialSerializer::FORMAT_VERSION));
+            writer.field("template", data.template_name);
 
-            YAML::Node properties(YAML::NodeType::Map);
+            writer.key("properties");
+            writer.begin_object();
             for(const auto& [property_name, texture_handle] : data.texture_properties) {
-                YAML::Node property(YAML::NodeType::Map);
-                property["type"] = "texture";
-                property["asset"] = texture_handle.value();
-                properties[property_name] = property;
+                writer.key(property_name);
+                writer.begin_object();
+                writer.field("type", "texture");
+                writer.field("asset", texture_handle.value());
+                writer.end_object();
             }
-            root["properties"] = properties;
+            writer.end_object();
+            writer.end_object();
 
-            return AssetResult<YAML::Node>::success(std::move(root));
+            return AssetResult<void>::success();
         }
 
         AssetResult<MaterialData> decode_material(
-            const YAML::Node& root, const AssetSerialization::YamlContext& context) {
+            const Json::Node& root, const Json::Context& context) {
             context.validate_keys(root, {"version", "template", "properties"});
 
             const std::uint32_t version = context.read_scalar<std::uint32_t>(
@@ -67,26 +70,15 @@ namespace Comet {
                     context.error("template", "expected a non-empty string"));
             }
 
-            const YAML::Node properties = context.required_child(root, "properties");
-            context.require_map(properties, "properties");
-            for(const auto& entry : properties) {
-                if(!entry.first.IsScalar()) {
-                    return AssetResult<MaterialData>::failure(
-                        context.error("properties", "expected string keys"));
-                }
-
-                const std::string property_name = entry.first.as<std::string>();
+            const Json::Node properties = context.required_child(root, "properties");
+            for(const auto entry : context.object(properties, "properties")) {
+                const std::string property_name(entry.key);
                 if(property_name.empty()) {
                     return AssetResult<MaterialData>::failure(
                         context.error("properties", "property names cannot be empty"));
                 }
-                if(data.texture_properties.contains(property_name)) {
-                    return AssetResult<MaterialData>::failure(context.error(
-                        "properties", "duplicate property '" + property_name + "'"));
-                }
-
                 const std::string property_location = "properties." + property_name;
-                const YAML::Node property = entry.second;
+                const Json::Node property = entry.value;
                 context.validate_keys(property, {"type", "asset"}, property_location);
 
                 const std::string type = context.read_scalar<std::string>(
@@ -116,12 +108,12 @@ namespace Comet {
 
     AssetResult<std::string> MaterialSerializer::serialize(
         const MaterialData& data) const {
-        return AssetSerialization::serialize_yaml("material", data, encode_material);
+        return AssetSerialization::serialize_json("material", data, encode_material);
     }
 
     AssetResult<MaterialData> MaterialSerializer::deserialize(
         const std::string_view contents, const std::string_view source) const {
-        return AssetSerialization::deserialize_yaml<MaterialData>(
+        return AssetSerialization::deserialize_json<MaterialData>(
             "material", contents, source, decode_material);
     }
 

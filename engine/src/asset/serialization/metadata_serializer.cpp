@@ -1,52 +1,53 @@
 #include "asset/serialization/metadata_serializer.h"
-#include "asset/serialization/yaml_serialization.h"
+#include "asset/serialization/json_serialization.h"
 
 #include <utility>
 
 namespace Comet {
     namespace {
 
-        AssetResult<YAML::Node> encode_metadata(const AssetMetadata& metadata,
-            const AssetSerialization::YamlContext& context) {
+        AssetResult<void> encode_metadata(const AssetMetadata& metadata,
+            const Json::Context& context, Json::Writer& writer) {
             if(!metadata.handle) {
-                return AssetResult<YAML::Node>::failure(
+                return AssetResult<void>::failure(
                     context.error("guid", "expected a non-zero value"));
             }
             if(metadata.type == AssetType::Unknown) {
-                return AssetResult<YAML::Node>::failure(
+                return AssetResult<void>::failure(
                     context.error("type", "expected a known asset type"));
             }
 
             const auto* texture_settings =
                 std::get_if<TextureImportSettings>(&metadata.import_settings);
             if(metadata.type == AssetType::Texture && !texture_settings) {
-                return AssetResult<YAML::Node>::failure(context.error(
+                return AssetResult<void>::failure(context.error(
                     "importer", "expected texture import settings for a texture asset"));
             }
             if(metadata.type != AssetType::Texture
                 && !std::holds_alternative<std::monostate>(metadata.import_settings)) {
-                return AssetResult<YAML::Node>::failure(context.error(
+                return AssetResult<void>::failure(context.error(
                     "importer", "import settings do not match asset type '"
                                     + std::string(to_string(metadata.type)) + "'"));
             }
 
-            YAML::Node root(YAML::NodeType::Map);
-            root["version"] = MetadataSerializer::FORMAT_VERSION;
-            root["guid"] = metadata.handle.value();
-            root["type"] = std::string(to_string(metadata.type));
+            writer.begin_object();
+            writer.field("version", std::uint64_t(MetadataSerializer::FORMAT_VERSION));
+            writer.field("guid", metadata.handle.value());
+            writer.field("type", to_string(metadata.type));
             if(texture_settings) {
-                YAML::Node importer(YAML::NodeType::Map);
-                importer["color_space"] =
-                    std::string(to_string(texture_settings->color_space));
-                importer["flip_y"] = texture_settings->flip_y;
-                root["importer"] = importer;
+                writer.key("importer");
+                writer.begin_object();
+                writer.field("color_space", to_string(texture_settings->color_space));
+                writer.field("flip_y", texture_settings->flip_y);
+                writer.end_object();
             }
+            writer.end_object();
 
-            return AssetResult<YAML::Node>::success(std::move(root));
+            return AssetResult<void>::success();
         }
 
         AssetResult<AssetMetadata> decode_metadata(
-            const YAML::Node& root, const AssetSerialization::YamlContext& context) {
+            const Json::Node& root, const Json::Context& context) {
             context.validate_keys(root, {"version", "guid", "type", "importer"});
 
             const std::uint32_t version = context.read_scalar<std::uint32_t>(
@@ -75,9 +76,10 @@ namespace Comet {
             }
 
             AssetImportSettings import_settings = std::monostate{};
-            const YAML::Node importer = root["importer"];
+            Json::Node importer;
+            const bool has_importer = !root["importer"].get(importer);
             if(*type == AssetType::Texture) {
-                if(!importer.IsDefined()) {
+                if(!has_importer) {
                     return AssetResult<AssetMetadata>::failure(
                         context.error("<root>", "missing required field 'importer'"));
                 }
@@ -98,7 +100,7 @@ namespace Comet {
                     .flip_y = context.read_scalar<bool>(
                         context.required_child(importer, "flip_y", "importer"),
                         "importer.flip_y", "a boolean")};
-            } else if(importer.IsDefined()) {
+            } else if(has_importer) {
                 return AssetResult<AssetMetadata>::failure(context.error(
                     "importer", "import settings are not supported for asset type '"
                                     + std::string(to_string(*type)) + "'"));
@@ -112,13 +114,13 @@ namespace Comet {
 
     AssetResult<std::string> MetadataSerializer::serialize(
         const AssetMetadata& metadata) const {
-        return AssetSerialization::serialize_yaml(
+        return AssetSerialization::serialize_json(
             "asset metadata", metadata, encode_metadata);
     }
 
     AssetResult<AssetMetadata> MetadataSerializer::deserialize(
         const std::string_view contents, const std::string_view source) const {
-        return AssetSerialization::deserialize_yaml<AssetMetadata>(
+        return AssetSerialization::deserialize_json<AssetMetadata>(
             "asset metadata", contents, source, decode_metadata);
     }
 

@@ -12,7 +12,7 @@
 namespace Comet {
     class COMET_API MetadataSerializer final {
     public:
-        static constexpr std::uint32_t FORMAT_VERSION = 2;
+        static constexpr std::uint32_t FORMAT_VERSION = 3;
 
         [[nodiscard]] AssetResult<std::string> serialize(
             const AssetMetadata& metadata) const;

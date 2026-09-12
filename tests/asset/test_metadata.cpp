@@ -40,8 +40,16 @@ namespace Comet::Tests {
 
         const std::string contents = serializer.serialize(metadata).value();
 
-        EXPECT_EQ(contents, "version: 2\nguid: 42\ntype: texture\nimporter:\n"
-                            "  color_space: linear\n  flip_y: true\n");
+        EXPECT_EQ(contents, R"({
+  "version": 3,
+  "guid": 42,
+  "type": "texture",
+  "importer": {
+    "color_space": "linear",
+    "flip_y": true
+  }
+}
+)");
         EXPECT_EQ(serializer.deserialize(contents).value(), metadata);
     }
 
@@ -84,8 +92,10 @@ namespace Comet::Tests {
     TEST(AssetMetadataTest, RejectsInvalidIdentityAndType) {
         const MetadataSerializer serializer;
 
-        EXPECT_FALSE(serializer.deserialize("version: 2\nguid: 0\ntype: material\n"));
-        EXPECT_FALSE(serializer.deserialize("version: 2\nguid: 42\ntype: audio\n"));
+        EXPECT_FALSE(
+            serializer.deserialize(R"({"version": 3, "guid": 0, "type": "material"})"));
+        EXPECT_FALSE(
+            serializer.deserialize(R"({"version": 3, "guid": 42, "type": "audio"})"));
         EXPECT_FALSE(serializer.serialize({.handle = INVALID_ASSET_HANDLE,
             .type = AssetType::Texture,
             .import_settings = TextureImportSettings{}}));
@@ -94,25 +104,36 @@ namespace Comet::Tests {
     TEST(AssetMetadataTest, RejectsMalformedContract) {
         const MetadataSerializer serializer;
 
-        EXPECT_FALSE(serializer.deserialize("version: 3\nguid: 42\ntype: material\n"));
-        EXPECT_FALSE(serializer.deserialize("version: 2\ntype: material\n"));
+        EXPECT_FALSE(
+            serializer.deserialize(R"({"version": 4, "guid": 42, "type": "material"})"));
+        EXPECT_FALSE(serializer.deserialize(R"({"version": 3, "type": "material"})"));
         EXPECT_FALSE(serializer.deserialize(
-            "version: 2\nguid: 42\ntype: material\nextra: true\n"));
+            R"({"version": 3, "guid": 42, "type": "material", "extra": true})"));
     }
 
     TEST(AssetMetadataTest, ValidatesTextureImportSettings) {
         const MetadataSerializer serializer;
 
-        EXPECT_FALSE(serializer.deserialize("version: 2\nguid: 42\ntype: texture\n"));
-        EXPECT_FALSE(serializer.deserialize("version: 2\nguid: 42\ntype: texture\n"
-                                            "importer:\n  color_space: display_p3\n"
-                                            "  flip_y: false\n"));
-        EXPECT_FALSE(serializer.deserialize("version: 2\nguid: 42\ntype: texture\n"
-                                            "importer:\n  color_space: srgb\n"
-                                            "  flip_y: false\n  compression: high\n"));
-        EXPECT_FALSE(serializer.deserialize("version: 2\nguid: 42\ntype: material\n"
-                                            "importer:\n  color_space: srgb\n"
-                                            "  flip_y: false\n"));
+        EXPECT_FALSE(
+            serializer.deserialize(R"({"version": 3, "guid": 42, "type": "texture"})"));
+        EXPECT_FALSE(serializer.deserialize(R"({
+  "version": 3,
+  "guid": 42,
+  "type": "texture",
+  "importer": {"color_space": "display_p3", "flip_y": false}
+})"));
+        EXPECT_FALSE(serializer.deserialize(R"({
+  "version": 3,
+  "guid": 42,
+  "type": "texture",
+  "importer": {"color_space": "srgb", "flip_y": false, "compression": "high"}
+})"));
+        EXPECT_FALSE(serializer.deserialize(R"({
+  "version": 3,
+  "guid": 42,
+  "type": "material",
+  "importer": {"color_space": "srgb", "flip_y": false}
+})"));
         EXPECT_FALSE(serializer.serialize(
             {.handle = AssetHandle(42), .type = AssetType::Texture}));
 
@@ -121,30 +142,50 @@ namespace Comet::Tests {
         EXPECT_FALSE(texture_color_space_from_string("SRGB"));
     }
 
+    TEST(AssetMetadataTest, RejectsQuotedBooleanAndDuplicateImporterField) {
+        const MetadataSerializer serializer;
+        const auto quoted = serializer.deserialize(R"({
+  "version": 3, "guid": 42, "type": "texture",
+  "importer": {"color_space": "srgb", "flip_y": "false"}
+})");
+        ASSERT_FALSE(quoted);
+        EXPECT_NE(quoted.error().find("importer.flip_y"), std::string::npos);
+        const auto duplicate = serializer.deserialize(R"({
+  "version": 3, "guid": 42, "type": "texture",
+  "importer": {"color_space": "srgb", "flip_y": false, "flip_y": true}
+})");
+        ASSERT_FALSE(duplicate);
+        EXPECT_NE(duplicate.error().find("duplicate field 'flip_y'"), std::string::npos);
+    }
+
     TEST(AssetMetadataTest, PreservesSourceAndNestedFieldDiagnostics) {
         const MetadataSerializer serializer;
-        const auto missing = serializer.deserialize("version: 2\n", "missing.meta");
+        const auto missing = serializer.deserialize(R"({"version": 3})", "missing.meta");
         ASSERT_FALSE(missing);
         EXPECT_EQ(missing.error(),
             "Invalid asset metadata 'missing.meta' at '<root>': missing required field 'guid'");
 
         const auto duplicate = serializer.deserialize(
-            "version: 2\nguid: 42\nguid: 73\ntype: mesh\n", "duplicate.meta");
+            R"({"version": 3, "guid": 42, "guid": 73, "type": "mesh"})",
+            "duplicate.meta");
         ASSERT_FALSE(duplicate);
         EXPECT_EQ(duplicate.error(),
             "Invalid asset metadata 'duplicate.meta' at '<root>': duplicate field 'guid'");
 
-        const auto scalar =
-            serializer.deserialize("version: 2\nguid: 42\ntype: texture\nimporter:\n"
-                                   "  color_space: srgb\n  flip_y: not-a-bool\n",
-                "scalar.meta");
+        const auto scalar = serializer.deserialize(R"({
+  "version": 3,
+  "guid": 42,
+  "type": "texture",
+  "importer": {"color_space": "srgb", "flip_y": "not-a-bool"}
+})",
+            "scalar.meta");
         ASSERT_FALSE(scalar);
         EXPECT_EQ(scalar.error(),
             "Invalid asset metadata 'scalar.meta' at 'importer.flip_y': expected a boolean");
 
-        const auto yaml = serializer.deserialize("version: [", "syntax.meta");
-        ASSERT_FALSE(yaml);
-        EXPECT_TRUE(yaml.error().starts_with(
-            "Invalid asset metadata 'syntax.meta' at '<yaml>':"));
+        const auto json = serializer.deserialize(R"({"version": [)", "syntax.meta");
+        ASSERT_FALSE(json);
+        EXPECT_TRUE(json.error().starts_with(
+            "Invalid asset metadata 'syntax.meta' at '<json>':"));
     }
 }

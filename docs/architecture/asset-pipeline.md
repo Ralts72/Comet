@@ -8,12 +8,12 @@
 
 - `assets/`：项目源资产和相邻 `.meta`，进入版本控制。
 - `.comet/cache/`：可重建导入产物；`.comet/editor/imgui.ini`：本机编辑器布局。两者不提交。
-- `project.yaml`：项目版本、名称和启动场景；Project 只读取和校验描述，ProjectPaths 统一目录及资产路径边界。
+- `project.json`：项目版本、名称和启动场景；Project 只读取和校验描述，ProjectPaths 统一目录及资产路径边界。
   编辑器从传入的项目目录／描述文件启动，无参数才打开仓库 `demo/` 示例。项目无须复制引擎／编辑器自带的 config、字体、Shader。
 
 仓库的 `editor/resources/` 是编辑器私有资源，不在项目根目录内，也不进入 AssetDatabase 或生成 `.meta`。
 
-当前 .meta v2 保存 version/guid/type；Texture 另有 importer.color_space（srgb/linear）和 flip_y。
+当前 .meta v3 使用 JSON，保存 version/guid/type；Texture 另有 importer.color_space（srgb/linear）和 flip_y。
 未知字段、缺失字段或不匹配的类型/设置会被拒绝。新 Texture 默认为 srgb、不翻转。
 Handle 可随源文件和 .meta 一起移动，但同一 Handle 不可改变 AssetType；类型转换需要新身份。
 
@@ -48,11 +48,15 @@ Scene Serializer 和 ConfigLoader 留在各自模块，不强行纳入 AssetMana
 
 - Mesh/Texture Importer、输入指纹采集、ImportService 构建、MeshArtifact 发布、.mat/.meta 读写及数据库更新统一返回该类型。
 - `MeshImportData` 只是 CPU 网格和源依赖的数据包；外层 `AssetResult<MeshImportData>` 才表示操作成败。
-- 导入器直接返回预期失败；共享 YAML 校验和文件 I/O 的异常在序列化／产物出口转换。
+- 导入器直接返回预期失败；共享 JSON 校验和文件 I/O 的异常在序列化／产物出口转换。
   AssetManager 输出操作日志，AssetDatabase 聚合扫描问题，Inspector 保存字段错误，不在底层重复打印。
-- `asset/serialization/yaml_serialization.h/.cpp` 共用文件读写、YAML 解析／输出及错误上下文；
+- `asset/serialization/json_serialization.h` 共用文件读写及失败结果转换，`common/json.h/.cpp` 提供 JSON 校验与输出；
   Material/Metadata 的 encode/decode 只维护各自字段规则。通过普通函数组合复用，不继承序列化器基类，
-  不在公开序列化接口中暴露 YAML 类型，也不保存或异步调度编码／解码函数。
+  不在公开序列化接口中暴露 JSON 类型，也不保存或异步调度编码／解码函数。
+  Scene 同样复用 JSON 工具，但不依赖资产模块的 AssetResult；simdjson 是 engine 的显式私有依赖。
+  `.scene` v2、`.mat` v2、`.meta` v3 为编辑器生成的 JSON；`project.json` v1 同样使用 JSON，Profile 继续使用 YAML。
+  Project 直接复用 Json::Context，不依赖资产序列化器；目前只读取项目描述，项目设置 UI/自动保存尚未实现。
+  当前尚未发布，FORMAT_VERSION 只用于严格检测；版本不匹配直接报错，不兼容旧 YAML，不提供迁移或旧格式备份。
 - Worker 候选保存结果及 Handle/revision；owner 先验 revision，再处理失败或发布成功值。
   非预期异常由任务 future 传递，在完成队列边界报告并清除对应 pending，不会留下永久进行中的任务。
 - 缓存查找仍用 optional 表示未命中；Runtime 加载入口仍返回共享对象或空值并负责诊断；

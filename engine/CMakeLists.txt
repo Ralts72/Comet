@@ -25,7 +25,7 @@ set(SOURCES
         src/asset/source_operations.cpp
         src/asset/serialization/material_serializer.cpp
         src/asset/serialization/metadata_serializer.cpp
-        src/asset/serialization/yaml_serialization.cpp
+        src/common/json.cpp
         src/common/file_io.cpp
         src/config/config_loader.cpp
         src/diagnostics/diagnostics.cpp
@@ -102,6 +102,7 @@ target_link_libraries(engine
         Threads::Threads
         stb_image
         fastgltf::fastgltf
+        simdjson::simdjson
         yaml-cpp
 )
 target_include_directories(engine

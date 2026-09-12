@@ -12,7 +12,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
 | `demo/assets/` | 示例项目场景、源资产及相邻 `.meta`，进入版本控制 |
-| `demo/project.yaml` | 示例项目描述：版本、名称和启动场景 |
+| `demo/project.json` | 示例项目描述：版本、名称和启动场景 |
 | `config/` | `common.yaml` 与各 Profile 配置 |
 | `demo/.comet/` | 示例项目本机缓存与编辑器布局，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
@@ -52,19 +52,27 @@ Windows 通过 `.rc` 将 ICO 编译进 exe，GLFW 自动用作初始窗口图标
 ```bash
 ./editor.sh                         # 打开仓库 demo/ 中的示例项目
 ./editor.sh ./demo                  # 显式打开同一示例项目
-./editor.sh /Projects/MyGame        # 读取该目录的 project.yaml
-./editor.sh /Projects/MyGame/project.yaml
+./editor.sh /Projects/MyGame        # 读取该目录的 project.json
+./editor.sh /Projects/MyGame/project.json
 ```
 
 编辑器可执行文件也接受同样的可选路径参数；相对路径以调用者的工作目录为基准。`--help` 显示用法。
-项目需要 `project.yaml` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。
+项目需要 `project.json` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。
+编辑器生成的 `.scene`（v2）、`.mat`（v2）、`.meta`（v3）使用 JSON，扩展名不变；
+`.scene` 的 `entities` 只放根实体，子实体通过 `children` 嵌套，不再保存 `parent` 引用；UUID 仍全场景唯一。
+项目描述 `project.json` 同样使用 JSON；仅 `config/` 中的引擎、编辑器 Profile 与快捷键配置继续使用 YAML。
+JSON 解析直接依赖已有 simdjson。
 示例项目根目录是仓库的 `demo/`，不是仓库根；可完整复制该目录作为外部项目。
 旧仓库根 `.comet/` 不自动迁移，新位置缺少缓存／布局时会重新生成，旧数据保留。
 
-```yaml
-version: 1
-name: My Game
-startup_scene: scenes/main.scene
+当前尚未发布，项目及资产描述只接受当前 `FORMAT_VERSION`；缺失、非法或不匹配的版本直接报错。
+
+```json
+{
+  "version": 1,
+  "name": "My Game",
+  "startup_scene": "scenes/main.scene"
+}
 ```
 
 `startup_scene` 相对项目 `assets/`；省略或空字符串表示空场景。项目描述不配置默认材质，场景保存自己的材质引用。
@@ -74,7 +82,7 @@ startup_scene: scenes/main.scene
 
 ## 编辑器使用
 
-- File → Open/Save 操作当前项目 assets 内的 `.scene`，拒绝越界路径。启动打开 project.yaml 指定的场景，
+- File → Open/Save 操作当前项目 assets 内的 `.scene`，拒绝越界路径。启动打开 project.json 指定的场景，
   不恢复上次打开的其他文档；坏资源引用保留并记录 Log，后台导入完成后自动重试加载。
 - Edit 使用独立相机；Play 运行场景副本及其 primary Camera，Stop 不回写运行时修改。
   2D/3D 只切换 Edit 投影；Play 分辨率可选 Free、16:9、HD、FHD，Fit 等比适应，1x 原尺寸裁切。

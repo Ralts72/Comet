@@ -651,11 +651,11 @@ namespace {
         Comet::ApplicationArguments arguments) {
         if(arguments.size() > 1
             || (!arguments.empty() && arguments.front().starts_with('-')))
-            throw std::invalid_argument("Expected a project directory or project.yaml");
+            throw std::invalid_argument("Expected a project directory or project.json");
         auto project = Comet::Project::load(
             arguments.empty() ? COMET_SAMPLE_PROJECT_DIRECTORY : arguments.front());
         return std::make_unique<Editor>(std::move(project));
     }
 }
 
-RUN_APP(create_editor, "[project-directory | project.yaml]")
+RUN_APP(create_editor, "[project-directory | project.json]")

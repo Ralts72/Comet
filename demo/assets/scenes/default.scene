@@ -1,24 +1,61 @@
-version: 1
-entities:
-  - uuid: 672cd0cc-501f-419e-af5e-a883a0cd3d01
-    components:
-      name: Main Camera
-      transform:
-        translation: [0, 0, 3]
-        rotation: [0, 0, 0]
-        scale: [1, 1, 1]
-      camera:
-        primary: true
-        fov: 45
-        near_clip: 0.1
-        far_clip: 1000
-  - uuid: 672cd0cc-501f-419e-af5e-a883a0cd3d02
-    components:
-      name: Editor Cube
-      transform:
-        translation: [0.07849416, 0.36940357, 0]
-        rotation: [-20, 30, 0]
-        scale: [1, 1, 1]
-      mesh_renderer:
-        mesh: 7535385251553858160
-        material: 11364856686536078871
+{
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d01",
+      "components": {
+        "name": "Main Camera",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            3
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 1000
+        }
+      }
+    },
+    {
+      "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d02",
+      "components": {
+        "name": "Editor Cube",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            -20,
+            30,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 11364856686536078871
+        }
+      }
+    }
+  ]
+}

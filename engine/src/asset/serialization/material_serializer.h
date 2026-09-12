@@ -12,7 +12,7 @@
 namespace Comet {
     class COMET_API MaterialSerializer final {
     public:
-        static constexpr std::uint32_t FORMAT_VERSION = 1;
+        static constexpr std::uint32_t FORMAT_VERSION = 2;
 
         [[nodiscard]] AssetResult<std::string> serialize(const MaterialData& data) const;
         [[nodiscard]] AssetResult<MaterialData> deserialize(

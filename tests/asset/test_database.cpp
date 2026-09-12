@@ -48,7 +48,7 @@ namespace Comet::Tests {
         }
 
         constexpr std::string_view EMPTY_MATERIAL =
-            "version: 1\ntemplate: unlit_texture_blend\nproperties: {}\n";
+            R"({"version": 2, "template": "unlit_texture_blend", "properties": {}})";
     }
 
     TEST(AssetDatabaseTest, GeneratesMetadataAndBuildsBothIndexes) {
@@ -252,10 +252,15 @@ namespace Comet::Tests {
         const std::filesystem::path second_texture =
             project.add_file("textures/second.png");
         const std::filesystem::path material = project.add_file("materials/default.mat",
-            "version: 1\ntemplate: unlit_texture_blend\nproperties:\n"
-            "  first:\n    type: texture\n    asset: 42\n"
-            "  repeated:\n    type: texture\n    asset: 42\n"
-            "  second:\n    type: texture\n    asset: 73\n");
+            R"({
+  "version": 2,
+  "template": "unlit_texture_blend",
+  "properties": {
+    "first": {"type": "texture", "asset": 42},
+    "repeated": {"type": "texture", "asset": 42},
+    "second": {"type": "texture", "asset": 73}
+  }
+})");
         const MetadataSerializer serializer;
         EXPECT_TRUE(serializer.save({.handle = AssetHandle(42),
                                         .type = AssetType::Texture,
@@ -302,9 +307,14 @@ namespace Comet::Tests {
             project.add_file("materials/referenced.mat", std::string(EMPTY_MATERIAL));
         const std::filesystem::path owner_material =
             project.add_file("materials/owner.mat",
-                "version: 1\ntemplate: unlit_texture_blend\nproperties:\n"
-                "  missing:\n    type: texture\n    asset: 999\n"
-                "  wrong_type:\n    type: texture\n    asset: 73\n");
+                R"({
+  "version": 2,
+  "template": "unlit_texture_blend",
+  "properties": {
+    "missing": {"type": "texture", "asset": 999},
+    "wrong_type": {"type": "texture", "asset": 73}
+  }
+})");
         const MetadataSerializer serializer;
         EXPECT_TRUE(
             serializer.save({.handle = AssetHandle(73), .type = AssetType::Material},
@@ -351,8 +361,9 @@ namespace Comet::Tests {
         project.add_file("valid.scene");
         const std::filesystem::path invalid = project.add_file("invalid.png");
         project.add_file("notes.txt");
-        project.add_file("orphan.mat.meta", "version: 2\nguid: 8\ntype: material\n");
-        std::ofstream(metadata_path(invalid)) << "version: nope\n";
+        project.add_file(
+            "orphan.mat.meta", R"({"version": 3, "guid": 8, "type": "material"})");
+        std::ofstream(metadata_path(invalid)) << R"({"version": "nope"})";
         AssetDatabase database(project.paths());
 
         const AssetScanReport report = database.scan();

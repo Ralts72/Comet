@@ -37,7 +37,7 @@ add_subdirectory(VulkanMemoryAllocator EXCLUDE_FROM_ALL)
 # EnTT
 add_subdirectory(entt EXCLUDE_FROM_ALL)
 
-# simdjson (fastgltf dependency)
+# simdjson
 set(SIMDJSON_BUILD_STATIC_LIB OFF CACHE BOOL "" FORCE)
 set(SIMDJSON_ENABLE_THREADS ON CACHE BOOL "" FORCE)
 add_subdirectory(simdjson EXCLUDE_FROM_ALL)

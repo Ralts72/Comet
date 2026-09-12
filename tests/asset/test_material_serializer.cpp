@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 
 namespace Comet::Tests {
@@ -32,17 +33,14 @@ namespace Comet::Tests {
     }
 
     TEST(MaterialSerializerTest, LoadsTextureHandleProperties) {
-        const TemporaryMaterial material(R"(
-version: 1
-template: unlit_texture_blend
-properties:
-  u_Texture0:
-    type: texture
-    asset: 42
-  u_Texture1:
-    type: texture
-    asset: 73
-)");
+        const TemporaryMaterial material(R"({
+  "version": 2,
+  "template": "unlit_texture_blend",
+  "properties": {
+    "u_Texture0": {"type": "texture", "asset": 42},
+    "u_Texture1": {"type": "texture", "asset": 73}
+  }
+})");
 
         const MaterialData data = MaterialSerializer{}.load(material.path()).value();
 
@@ -59,9 +57,21 @@ properties:
         const MaterialSerializer serializer;
         const std::string contents = serializer.serialize(data).value();
 
-        EXPECT_EQ(contents, "version: 1\ntemplate: unlit_texture_blend\nproperties:\n"
-                            "  u_Texture0:\n    type: texture\n    asset: 42\n"
-                            "  u_Texture1:\n    type: texture\n    asset: 73\n");
+        EXPECT_EQ(contents, R"({
+  "version": 2,
+  "template": "unlit_texture_blend",
+  "properties": {
+    "u_Texture0": {
+      "type": "texture",
+      "asset": 42
+    },
+    "u_Texture1": {
+      "type": "texture",
+      "asset": 73
+    }
+  }
+}
+)");
         EXPECT_EQ(serializer.deserialize(contents).value(), data);
 
         const TemporaryMaterial material("");
@@ -70,38 +80,28 @@ properties:
     }
 
     TEST(MaterialSerializerTest, RejectsInvalidAssetReference) {
-        const TemporaryMaterial material(R"(
-version: 1
-template: unlit_texture_blend
-properties:
-  u_Texture0:
-    type: texture
-    asset: 0
-)");
+        const TemporaryMaterial material(R"({
+  "version": 2,
+  "template": "unlit_texture_blend",
+  "properties": {"u_Texture0": {"type": "texture", "asset": 0}}
+})");
 
         EXPECT_FALSE(MaterialSerializer{}.load(material.path()));
     }
 
     TEST(MaterialSerializerTest, RejectsUnsupportedPropertyType) {
-        const TemporaryMaterial material(R"(
-version: 1
-template: unlit_texture_blend
-properties:
-  roughness:
-    type: float
-    asset: 42
-)");
+        const TemporaryMaterial material(R"({
+  "version": 2,
+  "template": "unlit_texture_blend",
+  "properties": {"roughness": {"type": "float", "asset": 42}}
+})");
 
         EXPECT_FALSE(MaterialSerializer{}.load(material.path()));
     }
 
     TEST(MaterialSerializerTest, RejectsUnknownFields) {
-        const TemporaryMaterial material(R"(
-version: 1
-template: unlit_texture_blend
-properties: {}
-extra: true
-)");
+        const TemporaryMaterial material(
+            R"({"version": 2, "template": "unlit_texture_blend", "properties": {}, "extra": true})");
 
         EXPECT_FALSE(MaterialSerializer{}.load(material.path()));
     }
@@ -109,7 +109,7 @@ extra: true
     TEST(MaterialSerializerTest, RejectsInvalidDataBeforeSaving) {
         const MaterialSerializer serializer;
         const TemporaryMaterial material(
-            "version: 1\ntemplate: unlit_texture_blend\nproperties: {}\n");
+            R"({"version": 2, "template": "unlit_texture_blend", "properties": {}})");
         const MaterialData original = serializer.load(material.path()).value();
 
         EXPECT_FALSE(
@@ -121,9 +121,9 @@ extra: true
         EXPECT_EQ(serializer.load(material.path()).value(), original);
     }
 
-    TEST(MaterialSerializerTest, ReportsYamlAndIoFailuresWithoutThrowing) {
+    TEST(MaterialSerializerTest, ReportsJsonAndIoFailuresWithoutThrowing) {
         const MaterialSerializer serializer;
-        const auto syntax = serializer.deserialize("version: [", "broken.mat");
+        const auto syntax = serializer.deserialize(R"({"version": [)", "broken.mat");
         ASSERT_FALSE(syntax);
         EXPECT_NE(syntax.error().find("broken.mat"), std::string::npos);
 
@@ -138,20 +138,60 @@ extra: true
         EXPECT_TRUE(std::filesystem::is_regular_file(parent.path()));
     }
 
+    TEST(MaterialSerializerTest, PreservesStringsAndFullWidthHandlesInJson) {
+        const MaterialData data{.template_name = "材质\"\\\n\t",
+            .texture_properties = {{std::string("slot\0name", 9),
+                AssetHandle(std::numeric_limits<std::uint64_t>::max())}}};
+        const MaterialSerializer serializer;
+        const auto contents = serializer.serialize(data);
+        ASSERT_TRUE(contents) << contents.error();
+        EXPECT_NE(contents.value().find("18446744073709551615"), std::string::npos);
+        const auto loaded = serializer.deserialize(contents.value());
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(loaded.value(), data);
+        EXPECT_EQ(serializer.serialize(loaded.value()).value(), contents.value());
+
+        const TemporaryMaterial material(contents.value());
+        EXPECT_FALSE(
+            serializer.save({.template_name = std::string(1, '\xff')}, material.path()));
+        EXPECT_EQ(serializer.load(material.path()).value(), data);
+    }
+
+    TEST(MaterialSerializerTest, RequiresStrictJsonAndTypedNumbers) {
+        const MaterialSerializer serializer;
+        EXPECT_FALSE(
+            serializer.deserialize("version: 1\ntemplate: test\nproperties: {}\n"));
+        EXPECT_FALSE(serializer.deserialize(
+            R"({"version": "2", "template": "test", "properties": {}})"));
+        EXPECT_FALSE(serializer.deserialize(
+            R"({"version": 2, "template": "test", "properties": {},})"));
+        EXPECT_FALSE(serializer.deserialize(
+            R"({"version": 2, /* comment */ "template": "test", "properties": {}})"));
+        for(const auto asset : {"\"42\"", "42.5", "-1", "18446744073709551616"}) {
+            SCOPED_TRACE(asset);
+            EXPECT_FALSE(serializer.deserialize(
+                std::string(
+                    R"({"version": 2, "template": "test", "properties": {"slot": {"type": "texture", "asset": )")
+                + asset + "}}}"));
+        }
+    }
+
     TEST(MaterialSerializerTest, PreservesSourceAndFieldDiagnostics) {
         const MaterialSerializer serializer;
-        const auto missing = serializer.deserialize("version: 1\n", "missing.mat");
+        const auto missing = serializer.deserialize(R"({"version": 2})", "missing.mat");
         ASSERT_FALSE(missing);
         EXPECT_EQ(missing.error(),
             "Invalid material 'missing.mat' at '<root>': missing required field 'template'");
 
         const auto duplicate = serializer.deserialize(
-            "version: 1\nversion: 1\ntemplate: test\nproperties: {}\n", "duplicate.mat");
+            R"({"version": 2, "version": 2, "template": "test", "properties": {}})",
+            "duplicate.mat");
         ASSERT_FALSE(duplicate);
         EXPECT_EQ(duplicate.error(),
             "Invalid material 'duplicate.mat' at '<root>': duplicate field 'version'");
 
-        const auto scalar = serializer.deserialize("version: nope\n", "scalar.mat");
+        const auto scalar =
+            serializer.deserialize(R"({"version": "nope"})", "scalar.mat");
         ASSERT_FALSE(scalar);
         EXPECT_EQ(scalar.error(),
             "Invalid material 'scalar.mat' at 'version': expected an unsigned integer");

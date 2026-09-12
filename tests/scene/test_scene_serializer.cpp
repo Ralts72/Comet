@@ -126,7 +126,9 @@ namespace Comet::Tests {
         const SceneSerializer serializer = make_scene_serializer();
         const std::string contents = serializer.serialize(scene);
 
-        EXPECT_NE(contents.find("version: 1"), std::string::npos);
+        EXPECT_NE(contents.find(R"("version": 2)"), std::string::npos);
+        EXPECT_NE(contents.find(R"("children":)"), std::string::npos);
+        EXPECT_EQ(contents.find(R"("parent":)"), std::string::npos);
         EXPECT_EQ(contents.find("entity_id"), std::string::npos);
         EXPECT_EQ(contents.find("world_matrix"), std::string::npos);
 
@@ -186,7 +188,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(loaded_entity.has_component<TransformComponent>());
         EXPECT_FALSE(loaded_entity.has_component<MeshRendererComponent>());
         EXPECT_FALSE(loaded_entity.has_component<CameraComponent>());
-        EXPECT_EQ(contents.find("transform:"), std::string::npos);
+        EXPECT_EQ(contents.find(R"("transform":)"), std::string::npos);
     }
 
     TEST(SceneSerializerTest, ClonesIndependentRuntimeScene) {
@@ -268,86 +270,183 @@ namespace Comet::Tests {
     }
 
     TEST(SceneSerializerTest, RejectsDuplicateUuid) {
-        expect_scene_error(R"(
-version: 1
-entities:
-  - uuid: 00000000-0000-4000-8000-000000000001
-    components: {name: First}
-  - uuid: 00000000-0000-4000-8000-000000000001
-    components: {name: Second}
-)",
+        expect_scene_error(R"({
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "00000000-0000-4000-8000-000000000001",
+      "components": {"name": "First"}
+    },
+    {
+      "uuid": "00000000-0000-4000-8000-000000000001",
+      "components": {"name": "Second"}
+    }
+  ]
+})",
             "duplicate UUID");
     }
 
-    TEST(SceneSerializerTest, RejectsMissingParent) {
-        expect_scene_error(R"(
-version: 1
-entities:
-  - uuid: 00000000-0000-4000-8000-000000000001
-    parent: 00000000-0000-4000-8000-000000000099
-    components: {name: Child}
-)",
-            "missing parent UUID");
+    TEST(SceneSerializerTest, RejectsLegacyParentField) {
+        expect_scene_error(R"({
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "00000000-0000-4000-8000-000000000001",
+      "parent": "00000000-0000-4000-8000-000000000099",
+      "components": {"name": "Child"}
+    }
+  ]
+})",
+            "unknown field 'parent'");
     }
 
-    TEST(SceneSerializerTest, RejectsParentCycle) {
-        expect_scene_error(R"(
-version: 1
-entities:
-  - uuid: 00000000-0000-4000-8000-000000000001
-    parent: 00000000-0000-4000-8000-000000000002
-    components: {name: First}
-  - uuid: 00000000-0000-4000-8000-000000000002
-    parent: 00000000-0000-4000-8000-000000000001
-    components: {name: Second}
-)",
-            "forms a cycle");
+    TEST(SceneSerializerTest, RejectsRepeatedAncestorUuid) {
+        expect_scene_error(R"({
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "00000000-0000-4000-8000-000000000001",
+      "components": {"name": "First"},
+      "children": [{
+        "uuid": "00000000-0000-4000-8000-000000000001",
+        "components": {"name": "Repeated"}
+      }]
+    }
+  ]
+})",
+            "entities[0].children[0].uuid': duplicate UUID");
+    }
+
+    TEST(SceneSerializerTest, LoadsNestedChildrenAndSortsOnlyWithinEachLevel) {
+        const auto serializer = make_scene_serializer();
+        const auto scene = serializer.deserialize(R"({
+  "version": 2,
+  "entities": [{
+    "uuid": "00000000-0000-4000-8000-000000000003",
+    "components": {"name": "Root"},
+    "children": [{
+      "uuid": "00000000-0000-4000-8000-000000000004",
+      "components": {"name": "Later child"}
+    }, {
+      "uuid": "00000000-0000-4000-8000-000000000002",
+      "components": {"name": "Earlier child"},
+      "children": [{
+        "uuid": "00000000-0000-4000-8000-000000000001",
+        "components": {"name": "Grandchild"},
+        "children": []
+      }]
+    }]
+  }]
+})");
+        ASSERT_EQ(scene->entity_count(), 4U);
+        const auto root =
+            scene->find_entity(uuid("00000000-0000-4000-8000-000000000003"));
+        const auto child =
+            scene->find_entity(uuid("00000000-0000-4000-8000-000000000002"));
+        const auto later =
+            scene->find_entity(uuid("00000000-0000-4000-8000-000000000004"));
+        const auto grandchild =
+            scene->find_entity(uuid("00000000-0000-4000-8000-000000000001"));
+        EXPECT_EQ(scene->get_parent(child), root);
+        EXPECT_EQ(scene->get_parent(later), root);
+        EXPECT_EQ(scene->get_parent(grandchild), child);
+        const auto text = serializer.serialize(*scene);
+        EXPECT_LT(text.find(root.get_uuid().to_string()),
+            text.find(child.get_uuid().to_string()));
+        EXPECT_LT(text.find(child.get_uuid().to_string()),
+            text.find(grandchild.get_uuid().to_string()));
+        EXPECT_LT(text.find(grandchild.get_uuid().to_string()),
+            text.find(later.get_uuid().to_string()));
+        EXPECT_EQ(text.find(R"("parent":)"), std::string::npos);
+        EXPECT_EQ(serializer.serialize(*serializer.deserialize(text)), text);
+    }
+
+    TEST(SceneSerializerTest, RejectsMalformedChildrenWithNestedLocation) {
+        for(const auto children : {"null", "{}", "[42]"}) {
+            const std::string text = std::string(R"({"version": 2, "entities": [{
+              "uuid": "00000000-0000-4000-8000-000000000001",
+              "components": {"name": "Root"}, "children": )")
+                                     + children + "}]}";
+            expect_scene_error(text, "entities[0].children");
+        }
+    }
+
+    TEST(SceneSerializerTest, BoundsHierarchyDepthOnReadAndSave) {
+        Scene scene;
+        Entity parent;
+        for(std::size_t depth = 0; depth < SceneSerializer::MAX_HIERARCHY_DEPTH;
+            ++depth) {
+            auto entity = scene.create_entity("Node");
+            if(parent)
+                ASSERT_TRUE(scene.set_parent(entity, parent));
+            parent = entity;
+        }
+        const auto serializer = make_scene_serializer();
+        const TemporarySceneFile file;
+        serializer.save(scene, file.path());
+        EXPECT_EQ(serializer.load(file.path())->entity_count(), scene.entity_count());
+        ASSERT_TRUE(scene.set_parent(scene.create_entity("Too deep"), parent));
+        EXPECT_THROW(serializer.save(scene, file.path()), std::runtime_error);
+        EXPECT_EQ(serializer.load(file.path())->entity_count(),
+            SceneSerializer::MAX_HIERARCHY_DEPTH);
+
+        std::string children = "[]";
+        for(std::size_t index = 0; index <= SceneSerializer::MAX_HIERARCHY_DEPTH;
+            ++index) {
+            const auto digits = std::to_string(index + 1);
+            const auto id = "00000000-0000-4000-8000-"
+                            + std::string(12 - digits.size(), '0') + digits;
+            children = "[{\"uuid\":\"" + id
+                       + "\",\"components\":{\"name\":\"Node\"},\"children\":" + children
+                       + "}]";
+        }
+        expect_scene_error("{\"version\":2,\"entities\":" + children + "}",
+            "maximum hierarchy depth exceeded");
     }
 
     TEST(SceneSerializerTest, RejectsUnknownAndMalformedFields) {
-        expect_scene_error(R"(
-version: 1
-entities:
-  - uuid: 00000000-0000-4000-8000-000000000001
-    components:
-      name: Invalid
-      transform:
-        translation: [1, 2]
-        rotation: [0, 0, 0]
-        scale: [1, 1, 1]
-)",
+        expect_scene_error(R"({
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "00000000-0000-4000-8000-000000000001",
+      "components": {
+        "name": "Invalid",
+        "transform": {"translation": [1, 2], "rotation": [0, 0, 0], "scale": [1, 1, 1]}
+      }
+    }
+  ]
+})",
             "exactly three numbers");
 
-        expect_scene_error(R"(
-version: 1
-entities: []
-runtime_id: 1
-)",
+        expect_scene_error(R"({"version": 2, "entities": [], "runtime_id": 1})",
             "unknown field 'runtime_id'");
 
-        expect_scene_error(R"(
-version: 1
-entities:
-  - uuid: 00000000-0000-4000-8000-000000000001
-    components:
-      name: Invalid
-      mesh_renderer: {mesh: -1, material: 2}
-)",
+        expect_scene_error(R"({
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "00000000-0000-4000-8000-000000000001",
+      "components": {"name": "Invalid", "mesh_renderer": {"mesh": -1, "material": 2}}
+    }
+  ]
+})",
             "expected a non-negative integer");
 
-        expect_scene_error(R"(
-version: 1
-entities:
-  - uuid: 00000000-0000-4000-8000-000000000001
-    components:
-      name: First
-      name: Second
-)",
+        expect_scene_error(R"({
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "00000000-0000-4000-8000-000000000001",
+      "components": {"name": "First", "name": "Second"}
+    }
+  ]
+})",
             "duplicate field 'name'");
     }
 
     TEST(SceneSerializerTest, RejectsUnsupportedVersionAndNonFiniteValues) {
-        expect_scene_error("version: 2\nentities: []\n", "unsupported version 2");
+        expect_scene_error(R"({"version": 3, "entities": []})", "unsupported version 3");
 
         Scene scene;
         Entity entity = scene.create_entity("Invalid");
@@ -355,6 +454,29 @@ entities:
             std::numeric_limits<float>::infinity();
         EXPECT_THROW(static_cast<void>(make_scene_serializer().serialize(scene)),
             std::runtime_error);
+    }
+
+    TEST(SceneSerializerTest, PreservesFullWidthHandlesAndRejectsWrongJsonTypes) {
+        Scene scene;
+        auto entity = scene.create_entity("场景\"\\\n");
+        entity.add_component<MeshRendererComponent>(
+            AssetHandle(std::numeric_limits<std::uint64_t>::max()), AssetHandle(42));
+        const auto serializer = make_scene_serializer();
+        const auto contents = serializer.serialize(scene);
+        const auto loaded = serializer.deserialize(contents);
+        EXPECT_EQ(loaded->find_entity(entity.get_uuid())
+                      .get_component<MeshRendererComponent>()
+                      .mesh,
+            AssetHandle(std::numeric_limits<std::uint64_t>::max()));
+        EXPECT_EQ(serializer.serialize(*loaded), contents);
+        expect_scene_error(R"({"version": "2", "entities": []})", "non-negative integer");
+        expect_scene_error(R"({"version": 2, "entities": {}})", "expected an array");
+        expect_scene_error(R"({"version": 2, "entities": [{
+          "uuid": "00000000-0000-4000-8000-000000000001",
+          "components": {"name": 42}
+        }]})",
+            "expected a string");
+        expect_scene_error("version: 1\nentities: []\n", "<json>");
     }
 
     TEST(SceneSerializerTest, UsesDescriptorIdsAndSerializationFlags) {
@@ -387,8 +509,8 @@ entities:
 
         const SceneSerializer serializer(registry);
         const std::string contents = serializer.serialize(scene);
-        EXPECT_NE(contents.find("descriptor_component:"), std::string::npos);
-        EXPECT_NE(contents.find("persisted_value: 42"), std::string::npos);
+        EXPECT_NE(contents.find(R"("descriptor_component":)"), std::string::npos);
+        EXPECT_NE(contents.find(R"("persisted_value": 42)"), std::string::npos);
         EXPECT_EQ(contents.find("runtime_value"), std::string::npos);
         EXPECT_EQ(contents.find("runtime_component"), std::string::npos);
 
@@ -403,16 +525,18 @@ entities:
         EXPECT_EQ(loaded_component.text, component.text);
         EXPECT_FALSE(loaded_entity.has_component<RuntimeOnlyTestComponent>());
 
-        expect_scene_error(serializer, R"(
-version: 1
-entities:
-  - uuid: 00000000-0000-4000-8000-000000000050
-    components:
-      name: Invalid
-      descriptor_component:
-        persisted_value: 42
-        runtime_value: 99
-)",
+        expect_scene_error(serializer, R"({
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "00000000-0000-4000-8000-000000000050",
+      "components": {
+        "name": "Invalid",
+        "descriptor_component": {"persisted_value": 42, "runtime_value": 99}
+      }
+    }
+  ]
+})",
             "unknown field 'runtime_value'");
     }
 }

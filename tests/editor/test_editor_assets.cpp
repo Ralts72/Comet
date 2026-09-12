@@ -86,7 +86,7 @@ namespace CometEditor::Tests {
 
         Comet::AssetHandle add_material() {
             std::ofstream(Comet::ProjectPaths(root).assets() / "placement.mat")
-                << "version: 1\ntemplate: test\nproperties: {}\n";
+                << R"({"version": 2, "template": "test", "properties": {}})";
             EXPECT_TRUE(assets->refresh().succeeded());
             const auto* record = assets->database().find("placement.mat");
             if(!record)
@@ -104,8 +104,8 @@ namespace CometEditor::Tests {
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets", directory,
             std::filesystem::copy_options::recursive);
         std::filesystem::copy_file(
-            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "project.yaml",
-            root / "project.yaml");
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "project.json",
+            root / "project.json");
         const auto project = Comet::Project::load(root);
         assets =
             std::make_unique<EditorAssets>(project.paths(), runtime, factory, scheduler);

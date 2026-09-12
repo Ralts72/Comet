@@ -1,3 +1,5 @@
-version: 2
-guid: 11364856686536078871
-type: material
+{
+  "version": 3,
+  "guid": 11364856686536078871,
+  "type": "material"
+}
