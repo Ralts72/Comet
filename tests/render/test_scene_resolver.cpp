@@ -13,6 +13,15 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(SceneResolverTest, CameraProjectionRejectsInvalidAspectAndNonfiniteView) {
+        RenderCamera camera;
+        EXPECT_FALSE(camera.projection_matrix(0));
+        EXPECT_FALSE(camera.projection_matrix(-1));
+        camera.view_matrix[0][0] = std::numeric_limits<float>::quiet_NaN();
+        EXPECT_EQ(camera.projection_issue(1), RenderCamera::ProjectionIssue::InvalidView);
+        EXPECT_FALSE(camera.projection_matrix(1));
+    }
+
     TEST(SceneResolverTest, EmptySceneProducesEmptySubmission) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);

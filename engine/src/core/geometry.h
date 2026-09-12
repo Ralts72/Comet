@@ -34,4 +34,8 @@ namespace Comet {
 
     [[nodiscard]] COMET_API std::optional<float> intersect_ray_box(
         const Ray& ray, const BoundingBox& box);
+
+    // NDC 深度为 [0, 1]；返回近／远裁剪面之间的归一化射线，允许 x/y 超出视口。
+    [[nodiscard]] COMET_API std::optional<Ray> unproject_ray(
+        const Math::Mat4& inverse_view_projection, Math::Vec2 ndc);
 }

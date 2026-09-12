@@ -283,8 +283,10 @@ namespace {
             get_engine().get_renderer().set_viewport_pick_callback({});
             auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
             scene_renderer.set_swapchain_resource_callbacks({}, {});
-            m_imgui_context->set_ui_callback({});
-            m_viewport_panel->cancel_interaction();
+            if(m_imgui_context)
+                m_imgui_context->set_ui_callback({});
+            if(m_viewport_panel)
+                m_viewport_panel->cancel_interaction();
             static_cast<void>(m_property_edit.cancel());
             m_command_history.bind_scene(nullptr);
             m_menu_bar.reset();
@@ -308,16 +310,21 @@ namespace {
             m_project_panel->update_scan_report(std::move(report));
         }
 
+        bool finish_active_edit() {
+            m_viewport_panel->cancel_interaction();
+            if(m_property_edit.commit())
+                return true;
+            LOG_ERROR("Cannot finish active property edit; editor request rejected");
+            return false;
+        }
+
         void handle_scene_request(const CometEditor::HierarchyPanel::Request& request) {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit
                 || request.generation != m_command_history.generation()
                 || m_command_history.get_scene() != get_engine().get_scene())
                 return;
-            m_viewport_panel->cancel_interaction();
-            if(!m_property_edit.commit()) {
-                LOG_ERROR("Cannot finish property edit before structure command");
+            if(!finish_active_edit())
                 return;
-            }
             using Type = CometEditor::HierarchyPanel::Request::Type;
             namespace Commands = CometEditor::SceneCommands;
             bool changed = false;
@@ -358,11 +365,8 @@ namespace {
                 return;
             }
 
-            m_viewport_panel->cancel_interaction();
-            if(!m_property_edit.commit()) {
-                LOG_ERROR("Cannot finish property edit before scene command");
+            if(!finish_active_edit())
                 return;
-            }
 
             switch(command) {
                 case CometEditor::MenuBar::Command::Undo:
@@ -535,11 +539,8 @@ namespace {
             const auto current = property->copy_value(component->get_component(entity));
             if(!current || std::get<Comet::AssetHandle>(*current) == request.asset.handle)
                 return;
-            m_viewport_panel->cancel_interaction();
-            if(!m_property_edit.commit()) {
-                LOG_ERROR("Cannot finish property edit before asset assignment");
+            if(!finish_active_edit())
                 return;
-            }
             if(!m_assets->load_reference(
                    request.asset.handle, request.asset.type, request.asset.revision)) {
                 LOG_WARN("Cannot assign asset {}; previous reference is unchanged",
@@ -552,13 +553,7 @@ namespace {
                     LOG_ERROR("Cannot update runtime asset reference");
                 return;
             }
-            if(!m_property_edit.begin(request.target))
-                return;
-            if(!m_property_edit.preview(request.asset.handle)) {
-                static_cast<void>(m_property_edit.cancel());
-                return;
-            }
-            if(!m_property_edit.commit())
+            if(!m_property_edit.apply(request.target, request.asset.handle))
                 LOG_ERROR("Cannot commit asset reference");
         }
 
@@ -572,11 +567,8 @@ namespace {
                 || !m_assets->load_reference(
                     request.asset.handle, Comet::AssetType::Mesh, request.asset.revision))
                 return;
-            m_viewport_panel->cancel_interaction();
-            if(!m_property_edit.commit()) {
-                LOG_ERROR("Cannot finish property edit before mesh placement");
+            if(!finish_active_edit())
                 return;
-            }
             const auto* record = m_assets->database().find(request.asset.handle);
             const auto uuid = CometEditor::SceneCommands::create_mesh_entity(
                 m_command_history, m_component_registry, record->path.stem().string(),
@@ -618,12 +610,8 @@ namespace {
             else if(asset_assignment && !mode)
                 handle_asset_assignment(*asset_assignment);
             if(mode) {
-                m_viewport_panel->cancel_interaction();
-                if(m_property_edit.commit()) {
+                if(finish_active_edit())
                     m_scene_session->request_mode(*mode);
-                } else {
-                    LOG_ERROR("Cannot finish property edit before mode change");
-                }
             }
             if(m_assets->take_reference_refresh_request()) {
                 if(auto* scene = get_engine().get_scene())

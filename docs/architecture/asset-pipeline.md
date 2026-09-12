@@ -4,13 +4,14 @@
 
 ## 目录和身份
 
-下列路径相对项目根目录；仓库自带示例的项目根为 `demo/`，外部项目不依赖此目录名。
+项目路径相对项目根目录；仓库自带示例的项目根为 `demo/`，外部项目不依赖此目录名。
 
 - `assets/`：项目源资产和相邻 `.meta`，进入版本控制。
 - `.comet/cache/`：可重建导入产物；`.comet/editor/imgui.ini`：本机编辑器布局。两者不提交。
-- `editor/resources/`：编辑器私有字体等资源，不进入 AssetDatabase，不生成 .meta。
 - `project.yaml`：项目版本、名称和启动场景；Project 只读取和校验描述，ProjectPaths 统一目录及资产路径边界。
   编辑器从传入的项目目录／描述文件启动，无参数才打开仓库 `demo/` 示例。项目无须复制引擎／编辑器自带的 config、字体、Shader。
+
+仓库的 `editor/resources/` 是编辑器私有资源，不在项目根目录内，也不进入 AssetDatabase 或生成 `.meta`。
 
 当前 .meta v2 保存 version/guid/type；Texture 另有 importer.color_space（srgb/linear）和 flip_y。
 未知字段、缺失字段或不匹配的类型/设置会被拒绝。新 Texture 默认为 srgb、不翻转。

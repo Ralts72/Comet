@@ -44,7 +44,7 @@ namespace CometEditor {
         std::vector<std::unique_ptr<Command>> m_redo;
     };
 
-    // Inspector 与后续 Gizmo 共用，不依赖 ImGui，也不持有组件地址。
+    // Inspector 与 Gizmo 共用，不依赖 ImGui，也不持有组件地址。
     class PropertyEditTransaction {
     public:
         struct Target {
@@ -60,6 +60,7 @@ namespace CometEditor {
         PropertyEditTransaction& operator=(const PropertyEditTransaction&) = delete;
 
         [[nodiscard]] bool begin(Target target);
+        [[nodiscard]] bool apply(Target target, const Comet::PropertyValue& value);
         [[nodiscard]] bool preview(const Comet::PropertyValue& value);
         [[nodiscard]] bool commit();
         [[nodiscard]] bool cancel();

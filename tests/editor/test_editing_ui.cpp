@@ -7,6 +7,8 @@
 #include "property_editor_registry.h"
 #include "selection.h"
 
+#include "support/imgui_context.h"
+
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -17,6 +19,7 @@
 namespace CometEditor::Tests {
     class EditingUiTest: public ::testing::Test {
     protected:
+        Comet::Tests::ImGuiTestContext imgui;
         Comet::Scene scene;
         Comet::Entity entity = scene.create_entity();
         Comet::ComponentRegistry components = Comet::create_scene_component_registry();
@@ -35,14 +38,6 @@ namespace CometEditor::Tests {
         bool draw_trailing_item = false;
 
         void SetUp() override {
-            ImGui::CreateContext();
-            auto& io = ImGui::GetIO();
-            io.IniFilename = nullptr;
-            io.DisplaySize = ImVec2(800, 600);
-            io.DeltaTime = 1.0f / 60.0f;
-            unsigned char* pixels;
-            int width, height;
-            io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
             ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::String,
@@ -73,10 +68,7 @@ namespace CometEditor::Tests {
             frame();
         }
 
-        void TearDown() override {
-            inspector.reset();
-            ImGui::DestroyContext();
-        }
+        void TearDown() override { inspector.reset(); }
         void frame() {
             ImGui::NewFrame();
             menu.render();
@@ -154,6 +146,7 @@ namespace CometEditor::Tests {
 
     class HierarchyUiTest: public ::testing::Test {
     protected:
+        Comet::Tests::ImGuiTestContext imgui;
         Comet::Scene scene;
         Comet::Entity entity = scene.create_entity();
         Comet::ComponentRegistry components = Comet::create_scene_component_registry();
@@ -163,20 +156,11 @@ namespace CometEditor::Tests {
         HierarchyPanel hierarchy{scene, selection, history, state};
 
         void SetUp() override {
-            ImGui::CreateContext();
-            auto& io = ImGui::GetIO();
-            io.IniFilename = nullptr;
-            io.DisplaySize = ImVec2(800, 600);
-            io.DeltaTime = 1.0f / 60.0f;
-            unsigned char* pixels;
-            int width, height;
-            io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
             draw();
             draw();
         }
-        void TearDown() override { ImGui::DestroyContext(); }
         void draw() {
             ImGui::NewFrame();
             ImGui::SetNextWindowPos(ImVec2(0, 0));

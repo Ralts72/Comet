@@ -8,6 +8,10 @@
 #include "core/task_scheduler.h"
 #include "render/resource/resource_factory.h"
 
+#include "support/imgui_context.h"
+
+#include "support/temporary_directory.h"
+
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -18,6 +22,7 @@
 namespace CometEditor::Tests {
     class ProjectPanelTest: public ::testing::Test {
     protected:
+        Comet::Tests::ImGuiTestContext imgui;
         class Factory: public Comet::RenderResourceFactory {
         public:
             Comet::GpuResourceResult<std::shared_ptr<Comet::Mesh>> try_create_mesh(
@@ -33,10 +38,8 @@ namespace CometEditor::Tests {
                     vk::Result::eErrorUnknown);
             }
         } factory;
-        std::filesystem::path root =
-            std::filesystem::temp_directory_path()
-            / ("comet_project_ui_"
-                + std::to_string(Comet::AssetHandle::generate().value()));
+        Comet::Tests::TemporaryDirectory directory;
+        const std::filesystem::path root = directory.path();
         Comet::ProjectPaths paths{root};
         Comet::AssetRegistry registry;
         Comet::TaskScheduler scheduler{1};
@@ -59,14 +62,6 @@ namespace CometEditor::Tests {
             auto report = manager.scan();
             ASSERT_TRUE(report.succeeded());
             history.bind_scene(&scene);
-            ImGui::CreateContext();
-            auto& io = ImGui::GetIO();
-            io.IniFilename = nullptr;
-            io.DisplaySize = ImVec2(800, 600);
-            io.DeltaTime = 1.0f / 60.0f;
-            unsigned char* pixels;
-            int width, height;
-            io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
             project = std::make_unique<ProjectPanel>(
                 database, paths.assets(), std::move(report),
                 [this]() {
@@ -87,12 +82,7 @@ namespace CometEditor::Tests {
             frame();
         }
 
-        void TearDown() override {
-            project.reset();
-            ImGui::DestroyContext();
-            std::error_code error;
-            std::filesystem::remove_all(root, error);
-        }
+        void TearDown() override { project.reset(); }
 
         void frame() {
             ImGui::NewFrame();

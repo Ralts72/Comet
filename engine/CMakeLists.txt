@@ -35,6 +35,7 @@ set(SOURCES
         src/core/project_paths.cpp
         src/core/project.cpp
         src/runtime/entry.cpp
+        src/runtime/runtime.cpp
         src/core/task_scheduler.cpp
         src/core/engine.cpp
         src/core/geometry.cpp
@@ -72,6 +73,7 @@ set(SOURCES
         src/render/resource/texture.cpp
         src/render/render_context.cpp
         src/render/scene/scene_resolver.cpp
+        src/render/scene/render_scene.cpp
         src/render/scene/scene_picking.cpp
         src/render/scene/scene_extractor.cpp
         src/render/scene/scene_renderer.cpp

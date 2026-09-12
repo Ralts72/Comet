@@ -4,6 +4,8 @@
 #include "transform_gizmo.h"
 #include "shortcuts.h"
 
+#include "support/imgui_context.h"
+
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -11,6 +13,7 @@
 namespace CometEditor::Tests {
     class ViewportGizmoUiTest: public ::testing::Test {
     protected:
+        Comet::Tests::ImGuiTestContext imgui{{1000, 800}};
         Comet::Scene scene;
         Comet::Entity entity = scene.create_entity();
         Comet::ComponentRegistry components = Comet::create_scene_component_registry();
@@ -30,22 +33,12 @@ namespace CometEditor::Tests {
         std::size_t payload_size = sizeof(AssetDragPayload);
 
         void SetUp() override {
-            ImGui::CreateContext();
-            auto& io = ImGui::GetIO();
-            io.IniFilename = nullptr;
-            io.DisplaySize = ImVec2(1000, 800);
-            io.DeltaTime = 1.0f / 60.0f;
-            unsigned char* pixels;
-            int width, height;
-            io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
             viewport.set_texture_id(static_cast<ImTextureID>(1), 800, 600);
             frame();
             frame();
         }
-
-        void TearDown() override { ImGui::DestroyContext(); }
 
         void frame() {
             ImGui::NewFrame();

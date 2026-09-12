@@ -19,15 +19,9 @@ namespace Comet {
             const RenderScene& render_scene, const RenderView& view);
 
     private:
-        enum class CameraIssue {
-            InvalidFov,
-            InvalidOrthographicHeight,
-            InvalidClipPlanes,
-        };
-
         struct CameraDiagnostic {
             EntityId entity_id;
-            CameraIssue issue;
+            RenderCamera::ProjectionIssue issue;
 
             bool operator==(const CameraDiagnostic&) const = default;
         };

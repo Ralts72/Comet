@@ -1,4 +1,5 @@
 #include "scene_document.h"
+#include "support/temporary_directory.h"
 #include "common/file_io.h"
 
 #include "scene/component_registry.h"
@@ -9,7 +10,6 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <memory>
-#include <random>
 #include <string>
 #include <utility>
 
@@ -24,27 +24,18 @@ namespace CometEditor::Tests {
         class TemporarySceneFile final {
         public:
             TemporarySceneFile() {
-                const auto id = std::random_device{}();
-                m_root =
-                    std::filesystem::canonical(std::filesystem::temp_directory_path())
-                    / ("comet_scene_document_" + std::to_string(id));
-                std::filesystem::create_directories(m_root / "assets");
-                m_path = m_root / "assets/untitled.scene";
+                std::filesystem::create_directories(m_directory.path() / "assets");
             }
 
-            ~TemporarySceneFile() {
-                std::error_code error;
-                std::filesystem::remove_all(m_root, error);
+            [[nodiscard]] std::string path() const {
+                return (m_directory.path() / "assets/untitled.scene").string();
             }
-
-            [[nodiscard]] std::string path() const { return m_path.string(); }
             [[nodiscard]] Comet::ProjectPaths paths() const {
-                return Comet::ProjectPaths(m_root);
+                return Comet::ProjectPaths(m_directory.path());
             }
 
         private:
-            std::filesystem::path m_path;
-            std::filesystem::path m_root;
+            Comet::Tests::TemporaryDirectory m_directory;
         };
     }
 

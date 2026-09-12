@@ -5,6 +5,24 @@
 #include <utility>
 
 namespace Comet {
+    std::optional<Ray> unproject_ray(
+        const Math::Mat4& inverse_view_projection, const Math::Vec2 ndc) {
+        auto near_point = inverse_view_projection * Math::Vec4(ndc, 0.0f, 1.0f);
+        auto far_point = inverse_view_projection * Math::Vec4(ndc, 1.0f, 1.0f);
+        if(!Math::is_finite(near_point) || !Math::is_finite(far_point)
+            || std::abs(near_point.w) <= 0.000001f || std::abs(far_point.w) <= 0.000001f)
+            return std::nullopt;
+        near_point /= near_point.w;
+        far_point /= far_point.w;
+        if(!Math::is_finite(near_point) || !Math::is_finite(far_point))
+            return std::nullopt;
+        const auto delta = Math::Vec3(far_point - near_point);
+        const float length = Math::length(delta);
+        if(!std::isfinite(length) || length <= 0.000001f)
+            return std::nullopt;
+        return Ray{Math::Vec3(near_point), delta / length, length};
+    }
+
     BoundingBox BoundingBox::from_point(const Math::Vec3 point) {
         return {.minimum = point, .maximum = point};
     }

@@ -135,6 +135,16 @@ namespace CometEditor {
                && property.descriptor->assign_value(property.component, value);
     }
 
+    bool PropertyEditTransaction::apply(
+        Target target, const Comet::PropertyValue& value) {
+        if(!commit() || !begin(std::move(target)))
+            return false;
+        if(preview(value) && commit())
+            return true;
+        static_cast<void>(cancel());
+        return false;
+    }
+
     bool PropertyEditTransaction::commit() {
         if(!active()) {
             m_edit.reset();

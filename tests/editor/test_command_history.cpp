@@ -29,6 +29,22 @@ namespace {
         }
     };
 
+    TEST_F(CommandHistoryTest, DiscreteApplyFinishesPreviousGestureAndRejectsWrongType) {
+        ASSERT_TRUE(edit.begin(translation()));
+        ASSERT_TRUE(edit.preview(Math::Vec3(2, 0, 0)));
+        EXPECT_FALSE(edit.apply(translation(), std::string("wrong type")));
+        EXPECT_FALSE(edit.active());
+        EXPECT_FLOAT_EQ(x(), 2);
+        EXPECT_EQ(history.undo_size(), 1);
+        ASSERT_TRUE(edit.apply(translation(), Math::Vec3(5, 0, 0)));
+        EXPECT_FALSE(edit.active());
+        EXPECT_EQ(history.undo_size(), 2);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(x(), 2);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(x(), 0);
+    }
+
     TEST_F(CommandHistoryTest, PreviewsManyChangesButRecordsOneGesture) {
         ASSERT_TRUE(edit.begin(translation()));
         ASSERT_TRUE(edit.preview(Math::Vec3(1, 0, 0)));

@@ -6,6 +6,10 @@
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 
+#include "support/imgui_context.h"
+
+#include "support/temporary_directory.h"
+
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -14,10 +18,9 @@
 namespace CometEditor::Tests {
     class AssetEditingUiTest: public ::testing::Test {
     protected:
-        std::filesystem::path root =
-            std::filesystem::temp_directory_path()
-            / ("comet_asset_editing_"
-                + std::to_string(Comet::AssetHandle::generate().value()));
+        Comet::Tests::ImGuiTestContext imgui;
+        Comet::Tests::TemporaryDirectory directory;
+        const std::filesystem::path root = directory.path();
         Comet::ProjectPaths paths{root};
         Comet::AssetDatabase database{paths};
         Comet::Scene scene;
@@ -39,14 +42,6 @@ namespace CometEditor::Tests {
         Comet::MaterialData submitted_material;
 
         void SetUp() override {
-            ImGui::CreateContext();
-            auto& io = ImGui::GetIO();
-            io.IniFilename = nullptr;
-            io.DisplaySize = {800, 600};
-            io.DeltaTime = 1.0f / 60;
-            unsigned char* pixels;
-            int width, height;
-            io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
             std::filesystem::create_directories(paths.assets());
             const auto add_asset = [&](const char* name, Comet::AssetHandle handle,
                                        Comet::AssetType type) {
@@ -86,12 +81,7 @@ namespace CometEditor::Tests {
             frame();
         }
 
-        void TearDown() override {
-            inspector.reset();
-            ImGui::DestroyContext();
-            std::error_code error;
-            std::filesystem::remove_all(root, error);
-        }
+        void TearDown() override { inspector.reset(); }
 
         void frame() {
             ImGui::NewFrame();
@@ -276,9 +266,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(request);
         EXPECT_FALSE(request->asset.handle);
         EXPECT_EQ(request->asset.revision, Comet::INVALID_ASSET_REVISION);
-        ASSERT_TRUE(edit.begin(request->target));
-        ASSERT_TRUE(edit.preview(request->asset.handle));
-        ASSERT_TRUE(edit.commit());
+        ASSERT_TRUE(edit.apply(request->target, request->asset.handle));
         EXPECT_FALSE(renderer.mesh);
         ASSERT_TRUE(history.undo());
         EXPECT_EQ(renderer.mesh, Comet::AssetHandle(999));
@@ -311,9 +299,7 @@ namespace CometEditor::Tests {
             EXPECT_EQ(request->target.property, index == 0 ? "mesh" : "material");
             EXPECT_EQ(request->asset.handle, handle);
             EXPECT_EQ(history.undo_size(), 0);
-            ASSERT_TRUE(edit.begin(request->target));
-            ASSERT_TRUE(edit.preview(request->asset.handle));
-            ASSERT_TRUE(edit.commit());
+            ASSERT_TRUE(edit.apply(request->target, request->asset.handle));
             EXPECT_EQ(history.undo_size(), 1);
             ASSERT_TRUE(history.undo());
             auto& renderer = entity.get_component<Comet::MeshRendererComponent>();

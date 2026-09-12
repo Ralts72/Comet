@@ -50,10 +50,13 @@ namespace CometEditor {
 
     private:
         class TextureBinding;
+        struct ContextDeleter {
+            void operator()(::ImGuiContext* context) const noexcept;
+        };
 
         void init_vulkan();
         void create_render_pass();
-        void cleanup();
+        void cleanup() noexcept;
         void register_viewport_textures();
         void unregister_viewport_textures();
 
@@ -68,5 +71,7 @@ namespace CometEditor {
         bool m_initialized = false;
         bool m_is_recreating = false;
         uint32_t m_backend_image_count = 0;
+        // 后端借用上面的 GPU 资源；构造失败时必须先关闭后端。
+        std::unique_ptr<::ImGuiContext, ContextDeleter> m_context;
     };
 }

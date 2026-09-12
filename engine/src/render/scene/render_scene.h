@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "common/export.h"
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
 
@@ -8,8 +9,18 @@
 #include <vector>
 
 namespace Comet {
-    struct RenderCamera {
+    struct COMET_API RenderCamera {
         enum class Projection { Perspective, Orthographic };
+        enum class ProjectionIssue {
+            InvalidFov,
+            InvalidOrthographicHeight,
+            InvalidClipPlanes,
+            InvalidAspect,
+            InvalidView,
+        };
+
+        [[nodiscard]] std::optional<ProjectionIssue> projection_issue(float aspect) const;
+        [[nodiscard]] std::optional<Math::Mat4> projection_matrix(float aspect) const;
 
         EntityId entity_id = INVALID_ENTITY_ID;
         bool primary = false;

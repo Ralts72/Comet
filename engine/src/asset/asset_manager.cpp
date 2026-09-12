@@ -727,20 +727,12 @@ namespace Comet {
         }
         const bool has_runtime_asset = static_cast<bool>(runtime.asset);
 
-        MaterialData data;
+        std::shared_ptr<Material> material;
         try {
-            data = MaterialSerializer{}.load(m_paths.assets() / record->path);
-        } catch(const std::exception& exception) {
-            LOG_ERROR("{}", exception.what());
-            return nullptr;
-        }
-
-        auto material = create_runtime_material(*record, data);
-        if(!material) {
-            return nullptr;
-        }
-
-        try {
+            const auto data = MaterialSerializer{}.load(m_paths.assets() / record->path);
+            material = create_runtime_material(*record, data);
+            if(!material)
+                return nullptr;
             m_database.update_dependencies(handle, get_asset_dependencies(data));
         } catch(const std::exception& exception) {
             LOG_ERROR("{}", exception.what());
@@ -774,21 +766,12 @@ namespace Comet {
         }
         const bool has_runtime_asset = static_cast<bool>(runtime.asset);
 
-        const MaterialSerializer serializer;
-        std::string serialized_data;
+        std::shared_ptr<Material> material;
         try {
-            serialized_data = serializer.serialize(data);
-        } catch(const std::exception& exception) {
-            LOG_ERROR("{}", exception.what());
-            return nullptr;
-        }
-
-        auto material = create_runtime_material(*record, data);
-        if(!material) {
-            return nullptr;
-        }
-
-        try {
+            const auto serialized_data = MaterialSerializer{}.serialize(data);
+            material = create_runtime_material(*record, data);
+            if(!material)
+                return nullptr;
             write_text_file_atomic(m_paths.assets() / record->path, serialized_data);
             m_database.update_dependencies(handle, get_asset_dependencies(data));
         } catch(const std::exception& exception) {

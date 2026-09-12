@@ -37,6 +37,9 @@ ctest --preset dev-debug
 | `app-release` | Release：app | `./release.sh` |
 
 手动配置需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS`。
+编辑器源码由 `editor_core`（不依赖 ImGui）和 `editor_ui` 两个内部库管理，入口与测试共同链接。
+仅启用 tests 时仍构建 editor_core，不构建 UI；新增编辑器源码只需维护所属库的清单。
+`tests/support/` 提供测试专用的 ImGui Context 与临时目录寿命管理，不进入引擎。
 `COMET_NATIVE_OPTIMIZATION` 只适合本机构建。配置与诊断采用“编译期能力 + Profile 运行时策略”。
 
 macOS 和 Windows 下 app/editor 分别使用橙色、蓝色彗星静态图标，资源位于各自的 `resources/icons/`，不参与项目资产扫描。
@@ -71,66 +74,42 @@ startup_scene: scenes/main.scene
 
 ## 编辑器使用
 
-- 启动打开项目描述指定的场景，仓库示例为 `demo/assets/scenes/default.scene`；与 File → Open 共用资源准备流程。
-  Open/Save 的相对路径以当前项目 assets 为基准，只接收该目录内的 `.scene`，拒绝越界和指向外部的符号链接。
-  保存写回当前场景文件；重启仍打开配置的启动场景，尚不恢复上次打开的其他场景。
-- Edit 使用独立编辑器相机；Play 使用克隆场景的 primary Camera，Stop 后返回 Edit，不回写运行时修改。
-- 打开场景及切换 Edit/Play 时，按组件描述收集资源引用并加载；坏引用保留并记录 Log，不阻止打开整个场景。
-  Mesh 只加载已有 Artifact；后台导入发布、扫描或显式纹理重导入成功后，在 UI 结束处合并重查当前场景，不每帧遍历引用。
-  大量资源首次加载仍可能同步停顿；尚未提供增量需求索引和上传预算。
-- 画面内右键或 Alt/Option+左键环绕，中键或 Alt/Option+Shift+左键平移，滚轮/双指垂直滚动缩放。
-- 2D/3D 切换编辑器相机的正交/透视投影，不修改 Scene Camera；Play 中不可切换。
-- Edit 画面内左键选择最近的模型包围盒，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。
-  选中 Mesh 显示随实体变换的橙色包围盒，受场景深度遮挡；清空选择或进入 Play 后不显示。
-  当前是包围盒粗拾取，不是三角形级拾取或模型轮廓描边。
-- Edit 选中实体后，Tool → Mode 选择 Move／Rotate，拖动红／绿／蓝箭头或旋转环修改实体，不受场景深度遮挡。
-  Space 切换 World／Local；Local 跟随实体旋转及父级变换，不受实体自身零／负缩放影响。
-  Snap 使用 Move step（默认 0.25 世界单位）或 Angle step（默认 15 度），均相对拖动起点吸附；设置仅保留在当前会话。
-  World 旋转要求父级为均匀缩放的正交基（允许镜像），非均匀父级请用 Local；不静默引入剪切或改写 scale。
-  一次拖动只记一条撤销，Escape 取消；拖动期间不响应相机导航，失焦或隐藏视口会回退未完成的拖动。
-- Edit 中 Inspector 的名称、Transform、Camera、Mesh/Material 引用支持撤销／重做，一次编辑手势记一条，Escape 取消。
-  使用 Edit 菜单或 Ctrl+Z / Ctrl+Y（macOS 为 Cmd+Z / Cmd+Shift+Z）；文本框编辑时不抢占输入控件的撤销。
-  New/Open 成功及 Edit/Play 切换清空历史；Play 属性仍可实时调试，但不记入 Edit 历史。
-  资产文件修改和保存暂不纳入撤销历史。
-- Edit 中 Inspector 可用 Add Component 添加 Camera／Mesh Renderer，右键组件标题移除并支持撤销／重做。
-  Name 和 Transform 不开放增删；Play 只允许调试现有属性，组件增删禁用。
-- Hierarchy 的创建、删除子树和拖拽改父级支持撤销／重做，在 UI 绘制结束后执行；Play 禁用结构操作。
-  右键空白处或 Scene 选择 Create Entity 创建根实体；右键实体选择 Create Child 创建其子实体，并展开父节点。
-  新实体使用默认本地 Transform，创建及父子关系是同一条撤销命令；Delete 删除右键实体及其子树。
-  撤销恢复实体 UUID 和组件值，不恢复原 EntityId 或选择状态；改父级保留本地 Transform，世界位置可能改变。
-- Edit 中右键 Hierarchy 实体选择 Duplicate，可复制整棵子树并选中新根节点；一次撤销移除整个副本。
-  副本使用新 UUID，保持原外部父级与资产引用，根名称追加 ` Copy`；不自动偏移，不保证名称唯一。
-- 编辑器快捷键配置在 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启生效。
-  新建／打开／保存、撤销／重做、聚焦支持多绑定；`Primary` 表示 macOS Cmd／其他平台 Ctrl，`[]` 禁用绑定。
-  所有构建的编辑器读取此段，不改变当前 Profile 的诊断配置；缺省项用默认值，绑定错误或冲突会记录日志并回退默认绑定。
-- Play 分辨率可选 Free、16:9、HD（1280×720）、FHD（1920×1080）；Fit 等比适应面板，1x 按原尺寸显示并裁切。
-- Project 自动监视资产变化，右键菜单的 Refresh 可主动重扫；拖动资产到已显示的目录或 assets 根节点可移动。
-  右键资产选择 Rename 修改名称，扩展名保持不变；源文件和 `.meta` 成对移动，冲突不覆盖，暂不支持整目录移动。
-  Inspector 的材质和纹理设置按变化事件提交，更新日志统一进入 Log。
-- 可从 Finder／系统文件管理器将 PNG/JPEG、glTF/GLB 拖入 Project：文件夹行是目标目录，资产行取所在目录，空白处取 assets 根目录。
-  复制外部文件而非移动，glTF 连同相对路径的 buffer／图片复制；不沿用外部 `.meta`，不覆盖同名文件或元数据。
-  整批准备与校验失败时不发布，发布／扫描失败时回滚；成功后自动扫描并排队生成 Mesh Artifact，不自动创建实体。
-  暂不接收整文件夹、独立 `.bin`、网络或含 `..` 的依赖路径；复制／校验同步执行，大文件可能短暂阻塞 UI。诊断进入 Log。
-- 模型及外部 buffer 放入 assets 后，编辑器扫描事件会自动触发后台导入；有效 Artifact 直接复用。
-  未加载模型只生成缓存，不创建 GPU 对象。选中模型不显示额外状态栏；右键 Reimport 可强制重建或重试，错误进入 Log。
-  手动删除缓存后用右键 Refresh 或重启编辑器触发补建；不在每帧检查磁盘缓存。
-- Edit 中将 Project 模型拖到 Viewport 图像，可在相机关注平面上创建并选中根实体，支持一次 Undo/Redo。
-  材质引用暂留空，需要在 Inspector 手动指定后才绘制；后续接入引擎内置基础材质，不再由项目配置默认材质。
-  不读取 glTF 材质；放置只加载已发布 Artifact，首次导入未完成时需等待后重试。
-  当前材质方案为 `unlit_texture_blend`：无光照、两张纹理等比例混合；暂不支持在材质中切换项目 Shader。
-- Inspector 的 Mesh、Material 引用和材质纹理槽按资产相对路径下拉选择，按类型过滤，底层仍保存 Handle。
-  Edit 中也可把 Project 资产拖到对应引用框；拖动不切换当前选中对象，下拉选择仍保留。
-  组件引用在 UI 后加载成功才赋值，支持 Undo/Redo；Mesh 只加载已有 Artifact，首次导入未完成时等待后重试。
-  材质纹理槽沿用文件更新流程，不进入场景撤销；失败保留原值。丢失引用显示 Missing，不自动清空。
-  Play 保留下拉方式调试 Runtime 引用，不记录场景历史，不接受 Inspector 资产拖放。
-  日常面板和资源悬停提示不显示内部 Handle，底层引用及诊断日志保留。
-- View 菜单直接读取面板开关，关闭窗口后一次点击即可重新打开；暂未实现的菜单项显示为禁用。
+- File → Open/Save 操作当前项目 assets 内的 `.scene`，拒绝越界路径。启动打开 project.yaml 指定的场景，
+  不恢复上次打开的其他文档；坏资源引用保留并记录 Log，后台导入完成后自动重试加载。
+- Edit 使用独立相机；Play 运行场景副本及其 primary Camera，Stop 不回写运行时修改。
+  2D/3D 只切换 Edit 投影；Play 分辨率可选 Free、16:9、HD、FHD，Fit 等比适应，1x 原尺寸裁切。
+- 视口右键或 Option/Alt+左键环绕，中键或 Option/Alt+Shift+左键平移，滚轮／双指滚动缩放。
+  左键按模型包围盒粗拾取，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。橙色选中框受场景遮挡。
+- Edit 选中实体后，Tool → Mode 选择 Move／Rotate，拖动轴或圆环；Space 选择 World／Local。
+  Snap 相对拖动起点吸附，默认距离 0.25、角度 15°，设置只保留在会话中。
+  World 旋转不接受非均匀缩放父级，此时使用 Local。Escape、失焦或隐藏视口取消拖动。
+- Edit 中名称、Transform、Camera 和 Mesh/Material 引用支持撤销；一次手势只记一条历史。
+  Inspector 的 Add Component／组件标题右键支持 Camera、Mesh Renderer 增删，Name／Transform 不开放增删。
+  Play 仅实时调试已有属性，不记录 Edit 历史；New/Open 成功和 Edit/Play 切换会清空历史。
+- Hierarchy 空白处／Scene 右键创建根实体，实体右键创建子实体、删除或 Duplicate 整棵子树；
+  拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
+- 编辑器快捷键位于 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启。
+  Undo/Redo 默认 Ctrl+Z／Ctrl+Y，macOS 为 Cmd+Z／Cmd+Shift+Z，文本编辑时不抢占控件的撤销。
+  `Primary` 代表 Cmd／Ctrl，`[]` 禁用绑定；冲突会记录日志并回退默认配置。
+- Project 自动监视资产变化；右键 Refresh 重扫，Reimport 强制重建 Mesh 缓存。
+  拖动资产到目录可移动，右键 Rename 改名；源文件与 .meta 成对操作，不覆盖冲突文件，暂不移动整目录。
+  Inspector 的材质／纹理设置按变化提交，日志统一进入 Log；资产文件修改暂不纳入场景撤销。
+- Finder／系统文件管理器可将 PNG/JPEG、glTF/GLB 拖入 Project，复制到落点目录。
+  glTF 连同相对 buffer／图片复制，新建身份、不移动源文件、不沿用外部 .meta、不覆盖同名目标。
+  暂不接收整目录、独立 .bin、网络或含 `..` 的依赖；整批失败回滚，复制大文件仍可能阻塞 UI。
+- Mesh 自动后台生成 Artifact；未加载模型只生成缓存，不创建 GPU 对象。删除缓存后用 Refresh 或重启补建。
+  Edit 中将 Project Mesh 拖到视口，在相机关注平面创建实体并记录一次撤销；首次导入未完成时需等待后重试。
+  新实体材质暂留空，需在 Inspector 指定后才绘制；不导入 glTF 材质。
+- Inspector 引用框支持按类型过滤的资产路径下拉框；Edit 还可从 Project 拖入 Mesh／Material／Texture。
+  底层仍保存 Handle，加载失败保持旧引用，丢失引用显示 Missing。Play 仅支持下拉调试，不接受资产拖放。
+  当前材质 `unlit_texture_blend` 为无光照、两纹理等比例混合，尚不支持动态指定项目 Shader。
+- View 菜单与面板关闭按钮共享显隐状态；未实现的菜单项禁用。
 
 ## 架构入口
 
 - 启动：app/editor 共用 `RUN_APP` 和 `Comet::launch`，统一参数传递、`--help`、错误退出和 Application 所有权。
   各入口显式提供创建函数，负责自己的参数校验和依赖准备；`Editor` 只接收已加载的 `Project`，不解析命令行。
-  之后仍由 `Comet::run` 初始化引擎并进入主循环，不通过构造函数签名推断启动行为。
+  `Comet::run` 读取配置，再由 `Application::run` 统一驱动初始化、更新和关闭；异常在生命周期边界处理，具体契约见资源所有权文档。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
 - 调试绘制：`LineDrawList` 提交单帧世界空间线段/包围盒，`DebugRenderer` 在场景 pass 内绘制，

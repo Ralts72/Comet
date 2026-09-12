@@ -17,13 +17,8 @@
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
 以当前 main 的功能与验收为准，不再按 feat/auto 提交编号逐个迁移；旧分支仅作为算法、测试及设计参考。
-编辑命令历史、帧准备后提取、通用线段绘制、选中包围盒及平移 Gizmo 已接通，后续顺序：
-
-1. **补全内容编辑入口**：组件增删、实体创建／删除、改父级及子树复制已接入撤销；
-   Mesh 自动后台导入、右键重导入、拖入场景、Inspector 引用拖放与外部文件拖入 Project 已接通；打开场景的资源准备与补导入后的恢复已补齐。
-   变换 Gizmo 的平移／旋转、World／Local 与相对步长吸附已接通，下一步补缩放工具。
-   保持编辑、world transform 更新、提取与绘制时序一致。
-2. **按需通知事件**：编辑命令入口稳定后，再接真实一对多通知；不预建全局 EventBus，详见阶段 4。
+下一步补全缩放 Gizmo；随后按阶段 3 的资产预算与阶段 4 的内容编辑验收项推进。
+编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
 WSI 失败后的无呈现重试仍应独立安排，不与资产编辑工作流捆绑重构。
 
@@ -43,12 +38,8 @@ WSI 失败后的无呈现重试仍应独立安排，不与资产编辑工作流�
 
 ## 阶段 3：补全资产工作流
 
-已具备：事务式扫描、稳定 Handle、revision、资产/源文件两类依赖、Texture/Material 加载、Mesh 显式导入与原子 Artifact、
-Mesh/Texture 后台 CPU 刷新、Owner Thread 验票发布、源监视、成对移动和错误诊断。
-编辑器已支持扫描事件后的 Mesh 自动后台导入及 Project 右键 Reimport；未加载模型生成产物时不创建 GPU 对象。
-打开场景及切换 Edit/Play 时按组件元数据准备资源；缺失资源不清空引用、不阻止打开文档。
-编辑器从运行时项目路径读取 `project.yaml`，扫描该项目 assets 并复用 Open 读取配置的启动场景；缺失或损坏回退空场景，不覆盖文件。
-成功扫描、后台发布及显式纹理修复后合并重查当前场景，Mesh 加载不回退源文件；无请求帧不遍历引用。
+当前基线：资产身份、扫描、导入／加载、后台发布及场景引用恢复已接通；
+实际行为与失败边界见[资产管线](architecture/asset-pipeline.md)。
 
 待办：
 
@@ -71,47 +62,10 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 ## 阶段 4：完成编辑交互
 
-已具备：
-
-- 单 Viewport，Edit 独立相机、Play 场景主相机；2D/3D 真正切换投影。
-- HiDPI、Free/16:9/固定分辨率、Fit/1x、等比尺寸上限与 resize debounce。
-- 完整 MultiTarget 候选替换、FrameSlot retention、ImGui slot 安全更新。
-- 屏幕到实际纹理像素映射；环绕/平移/缩放、CPU 包围盒拾取、F 聚焦。
-- Swapchain core/dependent 共享所有权与 compatibility diff；重建分别等待 graphics 与 present 使用完成。
-- 面板显隐以 EditorPanel 为唯一来源；Project 目录树按扫描快照重建，属性控件显式返回手势状态。
-- Inspector 支持可撤销的 Camera／Mesh Renderer 增删；完整组件值快照保留未暴露字段和资产 Handle。
-  组件结构修改在属性遍历完成及事务提交后执行；Name／Transform 不开放增删，Play 禁用组件结构编辑。
-- Hierarchy 创建／删除子树／改父级通过带文档代次的请求在 UI 后执行，并接入同一历史。
-  空白处／Scene 创建根实体，实体右键创建子实体；创建及父子关系合为一条命令，默认本地 Transform。
-  子树恢复 UUID、名称、完整组件和父子关系；未知或无恢复协议的组件阻止删除，失败不移动历史。
-  不恢复旧 EntityId、选择或展开状态；改父级沿用保留本地 Transform 的语义，Play 禁用结构操作。
-- Hierarchy 右键 Duplicate 复用子树快照，为副本分配新 UUID 并重映射内部父级，外部父级和 AssetHandle 保持不变。
-  单次 Undo/Redo 覆盖整棵副本；未来自定义组件中的实体引用需另行定义重映射协议，不假定隐藏引用会自动更新。
-- CommandHistory 有界历史、UUID 定位及 PropertyEditTransaction；Inspector 注册属性拖动只记录一次，取消恢复。
-  实体名称使用同一个 String 属性描述／事务，文本输入结束提交一次，长名称不再被固定缓冲区截断。
-  菜单／快捷键请求由 Editor 在 UI 准备后处理；New/Open 成功及 Edit/Play 切换清空历史，Play 修改不记录。
-- 编辑器离散快捷键由 `editor-dev.yaml` 配置；绑定匹配与菜单提示共用 EditorShortcuts，保留模式／焦点／输入保护。
-  设置界面和用户级覆盖后续接入同一绑定数据，不另建事件总线，也不与阶段 6 游戏 Input 混为一体。
-- Mesh/Material 引用与材质纹理槽共用按类型过滤的路径下拉选择；底层保存 Handle，组件引用沿用属性编辑事务。
-  Edit 支持 Project 拖入引用框，校验类型、revision 和文档 generation；拖动不改变当前选择。
-  组件赋值请求在 UI 后重新校验目标并加载资源，Mesh 只消费已发布 Artifact；失败保留原引用，成功纳入场景历史。
-  材质纹理拖放复用资产文件更新与失败回退，不进入场景历史；Play 仅保留下拉引用调试。搜索和资产文件撤销仍留待后续。
-- Finder／系统文件管理器可拖入 PNG/JPEG、glTF/GLB，按 Project 落点复制到 assets 根目录或子目录，空目录也可作为目标。
-  glTF 保持相对 buffer／图片路径；完整副本校验后无覆盖发布，再扫描生成新身份并复用后台导入，不移动原文件或创建实体。
-  重名／缺依赖／复制失败拒绝整批；发布／扫描失败补偿回滚，错误进入 Log。文件操作与场景历史分离。
-- Project 模型拖入 Edit Viewport 后，在相机关注平面创建根实体；Transform 与 Mesh Renderer 合为一条撤销命令。
-  拖拽载荷以 Handle、revision 和文档 generation 校验身份；放置只加载已有 Artifact，首次导入未完成时不创建实体。
-  新实体材质引用暂留空，由 Inspector 手动指定；不解析 glTF 材质，不提供放置预览或表面吸附。
-- Engine 在 Renderer::prepare_frame 完成 UI 准备之后读取活动 Scene 并提取，随后 render_frame；不新增快照 provider 回调。
-- LineDrawList 接收单帧线段/包围盒；执行器使用场景 pass、相机和 MSAA，正常深度测试且不写深度。
-  CPU 请求不依赖 Vulkan/ImGui；slot 独立 vertex buffer 安全复用，扩容失败跳过调试批次并延后重试。
-- Edit 选中 Mesh 的局部包围盒八角点经过 world transform 后连十二条边；普通帧在 UI 命令完成后提交，
-  点击帧在拾取结果更新 Selection 后提交，不画旧选择；Scene/Mesh/Material 不保存 selected 状态。
-- TransformGizmo 支持平移／旋转、世界／本地轴、透视／正交投影和逻辑屏幕命中；父变换逆矩阵将世界位移转成本地 translation。
-  Tool 菜单提供 Mode、Space、Snap 与距离／角度步长；吸附相对拖动起点，不修改项目或场景配置。
-  旋转使用圆环命中、连续角度累计与矩阵合成；World 非均匀父级明确拒绝，Local 保留真实仿射基。
-  与 Inspector 共用事务类型和历史，但不共用活动事务；释放提交一次，Escape／失焦／上下文变化取消。
-  操作箭头由 ViewPanel 绘制为 UI 覆盖层，拖动预览先于当前帧 Scene 提取，渲染层不认识 Gizmo。
+当前基线：单视口相机与布局、拾取／聚焦、选中包围盒、平移／旋转 Gizmo，
+组件与层级编辑、引用选择／拖放、外部资产导入，以及统一场景撤销历史。
+操作说明见 [README](../README.md#编辑器使用)；帧时序、事务和资源寿命见
+[资源所有权](architecture/rendering-ownership.md)，文件操作边界见[资产管线](architecture/asset-pipeline.md)。
 
 剩余：
 
@@ -135,7 +89,8 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 ### 命令与通知编排
 
-- 先结合 Command History 收敛菜单、快捷键、Inspector/Gizmo 的编辑入口，明确唯一执行者、返回结果和事务边界。
+- 继续以 Command History 承接新的编辑入口。现有菜单／结构／资产／模式请求统一结束活动编辑；离散属性赋值复用事务 apply。
+  新命令沿用唯一执行者、显式结果和事务边界，不另建平行的修改路径。
   可撤销的场景修改进入历史；保存、刷新、重导入等服务操作不因入口统一就强行加入 Undo/Redo。
 - 命令入口稳定后，仅对资产发布、选中对象变化、活动场景切换等真实一对多通知引入类型化事件。
   事件表达已提交的事实，不代替有返回值的命令或查询；不把整个编辑事务改成订阅者之间的隐式调用链。

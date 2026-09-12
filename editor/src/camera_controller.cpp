@@ -27,19 +27,16 @@ namespace CometEditor {
             || !std::isfinite(aspect) || aspect <= 0 || !Math::is_finite(camera.target))
             return std::nullopt;
         const auto snapshot = camera.snapshot();
+        const auto projection = snapshot.projection_matrix(aspect);
+        if(!projection)
+            return std::nullopt;
         const auto view_target = snapshot.view_matrix * Math::Vec4(camera.target, 1);
         const float depth = -view_target.z;
-        if(!std::isfinite(depth) || depth < camera.near_clip || depth > camera.far_clip
-            || !std::isfinite(camera.near_clip) || !std::isfinite(camera.far_clip)
-            || camera.near_clip <= 0 || camera.far_clip <= camera.near_clip)
+        if(!std::isfinite(depth) || depth < camera.near_clip || depth > camera.far_clip)
             return std::nullopt;
-        float height = camera.orthographic.height;
-        if(camera.projection == Comet::RenderCamera::Projection::Perspective) {
-            const float fov = camera.perspective.fov_degrees;
-            if(!std::isfinite(fov) || fov <= 0 || fov >= 180)
-                return std::nullopt;
-            height = 2 * depth * std::tan(Math::radians(fov) * 0.5f);
-        }
+        float height = 2.0f / (*projection)[1][1];
+        if(camera.projection == Comet::RenderCamera::Projection::Perspective)
+            height *= depth;
         if(!std::isfinite(height) || height <= 0)
             return std::nullopt;
         const auto offset =
@@ -96,8 +93,10 @@ namespace CometEditor {
             std::atan(std::tan(vertical_half_fov) * viewport_aspect);
         const double radius =
             std::hypot(static_cast<double>(size.x), static_cast<double>(size.y),
-                static_cast<double>(size.z)) * 0.5;
-        const double required_distance = radius * FOCUS_PADDING
+                static_cast<double>(size.z))
+            * 0.5;
+        const double required_distance =
+            radius * FOCUS_PADDING
             / std::sin(std::min(vertical_half_fov, horizontal_half_fov));
         const float distance = static_cast<float>(std::clamp(required_distance,
             static_cast<double>(MIN_DISTANCE), static_cast<double>(MAX_DISTANCE)));
@@ -172,7 +171,9 @@ namespace CometEditor {
             } else {
                 forward =
                     Comet::Math::normalize(camera.target - camera.perspective.position);
-                visible_world_height = 2.0f * distance * std::tan(
+                visible_world_height =
+                    2.0f * distance
+                    * std::tan(
                         Comet::Math::radians(camera.perspective.fov_degrees) * 0.5f);
             }
             const Comet::Math::Vec3 right_candidate =
@@ -198,8 +199,8 @@ namespace CometEditor {
                     return;
                 }
                 camera.orthographic.height =
-                    std::clamp(camera.orthographic.height * std::exp(
-                        -input.zoom_delta * ZOOM_EXPONENT_PER_STEP),
+                    std::clamp(camera.orthographic.height
+                                   * std::exp(-input.zoom_delta * ZOOM_EXPONENT_PER_STEP),
                         MIN_ORTHOGRAPHIC_HEIGHT, MAX_ORTHOGRAPHIC_HEIGHT);
                 return;
             }

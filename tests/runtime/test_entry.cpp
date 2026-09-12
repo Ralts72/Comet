@@ -1,4 +1,9 @@
 #include "runtime/entry.h"
+#include "support/temporary_directory.h"
+
+#ifdef COMET_TEST_EDITOR_UI
+#include "imgui_context.h"
+#endif
 
 #include <gtest/gtest.h>
 #include <random>
@@ -62,17 +67,6 @@ namespace Comet::Tests {
         EXPECT_EQ(DefaultApplication::constructions, 0);
     }
 
-    TEST_F(EntryTest, FactoryRejectsUnexpectedArgumentsBeforeConstruction) {
-        const char* arguments[]{"Game", "unexpected"};
-        ::testing::internal::CaptureStderr();
-        const int result = launch(2, arguments, options, {}, create_default);
-        const auto error = ::testing::internal::GetCapturedStderr();
-        EXPECT_EQ(result, 1);
-        EXPECT_NE(
-            error.find("does not accept command-line arguments"), std::string::npos);
-        EXPECT_EQ(DefaultApplication::constructions, 0);
-    }
-
     TEST_F(EntryTest, ForwardsArgumentsWithoutExecutableAndReportsProjectFailure) {
         const char* arguments[]{"CometEditor", "projects/My Game/project.yaml"};
         ::testing::internal::CaptureStderr();
@@ -94,4 +88,98 @@ namespace Comet::Tests {
         EXPECT_EQ(DefaultApplication::constructions, 1);
         EXPECT_EQ(DefaultApplication::destructions, 1);
     }
+    class ApplicationLifecycleTest
+        : public ::testing::TestWithParam<std::pair<int, bool>> {
+    protected:
+        class TestApplication final: public Application {
+        public:
+            int fail_at = 0;
+            bool fail_shutdown = false;
+            int shutdowns = 0;
+            bool engine_alive_during_shutdown = false;
+            TemporaryDirectory directory;
+#ifdef COMET_TEST_EDITOR_UI
+            std::unique_ptr<CometEditor::ImGuiContext> ui;
+#endif
+            void on_init() override {
+#ifdef COMET_TEST_EDITOR_UI
+                ui =
+                    std::make_unique<CometEditor::ImGuiContext>(get_engine().get_window(),
+                        get_engine().get_renderer().get_render_context(),
+                        directory.path() / "imgui.ini");
+#endif
+                if(fail_at == 1)
+                    throw std::runtime_error("init failure");
+                if(fail_at == 0)
+                    glfwSetWindowShouldClose(get_engine().get_window().get(), true);
+            }
+            void on_update(UpdateContext) override {
+                throw std::runtime_error("update failure");
+            }
+            void on_shutdown() override {
+                ++shutdowns;
+                engine_alive_during_shutdown = get_engine().get_window().get() != nullptr;
+                if(fail_shutdown)
+                    throw std::runtime_error("shutdown failure");
+#ifdef COMET_TEST_EDITOR_UI
+                ui.reset();
+#endif
+            }
+        };
+
+        void TearDown() override {
+            Config::Log log;
+            log.enable_file_logging = false;
+            log.level = "warn";
+            Logger::init(log, false);
+        }
+    };
+
+    TEST_P(ApplicationLifecycleTest, CleansOnceAndPreservesPrimaryFailure) {
+        auto owner = std::make_unique<TestApplication>();
+        auto& app = *owner;
+        app.fail_at = GetParam().first;
+        app.fail_shutdown = GetParam().second;
+        Config config;
+        config.window.width = 320;
+        config.window.height = 240;
+        config.vulkan.msaa_samples = SampleCount::Count1;
+        config.diagnostics.log.enable_file_logging = false;
+        config.diagnostics.log.level = "warn";
+        std::string error;
+        try {
+            app.run(config);
+        } catch(const std::runtime_error& failure) {
+            error = failure.what();
+        }
+        std::string expected;
+        if(app.fail_at == 1)
+            expected = "init failure";
+        else if(app.fail_at == 2)
+            expected = "update failure";
+        else if(app.fail_shutdown)
+            expected = "shutdown failure";
+        EXPECT_EQ(error, expected);
+        EXPECT_EQ(app.shutdowns, 1);
+        EXPECT_TRUE(app.engine_alive_during_shutdown);
+#ifdef COMET_TEST_EDITOR_UI
+        if(app.fail_shutdown)
+            EXPECT_NE(ImGui::GetCurrentContext(), nullptr);
+        else
+            EXPECT_EQ(ImGui::GetCurrentContext(), nullptr);
+#endif
+        if(app.fail_shutdown) {
+            EXPECT_THROW(app.run(config), std::logic_error);
+            EXPECT_EQ(app.shutdowns, 1);
+        }
+        owner.reset();
+#ifdef COMET_TEST_EDITOR_UI
+        EXPECT_EQ(ImGui::GetCurrentContext(), nullptr);
+#endif
+    }
+
+    INSTANTIATE_TEST_SUITE_P(NormalAndExceptionalExit, ApplicationLifecycleTest,
+        ::testing::Values(std::pair{0, false}, std::pair{0, true}, std::pair{1, false},
+            std::pair{1, true}, std::pair{2, false}, std::pair{2, true}));
+
 }

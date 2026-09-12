@@ -39,7 +39,7 @@ if (COMET_BUILD_APP)
     add_subdirectory(app)
 endif ()
 
-if (COMET_BUILD_EDITOR)
+if (COMET_BUILD_EDITOR OR COMET_BUILD_TESTS)
     add_subdirectory(editor)
 endif ()
 

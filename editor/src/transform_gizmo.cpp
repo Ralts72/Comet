@@ -106,9 +106,7 @@ namespace CometEditor {
             || layout.image_resolution.y == 0
             || !Comet::Math::is_finite(layout.image_display_rect.min)
             || !Comet::Math::is_finite(display_size) || display_size.x <= 0.0f
-            || display_size.y <= 0.0f || !finite_matrix(camera.view_matrix)
-            || !std::isfinite(camera.near_clip) || !std::isfinite(camera.far_clip)
-            || camera.near_clip <= 0.0f || camera.far_clip <= camera.near_clip)
+            || display_size.y <= 0.0f)
             return std::nullopt;
         const auto entity = scene->find_entity(selected);
         if(!entity || !entity.has_component<Comet::TransformComponent>())
@@ -167,27 +165,16 @@ namespace CometEditor {
 
         const float aspect = static_cast<float>(layout.image_resolution.x)
                              / static_cast<float>(layout.image_resolution.y);
-        Comet::Math::Mat4 projection;
-        float visible_height;
+        const auto projection = camera.projection_matrix(aspect);
+        if(!projection)
+            return std::nullopt;
+        float visible_height = camera.orthographic_height;
         if(camera.projection == Comet::RenderCamera::Projection::Perspective) {
-            if(!std::isfinite(camera.fov_degrees) || camera.fov_degrees <= 0.0f
-                || camera.fov_degrees >= 180.0f)
-                return std::nullopt;
-            projection = Comet::Math::perspective(
-                camera.fov_degrees, aspect, camera.near_clip, camera.far_clip);
             const auto view_origin =
                 camera.view_matrix * Comet::Math::Vec4(context.origin, 1.0f);
-            visible_height = -2.0f * view_origin.z / projection[1][1];
-        } else {
-            if(!std::isfinite(camera.orthographic_height)
-                || camera.orthographic_height <= 0.0f)
-                return std::nullopt;
-            const float half_height = camera.orthographic_height * 0.5f;
-            projection = Comet::Math::ortho(-half_height * aspect, half_height * aspect,
-                -half_height, half_height, camera.near_clip, camera.far_clip);
-            visible_height = camera.orthographic_height;
+            visible_height = -2.0f * view_origin.z / (*projection)[1][1];
         }
-        context.view_projection = projection * camera.view_matrix;
+        context.view_projection = *projection * camera.view_matrix;
         context.inverse_view_projection = Comet::Math::inverse(context.view_projection);
         context.axis_length = visible_height * AXIS_LENGTH / display_size.y;
         if(!finite_matrix(context.view_projection)
@@ -262,20 +249,10 @@ namespace CometEditor {
                                 / context.layout.image_display_rect.size();
         const auto ndc =
             Comet::Math::Vec2(normalized.x * 2.0f - 1.0f, 1.0f - normalized.y * 2.0f);
-        auto near_point =
-            context.inverse_view_projection * Comet::Math::Vec4(ndc, 0.0f, 1.0f);
-        auto far_point =
-            context.inverse_view_projection * Comet::Math::Vec4(ndc, 1.0f, 1.0f);
-        if(!Comet::Math::is_finite(near_point) || !Comet::Math::is_finite(far_point)
-            || std::abs(near_point.w) <= EPSILON || std::abs(far_point.w) <= EPSILON)
-            return std::nullopt;
-        near_point /= near_point.w;
-        far_point /= far_point.w;
-        const auto delta = Comet::Math::Vec3(far_point - near_point);
-        const float length = Comet::Math::length(delta);
-        if(!std::isfinite(length) || length <= EPSILON)
-            return std::nullopt;
-        return Comet::Ray{Comet::Math::Vec3(near_point), delta / length};
+        auto ray = Comet::unproject_ray(context.inverse_view_projection, ndc);
+        if(ray)
+            ray->max_parameter = std::numeric_limits<float>::max();
+        return ray;
     }
 
     std::optional<float> TransformGizmo::axis_parameter(

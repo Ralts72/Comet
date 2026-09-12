@@ -1,7 +1,5 @@
-set(SOURCES
-        editor.cpp
+add_library(editor_core STATIC
         src/editor_assets.cpp
-        src/scene_file_dialog.cpp
         src/command_history.cpp
         src/scene_commands.cpp
         src/transform_gizmo.cpp
@@ -9,19 +7,33 @@ set(SOURCES
         src/editor_state.cpp
         src/editor_scene_session.cpp
         src/scene_document.cpp
+        src/viewport_layout.cpp
+)
+target_link_libraries(editor_core PUBLIC engine)
+target_include_directories(editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+if (NOT COMET_BUILD_EDITOR)
+    return()
+endif ()
+
+add_library(editor_ui STATIC
+        src/scene_file_dialog.cpp
         src/imgui_context.cpp
         src/menu_bar.cpp
         src/shortcuts.cpp
         src/property_editor_registry.cpp
-        src/viewport_layout.cpp
         src/panels/inspector.cpp
         src/panels/console.cpp
         src/panels/view.cpp
         src/panels/hierarchy.cpp
         src/panels/project.cpp
 )
+target_link_libraries(editor_ui PUBLIC editor_core imgui PRIVATE yaml-cpp)
+target_compile_definitions(editor_ui PRIVATE
+        COMET_EDITOR_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources"
+)
 
-add_executable(editor ${SOURCES})
+add_executable(editor editor.cpp)
 if (APPLE)
     set_target_properties(editor PROPERTIES
             MACOSX_BUNDLE TRUE
@@ -39,10 +51,8 @@ elseif (WIN32)
     set_source_files_properties(resources/editor.rc PROPERTIES
             OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/editor.ico")
 endif ()
-target_link_libraries(editor PRIVATE engine imgui glfw yaml-cpp)
-target_include_directories(editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(editor PRIVATE editor_ui)
 target_compile_definitions(editor PRIVATE
         COMET_CONFIG_DIRECTORY="${CMAKE_SOURCE_DIR}/config"
         COMET_CONFIG_PROFILE="${COMET_CONFIG_PROFILE}"
-        COMET_EDITOR_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources"
 )

@@ -43,7 +43,7 @@ Engine
         └── MaterialDescriptorState[material][slot]
 
 Editor
-├── AssetManager（借用 Engine 的服务）
+├── EditorAssets → AssetManager（借用 Engine 的服务）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
 ├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
 └── ImGuiContext
@@ -55,6 +55,23 @@ Editor
   unique_ptr 独占，shared_ptr 延长共享寿命；原生 Vulkan/GLFW handle 仍遵守各自协议。
 - Renderer 是组合根，不是所有 GPU 对象的直接 owner；Device 也不反向拥有业务服务。
 - app/editor 的 AssetManager 先于 Engine 销毁；后台任务先结束，GPU 使用完成后再释放 Registry 和渲染资源。
+
+## 应用启动与失败清理
+
+Application 的实现集中在 runtime.cpp，对外只提供完整的 run(Config) 生命周期：
+创建 Diagnostics／Engine → on_init → 引擎更新循环 → end。start/main_loop 不再作为可独立调用的接口。
+初始化和更新失败共用一个捕获边界；on_init 一旦开始，就会尝试一次 on_shutdown，应用必须能关闭部分初始化的成员。
+end 是内部操作，提前消费关闭标记，保证关闭钩子自身抛错后不会再次调用。
+钩子失败时保留 Engine／Diagnostics，由应用析构先释放派生类剩余资源、再释放基类 owner；
+原始初始化／更新错误继续向上传递，清理错误单独报告。关闭失败的实例不能重新运行。
+
+ImGuiContext 的原生 Context 由带私有 ContextDeleter 的 unique_ptr 拥有；
+它最后声明，因此构造失败时最先析构，先关闭借用 GPU 资源的后端，再析构 pool／target。
+不需要在构造函数中 catch 后 cleanup/rethrow。正常析构仍先等待 GPU、解除纹理注册，再销毁后端及资源。
+只关闭实际存在的后端，覆盖 swapchain 重建中旧后端已经关闭的状态。
+等待 GPU 时的 catch 保留：它保护 noexcept 清理边界，不等同于设备丢失恢复。
+
+LOG_FATAL 当前执行 assert／terminate，不展开栈，也不会进入上述异常清理；只适合明确终止的内部错误。
 
 ## 图像和目标
 
@@ -81,7 +98,7 @@ Engine：事件 → Application 更新
   → SceneExtractor（读取此时的活动 Scene，更新 world transform）
   → Renderer::render_frame
   → SceneResolver（使用实际 Target 尺寸）
-  → 按请求 CPU pick → scene pass（场景物体 → DebugDraw）
+  → 按请求 CPU pick → scene pass（场景物体 → DebugRenderer）
   → overlay render（录制已生成的 ImGui 数据）
   → submit / present
 ```
@@ -92,6 +109,15 @@ SceneRenderer 不读 EditorMode/ImGui。SceneResolver 当前仍有固定两纹�
 只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。
 编辑命令完成后提取，因此组件修改、Undo/Redo 和当前帧拾取使用同一份场景快照。
+Editor::finish_active_edit 统一取消未完成 Gizmo、提交 Inspector 编辑；失败时拒绝后续请求。
+请求仍在 UI 遍历结束后执行，并保留文档 generation／资产 revision 校验与菜单优先级。
+离散属性赋值使用 PropertyEditTransaction::apply：结束已有手势，再 begin／preview／commit；
+失败取消新事务。持续拖动仍使用独立的 begin／preview／commit，不在每帧创建历史记录。
+Play 引用调试直接写克隆场景，不经过 Edit 历史；资产文件写入也不混入场景历史。
+
+结构命令保存完整组件快照，未知或不可恢复的组件会阻止破坏性操作；
+撤销恢复 UUID 与父子关系，不恢复旧 EntityId、选择或展开状态。
+复制只重映射已有层级协议中的内部 UUID；自定义组件实体引用须另外定义重映射协议。
 
 LineDrawList 只保存世界空间端点与颜色，Renderer 在场景 pass 录制前接受多次追加并持有副本。
 通常在 update/prepare 提交；本帧拾取的结果回调也可提交，因此点击产生的选择反馈不必等下一帧。
@@ -115,7 +141,11 @@ UI 回调完成命令／相机更新后，ViewPanel::draw_gizmo 将最新句柄�
 
 RenderView 的 CameraSelection 选择显式 editor camera 或 Scene primary camera；
 请求 override 却缺少数据时不静默回退。没有合法 Camera 时清屏并保留 UI，不录制场景 draw。
-RenderCamera 支持透视/正交；当前 Runtime CameraComponent 仍提取为透视。
+RenderCamera 统一校验投影参数和 view 有限性，projection_matrix 同时供 SceneResolver、Gizmo 与放置计算使用。
+它不选择活动相机，也不保存 GPU 状态；当前 Runtime CameraComponent 仍提取为透视。
+geometry.h 中的 Comet::unproject_ray接收 inverse VP 与 NDC，返回 near/far 之间的归一化射线。
+拾取先按实际纹理像素中心映射 NDC，保留远裁剪上限；Gizmo 使用连续逻辑坐标并放开射线上限，
+允许拖出画面。两者共用计算，不共用输入坐标策略。
 EditorCameraState 共享 target/clip/projection，独立保存 perspective position/up/FOV 与 orthographic height；
 2D 固定 +Z 观察轴，平移同时移动共享 target 和 perspective position，切回 3D 不丢观察方向。
 

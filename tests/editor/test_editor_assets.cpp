@@ -12,6 +12,8 @@
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
 #include "asset/serialization/material_serializer.h"
+#include "support/temporary_directory.h"
+
 #include <gtest/gtest.h>
 #include <chrono>
 #include <array>
@@ -50,10 +52,8 @@ namespace CometEditor::Tests {
                     vk::Result::eErrorOutOfDeviceMemory);
             }
         } factory;
-        std::filesystem::path root =
-            std::filesystem::canonical(std::filesystem::temp_directory_path())
-            / ("comet_editor_assets_"
-                + std::to_string(Comet::AssetHandle::generate().value()));
+        Comet::Tests::TemporaryDirectory directory;
+        const std::filesystem::path root = directory.path();
         Comet::AssetRegistry runtime;
         Comet::TaskScheduler scheduler{1};
         std::unique_ptr<EditorAssets> assets;
@@ -73,8 +73,6 @@ namespace CometEditor::Tests {
         void TearDown() override {
             assets.reset();
             runtime.clear();
-            std::error_code error;
-            std::filesystem::remove_all(root, error);
         }
         std::filesystem::path artifact_path() const {
             return Comet::ProjectPaths(root).cache() / "imported/mesh"

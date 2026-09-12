@@ -1,15 +1,12 @@
 #pragma once
 
 #include "config/config.h"
-#include "config/config_loader.h"
 #include "diagnostics/diagnostics.h"
 #include "core/engine.h"
 
 #include <filesystem>
 #include <memory>
 #include <string>
-#include <utility>
-#include <vector>
 
 namespace Comet {
     struct LaunchOptions {
@@ -17,28 +14,11 @@ namespace Comet {
         std::string config_profile;
     };
 
-    class Application {
+    class COMET_API Application {
     public:
         virtual ~Application() = default;
 
-        void start(Config config) {
-            m_diagnostics = std::make_unique<Diagnostics>(config.diagnostics);
-
-            m_engine = std::make_unique<Engine>(config);
-
-            on_init();
-
-            m_engine->register_update_callback(
-                [this](const UpdateContext dt) { this->on_update(dt); });
-        }
-
-        void main_loop() const { m_engine->on_update(); }
-
-        void end() {
-            on_shutdown();
-            m_engine.reset();
-            m_diagnostics.reset();
-        }
+        void run(Config config);
 
         [[nodiscard]] Engine& get_engine() { return *m_engine; }
         [[nodiscard]] const Engine& get_engine() const { return *m_engine; }
@@ -47,23 +27,17 @@ namespace Comet {
 
         virtual void on_update(UpdateContext context) = 0;
 
+        // on_init 一旦开始，退出时就会调用；必须能清理部分初始化的状态。
         virtual void on_shutdown() = 0;
 
     private:
+        void end();
+        void end_after_failure() noexcept;
+
         std::unique_ptr<Diagnostics> m_diagnostics;
         std::unique_ptr<Engine> m_engine;
+        bool m_shutdown_required = false;
     };
 
-    inline int run(Application* app, const LaunchOptions& options) {
-        const auto& config_directory = options.config_directory;
-        Config config = ConfigLoader{}.load(
-            std::vector<std::string>{(config_directory / "common.yaml").string(),
-                (config_directory / "profiles" / (options.config_profile + ".yaml"))
-                    .string()});
-
-        app->start(std::move(config));
-        app->main_loop();
-        app->end();
-        return 0;
-    }
+    COMET_API int run(Application* app, const LaunchOptions& options);
 }

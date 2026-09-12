@@ -20,8 +20,10 @@
 #include <GLFW/glfw3.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <string>
+#include <stdexcept>
 #include <system_error>
 #include <type_traits>
 #include <utility>
@@ -90,6 +92,19 @@ namespace CometEditor {
         VkDescriptorSet m_descriptor_set = VK_NULL_HANDLE;
     };
 
+    void ImGuiContext::ContextDeleter::operator()(
+        ::ImGuiContext* context) const noexcept {
+        auto* previous = ImGui::GetCurrentContext();
+        ImGui::SetCurrentContext(context);
+        if(ImGui::GetIO().BackendRendererUserData)
+            ImGui_ImplVulkan_Shutdown();
+        if(ImGui::GetIO().BackendPlatformUserData)
+            ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext(context);
+        if(previous != context)
+            ImGui::SetCurrentContext(previous);
+    }
+
     ImGuiContext::ImGuiContext(const Comet::Window& window,
         Comet::RenderContext& render_context, std::filesystem::path ini_path)
         : m_window(window), m_render_context(render_context),
@@ -97,8 +112,8 @@ namespace CometEditor {
         LOG_INFO("Initializing ImGui layer");
 
         IMGUI_CHECKVERSION();
-        ImGui::CreateContext();
-
+        m_context.reset(ImGui::CreateContext());
+        ImGui::SetCurrentContext(m_context.get());
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -121,7 +136,8 @@ namespace CometEditor {
 
         ImGui::StyleColorsDark();
 
-        ImGui_ImplGlfw_InitForVulkan(window.get(), true);
+        if(!ImGui_ImplGlfw_InitForVulkan(window.get(), true))
+            throw std::runtime_error("Cannot initialize ImGui GLFW backend");
 
         auto& swapchain = m_render_context.get_swapchain();
 
@@ -195,28 +211,34 @@ namespace CometEditor {
         init_info.PipelineInfoMain.RenderPass = m_render_pass->get();
         init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 
-        ImGui_ImplVulkan_Init(&init_info);
+        if(!ImGui_ImplVulkan_Init(&init_info))
+            throw std::runtime_error("Cannot initialize ImGui Vulkan backend");
     }
 
     ImGuiContext::~ImGuiContext() {
-        if(m_initialized) {
-            cleanup();
-        }
+        cleanup();
     }
 
-    void ImGuiContext::cleanup() {
-        LOG_INFO("Cleaning up ImGui layer");
-
-        if(!m_initialized) {
+    void ImGuiContext::cleanup() noexcept {
+        if(!m_context) {
             return;
         }
-
-        m_render_context.wait_idle();
-
-        unregister_viewport_textures();
-
-        // 先关闭 ImGui Vulkan 后端，释放描述符池引用，再销毁池。
-        ImGui_ImplVulkan_Shutdown();
+        auto* previous = ImGui::GetCurrentContext();
+        auto* context = m_context.get();
+        ImGui::SetCurrentContext(context);
+        if(m_initialized) {
+            try {
+                m_render_context.wait_idle();
+            } catch(const std::exception& error) {
+                std::fprintf(
+                    stderr, "Cannot wait for ImGui shutdown: %s\n", error.what());
+            }
+        }
+        // 后端可能尚未初始化，或者已在 swapchain 重建中关闭。
+        if(ImGui::GetIO().BackendRendererUserData) {
+            unregister_viewport_textures();
+        }
+        m_context.reset();
 
         m_descriptor_pool.reset();
 
@@ -224,8 +246,8 @@ namespace CometEditor {
         m_render_pass.reset();
         m_viewport_textures.clear();
 
-        ImGui_ImplGlfw_Shutdown();
-        ImGui::DestroyContext();
+        if(previous != context)
+            ImGui::SetCurrentContext(previous);
 
         m_initialized = false;
     }

@@ -2,6 +2,8 @@
 
 #include "panels/console.h"
 
+#include "support/imgui_context.h"
+
 #include <gtest/gtest.h>
 #include <imgui.h>
 
@@ -11,19 +13,7 @@
 namespace CometEditor::Tests {
     class ConsolePanelTest: public ::testing::Test {
     protected:
-        void SetUp() override {
-            ImGui::CreateContext();
-            auto& io = ImGui::GetIO();
-            io.IniFilename = nullptr;
-            io.DisplaySize = ImVec2(800, 600);
-            io.DeltaTime = 1.0f / 60.0f;
-            unsigned char* pixels = nullptr;
-            int width = 0;
-            int height = 0;
-            io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
-        }
-
-        void TearDown() override { ImGui::DestroyContext(); }
+        Comet::Tests::ImGuiTestContext imgui;
 
         void render_frame() {
             ImGui::NewFrame();

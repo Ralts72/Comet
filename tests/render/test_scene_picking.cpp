@@ -15,6 +15,21 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(ScenePickingTest, ContinuousUnprojectionPreservesSubpixelAndOutsideCoordinates) {
+        const auto inverse = Math::inverse(Math::ortho(-2, 2, -1, 1, 0.1f, 10));
+        const auto first = unproject_ray(inverse, {0, 0});
+        const auto next = unproject_ray(inverse, {0.0001f, 0});
+        const auto outside = unproject_ray(inverse, {2, 0});
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(next);
+        ASSERT_TRUE(outside);
+        EXPECT_GT(next->origin.x, first->origin.x);
+        EXPECT_FLOAT_EQ(outside->origin.x, 4);
+        EXPECT_NEAR(first->max_parameter, 9.9f, 0.0001f);
+        EXPECT_FALSE(unproject_ray(Math::Mat4(0), {}));
+        EXPECT_FALSE(unproject_ray(inverse, {std::numeric_limits<float>::infinity(), 0}));
+    }
+
     TEST(ScenePickingTest, BuildsPerspectiveWorldRayThroughPixelCenter) {
         const ViewProjectMatrix view_project{
             .view = Math::look_at(Math::Vec3(0.0f, 0.0f, 3.0f), Math::Vec3(0.0f),

@@ -11,7 +11,7 @@
 #include <tuple>
 
 namespace Comet::Tests {
-    class DebugDrawRenderingTest
+    class DebugRendererTest
         : public ::testing::TestWithParam<std::tuple<bool, SampleCount>> {
     protected:
         void SetUp() override {
@@ -111,7 +111,7 @@ namespace Comet::Tests {
         RenderScene scene;
     };
 
-    TEST_P(DebugDrawRenderingTest, AppendsProducersConsumesOnceAndReusesSlotBuffers) {
+    TEST_P(DebugRendererTest, AppendsProducersConsumesOnceAndReusesSlotBuffers) {
         auto& renderer = engine->get_renderer();
         const auto initial = allocations();
         const auto batch = lines(100);
@@ -149,7 +149,7 @@ namespace Comet::Tests {
         }
     }
 
-    TEST_P(DebugDrawRenderingTest, MissingCameraAndHiddenViewDiscardRequests) {
+    TEST_P(DebugRendererTest, MissingCameraAndHiddenViewDiscardRequests) {
         auto& renderer = engine->get_renderer();
         const auto initial = allocations();
         scene.cameras.clear();
@@ -165,7 +165,7 @@ namespace Comet::Tests {
         EXPECT_EQ(allocations().count, initial.count);
     }
 
-    INSTANTIATE_TEST_SUITE_P(SwapchainAndOffscreen, DebugDrawRenderingTest,
+    INSTANTIATE_TEST_SUITE_P(SwapchainAndOffscreen, DebugRendererTest,
         ::testing::Combine(::testing::Bool(),
             ::testing::Values(SampleCount::Count1, SampleCount::Count4)));
 }

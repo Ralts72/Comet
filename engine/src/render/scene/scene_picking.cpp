@@ -51,31 +51,7 @@ namespace Comet {
         const float ndc_y = 1.0f - normalized_y * 2.0f;
         const Math::Mat4 inverse_view_projection =
             Math::inverse(view_project.projection * view_project.view);
-        Math::Vec4 near_point =
-            inverse_view_projection * Math::Vec4(ndc_x, ndc_y, 0.0f, 1.0f);
-        Math::Vec4 far_point =
-            inverse_view_projection * Math::Vec4(ndc_x, ndc_y, 1.0f, 1.0f);
-        if(!Math::is_finite(near_point) || !Math::is_finite(far_point)
-            || std::abs(near_point.w) <= 0.000001f
-            || std::abs(far_point.w) <= 0.000001f) {
-            return std::nullopt;
-        }
-        near_point /= near_point.w;
-        far_point /= far_point.w;
-        if(!Math::is_finite(near_point) || !Math::is_finite(far_point)) {
-            return std::nullopt;
-        }
-
-        const Math::Vec3 direction = Math::Vec3(far_point - near_point);
-        const float direction_length = Math::length(direction);
-        if(!std::isfinite(direction_length) || direction_length <= 0.000001f) {
-            return std::nullopt;
-        }
-        return Ray{
-            .origin = Math::Vec3(near_point),
-            .direction = direction / direction_length,
-            .max_parameter = direction_length,
-        };
+        return unproject_ray(inverse_view_projection, {ndc_x, ndc_y});
     }
 
     std::optional<ScenePickHit> pick_scene_candidates(
