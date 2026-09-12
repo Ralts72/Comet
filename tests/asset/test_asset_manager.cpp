@@ -5,6 +5,7 @@
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "core/task_scheduler.h"
+#include "support/blocked_worker.h"
 #include "render/material.h"
 #include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
@@ -104,8 +105,9 @@ namespace Comet::Tests {
 
             std::filesystem::path add_mesh(const AssetHandle handle,
                 const std::string_view primitive =
-                    R"({"attributes":{"POSITION":0},"indices":1})") const {
-                const std::filesystem::path path = paths().assets() / "meshes/test.gltf";
+                    R"({"attributes":{"POSITION":0},"indices":1})",
+                const std::filesystem::path& relative_path = "meshes/test.gltf") const {
+                const std::filesystem::path path = paths().assets() / relative_path;
                 std::filesystem::create_directories(path.parent_path());
                 write_mesh(path, primitive);
                 EXPECT_TRUE(MetadataSerializer{}.save(
@@ -231,6 +233,208 @@ namespace Comet::Tests {
                 return issue.message.find(text) != std::string::npos;
             });
         }
+    }
+
+    class AssetBackpressureTest: public ::testing::Test {
+    protected:
+        TemporaryProject project;
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler{1, 1};
+        AssetManager manager{project.paths(), registry, factory, scheduler, {1, 1}};
+        std::array<AssetHandle, 3> handles{
+            AssetHandle(41), AssetHandle(42), AssetHandle(43)};
+
+        void SetUp() override {
+            for(const auto handle : handles)
+                project.add_mesh(handle, R"({"attributes":{"POSITION":0},"indices":1})",
+                    "meshes/" + std::to_string(handle.value()) + ".gltf");
+            ASSERT_TRUE(manager.scan().succeeded());
+        }
+
+        std::vector<AssetHandle> drain() {
+            std::vector<AssetHandle> published;
+            for(int i = 0; i < 16; ++i) {
+                scheduler.wait_idle();
+                const auto batch = manager.process_completions();
+                published.insert(published.end(), batch.begin(), batch.end());
+                const auto status = manager.get_async_status();
+                if(status.in_flight == 0 && status.queued == 0)
+                    return published;
+            }
+            ADD_FAILURE() << "Asset queue did not drain within 16 owner cycles";
+            return published;
+        }
+
+        void change_mesh(const int primitive_count) {
+            const auto source = project.paths().assets() / "meshes/41.gltf";
+            std::string primitives;
+            for(int i = 0; i < primitive_count; ++i) {
+                if(i != 0)
+                    primitives += ',';
+                primitives += R"({"attributes":{"POSITION":0},"indices":1})";
+            }
+            TemporaryProject::write_mesh(source, primitives);
+            ASSERT_TRUE(manager.scan().succeeded());
+        }
+
+        std::filesystem::path artifact_path(const AssetHandle handle) const {
+            return project.paths().cache() / "imported/mesh"
+                   / (std::to_string(handle.value()) + ".bin");
+        }
+    };
+
+    TEST_F(AssetBackpressureTest, BoundsInFlightAndQueueThenAllowsRejectedRetry) {
+        BlockedWorker blocker(scheduler);
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        ASSERT_TRUE(manager.import_mesh_async(handles[1]));
+        EXPECT_FALSE(manager.import_mesh_async(handles[2]));
+        EXPECT_EQ(manager.get_async_status().in_flight, 1);
+        EXPECT_EQ(manager.get_async_status().queued, 1);
+        EXPECT_TRUE(manager.process_completions().empty());
+        EXPECT_EQ(manager.get_async_status().queued, 1);
+        blocker.release();
+        const auto published = drain();
+        ASSERT_EQ(published.size(), 2);
+        EXPECT_EQ(published[0], handles[0]);
+        EXPECT_EQ(published[1], handles[1]);
+        ASSERT_TRUE(manager.import_mesh_async(handles[2]));
+        EXPECT_EQ(drain(), std::vector<AssetHandle>{handles[2]});
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+    }
+
+    TEST_F(AssetBackpressureTest, RejectsInvalidAsyncLimits) {
+        EXPECT_THROW(
+            (AssetManager{project.paths(), registry, factory, scheduler, {0, 1}}),
+            std::invalid_argument);
+        EXPECT_THROW(
+            (AssetManager{project.paths(), registry, factory, scheduler, {1, 0}}),
+            std::invalid_argument);
+    }
+
+    TEST_F(AssetBackpressureTest, GlobalQueuePressureDefersAndCoalescesLatestRequest) {
+        BlockedWorker blocker(scheduler);
+        auto filler = scheduler.submit([] {});
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        EXPECT_EQ(manager.get_async_status().in_flight, 0);
+        EXPECT_EQ(manager.get_async_status().queued, 1);
+        change_mesh(2);
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        change_mesh(3);
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        EXPECT_EQ(manager.get_async_status().queued, 1);
+        EXPECT_TRUE(manager.process_completions().empty());
+        EXPECT_FALSE(std::filesystem::exists(artifact_path(handles[0])));
+        blocker.release();
+        filler.get();
+        EXPECT_EQ(drain(), std::vector<AssetHandle>{handles[0]});
+        const auto artifact = MeshArtifact::load(artifact_path(handles[0]), handles[0]);
+        ASSERT_TRUE(artifact);
+        EXPECT_EQ(artifact->data.vertices.size(), 9);
+    }
+
+    TEST_F(AssetBackpressureTest, InFlightRevisionHasOnlyOneLatestQueuedSuccessor) {
+        BlockedWorker blocker(scheduler);
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        change_mesh(2);
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        change_mesh(3);
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        EXPECT_EQ(manager.get_async_status().in_flight, 1);
+        EXPECT_EQ(manager.get_async_status().queued, 1);
+        blocker.release();
+        EXPECT_EQ(drain(), std::vector<AssetHandle>{handles[0]});
+        const auto artifact = MeshArtifact::load(artifact_path(handles[0]), handles[0]);
+        ASSERT_TRUE(artifact);
+        EXPECT_EQ(artifact->data.vertices.size(), 9);
+    }
+
+    TEST_F(AssetBackpressureTest, ForceRequestDuringQueuedCacheCheckIsPreserved) {
+        ASSERT_TRUE(manager.import_mesh(handles[0]));
+        BlockedWorker blocker(scheduler);
+        auto filler = scheduler.submit([] {});
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        ASSERT_TRUE(
+            manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        EXPECT_EQ(manager.get_async_status().queued, 1);
+        EXPECT_EQ(manager.get_async_status().in_flight, 0);
+        blocker.release();
+        filler.get();
+        EXPECT_EQ(drain(), std::vector<AssetHandle>{handles[0]});
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+    }
+
+    TEST_F(AssetBackpressureTest, SameHandleSuccessorDoesNotBlockOtherHandles) {
+        TaskScheduler roomy_scheduler(1, 4);
+        AssetManager concurrent(
+            project.paths(), registry, factory, roomy_scheduler, {2, 2});
+        BlockedWorker blocker(roomy_scheduler);
+        ASSERT_TRUE(concurrent.scan().succeeded());
+        ASSERT_TRUE(concurrent.import_mesh_async(handles[0]));
+        change_mesh(2);
+        ASSERT_TRUE(concurrent.scan().succeeded());
+        ASSERT_TRUE(concurrent.import_mesh_async(handles[0]));
+        ASSERT_TRUE(concurrent.import_mesh_async(handles[1]));
+        EXPECT_EQ(concurrent.get_async_status().in_flight, 2);
+        EXPECT_EQ(concurrent.get_async_status().queued, 1);
+        blocker.release();
+        roomy_scheduler.wait_idle();
+        EXPECT_EQ(concurrent.process_completions(), std::vector<AssetHandle>{handles[1]});
+        roomy_scheduler.wait_idle();
+        EXPECT_EQ(concurrent.process_completions(), std::vector<AssetHandle>{handles[0]});
+        EXPECT_EQ(concurrent.get_async_status().in_flight, 0);
+        EXPECT_EQ(concurrent.get_async_status().queued, 0);
+        EXPECT_TRUE(std::filesystem::exists(artifact_path(handles[1])));
+    }
+
+    TEST_F(AssetBackpressureTest, ForceSuccessorRequiresCapacityAndCanBeRetried) {
+        ASSERT_TRUE(manager.import_mesh(handles[0]));
+        BlockedWorker blocker(scheduler);
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        ASSERT_TRUE(manager.import_mesh_async(handles[1]));
+        EXPECT_FALSE(
+            manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        EXPECT_EQ(manager.get_async_status().in_flight, 1);
+        EXPECT_EQ(manager.get_async_status().queued, 1);
+        blocker.release();
+        EXPECT_EQ(drain(), std::vector<AssetHandle>{handles[1]});
+        ASSERT_TRUE(
+            manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        EXPECT_EQ(drain(), std::vector<AssetHandle>{handles[0]});
+    }
+
+    TEST_F(AssetBackpressureTest, RemovedQueuedAssetIsDiscardedBeforeDispatch) {
+        BlockedWorker blocker(scheduler);
+        auto filler = scheduler.submit([] {});
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        const auto path = project.paths().assets() / "meshes/41.gltf";
+        std::filesystem::remove(path);
+        std::filesystem::remove(metadata_path(path));
+        ASSERT_TRUE(manager.scan().succeeded());
+        EXPECT_TRUE(manager.process_completions().empty());
+        EXPECT_EQ(manager.get_async_status().queued, 0);
+        EXPECT_FALSE(std::filesystem::exists(artifact_path(handles[0])));
+        blocker.release();
+        filler.get();
+        EXPECT_TRUE(drain().empty());
+    }
+
+    TEST_F(
+        AssetBackpressureTest, DestructionCancelsUndispatchedWorkWithoutWaitingForRoom) {
+        BlockedWorker blocker(scheduler);
+        auto filler = scheduler.submit([] {});
+        {
+            AssetManager temporary(project.paths(), registry, factory, scheduler, {1, 1});
+            ASSERT_TRUE(temporary.scan().succeeded());
+            ASSERT_TRUE(temporary.import_mesh_async(handles[0]));
+            EXPECT_EQ(temporary.get_async_status().queued, 1);
+            EXPECT_EQ(temporary.get_async_status().in_flight, 0);
+        }
+        blocker.release();
+        filler.get();
+        scheduler.wait_idle();
+        EXPECT_FALSE(std::filesystem::exists(artifact_path(handles[0])));
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
     }
 
     class MeshAsyncImportTest: public ::testing::Test {
@@ -401,6 +605,7 @@ namespace Comet::Tests {
         EXPECT_NE(manager.get_database().get_revision(handle), before);
         EXPECT_TRUE(manager.import_mesh_async(handle));
         release.set_value();
+        complete();
         complete();
         blocker.get();
         const auto artifact = MeshArtifact::load(artifact_path(), handle);
@@ -769,6 +974,8 @@ namespace Comet::Tests {
         task_scheduler.wait_idle();
         blocker.get();
         manager.process_completions();
+        task_scheduler.wait_idle();
+        manager.process_completions();
 
         EXPECT_NE(registry.resolve<Mesh>(handle), original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
@@ -1019,6 +1226,8 @@ namespace Comet::Tests {
         release_worker.set_value();
         task_scheduler.wait_idle();
         blocker.get();
+        manager.process_completions();
+        task_scheduler.wait_idle();
         manager.process_completions();
 
         EXPECT_NE(registry.resolve<Texture>(handle), original);

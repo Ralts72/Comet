@@ -18,7 +18,11 @@ namespace Comet {
         }
     }
 
-    TaskScheduler::TaskScheduler(const std::size_t worker_count) {
+    TaskScheduler::TaskScheduler(
+        const std::size_t worker_count, const std::size_t queue_capacity)
+        : m_queue_capacity(queue_capacity) {
+        if(queue_capacity == 0)
+            throw std::invalid_argument("Task queue capacity must be positive");
         const std::size_t resolved_count = resolve_worker_count(worker_count);
         m_workers.reserve(resolved_count);
         try {
@@ -52,19 +56,25 @@ namespace Comet {
     }
 
     std::future<void> TaskScheduler::submit(Task task) {
+        auto result = try_submit(std::move(task));
+        if(!result)
+            throw std::runtime_error("Task scheduler queue is full or stopping");
+        return std::move(*result);
+    }
+
+    std::optional<std::future<void>> TaskScheduler::try_submit(Task task) {
         if(!task) {
             throw std::invalid_argument("Cannot submit an empty task");
         }
 
-        auto scheduled_task =
-            std::make_shared<std::packaged_task<void()>>(std::move(task));
-        std::future<void> result = scheduled_task->get_future();
+        std::future<void> result;
         {
             const std::lock_guard lock(m_mutex);
-            if(m_stopping) {
-                throw std::runtime_error(
-                    "Cannot submit a task while the scheduler is stopping");
-            }
+            if(m_stopping || m_tasks.size() >= m_queue_capacity)
+                return std::nullopt;
+            auto scheduled_task =
+                std::make_shared<std::packaged_task<void()>>(std::move(task));
+            result = scheduled_task->get_future();
             m_tasks.emplace_back([scheduled_task] { (*scheduled_task)(); });
         }
         m_task_available.notify_one();

@@ -130,7 +130,18 @@ EditorAssets 在成功提交扫描快照后收集 Mesh Handles，下一次 updat
 Project 右键 Reimport 走 Force 模式；同 Handle + revision 请求合并，自动检查期间的强制重建意图不会丢失。
 未加载模型只发布 Artifact 和源依赖，不分配 GPU；已加载模型继续安全替换 Runtime，失败保留旧对象。
 扫描事件后会检查项目内所有已索引 Mesh，也覆盖尚未成功导入、未登记外部 buffer 依赖的模型；
-无事件帧不遍历或检查产物，失败不会每帧自动重试。大项目的检查范围和任务预算仍需后续优化。
+无事件帧不遍历或检查产物，失败不会每帧自动重试。大项目的检查范围和发布预算仍需后续优化。
+
+后台请求有两层数量限制：TaskScheduler 默认最多等待 128 个任务（不含正在执行的 Worker），
+AssetManager 默认最多 8 个在途任务、128 个未派发请求，可通过构造参数调整。
+同 Handle/revision 合并；同 Handle 的排队项替换为最新 revision，保留原排队位置。
+Force 请求在接收时直接升级未派发的缓存检查，或为已提交的缓存检查接收一个后继任务；
+若后继没有排队容量，当场返回 false，不先记意图再在完成处理时尝试排队。
+同 Handle 的在途任务未回收前不派发后继，但其他 Handle 可以前进。派发前与发布前都验证 revision。
+全局队列满时 try_submit 返回空，资产请求留在本地等待 process_completions 再派发，不在 owner 线程执行或等待容量。
+本地请求队列满时返回 false 并记录日志；拒绝的请求不保证自动重试，可显式 Reimport 或等待下一次源变化。
+get_async_status 仅供 owner 查询已提交未回收／未派发数量，不是 Worker 实时运行数。
+当前只限制接收数量，不限制单任务内存和时长，也不保证每帧发布耗时；完成结果与 future 的回收边界将在发布预算阶段收敛。
 
 依赖索引分两类：
 
@@ -161,7 +172,8 @@ Texture 后台刷新和显式重导入共用 `reload_loaded_material_dependents(
 ## 生命周期与文件写入
 
 AssetManager 持有数据库，借用 Registry、RenderResourceFactory 和 TaskScheduler；必须先于这些依赖销毁，
-并在析构时等自己的任务结束。TaskScheduler 是通用固定 Worker 池，不认识资产。
+析构先取消未派发请求（解除闭包对 AsyncState 的共享引用），再等待已提交任务，不在析构中发布 GPU 对象。
+TaskScheduler 是通用固定 Worker 池，不认识资产；析构仍执行完已接收的任务，wait_idle 不代表资产层排队工作也已排空。
 Registry 保存 Runtime 的共享引用；替换条目不影响仍持有旧对象的 Material 或在途帧。
 GPU ready/retention 规则见[渲染所有权](rendering-ownership.md)，资产 revision 不代替 GPU completion。
 

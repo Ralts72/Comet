@@ -8,6 +8,7 @@
 #include <functional>
 #include <future>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -16,7 +17,8 @@ namespace Comet {
     public:
         using Task = std::function<void()>;
 
-        explicit TaskScheduler(std::size_t worker_count = 0);
+        explicit TaskScheduler(
+            std::size_t worker_count = 0, std::size_t queue_capacity = 128);
         ~TaskScheduler();
 
         TaskScheduler(const TaskScheduler&) = delete;
@@ -25,9 +27,14 @@ namespace Comet {
         TaskScheduler& operator=(TaskScheduler&&) = delete;
 
         [[nodiscard]] std::future<void> submit(Task task);
+        // 队列满或停止接收时立即返回空，不在提交线程执行任务或等待容量。
+        [[nodiscard]] std::optional<std::future<void>> try_submit(Task task);
         void wait_idle();
 
         [[nodiscard]] std::size_t get_worker_count() const noexcept;
+        [[nodiscard]] std::size_t get_queue_capacity() const noexcept {
+            return m_queue_capacity;
+        }
 
     private:
         void worker_loop();
@@ -37,6 +44,7 @@ namespace Comet {
         std::condition_variable m_idle;
         std::deque<Task> m_tasks;
         std::vector<std::thread> m_workers;
+        std::size_t m_queue_capacity;
         std::size_t m_active_tasks = 0;
         bool m_stopping = false;
     };

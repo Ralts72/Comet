@@ -39,7 +39,7 @@ ctest --preset dev-debug
 手动配置需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS`。
 编辑器源码由 `editor_core`（不依赖 ImGui）和 `editor_ui` 两个内部库管理，入口与测试共同链接。
 仅启用 tests 时仍构建 editor_core，不构建 UI；新增编辑器源码只需维护所属库的清单。
-`tests/support/` 提供测试专用的 ImGui Context 与临时目录寿命管理，不进入引擎。
+`tests/support/` 提供测试专用的 ImGui Context、临时目录与 Worker 同步辅助，不进入引擎。
 `COMET_NATIVE_OPTIMIZATION` 只适合本机构建。配置与诊断采用“编译期能力 + Profile 运行时策略”。
 
 macOS 和 Windows 下 app/editor 分别使用橙色、蓝色彗星静态图标，资源位于各自的 `resources/icons/`，不参与项目资产扫描。
@@ -62,6 +62,8 @@ Windows 通过 `.rc` 将 ICO 编译进 exe，GLFW 自动用作初始窗口图标
 `.scene` 的 `entities` 只放根实体，子实体通过 `children` 嵌套，不再保存 `parent` 引用；UUID 仍全场景唯一。
 项目描述 `project.json` 同样使用 JSON；仅 `config/` 中的引擎、编辑器 Profile 与快捷键配置继续使用 YAML。
 JSON 解析直接依赖已有 simdjson。
+后台导入采用有界任务队列，同一资产尚未执行的旧请求会被最新 revision 合并替换；
+队列满时明确拒绝新请求，可通过 Reimport 重试。已加载资源在刷新失败时继续保留，单帧发布预算仍待完善。
 示例项目根目录是仓库的 `demo/`，不是仓库根；可完整复制该目录作为外部项目。
 旧仓库根 `.comet/` 不自动迁移，新位置缺少缓存／布局时会重新生成，旧数据保留。
 
