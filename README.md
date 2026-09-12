@@ -8,6 +8,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | --- | --- |
 | `engine/src/` | 引擎库：core、scene、asset、render、graphics、config、diagnostics |
 | `engine/shaders/` | 引擎 Shader；只编译 CMake 显式列表，其余源码保留供学习 |
+| `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、ui 组织，`resources/` 保存私有字体等资源 |
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
@@ -19,8 +20,10 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 
 ## 构建与运行
 
-需要 CMake 3.31+、C++20 编译器、Vulkan SDK（含 `glslangValidator`）、Git LFS 和 Submodule。
+需要 CMake 3.31+、C++20 编译器、Vulkan SDK、Git LFS 和 Submodule。
 SPIRV-Reflect 以固定版本 submodule 接入，仅作为 engine 的私有静态反射依赖；不构建其工具与测试。
+glslang 以正式版本 `16.6.0` 的固定提交作为 submodule，由构建生成 `comet_shader_compiler`；不再要求额外安装 `glslangValidator`。
+首次构建会增加源编译器的编译耗时，但 engine／app 不链接该编译库，发布运行不需要源编译器。
 
 ```bash
 git lfs install
@@ -153,6 +156,8 @@ JSON 解析直接依赖已有 simdjson。
   Texture 暂时直接解码源文件，后续再引入 Artifact。
 - 世界 +Y 向上，Vulkan Viewport 用负高度转换画面坐标；`flip_y` 仅控制纹理导入。
   Shader 编译产物只进入构建目录，学习源码不作为生产 Shader 的隐式依赖。
+  构建 CLI 使用 `tools/shader/compiler.h` 的 CPU 编译入口，输入包含阶段、入口、宏、目标和 include 路径；
+  成功后原子写出 SPIR-V，include 依赖由 depfile 跟踪；失败不覆盖旧产物，当前尚未接入编辑器热重载。
 
 详细说明：[资源所有权](docs/architecture/rendering-ownership.md) ·
 [资产管线](docs/architecture/asset-pipeline.md) · [场景格式](docs/architecture/scene-format.md) ·

@@ -132,6 +132,11 @@ ShaderInterface 只公开 Comet 的 Format、DescriptorType、ShaderStage 和自
 反射库类型在 shader_interface.cpp 内显式转换；Vulkan 类型对照留在 ShaderLayout::validate 的实现中，材质层只消费 Comet 描述。
 当前同步反射，不自动生成 MaterialLayout，不新增热更新线程或事件；预检只检查字节码头与指令长度，不是完整 SPIR-V validator。
 
+tools/shader/compiler.h 是 CPU 源编译入口：只依赖 Comet 阶段枚举和标准库，glslang 类型留在 cpp。
+comet_shader_tools 静态库与 CLI 不链接 engine 运行时；CLI 复用 common/file_io.cpp 原子发布 SPIR-V，构建后仍生成内置字节码头。
+每次编译独占源快照、解析器和结果，glslang 进程初始化只执行一次；结果记录逻辑／解析路径、存在或缺失的内容。
+成功前重查输入，失败清空字节码并返回诊断；未来 Worker→owner 发布仍需验证请求 revision 和输入未变化，不把快照当文件锁。
+
 Shader 保存不可变字节码副本；ShaderManager 按逻辑名称管理当前版本，但仅在字节码和入口相同时复用，候选失败不覆盖旧条目。
 PipelineKey 按完整代码／入口、descriptor 与 push 范围、配置、RenderPass 身份和附件格式／采样数判等，名称只作首次创建标签。
 配置和 State 集中在 pipeline_config.h/.cpp，Key 的值描述与规范化／哈希在 pipeline_key.h/.cpp，

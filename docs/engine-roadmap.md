@@ -12,12 +12,12 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、任务背压与发布预算已接通，仍有扩展 | 增量引用恢复、字节预算与更多导入格式 |
 | 4 视口与交互 | 4A/4B 主链路完成，4C 进行中 | 内容编辑与撤销扩展 |
-| 5 渲染升级 | 材质分层、Inspector、SPIR-V 接口与 PipelineKey 已接通 | Shader 编译契约、热更新、多 pass、线程边界 |
+| 5 渲染升级 | 材质分层、Inspector、SPIR-V 接口、PipelineKey 与 CPU 编译入口已接通 | specialization、热更新、多 pass、线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
 以当前 main 的功能与验收为准，不再按 feat/auto 提交编号逐个迁移；旧分支仅作为算法、测试及设计参考。
-下一步推进阶段 5 的 Shader 编译契约与 CPU 编译结果，再接后台发布和热更新；阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
+下一步推进阶段 5 的 specialization 值、PipelineKey 和反射一致性，再接后台发布和热更新；阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
 WSI 失败后的无呈现重试仍应独立安排，不与资产编辑工作流捆绑重构。
@@ -138,6 +138,11 @@ MaterialRuntimeCache 按版本复用快照。FrameSet 按 slot，MaterialSet 按
 切换程序时保留兼容参数，对缺失或类型变化给出默认值／诊断；编译失败不替换当前有效版本。
 
 Shader 源码、CPU 编译结果和 Vulkan 对象分层；build-time/editor 编译共用 stage、entry、defines/variants、target 和依赖契约。
+已接通 tools/shader 的 CPU 编译入口与构建 CLI，固定 glslang，复用 Comet::ShaderStage；公开 API 不含第三方类型。
+生产与测试构建使用同一入口，保留 INCLUDE_DIRECTORY/DEPENDENCIES 并生成 depfile；编译失败保留旧产物。
+Result 拥有字节码、诊断和输入快照（包括缺失的搜索候选）；成功后复核输入，但不代替发布时的 revision／输入校验。
+当前仅支持 GLSL vertex/fragment/compute、Vulkan 1.0/1.3 目标；未做持久编译缓存、优化器、HLSL、超时或沙箱。
+depfile 仅跟踪存在的依赖，新增遮蔽文件不保证触发增量构建；未来监听须消费缺失候选，不能仅观察成功 include。
 Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验票 → owner 帧边界切换。
 接口兼容时换 Pipeline；接口变化时同时重建 Layout 并失效材质缓存。失败保留旧版本并输出文件/行号诊断；
 成功也不能提前释放在途帧引用的 Shader/Pipeline/Layout。Shipping 只消费预编译打包数据，不要求松散 .spv。

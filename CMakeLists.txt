@@ -18,6 +18,7 @@ find_package(Vulkan REQUIRED)
 
 set(GLFW_LIBRARY_TYPE SHARED CACHE STRING "GLFW linkage required by Comet" FORCE)
 add_subdirectory(3rdparty)
+add_subdirectory(tools/shader)
 
 function(comet_copy_runtime_dependencies executable)
     if (WIN32)
