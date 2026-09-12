@@ -1,0 +1,103 @@
+#pragma once
+#include "viewport/camera_controller.h"
+#include "editor_state.h"
+#include "ui/editor_panel.h"
+#include "viewport/viewport_layout.h"
+#include "assets/asset_reference.h"
+
+#include <imgui.h>
+#include <cstdint>
+#include <optional>
+
+namespace CometEditor {
+    class SelectionService;
+    class TransformGizmo;
+    class PropertyEditTransaction;
+    class EditorShortcuts;
+
+    class ViewPanel: public EditorPanel {
+    public:
+        struct MeshDrop {
+            AssetDragPayload asset;
+            Comet::Math::Vec3 position;
+        };
+        ViewPanel(const EditorState& state, SelectionService& selection,
+            TransformGizmo& gizmo, PropertyEditTransaction& inspector_edit,
+            std::uint32_t max_render_dimension, const EditorShortcuts& shortcuts);
+
+        void render() override;
+
+        // 在 UI 帧结束前，用处理完相机输入后的状态追加操作手柄。
+        void draw_gizmo();
+        void cancel_interaction();
+
+        void set_texture_id(
+            ImTextureID texture_id, std::uint32_t width, std::uint32_t height);
+
+        void clear_texture();
+
+        [[nodiscard]] Comet::Math::Vec2u get_requested_render_size() const {
+            return m_requested_render_size;
+        }
+
+        [[nodiscard]] const ViewportLayout& get_layout() const { return m_layout; }
+
+        [[nodiscard]] bool is_visible() const { return m_actually_visible; }
+
+        [[nodiscard]] std::optional<EditorCameraInput> take_camera_input();
+
+        [[nodiscard]] std::optional<Comet::RenderCamera::Projection>
+        take_projection_request();
+
+        [[nodiscard]] std::optional<EditorMode> take_mode_request();
+
+        [[nodiscard]] std::optional<Comet::Math::Vec2u> take_pick_request();
+
+        [[nodiscard]] bool take_focus_request();
+        [[nodiscard]] std::optional<MeshDrop> take_mesh_drop();
+
+    private:
+        enum class CameraDragMode { Orbit, Pan };
+
+        struct CameraDrag {
+            CameraDragMode mode;
+            ImGuiMouseButton button;
+        };
+
+        void render_toolbar();
+        void render_projection_controls();
+        void render_gizmo_settings();
+        void render_play_toolbar();
+        void render_view_content();
+        void update_view_interaction();
+        void reset_hidden_view();
+        void reset_camera_interaction();
+
+        const EditorState& m_state;
+        SelectionService& m_selection;
+        TransformGizmo& m_gizmo;
+        PropertyEditTransaction& m_inspector_edit;
+        const EditorShortcuts& m_shortcuts;
+        ImGuiID m_gizmo_id = 0;
+        ImDrawList* m_gizmo_draw_list = nullptr;
+        bool m_actually_visible = false;
+        std::uint32_t m_max_render_dimension = 0;
+        ViewportLayout::ResolutionPolicy m_play_resolution_policy;
+        ViewportLayout::DisplayMode m_play_display_mode =
+            ViewportLayout::DisplayMode::Fit;
+
+        ImTextureID m_texture_id = ImTextureID_Invalid;
+        Comet::Math::Vec2u m_texture_resolution{};
+        ViewportLayout m_layout;
+        Comet::Math::Vec2u m_observed_render_resolution{};
+        Comet::Math::Vec2u m_requested_render_size{};
+        std::uint32_t m_render_resolution_stable_frames = 0;
+        std::optional<EditorCameraInput> m_camera_input;
+        std::optional<Comet::RenderCamera::Projection> m_camera_projection_request;
+        std::optional<EditorMode> m_mode_request;
+        std::optional<Comet::Math::Vec2u> m_pick_request;
+        bool m_focus_request = false;
+        std::optional<CameraDrag> m_camera_drag;
+        std::optional<MeshDrop> m_mesh_drop;
+    };
+}

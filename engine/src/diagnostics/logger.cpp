@@ -1,13 +1,12 @@
 #include "diagnostics/logger.h"
+#include "config/config.h"
 
-#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <filesystem>
 #include <iomanip>
 #include <sstream>
 
-#include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/stdout_sinks.h>

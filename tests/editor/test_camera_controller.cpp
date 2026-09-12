@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "../test_utils.h"
-#include "camera_controller.h"
+#include "viewport/camera_controller.h"
 
 #include <limits>
 

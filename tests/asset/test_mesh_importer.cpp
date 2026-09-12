@@ -1,4 +1,5 @@
 #include "asset/import/mesh_importer.h"
+#include "render/resource/mesh_data.h"
 #include "asset/handle.h"
 
 #include <gtest/gtest.h>

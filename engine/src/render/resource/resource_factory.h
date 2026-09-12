@@ -2,14 +2,14 @@
 
 #include "common/export.h"
 #include "graphics/resource/resource_result.h"
-#include "render/resource/mesh_data.h"
-#include "render/resource/texture_data.h"
 
 #include <memory>
 
 namespace Comet {
     class Mesh;
     class Texture;
+    struct MeshData;
+    struct TextureData;
 
     class COMET_API RenderResourceFactory {
     public:

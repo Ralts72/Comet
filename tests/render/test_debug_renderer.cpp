@@ -1,4 +1,12 @@
 #include "core/engine.h"
+#include "config/config.h"
+#include "render/renderer.h"
+#include "render/render_context.h"
+#include "render/scene/scene_renderer.h"
+#include "render/render_target.h"
+#include "graphics/render_pass.h"
+#include "graphics/device.h"
+#include "core/window.h"
 #include "diagnostics/logger.h"
 #include "render/line_draw_list.h"
 #include "graphics/resource/image.h"
@@ -6,7 +14,6 @@
 #include <gtest/gtest.h>
 #include <spdlog/sinks/ostream_sink.h>
 
-#include <algorithm>
 #include <sstream>
 #include <tuple>
 

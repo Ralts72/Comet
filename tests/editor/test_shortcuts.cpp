@@ -1,8 +1,7 @@
 #ifdef COMET_TEST_EDITOR_UI
-#include "shortcuts.h"
+#include "ui/shortcuts.h"
 
 #include <gtest/gtest.h>
-#include <stdexcept>
 
 namespace CometEditor::Tests {
     using Action = EditorShortcuts::Action;

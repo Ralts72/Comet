@@ -1,8 +1,12 @@
 #include "runtime/entry.h"
+#include "config/config.h"
+#include "render/renderer.h"
+#include "core/window.h"
+#include "diagnostics/logger.h"
 #include "support/temporary_directory.h"
 
 #ifdef COMET_TEST_EDITOR_UI
-#include "imgui_context.h"
+#include "ui/imgui_context.h"
 #endif
 
 #include <gtest/gtest.h>
@@ -111,7 +115,7 @@ namespace Comet::Tests {
                 if(fail_at == 1)
                     throw std::runtime_error("init failure");
                 if(fail_at == 0)
-                    glfwSetWindowShouldClose(get_engine().get_window().get(), true);
+                    get_engine().get_window().request_close();
             }
             void on_update(UpdateContext) override {
                 throw std::runtime_error("update failure");

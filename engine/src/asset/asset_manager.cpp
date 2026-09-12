@@ -1,4 +1,5 @@
 #include "asset/asset_manager.h"
+#include "render/resource/texture_data.h"
 
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/import/import_service.h"

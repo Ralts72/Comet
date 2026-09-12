@@ -1,11 +1,8 @@
 #pragma once
-#include "config/config.h"
-#include "render_context.h"
+#include "common/export.h"
 #include "render/scene/render_scene.h"
 #include "render/scene/scene_resolver.h"
 #include "render/scene/scene_picking.h"
-#include "render/resource/resource_manager.h"
-#include "render/scene/scene_renderer.h"
 #include "render/line_draw_list.h"
 
 #include <functional>
@@ -14,6 +11,12 @@
 
 namespace Comet {
     class AssetRegistry;
+    class Window;
+    class CommandBuffer;
+    class RenderContext;
+    class ResourceManager;
+    class SceneRenderer;
+    class Config;
 
     class COMET_API Renderer {
     public:

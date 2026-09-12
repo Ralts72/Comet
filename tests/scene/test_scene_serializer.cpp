@@ -7,7 +7,6 @@
 #include "../test_utils.h"
 
 #include <filesystem>
-#include <fstream>
 #include <limits>
 #include <random>
 #include <stdexcept>

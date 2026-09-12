@@ -1,4 +1,4 @@
-#include "selection.h"
+#include "scene/selection.h"
 
 #include <gtest/gtest.h>
 

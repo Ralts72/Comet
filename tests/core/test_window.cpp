@@ -1,10 +1,39 @@
 #include "core/window.h"
+#include "config/config.h"
+
+#include <GLFW/glfw3.h>
 #include <gtest/gtest.h>
+#include <memory>
 
 namespace Comet::Tests {
+    TEST(WindowTest, WindowsOwnBackendLifetimeAndCloseIndependently) {
+        Config::Window config;
+        config.width = 64;
+        config.height = 64;
+        config.title = "Comet Window Lifetime Test";
+        {
+            auto first = std::make_unique<Window>(config);
+            Window second(config);
+            EXPECT_FALSE(first->should_close());
+            first->request_close();
+            EXPECT_TRUE(first->should_close());
+            EXPECT_FALSE(second.should_close());
+            first.reset();
+
+            second.poll_events();
+            EXPECT_GT(second.get_framebuffer_size().x, 0U);
+            EXPECT_EQ(second.is_minimized(),
+                glfwGetWindowAttrib(second.get(), GLFW_ICONIFIED) == GLFW_TRUE);
+            second.request_close();
+            EXPECT_TRUE(second.should_close());
+        }
+
+        Window reopened(config);
+        EXPECT_FALSE(reopened.should_close());
+        EXPECT_GT(reopened.get_framebuffer_size().x, 0U);
+    }
+
     TEST(WindowTest, FileDropCopiesCallbackPathsAndConsumesEachEventOnce) {
-        if(glfwInit() != GLFW_TRUE)
-            GTEST_SKIP() << "GLFW initialization failed";
         Config::Window config;
         config.width = 64;
         config.height = 64;

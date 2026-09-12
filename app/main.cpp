@@ -1,4 +1,6 @@
 #include "runtime/entry.h"
+#include "render/resource/resource_manager.h"
+#include "diagnostics/logger.h"
 #include "asset/asset_manager.h"
 #include "core/project_paths.h"
 #include "scene/scene.h"

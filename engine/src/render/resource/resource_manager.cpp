@@ -1,4 +1,8 @@
 #include "render/resource/resource_manager.h"
+#include "render/resource/texture_data.h"
+#include "render/resource/mesh_data.h"
+#include "graphics/pipeline/shader.h"
+#include "graphics/resource/sampler.h"
 #include "diagnostics/logger.h"
 #include "graphics/command/upload_manager.h"
 #include "render/resource/mesh.h"

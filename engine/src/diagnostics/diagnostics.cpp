@@ -1,4 +1,5 @@
 #include "diagnostics/diagnostics.h"
+#include "config/config.h"
 
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"

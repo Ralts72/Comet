@@ -1,4 +1,5 @@
 #include "asset/artifact/mesh_artifact.h"
+#include "render/resource/mesh_data.h"
 
 #include "asset/handle.h"
 #include "asset/import/mesh_importer.h"

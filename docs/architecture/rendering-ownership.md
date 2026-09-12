@@ -15,7 +15,8 @@
 | `render/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
 | `render/resource/resource_manager.h` | 设备资源工厂、上传及 Shader/Sampler 共享资源 |
 | `graphics/` | Vulkan 对象与显式同步后端 |
-| `editor/src/imgui_context.h` | 编辑器 UI 最终呈现和私有纹理绑定，不属于 engine |
+| `editor/src/viewport/viewport.h` | 组合 ViewPanel/Gizmo，连接编辑器相机、选择反馈与 Renderer |
+| `editor/src/ui/imgui_context.h` | 编辑器 UI 最终呈现和私有纹理绑定，不属于 engine |
 
 engine 入口路径相对 `engine/src/`。Graphics 的 command/resource/pipeline/synchronization 按职责分目录；
 Context、Device、Queue、Swapchain、RenderPass、FrameBuffer 保留在根层，因为它们跨越多个职责组。
@@ -46,6 +47,7 @@ Editor
 ├── EditorAssets → AssetManager（借用 Engine 的服务）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
 ├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
+├── Viewport → ViewPanel / TransformGizmo（借用状态、选择、Renderer、Registry 和 ImGuiContext）
 └── ImGuiContext
     ├── RenderPass / SwapchainTarget / DescriptorPool
     └── TextureBinding[slot] → ImageView / Sampler / ImGui descriptor
@@ -127,13 +129,15 @@ DebugRenderer 使用场景的相机矩阵、RenderPass 格式和 MSAA；LineList
 绘制使用的 buffer/Pipeline 同时被 FrameSlot 保留至 GPU 完成。扩容失败保留旧 buffer 并跳过本批，延后重试。
 它不持有 Scene、Selection 或 ImGui；选中框等调用方自行转换成世界空间请求。
 
-Editor 在 UI 编辑命令完成后读取选中实体的 Mesh local bounds 和最新 world matrix，
+Viewport 在 UI 编辑命令完成后读取选中实体的 Mesh local bounds 和最新 world matrix，
 用 LineDrawList::add_box(box, transform, color) 变换八角点并连接十二条边，不重新拟合世界 AABB。
 普通帧在 prepare 提交；有视口拾取请求时，等结果更新 Selection 后再提交，避免旧框和新框同时出现。
 选择状态仍由 SelectionService 持有，Scene/Mesh/Material 不保存 selected 标记；Play、隐藏视口或无有效 Mesh 时不提交。
 
-TransformGizmo 是编辑器侧的投影、命中与平移／旋转事务，不是渲染资源。它与 Inspector 各自持有 PropertyEditTransaction，
-共享同一个 CommandHistory；拖动用 UUID 定位，按模式预览 translation 或 rotation，释放提交一次，取消恢复。
+Viewport 拥有 ViewPanel 和 TransformGizmo，借用 EditorState、Selection、Renderer、AssetRegistry 和 ImGuiContext；
+每次更新显式接收当前 Scene，不另存活动场景指针。Editor 负责挂接和解除帧回调、场景重绑以及跨面板命令。
+TransformGizmo 是编辑器侧的投影、命中与平移／旋转／缩放事务，不是渲染资源。它与 Inspector 各自持有 PropertyEditTransaction，
+共享同一个 CommandHistory；拖动用 UUID 定位，按模式预览 translation、rotation 或 scale，释放提交一次，取消恢复。
 ViewPanel 优先将普通左键交给 Gizmo，未命中才请求场景拾取；拖动时占有 ImGui active ID，阻止快捷键和相机导航。
 UI 回调完成命令／相机更新后，ViewPanel::draw_gizmo 将最新句柄追加到本帧窗口 draw list，随后 ImGui::Render。
 箭头和旋转环作为可操作的 UI 覆盖层不受场景深度遮挡；显示与命中共用线段集合，不需要修改 DebugRenderer 或向 engine 注入编辑器状态。
@@ -188,6 +192,13 @@ Generation 的 shared ownership 只解决寿命，不保证 WSI 可继续 acquir
 关闭先解绑捕获 Editor/ImGuiContext 的 callback，结束后台工作并等待必要 GPU 完成，再释放：
 ImGui dependent → Registry/SceneRenderer → ResourceManager → Swapchain/Device/Context → Window。
 Device 必须比 Buffer、Image、Mesh、Texture、completion token 活得更久；shutdown 允许 Device idle。
+
+GLFW 由 Window 实现管理：首个窗口初始化，最后一个窗口释放后终止，创建／销毁在主线程执行。
+原生窗口由 unique_ptr 与私有 deleter 持有，构造过程中取得窗口后发生异常也会释放。
+Engine 不直接初始化 GLFW；普通调用方使用 `request_close()` / `is_minimized()`。
+`Window::get()` 仅借出句柄给 Vulkan Surface、ImGui 后端和底层测试，不转移所有权；
+调用者不得自行销毁句柄或在 Comet 窗口存活时终止 GLFW。独立的非 Comet 窗口生命周期暂不纳入管理。
+GLFW 使用共享库，避免 Engine 动态库与 ImGui／测试各自静态链接一份全局状态；PRIVATE 链接仅控制接口传播，不代替这一运行时约束。
 
 ## Viewport 和拾取边界
 

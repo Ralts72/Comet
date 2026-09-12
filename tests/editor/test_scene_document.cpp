@@ -1,4 +1,4 @@
-#include "scene_document.h"
+#include "scene/scene_document.h"
 #include "support/temporary_directory.h"
 #include "common/file_io.h"
 
@@ -11,7 +11,6 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <string>
-#include <utility>
 
 namespace CometEditor::Tests {
     namespace {

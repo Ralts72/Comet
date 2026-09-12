@@ -1,7 +1,11 @@
 #include "renderer.h"
+#include "config/config.h"
+#include "render/render_context.h"
+#include "render/resource/resource_manager.h"
+#include "render/scene/scene_renderer.h"
+#include "core/window.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
-#include "render/scene/render_types.h"
 
 #include <utility>
 

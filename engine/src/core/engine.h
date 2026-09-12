@@ -1,9 +1,6 @@
 #pragma once
 #include "common/export.h"
-#include "window.h"
-#include "render/renderer.h"
 #include "timer.h"
-#include "config/config.h"
 
 #include <functional>
 #include <memory>
@@ -14,6 +11,10 @@ namespace Comet {
     class AssetRegistry;
     class Scene;
     class TaskScheduler;
+    class Window;
+    class Renderer;
+    class ResourceManager;
+    class Config;
 
     class COMET_API Engine {
     public:
@@ -40,12 +41,8 @@ namespace Comet {
             return *m_asset_registry;
         }
 
-        [[nodiscard]] ResourceManager& get_resource_manager() {
-            return m_renderer->get_resource_manager();
-        }
-        [[nodiscard]] const ResourceManager& get_resource_manager() const {
-            return get_renderer().get_resource_manager();
-        }
+        [[nodiscard]] ResourceManager& get_resource_manager();
+        [[nodiscard]] const ResourceManager& get_resource_manager() const;
 
         [[nodiscard]] TaskScheduler& get_task_scheduler() { return *m_task_scheduler; }
         [[nodiscard]] const TaskScheduler& get_task_scheduler() const {

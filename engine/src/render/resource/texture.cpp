@@ -1,7 +1,7 @@
 #include "render/resource/texture.h"
+#include "render/resource/texture_data.h"
 #include "graphics/command/upload_manager.h"
 #include "graphics/device.h"
-#include "graphics/convert.h"
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/synchronization/resource_state.h"

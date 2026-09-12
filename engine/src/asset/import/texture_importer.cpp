@@ -1,4 +1,5 @@
 #include "asset/import/texture_importer.h"
+#include "render/resource/texture_data.h"
 
 #include <stb_image.h>
 

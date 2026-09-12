@@ -1,13 +1,13 @@
 add_library(editor_core STATIC
-        src/editor_assets.cpp
-        src/command_history.cpp
-        src/scene_commands.cpp
-        src/transform_gizmo.cpp
-        src/camera_controller.cpp
         src/editor_state.cpp
-        src/editor_scene_session.cpp
-        src/scene_document.cpp
-        src/viewport_layout.cpp
+        src/assets/editor_assets.cpp
+        src/scene/command_history.cpp
+        src/scene/editor_scene_session.cpp
+        src/scene/scene_commands.cpp
+        src/scene/scene_document.cpp
+        src/viewport/camera_controller.cpp
+        src/viewport/transform_gizmo.cpp
+        src/viewport/viewport_layout.cpp
 )
 target_link_libraries(editor_core PUBLIC engine)
 target_include_directories(editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -17,16 +17,18 @@ if (NOT COMET_BUILD_EDITOR)
 endif ()
 
 add_library(editor_ui STATIC
-        src/scene_file_dialog.cpp
-        src/imgui_context.cpp
-        src/menu_bar.cpp
-        src/shortcuts.cpp
-        src/property_editor_registry.cpp
-        src/panels/inspector.cpp
-        src/panels/console.cpp
-        src/panels/view.cpp
-        src/panels/hierarchy.cpp
-        src/panels/project.cpp
+        src/assets/asset_reference.cpp
+        src/assets/project.cpp
+        src/inspector/inspector.cpp
+        src/inspector/property_editor_registry.cpp
+        src/scene/hierarchy.cpp
+        src/scene/scene_file_dialog.cpp
+        src/ui/console.cpp
+        src/ui/imgui_context.cpp
+        src/ui/menu_bar.cpp
+        src/ui/shortcuts.cpp
+        src/viewport/view.cpp
+        src/viewport/viewport.cpp
 )
 target_link_libraries(editor_ui PUBLIC editor_core imgui PRIVATE yaml-cpp)
 target_compile_definitions(editor_ui PRIVATE
@@ -52,6 +54,7 @@ elseif (WIN32)
             OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/editor.ico")
 endif ()
 target_link_libraries(editor PRIVATE editor_ui)
+comet_copy_runtime_dependencies(editor)
 target_compile_definitions(editor PRIVATE
         COMET_CONFIG_DIRECTORY="${CMAKE_SOURCE_DIR}/config"
         COMET_CONFIG_PROFILE="${COMET_CONFIG_PROFILE}"

@@ -8,7 +8,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | --- | --- |
 | `engine/src/` | 引擎库：core、scene、asset、render、graphics、config、diagnostics |
 | `engine/shaders/` | 引擎 Shader；只编译 CMake 显式列表，其余源码保留供学习 |
-| `editor/` | 编辑器入口、面板及 `resources/` 私有字体等资源 |
+| `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、ui 组织，`resources/` 保存私有字体等资源 |
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
 | `demo/assets/` | 示例项目场景、源资产及相邻 `.meta`，进入版本控制 |
@@ -38,6 +38,7 @@ ctest --preset dev-debug
 
 手动配置需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS`。
 编辑器源码由 `editor_core`（不依赖 ImGui）和 `editor_ui` 两个内部库管理，入口与测试共同链接。
+物理目录按功能聚合，编译目标按依赖划分；例如 `scene/scene_document` 属于 core，`scene/hierarchy` 属于 ui。
 仅启用 tests 时仍构建 editor_core，不构建 UI；新增编辑器源码只需维护所属库的清单。
 `tests/support/` 提供测试专用的 ImGui Context、临时目录与 Worker 同步辅助，不进入引擎。
 `COMET_NATIVE_OPTIMIZATION` 只适合本机构建。配置与诊断采用“编译期能力 + Profile 运行时策略”。
@@ -46,6 +47,7 @@ macOS 和 Windows 下 app/editor 分别使用橙色、蓝色彗星静态图标�
 macOS 在构建目录内生成 `app/Comet.app` 和 `editor/CometEditor.app`，内含静态 ICNS 图标；启动脚本自动使用 bundle 内的新入口。
 Windows 通过 `.rc` 将 ICO 编译进 exe，GLFW 自动用作初始窗口图标；不在运行时加载 PNG，Linux 暂不配置图标。
 开发构建仍依赖仓库资源与开发动态库，不是独立分发包。
+GLFW 以动态库构建，确保引擎和 UI 后端共用一份窗口系统状态；Windows 构建会复制目标运行时 DLL 到可执行文件目录。
 
 ## 打开项目
 
@@ -115,7 +117,7 @@ JSON 解析直接依赖已有 simdjson。
 - Inspector 引用框支持按类型过滤的资产路径下拉框；Edit 还可从 Project 拖入 Mesh／Material／Texture。
   底层仍保存 Handle，加载失败保持旧引用，丢失引用显示 Missing。Play 仅支持下拉调试，不接受资产拖放。
   当前材质 `unlit_texture_blend` 为无光照、两纹理等比例混合，尚不支持动态指定项目 Shader。
-- View 菜单与面板关闭按钮共享显隐状态；未实现的菜单项禁用。
+- View 菜单与面板关闭按钮共享显隐状态；菜单只展示已接通的操作。
 
 ## 架构入口
 
@@ -124,6 +126,8 @@ JSON 解析直接依赖已有 simdjson。
   `Comet::run` 读取配置，再由 `Application::run` 统一驱动初始化、更新和关闭；异常在生命周期边界处理，具体契约见资源所有权文档。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
+- 窗口：Window 管 GLFW 初始化与最后一个窗口释放后的终止；上层通过窗口接口请求关闭、查询最小化状态。
+  GLFW 是 engine 的私有依赖，原生句柄仅供 Vulkan／ImGui 后端及底层测试对接，不用于普通业务操作。
 - 调试绘制：`LineDrawList` 提交单帧世界空间线段/包围盒，`DebugRenderer` 在场景 pass 内绘制，
   使用当前相机和正常深度测试；不依赖 ImGui，编辑器选中框是其中一个调用方。
 - 资产：`AssetDatabase` 管身份与依赖，`ImportService` 管导入，`AssetManager` 协调加载与发布，
@@ -131,6 +135,9 @@ JSON 解析直接依赖已有 simdjson。
   导入、资产序列化和数据库更新用 `AssetResult<T>` 返回预期失败，调用方决定如何报告；GPU 错误仍保留 Vulkan 结果码。
 - 编辑器：`Editor` 装配依赖与帧阶段，`EditorAssets` 管引用选择／模型放置的资源准备、源监视和写入确认，
   `SceneFileDialog` 管路径弹窗；属性控件显式返回手势状态，`SceneDocument` 与 Play 会话仍保持独立。
+  Project 消费资产操作返回的扫描结果并更新目录树；Inspector 按 Handle/revision 管理自己的资产缓存，不依赖入口手动失效。
+  `viewport/viewport.h` 是视口功能入口，拥有 ViewPanel 与 TransformGizmo，负责纹理同步、相机更新和拾取／选中反馈；
+  活动 Scene 按调用传入，不持有 Engine。相机状态及算法集中在 `viewport/camera_controller`，资产引用控件与载荷集中在 `assets/asset_reference`。
 - Mesh Runtime 只读已发布的 Mesh Artifact；缓存丢失需先导入，不自动回退解析 glTF。
   Texture 暂时直接解码源文件，后续再引入 Artifact。
 - 世界 +Y 向上，Vulkan Viewport 用负高度转换画面坐标；`flip_y` 仅控制纹理导入。
@@ -141,4 +148,8 @@ JSON 解析直接依赖已有 simdjson。
 [路线图](docs/engine-roadmap.md)。
 
 C++ 遵循根目录 `.clang-format`（90 列），只格式化相关代码，不处理 Shader 和第三方源码。
+头文件应能独立编译，实现文件直接包含自己使用的类型，不依赖入口头的传递包含。
+引擎 PCH 仅预编译常用标准库头，不包含 Vulkan、ImGui 或项目业务头；PCH 不是隐式依赖来源。
+排查 include 可用 `cmake --preset dev-debug -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON` 关闭 PCH，
+验证后用同一命令将该选项设回 `OFF`。
 贡献约定见 [AGENTS.md](AGENTS.md)。

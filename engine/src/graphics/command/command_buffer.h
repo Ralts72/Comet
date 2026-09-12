@@ -1,10 +1,14 @@
 #pragma once
-#include "graphics/resource/buffer.h"
 #include "graphics/synchronization/resource_state.h"
 #include "graphics/vk_common.h"
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <vector>
 
 namespace Comet {
     class Device;
+    class Buffer;
     class RenderPass;
     class FrameBuffer;
     class Pipeline;

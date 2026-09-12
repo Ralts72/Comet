@@ -1,4 +1,5 @@
 #include "graphics/command/command_buffer.h"
+#include "graphics/resource/buffer.h"
 #include "graphics/device.h"
 #include "graphics/render_pass.h"
 #include "diagnostics/logger.h"

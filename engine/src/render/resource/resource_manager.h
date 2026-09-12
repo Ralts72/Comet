@@ -1,13 +1,14 @@
 #pragma once
 #include "common/export.h"
-#include "graphics/pipeline/shader.h"
-#include "graphics/resource/sampler.h"
 #include "render/resource/resource_factory.h"
 
 #include <memory>
 
 namespace Comet {
     class UploadManager;
+    class Device;
+    class ShaderManager;
+    class SamplerManager;
 
     class COMET_API ResourceManager final: public RenderResourceFactory {
     public:

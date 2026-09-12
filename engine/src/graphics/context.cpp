@@ -1,4 +1,8 @@
 #include "context.h"
+#include "config/config.h"
+#include "core/window.h"
+
+#include <GLFW/glfw3.h>
 
 #include <algorithm>
 #include <string_view>

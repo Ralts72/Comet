@@ -16,7 +16,18 @@ set(COMET_CONFIG_PROFILE "" CACHE STRING "Runtime configuration profile")
 
 find_package(Vulkan REQUIRED)
 
+set(GLFW_LIBRARY_TYPE SHARED CACHE STRING "GLFW linkage required by Comet" FORCE)
 add_subdirectory(3rdparty)
+
+function(comet_copy_runtime_dependencies executable)
+    if (WIN32)
+        add_custom_command(TARGET ${executable} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_RUNTIME_DLLS:${executable}>
+                $<TARGET_FILE_DIR:${executable}>
+                COMMAND_EXPAND_LISTS)
+    endif ()
+endfunction()
 
 add_compile_definitions(
     "$<$<CONFIG:Debug>:COMET_ENABLE_DEBUG_LOGS>"

@@ -1,4 +1,4 @@
-#include "scene_commands.h"
+#include "scene/scene_commands.h"
 #include "scene/scene_serializer.h"
 
 #include <gtest/gtest.h>

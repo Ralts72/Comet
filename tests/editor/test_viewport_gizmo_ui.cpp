@@ -1,8 +1,8 @@
 #ifdef COMET_TEST_EDITOR_UI
-#include "panels/view.h"
-#include "selection.h"
-#include "transform_gizmo.h"
-#include "shortcuts.h"
+#include "viewport/view.h"
+#include "scene/selection.h"
+#include "viewport/transform_gizmo.h"
+#include "ui/shortcuts.h"
 
 #include "support/imgui_context.h"
 
@@ -357,7 +357,7 @@ namespace CometEditor::Tests {
         EXPECT_FLOAT_EQ(x(), after);
     }
 
-    enum class CancelBoundary { Escape, Hidden, FocusLost, Play };
+    enum class CancelBoundary { Escape, Hidden, Collapsed, FocusLost, Play };
 
     class ViewportGizmoCancellationTest
         : public ViewportGizmoUiTest,
@@ -374,6 +374,9 @@ namespace CometEditor::Tests {
             case CancelBoundary::Hidden:
                 viewport.set_visible(false);
                 break;
+            case CancelBoundary::Collapsed:
+                ImGui::SetWindowCollapsed("Viewport", true);
+                break;
             case CancelBoundary::FocusLost:
                 io.AddFocusEvent(false);
                 break;
@@ -387,6 +390,12 @@ namespace CometEditor::Tests {
         EXPECT_EQ(ImGui::GetActiveID(), 0);
         EXPECT_FALSE(history.can_undo());
         EXPECT_FALSE(viewport.take_pick_request());
+        if(GetParam() == CancelBoundary::Hidden
+            || GetParam() == CancelBoundary::Collapsed) {
+            EXPECT_FALSE(viewport.is_visible());
+            EXPECT_EQ(viewport.get_requested_render_size(), Comet::Math::Vec2u{});
+            EXPECT_EQ(viewport.get_layout().image_resolution, Comet::Math::Vec2u{});
+        }
         io.AddKeyEvent(ImGuiKey_Escape, false);
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
         frame();
@@ -397,7 +406,7 @@ namespace CometEditor::Tests {
 
     INSTANTIATE_TEST_SUITE_P(InputBoundary, ViewportGizmoCancellationTest,
         ::testing::Values(CancelBoundary::Escape, CancelBoundary::Hidden,
-            CancelBoundary::FocusLost, CancelBoundary::Play));
+            CancelBoundary::Collapsed, CancelBoundary::FocusLost, CancelBoundary::Play));
 
     TEST_F(ViewportGizmoUiTest, OptionLeftDragNavigatesCameraEvenOverAxis) {
         const auto point = x_handle();

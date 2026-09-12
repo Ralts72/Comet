@@ -1,4 +1,8 @@
 #include "render/scene/scene_renderer.h"
+#include "render/render_context.h"
+#include "config/config.h"
+#include "graphics/device.h"
+#include "graphics/pipeline/shader.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 #include "render/scene/render_types.h"

@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include "graphics/resource/allocator.h"
-#include "graphics/resource/buffer.h"
 
 #include <limits>
 #include <type_traits>

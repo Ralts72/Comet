@@ -1,8 +1,10 @@
 #ifdef COMET_TEST_EDITOR_UI
-#include "panels/project.h"
-#include "selection.h"
-#include "command_history.h"
-#include "asset_drag_drop.h"
+#include "assets/project.h"
+#include "render/resource/mesh_data.h"
+#include "render/resource/texture_data.h"
+#include "scene/selection.h"
+#include "scene/command_history.h"
+#include "assets/asset_reference.h"
 #include "asset/asset_manager.h"
 #include "asset/registry.h"
 #include "core/task_scheduler.h"
@@ -66,16 +68,14 @@ namespace CometEditor::Tests {
                 database, paths.assets(), std::move(report),
                 [this]() {
                     ++refresh_count;
-                    project->update_scan_report(manager.scan());
+                    return manager.scan();
                 },
                 [this](const Comet::AssetHandle handle,
                     const std::filesystem::path& target) {
                     ++move_count;
                     moved_handle = handle;
                     destination = target;
-                    auto result = manager.move_asset(handle, target);
-                    project->update_scan_report(result);
-                    return result;
+                    return manager.move_asset(handle, target);
                 },
                 selection, history);
             frame();

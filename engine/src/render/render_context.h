@@ -1,11 +1,14 @@
 #pragma once
-#include "graphics/context.h"
-#include "graphics/device.h"
-#include "graphics/swapchain.h"
 #include "common/export.h"
 #include "config/config.h"
 
+#include <memory>
+
 namespace Comet {
+    class Context;
+    class Device;
+    class Swapchain;
+    class Window;
     class COMET_API RenderContext {
     public:
         RenderContext(const Window& window, const Config::Vulkan& vulkan_config,

@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "config/config.h"
 #include "diagnostics/logger.h"
 
 #include <spdlog/sinks/callback_sink.h>

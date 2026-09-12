@@ -1,7 +1,7 @@
 #pragma once
 #include "graphics/vk_common.h"
 #include "graphics/command/command_buffer.h"
-#include "graphics/queue.h"
+#include "graphics/synchronization/gpu_completion_point.h"
 #include "graphics/synchronization/resource_state.h"
 
 namespace Comet {

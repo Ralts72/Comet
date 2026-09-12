@@ -1,4 +1,12 @@
 #include "core/engine.h"
+#include "config/config.h"
+#include "render/resource/mesh_data.h"
+#include "render/renderer.h"
+#include "render/scene/scene_renderer.h"
+#include "render/render_context.h"
+#include "render/resource/resource_manager.h"
+#include "graphics/device.h"
+#include "core/window.h"
 #include "asset/registry.h"
 #include "render/material.h"
 #include "render/resource/mesh.h"
@@ -74,7 +82,7 @@ namespace Comet::Tests {
                 if(allocations_before_lines) {
                     EXPECT_EQ(allocation_count(), *allocations_before_lines + 1);
                 }
-                glfwSetWindowShouldClose(engine.get_window().get(), GLFW_TRUE);
+                engine.get_window().request_close();
             });
         renderer.set_viewport_pick_callback([&](std::optional<ScenePickHit> hit) {
             picked = hit && hit->entity_id == EntityId(2);
@@ -97,7 +105,7 @@ namespace Comet::Tests {
         int updates = 0;
         engine.register_update_callback([&](UpdateContext) {
             if(++updates > 5)
-                glfwSetWindowShouldClose(engine.get_window().get(), GLFW_TRUE);
+                engine.get_window().request_close();
         });
         engine.on_update();
         renderer.set_overlay_callbacks({}, {});

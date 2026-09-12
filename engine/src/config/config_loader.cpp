@@ -1,4 +1,5 @@
 #include "config/config_loader.h"
+#include "config/config.h"
 
 #include <array>
 #include <cmath>

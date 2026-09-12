@@ -1,4 +1,5 @@
 #include "render/resource/mesh.h"
+#include "render/resource/mesh_data.h"
 
 #include "diagnostics/logger.h"
 #include "graphics/command/command_buffer.h"

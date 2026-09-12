@@ -1,6 +1,5 @@
 #include "asset/import/input_snapshot.h"
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <fstream>

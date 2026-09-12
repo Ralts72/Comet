@@ -2,10 +2,10 @@
 #include "common/export.h"
 #include "vk_common.h"
 #include "vk_capability.h"
-#include "core/window.h"
 #include "config/config.h"
 
 namespace Comet {
+    class Window;
     class COMET_API Context {
     public:
         Context(const Window& window, const Config::Vulkan& config,

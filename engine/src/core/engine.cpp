@@ -1,4 +1,9 @@
 #include "engine.h"
+#include "config/config.h"
+#include "core/window.h"
+#include "render/renderer.h"
+#include "render/render_context.h"
+#include "render/resource/resource_manager.h"
 #include "asset/registry.h"
 #include "core/task_scheduler.h"
 #include "diagnostics/logger.h"
@@ -14,11 +19,6 @@ namespace Comet {
         LOG_INFO("init task scheduler");
         m_task_scheduler = std::make_unique<TaskScheduler>();
         m_asset_registry = std::make_unique<AssetRegistry>();
-
-        LOG_INFO("init glfw");
-        if(!glfwInit()) {
-            LOG_FATAL("Failed to init glfw.");
-        }
 
         LOG_INFO("init window");
         m_window = std::make_unique<Window>(config.window);
@@ -37,6 +37,14 @@ namespace Comet {
         m_scene.reset();
         m_window.reset();
         m_task_scheduler.reset();
+    }
+
+    ResourceManager& Engine::get_resource_manager() {
+        return m_renderer->get_resource_manager();
+    }
+
+    const ResourceManager& Engine::get_resource_manager() const {
+        return get_renderer().get_resource_manager();
     }
 
     void Engine::set_scene(std::unique_ptr<Scene> scene) {

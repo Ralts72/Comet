@@ -1,4 +1,4 @@
-#include "property_editor_registry.h"
+#include "inspector/property_editor_registry.h"
 
 #include <gtest/gtest.h>
 

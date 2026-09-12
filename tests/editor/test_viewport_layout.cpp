@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "viewport_layout.h"
+#include "viewport/viewport_layout.h"
 
 #include <limits>
 

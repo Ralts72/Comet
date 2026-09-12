@@ -170,10 +170,15 @@ Texture 后台刷新和显式重导入共用 `reload_loaded_material_dependents(
 - Material：Inspector 值变化 → update_material → 构建候选 → 原子保存 .mat → 更新依赖 → 替换 Registry。
 - Texture：设置变化 → reimport_texture → 解码/GPU 候选 → 保存 .meta → 发布 Texture → 刷新已加载材质。
 - 控件按变化事件提交，不逐帧保存；失败恢复旧控件值。加载/字段错误显示在 Inspector，更新日志只进入 Log。
+- 编辑器的资产下拉控件和拖放载荷读取集中在 `editor/src/assets/asset_reference`；公共读取只验证载荷格式并复制数据，
+  槽位类型、资产 revision、文档 generation 和提交时机仍由各接收方按业务校验。
 - 移动：Project 提交 Handle 和项目相对目标 → 校验边界/扩展名/身份 → 成对移动 source/.meta →
   候选数据库扫描 → 可信则提交，否则补偿回滚。两个文件不能获得单次 OS 原子 rename；
   回滚自身失败必须报告具体诊断，不声称成功。普通 Mesh 移动不等于重写 glTF 外部 URI。
-- 成功后保留 Selection，按事件失效 Inspector 缓存，并向 Monitor 确认精确变动路径，避免再次识别自身写入。
+- 成功后保留 Selection，并向 Monitor 确认精确变动路径，避免再次识别自身写入。
+- Project 的刷新／移动回调只返回扫描结果，由面板在目录树遍历结束后更新展示；后台扫描和外部导入结果仍由 Editor 转交。
+  Inspector 自己以 Handle/revision 判断是否重新加载字段；无关扫描不清空缓存，选中资产变化后下一次显示时重读。
+  失败加载也记录尝试过的 revision，避免每帧重试；可手动 Retry Load，或在新 revision 到来后自动重试。
 
 ## 生命周期与文件写入
 

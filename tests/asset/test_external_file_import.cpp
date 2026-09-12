@@ -1,4 +1,6 @@
 #include "asset/asset_manager.h"
+#include "render/resource/mesh_data.h"
+#include "render/resource/texture_data.h"
 #include "asset/registry.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "core/task_scheduler.h"

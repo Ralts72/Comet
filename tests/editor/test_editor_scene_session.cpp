@@ -1,4 +1,4 @@
-#include "editor_scene_session.h"
+#include "scene/editor_scene_session.h"
 
 #include "scene/component_registry.h"
 #include "scene/scene.h"
@@ -7,7 +7,6 @@
 #include <gtest/gtest.h>
 
 #include <memory>
-#include <utility>
 
 namespace CometEditor::Tests {
     namespace {

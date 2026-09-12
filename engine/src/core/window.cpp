@@ -1,14 +1,32 @@
 #include "window.h"
+#include "config/config.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
+
+#include <GLFW/glfw3.h>
 #include <algorithm>
+#include <cstddef>
 #include <exception>
 #include <string_view>
 #include <utility>
 
 namespace Comet {
+    namespace {
+        // GLFW window creation and destruction must run on the main thread.
+        std::size_t window_count = 0;
+    }
+
+    void Window::WindowDeleter::operator()(GLFWwindow* window) const noexcept {
+        glfwDestroyWindow(window);
+        if(--window_count == 0)
+            glfwTerminate();
+    }
+
     Window::Window(const Config::Window& config) {
         PROFILE_SCOPE("Window::Constructor");
+        if(window_count == 0 && glfwInit() != GLFW_TRUE)
+            LOG_FATAL("Failed to initialize GLFW.");
+
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
@@ -25,19 +43,20 @@ namespace Comet {
                 const GLFWvidmode* mode = glfwGetVideoMode(monitor);
                 actual_width = mode->width;
                 actual_height = mode->height;
-                LOG_INFO("Fullscreen mode: using monitor resolution {}x{}", actual_width,
-                    actual_height);
             }
         }
 
-        m_window = glfwCreateWindow(
-            actual_width, actual_height, config.title.c_str(), monitor, nullptr);
+        m_window.reset(glfwCreateWindow(
+            actual_width, actual_height, config.title.c_str(), monitor, nullptr));
         if(!m_window) {
+            if(window_count == 0)
+                glfwTerminate();
             LOG_FATAL("Failed to create glfw window.");
         }
-        glfwSetWindowUserPointer(m_window, this);
+        ++window_count;
+        glfwSetWindowUserPointer(m_window.get(), this);
         glfwSetDropCallback(
-            m_window, [](GLFWwindow* window, int count, const char** paths) {
+            m_window.get(), [](GLFWwindow* window, int count, const char** paths) {
                 try {
                     FileDrop drop;
                     double x, y;
@@ -60,28 +79,32 @@ namespace Comet {
                 int x_pos, y_pos, work_width, work_height;
                 glfwGetMonitorWorkarea(
                     primary_monitor, &x_pos, &y_pos, &work_width, &work_height);
-                glfwSetWindowPos(m_window, work_width / 2 - config.width / 2,
+                glfwSetWindowPos(m_window.get(), work_width / 2 - config.width / 2,
                     work_height / 2 - config.height / 2);
             }
         }
 
-        glfwShowWindow(m_window);
+        glfwShowWindow(m_window.get());
     }
 
-    Window::~Window() {
-        glfwDestroyWindow(m_window);
-        glfwTerminate();
-        LOG_INFO("The window has been destroy.");
-    }
+    Window::~Window() = default;
 
     bool Window::should_close() const {
-        return glfwWindowShouldClose(m_window);
+        return glfwWindowShouldClose(m_window.get());
+    }
+
+    void Window::request_close() {
+        glfwSetWindowShouldClose(m_window.get(), GLFW_TRUE);
+    }
+
+    bool Window::is_minimized() const {
+        return glfwGetWindowAttrib(m_window.get(), GLFW_ICONIFIED) == GLFW_TRUE;
     }
 
     Math::Vec2u Window::get_framebuffer_size() const {
         int width = 0;
         int height = 0;
-        glfwGetFramebufferSize(m_window, &width, &height);
+        glfwGetFramebufferSize(m_window.get(), &width, &height);
         return {static_cast<uint32_t>(std::max(width, 0)),
             static_cast<uint32_t>(std::max(height, 0))};
     }

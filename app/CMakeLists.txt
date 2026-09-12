@@ -2,6 +2,7 @@ set(SOURCES main.cpp)
 
 add_executable(app ${SOURCES})
 target_link_libraries(app PRIVATE engine)
+comet_copy_runtime_dependencies(app)
 target_compile_definitions(app PRIVATE
         COMET_CONFIG_DIRECTORY="${CMAKE_SOURCE_DIR}/config"
         COMET_CONFIG_PROFILE="${COMET_CONFIG_PROFILE}"

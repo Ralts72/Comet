@@ -1,6 +1,6 @@
 #ifdef COMET_TEST_EDITOR_UI
 
-#include "panels/console.h"
+#include "ui/console.h"
 
 #include "support/imgui_context.h"
 

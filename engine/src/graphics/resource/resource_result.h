@@ -1,10 +1,10 @@
 #pragma once
 
 #include "common/export.h"
-#include "graphics/vk_common.h"
 
 #include <optional>
 #include <utility>
+#include <vulkan/vulkan.hpp>
 
 namespace Comet {
     [[noreturn]] COMET_API void fail_gpu_resource_result_value_access(vk::Result result);

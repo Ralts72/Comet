@@ -1,4 +1,4 @@
-#include "command_history.h"
+#include "scene/command_history.h"
 #include "render/scene/scene_extractor.h"
 #include "scene/scene_serializer.h"
 

@@ -4,7 +4,6 @@
 #include "common/file_io.h"
 #include "common/json.h"
 
-#include <initializer_list>
 #include <string_view>
 
 namespace Comet::AssetSerialization {

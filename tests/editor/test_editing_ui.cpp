@@ -1,18 +1,17 @@
 #ifdef COMET_TEST_EDITOR_UI
-#include "command_history.h"
-#include "scene_commands.h"
-#include "menu_bar.h"
-#include "panels/inspector.h"
-#include "panels/hierarchy.h"
-#include "property_editor_registry.h"
-#include "selection.h"
+#include "scene/command_history.h"
+#include "scene/scene_commands.h"
+#include "ui/menu_bar.h"
+#include "inspector/inspector.h"
+#include "scene/hierarchy.h"
+#include "inspector/property_editor_registry.h"
+#include "scene/selection.h"
 
 #include "support/imgui_context.h"
 
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <fstream>
 #include <string_view>
 #include <vector>
 

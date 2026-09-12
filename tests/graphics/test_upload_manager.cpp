@@ -1,5 +1,7 @@
 #include "graphics/command/upload_manager.h"
 
+#include <GLFW/glfw3.h>
+
 #include "config/config.h"
 #include "core/window.h"
 #include "graphics/command/command_context.h"
@@ -166,10 +168,9 @@ namespace Comet::Tests {
                 if(glfwInit() != GLFW_TRUE) {
                     GTEST_SKIP() << "GLFW initialization failed";
                 }
-                m_glfw_initialized = true;
-                if(glfwVulkanSupported() != GLFW_TRUE) {
-                    glfwTerminate();
-                    m_glfw_initialized = false;
+                const bool vulkan_supported = glfwVulkanSupported() == GLFW_TRUE;
+                glfwTerminate();
+                if(!vulkan_supported) {
                     GTEST_SKIP() << "Vulkan is unavailable through GLFW";
                 }
 
@@ -187,19 +188,12 @@ namespace Comet::Tests {
             void TearDown() override {
                 m_device.reset();
                 m_context.reset();
-                if(m_window) {
-                    m_window.reset();
-                    m_glfw_initialized = false;
-                }
-                if(m_glfw_initialized) {
-                    glfwTerminate();
-                }
+                m_window.reset();
             }
 
             std::unique_ptr<Window> m_window;
             std::unique_ptr<Context> m_context;
             std::unique_ptr<Device> m_device;
-            bool m_glfw_initialized = false;
         };
     }
 

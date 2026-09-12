@@ -95,10 +95,10 @@ target_link_libraries(engine
         spdlog::spdlog
         glm
         Vulkan::Vulkan
-        glfw
         GPUOpen::VulkanMemoryAllocator
         EnTT::EnTT
         PRIVATE
+        glfw
         Threads::Threads
         stb_image
         fastgltf::fastgltf
@@ -114,7 +114,7 @@ target_include_directories(engine
 target_precompile_headers(engine PRIVATE
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h>"
 )
-target_compile_definitions(engine PRIVATE COMET_EXPORTS)
+target_compile_definitions(engine PRIVATE COMET_EXPORTS GLFW_INCLUDE_NONE)
 if (NOT WIN32)
     target_compile_options(engine PRIVATE -Wall -fvisibility=hidden)
 endif ()

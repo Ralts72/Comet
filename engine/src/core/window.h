@@ -1,14 +1,13 @@
 #pragma once
-#define GLFW_INCLUDE_NONE
-#define GLFW_INCLUDE_VULKAN
-
-#include <GLFW/glfw3.h>
 
 #include "common/export.h"
 #include "config/config.h"
 #include "core/math_utils.h"
 #include <filesystem>
+#include <memory>
 #include <vector>
+
+struct GLFWwindow;
 
 namespace Comet {
     class COMET_API Window {
@@ -24,9 +23,11 @@ namespace Comet {
         Window(const Window&) = delete;
         Window& operator=(const Window&) = delete;
 
-        [[nodiscard]] GLFWwindow* get() const { return m_window; }
+        [[nodiscard]] GLFWwindow* get() const { return m_window.get(); }
 
         [[nodiscard]] bool should_close() const;
+        void request_close();
+        [[nodiscard]] bool is_minimized() const;
 
         [[nodiscard]] Math::Vec2u get_framebuffer_size() const;
 
@@ -36,7 +37,11 @@ namespace Comet {
         [[nodiscard]] std::vector<FileDrop> take_file_drops();
 
     private:
-        GLFWwindow* m_window = nullptr;
+        struct WindowDeleter {
+            void operator()(GLFWwindow* window) const noexcept;
+        };
+
+        std::unique_ptr<GLFWwindow, WindowDeleter> m_window;
         std::vector<FileDrop> m_file_drops;
     };
 }

@@ -1,8 +1,8 @@
 #ifdef COMET_TEST_EDITOR_UI
-#include "panels/inspector.h"
-#include "panels/project.h"
-#include "property_editor_registry.h"
-#include "selection.h"
+#include "inspector/inspector.h"
+#include "assets/project.h"
+#include "inspector/property_editor_registry.h"
+#include "scene/selection.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 
@@ -339,6 +339,64 @@ namespace CometEditor::Tests {
                       .value()
                       .texture_properties.at("albedo"),
             texture);
+    }
+
+    TEST_F(AssetEditingUiTest, SelectedMaterialReloadsOnlyWhenItsRevisionChanges) {
+        selection.select_asset(material);
+        frame();
+        const auto slot_point = [&]() {
+            const auto* window = ImGui::FindWindowByName("Inspector");
+            return ImVec2{window->DC.CursorStartPos.x + 50,
+                window->DC.CursorPosPrevLine.y + ImGui::GetFrameHeight() * 0.5f};
+        };
+        payload = drag_asset(second_texture, Comet::AssetType::Texture);
+        EXPECT_FALSE(drop(slot_point()));
+        ASSERT_EQ(material_updates, 1);
+
+        // 测试回调只修改内存；无关扫描不应重读磁盘、丢掉当前面板值。
+        const auto revision = database.get_revision(material);
+        std::ofstream(paths.assets() / "mesh.gltf") << "changed mesh";
+        ASSERT_TRUE(database.scan().succeeded());
+        ASSERT_EQ(database.get_revision(material), revision);
+        frame();
+        EXPECT_FALSE(drop(slot_point()));
+        EXPECT_EQ(material_updates, 1);
+
+        inspector->set_visible(false);
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "changed_template",
+                .texture_properties = {{"albedo", texture}}},
+            paths.assets() / "material.mat"));
+        ASSERT_TRUE(database.scan().succeeded());
+        ASSERT_NE(database.get_revision(material), revision);
+        frame();
+        inspector->set_visible(true);
+        frame();
+        frame();
+        EXPECT_FALSE(drop(slot_point()));
+        EXPECT_EQ(material_updates, 2);
+        EXPECT_EQ(submitted_material.template_name, "changed_template");
+    }
+
+    TEST_F(AssetEditingUiTest, FailedMaterialLoadRetriesAfterAssetRevisionChanges) {
+        std::ofstream(paths.assets() / "material.mat") << "invalid material";
+        static_cast<void>(database.scan());
+        selection.select_asset(material);
+        frame();
+
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "recovered_template",
+                .texture_properties = {{"albedo", texture}}},
+            paths.assets() / "material.mat"));
+        ASSERT_TRUE(database.scan().succeeded());
+        frame();
+        frame();
+        const auto* window = ImGui::FindWindowByName("Inspector");
+        payload = drag_asset(second_texture, Comet::AssetType::Texture);
+        EXPECT_FALSE(drop({window->DC.CursorStartPos.x + 50,
+            window->DC.CursorPosPrevLine.y + ImGui::GetFrameHeight() * 0.5f}));
+        EXPECT_EQ(material_updates, 1);
+        EXPECT_EQ(submitted_material.template_name, "recovered_template");
     }
 
     TEST_F(AssetEditingUiTest, RejectsWrongTypeMissingAssetAndStaleDocument) {
