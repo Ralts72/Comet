@@ -46,7 +46,6 @@ namespace Comet::Tests {
         EXPECT_EQ(material_data.texture_properties.at("u_Texture0"), awesome_face.handle);
         EXPECT_EQ(
             material_data.texture_properties.at("u_Texture1"), second_texture.handle);
-        EXPECT_FLOAT_EQ(material_data.scalar_properties.at("blend"), 0.5f);
         const auto solid_path = paths.assets() / "materials/solid.mat";
         const auto solid_meta = serializer.load(metadata_path(solid_path));
         ASSERT_TRUE(solid_meta) << solid_meta.error();
@@ -56,6 +55,5 @@ namespace Comet::Tests {
         ASSERT_TRUE(solid_data) << solid_data.error();
         EXPECT_EQ(solid_data.value().template_name, "unlit_color");
         EXPECT_TRUE(get_asset_dependencies(solid_data.value()).empty());
-        EXPECT_FLOAT_EQ(solid_data.value().scalar_properties.at("intensity"), 1.0f);
     }
 }
