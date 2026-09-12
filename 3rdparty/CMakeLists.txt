@@ -73,7 +73,8 @@ endblock()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(glslang PRIVATE
         -Wno-maybe-uninitialized
-        -Wno-array-bounds)
+        -Wno-array-bounds
+        -Wno-stringop-overflow)
 endif()
 
 if (COMET_BUILD_EDITOR)

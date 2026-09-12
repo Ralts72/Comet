@@ -3,15 +3,21 @@
 
 #include <iostream>
 #include <span>
-#include <stdexcept>
+#include <exception>
+#include <optional>
 #include <string_view>
 
 namespace {
-    std::string depfile_path(const std::filesystem::path& path) {
+    int fail(std::string_view message) {
+        std::cerr << message << '\n';
+        return 1;
+    }
+
+    std::optional<std::string> depfile_path(const std::filesystem::path& path) {
         std::string escaped;
         for(const char value : path.generic_string()) {
             if(value == '\n' || value == '\r')
-                throw std::invalid_argument("Newline in dependency path");
+                return std::nullopt;
             if(value == '$')
                 escaped += '$';
             if(value == ' ' || value == '#' || value == ':' || value == '\\')
@@ -31,8 +37,7 @@ int main(int argc, char** argv) {
         for(int index = 1; index < argc; ++index) {
             const std::string_view option(argv[index]);
             if(index + 1 == argc)
-                throw std::invalid_argument(
-                    "Missing option value: " + std::string(option));
+                return fail("Missing option value: " + std::string(option));
             const std::string value(argv[++index]);
             if(option == "--source")
                 request.source = value;
@@ -51,7 +56,7 @@ int main(int argc, char** argv) {
                 if(separator != std::string::npos)
                     definition = value.substr(separator + 1);
                 if(!request.defines.emplace(name, definition).second)
-                    throw std::invalid_argument("Duplicate define: " + name);
+                    return fail("Duplicate define: " + name);
             } else if(option == "--stage") {
                 has_stage = true;
                 if(value == "vert")
@@ -61,30 +66,36 @@ int main(int argc, char** argv) {
                 else if(value == "comp")
                     request.stage = Comet::ShaderStage::Compute;
                 else
-                    throw std::invalid_argument("Unsupported stage: " + value);
+                    return fail("Unsupported stage: " + value);
             } else if(option == "--target") {
                 if(value == "vulkan1.0")
                     request.target = Comet::ShaderCompiler::Target::Vulkan10;
                 else if(value == "vulkan1.3")
                     request.target = Comet::ShaderCompiler::Target::Vulkan13;
                 else
-                    throw std::invalid_argument("Unsupported target: " + value);
+                    return fail("Unsupported target: " + value);
             } else
-                throw std::invalid_argument("Unknown option: " + std::string(option));
+                return fail("Unknown option: " + std::string(option));
         }
         if(request.source.empty() || output.empty() || !has_stage)
-            throw std::invalid_argument(
-                "Required: --source FILE --stage vert|frag|comp --output FILE");
+            return fail("Required: --source FILE --stage vert|frag|comp --output FILE");
         const auto result = Comet::ShaderCompiler::compile(request);
         if(!result.diagnostics.empty())
             std::cerr << result.diagnostics << '\n';
         if(!result.succeeded())
             return 1;
         if(!depfile.empty()) {
-            std::string dependencies = depfile_path(output) + ":";
+            const auto escaped_output = depfile_path(output);
+            if(!escaped_output)
+                return fail("Newline in dependency path");
+            std::string dependencies = *escaped_output + ":";
             for(const auto& dependency : result.dependencies) {
-                if(dependency.contents)
-                    dependencies += " " + depfile_path(dependency.path);
+                if(dependency.contents) {
+                    const auto escaped = depfile_path(dependency.path);
+                    if(!escaped)
+                        return fail("Newline in dependency path");
+                    dependencies += " " + *escaped;
+                }
             }
             dependencies += '\n';
             Comet::write_text_file_atomic(depfile, dependencies);
@@ -92,7 +103,6 @@ int main(int argc, char** argv) {
         Comet::write_binary_file_atomic(output, std::as_bytes(std::span(result.words)));
         return 0;
     } catch(const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
+        return fail(error.what());
     }
 }

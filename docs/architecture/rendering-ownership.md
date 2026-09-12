@@ -147,6 +147,9 @@ GPU 候选失败可沿用旧 MaterialResources，同一候选延后 60 个 frame
 编译库静态依赖 glslang，不链接 engine；CLI 复用 common/file_io.cpp 原子写 SPIR-V 和 depfile，再由构建生成内嵌字节码头。
 每个请求独占解析器与输入快照，进程初始化仅一次；快照记录逻辑路径、解析路径，以及存在或缺失的内容。
 成功返回前复核输入，失败不返回字节码；include 诊断保留源文件／行号并追加具体原因。
+参数、源文件读取与 include 限制使用明确失败返回，文件系统查询使用 error_code；缺失是可记录的依赖状态，读取错误不是缺失。
+compile_source 负责单次编译结果，公开 compile 统一收集依赖和复核输入；不因早退漏掉失败请求的依赖。
+第三方调用、include 处理和 CLI 写文件保留异常边界。Shader／Pipeline／Material 构造的非法状态仍抛错，不返回残缺对象或改用 LOG_FATAL。
 depfile 只列存在的依赖，新增遮蔽文件不保证自动触发构建。原子写针对单文件，不是 SPIR-V／depfile 的跨文件事务。
 未来 Worker 发布仍需请求 revision 与输入复核，快照不等于文件锁；当前尚无编辑器源码监视／热发布。
 

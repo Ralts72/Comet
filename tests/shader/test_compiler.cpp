@@ -176,6 +176,32 @@ namespace Comet::Tests {
         EXPECT_NE(oversized.diagnostics.find("8 MiB"), std::string::npos);
         EXPECT_NE(oversized.diagnostics.find("source.vert"), std::string::npos);
         EXPECT_NE(oversized.diagnostics.find("3:"), std::string::npos);
+        write("shared/loop.glsl",
+            "// A fallback must not hide an unreadable local file.\n");
+        request.include_directories = {root / "shared"};
+        const auto fallback = ShaderCompiler::compile(request);
+        EXPECT_FALSE(fallback.succeeded());
+        EXPECT_NE(fallback.diagnostics.find("8 MiB"), std::string::npos);
+    }
+
+    TEST_F(ShaderCompilerTest, DistinguishesMissingInputsFromReadFailures) {
+        const auto missing = ShaderCompiler::compile(request);
+        ASSERT_FALSE(missing.succeeded());
+        ASSERT_EQ(missing.dependencies.size(), 1u);
+        EXPECT_FALSE(missing.dependencies.front().contents);
+        EXPECT_TRUE(ShaderCompiler::inputs_unchanged(missing));
+
+        write("source.vert", "#version 450\nvoid main(){gl_Position=vec4(1);}");
+        EXPECT_FALSE(ShaderCompiler::inputs_unchanged(missing));
+        const auto loaded = ShaderCompiler::compile(request);
+        ASSERT_TRUE(loaded.succeeded()) << loaded.diagnostics;
+        std::filesystem::remove(request.source);
+        std::filesystem::create_directory(request.source);
+        EXPECT_FALSE(ShaderCompiler::inputs_unchanged(loaded));
+        const auto unreadable = ShaderCompiler::compile(request);
+        EXPECT_FALSE(unreadable.succeeded());
+        EXPECT_NE(
+            unreadable.diagnostics.find("Cannot read shader source"), std::string::npos);
     }
 
     TEST_F(ShaderCompilerTest, DetectsSymlinkRetargetEvenWhenOldFileStillExists) {
