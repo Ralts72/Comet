@@ -11,7 +11,7 @@ namespace Comet {
 
     DescriptorSetLayout::DescriptorSetLayout(
         Device& device, const DescriptorSetLayoutBindings& bindings)
-        : m_device(device) {
+        : m_device(device), m_bindings(bindings.get_bindings()) {
         vk::DescriptorSetLayoutCreateInfo create_info{};
         create_info.bindingCount = bindings.get_bindings().size();
         create_info.pBindings = bindings.get_bindings().data();

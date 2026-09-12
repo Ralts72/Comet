@@ -1,6 +1,6 @@
 # 渲染资源所有权
 
-描述当前 owner、调用边界和销毁规则；未来 Shader 反射/RenderGraph/RenderThread 设计见[路线图](../engine-roadmap.md)。
+描述当前 owner、调用边界和销毁规则；未来 Shader 热更新/RenderGraph/RenderThread 设计见[路线图](../engine-roadmap.md)。
 
 ## 先看哪个类
 
@@ -13,6 +13,7 @@
 | `render/scene/scene_renderer.h` | Target、pass、帧与呈现生命周期编排 |
 | `render/material_renderer.h` | Frame/Material descriptor、材质 Pipeline、队列排序与 Mesh 绘制 |
 | `render/material_runtime.h` | 手工 MaterialLayout、PreparedMaterial 快照与版本缓存 |
+| `graphics/pipeline/shader_interface.h` | 入口级 SPIR-V 反射结果与绑定覆盖校验；仅拥有 CPU 值 |
 | `render/frame_scheduler.h` | FrameSlot 复用、image 关联、完成序号与 retention |
 | `render/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
 | `render/resource/resource_manager.h` | 设备资源工厂、上传及 Shader/Sampler 共享资源 |
@@ -114,7 +115,7 @@ Engine：事件 → Application 更新
 SceneRenderer 不读 EditorMode/ImGui。SceneResolver 只解析 Camera、Mesh 和 Material 引用，不检查模板、属性名或纹理数量。
 MaterialRenderer 使用 MaterialRuntimeCache，按 Material 对象身份/revision 与不可变 MaterialLayout 对象身份生成 PreparedMaterial。
 内置布局由 MaterialLayout::find_builtin 共享，不由各个 Renderer 重复构造；Inspector 读取同一份默认值、槽名和编辑语义。
-布局只含 CPU 描述，不含 ImGui 控件或 GPU owner；显示名、颜色语义、编辑范围是人为元数据，不由后续 Shader 反射自动推断。
+布局只含 CPU 描述，不含 ImGui 控件或 GPU owner；显示名、颜色语义、编辑范围是人为元数据，不由 Shader 反射自动推断。
 失败也缓存，在持续使用期间不逐帧重复诊断；源或布局变化后重试。未使用的 CPU 缓存按渲染周期回收。
 PreparedMaterial 持有当时的 Texture 引用与按布局打包的参数。set 0 是按 slot 更新的相机 FrameSet；
 set 1 是按材质版本创建、发布后不改写的 MaterialSet；model matrix 仍使用 push constant。
@@ -122,7 +123,14 @@ MaterialResources 保留 PreparedMaterial、Pipeline/layout、Sampler、参数 b
 实际使用它的 FrameSlot 再保留该整体与 Mesh、FrameResources，直到 GPU 完成；CPU 缓存回收不代表 GPU 完成。
 GPU 候选创建失败时继续使用旧 MaterialResources，同一候选延后 60 个 frame serial 重试；新候选可立即尝试。
 不支持的模板或 CPU 准备失败仍跳过绘制，不承诺任何失败都沿用旧材质。
-当前队列按模板名和材质 Handle 排序，支持 unlit_texture_blend 与 unlit_color；完整 PipelineKey 与 Shader 反射尚未接通。
+当前队列按模板名和材质 Handle 排序，支持 unlit_texture_blend 与 unlit_color；完整 PipelineKey 尚未接通。
+
+Shader 先从指定入口的 SPIR-V 生成自有 ShaderInterface，再创建设备 shader module；反射库和输入字节码不被结果借用。
+DescriptorSetLayout 保存原始 binding 描述；ShaderLayout 检查 descriptor 类型/数量/stage 与 push constant 覆盖范围。
+PipelineManager 在名称缓存查询前执行校验，MaterialRenderer 额外用 MaterialLayout 核对材质 set 的参数块与纹理协议。
+ShaderInterface 只公开 Comet 的 Format、DescriptorType、ShaderStage 和自有范围值，不依赖 Vulkan 头文件。
+反射库类型在 shader_interface.cpp 内显式转换；Vulkan 类型对照留在 ShaderLayout::validate 的实现中，材质层只消费 Comet 描述。
+当前同步反射，不自动生成 MaterialLayout，不新增热更新线程或事件；预检只检查字节码头与指令长度，不是完整 SPIR-V validator。
 
 只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。

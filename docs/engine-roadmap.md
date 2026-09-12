@@ -12,12 +12,12 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、任务背压与发布预算已接通，仍有扩展 | 增量引用恢复、字节预算与更多导入格式 |
 | 4 视口与交互 | 4A/4B 主链路完成，4C 进行中 | 内容编辑与撤销扩展 |
-| 5 渲染升级 | 材质分层、多布局渲染与布局驱动 Inspector 已接通 | 反射、PipelineKey、多 pass、线程边界 |
+| 5 渲染升级 | 材质分层、Inspector 与 SPIR-V 接口校验已接通 | PipelineKey、热更新、多 pass、线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
 以当前 main 的功能与验收为准，不再按 feat/auto 提交编号逐个迁移；旧分支仅作为算法、测试及设计参考。
-下一步推进阶段 5 的 SPIR-V ShaderInterface 反射与手工布局一致性校验；阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
+下一步推进阶段 5 的结构化 PipelineKey，并进行一次材质／Shader 职责与生命周期回顾；阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
 WSI 失败后的无呈现重试仍应独立安排，不与资产编辑工作流捆绑重构。
@@ -113,7 +113,7 @@ MaterialRuntimeCache 按版本复用快照。FrameSet 按 slot，MaterialSet 按
 - 接通引擎内置基础材质，供新模型未指定材质时自动使用；项目描述不配置 default_material。
   基础材质不依赖 demo 的纹理或材质文件，内置资源有稳定身份／解析入口和明确生命周期，不在编辑器内写死临时 Handle。
   自动默认只针对未指定材质；显式引用丢失仍保留身份并报告错误，不用默认材质掩盖坏引用。
-- Shader 源分为引擎内置（engine/shaders）与项目自定义（项目 assets/shaders）；前者随引擎只读提供，后者随项目版本控制。
+- Shader 源分为引擎内置（engine/shaders）与项目自定义（项目 assets/shaders）；前者由引擎维护，后者随项目版本控制。
   两者最终复用程序描述、编译／反射接口和渲染消费者；区分来源与身份，不各造一套 Shader/Pipeline 系统。
   项目 Shader 的产物写入项目 .comet/cache，内置 Shader 使用引擎构建／安装产物；项目不得通过同名文件隐式覆盖内置资源。
   项目只引用内置公开契约，不包含引擎源码绝对路径；私有渲染 pass 的 Shader 不必作为用户可选材质资产暴露。
@@ -124,8 +124,11 @@ MaterialRuntimeCache 按版本复用快照。FrameSet 按 slot，MaterialSet 按
 3. 已接通 Frame / Material / Object 分层：FrameSet 按 slot；MaterialSet 按版本创建并跨 slot 复用；
    model matrix 使用 push constant，实际使用的旧版本由 FrameSlot 保活。
 4. 已接通按 pipeline/material 排序，验证两种布局及纹理、标量、向量参数，包含跨 slot 的 GPU 像素读回。
-5. 再引入 SPIR-V reflection 生成 ShaderInterface（set/binding/type/count/stage/push constants）。
+5. 已接通 SPIRV-Reflect 生成入口级 ShaderInterface（set/binding/type/count/stage/block members/push constants），
+   Pipeline 创建前检查通用布局覆盖，MaterialLayout 校验参数块大小、偏移、类型和纹理协议；当前仍同步反射。
+   ShaderInterface 公开 Comet 值类型，Vulkan 布局对照收敛于 ShaderLayout 实现，不向材质及未来编辑器消费者传播。
    显示名、默认值、颜色/法线语义和 Inspector 范围仍由 Material metadata 提供；不与 C++ 反射混淆。
+   后续再扩展自动布局、复杂参数、顶点输入／stage 间接口和完整外部字节码校验；当前拒绝 runtime descriptor array。
 6. 已接通内置 Material Inspector：按共享布局显示纹理／数值／颜色，真实变化才提交，失败恢复，缺槽可逐步修复。
    后续扩展反射布局、模板切换和资产撤销；当前不引入 bindless。
 
@@ -138,6 +141,27 @@ Shader 源码、CPU 编译结果和 Vulkan 对象分层；build-time/editor 编�
 Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验票 → owner 帧边界切换。
 接口兼容时换 Pipeline；接口变化时同时重建 Layout 并失效材质缓存。失败保留旧版本并输出文件/行号诊断；
 成功也不能提前释放在途帧引用的 Shader/Pipeline/Layout。Shipping 只消费预编译打包数据，不要求松散 .spv。
+
+### Shader 编译产物与发布
+
+- 当前内置路径：`GLSL → .spv → 生成的 .h 数组 → 编译链接进引擎二进制`。
+  .spv 是 SPIR-V 字节码，生成的 .h 只是同一字节码的 C++ 数组表示，不是反射结果或 Shader 接口声明。
+  运行时同一份内存字节码用于 ShaderInterface 反射和 Vulkan Shader Module 创建，不分别读取两份产物。
+- 后续项目路径：`项目源码／程序描述 → 编译产物缓存 → 运行时加载字节码`。
+  当前 Vulkan 后端的核心产物是 SPIR-V，可先保存为 .spv；后续按需求打包入口、编译选项和版本等元数据，
+  不提前强制新容器格式。项目 Shader 不生成 C++ 头文件、不链接进引擎，修改后只重编 Shader 并更新渲染资源。
+  取得字节码后复用内置 Shader 的反射、布局校验和 GPU 创建逻辑；此项目加载／热重载链路尚未接通。
+- 编辑期缓存位于项目 .comet/cache，可重新生成；发布时将需要的编译产物作为运行资源交付，不能依赖开发机缓存。
+  字节码可以是独立 .spv、资源包内容或二进制内嵌数据。若选择运行时读取独立 .spv，发布包必须包含它们；
+  资源包和内嵌方式不要求松散 .spv，但同样必须携带字节码。
+- 当前内嵌方式下，发布编辑器／运行程序不需要附带内置 GLSL、生成的 .h 或中间 .spv。
+  若提供内置源码查看、修改或重新编译功能，再明确提供对应源码及必要编译依赖，不混淆源码发行与运行资源发行。
+  保留仓库中的学习 Shader 源文件；发布裁剪不等于删除开发源码。
+- 头文件嵌入只解决打包和加载，不是保密机制。SPIR-V 仍可能被提取、反汇编或反编译；
+  按需求剥离调试信息可减少名称等信息暴露，但不能保证 Shader 逻辑不可分析。
+
+验收：内置嵌入模式在不携带 Shader 源码／中间文件的发布目录中正常启动；项目产物脱离开发机缓存仍可加载，
+修改项目 Shader 不触发引擎 C++ 重编译／链接；编译产物缺失有明确诊断，发布运行不隐式回退到源码编译。
 
 ### Pipeline 两级缓存
 

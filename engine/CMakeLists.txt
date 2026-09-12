@@ -55,6 +55,7 @@ set(SOURCES
         src/graphics/frame_buffer.cpp
         src/graphics/pipeline/pipeline.cpp
         src/graphics/pipeline/shader.cpp
+        src/graphics/pipeline/shader_interface.cpp
         src/graphics/command/command_buffer.cpp
         src/graphics/command/command_context.cpp
         src/graphics/command/upload_manager.cpp
@@ -104,6 +105,7 @@ target_link_libraries(engine
         Threads::Threads
         stb_image
         fastgltf::fastgltf
+        spirv-reflect-static
         simdjson::simdjson
         yaml-cpp
 )
