@@ -12,12 +12,12 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、任务背压与发布预算已接通，仍有扩展 | 增量引用恢复、字节预算与更多导入格式 |
 | 4 视口与交互 | 4A/4B 主链路完成，4C 进行中 | 内容编辑与撤销扩展 |
-| 5 渲染升级 | Frame/Material 分层与两种参数布局渲染已接通 | 布局驱动 Inspector、反射、PipelineKey、多 pass、线程边界 |
+| 5 渲染升级 | 材质分层、多布局渲染与布局驱动 Inspector 已接通 | 反射、PipelineKey、多 pass、线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
 以当前 main 的功能与验收为准，不再按 feat/auto 提交编号逐个迁移；旧分支仅作为算法、测试及设计参考。
-下一步推进阶段 5 的布局驱动 Material Inspector，复用现有手工布局，再逐步接入反射；阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
+下一步推进阶段 5 的 SPIR-V ShaderInterface 反射与手工布局一致性校验；阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
 WSI 失败后的无呈现重试仍应独立安排，不与资产编辑工作流捆绑重构。
@@ -126,7 +126,8 @@ MaterialRuntimeCache 按版本复用快照。FrameSet 按 slot，MaterialSet 按
 4. 已接通按 pipeline/material 排序，验证两种布局及纹理、标量、向量参数，包含跨 slot 的 GPU 像素读回。
 5. 再引入 SPIR-V reflection 生成 ShaderInterface（set/binding/type/count/stage/push constants）。
    显示名、默认值、颜色/法线语义和 Inspector 范围仍由 Material metadata 提供；不与 C++ 反射混淆。
-6. Material Inspector 按布局生成控件，变化时精确失效缓存；当前不引入 bindless。
+6. 已接通内置 Material Inspector：按共享布局显示纹理／数值／颜色，真实变化才提交，失败恢复，缺槽可逐步修复。
+   后续扩展反射布局、模板切换和资产撤销；当前不引入 bindless。
 
 目标编辑流程：项目 Shader 源码及程序描述进入资产管线，描述组合 vertex/fragment 等阶段与入口；
 编译与反射产出可用程序和参数布局，材质按稳定资产引用选择程序／模板，Inspector 按布局显示纹理槽及其他参数。

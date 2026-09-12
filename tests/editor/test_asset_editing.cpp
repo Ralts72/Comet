@@ -58,7 +58,8 @@ namespace CometEditor::Tests {
             add_asset("material.mat", material, Comet::AssetType::Material);
             EXPECT_TRUE(Comet::MaterialSerializer{}.save(
                 {.template_name = "unlit_texture_blend",
-                    .texture_properties = {{"albedo", texture}}},
+                    .texture_properties = {{"u_Texture0", texture},
+                        {"u_Texture1", texture}}},
                 paths.assets() / "material.mat"));
             ASSERT_TRUE(database.scan().succeeded());
             auto builtins = Comet::create_scene_component_registry();
@@ -138,6 +139,39 @@ namespace CometEditor::Tests {
                 window->DC.CursorStartPos.y + ImGui::GetTextLineHeightWithSpacing()
                     + (index + 1) * ImGui::GetFrameHeightWithSpacing()
                     + ImGui::GetFrameHeight() * 0.5f};
+        }
+
+        ImVec2 material_point(
+            const char* name, const char* label, const char* child = nullptr) {
+            auto* window = ImGui::FindWindowByName("Inspector");
+            const ImGuiID group = window->GetID(name);
+            ImGuiID id = ImHashStr(label, 0, group);
+            if(child)
+                id = ImHashStr(child, 0, id);
+            for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 4) {
+                const ImVec2 point{window->WorkRect.Min.x + 40, y};
+                ImGui::GetIO().AddMousePosEvent(point.x, point.y);
+                frame();
+                if(ImGui::GetHoveredID() == id)
+                    return point;
+            }
+            ADD_FAILURE() << "Material widget not found: " << name;
+            return {};
+        }
+
+        void drag_value(ImVec2 point, float distance) {
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(point.x, point.y);
+            frame();
+            io.AddMouseButtonEvent(0, true);
+            frame();
+            io.AddMousePosEvent(point.x + distance / 2, point.y);
+            frame();
+            io.AddMousePosEvent(point.x + distance, point.y);
+            frame();
+            io.AddMouseButtonEvent(0, false);
+            frame();
+            frame();
         }
 
         std::optional<InspectorPanel::AssetAssignment> drop(ImVec2 point) {
@@ -320,14 +354,12 @@ namespace CometEditor::Tests {
         selection.select_asset(material);
         frame();
         frame();
-        auto* window = ImGui::FindWindowByName("Inspector");
-        const ImVec2 point{window->DC.CursorStartPos.x + 50,
-            window->DC.CursorPosPrevLine.y + ImGui::GetFrameHeight() * 0.5f};
+        const auto point = material_point("u_Texture0", "Texture 0");
         payload = drag_asset(second_texture, Comet::AssetType::Texture);
         material_update_success = false;
         EXPECT_FALSE(drop(point));
         ASSERT_EQ(material_updates, 1);
-        EXPECT_EQ(submitted_material.texture_properties.at("albedo"), second_texture);
+        EXPECT_EQ(submitted_material.texture_properties.at("u_Texture0"), second_texture);
         material_update_success = true;
         EXPECT_FALSE(drop(point));
         EXPECT_EQ(material_updates, 2);
@@ -337,7 +369,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(Comet::MaterialSerializer{}
                       .load(paths.assets() / "material.mat")
                       .value()
-                      .texture_properties.at("albedo"),
+                      .texture_properties.at("u_Texture0"),
             texture);
     }
 
@@ -345,9 +377,7 @@ namespace CometEditor::Tests {
         selection.select_asset(material);
         frame();
         const auto slot_point = [&]() {
-            const auto* window = ImGui::FindWindowByName("Inspector");
-            return ImVec2{window->DC.CursorStartPos.x + 50,
-                window->DC.CursorPosPrevLine.y + ImGui::GetFrameHeight() * 0.5f};
+            return material_point("u_Texture0", "Texture 0");
         };
         payload = drag_asset(second_texture, Comet::AssetType::Texture);
         EXPECT_FALSE(drop(slot_point()));
@@ -364,8 +394,9 @@ namespace CometEditor::Tests {
 
         inspector->set_visible(false);
         ASSERT_TRUE(Comet::MaterialSerializer{}.save(
-            {.template_name = "changed_template",
-                .texture_properties = {{"albedo", texture}}},
+            {.template_name = "unlit_texture_blend",
+                .texture_properties = {{"u_Texture0", texture}, {"u_Texture1", texture}},
+                .scalar_properties = {{"blend", 0.25f}}},
             paths.assets() / "material.mat"));
         ASSERT_TRUE(database.scan().succeeded());
         ASSERT_NE(database.get_revision(material), revision);
@@ -375,7 +406,7 @@ namespace CometEditor::Tests {
         frame();
         EXPECT_FALSE(drop(slot_point()));
         EXPECT_EQ(material_updates, 2);
-        EXPECT_EQ(submitted_material.template_name, "changed_template");
+        EXPECT_FLOAT_EQ(submitted_material.scalar_properties.at("blend"), 0.25f);
     }
 
     TEST_F(AssetEditingUiTest, FailedMaterialLoadRetriesAfterAssetRevisionChanges) {
@@ -385,18 +416,165 @@ namespace CometEditor::Tests {
         frame();
 
         ASSERT_TRUE(Comet::MaterialSerializer{}.save(
-            {.template_name = "recovered_template",
-                .texture_properties = {{"albedo", texture}}},
+            {.template_name = "unlit_texture_blend",
+                .texture_properties = {{"u_Texture0", texture}, {"u_Texture1", texture}}},
             paths.assets() / "material.mat"));
         ASSERT_TRUE(database.scan().succeeded());
         frame();
         frame();
-        const auto* window = ImGui::FindWindowByName("Inspector");
         payload = drag_asset(second_texture, Comet::AssetType::Texture);
-        EXPECT_FALSE(drop({window->DC.CursorStartPos.x + 50,
-            window->DC.CursorPosPrevLine.y + ImGui::GetFrameHeight() * 0.5f}));
+        EXPECT_FALSE(drop(material_point("u_Texture0", "Texture 0")));
         EXPECT_EQ(material_updates, 1);
-        EXPECT_EQ(submitted_material.template_name, "recovered_template");
+        EXPECT_EQ(submitted_material.template_name, "unlit_texture_blend");
+    }
+
+    TEST_F(AssetEditingUiTest, LayoutDefaultsDoNotPublishUntilScalarActuallyChanges) {
+        selection.select_asset(material);
+        frame();
+        frame();
+        const auto point = material_point("blend", "Blend");
+        EXPECT_EQ(material_updates, 0);
+        EXPECT_TRUE(Comet::MaterialSerializer{}
+                .load(paths.assets() / "material.mat")
+                .value()
+                .scalar_properties.empty());
+        drag_value(point, 30);
+        ASSERT_GT(material_updates, 0);
+        EXPECT_GT(submitted_material.scalar_properties.at("blend"), 0.5f);
+        EXPECT_LE(submitted_material.scalar_properties.at("blend"), 1.0f);
+        EXPECT_TRUE(submitted_material.vector_properties.empty());
+        const auto updates = material_updates;
+        for(int index = 0; index < 10; ++index)
+            frame();
+        EXPECT_EQ(material_updates, updates);
+        EXPECT_EQ(history.undo_size(), 0);
+    }
+
+    TEST_F(AssetEditingUiTest, FailedScalarUpdateRestoresValuesAndAllowsRetry) {
+        selection.select_asset(material);
+        frame();
+        frame();
+        const auto point = material_point("blend", "Blend");
+        material_update_success = false;
+        drag_value(point, 20);
+        ASSERT_GT(material_updates, 0);
+        const auto failed_updates = material_updates;
+        // Separate gestures must not enter DragFloat's double-click text mode.
+        for(int index = 0; index < 20; ++index)
+            frame();
+        EXPECT_EQ(material_updates, failed_updates);
+        material_update_success = true;
+        drag_value(point, -20);
+        EXPECT_GT(material_updates, failed_updates);
+        EXPECT_NEAR(submitted_material.scalar_properties.at("blend"), 0.3f, 0.001f);
+        const auto updates = material_updates;
+        frame();
+        frame();
+        EXPECT_EQ(material_updates, updates);
+    }
+
+    TEST_F(AssetEditingUiTest, RepairsMissingTextureSlotsWithoutAnApplyButton) {
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "unlit_texture_blend"}, paths.assets() / "material.mat"));
+        selection.select_asset(material);
+        frame();
+        frame();
+        payload = drag_asset(texture, Comet::AssetType::Texture);
+        EXPECT_FALSE(drop(material_point("u_Texture0", "Texture 0")));
+        EXPECT_EQ(material_updates, 0);
+        payload = drag_asset(second_texture, Comet::AssetType::Texture);
+        EXPECT_FALSE(drop(material_point("u_Texture1", "Texture 1")));
+        ASSERT_EQ(material_updates, 1);
+        EXPECT_EQ(submitted_material.texture_properties.at("u_Texture0"), texture);
+        EXPECT_EQ(submitted_material.texture_properties.at("u_Texture1"), second_texture);
+        frame();
+        EXPECT_EQ(material_updates, 1);
+    }
+
+    TEST_F(AssetEditingUiTest, SolidLayoutNeedsNoTextureAndPublishesNumericParameter) {
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "unlit_color"}, paths.assets() / "material.mat"));
+        selection.select_asset(material);
+        frame();
+        frame();
+        EXPECT_EQ(material_updates, 0);
+        drag_value(material_point("intensity", "Intensity"), 20);
+        ASSERT_GT(material_updates, 0);
+        EXPECT_GT(submitted_material.scalar_properties.at("intensity"), 1.0f);
+        EXPECT_TRUE(submitted_material.texture_properties.empty());
+    }
+
+    TEST_F(AssetEditingUiTest, ColorMetadataUsesAnEditableColorWidgetWithoutIdleWrites) {
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "unlit_color"}, paths.assets() / "material.mat"));
+        selection.select_asset(material);
+        frame();
+        frame();
+        const auto point = material_point("color", "Color", "##X");
+        EXPECT_EQ(material_updates, 0);
+        drag_value(point, -40);
+        ASSERT_GT(material_updates, 0);
+        const auto color = submitted_material.vector_properties.at("color");
+        EXPECT_LT(color[0], 1.0f);
+        EXPECT_FLOAT_EQ(color[1], 1.0f);
+        EXPECT_TRUE(submitted_material.scalar_properties.empty());
+        const auto updates = material_updates;
+        for(int index = 0; index < 10; ++index)
+            frame();
+        EXPECT_EQ(material_updates, updates);
+    }
+
+    TEST_F(AssetEditingUiTest, IncompleteTextureDraftDoesNotLeakToAnotherAsset) {
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "unlit_texture_blend"}, paths.assets() / "material.mat"));
+        selection.select_asset(material);
+        frame();
+        frame();
+        payload = drag_asset(texture, Comet::AssetType::Texture);
+        EXPECT_FALSE(drop(material_point("u_Texture0", "Texture 0")));
+        EXPECT_EQ(material_updates, 0);
+        selection.select_asset(texture);
+        frame();
+        selection.select_asset(material);
+        frame();
+        frame();
+        payload = drag_asset(second_texture, Comet::AssetType::Texture);
+        EXPECT_FALSE(drop(material_point("u_Texture1", "Texture 1")));
+        EXPECT_EQ(material_updates, 0);
+        EXPECT_TRUE(Comet::MaterialSerializer{}
+                .load(paths.assets() / "material.mat")
+                .value()
+                .texture_properties.empty());
+    }
+
+    TEST_F(AssetEditingUiTest, EditingKnownPropertyRepairsItsMismatchedType) {
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "unlit_color", .scalar_properties = {{"color", 0.5f}}},
+            paths.assets() / "material.mat"));
+        selection.select_asset(material);
+        frame();
+        frame();
+        EXPECT_EQ(material_updates, 0);
+        drag_value(material_point("color", "Color", "##X"), -40);
+        ASSERT_GT(material_updates, 0);
+        EXPECT_FALSE(submitted_material.scalar_properties.contains("color"));
+        EXPECT_TRUE(submitted_material.vector_properties.contains("color"));
+        EXPECT_TRUE(Comet::MaterialSerializer{}.serialize(submitted_material));
+    }
+
+    TEST_F(AssetEditingUiTest, UnknownPropertiesPreventPublicationWithoutBeingDeleted) {
+        const Comet::MaterialData original{
+            .template_name = "unlit_color", .scalar_properties = {{"custom", 2.0f}}};
+        ASSERT_TRUE(
+            Comet::MaterialSerializer{}.save(original, paths.assets() / "material.mat"));
+        selection.select_asset(material);
+        frame();
+        frame();
+        drag_value(material_point("intensity", "Intensity"), 20);
+        EXPECT_EQ(material_updates, 0);
+        EXPECT_EQ(
+            Comet::MaterialSerializer{}.load(paths.assets() / "material.mat").value(),
+            original);
     }
 
     TEST_F(AssetEditingUiTest, RejectsWrongTypeMissingAssetAndStaleDocument) {

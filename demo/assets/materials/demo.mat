@@ -2,14 +2,6 @@
   "version": 2,
   "template": "unlit_texture_blend",
   "properties": {
-    "tint": {
-      "type": "vector",
-      "value": [1.0, 1.0, 1.0, 1.0]
-    },
-    "blend": {
-      "type": "scalar",
-      "value": 0.5
-    },
     "u_Texture0": {
       "type": "texture",
       "asset": 15538271868700781231
@@ -17,6 +9,19 @@
     "u_Texture1": {
       "type": "texture",
       "asset": 6692465245512631459
+    },
+    "blend": {
+      "type": "scalar",
+      "value": 0.03
+    },
+    "tint": {
+      "type": "vector",
+      "value": [
+        1,
+        1,
+        1,
+        1
+      ]
     }
   }
 }

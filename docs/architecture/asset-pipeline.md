@@ -171,6 +171,10 @@ Texture 后台刷新和显式重导入共用 `reload_loaded_material_dependents(
   这不是整批文件的 OS 原子事务：进程崩溃／回滚自身失败可能留下文件，需诊断和后续恢复；跨卷或不支持硬链接的文件系统会明确失败。
   当前文件复制／校验同步执行；批量异步准备、取消、进度及崩溃恢复留待扩展。不复制外部身份，不自动创建实体，也不进入 Scene 历史。
 - Material：Inspector 值变化 → update_material → 构建候选 → 原子保存 .mat → 更新依赖 → 替换 Registry。
+  Inspector 与渲染器共用 MaterialLayout::find_builtin 的只读描述，按布局显示纹理槽及标量／向量／颜色参数。
+  缺省数值只显示默认值，不立即写回；必需纹理未补齐时保留面板草稿，完整后随一次实际变化自动发布。
+  未完成草稿在加载其他资产或该资产新 revision 时丢弃；未知属性阻止发布，不自动删除用户字段。
+  模板切换和资产撤销尚未接通；拖动中每次真实变化都提交，未做写入合并。
 - Texture：设置变化 → reimport_texture → 解码/GPU 候选 → 保存 .meta → 发布 Texture → 刷新已加载材质。
 - 控件按变化事件提交，不逐帧保存；失败恢复旧控件值。加载/字段错误显示在 Inspector，更新日志只进入 Log。
 - 编辑器的资产下拉控件和拖放载荷读取集中在 `editor/src/assets/asset_reference`；公共读取只验证载荷格式并复制数据，

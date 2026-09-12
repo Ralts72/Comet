@@ -113,6 +113,8 @@ Engine：事件 → Application 更新
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 SceneRenderer 不读 EditorMode/ImGui。SceneResolver 只解析 Camera、Mesh 和 Material 引用，不检查模板、属性名或纹理数量。
 MaterialRenderer 使用 MaterialRuntimeCache，按 Material 对象身份/revision 与不可变 MaterialLayout 对象身份生成 PreparedMaterial。
+内置布局由 MaterialLayout::find_builtin 共享，不由各个 Renderer 重复构造；Inspector 读取同一份默认值、槽名和编辑语义。
+布局只含 CPU 描述，不含 ImGui 控件或 GPU owner；显示名、颜色语义、编辑范围是人为元数据，不由后续 Shader 反射自动推断。
 失败也缓存，在持续使用期间不逐帧重复诊断；源或布局变化后重试。未使用的 CPU 缓存按渲染周期回收。
 PreparedMaterial 持有当时的 Texture 引用与按布局打包的参数。set 0 是按 slot 更新的相机 FrameSet；
 set 1 是按材质版本创建、发布后不改写的 MaterialSet；model matrix 仍使用 push constant。

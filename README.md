@@ -117,7 +117,8 @@ JSON 解析直接依赖已有 simdjson。
 - Inspector 引用框支持按类型过滤的资产路径下拉框；Edit 还可从 Project 拖入 Mesh／Material／Texture。
   底层仍保存 Handle，加载失败保持旧引用，丢失引用显示 Missing。Play 仅支持下拉调试，不接受资产拖放。
   内置模板支持 `unlit_texture_blend`（两纹理、blend、tint）和 `unlit_color`（color、intensity）。
-  数值参数目前通过 `.mat` JSON 配置，Inspector 暂只编辑纹理；尚不支持动态指定项目 Shader。
+  Inspector 按共享布局显示纹理、标量和颜色参数，变化后自动保存并更新渲染，无需确认；仅查看默认值不会写文件。
+  缺失纹理槽需补齐后才发布，切换其他资产会丢弃未完成草稿；尚不支持切换模板或动态指定项目 Shader。
 - View 菜单与面板关闭按钮共享显隐状态；菜单只展示已接通的操作。
 
 ## 架构入口
