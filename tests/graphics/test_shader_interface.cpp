@@ -1,7 +1,7 @@
 #include "graphics/pipeline/shader_interface.h"
 #include "graphics/pipeline/shader.h"
 #include "core/engine.h"
-#include "config/config.h"
+#include "support/engine_fixture.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
 #include "graphics/device.h"
@@ -12,8 +12,7 @@
 #include "graphics/pipeline/vertex_description.h"
 #include <algorithm>
 #include <array>
-#include "render/material_runtime.h"
-#include "diagnostics/logger.h"
+#include "render/material.h"
 #include "material_mesh_vert.h"
 #include "material_textured_frag.h"
 #include "material_solid_frag.h"
@@ -33,8 +32,6 @@
 #include "graphics/context.h"
 
 #include <gtest/gtest.h>
-#include <spdlog/sinks/ostream_sink.h>
-#include <sstream>
 #include <stdexcept>
 #include <functional>
 #include <limits>
@@ -127,44 +124,20 @@ namespace Comet::Tests {
                          ->validate(ShaderInterface(MATERIAL_INTEGER_FRAG)),
             std::invalid_argument);
         const MaterialLayout wrong_size(
-            "size", 1, {}, 48, {{"intensity", 16, 1}}, {{"color", 0, {1, 1, 1, 1}}});
+            "size", {}, 48, {{"intensity", 16, 1}}, {{"color", 0, {1, 1, 1, 1}}});
         EXPECT_THROW(wrong_size.validate(solid), std::invalid_argument);
         const MaterialLayout wrong_offset(
-            "offset", 1, {}, 32, {{"intensity", 20, 1}}, {{"color", 0, {1, 1, 1, 1}}});
+            "offset", {}, 32, {{"intensity", 20, 1}}, {{"color", 0, {1, 1, 1, 1}}});
         EXPECT_THROW(wrong_offset.validate(solid), std::invalid_argument);
         const MaterialLayout missing_member(
-            "member", 1, {}, 32, {}, {{"color", 0, {1, 1, 1, 1}}});
+            "member", {}, 32, {}, {{"color", 0, {1, 1, 1, 1}}});
         EXPECT_THROW(missing_member.validate(solid), std::invalid_argument);
-        const MaterialLayout wrong_binding("binding", 1, {{"a", 1}, {"b", 3}}, 32,
+        const MaterialLayout wrong_binding("binding", {{"a", 1}, {"b", 3}}, 32,
             {{"blend", 16, 1}}, {{"tint", 0, {1, 1, 1, 1}}});
         EXPECT_THROW(wrong_binding.validate(textured), std::invalid_argument);
     }
 
-    class ShaderPipelineTest: public ::testing::Test {
-    protected:
-        void SetUp() override {
-            sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(messages);
-            Logger::add_custom_sink(sink);
-            Config config;
-            config.window.width = 160;
-            config.window.height = 120;
-            config.vulkan.enable_validation = true;
-            engine = std::make_unique<Engine>(config);
-        }
-        void TearDown() override {
-            if(engine)
-                engine->get_renderer().get_render_context().wait_idle();
-            engine.reset();
-            if(auto logger = Logger::get_console_logger())
-                std::erase(logger->sinks(), sink);
-            EXPECT_EQ(messages.str().find("VUID-"), std::string::npos) << messages.str();
-            EXPECT_EQ(messages.str().find("Validation Error"), std::string::npos)
-                << messages.str();
-        }
-        std::unique_ptr<Engine> engine;
-        std::ostringstream messages;
-        std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink;
-    };
+    using ShaderPipelineTest = EngineTest;
 
     TEST_F(ShaderPipelineTest, ValidatesArrayCountTypeVisibilityAndNonzeroPushOffset) {
         auto& device = engine->get_renderer().get_render_context().get_device();

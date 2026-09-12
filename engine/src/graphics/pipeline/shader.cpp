@@ -94,7 +94,6 @@ namespace Comet {
         const auto shader =
             std::make_shared<Shader>(m_device, name, spirv_words, std::move(entry_point));
         m_shaders[name] = shader;
-        LOG_INFO("Shader '{}' loaded and cached successfully", name);
         return shader;
     }
 

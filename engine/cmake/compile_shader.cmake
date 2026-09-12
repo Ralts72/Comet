@@ -13,9 +13,9 @@ function(compile_shaders)
     set(SPV_TO_CPP_SCRIPT "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/spv_to_cpp.cmake")
     set(ALL_GENERATED_SPV_FILES)
     set(ALL_GENERATED_CPP_FILES)
-    set(SHADER_INCLUDE_ARGUMENT)
+    set(COMPILER_ARGUMENTS)
     if (SHADER_INCLUDE_DIRECTORY)
-        list(APPEND SHADER_INCLUDE_ARGUMENT --include "${SHADER_INCLUDE_DIRECTORY}")
+        list(APPEND COMPILER_ARGUMENTS --include "${SHADER_INCLUDE_DIRECTORY}")
     endif ()
     if (NOT SHADER_ENTRY_POINT)
         set(SHADER_ENTRY_POINT main)
@@ -24,7 +24,7 @@ function(compile_shaders)
         set(SHADER_TARGET_ENVIRONMENT vulkan1.0)
     endif ()
     foreach (DEFINE IN LISTS SHADER_DEFINES)
-        list(APPEND SHADER_INCLUDE_ARGUMENT --define "${DEFINE}")
+        list(APPEND COMPILER_ARGUMENTS --define "${DEFINE}")
     endforeach ()
 
     foreach (SOURCE_FILE IN LISTS SHADER_SOURCES)
@@ -40,7 +40,7 @@ function(compile_shaders)
                 OUTPUT "${SPV_FILE}"
                 COMMAND "${CMAKE_COMMAND}" -E make_directory "${SPV_OUTPUT_DIRECTORY}"
                 COMMAND "$<TARGET_FILE:${SHADER_COMPILER}>"
-                        ${SHADER_INCLUDE_ARGUMENT}
+                        ${COMPILER_ARGUMENTS}
                         --stage "${STAGE}" --entry "${SHADER_ENTRY_POINT}"
                         --target "${SHADER_TARGET_ENVIRONMENT}"
                         --output "${SPV_FILE}" --depfile "${SPV_FILE}.d"

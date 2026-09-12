@@ -70,8 +70,6 @@ namespace Comet {
                 const auto found = m_sources.find(path);
                 if(found != m_sources.end())
                     return found->second;
-                if(m_sources.size() >= MAX_SOURCE_FILES)
-                    throw std::runtime_error("Shader include search exceeds 256 files");
                 auto contents = read_source(path);
                 if(contents) {
                     m_total_bytes += contents->size();
@@ -207,8 +205,8 @@ namespace Comet {
             const auto messages =
                 static_cast<EShMessages>(EShMsgSpvRules | EShMsgVulkanRules);
             if(!shader.parse(GetDefaultResources(), 450, false, messages, includer)) {
-                result.diagnostics = std::string(shader.getInfoLog())
-                                     + shader.getInfoDebugLog() + includer.error();
+                result.diagnostics =
+                    std::string(shader.getInfoLog()) + shader.getInfoDebugLog();
             } else {
                 glslang::TProgram program;
                 program.addShader(&shader);
@@ -232,7 +230,9 @@ namespace Comet {
         result.dependencies = includer.dependencies();
         if(!includer.error().empty()) {
             result.words.clear();
-            result.diagnostics = includer.error();
+            if(!result.diagnostics.empty())
+                result.diagnostics += '\n';
+            result.diagnostics += includer.error();
         }
         if(result.succeeded() && !inputs_unchanged(result)) {
             result.words.clear();

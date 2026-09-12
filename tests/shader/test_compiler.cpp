@@ -1,7 +1,7 @@
 #include "shader/compiler.h"
 #include "graphics/pipeline/shader_interface.h"
-#include "asset/handle.h"
 #include "common/file_io.h"
+#include "support/temporary_directory.h"
 #include "material_mesh_vert.h"
 #include "material_textured_frag.h"
 #include "material_solid_frag.h"
@@ -17,14 +17,9 @@
 namespace Comet::Tests {
     class ShaderCompilerTest: public testing::Test {
     protected:
-        std::filesystem::path root =
-            std::filesystem::temp_directory_path()
-            / ("comet_shader_test_" + std::to_string(AssetHandle::generate().value()));
+        TemporaryDirectory directory;
+        const std::filesystem::path root = directory.path();
         ShaderCompiler::Request request{.source = root / "source.vert"};
-        void TearDown() override {
-            std::error_code error;
-            std::filesystem::remove_all(root, error);
-        }
         void write(const std::string& path, const std::string& source) {
             write_text_file_atomic(root / path, source);
         }
@@ -153,6 +148,8 @@ namespace Comet::Tests {
         const auto oversized = ShaderCompiler::compile(request);
         EXPECT_FALSE(oversized.succeeded());
         EXPECT_NE(oversized.diagnostics.find("8 MiB"), std::string::npos);
+        EXPECT_NE(oversized.diagnostics.find("source.vert"), std::string::npos);
+        EXPECT_NE(oversized.diagnostics.find("3:"), std::string::npos);
     }
 
     TEST_F(ShaderCompilerTest, DetectsSymlinkRetargetEvenWhenOldFileStillExists) {

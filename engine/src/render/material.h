@@ -8,9 +8,68 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace Comet {
     class Texture;
+    class ShaderInterface;
+
+    class COMET_API MaterialLayout {
+    public:
+        struct TextureProperty {
+            std::string name;
+            uint32_t binding;
+            std::string display_name;
+        };
+        struct ScalarProperty {
+            std::string name;
+            uint32_t offset;
+            float default_value;
+            float min_value = 0;
+            float max_value = 0;
+            float step = 0.01f;
+            std::string display_name;
+        };
+        struct VectorProperty {
+            enum class Semantic { Vector, Color };
+            std::string name;
+            uint32_t offset;
+            Math::Vec4 default_value{0.0f};
+            Semantic semantic = Semantic::Vector;
+            std::string display_name;
+        };
+
+        [[nodiscard]] static std::shared_ptr<const MaterialLayout> find_builtin(
+            std::string_view name);
+
+        MaterialLayout(std::string name, std::vector<TextureProperty> textures,
+            uint32_t parameter_size = 0, std::vector<ScalarProperty> scalars = {},
+            std::vector<VectorProperty> vectors = {});
+        MaterialLayout(const MaterialLayout&) = default;
+        MaterialLayout& operator=(const MaterialLayout&) = delete;
+
+        [[nodiscard]] const std::string& get_name() const { return m_name; }
+        [[nodiscard]] const std::vector<TextureProperty>& get_textures() const {
+            return m_textures;
+        }
+        [[nodiscard]] uint32_t get_parameter_size() const { return m_parameter_size; }
+        [[nodiscard]] const std::vector<ScalarProperty>& get_scalars() const {
+            return m_scalars;
+        }
+        [[nodiscard]] const std::vector<VectorProperty>& get_vectors() const {
+            return m_vectors;
+        }
+
+        void validate(const ShaderInterface& shader, uint32_t material_set = 1) const;
+
+    private:
+        std::string m_name;
+        std::vector<TextureProperty> m_textures;
+        uint32_t m_parameter_size;
+        std::vector<ScalarProperty> m_scalars;
+        std::vector<VectorProperty> m_vectors;
+    };
 
     class COMET_API Material {
     public:
@@ -35,10 +94,6 @@ namespace Comet {
 
         [[nodiscard]] std::shared_ptr<Texture> get_texture_property(
             const std::string& name) const;
-        [[nodiscard]] const std::map<std::string, std::shared_ptr<Texture>>&
-        get_texture_properties() const {
-            return m_texture_properties;
-        }
 
     private:
         std::string m_name;

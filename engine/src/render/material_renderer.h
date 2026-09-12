@@ -45,7 +45,6 @@ namespace Comet {
     private:
         struct PipelineState {
             std::shared_ptr<const MaterialLayout> layout;
-            std::shared_ptr<DescriptorSetLayout> frame_layout;
             std::shared_ptr<DescriptorSetLayout> material_layout;
             std::shared_ptr<Pipeline> pipeline;
         };

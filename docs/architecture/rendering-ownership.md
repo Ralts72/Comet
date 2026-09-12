@@ -44,7 +44,7 @@ Engine
         ├── DebugRenderer → 线段 Pipeline / VertexBuffer[slot]
         ├── RenderTarget：runtime SwapchainTarget 或 editor MultiTarget
         └── MaterialRenderer
-            ├── PipelineState → MaterialLayout / descriptor layouts / Pipeline
+            ├── PipelineState → MaterialLayout / material descriptor layout / Pipeline
             ├── FrameResources[slot] → 相机 UBO / FrameSet / pool
             ├── MaterialRuntimeCache → PreparedMaterial → Texture / 参数字节
             └── MaterialResources[material version] → PreparedMaterial / PipelineState / Sampler / 参数 UBO / pool / MaterialSet
@@ -113,40 +113,57 @@ Engine：事件 → Application 更新
 
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 SceneRenderer 不读 EditorMode/ImGui。SceneResolver 只解析 Camera、Mesh 和 Material 引用，不检查模板、属性名或纹理数量。
-MaterialRenderer 使用 MaterialRuntimeCache，按 Material 对象身份/revision 与不可变 MaterialLayout 对象身份生成 PreparedMaterial。
-内置布局由 MaterialLayout::find_builtin 共享，不由各个 Renderer 重复构造；Inspector 读取同一份默认值、槽名和编辑语义。
-布局只含 CPU 描述，不含 ImGui 控件或 GPU owner；显示名、颜色语义、编辑范围是人为元数据，不由 Shader 反射自动推断。
-失败也缓存，在持续使用期间不逐帧重复诊断；源或布局变化后重试。未使用的 CPU 缓存按渲染周期回收。
-PreparedMaterial 持有当时的 Texture 引用与按布局打包的参数。set 0 是按 slot 更新的相机 FrameSet；
-set 1 是按材质版本创建、发布后不改写的 MaterialSet；model matrix 仍使用 push constant。
-MaterialResources 保留 PreparedMaterial、Pipeline/layout、Sampler、参数 buffer 和 descriptor pool，
-实际使用它的 FrameSlot 再保留该整体与 Mesh、FrameResources，直到 GPU 完成；CPU 缓存回收不代表 GPU 完成。
-GPU 候选创建失败时继续使用旧 MaterialResources，同一候选延后 60 个 frame serial 重试；新候选可立即尝试。
-不支持的模板或 CPU 准备失败仍跳过绘制，不承诺任何失败都沿用旧材质。
-当前队列按模板名和材质 Handle 排序，支持 unlit_texture_blend 与 unlit_color。
 
-Shader 先从指定入口的 SPIR-V 生成自有 ShaderInterface，再创建设备 shader module；反射库和输入字节码不被结果借用。
-DescriptorSetLayout 保存原始 binding 描述；ShaderLayout 检查 descriptor 类型/数量/stage 与 push constant 覆盖范围。
-PipelineManager 在结构化缓存查询前执行校验，MaterialRenderer 额外用 MaterialLayout 核对材质 set 的参数块与纹理协议。
-ShaderInterface 只公开 Comet 的 Format、DescriptorType、ShaderStage 和自有范围值，不依赖 Vulkan 头文件。
-反射库类型在 shader_interface.cpp 内显式转换；Vulkan 类型对照留在 ShaderLayout::validate 的实现中，材质层只消费 Comet 描述。
-当前同步反射，不自动生成 MaterialLayout，不新增热更新线程或事件；预检只检查字节码头与指令长度，不是完整 SPIR-V validator。
+## 材质、Shader 与 Pipeline
 
-tools/shader/compiler.h 是 CPU 源编译入口：只依赖 Comet 阶段枚举和标准库，glslang 类型留在 cpp。
-comet_shader_tools 静态库与 CLI 不链接 engine 运行时；CLI 复用 common/file_io.cpp 原子发布 SPIR-V，构建后仍生成内置字节码头。
-每次编译独占源快照、解析器和结果，glslang 进程初始化只执行一次；结果记录逻辑／解析路径、存在或缺失的内容。
-成功前重查输入，失败清空字节码并返回诊断；未来 Worker→owner 发布仍需验证请求 revision 和输入未变化，不把快照当文件锁。
+从哪里读代码：
 
-Shader 保存不可变字节码副本；ShaderManager 按逻辑名称管理当前版本，但仅在字节码和入口相同时复用，候选失败不覆盖旧条目。
-PipelineKey 按完整代码／入口、descriptor 与 push 范围、配置、RenderPass 身份和附件格式／采样数判等，名称只作首次创建标签。
-配置和 State 集中在 pipeline_config.h/.cpp，Key 的值描述与规范化／哈希在 pipeline_key.h/.cpp，
-pipeline.h/.cpp 保留 PipelineLayout、Pipeline 和 PipelineManager；配置与 Key 不反向包含 Pipeline 创建入口。
-动态 viewport/scissor 的无关静态值与不影响语义的顺序会规范化；静态 viewport/scissor 和 subpass 实际进入 Vulkan 创建参数。
-Key 是当前 Device/RenderPass 域的后端对象描述，不是磁盘格式；它使用的 Vulkan 布局值不进入 ShaderInterface 或材质参数 API。
-PipelineManager 只持 weak_ptr；MaterialResources／DebugRenderer 与 FrameSlot 保留实际 Pipeline，最后一个 owner 释放时才销毁。
-过期 key 在创建请求或 collect_unused 时清理，不每帧扫描，不增加退休队列；get_cached_pipeline_count 包含尚未清理的过期条目。
-MaterialRenderer 的模板选择缓存、PipelineManager 的对象复用与驱动 PipelineCache 各有职责，不合并为一个资源管理器。
-未来热发布须同时更新 PipelineState 与对应 GPU 材质缓存；本轮不把 ShaderManager 候选替换当作完整热重载。
+| 入口 | 职责 | 不负责 |
+| --- | --- | --- |
+| `render/material.h` | Material 属性与 revision；不可变 MaterialLayout 参数描述、默认值和编辑语义 | 资产身份、GPU 缓存、UI 控件 |
+| `render/material_runtime.h` | MaterialRuntimeCache 准备并缓存 Texture 引用和参数字节 | 创建 Vulkan 对象 |
+| `render/material_renderer.h` | 帧／材质 descriptor、Pipeline 选择、排序与绘制 | 解析 Scene 或资产文件 |
+| `tools/shader/compiler.h` | CPU 源编译、依赖快照和诊断；CLI 负责文件输出 | Vulkan 对象、编辑器热重载编排 |
+| `graphics/pipeline/shader_interface.h` | SPIR-V 入口级自有反射数据，仅公开 Comet 类型 | 自动生成编辑语义、完整字节码校验 |
+| `graphics/pipeline/shader.h` | ShaderLayout 覆盖校验、Shader GPU owner 与同名版本管理 | 监视源码、启动编译任务 |
+| `graphics/pipeline/pipeline.h` | PipelineLayout、Pipeline 与弱对象缓存 | 磁盘缓存策略、资产发布 |
+
+### 材质准备与寿命
+
+内置 `unlit_texture_blend` / `unlit_color` 布局由 MaterialLayout::find_builtin 共享，Inspector 与 Renderer 使用同一份描述。
+布局构造后不可变，以对象身份区分版本；Material 可修改，以自身 revision 标记真实变化。
+MaterialRuntimeCache 按 Handle 索引，比较 Material 对象身份／revision 和布局身份；失败也缓存，变化后才重试。
+未使用项按渲染周期回收，已取得的 PreparedMaterial 仍拥有当时的 Texture 和参数副本。
+
+set 0 是按 slot 更新的相机 FrameSet；set 1 是按不可变材质版本创建的 MaterialSet；model matrix 使用 push constant。
+MaterialResources 持有 PreparedMaterial、PipelineState、Sampler、参数 buffer 与 descriptor pool；
+FrameResources 持有 frame layout、pool 和相机 buffer。实际绘制的 FrameSlot 保留它们及 Mesh，直到 GPU 完成。
+CPU 缓存淘汰不代表 GPU 已完成，不能据此删除 retained owners。
+GPU 候选失败可沿用旧 MaterialResources，同一候选延后 60 个 frame serial 重试，新候选可立即尝试；
+不支持的模板或 CPU 准备失败则跳过绘制。队列按模板名与材质 Handle 排序。
+
+### 编译、反射与缓存边界
+
+编译库静态依赖 glslang，不链接 engine；CLI 复用 common/file_io.cpp 原子写 SPIR-V 和 depfile，再由构建生成内嵌字节码头。
+每个请求独占解析器与输入快照，进程初始化仅一次；快照记录逻辑路径、解析路径，以及存在或缺失的内容。
+成功返回前复核输入，失败不返回字节码；include 诊断保留源文件／行号并追加具体原因。
+depfile 只列存在的依赖，新增遮蔽文件不保证自动触发构建。原子写针对单文件，不是 SPIR-V／depfile 的跨文件事务。
+未来 Worker 发布仍需请求 revision 与输入复核，快照不等于文件锁；当前尚无编辑器源码监视／热发布。
+
+Shader 先反射指定入口再创建 module，拥有字节码副本和反射值；同名内容／入口相同才复用，候选成功后替换。
+ShaderLayout 检查 descriptor 类型／数量／stage 和 push 覆盖；MaterialLayout 额外核对材质参数块大小、偏移、类型与纹理协议。
+原生反射类型仅在 shader_interface.cpp 转换，Vulkan 布局对照留在 ShaderLayout 实现中。
+当前仅同步反射，不自动生成 MaterialLayout；头和指令长度预检不是完整 SPIR-V validator。
+
+PipelineConfig 与状态位于 pipeline_config.h/.cpp，PipelineKey 的完整判等、规范化与哈希位于 pipeline_key.h/.cpp。
+Key 包含完整 Shader 内容／入口、layout、配置、RenderPass 身份与附件格式／采样数；名称只作标签，hash 不代替相等比较。
+动态 viewport/scissor 的无关静态值和无关顺序会规范化；规范化配置、静态 viewport/scissor 和 subpass 都用于实际创建。
+Key 属于 Device/RenderPass 域，不是持久格式；其中 Vulkan 值不传播到材质或 ShaderInterface API。
+PipelineManager 只持 weak_ptr，使用方与 FrameSlot 持有实际 Pipeline；创建请求或 collect_unused 清理过期键，不每帧扫描。
+get_cached_pipeline_count 包括尚未清理的过期项。模板选择、Pipeline 对象复用、驱动 PipelineCache 是三种不同职责。
+后续热发布必须同时更新 PipelineState 与 GPU 材质缓存，不能只更新 ShaderManager；计划见[路线图](../engine-roadmap.md#阶段-5渲染架构升级)。
+
+## 编辑命令与视口时序
 
 只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。

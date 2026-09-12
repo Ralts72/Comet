@@ -93,7 +93,6 @@ namespace Comet {
         layout->validate(fragment->get_interface());
         auto state = std::make_shared<PipelineState>();
         state->layout = std::move(layout);
-        state->frame_layout = m_frame_layout;
         DescriptorSetLayoutBindings bindings;
         if(state->layout->get_parameter_size() > 0) {
             bindings.add_binding(0, DescriptorType::UniformBuffer,

@@ -1,6 +1,6 @@
 # Comet 引擎路线图
 
-更新：2026-09-12。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
+更新：2026-09-13。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
 本文只维护阶段、待办和设计约束，不累计每次迁移的完成日志。
 
 ## 当前阶段与下一步
@@ -106,9 +106,9 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 ### 材质与 Shader
 
-当前已分离场景资源解析、pass 编排和材质绘制：MaterialRenderer 使用手工 MaterialLayout 驱动 descriptor 与参数打包，
-MaterialRuntimeCache 按版本复用快照。FrameSet 按 slot，MaterialSet 按不可变版本；队列支持 unlit_texture_blend/unlit_color 两种 Pipeline。
-这仍是固定内置模板，不等于通用项目 Shader；对象缓存已按 Shader 内容与实际渲染配置构建 PipelineKey。
+当前支持 unlit_texture_blend/unlit_color 两种内置模板，不等于通用项目 Shader。
+已接通材质版本快照、Frame/Material/Object 分层、共享布局 Inspector、SPIR-V 反射校验、PipelineKey 与 CPU 编译／构建 CLI；
+实现与失败边界集中在[资源所有权](architecture/rendering-ownership.md#材质shader-与-pipeline)。
 
 - 接通引擎内置基础材质，供新模型未指定材质时自动使用；项目描述不配置 default_material。
   基础材质不依赖 demo 的纹理或材质文件，内置资源有稳定身份／解析入口和明确生命周期，不在编辑器内写死临时 Handle。
@@ -118,31 +118,21 @@ MaterialRuntimeCache 按版本复用快照。FrameSet 按 slot，MaterialSet 按
   项目 Shader 的产物写入项目 .comet/cache，内置 Shader 使用引擎构建／安装产物；项目不得通过同名文件隐式覆盖内置资源。
   项目只引用内置公开契约，不包含引擎源码绝对路径；私有渲染 pass 的 Shader 不必作为用户可选材质资产暴露。
 
-1. 已接通：SceneResolver 只解析 Mesh/Material，不知道材质属性名、纹理数量或 binding。
-2. 已接通：Material revision、不可变手工 MaterialLayout 与渲染侧 MaterialRuntimeCache，生成 PreparedMaterial。
-   材质资产保存 template、纹理 Handle、标量／四分量向量；仅纹理进入资产依赖索引。
-3. 已接通 Frame / Material / Object 分层：FrameSet 按 slot；MaterialSet 按版本创建并跨 slot 复用；
-   model matrix 使用 push constant，实际使用的旧版本由 FrameSlot 保活。
-4. 已接通按 pipeline/material 排序，验证两种布局及纹理、标量、向量参数，包含跨 slot 的 GPU 像素读回。
-5. 已接通 SPIRV-Reflect 生成入口级 ShaderInterface（set/binding/type/count/stage/block members/push constants），
-   Pipeline 创建前检查通用布局覆盖，MaterialLayout 校验参数块大小、偏移、类型和纹理协议；当前仍同步反射。
-   ShaderInterface 公开 Comet 值类型，Vulkan 布局对照收敛于 ShaderLayout 实现，不向材质及未来编辑器消费者传播。
-   显示名、默认值、颜色/法线语义和 Inspector 范围仍由 Material metadata 提供；不与 C++ 反射混淆。
-   后续再扩展自动布局、复杂参数、顶点输入／stage 间接口和完整外部字节码校验；当前拒绝 runtime descriptor array。
-6. 已接通内置 Material Inspector：按共享布局显示纹理／数值／颜色，真实变化才提交，失败恢复，缺槽可逐步修复。
-   后续扩展反射布局、模板切换和资产撤销；当前不引入 bindless。
+下一步按独立验收项推进：
+
+1. specialization 的类型化值、反射校验、PipelineKey 与实际 GPU 消费同时接通。
+2. 编辑器后台编译与发布：请求 revision、输入快照复核、失败保留旧版本、在途帧寿命。
+3. 项目 Shader／程序资产与布局生成：补复杂参数、顶点输入／stage 间接口、外部字节码校验。
+   Inspector 随之支持程序切换与资产撤销；不先引入 bindless。
 
 目标编辑流程：项目 Shader 源码及程序描述进入资产管线，描述组合 vertex/fragment 等阶段与入口；
 编译与反射产出可用程序和参数布局，材质按稳定资产引用选择程序／模板，Inspector 按布局显示纹理槽及其他参数。
 反射只负责类型和 binding，名称、默认值、用途与编辑范围由材质 metadata 补充，不把任意单个 GLSL 文件当完整渲染方案。
 切换程序时保留兼容参数，对缺失或类型变化给出默认值／诊断；编译失败不替换当前有效版本。
 
-Shader 源码、CPU 编译结果和 Vulkan 对象分层；build-time/editor 编译共用 stage、entry、defines/variants、target 和依赖契约。
-已接通 tools/shader 的 CPU 编译入口与构建 CLI，固定 glslang，复用 Comet::ShaderStage；公开 API 不含第三方类型。
-生产与测试构建使用同一入口，保留 INCLUDE_DIRECTORY/DEPENDENCIES 并生成 depfile；编译失败保留旧产物。
-Result 拥有字节码、诊断和输入快照（包括缺失的搜索候选）；成功后复核输入，但不代替发布时的 revision／输入校验。
-当前仅支持 GLSL vertex/fragment/compute、Vulkan 1.0/1.3 目标；未做持久编译缓存、优化器、HLSL、超时或沙箱。
-depfile 仅跟踪存在的依赖，新增遮蔽文件不保证触发增量构建；未来监听须消费缺失候选，不能仅观察成功 include。
+Shader 源码、CPU 结果与 Vulkan 对象分层；后续编辑器复用现有编译库，不另起编译实现，也不让 Shipping 链接 glslang。
+后台发布同时复核请求 revision 与输入快照；监听需包含缺失的 include 候选，不能只观察成功包含的文件。
+持久编译缓存、优化器、HLSL、超时／沙箱和交叉编译 host tools 按实际需求安排，不把当前编译器视为不可信源码安全边界。
 Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验票 → owner 帧边界切换。
 接口兼容时换 Pipeline；接口变化时同时重建 Layout 并失效材质缓存。失败保留旧版本并输出文件/行号诊断；
 成功也不能提前释放在途帧引用的 Shader/Pipeline/Layout。Shipping 只消费预编译打包数据，不要求松散 .spv。
@@ -170,16 +160,12 @@ Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验�
 
 ### Pipeline 两级缓存
 
-- 已接通当前 API 的 PipelineKey：Shader 完整字节码／入口、layout、vertex/topology、raster/depth/blend/dynamic state、
-  静态 viewport/scissor、RenderPass 身份、attachment formats/sample count/subpass。名称仅作标签，hash 索引后完整相等比较。
-  规范化无关顺序与动态 viewport/scissor 的静态值，规范化后的配置也用于实际创建；静态配置和 subpass 已接通 GPU 消费。
-  PipelineManager 弱缓存，使用者和 FrameSlot 持有实际对象；下次创建或 collect_unused 清理过期键，不每帧扫描。
-  ShaderManager 同名比较字节码／入口，候选构造成功才替换；后台请求 revision 验票与内容相等判断分别处理。
-  尚未开放 specialization 值配置，随 Shader 编译契约后续接通键与实际消费，不把保留字段当成功能。
+当前对象缓存已按完整内容／状态判等，弱引用不延长 GPU 对象寿命。后续重点：
+
 - 驱动 PipelineCache blob 用于跨进程加速，不代替对象 key。放在 .comet/cache/vulkan 或平台缓存，
   校验 header size/version、vendorID、deviceID、pipelineCacheUUID，以及 envelope 长度/校验和。
   损坏或不兼容回退空 cache，不影响启动。
-- 结构化 key 已完成；接下来编译契约、热加载，随后 cache load/atomic save；编译批次后节流或关机保存，不每帧写磁盘。
+- specialization 与热加载之后再接 cache load/atomic save；编译批次后节流或关机保存，不每帧写磁盘。
   Pipeline 创建/合并/保存由同一 owner 串行访问；后台 ShaderCompiler 不直接操作 Vulkan cache。
 - 测试 key 等价性、兼容性和损坏输入；cold/warm 性能只做测量，不要求固定加速比例。
 - 接入 Shader 发布时，MaterialRenderer 的 GPU 材质缓存必须同时跟踪 PipelineState 版本，不能只比较 PreparedMaterial。

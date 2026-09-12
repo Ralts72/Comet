@@ -1,6 +1,6 @@
 #include "core/engine.h"
 #include "core/window.h"
-#include "config/config.h"
+#include "support/engine_fixture.h"
 #include "render/renderer.h"
 #include "render/scene/scene_renderer.h"
 #include "render/render_context.h"
@@ -13,60 +13,16 @@
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
 #include "render/scene/scene_resolver.h"
-#include "diagnostics/logger.h"
 
-#include <algorithm>
 #include <array>
 #include <cstring>
-#include <limits>
-#include <type_traits>
 #include <gtest/gtest.h>
-#include <stdexcept>
-#include <sstream>
-#include <spdlog/sinks/ostream_sink.h>
 
 namespace Comet::Tests {
-    TEST(MaterialRuntimeTest, BuiltinLayoutsShareIdentityAndCarryAuthoringMetadata) {
-        const auto textured = MaterialLayout::find_builtin("unlit_texture_blend");
-        ASSERT_TRUE(textured);
-        EXPECT_EQ(textured, MaterialLayout::find_builtin("unlit_texture_blend"));
-        EXPECT_EQ(textured->get_scalars().front().display_name, "Blend");
-        EXPECT_FLOAT_EQ(textured->get_scalars().front().min_value, 0);
-        EXPECT_FLOAT_EQ(textured->get_scalars().front().max_value, 1);
-        EXPECT_EQ(textured->get_vectors().front().semantic,
-            MaterialLayout::VectorProperty::Semantic::Color);
-        const auto solid = MaterialLayout::find_builtin("unlit_color");
-        ASSERT_TRUE(solid);
-        EXPECT_TRUE(solid->get_textures().empty());
-        EXPECT_FALSE(MaterialLayout::find_builtin("unknown"));
-        EXPECT_THROW(MaterialLayout("invalid", 1, {}, 16,
-                         std::vector<MaterialLayout::ScalarProperty>{{"x", 0, 0, 1, 0}}),
-            std::invalid_argument);
-        EXPECT_THROW(
-            MaterialLayout("invalid", 1, {}, 16,
-                std::vector<MaterialLayout::ScalarProperty>{{"x", 0, 0, 0, 1, 0}}),
-            std::invalid_argument);
-    }
-
-    TEST(MaterialRuntimeTest, ValidatesAndOrdersLayoutSlots) {
-        static_assert(!std::is_copy_assignable_v<Material>);
-        static_assert(!std::is_move_assignable_v<Material>);
-        static_assert(!std::is_copy_assignable_v<MaterialLayout>);
-        const MaterialLayout layout("textured", 2, {{"detail", 7}, {"albedo", 1}});
-        EXPECT_EQ(layout.get_revision(), 2u);
-        EXPECT_EQ(layout.get_textures().front().name, "albedo");
-        EXPECT_THROW(MaterialLayout("", 1, {}), std::invalid_argument);
-        EXPECT_THROW(MaterialLayout("test", 0, {}), std::invalid_argument);
-        EXPECT_THROW(MaterialLayout("test", 1, {{"", 2}}), std::invalid_argument);
-        EXPECT_THROW(
-            MaterialLayout("test", 1, {{"a", 2}, {"a", 3}}), std::invalid_argument);
-        EXPECT_THROW(
-            MaterialLayout("test", 1, {{"a", 2}, {"b", 2}}), std::invalid_argument);
-    }
 
     TEST(MaterialRuntimeTest, PacksDefaultsAndParametersWithoutChangingOldSnapshots) {
         MaterialRuntimeCache cache;
-        const auto layout = std::make_shared<MaterialLayout>("solid", 1,
+        const auto layout = std::make_shared<MaterialLayout>("solid",
             std::vector<MaterialLayout::TextureProperty>{}, 32,
             std::vector<MaterialLayout::ScalarProperty>{{"intensity", 16, 1.0f}},
             std::vector<MaterialLayout::VectorProperty>{{"color", 0, {1, 1, 1, 1}}});
@@ -91,40 +47,10 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(values[5], 0);
         EXPECT_FLOAT_EQ(values[6], 0);
         EXPECT_FLOAT_EQ(values[7], 0);
-        const auto revision = material->get_revision();
-        material->set_scalar_property("intensity", 0.25f);
-        material->set_vector_property("color", color);
-        EXPECT_EQ(revision, material->get_revision());
         EXPECT_EQ(updated, cache.prepare(AssetHandle(1), material, layout));
         std::memcpy(values.data(), original->parameters.data(), sizeof(values));
         EXPECT_FLOAT_EQ(values[1], 1);
         EXPECT_FLOAT_EQ(values[4], 1);
-        EXPECT_THROW(
-            material->set_scalar_property("bad", std::numeric_limits<float>::infinity()),
-            std::invalid_argument);
-        EXPECT_THROW(material->set_vector_property(
-                         "bad", {0, 0, std::numeric_limits<float>::quiet_NaN(), 1}),
-            std::invalid_argument);
-    }
-
-    TEST(MaterialRuntimeTest, RejectsInvalidParameterMemoryLayouts) {
-        using Scalars = std::vector<MaterialLayout::ScalarProperty>;
-        using Vectors = std::vector<MaterialLayout::VectorProperty>;
-        EXPECT_THROW(MaterialLayout("test", 1, {}, 17), std::invalid_argument);
-        EXPECT_THROW(
-            MaterialLayout("test", 1, {{"texture", 0}}, 16), std::invalid_argument);
-        EXPECT_THROW(MaterialLayout("test", 1, {}, 16, Scalars{{"x", 16, 1}}),
-            std::invalid_argument);
-        EXPECT_THROW(MaterialLayout("test", 1, {}, 16, Scalars{{"x", 2, 1}}),
-            std::invalid_argument);
-        EXPECT_THROW(MaterialLayout("test", 1, {}, 32, {}, Vectors{{"v", 4, {}}}),
-            std::invalid_argument);
-        EXPECT_THROW(MaterialLayout(
-                         "test", 1, {}, 32, Scalars{{"x", 4, 1}}, Vectors{{"v", 0, {}}}),
-            std::invalid_argument);
-        EXPECT_THROW(MaterialLayout(
-                         "test", 1, {}, 32, Scalars{{"v", 16, 1}}, Vectors{{"v", 0, {}}}),
-            std::invalid_argument);
     }
 
     TEST(MaterialRuntimeTest, ReusesSnapshotAndInvalidatesMaterialOrLayoutIdentity) {
@@ -132,7 +58,7 @@ namespace Comet::Tests {
         const AssetHandle handle(71);
         auto material = std::make_shared<Material>("solid", "solid");
         auto layout = std::make_shared<MaterialLayout>(
-            "solid", 1, std::vector<MaterialLayout::TextureProperty>{});
+            "solid", std::vector<MaterialLayout::TextureProperty>{});
         const auto first = cache.prepare(handle, material, layout);
         ASSERT_TRUE(first);
         EXPECT_TRUE(first->textures.empty());
@@ -154,19 +80,17 @@ namespace Comet::Tests {
         const auto same_revision = cache.prepare(handle, material, layout);
         EXPECT_NE(replaced, same_revision);
         layout = std::make_shared<MaterialLayout>(
-            "solid", 1, std::vector<MaterialLayout::TextureProperty>{});
+            "solid", std::vector<MaterialLayout::TextureProperty>{});
         const auto new_layout = cache.prepare(handle, material, layout);
         EXPECT_NE(same_revision, new_layout);
-        layout = std::make_shared<MaterialLayout>(
-            "solid", 2, std::vector<MaterialLayout::TextureProperty>{});
-        EXPECT_NE(new_layout, cache.prepare(handle, material, layout));
+        EXPECT_EQ(new_layout, cache.prepare(handle, material, layout));
     }
 
     TEST(MaterialRuntimeTest, EvictsUnusedEntriesWithoutInvalidatingExternalSnapshots) {
         MaterialRuntimeCache cache;
         const auto material = std::make_shared<Material>("solid", "solid");
         const auto layout = std::make_shared<MaterialLayout>(
-            "solid", 1, std::vector<MaterialLayout::TextureProperty>{});
+            "solid", std::vector<MaterialLayout::TextureProperty>{});
         const auto snapshot = cache.prepare(AssetHandle(1), material, layout);
         ASSERT_TRUE(snapshot);
         cache.collect_unused();
@@ -179,53 +103,27 @@ namespace Comet::Tests {
         MaterialRuntimeCache cache;
         const auto material = std::make_shared<Material>("test", "solid");
         const auto wrong = std::make_shared<MaterialLayout>(
-            "other", 1, std::vector<MaterialLayout::TextureProperty>{});
+            "other", std::vector<MaterialLayout::TextureProperty>{});
         const auto missing = std::make_shared<MaterialLayout>(
-            "solid", 1, std::vector<MaterialLayout::TextureProperty>{{"albedo", 4}});
+            "solid", std::vector<MaterialLayout::TextureProperty>{{"albedo", 4}});
         EXPECT_FALSE(cache.prepare(AssetHandle(1), material, wrong));
         EXPECT_FALSE(cache.prepare(AssetHandle(1), material, missing));
         EXPECT_FALSE(cache.prepare(AssetHandle(1), material, missing));
         EXPECT_FALSE(cache.prepare(AssetHandle(1), nullptr, missing));
         EXPECT_FALSE(cache.prepare(AssetHandle(1), material, nullptr));
         const auto fixed = std::make_shared<MaterialLayout>(
-            "solid", 2, std::vector<MaterialLayout::TextureProperty>{});
+            "solid", std::vector<MaterialLayout::TextureProperty>{});
         EXPECT_TRUE(cache.prepare(AssetHandle(1), material, fixed));
     }
 
-    class MaterialRuntimeGpuTest: public ::testing::Test {
+    class MaterialRuntimeGpuTest: public EngineTest {
     protected:
-        void SetUp() override {
-            log_sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(messages);
-            Logger::add_custom_sink(log_sink);
-            Config config;
-            config.window.width = 160;
-            config.window.height = 120;
-            config.vulkan.enable_validation = true;
-            engine = std::make_unique<Engine>(config);
-        }
-
-        void TearDown() override {
-            if(engine)
-                engine->get_renderer().get_render_context().wait_idle();
-            engine.reset();
-            if(auto logger = Logger::get_console_logger()) {
-                std::erase(logger->sinks(), log_sink);
-            }
-            EXPECT_EQ(messages.str().find("VUID-"), std::string::npos) << messages.str();
-            EXPECT_EQ(messages.str().find("Validation Error"), std::string::npos)
-                << messages.str();
-        }
-
         std::shared_ptr<Texture> texture() {
             return engine->get_resource_manager()
                 .try_create_texture(
                     {.width = 1, .height = 1, .pixels = {255, 255, 255, 255}})
                 .value();
         }
-
-        std::unique_ptr<Engine> engine;
-        std::ostringstream messages;
-        std::shared_ptr<spdlog::sinks::ostream_sink_mt> log_sink;
     };
 
     TEST_F(MaterialRuntimeGpuTest, RendersAcrossSlotsAfterMutationAndAssetReplacement) {
@@ -307,7 +205,7 @@ namespace Comet::Tests {
     TEST_F(MaterialRuntimeGpuTest, OrdersBindingsAndKeepsOldRevisionTexturesAlive) {
         MaterialRuntimeCache cache;
         const auto material = std::make_shared<Material>("test", "three_textures");
-        const auto layout = std::make_shared<MaterialLayout>("three_textures", 1,
+        const auto layout = std::make_shared<MaterialLayout>("three_textures",
             std::vector<MaterialLayout::TextureProperty>{{"c", 7}, {"a", 1}, {"b", 4}});
         const auto first = texture();
         const auto second = texture();

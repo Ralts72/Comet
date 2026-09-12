@@ -156,8 +156,8 @@ JSON 解析直接依赖已有 simdjson。
   Texture 暂时直接解码源文件，后续再引入 Artifact。
 - 世界 +Y 向上，Vulkan Viewport 用负高度转换画面坐标；`flip_y` 仅控制纹理导入。
   Shader 编译产物只进入构建目录，学习源码不作为生产 Shader 的隐式依赖。
-  构建 CLI 使用 `tools/shader/compiler.h` 的 CPU 编译入口，输入包含阶段、入口、宏、目标和 include 路径；
-  成功后原子写出 SPIR-V，include 依赖由 depfile 跟踪；失败不覆盖旧产物，当前尚未接入编辑器热重载。
+  Shader 编译库与构建 CLI 独立于 engine；材质描述集中在 `render/material.h`，准备缓存与 GPU 绘制各自独立。
+  具体职责和失败边界见资源所有权文档，编辑器热重载仍在路线图中。
 
 详细说明：[资源所有权](docs/architecture/rendering-ownership.md) ·
 [资产管线](docs/architecture/asset-pipeline.md) · [场景格式](docs/architecture/scene-format.md) ·

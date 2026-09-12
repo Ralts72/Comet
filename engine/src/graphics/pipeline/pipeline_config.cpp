@@ -3,6 +3,8 @@
 #include "graphics/pipeline/vertex_description.h"
 #include "graphics/convert.h"
 
+#include <utility>
+
 namespace Comet {
     void PipelineConfig::set_vertex_input_state(
         const VertexInputDescription& description) {
@@ -58,7 +60,7 @@ namespace Comet {
         for(const auto& dy_state : dy_states) {
             dynamic_states.push_back(Graphics::dynamic_state_to_vk(dy_state));
         }
-        dynamic_state.dynamic_states = dynamic_states;
+        dynamic_state.dynamic_states = std::move(dynamic_states);
     }
 
     void PipelineConfig::enable_alpha_blend() {

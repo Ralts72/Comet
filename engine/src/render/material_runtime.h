@@ -2,79 +2,17 @@
 
 #include "asset/handle.h"
 #include "common/export.h"
-#include "core/math_utils.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <string>
-#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 namespace Comet {
     class Material;
     class Texture;
-    class ShaderInterface;
-
-    class COMET_API MaterialLayout {
-    public:
-        struct TextureProperty {
-            std::string name;
-            uint32_t binding;
-            std::string display_name;
-        };
-        struct ScalarProperty {
-            std::string name;
-            uint32_t offset;
-            float default_value;
-            float min_value = 0;
-            float max_value = 0;
-            float step = 0.01f;
-            std::string display_name;
-        };
-        struct VectorProperty {
-            enum class Semantic { Vector, Color };
-            std::string name;
-            uint32_t offset;
-            Math::Vec4 default_value{0.0f};
-            Semantic semantic = Semantic::Vector;
-            std::string display_name;
-        };
-
-        [[nodiscard]] static std::shared_ptr<const MaterialLayout> find_builtin(
-            std::string_view name);
-
-        MaterialLayout(std::string name, uint64_t revision,
-            std::vector<TextureProperty> textures, uint32_t parameter_size = 0,
-            std::vector<ScalarProperty> scalars = {},
-            std::vector<VectorProperty> vectors = {});
-        MaterialLayout(const MaterialLayout&) = default;
-        MaterialLayout& operator=(const MaterialLayout&) = delete;
-
-        [[nodiscard]] const std::string& get_name() const { return m_name; }
-        [[nodiscard]] uint64_t get_revision() const { return m_revision; }
-        [[nodiscard]] const std::vector<TextureProperty>& get_textures() const {
-            return m_textures;
-        }
-        [[nodiscard]] uint32_t get_parameter_size() const { return m_parameter_size; }
-        [[nodiscard]] const std::vector<ScalarProperty>& get_scalars() const {
-            return m_scalars;
-        }
-        [[nodiscard]] const std::vector<VectorProperty>& get_vectors() const {
-            return m_vectors;
-        }
-
-        void validate(const ShaderInterface& shader, uint32_t material_set = 1) const;
-
-    private:
-        std::string m_name;
-        uint64_t m_revision;
-        std::vector<TextureProperty> m_textures;
-        uint32_t m_parameter_size;
-        std::vector<ScalarProperty> m_scalars;
-        std::vector<VectorProperty> m_vectors;
-    };
+    class MaterialLayout;
 
     struct PreparedMaterial {
         struct TextureBinding {

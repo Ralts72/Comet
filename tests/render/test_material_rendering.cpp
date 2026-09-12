@@ -1,6 +1,6 @@
 #include "core/engine.h"
 #include "core/math_utils.h"
-#include "config/config.h"
+#include "support/engine_fixture.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
 #include "render/render_target.h"
@@ -13,7 +13,6 @@
 #include "graphics/attachment.h"
 #include "graphics/render_pass.h"
 #include "graphics/pipeline/pipeline.h"
-#include "diagnostics/logger.h"
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/convert.h"
@@ -22,41 +21,17 @@
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
 
-#include <algorithm>
 #include <gtest/gtest.h>
-#include <spdlog/sinks/ostream_sink.h>
-#include <sstream>
+#include <optional>
 
 namespace Comet::Tests {
-    class MaterialRenderingTest: public ::testing::Test {
+    class MaterialRenderingTest: public EngineTest {
     protected:
-        void SetUp() override {
-            sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(messages);
-            Logger::add_custom_sink(sink);
-            Config config;
-            config.window.width = 160;
-            config.window.height = 120;
-            config.vulkan.enable_validation = true;
-            engine = std::make_unique<Engine>(config);
-        }
-        void TearDown() override {
-            if(engine)
-                engine->get_renderer().get_render_context().wait_idle();
-            engine.reset();
-            if(auto logger = Logger::get_console_logger())
-                std::erase(logger->sinks(), sink);
-            EXPECT_EQ(messages.str().find("VUID-"), std::string::npos) << messages.str();
-            EXPECT_EQ(messages.str().find("Validation Error"), std::string::npos)
-                << messages.str();
-        }
         std::shared_ptr<Texture> texture(std::vector<uint8_t> rgba) {
             return engine->get_resource_manager()
                 .try_create_texture({.width = 1, .height = 1, .pixels = std::move(rgba)})
                 .value();
         }
-        std::unique_ptr<Engine> engine;
-        std::ostringstream messages;
-        std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink;
     };
 
     TEST_F(
