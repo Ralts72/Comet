@@ -126,6 +126,8 @@ JSON 解析直接依赖已有 simdjson。
   `Comet::run` 读取配置，再由 `Application::run` 统一驱动初始化、更新和关闭；异常在生命周期边界处理，具体契约见资源所有权文档。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
+  SceneResolver 只解析 Mesh/Material 引用；MaterialRuntimeCache 按材质版本和不可变布局准备纹理绑定快照，
+  同一布局驱动 descriptor 声明、容量和写入。当前仍只有 unlit_texture_blend 生产 Pipeline，尚未分离 FrameSet/MaterialSet。
 - 窗口：Window 管 GLFW 初始化与最后一个窗口释放后的终止；上层通过窗口接口请求关闭、查询最小化状态。
   GLFW 是 engine 的私有依赖，原生句柄仅供 Vulkan／ImGui 后端及底层测试对接，不用于普通业务操作。
 - 调试绘制：`LineDrawList` 提交单帧世界空间线段/包围盒，`DebugRenderer` 在场景 pass 内绘制，

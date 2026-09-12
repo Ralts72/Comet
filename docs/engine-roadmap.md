@@ -12,12 +12,12 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、任务背压与发布预算已接通，仍有扩展 | 增量引用恢复、字节预算与更多导入格式 |
 | 4 视口与交互 | 4A/4B 主链路完成，4C 进行中 | 内容编辑与撤销扩展 |
-| 5 渲染升级 | 未开始整体迁移 | 通用材质、PipelineKey、多 pass、线程边界 |
+| 5 渲染升级 | 材质准备边界与布局驱动绑定已接通 | Frame/Material 分层、多布局、PipelineKey、多 pass、线程边界 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
 以当前 main 的功能与验收为准，不再按 feat/auto 提交编号逐个迁移；旧分支仅作为算法、测试及设计参考。
-下一步推进阶段 5 的场景／材质解析边界与布局驱动绑定；阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
+下一步推进阶段 5 的 FrameSet/MaterialSet 分离与多布局参数渲染；阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
 WSI 失败后的无呈现重试仍应独立安排，不与资产编辑工作流捆绑重构。
@@ -106,7 +106,8 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 ### 材质与 Shader
 
-当前固定 unlit_texture_blend pipeline、两张 Texture、u_Texture0/1 和逐帧属性解析都是 MVP 约束，不能只把 array 换成 vector。
+当前已分离场景资源解析与材质准备：手工 MaterialLayout 驱动 descriptor 声明、容量和写入，MaterialRuntimeCache 按版本复用纹理快照。
+生产渲染仍固定 unlit_texture_blend Pipeline，Frame UBO 与两张 Texture 在同一 set，尚无通用多 Pipeline 或参数块。
 
 - 接通引擎内置基础材质，供新模型未指定材质时自动使用；项目描述不配置 default_material。
   基础材质不依赖 demo 的纹理或材质文件，内置资源有稳定身份／解析入口和明确生命周期，不在编辑器内写死临时 Handle。
@@ -116,9 +117,9 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
   项目 Shader 的产物写入项目 .comet/cache，内置 Shader 使用引擎构建／安装产物；项目不得通过同名文件隐式覆盖内置资源。
   项目只引用内置公开契约，不包含引擎源码绝对路径；私有渲染 pass 的 Shader 不必作为用户可选材质资产暴露。
 
-1. SceneResolver 只解析 Mesh/Material，不知道材质属性名、纹理数量或 binding。
-2. 建立 material/layout revision、手工 MaterialLayout 与渲染侧 MaterialRuntimeCache。
-   材质资产保存 layout/template 和参数 Handle；缓存解析资源并生成 PreparedMaterial。
+1. 已接通：SceneResolver 只解析 Mesh/Material，不知道材质属性名、纹理数量或 binding。
+2. 已接通：Material revision、不可变手工 MaterialLayout 与渲染侧 MaterialRuntimeCache，生成 PreparedMaterial。
+   材质资产继续保存 template 和纹理 Handle；标量／向量参数留待下一项。
 3. 按 Frame / Material / Object 分层：FrameSet 按 slot；MaterialSet 按 revision 创建不可变版本并跨 slot 复用；
    model matrix/object ID 可继续用 push constant，只有 per-frame backing 参数单独维护 slot state。
 4. Render Queue 按 pipeline/material 排序，至少验证两种布局及纹理、标量、向量参数。

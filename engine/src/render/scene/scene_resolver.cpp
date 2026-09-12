@@ -4,7 +4,6 @@
 #include "diagnostics/logger.h"
 #include "render/material.h"
 #include "render/resource/mesh.h"
-#include "render/resource/texture.h"
 
 #include <utility>
 
@@ -155,31 +154,10 @@ namespace Comet {
         }
         m_missing_material_handles.erase(render_item.material_handle);
 
-        if(material->get_template_name() != "unlit_texture_blend") {
-            if(m_invalid_material_handles.insert(render_item.material_handle).second) {
-                LOG_ERROR("Material handle {} uses unsupported template '{}'",
-                    render_item.material_handle.value(), material->get_template_name());
-            }
-            return std::nullopt;
-        }
-
-        std::array<std::shared_ptr<Texture>, 2> textures = {
-            material->get_texture_property("u_Texture0"),
-            material->get_texture_property("u_Texture1")};
-        if(!textures[0] || !textures[1]) {
-            if(m_invalid_material_handles.insert(render_item.material_handle).second) {
-                LOG_ERROR(
-                    "Material handle {} requires Texture properties u_Texture0 and u_Texture1",
-                    render_item.material_handle.value());
-            }
-            return std::nullopt;
-        }
-        m_invalid_material_handles.erase(render_item.material_handle);
-
         return ResolvedRenderItem{.entity_id = render_item.entity_id,
             .model_matrix = render_item.model_matrix,
             .mesh = mesh,
-            .material = {.material_handle = render_item.material_handle,
-                .textures = std::move(textures)}};
+            .material = {
+                .material_handle = render_item.material_handle, .resource = material}};
     }
 }

@@ -2,6 +2,7 @@
 
 #include "common/export.h"
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -12,8 +13,11 @@ namespace Comet {
     class COMET_API Material {
     public:
         Material(std::string name, std::string template_name);
+        Material(const Material&) = delete;
+        Material& operator=(const Material&) = delete;
 
         [[nodiscard]] const std::string& get_name() const { return m_name; }
+        [[nodiscard]] uint64_t get_revision() const { return m_revision; }
         [[nodiscard]] const std::string& get_template_name() const {
             return m_template_name;
         }
@@ -31,6 +35,7 @@ namespace Comet {
     private:
         std::string m_name;
         std::string m_template_name;
+        uint64_t m_revision = 1;
         std::map<std::string, std::shared_ptr<Texture>> m_texture_properties;
     };
 }
