@@ -9,6 +9,57 @@
 #include <string>
 
 namespace Comet::Tests {
+    TEST(MaterialSerializerTest,
+        RoundTripsTypedParametersAndOnlyTracksTextureDependencies) {
+        const MaterialData data{.template_name = "typed",
+            .texture_properties = {{"albedo", AssetHandle(73)}},
+            .scalar_properties = {{"intensity", 0.75f}},
+            .vector_properties = {{"color", {0.2f, 0.4f, 0.6f, 1}}}};
+        const MaterialSerializer serializer;
+        const auto encoded = serializer.serialize(data);
+        ASSERT_TRUE(encoded) << encoded.error();
+        const auto decoded = serializer.deserialize(encoded.value());
+        ASSERT_TRUE(decoded) << decoded.error();
+        EXPECT_EQ(decoded.value(), data);
+        EXPECT_EQ(get_asset_dependencies(decoded.value()), std::vector{AssetHandle(73)});
+    }
+
+    TEST(MaterialSerializerTest, RejectsInvalidTypedParametersAndCrossTypeNames) {
+        const MaterialSerializer serializer;
+        for(const auto property : {R"({"type":"scalar","value":"1"})",
+                R"({"type":"scalar","value":true})", R"({"type":"scalar","value":1e100})",
+                R"({"type":"scalar","value":1,"asset":73})",
+                R"({"type":"texture","asset":73,"value":1})",
+                R"({"type":"vector","value":[1,2,3]})",
+                R"({"type":"vector","value":[1,2,3,4,5]})",
+                R"({"type":"vector","value":[1,2,"3",4]})",
+                R"({"type":"vector","value":[1,2,null,4]})"}) {
+            SCOPED_TRACE(property);
+            const auto result = serializer.deserialize(
+                std::string(R"({"version":2,"template":"test","properties":{"value":)")
+                    + property + "}}",
+                "invalid.mat");
+            ASSERT_FALSE(result);
+            EXPECT_NE(result.error().find("invalid.mat"), std::string::npos);
+            EXPECT_NE(result.error().find("properties.value"), std::string::npos);
+        }
+        EXPECT_FALSE(serializer.deserialize(
+            R"({"version":2,"template":"test","properties":{"p":{"type":"scalar","value":1},"p":{"type":"vector","value":[1,1,1,1]}}})"));
+        EXPECT_FALSE(serializer.serialize({.template_name = "test",
+            .texture_properties = {{"p", AssetHandle(73)}},
+            .scalar_properties = {{"p", 1}}}));
+        EXPECT_FALSE(serializer.serialize({.template_name = "test",
+            .scalar_properties = {{"p", 1}},
+            .vector_properties = {{"p", {1, 1, 1, 1}}}}));
+        EXPECT_FALSE(serializer.serialize(
+            {.template_name = "test", .scalar_properties = {{"", 1}}}));
+        EXPECT_FALSE(serializer.serialize({.template_name = "test",
+            .scalar_properties = {{"p", std::numeric_limits<float>::infinity()}}}));
+        EXPECT_FALSE(serializer.serialize({.template_name = "test",
+            .vector_properties = {
+                {"p", {1, 1, std::numeric_limits<float>::quiet_NaN(), 1}}}}));
+    }
+
     namespace {
         class TemporaryMaterial final {
         public:

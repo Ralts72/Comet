@@ -183,7 +183,7 @@ namespace Comet {
         std::shared_ptr<PipelineLayout> m_layout;
     };
 
-    class PipelineManager {
+    class COMET_API PipelineManager {
     public:
         PipelineManager(Device& device, RenderPass& render_pass);
 

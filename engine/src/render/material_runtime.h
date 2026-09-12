@@ -2,7 +2,9 @@
 
 #include "asset/handle.h"
 #include "common/export.h"
+#include "core/math_utils.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -19,9 +21,21 @@ namespace Comet {
             std::string name;
             uint32_t binding;
         };
+        struct ScalarProperty {
+            std::string name;
+            uint32_t offset;
+            float default_value;
+        };
+        struct VectorProperty {
+            std::string name;
+            uint32_t offset;
+            Math::Vec4 default_value{0.0f};
+        };
 
-        MaterialLayout(
-            std::string name, uint64_t revision, std::vector<TextureProperty> textures);
+        MaterialLayout(std::string name, uint64_t revision,
+            std::vector<TextureProperty> textures, uint32_t parameter_size = 0,
+            std::vector<ScalarProperty> scalars = {},
+            std::vector<VectorProperty> vectors = {});
         MaterialLayout(const MaterialLayout&) = default;
         MaterialLayout& operator=(const MaterialLayout&) = delete;
 
@@ -30,11 +44,21 @@ namespace Comet {
         [[nodiscard]] const std::vector<TextureProperty>& get_textures() const {
             return m_textures;
         }
+        [[nodiscard]] uint32_t get_parameter_size() const { return m_parameter_size; }
+        [[nodiscard]] const std::vector<ScalarProperty>& get_scalars() const {
+            return m_scalars;
+        }
+        [[nodiscard]] const std::vector<VectorProperty>& get_vectors() const {
+            return m_vectors;
+        }
 
     private:
         std::string m_name;
         uint64_t m_revision;
         std::vector<TextureProperty> m_textures;
+        uint32_t m_parameter_size;
+        std::vector<ScalarProperty> m_scalars;
+        std::vector<VectorProperty> m_vectors;
     };
 
     struct PreparedMaterial {
@@ -47,6 +71,7 @@ namespace Comet {
 
         std::shared_ptr<const MaterialLayout> layout;
         std::vector<TextureBinding> textures;
+        std::vector<std::byte> parameters;
     };
 
     // Owner-thread only; sources track revisions, prepared results are immutable.

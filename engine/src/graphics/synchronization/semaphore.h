@@ -6,7 +6,7 @@
 namespace Comet {
     class Device;
 
-    class Semaphore {
+    class COMET_API Semaphore {
     public:
         enum class Type { Binary, Timeline };
 

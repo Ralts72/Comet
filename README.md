@@ -116,7 +116,8 @@ JSON 解析直接依赖已有 simdjson。
   新实体材质暂留空，需在 Inspector 指定后才绘制；不导入 glTF 材质。
 - Inspector 引用框支持按类型过滤的资产路径下拉框；Edit 还可从 Project 拖入 Mesh／Material／Texture。
   底层仍保存 Handle，加载失败保持旧引用，丢失引用显示 Missing。Play 仅支持下拉调试，不接受资产拖放。
-  当前材质 `unlit_texture_blend` 为无光照、两纹理等比例混合，尚不支持动态指定项目 Shader。
+  内置模板支持 `unlit_texture_blend`（两纹理、blend、tint）和 `unlit_color`（color、intensity）。
+  数值参数目前通过 `.mat` JSON 配置，Inspector 暂只编辑纹理；尚不支持动态指定项目 Shader。
 - View 菜单与面板关闭按钮共享显隐状态；菜单只展示已接通的操作。
 
 ## 架构入口
@@ -126,8 +127,9 @@ JSON 解析直接依赖已有 simdjson。
   `Comet::run` 读取配置，再由 `Application::run` 统一驱动初始化、更新和关闭；异常在生命周期边界处理，具体契约见资源所有权文档。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
-  SceneResolver 只解析 Mesh/Material 引用；MaterialRuntimeCache 按材质版本和不可变布局准备纹理绑定快照，
-  同一布局驱动 descriptor 声明、容量和写入。当前仍只有 unlit_texture_blend 生产 Pipeline，尚未分离 FrameSet/MaterialSet。
+  SceneResolver 只解析 Mesh/Material 引用；SceneRenderer 编排目标与 pass，MaterialRenderer 准备并绘制材质队列。
+  MaterialRuntimeCache 按材质版本和不可变布局准备纹理与参数快照；同一布局驱动 descriptor 和参数打包。
+  相机 FrameSet 按 slot 更新，MaterialSet 按材质版本跨 slot 复用，物体矩阵使用 push constant；在途版本由 FrameSlot 保活。
 - 窗口：Window 管 GLFW 初始化与最后一个窗口释放后的终止；上层通过窗口接口请求关闭、查询最小化状态。
   GLFW 是 engine 的私有依赖，原生句柄仅供 Vulkan／ImGui 后端及底层测试对接，不用于普通业务操作。
 - 调试绘制：`LineDrawList` 提交单帧世界空间线段/包围盒，`DebugRenderer` 在场景 pass 内绘制，

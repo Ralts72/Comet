@@ -20,7 +20,7 @@ namespace Comet {
         uint64_t offset = 0;
     };
 
-    class CommandBuffer {
+    class COMET_API CommandBuffer {
     public:
         friend class CommandPool;
         friend class Device;

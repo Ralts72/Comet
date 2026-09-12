@@ -1,10 +1,12 @@
 #pragma once
 
 #include "common/export.h"
+#include "core/math_utils.h"
 
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace Comet {
@@ -24,6 +26,12 @@ namespace Comet {
 
         void set_texture_property(
             const std::string& name, std::shared_ptr<Texture> texture);
+        void set_scalar_property(const std::string& name, float value);
+        void set_vector_property(const std::string& name, Math::Vec4 value);
+        [[nodiscard]] std::optional<float> get_scalar_property(
+            const std::string& name) const;
+        [[nodiscard]] std::optional<Math::Vec4> get_vector_property(
+            const std::string& name) const;
 
         [[nodiscard]] std::shared_ptr<Texture> get_texture_property(
             const std::string& name) const;
@@ -37,5 +45,7 @@ namespace Comet {
         std::string m_template_name;
         uint64_t m_revision = 1;
         std::map<std::string, std::shared_ptr<Texture>> m_texture_properties;
+        std::map<std::string, float> m_scalar_properties;
+        std::map<std::string, Math::Vec4> m_vector_properties;
     };
 }

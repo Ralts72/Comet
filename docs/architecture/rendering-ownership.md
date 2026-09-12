@@ -1,6 +1,6 @@
 # 渲染资源所有权
 
-描述当前 owner、调用边界和销毁规则；未来 MaterialSet/RenderGraph/RenderThread 设计见[路线图](../engine-roadmap.md)。
+描述当前 owner、调用边界和销毁规则；未来 Shader 反射/RenderGraph/RenderThread 设计见[路线图](../engine-roadmap.md)。
 
 ## 先看哪个类
 
@@ -10,7 +10,8 @@
 | `render/renderer.h` | 渲染子系统组合根，编排帧、RenderView、overlay 与拾取 |
 | `render/scene/scene_extractor.h` | Scene → 不含 GPU 对象的 RenderScene 快照 |
 | `render/scene/scene_resolver.h` | Handle/Camera → RenderSubmission |
-| `render/scene/scene_renderer.h` | Target、Pipeline、材质 descriptor 与命令录制 |
+| `render/scene/scene_renderer.h` | Target、pass、帧与呈现生命周期编排 |
+| `render/material_renderer.h` | Frame/Material descriptor、材质 Pipeline、队列排序与 Mesh 绘制 |
 | `render/material_runtime.h` | 手工 MaterialLayout、PreparedMaterial 快照与版本缓存 |
 | `render/frame_scheduler.h` | FrameSlot 复用、image 关联、完成序号与 retention |
 | `render/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
@@ -37,13 +38,15 @@ Engine
     ├── RenderView / SceneResolver
     ├── LineDrawList（单帧 CPU 请求）
     └── SceneRenderer
-        ├── RenderPass / PipelineManager / Pipeline
+        ├── RenderPass / PipelineManager
         ├── FrameScheduler → FrameSlot[N] / SwapchainImageState[M]
-        ├── ViewProjectBuffer[N]
         ├── DebugRenderer → 线段 Pipeline / VertexBuffer[slot]
         ├── RenderTarget：runtime SwapchainTarget 或 editor MultiTarget
-        ├── MaterialLayout / MaterialRuntimeCache → PreparedMaterial → Texture
-        └── MaterialDescriptorState[material][slot]
+        └── MaterialRenderer
+            ├── PipelineState → MaterialLayout / descriptor layouts / Pipeline
+            ├── FrameResources[slot] → 相机 UBO / FrameSet / pool
+            ├── MaterialRuntimeCache → PreparedMaterial → Texture / 参数字节
+            └── MaterialResources[material version] → PreparedMaterial / PipelineState / Sampler / 参数 UBO / pool / MaterialSet
 
 Editor
 ├── EditorAssets → AssetManager（借用 Engine 的服务）
@@ -109,10 +112,15 @@ Engine：事件 → Application 更新
 
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 SceneRenderer 不读 EditorMode/ImGui。SceneResolver 只解析 Camera、Mesh 和 Material 引用，不检查模板、属性名或纹理数量。
-SceneRenderer 使用 MaterialRuntimeCache，按 Material 对象身份/revision 与不可变 MaterialLayout 对象身份生成 PreparedMaterial。
+MaterialRenderer 使用 MaterialRuntimeCache，按 Material 对象身份/revision 与不可变 MaterialLayout 对象身份生成 PreparedMaterial。
 失败也缓存，在持续使用期间不逐帧重复诊断；源或布局变化后重试。未使用的 CPU 缓存按渲染周期回收。
-PreparedMaterial 持有当时的 Texture 引用；当前 slot 仍显式 retain Texture/Mesh，descriptor 池仍等待 frame serial 完成后回收。
-CPU 缓存回收不代表 GPU 完成。生产 Pipeline 仍固定 unlit_texture_blend，Frame UBO 与纹理尚在同一 descriptor set。
+PreparedMaterial 持有当时的 Texture 引用与按布局打包的参数。set 0 是按 slot 更新的相机 FrameSet；
+set 1 是按材质版本创建、发布后不改写的 MaterialSet；model matrix 仍使用 push constant。
+MaterialResources 保留 PreparedMaterial、Pipeline/layout、Sampler、参数 buffer 和 descriptor pool，
+实际使用它的 FrameSlot 再保留该整体与 Mesh、FrameResources，直到 GPU 完成；CPU 缓存回收不代表 GPU 完成。
+GPU 候选创建失败时继续使用旧 MaterialResources，同一候选延后 60 个 frame serial 重试；新候选可立即尝试。
+不支持的模板或 CPU 准备失败仍跳过绘制，不承诺任何失败都沿用旧材质。
+当前队列按模板名和材质 Handle 排序，支持 unlit_texture_blend 与 unlit_color；完整 PipelineKey 与 Shader 反射尚未接通。
 
 只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。
@@ -168,8 +176,8 @@ EditorCameraState 共享 target/clip/projection，独立保存 perspective posit
 | present queue idle 回退 | 没有精确 present completion 时，旧交换链的呈现使用 |
 
 slot 数 N 与 swapchain image 数 M 独立；image-available 属于 slot，render-finished 属于 image。
-slot 循环索引不是永久 completion 身份；材质 descriptor 缓存回收使用单调 frame serial。
-当前 UBO 与材质 descriptor 按 slot 更新，只有对应 fence 完成后才允许 CPU 改写。
+slot 循环索引不是永久 completion 身份；frame serial 用于帧身份和失败重试节流。
+相机 UBO 只在对应 slot fence 完成后改写；材质参数与 descriptor 不原地改写，新版本替换缓存后，旧版本由在途 slot 保留。
 retention 只保留真实资源 owner，不接受任意业务回调。
 
 Mesh/Texture 静态工厂先创建完整 GPU owner，再通过 UploadBatch 提交 copy/barrier，保存 ready completion 后返回，

@@ -2,6 +2,7 @@
 
 #include "config/config.h"
 #include "config/config_loader.h"
+#include "core/math_utils.h"
 
 #include <array>
 #include <filesystem>
@@ -115,7 +116,7 @@ diagnostics:
     EXPECT_EQ(config.render.max_frames_in_flight, 3u);
     EXPECT_TRUE(config.render.enable_vsync);
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, 16.0f);
-    EXPECT_EQ(config.render.clear_color, (std::array<float, 4>{0.9f, 0.7f, 0.5f, 0.3f}));
+    EXPECT_EQ(config.render.clear_color, Math::Vec4(0.9f, 0.7f, 0.5f, 0.3f));
 }
 
 TEST(ConfigTest, UsesDefaultsForMissingFields) {

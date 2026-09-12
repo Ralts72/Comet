@@ -147,7 +147,7 @@ namespace Comet {
             }
         }
 
-        std::array<float, 4> read_clear_color(const YAML::Node& root,
+        Math::Vec4 read_clear_color(const YAML::Node& root,
             const Config::Render& defaults, const std::string& config_path) {
             if(!find_node(root, "render.clear_color", config_path).has_value()) {
                 return defaults.clear_color;

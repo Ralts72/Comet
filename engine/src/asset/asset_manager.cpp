@@ -1010,6 +1010,12 @@ namespace Comet {
         for(const auto& [property_name, texture] : textures) {
             material->set_texture_property(property_name, texture);
         }
+        for(const auto& [name, value] : data.scalar_properties) {
+            material->set_scalar_property(name, value);
+        }
+        for(const auto& [name, value] : data.vector_properties) {
+            material->set_vector_property(name, value);
+        }
         return material;
     }
 }

@@ -37,7 +37,10 @@ Handle 可随源文件和 .meta 一起移动，但同一 Handle 不可改变 Ass
 
 Mesh/Texture 的 CPU DTO、Runtime 对象和工厂集中于 render/resource，但仍按类型分文件：
 二者的导入、GPU 布局和产物契约不同，不为减少文件数合并为大分支工厂。
-MaterialData 是可序列化的 template + Texture Handle 参数；当前 Runtime Material 保存解析后的 Texture 引用。
+MaterialData 是可序列化的 template + Texture Handle／scalar／四分量 vector 参数；Runtime Material 保存解析后的 Texture 引用和数值。
+`.mat` 的 `properties` 每项带 `type`：texture 使用 `asset`，scalar/vector 使用 `value`；vector 固定四个有限浮点数。
+参数名跨类型唯一，未知字段与非法数值被拒绝；只有 Texture Handle 参与资产依赖索引。
+未提供的数值由手工 MaterialLayout 的默认值补齐；Shader 布局和 GPU 参数块不写入资产文件。
 Scene Serializer 和 ConfigLoader 留在各自模块，不强行纳入 AssetManager。
 
 ## 失败返回契约

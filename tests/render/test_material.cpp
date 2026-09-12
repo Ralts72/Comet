@@ -15,5 +15,11 @@ namespace Comet::Tests {
         EXPECT_EQ(material.get_texture_property("missing"), nullptr);
         ASSERT_EQ(material.get_texture_properties().size(), 1u);
         EXPECT_TRUE(material.get_texture_properties().contains("albedo"));
+
+        const Math::Vec4 tint(0.2f, 0.4f, 0.6f, 0.8f);
+        material.set_vector_property("tint", tint);
+        ASSERT_TRUE(material.get_vector_property("tint"));
+        EXPECT_EQ(material.get_vector_property("tint").value(), tint);
+        EXPECT_FALSE(material.get_vector_property("missing"));
     }
 }
