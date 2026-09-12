@@ -8,7 +8,6 @@
 #include "scene/component_registry.h"
 
 #include <array>
-#include <exception>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <string>
@@ -390,12 +389,11 @@ namespace CometEditor {
             return;
         }
 
-        try {
-            m_material_data =
-                Comet::MaterialSerializer{}.load(m_assets_root / record.path);
-        } catch(const std::exception& error) {
-            m_asset_error = error.what();
-        }
+        auto data = Comet::MaterialSerializer{}.load(m_assets_root / record.path);
+        if(data)
+            m_material_data = std::move(data).value();
+        else
+            m_asset_error = data.error();
     }
 
     void InspectorPanel::reimport_texture(const Comet::AssetRecord& record,

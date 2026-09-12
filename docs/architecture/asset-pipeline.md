@@ -40,6 +40,27 @@ Mesh/Texture 的 CPU DTO、Runtime 对象和工厂集中于 render/resource，�
 MaterialData 是可序列化的 template + Texture Handle 参数；当前 Runtime Material 保存解析后的 Texture 引用。
 Scene Serializer 和 ConfigLoader 留在各自模块，不强行纳入 AssetManager。
 
+## 失败返回契约
+
+`asset/result.h` 的 `AssetResult<T>` 表达一次操作的成功值或错误字符串；无返回数据的写入使用 `AssetResult<void>`。
+先检查结果，再访问 `value()` 或 `error()`；二者互斥，不能用空字符串或空数据判断成功。
+它不记录日志、不包装 try/catch、不携带 Vulkan 类型，仍兼容 C++20。
+
+- Mesh/Texture Importer、输入指纹采集、ImportService 构建、MeshArtifact 发布、.mat/.meta 读写及数据库更新统一返回该类型。
+- `MeshImportData` 只是 CPU 网格和源依赖的数据包；外层 `AssetResult<MeshImportData>` 才表示操作成败。
+- 导入器直接返回预期失败；共享 YAML 校验和文件 I/O 的异常在序列化／产物出口转换。
+  AssetManager 输出操作日志，AssetDatabase 聚合扫描问题，Inspector 保存字段错误，不在底层重复打印。
+- `asset/serialization/yaml_serialization.h/.cpp` 共用文件读写、YAML 解析／输出及错误上下文；
+  Material/Metadata 的 encode/decode 只维护各自字段规则。通过普通函数组合复用，不继承序列化器基类，
+  不在公开序列化接口中暴露 YAML 类型，也不保存或异步调度编码／解码函数。
+- Worker 候选保存结果及 Handle/revision；owner 先验 revision，再处理失败或发布成功值。
+  非预期异常由任务 future 传递，在完成队列边界报告并清除对应 pending，不会留下永久进行中的任务。
+- 缓存查找仍用 optional 表示未命中；Runtime 加载入口仍返回共享对象或空值并负责诊断；
+  扫描保留可包含多条问题的 AssetScanReport，GPU 创建保留 GpuResourceResult 的 Vulkan 错误码。
+
+这不是全局禁用异常：分配失败、程序错误、生命周期和第三方异常仍需要外层隔离。
+失败结果不承诺跨文件／数据库／GPU 的全局事务；下述原子发布与旧 Runtime 保留边界不变。
+
 ## 三种加载路径
 
 ```text

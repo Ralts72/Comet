@@ -141,135 +141,150 @@ namespace Comet::AssetSourceOperations {
         std::vector<std::filesystem::path> created_directories;
         bool scanned = false;
         AssetScanReport report;
-        try {
-            require_relative(directory);
-            const auto root = std::filesystem::canonical(paths.assets());
-            const auto destination = root / directory;
-            require_inside(root, destination);
-            if(!std::filesystem::is_directory(destination))
-                throw std::runtime_error("Drop destination is not an existing directory");
+        const auto execute_import = [&]() -> AssetResult<void> {
+            try {
+                require_relative(directory);
+                const auto root = std::filesystem::canonical(paths.assets());
+                const auto destination = root / directory;
+                require_inside(root, destination);
+                if(!std::filesystem::is_directory(destination))
+                    throw std::runtime_error(
+                        "Drop destination is not an existing directory");
 
-            // key 是目标相对路径，value 是外部源；相同依赖只复制一次。
-            std::map<std::filesystem::path, std::filesystem::path> files;
-            std::vector<std::filesystem::path> roots;
-            const auto add = [&](const std::filesystem::path& source,
-                                 const std::filesystem::path& relative) {
-                require_relative(relative);
-                if(!std::filesystem::is_regular_file(source))
-                    throw std::runtime_error(
-                        "Missing or unreadable import file: " + source.string());
-                const auto canonical = std::filesystem::canonical(source);
-                const auto within_project = canonical.lexically_relative(root);
-                if(!within_project.empty() && *within_project.begin() != "..")
-                    throw std::runtime_error(
-                        "File already belongs to this project: " + source.string());
-                const auto [it, inserted] = files.emplace(relative, canonical);
-                if(!inserted && it->second != canonical)
-                    throw std::runtime_error(
-                        "Dropped files have conflicting names: " + relative.string());
-            };
-            for(const auto& source : sources) {
-                if(!is_mesh_file(source) && !is_texture_file(source))
-                    continue;
-                if(!source.is_absolute())
-                    throw std::runtime_error("Dropped file path must be absolute");
-                const auto relative = source.filename();
-                add(source, relative);
-                if(std::ranges::find(roots, relative) == roots.end())
-                    roots.push_back(relative);
-                if(is_mesh_file(source)) {
-                    const auto parent = std::filesystem::canonical(source.parent_path());
-                    for(const auto& dependency : gltf_dependencies(source)) {
-                        require_inside(parent, source.parent_path() / dependency);
-                        add(source.parent_path() / dependency, dependency);
-                    }
-                }
-            }
-            if(roots.empty())
-                throw std::runtime_error(
-                    "Drop PNG/JPEG textures or glTF/GLB models (not directories)");
-            for(const auto& source : sources) {
-                if(is_mesh_file(source) || is_texture_file(source))
-                    continue;
-                if(extension_of(source) == ".meta") {
-                    auto owner = source;
-                    owner.replace_extension();
-                    if(std::ranges::find(sources, owner) != sources.end())
+                // key 是目标相对路径，value 是外部源；相同依赖只复制一次。
+                std::map<std::filesystem::path, std::filesystem::path> files;
+                std::vector<std::filesystem::path> roots;
+                const auto add = [&](const std::filesystem::path& source,
+                                     const std::filesystem::path& relative) {
+                    require_relative(relative);
+                    if(!std::filesystem::is_regular_file(source))
+                        throw std::runtime_error(
+                            "Missing or unreadable import file: " + source.string());
+                    const auto canonical = std::filesystem::canonical(source);
+                    const auto within_project = canonical.lexically_relative(root);
+                    if(!within_project.empty() && *within_project.begin() != "..")
+                        throw std::runtime_error(
+                            "File already belongs to this project: " + source.string());
+                    const auto [it, inserted] = files.emplace(relative, canonical);
+                    if(!inserted && it->second != canonical)
+                        throw std::runtime_error(
+                            "Dropped files have conflicting names: " + relative.string());
+                };
+                for(const auto& source : sources) {
+                    if(!is_mesh_file(source) && !is_texture_file(source))
                         continue;
-                }
-                const auto canonical = std::filesystem::canonical(source);
-                if(std::ranges::none_of(
-                       files, [&](const auto& file) { return file.second == canonical; }))
-                    throw std::runtime_error(
-                        "Unsupported standalone file: " + source.string());
-            }
-            for(const auto& [relative, source] : files) {
-                require_inside(root, destination / relative);
-                require_available(destination / relative);
-                require_available(metadata_path(destination / relative));
-            }
-
-            const auto staging_parent = paths.cache() / "file-import";
-            std::filesystem::create_directories(staging_parent);
-            const auto candidate =
-                staging_parent / std::to_string(AssetHandle::generate().value());
-            if(!std::filesystem::create_directory(candidate))
-                throw std::runtime_error("Cannot reserve file import staging directory");
-            staging = candidate;
-            for(const auto& [relative, source] : files) {
-                const auto target = staging / relative;
-                std::filesystem::create_directories(target.parent_path());
-                std::filesystem::copy_file(source, target);
-            }
-            for(const auto& relative : roots) {
-                if(is_mesh_file(relative)) {
-                    // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
-                    for(const auto& dependency : gltf_dependencies(staging / relative)) {
-                        if(!files.contains(dependency))
-                            throw std::runtime_error(
-                                "glTF dependencies changed during copy; retry import");
+                    if(!source.is_absolute())
+                        throw std::runtime_error("Dropped file path must be absolute");
+                    const auto relative = source.filename();
+                    add(source, relative);
+                    if(std::ranges::find(roots, relative) == roots.end())
+                        roots.push_back(relative);
+                    if(is_mesh_file(source)) {
+                        const auto parent =
+                            std::filesystem::canonical(source.parent_path());
+                        for(const auto& dependency : gltf_dependencies(source)) {
+                            require_inside(parent, source.parent_path() / dependency);
+                            add(source.parent_path() / dependency, dependency);
+                        }
                     }
-                    static_cast<void>(MeshImporter{}.import(staging / relative));
-                } else {
-                    static_cast<void>(TextureImporter{}.import(staging / relative));
                 }
-            }
+                if(roots.empty())
+                    throw std::runtime_error(
+                        "Drop PNG/JPEG textures or glTF/GLB models (not directories)");
+                for(const auto& source : sources) {
+                    if(is_mesh_file(source) || is_texture_file(source))
+                        continue;
+                    if(extension_of(source) == ".meta") {
+                        auto owner = source;
+                        owner.replace_extension();
+                        if(std::ranges::find(sources, owner) != sources.end())
+                            continue;
+                    }
+                    const auto canonical = std::filesystem::canonical(source);
+                    if(std::ranges::none_of(files,
+                           [&](const auto& file) { return file.second == canonical; }))
+                        throw std::runtime_error(
+                            "Unsupported standalone file: " + source.string());
+                }
+                for(const auto& [relative, source] : files) {
+                    require_inside(root, destination / relative);
+                    require_available(destination / relative);
+                    require_available(metadata_path(destination / relative));
+                }
 
-            published.reserve(files.size());
-            for(const auto& [relative, source] : files) {
-                const auto target = destination / relative;
-                require_inside(root, target);
-                require_available(metadata_path(target));
-                std::vector<std::filesystem::path> missing;
-                for(auto parent = target.parent_path(); !std::filesystem::exists(parent);
-                    parent = parent.parent_path())
-                    missing.push_back(parent);
-                for(auto it = missing.rbegin(); it != missing.rend(); ++it) {
-                    if(std::filesystem::create_directory(*it))
-                        created_directories.push_back(*it);
+                const auto staging_parent = paths.cache() / "file-import";
+                std::filesystem::create_directories(staging_parent);
+                const auto candidate =
+                    staging_parent / std::to_string(AssetHandle::generate().value());
+                if(!std::filesystem::create_directory(candidate))
+                    throw std::runtime_error(
+                        "Cannot reserve file import staging directory");
+                staging = candidate;
+                for(const auto& [relative, source] : files) {
+                    const auto target = staging / relative;
+                    std::filesystem::create_directories(target.parent_path());
+                    std::filesystem::copy_file(source, target);
                 }
-                // 同卷硬链接原子发布单个文件，并且不会覆盖竞态中新出现的目标。
-                std::filesystem::create_hard_link(staging / relative, target);
-                published.push_back(target);
+                for(const auto& relative : roots) {
+                    if(is_mesh_file(relative)) {
+                        // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
+                        for(const auto& dependency :
+                            gltf_dependencies(staging / relative)) {
+                            if(!files.contains(dependency))
+                                throw std::runtime_error(
+                                    "glTF dependencies changed during copy; retry import");
+                        }
+                        if(auto result = MeshImporter{}.import(staging / relative);
+                            !result)
+                            return AssetResult<void>::failure(result.error());
+                    } else {
+                        if(auto result = TextureImporter{}.import(staging / relative);
+                            !result)
+                            return AssetResult<void>::failure(result.error());
+                    }
+                }
+
+                published.reserve(files.size());
+                for(const auto& [relative, source] : files) {
+                    const auto target = destination / relative;
+                    require_inside(root, target);
+                    require_available(metadata_path(target));
+                    std::vector<std::filesystem::path> missing;
+                    for(auto parent = target.parent_path();
+                        !std::filesystem::exists(parent); parent = parent.parent_path())
+                        missing.push_back(parent);
+                    for(auto it = missing.rbegin(); it != missing.rend(); ++it) {
+                        if(std::filesystem::create_directory(*it))
+                            created_directories.push_back(*it);
+                    }
+                    // 同卷硬链接原子发布单个文件，并且不会覆盖竞态中新出现的目标。
+                    std::filesystem::create_hard_link(staging / relative, target);
+                    published.push_back(target);
+                }
+                AssetDatabase candidate_database = database;
+                scanned = true;
+                report = candidate_database.scan();
+                bool indexed = report.snapshot_updated && report.succeeded();
+                for(const auto& relative : roots)
+                    indexed = indexed && candidate_database.find(directory / relative);
+                if(!indexed)
+                    throw std::runtime_error(
+                        "Imported files could not be indexed; import rolled back");
+                database = std::move(candidate_database);
+                return AssetResult<void>::success();
+            } catch(const std::exception& error) {
+                return AssetResult<void>::failure(error.what());
             }
-            AssetDatabase candidate_database = database;
-            scanned = true;
-            report = candidate_database.scan();
-            bool indexed = report.snapshot_updated && report.succeeded();
-            for(const auto& relative : roots)
-                indexed = indexed && candidate_database.find(directory / relative);
-            if(!indexed)
-                throw std::runtime_error(
-                    "Imported files could not be indexed; import rolled back");
-            database = std::move(candidate_database);
-        } catch(const std::exception& error) {
+        };
+        const auto result = execute_import();
+        if(!result) {
             report.snapshot_updated = false;
             report.indexed_assets = database.size();
             report.generated_metadata = 0;
             report.added_assets.clear();
             report.removed_assets.clear();
             report.modified_assets.clear();
-            report.issues.push_back({directory, error.what()});
+            report.issues.push_back({directory, result.error()});
             for(auto it = published.rbegin(); it != published.rend(); ++it) {
                 std::error_code cleanup_error;
                 if(scanned) {
@@ -329,17 +344,14 @@ namespace Comet::AssetSourceOperations {
         const std::filesystem::path target = asset_root / destination_relative;
         const std::filesystem::path target_metadata = metadata_path(target);
 
-        try {
-            const AssetMetadata metadata =
-                AssetMetadataSerializer{}.load(source_metadata);
-            if(metadata.handle != handle || metadata.type != record.type) {
-                return operation_error(source_relative,
-                    "source metadata does not match the indexed asset identity and type");
-            }
-        } catch(const std::exception& exception) {
-            return operation_error(
-                source_relative, "cannot move asset with invalid metadata: "
-                                     + std::string(exception.what()));
+        const auto metadata = MetadataSerializer{}.load(source_metadata);
+        if(!metadata) {
+            return operation_error(source_relative,
+                "cannot move asset with invalid metadata: " + metadata.error());
+        }
+        if(metadata.value().handle != handle || metadata.value().type != record.type) {
+            return operation_error(source_relative,
+                "source metadata does not match the indexed asset identity and type");
         }
 
         std::error_code error;

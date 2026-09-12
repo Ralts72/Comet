@@ -49,10 +49,11 @@ namespace Comet::Tests {
                 const std::filesystem::path path =
                     paths().assets() / "materials/test.mat";
                 std::filesystem::create_directories(path.parent_path());
-                MaterialSerializer{}.save(
-                    {.template_name = template_name, .texture_properties = {}}, path);
-                AssetMetadataSerializer{}.save(
-                    {.handle = handle, .type = AssetType::Material}, metadata_path(path));
+                EXPECT_TRUE(MaterialSerializer{}.save(
+                    {.template_name = template_name, .texture_properties = {}}, path));
+                EXPECT_TRUE(MetadataSerializer{}.save(
+                    {.handle = handle, .type = AssetType::Material},
+                    metadata_path(path)));
                 return path;
             }
 
@@ -63,11 +64,11 @@ namespace Comet::Tests {
                     std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
                         / "assets/textures/awesomeface.png",
                     path, std::filesystem::copy_options::overwrite_existing);
-                AssetMetadataSerializer{}.save(
+                EXPECT_TRUE(MetadataSerializer{}.save(
                     {.handle = handle,
                         .type = AssetType::Texture,
                         .import_settings = TextureImportSettings{}},
-                    metadata_path(path));
+                    metadata_path(path)));
                 return path;
             }
 
@@ -76,12 +77,13 @@ namespace Comet::Tests {
                 const auto path = paths().assets() / "materials"
                                   / (std::to_string(handle.value()) + ".mat");
                 std::filesystem::create_directories(path.parent_path());
-                MaterialSerializer{}.save(
+                EXPECT_TRUE(MaterialSerializer{}.save(
                     {.template_name = "test_template",
                         .texture_properties = {{"u_Texture0", texture_handle}}},
-                    path);
-                AssetMetadataSerializer{}.save(
-                    {.handle = handle, .type = AssetType::Material}, metadata_path(path));
+                    path));
+                EXPECT_TRUE(MetadataSerializer{}.save(
+                    {.handle = handle, .type = AssetType::Material},
+                    metadata_path(path)));
             }
 
             static void replace_texture(
@@ -106,8 +108,8 @@ namespace Comet::Tests {
                 const std::filesystem::path path = paths().assets() / "meshes/test.gltf";
                 std::filesystem::create_directories(path.parent_path());
                 write_mesh(path, primitive);
-                AssetMetadataSerializer{}.save(
-                    {.handle = handle, .type = AssetType::Mesh}, metadata_path(path));
+                EXPECT_TRUE(MetadataSerializer{}.save(
+                    {.handle = handle, .type = AssetType::Mesh}, metadata_path(path)));
                 return path;
             }
 
@@ -122,8 +124,8 @@ namespace Comet::Tests {
                 output
                     << R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":42,"uri":"external.bin"}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"indices":1}]}]})";
                 output.close();
-                AssetMetadataSerializer{}.save(
-                    {.handle = handle, .type = AssetType::Mesh}, metadata_path(path));
+                EXPECT_TRUE(MetadataSerializer{}.save(
+                    {.handle = handle, .type = AssetType::Mesh}, metadata_path(path)));
                 return buffer;
             }
 
@@ -454,7 +456,7 @@ namespace Comet::Tests {
             project.paths().assets() / "renamed/moved.mat";
         EXPECT_TRUE(std::filesystem::is_regular_file(moved));
         EXPECT_TRUE(std::filesystem::is_regular_file(metadata_path(moved)));
-        EXPECT_EQ(AssetMetadataSerializer{}.load(metadata_path(moved)).handle, handle);
+        EXPECT_EQ(MetadataSerializer{}.load(metadata_path(moved)).value().handle, handle);
         ASSERT_NE(manager.get_database().find(handle), nullptr);
         EXPECT_EQ(manager.get_database().find(handle)->path, "renamed/moved.mat");
         EXPECT_NE(registry.resolve<Material>(handle), original);
@@ -499,8 +501,8 @@ namespace Comet::Tests {
         constexpr AssetHandle handle(42);
         const std::filesystem::path source = project.add_material(handle, "move_test");
         const std::filesystem::path target = project.paths().assets() / "occupied.mat";
-        MaterialSerializer{}.save(
-            {.template_name = "occupied", .texture_properties = {}}, target);
+        EXPECT_TRUE(MaterialSerializer{}.save(
+            {.template_name = "occupied", .texture_properties = {}}, target));
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
         TaskScheduler task_scheduler(1);
@@ -548,10 +550,10 @@ namespace Comet::Tests {
 
         const std::filesystem::path duplicate =
             project.paths().assets() / "duplicate.mat";
-        MaterialSerializer{}.save(
-            {.template_name = "duplicate", .texture_properties = {}}, duplicate);
-        AssetMetadataSerializer{}.save(
-            {.handle = handle, .type = AssetType::Material}, metadata_path(duplicate));
+        EXPECT_TRUE(MaterialSerializer{}.save(
+            {.template_name = "duplicate", .texture_properties = {}}, duplicate));
+        EXPECT_TRUE(MetadataSerializer{}.save(
+            {.handle = handle, .type = AssetType::Material}, metadata_path(duplicate)));
 
         const AssetScanReport report = manager.move_asset(handle, "renamed/moved.mat");
 
@@ -1065,10 +1067,10 @@ namespace Comet::Tests {
         ASSERT_NE(original, nullptr);
         EXPECT_EQ(original->get_template_name(), "original_template");
 
-        MaterialSerializer{}.save(
+        EXPECT_TRUE(MaterialSerializer{}.save(
             {.template_name = "modified_template_with_different_size",
                 .texture_properties = {}},
-            material_path);
+            material_path));
         const AssetScanReport refresh = manager.scan();
 
         ASSERT_TRUE(refresh.snapshot_updated);
@@ -1119,10 +1121,11 @@ namespace Comet::Tests {
             texture_path.parent_path() / "test.mat";
         std::filesystem::rename(texture_path, material_path);
         std::filesystem::remove(metadata_path(texture_path));
-        MaterialSerializer{}.save(
-            {.template_name = "changed_type", .texture_properties = {}}, material_path);
-        AssetMetadataSerializer{}.save({.handle = handle, .type = AssetType::Material},
-            metadata_path(material_path));
+        EXPECT_TRUE(MaterialSerializer{}.save(
+            {.template_name = "changed_type", .texture_properties = {}}, material_path));
+        EXPECT_TRUE(
+            MetadataSerializer{}.save({.handle = handle, .type = AssetType::Material},
+                metadata_path(material_path)));
 
         const AssetScanReport refresh = manager.scan();
 
@@ -1175,8 +1178,8 @@ namespace Comet::Tests {
         ASSERT_NE(updated, nullptr);
         EXPECT_NE(updated, original);
         EXPECT_EQ(registry.resolve<Material>(handle), updated);
-        EXPECT_EQ(
-            MaterialSerializer{}.load(material_path).template_name, "updated_template");
+        EXPECT_EQ(MaterialSerializer{}.load(material_path).value().template_name,
+            "updated_template");
 
         const std::shared_ptr<Material> before_invalid_update =
             registry.resolve<Material>(handle);
@@ -1184,7 +1187,7 @@ namespace Comet::Tests {
                       handle, {.template_name = "", .texture_properties = {}}),
             nullptr);
         EXPECT_EQ(registry.resolve<Material>(handle), before_invalid_update);
-        EXPECT_EQ(
-            MaterialSerializer{}.load(material_path).template_name, "updated_template");
+        EXPECT_EQ(MaterialSerializer{}.load(material_path).value().template_name,
+            "updated_template");
     }
 }

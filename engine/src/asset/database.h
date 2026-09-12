@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/metadata.h"
+#include "asset/result.h"
 #include "common/export.h"
 #include "core/project_paths.h"
 
@@ -47,11 +48,11 @@ namespace Comet {
 
         [[nodiscard]] AssetScanReport scan();
 
-        void update_import_settings(
+        [[nodiscard]] AssetResult<void> update_import_settings(
             AssetHandle handle, AssetImportSettings import_settings);
-        void update_dependencies(
+        [[nodiscard]] AssetResult<void> update_dependencies(
             AssetHandle handle, std::vector<AssetHandle> dependencies);
-        void update_import_dependencies(
+        [[nodiscard]] AssetResult<void> update_import_dependencies(
             AssetHandle handle, std::vector<std::filesystem::path> dependencies);
 
         [[nodiscard]] const AssetRecord* find(AssetHandle handle) const;

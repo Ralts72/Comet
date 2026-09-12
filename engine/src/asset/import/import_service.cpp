@@ -26,16 +26,19 @@ namespace Comet {
         return artifact;
     }
 
-    MeshArtifact ImportService::build_mesh_artifact(
+    AssetResult<MeshArtifact> ImportService::build_mesh_artifact(
         const AssetHandle handle, const std::filesystem::path& source_path) const {
-        const std::filesystem::path absolute_source = m_paths.assets() / source_path;
-        MeshImportResult imported =
-            MeshImporter{}.import_with_dependencies(absolute_source);
-        return {.handle = handle,
+        const auto absolute_source = m_paths.assets() / source_path;
+        auto imported = MeshImporter{}.import_with_dependencies(absolute_source);
+        if(!imported)
+            return AssetResult<MeshArtifact>::failure(imported.error());
+        auto inputs = capture_import_inputs(
+            m_paths.assets(), absolute_source, imported.value().source_dependencies);
+        if(!inputs)
+            return AssetResult<MeshArtifact>::failure(inputs.error());
+        return AssetResult<MeshArtifact>::success({.handle = handle,
             .importer_version = MeshImporter::VERSION,
-            .source_inputs = capture_import_inputs(
-                m_paths.assets(), absolute_source, imported.source_dependencies),
-            .data = std::move(imported.data)};
+            .source_inputs = std::move(inputs).value(),
+            .data = std::move(imported).value().data});
     }
-
 }

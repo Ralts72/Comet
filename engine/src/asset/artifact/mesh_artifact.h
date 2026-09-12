@@ -15,7 +15,8 @@ namespace Comet {
     public:
         [[nodiscard]] static std::optional<MeshArtifact> load(
             const std::filesystem::path& artifact_path, AssetHandle expected_handle);
-        void publish_atomic(const std::filesystem::path& artifact_path) const;
+        [[nodiscard]] AssetResult<void> publish_atomic(
+            const std::filesystem::path& artifact_path) const;
         [[nodiscard]] std::vector<std::filesystem::path> source_dependencies() const;
 
         AssetHandle handle;

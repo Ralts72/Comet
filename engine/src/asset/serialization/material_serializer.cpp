@@ -1,169 +1,137 @@
 #include "asset/serialization/material_serializer.h"
-#include "common/file_io.h"
-#include "common/yaml_utils.h"
+#include "asset/serialization/yaml_serialization.h"
 
-#include <yaml-cpp/yaml.h>
-
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <unordered_set>
+#include <utility>
 
 namespace Comet {
     namespace {
-        std::runtime_error material_error(const std::string_view source,
-            const std::string_view location, const std::string& detail) {
-            return std::runtime_error("Invalid material '" + std::string(source)
-                                      + "' at '" + std::string(location)
-                                      + "': " + detail);
-        }
-
-        void require_map(const YAML::Node& node, const std::string_view source,
-            const std::string_view location) {
-            Yaml::require_map(node, source, location, material_error);
-        }
-
-        void validate_keys(const YAML::Node& node,
-            const std::unordered_set<std::string>& supported,
-            const std::string_view source, const std::string_view location) {
-            Yaml::validate_keys(node, supported, source, location, material_error);
-        }
-
-        YAML::Node required_child(const YAML::Node& node, const char* key,
-            const std::string_view source, const std::string_view location) {
-            return Yaml::required_child(node, key, source, location, material_error);
-        }
-
-        template<typename T>
-        T read_scalar(const YAML::Node& node, const std::string_view source,
-            const std::string_view location, const std::string_view expected) {
-            return Yaml::read_scalar<T>(node, source, location, expected, material_error);
-        }
-
-        void validate_material_data(
-            const MaterialData& data, const std::string_view source) {
+        AssetResult<void> validate_material_data(
+            const MaterialData& data, const AssetSerialization::YamlContext& context) {
             if(data.template_name.empty()) {
-                throw material_error(source, "template", "expected a non-empty string");
+                return AssetResult<void>::failure(
+                    context.error("template", "expected a non-empty string"));
             }
             for(const auto& [property_name, texture_handle] : data.texture_properties) {
                 if(property_name.empty()) {
-                    throw material_error(
-                        source, "properties", "property names cannot be empty");
+                    return AssetResult<void>::failure(
+                        context.error("properties", "property names cannot be empty"));
                 }
                 if(!texture_handle) {
-                    throw material_error(source, "properties." + property_name + ".asset",
-                        "expected a non-zero unsigned integer");
+                    return AssetResult<void>::failure(
+                        context.error("properties." + property_name + ".asset",
+                            "expected a non-zero unsigned integer"));
                 }
             }
+            return AssetResult<void>::success();
+        }
+
+        AssetResult<YAML::Node> encode_material(
+            const MaterialData& data, const AssetSerialization::YamlContext& context) {
+            if(auto valid = validate_material_data(data, context); !valid)
+                return AssetResult<YAML::Node>::failure(valid.error());
+
+            YAML::Node root(YAML::NodeType::Map);
+            root["version"] = MaterialSerializer::FORMAT_VERSION;
+            root["template"] = data.template_name;
+
+            YAML::Node properties(YAML::NodeType::Map);
+            for(const auto& [property_name, texture_handle] : data.texture_properties) {
+                YAML::Node property(YAML::NodeType::Map);
+                property["type"] = "texture";
+                property["asset"] = texture_handle.value();
+                properties[property_name] = property;
+            }
+            root["properties"] = properties;
+
+            return AssetResult<YAML::Node>::success(std::move(root));
+        }
+
+        AssetResult<MaterialData> decode_material(
+            const YAML::Node& root, const AssetSerialization::YamlContext& context) {
+            context.validate_keys(root, {"version", "template", "properties"});
+
+            const std::uint32_t version = context.read_scalar<std::uint32_t>(
+                context.required_child(root, "version"), "version",
+                "an unsigned integer");
+            if(version != MaterialSerializer::FORMAT_VERSION) {
+                return AssetResult<MaterialData>::failure(context.error(
+                    "version", "unsupported version " + std::to_string(version)));
+            }
+
+            MaterialData data;
+            data.template_name =
+                context.read_scalar<std::string>(context.required_child(root, "template"),
+                    "template", "a non-empty string");
+            if(data.template_name.empty()) {
+                return AssetResult<MaterialData>::failure(
+                    context.error("template", "expected a non-empty string"));
+            }
+
+            const YAML::Node properties = context.required_child(root, "properties");
+            context.require_map(properties, "properties");
+            for(const auto& entry : properties) {
+                if(!entry.first.IsScalar()) {
+                    return AssetResult<MaterialData>::failure(
+                        context.error("properties", "expected string keys"));
+                }
+
+                const std::string property_name = entry.first.as<std::string>();
+                if(property_name.empty()) {
+                    return AssetResult<MaterialData>::failure(
+                        context.error("properties", "property names cannot be empty"));
+                }
+                if(data.texture_properties.contains(property_name)) {
+                    return AssetResult<MaterialData>::failure(context.error(
+                        "properties", "duplicate property '" + property_name + "'"));
+                }
+
+                const std::string property_location = "properties." + property_name;
+                const YAML::Node property = entry.second;
+                context.validate_keys(property, {"type", "asset"}, property_location);
+
+                const std::string type = context.read_scalar<std::string>(
+                    context.required_child(property, "type", property_location),
+                    property_location + ".type", "a string");
+                if(type != "texture") {
+                    return AssetResult<MaterialData>::failure(
+                        context.error(property_location + ".type",
+                            "unsupported property type '" + type + "'"));
+                }
+
+                const std::uint64_t asset = context.read_scalar<std::uint64_t>(
+                    context.required_child(property, "asset", property_location),
+                    property_location + ".asset", "a non-zero unsigned integer");
+                const AssetHandle texture_handle(asset);
+                if(!texture_handle) {
+                    return AssetResult<MaterialData>::failure(
+                        context.error(property_location + ".asset",
+                            "expected a non-zero unsigned integer"));
+                }
+                data.texture_properties.emplace(property_name, texture_handle);
+            }
+
+            return AssetResult<MaterialData>::success(std::move(data));
         }
     }
 
-    std::string MaterialSerializer::serialize(const MaterialData& data) const {
-        validate_material_data(data, "<memory>");
-
-        YAML::Node root(YAML::NodeType::Map);
-        root["version"] = FORMAT_VERSION;
-        root["template"] = data.template_name;
-
-        YAML::Node properties(YAML::NodeType::Map);
-        for(const auto& [property_name, texture_handle] : data.texture_properties) {
-            YAML::Node property(YAML::NodeType::Map);
-            property["type"] = "texture";
-            property["asset"] = texture_handle.value();
-            properties[property_name] = property;
-        }
-        root["properties"] = properties;
-
-        YAML::Emitter emitter;
-        emitter << root;
-        if(!emitter.good()) {
-            throw std::runtime_error(
-                "Failed to serialize material: " + emitter.GetLastError());
-        }
-        return std::string(emitter.c_str()) + '\n';
+    AssetResult<std::string> MaterialSerializer::serialize(
+        const MaterialData& data) const {
+        return AssetSerialization::serialize_yaml("material", data, encode_material);
     }
 
-    MaterialData MaterialSerializer::deserialize(
+    AssetResult<MaterialData> MaterialSerializer::deserialize(
         const std::string_view contents, const std::string_view source) const {
-        YAML::Node root;
-        try {
-            root = YAML::Load(std::string(contents));
-        } catch(const YAML::Exception& exception) {
-            throw material_error(source, "<yaml>", exception.what());
-        }
-
-        require_map(root, source, "<root>");
-        validate_keys(root, {"version", "template", "properties"}, source, "<root>");
-
-        const std::uint32_t version =
-            read_scalar<std::uint32_t>(required_child(root, "version", source, "<root>"),
-                source, "version", "an unsigned integer");
-        if(version != FORMAT_VERSION) {
-            throw material_error(
-                source, "version", "unsupported version " + std::to_string(version));
-        }
-
-        MaterialData data;
-        data.template_name =
-            read_scalar<std::string>(required_child(root, "template", source, "<root>"),
-                source, "template", "a non-empty string");
-        if(data.template_name.empty()) {
-            throw material_error(source, "template", "expected a non-empty string");
-        }
-
-        const YAML::Node properties =
-            required_child(root, "properties", source, "<root>");
-        require_map(properties, source, "properties");
-        for(const auto& entry : properties) {
-            if(!entry.first.IsScalar()) {
-                throw material_error(source, "properties", "expected string keys");
-            }
-
-            const std::string property_name = entry.first.as<std::string>();
-            if(property_name.empty()) {
-                throw material_error(
-                    source, "properties", "property names cannot be empty");
-            }
-            if(data.texture_properties.contains(property_name)) {
-                throw material_error(
-                    source, "properties", "duplicate property '" + property_name + "'");
-            }
-
-            const std::string property_location = "properties." + property_name;
-            const YAML::Node property = entry.second;
-            require_map(property, source, property_location);
-            validate_keys(property, {"type", "asset"}, source, property_location);
-
-            const std::string type = read_scalar<std::string>(
-                required_child(property, "type", source, property_location), source,
-                property_location + ".type", "a string");
-            if(type != "texture") {
-                throw material_error(source, property_location + ".type",
-                    "unsupported property type '" + type + "'");
-            }
-
-            const std::uint64_t asset = read_scalar<std::uint64_t>(
-                required_child(property, "asset", source, property_location), source,
-                property_location + ".asset", "a non-zero unsigned integer");
-            const AssetHandle texture_handle(asset);
-            if(!texture_handle) {
-                throw material_error(source, property_location + ".asset",
-                    "expected a non-zero unsigned integer");
-            }
-            data.texture_properties.emplace(property_name, texture_handle);
-        }
-
-        return data;
+        return AssetSerialization::deserialize_yaml<MaterialData>(
+            "material", contents, source, decode_material);
     }
 
-    void MaterialSerializer::save(
+    AssetResult<void> MaterialSerializer::save(
         const MaterialData& data, const std::filesystem::path& path) const {
-        const std::string contents = serialize(data);
-        write_text_file_atomic(path, contents);
+        return AssetSerialization::save(*this, data, path);
     }
 
-    MaterialData MaterialSerializer::load(
-        const std::filesystem::path& source_path) const {
-        return deserialize(read_text_file(source_path), source_path.string());
+    AssetResult<MaterialData> MaterialSerializer::load(
+        const std::filesystem::path& path) const {
+        return AssetSerialization::load(*this, path);
     }
 }

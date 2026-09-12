@@ -90,10 +90,10 @@ namespace Comet::Tests {
     TEST_F(ExternalFileImportTest, CopiesTextureWithoutExternalMetadataOrSceneMutation) {
         const auto source = texture("纹理.png");
         const AssetHandle external_handle{42};
-        AssetMetadataSerializer{}.save(
+        EXPECT_TRUE(MetadataSerializer{}.save(
             {external_handle, AssetType::Texture,
                 make_default_import_settings(AssetType::Texture)},
-            metadata_path(source));
+            metadata_path(source)));
         const auto report = import({source, metadata_path(source)});
         ASSERT_TRUE(report.succeeded());
         ASSERT_TRUE(report.snapshot_updated);
@@ -101,7 +101,7 @@ namespace Comet::Tests {
         ASSERT_NE(record, nullptr);
         EXPECT_NE(record->handle, external_handle);
         EXPECT_EQ(read(source), read(paths.assets() / record->path));
-        EXPECT_EQ(AssetMetadataSerializer{}.load(metadata_path(source)).handle,
+        EXPECT_EQ(MetadataSerializer{}.load(metadata_path(source)).value().handle,
             external_handle);
         EXPECT_FALSE(registry.contains(record->handle));
         const auto imported_handle = record->handle;

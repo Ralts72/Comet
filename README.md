@@ -116,6 +116,7 @@ startup_scene: scenes/main.scene
   使用当前相机和正常深度测试；不依赖 ImGui，编辑器选中框是其中一个调用方。
 - 资产：`AssetDatabase` 管身份与依赖，`ImportService` 管导入，`AssetManager` 协调加载与发布，
   `AssetRegistry` 是唯一 Handle 缓存；`ResourceManager` 只创建设备资源。
+  导入、资产序列化和数据库更新用 `AssetResult<T>` 返回预期失败，调用方决定如何报告；GPU 错误仍保留 Vulkan 结果码。
 - 编辑器：`Editor` 装配依赖与帧阶段，`EditorAssets` 管引用选择／模型放置的资源准备、源监视和写入确认，
   `SceneFileDialog` 管路径弹窗；属性控件显式返回手势状态，`SceneDocument` 与 Play 会话仍保持独立。
 - Mesh Runtime 只读已发布的 Mesh Artifact；缓存丢失需先导入，不自动回退解析 glTF。

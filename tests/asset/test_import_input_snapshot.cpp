@@ -52,7 +52,7 @@ namespace Comet::Tests {
 
         const std::array dependencies{second, first, second};
         const ImportInputSnapshot snapshot =
-            capture_import_inputs(project.assets(), source, dependencies);
+            capture_import_inputs(project.assets(), source, dependencies).value();
 
         ASSERT_EQ(snapshot.files.size(), 3u);
         EXPECT_EQ(snapshot.files[0].relative_path, "meshes/model.gltf");
@@ -65,7 +65,7 @@ namespace Comet::Tests {
         const TemporaryInputProject project;
         const std::filesystem::path source = project.write("mesh.gltf", "source-a");
         const ImportInputSnapshot snapshot =
-            capture_import_inputs(project.assets(), source, {});
+            capture_import_inputs(project.assets(), source, {}).value();
 
         static_cast<void>(project.write("mesh.gltf", "source-b"));
 
@@ -80,8 +80,6 @@ namespace Comet::Tests {
         std::ofstream(outside) << "outside";
 
         const std::array dependencies{outside};
-        EXPECT_THROW(static_cast<void>(
-                         capture_import_inputs(project.assets(), source, dependencies)),
-            std::runtime_error);
+        EXPECT_FALSE(capture_import_inputs(project.assets(), source, dependencies));
     }
 }

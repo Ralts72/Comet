@@ -261,9 +261,9 @@ namespace CometEditor::Tests {
             directory / "texture.png");
         ASSERT_TRUE(assets->refresh().succeeded());
         const auto texture = assets->database().find("texture.png")->handle;
-        Comet::MaterialSerializer{}.save(
+        EXPECT_TRUE(Comet::MaterialSerializer{}.save(
             {.template_name = "test", .texture_properties = {{"albedo", texture}}},
-            directory / "textured.mat");
+            directory / "textured.mat"));
         ASSERT_TRUE(assets->refresh().succeeded());
         const auto material = assets->database().find("textured.mat")->handle;
         const auto components = Comet::create_scene_component_registry();

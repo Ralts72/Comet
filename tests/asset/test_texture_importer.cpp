@@ -7,7 +7,6 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
-#include <stdexcept>
 #include <string>
 
 namespace Comet::Tests {
@@ -16,7 +15,7 @@ namespace Comet::Tests {
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
             / "assets/textures/awesomeface.png";
 
-        const TextureData data = TextureImporter{}.import(source);
+        const TextureData data = TextureImporter{}.import(source).value();
 
         EXPECT_EQ(data.width, 512);
         EXPECT_EQ(data.height, 512);
@@ -30,10 +29,16 @@ namespace Comet::Tests {
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
             / "assets/textures/awesomeface.png";
         const TextureImporter importer;
-        const TextureData original = importer.import(
-            source, {.color_space = TextureColorSpace::Linear, .flip_y = false});
-        const TextureData flipped = importer.import(
-            source, {.color_space = TextureColorSpace::Linear, .flip_y = true});
+        const TextureData original =
+            importer
+                .import(
+                    source, {.color_space = TextureColorSpace::Linear, .flip_y = false})
+                .value();
+        const TextureData flipped =
+            importer
+                .import(
+                    source, {.color_space = TextureColorSpace::Linear, .flip_y = true})
+                .value();
 
         EXPECT_EQ(original.format, Format::R8G8B8A8_UNORM);
         EXPECT_EQ(flipped.format, Format::R8G8B8A8_UNORM);
@@ -58,8 +63,9 @@ namespace Comet::Tests {
             output << "not an image";
         }
 
-        EXPECT_THROW(
-            static_cast<void>(TextureImporter{}.import(source)), std::runtime_error);
+        const auto result = TextureImporter{}.import(source);
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().find(source.string()), std::string::npos);
 
         std::error_code error;
         std::filesystem::remove(source, error);

@@ -20,6 +20,7 @@
 #include <future>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <string>
 #include <string_view>
@@ -34,60 +35,47 @@ namespace Comet {
             AssetHandle handle;
             AssetRevision revision = INVALID_ASSET_REVISION;
             std::filesystem::path relative_path;
-            MeshArtifact artifact;
+            AssetResult<MeshArtifact> result;
             bool reused_artifact = false;
-            std::string error;
         };
 
         struct TextureImportCandidate {
             AssetHandle handle;
             AssetRevision revision = INVALID_ASSET_REVISION;
             std::filesystem::path relative_path;
-            TextureData data;
-            std::string error;
+            AssetResult<TextureData> result;
         };
 
         MeshArtifactCandidate build_mesh_artifact_candidate(const ProjectPaths& paths,
             const AssetHandle handle, const AssetRevision revision,
             const std::filesystem::path& relative_path,
             AssetManager::MeshImportMode mode) {
-            MeshArtifactCandidate candidate{
-                .handle = handle, .revision = revision, .relative_path = relative_path};
-
-            try {
-                const ImportService imports(paths);
-                if(mode == AssetManager::MeshImportMode::IfNeeded) {
-                    if(auto artifact =
-                            imports.find_current_mesh_artifact(handle, relative_path)) {
-                        candidate.artifact = std::move(*artifact);
-                        candidate.reused_artifact = true;
-                        return candidate;
-                    }
+            const ImportService imports(paths);
+            if(mode == AssetManager::MeshImportMode::IfNeeded) {
+                if(auto artifact =
+                        imports.find_current_mesh_artifact(handle, relative_path)) {
+                    return {.handle = handle,
+                        .revision = revision,
+                        .relative_path = relative_path,
+                        .result =
+                            AssetResult<MeshArtifact>::success(std::move(*artifact)),
+                        .reused_artifact = true};
                 }
-                candidate.artifact = imports.build_mesh_artifact(handle, relative_path);
-            } catch(const std::exception& exception) {
-                candidate.error = exception.what();
-            } catch(...) {
-                candidate.error = "Unknown mesh import failure";
             }
-            return candidate;
+            return {.handle = handle,
+                .revision = revision,
+                .relative_path = relative_path,
+                .result = imports.build_mesh_artifact(handle, relative_path)};
         }
 
         TextureImportCandidate import_texture_candidate(
             const std::filesystem::path& asset_root, const AssetHandle handle,
             const AssetRevision revision, const std::filesystem::path& relative_path,
             const TextureImportSettings& settings) {
-            TextureImportCandidate candidate{
-                .handle = handle, .revision = revision, .relative_path = relative_path};
-            try {
-                candidate.data =
-                    TextureImporter{}.import(asset_root / relative_path, settings);
-            } catch(const std::exception& exception) {
-                candidate.error = exception.what();
-            } catch(...) {
-                candidate.error = "Unknown texture import failure";
-            }
-            return candidate;
+            return {.handle = handle,
+                .revision = revision,
+                .relative_path = relative_path,
+                .result = TextureImporter{}.import(asset_root / relative_path, settings)};
         }
 
         bool validate_asset_handle(
@@ -322,32 +310,31 @@ namespace Comet {
                     candidate.handle.value(), candidate.revision);
                 continue;
             }
-            if(!candidate.error.empty()) {
+            if(!candidate.result) {
                 LOG_ERROR("Failed to prepare mesh artifact '{}' (handle {}): {}",
                     candidate.relative_path.generic_string(), candidate.handle.value(),
-                    candidate.error);
+                    candidate.result.error());
                 continue;
             }
+            auto& artifact = candidate.result.value();
             if(candidate.reused_artifact) {
                 if(force_rebuild)
                     static_cast<void>(
                         import_mesh_async(candidate.handle, MeshImportMode::Force));
                 else
                     record_import_dependencies(
-                        candidate.handle, candidate.artifact.source_dependencies());
+                        candidate.handle, artifact.source_dependencies());
                 continue;
             }
-            try {
-                candidate.artifact.publish_atomic(
-                    m_import_service->mesh_artifact_path(candidate.handle));
-                record_import_dependencies(
-                    candidate.handle, candidate.artifact.source_dependencies());
-            } catch(const std::exception& exception) {
+            if(auto result = artifact.publish_atomic(
+                   m_import_service->mesh_artifact_path(candidate.handle));
+                !result) {
                 LOG_ERROR("Failed to publish mesh artifact '{}' (handle {}): {}",
                     candidate.relative_path.generic_string(), candidate.handle.value(),
-                    exception.what());
+                    result.error());
                 continue;
             }
+            record_import_dependencies(candidate.handle, artifact.source_dependencies());
 
             published.push_back(candidate.handle);
             const auto runtime = find_runtime_asset<Mesh>(m_registry, candidate.handle);
@@ -361,8 +348,7 @@ namespace Comet {
 
             std::shared_ptr<Mesh> mesh;
             try {
-                auto mesh_attempt =
-                    m_resource_factory.try_create_mesh(candidate.artifact.data);
+                auto mesh_attempt = m_resource_factory.try_create_mesh(artifact.data);
                 if(!mesh_attempt) {
                     LOG_ERROR(
                         "Failed to create refreshed runtime mesh for asset handle {}: {}",
@@ -405,17 +391,17 @@ namespace Comet {
                     candidate.handle.value(), candidate.revision);
                 continue;
             }
-            if(!candidate.error.empty()) {
+            if(!candidate.result) {
                 LOG_ERROR("Failed to import modified texture asset '{}' (handle {}): {}",
                     candidate.relative_path.generic_string(), candidate.handle.value(),
-                    candidate.error);
+                    candidate.result.error());
                 continue;
             }
 
             std::shared_ptr<Texture> texture;
             try {
                 auto texture_attempt =
-                    m_resource_factory.try_create_texture(candidate.data);
+                    m_resource_factory.try_create_texture(candidate.result.value());
                 if(!texture_attempt) {
                     LOG_ERROR(
                         "Failed to create refreshed runtime texture for asset handle {}: {}",
@@ -458,16 +444,22 @@ namespace Comet {
                 continue;
             }
 
+            std::optional<std::string> failure;
             try {
                 task->completion.get();
             } catch(const std::exception& exception) {
+                failure = exception.what();
+            } catch(...) {
+                failure = "Unknown background task failure";
+            }
+            if(failure) {
                 const auto pending = m_async_state->pending_assets.find(task->handle);
                 if(pending != m_async_state->pending_assets.end()
                     && pending->second.revision == task->revision) {
                     m_async_state->pending_assets.erase(pending);
                 }
                 LOG_ERROR("Background {} task failed for asset handle {}: {}",
-                    to_string(task->type), task->handle.value(), exception.what());
+                    to_string(task->type), task->handle.value(), *failure);
             }
             task = tasks.erase(task);
         }
@@ -500,27 +492,26 @@ namespace Comet {
             return true;
         }
 
-        MeshArtifact artifact;
-        try {
-            artifact = m_import_service->build_mesh_artifact(handle, record->path);
-        } catch(const std::exception& exception) {
-            LOG_ERROR("{}", exception.what());
+        auto imported = m_import_service->build_mesh_artifact(handle, record->path);
+        if(!imported) {
+            LOG_ERROR("{}", imported.error());
             return false;
         }
+        auto& artifact = imported.value();
         if(!m_database.is_current(handle, revision)) {
             LOG_DEBUG("Discarded stale mesh import for asset handle {} (revision {})",
                 handle.value(), revision);
             return false;
         }
 
-        try {
-            artifact.publish_atomic(m_import_service->mesh_artifact_path(handle));
-            record_import_dependencies(handle, artifact.source_dependencies());
-        } catch(const std::exception& exception) {
+        if(auto result =
+                artifact.publish_atomic(m_import_service->mesh_artifact_path(handle));
+            !result) {
             LOG_ERROR("Failed to publish mesh artifact '{}' (handle {}): {}",
-                record->path.generic_string(), handle.value(), exception.what());
+                record->path.generic_string(), handle.value(), result.error());
             return false;
         }
+        record_import_dependencies(handle, artifact.source_dependencies());
 
         const auto runtime = find_runtime_asset<Mesh>(m_registry, handle);
         if(runtime.type_conflict) {
@@ -646,10 +637,9 @@ namespace Comet {
             return nullptr;
         }
 
-        try {
-            m_database.update_import_settings(handle, import_settings);
-        } catch(const std::exception& exception) {
-            LOG_ERROR("{}", exception.what());
+        if(auto updated = m_database.update_import_settings(handle, import_settings);
+            !updated) {
+            LOG_ERROR("{}", updated.error());
             return nullptr;
         }
 
@@ -728,12 +718,21 @@ namespace Comet {
         const bool has_runtime_asset = static_cast<bool>(runtime.asset);
 
         std::shared_ptr<Material> material;
+        const auto data = MaterialSerializer{}.load(m_paths.assets() / record->path);
+        if(!data) {
+            LOG_ERROR("{}", data.error());
+            return nullptr;
+        }
         try {
-            const auto data = MaterialSerializer{}.load(m_paths.assets() / record->path);
-            material = create_runtime_material(*record, data);
+            material = create_runtime_material(*record, data.value());
             if(!material)
                 return nullptr;
-            m_database.update_dependencies(handle, get_asset_dependencies(data));
+            if(auto updated = m_database.update_dependencies(
+                   handle, get_asset_dependencies(data.value()));
+                !updated) {
+                LOG_ERROR("{}", updated.error());
+                return nullptr;
+            }
         } catch(const std::exception& exception) {
             LOG_ERROR("{}", exception.what());
             return nullptr;
@@ -767,13 +766,23 @@ namespace Comet {
         const bool has_runtime_asset = static_cast<bool>(runtime.asset);
 
         std::shared_ptr<Material> material;
+        const auto serialized_data = MaterialSerializer{}.serialize(data);
+        if(!serialized_data) {
+            LOG_ERROR("{}", serialized_data.error());
+            return nullptr;
+        }
         try {
-            const auto serialized_data = MaterialSerializer{}.serialize(data);
             material = create_runtime_material(*record, data);
             if(!material)
                 return nullptr;
-            write_text_file_atomic(m_paths.assets() / record->path, serialized_data);
-            m_database.update_dependencies(handle, get_asset_dependencies(data));
+            write_text_file_atomic(
+                m_paths.assets() / record->path, serialized_data.value());
+            if(auto updated =
+                    m_database.update_dependencies(handle, get_asset_dependencies(data));
+                !updated) {
+                LOG_ERROR("{}", updated.error());
+                return nullptr;
+            }
         } catch(const std::exception& exception) {
             LOG_ERROR("{}", exception.what());
             return nullptr;
@@ -814,11 +823,10 @@ namespace Comet {
 
     void AssetManager::record_import_dependencies(const AssetHandle handle,
         const std::vector<std::filesystem::path>& dependencies) {
-        try {
-            m_database.update_import_dependencies(handle, dependencies);
-        } catch(const std::exception& exception) {
+        if(auto updated = m_database.update_import_dependencies(handle, dependencies);
+            !updated) {
             LOG_WARN("Could not index import dependencies for asset handle {}: {}",
-                handle.value(), exception.what());
+                handle.value(), updated.error());
         }
     }
 
@@ -903,15 +911,13 @@ namespace Comet {
 
     std::shared_ptr<Texture> AssetManager::create_runtime_texture(
         const AssetRecord& record, const TextureImportSettings& import_settings) {
-        TextureData data;
-        try {
-            data =
-                TextureImporter{}.import(m_paths.assets() / record.path, import_settings);
-        } catch(const std::exception& exception) {
-            LOG_ERROR("{}", exception.what());
+        auto data =
+            TextureImporter{}.import(m_paths.assets() / record.path, import_settings);
+        if(!data) {
+            LOG_ERROR("{}", data.error());
             return nullptr;
         }
-        auto texture_attempt = m_resource_factory.try_create_texture(data);
+        auto texture_attempt = m_resource_factory.try_create_texture(data.value());
         if(!texture_attempt) {
             LOG_ERROR("Failed to create runtime texture for asset handle {}: {}",
                 record.handle.value(), vk::to_string(texture_attempt.result()));
@@ -922,15 +928,13 @@ namespace Comet {
 
     std::shared_ptr<Material> AssetManager::create_runtime_material(
         const AssetRecord& record) {
-        MaterialData data;
-        try {
-            data = MaterialSerializer{}.load(m_paths.assets() / record.path);
-        } catch(const std::exception& exception) {
-            LOG_ERROR("{}", exception.what());
+        auto data = MaterialSerializer{}.load(m_paths.assets() / record.path);
+        if(!data) {
+            LOG_ERROR("{}", data.error());
             return nullptr;
         }
 
-        return create_runtime_material(record, data);
+        return create_runtime_material(record, data.value());
     }
 
     std::shared_ptr<Material> AssetManager::create_runtime_material(

@@ -72,7 +72,7 @@ namespace Comet::Tests {
         const std::filesystem::path sidecar =
             metadata_path(project.paths().assets() / texture->path);
         EXPECT_TRUE(std::filesystem::exists(sidecar));
-        const AssetMetadata metadata = AssetMetadataSerializer{}.load(sidecar);
+        const AssetMetadata metadata = MetadataSerializer{}.load(sidecar).value();
         EXPECT_EQ(metadata.import_settings, AssetImportSettings(TextureImportSettings{}));
         EXPECT_EQ(texture->import_settings, metadata.import_settings);
     }
@@ -101,10 +101,11 @@ namespace Comet::Tests {
         const TemporaryProject project;
         const std::filesystem::path texture_path = project.add_file("test.png");
         constexpr AssetHandle handle(42);
-        AssetMetadataSerializer{}.save({.handle = handle,
-                                           .type = AssetType::Texture,
-                                           .import_settings = TextureImportSettings{}},
-            metadata_path(texture_path));
+        EXPECT_TRUE(
+            MetadataSerializer{}.save({.handle = handle,
+                                          .type = AssetType::Texture,
+                                          .import_settings = TextureImportSettings{}},
+                metadata_path(texture_path)));
         AssetDatabase database(project.paths());
         ASSERT_TRUE(database.scan().succeeded());
 
@@ -113,8 +114,9 @@ namespace Comet::Tests {
         std::filesystem::rename(texture_path, material_path);
         std::filesystem::remove(metadata_path(texture_path));
         project.add_file("test.mat", std::string(EMPTY_MATERIAL));
-        AssetMetadataSerializer{}.save({.handle = handle, .type = AssetType::Material},
-            metadata_path(material_path));
+        EXPECT_TRUE(
+            MetadataSerializer{}.save({.handle = handle, .type = AssetType::Material},
+                metadata_path(material_path)));
 
         const AssetScanReport report = database.scan();
 
@@ -167,7 +169,13 @@ namespace Comet::Tests {
         const AssetRecord* mesh = database.find("meshes/model.gltf");
         ASSERT_NE(mesh, nullptr);
         const AssetHandle handle = mesh->handle;
-        database.update_import_dependencies(handle, {dependency, dependency});
+        EXPECT_TRUE(
+            database.update_import_dependencies(handle, {dependency, dependency}));
+
+        const auto rejected =
+            database.update_import_dependencies(handle, {"../outside.bin"});
+        ASSERT_FALSE(rejected);
+        EXPECT_NE(rejected.error().find("inside the project assets"), std::string::npos);
 
         EXPECT_EQ(std::vector<std::filesystem::path>(
                       database.get_import_dependencies(handle).begin(),
@@ -202,14 +210,16 @@ namespace Comet::Tests {
         const TextureImportSettings settings{
             .color_space = TextureColorSpace::Linear, .flip_y = true};
 
-        database.update_import_settings(handle, settings);
+        EXPECT_TRUE(database.update_import_settings(handle, settings));
 
         const AssetRecord* updated = database.find(handle);
         ASSERT_NE(updated, nullptr);
         EXPECT_EQ(updated->import_settings, AssetImportSettings(settings));
         EXPECT_GT(database.get_revision(handle), original_revision);
-        const AssetMetadata metadata = AssetMetadataSerializer{}.load(
-            metadata_path(project.paths().assets() / updated->path));
+        const AssetMetadata metadata =
+            MetadataSerializer{}
+                .load(metadata_path(project.paths().assets() / updated->path))
+                .value();
         EXPECT_EQ(metadata.import_settings, AssetImportSettings(settings));
     }
 
@@ -220,16 +230,18 @@ namespace Comet::Tests {
         ASSERT_TRUE(database.scan().succeeded());
         const AssetRecord* material = database.find("materials/default.mat");
         ASSERT_NE(material, nullptr);
-        const AssetMetadata original_metadata = AssetMetadataSerializer{}.load(
-            metadata_path(project.paths().assets() / material->path));
+        const AssetMetadata original_metadata =
+            MetadataSerializer{}
+                .load(metadata_path(project.paths().assets() / material->path))
+                .value();
 
-        EXPECT_THROW(
-            database.update_import_settings(material->handle, TextureImportSettings{}),
-            std::runtime_error);
+        EXPECT_FALSE(
+            database.update_import_settings(material->handle, TextureImportSettings{}));
         EXPECT_EQ(database.find(material->handle)->import_settings,
             AssetImportSettings(std::monostate{}));
-        EXPECT_EQ(AssetMetadataSerializer{}.load(
-                      metadata_path(project.paths().assets() / material->path)),
+        EXPECT_EQ(MetadataSerializer{}
+                      .load(metadata_path(project.paths().assets() / material->path))
+                      .value(),
             original_metadata);
     }
 
@@ -244,17 +256,18 @@ namespace Comet::Tests {
             "  first:\n    type: texture\n    asset: 42\n"
             "  repeated:\n    type: texture\n    asset: 42\n"
             "  second:\n    type: texture\n    asset: 73\n");
-        const AssetMetadataSerializer serializer;
-        serializer.save({.handle = AssetHandle(42),
-                            .type = AssetType::Texture,
-                            .import_settings = TextureImportSettings{}},
-            metadata_path(first_texture));
-        serializer.save({.handle = AssetHandle(73),
-                            .type = AssetType::Texture,
-                            .import_settings = TextureImportSettings{}},
-            metadata_path(second_texture));
-        serializer.save({.handle = AssetHandle(100), .type = AssetType::Material},
-            metadata_path(material));
+        const MetadataSerializer serializer;
+        EXPECT_TRUE(serializer.save({.handle = AssetHandle(42),
+                                        .type = AssetType::Texture,
+                                        .import_settings = TextureImportSettings{}},
+            metadata_path(first_texture)));
+        EXPECT_TRUE(serializer.save({.handle = AssetHandle(73),
+                                        .type = AssetType::Texture,
+                                        .import_settings = TextureImportSettings{}},
+            metadata_path(second_texture)));
+        EXPECT_TRUE(
+            serializer.save({.handle = AssetHandle(100), .type = AssetType::Material},
+                metadata_path(material)));
         AssetDatabase database(project.paths());
 
         const AssetScanReport report = database.scan();
@@ -269,8 +282,8 @@ namespace Comet::Tests {
                 database.get_dependents(AssetHandle(42)).end()),
             (std::vector{AssetHandle(100)}));
 
-        database.update_dependencies(
-            AssetHandle(100), {AssetHandle(73), AssetHandle(73)});
+        EXPECT_TRUE(database.update_dependencies(
+            AssetHandle(100), {AssetHandle(73), AssetHandle(73)}));
 
         EXPECT_TRUE(database.get_dependents(AssetHandle(42)).empty());
         EXPECT_EQ(
@@ -292,11 +305,13 @@ namespace Comet::Tests {
                 "version: 1\ntemplate: unlit_texture_blend\nproperties:\n"
                 "  missing:\n    type: texture\n    asset: 999\n"
                 "  wrong_type:\n    type: texture\n    asset: 73\n");
-        const AssetMetadataSerializer serializer;
-        serializer.save({.handle = AssetHandle(73), .type = AssetType::Material},
-            metadata_path(referenced_material));
-        serializer.save({.handle = AssetHandle(100), .type = AssetType::Material},
-            metadata_path(owner_material));
+        const MetadataSerializer serializer;
+        EXPECT_TRUE(
+            serializer.save({.handle = AssetHandle(73), .type = AssetType::Material},
+                metadata_path(referenced_material)));
+        EXPECT_TRUE(
+            serializer.save({.handle = AssetHandle(100), .type = AssetType::Material},
+                metadata_path(owner_material)));
         AssetDatabase database(project.paths());
 
         const AssetScanReport report = database.scan();
@@ -318,9 +333,9 @@ namespace Comet::Tests {
         const AssetMetadata metadata{.handle = AssetHandle(42),
             .type = AssetType::Texture,
             .import_settings = TextureImportSettings{}};
-        const AssetMetadataSerializer serializer;
-        serializer.save(metadata, metadata_path(first));
-        serializer.save(metadata, metadata_path(second));
+        const MetadataSerializer serializer;
+        EXPECT_TRUE(serializer.save(metadata, metadata_path(first)));
+        EXPECT_TRUE(serializer.save(metadata, metadata_path(second)));
         AssetDatabase database(project.paths());
 
         const AssetScanReport report = database.scan();

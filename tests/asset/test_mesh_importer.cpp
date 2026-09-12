@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -110,7 +109,7 @@ namespace Comet::Tests {
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
             / "assets/meshes/cube.gltf";
 
-        const MeshData data = MeshImporter{}.import(source);
+        const MeshData data = MeshImporter{}.import(source).value();
 
         EXPECT_EQ(data.vertices.size(), 24);
         EXPECT_EQ(data.indices.size(), 36);
@@ -121,7 +120,7 @@ namespace Comet::Tests {
         const std::filesystem::path source = directory.write_text("triangle.gltf",
             make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})"));
 
-        const MeshData data = MeshImporter{}.import(source);
+        const MeshData data = MeshImporter{}.import(source).value();
 
         ASSERT_EQ(data.vertices.size(), 3);
         ASSERT_EQ(data.indices.size(), 3);
@@ -140,7 +139,7 @@ namespace Comet::Tests {
         const std::filesystem::path source = directory.write_glb("triangle.glb",
             make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})"));
 
-        const MeshData data = MeshImporter{}.import(source);
+        const MeshData data = MeshImporter{}.import(source).value();
 
         EXPECT_EQ(data.vertices.size(), 3);
         EXPECT_EQ(data.indices, (std::vector<std::uint32_t>{0, 1, 2}));
@@ -154,7 +153,8 @@ namespace Comet::Tests {
             make_triangle_gltf(
                 R"({"attributes":{"POSITION":0},"indices":1})", "triangle.bin"));
 
-        const MeshImportResult result = MeshImporter{}.import_with_dependencies(source);
+        const MeshImportData result =
+            MeshImporter{}.import_with_dependencies(source).value();
 
         EXPECT_EQ(result.data.vertices.size(), 3);
         ASSERT_EQ(result.source_dependencies.size(), 1);
@@ -167,7 +167,7 @@ namespace Comet::Tests {
             make_triangle_gltf(
                 R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})"));
 
-        const MeshData data = MeshImporter{}.import(source);
+        const MeshData data = MeshImporter{}.import(source).value();
 
         EXPECT_EQ(data.vertices.size(), 6);
         EXPECT_EQ(data.indices, (std::vector<std::uint32_t>{0, 1, 2, 3, 4, 5}));
@@ -178,8 +178,7 @@ namespace Comet::Tests {
         const std::filesystem::path source = directory.write_text("lines.gltf",
             make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1,"mode":1})"));
 
-        EXPECT_THROW(
-            static_cast<void>(MeshImporter{}.import(source)), std::runtime_error);
+        EXPECT_FALSE(MeshImporter{}.import(source));
     }
 
     TEST(MeshImporterTest, RejectsPrimitiveWithoutPosition) {
@@ -187,8 +186,7 @@ namespace Comet::Tests {
         const std::filesystem::path source = directory.write_text("missing_position.gltf",
             make_triangle_gltf(R"({"attributes":{},"indices":1})"));
 
-        EXPECT_THROW(
-            static_cast<void>(MeshImporter{}.import(source)), std::runtime_error);
+        EXPECT_FALSE(MeshImporter{}.import(source));
     }
 
     TEST(MeshImporterTest, RejectsCorruptedInput) {
@@ -196,7 +194,37 @@ namespace Comet::Tests {
         const std::filesystem::path source =
             directory.write_text("corrupted.gltf", "not glTF");
 
-        EXPECT_THROW(
-            static_cast<void>(MeshImporter{}.import(source)), std::runtime_error);
+        const auto result = MeshImporter{}.import(source);
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().find(source.string()), std::string::npos);
+    }
+
+    TEST(MeshImporterTest, ReturnsFailureForNonFiniteVerticesAndInvalidIndices) {
+        const TemporaryDirectory directory;
+        const auto buffer = directory.write_triangle_buffer("triangle.bin");
+        const auto source = directory.write_text("triangle.gltf",
+            make_triangle_gltf(
+                R"({"attributes":{"POSITION":0},"indices":1})", "triangle.bin"));
+        {
+            std::fstream output(buffer, std::ios::binary | std::ios::in | std::ios::out);
+            const char nan[] = {0, 0, static_cast<char>(0xc0), 0x7f};
+            output.write(nan, sizeof(nan));
+        }
+        const auto non_finite = MeshImporter{}.import(source);
+        ASSERT_FALSE(non_finite);
+        EXPECT_NE(non_finite.error().find("POSITION contains a non-finite value"),
+            std::string::npos);
+
+        static_cast<void>(directory.write_triangle_buffer("triangle.bin"));
+        {
+            std::fstream output(buffer, std::ios::binary | std::ios::in | std::ios::out);
+            output.seekp(36);
+            const char index[] = {3, 0};
+            output.write(index, sizeof(index));
+        }
+        const auto invalid_index = MeshImporter{}.import(source);
+        ASSERT_FALSE(invalid_index);
+        EXPECT_NE(
+            invalid_index.error().find("out-of-range vertex index"), std::string::npos);
     }
 }

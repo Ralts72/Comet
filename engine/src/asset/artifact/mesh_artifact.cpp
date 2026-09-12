@@ -348,44 +348,51 @@ namespace Comet {
         }
     }
 
-    void MeshArtifact::publish_atomic(const std::filesystem::path& artifact_path) const {
-        if(data.vertices.empty() || data.indices.empty() || data.indices.size() % 3 != 0
-            || data.vertices.size() > std::numeric_limits<std::uint32_t>::max()
-            || data.indices.size() > std::numeric_limits<std::uint32_t>::max()) {
-            throw std::runtime_error(
-                "Cannot publish a mesh artifact with invalid vertex or index counts");
-        }
-
-        if(!handle || importer_version == 0 || !valid_source_inputs(source_inputs)) {
-            throw std::runtime_error(
-                "Cannot publish a mesh artifact with invalid source inputs");
-        }
-
-        BinaryWriter writer;
-        writer.write_bytes(MAGIC);
-        writer.write_u32(FORMAT_VERSION);
-        writer.write_u32(importer_version);
-        writer.write_u64(handle.value());
-        writer.write_u32(static_cast<std::uint32_t>(source_inputs.files.size()));
-        writer.write_u32(static_cast<std::uint32_t>(data.vertices.size()));
-        writer.write_u32(static_cast<std::uint32_t>(data.indices.size()));
-        for(const ImportInputFingerprint& input : source_inputs.files) {
-            writer.write_string(path_to_utf8(input.relative_path));
-            writer.write_u64(input.size);
-            writer.write_u64(input.hash);
-        }
-        for(const MeshVertex& vertex : data.vertices) {
-            write_vertex(writer, vertex);
-        }
-        for(const std::uint32_t index : data.indices) {
-            if(index >= data.vertices.size()) {
-                throw std::runtime_error(
-                    "Cannot publish a mesh artifact with an out-of-range index");
+    AssetResult<void> MeshArtifact::publish_atomic(
+        const std::filesystem::path& artifact_path) const {
+        try {
+            if(data.vertices.empty() || data.indices.empty()
+                || data.indices.size() % 3 != 0
+                || data.vertices.size() > std::numeric_limits<std::uint32_t>::max()
+                || data.indices.size() > std::numeric_limits<std::uint32_t>::max()) {
+                return AssetResult<void>::failure(
+                    "Cannot publish a mesh artifact with invalid vertex or index counts");
             }
-            writer.write_u32(index);
+
+            if(!handle || importer_version == 0 || !valid_source_inputs(source_inputs)) {
+                return AssetResult<void>::failure(
+                    "Cannot publish a mesh artifact with invalid source inputs");
+            }
+
+            BinaryWriter writer;
+            writer.write_bytes(MAGIC);
+            writer.write_u32(FORMAT_VERSION);
+            writer.write_u32(importer_version);
+            writer.write_u64(handle.value());
+            writer.write_u32(static_cast<std::uint32_t>(source_inputs.files.size()));
+            writer.write_u32(static_cast<std::uint32_t>(data.vertices.size()));
+            writer.write_u32(static_cast<std::uint32_t>(data.indices.size()));
+            for(const ImportInputFingerprint& input : source_inputs.files) {
+                writer.write_string(path_to_utf8(input.relative_path));
+                writer.write_u64(input.size);
+                writer.write_u64(input.hash);
+            }
+            for(const MeshVertex& vertex : data.vertices) {
+                write_vertex(writer, vertex);
+            }
+            for(const std::uint32_t index : data.indices) {
+                if(index >= data.vertices.size()) {
+                    return AssetResult<void>::failure(
+                        "Cannot publish a mesh artifact with an out-of-range index");
+                }
+                writer.write_u32(index);
+            }
+            writer.write_u64(hash_bytes(writer.data()));
+            write_binary_file_atomic(artifact_path, writer.data());
+            return AssetResult<void>::success();
+        } catch(const std::runtime_error& error) {
+            return AssetResult<void>::failure(error.what());
         }
-        writer.write_u64(hash_bytes(writer.data()));
-        write_binary_file_atomic(artifact_path, writer.data());
     }
 
     std::vector<std::filesystem::path> MeshArtifact::source_dependencies() const {

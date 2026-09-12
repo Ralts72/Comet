@@ -10,13 +10,13 @@
 namespace Comet::Tests {
     TEST(ProjectAssetsTest, DemoAssetsHaveStableIdentityAndValidReferences) {
         const ProjectPaths paths(COMET_SAMPLE_PROJECT_DIRECTORY);
-        const AssetMetadataSerializer serializer;
+        const MetadataSerializer serializer;
 
         const std::filesystem::path awesome_face_source =
             paths.assets() / "textures/awesomeface.png";
         ASSERT_TRUE(std::filesystem::exists(awesome_face_source));
         const AssetMetadata awesome_face =
-            serializer.load(metadata_path(awesome_face_source));
+            serializer.load(metadata_path(awesome_face_source)).value();
         EXPECT_EQ(awesome_face.type, AssetType::Texture);
         EXPECT_EQ(awesome_face.handle, AssetHandle(15538271868700781231ull));
         EXPECT_NE(
@@ -26,7 +26,7 @@ namespace Comet::Tests {
             paths.assets() / "textures/R-C.jpeg";
         ASSERT_TRUE(std::filesystem::exists(second_texture_source));
         const AssetMetadata second_texture =
-            serializer.load(metadata_path(second_texture_source));
+            serializer.load(metadata_path(second_texture_source)).value();
         EXPECT_EQ(second_texture.type, AssetType::Texture);
         EXPECT_EQ(second_texture.handle, AssetHandle(6692465245512631459ull));
         EXPECT_NE(
@@ -35,11 +35,13 @@ namespace Comet::Tests {
         const std::filesystem::path material_source =
             paths.assets() / "materials/demo.mat";
         ASSERT_TRUE(std::filesystem::exists(material_source));
-        const AssetMetadata material = serializer.load(metadata_path(material_source));
+        const AssetMetadata material =
+            serializer.load(metadata_path(material_source)).value();
         EXPECT_EQ(material.type, AssetType::Material);
         EXPECT_EQ(material.handle, AssetHandle(11364856686536078871ull));
 
-        const MaterialData material_data = MaterialSerializer{}.load(material_source);
+        const MaterialData material_data =
+            MaterialSerializer{}.load(material_source).value();
         EXPECT_EQ(material_data.template_name, "unlit_texture_blend");
         EXPECT_EQ(material_data.texture_properties.at("u_Texture0"), awesome_face.handle);
         EXPECT_EQ(

@@ -5,11 +5,11 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
-#include <stdexcept>
 #include <string>
 
 namespace Comet {
-    TextureData TextureImporter::import(const std::filesystem::path& source_path,
+    AssetResult<TextureData> TextureImporter::import(
+        const std::filesystem::path& source_path,
         const TextureImportSettings& settings) const {
         int width = 0;
         int height = 0;
@@ -19,12 +19,14 @@ namespace Comet {
             stbi_image_free);
         if(!pixels) {
             const char* reason = stbi_failure_reason();
-            throw std::runtime_error("Failed to import texture '" + source + "': "
-                                     + (reason ? reason : "unknown stb_image error"));
+            return AssetResult<TextureData>::failure(
+                "Failed to import texture '" + source
+                + "': " + (reason ? reason : "unknown stb_image error"));
         }
         if(width <= 0 || height <= 0) {
-            throw std::runtime_error("Failed to import texture '" + source
-                                     + "': decoded dimensions must be greater than zero");
+            return AssetResult<TextureData>::failure(
+                "Failed to import texture '" + source
+                + "': decoded dimensions must be greater than zero");
         }
 
         constexpr int output_channels = STBI_rgb_alpha;
@@ -49,6 +51,6 @@ namespace Comet {
                     top, top + static_cast<std::ptrdiff_t>(row_size), bottom);
             }
         }
-        return data;
+        return AssetResult<TextureData>::success(std::move(data));
     }
 }

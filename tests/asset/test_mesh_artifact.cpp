@@ -78,9 +78,10 @@ namespace Comet::Tests {
 
         const MeshArtifact artifact{.handle = AssetHandle(42),
             .importer_version = MeshImporter::VERSION,
-            .source_inputs = capture_import_inputs(project.asset_root(), source, {}),
+            .source_inputs =
+                capture_import_inputs(project.asset_root(), source, {}).value(),
             .data = expected};
-        artifact.publish_atomic(project.artifact_path());
+        EXPECT_TRUE(artifact.publish_atomic(project.artifact_path()));
         EXPECT_FALSE(MeshArtifact::load(project.artifact_path(), AssetHandle(43)));
         const auto loaded = MeshArtifact::load(project.artifact_path(), AssetHandle(42));
 
@@ -97,9 +98,10 @@ namespace Comet::Tests {
         const std::filesystem::path source = project.write_source("source-a");
         const MeshArtifact artifact{.handle = AssetHandle(42),
             .importer_version = MeshImporter::VERSION,
-            .source_inputs = capture_import_inputs(project.asset_root(), source, {}),
+            .source_inputs =
+                capture_import_inputs(project.asset_root(), source, {}).value(),
             .data = make_mesh_data()};
-        artifact.publish_atomic(project.artifact_path());
+        EXPECT_TRUE(artifact.publish_atomic(project.artifact_path()));
 
         static_cast<void>(project.write_source("source-b"));
 
@@ -115,9 +117,9 @@ namespace Comet::Tests {
         const MeshArtifact artifact{.handle = AssetHandle(42),
             .importer_version = MeshImporter::VERSION,
             .source_inputs =
-                capture_import_inputs(project.asset_root(), source, dependencies),
+                capture_import_inputs(project.asset_root(), source, dependencies).value(),
             .data = make_mesh_data()};
-        artifact.publish_atomic(project.artifact_path());
+        EXPECT_TRUE(artifact.publish_atomic(project.artifact_path()));
 
         const auto loaded = MeshArtifact::load(project.artifact_path(), AssetHandle(42));
 
@@ -133,11 +135,37 @@ namespace Comet::Tests {
         const std::filesystem::path source = project.write_source();
         const MeshArtifact artifact{.handle = AssetHandle(42),
             .importer_version = MeshImporter::VERSION,
-            .source_inputs = capture_import_inputs(project.asset_root(), source, {}),
+            .source_inputs =
+                capture_import_inputs(project.asset_root(), source, {}).value(),
             .data = make_mesh_data()};
-        artifact.publish_atomic(project.artifact_path());
+        EXPECT_TRUE(artifact.publish_atomic(project.artifact_path()));
 
         write_text_file_atomic(project.artifact_path(), "corrupted");
         EXPECT_FALSE(MeshArtifact::load(project.artifact_path(), AssetHandle(42)));
+    }
+
+    TEST(MeshArtifactTest, FailedPublicationKeepsPreviousArtifact) {
+        const TemporaryArtifactProject project;
+        const auto source = project.write_source();
+        MeshArtifact artifact{.handle = AssetHandle(42),
+            .importer_version = MeshImporter::VERSION,
+            .source_inputs =
+                capture_import_inputs(project.asset_root(), source, {}).value(),
+            .data = make_mesh_data()};
+        ASSERT_TRUE(artifact.publish_atomic(project.artifact_path()));
+        artifact.data.indices.front() = 99;
+        const auto invalid = artifact.publish_atomic(project.artifact_path());
+        ASSERT_FALSE(invalid);
+        EXPECT_NE(invalid.error().find("out-of-range index"), std::string::npos);
+        const auto previous =
+            MeshArtifact::load(project.artifact_path(), AssetHandle(42));
+        ASSERT_TRUE(previous);
+        EXPECT_EQ(previous->data.indices.front(), 0U);
+
+        artifact.data.indices.front() = 0;
+        const auto blocked = source / "artifact.bin";
+        const auto write = artifact.publish_atomic(blocked);
+        ASSERT_FALSE(write);
+        EXPECT_NE(write.error().find(source.string()), std::string::npos);
     }
 }

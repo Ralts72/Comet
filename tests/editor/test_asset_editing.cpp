@@ -46,20 +46,20 @@ namespace CometEditor::Tests {
             const auto add_asset = [&](const char* name, Comet::AssetHandle handle,
                                        Comet::AssetType type) {
                 std::ofstream(paths.assets() / name) << "{}";
-                Comet::AssetMetadataSerializer{}.save(
+                EXPECT_TRUE(Comet::MetadataSerializer{}.save(
                     {.handle = handle,
                         .type = type,
                         .import_settings = Comet::make_default_import_settings(type)},
-                    Comet::metadata_path(paths.assets() / name));
+                    Comet::metadata_path(paths.assets() / name)));
             };
             add_asset("mesh.gltf", mesh, Comet::AssetType::Mesh);
             add_asset("texture.png", texture, Comet::AssetType::Texture);
             add_asset("second.png", second_texture, Comet::AssetType::Texture);
             add_asset("material.mat", material, Comet::AssetType::Material);
-            Comet::MaterialSerializer{}.save(
+            EXPECT_TRUE(Comet::MaterialSerializer{}.save(
                 {.template_name = "unlit_texture_blend",
                     .texture_properties = {{"albedo", texture}}},
-                paths.assets() / "material.mat");
+                paths.assets() / "material.mat"));
             ASSERT_TRUE(database.scan().succeeded());
             auto builtins = Comet::create_scene_component_registry();
             ASSERT_TRUE(
@@ -336,6 +336,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(history.undo_size(), 0);
         EXPECT_EQ(Comet::MaterialSerializer{}
                       .load(paths.assets() / "material.mat")
+                      .value()
                       .texture_properties.at("albedo"),
             texture);
     }

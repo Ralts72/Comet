@@ -10,18 +10,15 @@
 #include <unordered_set>
 
 namespace Comet::Yaml {
-    using ErrorFactory = std::runtime_error (*)(
-        std::string_view source, std::string_view location, const std::string& detail);
-
     inline void require_map(const YAML::Node& node, const std::string_view source,
-        const std::string_view location, const ErrorFactory error) {
+        const std::string_view location, const auto& error) {
         if(!node.IsDefined() || !node.IsMap()) {
             throw error(source, location, "expected a mapping");
         }
     }
 
     inline void require_sequence(const YAML::Node& node, const std::string_view source,
-        const std::string_view location, const ErrorFactory error) {
+        const std::string_view location, const auto& error) {
         if(!node.IsDefined() || !node.IsSequence()) {
             throw error(source, location, "expected a sequence");
         }
@@ -30,7 +27,7 @@ namespace Comet::Yaml {
     template<typename AllowedKeys>
     void validate_keys(const YAML::Node& node, const AllowedKeys& allowed,
         const std::string_view source, const std::string_view location,
-        const ErrorFactory error) {
+        const auto& error) {
         require_map(node, source, location, error);
         std::unordered_set<std::string> found;
         for(const auto& entry : node) {
@@ -52,7 +49,7 @@ namespace Comet::Yaml {
 
     inline YAML::Node required_child(const YAML::Node& node, const std::string_view key,
         const std::string_view source, const std::string_view location,
-        const ErrorFactory error) {
+        const auto& error) {
         const YAML::Node child = node[std::string(key)];
         if(!child.IsDefined()) {
             throw error(
@@ -64,7 +61,7 @@ namespace Comet::Yaml {
     template<typename T>
     T read_scalar(const YAML::Node& node, const std::string_view source,
         const std::string_view location, const std::string_view expected,
-        const ErrorFactory error) {
+        const auto& error) {
         if(!node.IsDefined() || !node.IsScalar()) {
             throw error(source, location, "expected " + std::string(expected));
         }
