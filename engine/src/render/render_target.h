@@ -24,9 +24,6 @@ namespace Comet {
         static std::unique_ptr<RenderTarget> create_swapchain_target(
             Device& device, RenderPass& render_pass, Swapchain& swapchain);
 
-        static std::unique_ptr<RenderTarget> create_multi_target(
-            Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);
-
         [[nodiscard]] static GpuResourceResult<std::unique_ptr<RenderTarget>>
         try_create_multi_target(
             Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);

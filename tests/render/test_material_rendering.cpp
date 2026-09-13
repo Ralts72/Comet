@@ -18,21 +18,69 @@
 #include "graphics/convert.h"
 #include "render/material.h"
 #include "render/material_renderer.h"
+#include "render/debug/debug_renderer.h"
+#include "render/scene/scene_renderer.h"
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
 
 #include <gtest/gtest.h>
 #include <optional>
+#include <type_traits>
 
 namespace Comet::Tests {
+    static_assert(!std::is_constructible_v<MaterialRenderer, Device&, PipelineManager&,
+        ResourceManager&, uint32_t, SampleCount>);
+    static_assert(!std::is_constructible_v<DebugRenderer, Device&, PipelineManager&,
+        ResourceManager&, uint32_t, SampleCount>);
+
     class MaterialRenderingTest: public EngineTest {
     protected:
-        std::shared_ptr<Texture> texture(std::vector<uint8_t> rgba) {
-            return engine->get_resource_manager()
-                .try_create_texture({.width = 1, .height = 1, .pixels = std::move(rgba)})
-                .value();
+        GpuResourceResult<std::shared_ptr<Texture>> texture(std::vector<uint8_t> rgba) {
+            return engine->get_resource_manager().try_create_texture(
+                {.width = 1, .height = 1, .pixels = std::move(rgba)});
         }
     };
+
+    TEST_F(MaterialRenderingTest, RejectsMissingFrameSlotsAndCanCreateAfterFailure) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        auto& resources = engine->get_resource_manager();
+        const auto color = Attachment::get_color_attachment(Format::R8G8B8A8_UNORM);
+        RenderPass pass(device, {color, Attachment::get_depth_attachment(Format::D32_SFLOAT)},
+            {RenderSubPass{{}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)}}},
+            Format::R8G8B8A8_UNORM);
+        PipelineManager pipelines(device, pass);
+        auto materials =
+            MaterialRenderer::create(device, pipelines, resources, 0, SampleCount::Count1);
+        ASSERT_FALSE(materials);
+        EXPECT_FALSE(materials.error().result.has_value());
+        auto debug = DebugRenderer::create(device, pipelines, resources, 0, SampleCount::Count1);
+        ASSERT_FALSE(debug);
+        EXPECT_FALSE(debug.error().result.has_value());
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
+
+        materials = MaterialRenderer::create(device, pipelines, resources, 2, SampleCount::Count1);
+        ASSERT_TRUE(materials) << materials.error();
+        debug = DebugRenderer::create(device, pipelines, resources, 2, SampleCount::Count1);
+        ASSERT_TRUE(debug) << debug.error();
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 3u);
+        materials.value().reset();
+        debug.value().reset();
+        pipelines.collect_unused();
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
+    }
+
+    TEST_F(MaterialRenderingTest, InvalidOffscreenExtentKeepsCurrentTarget) {
+        auto& renderer = engine->get_renderer();
+        auto* previous = &renderer.get_scene_renderer().get_render_target();
+        const auto size = previous->get_size();
+        auto result = renderer.enable_offscreen_rendering({0, 32});
+        ASSERT_FALSE(result);
+        EXPECT_FALSE(result.error().result.has_value());
+        EXPECT_EQ(&renderer.get_scene_renderer().get_render_target(), previous);
+        EXPECT_EQ(previous->get_size(), size);
+        ASSERT_TRUE(renderer.prepare_frame());
+        renderer.render_frame({});
+    }
 
     TEST_F(MaterialRenderingTest, ReadsPixelsFromTwoLayoutsBeforeAndAfterParameterChanges) {
         auto& context = engine->get_renderer().get_render_context();
@@ -44,21 +92,33 @@ namespace Comet::Tests {
         RenderPass pass(device, {color, Attachment::get_depth_attachment(Format::D32_SFLOAT)},
             {RenderSubPass{{}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)}}},
             Format::R8G8B8A8_UNORM);
-        auto target = RenderTarget::create_multi_target(device, pass, {64, 32}, 2);
+        auto target_result = RenderTarget::try_create_multi_target(device, pass, {64, 32}, 2);
+        ASSERT_TRUE(target_result) << target_result.error();
+        auto target = std::move(target_result).value();
         target->set_clear_value(ClearValue(Math::Vec4(0, 0, 0, 1)));
         PipelineManager pipelines(device, pass);
-        MaterialRenderer materials(
+        auto material_result = MaterialRenderer::create(
             device, pipelines, engine->get_resource_manager(), 2, SampleCount::Count1);
+        ASSERT_TRUE(material_result) << material_result.error();
+        auto materials = std::move(material_result).value();
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         const MeshData mesh_data{.vertices = {{{-0.4f, -0.8f, 0.5f}}, {{0.4f, -0.8f, 0.5f}},
                                      {{0.4f, 0.8f, 0.5f}}, {{-0.4f, 0.8f, 0.5f}}},
             .indices = {0, 1, 2, 2, 3, 0}};
-        const auto mesh = engine->get_resource_manager().try_create_mesh(mesh_data).value();
+        const auto mesh_result = engine->get_resource_manager().try_create_mesh(mesh_data);
+        ASSERT_TRUE(mesh_result) << mesh_result.error();
+        const auto mesh = mesh_result.value();
         const auto textured = std::make_shared<Material>("textured", "unlit_texture_blend");
-        textured->set_texture_property("u_Texture0", texture({255, 0, 0, 255}));
+        {
+            auto red = texture({255, 0, 0, 255});
+            ASSERT_TRUE(red) << red.error();
+            textured->set_texture_property("u_Texture0", std::move(red).value());
+        }
         const std::weak_ptr<Texture> retired = textured->get_texture_property("u_Texture0");
-        textured->set_texture_property("u_Texture1", texture({0, 0, 255, 255}));
+        auto blue = texture({0, 0, 255, 255});
+        ASSERT_TRUE(blue) << blue.error();
+        textured->set_texture_property("u_Texture1", std::move(blue).value());
         textured->set_scalar_property("blend", 0.25f);
         textured->set_vector_property("tint", {1, 0.5f, 0.5f, 1});
         const auto solid = std::make_shared<Material>("solid", "unlit_color");
@@ -96,7 +156,9 @@ namespace Comet::Tests {
         engine->get_resource_manager().collect_completed_uploads();
         for(int iteration = 0; iteration < 2; ++iteration) {
             if(iteration == 1) {
-                textured->set_texture_property("u_Texture0", texture({255, 0, 0, 255}));
+                auto red = texture({255, 0, 0, 255});
+                ASSERT_TRUE(red) << red.error();
+                textured->set_texture_property("u_Texture0", std::move(red).value());
                 textured->set_scalar_property("blend", 0.75f);
                 solid->set_scalar_property("intensity", 0.25f);
             }
@@ -108,7 +170,7 @@ namespace Comet::Tests {
             target->begin_render_target(command, slot);
             command.set_viewport(Graphics::get_viewport(64, 32));
             command.set_scissor(Graphics::get_scissor(64, 32));
-            const auto waits = materials.render(
+            const auto waits = materials->render(
                 frames, {.view = Math::Mat4(1), .projection = Math::Mat4(1)}, items);
             target->end_render_target(command);
             vk::MemoryBarrier barrier(
@@ -131,7 +193,7 @@ namespace Comet::Tests {
                 {}, &frames.get_current_frame_slot().in_flight_fence));
             frames.record_submission();
             frames.end_frame();
-            EXPECT_EQ(materials.get_statistics().material_versions_created, 2u);
+            EXPECT_EQ(materials->get_statistics().material_versions_created, 2u);
         }
         // Both slots were submitted; old resources stay owned until slot collection.
         EXPECT_FALSE(retired.expired());

@@ -29,9 +29,9 @@ namespace Comet {
 
         void setup_render_pass();
 
-        void setup_offscreen_render_pass(Math::Vec2u size);
+        Result<void, GraphicsError> setup_offscreen_render_pass(Math::Vec2u size);
 
-        void setup_pipeline(ResourceManager& resource_manager);
+        Result<void, GraphicsError> setup_pipeline(ResourceManager& resource_manager);
 
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render_scene_pass(
             const RenderSubmission& submission, const LineDrawList& lines = {});

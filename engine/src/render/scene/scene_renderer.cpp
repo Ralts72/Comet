@@ -69,9 +69,10 @@ namespace Comet {
         m_uses_offscreen_target = false;
     }
 
-    void SceneRenderer::setup_offscreen_render_pass(const Math::Vec2u size) {
+    Result<void, GraphicsError> SceneRenderer::setup_offscreen_render_pass(const Math::Vec2u size) {
         if(size.x == 0 || size.y == 0) {
-            LOG_FATAL("Offscreen render target size must be greater than zero");
+            return Result<void, GraphicsError>::failure(
+                {"Offscreen render target size must be greater than zero"});
         }
 
         LOG_INFO("create offscreen render pass at {}x{}", size.x, size.y);
@@ -99,20 +100,29 @@ namespace Comet {
             std::vector<RenderSubPass>{render_sub_pass}, m_surface_format);
         m_pipeline_manager =
             std::make_unique<PipelineManager>(m_context.get_device(), *m_render_pass);
-        m_render_target = RenderTarget::create_multi_target(m_context.get_device(), *m_render_pass,
+        auto target = RenderTarget::try_create_multi_target(m_context.get_device(), *m_render_pass,
             size, m_frame_scheduler->get_frame_slot_count());
+        if(!target)
+            return Result<void, GraphicsError>::failure(target.error());
+        m_render_target = std::move(target).value();
         set_render_target_clear_color();
 
         m_uses_offscreen_target = true;
+        return Result<void, GraphicsError>::success();
     }
 
-    void SceneRenderer::setup_pipeline(ResourceManager& resource_manager) {
-        m_material_renderer =
-            std::make_unique<MaterialRenderer>(m_context.get_device(), *m_pipeline_manager,
-                resource_manager, m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
-        m_debug_renderer =
-            std::make_unique<DebugRenderer>(m_context.get_device(), *m_pipeline_manager,
-                resource_manager, m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
+    Result<void, GraphicsError> SceneRenderer::setup_pipeline(ResourceManager& resource_manager) {
+        auto materials = MaterialRenderer::create(m_context.get_device(), *m_pipeline_manager,
+            resource_manager, m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
+        if(!materials)
+            return Result<void, GraphicsError>::failure(materials.error());
+        auto debug = DebugRenderer::create(m_context.get_device(), *m_pipeline_manager,
+            resource_manager, m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
+        if(!debug)
+            return Result<void, GraphicsError>::failure(debug.error());
+        m_material_renderer = std::move(materials).value();
+        m_debug_renderer = std::move(debug).value();
+        return Result<void, GraphicsError>::success();
     }
 
     std::vector<QueueSemaphoreSubmit> SceneRenderer::render_scene_pass(

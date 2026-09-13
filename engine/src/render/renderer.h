@@ -1,5 +1,6 @@
 #pragma once
 #include "common/export.h"
+#include "graphics/creation.h"
 #include "render/scene/render_scene.h"
 #include "render/scene/scene_resolver.h"
 #include "render/scene/scene_picking.h"
@@ -29,7 +30,7 @@ namespace Comet {
         // 消费场景快照，完成绘制、提交和呈现。
         void render_frame(const RenderScene& render_scene);
 
-        void enable_offscreen_rendering(Math::Vec2u initial_size);
+        Result<void, GraphicsError> enable_offscreen_rendering(Math::Vec2u initial_size);
 
         void set_render_view(RenderView view);
 

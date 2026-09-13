@@ -53,8 +53,11 @@ namespace {
             auto& scene_renderer = renderer.get_scene_renderer();
 
             const auto& swapchain = render_context.get_swapchain();
-            renderer.enable_offscreen_rendering(
-                Comet::Math::Vec2u(swapchain.get_width(), swapchain.get_height()));
+            if(auto result = renderer.enable_offscreen_rendering(
+                   Comet::Math::Vec2u(swapchain.get_width(), swapchain.get_height()));
+                !result)
+                throw std::runtime_error(
+                    "Cannot initialize editor rendering: " + result.error().message);
 
             m_imgui_context = std::make_unique<CometEditor::ImGuiContext>(engine.get_window(),
                 render_context, m_project.paths().editor_state() / "imgui.ini");

@@ -141,7 +141,8 @@ JSON 解析直接依赖已有 simdjson。
   Shader／Pipeline 创建通过 `Result<T, GraphicsError>` 保留诊断与原生 Vulkan 错误码，RAII 回收失败候选，管理器只发布成功结果。
   Descriptor 布局、池创建及集合分配使用同一结果协议；材质候选失败保留旧版本，集合仍由池统一回收。
   MaterialRenderer 只描述资源与槽位，DescriptorSet 负责原生批量写入，CommandBuffer 负责集合绑定；不在材质层拼装 Vulkan 结构。
-  渲染器与 ImGui 初始化暂沿现有异常清理边界报告失败，不承诺全链路无异常。
+  MaterialRenderer／DebugRenderer 返回完整创建结果，SceneRenderer 在两者成功后一起替换；离屏启动检查目标与管线结果。
+  最外层 Renderer／Editor 启动和 ImGui 初始化仍使用现有异常清理边界，Sampler／RenderPass 等底层入口尚待迁移。
   Pipeline 按 Shader 字节码／入口、specialization、布局、渲染状态及 RenderPass 域复用，名称只作标签；缓存弱引用不代替在途帧保活。
   specialization 支持 bool 与 32 位数值，按阶段和位模式校验／缓存并传给 GPU；只用于固定接口的创建期变体。
   改变数组长度的变体使用编译期 defines，不用 specialization；材质逐帧参数仍走原有 uniform。

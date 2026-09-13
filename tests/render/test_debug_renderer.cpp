@@ -34,7 +34,7 @@ namespace Comet::Tests {
             engine = std::make_unique<Engine>(config);
             if(std::get<0>(GetParam())) {
                 auto& renderer = engine->get_renderer();
-                renderer.enable_offscreen_rendering({160, 120});
+                ASSERT_TRUE(renderer.enable_offscreen_rendering({160, 120}));
                 auto& context = renderer.get_render_context();
                 auto& swapchain = context.get_swapchain();
                 const auto format = swapchain.get_images().front()->get_info().format;

@@ -10,15 +10,6 @@
 #include <span>
 
 namespace Comet {
-    std::shared_ptr<Texture> Texture::create(
-        Device& device, UploadManager& upload_manager, const TextureData& data) {
-        auto attempt = try_create(device, upload_manager, data, false);
-        if(!attempt) {
-            LOG_FATAL("Failed to create texture: {}", attempt.error().message);
-        }
-        return std::move(attempt).value();
-    }
-
     GpuResourceResult<std::shared_ptr<Texture>> Texture::try_create(Device& device,
         UploadManager& upload_manager, const TextureData& data, const bool within_budget) {
         if(data.width <= 0 || data.height <= 0 || data.pixels.empty()) {

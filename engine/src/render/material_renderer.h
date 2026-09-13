@@ -37,13 +37,18 @@ namespace Comet {
             uint32_t frame_set_count = 0;
         };
 
-        MaterialRenderer(Device& device, PipelineManager& pipelines, ResourceManager& resources,
-            uint32_t frame_slot_count, SampleCount samples);
+        static Result<std::unique_ptr<MaterialRenderer>, GraphicsError> create(Device& device,
+            PipelineManager& pipelines, ResourceManager& resources, uint32_t frame_slot_count,
+            SampleCount samples);
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(FrameScheduler& frames,
             const ViewProjectMatrix& view, std::span<const ResolvedRenderItem> items);
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
 
     private:
+        explicit MaterialRenderer(Device& device);
+        Result<void, GraphicsError> initialize(PipelineManager& pipelines,
+            ResourceManager& resources, uint32_t frame_slot_count, SampleCount samples);
+
         struct PipelineState {
             std::shared_ptr<const MaterialLayout> layout;
             std::shared_ptr<DescriptorSetLayout> material_layout;

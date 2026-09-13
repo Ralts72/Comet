@@ -16,8 +16,6 @@ namespace Comet {
     public:
         ~Mesh() = default;
 
-        [[nodiscard]] static std::shared_ptr<Mesh> create(
-            Device& device, UploadManager& upload_manager, const MeshData& data);
         [[nodiscard]] static GpuResourceResult<std::shared_ptr<Mesh>> try_create(Device& device,
             UploadManager& upload_manager, const MeshData& data, bool within_budget);
 

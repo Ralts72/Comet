@@ -13,13 +13,19 @@
 #include "debug_line_vert.h"
 
 #include <limits>
-#include <stdexcept>
+#include <utility>
 
 namespace Comet {
-    DebugRenderer::DebugRenderer(Device& device, PipelineManager& pipeline_manager,
-        ResourceManager& resource_manager, const uint32_t frame_slot_count,
-        const SampleCount sample_count)
-        : m_device(device), m_frame_resources(frame_slot_count) {
+    DebugRenderer::DebugRenderer(
+        Device& device, std::shared_ptr<Pipeline> pipeline, const uint32_t frame_slot_count)
+        : m_device(device), m_pipeline(std::move(pipeline)), m_frame_resources(frame_slot_count) {}
+
+    Result<std::unique_ptr<DebugRenderer>, GraphicsError> DebugRenderer::create(Device& device,
+        PipelineManager& pipeline_manager, ResourceManager& resource_manager,
+        const uint32_t frame_slot_count, const SampleCount sample_count) {
+        if(frame_slot_count == 0)
+            return Result<std::unique_ptr<DebugRenderer>, GraphicsError>::failure(
+                {"Debug renderer requires frame slots"});
         ShaderLayout layout;
         layout.push_constants.push_back(
             std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, sizeof(Math::Mat4)));
@@ -46,18 +52,19 @@ namespace Comet {
         auto& shaders = resource_manager.get_shader_manager();
         const auto vertex_shader = shaders.load_shader("debug_line_vert", DEBUG_LINE_VERT);
         if(!vertex_shader)
-            throw std::runtime_error(
-                "Cannot initialize built-in debug vertex shader: " + vertex_shader.error().message);
+            return Result<std::unique_ptr<DebugRenderer>, GraphicsError>::failure(
+                vertex_shader.error());
         const auto fragment_shader = shaders.load_shader("debug_line_frag", DEBUG_LINE_FRAG);
         if(!fragment_shader)
-            throw std::runtime_error("Cannot initialize built-in debug fragment shader: "
-                                     + fragment_shader.error().message);
+            return Result<std::unique_ptr<DebugRenderer>, GraphicsError>::failure(
+                fragment_shader.error());
         auto pipeline = pipeline_manager.create_pipeline(
             "debug_line_pipeline", layout, config, vertex_shader.value(), fragment_shader.value());
         if(!pipeline)
-            throw std::runtime_error(
-                "Cannot initialize built-in debug pipeline: " + pipeline.error().message);
-        m_pipeline = std::move(pipeline).value();
+            return Result<std::unique_ptr<DebugRenderer>, GraphicsError>::failure(pipeline.error());
+        return Result<std::unique_ptr<DebugRenderer>, GraphicsError>::success(
+            std::unique_ptr<DebugRenderer>(
+                new DebugRenderer(device, std::move(pipeline).value(), frame_slot_count)));
     }
 
     void DebugRenderer::render(FrameScheduler& frame_scheduler,

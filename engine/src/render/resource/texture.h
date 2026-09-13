@@ -13,8 +13,6 @@ namespace Comet {
 
     class COMET_API Texture {
     public:
-        [[nodiscard]] static std::shared_ptr<Texture> create(
-            Device& device, UploadManager& upload_manager, const TextureData& data);
         [[nodiscard]] static GpuResourceResult<std::shared_ptr<Texture>> try_create(Device& device,
             UploadManager& upload_manager, const TextureData& data, bool within_budget);
 

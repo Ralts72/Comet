@@ -146,7 +146,7 @@ Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验�
 CPU 候选与校验已迁移；资产与图形模块统一使用 common/result.h 的 Result<T>，不保留领域别名或转发头。
 ShaderCompiler::Result 保留编译诊断和依赖信息，GpuResourceResult 保留原生错误码；不强行合并不同层的错误信息。
 Shader／Pipeline 与材质 descriptor 创建、分配已接通原生错误结果；启动消费者仍通过现有异常清理边界退出，
-下一步审查跨层失败传播，不代表全链路已经无异常。
+跨层审查已推进到 renderer 成对安装和离屏启动，Sampler／RenderPass／ImGui 等剩余路径见下文，不代表全链路已经无异常。
 
 按可独立验收的范围分步推进，每一步都同时迁移该接口的全部生产调用方及测试，不只增加一套无人使用的 try_create：
 
@@ -162,9 +162,15 @@ Shader／Pipeline 与材质 descriptor 创建、分配已接通原生错误结�
    - 已完成 DescriptorSetLayout／DescriptorPool 创建与 descriptor set 分配；材质及 ImGui 消费者检查结果。
      可恢复失败保留旧材质 GPU 版本，DeviceLost 交给应用退出边界；集合仍由池回收，不新增逐集合所有权。
      启动构造仍通过异常报告失败；未扩展到 ImGui 第三方后端内部创建或其他 GPU 包装类。
-3. **链路收口审查（下一步）**：核对 ShaderManager、PipelineManager、RenderResourceFactory、材质准备／渲染消费者、
+3. **链路收口审查（进行中）**：核对 ShaderManager、PipelineManager、RenderResourceFactory、材质准备／渲染消费者、
    DebugRenderer／SceneRenderer，以及资产加载、app/editor 启动和后续热发布路径。
    清除只为捕获上述预期失败存在的 catch/rethrow；旧的抛异常创建入口不得继续被业务路径绕回使用。
+   - 已接通 MaterialRenderer／DebugRenderer 的工厂结果，SceneRenderer 成对安装；离屏启动把目标／管线结果交给 Editor。
+     Mesh／Texture 无调用方的 fatal 创建包装和 RenderTarget 的 fatal 离屏包装已删除；应用生命周期与析构保护 catch 保留。
+   - 下一项：Sampler／SamplerManager 可失败创建和全部消费者。MaterialRenderer 仍通过旧 SamplerManager 获取 sampler，
+     不能因外层增加 create() 就宣称已无原生 GPU 异常。
+   - 随后迁移 RenderPass／swapchain target 创建及 ImGui 初始化结果；明确启动与重建失败策略，避免返回失败后继续使用半初始化状态。
+     审查运行期非关键资源路径对 DeviceLost 的处理，不能一概当作资源不足重试。以上完成后再接后台 Shader 热发布。
    Descriptor 写入／绑定已收回 graphics，渲染与资产消费者使用错误消息／设备丢失语义，不直接解析原生状态码。
    WSI acquire/present 状态接口随独立的 WSI 失败处理收敛；PipelineConfig 与 viewport/scissor 的原生数据边界按后续真实消费者整理，
    不以复制全部 Vulkan 类型或预建多后端框架替代职责划分。ImGui Vulkan 后端适配仍允许在私有实现中使用原生接口。

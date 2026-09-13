@@ -8,6 +8,7 @@
 #include "diagnostics/profiler.h"
 
 #include <utility>
+#include <stdexcept>
 
 namespace Comet {
     Renderer::Renderer(
@@ -26,7 +27,9 @@ namespace Comet {
 
         m_scene_renderer->setup_render_pass();
 
-        m_scene_renderer->setup_pipeline(*m_resource_manager);
+        if(auto result = m_scene_renderer->setup_pipeline(*m_resource_manager); !result)
+            throw std::runtime_error(
+                "Cannot initialize scene pipelines: " + result.error().message);
     }
 
     bool Renderer::prepare_frame() {
@@ -70,10 +73,12 @@ namespace Comet {
         m_scene_renderer->end_frame(resource_waits);
     }
 
-    void Renderer::enable_offscreen_rendering(const Math::Vec2u initial_size) {
+    Result<void, GraphicsError> Renderer::enable_offscreen_rendering(
+        const Math::Vec2u initial_size) {
         m_render_context->wait_idle();
-        m_scene_renderer->setup_offscreen_render_pass(initial_size);
-        m_scene_renderer->setup_pipeline(*m_resource_manager);
+        if(auto result = m_scene_renderer->setup_offscreen_render_pass(initial_size); !result)
+            return result;
+        return m_scene_renderer->setup_pipeline(*m_resource_manager);
     }
 
     void Renderer::set_render_view(RenderView view) {

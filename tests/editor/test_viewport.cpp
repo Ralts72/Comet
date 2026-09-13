@@ -21,7 +21,7 @@ namespace CometEditor::Tests {
         config.vulkan.enable_validation = true;
         Comet::Engine engine(config);
         auto& renderer = engine.get_renderer();
-        renderer.enable_offscreen_rendering({320, 240});
+        ASSERT_TRUE(renderer.enable_offscreen_rendering({320, 240}));
         Comet::Tests::TemporaryDirectory directory;
         ImGuiContext ui(
             engine.get_window(), renderer.get_render_context(), directory.path() / "imgui.ini");

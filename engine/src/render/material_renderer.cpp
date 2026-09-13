@@ -42,29 +42,42 @@ namespace Comet {
         }
     }
 
-    MaterialRenderer::MaterialRenderer(Device& device, PipelineManager& pipelines,
-        ResourceManager& resources, const uint32_t frame_slot_count, const SampleCount samples)
-        : m_device(device) {
+    MaterialRenderer::MaterialRenderer(Device& device) : m_device(device) {}
+
+    Result<std::unique_ptr<MaterialRenderer>, GraphicsError> MaterialRenderer::create(
+        Device& device, PipelineManager& pipelines, ResourceManager& resources,
+        const uint32_t frame_slot_count, const SampleCount samples) {
+        auto candidate = std::unique_ptr<MaterialRenderer>(new MaterialRenderer(device));
+        if(auto result = candidate->initialize(pipelines, resources, frame_slot_count, samples);
+            !result)
+            return Result<std::unique_ptr<MaterialRenderer>, GraphicsError>::failure(
+                result.error());
+        return Result<std::unique_ptr<MaterialRenderer>, GraphicsError>::success(
+            std::move(candidate));
+    }
+
+    Result<void, GraphicsError> MaterialRenderer::initialize(PipelineManager& pipelines,
+        ResourceManager& resources, const uint32_t frame_slot_count, const SampleCount samples) {
+        if(frame_slot_count == 0)
+            return Result<void, GraphicsError>::failure({"Material renderer requires frame slots"});
+        auto& device = m_device;
         m_sampler = resources.get_sampler_manager().get_linear_repeat();
         DescriptorSetLayoutBindings frame_bindings;
         frame_bindings.add_binding(
             0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
         auto frame_layout = DescriptorSetLayout::create(device, frame_bindings);
         if(!frame_layout)
-            throw std::runtime_error(
-                "Cannot initialize frame descriptor layout: " + frame_layout.error().message);
+            return Result<void, GraphicsError>::failure(frame_layout.error());
         m_frame_layout = std::move(frame_layout).value();
         DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count);
         auto pool_result = DescriptorPool::create(device, frame_slot_count, pool_sizes);
         if(!pool_result)
-            throw std::runtime_error(
-                "Cannot initialize frame descriptor pool: " + pool_result.error().message);
+            return Result<void, GraphicsError>::failure(pool_result.error());
         std::shared_ptr<DescriptorPool> pool = std::move(pool_result).value();
         auto descriptors = pool->allocate_descriptor_set(*m_frame_layout, frame_slot_count);
         if(!descriptors)
-            throw std::runtime_error(
-                "Cannot allocate frame descriptor sets: " + descriptors.error().message);
+            return Result<void, GraphicsError>::failure(descriptors.error());
         for(uint32_t slot = 0; slot < frame_slot_count; ++slot) {
             auto frame = std::make_shared<FrameResources>();
             frame->layout = m_frame_layout;
@@ -73,8 +86,7 @@ namespace Comet {
                 Buffer::try_create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::Uniform),
                     sizeof(ViewProjectMatrix), false, nullptr, "frame view-project");
             if(!buffer)
-                throw std::runtime_error(
-                    "Cannot initialize frame uniform buffer: " + buffer.error().message);
+                return Result<void, GraphicsError>::failure(buffer.error());
             frame->buffer = std::move(buffer).value();
             frame->descriptor = descriptors.value()[slot];
             const DescriptorSet::UniformBufferWrite write{
@@ -85,8 +97,7 @@ namespace Comet {
         auto& shaders = resources.get_shader_manager();
         auto vertex = shaders.load_shader("material_mesh", MATERIAL_MESH_VERT);
         if(!vertex)
-            throw std::runtime_error(
-                "Cannot initialize built-in material vertex shader: " + vertex.error().message);
+            return Result<void, GraphicsError>::failure(vertex.error());
         const auto add_builtin = [&](const std::string& name, std::span<const uint32_t> words,
                                      std::string_view layout_name) {
             auto fragment = shaders.load_shader(name, words);
@@ -98,11 +109,10 @@ namespace Comet {
         if(auto result =
                 add_builtin("material_textured", MATERIAL_TEXTURED_FRAG, "unlit_texture_blend");
             !result)
-            throw std::runtime_error(
-                "Cannot initialize built-in textured material pipeline: " + result.error().message);
+            return Result<void, GraphicsError>::failure(result.error());
         if(auto result = add_builtin("material_solid", MATERIAL_SOLID_FRAG, "unlit_color"); !result)
-            throw std::runtime_error(
-                "Cannot initialize built-in solid material pipeline: " + result.error().message);
+            return Result<void, GraphicsError>::failure(result.error());
+        return Result<void, GraphicsError>::success();
     }
 
     Result<void, GraphicsError> MaterialRenderer::add_pipeline(PipelineManager& pipelines,

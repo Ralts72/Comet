@@ -62,15 +62,6 @@ namespace Comet {
             new SwapchainTarget(device, render_pass, std::move(swapchain_generation)));
     }
 
-    std::unique_ptr<RenderTarget> RenderTarget::create_multi_target(
-        Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count) {
-        auto attempt = try_create_multi_target(device, render_pass, size, frame_count);
-        if(!attempt) {
-            LOG_FATAL("Failed to create multi render target: {}", attempt.error().message);
-        }
-        return std::move(attempt).value();
-    }
-
     GpuResourceResult<std::unique_ptr<RenderTarget>> RenderTarget::try_create_multi_target(
         Device& device, RenderPass& render_pass, const Math::Vec2u size,
         const uint32_t frame_count) {

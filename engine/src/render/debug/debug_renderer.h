@@ -1,6 +1,8 @@
 #pragma once
 
+#include "common/export.h"
 #include "graphics/enums.h"
+#include "graphics/creation.h"
 #include "render/line_draw_list.h"
 #include "render/scene/render_types.h"
 
@@ -17,15 +19,19 @@ namespace Comet {
     class ResourceManager;
 
     // 在调用方已开启的场景 pass 内绘制；调用前须等待当前 slot 并设置 viewport/scissor。
-    class DebugRenderer {
+    class COMET_API DebugRenderer {
     public:
-        DebugRenderer(Device& device, PipelineManager& pipeline_manager,
-            ResourceManager& resource_manager, uint32_t frame_slot_count, SampleCount sample_count);
+        static Result<std::unique_ptr<DebugRenderer>, GraphicsError> create(Device& device,
+            PipelineManager& pipeline_manager, ResourceManager& resource_manager,
+            uint32_t frame_slot_count, SampleCount sample_count);
 
         void render(FrameScheduler& frame_scheduler, const ViewProjectMatrix& view_project,
             const LineDrawList& draw_list);
 
     private:
+        DebugRenderer(
+            Device& device, std::shared_ptr<Pipeline> pipeline, uint32_t frame_slot_count);
+
         struct FrameResources {
             std::shared_ptr<CPUBuffer> vertex_buffer;
             uint32_t growth_retry_requests = 0;

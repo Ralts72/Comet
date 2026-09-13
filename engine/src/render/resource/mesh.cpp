@@ -11,15 +11,6 @@
 #include <span>
 
 namespace Comet {
-    std::shared_ptr<Mesh> Mesh::create(
-        Device& device, UploadManager& upload_manager, const MeshData& data) {
-        auto attempt = try_create(device, upload_manager, data, false);
-        if(!attempt) {
-            LOG_FATAL("Failed to create mesh: {}", attempt.error().message);
-        }
-        return std::move(attempt).value();
-    }
-
     GpuResourceResult<std::shared_ptr<Mesh>> Mesh::try_create(Device& device,
         UploadManager& upload_manager, const MeshData& data, const bool within_budget) {
         if(data.vertices.empty()) {

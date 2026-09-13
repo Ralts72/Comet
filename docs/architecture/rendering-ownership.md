@@ -168,7 +168,12 @@ CPU 校验错误不伪造 Vulkan 错误码；GPU 创建使用 Vulkan-Hpp 返回�
 graphics/creation.h 统一将 device-owned 句柄纳入 UniqueHandle，再判断返回码，失败时连同部分创建的句柄一起回收。
 Shader、PipelineLayout、Pipeline 的私有构造函数只接收已创建的 owner；Pipeline 先销毁自身句柄，再释放 Layout。
 分配 C++ 容器等非预期异常仍可传播，不承诺 noexcept。
-渲染器初始化暂将结果错误交给现有异常清理边界；内置 MaterialLayout 常量定义错误属于内部不变量，明确终止。
+MaterialRenderer::create 在私有候选中初始化 frame 资源和内置管线；DebugRenderer::create 成功创建 Pipeline 后才构造对象。
+SceneRenderer::setup_pipeline 返回结果，两个 renderer 都成功后才替换成员；失败候选自动析构，不先发布其中一个。
+这一保证针对 renderer 成对安装，不包含 ShaderManager 中成功加载资源的回滚，也不等于整个 RenderPass／RenderTarget 切换事务。
+离屏启动使用 try_create_multi_target 并将目标／管线失败返回到 Editor；无效尺寸在重置资源前拒绝。
+有效尺寸的创建在重置之后失败时必须终止启动，不支持继续渲染旧目标；运行中 resize_offscreen_target 的旧版本保留机制不变。
+最外层 Renderer／Editor 启动暂将结果错误交给现有异常清理边界；内置 MaterialLayout 常量错误仍属于内部不变量。
 DescriptorSetLayout／DescriptorPool 创建及 DescriptorSet 分配也返回 Result<T, GraphicsError>。
 布局和池使用 UniqueHandle，集合只借用句柄，由池统一回收；布局可共享，池工厂返回 unique_ptr，
 FrameResources／MaterialResources 按实际保活需要转为 shared_ptr，ImGui 仍独占池。
@@ -180,7 +185,10 @@ DescriptorSet::update 接收嵌套的 UniformBufferWrite／ImageSamplerWrite，�
 CommandBuffer::bind_descriptor_sets 只接收 Comet Layout／Set，原生绑定点与句柄数组留在 graphics 实现中。
 GpuResourceResult 通过 error() 提供 GraphicsError，业务层读取 message／is_device_lost()，不为了日志解析 vk::Result；
 原生 result() 保留给 graphics 内部和诊断测试。这是消费接口收敛，不是完整的多后端抽象或 Vulkan 头文件隔离。
-下一步审查启动与跨层消费者的失败传播，不以 LOG_FATAL 替代可恢复错误。
+Mesh／Texture 的无调用方 fatal 创建包装以及 RenderTarget 的 fatal 离屏包装已移除，现有消费者使用可失败入口。
+Sampler 获取、RenderPass／swapchain target 创建和 ImGui 初始化仍有原生异常／fatal 路径，需分步迁移；
+MaterialRenderer 的工厂目前仍调用旧 SamplerManager，不承诺所有 GPU 错误都已结果化。
+Application 的失败清理及 ImGui 析构保护 catch 必须保留，不以 LOG_FATAL 替代可恢复错误。
 
 PipelineConfig 与状态位于 pipeline_config.h/.cpp，PipelineKey 的完整判等、规范化与哈希位于 pipeline_key.h/.cpp。
 Key 包含完整 Shader 内容／入口、layout、配置、RenderPass 身份与附件格式／采样数；名称只作标签，hash 不代替相等比较。

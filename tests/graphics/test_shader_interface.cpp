@@ -793,7 +793,10 @@ namespace Comet::Tests {
         RenderPass pass(device, {color}, {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}},
             Format::R8G8B8A8_UNORM);
         constexpr uint32_t VARIANT_COUNT = 5;
-        auto target = RenderTarget::create_multi_target(device, pass, {32, 16}, VARIANT_COUNT);
+        auto target_result =
+            RenderTarget::try_create_multi_target(device, pass, {32, 16}, VARIANT_COUNT);
+        ASSERT_TRUE(target_result) << target_result.error();
+        auto target = std::move(target_result).value();
         target->set_clear_value(ClearValue(Math::Vec4(0, 0, 0, 1)));
         PipelineManager pipelines(device, pass);
         auto vertex_result = Shader::create(device, "vertex", SPECIALIZATION_VERT);
