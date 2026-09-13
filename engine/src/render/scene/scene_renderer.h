@@ -16,6 +16,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -32,6 +33,8 @@ namespace Comet {
         Result<void, GraphicsError> setup_offscreen_render_pass(Math::Vec2u size);
 
         Result<void, GraphicsError> setup_pipeline(ResourceManager& resource_manager);
+
+        Result<void, GraphicsError> reload_material_shaders(MaterialRenderer::ShaderCode shaders);
 
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render_scene_pass(
             const RenderSubmission& submission, const LineDrawList& lines = {});
@@ -76,6 +79,7 @@ namespace Comet {
         std::shared_ptr<RenderTarget> m_render_target;
         bool m_uses_offscreen_target = false;
         std::unique_ptr<MaterialRenderer> m_material_renderer;
+        std::optional<MaterialRenderer::ShaderCode> m_material_shaders;
         std::unique_ptr<DebugRenderer> m_debug_renderer;
         Format m_surface_format;
         Format m_depth_format;

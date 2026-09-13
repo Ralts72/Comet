@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <array>
+#include <iterator>
 #include <stdexcept>
 #include <string_view>
 #include <tuple>
@@ -46,9 +47,10 @@ namespace Comet {
 
     Result<std::unique_ptr<MaterialRenderer>, GraphicsError> MaterialRenderer::create(
         Device& device, PipelineManager& pipelines, ResourceManager& resources,
-        const uint32_t frame_slot_count, const SampleCount samples) {
+        const uint32_t frame_slot_count, const SampleCount samples, const ShaderCode* shaders) {
         auto candidate = std::unique_ptr<MaterialRenderer>(new MaterialRenderer(device));
-        if(auto result = candidate->initialize(pipelines, resources, frame_slot_count, samples);
+        if(auto result =
+                candidate->initialize(pipelines, resources, frame_slot_count, samples, shaders);
             !result)
             return Result<std::unique_ptr<MaterialRenderer>, GraphicsError>::failure(
                 result.error());
@@ -57,7 +59,8 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> MaterialRenderer::initialize(PipelineManager& pipelines,
-        ResourceManager& resources, const uint32_t frame_slot_count, const SampleCount samples) {
+        ResourceManager& resources, const uint32_t frame_slot_count, const SampleCount samples,
+        const ShaderCode* shaders) {
         if(frame_slot_count == 0)
             return Result<void, GraphicsError>::failure({"Material renderer requires frame slots"});
         auto& device = m_device;
@@ -97,34 +100,57 @@ namespace Comet {
             frame->descriptor->update(device, std::span(&write, 1));
             m_frames.push_back(std::move(frame));
         }
-        auto& shaders = resources.get_shader_manager();
-        auto vertex = shaders.load_shader("material_mesh", MATERIAL_MESH_VERT);
+        if(shaders)
+            return reload_shaders(pipelines, *shaders, samples);
+        return reload_shaders(pipelines,
+            {std::vector<uint32_t>(std::begin(MATERIAL_MESH_VERT), std::end(MATERIAL_MESH_VERT)),
+                std::vector<uint32_t>(
+                    std::begin(MATERIAL_TEXTURED_FRAG), std::end(MATERIAL_TEXTURED_FRAG)),
+                std::vector<uint32_t>(
+                    std::begin(MATERIAL_SOLID_FRAG), std::end(MATERIAL_SOLID_FRAG))},
+            samples);
+    }
+
+    Result<void, GraphicsError> MaterialRenderer::reload_shaders(
+        PipelineManager& pipelines, const ShaderCode& shaders, SampleCount samples) {
+        auto vertex = Shader::create(m_device, "material_mesh", shaders.vertex);
         if(!vertex)
             return Result<void, GraphicsError>::failure(vertex.error());
+        decltype(m_pipelines) candidates;
         const auto add_builtin = [&](const std::string& name, std::span<const uint32_t> words,
                                      std::string_view layout_name) {
-            auto fragment = shaders.load_shader(name, words);
+            auto fragment = Shader::create(m_device, name, words);
             if(!fragment)
                 return Result<void, GraphicsError>::failure(fragment.error());
-            return add_pipeline(pipelines, vertex.value(), fragment.value(),
+            auto candidate = create_pipeline(pipelines, vertex.value(), fragment.value(),
                 MaterialLayout::find_builtin(layout_name), samples);
+            if(!candidate)
+                return Result<void, GraphicsError>::failure(candidate.error());
+            candidates.emplace(layout_name, std::move(candidate).value());
+            return Result<void, GraphicsError>::success();
         };
         if(auto result =
-                add_builtin("material_textured", MATERIAL_TEXTURED_FRAG, "unlit_texture_blend");
+                add_builtin("material_textured", shaders.textured_fragment, "unlit_texture_blend");
             !result)
             return Result<void, GraphicsError>::failure(result.error());
-        if(auto result = add_builtin("material_solid", MATERIAL_SOLID_FRAG, "unlit_color"); !result)
+        if(auto result = add_builtin("material_solid", shaders.solid_fragment, "unlit_color");
+            !result)
             return Result<void, GraphicsError>::failure(result.error());
+        m_pipelines.swap(candidates);
+        for(auto& [handle, cached] : m_materials)
+            cached.failed_candidate.reset();
         return Result<void, GraphicsError>::success();
     }
 
-    Result<void, GraphicsError> MaterialRenderer::add_pipeline(PipelineManager& pipelines,
-        const std::shared_ptr<Shader>& vertex, const std::shared_ptr<Shader>& fragment,
-        std::shared_ptr<const MaterialLayout> layout, const SampleCount samples) {
+    Result<std::shared_ptr<const MaterialRenderer::PipelineState>, GraphicsError> MaterialRenderer::
+        create_pipeline(PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
+            const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
+            const SampleCount samples) {
+        using Creation = Result<std::shared_ptr<const PipelineState>, GraphicsError>;
         if(!layout)
-            return Result<void, GraphicsError>::failure({"Missing material layout"});
+            return Creation::failure({"Missing material layout"});
         if(auto checked = layout->validate(fragment->get_interface()); !checked)
-            return Result<void, GraphicsError>::failure({checked.error()});
+            return Creation::failure({checked.error()});
         auto state = std::make_shared<PipelineState>();
         state->layout = std::move(layout);
         DescriptorSetLayoutBindings bindings;
@@ -138,7 +164,7 @@ namespace Comet {
         }
         auto material_layout = DescriptorSetLayout::create(m_device, bindings);
         if(!material_layout)
-            return Result<void, GraphicsError>::failure(material_layout.error());
+            return Creation::failure(material_layout.error());
         state->material_layout = std::move(material_layout).value();
         ShaderLayout shader_layout;
         shader_layout.descriptor_set_layouts = {m_frame_layout, state->material_layout};
@@ -158,10 +184,9 @@ namespace Comet {
         auto pipeline = pipelines.create_pipeline(
             state->layout->get_name(), shader_layout, config, vertex, fragment);
         if(!pipeline)
-            return Result<void, GraphicsError>::failure(pipeline.error());
+            return Creation::failure(pipeline.error());
         state->pipeline = std::move(pipeline).value();
-        m_pipelines.emplace(state->layout->get_name(), std::move(state));
-        return Result<void, GraphicsError>::success();
+        return Creation::success(std::move(state));
     }
 
     std::shared_ptr<MaterialRenderer::MaterialResources> MaterialRenderer::prepare_material(
@@ -186,7 +211,8 @@ namespace Comet {
             return nullptr;
         auto& cached = m_materials[material.material_handle];
         cached.used = true;
-        if(cached.resources && cached.resources->prepared == prepared)
+        if(cached.resources && cached.resources->prepared == prepared
+            && cached.resources->pipeline == pipeline->second)
             return cached.resources;
         if(cached.failed_candidate == prepared && frame_serial < cached.retry_after_serial) {
             return cached.resources;

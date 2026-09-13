@@ -28,6 +28,12 @@ namespace Comet {
     // 调用方须先等待槽位、开启场景通道并设置视口与裁剪区域。
     class COMET_API MaterialRenderer {
     public:
+        struct ShaderCode {
+            std::vector<uint32_t> vertex;
+            std::vector<uint32_t> textured_fragment;
+            std::vector<uint32_t> solid_fragment;
+        };
+
         struct Statistics {
             uint32_t draw_calls = 0;
             uint32_t pipeline_binds = 0;
@@ -39,7 +45,10 @@ namespace Comet {
 
         static Result<std::unique_ptr<MaterialRenderer>, GraphicsError> create(Device& device,
             PipelineManager& pipelines, ResourceManager& resources, uint32_t frame_slot_count,
-            SampleCount samples);
+            SampleCount samples, const ShaderCode* shaders = nullptr);
+        // 在新一帧绘制前调用；两种材质管线全部成功后才替换。
+        Result<void, GraphicsError> reload_shaders(
+            PipelineManager& pipelines, const ShaderCode& shaders, SampleCount samples);
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(FrameScheduler& frames,
             const ViewProjectMatrix& view, std::span<const ResolvedRenderItem> items);
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
@@ -47,7 +56,8 @@ namespace Comet {
     private:
         explicit MaterialRenderer(Device& device);
         Result<void, GraphicsError> initialize(PipelineManager& pipelines,
-            ResourceManager& resources, uint32_t frame_slot_count, SampleCount samples);
+            ResourceManager& resources, uint32_t frame_slot_count, SampleCount samples,
+            const ShaderCode* shaders);
 
         struct PipelineState {
             std::shared_ptr<const MaterialLayout> layout;
@@ -79,9 +89,10 @@ namespace Comet {
             std::shared_ptr<MaterialResources> material;
         };
 
-        Result<void, GraphicsError> add_pipeline(PipelineManager& pipelines,
-            const std::shared_ptr<Shader>& vertex, const std::shared_ptr<Shader>& fragment,
-            std::shared_ptr<const MaterialLayout> layout, SampleCount samples);
+        Result<std::shared_ptr<const PipelineState>, GraphicsError> create_pipeline(
+            PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
+            const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
+            SampleCount samples);
         [[nodiscard]] std::shared_ptr<MaterialResources> prepare_material(
             const MaterialBinding& material, uint64_t frame_serial);
 

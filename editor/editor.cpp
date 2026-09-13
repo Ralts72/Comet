@@ -3,6 +3,7 @@
 #include "render/resource/resource_manager.h"
 #include "graphics/swapchain.h"
 #include "assets/editor_assets.h"
+#include "render/shader_reload.h"
 #include "scene/scene_file_dialog.h"
 #include "scene/command_history.h"
 #include "scene/scene_commands.h"
@@ -67,6 +68,16 @@ namespace {
 
             m_console_panel = std::make_shared<CometEditor::ConsolePanel>();
             setup_log_redirect();
+
+            const std::filesystem::path shader_root(COMET_BUILTIN_SHADER_DIRECTORY);
+            m_shader_reload = std::make_unique<CometEditor::ShaderReload>(
+                engine.get_task_scheduler(),
+                CometEditor::ShaderReload::Requests{{{.source = shader_root / "material_mesh.vert",
+                                                         .stage = Comet::ShaderStage::Vertex},
+                    {.source = shader_root / "material_textured.frag",
+                        .stage = Comet::ShaderStage::Fragment},
+                    {.source = shader_root / "material_solid.frag",
+                        .stage = Comet::ShaderStage::Fragment}}});
 
             try {
                 m_shortcuts = CometEditor::EditorShortcuts::load(
@@ -134,6 +145,28 @@ namespace {
         }
 
         void on_update(const Comet::UpdateContext context) override {
+            if(const auto compilation = m_shader_reload->update()) {
+                if(!compilation->succeeded) {
+                    LOG_ERROR("Shader reload failed; previous version retained: {}",
+                        compilation->diagnostics);
+                } else {
+                    auto result =
+                        get_engine().get_renderer().get_scene_renderer().reload_material_shaders(
+                            {compilation->stages[0].words, compilation->stages[1].words,
+                                compilation->stages[2].words});
+                    if(!result) {
+                        if(result.error().is_device_lost())
+                            throw std::runtime_error(
+                                "Device lost during Shader reload: " + result.error().message);
+                        LOG_ERROR("Shader publication failed; previous version retained: {}",
+                            result.error().message);
+                    } else {
+                        LOG_INFO("Published material Shader revision {}", compilation->revision);
+                        if(!compilation->diagnostics.empty())
+                            LOG_WARN("{}", compilation->diagnostics);
+                    }
+                }
+            }
             if(auto report = m_assets->update())
                 m_project_panel->update_scan_report(std::move(*report));
             apply_editor_mode_request();
@@ -164,6 +197,7 @@ namespace {
             m_scene_session.reset();
             m_scene_document.reset();
             m_assets.reset();
+            m_shader_reload.reset();
             m_console_panel.reset();
         }
 
@@ -453,6 +487,7 @@ namespace {
         Comet::Project m_project;
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
+        std::unique_ptr<CometEditor::ShaderReload> m_shader_reload;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry = Comet::create_scene_component_registry();
         CometEditor::CommandHistory m_command_history;

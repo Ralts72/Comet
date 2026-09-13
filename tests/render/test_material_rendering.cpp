@@ -22,9 +22,18 @@
 #include "render/scene/scene_renderer.h"
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
+#include "shader/compiler.h"
+#include "common/file_io.h"
+#include "support/temporary_directory.h"
+#include "material_mesh_vert.h"
+#include "material_textured_frag.h"
+#include "material_solid_frag.h"
 
 #include <gtest/gtest.h>
+#include <iterator>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <type_traits>
 
 namespace Comet::Tests {
@@ -65,6 +74,12 @@ namespace Comet::Tests {
         ASSERT_TRUE(materials) << materials.error();
         debug = DebugRenderer::create(device, pipelines, resources, 2, SampleCount::Count1);
         ASSERT_TRUE(debug) << debug.error();
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 3u);
+        MaterialRenderer::ShaderCode invalid{
+            {std::begin(MATERIAL_MESH_VERT), std::end(MATERIAL_MESH_VERT)},
+            {std::begin(MATERIAL_TEXTURED_FRAG), std::end(MATERIAL_TEXTURED_FRAG)}, {0}};
+        EXPECT_FALSE(materials.value()->reload_shaders(pipelines, invalid, SampleCount::Count1));
+        pipelines.collect_unused();
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), 3u);
         materials.value().reset();
         debug.value().reset();
@@ -169,6 +184,34 @@ namespace Comet::Tests {
         memory = device.get().allocateMemoryUnique(
             vk::MemoryAllocateInfo(requirements.size, *memory_type));
         device.get().bindBufferMemory(*readback, *memory, 0);
+        TemporaryDirectory sources;
+        auto solid_source = read_text_file(
+            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/glsl/material_solid.frag");
+        ASSERT_TRUE(solid_source) << solid_source.error();
+        const auto expression = solid_source.value().find("material.intensity");
+        ASSERT_NE(expression, std::string::npos);
+        solid_source.value().insert(expression, "0.5 * ");
+        ASSERT_TRUE(write_text_file_atomic(sources.path() / "solid.frag", solid_source.value()));
+        const auto compiled = ShaderCompiler::compile(
+            {.source = sources.path() / "solid.frag", .stage = ShaderStage::Fragment});
+        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+        const MaterialRenderer::ShaderCode updated{
+            {std::begin(MATERIAL_MESH_VERT), std::end(MATERIAL_MESH_VERT)},
+            {std::begin(MATERIAL_TEXTURED_FRAG), std::end(MATERIAL_TEXTURED_FRAG)}, compiled.words};
+        auto textured_source = read_text_file(
+            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/glsl/material_textured.frag");
+        ASSERT_TRUE(textured_source) << textured_source.error();
+        const auto assignment = textured_source.value().find("color = ");
+        ASSERT_NE(assignment, std::string::npos);
+        textured_source.value().insert(assignment + std::string_view("color = ").size(), "0.5 * ");
+        ASSERT_TRUE(
+            write_text_file_atomic(sources.path() / "textured.frag", textured_source.value()));
+        const auto changed_textured = ShaderCompiler::compile(
+            {.source = sources.path() / "textured.frag", .stage = ShaderStage::Fragment});
+        ASSERT_TRUE(changed_textured.succeeded()) << changed_textured.diagnostics;
+        EXPECT_FALSE(materials->reload_shaders(
+            pipelines, {updated.vertex, changed_textured.words, {0}}, SampleCount::Count1));
+        // 第一条候选有效、第二条失败，随后读回的纹理材质仍应使用原 Shader。
         context.wait_idle();
         engine->get_resource_manager().collect_completed_uploads();
         for(int iteration = 0; iteration < 2; ++iteration) {
@@ -177,7 +220,8 @@ namespace Comet::Tests {
                 ASSERT_TRUE(red) << red.error();
                 textured->set_texture_property("u_Texture0", std::move(red).value());
                 textured->set_scalar_property("blend", 0.75f);
-                solid->set_scalar_property("intensity", 0.25f);
+                // 材质不变，仅替换 Shader；旧槽位此时尚未回收。
+                ASSERT_TRUE(materials->reload_shaders(pipelines, updated, SampleCount::Count1));
             }
             frames.wait_for_current_slot();
             const auto slot = frames.get_current_frame_slot_index();
@@ -213,8 +257,12 @@ namespace Comet::Tests {
         }
         // 两个槽位均已提交；旧资源必须保留到槽位回收。
         EXPECT_FALSE(retired.expired());
+        pipelines.collect_unused();
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 3u);
         frames.wait_for_all_slots();
         EXPECT_TRUE(retired.expired());
+        pipelines.collect_unused();
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 2u);
         const auto* all_pixels =
             static_cast<const uint8_t*>(device.get().mapMemory(*memory, 0, VK_WHOLE_SIZE));
         for(int iteration = 0; iteration < 2; ++iteration) {

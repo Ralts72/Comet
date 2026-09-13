@@ -208,6 +208,14 @@ Sampler::create 返回 Result<shared_ptr<Sampler>, GraphicsError>，校验配置
 SamplerManager 的预设统一经过 create_sampler；同名同配置复用，同名不同配置返回错误，不替换已有对象。
 linear-repeat 预设使用各向异性数值的精确位模式作为内部名称后缀，不以舍入后的显示字符串作缓存身份。
 MaterialRenderer 向上传递 sampler 错误；Viewport 只在构造时取得 nearest-clamp 并持有，帧更新仅复用。
+开发编辑器的 `render/shader_reload` 负责三份内置材质源码的监视、请求 revision 和 CPU 候选；
+Worker 只捕获请求副本和共享结果，不访问 Editor、Scene 或 Device。销毁服务后已有 CPU 工作可以结束，但不会再发布。
+每批任务编译／反射所有阶段，消费时复核 revision、全部输入及缺失 include 候选；失败结果也作为下一次监视的基线。
+主线程在 Engine 帧准备和绘制前调用 SceneRenderer::reload_material_shaders；MaterialRenderer 先创建完整候选管线表，成功后 swap。
+ShaderModule 只在候选创建期间存在，不提前改写 ShaderManager；PipelineManager 缓存仍是弱引用。
+MaterialResources 缓存同时比较 PreparedMaterial 和 PipelineState；旧资源可暂作分配失败时的回退，并由在途帧持有至槽位回收。
+SceneRenderer 保存最后成功的字节码，重建目标／管线时沿用，不因重建恢复到嵌入版本；关闭编辑器后不持久保存开发覆盖。
+内置 MaterialLayout 暂不动态扩展，完整顶点／stage 接口验证和项目程序资产属于下一项；CPU 后台化不等于 GPU 创建无主线程开销。
 Sampler 只拥有自身 UniqueSampler，不另存 Device 句柄；管理器借用 Device，设备仍必须活到所有 sampler 释放之后。
 RenderPass::create 使用 UniqueRenderPass，构造仅接管完整附件描述和句柄；错误返回 GraphicsError。
 交换链目标与离屏目标共用附件创建逻辑，前者复用 Generation 的呈现图像，其余附件独立创建。

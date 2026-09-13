@@ -1,6 +1,7 @@
 add_library(editor_core STATIC
         src/editor_state.cpp
         src/assets/editor_assets.cpp
+        src/render/shader_reload.cpp
         src/scene/command_history.cpp
         src/scene/editor_scene_session.cpp
         src/scene/scene_commands.cpp
@@ -9,7 +10,7 @@ add_library(editor_core STATIC
         src/viewport/transform_gizmo.cpp
         src/viewport/viewport_layout.cpp
 )
-target_link_libraries(editor_core PUBLIC engine)
+target_link_libraries(editor_core PUBLIC engine comet_shader_tools)
 target_include_directories(editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 if (NOT COMET_BUILD_EDITOR)
@@ -56,6 +57,7 @@ endif ()
 target_link_libraries(editor PRIVATE editor_ui)
 comet_copy_runtime_dependencies(editor)
 target_compile_definitions(editor PRIVATE
+        COMET_BUILTIN_SHADER_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/shaders/glsl"
         COMET_CONFIG_DIRECTORY="${CMAKE_SOURCE_DIR}/config"
         COMET_CONFIG_PROFILE="${COMET_CONFIG_PROFILE}"
 )
