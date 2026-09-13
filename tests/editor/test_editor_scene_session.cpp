@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string>
 
 namespace CometEditor::Tests {
     namespace {
@@ -67,5 +68,34 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(session.apply_mode_request());
         EXPECT_EQ(state.mode, EditorMode::Edit);
         EXPECT_EQ(active_scene, nullptr);
+    }
+
+    TEST(EditorSceneSessionTest, FailedCloneKeepsEditSceneAndAllowsExplicitRetry) {
+        const Comet::SceneSerializer serializer(component_registry());
+        EditorState state;
+        auto active = std::make_unique<Comet::Scene>();
+        const auto original = active.get();
+        auto entity = active->create_entity(std::string(1, '\xff'));
+        int replacements = 0;
+        EditorSceneSession session(
+            state, serializer, [&] { return active.get(); },
+            [&](std::unique_ptr<Comet::Scene> replacement) {
+                ++replacements;
+                active.swap(replacement);
+                return replacement;
+            });
+
+        session.request_mode(EditorMode::Play);
+        EXPECT_FALSE(session.apply_mode_request());
+        EXPECT_EQ(state.mode, EditorMode::Edit);
+        EXPECT_EQ(active.get(), original);
+        EXPECT_EQ(replacements, 0);
+
+        entity.get_component<Comet::NameComponent>().name = "Repaired";
+        EXPECT_FALSE(session.apply_mode_request());
+        session.request_mode(EditorMode::Play);
+        EXPECT_TRUE(session.apply_mode_request());
+        EXPECT_EQ(state.mode, EditorMode::Play);
+        EXPECT_EQ(replacements, 1);
     }
 }

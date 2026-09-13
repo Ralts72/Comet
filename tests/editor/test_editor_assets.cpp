@@ -21,6 +21,7 @@
 #include <array>
 #include <fstream>
 #include <thread>
+#include <utility>
 
 namespace CometEditor::Tests {
     class EditorAssetsTest: public ::testing::Test {
@@ -105,7 +106,9 @@ namespace CometEditor::Tests {
         std::filesystem::copy_file(
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "project.json",
             root / "project.json");
-        const auto project = Comet::Project::load(root);
+        auto project_result = Comet::Project::load(root);
+        ASSERT_TRUE(project_result) << project_result.error();
+        auto project = std::move(project_result).value();
         assets = std::make_unique<EditorAssets>(project.paths(), runtime, factory, scheduler);
         ASSERT_TRUE(assets->refresh().succeeded());
         factory.fail_texture = false;
@@ -121,7 +124,9 @@ namespace CometEditor::Tests {
                 return replacement;
             });
 
-        const auto path = project.paths().resolve_asset_path(project.startup_scene()).string();
+        const auto resolved = project.paths().resolve_asset_path(project.startup_scene());
+        ASSERT_TRUE(resolved) << resolved.error();
+        const auto path = resolved.value().string();
         ASSERT_TRUE(document.open(project.startup_scene().string()));
         ASSERT_NE(active, nullptr);
         EXPECT_EQ(document.get_path(), path);
@@ -135,12 +140,16 @@ namespace CometEditor::Tests {
             ASSERT_NE(record, nullptr);
             EXPECT_EQ(record->type, reference.type);
         }
-        const auto original = serializer.serialize(*active);
+        auto original_result = serializer.serialize(*active);
+        ASSERT_TRUE(original_result) << original_result.error();
+        auto original = std::move(original_result).value();
         complete_imports();
         ASSERT_TRUE(assets->take_reference_refresh_request());
         EXPECT_EQ(assets->prepare_scene(*active, components), 0U);
         EXPECT_EQ(factory.mesh_creations, 1);
-        EXPECT_EQ(serializer.serialize(*active), original);
+        const auto serialized_again = serializer.serialize(*active);
+        ASSERT_TRUE(serialized_again) << serialized_again.error();
+        EXPECT_EQ(serialized_again.value(), original);
         for(const auto& reference : references)
             EXPECT_TRUE(runtime.contains(reference.handle));
 
@@ -164,7 +173,7 @@ namespace CometEditor::Tests {
         entity.add_component<Comet::MeshRendererComponent>(mesh, material);
         active->create_entity("Shared").add_component<Comet::MeshRendererComponent>(mesh, material);
         const auto path = (Comet::ProjectPaths(root).assets() / "saved.scene").string();
-        serializer.save(*active, path);
+        ASSERT_TRUE(serializer.save(*active, path));
         assets.reset();
         runtime.clear();
         std::ofstream(Comet::ProjectPaths(root).assets() / "model.gltf") << "invalid gltf";
@@ -195,9 +204,11 @@ namespace CometEditor::Tests {
         auto active = std::make_unique<Comet::Scene>();
         active->create_entity("Missing").add_component<Comet::MeshRendererComponent>(
             mesh, Comet::AssetHandle(999));
-        const auto before = serializer.serialize(*active);
+        auto before_result = serializer.serialize(*active);
+        ASSERT_TRUE(before_result) << before_result.error();
+        auto before = std::move(before_result).value();
         const auto path = (Comet::ProjectPaths(root).assets() / "missing.scene").string();
-        serializer.save(*active, path);
+        ASSERT_TRUE(serializer.save(*active, path));
         SceneDocument document(
             serializer, Comet::ProjectPaths(root), [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
@@ -215,7 +226,9 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(runtime.contains(mesh));
         EXPECT_EQ(assets->prepare_scene(*active, components), 1);
         EXPECT_TRUE(runtime.contains(mesh));
-        EXPECT_EQ(serializer.serialize(*active), before);
+        const auto serialized_again = serializer.serialize(*active);
+        ASSERT_TRUE(serialized_again) << serialized_again.error();
+        EXPECT_EQ(serialized_again.value(), before);
         for(int frame = 0; frame < 3; ++frame) {
             static_cast<void>(assets->update());
             EXPECT_FALSE(assets->take_reference_refresh_request());

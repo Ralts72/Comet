@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace Comet::Tests {
     namespace {
@@ -80,14 +81,10 @@ namespace Comet::Tests {
 
         void expect_scene_error(const SceneSerializer& serializer, const std::string_view contents,
             const std::string_view expected_detail) {
-            try {
-                static_cast<void>(serializer.deserialize(contents, "invalid.scene"));
-                FAIL() << "Expected scene deserialization to fail";
-            } catch(const std::runtime_error& error) {
-                const std::string message = error.what();
-                EXPECT_NE(message.find("invalid.scene"), std::string::npos);
-                EXPECT_NE(message.find(expected_detail), std::string::npos) << message;
-            }
+            const auto result = serializer.deserialize(contents, "invalid.scene");
+            ASSERT_FALSE(result);
+            EXPECT_NE(result.error().find("invalid.scene"), std::string::npos);
+            EXPECT_NE(result.error().find(expected_detail), std::string::npos) << result.error();
         }
 
         void expect_scene_error(
@@ -123,7 +120,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(scene.set_parent(child, root));
 
         const SceneSerializer serializer = make_scene_serializer();
-        const std::string contents = serializer.serialize(scene);
+        auto contents_result = serializer.serialize(scene);
+        ASSERT_TRUE(contents_result) << contents_result.error();
+        auto contents = std::move(contents_result).value();
 
         EXPECT_NE(contents.find(R"("version": 2)"), std::string::npos);
         EXPECT_NE(contents.find(R"("children":)"), std::string::npos);
@@ -131,7 +130,9 @@ namespace Comet::Tests {
         EXPECT_EQ(contents.find("entity_id"), std::string::npos);
         EXPECT_EQ(contents.find("world_matrix"), std::string::npos);
 
-        std::unique_ptr<Scene> loaded = serializer.deserialize(contents, "round-trip.scene");
+        auto loaded_result = serializer.deserialize(contents, "round-trip.scene");
+        ASSERT_TRUE(loaded_result) << loaded_result.error();
+        auto loaded = std::move(loaded_result).value();
         ASSERT_NE(loaded, nullptr);
         ASSERT_EQ(loaded->entity_count(), 2u);
 
@@ -164,7 +165,9 @@ namespace Comet::Tests {
         const Math::Mat4 expected_world = root_transform.to_matrix() * child_transform.to_matrix();
         EXPECT_MAT4_EQ(
             expected_world, loaded_child.get_component<WorldTransformComponent>().world_matrix);
-        EXPECT_EQ(serializer.serialize(*loaded), contents);
+        const auto serialized_again = serializer.serialize(*loaded);
+        ASSERT_TRUE(serialized_again) << serialized_again.error();
+        EXPECT_EQ(serialized_again.value(), contents);
     }
 
     TEST(SceneSerializerTest, PreservesMissingOptionalComponents) {
@@ -175,8 +178,12 @@ namespace Comet::Tests {
         entity.remove_component<TransformComponent>();
 
         const SceneSerializer serializer = make_scene_serializer();
-        const std::string contents = serializer.serialize(scene);
-        std::unique_ptr<Scene> loaded = serializer.deserialize(contents);
+        auto contents_result = serializer.serialize(scene);
+        ASSERT_TRUE(contents_result) << contents_result.error();
+        auto contents = std::move(contents_result).value();
+        auto loaded_result = serializer.deserialize(contents);
+        ASSERT_TRUE(loaded_result) << loaded_result.error();
+        auto loaded = std::move(loaded_result).value();
         Entity loaded_entity = loaded->find_entity(entity_uuid);
 
         ASSERT_TRUE(loaded_entity);
@@ -198,7 +205,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(edit_scene.set_parent(edit_child, edit_parent));
 
         const SceneSerializer serializer = make_scene_serializer();
-        std::unique_ptr<Scene> runtime_scene = serializer.clone(edit_scene);
+        auto runtime_scene_result = serializer.clone(edit_scene);
+        ASSERT_TRUE(runtime_scene_result) << runtime_scene_result.error();
+        auto runtime_scene = std::move(runtime_scene_result).value();
 
         ASSERT_NE(runtime_scene, nullptr);
         EXPECT_NE(runtime_scene.get(), &edit_scene);
@@ -224,7 +233,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(scene.create_entity_with_uuid(later, "Later"));
         ASSERT_TRUE(scene.create_entity_with_uuid(earlier, "Earlier"));
 
-        const std::string contents = make_scene_serializer().serialize(scene);
+        const auto result = make_scene_serializer().serialize(scene);
+        ASSERT_TRUE(result) << result.error();
+        const auto& contents = result.value();
 
         EXPECT_LT(contents.find(earlier.to_string()), contents.find(later.to_string()));
     }
@@ -236,8 +247,10 @@ namespace Comet::Tests {
         const TemporarySceneFile file;
         const SceneSerializer serializer = make_scene_serializer();
 
-        serializer.save(scene, file.path());
-        std::unique_ptr<Scene> loaded = serializer.load(file.path());
+        ASSERT_TRUE(serializer.save(scene, file.path()));
+        auto loaded_result = serializer.load(file.path());
+        ASSERT_TRUE(loaded_result) << loaded_result.error();
+        auto loaded = std::move(loaded_result).value();
 
         ASSERT_NE(loaded, nullptr);
         Entity entity = loaded->find_entity(entity_uuid);
@@ -253,10 +266,12 @@ namespace Comet::Tests {
         ASSERT_FALSE(std::filesystem::exists(std::filesystem::path(path).parent_path()));
 
         const SceneSerializer serializer = make_scene_serializer();
-        serializer.save(scene, path);
+        ASSERT_TRUE(serializer.save(scene, path));
 
         EXPECT_TRUE(std::filesystem::is_regular_file(path));
-        const std::unique_ptr<Scene> loaded = serializer.load(path);
+        auto loaded_result = serializer.load(path);
+        ASSERT_TRUE(loaded_result) << loaded_result.error();
+        auto loaded = std::move(loaded_result).value();
         ASSERT_NE(loaded, nullptr);
         EXPECT_EQ(loaded->entity_count(), 1u);
     }
@@ -311,7 +326,7 @@ namespace Comet::Tests {
 
     TEST(SceneSerializerTest, LoadsNestedChildrenAndSortsOnlyWithinEachLevel) {
         const auto serializer = make_scene_serializer();
-        const auto scene = serializer.deserialize(R"({
+        const auto scene_result = serializer.deserialize(R"({
   "version": 2,
   "entities": [{
     "uuid": "00000000-0000-4000-8000-000000000003",
@@ -330,6 +345,8 @@ namespace Comet::Tests {
     }]
   }]
 })");
+        ASSERT_TRUE(scene_result) << scene_result.error();
+        const auto& scene = scene_result.value();
         ASSERT_EQ(scene->entity_count(), 4U);
         const auto root = scene->find_entity(uuid("00000000-0000-4000-8000-000000000003"));
         const auto child = scene->find_entity(uuid("00000000-0000-4000-8000-000000000002"));
@@ -338,14 +355,20 @@ namespace Comet::Tests {
         EXPECT_EQ(scene->get_parent(child), root);
         EXPECT_EQ(scene->get_parent(later), root);
         EXPECT_EQ(scene->get_parent(grandchild), child);
-        const auto text = serializer.serialize(*scene);
+        auto text_result = serializer.serialize(*scene);
+        ASSERT_TRUE(text_result) << text_result.error();
+        auto text = std::move(text_result).value();
         EXPECT_LT(text.find(root.get_uuid().to_string()), text.find(child.get_uuid().to_string()));
         EXPECT_LT(
             text.find(child.get_uuid().to_string()), text.find(grandchild.get_uuid().to_string()));
         EXPECT_LT(
             text.find(grandchild.get_uuid().to_string()), text.find(later.get_uuid().to_string()));
         EXPECT_EQ(text.find(R"("parent":)"), std::string::npos);
-        EXPECT_EQ(serializer.serialize(*serializer.deserialize(text)), text);
+        const auto decoded = serializer.deserialize(text);
+        ASSERT_TRUE(decoded) << decoded.error();
+        const auto serialized_again = serializer.serialize(*decoded.value());
+        ASSERT_TRUE(serialized_again) << serialized_again.error();
+        EXPECT_EQ(serialized_again.value(), text);
     }
 
     TEST(SceneSerializerTest, RejectsMalformedChildrenWithNestedLocation) {
@@ -369,12 +392,15 @@ namespace Comet::Tests {
         }
         const auto serializer = make_scene_serializer();
         const TemporarySceneFile file;
-        serializer.save(scene, file.path());
-        EXPECT_EQ(serializer.load(file.path())->entity_count(), scene.entity_count());
+        ASSERT_TRUE(serializer.save(scene, file.path()));
+        const auto loaded = serializer.load(file.path());
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(loaded.value()->entity_count(), scene.entity_count());
         ASSERT_TRUE(scene.set_parent(scene.create_entity("Too deep"), parent));
-        EXPECT_THROW(serializer.save(scene, file.path()), std::runtime_error);
-        EXPECT_EQ(
-            serializer.load(file.path())->entity_count(), SceneSerializer::MAX_HIERARCHY_DEPTH);
+        EXPECT_FALSE(serializer.save(scene, file.path()));
+        const auto preserved = serializer.load(file.path());
+        ASSERT_TRUE(preserved) << preserved.error();
+        EXPECT_EQ(preserved.value()->entity_count(), SceneSerializer::MAX_HIERARCHY_DEPTH);
 
         std::string children = "[]";
         for(std::size_t index = 0; index <= SceneSerializer::MAX_HIERARCHY_DEPTH; ++index) {
@@ -436,8 +462,9 @@ namespace Comet::Tests {
         Entity entity = scene.create_entity("Invalid");
         entity.get_component<TransformComponent>().translation.x =
             std::numeric_limits<float>::infinity();
-        EXPECT_THROW(
-            static_cast<void>(make_scene_serializer().serialize(scene)), std::runtime_error);
+        const auto result = make_scene_serializer().serialize(scene);
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().find("finite"), std::string::npos);
     }
 
     TEST(SceneSerializerTest, PreservesFullWidthHandlesAndRejectsWrongJsonTypes) {
@@ -446,12 +473,18 @@ namespace Comet::Tests {
         entity.add_component<MeshRendererComponent>(
             AssetHandle(std::numeric_limits<std::uint64_t>::max()), AssetHandle(42));
         const auto serializer = make_scene_serializer();
-        const auto contents = serializer.serialize(scene);
-        const auto loaded = serializer.deserialize(contents);
+        auto contents_result = serializer.serialize(scene);
+        ASSERT_TRUE(contents_result) << contents_result.error();
+        auto contents = std::move(contents_result).value();
+        auto loaded_result = serializer.deserialize(contents);
+        ASSERT_TRUE(loaded_result) << loaded_result.error();
+        auto loaded = std::move(loaded_result).value();
         EXPECT_EQ(
             loaded->find_entity(entity.get_uuid()).get_component<MeshRendererComponent>().mesh,
             AssetHandle(std::numeric_limits<std::uint64_t>::max()));
-        EXPECT_EQ(serializer.serialize(*loaded), contents);
+        const auto serialized_again = serializer.serialize(*loaded);
+        ASSERT_TRUE(serialized_again) << serialized_again.error();
+        EXPECT_EQ(serialized_again.value(), contents);
         expect_scene_error(R"({"version": "2", "entities": []})", "non-negative integer");
         expect_scene_error(R"({"version": 2, "entities": {}})", "expected an array");
         expect_scene_error(R"({"version": 2, "entities": [{
@@ -460,6 +493,22 @@ namespace Comet::Tests {
         }]})",
             "expected a string");
         expect_scene_error("version: 1\nentities: []\n", "<json>");
+    }
+
+    TEST(SceneSerializerTest, DoesNotMaskComponentCallbackFailuresAsInvalidSceneData) {
+        ComponentRegistry registry = create_scene_component_registry();
+        auto property =
+            make_property_descriptor("value", "Value", &DescriptorTestComponent::persisted);
+        property.const_accessor = [](const void*) -> const void* {
+            throw std::runtime_error("component accessor failed");
+        };
+        ASSERT_TRUE(registry.register_component(make_component_descriptor<DescriptorTestComponent>(
+            "custom", "Custom", {std::move(property)})));
+        Scene scene;
+        scene.create_entity("Custom").add_component<DescriptorTestComponent>();
+        const SceneSerializer serializer(registry);
+        EXPECT_THROW(static_cast<void>(serializer.serialize(scene)), std::runtime_error);
+        EXPECT_THROW(static_cast<void>(serializer.clone(scene)), std::runtime_error);
     }
 
     TEST(SceneSerializerTest, UsesDescriptorIdsAndSerializationFlags) {
@@ -486,13 +535,17 @@ namespace Comet::Tests {
         entity.add_component<RuntimeOnlyTestComponent>().enabled = false;
 
         const SceneSerializer serializer(registry);
-        const std::string contents = serializer.serialize(scene);
+        auto contents_result = serializer.serialize(scene);
+        ASSERT_TRUE(contents_result) << contents_result.error();
+        auto contents = std::move(contents_result).value();
         EXPECT_NE(contents.find(R"("descriptor_component":)"), std::string::npos);
         EXPECT_NE(contents.find(R"("persisted_value": 42)"), std::string::npos);
         EXPECT_EQ(contents.find("runtime_value"), std::string::npos);
         EXPECT_EQ(contents.find("runtime_component"), std::string::npos);
 
-        const std::unique_ptr<Scene> loaded = serializer.deserialize(contents);
+        auto loaded_result = serializer.deserialize(contents);
+        ASSERT_TRUE(loaded_result) << loaded_result.error();
+        auto loaded = std::move(loaded_result).value();
         const Entity loaded_entity = loaded->find_entity(entity_uuid);
         ASSERT_TRUE(loaded_entity);
         ASSERT_TRUE(loaded_entity.has_component<DescriptorTestComponent>());

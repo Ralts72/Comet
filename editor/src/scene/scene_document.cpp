@@ -4,7 +4,6 @@
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
 
-#include <exception>
 #include <filesystem>
 #include <utility>
 
@@ -30,22 +29,19 @@ namespace CometEditor {
             return false;
         }
 
-        std::filesystem::path resolved;
-        std::unique_ptr<Comet::Scene> scene;
-        try {
-            resolved = m_paths.resolve_asset_path(path);
-            if(resolved.extension() != ".scene") {
-                m_last_error = "Scene file must have a .scene extension";
-                LOG_ERROR("Failed to open scene '{}': {}", path, m_last_error);
-                return false;
-            }
-            scene = m_serializer.load(resolved.string());
-        } catch(const std::exception& error) {
-            m_last_error = error.what();
-            LOG_ERROR("Failed to open scene '{}': {}", path, error.what());
+        const auto resolved = m_paths.resolve_asset_path(path);
+        if(!resolved || resolved.value().extension() != ".scene") {
+            m_last_error = !resolved ? resolved.error() : "Scene file must have a .scene extension";
+            LOG_ERROR("Failed to open scene '{}': {}", path, m_last_error);
             return false;
         }
-        if(!replace_scene(std::move(scene), resolved.string()))
+        auto scene = m_serializer.load(resolved.value().string());
+        if(!scene) {
+            m_last_error = scene.error();
+            LOG_ERROR("Failed to open scene '{}': {}", path, m_last_error);
+            return false;
+        }
+        if(!replace_scene(std::move(scene).value(), resolved.value().string()))
             return false;
         LOG_INFO("Opened scene '{}'", path);
         return true;
@@ -62,23 +58,22 @@ namespace CometEditor {
             return false;
         }
 
-        try {
-            const auto resolved = m_paths.resolve_asset_path(path);
-            if(resolved.extension() != ".scene") {
-                m_last_error = "Scene file must have a .scene extension";
-                LOG_ERROR("Failed to save scene '{}': {}", path, m_last_error);
-                return false;
-            }
-            m_serializer.save(*scene, resolved.string());
-            m_path = resolved.string();
-            m_last_error.clear();
-            LOG_INFO("Saved scene '{}'", path);
-            return true;
-        } catch(const std::exception& error) {
-            m_last_error = error.what();
-            LOG_ERROR("Failed to save scene '{}': {}", path, error.what());
+        const auto resolved = m_paths.resolve_asset_path(path);
+        if(!resolved || resolved.value().extension() != ".scene") {
+            m_last_error = !resolved ? resolved.error() : "Scene file must have a .scene extension";
+            LOG_ERROR("Failed to save scene '{}': {}", path, m_last_error);
             return false;
         }
+        const auto saved = m_serializer.save(*scene, resolved.value().string());
+        if(!saved) {
+            m_last_error = saved.error();
+            LOG_ERROR("Failed to save scene '{}': {}", path, m_last_error);
+            return false;
+        }
+        m_path = resolved.value().string();
+        m_last_error.clear();
+        LOG_INFO("Saved scene '{}'", path);
+        return true;
     }
 
     bool SceneDocument::replace_scene(std::unique_ptr<Comet::Scene> scene, std::string path) {

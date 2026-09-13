@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/project_paths.h"
+#include "common/result.h"
 
 #include <cstdint>
 #include <string>
@@ -10,7 +11,7 @@ namespace Comet {
     public:
         static constexpr std::uint32_t FORMAT_VERSION = 1;
 
-        [[nodiscard]] static Project load(const std::filesystem::path& path);
+        [[nodiscard]] static Result<Project> load(const std::filesystem::path& path);
 
         [[nodiscard]] const ProjectPaths& paths() const { return m_paths; }
         [[nodiscard]] const std::string& name() const { return m_name; }

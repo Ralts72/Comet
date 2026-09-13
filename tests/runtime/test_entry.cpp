@@ -31,16 +31,18 @@ namespace Comet::Tests {
 
         inline static std::vector<std::string> received;
 
-        static std::unique_ptr<Application> create_default(ApplicationArguments arguments) {
+        static Result<std::unique_ptr<Application>> create_default(ApplicationArguments arguments) {
             if(!arguments.empty())
-                throw std::invalid_argument(
+                return Result<std::unique_ptr<Application>>::failure(
                     "This application does not accept command-line arguments");
-            return std::make_unique<DefaultApplication>();
+            return Result<std::unique_ptr<Application>>::success(
+                std::make_unique<DefaultApplication>());
         }
 
-        static std::unique_ptr<Application> create_from_project(ApplicationArguments arguments) {
+        static Result<std::unique_ptr<Application>> create_from_project(
+            ApplicationArguments arguments) {
             received.assign(arguments.begin(), arguments.end());
-            throw std::runtime_error("Project validation failed");
+            return Result<std::unique_ptr<Application>>::failure("Project validation failed");
         }
 
         LaunchOptions options{

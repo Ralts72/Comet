@@ -8,7 +8,6 @@
 #include <array>
 #include <filesystem>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -117,10 +116,13 @@ namespace {
             Comet::INVALID_ENTITY_ID, Comet::INVALID_ENTITY_ID};
     };
 
-    std::unique_ptr<Comet::Application> create_game_app(Comet::ApplicationArguments arguments) {
+    Comet::Result<std::unique_ptr<Comet::Application>> create_game_app(
+        Comet::ApplicationArguments arguments) {
         if(!arguments.empty())
-            throw std::invalid_argument("This application does not accept command-line arguments");
-        return std::make_unique<GameApp>();
+            return Comet::Result<std::unique_ptr<Comet::Application>>::failure(
+                "This application does not accept command-line arguments");
+        return Comet::Result<std::unique_ptr<Comet::Application>>::success(
+            std::make_unique<GameApp>());
     }
 }
 

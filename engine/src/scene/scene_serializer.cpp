@@ -11,7 +11,6 @@
 #include <filesystem>
 #include <initializer_list>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -37,10 +36,10 @@ namespace Comet {
             std::vector<ComponentRecord> components;
         };
 
-        std::runtime_error scene_error(const std::string_view source,
-            const std::string_view location, const std::string& detail) {
-            return std::runtime_error("Invalid scene '" + std::string(source) + "' at '"
-                                      + std::string(location) + "': " + detail);
+        Json::Error scene_error(const std::string_view source, const std::string_view location,
+            const std::string& detail) {
+            return Json::Error("Invalid scene '" + std::string(source) + "' at '"
+                               + std::string(location) + "': " + detail);
         }
 
         template<typename AllowedKeys>
@@ -393,204 +392,217 @@ namespace Comet {
     SceneSerializer::SceneSerializer(const ComponentRegistry& component_registry)
         : m_component_registry(component_registry) {}
 
-    std::string SceneSerializer::serialize(const Scene& scene) const {
-        std::vector<EntityRecord> records;
-        records.reserve(scene.entity_count());
+    Result<std::string> SceneSerializer::serialize(const Scene& scene) const {
+        try {
+            std::vector<EntityRecord> records;
+            records.reserve(scene.entity_count());
 
-        std::unordered_map<EntityId, EntityUuid> uuids_by_id;
-        uuids_by_id.reserve(scene.entity_count());
-        std::unordered_map<EntityUuid, entt::entity> handles_by_uuid;
-        handles_by_uuid.reserve(scene.entity_count());
-        const auto entities = scene.m_registry.view<IdComponent>();
-        for(const entt::entity handle : entities) {
-            const auto* uuid = scene.m_registry.try_get<UuidComponent>(handle);
-            const auto* name = scene.m_registry.try_get<NameComponent>(handle);
-            const EntityId id = entities.get<IdComponent>(handle).id;
-            if(!uuid || !uuid->uuid) {
-                throw scene_error("<memory>", "entities", "entity has no valid UUID");
-            }
-            if(!name) {
-                throw scene_error(
-                    "<memory>", uuid->uuid.to_string(), "entity has no NameComponent");
-            }
-            if(!uuids_by_id.emplace(id, uuid->uuid).second) {
-                throw scene_error("<memory>", uuid->uuid.to_string(),
-                    "duplicate runtime EntityId " + std::to_string(id));
-            }
-            if(!handles_by_uuid.emplace(uuid->uuid, handle).second) {
-                throw scene_error("<memory>", uuid->uuid.to_string(), "duplicate UUID");
-            }
-
-            EntityRecord record{.uuid = uuid->uuid, .name = name->name};
-            const Entity entity(handle, const_cast<Scene*>(&scene));
-            for(const ComponentDescriptor& component_descriptor :
-                m_component_registry.components()) {
-                if(!component_descriptor.serializable
-                    || !component_descriptor.has_component(entity)) {
-                    continue;
+            std::unordered_map<EntityId, EntityUuid> uuids_by_id;
+            uuids_by_id.reserve(scene.entity_count());
+            std::unordered_map<EntityUuid, entt::entity> handles_by_uuid;
+            handles_by_uuid.reserve(scene.entity_count());
+            const auto entities = scene.m_registry.view<IdComponent>();
+            for(const entt::entity handle : entities) {
+                const auto* uuid = scene.m_registry.try_get<UuidComponent>(handle);
+                const auto* name = scene.m_registry.try_get<NameComponent>(handle);
+                const EntityId id = entities.get<IdComponent>(handle).id;
+                if(!uuid || !uuid->uuid) {
+                    throw scene_error("<memory>", "entities", "entity has no valid UUID");
                 }
-
-                const void* component = component_descriptor.get_component(entity);
-                const std::string component_location =
-                    uuid->uuid.to_string() + ".components." + component_descriptor.id;
-                if(component == nullptr) {
+                if(!name) {
                     throw scene_error(
-                        "<memory>", component_location, "component accessor returned null");
+                        "<memory>", uuid->uuid.to_string(), "entity has no NameComponent");
+                }
+                if(!uuids_by_id.emplace(id, uuid->uuid).second) {
+                    throw scene_error("<memory>", uuid->uuid.to_string(),
+                        "duplicate runtime EntityId " + std::to_string(id));
+                }
+                if(!handles_by_uuid.emplace(uuid->uuid, handle).second) {
+                    throw scene_error("<memory>", uuid->uuid.to_string(), "duplicate UUID");
                 }
 
-                ComponentRecord component_record{.descriptor = &component_descriptor};
-                component_record.properties.reserve(component_descriptor.properties.size());
-                for(const PropertyDescriptor& property : component_descriptor.properties) {
-                    if(!property.serializable || property.transient) {
+                EntityRecord record{.uuid = uuid->uuid, .name = name->name};
+                const Entity entity(handle, const_cast<Scene*>(&scene));
+                for(const ComponentDescriptor& component_descriptor :
+                    m_component_registry.components()) {
+                    if(!component_descriptor.serializable
+                        || !component_descriptor.has_component(entity)) {
                         continue;
                     }
-                    component_record.properties.push_back({.descriptor = &property,
-                        .value = copy_property_value(
-                            property, component, component_location + "." + property.id)});
-                }
-                record.components.push_back(std::move(component_record));
-            }
-            records.push_back(std::move(record));
-        }
 
-        for(std::size_t index = 0; index < records.size(); ++index) {
-            const auto* relationship = scene.m_registry.try_get<RelationshipComponent>(
-                handles_by_uuid.at(records[index].uuid));
-            if(!relationship || relationship->parent == INVALID_ENTITY_ID) {
-                continue;
-            }
-            const auto parent = uuids_by_id.find(relationship->parent);
-            if(parent == uuids_by_id.end()) {
-                throw scene_error("<memory>", records[index].uuid.to_string(),
-                    "relationship references missing runtime parent "
-                        + std::to_string(relationship->parent));
-            }
-            records[index].parent = parent->second;
-        }
-
-        std::ranges::sort(records, {}, &EntityRecord::uuid);
-        validate_records(records, "<memory>");
-        ChildrenIndex children;
-        for(std::size_t index = 0; index < records.size(); ++index)
-            children[records[index].parent.value_or(INVALID_ENTITY_UUID)].push_back(index);
-
-        Json::Writer writer;
-        writer.begin_object();
-        writer.field("version", std::uint64_t(FORMAT_VERSION));
-        writer.key("entities");
-        writer.begin_array();
-        for(const auto index : children[INVALID_ENTITY_UUID]) {
-            write_entity_tree(writer, records[index], records, children, 1);
-        }
-        writer.end_array();
-        writer.end_object();
-        return std::move(writer).finish();
-    }
-
-    std::unique_ptr<Scene> SceneSerializer::deserialize(
-        const std::string_view contents, const std::string_view source) const {
-        simdjson::dom::parser parser;
-        const Json::Context context("scene", source);
-        const Json::Node root = context.parse(parser, contents);
-
-        validate_keys(root, {"version", "entities"}, source, "<root>");
-        const std::uint32_t version = read_unsigned_integer<std::uint32_t>(
-            required_child(root, "version", source, "<root>"), source, "version");
-        if(version != FORMAT_VERSION) {
-            throw scene_error(source, "version",
-                "unsupported version " + std::to_string(version) + "; expected "
-                    + std::to_string(FORMAT_VERSION));
-        }
-
-        const auto entities =
-            context.array(required_child(root, "entities", source, "<root>"), "entities");
-        std::vector<EntityRecord> records;
-        records.reserve(entities.size());
-        std::unordered_set<EntityUuid> uuids;
-        std::size_t index = 0;
-        for(const auto entity : entities) {
-            read_entity_tree(entity, std::nullopt, entity_location(index++), source,
-                m_component_registry, records, uuids, 1);
-        }
-
-        auto scene = std::make_unique<Scene>();
-        std::unordered_map<EntityUuid, Entity> loaded_entities;
-        loaded_entities.reserve(records.size());
-        for(const EntityRecord& record : records) {
-            Entity entity = scene->create_entity_with_uuid(record.uuid, record.name);
-            if(!entity) {
-                throw scene_error(source, record.uuid.to_string(), "failed to create entity");
-            }
-            entity.get_component<NameComponent>().name = record.name;
-            for(const ComponentDescriptor& component_descriptor :
-                m_component_registry.components()) {
-                if(!component_descriptor.serializable) {
-                    continue;
-                }
-
-                const auto component_record = std::ranges::find_if(
-                    record.components, [&component_descriptor](const ComponentRecord& component) {
-                        return component.descriptor == &component_descriptor;
-                    });
-                const std::string component_location =
-                    record.uuid.to_string() + ".components." + component_descriptor.id;
-                if(component_record == record.components.end()) {
-                    if(component_descriptor.has_component(entity)
-                        && !component_descriptor.remove_component(entity)) {
+                    const void* component = component_descriptor.get_component(entity);
+                    const std::string component_location =
+                        uuid->uuid.to_string() + ".components." + component_descriptor.id;
+                    if(component == nullptr) {
                         throw scene_error(
-                            source, component_location, "failed to remove absent component");
+                            "<memory>", component_location, "component accessor returned null");
                     }
+
+                    ComponentRecord component_record{.descriptor = &component_descriptor};
+                    component_record.properties.reserve(component_descriptor.properties.size());
+                    for(const PropertyDescriptor& property : component_descriptor.properties) {
+                        if(!property.serializable || property.transient) {
+                            continue;
+                        }
+                        component_record.properties.push_back({.descriptor = &property,
+                            .value = copy_property_value(
+                                property, component, component_location + "." + property.id)});
+                    }
+                    record.components.push_back(std::move(component_record));
+                }
+                records.push_back(std::move(record));
+            }
+
+            for(std::size_t index = 0; index < records.size(); ++index) {
+                const auto* relationship = scene.m_registry.try_get<RelationshipComponent>(
+                    handles_by_uuid.at(records[index].uuid));
+                if(!relationship || relationship->parent == INVALID_ENTITY_ID) {
                     continue;
                 }
-
-                if(!component_descriptor.has_component(entity)
-                    && !component_descriptor.add_component(entity)) {
-                    throw scene_error(source, component_location, "failed to create component");
+                const auto parent = uuids_by_id.find(relationship->parent);
+                if(parent == uuids_by_id.end()) {
+                    throw scene_error("<memory>", records[index].uuid.to_string(),
+                        "relationship references missing runtime parent "
+                            + std::to_string(relationship->parent));
                 }
-                void* component = component_descriptor.get_component(entity);
-                if(component == nullptr) {
+                records[index].parent = parent->second;
+            }
+
+            std::ranges::sort(records, {}, &EntityRecord::uuid);
+            validate_records(records, "<memory>");
+            ChildrenIndex children;
+            for(std::size_t index = 0; index < records.size(); ++index)
+                children[records[index].parent.value_or(INVALID_ENTITY_UUID)].push_back(index);
+
+            Json::Writer writer;
+            writer.begin_object();
+            writer.field("version", std::uint64_t(FORMAT_VERSION));
+            writer.key("entities");
+            writer.begin_array();
+            for(const auto index : children[INVALID_ENTITY_UUID]) {
+                write_entity_tree(writer, records[index], records, children, 1);
+            }
+            writer.end_array();
+            writer.end_object();
+            return Result<std::string>::success(std::move(writer).finish());
+        } catch(const Json::Error& error) {
+            return Result<std::string>::failure(error.what());
+        }
+    }
+
+    Result<std::unique_ptr<Scene>> SceneSerializer::deserialize(
+        const std::string_view contents, const std::string_view source) const {
+        try {
+            simdjson::dom::parser parser;
+            const Json::Context context("scene", source);
+            const Json::Node root = context.parse(parser, contents);
+
+            validate_keys(root, {"version", "entities"}, source, "<root>");
+            const std::uint32_t version = read_unsigned_integer<std::uint32_t>(
+                required_child(root, "version", source, "<root>"), source, "version");
+            if(version != FORMAT_VERSION) {
+                throw scene_error(source, "version",
+                    "unsupported version " + std::to_string(version) + "; expected "
+                        + std::to_string(FORMAT_VERSION));
+            }
+
+            const auto entities =
+                context.array(required_child(root, "entities", source, "<root>"), "entities");
+            std::vector<EntityRecord> records;
+            records.reserve(entities.size());
+            std::unordered_set<EntityUuid> uuids;
+            std::size_t index = 0;
+            for(const auto entity : entities) {
+                read_entity_tree(entity, std::nullopt, entity_location(index++), source,
+                    m_component_registry, records, uuids, 1);
+            }
+
+            auto scene = std::make_unique<Scene>();
+            std::unordered_map<EntityUuid, Entity> loaded_entities;
+            loaded_entities.reserve(records.size());
+            for(const EntityRecord& record : records) {
+                Entity entity = scene->create_entity_with_uuid(record.uuid, record.name);
+                if(!entity) {
+                    throw scene_error(source, record.uuid.to_string(), "failed to create entity");
+                }
+                entity.get_component<NameComponent>().name = record.name;
+                for(const ComponentDescriptor& component_descriptor :
+                    m_component_registry.components()) {
+                    if(!component_descriptor.serializable) {
+                        continue;
+                    }
+
+                    const auto component_record = std::ranges::find_if(record.components,
+                        [&component_descriptor](const ComponentRecord& component) {
+                            return component.descriptor == &component_descriptor;
+                        });
+                    const std::string component_location =
+                        record.uuid.to_string() + ".components." + component_descriptor.id;
+                    if(component_record == record.components.end()) {
+                        if(component_descriptor.has_component(entity)
+                            && !component_descriptor.remove_component(entity)) {
+                            throw scene_error(
+                                source, component_location, "failed to remove absent component");
+                        }
+                        continue;
+                    }
+
+                    if(!component_descriptor.has_component(entity)
+                        && !component_descriptor.add_component(entity)) {
+                        throw scene_error(source, component_location, "failed to create component");
+                    }
+                    void* component = component_descriptor.get_component(entity);
+                    if(component == nullptr) {
+                        throw scene_error(
+                            source, component_location, "component accessor returned null");
+                    }
+                    for(const PropertyRecord& property : component_record->properties) {
+                        assign_property_value(property, component, source,
+                            component_location + "." + property.descriptor->id);
+                    }
+                }
+                loaded_entities.emplace(record.uuid, entity);
+            }
+
+            for(const EntityRecord& record : records) {
+                if(!record.parent) {
+                    continue;
+                }
+                if(!scene->set_parent(
+                       loaded_entities.at(record.uuid), loaded_entities.at(*record.parent))) {
                     throw scene_error(
-                        source, component_location, "component accessor returned null");
-                }
-                for(const PropertyRecord& property : component_record->properties) {
-                    assign_property_value(property, component, source,
-                        component_location + "." + property.descriptor->id);
+                        source, record.uuid.to_string(), "failed to restore parent relationship");
                 }
             }
-            loaded_entities.emplace(record.uuid, entity);
+            scene->update_world_transforms();
+            return Result<std::unique_ptr<Scene>>::success(std::move(scene));
+        } catch(const Json::Error& error) {
+            return Result<std::unique_ptr<Scene>>::failure(error.what());
         }
-
-        for(const EntityRecord& record : records) {
-            if(!record.parent) {
-                continue;
-            }
-            if(!scene->set_parent(
-                   loaded_entities.at(record.uuid), loaded_entities.at(*record.parent))) {
-                throw scene_error(
-                    source, record.uuid.to_string(), "failed to restore parent relationship");
-            }
-        }
-        scene->update_world_transforms();
-        return scene;
     }
 
-    std::unique_ptr<Scene> SceneSerializer::clone(const Scene& scene) const {
-        return deserialize(serialize(scene), "<scene-clone>");
+    Result<std::unique_ptr<Scene>> SceneSerializer::clone(const Scene& scene) const {
+        auto contents = serialize(scene);
+        if(!contents)
+            return Result<std::unique_ptr<Scene>>::failure(contents.error());
+        return deserialize(contents.value(), "<scene-clone>");
     }
 
-    void SceneSerializer::save(const Scene& scene, const std::string& path) const {
+    Result<void> SceneSerializer::save(const Scene& scene, const std::string& path) const {
         const std::filesystem::path scene_path(path);
         if(scene_path.empty()) {
-            throw std::runtime_error("Scene path cannot be empty");
+            return Result<void>::failure("Scene path cannot be empty");
         }
-        if(auto saved = write_text_file_atomic(scene_path, serialize(scene)); !saved)
-            throw std::runtime_error(saved.error());
+        auto contents = serialize(scene);
+        if(!contents)
+            return Result<void>::failure(contents.error());
+        return write_text_file_atomic(scene_path, contents.value());
     }
 
-    std::unique_ptr<Scene> SceneSerializer::load(const std::string& path) const {
+    Result<std::unique_ptr<Scene>> SceneSerializer::load(const std::string& path) const {
         auto contents = read_text_file(path);
         if(!contents)
-            throw std::runtime_error(contents.error());
+            return Result<std::unique_ptr<Scene>>::failure(contents.error());
         return deserialize(contents.value(), path);
     }
 }

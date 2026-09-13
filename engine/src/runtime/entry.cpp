@@ -1,7 +1,7 @@
 #include "runtime/entry.h"
 
 #include <iostream>
-#include <stdexcept>
+#include <exception>
 #include <vector>
 
 namespace Comet {
@@ -19,9 +19,15 @@ namespace Comet {
                 return 0;
             }
             auto app = create_application(arguments);
-            if(!app)
-                throw std::runtime_error("Application factory returned no application");
-            return run(app.get(), options);
+            if(!app) {
+                std::cerr << "Application failed: " << app.error() << '\n';
+                return 1;
+            }
+            if(!app.value()) {
+                std::cerr << "Application failed: Application factory returned no application\n";
+                return 1;
+            }
+            return run(app.value().get(), options);
         } catch(const std::exception& error) {
             std::cerr << "Application failed: " << error.what() << '\n';
             return 1;

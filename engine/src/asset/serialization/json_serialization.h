@@ -16,7 +16,7 @@ namespace Comet::AssetSerialization {
             if(!result)
                 return Result<std::string>::failure(result.error());
             return Result<std::string>::success(std::move(writer).finish());
-        } catch(const std::runtime_error& error) {
+        } catch(const Json::Error& error) {
             return Result<std::string>::failure(error.what());
         }
     }
@@ -28,7 +28,7 @@ namespace Comet::AssetSerialization {
         try {
             simdjson::dom::parser parser;
             return decode(context.parse(parser, contents), context);
-        } catch(const std::runtime_error& error) {
+        } catch(const Json::Error& error) {
             return Result<T>::failure(error.what());
         }
     }

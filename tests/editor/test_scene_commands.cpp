@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 #include <stdexcept>
 #include <limits>
+#include <utility>
 
 namespace CometEditor::Tests {
     class SceneCommandsTest: public ::testing::Test {
@@ -40,7 +41,9 @@ namespace CometEditor::Tests {
         EXPECT_NE(placed.get_id(), original_id);
         EXPECT_EQ(placed.get_component<Comet::MeshRendererComponent>().mesh, Comet::AssetHandle(8));
         Comet::SceneSerializer serializer(registry);
-        auto reopened = serializer.deserialize(serializer.serialize(scene));
+        auto reopened_result = serializer.clone(scene);
+        ASSERT_TRUE(reopened_result) << reopened_result.error();
+        auto reopened = std::move(reopened_result).value();
         auto restored = reopened->find_entity(uuid);
         ASSERT_TRUE(restored);
         EXPECT_EQ(
@@ -59,7 +62,9 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(scene.find_entity(uuid));
         ASSERT_TRUE(history.redo());
         const Comet::SceneSerializer serializer(registry);
-        auto reopened = serializer.deserialize(serializer.serialize(scene));
+        auto reopened_result = serializer.clone(scene);
+        ASSERT_TRUE(reopened_result) << reopened_result.error();
+        auto reopened = std::move(reopened_result).value();
         const auto& renderer =
             reopened->find_entity(uuid).get_component<Comet::MeshRendererComponent>();
         EXPECT_EQ(renderer.mesh, Comet::AssetHandle(8));
@@ -285,7 +290,9 @@ namespace CometEditor::Tests {
         EXPECT_EQ(
             entity.get_component<Comet::MeshRendererComponent>().material, Comet::AssetHandle(2));
         Comet::SceneSerializer serializer(registry);
-        auto loaded = serializer.deserialize(serializer.serialize(scene));
+        auto loaded_result = serializer.clone(scene);
+        ASSERT_TRUE(loaded_result) << loaded_result.error();
+        auto loaded = std::move(loaded_result).value();
         EXPECT_EQ(loaded->get_parent(loaded->find_entity(child_uuid)).get_uuid(), root_uuid);
         ASSERT_TRUE(history.redo());
         EXPECT_EQ(scene.entity_count(), 1);
@@ -430,7 +437,9 @@ namespace CometEditor::Tests {
         EXPECT_EQ(mesh.mesh, Comet::AssetHandle(41));
         EXPECT_EQ(mesh.material, Comet::AssetHandle(42));
         Comet::SceneSerializer serializer(registry);
-        const auto restored = serializer.deserialize(serializer.serialize(scene));
+        auto restored_result = serializer.clone(scene);
+        ASSERT_TRUE(restored_result) << restored_result.error();
+        auto restored = std::move(restored_result).value();
         EXPECT_EQ(restored->find_entity(entity.get_uuid())
                       .get_component<Comet::MeshRendererComponent>()
                       .material,

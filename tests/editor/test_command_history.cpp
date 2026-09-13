@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 #include <limits>
+#include <utility>
 
 namespace {
     using namespace Comet;
@@ -68,7 +69,9 @@ namespace {
         EXPECT_EQ(history.undo_size(), 1);
         const auto after = entity.get_component<NameComponent>().name;
         const SceneSerializer serializer(registry);
-        const auto loaded = serializer.deserialize(serializer.serialize(scene));
+        auto loaded_result = serializer.clone(scene);
+        ASSERT_TRUE(loaded_result) << loaded_result.error();
+        auto loaded = std::move(loaded_result).value();
         EXPECT_EQ(
             loaded->find_entity(entity.get_uuid()).get_component<NameComponent>().name, after);
         ASSERT_TRUE(history.undo());
@@ -233,7 +236,9 @@ namespace {
         ASSERT_EQ(snapshot.render_items.size(), 1);
         EXPECT_FLOAT_EQ(snapshot.render_items[0].model_matrix[3].x, 4);
         SceneSerializer serializer(registry);
-        const auto clone = serializer.clone(scene);
+        auto clone_result = serializer.clone(scene);
+        ASSERT_TRUE(clone_result) << clone_result.error();
+        auto clone = std::move(clone_result).value();
         EXPECT_FLOAT_EQ(
             clone->find_entity(entity.get_uuid()).get_component<TransformComponent>().translation.x,
             4);

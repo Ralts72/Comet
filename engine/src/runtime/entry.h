@@ -1,13 +1,14 @@
 #pragma once
 
 #include "runtime.h"
+#include "common/result.h"
 
 #include <span>
 #include <string_view>
 
 namespace Comet {
     using ApplicationArguments = std::span<const std::string_view>;
-    using ApplicationFactory = std::unique_ptr<Application> (*)(ApplicationArguments);
+    using ApplicationFactory = Result<std::unique_ptr<Application>> (*)(ApplicationArguments);
 
     COMET_API int launch(int argc, const char* const* argv, const LaunchOptions& options,
         std::string_view arguments_usage, ApplicationFactory create_application);

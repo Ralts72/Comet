@@ -474,12 +474,17 @@ namespace {
         std::shared_ptr<CometEditor::ConsolePanel> m_console_panel;
     };
 
-    std::unique_ptr<Comet::Application> create_editor(Comet::ApplicationArguments arguments) {
+    Comet::Result<std::unique_ptr<Comet::Application>> create_editor(
+        Comet::ApplicationArguments arguments) {
         if(arguments.size() > 1 || (!arguments.empty() && arguments.front().starts_with('-')))
-            throw std::invalid_argument("Expected a project directory or project.json");
+            return Comet::Result<std::unique_ptr<Comet::Application>>::failure(
+                "Expected a project directory or project.json");
         auto project = Comet::Project::load(
             arguments.empty() ? COMET_SAMPLE_PROJECT_DIRECTORY : arguments.front());
-        return std::make_unique<Editor>(std::move(project));
+        if(!project)
+            return Comet::Result<std::unique_ptr<Comet::Application>>::failure(project.error());
+        return Comet::Result<std::unique_ptr<Comet::Application>>::success(
+            std::make_unique<Editor>(std::move(project).value()));
     }
 }
 

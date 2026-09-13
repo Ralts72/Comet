@@ -128,7 +128,7 @@ JSON 解析直接依赖已有 simdjson。
 ## 架构入口
 
 - 启动：app/editor 共用 `RUN_APP` 和 `Comet::launch`，统一参数传递、`--help`、错误退出和 Application 所有权。
-  各入口显式提供创建函数，负责自己的参数校验和依赖准备；`Editor` 只接收已加载的 `Project`，不解析命令行。
+  各入口提供返回 `Result` 的创建函数，负责参数校验和依赖准备；`Editor` 只接收已加载的 `Project`，不解析命令行。
   `Comet::run` 读取配置，再由 `Application::run` 统一驱动初始化、更新和关闭；异常在生命周期边界处理，具体契约见资源所有权文档。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
@@ -155,6 +155,8 @@ JSON 解析直接依赖已有 simdjson。
   `AssetRegistry` 是唯一 Handle 缓存；`ResourceManager` 只创建设备资源。
   导入、资产序列化和数据库更新统一用公共 `Result<T>` 返回预期失败，调用方决定如何报告；GPU 错误仍保留 Vulkan 结果码。
   公共文件读取／原子写入同样返回 `Result`，写入先完成同目录临时文件，再替换目标；失败由 RAII 尝试清理临时文件。
+- 持久化：`Project::load`、项目资产路径解析和 `SceneSerializer` 返回 `Result`；Open 失败保留当前场景，
+  Save 失败不更新文档路径，Play 克隆失败留在 Edit。JSON 数据错误在序列化边界转换，其他异常仍交给生命周期边界。
 - 编辑器：`Editor` 装配依赖与帧阶段，`EditorAssets` 管引用选择／模型放置的资源准备、源监视和写入确认，
   `SceneFileDialog` 管路径弹窗；属性控件显式返回手势状态，`SceneDocument` 与 Play 会话仍保持独立。
   Project 消费资产操作返回的扫描结果并更新目录树；Inspector 按 Handle/revision 管理自己的资产缓存，不依赖入口手动失效。

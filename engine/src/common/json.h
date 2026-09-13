@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/export.h"
 #include <simdjson.h>
 
 #include <algorithm>
@@ -15,6 +16,11 @@
 
 namespace Comet::Json {
     using Node = simdjson::dom::element;
+
+    class COMET_API Error final: public std::runtime_error {
+    public:
+        using std::runtime_error::runtime_error;
+    };
 
     class Context final {
     public:
@@ -32,8 +38,7 @@ namespace Comet::Json {
             Node node, const Keys& allowed, std::string_view location = "<root>") const {
             for(const auto field : object(node, location)) {
                 if(std::ranges::find(allowed, field.key) == std::ranges::end(allowed))
-                    throw std::runtime_error(
-                        error(location, "unknown field '" + std::string(field.key) + "'"));
+                    throw Error(error(location, "unknown field '" + std::string(field.key) + "'"));
             }
         }
 
@@ -64,7 +69,7 @@ namespace Comet::Json {
             } else {
                 static_assert(!sizeof(T), "Unsupported JSON scalar type");
             }
-            throw std::runtime_error(error(location, "expected " + std::string(expected)));
+            throw Error(error(location, "expected " + std::string(expected)));
         }
 
     private:

@@ -3,7 +3,7 @@
 #include "common/file_io.h"
 
 #include <gtest/gtest.h>
-#include <stdexcept>
+#include <utility>
 
 namespace Comet::Tests {
     class ProjectTest: public ::testing::Test {
@@ -25,27 +25,39 @@ namespace Comet::Tests {
 
     TEST_F(ProjectTest, LoadsDirectoryOrManifestAndKeepsSettingsProjectRelative) {
         write(R"({"version": 1, "name": "My Game", "startup_scene": "levels/main.scene"})");
-        const auto project = Project::load(root);
+        auto project_result = Project::load(root);
+        ASSERT_TRUE(project_result) << project_result.error();
+        auto project = std::move(project_result).value();
         EXPECT_EQ(project.name(), "My Game");
         EXPECT_EQ(project.paths().root(), root);
         EXPECT_EQ(project.startup_scene(), "levels/main.scene");
-        EXPECT_EQ(project.paths().resolve_asset_path(project.startup_scene()),
-            root / "assets/levels/main.scene");
-        EXPECT_EQ(Project::load(root / "project.json").paths().root(), root);
-        EXPECT_EQ(Project::load(std::filesystem::relative(root)).paths().root(), root);
+        const auto scene_path = project.paths().resolve_asset_path(project.startup_scene());
+        ASSERT_TRUE(scene_path) << scene_path.error();
+        EXPECT_EQ(scene_path.value(), root / "assets/levels/main.scene");
+        for(const auto& input : {root / "project.json", std::filesystem::relative(root)}) {
+            const auto loaded = Project::load(input);
+            ASSERT_TRUE(loaded) << loaded.error();
+            EXPECT_EQ(loaded.value().paths().root(), root);
+        }
         EXPECT_FALSE(std::filesystem::exists(root / ".comet"));
 
         const auto copy = root / "relocated project";
         std::filesystem::create_directories(copy / "assets");
         std::filesystem::copy_file(root / "project.json", copy / "project.json");
-        const auto relocated = Project::load(copy);
-        EXPECT_EQ(relocated.paths().resolve_asset_path(relocated.startup_scene()),
-            copy / "assets/levels/main.scene");
+        auto relocated_result = Project::load(copy);
+        ASSERT_TRUE(relocated_result) << relocated_result.error();
+        auto relocated = std::move(relocated_result).value();
+        const auto relocated_scene =
+            relocated.paths().resolve_asset_path(relocated.startup_scene());
+        ASSERT_TRUE(relocated_scene) << relocated_scene.error();
+        EXPECT_EQ(relocated_scene.value(), copy / "assets/levels/main.scene");
     }
 
     TEST_F(ProjectTest, OptionalSceneDoesNotFallBackToSampleAssets) {
         write(R"({"version": 1, "name": "Empty Game"})");
-        const auto project = Project::load(root);
+        auto project_result = Project::load(root);
+        ASSERT_TRUE(project_result) << project_result.error();
+        auto project = std::move(project_result).value();
         EXPECT_TRUE(project.startup_scene().empty());
         EXPECT_TRUE(std::filesystem::is_empty(root / "assets"));
     }
@@ -65,7 +77,7 @@ namespace Comet::Tests {
         for(const auto& contents : invalid) {
             SCOPED_TRACE(contents);
             write(contents);
-            EXPECT_THROW(static_cast<void>(Project::load(root)), std::runtime_error);
+            EXPECT_FALSE(Project::load(root));
             const auto stored = read_text_file(root / "project.json");
             ASSERT_TRUE(stored) << stored.error();
             EXPECT_EQ(stored.value(), contents);
@@ -73,12 +85,12 @@ namespace Comet::Tests {
     }
 
     TEST_F(ProjectTest, MissingProjectOrAssetsFailsWithoutCreatingThem) {
-        EXPECT_THROW(static_cast<void>(Project::load(root)), std::filesystem::filesystem_error);
+        EXPECT_FALSE(Project::load(root));
         EXPECT_FALSE(std::filesystem::exists(root / "project.json"));
-        EXPECT_THROW(static_cast<void>(Project::load({})), std::runtime_error);
+        EXPECT_FALSE(Project::load({}));
         write(R"({"version": 1, "name": "Game"})");
         ASSERT_TRUE(std::filesystem::remove(root / "assets"));
-        EXPECT_THROW(static_cast<void>(Project::load(root)), std::runtime_error);
+        EXPECT_FALSE(Project::load(root));
         EXPECT_FALSE(std::filesystem::exists(root / "assets"));
     }
 
@@ -89,13 +101,13 @@ namespace Comet::Tests {
         if(error)
             GTEST_SKIP() << "Directory symlinks unavailable: " << error.message();
         write(R"({"version": 1, "name": "Game", "startup_scene": "link/main.scene"})");
-        EXPECT_THROW(static_cast<void>(Project::load(root)), std::runtime_error);
+        EXPECT_FALSE(Project::load(root));
     }
 
     TEST_F(ProjectTest, DoesNotFallBackToLegacyManifest) {
         ASSERT_TRUE(write_text_file_atomic(root / "project.yaml", "version: 1\nname: Legacy\n"));
-        EXPECT_THROW(static_cast<void>(Project::load(root)), std::filesystem::filesystem_error);
+        EXPECT_FALSE(Project::load(root));
         EXPECT_FALSE(std::filesystem::exists(root / "project.json"));
-        EXPECT_THROW(static_cast<void>(Project::load(root / "project.yaml")), std::runtime_error);
+        EXPECT_FALSE(Project::load(root / "project.yaml"));
     }
 }

@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 #include <limits>
+#include <utility>
 
 namespace {
     using namespace Comet;
@@ -241,7 +242,9 @@ namespace {
         const auto expected = entity.get_component<TransformComponent>();
         const auto expected_world = scene.get_world_matrix(entity);
         const SceneSerializer serializer(registry);
-        auto reopened = serializer.deserialize(serializer.serialize(scene));
+        auto reopened_result = serializer.clone(scene);
+        ASSERT_TRUE(reopened_result) << reopened_result.error();
+        auto reopened = std::move(reopened_result).value();
         const auto restored = reopened->find_entity(entity.get_uuid());
         ASSERT_TRUE(restored);
         ASSERT_TRUE(reopened->get_parent(restored));

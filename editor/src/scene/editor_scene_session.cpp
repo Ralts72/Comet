@@ -43,8 +43,12 @@ namespace CometEditor {
             return false;
         }
 
-        std::unique_ptr<Comet::Scene> runtime_scene = m_serializer.clone(*edit_scene);
-        m_edit_scene = m_replace_active_scene(std::move(runtime_scene));
+        auto runtime_scene = m_serializer.clone(*edit_scene);
+        if(!runtime_scene) {
+            LOG_ERROR("Cannot enter Play mode: {}", runtime_scene.error());
+            return false;
+        }
+        m_edit_scene = m_replace_active_scene(std::move(runtime_scene).value());
         if(!m_edit_scene) {
             LOG_FATAL("Entering Play mode did not retain the Edit scene");
         }

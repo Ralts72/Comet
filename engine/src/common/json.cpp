@@ -13,19 +13,18 @@ namespace Comet::Json {
     Node Context::parse(simdjson::dom::parser& parser, std::string_view contents) const {
         Node root;
         if(const auto result = parser.parse(contents.data(), contents.size()).get(root))
-            throw std::runtime_error(error("<json>", simdjson::error_message(result)));
+            throw Error(error("<json>", simdjson::error_message(result)));
         return root;
     }
 
     simdjson::dom::object Context::object(Node node, std::string_view location) const {
         simdjson::dom::object result;
         if(node.get_object().get(result))
-            throw std::runtime_error(error(location, "expected an object"));
+            throw Error(error(location, "expected an object"));
         std::unordered_set<std::string_view> keys;
         for(const auto field : result) {
             if(!keys.insert(field.key).second)
-                throw std::runtime_error(
-                    error(location, "duplicate field '" + std::string(field.key) + "'"));
+                throw Error(error(location, "duplicate field '" + std::string(field.key) + "'"));
         }
         return result;
     }
@@ -33,15 +32,14 @@ namespace Comet::Json {
     simdjson::dom::array Context::array(Node node, std::string_view location) const {
         simdjson::dom::array result;
         if(node.get_array().get(result))
-            throw std::runtime_error(error(location, "expected an array"));
+            throw Error(error(location, "expected an array"));
         return result;
     }
 
     Node Context::required_child(Node node, std::string_view key, std::string_view location) const {
         Node child;
         if(node[key].get(child))
-            throw std::runtime_error(
-                error(location, "missing required field '" + std::string(key) + "'"));
+            throw Error(error(location, "missing required field '" + std::string(key) + "'"));
         return child;
     }
 
@@ -100,7 +98,7 @@ namespace Comet::Json {
 
     void Writer::quoted(std::string_view text) {
         if(!simdjson::validate_utf8(text))
-            throw std::runtime_error("Cannot serialize invalid UTF-8 as JSON");
+            throw Error("Cannot serialize invalid UTF-8 as JSON");
         constexpr char hex[] = "0123456789abcdef";
         m_output += '"';
         for(const unsigned char c : text) {
@@ -144,7 +142,7 @@ namespace Comet::Json {
 
     void Writer::value(float data) {
         if(!std::isfinite(data))
-            throw std::runtime_error("Cannot serialize a non-finite JSON number");
+            throw Error("Cannot serialize a non-finite JSON number");
         char buffer[64];
         const auto [end, error] = std::to_chars(buffer, buffer + sizeof(buffer), data);
         if(error != std::errc{})

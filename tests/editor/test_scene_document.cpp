@@ -43,7 +43,7 @@ namespace CometEditor::Tests {
         const Comet::SceneSerializer serializer(component_registry());
         const TemporarySceneFile file;
         Comet::Scene scene;
-        serializer.save(scene, file.path());
+        ASSERT_TRUE(serializer.save(scene, file.path()));
         SceneDocument document(
             serializer, file.paths(), [&] { return &scene; },
             [](std::unique_ptr<Comet::Scene>) -> std::unique_ptr<Comet::Scene> {
@@ -63,7 +63,7 @@ namespace CometEditor::Tests {
         entity.add_component<Comet::MeshRendererComponent>(missing_mesh, missing_material);
         const auto uuid = entity.get_uuid();
         const TemporarySceneFile file;
-        serializer.save(saved, file.path());
+        ASSERT_TRUE(serializer.save(saved, file.path()));
 
         auto active = std::make_unique<Comet::Scene>();
         SceneDocument document(
@@ -128,7 +128,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(saved_path, (file.paths().assets() / "scenes/saved.scene").string());
         ASSERT_TRUE(document.open("scenes/saved.scene"));
         const auto outside = file.paths().root() / "outside.scene";
-        serializer.save(*active, outside.string());
+        ASSERT_TRUE(serializer.save(*active, outside.string()));
         const auto original = Comet::read_text_file(outside);
         ASSERT_TRUE(original) << original.error();
         const std::string invalid_paths[]{"../outside.scene", outside.string(), "wrong.mat"};
@@ -168,5 +168,36 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(document.create_new());
         EXPECT_EQ(active_scene->entity_count(), 0U);
         EXPECT_TRUE(document.get_path().empty());
+    }
+
+    TEST(SceneDocumentTest, FailedPersistenceKeepsScenePathAndExistingFile) {
+        const Comet::SceneSerializer serializer(component_registry());
+        const TemporarySceneFile file;
+        auto active = std::make_unique<Comet::Scene>();
+        auto entity = active->create_entity("Valid");
+        const auto original = active.get();
+        SceneDocument document(
+            serializer, file.paths(), [&] { return active.get(); },
+            [&](std::unique_ptr<Comet::Scene> replacement) {
+                active.swap(replacement);
+                return replacement;
+            });
+        ASSERT_TRUE(document.save(file.path()));
+        const auto contents = Comet::read_text_file(file.path());
+        ASSERT_TRUE(contents) << contents.error();
+        entity.get_component<Comet::NameComponent>().name = std::string(1, '\xff');
+        EXPECT_FALSE(document.save(file.path()));
+        EXPECT_FALSE(document.save("other.scene"));
+        EXPECT_EQ(document.get_path(), file.path());
+        EXPECT_FALSE(std::filesystem::exists(file.paths().assets() / "other.scene"));
+        const auto preserved = Comet::read_text_file(file.path());
+        ASSERT_TRUE(preserved) << preserved.error();
+        EXPECT_EQ(preserved.value(), contents.value());
+
+        ASSERT_TRUE(Comet::write_text_file_atomic(file.paths().assets() / "broken.scene", "{}"));
+        EXPECT_FALSE(document.open("broken.scene"));
+        EXPECT_EQ(active.get(), original);
+        EXPECT_EQ(document.get_path(), file.path());
+        EXPECT_FALSE(document.get_last_error().empty());
     }
 }

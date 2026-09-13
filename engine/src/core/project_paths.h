@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/result.h"
 
 #include <filesystem>
 
@@ -11,7 +12,7 @@ namespace Comet {
 
         [[nodiscard]] const std::filesystem::path& root() const noexcept;
         [[nodiscard]] std::filesystem::path assets() const;
-        [[nodiscard]] std::filesystem::path resolve_asset_path(
+        [[nodiscard]] Result<std::filesystem::path> resolve_asset_path(
             const std::filesystem::path& path) const;
         [[nodiscard]] std::filesystem::path local_data() const;
         [[nodiscard]] std::filesystem::path cache() const;
