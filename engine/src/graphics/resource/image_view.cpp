@@ -28,9 +28,8 @@ namespace Comet {
         create_info.image = image->get();
         create_info.viewType = vk::ImageViewType::e2D;
         create_info.format = Graphics::format_to_vk(image->get_info().format);
-        create_info.components = {vk::ComponentSwizzle::eIdentity,
-            vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-            vk::ComponentSwizzle::eIdentity};
+        create_info.components = {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+            vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity};
         vk::ImageSubresourceRange subresource_range = {};
         subresource_range.aspectMask = Graphics::image_aspect_to_vk(aspect);
         subresource_range.baseMipLevel = 0;
@@ -40,14 +39,12 @@ namespace Comet {
         create_info.subresourceRange = subresource_range;
 
         vk::ImageView image_view{};
-        const vk::Result result =
-            device.get().createImageView(&create_info, nullptr, &image_view);
+        const vk::Result result = device.get().createImageView(&create_info, nullptr, &image_view);
         if(result != vk::Result::eSuccess) {
             return GpuResourceResult<std::shared_ptr<ImageView>>::failure(result);
         }
 
-        std::shared_ptr<ImageView> view(
-            new ImageView(device, std::move(image), image_view));
+        std::shared_ptr<ImageView> view(new ImageView(device, std::move(image), image_view));
         LOG_INFO("Vulkan image view created successfully");
         return GpuResourceResult<std::shared_ptr<ImageView>>::success(std::move(view));
     }

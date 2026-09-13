@@ -60,8 +60,8 @@ namespace CometEditor {
                 return std::nullopt;
             // 与场景渲染的负高度 Viewport 一致，界面 Y 轴向下。
             const auto normalized = Comet::Math::Vec2(ndc.x + 1.0f, 1.0f - ndc.y) * 0.5f;
-            const auto screen = layout.image_display_rect.min
-                                + normalized * layout.image_display_rect.size();
+            const auto screen =
+                layout.image_display_rect.min + normalized * layout.image_display_rect.size();
             if(!Comet::Math::is_finite(screen))
                 return std::nullopt;
             return screen;
@@ -71,8 +71,8 @@ namespace CometEditor {
             const TransformGizmo::Segment& handle, const Comet::Math::Vec2 point) {
             const auto segment = handle.end - handle.start;
             const float length_squared = glm::dot(segment, segment);
-            const float t = std::clamp(
-                glm::dot(point - handle.start, segment) / length_squared, 0.0f, 1.0f);
+            const float t =
+                std::clamp(glm::dot(point - handle.start, segment) / length_squared, 0.0f, 1.0f);
             const auto distance = point - (handle.start + segment * t);
             return glm::dot(distance, distance);
         }
@@ -84,9 +84,8 @@ namespace CometEditor {
 
     bool TransformGizmo::set_settings(const Settings settings) {
         if(!std::isfinite(settings.translation_step) || settings.translation_step <= 0
-            || !std::isfinite(settings.rotation_step_degrees)
-            || settings.rotation_step_degrees <= 0 || !std::isfinite(settings.scale_step)
-            || settings.scale_step <= 0
+            || !std::isfinite(settings.rotation_step_degrees) || settings.rotation_step_degrees <= 0
+            || !std::isfinite(settings.scale_step) || settings.scale_step <= 0
             || (settings.mode != Mode::Translate && settings.mode != Mode::Rotate
                 && settings.mode != Mode::Scale)
             || (settings.space != Space::World && settings.space != Space::Local))
@@ -104,8 +103,7 @@ namespace CometEditor {
         const ViewportLayout& layout) const {
         auto* scene = m_history.get_scene();
         const auto display_size = layout.image_display_rect.size();
-        if(!scene || !selected || layout.image_resolution.x == 0
-            || layout.image_resolution.y == 0
+        if(!scene || !selected || layout.image_resolution.x == 0 || layout.image_resolution.y == 0
             || !Comet::Math::is_finite(layout.image_display_rect.min)
             || !Comet::Math::is_finite(display_size) || display_size.x <= 0.0f
             || display_size.y <= 0.0f)
@@ -116,8 +114,7 @@ namespace CometEditor {
 
         Context context;
         context.layout = layout;
-        context.translation =
-            entity.get_component<Comet::TransformComponent>().translation;
+        context.translation = entity.get_component<Comet::TransformComponent>().translation;
         context.rotation = entity.get_component<Comet::TransformComponent>().rotation;
         context.scale = entity.get_component<Comet::TransformComponent>().scale;
         const auto world_origin =
@@ -130,8 +127,7 @@ namespace CometEditor {
             context.parent_world = scene->get_world_matrix(parent);
             context.world_to_parent = Comet::Math::inverse(context.parent_world);
         }
-        if(!finite_matrix(context.parent_world)
-            || !finite_matrix(context.world_to_parent))
+        if(!finite_matrix(context.parent_world) || !finite_matrix(context.world_to_parent))
             return std::nullopt;
 
         const auto local_rotation =
@@ -140,12 +136,11 @@ namespace CometEditor {
             auto direction = axis_direction(static_cast<Axis>(index));
             if(m_settings.space == Space::Local || m_settings.mode == Mode::Scale) {
                 // 不让实体自身的零／负缩放反转手柄；父级仿射变换仍影响本地轴。
-                direction = Comet::Math::Vec3(context.parent_world * local_rotation
-                                              * Comet::Math::Vec4(direction, 0));
+                direction = Comet::Math::Vec3(
+                    context.parent_world * local_rotation * Comet::Math::Vec4(direction, 0));
             }
             const float length = Comet::Math::length(direction);
-            if(!Comet::Math::is_finite(direction) || !std::isfinite(length)
-                || length <= EPSILON)
+            if(!Comet::Math::is_finite(direction) || !std::isfinite(length) || length <= EPSILON)
                 return std::nullopt;
             context.directions[index] = direction / length;
         }
@@ -154,11 +149,10 @@ namespace CometEditor {
                 if(!uniform_orthogonal(Comet::Math::Mat3(context.parent_world)))
                     return std::nullopt;
             } else {
-                context.rotation_frame =
-                    Comet::Math::Mat3(context.parent_world * local_rotation);
-                const float largest = std::max({glm::length(context.rotation_frame[0]),
-                    glm::length(context.rotation_frame[1]),
-                    glm::length(context.rotation_frame[2])});
+                context.rotation_frame = Comet::Math::Mat3(context.parent_world * local_rotation);
+                const float largest = std::max(
+                    {glm::length(context.rotation_frame[0]), glm::length(context.rotation_frame[1]),
+                        glm::length(context.rotation_frame[2])});
                 context.rotation_frame /= largest;
                 context.inverse_rotation_frame = glm::inverse(context.rotation_frame);
                 if(!finite_matrix(Comet::Math::Mat4(context.inverse_rotation_frame)))
@@ -173,8 +167,7 @@ namespace CometEditor {
             return std::nullopt;
         float visible_height = camera.orthographic_height;
         if(camera.projection == Comet::RenderCamera::Projection::Perspective) {
-            const auto view_origin =
-                camera.view_matrix * Comet::Math::Vec4(context.origin, 1.0f);
+            const auto view_origin = camera.view_matrix * Comet::Math::Vec4(context.origin, 1.0f);
             visible_height = -2.0f * view_origin.z / (*projection)[1][1];
         }
         context.view_projection = *projection * camera.view_matrix;
@@ -193,8 +186,7 @@ namespace CometEditor {
         // 裁剪只影响显示和开始命中；已开始的拖动不因自身移动而取消。
         if(context.axis_length <= EPSILON)
             return result;
-        const auto start =
-            project(context.view_projection, context.layout, context.origin);
+        const auto start = project(context.view_projection, context.layout, context.origin);
         if(!start)
             return result;
         for(std::size_t index = 0; index < context.directions.size(); ++index) {
@@ -209,8 +201,7 @@ namespace CometEditor {
                     local[(index + 2) % 3] = std::sin(angle);
                     return project(context.view_projection, context.layout,
                         context.origin
-                            + context.rotation_frame * local * context.axis_length
-                                  * 0.8f);
+                            + context.rotation_frame * local * context.axis_length * 0.8f);
                 };
                 auto previous = point(0);
                 for(int segment = 1; segment <= ROTATION_SEGMENTS; ++segment) {
@@ -230,8 +221,8 @@ namespace CometEditor {
                 result[index] = Handle{axis, {{*start, *end}}};
         }
         if(m_settings.mode == Mode::Scale)
-            result[3] = Handle{Axis::All,
-                {{*start - Comet::Math::Vec2(3, 0), *start + Comet::Math::Vec2(3, 0)}}};
+            result[3] = Handle{
+                Axis::All, {{*start - Comet::Math::Vec2(3, 0), *start + Comet::Math::Vec2(3, 0)}}};
         return result;
     }
 
@@ -253,8 +244,7 @@ namespace CometEditor {
             return std::nullopt;
         const auto normalized = (position - context.layout.image_display_rect.min)
                                 / context.layout.image_display_rect.size();
-        const auto ndc =
-            Comet::Math::Vec2(normalized.x * 2.0f - 1.0f, 1.0f - normalized.y * 2.0f);
+        const auto ndc = Comet::Math::Vec2(normalized.x * 2.0f - 1.0f, 1.0f - normalized.y * 2.0f);
         auto ray = Comet::unproject_ray(context.inverse_view_projection, ndc);
         if(ray)
             ray->max_parameter = std::numeric_limits<float>::max();
@@ -286,8 +276,7 @@ namespace CometEditor {
         const auto ray = pointer_ray(context, position);
         if(!ray)
             return std::nullopt;
-        const auto origin =
-            context.inverse_rotation_frame * (ray->origin - context.origin);
+        const auto origin = context.inverse_rotation_frame * (ray->origin - context.origin);
         const auto direction = context.inverse_rotation_frame * ray->direction;
         const auto index = static_cast<std::size_t>(axis);
         if(!Comet::Math::is_finite(direction) || std::abs(direction[index]) <= EPSILON)
@@ -317,8 +306,7 @@ namespace CometEditor {
         return axis_parameter(context, axis, position);
     }
 
-    Comet::Math::Vec3 TransformGizmo::preview_value(
-        Drag& drag, const float parameter) const {
+    Comet::Math::Vec3 TransformGizmo::preview_value(Drag& drag, const float parameter) const {
         namespace Math = Comet::Math;
         if(m_settings.mode == Mode::Scale) {
             float delta = (parameter - drag.start_parameter) / drag.context.axis_length;
@@ -337,12 +325,10 @@ namespace CometEditor {
                            * m_settings.translation_step;
             const auto world_delta =
                 drag.context.directions[static_cast<std::size_t>(drag.axis)] * distance;
-            const auto local_delta =
-                drag.context.world_to_parent * Math::Vec4(world_delta, 0);
+            const auto local_delta = drag.context.world_to_parent * Math::Vec4(world_delta, 0);
             return drag.context.translation + Math::Vec3(local_delta);
         }
-        drag.accumulated_angle +=
-            std::remainder(parameter - drag.last_parameter, 2 * Math::PI);
+        drag.accumulated_angle += std::remainder(parameter - drag.last_parameter, 2 * Math::PI);
         drag.last_parameter = parameter;
         float degrees = drag.accumulated_angle * Math::RAD_TO_DEG;
         if(m_settings.snap)
@@ -351,10 +337,9 @@ namespace CometEditor {
         degrees = Math::wrap_degrees(degrees);
         if(std::abs(degrees) < 0.0001f)
             return drag.context.rotation;
-        const auto start =
-            Math::Mat3(Math::compose_trs({}, drag.context.rotation, Math::Vec3(1)));
-        const auto delta = Math::Mat3(Math::rotate(
-            Math::Mat4(1), Math::radians(degrees), axis_direction(drag.axis)));
+        const auto start = Math::Mat3(Math::compose_trs({}, drag.context.rotation, Math::Vec3(1)));
+        const auto delta = Math::Mat3(
+            Math::rotate(Math::Mat4(1), Math::radians(degrees), axis_direction(drag.axis)));
         Math::Mat3 rotation;
         if(m_settings.space == Space::Local)
             rotation = start * delta;
@@ -365,9 +350,8 @@ namespace CometEditor {
         return Math::wrap_degrees(glm::eulerAngles(quaternion) * Math::RAD_TO_DEG);
     }
 
-    bool TransformGizmo::update(const Comet::EntityUuid selected,
-        const Comet::RenderCamera& camera, const ViewportLayout& layout,
-        const Input& input) {
+    bool TransformGizmo::update(const Comet::EntityUuid selected, const Comet::RenderCamera& camera,
+        const ViewportLayout& layout, const Input& input) {
         m_hovered_axis.reset();
         const auto context = make_context(selected, camera, layout);
         if(m_drag) {
@@ -390,8 +374,7 @@ namespace CometEditor {
                 static_cast<void>(cancel());
                 return true;
             }
-            const auto current_parameter =
-                parameter(m_drag->context, m_drag->axis, input.position);
+            const auto current_parameter = parameter(m_drag->context, m_drag->axis, input.position);
             if(!current_parameter) {
                 static_cast<void>(cancel());
                 return true;
@@ -421,8 +404,7 @@ namespace CometEditor {
             for(const auto& segment : handle->segments) {
                 const float distance = distance_squared(segment, input.position);
                 if(distance < nearest
-                    || (handle->axis == Axis::All
-                        && distance < HIT_RADIUS * HIT_RADIUS)) {
+                    || (handle->axis == Axis::All && distance < HIT_RADIUS * HIT_RADIUS)) {
                     nearest = distance;
                     m_hovered_axis = handle->axis;
                 }
@@ -442,8 +424,8 @@ namespace CometEditor {
         }
         if(!start_parameter || !m_edit.begin({selected, "transform", property}))
             return false;
-        m_drag = Drag{selected, m_history.generation(), *m_hovered_axis, *context,
-            *start_parameter, *start_parameter, 0, initial};
+        m_drag = Drag{selected, m_history.generation(), *m_hovered_axis, *context, *start_parameter,
+            *start_parameter, 0, initial};
         return true;
     }
 

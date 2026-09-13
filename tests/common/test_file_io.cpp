@@ -38,8 +38,7 @@ namespace Comet::Tests {
     TEST(FileIoTest, AtomicallyWritesBinaryFiles) {
         const std::filesystem::path root =
             std::filesystem::temp_directory_path()
-            / ("comet_binary_file_io_test_"
-                + std::to_string(AssetHandle::generate().value()));
+            / ("comet_binary_file_io_test_" + std::to_string(AssetHandle::generate().value()));
         const std::filesystem::path path = root / "nested" / "mesh.bin";
         constexpr std::array contents{std::byte{0x00}, std::byte{0x7F}, std::byte{0xFF}};
 
@@ -58,8 +57,7 @@ namespace Comet::Tests {
     TEST(FileIoTest, RejectsMissingTextFile) {
         const std::filesystem::path path =
             std::filesystem::temp_directory_path()
-            / ("comet_missing_file_io_test_"
-                + std::to_string(AssetHandle::generate().value()));
+            / ("comet_missing_file_io_test_" + std::to_string(AssetHandle::generate().value()));
 
         EXPECT_THROW(static_cast<void>(read_text_file(path)), std::runtime_error);
     }

@@ -15,17 +15,14 @@ namespace Comet {
     public:
         [[nodiscard]] static std::shared_ptr<Texture> create(
             Device& device, UploadManager& upload_manager, const TextureData& data);
-        [[nodiscard]] static GpuResourceResult<std::shared_ptr<Texture>> try_create(
-            Device& device, UploadManager& upload_manager, const TextureData& data,
-            bool within_budget);
+        [[nodiscard]] static GpuResourceResult<std::shared_ptr<Texture>> try_create(Device& device,
+            UploadManager& upload_manager, const TextureData& data, bool within_budget);
 
         ~Texture() = default;
 
         [[nodiscard]] int get_width() const { return m_width; }
         [[nodiscard]] int get_height() const { return m_height; }
-        [[nodiscard]] std::shared_ptr<ImageView> get_image_view() const {
-            return m_image_view;
-        }
+        [[nodiscard]] std::shared_ptr<ImageView> get_image_view() const { return m_image_view; }
         [[nodiscard]] const GpuCompletionPoint& get_ready_completion() const {
             return m_ready_completion;
         }

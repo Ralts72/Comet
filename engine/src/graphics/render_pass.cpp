@@ -22,8 +22,7 @@ namespace Comet {
                 .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)};
             SubpassColorAttachment subpass_attachment(0);
             const RenderSubPass render_sub_pass = {
-                .color_attachments = {subpass_attachment},
-                .sample_count = SampleCount::Count1};
+                .color_attachments = {subpass_attachment}, .sample_count = SampleCount::Count1};
             m_attachments.push_back(attachment);
             actual_sub_passes.push_back(render_sub_pass);
         }
@@ -45,8 +44,7 @@ namespace Comet {
                 }
             }
         }
-        std::vector<vk::SubpassDescription> sub_pass_descriptions(
-            actual_sub_passes.size());
+        std::vector<vk::SubpassDescription> sub_pass_descriptions(actual_sub_passes.size());
         std::vector<vk::AttachmentReference> resolve_attachments_reference(
             actual_sub_passes.size());
 
@@ -54,8 +52,8 @@ namespace Comet {
             actual_sub_passes.size());
         std::vector<std::vector<vk::AttachmentReference>> all_color_attachments_reference(
             actual_sub_passes.size());
-        std::vector<std::vector<vk::AttachmentReference>>
-            all_depth_stencil_attachments_reference(actual_sub_passes.size());
+        std::vector<std::vector<vk::AttachmentReference>> all_depth_stencil_attachments_reference(
+            actual_sub_passes.size());
 
         for(uint32_t i = 0; i < actual_sub_passes.size(); ++i) {
             const RenderSubPass& sub_pass = actual_sub_passes[i];
@@ -76,8 +74,7 @@ namespace Comet {
                 all_color_attachments_reference[i].emplace_back(reference);
                 m_attachments[attachment.index].description.samples = sample_count;
                 if(sample_count > SampleCount::Count1) {
-                    m_attachments[attachment.index].description.final_layout =
-                        attachment.layout;
+                    m_attachments[attachment.index].description.final_layout = attachment.layout;
                 }
             }
 
@@ -86,8 +83,7 @@ namespace Comet {
                     attachment.index, Graphics::image_layout_to_vk(attachment.layout)};
                 all_depth_stencil_attachments_reference[i].emplace_back(reference);
                 m_attachments[attachment.index].description.samples = sample_count;
-                m_attachments[attachment.index].description.final_layout =
-                    attachment.layout;
+                m_attachments[attachment.index].description.final_layout = attachment.layout;
             }
 
             if(sample_count > SampleCount::Count1) {
@@ -114,16 +110,13 @@ namespace Comet {
             sub_pass_descriptions[i].pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
             sub_pass_descriptions[i].inputAttachmentCount =
                 all_input_attachments_reference[i].size();
-            sub_pass_descriptions[i].pInputAttachments =
-                all_input_attachments_reference[i].data();
+            sub_pass_descriptions[i].pInputAttachments = all_input_attachments_reference[i].data();
             sub_pass_descriptions[i].colorAttachmentCount =
                 all_color_attachments_reference[i].size();
-            sub_pass_descriptions[i].pColorAttachments =
-                all_color_attachments_reference[i].data();
+            sub_pass_descriptions[i].pColorAttachments = all_color_attachments_reference[i].data();
             sub_pass_descriptions[i].pResolveAttachments = nullptr;
             if(sample_count > SampleCount::Count1) {
-                sub_pass_descriptions[i].pResolveAttachments =
-                    &resolve_attachments_reference[i];
+                sub_pass_descriptions[i].pResolveAttachments = &resolve_attachments_reference[i];
             }
             sub_pass_descriptions[i].pDepthStencilAttachment =
                 all_depth_stencil_attachments_reference[i].data();
@@ -137,8 +130,7 @@ namespace Comet {
                 vk::SubpassDependency dependency{};
                 dependency.srcSubpass = j;
                 dependency.dstSubpass = j + 1;
-                dependency.srcStageMask =
-                    vk::PipelineStageFlagBits::eColorAttachmentOutput;
+                dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
                 dependency.dstStageMask = vk::PipelineStageFlagBits::eFragmentShader;
                 dependency.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
                 dependency.dstAccessMask = vk::AccessFlagBits::eInputAttachmentRead;
@@ -149,8 +141,7 @@ namespace Comet {
 
         const bool has_sampled_output =
             std::ranges::any_of(m_attachments, [](const Attachment& attachment) {
-                return attachment.description.final_layout
-                       == ImageLayout::ShaderReadOnlyOptimal;
+                return attachment.description.final_layout == ImageLayout::ShaderReadOnlyOptimal;
             });
         if(has_sampled_output) {
             vk::SubpassDependency dependency{};
@@ -169,34 +160,28 @@ namespace Comet {
             vk::AttachmentDescription vk_description{};
             vk_description.format = Graphics::format_to_vk(description.format);
             vk_description.samples = Graphics::sample_count_to_vk(description.samples);
-            vk_description.loadOp =
-                Graphics::attachment_load_op_to_vk(description.load_op);
-            vk_description.storeOp =
-                Graphics::attachment_store_op_to_vk(description.store_op);
+            vk_description.loadOp = Graphics::attachment_load_op_to_vk(description.load_op);
+            vk_description.storeOp = Graphics::attachment_store_op_to_vk(description.store_op);
             vk_description.stencilLoadOp =
                 Graphics::attachment_load_op_to_vk(description.stencil_load_op);
             vk_description.stencilStoreOp =
                 Graphics::attachment_store_op_to_vk(description.stencil_store_op);
-            vk_description.initialLayout =
-                Graphics::image_layout_to_vk(description.initial_layout);
-            vk_description.finalLayout =
-                Graphics::image_layout_to_vk(description.final_layout);
+            vk_description.initialLayout = Graphics::image_layout_to_vk(description.initial_layout);
+            vk_description.finalLayout = Graphics::image_layout_to_vk(description.final_layout);
             attachment_descriptions.push_back(vk_description);
         }
         vk::RenderPassCreateInfo render_pass_create_info = {};
         render_pass_create_info.attachmentCount =
             static_cast<uint32_t>(attachment_descriptions.size());
         render_pass_create_info.pAttachments = attachment_descriptions.data();
-        render_pass_create_info.subpassCount =
-            static_cast<uint32_t>(actual_sub_passes.size());
+        render_pass_create_info.subpassCount = static_cast<uint32_t>(actual_sub_passes.size());
         render_pass_create_info.pSubpasses = sub_pass_descriptions.data();
-        render_pass_create_info.dependencyCount =
-            static_cast<uint32_t>(dependencies.size());
+        render_pass_create_info.dependencyCount = static_cast<uint32_t>(dependencies.size());
         render_pass_create_info.pDependencies = dependencies.data();
         m_render_pass = device.get().createRenderPass(render_pass_create_info);
         LOG_INFO("Vulkan render pass created successfully");
-        LOG_TRACE("RenderPass: attachment count: {}, subpass count: {}",
-            m_attachments.size(), actual_sub_passes.size());
+        LOG_TRACE("RenderPass: attachment count: {}, subpass count: {}", m_attachments.size(),
+            actual_sub_passes.size());
     }
 
     RenderPass::~RenderPass() {

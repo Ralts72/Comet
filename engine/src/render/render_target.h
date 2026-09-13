@@ -24,12 +24,12 @@ namespace Comet {
         static std::unique_ptr<RenderTarget> create_swapchain_target(
             Device& device, RenderPass& render_pass, Swapchain& swapchain);
 
-        static std::unique_ptr<RenderTarget> create_multi_target(Device& device,
-            RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);
+        static std::unique_ptr<RenderTarget> create_multi_target(
+            Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);
 
         [[nodiscard]] static GpuResourceResult<std::unique_ptr<RenderTarget>>
-        try_create_multi_target(Device& device, RenderPass& render_pass, Math::Vec2u size,
-            uint32_t frame_count);
+        try_create_multi_target(
+            Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);
 
         virtual ~RenderTarget() = default;
 
@@ -39,8 +39,7 @@ namespace Comet {
 
         virtual void begin_render_target(CommandBuffer& command_buffer);
 
-        void begin_render_target(
-            const CommandBuffer& command_buffer, uint32_t frame_index);
+        void begin_render_target(const CommandBuffer& command_buffer, uint32_t frame_index);
 
         virtual void end_render_target(CommandBuffer& command_buffer);
 
@@ -49,8 +48,7 @@ namespace Comet {
         [[nodiscard]] virtual std::shared_ptr<FrameBuffer> get_framebuffer(
             uint32_t index) const = 0;
 
-        [[nodiscard]] virtual std::shared_ptr<ImageView> get_color_view(
-            uint32_t index) const = 0;
+        [[nodiscard]] virtual std::shared_ptr<ImageView> get_color_view(uint32_t index) const = 0;
 
     protected:
         RenderTarget(Device& device, RenderPass& render_pass, const Math::Vec2u size,
@@ -111,8 +109,8 @@ namespace Comet {
     private:
         friend class RenderTarget;
 
-        MultiTarget(Device& device, RenderPass& render_pass, Math::Vec2u size,
-            uint32_t frame_count);
+        MultiTarget(
+            Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);
 
         [[nodiscard]] GpuResourceResult<void> try_initialize();
 

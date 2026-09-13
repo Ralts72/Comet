@@ -6,17 +6,14 @@
 
 namespace Comet::Tests {
     namespace {
-        const BoundingBox UNIT_BOX{
-            .minimum = Math::Vec3(-1.0f), .maximum = Math::Vec3(1.0f)};
+        const BoundingBox UNIT_BOX{.minimum = Math::Vec3(-1.0f), .maximum = Math::Vec3(1.0f)};
     }
 
     TEST(BoundingBoxTest, TransformsAllCornersIntoWorldBounds) {
-        const BoundingBox local{.minimum = Math::Vec3(-1.0f, -2.0f, -0.5f),
-            .maximum = Math::Vec3(1.0f, 2.0f, 0.5f)};
-        Math::Mat4 transform =
-            Math::translate(Math::Mat4(1.0f), Math::Vec3(3.0f, -1.0f, 2.0f));
-        transform =
-            Math::rotate(transform, Math::radians(90.0f), Math::Vec3(0.0f, 0.0f, 1.0f));
+        const BoundingBox local{
+            .minimum = Math::Vec3(-1.0f, -2.0f, -0.5f), .maximum = Math::Vec3(1.0f, 2.0f, 0.5f)};
+        Math::Mat4 transform = Math::translate(Math::Mat4(1.0f), Math::Vec3(3.0f, -1.0f, 2.0f));
+        transform = Math::rotate(transform, Math::radians(90.0f), Math::Vec3(0.0f, 0.0f, 1.0f));
         transform = Math::scale(transform, Math::Vec3(-3.0f, 1.0f, 1.0f));
 
         const auto world = transform_box(local, transform);
@@ -47,45 +44,42 @@ namespace Comet::Tests {
         EXPECT_EQ(collapsed->size(), Math::Vec3(0.0f));
         transform = Math::Mat4(1.0f);
         transform[0][0] = std::numeric_limits<float>::max();
-        EXPECT_FALSE(transform_box(
-            {.minimum = Math::Vec3(-2.0f), .maximum = Math::Vec3(2.0f)}, transform));
+        EXPECT_FALSE(
+            transform_box({.minimum = Math::Vec3(-2.0f), .maximum = Math::Vec3(2.0f)}, transform));
     }
 
     TEST(RayBoxTest, ReturnsNearestNonNegativeIntersection) {
-        const auto hit =
-            intersect_ray_box({.origin = Math::Vec3(0.0f, 0.0f, 5.0f),
-                                  .direction = Math::Vec3(0.0f, 0.0f, -1.0f)},
-                UNIT_BOX);
+        const auto hit = intersect_ray_box(
+            {.origin = Math::Vec3(0.0f, 0.0f, 5.0f), .direction = Math::Vec3(0.0f, 0.0f, -1.0f)},
+            UNIT_BOX);
 
         ASSERT_TRUE(hit);
         EXPECT_FLOAT_EQ(*hit, 4.0f);
     }
 
     TEST(RayBoxTest, HandlesParallelMissAndOriginInside) {
-        EXPECT_FALSE(intersect_ray_box({.origin = Math::Vec3(2.0f, 0.0f, 5.0f),
-                                           .direction = Math::Vec3(0.0f, 0.0f, -1.0f)},
+        EXPECT_FALSE(intersect_ray_box(
+            {.origin = Math::Vec3(2.0f, 0.0f, 5.0f), .direction = Math::Vec3(0.0f, 0.0f, -1.0f)},
             UNIT_BOX));
 
         const auto inside = intersect_ray_box(
-            {.origin = Math::Vec3(0.0f), .direction = Math::Vec3(1.0f, 0.0f, 0.0f)},
-            UNIT_BOX);
+            {.origin = Math::Vec3(0.0f), .direction = Math::Vec3(1.0f, 0.0f, 0.0f)}, UNIT_BOX);
         ASSERT_TRUE(inside);
         EXPECT_FLOAT_EQ(*inside, 0.0f);
     }
 
     TEST(RayBoxTest, PreservesSmallDirectionsAndParameterLimit) {
-        const auto hit =
-            intersect_ray_box({.origin = Math::Vec3(0.0f, 0.0f, 2.0f),
-                                  .direction = Math::Vec3(0.0f, 0.0f, -1.0e-8f)},
-                UNIT_BOX);
+        const auto hit = intersect_ray_box(
+            {.origin = Math::Vec3(0.0f, 0.0f, 2.0f), .direction = Math::Vec3(0.0f, 0.0f, -1.0e-8f)},
+            UNIT_BOX);
         ASSERT_TRUE(hit);
         EXPECT_NEAR(*hit, 1.0e8f, 10.0f);
         EXPECT_FALSE(intersect_ray_box({.origin = Math::Vec3(0.0f, 0.0f, 5.0f),
                                            .direction = Math::Vec3(0.0f, 0.0f, -1.0f),
                                            .max_parameter = 3.0f},
             UNIT_BOX));
-        EXPECT_FALSE(intersect_ray_box({.origin = Math::Vec3(0.0f, 0.0f, -5.0f),
-                                           .direction = Math::Vec3(0.0f, 0.0f, -1.0f)},
+        EXPECT_FALSE(intersect_ray_box(
+            {.origin = Math::Vec3(0.0f, 0.0f, -5.0f), .direction = Math::Vec3(0.0f, 0.0f, -1.0f)},
             UNIT_BOX));
     }
 
@@ -95,8 +89,8 @@ namespace Comet::Tests {
 
         BoundingBox invalid = UNIT_BOX;
         invalid.maximum.x = std::numeric_limits<float>::quiet_NaN();
-        EXPECT_FALSE(intersect_ray_box({.origin = Math::Vec3(0.0f, 0.0f, 5.0f),
-                                           .direction = Math::Vec3(0.0f, 0.0f, -1.0f)},
+        EXPECT_FALSE(intersect_ray_box(
+            {.origin = Math::Vec3(0.0f, 0.0f, 5.0f), .direction = Math::Vec3(0.0f, 0.0f, -1.0f)},
             invalid));
     }
 }

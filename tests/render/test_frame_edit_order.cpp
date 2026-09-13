@@ -26,19 +26,18 @@ namespace Comet::Tests {
         Engine engine(config);
         auto& renderer = engine.get_renderer();
         auto& resources = engine.get_resource_manager();
-        const MeshData data{.vertices = {{.position = {-1, -1, 0}},
-                                {.position = {1, -1, 0}}, {.position = {0, 1, 0}}},
+        const MeshData data{.vertices = {{.position = {-1, -1, 0}}, {.position = {1, -1, 0}},
+                                {.position = {0, 1, 0}}},
             .indices = {0, 1, 2}};
         auto mesh = resources.try_create_mesh(data);
-        auto texture = resources.try_create_texture(
-            {.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
+        auto texture =
+            resources.try_create_texture({.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
         ASSERT_TRUE(mesh);
         ASSERT_TRUE(texture);
         auto material = std::make_shared<Material>("Test", "unlit_texture_blend");
         material->set_texture_property("u_Texture0", texture.value());
         material->set_texture_property("u_Texture1", texture.value());
-        ASSERT_TRUE(
-            engine.get_asset_registry().register_asset(AssetHandle(1), mesh.value()));
+        ASSERT_TRUE(engine.get_asset_registry().register_asset(AssetHandle(1), mesh.value()));
         ASSERT_TRUE(engine.get_asset_registry().register_asset(AssetHandle(2), material));
         auto make_scene = [](float x) {
             auto scene = std::make_unique<Scene>();
@@ -73,18 +72,15 @@ namespace Comet::Tests {
                         .get_component<TransformComponent>()
                         .translation.x = 0;
                 }
-                const auto size =
-                    renderer.get_scene_renderer().get_render_target().get_size();
+                const auto size = renderer.get_scene_renderer().get_render_target().get_size();
                 renderer.request_viewport_pick(size / 2u, size);
             },
             [&](CommandBuffer&) {
                 // 结果回调提交的线段必须已在当前 scene pass 分配并录制。
                 if(allocations_before_lines) {
-                    const auto& materials =
-                        renderer.get_scene_renderer().get_material_statistics();
-                    EXPECT_EQ(
-                        allocation_count(), *allocations_before_lines + 1
-                                                + materials.material_versions_created);
+                    const auto& materials = renderer.get_scene_renderer().get_material_statistics();
+                    EXPECT_EQ(allocation_count(),
+                        *allocations_before_lines + 1 + materials.material_versions_created);
                 }
                 engine.get_window().request_close();
             });

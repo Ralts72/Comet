@@ -25,9 +25,7 @@ namespace Comet {
 
         [[nodiscard]] constexpr bool is_valid() const noexcept { return m_value != 0; }
 
-        [[nodiscard]] explicit constexpr operator bool() const noexcept {
-            return is_valid();
-        }
+        [[nodiscard]] explicit constexpr operator bool() const noexcept { return is_valid(); }
 
         constexpr auto operator<=>(const AssetHandle&) const noexcept = default;
 

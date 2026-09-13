@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/result.h"
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/queue.h"
 #include "render/material_runtime.h"
@@ -36,8 +37,8 @@ namespace Comet {
             uint32_t frame_set_count = 0;
         };
 
-        MaterialRenderer(Device& device, PipelineManager& pipelines,
-            ResourceManager& resources, uint32_t frame_slot_count, SampleCount samples);
+        MaterialRenderer(Device& device, PipelineManager& pipelines, ResourceManager& resources,
+            uint32_t frame_slot_count, SampleCount samples);
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(FrameScheduler& frames,
             const ViewProjectMatrix& view, std::span<const ResolvedRenderItem> items);
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
@@ -73,10 +74,9 @@ namespace Comet {
             std::shared_ptr<MaterialResources> material;
         };
 
-        void add_pipeline(PipelineManager& pipelines,
-            const std::shared_ptr<Shader>& vertex,
-            const std::shared_ptr<Shader>& fragment,
-            std::shared_ptr<const MaterialLayout> layout, SampleCount samples);
+        Result<void> add_pipeline(PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
+            const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
+            SampleCount samples);
         [[nodiscard]] std::shared_ptr<MaterialResources> prepare_material(
             const MaterialBinding& material, uint64_t frame_serial);
 

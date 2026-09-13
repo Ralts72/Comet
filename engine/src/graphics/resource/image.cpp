@@ -21,8 +21,7 @@ namespace Comet {
             vk::ImageCreateInfo create_info{};
             create_info.imageType = vk::ImageType::e2D;
             create_info.format = Graphics::format_to_vk(info.format);
-            create_info.extent =
-                Graphics::get_extent(info.extent.x, info.extent.y, info.extent.z);
+            create_info.extent = Graphics::get_extent(info.extent.x, info.extent.y, info.extent.z);
             create_info.mipLevels = 1;
             create_info.arrayLayers = 1;
             create_info.samples = Graphics::sample_count_to_vk(sample_count);
@@ -38,8 +37,8 @@ namespace Comet {
         const SampleCount sample_count, const std::string_view debug_name) {
         auto attempt = try_create(device, info, false, sample_count, debug_name);
         if(!attempt) {
-            LOG_FATAL("Failed to create image '{}': {}", debug_name,
-                vk::to_string(attempt.result()));
+            LOG_FATAL(
+                "Failed to create image '{}': {}", debug_name, vk::to_string(attempt.result()));
         }
         return std::move(attempt).value();
     }
@@ -48,23 +47,20 @@ namespace Comet {
         const ImageInfo& info, const bool within_budget, const SampleCount sample_count,
         const std::string_view debug_name) {
         validate_image_info(info);
-        auto allocation = device.get_allocator().try_create_image(
-            build_image_create_info(info, sample_count),
-            {.usage = AllocationUsage::Device,
-                .within_budget = within_budget,
-                .debug_name = debug_name.empty() ? "image" : debug_name});
+        auto allocation =
+            device.get_allocator().try_create_image(build_image_create_info(info, sample_count),
+                {.usage = AllocationUsage::Device,
+                    .within_budget = within_budget,
+                    .debug_name = debug_name.empty() ? "image" : debug_name});
         if(!allocation) {
-            return GpuResourceResult<std::shared_ptr<Image>>::failure(
-                allocation.result());
+            return GpuResourceResult<std::shared_ptr<Image>>::failure(allocation.result());
         }
 
-        std::shared_ptr<Image> image(
-            new OwnedImage(device, info, std::move(allocation).value()));
+        std::shared_ptr<Image> image(new OwnedImage(device, info, std::move(allocation).value()));
         return GpuResourceResult<std::shared_ptr<Image>>::success(std::move(image));
     }
 
-    std::shared_ptr<Image> Image::wrap(
-        Device& device, vk::Image image, const ImageInfo& info) {
+    std::shared_ptr<Image> Image::wrap(Device& device, vk::Image image, const ImageInfo& info) {
         if(!image) {
             LOG_FATAL("BorrowedImage requires a valid image handle");
         }
@@ -89,8 +85,7 @@ namespace Comet {
         }
     }
 
-    BorrowedImage::BorrowedImage(
-        Device& device, const vk::Image image, const ImageInfo& info)
+    BorrowedImage::BorrowedImage(Device& device, const vk::Image image, const ImageInfo& info)
         : Image(device, info) {
         if(!image) {
             LOG_FATAL("BorrowedImage requires a valid image handle");

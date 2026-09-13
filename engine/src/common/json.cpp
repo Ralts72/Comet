@@ -37,8 +37,7 @@ namespace Comet::Json {
         return result;
     }
 
-    Node Context::required_child(
-        Node node, std::string_view key, std::string_view location) const {
+    Node Context::required_child(Node node, std::string_view key, std::string_view location) const {
         Node child;
         if(node[key].get(child))
             throw std::runtime_error(
@@ -81,8 +80,7 @@ namespace Comet::Json {
     }
 
     void Writer::end_scope(bool object) {
-        if(m_scopes.empty() || m_scopes.back().object != object
-            || m_scopes.back().awaiting_value)
+        if(m_scopes.empty() || m_scopes.back().object != object || m_scopes.back().awaiting_value)
             throw std::runtime_error("Unbalanced JSON writer scope");
         const bool empty = m_scopes.back().empty;
         m_scopes.pop_back();

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/export.h"
-#include "asset/result.h"
+#include "common/result.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -23,7 +23,7 @@ namespace Comet {
         bool operator==(const ImportInputSnapshot&) const noexcept = default;
     };
 
-    [[nodiscard]] COMET_API AssetResult<ImportInputSnapshot> capture_import_inputs(
+    [[nodiscard]] COMET_API Result<ImportInputSnapshot> capture_import_inputs(
         const std::filesystem::path& asset_root, const std::filesystem::path& source_path,
         std::span<const std::filesystem::path> source_dependencies);
 

@@ -60,10 +60,8 @@ namespace Comet {
         vk::Extent2D extent;
         vk::SurfaceFormatKHR surface_format;
         vk::PresentModeKHR present_mode = vk::PresentModeKHR::eFifo;
-        vk::SurfaceTransformFlagBitsKHR transform =
-            vk::SurfaceTransformFlagBitsKHR::eIdentity;
-        vk::CompositeAlphaFlagBitsKHR composite_alpha =
-            vk::CompositeAlphaFlagBitsKHR::eOpaque;
+        vk::SurfaceTransformFlagBitsKHR transform = vk::SurfaceTransformFlagBitsKHR::eIdentity;
+        vk::CompositeAlphaFlagBitsKHR composite_alpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
         vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eColorAttachment;
         bool clipped = true;
     };
@@ -120,13 +118,12 @@ namespace Comet {
 
     [[nodiscard]] DeviceCapability select_physical_device(
         const std::vector<vk::PhysicalDevice>& physical_devices, vk::SurfaceKHR surface,
-        const DeviceCapabilityRequest& request,
-        uint32_t required_graphics_queue_count = 1,
+        const DeviceCapabilityRequest& request, uint32_t required_graphics_queue_count = 1,
         uint32_t required_present_queue_count = 1);
 
     [[nodiscard]] COMET_API SwapchainResult select_swapchain(
         const vk::SurfaceCapabilitiesKHR& capabilities,
         const std::vector<vk::SurfaceFormatKHR>& surface_formats,
-        const std::vector<vk::PresentModeKHR>& present_modes,
-        vk::Extent2D framebuffer_extent, const SwapchainRequest& request);
+        const std::vector<vk::PresentModeKHR>& present_modes, vk::Extent2D framebuffer_extent,
+        const SwapchainRequest& request);
 }

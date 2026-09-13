@@ -27,8 +27,8 @@ namespace Comet::Tests {
 
             [[nodiscard]] const std::filesystem::path& root() const { return m_root; }
 
-            void write(const std::filesystem::path& relative_path,
-                const std::string& contents) const {
+            void write(
+                const std::filesystem::path& relative_path, const std::string& contents) const {
                 const std::filesystem::path path = m_root / relative_path;
                 std::filesystem::create_directories(path.parent_path());
                 std::ofstream output(path, std::ios::binary);
@@ -84,8 +84,7 @@ namespace Comet::Tests {
         AssetSourceMonitor monitor(directory.root());
         ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
 
-        const std::filesystem::path unavailable =
-            directory.root().string() + ".unavailable";
+        const std::filesystem::path unavailable = directory.root().string() + ".unavailable";
         std::filesystem::rename(directory.root(), unavailable);
         const AssetSourceMonitor::PollResult failed = monitor.poll_now();
         EXPECT_EQ(failed.state, AssetSourceMonitor::PollState::Failed);

@@ -16,8 +16,7 @@ namespace CometEditor {
             initial_path = scene_directory.string() + "/";
         }
         m_path_buffer.fill('\0');
-        std::copy_n(initial_path.data(),
-            std::min(initial_path.size(), m_path_buffer.size() - 1),
+        std::copy_n(initial_path.data(), std::min(initial_path.size(), m_path_buffer.size() - 1),
             m_path_buffer.data());
     }
 
@@ -39,8 +38,8 @@ namespace CometEditor {
         }
 
         ImGui::SetNextItemWidth(560.0f);
-        const bool submitted = ImGui::InputText("Path", m_path_buffer.data(),
-            m_path_buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+        const bool submitted = ImGui::InputText("Path", m_path_buffer.data(), m_path_buffer.size(),
+            ImGuiInputTextFlags_EnterReturnsTrue);
 
         const char* action = is_open ? "Open" : "Save";
         if((ImGui::Button(action, ImVec2(100.0f, 0.0f)) || submitted)) {

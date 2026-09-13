@@ -45,18 +45,18 @@ Scene Serializer 和 ConfigLoader 留在各自模块，不强行纳入 AssetMana
 
 ## 失败返回契约
 
-`asset/result.h` 的 `AssetResult<T>` 表达一次操作的成功值或错误字符串；无返回数据的写入使用 `AssetResult<void>`。
+`common/result.h` 的 `Result<T>` 表达一次操作的成功值或错误字符串；无返回数据的写入使用 `Result<void>`。
 先检查结果，再访问 `value()` 或 `error()`；二者互斥，不能用空字符串或空数据判断成功。
 它不记录日志、不包装 try/catch、不携带 Vulkan 类型，仍兼容 C++20。
 
 - Mesh/Texture Importer、输入指纹采集、ImportService 构建、MeshArtifact 发布、.mat/.meta 读写及数据库更新统一返回该类型。
-- `MeshImportData` 只是 CPU 网格和源依赖的数据包；外层 `AssetResult<MeshImportData>` 才表示操作成败。
+- `MeshImportData` 只是 CPU 网格和源依赖的数据包；外层 `Result<MeshImportData>` 才表示操作成败。
 - 导入器直接返回预期失败；共享 JSON 校验和文件 I/O 的异常在序列化／产物出口转换。
   AssetManager 输出操作日志，AssetDatabase 聚合扫描问题，Inspector 保存字段错误，不在底层重复打印。
 - `asset/serialization/json_serialization.h` 共用文件读写及失败结果转换，`common/json.h/.cpp` 提供 JSON 校验与输出；
   Material/Metadata 的 encode/decode 只维护各自字段规则。通过普通函数组合复用，不继承序列化器基类，
   不在公开序列化接口中暴露 JSON 类型，也不保存或异步调度编码／解码函数。
-  Scene 同样复用 JSON 工具，但不依赖资产模块的 AssetResult；simdjson 是 engine 的显式私有依赖。
+  Scene 同样复用 JSON 工具，但不依赖资产序列化模块；simdjson 是 engine 的显式私有依赖。
   `.scene` v2、`.mat` v2、`.meta` v3 为编辑器生成的 JSON；`project.json` v1 同样使用 JSON，Profile 继续使用 YAML。
   Project 直接复用 Json::Context，不依赖资产序列化器；目前只读取项目描述，项目设置 UI/自动保存尚未实现。
   当前尚未发布，FORMAT_VERSION 只用于严格检测；版本不匹配直接报错，不兼容旧 YAML，不提供迁移或旧格式备份。

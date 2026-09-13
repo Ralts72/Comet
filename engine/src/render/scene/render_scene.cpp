@@ -30,7 +30,6 @@ namespace Comet {
             return Math::perspective(fov_degrees, aspect, near_clip, far_clip);
         const float half_height = orthographic_height * 0.5f;
         const float half_width = half_height * aspect;
-        return Math::ortho(
-            -half_width, half_width, -half_height, half_height, near_clip, far_clip);
+        return Math::ortho(-half_width, half_width, -half_height, half_height, near_clip, far_clip);
     }
 }

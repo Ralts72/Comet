@@ -14,8 +14,7 @@ namespace Comet {
                 return std::nullopt;
             }
             const Math::Mat4 inverse_model = Math::inverse(model_matrix);
-            const Math::Vec4 local_origin =
-                inverse_model * Math::Vec4(world_ray.origin, 1.0f);
+            const Math::Vec4 local_origin = inverse_model * Math::Vec4(world_ray.origin, 1.0f);
             const Math::Vec4 local_direction =
                 inverse_model * Math::Vec4(world_ray.direction, 0.0f);
             if(!Math::is_finite(local_origin) || !Math::is_finite(local_direction)
@@ -37,15 +36,15 @@ namespace Comet {
 
     std::optional<Ray> make_world_ray(const ViewProjectMatrix& view_project,
         const Math::Vec2u pixel, const Math::Vec2u render_resolution) {
-        if(render_resolution.x == 0 || render_resolution.y == 0
-            || pixel.x >= render_resolution.x || pixel.y >= render_resolution.y) {
+        if(render_resolution.x == 0 || render_resolution.y == 0 || pixel.x >= render_resolution.x
+            || pixel.y >= render_resolution.y) {
             return std::nullopt;
         }
 
-        const float normalized_x = (static_cast<float>(pixel.x) + 0.5f)
-                                   / static_cast<float>(render_resolution.x);
-        const float normalized_y = (static_cast<float>(pixel.y) + 0.5f)
-                                   / static_cast<float>(render_resolution.y);
+        const float normalized_x =
+            (static_cast<float>(pixel.x) + 0.5f) / static_cast<float>(render_resolution.x);
+        const float normalized_y =
+            (static_cast<float>(pixel.y) + 0.5f) / static_cast<float>(render_resolution.y);
         const float ndc_x = normalized_x * 2.0f - 1.0f;
         // 纹理像素以左上角为原点，与渲染时的负高度 Viewport 对应。
         const float ndc_y = 1.0f - normalized_y * 2.0f;
@@ -62,8 +61,7 @@ namespace Comet {
 
         std::optional<ScenePickHit> closest;
         for(const ScenePickCandidate& candidate : candidates) {
-            if(candidate.entity_id == INVALID_ENTITY_ID
-                || !candidate.local_bounds.is_valid()) {
+            if(candidate.entity_id == INVALID_ENTITY_ID || !candidate.local_bounds.is_valid()) {
                 continue;
             }
             const std::optional<Ray> local_ray =
@@ -77,10 +75,8 @@ namespace Comet {
                 continue;
             }
             if(!closest || *distance < closest->distance
-                || (*distance == closest->distance
-                    && candidate.entity_id < closest->entity_id)) {
-                closest =
-                    ScenePickHit{.entity_id = candidate.entity_id, .distance = *distance};
+                || (*distance == closest->distance && candidate.entity_id < closest->entity_id)) {
+                closest = ScenePickHit{.entity_id = candidate.entity_id, .distance = *distance};
             }
         }
         return closest;

@@ -23,8 +23,7 @@ namespace Comet::Tests {
                 .synchronization2_supported = true};
         }
 
-        bool contains_reason(
-            const DeviceCandidateEvaluation& evaluation, const std::string& text) {
+        bool contains_reason(const DeviceCandidateEvaluation& evaluation, const std::string& text) {
             return std::ranges::any_of(
                 evaluation.rejection_reasons, [&text](const std::string& reason) {
                     return reason.find(text) != std::string::npos;
@@ -36,8 +35,7 @@ namespace Comet::Tests {
         auto candidate = make_suitable_candidate();
         candidate.api_version = VK_API_VERSION_1_2;
 
-        const auto evaluation =
-            evaluate_device_candidate(candidate, DeviceCapabilityRequest{});
+        const auto evaluation = evaluate_device_candidate(candidate, DeviceCapabilityRequest{});
 
         EXPECT_FALSE(evaluation.is_suitable());
         EXPECT_TRUE(contains_reason(evaluation, "Vulkan API"));
@@ -55,8 +53,7 @@ namespace Comet::Tests {
         candidate.timeline_semaphore_supported = false;
         candidate.synchronization2_supported = false;
 
-        const auto evaluation =
-            evaluate_device_candidate(candidate, DeviceCapabilityRequest{});
+        const auto evaluation = evaluate_device_candidate(candidate, DeviceCapabilityRequest{});
 
         EXPECT_FALSE(evaluation.is_suitable());
         EXPECT_TRUE(contains_reason(evaluation, "graphics queue"));
@@ -87,8 +84,7 @@ namespace Comet::Tests {
     }
 
     TEST(DeviceCapabilityTest, SelectsMemoryBudgetOnlyWhenAvailable) {
-        const auto without_budget =
-            select_device_extensions({VK_KHR_SWAPCHAIN_EXTENSION_NAME});
+        const auto without_budget = select_device_extensions({VK_KHR_SWAPCHAIN_EXTENSION_NAME});
         EXPECT_TRUE(without_budget.missing_required_extensions.empty());
         EXPECT_FALSE(without_budget.memory_budget_enabled);
 
@@ -96,10 +92,9 @@ namespace Comet::Tests {
             {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME});
         EXPECT_TRUE(with_budget.missing_required_extensions.empty());
         EXPECT_TRUE(with_budget.memory_budget_enabled);
-        EXPECT_TRUE(std::ranges::any_of(
-            with_budget.enabled_extensions, [](const char* extension_name) {
-                return std::string_view(extension_name)
-                       == VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
+        EXPECT_TRUE(
+            std::ranges::any_of(with_budget.enabled_extensions, [](const char* extension_name) {
+                return std::string_view(extension_name) == VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
             }));
 
         const auto missing_required =
@@ -129,8 +124,8 @@ namespace Comet::Tests {
     }
 
     TEST(DeviceCandidateEvaluationTest, EnablesRequiredSynchronizationFeatures) {
-        const auto evaluation = evaluate_device_candidate(
-            make_suitable_candidate(), DeviceCapabilityRequest{});
+        const auto evaluation =
+            evaluate_device_candidate(make_suitable_candidate(), DeviceCapabilityRequest{});
 
         ASSERT_TRUE(evaluation.is_suitable());
         EXPECT_TRUE(evaluation.enabled_vulkan12_features.timelineSemaphore);

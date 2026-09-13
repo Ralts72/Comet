@@ -25,16 +25,13 @@ namespace Comet {
         Image& operator=(Image&&) noexcept = delete;
 
         static std::shared_ptr<Image> create(Device& device, const ImageInfo& info,
-            SampleCount sample_count = SampleCount::Count1,
-            std::string_view debug_name = {});
+            SampleCount sample_count = SampleCount::Count1, std::string_view debug_name = {});
 
         static GpuResourceResult<std::shared_ptr<Image>> try_create(Device& device,
             const ImageInfo& info, bool within_budget,
-            SampleCount sample_count = SampleCount::Count1,
-            std::string_view debug_name = {});
+            SampleCount sample_count = SampleCount::Count1, std::string_view debug_name = {});
 
-        static std::shared_ptr<Image> wrap(
-            Device& device, vk::Image image, const ImageInfo& info);
+        static std::shared_ptr<Image> wrap(Device& device, vk::Image image, const ImageInfo& info);
 
         [[nodiscard]] ImageInfo get_info() const { return m_info; }
         [[nodiscard]] vk::Image get() const { return m_image; }
@@ -54,8 +51,7 @@ namespace Comet {
     private:
         friend class Image;
 
-        OwnedImage(
-            Device& device, const ImageInfo& info, Allocator::ImageAllocation allocation);
+        OwnedImage(Device& device, const ImageInfo& info, Allocator::ImageAllocation allocation);
 
         Allocation m_allocation;
     };

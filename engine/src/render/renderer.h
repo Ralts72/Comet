@@ -20,8 +20,7 @@ namespace Comet {
 
     class COMET_API Renderer {
     public:
-        Renderer(const Window& window, const Config& config,
-            const AssetRegistry& asset_registry);
+        Renderer(const Window& window, const Config& config, const AssetRegistry& asset_registry);
 
         ~Renderer();
 
@@ -37,8 +36,7 @@ namespace Comet {
         using OverlayPrepareCallback = std::function<void()>;
         using OverlayRenderCallback = std::function<void(CommandBuffer&)>;
 
-        void set_overlay_callbacks(
-            OverlayPrepareCallback prepare, OverlayRenderCallback render);
+        void set_overlay_callbacks(OverlayPrepareCallback prepare, OverlayRenderCallback render);
 
         using ViewportPickCallback = std::function<void(std::optional<ScenePickHit>)>;
         void request_viewport_pick(Math::Vec2u pixel, Math::Vec2u image_resolution);
@@ -48,20 +46,14 @@ namespace Comet {
         // 没有有效视图时也会消费并清空。
         void submit_lines(const LineDrawList& draw_list);
 
-        [[nodiscard]] ResourceManager& get_resource_manager() {
-            return *m_resource_manager;
-        }
+        [[nodiscard]] ResourceManager& get_resource_manager() { return *m_resource_manager; }
         [[nodiscard]] const ResourceManager& get_resource_manager() const {
             return *m_resource_manager;
         }
         [[nodiscard]] SceneRenderer& get_scene_renderer() { return *m_scene_renderer; }
-        [[nodiscard]] const SceneRenderer& get_scene_renderer() const {
-            return *m_scene_renderer;
-        }
+        [[nodiscard]] const SceneRenderer& get_scene_renderer() const { return *m_scene_renderer; }
         [[nodiscard]] RenderContext& get_render_context() { return *m_render_context; }
-        [[nodiscard]] const RenderContext& get_render_context() const {
-            return *m_render_context;
-        }
+        [[nodiscard]] const RenderContext& get_render_context() const { return *m_render_context; }
 
     private:
         struct ViewportPickRequest {

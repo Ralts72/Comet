@@ -30,16 +30,15 @@ namespace {
 
     TEST(PropertyEditorRegistryTest, LeavesCommitAndNormalizationToPropertyAssignment) {
         CometEditor::PropertyEditorRegistry registry;
-        ASSERT_TRUE(registry.register_editor(Comet::PropertyType::Float,
-            [](const Comet::PropertyDescriptor&, void* value) {
+        ASSERT_TRUE(registry.register_editor(
+            Comet::PropertyType::Float, [](const Comet::PropertyDescriptor&, void* value) {
                 *static_cast<float*>(value) = 12.0f;
                 return CometEditor::PropertyEditResult{.changed = true};
             }));
 
         TestComponent component;
-        const Comet::PropertyDescriptor property =
-            Comet::make_property_descriptor("value", "Value", &TestComponent::value, {},
-                [](float& value) { value = 5.0f; });
+        const Comet::PropertyDescriptor property = Comet::make_property_descriptor(
+            "value", "Value", &TestComponent::value, {}, [](float& value) { value = 5.0f; });
 
         EXPECT_TRUE(registry.edit_property(property, &component.value).changed);
         EXPECT_FLOAT_EQ(component.value, 12.0f);

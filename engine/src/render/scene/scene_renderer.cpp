@@ -17,15 +17,12 @@
 #include <utility>
 
 namespace Comet {
-    SceneRenderer::SceneRenderer(RenderContext& context,
-        const Config::Vulkan& vulkan_config, const Config::Render& render_config)
+    SceneRenderer::SceneRenderer(RenderContext& context, const Config::Vulkan& vulkan_config,
+        const Config::Render& render_config)
         : m_context(context),
-          m_surface_format(Graphics::vk_to_format(context.get_swapchain()
-                  .get_active_generation()
-                  ->get_config()
-                  .surface_format.format)),
-          m_depth_format(vulkan_config.depth_format),
-          m_msaa_samples(vulkan_config.msaa_samples),
+          m_surface_format(Graphics::vk_to_format(
+              context.get_swapchain().get_active_generation()->get_config().surface_format.format)),
+          m_depth_format(vulkan_config.depth_format), m_msaa_samples(vulkan_config.msaa_samples),
           m_color_clear_value(render_config.clear_color) {
         LOG_INFO("create frame scheduler");
         m_frame_scheduler = std::make_unique<FrameScheduler>(
@@ -33,8 +30,7 @@ namespace Comet {
     }
 
     void SceneRenderer::set_swapchain_resource_callbacks(
-        SwapchainReleaseCallback release_resources,
-        SwapchainRebuildCallback rebuild_resources) {
+        SwapchainReleaseCallback release_resources, SwapchainRebuildCallback rebuild_resources) {
         m_release_swapchain_resources = std::move(release_resources);
         m_rebuild_swapchain_resources = std::move(rebuild_resources);
     }
@@ -47,12 +43,11 @@ namespace Comet {
         std::vector<Attachment> attachments;
         attachments.emplace_back(
             Attachment::get_color_attachment(m_surface_format, m_msaa_samples));
-        attachments.emplace_back(
-            Attachment::get_depth_attachment(m_depth_format, m_msaa_samples));
+        attachments.emplace_back(Attachment::get_depth_attachment(m_depth_format, m_msaa_samples));
 
         std::vector<RenderSubPass> render_sub_passes;
-        RenderSubPass render_sub_pass_0 = {{}, {SubpassColorAttachment(0)},
-            {SubpassDepthStencilAttachment(1)}, m_msaa_samples};
+        RenderSubPass render_sub_pass_0 = {
+            {}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)}, m_msaa_samples};
         render_sub_passes.emplace_back(render_sub_pass_0);
 
         m_render_pass = std::make_shared<RenderPass>(
@@ -86,18 +81,16 @@ namespace Comet {
             Attachment::get_color_attachment(m_surface_format, m_msaa_samples);
         if(m_msaa_samples == SampleCount::Count1) {
             color_attachment.description.store_op = AttachmentStoreOp::Store;
-            color_attachment.description.final_layout =
-                ImageLayout::ShaderReadOnlyOptimal;
+            color_attachment.description.final_layout = ImageLayout::ShaderReadOnlyOptimal;
             color_attachment.usage |= ImageUsage::Sampled;
         }
 
         std::vector<Attachment> attachments;
         attachments.emplace_back(color_attachment);
-        attachments.emplace_back(
-            Attachment::get_depth_attachment(m_depth_format, m_msaa_samples));
+        attachments.emplace_back(Attachment::get_depth_attachment(m_depth_format, m_msaa_samples));
 
-        RenderSubPass render_sub_pass = {{}, {SubpassColorAttachment(0)},
-            {SubpassDepthStencilAttachment(1)}, m_msaa_samples};
+        RenderSubPass render_sub_pass = {
+            {}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)}, m_msaa_samples};
         render_sub_pass.resolve_final_layout = ImageLayout::ShaderReadOnlyOptimal;
         render_sub_pass.resolve_usage =
             Flags<ImageUsage>(ImageUsage::ColorAttachment) | ImageUsage::Sampled;
@@ -106,20 +99,20 @@ namespace Comet {
             std::vector<RenderSubPass>{render_sub_pass}, m_surface_format);
         m_pipeline_manager =
             std::make_unique<PipelineManager>(m_context.get_device(), *m_render_pass);
-        m_render_target = RenderTarget::create_multi_target(m_context.get_device(),
-            *m_render_pass, size, m_frame_scheduler->get_frame_slot_count());
+        m_render_target = RenderTarget::create_multi_target(m_context.get_device(), *m_render_pass,
+            size, m_frame_scheduler->get_frame_slot_count());
         set_render_target_clear_color();
 
         m_uses_offscreen_target = true;
     }
 
     void SceneRenderer::setup_pipeline(ResourceManager& resource_manager) {
-        m_material_renderer = std::make_unique<MaterialRenderer>(m_context.get_device(),
-            *m_pipeline_manager, resource_manager,
-            m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
-        m_debug_renderer = std::make_unique<DebugRenderer>(m_context.get_device(),
-            *m_pipeline_manager, resource_manager,
-            m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
+        m_material_renderer =
+            std::make_unique<MaterialRenderer>(m_context.get_device(), *m_pipeline_manager,
+                resource_manager, m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
+        m_debug_renderer =
+            std::make_unique<DebugRenderer>(m_context.get_device(), *m_pipeline_manager,
+                resource_manager, m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
     }
 
     std::vector<QueueSemaphoreSubmit> SceneRenderer::render_scene_pass(
@@ -138,13 +131,13 @@ namespace Comet {
         std::vector<QueueSemaphoreSubmit> resource_waits;
         if(submission.view_project_matrix) {
             const auto size = m_render_target->get_size();
-            command_buffer.set_viewport(Graphics::get_viewport(
-                static_cast<float>(size.x), static_cast<float>(size.y)));
-            command_buffer.set_scissor(Graphics::get_scissor(
-                static_cast<float>(size.x), static_cast<float>(size.y)));
+            command_buffer.set_viewport(
+                Graphics::get_viewport(static_cast<float>(size.x), static_cast<float>(size.y)));
+            command_buffer.set_scissor(
+                Graphics::get_scissor(static_cast<float>(size.x), static_cast<float>(size.y)));
             if(m_material_renderer) {
-                resource_waits = m_material_renderer->render(*m_frame_scheduler,
-                    *submission.view_project_matrix, submission.render_items);
+                resource_waits = m_material_renderer->render(
+                    *m_frame_scheduler, *submission.view_project_matrix, submission.render_items);
             }
             if(m_debug_renderer) {
                 m_debug_renderer->render(
@@ -186,8 +179,7 @@ namespace Comet {
         return true;
     }
 
-    void SceneRenderer::end_frame(
-        const std::span<const QueueSemaphoreSubmit> resource_waits) {
+    void SceneRenderer::end_frame(const std::span<const QueueSemaphoreSubmit> resource_waits) {
         PROFILE_SCOPE("SceneRenderer::end_frame");
 
         auto& device = m_context.get_device();
@@ -204,19 +196,16 @@ namespace Comet {
         waits.emplace_back(QueueSemaphoreSubmit{frame_slot.image_available_semaphore,
             Flags<PipelineStage>(PipelineStage::ColorAttachmentOutput)});
         waits.insert(waits.end(), resource_waits.begin(), resource_waits.end());
-        const QueueSemaphoreSubmit render_finished_signal{
-            image_state.render_finished_semaphore,
+        const QueueSemaphoreSubmit render_finished_signal{image_state.render_finished_semaphore,
             Flags<PipelineStage>(PipelineStage::AllCommands)};
-        static_cast<void>(
-            graphics_queue.submit2(waits, std::span(&frame_slot.command_buffer, 1),
-                std::span(&render_finished_signal, 1), &frame_slot.in_flight_fence));
+        static_cast<void>(graphics_queue.submit2(waits, std::span(&frame_slot.command_buffer, 1),
+            std::span(&render_finished_signal, 1), &frame_slot.in_flight_fence));
         m_frame_scheduler->record_submission();
 
         auto& present_queue = device.get_present_queue(0);
         const auto result = present_queue.present(
             swapchain, std::span(&image_state.render_finished_semaphore, 1), image_index);
-        if(result == vk::Result::eSuboptimalKHR
-            || result == vk::Result::eErrorOutOfDateKHR) {
+        if(result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR) {
             static_cast<void>(recreate_swapchain());
         } else if(result != vk::Result::eSuccess) {
             LOG_FATAL("failed to present swapchain image: {}", vk::to_string(result));
@@ -239,8 +228,7 @@ namespace Comet {
             const Math::Vec2u current_size = m_render_target->get_size();
             LOG_ERROR("Keeping offscreen render target at {}x{} after {}x{} generation "
                       "creation failed: {}",
-                current_size.x, current_size.y, size.x, size.y,
-                vk::to_string(candidate.result()));
+                current_size.x, current_size.y, size.x, size.y, vk::to_string(candidate.result()));
             return;
         }
 
@@ -261,8 +249,8 @@ namespace Comet {
         }
 
         if(frame_slot_index >= m_frame_scheduler->get_frame_slot_count()) {
-            LOG_FATAL("Offscreen frame slot {} exceeds frame slot count {}",
-                frame_slot_index, m_frame_scheduler->get_frame_slot_count());
+            LOG_FATAL("Offscreen frame slot {} exceeds frame slot count {}", frame_slot_index,
+                m_frame_scheduler->get_frame_slot_count());
         }
         return m_render_target->get_color_view(frame_slot_index);
     }
@@ -270,8 +258,7 @@ namespace Comet {
     bool SceneRenderer::recreate_swapchain() {
         PROFILE_SCOPE("SceneRenderer::recreate_swapchain");
         auto& swapchain = m_context.get_swapchain();
-        const SwapchainConfig previous_config =
-            swapchain.get_active_generation()->get_config();
+        const SwapchainConfig previous_config = swapchain.get_active_generation()->get_config();
 
         m_frame_scheduler->wait_for_all_slots();
         m_context.get_device().get_present_queue(0).wait_idle();

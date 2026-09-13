@@ -10,8 +10,8 @@ namespace Comet {
         m_bindings.push_back(bind_desc);
     }
 
-    void VertexInputDescription::add_attribute(const uint32_t location,
-        const uint32_t binding, const Format format, const size_t offset) {
+    void VertexInputDescription::add_attribute(
+        const uint32_t location, const uint32_t binding, const Format format, const size_t offset) {
         vk::VertexInputAttributeDescription attr_desc{};
         attr_desc.location = location;
         attr_desc.binding = binding;

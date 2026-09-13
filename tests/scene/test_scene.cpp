@@ -12,22 +12,20 @@ namespace Comet::Tests {
     template<typename, typename = void> struct HasGetScene: std::false_type {};
 
     template<typename T>
-    struct HasGetScene<T, std::void_t<decltype(std::declval<T>().get_scene())>>
-        : std::true_type {};
+    struct HasGetScene<T, std::void_t<decltype(std::declval<T>().get_scene())>>: std::true_type {};
 
     template<typename, typename = void> struct HasGetHandle: std::false_type {};
 
     template<typename T>
-    struct HasGetHandle<T, std::void_t<decltype(std::declval<T>().get_handle())>>
-        : std::true_type {};
+    struct HasGetHandle<T, std::void_t<decltype(std::declval<T>().get_handle())>>: std::true_type {
+    };
 
     static_assert(!std::is_constructible_v<Entity, entt::entity, Scene*, entt::registry*>,
         "Entity construction must not expose the Scene registry");
     static_assert(!std::is_constructible_v<Entity, entt::entity, Scene*>,
         "Only Scene should create Entity handles");
     static_assert(!HasGetScene<Entity>::value, "Entity must not expose its owning Scene");
-    static_assert(
-        !HasGetHandle<Entity>::value, "Entity must not expose the raw entt handle");
+    static_assert(!HasGetHandle<Entity>::value, "Entity must not expose the raw entt handle");
 
     template<typename T>
     concept HasMutableComponentAccess = requires(Entity entity) {
@@ -38,8 +36,7 @@ namespace Comet::Tests {
     concept CanAddComponent = requires(Entity entity) { entity.add_component<T>(); };
 
     template<typename T>
-    concept CanRemoveComponent =
-        requires(Entity entity) { entity.remove_component<T>(); };
+    concept CanRemoveComponent = requires(Entity entity) { entity.remove_component<T>(); };
 
     static_assert(!HasMutableComponentAccess<IdComponent>);
     static_assert(!HasMutableComponentAccess<UuidComponent>);
@@ -69,8 +66,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(entity.has_component<RelationshipComponent>());
         EXPECT_TRUE(entity.has_component<WorldTransformComponent>());
         EXPECT_EQ(entity.get_component<NameComponent>().name, "Camera");
-        EXPECT_EQ(
-            entity.get_component<RelationshipComponent>().parent, INVALID_ENTITY_ID);
+        EXPECT_EQ(entity.get_component<RelationshipComponent>().parent, INVALID_ENTITY_ID);
         EXPECT_TRUE(TestUtils::IsIdentityMatrix(
             entity.get_component<WorldTransformComponent>().world_matrix));
         EXPECT_NE(entity.get_id(), INVALID_ENTITY_ID);
@@ -204,8 +200,7 @@ namespace Comet::Tests {
         Entity second_parent = scene.create_entity("Second Parent");
         Entity child = scene.create_entity("Child");
 
-        first_parent.get_component<TransformComponent>().translation =
-            Math::Vec3(1.0f, 0.0f, 0.0f);
+        first_parent.get_component<TransformComponent>().translation = Math::Vec3(1.0f, 0.0f, 0.0f);
         second_parent.get_component<TransformComponent>().translation =
             Math::Vec3(5.0f, 0.0f, 0.0f);
         auto& child_transform = child.get_component<TransformComponent>();
@@ -223,15 +218,15 @@ namespace Comet::Tests {
                 * child_transform.to_matrix()));
 
         ASSERT_TRUE(scene.set_parent(child, second_parent));
-        EXPECT_TRUE(TestUtils::Mat4Equal(
-            child_transform.to_matrix(), local_before_reparent.to_matrix()));
+        EXPECT_TRUE(
+            TestUtils::Mat4Equal(child_transform.to_matrix(), local_before_reparent.to_matrix()));
         EXPECT_TRUE(TestUtils::Mat4Equal(scene.get_world_matrix(child),
             second_parent.get_component<TransformComponent>().to_matrix()
                 * child_transform.to_matrix()));
 
         ASSERT_TRUE(scene.clear_parent(child));
-        EXPECT_TRUE(TestUtils::Mat4Equal(
-            scene.get_world_matrix(child), child_transform.to_matrix()));
+        EXPECT_TRUE(
+            TestUtils::Mat4Equal(scene.get_world_matrix(child), child_transform.to_matrix()));
     }
 
     TEST(SceneTest, DestroyingParentDestroysEntireSubtree) {
@@ -284,11 +279,9 @@ namespace Comet::Tests {
 
         transform.rotate(Math::Vec3(20.0f, -20.0f, 360.0f));
 
-        EXPECT_TRUE(
-            TestUtils::Vec3Equal(transform.rotation, Math::Vec3(-170.0f, 170.0f, 0.0f)));
-        EXPECT_TRUE(TestUtils::Mat4Equal(
-            transform.to_matrix(), Math::compose_trs(transform.translation,
-                                       transform.rotation, transform.scale)));
+        EXPECT_TRUE(TestUtils::Vec3Equal(transform.rotation, Math::Vec3(-170.0f, 170.0f, 0.0f)));
+        EXPECT_TRUE(TestUtils::Mat4Equal(transform.to_matrix(),
+            Math::compose_trs(transform.translation, transform.rotation, transform.scale)));
     }
 
     TEST(SceneTest, BuiltInRenderComponentsCanBeAttached) {

@@ -26,14 +26,11 @@ namespace CometEditor {
         [[nodiscard]] bool save(const std::string& path);
 
         [[nodiscard]] const std::string& get_path() const noexcept { return m_path; }
-        [[nodiscard]] const std::string& get_last_error() const noexcept {
-            return m_last_error;
-        }
+        [[nodiscard]] const std::string& get_last_error() const noexcept { return m_last_error; }
         void clear_error() noexcept { m_last_error.clear(); }
 
     private:
-        [[nodiscard]] bool replace_scene(
-            std::unique_ptr<Comet::Scene> scene, std::string path);
+        [[nodiscard]] bool replace_scene(std::unique_ptr<Comet::Scene> scene, std::string path);
 
         const Comet::SceneSerializer& m_serializer;
         Comet::ProjectPaths m_paths;

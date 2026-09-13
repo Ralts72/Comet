@@ -8,8 +8,8 @@
 #include <utility>
 
 namespace Comet {
-    std::shared_ptr<const PreparedMaterial> MaterialRuntimeCache::prepare(
-        const AssetHandle handle, const std::shared_ptr<const Material>& material,
+    std::shared_ptr<const PreparedMaterial> MaterialRuntimeCache::prepare(const AssetHandle handle,
+        const std::shared_ptr<const Material>& material,
         const std::shared_ptr<const MaterialLayout>& layout) {
         if(!material || !layout) {
             return nullptr;
@@ -33,17 +33,16 @@ namespace Comet {
         prepared->layout = layout;
         prepared->parameters.resize(layout->get_parameter_size());
         for(const auto& property : layout->get_scalars()) {
-            const float value = material->get_scalar_property(property.name)
-                                    .value_or(property.default_value);
-            std::memcpy(
-                prepared->parameters.data() + property.offset, &value, sizeof(value));
+            const float value =
+                material->get_scalar_property(property.name).value_or(property.default_value);
+            std::memcpy(prepared->parameters.data() + property.offset, &value, sizeof(value));
         }
         for(const auto& property : layout->get_vectors()) {
-            const auto value = material->get_vector_property(property.name)
-                                   .value_or(property.default_value);
+            const auto value =
+                material->get_vector_property(property.name).value_or(property.default_value);
             for(int component = 0; component < 4; ++component) {
-                std::memcpy(prepared->parameters.data() + property.offset
-                                + component * sizeof(float),
+                std::memcpy(
+                    prepared->parameters.data() + property.offset + component * sizeof(float),
                     &value[component], sizeof(float));
             }
         }
@@ -51,8 +50,8 @@ namespace Comet {
         for(const auto& property : layout->get_textures()) {
             auto texture = material->get_texture_property(property.name);
             if(!texture) {
-                LOG_ERROR("Material handle {} is missing texture property '{}'",
-                    handle.value(), property.name);
+                LOG_ERROR("Material handle {} is missing texture property '{}'", handle.value(),
+                    property.name);
                 return nullptr;
             }
             prepared->textures.push_back({property.binding, std::move(texture)});

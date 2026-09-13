@@ -34,14 +34,12 @@ namespace Comet {
             || m_create_info.memory_pressure_threshold_percent > 100) {
             LOG_FATAL("UploadManager memory pressure threshold must be in [1, 100]");
         }
-        m_create_info.staging_page_size =
-            align_staging_offset(m_create_info.staging_page_size);
+        m_create_info.staging_page_size = align_staging_offset(m_create_info.staging_page_size);
     }
 
     UploadManager::~UploadManager() {
         if(m_open_batch_count != 0) {
-            LOG_FATAL(
-                "UploadManager destroyed with {} open batch(es)", m_open_batch_count);
+            LOG_FATAL("UploadManager destroyed with {} open batch(es)", m_open_batch_count);
         }
         wait_for_pending_batches();
     }
@@ -60,31 +58,29 @@ namespace Comet {
 
     void UploadBatch::enqueue_upload(std::shared_ptr<Buffer> destination,
         const std::span<const std::byte> data, const ResourceState& after) {
-        const auto result =
-            try_enqueue_upload(std::move(destination), data, after, false);
+        const auto result = try_enqueue_upload(std::move(destination), data, after, false);
         if(!result) {
             LOG_FATAL("Failed to allocate buffer upload staging memory: {}",
                 vk::to_string(result.result()));
         }
     }
 
-    GpuResourceResult<void> UploadBatch::try_enqueue_upload(
-        std::shared_ptr<Buffer> destination, const std::span<const std::byte> data,
-        const ResourceState& after, const bool within_budget) {
+    GpuResourceResult<void> UploadBatch::try_enqueue_upload(std::shared_ptr<Buffer> destination,
+        const std::span<const std::byte> data, const ResourceState& after,
+        const bool within_budget) {
         ensure_active();
         if(!destination || data.empty()) {
             LOG_FATAL("Buffer upload requires a destination and non-empty data");
         }
         if(data.size_bytes() != destination->get_size()) {
-            LOG_FATAL("Buffer upload size {} does not match destination size {}",
-                data.size_bytes(), destination->get_size());
+            LOG_FATAL("Buffer upload size {} does not match destination size {}", data.size_bytes(),
+                destination->get_size());
         }
         if(data.size_bytes() % STAGING_ALIGNMENT != 0) {
             LOG_FATAL("Buffer upload size must be a multiple of 4 bytes");
         }
 
-        auto staging_attempt =
-            m_manager->try_allocate_staging(m_resources, data, within_budget);
+        auto staging_attempt = m_manager->try_allocate_staging(m_resources, data, within_budget);
         if(!staging_attempt) {
             abort();
             return GpuResourceResult<void>::failure(staging_attempt.result());
@@ -92,31 +88,28 @@ namespace Comet {
         const auto staging = std::move(staging_attempt).value();
         get_context().copy_buffer(
             *staging.page->buffer, *destination, data.size_bytes(), staging.offset);
-        const auto transfer = resolve_resource_state(
-            ResourceUsage::TransferDestination, {}, after.queue_family);
+        const auto transfer =
+            resolve_resource_state(ResourceUsage::TransferDestination, {}, after.queue_family);
         if(!transfer) {
             LOG_FATAL("UploadManager failed to resolve buffer transfer state");
         }
-        get_context().transition_buffer_state(
-            *destination, *transfer, after, 0, data.size_bytes());
+        get_context().transition_buffer_state(*destination, *transfer, after, 0, data.size_bytes());
         m_resources.buffers.push_back(std::move(destination));
         return GpuResourceResult<void>::success();
     }
 
     void UploadBatch::enqueue_upload(std::shared_ptr<Image> destination,
-        const std::span<const std::byte> data, const ImageState& before,
-        const ImageState& after) {
-        const auto result =
-            try_enqueue_upload(std::move(destination), data, before, after, false);
+        const std::span<const std::byte> data, const ImageState& before, const ImageState& after) {
+        const auto result = try_enqueue_upload(std::move(destination), data, before, after, false);
         if(!result) {
             LOG_FATAL("Failed to allocate image upload staging memory: {}",
                 vk::to_string(result.result()));
         }
     }
 
-    GpuResourceResult<void> UploadBatch::try_enqueue_upload(
-        std::shared_ptr<Image> destination, const std::span<const std::byte> data,
-        const ImageState& before, const ImageState& after, const bool within_budget) {
+    GpuResourceResult<void> UploadBatch::try_enqueue_upload(std::shared_ptr<Image> destination,
+        const std::span<const std::byte> data, const ImageState& before, const ImageState& after,
+        const bool within_budget) {
         ensure_active();
         if(!destination || data.empty()) {
             LOG_FATAL("Image upload requires a destination and non-empty data");
@@ -126,15 +119,13 @@ namespace Comet {
         if(before.subresources != after.subresources
             || before.resource.queue_family != after.resource.queue_family
             || range.aspects != ImageAspect::Color || range.base_mip_level != 0
-            || range.level_count != 1 || range.base_array_layer != 0
-            || range.layer_count != 1
+            || range.level_count != 1 || range.base_array_layer != 0 || range.layer_count != 1
             || !static_cast<bool>(info.usage & ImageUsage::CopyDst)) {
             LOG_FATAL("Image upload currently requires one full color subresource "
                       "with stable queue ownership and CopyDst usage");
         }
 
-        auto staging_attempt =
-            m_manager->try_allocate_staging(m_resources, data, within_budget);
+        auto staging_attempt = m_manager->try_allocate_staging(m_resources, data, within_budget);
         if(!staging_attempt) {
             abort();
             return GpuResourceResult<void>::failure(staging_attempt.result());
@@ -147,9 +138,8 @@ namespace Comet {
             LOG_FATAL("UploadManager failed to resolve image transfer state");
         }
         context.transition_image_state(*destination, before, *transfer);
-        context.copy_buffer_to_image(*staging.page->buffer, *destination,
-            transfer->layout, vk::Extent3D{info.extent.x, info.extent.y, info.extent.z},
-            0, 1, 0, staging.offset);
+        context.copy_buffer_to_image(*staging.page->buffer, *destination, transfer->layout,
+            vk::Extent3D{info.extent.x, info.extent.y, info.extent.z}, 0, 1, 0, staging.offset);
         context.transition_image_state(*destination, *transfer, after);
 
         m_resources.images.push_back(std::move(destination));
@@ -222,9 +212,9 @@ namespace Comet {
         return *m_context;
     }
 
-    GpuResourceResult<UploadManager::StagingAllocation> UploadManager::
-        try_allocate_staging(BatchResources& resources,
-            const std::span<const std::byte> data, const bool within_budget) {
+    GpuResourceResult<UploadManager::StagingAllocation> UploadManager::try_allocate_staging(
+        BatchResources& resources, const std::span<const std::byte> data,
+        const bool within_budget) {
         collect_completed();
 
         for(const auto& page : resources.staging_pages) {
@@ -239,8 +229,8 @@ namespace Comet {
 
         const size_t required_capacity = align_staging_offset(data.size_bytes());
         auto available = m_available_pages.end();
-        for(auto candidate = m_available_pages.begin();
-            candidate != m_available_pages.end(); ++candidate) {
+        for(auto candidate = m_available_pages.begin(); candidate != m_available_pages.end();
+            ++candidate) {
             if((*candidate)->capacity >= required_capacity
                 && (available == m_available_pages.end()
                     || (*candidate)->capacity < (*available)->capacity)) {
@@ -253,19 +243,17 @@ namespace Comet {
             page = std::move(*available);
             m_available_pages.erase(available);
         } else {
-            const size_t capacity =
-                std::max(m_create_info.staging_page_size, required_capacity);
+            const size_t capacity = std::max(m_create_info.staging_page_size, required_capacity);
             if(m_create_info.staging_growth_guard) {
-                const auto rejection =
-                    m_create_info.staging_growth_guard(capacity, within_budget);
+                const auto rejection = m_create_info.staging_growth_guard(capacity, within_budget);
                 if(rejection) {
                     return GpuResourceResult<StagingAllocation>::failure(*rejection);
                 }
             }
             prepare_for_staging_growth(capacity);
-            auto buffer = Buffer::try_create_upload_buffer(m_device,
-                Flags<BufferUsage>(BufferUsage::CopySrc), capacity, within_budget,
-                nullptr, "upload staging page");
+            auto buffer =
+                Buffer::try_create_upload_buffer(m_device, Flags<BufferUsage>(BufferUsage::CopySrc),
+                    capacity, within_budget, nullptr, "upload staging page");
             if(!buffer) {
                 return GpuResourceResult<StagingAllocation>::failure(buffer.result());
             }
@@ -283,8 +271,8 @@ namespace Comet {
 
     void UploadManager::prepare_for_staging_growth(const size_t capacity) {
         const auto snapshot = m_device.query_memory_budget();
-        const bool under_pressure = std::ranges::any_of(
-            snapshot.heaps, [this, capacity](const MemoryHeapBudget& heap) {
+        const bool under_pressure =
+            std::ranges::any_of(snapshot.heaps, [this, capacity](const MemoryHeapBudget& heap) {
                 return heap.reaches_usage_percentage(
                     capacity, m_create_info.memory_pressure_threshold_percent);
             });

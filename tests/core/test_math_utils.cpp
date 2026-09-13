@@ -34,8 +34,7 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(Math::wrap_degrees(-181.0f), 179.0f);
         EXPECT_FLOAT_EQ(Math::wrap_degrees(540.0f), -180.0f);
 
-        const Math::Vec3 wrapped =
-            Math::wrap_degrees(Math::Vec3(360.0f, -450.0f, 721.0f));
+        const Math::Vec3 wrapped = Math::wrap_degrees(Math::Vec3(360.0f, -450.0f, 721.0f));
         EXPECT_TRUE(TestUtils::Vec3Equal(wrapped, Math::Vec3(0.0f, -90.0f, 1.0f)));
     }
 
@@ -45,23 +44,21 @@ namespace Comet::Tests {
 
         const Math::Vec4 transformed = matrix * Math::Vec4(1.0f, 0.0f, 0.0f, 1.0f);
 
-        EXPECT_TRUE(
-            TestUtils::Vec3Equal(Math::Vec3(transformed), Math::Vec3(1.0f, 4.0f, 3.0f)));
+        EXPECT_TRUE(TestUtils::Vec3Equal(Math::Vec3(transformed), Math::Vec3(1.0f, 4.0f, 3.0f)));
     }
 
     TEST(MathUtilsTest, ComposeTrsAppliesEulerRotationsInXYZOrder) {
-        const Math::Mat4 matrix = Math::compose_trs(
-            Math::Vec3(0.0f), Math::Vec3(90.0f, 90.0f, 0.0f), Math::Vec3(1.0f));
+        const Math::Mat4 matrix =
+            Math::compose_trs(Math::Vec3(0.0f), Math::Vec3(90.0f, 90.0f, 0.0f), Math::Vec3(1.0f));
 
         const Math::Vec4 transformed = matrix * Math::Vec4(0.0f, 1.0f, 0.0f, 0.0f);
 
-        EXPECT_TRUE(
-            TestUtils::Vec3Equal(Math::Vec3(transformed), Math::Vec3(1.0f, 0.0f, 0.0f)));
+        EXPECT_TRUE(TestUtils::Vec3Equal(Math::Vec3(transformed), Math::Vec3(1.0f, 0.0f, 0.0f)));
     }
 
     TEST(MathUtilsTest, ComposeTrsWrapsLargeEulerAngles) {
-        const Math::Mat4 wrapped = Math::compose_trs(
-            Math::Vec3(0.0f), Math::Vec3(10.0f, -20.0f, 30.0f), Math::Vec3(1.0f));
+        const Math::Mat4 wrapped =
+            Math::compose_trs(Math::Vec3(0.0f), Math::Vec3(10.0f, -20.0f, 30.0f), Math::Vec3(1.0f));
         const Math::Mat4 accumulated = Math::compose_trs(
             Math::Vec3(0.0f), Math::Vec3(3610.0f, -7220.0f, 10830.0f), Math::Vec3(1.0f));
 

@@ -137,7 +137,8 @@ JSON 解析直接依赖已有 simdjson。
   相机 FrameSet 按 slot 更新，MaterialSet 按材质版本跨 slot 复用，物体矩阵使用 push constant；在途版本由 FrameSlot 保活。
   Shader 加载时反射实际 SPIR-V，Pipeline 创建／缓存查询前校验绑定及 push constant，材质另检查参数块类型与偏移。
   ShaderInterface 只公开 Comet 值类型；Vulkan 布局转换与覆盖校验留在 ShaderLayout 实现中。
-  Shader 源编译的可预期失败通过 Result／diagnostics 返回，异常捕获集中在第三方调用和 I/O 边界；构造校验不改成致命退出。
+  源编译使用 diagnostics；反射、布局／specialization 校验和 PipelineKey 创建使用公共 `Result<T>` 返回预期失败。
+  Shader／Pipeline 管理器只发布成功候选；GPU 创建错误及渲染器启动边界尚未完成结果协议迁移，不承诺全链路无异常。
   Pipeline 按 Shader 字节码／入口、specialization、布局、渲染状态及 RenderPass 域复用，名称只作标签；缓存弱引用不代替在途帧保活。
   specialization 支持 bool 与 32 位数值，按阶段和位模式校验／缓存并传给 GPU；只用于固定接口的创建期变体。
   改变数组长度的变体使用编译期 defines，不用 specialization；材质逐帧参数仍走原有 uniform。
@@ -149,7 +150,7 @@ JSON 解析直接依赖已有 simdjson。
   使用当前相机和正常深度测试；不依赖 ImGui，编辑器选中框是其中一个调用方。
 - 资产：`AssetDatabase` 管身份与依赖，`ImportService` 管导入，`AssetManager` 协调加载与发布，
   `AssetRegistry` 是唯一 Handle 缓存；`ResourceManager` 只创建设备资源。
-  导入、资产序列化和数据库更新用 `AssetResult<T>` 返回预期失败，调用方决定如何报告；GPU 错误仍保留 Vulkan 结果码。
+  导入、资产序列化和数据库更新统一用公共 `Result<T>` 返回预期失败，调用方决定如何报告；GPU 错误仍保留 Vulkan 结果码。
 - 编辑器：`Editor` 装配依赖与帧阶段，`EditorAssets` 管引用选择／模型放置的资源准备、源监视和写入确认，
   `SceneFileDialog` 管路径弹窗；属性控件显式返回手势状态，`SceneDocument` 与 Play 会话仍保持独立。
   Project 消费资产操作返回的扫描结果并更新目录树；Inspector 按 Handle/revision 管理自己的资产缓存，不依赖入口手动失效。
@@ -166,7 +167,7 @@ JSON 解析直接依赖已有 simdjson。
 [资产管线](docs/architecture/asset-pipeline.md) · [场景格式](docs/architecture/scene-format.md) ·
 [路线图](docs/engine-roadmap.md)。
 
-C++ 遵循根目录 `.clang-format`（90 列），只格式化相关代码，不处理 Shader 和第三方源码。
+C++ 遵循根目录 `.clang-format`（100 列），只格式化相关代码，不处理 Shader 和第三方源码。
 头文件应能独立编译，实现文件直接包含自己使用的类型，不依赖入口头的传递包含。
 引擎 PCH 仅预编译常用标准库头，不包含 Vulkan、ImGui 或项目业务头；PCH 不是隐式依赖来源。
 排查 include 可用 `cmake --preset dev-debug -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON` 关闭 PCH，

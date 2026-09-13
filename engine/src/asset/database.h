@@ -1,7 +1,7 @@
 #pragma once
 
 #include "asset/metadata.h"
-#include "asset/result.h"
+#include "common/result.h"
 #include "common/export.h"
 #include "core/project_paths.h"
 
@@ -48,28 +48,25 @@ namespace Comet {
 
         [[nodiscard]] AssetScanReport scan();
 
-        [[nodiscard]] AssetResult<void> update_import_settings(
+        [[nodiscard]] Result<void> update_import_settings(
             AssetHandle handle, AssetImportSettings import_settings);
-        [[nodiscard]] AssetResult<void> update_dependencies(
+        [[nodiscard]] Result<void> update_dependencies(
             AssetHandle handle, std::vector<AssetHandle> dependencies);
-        [[nodiscard]] AssetResult<void> update_import_dependencies(
+        [[nodiscard]] Result<void> update_import_dependencies(
             AssetHandle handle, std::vector<std::filesystem::path> dependencies);
 
         [[nodiscard]] const AssetRecord* find(AssetHandle handle) const;
         [[nodiscard]] const AssetRecord* find(const std::filesystem::path& path) const;
         // 借用视图：数据库修改后，不可继续持有或遍历。
-        [[nodiscard]] std::span<const AssetHandle> get_dependencies(
-            AssetHandle handle) const;
-        [[nodiscard]] std::span<const AssetHandle> get_dependents(
-            AssetHandle handle) const;
+        [[nodiscard]] std::span<const AssetHandle> get_dependencies(AssetHandle handle) const;
+        [[nodiscard]] std::span<const AssetHandle> get_dependents(AssetHandle handle) const;
         [[nodiscard]] std::span<const std::filesystem::path> get_import_dependencies(
             AssetHandle handle) const;
         [[nodiscard]] std::span<const AssetHandle> get_import_dependents(
             const std::filesystem::path& path) const;
         [[nodiscard]] std::vector<AssetRecord> get_assets() const;
         [[nodiscard]] AssetRevision get_revision(AssetHandle handle) const noexcept;
-        [[nodiscard]] bool is_current(
-            AssetHandle handle, AssetRevision revision) const noexcept;
+        [[nodiscard]] bool is_current(AssetHandle handle, AssetRevision revision) const noexcept;
         [[nodiscard]] std::size_t size() const noexcept;
 
     private:
@@ -78,8 +75,7 @@ namespace Comet {
         ProjectPaths m_paths;
         std::unordered_map<AssetHandle, AssetRecord> m_assets;
         std::unordered_map<std::filesystem::path, AssetHandle> m_handles_by_path;
-        std::unordered_map<AssetHandle, std::vector<AssetHandle>>
-            m_dependents_by_dependency;
+        std::unordered_map<AssetHandle, std::vector<AssetHandle>> m_dependents_by_dependency;
         std::unordered_map<AssetHandle, std::vector<std::filesystem::path>>
             m_import_dependencies_by_asset;
         std::unordered_map<std::filesystem::path, std::vector<AssetHandle>>

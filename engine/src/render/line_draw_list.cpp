@@ -48,9 +48,8 @@ namespace Comet {
                 return false;
             }
         }
-        constexpr std::array<std::array<std::size_t, 2>, 12> edges{
-            {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4},
-                {1, 5}, {2, 6}, {3, 7}}};
+        constexpr std::array<std::array<std::size_t, 2>, 12> edges{{{0, 1}, {1, 2}, {2, 3}, {3, 0},
+            {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}}};
         std::array<Vertex, 24> vertices;
         std::size_t index = 0;
         for(const auto& [start, end] : edges) {

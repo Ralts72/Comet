@@ -20,9 +20,8 @@
 
 namespace Comet {
     namespace {
-        constexpr std::array<std::byte, 8> MAGIC{std::byte{'C'}, std::byte{'O'},
-            std::byte{'M'}, std::byte{'E'}, std::byte{'T'}, std::byte{'M'},
-            std::byte{'S'}, std::byte{'H'}};
+        constexpr std::array<std::byte, 8> MAGIC{std::byte{'C'}, std::byte{'O'}, std::byte{'M'},
+            std::byte{'E'}, std::byte{'T'}, std::byte{'M'}, std::byte{'S'}, std::byte{'H'}};
         constexpr std::uint32_t FORMAT_VERSION = 2;
         constexpr std::uint32_t MAX_INPUT_COUNT = 1024;
         constexpr std::uint32_t MAX_PATH_LENGTH = 16 * 1024;
@@ -81,9 +80,7 @@ namespace Comet {
                 }
             }
 
-            void write_float(const float value) {
-                write_u32(std::bit_cast<std::uint32_t>(value));
-            }
+            void write_float(const float value) { write_u32(std::bit_cast<std::uint32_t>(value)); }
 
             void write_string(const std::string_view value) {
                 if(value.size() > MAX_PATH_LENGTH) {
@@ -153,15 +150,12 @@ namespace Comet {
                 if(!read_u32(size) || size > MAX_PATH_LENGTH || size > remaining()) {
                     return false;
                 }
-                value.assign(
-                    reinterpret_cast<const char*>(m_data.data() + m_offset), size);
+                value.assign(reinterpret_cast<const char*>(m_data.data() + m_offset), size);
                 m_offset += size;
                 return true;
             }
 
-            [[nodiscard]] std::size_t remaining() const {
-                return m_data.size() - m_offset;
-            }
+            [[nodiscard]] std::size_t remaining() const { return m_data.size() - m_offset; }
 
         private:
             std::span<const std::byte> m_data;
@@ -172,11 +166,9 @@ namespace Comet {
             const std::filesystem::path& path) {
             std::error_code error;
             const std::uintmax_t size = std::filesystem::file_size(path, error);
-            if(error
-                || size > static_cast<std::uintmax_t>(
-                       std::numeric_limits<std::size_t>::max())
-                || size > static_cast<std::uintmax_t>(
-                       std::numeric_limits<std::streamsize>::max())) {
+            if(error || size > static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max())
+                || size
+                       > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max())) {
                 return std::nullopt;
             }
 
@@ -211,22 +203,18 @@ namespace Comet {
         }
 
         [[nodiscard]] bool read_vertex(BinaryReader& reader, MeshVertex& vertex) {
-            return reader.read_float(vertex.position.x)
-                   && reader.read_float(vertex.position.y)
-                   && reader.read_float(vertex.position.z)
-                   && reader.read_float(vertex.texcoord.x)
-                   && reader.read_float(vertex.texcoord.y)
-                   && reader.read_float(vertex.normal.x)
-                   && reader.read_float(vertex.normal.y)
-                   && reader.read_float(vertex.normal.z)
+            return reader.read_float(vertex.position.x) && reader.read_float(vertex.position.y)
+                   && reader.read_float(vertex.position.z) && reader.read_float(vertex.texcoord.x)
+                   && reader.read_float(vertex.texcoord.y) && reader.read_float(vertex.normal.x)
+                   && reader.read_float(vertex.normal.y) && reader.read_float(vertex.normal.z)
                    && Math::is_finite(vertex.position) && Math::is_finite(vertex.texcoord)
                    && Math::is_finite(vertex.normal);
         }
 
         void write_vertex(BinaryWriter& writer, const MeshVertex& vertex) {
-            const std::array values{vertex.position.x, vertex.position.y,
-                vertex.position.z, vertex.texcoord.x, vertex.texcoord.y, vertex.normal.x,
-                vertex.normal.y, vertex.normal.z};
+            const std::array values{vertex.position.x, vertex.position.y, vertex.position.z,
+                vertex.texcoord.x, vertex.texcoord.y, vertex.normal.x, vertex.normal.y,
+                vertex.normal.z};
             if(!std::ranges::all_of(
                    values, [](const float value) { return std::isfinite(value); })) {
                 throw std::runtime_error(
@@ -250,8 +238,7 @@ namespace Comet {
                     || relative != snapshot.files[index].relative_path
                     || (index > 0 && relative == snapshot.files.front().relative_path)
                     || (index > 1
-                        && relative.generic_string()
-                               <= previous_dependency.generic_string())) {
+                        && relative.generic_string() <= previous_dependency.generic_string())) {
                     return false;
                 }
                 if(index > 0) {
@@ -289,18 +276,18 @@ namespace Comet {
             std::uint32_t vertex_count = 0;
             std::uint32_t index_count = 0;
             if(!reader.read_bytes(MAGIC) || !reader.read_u32(format_version)
-                || !reader.read_u32(stored_importer_version)
-                || !reader.read_u64(stored_handle) || !reader.read_u32(input_count)
-                || !reader.read_u32(vertex_count) || !reader.read_u32(index_count)
-                || format_version != FORMAT_VERSION || stored_importer_version == 0
-                || stored_handle == 0 || AssetHandle(stored_handle) != expected_handle
-                || input_count == 0 || input_count > MAX_INPUT_COUNT || vertex_count == 0
-                || index_count == 0 || index_count % 3 != 0) {
+                || !reader.read_u32(stored_importer_version) || !reader.read_u64(stored_handle)
+                || !reader.read_u32(input_count) || !reader.read_u32(vertex_count)
+                || !reader.read_u32(index_count) || format_version != FORMAT_VERSION
+                || stored_importer_version == 0 || stored_handle == 0
+                || AssetHandle(stored_handle) != expected_handle || input_count == 0
+                || input_count > MAX_INPUT_COUNT || vertex_count == 0 || index_count == 0
+                || index_count % 3 != 0) {
                 return std::nullopt;
             }
 
-            MeshArtifact artifact{.handle = AssetHandle(stored_handle),
-                .importer_version = stored_importer_version};
+            MeshArtifact artifact{
+                .handle = AssetHandle(stored_handle), .importer_version = stored_importer_version};
             artifact.source_inputs.files.reserve(input_count);
             for(std::uint32_t index = 0; index < input_count; ++index) {
                 std::string serialized_path;
@@ -311,8 +298,7 @@ namespace Comet {
                 }
                 const std::filesystem::path relative =
                     path_from_utf8(serialized_path).lexically_normal();
-                if(!is_safe_relative_path(relative)
-                    || path_to_utf8(relative) != serialized_path) {
+                if(!is_safe_relative_path(relative) || path_to_utf8(relative) != serialized_path) {
                     return std::nullopt;
                 }
                 input.relative_path = relative;
@@ -349,19 +335,17 @@ namespace Comet {
         }
     }
 
-    AssetResult<void> MeshArtifact::publish_atomic(
-        const std::filesystem::path& artifact_path) const {
+    Result<void> MeshArtifact::publish_atomic(const std::filesystem::path& artifact_path) const {
         try {
-            if(data.vertices.empty() || data.indices.empty()
-                || data.indices.size() % 3 != 0
+            if(data.vertices.empty() || data.indices.empty() || data.indices.size() % 3 != 0
                 || data.vertices.size() > std::numeric_limits<std::uint32_t>::max()
                 || data.indices.size() > std::numeric_limits<std::uint32_t>::max()) {
-                return AssetResult<void>::failure(
+                return Result<void>::failure(
                     "Cannot publish a mesh artifact with invalid vertex or index counts");
             }
 
             if(!handle || importer_version == 0 || !valid_source_inputs(source_inputs)) {
-                return AssetResult<void>::failure(
+                return Result<void>::failure(
                     "Cannot publish a mesh artifact with invalid source inputs");
             }
 
@@ -383,16 +367,16 @@ namespace Comet {
             }
             for(const std::uint32_t index : data.indices) {
                 if(index >= data.vertices.size()) {
-                    return AssetResult<void>::failure(
+                    return Result<void>::failure(
                         "Cannot publish a mesh artifact with an out-of-range index");
                 }
                 writer.write_u32(index);
             }
             writer.write_u64(hash_bytes(writer.data()));
             write_binary_file_atomic(artifact_path, writer.data());
-            return AssetResult<void>::success();
+            return Result<void>::success();
         } catch(const std::runtime_error& error) {
-            return AssetResult<void>::failure(error.what());
+            return Result<void>::failure(error.what());
         }
     }
 
@@ -403,8 +387,8 @@ namespace Comet {
 
         std::vector<std::filesystem::path> dependencies;
         dependencies.reserve(source_inputs.files.size() - 1);
-        for(auto input = std::next(source_inputs.files.begin());
-            input != source_inputs.files.end(); ++input) {
+        for(auto input = std::next(source_inputs.files.begin()); input != source_inputs.files.end();
+            ++input) {
             dependencies.push_back(input->relative_path);
         }
         return dependencies;

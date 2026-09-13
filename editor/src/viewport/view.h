@@ -21,9 +21,9 @@ namespace CometEditor {
             AssetDragPayload asset;
             Comet::Math::Vec3 position;
         };
-        ViewPanel(const EditorState& state, SelectionService& selection,
-            TransformGizmo& gizmo, PropertyEditTransaction& inspector_edit,
-            std::uint32_t max_render_dimension, const EditorShortcuts& shortcuts);
+        ViewPanel(const EditorState& state, SelectionService& selection, TransformGizmo& gizmo,
+            PropertyEditTransaction& inspector_edit, std::uint32_t max_render_dimension,
+            const EditorShortcuts& shortcuts);
 
         void render() override;
 
@@ -31,8 +31,7 @@ namespace CometEditor {
         void draw_gizmo();
         void cancel_interaction();
 
-        void set_texture_id(
-            ImTextureID texture_id, std::uint32_t width, std::uint32_t height);
+        void set_texture_id(ImTextureID texture_id, std::uint32_t width, std::uint32_t height);
 
         void clear_texture();
 
@@ -46,8 +45,7 @@ namespace CometEditor {
 
         [[nodiscard]] std::optional<EditorCameraInput> take_camera_input();
 
-        [[nodiscard]] std::optional<Comet::RenderCamera::Projection>
-        take_projection_request();
+        [[nodiscard]] std::optional<Comet::RenderCamera::Projection> take_projection_request();
 
         [[nodiscard]] std::optional<EditorMode> take_mode_request();
 
@@ -83,8 +81,7 @@ namespace CometEditor {
         bool m_actually_visible = false;
         std::uint32_t m_max_render_dimension = 0;
         ViewportLayout::ResolutionPolicy m_play_resolution_policy;
-        ViewportLayout::DisplayMode m_play_display_mode =
-            ViewportLayout::DisplayMode::Fit;
+        ViewportLayout::DisplayMode m_play_display_mode = ViewportLayout::DisplayMode::Fit;
 
         ImTextureID m_texture_id = ImTextureID_Invalid;
         Comet::Math::Vec2u m_texture_resolution{};

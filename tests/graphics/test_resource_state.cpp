@@ -35,36 +35,33 @@ namespace Comet::Tests {
         EXPECT_FALSE(resolve_resource_state(
             ResourceUsage::SampledRead, Flags<PipelineStage>(PipelineStage::Transfer)));
 
-        const auto state = resolve_resource_state(
-            ResourceUsage::SampledRead, Flags<PipelineStage>(PipelineStage::VertexShader)
-                                            | PipelineStage::FragmentShader);
+        const auto state = resolve_resource_state(ResourceUsage::SampledRead,
+            Flags<PipelineStage>(PipelineStage::VertexShader) | PipelineStage::FragmentShader);
 
         ASSERT_TRUE(state.has_value());
-        EXPECT_EQ(state->stages, Flags<PipelineStage>(PipelineStage::VertexShader)
-                                     | PipelineStage::FragmentShader);
+        EXPECT_EQ(state->stages,
+            Flags<PipelineStage>(PipelineStage::VertexShader) | PipelineStage::FragmentShader);
         EXPECT_EQ(state->access, Access::ShaderRead);
     }
 
     TEST(ResourceStateTest, RejectsShaderStagesForFixedPipelineUsages) {
         EXPECT_FALSE(resolve_resource_state(ResourceUsage::TransferDestination,
             Flags<PipelineStage>(PipelineStage::FragmentShader)));
-        EXPECT_FALSE(resolve_image_state(ResourceUsage::ColorAttachmentWrite,
-            color_range(), Flags<PipelineStage>(PipelineStage::FragmentShader)));
+        EXPECT_FALSE(resolve_image_state(ResourceUsage::ColorAttachmentWrite, color_range(),
+            Flags<PipelineStage>(PipelineStage::FragmentShader)));
     }
 
     TEST(ResourceStateTest, ResolvesImageLayoutsAndSynchronization) {
-        const auto undefined =
-            resolve_image_state(ResourceUsage::Undefined, color_range());
+        const auto undefined = resolve_image_state(ResourceUsage::Undefined, color_range());
         const auto transfer =
             resolve_image_state(ResourceUsage::TransferDestination, color_range());
-        const auto sampled = resolve_image_state(ResourceUsage::SampledRead,
-            color_range(), Flags<PipelineStage>(PipelineStage::FragmentShader));
-        const auto storage = resolve_image_state(ResourceUsage::StorageReadWrite,
-            color_range(), Flags<PipelineStage>(PipelineStage::ComputeShader));
-        const auto color =
-            resolve_image_state(ResourceUsage::ColorAttachmentWrite, color_range());
-        const auto depth = resolve_image_state(
-            ResourceUsage::DepthStencilAttachmentWrite, depth_range());
+        const auto sampled = resolve_image_state(ResourceUsage::SampledRead, color_range(),
+            Flags<PipelineStage>(PipelineStage::FragmentShader));
+        const auto storage = resolve_image_state(ResourceUsage::StorageReadWrite, color_range(),
+            Flags<PipelineStage>(PipelineStage::ComputeShader));
+        const auto color = resolve_image_state(ResourceUsage::ColorAttachmentWrite, color_range());
+        const auto depth =
+            resolve_image_state(ResourceUsage::DepthStencilAttachmentWrite, depth_range());
         const auto depth_read =
             resolve_image_state(ResourceUsage::DepthStencilAttachmentRead, depth_range());
         const auto present = resolve_image_state(ResourceUsage::Present, color_range());
@@ -83,8 +80,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(storage);
         EXPECT_EQ(storage->layout, ImageLayout::General);
         EXPECT_EQ(storage->resource.stages, PipelineStage::ComputeShader);
-        EXPECT_EQ(storage->resource.access,
-            Flags<Access>(Access::ShaderRead) | Access::ShaderWrite);
+        EXPECT_EQ(
+            storage->resource.access, Flags<Access>(Access::ShaderRead) | Access::ShaderWrite);
         ASSERT_TRUE(color);
         EXPECT_EQ(color->layout, ImageLayout::ColorAttachmentOptimal);
         EXPECT_EQ(color->resource.access,
@@ -110,8 +107,7 @@ namespace Comet::Tests {
     }
 
     TEST(ResourceStateTest, CarriesQueueOwnershipAndSubresourceRange) {
-        const ImageSubresourceRange subresources{
-            .aspects = Flags<ImageAspect>(ImageAspect::Color),
+        const ImageSubresourceRange subresources{.aspects = Flags<ImageAspect>(ImageAspect::Color),
             .base_mip_level = 2,
             .level_count = 3,
             .base_array_layer = 1,
@@ -126,17 +122,16 @@ namespace Comet::Tests {
     }
 
     TEST(ResourceStateTest, RejectsInvalidOrIncompatibleSubresources) {
-        EXPECT_FALSE(resolve_image_state(
-            ResourceUsage::TransferDestination, ImageSubresourceRange{}));
+        EXPECT_FALSE(
+            resolve_image_state(ResourceUsage::TransferDestination, ImageSubresourceRange{}));
         EXPECT_FALSE(resolve_image_state(ResourceUsage::TransferDestination,
             ImageSubresourceRange{
                 .aspects = Flags<ImageAspect>(ImageAspect::Color), .level_count = 0}));
         EXPECT_FALSE(resolve_image_state(ResourceUsage::TransferDestination,
             ImageSubresourceRange{
                 .aspects = Flags<ImageAspect>(ImageAspect::Color), .layer_count = 0}));
+        EXPECT_FALSE(resolve_image_state(ResourceUsage::ColorAttachmentWrite, depth_range()));
         EXPECT_FALSE(
-            resolve_image_state(ResourceUsage::ColorAttachmentWrite, depth_range()));
-        EXPECT_FALSE(resolve_image_state(
-            ResourceUsage::DepthStencilAttachmentWrite, color_range()));
+            resolve_image_state(ResourceUsage::DepthStencilAttachmentWrite, color_range()));
     }
 }

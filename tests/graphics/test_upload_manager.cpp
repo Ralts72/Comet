@@ -19,11 +19,9 @@
 namespace Comet::Tests {
     namespace {
         template<typename T>
-        concept SupportsOwnedBufferUpload =
-            requires(T& manager, std::shared_ptr<Buffer> destination,
-                std::span<const std::byte> data, const ResourceState& after) {
-                manager.enqueue_upload(destination, data, after);
-            };
+        concept SupportsOwnedBufferUpload = requires(T& manager,
+            std::shared_ptr<Buffer> destination, std::span<const std::byte> data,
+            const ResourceState& after) { manager.enqueue_upload(destination, data, after); };
 
         template<typename T>
         concept SupportsRecoverableBufferUpload =
@@ -35,17 +33,14 @@ namespace Comet::Tests {
             };
 
         template<typename T>
-        concept SupportsBorrowedBufferUpload = requires(T& manager, Buffer* destination,
-            std::span<const std::byte> data, const ResourceState& after) {
-            manager.enqueue_upload(destination, data, after);
-        };
+        concept SupportsBorrowedBufferUpload =
+            requires(T& manager, Buffer* destination, std::span<const std::byte> data,
+                const ResourceState& after) { manager.enqueue_upload(destination, data, after); };
 
         template<typename T>
-        concept SupportsOwnedImageUpload = requires(T& manager,
-            std::shared_ptr<Image> destination, std::span<const std::byte> data,
-            const ImageState& before, const ImageState& after) {
-            manager.enqueue_upload(destination, data, before, after);
-        };
+        concept SupportsOwnedImageUpload = requires(T& manager, std::shared_ptr<Image> destination,
+            std::span<const std::byte> data, const ImageState& before,
+            const ImageState& after) { manager.enqueue_upload(destination, data, before, after); };
 
         template<typename T>
         concept SupportsRecoverableImageUpload = requires(T& manager,
@@ -73,48 +68,40 @@ namespace Comet::Tests {
         };
 
         template<typename T>
-        concept SupportsRangedBufferCopy =
-            requires(T& context, const Buffer& source, const Buffer& destination) {
-                context.copy_buffer(source, destination, 4, 8, 12);
-            };
+        concept SupportsRangedBufferCopy = requires(T& context, const Buffer& source,
+            const Buffer& destination) { context.copy_buffer(source, destination, 4, 8, 12); };
 
         template<typename T>
         concept SupportsOffsetImageCopy =
             requires(T& context, const Buffer& source, const Image& destination) {
-                context.copy_buffer_to_image(source, destination,
-                    ImageLayout::TransferDstOptimal, vk::Extent3D{1, 1, 1}, 0, 1, 0, 16);
+                context.copy_buffer_to_image(source, destination, ImageLayout::TransferDstOptimal,
+                    vk::Extent3D{1, 1, 1}, 0, 1, 0, 16);
             };
 
         template<typename T>
-        concept SupportsRawBufferCopy =
-            requires(T& context, const vk::Buffer source, const vk::Buffer destination) {
-                context.copy_buffer(source, destination, 4, 8, 12);
-            };
+        concept SupportsRawBufferCopy = requires(T& context, const vk::Buffer source,
+            const vk::Buffer destination) { context.copy_buffer(source, destination, 4, 8, 12); };
 
         template<typename T>
         concept SupportsRawImageCopy =
             requires(T& context, const vk::Buffer source, const vk::Image destination) {
-                context.copy_buffer_to_image(source, destination,
-                    ImageLayout::TransferDstOptimal, vk::Extent3D{1, 1, 1}, 0, 1, 0, 16);
+                context.copy_buffer_to_image(source, destination, ImageLayout::TransferDstOptimal,
+                    vk::Extent3D{1, 1, 1}, 0, 1, 0, 16);
             };
 
         template<typename T>
-        concept SupportsRawImageTransition = requires(T& context, const vk::Image image,
-            const ImageState& before, const ImageState& after) {
-            context.transition_image_state(image, before, after);
-        };
+        concept SupportsRawImageTransition =
+            requires(T& context, const vk::Image image, const ImageState& before,
+                const ImageState& after) { context.transition_image_state(image, before, after); };
 
         template<typename T>
-        concept SupportsRawBufferTransition =
-            requires(T& context, const vk::Buffer buffer, const ResourceState& before,
-                const ResourceState& after) {
-                context.transition_buffer_state(buffer, before, after);
-            };
+        concept SupportsRawBufferTransition = requires(T& context, const vk::Buffer buffer,
+            const ResourceState& before,
+            const ResourceState& after) { context.transition_buffer_state(buffer, before, after); };
 
         using GpuBufferFactory = decltype(&Buffer::create_gpu_buffer);
         using RecoverableGpuBufferFactory = decltype(&Buffer::try_create_gpu_buffer);
-        using RecoverableUploadBufferFactory =
-            decltype(&Buffer::try_create_upload_buffer);
+        using RecoverableUploadBufferFactory = decltype(&Buffer::try_create_upload_buffer);
         using UploadBufferFactory = decltype(&Buffer::create_upload_buffer);
 
         static_assert(ReturnsUploadBatch<UploadManager>);
@@ -134,24 +121,23 @@ namespace Comet::Tests {
 
         static_assert(!std::is_constructible_v<UploadBatch, UploadManager&>);
 
-        static_assert(std::is_invocable_v<GpuBufferFactory, Device&, Flags<BufferUsage>,
-            size_t, std::string_view>);
-        static_assert(!std::is_invocable_v<GpuBufferFactory, Device&, Flags<BufferUsage>,
-            size_t, const void*, std::string_view>);
+        static_assert(std::is_invocable_v<GpuBufferFactory, Device&, Flags<BufferUsage>, size_t,
+            std::string_view>);
+        static_assert(!std::is_invocable_v<GpuBufferFactory, Device&, Flags<BufferUsage>, size_t,
+            const void*, std::string_view>);
         static_assert(std::is_invocable_r_v<GpuResourceResult<std::shared_ptr<Buffer>>,
             RecoverableGpuBufferFactory, Device&, Flags<BufferUsage>, size_t, bool,
             std::string_view>);
         static_assert(std::is_invocable_r_v<GpuResourceResult<std::shared_ptr<CPUBuffer>>,
-            RecoverableUploadBufferFactory, Device&, Flags<BufferUsage>, size_t, bool,
-            const void*, std::string_view>);
-        static_assert(
-            std::same_as<std::invoke_result_t<UploadBufferFactory, Device&,
-                             Flags<BufferUsage>, size_t, const void*, std::string_view>,
-                std::shared_ptr<CPUBuffer>>);
-        static_assert(!std::is_constructible_v<GPUBuffer, Device&, Flags<BufferUsage>,
-            size_t, std::string_view>);
-        static_assert(!std::is_constructible_v<CPUBuffer, Device&, Flags<BufferUsage>,
-            size_t, const void*, AllocationUsage, std::string_view>);
+            RecoverableUploadBufferFactory, Device&, Flags<BufferUsage>, size_t, bool, const void*,
+            std::string_view>);
+        static_assert(std::same_as<std::invoke_result_t<UploadBufferFactory, Device&,
+                                       Flags<BufferUsage>, size_t, const void*, std::string_view>,
+            std::shared_ptr<CPUBuffer>>);
+        static_assert(!std::is_constructible_v<GPUBuffer, Device&, Flags<BufferUsage>, size_t,
+            std::string_view>);
+        static_assert(!std::is_constructible_v<CPUBuffer, Device&, Flags<BufferUsage>, size_t,
+            const void*, AllocationUsage, std::string_view>);
 
         static_assert(SupportsRangedBufferCopy<CommandContext>);
         static_assert(SupportsOffsetImageCopy<CommandContext>);
@@ -210,27 +196,27 @@ namespace Comet::Tests {
         ASSERT_NE(m_device, nullptr);
 
         size_t growth_attempts = 0;
-        UploadManager manager(*m_device,
-            {.staging_page_size = 4,
-                .max_cached_staging_pages = 4,
-                .memory_pressure_threshold_percent = 90,
-                .staging_growth_guard = [&growth_attempts](const size_t,
-                                            const bool) -> std::optional<vk::Result> {
-                    ++growth_attempts;
-                    if(growth_attempts == 3) {
-                        return vk::Result::eErrorOutOfDeviceMemory;
-                    }
-                    return std::nullopt;
-                }});
+        UploadManager manager(
+            *m_device, {.staging_page_size = 4,
+                           .max_cached_staging_pages = 4,
+                           .memory_pressure_threshold_percent = 90,
+                           .staging_growth_guard = [&growth_attempts](const size_t,
+                                                       const bool) -> std::optional<vk::Result> {
+                               ++growth_attempts;
+                               if(growth_attempts == 3) {
+                                   return vk::Result::eErrorOutOfDeviceMemory;
+                               }
+                               return std::nullopt;
+                           }});
         const auto after = resolve_resource_state(ResourceUsage::VertexBuffer);
         ASSERT_TRUE(after.has_value());
 
-        auto batch_b_buffer = Buffer::create_gpu_buffer(*m_device,
-            Flags<BufferUsage>(BufferUsage::Vertex), 4, "upload batch B buffer");
-        auto batch_a_first_buffer = Buffer::create_gpu_buffer(*m_device,
-            Flags<BufferUsage>(BufferUsage::Vertex), 4, "upload batch A first buffer");
-        auto batch_a_second_buffer = Buffer::create_gpu_buffer(*m_device,
-            Flags<BufferUsage>(BufferUsage::Vertex), 4, "upload batch A second buffer");
+        auto batch_b_buffer = Buffer::create_gpu_buffer(
+            *m_device, Flags<BufferUsage>(BufferUsage::Vertex), 4, "upload batch B buffer");
+        auto batch_a_first_buffer = Buffer::create_gpu_buffer(
+            *m_device, Flags<BufferUsage>(BufferUsage::Vertex), 4, "upload batch A first buffer");
+        auto batch_a_second_buffer = Buffer::create_gpu_buffer(
+            *m_device, Flags<BufferUsage>(BufferUsage::Vertex), 4, "upload batch A second buffer");
         const std::array<std::byte, 4> data{};
 
         auto batch_b = manager.begin_batch();
@@ -238,8 +224,7 @@ namespace Comet::Tests {
 
         auto batch_a = manager.begin_batch();
         ASSERT_TRUE(batch_a.try_enqueue_upload(batch_a_first_buffer, data, *after, true));
-        const auto rejected =
-            batch_a.try_enqueue_upload(batch_a_second_buffer, data, *after, true);
+        const auto rejected = batch_a.try_enqueue_upload(batch_a_second_buffer, data, *after, true);
 
         EXPECT_FALSE(static_cast<bool>(rejected));
         EXPECT_EQ(rejected.result(), vk::Result::eErrorOutOfDeviceMemory);

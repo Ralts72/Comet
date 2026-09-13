@@ -18,33 +18,28 @@ namespace {
 
     Comet::AssetHandle load_required_mesh(
         Comet::AssetManager& asset_manager, const std::filesystem::path& relative_path) {
-        const Comet::AssetRecord* record =
-            asset_manager.get_database().find(relative_path);
+        const Comet::AssetRecord* record = asset_manager.get_database().find(relative_path);
         if(!record) {
-            LOG_FATAL("Required mesh asset '{}' is not indexed",
-                relative_path.generic_string());
+            LOG_FATAL("Required mesh asset '{}' is not indexed", relative_path.generic_string());
         }
 
-        if(!asset_manager.import_mesh(record->handle)
-            || !asset_manager.load_mesh(record->handle)) {
-            LOG_FATAL("Failed to load required mesh asset '{}'",
-                relative_path.generic_string());
+        if(!asset_manager.import_mesh(record->handle) || !asset_manager.load_mesh(record->handle)) {
+            LOG_FATAL("Failed to load required mesh asset '{}'", relative_path.generic_string());
         }
         return record->handle;
     }
 
     Comet::AssetHandle load_required_material(
         Comet::AssetManager& asset_manager, const std::filesystem::path& relative_path) {
-        const Comet::AssetRecord* record =
-            asset_manager.get_database().find(relative_path);
+        const Comet::AssetRecord* record = asset_manager.get_database().find(relative_path);
         if(!record) {
-            LOG_FATAL("Required material asset '{}' is not indexed",
-                relative_path.generic_string());
+            LOG_FATAL(
+                "Required material asset '{}' is not indexed", relative_path.generic_string());
         }
 
         if(!asset_manager.load_material(record->handle)) {
-            LOG_FATAL("Failed to load required material asset '{}'",
-                relative_path.generic_string());
+            LOG_FATAL(
+                "Failed to load required material asset '{}'", relative_path.generic_string());
         }
         return record->handle;
     }
@@ -63,12 +58,11 @@ namespace {
                 resource_manager, engine.get_task_scheduler());
             const Comet::AssetScanReport scan_report = m_asset_manager->scan();
             for(const Comet::AssetScanIssue& issue : scan_report.issues) {
-                LOG_WARN("Asset scan issue at '{}': {}", issue.path.generic_string(),
-                    issue.message);
+                LOG_WARN(
+                    "Asset scan issue at '{}': {}", issue.path.generic_string(), issue.message);
             }
 
-            const Comet::AssetHandle mesh_handle =
-                load_required_mesh(*m_asset_manager, DEMO_MESH);
+            const Comet::AssetHandle mesh_handle = load_required_mesh(*m_asset_manager, DEMO_MESH);
             const Comet::AssetHandle material_handle =
                 load_required_material(*m_asset_manager, DEMO_MATERIAL);
 
@@ -82,17 +76,14 @@ namespace {
             first_transform.translation.x = -0.5f;
             first_transform.rotation.x = -17.0f;
             first_transform.scale = Comet::Math::Vec3(0.6f);
-            first_cube.add_component<Comet::MeshRendererComponent>(
-                mesh_handle, material_handle);
+            first_cube.add_component<Comet::MeshRendererComponent>(mesh_handle, material_handle);
 
             Comet::Entity second_cube = scene->create_entity("Demo Cube B");
-            auto& second_transform =
-                second_cube.get_component<Comet::TransformComponent>();
+            auto& second_transform = second_cube.get_component<Comet::TransformComponent>();
             second_transform.translation.x = 0.5f;
             second_transform.rotation.x = -17.0f;
             second_transform.scale = Comet::Math::Vec3(0.6f);
-            second_cube.add_component<Comet::MeshRendererComponent>(
-                mesh_handle, material_handle);
+            second_cube.add_component<Comet::MeshRendererComponent>(mesh_handle, material_handle);
 
             m_cube_entity_ids = {first_cube.get_id(), second_cube.get_id()};
             engine.set_scene(std::move(scene));
@@ -109,8 +100,8 @@ namespace {
                 if(Comet::Entity cube = scene->find_entity(m_cube_entity_ids[index])) {
                     const float direction = index == 0 ? 1.0f : -1.0f;
                     auto& transform = cube.get_component<Comet::TransformComponent>();
-                    transform.rotate(Comet::Math::Vec3(
-                        0.0f, context.delta_time * 100.0f * direction, 0.0f));
+                    transform.rotate(
+                        Comet::Math::Vec3(0.0f, context.delta_time * 100.0f * direction, 0.0f));
                 }
             }
         }
@@ -126,11 +117,9 @@ namespace {
             Comet::INVALID_ENTITY_ID, Comet::INVALID_ENTITY_ID};
     };
 
-    std::unique_ptr<Comet::Application> create_game_app(
-        Comet::ApplicationArguments arguments) {
+    std::unique_ptr<Comet::Application> create_game_app(Comet::ApplicationArguments arguments) {
         if(!arguments.empty())
-            throw std::invalid_argument(
-                "This application does not accept command-line arguments");
+            throw std::invalid_argument("This application does not accept command-line arguments");
         return std::make_unique<GameApp>();
     }
 }

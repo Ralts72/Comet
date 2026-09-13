@@ -36,12 +36,10 @@ namespace CometEditor {
         void render(Comet::CommandBuffer& command_buffer) const;
 
         void release_swapchain_resources();
-        void rebuild_swapchain_resources(
-            const Comet::SwapchainCompatibility& compatibility);
+        void rebuild_swapchain_resources(const Comet::SwapchainCompatibility& compatibility);
 
         void set_viewport_image(uint32_t frame_slot_index,
-            std::shared_ptr<Comet::ImageView> image_view,
-            std::shared_ptr<Comet::Sampler> sampler);
+            std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler);
 
         [[nodiscard]] ImTextureID get_viewport_texture_id(uint32_t frame_index) const;
 

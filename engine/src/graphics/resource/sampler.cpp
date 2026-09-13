@@ -12,8 +12,7 @@ namespace Comet {
                 desc.max_anisotropy);
         }
 
-        const float enabled_max_anisotropy =
-            device.get_capability().max_sampler_anisotropy;
+        const float enabled_max_anisotropy = device.get_capability().max_sampler_anisotropy;
 
         if(desc.max_anisotropy > enabled_max_anisotropy) {
             LOG_FATAL("Sampler anisotropy {} exceeds the enabled device maximum {}",
@@ -29,8 +28,7 @@ namespace Comet {
             Graphics::sampler_address_mode_to_vk(desc.address_mode_v);
         sampler_create_info.addressModeW =
             Graphics::sampler_address_mode_to_vk(desc.address_mode_w);
-        sampler_create_info.anisotropyEnable =
-            desc.max_anisotropy > 1.0f ? VK_TRUE : VK_FALSE;
+        sampler_create_info.anisotropyEnable = desc.max_anisotropy > 1.0f ? VK_TRUE : VK_FALSE;
         sampler_create_info.maxAnisotropy = desc.max_anisotropy;
         sampler_create_info.borderColor = vk::BorderColor::eIntOpaqueBlack;
         sampler_create_info.unnormalizedCoordinates = VK_FALSE;
@@ -83,8 +81,7 @@ namespace Comet {
         return get_linear_repeat(m_device.get_capability().max_sampler_anisotropy);
     }
 
-    std::shared_ptr<Sampler> SamplerManager::get_linear_repeat(
-        const float max_anisotropy) {
+    std::shared_ptr<Sampler> SamplerManager::get_linear_repeat(const float max_anisotropy) {
         const std::string name = "linear_repeat_" + std::to_string(max_anisotropy);
         if(const auto it = m_samplers.find(name); it != m_samplers.end()) {
             return it->second;

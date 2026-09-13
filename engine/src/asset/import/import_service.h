@@ -3,6 +3,7 @@
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/handle.h"
 #include "common/export.h"
+#include "common/result.h"
 #include "core/project_paths.h"
 
 #include <filesystem>
@@ -16,7 +17,7 @@ namespace Comet {
         [[nodiscard]] std::filesystem::path mesh_artifact_path(AssetHandle handle) const;
         [[nodiscard]] std::optional<MeshArtifact> find_current_mesh_artifact(
             AssetHandle handle, const std::filesystem::path& source_path) const;
-        [[nodiscard]] AssetResult<MeshArtifact> build_mesh_artifact(
+        [[nodiscard]] Result<MeshArtifact> build_mesh_artifact(
             AssetHandle handle, const std::filesystem::path& source_path) const;
 
     private:

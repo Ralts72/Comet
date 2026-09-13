@@ -15,16 +15,14 @@ namespace Comet {
         : m_scene_resolver(asset_registry) {
         PROFILE_SCOPE("Renderer::Constructor");
 
-        m_render_context =
-            std::make_unique<RenderContext>(window, config.vulkan, config.render);
+        m_render_context = std::make_unique<RenderContext>(window, config.vulkan, config.render);
 
         LOG_INFO("create resource manager");
-        m_resource_manager =
-            std::make_unique<ResourceManager>(m_render_context->get_device());
+        m_resource_manager = std::make_unique<ResourceManager>(m_render_context->get_device());
 
         LOG_INFO("create scene renderer");
-        m_scene_renderer = std::make_unique<SceneRenderer>(
-            *m_render_context, config.vulkan, config.render);
+        m_scene_renderer =
+            std::make_unique<SceneRenderer>(*m_render_context, config.vulkan, config.render);
 
         m_scene_renderer->setup_render_pass();
 
@@ -50,14 +48,13 @@ namespace Comet {
         PROFILE_SCOPE("render frame");
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
-        const RenderSubmission submission =
-            m_scene_resolver.resolve(render_scene, frame_view);
+        const RenderSubmission submission = m_scene_resolver.resolve(render_scene, frame_view);
         const auto pick_request = std::exchange(m_viewport_pick_request, std::nullopt);
         if(pick_request && frame_view.visible
             && pick_request->image_resolution == frame_view.render_size
             && m_viewport_pick_callback) {
-            m_viewport_pick_callback(pick_render_submission(
-                submission, pick_request->pixel, frame_view.render_size));
+            m_viewport_pick_callback(
+                pick_render_submission(submission, pick_request->pixel, frame_view.render_size));
         }
         if(!frame_view.visible) {
             m_line_draw_list.clear();

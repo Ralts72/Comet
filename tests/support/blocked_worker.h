@@ -12,11 +12,10 @@ namespace Comet::Tests {
         explicit BlockedWorker(TaskScheduler& scheduler) {
             auto started = std::make_shared<std::promise<void>>();
             auto entered = started->get_future();
-            m_completion =
-                scheduler.submit([started, gate = m_release.get_future().share()] {
-                    started->set_value();
-                    gate.wait();
-                });
+            m_completion = scheduler.submit([started, gate = m_release.get_future().share()] {
+                started->set_value();
+                gate.wait();
+            });
             entered.wait();
         }
 

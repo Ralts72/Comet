@@ -6,8 +6,7 @@
 
 namespace CometEditor::Tests {
     namespace {
-        void expect_vec2(
-            const Comet::Math::Vec2& actual, const Comet::Math::Vec2& expected) {
+        void expect_vec2(const Comet::Math::Vec2& actual, const Comet::Math::Vec2& expected) {
             EXPECT_FLOAT_EQ(actual.x, expected.x);
             EXPECT_FLOAT_EQ(actual.y, expected.y);
         }
@@ -36,10 +35,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(layout.render_resolution, Comet::Math::Vec2u(800, 600));
         expect_vec2(layout.image_display_rect.min, Comet::Math::Vec2(100.0f, 275.0f));
         expect_vec2(layout.image_display_rect.max, Comet::Math::Vec2(900.0f, 725.0f));
-        EXPECT_TRUE(
-            layout.image_display_rect.contains(Comet::Math::Vec2(500.0f, 500.0f)));
-        EXPECT_FALSE(
-            layout.image_display_rect.contains(Comet::Math::Vec2(500.0f, 250.0f)));
+        EXPECT_TRUE(layout.image_display_rect.contains(Comet::Math::Vec2(500.0f, 500.0f)));
+        EXPECT_FALSE(layout.image_display_rect.contains(Comet::Math::Vec2(500.0f, 250.0f)));
     }
 
     TEST(ViewportLayoutTest, SupportsNonUniformFramebufferScale) {
@@ -212,14 +209,10 @@ namespace CometEditor::Tests {
             .current_render_resolution = Comet::Math::Vec2u(1600, 900),
         });
 
-        EXPECT_FALSE(
-            map_viewport_point_to_pixel(layout, Comet::Math::Vec2(500.0f, 190.0f)));
-        EXPECT_FALSE(
-            map_viewport_point_to_pixel(layout, Comet::Math::Vec2(500.0f, 250.0f)));
-        EXPECT_FALSE(
-            map_viewport_point_to_pixel(layout, Comet::Math::Vec2(900.0f, 500.0f)));
-        EXPECT_FALSE(
-            map_viewport_point_to_pixel(layout, Comet::Math::Vec2(500.0f, 725.0f)));
+        EXPECT_FALSE(map_viewport_point_to_pixel(layout, Comet::Math::Vec2(500.0f, 190.0f)));
+        EXPECT_FALSE(map_viewport_point_to_pixel(layout, Comet::Math::Vec2(500.0f, 250.0f)));
+        EXPECT_FALSE(map_viewport_point_to_pixel(layout, Comet::Math::Vec2(900.0f, 500.0f)));
+        EXPECT_FALSE(map_viewport_point_to_pixel(layout, Comet::Math::Vec2(500.0f, 725.0f)));
     }
 
     TEST(ViewportLayoutTest, OneToOneMapsOnlyTheClippedVisibleRegion) {
@@ -239,8 +232,7 @@ namespace CometEditor::Tests {
             Comet::Math::Vec2u(0, 0));
         EXPECT_EQ(map_viewport_point_to_pixel(layout, Comet::Math::Vec2(899.5f, 599.5f)),
             Comet::Math::Vec2u(1599, 799));
-        EXPECT_FALSE(
-            map_viewport_point_to_pixel(layout, Comet::Math::Vec2(950.0f, 650.0f)));
+        EXPECT_FALSE(map_viewport_point_to_pixel(layout, Comet::Math::Vec2(950.0f, 650.0f)));
     }
 
     TEST(ViewportLayoutTest, UsesDisplayedImageInsteadOfPendingResolution) {

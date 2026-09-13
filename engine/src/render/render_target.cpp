@@ -19,23 +19,18 @@ namespace Comet {
                 const ImageInfo image_info = {.format = description.format,
                     .extent = {extent.x, extent.y, 1},
                     .usage = usage};
-                const bool is_depth =
-                    Graphics::is_depth_stencil_format(description.format);
-                auto image_attempt = Image::try_create(device, image_info, true,
-                    description.samples,
-                    is_depth ? "render target depth image" : "render target color image");
+                const bool is_depth = Graphics::is_depth_stencil_format(description.format);
+                auto image_attempt =
+                    Image::try_create(device, image_info, true, description.samples,
+                        is_depth ? "render target depth image" : "render target color image");
                 if(!image_attempt) {
-                    return GpuResourceResult<RenderResource>::failure(
-                        image_attempt.result());
+                    return GpuResourceResult<RenderResource>::failure(image_attempt.result());
                 }
 
-                auto view_attempt =
-                    ImageView::try_create(device, std::move(image_attempt).value(),
-                        Flags<ImageAspect>(
-                            is_depth ? ImageAspect::Depth : ImageAspect::Color));
+                auto view_attempt = ImageView::try_create(device, std::move(image_attempt).value(),
+                    Flags<ImageAspect>(is_depth ? ImageAspect::Depth : ImageAspect::Color));
                 if(!view_attempt) {
-                    return GpuResourceResult<RenderResource>::failure(
-                        view_attempt.result());
+                    return GpuResourceResult<RenderResource>::failure(view_attempt.result());
                 }
 
                 auto view = std::move(view_attempt).value();
@@ -45,11 +40,10 @@ namespace Comet {
                 all_views.push_back(std::move(view));
             }
 
-            auto frame_buffer_attempt = FrameBuffer::try_create(
-                device, render_pass, all_views, extent.x, extent.y);
+            auto frame_buffer_attempt =
+                FrameBuffer::try_create(device, render_pass, all_views, extent.x, extent.y);
             if(!frame_buffer_attempt) {
-                return GpuResourceResult<RenderResource>::failure(
-                    frame_buffer_attempt.result());
+                return GpuResourceResult<RenderResource>::failure(frame_buffer_attempt.result());
             }
 
             return GpuResourceResult<RenderResource>::success(
@@ -72,15 +66,14 @@ namespace Comet {
         Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count) {
         auto attempt = try_create_multi_target(device, render_pass, size, frame_count);
         if(!attempt) {
-            LOG_FATAL("Failed to create multi render target: {}",
-                vk::to_string(attempt.result()));
+            LOG_FATAL("Failed to create multi render target: {}", vk::to_string(attempt.result()));
         }
         return std::move(attempt).value();
     }
 
-    GpuResourceResult<std::unique_ptr<RenderTarget>> RenderTarget::
-        try_create_multi_target(Device& device, RenderPass& render_pass,
-            const Math::Vec2u size, const uint32_t frame_count) {
+    GpuResourceResult<std::unique_ptr<RenderTarget>> RenderTarget::try_create_multi_target(
+        Device& device, RenderPass& render_pass, const Math::Vec2u size,
+        const uint32_t frame_count) {
         if(size.x == 0 || size.y == 0 || frame_count == 0) {
             LOG_FATAL("Multi render target requires a non-zero extent and frame count");
         }
@@ -92,8 +85,7 @@ namespace Comet {
             return GpuResourceResult<std::unique_ptr<RenderTarget>>::failure(
                 initialization.result());
         }
-        return GpuResourceResult<std::unique_ptr<RenderTarget>>::success(
-            std::move(target));
+        return GpuResourceResult<std::unique_ptr<RenderTarget>>::success(std::move(target));
     }
 
     void RenderTarget::set_clear_value(const ClearValue& clear_value) {
@@ -103,8 +95,7 @@ namespace Comet {
         }
     }
 
-    void RenderTarget::set_clear_value(
-        const ClearValue& clear_value, const std::size_t index) {
+    void RenderTarget::set_clear_value(const ClearValue& clear_value, const std::size_t index) {
         const auto& attachments = m_render_pass.get_attachments();
         if(index >= attachments.size())
             return;
@@ -113,8 +104,7 @@ namespace Comet {
         if(description.load_op != AttachmentLoadOp::Clear)
             return;
 
-        const bool is_depth_stencil =
-            Graphics::is_depth_stencil_format(description.format);
+        const bool is_depth_stencil = Graphics::is_depth_stencil_format(description.format);
         if((clear_value.is_color() && !is_depth_stencil)
             || (clear_value.is_depth_stencil() && is_depth_stencil)) {
             m_clear_values[index] = clear_value;
@@ -128,8 +118,8 @@ namespace Comet {
     void RenderTarget::begin_render_target(
         const CommandBuffer& command_buffer, const uint32_t frame_index) {
         if(frame_index >= m_frame_count) {
-            LOG_FATAL("Render target frame index {} exceeds frame count {}", frame_index,
-                m_frame_count);
+            LOG_FATAL(
+                "Render target frame index {} exceeds frame count {}", frame_index, m_frame_count);
         }
         m_current_image_index = frame_index;
         command_buffer.begin_render_pass(
@@ -181,8 +171,8 @@ namespace Comet {
                 image_info.usage = usage;
 
                 if(Graphics::is_depth_stencil_format(description.format)) {
-                    auto depth_image = Image::create(m_device, image_info,
-                        description.samples, "render target depth image");
+                    auto depth_image = Image::create(
+                        m_device, image_info, description.samples, "render target depth image");
                     all_views.push_back(ImageView::create(
                         m_device, depth_image, Flags<ImageAspect>(ImageAspect::Depth)));
                 } else {
@@ -191,8 +181,8 @@ namespace Comet {
                         && description.samples == SampleCount::Count1) {
                         color_image = m_swapchain_generation->get_images()[i];
                     } else {
-                        color_image = Image::create(m_device, image_info,
-                            description.samples, "render target color image");
+                        color_image = Image::create(
+                            m_device, image_info, description.samples, "render target color image");
                     }
                     auto color_view = ImageView::create(
                         m_device, color_image, Flags<ImageAspect>(ImageAspect::Color));
@@ -201,8 +191,8 @@ namespace Comet {
                 }
             }
 
-            m_render_resources[i].frame_buffer = FrameBuffer::create(
-                m_device, m_render_pass, all_views, m_extent.x, m_extent.y);
+            m_render_resources[i].frame_buffer =
+                FrameBuffer::create(m_device, m_render_pass, all_views, m_extent.x, m_extent.y);
             m_render_resources[i].color_views = std::move(color_views);
         }
     }

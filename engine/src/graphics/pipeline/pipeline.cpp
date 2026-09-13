@@ -1,7 +1,6 @@
 #include "graphics/pipeline/pipeline.h"
 
 #include <utility>
-#include <stdexcept>
 #include <algorithm>
 #include "graphics/device.h"
 #include "graphics/pipeline/shader.h"
@@ -14,22 +13,18 @@ namespace Comet {
             std::vector<uint32_t> words;
             vk::SpecializationInfo info;
 
-            SpecializationData(
-                const ShaderInterface& shader, ShaderInterface::Specialization values) {
-                shader.canonicalize_specialization(values);
+            explicit SpecializationData(const ShaderInterface::Specialization& values) {
                 for(const auto& [id, value] : values) {
-                    entries.emplace_back(id,
-                        static_cast<uint32_t>(words.size() * sizeof(uint32_t)),
+                    entries.emplace_back(id, static_cast<uint32_t>(words.size() * sizeof(uint32_t)),
                         sizeof(uint32_t));
                     words.push_back(value.get_bits());
                 }
-                info = vk::SpecializationInfo(static_cast<uint32_t>(entries.size()),
-                    entries.data(), words.size() * sizeof(uint32_t), words.data());
+                info = vk::SpecializationInfo(static_cast<uint32_t>(entries.size()), entries.data(),
+                    words.size() * sizeof(uint32_t), words.data());
             }
         };
     }
-    PipelineLayout::PipelineLayout(Device& device, const ShaderLayout& layout)
-        : m_device(device) {
+    PipelineLayout::PipelineLayout(Device& device, const ShaderLayout& layout) : m_device(device) {
         std::vector<vk::DescriptorSetLayout> vk_set_layouts;
         vk_set_layouts.reserve(layout.descriptor_set_layouts.size());
         for(auto& set_layout : layout.descriptor_set_layouts) {
@@ -42,15 +37,13 @@ namespace Comet {
         }
 
         vk::PipelineLayoutCreateInfo pipeline_layout_create_info = {};
-        pipeline_layout_create_info.setLayoutCount =
-            static_cast<uint32_t>(vk_set_layouts.size());
+        pipeline_layout_create_info.setLayoutCount = static_cast<uint32_t>(vk_set_layouts.size());
         pipeline_layout_create_info.pSetLayouts = vk_set_layouts.data();
         pipeline_layout_create_info.pushConstantRangeCount =
             static_cast<uint32_t>(vk_push_constants.size());
         pipeline_layout_create_info.pPushConstantRanges = vk_push_constants.data();
 
-        m_pipeline_layout =
-            m_device.get().createPipelineLayout(pipeline_layout_create_info);
+        m_pipeline_layout = m_device.get().createPipelineLayout(pipeline_layout_create_info);
         LOG_INFO("Vulkan pipeline layout created successfully");
     }
 
@@ -59,14 +52,11 @@ namespace Comet {
     }
 
     Pipeline::Pipeline(std::string name, Device& device, RenderPass& render_pass,
-        const std::shared_ptr<PipelineLayout>& layout,
-        const std::shared_ptr<Shader>& vertex_shader,
+        const std::shared_ptr<PipelineLayout>& layout, const std::shared_ptr<Shader>& vertex_shader,
         const std::shared_ptr<Shader>& fragment_shader, const PipelineConfig& config)
         : m_name(std::move(name)), m_device(device), m_layout(layout) {
-        const SpecializationData vertex_specialization(
-            vertex_shader->get_interface(), config.vertex_specialization);
-        const SpecializationData fragment_specialization(
-            fragment_shader->get_interface(), config.fragment_specialization);
+        const SpecializationData vertex_specialization(config.vertex_specialization);
+        const SpecializationData fragment_specialization(config.fragment_specialization);
         auto shader_stages = create_shader_stages(vertex_shader, fragment_shader);
         if(!vertex_specialization.entries.empty())
             shader_stages[0].pSpecializationInfo = &vertex_specialization.info;
@@ -114,8 +104,7 @@ namespace Comet {
         vk::PipelineShaderStageCreateInfo vertex_shader_stage_info = {};
         vertex_shader_stage_info.stage = vk::ShaderStageFlagBits::eVertex;
         vertex_shader_stage_info.module = vertex_shader->get();
-        vertex_shader_stage_info.pName =
-            vertex_shader->get_interface().get_entry_point().c_str();
+        vertex_shader_stage_info.pName = vertex_shader->get_interface().get_entry_point().c_str();
         vertex_shader_stage_info.pSpecializationInfo = nullptr;
         pipeline_shader_stage[0] = vertex_shader_stage_info;
         vk::PipelineShaderStageCreateInfo fragment_shader_stage_info = {};
@@ -174,23 +163,20 @@ namespace Comet {
     vk::PipelineRasterizationStateCreateInfo Pipeline::create_rasterization_state(
         const PipelineConfig& config) {
         vk::PipelineRasterizationStateCreateInfo rasterization_state_info = {};
-        rasterization_state_info.depthClampEnable =
-            config.rasterization_state.depth_clamp_enable;
+        rasterization_state_info.depthClampEnable = config.rasterization_state.depth_clamp_enable;
         rasterization_state_info.rasterizerDiscardEnable =
             config.rasterization_state.rasterizer_discard_enable;
         rasterization_state_info.polygonMode =
             Graphics::polygon_mode_to_vk(config.rasterization_state.polygon_mode);
         rasterization_state_info.lineWidth = config.rasterization_state.line_width;
-        rasterization_state_info.cullMode = Graphics::cull_mode_to_vk(
-            Flags<CullMode>(config.rasterization_state.cull_mode));
+        rasterization_state_info.cullMode =
+            Graphics::cull_mode_to_vk(Flags<CullMode>(config.rasterization_state.cull_mode));
         rasterization_state_info.frontFace =
             Graphics::front_face_to_vk(config.rasterization_state.front_face);
-        rasterization_state_info.depthBiasEnable =
-            config.rasterization_state.depth_bias_enable;
+        rasterization_state_info.depthBiasEnable = config.rasterization_state.depth_bias_enable;
         rasterization_state_info.depthBiasConstantFactor =
             config.rasterization_state.depth_bias_constant_factor;
-        rasterization_state_info.depthBiasClamp =
-            config.rasterization_state.depth_bias_clamp;
+        rasterization_state_info.depthBiasClamp = config.rasterization_state.depth_bias_clamp;
         rasterization_state_info.depthBiasSlopeFactor =
             config.rasterization_state.depth_bias_slope_factor;
         return rasterization_state_info;
@@ -201,10 +187,8 @@ namespace Comet {
         vk::PipelineMultisampleStateCreateInfo multisample_state_info = {};
         multisample_state_info.rasterizationSamples =
             Graphics::sample_count_to_vk(config.multisample_state.rasterization_samples);
-        multisample_state_info.sampleShadingEnable =
-            config.multisample_state.sample_shading_enable;
-        multisample_state_info.minSampleShading =
-            config.multisample_state.min_sample_shading;
+        multisample_state_info.sampleShadingEnable = config.multisample_state.sample_shading_enable;
+        multisample_state_info.minSampleShading = config.multisample_state.min_sample_shading;
         multisample_state_info.pSampleMask = nullptr;
         multisample_state_info.alphaToCoverageEnable = VK_FALSE;
         multisample_state_info.alphaToOneEnable = VK_FALSE;
@@ -214,16 +198,13 @@ namespace Comet {
     vk::PipelineDepthStencilStateCreateInfo Pipeline::create_depth_stencil_state(
         const PipelineConfig& config) {
         vk::PipelineDepthStencilStateCreateInfo depth_stencil_state_info = {};
-        depth_stencil_state_info.depthTestEnable =
-            config.depth_stencil_state.depth_test_enable;
-        depth_stencil_state_info.depthWriteEnable =
-            config.depth_stencil_state.depth_write_enable;
+        depth_stencil_state_info.depthTestEnable = config.depth_stencil_state.depth_test_enable;
+        depth_stencil_state_info.depthWriteEnable = config.depth_stencil_state.depth_write_enable;
         depth_stencil_state_info.depthCompareOp =
             Graphics::compare_op_to_vk(config.depth_stencil_state.depth_compare_op);
         depth_stencil_state_info.depthBoundsTestEnable =
             config.depth_stencil_state.depth_bounds_test_enable;
-        depth_stencil_state_info.stencilTestEnable =
-            config.depth_stencil_state.stencil_test_enable;
+        depth_stencil_state_info.stencilTestEnable = config.depth_stencil_state.stencil_test_enable;
         depth_stencil_state_info.front = vk::StencilOpState{};
         depth_stencil_state_info.back = vk::StencilOpState{};
         depth_stencil_state_info.minDepthBounds = 0.0f;
@@ -254,42 +235,46 @@ namespace Comet {
         LOG_INFO("PipelineManager created");
     }
 
-    std::shared_ptr<Pipeline> PipelineManager::create_pipeline(const std::string& name,
+    Result<std::shared_ptr<Pipeline>> PipelineManager::create_pipeline(const std::string& name,
         const ShaderLayout& layout, const PipelineConfig& config,
-        const std::shared_ptr<Shader>& vert_shader,
-        const std::shared_ptr<Shader>& frag_shader) {
+        const std::shared_ptr<Shader>& vert_shader, const std::shared_ptr<Shader>& frag_shader) {
         if(!vert_shader || !frag_shader
             || vert_shader->get_interface().get_stage() != ShaderStage::Vertex
             || frag_shader->get_interface().get_stage() != ShaderStage::Fragment) {
-            throw std::invalid_argument(
+            return Result<std::shared_ptr<Pipeline>>::failure(
                 "Graphics pipeline requires vertex/fragment shaders");
         }
-        layout.validate(vert_shader->get_interface());
-        layout.validate(frag_shader->get_interface());
-        PipelineKey key(layout, config, *vert_shader, *frag_shader, m_render_pass);
+        for(const auto& shader : {vert_shader, frag_shader}) {
+            if(auto checked = layout.validate(shader->get_interface()); !checked)
+                return Result<std::shared_ptr<Pipeline>>::failure(checked.error());
+        }
+        auto candidate =
+            PipelineKey::create(layout, config, *vert_shader, *frag_shader, m_render_pass);
+        if(!candidate)
+            return Result<std::shared_ptr<Pipeline>>::failure(candidate.error());
+        auto key = std::move(candidate).value();
         collect_unused();
         const auto it = m_pipelines.find(key);
         if(it != m_pipelines.end()) {
             if(auto pipeline = it->second.lock()) {
                 LOG_DEBUG("Pipeline '{}' reuses compatible cached state", name);
-                return pipeline;
+                return Result<std::shared_ptr<Pipeline>>::success(std::move(pipeline));
             }
         }
 
         auto pipeline_layout = std::make_shared<PipelineLayout>(m_device, layout);
 
-        auto pipeline = std::make_shared<Pipeline>(name, m_device, m_render_pass,
-            pipeline_layout, vert_shader, frag_shader, key.config);
+        auto pipeline = std::shared_ptr<Pipeline>(new Pipeline(
+            name, m_device, m_render_pass, pipeline_layout, vert_shader, frag_shader, key.config));
 
         m_pipelines.insert_or_assign(std::move(key), pipeline);
 
         LOG_INFO("Pipeline '{}' created successfully", name);
-        return pipeline;
+        return Result<std::shared_ptr<Pipeline>>::success(std::move(pipeline));
     }
 
     void PipelineManager::collect_unused() {
-        std::erase_if(
-            m_pipelines, [](const auto& entry) { return entry.second.expired(); });
+        std::erase_if(m_pipelines, [](const auto& entry) { return entry.second.expired(); });
     }
 
 }

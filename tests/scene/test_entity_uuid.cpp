@@ -6,10 +6,9 @@
 
 namespace Comet::Tests {
     namespace {
-        constexpr EntityUuid::Bytes SAMPLE_UUID_BYTES{0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b,
-            0x41, 0xd4, 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00};
-        constexpr std::string_view SAMPLE_UUID_TEXT =
-            "550e8400-e29b-41d4-a716-446655440000";
+        constexpr EntityUuid::Bytes SAMPLE_UUID_BYTES{0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41,
+            0xd4, 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00};
+        constexpr std::string_view SAMPLE_UUID_TEXT = "550e8400-e29b-41d4-a716-446655440000";
     }
 
     TEST(EntityUuidTest, DefaultValueIsInvalid) {

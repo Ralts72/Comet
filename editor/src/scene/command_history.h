@@ -54,8 +54,7 @@ namespace CometEditor {
             bool operator==(const Target&) const = default;
         };
 
-        PropertyEditTransaction(
-            CommandHistory& history, const Comet::ComponentRegistry& registry);
+        PropertyEditTransaction(CommandHistory& history, const Comet::ComponentRegistry& registry);
         PropertyEditTransaction(const PropertyEditTransaction&) = delete;
         PropertyEditTransaction& operator=(const PropertyEditTransaction&) = delete;
 

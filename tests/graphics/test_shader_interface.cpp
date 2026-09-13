@@ -35,7 +35,6 @@
 
 #include <gtest/gtest.h>
 #include <bit>
-#include <stdexcept>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -43,7 +42,9 @@
 
 namespace Comet::Tests {
     TEST(ShaderInterfaceTest, ReflectsTypedSpecializationAndNormalizesExactDefaults) {
-        const ShaderInterface shader(SPECIALIZATION_FRAG);
+        auto shader_result = ShaderInterface::reflect(SPECIALIZATION_FRAG);
+        ASSERT_TRUE(shader_result) << shader_result.error();
+        const auto shader = std::move(shader_result).value();
         const auto& constants = shader.get_specialization_constants();
         ASSERT_EQ(constants.size(), 4u);
         EXPECT_EQ(constants[0].id, 0u);
@@ -51,33 +52,32 @@ namespace Comet::Tests {
         EXPECT_EQ(constants[0].default_value, ShaderInterface::ConstantValue(true));
         EXPECT_EQ(constants[1].default_value, ShaderInterface::ConstantValue(1.0f));
         EXPECT_EQ(constants[2].default_value, ShaderInterface::ConstantValue(int32_t(0)));
-        EXPECT_EQ(
-            constants[3].default_value, ShaderInterface::ConstantValue(uint32_t(0)));
+        EXPECT_EQ(constants[3].default_value, ShaderInterface::ConstantValue(uint32_t(0)));
         ShaderInterface::Specialization defaults{
             {0, true}, {1, 1.0f}, {2, int32_t(0)}, {3, uint32_t(0)}};
-        shader.canonicalize_specialization(defaults);
+        ASSERT_TRUE(shader.canonicalize_specialization(defaults));
         EXPECT_TRUE(defaults.empty());
         ShaderInterface::Specialization changed{
             {0, false}, {1, -0.0f}, {2, int32_t(-1)}, {3, uint32_t(2)}};
         const auto original = changed;
-        shader.canonicalize_specialization(changed);
+        ASSERT_TRUE(shader.canonicalize_specialization(changed));
         EXPECT_EQ(changed, original);
-        EXPECT_NE(
-            ShaderInterface::ConstantValue(0.0f), ShaderInterface::ConstantValue(-0.0f));
+        EXPECT_NE(ShaderInterface::ConstantValue(0.0f), ShaderInterface::ConstantValue(-0.0f));
         EXPECT_NE(ShaderInterface::ConstantValue(0u), ShaderInterface::ConstantValue(0));
         const auto nan = std::bit_cast<float>(uint32_t(0x7fc00001));
-        EXPECT_EQ(
-            ShaderInterface::ConstantValue(nan), ShaderInterface::ConstantValue(nan));
+        EXPECT_EQ(ShaderInterface::ConstantValue(nan), ShaderInterface::ConstantValue(nan));
         ShaderInterface::Specialization wrong{{0, 1u}};
-        EXPECT_THROW(shader.canonicalize_specialization(wrong), std::invalid_argument);
+        EXPECT_FALSE(shader.canonicalize_specialization(wrong));
         wrong = {{0, true}, {999, true}};
         const auto rejected = wrong;
-        EXPECT_THROW(shader.canonicalize_specialization(wrong), std::invalid_argument);
+        EXPECT_FALSE(shader.canonicalize_specialization(wrong));
         EXPECT_EQ(wrong, rejected);
     }
 
     TEST(ShaderInterfaceTest, ReflectsProductionStagesBindingsAndPushConstants) {
-        const ShaderInterface vertex(MATERIAL_MESH_VERT);
+        auto vertex_result = ShaderInterface::reflect(MATERIAL_MESH_VERT);
+        ASSERT_TRUE(vertex_result) << vertex_result.error();
+        const auto vertex = std::move(vertex_result).value();
         EXPECT_EQ(vertex.get_entry_point(), "main");
         EXPECT_EQ(vertex.get_stage(), ShaderStage::Vertex);
         ASSERT_EQ(vertex.get_bindings().size(), 1u);
@@ -95,7 +95,9 @@ namespace Comet::Tests {
         EXPECT_EQ(vertex.get_push_constants()[0].offset, 0u);
         EXPECT_EQ(vertex.get_push_constants()[0].size, 64u);
 
-        const ShaderInterface fragment(MATERIAL_TEXTURED_FRAG);
+        auto fragment_result = ShaderInterface::reflect(MATERIAL_TEXTURED_FRAG);
+        ASSERT_TRUE(fragment_result) << fragment_result.error();
+        const auto fragment = std::move(fragment_result).value();
         EXPECT_EQ(fragment.get_stage(), ShaderStage::Fragment);
         ASSERT_EQ(fragment.get_bindings().size(), 3u);
         EXPECT_TRUE(fragment.get_push_constants().empty());
@@ -112,73 +114,89 @@ namespace Comet::Tests {
         EXPECT_EQ(parameters.members[1].format, Format::R32_SFLOAT);
         for(uint32_t index = 1; index <= 2; ++index) {
             EXPECT_EQ(fragment.get_bindings()[index].binding, index);
-            EXPECT_EQ(fragment.get_bindings()[index].type,
-                DescriptorType::CombinedImageSampler);
+            EXPECT_EQ(fragment.get_bindings()[index].type, DescriptorType::CombinedImageSampler);
         }
-        EXPECT_TRUE(ShaderInterface(DEBUG_LINE_VERT).get_bindings().empty());
-        EXPECT_EQ(ShaderInterface(DEBUG_LINE_VERT).get_push_constants().size(), 1u);
-        EXPECT_TRUE(ShaderInterface(DEBUG_LINE_FRAG).get_bindings().empty());
+        const auto debug_vertex = ShaderInterface::reflect(DEBUG_LINE_VERT);
+        ASSERT_TRUE(debug_vertex) << debug_vertex.error();
+        EXPECT_TRUE(debug_vertex.value().get_bindings().empty());
+        EXPECT_EQ(debug_vertex.value().get_push_constants().size(), 1u);
+        const auto debug_fragment = ShaderInterface::reflect(DEBUG_LINE_FRAG);
+        ASSERT_TRUE(debug_fragment) << debug_fragment.error();
+        EXPECT_TRUE(debug_fragment.value().get_bindings().empty());
     }
 
     TEST(ShaderInterfaceTest, OwnsReflectedValuesAfterInputAndParserAreGone) {
         const auto reflect = [] {
-            auto temporary = std::vector<uint32_t>(
-                MATERIAL_TEXTURED_FRAG.begin(), MATERIAL_TEXTURED_FRAG.end());
-            return ShaderInterface(temporary);
+            auto temporary =
+                std::vector<uint32_t>(MATERIAL_TEXTURED_FRAG.begin(), MATERIAL_TEXTURED_FRAG.end());
+            return ShaderInterface::reflect(temporary);
         };
-        const auto interface = reflect();
+        auto interface_result = reflect();
+        ASSERT_TRUE(interface_result) << interface_result.error();
+        const auto interface = std::move(interface_result).value();
         EXPECT_EQ(interface.get_bindings()[0].members[0].name, "tint");
-        EXPECT_NO_THROW(
-            MaterialLayout::find_builtin("unlit_texture_blend")->validate(interface));
+        EXPECT_TRUE(MaterialLayout::find_builtin("unlit_texture_blend")->validate(interface));
     }
 
     TEST(ShaderInterfaceTest, RejectsMalformedCodeMissingEntryAndRuntimeArrays) {
-        EXPECT_THROW(ShaderInterface(std::span<const uint32_t>{}), std::invalid_argument);
-        EXPECT_THROW(ShaderInterface(std::array<uint32_t, 5>{}), std::invalid_argument);
-        EXPECT_THROW(
-            ShaderInterface(MATERIAL_MESH_VERT, "missing"), std::invalid_argument);
-        EXPECT_THROW(ShaderInterface(MATERIAL_MESH_VERT, ""), std::invalid_argument);
-        EXPECT_THROW(ShaderInterface(MATERIAL_MESH_VERT, std::string("main\0other", 10)),
-            std::invalid_argument);
-        EXPECT_THROW(ShaderInterface{RUNTIME_ARRAY_FRAG}, std::invalid_argument);
+        EXPECT_FALSE(ShaderInterface::reflect(std::span<const uint32_t>{}));
+        EXPECT_FALSE(ShaderInterface::reflect(std::array<uint32_t, 5>{}));
+        EXPECT_FALSE(ShaderInterface::reflect(MATERIAL_MESH_VERT, "missing"));
+        EXPECT_FALSE(ShaderInterface::reflect(MATERIAL_MESH_VERT, ""));
+        EXPECT_FALSE(ShaderInterface::reflect(MATERIAL_MESH_VERT, std::string("main\0other", 10)));
+        EXPECT_FALSE(ShaderInterface::reflect(RUNTIME_ARRAY_FRAG));
         auto truncated = std::span(MATERIAL_MESH_VERT).first(6);
-        EXPECT_THROW(ShaderInterface{truncated}, std::invalid_argument);
+        EXPECT_FALSE(ShaderInterface::reflect(truncated));
         auto invalid_instruction =
             std::vector<uint32_t>(MATERIAL_MESH_VERT.begin(), MATERIAL_MESH_VERT.end());
         invalid_instruction[5] = 0;
-        EXPECT_THROW(ShaderInterface{invalid_instruction}, std::invalid_argument);
+        EXPECT_FALSE(ShaderInterface::reflect(invalid_instruction));
     }
 
     TEST(ShaderInterfaceTest, ChecksMaterialBlockOffsetsFormatsAndTextureBindings) {
-        const ShaderInterface textured(MATERIAL_TEXTURED_FRAG);
-        const ShaderInterface solid(MATERIAL_SOLID_FRAG);
-        EXPECT_NO_THROW(
-            MaterialLayout::find_builtin("unlit_texture_blend")->validate(textured));
-        EXPECT_NO_THROW(MaterialLayout::find_builtin("unlit_color")->validate(solid));
-        EXPECT_THROW(MaterialLayout::find_builtin("unlit_texture_blend")->validate(solid),
-            std::invalid_argument);
-        EXPECT_THROW(MaterialLayout::find_builtin("unlit_color")
-                         ->validate(ShaderInterface(MATERIAL_INTEGER_FRAG)),
-            std::invalid_argument);
-        const MaterialLayout wrong_size(
+        auto textured_result = ShaderInterface::reflect(MATERIAL_TEXTURED_FRAG);
+        ASSERT_TRUE(textured_result) << textured_result.error();
+        const auto textured = std::move(textured_result).value();
+        auto solid_result = ShaderInterface::reflect(MATERIAL_SOLID_FRAG);
+        ASSERT_TRUE(solid_result) << solid_result.error();
+        const auto solid = std::move(solid_result).value();
+        EXPECT_TRUE(MaterialLayout::find_builtin("unlit_texture_blend")->validate(textured));
+        EXPECT_TRUE(MaterialLayout::find_builtin("unlit_color")->validate(solid));
+        EXPECT_FALSE(MaterialLayout::find_builtin("unlit_texture_blend")->validate(solid));
+        {
+            auto candidate = ShaderInterface::reflect(MATERIAL_INTEGER_FRAG);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_FALSE(MaterialLayout::find_builtin("unlit_color")->validate(candidate.value()));
+        }
+        auto wrong_size_result = MaterialLayout::create(
             "size", {}, 48, {{"intensity", 16, 1}}, {{"color", 0, {1, 1, 1, 1}}});
-        EXPECT_THROW(wrong_size.validate(solid), std::invalid_argument);
-        const MaterialLayout wrong_offset(
+        ASSERT_TRUE(wrong_size_result) << wrong_size_result.error();
+        const auto wrong_size = std::move(wrong_size_result).value();
+        EXPECT_FALSE(wrong_size.validate(solid));
+        auto wrong_offset_result = MaterialLayout::create(
             "offset", {}, 32, {{"intensity", 20, 1}}, {{"color", 0, {1, 1, 1, 1}}});
-        EXPECT_THROW(wrong_offset.validate(solid), std::invalid_argument);
-        const MaterialLayout missing_member(
-            "member", {}, 32, {}, {{"color", 0, {1, 1, 1, 1}}});
-        EXPECT_THROW(missing_member.validate(solid), std::invalid_argument);
-        const MaterialLayout wrong_binding("binding", {{"a", 1}, {"b", 3}}, 32,
-            {{"blend", 16, 1}}, {{"tint", 0, {1, 1, 1, 1}}});
-        EXPECT_THROW(wrong_binding.validate(textured), std::invalid_argument);
+        ASSERT_TRUE(wrong_offset_result) << wrong_offset_result.error();
+        const auto wrong_offset = std::move(wrong_offset_result).value();
+        EXPECT_FALSE(wrong_offset.validate(solid));
+        auto missing_member_result =
+            MaterialLayout::create("member", {}, 32, {}, {{"color", 0, {1, 1, 1, 1}}});
+        ASSERT_TRUE(missing_member_result) << missing_member_result.error();
+        const auto missing_member = std::move(missing_member_result).value();
+        EXPECT_FALSE(missing_member.validate(solid));
+        auto wrong_binding_result = MaterialLayout::create(
+            "binding", {{"a", 1}, {"b", 3}}, 32, {{"blend", 16, 1}}, {{"tint", 0, {1, 1, 1, 1}}});
+        ASSERT_TRUE(wrong_binding_result) << wrong_binding_result.error();
+        const auto wrong_binding = std::move(wrong_binding_result).value();
+        EXPECT_FALSE(wrong_binding.validate(textured));
     }
 
     using ShaderPipelineTest = EngineTest;
 
     TEST_F(ShaderPipelineTest, ValidatesArrayCountTypeVisibilityAndNonzeroPushOffset) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        const ShaderInterface shader(INTERFACE_ARRAY_VERT);
+        auto shader_result = ShaderInterface::reflect(INTERFACE_ARRAY_VERT);
+        ASSERT_TRUE(shader_result) << shader_result.error();
+        const auto shader = std::move(shader_result).value();
         ASSERT_EQ(shader.get_bindings().size(), 1u);
         EXPECT_EQ(shader.get_bindings()[0].count, 4u);
         EXPECT_EQ(shader.get_bindings()[0].set, 3u);
@@ -188,112 +206,111 @@ namespace Comet::Tests {
         EXPECT_EQ(shader.get_push_constants()[0].offset, 16u);
         EXPECT_EQ(shader.get_push_constants()[0].size, 20u);
 
-        auto empty =
-            std::make_shared<DescriptorSetLayout>(device, DescriptorSetLayoutBindings{});
+        auto empty = std::make_shared<DescriptorSetLayout>(device, DescriptorSetLayoutBindings{});
         ShaderLayout layout;
         layout.descriptor_set_layouts = {empty, empty, empty, empty};
-        layout.push_constants = {
-            std::make_shared<PushConstantRange>(ShaderStage::Vertex, 16, 20)};
-        const auto set_binding = [&](DescriptorType type, uint32_t count,
-                                     ShaderStage stage) {
+        layout.push_constants = {std::make_shared<PushConstantRange>(ShaderStage::Vertex, 16, 20)};
+        const auto set_binding = [&](DescriptorType type, uint32_t count, ShaderStage stage) {
             DescriptorSetLayoutBindings bindings;
             bindings.add_binding(4, type, Flags<ShaderStage>(stage), count);
             layout.descriptor_set_layouts[3] =
                 std::make_shared<DescriptorSetLayout>(device, bindings);
         };
-        EXPECT_THROW(layout.validate(shader), std::invalid_argument);
+        EXPECT_FALSE(layout.validate(shader));
         set_binding(DescriptorType::CombinedImageSampler, 4, ShaderStage::Vertex);
-        EXPECT_NO_THROW(layout.validate(shader));
+        EXPECT_TRUE(layout.validate(shader));
         set_binding(DescriptorType::CombinedImageSampler, 3, ShaderStage::Vertex);
-        EXPECT_THROW(layout.validate(shader), std::invalid_argument);
+        EXPECT_FALSE(layout.validate(shader));
         set_binding(DescriptorType::CombinedImageSampler, 8, ShaderStage::Vertex);
-        EXPECT_NO_THROW(layout.validate(shader));
+        EXPECT_TRUE(layout.validate(shader));
         set_binding(DescriptorType::SampledImage, 4, ShaderStage::Vertex);
-        EXPECT_THROW(layout.validate(shader), std::invalid_argument);
+        EXPECT_FALSE(layout.validate(shader));
         set_binding(DescriptorType::CombinedImageSampler, 4, ShaderStage::Fragment);
-        EXPECT_THROW(layout.validate(shader), std::invalid_argument);
+        EXPECT_FALSE(layout.validate(shader));
         set_binding(DescriptorType::CombinedImageSampler, 4, ShaderStage::Vertex);
 
-        layout.push_constants = {
-            std::make_shared<PushConstantRange>(ShaderStage::Vertex, 16, 12)};
-        EXPECT_THROW(layout.validate(shader), std::invalid_argument);
+        layout.push_constants = {std::make_shared<PushConstantRange>(ShaderStage::Vertex, 16, 12)};
+        EXPECT_FALSE(layout.validate(shader));
         layout.push_constants = {
             std::make_shared<PushConstantRange>(ShaderStage::Fragment, 16, 20)};
-        EXPECT_THROW(layout.validate(shader), std::invalid_argument);
-        layout.push_constants = {
-            std::make_shared<PushConstantRange>(ShaderStage::Vertex, 20, 20)};
-        EXPECT_THROW(layout.validate(shader), std::invalid_argument);
-        layout.push_constants = {
-            std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 36)};
-        EXPECT_NO_THROW(layout.validate(shader));
+        EXPECT_FALSE(layout.validate(shader));
+        layout.push_constants = {std::make_shared<PushConstantRange>(ShaderStage::Vertex, 20, 20)};
+        EXPECT_FALSE(layout.validate(shader));
+        layout.push_constants = {std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 36)};
+        EXPECT_TRUE(layout.validate(shader));
         layout.push_constants.clear();
-        EXPECT_THROW(layout.validate(shader), std::invalid_argument);
+        EXPECT_FALSE(layout.validate(shader));
     }
 
     TEST_F(ShaderPipelineTest, AcceptsDynamicBufferLayoutsAndUnusedBindings) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        const ShaderInterface shader(MATERIAL_MESH_VERT);
+        auto shader_result = ShaderInterface::reflect(MATERIAL_MESH_VERT);
+        ASSERT_TRUE(shader_result) << shader_result.error();
+        const auto shader = std::move(shader_result).value();
         DescriptorSetLayoutBindings bindings;
         bindings.add_binding(0, DescriptorType::UniformBufferDynamic,
             Flags<ShaderStage>(ShaderStage::Vertex) | ShaderStage::Fragment);
-        bindings.add_binding(
-            7, DescriptorType::Sampler, Flags<ShaderStage>(ShaderStage::Fragment));
+        bindings.add_binding(7, DescriptorType::Sampler, Flags<ShaderStage>(ShaderStage::Fragment));
         ShaderLayout layout;
-        layout.descriptor_set_layouts = {
-            std::make_shared<DescriptorSetLayout>(device, bindings)};
-        layout.push_constants = {
-            std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 64)};
-        EXPECT_NO_THROW(layout.validate(shader));
+        layout.descriptor_set_layouts = {std::make_shared<DescriptorSetLayout>(device, bindings)};
+        layout.push_constants = {std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 64)};
+        EXPECT_TRUE(layout.validate(shader));
     }
 
     TEST_F(ShaderPipelineTest, RejectsIncompatibleLayoutsBeforeVulkanCreationOrCacheHit) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
-        RenderPass pass(device,
-            {Attachment::get_color_attachment(Format::R8G8B8A8_UNORM)},
+        RenderPass pass(device, {Attachment::get_color_attachment(Format::R8G8B8A8_UNORM)},
             {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}}, Format::R8G8B8A8_UNORM);
         PipelineManager pipelines(device, pass);
-        auto vertex = std::make_shared<Shader>(device, "line", DEBUG_LINE_VERT);
-        auto fragment = std::make_shared<Shader>(device, "line", DEBUG_LINE_FRAG);
+        auto vertex_result = Shader::create(device, "line", DEBUG_LINE_VERT);
+        ASSERT_TRUE(vertex_result) << vertex_result.error();
+        auto vertex = std::move(vertex_result).value();
+        auto fragment_result = Shader::create(device, "line", DEBUG_LINE_FRAG);
+        ASSERT_TRUE(fragment_result) << fragment_result.error();
+        auto fragment = std::move(fragment_result).value();
         ShaderLayout layout;
         PipelineConfig config;
-        EXPECT_THROW(pipelines.create_pipeline("line", layout, config, vertex, fragment),
-            std::invalid_argument);
-        EXPECT_THROW(pipelines.create_pipeline("line", layout, config, fragment, vertex),
-            std::invalid_argument);
-        EXPECT_THROW(pipelines.create_pipeline("line", layout, config, nullptr, fragment),
-            std::invalid_argument);
+        EXPECT_FALSE(pipelines.create_pipeline("line", layout, config, vertex, fragment));
+        EXPECT_FALSE(pipelines.create_pipeline("line", layout, config, fragment, vertex));
+        EXPECT_FALSE(pipelines.create_pipeline("line", layout, config, nullptr, fragment));
         layout.push_constants.push_back(
             std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 64));
-        config.vertex_input_state.vertex_bindings = {
-            {0, 28, vk::VertexInputRate::eVertex}};
+        config.vertex_input_state.vertex_bindings = {{0, 28, vk::VertexInputRate::eVertex}};
         config.vertex_input_state.vertex_attributes = {
-            {0, 0, vk::Format::eR32G32B32Sfloat, 0},
-            {1, 0, vk::Format::eR32G32B32A32Sfloat, 12}};
+            {0, 0, vk::Format::eR32G32B32Sfloat, 0}, {1, 0, vk::Format::eR32G32B32A32Sfloat, 12}};
         config.input_assembly_state.topology = Topology::LineList;
         config.dynamic_state.dynamic_states = {
             vk::DynamicState::eViewport, vk::DynamicState::eScissor};
-        auto valid = pipelines.create_pipeline("line", layout, config, vertex, fragment);
+        auto valid_result = pipelines.create_pipeline("line", layout, config, vertex, fragment);
+        ASSERT_TRUE(valid_result) << valid_result.error();
+        auto valid = std::move(valid_result).value();
         ASSERT_TRUE(valid);
         layout.push_constants.clear();
-        EXPECT_THROW(pipelines.create_pipeline("line", layout, config, vertex, fragment),
-            std::invalid_argument);
-        EXPECT_THROW(
-            Shader(device, "bad", std::span<const uint32_t>{}), std::invalid_argument);
+        EXPECT_FALSE(pipelines.create_pipeline("line", layout, config, vertex, fragment));
+        EXPECT_FALSE(Shader::create(device, "bad", std::span<const uint32_t>{}));
 
-        const ShaderInterface material(MATERIAL_TEXTURED_FRAG);
-        EXPECT_THROW(layout.validate(material), std::invalid_argument);
+        auto material_result = ShaderInterface::reflect(MATERIAL_TEXTURED_FRAG);
+        ASSERT_TRUE(material_result) << material_result.error();
+        const auto material = std::move(material_result).value();
+        EXPECT_FALSE(layout.validate(material));
         DescriptorSetLayoutBindings empty;
         auto empty_set = std::make_shared<DescriptorSetLayout>(device, empty);
         layout.descriptor_set_layouts = {empty_set, empty_set};
-        EXPECT_THROW(layout.validate(material), std::invalid_argument);
+        EXPECT_FALSE(layout.validate(material));
         layout.descriptor_set_layouts = {nullptr};
-        EXPECT_THROW(
-            layout.validate(ShaderInterface(DEBUG_LINE_FRAG)), std::invalid_argument);
+        {
+            auto candidate = ShaderInterface::reflect(DEBUG_LINE_FRAG);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_FALSE(layout.validate(candidate.value()));
+        }
         layout.descriptor_set_layouts.clear();
         layout.push_constants = {nullptr};
-        EXPECT_THROW(
-            layout.validate(ShaderInterface(DEBUG_LINE_FRAG)), std::invalid_argument);
+        {
+            auto candidate = ShaderInterface::reflect(DEBUG_LINE_FRAG);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_FALSE(layout.validate(candidate.value()));
+        }
     }
 
     TEST_F(ShaderPipelineTest, UsesContentAndStateInsteadOfShaderAndPipelineLabels) {
@@ -301,22 +318,36 @@ namespace Comet::Tests {
         RenderPass pass(device);
         PipelineManager pipelines(device, pass);
         ShaderManager shaders(device);
-        auto vertex = shaders.load_shader("vertex", PIPELINE_TRIANGLE_VERT);
-        auto fragment = shaders.load_shader("fragment", PIPELINE_COLOR_FRAG);
+        auto vertex_result = shaders.load_shader("vertex", PIPELINE_TRIANGLE_VERT);
+        ASSERT_TRUE(vertex_result) << vertex_result.error();
+        auto vertex = std::move(vertex_result).value();
+        auto fragment_result = shaders.load_shader("fragment", PIPELINE_COLOR_FRAG);
+        ASSERT_TRUE(fragment_result) << fragment_result.error();
+        auto fragment = std::move(fragment_result).value();
         ShaderLayout layout;
         PipelineConfig config;
-        auto original =
-            pipelines.create_pipeline("same", layout, config, vertex, fragment);
-        EXPECT_EQ(
-            original, pipelines.create_pipeline("other", layout, config, vertex,
-                          shaders.load_shader("other_fragment", PIPELINE_COLOR_FRAG)));
+        auto original_result = pipelines.create_pipeline("same", layout, config, vertex, fragment);
+        ASSERT_TRUE(original_result) << original_result.error();
+        auto original = std::move(original_result).value();
+        {
+            auto other_shader = shaders.load_shader("other_fragment", PIPELINE_COLOR_FRAG);
+            ASSERT_TRUE(other_shader) << other_shader.error();
+            auto other_pipeline =
+                pipelines.create_pipeline("other", layout, config, vertex, other_shader.value());
+            ASSERT_TRUE(other_pipeline) << other_pipeline.error();
+            EXPECT_EQ(original, other_pipeline.value());
+        }
         config.rasterization_state.front_face = FrontFace::CCW;
-        auto changed =
-            pipelines.create_pipeline("same", layout, config, vertex, fragment);
+        auto changed_result = pipelines.create_pipeline("same", layout, config, vertex, fragment);
+        ASSERT_TRUE(changed_result) << changed_result.error();
+        auto changed = std::move(changed_result).value();
         EXPECT_NE(original, changed);
         config.viewport.width = 80;
-        EXPECT_NE(
-            changed, pipelines.create_pipeline("same", layout, config, vertex, fragment));
+        {
+            auto candidate = pipelines.create_pipeline("same", layout, config, vertex, fragment);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_NE(changed, candidate.value());
+        }
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), 3u);
         pipelines.collect_unused();
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), 2u);
@@ -325,36 +356,99 @@ namespace Comet::Tests {
         blend.color_write_mask = Flags<ColorWriteMask>(ColorWriteMask::Red);
         config = PipelineConfig{};
         config.set_color_blend_attachment_state(blend);
-        EXPECT_EQ(
-            config.color_blend_state.colorWriteMask, vk::ColorComponentFlagBits::eR);
-        EXPECT_NE(original,
-            pipelines.create_pipeline("same", layout, config, vertex, fragment));
+        EXPECT_EQ(config.color_blend_state.colorWriteMask, vk::ColorComponentFlagBits::eR);
+        {
+            auto candidate = pipelines.create_pipeline("same", layout, config, vertex, fragment);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_NE(original, candidate.value());
+        }
 
-        EXPECT_EQ(fragment, shaders.load_shader("fragment", PIPELINE_COLOR_FRAG));
-        auto new_fragment = shaders.load_shader("fragment", DEBUG_LINE_FRAG);
+        {
+            auto candidate = shaders.load_shader("fragment", PIPELINE_COLOR_FRAG);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_EQ(fragment, candidate.value());
+        }
+        auto new_fragment_result = shaders.load_shader("fragment", DEBUG_LINE_FRAG);
+        ASSERT_TRUE(new_fragment_result) << new_fragment_result.error();
+        auto new_fragment = std::move(new_fragment_result).value();
         EXPECT_NE(fragment, new_fragment);
-        EXPECT_EQ(fragment->get_code(), std::vector<uint32_t>(PIPELINE_COLOR_FRAG.begin(),
-                                            PIPELINE_COLOR_FRAG.end()));
-        EXPECT_THROW(shaders.load_shader("fragment", std::span<const uint32_t>{}),
-            std::invalid_argument);
-        EXPECT_EQ(new_fragment, shaders.load_shader("fragment", DEBUG_LINE_FRAG));
+        EXPECT_EQ(fragment->get_code(),
+            std::vector<uint32_t>(PIPELINE_COLOR_FRAG.begin(), PIPELINE_COLOR_FRAG.end()));
+        auto rejected = shaders.load_shader("fragment", std::span<const uint32_t>{});
+        ASSERT_FALSE(rejected);
+        EXPECT_FALSE(rejected.error().empty());
+        {
+            auto candidate = shaders.load_shader("fragment", DEBUG_LINE_FRAG);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_EQ(new_fragment, candidate.value());
+        }
+    }
+
+    TEST_F(ShaderPipelineTest, FailedCandidatesPreserveInputsAndAllowRetry) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        RenderPass pass(device);
+        ShaderManager shaders(device);
+        PipelineManager pipelines(device, pass);
+        const auto invalid = shaders.load_shader("vertex", std::span<const uint32_t>{});
+        ASSERT_FALSE(invalid);
+        EXPECT_FALSE(invalid.error().empty());
+        auto vertex = shaders.load_shader("vertex", SPECIALIZATION_VERT);
+        ASSERT_TRUE(vertex) << vertex.error();
+        auto fragment = shaders.load_shader("fragment", SPECIALIZATION_FRAG);
+        ASSERT_TRUE(fragment) << fragment.error();
+
+        PipelineConfig config;
+        config.dynamic_state.dynamic_states = {
+            vk::DynamicState::eScissor, vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+        config.viewport.width = 321;
+        config.vertex_specialization = {{0, true}};
+        config.fragment_specialization = {{0, true}, {999, true}};
+        const auto input = config;
+        const auto failed_key =
+            PipelineKey::create({}, config, *vertex.value(), *fragment.value(), pass);
+        ASSERT_FALSE(failed_key);
+        EXPECT_NE(failed_key.error().find("999"), std::string::npos);
+        EXPECT_EQ(config, input);
+        const auto failed_pipeline =
+            pipelines.create_pipeline("candidate", {}, config, vertex.value(), fragment.value());
+        ASSERT_FALSE(failed_pipeline);
+        EXPECT_EQ(failed_pipeline.error(), failed_key.error());
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
+        EXPECT_EQ(config, input);
+
+        config.fragment_specialization.clear();
+        const auto recovered =
+            pipelines.create_pipeline("candidate", {}, config, vertex.value(), fragment.value());
+        ASSERT_TRUE(recovered) << recovered.error();
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 1u);
+        EXPECT_FALSE(
+            pipelines.create_pipeline("candidate", {}, input, vertex.value(), fragment.value()));
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 1u);
+        const auto reused =
+            pipelines.create_pipeline("candidate", {}, config, vertex.value(), fragment.value());
+        ASSERT_TRUE(reused) << reused.error();
+        EXPECT_EQ(recovered.value(), reused.value());
     }
 
     TEST_F(ShaderPipelineTest, CanonicalizesLayoutsAndDynamicViewportState) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         RenderPass pass(device);
-        auto vertex = std::make_shared<Shader>(device, "vertex", PIPELINE_TRIANGLE_VERT);
-        auto fragment = std::make_shared<Shader>(device, "fragment", PIPELINE_COLOR_FRAG);
+        auto vertex_result = Shader::create(device, "vertex", PIPELINE_TRIANGLE_VERT);
+        ASSERT_TRUE(vertex_result) << vertex_result.error();
+        auto vertex = std::move(vertex_result).value();
+        auto fragment_result = Shader::create(device, "fragment", PIPELINE_COLOR_FRAG);
+        ASSERT_TRUE(fragment_result) << fragment_result.error();
+        auto fragment = std::move(fragment_result).value();
         const auto make_layout = [&](bool reverse, uint32_t count) {
             DescriptorSetLayoutBindings bindings;
             if(reverse) {
                 bindings.add_binding(2, DescriptorType::UniformBuffer,
                     Flags<ShaderStage>(ShaderStage::Vertex), count);
-                bindings.add_binding(0, DescriptorType::Sampler,
-                    Flags<ShaderStage>(ShaderStage::Fragment));
+                bindings.add_binding(
+                    0, DescriptorType::Sampler, Flags<ShaderStage>(ShaderStage::Fragment));
             } else {
-                bindings.add_binding(0, DescriptorType::Sampler,
-                    Flags<ShaderStage>(ShaderStage::Fragment));
+                bindings.add_binding(
+                    0, DescriptorType::Sampler, Flags<ShaderStage>(ShaderStage::Fragment));
                 bindings.add_binding(2, DescriptorType::UniformBuffer,
                     Flags<ShaderStage>(ShaderStage::Vertex), count);
             }
@@ -382,50 +476,69 @@ namespace Comet::Tests {
         PipelineConfig second = first;
         std::ranges::reverse(second.vertex_input_state.vertex_bindings);
         std::ranges::reverse(second.vertex_input_state.vertex_attributes);
-        second.dynamic_state.dynamic_states = {vk::DynamicState::eScissor,
-            vk::DynamicState::eViewport, vk::DynamicState::eViewport};
+        second.dynamic_state.dynamic_states = {
+            vk::DynamicState::eScissor, vk::DynamicState::eViewport, vk::DynamicState::eViewport};
         second.viewport.width = 800;
         second.scissor.extent = vk::Extent2D(800, 600);
-        const PipelineKey ka(a, first, *vertex, *fragment, pass);
-        const PipelineKey kb(b, second, *vertex, *fragment, pass);
+        auto ka_result = PipelineKey::create(a, first, *vertex, *fragment, pass);
+        ASSERT_TRUE(ka_result) << ka_result.error();
+        const auto ka = std::move(ka_result).value();
+        auto kb_result = PipelineKey::create(b, second, *vertex, *fragment, pass);
+        ASSERT_TRUE(kb_result) << kb_result.error();
+        const auto kb = std::move(kb_result).value();
         EXPECT_EQ(ka, kb);
         EXPECT_EQ(PipelineKey::Hash{}(ka), PipelineKey::Hash{}(kb));
         PipelineManager pipelines(device, pass);
-        auto one = pipelines.create_pipeline("a", a, first, vertex, fragment);
-        EXPECT_EQ(one, pipelines.create_pipeline("b", b, second, vertex, fragment));
-        EXPECT_NE(one, pipelines.create_pipeline(
-                           "a", make_layout(false, 2), first, vertex, fragment));
+        auto one_result = pipelines.create_pipeline("a", a, first, vertex, fragment);
+        ASSERT_TRUE(one_result) << one_result.error();
+        auto one = std::move(one_result).value();
+        {
+            auto candidate = pipelines.create_pipeline("b", b, second, vertex, fragment);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_EQ(one, candidate.value());
+        }
+        {
+            auto candidate =
+                pipelines.create_pipeline("a", make_layout(false, 2), first, vertex, fragment);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_NE(one, candidate.value());
+        }
         second.dynamic_state.dynamic_states.clear();
-        EXPECT_NE(ka, PipelineKey(b, second, *vertex, *fragment, pass));
+        {
+            auto candidate = PipelineKey::create(b, second, *vertex, *fragment, pass);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_NE(ka, candidate.value());
+        }
         second.viewport.width = std::numeric_limits<float>::quiet_NaN();
-        EXPECT_THROW(pipelines.create_pipeline("bad", b, second, vertex, fragment),
-            std::invalid_argument);
+        EXPECT_FALSE(pipelines.create_pipeline("bad", b, second, vertex, fragment));
         second = first;
         second.subpass = 1;
-        EXPECT_THROW(pipelines.create_pipeline("bad", b, second, vertex, fragment),
-            std::invalid_argument);
+        EXPECT_FALSE(pipelines.create_pipeline("bad", b, second, vertex, fragment));
         second = first;
         second.vertex_input_state.vertex_bindings.push_back(
             second.vertex_input_state.vertex_bindings.front());
-        EXPECT_THROW(pipelines.create_pipeline("bad", b, second, vertex, fragment),
-            std::invalid_argument);
+        EXPECT_FALSE(pipelines.create_pipeline("bad", b, second, vertex, fragment));
         second = first;
         second.vertex_input_state.vertex_attributes.push_back(
             second.vertex_input_state.vertex_attributes.front());
-        EXPECT_THROW(pipelines.create_pipeline("bad", b, second, vertex, fragment),
-            std::invalid_argument);
+        EXPECT_FALSE(pipelines.create_pipeline("bad", b, second, vertex, fragment));
         b.push_constants.push_back(
             std::make_shared<PushConstantRange>(ShaderStage::Vertex, 32, 16));
-        EXPECT_THROW(pipelines.create_pipeline("bad", b, first, vertex, fragment),
-            std::invalid_argument);
+        EXPECT_FALSE(pipelines.create_pipeline("bad", b, first, vertex, fragment));
     }
 
     TEST_F(ShaderPipelineTest, ComparesAllStateEvenWhenHashesCollide) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         RenderPass pass(device);
-        Shader vertex(device, "vertex", PIPELINE_TRIANGLE_VERT);
-        Shader fragment(device, "fragment", PIPELINE_COLOR_FRAG);
-        const PipelineKey base({}, {}, vertex, fragment, pass);
+        auto vertex_result = Shader::create(device, "vertex", PIPELINE_TRIANGLE_VERT);
+        ASSERT_TRUE(vertex_result) << vertex_result.error();
+        auto vertex = std::move(vertex_result).value();
+        auto fragment_result = Shader::create(device, "fragment", PIPELINE_COLOR_FRAG);
+        ASSERT_TRUE(fragment_result) << fragment_result.error();
+        auto fragment = std::move(fragment_result).value();
+        auto base_result = PipelineKey::create({}, {}, *vertex, *fragment, pass);
+        ASSERT_TRUE(base_result) << base_result.error();
+        const auto base = std::move(base_result).value();
         struct SameHash {
             size_t operator()(const PipelineKey&) const { return 0; }
         };
@@ -437,31 +550,22 @@ namespace Comet::Tests {
             [](auto& k) { ++k.fragment.words.back(); },
             [](auto& k) { k.fragment.entry_point = "other"; },
             [](auto& k) {
-                k.descriptor_sets = {{{0, vk::DescriptorType::eSampler, 1,
-                    vk::ShaderStageFlagBits::eFragment}}};
+                k.descriptor_sets = {
+                    {{0, vk::DescriptorType::eSampler, 1, vk::ShaderStageFlagBits::eFragment}}};
             },
-            [](auto& k) {
-                k.push_constants = {{vk::ShaderStageFlagBits::eVertex, 0, 16}};
-            },
+            [](auto& k) { k.push_constants = {{vk::ShaderStageFlagBits::eVertex, 0, 16}}; },
             [](auto& k) {
                 k.config.vertex_input_state.vertex_bindings = {
                     {0, 12, vk::VertexInputRate::eVertex}};
             },
             [](auto& k) {
-                k.config.vertex_input_state.vertex_attributes = {
-                    {0, 0, vk::Format::eR32Sfloat, 0}};
+                k.config.vertex_input_state.vertex_attributes = {{0, 0, vk::Format::eR32Sfloat, 0}};
             },
             [](auto& k) { k.config.input_assembly_state.topology = Topology::LineList; },
-            [](auto& k) {
-                k.config.input_assembly_state.primitive_restart_enable = true;
-            },
+            [](auto& k) { k.config.input_assembly_state.primitive_restart_enable = true; },
             [](auto& k) { k.config.rasterization_state.depth_clamp_enable = true; },
-            [](auto& k) {
-                k.config.rasterization_state.rasterizer_discard_enable = true;
-            },
-            [](auto& k) {
-                k.config.rasterization_state.polygon_mode = PolygonMode::Line;
-            },
+            [](auto& k) { k.config.rasterization_state.rasterizer_discard_enable = true; },
+            [](auto& k) { k.config.rasterization_state.polygon_mode = PolygonMode::Line; },
             [](auto& k) { k.config.rasterization_state.cull_mode = CullMode::Back; },
             [](auto& k) { k.config.rasterization_state.front_face = FrontFace::CCW; },
             [](auto& k) { k.config.rasterization_state.depth_bias_enable = true; },
@@ -469,24 +573,18 @@ namespace Comet::Tests {
             [](auto& k) { k.config.rasterization_state.depth_bias_clamp = 1; },
             [](auto& k) { k.config.rasterization_state.depth_bias_slope_factor = 1; },
             [](auto& k) { k.config.rasterization_state.line_width = 2; },
-            [](auto& k) {
-                k.config.multisample_state.rasterization_samples = SampleCount::Count4;
-            },
+            [](auto& k) { k.config.multisample_state.rasterization_samples = SampleCount::Count4; },
             [](auto& k) { k.config.multisample_state.sample_shading_enable = true; },
             [](auto& k) { k.config.multisample_state.min_sample_shading = 0.5f; },
             [](auto& k) { k.config.depth_stencil_state.depth_test_enable = true; },
             [](auto& k) { k.config.depth_stencil_state.depth_write_enable = true; },
-            [](auto& k) {
-                k.config.depth_stencil_state.depth_compare_op = CompareOp::Less;
-            },
+            [](auto& k) { k.config.depth_stencil_state.depth_compare_op = CompareOp::Less; },
             [](auto& k) { k.config.depth_stencil_state.depth_bounds_test_enable = true; },
             [](auto& k) { k.config.depth_stencil_state.stencil_test_enable = true; },
             [](auto& k) { k.config.viewport.width = 90; },
             [](auto& k) { k.config.scissor.extent.width = 90; },
             [](auto& k) { k.config.color_blend_state.blendEnable = true; },
-            [](auto& k) {
-                k.config.dynamic_state.dynamic_states = {vk::DynamicState::eViewport};
-            },
+            [](auto& k) { k.config.dynamic_state.dynamic_states = {vk::DynamicState::eViewport}; },
             [](auto& k) { k.config.subpass = 1; },
             [](auto& k) { k.attachments[0].format = Format::R8G8B8A8_UNORM; },
             [](auto& k) { k.attachments[0].samples = SampleCount::Count4; },
@@ -508,9 +606,15 @@ namespace Comet::Tests {
         auto& device = engine->get_renderer().get_render_context().get_device();
         RenderPass pass(device);
         PipelineManager pipelines(device, pass);
-        auto vertex = std::make_shared<Shader>(device, "vertex", PIPELINE_TRIANGLE_VERT);
-        auto fragment = std::make_shared<Shader>(device, "fragment", PIPELINE_COLOR_FRAG);
-        auto pipeline = pipelines.create_pipeline("frame", {}, {}, vertex, fragment);
+        auto vertex_result = Shader::create(device, "vertex", PIPELINE_TRIANGLE_VERT);
+        ASSERT_TRUE(vertex_result) << vertex_result.error();
+        auto vertex = std::move(vertex_result).value();
+        auto fragment_result = Shader::create(device, "fragment", PIPELINE_COLOR_FRAG);
+        ASSERT_TRUE(fragment_result) << fragment_result.error();
+        auto fragment = std::move(fragment_result).value();
+        auto pipeline_result = pipelines.create_pipeline("frame", {}, {}, vertex, fragment);
+        ASSERT_TRUE(pipeline_result) << pipeline_result.error();
+        auto pipeline = std::move(pipeline_result).value();
         const std::weak_ptr<Pipeline> old = pipeline;
         FrameScheduler frames(device, 1);
         frames.initialize_swapchain_images(1);
@@ -521,8 +625,8 @@ namespace Comet::Tests {
         command.bind_pipeline(*pipeline);
         frames.retain_current_frame_resource(pipeline);
         command.end();
-        static_cast<void>(device.get_graphics_queue().submit2({}, std::span(&command, 1),
-            {}, &frames.get_current_frame_slot().in_flight_fence));
+        static_cast<void>(device.get_graphics_queue().submit2(
+            {}, std::span(&command, 1), {}, &frames.get_current_frame_slot().in_flight_fence));
         frames.record_submission();
         frames.end_frame();
         pipeline.reset();
@@ -539,48 +643,67 @@ namespace Comet::Tests {
         auto& device = engine->get_renderer().get_render_context().get_device();
         RenderPass pass(device);
         PipelineManager pipelines(device, pass);
-        auto vertex = std::make_shared<Shader>(device, "vertex", SPECIALIZATION_VERT);
-        auto fragment = std::make_shared<Shader>(device, "fragment", SPECIALIZATION_FRAG);
+        auto vertex_result = Shader::create(device, "vertex", SPECIALIZATION_VERT);
+        ASSERT_TRUE(vertex_result) << vertex_result.error();
+        auto vertex = std::move(vertex_result).value();
+        auto fragment_result = Shader::create(device, "fragment", SPECIALIZATION_FRAG);
+        ASSERT_TRUE(fragment_result) << fragment_result.error();
+        auto fragment = std::move(fragment_result).value();
         PipelineConfig config;
-        const auto original =
-            pipelines.create_pipeline("variant", {}, config, vertex, fragment);
+        auto original_result = pipelines.create_pipeline("variant", {}, config, vertex, fragment);
+        ASSERT_TRUE(original_result) << original_result.error();
+        const auto original = std::move(original_result).value();
         config.vertex_specialization = {{0, true}};
-        config.fragment_specialization = {
-            {0, true}, {1, 1.0f}, {2, int32_t(0)}, {3, uint32_t(0)}};
-        EXPECT_EQ(original,
-            pipelines.create_pipeline("defaults", {}, config, vertex, fragment));
-        const PipelineKey base({}, {}, *vertex, *fragment, pass);
-        const PipelineKey defaults({}, config, *vertex, *fragment, pass);
+        config.fragment_specialization = {{0, true}, {1, 1.0f}, {2, int32_t(0)}, {3, uint32_t(0)}};
+        {
+            auto candidate = pipelines.create_pipeline("defaults", {}, config, vertex, fragment);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_EQ(original, candidate.value());
+        }
+        auto base_result = PipelineKey::create({}, {}, *vertex, *fragment, pass);
+        ASSERT_TRUE(base_result) << base_result.error();
+        const auto base = std::move(base_result).value();
+        auto defaults_result = PipelineKey::create({}, config, *vertex, *fragment, pass);
+        ASSERT_TRUE(defaults_result) << defaults_result.error();
+        const auto defaults = std::move(defaults_result).value();
         EXPECT_EQ(base, defaults);
         EXPECT_EQ(PipelineKey::Hash{}(base), PipelineKey::Hash{}(defaults));
         config.vertex_specialization = {{0, false}};
-        const PipelineKey vertex_key({}, config, *vertex, *fragment, pass);
+        auto vertex_key_result = PipelineKey::create({}, config, *vertex, *fragment, pass);
+        ASSERT_TRUE(vertex_key_result) << vertex_key_result.error();
+        const auto vertex_key = std::move(vertex_key_result).value();
         config.vertex_specialization.clear();
         config.fragment_specialization = {{0, false}};
-        const PipelineKey fragment_key({}, config, *vertex, *fragment, pass);
+        auto fragment_key_result = PipelineKey::create({}, config, *vertex, *fragment, pass);
+        ASSERT_TRUE(fragment_key_result) << fragment_key_result.error();
+        const auto fragment_key = std::move(fragment_key_result).value();
         EXPECT_NE(vertex_key, fragment_key);
         config.fragment_specialization = {{1, 0.0f}};
-        const PipelineKey positive_zero({}, config, *vertex, *fragment, pass);
+        auto positive_zero_result = PipelineKey::create({}, config, *vertex, *fragment, pass);
+        ASSERT_TRUE(positive_zero_result) << positive_zero_result.error();
+        const auto positive_zero = std::move(positive_zero_result).value();
         config.fragment_specialization = {{1, -0.0f}};
-        const PipelineKey negative_zero({}, config, *vertex, *fragment, pass);
+        auto negative_zero_result = PipelineKey::create({}, config, *vertex, *fragment, pass);
+        ASSERT_TRUE(negative_zero_result) << negative_zero_result.error();
+        const auto negative_zero = std::move(negative_zero_result).value();
         EXPECT_NE(positive_zero, negative_zero);
         struct CollisionHash {
             size_t operator()(const PipelineKey&) const { return 0; }
         };
         std::unordered_map<PipelineKey, int, CollisionHash> collisions;
-        for(const auto* key :
-            {&base, &vertex_key, &fragment_key, &positive_zero, &negative_zero})
+        for(const auto* key : {&base, &vertex_key, &fragment_key, &positive_zero, &negative_zero})
             EXPECT_TRUE(collisions.emplace(*key, 1).second);
         EXPECT_EQ(collisions.size(), 5u);
         config.fragment_specialization = {{1, 0u}};
-        EXPECT_THROW(pipelines.create_pipeline("variant", {}, config, vertex, fragment),
-            std::invalid_argument);
+        EXPECT_FALSE(pipelines.create_pipeline("variant", {}, config, vertex, fragment));
         config.fragment_specialization = {{99, true}};
-        EXPECT_THROW(pipelines.create_pipeline("variant", {}, config, vertex, fragment),
-            std::invalid_argument);
+        EXPECT_FALSE(pipelines.create_pipeline("variant", {}, config, vertex, fragment));
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), 1u);
-        EXPECT_EQ(
-            original, pipelines.create_pipeline("variant", {}, {}, vertex, fragment));
+        {
+            auto candidate = pipelines.create_pipeline("variant", {}, {}, vertex, fragment);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_EQ(original, candidate.value());
+        }
     }
 
     TEST_F(ShaderPipelineTest, StaticViewportScissorAndSpecializationChangeActualPixels) {
@@ -590,15 +713,18 @@ namespace Comet::Tests {
         color.description.store_op = AttachmentStoreOp::Store;
         color.description.final_layout = ImageLayout::TransferSrcOptimal;
         color.usage |= ImageUsage::CopySrc;
-        RenderPass pass(device, {color},
-            {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}}, Format::R8G8B8A8_UNORM);
+        RenderPass pass(device, {color}, {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}},
+            Format::R8G8B8A8_UNORM);
         constexpr uint32_t VARIANT_COUNT = 5;
-        auto target =
-            RenderTarget::create_multi_target(device, pass, {32, 16}, VARIANT_COUNT);
+        auto target = RenderTarget::create_multi_target(device, pass, {32, 16}, VARIANT_COUNT);
         target->set_clear_value(ClearValue(Math::Vec4(0, 0, 0, 1)));
         PipelineManager pipelines(device, pass);
-        auto vertex = std::make_shared<Shader>(device, "vertex", SPECIALIZATION_VERT);
-        auto fragment = std::make_shared<Shader>(device, "fragment", SPECIALIZATION_FRAG);
+        auto vertex_result = Shader::create(device, "vertex", SPECIALIZATION_VERT);
+        ASSERT_TRUE(vertex_result) << vertex_result.error();
+        auto vertex = std::move(vertex_result).value();
+        auto fragment_result = Shader::create(device, "fragment", SPECIALIZATION_FRAG);
+        ASSERT_TRUE(fragment_result) << fragment_result.error();
+        auto fragment = std::move(fragment_result).value();
         PipelineConfig left;
         left.viewport = vk::Viewport(0, 16, 16, -16, 0, 1);
         left.scissor = vk::Rect2D({0, 0}, {8, 16});
@@ -611,28 +737,32 @@ namespace Comet::Tests {
         hidden.vertex_specialization = {{0, false}};
         auto black = left;
         black.fragment_specialization = {{0, false}};
-        const std::array draws{
-            pipelines.create_pipeline("region", {}, left, vertex, fragment),
-            pipelines.create_pipeline("region", {}, right, vertex, fragment),
-            pipelines.create_pipeline("region", {}, cyan, vertex, fragment),
-            pipelines.create_pipeline("region", {}, hidden, vertex, fragment),
-            pipelines.create_pipeline("region", {}, black, vertex, fragment)};
+        std::array<std::shared_ptr<Pipeline>, VARIANT_COUNT> draws;
+        const std::array configs{left, right, cyan, hidden, black};
+        for(size_t index = 0; index < draws.size(); ++index) {
+            auto candidate =
+                pipelines.create_pipeline("region", {}, configs[index], vertex, fragment);
+            ASSERT_TRUE(candidate) << candidate.error();
+            draws[index] = std::move(candidate).value();
+        }
         ASSERT_NE(draws[0], draws[1]);
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), VARIANT_COUNT);
-        EXPECT_EQ(draws[2],
-            pipelines.create_pipeline("reused cyan", {}, cyan, vertex, fragment));
+        {
+            auto candidate = pipelines.create_pipeline("reused cyan", {}, cyan, vertex, fragment);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_EQ(draws[2], candidate.value());
+        }
         cyan.fragment_specialization = {{1, 1.0f}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(VARIANT_COUNT);
         vk::UniqueDeviceMemory memory;
-        auto readback = device.get().createBufferUnique(
-            vk::BufferCreateInfo({}, VARIANT_COUNT * 32 * 16 * 4,
+        auto readback =
+            device.get().createBufferUnique(vk::BufferCreateInfo({}, VARIANT_COUNT * 32 * 16 * 4,
                 vk::BufferUsageFlagBits::eTransferDst, vk::SharingMode::eExclusive));
         const auto requirements = device.get().getBufferMemoryRequirements(*readback);
-        const auto properties =
-            context.get_context().get_physical_device().getMemoryProperties();
-        const auto required = vk::MemoryPropertyFlagBits::eHostVisible
-                              | vk::MemoryPropertyFlagBits::eHostCoherent;
+        const auto properties = context.get_context().get_physical_device().getMemoryProperties();
+        const auto required =
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
         std::optional<uint32_t> memory_type;
         for(uint32_t index = 0; index < properties.memoryTypeCount; ++index) {
             if((requirements.memoryTypeBits & (1u << index))
@@ -655,33 +785,30 @@ namespace Comet::Tests {
             frames.retain_current_frame_resource(draws[index]);
             command.draw(3);
             target->end_render_target(command);
-            vk::MemoryBarrier barrier(vk::AccessFlagBits::eColorAttachmentWrite,
-                vk::AccessFlagBits::eTransferRead);
-            command.get().pipelineBarrier(
-                vk::PipelineStageFlagBits::eColorAttachmentOutput,
+            vk::MemoryBarrier barrier(
+                vk::AccessFlagBits::eColorAttachmentWrite, vk::AccessFlagBits::eTransferRead);
+            command.get().pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput,
                 vk::PipelineStageFlagBits::eTransfer, {}, barrier, {}, {});
             vk::BufferImageCopy copy;
             copy.bufferOffset = index * 32 * 16 * 4;
             copy.imageSubresource =
                 vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1);
             copy.imageExtent = vk::Extent3D(32, 16, 1);
-            command.get().copyImageToBuffer(
-                target->get_color_view(index)->get_image()->get(),
+            command.get().copyImageToBuffer(target->get_color_view(index)->get_image()->get(),
                 vk::ImageLayout::eTransferSrcOptimal, *readback, copy);
             barrier = vk::MemoryBarrier(
                 vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eHostRead);
             command.get().pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
                 vk::PipelineStageFlagBits::eHost, {}, barrier, {}, {});
             command.end();
-            static_cast<void>(
-                device.get_graphics_queue().submit2({}, std::span(&command, 1), {},
-                    &frames.get_current_frame_slot().in_flight_fence));
+            static_cast<void>(device.get_graphics_queue().submit2(
+                {}, std::span(&command, 1), {}, &frames.get_current_frame_slot().in_flight_fence));
             frames.record_submission();
             frames.end_frame();
         }
         frames.wait_for_all_slots();
-        const auto* pixels = static_cast<const uint8_t*>(
-            device.get().mapMemory(*memory, 0, VK_WHOLE_SIZE));
+        const auto* pixels =
+            static_cast<const uint8_t*>(device.get().mapMemory(*memory, 0, VK_WHOLE_SIZE));
         for(uint32_t frame = 0; frame < VARIANT_COUNT; ++frame) {
             for(uint32_t x = 0; x < 32; ++x) {
                 const auto offset = (frame * 32 * 16 + 8 * 32 + x) * 4;
@@ -702,22 +829,30 @@ namespace Comet::Tests {
 
     TEST_F(ShaderPipelineTest, SelectsSubpassAsPartOfPipelineState) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        RenderPass pass(device,
-            {Attachment::get_color_attachment(Format::R8G8B8A8_UNORM)},
+        RenderPass pass(device, {Attachment::get_color_attachment(Format::R8G8B8A8_UNORM)},
             {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}},
                 RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}},
             Format::R8G8B8A8_UNORM);
         PipelineManager pipelines(device, pass);
-        auto vertex = std::make_shared<Shader>(device, "vertex", PIPELINE_TRIANGLE_VERT);
-        auto fragment = std::make_shared<Shader>(device, "fragment", PIPELINE_COLOR_FRAG);
+        auto vertex_result = Shader::create(device, "vertex", PIPELINE_TRIANGLE_VERT);
+        ASSERT_TRUE(vertex_result) << vertex_result.error();
+        auto vertex = std::move(vertex_result).value();
+        auto fragment_result = Shader::create(device, "fragment", PIPELINE_COLOR_FRAG);
+        ASSERT_TRUE(fragment_result) << fragment_result.error();
+        auto fragment = std::move(fragment_result).value();
         PipelineConfig config;
-        const auto first =
-            pipelines.create_pipeline("pass", {}, config, vertex, fragment);
+        auto first_result = pipelines.create_pipeline("pass", {}, config, vertex, fragment);
+        ASSERT_TRUE(first_result) << first_result.error();
+        const auto first = std::move(first_result).value();
         config.subpass = 1;
-        const auto second =
-            pipelines.create_pipeline("pass", {}, config, vertex, fragment);
+        auto second_result = pipelines.create_pipeline("pass", {}, config, vertex, fragment);
+        ASSERT_TRUE(second_result) << second_result.error();
+        const auto second = std::move(second_result).value();
         EXPECT_NE(first, second);
-        EXPECT_EQ(
-            second, pipelines.create_pipeline("pass1", {}, config, vertex, fragment));
+        {
+            auto candidate = pipelines.create_pipeline("pass1", {}, config, vertex, fragment);
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_EQ(second, candidate.value());
+        }
     }
 }

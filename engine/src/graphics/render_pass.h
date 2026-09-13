@@ -18,8 +18,7 @@ namespace Comet {
 
     class COMET_API RenderPass {
     public:
-        explicit RenderPass(Device& device,
-            const std::vector<Attachment>& attachments = {},
+        explicit RenderPass(Device& device, const std::vector<Attachment>& attachments = {},
             const std::vector<RenderSubPass>& sub_passes = {},
             Format surface_format = Format::B8G8R8A8_SRGB);
         ~RenderPass();

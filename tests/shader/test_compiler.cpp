@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <future>
 #include <span>
-#include <stdexcept>
 
 namespace Comet::Tests {
     class ShaderCompilerTest: public testing::Test {
@@ -33,7 +32,7 @@ namespace Comet::Tests {
                     + "];\nvoid main(){gl_Position=texture(textures[0],vec2(0));}");
             const auto result = ShaderCompiler::compile(request);
             ASSERT_TRUE(result.succeeded()) << result.diagnostics;
-            EXPECT_THROW(ShaderInterface(result.words), std::invalid_argument) << length;
+            EXPECT_FALSE(ShaderInterface::reflect(result.words)) << length;
         }
     }
 
@@ -44,7 +43,9 @@ namespace Comet::Tests {
             request.defines = {{"COUNT", std::to_string(count)}};
             const auto result = ShaderCompiler::compile(request);
             ASSERT_TRUE(result.succeeded()) << result.diagnostics;
-            const ShaderInterface reflected(result.words);
+            auto reflected_result = ShaderInterface::reflect(result.words);
+            ASSERT_TRUE(reflected_result) << reflected_result.error();
+            const auto reflected = std::move(reflected_result).value();
             ASSERT_EQ(reflected.get_bindings().size(), 1u);
             EXPECT_EQ(reflected.get_bindings()[0].count, count + 1);
             EXPECT_TRUE(reflected.get_specialization_constants().empty());
@@ -77,9 +78,12 @@ namespace Comet::Tests {
         auto result = ShaderCompiler::compile(request);
         ASSERT_TRUE(result.succeeded()) << result.diagnostics;
         EXPECT_EQ(result.words[1], 0x10000u);
-        EXPECT_EQ(ShaderInterface(result.words, "vertex_entry").get_stage(),
-            ShaderStage::Vertex);
-        EXPECT_THROW(ShaderInterface(result.words), std::invalid_argument);
+        {
+            auto candidate = ShaderInterface::reflect(result.words, "vertex_entry");
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_EQ(candidate.value().get_stage(), ShaderStage::Vertex);
+        }
+        EXPECT_FALSE(ShaderInterface::reflect(result.words));
         request.target = ShaderCompiler::Target::Vulkan13;
         result = ShaderCompiler::compile(request);
         ASSERT_TRUE(result.succeeded()) << result.diagnostics;
@@ -90,8 +94,11 @@ namespace Comet::Tests {
         request.stage = ShaderStage::Compute;
         result = ShaderCompiler::compile(request);
         ASSERT_TRUE(result.succeeded()) << result.diagnostics;
-        EXPECT_EQ(ShaderInterface(result.words, "vertex_entry").get_stage(),
-            ShaderStage::Compute);
+        {
+            auto candidate = ShaderInterface::reflect(result.words, "vertex_entry");
+            ASSERT_TRUE(candidate) << candidate.error();
+            EXPECT_EQ(candidate.value().get_stage(), ShaderStage::Compute);
+        }
     }
 
     TEST_F(ShaderCompilerTest, ResolvesNestedIncludesAndDefinesWithOwnedSnapshot) {

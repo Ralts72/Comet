@@ -10,8 +10,7 @@ namespace CometEditor {
         Comet::Math::Vec3 target{0.0f, 0.0f, 0.0f};
         float near_clip = 0.1f;
         float far_clip = 1000.0f;
-        Comet::RenderCamera::Projection projection =
-            Comet::RenderCamera::Projection::Perspective;
+        Comet::RenderCamera::Projection projection = Comet::RenderCamera::Projection::Perspective;
 
         struct PerspectiveState {
             Comet::Math::Vec3 position{0.0f, 0.0f, 3.0f};
@@ -33,11 +32,10 @@ namespace CometEditor {
         float viewport_height = 0.0f;
     };
 
-    void apply_editor_camera_input(
-        EditorCameraState& camera, const EditorCameraInput& input);
+    void apply_editor_camera_input(EditorCameraState& camera, const EditorCameraInput& input);
 
-    void focus_editor_camera(EditorCameraState& camera,
-        const Comet::BoundingBox& world_bounds, float viewport_aspect);
+    void focus_editor_camera(
+        EditorCameraState& camera, const Comet::BoundingBox& world_bounds, float viewport_aspect);
 
     // UV 原点为图像左上角；放置平面经过 target，且平行于相机画面。
     [[nodiscard]] std::optional<Comet::Math::Vec3> camera_focus_plane_point(

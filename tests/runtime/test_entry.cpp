@@ -24,33 +24,28 @@ namespace Comet::Tests {
 
             DefaultApplication() { ++constructions; }
             ~DefaultApplication() override { ++destructions; }
-            void on_init() override {
-                ADD_FAILURE() << "Graphics must not be initialized";
-            }
+            void on_init() override { ADD_FAILURE() << "Graphics must not be initialized"; }
             void on_update(UpdateContext) override {}
             void on_shutdown() override {}
         };
 
         inline static std::vector<std::string> received;
 
-        static std::unique_ptr<Application> create_default(
-            ApplicationArguments arguments) {
+        static std::unique_ptr<Application> create_default(ApplicationArguments arguments) {
             if(!arguments.empty())
                 throw std::invalid_argument(
                     "This application does not accept command-line arguments");
             return std::make_unique<DefaultApplication>();
         }
 
-        static std::unique_ptr<Application> create_from_project(
-            ApplicationArguments arguments) {
+        static std::unique_ptr<Application> create_from_project(ApplicationArguments arguments) {
             received.assign(arguments.begin(), arguments.end());
             throw std::runtime_error("Project validation failed");
         }
 
         LaunchOptions options{
-            .config_directory =
-                std::filesystem::temp_directory_path()
-                / ("comet_entry_missing_" + std::to_string(std::random_device{}())),
+            .config_directory = std::filesystem::temp_directory_path()
+                                / ("comet_entry_missing_" + std::to_string(std::random_device{}())),
             .config_profile = "test"};
 
         void SetUp() override {
@@ -74,8 +69,7 @@ namespace Comet::Tests {
     TEST_F(EntryTest, ForwardsArgumentsWithoutExecutableAndReportsProjectFailure) {
         const char* arguments[]{"CometEditor", "projects/My Game/project.json"};
         ::testing::internal::CaptureStderr();
-        const int result =
-            launch(2, arguments, options, "[project]", create_from_project);
+        const int result = launch(2, arguments, options, "[project]", create_from_project);
         const auto error = ::testing::internal::GetCapturedStderr();
         EXPECT_EQ(result, 1);
         EXPECT_EQ(received, std::vector<std::string>{"projects/My Game/project.json"});
@@ -92,8 +86,7 @@ namespace Comet::Tests {
         EXPECT_EQ(DefaultApplication::constructions, 1);
         EXPECT_EQ(DefaultApplication::destructions, 1);
     }
-    class ApplicationLifecycleTest
-        : public ::testing::TestWithParam<std::pair<int, bool>> {
+    class ApplicationLifecycleTest: public ::testing::TestWithParam<std::pair<int, bool>> {
     protected:
         class TestApplication final: public Application {
         public:
@@ -107,19 +100,16 @@ namespace Comet::Tests {
 #endif
             void on_init() override {
 #ifdef COMET_TEST_EDITOR_UI
-                ui =
-                    std::make_unique<CometEditor::ImGuiContext>(get_engine().get_window(),
-                        get_engine().get_renderer().get_render_context(),
-                        directory.path() / "imgui.ini");
+                ui = std::make_unique<CometEditor::ImGuiContext>(get_engine().get_window(),
+                    get_engine().get_renderer().get_render_context(),
+                    directory.path() / "imgui.ini");
 #endif
                 if(fail_at == 1)
                     throw std::runtime_error("init failure");
                 if(fail_at == 0)
                     get_engine().get_window().request_close();
             }
-            void on_update(UpdateContext) override {
-                throw std::runtime_error("update failure");
-            }
+            void on_update(UpdateContext) override { throw std::runtime_error("update failure"); }
             void on_shutdown() override {
                 ++shutdowns;
                 engine_alive_during_shutdown = get_engine().get_window().get() != nullptr;

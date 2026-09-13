@@ -20,13 +20,9 @@ namespace Comet {
 
         Flags(Flags&&) = default;
 
-        Flags operator|(T o) const {
-            return Flags{m_value | static_cast<underlying_type>(o)};
-        }
+        Flags operator|(T o) const { return Flags{m_value | static_cast<underlying_type>(o)}; }
 
-        Flags operator&(T o) const {
-            return Flags{m_value & static_cast<underlying_type>(o)};
-        }
+        Flags operator&(T o) const { return Flags{m_value & static_cast<underlying_type>(o)}; }
 
         Flags& operator=(const Flags&) = default;
 
@@ -51,9 +47,7 @@ namespace Comet {
 
         Flags operator|(const Flags& o) const { return Flags{m_value | o.m_value}; }
 
-        bool operator==(T value) const {
-            return m_value == static_cast<underlying_type>(value);
-        }
+        bool operator==(T value) const { return m_value == static_cast<underlying_type>(value); }
 
         bool operator==(const Flags& other) const { return m_value == other.m_value; }
 

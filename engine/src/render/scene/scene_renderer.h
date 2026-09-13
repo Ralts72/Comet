@@ -47,11 +47,8 @@ namespace Comet {
             return *m_frame_scheduler;
         }
         [[nodiscard]] RenderTarget& get_render_target() { return *m_render_target; }
-        [[nodiscard]] const RenderTarget& get_render_target() const {
-            return *m_render_target;
-        }
-        [[nodiscard]] const MaterialRenderer::Statistics& get_material_statistics()
-            const {
+        [[nodiscard]] const RenderTarget& get_render_target() const { return *m_render_target; }
+        [[nodiscard]] const MaterialRenderer::Statistics& get_material_statistics() const {
             return m_material_renderer->get_statistics();
         }
         [[nodiscard]] CommandBuffer& get_current_command_buffer() const;
@@ -61,10 +58,9 @@ namespace Comet {
         [[nodiscard]] bool recreate_swapchain();
 
         using SwapchainReleaseCallback = std::function<void()>;
-        using SwapchainRebuildCallback =
-            std::function<void(const SwapchainCompatibility&)>;
-        void set_swapchain_resource_callbacks(SwapchainReleaseCallback release_resources,
-            SwapchainRebuildCallback rebuild_resources);
+        using SwapchainRebuildCallback = std::function<void(const SwapchainCompatibility&)>;
+        void set_swapchain_resource_callbacks(
+            SwapchainReleaseCallback release_resources, SwapchainRebuildCallback rebuild_resources);
 
     private:
         void reset_render_pipeline();

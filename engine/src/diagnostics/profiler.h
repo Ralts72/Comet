@@ -66,7 +66,7 @@ namespace Comet {
 #ifdef COMET_ENABLE_PROFILER
 #define COMET_PROFILE_CONCAT_IMPL(a, b) a##b
 #define COMET_PROFILE_CONCAT(a, b) COMET_PROFILE_CONCAT_IMPL(a, b)
-#define PROFILE_SCOPE(name)                                                              \
+#define PROFILE_SCOPE(name)                                                                        \
     Comet::ScopedSample COMET_PROFILE_CONCAT(comet_profile_scope_, __LINE__)(name)
 #define PROFILE_RESULTS() Comet::Profiler::dump_results()
 #else

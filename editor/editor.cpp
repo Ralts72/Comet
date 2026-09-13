@@ -56,17 +56,15 @@ namespace {
             renderer.enable_offscreen_rendering(
                 Comet::Math::Vec2u(swapchain.get_width(), swapchain.get_height()));
 
-            m_imgui_context =
-                std::make_unique<CometEditor::ImGuiContext>(engine.get_window(),
-                    render_context, m_project.paths().editor_state() / "imgui.ini");
+            m_imgui_context = std::make_unique<CometEditor::ImGuiContext>(engine.get_window(),
+                render_context, m_project.paths().editor_state() / "imgui.ini");
 
             m_console_panel = std::make_shared<CometEditor::ConsolePanel>();
             setup_log_redirect();
 
             try {
                 m_shortcuts = CometEditor::EditorShortcuts::load(
-                    std::filesystem::path(COMET_CONFIG_DIRECTORY)
-                    / "profiles/editor-dev.yaml");
+                    std::filesystem::path(COMET_CONFIG_DIRECTORY) / "profiles/editor-dev.yaml");
             } catch(const std::exception& error) {
                 LOG_ERROR("{}; using default editor shortcuts", error.what());
             }
@@ -78,34 +76,28 @@ namespace {
             m_property_editor_registry =
                 CometEditor::create_property_editor_registry(m_assets->database());
             Comet::Engine* engine_ptr = &engine;
-            const auto get_active_scene = [engine_ptr]() {
-                return engine_ptr->get_scene();
-            };
+            const auto get_active_scene = [engine_ptr]() { return engine_ptr->get_scene(); };
             const auto replace_active_scene = [this, engine_ptr](
                                                   std::unique_ptr<Comet::Scene> scene) {
                 if(scene) {
-                    static_cast<void>(
-                        m_assets->prepare_scene(*scene, m_component_registry));
+                    static_cast<void>(m_assets->prepare_scene(*scene, m_component_registry));
                 }
                 return engine_ptr->replace_scene(std::move(scene));
             };
-            m_scene_document =
-                std::make_unique<CometEditor::SceneDocument>(m_scene_serializer,
-                    m_project.paths(), get_active_scene, replace_active_scene);
-            LOG_INFO("Opened project '{}' at '{}'", m_project.name(),
-                m_project.paths().root().string());
+            m_scene_document = std::make_unique<CometEditor::SceneDocument>(
+                m_scene_serializer, m_project.paths(), get_active_scene, replace_active_scene);
+            LOG_INFO(
+                "Opened project '{}' at '{}'", m_project.name(), m_project.paths().root().string());
             if(m_project.startup_scene().empty()) {
                 if(!m_scene_document->create_new())
                     LOG_FATAL("Cannot create an empty editor scene");
             } else if(!m_scene_document->open(m_project.startup_scene().string())) {
-                LOG_WARN(
-                    "Default scene could not be opened; starting with an empty scene");
+                LOG_WARN("Default scene could not be opened; starting with an empty scene");
                 if(!m_scene_document->create_new())
                     LOG_FATAL("Cannot create an empty editor scene");
             }
-            m_scene_session =
-                std::make_unique<CometEditor::EditorSceneSession>(m_editor_state,
-                    m_scene_serializer, get_active_scene, replace_active_scene);
+            m_scene_session = std::make_unique<CometEditor::EditorSceneSession>(
+                m_editor_state, m_scene_serializer, get_active_scene, replace_active_scene);
             auto& scene = *engine.get_scene();
             m_command_history.bind_scene(&scene);
             m_selection.emplace(scene);
@@ -193,8 +185,8 @@ namespace {
                 case Type::Duplicate: {
                     Comet::EntityUuid uuid;
                     if(request.type == Type::Create)
-                        uuid = Commands::create_entity(m_command_history,
-                            m_component_registry, "Entity", request.parent);
+                        uuid = Commands::create_entity(
+                            m_command_history, m_component_registry, "Entity", request.parent);
                     else
                         uuid = Commands::duplicate_entity(
                             m_command_history, m_component_registry, request.entity);
@@ -243,18 +235,15 @@ namespace {
                     }
                     break;
                 case CometEditor::MenuBar::Command::OpenScene:
-                    m_scene_file_dialog.request(
-                        CometEditor::SceneFileDialog::Action::Open, *m_scene_document,
-                        m_project.paths().assets() / "scenes");
+                    m_scene_file_dialog.request(CometEditor::SceneFileDialog::Action::Open,
+                        *m_scene_document, m_project.paths().assets() / "scenes");
                     break;
                 case CometEditor::MenuBar::Command::SaveScene:
                     if(m_scene_document->get_path().empty()) {
-                        m_scene_file_dialog.request(
-                            CometEditor::SceneFileDialog::Action::Save, *m_scene_document,
-                            m_project.paths().assets() / "scenes");
+                        m_scene_file_dialog.request(CometEditor::SceneFileDialog::Action::Save,
+                            *m_scene_document, m_project.paths().assets() / "scenes");
                     } else {
-                        static_cast<void>(
-                            m_scene_document->save(m_scene_document->get_path()));
+                        static_cast<void>(m_scene_document->save(m_scene_document->get_path()));
                     }
                     break;
             }
@@ -294,8 +283,7 @@ namespace {
 
             // 弱引用避免延迟日志访问已销毁的面板。
             const auto gui_sink = std::make_shared<spdlog::sinks::callback_sink_mt>(
-                [panel = std::weak_ptr(m_console_panel)](
-                    const spdlog::details::log_msg& msg) {
+                [panel = std::weak_ptr(m_console_panel)](const spdlog::details::log_msg& msg) {
                     if(const auto console = panel.lock()) {
                         const auto level = Comet::log_level_from_spdlog(msg.level);
                         console->add_log(
@@ -306,17 +294,15 @@ namespace {
             Comet::Logger::add_custom_sink(gui_sink);
         }
 
-        void setup_panels(
-            Comet::Scene& scene, Comet::AssetScanReport initial_asset_scan) {
+        void setup_panels(Comet::Scene& scene, Comet::AssetScanReport initial_asset_scan) {
             m_menu_bar = std::make_unique<CometEditor::MenuBar>(
                 m_editor_state, m_command_history, m_shortcuts);
 
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
                 scene, *m_selection, m_command_history, m_editor_state);
-            m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
-                *m_selection, m_command_history, m_component_registry, m_property_edit,
-                m_shortcuts, get_engine().get_renderer(),
-                get_engine().get_asset_registry(), *m_imgui_context);
+            m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state, *m_selection,
+                m_command_history, m_component_registry, m_property_edit, m_shortcuts,
+                get_engine().get_renderer(), get_engine().get_asset_registry(), *m_imgui_context);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(
                 m_editor_state, *m_selection, m_command_history, m_property_edit,
                 m_component_registry, m_property_editor_registry, m_assets->database(),
@@ -324,15 +310,14 @@ namespace {
                 [this](const Comet::AssetHandle handle, const Comet::MaterialData& data) {
                     return m_assets->update_material(handle, data);
                 },
-                [this](const Comet::AssetHandle handle,
-                    const Comet::TextureImportSettings settings) {
+                [this](
+                    const Comet::AssetHandle handle, const Comet::TextureImportSettings settings) {
                     return m_assets->reimport_texture(handle, settings);
                 });
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(
-                m_assets->database(), m_project.paths().assets(),
-                std::move(initial_asset_scan), [this]() { return m_assets->refresh(); },
-                [this](const Comet::AssetHandle handle,
-                    const std::filesystem::path& destination) {
+                m_assets->database(), m_project.paths().assets(), std::move(initial_asset_scan),
+                [this]() { return m_assets->refresh(); },
+                [this](const Comet::AssetHandle handle, const std::filesystem::path& destination) {
                     return m_assets->move(handle, destination);
                 },
                 *m_selection, m_command_history);
@@ -363,16 +348,14 @@ namespace {
             m_menu_bar->collect_shortcuts();
         }
 
-        void handle_asset_assignment(
-            const CometEditor::InspectorPanel::AssetAssignment& request) {
+        void handle_asset_assignment(const CometEditor::InspectorPanel::AssetAssignment& request) {
             auto* scene = get_engine().get_scene();
             if(!scene || request.asset.generation != m_command_history.generation()
                 || (m_editor_state.mode == CometEditor::EditorMode::Edit
                     && m_command_history.get_scene() != scene))
                 return;
             auto entity = scene->find_entity(request.target.entity);
-            const auto* component =
-                m_component_registry.find_component(request.target.component);
+            const auto* component = m_component_registry.find_component(request.target.component);
             const auto* property =
                 component ? component->find_property(request.target.property) : nullptr;
             if(!entity || !component || !component->has_component(entity) || !property
@@ -392,8 +375,7 @@ namespace {
                 return;
             }
             if(m_editor_state.mode == CometEditor::EditorMode::Play) {
-                if(!property->assign_value(
-                       component->get_component(entity), request.asset.handle))
+                if(!property->assign_value(component->get_component(entity), request.asset.handle))
                     LOG_ERROR("Cannot update runtime asset reference");
                 return;
             }
@@ -414,9 +396,9 @@ namespace {
             if(!finish_active_edit())
                 return;
             const auto* record = m_assets->database().find(request.asset.handle);
-            const auto uuid = CometEditor::SceneCommands::create_mesh_entity(
-                m_command_history, m_component_registry, record->path.stem().string(),
-                request.asset.handle, {}, request.position);
+            const auto uuid = CometEditor::SceneCommands::create_mesh_entity(m_command_history,
+                m_component_registry, record->path.stem().string(), request.asset.handle, {},
+                request.position);
             if(uuid)
                 m_selection->select_entity(
                     m_command_history.get_scene()->find_entity(uuid).get_id());
@@ -434,8 +416,7 @@ namespace {
                     m_project_panel->update_scan_report(
                         m_assets->import_files(drop.paths, *directory));
                 else
-                    LOG_WARN(
-                        "Drop external files onto a Project folder or its empty area");
+                    LOG_WARN("Drop external files onto a Project folder or its empty area");
             }
             if(const auto handle = m_project_panel->take_mesh_reimport_request())
                 m_assets->request_mesh_reimport(*handle);
@@ -459,8 +440,7 @@ namespace {
             }
             if(m_assets->take_reference_refresh_request()) {
                 if(auto* scene = get_engine().get_scene())
-                    static_cast<void>(
-                        m_assets->prepare_scene(*scene, m_component_registry));
+                    static_cast<void>(m_assets->prepare_scene(*scene, m_component_registry));
             }
         }
 
@@ -468,8 +448,7 @@ namespace {
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
         std::optional<CometEditor::SelectionService> m_selection;
-        Comet::ComponentRegistry m_component_registry =
-            Comet::create_scene_component_registry();
+        Comet::ComponentRegistry m_component_registry = Comet::create_scene_component_registry();
         CometEditor::CommandHistory m_command_history;
         CometEditor::PropertyEditTransaction m_property_edit{
             m_command_history, m_component_registry};
@@ -489,10 +468,8 @@ namespace {
         std::shared_ptr<CometEditor::ConsolePanel> m_console_panel;
     };
 
-    std::unique_ptr<Comet::Application> create_editor(
-        Comet::ApplicationArguments arguments) {
-        if(arguments.size() > 1
-            || (!arguments.empty() && arguments.front().starts_with('-')))
+    std::unique_ptr<Comet::Application> create_editor(Comet::ApplicationArguments arguments) {
+        if(arguments.size() > 1 || (!arguments.empty() && arguments.front().starts_with('-')))
             throw std::invalid_argument("Expected a project directory or project.json");
         auto project = Comet::Project::load(
             arguments.empty() ? COMET_SAMPLE_PROJECT_DIRECTORY : arguments.front());

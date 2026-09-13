@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/export.h"
-#include "asset/result.h"
+#include "common/result.h"
 #include "render/resource/mesh_data.h"
 
 #include <cstdint>
@@ -18,9 +18,8 @@ namespace Comet {
     public:
         static constexpr std::uint32_t VERSION = 1;
 
-        [[nodiscard]] AssetResult<MeshData> import(
-            const std::filesystem::path& source_path) const;
-        [[nodiscard]] AssetResult<MeshImportData> import_with_dependencies(
+        [[nodiscard]] Result<MeshData> import(const std::filesystem::path& source_path) const;
+        [[nodiscard]] Result<MeshImportData> import_with_dependencies(
             const std::filesystem::path& source_path) const;
     };
 }

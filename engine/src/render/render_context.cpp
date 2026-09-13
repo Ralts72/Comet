@@ -8,8 +8,8 @@
 #include "diagnostics/profiler.h"
 
 namespace Comet {
-    RenderContext::RenderContext(const Window& window,
-        const Config::Vulkan& vulkan_config, const Config::Render& render_config) {
+    RenderContext::RenderContext(const Window& window, const Config::Vulkan& vulkan_config,
+        const Config::Render& render_config) {
         PROFILE_SCOPE("RenderContext::Constructor");
         LOG_INFO("init graphics system");
 
@@ -17,8 +17,7 @@ namespace Comet {
         if(render_config.enable_vsync) {
             present_mode = PresentMode::Fifo;
         }
-        const SwapchainRequest swapchain_request{
-            .image_count = vulkan_config.swapchain_image_count,
+        const SwapchainRequest swapchain_request{.image_count = vulkan_config.swapchain_image_count,
             .surface_format = vulkan_config.surface_format,
             .color_space = vulkan_config.color_space,
             .present_mode = present_mode,
@@ -33,8 +32,7 @@ namespace Comet {
         m_device = std::make_unique<Device>(*m_context);
 
         LOG_INFO("create swapchain");
-        m_swapchain =
-            std::make_unique<Swapchain>(window, *m_context, *m_device, swapchain_request);
+        m_swapchain = std::make_unique<Swapchain>(window, *m_context, *m_device, swapchain_request);
     }
 
     void RenderContext::wait_idle() const {

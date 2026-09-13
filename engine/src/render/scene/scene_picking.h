@@ -22,13 +22,11 @@ namespace Comet {
 
     // 像素坐标以显示纹理的左上角为原点。
     [[nodiscard]] COMET_API std::optional<Ray> make_world_ray(
-        const ViewProjectMatrix& view_project, Math::Vec2u pixel,
-        Math::Vec2u render_resolution);
+        const ViewProjectMatrix& view_project, Math::Vec2u pixel, Math::Vec2u render_resolution);
 
     [[nodiscard]] COMET_API std::optional<ScenePickHit> pick_scene_candidates(
         const Ray& world_ray, std::span<const ScenePickCandidate> candidates);
 
     [[nodiscard]] COMET_API std::optional<ScenePickHit> pick_render_submission(
-        const RenderSubmission& submission, Math::Vec2u pixel,
-        Math::Vec2u render_resolution);
+        const RenderSubmission& submission, Math::Vec2u pixel, Math::Vec2u render_resolution);
 }

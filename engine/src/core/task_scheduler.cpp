@@ -13,13 +13,11 @@ namespace Comet {
             }
 
             const std::size_t hardware_threads = std::thread::hardware_concurrency();
-            return std::max<std::size_t>(
-                1, hardware_threads > 1 ? hardware_threads - 1 : 1);
+            return std::max<std::size_t>(1, hardware_threads > 1 ? hardware_threads - 1 : 1);
         }
     }
 
-    TaskScheduler::TaskScheduler(
-        const std::size_t worker_count, const std::size_t queue_capacity)
+    TaskScheduler::TaskScheduler(const std::size_t worker_count, const std::size_t queue_capacity)
         : m_queue_capacity(queue_capacity) {
         if(queue_capacity == 0)
             throw std::invalid_argument("Task queue capacity must be positive");
@@ -72,8 +70,7 @@ namespace Comet {
             const std::lock_guard lock(m_mutex);
             if(m_stopping || m_tasks.size() >= m_queue_capacity)
                 return std::nullopt;
-            auto scheduled_task =
-                std::make_shared<std::packaged_task<void()>>(std::move(task));
+            auto scheduled_task = std::make_shared<std::packaged_task<void()>>(std::move(task));
             result = scheduled_task->get_future();
             m_tasks.emplace_back([scheduled_task] { (*scheduled_task)(); });
         }
@@ -95,8 +92,7 @@ namespace Comet {
             Task task;
             {
                 std::unique_lock lock(m_mutex);
-                m_task_available.wait(
-                    lock, [this] { return m_stopping || !m_tasks.empty(); });
+                m_task_available.wait(lock, [this] { return m_stopping || !m_tasks.empty(); });
                 if(m_stopping && m_tasks.empty()) {
                     return;
                 }

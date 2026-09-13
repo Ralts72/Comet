@@ -70,8 +70,9 @@ namespace Comet {
         auto [label, start] = stack.back();
         stack.pop_back();
 
-        const auto duration = std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - start).count();
+        const auto duration =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+                .count();
 
         std::lock_guard<std::mutex> lock(s_mtx);
         auto& [total_time, call_count] = s_records[label];
@@ -103,8 +104,7 @@ namespace Comet {
             const double average = total_time / call_count;
             const auto level = select_profile_log_level(call_count, average);
 
-            logger->log(level,
-                "{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms", label,
+            logger->log(level, "{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms", label,
                 call_count, total_time, average);
         }
 #endif
@@ -121,8 +121,7 @@ namespace Comet {
         return s_thread_stack;
     }
 
-    ScopedSample::ScopedSample(const char* label)
-        : m_active(Profiler::begin_sample(label)) {}
+    ScopedSample::ScopedSample(const char* label) : m_active(Profiler::begin_sample(label)) {}
 
     ScopedSample::~ScopedSample() {
         if(m_active) {

@@ -31,8 +31,7 @@ namespace Comet {
         Semaphore render_finished_semaphore;
         std::optional<uint32_t> in_flight_frame_slot;
 
-        explicit SwapchainImageState(Device& device)
-            : render_finished_semaphore(device) {}
+        explicit SwapchainImageState(Device& device) : render_finished_semaphore(device) {}
     };
 
     class COMET_API FrameScheduler {
@@ -53,13 +52,9 @@ namespace Comet {
 
         void initialize_swapchain_images(uint32_t image_count);
 
-        [[nodiscard]] uint32_t get_current_frame_slot_index() const {
-            return m_current_frame_slot;
-        }
+        [[nodiscard]] uint32_t get_current_frame_slot_index() const { return m_current_frame_slot; }
         [[nodiscard]] uint32_t get_frame_slot_count() const { return m_frame_slot_count; }
-        [[nodiscard]] uint64_t get_current_frame_serial() const {
-            return m_current_frame_serial;
-        }
+        [[nodiscard]] uint64_t get_current_frame_serial() const { return m_current_frame_serial; }
         [[nodiscard]] uint64_t get_completed_frame_serial() const {
             return m_completed_frame_serial;
         }
@@ -74,8 +69,7 @@ namespace Comet {
             return m_frame_slots.at(m_current_frame_slot);
         }
 
-        [[nodiscard]] SwapchainImageState& get_swapchain_image_state(
-            uint32_t image_index) {
+        [[nodiscard]] SwapchainImageState& get_swapchain_image_state(uint32_t image_index) {
             return m_swapchain_image_states.at(image_index);
         }
 

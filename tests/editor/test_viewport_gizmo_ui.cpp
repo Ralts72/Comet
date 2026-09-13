@@ -59,8 +59,8 @@ namespace CometEditor::Tests {
         }
 
         Comet::Math::Vec2 x_handle() {
-            const auto handle = gizmo.handles(
-                entity.get_uuid(), state.camera.snapshot(), viewport.get_layout())[0];
+            const auto handle =
+                gizmo.handles(entity.get_uuid(), state.camera.snapshot(), viewport.get_layout())[0];
             EXPECT_TRUE(handle.has_value());
             if(!handle) {
                 return {};
@@ -84,9 +84,7 @@ namespace CometEditor::Tests {
             move_pointer(point + Comet::Math::Vec2(40, 0));
         }
 
-        float x() {
-            return entity.get_component<Comet::TransformComponent>().translation.x;
-        }
+        float x() { return entity.get_component<Comet::TransformComponent>().translation.x; }
     };
 
     TEST_F(ViewportGizmoUiTest, ToolMenuChangesInteractionPolicyWithoutEditingScene) {
@@ -112,8 +110,8 @@ namespace CometEditor::Tests {
         ASSERT_NE(options, nullptr);
         // ImGui 的数组式 Combo 为各选项追加索引 ID。
         const int local_index = 1;
-        const auto local_id = ImHashStr(
-            "Local", 0, ImHashData(&local_index, sizeof(local_index), options->ID));
+        const auto local_id =
+            ImHashStr("Local", 0, ImHashData(&local_index, sizeof(local_index), options->ID));
         ImGui::ActivateItemByID(local_id);
         frame();
         EXPECT_EQ(gizmo.settings().space, TransformGizmo::Space::Local);
@@ -125,14 +123,14 @@ namespace CometEditor::Tests {
         options = GImGui->OpenPopupStack.back().Window;
         ASSERT_NE(options, nullptr);
         const int rotate_index = 1;
-        ImGui::ActivateItemByID(ImHashStr(
-            "Rotate", 0, ImHashData(&rotate_index, sizeof(rotate_index), options->ID)));
+        ImGui::ActivateItemByID(
+            ImHashStr("Rotate", 0, ImHashData(&rotate_index, sizeof(rotate_index), options->ID)));
         frame();
         EXPECT_EQ(gizmo.settings().mode, TransformGizmo::Mode::Rotate);
         EXPECT_FLOAT_EQ(gizmo.settings().rotation_step_degrees, 15);
         EXPECT_EQ(history.undo_size(), 0);
-        ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Rotate,
-            .space = TransformGizmo::Space::World}));
+        ASSERT_TRUE(gizmo.set_settings(
+            {.mode = TransformGizmo::Mode::Rotate, .space = TransformGizmo::Space::World}));
         ImGui::ActivateItemByID(popup->GetID("Mode"));
         frame();
         frame();
@@ -140,8 +138,8 @@ namespace CometEditor::Tests {
         options = GImGui->OpenPopupStack.back().Window;
         ASSERT_NE(options, nullptr);
         const int scale_index = 2;
-        ImGui::ActivateItemByID(ImHashStr(
-            "Scale", 0, ImHashData(&scale_index, sizeof(scale_index), options->ID)));
+        ImGui::ActivateItemByID(
+            ImHashStr("Scale", 0, ImHashData(&scale_index, sizeof(scale_index), options->ID)));
         frame();
         EXPECT_EQ(gizmo.settings().mode, TransformGizmo::Mode::Scale);
         EXPECT_FLOAT_EQ(gizmo.settings().scale_step, 0.1f);
@@ -153,8 +151,8 @@ namespace CometEditor::Tests {
         options = GImGui->OpenPopupStack.back().Window;
         ASSERT_NE(options, nullptr);
         const int move_index = 0;
-        ImGui::ActivateItemByID(ImHashStr(
-            "Move", 0, ImHashData(&move_index, sizeof(move_index), options->ID)));
+        ImGui::ActivateItemByID(
+            ImHashStr("Move", 0, ImHashData(&move_index, sizeof(move_index), options->ID)));
         frame();
         EXPECT_EQ(gizmo.settings().mode, TransformGizmo::Mode::Translate);
         EXPECT_EQ(gizmo.settings().space, TransformGizmo::Space::World);
@@ -169,11 +167,10 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(gizmo.set_settings(
             {.mode = TransformGizmo::Mode::Scale, .snap = true, .scale_step = 0.25f}));
         frame();
-        const auto handle = gizmo.handles(
-            entity.get_uuid(), state.camera.snapshot(), viewport.get_layout())[3];
+        const auto handle =
+            gizmo.handles(entity.get_uuid(), state.camera.snapshot(), viewport.get_layout())[3];
         ASSERT_TRUE(handle);
-        const auto point =
-            (handle->segments.front().start + handle->segments.front().end) * 0.5f;
+        const auto point = (handle->segments.front().start + handle->segments.front().end) * 0.5f;
         move_pointer(point);
         ImGui::GetIO().AddMouseButtonEvent(0, true);
         frame();
@@ -198,11 +195,10 @@ namespace CometEditor::Tests {
         state.camera.perspective.position = {0, 0, 3};
         state.camera.target = {};
         // ImGui 将鼠标坐标取整到逻辑像素；这里同时验证角度吸附的 UI 链路。
-        ASSERT_TRUE(
-            gizmo.set_settings({.mode = TransformGizmo::Mode::Rotate, .snap = true}));
+        ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Rotate, .snap = true}));
         frame();
-        const auto ring = gizmo.handles(
-            entity.get_uuid(), state.camera.snapshot(), viewport.get_layout())[2];
+        const auto ring =
+            gizmo.handles(entity.get_uuid(), state.camera.snapshot(), viewport.get_layout())[2];
         ASSERT_TRUE(ring);
         ASSERT_EQ(ring->segments.size(), 64);
         EXPECT_GT(gizmo_vertices, 0);
@@ -211,8 +207,7 @@ namespace CometEditor::Tests {
         frame();
         ASSERT_EQ(gizmo.active_axis(), TransformGizmo::Axis::Z);
         move_pointer(ring->segments[12].start);
-        EXPECT_NEAR(
-            entity.get_component<Comet::TransformComponent>().rotation.z, 45, 0.001f);
+        EXPECT_NEAR(entity.get_component<Comet::TransformComponent>().rotation.z, 45, 0.001f);
         EXPECT_EQ(history.undo_size(), 0);
         ImGui::GetIO().AddMouseWheelEvent(0, 1);
         frame();
@@ -225,11 +220,9 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(gizmo.active());
         EXPECT_EQ(ImGui::GetActiveID(), 0);
         EXPECT_EQ(history.undo_size(), 1);
-        EXPECT_NEAR(
-            entity.get_component<Comet::TransformComponent>().rotation.z, 90, 0.001f);
+        EXPECT_NEAR(entity.get_component<Comet::TransformComponent>().rotation.z, 90, 0.001f);
         ASSERT_TRUE(history.undo());
-        EXPECT_EQ(entity.get_component<Comet::TransformComponent>().rotation,
-            Comet::Math::Vec3(0));
+        EXPECT_EQ(entity.get_component<Comet::TransformComponent>().rotation, Comet::Math::Vec3(0));
     }
 
     TEST_F(ViewportGizmoUiTest, MeshDropReportsOnePositionedRequestWithoutEditingScene) {
@@ -294,8 +287,8 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(ViewportGizmoUiTest, ConfiguredFocusRequiresViewportFocusAndEditMode) {
-        shortcuts = EditorShortcuts::parse(
-            "editor: {shortcuts: {viewport.focus_selection: [Primary+G]}}");
+        shortcuts =
+            EditorShortcuts::parse("editor: {shortcuts: {viewport.focus_selection: [Primary+G]}}");
         auto& io = ImGui::GetIO();
         ImGui::FocusWindow(ImGui::FindWindowByName("Viewport"));
         frame();
@@ -359,9 +352,8 @@ namespace CometEditor::Tests {
 
     enum class CancelBoundary { Escape, Hidden, Collapsed, FocusLost, Play };
 
-    class ViewportGizmoCancellationTest
-        : public ViewportGizmoUiTest,
-          public ::testing::WithParamInterface<CancelBoundary> {};
+    class ViewportGizmoCancellationTest: public ViewportGizmoUiTest,
+                                         public ::testing::WithParamInterface<CancelBoundary> {};
 
     TEST_P(ViewportGizmoCancellationTest, RestoresPreviewWithoutHistoryOrReactivation) {
         drag();
@@ -390,8 +382,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(ImGui::GetActiveID(), 0);
         EXPECT_FALSE(history.can_undo());
         EXPECT_FALSE(viewport.take_pick_request());
-        if(GetParam() == CancelBoundary::Hidden
-            || GetParam() == CancelBoundary::Collapsed) {
+        if(GetParam() == CancelBoundary::Hidden || GetParam() == CancelBoundary::Collapsed) {
             EXPECT_FALSE(viewport.is_visible());
             EXPECT_EQ(viewport.get_requested_render_size(), Comet::Math::Vec2u{});
             EXPECT_EQ(viewport.get_layout().image_resolution, Comet::Math::Vec2u{});
@@ -405,8 +396,8 @@ namespace CometEditor::Tests {
     }
 
     INSTANTIATE_TEST_SUITE_P(InputBoundary, ViewportGizmoCancellationTest,
-        ::testing::Values(CancelBoundary::Escape, CancelBoundary::Hidden,
-            CancelBoundary::Collapsed, CancelBoundary::FocusLost, CancelBoundary::Play));
+        ::testing::Values(CancelBoundary::Escape, CancelBoundary::Hidden, CancelBoundary::Collapsed,
+            CancelBoundary::FocusLost, CancelBoundary::Play));
 
     TEST_F(ViewportGizmoUiTest, OptionLeftDragNavigatesCameraEvenOverAxis) {
         const auto point = x_handle();
@@ -427,8 +418,7 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(ViewportGizmoUiTest, ClickAwayFromHandlesStillRequestsPixelPicking) {
-        const auto point =
-            viewport.get_layout().image_visible_rect.min + Comet::Math::Vec2(20, 20);
+        const auto point = viewport.get_layout().image_visible_rect.min + Comet::Math::Vec2(20, 20);
         const auto pixel = map_viewport_point_to_pixel(viewport.get_layout(), point);
         ASSERT_TRUE(pixel.has_value());
         move_pointer(point);

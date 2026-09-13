@@ -16,8 +16,7 @@ namespace Comet::Tests {
         auto accepted = scheduler.try_submit([&] { ++executed; });
         ASSERT_TRUE(accepted);
         EXPECT_FALSE(scheduler.try_submit([&] { ++executed; }));
-        EXPECT_THROW(
-            static_cast<void>(scheduler.submit([&] { ++executed; })), std::runtime_error);
+        EXPECT_THROW(static_cast<void>(scheduler.submit([&] { ++executed; })), std::runtime_error);
         EXPECT_EQ(executed.load(), 0);
         EXPECT_EQ(scheduler.get_queue_capacity(), 1);
         blocker.release();

@@ -46,8 +46,8 @@ namespace Comet {
             }
         }
 
-        m_window.reset(glfwCreateWindow(
-            actual_width, actual_height, config.title.c_str(), monitor, nullptr));
+        m_window.reset(
+            glfwCreateWindow(actual_width, actual_height, config.title.c_str(), monitor, nullptr));
         if(!m_window) {
             if(window_count == 0)
                 glfwTerminate();
@@ -55,30 +55,28 @@ namespace Comet {
         }
         ++window_count;
         glfwSetWindowUserPointer(m_window.get(), this);
-        glfwSetDropCallback(
-            m_window.get(), [](GLFWwindow* window, int count, const char** paths) {
-                try {
-                    FileDrop drop;
-                    double x, y;
-                    glfwGetCursorPos(window, &x, &y);
-                    drop.position = {static_cast<float>(x), static_cast<float>(y)};
-                    for(int i = 0; i < count; ++i) {
-                        const std::string_view utf8(paths[i]);
-                        drop.paths.emplace_back(std::u8string(utf8.begin(), utf8.end()));
-                    }
-                    static_cast<Window*>(glfwGetWindowUserPointer(window))
-                        ->m_file_drops.push_back(std::move(drop));
-                } catch(const std::exception& error) {
-                    LOG_ERROR("Cannot receive dropped files: {}", error.what());
+        glfwSetDropCallback(m_window.get(), [](GLFWwindow* window, int count, const char** paths) {
+            try {
+                FileDrop drop;
+                double x, y;
+                glfwGetCursorPos(window, &x, &y);
+                drop.position = {static_cast<float>(x), static_cast<float>(y)};
+                for(int i = 0; i < count; ++i) {
+                    const std::string_view utf8(paths[i]);
+                    drop.paths.emplace_back(std::u8string(utf8.begin(), utf8.end()));
                 }
-            });
+                static_cast<Window*>(glfwGetWindowUserPointer(window))
+                    ->m_file_drops.push_back(std::move(drop));
+            } catch(const std::exception& error) {
+                LOG_ERROR("Cannot receive dropped files: {}", error.what());
+            }
+        });
 
         // 窗口模式下居中显示，全屏模式不需要
         if(!config.fullscreen) {
             if(GLFWmonitor* primary_monitor = glfwGetPrimaryMonitor()) {
                 int x_pos, y_pos, work_width, work_height;
-                glfwGetMonitorWorkarea(
-                    primary_monitor, &x_pos, &y_pos, &work_width, &work_height);
+                glfwGetMonitorWorkarea(primary_monitor, &x_pos, &y_pos, &work_width, &work_height);
                 glfwSetWindowPos(m_window.get(), work_width / 2 - config.width / 2,
                     work_height / 2 - config.height / 2);
             }
@@ -105,8 +103,8 @@ namespace Comet {
         int width = 0;
         int height = 0;
         glfwGetFramebufferSize(m_window.get(), &width, &height);
-        return {static_cast<uint32_t>(std::max(width, 0)),
-            static_cast<uint32_t>(std::max(height, 0))};
+        return {
+            static_cast<uint32_t>(std::max(width, 0)), static_cast<uint32_t>(std::max(height, 0))};
     }
 
     void Window::poll_events() {

@@ -27,8 +27,8 @@ namespace Comet {
             throw std::runtime_error("Asset path cannot be empty");
         const auto directory =
             std::filesystem::weakly_canonical(std::filesystem::absolute(assets()));
-        const auto resolved = std::filesystem::weakly_canonical(
-            path.is_absolute() ? path : directory / path);
+        const auto resolved =
+            std::filesystem::weakly_canonical(path.is_absolute() ? path : directory / path);
         const auto relative = resolved.lexically_relative(directory);
         if(relative.empty() || relative == "." || relative.is_absolute()
             || *relative.begin() == "..")

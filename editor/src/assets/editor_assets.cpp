@@ -45,8 +45,7 @@ namespace CometEditor {
             }
         }
         for(const auto& issue : report.issues)
-            LOG_WARN("Asset scan issue at '{}': {}", issue.path.generic_string(),
-                issue.message);
+            LOG_WARN("Asset scan issue at '{}': {}", issue.path.generic_string(), issue.message);
     }
 
     Comet::AssetScanReport EditorAssets::refresh() {
@@ -66,8 +65,7 @@ namespace CometEditor {
         }
         for(const auto handle : m_pending_mesh_imports) {
             if(!m_manager.import_mesh_async(handle))
-                LOG_WARN("Automatic mesh import was not accepted for handle {}",
-                    handle.value());
+                LOG_WARN("Automatic mesh import was not accepted for handle {}", handle.value());
         }
         m_pending_mesh_imports.clear();
         if(!m_manager.process_completions().empty())
@@ -132,19 +130,16 @@ namespace CometEditor {
 
     void EditorAssets::request_mesh_reimport(const Comet::AssetHandle handle) {
         m_pending_mesh_imports.erase(handle);
-        if(!m_manager.import_mesh_async(
-               handle, Comet::AssetManager::MeshImportMode::Force))
-            LOG_WARN(
-                "Mesh reimport request was not accepted for handle {}", handle.value());
+        if(!m_manager.import_mesh_async(handle, Comet::AssetManager::MeshImportMode::Force))
+            LOG_WARN("Mesh reimport request was not accepted for handle {}", handle.value());
     }
 
-    bool EditorAssets::load_reference(const Comet::AssetHandle handle,
-        const Comet::AssetType type, const Comet::AssetRevision revision) {
+    bool EditorAssets::load_reference(const Comet::AssetHandle handle, const Comet::AssetType type,
+        const Comet::AssetRevision revision) {
         if(!handle)
             return true; // 空引用允许保存在场景中。
         if(!database().is_current(handle, revision)) {
-            LOG_ERROR(
-                "Cannot load asset {}: stale or incompatible reference", handle.value());
+            LOG_ERROR("Cannot load asset {}: stale or incompatible reference", handle.value());
             return false;
         }
         return m_manager.ensure_loaded(handle, type);
@@ -160,8 +155,7 @@ namespace CometEditor {
         }
         if(missing)
             LOG_WARN(
-                "Scene has {} unresolved asset references; data is preserved for repair",
-                missing);
+                "Scene has {} unresolved asset references; data is preserved for repair", missing);
         return missing;
     }
 

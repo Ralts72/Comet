@@ -78,8 +78,8 @@ namespace Comet::Tests {
             std::filesystem::path m_root;
         };
 
-        void expect_scene_error(const SceneSerializer& serializer,
-            const std::string_view contents, const std::string_view expected_detail) {
+        void expect_scene_error(const SceneSerializer& serializer, const std::string_view contents,
+            const std::string_view expected_detail) {
             try {
                 static_cast<void>(serializer.deserialize(contents, "invalid.scene"));
                 FAIL() << "Expected scene deserialization to fail";
@@ -131,8 +131,7 @@ namespace Comet::Tests {
         EXPECT_EQ(contents.find("entity_id"), std::string::npos);
         EXPECT_EQ(contents.find("world_matrix"), std::string::npos);
 
-        std::unique_ptr<Scene> loaded =
-            serializer.deserialize(contents, "round-trip.scene");
+        std::unique_ptr<Scene> loaded = serializer.deserialize(contents, "round-trip.scene");
         ASSERT_NE(loaded, nullptr);
         ASSERT_EQ(loaded->entity_count(), 2u);
 
@@ -144,10 +143,8 @@ namespace Comet::Tests {
         EXPECT_EQ(loaded_child.get_component<NameComponent>().name, "Child");
         EXPECT_EQ(loaded->get_parent(loaded_child), loaded_root);
 
-        const auto& loaded_root_transform =
-            loaded_root.get_component<TransformComponent>();
-        const auto& loaded_child_transform =
-            loaded_child.get_component<TransformComponent>();
+        const auto& loaded_root_transform = loaded_root.get_component<TransformComponent>();
+        const auto& loaded_child_transform = loaded_child.get_component<TransformComponent>();
         EXPECT_VEC3_EQ(root_transform.translation, loaded_root_transform.translation);
         EXPECT_VEC3_EQ(root_transform.rotation, loaded_root_transform.rotation);
         EXPECT_VEC3_EQ(root_transform.scale, loaded_root_transform.scale);
@@ -164,10 +161,9 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(loaded_camera.near_clip, 0.25f);
         EXPECT_FLOAT_EQ(loaded_camera.far_clip, 2500.0f);
 
-        const Math::Mat4 expected_world =
-            root_transform.to_matrix() * child_transform.to_matrix();
-        EXPECT_MAT4_EQ(expected_world,
-            loaded_child.get_component<WorldTransformComponent>().world_matrix);
+        const Math::Mat4 expected_world = root_transform.to_matrix() * child_transform.to_matrix();
+        EXPECT_MAT4_EQ(
+            expected_world, loaded_child.get_component<WorldTransformComponent>().world_matrix);
         EXPECT_EQ(serializer.serialize(*loaded), contents);
     }
 
@@ -194,13 +190,11 @@ namespace Comet::Tests {
         const EntityUuid parent_uuid = uuid("00000000-0000-4000-8000-000000000060");
         const EntityUuid child_uuid = uuid("00000000-0000-4000-8000-000000000061");
         Scene edit_scene;
-        Entity edit_parent =
-            edit_scene.create_entity_with_uuid(parent_uuid, "Edit Parent");
+        Entity edit_parent = edit_scene.create_entity_with_uuid(parent_uuid, "Edit Parent");
         Entity edit_child = edit_scene.create_entity_with_uuid(child_uuid, "Edit Child");
         ASSERT_TRUE(edit_parent);
         ASSERT_TRUE(edit_child);
-        edit_child.get_component<TransformComponent>().translation =
-            Math::Vec3(1.0f, 2.0f, 3.0f);
+        edit_child.get_component<TransformComponent>().translation = Math::Vec3(1.0f, 2.0f, 3.0f);
         ASSERT_TRUE(edit_scene.set_parent(edit_child, edit_parent));
 
         const SceneSerializer serializer = make_scene_serializer();
@@ -220,8 +214,7 @@ namespace Comet::Tests {
         runtime_child.get_component<TransformComponent>().translation.x = 9.0f;
 
         EXPECT_EQ(edit_parent.get_component<NameComponent>().name, "Edit Parent");
-        EXPECT_FLOAT_EQ(
-            edit_child.get_component<TransformComponent>().translation.x, 1.0f);
+        EXPECT_FLOAT_EQ(edit_child.get_component<TransformComponent>().translation.x, 1.0f);
     }
 
     TEST(SceneSerializerTest, OrdersEntitiesByUuid) {
@@ -338,24 +331,19 @@ namespace Comet::Tests {
   }]
 })");
         ASSERT_EQ(scene->entity_count(), 4U);
-        const auto root =
-            scene->find_entity(uuid("00000000-0000-4000-8000-000000000003"));
-        const auto child =
-            scene->find_entity(uuid("00000000-0000-4000-8000-000000000002"));
-        const auto later =
-            scene->find_entity(uuid("00000000-0000-4000-8000-000000000004"));
-        const auto grandchild =
-            scene->find_entity(uuid("00000000-0000-4000-8000-000000000001"));
+        const auto root = scene->find_entity(uuid("00000000-0000-4000-8000-000000000003"));
+        const auto child = scene->find_entity(uuid("00000000-0000-4000-8000-000000000002"));
+        const auto later = scene->find_entity(uuid("00000000-0000-4000-8000-000000000004"));
+        const auto grandchild = scene->find_entity(uuid("00000000-0000-4000-8000-000000000001"));
         EXPECT_EQ(scene->get_parent(child), root);
         EXPECT_EQ(scene->get_parent(later), root);
         EXPECT_EQ(scene->get_parent(grandchild), child);
         const auto text = serializer.serialize(*scene);
-        EXPECT_LT(text.find(root.get_uuid().to_string()),
-            text.find(child.get_uuid().to_string()));
-        EXPECT_LT(text.find(child.get_uuid().to_string()),
-            text.find(grandchild.get_uuid().to_string()));
-        EXPECT_LT(text.find(grandchild.get_uuid().to_string()),
-            text.find(later.get_uuid().to_string()));
+        EXPECT_LT(text.find(root.get_uuid().to_string()), text.find(child.get_uuid().to_string()));
+        EXPECT_LT(
+            text.find(child.get_uuid().to_string()), text.find(grandchild.get_uuid().to_string()));
+        EXPECT_LT(
+            text.find(grandchild.get_uuid().to_string()), text.find(later.get_uuid().to_string()));
         EXPECT_EQ(text.find(R"("parent":)"), std::string::npos);
         EXPECT_EQ(serializer.serialize(*serializer.deserialize(text)), text);
     }
@@ -373,8 +361,7 @@ namespace Comet::Tests {
     TEST(SceneSerializerTest, BoundsHierarchyDepthOnReadAndSave) {
         Scene scene;
         Entity parent;
-        for(std::size_t depth = 0; depth < SceneSerializer::MAX_HIERARCHY_DEPTH;
-            ++depth) {
+        for(std::size_t depth = 0; depth < SceneSerializer::MAX_HIERARCHY_DEPTH; ++depth) {
             auto entity = scene.create_entity("Node");
             if(parent)
                 ASSERT_TRUE(scene.set_parent(entity, parent));
@@ -386,21 +373,19 @@ namespace Comet::Tests {
         EXPECT_EQ(serializer.load(file.path())->entity_count(), scene.entity_count());
         ASSERT_TRUE(scene.set_parent(scene.create_entity("Too deep"), parent));
         EXPECT_THROW(serializer.save(scene, file.path()), std::runtime_error);
-        EXPECT_EQ(serializer.load(file.path())->entity_count(),
-            SceneSerializer::MAX_HIERARCHY_DEPTH);
+        EXPECT_EQ(
+            serializer.load(file.path())->entity_count(), SceneSerializer::MAX_HIERARCHY_DEPTH);
 
         std::string children = "[]";
-        for(std::size_t index = 0; index <= SceneSerializer::MAX_HIERARCHY_DEPTH;
-            ++index) {
+        for(std::size_t index = 0; index <= SceneSerializer::MAX_HIERARCHY_DEPTH; ++index) {
             const auto digits = std::to_string(index + 1);
-            const auto id = "00000000-0000-4000-8000-"
-                            + std::string(12 - digits.size(), '0') + digits;
+            const auto id =
+                "00000000-0000-4000-8000-" + std::string(12 - digits.size(), '0') + digits;
             children = "[{\"uuid\":\"" + id
-                       + "\",\"components\":{\"name\":\"Node\"},\"children\":" + children
-                       + "}]";
+                       + "\",\"components\":{\"name\":\"Node\"},\"children\":" + children + "}]";
         }
-        expect_scene_error("{\"version\":2,\"entities\":" + children + "}",
-            "maximum hierarchy depth exceeded");
+        expect_scene_error(
+            "{\"version\":2,\"entities\":" + children + "}", "maximum hierarchy depth exceeded");
     }
 
     TEST(SceneSerializerTest, RejectsUnknownAndMalformedFields) {
@@ -418,8 +403,8 @@ namespace Comet::Tests {
 })",
             "exactly three numbers");
 
-        expect_scene_error(R"({"version": 2, "entities": [], "runtime_id": 1})",
-            "unknown field 'runtime_id'");
+        expect_scene_error(
+            R"({"version": 2, "entities": [], "runtime_id": 1})", "unknown field 'runtime_id'");
 
         expect_scene_error(R"({
   "version": 2,
@@ -451,8 +436,8 @@ namespace Comet::Tests {
         Entity entity = scene.create_entity("Invalid");
         entity.get_component<TransformComponent>().translation.x =
             std::numeric_limits<float>::infinity();
-        EXPECT_THROW(static_cast<void>(make_scene_serializer().serialize(scene)),
-            std::runtime_error);
+        EXPECT_THROW(
+            static_cast<void>(make_scene_serializer().serialize(scene)), std::runtime_error);
     }
 
     TEST(SceneSerializerTest, PreservesFullWidthHandlesAndRejectsWrongJsonTypes) {
@@ -463,9 +448,8 @@ namespace Comet::Tests {
         const auto serializer = make_scene_serializer();
         const auto contents = serializer.serialize(scene);
         const auto loaded = serializer.deserialize(contents);
-        EXPECT_EQ(loaded->find_entity(entity.get_uuid())
-                      .get_component<MeshRendererComponent>()
-                      .mesh,
+        EXPECT_EQ(
+            loaded->find_entity(entity.get_uuid()).get_component<MeshRendererComponent>().mesh,
             AssetHandle(std::numeric_limits<std::uint64_t>::max()));
         EXPECT_EQ(serializer.serialize(*loaded), contents);
         expect_scene_error(R"({"version": "2", "entities": []})", "non-negative integer");
@@ -480,22 +464,17 @@ namespace Comet::Tests {
 
     TEST(SceneSerializerTest, UsesDescriptorIdsAndSerializationFlags) {
         ComponentRegistry registry = create_scene_component_registry();
-        ASSERT_TRUE(registry.register_component(
-            make_component_descriptor<DescriptorTestComponent>("descriptor_component",
-                "Descriptor Component",
-                {make_property_descriptor("persisted_value", "Persisted Value",
-                     &DescriptorTestComponent::persisted),
-                    make_property_descriptor(
-                        "text", "Text", &DescriptorTestComponent::text),
-                    make_property_descriptor("runtime_value", "Runtime Value",
-                        &DescriptorTestComponent::runtime_only,
-                        {.serializable = false})})));
-        ASSERT_TRUE(registry.register_component(
-            make_component_descriptor<RuntimeOnlyTestComponent>("runtime_component",
-                "Runtime Component",
-                {make_property_descriptor(
-                    "enabled", "Enabled", &RuntimeOnlyTestComponent::enabled)},
-                false)));
+        ASSERT_TRUE(registry.register_component(make_component_descriptor<DescriptorTestComponent>(
+            "descriptor_component", "Descriptor Component",
+            {make_property_descriptor(
+                 "persisted_value", "Persisted Value", &DescriptorTestComponent::persisted),
+                make_property_descriptor("text", "Text", &DescriptorTestComponent::text),
+                make_property_descriptor("runtime_value", "Runtime Value",
+                    &DescriptorTestComponent::runtime_only, {.serializable = false})})));
+        ASSERT_TRUE(registry.register_component(make_component_descriptor<RuntimeOnlyTestComponent>(
+            "runtime_component", "Runtime Component",
+            {make_property_descriptor("enabled", "Enabled", &RuntimeOnlyTestComponent::enabled)},
+            false)));
 
         Scene scene;
         const EntityUuid entity_uuid = uuid("00000000-0000-4000-8000-000000000050");
@@ -517,8 +496,7 @@ namespace Comet::Tests {
         const Entity loaded_entity = loaded->find_entity(entity_uuid);
         ASSERT_TRUE(loaded_entity);
         ASSERT_TRUE(loaded_entity.has_component<DescriptorTestComponent>());
-        const auto& loaded_component =
-            loaded_entity.get_component<DescriptorTestComponent>();
+        const auto& loaded_component = loaded_entity.get_component<DescriptorTestComponent>();
         EXPECT_FLOAT_EQ(loaded_component.persisted, 42.0f);
         EXPECT_FLOAT_EQ(loaded_component.runtime_only, 17.0f);
         EXPECT_EQ(loaded_component.text, component.text);

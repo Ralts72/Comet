@@ -45,8 +45,7 @@ namespace CometEditor {
 
     private:
         void render_entity(Comet::Entity entity);
-        void render_property(Comet::Entity entity,
-            const Comet::ComponentDescriptor& component,
+        void render_property(Comet::Entity entity, const Comet::ComponentDescriptor& component,
             const Comet::PropertyDescriptor& property);
         void render_asset_property(const PropertyEditTransaction::Target& target,
             const Comet::PropertyDescriptor& property, Comet::AssetHandle handle);

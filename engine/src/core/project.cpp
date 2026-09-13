@@ -22,9 +22,9 @@ namespace Comet {
         const auto version = context.read_scalar<std::uint32_t>(
             context.required_child(data, "version"), "version", "an unsigned integer");
         if(version != FORMAT_VERSION)
-            throw std::runtime_error(context.error(
-                "version", "unsupported version " + std::to_string(version)
-                               + "; expected " + std::to_string(FORMAT_VERSION)));
+            throw std::runtime_error(
+                context.error("version", "unsupported version " + std::to_string(version)
+                                             + "; expected " + std::to_string(FORMAT_VERSION)));
 
         Project project{ProjectPaths(manifest.parent_path())};
         project.m_name = context.read_scalar<std::string>(
@@ -32,8 +32,7 @@ namespace Comet {
         if(project.m_name.find_first_not_of(" \t\r\n") == std::string::npos)
             throw std::runtime_error(context.error("name", "name cannot be empty"));
         if(!std::filesystem::is_directory(project.paths().assets()))
-            throw std::runtime_error(
-                context.error("<root>", "assets directory does not exist"));
+            throw std::runtime_error(context.error("<root>", "assets directory does not exist"));
 
         Json::Node scene;
         if(!data["startup_scene"].get(scene)) {
@@ -41,8 +40,8 @@ namespace Comet {
                 context.read_scalar<std::string>(scene, "startup_scene", "a string");
             if(!relative.empty()) {
                 if(relative.is_absolute() || relative.extension() != ".scene")
-                    throw std::runtime_error(context.error(
-                        "startup_scene", "expected an assets-relative .scene path"));
+                    throw std::runtime_error(
+                        context.error("startup_scene", "expected an assets-relative .scene path"));
                 static_cast<void>(project.paths().resolve_asset_path(relative));
                 project.m_startup_scene = relative.lexically_normal();
             }

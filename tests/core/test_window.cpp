@@ -53,8 +53,7 @@ namespace Comet::Tests {
         ASSERT_EQ(events.size(), 2);
         ASSERT_EQ(events[0].paths.size(), 2);
         EXPECT_EQ(events[0].paths[0], "/external/model.gltf");
-        EXPECT_EQ(
-            events[0].position, Math::Vec2(static_cast<float>(x), static_cast<float>(y)));
+        EXPECT_EQ(events[0].position, Math::Vec2(static_cast<float>(x), static_cast<float>(y)));
         EXPECT_EQ(events[1].paths[0], std::filesystem::path(u8"/external/纹理.png"));
         EXPECT_TRUE(window.take_file_drops().empty());
     }

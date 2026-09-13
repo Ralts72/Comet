@@ -79,8 +79,7 @@ namespace CometEditor {
         }
     }
 
-    bool SceneDocument::replace_scene(
-        std::unique_ptr<Comet::Scene> scene, std::string path) {
+    bool SceneDocument::replace_scene(std::unique_ptr<Comet::Scene> scene, std::string path) {
         if(!scene) {
             m_last_error = "Cannot activate an empty scene";
             LOG_ERROR("{}", m_last_error);

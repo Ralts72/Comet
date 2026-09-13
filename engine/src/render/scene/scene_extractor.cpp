@@ -9,13 +9,13 @@ namespace Comet {
 
         RenderScene render_scene;
 
-        const auto camera_view = scene.m_registry.view<IdComponent, TransformComponent,
-            WorldTransformComponent, CameraComponent>();
+        const auto camera_view =
+            scene.m_registry
+                .view<IdComponent, TransformComponent, WorldTransformComponent, CameraComponent>();
         render_scene.cameras.reserve(camera_view.size_hint());
         for(const entt::entity handle : camera_view) {
             const auto& [id] = camera_view.get<IdComponent>(handle);
-            const auto& world_transform =
-                camera_view.get<WorldTransformComponent>(handle);
+            const auto& world_transform = camera_view.get<WorldTransformComponent>(handle);
             const auto& [primary, fov, near_clip, far_clip] =
                 camera_view.get<CameraComponent>(handle);
 

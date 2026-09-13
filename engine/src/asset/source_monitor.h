@@ -37,8 +37,8 @@ namespace Comet {
 
         using Snapshot = std::map<std::filesystem::path, FileState>;
 
-        [[nodiscard]] bool capture_snapshot(Snapshot& snapshot,
-            std::filesystem::path& issue_path, std::string& message) const;
+        [[nodiscard]] bool capture_snapshot(
+            Snapshot& snapshot, std::filesystem::path& issue_path, std::string& message) const;
 
         std::filesystem::path m_root;
         std::chrono::milliseconds m_poll_interval;

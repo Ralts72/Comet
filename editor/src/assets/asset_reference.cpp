@@ -22,8 +22,7 @@ namespace CometEditor {
 
         bool changed = false;
         if(ImGui::BeginCombo(label, preview.c_str())) {
-            if(allow_none && ImGui::Selectable("None", !handle.is_valid())
-                && handle.is_valid()) {
+            if(allow_none && ImGui::Selectable("None", !handle.is_valid()) && handle.is_valid()) {
                 handle = {};
                 changed = true;
             }

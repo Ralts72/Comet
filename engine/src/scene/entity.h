@@ -37,9 +37,7 @@ namespace Comet {
             return m_handle == other.m_handle && m_scene == other.m_scene;
         }
 
-        [[nodiscard]] bool operator!=(const Entity& other) const {
-            return !(*this == other);
-        }
+        [[nodiscard]] bool operator!=(const Entity& other) const { return !(*this == other); }
 
     private:
         friend class Scene;

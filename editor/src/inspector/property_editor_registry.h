@@ -24,8 +24,7 @@ namespace CometEditor {
         using PropertyEditor =
             std::function<PropertyEditResult(const Comet::PropertyDescriptor&, void*)>;
 
-        [[nodiscard]] bool register_editor(
-            const Comet::PropertyType type, PropertyEditor editor) {
+        [[nodiscard]] bool register_editor(const Comet::PropertyType type, PropertyEditor editor) {
             if(!editor) {
                 return false;
             }

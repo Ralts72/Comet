@@ -10,11 +10,9 @@ namespace Comet::Tests {
     class TemporaryDirectory {
     public:
         TemporaryDirectory() {
-            const auto parent =
-                std::filesystem::canonical(std::filesystem::temp_directory_path());
+            const auto parent = std::filesystem::canonical(std::filesystem::temp_directory_path());
             for(int attempt = 0; attempt < 32; ++attempt) {
-                auto candidate =
-                    parent / ("comet_test_" + std::to_string(std::random_device{}()));
+                auto candidate = parent / ("comet_test_" + std::to_string(std::random_device{}()));
                 if(std::filesystem::create_directory(candidate)) {
                     m_path = std::move(candidate);
                     return;

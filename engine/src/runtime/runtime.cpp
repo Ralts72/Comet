@@ -18,8 +18,7 @@ namespace Comet {
             m_engine = std::make_unique<Engine>(config);
             m_shutdown_required = true;
             on_init();
-            m_engine->register_update_callback(
-                [this](const UpdateContext dt) { on_update(dt); });
+            m_engine->register_update_callback([this](const UpdateContext dt) { on_update(dt); });
             m_engine->on_update();
             end();
         } catch(...) {
@@ -51,8 +50,8 @@ namespace Comet {
 
     int run(Application* app, const LaunchOptions& options) {
         const auto& directory = options.config_directory;
-        Config config = ConfigLoader{}.load(
-            std::vector<std::string>{(directory / "common.yaml").string(),
+        Config config =
+            ConfigLoader{}.load(std::vector<std::string>{(directory / "common.yaml").string(),
                 (directory / "profiles" / (options.config_profile + ".yaml")).string()});
         app->run(std::move(config));
         return 0;

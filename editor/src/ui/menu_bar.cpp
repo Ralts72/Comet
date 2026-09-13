@@ -8,8 +8,8 @@
 
 namespace CometEditor {
 
-    MenuBar::MenuBar(const EditorState& state, const CommandHistory& history,
-        const EditorShortcuts& shortcuts)
+    MenuBar::MenuBar(
+        const EditorState& state, const CommandHistory& history, const EditorShortcuts& shortcuts)
         : m_state(state), m_history(history), m_shortcuts(shortcuts) {}
 
     void MenuBar::render() {
@@ -19,8 +19,8 @@ namespace CometEditor {
             render_view_menu();
 
             float fps_text_width = ImGui::CalcTextSize("FPS: 999.9").x;
-            ImGui::SameLine(ImGui::GetWindowWidth() - fps_text_width
-                            - ImGui::GetStyle().WindowPadding.x);
+            ImGui::SameLine(
+                ImGui::GetWindowWidth() - fps_text_width - ImGui::GetStyle().WindowPadding.x);
             ImGui::Text("FPS: %.1f", m_fps);
 
             ImGui::EndMainMenuBar();
@@ -64,16 +64,13 @@ namespace CometEditor {
     }
 
     void MenuBar::collect_shortcuts() {
-        if(m_requested_command || m_state.mode != EditorMode::Edit
-            || ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive()
-            || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
+        if(m_requested_command || m_state.mode != EditorMode::Edit || ImGui::GetIO().WantTextInput
+            || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
             return;
         using Action = EditorShortcuts::Action;
-        constexpr std::pair<Action, Command> commands[]{
-            {Action::NewScene, Command::NewScene},
-            {Action::OpenScene, Command::OpenScene},
-            {Action::SaveScene, Command::SaveScene}, {Action::Undo, Command::Undo},
-            {Action::Redo, Command::Redo}};
+        constexpr std::pair<Action, Command> commands[]{{Action::NewScene, Command::NewScene},
+            {Action::OpenScene, Command::OpenScene}, {Action::SaveScene, Command::SaveScene},
+            {Action::Undo, Command::Undo}, {Action::Redo, Command::Redo}};
         for(const auto& [action, command] : commands) {
             const bool pressed = m_shortcuts.pressed(action, ImGuiInputFlags_RouteGlobal);
             if(!pressed || m_requested_command)
@@ -93,8 +90,7 @@ namespace CometEditor {
     void MenuBar::render_view_menu() {
         if(ImGui::BeginMenu("View")) {
             for(auto* panel : m_panels) {
-                if(ImGui::MenuItem(
-                       panel->get_name().c_str(), nullptr, panel->is_open())) {
+                if(ImGui::MenuItem(panel->get_name().c_str(), nullptr, panel->is_open())) {
                     panel->toggle_visible();
                 }
             }

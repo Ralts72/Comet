@@ -23,9 +23,7 @@ namespace Comet {
         explicit ClearValue(const Math::Vec4& clear_color) : value(clear_color) {}
         explicit ClearValue(const float depth, const uint32_t stencil = 0)
             : value(DepthStencilType{depth, stencil}) {}
-        [[nodiscard]] bool is_color() const {
-            return std::holds_alternative<ColorType>(value);
-        }
+        [[nodiscard]] bool is_color() const { return std::holds_alternative<ColorType>(value); }
         [[nodiscard]] bool is_depth_stencil() const {
             return std::holds_alternative<DepthStencilType>(value);
         }
@@ -38,8 +36,7 @@ namespace Comet {
                     if constexpr(std::is_same_v<T, ColorType>) {
                         cv.color = vk::ClearColorValue{arg.x, arg.y, arg.z, arg.w};
                     } else if constexpr(std::is_same_v<T, DepthStencilType>) {
-                        cv.depthStencil =
-                            vk::ClearDepthStencilValue{arg.depth, arg.stencil};
+                        cv.depthStencil = vk::ClearDepthStencilValue{arg.depth, arg.stencil};
                     }
                 },
                 value);
@@ -83,8 +80,7 @@ namespace Comet {
 
         inline bool is_depth_stencil_format(const Format format) {
             return is_depth_only_format(format) || format == Format::D16_UNORM_S8_UINT
-                   || format == Format::D24_UNORM_S8_UINT
-                   || format == Format::D32_SFLOAT_S8_UINT;
+                   || format == Format::D24_UNORM_S8_UINT || format == Format::D32_SFLOAT_S8_UINT;
         }
 
         inline uint32_t format_size_in_bytes(const Format format) {

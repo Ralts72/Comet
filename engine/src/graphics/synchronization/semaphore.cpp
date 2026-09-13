@@ -51,8 +51,7 @@ namespace Comet {
 
     uint64_t Semaphore::get_counter_value() const {
         if(m_type != Type::Timeline || !m_device || !m_semaphore) {
-            LOG_FATAL(
-                "Semaphore counter is only available for a valid timeline semaphore");
+            LOG_FATAL("Semaphore counter is only available for a valid timeline semaphore");
         }
         return m_device->get().getSemaphoreCounterValue(m_semaphore);
     }
@@ -65,8 +64,7 @@ namespace Comet {
 
     bool Semaphore::wait_for(const uint64_t value, const uint64_t timeout) const {
         if(m_type != Type::Timeline || !m_device || !m_semaphore) {
-            LOG_FATAL(
-                "Semaphore wait value is only available for a valid timeline semaphore");
+            LOG_FATAL("Semaphore wait value is only available for a valid timeline semaphore");
         }
 
         vk::SemaphoreWaitInfo wait_info{};

@@ -27,31 +27,30 @@ namespace Comet {
             return true;
         }
 
-        [[nodiscard]] AssetResult<std::filesystem::path> canonical_path(
+        [[nodiscard]] Result<std::filesystem::path> canonical_path(
             const std::filesystem::path& path) {
             std::error_code error;
             std::filesystem::path result = std::filesystem::weakly_canonical(path, error);
             if(error) {
-                return AssetResult<std::filesystem::path>::failure(
+                return Result<std::filesystem::path>::failure(
                     "Failed to resolve import input path '" + path.string()
                     + "': " + error.message());
             }
-            return AssetResult<std::filesystem::path>::success(std::move(result));
+            return Result<std::filesystem::path>::success(std::move(result));
         }
 
-        [[nodiscard]] AssetResult<std::filesystem::path> relative_to_root(
-            const std::filesystem::path& canonical_root,
-            const std::filesystem::path& path) {
+        [[nodiscard]] Result<std::filesystem::path> relative_to_root(
+            const std::filesystem::path& canonical_root, const std::filesystem::path& path) {
             const auto canonical = canonical_path(path);
             if(!canonical)
-                return AssetResult<std::filesystem::path>::failure(canonical.error());
+                return Result<std::filesystem::path>::failure(canonical.error());
             const std::filesystem::path relative =
                 canonical.value().lexically_relative(canonical_root).lexically_normal();
             if(!is_safe_relative_path(relative)) {
-                return AssetResult<std::filesystem::path>::failure(
+                return Result<std::filesystem::path>::failure(
                     "Import input is outside the asset root: " + path.string());
             }
-            return AssetResult<std::filesystem::path>::success(relative);
+            return Result<std::filesystem::path>::success(relative);
         }
 
         [[nodiscard]] std::optional<ImportInputFingerprint> fingerprint_file(
@@ -87,21 +86,21 @@ namespace Comet {
         }
     }
 
-    AssetResult<ImportInputSnapshot> capture_import_inputs(
-        const std::filesystem::path& asset_root, const std::filesystem::path& source_path,
+    Result<ImportInputSnapshot> capture_import_inputs(const std::filesystem::path& asset_root,
+        const std::filesystem::path& source_path,
         const std::span<const std::filesystem::path> source_dependencies) {
         const auto root = canonical_path(asset_root);
         if(!root)
-            return AssetResult<ImportInputSnapshot>::failure(root.error());
+            return Result<ImportInputSnapshot>::failure(root.error());
         const auto source = relative_to_root(root.value(), source_path);
         if(!source)
-            return AssetResult<ImportInputSnapshot>::failure(source.error());
+            return Result<ImportInputSnapshot>::failure(source.error());
 
         std::map<std::string, std::filesystem::path> dependencies;
         for(const auto& dependency : source_dependencies) {
             auto relative = relative_to_root(root.value(), dependency);
             if(!relative)
-                return AssetResult<ImportInputSnapshot>::failure(relative.error());
+                return Result<ImportInputSnapshot>::failure(relative.error());
             if(relative.value() != source.value())
                 dependencies.emplace(relative.value().generic_string(), relative.value());
         }
@@ -111,19 +110,18 @@ namespace Comet {
         const auto add_file = [&](const std::filesystem::path& relative) {
             auto fingerprint = fingerprint_file(root.value() / relative, relative);
             if(!fingerprint)
-                return AssetResult<void>::failure("Failed to fingerprint import input '"
-                                                  + (root.value() / relative).string()
-                                                  + "'");
+                return Result<void>::failure("Failed to fingerprint import input '"
+                                             + (root.value() / relative).string() + "'");
             snapshot.files.push_back(std::move(*fingerprint));
-            return AssetResult<void>::success();
+            return Result<void>::success();
         };
         if(auto added = add_file(source.value()); !added)
-            return AssetResult<ImportInputSnapshot>::failure(added.error());
+            return Result<ImportInputSnapshot>::failure(added.error());
         for(const auto& [path, relative] : dependencies) {
             if(auto added = add_file(relative); !added)
-                return AssetResult<ImportInputSnapshot>::failure(added.error());
+                return Result<ImportInputSnapshot>::failure(added.error());
         }
-        return AssetResult<ImportInputSnapshot>::success(std::move(snapshot));
+        return Result<ImportInputSnapshot>::success(std::move(snapshot));
     }
 
     bool import_inputs_are_current(
@@ -141,13 +139,11 @@ namespace Comet {
         std::filesystem::path previous_dependency;
         for(std::size_t index = 0; index < snapshot.files.size(); ++index) {
             const ImportInputFingerprint& expected = snapshot.files[index];
-            const std::filesystem::path relative =
-                expected.relative_path.lexically_normal();
+            const std::filesystem::path relative = expected.relative_path.lexically_normal();
             if(!is_safe_relative_path(relative) || relative != expected.relative_path
                 || (index > 0 && relative == source_relative)
                 || (index > 1
-                    && relative.generic_string()
-                           <= previous_dependency.generic_string())) {
+                    && relative.generic_string() <= previous_dependency.generic_string())) {
                 return false;
             }
 

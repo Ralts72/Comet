@@ -5,33 +5,26 @@
 #include <algorithm>
 #include <array>
 #include <limits>
-#include <stdexcept>
 #include <utility>
 #include <cstring>
 #include <unordered_set>
 
 namespace Comet {
     namespace {
-        void require_success(const SpvReflectResult result) {
-            if(result != SPV_REFLECT_RESULT_SUCCESS) {
-                throw std::invalid_argument(
-                    "SPIR-V reflection failed: " + std::to_string(result));
-            }
-        }
-
-        void validate_word_ranges(std::span<const uint32_t> words) {
+        Result<void> validate_word_ranges(std::span<const uint32_t> words) {
             if(words.size() < 5 || words[0] != SpvMagicNumber)
-                throw std::invalid_argument("Invalid SPIR-V header");
+                return Result<void>::failure("Invalid SPIR-V header");
             // Reject truncated instructions before reflection; this is not a full validator.
             for(size_t offset = 5; offset < words.size();) {
                 const auto count = words[offset] >> 16;
                 if(count == 0 || count > words.size() - offset)
-                    throw std::invalid_argument("Invalid SPIR-V instruction word range");
+                    return Result<void>::failure("Invalid SPIR-V instruction word range");
                 offset += count;
             }
+            return Result<void>::success();
         }
 
-        void validate_fixed_array_lengths(std::span<const uint32_t> words) {
+        Result<void> validate_fixed_array_lengths(std::span<const uint32_t> words) {
             std::unordered_set<uint32_t> constants;
             std::vector<uint32_t> lengths;
             for(size_t offset = 5; offset < words.size();) {
@@ -39,7 +32,7 @@ namespace Comet {
                 const auto op = static_cast<SpvOp>(words[offset] & 0xffff);
                 if(op == SpvOpConstant || op == SpvOpTypeArray) {
                     if(count < 4)
-                        throw std::invalid_argument("Invalid SPIR-V constant or array");
+                        return Result<void>::failure("Invalid SPIR-V constant or array");
                     if(op == SpvOpConstant)
                         constants.insert(words[offset + 2]);
                     else
@@ -49,38 +42,43 @@ namespace Comet {
             }
             for(const auto length : lengths) {
                 if(!constants.contains(length))
-                    throw std::invalid_argument(
+                    return Result<void>::failure(
                         "Specialization-dependent array lengths are not supported; use a compile-time define variant");
             }
+            return Result<void>::success();
         }
 
-        ShaderInterface::ConstantValue constant_default(
+        Result<ShaderInterface::ConstantValue> constant_default(
             const SpvReflectSpecializationConstant& constant) {
             const auto* type = constant.type_description;
             if(!type || !constant.default_value || constant.default_value_size != 4)
-                throw std::invalid_argument(
+                return Result<ShaderInterface::ConstantValue>::failure(
                     "Only bool and 32-bit specialization constants are supported");
             uint32_t bits;
             std::memcpy(&bits, constant.default_value, sizeof(bits));
             if(type->op == SpvOpTypeBool)
-                return ShaderInterface::ConstantValue(bits != 0);
+                return Result<ShaderInterface::ConstantValue>::success(
+                    ShaderInterface::ConstantValue(bits != 0));
             if(type->traits.numeric.scalar.width != 32)
-                throw std::invalid_argument(
+                return Result<ShaderInterface::ConstantValue>::failure(
                     "Only 32-bit numeric specialization constants are supported");
             if(type->op == SpvOpTypeFloat)
-                return ShaderInterface::ConstantValue(std::bit_cast<float>(bits));
+                return Result<ShaderInterface::ConstantValue>::success(
+                    ShaderInterface::ConstantValue(std::bit_cast<float>(bits)));
             if(type->op == SpvOpTypeInt) {
                 if(type->traits.numeric.scalar.signedness)
-                    return ShaderInterface::ConstantValue(std::bit_cast<int32_t>(bits));
-                return ShaderInterface::ConstantValue(bits);
+                    return Result<ShaderInterface::ConstantValue>::success(
+                        ShaderInterface::ConstantValue(std::bit_cast<int32_t>(bits)));
+                return Result<ShaderInterface::ConstantValue>::success(
+                    ShaderInterface::ConstantValue(bits));
             }
-            throw std::invalid_argument("Unsupported specialization constant type");
+            return Result<ShaderInterface::ConstantValue>::failure(
+                "Unsupported specialization constant type");
         }
 
         Format member_format(const SpvReflectBlockVariable& member) {
-            if(member.member_count || member.array.dims_count
-                || member.numeric.matrix.column_count || member.numeric.scalar.width != 32
-                || !member.type_description) {
+            if(member.member_count || member.array.dims_count || member.numeric.matrix.column_count
+                || member.numeric.scalar.width != 32 || !member.type_description) {
                 return Format::UNDEFINED;
             }
             const auto components = std::max(1u, member.numeric.vector.component_count);
@@ -95,9 +93,8 @@ namespace Comet {
             if(type & SPV_REFLECT_TYPE_FLAG_INT) {
                 constexpr std::array signed_formats{Format::R32_SINT, Format::R32G32_SINT,
                     Format::R32G32B32_SINT, Format::R32G32B32A32_SINT};
-                constexpr std::array unsigned_formats{Format::R32_UINT,
-                    Format::R32G32_UINT, Format::R32G32B32_UINT,
-                    Format::R32G32B32A32_UINT};
+                constexpr std::array unsigned_formats{Format::R32_UINT, Format::R32G32_UINT,
+                    Format::R32G32B32_UINT, Format::R32G32B32A32_UINT};
                 if(member.numeric.scalar.signedness)
                     return signed_formats[components - 1];
                 return unsigned_formats[components - 1];
@@ -105,98 +102,124 @@ namespace Comet {
             return Format::UNDEFINED;
         }
 
-        ShaderStage shader_stage(SpvReflectShaderStageFlagBits value) {
+        Result<ShaderStage> shader_stage(SpvReflectShaderStageFlagBits value) {
             switch(value) {
                 case SPV_REFLECT_SHADER_STAGE_VERTEX_BIT:
-                    return ShaderStage::Vertex;
+                    return Result<ShaderStage>::success(ShaderStage::Vertex);
                 case SPV_REFLECT_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
-                    return ShaderStage::TessellationControl;
+                    return Result<ShaderStage>::success(ShaderStage::TessellationControl);
                 case SPV_REFLECT_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
-                    return ShaderStage::TessellationEvaluation;
+                    return Result<ShaderStage>::success(ShaderStage::TessellationEvaluation);
                 case SPV_REFLECT_SHADER_STAGE_GEOMETRY_BIT:
-                    return ShaderStage::Geometry;
+                    return Result<ShaderStage>::success(ShaderStage::Geometry);
                 case SPV_REFLECT_SHADER_STAGE_FRAGMENT_BIT:
-                    return ShaderStage::Fragment;
+                    return Result<ShaderStage>::success(ShaderStage::Fragment);
                 case SPV_REFLECT_SHADER_STAGE_COMPUTE_BIT:
-                    return ShaderStage::Compute;
+                    return Result<ShaderStage>::success(ShaderStage::Compute);
                 default:
-                    throw std::invalid_argument("Unsupported SPIR-V shader_stage");
+                    return Result<ShaderStage>::failure("Unsupported SPIR-V shader_stage");
             }
         }
 
-        DescriptorType descriptor_type(SpvReflectDescriptorType value) {
+        Result<DescriptorType> descriptor_type(SpvReflectDescriptorType value) {
             switch(value) {
                 case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER:
-                    return DescriptorType::Sampler;
+                    return Result<DescriptorType>::success(DescriptorType::Sampler);
                 case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
-                    return DescriptorType::CombinedImageSampler;
+                    return Result<DescriptorType>::success(DescriptorType::CombinedImageSampler);
                 case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-                    return DescriptorType::SampledImage;
+                    return Result<DescriptorType>::success(DescriptorType::SampledImage);
                 case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-                    return DescriptorType::StorageImage;
+                    return Result<DescriptorType>::success(DescriptorType::StorageImage);
                 case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
-                    return DescriptorType::UniformTexelBuffer;
+                    return Result<DescriptorType>::success(DescriptorType::UniformTexelBuffer);
                 case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
-                    return DescriptorType::StorageTexelBuffer;
+                    return Result<DescriptorType>::success(DescriptorType::StorageTexelBuffer);
                 case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
-                    return DescriptorType::UniformBuffer;
+                    return Result<DescriptorType>::success(DescriptorType::UniformBuffer);
                 case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-                    return DescriptorType::StorageBuffer;
+                    return Result<DescriptorType>::success(DescriptorType::StorageBuffer);
                 case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
-                    return DescriptorType::UniformBufferDynamic;
+                    return Result<DescriptorType>::success(DescriptorType::UniformBufferDynamic);
                 case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
-                    return DescriptorType::StoragesBufferDynamic;
+                    return Result<DescriptorType>::success(DescriptorType::StoragesBufferDynamic);
                 case SPV_REFLECT_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
-                    return DescriptorType::InputAttachment;
+                    return Result<DescriptorType>::success(DescriptorType::InputAttachment);
                 default:
-                    throw std::invalid_argument("Unsupported SPIR-V descriptor_type");
+                    return Result<DescriptorType>::failure("Unsupported SPIR-V descriptor_type");
             }
         }
     }
 
-    ShaderInterface::ShaderInterface(
-        std::span<const uint32_t> spirv_words, std::string entry_point)
-        : m_entry_point(std::move(entry_point)) {
-        if(spirv_words.size() < 5 || m_entry_point.empty()
-            || m_entry_point.find('\0') != std::string::npos) {
-            throw std::invalid_argument("Shader requires SPIR-V and a valid entry point");
+    Result<ShaderInterface> ShaderInterface::reflect(
+        std::span<const uint32_t> spirv_words, std::string entry_point) {
+        ShaderInterface candidate;
+        candidate.m_entry_point = std::move(entry_point);
+        if(spirv_words.size() < 5 || candidate.m_entry_point.empty()
+            || candidate.m_entry_point.find('\0') != std::string::npos) {
+            return Result<ShaderInterface>::failure(
+                "Shader requires SPIR-V and a valid entry point");
         }
-        validate_word_ranges(spirv_words);
-        validate_fixed_array_lengths(spirv_words);
+        if(const auto checked = validate_word_ranges(spirv_words); !checked)
+            return Result<ShaderInterface>::failure(checked.error());
+        if(const auto checked = validate_fixed_array_lengths(spirv_words); !checked)
+            return Result<ShaderInterface>::failure(checked.error());
         spv_reflect::ShaderModule module(spirv_words.size_bytes(), spirv_words.data());
-        require_success(module.GetResult());
+        if(const auto status = module.GetResult(); status != SPV_REFLECT_RESULT_SUCCESS)
+            return Result<ShaderInterface>::failure(
+                "SPIR-V reflection failed: " + std::to_string(status));
         const auto* entry =
-            spvReflectGetEntryPoint(&module.GetShaderModule(), m_entry_point.c_str());
+            spvReflectGetEntryPoint(&module.GetShaderModule(), candidate.m_entry_point.c_str());
         if(!entry) {
-            throw std::invalid_argument("SPIR-V entry point not found: " + m_entry_point);
+            return Result<ShaderInterface>::failure(
+                "SPIR-V entry point not found: " + candidate.m_entry_point);
         }
-        m_stage = shader_stage(entry->shader_stage);
+        auto stage = shader_stage(entry->shader_stage);
+        if(!stage)
+            return Result<ShaderInterface>::failure(stage.error());
+        candidate.m_stage = stage.value();
         uint32_t count = 0;
-        require_success(module.EnumerateSpecializationConstants(&count, nullptr));
+        if(const auto status = module.EnumerateSpecializationConstants(&count, nullptr);
+            status != SPV_REFLECT_RESULT_SUCCESS)
+            return Result<ShaderInterface>::failure(
+                "SPIR-V reflection failed: " + std::to_string(status));
         std::vector<SpvReflectSpecializationConstant*> constants(count);
-        require_success(
-            module.EnumerateSpecializationConstants(&count, constants.data()));
+        if(const auto status = module.EnumerateSpecializationConstants(&count, constants.data());
+            status != SPV_REFLECT_RESULT_SUCCESS)
+            return Result<ShaderInterface>::failure(
+                "SPIR-V reflection failed: " + std::to_string(status));
         for(const auto* constant : constants) {
             std::string name;
             if(constant->name)
                 name = constant->name;
-            m_specialization_constants.push_back(
-                {constant->constant_id, std::move(name), constant_default(*constant)});
+            auto value = constant_default(*constant);
+            if(!value)
+                return Result<ShaderInterface>::failure(value.error());
+            candidate.m_specialization_constants.push_back(
+                {constant->constant_id, std::move(name), value.value()});
         }
-        std::ranges::sort(m_specialization_constants, {}, &SpecializationConstant::id);
-        require_success(module.EnumerateEntryPointDescriptorBindings(
-            m_entry_point.c_str(), &count, nullptr));
+        std::ranges::sort(candidate.m_specialization_constants, {}, &SpecializationConstant::id);
+        if(const auto status = module.EnumerateEntryPointDescriptorBindings(
+               candidate.m_entry_point.c_str(), &count, nullptr);
+            status != SPV_REFLECT_RESULT_SUCCESS)
+            return Result<ShaderInterface>::failure(
+                "SPIR-V reflection failed: " + std::to_string(status));
         std::vector<SpvReflectDescriptorBinding*> bindings(count);
-        require_success(module.EnumerateEntryPointDescriptorBindings(
-            m_entry_point.c_str(), &count, bindings.data()));
+        if(const auto status = module.EnumerateEntryPointDescriptorBindings(
+               candidate.m_entry_point.c_str(), &count, bindings.data());
+            status != SPV_REFLECT_RESULT_SUCCESS)
+            return Result<ShaderInterface>::failure(
+                "SPIR-V reflection failed: " + std::to_string(status));
         for(const auto* source : bindings) {
             if(source->count == 0) {
-                throw std::invalid_argument(
+                return Result<ShaderInterface>::failure(
                     "Runtime descriptor arrays are not supported");
             }
-            DescriptorBinding binding{source->set, source->binding,
-                descriptor_type(source->descriptor_type), source->count,
-                Flags<ShaderStage>(m_stage), source->block.padded_size, {}};
+            auto type = descriptor_type(source->descriptor_type);
+            if(!type)
+                return Result<ShaderInterface>::failure(type.error());
+            DescriptorBinding binding{source->set, source->binding, type.value(), source->count,
+                Flags<ShaderStage>(candidate.m_stage), source->block.padded_size, {}};
             for(uint32_t index = 0; index < source->block.member_count; ++index) {
                 const auto& member = source->block.members[index];
                 std::string name;
@@ -205,15 +228,21 @@ namespace Comet {
                 binding.members.push_back(
                     {std::move(name), member.offset, member.size, member_format(member)});
             }
-            m_bindings.push_back(std::move(binding));
+            candidate.m_bindings.push_back(std::move(binding));
         }
-        std::ranges::sort(m_bindings, {},
+        std::ranges::sort(candidate.m_bindings, {},
             [](const auto& binding) { return std::pair(binding.set, binding.binding); });
-        require_success(module.EnumerateEntryPointPushConstantBlocks(
-            m_entry_point.c_str(), &count, nullptr));
+        if(const auto status = module.EnumerateEntryPointPushConstantBlocks(
+               candidate.m_entry_point.c_str(), &count, nullptr);
+            status != SPV_REFLECT_RESULT_SUCCESS)
+            return Result<ShaderInterface>::failure(
+                "SPIR-V reflection failed: " + std::to_string(status));
         std::vector<SpvReflectBlockVariable*> blocks(count);
-        require_success(module.EnumerateEntryPointPushConstantBlocks(
-            m_entry_point.c_str(), &count, blocks.data()));
+        if(const auto status = module.EnumerateEntryPointPushConstantBlocks(
+               candidate.m_entry_point.c_str(), &count, blocks.data());
+            status != SPV_REFLECT_RESULT_SUCCESS)
+            return Result<ShaderInterface>::failure(
+                "SPIR-V reflection failed: " + std::to_string(status));
         for(const auto* block : blocks) {
             // Block size includes initial offset/padding; the range covers member bytes.
             uint64_t end = block->offset;
@@ -222,13 +251,14 @@ namespace Comet {
                 end = std::max(end, uint64_t(member.offset) + member.size);
             }
             if(end <= block->offset || end > std::numeric_limits<uint32_t>::max())
-                throw std::invalid_argument("Invalid SPIR-V push constant block");
-            m_push_constants.emplace_back(Flags<ShaderStage>(m_stage), block->offset,
-                static_cast<uint32_t>(end) - block->offset);
+                return Result<ShaderInterface>::failure("Invalid SPIR-V push constant block");
+            candidate.m_push_constants.emplace_back(Flags<ShaderStage>(candidate.m_stage),
+                block->offset, static_cast<uint32_t>(end) - block->offset);
         }
+        return Result<ShaderInterface>::success(std::move(candidate));
     }
 
-    void ShaderInterface::canonicalize_specialization(Specialization& values) const {
+    Result<void> ShaderInterface::canonicalize_specialization(Specialization& values) const {
         for(const auto& [id, value] : values) {
             bool found = false;
             for(const auto& constant : m_specialization_constants) {
@@ -236,19 +266,19 @@ namespace Comet {
                     continue;
                 found = true;
                 if(constant.default_value.get_type() != value.get_type())
-                    throw std::invalid_argument(
-                        "Specialization constant " + std::to_string(id)
-                        + " type mismatch in Shader '" + m_entry_point + "'");
+                    return Result<void>::failure("Specialization constant " + std::to_string(id)
+                                                 + " type mismatch in Shader '" + m_entry_point
+                                                 + "'");
             }
             if(!found)
-                throw std::invalid_argument("Unknown specialization constant "
-                    + std::to_string(id) + " in Shader '" + m_entry_point + "'");
+                return Result<void>::failure("Unknown specialization constant " + std::to_string(id)
+                                             + " in Shader '" + m_entry_point + "'");
         }
         std::erase_if(values, [&](const auto& entry) {
-            return std::ranges::all_of(
-                m_specialization_constants, [&](const auto& constant) {
-                    return constant.id != entry.first || constant.default_value == entry.second;
-                });
+            return std::ranges::all_of(m_specialization_constants, [&](const auto& constant) {
+                return constant.id != entry.first || constant.default_value == entry.second;
+            });
         });
+        return Result<void>::success();
     }
 }

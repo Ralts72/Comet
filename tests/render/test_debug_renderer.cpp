@@ -18,8 +18,7 @@
 #include <tuple>
 
 namespace Comet::Tests {
-    class DebugRendererTest
-        : public ::testing::TestWithParam<std::tuple<bool, SampleCount>> {
+    class DebugRendererTest: public ::testing::TestWithParam<std::tuple<bool, SampleCount>> {
     protected:
         void SetUp() override {
             log_sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(errors);
@@ -40,14 +39,12 @@ namespace Comet::Tests {
                 auto& swapchain = context.get_swapchain();
                 const auto format = swapchain.get_images().front()->get_info().format;
                 presentation_pass = std::make_unique<RenderPass>(context.get_device(),
-                    std::vector{
-                        Attachment::get_color_attachment(format, SampleCount::Count1)},
-                    std::vector{RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}},
-                    format);
+                    std::vector{Attachment::get_color_attachment(format, SampleCount::Count1)},
+                    std::vector{RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}}, format);
                 presentation_target = RenderTarget::create_swapchain_target(
                     context.get_device(), *presentation_pass, swapchain);
-                renderer.set_overlay_callbacks({},
-                    [this](CommandBuffer& command_buffer) { present(command_buffer); });
+                renderer.set_overlay_callbacks(
+                    {}, [this](CommandBuffer& command_buffer) { present(command_buffer); });
             }
             scene.cameras.push_back(RenderCamera{.primary = true});
         }
@@ -173,6 +170,6 @@ namespace Comet::Tests {
     }
 
     INSTANTIATE_TEST_SUITE_P(SwapchainAndOffscreen, DebugRendererTest,
-        ::testing::Combine(::testing::Bool(),
-            ::testing::Values(SampleCount::Count1, SampleCount::Count4)));
+        ::testing::Combine(
+            ::testing::Bool(), ::testing::Values(SampleCount::Count1, SampleCount::Count4)));
 }

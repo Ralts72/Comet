@@ -19,8 +19,7 @@ namespace Comet {
         std::vector<std::uint32_t> indices;
     };
 
-    [[nodiscard]] inline std::optional<BoundingBox> calculate_mesh_bounds(
-        const MeshData& data) {
+    [[nodiscard]] inline std::optional<BoundingBox> calculate_mesh_bounds(const MeshData& data) {
         if(data.vertices.empty()) {
             return std::nullopt;
         }

@@ -34,21 +34,18 @@ namespace Comet::Tests {
         scene.create_entity("No MeshRenderer");
 
         Entity no_transform = scene.create_entity("No Transform");
-        no_transform.add_component<MeshRendererComponent>(
-            AssetHandle(50), AssetHandle(60));
+        no_transform.add_component<MeshRendererComponent>(AssetHandle(50), AssetHandle(60));
         no_transform.remove_component<TransformComponent>();
 
         const Math::Mat4 expected_first_model = Math::compose_trs(
             first_transform.translation, first_transform.rotation, first_transform.scale);
-        const Math::Mat4 expected_second_model =
-            Math::compose_trs(second_transform.translation, second_transform.rotation,
-                second_transform.scale);
+        const Math::Mat4 expected_second_model = Math::compose_trs(
+            second_transform.translation, second_transform.rotation, second_transform.scale);
         const RenderScene render_scene = SceneExtractor::extract(scene);
 
         ASSERT_EQ(render_scene.render_items.size(), 2u);
         const auto find_item = [&render_scene](const EntityId id) {
-            return std::find_if(render_scene.render_items.begin(),
-                render_scene.render_items.end(),
+            return std::find_if(render_scene.render_items.begin(), render_scene.render_items.end(),
                 [id](const RenderItem& item) { return item.entity_id == id; });
         };
 
@@ -62,31 +59,26 @@ namespace Comet::Tests {
         ASSERT_NE(second_item, render_scene.render_items.end());
         EXPECT_EQ(second_item->mesh_handle, AssetHandle(30));
         EXPECT_EQ(second_item->material_handle, AssetHandle(40));
-        EXPECT_TRUE(
-            TestUtils::Mat4Equal(second_item->model_matrix, expected_second_model));
+        EXPECT_TRUE(TestUtils::Mat4Equal(second_item->model_matrix, expected_second_model));
     }
 
     TEST(SceneExtractorTest, ExtractsWorldMatrixForChildEntity) {
         Scene scene;
         Entity parent = scene.create_entity("Parent");
-        parent.get_component<TransformComponent>().translation =
-            Math::Vec3(2.0f, 0.0f, 0.0f);
+        parent.get_component<TransformComponent>().translation = Math::Vec3(2.0f, 0.0f, 0.0f);
 
         Entity child = scene.create_entity("Child");
-        child.get_component<TransformComponent>().translation =
-            Math::Vec3(0.0f, 3.0f, 0.0f);
+        child.get_component<TransformComponent>().translation = Math::Vec3(0.0f, 3.0f, 0.0f);
         child.add_component<MeshRendererComponent>(AssetHandle(10), AssetHandle(20));
         ASSERT_TRUE(scene.set_parent(child, parent));
 
-        const Math::Mat4 expected =
-            parent.get_component<TransformComponent>().to_matrix()
-            * child.get_component<TransformComponent>().to_matrix();
+        const Math::Mat4 expected = parent.get_component<TransformComponent>().to_matrix()
+                                    * child.get_component<TransformComponent>().to_matrix();
         const RenderScene render_scene = SceneExtractor::extract(scene);
 
         ASSERT_EQ(render_scene.render_items.size(), 1u);
         EXPECT_EQ(render_scene.render_items.front().entity_id, child.get_id());
-        EXPECT_TRUE(TestUtils::Mat4Equal(
-            render_scene.render_items.front().model_matrix, expected));
+        EXPECT_TRUE(TestUtils::Mat4Equal(render_scene.render_items.front().model_matrix, expected));
     }
 
     TEST(SceneExtractorTest, ExtractsCameraViewWithoutTransformScale) {

@@ -79,8 +79,7 @@ namespace Comet::Math {
     }
 
     inline Vec3 wrap_degrees(const Vec3& degrees) {
-        return {
-            wrap_degrees(degrees.x), wrap_degrees(degrees.y), wrap_degrees(degrees.z)};
+        return {wrap_degrees(degrees.x), wrap_degrees(degrees.y), wrap_degrees(degrees.z)};
     }
 
     inline Mat4 translate(const Mat4& mat4, const Vec3& v) {
@@ -110,8 +109,7 @@ namespace Comet::Math {
         return glm::perspective(glm::radians(fov_degrees), aspect, nearZ, farZ);
     }
 
-    inline Mat4 ortho(
-        float left, float right, float bottom, float top, float nearZ, float farZ) {
+    inline Mat4 ortho(float left, float right, float bottom, float top, float nearZ, float farZ) {
         return glm::ortho(left, right, bottom, top, nearZ, farZ);
     }
 

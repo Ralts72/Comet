@@ -47,9 +47,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(session.apply_mode_request());
         EXPECT_EQ(state.mode, EditorMode::Edit);
         EXPECT_EQ(active_scene.get(), original_edit_scene);
-        EXPECT_EQ(active_scene->find_entity(entity_uuid)
-                      .get_component<Comet::NameComponent>()
-                      .name,
+        EXPECT_EQ(active_scene->find_entity(entity_uuid).get_component<Comet::NameComponent>().name,
             "Edit Entity");
     }
 

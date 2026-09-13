@@ -34,8 +34,7 @@ namespace Comet {
             attachment.description.stencil_load_op = AttachmentLoadOp::DontCare;
             attachment.description.stencil_store_op = AttachmentStoreOp::DontCare;
             attachment.description.initial_layout = ImageLayout::Undefined;
-            attachment.description.final_layout =
-                ImageLayout::DepthStencilAttachmentOptimal;
+            attachment.description.final_layout = ImageLayout::DepthStencilAttachmentOptimal;
             attachment.usage = Flags<ImageUsage>(ImageUsage::DepthStencilAttachment);
             return attachment;
         }

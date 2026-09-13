@@ -23,8 +23,7 @@ namespace Comet::Tests {
     };
 
     TEST_F(ProjectTest, LoadsDirectoryOrManifestAndKeepsSettingsProjectRelative) {
-        write(
-            R"({"version": 1, "name": "My Game", "startup_scene": "levels/main.scene"})");
+        write(R"({"version": 1, "name": "My Game", "startup_scene": "levels/main.scene"})");
         const auto project = Project::load(root);
         EXPECT_EQ(project.name(), "My Game");
         EXPECT_EQ(project.paths().root(), root);
@@ -54,8 +53,7 @@ namespace Comet::Tests {
         const std::string invalid[]{"[]", R"({"version": 2, "name": "Game"})",
             R"({"version": 0, "name": "Game"})", R"({"name": "Game"})",
             R"({"version": "1", "name": "Game"})", R"({"version": 1, "name": ""})",
-            R"({"version": 1, "name": 42})",
-            R"({"version": 1, "name": "Game", "extra": 1})",
+            R"({"version": 1, "name": 42})", R"({"version": 1, "name": "Game", "extra": 1})",
             R"({"version": 1, "name": "Game", "name": "Duplicate"})",
             R"({"version": 1, "name": "Game", "startup_scene": "../outside.scene"})",
             R"({"version": 1, "name": "Game", "startup_scene": "/outside.scene"})",
@@ -72,8 +70,7 @@ namespace Comet::Tests {
     }
 
     TEST_F(ProjectTest, MissingProjectOrAssetsFailsWithoutCreatingThem) {
-        EXPECT_THROW(
-            static_cast<void>(Project::load(root)), std::filesystem::filesystem_error);
+        EXPECT_THROW(static_cast<void>(Project::load(root)), std::filesystem::filesystem_error);
         EXPECT_FALSE(std::filesystem::exists(root / "project.json"));
         EXPECT_THROW(static_cast<void>(Project::load({})), std::runtime_error);
         write(R"({"version": 1, "name": "Game"})");
@@ -85,8 +82,7 @@ namespace Comet::Tests {
     TEST_F(ProjectTest, ScenePathCannotEscapeThroughSymlink) {
         std::filesystem::create_directory(root / "outside");
         std::error_code error;
-        std::filesystem::create_directory_symlink(
-            root / "outside", root / "assets/link", error);
+        std::filesystem::create_directory_symlink(root / "outside", root / "assets/link", error);
         if(error)
             GTEST_SKIP() << "Directory symlinks unavailable: " << error.message();
         write(R"({"version": 1, "name": "Game", "startup_scene": "link/main.scene"})");
@@ -95,10 +91,8 @@ namespace Comet::Tests {
 
     TEST_F(ProjectTest, DoesNotFallBackToLegacyManifest) {
         write_text_file_atomic(root / "project.yaml", "version: 1\nname: Legacy\n");
-        EXPECT_THROW(
-            static_cast<void>(Project::load(root)), std::filesystem::filesystem_error);
+        EXPECT_THROW(static_cast<void>(Project::load(root)), std::filesystem::filesystem_error);
         EXPECT_FALSE(std::filesystem::exists(root / "project.json"));
-        EXPECT_THROW(
-            static_cast<void>(Project::load(root / "project.yaml")), std::runtime_error);
+        EXPECT_THROW(static_cast<void>(Project::load(root / "project.yaml")), std::runtime_error);
     }
 }

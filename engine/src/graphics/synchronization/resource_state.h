@@ -58,12 +58,11 @@ namespace Comet {
         bool operator==(const ImageState&) const noexcept = default;
     };
 
-    [[nodiscard]] COMET_API std::optional<ResourceState> resolve_resource_state(
-        ResourceUsage usage, Flags<PipelineStage> shader_stages = {},
+    [[nodiscard]] COMET_API std::optional<ResourceState> resolve_resource_state(ResourceUsage usage,
+        Flags<PipelineStage> shader_stages = {},
         std::uint32_t queue_family = UNSPECIFIED_QUEUE_FAMILY);
 
-    [[nodiscard]] COMET_API std::optional<ImageState> resolve_image_state(
-        ResourceUsage usage, ImageSubresourceRange subresources,
-        Flags<PipelineStage> shader_stages = {},
+    [[nodiscard]] COMET_API std::optional<ImageState> resolve_image_state(ResourceUsage usage,
+        ImageSubresourceRange subresources, Flags<PipelineStage> shader_stages = {},
         std::uint32_t queue_family = UNSPECIFIED_QUEUE_FAMILY);
 }

@@ -12,18 +12,15 @@ namespace Comet {
     template<typename T> class GpuResourceResult {
     public:
         [[nodiscard]] static GpuResourceResult success(T value) {
-            return GpuResourceResult(
-                std::optional<T>(std::move(value)), vk::Result::eSuccess);
+            return GpuResourceResult(std::optional<T>(std::move(value)), vk::Result::eSuccess);
         }
 
         [[nodiscard]] static GpuResourceResult failure(const vk::Result result) {
-            return GpuResourceResult(std::nullopt,
-                result == vk::Result::eSuccess ? vk::Result::eErrorUnknown : result);
+            return GpuResourceResult(
+                std::nullopt, result == vk::Result::eSuccess ? vk::Result::eErrorUnknown : result);
         }
 
-        [[nodiscard]] explicit operator bool() const noexcept {
-            return m_value.has_value();
-        }
+        [[nodiscard]] explicit operator bool() const noexcept { return m_value.has_value(); }
 
         [[nodiscard]] T& value() & {
             require_value();

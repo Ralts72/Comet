@@ -41,8 +41,8 @@ namespace CometEditor {
         const AssetTreeNode& node, const std::filesystem::path& path) {
         for(const auto& [name, directory] : node.directories) {
             const auto directory_path = path / name;
-            const bool open = ImGui::TreeNodeEx(name.c_str(),
-                ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
+            const bool open = ImGui::TreeNodeEx(
+                name.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
             record_drop_target(directory_path);
             accept_asset_drop(directory_path);
             if(open) {
@@ -64,9 +64,8 @@ namespace CometEditor {
                                           || asset.type == Comet::AssetType::Texture)
                                       && m_history.get_scene());
             if(can_drag && ImGui::BeginDragDropSource()) {
-                const AssetDragPayload payload{asset.handle,
-                    m_database.get_revision(asset.handle), m_history.generation(),
-                    asset.type};
+                const AssetDragPayload payload{asset.handle, m_database.get_revision(asset.handle),
+                    m_history.generation(), asset.type};
                 ImGui::SetDragDropPayload(
                     AssetDragPayload::TYPE, &payload, sizeof(payload), ImGuiCond_Once);
                 ImGui::TextUnformatted(name.c_str());
@@ -94,9 +93,8 @@ namespace CometEditor {
         std::filesystem::path asset_root, Comet::AssetScanReport scan_report,
         RefreshCallback refresh_callback, MoveAssetCallback move_asset_callback,
         SelectionService& selection, const CommandHistory& history)
-        : EditorPanel("Project"), m_database(database),
-          m_asset_root(std::move(asset_root)), m_tree(build_asset_tree()),
-          m_scan_report(std::move(scan_report)),
+        : EditorPanel("Project"), m_database(database), m_asset_root(std::move(asset_root)),
+          m_tree(build_asset_tree()), m_scan_report(std::move(scan_report)),
           m_refresh_callback(std::move(refresh_callback)),
           m_move_asset_callback(std::move(move_asset_callback)), m_selection(selection),
           m_history(history) {}
@@ -135,9 +133,8 @@ namespace CometEditor {
             }
         }
 
-        if(ImGui::BeginPopupContextWindow(
-               "Project actions", ImGuiPopupFlags_MouseButtonRight
-                                      | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
+        if(ImGui::BeginPopupContextWindow("Project actions",
+               ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
             if(ImGui::MenuItem("Refresh", nullptr, false, !!m_refresh_callback))
                 m_refresh_requested = true;
             ImGui::EndPopup();
@@ -179,8 +176,7 @@ namespace CometEditor {
             return std::nullopt;
         ImGuiWindow* hovered = nullptr;
         ImGuiWindow* under_moving = nullptr;
-        ImGui::FindHoveredWindowEx(
-            {position.x, position.y}, false, &hovered, &under_moving);
+        ImGui::FindHoveredWindowEx({position.x, position.y}, false, &hovered, &under_moving);
         if(hovered != ImGui::FindWindowByName(m_name.c_str()))
             return std::nullopt;
         for(auto it = m_drop_targets.rbegin(); it != m_drop_targets.rend(); ++it) {
@@ -194,15 +190,14 @@ namespace CometEditor {
     void ProjectPanel::accept_asset_drop(const std::filesystem::path& directory) {
         if(!m_move_asset_callback || !ImGui::BeginDragDropTarget())
             return;
-        if(const auto payload = read_asset_drag_payload(
-               ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE))) {
+        if(const auto payload =
+                read_asset_drag_payload(ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE))) {
             const auto& source = *payload;
             const auto* record = m_database.find(source.handle);
             if(record) {
                 const auto destination = directory / record->path.filename();
                 if(destination != record->path)
-                    m_pending_move =
-                        MoveRequest{source.handle, source.revision, destination};
+                    m_pending_move = MoveRequest{source.handle, source.revision, destination};
             }
         }
         ImGui::EndDragDropTarget();
@@ -232,8 +227,8 @@ namespace CometEditor {
         m_operation_error.clear();
         m_name_buffer.fill('\0');
         const auto name = record.path.stem().string();
-        std::copy_n(name.data(), std::min(name.size(), m_name_buffer.size() - 1),
-            m_name_buffer.data());
+        std::copy_n(
+            name.data(), std::min(name.size(), m_name_buffer.size() - 1), m_name_buffer.data());
         m_rename_requested = true;
     }
 
@@ -252,9 +247,8 @@ namespace CometEditor {
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(360.0f);
-        const bool submitted =
-            ImGui::InputText("Name", m_name_buffer.data(), m_name_buffer.size(),
-                ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+        const bool submitted = ImGui::InputText("Name", m_name_buffer.data(), m_name_buffer.size(),
+            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
         if(record) {
             ImGui::SameLine();
             ImGui::TextUnformatted(record->path.extension().string().c_str());
@@ -266,8 +260,8 @@ namespace CometEditor {
                 || name.find_first_of("/\\:") != std::string::npos) {
                 m_operation_error = "Enter a file name, not a path";
             } else {
-                const auto destination = record->path.parent_path()
-                                         / (name + record->path.extension().string());
+                const auto destination =
+                    record->path.parent_path() / (name + record->path.extension().string());
                 if(move_asset(m_renaming_asset, destination)) {
                     ImGui::CloseCurrentPopup();
                     m_renaming_asset = Comet::INVALID_ASSET_HANDLE;

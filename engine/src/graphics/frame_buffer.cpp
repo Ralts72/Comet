@@ -7,22 +7,19 @@
 #include <utility>
 
 namespace Comet {
-    std::shared_ptr<FrameBuffer> FrameBuffer::create(Device& device,
-        RenderPass& render_pass,
+    std::shared_ptr<FrameBuffer> FrameBuffer::create(Device& device, RenderPass& render_pass,
         const std::vector<std::shared_ptr<ImageView>>& image_views, const uint32_t width,
         const uint32_t height) {
         auto attempt = try_create(device, render_pass, image_views, width, height);
         if(!attempt) {
-            LOG_FATAL(
-                "Failed to create framebuffer: {}", vk::to_string(attempt.result()));
+            LOG_FATAL("Failed to create framebuffer: {}", vk::to_string(attempt.result()));
         }
         return std::move(attempt).value();
     }
 
-    GpuResourceResult<std::shared_ptr<FrameBuffer>> FrameBuffer::try_create(
-        Device& device, RenderPass& render_pass,
-        const std::vector<std::shared_ptr<ImageView>>& image_views, const uint32_t width,
-        const uint32_t height) {
+    GpuResourceResult<std::shared_ptr<FrameBuffer>> FrameBuffer::try_create(Device& device,
+        RenderPass& render_pass, const std::vector<std::shared_ptr<ImageView>>& image_views,
+        const uint32_t width, const uint32_t height) {
         if(image_views.empty() || width == 0 || height == 0) {
             LOG_FATAL("Framebuffer requires attachments and a non-zero extent");
         }
@@ -51,11 +48,11 @@ namespace Comet {
             return GpuResourceResult<std::shared_ptr<FrameBuffer>>::failure(result);
         }
 
-        std::shared_ptr<FrameBuffer> owner(new FrameBuffer(
-            device, render_pass, image_views, width, height, frame_buffer));
+        std::shared_ptr<FrameBuffer> owner(
+            new FrameBuffer(device, render_pass, image_views, width, height, frame_buffer));
         LOG_INFO("Vulkan framebuffer created successfully");
-        LOG_TRACE("Framebuffer created, width: {} height: {}  view count: {}", width,
-            height, vk_image_views.size());
+        LOG_TRACE("Framebuffer created, width: {} height: {}  view count: {}", width, height,
+            vk_image_views.size());
         return GpuResourceResult<std::shared_ptr<FrameBuffer>>::success(std::move(owner));
     }
 

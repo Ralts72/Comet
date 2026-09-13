@@ -15,8 +15,7 @@ namespace Comet {
         return create_entity_with_uuid(uuid, name);
     }
 
-    Entity Scene::create_entity_with_uuid(
-        const EntityUuid uuid, const std::string& name) {
+    Entity Scene::create_entity_with_uuid(const EntityUuid uuid, const std::string& name) {
         if(!uuid || find_entity(uuid)) {
             return {};
         }
@@ -61,13 +60,11 @@ namespace Comet {
     }
 
     bool Scene::set_parent(const Entity child, const Entity parent) {
-        if(!is_valid(child) || !is_valid(parent) || child == parent
-            || has_cycle(child, parent)) {
+        if(!is_valid(child) || !is_valid(parent) || child == parent || has_cycle(child, parent)) {
             return false;
         }
 
-        auto& relationship =
-            m_registry.get_or_emplace<RelationshipComponent>(child.m_handle);
+        auto& relationship = m_registry.get_or_emplace<RelationshipComponent>(child.m_handle);
         if(relationship.parent == parent.get_id()) {
             return true;
         }
@@ -81,8 +78,7 @@ namespace Comet {
             return false;
         }
 
-        auto& relationship =
-            m_registry.get_or_emplace<RelationshipComponent>(child.m_handle);
+        auto& relationship = m_registry.get_or_emplace<RelationshipComponent>(child.m_handle);
         if(relationship.parent == INVALID_ENTITY_ID) {
             return true;
         }
@@ -152,10 +148,8 @@ namespace Comet {
         roots.reserve(handles.size());
         for(const auto& [id, handle] : handles) {
             const auto* relationship = m_registry.try_get<RelationshipComponent>(handle);
-            const EntityId parent_id =
-                relationship ? relationship->parent : INVALID_ENTITY_ID;
-            if(parent_id != INVALID_ENTITY_ID && parent_id != id
-                && handles.contains(parent_id)) {
+            const EntityId parent_id = relationship ? relationship->parent : INVALID_ENTITY_ID;
+            if(parent_id != INVALID_ENTITY_ID && parent_id != id && handles.contains(parent_id)) {
                 children[parent_id].push_back(handle);
             } else {
                 roots.push_back(handle);
@@ -174,11 +168,9 @@ namespace Comet {
             }
 
             const auto* transform = m_registry.try_get<TransformComponent>(handle);
-            auto& world_transform =
-                m_registry.get_or_emplace<WorldTransformComponent>(handle);
+            auto& world_transform = m_registry.get_or_emplace<WorldTransformComponent>(handle);
 
-            const Math::Mat4 local_matrix =
-                transform ? transform->to_matrix() : Math::Mat4(1.0f);
+            const Math::Mat4 local_matrix = transform ? transform->to_matrix() : Math::Mat4(1.0f);
             Math::Mat4 camera_local_matrix(1.0f);
             if(transform) {
                 camera_local_matrix = Math::compose_trs(
@@ -187,8 +179,7 @@ namespace Comet {
             world_transform.world_matrix = parent_world * local_matrix;
             world_transform.camera_world_matrix = parent_world * camera_local_matrix;
 
-            if(const auto child_handles = children.find(id);
-                child_handles != children.end()) {
+            if(const auto child_handles = children.find(id); child_handles != children.end()) {
                 for(const entt::entity child_handle : child_handles->second) {
                     update_subtree_ref(
                         child_handle, world_transform.world_matrix, update_subtree_ref);

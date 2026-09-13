@@ -17,8 +17,7 @@ namespace Comet {
     public:
         using Task = std::function<void()>;
 
-        explicit TaskScheduler(
-            std::size_t worker_count = 0, std::size_t queue_capacity = 128);
+        explicit TaskScheduler(std::size_t worker_count = 0, std::size_t queue_capacity = 128);
         ~TaskScheduler();
 
         TaskScheduler(const TaskScheduler&) = delete;
@@ -32,9 +31,7 @@ namespace Comet {
         void wait_idle();
 
         [[nodiscard]] std::size_t get_worker_count() const noexcept;
-        [[nodiscard]] std::size_t get_queue_capacity() const noexcept {
-            return m_queue_capacity;
-        }
+        [[nodiscard]] std::size_t get_queue_capacity() const noexcept { return m_queue_capacity; }
 
     private:
         void worker_loop();

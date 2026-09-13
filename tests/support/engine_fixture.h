@@ -32,8 +32,7 @@ namespace Comet::Tests {
             if(auto logger = Logger::get_console_logger())
                 std::erase(logger->sinks(), m_sink);
             EXPECT_EQ(messages.str().find("VUID-"), std::string::npos) << messages.str();
-            EXPECT_EQ(messages.str().find("Validation Error"), std::string::npos)
-                << messages.str();
+            EXPECT_EQ(messages.str().find("Validation Error"), std::string::npos) << messages.str();
         }
 
         std::unique_ptr<Engine> engine;

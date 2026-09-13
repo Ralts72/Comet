@@ -37,8 +37,7 @@ namespace Comet {
 
     void FrameScheduler::wait_for_all_slots() {
         if(m_frame_active && !m_submission_recorded) {
-            LOG_FATAL(
-                "Cannot wait for all frame slots before the active frame is submitted");
+            LOG_FATAL("Cannot wait for all frame slots before the active frame is submitted");
         }
         for(uint32_t frame_slot = 0; frame_slot < m_frame_slot_count; ++frame_slot) {
             wait_for_slot(frame_slot);
@@ -68,16 +67,14 @@ namespace Comet {
 
     void FrameScheduler::retain_current_frame_resource(std::shared_ptr<void> resource) {
         if(!m_frame_active || m_submission_recorded) {
-            LOG_FATAL(
-                "Frame resources can only be retained while recording an active frame");
+            LOG_FATAL("Frame resources can only be retained while recording an active frame");
         }
         if(!resource) {
             return;
         }
 
         const void* resource_id = resource.get();
-        get_current_frame_slot().retained_resources.try_emplace(
-            resource_id, std::move(resource));
+        get_current_frame_slot().retained_resources.try_emplace(resource_id, std::move(resource));
     }
 
     void FrameScheduler::record_submission() {
@@ -109,8 +106,8 @@ namespace Comet {
             LOG_FATAL("FrameScheduler requires at least one swapchain image");
         }
 
-        LOG_INFO("create {} swapchain image states for {} frame slots", image_count,
-            m_frame_slot_count);
+        LOG_INFO(
+            "create {} swapchain image states for {} frame slots", image_count, m_frame_slot_count);
         m_swapchain_image_states.clear();
         m_swapchain_image_states.reserve(image_count);
         for(uint32_t index = 0; index < image_count; ++index) {
@@ -122,7 +119,6 @@ namespace Comet {
         auto& slot = m_frame_slots.at(frame_slot_index);
         m_device.wait_for_fences(std::span(&slot.in_flight_fence, 1));
         slot.retained_resources.clear();
-        m_completed_frame_serial =
-            std::max(m_completed_frame_serial, slot.last_submission_serial);
+        m_completed_frame_serial = std::max(m_completed_frame_serial, slot.last_submission_serial);
     }
 }

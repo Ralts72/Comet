@@ -2,7 +2,7 @@
 
 #include "asset/metadata.h"
 #include "common/export.h"
-#include "asset/result.h"
+#include "common/result.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -14,14 +14,12 @@ namespace Comet {
     public:
         static constexpr std::uint32_t FORMAT_VERSION = 3;
 
-        [[nodiscard]] AssetResult<std::string> serialize(
-            const AssetMetadata& metadata) const;
-        [[nodiscard]] AssetResult<AssetMetadata> deserialize(
+        [[nodiscard]] Result<std::string> serialize(const AssetMetadata& metadata) const;
+        [[nodiscard]] Result<AssetMetadata> deserialize(
             std::string_view contents, std::string_view source = "<memory>") const;
 
-        [[nodiscard]] AssetResult<void> save(
+        [[nodiscard]] Result<void> save(
             const AssetMetadata& metadata, const std::filesystem::path& path) const;
-        [[nodiscard]] AssetResult<AssetMetadata> load(
-            const std::filesystem::path& path) const;
+        [[nodiscard]] Result<AssetMetadata> load(const std::filesystem::path& path) const;
     };
 }

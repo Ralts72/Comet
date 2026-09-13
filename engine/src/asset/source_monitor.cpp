@@ -47,8 +47,7 @@ namespace Comet {
             return result;
         }
 
-        const bool changed =
-            m_has_baseline ? snapshot != m_snapshot : m_initial_capture_failed;
+        const bool changed = m_has_baseline ? snapshot != m_snapshot : m_initial_capture_failed;
         m_snapshot = std::move(snapshot);
         m_has_baseline = true;
         m_initial_capture_failed = false;
@@ -89,8 +88,8 @@ namespace Comet {
         return true;
     }
 
-    bool AssetSourceMonitor::capture_snapshot(Snapshot& snapshot,
-        std::filesystem::path& issue_path, std::string& message) const {
+    bool AssetSourceMonitor::capture_snapshot(
+        Snapshot& snapshot, std::filesystem::path& issue_path, std::string& message) const {
         std::error_code error;
         const bool exists = std::filesystem::exists(m_root, error);
         if(error) {
@@ -134,8 +133,7 @@ namespace Comet {
                 const auto write_time = entry.last_write_time(error);
                 if(error) {
                     issue_path = entry.path();
-                    message =
-                        "failed to read asset source write time: " + error.message();
+                    message = "failed to read asset source write time: " + error.message();
                     return false;
                 }
                 const std::uintmax_t size = entry.file_size(error);
@@ -145,8 +143,7 @@ namespace Comet {
                     return false;
                 }
 
-                snapshot.emplace(
-                    entry.path().lexically_relative(m_root).lexically_normal(),
+                snapshot.emplace(entry.path().lexically_relative(m_root).lexically_normal(),
                     FileState{.write_time = write_time, .size = size});
             }
 

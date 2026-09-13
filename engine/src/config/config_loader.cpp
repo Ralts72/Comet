@@ -14,8 +14,7 @@
 
 namespace Comet {
     namespace {
-        constexpr std::array SURFACE_FORMATS = {
-            std::pair{"bgra8_srgb", Format::B8G8R8A8_SRGB},
+        constexpr std::array SURFACE_FORMATS = {std::pair{"bgra8_srgb", Format::B8G8R8A8_SRGB},
             std::pair{"bgra8_unorm", Format::B8G8R8A8_UNORM},
             std::pair{"rgba8_srgb", Format::R8G8B8A8_SRGB},
             std::pair{"rgba8_unorm", Format::R8G8B8A8_UNORM}};
@@ -27,20 +26,18 @@ namespace Comet {
             std::pair{"d24_unorm_s8_uint", Format::D24_UNORM_S8_UINT},
             std::pair{"d32_float_s8_uint", Format::D32_SFLOAT_S8_UINT}};
 
-        constexpr std::array PRESENT_MODES = {
-            std::pair{"immediate", PresentMode::Immediate},
-            std::pair{"mailbox", PresentMode::Mailbox},
-            std::pair{"fifo", PresentMode::Fifo},
+        constexpr std::array PRESENT_MODES = {std::pair{"immediate", PresentMode::Immediate},
+            std::pair{"mailbox", PresentMode::Mailbox}, std::pair{"fifo", PresentMode::Fifo},
             std::pair{"fifo_relaxed", PresentMode::FifoRelaxed}};
 
-        std::runtime_error config_error(const std::string& config_path,
-            const std::string_view key, const std::string& detail) {
-            return std::runtime_error("Invalid config '" + config_path + "' at '"
-                                      + std::string(key) + "': " + detail);
+        std::runtime_error config_error(
+            const std::string& config_path, const std::string_view key, const std::string& detail) {
+            return std::runtime_error(
+                "Invalid config '" + config_path + "' at '" + std::string(key) + "': " + detail);
         }
 
-        std::optional<YAML::Node> find_node(const YAML::Node& root,
-            const std::string_view key, const std::string& config_path) {
+        std::optional<YAML::Node> find_node(
+            const YAML::Node& root, const std::string_view key, const std::string& config_path) {
             if(!root.IsDefined() || root.IsNull()) {
                 return std::nullopt;
             }
@@ -52,8 +49,7 @@ namespace Comet {
 
             while(std::getline(key_stream, segment, '.')) {
                 if(!node.IsMap()) {
-                    const std::string location =
-                        parent_path.empty() ? "<root>" : parent_path;
+                    const std::string location = parent_path.empty() ? "<root>" : parent_path;
                     throw config_error(config_path, location, "expected a mapping");
                 }
 
@@ -84,22 +80,20 @@ namespace Comet {
                 return node->as<T>();
             } catch(const YAML::Exception& error) {
                 throw config_error(config_path, key,
-                    "expected " + std::string(expected_type) + ", got "
-                        + YAML::Dump(*node) + " (" + error.what() + ")");
+                    "expected " + std::string(expected_type) + ", got " + YAML::Dump(*node) + " ("
+                        + error.what() + ")");
             }
         }
 
         template<typename T, std::size_t Size>
         T read_named_value(const YAML::Node& root, const std::string_view key,
-            const T default_value,
-            const std::array<std::pair<const char*, T>, Size>& values,
+            const T default_value, const std::array<std::pair<const char*, T>, Size>& values,
             const std::string& config_path) {
             if(!find_node(root, key, config_path).has_value()) {
                 return default_value;
             }
 
-            const auto name =
-                read_value<std::string>(root, key, {}, "a string", config_path);
+            const auto name = read_value<std::string>(root, key, {}, "a string", config_path);
             for(const auto& [candidate, value] : values) {
                 if(name == candidate) {
                     return value;
@@ -114,8 +108,8 @@ namespace Comet {
                 }
                 expected += candidate;
             }
-            throw config_error(config_path, key,
-                "unknown value '" + name + "'; expected one of: " + expected);
+            throw config_error(
+                config_path, key, "unknown value '" + name + "'; expected one of: " + expected);
         }
 
         SampleCount read_sample_count(const YAML::Node& root, const std::string_view key,
@@ -147,8 +141,8 @@ namespace Comet {
             }
         }
 
-        Math::Vec4 read_clear_color(const YAML::Node& root,
-            const Config::Render& defaults, const std::string& config_path) {
+        Math::Vec4 read_clear_color(const YAML::Node& root, const Config::Render& defaults,
+            const std::string& config_path) {
             if(!find_node(root, "render.clear_color", config_path).has_value()) {
                 return defaults.clear_color;
             }
@@ -157,8 +151,8 @@ namespace Comet {
                 root, "render.clear_color", {}, "an array of four numbers", config_path);
             if(values.size() != 4) {
                 throw config_error(config_path, "render.clear_color",
-                    "expected an array of four numbers, got "
-                        + std::to_string(values.size()) + " values");
+                    "expected an array of four numbers, got " + std::to_string(values.size())
+                        + " values");
             }
 
             return {values[0], values[1], values[2], values[3]};
@@ -166,20 +160,18 @@ namespace Comet {
 
         void validate_config(const Config& config, const std::string& config_path) {
             if(config.window.width <= 0) {
-                throw config_error(
-                    config_path, "window.width", "must be greater than zero");
+                throw config_error(config_path, "window.width", "must be greater than zero");
             }
             if(config.window.height <= 0) {
-                throw config_error(
-                    config_path, "window.height", "must be greater than zero");
+                throw config_error(config_path, "window.height", "must be greater than zero");
             }
             if(config.vulkan.swapchain_image_count == 0) {
-                throw config_error(config_path, "vulkan.swapchain_image_count",
-                    "must be greater than zero");
+                throw config_error(
+                    config_path, "vulkan.swapchain_image_count", "must be greater than zero");
             }
             if(config.render.max_frames_in_flight == 0) {
-                throw config_error(config_path, "render.max_frames_in_flight",
-                    "must be greater than zero");
+                throw config_error(
+                    config_path, "render.max_frames_in_flight", "must be greater than zero");
             }
             if(!std::isfinite(config.render.max_anisotropy)
                 || config.render.max_anisotropy < 1.0f) {
@@ -197,8 +189,8 @@ namespace Comet {
             try {
                 root = YAML::LoadFile(config_path);
             } catch(const YAML::Exception& error) {
-                throw std::runtime_error("Failed to load config '" + config_path
-                                         + "': " + std::string(error.what()));
+                throw std::runtime_error(
+                    "Failed to load config '" + config_path + "': " + std::string(error.what()));
             }
 
             if(root.IsDefined() && !root.IsNull() && !root.IsMap()) {
@@ -208,9 +200,8 @@ namespace Comet {
             config.diagnostics.log.enable_file_logging =
                 read_value<bool>(root, "diagnostics.enable_file_logging",
                     config.diagnostics.log.enable_file_logging, "a boolean", config_path);
-            config.diagnostics.log.level =
-                read_value<std::string>(root, "diagnostics.log_level",
-                    config.diagnostics.log.level, "a string", config_path);
+            config.diagnostics.log.level = read_value<std::string>(root, "diagnostics.log_level",
+                config.diagnostics.log.level, "a string", config_path);
             config.diagnostics.enable_profiler =
                 read_value<bool>(root, "diagnostics.enable_profiler",
                     config.diagnostics.enable_profiler, "a boolean", config_path);
@@ -221,38 +212,36 @@ namespace Comet {
                 root, "window.height", config.window.height, "an integer", config_path);
             config.window.title = read_value<std::string>(
                 root, "window.title", config.window.title, "a string", config_path);
-            config.window.fullscreen = read_value<bool>(root, "window.fullscreen",
-                config.window.fullscreen, "a boolean", config_path);
-            config.window.resizable = read_value<bool>(root, "window.resizable",
-                config.window.resizable, "a boolean", config_path);
+            config.window.fullscreen = read_value<bool>(
+                root, "window.fullscreen", config.window.fullscreen, "a boolean", config_path);
+            config.window.resizable = read_value<bool>(
+                root, "window.resizable", config.window.resizable, "a boolean", config_path);
 
             config.vulkan.surface_format = read_named_value(root, "vulkan.surface_format",
                 config.vulkan.surface_format, SURFACE_FORMATS, config_path);
-            config.vulkan.color_space = read_named_value(root, "vulkan.color_space",
-                config.vulkan.color_space, COLOR_SPACES, config_path);
+            config.vulkan.color_space = read_named_value(
+                root, "vulkan.color_space", config.vulkan.color_space, COLOR_SPACES, config_path);
             config.vulkan.depth_format = read_named_value(root, "vulkan.depth_format",
                 config.vulkan.depth_format, DEPTH_FORMATS, config_path);
             config.vulkan.present_mode = read_named_value(root, "vulkan.present_mode",
                 config.vulkan.present_mode, PRESENT_MODES, config_path);
-            config.vulkan.swapchain_image_count = read_value<std::uint32_t>(root,
-                "vulkan.swapchain_image_count", config.vulkan.swapchain_image_count,
-                "a non-negative integer", config_path);
+            config.vulkan.swapchain_image_count =
+                read_value<std::uint32_t>(root, "vulkan.swapchain_image_count",
+                    config.vulkan.swapchain_image_count, "a non-negative integer", config_path);
             config.vulkan.msaa_samples = read_sample_count(
                 root, "vulkan.msaa_samples", config.vulkan.msaa_samples, config_path);
             config.vulkan.enable_validation =
                 read_value<bool>(root, "diagnostics.enable_validation",
                     config.vulkan.enable_validation, "a boolean", config_path);
 
-            config.render.max_frames_in_flight = read_value<std::uint32_t>(root,
-                "render.max_frames_in_flight", config.render.max_frames_in_flight,
-                "a non-negative integer", config_path);
-            config.render.clear_color =
-                read_clear_color(root, config.render, config_path);
-            config.render.enable_vsync = read_value<bool>(root, "render.enable_vsync",
-                config.render.enable_vsync, "a boolean", config_path);
-            config.render.max_anisotropy =
-                read_value<float>(root, "render.max_anisotropy",
-                    config.render.max_anisotropy, "a number", config_path);
+            config.render.max_frames_in_flight =
+                read_value<std::uint32_t>(root, "render.max_frames_in_flight",
+                    config.render.max_frames_in_flight, "a non-negative integer", config_path);
+            config.render.clear_color = read_clear_color(root, config.render, config_path);
+            config.render.enable_vsync = read_value<bool>(
+                root, "render.enable_vsync", config.render.enable_vsync, "a boolean", config_path);
+            config.render.max_anisotropy = read_value<float>(root, "render.max_anisotropy",
+                config.render.max_anisotropy, "a number", config_path);
         }
     }
 

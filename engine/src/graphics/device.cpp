@@ -25,10 +25,8 @@ namespace Comet {
             LOG_FATAL("Requested present queue count {} exceeds available count {}",
                 create_info.present_queue_count, present_queue_counts);
         }
-        std::vector<float> graphics_queue_priorities(
-            create_info.graphics_queue_count, 0.0f);
-        std::vector<float> present_queue_priorities(
-            create_info.present_queue_count, 1.0f);
+        std::vector<float> graphics_queue_priorities(create_info.graphics_queue_count, 0.0f);
+        std::vector<float> present_queue_priorities(create_info.present_queue_count, 1.0f);
         std::vector<vk::DeviceQueueCreateInfo> queue_create_infos;
         uint32_t queue_count = create_info.graphics_queue_count;
         const bool is_same_queue_family = context.is_same_queue_families();
@@ -50,8 +48,7 @@ namespace Comet {
 
         if(!is_same_queue_family) {
             vk::DeviceQueueCreateInfo present_queue_create_info = {};
-            present_queue_create_info.queueFamilyIndex =
-                present_queue_family_index.value();
+            present_queue_create_info.queueFamilyIndex = present_queue_family_index.value();
             present_queue_create_info.queueCount = create_info.present_queue_count;
             present_queue_create_info.pQueuePriorities = present_queue_priorities.data();
             queue_create_infos.push_back(present_queue_create_info);
@@ -63,8 +60,7 @@ namespace Comet {
         vk::DeviceCreateInfo device_create_info = {};
         device_create_info.queueCreateInfoCount = queue_create_infos.size();
         device_create_info.pQueueCreateInfos = queue_create_infos.data();
-        device_create_info.ppEnabledExtensionNames =
-            m_capability.enabled_extensions.data();
+        device_create_info.ppEnabledExtensionNames = m_capability.enabled_extensions.data();
         device_create_info.enabledExtensionCount = m_capability.enabled_extensions.size();
         vk::PhysicalDeviceFeatures2 enabled_features{};
         enabled_features.features = m_capability.enabled_features;
@@ -123,8 +119,8 @@ namespace Comet {
             *this, m_context.get_graphics_queue_family().queue_family_index.value());
     }
 
-    void Device::wait_for_fences(const std::span<const Fence> fences, const bool wait_all,
-        const uint64_t timeout) const {
+    void Device::wait_for_fences(
+        const std::span<const Fence> fences, const bool wait_all, const uint64_t timeout) const {
         std::vector<vk::Fence> vk_fences;
         for(const auto& fence : fences) {
             vk_fences.push_back(fence.get());

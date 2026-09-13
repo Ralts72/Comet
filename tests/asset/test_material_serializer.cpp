@@ -9,8 +9,7 @@
 #include <string>
 
 namespace Comet::Tests {
-    TEST(MaterialSerializerTest,
-        RoundTripsTypedParametersAndOnlyTracksTextureDependencies) {
+    TEST(MaterialSerializerTest, RoundTripsTypedParametersAndOnlyTracksTextureDependencies) {
         const MaterialData data{.template_name = "typed",
             .texture_properties = {{"albedo", AssetHandle(73)}},
             .scalar_properties = {{"intensity", 0.75f}},
@@ -26,18 +25,17 @@ namespace Comet::Tests {
 
     TEST(MaterialSerializerTest, RejectsInvalidTypedParametersAndCrossTypeNames) {
         const MaterialSerializer serializer;
-        for(const auto property : {R"({"type":"scalar","value":"1"})",
-                R"({"type":"scalar","value":true})", R"({"type":"scalar","value":1e100})",
-                R"({"type":"scalar","value":1,"asset":73})",
+        for(const auto property :
+            {R"({"type":"scalar","value":"1"})", R"({"type":"scalar","value":true})",
+                R"({"type":"scalar","value":1e100})", R"({"type":"scalar","value":1,"asset":73})",
                 R"({"type":"texture","asset":73,"value":1})",
-                R"({"type":"vector","value":[1,2,3]})",
-                R"({"type":"vector","value":[1,2,3,4,5]})",
+                R"({"type":"vector","value":[1,2,3]})", R"({"type":"vector","value":[1,2,3,4,5]})",
                 R"({"type":"vector","value":[1,2,"3",4]})",
                 R"({"type":"vector","value":[1,2,null,4]})"}) {
             SCOPED_TRACE(property);
             const auto result = serializer.deserialize(
-                std::string(R"({"version":2,"template":"test","properties":{"value":)")
-                    + property + "}}",
+                std::string(R"({"version":2,"template":"test","properties":{"value":)") + property
+                    + "}}",
                 "invalid.mat");
             ASSERT_FALSE(result);
             EXPECT_NE(result.error().find("invalid.mat"), std::string::npos);
@@ -51,13 +49,12 @@ namespace Comet::Tests {
         EXPECT_FALSE(serializer.serialize({.template_name = "test",
             .scalar_properties = {{"p", 1}},
             .vector_properties = {{"p", {1, 1, 1, 1}}}}));
-        EXPECT_FALSE(serializer.serialize(
-            {.template_name = "test", .scalar_properties = {{"", 1}}}));
+        EXPECT_FALSE(
+            serializer.serialize({.template_name = "test", .scalar_properties = {{"", 1}}}));
         EXPECT_FALSE(serializer.serialize({.template_name = "test",
             .scalar_properties = {{"p", std::numeric_limits<float>::infinity()}}}));
         EXPECT_FALSE(serializer.serialize({.template_name = "test",
-            .vector_properties = {
-                {"p", {1, 1, std::numeric_limits<float>::quiet_NaN(), 1}}}}));
+            .vector_properties = {{"p", {1, 1, std::numeric_limits<float>::quiet_NaN(), 1}}}}));
     }
 
     namespace {
@@ -163,12 +160,11 @@ namespace Comet::Tests {
             R"({"version": 2, "template": "unlit_texture_blend", "properties": {}})");
         const MaterialData original = serializer.load(material.path()).value();
 
-        EXPECT_FALSE(
-            serializer.serialize({.template_name = "", .texture_properties = {}}));
+        EXPECT_FALSE(serializer.serialize({.template_name = "", .texture_properties = {}}));
         EXPECT_FALSE(serializer.serialize({.template_name = "unlit_texture_blend",
             .texture_properties = {{"u_Texture0", INVALID_ASSET_HANDLE}}}));
-        EXPECT_FALSE(serializer.save(
-            {.template_name = "", .texture_properties = {}}, material.path()));
+        EXPECT_FALSE(
+            serializer.save({.template_name = "", .texture_properties = {}}, material.path()));
         EXPECT_EQ(serializer.load(material.path()).value(), original);
     }
 
@@ -203,19 +199,17 @@ namespace Comet::Tests {
         EXPECT_EQ(serializer.serialize(loaded.value()).value(), contents.value());
 
         const TemporaryMaterial material(contents.value());
-        EXPECT_FALSE(
-            serializer.save({.template_name = std::string(1, '\xff')}, material.path()));
+        EXPECT_FALSE(serializer.save({.template_name = std::string(1, '\xff')}, material.path()));
         EXPECT_EQ(serializer.load(material.path()).value(), data);
     }
 
     TEST(MaterialSerializerTest, RequiresStrictJsonAndTypedNumbers) {
         const MaterialSerializer serializer;
+        EXPECT_FALSE(serializer.deserialize("version: 1\ntemplate: test\nproperties: {}\n"));
         EXPECT_FALSE(
-            serializer.deserialize("version: 1\ntemplate: test\nproperties: {}\n"));
-        EXPECT_FALSE(serializer.deserialize(
-            R"({"version": "2", "template": "test", "properties": {}})"));
-        EXPECT_FALSE(serializer.deserialize(
-            R"({"version": 2, "template": "test", "properties": {},})"));
+            serializer.deserialize(R"({"version": "2", "template": "test", "properties": {}})"));
+        EXPECT_FALSE(
+            serializer.deserialize(R"({"version": 2, "template": "test", "properties": {},})"));
         EXPECT_FALSE(serializer.deserialize(
             R"({"version": 2, /* comment */ "template": "test", "properties": {}})"));
         for(const auto asset : {"\"42\"", "42.5", "-1", "18446744073709551616"}) {
@@ -241,8 +235,7 @@ namespace Comet::Tests {
         EXPECT_EQ(duplicate.error(),
             "Invalid material 'duplicate.mat' at '<root>': duplicate field 'version'");
 
-        const auto scalar =
-            serializer.deserialize(R"({"version": "nope"})", "scalar.mat");
+        const auto scalar = serializer.deserialize(R"({"version": "nope"})", "scalar.mat");
         ASSERT_FALSE(scalar);
         EXPECT_EQ(scalar.error(),
             "Invalid material 'scalar.mat' at 'version': expected an unsigned integer");

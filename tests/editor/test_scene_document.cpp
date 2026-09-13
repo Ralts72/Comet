@@ -44,8 +44,7 @@ namespace CometEditor::Tests {
         const auto missing_material = Comet::AssetHandle::generate();
         Comet::Scene saved;
         auto entity = saved.create_entity("Unresolved assets");
-        entity.add_component<Comet::MeshRendererComponent>(
-            missing_mesh, missing_material);
+        entity.add_component<Comet::MeshRendererComponent>(missing_mesh, missing_material);
         const auto uuid = entity.get_uuid();
         const TemporarySceneFile file;
         serializer.save(saved, file.path());
@@ -115,8 +114,7 @@ namespace CometEditor::Tests {
         const auto outside = file.paths().root() / "outside.scene";
         serializer.save(*active, outside.string());
         const auto original = Comet::read_text_file(outside);
-        const std::string invalid_paths[]{
-            "../outside.scene", outside.string(), "wrong.mat"};
+        const std::string invalid_paths[]{"../outside.scene", outside.string(), "wrong.mat"};
         for(const auto& path : invalid_paths) {
             EXPECT_FALSE(document.open(path));
             EXPECT_FALSE(document.save(path));

@@ -5,14 +5,13 @@
 namespace Comet {
     namespace {
         bool is_shader_usage(const ResourceUsage usage) noexcept {
-            return usage == ResourceUsage::UniformRead
-                   || usage == ResourceUsage::SampledRead
+            return usage == ResourceUsage::UniformRead || usage == ResourceUsage::SampledRead
                    || usage == ResourceUsage::StorageRead
                    || usage == ResourceUsage::StorageReadWrite;
         }
 
-        bool has_valid_stage_context(const ResourceUsage usage,
-            const Flags<PipelineStage> shader_stages) noexcept {
+        bool has_valid_stage_context(
+            const ResourceUsage usage, const Flags<PipelineStage> shader_stages) noexcept {
             using StageBits = std::underlying_type_t<PipelineStage>;
             const StageBits stages = static_cast<StageBits>(shader_stages);
             constexpr StageBits SHADER_STAGES =
@@ -31,13 +30,11 @@ namespace Comet {
         bool has_compatible_image_aspects(
             const ResourceUsage usage, const Flags<ImageAspect> aspects) noexcept {
             const auto raw = static_cast<Flags<ImageAspect>::underlying_type>(aspects);
-            const auto color =
-                static_cast<Flags<ImageAspect>::underlying_type>(ImageAspect::Color);
+            const auto color = static_cast<Flags<ImageAspect>::underlying_type>(ImageAspect::Color);
             const auto depth_stencil =
                 static_cast<Flags<ImageAspect>::underlying_type>(ImageAspect::Depth)
                 | static_cast<Flags<ImageAspect>::underlying_type>(ImageAspect::Stencil);
-            if(usage == ResourceUsage::ColorAttachmentWrite
-                || usage == ResourceUsage::Present) {
+            if(usage == ResourceUsage::ColorAttachmentWrite || usage == ResourceUsage::Present) {
                 return raw == color;
             }
             if(usage == ResourceUsage::DepthStencilAttachmentWrite
@@ -59,28 +56,23 @@ namespace Comet {
             case ResourceUsage::Present:
                 return ResourceState{.queue_family = queue_family};
             case ResourceUsage::TransferSource:
-                return ResourceState{
-                    .stages = Flags<PipelineStage>(PipelineStage::Transfer),
+                return ResourceState{.stages = Flags<PipelineStage>(PipelineStage::Transfer),
                     .access = Flags<Access>(Access::TransferRead),
                     .queue_family = queue_family};
             case ResourceUsage::TransferDestination:
-                return ResourceState{
-                    .stages = Flags<PipelineStage>(PipelineStage::Transfer),
+                return ResourceState{.stages = Flags<PipelineStage>(PipelineStage::Transfer),
                     .access = Flags<Access>(Access::TransferWrite),
                     .queue_family = queue_family};
             case ResourceUsage::VertexBuffer:
-                return ResourceState{
-                    .stages = Flags<PipelineStage>(PipelineStage::VertexInput),
+                return ResourceState{.stages = Flags<PipelineStage>(PipelineStage::VertexInput),
                     .access = Flags<Access>(Access::VertexAttributeRead),
                     .queue_family = queue_family};
             case ResourceUsage::IndexBuffer:
-                return ResourceState{
-                    .stages = Flags<PipelineStage>(PipelineStage::VertexInput),
+                return ResourceState{.stages = Flags<PipelineStage>(PipelineStage::VertexInput),
                     .access = Flags<Access>(Access::IndexRead),
                     .queue_family = queue_family};
             case ResourceUsage::IndirectBuffer:
-                return ResourceState{
-                    .stages = Flags<PipelineStage>(PipelineStage::DrawIndirect),
+                return ResourceState{.stages = Flags<PipelineStage>(PipelineStage::DrawIndirect),
                     .access = Flags<Access>(Access::IndirectCommandRead),
                     .queue_family = queue_family};
             case ResourceUsage::UniformRead:
@@ -99,8 +91,8 @@ namespace Comet {
             case ResourceUsage::ColorAttachmentWrite:
                 return ResourceState{
                     .stages = Flags<PipelineStage>(PipelineStage::ColorAttachmentOutput),
-                    .access = Flags<Access>(Access::ColorAttachmentRead)
-                              | Access::ColorAttachmentWrite,
+                    .access =
+                        Flags<Access>(Access::ColorAttachmentRead) | Access::ColorAttachmentWrite,
                     .queue_family = queue_family};
             case ResourceUsage::DepthStencilAttachmentWrite:
                 return ResourceState{
@@ -120,10 +112,9 @@ namespace Comet {
     }
 
     std::optional<ImageState> resolve_image_state(const ResourceUsage usage,
-        const ImageSubresourceRange subresources,
-        const Flags<PipelineStage> shader_stages, const std::uint32_t queue_family) {
-        if(!subresources.is_valid()
-            || !has_compatible_image_aspects(usage, subresources.aspects)) {
+        const ImageSubresourceRange subresources, const Flags<PipelineStage> shader_stages,
+        const std::uint32_t queue_family) {
+        if(!subresources.is_valid() || !has_compatible_image_aspects(usage, subresources.aspects)) {
             return std::nullopt;
         }
         switch(usage) {
@@ -177,7 +168,6 @@ namespace Comet {
             case ResourceUsage::UniformRead:
                 return std::nullopt;
         }
-        return ImageState{
-            .resource = *resource, .layout = layout, .subresources = subresources};
+        return ImageState{.resource = *resource, .layout = layout, .subresources = subresources};
     }
 }

@@ -61,8 +61,7 @@ namespace CometEditor::Tests {
                 }));
             inspector = std::make_unique<InspectorPanel>(state, selection, history, edit,
                 components, widgets, assets,
-                Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY).assets(), nullptr,
-                nullptr);
+                Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY).assets(), nullptr, nullptr);
             frame();
             frame();
         }
@@ -77,9 +76,7 @@ namespace CometEditor::Tests {
             menu.collect_shortcuts();
             ImGui::Render();
         }
-        float x() {
-            return entity.get_component<Comet::TransformComponent>().translation.x;
-        }
+        float x() { return entity.get_component<Comet::TransformComponent>().translation.x; }
         void type_name(const std::string& text) {
             auto& io = ImGui::GetIO();
             io.AddMousePosEvent(name_point.x, name_point.y);
@@ -88,8 +85,7 @@ namespace CometEditor::Tests {
             frame();
             io.AddMouseButtonEvent(0, false);
             frame();
-            const auto modifier =
-                io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+            const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
             io.AddKeyEvent(modifier, true);
             io.AddKeyEvent(ImGuiKey_A, true);
             frame();
@@ -120,10 +116,9 @@ namespace CometEditor::Tests {
                 const Comet::PropertyDescriptor& property, void* value) {
                 const auto result = builtin.edit_property(property, value);
                 const float end = ImGui::GetItemRectMax().x;
-                const float field_width =
-                    ImGui::GetItemRectSize().x
-                    - ImGui::CalcTextSize(property.display_name.c_str()).x
-                    - ImGui::GetStyle().ItemInnerSpacing.x;
+                const float field_width = ImGui::GetItemRectSize().x
+                                          - ImGui::CalcTextSize(property.display_name.c_str()).x
+                                          - ImGui::GetStyle().ItemInnerSpacing.x;
                 bounds.emplace_back(end, field_width);
                 return result;
             }));
@@ -357,9 +352,9 @@ namespace CometEditor::Tests {
         auto* window = ImGui::FindWindowByName("Inspector");
         ASSERT_NE(window, nullptr);
         // 此 fixture 未注册 Bool/Float 控件，Camera 标题紧邻 Add 按钮上方。
-        const ImVec2 header(window->WorkRect.Min.x + 30,
-            window->DC.CursorPosPrevLine.y - ImGui::GetStyle().ItemSpacing.y
-                - ImGui::GetFrameHeight() * 0.5f);
+        const ImVec2 header(window->WorkRect.Min.x + 30, window->DC.CursorPosPrevLine.y
+                                                             - ImGui::GetStyle().ItemSpacing.y
+                                                             - ImGui::GetFrameHeight() * 0.5f);
         auto& io = ImGui::GetIO();
         io.AddMousePosEvent(header.x, header.y);
         frame();
@@ -466,8 +461,7 @@ namespace CometEditor::Tests {
                 popup = window;
         ASSERT_NE(popup, nullptr);
         const auto menu_bar_id = ImGui::FindWindowByName("##MainMenuBar")->ID;
-        ASSERT_EQ(
-            popup->PopupId, ImHashStr("View", 0, ImHashStr("##MenuBar", 0, menu_bar_id)));
+        ASSERT_EQ(popup->PopupId, ImHashStr("View", 0, ImHashStr("##MenuBar", 0, menu_bar_id)));
         click({popup->DC.CursorStartPos.x + 30,
             popup->DC.CursorStartPos.y + ImGui::GetTextLineHeight() * 0.5f});
         EXPECT_TRUE(inspector->is_open());
@@ -540,8 +534,7 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(EditingUiTest, ConfiguredShortcutReplacesDefaultAndKeepsContextGuards) {
-        shortcuts = EditorShortcuts::parse(
-            "editor: {shortcuts: {scene.save: [Primary+Shift+S]}}");
+        shortcuts = EditorShortcuts::parse("editor: {shortcuts: {scene.save: [Primary+Shift+S]}}");
         auto& io = ImGui::GetIO();
         const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
         frame();

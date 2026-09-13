@@ -14,9 +14,8 @@ namespace Comet {
     class COMET_API FrameBuffer {
     public:
         [[nodiscard]] static std::shared_ptr<FrameBuffer> create(Device& device,
-            RenderPass& render_pass,
-            const std::vector<std::shared_ptr<ImageView>>& image_views, uint32_t width,
-            uint32_t height);
+            RenderPass& render_pass, const std::vector<std::shared_ptr<ImageView>>& image_views,
+            uint32_t width, uint32_t height);
 
         [[nodiscard]] static GpuResourceResult<std::shared_ptr<FrameBuffer>> try_create(
             Device& device, RenderPass& render_pass,
@@ -36,8 +35,8 @@ namespace Comet {
 
     private:
         FrameBuffer(Device& device, RenderPass& render_pass,
-            std::vector<std::shared_ptr<ImageView>> image_views, uint32_t width,
-            uint32_t height, vk::Framebuffer frame_buffer);
+            std::vector<std::shared_ptr<ImageView>> image_views, uint32_t width, uint32_t height,
+            vk::Framebuffer frame_buffer);
 
         vk::Framebuffer m_frame_buffer = VK_NULL_HANDLE;
         Device& m_device;

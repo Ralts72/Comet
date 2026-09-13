@@ -28,9 +28,7 @@ namespace Comet {
         Math::Vec3 rotation = Math::Vec3(0.0f);
         Math::Vec3 scale = Math::Vec3(1.0f);
 
-        void rotate(const Math::Vec3& delta) {
-            rotation = Math::wrap_degrees(rotation + delta);
-        }
+        void rotate(const Math::Vec3& delta) { rotation = Math::wrap_degrees(rotation + delta); }
 
         [[nodiscard]] Math::Mat4 to_matrix() const {
             return Math::compose_trs(translation, rotation, scale);

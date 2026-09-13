@@ -10,8 +10,7 @@ namespace CometEditor {
             void* component = nullptr;
         };
 
-        ResolvedProperty resolve(Comet::Scene* scene,
-            const Comet::ComponentRegistry& registry,
+        ResolvedProperty resolve(Comet::Scene* scene, const Comet::ComponentRegistry& registry,
             const PropertyEditTransaction::Target& target) {
             if(!scene)
                 return {};
@@ -30,8 +29,8 @@ namespace CometEditor {
             PropertyCommand(const Comet::ComponentRegistry& registry,
                 PropertyEditTransaction::Target target, Comet::PropertyValue before,
                 Comet::PropertyValue after)
-                : m_registry(registry), m_target(std::move(target)),
-                  m_before(std::move(before)), m_after(std::move(after)) {}
+                : m_registry(registry), m_target(std::move(target)), m_before(std::move(before)),
+                  m_after(std::move(after)) {}
 
             bool undo(Comet::Scene& scene) override { return apply(scene, m_before); }
             bool redo(Comet::Scene& scene) override { return apply(scene, m_after); }
@@ -131,12 +130,10 @@ namespace CometEditor {
         if(!active())
             return false;
         const auto property = resolve(m_history.get_scene(), m_registry, m_edit->target);
-        return property.descriptor
-               && property.descriptor->assign_value(property.component, value);
+        return property.descriptor && property.descriptor->assign_value(property.component, value);
     }
 
-    bool PropertyEditTransaction::apply(
-        Target target, const Comet::PropertyValue& value) {
+    bool PropertyEditTransaction::apply(Target target, const Comet::PropertyValue& value) {
         if(!commit() || !begin(std::move(target)))
             return false;
         if(preview(value) && commit())

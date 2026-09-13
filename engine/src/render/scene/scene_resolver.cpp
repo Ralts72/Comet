@@ -55,8 +55,7 @@ namespace Comet {
 
             if(!camera) {
                 if(!m_missing_primary_camera) {
-                    LOG_WARN(
-                        "Render scene has no primary camera; scene drawing is skipped");
+                    LOG_WARN("Render scene has no primary camera; scene drawing is skipped");
                     m_missing_primary_camera = true;
                 }
             } else {
@@ -83,8 +82,8 @@ namespace Comet {
 
         if(view.render_size.x == 0 || view.render_size.y == 0) {
             if(!m_invalid_render_size) {
-                LOG_WARN("Cannot build camera projection for render size {}x{}",
-                    view.render_size.x, view.render_size.y);
+                LOG_WARN("Cannot build camera projection for render size {}x{}", view.render_size.x,
+                    view.render_size.y);
                 m_invalid_render_size = true;
             }
             m_camera_diagnostic.reset();
@@ -92,8 +91,8 @@ namespace Comet {
         }
         m_invalid_render_size = false;
 
-        const float aspect = static_cast<float>(view.render_size.x)
-                             / static_cast<float>(view.render_size.y);
+        const float aspect =
+            static_cast<float>(view.render_size.x) / static_cast<float>(view.render_size.y);
         if(const auto issue = camera->projection_issue(aspect)) {
             const CameraDiagnostic diagnostic{camera->entity_id, *issue};
             if(m_camera_diagnostic != diagnostic) {
@@ -115,11 +114,10 @@ namespace Comet {
                         reason = "nonfinite view matrix";
                         break;
                 }
-                LOG_ERROR(
-                    "Render camera entity {} has invalid projection/view parameters "
-                    "({}, FOV={}, height={}, near={}, far={})",
-                    camera->entity_id, reason, camera->fov_degrees,
-                    camera->orthographic_height, camera->near_clip, camera->far_clip);
+                LOG_ERROR("Render camera entity {} has invalid projection/view parameters "
+                          "({}, FOV={}, height={}, near={}, far={})",
+                    camera->entity_id, reason, camera->fov_degrees, camera->orthographic_height,
+                    camera->near_clip, camera->far_clip);
             }
             m_camera_diagnostic = diagnostic;
             return std::nullopt;
@@ -131,8 +129,7 @@ namespace Comet {
         };
     }
 
-    std::optional<ResolvedRenderItem> SceneResolver::resolve_item(
-        const RenderItem& render_item) {
+    std::optional<ResolvedRenderItem> SceneResolver::resolve_item(const RenderItem& render_item) {
         const auto mesh = m_asset_registry.resolve<Mesh>(render_item.mesh_handle);
         if(!mesh) {
             if(m_missing_mesh_handles.insert(render_item.mesh_handle).second) {
@@ -143,8 +140,7 @@ namespace Comet {
         }
         m_missing_mesh_handles.erase(render_item.mesh_handle);
 
-        const auto material =
-            m_asset_registry.resolve<Material>(render_item.material_handle);
+        const auto material = m_asset_registry.resolve<Material>(render_item.material_handle);
         if(!material) {
             if(m_missing_material_handles.insert(render_item.material_handle).second) {
                 LOG_ERROR("Render item references missing material handle {}",
@@ -157,7 +153,6 @@ namespace Comet {
         return ResolvedRenderItem{.entity_id = render_item.entity_id,
             .model_matrix = render_item.model_matrix,
             .mesh = mesh,
-            .material = {
-                .material_handle = render_item.material_handle, .resource = material}};
+            .material = {.material_handle = render_item.material_handle, .resource = material}};
     }
 }

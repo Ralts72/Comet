@@ -37,9 +37,7 @@ namespace Comet {
             return false;
         }
 
-        [[nodiscard]] explicit constexpr operator bool() const noexcept {
-            return is_valid();
-        }
+        [[nodiscard]] explicit constexpr operator bool() const noexcept { return is_valid(); }
 
         constexpr auto operator<=>(const EntityUuid&) const noexcept = default;
 

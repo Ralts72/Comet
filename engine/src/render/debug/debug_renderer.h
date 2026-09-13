@@ -20,11 +20,10 @@ namespace Comet {
     class DebugRenderer {
     public:
         DebugRenderer(Device& device, PipelineManager& pipeline_manager,
-            ResourceManager& resource_manager, uint32_t frame_slot_count,
-            SampleCount sample_count);
+            ResourceManager& resource_manager, uint32_t frame_slot_count, SampleCount sample_count);
 
-        void render(FrameScheduler& frame_scheduler,
-            const ViewProjectMatrix& view_project, const LineDrawList& draw_list);
+        void render(FrameScheduler& frame_scheduler, const ViewProjectMatrix& view_project,
+            const LineDrawList& draw_list);
 
     private:
         struct FrameResources {
@@ -32,8 +31,7 @@ namespace Comet {
             uint32_t growth_retry_requests = 0;
         };
 
-        [[nodiscard]] bool ensure_capacity(
-            FrameResources& resources, std::size_t vertex_count);
+        [[nodiscard]] bool ensure_capacity(FrameResources& resources, std::size_t vertex_count);
 
         Device& m_device;
         std::shared_ptr<Pipeline> m_pipeline;

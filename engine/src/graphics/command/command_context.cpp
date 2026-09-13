@@ -32,8 +32,8 @@ namespace Comet {
         m_is_recording = true;
     }
 
-    void CommandContext::copy_buffer(const Buffer& src, const Buffer& dst,
-        const size_t size, const size_t src_offset, const size_t dst_offset) {
+    void CommandContext::copy_buffer(const Buffer& src, const Buffer& dst, const size_t size,
+        const size_t src_offset, const size_t dst_offset) {
         ensure_recording();
 
         m_command_buffer.copy_buffer(src.get(), dst.get(), size, src_offset, dst_offset);
@@ -41,13 +41,13 @@ namespace Comet {
 
     void CommandContext::copy_buffer_to_image(const Buffer& src, const Image& dst,
         const ImageLayout dst_image_layout, const vk::Extent3D& extent,
-        const uint32_t base_array_layer, const uint32_t layer_count,
-        const uint32_t mip_level, const vk::DeviceSize buffer_offset) {
+        const uint32_t base_array_layer, const uint32_t layer_count, const uint32_t mip_level,
+        const vk::DeviceSize buffer_offset) {
         ensure_recording();
 
         m_command_buffer.copy_buffer_to_image(src.get(), dst.get(),
-            Graphics::image_layout_to_vk(dst_image_layout), extent, base_array_layer,
-            layer_count, mip_level, buffer_offset);
+            Graphics::image_layout_to_vk(dst_image_layout), extent, base_array_layer, layer_count,
+            mip_level, buffer_offset);
     }
 
     void CommandContext::transition_image_state(
@@ -57,13 +57,11 @@ namespace Comet {
         m_command_buffer.transition_image_state(image.get(), before, after);
     }
 
-    void CommandContext::transition_buffer_state(const Buffer& buffer,
-        const ResourceState& before, const ResourceState& after,
-        const vk::DeviceSize offset, const vk::DeviceSize size) {
+    void CommandContext::transition_buffer_state(const Buffer& buffer, const ResourceState& before,
+        const ResourceState& after, const vk::DeviceSize offset, const vk::DeviceSize size) {
         ensure_recording();
 
-        m_command_buffer.transition_buffer_state(
-            buffer.get(), before, after, offset, size);
+        m_command_buffer.transition_buffer_state(buffer.get(), before, after, offset, size);
     }
 
     GpuCompletionPoint CommandContext::submit() {

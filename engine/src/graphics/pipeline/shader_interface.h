@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/result.h"
 #include "graphics/enums.h"
 
 #include <cstdint>
@@ -19,8 +20,7 @@ namespace Comet {
             ConstantValue(bool value) : m_type(Type::Boolean), m_bits(value ? 1u : 0u) {}
             ConstantValue(int32_t value)
                 : m_type(Type::SignedInteger), m_bits(std::bit_cast<uint32_t>(value)) {}
-            ConstantValue(uint32_t value)
-                : m_type(Type::UnsignedInteger), m_bits(value) {}
+            ConstantValue(uint32_t value) : m_type(Type::UnsignedInteger), m_bits(value) {}
             ConstantValue(float value)
                 : m_type(Type::Float), m_bits(std::bit_cast<uint32_t>(value)) {}
             [[nodiscard]] Type get_type() const { return m_type; }
@@ -63,7 +63,7 @@ namespace Comet {
             uint32_t size;
         };
 
-        explicit ShaderInterface(
+        static Result<ShaderInterface> reflect(
             std::span<const uint32_t> spirv_words, std::string entry_point = "main");
 
         [[nodiscard]] const std::string& get_entry_point() const { return m_entry_point; }
@@ -74,14 +74,15 @@ namespace Comet {
         [[nodiscard]] const std::vector<PushConstant>& get_push_constants() const {
             return m_push_constants;
         }
-        [[nodiscard]] const std::vector<SpecializationConstant>&
-        get_specialization_constants() const {
+        [[nodiscard]] const std::vector<SpecializationConstant>& get_specialization_constants()
+            const {
             return m_specialization_constants;
         }
         // Validate all overrides before removing bit-identical defaults.
-        void canonicalize_specialization(Specialization& values) const;
+        Result<void> canonicalize_specialization(Specialization& values) const;
 
     private:
+        ShaderInterface() = default;
         std::string m_entry_point;
         ShaderStage m_stage;
         std::vector<DescriptorBinding> m_bindings;

@@ -34,8 +34,8 @@ namespace Comet::Tests {
     TEST(AssetMetadataTest, SerializesStableGuidAndType) {
         const AssetMetadata metadata{.handle = AssetHandle(42),
             .type = AssetType::Texture,
-            .import_settings = TextureImportSettings{
-                .color_space = TextureColorSpace::Linear, .flip_y = true}};
+            .import_settings =
+                TextureImportSettings{.color_space = TextureColorSpace::Linear, .flip_y = true}};
         const MetadataSerializer serializer;
 
         const std::string contents = serializer.serialize(metadata).value();
@@ -57,8 +57,7 @@ namespace Comet::Tests {
         const TemporaryDirectory directory;
         const std::filesystem::path asset_path = directory.path() / "albedo.png";
         const std::filesystem::path sidecar_path = metadata_path(asset_path);
-        const AssetMetadata metadata{
-            .handle = AssetHandle(73), .type = AssetType::Material};
+        const AssetMetadata metadata{.handle = AssetHandle(73), .type = AssetType::Material};
         const MetadataSerializer serializer;
 
         EXPECT_TRUE(serializer.save(metadata, sidecar_path));
@@ -73,13 +72,12 @@ namespace Comet::Tests {
             .type = AssetType::Mesh};
         const MetadataSerializer serializer;
 
-        EXPECT_EQ(serializer.deserialize(serializer.serialize(metadata).value()).value(),
-            metadata);
+        EXPECT_EQ(serializer.deserialize(serializer.serialize(metadata).value()).value(), metadata);
     }
 
     TEST(AssetMetadataTest, SupportsDeclaredAssetTypes) {
-        constexpr AssetType types[] = {AssetType::Texture, AssetType::Material,
-            AssetType::Mesh, AssetType::Shader, AssetType::Scene};
+        constexpr AssetType types[] = {AssetType::Texture, AssetType::Material, AssetType::Mesh,
+            AssetType::Shader, AssetType::Scene};
 
         for(const AssetType type : types) {
             SCOPED_TRACE(std::string(to_string(type)));
@@ -92,10 +90,8 @@ namespace Comet::Tests {
     TEST(AssetMetadataTest, RejectsInvalidIdentityAndType) {
         const MetadataSerializer serializer;
 
-        EXPECT_FALSE(
-            serializer.deserialize(R"({"version": 3, "guid": 0, "type": "material"})"));
-        EXPECT_FALSE(
-            serializer.deserialize(R"({"version": 3, "guid": 42, "type": "audio"})"));
+        EXPECT_FALSE(serializer.deserialize(R"({"version": 3, "guid": 0, "type": "material"})"));
+        EXPECT_FALSE(serializer.deserialize(R"({"version": 3, "guid": 42, "type": "audio"})"));
         EXPECT_FALSE(serializer.serialize({.handle = INVALID_ASSET_HANDLE,
             .type = AssetType::Texture,
             .import_settings = TextureImportSettings{}}));
@@ -104,8 +100,7 @@ namespace Comet::Tests {
     TEST(AssetMetadataTest, RejectsMalformedContract) {
         const MetadataSerializer serializer;
 
-        EXPECT_FALSE(
-            serializer.deserialize(R"({"version": 4, "guid": 42, "type": "material"})"));
+        EXPECT_FALSE(serializer.deserialize(R"({"version": 4, "guid": 42, "type": "material"})"));
         EXPECT_FALSE(serializer.deserialize(R"({"version": 3, "type": "material"})"));
         EXPECT_FALSE(serializer.deserialize(
             R"({"version": 3, "guid": 42, "type": "material", "extra": true})"));
@@ -114,8 +109,7 @@ namespace Comet::Tests {
     TEST(AssetMetadataTest, ValidatesTextureImportSettings) {
         const MetadataSerializer serializer;
 
-        EXPECT_FALSE(
-            serializer.deserialize(R"({"version": 3, "guid": 42, "type": "texture"})"));
+        EXPECT_FALSE(serializer.deserialize(R"({"version": 3, "guid": 42, "type": "texture"})"));
         EXPECT_FALSE(serializer.deserialize(R"({
   "version": 3,
   "guid": 42,
@@ -134,8 +128,7 @@ namespace Comet::Tests {
   "type": "material",
   "importer": {"color_space": "srgb", "flip_y": false}
 })"));
-        EXPECT_FALSE(serializer.serialize(
-            {.handle = AssetHandle(42), .type = AssetType::Texture}));
+        EXPECT_FALSE(serializer.serialize({.handle = AssetHandle(42), .type = AssetType::Texture}));
 
         EXPECT_EQ(texture_color_space_from_string("srgb"), TextureColorSpace::Srgb);
         EXPECT_EQ(texture_color_space_from_string("linear"), TextureColorSpace::Linear);
@@ -166,8 +159,7 @@ namespace Comet::Tests {
             "Invalid asset metadata 'missing.meta' at '<root>': missing required field 'guid'");
 
         const auto duplicate = serializer.deserialize(
-            R"({"version": 3, "guid": 42, "guid": 73, "type": "mesh"})",
-            "duplicate.meta");
+            R"({"version": 3, "guid": 42, "guid": 73, "type": "mesh"})", "duplicate.meta");
         ASSERT_FALSE(duplicate);
         EXPECT_EQ(duplicate.error(),
             "Invalid asset metadata 'duplicate.meta' at '<root>': duplicate field 'guid'");
@@ -185,7 +177,6 @@ namespace Comet::Tests {
 
         const auto json = serializer.deserialize(R"({"version": [)", "syntax.meta");
         ASSERT_FALSE(json);
-        EXPECT_TRUE(json.error().starts_with(
-            "Invalid asset metadata 'syntax.meta' at '<json>':"));
+        EXPECT_TRUE(json.error().starts_with("Invalid asset metadata 'syntax.meta' at '<json>':"));
     }
 }

@@ -13,6 +13,7 @@
 #include "debug_line_vert.h"
 
 #include <limits>
+#include <stdexcept>
 
 namespace Comet {
     DebugRenderer::DebugRenderer(Device& device, PipelineManager& pipeline_manager,
@@ -20,12 +21,11 @@ namespace Comet {
         const SampleCount sample_count)
         : m_device(device), m_frame_resources(frame_slot_count) {
         ShaderLayout layout;
-        layout.push_constants.push_back(std::make_shared<PushConstantRange>(
-            ShaderStage::Vertex, 0, sizeof(Math::Mat4)));
+        layout.push_constants.push_back(
+            std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, sizeof(Math::Mat4)));
 
         VertexInputDescription vertex_input;
-        vertex_input.add_binding(
-            0, sizeof(LineDrawList::Vertex), VertexInputRate::Vertex);
+        vertex_input.add_binding(0, sizeof(LineDrawList::Vertex), VertexInputRate::Vertex);
         vertex_input.add_attribute(
             0, 0, Format::R32G32B32_SFLOAT, offsetof(LineDrawList::Vertex, position));
         vertex_input.add_attribute(
@@ -44,12 +44,20 @@ namespace Comet {
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
 
         auto& shaders = resource_manager.get_shader_manager();
-        const auto vertex_shader =
-            shaders.load_shader("debug_line_vert", DEBUG_LINE_VERT);
-        const auto fragment_shader =
-            shaders.load_shader("debug_line_frag", DEBUG_LINE_FRAG);
-        m_pipeline = pipeline_manager.create_pipeline(
-            "debug_line_pipeline", layout, config, vertex_shader, fragment_shader);
+        const auto vertex_shader = shaders.load_shader("debug_line_vert", DEBUG_LINE_VERT);
+        if(!vertex_shader)
+            throw std::runtime_error(
+                "Cannot initialize built-in debug vertex shader: " + vertex_shader.error());
+        const auto fragment_shader = shaders.load_shader("debug_line_frag", DEBUG_LINE_FRAG);
+        if(!fragment_shader)
+            throw std::runtime_error(
+                "Cannot initialize built-in debug fragment shader: " + fragment_shader.error());
+        auto pipeline = pipeline_manager.create_pipeline(
+            "debug_line_pipeline", layout, config, vertex_shader.value(), fragment_shader.value());
+        if(!pipeline)
+            throw std::runtime_error(
+                "Cannot initialize built-in debug pipeline: " + pipeline.error());
+        m_pipeline = std::move(pipeline).value();
     }
 
     void DebugRenderer::render(FrameScheduler& frame_scheduler,
@@ -62,8 +70,7 @@ namespace Comet {
             LOG_ERROR("Debug draw vertex count exceeds uint32_t range");
             return;
         }
-        auto& resources =
-            m_frame_resources.at(frame_scheduler.get_current_frame_slot_index());
+        auto& resources = m_frame_resources.at(frame_scheduler.get_current_frame_slot_index());
         if(!ensure_capacity(resources, vertices.size())) {
             return;
         }
@@ -76,15 +83,12 @@ namespace Comet {
         command_buffer.bind_pipeline(*m_pipeline);
         command_buffer.bind_vertex_buffer({*resources.vertex_buffer, 0});
         command_buffer.push_constants(*m_pipeline->get_layout(),
-            Flags<ShaderStage>(ShaderStage::Vertex), 0, &view_projection,
-            sizeof(view_projection));
+            Flags<ShaderStage>(ShaderStage::Vertex), 0, &view_projection, sizeof(view_projection));
         command_buffer.draw(static_cast<uint32_t>(vertices.size()));
     }
 
-    bool DebugRenderer::ensure_capacity(
-        FrameResources& resources, const std::size_t vertex_count) {
-        if(vertex_count
-            > std::numeric_limits<std::size_t>::max() / sizeof(LineDrawList::Vertex)) {
+    bool DebugRenderer::ensure_capacity(FrameResources& resources, const std::size_t vertex_count) {
+        if(vertex_count > std::numeric_limits<std::size_t>::max() / sizeof(LineDrawList::Vertex)) {
             LOG_ERROR("Debug draw vertex buffer size overflow");
             return false;
         }
@@ -107,9 +111,9 @@ namespace Comet {
             }
             capacity *= 2;
         }
-        auto candidate = Buffer::try_create_cpu_buffer(m_device,
-            Flags<BufferUsage>(BufferUsage::Vertex), capacity, true, nullptr,
-            "debug line vertex buffer");
+        auto candidate =
+            Buffer::try_create_cpu_buffer(m_device, Flags<BufferUsage>(BufferUsage::Vertex),
+                capacity, true, nullptr, "debug line vertex buffer");
         if(!candidate) {
             LOG_ERROR("Failed to grow debug line vertex buffer to {} bytes: {}", capacity,
                 vk::to_string(candidate.result()));

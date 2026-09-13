@@ -16,9 +16,7 @@ namespace Comet {
         ~ResourceManager() override;
 
         [[nodiscard]] ShaderManager& get_shader_manager() { return *m_shader_manager; }
-        [[nodiscard]] const ShaderManager& get_shader_manager() const {
-            return *m_shader_manager;
-        }
+        [[nodiscard]] const ShaderManager& get_shader_manager() const { return *m_shader_manager; }
         [[nodiscard]] SamplerManager& get_sampler_manager() { return *m_sampler_manager; }
         [[nodiscard]] const SamplerManager& get_sampler_manager() const {
             return *m_sampler_manager;

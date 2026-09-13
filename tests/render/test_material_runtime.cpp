@@ -22,10 +22,12 @@ namespace Comet::Tests {
 
     TEST(MaterialRuntimeTest, PacksDefaultsAndParametersWithoutChangingOldSnapshots) {
         MaterialRuntimeCache cache;
-        const auto layout = std::make_shared<MaterialLayout>("solid",
-            std::vector<MaterialLayout::TextureProperty>{}, 32,
-            std::vector<MaterialLayout::ScalarProperty>{{"intensity", 16, 1.0f}},
-            std::vector<MaterialLayout::VectorProperty>{{"color", 0, {1, 1, 1, 1}}});
+        auto layout_result =
+            MaterialLayout::create("solid", std::vector<MaterialLayout::TextureProperty>{}, 32,
+                std::vector<MaterialLayout::ScalarProperty>{{"intensity", 16, 1.0f}},
+                std::vector<MaterialLayout::VectorProperty>{{"color", 0, {1, 1, 1, 1}}});
+        ASSERT_TRUE(layout_result) << layout_result.error();
+        const auto layout = std::make_shared<MaterialLayout>(std::move(layout_result).value());
         const auto material = std::make_shared<Material>("solid", "solid");
         const auto original = cache.prepare(AssetHandle(1), material, layout);
         ASSERT_TRUE(original);
@@ -57,8 +59,10 @@ namespace Comet::Tests {
         MaterialRuntimeCache cache;
         const AssetHandle handle(71);
         auto material = std::make_shared<Material>("solid", "solid");
-        auto layout = std::make_shared<MaterialLayout>(
-            "solid", std::vector<MaterialLayout::TextureProperty>{});
+        auto layout_result =
+            MaterialLayout::create("solid", std::vector<MaterialLayout::TextureProperty>{});
+        ASSERT_TRUE(layout_result) << layout_result.error();
+        auto layout = std::make_shared<MaterialLayout>(std::move(layout_result).value());
         const auto first = cache.prepare(handle, material, layout);
         ASSERT_TRUE(first);
         EXPECT_TRUE(first->textures.empty());
@@ -79,8 +83,10 @@ namespace Comet::Tests {
         material = std::make_shared<Material>("same revision", "solid");
         const auto same_revision = cache.prepare(handle, material, layout);
         EXPECT_NE(replaced, same_revision);
-        layout = std::make_shared<MaterialLayout>(
-            "solid", std::vector<MaterialLayout::TextureProperty>{});
+        auto replacement =
+            MaterialLayout::create("solid", std::vector<MaterialLayout::TextureProperty>{});
+        ASSERT_TRUE(replacement) << replacement.error();
+        layout = std::make_shared<MaterialLayout>(std::move(replacement).value());
         const auto new_layout = cache.prepare(handle, material, layout);
         EXPECT_NE(same_revision, new_layout);
         EXPECT_EQ(new_layout, cache.prepare(handle, material, layout));
@@ -89,8 +95,10 @@ namespace Comet::Tests {
     TEST(MaterialRuntimeTest, EvictsUnusedEntriesWithoutInvalidatingExternalSnapshots) {
         MaterialRuntimeCache cache;
         const auto material = std::make_shared<Material>("solid", "solid");
-        const auto layout = std::make_shared<MaterialLayout>(
-            "solid", std::vector<MaterialLayout::TextureProperty>{});
+        auto layout_result =
+            MaterialLayout::create("solid", std::vector<MaterialLayout::TextureProperty>{});
+        ASSERT_TRUE(layout_result) << layout_result.error();
+        const auto layout = std::make_shared<MaterialLayout>(std::move(layout_result).value());
         const auto snapshot = cache.prepare(AssetHandle(1), material, layout);
         ASSERT_TRUE(snapshot);
         cache.collect_unused();
@@ -102,17 +110,23 @@ namespace Comet::Tests {
     TEST(MaterialRuntimeTest, RejectsMissingResourcesAndRecoversAfterLayoutReplacement) {
         MaterialRuntimeCache cache;
         const auto material = std::make_shared<Material>("test", "solid");
-        const auto wrong = std::make_shared<MaterialLayout>(
-            "other", std::vector<MaterialLayout::TextureProperty>{});
-        const auto missing = std::make_shared<MaterialLayout>(
+        auto wrong_result =
+            MaterialLayout::create("other", std::vector<MaterialLayout::TextureProperty>{});
+        ASSERT_TRUE(wrong_result) << wrong_result.error();
+        const auto wrong = std::make_shared<MaterialLayout>(std::move(wrong_result).value());
+        auto missing_result = MaterialLayout::create(
             "solid", std::vector<MaterialLayout::TextureProperty>{{"albedo", 4}});
+        ASSERT_TRUE(missing_result) << missing_result.error();
+        const auto missing = std::make_shared<MaterialLayout>(std::move(missing_result).value());
         EXPECT_FALSE(cache.prepare(AssetHandle(1), material, wrong));
         EXPECT_FALSE(cache.prepare(AssetHandle(1), material, missing));
         EXPECT_FALSE(cache.prepare(AssetHandle(1), material, missing));
         EXPECT_FALSE(cache.prepare(AssetHandle(1), nullptr, missing));
         EXPECT_FALSE(cache.prepare(AssetHandle(1), material, nullptr));
-        const auto fixed = std::make_shared<MaterialLayout>(
-            "solid", std::vector<MaterialLayout::TextureProperty>{});
+        auto fixed_result =
+            MaterialLayout::create("solid", std::vector<MaterialLayout::TextureProperty>{});
+        ASSERT_TRUE(fixed_result) << fixed_result.error();
+        const auto fixed = std::make_shared<MaterialLayout>(std::move(fixed_result).value());
         EXPECT_TRUE(cache.prepare(AssetHandle(1), material, fixed));
     }
 
@@ -120,8 +134,7 @@ namespace Comet::Tests {
     protected:
         std::shared_ptr<Texture> texture() {
             return engine->get_resource_manager()
-                .try_create_texture(
-                    {.width = 1, .height = 1, .pixels = {255, 255, 255, 255}})
+                .try_create_texture({.width = 1, .height = 1, .pixels = {255, 255, 255, 255}})
                 .value();
         }
     };
@@ -147,13 +160,11 @@ namespace Comet::Tests {
         ASSERT_TRUE(registry.register_asset(AssetHandle(13), solid));
         RenderScene scene;
         scene.cameras.push_back({.primary = true});
-        scene.render_items.push_back({.entity_id = 7,
-            .mesh_handle = AssetHandle(11),
-            .material_handle = AssetHandle(12)});
+        scene.render_items.push_back(
+            {.entity_id = 7, .mesh_handle = AssetHandle(11), .material_handle = AssetHandle(12)});
         auto& renderer = engine->get_renderer();
-        scene.render_items.push_back({.entity_id = 8,
-            .mesh_handle = AssetHandle(11),
-            .material_handle = AssetHandle(13)});
+        scene.render_items.push_back(
+            {.entity_id = 8, .mesh_handle = AssetHandle(11), .material_handle = AssetHandle(13)});
         scene.render_items.push_back(scene.render_items.front());
         int frames = 0;
         for(int attempt = 0; attempt < 20 && frames < 8; ++attempt) {
@@ -165,8 +176,7 @@ namespace Comet::Tests {
                 material->set_texture_property("u_Texture0", second);
             }
             if(frames == 4) {
-                material =
-                    std::make_shared<Material>("replacement", "unlit_texture_blend");
+                material = std::make_shared<Material>("replacement", "unlit_texture_blend");
                 material->set_texture_property("u_Texture0", first);
                 material->set_texture_property("u_Texture1", second);
                 EXPECT_TRUE(registry.replace_asset(AssetHandle(12), material));
@@ -205,8 +215,10 @@ namespace Comet::Tests {
     TEST_F(MaterialRuntimeGpuTest, OrdersBindingsAndKeepsOldRevisionTexturesAlive) {
         MaterialRuntimeCache cache;
         const auto material = std::make_shared<Material>("test", "three_textures");
-        const auto layout = std::make_shared<MaterialLayout>("three_textures",
+        auto layout_result = MaterialLayout::create("three_textures",
             std::vector<MaterialLayout::TextureProperty>{{"c", 7}, {"a", 1}, {"b", 4}});
+        ASSERT_TRUE(layout_result) << layout_result.error();
+        const auto layout = std::make_shared<MaterialLayout>(std::move(layout_result).value());
         const auto first = texture();
         const auto second = texture();
         material->set_texture_property("a", first);
@@ -230,8 +242,7 @@ namespace Comet::Tests {
         engine->get_renderer().get_render_context().wait_idle();
     }
 
-    TEST_F(
-        MaterialRuntimeGpuTest, ResolverAcceptsAnyMaterialWithoutInspectingProperties) {
+    TEST_F(MaterialRuntimeGpuTest, ResolverAcceptsAnyMaterialWithoutInspectingProperties) {
         MeshData data;
         data.vertices = {{{-0.5f, 0, -2}}, {{0.5f, 0, -2}}, {{0, 0.5f, -2}}};
         auto result = engine->get_resource_manager().try_create_mesh(data);
@@ -243,15 +254,13 @@ namespace Comet::Tests {
         ASSERT_TRUE(registry.register_asset(AssetHandle(12), material));
         SceneResolver resolver(registry);
         RenderScene scene;
-        scene.render_items.push_back({.entity_id = 7,
-            .mesh_handle = AssetHandle(11),
-            .material_handle = AssetHandle(12)});
+        scene.render_items.push_back(
+            {.entity_id = 7, .mesh_handle = AssetHandle(11), .material_handle = AssetHandle(12)});
         auto submission = resolver.resolve(scene, {});
         ASSERT_EQ(submission.render_items.size(), 1u);
         EXPECT_EQ(submission.render_items.front().entity_id, 7u);
         EXPECT_TRUE(submission.render_items.front().material.resource == material);
-        EXPECT_EQ(
-            submission.render_items.front().material.material_handle, AssetHandle(12));
+        EXPECT_EQ(submission.render_items.front().material.material_handle, AssetHandle(12));
         EXPECT_TRUE(submission.render_items.front().mesh == mesh);
         engine->get_renderer().get_render_context().wait_idle();
     }

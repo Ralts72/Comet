@@ -1,5 +1,6 @@
 #include "asset/source_operations.h"
 
+#include "common/result.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "asset/import/mesh_importer.h"
 #include "asset/import/texture_importer.h"
@@ -24,8 +25,7 @@ namespace Comet::AssetSourceOperations {
         [[nodiscard]] AssetScanReport operation_error(
             std::filesystem::path path, std::string message) {
             AssetScanReport report;
-            report.issues.push_back(
-                {.path = std::move(path), .message = std::move(message)});
+            report.issues.push_back({.path = std::move(path), .message = std::move(message)});
             return report;
         }
 
@@ -40,8 +40,7 @@ namespace Comet::AssetSourceOperations {
                    && !normalized.filename().string().starts_with(".comet-tmp-");
         }
 
-        void remove_created_directories(
-            const std::vector<std::filesystem::path>& directories) {
+        void remove_created_directories(const std::vector<std::filesystem::path>& directories) {
             for(const std::filesystem::path& directory : directories) {
                 std::error_code error;
                 static_cast<void>(std::filesystem::remove(directory, error));
@@ -67,18 +66,15 @@ namespace Comet::AssetSourceOperations {
 
         void require_relative(const std::filesystem::path& path) {
             if(path.is_absolute() || path.has_root_name())
-                throw std::runtime_error(
-                    "Import path must be relative: " + path.string());
+                throw std::runtime_error("Import path must be relative: " + path.string());
             for(const auto& part : path) {
                 if(part == ".." || part.string().starts_with(".comet-tmp-"))
                     throw std::runtime_error("Unsupported import path: " + path.string());
             }
         }
 
-        void require_inside(
-            const std::filesystem::path& root, const std::filesystem::path& path) {
-            const auto relative =
-                std::filesystem::weakly_canonical(path).lexically_relative(root);
+        void require_inside(const std::filesystem::path& root, const std::filesystem::path& path) {
+            const auto relative = std::filesystem::weakly_canonical(path).lexically_relative(root);
             if(relative.empty())
                 throw std::runtime_error("Cannot resolve import path: " + path.string());
             require_relative(relative);
@@ -88,8 +84,7 @@ namespace Comet::AssetSourceOperations {
             std::error_code error;
             const auto status = std::filesystem::symlink_status(path, error);
             if(error && error != std::errc::no_such_file_or_directory)
-                throw std::filesystem::filesystem_error(
-                    "Cannot inspect destination", path, error);
+                throw std::filesystem::filesystem_error("Cannot inspect destination", path, error);
             if(std::filesystem::exists(status) || std::filesystem::is_symlink(status))
                 throw std::runtime_error(
                     "Destination already exists (not overwritten): " + path.string());
@@ -99,15 +94,12 @@ namespace Comet::AssetSourceOperations {
             const std::filesystem::path& source_path) {
             auto source = fastgltf::GltfDataBuffer::FromPath(source_path);
             if(!source)
-                throw std::runtime_error(
-                    std::string(fastgltf::getErrorMessage(source.error())));
+                throw std::runtime_error(std::string(fastgltf::getErrorMessage(source.error())));
             fastgltf::Parser parser;
             auto asset = parser.loadGltf(source.get(), source_path.parent_path(),
-                fastgltf::Options::None,
-                fastgltf::Category::Buffers | fastgltf::Category::Images);
+                fastgltf::Options::None, fastgltf::Category::Buffers | fastgltf::Category::Images);
             if(!asset)
-                throw std::runtime_error(
-                    std::string(fastgltf::getErrorMessage(asset.error())));
+                throw std::runtime_error(std::string(fastgltf::getErrorMessage(asset.error())));
             std::vector<std::filesystem::path> dependencies;
             const auto collect = [&](const auto& data) {
                 const auto* source_uri = std::get_if<fastgltf::sources::URI>(&data);
@@ -116,13 +108,11 @@ namespace Comet::AssetSourceOperations {
                 const auto& uri = source_uri->uri;
                 if(!uri.isLocalPath() || !uri.scheme().empty() || !uri.query().empty()
                     || !uri.fragment().empty())
-                    throw std::runtime_error(
-                        "Only relative local glTF dependencies are supported");
+                    throw std::runtime_error("Only relative local glTF dependencies are supported");
                 const auto relative = uri.fspath();
                 require_relative(relative);
                 if(relative.empty() || extension_of(relative) == ".meta")
-                    throw std::runtime_error(
-                        "Invalid glTF dependency: " + relative.string());
+                    throw std::runtime_error("Invalid glTF dependency: " + relative.string());
                 dependencies.push_back(relative.lexically_normal());
             };
             for(const auto& buffer : asset->buffers)
@@ -141,15 +131,14 @@ namespace Comet::AssetSourceOperations {
         std::vector<std::filesystem::path> created_directories;
         bool scanned = false;
         AssetScanReport report;
-        const auto execute_import = [&]() -> AssetResult<void> {
+        const auto execute_import = [&]() -> Result<void> {
             try {
                 require_relative(directory);
                 const auto root = std::filesystem::canonical(paths.assets());
                 const auto destination = root / directory;
                 require_inside(root, destination);
                 if(!std::filesystem::is_directory(destination))
-                    throw std::runtime_error(
-                        "Drop destination is not an existing directory");
+                    throw std::runtime_error("Drop destination is not an existing directory");
 
                 // key 是目标相对路径，value 是外部源；相同依赖只复制一次。
                 std::map<std::filesystem::path, std::filesystem::path> files;
@@ -180,8 +169,7 @@ namespace Comet::AssetSourceOperations {
                     if(std::ranges::find(roots, relative) == roots.end())
                         roots.push_back(relative);
                     if(is_mesh_file(source)) {
-                        const auto parent =
-                            std::filesystem::canonical(source.parent_path());
+                        const auto parent = std::filesystem::canonical(source.parent_path());
                         for(const auto& dependency : gltf_dependencies(source)) {
                             require_inside(parent, source.parent_path() / dependency);
                             add(source.parent_path() / dependency, dependency);
@@ -201,10 +189,9 @@ namespace Comet::AssetSourceOperations {
                             continue;
                     }
                     const auto canonical = std::filesystem::canonical(source);
-                    if(std::ranges::none_of(files,
-                           [&](const auto& file) { return file.second == canonical; }))
-                        throw std::runtime_error(
-                            "Unsupported standalone file: " + source.string());
+                    if(std::ranges::none_of(
+                           files, [&](const auto& file) { return file.second == canonical; }))
+                        throw std::runtime_error("Unsupported standalone file: " + source.string());
                 }
                 for(const auto& [relative, source] : files) {
                     require_inside(root, destination / relative);
@@ -217,8 +204,7 @@ namespace Comet::AssetSourceOperations {
                 const auto candidate =
                     staging_parent / std::to_string(AssetHandle::generate().value());
                 if(!std::filesystem::create_directory(candidate))
-                    throw std::runtime_error(
-                        "Cannot reserve file import staging directory");
+                    throw std::runtime_error("Cannot reserve file import staging directory");
                 staging = candidate;
                 for(const auto& [relative, source] : files) {
                     const auto target = staging / relative;
@@ -228,19 +214,16 @@ namespace Comet::AssetSourceOperations {
                 for(const auto& relative : roots) {
                     if(is_mesh_file(relative)) {
                         // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
-                        for(const auto& dependency :
-                            gltf_dependencies(staging / relative)) {
+                        for(const auto& dependency : gltf_dependencies(staging / relative)) {
                             if(!files.contains(dependency))
                                 throw std::runtime_error(
                                     "glTF dependencies changed during copy; retry import");
                         }
-                        if(auto result = MeshImporter{}.import(staging / relative);
-                            !result)
-                            return AssetResult<void>::failure(result.error());
+                        if(auto result = MeshImporter{}.import(staging / relative); !result)
+                            return Result<void>::failure(result.error());
                     } else {
-                        if(auto result = TextureImporter{}.import(staging / relative);
-                            !result)
-                            return AssetResult<void>::failure(result.error());
+                        if(auto result = TextureImporter{}.import(staging / relative); !result)
+                            return Result<void>::failure(result.error());
                     }
                 }
 
@@ -250,8 +233,8 @@ namespace Comet::AssetSourceOperations {
                     require_inside(root, target);
                     require_available(metadata_path(target));
                     std::vector<std::filesystem::path> missing;
-                    for(auto parent = target.parent_path();
-                        !std::filesystem::exists(parent); parent = parent.parent_path())
+                    for(auto parent = target.parent_path(); !std::filesystem::exists(parent);
+                        parent = parent.parent_path())
                         missing.push_back(parent);
                     for(auto it = missing.rbegin(); it != missing.rend(); ++it) {
                         if(std::filesystem::create_directory(*it))
@@ -271,9 +254,9 @@ namespace Comet::AssetSourceOperations {
                     throw std::runtime_error(
                         "Imported files could not be indexed; import rolled back");
                 database = std::move(candidate_database);
-                return AssetResult<void>::success();
+                return Result<void>::success();
             } catch(const std::exception& error) {
-                return AssetResult<void>::failure(error.what());
+                return Result<void>::failure(error.what());
             }
         };
         const auto result = execute_import();
@@ -290,13 +273,12 @@ namespace Comet::AssetSourceOperations {
                 if(scanned) {
                     std::filesystem::remove(metadata_path(*it), cleanup_error);
                     if(cleanup_error)
-                        report.issues.push_back({metadata_path(*it),
-                            "Rollback failed: " + cleanup_error.message()});
+                        report.issues.push_back(
+                            {metadata_path(*it), "Rollback failed: " + cleanup_error.message()});
                 }
                 std::filesystem::remove(*it, cleanup_error);
                 if(cleanup_error)
-                    report.issues.push_back(
-                        {*it, "Rollback failed: " + cleanup_error.message()});
+                    report.issues.push_back({*it, "Rollback failed: " + cleanup_error.message()});
             }
             std::ranges::reverse(created_directories);
             remove_created_directories(created_directories);
@@ -305,8 +287,7 @@ namespace Comet::AssetSourceOperations {
             std::error_code error;
             std::filesystem::remove_all(staging, error);
             if(error)
-                report.issues.push_back(
-                    {staging, "Staging cleanup failed: " + error.message()});
+                report.issues.push_back({staging, "Staging cleanup failed: " + error.message()});
         }
         return report;
     }
@@ -323,8 +304,8 @@ namespace Comet::AssetSourceOperations {
 
         const AssetRecord* indexed_record = database.find(handle);
         if(!indexed_record) {
-            return operation_error(destination,
-                "asset handle " + std::to_string(handle.value()) + " is not indexed");
+            return operation_error(
+                destination, "asset handle " + std::to_string(handle.value()) + " is not indexed");
         }
         const AssetRecord record = *indexed_record;
         const std::filesystem::path source_relative = record.path.lexically_normal();
@@ -334,8 +315,8 @@ namespace Comet::AssetSourceOperations {
                 destination_relative, "asset source and destination paths are identical");
         }
         if(source_relative.extension() != destination_relative.extension()) {
-            return operation_error(destination_relative,
-                "asset move cannot change the source file extension");
+            return operation_error(
+                destination_relative, "asset move cannot change the source file extension");
         }
 
         const std::filesystem::path asset_root = paths.assets();
@@ -346,8 +327,8 @@ namespace Comet::AssetSourceOperations {
 
         const auto metadata = MetadataSerializer{}.load(source_metadata);
         if(!metadata) {
-            return operation_error(source_relative,
-                "cannot move asset with invalid metadata: " + metadata.error());
+            return operation_error(
+                source_relative, "cannot move asset with invalid metadata: " + metadata.error());
         }
         if(metadata.value().handle != handle || metadata.value().type != record.type) {
             return operation_error(source_relative,
@@ -372,22 +353,20 @@ namespace Comet::AssetSourceOperations {
             }
             return operation_error(destination_relative, std::move(message));
         }
-        const bool target_metadata_exists =
-            std::filesystem::exists(target_metadata, error);
+        const bool target_metadata_exists = std::filesystem::exists(target_metadata, error);
         if(error || target_metadata_exists) {
             std::string message = "destination metadata already exists";
             if(error) {
                 message = "failed to inspect destination metadata: " + error.message();
             }
-            return operation_error(
-                metadata_path(destination_relative), std::move(message));
+            return operation_error(metadata_path(destination_relative), std::move(message));
         }
 
         const std::filesystem::path canonical_root =
             std::filesystem::weakly_canonical(asset_root, error);
         if(error) {
-            return operation_error(destination_relative,
-                "failed to resolve assets directory: " + error.message());
+            return operation_error(
+                destination_relative, "failed to resolve assets directory: " + error.message());
         }
         const std::filesystem::path canonical_parent =
             std::filesystem::weakly_canonical(target.parent_path(), error);
@@ -400,15 +379,14 @@ namespace Comet::AssetSourceOperations {
         if(parent_relative.is_absolute()
             || (!parent_relative.empty() && parent_relative != "."
                 && *parent_relative.begin() == "..")) {
-            return operation_error(destination_relative,
-                "asset destination resolves outside the assets directory");
+            return operation_error(
+                destination_relative, "asset destination resolves outside the assets directory");
         }
 
         AssetDatabase candidate_database = database;
         std::vector<std::filesystem::path> created_directories;
         for(std::filesystem::path directory = target.parent_path();
-            directory != asset_root && !directory.empty();
-            directory = directory.parent_path()) {
+            directory != asset_root && !directory.empty(); directory = directory.parent_path()) {
             const bool exists = std::filesystem::exists(directory, error);
             if(error) {
                 return operation_error(destination_relative,
@@ -421,8 +399,8 @@ namespace Comet::AssetSourceOperations {
         }
         std::filesystem::create_directories(target.parent_path(), error);
         if(error) {
-            return operation_error(destination_relative,
-                "failed to create destination directory: " + error.message());
+            return operation_error(
+                destination_relative, "failed to create destination directory: " + error.message());
         }
 
         std::filesystem::rename(source, target, error);
@@ -441,8 +419,8 @@ namespace Comet::AssetSourceOperations {
             std::string message =
                 "failed to move metadata; source move was rolled back: " + move_error;
             if(rollback_error) {
-                message = "failed to move metadata and failed to roll back source: "
-                          + move_error + "; rollback: " + rollback_error.message();
+                message = "failed to move metadata and failed to roll back source: " + move_error
+                          + "; rollback: " + rollback_error.message();
             }
             return operation_error(destination_relative, std::move(message));
         }
@@ -451,21 +429,18 @@ namespace Comet::AssetSourceOperations {
         try {
             report = candidate_database.scan();
         } catch(const std::exception& exception) {
-            report = operation_error(
-                destination_relative, "asset database scan failed after move: "
-                                          + std::string(exception.what()));
+            report = operation_error(destination_relative,
+                "asset database scan failed after move: " + std::string(exception.what()));
         }
         const AssetRecord* moved_record = candidate_database.find(handle);
         if(report.snapshot_updated && report.succeeded() && moved_record
-            && moved_record->path == destination_relative
-            && moved_record->type == record.type) {
+            && moved_record->path == destination_relative && moved_record->type == record.type) {
             database = std::move(candidate_database);
             return report;
         }
         if(report.snapshot_updated && report.succeeded()) {
             report.issues.push_back({.path = destination_relative,
-                .message =
-                    "asset database did not resolve the moved identity at its destination"});
+                .message = "asset database did not resolve the moved identity at its destination"});
         }
         report.snapshot_updated = false;
         report.indexed_assets = database.size();
@@ -474,22 +449,19 @@ namespace Comet::AssetSourceOperations {
         report.modified_assets.clear();
 
         std::error_code metadata_rollback_error;
-        std::filesystem::rename(
-            target_metadata, source_metadata, metadata_rollback_error);
+        std::filesystem::rename(target_metadata, source_metadata, metadata_rollback_error);
         std::error_code source_rollback_error;
         std::filesystem::rename(target, source, source_rollback_error);
         remove_created_directories(created_directories);
         if(metadata_rollback_error || source_rollback_error) {
-            std::string message =
-                "asset scan failed after move and file rollback was incomplete";
+            std::string message = "asset scan failed after move and file rollback was incomplete";
             if(metadata_rollback_error) {
                 message += "; metadata: " + metadata_rollback_error.message();
             }
             if(source_rollback_error) {
                 message += "; source: " + source_rollback_error.message();
             }
-            report.issues.push_back(
-                {.path = destination_relative, .message = std::move(message)});
+            report.issues.push_back({.path = destination_relative, .message = std::move(message)});
         } else {
             report.issues.push_back({.path = destination_relative,
                 .message =

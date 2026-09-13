@@ -23,15 +23,13 @@ namespace CometEditor {
                 if(name == "F" + std::to_string(index))
                     return static_cast<ImGuiKey>(ImGuiKey_F1 + index - 1);
             }
-            constexpr std::pair<std::string_view, ImGuiKey> keys[]{
-                {"Space", ImGuiKey_Space}, {"Enter", ImGuiKey_Enter},
-                {"Tab", ImGuiKey_Tab}, {"Backspace", ImGuiKey_Backspace},
-                {"Delete", ImGuiKey_Delete}, {"Insert", ImGuiKey_Insert},
-                {"Home", ImGuiKey_Home}, {"End", ImGuiKey_End},
-                {"PageUp", ImGuiKey_PageUp}, {"PageDown", ImGuiKey_PageDown},
+            constexpr std::pair<std::string_view, ImGuiKey> keys[]{{"Space", ImGuiKey_Space},
+                {"Enter", ImGuiKey_Enter}, {"Tab", ImGuiKey_Tab}, {"Backspace", ImGuiKey_Backspace},
+                {"Delete", ImGuiKey_Delete}, {"Insert", ImGuiKey_Insert}, {"Home", ImGuiKey_Home},
+                {"End", ImGuiKey_End}, {"PageUp", ImGuiKey_PageUp}, {"PageDown", ImGuiKey_PageDown},
                 {"Left", ImGuiKey_LeftArrow}, {"Right", ImGuiKey_RightArrow},
-                {"Up", ImGuiKey_UpArrow}, {"Down", ImGuiKey_DownArrow},
-                {"Comma", ImGuiKey_Comma}, {"Period", ImGuiKey_Period}};
+                {"Up", ImGuiKey_UpArrow}, {"Down", ImGuiKey_DownArrow}, {"Comma", ImGuiKey_Comma},
+                {"Period", ImGuiKey_Period}};
             for(const auto& [text, key] : keys) {
                 if(text == name)
                     return key;
@@ -70,8 +68,7 @@ namespace CometEditor {
             "Primary+N", "Primary+O", "Primary+S", "Primary+Z", "Primary+Shift+Z", "F"};
         for(std::size_t index = 0; index < defaults.size(); ++index)
             m_bindings[index].push_back(parse_binding(defaults[index]));
-        m_bindings[static_cast<std::size_t>(Action::Redo)].push_back(
-            parse_binding("Primary+Y"));
+        m_bindings[static_cast<std::size_t>(Action::Redo)].push_back(parse_binding("Primary+Y"));
     }
 
     EditorShortcuts EditorShortcuts::load(const std::filesystem::path& path) {
@@ -122,8 +119,7 @@ namespace CometEditor {
                 try {
                     bindings.push_back(parse_binding(chord.as<std::string>()));
                 } catch(const std::exception& error) {
-                    throw std::runtime_error(
-                        "editor.shortcuts." + name + ": " + error.what());
+                    throw std::runtime_error("editor.shortcuts." + name + ": " + error.what());
                 }
             }
         }
@@ -132,8 +128,7 @@ namespace CometEditor {
         std::unordered_map<ImGuiKeyChord, std::string_view> owners;
         for(std::size_t index = 0; index < result.m_bindings.size(); ++index) {
             for(const auto& binding : result.m_bindings[index]) {
-                const auto [owner, inserted] =
-                    owners.emplace(binding.chord, ACTION_NAMES[index]);
+                const auto [owner, inserted] = owners.emplace(binding.chord, ACTION_NAMES[index]);
                 if(!inserted)
                     throw std::runtime_error("Shortcut conflict between "
                                              + std::string(owner->second) + " and "
@@ -143,8 +138,7 @@ namespace CometEditor {
         return result;
     }
 
-    bool EditorShortcuts::pressed(
-        const Action action, const ImGuiInputFlags flags) const {
+    bool EditorShortcuts::pressed(const Action action, const ImGuiInputFlags flags) const {
         bool triggered = false;
         for(const auto& binding : m_bindings.at(static_cast<std::size_t>(action))) {
             // 不短路，确保每个备选绑定都参与 ImGui 输入路由。

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/result.h"
 #include "core/math_utils.h"
 
 #include <cstdint>
@@ -43,10 +44,11 @@ namespace Comet {
         [[nodiscard]] static std::shared_ptr<const MaterialLayout> find_builtin(
             std::string_view name);
 
-        MaterialLayout(std::string name, std::vector<TextureProperty> textures,
-            uint32_t parameter_size = 0, std::vector<ScalarProperty> scalars = {},
-            std::vector<VectorProperty> vectors = {});
+        static Result<MaterialLayout> create(std::string name,
+            std::vector<TextureProperty> textures, uint32_t parameter_size = 0,
+            std::vector<ScalarProperty> scalars = {}, std::vector<VectorProperty> vectors = {});
         MaterialLayout(const MaterialLayout&) = default;
+        MaterialLayout(MaterialLayout&&) = default;
         MaterialLayout& operator=(const MaterialLayout&) = delete;
 
         [[nodiscard]] const std::string& get_name() const { return m_name; }
@@ -54,16 +56,13 @@ namespace Comet {
             return m_textures;
         }
         [[nodiscard]] uint32_t get_parameter_size() const { return m_parameter_size; }
-        [[nodiscard]] const std::vector<ScalarProperty>& get_scalars() const {
-            return m_scalars;
-        }
-        [[nodiscard]] const std::vector<VectorProperty>& get_vectors() const {
-            return m_vectors;
-        }
+        [[nodiscard]] const std::vector<ScalarProperty>& get_scalars() const { return m_scalars; }
+        [[nodiscard]] const std::vector<VectorProperty>& get_vectors() const { return m_vectors; }
 
-        void validate(const ShaderInterface& shader, uint32_t material_set = 1) const;
+        Result<void> validate(const ShaderInterface& shader, uint32_t material_set = 1) const;
 
     private:
+        MaterialLayout() = default;
         std::string m_name;
         std::vector<TextureProperty> m_textures;
         uint32_t m_parameter_size;
@@ -79,21 +78,15 @@ namespace Comet {
 
         [[nodiscard]] const std::string& get_name() const { return m_name; }
         [[nodiscard]] uint64_t get_revision() const { return m_revision; }
-        [[nodiscard]] const std::string& get_template_name() const {
-            return m_template_name;
-        }
+        [[nodiscard]] const std::string& get_template_name() const { return m_template_name; }
 
-        void set_texture_property(
-            const std::string& name, std::shared_ptr<Texture> texture);
+        void set_texture_property(const std::string& name, std::shared_ptr<Texture> texture);
         void set_scalar_property(const std::string& name, float value);
         void set_vector_property(const std::string& name, Math::Vec4 value);
-        [[nodiscard]] std::optional<float> get_scalar_property(
-            const std::string& name) const;
-        [[nodiscard]] std::optional<Math::Vec4> get_vector_property(
-            const std::string& name) const;
+        [[nodiscard]] std::optional<float> get_scalar_property(const std::string& name) const;
+        [[nodiscard]] std::optional<Math::Vec4> get_vector_property(const std::string& name) const;
 
-        [[nodiscard]] std::shared_ptr<Texture> get_texture_property(
-            const std::string& name) const;
+        [[nodiscard]] std::shared_ptr<Texture> get_texture_property(const std::string& name) const;
 
     private:
         std::string m_name;

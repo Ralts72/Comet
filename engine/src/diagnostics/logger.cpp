@@ -54,8 +54,7 @@ namespace Comet {
         if(shared_timestamp.empty()) {
             auto now = std::chrono::system_clock::now();
             auto time_t = std::chrono::system_clock::to_time_t(now);
-            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                          now.time_since_epoch())
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch())
                       % 1000;
 
             std::stringstream ss;
@@ -72,30 +71,27 @@ namespace Comet {
             log_filename = (logs_dir / ("comet_" + shared_timestamp + ".log")).string();
 #ifdef COMET_ENABLE_PROFILER
             if(enable_profiler) {
-                profiler_filename =
-                    (logs_dir / ("profiler_" + shared_timestamp + ".log")).string();
+                profiler_filename = (logs_dir / ("profiler_" + shared_timestamp + ".log")).string();
             }
 #endif
             s_current_log_file_path = log_filename;
         }
 
-        auto shared_console_sink =
-            std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        auto shared_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
         s_console_logger = spdlog::get("console");
         if(!s_console_logger) {
             shared_console_sink->set_pattern("%^[%T] [%l] %v%$");
 
             if(config.enable_file_logging) {
-                auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
-                    log_filename, false);
+                auto file_sink =
+                    std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename, false);
                 file_sink->set_pattern("[%Y-%m-%d %T.%e] [%l] %v");
 
                 s_console_logger = std::make_shared<spdlog::logger>(
                     "console", spdlog::sinks_init_list{shared_console_sink, file_sink});
             } else {
-                s_console_logger =
-                    std::make_shared<spdlog::logger>("console", shared_console_sink);
+                s_console_logger = std::make_shared<spdlog::logger>("console", shared_console_sink);
             }
 
             spdlog::level::level_enum log_level = parse_log_level(config.level);
@@ -111,18 +107,16 @@ namespace Comet {
             s_profiler_logger = spdlog::get("profiler");
         }
         if(enable_profiler && !s_profiler_logger) {
-            auto profiler_console_sink =
-                std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+            auto profiler_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
             profiler_console_sink->set_pattern("%^[Profiler] %-50v%$");
 
             if(config.enable_file_logging) {
                 auto profiler_file_sink =
-                    std::make_shared<spdlog::sinks::basic_file_sink_mt>(
-                        profiler_filename, false);
+                    std::make_shared<spdlog::sinks::basic_file_sink_mt>(profiler_filename, false);
                 profiler_file_sink->set_pattern("[%Y-%m-%d %T.%e] [Profiler] %v");
 
-                s_profiler_logger = std::make_shared<spdlog::logger>("profiler",
-                    spdlog::sinks_init_list{profiler_console_sink, profiler_file_sink});
+                s_profiler_logger = std::make_shared<spdlog::logger>(
+                    "profiler", spdlog::sinks_init_list{profiler_console_sink, profiler_file_sink});
             } else {
                 s_profiler_logger =
                     std::make_shared<spdlog::logger>("profiler", profiler_console_sink);
@@ -174,10 +168,8 @@ namespace Comet {
 
         auto& sinks = logger->sinks();
         std::erase_if(sinks, [](const std::shared_ptr<spdlog::sinks::sink>& sink) {
-            return dynamic_cast<spdlog::sinks::stdout_color_sink_mt*>(sink.get())
-                       != nullptr
-                   || dynamic_cast<spdlog::sinks::stdout_color_sink_st*>(sink.get())
-                          != nullptr
+            return dynamic_cast<spdlog::sinks::stdout_color_sink_mt*>(sink.get()) != nullptr
+                   || dynamic_cast<spdlog::sinks::stdout_color_sink_st*>(sink.get()) != nullptr
                    || dynamic_cast<spdlog::sinks::stdout_sink_mt*>(sink.get()) != nullptr
                    || dynamic_cast<spdlog::sinks::stdout_sink_st*>(sink.get()) != nullptr;
         });

@@ -16,8 +16,8 @@ namespace CometEditor::SceneCommands {
             std::vector<Component> components;
         };
 
-        std::optional<std::vector<EntitySnapshot>> capture_tree(Comet::Scene& scene,
-            const Comet::ComponentRegistry& registry, Comet::Entity root) {
+        std::optional<std::vector<EntitySnapshot>> capture_tree(
+            Comet::Scene& scene, const Comet::ComponentRegistry& registry, Comet::Entity root) {
             if(!root)
                 return std::nullopt;
             std::vector<EntitySnapshot> result;
@@ -74,8 +74,7 @@ namespace CometEditor::SceneCommands {
             };
             try {
                 for(const auto& snapshot : snapshots) {
-                    auto entity =
-                        scene.create_entity_with_uuid(snapshot.uuid, snapshot.name);
+                    auto entity = scene.create_entity_with_uuid(snapshot.uuid, snapshot.name);
                     if(!entity) {
                         rollback();
                         return false;
@@ -94,8 +93,8 @@ namespace CometEditor::SceneCommands {
                 }
                 for(const auto& snapshot : snapshots) {
                     if(snapshot.parent
-                        && !scene.set_parent(scene.find_entity(snapshot.uuid),
-                            scene.find_entity(snapshot.parent))) {
+                        && !scene.set_parent(
+                            scene.find_entity(snapshot.uuid), scene.find_entity(snapshot.parent))) {
                         rollback();
                         return false;
                     }
@@ -111,8 +110,7 @@ namespace CometEditor::SceneCommands {
         public:
             EntityTreeCommand(const Comet::ComponentRegistry& registry,
                 std::vector<EntitySnapshot> snapshots, bool creating)
-                : m_registry(registry), m_snapshots(std::move(snapshots)),
-                  m_creating(creating) {}
+                : m_registry(registry), m_snapshots(std::move(snapshots)), m_creating(creating) {}
 
             bool undo(Comet::Scene& scene) override { return apply(scene, !m_creating); }
             bool redo(Comet::Scene& scene) override { return apply(scene, m_creating); }
@@ -147,8 +145,8 @@ namespace CometEditor::SceneCommands {
 
         class ReparentCommand final: public CommandHistory::Command {
         public:
-            ReparentCommand(Comet::EntityUuid entity, Comet::EntityUuid before,
-                Comet::EntityUuid after)
+            ReparentCommand(
+                Comet::EntityUuid entity, Comet::EntityUuid before, Comet::EntityUuid after)
                 : m_entity(entity), m_before(before), m_after(after) {}
             bool undo(Comet::Scene& scene) override { return apply(scene, m_before); }
             bool redo(Comet::Scene& scene) override { return apply(scene, m_after); }
@@ -169,10 +167,10 @@ namespace CometEditor::SceneCommands {
 
         class ComponentCommand final: public CommandHistory::Command {
         public:
-            ComponentCommand(const Comet::ComponentRegistry& registry,
-                Comet::EntityUuid entity, std::string component, bool adding)
-                : m_registry(registry), m_entity(entity),
-                  m_component(std::move(component)), m_adding(adding) {}
+            ComponentCommand(const Comet::ComponentRegistry& registry, Comet::EntityUuid entity,
+                std::string component, bool adding)
+                : m_registry(registry), m_entity(entity), m_component(std::move(component)),
+                  m_adding(adding) {}
 
             bool undo(Comet::Scene& scene) override { return apply(scene, !m_adding); }
             bool redo(Comet::Scene& scene) override { return apply(scene, m_adding); }
@@ -233,8 +231,8 @@ namespace CometEditor::SceneCommands {
                 .parent = parent,
                 .name = std::move(name),
                 .components = std::move(components)}};
-            if(!history.execute(std::make_unique<EntityTreeCommand>(
-                   registry, std::move(snapshots), true)))
+            if(!history.execute(
+                   std::make_unique<EntityTreeCommand>(registry, std::move(snapshots), true)))
                 return {};
             return uuid;
         }
@@ -248,9 +246,8 @@ namespace CometEditor::SceneCommands {
     }
 
     Comet::EntityUuid create_mesh_entity(CommandHistory& history,
-        const Comet::ComponentRegistry& registry, std::string name,
-        Comet::AssetHandle mesh, Comet::AssetHandle material,
-        const Comet::Math::Vec3 position) {
+        const Comet::ComponentRegistry& registry, std::string name, Comet::AssetHandle mesh,
+        Comet::AssetHandle material, const Comet::Math::Vec3 position) {
         if(!mesh || !Comet::Math::is_finite(position))
             return {};
         return create_from_components(history, registry, std::move(name),
@@ -265,8 +262,8 @@ namespace CometEditor::SceneCommands {
             return false;
         auto snapshots = capture_tree(*scene, registry, scene->find_entity(entity));
         return snapshots
-               && history.execute(std::make_unique<EntityTreeCommand>(
-                   registry, std::move(*snapshots), false));
+               && history.execute(
+                   std::make_unique<EntityTreeCommand>(registry, std::move(*snapshots), false));
     }
 
     Comet::EntityUuid duplicate_entity(CommandHistory& history,
@@ -299,8 +296,8 @@ namespace CometEditor::SceneCommands {
             root.name = "Entity";
         root.name += " Copy";
         const auto uuid = root.uuid;
-        if(!history.execute(std::make_unique<EntityTreeCommand>(
-               registry, std::move(*snapshots), true)))
+        if(!history.execute(
+               std::make_unique<EntityTreeCommand>(registry, std::move(*snapshots), true)))
             return {};
         return uuid;
     }
@@ -320,21 +317,19 @@ namespace CometEditor::SceneCommands {
     bool can_edit_component_structure(const Comet::ComponentDescriptor& component) {
         // 编辑器实体必须保留 Transform。
         return component.id != "transform" && component.add_component_callback
-               && component.remove_component_callback
-               && component.capture_component_callback
+               && component.remove_component_callback && component.capture_component_callback
                && component.restore_component_callback;
     }
 
     bool add_component(CommandHistory& history, const Comet::ComponentRegistry& registry,
         Comet::EntityUuid entity, std::string_view component) {
-        return history.execute(std::make_unique<ComponentCommand>(
-            registry, entity, std::string(component), true));
+        return history.execute(
+            std::make_unique<ComponentCommand>(registry, entity, std::string(component), true));
     }
 
-    bool remove_component(CommandHistory& history,
-        const Comet::ComponentRegistry& registry, Comet::EntityUuid entity,
-        std::string_view component) {
-        return history.execute(std::make_unique<ComponentCommand>(
-            registry, entity, std::string(component), false));
+    bool remove_component(CommandHistory& history, const Comet::ComponentRegistry& registry,
+        Comet::EntityUuid entity, std::string_view component) {
+        return history.execute(
+            std::make_unique<ComponentCommand>(registry, entity, std::string(component), false));
     }
 }

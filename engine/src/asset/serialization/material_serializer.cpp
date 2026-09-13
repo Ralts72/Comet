@@ -7,25 +7,25 @@
 
 namespace Comet {
     namespace {
-        AssetResult<void> validate_material_data(
+        Result<void> validate_material_data(
             const MaterialData& data, const Json::Context& context) {
             if(data.template_name.empty()) {
-                return AssetResult<void>::failure(
+                return Result<void>::failure(
                     context.error("template", "expected a non-empty string"));
             }
             std::unordered_set<std::string_view> names;
             const auto validate_name = [&](const std::string& name) {
                 if(name.empty() || !names.insert(name).second) {
-                    return AssetResult<void>::failure(context.error("properties",
-                        "property names must be non-empty and unique across types"));
+                    return Result<void>::failure(context.error(
+                        "properties", "property names must be non-empty and unique across types"));
                 }
-                return AssetResult<void>::success();
+                return Result<void>::success();
             };
             for(const auto& [property_name, texture_handle] : data.texture_properties) {
                 if(auto valid = validate_name(property_name); !valid)
                     return valid;
                 if(!texture_handle) {
-                    return AssetResult<void>::failure(
+                    return Result<void>::failure(
                         context.error("properties." + property_name + ".asset",
                             "expected a non-zero unsigned integer"));
                 }
@@ -34,21 +34,21 @@ namespace Comet {
                 if(auto valid = validate_name(name); !valid)
                     return valid;
                 if(!std::isfinite(value))
-                    return AssetResult<void>::failure(context.error(
-                        "properties." + name + ".value", "expected a finite number"));
+                    return Result<void>::failure(
+                        context.error("properties." + name + ".value", "expected a finite number"));
             }
             for(const auto& [name, value] : data.vector_properties) {
                 if(auto valid = validate_name(name); !valid)
                     return valid;
                 if(!Math::is_finite(value))
-                    return AssetResult<void>::failure(context.error(
+                    return Result<void>::failure(context.error(
                         "properties." + name + ".value", "expected four finite numbers"));
             }
-            return AssetResult<void>::success();
+            return Result<void>::success();
         }
 
-        AssetResult<void> encode_material(const MaterialData& data,
-            const Json::Context& context, Json::Writer& writer) {
+        Result<void> encode_material(
+            const MaterialData& data, const Json::Context& context, Json::Writer& writer) {
             if(auto valid = validate_material_data(data, context); !valid)
                 return valid;
 
@@ -86,27 +86,24 @@ namespace Comet {
             writer.end_object();
             writer.end_object();
 
-            return AssetResult<void>::success();
+            return Result<void>::success();
         }
 
-        AssetResult<MaterialData> decode_material(
-            const Json::Node& root, const Json::Context& context) {
+        Result<MaterialData> decode_material(const Json::Node& root, const Json::Context& context) {
             context.validate_keys(root, {"version", "template", "properties"});
 
             const std::uint32_t version = context.read_scalar<std::uint32_t>(
-                context.required_child(root, "version"), "version",
-                "an unsigned integer");
+                context.required_child(root, "version"), "version", "an unsigned integer");
             if(version != MaterialSerializer::FORMAT_VERSION) {
-                return AssetResult<MaterialData>::failure(context.error(
-                    "version", "unsupported version " + std::to_string(version)));
+                return Result<MaterialData>::failure(
+                    context.error("version", "unsupported version " + std::to_string(version)));
             }
 
             MaterialData data;
-            data.template_name =
-                context.read_scalar<std::string>(context.required_child(root, "template"),
-                    "template", "a non-empty string");
+            data.template_name = context.read_scalar<std::string>(
+                context.required_child(root, "template"), "template", "a non-empty string");
             if(data.template_name.empty()) {
-                return AssetResult<MaterialData>::failure(
+                return Result<MaterialData>::failure(
                     context.error("template", "expected a non-empty string"));
             }
 
@@ -114,7 +111,7 @@ namespace Comet {
             for(const auto entry : context.object(properties, "properties")) {
                 const std::string property_name(entry.key);
                 if(property_name.empty()) {
-                    return AssetResult<MaterialData>::failure(
+                    return Result<MaterialData>::failure(
                         context.error("properties", "property names cannot be empty"));
                 }
                 const std::string property_location = "properties." + property_name;
@@ -124,24 +121,21 @@ namespace Comet {
                     property_location + ".type", "a string");
                 if(type == "scalar" || type == "vector") {
                     context.validate_keys(property, {"type", "value"}, property_location);
-                    const auto value =
-                        context.required_child(property, "value", property_location);
+                    const auto value = context.required_child(property, "value", property_location);
                     const auto location = property_location + ".value";
                     if(type == "scalar") {
-                        data.scalar_properties.emplace(
-                            property_name, context.read_scalar<float>(
-                                               value, location, "a finite number"));
+                        data.scalar_properties.emplace(property_name,
+                            context.read_scalar<float>(value, location, "a finite number"));
                     } else {
                         const auto elements = context.array(value, location);
                         if(elements.size() != 4)
-                            return AssetResult<MaterialData>::failure(
+                            return Result<MaterialData>::failure(
                                 context.error(location, "expected four finite numbers"));
                         Math::Vec4 vector(0.0f);
                         int index = 0;
                         for(const auto element : elements) {
                             vector[index] = context.read_scalar<float>(element,
-                                location + "[" + std::to_string(index) + "]",
-                                "a finite number");
+                                location + "[" + std::to_string(index) + "]", "a finite number");
                             ++index;
                         }
                         data.vector_properties.emplace(property_name, vector);
@@ -149,9 +143,8 @@ namespace Comet {
                     continue;
                 }
                 if(type != "texture") {
-                    return AssetResult<MaterialData>::failure(
-                        context.error(property_location + ".type",
-                            "unsupported property type '" + type + "'"));
+                    return Result<MaterialData>::failure(context.error(
+                        property_location + ".type", "unsupported property type '" + type + "'"));
                 }
 
                 context.validate_keys(property, {"type", "asset"}, property_location);
@@ -160,35 +153,32 @@ namespace Comet {
                     property_location + ".asset", "a non-zero unsigned integer");
                 const AssetHandle texture_handle(asset);
                 if(!texture_handle) {
-                    return AssetResult<MaterialData>::failure(
-                        context.error(property_location + ".asset",
-                            "expected a non-zero unsigned integer"));
+                    return Result<MaterialData>::failure(context.error(
+                        property_location + ".asset", "expected a non-zero unsigned integer"));
                 }
                 data.texture_properties.emplace(property_name, texture_handle);
             }
 
-            return AssetResult<MaterialData>::success(std::move(data));
+            return Result<MaterialData>::success(std::move(data));
         }
     }
 
-    AssetResult<std::string> MaterialSerializer::serialize(
-        const MaterialData& data) const {
+    Result<std::string> MaterialSerializer::serialize(const MaterialData& data) const {
         return AssetSerialization::serialize_json("material", data, encode_material);
     }
 
-    AssetResult<MaterialData> MaterialSerializer::deserialize(
+    Result<MaterialData> MaterialSerializer::deserialize(
         const std::string_view contents, const std::string_view source) const {
         return AssetSerialization::deserialize_json<MaterialData>(
             "material", contents, source, decode_material);
     }
 
-    AssetResult<void> MaterialSerializer::save(
+    Result<void> MaterialSerializer::save(
         const MaterialData& data, const std::filesystem::path& path) const {
         return AssetSerialization::save(*this, data, path);
     }
 
-    AssetResult<MaterialData> MaterialSerializer::load(
-        const std::filesystem::path& path) const {
+    Result<MaterialData> MaterialSerializer::load(const std::filesystem::path& path) const {
         return AssetSerialization::load(*this, path);
     }
 }

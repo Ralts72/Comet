@@ -29,10 +29,9 @@ namespace Comet {
 
         std::string lowercase_extension(const std::filesystem::path& path) {
             std::string extension = path.extension().string();
-            std::ranges::transform(
-                extension, extension.begin(), [](const unsigned char character) {
-                    return static_cast<char>(std::tolower(character));
-                });
+            std::ranges::transform(extension, extension.begin(), [](const unsigned char character) {
+                return static_cast<char>(std::tolower(character));
+            });
             return extension;
         }
 
@@ -80,8 +79,7 @@ namespace Comet {
                 static_cast<std::uint64_t>(write_time.time_since_epoch().count());
             const std::uintmax_t size = std::filesystem::file_size(path, error);
             if(!error) {
-                signature =
-                    combine_source_signature(signature, static_cast<std::uint64_t>(size));
+                signature = combine_source_signature(signature, static_cast<std::uint64_t>(size));
             }
             return signature;
         }
@@ -89,9 +87,8 @@ namespace Comet {
         std::uint64_t asset_source_signature(const std::filesystem::path& asset_path,
             const std::filesystem::path& asset_root,
             const std::span<const std::filesystem::path> import_dependencies) {
-            std::uint64_t signature =
-                combine_source_signature(file_source_signature(asset_path),
-                    file_source_signature(metadata_path(asset_path)));
+            std::uint64_t signature = combine_source_signature(file_source_signature(asset_path),
+                file_source_signature(metadata_path(asset_path)));
             for(const std::filesystem::path& dependency : import_dependencies) {
                 for(const unsigned char character : dependency.generic_string()) {
                     signature = combine_source_signature(signature, character);
@@ -103,8 +100,7 @@ namespace Comet {
         }
 
         std::span<const std::filesystem::path> find_import_dependencies(
-            const ImportDependenciesByAsset& dependencies_by_asset,
-            const AssetHandle handle) {
+            const ImportDependenciesByAsset& dependencies_by_asset, const AssetHandle handle) {
             const auto dependencies = dependencies_by_asset.find(handle);
             if(dependencies == dependencies_by_asset.end()) {
                 return {};
@@ -112,11 +108,10 @@ namespace Comet {
             return std::span<const std::filesystem::path>(dependencies->second);
         }
 
-        AssetResult<std::filesystem::path> normalize_import_dependency(
-            const std::filesystem::path& asset_root,
-            const std::filesystem::path& dependency) {
+        Result<std::filesystem::path> normalize_import_dependency(
+            const std::filesystem::path& asset_root, const std::filesystem::path& dependency) {
             if(dependency.empty()) {
-                return AssetResult<std::filesystem::path>::failure(
+                return Result<std::filesystem::path>::failure(
                     "Import dependency path cannot be empty");
             }
 
@@ -124,35 +119,30 @@ namespace Comet {
             const std::filesystem::path canonical_root =
                 std::filesystem::weakly_canonical(asset_root, error);
             if(error) {
-                return AssetResult<std::filesystem::path>::failure(
+                return Result<std::filesystem::path>::failure(
                     "Failed to resolve assets directory: " + error.message());
             }
-            const std::filesystem::path canonical_dependency =
-                std::filesystem::weakly_canonical(
-                    dependency.is_absolute() ? dependency : canonical_root / dependency,
-                    error);
+            const std::filesystem::path canonical_dependency = std::filesystem::weakly_canonical(
+                dependency.is_absolute() ? dependency : canonical_root / dependency, error);
             if(error) {
-                return AssetResult<std::filesystem::path>::failure(
+                return Result<std::filesystem::path>::failure(
                     "Failed to resolve import dependency '" + dependency.string()
                     + "': " + error.message());
             }
 
             const std::filesystem::path relative =
-                canonical_dependency.lexically_relative(canonical_root)
-                    .lexically_normal();
+                canonical_dependency.lexically_relative(canonical_root).lexically_normal();
             if(relative.empty() || relative == "." || relative.is_absolute()
                 || *relative.begin() == "..") {
-                return AssetResult<std::filesystem::path>::failure(
+                return Result<std::filesystem::path>::failure(
                     "Import dependency must be inside the project assets directory: "
                     + dependency.string());
             }
-            return AssetResult<std::filesystem::path>::success(relative);
+            return Result<std::filesystem::path>::success(relative);
         }
 
-        void add_issue(
-            AssetScanReport& report, std::filesystem::path path, std::string message) {
-            report.issues.push_back(
-                {.path = std::move(path), .message = std::move(message)});
+        void add_issue(AssetScanReport& report, std::filesystem::path path, std::string message) {
+            report.issues.push_back({.path = std::move(path), .message = std::move(message)});
         }
 
         void add_dependency_issues(AssetScanReport& report, const AssetRecord& owner,
@@ -161,16 +151,14 @@ namespace Comet {
                 const auto dependency = assets.find(dependency_handle);
                 if(dependency == assets.end()) {
                     add_issue(report, owner.path,
-                        "material dependency handle "
-                            + std::to_string(dependency_handle.value())
+                        "material dependency handle " + std::to_string(dependency_handle.value())
                             + " is not indexed");
                     continue;
                 }
                 if(dependency->second.type != AssetType::Texture) {
                     add_issue(report, owner.path,
-                        "material dependency handle "
-                            + std::to_string(dependency_handle.value()) + " has type '"
-                            + std::string(to_string(dependency->second.type))
+                        "material dependency handle " + std::to_string(dependency_handle.value())
+                            + " has type '" + std::string(to_string(dependency->second.type))
                             + "', expected 'texture'");
                 }
             }
@@ -183,8 +171,7 @@ namespace Comet {
         AssetScanReport report;
         std::unordered_map<AssetHandle, AssetRecord> assets;
         std::unordered_map<std::filesystem::path, AssetHandle> handles_by_path;
-        std::unordered_map<AssetHandle, std::vector<AssetHandle>>
-            dependents_by_dependency;
+        std::unordered_map<AssetHandle, std::vector<AssetHandle>> dependents_by_dependency;
         ImportDependenciesByAsset import_dependencies_by_asset;
         ImportDependentsBySource import_dependents_by_source;
         std::unordered_map<AssetHandle, std::uint64_t> asset_source_signatures;
@@ -201,8 +188,7 @@ namespace Comet {
         std::error_code error;
         const bool assets_exist = std::filesystem::exists(assets_root, error);
         if(error) {
-            add_issue(report, assets_root,
-                "failed to access assets directory: " + error.message());
+            add_issue(report, assets_root, "failed to access assets directory: " + error.message());
             return report;
         }
         if(!assets_exist) {
@@ -219,12 +205,11 @@ namespace Comet {
         }
 
         std::vector<std::filesystem::path> files;
-        std::filesystem::recursive_directory_iterator iterator(assets_root,
-            std::filesystem::directory_options::skip_permission_denied, error);
+        std::filesystem::recursive_directory_iterator iterator(
+            assets_root, std::filesystem::directory_options::skip_permission_denied, error);
         const std::filesystem::recursive_directory_iterator end;
         if(error) {
-            add_issue(report, assets_root,
-                "failed to scan assets directory: " + error.message());
+            add_issue(report, assets_root, "failed to scan assets directory: " + error.message());
             return report;
         }
 
@@ -253,8 +238,8 @@ namespace Comet {
             return report;
         }
 
-        std::ranges::sort(files, {},
-            [](const std::filesystem::path& path) { return path.generic_string(); });
+        std::ranges::sort(
+            files, {}, [](const std::filesystem::path& path) { return path.generic_string(); });
 
         std::unordered_map<std::filesystem::path, std::filesystem::path> sidecars;
         std::unordered_set<std::filesystem::path> source_paths;
@@ -303,16 +288,15 @@ namespace Comet {
             if(sidecar != sidecars.end()) {
                 auto metadata = serializer.load(sidecar->second);
                 if(!metadata) {
-                    add_issue(report, sidecar->second.lexically_relative(assets_root),
-                        metadata.error());
+                    add_issue(
+                        report, sidecar->second.lexically_relative(assets_root), metadata.error());
                     continue;
                 }
                 candidate.metadata = std::move(metadata).value();
 
                 if(candidate.metadata->type != candidate.expected_type) {
                     add_issue(report, sidecar->second.lexically_relative(assets_root),
-                        "metadata type '"
-                            + std::string(to_string(candidate.metadata->type))
+                        "metadata type '" + std::string(to_string(candidate.metadata->type))
                             + "' does not match source type '"
                             + std::string(to_string(candidate.expected_type)) + "'");
                     continue;
@@ -330,11 +314,9 @@ namespace Comet {
 
             const AssetHandle handle = candidate.metadata->handle;
             const auto previous = m_assets.find(handle);
-            if(previous != m_assets.end()
-                && previous->second.type != candidate.metadata->type) {
+            if(previous != m_assets.end() && previous->second.type != candidate.metadata->type) {
                 add_issue(report, candidate.relative_path,
-                    "asset guid " + std::to_string(handle.value())
-                        + " cannot change type from '"
+                    "asset guid " + std::to_string(handle.value()) + " cannot change type from '"
                         + std::string(to_string(previous->second.type)) + "' to '"
                         + std::string(to_string(candidate.metadata->type))
                         + "'; assign a new guid");
@@ -346,8 +328,8 @@ namespace Comet {
                 known_handles.emplace(handle, candidate.relative_path);
             if(!inserted) {
                 add_issue(report, candidate.relative_path,
-                    "duplicate guid " + std::to_string(handle.value())
-                        + "; already used by '" + path_text(existing->second) + "'");
+                    "duplicate guid " + std::to_string(handle.value()) + "; already used by '"
+                        + path_text(existing->second) + "'");
                 continue;
             }
 
@@ -376,8 +358,7 @@ namespace Comet {
             const AssetMetadata metadata{.handle = handle,
                 .type = candidate.expected_type,
                 .import_settings = make_default_import_settings(candidate.expected_type)};
-            if(auto saved =
-                    serializer.save(metadata, metadata_path(candidate.absolute_path));
+            if(auto saved = serializer.save(metadata, metadata_path(candidate.absolute_path));
                 !saved) {
                 add_issue(report, candidate.relative_path, saved.error());
                 continue;
@@ -405,8 +386,7 @@ namespace Comet {
 
         const MaterialSerializer material_serializer;
         for(AssetRecord* material_record : material_records) {
-            const auto data =
-                material_serializer.load(assets_root / material_record->path);
+            const auto data = material_serializer.load(assets_root / material_record->path);
             if(!data) {
                 add_issue(report, material_record->path, data.error());
                 continue;
@@ -439,9 +419,9 @@ namespace Comet {
         asset_source_signatures.reserve(assets.size());
         asset_revisions.reserve(assets.size());
         for(const auto& [handle, record] : assets) {
-            asset_source_signatures.emplace(handle,
-                asset_source_signature(assets_root / record.path, assets_root,
-                    find_import_dependencies(import_dependencies_by_asset, handle)));
+            asset_source_signatures.emplace(
+                handle, asset_source_signature(assets_root / record.path, assets_root,
+                            find_import_dependencies(import_dependencies_by_asset, handle)));
         }
 
         for(const auto& [handle, record] : assets) {
@@ -488,21 +468,20 @@ namespace Comet {
         return report;
     }
 
-    AssetResult<void> AssetDatabase::update_import_settings(
+    Result<void> AssetDatabase::update_import_settings(
         const AssetHandle handle, AssetImportSettings import_settings) {
         const auto asset = m_assets.find(handle);
         if(asset == m_assets.end()) {
-            return AssetResult<void>::failure(
+            return Result<void>::failure(
                 "Cannot update import settings for an unindexed asset handle "
                 + std::to_string(handle.value()));
         }
 
         AssetRecord& record = asset->second;
-        const AssetMetadata metadata{.handle = record.handle,
-            .type = record.type,
-            .import_settings = import_settings};
-        auto saved = MetadataSerializer{}.save(
-            metadata, metadata_path(m_paths.assets() / record.path));
+        const AssetMetadata metadata{
+            .handle = record.handle, .type = record.type, .import_settings = import_settings};
+        auto saved =
+            MetadataSerializer{}.save(metadata, metadata_path(m_paths.assets() / record.path));
         if(!saved)
             return saved;
         const bool settings_changed = record.import_settings != import_settings;
@@ -517,23 +496,21 @@ namespace Comet {
         if(settings_changed || source_changed) {
             m_asset_revisions[handle] = issue_revision();
         }
-        return AssetResult<void>::success();
+        return Result<void>::success();
     }
 
-    AssetResult<void> AssetDatabase::update_dependencies(
+    Result<void> AssetDatabase::update_dependencies(
         const AssetHandle handle, std::vector<AssetHandle> dependencies) {
         const auto asset = m_assets.find(handle);
         if(asset == m_assets.end()) {
-            return AssetResult<void>::failure(
-                "Cannot update dependencies for an unindexed asset handle "
-                + std::to_string(handle.value()));
+            return Result<void>::failure("Cannot update dependencies for an unindexed asset handle "
+                                         + std::to_string(handle.value()));
         }
 
         if(std::ranges::any_of(
                dependencies, [](const AssetHandle dependency) { return !dependency; })) {
-            return AssetResult<void>::failure(
-                "Cannot register an invalid dependency for asset handle "
-                + std::to_string(handle.value()));
+            return Result<void>::failure("Cannot register an invalid dependency for asset handle "
+                                         + std::to_string(handle.value()));
         }
         std::ranges::sort(dependencies);
         const auto duplicate = std::ranges::unique(dependencies);
@@ -570,14 +547,14 @@ namespace Comet {
         if(dependencies_changed || source_changed) {
             m_asset_revisions[handle] = issue_revision();
         }
-        return AssetResult<void>::success();
+        return Result<void>::success();
     }
 
-    AssetResult<void> AssetDatabase::update_import_dependencies(
+    Result<void> AssetDatabase::update_import_dependencies(
         const AssetHandle handle, std::vector<std::filesystem::path> dependencies) {
         const auto asset = m_assets.find(handle);
         if(asset == m_assets.end()) {
-            return AssetResult<void>::failure(
+            return Result<void>::failure(
                 "Cannot update import dependencies for an unindexed asset handle "
                 + std::to_string(handle.value()));
         }
@@ -585,7 +562,7 @@ namespace Comet {
         for(std::filesystem::path& dependency : dependencies) {
             auto normalized = normalize_import_dependency(m_paths.assets(), dependency);
             if(!normalized)
-                return AssetResult<void>::failure(normalized.error());
+                return Result<void>::failure(normalized.error());
             dependency = std::move(normalized).value();
         }
         std::erase(dependencies, asset->second.path.lexically_normal());
@@ -623,7 +600,7 @@ namespace Comet {
 
         m_asset_source_signatures[handle] = asset_source_signature(
             m_paths.assets() / asset->second.path, m_paths.assets(), dependencies);
-        return AssetResult<void>::success();
+        return Result<void>::success();
     }
 
     const AssetRecord* AssetDatabase::find(const AssetHandle handle) const {
@@ -640,8 +617,7 @@ namespace Comet {
         return handle == m_handles_by_path.end() ? nullptr : find(handle->second);
     }
 
-    std::span<const AssetHandle> AssetDatabase::get_dependencies(
-        const AssetHandle handle) const {
+    std::span<const AssetHandle> AssetDatabase::get_dependencies(const AssetHandle handle) const {
         const AssetRecord* asset = find(handle);
         if(!asset) {
             return {};
@@ -649,8 +625,7 @@ namespace Comet {
         return std::span<const AssetHandle>(asset->dependencies);
     }
 
-    std::span<const AssetHandle> AssetDatabase::get_dependents(
-        const AssetHandle handle) const {
+    std::span<const AssetHandle> AssetDatabase::get_dependents(const AssetHandle handle) const {
         const auto dependents = m_dependents_by_dependency.find(handle);
         if(dependents == m_dependents_by_dependency.end()) {
             return {};
@@ -681,8 +656,8 @@ namespace Comet {
         for(const auto& entry : m_assets) {
             assets.push_back(entry.second);
         }
-        std::ranges::sort(assets, {},
-            [](const AssetRecord& asset) { return asset.path.generic_string(); });
+        std::ranges::sort(
+            assets, {}, [](const AssetRecord& asset) { return asset.path.generic_string(); });
         return assets;
     }
 

@@ -72,14 +72,11 @@ namespace {
     static_assert(!std::is_copy_assignable_v<Queue>);
     static_assert(std::is_move_constructible_v<Queue>);
     static_assert(!std::is_move_assignable_v<Queue>);
-    static_assert(
-        !std::is_constructible_v<Mesh, Device&, UploadManager&, const MeshData&>);
-    static_assert(
-        !std::is_constructible_v<Texture, Device&, UploadManager&, const TextureData&>);
+    static_assert(!std::is_constructible_v<Mesh, Device&, UploadManager&, const MeshData&>);
+    static_assert(!std::is_constructible_v<Texture, Device&, UploadManager&, const TextureData&>);
     static_assert(std::is_same_v<decltype(std::declval<const Mesh&>().get_local_bounds()),
         const BoundingBox&>);
 
-    static_assert(
-        std::is_same_v<decltype(std::declval<const Swapchain&>().get_active_generation()),
-            const std::shared_ptr<Swapchain::Generation>&>);
+    static_assert(std::is_same_v<decltype(std::declval<const Swapchain&>().get_active_generation()),
+        const std::shared_ptr<Swapchain::Generation>&>);
 }

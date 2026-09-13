@@ -10,8 +10,7 @@ namespace Comet {
     public:
         enum class Type { Binary, Timeline };
 
-        explicit Semaphore(
-            Device& device, Type type = Type::Binary, uint64_t initial_value = 0);
+        explicit Semaphore(Device& device, Type type = Type::Binary, uint64_t initial_value = 0);
         ~Semaphore();
 
         Semaphore(const Semaphore&) = delete;

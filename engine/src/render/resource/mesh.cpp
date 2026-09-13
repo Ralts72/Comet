@@ -46,59 +46,50 @@ namespace Comet {
 
         auto vertex_attempt =
             Buffer::try_create_gpu_buffer(device, Flags<BufferUsage>(BufferUsage::Vertex),
-                data.vertices.size() * sizeof(MeshVertex), within_budget,
-                "mesh vertex buffer");
+                data.vertices.size() * sizeof(MeshVertex), within_budget, "mesh vertex buffer");
         if(!vertex_attempt) {
-            return GpuResourceResult<std::shared_ptr<Mesh>>::failure(
-                vertex_attempt.result());
+            return GpuResourceResult<std::shared_ptr<Mesh>>::failure(vertex_attempt.result());
         }
 
         auto vertex_buffer = std::move(vertex_attempt).value();
         std::shared_ptr<Buffer> index_buffer;
         if(!data.indices.empty()) {
-            auto index_attempt = Buffer::try_create_gpu_buffer(device,
-                Flags<BufferUsage>(BufferUsage::Index),
-                data.indices.size() * sizeof(uint32_t), within_budget,
-                "mesh index buffer");
+            auto index_attempt =
+                Buffer::try_create_gpu_buffer(device, Flags<BufferUsage>(BufferUsage::Index),
+                    data.indices.size() * sizeof(uint32_t), within_budget, "mesh index buffer");
             if(!index_attempt) {
-                return GpuResourceResult<std::shared_ptr<Mesh>>::failure(
-                    index_attempt.result());
+                return GpuResourceResult<std::shared_ptr<Mesh>>::failure(index_attempt.result());
             }
             index_buffer = std::move(index_attempt).value();
         }
 
         auto upload_batch = upload_manager.begin_batch();
-        auto vertex_upload = upload_batch.try_enqueue_upload(vertex_buffer,
-            std::as_bytes(std::span(data.vertices)), *vertex_state, within_budget);
+        auto vertex_upload = upload_batch.try_enqueue_upload(
+            vertex_buffer, std::as_bytes(std::span(data.vertices)), *vertex_state, within_budget);
         if(!vertex_upload) {
-            return GpuResourceResult<std::shared_ptr<Mesh>>::failure(
-                vertex_upload.result());
+            return GpuResourceResult<std::shared_ptr<Mesh>>::failure(vertex_upload.result());
         }
         if(index_buffer) {
-            auto index_upload = upload_batch.try_enqueue_upload(index_buffer,
-                std::as_bytes(std::span(data.indices)), *index_state, within_budget);
+            auto index_upload = upload_batch.try_enqueue_upload(
+                index_buffer, std::as_bytes(std::span(data.indices)), *index_state, within_budget);
             if(!index_upload) {
-                return GpuResourceResult<std::shared_ptr<Mesh>>::failure(
-                    index_upload.result());
+                return GpuResourceResult<std::shared_ptr<Mesh>>::failure(index_upload.result());
             }
         }
 
         const GpuCompletionPoint completion = upload_batch.submit();
-        std::shared_ptr<Mesh> mesh(
-            new Mesh(std::move(vertex_buffer), std::move(index_buffer), completion,
-                *local_bounds, static_cast<uint32_t>(data.vertices.size()),
-                static_cast<uint32_t>(data.indices.size())));
+        std::shared_ptr<Mesh> mesh(new Mesh(std::move(vertex_buffer), std::move(index_buffer),
+            completion, *local_bounds, static_cast<uint32_t>(data.vertices.size()),
+            static_cast<uint32_t>(data.indices.size())));
         return GpuResourceResult<std::shared_ptr<Mesh>>::success(std::move(mesh));
     }
 
-    Mesh::Mesh(std::shared_ptr<Buffer> vertex_buffer,
-        std::shared_ptr<Buffer> index_buffer, const GpuCompletionPoint ready_completion,
-        const BoundingBox local_bounds, const uint32_t vertex_count,
-        const uint32_t index_count)
-        : m_vertex_buffer(std::move(vertex_buffer)),
-          m_index_buffer(std::move(index_buffer)), m_ready_completion(ready_completion),
-          m_local_bounds(local_bounds), m_vertex_count(vertex_count),
-          m_index_count(index_count) {}
+    Mesh::Mesh(std::shared_ptr<Buffer> vertex_buffer, std::shared_ptr<Buffer> index_buffer,
+        const GpuCompletionPoint ready_completion, const BoundingBox local_bounds,
+        const uint32_t vertex_count, const uint32_t index_count)
+        : m_vertex_buffer(std::move(vertex_buffer)), m_index_buffer(std::move(index_buffer)),
+          m_ready_completion(ready_completion), m_local_bounds(local_bounds),
+          m_vertex_count(vertex_count), m_index_count(index_count) {}
 
     void Mesh::draw(const CommandBuffer& command_buffer) const {
         command_buffer.bind_vertex_buffer({*m_vertex_buffer, 0});

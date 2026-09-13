@@ -81,6 +81,6 @@ TEST_F(LoggerTest, OperationalMacrosRemainAvailableInOptimizedBuilds) {
     LOG_WARN("warning message");
     LOG_ERROR("error message");
 
-    EXPECT_EQ(messages,
-        (std::vector<std::string>{"info message", "warning message", "error message"}));
+    EXPECT_EQ(
+        messages, (std::vector<std::string>{"info message", "warning message", "error message"}));
 }

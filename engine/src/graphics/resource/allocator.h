@@ -32,9 +32,7 @@ namespace Comet {
 
         Allocation& operator=(Allocation&& other) noexcept;
 
-        [[nodiscard]] explicit operator bool() const noexcept {
-            return m_handle != VK_NULL_HANDLE;
-        }
+        [[nodiscard]] explicit operator bool() const noexcept { return m_handle != VK_NULL_HANDLE; }
 
     private:
         friend class Allocator;
@@ -73,8 +71,7 @@ namespace Comet {
         Allocator(Allocator&&) noexcept = delete;
         Allocator& operator=(Allocator&&) noexcept = delete;
 
-        [[nodiscard]] BufferAllocation create_buffer(
-            const vk::BufferCreateInfo& buffer_info,
+        [[nodiscard]] BufferAllocation create_buffer(const vk::BufferCreateInfo& buffer_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 
         [[nodiscard]] GpuResourceResult<BufferAllocation> try_create_buffer(

@@ -15,9 +15,9 @@ namespace CometEditor {
     class Viewport final {
     public:
         Viewport(EditorState& state, SelectionService& selection, CommandHistory& history,
-            const Comet::ComponentRegistry& components,
-            PropertyEditTransaction& inspector_edit, const EditorShortcuts& shortcuts,
-            Comet::Renderer& renderer, Comet::AssetRegistry& assets, ImGuiContext& ui);
+            const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
+            const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
+            Comet::AssetRegistry& assets, ImGuiContext& ui);
 
         Viewport(const Viewport&) = delete;
         Viewport& operator=(const Viewport&) = delete;

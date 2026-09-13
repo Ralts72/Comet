@@ -18,8 +18,7 @@ namespace Comet::Json {
 
     class Context final {
     public:
-        Context(std::string_view kind, std::string_view source)
-            : m_kind(kind), m_source(source) {}
+        Context(std::string_view kind, std::string_view source) : m_kind(kind), m_source(source) {}
 
         std::string error(std::string_view location, std::string_view detail) const;
         Node parse(simdjson::dom::parser& parser, std::string_view contents) const;
@@ -33,8 +32,8 @@ namespace Comet::Json {
             Node node, const Keys& allowed, std::string_view location = "<root>") const {
             for(const auto field : object(node, location)) {
                 if(std::ranges::find(allowed, field.key) == std::ranges::end(allowed))
-                    throw std::runtime_error(error(
-                        location, "unknown field '" + std::string(field.key) + "'"));
+                    throw std::runtime_error(
+                        error(location, "unknown field '" + std::string(field.key) + "'"));
             }
         }
 
@@ -44,8 +43,7 @@ namespace Comet::Json {
         }
 
         template<typename T>
-        T read_scalar(
-            Node node, std::string_view location, std::string_view expected) const {
+        T read_scalar(Node node, std::string_view location, std::string_view expected) const {
             if constexpr(std::is_same_v<T, std::string>) {
                 std::string_view value;
                 if(!node.get_string().get(value))
@@ -56,8 +54,7 @@ namespace Comet::Json {
                     return value;
             } else if constexpr(std::is_unsigned_v<T>) {
                 std::uint64_t value;
-                if(!node.get_uint64().get(value)
-                    && value <= std::numeric_limits<T>::max())
+                if(!node.get_uint64().get(value) && value <= std::numeric_limits<T>::max())
                     return static_cast<T>(value);
             } else if constexpr(std::is_floating_point_v<T>) {
                 double value;
@@ -67,8 +64,7 @@ namespace Comet::Json {
             } else {
                 static_assert(!sizeof(T), "Unsupported JSON scalar type");
             }
-            throw std::runtime_error(
-                error(location, "expected " + std::string(expected)));
+            throw std::runtime_error(error(location, "expected " + std::string(expected)));
         }
 
     private:

@@ -47,10 +47,8 @@ namespace Comet::Tests {
             const auto end = vertices[index + 1].position;
             int changed_axes = 0;
             for(int axis = 0; axis < 3; ++axis) {
-                EXPECT_TRUE(
-                    start[axis] == box.minimum[axis] || start[axis] == box.maximum[axis]);
-                EXPECT_TRUE(
-                    end[axis] == box.minimum[axis] || end[axis] == box.maximum[axis]);
+                EXPECT_TRUE(start[axis] == box.minimum[axis] || start[axis] == box.maximum[axis]);
+                EXPECT_TRUE(end[axis] == box.minimum[axis] || end[axis] == box.maximum[axis]);
                 changed_axes += start[axis] != end[axis];
             }
             EXPECT_EQ(changed_axes, 1);
@@ -91,8 +89,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(list.add_box(box, transform, Math::Vec4(1, 0, 0, 1)));
         ASSERT_EQ(list.vertices().size(), local_lines.vertices().size());
         for(std::size_t index = 0; index < list.vertices().size(); ++index) {
-            const auto expected = Math::Vec3(
-                transform * Math::Vec4(local_lines.vertices()[index].position, 1));
+            const auto expected =
+                Math::Vec3(transform * Math::Vec4(local_lines.vertices()[index].position, 1));
             EXPECT_LT(Math::length(list.vertices()[index].position - expected), 0.0001f);
             EXPECT_EQ(list.vertices()[index].color, Math::Vec4(1, 0, 0, 1));
         }
@@ -109,15 +107,13 @@ namespace Comet::Tests {
         EXPECT_FALSE(list.add_box(box, transform));
         transform = Math::Mat4(std::numeric_limits<float>::max());
         transform[3][3] = 1;
-        EXPECT_FALSE(
-            list.add_box({.minimum = {0, 0, 0}, .maximum = {2, 2, 2}}, transform));
+        EXPECT_FALSE(list.add_box({.minimum = {0, 0, 0}, .maximum = {2, 2, 2}}, transform));
         EXPECT_EQ(list.line_count(), 1U);
     }
 
     TEST_F(LineDrawListTest, CollapsedScaleProducesFiniteDegenerateEdges) {
         const auto transform = Math::compose_trs({1, 2, 3}, {0, 0, 0}, {0, 0, 0});
-        ASSERT_TRUE(
-            list.add_box({.minimum = {-1, -1, -1}, .maximum = {1, 1, 1}}, transform));
+        ASSERT_TRUE(list.add_box({.minimum = {-1, -1, -1}, .maximum = {1, 1, 1}}, transform));
         ASSERT_EQ(list.line_count(), 12U);
         for(const auto& vertex : list.vertices()) {
             EXPECT_EQ(vertex.position, Math::Vec3(1, 2, 3));

@@ -33,8 +33,7 @@ namespace Comet {
             return "unknown";
         }
 
-        VmaAllocationCreateInfo build_vma_allocation_info(
-            const AllocationCreateInfo& create_info) {
+        VmaAllocationCreateInfo build_vma_allocation_info(const AllocationCreateInfo& create_info) {
             VmaAllocationCreateInfo vma_info = {};
             switch(create_info.usage) {
                 case AllocationUsage::Device:
@@ -42,13 +41,11 @@ namespace Comet {
                     break;
                 case AllocationUsage::Upload:
                     vma_info.usage = VMA_MEMORY_USAGE_AUTO;
-                    vma_info.flags |=
-                        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+                    vma_info.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
                     break;
                 case AllocationUsage::CpuToGpu:
                     vma_info.usage = VMA_MEMORY_USAGE_AUTO;
-                    vma_info.flags |=
-                        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+                    vma_info.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
                     break;
                 case AllocationUsage::Readback:
                     vma_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
@@ -58,8 +55,7 @@ namespace Comet {
 
             if(create_info.persistent_mapping) {
                 if(create_info.usage == AllocationUsage::Device) {
-                    LOG_FATAL(
-                        "Device-only allocations cannot request persistent mapping");
+                    LOG_FATAL("Device-only allocations cannot request persistent mapping");
                 }
                 vma_info.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
             }
@@ -69,8 +65,8 @@ namespace Comet {
             return vma_info;
         }
 
-        void set_allocation_name(const VmaAllocator allocator,
-            const VmaAllocation allocation, const std::string_view debug_name) {
+        void set_allocation_name(const VmaAllocator allocator, const VmaAllocation allocation,
+            const std::string_view debug_name) {
             if(debug_name.empty()) {
                 return;
             }
@@ -105,15 +101,13 @@ namespace Comet {
         }
     }
 
-    Allocator::BufferAllocation Allocator::create_buffer(
-        const vk::BufferCreateInfo& buffer_info,
+    Allocator::BufferAllocation Allocator::create_buffer(const vk::BufferCreateInfo& buffer_info,
         const AllocationCreateInfo& allocation_info) const {
         auto attempt = try_create_buffer(buffer_info, allocation_info);
         if(!attempt) {
             LOG_FATAL("Failed to create VMA buffer '{}' ({} bytes, usage {}): {}",
                 allocation_info.debug_name, buffer_info.size,
-                allocation_usage_name(allocation_info.usage),
-                vk::to_string(attempt.result()));
+                allocation_usage_name(allocation_info.usage), vk::to_string(attempt.result()));
         }
         return std::move(attempt).value();
     }
@@ -128,18 +122,16 @@ namespace Comet {
         VmaAllocation allocation = VK_NULL_HANDLE;
         VmaAllocationInfo created_info = {};
         const VkBufferCreateInfo& vk_buffer_info = buffer_info;
-        const VkResult result = vmaCreateBuffer(m_allocator, &vk_buffer_info,
-            &vma_allocation_info, &buffer, &allocation, &created_info);
+        const VkResult result = vmaCreateBuffer(m_allocator, &vk_buffer_info, &vma_allocation_info,
+            &buffer, &allocation, &created_info);
         if(result != VK_SUCCESS) {
-            return GpuResourceResult<BufferAllocation>::failure(
-                static_cast<vk::Result>(result));
+            return GpuResourceResult<BufferAllocation>::failure(static_cast<vk::Result>(result));
         }
 
         set_allocation_name(m_allocator, allocation, allocation_info.debug_name);
         if(allocation_info.persistent_mapping && !created_info.pMappedData) {
             vmaDestroyBuffer(m_allocator, buffer, allocation);
-            return GpuResourceResult<BufferAllocation>::failure(
-                vk::Result::eErrorMemoryMapFailed);
+            return GpuResourceResult<BufferAllocation>::failure(vk::Result::eErrorMemoryMapFailed);
         }
 
         Allocation wrapped_allocation;
@@ -148,30 +140,25 @@ namespace Comet {
             vk::Buffer(buffer), std::move(wrapped_allocation), created_info.pMappedData});
     }
 
-    void Allocator::destroy_buffer(
-        const vk::Buffer buffer, Allocation& allocation) const {
+    void Allocator::destroy_buffer(const vk::Buffer buffer, Allocation& allocation) const {
         if(buffer && allocation) {
-            vmaDestroyBuffer(
-                m_allocator, static_cast<VkBuffer>(buffer), allocation.m_handle);
+            vmaDestroyBuffer(m_allocator, static_cast<VkBuffer>(buffer), allocation.m_handle);
             allocation.m_handle = VK_NULL_HANDLE;
         }
     }
 
     Allocator::ImageAllocation Allocator::create_image(
-        const vk::ImageCreateInfo& image_info,
-        const AllocationCreateInfo& allocation_info) const {
+        const vk::ImageCreateInfo& image_info, const AllocationCreateInfo& allocation_info) const {
         auto attempt = try_create_image(image_info, allocation_info);
         if(!attempt) {
-            LOG_FATAL("Failed to create VMA image '{}' (usage {}): {}",
-                allocation_info.debug_name, allocation_usage_name(allocation_info.usage),
-                vk::to_string(attempt.result()));
+            LOG_FATAL("Failed to create VMA image '{}' (usage {}): {}", allocation_info.debug_name,
+                allocation_usage_name(allocation_info.usage), vk::to_string(attempt.result()));
         }
         return std::move(attempt).value();
     }
 
     GpuResourceResult<Allocator::ImageAllocation> Allocator::try_create_image(
-        const vk::ImageCreateInfo& image_info,
-        const AllocationCreateInfo& allocation_info) const {
+        const vk::ImageCreateInfo& image_info, const AllocationCreateInfo& allocation_info) const {
         const VmaAllocationCreateInfo vma_allocation_info =
             build_vma_allocation_info(allocation_info);
 
@@ -179,18 +166,16 @@ namespace Comet {
         VmaAllocation allocation = VK_NULL_HANDLE;
         VmaAllocationInfo created_info = {};
         const VkImageCreateInfo& vk_image_info = image_info;
-        const VkResult result = vmaCreateImage(m_allocator, &vk_image_info,
-            &vma_allocation_info, &image, &allocation, &created_info);
+        const VkResult result = vmaCreateImage(
+            m_allocator, &vk_image_info, &vma_allocation_info, &image, &allocation, &created_info);
         if(result != VK_SUCCESS) {
-            return GpuResourceResult<ImageAllocation>::failure(
-                static_cast<vk::Result>(result));
+            return GpuResourceResult<ImageAllocation>::failure(static_cast<vk::Result>(result));
         }
 
         set_allocation_name(m_allocator, allocation, allocation_info.debug_name);
         if(allocation_info.persistent_mapping && !created_info.pMappedData) {
             vmaDestroyImage(m_allocator, image, allocation);
-            return GpuResourceResult<ImageAllocation>::failure(
-                vk::Result::eErrorMemoryMapFailed);
+            return GpuResourceResult<ImageAllocation>::failure(vk::Result::eErrorMemoryMapFailed);
         }
 
         Allocation wrapped_allocation;
@@ -201,8 +186,7 @@ namespace Comet {
 
     void Allocator::destroy_image(const vk::Image image, Allocation& allocation) const {
         if(image && allocation) {
-            vmaDestroyImage(
-                m_allocator, static_cast<VkImage>(image), allocation.m_handle);
+            vmaDestroyImage(m_allocator, static_cast<VkImage>(image), allocation.m_handle);
             allocation.m_handle = VK_NULL_HANDLE;
         }
     }
@@ -215,8 +199,8 @@ namespace Comet {
         void* mapping = nullptr;
         const VkResult result = vmaMapMemory(m_allocator, allocation.m_handle, &mapping);
         if(result != VK_SUCCESS) {
-            LOG_FATAL("Failed to map allocation: {}",
-                vk::to_string(static_cast<vk::Result>(result)));
+            LOG_FATAL(
+                "Failed to map allocation: {}", vk::to_string(static_cast<vk::Result>(result)));
         }
         return mapping;
     }
@@ -234,11 +218,10 @@ namespace Comet {
             LOG_FATAL("Cannot flush null allocation");
         }
 
-        const VkResult result =
-            vmaFlushAllocation(m_allocator, allocation.m_handle, offset, size);
+        const VkResult result = vmaFlushAllocation(m_allocator, allocation.m_handle, offset, size);
         if(result != VK_SUCCESS) {
-            LOG_FATAL("Failed to flush allocation: {}",
-                vk::to_string(static_cast<vk::Result>(result)));
+            LOG_FATAL(
+                "Failed to flush allocation: {}", vk::to_string(static_cast<vk::Result>(result)));
         }
     }
 

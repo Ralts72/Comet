@@ -50,14 +50,13 @@ namespace Comet {
         }
 
         void validate_keys(const Json::Node& node,
-            const std::initializer_list<std::string_view> allowed,
-            const std::string_view source, const std::string_view location) {
+            const std::initializer_list<std::string_view> allowed, const std::string_view source,
+            const std::string_view location) {
             validate_keys_in(node, allowed, source, location);
         }
 
-        void validate_keys(const Json::Node& node,
-            const std::vector<std::string_view>& allowed, const std::string_view source,
-            const std::string_view location) {
+        void validate_keys(const Json::Node& node, const std::vector<std::string_view>& allowed,
+            const std::string_view source, const std::string_view location) {
             validate_keys_in(node, allowed, source, location);
         }
 
@@ -69,8 +68,7 @@ namespace Comet {
         template<typename T>
         T read_scalar(const Json::Node& node, const std::string_view source,
             const std::string_view location, const std::string_view expected) {
-            return Json::Context("scene", source)
-                .read_scalar<T>(node, location, expected);
+            return Json::Context("scene", source).read_scalar<T>(node, location, expected);
         }
 
         template<typename T>
@@ -101,8 +99,7 @@ namespace Comet {
             std::size_t index = 0;
             for(const auto element : elements) {
                 value[index] = read_scalar<float>(element, source,
-                    std::string(location) + "[" + std::to_string(index) + "]",
-                    "a finite number");
+                    std::string(location) + "[" + std::to_string(index) + "]", "a finite number");
                 if(!std::isfinite(value[index])) {
                     throw scene_error(source, location, "expected finite numbers");
                 }
@@ -138,18 +135,17 @@ namespace Comet {
                 case PropertyType::Vec3:
                     return read_vec3(node, source, location);
                 case PropertyType::AssetHandle:
-                    return AssetHandle(read_unsigned_integer<AssetHandle::ValueType>(
-                        node, source, location));
+                    return AssetHandle(
+                        read_unsigned_integer<AssetHandle::ValueType>(node, source, location));
             }
             throw scene_error(source, location, "unsupported property type");
         }
 
-        PropertyValue copy_property_value(const PropertyDescriptor& property,
-            const void* component, const std::string_view location) {
+        PropertyValue copy_property_value(const PropertyDescriptor& property, const void* component,
+            const std::string_view location) {
             const void* value = property.get_value(component);
             if(value == nullptr) {
-                throw scene_error(
-                    "<memory>", location, "property accessor returned null");
+                throw scene_error("<memory>", location, "property accessor returned null");
             }
 
             switch(property.type) {
@@ -160,16 +156,14 @@ namespace Comet {
                 case PropertyType::Float: {
                     const float result = *static_cast<const float*>(value);
                     if(!std::isfinite(result)) {
-                        throw scene_error(
-                            "<memory>", location, "expected a finite number");
+                        throw scene_error("<memory>", location, "expected a finite number");
                     }
                     return result;
                 }
                 case PropertyType::Vec3: {
                     const Math::Vec3 result = *static_cast<const Math::Vec3*>(value);
                     if(!Math::is_finite(result)) {
-                        throw scene_error(
-                            "<memory>", location, "expected finite numbers");
+                        throw scene_error("<memory>", location, "expected finite numbers");
                     }
                     return result;
                 }
@@ -207,19 +201,16 @@ namespace Comet {
                     *static_cast<bool*>(value) = std::get<bool>(property.value);
                     return;
                 case PropertyType::String:
-                    *static_cast<std::string*>(value) =
-                        std::get<std::string>(property.value);
+                    *static_cast<std::string*>(value) = std::get<std::string>(property.value);
                     return;
                 case PropertyType::Float:
                     *static_cast<float*>(value) = std::get<float>(property.value);
                     return;
                 case PropertyType::Vec3:
-                    *static_cast<Math::Vec3*>(value) =
-                        std::get<Math::Vec3>(property.value);
+                    *static_cast<Math::Vec3*>(value) = std::get<Math::Vec3>(property.value);
                     return;
                 case PropertyType::AssetHandle:
-                    *static_cast<AssetHandle*>(value) =
-                        std::get<AssetHandle>(property.value);
+                    *static_cast<AssetHandle*>(value) = std::get<AssetHandle>(property.value);
                     return;
             }
             throw scene_error(source, location, "unsupported property type");
@@ -229,17 +220,15 @@ namespace Comet {
             return "entities[" + std::to_string(index) + "]";
         }
 
-        EntityRecord read_entity_record(const Json::Node& node,
-            const std::string& location, const std::string_view source,
-            const ComponentRegistry& component_registry) {
+        EntityRecord read_entity_record(const Json::Node& node, const std::string& location,
+            const std::string_view source, const ComponentRegistry& component_registry) {
             validate_keys(node, {"uuid", "components", "children"}, source, location);
 
             EntityRecord record;
-            record.uuid = read_uuid(required_child(node, "uuid", source, location),
-                source, location + ".uuid");
+            record.uuid = read_uuid(
+                required_child(node, "uuid", source, location), source, location + ".uuid");
 
-            const Json::Node components =
-                required_child(node, "components", source, location);
+            const Json::Node components = required_child(node, "components", source, location);
             std::vector<std::string_view> component_ids{"name"};
             component_ids.reserve(component_registry.components().size() + 1);
             for(const ComponentDescriptor& component : component_registry.components()) {
@@ -250,18 +239,16 @@ namespace Comet {
             validate_keys(components, component_ids, source, location + ".components");
 
             record.name = read_scalar<std::string>(
-                required_child(components, "name", source, location + ".components"),
-                source, location + ".components.name", "a string");
+                required_child(components, "name", source, location + ".components"), source,
+                location + ".components.name", "a string");
 
-            for(const ComponentDescriptor& component_descriptor :
-                component_registry.components()) {
+            for(const ComponentDescriptor& component_descriptor : component_registry.components()) {
                 if(!component_descriptor.serializable) {
                     continue;
                 }
 
                 Json::Node component;
-                if(components[component_descriptor.id].get(component)
-                    || component.is_null()) {
+                if(components[component_descriptor.id].get(component) || component.is_null()) {
                     continue;
                 }
 
@@ -269,8 +256,7 @@ namespace Comet {
                     location + ".components." + component_descriptor.id;
                 std::vector<std::string_view> property_ids;
                 property_ids.reserve(component_descriptor.properties.size());
-                for(const PropertyDescriptor& property :
-                    component_descriptor.properties) {
+                for(const PropertyDescriptor& property : component_descriptor.properties) {
                     if(property.serializable && !property.transient) {
                         property_ids.push_back(property.id);
                     }
@@ -279,17 +265,14 @@ namespace Comet {
 
                 ComponentRecord component_record{.descriptor = &component_descriptor};
                 component_record.properties.reserve(property_ids.size());
-                for(const PropertyDescriptor& property :
-                    component_descriptor.properties) {
+                for(const PropertyDescriptor& property : component_descriptor.properties) {
                     if(!property.serializable || property.transient) {
                         continue;
                     }
-                    const std::string property_location =
-                        component_location + "." + property.id;
+                    const std::string property_location = component_location + "." + property.id;
                     component_record.properties.push_back({.descriptor = &property,
                         .value = read_property_value(property,
-                            required_child(
-                                component, property.id, source, component_location),
+                            required_child(component, property.id, source, component_location),
                             source, property_location)});
                 }
                 record.components.push_back(std::move(component_record));
@@ -298,18 +281,16 @@ namespace Comet {
             return record;
         }
 
-        void read_entity_tree(const Json::Node node,
-            const std::optional<EntityUuid> parent, const std::string& location,
-            const std::string_view source, const ComponentRegistry& component_registry,
-            std::vector<EntityRecord>& records, std::unordered_set<EntityUuid>& uuids,
-            const std::size_t depth) {
+        void read_entity_tree(const Json::Node node, const std::optional<EntityUuid> parent,
+            const std::string& location, const std::string_view source,
+            const ComponentRegistry& component_registry, std::vector<EntityRecord>& records,
+            std::unordered_set<EntityUuid>& uuids, const std::size_t depth) {
             if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
                 throw scene_error(source, location, "maximum hierarchy depth exceeded");
             auto record = read_entity_record(node, location, source, component_registry);
             const EntityUuid uuid = record.uuid;
             if(!uuids.insert(uuid).second)
-                throw scene_error(
-                    source, location + ".uuid", "duplicate UUID " + uuid.to_string());
+                throw scene_error(source, location + ".uuid", "duplicate UUID " + uuid.to_string());
             record.parent = parent;
             records.push_back(std::move(record));
 
@@ -348,12 +329,11 @@ namespace Comet {
             enum class VisitState { Visiting, Complete };
             std::unordered_map<EntityUuid, VisitState> states;
             states.reserve(records.size());
-            const auto visit = [&records, &indices, &states, source](
-                                   const std::size_t index, const std::size_t depth,
-                                   const auto& visit_ref) -> void {
+            const auto visit = [&records, &indices, &states, source](const std::size_t index,
+                                   const std::size_t depth, const auto& visit_ref) -> void {
                 if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
-                    throw scene_error(source, entity_location(index),
-                        "maximum hierarchy depth exceeded");
+                    throw scene_error(
+                        source, entity_location(index), "maximum hierarchy depth exceeded");
                 const EntityUuid uuid = records[index].uuid;
                 if(const auto state = states.find(uuid); state != states.end()) {
                     if(state->second == VisitState::Visiting) {
@@ -381,8 +361,8 @@ namespace Comet {
             const std::vector<EntityRecord>& records, const ChildrenIndex& children,
             const std::size_t depth) {
             if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
-                throw scene_error("<memory>", record.uuid.to_string(),
-                    "maximum hierarchy depth exceeded");
+                throw scene_error(
+                    "<memory>", record.uuid.to_string(), "maximum hierarchy depth exceeded");
             writer.begin_object();
             writer.field("uuid", record.uuid.to_string());
 
@@ -403,8 +383,7 @@ namespace Comet {
                 writer.key("children");
                 writer.begin_array();
                 for(const auto index : found->second)
-                    write_entity_tree(
-                        writer, records[index], records, children, depth + 1);
+                    write_entity_tree(writer, records[index], records, children, depth + 1);
                 writer.end_array();
             }
             writer.end_object();
@@ -455,21 +434,19 @@ namespace Comet {
                 const std::string component_location =
                     uuid->uuid.to_string() + ".components." + component_descriptor.id;
                 if(component == nullptr) {
-                    throw scene_error("<memory>", component_location,
-                        "component accessor returned null");
+                    throw scene_error(
+                        "<memory>", component_location, "component accessor returned null");
                 }
 
                 ComponentRecord component_record{.descriptor = &component_descriptor};
-                component_record.properties.reserve(
-                    component_descriptor.properties.size());
-                for(const PropertyDescriptor& property :
-                    component_descriptor.properties) {
+                component_record.properties.reserve(component_descriptor.properties.size());
+                for(const PropertyDescriptor& property : component_descriptor.properties) {
                     if(!property.serializable || property.transient) {
                         continue;
                     }
                     component_record.properties.push_back({.descriptor = &property,
-                        .value = copy_property_value(property, component,
-                            component_location + "." + property.id)});
+                        .value = copy_property_value(
+                            property, component, component_location + "." + property.id)});
                 }
                 record.components.push_back(std::move(component_record));
             }
@@ -495,8 +472,7 @@ namespace Comet {
         validate_records(records, "<memory>");
         ChildrenIndex children;
         for(std::size_t index = 0; index < records.size(); ++index)
-            children[records[index].parent.value_or(INVALID_ENTITY_UUID)].push_back(
-                index);
+            children[records[index].parent.value_or(INVALID_ENTITY_UUID)].push_back(index);
 
         Json::Writer writer;
         writer.begin_object();
@@ -543,8 +519,7 @@ namespace Comet {
         for(const EntityRecord& record : records) {
             Entity entity = scene->create_entity_with_uuid(record.uuid, record.name);
             if(!entity) {
-                throw scene_error(
-                    source, record.uuid.to_string(), "failed to create entity");
+                throw scene_error(source, record.uuid.to_string(), "failed to create entity");
             }
             entity.get_component<NameComponent>().name = record.name;
             for(const ComponentDescriptor& component_descriptor :
@@ -553,8 +528,8 @@ namespace Comet {
                     continue;
                 }
 
-                const auto component_record = std::ranges::find_if(record.components,
-                    [&component_descriptor](const ComponentRecord& component) {
+                const auto component_record = std::ranges::find_if(
+                    record.components, [&component_descriptor](const ComponentRecord& component) {
                         return component.descriptor == &component_descriptor;
                     });
                 const std::string component_location =
@@ -562,16 +537,15 @@ namespace Comet {
                 if(component_record == record.components.end()) {
                     if(component_descriptor.has_component(entity)
                         && !component_descriptor.remove_component(entity)) {
-                        throw scene_error(source, component_location,
-                            "failed to remove absent component");
+                        throw scene_error(
+                            source, component_location, "failed to remove absent component");
                     }
                     continue;
                 }
 
                 if(!component_descriptor.has_component(entity)
                     && !component_descriptor.add_component(entity)) {
-                    throw scene_error(
-                        source, component_location, "failed to create component");
+                    throw scene_error(source, component_location, "failed to create component");
                 }
                 void* component = component_descriptor.get_component(entity);
                 if(component == nullptr) {
@@ -592,8 +566,8 @@ namespace Comet {
             }
             if(!scene->set_parent(
                    loaded_entities.at(record.uuid), loaded_entities.at(*record.parent))) {
-                throw scene_error(source, record.uuid.to_string(),
-                    "failed to restore parent relationship");
+                throw scene_error(
+                    source, record.uuid.to_string(), "failed to restore parent relationship");
             }
         }
         scene->update_world_transforms();

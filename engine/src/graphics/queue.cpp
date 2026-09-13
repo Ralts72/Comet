@@ -29,16 +29,15 @@ namespace Comet {
 
     QueueSemaphoreSubmit::QueueSemaphoreSubmit(
         const GpuCompletionPoint& completion, const Flags<PipelineStage> stage_mask)
-        : semaphore(completion.m_timeline), value(completion.m_value),
-          stage_mask(stage_mask) {
+        : semaphore(completion.m_timeline), value(completion.m_value), stage_mask(stage_mask) {
         if(!completion.is_valid()) {
             LOG_FATAL("Cannot submit an invalid GPU completion point");
         }
     }
 
     Queue::Queue(Device& device, const vk::Queue queue)
-        : m_queue(queue), m_completion_timeline(std::make_unique<Semaphore>(
-                              device, Semaphore::Type::Timeline)) {}
+        : m_queue(queue),
+          m_completion_timeline(std::make_unique<Semaphore>(device, Semaphore::Type::Timeline)) {}
 
     GpuCompletionPoint Queue::submit2(const std::span<const QueueSemaphoreSubmit> waits,
         const std::span<const CommandBuffer> command_buffers,
@@ -61,15 +60,15 @@ namespace Comet {
         std::vector<vk::SemaphoreSubmitInfo> signal_infos;
         signal_infos.reserve(signals.size() + 1);
         for(const auto& signal : signals) {
-            signal_infos.push_back(make_semaphore_submit_info(
-                *signal.semaphore, signal.value, signal.stage_mask));
+            signal_infos.push_back(
+                make_semaphore_submit_info(*signal.semaphore, signal.value, signal.stage_mask));
         }
         if(m_next_completion_value == std::numeric_limits<uint64_t>::max()) {
             LOG_FATAL("Queue completion timeline value exhausted");
         }
         const uint64_t completion_value = m_next_completion_value++;
-        signal_infos.push_back(make_semaphore_submit_info(*m_completion_timeline,
-            completion_value, Flags<PipelineStage>(PipelineStage::AllCommands)));
+        signal_infos.push_back(make_semaphore_submit_info(*m_completion_timeline, completion_value,
+            Flags<PipelineStage>(PipelineStage::AllCommands)));
 
         vk::SubmitInfo2 submit_info{};
         submit_info.waitSemaphoreInfoCount = static_cast<uint32_t>(wait_infos.size());
@@ -95,15 +94,13 @@ namespace Comet {
             vk_wait_semaphores.emplace_back(wait_sem.get());
         }
         vk::PresentInfoKHR present_info = {};
-        present_info.waitSemaphoreCount =
-            static_cast<uint32_t>(vk_wait_semaphores.size());
+        present_info.waitSemaphoreCount = static_cast<uint32_t>(vk_wait_semaphores.size());
         present_info.pWaitSemaphores = vk_wait_semaphores.data();
         present_info.swapchainCount = 1;
         present_info.pSwapchains = &swapchain.get();
         present_info.pImageIndices = &image_index;
         const auto result = m_queue.presentKHR(present_info);
-        if(result == vk::Result::eSuboptimalKHR
-            || result == vk::Result::eErrorOutOfDateKHR) {
+        if(result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR) {
             LOG_WARN("swapchain requires recreation: {}", vk::to_string(result));
         } else if(result != vk::Result::eSuccess) {
             LOG_ERROR("Failed to present swapchain image: {}", vk::to_string(result));

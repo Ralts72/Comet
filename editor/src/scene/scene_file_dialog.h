@@ -6,8 +6,8 @@ namespace CometEditor {
     class SceneFileDialog {
     public:
         enum class Action { None, Open, Save };
-        void request(Action action, SceneDocument& document,
-            const std::filesystem::path& scene_directory);
+        void request(
+            Action action, SceneDocument& document, const std::filesystem::path& scene_directory);
         [[nodiscard]] bool render(SceneDocument& document);
 
     private:

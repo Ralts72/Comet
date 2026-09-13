@@ -25,13 +25,10 @@ namespace Comet::Tests {
                 std::filesystem::remove_all(m_root, error);
             }
 
-            [[nodiscard]] std::filesystem::path assets() const {
-                return m_root / "assets";
-            }
+            [[nodiscard]] std::filesystem::path assets() const { return m_root / "assets"; }
 
             [[nodiscard]] std::filesystem::path write(
-                const std::filesystem::path& relative_path,
-                const std::string& contents) const {
+                const std::filesystem::path& relative_path, const std::string& contents) const {
                 const std::filesystem::path path = assets() / relative_path;
                 std::filesystem::create_directories(path.parent_path());
                 std::ofstream output(path, std::ios::binary);
@@ -75,8 +72,7 @@ namespace Comet::Tests {
     TEST(ImportInputSnapshotTest, RejectsInputsOutsideAssetRoot) {
         const TemporaryInputProject project;
         const std::filesystem::path source = project.write("mesh.gltf", "source");
-        const std::filesystem::path outside =
-            project.assets().parent_path() / "outside.bin";
+        const std::filesystem::path outside = project.assets().parent_path() / "outside.bin";
         std::ofstream(outside) << "outside";
 
         const std::array dependencies{outside};

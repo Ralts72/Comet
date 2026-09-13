@@ -10,8 +10,7 @@ namespace CometEditor {
     EditorSceneSession::EditorSceneSession(EditorState& state,
         const Comet::SceneSerializer& serializer, ActiveSceneGetter get_active_scene,
         ActiveSceneReplacer replace_active_scene)
-        : m_state(state), m_serializer(serializer),
-          m_get_active_scene(std::move(get_active_scene)),
+        : m_state(state), m_serializer(serializer), m_get_active_scene(std::move(get_active_scene)),
           m_replace_active_scene(std::move(replace_active_scene)) {}
 
     EditorSceneSession::~EditorSceneSession() = default;

@@ -27,8 +27,7 @@ namespace Comet::Tests {
         material.set_scalar_property("blend", 0.25f);
         material.set_vector_property("tint", tint);
         EXPECT_EQ(material.get_revision(), initial + 3);
-        EXPECT_THROW(
-            material.set_scalar_property("blend", std::numeric_limits<float>::infinity()),
+        EXPECT_THROW(material.set_scalar_property("blend", std::numeric_limits<float>::infinity()),
             std::invalid_argument);
         EXPECT_THROW(material.set_vector_property(
                          "tint", {0, 0, std::numeric_limits<float>::quiet_NaN(), 1}),
@@ -51,44 +50,38 @@ namespace Comet::Tests {
         ASSERT_TRUE(solid);
         EXPECT_TRUE(solid->get_textures().empty());
         EXPECT_FALSE(MaterialLayout::find_builtin("unknown"));
-        EXPECT_THROW(MaterialLayout("invalid", {}, 16,
-                         std::vector<MaterialLayout::ScalarProperty>{{"x", 0, 0, 1, 0}}),
-            std::invalid_argument);
-        EXPECT_THROW(
-            MaterialLayout("invalid", {}, 16,
-                std::vector<MaterialLayout::ScalarProperty>{{"x", 0, 0, 0, 1, 0}}),
-            std::invalid_argument);
+        EXPECT_FALSE(MaterialLayout::create(
+            "invalid", {}, 16, std::vector<MaterialLayout::ScalarProperty>{{"x", 0, 0, 1, 0}}));
+        EXPECT_FALSE(MaterialLayout::create(
+            "invalid", {}, 16, std::vector<MaterialLayout::ScalarProperty>{{"x", 0, 0, 0, 1, 0}}));
     }
 
     TEST(MaterialLayoutTest, ValidatesAndOrdersLayoutSlots) {
         static_assert(!std::is_copy_assignable_v<Material>);
         static_assert(!std::is_move_assignable_v<Material>);
         static_assert(!std::is_copy_assignable_v<MaterialLayout>);
-        const MaterialLayout layout("textured", {{"detail", 7}, {"albedo", 1}});
+        auto layout_result = MaterialLayout::create("textured", {{"detail", 7}, {"albedo", 1}});
+        ASSERT_TRUE(layout_result) << layout_result.error();
+        const auto layout = std::move(layout_result).value();
         EXPECT_EQ(layout.get_textures().front().name, "albedo");
-        EXPECT_THROW(MaterialLayout("", {}), std::invalid_argument);
-        EXPECT_THROW(MaterialLayout("test", {{"", 2}}), std::invalid_argument);
-        EXPECT_THROW(MaterialLayout("test", {{"a", 2}, {"a", 3}}), std::invalid_argument);
-        EXPECT_THROW(MaterialLayout("test", {{"a", 2}, {"b", 2}}), std::invalid_argument);
+        EXPECT_FALSE(MaterialLayout::create("", {}));
+        EXPECT_FALSE(MaterialLayout::create("test", {{"", 2}}));
+        EXPECT_FALSE(MaterialLayout::create("test", {{"a", 2}, {"a", 3}}));
+        EXPECT_FALSE(MaterialLayout::create("test", {{"a", 2}, {"b", 2}}));
     }
 
     TEST(MaterialLayoutTest, RejectsInvalidParameterMemoryLayouts) {
         using Scalars = std::vector<MaterialLayout::ScalarProperty>;
         using Vectors = std::vector<MaterialLayout::VectorProperty>;
-        EXPECT_THROW(MaterialLayout("test", {}, 17), std::invalid_argument);
-        EXPECT_THROW(MaterialLayout("test", {{"texture", 0}}, 16), std::invalid_argument);
-        EXPECT_THROW(
-            MaterialLayout("test", {}, 16, Scalars{{"x", 16, 1}}), std::invalid_argument);
-        EXPECT_THROW(
-            MaterialLayout("test", {}, 16, Scalars{{"x", 2, 1}}), std::invalid_argument);
-        EXPECT_THROW(MaterialLayout("test", {}, 32, {}, Vectors{{"v", 4, {}}}),
-            std::invalid_argument);
-        EXPECT_THROW(
-            MaterialLayout("test", {}, 32, Scalars{{"x", 4, 1}}, Vectors{{"v", 0, {}}}),
-            std::invalid_argument);
-        EXPECT_THROW(
-            MaterialLayout("test", {}, 32, Scalars{{"v", 16, 1}}, Vectors{{"v", 0, {}}}),
-            std::invalid_argument);
+        EXPECT_FALSE(MaterialLayout::create("test", {}, 17));
+        EXPECT_FALSE(MaterialLayout::create("test", {{"texture", 0}}, 16));
+        EXPECT_FALSE(MaterialLayout::create("test", {}, 16, Scalars{{"x", 16, 1}}));
+        EXPECT_FALSE(MaterialLayout::create("test", {}, 16, Scalars{{"x", 2, 1}}));
+        EXPECT_FALSE(MaterialLayout::create("test", {}, 32, {}, Vectors{{"v", 4, {}}}));
+        EXPECT_FALSE(
+            MaterialLayout::create("test", {}, 32, Scalars{{"x", 4, 1}}, Vectors{{"v", 0, {}}}));
+        EXPECT_FALSE(
+            MaterialLayout::create("test", {}, 32, Scalars{{"v", 16, 1}}, Vectors{{"v", 0, {}}}));
     }
 
 }

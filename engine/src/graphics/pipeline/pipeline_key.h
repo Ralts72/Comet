@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/result.h"
 #include "graphics/pipeline/pipeline_config.h"
 
 #include <cstddef>
@@ -44,8 +45,11 @@ namespace Comet {
         vk::RenderPass render_pass;
         std::vector<AttachmentFormat> attachments;
 
-        PipelineKey(const ShaderLayout& layout, const PipelineConfig& config,
+        static Result<PipelineKey> create(const ShaderLayout& layout, const PipelineConfig& config,
             const Shader& vertex, const Shader& fragment, const RenderPass& render_pass);
         bool operator==(const PipelineKey&) const = default;
+
+    private:
+        PipelineKey() = default;
     };
 }

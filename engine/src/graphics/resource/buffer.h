@@ -24,13 +24,12 @@ namespace Comet {
 
         Buffer& operator=(Buffer&&) noexcept = delete;
 
-        static std::shared_ptr<Buffer> create_cpu_buffer(Device& device,
-            Flags<BufferUsage> usage, size_t size, const void* data = nullptr,
-            std::string_view debug_name = {});
+        static std::shared_ptr<Buffer> create_cpu_buffer(Device& device, Flags<BufferUsage> usage,
+            size_t size, const void* data = nullptr, std::string_view debug_name = {});
 
-        static GpuResourceResult<std::shared_ptr<CPUBuffer>> try_create_cpu_buffer(
-            Device& device, Flags<BufferUsage> usage, size_t size, bool within_budget,
-            const void* data = nullptr, std::string_view debug_name = {});
+        static GpuResourceResult<std::shared_ptr<CPUBuffer>> try_create_cpu_buffer(Device& device,
+            Flags<BufferUsage> usage, size_t size, bool within_budget, const void* data = nullptr,
+            std::string_view debug_name = {});
 
         static std::shared_ptr<CPUBuffer> create_upload_buffer(Device& device,
             Flags<BufferUsage> usage, size_t size, const void* data = nullptr,
@@ -40,11 +39,11 @@ namespace Comet {
             Device& device, Flags<BufferUsage> usage, size_t size, bool within_budget,
             const void* data = nullptr, std::string_view debug_name = {});
 
-        static std::shared_ptr<Buffer> create_gpu_buffer(Device& device,
-            Flags<BufferUsage> usage, size_t size, std::string_view debug_name = {});
+        static std::shared_ptr<Buffer> create_gpu_buffer(Device& device, Flags<BufferUsage> usage,
+            size_t size, std::string_view debug_name = {});
 
-        static GpuResourceResult<std::shared_ptr<Buffer>> try_create_gpu_buffer(
-            Device& device, Flags<BufferUsage> usage, size_t size, bool within_budget,
+        static GpuResourceResult<std::shared_ptr<Buffer>> try_create_gpu_buffer(Device& device,
+            Flags<BufferUsage> usage, size_t size, bool within_budget,
             std::string_view debug_name = {});
 
         [[nodiscard]] vk::Buffer get() const { return m_buffer; }
@@ -60,9 +59,8 @@ namespace Comet {
 
     private:
         static GpuResourceResult<std::shared_ptr<CPUBuffer>> try_create_mapped_buffer(
-            Device& device, Flags<BufferUsage> usage, size_t size,
-            AllocationUsage allocation_usage, bool within_budget, const void* data,
-            std::string_view debug_name);
+            Device& device, Flags<BufferUsage> usage, size_t size, AllocationUsage allocation_usage,
+            bool within_budget, const void* data, std::string_view debug_name);
     };
 
     class COMET_API GPUBuffer final: public Buffer {

@@ -20,8 +20,7 @@ namespace Comet {
             left);
     }
 
-    std::optional<PropertyValue> PropertyDescriptor::copy_value(
-        const void* component) const {
+    std::optional<PropertyValue> PropertyDescriptor::copy_value(const void* component) const {
         const void* value = get_value(component);
         if(!value) {
             return std::nullopt;
@@ -41,8 +40,7 @@ namespace Comet {
         return std::nullopt;
     }
 
-    bool PropertyDescriptor::assign_value(
-        void* component, const PropertyValue& value) const {
+    bool PropertyDescriptor::assign_value(void* component, const PropertyValue& value) const {
         void* destination = get_value(component);
         if(!destination || !editable || read_only) {
             return false;
@@ -82,28 +80,23 @@ namespace Comet {
         return capture_component_callback(entity);
     }
 
-    bool ComponentDescriptor::restore_component(
-        Entity& entity, const std::any& snapshot) const {
-        if(!entity || has_component(entity) || !snapshot.has_value()
-            || !restore_component_callback)
+    bool ComponentDescriptor::restore_component(Entity& entity, const std::any& snapshot) const {
+        if(!entity || has_component(entity) || !snapshot.has_value() || !restore_component_callback)
             return false;
         return restore_component_callback(entity, snapshot);
     }
 
     bool ComponentRegistry::register_component(ComponentDescriptor descriptor) {
         if(descriptor.id.empty() || descriptor.display_name.empty()
-            || !descriptor.has_component_callback
-            || !descriptor.mutable_component_accessor
-            || !descriptor.const_component_accessor
-            || find_component(descriptor.id) != nullptr) {
+            || !descriptor.has_component_callback || !descriptor.mutable_component_accessor
+            || !descriptor.const_component_accessor || find_component(descriptor.id) != nullptr) {
             return false;
         }
 
         std::unordered_set<std::string> property_ids;
         for(const PropertyDescriptor& property : descriptor.properties) {
-            if(property.id.empty() || property.display_name.empty()
-                || !property.mutable_accessor || !property.const_accessor
-                || (property.transient && property.serializable)
+            if(property.id.empty() || property.display_name.empty() || !property.mutable_accessor
+                || !property.const_accessor || (property.transient && property.serializable)
                 || (property.asset_type
                     && (property.type != PropertyType::AssetHandle
                         || *property.asset_type == AssetType::Unknown))
@@ -147,8 +140,8 @@ namespace Comet {
         return true;
     }
 
-    std::vector<ComponentRegistry::AssetReference> ComponentRegistry::
-        collect_asset_references(Scene& scene) const {
+    std::vector<ComponentRegistry::AssetReference> ComponentRegistry::collect_asset_references(
+        Scene& scene) const {
         std::vector<AssetReference> references;
         for(const auto entity : scene.get_entities()) {
             for(const auto& component : m_components) {
@@ -166,8 +159,7 @@ namespace Comet {
             }
         }
         std::ranges::sort(references);
-        references.erase(
-            std::unique(references.begin(), references.end()), references.end());
+        references.erase(std::unique(references.begin(), references.end()), references.end());
         return references;
     }
 
@@ -183,34 +175,28 @@ namespace Comet {
         register_component(make_component_descriptor<NameComponent>("name", "Name",
             {make_property_descriptor("name", "Name", &NameComponent::name)}, false));
 
-        register_component(make_component_descriptor<TransformComponent>("transform",
-            "Transform",
+        register_component(make_component_descriptor<TransformComponent>("transform", "Transform",
             {make_property_descriptor(
                  "translation", "Translation", &TransformComponent::translation),
-                make_property_descriptor("rotation", "Rotation",
-                    &TransformComponent::rotation, {.numeric = {.speed = 1.0f}},
-                    [](Math::Vec3& rotation) {
-                        rotation = Math::wrap_degrees(rotation);
-                    }),
+                make_property_descriptor("rotation", "Rotation", &TransformComponent::rotation,
+                    {.numeric = {.speed = 1.0f}},
+                    [](Math::Vec3& rotation) { rotation = Math::wrap_degrees(rotation); }),
                 make_property_descriptor("scale", "Scale", &TransformComponent::scale)}));
 
-        register_component(make_component_descriptor<MeshRendererComponent>(
-            "mesh_renderer", "Mesh Renderer",
-            {make_property_descriptor("mesh", "Mesh", &MeshRendererComponent::mesh,
-                 {.asset_type = AssetType::Mesh}),
-                make_property_descriptor("material", "Material",
-                    &MeshRendererComponent::material,
-                    {.asset_type = AssetType::Material})}));
+        register_component(
+            make_component_descriptor<MeshRendererComponent>("mesh_renderer", "Mesh Renderer",
+                {make_property_descriptor(
+                     "mesh", "Mesh", &MeshRendererComponent::mesh, {.asset_type = AssetType::Mesh}),
+                    make_property_descriptor("material", "Material",
+                        &MeshRendererComponent::material, {.asset_type = AssetType::Material})}));
 
         register_component(make_component_descriptor<CameraComponent>("camera", "Camera",
             {make_property_descriptor("primary", "Primary", &CameraComponent::primary),
                 make_property_descriptor("fov", "Field of View", &CameraComponent::fov,
                     {.numeric = {.speed = 1.0f, .minimum = 1.0f, .maximum = 179.0f}}),
-                make_property_descriptor("near_clip", "Near Clip",
-                    &CameraComponent::near_clip,
+                make_property_descriptor("near_clip", "Near Clip", &CameraComponent::near_clip,
                     {.numeric = {.speed = 0.01f, .minimum = 0.001f}}),
-                make_property_descriptor("far_clip", "Far Clip",
-                    &CameraComponent::far_clip,
+                make_property_descriptor("far_clip", "Far Clip", &CameraComponent::far_clip,
                     {.numeric = {.speed = 1.0f, .minimum = 0.001f}})}));
 
         return registry;

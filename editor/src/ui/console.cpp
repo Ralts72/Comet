@@ -33,15 +33,13 @@ namespace CometEditor {
 
         ImGui::Separator();
 
-        ImGui::BeginChild(
-            "LogScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+        ImGui::BeginChild("LogScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
 
         update_log_buffer(filters_changed);
-        ImGui::InputTextMultiline("##LogContent", m_log_buffer.data(),
-            m_log_buffer.size() + 1, ImVec2(-1, -1), ImGuiInputTextFlags_ReadOnly);
+        ImGui::InputTextMultiline("##LogContent", m_log_buffer.data(), m_log_buffer.size() + 1,
+            ImVec2(-1, -1), ImGuiInputTextFlags_ReadOnly);
 
-        if(!m_log_buffer.empty()
-            && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 10.0f) {
+        if(!m_log_buffer.empty() && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 10.0f) {
             ImGui::SetScrollHereY(1.0f);
         }
 

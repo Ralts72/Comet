@@ -154,8 +154,7 @@ namespace Comet {
         [[nodiscard]] const ComponentDescriptor* find_component(
             std::string_view component_id) const;
         [[nodiscard]] bool covers_entity(const Entity& entity) const;
-        [[nodiscard]] std::vector<AssetReference> collect_asset_references(
-            Scene& scene) const;
+        [[nodiscard]] std::vector<AssetReference> collect_asset_references(Scene& scene) const;
 
         [[nodiscard]] const std::vector<ComponentDescriptor>& components() const {
             return m_components;
@@ -169,8 +168,7 @@ namespace Comet {
     PropertyDescriptor make_property_descriptor(std::string id, std::string display_name,
         Value Component::* member, PropertyMetadata metadata = {}) {
         using PropertyValue = std::remove_cvref_t<Value>;
-        static_assert(std::is_same_v<PropertyValue, bool>
-                          || std::is_same_v<PropertyValue, float>
+        static_assert(std::is_same_v<PropertyValue, bool> || std::is_same_v<PropertyValue, float>
                           || std::is_same_v<PropertyValue, Math::Vec3>
                           || std::is_same_v<PropertyValue, AssetHandle>
                           || std::is_same_v<PropertyValue, std::string>,
@@ -213,16 +211,13 @@ namespace Comet {
         PropertyDescriptor descriptor = make_property_descriptor(
             std::move(id), std::move(display_name), member, std::move(metadata));
         descriptor.on_changed = [callback = std::forward<Callback>(on_changed)](
-                                    void* value) mutable {
-            callback(*static_cast<Value*>(value));
-        };
+                                    void* value) mutable { callback(*static_cast<Value*>(value)); };
         return descriptor;
     }
 
     template<typename Component>
-    ComponentDescriptor make_component_descriptor(std::string id,
-        std::string display_name, std::vector<PropertyDescriptor> properties,
-        const bool serializable = true) {
+    ComponentDescriptor make_component_descriptor(std::string id, std::string display_name,
+        std::vector<PropertyDescriptor> properties, const bool serializable = true) {
         ComponentDescriptor descriptor{.id = std::move(id),
             .display_name = std::move(display_name),
             .type_id = entt::type_hash<Component>::value(),

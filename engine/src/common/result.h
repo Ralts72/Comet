@@ -1,18 +1,17 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <utility>
 #include <variant>
 
 namespace Comet {
-    template<typename T> class [[nodiscard]] AssetResult {
+    template<typename T> class [[nodiscard]] Result {
     public:
-        static AssetResult success(T value) {
-            return AssetResult(std::in_place_index<0>, std::move(value));
-        }
-        static AssetResult failure(std::string error) {
-            return AssetResult(std::in_place_index<1>, std::move(error));
+        static Result success(T value) { return Result(std::in_place_index<0>, std::move(value)); }
+        static Result failure(std::string error) {
+            return Result(std::in_place_index<1>, std::move(error));
         }
 
         explicit operator bool() const noexcept { return m_state.index() == 0; }
@@ -23,25 +22,22 @@ namespace Comet {
 
     private:
         template<std::size_t Index, typename Value>
-        AssetResult(std::in_place_index_t<Index> index, Value&& value)
+        Result(std::in_place_index_t<Index> index, Value&& value)
             : m_state(index, std::forward<Value>(value)) {}
 
         std::variant<T, std::string> m_state;
     };
 
-    template<> class [[nodiscard]] AssetResult<void> {
+    template<> class [[nodiscard]] Result<void> {
     public:
-        static AssetResult success() { return AssetResult(std::nullopt); }
-        static AssetResult failure(std::string error) {
-            return AssetResult(std::move(error));
-        }
+        static Result success() { return Result(std::nullopt); }
+        static Result failure(std::string error) { return Result(std::move(error)); }
 
         explicit operator bool() const noexcept { return !m_error.has_value(); }
         const std::string& error() const& { return m_error.value(); }
 
     private:
-        explicit AssetResult(std::optional<std::string> error)
-            : m_error(std::move(error)) {}
+        explicit Result(std::optional<std::string> error) : m_error(std::move(error)) {}
         std::optional<std::string> m_error;
     };
 }

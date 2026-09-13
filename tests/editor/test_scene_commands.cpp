@@ -16,18 +16,16 @@ namespace CometEditor::Tests {
 
         void SetUp() override { history.bind_scene(&scene); }
         bool add(std::string_view component) {
-            return SceneCommands::add_component(
-                history, registry, entity.get_uuid(), component);
+            return SceneCommands::add_component(history, registry, entity.get_uuid(), component);
         }
         bool remove(std::string_view component) {
-            return SceneCommands::remove_component(
-                history, registry, entity.get_uuid(), component);
+            return SceneCommands::remove_component(history, registry, entity.get_uuid(), component);
         }
     };
 
     TEST_F(SceneCommandsTest, MeshPlacementIsOneUndoableSerializableEntity) {
-        const auto uuid = SceneCommands::create_mesh_entity(history, registry, "Placed",
-            Comet::AssetHandle(8), Comet::AssetHandle(9), {2, 3, 4});
+        const auto uuid = SceneCommands::create_mesh_entity(
+            history, registry, "Placed", Comet::AssetHandle(8), Comet::AssetHandle(9), {2, 3, 4});
         ASSERT_TRUE(uuid);
         EXPECT_EQ(history.undo_size(), 1);
         auto placed = scene.find_entity(uuid);
@@ -40,14 +38,13 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(history.redo());
         placed = scene.find_entity(uuid);
         EXPECT_NE(placed.get_id(), original_id);
-        EXPECT_EQ(placed.get_component<Comet::MeshRendererComponent>().mesh,
-            Comet::AssetHandle(8));
+        EXPECT_EQ(placed.get_component<Comet::MeshRendererComponent>().mesh, Comet::AssetHandle(8));
         Comet::SceneSerializer serializer(registry);
         auto reopened = serializer.deserialize(serializer.serialize(scene));
         auto restored = reopened->find_entity(uuid);
         ASSERT_TRUE(restored);
-        EXPECT_EQ(restored.get_component<Comet::MeshRendererComponent>().material,
-            Comet::AssetHandle(9));
+        EXPECT_EQ(
+            restored.get_component<Comet::MeshRendererComponent>().material, Comet::AssetHandle(9));
         EXPECT_EQ(restored.get_component<Comet::TransformComponent>().translation,
             Comet::Math::Vec3(2, 3, 4));
     }
@@ -56,9 +53,8 @@ namespace CometEditor::Tests {
         const auto uuid = SceneCommands::create_mesh_entity(
             history, registry, "Unassigned", Comet::AssetHandle(8), {}, {});
         ASSERT_TRUE(uuid);
-        EXPECT_FALSE(scene.find_entity(uuid)
-                .get_component<Comet::MeshRendererComponent>()
-                .material);
+        EXPECT_FALSE(
+            scene.find_entity(uuid).get_component<Comet::MeshRendererComponent>().material);
         ASSERT_TRUE(history.undo());
         EXPECT_FALSE(scene.find_entity(uuid));
         ASSERT_TRUE(history.redo());
@@ -75,12 +71,12 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(history.undo());
         EXPECT_FALSE(SceneCommands::create_mesh_entity(
             history, registry, "Bad", {}, Comet::AssetHandle(9), {}));
-        EXPECT_FALSE(SceneCommands::create_mesh_entity(history, registry, "Bad",
-            Comet::AssetHandle(8), Comet::AssetHandle(9),
-            {std::numeric_limits<float>::quiet_NaN(), 0, 0}));
+        EXPECT_FALSE(
+            SceneCommands::create_mesh_entity(history, registry, "Bad", Comet::AssetHandle(8),
+                Comet::AssetHandle(9), {std::numeric_limits<float>::quiet_NaN(), 0, 0}));
         Comet::ComponentRegistry missing_descriptors;
-        EXPECT_FALSE(SceneCommands::create_mesh_entity(history, missing_descriptors,
-            "Bad", Comet::AssetHandle(8), Comet::AssetHandle(9), {}));
+        EXPECT_FALSE(SceneCommands::create_mesh_entity(
+            history, missing_descriptors, "Bad", Comet::AssetHandle(8), Comet::AssetHandle(9), {}));
         EXPECT_EQ(scene.entity_count(), 1);
         EXPECT_EQ(history.redo_size(), 1);
         history.bind_scene(nullptr);
@@ -112,15 +108,13 @@ namespace CometEditor::Tests {
         EXPECT_EQ(copied_child.get_component<Comet::NameComponent>().name, "Child");
         EXPECT_EQ(copied_child.get_component<Comet::MeshRendererComponent>().material,
             Comet::AssetHandle(9));
-        EXPECT_FLOAT_EQ(
-            copied_child.get_component<Comet::TransformComponent>().translation.x, 6);
+        EXPECT_FLOAT_EQ(copied_child.get_component<Comet::TransformComponent>().translation.x, 6);
         auto copy_grandchildren = scene.get_children(copied_child);
         ASSERT_EQ(copy_grandchildren.size(), 1);
         EXPECT_NE(copy_grandchildren.front().get_uuid(), grandchild.get_uuid());
         const auto copied_child_uuid = copied_child.get_uuid();
         child.get_component<Comet::TransformComponent>().translation.x = 12;
-        EXPECT_FLOAT_EQ(
-            copied_child.get_component<Comet::TransformComponent>().translation.x, 6);
+        EXPECT_FLOAT_EQ(copied_child.get_component<Comet::TransformComponent>().translation.x, 6);
         EXPECT_EQ(history.undo_size(), 1);
         ASSERT_TRUE(history.undo());
         EXPECT_EQ(scene.entity_count(), 4);
@@ -128,8 +122,7 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(child);
         ASSERT_TRUE(history.redo());
         EXPECT_EQ(scene.entity_count(), 7);
-        EXPECT_EQ(
-            scene.get_parent(scene.find_entity(copied_child_uuid)).get_uuid(), copy_uuid);
+        EXPECT_EQ(scene.get_parent(scene.find_entity(copied_child_uuid)).get_uuid(), copy_uuid);
         EXPECT_FLOAT_EQ(scene.find_entity(copied_child_uuid)
                             .get_component<Comet::TransformComponent>()
                             .translation.x,
@@ -142,8 +135,7 @@ namespace CometEditor::Tests {
         auto& camera = entity.add_component<Comet::CameraComponent>();
         camera.primary = true;
         camera.fov = 71;
-        const auto uuid =
-            SceneCommands::duplicate_entity(history, registry, entity.get_uuid());
+        const auto uuid = SceneCommands::duplicate_entity(history, registry, entity.get_uuid());
         ASSERT_TRUE(uuid);
         auto copy = scene.find_entity(uuid);
         EXPECT_EQ(copy.get_component<Comet::NameComponent>().name, "Entity Copy");
@@ -156,13 +148,11 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(scene.find_entity(uuid).has_component<Comet::TransformComponent>());
     }
 
-    TEST_F(
-        SceneCommandsTest, FailedDuplicateRestoreRollsBackCopiesButKeepsSourceAndRedo) {
+    TEST_F(SceneCommandsTest, FailedDuplicateRestoreRollsBackCopiesButKeepsSourceAndRedo) {
         struct Fallible {
             int value = 5;
         };
-        auto descriptor =
-            Comet::make_component_descriptor<Fallible>("fallible", "Fallible", {});
+        auto descriptor = Comet::make_component_descriptor<Fallible>("fallible", "Fallible", {});
         descriptor.restore_component_callback = [](Comet::Entity&, const std::any&) {
             return false;
         };
@@ -172,8 +162,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(scene.set_parent(child, entity));
         ASSERT_TRUE(add("camera"));
         ASSERT_TRUE(history.undo());
-        EXPECT_FALSE(
-            SceneCommands::duplicate_entity(history, registry, entity.get_uuid()));
+        EXPECT_FALSE(SceneCommands::duplicate_entity(history, registry, entity.get_uuid()));
         EXPECT_EQ(scene.entity_count(), 2);
         EXPECT_EQ(scene.get_parent(child), entity);
         EXPECT_EQ(child.get_component<Fallible>().value, 5);
@@ -194,14 +183,12 @@ namespace CometEditor::Tests {
         auto child = scene.create_entity();
         child.add_component<UnknownComponent>();
         ASSERT_TRUE(scene.set_parent(child, entity));
-        EXPECT_FALSE(
-            SceneCommands::duplicate_entity(history, registry, entity.get_uuid()));
+        EXPECT_FALSE(SceneCommands::duplicate_entity(history, registry, entity.get_uuid()));
         EXPECT_EQ(scene.entity_count(), 2);
         EXPECT_EQ(history.redo_size(), 1);
         ASSERT_TRUE(history.redo());
         history.bind_scene(nullptr);
-        EXPECT_FALSE(
-            SceneCommands::duplicate_entity(history, registry, entity.get_uuid()));
+        EXPECT_FALSE(SceneCommands::duplicate_entity(history, registry, entity.get_uuid()));
     }
 
     TEST_F(SceneCommandsTest, CreateRenameDeleteUseOneHistoryAndStableUuid) {
@@ -216,17 +203,14 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(scene.find_entity(uuid));
         ASSERT_TRUE(history.undo());
         EXPECT_NE(scene.find_entity(uuid).get_id(), original_id);
-        EXPECT_EQ(scene.find_entity(uuid).get_component<Comet::NameComponent>().name,
-            "Renamed");
+        EXPECT_EQ(scene.find_entity(uuid).get_component<Comet::NameComponent>().name, "Renamed");
         ASSERT_TRUE(history.undo());
-        EXPECT_EQ(scene.find_entity(uuid).get_component<Comet::NameComponent>().name,
-            "Created");
+        EXPECT_EQ(scene.find_entity(uuid).get_component<Comet::NameComponent>().name, "Created");
         ASSERT_TRUE(history.undo());
         EXPECT_FALSE(scene.find_entity(uuid));
         ASSERT_TRUE(history.redo());
         ASSERT_TRUE(history.redo());
-        EXPECT_EQ(scene.find_entity(uuid).get_component<Comet::NameComponent>().name,
-            "Renamed");
+        EXPECT_EQ(scene.find_entity(uuid).get_component<Comet::NameComponent>().name, "Renamed");
         ASSERT_TRUE(history.redo());
         EXPECT_FALSE(scene.find_entity(uuid));
     }
@@ -239,8 +223,8 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(child_uuid);
         auto child = scene.find_entity(child_uuid);
         EXPECT_EQ(scene.get_parent(child), entity);
-        EXPECT_EQ(child.get_component<Comet::TransformComponent>().translation,
-            Comet::Math::Vec3(0));
+        EXPECT_EQ(
+            child.get_component<Comet::TransformComponent>().translation, Comet::Math::Vec3(0));
         EXPECT_EQ(history.undo_size(), 1);
         ASSERT_TRUE(history.undo());
         EXPECT_FALSE(scene.find_entity(child_uuid));
@@ -261,8 +245,7 @@ namespace CometEditor::Tests {
 
     TEST_F(SceneCommandsTest, MissingCreateParentDoesNotCreateRootOrAlterHistory) {
         const auto missing_parent = Comet::EntityUuid::generate();
-        EXPECT_FALSE(
-            SceneCommands::create_entity(history, registry, "Child", missing_parent));
+        EXPECT_FALSE(SceneCommands::create_entity(history, registry, "Child", missing_parent));
         EXPECT_EQ(scene.entity_count(), 1);
         EXPECT_EQ(history.undo_size(), 0);
         const auto child =
@@ -299,12 +282,11 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(child.get_component<Comet::NameComponent>().name.empty());
         EXPECT_FALSE(child.has_component<Comet::TransformComponent>());
         EXPECT_FLOAT_EQ(child.get_component<Comet::CameraComponent>().fov, 82);
-        EXPECT_EQ(entity.get_component<Comet::MeshRendererComponent>().material,
-            Comet::AssetHandle(2));
+        EXPECT_EQ(
+            entity.get_component<Comet::MeshRendererComponent>().material, Comet::AssetHandle(2));
         Comet::SceneSerializer serializer(registry);
         auto loaded = serializer.deserialize(serializer.serialize(scene));
-        EXPECT_EQ(
-            loaded->get_parent(loaded->find_entity(child_uuid)).get_uuid(), root_uuid);
+        EXPECT_EQ(loaded->get_parent(loaded->find_entity(child_uuid)).get_uuid(), root_uuid);
         ASSERT_TRUE(history.redo());
         EXPECT_EQ(scene.entity_count(), 1);
     }
@@ -345,8 +327,8 @@ namespace CometEditor::Tests {
         struct Unrestorable {
             int value = 17;
         };
-        auto component = Comet::make_component_descriptor<Unrestorable>(
-            "unrestorable", "Unrestorable", {});
+        auto component =
+            Comet::make_component_descriptor<Unrestorable>("unrestorable", "Unrestorable", {});
         component.restore_component_callback = {};
         ASSERT_TRUE(registry.register_component(std::move(component)));
         entity.add_component<Unrestorable>();
@@ -361,8 +343,8 @@ namespace CometEditor::Tests {
             int value = 5;
         };
         bool fail = false;
-        auto component = Comet::make_component_descriptor<FallibleComponent>(
-            "fallible", "Fallible", {});
+        auto component =
+            Comet::make_component_descriptor<FallibleComponent>("fallible", "Fallible", {});
         auto restore = component.restore_component_callback;
         component.restore_component_callback = [&fail, restore](Comet::Entity& target,
                                                    const std::any& snapshot) {
@@ -398,13 +380,10 @@ namespace CometEditor::Tests {
     TEST_F(SceneCommandsTest, ReparentKeepsLocalTransformAndRejectsCyclesAndNoOps) {
         const auto parent = scene.create_entity("Parent");
         entity.get_component<Comet::TransformComponent>().translation.x = 7;
-        ASSERT_TRUE(SceneCommands::reparent_entity(
-            history, entity.get_uuid(), parent.get_uuid()));
+        ASSERT_TRUE(SceneCommands::reparent_entity(history, entity.get_uuid(), parent.get_uuid()));
         EXPECT_EQ(scene.get_parent(entity), parent);
-        EXPECT_FLOAT_EQ(
-            entity.get_component<Comet::TransformComponent>().translation.x, 7);
-        EXPECT_FALSE(SceneCommands::reparent_entity(
-            history, parent.get_uuid(), entity.get_uuid()));
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().translation.x, 7);
+        EXPECT_FALSE(SceneCommands::reparent_entity(history, parent.get_uuid(), entity.get_uuid()));
         EXPECT_EQ(history.undo_size(), 1);
         ASSERT_TRUE(history.undo());
         EXPECT_FALSE(scene.get_parent(entity));
@@ -496,8 +475,7 @@ namespace CometEditor::Tests {
         struct BrokenComponent {
             int value = 0;
         };
-        auto descriptor =
-            Comet::make_component_descriptor<BrokenComponent>("broken", "Broken", {});
+        auto descriptor = Comet::make_component_descriptor<BrokenComponent>("broken", "Broken", {});
         descriptor.capture_component_callback = [](const Comet::Entity&) -> std::any {
             throw std::runtime_error("Cannot capture");
         };
@@ -511,11 +489,9 @@ namespace CometEditor::Tests {
         struct EmptySnapshotComponent {
             int value = 0;
         };
-        auto descriptor = Comet::make_component_descriptor<EmptySnapshotComponent>(
-            "empty", "Empty", {});
-        descriptor.capture_component_callback = [](const Comet::Entity&) {
-            return std::any{};
-        };
+        auto descriptor =
+            Comet::make_component_descriptor<EmptySnapshotComponent>("empty", "Empty", {});
+        descriptor.capture_component_callback = [](const Comet::Entity&) { return std::any{}; };
         ASSERT_TRUE(registry.register_component(std::move(descriptor)));
         ASSERT_TRUE(add("camera"));
         ASSERT_TRUE(history.undo());
@@ -551,10 +527,9 @@ namespace CometEditor::Tests {
             float visible = 1;
             std::string hidden = "default";
         };
-        ASSERT_TRUE(registry.register_component(
-            Comet::make_component_descriptor<ExtraComponent>("extra", "Extra",
-                {Comet::make_property_descriptor(
-                    "visible", "Visible", &ExtraComponent::visible)})));
+        ASSERT_TRUE(registry.register_component(Comet::make_component_descriptor<ExtraComponent>(
+            "extra", "Extra",
+            {Comet::make_property_descriptor("visible", "Visible", &ExtraComponent::visible)})));
         auto& extra = entity.add_component<ExtraComponent>();
         extra.visible = 9;
         extra.hidden = "owned hidden data";

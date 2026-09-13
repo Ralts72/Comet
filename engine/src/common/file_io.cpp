@@ -22,14 +22,13 @@ namespace Comet {
             static std::atomic<std::uint64_t> sequence = 0;
             const std::string temporary_name =
                 ".comet-tmp-" + path.filename().string() + "."
-                + std::to_string(
-                    std::chrono::steady_clock::now().time_since_epoch().count())
-                + "." + std::to_string(sequence.fetch_add(1));
+                + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "."
+                + std::to_string(sequence.fetch_add(1));
             return path.parent_path() / temporary_name;
         }
 
-        void replace_file(const std::filesystem::path& source,
-            const std::filesystem::path& destination) {
+        void replace_file(
+            const std::filesystem::path& source, const std::filesystem::path& destination) {
 #ifdef _WIN32
             if(!MoveFileExW(source.c_str(), destination.c_str(),
                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
@@ -42,14 +41,13 @@ namespace Comet {
             std::filesystem::rename(source, destination, error);
             if(error) {
                 throw std::runtime_error("Failed to atomically replace file '"
-                                         + destination.string()
-                                         + "': " + error.message());
+                                         + destination.string() + "': " + error.message());
             }
 #endif
         }
 
-        void write_file_atomic(const std::filesystem::path& path, const char* contents,
-            const std::size_t size) {
+        void write_file_atomic(
+            const std::filesystem::path& path, const char* contents, const std::size_t size) {
             if(path.empty()) {
                 throw std::runtime_error("Cannot write an empty file path");
             }
@@ -59,8 +57,8 @@ namespace Comet {
                 std::error_code error;
                 std::filesystem::create_directories(parent, error);
                 if(error) {
-                    throw std::runtime_error("Failed to create directory '"
-                                             + parent.string() + "': " + error.message());
+                    throw std::runtime_error(
+                        "Failed to create directory '" + parent.string() + "': " + error.message());
                 }
             }
 
@@ -68,8 +66,8 @@ namespace Comet {
             try {
                 std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
                 if(!output) {
-                    throw std::runtime_error("Failed to open temporary file for writing: "
-                                             + temporary.string());
+                    throw std::runtime_error(
+                        "Failed to open temporary file for writing: " + temporary.string());
                 }
                 if(size != 0) {
                     output.write(contents, static_cast<std::streamsize>(size));
@@ -110,8 +108,7 @@ namespace Comet {
 
     void write_binary_file_atomic(
         const std::filesystem::path& path, const std::span<const std::byte> contents) {
-        write_file_atomic(
-            path, reinterpret_cast<const char*>(contents.data()), contents.size());
+        write_file_atomic(path, reinterpret_cast<const char*>(contents.data()), contents.size());
     }
 
     void write_text_file_atomic(

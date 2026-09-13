@@ -61,8 +61,7 @@ namespace Comet {
         BlendFactor src_alpha_blend_factor = BlendFactor::One;
         BlendFactor dst_alpha_blend_factor = BlendFactor::Zero;
         BlendOp alpha_blend_op = BlendOp::Add;
-        Flags<ColorWriteMask> color_write_mask =
-            Flags<ColorWriteMask>(ColorWriteMask::All);
+        Flags<ColorWriteMask> color_write_mask = Flags<ColorWriteMask>(ColorWriteMask::All);
     };
 
     struct PipelineDynamicState {
@@ -87,8 +86,7 @@ namespace Comet {
             vk::BlendFactor::eZero, // dstAlphaBlendFactor
             vk::BlendOp::eAdd,      // alphaBlendOp
             vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG
-                | vk::ColorComponentFlagBits::eB
-                | vk::ColorComponentFlagBits::eA // colorWriteMask
+                | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA // colorWriteMask
         };
         PipelineDynamicState dynamic_state;
         uint32_t subpass = 0;
@@ -99,13 +97,12 @@ namespace Comet {
 
         void set_vertex_input_state(const VertexInputDescription& description);
 
-        void set_input_assembly_state(
-            Topology topology, bool primitive_restart_enable = false);
+        void set_input_assembly_state(Topology topology, bool primitive_restart_enable = false);
 
         void set_rasterization_state(const PipelineRasterizationState& raster_state);
 
-        void set_multisample_state(SampleCount samples, bool sample_shading_enable,
-            float min_sample_shading = 0.f);
+        void set_multisample_state(
+            SampleCount samples, bool sample_shading_enable, float min_sample_shading = 0.f);
 
         void set_depth_stencil_state(const PipelineDepthStencilState& ds_state);
 

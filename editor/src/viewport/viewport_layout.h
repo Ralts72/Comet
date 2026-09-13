@@ -23,8 +23,7 @@ namespace CometEditor {
             [[nodiscard]] Comet::Math::Vec2 size() const { return max - min; }
 
             [[nodiscard]] bool contains(const Comet::Math::Vec2 point) const {
-                return point.x >= min.x && point.y >= min.y && point.x < max.x
-                       && point.y < max.y;
+                return point.x >= min.x && point.y >= min.y && point.x < max.x && point.y < max.y;
             }
         };
 
@@ -45,8 +44,7 @@ namespace CometEditor {
         Rect image_visible_rect;
     };
 
-    [[nodiscard]] ViewportLayout calculate_viewport_layout(
-        const ViewportLayout::Input& input);
+    [[nodiscard]] ViewportLayout calculate_viewport_layout(const ViewportLayout::Input& input);
 
     [[nodiscard]] std::optional<Comet::Math::Vec2u> map_viewport_point_to_pixel(
         const ViewportLayout& layout, Comet::Math::Vec2 screen_point);

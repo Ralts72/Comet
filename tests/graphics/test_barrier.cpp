@@ -31,8 +31,7 @@ namespace Comet::Tests {
         const auto before = require_resource_state(ResourceUsage::TransferDestination);
         const auto after = require_resource_state(ResourceUsage::VertexBuffer);
 
-        const auto barrier =
-            Graphics::build_buffer_memory_barrier({}, before, after, 32, 256);
+        const auto barrier = Graphics::build_buffer_memory_barrier({}, before, after, 32, 256);
 
         ASSERT_TRUE(barrier);
         EXPECT_EQ(barrier->srcStageMask, vk::PipelineStageFlagBits2::eTransfer);
@@ -63,8 +62,7 @@ namespace Comet::Tests {
     TEST(ImageBarrierTest, BuildsSynchronization2BarrierFromTypedStates) {
         const auto subresources = color_range();
         const auto before = require_state(ResourceUsage::Undefined, subresources);
-        const auto after =
-            require_state(ResourceUsage::TransferDestination, subresources);
+        const auto after = require_state(ResourceUsage::TransferDestination, subresources);
 
         const auto barrier = Graphics::build_image_memory_barrier({}, before, after);
 

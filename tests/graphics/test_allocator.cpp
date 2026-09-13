@@ -16,11 +16,9 @@ namespace Comet::Tests {
     }
 
     TEST(GpuResourceResultTest, DistinguishesSuccessFromFailure) {
-        const auto failure =
-            GpuResourceResult<int>::failure(vk::Result::eErrorOutOfDeviceMemory);
+        const auto failure = GpuResourceResult<int>::failure(vk::Result::eErrorOutOfDeviceMemory);
         const auto success = GpuResourceResult<int>::success(42);
-        const auto normalized_failure =
-            GpuResourceResult<int>::failure(vk::Result::eSuccess);
+        const auto normalized_failure = GpuResourceResult<int>::failure(vk::Result::eSuccess);
 
         EXPECT_FALSE(static_cast<bool>(failure));
         EXPECT_EQ(failure.result(), vk::Result::eErrorOutOfDeviceMemory);
@@ -39,8 +37,7 @@ namespace Comet::Tests {
     TEST(GpuResourceResultTest, RejectsFailedValueAccess) {
         EXPECT_DEATH(
             {
-                auto failure =
-                    GpuResourceResult<int>::failure(vk::Result::eErrorOutOfDeviceMemory);
+                auto failure = GpuResourceResult<int>::failure(vk::Result::eErrorOutOfDeviceMemory);
                 static_cast<void>(failure.value());
             },
             "");
@@ -63,8 +60,7 @@ namespace Comet::Tests {
 
         EXPECT_FALSE(budget.reaches_usage_percentage(0, 90));
         EXPECT_TRUE(budget.reaches_usage_percentage(1, 90));
-        EXPECT_TRUE(
-            budget.reaches_usage_percentage(std::numeric_limits<uint64_t>::max(), 90));
+        EXPECT_TRUE(budget.reaches_usage_percentage(std::numeric_limits<uint64_t>::max(), 90));
         EXPECT_FALSE(budget.reaches_usage_percentage(1, 0));
         EXPECT_FALSE(budget.reaches_usage_percentage(1, 101));
 

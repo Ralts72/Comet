@@ -6,8 +6,7 @@
 #include <utility>
 
 namespace Comet {
-    void PipelineConfig::set_vertex_input_state(
-        const VertexInputDescription& description) {
+    void PipelineConfig::set_vertex_input_state(const VertexInputDescription& description) {
         vertex_input_state.vertex_bindings = description.get_bindings();
         vertex_input_state.vertex_attributes = description.get_attributes();
     }
@@ -18,8 +17,7 @@ namespace Comet {
         input_assembly_state.primitive_restart_enable = primitive_restart_enable;
     }
 
-    void PipelineConfig::set_rasterization_state(
-        const PipelineRasterizationState& raster_state) {
+    void PipelineConfig::set_rasterization_state(const PipelineRasterizationState& raster_state) {
         rasterization_state = raster_state;
     }
 
@@ -30,26 +28,22 @@ namespace Comet {
         multisample_state.min_sample_shading = min_sample_shading;
     }
 
-    void PipelineConfig::set_depth_stencil_state(
-        const PipelineDepthStencilState& ds_state) {
+    void PipelineConfig::set_depth_stencil_state(const PipelineDepthStencilState& ds_state) {
         depth_stencil_state = ds_state;
     }
 
-    void PipelineConfig::set_color_blend_attachment_state(
-        const PipelineColorBlendState& cb_state) {
+    void PipelineConfig::set_color_blend_attachment_state(const PipelineColorBlendState& cb_state) {
         color_blend_state.blendEnable = cb_state.blend_enable;
         color_blend_state.srcColorBlendFactor =
             Graphics::blend_factor_to_vk(cb_state.src_color_blend_factor);
         color_blend_state.dstColorBlendFactor =
             Graphics::blend_factor_to_vk(cb_state.dst_color_blend_factor);
-        color_blend_state.colorBlendOp =
-            Graphics::blend_op_to_vk(cb_state.color_blend_op);
+        color_blend_state.colorBlendOp = Graphics::blend_op_to_vk(cb_state.color_blend_op);
         color_blend_state.srcAlphaBlendFactor =
             Graphics::blend_factor_to_vk(cb_state.src_alpha_blend_factor);
         color_blend_state.dstAlphaBlendFactor =
             Graphics::blend_factor_to_vk(cb_state.dst_alpha_blend_factor);
-        color_blend_state.alphaBlendOp =
-            Graphics::blend_op_to_vk(cb_state.alpha_blend_op);
+        color_blend_state.alphaBlendOp = Graphics::blend_op_to_vk(cb_state.alpha_blend_op);
         color_blend_state.colorWriteMask =
             Graphics::color_write_mask_to_vk(cb_state.color_write_mask);
     }

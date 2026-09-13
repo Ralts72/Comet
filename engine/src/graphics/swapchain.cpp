@@ -17,8 +17,7 @@ namespace Comet {
             constexpr uint32_t MAX_ATTEMPTS = 4;
             for(uint32_t attempt = 0; attempt < MAX_ATTEMPTS; ++attempt) {
                 uint32_t image_count = 0;
-                vk::Result result =
-                    device.getSwapchainImagesKHR(swapchain, &image_count, nullptr);
+                vk::Result result = device.getSwapchainImagesKHR(swapchain, &image_count, nullptr);
                 if(result != vk::Result::eSuccess) {
                     return GpuResourceResult<std::vector<vk::Image>>::failure(result);
                 }
@@ -28,8 +27,7 @@ namespace Comet {
                 }
 
                 std::vector<vk::Image> images(image_count);
-                result =
-                    device.getSwapchainImagesKHR(swapchain, &image_count, images.data());
+                result = device.getSwapchainImagesKHR(swapchain, &image_count, images.data());
                 if(result == vk::Result::eIncomplete) {
                     continue;
                 }
@@ -37,11 +35,9 @@ namespace Comet {
                     return GpuResourceResult<std::vector<vk::Image>>::failure(result);
                 }
                 images.resize(image_count);
-                return GpuResourceResult<std::vector<vk::Image>>::success(
-                    std::move(images));
+                return GpuResourceResult<std::vector<vk::Image>>::success(std::move(images));
             }
-            return GpuResourceResult<std::vector<vk::Image>>::failure(
-                vk::Result::eIncomplete);
+            return GpuResourceResult<std::vector<vk::Image>>::failure(vk::Result::eIncomplete);
         }
     }
 
@@ -64,8 +60,8 @@ namespace Comet {
             .image_count_changed = previous.image_count != current.image_count};
     }
 
-    Swapchain::Swapchain(const Window& window, Context& context, Device& device,
-        const SwapchainRequest& request)
+    Swapchain::Swapchain(
+        const Window& window, Context& context, Device& device, const SwapchainRequest& request)
         : m_window(window), m_context(context), m_device(device), m_request(request) {
         PROFILE_SCOPE("Swapchain::Constructor");
         if(!recreate()) {
@@ -82,9 +78,8 @@ namespace Comet {
         const auto present_modes = physical_device.getSurfacePresentModesKHR(surface);
         const auto framebuffer_size = m_window.get_framebuffer_size();
 
-        const auto [status, config, message] =
-            select_swapchain(capabilities, surface_formats, present_modes,
-                vk::Extent2D{framebuffer_size.x, framebuffer_size.y}, m_request);
+        const auto [status, config, message] = select_swapchain(capabilities, surface_formats,
+            present_modes, vk::Extent2D{framebuffer_size.x, framebuffer_size.y}, m_request);
         if(status == SwapchainStatus::Deferred) {
             LOG_DEBUG("Swapchain recreation deferred: {}", message);
             return false;
@@ -97,8 +92,8 @@ namespace Comet {
         }
         auto candidate = try_create_generation(config);
         if(!candidate) {
-            LOG_ERROR("Failed to create swapchain candidate: {}",
-                vk::to_string(candidate.result()));
+            LOG_ERROR(
+                "Failed to create swapchain candidate: {}", vk::to_string(candidate.result()));
             return false;
         }
         m_active_generation = std::move(candidate).value();
@@ -107,15 +102,13 @@ namespace Comet {
             "Vulkan swapchain created: images={}, extent={}x{}, format={}, color_space={}, present_mode={}, transform={}, composite_alpha={}, usage={}, layers={}, clipped={}",
             get_images().size(), config.extent.width, config.extent.height,
             vk::to_string(config.surface_format.format),
-            vk::to_string(config.surface_format.colorSpace),
-            vk::to_string(config.present_mode), vk::to_string(config.transform),
-            vk::to_string(config.composite_alpha), vk::to_string(config.usage),
-            config.image_layers, config.clipped);
+            vk::to_string(config.surface_format.colorSpace), vk::to_string(config.present_mode),
+            vk::to_string(config.transform), vk::to_string(config.composite_alpha),
+            vk::to_string(config.usage), config.image_layers, config.clipped);
         return true;
     }
 
-    Swapchain::GenerationResult Swapchain::try_create_generation(
-        const SwapchainConfig& config) {
+    Swapchain::GenerationResult Swapchain::try_create_generation(const SwapchainConfig& config) {
         vk::SharingMode image_sharing_mode;
         std::vector<uint32_t> queue_family_indices;
         if(m_context.is_same_queue_families()) {
@@ -139,8 +132,7 @@ namespace Comet {
         create_info.imageArrayLayers = config.image_layers;
         create_info.imageUsage = config.usage;
         create_info.imageSharingMode = image_sharing_mode;
-        create_info.queueFamilyIndexCount =
-            static_cast<uint32_t>(queue_family_indices.size());
+        create_info.queueFamilyIndexCount = static_cast<uint32_t>(queue_family_indices.size());
         create_info.pQueueFamilyIndices =
             queue_family_indices.empty() ? nullptr : queue_family_indices.data();
         create_info.preTransform = config.transform;
@@ -158,13 +150,13 @@ namespace Comet {
             // 否则调用方会恢复依赖资源并从已退休的交换链获取图像。
             if(old_swapchain) {
                 LOG_FATAL("Swapchain recreation failed and retired the old swapchain; "
-                    "cannot resume presentation: {}", vk::to_string(create_result));
+                          "cannot resume presentation: {}",
+                    vk::to_string(create_result));
             }
             return GenerationResult::failure(create_result);
         }
 
-        std::shared_ptr<Generation> generation(
-            new Generation(m_device, swapchain, {}, config));
+        std::shared_ptr<Generation> generation(new Generation(m_device, swapchain, {}, config));
         auto images_attempt = get_swapchain_images(m_device.get(), swapchain);
         if(!images_attempt) {
             generation.reset();
@@ -176,8 +168,7 @@ namespace Comet {
         const auto images = std::move(images_attempt).value();
         std::vector<std::shared_ptr<Image>> image_owners;
         image_owners.reserve(images.size());
-        const ImageInfo image_info{
-            .format = Graphics::vk_to_format(config.surface_format.format),
+        const ImageInfo image_info{.format = Graphics::vk_to_format(config.surface_format.format),
             .extent = Math::Vec3u(config.extent.width, config.extent.height, 1),
             .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)};
         for(const auto image : images) {
@@ -188,12 +179,11 @@ namespace Comet {
         return GenerationResult::success(std::move(generation));
     }
 
-    std::pair<uint32_t, vk::Result> Swapchain::acquire_next_image(
-        const Semaphore& semaphore) {
+    std::pair<uint32_t, vk::Result> Swapchain::acquire_next_image(const Semaphore& semaphore) {
         uint32_t image_index = 0;
         auto& generation = active_generation();
-        const auto result = m_device.get().acquireNextImageKHR(generation.m_swapchain,
-            UINT64_MAX, semaphore.get(), VK_NULL_HANDLE, &image_index);
+        const auto result = m_device.get().acquireNextImageKHR(
+            generation.m_swapchain, UINT64_MAX, semaphore.get(), VK_NULL_HANDLE, &image_index);
         if(result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR) {
             generation.m_current_index = image_index;
         }
@@ -239,8 +229,7 @@ namespace Comet {
         return active_generation().get();
     }
 
-    const std::shared_ptr<Swapchain::Generation>& Swapchain::get_active_generation()
-        const {
+    const std::shared_ptr<Swapchain::Generation>& Swapchain::get_active_generation() const {
         return m_active_generation;
     }
 }

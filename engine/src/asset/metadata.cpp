@@ -19,8 +19,7 @@ namespace Comet {
         return "unknown";
     }
 
-    std::optional<AssetType> asset_type_from_string(
-        const std::string_view value) noexcept {
+    std::optional<AssetType> asset_type_from_string(const std::string_view value) noexcept {
         if(value == "texture")
             return AssetType::Texture;
         if(value == "material")

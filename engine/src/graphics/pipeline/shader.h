@@ -16,12 +16,13 @@ namespace Comet {
         std::vector<std::shared_ptr<DescriptorSetLayout>> descriptor_set_layouts;
         std::vector<std::shared_ptr<PushConstantRange>> push_constants;
 
-        void validate(const ShaderInterface& shader) const;
+        Result<void> validate(const ShaderInterface& shader) const;
     };
 
     class COMET_API Shader {
     public:
-        Shader(Device& device, const std::string& name,
+        // CPU validation returns Result; Vulkan creation may still throw.
+        static Result<std::shared_ptr<Shader>> create(Device& device, const std::string& name,
             std::span<const std::uint32_t> spv_data, std::string entry_point = "main");
 
         ~Shader();
@@ -39,6 +40,9 @@ namespace Comet {
         [[nodiscard]] const std::vector<uint32_t>& get_code() const { return m_code; }
 
     private:
+        Shader(Device& device, const std::string& name, std::span<const uint32_t> spirv_words,
+            ShaderInterface interface);
+
         Device& m_device;
         ShaderInterface m_interface;
         std::vector<uint32_t> m_code;
@@ -49,7 +53,7 @@ namespace Comet {
     public:
         explicit ShaderManager(Device& device) : m_device(device) {}
 
-        std::shared_ptr<Shader> load_shader(const std::string& name,
+        Result<std::shared_ptr<Shader>> load_shader(const std::string& name,
             std::span<const std::uint32_t> spv_data, std::string entry_point = "main");
 
     private:

@@ -44,63 +44,63 @@ namespace Comet {
         static std::string s_current_log_file_path;
     };
 
-#define LOG_ERROR(fmt, ...)                                                              \
-    do {                                                                                 \
-        if(auto logger = ::Comet::Logger::get_console_logger();                          \
-            logger && logger->should_log(::spdlog::level::err)) {                        \
-            logger->error(fmt __VA_OPT__(, ) __VA_ARGS__);                               \
-        }                                                                                \
+#define LOG_ERROR(fmt, ...)                                                                        \
+    do {                                                                                           \
+        if(auto logger = ::Comet::Logger::get_console_logger();                                    \
+            logger && logger->should_log(::spdlog::level::err)) {                                  \
+            logger->error(fmt __VA_OPT__(, ) __VA_ARGS__);                                         \
+        }                                                                                          \
     } while(0)
-#define LOG_WARN(fmt, ...)                                                               \
-    do {                                                                                 \
-        if(auto logger = ::Comet::Logger::get_console_logger();                          \
-            logger && logger->should_log(::spdlog::level::warn)) {                       \
-            logger->warn(fmt __VA_OPT__(, ) __VA_ARGS__);                                \
-        }                                                                                \
+#define LOG_WARN(fmt, ...)                                                                         \
+    do {                                                                                           \
+        if(auto logger = ::Comet::Logger::get_console_logger();                                    \
+            logger && logger->should_log(::spdlog::level::warn)) {                                 \
+            logger->warn(fmt __VA_OPT__(, ) __VA_ARGS__);                                          \
+        }                                                                                          \
     } while(0)
-#define LOG_INFO(fmt, ...)                                                               \
-    do {                                                                                 \
-        if(auto logger = ::Comet::Logger::get_console_logger();                          \
-            logger && logger->should_log(::spdlog::level::info)) {                       \
-            logger->info(fmt __VA_OPT__(, ) __VA_ARGS__);                                \
-        }                                                                                \
+#define LOG_INFO(fmt, ...)                                                                         \
+    do {                                                                                           \
+        if(auto logger = ::Comet::Logger::get_console_logger();                                    \
+            logger && logger->should_log(::spdlog::level::info)) {                                 \
+            logger->info(fmt __VA_OPT__(, ) __VA_ARGS__);                                          \
+        }                                                                                          \
     } while(0)
 
 #ifdef COMET_ENABLE_DEBUG_LOGS
-#define LOG_DEBUG(fmt, ...)                                                              \
-    do {                                                                                 \
-        if(auto logger = ::Comet::Logger::get_console_logger();                          \
-            logger && logger->should_log(::spdlog::level::debug)) {                      \
-            logger->debug(fmt __VA_OPT__(, ) __VA_ARGS__);                               \
-        }                                                                                \
+#define LOG_DEBUG(fmt, ...)                                                                        \
+    do {                                                                                           \
+        if(auto logger = ::Comet::Logger::get_console_logger();                                    \
+            logger && logger->should_log(::spdlog::level::debug)) {                                \
+            logger->debug(fmt __VA_OPT__(, ) __VA_ARGS__);                                         \
+        }                                                                                          \
     } while(0)
 #else
-#define LOG_DEBUG(fmt, ...)                                                              \
-    do {                                                                                 \
+#define LOG_DEBUG(fmt, ...)                                                                        \
+    do {                                                                                           \
     } while(0)
 #endif
 
 #ifdef COMET_ENABLE_TRACE_LOGS
-#define LOG_TRACE(fmt, ...)                                                              \
-    do {                                                                                 \
-        if(auto logger = ::Comet::Logger::get_console_logger();                          \
-            logger && logger->should_log(::spdlog::level::trace)) {                      \
-            logger->trace(fmt __VA_OPT__(, ) __VA_ARGS__);                               \
-        }                                                                                \
+#define LOG_TRACE(fmt, ...)                                                                        \
+    do {                                                                                           \
+        if(auto logger = ::Comet::Logger::get_console_logger();                                    \
+            logger && logger->should_log(::spdlog::level::trace)) {                                \
+            logger->trace(fmt __VA_OPT__(, ) __VA_ARGS__);                                         \
+        }                                                                                          \
     } while(0)
 #else
-#define LOG_TRACE(fmt, ...)                                                              \
-    do {                                                                                 \
+#define LOG_TRACE(fmt, ...)                                                                        \
+    do {                                                                                           \
     } while(0)
 #endif
 
-#define LOG_FATAL(fmt, ...)                                                              \
-    do {                                                                                 \
-        if(auto logger = ::Comet::Logger::get_console_logger()) {                        \
-            logger->critical(fmt __VA_OPT__(, ) __VA_ARGS__);                            \
-            logger->flush();                                                             \
-        }                                                                                \
-        assert(false);                                                                   \
-        std::terminate();                                                                \
+#define LOG_FATAL(fmt, ...)                                                                        \
+    do {                                                                                           \
+        if(auto logger = ::Comet::Logger::get_console_logger()) {                                  \
+            logger->critical(fmt __VA_OPT__(, ) __VA_ARGS__);                                      \
+            logger->flush();                                                                       \
+        }                                                                                          \
+        assert(false);                                                                             \
+        std::terminate();                                                                          \
     } while(0)
 }

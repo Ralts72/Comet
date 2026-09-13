@@ -12,8 +12,7 @@ namespace Comet {
             for(int index = 1; index < argc; ++index)
                 arguments.emplace_back(argv[index]);
             if(arguments.size() == 1 && arguments.front() == "--help") {
-                std::cout << "Usage: "
-                          << std::filesystem::path(argv[0]).filename().string();
+                std::cout << "Usage: " << std::filesystem::path(argv[0]).filename().string();
                 if(!arguments_usage.empty())
                     std::cout << ' ' << arguments_usage;
                 std::cout << '\n';

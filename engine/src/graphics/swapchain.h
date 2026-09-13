@@ -83,8 +83,7 @@ namespace Comet {
     private:
         using GenerationResult = GpuResourceResult<std::shared_ptr<Generation>>;
 
-        [[nodiscard]] GenerationResult try_create_generation(
-            const SwapchainConfig& config);
+        [[nodiscard]] GenerationResult try_create_generation(const SwapchainConfig& config);
         [[nodiscard]] Generation& active_generation();
         [[nodiscard]] const Generation& active_generation() const;
 

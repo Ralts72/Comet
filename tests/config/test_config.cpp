@@ -45,8 +45,7 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
         bool enable_validation;
     };
 
-    constexpr std::array expectations = {
-        ProfileExpectation{"dev-debug", "trace", true, true},
+    constexpr std::array expectations = {ProfileExpectation{"dev-debug", "trace", true, true},
         ProfileExpectation{"editor-dev", "info", false, false},
         ProfileExpectation{"app-release", "warn", false, false}};
 
@@ -56,8 +55,7 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
         SCOPED_TRACE(expectation.name);
         const Config config = ConfigLoader{}.load(std::vector<std::string>{
             (config_directory / "common.yaml").string(),
-            (config_directory / "profiles" / (std::string(expectation.name) + ".yaml"))
-                .string()});
+            (config_directory / "profiles" / (std::string(expectation.name) + ".yaml")).string()});
 
         EXPECT_EQ(config.diagnostics.log.level, expectation.log_level);
         EXPECT_FALSE(config.diagnostics.log.enable_file_logging);
@@ -133,8 +131,8 @@ TEST(ConfigTest, UsesDefaultsForMissingFields) {
 
 TEST(ConfigTest, ExplicitValidationSettingOverridesDefault) {
     const bool expected = !Config::Vulkan{}.enable_validation;
-    const TemporaryConfigFile file(std::string("diagnostics:\n  enable_validation: ")
-                                   + (expected ? "true\n" : "false\n"));
+    const TemporaryConfigFile file(
+        std::string("diagnostics:\n  enable_validation: ") + (expected ? "true\n" : "false\n"));
 
     const Config config = ConfigLoader{}.load(file.path());
 
@@ -221,11 +219,10 @@ TEST(ConfigTest, RejectsUnsupportedMsaaSampleCount) {
 }
 
 TEST(ConfigTest, ThrowsForMissingFile) {
-    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load("missing-config.yaml")),
-        std::runtime_error);
+    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load("missing-config.yaml")), std::runtime_error);
 }
 
 TEST(ConfigTest, RejectsEmptyLayerList) {
-    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load(std::vector<std::string>{})),
-        std::runtime_error);
+    EXPECT_THROW(
+        static_cast<void>(ConfigLoader{}.load(std::vector<std::string>{})), std::runtime_error);
 }

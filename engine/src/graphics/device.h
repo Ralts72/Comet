@@ -68,17 +68,11 @@ namespace Comet {
             return m_present_queues.at(index);
         }
 
-        [[nodiscard]] vk::PipelineCache get_pipeline_cache() const {
-            return m_pipeline_cache;
-        }
+        [[nodiscard]] vk::PipelineCache get_pipeline_cache() const { return m_pipeline_cache; }
 
-        [[nodiscard]] const DeviceCapability& get_capability() const {
-            return m_capability;
-        }
+        [[nodiscard]] const DeviceCapability& get_capability() const { return m_capability; }
 
-        [[nodiscard]] CommandPool& get_default_command_pool() {
-            return *m_default_command_pool;
-        }
+        [[nodiscard]] CommandPool& get_default_command_pool() { return *m_default_command_pool; }
         [[nodiscard]] const CommandPool& get_default_command_pool() const {
             return *m_default_command_pool;
         }

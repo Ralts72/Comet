@@ -41,9 +41,8 @@ namespace Comet {
     }
 
     bool BoundingBox::is_valid() const {
-        return Math::is_finite(minimum) && Math::is_finite(maximum)
-               && minimum.x <= maximum.x && minimum.y <= maximum.y
-               && minimum.z <= maximum.z;
+        return Math::is_finite(minimum) && Math::is_finite(maximum) && minimum.x <= maximum.x
+               && minimum.y <= maximum.y && minimum.z <= maximum.z;
     }
 
     Math::Vec3 BoundingBox::center() const {
@@ -60,8 +59,7 @@ namespace Comet {
                && std::isfinite(max_parameter) && max_parameter >= 0.0f;
     }
 
-    std::optional<BoundingBox> transform_box(
-        const BoundingBox& box, const Math::Mat4& transform) {
+    std::optional<BoundingBox> transform_box(const BoundingBox& box, const Math::Mat4& transform) {
         if(!box.is_valid() || transform[0][3] != 0.0f || transform[1][3] != 0.0f
             || transform[2][3] != 0.0f || transform[3][3] != 1.0f) {
             return std::nullopt;

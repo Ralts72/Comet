@@ -15,12 +15,11 @@ namespace Comet {
         uint64_t value;
         Flags<PipelineStage> stage_mask;
 
-        QueueSemaphoreSubmit(const Semaphore& semaphore,
-            const Flags<PipelineStage> stage_mask, const uint64_t value = 0)
+        QueueSemaphoreSubmit(const Semaphore& semaphore, const Flags<PipelineStage> stage_mask,
+            const uint64_t value = 0)
             : semaphore(&semaphore), value(value), stage_mask(stage_mask) {}
 
-        QueueSemaphoreSubmit(
-            const GpuCompletionPoint& completion, Flags<PipelineStage> stage_mask);
+        QueueSemaphoreSubmit(const GpuCompletionPoint& completion, Flags<PipelineStage> stage_mask);
     };
 
     class COMET_API Queue {
@@ -34,8 +33,7 @@ namespace Comet {
         Queue(Queue&&) noexcept = default;
         Queue& operator=(Queue&&) noexcept = delete;
 
-        [[nodiscard]] GpuCompletionPoint submit2(
-            std::span<const QueueSemaphoreSubmit> waits,
+        [[nodiscard]] GpuCompletionPoint submit2(std::span<const QueueSemaphoreSubmit> waits,
             std::span<const CommandBuffer> command_buffers,
             std::span<const QueueSemaphoreSubmit> signals, const Fence* fence);
 

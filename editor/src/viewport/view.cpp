@@ -128,14 +128,12 @@ namespace CometEditor {
         ImGui::BeginDisabled(!settings.snap);
         ImGui::SetNextItemWidth(120);
         if(settings.mode == TransformGizmo::Mode::Rotate)
-            changed |= ImGui::InputFloat(
-                "Angle step", &settings.rotation_step_degrees, 0, 0, "%.1f");
+            changed |=
+                ImGui::InputFloat("Angle step", &settings.rotation_step_degrees, 0, 0, "%.1f");
         else if(settings.mode == TransformGizmo::Mode::Scale)
-            changed |=
-                ImGui::InputFloat("Scale step", &settings.scale_step, 0, 0, "%.2f");
+            changed |= ImGui::InputFloat("Scale step", &settings.scale_step, 0, 0, "%.2f");
         else
-            changed |=
-                ImGui::InputFloat("Move step", &settings.translation_step, 0, 0, "%.3f");
+            changed |= ImGui::InputFloat("Move step", &settings.translation_step, 0, 0, "%.3f");
         ImGui::EndDisabled();
         if(settings.mode == TransformGizmo::Mode::Rotate
             && settings.space == TransformGizmo::Space::World)
@@ -149,8 +147,7 @@ namespace CometEditor {
     void ViewPanel::render_projection_controls() {
         using Projection = Comet::RenderCamera::Projection;
         const ImVec2 button_size(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight());
-        for(const Projection projection :
-            {Projection::Orthographic, Projection::Perspective}) {
+        for(const Projection projection : {Projection::Orthographic, Projection::Perspective}) {
             if(projection == Projection::Perspective) {
                 ImGui::SameLine();
             }
@@ -190,12 +187,11 @@ namespace CometEditor {
 
         ImGui::SetNextItemWidth(dropdown_width);
         if(ImGui::BeginCombo("##Resolution", resolution_label)) {
-            if(ImGui::Selectable(
-                   "Free", m_play_resolution_policy.mode == ResolutionMode::Free)) {
+            if(ImGui::Selectable("Free", m_play_resolution_policy.mode == ResolutionMode::Free)) {
                 m_play_resolution_policy = {};
             }
-            if(ImGui::Selectable("16:9",
-                   m_play_resolution_policy.mode == ResolutionMode::Aspect16By9)) {
+            if(ImGui::Selectable(
+                   "16:9", m_play_resolution_policy.mode == ResolutionMode::Aspect16By9)) {
                 m_play_resolution_policy = {.mode = ResolutionMode::Aspect16By9};
             }
             if(ImGui::Selectable("1280 x 720",
@@ -206,10 +202,9 @@ namespace CometEditor {
                     .fixed_resolution = hd_resolution,
                 };
             }
-            if(ImGui::Selectable(
-                   "1920 x 1080", m_play_resolution_policy.mode == ResolutionMode::Fixed
-                                      && m_play_resolution_policy.fixed_resolution
-                                             == full_hd_resolution)) {
+            if(ImGui::Selectable("1920 x 1080",
+                   m_play_resolution_policy.mode == ResolutionMode::Fixed
+                       && m_play_resolution_policy.fixed_resolution == full_hd_resolution)) {
                 m_play_resolution_policy = {
                     .mode = ResolutionMode::Fixed,
                     .fixed_resolution = full_hd_resolution,
@@ -223,8 +218,7 @@ namespace CometEditor {
             m_play_display_mode == ViewportLayout::DisplayMode::Fit ? "Fit" : "1x";
         ImGui::SetNextItemWidth(dropdown_width);
         if(ImGui::BeginCombo("##Display", display_label)) {
-            if(ImGui::Selectable(
-                   "Fit", m_play_display_mode == ViewportLayout::DisplayMode::Fit)) {
+            if(ImGui::Selectable("Fit", m_play_display_mode == ViewportLayout::DisplayMode::Fit)) {
                 m_play_display_mode = ViewportLayout::DisplayMode::Fit;
             }
             if(ImGui::Selectable(
@@ -288,13 +282,11 @@ namespace CometEditor {
             const auto& io = ImGui::GetIO();
             const Comet::Math::Vec2 point{io.MousePos.x, io.MousePos.y};
             if(map_viewport_point_to_pixel(m_layout, point)) {
-                if(const auto payload =
-                        read_asset_drag_payload(ImGui::GetDragDropPayload())) {
+                if(const auto payload = read_asset_drag_payload(ImGui::GetDragDropPayload())) {
                     const auto& asset = *payload;
                     if(asset.type == Comet::AssetType::Mesh
                         && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
-                        const auto uv =
-                            (point - m_layout.image_display_rect.min) / display_size;
+                        const auto uv = (point - m_layout.image_display_rect.min) / display_size;
                         if(const auto position = camera_focus_plane_point(
                                m_state.camera, uv, display_size.x / display_size.y))
                             m_mesh_drop = MeshDrop{asset, *position};
@@ -319,8 +311,7 @@ namespace CometEditor {
         const ImGuiIO& io = ImGui::GetIO();
         const Comet::Math::Vec2 mouse_position(io.MousePos.x, io.MousePos.y);
         const auto mapped_pixel = map_viewport_point_to_pixel(m_layout, mouse_position);
-        const bool pointer_over_image =
-            ImGui::IsItemHovered() && mapped_pixel.has_value();
+        const bool pointer_over_image = ImGui::IsItemHovered() && mapped_pixel.has_value();
 
         if(pointer_over_image || m_gizmo.active()) {
             // Image 没有 item ID；直接指定 owner，拖动期间也阻止窗口滚动。
@@ -331,29 +322,26 @@ namespace CometEditor {
         const bool navigation_input = m_camera_drag || io.KeyAlt
                                       || ImGui::IsMouseDown(ImGuiMouseButton_Right)
                                       || ImGui::IsMouseDown(ImGuiMouseButton_Middle);
-        const bool available = pointer_over_image && !navigation_input
-                               && !ImGui::IsAnyItemActive() && !io.WantTextInput
-                               && m_texture_id != ImTextureID_Invalid;
+        const bool available = pointer_over_image && !navigation_input && !ImGui::IsAnyItemActive()
+                               && !io.WantTextInput && m_texture_id != ImTextureID_Invalid;
         bool pressed = available && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
         if(pressed && !m_inspector_edit.commit()) {
             pressed = false;
         }
         const auto entity = m_selection.get_selected_entity();
-        const bool consumed =
-            m_gizmo.update(entity.get_uuid(), m_state.camera.snapshot(), m_layout,
-                {
-                    .position = mouse_position,
-                    .hovered = available,
-                    .pressed = pressed,
-                    .down = ImGui::IsMouseDown(ImGuiMouseButton_Left),
-                    .released = ImGui::IsMouseReleased(ImGuiMouseButton_Left),
-                    .cancel =
-                        ImGui::IsKeyPressed(ImGuiKey_Escape, false) || io.AppFocusLost
-                        || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
-                        || ImGui::IsPopupOpen(nullptr,
-                            ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)
-                        || m_texture_id == ImTextureID_Invalid,
-                });
+        const bool consumed = m_gizmo.update(entity.get_uuid(), m_state.camera.snapshot(), m_layout,
+            {
+                .position = mouse_position,
+                .hovered = available,
+                .pressed = pressed,
+                .down = ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                .released = ImGui::IsMouseReleased(ImGuiMouseButton_Left),
+                .cancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false) || io.AppFocusLost
+                          || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+                          || ImGui::IsPopupOpen(
+                              nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)
+                          || m_texture_id == ImTextureID_Invalid,
+            });
         if(m_gizmo.active()) {
             ImGui::SetActiveID(m_gizmo_id, ImGui::GetCurrentWindow());
             ImGui::KeepAliveID(m_gizmo_id);
@@ -365,8 +353,8 @@ namespace CometEditor {
             return;
         }
 
-        if(ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
-            && !io.WantTextInput && !ImGui::IsAnyItemActive() && !m_camera_drag
+        if(ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !io.WantTextInput
+            && !ImGui::IsAnyItemActive() && !m_camera_drag
             && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)
             && m_shortcuts.pressed(
                 EditorShortcuts::Action::FocusSelection, ImGuiInputFlags_RouteGlobal)) {
@@ -405,8 +393,7 @@ namespace CometEditor {
             m_camera_drag.reset();
         }
 
-        const bool orbit_drag =
-            m_camera_drag && m_camera_drag->mode == CameraDragMode::Orbit;
+        const bool orbit_drag = m_camera_drag && m_camera_drag->mode == CameraDragMode::Orbit;
         const bool pan_drag = m_camera_drag && m_camera_drag->mode == CameraDragMode::Pan;
         Comet::Math::Vec2 orbit_delta(0.0f);
         if(orbit_drag) {
@@ -445,8 +432,8 @@ namespace CometEditor {
     void ViewPanel::draw_gizmo() {
         // draw list 仅在当前 UI 帧内有效。
         ImDrawList* draw_list = std::exchange(m_gizmo_draw_list, nullptr);
-        if(!draw_list || m_state.mode != EditorMode::Edit || m_pick_request
-            || m_mode_request || m_texture_id == ImTextureID_Invalid) {
+        if(!draw_list || m_state.mode != EditorMode::Edit || m_pick_request || m_mode_request
+            || m_texture_id == ImTextureID_Invalid) {
             return;
         }
         const auto entity = m_selection.get_selected_entity();
@@ -485,20 +472,19 @@ namespace CometEditor {
                 else
                     draw_list->AddLine(ImVec2(segment.start.x, segment.start.y),
                         ImVec2(point.x, point.y), color, 2.5f);
-                draw_list->AddRectFilled(ImVec2(point.x - 4, point.y - 4),
-                    ImVec2(point.x + 4, point.y + 4), color);
+                draw_list->AddRectFilled(
+                    ImVec2(point.x - 4, point.y - 4), ImVec2(point.x + 4, point.y + 4), color);
                 continue;
             }
             const auto direction = segment.end - segment.start;
-            const float length =
-                std::sqrt(direction.x * direction.x + direction.y * direction.y);
+            const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
             const auto unit = direction / length;
             const Comet::Math::Vec2 side(-unit.y, unit.x);
             const auto base = segment.end - unit * std::min(9.0f, length * 0.4f);
             const auto left = base + side * 4.0f;
             const auto right = base - side * 4.0f;
-            draw_list->AddLine(ImVec2(segment.start.x, segment.start.y),
-                ImVec2(base.x, base.y), color, 2.5f);
+            draw_list->AddLine(
+                ImVec2(segment.start.x, segment.start.y), ImVec2(base.x, base.y), color, 2.5f);
             draw_list->AddTriangleFilled(ImVec2(segment.end.x, segment.end.y),
                 ImVec2(left.x, left.y), ImVec2(right.x, right.y), color);
         }
@@ -525,8 +511,8 @@ namespace CometEditor {
         return std::exchange(m_focus_request, false);
     }
 
-    void ViewPanel::set_texture_id(const ImTextureID texture_id,
-        const std::uint32_t width, const std::uint32_t height) {
+    void ViewPanel::set_texture_id(
+        const ImTextureID texture_id, const std::uint32_t width, const std::uint32_t height) {
         m_texture_id = texture_id;
         m_texture_resolution = Comet::Math::Vec2u(width, height);
     }

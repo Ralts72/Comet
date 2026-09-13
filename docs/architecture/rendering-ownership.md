@@ -149,7 +149,7 @@ GPU 候选失败可沿用旧 MaterialResources，同一候选延后 60 个 frame
 成功返回前复核输入，失败不返回字节码；include 诊断保留源文件／行号并追加具体原因。
 参数、源文件读取与 include 限制使用明确失败返回，文件系统查询使用 error_code；缺失是可记录的依赖状态，读取错误不是缺失。
 compile_source 负责单次编译结果，公开 compile 统一收集依赖和复核输入；不因早退漏掉失败请求的依赖。
-第三方调用、include 处理和 CLI 写文件保留异常边界。Shader／Pipeline／Material 构造的非法状态仍抛错，不返回残缺对象或改用 LOG_FATAL。
+第三方调用、include 处理和 CLI 写文件保留异常边界。
 depfile 只列存在的依赖，新增遮蔽文件不保证自动触发构建。原子写针对单文件，不是 SPIR-V／depfile 的跨文件事务。
 未来 Worker 发布仍需请求 revision 与输入复核，快照不等于文件锁；当前尚无编辑器源码监视／热发布。
 
@@ -157,6 +157,14 @@ Shader 先反射指定入口再创建 module，拥有字节码副本和反射值
 ShaderLayout 检查 descriptor 类型／数量／stage 和 push 覆盖；MaterialLayout 额外核对材质参数块大小、偏移、类型与纹理协议。
 原生反射类型仅在 shader_interface.cpp 转换，Vulkan 布局对照留在 ShaderLayout 实现中。
 当前仅同步反射，不自动生成 MaterialLayout；头和指令长度预检不是完整 SPIR-V validator。
+
+ShaderInterface::reflect、MaterialLayout::create、布局／specialization 校验及 PipelineKey::create
+与资产导入、序列化统一使用 common/result.h 的 Result<T> 返回预期失败，不保留资产层别名或转发头。
+反射和布局只返回完整候选，specialization 先完整校验再删除默认值，PipelineKey 在配置副本上规范化。
+Shader::create 与两个 Manager 检查这些结果，失败不写入或替换缓存；Pipeline 构造入口只供 Manager 使用。
+GPU 调用尚未全面改为原生错误结果，Shader／Pipeline 创建不能视为无异常接口。
+渲染器初始化暂将结果错误交给现有异常清理边界；内置 MaterialLayout 常量定义错误属于内部不变量，明确终止。
+下一步迁移 GPU 创建与启动消费者，保留资源不足／设备丢失的区别；不以 LOG_FATAL 替代可恢复错误。
 
 PipelineConfig 与状态位于 pipeline_config.h/.cpp，PipelineKey 的完整判等、规范化与哈希位于 pipeline_key.h/.cpp。
 Key 包含完整 Shader 内容／入口、layout、配置、RenderPass 身份与附件格式／采样数；名称只作标签，hash 不代替相等比较。

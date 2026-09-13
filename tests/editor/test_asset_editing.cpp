@@ -58,19 +58,16 @@ namespace CometEditor::Tests {
             add_asset("material.mat", material, Comet::AssetType::Material);
             EXPECT_TRUE(Comet::MaterialSerializer{}.save(
                 {.template_name = "unlit_texture_blend",
-                    .texture_properties = {{"u_Texture0", texture},
-                        {"u_Texture1", texture}}},
+                    .texture_properties = {{"u_Texture0", texture}, {"u_Texture1", texture}}},
                 paths.assets() / "material.mat"));
             ASSERT_TRUE(database.scan().succeeded());
             auto builtins = Comet::create_scene_component_registry();
-            ASSERT_TRUE(
-                registry.register_component(*builtins.find_component("mesh_renderer")));
+            ASSERT_TRUE(registry.register_component(*builtins.find_component("mesh_renderer")));
             entity.add_component<Comet::MeshRendererComponent>();
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
             inspector = std::make_unique<InspectorPanel>(
-                state, selection, history, edit, registry, widgets, database,
-                paths.assets(),
+                state, selection, history, edit, registry, widgets, database, paths.assets(),
                 [this](Comet::AssetHandle handle, const Comet::MaterialData& data) {
                     EXPECT_EQ(handle, material);
                     ++material_updates;
@@ -141,8 +138,7 @@ namespace CometEditor::Tests {
                     + ImGui::GetFrameHeight() * 0.5f};
         }
 
-        ImVec2 material_point(
-            const char* name, const char* label, const char* child = nullptr) {
+        ImVec2 material_point(const char* name, const char* label, const char* child = nullptr) {
             auto* window = ImGui::FindWindowByName("Inspector");
             const ImGuiID group = window->GetID(name);
             ImGuiID id = ImHashStr(label, 0, group);
@@ -195,8 +191,7 @@ namespace CometEditor::Tests {
     };
 
     TEST_F(AssetEditingUiTest, ProjectDragKeepsSelectionAndOriginalDocumentGeneration) {
-        ProjectPanel project(
-            database, paths.assets(), {}, nullptr, nullptr, selection, history);
+        ProjectPanel project(database, paths.assets(), {}, nullptr, nullptr, selection, history);
         const auto draw = [&]() {
             ImGui::NewFrame();
             ImGui::SetNextWindowPos({20, 40});
@@ -209,8 +204,8 @@ namespace CometEditor::Tests {
         auto* window = ImGui::FindWindowByName("Project");
         ASSERT_NE(window, nullptr);
         // 无目录的排序列表最后一行是 texture.png；由实际布局取得 Y。
-        const ImVec2 point{window->Pos.x + 50,
-            window->DC.CursorPosPrevLine.y + ImGui::GetTextLineHeight() * 0.5f};
+        const ImVec2 point{
+            window->Pos.x + 50, window->DC.CursorPosPrevLine.y + ImGui::GetTextLineHeight() * 0.5f};
         auto& io = ImGui::GetIO();
         io.AddMousePosEvent(point.x, point.y);
         draw();
@@ -233,14 +228,13 @@ namespace CometEditor::Tests {
         draw();
         data = ImGui::GetDragDropPayload();
         ASSERT_NE(data, nullptr);
-        EXPECT_EQ(static_cast<const AssetDragPayload*>(data->Data)->generation,
-            first.generation);
+        EXPECT_EQ(static_cast<const AssetDragPayload*>(data->Data)->generation, first.generation);
         EXPECT_NE(first.generation, history.generation());
     }
 
     TEST_F(AssetEditingUiTest, ProjectToInspectorDragKeepsTheTargetVisible) {
-        project = std::make_unique<ProjectPanel>(database, paths.assets(),
-            Comet::AssetScanReport{}, nullptr, nullptr, selection, history);
+        project = std::make_unique<ProjectPanel>(database, paths.assets(), Comet::AssetScanReport{},
+            nullptr, nullptr, selection, history);
         frame();
         frame();
         const auto* window = ImGui::FindWindowByName("Project");
@@ -273,8 +267,7 @@ namespace CometEditor::Tests {
 
     TEST_F(AssetEditingUiTest, PickerFiltersTypesAndDistinguishesSameFilenamePaths) {
         std::filesystem::create_directories(paths.assets() / "nested");
-        std::ofstream(paths.assets() / "nested/mesh.gltf")
-            << R"({"asset":{"version":"2.0"}})";
+        std::ofstream(paths.assets() / "nested/mesh.gltf") << R"({"asset":{"version":"2.0"}})";
         ASSERT_TRUE(database.scan().succeeded());
         auto request = choose(0, 2);
         ASSERT_TRUE(request);
@@ -323,8 +316,7 @@ namespace CometEditor::Tests {
     TEST_F(AssetEditingUiTest, TypedDropQueuesIdentityAndUsesSharedPropertyHistory) {
         for(const int index : {0, 1}) {
             const auto handle = index == 0 ? mesh : material;
-            const auto type =
-                index == 0 ? Comet::AssetType::Mesh : Comet::AssetType::Material;
+            const auto type = index == 0 ? Comet::AssetType::Mesh : Comet::AssetType::Material;
             payload = drag_asset(handle, type);
             const auto request = drop(property_point(index));
             ASSERT_TRUE(request);
@@ -376,9 +368,7 @@ namespace CometEditor::Tests {
     TEST_F(AssetEditingUiTest, SelectedMaterialReloadsOnlyWhenItsRevisionChanges) {
         selection.select_asset(material);
         frame();
-        const auto slot_point = [&]() {
-            return material_point("u_Texture0", "Texture 0");
-        };
+        const auto slot_point = [&]() { return material_point("u_Texture0", "Texture 0"); };
         payload = drag_asset(second_texture, Comet::AssetType::Texture);
         EXPECT_FALSE(drop(slot_point()));
         ASSERT_EQ(material_updates, 1);
@@ -565,16 +555,14 @@ namespace CometEditor::Tests {
     TEST_F(AssetEditingUiTest, UnknownPropertiesPreventPublicationWithoutBeingDeleted) {
         const Comet::MaterialData original{
             .template_name = "unlit_color", .scalar_properties = {{"custom", 2.0f}}};
-        ASSERT_TRUE(
-            Comet::MaterialSerializer{}.save(original, paths.assets() / "material.mat"));
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(original, paths.assets() / "material.mat"));
         selection.select_asset(material);
         frame();
         frame();
         drag_value(material_point("intensity", "Intensity"), 20);
         EXPECT_EQ(material_updates, 0);
         EXPECT_EQ(
-            Comet::MaterialSerializer{}.load(paths.assets() / "material.mat").value(),
-            original);
+            Comet::MaterialSerializer{}.load(paths.assets() / "material.mat").value(), original);
     }
 
     TEST_F(AssetEditingUiTest, RejectsWrongTypeMissingAssetAndStaleDocument) {

@@ -65,8 +65,7 @@ namespace Comet::Tests {
             resolver.resolve(render_scene, runtime_view(Math::Vec2u(1600, 900)));
 
         ASSERT_TRUE(submission.view_project_matrix);
-        EXPECT_TRUE(
-            TestUtils::Mat4Equal(submission.view_project_matrix->view, view_matrix));
+        EXPECT_TRUE(TestUtils::Mat4Equal(submission.view_project_matrix->view, view_matrix));
         EXPECT_TRUE(TestUtils::Mat4Equal(submission.view_project_matrix->projection,
             Math::perspective(60.0f, 1600.0f / 900.0f, 0.2f, 500.0f)));
     }
@@ -91,8 +90,7 @@ namespace Comet::Tests {
                                   .far_clip = 250.0f}});
 
         ASSERT_TRUE(submission.view_project_matrix);
-        EXPECT_TRUE(
-            TestUtils::Mat4Equal(submission.view_project_matrix->view, editor_view));
+        EXPECT_TRUE(TestUtils::Mat4Equal(submission.view_project_matrix->view, editor_view));
         EXPECT_TRUE(TestUtils::Mat4Equal(submission.view_project_matrix->projection,
             Math::perspective(70.0f, 1600.0f / 900.0f, 0.5f, 250.0f)));
     }
@@ -103,23 +101,22 @@ namespace Comet::Tests {
         const Math::Mat4 editor_view = Math::look_at(
             Math::Vec3(0.0f, 0.0f, 3.0f), Math::Vec3(0.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
 
-        const RenderSubmission submission = resolver.resolve(
-            {}, RenderView{
-                    .render_size = Math::Vec2u(1600, 800),
-                    .camera_selection = RenderView::CameraSelection::Override,
-                    .camera_override =
-                        RenderCamera{
-                            .view_matrix = editor_view,
-                            .projection = RenderCamera::Projection::Orthographic,
-                            .orthographic_height = 10.0f,
-                            .near_clip = 0.1f,
-                            .far_clip = 100.0f,
-                        },
-                });
+        const RenderSubmission submission =
+            resolver.resolve({}, RenderView{
+                                     .render_size = Math::Vec2u(1600, 800),
+                                     .camera_selection = RenderView::CameraSelection::Override,
+                                     .camera_override =
+                                         RenderCamera{
+                                             .view_matrix = editor_view,
+                                             .projection = RenderCamera::Projection::Orthographic,
+                                             .orthographic_height = 10.0f,
+                                             .near_clip = 0.1f,
+                                             .far_clip = 100.0f,
+                                         },
+                                 });
 
         ASSERT_TRUE(submission.view_project_matrix);
-        EXPECT_TRUE(
-            TestUtils::Mat4Equal(submission.view_project_matrix->view, editor_view));
+        EXPECT_TRUE(TestUtils::Mat4Equal(submission.view_project_matrix->view, editor_view));
         EXPECT_TRUE(TestUtils::Mat4Equal(submission.view_project_matrix->projection,
             Math::ortho(-10.0f, 10.0f, -5.0f, 5.0f, 0.1f, 100.0f)));
     }
@@ -152,16 +149,14 @@ namespace Comet::Tests {
             resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)));
 
         ASSERT_TRUE(submission.view_project_matrix);
-        EXPECT_TRUE(
-            TestUtils::Mat4Equal(submission.view_project_matrix->view, selected_view));
+        EXPECT_TRUE(TestUtils::Mat4Equal(submission.view_project_matrix->view, selected_view));
     }
 
     TEST(SceneResolverTest, RejectsInvalidCameraParametersAndRenderSize) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);
         RenderScene render_scene;
-        render_scene.cameras.push_back(
-            {.entity_id = 7, .primary = true, .fov_degrees = 180.0f});
+        render_scene.cameras.push_back({.entity_id = 7, .primary = true, .fov_degrees = 180.0f});
 
         EXPECT_FALSE(resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)))
                 .view_project_matrix);
@@ -173,8 +168,8 @@ namespace Comet::Tests {
                 .view_project_matrix);
 
         render_scene.cameras.front().far_clip = 100.0f;
-        EXPECT_FALSE(resolver.resolve(render_scene, runtime_view(Math::Vec2u(0, 720)))
-                .view_project_matrix);
+        EXPECT_FALSE(
+            resolver.resolve(render_scene, runtime_view(Math::Vec2u(0, 720))).view_project_matrix);
         EXPECT_TRUE(resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)))
                 .view_project_matrix);
 
@@ -182,8 +177,7 @@ namespace Comet::Tests {
         render_scene.cameras.front().orthographic_height = 0.0f;
         EXPECT_FALSE(resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)))
                 .view_project_matrix);
-        render_scene.cameras.front().orthographic_height =
-            std::numeric_limits<float>::quiet_NaN();
+        render_scene.cameras.front().orthographic_height = std::numeric_limits<float>::quiet_NaN();
         EXPECT_FALSE(resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)))
                 .view_project_matrix);
         render_scene.cameras.front().orthographic_height = 10.0f;

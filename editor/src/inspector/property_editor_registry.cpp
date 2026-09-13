@@ -30,8 +30,7 @@ namespace CometEditor {
             .finished = ImGui::IsItemDeactivated()};
     }
 
-    PropertyEditorRegistry create_property_editor_registry(
-        const Comet::AssetDatabase& database) {
+    PropertyEditorRegistry create_property_editor_registry(const Comet::AssetDatabase& database) {
         PropertyEditorRegistry registry;
         const auto register_editor = [&registry](const Comet::PropertyType type,
                                          PropertyEditorRegistry::PropertyEditor editor) {
@@ -40,31 +39,29 @@ namespace CometEditor {
             }
         };
 
-        register_editor(Comet::PropertyType::Bool,
-            [](const Comet::PropertyDescriptor& property, void* value) {
-                return PropertyEditResult::from_item(ImGui::Checkbox(
-                    property.display_name.c_str(), static_cast<bool*>(value)));
-            });
-        register_editor(Comet::PropertyType::Float,
-            [](const Comet::PropertyDescriptor& property, void* value) {
-                const float available = ImGui::GetContentRegionAvail().x;
-                const float label_width =
-                    ImGui::CalcTextSize(property.display_name.c_str()).x
-                    + ImGui::GetStyle().ItemInnerSpacing.x;
-                const float width = std::min({available * 0.4f, available - label_width,
-                    ImGui::GetFontSize() * 9});
-                ImGui::SetNextItemWidth(std::max(1.0f, width));
-                return PropertyEditResult::from_item(ImGui::DragFloat(
-                    property.display_name.c_str(), static_cast<float*>(value),
-                    property.numeric.speed, minimum(property), maximum(property)));
-            });
-        register_editor(Comet::PropertyType::Vec3,
-            [](const Comet::PropertyDescriptor& property, void* value) {
-                auto& vector = *static_cast<Comet::Math::Vec3*>(value);
+        register_editor(
+            Comet::PropertyType::Bool, [](const Comet::PropertyDescriptor& property, void* value) {
                 return PropertyEditResult::from_item(
-                    ImGui::DragFloat3(property.display_name.c_str(), &vector.x,
+                    ImGui::Checkbox(property.display_name.c_str(), static_cast<bool*>(value)));
+            });
+        register_editor(
+            Comet::PropertyType::Float, [](const Comet::PropertyDescriptor& property, void* value) {
+                const float available = ImGui::GetContentRegionAvail().x;
+                const float label_width = ImGui::CalcTextSize(property.display_name.c_str()).x
+                                          + ImGui::GetStyle().ItemInnerSpacing.x;
+                const float width =
+                    std::min({available * 0.4f, available - label_width, ImGui::GetFontSize() * 9});
+                ImGui::SetNextItemWidth(std::max(1.0f, width));
+                return PropertyEditResult::from_item(
+                    ImGui::DragFloat(property.display_name.c_str(), static_cast<float*>(value),
                         property.numeric.speed, minimum(property), maximum(property)));
             });
+        register_editor(Comet::PropertyType::Vec3, [](const Comet::PropertyDescriptor& property,
+                                                       void* value) {
+            auto& vector = *static_cast<Comet::Math::Vec3*>(value);
+            return PropertyEditResult::from_item(ImGui::DragFloat3(property.display_name.c_str(),
+                &vector.x, property.numeric.speed, minimum(property), maximum(property)));
+        });
         register_editor(Comet::PropertyType::AssetHandle,
             [&database](const Comet::PropertyDescriptor& property, void* value) {
                 auto& handle = *static_cast<Comet::AssetHandle*>(value);

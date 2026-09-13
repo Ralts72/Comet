@@ -70,8 +70,7 @@ namespace CometEditor::Tests {
                     ++refresh_count;
                     return manager.scan();
                 },
-                [this](const Comet::AssetHandle handle,
-                    const std::filesystem::path& target) {
+                [this](const Comet::AssetHandle handle, const std::filesystem::path& target) {
                     ++move_count;
                     moved_handle = handle;
                     destination = target;
@@ -95,9 +94,9 @@ namespace CometEditor::Tests {
         // 初始顺序：assets、folder、c.png、a.png、b.png。
         ImVec2 row_point(int row) {
             const auto* window = ImGui::FindWindowByName("Project");
-            return {window->WorkRect.Min.x + 70,
-                window->WorkRect.Min.y + row * ImGui::GetTextLineHeightWithSpacing()
-                    + ImGui::GetTextLineHeight() * 0.5f};
+            return {window->WorkRect.Min.x + 70, window->WorkRect.Min.y
+                                                     + row * ImGui::GetTextLineHeightWithSpacing()
+                                                     + ImGui::GetTextLineHeight() * 0.5f};
         }
 
         void click(ImVec2 point, int button = 0) {
@@ -130,8 +129,7 @@ namespace CometEditor::Tests {
             ASSERT_NE(dialog, nullptr);
             click({dialog->WorkRect.Min.x + 40, dialog->WorkRect.Min.y + 8});
             auto& io = ImGui::GetIO();
-            const auto primary =
-                io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+            const auto primary = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
             io.AddKeyEvent(primary, true);
             io.AddKeyEvent(ImGuiKey_A, true);
             frame();
@@ -170,8 +168,7 @@ namespace CometEditor::Tests {
         }
     };
 
-    TEST_F(
-        ProjectPanelTest, ExternalFileDropUsesFolderRowsAssetParentsAndRootBackground) {
+    TEST_F(ProjectPanelTest, ExternalFileDropUsesFolderRowsAssetParentsAndRootBackground) {
         const auto directory_at = [&](const ImVec2 point) {
             return project->file_drop_directory({point.x, point.y});
         };
@@ -193,15 +190,14 @@ namespace CometEditor::Tests {
         project->update_scan_report(manager.scan());
         frame();
         const auto point = row_point(1);
-        EXPECT_EQ(project->file_drop_directory({point.x, point.y}),
-            std::filesystem::path("empty"));
+        EXPECT_EQ(project->file_drop_directory({point.x, point.y}), std::filesystem::path("empty"));
         click({300, 350}, 1);
         EXPECT_FALSE(project->file_drop_directory({point.x, point.y}));
     }
 
     TEST_F(ProjectPanelTest, MeshDragKeepsOriginalIdentityAcrossDocumentChanges) {
-        std::filesystem::copy_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
-                                       / "assets/meshes/cube.gltf",
+        std::filesystem::copy_file(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
             paths.assets() / "model.gltf");
         project->update_scan_report(manager.scan());
         frame();

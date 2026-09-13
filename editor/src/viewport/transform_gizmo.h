@@ -50,16 +50,14 @@ namespace CometEditor {
         [[nodiscard]] Settings settings() const { return m_settings; }
 
         // 坐标使用界面逻辑点；拖出图像仍继续，取消／释放帧也消费指针。
-        [[nodiscard]] bool update(Comet::EntityUuid selected,
-            const Comet::RenderCamera& camera, const ViewportLayout& layout,
-            const Input& input);
+        [[nodiscard]] bool update(Comet::EntityUuid selected, const Comet::RenderCamera& camera,
+            const ViewportLayout& layout, const Input& input);
         [[nodiscard]] bool cancel();
         [[nodiscard]] bool active() const;
         [[nodiscard]] std::optional<Axis> hovered_axis() const { return m_hovered_axis; }
         [[nodiscard]] std::optional<Axis> active_axis() const;
-        [[nodiscard]] std::array<std::optional<Handle>, 4> handles(
-            Comet::EntityUuid selected, const Comet::RenderCamera& camera,
-            const ViewportLayout& layout) const;
+        [[nodiscard]] std::array<std::optional<Handle>, 4> handles(Comet::EntityUuid selected,
+            const Comet::RenderCamera& camera, const ViewportLayout& layout) const;
 
     private:
         struct Context {

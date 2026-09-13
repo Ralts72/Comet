@@ -20,8 +20,8 @@ namespace CometEditor {
 
     HierarchyPanel::HierarchyPanel(Comet::Scene& scene, SelectionService& selection,
         const CommandHistory& history, const EditorState& state)
-        : EditorPanel("Hierarchy"), m_scene(&scene), m_selection(selection),
-          m_history(history), m_state(state) {}
+        : EditorPanel("Hierarchy"), m_scene(&scene), m_selection(selection), m_history(history),
+          m_state(state) {}
 
     bool HierarchyPanel::can_edit_scene() const {
         return m_state.mode == EditorMode::Edit && m_history.get_scene() == m_scene;
@@ -35,8 +35,7 @@ namespace CometEditor {
 
     std::optional<HierarchyPanel::Request> HierarchyPanel::take_request() {
         auto request = std::exchange(m_request, std::nullopt);
-        if(!can_edit_scene()
-            || (request && request->generation != m_history.generation()))
+        if(!can_edit_scene() || (request && request->generation != m_history.generation()))
             return std::nullopt;
         return request;
     }
@@ -46,12 +45,10 @@ namespace CometEditor {
             return;
         }
 
-        if(const ImGuiPayload* payload =
-                ImGui::AcceptDragDropPayload(ENTITY_PAYLOAD_TYPE);
+        if(const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ENTITY_PAYLOAD_TYPE);
             payload && payload->DataSize == sizeof(EntityPayload)) {
             const auto& source = *static_cast<const EntityPayload*>(payload->Data);
-            if(source.generation == m_history.generation()
-                && m_scene->find_entity(source.entity))
+            if(source.generation == m_history.generation() && m_scene->find_entity(source.entity))
                 m_request = Request{Request::Type::Reparent, source.entity,
                     parent ? parent.get_uuid() : Comet::EntityUuid{}, source.generation};
         }
@@ -108,18 +105,17 @@ namespace CometEditor {
         ImGui::BeginDisabled(!can_edit_scene());
         if(ImGui::MenuItem(entity ? "Create Child" : "Create Entity")) {
             const auto parent = entity ? entity.get_uuid() : Comet::EntityUuid{};
-            m_request =
-                Request{Request::Type::Create, {}, parent, m_history.generation()};
+            m_request = Request{Request::Type::Create, {}, parent, m_history.generation()};
             m_expand_entity = parent;
         }
         if(entity) {
             ImGui::Separator();
             if(ImGui::MenuItem("Duplicate"))
-                m_request = Request{Request::Type::Duplicate, entity.get_uuid(), {},
-                    m_history.generation()};
-            if(ImGui::MenuItem("Delete"))
                 m_request = Request{
-                    Request::Type::Delete, entity.get_uuid(), {}, m_history.generation()};
+                    Request::Type::Duplicate, entity.get_uuid(), {}, m_history.generation()};
+            if(ImGui::MenuItem("Delete"))
+                m_request =
+                    Request{Request::Type::Delete, entity.get_uuid(), {}, m_history.generation()};
         }
         ImGui::EndDisabled();
     }
@@ -133,9 +129,9 @@ namespace CometEditor {
             return;
         }
 
-        const bool scene_open = ImGui::TreeNodeEx(
-            "Scene", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow
-                         | ImGuiTreeNodeFlags_SpanAvailWidth);
+        const bool scene_open = ImGui::TreeNodeEx("Scene", ImGuiTreeNodeFlags_DefaultOpen
+                                                               | ImGuiTreeNodeFlags_OpenOnArrow
+                                                               | ImGuiTreeNodeFlags_SpanAvailWidth);
         if(ImGui::BeginPopupContextItem("Scene actions")) {
             render_context_menu({});
             ImGui::EndPopup();

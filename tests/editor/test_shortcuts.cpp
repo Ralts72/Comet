@@ -7,9 +7,8 @@ namespace CometEditor::Tests {
     using Action = EditorShortcuts::Action;
 
     TEST(EditorShortcutsTest, ProjectProfileIsValid) {
-        EXPECT_NO_THROW(static_cast<void>(
-            EditorShortcuts::load(std::filesystem::path(PROJECT_ROOT_DIR)
-                                  / "config/profiles/editor-dev.yaml")));
+        EXPECT_NO_THROW(static_cast<void>(EditorShortcuts::load(
+            std::filesystem::path(PROJECT_ROOT_DIR) / "config/profiles/editor-dev.yaml")));
     }
 
     TEST(EditorShortcutsTest, OverridesOnlySpecifiedActionsAndAllowsDisabling) {
@@ -26,14 +25,12 @@ editor:
         EXPECT_EQ(shortcuts.label(Action::FocusSelection, true), "Option+G");
         EXPECT_EQ(shortcuts.label(Action::Undo, false), "Ctrl+Z");
         EXPECT_TRUE(shortcuts.label(Action::Redo, false).empty());
-        EXPECT_EQ(
-            EditorShortcuts::parse("diagnostics: {}").label(Action::Undo, true), "Cmd+Z");
+        EXPECT_EQ(EditorShortcuts::parse("diagnostics: {}").label(Action::Undo, true), "Cmd+Z");
     }
 
     TEST(EditorShortcutsTest, RejectsMalformedUnknownAndConflictingBindings) {
         for(const auto* yaml : {"editor: []", "editor: {shortcuts: null}",
-                "editor: {shortcuts: {typo: [F5]}}",
-                "editor: {shortcuts: {scene.save: Primary+S}}",
+                "editor: {shortcuts: {typo: [F5]}}", "editor: {shortcuts: {scene.save: Primary+S}}",
                 "editor: {shortcuts: {scene.save: [Primary+]}}",
                 "editor: {shortcuts: {scene.save: [Ctrl+S]}}",
                 "editor: {shortcuts: {scene.save: [Escape]}}",

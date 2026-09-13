@@ -70,8 +70,7 @@ namespace {
         const SceneSerializer serializer(registry);
         const auto loaded = serializer.deserialize(serializer.serialize(scene));
         EXPECT_EQ(
-            loaded->find_entity(entity.get_uuid()).get_component<NameComponent>().name,
-            after);
+            loaded->find_entity(entity.get_uuid()).get_component<NameComponent>().name, after);
         ASSERT_TRUE(history.undo());
         EXPECT_EQ(entity.get_component<NameComponent>().name, "Edited");
         ASSERT_TRUE(edit.begin(name));
@@ -122,8 +121,7 @@ namespace {
         EXPECT_FALSE(edit.active());
         ASSERT_TRUE(edit.cancel());
         EXPECT_FALSE(history.can_undo());
-        EXPECT_EQ(
-            same_uuid.get_component<TransformComponent>().translation, Math::Vec3(0));
+        EXPECT_EQ(same_uuid.get_component<TransformComponent>().translation, Math::Vec3(0));
         EXPECT_FLOAT_EQ(x(), 2);
         history.bind_scene(nullptr);
         EXPECT_FALSE(edit.begin(translation()));
@@ -201,8 +199,8 @@ namespace {
     TEST_F(CommandHistoryTest, AssignmentRejectsReadOnlyAndNormalizesExactlyOnce) {
         CameraComponent camera;
         int notifications = 0;
-        auto property = make_property_descriptor("fov", "FOV", &CameraComponent::fov, {},
-            [&notifications](float&) { ++notifications; });
+        auto property = make_property_descriptor(
+            "fov", "FOV", &CameraComponent::fov, {}, [&notifications](float&) { ++notifications; });
         property.read_only = true;
         EXPECT_FALSE(property.assign_value(&camera, 60.0f));
         EXPECT_EQ(notifications, 0);
@@ -210,8 +208,7 @@ namespace {
         property.read_only = false;
         EXPECT_FALSE(property.assign_value(nullptr, 60.0f));
         EXPECT_FALSE(property.assign_value(&camera, true));
-        EXPECT_FALSE(
-            property.assign_value(&camera, std::numeric_limits<float>::infinity()));
+        EXPECT_FALSE(property.assign_value(&camera, std::numeric_limits<float>::infinity()));
         ASSERT_TRUE(property.assign_value(&camera, 60.0f));
         EXPECT_EQ(notifications, 1);
         EXPECT_FLOAT_EQ(camera.fov, 60);
@@ -237,16 +234,14 @@ namespace {
         EXPECT_FLOAT_EQ(snapshot.render_items[0].model_matrix[3].x, 4);
         SceneSerializer serializer(registry);
         const auto clone = serializer.clone(scene);
-        EXPECT_FLOAT_EQ(clone->find_entity(entity.get_uuid())
-                            .get_component<TransformComponent>()
-                            .translation.x,
+        EXPECT_FLOAT_EQ(
+            clone->find_entity(entity.get_uuid()).get_component<TransformComponent>().translation.x,
             4);
     }
 
     class SetValueCommand final: public CommandHistory::Command {
     public:
-        explicit SetValueCommand(int& value, bool fail = false)
-            : m_value(value), m_fail(fail) {}
+        explicit SetValueCommand(int& value, bool fail = false) : m_value(value), m_fail(fail) {}
         bool undo(Scene&) override {
             m_value = 0;
             return true;

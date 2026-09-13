@@ -14,8 +14,7 @@ namespace Comet {
         }
     }
 
-    Fence::Fence(Fence&& other) noexcept
-        : m_device(other.m_device), m_fence(other.m_fence) {
+    Fence::Fence(Fence&& other) noexcept : m_device(other.m_device), m_fence(other.m_fence) {
         other.m_device = nullptr;
         other.m_fence = VK_NULL_HANDLE;
     }

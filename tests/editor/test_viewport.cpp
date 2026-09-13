@@ -23,8 +23,8 @@ namespace CometEditor::Tests {
         auto& renderer = engine.get_renderer();
         renderer.enable_offscreen_rendering({320, 240});
         Comet::Tests::TemporaryDirectory directory;
-        ImGuiContext ui(engine.get_window(), renderer.get_render_context(),
-            directory.path() / "imgui.ini");
+        ImGuiContext ui(
+            engine.get_window(), renderer.get_render_context(), directory.path() / "imgui.ini");
         Comet::Scene first_scene;
         Comet::Scene second_scene;
         auto* active_scene = &first_scene;
@@ -35,8 +35,8 @@ namespace CometEditor::Tests {
         PropertyEditTransaction edit(history, components);
         EditorState state;
         EditorShortcuts shortcuts;
-        Viewport viewport(state, selection, history, components, edit, shortcuts,
-            renderer, engine.get_asset_registry(), ui);
+        Viewport viewport(state, selection, history, components, edit, shortcuts, renderer,
+            engine.get_asset_registry(), ui);
         ui.set_ui_callback([&] {
             ImGui::SetNextWindowPos({0, 0});
             ImGui::SetNextWindowSize({600, 400});
@@ -65,8 +65,7 @@ namespace CometEditor::Tests {
         selection.set_scene(second_scene);
         history.bind_scene(active_scene);
         const auto selected = second_scene.create_entity();
-        viewport.apply_pick(
-            Comet::ScenePickHit{.entity_id = selected.get_id()}, active_scene);
+        viewport.apply_pick(Comet::ScenePickHit{.entity_id = selected.get_id()}, active_scene);
         EXPECT_EQ(selection.get_selected_entity(), selected);
         EXPECT_TRUE(draw_frame());
 

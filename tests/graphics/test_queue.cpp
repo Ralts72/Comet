@@ -11,11 +11,10 @@
 namespace Comet::Tests {
     namespace {
         template<typename T>
-        concept SupportsExplicitWaitModes =
-            requires(const T& completion, uint64_t timeout) {
-                { completion.wait() } -> std::same_as<void>;
-                { completion.wait_for(timeout) } -> std::same_as<bool>;
-            };
+        concept SupportsExplicitWaitModes = requires(const T& completion, uint64_t timeout) {
+            { completion.wait() } -> std::same_as<void>;
+            { completion.wait_for(timeout) } -> std::same_as<bool>;
+        };
 
         template<typename T>
         concept SupportsTimelineWaitModes =
@@ -37,17 +36,15 @@ namespace Comet::Tests {
         template<typename T>
         concept SupportsLegacyNoWaitSubmit =
             requires(const T& queue, std::span<const CommandBuffer> command_buffers,
-                std::span<const Semaphore> signal_semaphores, const Fence* fence) {
-                queue.submit(command_buffers, signal_semaphores, fence);
-            };
+                std::span<const Semaphore> signal_semaphores,
+                const Fence* fence) { queue.submit(command_buffers, signal_semaphores, fence); };
 
         template<typename T>
-        concept SupportsLegacySingleWaitSubmit =
-            requires(const T& queue, std::span<const CommandBuffer> command_buffers,
-                const Semaphore& wait_semaphore,
-                std::span<const Semaphore> signal_semaphores, const Fence* fence) {
-                queue.submit(command_buffers, wait_semaphore, signal_semaphores, fence);
-            };
+        concept SupportsLegacySingleWaitSubmit = requires(const T& queue,
+            std::span<const CommandBuffer> command_buffers, const Semaphore& wait_semaphore,
+            std::span<const Semaphore> signal_semaphores, const Fence* fence) {
+            queue.submit(command_buffers, wait_semaphore, signal_semaphores, fence);
+        };
     }
 
     static_assert(SupportsSynchronization2Submit<Queue>);

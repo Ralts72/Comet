@@ -3,6 +3,7 @@
 #include "asset/handle.h"
 #include "asset/import/input_snapshot.h"
 #include "common/export.h"
+#include "common/result.h"
 #include "render/resource/mesh_data.h"
 
 #include <cstdint>
@@ -15,8 +16,7 @@ namespace Comet {
     public:
         [[nodiscard]] static std::optional<MeshArtifact> load(
             const std::filesystem::path& artifact_path, AssetHandle expected_handle);
-        [[nodiscard]] AssetResult<void> publish_atomic(
-            const std::filesystem::path& artifact_path) const;
+        [[nodiscard]] Result<void> publish_atomic(const std::filesystem::path& artifact_path) const;
         [[nodiscard]] std::vector<std::filesystem::path> source_dependencies() const;
 
         AssetHandle handle;

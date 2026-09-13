@@ -45,8 +45,7 @@ namespace Comet {
         [[nodiscard]] AssetScanReport move_asset(
             AssetHandle handle, const std::filesystem::path& destination);
         [[nodiscard]] AssetScanReport import_files(
-            std::span<const std::filesystem::path> sources,
-            const std::filesystem::path& directory);
+            std::span<const std::filesystem::path> sources, const std::filesystem::path& directory);
         // 本次成功发布的结果；Mesh Artifact 发布不代表 GPU 已驻留。
         std::vector<AssetHandle> process_completions();
         // 失败／过期也计数；时间预算不抢占单个发布操作。
@@ -65,9 +64,7 @@ namespace Comet {
             AssetHandle handle, const MaterialData& data);
         [[nodiscard]] std::shared_ptr<Material> reload_material(AssetHandle handle);
 
-        [[nodiscard]] const AssetDatabase& get_database() const noexcept {
-            return m_database;
-        }
+        [[nodiscard]] const AssetDatabase& get_database() const noexcept { return m_database; }
 
     private:
         struct AsyncState;
@@ -75,23 +72,19 @@ namespace Comet {
 
         void apply_scan_report(const AssetScanReport& report);
         void reload_loaded_material_dependents(AssetHandle texture_handle);
-        [[nodiscard]] std::shared_ptr<Mesh> create_runtime_mesh(
-            const AssetRecord& record);
+        [[nodiscard]] std::shared_ptr<Mesh> create_runtime_mesh(const AssetRecord& record);
         void record_import_dependencies(
             AssetHandle handle, const std::vector<std::filesystem::path>& dependencies);
-        [[nodiscard]] bool schedule_mesh_task(
-            const AssetRecord& record, MeshImportMode mode);
+        [[nodiscard]] bool schedule_mesh_task(const AssetRecord& record, MeshImportMode mode);
         [[nodiscard]] bool schedule_loaded_texture_refresh(const AssetRecord& record);
-        [[nodiscard]] bool schedule_refresh_task(AssetHandle handle,
-            AssetRevision revision, AssetType type,
-            std::function<void(ImportResult&)> task, bool force_mesh_rebuild = false);
+        [[nodiscard]] bool schedule_refresh_task(AssetHandle handle, AssetRevision revision,
+            AssetType type, std::function<void(ImportResult&)> task,
+            bool force_mesh_rebuild = false);
         void dispatch_queued_tasks();
-        void publish_import_result(
-            ImportResult& result, std::vector<AssetHandle>& published);
+        void publish_import_result(ImportResult& result, std::vector<AssetHandle>& published);
         [[nodiscard]] std::shared_ptr<Texture> create_runtime_texture(
             const AssetRecord& record, const TextureImportSettings& import_settings);
-        [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
-            const AssetRecord& record);
+        [[nodiscard]] std::shared_ptr<Material> create_runtime_material(const AssetRecord& record);
         [[nodiscard]] std::shared_ptr<Material> create_runtime_material(
             const AssetRecord& record, const MaterialData& data);
 

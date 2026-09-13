@@ -12,11 +12,10 @@ namespace Comet {
     public:
         DescriptorSetLayoutBindings() = default;
 
-        void add_binding(uint32_t binding, DescriptorType type,
-            Flags<ShaderStage> stage_flags, uint32_t count = 1);
+        void add_binding(uint32_t binding, DescriptorType type, Flags<ShaderStage> stage_flags,
+            uint32_t count = 1);
 
-        [[nodiscard]] const std::vector<vk::DescriptorSetLayoutBinding>& get_bindings()
-            const {
+        [[nodiscard]] const std::vector<vk::DescriptorSetLayoutBinding>& get_bindings() const {
             return m_bindings;
         }
 
@@ -48,11 +47,8 @@ namespace Comet {
         DescriptorSetLayout(DescriptorSetLayout&&) noexcept = delete;
         DescriptorSetLayout& operator=(DescriptorSetLayout&&) noexcept = delete;
 
-        [[nodiscard]] vk::DescriptorSetLayout get() const {
-            return m_descriptor_set_layout;
-        }
-        [[nodiscard]] const std::vector<vk::DescriptorSetLayoutBinding>& get_bindings()
-            const {
+        [[nodiscard]] vk::DescriptorSetLayout get() const { return m_descriptor_set_layout; }
+        [[nodiscard]] const std::vector<vk::DescriptorSetLayoutBinding>& get_bindings() const {
             return m_bindings;
         }
 
@@ -77,8 +73,7 @@ namespace Comet {
 
     class COMET_API DescriptorPool {
     public:
-        DescriptorPool(Device& device, uint32_t max_sets,
-            const DescriptorPoolSizes& pool_sizes,
+        DescriptorPool(Device& device, uint32_t max_sets, const DescriptorPoolSizes& pool_sizes,
             Flags<DescriptorPoolCreateFlag> flags = {});
         ~DescriptorPool();
 
