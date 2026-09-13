@@ -14,7 +14,7 @@ namespace Comet {
         Result<void> validate_word_ranges(std::span<const uint32_t> words) {
             if(words.size() < 5 || words[0] != SpvMagicNumber)
                 return Result<void>::failure("Invalid SPIR-V header");
-            // Reject truncated instructions before reflection; this is not a full validator.
+            // 反射前拒绝截断指令，不代替完整字节码校验。
             for(size_t offset = 5; offset < words.size();) {
                 const auto count = words[offset] >> 16;
                 if(count == 0 || count > words.size() - offset)
@@ -244,7 +244,7 @@ namespace Comet {
             return Result<ShaderInterface>::failure(
                 "SPIR-V reflection failed: " + std::to_string(status));
         for(const auto* block : blocks) {
-            // Block size includes initial offset/padding; the range covers member bytes.
+            // 块大小包含起始偏移和填充，实际范围按成员占用计算。
             uint64_t end = block->offset;
             for(uint32_t index = 0; index < block->member_count; ++index) {
                 const auto& member = block->members[index];

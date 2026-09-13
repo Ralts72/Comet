@@ -131,7 +131,7 @@ namespace Comet {
 
     void FrameScheduler::wait_for_slot(const uint32_t frame_slot_index) {
         auto& slot = m_frame_slots.at(frame_slot_index);
-        // A reset fence without a successful submission has nothing that can signal it.
+        // 重置后未成功提交的 fence 不会收到完成信号，不能等待。
         if(!is_frame_serial_complete(slot.last_submission_serial))
             m_device.wait_for_fences(std::span(&slot.in_flight_fence, 1));
         slot.retained_resources.clear();

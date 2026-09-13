@@ -14,7 +14,7 @@ namespace Comet {
     struct ShaderLayout;
     class RenderPass;
 
-    // Device/RenderPass-local object key, not a persistent cache format.
+    // 仅在所属 Device/RenderPass 内标识对象，不作为持久缓存格式。
     struct COMET_API PipelineKey {
         struct ShaderCode {
             std::vector<uint32_t> words;

@@ -150,7 +150,6 @@ namespace Comet::Tests {
                 .mesh = mesh,
                 .material = {AssetHandle(2), solid}}};
 
-        // Test-only host-coherent readback; no production Texture API is needed.
         vk::UniqueDeviceMemory memory;
         auto readback = device.get().createBufferUnique(vk::BufferCreateInfo({}, 2 * 64 * 32 * 4,
             vk::BufferUsageFlagBits::eTransferDst, vk::SharingMode::eExclusive));
@@ -212,7 +211,7 @@ namespace Comet::Tests {
             frames.end_frame();
             EXPECT_EQ(materials->get_statistics().material_versions_created, 2u);
         }
-        // Both slots were submitted; old resources stay owned until slot collection.
+        // 两个槽位均已提交；旧资源必须保留到槽位回收。
         EXPECT_FALSE(retired.expired());
         frames.wait_for_all_slots();
         EXPECT_TRUE(retired.expired());

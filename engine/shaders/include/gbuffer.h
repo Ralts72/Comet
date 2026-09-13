@@ -17,13 +17,12 @@ highp vec3 DecodeNormal(highp vec3 N) { return N * 2.0 - 1.0; }
 
 highp vec3 EncodeBaseColor(highp vec3 baseColor)
 {
-    // we use sRGB on the render target to give more precision to the darks
+    // 由 sRGB 渲染目标完成颜色转换，保留暗部精度。
     return baseColor;
 }
 
 highp vec3 DecodeBaseColor(highp vec3 baseColor)
 {
-    // we use sRGB on the render target to give more precision to the darks
     return baseColor;
 }
 

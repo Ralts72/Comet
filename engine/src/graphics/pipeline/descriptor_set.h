@@ -87,7 +87,7 @@ namespace Comet {
         friend class DescriptorPool;
         DescriptorSet() = delete;
 
-        // Writes are consumed immediately; resources and the pool remain owned by the caller.
+        // 立即消费写入描述；资源和池的生命周期仍由调用方保证。
         void update(Device& device, std::span<const UniformBufferWrite> buffers,
             std::span<const ImageSamplerWrite> images = {}) const;
 

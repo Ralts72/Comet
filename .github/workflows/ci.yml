@@ -10,6 +10,10 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
 
     steps:
       - name: Checkout repository
@@ -17,13 +21,12 @@ jobs:
         with:
           lfs: true
           submodules: true
-          fetch-depth: 0
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            cmake build-essential \
+            cmake build-essential ninja-build ccache \
             libx11-dev libxext-dev libxrandr-dev libxinerama-dev \
             libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev \
             mesa-common-dev libgl1-mesa-dev \
@@ -32,30 +35,42 @@ jobs:
             xvfb mesa-vulkan-drivers vulkan-validationlayers
           echo "VULKAN_SDK=/usr" >> $GITHUB_ENV
 
-      - name: Cache build files
+      - name: Cache compiler results
         uses: actions/cache@v6
         with:
-          path: build
-          key: ${{ runner.os }}-build-${{ hashFiles('**/CMakeLists.txt', 'CMakePresets.json') }}
+          path: .cache/ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-ccache-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-ccache-v1-
 
       - name: Configure CMake
-        run: cmake --preset ci-release
+        run: |
+          ccache --zero-stats
+          cmake --preset ci-release -G Ninja \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
 
       - name: Build project
-        run: cmake --build --preset ci-release --parallel 2
+        run: |
+          jobs=$(nproc)
+          if (( jobs > 4 )); then jobs=4; fi
+          cmake --build --preset ci-release --parallel "$jobs"
+
+      - name: Compiler cache statistics
+        if: always()
+        run: ccache --show-stats
 
       - name: Setup virtual display for GLFW tests
         run: |
-          # 启动虚拟显示服务器用于GLFW测试
           export DISPLAY=:99
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           echo "DISPLAY=:99" >> $GITHUB_ENV
-          # 等待X服务器启动
+          # 等待虚拟显示服务器就绪后再执行 GLFW 测试。
           sleep 3
 
       - name: Run tests
         run: |
-          # 在虚拟显示环境中运行测试
           export DISPLAY=:99
           export CI=true
           ctest --preset ci-release --verbose --timeout 120

@@ -158,7 +158,7 @@ namespace Comet {
     }
 
     GpuResourceResult<GpuCompletionPoint> UploadManager::submit_batch(UploadBatch& batch) {
-        // Once submitted, retaining the in-flight resources must not allocate or throw.
+        // GPU 提交后，接管在途资源不能再分配内存或抛异常。
         static_assert(std::is_nothrow_move_constructible_v<PendingBatch>);
         m_pending_batches.reserve(m_pending_batches.size() + 1);
         const auto completion = batch.m_context->submit();

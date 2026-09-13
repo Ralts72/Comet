@@ -86,7 +86,7 @@ namespace Comet::Tests {
     TEST_F(FileIoTest, FailedReplacementRemovesTemporaryFileAndPreservesDestination) {
         const auto destination = root / "occupied";
         ASSERT_TRUE(write_text_file_atomic(destination / "keep", "original"));
-        // The temporary write succeeds, but a file cannot replace a non-empty directory.
+        // 临时文件写入成功，但最后不能用文件替换非空目录。
         const auto saved = write_text_file_atomic(destination, "replacement");
         ASSERT_FALSE(saved);
         EXPECT_NE(saved.error().find("atomically replace"), std::string::npos);

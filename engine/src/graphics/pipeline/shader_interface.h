@@ -44,7 +44,7 @@ namespace Comet {
             std::string name;
             uint32_t offset;
             uint32_t size;
-            // Arrays, matrices and structs remain Undefined.
+            // 数组、矩阵和结构体保持 UNDEFINED。
             Format format = Format::UNDEFINED;
         };
         struct DescriptorBinding {
@@ -78,7 +78,7 @@ namespace Comet {
             const {
             return m_specialization_constants;
         }
-        // Validate all overrides before removing bit-identical defaults.
+        // 全部覆盖值校验成功后，才移除位模式与默认值相同的项。
         Result<void> canonicalize_specialization(Specialization& values) const;
 
     private:

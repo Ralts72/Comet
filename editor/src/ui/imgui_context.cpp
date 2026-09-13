@@ -285,7 +285,6 @@ namespace CometEditor {
 
         ImGui_ImplVulkan_NewFrame();
 
-        // 窗口最小化时跳过 GLFW 后端更新。
         if(m_window.is_minimized()) {
             ImGui::NewFrame();
         } else {
@@ -349,7 +348,7 @@ namespace CometEditor {
         if(rebuild_backend) {
             unregister_viewport_textures();
             ImGui_ImplVulkan_Shutdown();
-            // Vulkan shutdown also clears the main viewport's platform data.
+            // Vulkan 后端关闭时也会清除主视口的平台数据。
             ImGui_ImplGlfw_Shutdown();
             m_descriptor_pool.reset();
         }

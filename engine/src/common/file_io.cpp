@@ -84,7 +84,7 @@ namespace Comet {
             }
 
             TemporaryFile temporary{temporary_path_for(path)};
-            // Close the stream before the temporary file is removed, including on failure.
+            // 先析构文件流再清理临时文件，失败路径也必须遵守此顺序。
             std::ofstream output(temporary.path, std::ios::binary | std::ios::trunc);
             if(!output) {
                 return Result<void>::failure(

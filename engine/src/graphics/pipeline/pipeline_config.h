@@ -78,15 +78,15 @@ namespace Comet {
         vk::Viewport viewport{0, 100, 100, -100, 0, 1};
         vk::Rect2D scissor{{0, 0}, {100, 100}};
         vk::PipelineColorBlendAttachmentState color_blend_state{
-            vk::False,              // blendEnable
-            vk::BlendFactor::eOne,  // srcColorBlendFactor
-            vk::BlendFactor::eZero, // dstColorBlendFactor
-            vk::BlendOp::eAdd,      // colorBlendOp
-            vk::BlendFactor::eOne,  // srcAlphaBlendFactor
-            vk::BlendFactor::eZero, // dstAlphaBlendFactor
-            vk::BlendOp::eAdd,      // alphaBlendOp
+            vk::False,              // 关闭混合
+            vk::BlendFactor::eOne,  // 源颜色因子
+            vk::BlendFactor::eZero, // 目标颜色因子
+            vk::BlendOp::eAdd,      // 颜色混合运算
+            vk::BlendFactor::eOne,  // 源透明度因子
+            vk::BlendFactor::eZero, // 目标透明度因子
+            vk::BlendOp::eAdd,      // 透明度混合运算
             vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG
-                | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA // colorWriteMask
+                | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA // 写入全部颜色分量
         };
         PipelineDynamicState dynamic_state;
         uint32_t subpass = 0;

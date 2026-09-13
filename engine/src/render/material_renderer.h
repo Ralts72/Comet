@@ -25,7 +25,7 @@ namespace Comet {
     class Sampler;
     class Shader;
 
-    // Caller waits for the slot, begins the scene pass and sets viewport/scissor.
+    // 调用方须先等待槽位、开启场景通道并设置视口与裁剪区域。
     class COMET_API MaterialRenderer {
     public:
         struct Statistics {

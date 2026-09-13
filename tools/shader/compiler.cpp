@@ -150,7 +150,7 @@ namespace Comet {
 
         private:
             IncludeResult* include(const std::filesystem::path& path, size_t depth) {
-                // Keep exceptions inside the callback boundary.
+                // 异常不能越过第三方编译器的回调边界。
                 try {
                     if(depth > MAX_INCLUDE_DEPTH) {
                         m_error = "Shader include depth exceeds 64";

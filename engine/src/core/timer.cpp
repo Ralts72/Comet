@@ -20,7 +20,6 @@ namespace Comet {
             if(m_fps == 0.0f) {
                 m_fps = current_fps;
             } else {
-                // 保留 90% 的旧值，加入 10% 的新值。
                 m_fps = m_fps * 0.9f + current_fps * 0.1f;
             }
 

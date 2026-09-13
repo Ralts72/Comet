@@ -49,7 +49,6 @@ namespace Comet {
             }
         }
 
-        // 生成一次时间戳，两个 logger 共享
         static std::string shared_timestamp;
         if(shared_timestamp.empty()) {
             auto now = std::chrono::system_clock::now();

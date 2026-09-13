@@ -222,7 +222,7 @@ namespace Comet::Tests {
         } dispatch;
         const auto device = engine->get_renderer().get_render_context().get_device().get();
         const vk::PipelineLayoutCreateInfo info;
-        // Produce a real handle, then simulate a creation call reporting partial failure.
+        // 先创建真实句柄，再模拟部分创建失败，验证失败候选会释放。
         const auto failed = Graphics::create_handle<vk::PipelineLayout>(
             device, "layout",
             [&](vk::PipelineLayout* output) noexcept {

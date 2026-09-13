@@ -44,7 +44,7 @@ void main()
     vec3 world_position = (model_matrix * vec4(in_position, 1.0)).xyz;
     vec4 clip_position = proj_view_matrix * vec4(world_position, 1.0f);
 
-    // depth set to 0.0001 (closest)
+    // 压缩深度，让坐标轴优先显示在场景前方。
     clip_position.z = clip_position.z * 0.0001;
     gl_Position = clip_position;
 

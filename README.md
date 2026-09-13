@@ -182,4 +182,18 @@ C++ 遵循根目录 `.clang-format`（100 列），只格式化相关代码，�
 引擎 PCH 仅预编译常用标准库头，不包含 Vulkan、ImGui 或项目业务头；PCH 不是隐式依赖来源。
 排查 include 可用 `cmake --preset dev-debug -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON` 关闭 PCH，
 验证后用同一命令将该选项设回 `OFF`。
+频繁切换分支或清理重建时，可安装 ccache，使用 CMake 原生编译器缓存接口：
+
+```bash
+cmake --preset dev-debug -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
+cmake --build --preset dev-debug --parallel
+ccache --show-stats
+```
+
+缓存模式关闭 PCH，保持 ccache 默认严格校验；首次构建需填充缓存，后续收益以命中统计为准。
+本地默认构建仍使用 PCH；恢复默认需将两个 `COMPILER_LAUNCHER` 设为空、`CMAKE_DISABLE_PRECOMPILE_HEADERS` 设为 `OFF`。
+ccache 数据位于其本机缓存目录，可用 `ccache --max-size=1G` 限制占用，不与 `build/` 混用。
+CI 使用 Ninja、最多 4 个编译任务和 500 MB 的 ccache；不缓存整个构建目录，每次配置后复用编译结果。
+编译器、参数和依赖变化由 ccache 判断是否失效；测试范围及项目调试信息策略不变。
 贡献约定见 [AGENTS.md](AGENTS.md)。

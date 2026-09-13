@@ -12,7 +12,7 @@
 
 namespace Comet {
     namespace {
-        // GLFW window creation and destruction must run on the main thread.
+        // GLFW 窗口的创建和销毁必须在主线程执行。
         std::size_t window_count = 0;
     }
 
@@ -39,7 +39,6 @@ namespace Comet {
         if(config.fullscreen) {
             monitor = glfwGetPrimaryMonitor();
             if(monitor) {
-                // 全屏模式下使用显示器的当前视频模式分辨率
                 const GLFWvidmode* mode = glfwGetVideoMode(monitor);
                 actual_width = mode->width;
                 actual_height = mode->height;
@@ -72,7 +71,6 @@ namespace Comet {
             }
         });
 
-        // 窗口模式下居中显示，全屏模式不需要
         if(!config.fullscreen) {
             if(GLFWmonitor* primary_monitor = glfwGetPrimaryMonitor()) {
                 int x_pos, y_pos, work_width, work_height;

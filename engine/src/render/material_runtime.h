@@ -27,7 +27,7 @@ namespace Comet {
         std::vector<std::byte> parameters;
     };
 
-    // Owner-thread only; sources track revisions, prepared results are immutable.
+    // 仅所属线程可访问；源对象跟踪版本，准备结果不可变。
     class COMET_API MaterialRuntimeCache {
     public:
         [[nodiscard]] std::shared_ptr<const PreparedMaterial> prepare(AssetHandle handle,

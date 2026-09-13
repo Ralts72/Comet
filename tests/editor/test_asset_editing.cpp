@@ -449,7 +449,7 @@ namespace CometEditor::Tests {
         drag_value(point, 20);
         ASSERT_GT(material_updates, 0);
         const auto failed_updates = material_updates;
-        // Separate gestures must not enter DragFloat's double-click text mode.
+        // 隔开两次手势，避免触发 DragFloat 的双击文本编辑。
         for(int index = 0; index < 20; ++index)
             frame();
         EXPECT_EQ(material_updates, failed_updates);
