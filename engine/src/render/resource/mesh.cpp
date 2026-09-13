@@ -68,9 +68,11 @@ namespace Comet {
             }
         }
 
-        const GpuCompletionPoint completion = upload_batch.submit();
+        const auto completion = upload_batch.submit();
+        if(!completion)
+            return GpuResourceResult<std::shared_ptr<Mesh>>::failure(completion.result());
         std::shared_ptr<Mesh> mesh(new Mesh(std::move(vertex_buffer), std::move(index_buffer),
-            completion, *local_bounds, static_cast<uint32_t>(data.vertices.size()),
+            completion.value(), *local_bounds, static_cast<uint32_t>(data.vertices.size()),
             static_cast<uint32_t>(data.indices.size())));
         return GpuResourceResult<std::shared_ptr<Mesh>>::success(std::move(mesh));
     }

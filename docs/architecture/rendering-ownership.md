@@ -14,7 +14,7 @@
 | `render/material_renderer.h` | Frame/Material descriptor、材质 Pipeline、队列排序与 Mesh 绘制 |
 | `render/material_runtime.h` | 手工 MaterialLayout、PreparedMaterial 快照与版本缓存 |
 | `graphics/pipeline/shader_interface.h` | 入口级 SPIR-V 反射结果与绑定覆盖校验；仅拥有 CPU 值 |
-| `render/frame_scheduler.h` | FrameSlot 复用、image 关联、完成序号与 retention |
+| `render/frame_scheduler.h` | FrameSlot 复用、提交及成功登记、image 关联、完成序号与 retention |
 | `render/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
 | `render/resource/resource_manager.h` | 设备资源工厂、上传及 Shader/Sampler 共享资源 |
 | `graphics/` | Vulkan 对象与显式同步后端 |
@@ -274,10 +274,18 @@ slot 循环索引不是永久 completion 身份；frame serial 用于帧身份�
 相机 UBO 只在对应 slot fence 完成后改写；材质参数与 descriptor 不原地改写，新版本替换缓存后，旧版本由在途 slot 保留。
 retention 只保留真实资源 owner，不接受任意业务回调。
 
-Mesh/Texture 静态工厂先创建完整 GPU owner，再通过 UploadBatch 提交 copy/barrier，保存 ready completion 后返回，
+FrameScheduler::begin_frame 只取得已完成的 slot/image，录制期间不重置 fence、不登记 image 在途。
+submit 负责 fence reset 和 Queue 提交；只有成功才登记 serial 与 image-slot 关联，不再由调用方单独 record_submission。
+等待以成功提交的 serial 为依据，没有未完成提交就不等待 fence，避免 reset 后提交失败造成永久等待。
+SceneRenderer 检查提交结果，失败交给应用退出清理，不继续 present，也不自动复用已 acquire 的二进制 semaphore。
+
+Queue::submit2 使用现有 GpuResourceResult 返回原生错误，成功才推进 timeline 值并给出 GpuCompletionPoint。
+CommandContext 在结束录制前关闭本次提交机会，只有 Queue 成功才进入 Submitted，失败后不能追加录制或再次提交。
+Mesh/Texture 静态工厂先创建完整 GPU owner，再通过 UploadBatch 提交 copy/barrier，检查成功并保存 ready completion 后返回，
 不进行 CPU wait。SceneRenderer 按 VertexInput/FragmentShader 汇总实际资源的 timeline wait。
 UploadManager pending batch 保留 staging page、CommandContext 与目标 owner，完成后才回收；
-staging 增长失败只 abort 自己尚未提交的 batch，不影响其他事务。
+pending 容器在 Queue 提交前预留空间，成功后的所有权转移不再分配内存；staging 回收容器在初始化时按缓存上限预留。
+staging 增长或 Queue 提交失败只 abort 自己尚未提交的 batch，不影响其他事务，也不发布 Mesh/Texture 候选。
 
 VMA memory budget 只在扩展确实启用后使用；估算值不当作硬上限。
 强失败创建与 GpuResourceResult 可恢复创建都不发布空句柄成功对象。

@@ -30,7 +30,7 @@ namespace Comet::Tests {
                 std::span<const QueueSemaphoreSubmit> signals, const Fence* fence) {
                 {
                     queue.submit2(waits, command_buffers, signals, fence)
-                } -> std::same_as<GpuCompletionPoint>;
+                } -> std::same_as<GpuResourceResult<GpuCompletionPoint>>;
             };
 
         template<typename T>

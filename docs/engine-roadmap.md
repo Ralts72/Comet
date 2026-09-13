@@ -146,7 +146,7 @@ Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验�
 CPU 候选与校验已迁移；资产与图形模块统一使用 common/result.h 的 Result<T>，不保留领域别名或转发头。
 ShaderCompiler::Result 保留编译诊断和依赖信息，GpuResourceResult 保留原生错误码；不强行合并不同层的错误信息。
 Shader／Pipeline 与材质 descriptor 创建、分配已接通原生错误结果；启动消费者仍通过现有异常清理边界退出，
-跨层审查已推进到 renderer 成对安装、Sampler、RenderPass／target 及 Comet 侧 ImGui 初始化；第三方后端与 WSI 剩余边界见下文，不代表全链路已经无异常。
+跨层审查已推进到 renderer 成对安装、Sampler、RenderPass／target、Comet 侧 ImGui 初始化、WSI 与命令提交；第三方后端等剩余边界见下文，不代表全链路已经无异常。
 
 按可独立验收的范围分步推进，每一步都同时迁移该接口的全部生产调用方及测试，不只增加一套无人使用的 try_create：
 
@@ -175,9 +175,12 @@ Shader／Pipeline 与材质 descriptor 创建、分配已接通原生错误结�
      ensure_loaded、材质创建、后台完成处理和场景激活不再用通用 catch 吞掉 GPU 发布异常；Worker、文件读写及析构仍保留各自边界。
    - 已接通 WSI 创建／重建、acquire、present 的显式结果；Deferred 与致命失败分开，退休 Generation 不重新发布，重复 OutOfDate 跳过本帧。
      Device 的关闭等待集中处理 Vulkan 等待异常，Engine／Renderer／RenderContext／ImGui／上传清理不再被该异常打断；普通运行期等待仍传播错误。
-   - 下一项独立适配 ImGui 后端内部 Vulkan 失败：Init 的 bool 不覆盖全部失败，回调处部分句柄尚在局部变量，不能直接抛异常假装安全展开。
+   - 已接通 Queue／CommandContext／UploadBatch 提交结果及 Mesh／Texture 消费者；失败没有 completion、不发布资源候选。
+     UploadManager 在提交前准备 pending 空间；FrameScheduler 负责提交并只登记成功的 serial/image 关联，没有未完成提交就不等 fence。
+     渲染帧提交失败沿应用边界退出，不尝试复用已 acquire 的信号量；命令录制／同步对象创建及运行期等待仍可能抛异常。
+   - ImGui 后端内部 Vulkan 失败暂缓单独适配，本轮不扩大后端改造：Init 的 bool 不覆盖全部失败，回调处部分句柄尚在局部变量，不能直接抛异常假装安全展开。
      先明确后端资源接管／释放与中断策略，再接回调；不修改第三方源码掩盖边界。WSI 无呈现重试仍按后续专项规划。
-     以上完成后再接后台 Shader 热发布。
+     后台 Shader 热发布以候选创建／提交／发布边界为前置；ImGui 后端的独立限制保持显式记录，不把本轮标记为全链路无异常。
    Descriptor 写入／绑定已收回 graphics，渲染与资产消费者使用错误消息／设备丢失语义，不直接解析原生状态码。
    WSI acquire/present 不再向 SceneRenderer 暴露 vk::Result；PipelineConfig 与 viewport/scissor 的原生数据边界按后续真实消费者整理，
    不以复制全部 Vulkan 类型或预建多后端框架替代职责划分。ImGui Vulkan 后端适配仍允许在私有实现中使用原生接口。

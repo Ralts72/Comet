@@ -13,7 +13,7 @@ namespace Comet {
           m_command_buffer(device.get_default_command_pool().allocate_command_buffer()) {}
 
     CommandContext::~CommandContext() {
-        if(m_is_recording && !m_submitted) {
+        if(m_state == State::Recording) {
             LOG_WARN("CommandContext destroyed without submitting commands");
         }
 
@@ -21,15 +21,15 @@ namespace Comet {
     }
 
     void CommandContext::ensure_recording() {
-        if(m_submitted) {
-            LOG_FATAL("Cannot record commands after CommandContext submission");
+        if(m_state == State::Closed || m_state == State::Submitted) {
+            LOG_FATAL("Cannot record commands in a closed CommandContext");
         }
-        if(m_is_recording) {
+        if(m_state == State::Recording) {
             return;
         }
 
         m_command_buffer.begin(Flags<CommandBuffer::Usage>(CommandBuffer::Usage::OneTimeSubmit));
-        m_is_recording = true;
+        m_state = State::Recording;
     }
 
     void CommandContext::copy_buffer(const Buffer& src, const Buffer& dst, const size_t size,
@@ -64,32 +64,29 @@ namespace Comet {
         m_command_buffer.transition_buffer_state(buffer.get(), before, after, offset, size);
     }
 
-    GpuCompletionPoint CommandContext::submit() {
-        if(!m_is_recording) {
-            LOG_WARN("CommandContext::submit() called without any commands");
-            return {};
+    GpuResourceResult<GpuCompletionPoint> CommandContext::submit() {
+        if(m_state != State::Recording) {
+            LOG_FATAL(
+                "CommandContext submission requires recorded commands and can only be attempted once");
         }
 
-        if(m_submitted) {
-            LOG_WARN("CommandContext already submitted");
-            return {};
-        }
-
+        m_state = State::Closed;
         m_command_buffer.end();
 
         auto& graphics_queue = m_device.get_graphics_queue(0);
         const auto completion =
             graphics_queue.submit2({}, std::span(&m_command_buffer, 1), {}, nullptr);
 
-        m_submitted = true;
+        if(completion)
+            m_state = State::Submitted;
         return completion;
     }
 
     void CommandContext::discard() {
-        if(m_submitted) {
+        if(m_state == State::Submitted) {
             LOG_FATAL("Cannot discard a submitted CommandContext");
         }
-        m_is_recording = false;
+        m_state = State::Closed;
     }
 
 }

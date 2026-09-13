@@ -63,8 +63,8 @@ namespace Comet::Tests {
         };
 
         template<typename T>
-        concept ReturnsGpuCompletion = requires(T& context) {
-            { context.submit() } -> std::same_as<GpuCompletionPoint>;
+        concept ReturnsSubmissionResult = requires(T& context) {
+            { context.submit() } -> std::same_as<GpuResourceResult<GpuCompletionPoint>>;
         };
 
         template<typename T>
@@ -113,8 +113,8 @@ namespace Comet::Tests {
         static_assert(SupportsOwnedImageUpload<UploadBatch>);
         static_assert(SupportsRecoverableImageUpload<UploadBatch>);
         static_assert(!SupportsBorrowedBufferUpload<UploadBatch>);
-        static_assert(ReturnsGpuCompletion<UploadBatch>);
-        static_assert(ReturnsGpuCompletion<CommandContext>);
+        static_assert(ReturnsSubmissionResult<UploadBatch>);
+        static_assert(ReturnsSubmissionResult<CommandContext>);
         static_assert(SupportsBatchAbort<UploadBatch>);
         static_assert(!SupportsBatchAbort<UploadManager>);
         static_assert(SupportsCommandDiscard<CommandContext>);
@@ -183,6 +183,28 @@ namespace Comet::Tests {
         };
     }
 
+    TEST_F(UploadBatchGpuTest, SubmittedBatchRetainsDestinationUntilCollection) {
+        UploadManager manager(*m_device);
+        const auto after = resolve_resource_state(ResourceUsage::VertexBuffer);
+        ASSERT_TRUE(after);
+        const std::array<std::byte, 4> data{};
+        for(int iteration = 0; iteration < 2; ++iteration) {
+            auto destination = Buffer::create_gpu_buffer(
+                *m_device, Flags<BufferUsage>(BufferUsage::Vertex), data.size(), "upload lifetime");
+            const std::weak_ptr<Buffer> retained = destination;
+            auto batch = manager.begin_batch();
+            ASSERT_TRUE(batch.try_enqueue_upload(destination, data, *after, true));
+            const auto completion = batch.submit();
+            ASSERT_TRUE(completion) << completion.error();
+            destination.reset();
+            batch.abort();
+            EXPECT_FALSE(retained.expired());
+            completion.value().wait();
+            manager.collect_completed();
+            EXPECT_TRUE(retained.expired());
+        }
+    }
+
     TEST(UploadManagerInterfaceTest, HasExpectedStagingDefaults) {
         const UploadManager::CreateInfo create_info;
 
@@ -230,10 +252,11 @@ namespace Comet::Tests {
         EXPECT_EQ(rejected.result(), vk::Result::eErrorOutOfDeviceMemory);
         EXPECT_EQ(growth_attempts, 3U);
 
-        const GpuCompletionPoint completion = batch_b.submit();
-        ASSERT_TRUE(completion.is_valid());
-        completion.wait();
-        EXPECT_TRUE(completion.is_complete());
+        const auto completion = batch_b.submit();
+        ASSERT_TRUE(completion) << completion.error();
+        ASSERT_TRUE(completion.value().is_valid());
+        completion.value().wait();
+        EXPECT_TRUE(completion.value().is_complete());
         manager.collect_completed();
     }
 }

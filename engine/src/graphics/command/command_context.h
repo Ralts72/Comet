@@ -1,6 +1,7 @@
 #pragma once
 #include "graphics/vk_common.h"
 #include "graphics/command/command_buffer.h"
+#include "graphics/resource/resource_result.h"
 #include "graphics/synchronization/gpu_completion_point.h"
 #include "graphics/synchronization/resource_state.h"
 
@@ -33,15 +34,16 @@ namespace Comet {
             const ResourceState& after, vk::DeviceSize offset = 0,
             vk::DeviceSize size = VK_WHOLE_SIZE);
 
-        [[nodiscard]] GpuCompletionPoint submit();
+        [[nodiscard]] GpuResourceResult<GpuCompletionPoint> submit();
         void discard();
 
     private:
+        enum class State { Initial, Recording, Closed, Submitted };
+
         void ensure_recording();
 
         Device& m_device;
         CommandBuffer m_command_buffer;
-        bool m_is_recording = false;
-        bool m_submitted = false;
+        State m_state = State::Initial;
     };
 }

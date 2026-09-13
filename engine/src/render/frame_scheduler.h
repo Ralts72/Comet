@@ -1,6 +1,8 @@
 #pragma once
 
 #include "graphics/command/command_buffer.h"
+#include "graphics/resource/resource_result.h"
+#include "graphics/synchronization/gpu_completion_point.h"
 #include "graphics/synchronization/fence.h"
 #include "graphics/synchronization/semaphore.h"
 
@@ -11,6 +13,8 @@
 #include <vector>
 
 namespace Comet {
+    struct QueueSemaphoreSubmit;
+
     struct FrameSlot {
         Fence in_flight_fence;
         Semaphore image_available_semaphore;
@@ -47,7 +51,9 @@ namespace Comet {
         void wait_for_all_slots();
         void begin_frame(uint32_t image_index);
         void retain_current_frame_resource(std::shared_ptr<void> resource);
-        void record_submission();
+        [[nodiscard]] GpuResourceResult<GpuCompletionPoint> submit(
+            std::span<const QueueSemaphoreSubmit> waits,
+            std::span<const QueueSemaphoreSubmit> signals);
         void end_frame();
 
         void initialize_swapchain_images(uint32_t image_count);
@@ -84,6 +90,7 @@ namespace Comet {
         std::vector<FrameSlot> m_frame_slots;
         std::vector<SwapchainImageState> m_swapchain_image_states;
         uint32_t m_current_frame_slot = 0;
+        uint32_t m_current_image_index = 0;
         uint32_t m_frame_slot_count = 0;
         uint64_t m_current_frame_serial = 1;
         uint64_t m_completed_frame_serial = 0;

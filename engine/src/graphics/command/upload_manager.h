@@ -72,7 +72,7 @@ namespace Comet {
 
         [[nodiscard]] GpuResourceResult<StagingAllocation> try_allocate_staging(
             BatchResources& resources, std::span<const std::byte> data, bool within_budget);
-        [[nodiscard]] GpuCompletionPoint submit_batch(UploadBatch& batch);
+        [[nodiscard]] GpuResourceResult<GpuCompletionPoint> submit_batch(UploadBatch& batch);
         void abort_batch(UploadBatch& batch);
         void prepare_for_staging_growth(size_t capacity);
         void recycle_staging_pages(BatchResources& resources);
@@ -109,7 +109,7 @@ namespace Comet {
             std::span<const std::byte> data, const ImageState& before, const ImageState& after,
             bool within_budget);
 
-        [[nodiscard]] GpuCompletionPoint submit();
+        [[nodiscard]] GpuResourceResult<GpuCompletionPoint> submit();
         void abort();
 
     private:

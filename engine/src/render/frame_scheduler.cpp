@@ -2,6 +2,7 @@
 
 #include "diagnostics/logger.h"
 #include "graphics/device.h"
+#include "graphics/queue.h"
 
 #include <algorithm>
 #include <limits>
@@ -58,9 +59,7 @@ namespace Comet {
             wait_for_slot(*previous_frame_slot);
         }
 
-        auto& current_fence = get_current_frame_slot().in_flight_fence;
-        m_device.reset_fences(std::span(&current_fence, 1));
-        image_state.in_flight_frame_slot = m_current_frame_slot;
+        m_current_image_index = image_index;
         m_frame_active = true;
         m_submission_recorded = false;
     }
@@ -77,13 +76,28 @@ namespace Comet {
         get_current_frame_slot().retained_resources.try_emplace(resource_id, std::move(resource));
     }
 
-    void FrameScheduler::record_submission() {
+    GpuResourceResult<GpuCompletionPoint> FrameScheduler::submit(
+        const std::span<const QueueSemaphoreSubmit> waits,
+        const std::span<const QueueSemaphoreSubmit> signals) {
         if(!m_frame_active || m_submission_recorded) {
             LOG_FATAL("FrameScheduler requires one submission for the active frame");
         }
 
+        auto& slot = get_current_frame_slot();
+        m_device.reset_fences(std::span(&slot.in_flight_fence, 1));
+        const auto completion = m_device.get_graphics_queue(0).submit2(
+            waits, std::span(&slot.command_buffer, 1), signals, &slot.in_flight_fence);
+        if(!completion) {
+            slot.retained_resources.clear();
+            m_frame_active = false;
+            m_current_slot_ready = false;
+            return completion;
+        }
+
         m_submission_recorded = true;
-        get_current_frame_slot().last_submission_serial = m_current_frame_serial;
+        slot.last_submission_serial = m_current_frame_serial;
+        m_swapchain_image_states[m_current_image_index].in_flight_frame_slot = m_current_frame_slot;
+        return completion;
     }
 
     void FrameScheduler::end_frame() {
@@ -117,7 +131,9 @@ namespace Comet {
 
     void FrameScheduler::wait_for_slot(const uint32_t frame_slot_index) {
         auto& slot = m_frame_slots.at(frame_slot_index);
-        m_device.wait_for_fences(std::span(&slot.in_flight_fence, 1));
+        // A reset fence without a successful submission has nothing that can signal it.
+        if(!is_frame_serial_complete(slot.last_submission_serial))
+            m_device.wait_for_fences(std::span(&slot.in_flight_fence, 1));
         slot.retained_resources.clear();
         m_completed_frame_serial = std::max(m_completed_frame_serial, slot.last_submission_serial);
     }

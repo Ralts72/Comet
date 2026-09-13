@@ -204,7 +204,6 @@ namespace Comet {
 
         frame_slot.command_buffer.end();
 
-        auto& graphics_queue = device.get_graphics_queue(0);
         std::vector<QueueSemaphoreSubmit> waits;
         waits.reserve(1 + resource_waits.size());
         waits.emplace_back(QueueSemaphoreSubmit{frame_slot.image_available_semaphore,
@@ -212,9 +211,10 @@ namespace Comet {
         waits.insert(waits.end(), resource_waits.begin(), resource_waits.end());
         const QueueSemaphoreSubmit render_finished_signal{image_state.render_finished_semaphore,
             Flags<PipelineStage>(PipelineStage::AllCommands)};
-        static_cast<void>(graphics_queue.submit2(waits, std::span(&frame_slot.command_buffer, 1),
-            std::span(&render_finished_signal, 1), &frame_slot.in_flight_fence));
-        m_frame_scheduler->record_submission();
+        const auto submission =
+            m_frame_scheduler->submit(waits, std::span(&render_finished_signal, 1));
+        if(!submission)
+            throw std::runtime_error("Cannot submit render frame: " + submission.error().message);
 
         auto& present_queue = device.get_present_queue(0);
         const auto result = present_queue.present(

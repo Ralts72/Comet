@@ -207,9 +207,8 @@ namespace Comet::Tests {
             command.get().pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
                 vk::PipelineStageFlagBits::eHost, {}, barrier, {}, {});
             command.end();
-            static_cast<void>(device.get_graphics_queue(0).submit2(waits, std::span(&command, 1),
-                {}, &frames.get_current_frame_slot().in_flight_fence));
-            frames.record_submission();
+            const auto submission = frames.submit(waits, {});
+            ASSERT_TRUE(submission) << submission.error();
             frames.end_frame();
             EXPECT_EQ(materials->get_statistics().material_versions_created, 2u);
         }

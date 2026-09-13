@@ -39,7 +39,8 @@ namespace Comet {
         : m_queue(queue),
           m_completion_timeline(std::make_unique<Semaphore>(device, Semaphore::Type::Timeline)) {}
 
-    GpuCompletionPoint Queue::submit2(const std::span<const QueueSemaphoreSubmit> waits,
+    GpuResourceResult<GpuCompletionPoint> Queue::submit2(
+        const std::span<const QueueSemaphoreSubmit> waits,
         const std::span<const CommandBuffer> command_buffers,
         const std::span<const QueueSemaphoreSubmit> signals, const Fence* fence) {
         std::vector<vk::SemaphoreSubmitInfo> wait_infos;
@@ -66,7 +67,7 @@ namespace Comet {
         if(m_next_completion_value == std::numeric_limits<uint64_t>::max()) {
             LOG_FATAL("Queue completion timeline value exhausted");
         }
-        const uint64_t completion_value = m_next_completion_value++;
+        const uint64_t completion_value = m_next_completion_value;
         signal_infos.push_back(make_semaphore_submit_info(*m_completion_timeline, completion_value,
             Flags<PipelineStage>(PipelineStage::AllCommands)));
 
@@ -81,9 +82,11 @@ namespace Comet {
         const vk::Fence vk_fence = fence ? fence->get() : vk::Fence{};
         const vk::Result result = m_queue.submit2(1, &submit_info, vk_fence);
         if(result != vk::Result::eSuccess) {
-            LOG_FATAL("Queue submit2 failed: {}", vk::to_string(result));
+            return GpuResourceResult<GpuCompletionPoint>::failure(result);
         }
-        return GpuCompletionPoint(*m_completion_timeline, completion_value);
+        ++m_next_completion_value;
+        return GpuResourceResult<GpuCompletionPoint>::success(
+            GpuCompletionPoint(*m_completion_timeline, completion_value));
     }
 
     Result<Queue::PresentStatus, GraphicsError> Queue::present(const Swapchain& swapchain,

@@ -1,5 +1,6 @@
 #pragma once
 #include "graphics/creation.h"
+#include "graphics/resource/resource_result.h"
 #include "graphics/synchronization/gpu_completion_point.h"
 #include "graphics/synchronization/semaphore.h"
 #include "vk_common.h"
@@ -34,7 +35,8 @@ namespace Comet {
         Queue(Queue&&) noexcept = default;
         Queue& operator=(Queue&&) noexcept = delete;
 
-        [[nodiscard]] GpuCompletionPoint submit2(std::span<const QueueSemaphoreSubmit> waits,
+        [[nodiscard]] GpuResourceResult<GpuCompletionPoint> submit2(
+            std::span<const QueueSemaphoreSubmit> waits,
             std::span<const CommandBuffer> command_buffers,
             std::span<const QueueSemaphoreSubmit> signals, const Fence* fence);
 

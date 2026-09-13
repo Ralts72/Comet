@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <type_traits>
 
 namespace Comet {
     namespace {
@@ -35,6 +36,7 @@ namespace Comet {
             LOG_FATAL("UploadManager memory pressure threshold must be in [1, 100]");
         }
         m_create_info.staging_page_size = align_staging_offset(m_create_info.staging_page_size);
+        m_available_pages.reserve(m_create_info.max_cached_staging_pages);
     }
 
     UploadManager::~UploadManager() {
@@ -147,7 +149,7 @@ namespace Comet {
         return GpuResourceResult<void>::success();
     }
 
-    GpuCompletionPoint UploadBatch::submit() {
+    GpuResourceResult<GpuCompletionPoint> UploadBatch::submit() {
         ensure_active();
         if(!m_context) {
             LOG_FATAL("Cannot submit an empty upload batch");
@@ -155,15 +157,18 @@ namespace Comet {
         return m_manager->submit_batch(*this);
     }
 
-    GpuCompletionPoint UploadManager::submit_batch(UploadBatch& batch) {
-        auto context = std::move(batch.m_context);
-        const auto completion = context->submit();
-        if(!completion.is_valid()) {
-            LOG_FATAL("UploadManager failed to submit an active batch");
+    GpuResourceResult<GpuCompletionPoint> UploadManager::submit_batch(UploadBatch& batch) {
+        // Once submitted, retaining the in-flight resources must not allocate or throw.
+        static_assert(std::is_nothrow_move_constructible_v<PendingBatch>);
+        m_pending_batches.reserve(m_pending_batches.size() + 1);
+        const auto completion = batch.m_context->submit();
+        if(!completion) {
+            abort_batch(batch);
+            return completion;
         }
-        m_pending_batches.push_back({.context = std::move(context),
+        m_pending_batches.push_back({.context = std::move(batch.m_context),
             .resources = std::move(batch.m_resources),
-            .completion = completion});
+            .completion = completion.value()});
         batch.m_resources = {};
         --m_open_batch_count;
         batch.m_manager = nullptr;

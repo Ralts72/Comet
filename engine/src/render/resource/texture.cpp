@@ -64,9 +64,11 @@ namespace Comet {
             return GpuResourceResult<std::shared_ptr<Texture>>::failure(upload_attempt.result());
         }
 
-        const GpuCompletionPoint completion = upload_batch.submit();
+        const auto completion = upload_batch.submit();
+        if(!completion)
+            return GpuResourceResult<std::shared_ptr<Texture>>::failure(completion.result());
         std::shared_ptr<Texture> texture(
-            new Texture(data.width, data.height, std::move(image_view), completion));
+            new Texture(data.width, data.height, std::move(image_view), completion.value()));
         return GpuResourceResult<std::shared_ptr<Texture>>::success(std::move(texture));
     }
 

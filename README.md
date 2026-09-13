@@ -145,6 +145,7 @@ JSON 解析直接依赖已有 simdjson。
   Sampler 创建也返回结果，管理器仅缓存成功对象并拒绝同名不同配置；Viewport 持有启动时取得的 sampler。
   RenderPass／交换链目标及 ImGui 初始化也返回结果；目标先构建后替换，重建失败交给应用退出清理边界。
   最外层 Renderer／Editor 保留启动异常边界；WSI 获取／呈现／重建返回明确结果，退休交换链不会重新发布。
+  Queue 提交失败返回 GPU 错误，不产生 completion；上传与帧调度只登记成功提交，避免等待没有提交的 fence。
   ImGui 第三方后端内部失败及 WSI 无呈现恢复仍待完善；关闭时 GPU 等待失败只报告，不阻断后续资源释放。
   运行期资产 GPU 发布、调试缓冲扩容与离屏 resize 区分设备丢失和普通创建失败；设备丢失沿应用边界退出，不重试旧资源。
   Pipeline 按 Shader 字节码／入口、specialization、布局、渲染状态及 RenderPass 域复用，名称只作标签；缓存弱引用不代替在途帧保活。

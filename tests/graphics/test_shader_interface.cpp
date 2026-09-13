@@ -715,9 +715,8 @@ namespace Comet::Tests {
         command.bind_pipeline(*pipeline);
         frames.retain_current_frame_resource(pipeline);
         command.end();
-        static_cast<void>(device.get_graphics_queue().submit2(
-            {}, std::span(&command, 1), {}, &frames.get_current_frame_slot().in_flight_fence));
-        frames.record_submission();
+        const auto submission = frames.submit({}, {});
+        ASSERT_TRUE(submission) << submission.error();
         frames.end_frame();
         pipeline.reset();
         pipelines.collect_unused();
@@ -898,9 +897,8 @@ namespace Comet::Tests {
             command.get().pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
                 vk::PipelineStageFlagBits::eHost, {}, barrier, {}, {});
             command.end();
-            static_cast<void>(device.get_graphics_queue().submit2(
-                {}, std::span(&command, 1), {}, &frames.get_current_frame_slot().in_flight_fence));
-            frames.record_submission();
+            const auto submission = frames.submit({}, {});
+            ASSERT_TRUE(submission) << submission.error();
             frames.end_frame();
         }
         frames.wait_for_all_slots();
