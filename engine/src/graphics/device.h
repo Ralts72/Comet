@@ -45,6 +45,7 @@ namespace Comet {
         void reset_fences(std::span<const Fence> fences) const;
 
         void wait_idle() const;
+        void wait_idle_for_shutdown() const noexcept;
 
         void set_allocator_frame_index(uint64_t frame_serial) const;
 

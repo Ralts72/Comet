@@ -19,10 +19,8 @@
 #include <imgui_impl_vulkan.h>
 
 #include <cstdint>
-#include <cstdio>
 #include <filesystem>
 #include <string>
-#include <stdexcept>
 #include <system_error>
 #include <type_traits>
 #include <utility>
@@ -250,11 +248,7 @@ namespace CometEditor {
         auto* context = m_context.get();
         ImGui::SetCurrentContext(context);
         if(m_initialized) {
-            try {
-                m_render_context.wait_idle();
-            } catch(const std::exception& error) {
-                std::fprintf(stderr, "Cannot wait for ImGui shutdown: %s\n", error.what());
-            }
+            m_render_context.get_device().wait_idle_for_shutdown();
         }
         // 后端可能尚未初始化，或者已在 swapchain 重建中关闭。
         if(ImGui::GetIO().BackendRendererUserData) {

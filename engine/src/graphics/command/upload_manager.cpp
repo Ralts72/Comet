@@ -41,7 +41,8 @@ namespace Comet {
         if(m_open_batch_count != 0) {
             LOG_FATAL("UploadManager destroyed with {} open batch(es)", m_open_batch_count);
         }
-        wait_for_pending_batches();
+        if(!m_pending_batches.empty())
+            m_device.wait_idle_for_shutdown();
     }
 
     UploadBatch UploadManager::begin_batch() {

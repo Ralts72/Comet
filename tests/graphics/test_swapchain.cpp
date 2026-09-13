@@ -2,10 +2,48 @@
 
 #include "graphics/swapchain.h"
 #include "graphics/vk_capability.h"
+#include "graphics/device.h"
+#include "render/scene/scene_renderer.h"
+#include "support/engine_fixture.h"
 
 #include <limits>
+#include <type_traits>
 
 namespace Comet::Tests {
+    static_assert(!std::is_constructible_v<Swapchain, const Window&, Context&, Device&,
+        const SwapchainRequest&>);
+    static_assert(noexcept(std::declval<Device&>().wait_idle_for_shutdown()));
+    using SwapchainLifecycleTest = EngineTest;
+
+    TEST_F(SwapchainLifecycleTest, InvalidCreationReturnsErrorWithoutChangingActivePresentation) {
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context();
+        auto generation = context.get_swapchain().get_active_generation();
+        SwapchainRequest request;
+        request.usage = Flags<ImageUsage>(ImageUsage::Sampled);
+        auto rejected = Swapchain::create(
+            engine->get_window(), context.get_context(), context.get_device(), request);
+        ASSERT_FALSE(rejected);
+        EXPECT_FALSE(rejected.error().result.has_value());
+        EXPECT_EQ(context.get_swapchain().get_active_generation(), generation);
+        ASSERT_TRUE(renderer.prepare_frame());
+        renderer.render_frame({});
+    }
+
+    TEST_F(SwapchainLifecycleTest, RebuildInstallsNewGenerationAndContinuesRendering) {
+        auto& renderer = engine->get_renderer();
+        auto& swapchain = renderer.get_render_context().get_swapchain();
+        auto previous = swapchain.get_active_generation();
+        ASSERT_TRUE(renderer.get_scene_renderer().recreate_swapchain());
+        EXPECT_NE(swapchain.get_active_generation(), previous);
+        previous.reset();
+        ASSERT_TRUE(renderer.prepare_frame());
+        renderer.render_frame({});
+        ASSERT_TRUE(renderer.get_scene_renderer().recreate_swapchain());
+        ASSERT_TRUE(renderer.prepare_frame());
+        renderer.render_frame({});
+    }
+
     namespace {
         vk::SurfaceCapabilitiesKHR make_capabilities() {
             vk::SurfaceCapabilitiesKHR capabilities{};

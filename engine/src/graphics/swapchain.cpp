@@ -6,6 +6,7 @@
 #include "core/window.h"
 #include "device.h"
 #include "graphics/resource/image.h"
+#include "graphics/resource/resource_result.h"
 #include "graphics/synchronization/semaphore.h"
 
 #include <utility>
@@ -41,16 +42,13 @@ namespace Comet {
         }
     }
 
-    Swapchain::Generation::Generation(Device& device, const vk::SwapchainKHR swapchain,
+    Swapchain::Generation::Generation(vk::UniqueSwapchainKHR swapchain,
         std::vector<std::shared_ptr<Image>> images, SwapchainConfig config)
-        : m_device(device), m_swapchain(swapchain), m_images(std::move(images)),
+        : m_swapchain(std::move(swapchain)), m_images(std::move(images)),
           m_config(std::move(config)) {}
 
     Swapchain::Generation::~Generation() {
         m_images.clear();
-        if(m_swapchain) {
-            m_device.get().destroySwapchainKHR(m_swapchain);
-        }
     }
 
     SwapchainCompatibility compare_swapchain_configs(
@@ -62,39 +60,48 @@ namespace Comet {
 
     Swapchain::Swapchain(
         const Window& window, Context& context, Device& device, const SwapchainRequest& request)
-        : m_window(window), m_context(context), m_device(device), m_request(request) {
-        PROFILE_SCOPE("Swapchain::Constructor");
-        if(!recreate()) {
-            LOG_FATAL("Cannot create the initial swapchain");
-        }
+        : m_window(window), m_context(context), m_device(device), m_request(request) {}
+
+    Result<std::unique_ptr<Swapchain>, GraphicsError> Swapchain::create(
+        const Window& window, Context& context, Device& device, const SwapchainRequest& request) {
+        using CreationResult = Result<std::unique_ptr<Swapchain>, GraphicsError>;
+        std::unique_ptr<Swapchain> candidate(new Swapchain(window, context, device, request));
+        auto initialized = candidate->recreate();
+        if(!initialized)
+            return CreationResult::failure(initialized.error());
+        if(initialized.value() == RecreateStatus::Deferred)
+            return CreationResult::failure(
+                {"Initial swapchain creation requires a drawable window"});
+        return CreationResult::success(std::move(candidate));
     }
 
-    bool Swapchain::recreate() {
+    Result<Swapchain::RecreateStatus, GraphicsError> Swapchain::recreate() {
         PROFILE_SCOPE("Swapchain::Recreate");
-        const auto physical_device = m_context.get_physical_device();
-        const auto surface = m_context.get_surface();
-        const auto capabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
-        const auto surface_formats = physical_device.getSurfaceFormatsKHR(surface);
-        const auto present_modes = physical_device.getSurfacePresentModesKHR(surface);
-        const auto framebuffer_size = m_window.get_framebuffer_size();
-
-        const auto [status, config, message] = select_swapchain(capabilities, surface_formats,
-            present_modes, vk::Extent2D{framebuffer_size.x, framebuffer_size.y}, m_request);
-        if(status == SwapchainStatus::Deferred) {
-            LOG_DEBUG("Swapchain recreation deferred: {}", message);
-            return false;
+        SwapchainResult selection;
+        try {
+            const auto physical_device = m_context.get_physical_device();
+            const auto surface = m_context.get_surface();
+            const auto capabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
+            const auto surface_formats = physical_device.getSurfaceFormatsKHR(surface);
+            const auto present_modes = physical_device.getSurfacePresentModesKHR(surface);
+            const auto framebuffer_size = m_window.get_framebuffer_size();
+            selection = select_swapchain(capabilities, surface_formats, present_modes,
+                vk::Extent2D{framebuffer_size.x, framebuffer_size.y}, m_request);
+        } catch(const vk::SystemError& error) {
+            return Result<RecreateStatus, GraphicsError>::failure(
+                {error.what(), static_cast<vk::Result>(error.code().value())});
         }
-        if(status == SwapchainStatus::Unsupported) {
-            LOG_FATAL("Cannot create Vulkan swapchain: {}", message);
-        }
+        const auto& [status, config, message] = selection;
+        if(status == SwapchainStatus::Deferred)
+            return Result<RecreateStatus, GraphicsError>::success(RecreateStatus::Deferred);
+        if(status == SwapchainStatus::Unsupported)
+            return Result<RecreateStatus, GraphicsError>::failure({message});
         if(!message.empty()) {
             LOG_WARN("Swapchain selection: {}", message);
         }
         auto candidate = try_create_generation(config);
         if(!candidate) {
-            LOG_ERROR(
-                "Failed to create swapchain candidate: {}", vk::to_string(candidate.result()));
-            return false;
+            return Result<RecreateStatus, GraphicsError>::failure(candidate.error());
         }
         m_active_generation = std::move(candidate).value();
 
@@ -105,7 +112,7 @@ namespace Comet {
             vk::to_string(config.surface_format.colorSpace), vk::to_string(config.present_mode),
             vk::to_string(config.transform), vk::to_string(config.composite_alpha),
             vk::to_string(config.usage), config.image_layers, config.clipped);
-        return true;
+        return Result<RecreateStatus, GraphicsError>::success(RecreateStatus::Recreated);
     }
 
     Swapchain::GenerationResult Swapchain::try_create_generation(const SwapchainConfig& config) {
@@ -141,29 +148,22 @@ namespace Comet {
         create_info.clipped = config.clipped ? VK_TRUE : VK_FALSE;
         create_info.oldSwapchain = old_swapchain;
 
-        vk::SwapchainKHR swapchain{};
-        const vk::Result create_result =
-            m_device.get().createSwapchainKHR(&create_info, nullptr, &swapchain);
-        if(create_result != vk::Result::eSuccess) {
-            // 传入 oldSwapchain 即退休旧交换链，即使创建失败。
-            // 当前尚无无呈现恢复状态，不能返回 false，
-            // 否则调用方会恢复依赖资源并从已退休的交换链获取图像。
-            if(old_swapchain) {
-                LOG_FATAL("Swapchain recreation failed and retired the old swapchain; "
-                          "cannot resume presentation: {}",
-                    vk::to_string(create_result));
-            }
-            return GenerationResult::failure(create_result);
-        }
+        // oldSwapchain 一经用于创建即退休；失败也不能重新作为 active 发布。
+        auto previous = std::move(m_active_generation);
+        auto swapchain = Graphics::create_handle<vk::SwapchainKHR>(
+            m_device.get(), "Cannot create swapchain", [&](vk::SwapchainKHR* output) noexcept {
+                return m_device.get().createSwapchainKHR(&create_info, nullptr, output);
+            });
+        if(!swapchain)
+            return GenerationResult::failure(swapchain.error());
 
-        std::shared_ptr<Generation> generation(new Generation(m_device, swapchain, {}, config));
-        auto images_attempt = get_swapchain_images(m_device.get(), swapchain);
-        if(!images_attempt) {
-            generation.reset();
-            LOG_FATAL("Created a new swapchain handle but failed to query its images; "
-                      "the old swapchain is retired: {}",
-                vk::to_string(images_attempt.result()));
-        }
+        std::shared_ptr<Generation> generation(
+            new Generation(std::move(swapchain).value(), {}, config));
+        auto images_attempt = get_swapchain_images(m_device.get(), generation->get());
+        if(!images_attempt)
+            return GenerationResult::failure(
+                {"Cannot query swapchain images: " + images_attempt.error().message,
+                    images_attempt.result()});
 
         const auto images = std::move(images_attempt).value();
         std::vector<std::shared_ptr<Image>> image_owners;
@@ -179,20 +179,23 @@ namespace Comet {
         return GenerationResult::success(std::move(generation));
     }
 
-    std::pair<uint32_t, vk::Result> Swapchain::acquire_next_image(const Semaphore& semaphore) {
+    Result<std::optional<uint32_t>, GraphicsError> Swapchain::acquire_next_image(
+        const Semaphore& semaphore) {
+        using AcquisitionResult = Result<std::optional<uint32_t>, GraphicsError>;
+        if(!m_active_generation)
+            return AcquisitionResult::failure({"Cannot acquire from an inactive swapchain"});
         uint32_t image_index = 0;
-        auto& generation = active_generation();
+        auto& generation = *m_active_generation;
         const auto result = m_device.get().acquireNextImageKHR(
-            generation.m_swapchain, UINT64_MAX, semaphore.get(), VK_NULL_HANDLE, &image_index);
+            generation.get(), UINT64_MAX, semaphore.get(), VK_NULL_HANDLE, &image_index);
         if(result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR) {
             generation.m_current_index = image_index;
+            return AcquisitionResult::success(image_index);
         }
-        if(result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR
-            || result == vk::Result::eErrorOutOfDateKHR) {
-            return std::make_pair(image_index, result);
-        }
-        LOG_FATAL("Failed to acquire swapchain image");
-        return std::make_pair(image_index, result);
+        if(result == vk::Result::eErrorOutOfDateKHR)
+            return AcquisitionResult::success(std::nullopt);
+        return AcquisitionResult::failure(
+            {"Cannot acquire swapchain image: " + vk::to_string(result), result});
     }
 
     Swapchain::Generation& Swapchain::active_generation() {

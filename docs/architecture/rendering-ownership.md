@@ -78,7 +78,7 @@ ImGuiContext 的原生 Context 由带私有 ContextDeleter 的 unique_ptr 拥有
 原生 Context 保持最后声明，作为成员展开的顺序保障；不需要 catch 后 cleanup/rethrow。
 正常析构仍先等待 GPU、解除纹理注册，再销毁后端及资源。
 只关闭实际存在的后端，覆盖 swapchain 重建中旧后端已经关闭的状态。
-等待 GPU 时的 catch 保留：它保护 noexcept 清理边界，不等同于设备丢失恢复。
+等待 GPU 的析构保护集中于 Device::wait_idle_for_shutdown，不等同于设备丢失恢复。
 
 LOG_FATAL 当前执行 assert／terminate，不展开栈，也不会进入上述异常清理；只适合明确终止的内部错误。
 
@@ -202,9 +202,9 @@ SwapchainTarget 只发布完成全部 framebuffer 的候选，失败先释放 fr
 FrameBuffer 无调用方的 fatal 创建包装已移除，目标统一使用 try_create。
 ImGuiContext::create 和重建返回结果，失败时关闭已初始化后端，再销毁池、目标与 pass；不发布半初始化 UI。
 重建已释放旧依赖，失败不作逐帧重试：SceneRenderer 在应用边界抛出错误并退出清理。
-ImGui 第三方后端内部创建目前仍不能靠 Init 的 bool 完整报告 GPU 失败；WSI 原生交换链的失败／退休策略也未在此轮迁移。
+ImGui 第三方后端内部创建目前仍不能靠 Init 的 bool 完整报告 GPU 失败；回调处还有未交给后端 owner 的局部资源，不直接抛异常跳过释放。
 当前后端的 Vulkan Shutdown 还清除主视口平台数据，因此 format/image count 重建同时关闭并重建 GLFW 后端；保留 ImGui Context 和 UI 状态。
-Application 的失败清理及 ImGui 析构保护 catch 必须保留，不以 LOG_FATAL 替代可恢复错误。
+Application 的失败清理及 Device 关闭等待保护必须保留，不以 LOG_FATAL 替代可恢复错误。
 
 PipelineConfig 与状态位于 pipeline_config.h/.cpp，PipelineKey 的完整判等、规范化与哈希位于 pipeline_key.h/.cpp。
 Key 包含完整 Shader 内容／入口、layout、配置、RenderPass 身份与附件格式／采样数；名称只作标签，hash 不代替相等比较。
@@ -294,12 +294,18 @@ extent 变化只重建 target；format/image count 变化还会影响 ImGui back
 初始 RenderPass 使用实际选定的 surface format，runtime 不兼容格式目前明确终止。
 
 Generation 的 shared ownership 只解决寿命，不保证 WSI 可继续 acquire：
-传入 oldSwapchain 调用创建后，无论成功失败旧 core 都退休。本阶段失败明确终止；
+传入 oldSwapchain 调用创建后，无论成功失败旧 core 都退休。调用前取走 active 引用，旧 owner 仅保活至创建调用结束，绝不再发布为 active。
+新 Generation 用 UniqueSwapchainKHR 持有句柄，图像查询失败或包装异常都会释放新句柄；失败返回给应用退出边界。
 只有调用创建前的零尺寸延期才允许恢复旧 dependent；创建失败后的无呈现恢复见[路线图](../engine-roadmap.md)。
 
 关闭先解绑捕获 Editor/ImGuiContext 的 callback，结束后台工作并等待必要 GPU 完成，再释放：
 ImGui dependent → Registry/SceneRenderer → ResourceManager → Swapchain/Device/Context → Window。
 Device 必须比 Buffer、Image、Mesh、Texture、completion token 活得更久；shutdown 允许 Device idle。
+Swapchain::create 返回完整候选；recreate 的 Deferred 表示尚未调用原生创建、旧代未退休。
+acquire 返回 Result<optional<uint32_t>, GraphicsError>：空索引表示 OutOfDate，成功／Suboptimal 才包含有效索引。
+present 返回 Presented 或 RecreateRequired；负向错误保留 GraphicsError。SceneRenderer 不解析原生状态码，重复 OutOfDate 不开始帧录制。
+Device::wait_idle_for_shutdown 捕获 Vulkan 等待错误并报告；Engine／Renderer／RenderContext／ImGui 和上传析构复用此边界继续释放资源。
+上传管理器仅在还有在途批次时做关闭等待，不再在析构中逐个等待可能因设备丢失失败的 completion；正常运行时的等待接口不变。
 
 GLFW 由 Window 实现管理：首个窗口初始化，最后一个窗口释放后终止，创建／销毁在主线程执行。
 原生窗口由 unique_ptr 与私有 deleter 持有，构造过程中取得窗口后发生异常也会释放。

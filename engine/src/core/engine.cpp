@@ -1,6 +1,7 @@
 #include "engine.h"
 #include "config/config.h"
 #include "core/window.h"
+#include "graphics/device.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
 #include "render/resource/resource_manager.h"
@@ -30,7 +31,7 @@ namespace Comet {
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
         m_task_scheduler->wait_idle();
-        m_renderer->get_render_context().wait_idle();
+        m_renderer->get_render_context().get_device().wait_idle_for_shutdown();
         m_asset_registry->clear();
         m_renderer.reset();
         m_asset_registry.reset();

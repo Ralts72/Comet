@@ -14,7 +14,6 @@
 #include "render/resource/resource_manager.h"
 
 #include <stdexcept>
-#include <tuple>
 #include <utility>
 
 namespace Comet {
@@ -174,21 +173,20 @@ namespace Comet {
         auto& swapchain = m_context.get_swapchain();
         auto& frame_slot = m_frame_scheduler->get_current_frame_slot();
 
-        auto [image_index, acquire_result] =
-            swapchain.acquire_next_image(frame_slot.image_available_semaphore);
-        if(acquire_result == vk::Result::eErrorOutOfDateKHR) {
-            if(!recreate_swapchain()) {
+        auto acquisition = swapchain.acquire_next_image(frame_slot.image_available_semaphore);
+        if(!acquisition)
+            throw std::runtime_error(acquisition.error().message);
+        if(!acquisition.value()) {
+            if(!recreate_swapchain())
                 return false;
-            }
-            std::tie(image_index, acquire_result) =
-                swapchain.acquire_next_image(frame_slot.image_available_semaphore);
-            if(acquire_result != vk::Result::eSuccess
-                && acquire_result != vk::Result::eSuboptimalKHR) {
-                LOG_FATAL("can't acquire swapchain image");
-            }
+            acquisition = swapchain.acquire_next_image(frame_slot.image_available_semaphore);
+            if(!acquisition)
+                throw std::runtime_error(acquisition.error().message);
+            if(!acquisition.value())
+                return false;
         }
 
-        m_frame_scheduler->begin_frame(image_index);
+        m_frame_scheduler->begin_frame(*acquisition.value());
         auto& command_buffer = m_frame_scheduler->get_current_command_buffer();
         command_buffer.begin(Flags<CommandBuffer::Usage>(CommandBuffer::Usage::OneTimeSubmit));
 
@@ -221,11 +219,10 @@ namespace Comet {
         auto& present_queue = device.get_present_queue(0);
         const auto result = present_queue.present(
             swapchain, std::span(&image_state.render_finished_semaphore, 1), image_index);
-        if(result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR) {
+        if(!result)
+            throw std::runtime_error(result.error().message);
+        if(result.value() == Queue::PresentStatus::RecreateRequired)
             static_cast<void>(recreate_swapchain());
-        } else if(result != vk::Result::eSuccess) {
-            LOG_FATAL("failed to present swapchain image: {}", vk::to_string(result));
-        }
 
         m_frame_scheduler->end_frame();
     }
@@ -288,7 +285,10 @@ namespace Comet {
             m_release_swapchain_resources();
         }
 
-        const bool recreated = swapchain.recreate();
+        const auto recreation = swapchain.recreate();
+        if(!recreation)
+            throw std::runtime_error("Cannot rebuild presentation: " + recreation.error().message);
+        const bool recreated = recreation.value() == Swapchain::RecreateStatus::Recreated;
         const SwapchainCompatibility compatibility = compare_swapchain_configs(
             previous_config, swapchain.get_active_generation()->get_config());
         if(!m_uses_offscreen_target && compatibility.format_changed) {

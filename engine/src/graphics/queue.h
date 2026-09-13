@@ -1,4 +1,5 @@
 #pragma once
+#include "graphics/creation.h"
 #include "graphics/synchronization/gpu_completion_point.h"
 #include "graphics/synchronization/semaphore.h"
 #include "vk_common.h"
@@ -37,7 +38,8 @@ namespace Comet {
             std::span<const CommandBuffer> command_buffers,
             std::span<const QueueSemaphoreSubmit> signals, const Fence* fence);
 
-        [[nodiscard]] vk::Result present(const Swapchain& swapchain,
+        enum class PresentStatus { Presented, RecreateRequired };
+        Result<PresentStatus, GraphicsError> present(const Swapchain& swapchain,
             std::span<const Semaphore> wait_semaphores, uint32_t image_index) const;
 
         void wait_idle() const;

@@ -173,10 +173,13 @@ Shader／Pipeline 与材质 descriptor 创建、分配已接通原生错误结�
      交换链与离屏目标共用可失败附件构建，SceneRenderer 安装 pass/target 前保留旧成员；不承诺整个渲染图回滚。
    - 已审查资产 Mesh／Texture GPU 加载与发布、DebugRenderer 扩容和离屏 resize：DeviceLost 向应用退出边界传播，普通创建失败保留旧版本／跳过本批。
      ensure_loaded、材质创建、后台完成处理和场景激活不再用通用 catch 吞掉 GPU 发布异常；Worker、文件读写及析构仍保留各自边界。
-   - 下一项独立适配 ImGui 后端内部 Vulkan 失败（Init 的 bool 不覆盖全部失败），连同 WSI 退休后的恢复／退出策略继续收口；不修改第三方源码掩盖边界。
+   - 已接通 WSI 创建／重建、acquire、present 的显式结果；Deferred 与致命失败分开，退休 Generation 不重新发布，重复 OutOfDate 跳过本帧。
+     Device 的关闭等待集中处理 Vulkan 等待异常，Engine／Renderer／RenderContext／ImGui／上传清理不再被该异常打断；普通运行期等待仍传播错误。
+   - 下一项独立适配 ImGui 后端内部 Vulkan 失败：Init 的 bool 不覆盖全部失败，回调处部分句柄尚在局部变量，不能直接抛异常假装安全展开。
+     先明确后端资源接管／释放与中断策略，再接回调；不修改第三方源码掩盖边界。WSI 无呈现重试仍按后续专项规划。
      以上完成后再接后台 Shader 热发布。
    Descriptor 写入／绑定已收回 graphics，渲染与资产消费者使用错误消息／设备丢失语义，不直接解析原生状态码。
-   WSI acquire/present 状态接口随独立的 WSI 失败处理收敛；PipelineConfig 与 viewport/scissor 的原生数据边界按后续真实消费者整理，
+   WSI acquire/present 不再向 SceneRenderer 暴露 vk::Result；PipelineConfig 与 viewport/scissor 的原生数据边界按后续真实消费者整理，
    不以复制全部 Vulkan 类型或预建多后端框架替代职责划分。ImGui Vulkan 后端适配仍允许在私有实现中使用原生接口。
 
 结果表示按层复用或演进现有机制，不为每个类复制一套 Result；若需抽取公共结果类型，应放在无资产／Vulkan 依赖的公共层，
@@ -243,7 +246,7 @@ Shader／Pipeline 与材质 descriptor 创建、分配已接通原生错误结�
 - 运行时 format/sample-dependent RenderPass/Pipeline 需与 target 形成兼容、可替换的 generation；
   当前不兼容格式仍明确终止，不能继续绑定旧 Pipeline。
 - **WSI 无呈现恢复**：传入非空 oldSwapchain 调用创建后，无论成功失败，旧交换链都已退休。
-  当前最小安全策略是新建失败明确终止；只有创建调用前的零尺寸延期可以恢复旧 dependent。
+  当前最小安全策略是新建失败返回错误并由应用退出清理；只有创建调用前的零尺寸延期可以恢复旧 dependent。
   后续设计 no-present/retry/surface-lost 状态，禁止从退休对象 acquire，禁止把它再次作为非退休 oldSwapchain。
   旧资源仍须等待 graphics/present completion，再按 framebuffer → view → swapchain 顺序释放。
   规则来源：[Khronos](https://docs.vulkan.org/refpages/latest/refpages/source/VkSwapchainCreateInfoKHR.html)。

@@ -7,6 +7,8 @@
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 
+#include <stdexcept>
+
 namespace Comet {
     RenderContext::RenderContext(const Window& window, const Config::Vulkan& vulkan_config,
         const Config::Render& render_config) {
@@ -32,7 +34,11 @@ namespace Comet {
         m_device = std::make_unique<Device>(*m_context);
 
         LOG_INFO("create swapchain");
-        m_swapchain = std::make_unique<Swapchain>(window, *m_context, *m_device, swapchain_request);
+        auto swapchain = Swapchain::create(window, *m_context, *m_device, swapchain_request);
+        if(!swapchain)
+            throw std::runtime_error(
+                "Cannot initialize presentation: " + swapchain.error().message);
+        m_swapchain = std::move(swapchain).value();
     }
 
     void RenderContext::wait_idle() const {
@@ -46,7 +52,7 @@ namespace Comet {
     RenderContext::~RenderContext() {
         PROFILE_SCOPE("RenderContext::Destructor");
         LOG_INFO("destroy render context");
-        wait_idle();
+        m_device->wait_idle_for_shutdown();
 
         m_swapchain.reset();
         m_device.reset();

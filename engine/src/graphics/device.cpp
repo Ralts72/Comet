@@ -8,6 +8,8 @@
 #include "diagnostics/profiler.h"
 #include "graphics/resource/allocator.h"
 
+#include <cstdio>
+
 namespace Comet {
     Device::Device(Context& context) : Device(context, CreateInfo{}) {}
 
@@ -89,7 +91,7 @@ namespace Comet {
 
     Device::~Device() {
         if(m_device) {
-            m_device.waitIdle();
+            wait_idle_for_shutdown();
         }
         m_default_command_pool.reset();
         m_present_queues.clear();
@@ -143,6 +145,14 @@ namespace Comet {
 
     void Device::wait_idle() const {
         m_device.waitIdle();
+    }
+
+    void Device::wait_idle_for_shutdown() const noexcept {
+        try {
+            wait_idle();
+        } catch(const vk::SystemError& error) {
+            std::fprintf(stderr, "Cannot wait for device shutdown: %s\n", error.what());
+        }
     }
 
     void Device::set_allocator_frame_index(const uint64_t frame_serial) const {

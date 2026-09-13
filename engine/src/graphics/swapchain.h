@@ -1,10 +1,11 @@
 #pragma once
 #include "common/export.h"
-#include "graphics/resource/resource_result.h"
+#include "graphics/creation.h"
 #include "vk_common.h"
 #include "vk_capability.h"
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace Comet {
@@ -35,7 +36,7 @@ namespace Comet {
             Generation(Generation&&) noexcept = delete;
             Generation& operator=(Generation&&) noexcept = delete;
 
-            [[nodiscard]] const vk::SwapchainKHR& get() const { return m_swapchain; }
+            [[nodiscard]] const vk::SwapchainKHR& get() const { return m_swapchain.get(); }
             [[nodiscard]] const std::vector<std::shared_ptr<Image>>& get_images() const {
                 return m_images;
             }
@@ -45,18 +46,17 @@ namespace Comet {
         private:
             friend class Swapchain;
 
-            Generation(Device& device, vk::SwapchainKHR swapchain,
-                std::vector<std::shared_ptr<Image>> images, SwapchainConfig config);
+            Generation(vk::UniqueSwapchainKHR swapchain, std::vector<std::shared_ptr<Image>> images,
+                SwapchainConfig config);
 
-            Device& m_device;
-            vk::SwapchainKHR m_swapchain;
+            vk::UniqueSwapchainKHR m_swapchain;
             std::vector<std::shared_ptr<Image>> m_images;
             SwapchainConfig m_config;
             uint32_t m_current_index = static_cast<uint32_t>(-1);
         };
 
-        Swapchain(const Window& window, Context& context, Device& device,
-            const SwapchainRequest& request);
+        static Result<std::unique_ptr<Swapchain>, GraphicsError> create(const Window& window,
+            Context& context, Device& device, const SwapchainRequest& request);
 
         ~Swapchain() = default;
 
@@ -68,9 +68,10 @@ namespace Comet {
 
         Swapchain& operator=(Swapchain&&) noexcept = delete;
 
-        [[nodiscard]] bool recreate();
+        enum class RecreateStatus { Recreated, Deferred };
+        Result<RecreateStatus, GraphicsError> recreate();
 
-        [[nodiscard]] std::pair<uint32_t, vk::Result> acquire_next_image(
+        [[nodiscard]] Result<std::optional<uint32_t>, GraphicsError> acquire_next_image(
             const Semaphore& semaphore);
 
         [[nodiscard]] uint32_t get_current_index() const;
@@ -81,7 +82,9 @@ namespace Comet {
         [[nodiscard]] const std::shared_ptr<Generation>& get_active_generation() const;
 
     private:
-        using GenerationResult = GpuResourceResult<std::shared_ptr<Generation>>;
+        Swapchain(const Window& window, Context& context, Device& device,
+            const SwapchainRequest& request);
+        using GenerationResult = Result<std::shared_ptr<Generation>, GraphicsError>;
 
         [[nodiscard]] GenerationResult try_create_generation(const SwapchainConfig& config);
         [[nodiscard]] Generation& active_generation();

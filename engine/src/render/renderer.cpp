@@ -4,6 +4,7 @@
 #include "render/resource/resource_manager.h"
 #include "render/scene/scene_renderer.h"
 #include "core/window.h"
+#include "graphics/device.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 
@@ -113,7 +114,7 @@ namespace Comet {
 
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
-        m_render_context->wait_idle();
+        m_render_context->get_device().wait_idle_for_shutdown();
 
         m_scene_renderer.reset();
         m_resource_manager.reset();

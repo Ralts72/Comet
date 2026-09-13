@@ -86,9 +86,12 @@ namespace Comet {
         return GpuCompletionPoint(*m_completion_timeline, completion_value);
     }
 
-    vk::Result Queue::present(const Swapchain& swapchain,
+    Result<Queue::PresentStatus, GraphicsError> Queue::present(const Swapchain& swapchain,
         const std::span<const Semaphore> wait_semaphores, uint32_t image_index) const {
         PROFILE_SCOPE("queue: swapchain present");
+        using PresentationResult = Result<PresentStatus, GraphicsError>;
+        if(!swapchain.get_active_generation())
+            return PresentationResult::failure({"Cannot present an inactive swapchain"});
         std::vector<vk::Semaphore> vk_wait_semaphores;
         for(const auto& wait_sem : wait_semaphores) {
             vk_wait_semaphores.emplace_back(wait_sem.get());
@@ -99,15 +102,13 @@ namespace Comet {
         present_info.swapchainCount = 1;
         present_info.pSwapchains = &swapchain.get();
         present_info.pImageIndices = &image_index;
-        const auto result = m_queue.presentKHR(present_info);
-        if(result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR) {
-            LOG_WARN("swapchain requires recreation: {}", vk::to_string(result));
-        } else if(result != vk::Result::eSuccess) {
-            LOG_ERROR("Failed to present swapchain image: {}", vk::to_string(result));
-        } else {
-            LOG_DEBUG("Presented swapchain image at index: {}", image_index);
-        }
-        return result;
+        const auto result = m_queue.presentKHR(&present_info);
+        if(result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR)
+            return PresentationResult::success(PresentStatus::RecreateRequired);
+        if(result != vk::Result::eSuccess)
+            return PresentationResult::failure(
+                {"Cannot present swapchain image: " + vk::to_string(result), result});
+        return PresentationResult::success(PresentStatus::Presented);
     }
 
     void Queue::wait_idle() const {
