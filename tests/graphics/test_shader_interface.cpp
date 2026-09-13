@@ -192,6 +192,63 @@ namespace Comet::Tests {
 
     using ShaderPipelineTest = EngineTest;
 
+    TEST(GraphicsCreationTest, PreservesNativeFailuresAndRejectsEmptySuccess) {
+        for(const auto status :
+            {vk::Result::eErrorOutOfHostMemory, vk::Result::eErrorOutOfDeviceMemory,
+                vk::Result::eErrorDeviceLost, vk::Result::ePipelineCompileRequiredEXT}) {
+            const auto result = Graphics::create_handle<vk::Pipeline>(
+                vk::Device{}, "pipeline", [status](vk::Pipeline*) noexcept { return status; });
+            ASSERT_FALSE(result);
+            EXPECT_EQ(result.error().result, status);
+            EXPECT_NE(result.error().message.find(vk::to_string(status)), std::string::npos);
+        }
+        const auto empty = Graphics::create_handle<vk::ShaderModule>(vk::Device{}, "shader",
+            [](vk::ShaderModule*) noexcept { return vk::Result::eSuccess; });
+        ASSERT_FALSE(empty);
+        EXPECT_EQ(empty.error().result, vk::Result::eSuccess);
+        EXPECT_NE(empty.error().message.find("without a handle"), std::string::npos);
+    }
+
+    TEST_F(ShaderPipelineTest, ReclaimsPartialHandlesAndTransfersSuccessfulOwnership) {
+        struct CountingDispatch: VULKAN_HPP_DEFAULT_DISPATCHER_TYPE {
+            mutable int destroyed = 0;
+            void vkDestroyPipelineLayout(VkDevice device, VkPipelineLayout layout,
+                const VkAllocationCallbacks* allocator) const noexcept {
+                ++destroyed;
+                VULKAN_HPP_DEFAULT_DISPATCHER_TYPE::vkDestroyPipelineLayout(
+                    device, layout, allocator);
+            }
+        } dispatch;
+        const auto device = engine->get_renderer().get_render_context().get_device().get();
+        const vk::PipelineLayoutCreateInfo info;
+        // Produce a real handle, then simulate a creation call reporting partial failure.
+        const auto failed = Graphics::create_handle<vk::PipelineLayout>(
+            device, "layout",
+            [&](vk::PipelineLayout* output) noexcept {
+                const auto status = device.createPipelineLayout(&info, nullptr, output);
+                if(status != vk::Result::eSuccess)
+                    return status;
+                return vk::Result::eErrorOutOfDeviceMemory;
+            },
+            dispatch);
+        ASSERT_FALSE(failed);
+        EXPECT_EQ(failed.error().result, vk::Result::eErrorOutOfDeviceMemory);
+        EXPECT_EQ(dispatch.destroyed, 1);
+        {
+            auto success = Graphics::create_handle<vk::PipelineLayout>(
+                device, "layout",
+                [&](vk::PipelineLayout* output) noexcept {
+                    return device.createPipelineLayout(&info, nullptr, output);
+                },
+                dispatch);
+            ASSERT_TRUE(success) << success.error();
+            auto owner = std::move(success).value();
+            EXPECT_TRUE(owner);
+            EXPECT_EQ(dispatch.destroyed, 1);
+        }
+        EXPECT_EQ(dispatch.destroyed, 2);
+    }
+
     TEST_F(ShaderPipelineTest, ValidatesArrayCountTypeVisibilityAndNonzeroPushOffset) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         auto shader_result = ShaderInterface::reflect(INTERFACE_ARRAY_VERT);
@@ -376,7 +433,7 @@ namespace Comet::Tests {
             std::vector<uint32_t>(PIPELINE_COLOR_FRAG.begin(), PIPELINE_COLOR_FRAG.end()));
         auto rejected = shaders.load_shader("fragment", std::span<const uint32_t>{});
         ASSERT_FALSE(rejected);
-        EXPECT_FALSE(rejected.error().empty());
+        EXPECT_FALSE(rejected.error().message.empty());
         {
             auto candidate = shaders.load_shader("fragment", DEBUG_LINE_FRAG);
             ASSERT_TRUE(candidate) << candidate.error();
@@ -391,7 +448,8 @@ namespace Comet::Tests {
         PipelineManager pipelines(device, pass);
         const auto invalid = shaders.load_shader("vertex", std::span<const uint32_t>{});
         ASSERT_FALSE(invalid);
-        EXPECT_FALSE(invalid.error().empty());
+        EXPECT_FALSE(invalid.error().message.empty());
+        EXPECT_FALSE(invalid.error().result);
         auto vertex = shaders.load_shader("vertex", SPECIALIZATION_VERT);
         ASSERT_TRUE(vertex) << vertex.error();
         auto fragment = shaders.load_shader("fragment", SPECIALIZATION_FRAG);
@@ -412,7 +470,8 @@ namespace Comet::Tests {
         const auto failed_pipeline =
             pipelines.create_pipeline("candidate", {}, config, vertex.value(), fragment.value());
         ASSERT_FALSE(failed_pipeline);
-        EXPECT_EQ(failed_pipeline.error(), failed_key.error());
+        EXPECT_EQ(failed_pipeline.error().message, failed_key.error());
+        EXPECT_FALSE(failed_pipeline.error().result);
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
         EXPECT_EQ(config, input);
 

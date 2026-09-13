@@ -6,6 +6,18 @@
 #include <string>
 
 namespace Comet::Tests {
+    TEST(ResultTest, SupportsTypedErrorsWithoutChangingStringResults) {
+        enum class Error { Rejected };
+        const auto failed = Result<int, Error>::failure(Error::Rejected);
+        ASSERT_FALSE(failed);
+        EXPECT_EQ(failed.error(), Error::Rejected);
+        const auto empty_failed = Result<void, Error>::failure(Error::Rejected);
+        ASSERT_FALSE(empty_failed);
+        EXPECT_EQ(empty_failed.error(), Error::Rejected);
+        const auto success = Result<void, Error>::success();
+        EXPECT_TRUE(success);
+    }
+
     TEST(ResultTest, DistinguishesStringValueFromErrorIncludingEmptyMessages) {
         const auto value = Result<std::string>::success("asset contents");
         const auto error = Result<std::string>::failure("cannot read asset");

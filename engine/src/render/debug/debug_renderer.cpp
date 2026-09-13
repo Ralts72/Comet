@@ -47,16 +47,16 @@ namespace Comet {
         const auto vertex_shader = shaders.load_shader("debug_line_vert", DEBUG_LINE_VERT);
         if(!vertex_shader)
             throw std::runtime_error(
-                "Cannot initialize built-in debug vertex shader: " + vertex_shader.error());
+                "Cannot initialize built-in debug vertex shader: " + vertex_shader.error().message);
         const auto fragment_shader = shaders.load_shader("debug_line_frag", DEBUG_LINE_FRAG);
         if(!fragment_shader)
-            throw std::runtime_error(
-                "Cannot initialize built-in debug fragment shader: " + fragment_shader.error());
+            throw std::runtime_error("Cannot initialize built-in debug fragment shader: "
+                                     + fragment_shader.error().message);
         auto pipeline = pipeline_manager.create_pipeline(
             "debug_line_pipeline", layout, config, vertex_shader.value(), fragment_shader.value());
         if(!pipeline)
             throw std::runtime_error(
-                "Cannot initialize built-in debug pipeline: " + pipeline.error());
+                "Cannot initialize built-in debug pipeline: " + pipeline.error().message);
         m_pipeline = std::move(pipeline).value();
     }
 

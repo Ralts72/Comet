@@ -24,7 +24,8 @@ namespace Comet {
             }
         };
     }
-    PipelineLayout::PipelineLayout(Device& device, const ShaderLayout& layout) : m_device(device) {
+    Result<std::shared_ptr<PipelineLayout>, GraphicsError> PipelineLayout::create(
+        Device& device, const ShaderLayout& layout) {
         std::vector<vk::DescriptorSetLayout> vk_set_layouts;
         vk_set_layouts.reserve(layout.descriptor_set_layouts.size());
         for(auto& set_layout : layout.descriptor_set_layouts) {
@@ -43,18 +44,25 @@ namespace Comet {
             static_cast<uint32_t>(vk_push_constants.size());
         pipeline_layout_create_info.pPushConstantRanges = vk_push_constants.data();
 
-        m_pipeline_layout = m_device.get().createPipelineLayout(pipeline_layout_create_info);
-        LOG_INFO("Vulkan pipeline layout created successfully");
+        auto handle = Graphics::create_handle<vk::PipelineLayout>(
+            device.get(), "Create pipeline layout", [&](vk::PipelineLayout* output) noexcept {
+                return device.get().createPipelineLayout(
+                    &pipeline_layout_create_info, nullptr, output);
+            });
+        if(!handle)
+            return Result<std::shared_ptr<PipelineLayout>, GraphicsError>::failure(handle.error());
+        return Result<std::shared_ptr<PipelineLayout>, GraphicsError>::success(
+            std::shared_ptr<PipelineLayout>(new PipelineLayout(std::move(handle).value())));
     }
 
-    PipelineLayout::~PipelineLayout() {
-        m_device.get().destroyPipelineLayout(m_pipeline_layout);
-    }
+    Pipeline::Pipeline(
+        std::string name, std::shared_ptr<PipelineLayout> layout, vk::UniquePipeline pipeline)
+        : m_name(std::move(name)), m_layout(std::move(layout)), m_pipeline(std::move(pipeline)) {}
 
-    Pipeline::Pipeline(std::string name, Device& device, RenderPass& render_pass,
-        const std::shared_ptr<PipelineLayout>& layout, const std::shared_ptr<Shader>& vertex_shader,
-        const std::shared_ptr<Shader>& fragment_shader, const PipelineConfig& config)
-        : m_name(std::move(name)), m_device(device), m_layout(layout) {
+    Result<std::shared_ptr<Pipeline>, GraphicsError> Pipeline::create(std::string name,
+        Device& device, RenderPass& render_pass, const std::shared_ptr<PipelineLayout>& layout,
+        const std::shared_ptr<Shader>& vertex_shader,
+        const std::shared_ptr<Shader>& fragment_shader, const PipelineConfig& config) {
         const SpecializationData vertex_specialization(config.vertex_specialization);
         const SpecializationData fragment_specialization(config.fragment_specialization);
         auto shader_stages = create_shader_stages(vertex_shader, fragment_shader);
@@ -82,19 +90,21 @@ namespace Comet {
         pipeline_create_info.pDepthStencilState = &depth_stencil_state;
         pipeline_create_info.pColorBlendState = &color_blend_state;
         pipeline_create_info.pDynamicState = &dynamic_state;
-        pipeline_create_info.layout = m_layout->get();
+        pipeline_create_info.layout = layout->get();
         pipeline_create_info.renderPass = render_pass.get();
         pipeline_create_info.subpass = config.subpass;
         pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
         pipeline_create_info.basePipelineIndex = 0;
 
-        auto result = m_device.get().createGraphicsPipeline(
-            m_device.get_pipeline_cache(), pipeline_create_info);
-        if(result.result != vk::Result::eSuccess) {
-            LOG_FATAL("Failed to create graphics pipeline");
-        }
-        m_pipeline = result.value;
-        LOG_INFO("Vulkan graphics pipeline created successfully");
+        auto handle = Graphics::create_handle<vk::Pipeline>(device.get(),
+            "Create graphics pipeline '" + name + "'", [&](vk::Pipeline* output) noexcept {
+                return device.get().createGraphicsPipelines(
+                    device.get_pipeline_cache(), 1, &pipeline_create_info, nullptr, output);
+            });
+        if(!handle)
+            return Result<std::shared_ptr<Pipeline>, GraphicsError>::failure(handle.error());
+        return Result<std::shared_ptr<Pipeline>, GraphicsError>::success(std::shared_ptr<Pipeline>(
+            new Pipeline(std::move(name), layout, std::move(handle).value())));
     }
 
     std::array<vk::PipelineShaderStageCreateInfo, 2> Pipeline::create_shader_stages(
@@ -226,51 +236,50 @@ namespace Comet {
         return color_blend_state_info;
     }
 
-    Pipeline::~Pipeline() {
-        m_device.get().destroyPipeline(m_pipeline);
-    }
-
     PipelineManager::PipelineManager(Device& device, RenderPass& render_pass)
         : m_device(device), m_render_pass(render_pass) {
         LOG_INFO("PipelineManager created");
     }
 
-    Result<std::shared_ptr<Pipeline>> PipelineManager::create_pipeline(const std::string& name,
-        const ShaderLayout& layout, const PipelineConfig& config,
+    Result<std::shared_ptr<Pipeline>, GraphicsError> PipelineManager::create_pipeline(
+        const std::string& name, const ShaderLayout& layout, const PipelineConfig& config,
         const std::shared_ptr<Shader>& vert_shader, const std::shared_ptr<Shader>& frag_shader) {
         if(!vert_shader || !frag_shader
             || vert_shader->get_interface().get_stage() != ShaderStage::Vertex
             || frag_shader->get_interface().get_stage() != ShaderStage::Fragment) {
-            return Result<std::shared_ptr<Pipeline>>::failure(
-                "Graphics pipeline requires vertex/fragment shaders");
+            return Result<std::shared_ptr<Pipeline>, GraphicsError>::failure(
+                {"Graphics pipeline requires vertex/fragment shaders"});
         }
         for(const auto& shader : {vert_shader, frag_shader}) {
             if(auto checked = layout.validate(shader->get_interface()); !checked)
-                return Result<std::shared_ptr<Pipeline>>::failure(checked.error());
+                return Result<std::shared_ptr<Pipeline>, GraphicsError>::failure({checked.error()});
         }
         auto candidate =
             PipelineKey::create(layout, config, *vert_shader, *frag_shader, m_render_pass);
         if(!candidate)
-            return Result<std::shared_ptr<Pipeline>>::failure(candidate.error());
+            return Result<std::shared_ptr<Pipeline>, GraphicsError>::failure({candidate.error()});
         auto key = std::move(candidate).value();
         collect_unused();
         const auto it = m_pipelines.find(key);
         if(it != m_pipelines.end()) {
             if(auto pipeline = it->second.lock()) {
                 LOG_DEBUG("Pipeline '{}' reuses compatible cached state", name);
-                return Result<std::shared_ptr<Pipeline>>::success(std::move(pipeline));
+                return Result<std::shared_ptr<Pipeline>, GraphicsError>::success(
+                    std::move(pipeline));
             }
         }
 
-        auto pipeline_layout = std::make_shared<PipelineLayout>(m_device, layout);
-
-        auto pipeline = std::shared_ptr<Pipeline>(new Pipeline(
-            name, m_device, m_render_pass, pipeline_layout, vert_shader, frag_shader, key.config));
-
-        m_pipelines.insert_or_assign(std::move(key), pipeline);
-
+        auto pipeline_layout = PipelineLayout::create(m_device, layout);
+        if(!pipeline_layout)
+            return Result<std::shared_ptr<Pipeline>, GraphicsError>::failure(
+                pipeline_layout.error());
+        auto pipeline = Pipeline::create(name, m_device, m_render_pass, pipeline_layout.value(),
+            vert_shader, frag_shader, key.config);
+        if(!pipeline)
+            return pipeline;
+        m_pipelines.insert_or_assign(std::move(key), pipeline.value());
         LOG_INFO("Pipeline '{}' created successfully", name);
-        return Result<std::shared_ptr<Pipeline>>::success(std::move(pipeline));
+        return pipeline;
     }
 
     void PipelineManager::collect_unused() {

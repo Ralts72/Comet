@@ -1,5 +1,6 @@
 #pragma once
 #include "common/export.h"
+#include "graphics/creation.h"
 #include "graphics/pipeline/pipeline_config.h"
 #include "graphics/pipeline/pipeline_key.h"
 
@@ -18,9 +19,7 @@ namespace Comet {
 
     class PipelineLayout {
     public:
-        PipelineLayout(Device& device, const ShaderLayout& layout);
-
-        ~PipelineLayout();
+        ~PipelineLayout() = default;
 
         PipelineLayout(const PipelineLayout&) = delete;
 
@@ -30,16 +29,21 @@ namespace Comet {
 
         PipelineLayout& operator=(PipelineLayout&&) noexcept = delete;
 
-        [[nodiscard]] vk::PipelineLayout get() const { return m_pipeline_layout; }
+        [[nodiscard]] vk::PipelineLayout get() const { return m_pipeline_layout.get(); }
 
     private:
-        Device& m_device;
-        vk::PipelineLayout m_pipeline_layout;
+        friend class PipelineManager;
+        explicit PipelineLayout(vk::UniquePipelineLayout layout)
+            : m_pipeline_layout(std::move(layout)) {}
+        static Result<std::shared_ptr<PipelineLayout>, GraphicsError> create(
+            Device& device, const ShaderLayout& layout);
+
+        vk::UniquePipelineLayout m_pipeline_layout;
     };
 
     class Pipeline {
     public:
-        ~Pipeline();
+        ~Pipeline() = default;
 
         Pipeline(const Pipeline&) = delete;
 
@@ -49,14 +53,16 @@ namespace Comet {
 
         Pipeline& operator=(Pipeline&&) noexcept = delete;
 
-        [[nodiscard]] vk::Pipeline get() const { return m_pipeline; }
+        [[nodiscard]] vk::Pipeline get() const { return m_pipeline.get(); }
         [[nodiscard]] const std::shared_ptr<PipelineLayout>& get_layout() const { return m_layout; }
         [[nodiscard]] const std::string& get_name() const { return m_name; }
 
     private:
         friend class PipelineManager;
-        Pipeline(std::string name, Device& device, RenderPass& render_pass,
-            const std::shared_ptr<PipelineLayout>& layout,
+        Pipeline(
+            std::string name, std::shared_ptr<PipelineLayout> layout, vk::UniquePipeline pipeline);
+        static Result<std::shared_ptr<Pipeline>, GraphicsError> create(std::string name,
+            Device& device, RenderPass& render_pass, const std::shared_ptr<PipelineLayout>& layout,
             const std::shared_ptr<Shader>& vertex_shader,
             const std::shared_ptr<Shader>& fragment_shader, const PipelineConfig& config);
 
@@ -89,17 +95,15 @@ namespace Comet {
             const PipelineConfig& config);
 
         std::string m_name;
-        Device& m_device;
-        vk::Pipeline m_pipeline;
         std::shared_ptr<PipelineLayout> m_layout;
+        vk::UniquePipeline m_pipeline;
     };
 
     class COMET_API PipelineManager {
     public:
         PipelineManager(Device& device, RenderPass& render_pass);
 
-        // CPU validation returns Result; GPU failures are not fully adapted yet.
-        Result<std::shared_ptr<Pipeline>> create_pipeline(const std::string& name,
+        Result<std::shared_ptr<Pipeline>, GraphicsError> create_pipeline(const std::string& name,
             const ShaderLayout& layout, const PipelineConfig& config,
             const std::shared_ptr<Shader>& vert_shader, const std::shared_ptr<Shader>& frag_shader);
 

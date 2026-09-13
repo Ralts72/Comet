@@ -78,12 +78,12 @@ namespace Comet {
         auto vertex = shaders.load_shader("material_mesh", MATERIAL_MESH_VERT);
         if(!vertex)
             throw std::runtime_error(
-                "Cannot initialize built-in material vertex shader: " + vertex.error());
+                "Cannot initialize built-in material vertex shader: " + vertex.error().message);
         const auto add_builtin = [&](const std::string& name, std::span<const uint32_t> words,
                                      std::string_view layout_name) {
             auto fragment = shaders.load_shader(name, words);
             if(!fragment)
-                return Result<void>::failure(fragment.error());
+                return Result<void, GraphicsError>::failure(fragment.error());
             return add_pipeline(pipelines, vertex.value(), fragment.value(),
                 MaterialLayout::find_builtin(layout_name), samples);
         };
@@ -91,19 +91,19 @@ namespace Comet {
                 add_builtin("material_textured", MATERIAL_TEXTURED_FRAG, "unlit_texture_blend");
             !result)
             throw std::runtime_error(
-                "Cannot initialize built-in textured material pipeline: " + result.error());
+                "Cannot initialize built-in textured material pipeline: " + result.error().message);
         if(auto result = add_builtin("material_solid", MATERIAL_SOLID_FRAG, "unlit_color"); !result)
             throw std::runtime_error(
-                "Cannot initialize built-in solid material pipeline: " + result.error());
+                "Cannot initialize built-in solid material pipeline: " + result.error().message);
     }
 
-    Result<void> MaterialRenderer::add_pipeline(PipelineManager& pipelines,
+    Result<void, GraphicsError> MaterialRenderer::add_pipeline(PipelineManager& pipelines,
         const std::shared_ptr<Shader>& vertex, const std::shared_ptr<Shader>& fragment,
         std::shared_ptr<const MaterialLayout> layout, const SampleCount samples) {
         if(!layout)
-            return Result<void>::failure("Missing material layout");
+            return Result<void, GraphicsError>::failure({"Missing material layout"});
         if(auto checked = layout->validate(fragment->get_interface()); !checked)
-            return checked;
+            return Result<void, GraphicsError>::failure({checked.error()});
         auto state = std::make_shared<PipelineState>();
         state->layout = std::move(layout);
         DescriptorSetLayoutBindings bindings;
@@ -134,10 +134,10 @@ namespace Comet {
         auto pipeline = pipelines.create_pipeline(
             state->layout->get_name(), shader_layout, config, vertex, fragment);
         if(!pipeline)
-            return Result<void>::failure(pipeline.error());
+            return Result<void, GraphicsError>::failure(pipeline.error());
         state->pipeline = std::move(pipeline).value();
         m_pipelines.emplace(state->layout->get_name(), std::move(state));
-        return Result<void>::success();
+        return Result<void, GraphicsError>::success();
     }
 
     std::shared_ptr<MaterialRenderer::MaterialResources> MaterialRenderer::prepare_material(

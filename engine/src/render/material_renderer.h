@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/export.h"
-#include "common/result.h"
+#include "graphics/creation.h"
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/queue.h"
 #include "render/material_runtime.h"
@@ -74,9 +74,9 @@ namespace Comet {
             std::shared_ptr<MaterialResources> material;
         };
 
-        Result<void> add_pipeline(PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
-            const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
-            SampleCount samples);
+        Result<void, GraphicsError> add_pipeline(PipelineManager& pipelines,
+            const std::shared_ptr<Shader>& vertex, const std::shared_ptr<Shader>& fragment,
+            std::shared_ptr<const MaterialLayout> layout, SampleCount samples);
         [[nodiscard]] std::shared_ptr<MaterialResources> prepare_material(
             const MaterialBinding& material, uint64_t frame_serial);
 

@@ -138,7 +138,8 @@ JSON 解析直接依赖已有 simdjson。
   Shader 加载时反射实际 SPIR-V，Pipeline 创建／缓存查询前校验绑定及 push constant，材质另检查参数块类型与偏移。
   ShaderInterface 只公开 Comet 值类型；Vulkan 布局转换与覆盖校验留在 ShaderLayout 实现中。
   源编译使用 diagnostics；反射、布局／specialization 校验和 PipelineKey 创建使用公共 `Result<T>` 返回预期失败。
-  Shader／Pipeline 管理器只发布成功候选；GPU 创建错误及渲染器启动边界尚未完成结果协议迁移，不承诺全链路无异常。
+  Shader／Pipeline 创建通过 `Result<T, GraphicsError>` 保留诊断与原生 Vulkan 错误码，RAII 回收失败候选，管理器只发布成功结果。
+  材质 descriptor 分配及渲染器启动边界尚未完成结果协议迁移，不承诺全链路无异常。
   Pipeline 按 Shader 字节码／入口、specialization、布局、渲染状态及 RenderPass 域复用，名称只作标签；缓存弱引用不代替在途帧保活。
   specialization 支持 bool 与 32 位数值，按阶段和位模式校验／缓存并传给 GPU；只用于固定接口的创建期变体。
   改变数组长度的变体使用编译期 defines，不用 specialization；材质逐帧参数仍走原有 uniform。

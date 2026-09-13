@@ -1,5 +1,6 @@
 #pragma once
 #include "graphics/vk_common.h"
+#include "graphics/creation.h"
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/pipeline/shader_interface.h"
 
@@ -21,11 +22,11 @@ namespace Comet {
 
     class COMET_API Shader {
     public:
-        // CPU validation returns Result; Vulkan creation may still throw.
-        static Result<std::shared_ptr<Shader>> create(Device& device, const std::string& name,
-            std::span<const std::uint32_t> spv_data, std::string entry_point = "main");
+        static Result<std::shared_ptr<Shader>, GraphicsError> create(Device& device,
+            const std::string& name, std::span<const std::uint32_t> spv_data,
+            std::string entry_point = "main");
 
-        ~Shader();
+        ~Shader() = default;
 
         Shader(const Shader&) = delete;
 
@@ -35,25 +36,24 @@ namespace Comet {
 
         Shader& operator=(Shader&&) noexcept = delete;
 
-        [[nodiscard]] vk::ShaderModule get() const { return m_shader_module; }
+        [[nodiscard]] vk::ShaderModule get() const { return m_shader_module.get(); }
         [[nodiscard]] const ShaderInterface& get_interface() const { return m_interface; }
         [[nodiscard]] const std::vector<uint32_t>& get_code() const { return m_code; }
 
     private:
-        Shader(Device& device, const std::string& name, std::span<const uint32_t> spirv_words,
-            ShaderInterface interface);
+        Shader(std::span<const uint32_t> spirv_words, ShaderInterface interface,
+            vk::UniqueShaderModule module);
 
-        Device& m_device;
         ShaderInterface m_interface;
         std::vector<uint32_t> m_code;
-        vk::ShaderModule m_shader_module;
+        vk::UniqueShaderModule m_shader_module;
     };
 
     class COMET_API ShaderManager {
     public:
         explicit ShaderManager(Device& device) : m_device(device) {}
 
-        Result<std::shared_ptr<Shader>> load_shader(const std::string& name,
+        Result<std::shared_ptr<Shader>, GraphicsError> load_shader(const std::string& name,
             std::span<const std::uint32_t> spv_data, std::string entry_point = "main");
 
     private:

@@ -64,36 +64,36 @@ namespace Comet {
         return Result<void>::success();
     }
 
-    Shader::Shader(Device& device, const std::string& name,
-        std::span<const std::uint32_t> spirv_words, ShaderInterface interface)
-        : m_device(device), m_interface(std::move(interface)),
-          m_code(spirv_words.begin(), spirv_words.end()) {
-        vk::ShaderModuleCreateInfo create_info{};
-        create_info.codeSize = spirv_words.size_bytes();
-        create_info.pCode = spirv_words.data();
-        m_shader_module = m_device.get().createShaderModule(create_info);
-        LOG_INFO("Vulkan shader module '{}' created successfully", name);
-    }
+    Shader::Shader(
+        std::span<const uint32_t> words, ShaderInterface interface, vk::UniqueShaderModule module)
+        : m_interface(std::move(interface)), m_code(words.begin(), words.end()),
+          m_shader_module(std::move(module)) {}
 
-    Result<std::shared_ptr<Shader>> Shader::create(Device& device, const std::string& name,
-        std::span<const uint32_t> words, std::string entry_point) {
+    Result<std::shared_ptr<Shader>, GraphicsError> Shader::create(Device& device,
+        const std::string& name, std::span<const uint32_t> words, std::string entry_point) {
         auto interface = ShaderInterface::reflect(words, std::move(entry_point));
         if(!interface)
-            return Result<std::shared_ptr<Shader>>::failure(interface.error());
-        return Result<std::shared_ptr<Shader>>::success(
-            std::shared_ptr<Shader>(new Shader(device, name, words, std::move(interface).value())));
+            return Result<std::shared_ptr<Shader>, GraphicsError>::failure({interface.error()});
+        vk::ShaderModuleCreateInfo info({}, words.size_bytes(), words.data());
+        auto module = Graphics::create_handle<vk::ShaderModule>(device.get(),
+            "Create shader module '" + name + "'", [&](vk::ShaderModule* output) noexcept {
+                return device.get().createShaderModule(&info, nullptr, output);
+            });
+        if(!module)
+            return Result<std::shared_ptr<Shader>, GraphicsError>::failure(module.error());
+        auto shader = std::shared_ptr<Shader>(
+            new Shader(words, std::move(interface).value(), std::move(module).value()));
+        LOG_INFO("Vulkan shader module '{}' created successfully", name);
+        return Result<std::shared_ptr<Shader>, GraphicsError>::success(std::move(shader));
     }
 
-    Shader::~Shader() {
-        m_device.get().destroyShaderModule(m_shader_module);
-    }
-
-    Result<std::shared_ptr<Shader>> ShaderManager::load_shader(const std::string& name,
-        std::span<const std::uint32_t> spirv_words, std::string entry_point) {
+    Result<std::shared_ptr<Shader>, GraphicsError> ShaderManager::load_shader(
+        const std::string& name, std::span<const std::uint32_t> spirv_words,
+        std::string entry_point) {
         if(const auto it = m_shaders.find(name); it != m_shaders.end()) {
             if(it->second->get_interface().get_entry_point() == entry_point
                 && std::ranges::equal(it->second->get_code(), spirv_words)) {
-                return Result<std::shared_ptr<Shader>>::success(it->second);
+                return Result<std::shared_ptr<Shader>, GraphicsError>::success(it->second);
             }
         }
         auto shader = Shader::create(m_device, name, spirv_words, std::move(entry_point));

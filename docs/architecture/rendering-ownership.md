@@ -161,10 +161,14 @@ ShaderLayout 检查 descriptor 类型／数量／stage 和 push 覆盖；Materia
 ShaderInterface::reflect、MaterialLayout::create、布局／specialization 校验及 PipelineKey::create
 与资产导入、序列化统一使用 common/result.h 的 Result<T> 返回预期失败，不保留资产层别名或转发头。
 反射和布局只返回完整候选，specialization 先完整校验再删除默认值，PipelineKey 在配置副本上规范化。
-Shader::create 与两个 Manager 检查这些结果，失败不写入或替换缓存；Pipeline 构造入口只供 Manager 使用。
-GPU 调用尚未全面改为原生错误结果，Shader／Pipeline 创建不能视为无异常接口。
+Shader::create 与两个 Manager 检查这些结果，失败不写入或替换缓存。
+Result 的错误类型可选，默认仍为字符串；Shader／Pipeline 链路使用 GraphicsError 保存消息和可选原生 Vulkan 结果码。
+CPU 校验错误不伪造 Vulkan 错误码；GPU 创建使用 Vulkan-Hpp 返回码重载，不捕获 vk::SystemError 或调用 LOG_FATAL。
+graphics/creation.h 统一将 device-owned 句柄纳入 UniqueHandle，再判断返回码，失败时连同部分创建的句柄一起回收。
+Shader、PipelineLayout、Pipeline 的私有构造函数只接收已创建的 owner；Pipeline 先销毁自身句柄，再释放 Layout。
+分配 C++ 容器等非预期异常仍可传播，不承诺 noexcept。
 渲染器初始化暂将结果错误交给现有异常清理边界；内置 MaterialLayout 常量定义错误属于内部不变量，明确终止。
-下一步迁移 GPU 创建与启动消费者，保留资源不足／设备丢失的区别；不以 LOG_FATAL 替代可恢复错误。
+下一步迁移材质 descriptor 创建、分配及启动消费者；现有 GpuResourceResult 接口暂不改动，不以 LOG_FATAL 替代可恢复错误。
 
 PipelineConfig 与状态位于 pipeline_config.h/.cpp，PipelineKey 的完整判等、规范化与哈希位于 pipeline_key.h/.cpp。
 Key 包含完整 Shader 内容／入口、layout、配置、RenderPass 身份与附件格式／采样数；名称只作标签，hash 不代替相等比较。
