@@ -171,8 +171,9 @@ Shader／Pipeline 与材质 descriptor 创建、分配已接通原生错误结�
      同名不同配置明确拒绝，不返回旧配置伪装成功；预设缓存不再使用舍入浮点字符串。
    - 已接通 RenderPass／swapchain target 创建及 Comet 侧 ImGui 初始化结果；候选成功才发布，交换链依赖重建失败交给应用退出清理边界。
      交换链与离屏目标共用可失败附件构建，SceneRenderer 安装 pass/target 前保留旧成员；不承诺整个渲染图回滚。
-   - 下一项审查运行期非关键资源路径对 DeviceLost 的处理，不能一概当作资源不足重试。
-     ImGui 后端内部 Vulkan 失败需独立适配（Init 的 bool 不覆盖全部失败），连同 WSI 退休后的恢复／退出策略继续收口；不修改第三方源码掩盖边界。
+   - 已审查资产 Mesh／Texture GPU 加载与发布、DebugRenderer 扩容和离屏 resize：DeviceLost 向应用退出边界传播，普通创建失败保留旧版本／跳过本批。
+     ensure_loaded、材质创建、后台完成处理和场景激活不再用通用 catch 吞掉 GPU 发布异常；Worker、文件读写及析构仍保留各自边界。
+   - 下一项独立适配 ImGui 后端内部 Vulkan 失败（Init 的 bool 不覆盖全部失败），连同 WSI 退休后的恢复／退出策略继续收口；不修改第三方源码掩盖边界。
      以上完成后再接后台 Shader 热发布。
    Descriptor 写入／绑定已收回 graphics，渲染与资产消费者使用错误消息／设备丢失语义，不直接解析原生状态码。
    WSI acquire/present 状态接口随独立的 WSI 失败处理收敛；PipelineConfig 与 viewport/scissor 的原生数据边界按后续真实消费者整理，

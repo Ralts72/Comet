@@ -241,6 +241,9 @@ namespace Comet {
         auto candidate = RenderTarget::try_create_multi_target(m_context.get_device(),
             *m_render_pass, size, m_frame_scheduler->get_frame_slot_count());
         if(!candidate) {
+            if(candidate.error().is_device_lost())
+                throw std::runtime_error(
+                    "Device lost while resizing offscreen target: " + candidate.error().message);
             const Math::Vec2u current_size = m_render_target->get_size();
             LOG_ERROR("Keeping offscreen render target at {}x{} after {}x{} generation "
                       "creation failed: {}",

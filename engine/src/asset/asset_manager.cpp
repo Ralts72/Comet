@@ -289,22 +289,17 @@ namespace Comet {
         if(!validate_asset_handle(handle, "load an asset")
             || !find_asset_record(m_database, handle, expected_type))
             return false;
-        try {
-            switch(expected_type) {
-                case AssetType::Mesh:
-                    return static_cast<bool>(load_mesh(handle));
-                case AssetType::Material:
-                    return static_cast<bool>(load_material(handle));
-                case AssetType::Texture:
-                    return static_cast<bool>(load_texture(handle));
-                default:
-                    LOG_WARN("Runtime loading is not implemented for asset type '{}'",
-                        to_string(expected_type));
-                    return false;
-            }
-        } catch(const std::exception& error) {
-            LOG_ERROR("Cannot load asset {}: {}", handle.value(), error.what());
-            return false;
+        switch(expected_type) {
+            case AssetType::Mesh:
+                return static_cast<bool>(load_mesh(handle));
+            case AssetType::Material:
+                return static_cast<bool>(load_material(handle));
+            case AssetType::Texture:
+                return static_cast<bool>(load_texture(handle));
+            default:
+                LOG_WARN("Runtime loading is not implemented for asset type '{}'",
+                    to_string(expected_type));
+                return false;
         }
     }
 
@@ -344,24 +339,30 @@ namespace Comet {
                 && !m_async_state->has_queued_task(task->handle, task->revision))
                 m_async_state->pending_assets.erase(pending);
 
+            // 发布期间继续占槽；异常退出也必须移除已消费的 future。
+            struct CompletedTaskScope {
+                std::vector<AsyncState::ScheduledAssetTask>& tasks;
+                std::vector<AsyncState::ScheduledAssetTask>::iterator& current;
+                ~CompletedTaskScope() { current = tasks.erase(current); }
+            } completed{tasks, task};
             try {
                 // future 同步 Worker 写入；就绪之前 owner 不读取结果。
                 task->completion.get();
-                if(!m_database.is_current(task->handle, task->revision)) {
-                    LOG_DEBUG("Discarded stale background asset {} (revision {})",
-                        task->handle.value(), task->revision);
-                } else {
-                    publish_import_result(*task->result, published);
-                }
             } catch(const std::exception& error) {
                 LOG_ERROR("Background {} completion failed for asset handle {}: {}",
                     to_string(task->type), task->handle.value(), error.what());
+                continue;
             } catch(...) {
                 LOG_ERROR("Unknown background {} completion failure for asset handle {}",
                     to_string(task->type), task->handle.value());
+                continue;
             }
-            // 结果发布或丢弃后才归还额度，预算外的就绪结果继续占槽。
-            task = tasks.erase(task);
+            if(!m_database.is_current(task->handle, task->revision)) {
+                LOG_DEBUG("Discarded stale background asset {} (revision {})", task->handle.value(),
+                    task->revision);
+            } else {
+                publish_import_result(*task->result, published);
+            }
         }
         dispatch_queued_tasks();
         return published;
@@ -405,6 +406,9 @@ namespace Comet {
 
             auto mesh_attempt = m_resource_factory.try_create_mesh(artifact.data);
             if(!mesh_attempt) {
+                if(mesh_attempt.error().is_device_lost())
+                    throw std::runtime_error(
+                        "Device lost while creating runtime mesh: " + mesh_attempt.error().message);
                 LOG_ERROR("Failed to create refreshed runtime mesh for asset handle {}: {}",
                     candidate.handle.value(), mesh_attempt.error().message);
                 return;
@@ -435,6 +439,9 @@ namespace Comet {
         }
         auto texture_attempt = m_resource_factory.try_create_texture(candidate.result.value());
         if(!texture_attempt) {
+            if(texture_attempt.error().is_device_lost())
+                throw std::runtime_error("Device lost while creating runtime texture: "
+                                         + texture_attempt.error().message);
             LOG_ERROR("Failed to create refreshed runtime texture for asset handle {}: {}",
                 candidate.handle.value(), texture_attempt.error().message);
             return;
@@ -507,6 +514,9 @@ namespace Comet {
         if(runtime.asset) {
             auto mesh_attempt = m_resource_factory.try_create_mesh(artifact.data);
             if(!mesh_attempt) {
+                if(mesh_attempt.error().is_device_lost())
+                    throw std::runtime_error(
+                        "Device lost while creating runtime mesh: " + mesh_attempt.error().message);
                 LOG_ERROR("Failed to create reimported runtime mesh for handle {}: {}",
                     handle.value(), mesh_attempt.error().message);
                 return false;
@@ -693,24 +703,18 @@ namespace Comet {
         }
         const bool has_runtime_asset = static_cast<bool>(runtime.asset);
 
-        std::shared_ptr<Material> material;
         const auto data = MaterialSerializer{}.load(m_paths.assets() / record->path);
         if(!data) {
             LOG_ERROR("{}", data.error());
             return nullptr;
         }
-        try {
-            material = create_runtime_material(*record, data.value());
-            if(!material)
-                return nullptr;
-            if(auto updated =
-                    m_database.update_dependencies(handle, get_asset_dependencies(data.value()));
-                !updated) {
-                LOG_ERROR("{}", updated.error());
-                return nullptr;
-            }
-        } catch(const std::exception& exception) {
-            LOG_ERROR("{}", exception.what());
+        auto material = create_runtime_material(*record, data.value());
+        if(!material)
+            return nullptr;
+        if(auto updated =
+                m_database.update_dependencies(handle, get_asset_dependencies(data.value()));
+            !updated) {
+            LOG_ERROR("{}", updated.error());
             return nullptr;
         }
 
@@ -739,16 +743,15 @@ namespace Comet {
         }
         const bool has_runtime_asset = static_cast<bool>(runtime.asset);
 
-        std::shared_ptr<Material> material;
         const auto serialized_data = MaterialSerializer{}.serialize(data);
         if(!serialized_data) {
             LOG_ERROR("{}", serialized_data.error());
             return nullptr;
         }
+        auto material = create_runtime_material(*record, data);
+        if(!material)
+            return nullptr;
         try {
-            material = create_runtime_material(*record, data);
-            if(!material)
-                return nullptr;
             write_text_file_atomic(m_paths.assets() / record->path, serialized_data.value());
             if(auto updated = m_database.update_dependencies(handle, get_asset_dependencies(data));
                 !updated) {
@@ -785,6 +788,9 @@ namespace Comet {
         record_import_dependencies(handle, artifact->source_dependencies());
         auto mesh_attempt = m_resource_factory.try_create_mesh(artifact->data);
         if(!mesh_attempt) {
+            if(mesh_attempt.error().is_device_lost())
+                throw std::runtime_error(
+                    "Device lost while creating runtime mesh: " + mesh_attempt.error().message);
             LOG_ERROR("Failed to create runtime mesh for asset handle {}: {}", handle.value(),
                 mesh_attempt.error().message);
             return nullptr;
@@ -924,6 +930,9 @@ namespace Comet {
         }
         auto texture_attempt = m_resource_factory.try_create_texture(data.value());
         if(!texture_attempt) {
+            if(texture_attempt.error().is_device_lost())
+                throw std::runtime_error("Device lost while creating runtime texture: "
+                                         + texture_attempt.error().message);
             LOG_ERROR("Failed to create runtime texture for asset handle {}: {}",
                 record.handle.value(), texture_attempt.error().message);
             return nullptr;

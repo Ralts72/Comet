@@ -5,6 +5,7 @@
 #include "scene/scene_serializer.h"
 
 #include <exception>
+#include <filesystem>
 #include <utility>
 
 namespace CometEditor {
@@ -29,24 +30,25 @@ namespace CometEditor {
             return false;
         }
 
+        std::filesystem::path resolved;
+        std::unique_ptr<Comet::Scene> scene;
         try {
-            const auto resolved = m_paths.resolve_asset_path(path);
+            resolved = m_paths.resolve_asset_path(path);
             if(resolved.extension() != ".scene") {
                 m_last_error = "Scene file must have a .scene extension";
                 LOG_ERROR("Failed to open scene '{}': {}", path, m_last_error);
                 return false;
             }
-            std::unique_ptr<Comet::Scene> scene = m_serializer.load(resolved.string());
-            if(!replace_scene(std::move(scene), resolved.string())) {
-                return false;
-            }
-            LOG_INFO("Opened scene '{}'", path);
-            return true;
+            scene = m_serializer.load(resolved.string());
         } catch(const std::exception& error) {
             m_last_error = error.what();
             LOG_ERROR("Failed to open scene '{}': {}", path, error.what());
             return false;
         }
+        if(!replace_scene(std::move(scene), resolved.string()))
+            return false;
+        LOG_INFO("Opened scene '{}'", path);
+        return true;
     }
 
     bool SceneDocument::save(const std::string& path) {

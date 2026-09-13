@@ -187,6 +187,9 @@ DescriptorSet::update 接收嵌套的 UniformBufferWrite／ImageSamplerWrite，�
 CommandBuffer::bind_descriptor_sets 只接收 Comet Layout／Set，原生绑定点与句柄数组留在 graphics 实现中。
 GpuResourceResult 通过 error() 提供 GraphicsError，业务层读取 message／is_device_lost()，不为了日志解析 vk::Result；
 原生 result() 保留给 graphics 内部和诊断测试。这是消费接口收敛，不是完整的多后端抽象或 Vulkan 头文件隔离。
+资产 Mesh／Texture 创建、调试 buffer 扩容和离屏 resize 在普通失败时保留原有降级策略；DeviceLost 必须向应用退出边界传播。
+ensure_loaded 不兜底所有异常，材质创建和场景激活移出文件读写 catch；后台完成只捕获 Worker future 的异常，不捕获 owner 上的 GPU 发布。
+完成任务在发布成功或异常展开后均释放槽位，避免析构再次等待已 get 的 future；不提前释放正在发布的槽位，保持重入与预算语义。
 Mesh／Texture 的无调用方 fatal 创建包装以及 RenderTarget 的 fatal 离屏包装已移除，现有消费者使用可失败入口。
 Sampler::create 返回 Result<shared_ptr<Sampler>, GraphicsError>，校验配置后用返回码重载创建 UniqueSampler。
 SamplerManager 的预设统一经过 create_sampler；同名同配置复用，同名不同配置返回错误，不替换已有对象。

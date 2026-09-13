@@ -159,8 +159,7 @@ namespace Comet::Tests {
                 const TextureData&) override {
                 ++m_texture_creation_count;
                 if(m_fail_texture_creation) {
-                    return GpuResourceResult<std::shared_ptr<Texture>>::failure(
-                        vk::Result::eErrorOutOfDeviceMemory);
+                    return GpuResourceResult<std::shared_ptr<Texture>>::failure(m_failure_result);
                 }
 
                 auto owner = std::make_shared<std::uint8_t>(0);
@@ -177,8 +176,7 @@ namespace Comet::Tests {
                     callback();
                 }
                 if(m_fail_mesh_creation) {
-                    return GpuResourceResult<std::shared_ptr<Mesh>>::failure(
-                        vk::Result::eErrorOutOfDeviceMemory);
+                    return GpuResourceResult<std::shared_ptr<Mesh>>::failure(m_failure_result);
                 }
 
                 auto owner = std::make_shared<std::uint8_t>(0);
@@ -189,6 +187,8 @@ namespace Comet::Tests {
             void fail_mesh_creation(const bool fail) { m_fail_mesh_creation = fail; }
 
             void fail_texture_creation(const bool fail) { m_fail_texture_creation = fail; }
+
+            void set_failure_result(vk::Result result) { m_failure_result = result; }
 
             void on_next_mesh_creation(std::function<void()> callback) {
                 m_on_mesh_creation = std::move(callback);
@@ -205,6 +205,7 @@ namespace Comet::Tests {
             }
 
         private:
+            vk::Result m_failure_result = vk::Result::eErrorOutOfDeviceMemory;
             bool m_fail_mesh_creation = false;
             bool m_fail_texture_creation = false;
             std::size_t m_mesh_creation_count = 0;
@@ -576,14 +577,14 @@ namespace Comet::Tests {
         EXPECT_EQ(factory.mesh_creation_count(), 3);
     }
 
-    TEST_F(AssetCompletionBudgetTest, UnknownGpuFailureKeepsArtifactAndReleasesTaskSlot) {
+    TEST_F(AssetCompletionBudgetTest, UnexpectedGpuExceptionPropagatesAndReleasesTaskSlot) {
         ASSERT_TRUE(manager.import_mesh(handles[0]));
         const auto original = manager.load_mesh(handles[0]);
         ASSERT_TRUE(original);
         change_mesh(2);
         scheduler.wait_idle();
         factory.on_next_mesh_creation([] { throw 7; });
-        EXPECT_EQ(manager.process_completions(one_result), std::vector<AssetHandle>{handles[0]});
+        EXPECT_THROW(manager.process_completions(one_result), int);
         EXPECT_EQ(manager.get_async_status().in_flight, 0);
         EXPECT_TRUE(registry.resolve<Mesh>(handles[0]) == original);
         ASSERT_TRUE(manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
@@ -636,7 +637,7 @@ namespace Comet::Tests {
         }
     };
 
-    TEST_F(MeshAsyncImportTest, EnsureLoadedValidatesTypeAndContainsFactoryExceptions) {
+    TEST_F(MeshAsyncImportTest, EnsureLoadedValidatesTypeAndPropagatesUnexpectedFactoryExceptions) {
         EXPECT_FALSE(manager.ensure_loaded({}, AssetType::Mesh));
         EXPECT_FALSE(manager.ensure_loaded(AssetHandle(999), AssetType::Mesh));
         EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Material));
@@ -645,13 +646,75 @@ namespace Comet::Tests {
         EXPECT_EQ(factory.mesh_creation_count(), 0);
         ASSERT_TRUE(manager.import_mesh(handle));
         factory.on_next_mesh_creation([] { throw std::runtime_error("test allocation failure"); });
-        EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Mesh));
+        EXPECT_THROW(
+            static_cast<void>(manager.ensure_loaded(handle, AssetType::Mesh)), std::runtime_error);
         EXPECT_FALSE(registry.contains(handle));
         EXPECT_TRUE(manager.ensure_loaded(handle, AssetType::Mesh));
         EXPECT_EQ(factory.mesh_creation_count(), 2);
         EXPECT_TRUE(manager.ensure_loaded(handle, AssetType::Mesh));
         EXPECT_FALSE(manager.ensure_loaded(handle, AssetType::Texture));
         EXPECT_EQ(factory.mesh_creation_count(), 2);
+    }
+
+    TEST_F(MeshAsyncImportTest, DeviceLostEscapesLoadAndCompletionBoundaries) {
+        ASSERT_TRUE(manager.import_mesh(handle));
+        factory.fail_mesh_creation(true);
+        factory.set_failure_result(vk::Result::eErrorDeviceLost);
+        EXPECT_THROW(
+            static_cast<void>(manager.ensure_loaded(handle, AssetType::Mesh)), std::runtime_error);
+        EXPECT_FALSE(registry.contains(handle));
+
+        factory.fail_mesh_creation(false);
+        const auto original = manager.load_mesh(handle);
+        ASSERT_TRUE(original);
+        factory.fail_mesh_creation(true);
+        TemporaryProject::write_mesh(source,
+            R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})");
+        ASSERT_TRUE(manager.scan().succeeded());
+        scheduler.wait_idle();
+        EXPECT_THROW(manager.process_completions(), std::runtime_error);
+        EXPECT_EQ(manager.get_async_status().in_flight, 0u);
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == original);
+        TemporaryProject::write_mesh(source, R"({"attributes":{"POSITION":0},"indices":1})");
+        EXPECT_THROW(static_cast<void>(manager.import_mesh(handle)), std::runtime_error);
+    }
+
+    TEST(AssetManagerTest, DeviceLostInMaterialTextureIsNotConvertedToMissingAsset) {
+        const TemporaryProject project;
+        constexpr AssetHandle texture_handle(84);
+        constexpr AssetHandle material_handle(85);
+        project.add_texture(texture_handle);
+        const auto path = project.add_material(material_handle, "test_template");
+        MaterialData data{
+            .template_name = "test_template", .texture_properties = {{"albedo", texture_handle}}};
+        ASSERT_TRUE(MaterialSerializer{}.save(data, path));
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        factory.fail_texture_creation(true);
+        factory.set_failure_result(vk::Result::eErrorDeviceLost);
+        EXPECT_THROW(static_cast<void>(manager.ensure_loaded(texture_handle, AssetType::Texture)),
+            std::runtime_error);
+        EXPECT_THROW(static_cast<void>(manager.ensure_loaded(material_handle, AssetType::Material)),
+            std::runtime_error);
+        EXPECT_THROW(
+            static_cast<void>(manager.reload_material(material_handle)), std::runtime_error);
+        EXPECT_THROW(
+            static_cast<void>(manager.update_material(material_handle, data)), std::runtime_error);
+        EXPECT_FALSE(registry.contains(material_handle));
+
+        factory.fail_texture_creation(false);
+        const auto original = manager.load_texture(texture_handle);
+        ASSERT_TRUE(original);
+        factory.fail_texture_creation(true);
+        TemporaryProject::replace_texture(project.paths().assets() / "textures/test.png");
+        ASSERT_TRUE(manager.scan().succeeded());
+        scheduler.wait_idle();
+        EXPECT_THROW(manager.process_completions(), std::runtime_error);
+        EXPECT_EQ(manager.get_async_status().in_flight, 0u);
+        EXPECT_TRUE(registry.resolve<Texture>(texture_handle) == original);
     }
 
     TEST_F(MeshAsyncImportTest, ReportsOnlyPublishedArtifactsNotReuseFailureOrStaleWork) {

@@ -10,6 +10,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 namespace CometEditor::Tests {
@@ -36,6 +37,21 @@ namespace CometEditor::Tests {
         private:
             Comet::Tests::TemporaryDirectory m_directory;
         };
+    }
+
+    TEST(SceneDocumentTest, ActivationFailureIsNotReportedAsSceneParseFailure) {
+        const Comet::SceneSerializer serializer(component_registry());
+        const TemporarySceneFile file;
+        Comet::Scene scene;
+        serializer.save(scene, file.path());
+        SceneDocument document(
+            serializer, file.paths(), [&] { return &scene; },
+            [](std::unique_ptr<Comet::Scene>) -> std::unique_ptr<Comet::Scene> {
+                throw std::runtime_error("device lost during asset preparation");
+            });
+        EXPECT_THROW(document.open(file.path()), std::runtime_error);
+        EXPECT_TRUE(document.get_path().empty());
+        EXPECT_TRUE(document.get_last_error().empty());
     }
 
     TEST(SceneDocumentTest, OpenPreservesUnresolvedAssetReferences) {

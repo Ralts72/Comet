@@ -13,6 +13,7 @@
 #include "debug_line_vert.h"
 
 #include <limits>
+#include <stdexcept>
 #include <utility>
 
 namespace Comet {
@@ -122,6 +123,9 @@ namespace Comet {
             Buffer::try_create_cpu_buffer(m_device, Flags<BufferUsage>(BufferUsage::Vertex),
                 capacity, true, nullptr, "debug line vertex buffer");
         if(!candidate) {
+            if(candidate.error().is_device_lost())
+                throw std::runtime_error(
+                    "Device lost while growing debug line buffer: " + candidate.error().message);
             LOG_ERROR("Failed to grow debug line vertex buffer to {} bytes: {}", capacity,
                 candidate.error().message);
             // 调试绘制非关键；保留旧 buffer，跳过本批，避免每次请求都重试并刷日志。

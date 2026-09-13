@@ -102,7 +102,8 @@ Texture 源文件 + TextureImportSettings
 
 场景打开和 Edit/Play 激活前，EditorAssets 通过 ComponentRegistry::collect_asset_references 收集、去重 Handle／期望类型，
 再调用 AssetManager::ensure_loaded。描述符只发现引用，Manager 不依赖 Scene；Serializer 不参与资源加载。
-ensure_loaded 复用具体 load_* 与唯一 Registry，先核验身份／类型并捕获加载异常；Mesh 只读已发布 Artifact。
+ensure_loaded 复用具体 load_* 与唯一 Registry，先核验身份／类型；Mesh 只读已发布 Artifact。
+可预期的缺失／导入／资源不足返回加载失败；DeviceLost 和非预期 GPU 创建异常不得被此入口吞掉。
 EditorAssets::load_reference 额外保留 UI 的 revision 和清空引用语义，不再重复类型分发。
 
 ```text
@@ -122,6 +123,8 @@ Project Refresh / AssetSourceMonitor
 Worker 只接收路径、Handle、revision、导入设置的值拷贝，不访问数据库、Registry、ImGui 或 Vulkan。
 过期候选丢弃；解码/GPU 创建失败不替换旧 Runtime 对象。Mesh Artifact 与 Runtime 发布是两个边界：
 Artifact 已成功发布后若 GPU 创建失败，旧 Runtime Mesh 仍保留，磁盘产物可以已更新。
+普通创建失败允许继续使用旧对象；DeviceLost 只保留所有权以便正常清理，不表示旧 GPU 对象仍可继续使用。
+完成处理仅捕获 Worker future 异常，owner 发布异常向应用传播；无论发布是否成功，作用域清理都会释放已消费的任务槽位。
 process_completions 返回本批成功发布的 Handle：Mesh 指 Artifact，Texture 指 Runtime；缓存复用、失败或过期任务不算发布。
 EditorAssets 将非空发布、已提交扫描及显式纹理重导入成功合并成一次引用重查请求，在 UI 全部结束后消费。
 重查只加载当前活动场景的引用，坏引用不改写，也不制造撤销记录；失败等待下一次明确事件，不每帧重试。
