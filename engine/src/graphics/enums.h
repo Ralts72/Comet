@@ -61,6 +61,25 @@ namespace Comet {
         underlying_type m_value{};
     };
 
+    enum class AllocationUsage { Device, Upload, CpuToGpu, Readback };
+
+    enum class ResourceUsage {
+        Undefined,
+        TransferSource,
+        TransferDestination,
+        VertexBuffer,
+        IndexBuffer,
+        IndirectBuffer,
+        UniformRead,
+        SampledRead,
+        StorageRead,
+        StorageReadWrite,
+        ColorAttachmentWrite,
+        DepthStencilAttachmentWrite,
+        DepthStencilAttachmentRead,
+        Present
+    };
+
     enum class ImageAspect {
         None = 0x00,
         Color = 0x01,

@@ -1,6 +1,5 @@
 #pragma once
-#include "graphics/creation.h"
-#include "graphics/resource/resource_result.h"
+#include "graphics/result.h"
 #include "graphics/synchronization/gpu_completion_point.h"
 #include "graphics/synchronization/semaphore.h"
 #include "vk_common.h"

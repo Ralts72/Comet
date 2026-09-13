@@ -1,11 +1,12 @@
 #pragma once
 #include "common/export.h"
-#include "graphics/creation.h"
+#include "graphics/result.h"
 #include "graphics/enums.h"
 
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vulkan/vulkan.hpp>
 
 namespace Comet {
     class Device;

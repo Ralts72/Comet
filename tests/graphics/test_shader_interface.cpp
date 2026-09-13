@@ -192,64 +192,6 @@ namespace Comet::Tests {
 
     using ShaderPipelineTest = EngineTest;
 
-    TEST(GraphicsCreationTest, PreservesNativeFailuresAndRejectsEmptySuccess) {
-        for(const auto status :
-            {vk::Result::eErrorOutOfHostMemory, vk::Result::eErrorOutOfDeviceMemory,
-                vk::Result::eErrorDeviceLost, vk::Result::ePipelineCompileRequiredEXT}) {
-            const auto result = Graphics::create_handle<vk::Pipeline>(
-                vk::Device{}, "pipeline", [status](vk::Pipeline*) noexcept { return status; });
-            ASSERT_FALSE(result);
-            EXPECT_EQ(result.error().result, status);
-            EXPECT_EQ(result.error().is_device_lost(), status == vk::Result::eErrorDeviceLost);
-            EXPECT_NE(result.error().message.find(vk::to_string(status)), std::string::npos);
-        }
-        const auto empty = Graphics::create_handle<vk::ShaderModule>(vk::Device{}, "shader",
-            [](vk::ShaderModule*) noexcept { return vk::Result::eSuccess; });
-        ASSERT_FALSE(empty);
-        EXPECT_EQ(empty.error().result, vk::Result::eSuccess);
-        EXPECT_NE(empty.error().message.find("without a handle"), std::string::npos);
-    }
-
-    TEST_F(ShaderPipelineTest, ReclaimsPartialHandlesAndTransfersSuccessfulOwnership) {
-        struct CountingDispatch: VULKAN_HPP_DEFAULT_DISPATCHER_TYPE {
-            mutable int destroyed = 0;
-            void vkDestroyPipelineLayout(VkDevice device, VkPipelineLayout layout,
-                const VkAllocationCallbacks* allocator) const noexcept {
-                ++destroyed;
-                VULKAN_HPP_DEFAULT_DISPATCHER_TYPE::vkDestroyPipelineLayout(
-                    device, layout, allocator);
-            }
-        } dispatch;
-        const auto device = engine->get_renderer().get_render_context().get_device().get();
-        const vk::PipelineLayoutCreateInfo info;
-        // 先创建真实句柄，再模拟部分创建失败，验证失败候选会释放。
-        const auto failed = Graphics::create_handle<vk::PipelineLayout>(
-            device, "layout",
-            [&](vk::PipelineLayout* output) noexcept {
-                const auto status = device.createPipelineLayout(&info, nullptr, output);
-                if(status != vk::Result::eSuccess)
-                    return status;
-                return vk::Result::eErrorOutOfDeviceMemory;
-            },
-            dispatch);
-        ASSERT_FALSE(failed);
-        EXPECT_EQ(failed.error().result, vk::Result::eErrorOutOfDeviceMemory);
-        EXPECT_EQ(dispatch.destroyed, 1);
-        {
-            auto success = Graphics::create_handle<vk::PipelineLayout>(
-                device, "layout",
-                [&](vk::PipelineLayout* output) noexcept {
-                    return device.createPipelineLayout(&info, nullptr, output);
-                },
-                dispatch);
-            ASSERT_TRUE(success) << success.error();
-            auto owner = std::move(success).value();
-            EXPECT_TRUE(owner);
-            EXPECT_EQ(dispatch.destroyed, 1);
-        }
-        EXPECT_EQ(dispatch.destroyed, 2);
-    }
-
     TEST_F(ShaderPipelineTest, ValidatesArrayCountTypeVisibilityAndNonzeroPushOffset) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         auto shader_result = ShaderInterface::reflect(INTERFACE_ARRAY_VERT);

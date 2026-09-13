@@ -143,56 +143,32 @@ Editor-only 热加载按 debounce → Worker 编译/reflection → revision 验�
 
 ### 可失败创建 API 与消费者迁移（热更新前置）
 
-CPU 候选与校验已迁移；资产与图形模块统一使用 common/result.h 的 Result<T>，不保留领域别名或转发头。
-ShaderCompiler::Result 保留编译诊断和依赖信息，GpuResourceResult 保留原生错误码；不强行合并不同层的错误信息。
-Shader／Pipeline 与材质 descriptor 创建、分配已接通原生错误结果；启动消费者仍通过现有异常清理边界退出，
-跨层审查已推进到 renderer 成对安装、Sampler、RenderPass／target、Comet 侧 ImGui 初始化、WSI 与命令提交；第三方后端等剩余边界见下文，不代表全链路已经无异常。
+当前已完成的边界：
 
-按可独立验收的范围分步推进，每一步都同时迁移该接口的全部生产调用方及测试，不只增加一套无人使用的 try_create：
+- CPU 反射、布局、specialization、PipelineKey 校验和公共文件 I/O 返回 Result，不发布部分结果。
+- Shader／Pipeline、Descriptor、Sampler、RenderPass／target、Comet 侧 ImGui 初始化返回完整 GPU 候选，失败由 RAII 回收。
+- 资产 GPU 发布、调试缓冲扩容与离屏 resize 区分普通失败和 DeviceLost；前者保持原有降级，后者交给应用退出清理。
+- WSI 创建／重建、acquire、present 已返回显式结果；退休交换链不重新发布。
+- Queue／CommandContext／UploadBatch 和帧提交只在成功后登记 completion、serial 与资源保活；关闭等待失败不阻断析构。
 
-1. **CPU 候选与校验（已完成）**：ShaderInterface 反射、specialization 校验／规范化、ShaderLayout／MaterialLayout 校验与
-   PipelineKey 创建改为显式成功／失败结果；非法字节码、未知 ID、类型／布局不匹配不再作为预期异常处理。
-   失败不部分修改调用方配置，不产生可流入后续创建的无效候选。
-   Shader／Pipeline Manager 及现有消费者、测试已同步检查结果；渲染器构造仍通过现有异常边界报告初始化失败。
-2. **GPU 创建与发布（本轮范围已完成）**：Shader、PipelineLayout、Pipeline 及相关材质 GPU 资源使用可失败创建入口，
-   完成所有步骤后才返回有效 owner；构造函数按需要收窄为内部采用已验证数据／句柄的入口。
-   保留底层错误码与上下文，部分创建失败由 RAII 回收，不用空句柄加成功状态，也不包装成 LOG_FATAL。
-   - 已完成 Shader／PipelineLayout／Pipeline：共用 Result<T, GraphicsError>；Vulkan-Hpp 返回码重载，
-     私有构造只接管 UniqueHandle，成功后更新缓存。创建边界覆盖错误码、部分句柄回收及成功所有权转移测试。
-   - 已完成 DescriptorSetLayout／DescriptorPool 创建与 descriptor set 分配；材质及 ImGui 消费者检查结果。
-     可恢复失败保留旧材质 GPU 版本，DeviceLost 交给应用退出边界；集合仍由池回收，不新增逐集合所有权。
-     启动构造仍通过异常报告失败；未扩展到 ImGui 第三方后端内部创建或其他 GPU 包装类。
-3. **链路收口审查（进行中）**：核对 ShaderManager、PipelineManager、RenderResourceFactory、材质准备／渲染消费者、
-   DebugRenderer／SceneRenderer，以及资产加载、app/editor 启动和后续热发布路径。
-   清除只为捕获上述预期失败存在的 catch/rethrow；旧的抛异常创建入口不得继续被业务路径绕回使用。
-   - 已接通 MaterialRenderer／DebugRenderer 的工厂结果，SceneRenderer 成对安装；离屏启动把目标／管线结果交给 Editor。
-     Mesh／Texture 无调用方的 fatal 创建包装和 RenderTarget 的 fatal 离屏包装已删除；应用生命周期与析构保护 catch 保留。
-   - 已接通 Sampler／SamplerManager 可失败创建：参数校验、UniqueSampler 与成功后缓存；材质检查结果，Viewport 启动取得后持有。
-     同名不同配置明确拒绝，不返回旧配置伪装成功；预设缓存不再使用舍入浮点字符串。
-   - 已接通 RenderPass／swapchain target 创建及 Comet 侧 ImGui 初始化结果；候选成功才发布，交换链依赖重建失败交给应用退出清理边界。
-     交换链与离屏目标共用可失败附件构建，SceneRenderer 安装 pass/target 前保留旧成员；不承诺整个渲染图回滚。
-   - 已审查资产 Mesh／Texture GPU 加载与发布、DebugRenderer 扩容和离屏 resize：DeviceLost 向应用退出边界传播，普通创建失败保留旧版本／跳过本批。
-     ensure_loaded、材质创建、后台完成处理和场景激活不再用通用 catch 吞掉 GPU 发布异常；Worker、文件读写及析构仍保留各自边界。
-   - 已接通 WSI 创建／重建、acquire、present 的显式结果；Deferred 与致命失败分开，退休 Generation 不重新发布，重复 OutOfDate 跳过本帧。
-     Device 的关闭等待集中处理 Vulkan 等待异常，Engine／Renderer／RenderContext／ImGui／上传清理不再被该异常打断；普通运行期等待仍传播错误。
-   - 已接通 Queue／CommandContext／UploadBatch 提交结果及 Mesh／Texture 消费者；失败没有 completion、不发布资源候选。
-     UploadManager 在提交前准备 pending 空间；FrameScheduler 负责提交并只登记成功的 serial/image 关联，没有未完成提交就不等 fence。
-     渲染帧提交失败沿应用边界退出，不尝试复用已 acquire 的信号量；命令录制／同步对象创建及运行期等待仍可能抛异常。
-   - ImGui 后端内部 Vulkan 失败暂缓单独适配，本轮不扩大后端改造：Init 的 bool 不覆盖全部失败，回调处部分句柄尚在局部变量，不能直接抛异常假装安全展开。
-     先明确后端资源接管／释放与中断策略，再接回调；不修改第三方源码掩盖边界。WSI 无呈现重试仍按后续专项规划。
-     后台 Shader 热发布以候选创建／提交／发布边界为前置；ImGui 后端的独立限制保持显式记录，不把本轮标记为全链路无异常。
-   Descriptor 写入／绑定已收回 graphics，渲染与资产消费者使用错误消息／设备丢失语义，不直接解析原生状态码。
-   WSI acquire/present 不再向 SceneRenderer 暴露 vk::Result；PipelineConfig 与 viewport/scissor 的原生数据边界按后续真实消费者整理，
-   不以复制全部 Vulkan 类型或预建多后端框架替代职责划分。ImGui Vulkan 后端适配仍允许在私有实现中使用原生接口。
+现行职责、所有权和测试边界统一见[渲染资源所有权](architecture/rendering-ownership.md)，此处只保留后续验收项：
 
-结果表示按层复用或演进现有机制，不为每个类复制一套 Result；若需抽取公共结果类型，应放在无资产／Vulkan 依赖的公共层，
-保持 C++20，不让 CPU 编译工具为了复用错误类型反向依赖 AssetManager 或 GPU 模块。
-公共创建／校验结果必须被消费，不能仅将 throw 移到 helper 或统一宏中，也不以全局禁用异常代替接口设计。
-第三方库异常只在适配边界转换一次；内存耗尽等不可承诺恢复的异常、析构保护与真正内部不变量错误另行处理，不承诺所有函数 noexcept。
+1. **Scene／Project 解析失败返回**：按完整解析链路迁移，调用方同时处理错误；不为减少 throw 数量增加零碎包装。
+   公共文件 I/O 已完成，不再次创建并行结果类型。此项后继续后台 Shader 编译与热发布。
+2. **命令录制／同步对象创建／运行期等待**：按实际消费者继续检查异常边界；每步同时迁移接口、生产调用方及测试，
+   不保留可被业务绕回使用的旧入口，也不承诺所有函数 noexcept。
+3. **ImGui 第三方后端失败（暂缓）**：先明确局部资源接管／释放和中断策略，再接错误回调；
+   Init 的 bool 不覆盖全部 Vulkan 失败，不能直接抛异常跳过局部资源释放，不以修改第三方源码掩盖边界。
+4. **WSI 无呈现恢复**：失败后的旧 Generation 已退休，不能回滚重用；独立设计重试和无呈现状态，
+   不把当前退出清理策略描述为设备恢复。后台 Shader 热发布不以该专项为前置。
+5. **原生数据边界**：PipelineConfig、viewport/scissor 按真实消费者整理；不复制全部 Vulkan 类型或预建多后端框架。
+   ImGui Vulkan 适配仍允许在私有实现中使用原生接口。
 
-公共文件 I/O 已改为 Result：读取、文本／二进制原子写入直接报告失败，临时文件由 RAII 清理；
-资产序列化和材质保存不再仅为 I/O 包装 catch，Shader CLI 检查写入结果。Scene／Project 仍保留现有解析异常边界，
-后续按解析链路整体迁移，不为减少 throw 数量扩散零碎包装；本项完成后继续后台 Shader 编译与热发布。
+公共 Result 位于无资产／Vulkan 依赖的 common 层；GraphicsError 与 GpuResourceResult 位于 graphics/result.h。
+后者保留原生错误码，诊断字符串按需生成，不为统一外观改变提交失败路径的分配行为。
+CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结果保留各自的信息量。
+公共创建／校验结果必须被消费，不能仅将 throw 移到 helper 或宏中，也不以全局禁用异常代替接口设计。
+第三方异常在适配边界转换；不可承诺恢复的内存耗尽、析构保护和内部不变量错误另行处理。
 
 失败策略由 owner 决定：启动所需资源创建失败应返回启动失败并正常清理；运行中候选失败保留旧版本，
 无旧版本则明确跳过／报告，不伪装成功；设备丢失与资源不足保留区别，不隐式无限重试。

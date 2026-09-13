@@ -1,4 +1,4 @@
-#include "graphics/resource/resource_result.h"
+#include "graphics/result.h"
 
 #include "diagnostics/logger.h"
 

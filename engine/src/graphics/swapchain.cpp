@@ -1,4 +1,5 @@
 #include "swapchain.h"
+#include "graphics/creation.h"
 
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
@@ -6,7 +7,7 @@
 #include "core/window.h"
 #include "device.h"
 #include "graphics/resource/image.h"
-#include "graphics/resource/resource_result.h"
+#include "graphics/result.h"
 #include "graphics/synchronization/semaphore.h"
 
 #include <utility>

@@ -3,51 +3,12 @@
 #include "graphics/resource/allocator.h"
 
 #include <limits>
-#include <type_traits>
 
 namespace Comet::Tests {
-    static_assert(!std::is_default_constructible_v<GpuResourceResult<int>>);
-    static_assert(!std::is_default_constructible_v<GpuResourceResult<void>>);
-
     TEST(AllocationTest, DefaultsToInvalidHandle) {
         const Allocation allocation;
 
         EXPECT_FALSE(static_cast<bool>(allocation));
-    }
-
-    TEST(GpuResourceResultTest, DistinguishesSuccessFromFailure) {
-        const auto failure = GpuResourceResult<int>::failure(vk::Result::eErrorOutOfDeviceMemory);
-        const auto success = GpuResourceResult<int>::success(42);
-        const auto normalized_failure = GpuResourceResult<int>::failure(vk::Result::eSuccess);
-
-        EXPECT_FALSE(static_cast<bool>(failure));
-        EXPECT_EQ(failure.result(), vk::Result::eErrorOutOfDeviceMemory);
-        EXPECT_EQ(failure.error().message, vk::to_string(failure.result()));
-        EXPECT_EQ(failure.error().result, failure.result());
-        EXPECT_FALSE(failure.error().is_device_lost());
-        EXPECT_TRUE(static_cast<bool>(success));
-        EXPECT_EQ(success.value(), 42);
-        EXPECT_FALSE(static_cast<bool>(normalized_failure));
-        EXPECT_EQ(normalized_failure.result(), vk::Result::eErrorUnknown);
-
-        const auto empty_failure =
-            GpuResourceResult<void>::failure(vk::Result::eErrorOutOfDeviceMemory);
-        const auto empty_success = GpuResourceResult<void>::success();
-        EXPECT_FALSE(static_cast<bool>(empty_failure));
-        EXPECT_TRUE(static_cast<bool>(empty_success));
-        EXPECT_EQ(empty_failure.error().result, empty_failure.result());
-        const auto device_lost = GpuResourceResult<void>::failure(vk::Result::eErrorDeviceLost);
-        EXPECT_TRUE(device_lost.error().is_device_lost());
-        EXPECT_FALSE(GraphicsError{"Invalid descriptor binding"}.is_device_lost());
-    }
-
-    TEST(GpuResourceResultTest, RejectsFailedValueAccess) {
-        EXPECT_DEATH(
-            {
-                auto failure = GpuResourceResult<int>::failure(vk::Result::eErrorOutOfDeviceMemory);
-                static_cast<void>(failure.value());
-            },
-            "");
     }
 
     TEST(MemoryHeapBudgetTest, AvailableBytesSaturatesAtZero) {

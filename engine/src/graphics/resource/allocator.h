@@ -1,8 +1,9 @@
 #pragma once
 
 #include "common/export.h"
+#include "graphics/enums.h"
 #include "graphics/resource/memory_budget.h"
-#include "graphics/resource/resource_result.h"
+#include "graphics/result.h"
 #include "graphics/vk_common.h"
 
 #include <string_view>
@@ -11,8 +12,6 @@
 #include <vk_mem_alloc.h>
 
 namespace Comet {
-    enum class AllocationUsage { Device, Upload, CpuToGpu, Readback };
-
     struct AllocationCreateInfo {
         AllocationUsage usage = AllocationUsage::Device;
         bool persistent_mapping = false;

@@ -1,9 +1,7 @@
 #pragma once
 
-#include "common/result.h"
+#include "graphics/result.h"
 
-#include <optional>
-#include <ostream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -11,19 +9,6 @@
 #include <vulkan/vulkan.hpp>
 
 namespace Comet {
-    struct GraphicsError {
-        std::string message;
-        std::optional<vk::Result> result = std::nullopt;
-
-        [[nodiscard]] bool is_device_lost() const noexcept {
-            return result == vk::Result::eErrorDeviceLost;
-        }
-
-        friend std::ostream& operator<<(std::ostream& stream, const GraphicsError& error) {
-            return stream << error.message;
-        }
-    };
-
     namespace Graphics {
         template<typename Handle, typename Create,
             typename Dispatch = VULKAN_HPP_DEFAULT_DISPATCHER_TYPE>

@@ -1,5 +1,5 @@
 #pragma once
-#include "graphics/creation.h"
+#include "graphics/result.h"
 #include "attachment.h"
 #include "common/export.h"
 

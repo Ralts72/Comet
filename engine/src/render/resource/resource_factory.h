@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/export.h"
-#include "graphics/resource/resource_result.h"
+#include "graphics/result.h"
 
 #include <memory>
 

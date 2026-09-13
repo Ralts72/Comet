@@ -11,23 +11,6 @@ namespace Comet {
     inline constexpr std::uint32_t UNSPECIFIED_QUEUE_FAMILY =
         std::numeric_limits<std::uint32_t>::max();
 
-    enum class ResourceUsage {
-        Undefined,
-        TransferSource,
-        TransferDestination,
-        VertexBuffer,
-        IndexBuffer,
-        IndirectBuffer,
-        UniformRead,
-        SampledRead,
-        StorageRead,
-        StorageReadWrite,
-        ColorAttachmentWrite,
-        DepthStencilAttachmentWrite,
-        DepthStencilAttachmentRead,
-        Present
-    };
-
     struct ResourceState {
         Flags<PipelineStage> stages;
         Flags<Access> access;

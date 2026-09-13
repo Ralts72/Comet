@@ -24,6 +24,19 @@
 engine 入口路径相对 `engine/src/`。Graphics 的 command/resource/pipeline/synchronization 按职责分目录；
 Context、Device、Queue、Swapchain、RenderPass、FrameBuffer 保留在根层，因为它们跨越多个职责组。
 
+底层共用类型按语义归属，不按“是否是枚举”集中：
+
+| 位置 | 边界 |
+| --- | --- |
+| `graphics/enums.h` | 跨对象的图形参数：格式、用途、分配策略、同步访问等，不包含 Vulkan 头 |
+| 类内枚举 | 所属对象的模式或操作结果，如 `Semaphore::Type`、`Queue::PresentStatus`、`Swapchain::RecreateStatus` |
+| `graphics/result.h/.cpp` | GraphicsError 与 GpuResourceResult，共用于资源、命令和呈现，不依赖创建模板 |
+| `graphics/creation.h` | device-owned 原生句柄接管／失败回收工具，仅后端实现和边界测试包含 |
+
+GraphicsError 保留原生 `vk::Result` 和官方 Vulkan-Hpp 头依赖；隔离的是 Comet 创建工具，不宣称已完全隔离 Vulkan 头。
+GpuResourceResult 的失败路径先保存错误码，调用 `error()` 时才生成诊断字符串；不改变现有失败访问契约。
+测试中，`test_creation.cpp` 验证结果、部分句柄回收和所有权转移；Allocator 和 Shader 测试分别只关注自己的行为。
+
 ## Owner 结构
 
 ```text

@@ -1,7 +1,7 @@
 #pragma once
 #include "graphics/swapchain.h"
 #include "graphics/vk_common.h"
-#include "graphics/resource/resource_result.h"
+#include "graphics/result.h"
 #include "core/math_utils.h"
 #include "common/export.h"
 

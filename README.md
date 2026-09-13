@@ -137,17 +137,11 @@ JSON 解析直接依赖已有 simdjson。
   相机 FrameSet 按 slot 更新，MaterialSet 按材质版本跨 slot 复用，物体矩阵使用 push constant；在途版本由 FrameSlot 保活。
   Shader 加载时反射实际 SPIR-V，Pipeline 创建／缓存查询前校验绑定及 push constant，材质另检查参数块类型与偏移。
   ShaderInterface 只公开 Comet 值类型；Vulkan 布局转换与覆盖校验留在 ShaderLayout 实现中。
-  源编译使用 diagnostics；反射、布局／specialization 校验和 PipelineKey 创建使用公共 `Result<T>` 返回预期失败。
-  Shader／Pipeline 创建通过 `Result<T, GraphicsError>` 保留诊断与原生 Vulkan 错误码，RAII 回收失败候选，管理器只发布成功结果。
-  Descriptor 布局、池创建及集合分配使用同一结果协议；材质候选失败保留旧版本，集合仍由池统一回收。
+  CPU 创建／校验使用公共 `Result<T>`；图形错误与原生结果位于 `graphics/result.h`，句柄创建工具只供后端实现使用。
+  GPU 候选由 RAII 回收，管理器只发布成功对象；普通重载失败保留旧版本，设备丢失沿应用边界退出清理。
   MaterialRenderer 只描述资源与槽位，DescriptorSet 负责原生批量写入，CommandBuffer 负责集合绑定；不在材质层拼装 Vulkan 结构。
-  MaterialRenderer／DebugRenderer 返回完整创建结果，SceneRenderer 在两者成功后一起替换；离屏启动检查目标与管线结果。
-  Sampler 创建也返回结果，管理器仅缓存成功对象并拒绝同名不同配置；Viewport 持有启动时取得的 sampler。
-  RenderPass／交换链目标及 ImGui 初始化也返回结果；目标先构建后替换，重建失败交给应用退出清理边界。
-  最外层 Renderer／Editor 保留启动异常边界；WSI 获取／呈现／重建返回明确结果，退休交换链不会重新发布。
-  Queue 提交失败返回 GPU 错误，不产生 completion；上传与帧调度只登记成功提交，避免等待没有提交的 fence。
-  ImGui 第三方后端内部失败及 WSI 无呈现恢复仍待完善；关闭时 GPU 等待失败只报告，不阻断后续资源释放。
-  运行期资产 GPU 发布、调试缓冲扩容与离屏 resize 区分设备丢失和普通创建失败；设备丢失沿应用边界退出，不重试旧资源。
+  WSI 与提交返回显式结果；退休交换链不重新发布，失败提交不产生 completion，也不登记在途帧。
+  具体创建、保活与关闭契约见资源所有权文档；ImGui 后端内部失败、WSI 无呈现恢复等限制见路线图。
   Pipeline 按 Shader 字节码／入口、specialization、布局、渲染状态及 RenderPass 域复用，名称只作标签；缓存弱引用不代替在途帧保活。
   specialization 支持 bool 与 32 位数值，按阶段和位模式校验／缓存并传给 GPU；只用于固定接口的创建期变体。
   改变数组长度的变体使用编译期 defines，不用 specialization；材质逐帧参数仍走原有 uniform。
