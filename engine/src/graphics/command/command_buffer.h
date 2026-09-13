@@ -13,6 +13,7 @@ namespace Comet {
     class FrameBuffer;
     class Pipeline;
     class PipelineLayout;
+    class DescriptorSet;
     class RenderTarget;
 
     struct VertexBufferBinding {
@@ -28,7 +29,9 @@ namespace Comet {
 
         CommandBuffer() = delete;
 
-        void begin(vk::CommandBufferUsageFlags flags = vk::CommandBufferUsageFlags{}) const;
+        enum class Usage { OneTimeSubmit = 1, SimultaneousUse = 2 };
+
+        void begin(Flags<Usage> flags = {}) const;
 
         void end() const;
 
@@ -40,6 +43,9 @@ namespace Comet {
         void end_render_pass() const;
 
         void bind_pipeline(const Pipeline& pipeline) const;
+
+        void bind_descriptor_sets(const PipelineLayout& layout, std::span<const DescriptorSet> sets,
+            uint32_t first_set = 0, std::span<const uint32_t> dynamic_offsets = {}) const;
 
         void set_viewport(const vk::Viewport& viewport) const;
 

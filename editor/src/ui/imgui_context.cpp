@@ -186,9 +186,13 @@ namespace CometEditor {
         Comet::DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(Comet::DescriptorType::CombinedImageSampler, 100);
 
-        m_descriptor_pool = std::make_unique<Comet::DescriptorPool>(device, 100, pool_sizes,
+        auto pool = Comet::DescriptorPool::create(device, 100, pool_sizes,
             Comet::Flags<Comet::DescriptorPoolCreateFlag>(
                 Comet::DescriptorPoolCreateFlag::FreeDescriptorSet));
+        if(!pool)
+            throw std::runtime_error(
+                "Cannot create ImGui descriptor pool: " + pool.error().message);
+        m_descriptor_pool = std::move(pool).value();
 
         ImGui_ImplVulkan_InitInfo init_info{};
         init_info.ApiVersion = VK_API_VERSION_1_0;

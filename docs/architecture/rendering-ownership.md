@@ -139,7 +139,8 @@ set 0 是按 slot 更新的相机 FrameSet；set 1 是按不可变材质版本�
 MaterialResources 持有 PreparedMaterial、PipelineState、Sampler、参数 buffer 与 descriptor pool；
 FrameResources 持有 frame layout、pool 和相机 buffer。实际绘制的 FrameSlot 保留它们及 Mesh，直到 GPU 完成。
 CPU 缓存淘汰不代表 GPU 已完成，不能据此删除 retained owners。
-GPU 候选失败可沿用旧 MaterialResources，同一候选延后 60 个 frame serial 重试，新候选可立即尝试；
+可恢复的 GPU 候选失败可沿用旧 MaterialResources，同一候选延后 60 个 frame serial 重试，新候选可立即尝试；
+DeviceLost 则交给应用退出清理边界，不把失效设备当作可继续渲染的旧版本。
 不支持的模板或 CPU 准备失败则跳过绘制。队列按模板名与材质 Handle 排序。
 
 ### 编译、反射与缓存边界
@@ -168,7 +169,18 @@ graphics/creation.h 统一将 device-owned 句柄纳入 UniqueHandle，再判断
 Shader、PipelineLayout、Pipeline 的私有构造函数只接收已创建的 owner；Pipeline 先销毁自身句柄，再释放 Layout。
 分配 C++ 容器等非预期异常仍可传播，不承诺 noexcept。
 渲染器初始化暂将结果错误交给现有异常清理边界；内置 MaterialLayout 常量定义错误属于内部不变量，明确终止。
-下一步迁移材质 descriptor 创建、分配及启动消费者；现有 GpuResourceResult 接口暂不改动，不以 LOG_FATAL 替代可恢复错误。
+DescriptorSetLayout／DescriptorPool 创建及 DescriptorSet 分配也返回 Result<T, GraphicsError>。
+布局和池使用 UniqueHandle，集合只借用句柄，由池统一回收；布局可共享，池工厂返回 unique_ptr，
+FrameResources／MaterialResources 按实际保活需要转为 shared_ptr，ImGui 仍独占池。
+集合分配先准备 CPU 容器，再调用 Vulkan-Hpp 返回码重载；失败不 reset 池，也不破坏已有集合。
+材质准备显式检查 Buffer、Pool 与集合分配结果，成功写入 descriptor 后才发布，不再整段 catch std::exception。
+启动消费者检查结果后暂沿现有异常清理边界退出；ImGui 后端内部调用不属于上述 Comet API 的迁移范围。
+DescriptorSet::update 接收嵌套的 UniformBufferWrite／ImageSamplerWrite，立即转换并批量写入；
+写入项引用 Comet Buffer／ImageView／Sampler，不保存资源，也不自动同步 GPU，调用方仍须保证目标集合可安全修改。
+CommandBuffer::bind_descriptor_sets 只接收 Comet Layout／Set，原生绑定点与句柄数组留在 graphics 实现中。
+GpuResourceResult 通过 error() 提供 GraphicsError，业务层读取 message／is_device_lost()，不为了日志解析 vk::Result；
+原生 result() 保留给 graphics 内部和诊断测试。这是消费接口收敛，不是完整的多后端抽象或 Vulkan 头文件隔离。
+下一步审查启动与跨层消费者的失败传播，不以 LOG_FATAL 替代可恢复错误。
 
 PipelineConfig 与状态位于 pipeline_config.h/.cpp，PipelineKey 的完整判等、规范化与哈希位于 pipeline_key.h/.cpp。
 Key 包含完整 Shader 内容／入口、layout、配置、RenderPass 身份与附件格式／采样数；名称只作标签，hash 不代替相等比较。

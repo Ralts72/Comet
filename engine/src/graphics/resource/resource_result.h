@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "graphics/creation.h"
 
 #include <optional>
 #include <utility>
@@ -39,6 +40,8 @@ namespace Comet {
 
         [[nodiscard]] vk::Result result() const noexcept { return m_result; }
 
+        [[nodiscard]] GraphicsError error() const { return {vk::to_string(m_result), m_result}; }
+
     private:
         void require_value() const {
             if(!m_value) {
@@ -64,6 +67,8 @@ namespace Comet {
         }
 
         [[nodiscard]] vk::Result result() const noexcept { return m_result; }
+
+        [[nodiscard]] GraphicsError error() const { return {vk::to_string(m_result), m_result}; }
 
     private:
         explicit GpuResourceResult(const vk::Result result) : m_result(result) {}

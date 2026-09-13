@@ -116,7 +116,7 @@ namespace Comet {
                 capacity, true, nullptr, "debug line vertex buffer");
         if(!candidate) {
             LOG_ERROR("Failed to grow debug line vertex buffer to {} bytes: {}", capacity,
-                vk::to_string(candidate.result()));
+                candidate.error().message);
             // 调试绘制非关键；保留旧 buffer，跳过本批，避免每次请求都重试并刷日志。
             resources.growth_retry_requests = 120;
             return false;

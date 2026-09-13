@@ -50,6 +50,10 @@ namespace {
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Shader>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<DescriptorSetLayout>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<DescriptorPool>);
+    static_assert(
+        !std::is_constructible_v<DescriptorSetLayout, Device&, const DescriptorSetLayoutBindings&>);
+    static_assert(
+        !std::is_constructible_v<DescriptorPool, Device&, uint32_t, const DescriptorPoolSizes&>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<PipelineLayout>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Pipeline>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<FrameBuffer>);

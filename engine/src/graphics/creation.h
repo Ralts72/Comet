@@ -15,6 +15,10 @@ namespace Comet {
         std::string message;
         std::optional<vk::Result> result = std::nullopt;
 
+        [[nodiscard]] bool is_device_lost() const noexcept {
+            return result == vk::Result::eErrorDeviceLost;
+        }
+
         friend std::ostream& operator<<(std::ostream& stream, const GraphicsError& error) {
             return stream << error.message;
         }

@@ -28,7 +28,7 @@ namespace Comet {
             return;
         }
 
-        m_command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+        m_command_buffer.begin(Flags<CommandBuffer::Usage>(CommandBuffer::Usage::OneTimeSubmit));
         m_is_recording = true;
     }
 

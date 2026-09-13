@@ -20,7 +20,6 @@
 
 #include <algorithm>
 #include <array>
-#include <exception>
 #include <stdexcept>
 #include <string_view>
 #include <tuple>
@@ -50,28 +49,37 @@ namespace Comet {
         DescriptorSetLayoutBindings frame_bindings;
         frame_bindings.add_binding(
             0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
-        m_frame_layout = std::make_shared<DescriptorSetLayout>(device, frame_bindings);
+        auto frame_layout = DescriptorSetLayout::create(device, frame_bindings);
+        if(!frame_layout)
+            throw std::runtime_error(
+                "Cannot initialize frame descriptor layout: " + frame_layout.error().message);
+        m_frame_layout = std::move(frame_layout).value();
         DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count);
-        const auto pool = std::make_shared<DescriptorPool>(device, frame_slot_count, pool_sizes);
-        const auto descriptors = pool->allocate_descriptor_set(*m_frame_layout, frame_slot_count);
+        auto pool_result = DescriptorPool::create(device, frame_slot_count, pool_sizes);
+        if(!pool_result)
+            throw std::runtime_error(
+                "Cannot initialize frame descriptor pool: " + pool_result.error().message);
+        std::shared_ptr<DescriptorPool> pool = std::move(pool_result).value();
+        auto descriptors = pool->allocate_descriptor_set(*m_frame_layout, frame_slot_count);
+        if(!descriptors)
+            throw std::runtime_error(
+                "Cannot allocate frame descriptor sets: " + descriptors.error().message);
         for(uint32_t slot = 0; slot < frame_slot_count; ++slot) {
             auto frame = std::make_shared<FrameResources>();
             frame->layout = m_frame_layout;
             frame->pool = pool;
-            frame->buffer =
+            auto buffer =
                 Buffer::try_create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::Uniform),
-                    sizeof(ViewProjectMatrix), false, nullptr, "frame view-project")
-                    .value();
-            frame->descriptor = descriptors[slot];
-            const vk::DescriptorBufferInfo info(frame->buffer->get(), 0, sizeof(ViewProjectMatrix));
-            vk::WriteDescriptorSet write;
-            write.dstSet = frame->descriptor->get();
-            write.dstBinding = 0;
-            write.descriptorType = vk::DescriptorType::eUniformBuffer;
-            write.descriptorCount = 1;
-            write.pBufferInfo = &info;
-            device.get().updateDescriptorSets(write, {});
+                    sizeof(ViewProjectMatrix), false, nullptr, "frame view-project");
+            if(!buffer)
+                throw std::runtime_error(
+                    "Cannot initialize frame uniform buffer: " + buffer.error().message);
+            frame->buffer = std::move(buffer).value();
+            frame->descriptor = descriptors.value()[slot];
+            const DescriptorSet::UniformBufferWrite write{
+                0, *frame->buffer, sizeof(ViewProjectMatrix)};
+            frame->descriptor->update(device, std::span(&write, 1));
             m_frames.push_back(std::move(frame));
         }
         auto& shaders = resources.get_shader_manager();
@@ -115,7 +123,10 @@ namespace Comet {
             bindings.add_binding(texture.binding, DescriptorType::CombinedImageSampler,
                 Flags<ShaderStage>(ShaderStage::Fragment));
         }
-        state->material_layout = std::make_shared<DescriptorSetLayout>(m_device, bindings);
+        auto material_layout = DescriptorSetLayout::create(m_device, bindings);
+        if(!material_layout)
+            return Result<void, GraphicsError>::failure(material_layout.error());
+        state->material_layout = std::move(material_layout).value();
         ShaderLayout shader_layout;
         shader_layout.descriptor_set_layouts = {m_frame_layout, state->material_layout};
         shader_layout.push_constants.push_back(
@@ -167,75 +178,56 @@ namespace Comet {
         if(cached.failed_candidate == prepared && frame_serial < cached.retry_after_serial) {
             return cached.resources;
         }
-        const auto keep_previous = [&](const std::string_view reason) {
+        const auto keep_previous = [&](const GraphicsError& error) {
+            if(error.is_device_lost())
+                throw std::runtime_error("Device lost while preparing material: " + error.message);
             LOG_ERROR("Cannot prepare GPU material for handle {}: {}; previous version {}",
-                material.material_handle.value(), reason,
+                material.material_handle.value(), error.message,
                 cached.resources ? "retained" : "unavailable");
             cached.failed_candidate = prepared;
             cached.retry_after_serial = frame_serial + 60;
             return cached.resources;
         };
-        try {
-            auto candidate = std::make_shared<MaterialResources>();
-            candidate->pipeline = pipeline->second;
-            candidate->prepared = prepared;
-            candidate->sampler = m_sampler;
-            DescriptorPoolSizes sizes;
-            if(!prepared->parameters.empty()) {
-                auto buffer = Buffer::try_create_cpu_buffer(m_device,
-                    Flags<BufferUsage>(BufferUsage::Uniform), prepared->parameters.size(), true,
-                    prepared->parameters.data(), "immutable material parameters");
-                if(!buffer) {
-                    return keep_previous(
-                        "Material parameter allocation failed: " + vk::to_string(buffer.result()));
-                }
-                candidate->parameters = std::move(buffer).value();
-                sizes.add_pool_size(DescriptorType::UniformBuffer, 1);
+        auto candidate = std::make_shared<MaterialResources>();
+        candidate->pipeline = pipeline->second;
+        candidate->prepared = prepared;
+        candidate->sampler = m_sampler;
+        DescriptorPoolSizes sizes;
+        if(!prepared->parameters.empty()) {
+            auto buffer = Buffer::try_create_cpu_buffer(m_device,
+                Flags<BufferUsage>(BufferUsage::Uniform), prepared->parameters.size(), true,
+                prepared->parameters.data(), "immutable material parameters");
+            if(!buffer) {
+                return keep_previous(buffer.error());
             }
-            if(!prepared->textures.empty()) {
-                sizes.add_pool_size(DescriptorType::CombinedImageSampler,
-                    static_cast<uint32_t>(prepared->textures.size()));
-            }
-            candidate->pool = std::make_shared<DescriptorPool>(m_device, 1, sizes);
-            candidate->descriptor =
-                candidate->pool->allocate_descriptor_set(*candidate->pipeline->material_layout, 1)
-                    .front();
-            std::vector<vk::WriteDescriptorSet> writes;
-            writes.reserve(1 + prepared->textures.size());
-            vk::DescriptorBufferInfo buffer_info;
-            if(candidate->parameters) {
-                buffer_info = vk::DescriptorBufferInfo(
-                    candidate->parameters->get(), 0, candidate->parameters->get_size());
-                vk::WriteDescriptorSet write;
-                write.dstSet = candidate->descriptor->get();
-                write.dstBinding = 0;
-                write.descriptorCount = 1;
-                write.descriptorType = vk::DescriptorType::eUniformBuffer;
-                write.pBufferInfo = &buffer_info;
-                writes.push_back(write);
-            }
-            std::vector<vk::DescriptorImageInfo> images(prepared->textures.size());
-            for(std::size_t index = 0; index < images.size(); ++index) {
-                const auto& binding = prepared->textures[index];
-                images[index] = vk::DescriptorImageInfo(m_sampler->get(),
-                    binding.texture->get_image_view()->get(),
-                    vk::ImageLayout::eShaderReadOnlyOptimal);
-                vk::WriteDescriptorSet write;
-                write.dstSet = candidate->descriptor->get();
-                write.dstBinding = binding.binding;
-                write.descriptorCount = 1;
-                write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-                write.pImageInfo = &images[index];
-                writes.push_back(write);
-            }
-            m_device.get().updateDescriptorSets(writes, {});
-            cached.resources = candidate;
-            cached.failed_candidate.reset();
-            ++m_statistics.material_versions_created;
-            return candidate;
-        } catch(const std::exception& exception) {
-            return keep_previous(exception.what());
+            candidate->parameters = std::move(buffer).value();
+            sizes.add_pool_size(DescriptorType::UniformBuffer, 1);
         }
+        if(!prepared->textures.empty()) {
+            sizes.add_pool_size(DescriptorType::CombinedImageSampler,
+                static_cast<uint32_t>(prepared->textures.size()));
+        }
+        auto pool = DescriptorPool::create(m_device, 1, sizes);
+        if(!pool)
+            return keep_previous(pool.error());
+        candidate->pool = std::move(pool).value();
+        auto sets =
+            candidate->pool->allocate_descriptor_set(*candidate->pipeline->material_layout, 1);
+        if(!sets)
+            return keep_previous(sets.error());
+        candidate->descriptor = sets.value().front();
+        std::vector<DescriptorSet::UniformBufferWrite> buffers;
+        if(candidate->parameters)
+            buffers.push_back({0, *candidate->parameters, candidate->parameters->get_size()});
+        std::vector<DescriptorSet::ImageSamplerWrite> images;
+        images.reserve(prepared->textures.size());
+        for(const auto& binding : prepared->textures)
+            images.push_back({binding.binding, *binding.texture->get_image_view(), *m_sampler});
+        candidate->descriptor->update(m_device, buffers, images);
+        cached.resources = candidate;
+        cached.failed_candidate.reset();
+        ++m_statistics.material_versions_created;
+        return candidate;
     }
 
     std::vector<QueueSemaphoreSubmit> MaterialRenderer::render(FrameScheduler& frames,
@@ -271,9 +263,8 @@ namespace Comet {
                 ++m_statistics.pipeline_binds;
             }
             if(active_material != material.get()) {
-                const std::array sets{frame->descriptor->get(), material->descriptor->get()};
-                command.get().bindDescriptorSets(
-                    vk::PipelineBindPoint::eGraphics, pipeline->get_layout()->get(), 0, sets, {});
+                const std::array sets{*frame->descriptor, *material->descriptor};
+                command.bind_descriptor_sets(*pipeline->get_layout(), sets);
                 active_material = material.get();
                 ++m_statistics.material_binds;
             }

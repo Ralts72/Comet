@@ -15,7 +15,7 @@ namespace Comet {
         Device& device, UploadManager& upload_manager, const MeshData& data) {
         auto attempt = try_create(device, upload_manager, data, false);
         if(!attempt) {
-            LOG_FATAL("Failed to create mesh: {}", vk::to_string(attempt.result()));
+            LOG_FATAL("Failed to create mesh: {}", attempt.error().message);
         }
         return std::move(attempt).value();
     }

@@ -406,7 +406,7 @@ namespace Comet {
             auto mesh_attempt = m_resource_factory.try_create_mesh(artifact.data);
             if(!mesh_attempt) {
                 LOG_ERROR("Failed to create refreshed runtime mesh for asset handle {}: {}",
-                    candidate.handle.value(), vk::to_string(mesh_attempt.result()));
+                    candidate.handle.value(), mesh_attempt.error().message);
                 return;
             }
             auto mesh = std::move(mesh_attempt).value();
@@ -436,7 +436,7 @@ namespace Comet {
         auto texture_attempt = m_resource_factory.try_create_texture(candidate.result.value());
         if(!texture_attempt) {
             LOG_ERROR("Failed to create refreshed runtime texture for asset handle {}: {}",
-                candidate.handle.value(), vk::to_string(texture_attempt.result()));
+                candidate.handle.value(), texture_attempt.error().message);
             return;
         }
         auto texture = std::move(texture_attempt).value();
@@ -508,7 +508,7 @@ namespace Comet {
             auto mesh_attempt = m_resource_factory.try_create_mesh(artifact.data);
             if(!mesh_attempt) {
                 LOG_ERROR("Failed to create reimported runtime mesh for handle {}: {}",
-                    handle.value(), vk::to_string(mesh_attempt.result()));
+                    handle.value(), mesh_attempt.error().message);
                 return false;
             }
             if(!m_database.is_current(handle, revision)
@@ -786,7 +786,7 @@ namespace Comet {
         auto mesh_attempt = m_resource_factory.try_create_mesh(artifact->data);
         if(!mesh_attempt) {
             LOG_ERROR("Failed to create runtime mesh for asset handle {}: {}", handle.value(),
-                vk::to_string(mesh_attempt.result()));
+                mesh_attempt.error().message);
             return nullptr;
         }
         return std::move(mesh_attempt).value();
@@ -925,7 +925,7 @@ namespace Comet {
         auto texture_attempt = m_resource_factory.try_create_texture(data.value());
         if(!texture_attempt) {
             LOG_ERROR("Failed to create runtime texture for asset handle {}: {}",
-                record.handle.value(), vk::to_string(texture_attempt.result()));
+                record.handle.value(), texture_attempt.error().message);
             return nullptr;
         }
         return std::move(texture_attempt).value();

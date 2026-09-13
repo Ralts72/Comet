@@ -174,7 +174,7 @@ namespace Comet {
 
         m_frame_scheduler->begin_frame(image_index);
         auto& command_buffer = m_frame_scheduler->get_current_command_buffer();
-        command_buffer.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+        command_buffer.begin(Flags<CommandBuffer::Usage>(CommandBuffer::Usage::OneTimeSubmit));
 
         return true;
     }
@@ -228,7 +228,7 @@ namespace Comet {
             const Math::Vec2u current_size = m_render_target->get_size();
             LOG_ERROR("Keeping offscreen render target at {}x{} after {}x{} generation "
                       "creation failed: {}",
-                current_size.x, current_size.y, size.x, size.y, vk::to_string(candidate.result()));
+                current_size.x, current_size.y, size.x, size.y, candidate.error().message);
             return;
         }
 

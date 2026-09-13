@@ -1,12 +1,18 @@
 #pragma once
 #include "graphics/vk_common.h"
 #include "common/export.h"
+#include "graphics/creation.h"
 
 #include <cstdint>
+#include <memory>
+#include <span>
 #include <vector>
 
 namespace Comet {
     class Device;
+    class Buffer;
+    class ImageView;
+    class Sampler;
 
     class COMET_API DescriptorSetLayoutBindings {
     public:
@@ -39,56 +45,80 @@ namespace Comet {
 
     class COMET_API DescriptorSetLayout {
     public:
-        DescriptorSetLayout(Device& device, const DescriptorSetLayoutBindings& bindings);
-        ~DescriptorSetLayout();
+        static Result<std::shared_ptr<DescriptorSetLayout>, GraphicsError> create(
+            Device& device, const DescriptorSetLayoutBindings& bindings);
+        ~DescriptorSetLayout() = default;
 
         DescriptorSetLayout(const DescriptorSetLayout&) = delete;
         DescriptorSetLayout& operator=(const DescriptorSetLayout&) = delete;
         DescriptorSetLayout(DescriptorSetLayout&&) noexcept = delete;
         DescriptorSetLayout& operator=(DescriptorSetLayout&&) noexcept = delete;
 
-        [[nodiscard]] vk::DescriptorSetLayout get() const { return m_descriptor_set_layout; }
+        [[nodiscard]] vk::DescriptorSetLayout get() const { return m_descriptor_set_layout.get(); }
         [[nodiscard]] const std::vector<vk::DescriptorSetLayoutBinding>& get_bindings() const {
             return m_bindings;
         }
 
     private:
-        Device& m_device;
-        vk::DescriptorSetLayout m_descriptor_set_layout;
+        DescriptorSetLayout(vk::UniqueDescriptorSetLayout layout,
+            std::vector<vk::DescriptorSetLayoutBinding> bindings);
+        vk::UniqueDescriptorSetLayout m_descriptor_set_layout;
         std::vector<vk::DescriptorSetLayoutBinding> m_bindings;
     };
 
-    class DescriptorSet {
+    class COMET_API DescriptorSet {
     public:
+        struct UniformBufferWrite {
+            uint32_t binding;
+            const Buffer& buffer;
+            uint64_t range;
+            uint64_t offset = 0;
+            uint32_t array_element = 0;
+        };
+
+        struct ImageSamplerWrite {
+            uint32_t binding;
+            const ImageView& image;
+            const Sampler& sampler;
+            ImageLayout layout = ImageLayout::ShaderReadOnlyOptimal;
+            uint32_t array_element = 0;
+        };
+
         friend class DescriptorPool;
         DescriptorSet() = delete;
+
+        // Writes are consumed immediately; resources and the pool remain owned by the caller.
+        void update(Device& device, std::span<const UniformBufferWrite> buffers,
+            std::span<const ImageSamplerWrite> images = {}) const;
 
         [[nodiscard]] vk::DescriptorSet get() const { return m_descriptor_set; }
 
     private:
-        explicit DescriptorSet(const vk::DescriptorSet descriptor_set)
+        explicit DescriptorSet(const vk::DescriptorSet descriptor_set) noexcept
             : m_descriptor_set(descriptor_set) {}
         vk::DescriptorSet m_descriptor_set;
     };
 
     class COMET_API DescriptorPool {
     public:
-        DescriptorPool(Device& device, uint32_t max_sets, const DescriptorPoolSizes& pool_sizes,
+        static Result<std::unique_ptr<DescriptorPool>, GraphicsError> create(Device& device,
+            uint32_t max_sets, const DescriptorPoolSizes& pool_sizes,
             Flags<DescriptorPoolCreateFlag> flags = {});
-        ~DescriptorPool();
+        ~DescriptorPool() = default;
 
         DescriptorPool(const DescriptorPool&) = delete;
         DescriptorPool& operator=(const DescriptorPool&) = delete;
         DescriptorPool(DescriptorPool&&) noexcept = delete;
         DescriptorPool& operator=(DescriptorPool&&) noexcept = delete;
 
-        [[nodiscard]] std::vector<DescriptorSet> allocate_descriptor_set(
+        Result<std::vector<DescriptorSet>, GraphicsError> allocate_descriptor_set(
             const DescriptorSetLayout& set_layout, uint32_t count) const;
-        [[nodiscard]] vk::DescriptorPool get() const { return m_descriptor_pool; }
+        [[nodiscard]] vk::DescriptorPool get() const { return m_descriptor_pool.get(); }
 
     private:
+        DescriptorPool(Device& device, vk::UniqueDescriptorPool pool);
         Device& m_device;
-        vk::DescriptorPool m_descriptor_pool;
+        vk::UniqueDescriptorPool m_descriptor_pool;
     };
 
     class COMET_API PushConstantRange {

@@ -22,6 +22,9 @@ namespace Comet::Tests {
 
         EXPECT_FALSE(static_cast<bool>(failure));
         EXPECT_EQ(failure.result(), vk::Result::eErrorOutOfDeviceMemory);
+        EXPECT_EQ(failure.error().message, vk::to_string(failure.result()));
+        EXPECT_EQ(failure.error().result, failure.result());
+        EXPECT_FALSE(failure.error().is_device_lost());
         EXPECT_TRUE(static_cast<bool>(success));
         EXPECT_EQ(success.value(), 42);
         EXPECT_FALSE(static_cast<bool>(normalized_failure));
@@ -32,6 +35,10 @@ namespace Comet::Tests {
         const auto empty_success = GpuResourceResult<void>::success();
         EXPECT_FALSE(static_cast<bool>(empty_failure));
         EXPECT_TRUE(static_cast<bool>(empty_success));
+        EXPECT_EQ(empty_failure.error().result, empty_failure.result());
+        const auto device_lost = GpuResourceResult<void>::failure(vk::Result::eErrorDeviceLost);
+        EXPECT_TRUE(device_lost.error().is_device_lost());
+        EXPECT_FALSE(GraphicsError{"Invalid descriptor binding"}.is_device_lost());
     }
 
     TEST(GpuResourceResultTest, RejectsFailedValueAccess) {

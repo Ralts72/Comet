@@ -200,6 +200,7 @@ namespace Comet::Tests {
                 vk::Device{}, "pipeline", [status](vk::Pipeline*) noexcept { return status; });
             ASSERT_FALSE(result);
             EXPECT_EQ(result.error().result, status);
+            EXPECT_EQ(result.error().is_device_lost(), status == vk::Result::eErrorDeviceLost);
             EXPECT_NE(result.error().message.find(vk::to_string(status)), std::string::npos);
         }
         const auto empty = Graphics::create_handle<vk::ShaderModule>(vk::Device{}, "shader",
@@ -263,28 +264,32 @@ namespace Comet::Tests {
         EXPECT_EQ(shader.get_push_constants()[0].offset, 16u);
         EXPECT_EQ(shader.get_push_constants()[0].size, 20u);
 
-        auto empty = std::make_shared<DescriptorSetLayout>(device, DescriptorSetLayoutBindings{});
+        auto empty_result = DescriptorSetLayout::create(device, DescriptorSetLayoutBindings{});
+        ASSERT_TRUE(empty_result) << empty_result.error();
+        auto empty = std::move(empty_result).value();
         ShaderLayout layout;
         layout.descriptor_set_layouts = {empty, empty, empty, empty};
         layout.push_constants = {std::make_shared<PushConstantRange>(ShaderStage::Vertex, 16, 20)};
         const auto set_binding = [&](DescriptorType type, uint32_t count, ShaderStage stage) {
             DescriptorSetLayoutBindings bindings;
             bindings.add_binding(4, type, Flags<ShaderStage>(stage), count);
-            layout.descriptor_set_layouts[3] =
-                std::make_shared<DescriptorSetLayout>(device, bindings);
+            auto result = DescriptorSetLayout::create(device, bindings);
+            if(result)
+                layout.descriptor_set_layouts[3] = result.value();
+            return result;
         };
         EXPECT_FALSE(layout.validate(shader));
-        set_binding(DescriptorType::CombinedImageSampler, 4, ShaderStage::Vertex);
+        ASSERT_TRUE(set_binding(DescriptorType::CombinedImageSampler, 4, ShaderStage::Vertex));
         EXPECT_TRUE(layout.validate(shader));
-        set_binding(DescriptorType::CombinedImageSampler, 3, ShaderStage::Vertex);
+        ASSERT_TRUE(set_binding(DescriptorType::CombinedImageSampler, 3, ShaderStage::Vertex));
         EXPECT_FALSE(layout.validate(shader));
-        set_binding(DescriptorType::CombinedImageSampler, 8, ShaderStage::Vertex);
+        ASSERT_TRUE(set_binding(DescriptorType::CombinedImageSampler, 8, ShaderStage::Vertex));
         EXPECT_TRUE(layout.validate(shader));
-        set_binding(DescriptorType::SampledImage, 4, ShaderStage::Vertex);
+        ASSERT_TRUE(set_binding(DescriptorType::SampledImage, 4, ShaderStage::Vertex));
         EXPECT_FALSE(layout.validate(shader));
-        set_binding(DescriptorType::CombinedImageSampler, 4, ShaderStage::Fragment);
+        ASSERT_TRUE(set_binding(DescriptorType::CombinedImageSampler, 4, ShaderStage::Fragment));
         EXPECT_FALSE(layout.validate(shader));
-        set_binding(DescriptorType::CombinedImageSampler, 4, ShaderStage::Vertex);
+        ASSERT_TRUE(set_binding(DescriptorType::CombinedImageSampler, 4, ShaderStage::Vertex));
 
         layout.push_constants = {std::make_shared<PushConstantRange>(ShaderStage::Vertex, 16, 12)};
         EXPECT_FALSE(layout.validate(shader));
@@ -309,7 +314,9 @@ namespace Comet::Tests {
             Flags<ShaderStage>(ShaderStage::Vertex) | ShaderStage::Fragment);
         bindings.add_binding(7, DescriptorType::Sampler, Flags<ShaderStage>(ShaderStage::Fragment));
         ShaderLayout layout;
-        layout.descriptor_set_layouts = {std::make_shared<DescriptorSetLayout>(device, bindings)};
+        auto set_layout = DescriptorSetLayout::create(device, bindings);
+        ASSERT_TRUE(set_layout) << set_layout.error();
+        layout.descriptor_set_layouts = {set_layout.value()};
         layout.push_constants = {std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 64)};
         EXPECT_TRUE(layout.validate(shader));
     }
@@ -352,7 +359,9 @@ namespace Comet::Tests {
         const auto material = std::move(material_result).value();
         EXPECT_FALSE(layout.validate(material));
         DescriptorSetLayoutBindings empty;
-        auto empty_set = std::make_shared<DescriptorSetLayout>(device, empty);
+        auto empty_set_result = DescriptorSetLayout::create(device, empty);
+        ASSERT_TRUE(empty_set_result) << empty_set_result.error();
+        auto empty_set = std::move(empty_set_result).value();
         layout.descriptor_set_layouts = {empty_set, empty_set};
         EXPECT_FALSE(layout.validate(material));
         layout.descriptor_set_layouts = {nullptr};
@@ -498,7 +507,8 @@ namespace Comet::Tests {
         auto fragment_result = Shader::create(device, "fragment", PIPELINE_COLOR_FRAG);
         ASSERT_TRUE(fragment_result) << fragment_result.error();
         auto fragment = std::move(fragment_result).value();
-        const auto make_layout = [&](bool reverse, uint32_t count) {
+        const auto make_layout = [&](bool reverse,
+                                     uint32_t count) -> Result<ShaderLayout, GraphicsError> {
             DescriptorSetLayoutBindings bindings;
             if(reverse) {
                 bindings.add_binding(2, DescriptorType::UniformBuffer,
@@ -512,17 +522,23 @@ namespace Comet::Tests {
                     Flags<ShaderStage>(ShaderStage::Vertex), count);
             }
             ShaderLayout layout;
-            layout.descriptor_set_layouts.push_back(
-                std::make_shared<DescriptorSetLayout>(device, bindings));
+            auto set_layout = DescriptorSetLayout::create(device, bindings);
+            if(!set_layout)
+                return Result<ShaderLayout, GraphicsError>::failure(set_layout.error());
+            layout.descriptor_set_layouts.push_back(std::move(set_layout).value());
             layout.push_constants = {
                 std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 16),
                 std::make_shared<PushConstantRange>(ShaderStage::Fragment, 16, 16)};
             if(reverse)
                 std::ranges::reverse(layout.push_constants);
-            return layout;
+            return Result<ShaderLayout, GraphicsError>::success(std::move(layout));
         };
-        auto a = make_layout(false, 1);
-        auto b = make_layout(true, 1);
+        auto a_result = make_layout(false, 1);
+        ASSERT_TRUE(a_result) << a_result.error();
+        auto a = std::move(a_result).value();
+        auto b_result = make_layout(true, 1);
+        ASSERT_TRUE(b_result) << b_result.error();
+        auto b = std::move(b_result).value();
         PipelineConfig first;
         VertexInputDescription input;
         input.add_binding(1, 8, VertexInputRate::Vertex);
@@ -557,8 +573,10 @@ namespace Comet::Tests {
             EXPECT_EQ(one, candidate.value());
         }
         {
+            auto layout = make_layout(false, 2);
+            ASSERT_TRUE(layout) << layout.error();
             auto candidate =
-                pipelines.create_pipeline("a", make_layout(false, 2), first, vertex, fragment);
+                pipelines.create_pipeline("a", layout.value(), first, vertex, fragment);
             ASSERT_TRUE(candidate) << candidate.error();
             EXPECT_NE(one, candidate.value());
         }

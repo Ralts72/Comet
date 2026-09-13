@@ -6,15 +6,21 @@
 #include "graphics/convert.h"
 #include "graphics/frame_buffer.h"
 #include "graphics/pipeline/pipeline.h"
+#include "graphics/pipeline/descriptor_set.h"
 #include "graphics/synchronization/barrier.h"
 #include "diagnostics/profiler.h"
 
+#include <array>
+
 namespace Comet {
-    void CommandBuffer::begin(const vk::CommandBufferUsageFlags flags) const {
+    void CommandBuffer::begin(const Flags<Usage> flags) const {
         m_command_buffer.reset();
         vk::CommandBufferBeginInfo begin_info = {};
         begin_info.pInheritanceInfo = nullptr;
-        begin_info.flags = flags;
+        if(flags & Usage::OneTimeSubmit)
+            begin_info.flags |= vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
+        if(flags & Usage::SimultaneousUse)
+            begin_info.flags |= vk::CommandBufferUsageFlagBits::eSimultaneousUse;
         m_command_buffer.begin(begin_info);
     }
 
@@ -61,6 +67,25 @@ namespace Comet {
 
     void CommandBuffer::set_viewport(const vk::Viewport& viewport) const {
         m_command_buffer.setViewport(0, 1, &viewport);
+    }
+
+    void CommandBuffer::bind_descriptor_sets(const PipelineLayout& layout,
+        std::span<const DescriptorSet> sets, const uint32_t first_set,
+        std::span<const uint32_t> dynamic_offsets) const {
+        if(sets.empty())
+            return;
+        std::array<vk::DescriptorSet, 8> inline_handles;
+        std::vector<vk::DescriptorSet> extra_handles;
+        std::span<vk::DescriptorSet> handles = inline_handles;
+        if(sets.size() > inline_handles.size()) {
+            extra_handles.resize(sets.size());
+            handles = extra_handles;
+        }
+        for(size_t index = 0; index < sets.size(); ++index)
+            handles[index] = sets[index].get();
+        m_command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, layout.get(),
+            first_set, static_cast<uint32_t>(sets.size()), handles.data(),
+            static_cast<uint32_t>(dynamic_offsets.size()), dynamic_offsets.data());
     }
 
     void CommandBuffer::set_scissor(const vk::Rect2D& scissor) const {

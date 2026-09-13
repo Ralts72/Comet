@@ -104,7 +104,7 @@ namespace Comet::Tests {
             const auto slot = frames.get_current_frame_slot_index();
             frames.begin_frame(slot);
             auto& command = frames.get_current_command_buffer();
-            command.begin(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+            command.begin(Flags<CommandBuffer::Usage>(CommandBuffer::Usage::OneTimeSubmit));
             target->begin_render_target(command, slot);
             command.set_viewport(Graphics::get_viewport(64, 32));
             command.set_scissor(Graphics::get_scissor(64, 32));

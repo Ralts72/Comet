@@ -66,7 +66,7 @@ namespace Comet {
         Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count) {
         auto attempt = try_create_multi_target(device, render_pass, size, frame_count);
         if(!attempt) {
-            LOG_FATAL("Failed to create multi render target: {}", vk::to_string(attempt.result()));
+            LOG_FATAL("Failed to create multi render target: {}", attempt.error().message);
         }
         return std::move(attempt).value();
     }

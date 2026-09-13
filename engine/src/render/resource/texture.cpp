@@ -14,7 +14,7 @@ namespace Comet {
         Device& device, UploadManager& upload_manager, const TextureData& data) {
         auto attempt = try_create(device, upload_manager, data, false);
         if(!attempt) {
-            LOG_FATAL("Failed to create texture: {}", vk::to_string(attempt.result()));
+            LOG_FATAL("Failed to create texture: {}", attempt.error().message);
         }
         return std::move(attempt).value();
     }
