@@ -18,7 +18,8 @@ namespace Comet::Tests {
             std::filesystem::remove_all(root, error);
         }
         void write(const std::string_view contents) {
-            write_text_file_atomic(root / "project.json", contents);
+            const auto saved = write_text_file_atomic(root / "project.json", contents);
+            ASSERT_TRUE(saved) << saved.error();
         }
     };
 
@@ -65,7 +66,9 @@ namespace Comet::Tests {
             SCOPED_TRACE(contents);
             write(contents);
             EXPECT_THROW(static_cast<void>(Project::load(root)), std::runtime_error);
-            EXPECT_EQ(read_text_file(root / "project.json"), contents);
+            const auto stored = read_text_file(root / "project.json");
+            ASSERT_TRUE(stored) << stored.error();
+            EXPECT_EQ(stored.value(), contents);
         }
     }
 
@@ -90,7 +93,7 @@ namespace Comet::Tests {
     }
 
     TEST_F(ProjectTest, DoesNotFallBackToLegacyManifest) {
-        write_text_file_atomic(root / "project.yaml", "version: 1\nname: Legacy\n");
+        ASSERT_TRUE(write_text_file_atomic(root / "project.yaml", "version: 1\nname: Legacy\n"));
         EXPECT_THROW(static_cast<void>(Project::load(root)), std::filesystem::filesystem_error);
         EXPECT_FALSE(std::filesystem::exists(root / "project.json"));
         EXPECT_THROW(static_cast<void>(Project::load(root / "project.yaml")), std::runtime_error);

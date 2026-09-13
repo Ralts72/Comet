@@ -583,10 +583,14 @@ namespace Comet {
         if(scene_path.empty()) {
             throw std::runtime_error("Scene path cannot be empty");
         }
-        write_text_file_atomic(scene_path, serialize(scene));
+        if(auto saved = write_text_file_atomic(scene_path, serialize(scene)); !saved)
+            throw std::runtime_error(saved.error());
     }
 
     std::unique_ptr<Scene> SceneSerializer::load(const std::string& path) const {
-        return deserialize(read_text_file(path), path);
+        auto contents = read_text_file(path);
+        if(!contents)
+            throw std::runtime_error(contents.error());
+        return deserialize(contents.value(), path);
     }
 }

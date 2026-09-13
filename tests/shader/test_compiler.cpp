@@ -20,7 +20,8 @@ namespace Comet::Tests {
         const std::filesystem::path root = directory.path();
         ShaderCompiler::Request request{.source = root / "source.vert"};
         void write(const std::string& path, const std::string& source) {
-            write_text_file_atomic(root / path, source);
+            const auto saved = write_text_file_atomic(root / path, source);
+            ASSERT_TRUE(saved) << saved.error();
         }
     };
 

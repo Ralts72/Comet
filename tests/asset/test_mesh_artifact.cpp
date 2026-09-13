@@ -37,14 +37,16 @@ namespace Comet::Tests {
             [[nodiscard]] std::filesystem::path write_source(
                 const std::string_view contents = "mesh source") const {
                 const std::filesystem::path path = asset_root() / "meshes/model.gltf";
-                write_text_file_atomic(path, contents);
+                const auto saved = write_text_file_atomic(path, contents);
+                EXPECT_TRUE(saved) << saved.error();
                 return path;
             }
 
             [[nodiscard]] std::filesystem::path write_dependency(
                 const std::string_view contents = "buffer data") const {
                 const std::filesystem::path path = asset_root() / "buffers/model.bin";
-                write_text_file_atomic(path, contents);
+                const auto saved = write_text_file_atomic(path, contents);
+                EXPECT_TRUE(saved) << saved.error();
                 return path;
             }
 
@@ -132,7 +134,7 @@ namespace Comet::Tests {
             .data = make_mesh_data()};
         EXPECT_TRUE(artifact.publish_atomic(project.artifact_path()));
 
-        write_text_file_atomic(project.artifact_path(), "corrupted");
+        ASSERT_TRUE(write_text_file_atomic(project.artifact_path(), "corrupted"));
         EXPECT_FALSE(MeshArtifact::load(project.artifact_path(), AssetHandle(42)));
     }
 

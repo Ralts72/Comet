@@ -51,12 +51,16 @@ Scene Serializer 和 ConfigLoader 留在各自模块，不强行纳入 AssetMana
 
 - Mesh/Texture Importer、输入指纹采集、ImportService 构建、MeshArtifact 发布、.mat/.meta 读写及数据库更新统一返回该类型。
 - `MeshImportData` 只是 CPU 网格和源依赖的数据包；外层 `Result<MeshImportData>` 才表示操作成败。
-- 导入器直接返回预期失败；共享 JSON 校验和文件 I/O 的异常在序列化／产物出口转换。
+- 导入器及公共文件 I/O 直接返回预期失败；共享 JSON 校验的异常仍在序列化／产物出口转换。
   AssetManager 输出操作日志，AssetDatabase 聚合扫描问题，Inspector 保存字段错误，不在底层重复打印。
 - `asset/serialization/json_serialization.h` 共用文件读写及失败结果转换，`common/json.h/.cpp` 提供 JSON 校验与输出；
   Material/Metadata 的 encode/decode 只维护各自字段规则。通过普通函数组合复用，不继承序列化器基类，
   不在公开序列化接口中暴露 JSON 类型，也不保存或异步调度编码／解码函数。
+  `common/file_io` 读取返回 `Result<string>`，文本／二进制原子写入返回 `Result<void>`；资产层直接检查或传递结果。
+  原子写入在同目录临时文件写入、flush、close 均成功后才替换目标，私有 RAII guard 在失败时尝试删除临时文件。
+  原子可见性不等于断电持久性，也不保证目录权限变化后一定能清理；不构成跨文件事务。
   Scene 同样复用 JSON 工具，但不依赖资产序列化模块；simdjson 是 engine 的显式私有依赖。
+  SceneSerializer 与 Project::load 暂保留抛异常接口，在自己的边界转换 I/O 失败；本轮不扩展为完整解析协议迁移。
   `.scene` v2、`.mat` v2、`.meta` v3 为编辑器生成的 JSON；`project.json` v1 同样使用 JSON，Profile 继续使用 YAML。
   Project 直接复用 Json::Context，不依赖资产序列化器；目前只读取项目描述，项目设置 UI/自动保存尚未实现。
   当前尚未发布，FORMAT_VERSION 只用于严格检测；版本不匹配直接报错，不兼容旧 YAML，不提供迁移或旧格式备份。

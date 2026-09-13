@@ -373,8 +373,7 @@ namespace Comet {
                 writer.write_u32(index);
             }
             writer.write_u64(hash_bytes(writer.data()));
-            write_binary_file_atomic(artifact_path, writer.data());
-            return Result<void>::success();
+            return write_binary_file_atomic(artifact_path, writer.data());
         } catch(const std::runtime_error& error) {
             return Result<void>::failure(error.what());
         }

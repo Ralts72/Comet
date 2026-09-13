@@ -751,15 +751,15 @@ namespace Comet {
         auto material = create_runtime_material(*record, data);
         if(!material)
             return nullptr;
-        try {
-            write_text_file_atomic(m_paths.assets() / record->path, serialized_data.value());
-            if(auto updated = m_database.update_dependencies(handle, get_asset_dependencies(data));
-                !updated) {
-                LOG_ERROR("{}", updated.error());
-                return nullptr;
-            }
-        } catch(const std::exception& exception) {
-            LOG_ERROR("{}", exception.what());
+        if(auto saved =
+                write_text_file_atomic(m_paths.assets() / record->path, serialized_data.value());
+            !saved) {
+            LOG_ERROR("{}", saved.error());
+            return nullptr;
+        }
+        if(auto updated = m_database.update_dependencies(handle, get_asset_dependencies(data));
+            !updated) {
+            LOG_ERROR("{}", updated.error());
             return nullptr;
         }
 

@@ -39,22 +39,16 @@ namespace Comet::AssetSerialization {
         auto contents = serializer.serialize(data);
         if(!contents)
             return Result<void>::failure(contents.error());
-        try {
-            write_text_file_atomic(path, contents.value());
-            return Result<void>::success();
-        } catch(const std::runtime_error& error) {
-            return Result<void>::failure(error.what());
-        }
+        return write_text_file_atomic(path, contents.value());
     }
 
     template<typename Serializer>
     auto load(const Serializer& serializer, const std::filesystem::path& path)
         -> decltype(serializer.deserialize(std::string_view{}, std::string_view{})) {
         using LoadResult = decltype(serializer.deserialize(std::string_view{}, std::string_view{}));
-        try {
-            return serializer.deserialize(read_text_file(path), path.string());
-        } catch(const std::runtime_error& error) {
-            return LoadResult::failure(error.what());
-        }
+        auto contents = read_text_file(path);
+        if(!contents)
+            return LoadResult::failure(contents.error());
+        return serializer.deserialize(contents.value(), path.string());
     }
 }

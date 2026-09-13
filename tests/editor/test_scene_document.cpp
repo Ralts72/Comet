@@ -49,7 +49,7 @@ namespace CometEditor::Tests {
             [](std::unique_ptr<Comet::Scene>) -> std::unique_ptr<Comet::Scene> {
                 throw std::runtime_error("device lost during asset preparation");
             });
-        EXPECT_THROW(document.open(file.path()), std::runtime_error);
+        EXPECT_THROW(static_cast<void>(document.open(file.path())), std::runtime_error);
         EXPECT_TRUE(document.get_path().empty());
         EXPECT_TRUE(document.get_last_error().empty());
     }
@@ -130,6 +130,7 @@ namespace CometEditor::Tests {
         const auto outside = file.paths().root() / "outside.scene";
         serializer.save(*active, outside.string());
         const auto original = Comet::read_text_file(outside);
+        ASSERT_TRUE(original) << original.error();
         const std::string invalid_paths[]{"../outside.scene", outside.string(), "wrong.mat"};
         for(const auto& path : invalid_paths) {
             EXPECT_FALSE(document.open(path));
@@ -137,7 +138,9 @@ namespace CometEditor::Tests {
             EXPECT_EQ(document.get_path(), saved_path);
             EXPECT_EQ(active->entity_count(), 1U);
         }
-        EXPECT_EQ(Comet::read_text_file(outside), original);
+        const auto stored = Comet::read_text_file(outside);
+        ASSERT_TRUE(stored) << stored.error();
+        EXPECT_EQ(stored.value(), original.value());
         EXPECT_FALSE(std::filesystem::exists(file.paths().assets() / "wrong.mat"));
     }
 

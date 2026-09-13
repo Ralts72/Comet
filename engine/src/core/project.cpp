@@ -17,7 +17,10 @@ namespace Comet {
         const std::string source = manifest.string();
         const Json::Context context("project", source);
         simdjson::dom::parser parser;
-        const auto data = context.parse(parser, read_text_file(manifest));
+        auto contents = read_text_file(manifest);
+        if(!contents)
+            throw std::runtime_error(contents.error());
+        const auto data = context.parse(parser, contents.value());
         context.validate_keys(data, {"version", "name", "startup_scene"});
         const auto version = context.read_scalar<std::uint32_t>(
             context.required_child(data, "version"), "version", "an unsigned integer");

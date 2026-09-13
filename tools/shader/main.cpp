@@ -98,9 +98,13 @@ int main(int argc, char** argv) {
                 }
             }
             dependencies += '\n';
-            Comet::write_text_file_atomic(depfile, dependencies);
+            if(auto saved = Comet::write_text_file_atomic(depfile, dependencies); !saved)
+                return fail(saved.error());
         }
-        Comet::write_binary_file_atomic(output, std::as_bytes(std::span(result.words)));
+        if(auto saved =
+                Comet::write_binary_file_atomic(output, std::as_bytes(std::span(result.words)));
+            !saved)
+            return fail(saved.error());
         return 0;
     } catch(const std::exception& error) {
         return fail(error.what());
