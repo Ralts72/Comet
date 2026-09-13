@@ -4,9 +4,12 @@
 #include "viewport/transform_gizmo.h"
 #include "render/scene/scene_picking.h"
 
+#include <memory>
+
 namespace Comet {
     class AssetRegistry;
     class Renderer;
+    class Sampler;
 }
 
 namespace CometEditor {
@@ -39,6 +42,7 @@ namespace CometEditor {
         Comet::Renderer& m_renderer;
         Comet::AssetRegistry& m_assets;
         ImGuiContext& m_ui;
+        std::shared_ptr<Comet::Sampler> m_sampler;
         TransformGizmo m_gizmo;
         ViewPanel m_panel;
     };

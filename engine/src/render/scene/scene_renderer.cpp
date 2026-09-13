@@ -13,6 +13,7 @@
 #include "graphics/attachment.h"
 #include "render/resource/resource_manager.h"
 
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 
@@ -35,10 +36,8 @@ namespace Comet {
         m_rebuild_swapchain_resources = std::move(rebuild_resources);
     }
 
-    void SceneRenderer::setup_render_pass() {
+    Result<void, GraphicsError> SceneRenderer::setup_render_pass() {
         LOG_INFO("create render pass");
-
-        reset_render_pipeline();
 
         std::vector<Attachment> attachments;
         attachments.emplace_back(
@@ -50,16 +49,19 @@ namespace Comet {
             {}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)}, m_msaa_samples};
         render_sub_passes.emplace_back(render_sub_pass_0);
 
-        m_render_pass = std::make_shared<RenderPass>(
+        auto pass = RenderPass::create(
             m_context.get_device(), attachments, render_sub_passes, m_surface_format);
-
-        LOG_INFO("create render pipeline manager");
-        m_pipeline_manager =
-            std::make_unique<PipelineManager>(m_context.get_device(), *m_render_pass);
-
-        LOG_INFO("create render target");
-        m_render_target = RenderTarget::create_swapchain_target(
-            m_context.get_device(), *m_render_pass, m_context.get_swapchain());
+        if(!pass)
+            return Result<void, GraphicsError>::failure(pass.error());
+        auto target = RenderTarget::create_swapchain_target(
+            m_context.get_device(), *pass.value(), m_context.get_swapchain());
+        if(!target)
+            return Result<void, GraphicsError>::failure(target.error());
+        auto pipelines = std::make_unique<PipelineManager>(m_context.get_device(), *pass.value());
+        reset_render_pipeline();
+        m_render_pass = std::move(pass).value();
+        m_pipeline_manager = std::move(pipelines);
+        m_render_target = std::move(target).value();
         set_render_target_clear_color();
 
         const auto image_count =
@@ -67,6 +69,7 @@ namespace Comet {
         m_frame_scheduler->initialize_swapchain_images(image_count);
 
         m_uses_offscreen_target = false;
+        return Result<void, GraphicsError>::success();
     }
 
     Result<void, GraphicsError> SceneRenderer::setup_offscreen_render_pass(const Math::Vec2u size) {
@@ -76,7 +79,6 @@ namespace Comet {
         }
 
         LOG_INFO("create offscreen render pass at {}x{}", size.x, size.y);
-        reset_render_pipeline();
 
         Attachment color_attachment =
             Attachment::get_color_attachment(m_surface_format, m_msaa_samples);
@@ -96,14 +98,18 @@ namespace Comet {
         render_sub_pass.resolve_usage =
             Flags<ImageUsage>(ImageUsage::ColorAttachment) | ImageUsage::Sampled;
 
-        m_render_pass = std::make_shared<RenderPass>(m_context.get_device(), attachments,
+        auto pass = RenderPass::create(m_context.get_device(), attachments,
             std::vector<RenderSubPass>{render_sub_pass}, m_surface_format);
-        m_pipeline_manager =
-            std::make_unique<PipelineManager>(m_context.get_device(), *m_render_pass);
-        auto target = RenderTarget::try_create_multi_target(m_context.get_device(), *m_render_pass,
-            size, m_frame_scheduler->get_frame_slot_count());
+        if(!pass)
+            return Result<void, GraphicsError>::failure(pass.error());
+        auto target = RenderTarget::try_create_multi_target(
+            m_context.get_device(), *pass.value(), size, m_frame_scheduler->get_frame_slot_count());
         if(!target)
             return Result<void, GraphicsError>::failure(target.error());
+        auto pipelines = std::make_unique<PipelineManager>(m_context.get_device(), *pass.value());
+        reset_render_pipeline();
+        m_render_pass = std::move(pass).value();
+        m_pipeline_manager = std::move(pipelines);
         m_render_target = std::move(target).value();
         set_render_target_clear_color();
 
@@ -279,37 +285,34 @@ namespace Comet {
             m_release_swapchain_resources();
         }
 
-        if(!swapchain.recreate()) {
-            if(!m_uses_offscreen_target) {
-                m_render_target = RenderTarget::create_swapchain_target(
-                    m_context.get_device(), *m_render_pass, swapchain);
-                set_render_target_clear_color();
-            }
-            if(m_rebuild_swapchain_resources) {
-                m_rebuild_swapchain_resources({});
-            }
-            return false;
-        }
-
+        const bool recreated = swapchain.recreate();
         const SwapchainCompatibility compatibility = compare_swapchain_configs(
             previous_config, swapchain.get_active_generation()->get_config());
         if(!m_uses_offscreen_target && compatibility.format_changed) {
-            LOG_FATAL("Runtime swapchain format changed; RenderPass/Pipeline generation "
-                      "rebuild is not implemented yet");
+            throw std::runtime_error(
+                "Runtime swapchain format changed; RenderPass/Pipeline generation "
+                "rebuild is not implemented yet");
         }
         if(!m_uses_offscreen_target) {
-            m_render_target = RenderTarget::create_swapchain_target(
+            auto target = RenderTarget::create_swapchain_target(
                 m_context.get_device(), *m_render_pass, swapchain);
+            if(!target)
+                throw std::runtime_error(
+                    "Cannot rebuild swapchain render target: " + target.error().message);
+            m_render_target = std::move(target).value();
             set_render_target_clear_color();
         }
-
-        const auto image_count = static_cast<uint32_t>(swapchain.get_images().size());
-        m_frame_scheduler->initialize_swapchain_images(image_count);
-
-        if(m_rebuild_swapchain_resources) {
-            m_rebuild_swapchain_resources(compatibility);
+        if(recreated) {
+            const auto image_count = static_cast<uint32_t>(swapchain.get_images().size());
+            m_frame_scheduler->initialize_swapchain_images(image_count);
         }
-        return true;
+        if(m_rebuild_swapchain_resources) {
+            auto result = m_rebuild_swapchain_resources(compatibility);
+            if(!result)
+                throw std::runtime_error(
+                    "Cannot rebuild swapchain overlay: " + result.error().message);
+        }
+        return recreated;
     }
 
     void SceneRenderer::reset_render_pipeline() {

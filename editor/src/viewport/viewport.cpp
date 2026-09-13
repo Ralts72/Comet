@@ -13,6 +13,8 @@
 #include "ui/imgui_context.h"
 
 #include <algorithm>
+#include <stdexcept>
+#include <utility>
 
 namespace CometEditor {
     namespace {
@@ -34,16 +36,19 @@ namespace CometEditor {
                                             viewport_dimension_limit(renderer), shortcuts) {
         auto& scene_renderer = m_renderer.get_scene_renderer();
         auto sampler = m_renderer.get_resource_manager().get_sampler_manager().get_nearest_clamp();
+        if(!sampler)
+            throw std::runtime_error(
+                "Cannot initialize viewport sampler: " + sampler.error().message);
+        m_sampler = std::move(sampler).value();
         const auto count = scene_renderer.get_frame_scheduler().get_frame_slot_count();
         for(std::uint32_t slot = 0; slot < count; ++slot)
-            m_ui.set_viewport_image(slot, scene_renderer.get_offscreen_color_view(slot), sampler);
+            m_ui.set_viewport_image(slot, scene_renderer.get_offscreen_color_view(slot), m_sampler);
     }
 
     void Viewport::update_texture() {
         auto& scene_renderer = m_renderer.get_scene_renderer();
         const auto slot = scene_renderer.get_frame_scheduler().get_current_frame_slot_index();
-        m_ui.set_viewport_image(slot, scene_renderer.get_offscreen_color_view(slot),
-            m_renderer.get_resource_manager().get_sampler_manager().get_nearest_clamp());
+        m_ui.set_viewport_image(slot, scene_renderer.get_offscreen_color_view(slot), m_sampler);
         const auto size = scene_renderer.get_render_target().get_size();
         m_panel.set_texture_id(m_ui.get_viewport_texture_id(slot), size.x, size.y);
     }

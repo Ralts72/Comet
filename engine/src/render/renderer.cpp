@@ -25,7 +25,9 @@ namespace Comet {
         m_scene_renderer =
             std::make_unique<SceneRenderer>(*m_render_context, config.vulkan, config.render);
 
-        m_scene_renderer->setup_render_pass();
+        if(auto result = m_scene_renderer->setup_render_pass(); !result)
+            throw std::runtime_error(
+                "Cannot initialize scene render pass: " + result.error().message);
 
         if(auto result = m_scene_renderer->setup_pipeline(*m_resource_manager); !result)
             throw std::runtime_error(

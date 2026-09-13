@@ -59,8 +59,11 @@ namespace {
                 throw std::runtime_error(
                     "Cannot initialize editor rendering: " + result.error().message);
 
-            m_imgui_context = std::make_unique<CometEditor::ImGuiContext>(engine.get_window(),
-                render_context, m_project.paths().editor_state() / "imgui.ini");
+            auto ui = CometEditor::ImGuiContext::create(engine.get_window(), render_context,
+                m_project.paths().editor_state() / "imgui.ini");
+            if(!ui)
+                throw std::runtime_error("Cannot initialize editor UI: " + ui.error().message);
+            m_imgui_context = std::move(ui).value();
 
             m_console_panel = std::make_shared<CometEditor::ConsolePanel>();
             setup_log_redirect();
@@ -119,7 +122,7 @@ namespace {
             scene_renderer.set_swapchain_resource_callbacks(
                 [this]() { m_imgui_context->release_swapchain_resources(); },
                 [this](const Comet::SwapchainCompatibility& compatibility) {
-                    m_imgui_context->rebuild_swapchain_resources(compatibility);
+                    return m_imgui_context->rebuild_swapchain_resources(compatibility);
                 });
 
             renderer.set_viewport_pick_callback(

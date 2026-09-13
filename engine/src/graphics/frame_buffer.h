@@ -13,10 +13,6 @@ namespace Comet {
 
     class COMET_API FrameBuffer {
     public:
-        [[nodiscard]] static std::shared_ptr<FrameBuffer> create(Device& device,
-            RenderPass& render_pass, const std::vector<std::shared_ptr<ImageView>>& image_views,
-            uint32_t width, uint32_t height);
-
         [[nodiscard]] static GpuResourceResult<std::shared_ptr<FrameBuffer>> try_create(
             Device& device, RenderPass& render_pass,
             const std::vector<std::shared_ptr<ImageView>>& image_views, uint32_t width,

@@ -38,11 +38,15 @@ namespace Comet::Tests {
                 auto& context = renderer.get_render_context();
                 auto& swapchain = context.get_swapchain();
                 const auto format = swapchain.get_images().front()->get_info().format;
-                presentation_pass = std::make_unique<RenderPass>(context.get_device(),
+                auto pass = RenderPass::create(context.get_device(),
                     std::vector{Attachment::get_color_attachment(format, SampleCount::Count1)},
                     std::vector{RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}}, format);
-                presentation_target = RenderTarget::create_swapchain_target(
+                ASSERT_TRUE(pass) << pass.error();
+                presentation_pass = std::move(pass).value();
+                auto target = RenderTarget::create_swapchain_target(
                     context.get_device(), *presentation_pass, swapchain);
+                ASSERT_TRUE(target) << target.error();
+                presentation_target = std::move(target).value();
                 renderer.set_overlay_callbacks(
                     {}, [this](CommandBuffer& command_buffer) { present(command_buffer); });
             }

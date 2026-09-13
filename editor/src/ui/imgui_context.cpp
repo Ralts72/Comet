@@ -104,7 +104,21 @@ namespace CometEditor {
     ImGuiContext::ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context,
         std::filesystem::path ini_path)
         : m_window(window), m_render_context(render_context),
-          m_ini_path(std::move(ini_path).string()) {
+          m_ini_path(std::move(ini_path).string()) {}
+
+    Comet::Result<std::unique_ptr<ImGuiContext>, Comet::GraphicsError> ImGuiContext::create(
+        const Comet::Window& window, Comet::RenderContext& render_context,
+        std::filesystem::path ini_path) {
+        using CreationResult = Comet::Result<std::unique_ptr<ImGuiContext>, Comet::GraphicsError>;
+        std::unique_ptr<ImGuiContext> context(
+            new ImGuiContext(window, render_context, std::move(ini_path)));
+        auto initialized = context->initialize();
+        if(!initialized)
+            return CreationResult::failure(initialized.error());
+        return CreationResult::success(std::move(context));
+    }
+
+    Comet::Result<void, Comet::GraphicsError> ImGuiContext::initialize() {
         LOG_INFO("Initializing ImGui layer");
 
         IMGUI_CHECKVERSION();
@@ -131,25 +145,32 @@ namespace CometEditor {
 
         ImGui::StyleColorsDark();
 
-        if(!ImGui_ImplGlfw_InitForVulkan(window.get(), true))
-            throw std::runtime_error("Cannot initialize ImGui GLFW backend");
+        if(!ImGui_ImplGlfw_InitForVulkan(m_window.get(), true))
+            return Comet::Result<void, Comet::GraphicsError>::failure(
+                {"Cannot initialize ImGui GLFW backend"});
 
         auto& swapchain = m_render_context.get_swapchain();
 
-        create_render_pass();
+        if(auto result = create_render_pass(); !result)
+            return result;
 
         auto& device = m_render_context.get_device();
-        m_render_target =
+        auto target =
             Comet::RenderTarget::create_swapchain_target(device, *m_render_pass, swapchain);
+        if(!target)
+            return Comet::Result<void, Comet::GraphicsError>::failure(target.error());
+        m_render_target = std::move(target).value();
         m_render_target->set_clear_value(
             Comet::ClearValue(Comet::Math::Vec4(0.0f, 0.0f, 0.0f, 0.0f)), 0);
-        init_vulkan();
+        if(auto result = init_vulkan(); !result)
+            return result;
 
         m_initialized = true;
         LOG_INFO("ImGui layer initialized successfully");
+        return Comet::Result<void, Comet::GraphicsError>::success();
     }
 
-    void ImGuiContext::create_render_pass() {
+    Comet::Result<void, Comet::GraphicsError> ImGuiContext::create_render_pass() {
         LOG_INFO("Creating independent RenderPass for ImGui");
 
         std::vector<Comet::Attachment> attachments;
@@ -171,16 +192,21 @@ namespace CometEditor {
         render_sub_passes.emplace_back(render_sub_pass);
 
         auto& device = m_render_context.get_device();
-        m_render_pass = std::make_unique<Comet::RenderPass>(device, attachments, render_sub_passes);
+        auto pass = Comet::RenderPass::create(device, attachments, render_sub_passes);
+        if(!pass)
+            return Comet::Result<void, Comet::GraphicsError>::failure(pass.error());
+        m_render_pass = std::move(pass).value();
+        return Comet::Result<void, Comet::GraphicsError>::success();
     }
 
-    void ImGuiContext::init_vulkan() {
+    Comet::Result<void, Comet::GraphicsError> ImGuiContext::init_vulkan() {
         const auto& context = m_render_context.get_context();
         auto& device = m_render_context.get_device();
         const auto& swapchain = m_render_context.get_swapchain();
         m_backend_image_count = static_cast<uint32_t>(swapchain.get_images().size());
         if(m_backend_image_count < 2) {
-            LOG_FATAL("ImGui Vulkan backend requires at least two swapchain images");
+            return Comet::Result<void, Comet::GraphicsError>::failure(
+                {"ImGui Vulkan backend requires at least two swapchain images"});
         }
 
         Comet::DescriptorPoolSizes pool_sizes;
@@ -190,8 +216,7 @@ namespace CometEditor {
             Comet::Flags<Comet::DescriptorPoolCreateFlag>(
                 Comet::DescriptorPoolCreateFlag::FreeDescriptorSet));
         if(!pool)
-            throw std::runtime_error(
-                "Cannot create ImGui descriptor pool: " + pool.error().message);
+            return Comet::Result<void, Comet::GraphicsError>::failure(pool.error());
         m_descriptor_pool = std::move(pool).value();
 
         ImGui_ImplVulkan_InitInfo init_info{};
@@ -208,7 +233,9 @@ namespace CometEditor {
         init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 
         if(!ImGui_ImplVulkan_Init(&init_info))
-            throw std::runtime_error("Cannot initialize ImGui Vulkan backend");
+            return Comet::Result<void, Comet::GraphicsError>::failure(
+                {"Cannot initialize ImGui Vulkan backend"});
+        return Comet::Result<void, Comet::GraphicsError>::success();
     }
 
     ImGuiContext::~ImGuiContext() {
@@ -309,14 +336,15 @@ namespace CometEditor {
         m_render_target.reset();
     }
 
-    void ImGuiContext::rebuild_swapchain_resources(
+    Comet::Result<void, Comet::GraphicsError> ImGuiContext::rebuild_swapchain_resources(
         const Comet::SwapchainCompatibility& compatibility) {
         if(!m_initialized) {
-            LOG_ERROR("ImGuiContext not initialized, cannot rebuild swapchain resources");
-            return;
+            return Comet::Result<void, Comet::GraphicsError>::failure(
+                {"ImGuiContext is not initialized"});
         }
         if(!m_is_recreating) {
-            LOG_FATAL("ImGui swapchain resources must be released before rebuilding");
+            return Comet::Result<void, Comet::GraphicsError>::failure(
+                {"ImGui swapchain resources must be released before rebuilding"});
         }
 
         LOG_INFO("Rebuilding ImGui swapchain resources");
@@ -327,21 +355,32 @@ namespace CometEditor {
         if(rebuild_backend) {
             unregister_viewport_textures();
             ImGui_ImplVulkan_Shutdown();
+            // Vulkan shutdown also clears the main viewport's platform data.
+            ImGui_ImplGlfw_Shutdown();
             m_descriptor_pool.reset();
         }
         if(compatibility.format_changed) {
             m_render_pass.reset();
-            create_render_pass();
+            if(auto result = create_render_pass(); !result)
+                return result;
         }
-        m_render_target =
+        auto target =
             Comet::RenderTarget::create_swapchain_target(device, *m_render_pass, swapchain);
+        if(!target)
+            return Comet::Result<void, Comet::GraphicsError>::failure(target.error());
+        m_render_target = std::move(target).value();
         m_render_target->set_clear_value(Comet::ClearValue(Comet::Math::Vec4(0.0f)), 0);
         if(rebuild_backend) {
-            init_vulkan();
+            if(!ImGui_ImplGlfw_InitForVulkan(m_window.get(), true))
+                return Comet::Result<void, Comet::GraphicsError>::failure(
+                    {"Cannot reinitialize ImGui GLFW backend"});
+            if(auto result = init_vulkan(); !result)
+                return result;
             register_viewport_textures();
         }
         m_is_recreating = false;
         LOG_INFO("ImGui swapchain resources rebuilt successfully");
+        return Comet::Result<void, Comet::GraphicsError>::success();
     }
 
     void ImGuiContext::set_viewport_image(const uint32_t frame_slot_index,

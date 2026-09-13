@@ -73,7 +73,6 @@ namespace Comet::Tests {
         using ImageWrapper = decltype(&Image::wrap);
         using ImageViewFactory = decltype(&ImageView::create);
         using RecoverableImageViewFactory = decltype(&ImageView::try_create);
-        using FrameBufferFactory = decltype(&FrameBuffer::create);
         using RecoverableFrameBufferFactory = decltype(&FrameBuffer::try_create);
         using RecoverableMultiTargetFactory = decltype(&RenderTarget::try_create_multi_target);
 
@@ -100,9 +99,6 @@ namespace Comet::Tests {
             std::shared_ptr<Image>, Flags<ImageAspect>>);
         static_assert(std::is_invocable_r_v<GpuResourceResult<std::shared_ptr<ImageView>>,
             RecoverableImageViewFactory, Device&, std::shared_ptr<Image>, Flags<ImageAspect>>);
-        static_assert(
-            std::is_invocable_r_v<std::shared_ptr<FrameBuffer>, FrameBufferFactory, Device&,
-                RenderPass&, const std::vector<std::shared_ptr<ImageView>>&, uint32_t, uint32_t>);
         static_assert(std::is_invocable_r_v<GpuResourceResult<std::shared_ptr<FrameBuffer>>,
             RecoverableFrameBufferFactory, Device&, RenderPass&,
             const std::vector<std::shared_ptr<ImageView>>&, uint32_t, uint32_t>);

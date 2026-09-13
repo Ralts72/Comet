@@ -1,6 +1,11 @@
 #pragma once
 #include "common/export.h"
-#include "graphics/vk_common.h"
+#include "graphics/creation.h"
+#include "graphics/enums.h"
+
+#include <memory>
+#include <string>
+#include <unordered_map>
 
 namespace Comet {
     class Device;
@@ -12,42 +17,42 @@ namespace Comet {
         SamplerAddressMode address_mode_v = SamplerAddressMode::Repeat;
         SamplerAddressMode address_mode_w = SamplerAddressMode::Repeat;
         float max_anisotropy = 1.0f;
+
+        bool operator==(const SamplerDesc&) const = default;
     };
 
     class COMET_API Sampler {
     public:
-        Sampler(Device& device, const SamplerDesc& desc);
-        ~Sampler();
+        static Result<std::shared_ptr<Sampler>, GraphicsError> create(
+            Device& device, const SamplerDesc& desc = {});
+        ~Sampler() = default;
 
         Sampler(const Sampler&) = delete;
         Sampler& operator=(const Sampler&) = delete;
         Sampler(Sampler&&) noexcept = delete;
         Sampler& operator=(Sampler&&) noexcept = delete;
 
-        static std::shared_ptr<Sampler> create_linear_repeat(
-            Device& device, float max_anisotropy = 1.0f);
-        static std::shared_ptr<Sampler> create_nearest_clamp(Device& device);
-        static std::shared_ptr<Sampler> create_shadow_sampler(Device& device);
-
-        [[nodiscard]] vk::Sampler get() const { return m_sampler; }
+        [[nodiscard]] vk::Sampler get() const { return m_sampler.get(); }
+        [[nodiscard]] const SamplerDesc& get_description() const { return m_description; }
 
     private:
-        Device& m_device;
-        vk::Sampler m_sampler;
+        Sampler(const SamplerDesc& description, vk::UniqueSampler sampler);
+        SamplerDesc m_description;
+        vk::UniqueSampler m_sampler;
     };
 
     class COMET_API SamplerManager {
     public:
         explicit SamplerManager(Device& device) : m_device(device) {}
 
-        std::shared_ptr<Sampler> create_sampler(
+        Result<std::shared_ptr<Sampler>, GraphicsError> create_sampler(
             const std::string& name, const SamplerDesc& desc = {});
         [[nodiscard]] std::shared_ptr<Sampler> get_sampler(const std::string& name) const;
 
-        std::shared_ptr<Sampler> get_linear_repeat();
-        std::shared_ptr<Sampler> get_linear_repeat(float max_anisotropy);
-        std::shared_ptr<Sampler> get_nearest_clamp();
-        std::shared_ptr<Sampler> get_shadow_sampler();
+        Result<std::shared_ptr<Sampler>, GraphicsError> get_linear_repeat();
+        Result<std::shared_ptr<Sampler>, GraphicsError> get_linear_repeat(float max_anisotropy);
+        Result<std::shared_ptr<Sampler>, GraphicsError> get_nearest_clamp();
+        Result<std::shared_ptr<Sampler>, GraphicsError> get_shadow_sampler();
 
     private:
         Device& m_device;

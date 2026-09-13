@@ -4,9 +4,11 @@
 #include <algorithm>
 
 namespace Comet {
-    RenderPass::RenderPass(Device& device, const std::vector<Attachment>& attachments,
-        const std::vector<RenderSubPass>& sub_passes, const Format surface_format)
-        : m_device(device), m_attachments(attachments) {
+    Result<std::unique_ptr<RenderPass>, GraphicsError> RenderPass::create(Device& device,
+        const std::vector<Attachment>& attachments, const std::vector<RenderSubPass>& sub_passes,
+        const Format surface_format) {
+        using CreationResult = Result<std::unique_ptr<RenderPass>, GraphicsError>;
+        auto actual_attachments = attachments;
         std::vector<RenderSubPass> actual_sub_passes = sub_passes;
         // 未指定附件和子通道时，构造最小呈现通道。
         if(sub_passes.empty() && attachments.empty()) {
@@ -23,24 +25,36 @@ namespace Comet {
             SubpassColorAttachment subpass_attachment(0);
             const RenderSubPass render_sub_pass = {
                 .color_attachments = {subpass_attachment}, .sample_count = SampleCount::Count1};
-            m_attachments.push_back(attachment);
+            actual_attachments.push_back(attachment);
             actual_sub_passes.push_back(render_sub_pass);
         }
-        m_subpass_count = static_cast<uint32_t>(actual_sub_passes.size());
+
+        if(actual_sub_passes.empty())
+            return CreationResult::failure({"RenderPass requires at least one subpass"});
         for(const auto& sub_pass : actual_sub_passes) {
+            if(sub_pass.depth_stencil_attachments.size() > 1)
+                return CreationResult::failure(
+                    {"RenderPass supports one depth attachment per subpass"});
+            if(sub_pass.sample_count > SampleCount::Count1
+                && sub_pass.color_attachments.size() != 1)
+                return CreationResult::failure(
+                    {"Multisample RenderPass requires one color attachment per subpass"});
             for(const auto& attachment : sub_pass.input_attachments) {
-                if(attachment.index >= m_attachments.size()) {
-                    LOG_FATAL("input attachment index exceeds attachment pool ");
+                if(attachment.index >= actual_attachments.size()) {
+                    return CreationResult::failure(
+                        {"Input attachment index exceeds attachment pool"});
                 }
             }
             for(const auto& attachment : sub_pass.color_attachments) {
-                if(attachment.index >= m_attachments.size()) {
-                    LOG_FATAL("color attachment index exceeds attachment pool ");
+                if(attachment.index >= actual_attachments.size()) {
+                    return CreationResult::failure(
+                        {"Color attachment index exceeds attachment pool"});
                 }
             }
             for(const auto& attachment : sub_pass.depth_stencil_attachments) {
-                if(attachment.index >= m_attachments.size()) {
-                    LOG_FATAL("depth stencil attachment index exceeds attachment pool ");
+                if(attachment.index >= actual_attachments.size()) {
+                    return CreationResult::failure(
+                        {"Depth attachment index exceeds attachment pool"});
                 }
             }
         }
@@ -72,9 +86,10 @@ namespace Comet {
                 vk::AttachmentReference reference = {
                     attachment.index, Graphics::image_layout_to_vk(attachment.layout)};
                 all_color_attachments_reference[i].emplace_back(reference);
-                m_attachments[attachment.index].description.samples = sample_count;
+                actual_attachments[attachment.index].description.samples = sample_count;
                 if(sample_count > SampleCount::Count1) {
-                    m_attachments[attachment.index].description.final_layout = attachment.layout;
+                    actual_attachments[attachment.index].description.final_layout =
+                        attachment.layout;
                 }
             }
 
@@ -82,8 +97,8 @@ namespace Comet {
                 vk::AttachmentReference reference = {
                     attachment.index, Graphics::image_layout_to_vk(attachment.layout)};
                 all_depth_stencil_attachments_reference[i].emplace_back(reference);
-                m_attachments[attachment.index].description.samples = sample_count;
-                m_attachments[attachment.index].description.final_layout = attachment.layout;
+                actual_attachments[attachment.index].description.samples = sample_count;
+                actual_attachments[attachment.index].description.final_layout = attachment.layout;
             }
 
             if(sample_count > SampleCount::Count1) {
@@ -100,9 +115,9 @@ namespace Comet {
                 Attachment msaa_attachment = {
                     .description = msaa_description, .usage = sub_pass.resolve_usage};
 
-                m_attachments.push_back(msaa_attachment);
+                actual_attachments.push_back(msaa_attachment);
                 vk::AttachmentReference reference = {
-                    static_cast<uint32_t>(m_attachments.size() - 1),
+                    static_cast<uint32_t>(actual_attachments.size() - 1),
                     vk::ImageLayout::eColorAttachmentOptimal};
                 resolve_attachments_reference[i] = reference;
             }
@@ -140,7 +155,7 @@ namespace Comet {
         }
 
         const bool has_sampled_output =
-            std::ranges::any_of(m_attachments, [](const Attachment& attachment) {
+            std::ranges::any_of(actual_attachments, [](const Attachment& attachment) {
                 return attachment.description.final_layout == ImageLayout::ShaderReadOnlyOptimal;
             });
         if(has_sampled_output) {
@@ -155,8 +170,8 @@ namespace Comet {
             dependencies.push_back(dependency);
         }
         std::vector<vk::AttachmentDescription> attachment_descriptions;
-        attachment_descriptions.reserve(m_attachments.size());
-        for(const auto& [description, usage] : m_attachments) {
+        attachment_descriptions.reserve(actual_attachments.size());
+        for(const auto& [description, usage] : actual_attachments) {
             vk::AttachmentDescription vk_description{};
             vk_description.format = Graphics::format_to_vk(description.format);
             vk_description.samples = Graphics::sample_count_to_vk(description.samples);
@@ -178,13 +193,22 @@ namespace Comet {
         render_pass_create_info.pSubpasses = sub_pass_descriptions.data();
         render_pass_create_info.dependencyCount = static_cast<uint32_t>(dependencies.size());
         render_pass_create_info.pDependencies = dependencies.data();
-        m_render_pass = device.get().createRenderPass(render_pass_create_info);
+        auto handle = Graphics::create_handle<vk::RenderPass>(
+            device.get(), "Cannot create render pass", [&](vk::RenderPass* output) noexcept {
+                return device.get().createRenderPass(&render_pass_create_info, nullptr, output);
+            });
+        if(!handle)
+            return CreationResult::failure(handle.error());
         LOG_INFO("Vulkan render pass created successfully");
-        LOG_TRACE("RenderPass: attachment count: {}, subpass count: {}", m_attachments.size(),
+        LOG_TRACE("RenderPass: attachment count: {}, subpass count: {}", actual_attachments.size(),
             actual_sub_passes.size());
+        return CreationResult::success(
+            std::unique_ptr<RenderPass>(new RenderPass(std::move(handle).value(),
+                std::move(actual_attachments), static_cast<uint32_t>(actual_sub_passes.size()))));
     }
 
-    RenderPass::~RenderPass() {
-        m_device.get().destroyRenderPass(m_render_pass);
-    }
+    RenderPass::RenderPass(vk::UniqueRenderPass render_pass, std::vector<Attachment> attachments,
+        const uint32_t subpass_count)
+        : m_render_pass(std::move(render_pass)), m_attachments(std::move(attachments)),
+          m_subpass_count(subpass_count) {}
 }

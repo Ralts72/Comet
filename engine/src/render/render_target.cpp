@@ -10,8 +10,9 @@
 
 namespace Comet {
     namespace {
-        GpuResourceResult<RenderResource> try_create_owned_render_resource(
-            Device& device, RenderPass& render_pass, const Math::Vec2u extent) {
+        GpuResourceResult<RenderResource> try_create_render_resource(Device& device,
+            RenderPass& render_pass, const Math::Vec2u extent,
+            const std::shared_ptr<Image>& presentation_image = {}) {
             std::vector<std::shared_ptr<ImageView>> all_views;
             std::vector<std::shared_ptr<ImageView>> color_views;
 
@@ -20,14 +21,17 @@ namespace Comet {
                     .extent = {extent.x, extent.y, 1},
                     .usage = usage};
                 const bool is_depth = Graphics::is_depth_stencil_format(description.format);
-                auto image_attempt =
-                    Image::try_create(device, image_info, true, description.samples,
+                auto image = presentation_image;
+                if(!image || description.final_layout != ImageLayout::PresentSrcKHR
+                    || description.samples != SampleCount::Count1 || is_depth) {
+                    auto attempt = Image::try_create(device, image_info, !presentation_image,
+                        description.samples,
                         is_depth ? "render target depth image" : "render target color image");
-                if(!image_attempt) {
-                    return GpuResourceResult<RenderResource>::failure(image_attempt.result());
+                    if(!attempt)
+                        return GpuResourceResult<RenderResource>::failure(attempt.result());
+                    image = std::move(attempt).value();
                 }
-
-                auto view_attempt = ImageView::try_create(device, std::move(image_attempt).value(),
+                auto view_attempt = ImageView::try_create(device, std::move(image),
                     Flags<ImageAspect>(is_depth ? ImageAspect::Depth : ImageAspect::Color));
                 if(!view_attempt) {
                     return GpuResourceResult<RenderResource>::failure(view_attempt.result());
@@ -52,14 +56,23 @@ namespace Comet {
         }
     }
 
-    std::unique_ptr<RenderTarget> RenderTarget::create_swapchain_target(
+    Result<std::unique_ptr<RenderTarget>, GraphicsError> RenderTarget::create_swapchain_target(
         Device& device, RenderPass& render_pass, Swapchain& swapchain) {
-        auto swapchain_generation = swapchain.get_active_generation();
-        if(!swapchain_generation) {
-            LOG_FATAL("SwapchainTarget requires a valid swapchain generation");
+        using CreationResult = Result<std::unique_ptr<RenderTarget>, GraphicsError>;
+        auto generation = swapchain.get_active_generation();
+        if(!generation || generation->get_images().empty()
+            || generation->get_config().extent.width == 0
+            || generation->get_config().extent.height == 0
+            || render_pass.get_attachments().empty()) {
+            return CreationResult::failure(
+                {"SwapchainTarget requires images, a non-zero extent and attachments"});
         }
-        return std::unique_ptr<RenderTarget>(
-            new SwapchainTarget(device, render_pass, std::move(swapchain_generation)));
+        std::unique_ptr<SwapchainTarget> target(
+            new SwapchainTarget(device, render_pass, std::move(generation)));
+        const auto initialized = target->try_initialize();
+        if(!initialized)
+            return CreationResult::failure(initialized.error());
+        return CreationResult::success(std::move(target));
     }
 
     GpuResourceResult<std::unique_ptr<RenderTarget>> RenderTarget::try_create_multi_target(
@@ -139,53 +152,17 @@ namespace Comet {
         m_clear_values.resize(m_render_pass.get_attachments().size());
         set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
         set_clear_value(ClearValue(1.0f, 0));
+    }
 
-        if(m_extent.x == 0 || m_extent.y == 0) {
-            return;
+    GpuResourceResult<void> SwapchainTarget::try_initialize() {
+        m_render_resources.reserve(m_frame_count);
+        for(const auto& image : m_swapchain_generation->get_images()) {
+            auto resource = try_create_render_resource(m_device, m_render_pass, m_extent, image);
+            if(!resource)
+                return GpuResourceResult<void>::failure(resource.result());
+            m_render_resources.push_back(std::move(resource).value());
         }
-        m_render_resources.clear();
-        m_render_resources.resize(m_frame_count);
-
-        const auto attachments = m_render_pass.get_attachments();
-        if(attachments.empty()) {
-            return;
-        }
-
-        for(uint32_t i = 0; i < m_frame_count; ++i) {
-            std::vector<std::shared_ptr<ImageView>> all_views;
-            std::vector<std::shared_ptr<ImageView>> color_views;
-
-            for(const auto& [description, usage] : attachments) {
-                ImageInfo image_info = {};
-                image_info.format = description.format;
-                image_info.extent = {m_extent.x, m_extent.y, 1};
-                image_info.usage = usage;
-
-                if(Graphics::is_depth_stencil_format(description.format)) {
-                    auto depth_image = Image::create(
-                        m_device, image_info, description.samples, "render target depth image");
-                    all_views.push_back(ImageView::create(
-                        m_device, depth_image, Flags<ImageAspect>(ImageAspect::Depth)));
-                } else {
-                    std::shared_ptr<Image> color_image;
-                    if(description.final_layout == ImageLayout::PresentSrcKHR
-                        && description.samples == SampleCount::Count1) {
-                        color_image = m_swapchain_generation->get_images()[i];
-                    } else {
-                        color_image = Image::create(
-                            m_device, image_info, description.samples, "render target color image");
-                    }
-                    auto color_view = ImageView::create(
-                        m_device, color_image, Flags<ImageAspect>(ImageAspect::Color));
-                    color_views.emplace_back(color_view);
-                    all_views.push_back(color_view);
-                }
-            }
-
-            m_render_resources[i].frame_buffer =
-                FrameBuffer::create(m_device, m_render_pass, all_views, m_extent.x, m_extent.y);
-            m_render_resources[i].color_views = std::move(color_views);
-        }
+        return GpuResourceResult<void>::success();
     }
 
     SwapchainTarget::~SwapchainTarget() {
@@ -213,8 +190,7 @@ namespace Comet {
         std::vector<RenderResource> resources;
         resources.reserve(m_frame_count);
         for(uint32_t index = 0; index < m_frame_count; ++index) {
-            auto resource_attempt =
-                try_create_owned_render_resource(m_device, m_render_pass, m_extent);
+            auto resource_attempt = try_create_render_resource(m_device, m_render_pass, m_extent);
             if(!resource_attempt) {
                 return GpuResourceResult<void>::failure(resource_attempt.result());
             }

@@ -21,7 +21,7 @@ namespace Comet {
 
     class COMET_API RenderTarget {
     public:
-        static std::unique_ptr<RenderTarget> create_swapchain_target(
+        static Result<std::unique_ptr<RenderTarget>, GraphicsError> create_swapchain_target(
             Device& device, RenderPass& render_pass, Swapchain& swapchain);
 
         [[nodiscard]] static GpuResourceResult<std::unique_ptr<RenderTarget>>
@@ -84,6 +84,8 @@ namespace Comet {
 
         SwapchainTarget(Device& device, RenderPass& render_pass,
             std::shared_ptr<Swapchain::Generation> swapchain_generation);
+
+        [[nodiscard]] GpuResourceResult<void> try_initialize();
 
         std::shared_ptr<Swapchain::Generation> m_swapchain_generation;
         std::vector<RenderResource> m_render_resources;

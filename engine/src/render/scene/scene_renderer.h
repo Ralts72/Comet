@@ -27,7 +27,7 @@ namespace Comet {
         SceneRenderer(RenderContext& context, const Config::Vulkan& vulkan_config,
             const Config::Render& render_config);
 
-        void setup_render_pass();
+        Result<void, GraphicsError> setup_render_pass();
 
         Result<void, GraphicsError> setup_offscreen_render_pass(Math::Vec2u size);
 
@@ -58,7 +58,8 @@ namespace Comet {
         [[nodiscard]] bool recreate_swapchain();
 
         using SwapchainReleaseCallback = std::function<void()>;
-        using SwapchainRebuildCallback = std::function<void(const SwapchainCompatibility&)>;
+        using SwapchainRebuildCallback =
+            std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)>;
         void set_swapchain_resource_callbacks(
             SwapchainReleaseCallback release_resources, SwapchainRebuildCallback rebuild_resources);
 

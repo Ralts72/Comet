@@ -4,6 +4,7 @@
 #include "render/renderer.h"
 #include "render/render_context.h"
 #include "core/window.h"
+#include "graphics/swapchain.h"
 #include "ui/imgui_context.h"
 #include "ui/shortcuts.h"
 #include "scene/selection.h"
@@ -23,8 +24,10 @@ namespace CometEditor::Tests {
         auto& renderer = engine.get_renderer();
         ASSERT_TRUE(renderer.enable_offscreen_rendering({320, 240}));
         Comet::Tests::TemporaryDirectory directory;
-        ImGuiContext ui(
+        auto ui_result = ImGuiContext::create(
             engine.get_window(), renderer.get_render_context(), directory.path() / "imgui.ini");
+        ASSERT_TRUE(ui_result) << ui_result.error();
+        auto& ui = *ui_result.value();
         Comet::Scene first_scene;
         Comet::Scene second_scene;
         auto* active_scene = &first_scene;
@@ -60,6 +63,20 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(draw_frame());
         EXPECT_TRUE(draw_frame());
         EXPECT_TRUE(viewport.panel().is_visible());
+
+        auto invalid_rebuild = ui.rebuild_swapchain_resources({});
+        EXPECT_FALSE(invalid_rebuild);
+        renderer.get_render_context().wait_idle();
+        ui.release_swapchain_resources();
+        auto rebuilt = ui.rebuild_swapchain_resources({});
+        ASSERT_TRUE(rebuilt) << rebuilt.error();
+        EXPECT_TRUE(draw_frame());
+
+        renderer.get_render_context().wait_idle();
+        ui.release_swapchain_resources();
+        rebuilt = ui.rebuild_swapchain_resources({.image_count_changed = true});
+        ASSERT_TRUE(rebuilt) << rebuilt.error();
+        EXPECT_TRUE(draw_frame());
 
         active_scene = &second_scene;
         selection.set_scene(second_scene);

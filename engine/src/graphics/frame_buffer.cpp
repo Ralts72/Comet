@@ -7,16 +7,6 @@
 #include <utility>
 
 namespace Comet {
-    std::shared_ptr<FrameBuffer> FrameBuffer::create(Device& device, RenderPass& render_pass,
-        const std::vector<std::shared_ptr<ImageView>>& image_views, const uint32_t width,
-        const uint32_t height) {
-        auto attempt = try_create(device, render_pass, image_views, width, height);
-        if(!attempt) {
-            LOG_FATAL("Failed to create framebuffer: {}", vk::to_string(attempt.result()));
-        }
-        return std::move(attempt).value();
-    }
-
     GpuResourceResult<std::shared_ptr<FrameBuffer>> FrameBuffer::try_create(Device& device,
         RenderPass& render_pass, const std::vector<std::shared_ptr<ImageView>>& image_views,
         const uint32_t width, const uint32_t height) {

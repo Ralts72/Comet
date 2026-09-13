@@ -100,9 +100,12 @@ namespace Comet::Tests {
 #endif
             void on_init() override {
 #ifdef COMET_TEST_EDITOR_UI
-                ui = std::make_unique<CometEditor::ImGuiContext>(get_engine().get_window(),
+                auto result = CometEditor::ImGuiContext::create(get_engine().get_window(),
                     get_engine().get_renderer().get_render_context(),
                     directory.path() / "imgui.ini");
+                if(!result)
+                    throw std::runtime_error(result.error().message);
+                ui = std::move(result).value();
 #endif
                 if(fail_at == 1)
                     throw std::runtime_error("init failure");

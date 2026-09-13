@@ -73,9 +73,10 @@ end 是内部操作，提前消费关闭标记，保证关闭钩子自身抛错�
 钩子失败时保留 Engine／Diagnostics，由应用析构先释放派生类剩余资源、再释放基类 owner；
 原始初始化／更新错误继续向上传递，清理错误单独报告。关闭失败的实例不能重新运行。
 
-ImGuiContext 的原生 Context 由带私有 ContextDeleter 的 unique_ptr 拥有；
-它最后声明，因此构造失败时最先析构，先关闭借用 GPU 资源的后端，再析构 pool／target。
-不需要在构造函数中 catch 后 cleanup/rethrow。正常析构仍先等待 GPU、解除纹理注册，再销毁后端及资源。
+ImGuiContext 的原生 Context 由带私有 ContextDeleter 的 unique_ptr 拥有；create 在私有候选中 initialize。
+失败返回或异常展开都会销毁候选，由 cleanup 先关闭借用 GPU 资源的后端，再析构 pool／target。
+原生 Context 保持最后声明，作为成员展开的顺序保障；不需要 catch 后 cleanup/rethrow。
+正常析构仍先等待 GPU、解除纹理注册，再销毁后端及资源。
 只关闭实际存在的后端，覆盖 swapchain 重建中旧后端已经关闭的状态。
 等待 GPU 时的 catch 保留：它保护 noexcept 清理边界，不等同于设备丢失恢复。
 
@@ -171,8 +172,9 @@ Shader、PipelineLayout、Pipeline 的私有构造函数只接收已创建的 ow
 MaterialRenderer::create 在私有候选中初始化 frame 资源和内置管线；DebugRenderer::create 成功创建 Pipeline 后才构造对象。
 SceneRenderer::setup_pipeline 返回结果，两个 renderer 都成功后才替换成员；失败候选自动析构，不先发布其中一个。
 这一保证针对 renderer 成对安装，不包含 ShaderManager 中成功加载资源的回滚，也不等于整个 RenderPass／RenderTarget 切换事务。
-离屏启动使用 try_create_multi_target 并将目标／管线失败返回到 Editor；无效尺寸在重置资源前拒绝。
-有效尺寸的创建在重置之后失败时必须终止启动，不支持继续渲染旧目标；运行中 resize_offscreen_target 的旧版本保留机制不变。
+离屏启动使用 try_create_multi_target 并将目标／管线失败返回到 Editor；无效尺寸在创建前拒绝。
+setup_render_pass／setup_offscreen_render_pass 先创建候选 pass、target 和 PipelineManager，成功后才重置旧成员。
+该保护不包含随后 setup_pipeline 的创建失败，也不构成整个渲染图的事务；运行中 resize_offscreen_target 的旧版本保留机制不变。
 最外层 Renderer／Editor 启动暂将结果错误交给现有异常清理边界；内置 MaterialLayout 常量错误仍属于内部不变量。
 DescriptorSetLayout／DescriptorPool 创建及 DescriptorSet 分配也返回 Result<T, GraphicsError>。
 布局和池使用 UniqueHandle，集合只借用句柄，由池统一回收；布局可共享，池工厂返回 unique_ptr，
@@ -186,8 +188,19 @@ CommandBuffer::bind_descriptor_sets 只接收 Comet Layout／Set，原生绑定�
 GpuResourceResult 通过 error() 提供 GraphicsError，业务层读取 message／is_device_lost()，不为了日志解析 vk::Result；
 原生 result() 保留给 graphics 内部和诊断测试。这是消费接口收敛，不是完整的多后端抽象或 Vulkan 头文件隔离。
 Mesh／Texture 的无调用方 fatal 创建包装以及 RenderTarget 的 fatal 离屏包装已移除，现有消费者使用可失败入口。
-Sampler 获取、RenderPass／swapchain target 创建和 ImGui 初始化仍有原生异常／fatal 路径，需分步迁移；
-MaterialRenderer 的工厂目前仍调用旧 SamplerManager，不承诺所有 GPU 错误都已结果化。
+Sampler::create 返回 Result<shared_ptr<Sampler>, GraphicsError>，校验配置后用返回码重载创建 UniqueSampler。
+SamplerManager 的预设统一经过 create_sampler；同名同配置复用，同名不同配置返回错误，不替换已有对象。
+linear-repeat 预设使用各向异性数值的精确位模式作为内部名称后缀，不以舍入后的显示字符串作缓存身份。
+MaterialRenderer 向上传递 sampler 错误；Viewport 只在构造时取得 nearest-clamp 并持有，帧更新仅复用。
+Sampler 只拥有自身 UniqueSampler，不另存 Device 句柄；管理器借用 Device，设备仍必须活到所有 sampler 释放之后。
+RenderPass::create 使用 UniqueRenderPass，构造仅接管完整附件描述和句柄；错误返回 GraphicsError。
+交换链目标与离屏目标共用附件创建逻辑，前者复用 Generation 的呈现图像，其余附件独立创建。
+SwapchainTarget 只发布完成全部 framebuffer 的候选，失败先释放 framebuffer/view，再释放 Generation 引用。
+FrameBuffer 无调用方的 fatal 创建包装已移除，目标统一使用 try_create。
+ImGuiContext::create 和重建返回结果，失败时关闭已初始化后端，再销毁池、目标与 pass；不发布半初始化 UI。
+重建已释放旧依赖，失败不作逐帧重试：SceneRenderer 在应用边界抛出错误并退出清理。
+ImGui 第三方后端内部创建目前仍不能靠 Init 的 bool 完整报告 GPU 失败；WSI 原生交换链的失败／退休策略也未在此轮迁移。
+当前后端的 Vulkan Shutdown 还清除主视口平台数据，因此 format/image count 重建同时关闭并重建 GLFW 后端；保留 ImGui Context 和 UI 状态。
 Application 的失败清理及 ImGui 析构保护 catch 必须保留，不以 LOG_FATAL 替代可恢复错误。
 
 PipelineConfig 与状态位于 pipeline_config.h/.cpp，PipelineKey 的完整判等、规范化与哈希位于 pipeline_key.h/.cpp。

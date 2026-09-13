@@ -1,6 +1,7 @@
 #pragma once
 
 #include <imgui.h>
+#include "graphics/creation.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -25,7 +26,8 @@ namespace Comet {
 namespace CometEditor {
     class ImGuiContext {
     public:
-        ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context,
+        static Comet::Result<std::unique_ptr<ImGuiContext>, Comet::GraphicsError> create(
+            const Comet::Window& window, Comet::RenderContext& render_context,
             std::filesystem::path ini_path);
         ~ImGuiContext();
 
@@ -36,7 +38,8 @@ namespace CometEditor {
         void render(Comet::CommandBuffer& command_buffer) const;
 
         void release_swapchain_resources();
-        void rebuild_swapchain_resources(const Comet::SwapchainCompatibility& compatibility);
+        Comet::Result<void, Comet::GraphicsError> rebuild_swapchain_resources(
+            const Comet::SwapchainCompatibility& compatibility);
 
         void set_viewport_image(uint32_t frame_slot_index,
             std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler);
@@ -52,8 +55,11 @@ namespace CometEditor {
             void operator()(::ImGuiContext* context) const noexcept;
         };
 
-        void init_vulkan();
-        void create_render_pass();
+        ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context,
+            std::filesystem::path ini_path);
+        Comet::Result<void, Comet::GraphicsError> initialize();
+        Comet::Result<void, Comet::GraphicsError> init_vulkan();
+        Comet::Result<void, Comet::GraphicsError> create_render_pass();
         void cleanup() noexcept;
         void register_viewport_textures();
         void unregister_viewport_textures();

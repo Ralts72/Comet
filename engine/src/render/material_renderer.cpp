@@ -61,7 +61,10 @@ namespace Comet {
         if(frame_slot_count == 0)
             return Result<void, GraphicsError>::failure({"Material renderer requires frame slots"});
         auto& device = m_device;
-        m_sampler = resources.get_sampler_manager().get_linear_repeat();
+        auto sampler = resources.get_sampler_manager().get_linear_repeat();
+        if(!sampler)
+            return Result<void, GraphicsError>::failure(sampler.error());
+        m_sampler = std::move(sampler).value();
         DescriptorSetLayoutBindings frame_bindings;
         frame_bindings.add_binding(
             0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));

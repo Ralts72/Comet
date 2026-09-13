@@ -45,9 +45,12 @@ namespace Comet::Tests {
         auto& device = engine->get_renderer().get_render_context().get_device();
         auto& resources = engine->get_resource_manager();
         const auto color = Attachment::get_color_attachment(Format::R8G8B8A8_UNORM);
-        RenderPass pass(device, {color, Attachment::get_depth_attachment(Format::D32_SFLOAT)},
+        auto pass_result = RenderPass::create(device,
+            {color, Attachment::get_depth_attachment(Format::D32_SFLOAT)},
             {RenderSubPass{{}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)}}},
             Format::R8G8B8A8_UNORM);
+        ASSERT_TRUE(pass_result) << pass_result.error();
+        auto& pass = *pass_result.value();
         PipelineManager pipelines(device, pass);
         auto materials =
             MaterialRenderer::create(device, pipelines, resources, 0, SampleCount::Count1);
@@ -82,6 +85,18 @@ namespace Comet::Tests {
         renderer.render_frame({});
     }
 
+    TEST_F(MaterialRenderingTest, OverlayRebuildFailurePropagatesToApplicationBoundary) {
+        auto& renderer = engine->get_renderer().get_scene_renderer();
+        bool released = false;
+        renderer.set_swapchain_resource_callbacks([&] { released = true; },
+            [&](const SwapchainCompatibility&) {
+                EXPECT_TRUE(released);
+                return Result<void, GraphicsError>::failure({"overlay rebuild failed"});
+            });
+        EXPECT_THROW(static_cast<void>(renderer.recreate_swapchain()), std::runtime_error);
+        renderer.set_swapchain_resource_callbacks({}, {});
+    }
+
     TEST_F(MaterialRenderingTest, ReadsPixelsFromTwoLayoutsBeforeAndAfterParameterChanges) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
@@ -89,9 +104,12 @@ namespace Comet::Tests {
         color.description.store_op = AttachmentStoreOp::Store;
         color.description.final_layout = ImageLayout::TransferSrcOptimal;
         color.usage |= ImageUsage::CopySrc;
-        RenderPass pass(device, {color, Attachment::get_depth_attachment(Format::D32_SFLOAT)},
+        auto pass_result = RenderPass::create(device,
+            {color, Attachment::get_depth_attachment(Format::D32_SFLOAT)},
             {RenderSubPass{{}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)}}},
             Format::R8G8B8A8_UNORM);
+        ASSERT_TRUE(pass_result) << pass_result.error();
+        auto& pass = *pass_result.value();
         auto target_result = RenderTarget::try_create_multi_target(device, pass, {64, 32}, 2);
         ASSERT_TRUE(target_result) << target_result.error();
         auto target = std::move(target_result).value();

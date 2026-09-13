@@ -324,8 +324,11 @@ namespace Comet::Tests {
     TEST_F(ShaderPipelineTest, RejectsIncompatibleLayoutsBeforeVulkanCreationOrCacheHit) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
-        RenderPass pass(device, {Attachment::get_color_attachment(Format::R8G8B8A8_UNORM)},
-            {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}}, Format::R8G8B8A8_UNORM);
+        auto pass_result =
+            RenderPass::create(device, {Attachment::get_color_attachment(Format::R8G8B8A8_UNORM)},
+                {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}}, Format::R8G8B8A8_UNORM);
+        ASSERT_TRUE(pass_result) << pass_result.error();
+        auto& pass = *pass_result.value();
         PipelineManager pipelines(device, pass);
         auto vertex_result = Shader::create(device, "line", DEBUG_LINE_VERT);
         ASSERT_TRUE(vertex_result) << vertex_result.error();
@@ -381,7 +384,9 @@ namespace Comet::Tests {
 
     TEST_F(ShaderPipelineTest, UsesContentAndStateInsteadOfShaderAndPipelineLabels) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        RenderPass pass(device);
+        auto pass_result = RenderPass::create(device);
+        ASSERT_TRUE(pass_result) << pass_result.error();
+        auto& pass = *pass_result.value();
         PipelineManager pipelines(device, pass);
         ShaderManager shaders(device);
         auto vertex_result = shaders.load_shader("vertex", PIPELINE_TRIANGLE_VERT);
@@ -452,7 +457,9 @@ namespace Comet::Tests {
 
     TEST_F(ShaderPipelineTest, FailedCandidatesPreserveInputsAndAllowRetry) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        RenderPass pass(device);
+        auto pass_result = RenderPass::create(device);
+        ASSERT_TRUE(pass_result) << pass_result.error();
+        auto& pass = *pass_result.value();
         ShaderManager shaders(device);
         PipelineManager pipelines(device, pass);
         const auto invalid = shaders.load_shader("vertex", std::span<const uint32_t>{});
@@ -500,7 +507,9 @@ namespace Comet::Tests {
 
     TEST_F(ShaderPipelineTest, CanonicalizesLayoutsAndDynamicViewportState) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        RenderPass pass(device);
+        auto pass_result = RenderPass::create(device);
+        ASSERT_TRUE(pass_result) << pass_result.error();
+        auto& pass = *pass_result.value();
         auto vertex_result = Shader::create(device, "vertex", PIPELINE_TRIANGLE_VERT);
         ASSERT_TRUE(vertex_result) << vertex_result.error();
         auto vertex = std::move(vertex_result).value();
@@ -606,7 +615,9 @@ namespace Comet::Tests {
 
     TEST_F(ShaderPipelineTest, ComparesAllStateEvenWhenHashesCollide) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        RenderPass pass(device);
+        auto pass_result = RenderPass::create(device);
+        ASSERT_TRUE(pass_result) << pass_result.error();
+        auto& pass = *pass_result.value();
         auto vertex_result = Shader::create(device, "vertex", PIPELINE_TRIANGLE_VERT);
         ASSERT_TRUE(vertex_result) << vertex_result.error();
         auto vertex = std::move(vertex_result).value();
@@ -681,7 +692,9 @@ namespace Comet::Tests {
 
     TEST_F(ShaderPipelineTest, ReleasesPipelineAfterItsLastFrameOwnerCompletes) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        RenderPass pass(device);
+        auto pass_result = RenderPass::create(device);
+        ASSERT_TRUE(pass_result) << pass_result.error();
+        auto& pass = *pass_result.value();
         PipelineManager pipelines(device, pass);
         auto vertex_result = Shader::create(device, "vertex", PIPELINE_TRIANGLE_VERT);
         ASSERT_TRUE(vertex_result) << vertex_result.error();
@@ -718,7 +731,9 @@ namespace Comet::Tests {
 
     TEST_F(ShaderPipelineTest, SpecializationCacheUsesStageTypeAndExactBits) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        RenderPass pass(device);
+        auto pass_result = RenderPass::create(device);
+        ASSERT_TRUE(pass_result) << pass_result.error();
+        auto& pass = *pass_result.value();
         PipelineManager pipelines(device, pass);
         auto vertex_result = Shader::create(device, "vertex", SPECIALIZATION_VERT);
         ASSERT_TRUE(vertex_result) << vertex_result.error();
@@ -790,8 +805,10 @@ namespace Comet::Tests {
         color.description.store_op = AttachmentStoreOp::Store;
         color.description.final_layout = ImageLayout::TransferSrcOptimal;
         color.usage |= ImageUsage::CopySrc;
-        RenderPass pass(device, {color}, {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}},
-            Format::R8G8B8A8_UNORM);
+        auto pass_result = RenderPass::create(device, {color},
+            {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}}, Format::R8G8B8A8_UNORM);
+        ASSERT_TRUE(pass_result) << pass_result.error();
+        auto& pass = *pass_result.value();
         constexpr uint32_t VARIANT_COUNT = 5;
         auto target_result =
             RenderTarget::try_create_multi_target(device, pass, {32, 16}, VARIANT_COUNT);
@@ -909,10 +926,13 @@ namespace Comet::Tests {
 
     TEST_F(ShaderPipelineTest, SelectsSubpassAsPartOfPipelineState) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        RenderPass pass(device, {Attachment::get_color_attachment(Format::R8G8B8A8_UNORM)},
-            {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}},
-                RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}},
-            Format::R8G8B8A8_UNORM);
+        auto pass_result =
+            RenderPass::create(device, {Attachment::get_color_attachment(Format::R8G8B8A8_UNORM)},
+                {RenderSubPass{{}, {SubpassColorAttachment(0)}, {}},
+                    RenderSubPass{{}, {SubpassColorAttachment(0)}, {}}},
+                Format::R8G8B8A8_UNORM);
+        ASSERT_TRUE(pass_result) << pass_result.error();
+        auto& pass = *pass_result.value();
         PipelineManager pipelines(device, pass);
         auto vertex_result = Shader::create(device, "vertex", PIPELINE_TRIANGLE_VERT);
         ASSERT_TRUE(vertex_result) << vertex_result.error();
