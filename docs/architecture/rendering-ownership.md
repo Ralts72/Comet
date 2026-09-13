@@ -166,12 +166,17 @@ DeviceLost 则交给应用退出清理边界，不把失效设备当作可继续
 compile_source 负责单次编译结果，公开 compile 统一收集依赖和复核输入；不因早退漏掉失败请求的依赖。
 第三方调用、include 处理和 CLI 写文件保留异常边界。
 depfile 只列存在的依赖，新增遮蔽文件不保证自动触发构建。原子写针对单文件，不是 SPIR-V／depfile 的跨文件事务。
-未来 Worker 发布仍需请求 revision 与输入复核，快照不等于文件锁；当前尚无编辑器源码监视／热发布。
+开发编辑器的 Worker 发布复核请求 revision 与输入，快照不等于文件锁；具体热更新所有权见下文。
 
 Shader 先反射指定入口再创建 module，拥有字节码副本和反射值；同名内容／入口相同才复用，候选成功后替换。
 ShaderLayout 检查 descriptor 类型／数量／stage 和 push 覆盖；MaterialLayout 额外核对材质参数块大小、偏移、类型与纹理协议。
 原生反射类型仅在 shader_interface.cpp 转换，Vulkan 布局对照留在 ShaderLayout 实现中。
-当前仅同步反射，不自动生成 MaterialLayout；头和指令长度预检不是完整 SPIR-V validator。
+CPU Worker 可独立反射；Shader 创建仍执行自身反射校验，不自动生成 MaterialLayout；头和指令长度预检不是完整 SPIR-V validator。
+ShaderInterface 按入口保存 user input/output 的名称、location 与 Comet Format，跳过 built-in；不向调用方暴露 SPIR-V 原生类型。
+基础 I/O 限定为 location-based 32 位标量／向量，数组、矩阵、结构体、64 位与非零 component 明确拒绝。
+PipelineKey 在配置副本规范化后校验 Vertex→Fragment 的 location／精确类型，并检查顶点 attribute 的 location／精确格式与 binding 存在性。
+额外未消费的顶点属性／顶点输出允许保留；缺失、类型不符在创建 PipelineLayout／Pipeline 和查写缓存前返回错误。
+这是当前 Comet 的保守输入契约，normalized／packed 格式转换、复杂插值和附件输出兼容性仍待扩展。
 
 ShaderInterface::reflect、MaterialLayout::create、布局／specialization 校验及 PipelineKey::create
 与资产导入、序列化统一使用 common/result.h 的 Result<T> 返回预期失败，不保留资产层别名或转发头。
@@ -215,7 +220,7 @@ Worker 只捕获请求副本和共享结果，不访问 Editor、Scene 或 Devic
 ShaderModule 只在候选创建期间存在，不提前改写 ShaderManager；PipelineManager 缓存仍是弱引用。
 MaterialResources 缓存同时比较 PreparedMaterial 和 PipelineState；旧资源可暂作分配失败时的回退，并由在途帧持有至槽位回收。
 SceneRenderer 保存最后成功的字节码，重建目标／管线时沿用，不因重建恢复到嵌入版本；关闭编辑器后不持久保存开发覆盖。
-内置 MaterialLayout 暂不动态扩展，完整顶点／stage 接口验证和项目程序资产属于下一项；CPU 后台化不等于 GPU 创建无主线程开销。
+内置 MaterialLayout 暂不动态扩展；已有基础顶点／stage 接口验证，复杂 I/O 和项目程序资产仍待后续。CPU 后台化不等于 GPU 创建无主线程开销。
 Sampler 只拥有自身 UniqueSampler，不另存 Device 句柄；管理器借用 Device，设备仍必须活到所有 sampler 释放之后。
 RenderPass::create 使用 UniqueRenderPass，构造仅接管完整附件描述和句柄；错误返回 GraphicsError。
 交换链目标与离屏目标共用附件创建逻辑，前者复用 Generation 的呈现图像，其余附件独立创建。

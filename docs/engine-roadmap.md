@@ -169,11 +169,15 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
 1. 可失败创建与消费者迁移：反射／布局／Pipeline 校验、GPU 候选创建、结果处理与失败回滚完整接通，见下节。
 2. 内置材质 Shader 后台编译与发布已完成：请求 revision、输入快照复核、整批 GPU 候选切换、失败保留旧版本、在途帧寿命。
    开发编辑器只监视三个生产材质 Shader 及 include；单个在途任务与最新后继合并，不阻塞等待调度容量。
-   现有 MaterialLayout 保持固定，接口不匹配拒绝发布；顶点输入／stage 间接口的完整校验随下一项补齐。
+   现有 MaterialLayout 保持固定，已接基础顶点输入和 Vertex→Fragment 的 location／类型校验；不匹配拒绝发布。
    监视仍是每 500 ms 内容复核、200 ms 防抖，不是原生文件事件；GPU 创建仍可能造成主线程尖峰。
    原生监听、尾沿防抖与漏事件恢复统一按阶段 3 的“统一文件监听与防抖”专项推进，不在 Shader 内另建后端。
 3. 项目 Shader／程序资产与布局生成：补复杂参数、顶点输入／stage 间接口、外部字节码校验。
    Inspector 随之支持程序切换与资产撤销；不先引入 bindless。
+   基础接口校验已落地：按入口反射 user I/O、忽略 built-in，检查顶点 attribute／binding 和片元输入的来源。
+   当前采用精确 32 位标量／向量格式契约，不支持的数组、矩阵、结构体、64 位与 component 打包 I/O 明确拒绝。
+   后续按消费者扩展 normalized／packed 顶点格式转换、复杂 I/O、插值／附件输出及设备能力校验；
+   不把这一步的保守限制说成 Vulkan 完整兼容规则，也不把反射视为完整 SPIR-V validator。
 
 specialization 已贯通类型化值、默认值规范化、反射校验、PipelineKey 和 GPU 创建。
 当前仅支持 bool/int32/uint32/float32 的固定接口变体；所有依赖 specialization 的数组长度暂不接受，

@@ -169,7 +169,8 @@ JSON 解析直接依赖已有 simdjson。
   Shader 编译库与构建 CLI 独立于 engine；材质描述集中在 `render/material.h`，准备缓存与 GPU 绘制各自独立。
   开发编辑器会后台编译 `engine/shaders/glsl/material_mesh.vert`、`material_textured.frag`、`material_solid.frag`；
   修改源码或 include 后自动尝试整批更新，失败保留旧画面，诊断只进入日志区。当前只支持现有内置材质契约，
-  项目 Shader、自动布局与完整 stage 接口校验仍在路线图中；app／engine 不链接 glslang。
+  已校验基础顶点输入和 Vertex→Fragment 的 location／类型匹配；当前要求精确匹配的 32 位标量／向量，
+  复杂 I/O、顶点格式转换、项目 Shader 与自动布局仍在路线图中；app／engine 不链接 glslang。
   监视每 500 ms 复核已知输入内容，变化后防抖 200 ms；编译与反射在 Worker，GPU 管线创建和发布仍在主线程。
 
 详细说明：[资源所有权](docs/architecture/rendering-ownership.md) ·

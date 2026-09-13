@@ -63,11 +63,20 @@ namespace Comet {
             uint32_t size;
         };
 
+        struct StageVariable {
+            std::string name;
+            uint32_t location;
+            Format format;
+        };
+
         static Result<ShaderInterface> reflect(
             std::span<const uint32_t> spirv_words, std::string entry_point = "main");
 
         [[nodiscard]] const std::string& get_entry_point() const { return m_entry_point; }
         [[nodiscard]] ShaderStage get_stage() const { return m_stage; }
+        [[nodiscard]] const std::vector<StageVariable>& get_inputs() const { return m_inputs; }
+        [[nodiscard]] const std::vector<StageVariable>& get_outputs() const { return m_outputs; }
+        Result<void> validate_stage_link(const ShaderInterface& fragment) const;
         [[nodiscard]] const std::vector<DescriptorBinding>& get_bindings() const {
             return m_bindings;
         }
@@ -85,6 +94,8 @@ namespace Comet {
         ShaderInterface() = default;
         std::string m_entry_point;
         ShaderStage m_stage;
+        std::vector<StageVariable> m_inputs;
+        std::vector<StageVariable> m_outputs;
         std::vector<DescriptorBinding> m_bindings;
         std::vector<PushConstant> m_push_constants;
         std::vector<SpecializationConstant> m_specialization_constants;

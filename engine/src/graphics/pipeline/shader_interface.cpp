@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <string_view>
 #include <utility>
 #include <cstring>
 #include <unordered_set>
@@ -76,7 +77,7 @@ namespace Comet {
                 "Unsupported specialization constant type");
         }
 
-        Format member_format(const SpvReflectBlockVariable& member) {
+        template<typename Variable> Format variable_format(const Variable& member) {
             if(member.member_count || member.array.dims_count || member.numeric.matrix.column_count
                 || member.numeric.scalar.width != 32 || !member.type_description) {
                 return Format::UNDEFINED;
@@ -100,6 +101,35 @@ namespace Comet {
                 return unsigned_formats[components - 1];
             }
             return Format::UNDEFINED;
+        }
+
+        Result<std::vector<ShaderInterface::StageVariable>> reflect_variables(
+            std::span<SpvReflectInterfaceVariable* const> variables, std::string_view label) {
+            using Variables = Result<std::vector<ShaderInterface::StageVariable>>;
+            std::vector<ShaderInterface::StageVariable> result;
+            for(const auto* variable : variables) {
+                if(variable->decoration_flags & SPV_REFLECT_DECORATION_BUILT_IN)
+                    continue;
+                const auto format = variable_format(*variable);
+                if(format == Format::UNDEFINED
+                    || variable->location == std::numeric_limits<uint32_t>::max()
+                    || (variable->component != 0
+                        && variable->component != std::numeric_limits<uint32_t>::max())) {
+                    return Variables::failure(
+                        std::string(label)
+                        + " supports only location-based 32-bit scalar/vector interfaces: "
+                        + (variable->name ? variable->name : "<unnamed>"));
+                }
+                result.push_back(
+                    {variable->name ? variable->name : "", variable->location, format});
+            }
+            std::ranges::sort(result, {}, &ShaderInterface::StageVariable::location);
+            for(size_t index = 1; index < result.size(); ++index) {
+                if(result[index - 1].location == result[index].location)
+                    return Variables::failure(std::string(label) + " has duplicate location "
+                                              + std::to_string(result[index].location));
+            }
+            return Variables::success(std::move(result));
         }
 
         Result<ShaderStage> shader_stage(SpvReflectShaderStageFlagBits value) {
@@ -178,6 +208,16 @@ namespace Comet {
         if(!stage)
             return Result<ShaderInterface>::failure(stage.error());
         candidate.m_stage = stage.value();
+        auto inputs = reflect_variables({entry->input_variables, entry->input_variable_count},
+            "Shader '" + candidate.m_entry_point + "' input");
+        if(!inputs)
+            return Result<ShaderInterface>::failure(inputs.error());
+        auto outputs = reflect_variables({entry->output_variables, entry->output_variable_count},
+            "Shader '" + candidate.m_entry_point + "' output");
+        if(!outputs)
+            return Result<ShaderInterface>::failure(outputs.error());
+        candidate.m_inputs = std::move(inputs).value();
+        candidate.m_outputs = std::move(outputs).value();
         uint32_t count = 0;
         if(const auto status = module.EnumerateSpecializationConstants(&count, nullptr);
             status != SPV_REFLECT_RESULT_SUCCESS)
@@ -226,7 +266,7 @@ namespace Comet {
                 if(member.name)
                     name = member.name;
                 binding.members.push_back(
-                    {std::move(name), member.offset, member.size, member_format(member)});
+                    {std::move(name), member.offset, member.size, variable_format(member)});
             }
             candidate.m_bindings.push_back(std::move(binding));
         }
@@ -256,6 +296,23 @@ namespace Comet {
                 block->offset, static_cast<uint32_t>(end) - block->offset);
         }
         return Result<ShaderInterface>::success(std::move(candidate));
+    }
+
+    Result<void> ShaderInterface::validate_stage_link(const ShaderInterface& fragment) const {
+        if(m_stage != ShaderStage::Vertex || fragment.m_stage != ShaderStage::Fragment)
+            return Result<void>::failure("Stage link requires vertex and fragment interfaces");
+        for(const auto& input : fragment.m_inputs) {
+            const std::string label =
+                "Fragment input '" + input.name + "' at location " + std::to_string(input.location);
+            const auto output =
+                std::ranges::find(m_outputs, input.location, &StageVariable::location);
+            if(output == m_outputs.end())
+                return Result<void>::failure(label + " has no vertex output");
+            if(output->format != input.format)
+                return Result<void>::failure(
+                    label + " type does not match vertex output '" + output->name + "'");
+        }
+        return Result<void>::success();
     }
 
     Result<void> ShaderInterface::canonicalize_specialization(Specialization& values) const {

@@ -41,6 +41,36 @@
 #include <unordered_map>
 
 namespace Comet::Tests {
+    TEST(ShaderInterfaceTest, ReflectsUserLocationsAndValidatesStageConnections) {
+        const auto mesh = ShaderInterface::reflect(MATERIAL_MESH_VERT);
+        const auto textured = ShaderInterface::reflect(MATERIAL_TEXTURED_FRAG);
+        const auto solid = ShaderInterface::reflect(MATERIAL_SOLID_FRAG);
+        const auto debug = ShaderInterface::reflect(DEBUG_LINE_FRAG);
+        const auto triangle = ShaderInterface::reflect(PIPELINE_TRIANGLE_VERT);
+        ASSERT_TRUE(mesh) << mesh.error();
+        ASSERT_TRUE(textured) << textured.error();
+        ASSERT_TRUE(solid) << solid.error();
+        ASSERT_TRUE(debug) << debug.error();
+        ASSERT_TRUE(triangle) << triangle.error();
+        ASSERT_EQ(mesh.value().get_inputs().size(), 3u);
+        EXPECT_EQ(mesh.value().get_inputs()[0].location, 0u);
+        EXPECT_EQ(mesh.value().get_inputs()[0].format, Format::R32G32B32_SFLOAT);
+        ASSERT_EQ(mesh.value().get_outputs().size(), 1u);
+        EXPECT_EQ(mesh.value().get_outputs()[0].format, Format::R32G32_SFLOAT);
+        EXPECT_TRUE(triangle.value().get_inputs().empty());
+        EXPECT_TRUE(triangle.value().get_outputs().empty());
+        EXPECT_TRUE(mesh.value().validate_stage_link(textured.value()));
+        EXPECT_TRUE(mesh.value().validate_stage_link(solid.value()));
+        const auto mismatch = mesh.value().validate_stage_link(debug.value());
+        ASSERT_FALSE(mismatch);
+        EXPECT_NE(mismatch.error().find("location 0"), std::string::npos);
+        EXPECT_NE(mismatch.error().find("type"), std::string::npos);
+        const auto missing = triangle.value().validate_stage_link(debug.value());
+        ASSERT_FALSE(missing);
+        EXPECT_NE(missing.error().find("no vertex output"), std::string::npos);
+        EXPECT_FALSE(debug.value().validate_stage_link(mesh.value()));
+    }
+
     TEST(ShaderInterfaceTest, ReflectsTypedSpecializationAndNormalizesExactDefaults) {
         auto shader_result = ShaderInterface::reflect(SPECIALIZATION_FRAG);
         ASSERT_TRUE(shader_result) << shader_result.error();
@@ -395,6 +425,56 @@ namespace Comet::Tests {
             ASSERT_TRUE(candidate) << candidate.error();
             EXPECT_EQ(new_fragment, candidate.value());
         }
+    }
+
+    TEST_F(ShaderPipelineTest, RejectsVertexAndStageMismatchesBeforeChangingPipelineCache) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        auto pass = RenderPass::create(device);
+        ASSERT_TRUE(pass) << pass.error();
+        PipelineManager pipelines(device, *pass.value());
+        auto vertex = Shader::create(device, "debug vertex", DEBUG_LINE_VERT);
+        auto fragment = Shader::create(device, "debug fragment", DEBUG_LINE_FRAG);
+        auto triangle = Shader::create(device, "triangle", PIPELINE_TRIANGLE_VERT);
+        ASSERT_TRUE(vertex) << vertex.error();
+        ASSERT_TRUE(fragment) << fragment.error();
+        ASSERT_TRUE(triangle) << triangle.error();
+        ShaderLayout layout;
+        layout.push_constants.push_back(
+            std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 64));
+        VertexInputDescription attributes;
+        attributes.add_binding(0, 28);
+        attributes.add_attribute(0, 0, Format::R32G32B32_SFLOAT, 0);
+        attributes.add_attribute(1, 0, Format::R32G32B32A32_SFLOAT, 12);
+        PipelineConfig config;
+        config.set_vertex_input_state(attributes);
+        const auto original =
+            pipelines.create_pipeline("debug", layout, config, vertex.value(), fragment.value());
+        ASSERT_TRUE(original) << original.error();
+        for(int problem = 0; problem < 3; ++problem) {
+            auto invalid = config;
+            if(problem == 0)
+                invalid.vertex_input_state.vertex_attributes.pop_back();
+            else if(problem == 1)
+                invalid.vertex_input_state.vertex_attributes[1].format =
+                    vk::Format::eR32G32B32A32Sint;
+            else
+                invalid.vertex_input_state.vertex_bindings.clear();
+            const auto failed = pipelines.create_pipeline(
+                "debug", layout, invalid, vertex.value(), fragment.value());
+            ASSERT_FALSE(failed);
+            EXPECT_FALSE(failed.error().result);
+            EXPECT_NE(failed.error().message.find("Vertex"), std::string::npos);
+            EXPECT_EQ(pipelines.get_cached_pipeline_count(), 1u);
+        }
+        const auto broken_link =
+            pipelines.create_pipeline("bad link", {}, {}, triangle.value(), fragment.value());
+        ASSERT_FALSE(broken_link);
+        EXPECT_NE(broken_link.error().message.find("no vertex output"), std::string::npos);
+        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 1u);
+        const auto reused =
+            pipelines.create_pipeline("debug", layout, config, vertex.value(), fragment.value());
+        ASSERT_TRUE(reused) << reused.error();
+        EXPECT_EQ(reused.value(), original.value());
     }
 
     TEST_F(ShaderPipelineTest, FailedCandidatesPreserveInputsAndAllowRetry) {

@@ -2,6 +2,7 @@
 
 #include "graphics/pipeline/shader.h"
 #include "graphics/render_pass.h"
+#include "graphics/convert.h"
 
 #include <vulkan/vulkan_hash.hpp>
 #include <algorithm>
@@ -66,6 +67,29 @@ namespace Comet {
             return Result<PipelineKey>::failure("Pipeline subpass is outside render pass");
         if(auto checked = canonicalize(candidate.config); !checked)
             return Result<PipelineKey>::failure(checked.error());
+        const auto& vertex = vertex_shader.get_interface();
+        if(auto checked = vertex.validate_stage_link(fragment_shader.get_interface()); !checked)
+            return Result<PipelineKey>::failure(checked.error());
+        const auto& vertex_input = candidate.config.vertex_input_state;
+        for(const auto& attribute : vertex_input.vertex_attributes) {
+            if(std::ranges::find(vertex_input.vertex_bindings, attribute.binding,
+                   &vk::VertexInputBindingDescription::binding)
+                == vertex_input.vertex_bindings.end())
+                return Result<PipelineKey>::failure(
+                    "Vertex attribute location " + std::to_string(attribute.location)
+                    + " references missing binding " + std::to_string(attribute.binding));
+        }
+        for(const auto& input : vertex.get_inputs()) {
+            const auto attribute = std::ranges::find(vertex_input.vertex_attributes, input.location,
+                &vk::VertexInputAttributeDescription::location);
+            const std::string label =
+                "Vertex input '" + input.name + "' at location " + std::to_string(input.location);
+            if(attribute == vertex_input.vertex_attributes.end())
+                return Result<PipelineKey>::failure(label + " has no vertex attribute");
+            if(attribute->format != Graphics::format_to_vk(input.format))
+                return Result<PipelineKey>::failure(
+                    label + " requires an exact 32-bit scalar/vector vertex format");
+        }
         if(auto checked = vertex_shader.get_interface().canonicalize_specialization(
                candidate.config.vertex_specialization);
             !checked)

@@ -25,12 +25,27 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(ShaderCompilerTest, RejectsUnsupportedUserStageInterfaces) {
+        for(const auto& declaration :
+            {"layout(location=0) in mat4 value; void main(){gl_Position=value[0];}",
+                "layout(location=0) in vec4 value[2]; void main(){gl_Position=value[0];}",
+                "layout(location=0) in dvec3 value; void main(){gl_Position=vec4(value,1);}",
+                "layout(location=0,component=1) out vec2 value; void main(){value=vec2(1);gl_Position=vec4(0);}"}) {
+            SCOPED_TRACE(declaration);
+            write("source.vert", std::string("#version 450\n") + declaration);
+            const auto result = ShaderCompiler::compile(request);
+            ASSERT_TRUE(result.succeeded()) << result.diagnostics;
+            const auto reflected = ShaderInterface::reflect(result.words);
+            ASSERT_FALSE(reflected);
+            EXPECT_NE(reflected.error().find("32-bit scalar/vector"), std::string::npos);
+        }
+    }
+
     TEST_F(ShaderCompilerTest, RejectsSpecializationDependentArrayReflection) {
         for(const std::string length : {"COUNT", "COUNT + 1"}) {
             write("source.vert",
                 "#version 450\nlayout(constant_id=0) const int COUNT=2;\nlayout(set=0,binding=0) uniform sampler2D textures["
-                    + length
-                    + "];\nvoid main(){gl_Position=texture(textures[0],vec2(0));}");
+                    + length + "];\nvoid main(){gl_Position=texture(textures[0],vec2(0));}");
             const auto result = ShaderCompiler::compile(request);
             ASSERT_TRUE(result.succeeded()) << result.diagnostics;
             EXPECT_FALSE(ShaderInterface::reflect(result.words)) << length;
@@ -56,9 +71,8 @@ namespace Comet::Tests {
     TEST_F(ShaderCompilerTest, MatchesBuildTimeBytecodeForEveryProductionShader) {
         const auto compare = [](const char* filename, ShaderStage stage,
                                  std::span<const uint32_t> embedded) {
-            ShaderCompiler::Request input{
-                .source = std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/glsl"
-                          / filename,
+            ShaderCompiler::Request input{.source = std::filesystem::path(PROJECT_ROOT_DIR)
+                                                    / "engine/shaders/glsl" / filename,
                 .stage = stage};
             const auto result = ShaderCompiler::compile(input);
             ASSERT_TRUE(result.succeeded()) << result.diagnostics;
@@ -136,8 +150,8 @@ namespace Comet::Tests {
         result = ShaderCompiler::compile(request);
         ASSERT_TRUE(result.succeeded()) << result.diagnostics;
         ASSERT_EQ(result.dependencies.size(), 3u);
-        EXPECT_EQ(std::ranges::count_if(result.dependencies,
-                      [](const auto& input) { return !input.contents; }),
+        EXPECT_EQ(std::ranges::count_if(
+                      result.dependencies, [](const auto& input) { return !input.contents; }),
             1);
         write("value.glsl", "#define VALUE 3.0\n");
         EXPECT_FALSE(ShaderCompiler::inputs_unchanged(result));
@@ -184,8 +198,7 @@ namespace Comet::Tests {
         EXPECT_NE(oversized.diagnostics.find("8 MiB"), std::string::npos);
         EXPECT_NE(oversized.diagnostics.find("source.vert"), std::string::npos);
         EXPECT_NE(oversized.diagnostics.find("3:"), std::string::npos);
-        write("shared/loop.glsl",
-            "// A fallback must not hide an unreadable local file.\n");
+        write("shared/loop.glsl", "// A fallback must not hide an unreadable local file.\n");
         request.include_directories = {root / "shared"};
         const auto fallback = ShaderCompiler::compile(request);
         EXPECT_FALSE(fallback.succeeded());
@@ -208,8 +221,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(ShaderCompiler::inputs_unchanged(loaded));
         const auto unreadable = ShaderCompiler::compile(request);
         EXPECT_FALSE(unreadable.succeeded());
-        EXPECT_NE(
-            unreadable.diagnostics.find("Cannot read shader source"), std::string::npos);
+        EXPECT_NE(unreadable.diagnostics.find("Cannot read shader source"), std::string::npos);
     }
 
     TEST_F(ShaderCompilerTest, DetectsSymlinkRetargetEvenWhenOldFileStillExists) {
@@ -234,8 +246,8 @@ namespace Comet::Tests {
         for(int index = 0; index < 8; ++index) {
             auto input = request;
             input.defines = {{"VALUE", std::to_string(index) + ".0"}};
-            futures.push_back(std::async(
-                std::launch::async, [input] { return ShaderCompiler::compile(input); }));
+            futures.push_back(
+                std::async(std::launch::async, [input] { return ShaderCompiler::compile(input); }));
         }
         std::vector<uint32_t> previous;
         for(auto& future : futures) {
