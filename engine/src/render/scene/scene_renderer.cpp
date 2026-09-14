@@ -123,7 +123,7 @@ namespace Comet {
         if(!materials)
             return Result<void, GraphicsError>::failure(materials.error());
         auto debug = DebugRenderer::create(m_context.get_device(), *m_pipeline_manager,
-            resource_manager, m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
+            m_frame_scheduler->get_frame_slot_count(), m_msaa_samples);
         if(!debug)
             return Result<void, GraphicsError>::failure(debug.error());
         m_material_renderer = std::move(materials).value();
@@ -131,15 +131,25 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    Result<void, GraphicsError> SceneRenderer::reload_material_shaders(
+    Result<MaterialRenderer::ReloadReport, GraphicsError> SceneRenderer::reload_material_shaders(
         MaterialRenderer::ShaderCode shaders) {
+        if(m_frame_scheduler && m_frame_scheduler->is_frame_active())
+            return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
+                {"Shader publication requires a frame boundary"});
         if(!m_material_renderer || !m_pipeline_manager)
-            return Result<void, GraphicsError>::failure({"Scene pipelines are not initialized"});
+            return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
+                {"Scene pipelines are not initialized"});
         auto result =
             m_material_renderer->reload_shaders(*m_pipeline_manager, shaders, m_msaa_samples);
         if(result)
             m_material_shaders = std::move(shaders);
         return result;
+    }
+
+    std::vector<std::shared_ptr<const MaterialLayout>> SceneRenderer::get_material_layouts() const {
+        if(!m_material_renderer)
+            return {};
+        return m_material_renderer->get_material_layouts();
     }
 
     std::vector<QueueSemaphoreSubmit> SceneRenderer::render_scene_pass(

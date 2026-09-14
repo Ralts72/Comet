@@ -5,6 +5,7 @@
 #include "scene/selection.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
+#include "render/material.h"
 
 #include "support/imgui_context.h"
 
@@ -550,6 +551,34 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(submitted_material.scalar_properties.contains("color"));
         EXPECT_TRUE(submitted_material.vector_properties.contains("color"));
         EXPECT_TRUE(Comet::MaterialSerializer{}.serialize(submitted_material));
+    }
+
+    TEST_F(AssetEditingUiTest, PublishedLayoutChangesWidgetsWithoutResettingMaterialDraft) {
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "unlit_color", .scalar_properties = {{"intensity", 0.5f}}},
+            paths.assets() / "material.mat"));
+        selection.select_asset(material);
+        frame();
+        auto layout = Comet::MaterialLayout::create("unlit_color", {}, 48,
+            {{"intensity", 0, 1, 0, 10, 0.1f, "Power"}},
+            {{"color", 32, {1, 1, 1, 1}, Comet::MaterialLayout::VectorProperty::Semantic::Color,
+                "Color"}},
+            5);
+        ASSERT_TRUE(layout) << layout.error();
+        const auto published = std::make_shared<Comet::MaterialLayout>(std::move(layout).value());
+        inspector->set_material_layouts({published});
+        frame();
+        EXPECT_EQ(material_updates, 0);
+        drag_value(material_point("intensity", "Power"), 20);
+        ASSERT_GT(material_updates, 0);
+        EXPECT_GT(submitted_material.scalar_properties.at("intensity"), 0.5f);
+        const auto edited = submitted_material;
+        const auto updates = material_updates;
+        inspector->set_material_layouts({published});
+        for(int index = 0; index < 5; ++index)
+            frame();
+        EXPECT_EQ(material_updates, updates);
+        EXPECT_EQ(submitted_material, edited);
     }
 
     TEST_F(AssetEditingUiTest, UnknownPropertiesPreventPublicationWithoutBeingDeleted) {

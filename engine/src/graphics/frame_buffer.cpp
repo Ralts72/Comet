@@ -39,18 +39,17 @@ namespace Comet {
         }
 
         std::shared_ptr<FrameBuffer> owner(
-            new FrameBuffer(device, render_pass, image_views, width, height, frame_buffer));
+            new FrameBuffer(device, image_views, width, height, frame_buffer));
         LOG_INFO("Vulkan framebuffer created successfully");
         LOG_TRACE("Framebuffer created, width: {} height: {}  view count: {}", width, height,
             vk_image_views.size());
         return GpuResourceResult<std::shared_ptr<FrameBuffer>>::success(std::move(owner));
     }
 
-    FrameBuffer::FrameBuffer(Device& device, RenderPass& render_pass,
-        std::vector<std::shared_ptr<ImageView>> image_views, const uint32_t width,
-        const uint32_t height, const vk::Framebuffer frame_buffer)
-        : m_frame_buffer(frame_buffer), m_device(device), m_render_pass(render_pass),
-          m_attachments(std::move(image_views)), m_width(width), m_height(height) {}
+    FrameBuffer::FrameBuffer(Device& device, std::vector<std::shared_ptr<ImageView>> image_views,
+        const uint32_t width, const uint32_t height, const vk::Framebuffer frame_buffer)
+        : m_frame_buffer(frame_buffer), m_device(device), m_attachments(std::move(image_views)),
+          m_width(width), m_height(height) {}
 
     FrameBuffer::~FrameBuffer() {
         if(m_frame_buffer) {

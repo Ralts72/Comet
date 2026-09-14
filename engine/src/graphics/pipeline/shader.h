@@ -8,7 +8,6 @@
 #include <memory>
 #include <span>
 #include <string>
-#include <unordered_map>
 #include <vector>
 namespace Comet {
     class Device;
@@ -49,15 +48,4 @@ namespace Comet {
         vk::UniqueShaderModule m_shader_module;
     };
 
-    class COMET_API ShaderManager {
-    public:
-        explicit ShaderManager(Device& device) : m_device(device) {}
-
-        Result<std::shared_ptr<Shader>, GraphicsError> load_shader(const std::string& name,
-            std::span<const std::uint32_t> spv_data, std::string entry_point = "main");
-
-    private:
-        Device& m_device;
-        std::unordered_map<std::string, std::shared_ptr<Shader>> m_shaders;
-    };
 }

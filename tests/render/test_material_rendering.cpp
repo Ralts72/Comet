@@ -30,6 +30,7 @@
 #include "material_solid_frag.h"
 
 #include <gtest/gtest.h>
+#include <array>
 #include <iterator>
 #include <optional>
 #include <string>
@@ -65,14 +66,14 @@ namespace Comet::Tests {
             MaterialRenderer::create(device, pipelines, resources, 0, SampleCount::Count1);
         ASSERT_FALSE(materials);
         EXPECT_FALSE(materials.error().result.has_value());
-        auto debug = DebugRenderer::create(device, pipelines, resources, 0, SampleCount::Count1);
+        auto debug = DebugRenderer::create(device, pipelines, 0, SampleCount::Count1);
         ASSERT_FALSE(debug);
         EXPECT_FALSE(debug.error().result.has_value());
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
 
         materials = MaterialRenderer::create(device, pipelines, resources, 2, SampleCount::Count1);
         ASSERT_TRUE(materials) << materials.error();
-        debug = DebugRenderer::create(device, pipelines, resources, 2, SampleCount::Count1);
+        debug = DebugRenderer::create(device, pipelines, 2, SampleCount::Count1);
         ASSERT_TRUE(debug) << debug.error();
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), 3u);
         MaterialRenderer::ShaderCode invalid{
@@ -98,6 +99,63 @@ namespace Comet::Tests {
         EXPECT_EQ(previous->get_size(), size);
         ASSERT_TRUE(renderer.prepare_frame());
         renderer.render_frame({});
+    }
+
+    TEST_F(MaterialRenderingTest, ShaderPublicationRejectsFixedContractChangesAndActiveFrames) {
+        auto& renderer = engine->get_renderer();
+        auto& scene_renderer = renderer.get_scene_renderer();
+        const MaterialRenderer::ShaderCode original{
+            {std::begin(MATERIAL_MESH_VERT), std::end(MATERIAL_MESH_VERT)},
+            {std::begin(MATERIAL_TEXTURED_FRAG), std::end(MATERIAL_TEXTURED_FRAG)},
+            {std::begin(MATERIAL_SOLID_FRAG), std::end(MATERIAL_SOLID_FRAG)}};
+        const auto source = read_text_file(
+            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/glsl/material_mesh.vert");
+        ASSERT_TRUE(source) << source.error();
+        TemporaryDirectory directory;
+        for(const auto& [from, to] :
+            {std::pair{"mat4 view;\n    mat4 projection;", "mat4 projection;\n    mat4 view;"},
+                {"binding = 0, std140", "binding = 0, std140, row_major"},
+                {"layout(push_constant)", "layout(push_constant, row_major)"}}) {
+            SCOPED_TRACE(to);
+            auto modified = source.value();
+            const auto offset = modified.find(from);
+            ASSERT_NE(offset, std::string::npos);
+            modified.replace(offset, std::string_view(from).size(), to);
+            const auto path = directory.path() / "modified.vert";
+            ASSERT_TRUE(write_text_file_atomic(path, modified));
+            const auto compiled = ShaderCompiler::compile({.source = path});
+            ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+            auto candidate = original;
+            candidate.vertex = compiled.words;
+            const auto rejected = scene_renderer.reload_material_shaders(candidate);
+            ASSERT_FALSE(rejected);
+            EXPECT_FALSE(rejected.error().result.has_value());
+            EXPECT_NE(rejected.error().message.find("fixed resource layout"), std::string::npos);
+
+            auto& device = renderer.get_render_context().get_device();
+            auto pass = RenderPass::create(device,
+                {Attachment::get_color_attachment(Format::R8G8B8A8_UNORM),
+                    Attachment::get_depth_attachment(Format::D32_SFLOAT)},
+                {RenderSubPass{
+                    {}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)}}},
+                Format::R8G8B8A8_UNORM);
+            ASSERT_TRUE(pass) << pass.error();
+            PipelineManager pipelines(device, *pass.value());
+            auto rebuilt = MaterialRenderer::create(device, pipelines,
+                engine->get_resource_manager(), 2, SampleCount::Count1, &candidate);
+            EXPECT_FALSE(rebuilt);
+            EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
+        }
+        ASSERT_TRUE(scene_renderer.reload_material_shaders(original));
+        ASSERT_TRUE(renderer.prepare_frame());
+        EXPECT_TRUE(scene_renderer.get_frame_scheduler().is_frame_active());
+        const auto rejected = scene_renderer.reload_material_shaders(original);
+        EXPECT_FALSE(rejected);
+        if(!rejected)
+            EXPECT_NE(rejected.error().message.find("frame boundary"), std::string::npos);
+        renderer.render_frame({});
+        EXPECT_FALSE(scene_renderer.get_frame_scheduler().is_frame_active());
+        ASSERT_TRUE(scene_renderer.reload_material_shaders(original));
     }
 
     TEST_F(MaterialRenderingTest, OverlayRebuildFailurePropagatesToApplicationBoundary) {
@@ -166,7 +224,7 @@ namespace Comet::Tests {
                 .material = {AssetHandle(2), solid}}};
 
         vk::UniqueDeviceMemory memory;
-        auto readback = device.get().createBufferUnique(vk::BufferCreateInfo({}, 2 * 64 * 32 * 4,
+        auto readback = device.get().createBufferUnique(vk::BufferCreateInfo({}, 4 * 64 * 32 * 4,
             vk::BufferUsageFlagBits::eTransferDst, vk::SharingMode::eExclusive));
         const auto requirements = device.get().getBufferMemoryRequirements(*readback);
         const auto properties = context.get_context().get_physical_device().getMemoryProperties();
@@ -209,19 +267,79 @@ namespace Comet::Tests {
         const auto changed_textured = ShaderCompiler::compile(
             {.source = sources.path() / "textured.frag", .stage = ShaderStage::Fragment});
         ASSERT_TRUE(changed_textured.succeeded()) << changed_textured.diagnostics;
-        EXPECT_FALSE(materials->reload_shaders(
-            pipelines, {updated.vertex, changed_textured.words, {0}}, SampleCount::Count1));
+        auto broken_solid = solid_source.value();
+        broken_solid.insert(
+            broken_solid.find("void main"), "layout(location=4) in vec4 missing;\n");
+        broken_solid.insert(
+            broken_solid.find("color = ") + std::string_view("color = ").size(), "missing * ");
+        ASSERT_TRUE(write_text_file_atomic(sources.path() / "broken.frag", broken_solid));
+        const auto broken = ShaderCompiler::compile(
+            {.source = sources.path() / "broken.frag", .stage = ShaderStage::Fragment});
+        ASSERT_TRUE(broken.succeeded()) << broken.diagnostics;
+        EXPECT_FALSE(materials->reload_shaders(pipelines,
+            {updated.vertex, changed_textured.words, broken.words}, SampleCount::Count1));
+        ASSERT_TRUE(write_text_file_atomic(sources.path() / "layout-solid.frag",
+            "#version 450\nlayout(location=0) out vec4 color;"
+            "layout(set=1,binding=5,std140) uniform MaterialData {float intensity;"
+            "layout(offset=32) vec4 color;} material;"
+            "void main(){color=vec4(material.color.rgb*material.intensity*0.5,material.color.a);}"));
+        ASSERT_TRUE(write_text_file_atomic(sources.path() / "layout-textured.frag",
+            "#version 450\nlayout(location=0) in vec2 uv;layout(location=0) out vec4 color;"
+            "layout(set=1,binding=3,std140) uniform MaterialData {float blend;"
+            "layout(offset=32) vec4 tint;} material;"
+            "layout(set=1,binding=7) uniform sampler2D texture0;"
+            "layout(set=1,binding=6) uniform sampler2D texture1;"
+            "void main(){color=material.tint*mix(texture(texture0,uv),texture(texture1,uv),clamp(material.blend,0.0,1.0));}"));
+        const auto layout_solid = ShaderCompiler::compile(
+            {.source = sources.path() / "layout-solid.frag", .stage = ShaderStage::Fragment});
+        const auto layout_textured = ShaderCompiler::compile(
+            {.source = sources.path() / "layout-textured.frag", .stage = ShaderStage::Fragment});
+        ASSERT_TRUE(layout_solid.succeeded()) << layout_solid.diagnostics;
+        ASSERT_TRUE(layout_textured.succeeded()) << layout_textured.diagnostics;
+        const MaterialRenderer::ShaderCode relocated{
+            updated.vertex, layout_textured.words, layout_solid.words};
         // 第一条候选有效、第二条失败，随后读回的纹理材质仍应使用原 Shader。
         context.wait_idle();
         engine->get_resource_manager().collect_completed_uploads();
-        for(int iteration = 0; iteration < 2; ++iteration) {
+        for(int iteration = 0; iteration < 4; ++iteration) {
             if(iteration == 1) {
                 auto red = texture({255, 0, 0, 255});
                 ASSERT_TRUE(red) << red.error();
                 textured->set_texture_property("u_Texture0", std::move(red).value());
                 textured->set_scalar_property("blend", 0.75f);
                 // 材质不变，仅替换 Shader；旧槽位此时尚未回收。
-                ASSERT_TRUE(materials->reload_shaders(pipelines, updated, SampleCount::Count1));
+                const auto published =
+                    materials->reload_shaders(pipelines, updated, SampleCount::Count1);
+                ASSERT_TRUE(published) << published.error();
+                EXPECT_EQ(published.value().material_versions, 1u);
+                EXPECT_EQ(published.value().material_bindings, 0u);
+            }
+            if(iteration == 2) {
+                const auto previous_layouts = materials->get_material_layouts();
+                const auto previous_texture = textured->get_texture_property("u_Texture0");
+                textured->set_texture_property("u_Texture0", nullptr);
+                const auto rejected =
+                    materials->reload_shaders(pipelines, relocated, SampleCount::Count1);
+                EXPECT_FALSE(rejected);
+                EXPECT_EQ(materials->get_material_layouts(), previous_layouts);
+                textured->set_texture_property("u_Texture0", previous_texture);
+                const auto published =
+                    materials->reload_shaders(pipelines, relocated, SampleCount::Count1);
+                ASSERT_TRUE(published) << published.error();
+                EXPECT_EQ(published.value().material_versions, 2u);
+                EXPECT_EQ(published.value().material_bindings, 2u);
+                for(const auto& layout : materials->get_material_layouts())
+                    EXPECT_EQ(layout->get_parameter_size(), 48u);
+            }
+            if(iteration == 3) {
+                const auto before = materials->get_material_layouts();
+                const auto repeated =
+                    materials->reload_shaders(pipelines, relocated, SampleCount::Count1);
+                ASSERT_TRUE(repeated) << repeated.error();
+                EXPECT_EQ(repeated.value().pipelines, 0u);
+                EXPECT_EQ(repeated.value().material_versions, 0u);
+                EXPECT_EQ(repeated.value().material_bindings, 0u);
+                EXPECT_EQ(materials->get_material_layouts(), before);
             }
             frames.wait_for_current_slot();
             const auto slot = frames.get_current_frame_slot_index();
@@ -253,19 +371,28 @@ namespace Comet::Tests {
             const auto submission = frames.submit(waits, {});
             ASSERT_TRUE(submission) << submission.error();
             frames.end_frame();
-            EXPECT_EQ(materials->get_statistics().material_versions_created, 2u);
+            const std::array<uint32_t, 4> expected_creations{2, 1, 0, 0};
+            EXPECT_EQ(materials->get_statistics().material_versions_created,
+                expected_creations[iteration]);
+            EXPECT_EQ(materials->get_statistics().material_bindings_created,
+                expected_creations[iteration]);
+            if(iteration == 1) {
+                EXPECT_FALSE(retired.expired());
+                pipelines.collect_unused();
+                EXPECT_EQ(pipelines.get_cached_pipeline_count(), 3u);
+            }
+            if(iteration == 2) {
+                pipelines.collect_unused();
+                EXPECT_EQ(pipelines.get_cached_pipeline_count(), 4u);
+            }
         }
-        // 两个槽位均已提交；旧资源必须保留到槽位回收。
-        EXPECT_FALSE(retired.expired());
-        pipelines.collect_unused();
-        EXPECT_EQ(pipelines.get_cached_pipeline_count(), 3u);
         frames.wait_for_all_slots();
         EXPECT_TRUE(retired.expired());
         pipelines.collect_unused();
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), 2u);
         const auto* all_pixels =
             static_cast<const uint8_t*>(device.get().mapMemory(*memory, 0, VK_WHOLE_SIZE));
-        for(int iteration = 0; iteration < 2; ++iteration) {
+        for(int iteration = 0; iteration < 4; ++iteration) {
             const auto* pixels = all_pixels + iteration * 64 * 32 * 4;
             const auto check = [&](uint32_t x, Math::Vec3i expected) {
                 for(int channel = 0; channel < 3; ++channel) {
@@ -282,5 +409,10 @@ namespace Comet::Tests {
             }
         }
         device.get().unmapMemory(*memory);
+        auto rebuilt = MaterialRenderer::create(
+            device, pipelines, engine->get_resource_manager(), 2, SampleCount::Count1, &relocated);
+        ASSERT_TRUE(rebuilt) << rebuilt.error();
+        for(const auto& layout : rebuilt.value()->get_material_layouts())
+            EXPECT_EQ(layout->get_parameter_size(), 48u);
     }
 }

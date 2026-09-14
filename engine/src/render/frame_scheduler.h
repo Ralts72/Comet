@@ -60,6 +60,7 @@ namespace Comet {
 
         [[nodiscard]] uint32_t get_current_frame_slot_index() const { return m_current_frame_slot; }
         [[nodiscard]] uint32_t get_frame_slot_count() const { return m_frame_slot_count; }
+        [[nodiscard]] bool is_frame_active() const { return m_frame_active; }
         [[nodiscard]] uint64_t get_current_frame_serial() const { return m_current_frame_serial; }
         [[nodiscard]] uint64_t get_completed_frame_serial() const {
             return m_completed_frame_serial;

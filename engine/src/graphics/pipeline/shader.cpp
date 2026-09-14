@@ -88,19 +88,4 @@ namespace Comet {
         return Result<std::shared_ptr<Shader>, GraphicsError>::success(std::move(shader));
     }
 
-    Result<std::shared_ptr<Shader>, GraphicsError> ShaderManager::load_shader(
-        const std::string& name, std::span<const std::uint32_t> spirv_words,
-        std::string entry_point) {
-        if(const auto it = m_shaders.find(name); it != m_shaders.end()) {
-            if(it->second->get_interface().get_entry_point() == entry_point
-                && std::ranges::equal(it->second->get_code(), spirv_words)) {
-                return Result<std::shared_ptr<Shader>, GraphicsError>::success(it->second);
-            }
-        }
-        auto shader = Shader::create(m_device, name, spirv_words, std::move(entry_point));
-        if(shader)
-            m_shaders[name] = shader.value();
-        return shader;
-    }
-
 }

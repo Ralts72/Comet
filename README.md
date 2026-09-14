@@ -146,7 +146,7 @@ JSON 解析直接依赖已有 simdjson。
   specialization 支持 bool 与 32 位数值，按阶段和位模式校验／缓存并传给 GPU；只用于固定接口的创建期变体。
   改变数组长度的变体使用编译期 defines，不用 specialization；材质逐帧参数仍走原有 uniform。
   `graphics/pipeline/` 中，`pipeline_config` 管配置，`pipeline_key` 管缓存身份，`pipeline` 管 GPU 对象创建与复用。
-  反射只验证接口，尚不自动生成材质布局或新增 Inspector 控件；名称、默认值和颜色语义仍来自手工 metadata。
+  反射可重绑定已登记材质属性的物理布局，但不会为未知属性生成 Inspector 控件；名称、默认值和颜色语义仍来自手工 metadata。
 - 窗口：Window 管 GLFW 初始化与最后一个窗口释放后的终止；上层通过窗口接口请求关闭、查询最小化状态。
   GLFW 是 engine 的私有依赖，原生句柄仅供 Vulkan／ImGui 后端及底层测试对接，不用于普通业务操作。
 - 调试绘制：`LineDrawList` 提交单帧世界空间线段/包围盒，`DebugRenderer` 在场景 pass 内绘制，
@@ -168,10 +168,15 @@ JSON 解析直接依赖已有 simdjson。
   Shader 编译产物只进入构建目录，学习源码不作为生产 Shader 的隐式依赖。
   Shader 编译库与构建 CLI 独立于 engine；材质描述集中在 `render/material.h`，准备缓存与 GPU 绘制各自独立。
   开发编辑器会后台编译 `engine/shaders/glsl/material_mesh.vert`、`material_textured.frag`、`material_solid.frag`；
-  修改源码或 include 后自动尝试整批更新，失败保留旧画面，诊断只进入日志区。当前只支持现有内置材质契约，
+  修改源码或 include 后自动尝试整批更新，失败保留旧画面，诊断只进入日志区。材质目前只支持现有内置契约，
   已校验基础顶点输入和 Vertex→Fragment 的 location／类型匹配；当前要求精确匹配的 32 位标量／向量，
-  复杂 I/O、顶点格式转换、项目 Shader 与自动布局仍在路线图中；app／engine 不链接 glslang。
-  监视每 500 ms 复核已知输入内容，变化后防抖 200 ms；编译与反射在 Worker，GPU 管线创建和发布仍在主线程。
+  Frame／Object 资源布局以构建内嵌程序为基线，字段顺序、矩阵存储方式变化拒绝发布。
+  已登记材质属性支持按 Shader 名称重新映射 offset／块大小／binding，驻留材质全部准备成功才切换，并同步 Inspector 布局；
+  未知／缺失／改类型的属性和不兼容采样图片仍拒绝，不从 GLSL 自动猜测新属性的默认值或编辑语义。
+  兼容更新复用原材质绑定，重复发布相同 Pipeline 不制造新材质版本；发布入口只允许在活动帧之外调用。
+  复杂 I/O、顶点格式转换、项目 Shader 与新属性 metadata 仍在路线图中；app／engine 不链接 glslang。
+  监视每 500 ms 复核已知输入内容，变化后防抖 200 ms；Worker 只编译，消费端反射校验、GPU 管线创建和发布仍在主线程。
+  辅助线 Shader 仅使用构建时内嵌版本，不参与热重载；修改其源码需重新构建并启动。
 
 详细说明：[资源所有权](docs/architecture/rendering-ownership.md) ·
 [资产管线](docs/architecture/asset-pipeline.md) · [场景格式](docs/architecture/scene-format.md) ·

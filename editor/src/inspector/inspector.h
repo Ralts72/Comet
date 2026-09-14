@@ -9,12 +9,15 @@
 
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace Comet {
     class ComponentRegistry;
     class Entity;
+    class MaterialLayout;
 }
 
 namespace CometEditor {
@@ -41,6 +44,8 @@ namespace CometEditor {
             ReimportTextureCallback reimport_texture_callback);
 
         void render() override;
+        void set_material_layouts(
+            std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts);
         [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
 
     private:
@@ -60,6 +65,7 @@ namespace CometEditor {
         void update_material(
             const Comet::AssetRecord& record, const Comet::MaterialData& previous_data);
         [[nodiscard]] std::string validate_material() const;
+        [[nodiscard]] std::shared_ptr<const Comet::MaterialLayout> material_layout() const;
 
         const EditorState& m_state;
         SelectionService& m_selection;
@@ -75,6 +81,7 @@ namespace CometEditor {
         Comet::AssetRevision m_loaded_revision = 0;
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;
         std::optional<Comet::MaterialData> m_material_data;
+        std::vector<std::shared_ptr<const Comet::MaterialLayout>> m_material_layouts;
         std::string m_asset_error;
         std::optional<AssetAssignment> m_asset_assignment;
     };

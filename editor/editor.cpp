@@ -70,15 +70,15 @@ namespace {
             setup_log_redirect();
 
             const std::filesystem::path shader_root(COMET_BUILTIN_SHADER_DIRECTORY);
-            m_shader_reload = std::make_unique<CometEditor::ShaderReload>(
-                engine.get_task_scheduler(),
-                CometEditor::ShaderReload::Requests{{{.source = shader_root / "material_mesh.vert",
-                                                         .stage = Comet::ShaderStage::Vertex},
-                    {.source = shader_root / "material_textured.frag",
-                        .stage = Comet::ShaderStage::Fragment},
-                    {.source = shader_root / "material_solid.frag",
-                        .stage = Comet::ShaderStage::Fragment}}});
-
+            m_material_shader_reload =
+                std::make_unique<CometEditor::ShaderReload>(engine.get_task_scheduler(),
+                    CometEditor::ShaderReload::Requests{
+                        {"vertex", {.source = shader_root / "material_mesh.vert",
+                                       .stage = Comet::ShaderStage::Vertex}},
+                        {"textured", {.source = shader_root / "material_textured.frag",
+                                         .stage = Comet::ShaderStage::Fragment}},
+                        {"solid", {.source = shader_root / "material_solid.frag",
+                                      .stage = Comet::ShaderStage::Fragment}}});
             try {
                 m_shortcuts = CometEditor::EditorShortcuts::load(
                     std::filesystem::path(COMET_CONFIG_DIRECTORY) / "profiles/editor-dev.yaml");
@@ -119,6 +119,7 @@ namespace {
             m_command_history.bind_scene(&scene);
             m_selection.emplace(scene);
             setup_panels(scene, std::move(initial_asset_scan));
+            m_inspector_panel->set_material_layouts(scene_renderer.get_material_layouts());
 
             renderer.set_overlay_callbacks(
                 [this]() {
@@ -145,28 +146,7 @@ namespace {
         }
 
         void on_update(const Comet::UpdateContext context) override {
-            if(const auto compilation = m_shader_reload->update()) {
-                if(!compilation->succeeded) {
-                    LOG_ERROR("Shader reload failed; previous version retained: {}",
-                        compilation->diagnostics);
-                } else {
-                    auto result =
-                        get_engine().get_renderer().get_scene_renderer().reload_material_shaders(
-                            {compilation->stages[0].words, compilation->stages[1].words,
-                                compilation->stages[2].words});
-                    if(!result) {
-                        if(result.error().is_device_lost())
-                            throw std::runtime_error(
-                                "Device lost during Shader reload: " + result.error().message);
-                        LOG_ERROR("Shader publication failed; previous version retained: {}",
-                            result.error().message);
-                    } else {
-                        LOG_INFO("Published material Shader revision {}", compilation->revision);
-                        if(!compilation->diagnostics.empty())
-                            LOG_WARN("{}", compilation->diagnostics);
-                    }
-                }
-            }
+            update_material_shaders();
             if(auto report = m_assets->update())
                 m_project_panel->update_scan_report(std::move(*report));
             apply_editor_mode_request();
@@ -197,11 +177,43 @@ namespace {
             m_scene_session.reset();
             m_scene_document.reset();
             m_assets.reset();
-            m_shader_reload.reset();
+            m_material_shader_reload.reset();
             m_console_panel.reset();
         }
 
     private:
+        void update_material_shaders() {
+            const auto compilation = m_material_shader_reload->update();
+            if(!compilation)
+                return;
+            if(!compilation->succeeded) {
+                LOG_ERROR("Material Shader compilation failed; previous version retained: {}",
+                    compilation->diagnostics);
+                return;
+            }
+            auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
+            const auto& stages = compilation->stages;
+            auto result = scene_renderer.reload_material_shaders(
+                {stages.at("vertex").words, stages.at("textured").words, stages.at("solid").words});
+            if(!result) {
+                if(result.error().is_device_lost())
+                    throw std::runtime_error(
+                        "Device lost during Shader reload: " + result.error().message);
+                LOG_ERROR("Material Shader publication failed; previous version retained: {}",
+                    result.error().message);
+                return;
+            }
+            if(!compilation->diagnostics.empty())
+                LOG_WARN("{}", compilation->diagnostics);
+            if(result.value().pipelines == 0)
+                return;
+            m_inspector_panel->set_material_layouts(scene_renderer.get_material_layouts());
+            LOG_INFO(
+                "Published material Shader revision {}: {} pipelines, {} material versions, {} bindings",
+                compilation->revision, result.value().pipelines, result.value().material_versions,
+                result.value().material_bindings);
+        }
+
         bool finish_active_edit() {
             m_viewport->panel().cancel_interaction();
             if(m_property_edit.commit())
@@ -487,7 +499,7 @@ namespace {
         Comet::Project m_project;
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
-        std::unique_ptr<CometEditor::ShaderReload> m_shader_reload;
+        std::unique_ptr<CometEditor::ShaderReload> m_material_shader_reload;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry = Comet::create_scene_component_registry();
         CometEditor::CommandHistory m_command_history;

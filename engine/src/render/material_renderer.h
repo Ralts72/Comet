@@ -39,16 +39,24 @@ namespace Comet {
             uint32_t pipeline_binds = 0;
             uint32_t material_binds = 0;
             uint32_t material_versions_created = 0;
+            uint32_t material_bindings_created = 0;
             uint32_t cached_material_versions = 0;
             uint32_t frame_set_count = 0;
+        };
+        struct ReloadReport {
+            uint32_t pipelines = 0;
+            uint32_t material_versions = 0;
+            uint32_t material_bindings = 0;
         };
 
         static Result<std::unique_ptr<MaterialRenderer>, GraphicsError> create(Device& device,
             PipelineManager& pipelines, ResourceManager& resources, uint32_t frame_slot_count,
             SampleCount samples, const ShaderCode* shaders = nullptr);
         // 在新一帧绘制前调用；两种材质管线全部成功后才替换。
-        Result<void, GraphicsError> reload_shaders(
+        Result<ReloadReport, GraphicsError> reload_shaders(
             PipelineManager& pipelines, const ShaderCode& shaders, SampleCount samples);
+        [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
+            const;
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(FrameScheduler& frames,
             const ViewProjectMatrix& view, std::span<const ResolvedRenderItem> items);
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
@@ -81,6 +89,7 @@ namespace Comet {
         struct CachedMaterial {
             std::shared_ptr<MaterialResources> resources;
             std::shared_ptr<const PreparedMaterial> failed_candidate;
+            std::weak_ptr<const PipelineState> failed_pipeline;
             uint64_t retry_after_serial = 0;
             bool used = false;
         };
@@ -92,9 +101,13 @@ namespace Comet {
         Result<std::shared_ptr<const PipelineState>, GraphicsError> create_pipeline(
             PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
-            SampleCount samples);
+            SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout);
         [[nodiscard]] std::shared_ptr<MaterialResources> prepare_material(
             const MaterialBinding& material, uint64_t frame_serial);
+        Result<std::shared_ptr<MaterialResources>, GraphicsError> create_material(
+            const std::shared_ptr<const PreparedMaterial>& prepared,
+            const std::shared_ptr<const PipelineState>& pipeline,
+            const std::shared_ptr<MaterialResources>& previous);
 
         Device& m_device;
         std::shared_ptr<Sampler> m_sampler;

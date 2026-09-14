@@ -42,6 +42,21 @@ namespace CometEditor {
           m_update_material_callback(std::move(update_material_callback)),
           m_reimport_texture_callback(std::move(reimport_texture_callback)) {}
 
+    void InspectorPanel::set_material_layouts(
+        std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts) {
+        m_material_layouts = std::move(layouts);
+    }
+
+    std::shared_ptr<const Comet::MaterialLayout> InspectorPanel::material_layout() const {
+        if(!m_material_data)
+            return nullptr;
+        for(const auto& layout : m_material_layouts) {
+            if(layout && layout->get_name() == m_material_data->template_name)
+                return layout;
+        }
+        return Comet::MaterialLayout::find_builtin(m_material_data->template_name);
+    }
+
     void InspectorPanel::render() {
         m_asset_assignment.reset();
         if(!m_user_visible) {
@@ -312,7 +327,7 @@ namespace CometEditor {
         std::optional<Comet::MaterialData> previous_data;
         ImGui::Text("Template: %s", m_material_data->template_name.c_str());
         ImGui::TextDisabled("Template editing is not available yet");
-        const auto layout = Comet::MaterialLayout::find_builtin(m_material_data->template_name);
+        const auto layout = material_layout();
         if(!layout) {
             ImGui::TextDisabled("No registered layout for this material");
             return;
@@ -468,7 +483,7 @@ namespace CometEditor {
             return "Material data is not loaded";
         }
 
-        const auto layout = Comet::MaterialLayout::find_builtin(m_material_data->template_name);
+        const auto layout = material_layout();
         if(!layout)
             return "Material layout is not registered";
         const auto unknown_property = [](const auto& values, const auto& properties) {

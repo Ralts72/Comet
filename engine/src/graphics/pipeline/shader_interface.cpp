@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <ranges>
 #include <string_view>
 #include <utility>
 #include <cstring>
@@ -101,6 +102,76 @@ namespace Comet {
                 return unsigned_formats[components - 1];
             }
             return Format::UNDEFINED;
+        }
+
+        ShaderInterface::TypeShape::Scalar scalar_type(const SpvReflectTypeDescription* type) {
+            using Scalar = ShaderInterface::TypeShape::Scalar;
+            if(!type)
+                return Scalar::Unknown;
+            if(type->type_flags & SPV_REFLECT_TYPE_FLAG_FLOAT)
+                return Scalar::Float;
+            if(type->type_flags & SPV_REFLECT_TYPE_FLAG_INT)
+                return type->traits.numeric.scalar.signedness ? Scalar::SignedInteger
+                                                              : Scalar::UnsignedInteger;
+            if(type->type_flags & SPV_REFLECT_TYPE_FLAG_BOOL)
+                return Scalar::Boolean;
+            return Scalar::Unknown;
+        }
+
+        ShaderInterface::BlockMember reflect_member(const SpvReflectBlockVariable& source) {
+            ShaderInterface::BlockMember result{source.name ? source.name : "", source.offset,
+                source.size, variable_format(source)};
+            result.shape = {.scalar = scalar_type(source.type_description),
+                .width = source.numeric.scalar.width,
+                .vector_components = source.numeric.vector.component_count,
+                .matrix_rows = source.numeric.matrix.row_count,
+                .matrix_columns = source.numeric.matrix.column_count,
+                .matrix_stride = source.numeric.matrix.stride,
+                .row_major = (source.decoration_flags & SPV_REFLECT_DECORATION_ROW_MAJOR) != 0,
+                .array_stride = source.array.stride,
+                .array_dimensions = {
+                    source.array.dims, source.array.dims + source.array.dims_count}};
+            for(uint32_t index = 0; index < source.member_count; ++index)
+                result.members.push_back(reflect_member(source.members[index]));
+            return result;
+        }
+
+        ShaderInterface::DescriptorBinding::SampledImage reflect_image(
+            const SpvReflectDescriptorBinding& source) {
+            using Image = ShaderInterface::DescriptorBinding::SampledImage;
+            Image result;
+            switch(source.image.dim) {
+                case SpvDim1D:
+                    result.dimension = Image::Dimension::One;
+                    break;
+                case SpvDim2D:
+                    result.dimension = Image::Dimension::Two;
+                    break;
+                case SpvDim3D:
+                    result.dimension = Image::Dimension::Three;
+                    break;
+                case SpvDimCube:
+                    result.dimension = Image::Dimension::Cube;
+                    break;
+                case SpvDimRect:
+                    result.dimension = Image::Dimension::Rectangle;
+                    break;
+                case SpvDimBuffer:
+                    result.dimension = Image::Dimension::Buffer;
+                    break;
+                case SpvDimSubpassData:
+                    result.dimension = Image::Dimension::Subpass;
+                    break;
+                default:
+                    break;
+            }
+            result.scalar = scalar_type(source.type_description);
+            if(source.type_description)
+                result.width = source.type_description->traits.numeric.scalar.width;
+            result.arrayed = source.image.arrayed != 0;
+            result.multisampled = source.image.ms != 0;
+            result.depth = source.image.depth != 0;
+            return result;
         }
 
         Result<std::vector<ShaderInterface::StageVariable>> reflect_variables(
@@ -260,13 +331,12 @@ namespace Comet {
                 return Result<ShaderInterface>::failure(type.error());
             DescriptorBinding binding{source->set, source->binding, type.value(), source->count,
                 Flags<ShaderStage>(candidate.m_stage), source->block.padded_size, {}};
+            binding.name = source->name ? source->name : "";
+            if(type.value() == DescriptorType::CombinedImageSampler
+                || type.value() == DescriptorType::SampledImage)
+                binding.sampled_image = reflect_image(*source);
             for(uint32_t index = 0; index < source->block.member_count; ++index) {
-                const auto& member = source->block.members[index];
-                std::string name;
-                if(member.name)
-                    name = member.name;
-                binding.members.push_back(
-                    {std::move(name), member.offset, member.size, variable_format(member)});
+                binding.members.push_back(reflect_member(source->block.members[index]));
             }
             candidate.m_bindings.push_back(std::move(binding));
         }
@@ -294,8 +364,27 @@ namespace Comet {
                 return Result<ShaderInterface>::failure("Invalid SPIR-V push constant block");
             candidate.m_push_constants.emplace_back(Flags<ShaderStage>(candidate.m_stage),
                 block->offset, static_cast<uint32_t>(end) - block->offset);
+            for(uint32_t index = 0; index < block->member_count; ++index)
+                candidate.m_push_constants.back().members.push_back(
+                    reflect_member(block->members[index]));
         }
         return Result<ShaderInterface>::success(std::move(candidate));
+    }
+
+    bool ShaderInterface::DescriptorBinding::SampledImage::is_float_2d() const {
+        return dimension == Dimension::Two && scalar == TypeShape::Scalar::Float && width == 32
+               && !arrayed && !multisampled && !depth;
+    }
+
+    bool ShaderInterface::has_same_resource_layout(
+        const ShaderInterface& other, std::optional<uint32_t> ignored_descriptor_set) const {
+        const auto included = [&](const DescriptorBinding& binding) {
+            return !ignored_descriptor_set || binding.set != *ignored_descriptor_set;
+        };
+        return m_stage == other.m_stage
+               && std::ranges::equal(m_bindings | std::views::filter(included),
+                   other.m_bindings | std::views::filter(included))
+               && m_push_constants == other.m_push_constants;
     }
 
     Result<void> ShaderInterface::validate_stage_link(const ShaderInterface& fragment) const {

@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <bit>
 #include <map>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -40,14 +41,42 @@ namespace Comet {
             ConstantValue default_value;
         };
 
+        struct TypeShape {
+            enum class Scalar { Unknown, Boolean, SignedInteger, UnsignedInteger, Float };
+            Scalar scalar = Scalar::Unknown;
+            uint32_t width = 0;
+            uint32_t vector_components = 0;
+            uint32_t matrix_rows = 0;
+            uint32_t matrix_columns = 0;
+            uint32_t matrix_stride = 0;
+            bool row_major = false;
+            uint32_t array_stride = 0;
+            std::vector<uint32_t> array_dimensions;
+            bool operator==(const TypeShape&) const = default;
+        };
+
         struct BlockMember {
             std::string name;
             uint32_t offset;
             uint32_t size;
             // 数组、矩阵和结构体保持 UNDEFINED。
             Format format = Format::UNDEFINED;
+            TypeShape shape;
+            std::vector<BlockMember> members;
+            bool operator==(const BlockMember&) const = default;
         };
         struct DescriptorBinding {
+            struct SampledImage {
+                enum class Dimension { Unknown, One, Two, Three, Cube, Rectangle, Buffer, Subpass };
+                Dimension dimension = Dimension::Unknown;
+                TypeShape::Scalar scalar = TypeShape::Scalar::Unknown;
+                uint32_t width = 0;
+                bool arrayed = false;
+                bool multisampled = false;
+                bool depth = false;
+                [[nodiscard]] bool is_float_2d() const;
+                bool operator==(const SampledImage&) const = default;
+            };
             uint32_t set;
             uint32_t binding;
             DescriptorType type;
@@ -55,12 +84,17 @@ namespace Comet {
             Flags<ShaderStage> stages;
             uint32_t block_size;
             std::vector<BlockMember> members;
+            std::optional<SampledImage> sampled_image;
+            std::string name;
+            bool operator==(const DescriptorBinding&) const = default;
         };
 
         struct PushConstant {
             Flags<ShaderStage> stages;
             uint32_t offset;
             uint32_t size;
+            std::vector<BlockMember> members;
+            bool operator==(const PushConstant&) const = default;
         };
 
         struct StageVariable {
@@ -77,6 +111,9 @@ namespace Comet {
         [[nodiscard]] const std::vector<StageVariable>& get_inputs() const { return m_inputs; }
         [[nodiscard]] const std::vector<StageVariable>& get_outputs() const { return m_outputs; }
         Result<void> validate_stage_link(const ShaderInterface& fragment) const;
+        // 固定资源契约的保守比较；阶段连通性由 validate_stage_link 独立检查。
+        [[nodiscard]] bool has_same_resource_layout(const ShaderInterface& other,
+            std::optional<uint32_t> ignored_descriptor_set = std::nullopt) const;
         [[nodiscard]] const std::vector<DescriptorBinding>& get_bindings() const {
             return m_bindings;
         }

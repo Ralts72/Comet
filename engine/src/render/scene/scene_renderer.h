@@ -34,7 +34,10 @@ namespace Comet {
 
         Result<void, GraphicsError> setup_pipeline(ResourceManager& resource_manager);
 
-        Result<void, GraphicsError> reload_material_shaders(MaterialRenderer::ShaderCode shaders);
+        Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
+            MaterialRenderer::ShaderCode shaders);
+        [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
+            const;
 
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render_scene_pass(
             const RenderSubmission& submission, const LineDrawList& lines = {});

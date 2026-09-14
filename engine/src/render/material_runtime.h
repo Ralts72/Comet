@@ -2,6 +2,7 @@
 
 #include "asset/handle.h"
 #include "common/export.h"
+#include "common/result.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -35,6 +36,9 @@ namespace Comet {
             const std::shared_ptr<const MaterialLayout>& layout);
 
         void collect_unused();
+        Result<std::shared_ptr<const PreparedMaterial>> rebind(
+            AssetHandle handle, const std::shared_ptr<const MaterialLayout>& layout);
+        void swap(MaterialRuntimeCache& other) noexcept;
 
     private:
         struct Entry {

@@ -2,7 +2,7 @@
 
 #include "shader/compiler.h"
 
-#include <array>
+#include <map>
 #include <chrono>
 #include <cstdint>
 #include <future>
@@ -19,10 +19,10 @@ namespace CometEditor {
     class ShaderReload final {
     public:
         using Clock = std::chrono::steady_clock;
-        using Requests = std::array<Comet::ShaderCompiler::Request, 3>;
+        using Requests = std::map<std::string, Comet::ShaderCompiler::Request>;
         struct Compilation {
             uint64_t revision = 0;
-            std::array<Comet::ShaderCompiler::Result, 3> stages;
+            std::map<std::string, Comet::ShaderCompiler::Result> stages;
             std::string diagnostics;
             bool succeeded = false;
         };

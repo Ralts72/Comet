@@ -30,13 +30,11 @@ namespace Comet {
         [[nodiscard]] uint32_t get_height() const { return m_height; }
 
     private:
-        FrameBuffer(Device& device, RenderPass& render_pass,
-            std::vector<std::shared_ptr<ImageView>> image_views, uint32_t width, uint32_t height,
-            vk::Framebuffer frame_buffer);
+        FrameBuffer(Device& device, std::vector<std::shared_ptr<ImageView>> image_views,
+            uint32_t width, uint32_t height, vk::Framebuffer frame_buffer);
 
         vk::Framebuffer m_frame_buffer = VK_NULL_HANDLE;
         Device& m_device;
-        RenderPass& m_render_pass;
         std::vector<std::shared_ptr<ImageView>> m_attachments;
 
         uint32_t m_width, m_height;

@@ -100,52 +100,127 @@ namespace Comet {
             frame->descriptor->update(device, std::span(&write, 1));
             m_frames.push_back(std::move(frame));
         }
-        if(shaders)
-            return reload_shaders(pipelines, *shaders, samples);
-        return reload_shaders(pipelines,
-            {std::vector<uint32_t>(std::begin(MATERIAL_MESH_VERT), std::end(MATERIAL_MESH_VERT)),
-                std::vector<uint32_t>(
-                    std::begin(MATERIAL_TEXTURED_FRAG), std::end(MATERIAL_TEXTURED_FRAG)),
-                std::vector<uint32_t>(
-                    std::begin(MATERIAL_SOLID_FRAG), std::end(MATERIAL_SOLID_FRAG))},
-            samples);
+        const ShaderCode embedded{
+            std::vector<uint32_t>(std::begin(MATERIAL_MESH_VERT), std::end(MATERIAL_MESH_VERT)),
+            std::vector<uint32_t>(
+                std::begin(MATERIAL_TEXTURED_FRAG), std::end(MATERIAL_TEXTURED_FRAG)),
+            std::vector<uint32_t>(std::begin(MATERIAL_SOLID_FRAG), std::end(MATERIAL_SOLID_FRAG))};
+        auto loaded = reload_shaders(pipelines, shaders ? *shaders : embedded, samples);
+        if(!loaded)
+            return Result<void, GraphicsError>::failure(loaded.error());
+        return Result<void, GraphicsError>::success();
     }
 
-    Result<void, GraphicsError> MaterialRenderer::reload_shaders(
+    Result<MaterialRenderer::ReloadReport, GraphicsError> MaterialRenderer::reload_shaders(
         PipelineManager& pipelines, const ShaderCode& shaders, SampleCount samples) {
+        using Reload = Result<ReloadReport, GraphicsError>;
+        // 内嵌程序是本次构建的固定资源契约，重建 Renderer 时也不能以热更候选建立基线。
+        static const auto vertex_contract = ShaderInterface::reflect(MATERIAL_MESH_VERT);
+        static const auto textured_contract = ShaderInterface::reflect(MATERIAL_TEXTURED_FRAG);
+        static const auto solid_contract = ShaderInterface::reflect(MATERIAL_SOLID_FRAG);
+        const auto validate = [](std::span<const uint32_t> words,
+                                  const Result<ShaderInterface>& contract, std::string_view name,
+                                  std::optional<uint32_t> ignored_set = std::nullopt) {
+            if(!contract)
+                return Result<void, GraphicsError>::failure({contract.error()});
+            const auto candidate = ShaderInterface::reflect(words);
+            if(!candidate)
+                return Result<void, GraphicsError>::failure({candidate.error()});
+            if(!contract.value().has_same_resource_layout(candidate.value(), ignored_set))
+                return Result<void, GraphicsError>::failure(
+                    {"Shader changed fixed resource layout: " + std::string(name)});
+            return Result<void, GraphicsError>::success();
+        };
+        if(auto checked = validate(shaders.vertex, vertex_contract, "material_mesh"); !checked)
+            return Reload::failure(checked.error());
+        if(auto checked =
+                validate(shaders.textured_fragment, textured_contract, "material_textured", 1);
+            !checked)
+            return Reload::failure(checked.error());
+        if(auto checked = validate(shaders.solid_fragment, solid_contract, "material_solid", 1);
+            !checked)
+            return Reload::failure(checked.error());
         auto vertex = Shader::create(m_device, "material_mesh", shaders.vertex);
         if(!vertex)
-            return Result<void, GraphicsError>::failure(vertex.error());
+            return Reload::failure(vertex.error());
+        ReloadReport report;
         decltype(m_pipelines) candidates;
         const auto add_builtin = [&](const std::string& name, std::span<const uint32_t> words,
                                      std::string_view layout_name) {
             auto fragment = Shader::create(m_device, name, words);
             if(!fragment)
                 return Result<void, GraphicsError>::failure(fragment.error());
+            const auto old = m_pipelines.find(std::string(layout_name));
+            const auto metadata = old == m_pipelines.end()
+                                      ? MaterialLayout::find_builtin(layout_name)
+                                      : old->second->layout;
+            auto reflected = MaterialLayout::reflect(metadata, fragment.value()->get_interface());
+            if(!reflected)
+                return Result<void, GraphicsError>::failure({reflected.error()});
+            std::shared_ptr<DescriptorSetLayout> descriptor_layout;
+            if(old != m_pipelines.end() && reflected.value() == old->second->layout)
+                descriptor_layout = old->second->material_layout;
             auto candidate = create_pipeline(pipelines, vertex.value(), fragment.value(),
-                MaterialLayout::find_builtin(layout_name), samples);
+                reflected.value(), samples, descriptor_layout);
             if(!candidate)
                 return Result<void, GraphicsError>::failure(candidate.error());
-            candidates.emplace(layout_name, std::move(candidate).value());
+            if(old != m_pipelines.end() && old->second->pipeline == candidate.value()->pipeline)
+                candidates.emplace(layout_name, old->second);
+            else {
+                candidates.emplace(layout_name, std::move(candidate).value());
+                ++report.pipelines;
+            }
             return Result<void, GraphicsError>::success();
         };
         if(auto result =
                 add_builtin("material_textured", shaders.textured_fragment, "unlit_texture_blend");
             !result)
-            return Result<void, GraphicsError>::failure(result.error());
+            return Reload::failure(result.error());
         if(auto result = add_builtin("material_solid", shaders.solid_fragment, "unlit_color");
             !result)
-            return Result<void, GraphicsError>::failure(result.error());
-        m_pipelines.swap(candidates);
-        for(auto& [handle, cached] : m_materials)
+            return Reload::failure(result.error());
+        if(report.pipelines == 0)
+            return Reload::success(report);
+        auto prepared_candidates = m_prepared;
+        auto material_candidates = m_materials;
+        for(auto& [handle, cached] : material_candidates) {
+            if(!cached.resources)
+                continue;
+            const auto& pipeline = candidates.at(cached.resources->prepared->layout->get_name());
+            if(pipeline == cached.resources->pipeline)
+                continue;
+            auto prepared = prepared_candidates.rebind(handle, pipeline->layout);
+            if(!prepared)
+                return Reload::failure({prepared.error()});
+            auto resources = create_material(prepared.value(), pipeline, cached.resources);
+            if(!resources)
+                return Reload::failure(resources.error());
+            if(resources.value()->pool != cached.resources->pool)
+                ++report.material_bindings;
+            cached.resources = std::move(resources).value();
             cached.failed_candidate.reset();
-        return Result<void, GraphicsError>::success();
+            cached.failed_pipeline.reset();
+            ++report.material_versions;
+        }
+        m_pipelines.swap(candidates);
+        m_prepared.swap(prepared_candidates);
+        m_materials.swap(material_candidates);
+        return Reload::success(report);
+    }
+
+    std::vector<std::shared_ptr<const MaterialLayout>> MaterialRenderer::get_material_layouts()
+        const {
+        std::vector<std::shared_ptr<const MaterialLayout>> result;
+        result.reserve(m_pipelines.size());
+        for(const auto& [name, pipeline] : m_pipelines)
+            result.push_back(pipeline->layout);
+        return result;
     }
 
     Result<std::shared_ptr<const MaterialRenderer::PipelineState>, GraphicsError> MaterialRenderer::
         create_pipeline(PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
-            const SampleCount samples) {
+            const SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout) {
         using Creation = Result<std::shared_ptr<const PipelineState>, GraphicsError>;
         if(!layout)
             return Creation::failure({"Missing material layout"});
@@ -153,19 +228,22 @@ namespace Comet {
             return Creation::failure({checked.error()});
         auto state = std::make_shared<PipelineState>();
         state->layout = std::move(layout);
-        DescriptorSetLayoutBindings bindings;
-        if(state->layout->get_parameter_size() > 0) {
-            bindings.add_binding(
-                0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
+        if(!material_layout) {
+            DescriptorSetLayoutBindings bindings;
+            if(state->layout->get_parameter_size() > 0) {
+                bindings.add_binding(state->layout->get_parameter_binding(),
+                    DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
+            }
+            for(const auto& texture : state->layout->get_textures()) {
+                bindings.add_binding(texture.binding, DescriptorType::CombinedImageSampler,
+                    Flags<ShaderStage>(ShaderStage::Fragment));
+            }
+            auto created = DescriptorSetLayout::create(m_device, bindings);
+            if(!created)
+                return Creation::failure(created.error());
+            material_layout = std::move(created).value();
         }
-        for(const auto& texture : state->layout->get_textures()) {
-            bindings.add_binding(texture.binding, DescriptorType::CombinedImageSampler,
-                Flags<ShaderStage>(ShaderStage::Fragment));
-        }
-        auto material_layout = DescriptorSetLayout::create(m_device, bindings);
-        if(!material_layout)
-            return Creation::failure(material_layout.error());
-        state->material_layout = std::move(material_layout).value();
+        state->material_layout = std::move(material_layout);
         ShaderLayout shader_layout;
         shader_layout.descriptor_set_layouts = {m_frame_layout, state->material_layout};
         shader_layout.push_constants.push_back(
@@ -214,7 +292,8 @@ namespace Comet {
         if(cached.resources && cached.resources->prepared == prepared
             && cached.resources->pipeline == pipeline->second)
             return cached.resources;
-        if(cached.failed_candidate == prepared && frame_serial < cached.retry_after_serial) {
+        if(cached.failed_candidate == prepared && cached.failed_pipeline.lock() == pipeline->second
+            && frame_serial < cached.retry_after_serial) {
             return cached.resources;
         }
         const auto keep_previous = [&](const GraphicsError& error) {
@@ -224,11 +303,35 @@ namespace Comet {
                 material.material_handle.value(), error.message,
                 cached.resources ? "retained" : "unavailable");
             cached.failed_candidate = prepared;
+            cached.failed_pipeline = pipeline->second;
             cached.retry_after_serial = frame_serial + 60;
             return cached.resources;
         };
+        auto candidate = create_material(prepared, pipeline->second, cached.resources);
+        if(!candidate)
+            return keep_previous(candidate.error());
+        if(!cached.resources || cached.resources->pool != candidate.value()->pool)
+            ++m_statistics.material_bindings_created;
+        cached.resources = std::move(candidate).value();
+        cached.failed_candidate.reset();
+        cached.failed_pipeline.reset();
+        ++m_statistics.material_versions_created;
+        return cached.resources;
+    }
+
+    Result<std::shared_ptr<MaterialRenderer::MaterialResources>, GraphicsError> MaterialRenderer::
+        create_material(const std::shared_ptr<const PreparedMaterial>& prepared,
+            const std::shared_ptr<const PipelineState>& pipeline,
+            const std::shared_ptr<MaterialResources>& previous) {
+        using Creation = Result<std::shared_ptr<MaterialResources>, GraphicsError>;
+        if(previous && previous->prepared == prepared
+            && previous->pipeline->material_layout == pipeline->material_layout) {
+            auto candidate = std::make_shared<MaterialResources>(*previous);
+            candidate->pipeline = pipeline;
+            return Creation::success(std::move(candidate));
+        }
         auto candidate = std::make_shared<MaterialResources>();
-        candidate->pipeline = pipeline->second;
+        candidate->pipeline = pipeline;
         candidate->prepared = prepared;
         candidate->sampler = m_sampler;
         DescriptorPoolSizes sizes;
@@ -237,7 +340,7 @@ namespace Comet {
                 Flags<BufferUsage>(BufferUsage::Uniform), prepared->parameters.size(), true,
                 prepared->parameters.data(), "immutable material parameters");
             if(!buffer) {
-                return keep_previous(buffer.error());
+                return Creation::failure(buffer.error());
             }
             candidate->parameters = std::move(buffer).value();
             sizes.add_pool_size(DescriptorType::UniformBuffer, 1);
@@ -248,25 +351,23 @@ namespace Comet {
         }
         auto pool = DescriptorPool::create(m_device, 1, sizes);
         if(!pool)
-            return keep_previous(pool.error());
+            return Creation::failure(pool.error());
         candidate->pool = std::move(pool).value();
         auto sets =
             candidate->pool->allocate_descriptor_set(*candidate->pipeline->material_layout, 1);
         if(!sets)
-            return keep_previous(sets.error());
+            return Creation::failure(sets.error());
         candidate->descriptor = sets.value().front();
         std::vector<DescriptorSet::UniformBufferWrite> buffers;
         if(candidate->parameters)
-            buffers.push_back({0, *candidate->parameters, candidate->parameters->get_size()});
+            buffers.push_back({prepared->layout->get_parameter_binding(), *candidate->parameters,
+                candidate->parameters->get_size()});
         std::vector<DescriptorSet::ImageSamplerWrite> images;
         images.reserve(prepared->textures.size());
         for(const auto& binding : prepared->textures)
             images.push_back({binding.binding, *binding.texture->get_image_view(), *m_sampler});
         candidate->descriptor->update(m_device, buffers, images);
-        cached.resources = candidate;
-        cached.failed_candidate.reset();
-        ++m_statistics.material_versions_created;
-        return candidate;
+        return Creation::success(std::move(candidate));
     }
 
     std::vector<QueueSemaphoreSubmit> MaterialRenderer::render(FrameScheduler& frames,

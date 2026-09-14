@@ -1,7 +1,6 @@
 #include "render/shader_reload.h"
 
 #include "core/task_scheduler.h"
-#include "graphics/pipeline/shader_interface.h"
 
 #include <algorithm>
 #include <exception>
@@ -23,8 +22,9 @@ namespace CometEditor {
     }
 
     bool ShaderReload::inputs_unchanged(const Compilation& compilation) {
-        return std::ranges::all_of(compilation.stages,
-            [](const auto& stage) { return Comet::ShaderCompiler::inputs_unchanged(stage); });
+        return std::ranges::all_of(compilation.stages, [](const auto& stage) {
+            return Comet::ShaderCompiler::inputs_unchanged(stage.second);
+        });
     }
 
     std::shared_ptr<const ShaderReload::Compilation> ShaderReload::update(Clock::time_point now) {
@@ -62,22 +62,21 @@ namespace CometEditor {
         auto output = std::make_shared<Compilation>();
         output->revision = m_revision;
         auto completion = m_scheduler.try_submit([output, requests = m_requests] {
+            if(requests.empty() || requests.size() > 16
+                || std::ranges::any_of(requests, [](const auto& entry) {
+                       return entry.first.empty() || entry.second.source.empty();
+                   })) {
+                output->diagnostics = "Shader compilation requires 1..16 named source requests";
+                return;
+            }
             bool success = true;
-            for(size_t index = 0; index < requests.size(); ++index) {
-                auto& stage = output->stages[index];
-                stage = Comet::ShaderCompiler::compile(requests[index]);
+            for(const auto& [name, request] : requests) {
+                auto& stage = output->stages[name];
+                stage = Comet::ShaderCompiler::compile(request);
                 success &= stage.succeeded();
-                if(stage.succeeded()) {
-                    const auto reflected =
-                        Comet::ShaderInterface::reflect(stage.words, requests[index].entry_point);
-                    if(!reflected) {
-                        success = false;
-                        stage.diagnostics += reflected.error();
-                    }
-                }
                 if(!stage.diagnostics.empty())
                     output->diagnostics +=
-                        requests[index].source.string() + ":\n" + stage.diagnostics + '\n';
+                        name + " (" + request.source.string() + "):\n" + stage.diagnostics + '\n';
             }
             output->succeeded = success;
         });

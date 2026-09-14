@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string>
 #include <utility>
 
 namespace Comet {
@@ -58,6 +59,24 @@ namespace Comet {
         }
         entry.prepared = std::move(prepared);
         return entry.prepared;
+    }
+
+    Result<std::shared_ptr<const PreparedMaterial>> MaterialRuntimeCache::rebind(
+        AssetHandle handle, const std::shared_ptr<const MaterialLayout>& layout) {
+        const auto found = m_entries.find(handle);
+        if(found == m_entries.end())
+            return Result<std::shared_ptr<const PreparedMaterial>>::failure(
+                "Resident material source is missing");
+        const auto source = found->second.source;
+        auto prepared = prepare(handle, source, layout);
+        if(!prepared)
+            return Result<std::shared_ptr<const PreparedMaterial>>::failure(
+                "Cannot prepare resident material " + std::to_string(handle.value()));
+        return Result<std::shared_ptr<const PreparedMaterial>>::success(std::move(prepared));
+    }
+
+    void MaterialRuntimeCache::swap(MaterialRuntimeCache& other) noexcept {
+        m_entries.swap(other.m_entries);
     }
 
     void MaterialRuntimeCache::collect_unused() {

@@ -7,7 +7,6 @@
 namespace Comet {
     class UploadManager;
     class Device;
-    class ShaderManager;
     class SamplerManager;
 
     class COMET_API ResourceManager final: public RenderResourceFactory {
@@ -15,8 +14,6 @@ namespace Comet {
         explicit ResourceManager(Device& device);
         ~ResourceManager() override;
 
-        [[nodiscard]] ShaderManager& get_shader_manager() { return *m_shader_manager; }
-        [[nodiscard]] const ShaderManager& get_shader_manager() const { return *m_shader_manager; }
         [[nodiscard]] SamplerManager& get_sampler_manager() { return *m_sampler_manager; }
         [[nodiscard]] const SamplerManager& get_sampler_manager() const {
             return *m_sampler_manager;
@@ -31,7 +28,6 @@ namespace Comet {
     private:
         Device& m_device;
         std::unique_ptr<UploadManager> m_upload_manager;
-        std::unique_ptr<ShaderManager> m_shader_manager;
         std::unique_ptr<SamplerManager> m_sampler_manager;
     };
 }

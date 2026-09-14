@@ -16,8 +16,10 @@
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
-以当前 main 的功能与验收为准，不再按 feat/auto 提交编号逐个迁移；旧分支仅作为算法、测试及设计参考。
-可失败创建与主要消费者、Scene／Project 解析边界及内置材质 Shader 后台热更新已接通，下一步推进阶段 5 的项目 Shader／程序资产与布局；
+以当前 main 的功能与验收为准，继续逐项对照 feat/auto2 的实现及原始提交，而不是机械 cherry-pick。
+每项先注明对应旧提交、当前覆盖、需要调整及仍未覆盖的范围，再适配 main 的 Result、目录边界和生命周期；
+临时代码说明留在仓库内供学习，不进入提交。旧分支的已实现行为不能只因 main 有同名功能就判为完整覆盖。
+材质布局重建及编译／发布边界回顾已完成；辅助线 Shader 热更新按实际需求暂缓，下一步参考旧 026 `6d9f365` 接通驱动 PipelineCache 持久化；
 阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
@@ -168,16 +170,33 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
 
 1. 可失败创建与消费者迁移：反射／布局／Pipeline 校验、GPU 候选创建、结果处理与失败回滚完整接通，见下节。
 2. 内置材质 Shader 后台编译与发布已完成：请求 revision、输入快照复核、整批 GPU 候选切换、失败保留旧版本、在途帧寿命。
-   开发编辑器只监视三个生产材质 Shader 及 include；单个在途任务与最新后继合并，不阻塞等待调度容量。
-   现有 MaterialLayout 保持固定，已接基础顶点输入和 Vertex→Fragment 的 location／类型校验；不匹配拒绝发布。
+   开发编辑器只登记材质三程序；单个在途任务与最新后继合并，不阻塞等待调度容量。
+   ShaderReload 接收 1..16 个具名 CPU 请求，不持有渲染器、GPU 对象或发布回调；编译成功不等于 GPU 发布成功。
+   SceneRenderer 在帧边界发布材质程序并保存成功字节码供目标重建，旧 Pipeline 由在途帧保活。无生产消费者的 ShaderManager 已移除。
+   已登记属性可重建 MaterialSet 的 offset／块大小／binding；Frame／Object 与基础顶点输入、Vertex→Fragment 仍须匹配。
+   已补固定资源契约（递归 block／push 成员、矩阵／数组形状、采样图片类型）、兼容更新的材质绑定复用、
+   相同 Pipeline 发布幂等性与活动帧入口检查；驻留材质候选整批成功后切换，并向 Inspector 交付布局快照。
+   新属性、复杂参数和项目 Shader 资产未接通，不能把有限布局重绑定说成任意接口动态生成。
    监视仍是每 500 ms 内容复核、200 ms 防抖，不是原生文件事件；GPU 创建仍可能造成主线程尖峰。
    原生监听、尾沿防抖与漏事件恢复统一按阶段 3 的“统一文件监听与防抖”专项推进，不在 Shader 内另建后端。
 3. 项目 Shader／程序资产与布局生成：补复杂参数、顶点输入／stage 间接口、外部字节码校验。
+   同步完成下节“资源服务与程序版本所有权”的迁移，不把程序状态继续叠加到 SceneRenderer。
    Inspector 随之支持程序切换与资产撤销；不先引入 bindless。
    基础接口校验已落地：按入口反射 user I/O、忽略 built-in，检查顶点 attribute／binding 和片元输入的来源。
    当前采用精确 32 位标量／向量格式契约，不支持的数组、矩阵、结构体、64 位与 component 打包 I/O 明确拒绝。
    后续按消费者扩展 normalized／packed 顶点格式转换、复杂 I/O、插值／附件输出及设备能力校验；
    不把这一步的保守限制说成 Vulkan 完整兼容规则，也不把反射视为完整 SPIR-V validator。
+
+近期旧实现对照顺序：
+
+- 023 `5ae0775`：兼容材质热更与绑定复用已覆盖；保留 main 的 Result、CPU/GPU 分离，不恢复 ShaderManager 发布快照。
+- 024 `40dfe50`：已接已登记属性的布局重绑定、驻留材质整批重建和 Inspector 同步；
+  使用 Result 和布局对象身份，不恢复布局 revision 计数或 ShaderManager 快照，不包含任意新属性或项目 Shader 资产。
+- 025 `c186e75`：只保留架构整理：具名 CPU 编译服务、局部 GPU 候选和在途帧所有权，
+  删除无生产消费者的 ShaderManager 及后台重复反射。Debug 热重载暂缓，保留辅助线绘制和统一构建路径；
+  有实际辅助线着色效果开发需求时再评估，不作为下一项的前置条件。
+- 026 `6d9f365`：下一项核对驱动 PipelineCache 的设备／版本校验、损坏拒绝和原子保存；不替代 PipelineKey 对象缓存。
+- 原生文件监听按阶段 3 专项安排，旧分支同样采用轮询，不作为最终方案迁回。
 
 specialization 已贯通类型化值、默认值规范化、反射校验、PipelineKey 和 GPU 创建。
 当前仅支持 bool/int32/uint32/float32 的固定接口变体；所有依赖 specialization 的数组长度暂不接受，
@@ -191,9 +210,80 @@ specialization 已贯通类型化值、默认值规范化、反射校验、Pipel
 Shader 源码、CPU 结果与 Vulkan 对象分层；后续编辑器复用现有编译库，不另起编译实现，也不让 Shipping 链接 glslang。
 后台发布同时复核请求 revision 与输入快照；监听需包含缺失的 include 候选，不能只观察成功包含的文件。
 持久编译缓存、优化器、HLSL、超时／沙箱和交叉编译 host tools 按实际需求安排，不把当前编译器视为不可信源码安全边界。
-Editor-only 热加载已按 debounce → Worker 编译/reflection → revision／输入验票 → owner 绘制前切换接通。
-当前替换 Pipeline 并按管线版本重建材质绑定；后续支持接口变化时，再同时生成 Layout 与材质参数映射。失败保留旧版本并输出文件/行号诊断；
-成功也不能提前释放在途帧引用的 Shader/Pipeline/Layout。Shipping 只消费预编译打包数据，不要求松散 .spv。
+Editor-only 热加载已按 debounce → Worker 编译 → revision／输入验票 → owner 反射校验／创建／绘制前切换接通。
+已登记材质属性的 Layout 与参数映射随 Pipeline 一起更新。失败保留旧版本并输出诊断；
+成功也不能提前释放在途帧引用的 Pipeline/Layout/材质绑定。ShaderModule 只需活到 Pipeline 创建结束。
+Shipping 只消费预编译打包数据，不要求松散 .spv。
+
+### 资源服务与程序版本所有权（随项目 Shader 接入）
+
+目标不是减少 ResourceManager 的字段数量，而是按资源身份、程序版本、设备资源和帧生命周期划分职责。
+当前 SceneRenderer::m_material_shaders 是为重建保留成功字节码的过渡实现；短期保留，
+不只为搬走一个 optional 创建新 Manager，也不恢复仅按名称缓存 ShaderModule 的 ShaderManager。
+本项随项目 Shader／程序资产分步落地，不阻塞旧 026 的驱动 PipelineCache，不恢复辅助线热重载。
+
+#### 职责与依赖
+
+| 角色 | 应负责 | 不应负责 |
+| --- | --- | --- |
+| AssetDatabase／AssetRegistry／AssetManager | 项目程序的稳定身份、依赖、导入产物与加载；沿用既有职责分工 | 按窗口／RenderPass 选择 Pipeline，提前宣布 GPU 版本发布成功 |
+| ResourceManager | 实现 RenderResourceFactory，创建 Mesh／Texture，组织上传与 Sampler 复用 | 项目文件监视、程序当前版本、材质语义、帧编排 |
+| 渲染层程序状态 | 持有当前渲染域已发布的不可变程序版本，为消费者提供版本快照 | 文件轮询、源码编译、窗口尺寸、命令录制 |
+| MaterialRenderer | 从程序快照、材质数据和目标兼容性准备 Pipeline／参数／绑定，执行绘制 | 作为唯一程序版本仓库，在目标重建时丢失程序身份 |
+| SceneRenderer | 目标／pass／帧时序，触发消费者重建，保证帧边界 | 直接保存阶段字节码或实现源码热重载策略 |
+| PipelineManager／FrameSlot | 前者按内容与状态弱缓存 Pipeline；后者保留实际提交的资源 | 前者充当资产库或持久格式；后者持有无关的全部程序历史 |
+
+程序状态由长期存活的 Renderer 或同级渲染运行时 owner 装配，生命周期长于具体 SceneRenderer／MaterialRenderer 的目标重建。
+具体类名在实施时确定；优先使用一个入口清晰的 render 程序模块，不按每种 Shader 再建 Manager 或大量单字段文件。
+AssetRegistry 继续作为稳定资产 Handle 的统一解析入口；渲染域的发布状态按程序身份关联，不能再创建平行身份表。
+编辑器通过明确的候选发布命令交付 CPU 数据，不把编译回调注入 ResourceManager 或 SceneRenderer。
+
+#### 程序身份、候选与版本
+
+- 程序描述包含稳定身份、阶段组合、入口、编译选项、目标环境及依赖；显示名和文件路径不作为版本身份。
+  内置公开程序与项目程序使用同一消费协议，但来源／命名空间明确，项目不得按同名文件覆盖内置程序。
+- CPU 编译产物保存自有字节码、接口信息和内容标识；反射提供物理布局，属性名称／默认值／编辑语义由 metadata 提供。
+  不持有 Device、RenderPass、ShaderModule 或 Pipeline；已有解析结果可复用，但外部产物仍须经过可信边界校验。
+- 区分“最新请求 revision”“可用编译产物”和“当前渲染域已发布版本”。编译成功或 Artifact 原子落盘，
+  不代表任何渲染消费者已经切换；GPU 失败时可以保留编译候选，但不能改变 active 版本指针。
+- 发布版本为不可变快照，包含阶段字节码及匹配的接口／材质布局信息；调用方持共享快照，不修改历史版本。
+  同内容请求幂等处理；内容一致性以完整内容或可靠校验确认，不能只依赖显示名或短 hash。
+  本期只定义单渲染域的发布一致性；未来多设备／多个独立渲染域分别确认成功，不把一个全局 active 指针当成所有域已就绪。
+
+#### 发布与重建时序
+
+```text
+资产导入／开发编译 → 自有 CPU 候选
+  → owner 复核项目 generation、请求 revision、输入快照
+  → 收集受影响的已注册绘制消费者
+  → 各消费者准备 Pipeline、布局、驻留材质绑定候选
+  → 帧边界再次确认请求有效
+  → 一次提交 active 程序快照及全部受影响消费者状态
+  → 再通知 Inspector 等观察者
+
+目标重建 → 获取当前 active 程序快照 → 针对新 RenderPass 创建绘制资源
+         （不重新编译，不切换程序版本，不默认退回内嵌程序）
+```
+
+候选准备使用 Result，失败由 RAII 释放候选；任一受影响的活动消费者失败，旧程序与旧绘制资源一起保留。
+提交阶段只做预先准备好的状态交换，不在中途进行可能失败的 GPU 创建、容器扩容或 UI 回调。
+多帧准备若与目标重建交错，需复核目标 generation 并重建失效候选；不能把旧 RenderPass 的 Pipeline 安装到新目标。
+旧提交继续由 FrameSlot 保留实际 Pipeline／Layout／材质绑定，完成后释放，不引入通用退休队列或发布前 GPU 全局等待。
+ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存所有 module。
+设备丢失沿现有退出清理策略处理；上述候选事务不承诺已退休交换链可回滚，WSI 恢复仍为独立专项。
+
+#### 分步迁移与验收
+
+1. **程序描述与不可变 CPU 版本**：随项目 Shader 资产接入，内置材质与项目程序统一描述／加载入口；
+   测试稳定身份、依赖、编译失败、产物损坏和过期结果拒绝。禁止让导入线程创建 GPU 对象。
+2. **渲染域发布与目标生命周期分离**：将 m_material_shaders 移出 SceneRenderer，移除旧字段与旁路接口，
+   MaterialRenderer 只消费版本快照；保持已有材质整批候选语义，不复制一套材质准备缓存。
+   验证热更新后 resize／MSAA／RenderPass 重建继续使用成功版本，失败不出现“新程序配旧绑定”。
+3. **真实多消费者与关闭边界**：在第二个 View／pass 实际接入时扩展注册与事务范围，不预建空泛订阅框架。
+   测试一个消费者准备失败时全部保留旧版、目标重建期间候选失效、同版本重复发布不重建、旧帧完成后回收；
+   项目关闭／切换使旧 generation 的任务失效，先停止交付再回收 GPU 消费者，Device 最后释放。
+
+每步同时迁移生产消费者与测试；只保留独立验收所需的文档，不以拆文件数量或增加 Manager 数量作为架构改进指标。
 
 ### 可失败创建 API 与消费者迁移（热更新前置）
 

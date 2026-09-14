@@ -360,11 +360,10 @@ namespace Comet::Tests {
         ASSERT_TRUE(pass_result) << pass_result.error();
         auto& pass = *pass_result.value();
         PipelineManager pipelines(device, pass);
-        ShaderManager shaders(device);
-        auto vertex_result = shaders.load_shader("vertex", PIPELINE_TRIANGLE_VERT);
+        auto vertex_result = Shader::create(device, "vertex", PIPELINE_TRIANGLE_VERT);
         ASSERT_TRUE(vertex_result) << vertex_result.error();
         auto vertex = std::move(vertex_result).value();
-        auto fragment_result = shaders.load_shader("fragment", PIPELINE_COLOR_FRAG);
+        auto fragment_result = Shader::create(device, "fragment", PIPELINE_COLOR_FRAG);
         ASSERT_TRUE(fragment_result) << fragment_result.error();
         auto fragment = std::move(fragment_result).value();
         ShaderLayout layout;
@@ -373,7 +372,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(original_result) << original_result.error();
         auto original = std::move(original_result).value();
         {
-            auto other_shader = shaders.load_shader("other_fragment", PIPELINE_COLOR_FRAG);
+            auto other_shader = Shader::create(device, "other_fragment", PIPELINE_COLOR_FRAG);
             ASSERT_TRUE(other_shader) << other_shader.error();
             auto other_pipeline =
                 pipelines.create_pipeline("other", layout, config, vertex, other_shader.value());
@@ -404,26 +403,6 @@ namespace Comet::Tests {
             auto candidate = pipelines.create_pipeline("same", layout, config, vertex, fragment);
             ASSERT_TRUE(candidate) << candidate.error();
             EXPECT_NE(original, candidate.value());
-        }
-
-        {
-            auto candidate = shaders.load_shader("fragment", PIPELINE_COLOR_FRAG);
-            ASSERT_TRUE(candidate) << candidate.error();
-            EXPECT_EQ(fragment, candidate.value());
-        }
-        auto new_fragment_result = shaders.load_shader("fragment", DEBUG_LINE_FRAG);
-        ASSERT_TRUE(new_fragment_result) << new_fragment_result.error();
-        auto new_fragment = std::move(new_fragment_result).value();
-        EXPECT_NE(fragment, new_fragment);
-        EXPECT_EQ(fragment->get_code(),
-            std::vector<uint32_t>(PIPELINE_COLOR_FRAG.begin(), PIPELINE_COLOR_FRAG.end()));
-        auto rejected = shaders.load_shader("fragment", std::span<const uint32_t>{});
-        ASSERT_FALSE(rejected);
-        EXPECT_FALSE(rejected.error().message.empty());
-        {
-            auto candidate = shaders.load_shader("fragment", DEBUG_LINE_FRAG);
-            ASSERT_TRUE(candidate) << candidate.error();
-            EXPECT_EQ(new_fragment, candidate.value());
         }
     }
 
@@ -482,15 +461,14 @@ namespace Comet::Tests {
         auto pass_result = RenderPass::create(device);
         ASSERT_TRUE(pass_result) << pass_result.error();
         auto& pass = *pass_result.value();
-        ShaderManager shaders(device);
         PipelineManager pipelines(device, pass);
-        const auto invalid = shaders.load_shader("vertex", std::span<const uint32_t>{});
+        const auto invalid = Shader::create(device, "vertex", std::span<const uint32_t>{});
         ASSERT_FALSE(invalid);
         EXPECT_FALSE(invalid.error().message.empty());
         EXPECT_FALSE(invalid.error().result);
-        auto vertex = shaders.load_shader("vertex", SPECIALIZATION_VERT);
+        auto vertex = Shader::create(device, "vertex", SPECIALIZATION_VERT);
         ASSERT_TRUE(vertex) << vertex.error();
-        auto fragment = shaders.load_shader("fragment", SPECIALIZATION_FRAG);
+        auto fragment = Shader::create(device, "fragment", SPECIALIZATION_FRAG);
         ASSERT_TRUE(fragment) << fragment.error();
 
         PipelineConfig config;

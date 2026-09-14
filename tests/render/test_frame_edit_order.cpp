@@ -80,7 +80,7 @@ namespace Comet::Tests {
                 if(allocations_before_lines) {
                     const auto& materials = renderer.get_scene_renderer().get_material_statistics();
                     EXPECT_EQ(allocation_count(),
-                        *allocations_before_lines + 1 + materials.material_versions_created);
+                        *allocations_before_lines + 1 + materials.material_bindings_created);
                 }
                 engine.get_window().request_close();
             });

@@ -7,7 +7,6 @@
 #include "graphics/pipeline/vertex_description.h"
 #include "graphics/resource/buffer.h"
 #include "render/frame_scheduler.h"
-#include "render/resource/resource_manager.h"
 
 #include "debug_line_frag.h"
 #include "debug_line_vert.h"
@@ -22,11 +21,27 @@ namespace Comet {
         : m_device(device), m_pipeline(std::move(pipeline)), m_frame_resources(frame_slot_count) {}
 
     Result<std::unique_ptr<DebugRenderer>, GraphicsError> DebugRenderer::create(Device& device,
-        PipelineManager& pipeline_manager, ResourceManager& resource_manager,
-        const uint32_t frame_slot_count, const SampleCount sample_count) {
+        PipelineManager& pipeline_manager, const uint32_t frame_slot_count,
+        const SampleCount sample_count) {
+        using Creation = Result<std::unique_ptr<DebugRenderer>, GraphicsError>;
         if(frame_slot_count == 0)
-            return Result<std::unique_ptr<DebugRenderer>, GraphicsError>::failure(
-                {"Debug renderer requires frame slots"});
+            return Creation::failure({"Debug renderer requires frame slots"});
+        auto pipeline = create_pipeline(device, pipeline_manager, sample_count);
+        if(!pipeline)
+            return Creation::failure(pipeline.error());
+        return Creation::success(std::unique_ptr<DebugRenderer>(
+            new DebugRenderer(device, std::move(pipeline).value(), frame_slot_count)));
+    }
+
+    Result<std::shared_ptr<Pipeline>, GraphicsError> DebugRenderer::create_pipeline(
+        Device& device, PipelineManager& pipeline_manager, const SampleCount sample_count) {
+        using Creation = Result<std::shared_ptr<Pipeline>, GraphicsError>;
+        const auto vertex_shader = Shader::create(device, "debug_line_vert", DEBUG_LINE_VERT);
+        if(!vertex_shader)
+            return Creation::failure(vertex_shader.error());
+        const auto fragment_shader = Shader::create(device, "debug_line_frag", DEBUG_LINE_FRAG);
+        if(!fragment_shader)
+            return Creation::failure(fragment_shader.error());
         ShaderLayout layout;
         layout.push_constants.push_back(
             std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, sizeof(Math::Mat4)));
@@ -50,22 +65,8 @@ namespace Comet {
         config.enable_alpha_blend();
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
 
-        auto& shaders = resource_manager.get_shader_manager();
-        const auto vertex_shader = shaders.load_shader("debug_line_vert", DEBUG_LINE_VERT);
-        if(!vertex_shader)
-            return Result<std::unique_ptr<DebugRenderer>, GraphicsError>::failure(
-                vertex_shader.error());
-        const auto fragment_shader = shaders.load_shader("debug_line_frag", DEBUG_LINE_FRAG);
-        if(!fragment_shader)
-            return Result<std::unique_ptr<DebugRenderer>, GraphicsError>::failure(
-                fragment_shader.error());
-        auto pipeline = pipeline_manager.create_pipeline(
+        return pipeline_manager.create_pipeline(
             "debug_line_pipeline", layout, config, vertex_shader.value(), fragment_shader.value());
-        if(!pipeline)
-            return Result<std::unique_ptr<DebugRenderer>, GraphicsError>::failure(pipeline.error());
-        return Result<std::unique_ptr<DebugRenderer>, GraphicsError>::success(
-            std::unique_ptr<DebugRenderer>(
-                new DebugRenderer(device, std::move(pipeline).value(), frame_slot_count)));
     }
 
     void DebugRenderer::render(FrameScheduler& frame_scheduler,

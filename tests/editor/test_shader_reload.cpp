@@ -12,15 +12,16 @@ namespace CometEditor::Tests {
         Comet::Tests::TemporaryDirectory directory;
         Comet::TaskScheduler scheduler{1, 1};
         ShaderReload::Clock::time_point now{};
-        ShaderReload::Requests requests{{{.source = directory.path() / "material_mesh.vert",
-                                             .stage = Comet::ShaderStage::Vertex},
-            {.source = directory.path() / "material_textured.frag",
-                .stage = Comet::ShaderStage::Fragment},
-            {.source = directory.path() / "material_solid.frag",
-                .stage = Comet::ShaderStage::Fragment}}};
+        ShaderReload::Requests requests{
+            {"vertex", {.source = directory.path() / "material_mesh.vert",
+                           .stage = Comet::ShaderStage::Vertex}},
+            {"textured", {.source = directory.path() / "material_textured.frag",
+                             .stage = Comet::ShaderStage::Fragment}},
+            {"solid", {.source = directory.path() / "material_solid.frag",
+                          .stage = Comet::ShaderStage::Fragment}}};
 
         void SetUp() override {
-            for(const auto& request : requests) {
+            for(const auto& [name, request] : requests) {
                 const auto input =
                     Comet::read_text_file(std::filesystem::path(PROJECT_ROOT_DIR)
                                           / "engine/shaders/glsl" / request.source.filename());
@@ -44,7 +45,8 @@ namespace CometEditor::Tests {
         const auto result = finish(reload);
         ASSERT_TRUE(result);
         ASSERT_TRUE(result->succeeded) << result->diagnostics;
-        for(const auto& stage : result->stages)
+        EXPECT_EQ(result->stages.size(), requests.size());
+        for(const auto& [name, stage] : result->stages)
             EXPECT_TRUE(stage.succeeded());
         for(int index = 0; index < 3; ++index) {
             now += std::chrono::seconds(1);
@@ -123,5 +125,17 @@ namespace CometEditor::Tests {
             EXPECT_FALSE(reload.update(now));
         }
         scheduler.wait_idle();
+    }
+
+    TEST_F(ShaderReloadTest, InvalidBatchReportsOnceWithoutCompiling) {
+        for(const auto& invalid : {ShaderReload::Requests{}, ShaderReload::Requests{{"", {}}}}) {
+            ShaderReload reload(scheduler, invalid);
+            const auto result = finish(reload);
+            ASSERT_TRUE(result);
+            EXPECT_FALSE(result->succeeded);
+            EXPECT_TRUE(result->stages.empty());
+            EXPECT_FALSE(result->diagnostics.empty());
+            EXPECT_FALSE(reload.update(now + std::chrono::seconds(1)));
+        }
     }
 }

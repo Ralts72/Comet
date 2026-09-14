@@ -1,7 +1,6 @@
 #include "render/resource/resource_manager.h"
 #include "render/resource/texture_data.h"
 #include "render/resource/mesh_data.h"
-#include "graphics/pipeline/shader.h"
 #include "graphics/resource/sampler.h"
 #include "diagnostics/logger.h"
 #include "graphics/command/upload_manager.h"
@@ -12,9 +11,6 @@ namespace Comet {
     ResourceManager::ResourceManager(Device& device) : m_device(device) {
         LOG_INFO("create upload manager");
         m_upload_manager = std::make_unique<UploadManager>(device);
-
-        LOG_INFO("create shader manager");
-        m_shader_manager = std::make_unique<ShaderManager>(device);
 
         LOG_INFO("create sampler manager");
         m_sampler_manager = std::make_unique<SamplerManager>(device);
