@@ -147,11 +147,11 @@ namespace Comet::Tests {
         std::memcpy(&color, prepared.value()->parameters.data() + 32, sizeof(color));
         EXPECT_FLOAT_EQ(intensity, 0.25f);
         EXPECT_EQ(color, Math::Vec4(0.2f, 0.4f, 0.6f, 1));
-        EXPECT_EQ(cache.prepare(AssetHandle(1), material, original), previous);
-        EXPECT_EQ(previous->parameters.size(), 32u);
+        EXPECT_EQ(cache.prepare(AssetHandle(1), material, original).value(), previous.value());
+        EXPECT_EQ(previous.value()->parameters.size(), 32u);
         EXPECT_FALSE(candidate.rebind(AssetHandle(99), layout));
         cache.swap(candidate);
-        EXPECT_EQ(cache.prepare(AssetHandle(1), material, layout), prepared.value());
+        EXPECT_EQ(cache.prepare(AssetHandle(1), material, layout).value(), prepared.value());
     }
 
     TEST_F(ShaderCompilerTest, MaterialReflectionRejectsUnknownMissingAndChangedPropertyTypes) {

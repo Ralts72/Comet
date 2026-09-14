@@ -19,6 +19,14 @@ namespace CometEditor {
         ++m_revision;
         m_requested = true;
         m_due = now + DEBOUNCE;
+        m_delivery_retry.reset();
+    }
+
+    bool ShaderReload::retry_delivery(uint64_t revision, Clock::time_point now) {
+        if(m_requested || m_pending || !m_observed || !m_observed->succeeded
+            || revision != m_revision || m_observed->revision != revision)
+            return false;
+        return m_delivery_retry.schedule(now);
     }
 
     bool ShaderReload::inputs_unchanged(const Compilation& compilation) {
@@ -55,6 +63,11 @@ namespace CometEditor {
             m_next_poll = now + POLL_INTERVAL;
             if(m_observed && !inputs_unchanged(*m_observed))
                 request(now);
+        }
+        if(m_delivery_retry.consume(now)) {
+            if(m_observed && m_observed->revision == m_revision && inputs_unchanged(*m_observed))
+                return m_observed;
+            request(now);
         }
         if(!m_requested || now < m_due)
             return {};

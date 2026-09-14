@@ -5,6 +5,7 @@
 #include "graphics/render_pass.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/frame_buffer.h"
+#include "graphics/device.h"
 
 #include <utility>
 
@@ -81,6 +82,10 @@ namespace Comet {
         if(size.x == 0 || size.y == 0 || frame_count == 0) {
             LOG_FATAL("Multi render target requires a non-zero extent and frame count");
         }
+        const auto limit = device.get_capability().max_image_dimension_2d;
+        if(size.x > limit || size.y > limit)
+            return GpuResourceResult<std::unique_ptr<RenderTarget>>::failure(
+                vk::Result::eErrorFormatNotSupported);
 
         std::unique_ptr<MultiTarget> target(
             new MultiTarget(device, render_pass, size, frame_count));

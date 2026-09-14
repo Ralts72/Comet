@@ -5,6 +5,9 @@
 #include "render/scene/scene_resolver.h"
 #include "render/scene/scene_picking.h"
 #include "render/line_draw_list.h"
+#include "render/frame_scheduler.h"
+#include "render/material_renderer.h"
+#include "render/presentation.h"
 
 #include <functional>
 #include <memory>
@@ -31,6 +34,13 @@ namespace Comet {
         void render_frame(const RenderScene& render_scene);
 
         Result<void, GraphicsError> enable_offscreen_rendering(Math::Vec2u initial_size);
+        Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
+            MaterialRenderer::ShaderCode shaders);
+        [[nodiscard]] bool recreate_swapchain();
+        void wait_idle();
+        void set_swapchain_resource_callbacks(std::function<void()> release,
+            std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild);
+        [[nodiscard]] const FrameScheduler& get_frame_scheduler() const { return *m_frames; }
 
         void set_render_view(RenderView view);
 
@@ -64,6 +74,8 @@ namespace Comet {
 
         std::unique_ptr<RenderContext> m_render_context;
         std::unique_ptr<ResourceManager> m_resource_manager;
+        std::unique_ptr<FrameScheduler> m_frames;
+        std::unique_ptr<Presentation> m_presentation;
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         SceneResolver m_scene_resolver;
         RenderView m_render_view;

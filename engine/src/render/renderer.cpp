@@ -5,6 +5,8 @@
 #include "render/scene/scene_renderer.h"
 #include "core/window.h"
 #include "graphics/device.h"
+#include "graphics/convert.h"
+#include "render/render_target.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 
@@ -23,23 +25,30 @@ namespace Comet {
         m_resource_manager = std::make_unique<ResourceManager>(m_render_context->get_device());
 
         LOG_INFO("create scene renderer");
-        m_scene_renderer =
-            std::make_unique<SceneRenderer>(*m_render_context, config.vulkan, config.render);
-
-        if(auto result = m_scene_renderer->setup_render_pass(); !result)
-            throw std::runtime_error(
-                "Cannot initialize scene render pass: " + result.error().message);
-
-        if(auto result = m_scene_renderer->setup_pipeline(*m_resource_manager); !result)
-            throw std::runtime_error(
-                "Cannot initialize scene pipelines: " + result.error().message);
+        m_frames = std::make_unique<FrameScheduler>(
+            m_render_context->get_device(), config.render.max_frames_in_flight);
+        auto& swapchain = m_render_context->get_swapchain();
+        m_frames->initialize_swapchain_images(static_cast<uint32_t>(swapchain.get_images().size()));
+        m_scene_renderer = std::make_unique<SceneRenderer>(m_render_context->get_device(),
+            Graphics::vk_to_format(
+                swapchain.get_active_generation()->get_config().surface_format.format),
+            config.vulkan, config.render);
+        if(auto result = m_scene_renderer->configure_presentation(*m_resource_manager, swapchain);
+            !result)
+            throw std::runtime_error("Cannot initialize scene target: " + result.error().message);
+        m_presentation = std::make_unique<Presentation>(*m_render_context, *m_frames,
+            Presentation::Dependent{[this] { m_scene_renderer->release_presentation_target(); },
+                [this](const SwapchainCompatibility& compatibility) {
+                    return m_scene_renderer->rebuild_presentation_target(
+                        m_render_context->get_swapchain(), compatibility);
+                }});
     }
 
     bool Renderer::prepare_frame() {
         PROFILE_SCOPE("prepare frame");
         m_resource_manager->collect_completed_uploads();
 
-        if(!m_scene_renderer->begin_frame()) {
+        if(!m_presentation->begin_frame()) {
             m_viewport_pick_request.reset();
             m_line_draw_list.clear();
             return false;
@@ -66,22 +75,44 @@ namespace Comet {
             m_line_draw_list.clear();
         }
         const auto resource_waits =
-            m_scene_renderer->render_scene_pass(submission, m_line_draw_list);
+            m_scene_renderer->render_scene_pass(*m_frames, submission, m_line_draw_list);
         m_line_draw_list.clear();
 
         if(m_render_overlay) {
-            m_render_overlay(m_scene_renderer->get_current_command_buffer());
+            m_render_overlay(m_frames->get_current_command_buffer());
         }
 
-        m_scene_renderer->end_frame(resource_waits);
+        m_presentation->end_frame(resource_waits);
     }
 
     Result<void, GraphicsError> Renderer::enable_offscreen_rendering(
         const Math::Vec2u initial_size) {
-        m_render_context->wait_idle();
-        if(auto result = m_scene_renderer->setup_offscreen_render_pass(initial_size); !result)
-            return result;
-        return m_scene_renderer->setup_pipeline(*m_resource_manager);
+        if(m_frames->is_frame_active())
+            return Result<void, GraphicsError>::failure(
+                {"Target configuration requires a frame boundary"});
+        return m_scene_renderer->configure_offscreen(*m_resource_manager, initial_size);
+    }
+
+    Result<MaterialRenderer::ReloadReport, GraphicsError> Renderer::reload_material_shaders(
+        MaterialRenderer::ShaderCode shaders) {
+        if(m_frames->is_frame_active())
+            return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
+                {"Shader publication requires a frame boundary"});
+        return m_scene_renderer->reload_material_shaders(std::move(shaders));
+    }
+
+    bool Renderer::recreate_swapchain() {
+        return m_presentation->recreate_swapchain();
+    }
+
+    void Renderer::wait_idle() {
+        m_frames->wait_for_all_slots();
+        m_render_context->get_device().get_present_queue(0).wait_idle();
+    }
+
+    void Renderer::set_swapchain_resource_callbacks(std::function<void()> release,
+        std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild) {
+        m_presentation->set_overlay({std::move(release), std::move(rebuild)});
     }
 
     void Renderer::set_render_view(RenderView view) {
@@ -116,6 +147,8 @@ namespace Comet {
         LOG_INFO("destroy renderer");
         m_render_context->get_device().wait_idle_for_shutdown();
 
+        m_presentation.reset();
+        m_frames.reset();
         m_scene_renderer.reset();
         m_resource_manager.reset();
         m_render_context.reset();

@@ -31,6 +31,7 @@
 #include "scene/scene_serializer.h"
 
 #include <exception>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -131,7 +132,7 @@ namespace {
                     m_imgui_context->render(command_buffer);
                 });
 
-            scene_renderer.set_swapchain_resource_callbacks(
+            renderer.set_swapchain_resource_callbacks(
                 [this]() { m_imgui_context->release_swapchain_resources(); },
                 [this](const Comet::SwapchainCompatibility& compatibility) {
                     return m_imgui_context->rebuild_swapchain_resources(compatibility);
@@ -158,8 +159,8 @@ namespace {
             LOG_INFO("Editor shutting down...");
             get_engine().get_renderer().set_overlay_callbacks({}, {});
             get_engine().get_renderer().set_viewport_pick_callback({});
-            auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
-            scene_renderer.set_swapchain_resource_callbacks({}, {});
+            auto& renderer = get_engine().get_renderer();
+            renderer.set_swapchain_resource_callbacks({}, {});
             if(m_imgui_context)
                 m_imgui_context->set_ui_callback({});
             if(m_viewport)
@@ -193,16 +194,30 @@ namespace {
             }
             auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
             const auto& stages = compilation->stages;
-            auto result = scene_renderer.reload_material_shaders(
+            auto result = get_engine().get_renderer().reload_material_shaders(
                 {stages.at("vertex").words, stages.at("textured").words, stages.at("solid").words});
             if(!result) {
                 if(result.error().is_device_lost())
                     throw std::runtime_error(
                         "Device lost during Shader reload: " + result.error().message);
-                LOG_ERROR("Material Shader publication failed; previous version retained: {}",
-                    result.error().message);
+                if(result.error().is_out_of_memory()) {
+                    if(!m_material_shader_reload->retry_delivery(compilation->revision)) {
+                        LOG_ERROR(
+                            "Material Shader publication retries exhausted; previous version retained, waiting for a new request: {}",
+                            result.error().message);
+                    } else if(m_reported_shader_retry != compilation->revision) {
+                        LOG_WARN(
+                            "Material Shader publication ran out of memory; previous version retained, retrying: {}",
+                            result.error().message);
+                        m_reported_shader_retry = compilation->revision;
+                    }
+                } else {
+                    LOG_ERROR("Material Shader publication failed; previous version retained: {}",
+                        result.error().message);
+                }
                 return;
             }
+            m_reported_shader_retry = 0;
             if(!compilation->diagnostics.empty())
                 LOG_WARN("{}", compilation->diagnostics);
             if(result.value().pipelines == 0)
@@ -212,6 +227,10 @@ namespace {
                 "Published material Shader revision {}: {} pipelines, {} material versions, {} bindings",
                 compilation->revision, result.value().pipelines, result.value().material_versions,
                 result.value().material_bindings);
+            LOG_INFO("Shader preparation: pipelines {:.2f} ms, candidate copies {:.2f} ms, "
+                     "material CPU {:.2f} ms, material GPU {:.2f} ms",
+                result.value().pipeline_preparation_ms, result.value().candidate_copy_ms,
+                result.value().material_cpu_ms, result.value().material_gpu_ms);
         }
 
         bool finish_active_edit() {
@@ -500,6 +519,7 @@ namespace {
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
         std::unique_ptr<CometEditor::ShaderReload> m_material_shader_reload;
+        uint64_t m_reported_shader_retry = 0;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry = Comet::create_scene_component_registry();
         CometEditor::CommandHistory m_command_history;

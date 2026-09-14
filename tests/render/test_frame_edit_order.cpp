@@ -3,6 +3,7 @@
 #include "render/resource/mesh_data.h"
 #include "render/renderer.h"
 #include "render/scene/scene_renderer.h"
+#include "render/render_target.h"
 #include "render/render_context.h"
 #include "render/resource/resource_manager.h"
 #include "graphics/device.h"

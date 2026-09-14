@@ -7,6 +7,7 @@
 #include "asset/registry.h"
 #include "diagnostics/logger.h"
 #include "render/renderer.h"
+#include "render/render_target.h"
 #include "render/resource/mesh.h"
 #include "render/scene/scene_renderer.h"
 #include "scene/selection.h"
@@ -40,14 +41,14 @@ namespace CometEditor {
             throw std::runtime_error(
                 "Cannot initialize viewport sampler: " + sampler.error().message);
         m_sampler = std::move(sampler).value();
-        const auto count = scene_renderer.get_frame_scheduler().get_frame_slot_count();
+        const auto count = m_renderer.get_frame_scheduler().get_frame_slot_count();
         for(std::uint32_t slot = 0; slot < count; ++slot)
             m_ui.set_viewport_image(slot, scene_renderer.get_offscreen_color_view(slot), m_sampler);
     }
 
     void Viewport::update_texture() {
         auto& scene_renderer = m_renderer.get_scene_renderer();
-        const auto slot = scene_renderer.get_frame_scheduler().get_current_frame_slot_index();
+        const auto slot = m_renderer.get_frame_scheduler().get_current_frame_slot_index();
         m_ui.set_viewport_image(slot, scene_renderer.get_offscreen_color_view(slot), m_sampler);
         const auto size = scene_renderer.get_render_target().get_size();
         m_panel.set_texture_id(m_ui.get_viewport_texture_id(slot), size.x, size.y);

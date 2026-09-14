@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <iterator>
 #include <stdexcept>
 #include <string_view>
@@ -114,6 +115,11 @@ namespace Comet {
     Result<MaterialRenderer::ReloadReport, GraphicsError> MaterialRenderer::reload_shaders(
         PipelineManager& pipelines, const ShaderCode& shaders, SampleCount samples) {
         using Reload = Result<ReloadReport, GraphicsError>;
+        using Clock = std::chrono::steady_clock;
+        const auto start = Clock::now();
+        const auto elapsed = [](Clock::time_point since) {
+            return std::chrono::duration<double, std::milli>(Clock::now() - since).count();
+        };
         // 内嵌程序是本次构建的固定资源契约，重建 Renderer 时也不能以热更候选建立基线。
         static const auto vertex_contract = ShaderInterface::reflect(MATERIAL_MESH_VERT);
         static const auto textured_contract = ShaderInterface::reflect(MATERIAL_TEXTURED_FRAG);
@@ -179,20 +185,27 @@ namespace Comet {
         if(auto result = add_builtin("material_solid", shaders.solid_fragment, "unlit_color");
             !result)
             return Reload::failure(result.error());
+        report.pipeline_preparation_ms = elapsed(start);
         if(report.pipelines == 0)
             return Reload::success(report);
+        const auto copy_start = Clock::now();
         auto prepared_candidates = m_prepared;
         auto material_candidates = m_materials;
+        report.candidate_copy_ms = elapsed(copy_start);
         for(auto& [handle, cached] : material_candidates) {
             if(!cached.resources)
                 continue;
             const auto& pipeline = candidates.at(cached.resources->prepared->layout->get_name());
             if(pipeline == cached.resources->pipeline)
                 continue;
+            const auto cpu_start = Clock::now();
             auto prepared = prepared_candidates.rebind(handle, pipeline->layout);
+            report.material_cpu_ms += elapsed(cpu_start);
             if(!prepared)
                 return Reload::failure({prepared.error()});
+            const auto gpu_start = Clock::now();
             auto resources = create_material(prepared.value(), pipeline, cached.resources);
+            report.material_gpu_ms += elapsed(gpu_start);
             if(!resources)
                 return Reload::failure(resources.error());
             if(resources.value()->pool != cached.resources->pool)
@@ -200,6 +213,7 @@ namespace Comet {
             cached.resources = std::move(resources).value();
             cached.failed_candidate.reset();
             cached.failed_pipeline.reset();
+            cached.preparation_error.clear();
             ++report.material_versions;
         }
         m_pipelines.swap(candidates);
@@ -283,38 +297,49 @@ namespace Comet {
             return nullptr;
         }
         m_unsupported.erase(material.material_handle);
-        const auto prepared = m_prepared.prepare(
-            material.material_handle, material.resource, pipeline->second->layout);
-        if(!prepared)
-            return nullptr;
         auto& cached = m_materials[material.material_handle];
         cached.used = true;
+        const auto keep_previous = [&](const GraphicsError& error) {
+            if(error.is_device_lost())
+                throw std::runtime_error("Device lost while preparing material: " + error.message);
+            const auto previous = cached.resources && cached.resources->pipeline == pipeline->second
+                                      ? cached.resources
+                                      : nullptr;
+            if(cached.preparation_error != error.message) {
+                LOG_ERROR("Cannot prepare material for handle {}: {}; previous version {}",
+                    material.material_handle.value(), error.message,
+                    previous ? "retained" : "unavailable");
+                cached.preparation_error = error.message;
+            }
+            return previous;
+        };
+        const auto preparation = m_prepared.prepare(
+            material.material_handle, material.resource, pipeline->second->layout);
+        if(!preparation)
+            return keep_previous({preparation.error()});
+        const auto& prepared = preparation.value();
         if(cached.resources && cached.resources->prepared == prepared
             && cached.resources->pipeline == pipeline->second)
             return cached.resources;
         if(cached.failed_candidate == prepared && cached.failed_pipeline.lock() == pipeline->second
             && frame_serial < cached.retry_after_serial) {
-            return cached.resources;
+            if(cached.resources && cached.resources->pipeline == pipeline->second)
+                return cached.resources;
+            return nullptr;
         }
-        const auto keep_previous = [&](const GraphicsError& error) {
-            if(error.is_device_lost())
-                throw std::runtime_error("Device lost while preparing material: " + error.message);
-            LOG_ERROR("Cannot prepare GPU material for handle {}: {}; previous version {}",
-                material.material_handle.value(), error.message,
-                cached.resources ? "retained" : "unavailable");
+        auto candidate = create_material(prepared, pipeline->second, cached.resources);
+        if(!candidate) {
             cached.failed_candidate = prepared;
             cached.failed_pipeline = pipeline->second;
             cached.retry_after_serial = frame_serial + 60;
-            return cached.resources;
-        };
-        auto candidate = create_material(prepared, pipeline->second, cached.resources);
-        if(!candidate)
             return keep_previous(candidate.error());
+        }
         if(!cached.resources || cached.resources->pool != candidate.value()->pool)
             ++m_statistics.material_bindings_created;
         cached.resources = std::move(candidate).value();
         cached.failed_candidate.reset();
         cached.failed_pipeline.reset();
+        cached.preparation_error.clear();
         ++m_statistics.material_versions_created;
         return cached.resources;
     }
@@ -371,66 +396,71 @@ namespace Comet {
     }
 
     std::vector<QueueSemaphoreSubmit> MaterialRenderer::render(FrameScheduler& frames,
-        const ViewProjectMatrix& view, const std::span<const ResolvedRenderItem> items) {
+        const std::optional<ViewProjectMatrix>& view,
+        const std::span<const ResolvedRenderItem> items) {
         m_statistics = {};
         m_statistics.frame_set_count = static_cast<uint32_t>(m_frames.size());
-        const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
-        frame->buffer->write(&view);
-        frames.retain_current_frame_resource(frame);
-        std::vector<DrawItem> queue;
-        queue.reserve(items.size());
-        for(const auto& item : items) {
-            if(auto material = prepare_material(item.material, frames.get_current_frame_serial()))
-                queue.push_back({&item, std::move(material)});
-        }
-        std::stable_sort(queue.begin(), queue.end(), [](const DrawItem& a, const DrawItem& b) {
-            return std::tie(
-                       a.material->prepared->layout->get_name(), a.item->material.material_handle)
-                   < std::tie(
-                       b.material->prepared->layout->get_name(), b.item->material.material_handle);
-        });
-        auto& command = frames.get_current_command_buffer();
-        const Pipeline* active_pipeline = nullptr;
-        const MaterialResources* active_material = nullptr;
         std::vector<QueueSemaphoreSubmit> waits;
-        for(const auto& draw : queue) {
-            const auto& material = draw.material;
-            const auto& pipeline = material->pipeline->pipeline;
-            if(active_pipeline != pipeline.get()) {
-                command.bind_pipeline(*pipeline);
-                active_pipeline = pipeline.get();
-                active_material = nullptr;
-                ++m_statistics.pipeline_binds;
+        if(view) {
+            const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
+            frame->buffer->write(&*view);
+            frames.retain_current_frame_resource(frame);
+            std::vector<DrawItem> queue;
+            queue.reserve(items.size());
+            for(const auto& item : items) {
+                if(auto material =
+                        prepare_material(item.material, frames.get_current_frame_serial()))
+                    queue.push_back({&item, std::move(material)});
             }
-            if(active_material != material.get()) {
-                const std::array sets{*frame->descriptor, *material->descriptor};
-                command.bind_descriptor_sets(*pipeline->get_layout(), sets);
-                active_material = material.get();
-                ++m_statistics.material_binds;
+            std::stable_sort(queue.begin(), queue.end(), [](const DrawItem& a, const DrawItem& b) {
+                return std::tie(a.material->prepared->layout->get_name(),
+                           a.item->material.material_handle)
+                       < std::tie(b.material->prepared->layout->get_name(),
+                           b.item->material.material_handle);
+            });
+            auto& command = frames.get_current_command_buffer();
+            const Pipeline* active_pipeline = nullptr;
+            const MaterialResources* active_material = nullptr;
+            for(const auto& draw : queue) {
+                const auto& material = draw.material;
+                const auto& pipeline = material->pipeline->pipeline;
+                if(active_pipeline != pipeline.get()) {
+                    command.bind_pipeline(*pipeline);
+                    active_pipeline = pipeline.get();
+                    active_material = nullptr;
+                    ++m_statistics.pipeline_binds;
+                }
+                if(active_material != material.get()) {
+                    const std::array sets{*frame->descriptor, *material->descriptor};
+                    command.bind_descriptor_sets(*pipeline->get_layout(), sets);
+                    active_material = material.get();
+                    ++m_statistics.material_binds;
+                }
+                frames.retain_current_frame_resource(material);
+                frames.retain_current_frame_resource(draw.item->mesh);
+                append_wait(waits, draw.item->mesh->get_ready_completion(),
+                    Flags<PipelineStage>(PipelineStage::VertexInput));
+                for(const auto& texture : material->prepared->textures) {
+                    append_wait(waits, texture.texture->get_ready_completion(),
+                        Flags<PipelineStage>(PipelineStage::FragmentShader));
+                }
+                const PushConstant push{.model = draw.item->model_matrix};
+                command.push_constants(*pipeline->get_layout(),
+                    Flags<ShaderStage>(ShaderStage::Vertex), 0, &push, sizeof(push));
+                draw.item->mesh->draw(command);
+                ++m_statistics.draw_calls;
             }
-            frames.retain_current_frame_resource(material);
-            frames.retain_current_frame_resource(draw.item->mesh);
-            append_wait(waits, draw.item->mesh->get_ready_completion(),
-                Flags<PipelineStage>(PipelineStage::VertexInput));
-            for(const auto& texture : material->prepared->textures) {
-                append_wait(waits, texture.texture->get_ready_completion(),
-                    Flags<PipelineStage>(PipelineStage::FragmentShader));
-            }
-            const PushConstant push{.model = draw.item->model_matrix};
-            command.push_constants(*pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Vertex),
-                0, &push, sizeof(push));
-            draw.item->mesh->draw(command);
-            ++m_statistics.draw_calls;
+            std::erase_if(waits,
+                [](const auto& wait) { return wait.semaphore->get_counter_value() >= wait.value; });
         }
-        std::erase_if(waits,
-            [](const auto& wait) { return wait.semaphore->get_counter_value() >= wait.value; });
         std::erase_if(m_materials, [](const auto& entry) { return !entry.second.used; });
         for(auto& [handle, cached] : m_materials)
             cached.used = false;
         m_prepared.collect_unused();
         std::erase_if(m_unsupported,
             [&](const auto& entry) { return entry.second != frames.get_current_frame_serial(); });
-        m_statistics.cached_material_versions = static_cast<uint32_t>(m_materials.size());
+        m_statistics.cached_material_versions = static_cast<uint32_t>(std::ranges::count_if(
+            m_materials, [](const auto& entry) { return bool(entry.second.resources); }));
         return waits;
     }
 }

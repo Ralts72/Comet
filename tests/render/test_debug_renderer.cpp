@@ -173,6 +173,32 @@ namespace Comet::Tests {
         EXPECT_EQ(allocations().count, initial.count);
     }
 
+    TEST_P(DebugRendererTest, CompleteTargetSwitchIsAtomicAndRetainsInFlightGeneration) {
+        auto& renderer = engine->get_renderer();
+        auto& scene_renderer = renderer.get_scene_renderer();
+        auto* previous = &scene_renderer.get_render_target();
+        const auto layouts = scene_renderer.get_material_layouts();
+        EXPECT_FALSE(renderer.enable_offscreen_rendering({0, 128}));
+        const auto limit =
+            renderer.get_render_context().get_device().get_capability().max_image_dimension_2d;
+        EXPECT_FALSE(renderer.enable_offscreen_rendering({limit + 1, 128}));
+        EXPECT_EQ(&scene_renderer.get_render_target(), previous);
+        EXPECT_EQ(scene_renderer.get_material_layouts(), layouts);
+        ASSERT_TRUE(renderer.prepare_frame());
+        EXPECT_FALSE(renderer.enable_offscreen_rendering({192, 128}));
+        renderer.render_frame(scene);
+        if(!std::get<0>(GetParam()))
+            return;
+        const std::weak_ptr<ImageView> old_view = scene_renderer.get_offscreen_color_view(0);
+        ASSERT_TRUE(renderer.enable_offscreen_rendering({192, 128}));
+        EXPECT_FALSE(old_view.expired());
+        EXPECT_EQ(scene_renderer.get_render_target().get_size(), Math::Vec2u(192, 128));
+        ASSERT_TRUE(draw_frame(lines(10)));
+        renderer.wait_idle();
+        EXPECT_TRUE(old_view.expired());
+        ASSERT_TRUE(draw_frame(lines(10)));
+    }
+
     INSTANTIATE_TEST_SUITE_P(SwapchainAndOffscreen, DebugRendererTest,
         ::testing::Combine(
             ::testing::Bool(), ::testing::Values(SampleCount::Count1, SampleCount::Count4)));

@@ -42,6 +42,19 @@ namespace Comet::Tests {
         EXPECT_FALSE(GraphicsError{"Invalid descriptor binding"}.is_device_lost());
     }
 
+    TEST(GpuResourceResultTest, ClassifiesMemoryExhaustionWithoutParsingDiagnostics) {
+        for(const auto status :
+            {vk::Result::eErrorOutOfHostMemory, vk::Result::eErrorOutOfDeviceMemory,
+                vk::Result::eErrorDeviceLost, vk::Result::eErrorOutOfPoolMemory,
+                vk::Result::eErrorFragmentedPool, vk::Result::eErrorUnknown}) {
+            const GraphicsError error{"same message", status};
+            EXPECT_EQ(
+                error.is_out_of_memory(), status == vk::Result::eErrorOutOfHostMemory
+                                              || status == vk::Result::eErrorOutOfDeviceMemory);
+        }
+        EXPECT_FALSE(GraphicsError{"out of memory"}.is_out_of_memory());
+    }
+
     TEST(GpuResourceResultTest, RejectsFailedValueAccess) {
         EXPECT_DEATH(
             {

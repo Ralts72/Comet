@@ -122,7 +122,6 @@ namespace Comet {
                 return Result<MaterialLayout>::failure("Material layout has invalid texture slots");
             }
         }
-        std::ranges::sort(candidate.m_textures, {}, &TextureProperty::binding);
         if(parameter_size % 16 != 0 || parameter_size > 65536
             || (parameter_size > 0 && bindings.contains(parameter_binding))) {
             return Result<MaterialLayout>::failure(

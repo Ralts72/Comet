@@ -34,12 +34,12 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& swapchain = renderer.get_render_context().get_swapchain();
         auto previous = swapchain.get_active_generation();
-        ASSERT_TRUE(renderer.get_scene_renderer().recreate_swapchain());
+        ASSERT_TRUE(renderer.recreate_swapchain());
         EXPECT_NE(swapchain.get_active_generation(), previous);
         previous.reset();
         ASSERT_TRUE(renderer.prepare_frame());
         renderer.render_frame({});
-        ASSERT_TRUE(renderer.get_scene_renderer().recreate_swapchain());
+        ASSERT_TRUE(renderer.recreate_swapchain());
         ASSERT_TRUE(renderer.prepare_frame());
         renderer.render_frame({});
     }

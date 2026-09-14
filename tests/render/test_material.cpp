@@ -56,14 +56,15 @@ namespace Comet::Tests {
             "invalid", {}, 16, std::vector<MaterialLayout::ScalarProperty>{{"x", 0, 0, 0, 1, 0}}));
     }
 
-    TEST(MaterialLayoutTest, ValidatesAndOrdersLayoutSlots) {
+    TEST(MaterialLayoutTest, ValidatesSlotsWithoutChangingAuthoringOrder) {
         static_assert(!std::is_copy_assignable_v<Material>);
         static_assert(!std::is_move_assignable_v<Material>);
         static_assert(!std::is_copy_assignable_v<MaterialLayout>);
         auto layout_result = MaterialLayout::create("textured", {{"detail", 7}, {"albedo", 1}});
         ASSERT_TRUE(layout_result) << layout_result.error();
         const auto layout = std::move(layout_result).value();
-        EXPECT_EQ(layout.get_textures().front().name, "albedo");
+        EXPECT_EQ(layout.get_textures().front().name, "detail");
+        EXPECT_EQ(layout.get_textures().back().name, "albedo");
         EXPECT_FALSE(MaterialLayout::create("", {}));
         EXPECT_FALSE(MaterialLayout::create("test", {{"", 2}}));
         EXPECT_FALSE(MaterialLayout::create("test", {{"a", 2}, {"a", 3}}));

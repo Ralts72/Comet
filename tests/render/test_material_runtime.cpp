@@ -31,9 +31,9 @@ namespace Comet::Tests {
         const auto material = std::make_shared<Material>("solid", "solid");
         const auto original = cache.prepare(AssetHandle(1), material, layout);
         ASSERT_TRUE(original);
-        ASSERT_EQ(original->parameters.size(), 32u);
+        ASSERT_EQ(original.value()->parameters.size(), 32u);
         std::array<float, 8> values;
-        std::memcpy(values.data(), original->parameters.data(), sizeof(values));
+        std::memcpy(values.data(), original.value()->parameters.data(), sizeof(values));
         EXPECT_FLOAT_EQ(values[0], 1);
         EXPECT_FLOAT_EQ(values[4], 1);
         EXPECT_FLOAT_EQ(values[7], 0);
@@ -42,15 +42,15 @@ namespace Comet::Tests {
         material->set_vector_property("color", color);
         const auto updated = cache.prepare(AssetHandle(1), material, layout);
         ASSERT_TRUE(updated);
-        std::memcpy(values.data(), updated->parameters.data(), sizeof(values));
+        std::memcpy(values.data(), updated.value()->parameters.data(), sizeof(values));
         for(int component = 0; component < 4; ++component)
             EXPECT_FLOAT_EQ(values[component], color[component]);
         EXPECT_FLOAT_EQ(values[4], 0.25f);
         EXPECT_FLOAT_EQ(values[5], 0);
         EXPECT_FLOAT_EQ(values[6], 0);
         EXPECT_FLOAT_EQ(values[7], 0);
-        EXPECT_EQ(updated, cache.prepare(AssetHandle(1), material, layout));
-        std::memcpy(values.data(), original->parameters.data(), sizeof(values));
+        EXPECT_EQ(updated.value(), cache.prepare(AssetHandle(1), material, layout).value());
+        std::memcpy(values.data(), original.value()->parameters.data(), sizeof(values));
         EXPECT_FLOAT_EQ(values[1], 1);
         EXPECT_FLOAT_EQ(values[4], 1);
     }
@@ -65,31 +65,31 @@ namespace Comet::Tests {
         auto layout = std::make_shared<MaterialLayout>(std::move(layout_result).value());
         const auto first = cache.prepare(handle, material, layout);
         ASSERT_TRUE(first);
-        EXPECT_TRUE(first->textures.empty());
+        EXPECT_TRUE(first.value()->textures.empty());
         cache.collect_unused();
-        EXPECT_EQ(first, cache.prepare(handle, material, layout));
+        EXPECT_EQ(first.value(), cache.prepare(handle, material, layout).value());
 
         material->set_texture_property("unused", nullptr);
         const auto changed = cache.prepare(handle, material, layout);
-        EXPECT_NE(first, changed);
+        EXPECT_NE(first.value(), changed.value());
         const auto revision = material->get_revision();
         material->set_texture_property("unused", nullptr);
         EXPECT_EQ(material->get_revision(), revision);
-        EXPECT_EQ(changed, cache.prepare(handle, material, layout));
+        EXPECT_EQ(changed.value(), cache.prepare(handle, material, layout).value());
 
         material = std::make_shared<Material>("replacement", "solid");
         const auto replaced = cache.prepare(handle, material, layout);
-        EXPECT_NE(changed, replaced);
+        EXPECT_NE(changed.value(), replaced.value());
         material = std::make_shared<Material>("same revision", "solid");
         const auto same_revision = cache.prepare(handle, material, layout);
-        EXPECT_NE(replaced, same_revision);
+        EXPECT_NE(replaced.value(), same_revision.value());
         auto replacement =
             MaterialLayout::create("solid", std::vector<MaterialLayout::TextureProperty>{});
         ASSERT_TRUE(replacement) << replacement.error();
         layout = std::make_shared<MaterialLayout>(std::move(replacement).value());
         const auto new_layout = cache.prepare(handle, material, layout);
-        EXPECT_NE(same_revision, new_layout);
-        EXPECT_EQ(new_layout, cache.prepare(handle, material, layout));
+        EXPECT_NE(same_revision.value(), new_layout.value());
+        EXPECT_EQ(new_layout.value(), cache.prepare(handle, material, layout).value());
     }
 
     TEST(MaterialRuntimeTest, EvictsUnusedEntriesWithoutInvalidatingExternalSnapshots) {
@@ -103,8 +103,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(snapshot);
         cache.collect_unused();
         cache.collect_unused();
-        EXPECT_NE(snapshot, cache.prepare(AssetHandle(1), material, layout));
-        EXPECT_EQ(snapshot->layout, layout);
+        EXPECT_NE(snapshot.value(), cache.prepare(AssetHandle(1), material, layout).value());
+        EXPECT_EQ(snapshot.value()->layout, layout);
     }
 
     TEST(MaterialRuntimeTest, RejectsMissingResourcesAndRecoversAfterLayoutReplacement) {
@@ -207,9 +207,58 @@ namespace Comet::Tests {
         }
         EXPECT_EQ(frames, 8);
         // WSI acquire 可能已经等待并回收旧 slot；这里仅检查最终回收。
-        renderer.get_scene_renderer().get_frame_scheduler().wait_for_all_slots();
+        renderer.wait_idle();
         EXPECT_TRUE(retired_texture.expired());
         renderer.get_render_context().wait_idle();
+    }
+
+    TEST_F(MaterialRuntimeGpuTest, FailedUpdatesRetainOnlySameMaterialAndEmptyFramesCollectCaches) {
+        const MeshData data{
+            .vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
+            .indices = {0, 1, 2}};
+        auto mesh = engine->get_resource_manager().try_create_mesh(data);
+        ASSERT_TRUE(mesh);
+        auto image = texture();
+        auto material = std::make_shared<Material>("test", "unlit_texture_blend");
+        material->set_texture_property("u_Texture0", image);
+        material->set_texture_property("u_Texture1", image);
+        auto& assets = engine->get_asset_registry();
+        ASSERT_TRUE(assets.register_asset(AssetHandle(11), mesh.value()));
+        ASSERT_TRUE(assets.register_asset(AssetHandle(12), material));
+        ASSERT_TRUE(assets.register_asset(
+            AssetHandle(13), std::make_shared<Material>("invalid", "unlit_texture_blend")));
+        auto& renderer = engine->get_renderer();
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        scene.render_items.push_back(
+            {.entity_id = 1, .mesh_handle = AssetHandle(11), .material_handle = AssetHandle(12)});
+        const auto draw = [&](uint32_t expected) {
+            ASSERT_TRUE(renderer.prepare_frame());
+            renderer.render_frame(scene);
+            EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, expected);
+        };
+        draw(1);
+        material->set_texture_property("u_Texture0", nullptr);
+        draw(1);
+        draw(1);
+        scene.render_items.front().material_handle = AssetHandle(13);
+        draw(0);
+        scene.render_items.front().material_handle = AssetHandle(12);
+        draw(0);
+        material->set_texture_property("u_Texture0", image);
+        draw(1);
+        scene.render_items.front().material_handle = {};
+        draw(0);
+        scene.render_items.front().material_handle = AssetHandle(12);
+        draw(1);
+        scene.cameras.clear();
+        draw(0);
+        const auto& statistics = renderer.get_scene_renderer().get_material_statistics();
+        EXPECT_EQ(statistics.cached_material_versions, 0u);
+        EXPECT_EQ(statistics.material_binds, 0u);
+        EXPECT_EQ(statistics.pipeline_binds, 0u);
+        scene.cameras.push_back({.primary = true});
+        draw(1);
     }
 
     TEST_F(MaterialRuntimeGpuTest, OrdersBindingsAndKeepsOldRevisionTexturesAlive) {
@@ -223,22 +272,24 @@ namespace Comet::Tests {
         const auto second = texture();
         material->set_texture_property("a", first);
         material->set_texture_property("b", second);
-        EXPECT_FALSE(cache.prepare(AssetHandle(1), material, layout));
-        const auto failure_log = messages.str();
-        EXPECT_FALSE(cache.prepare(AssetHandle(1), material, layout));
-        EXPECT_EQ(messages.str(), failure_log);
+        const auto missing = cache.prepare(AssetHandle(1), material, layout);
+        ASSERT_FALSE(missing);
+        EXPECT_EQ(missing.error(), "Missing texture property 'c'");
+        const auto repeated = cache.prepare(AssetHandle(1), material, layout);
+        ASSERT_FALSE(repeated);
+        EXPECT_EQ(repeated.error(), missing.error());
         material->set_texture_property("c", first);
         auto old = cache.prepare(AssetHandle(1), material, layout);
         ASSERT_TRUE(old);
-        ASSERT_EQ(old->textures.size(), 3u);
-        EXPECT_EQ(old->textures[0].binding, 1u);
-        EXPECT_EQ(old->textures[1].binding, 4u);
-        EXPECT_EQ(old->textures[2].binding, 7u);
+        ASSERT_EQ(old.value()->textures.size(), 3u);
+        EXPECT_EQ(old.value()->textures[0].binding, 1u);
+        EXPECT_EQ(old.value()->textures[1].binding, 4u);
+        EXPECT_EQ(old.value()->textures[2].binding, 7u);
         material->set_texture_property("a", second);
         auto current = cache.prepare(AssetHandle(1), material, layout);
         ASSERT_TRUE(current);
-        EXPECT_TRUE(old->textures.front().texture == first);
-        EXPECT_TRUE(current->textures.front().texture == second);
+        EXPECT_TRUE(old.value()->textures.front().texture == first);
+        EXPECT_TRUE(current.value()->textures.front().texture == second);
         engine->get_renderer().get_render_context().wait_idle();
     }
 

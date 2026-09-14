@@ -47,6 +47,10 @@ namespace Comet {
             uint32_t pipelines = 0;
             uint32_t material_versions = 0;
             uint32_t material_bindings = 0;
+            double pipeline_preparation_ms = 0;
+            double candidate_copy_ms = 0;
+            double material_cpu_ms = 0;
+            double material_gpu_ms = 0;
         };
 
         static Result<std::unique_ptr<MaterialRenderer>, GraphicsError> create(Device& device,
@@ -58,7 +62,8 @@ namespace Comet {
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
         [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(FrameScheduler& frames,
-            const ViewProjectMatrix& view, std::span<const ResolvedRenderItem> items);
+            const std::optional<ViewProjectMatrix>& view,
+            std::span<const ResolvedRenderItem> items);
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
 
     private:
@@ -91,6 +96,7 @@ namespace Comet {
             std::shared_ptr<const PreparedMaterial> failed_candidate;
             std::weak_ptr<const PipelineState> failed_pipeline;
             uint64_t retry_after_serial = 0;
+            std::string preparation_error;
             bool used = false;
         };
         struct DrawItem {

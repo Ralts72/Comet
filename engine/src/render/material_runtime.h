@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -31,7 +32,7 @@ namespace Comet {
     // 仅所属线程可访问；源对象跟踪版本，准备结果不可变。
     class COMET_API MaterialRuntimeCache {
     public:
-        [[nodiscard]] std::shared_ptr<const PreparedMaterial> prepare(AssetHandle handle,
+        [[nodiscard]] Result<std::shared_ptr<const PreparedMaterial>> prepare(AssetHandle handle,
             const std::shared_ptr<const Material>& material,
             const std::shared_ptr<const MaterialLayout>& layout);
 
@@ -46,6 +47,7 @@ namespace Comet {
             std::shared_ptr<const MaterialLayout> layout;
             uint64_t material_revision = 0;
             std::shared_ptr<const PreparedMaterial> prepared;
+            std::string error;
             bool used = false;
         };
         std::unordered_map<AssetHandle, Entry> m_entries;

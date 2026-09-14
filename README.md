@@ -132,8 +132,12 @@ JSON 解析直接依赖已有 simdjson。
   `Comet::run` 读取配置，再由 `Application::run` 统一驱动初始化、更新和关闭；异常在生命周期边界处理，具体契约见资源所有权文档。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
-  SceneResolver 只解析 Mesh/Material 引用；SceneRenderer 编排目标与 pass，MaterialRenderer 准备并绘制材质队列。
+  Renderer 装配 FrameScheduler，Presentation 负责 acquire／submit／present 与有序重建；SceneRenderer 只管理场景目标与 pass。
+  完整目标切换先准备 pass、附件、材质和辅助线绘制器，全部成功后安装；旧帧保留完整依赖版本。
+  SceneResolver 只解析 Mesh/Material 引用；MaterialRenderer 准备并绘制材质队列，无相机帧也清理缓存和重置统计。
   MaterialRuntimeCache 按材质版本和不可变布局准备纹理与参数快照；同一布局驱动 descriptor 和参数打包。
+  已有材质的 CPU／GPU 更新失败保留同一资产的兼容旧版本；清除引用或切换资产不会使用无关历史材质。
+  属性显示保留声明顺序，GPU binding 仅在准备绑定时排序；热发布日志包含管线准备、候选复制及材质准备耗时。
   相机 FrameSet 按 slot 更新，MaterialSet 按材质版本跨 slot 复用，物体矩阵使用 push constant；在途版本由 FrameSlot 保活。
   Shader 加载时反射实际 SPIR-V，Pipeline 创建／缓存查询前校验绑定及 push constant，材质另检查参数块类型与偏移。
   ShaderInterface 只公开 Comet 值类型；Vulkan 布局转换与覆盖校验留在 ShaderLayout 实现中。
@@ -164,6 +168,7 @@ JSON 解析直接依赖已有 simdjson。
   活动 Scene 按调用传入，不持有 Engine。相机状态及算法集中在 `viewport/camera_controller`，资产引用控件与载荷集中在 `assets/asset_reference`。
 - Mesh Runtime 只读已发布的 Mesh Artifact；缓存丢失需先导入，不自动回退解析 glTF。
   Texture 暂时直接解码源文件，后续再引入 Artifact。
+- 离屏视口 resize 失败保留旧画面与实际分辨率；内存不足按 1、2、4 秒最多重试三次，耗尽或其他错误等待新尺寸。
 - 世界 +Y 向上，Vulkan Viewport 用负高度转换画面坐标；`flip_y` 仅控制纹理导入。
   Shader 编译产物只进入构建目录，学习源码不作为生产 Shader 的隐式依赖。
   Shader 编译库与构建 CLI 独立于 engine；材质描述集中在 `render/material.h`，准备缓存与 GPU 绘制各自独立。
@@ -176,6 +181,9 @@ JSON 解析直接依赖已有 simdjson。
   兼容更新复用原材质绑定，重复发布相同 Pipeline 不制造新材质版本；发布入口只允许在活动帧之外调用。
   复杂 I/O、顶点格式转换、项目 Shader 与新属性 metadata 仍在路线图中；app／engine 不链接 glslang。
   监视每 500 ms 复核已知输入内容，变化后防抖 200 ms；Worker 只编译，消费端反射校验、GPU 管线创建和发布仍在主线程。
+  材质 Shader 发布遇到 Vulkan 主机／设备内存不足时，依次等待 1、2、4 秒，最多自动重试三次并复用 CPU 编译结果；
+  耗尽后保留旧版本并记录日志，等待新的源码修改或请求，不持续尝试分配；
+  新请求或输入变化使旧重试失效，接口错误不自动重试，设备丢失仍退出清理。
   辅助线 Shader 仅使用构建时内嵌版本，不参与热重载；修改其源码需重新构建并启动。
 
 详细说明：[资源所有权](docs/architecture/rendering-ownership.md) ·

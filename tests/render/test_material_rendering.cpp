@@ -127,7 +127,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
             auto candidate = original;
             candidate.vertex = compiled.words;
-            const auto rejected = scene_renderer.reload_material_shaders(candidate);
+            const auto rejected = renderer.reload_material_shaders(candidate);
             ASSERT_FALSE(rejected);
             EXPECT_FALSE(rejected.error().result.has_value());
             EXPECT_NE(rejected.error().message.find("fixed resource layout"), std::string::npos);
@@ -146,20 +146,20 @@ namespace Comet::Tests {
             EXPECT_FALSE(rebuilt);
             EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
         }
-        ASSERT_TRUE(scene_renderer.reload_material_shaders(original));
+        ASSERT_TRUE(renderer.reload_material_shaders(original));
         ASSERT_TRUE(renderer.prepare_frame());
-        EXPECT_TRUE(scene_renderer.get_frame_scheduler().is_frame_active());
-        const auto rejected = scene_renderer.reload_material_shaders(original);
+        EXPECT_TRUE(renderer.get_frame_scheduler().is_frame_active());
+        const auto rejected = renderer.reload_material_shaders(original);
         EXPECT_FALSE(rejected);
         if(!rejected)
             EXPECT_NE(rejected.error().message.find("frame boundary"), std::string::npos);
         renderer.render_frame({});
-        EXPECT_FALSE(scene_renderer.get_frame_scheduler().is_frame_active());
-        ASSERT_TRUE(scene_renderer.reload_material_shaders(original));
+        EXPECT_FALSE(renderer.get_frame_scheduler().is_frame_active());
+        ASSERT_TRUE(renderer.reload_material_shaders(original));
     }
 
     TEST_F(MaterialRenderingTest, OverlayRebuildFailurePropagatesToApplicationBoundary) {
-        auto& renderer = engine->get_renderer().get_scene_renderer();
+        auto& renderer = engine->get_renderer();
         bool released = false;
         renderer.set_swapchain_resource_callbacks([&] { released = true; },
             [&](const SwapchainCompatibility&) {
@@ -328,8 +328,16 @@ namespace Comet::Tests {
                 ASSERT_TRUE(published) << published.error();
                 EXPECT_EQ(published.value().material_versions, 2u);
                 EXPECT_EQ(published.value().material_bindings, 2u);
-                for(const auto& layout : materials->get_material_layouts())
+                for(const auto& layout : materials->get_material_layouts()) {
                     EXPECT_EQ(layout->get_parameter_size(), 48u);
+                    if(layout->get_name() == "unlit_texture_blend") {
+                        ASSERT_EQ(layout->get_textures().size(), 2u);
+                        EXPECT_EQ(layout->get_textures()[0].name, "u_Texture0");
+                        EXPECT_EQ(layout->get_textures()[0].binding, 7u);
+                        EXPECT_EQ(layout->get_textures()[1].name, "u_Texture1");
+                        EXPECT_EQ(layout->get_textures()[1].binding, 6u);
+                    }
+                }
             }
             if(iteration == 3) {
                 const auto before = materials->get_material_layouts();
@@ -349,8 +357,8 @@ namespace Comet::Tests {
             target->begin_render_target(command, slot);
             command.set_viewport(Graphics::get_viewport(64, 32));
             command.set_scissor(Graphics::get_scissor(64, 32));
-            const auto waits = materials->render(
-                frames, {.view = Math::Mat4(1), .projection = Math::Mat4(1)}, items);
+            const auto waits = materials->render(frames,
+                ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)}, items);
             target->end_render_target(command);
             vk::MemoryBarrier barrier(
                 vk::AccessFlagBits::eColorAttachmentWrite, vk::AccessFlagBits::eTransferRead);

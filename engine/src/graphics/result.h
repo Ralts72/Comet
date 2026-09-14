@@ -18,6 +18,11 @@ namespace Comet {
             return result == vk::Result::eErrorDeviceLost;
         }
 
+        [[nodiscard]] bool is_out_of_memory() const noexcept {
+            return result == vk::Result::eErrorOutOfHostMemory
+                   || result == vk::Result::eErrorOutOfDeviceMemory;
+        }
+
         friend std::ostream& operator<<(std::ostream& stream, const GraphicsError& error) {
             return stream << error.message;
         }

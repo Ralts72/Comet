@@ -138,4 +138,80 @@ namespace CometEditor::Tests {
             EXPECT_FALSE(reload.update(now + std::chrono::seconds(1)));
         }
     }
+
+    TEST_F(ShaderReloadTest, RetriesSameCompilationWithBackoffAndStopsAtLimit) {
+        ShaderReload reload(scheduler, requests);
+        const auto compiled = finish(reload);
+        ASSERT_TRUE(compiled);
+        ASSERT_TRUE(compiled->succeeded) << compiled->diagnostics;
+
+        for(int attempt = 0; attempt < 3; ++attempt) {
+            ASSERT_TRUE(reload.retry_delivery(compiled->revision, now));
+            EXPECT_TRUE(
+                reload.retry_delivery(compiled->revision, now + std::chrono::milliseconds(500)));
+            const auto delay = std::chrono::seconds(1 << attempt);
+            EXPECT_FALSE(reload.update(now + delay - std::chrono::milliseconds(1)));
+            now += delay;
+            const auto retried = reload.update(now);
+            EXPECT_EQ(retried, compiled);
+            EXPECT_FALSE(reload.update(now));
+        }
+        EXPECT_FALSE(reload.retry_delivery(compiled->revision, now));
+        now += std::chrono::seconds(60);
+        EXPECT_FALSE(reload.update(now));
+        scheduler.wait_idle();
+        EXPECT_FALSE(reload.update(now));
+
+        reload.request(now);
+        const auto latest = finish(reload);
+        ASSERT_TRUE(latest);
+        ASSERT_TRUE(latest->succeeded);
+        EXPECT_GT(latest->revision, compiled->revision);
+        EXPECT_FALSE(reload.retry_delivery(compiled->revision, now));
+        ASSERT_TRUE(reload.retry_delivery(latest->revision, now));
+        EXPECT_FALSE(reload.update(now + std::chrono::milliseconds(999)));
+        now += std::chrono::seconds(1);
+        EXPECT_EQ(reload.update(now), latest);
+        // 消费成功后不再请求交付，即使还有重试额度也不重复发布。
+        now += std::chrono::seconds(60);
+        EXPECT_FALSE(reload.update(now));
+    }
+
+    TEST_F(ShaderReloadTest, RetryRechecksInputsEvenBeforeNextPoll) {
+        ShaderReload reload(scheduler, requests);
+        const auto compiled = finish(reload);
+        ASSERT_TRUE(compiled);
+        ASSERT_TRUE(compiled->succeeded);
+        reload.retry_delivery(compiled->revision, now);
+        EXPECT_FALSE(reload.update(now + std::chrono::milliseconds(600)));
+        write("material_solid.frag", "#version 450\ninvalid\n");
+        now += std::chrono::seconds(1);
+        // 上次 poll 后输入变化，重试期限先于下次 poll，仍须拒绝旧候选。
+        EXPECT_FALSE(reload.update(now));
+        const auto latest = finish(reload);
+        ASSERT_TRUE(latest);
+        EXPECT_FALSE(latest->succeeded);
+        EXPECT_GT(latest->revision, compiled->revision);
+        reload.retry_delivery(latest->revision, now);
+        EXPECT_FALSE(reload.update(now + std::chrono::seconds(1)));
+    }
+
+    TEST_F(ShaderReloadTest, NewRequestCancelsRetryAndOldConsumerCannotRescheduleIt) {
+        ShaderReload reload(scheduler, requests);
+        const auto compiled = finish(reload);
+        ASSERT_TRUE(compiled);
+        reload.retry_delivery(compiled->revision, now);
+        reload.request(now);
+        reload.retry_delivery(compiled->revision, now);
+        const auto latest = finish(reload);
+        ASSERT_TRUE(latest);
+        EXPECT_TRUE(latest->succeeded);
+        EXPECT_NE(latest, compiled);
+        EXPECT_GT(latest->revision, compiled->revision);
+        reload.retry_delivery(compiled->revision, now);
+        now += std::chrono::seconds(2);
+        EXPECT_FALSE(reload.update(now));
+        scheduler.wait_idle();
+        EXPECT_FALSE(reload.update(now));
+    }
 }

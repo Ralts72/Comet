@@ -23,6 +23,8 @@ set(SOURCES
         src/asset/serialization/metadata_serializer.cpp
         src/common/json.cpp
         src/common/file_io.cpp
+        src/common/retry_backoff.cpp
+        src/render/presentation.cpp
         src/config/config_loader.cpp
         src/diagnostics/diagnostics.cpp
         src/diagnostics/profiler.cpp

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "shader/compiler.h"
+#include "common/retry_backoff.h"
 
 #include <map>
 #include <chrono>
@@ -29,6 +30,8 @@ namespace CometEditor {
 
         ShaderReload(Comet::TaskScheduler& scheduler, Requests requests);
         void request(Clock::time_point now = Clock::now());
+        // 调用方决定是否重试消费；不重新编译，交付前仍复核输入与 revision。
+        bool retry_delivery(uint64_t revision, Clock::time_point now = Clock::now());
         [[nodiscard]] std::shared_ptr<const Compilation> update(
             Clock::time_point now = Clock::now());
 
@@ -43,6 +46,7 @@ namespace CometEditor {
         Requests m_requests;
         std::optional<Pending> m_pending;
         std::shared_ptr<const Compilation> m_observed;
+        Comet::RetryBackoff m_delivery_retry;
         uint64_t m_revision = 1;
         bool m_requested = true;
         Clock::time_point m_due{};
