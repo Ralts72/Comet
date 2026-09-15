@@ -70,8 +70,6 @@ namespace Comet {
         [[nodiscard]] std::size_t size() const noexcept;
 
     private:
-        [[nodiscard]] AssetRevision issue_revision();
-
         ProjectPaths m_paths;
         std::unordered_map<AssetHandle, AssetRecord> m_assets;
         std::unordered_map<std::filesystem::path, AssetHandle> m_handles_by_path;

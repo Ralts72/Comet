@@ -3,6 +3,8 @@
 #include "viewport/view.h"
 #include "viewport/transform_gizmo.h"
 #include "render/scene/scene_picking.h"
+#include "common/error.h"
+#include "common/result.h"
 
 #include <memory>
 
@@ -20,7 +22,8 @@ namespace CometEditor {
         Viewport(EditorState& state, SelectionService& selection, CommandHistory& history,
             const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
             const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
-            Comet::AssetRegistry& assets, ImGuiContext& ui);
+            Comet::AssetRegistry& assets, ImGuiContext& ui,
+            std::shared_ptr<Comet::Sampler> sampler);
 
         Viewport(const Viewport&) = delete;
         Viewport& operator=(const Viewport&) = delete;
@@ -29,7 +32,7 @@ namespace CometEditor {
 
         void update_texture();
         // 面板命令处理后、SceneExtractor 提取前调用。
-        void update(Comet::Scene* scene);
+        Comet::Result<void, Comet::Error> update(Comet::Scene* scene);
         void submit_feedback(Comet::Scene* scene);
         void apply_pick(std::optional<Comet::ScenePickHit> hit, Comet::Scene* scene);
 

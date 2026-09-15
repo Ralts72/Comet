@@ -1,4 +1,5 @@
 #include "runtime/entry.h"
+#include "common/scope_exit.h"
 #include "config/config.h"
 #include "render/renderer.h"
 #include "core/window.h"
@@ -15,6 +16,7 @@
 #include <vector>
 
 namespace Comet::Tests {
+    using RunResult = Result<void, Error>;
     class EntryTest: public ::testing::Test {
     protected:
         class DefaultApplication final: public Application {
@@ -24,9 +26,11 @@ namespace Comet::Tests {
 
             DefaultApplication() { ++constructions; }
             ~DefaultApplication() override { ++destructions; }
-            void on_init() override { ADD_FAILURE() << "Graphics must not be initialized"; }
-            void on_update(UpdateContext) override {}
-            void on_shutdown() override {}
+            RunResult on_init() override {
+                ADD_FAILURE() << "Graphics must not be initialized";
+                return RunResult::failure({"Graphics must not be initialized"});
+            }
+            RunResult on_shutdown() override { return RunResult::success(); }
         };
 
         inline static std::vector<std::string> received;
@@ -88,6 +92,36 @@ namespace Comet::Tests {
         EXPECT_EQ(DefaultApplication::constructions, 1);
         EXPECT_EQ(DefaultApplication::destructions, 1);
     }
+    TEST(ApplicationCreationTest, FailedEngineCreationSkipsHooksAndAllowsRetry) {
+        class App final: public Application {
+        public:
+            int initializations = 0;
+            int shutdowns = 0;
+            RunResult on_init() override {
+                ++initializations;
+                get_engine().get_window().request_close();
+                return RunResult::success();
+            }
+            RunResult on_shutdown() override {
+                ++shutdowns;
+                return RunResult::success();
+            }
+        } app;
+        Config config;
+        const auto frame_slots = config.render.max_frames_in_flight;
+        config.render.max_frames_in_flight = 0;
+        const auto failed = app.run(config);
+        ASSERT_FALSE(failed);
+        EXPECT_EQ(failed.error().message, "Renderer requires at least one frame slot");
+        EXPECT_EQ(app.initializations, 0);
+        EXPECT_EQ(app.shutdowns, 0);
+
+        config.render.max_frames_in_flight = frame_slots;
+        ASSERT_TRUE(app.run(config));
+        EXPECT_EQ(app.initializations, 1);
+        EXPECT_EQ(app.shutdowns, 1);
+    }
+
     class ApplicationLifecycleTest: public ::testing::TestWithParam<std::pair<int, bool>> {
     protected:
         class TestApplication final: public Application {
@@ -96,33 +130,60 @@ namespace Comet::Tests {
             bool fail_shutdown = false;
             int shutdowns = 0;
             bool engine_alive_during_shutdown = false;
+            bool rendering_stopped_during_shutdown = false;
             TemporaryDirectory directory;
 #ifdef COMET_TEST_EDITOR_UI
             std::unique_ptr<CometEditor::ImGuiContext> ui;
 #endif
-            void on_init() override {
+            RunResult on_init() override {
 #ifdef COMET_TEST_EDITOR_UI
                 auto result = CometEditor::ImGuiContext::create(get_engine().get_window(),
                     get_engine().get_renderer().get_render_context(),
                     directory.path() / "imgui.ini");
                 if(!result)
-                    throw std::runtime_error(result.error().message);
+                    return RunResult::failure(result.error().as_error());
                 ui = std::move(result).value();
 #endif
                 if(fail_at == 1)
-                    throw std::runtime_error("init failure");
+                    return RunResult::failure({"init failure"});
                 if(fail_at == 0)
                     get_engine().get_window().request_close();
+                return RunResult::success();
             }
-            void on_update(UpdateContext) override { throw std::runtime_error("update failure"); }
-            void on_shutdown() override {
+            RunResult on_update(UpdateContext) override {
+                if(fail_at == 4)
+                    return RunResult::success();
+                if(fail_at == 3)
+                    return RunResult::failure(
+                        GraphicsError{"update failure", vk::Result::eErrorDeviceLost}.as_error());
+                return RunResult::failure({"update failure"});
+            }
+            RunResult on_frame_ready() override {
+#ifdef COMET_TEST_EDITOR_UI
+                if(ui->begin_frame()) {
+                    const ScopeExit end_ui([this] { ui->end_frame(); });
+                    ImGui::TextUnformatted("Frame failure test");
+                    return RunResult::failure(
+                        GraphicsError{"frame failure", vk::Result::eErrorDeviceLost}.as_error());
+                }
+#endif
+                return RunResult::failure(
+                    GraphicsError{"frame failure", vk::Result::eErrorDeviceLost}.as_error());
+            }
+            RunResult on_shutdown() override {
                 ++shutdowns;
                 engine_alive_during_shutdown = get_engine().get_window().get() != nullptr;
+                rendering_stopped_during_shutdown = !get_engine().get_renderer().prepare_frame();
+#ifdef COMET_TEST_EDITOR_UI
+                if(fail_at == 4)
+                    EXPECT_NE(ImGui::GetDrawData(), nullptr);
+#endif
                 if(fail_shutdown)
-                    throw std::runtime_error("shutdown failure");
+                    return RunResult::failure({"shutdown failure"});
 #ifdef COMET_TEST_EDITOR_UI
                 ui.reset();
 #endif
+                return RunResult::success();
             }
         };
 
@@ -146,21 +207,31 @@ namespace Comet::Tests {
         config.diagnostics.log.enable_file_logging = false;
         config.diagnostics.log.level = "warn";
         std::string error;
-        try {
-            app.run(config);
-        } catch(const std::runtime_error& failure) {
-            error = failure.what();
-        }
+        const auto result = app.run(config);
+        if(!result)
+            error = result.error().message;
         std::string expected;
         if(app.fail_at == 1)
             expected = "init failure";
         else if(app.fail_at == 2)
             expected = "update failure";
-        else if(app.fail_shutdown)
+        else if(app.fail_at == 3) {
+            ASSERT_FALSE(result);
+            EXPECT_EQ(result.error().code,
+                (GraphicsError{"", vk::Result::eErrorDeviceLost}.as_error().code));
+            EXPECT_NE(error.find("update failure"), std::string::npos);
+            expected = error;
+        } else if(app.fail_at == 4) {
+            ASSERT_FALSE(result);
+            EXPECT_EQ(result.error().code,
+                (GraphicsError{"", vk::Result::eErrorDeviceLost}.as_error().code));
+            expected = "frame failure";
+        } else if(app.fail_shutdown)
             expected = "shutdown failure";
         EXPECT_EQ(error, expected);
         EXPECT_EQ(app.shutdowns, 1);
         EXPECT_TRUE(app.engine_alive_during_shutdown);
+        EXPECT_TRUE(app.rendering_stopped_during_shutdown);
 #ifdef COMET_TEST_EDITOR_UI
         if(app.fail_shutdown)
             EXPECT_NE(ImGui::GetCurrentContext(), nullptr);
@@ -168,7 +239,9 @@ namespace Comet::Tests {
             EXPECT_EQ(ImGui::GetCurrentContext(), nullptr);
 #endif
         if(app.fail_shutdown) {
-            EXPECT_THROW(app.run(config), std::logic_error);
+            const auto restarted = app.run(config);
+            ASSERT_FALSE(restarted);
+            EXPECT_EQ(restarted.error().message, "Application is already started");
             EXPECT_EQ(app.shutdowns, 1);
         }
         owner.reset();
@@ -177,8 +250,9 @@ namespace Comet::Tests {
 #endif
     }
 
-    INSTANTIATE_TEST_SUITE_P(NormalAndExceptionalExit, ApplicationLifecycleTest,
+    INSTANTIATE_TEST_SUITE_P(NormalAndFailedExit, ApplicationLifecycleTest,
         ::testing::Values(std::pair{0, false}, std::pair{0, true}, std::pair{1, false},
-            std::pair{1, true}, std::pair{2, false}, std::pair{2, true}));
+            std::pair{1, true}, std::pair{2, false}, std::pair{2, true}, std::pair{3, false},
+            std::pair{3, true}, std::pair{4, false}, std::pair{4, true}));
 
 }

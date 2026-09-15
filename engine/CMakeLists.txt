@@ -12,6 +12,7 @@ set(SOURCES
         src/asset/import/input_snapshot.cpp
         src/asset/import/mesh_importer.cpp
         src/asset/import/import_service.cpp
+        src/asset/import/asset_task_queue.cpp
         src/asset/import/texture_importer.cpp
         src/asset/asset_manager.cpp
         src/asset/material_data.cpp

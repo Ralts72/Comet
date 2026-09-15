@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -43,7 +44,8 @@ namespace Comet {
 
         [[nodiscard]] std::vector<Entity> get_root_entities();
 
-        void update_world_transforms();
+        // 检查本地值，返回实际重算的节点数。
+        std::size_t update_world_transforms();
 
         [[nodiscard]] const Math::Mat4& get_world_matrix(Entity entity);
 
@@ -64,9 +66,23 @@ namespace Comet {
         friend class ComponentRegistry;
 
         [[nodiscard]] bool has_cycle(Entity child, Entity parent);
+        void remove_child_index(EntityId parent, entt::entity child);
+        bool update_world_transform(entt::entity handle);
+
+        struct TransformState {
+            TransformComponent local;
+            EntityId parent = INVALID_ENTITY_ID;
+            uint64_t parent_version = 0;
+            uint64_t version = 0;
+            bool has_local = false;
+        };
 
         EntityId m_next_entity_id = 1;
         entt::registry m_registry;
+        std::unordered_map<EntityId, entt::entity> m_entities_by_id;
+        std::unordered_map<EntityUuid, entt::entity> m_entities_by_uuid;
+        std::unordered_map<EntityId, std::vector<entt::entity>> m_children_by_parent;
+        std::unordered_map<EntityId, TransformState> m_transform_states;
     };
 
     template<typename T, typename... Args>

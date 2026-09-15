@@ -27,6 +27,7 @@ Handle 可随源文件和 .meta 一起移动，但同一 Handle 不可改变 Ass
 | `asset/database.h` / AssetDatabase | 扫描、身份、revision、依赖索引 | GPU 对象缓存 |
 | `asset/registry.h` / AssetRegistry | 唯一 Handle → Runtime 对象缓存 | 路径、文件解析 |
 | `asset/import/import_service.h` / ImportService | 检查输入、准备 Mesh Artifact | GPU 创建 |
+| `asset/import/asset_task_queue.h` / AssetTaskQueue | 有界队列、请求合并、Worker 完成、预算与关闭等待 | 解析文件、创建 GPU 对象、发布资产 |
 | `asset/import/*_importer.h` | 外部格式 → Comet CPU 数据 | 资产发布策略 |
 | `asset/artifact/mesh_artifact.h` | 版本化 Mesh 产物读写与原子发布 | 读取源 glTF 判断过期 |
 | `asset/serialization/` | .meta/.mat 的严格读写 | 渲染绑定 |
@@ -60,12 +61,16 @@ Scene Serializer 和 ConfigLoader 留在各自模块，不强行纳入 AssetMana
   原子写入在同目录临时文件写入、flush、close 均成功后才替换目标，私有 RAII guard 在失败时尝试删除临时文件。
   原子可见性不等于断电持久性，也不保证目录权限变化后一定能清理；不构成跨文件事务。
   Scene 同样复用 JSON 工具，但不依赖资产序列化模块；simdjson 是 engine 的显式私有依赖。
-  SceneSerializer 与 Project::load 暂保留抛异常接口，在自己的边界转换 I/O 失败；本轮不扩展为完整解析协议迁移。
+  SceneSerializer 与 Project::load 同样返回公共 Result，在各自边界转换 I/O 和 JSON 数据错误；其他异常继续向生命周期边界传播。
   `.scene` v2、`.mat` v2、`.meta` v3 为编辑器生成的 JSON；`project.json` v1 同样使用 JSON，Profile 继续使用 YAML。
   Project 直接复用 Json::Context，不依赖资产序列化器；目前只读取项目描述，项目设置 UI/自动保存尚未实现。
   当前尚未发布，FORMAT_VERSION 只用于严格检测；版本不匹配直接报错，不兼容旧 YAML，不提供迁移或旧格式备份。
 - Worker 候选保存结果及 Handle/revision；owner 先验 revision，再处理失败或发布成功值。
   非预期异常由任务 future 传递，在完成处理边界报告并回收对应任务，不会留下永久进行中的任务。
+  AssetTaskQueue 持有任务和候选，仅在 owner 调用 process_completions 时交付当前 revision 的结果；
+  AssetManager 决定 Artifact／Runtime 发布和依赖刷新。发布回调执行期间继续占槽，发布异常也会回收已消费任务。
+  队列是 Manager 的内部资产执行模块，不导出为引擎公共服务；Limits／Status／CompletionBudget 的公共契约由 Manager 定义。
+  当前保留资产类型、revision 和 Force 请求语义，不宣称它是无业务依赖的通用队列。
 - 缓存查找仍用 optional 表示未命中；Runtime 加载入口仍返回共享对象或空值并负责诊断；
   扫描保留可包含多条问题的 AssetScanReport，GPU 创建保留 GpuResourceResult 的 Vulkan 错误码。
 
@@ -73,6 +78,13 @@ Scene Serializer 和 ConfigLoader 留在各自模块，不强行纳入 AssetMana
 失败结果不承诺跨文件／数据库／GPU 的全局事务；下述原子发布与旧 Runtime 保留边界不变。
 
 ## 三种加载路径
+
+首次加载共用 Handle／缓存／类型校验、候选创建后的 revision 复核及 Registry 注册。
+创建期间使用 AssetRecord 副本，避免依赖加载或回调刷新数据库后继续访问失效记录。
+Mesh 的 Artifact 读取、Texture 设置检查和 Material 依赖解析仍由各类型维护。
+材质 Reload／Update 共用依赖更新与 Runtime 发布；Update 仍先创建候选、原子保存文件，再更新依赖并发布。
+两者均在创建前保存记录快照/revision，依赖加载后先复核版本；过期候选不写文件、不更新依赖、不发布 Runtime。
+这些步骤不构成跨文件／数据库／Registry 的全局事务。
 
 ```text
 源 glTF/.glb + 外部 buffer
@@ -107,14 +119,14 @@ Texture 源文件 + TextureImportSettings
 场景打开和 Edit/Play 激活前，EditorAssets 通过 ComponentRegistry::collect_asset_references 收集、去重 Handle／期望类型，
 再调用 AssetManager::ensure_loaded。描述符只发现引用，Manager 不依赖 Scene；Serializer 不参与资源加载。
 ensure_loaded 复用具体 load_* 与唯一 Registry，先核验身份／类型；Mesh 只读已发布 Artifact。
-可预期的缺失／导入／资源不足返回加载失败；DeviceLost 和非预期 GPU 创建异常不得被此入口吞掉。
+load_*、重载和编辑返回 Result<shared_ptr<T>, Error>，ensure_loaded 返回 Result<void, Error>；失败不是空资源。材质依赖补充属性上下文但保留原生错误码。EditorAssets::prepare_scene 对普通加载失败计数并保留引用，DeviceLost 则返回失败，阻止场景安装。
 EditorAssets::load_reference 额外保留 UI 的 revision 和清空引用语义，不再重复类型分发。
 
 ```text
 Project Refresh / AssetSourceMonitor
   → AssetManager::scan() → AssetDatabase 候选快照
   → 提交变化集与单调 revision
-  → 已加载 Mesh/Texture：Worker 生成 CPU 候选
+  → 已加载 Mesh/Texture/Material：Worker 生成 CPU 候选
   → process_completions()：owner 验 revision
   → Mesh 原子发布 Artifact / 更新源依赖
   → 尝试创建 Runtime GPU 对象 → 再验票 → 替换 Registry
@@ -122,14 +134,17 @@ Project Refresh / AssetSourceMonitor
 
 扫描区分单文件诊断与无法信任的全局快照：坏 .meta 的条目不会凭空沿用旧 AssetRecord；
 目录发现不完整或同一 Handle 改变类型时拒绝整个候选快照。revision 是进程内版本，不持久化，也不是内容 hash。
-删除会卸载对应 Runtime 对象及受影响依赖；已加载 Material 的修改走同步重载。
+删除会卸载对应 Runtime 对象及受影响依赖。已加载 Material 的修改或移动只排队读取数据，
+在 process_completions 中加载纹理依赖、创建候选材质并发布；扫描和 Worker 不创建 GPU 资源。
+依赖创建期间再次修改材质时，旧版本候选不会覆盖 Registry，最新请求继续通过同一队列处理。
+数据库扫描仍同步读取材质依赖以建立索引；上述分离针对 Runtime 重建，并未消除主线程文件读取。
 
 Worker 只接收路径、Handle、revision、导入设置的值拷贝，不访问数据库、Registry、ImGui 或 Vulkan。
 过期候选丢弃；解码/GPU 创建失败不替换旧 Runtime 对象。Mesh Artifact 与 Runtime 发布是两个边界：
 Artifact 已成功发布后若 GPU 创建失败，旧 Runtime Mesh 仍保留，磁盘产物可以已更新。
 普通创建失败允许继续使用旧对象；DeviceLost 只保留所有权以便正常清理，不表示旧 GPU 对象仍可继续使用。
 完成处理仅捕获 Worker future 异常，owner 发布异常向应用传播；无论发布是否成功，作用域清理都会释放已消费的任务槽位。
-process_completions 返回本批成功发布的 Handle：Mesh 指 Artifact，Texture 指 Runtime；缓存复用、失败或过期任务不算发布。
+process_completions 返回 Result<vector<AssetHandle>, Error>：成功值中 Mesh 指 Artifact，Texture/Material 指 Runtime；缓存复用、普通失败或过期任务不算发布。直接 Mesh/Texture GPU 创建遇到 DeviceLost 返回带原生码的错误，停止本批剩余发布并回收当前槽位；已发布产物不回滚，失败结果不携带成功 Handle 列表。EditorAssets::update 与应用 on_update 显式向上传递该错误。材质依赖加载同样返回原生错误；前台引用赋值、Inspector 编辑、候选准备和 demo 必需资产加载已接通该协议。标准库或非预期工厂异常不在此捕获。
 EditorAssets 将非空发布、已提交扫描及显式纹理重导入成功合并成一次引用重查请求，在 UI 全部结束后消费。
 重查只加载当前活动场景的引用，坏引用不改写，也不制造撤销记录；失败等待下一次明确事件，不每帧重试。
 场景激活时的显式准备同时满足已有重查请求，避免同帧重复准备。大量首次 GPU 创建仍同步，预算和增量需求索引后置。
@@ -177,12 +192,13 @@ Texture 后台刷新和显式重导入共用 `reload_loaded_material_dependents(
   失败补偿回滚本批文件和生成的 sidecar；成功后 EditorAssets 复用扫描变化集排队后台导入，并同步 Monitor 基线。
   这不是整批文件的 OS 原子事务：进程崩溃／回滚自身失败可能留下文件，需诊断和后续恢复；跨卷或不支持硬链接的文件系统会明确失败。
   当前文件复制／校验同步执行；批量异步准备、取消、进度及崩溃恢复留待扩展。不复制外部身份，不自动创建实体，也不进入 Scene 历史。
-- Material：Inspector 值变化 → update_material → 构建候选 → 原子保存 .mat → 更新依赖 → 替换 Registry。
+- Material：Inspector 值变化 → 带 revision 的 AssetEdit 请求 → Editor 复核并调用 update_material → 构建候选 → 原子保存 .mat → 更新依赖 → 替换 Registry。
   Inspector 与渲染器共用 MaterialLayout::find_builtin 的只读描述，按布局显示纹理槽及标量／向量／颜色参数。
   缺省数值只显示默认值，不立即写回；必需纹理未补齐时保留面板草稿，完整后随一次实际变化自动发布。
   未完成草稿在加载其他资产或该资产新 revision 时丢弃；未知属性阻止发布，不自动删除用户字段。
   模板切换和资产撤销尚未接通；拖动中每次真实变化都提交，未做写入合并。
-- Texture：设置变化 → reimport_texture → 解码/GPU 候选 → 保存 .meta → 发布 Texture → 刷新已加载材质。
+- Texture：设置变化 → AssetEdit 请求 → Editor 复核并调用 reimport_texture → 记录快照/revision → 解码/GPU 候选 → 复核 revision → 保存 .meta → 发布 Texture → 刷新已加载材质。
+  创建期间输入变化则拒绝候选，不保存过期导入设置，也不替换旧 Runtime。
 - 控件按变化事件提交，不逐帧保存；失败恢复旧控件值。加载/字段错误显示在 Inspector，更新日志只进入 Log。
 - 编辑器的资产下拉控件和拖放载荷读取集中在 `editor/src/assets/asset_reference`；公共读取只验证载荷格式并复制数据，
   槽位类型、资产 revision、文档 generation 和提交时机仍由各接收方按业务校验。

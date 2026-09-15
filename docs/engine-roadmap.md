@@ -1,6 +1,6 @@
 # Comet 引擎路线图
 
-更新：2026-09-14。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
+更新：2026-09-15。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
 本文只维护阶段、待办和设计约束，不累计每次迁移的完成日志。
 
 ## 当前阶段与下一步
@@ -23,7 +23,28 @@
 阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
-WSI 失败后的无呈现重试仍应独立安排，不与资产编辑工作流捆绑重构。
+WSI 暂时失败的无呈现重试及 SurfaceLost 重建已接通；设备丢失恢复与跨呈现队列迁移仍需单独设计。
+
+### 当前架构收敛安排
+
+| 问题 | 所属阶段 | 当前处理与后续条件 |
+| --- | --- | --- |
+| 呈现层预期失败转异常 | 5：失败 API 与消费者 | 已将 Presentation／Renderer／Engine 的预期失败贯通为 Result，统一在 Application 生命周期边界处理；继续迁移底层录制／等待失败 |
+| 恢复入口与重试策略混杂 | 5：WSI | 已改为请求只登记、帧准备统一推进；手动请求重置预算，自动 OutOfDate 不重置 |
+| Surface owner 对外暴露 | 5：GPU 所有权 | 已收回到 Context／Swapchain 内部，Generation 继续保活 Surface |
+| 资产队列拆分后仍暴露实现 | 3：资产任务 | 已取消队列导出，Manager 公共类型不再依赖队列；当前保留资产专用执行模块 |
+| Runtime 虚函数与注册回调重叠 | 6：运行时入口 | 已移除通用阶段注册表；on_update 管更新，on_frame_ready 管帧就绪后的交互，Engine::tick 明确排序 |
+| UI 绘制隐式执行文件/资产操作 | 4：编辑器 | Inspector、Project、场景文件弹窗交付请求，Editor 统一调用已有资产/文档入口并回传结果；不新增命令总线 |
+| Transform 写入／查询／同步混杂 | 6：Transform 更新 | 保留当前兼容行为；先确定写入契约，再拆分即时查询与已同步快照读取 |
+
+当前优化以减少外露协议和统一状态推进入口为验收，不以新增类或拆文件数量作为收益。
+当前优先收敛已迁移流程的可读性，不继续跨模块机械清理异常。JSON 字段读取合并为 read_field，Scene 解析共享 Context，删除纯转发辅助层；不新增错误传播宏或隐式状态。
+业务失败按既有 Result/诊断协议传递，不统一压成 bool；自有异常语法仅剩明确暂缓的 YAML 捕获。future.get 仍检查任务异常，标准库与第三方未预期异常不保证有序退出，具体边界以异常审查清单为准。
+快捷键配置读取与校验已改为 Result，仅在 YAML 解析边界转换第三方异常；Scene 换父节点通过先分配后提交避免捕获后重抛。
+配置／导入迁移已保留字段定位、旧状态及回滚语义，没有增加通用异常包装器。
+Application::run/end 已返回 Result，入口负责错误报告与退出码；文件导入/移动使用 error_code 和扫描报告，统一清理本次变更，ScopeExit 保留提前退出清理。
+内置组件和属性编辑器注册失败改为 LOG_FATAL，仅适用于代码内不变量，不用于用户数据或 GPU 可恢复失败。
+全局剩余异常按 [异常处理审查](architecture/error-handling-audit.md) 分类，分模块迁移，不能用 terminate 替代需要清理的退出。
 
 ## 基本边界
 
@@ -45,6 +66,17 @@ WSI 失败后的无呈现重试仍应独立安排，不与资产编辑工作流�
 实际行为与失败边界见[资产管线](architecture/asset-pipeline.md)。
 
 待办：
+
+- AssetTaskQueue 当前只服务 AssetManager，作为私有资产执行模块保留；revision 复核、Force 合并与发布预算是资产语义，
+  不提前包装为通用任务框架。第二个独立消费者出现时再评估调度机制与资产策略分离。
+  验收仍覆盖过期结果拒绝、同 Handle 最新请求合并、发布期间占槽与异常后的槽位回收。
+  扫描触发的 Material 刷新已复用同一队列：后台读取数据，owner 完成处理时创建依赖并校验版本发布，不在扫描阶段同步创建资源。
+
+- Runtime Mesh／Texture／Material 首次加载、重载及依赖解析已统一返回保留错误类别的 Result，
+  EditorAssets、候选准备、Inspector 请求和 app 必需资产加载消费同一协议，不增加全局错误旁路。
+  回归覆盖普通失败保留资源/文件、DeviceLost 拒绝场景安装与错误码追踪；仍需完成真实桌面交互验收。
+  首次加载已复用缓存／类型／revision 校验与注册流程；材质重载和更新仅共享依赖更新及 Runtime 发布，
+  不合并文件读写策略，不将多步发布描述为全局事务。
 
 - 当前按事件重查整个场景；大场景按需求增加增量引用索引和受影响范围，不引入每帧轮询。
   任意运行时代码新写入的 Handle 尚不自动建立加载需求，结合阶段 6 Runtime 资源使用契约补齐。
@@ -298,7 +330,7 @@ ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存
 - WSI 创建／重建、acquire、present 已返回显式结果；退休交换链不重新发布。
 - Queue／CommandContext／UploadBatch 和帧提交只在成功后登记 completion、serial 与资源保活；关闭等待失败不阻断析构。
 - Scene／Project 解析、项目资产路径与应用工厂返回公共 Result；Open／Save／Play 消费失败结果，保留已有状态。
-  JSON 数据异常在序列化边界转换，其他异常仍由生命周期边界处理；不承诺所有接口 noexcept。
+  JSON 数据校验直接返回 Result；生命周期钩子也返回 Result，入口不再捕获异常。未迁移路径仍可能异常终止，不承诺所有接口 noexcept 或所有故障都能有序退出。
 
 现行职责、所有权和测试边界统一见[渲染资源所有权](architecture/rendering-ownership.md)，此处只保留后续验收项：
 
@@ -306,8 +338,8 @@ ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存
    不保留可被业务绕回使用的旧入口，也不承诺所有函数 noexcept。
 2. **ImGui 第三方后端失败（暂缓）**：先明确局部资源接管／释放和中断策略，再接错误回调；
    Init 的 bool 不覆盖全部 Vulkan 失败，不能直接抛异常跳过局部资源释放，不以修改第三方源码掩盖边界。
-3. **WSI 无呈现恢复**：失败后的旧 Generation 已退休，不能回滚重用；独立设计重试和无呈现状态，
-   不把当前退出清理策略描述为设备恢复。后台 Shader 热发布不以该专项为前置。
+3. **WSI 扩展恢复**：无呈现退避、dependent 重试和 SurfaceLost 重建已接通；
+   后续按平台验证设备丢失／呈现队列不兼容时的重新初始化，不将当前退出清理描述为设备恢复。
 4. **原生数据边界**：PipelineConfig、viewport/scissor 按真实消费者整理；不复制全部 Vulkan 类型或预建多后端框架。
    ImGui Vulkan 适配仍允许在私有实现中使用原生接口。
 
@@ -376,8 +408,8 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 - 运行时 format/sample-dependent RenderPass/Pipeline 需与 target 形成兼容、可替换的 generation；
   当前不兼容格式仍明确终止，不能继续绑定旧 Pipeline。
 - **WSI 无呈现恢复**：传入非空 oldSwapchain 调用创建后，无论成功失败，旧交换链都已退休。
-  当前最小安全策略是新建失败返回错误并由应用退出清理；只有创建调用前的零尺寸延期可以恢复旧 dependent。
-  后续设计 no-present/retry/surface-lost 状态，禁止从退休对象 acquire，禁止把它再次作为非退休 oldSwapchain。
+  当前 Presentation 已区分 no-present／dependent／surface 恢复，暂时错误有界退避，失败不从退休对象 acquire。
+  创建失败后的重试使用空 oldSwapchain；dependent 重建失败复用成功新代，SurfaceLost 重建并校验新 surface。
   旧资源仍须等待 graphics/present completion，再按 framebuffer → view → swapchain 顺序释放。
   规则来源：[Khronos](https://docs.vulkan.org/refpages/latest/refpages/source/VkSwapchainCreateInfoKHR.html)。
 
@@ -419,8 +451,19 @@ validation、同步测试和生命周期回归通过。
 
 - Input（键鼠/手柄）、Fixed Update 与普通 Update、Native Script 生命周期和字段暴露。
 - EditorMode 只含 Edit/Play；RuntimeState（Running/Paused）与之正交，支持暂停/单步，不增加 EditorMode::Paused。
-- TransformSystem 收口 Inspector/Gizmo/脚本修改，以 dirty 集合增量更新受影响子树。
-  当前全量计算保留作正确性对照；实体/UUID 索引一起评估，不只在 getter 加缓存而漏失效。
+- 当前 Engine::run 管循环、私有 tick 推进单帧；on_update 后准备帧，帧就绪才执行 on_frame_ready，然后提取当前场景并渲染。
+  两个函数仅在 run 调用期间借用；编辑器后台维护在 on_update，UI/请求/视口更新在 on_frame_ready。无通用阶段注册表或预留 Late 钩子。
+- 后续按真实消费者加入固定步长、暂停／单步与 System 调度，应用生命周期钩子不兼任通用调度协议。
+  阶段和依赖以物理、动画、相机等实际需求为依据，不新增空壳 System 或通用 EventBus。
+  验收包含更新顺序、场景替换、异常清理、回调寿命，以及模拟暂停时编辑器与资产维护继续运行。
+- Scene 已维护 ID／UUID／父子索引，按本地 TRS 与父级版本增量重算矩阵，单个查询只检查祖先链。
+  为兼容可变引用写入，场景提取前仍需 O(N) 值检查；未来 TransformSystem 收口修改入口后再改为 dirty 集合遍历，
+  不能仅在 get_component 时标脏。
+  先定义组件修改何时生效，明确即时世界矩阵查询与同步后只读快照的区别，再收敛 getter 内的更新副作用。
+  写入契约应同时覆盖 Inspector／Gizmo／Undo／加载／运行逻辑；长期持有引用的兼容方案不能未经迁移直接删除。
+  验收：当帧修改可见、父级变化影响后代、场景替换无旧缓存、同步后批量读取不重复分配或更新；
+  仅将当前算法移入 TransformSystem 不算完成该项。
+  持续用直接 TRS 组合校验缓存结果；结合实际场景规模衡量值检查、索引和矩阵重算的成本。
 - 任务并行必须声明组件读写集合和 phase/barrier，不任意并发执行脚本回调。
 - 物理（候选 Jolt/Bullet）、音频（候选 miniaudio）、动画/AI 与 Runtime UI；引入依赖前按实际 demo 需要评估。
 - 脚本、Inspector、Serializer、Undo/Redo 共用稳定 ComponentDescriptor/PropertyDescriptor。

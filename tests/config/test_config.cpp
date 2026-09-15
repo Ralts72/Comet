@@ -53,9 +53,11 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
         std::filesystem::path(std::string(PROJECT_ROOT_DIR)) / "config";
     for(const auto& expectation : expectations) {
         SCOPED_TRACE(expectation.name);
-        const Config config = ConfigLoader{}.load(std::vector<std::string>{
+        const auto loaded = ConfigLoader{}.load(std::vector<std::string>{
             (config_directory / "common.yaml").string(),
             (config_directory / "profiles" / (std::string(expectation.name) + ".yaml")).string()});
+        ASSERT_TRUE(loaded) << loaded.error();
+        const Config& config = loaded.value();
 
         EXPECT_EQ(config.diagnostics.log.level, expectation.log_level);
         EXPECT_FALSE(config.diagnostics.log.enable_file_logging);
@@ -91,7 +93,9 @@ diagnostics:
   enable_validation: false
 )");
 
-    const Config config = ConfigLoader{}.load(file.path());
+    const auto loaded = ConfigLoader{}.load(file.path());
+    ASSERT_TRUE(loaded) << loaded.error();
+    const Config& config = loaded.value();
 
     EXPECT_EQ(config.diagnostics.log.level, "warn");
     EXPECT_TRUE(config.diagnostics.log.enable_file_logging);
@@ -120,7 +124,9 @@ diagnostics:
 TEST(ConfigTest, UsesDefaultsForMissingFields) {
     const TemporaryConfigFile file("window:\n  width: 960\n");
 
-    const Config config = ConfigLoader{}.load(file.path());
+    const auto loaded = ConfigLoader{}.load(file.path());
+    ASSERT_TRUE(loaded) << loaded.error();
+    const Config& config = loaded.value();
 
     EXPECT_EQ(config.window.width, 960);
     EXPECT_EQ(config.window.height, Config::Window{}.height);
@@ -134,7 +140,9 @@ TEST(ConfigTest, ExplicitValidationSettingOverridesDefault) {
     const TemporaryConfigFile file(
         std::string("diagnostics:\n  enable_validation: ") + (expected ? "true\n" : "false\n"));
 
-    const Config config = ConfigLoader{}.load(file.path());
+    const auto loaded = ConfigLoader{}.load(file.path());
+    ASSERT_TRUE(loaded) << loaded.error();
+    const Config& config = loaded.value();
 
     EXPECT_EQ(config.vulkan.enable_validation, expected);
 }
@@ -157,8 +165,10 @@ diagnostics:
   log_level: warn
 )");
 
-    const Config config =
+    const auto loaded =
         ConfigLoader{}.load(std::vector<std::string>{common.path(), profile.path()});
+    ASSERT_TRUE(loaded) << loaded.error();
+    const Config& config = loaded.value();
 
     EXPECT_EQ(config.window.width, 1200);
     EXPECT_EQ(config.window.title, "Shared Title");
@@ -170,59 +180,52 @@ diagnostics:
 TEST(ConfigTest, RejectsInvalidFieldTypeWithFieldAndFileContext) {
     const TemporaryConfigFile file("window:\n  width: wide\n");
 
-    try {
-        static_cast<void>(ConfigLoader{}.load(file.path()));
-        FAIL() << "Expected invalid window.width to fail";
-    } catch(const std::runtime_error& error) {
-        const std::string message = error.what();
-        EXPECT_NE(message.find(file.path()), std::string::npos);
-        EXPECT_NE(message.find("window.width"), std::string::npos);
-        EXPECT_NE(message.find("expected an integer"), std::string::npos);
-    }
+    const auto result = ConfigLoader{}.load(file.path());
+    ASSERT_FALSE(result);
+    const auto& message = result.error();
+    EXPECT_NE(message.find(file.path()), std::string::npos);
+    EXPECT_NE(message.find("window.width"), std::string::npos);
+    EXPECT_NE(message.find("expected an integer"), std::string::npos);
 }
 
 TEST(ConfigTest, RejectsInvalidClearColorLength) {
     const TemporaryConfigFile file("render:\n  clear_color: [0.1, 0.2, 0.3]\n");
 
-    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load(file.path())), std::runtime_error);
+    EXPECT_FALSE(ConfigLoader{}.load(file.path()));
 }
 
 TEST(ConfigTest, ValidatesRequiredPositiveValues) {
     const TemporaryConfigFile file("render:\n  max_frames_in_flight: 0\n");
 
-    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load(file.path())), std::runtime_error);
+    EXPECT_FALSE(ConfigLoader{}.load(file.path()));
 }
 
 TEST(ConfigTest, RejectsInvalidAnisotropy) {
     const TemporaryConfigFile file("render:\n  max_anisotropy: 0\n");
 
-    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load(file.path())), std::runtime_error);
+    EXPECT_FALSE(ConfigLoader{}.load(file.path()));
 }
 
 TEST(ConfigTest, RejectsUnknownVulkanEnumName) {
     const TemporaryConfigFile file("vulkan:\n  present_mode: fastest\n");
 
-    try {
-        static_cast<void>(ConfigLoader{}.load(file.path()));
-        FAIL() << "Expected unknown present mode to fail";
-    } catch(const std::runtime_error& error) {
-        const std::string message = error.what();
-        EXPECT_NE(message.find("vulkan.present_mode"), std::string::npos);
-        EXPECT_NE(message.find("fastest"), std::string::npos);
-    }
+    const auto result = ConfigLoader{}.load(file.path());
+    ASSERT_FALSE(result);
+    const auto& message = result.error();
+    EXPECT_NE(message.find("vulkan.present_mode"), std::string::npos);
+    EXPECT_NE(message.find("fastest"), std::string::npos);
 }
 
 TEST(ConfigTest, RejectsUnsupportedMsaaSampleCount) {
     const TemporaryConfigFile file("vulkan:\n  msaa_samples: 3\n");
 
-    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load(file.path())), std::runtime_error);
+    EXPECT_FALSE(ConfigLoader{}.load(file.path()));
 }
 
-TEST(ConfigTest, ThrowsForMissingFile) {
-    EXPECT_THROW(static_cast<void>(ConfigLoader{}.load("missing-config.yaml")), std::runtime_error);
+TEST(ConfigTest, ReportsMissingFile) {
+    EXPECT_FALSE(ConfigLoader{}.load("missing-config.yaml"));
 }
 
 TEST(ConfigTest, RejectsEmptyLayerList) {
-    EXPECT_THROW(
-        static_cast<void>(ConfigLoader{}.load(std::vector<std::string>{})), std::runtime_error);
+    EXPECT_FALSE(ConfigLoader{}.load(std::vector<std::string>{}));
 }

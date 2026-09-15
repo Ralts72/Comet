@@ -89,8 +89,9 @@ namespace Comet {
         [[nodiscard]] const std::string& get_template_name() const { return m_template_name; }
 
         void set_texture_property(const std::string& name, std::shared_ptr<Texture> texture);
-        void set_scalar_property(const std::string& name, float value);
-        void set_vector_property(const std::string& name, Math::Vec4 value);
+        // 非有限值被拒绝；相同值成功但不改变版本。
+        [[nodiscard]] bool set_scalar_property(const std::string& name, float value);
+        [[nodiscard]] bool set_vector_property(const std::string& name, Math::Vec4 value);
         [[nodiscard]] std::optional<float> get_scalar_property(const std::string& name) const;
         [[nodiscard]] std::optional<Math::Vec4> get_vector_property(const std::string& name) const;
 

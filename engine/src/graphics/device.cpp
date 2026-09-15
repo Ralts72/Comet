@@ -148,11 +148,9 @@ namespace Comet {
     }
 
     void Device::wait_idle_for_shutdown() const noexcept {
-        try {
-            wait_idle();
-        } catch(const vk::SystemError& error) {
-            std::fprintf(stderr, "Cannot wait for device shutdown: %s\n", error.what());
-        }
+        const auto result = vkDeviceWaitIdle(static_cast<VkDevice>(m_device));
+        if(result != VK_SUCCESS)
+            std::fprintf(stderr, "Cannot wait for device shutdown: Vulkan result %d\n", result);
     }
 
     void Device::set_allocator_frame_index(const uint64_t frame_serial) const {

@@ -3,8 +3,10 @@
 #include "config/config.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
+#include "render/resource/resource_manager.h"
 #include "core/window.h"
 #include "graphics/swapchain.h"
+#include "graphics/resource/sampler.h"
 #include "ui/imgui_context.h"
 #include "ui/shortcuts.h"
 #include "scene/selection.h"
@@ -13,14 +15,51 @@
 #include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
 
 namespace CometEditor::Tests {
+    TEST(ViewportTest, RebuildsAfterBackendsWereClosedDuringFailedRecreation) {
+        Comet::Config config;
+        config.vulkan.enable_validation = true;
+        auto engine_result = Comet::Engine::create(config);
+        ASSERT_TRUE(engine_result) << engine_result.error().message;
+        auto& engine = *engine_result.value();
+        auto& renderer = engine.get_renderer();
+        Comet::Tests::TemporaryDirectory directory;
+        auto result = ImGuiContext::create(
+            engine.get_window(), renderer.get_render_context(), directory.path() / "imgui.ini");
+        ASSERT_TRUE(result) << result.error();
+        auto& ui = *result.value();
+        renderer.wait_idle();
+        ui.release_swapchain_resources();
+        // 模拟重建中后端已关闭，但后续 GPU 候选创建失败的状态。
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ui.release_swapchain_resources();
+        auto rebuilt = ui.rebuild_swapchain_resources({.image_count_changed = true});
+        ASSERT_TRUE(rebuilt) << rebuilt.error();
+        renderer.set_overlay_renderer([&](Comet::CommandBuffer& command) { ui.render(command); });
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            ASSERT_TRUE(preparation.value());
+        }
+        ASSERT_TRUE(ui.begin_frame());
+        ui.end_frame();
+        EXPECT_TRUE(renderer.render_frame({}));
+        renderer.set_overlay_renderer({});
+        renderer.wait_idle();
+    }
+
     TEST(ViewportTest, RendersAcrossSceneChangesAndIgnoresPlayPicking) {
         Comet::Config config;
         config.window.width = 640;
         config.window.height = 480;
         config.vulkan.enable_validation = true;
-        Comet::Engine engine(config);
+        auto engine_result = Comet::Engine::create(config);
+        ASSERT_TRUE(engine_result) << engine_result.error().message;
+        auto& engine = *engine_result.value();
         auto& renderer = engine.get_renderer();
         ASSERT_TRUE(renderer.enable_offscreen_rendering({320, 240}));
         Comet::Tests::TemporaryDirectory directory;
@@ -38,26 +77,31 @@ namespace CometEditor::Tests {
         PropertyEditTransaction edit(history, components);
         EditorState state;
         EditorShortcuts shortcuts;
+        auto sampler = renderer.get_resource_manager().get_sampler_manager().get_nearest_clamp();
+        ASSERT_TRUE(sampler) << sampler.error();
         Viewport viewport(state, selection, history, components, edit, shortcuts, renderer,
-            engine.get_asset_registry(), ui);
-        ui.set_ui_callback([&] {
-            ImGui::SetNextWindowPos({0, 0});
-            ImGui::SetNextWindowSize({600, 400});
-            viewport.panel().render();
-            viewport.update(active_scene);
-        });
-        renderer.set_overlay_callbacks(
-            [&] {
-                viewport.update_texture();
-                ui.update_frame();
-                viewport.submit_feedback(active_scene);
-            },
+            engine.get_asset_registry(), ui, std::move(sampler).value());
+        renderer.set_overlay_renderer(
             [&](Comet::CommandBuffer& command_buffer) { ui.render(command_buffer); });
         const auto draw_frame = [&] {
             engine.get_window().poll_events();
-            if(!renderer.prepare_frame())
+            const auto preparation = renderer.prepare_frame();
+            EXPECT_TRUE(preparation);
+            if(!preparation || !preparation.value())
                 return false;
-            renderer.render_frame(Comet::SceneExtractor::extract(*active_scene));
+            viewport.update_texture();
+            if(!ui.begin_frame())
+                return false;
+            ImGui::SetNextWindowPos({0, 0});
+            ImGui::SetNextWindowSize({600, 400});
+            viewport.panel().render();
+            const auto updated = viewport.update(active_scene);
+            ui.end_frame();
+            EXPECT_TRUE(updated);
+            if(!updated)
+                return false;
+            viewport.submit_feedback(active_scene);
+            EXPECT_TRUE(renderer.render_frame(Comet::SceneExtractor::extract(*active_scene)));
             return true;
         };
         EXPECT_TRUE(draw_frame());
@@ -97,8 +141,7 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(draw_frame());
         EXPECT_FALSE(viewport.panel().is_visible());
 
-        renderer.set_overlay_callbacks({}, {});
-        ui.set_ui_callback({});
+        renderer.set_overlay_renderer({});
         viewport.panel().cancel_interaction();
         renderer.get_render_context().wait_idle();
     }

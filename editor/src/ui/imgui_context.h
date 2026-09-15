@@ -5,7 +5,6 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -34,7 +33,8 @@ namespace CometEditor {
         ImGuiContext(const ImGuiContext&) = delete;
         ImGuiContext& operator=(const ImGuiContext&) = delete;
 
-        void update_frame() const;
+        [[nodiscard]] bool begin_frame();
+        void end_frame();
         void render(Comet::CommandBuffer& command_buffer) const;
 
         void release_swapchain_resources();
@@ -45,9 +45,6 @@ namespace CometEditor {
             std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler);
 
         [[nodiscard]] ImTextureID get_viewport_texture_id(uint32_t frame_index) const;
-
-        using UICallback = std::function<void()>;
-        void set_ui_callback(UICallback callback) { m_ui_callback = std::move(callback); }
 
     private:
         class TextureBinding;
@@ -71,7 +68,7 @@ namespace CometEditor {
         std::unique_ptr<Comet::RenderTarget> m_render_target;
         std::unique_ptr<Comet::DescriptorPool> m_descriptor_pool;
         std::vector<std::unique_ptr<TextureBinding>> m_viewport_textures;
-        UICallback m_ui_callback;
+        bool m_draw_data_ready = false;
         bool m_initialized = false;
         bool m_is_recreating = false;
         uint32_t m_backend_image_count = 0;

@@ -53,6 +53,7 @@ namespace CometEditor::Tests {
         std::unique_ptr<ProjectPanel> project;
         int move_count = 0;
         int refresh_count = 0;
+        bool consume_requests = true;
         Comet::AssetHandle moved_handle;
         std::filesystem::path destination;
 
@@ -65,18 +66,7 @@ namespace CometEditor::Tests {
             ASSERT_TRUE(report.succeeded());
             history.bind_scene(&scene);
             project = std::make_unique<ProjectPanel>(
-                database, paths.assets(), std::move(report),
-                [this]() {
-                    ++refresh_count;
-                    return manager.scan();
-                },
-                [this](const Comet::AssetHandle handle, const std::filesystem::path& target) {
-                    ++move_count;
-                    moved_handle = handle;
-                    destination = target;
-                    return manager.move_asset(handle, target);
-                },
-                selection, history);
+                database, paths.assets(), std::move(report), selection, history);
             frame();
             frame();
         }
@@ -89,6 +79,19 @@ namespace CometEditor::Tests {
             ImGui::SetNextWindowSize(ImVec2(420, 400));
             project->render();
             ImGui::Render();
+            if(consume_requests) {
+                if(const auto request = project->take_move_request()) {
+                    ++move_count;
+                    moved_handle = request->handle;
+                    destination = request->destination;
+                    project->complete_move(
+                        *request, manager.move_asset(request->handle, request->destination));
+                }
+                if(project->take_refresh_request()) {
+                    ++refresh_count;
+                    project->update_scan_report(manager.scan());
+                }
+            }
         }
 
         // 初始顺序：assets、folder、c.png、a.png、b.png。
@@ -242,6 +245,44 @@ namespace CometEditor::Tests {
             EXPECT_EQ(refresh_count, previous_count + 1);
         }
         EXPECT_EQ(selection.get_selected_asset(), selected);
+    }
+
+    TEST_F(ProjectPanelTest, RenameOnlyQueuesUntilTheOwnerExecutesIt) {
+        consume_requests = false;
+        const auto source = database.find("a.png")->handle;
+        open_rename(3);
+        rename("deferred");
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "a.png"));
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "deferred.png"));
+        EXPECT_EQ(move_count, 0);
+        const auto request = project->take_move_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->handle, source);
+        EXPECT_EQ(request->destination, "deferred.png");
+        EXPECT_FALSE(project->take_move_request());
+        project->complete_move(*request, manager.move_asset(request->handle, request->destination));
+        frame();
+        frame();
+        EXPECT_FALSE(ImGui::FindWindowByName("Rename Asset")->Active);
+        EXPECT_EQ(database.find(source)->path, "deferred.png");
+    }
+
+    TEST_F(ProjectPanelTest, RefreshOnlyQueuesUntilTheOwnerExecutesIt) {
+        consume_requests = false;
+        std::ofstream(paths.assets() / "new.png") << "new";
+        click({300, 350}, 1);
+        auto& context = *ImGui::GetCurrentContext();
+        ASSERT_EQ(context.OpenPopupStack.Size, 1);
+        auto* popup = context.OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Refresh"));
+        frame();
+        EXPECT_FALSE(database.find("new.png"));
+        EXPECT_EQ(refresh_count, 0);
+        ASSERT_TRUE(project->take_refresh_request());
+        EXPECT_FALSE(project->take_refresh_request());
+        project->update_scan_report(manager.scan());
+        EXPECT_TRUE(database.find("new.png"));
     }
 
     TEST_F(ProjectPanelTest, RenameUsesClickedAssetAndPreservesExtensionAndIdentity) {

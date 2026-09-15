@@ -44,9 +44,10 @@ namespace Comet {
     }
 
     Swapchain::Generation::Generation(vk::UniqueSwapchainKHR swapchain,
-        std::vector<std::shared_ptr<Image>> images, SwapchainConfig config)
-        : m_swapchain(std::move(swapchain)), m_images(std::move(images)),
-          m_config(std::move(config)) {}
+        std::vector<std::shared_ptr<Image>> images, SwapchainConfig config,
+        std::shared_ptr<vk::UniqueSurfaceKHR> surface)
+        : m_surface(std::move(surface)), m_swapchain(std::move(swapchain)),
+          m_images(std::move(images)), m_config(std::move(config)) {}
 
     Swapchain::Generation::~Generation() {
         m_images.clear();
@@ -78,20 +79,48 @@ namespace Comet {
 
     Result<Swapchain::RecreateStatus, GraphicsError> Swapchain::recreate() {
         PROFILE_SCOPE("Swapchain::Recreate");
-        SwapchainResult selection;
-        try {
-            const auto physical_device = m_context.get_physical_device();
-            const auto surface = m_context.get_surface();
-            const auto capabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
-            const auto surface_formats = physical_device.getSurfaceFormatsKHR(surface);
-            const auto present_modes = physical_device.getSurfacePresentModesKHR(surface);
-            const auto framebuffer_size = m_window.get_framebuffer_size();
-            selection = select_swapchain(capabilities, surface_formats, present_modes,
-                vk::Extent2D{framebuffer_size.x, framebuffer_size.y}, m_request);
-        } catch(const vk::SystemError& error) {
+        const auto physical_device = m_context.get_physical_device();
+        const auto surface = m_context.get_surface();
+        vk::SurfaceCapabilitiesKHR capabilities;
+        const auto queried = physical_device.getSurfaceCapabilitiesKHR(surface, &capabilities);
+        if(queried != vk::Result::eSuccess)
             return Result<RecreateStatus, GraphicsError>::failure(
-                {error.what(), static_cast<vk::Result>(error.code().value())});
-        }
+                {"Cannot query surface capabilities", queried});
+        const auto enumerate = [](auto& values, const auto& query) {
+            vk::Result result;
+            do {
+                uint32_t count = 0;
+                result = query(&count, nullptr);
+                if(result != vk::Result::eSuccess)
+                    return result;
+                values.resize(count);
+                if(count == 0)
+                    return vk::Result::eSuccess;
+                result = query(&count, values.data());
+                if(result == vk::Result::eSuccess)
+                    values.resize(count);
+            } while(result == vk::Result::eIncomplete);
+            return result;
+        };
+        std::vector<vk::SurfaceFormatKHR> surface_formats;
+        const auto formats =
+            enumerate(surface_formats, [&](uint32_t* count, vk::SurfaceFormatKHR* values) {
+                return physical_device.getSurfaceFormatsKHR(surface, count, values);
+            });
+        if(formats != vk::Result::eSuccess)
+            return Result<RecreateStatus, GraphicsError>::failure(
+                {"Cannot query surface formats", formats});
+        std::vector<vk::PresentModeKHR> present_modes;
+        const auto modes =
+            enumerate(present_modes, [&](uint32_t* count, vk::PresentModeKHR* values) {
+                return physical_device.getSurfacePresentModesKHR(surface, count, values);
+            });
+        if(modes != vk::Result::eSuccess)
+            return Result<RecreateStatus, GraphicsError>::failure(
+                {"Cannot query present modes", modes});
+        const auto framebuffer_size = m_window.get_framebuffer_size();
+        const auto selection = select_swapchain(capabilities, surface_formats, present_modes,
+            vk::Extent2D{framebuffer_size.x, framebuffer_size.y}, m_request);
         const auto& [status, config, message] = selection;
         if(status == SwapchainStatus::Deferred)
             return Result<RecreateStatus, GraphicsError>::success(RecreateStatus::Deferred);
@@ -114,6 +143,11 @@ namespace Comet {
             vk::to_string(config.transform), vk::to_string(config.composite_alpha),
             vk::to_string(config.usage), config.image_layers, config.clipped);
         return Result<RecreateStatus, GraphicsError>::success(RecreateStatus::Recreated);
+    }
+
+    Result<void, GraphicsError> Swapchain::recreate_surface() {
+        m_active_generation.reset();
+        return m_context.recreate_surface(m_window);
     }
 
     Swapchain::GenerationResult Swapchain::try_create_generation(const SwapchainConfig& config) {
@@ -158,8 +192,8 @@ namespace Comet {
         if(!swapchain)
             return GenerationResult::failure(swapchain.error());
 
-        std::shared_ptr<Generation> generation(
-            new Generation(std::move(swapchain).value(), {}, config));
+        std::shared_ptr<Generation> generation(new Generation(
+            std::move(swapchain).value(), {}, config, m_context.get_surface_owner()));
         auto images_attempt = get_swapchain_images(m_device.get(), generation->get());
         if(!images_attempt)
             return GenerationResult::failure(

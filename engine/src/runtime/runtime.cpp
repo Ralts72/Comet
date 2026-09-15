@@ -3,57 +3,64 @@
 
 #include "config/config_loader.h"
 
-#include <exception>
 #include <cstdio>
-#include <stdexcept>
+#include <iostream>
 #include <utility>
 #include <vector>
 
 namespace Comet {
-    void Application::run(Config config) {
+    Result<void, Error> Application::run(Config config) {
+        using RunResult = Result<void, Error>;
         if(m_engine)
-            throw std::logic_error("Application is already started");
-        try {
-            m_diagnostics = std::make_unique<Diagnostics>(config.diagnostics);
-            m_engine = std::make_unique<Engine>(config);
-            m_shutdown_required = true;
-            on_init();
-            m_engine->register_update_callback([this](const UpdateContext dt) { on_update(dt); });
-            m_engine->on_update();
-            end();
-        } catch(...) {
-            if(!m_engine)
-                m_diagnostics.reset();
-            end_after_failure();
-            throw;
+            return RunResult::failure({"Application is already started"});
+        m_diagnostics = std::make_unique<Diagnostics>(config.diagnostics);
+        auto engine = Engine::create(config);
+        if(!engine) {
+            m_diagnostics.reset();
+            return RunResult::failure(engine.error());
         }
+        m_engine = std::move(engine).value();
+        m_shutdown_required = true;
+        auto result = on_init();
+        if(result)
+            result = m_engine->run([this](const UpdateContext dt) { return on_update(dt); },
+                [this] { return on_frame_ready(); });
+        auto cleanup = end();
+        if(!cleanup) {
+            if(result)
+                return cleanup;
+            std::fprintf(
+                stderr, "Application cleanup also failed: %s\n", cleanup.error().message.c_str());
+        }
+        return result;
     }
 
-    void Application::end_after_failure() noexcept {
-        try {
-            end();
-        } catch(const std::exception& error) {
-            std::fprintf(stderr, "Application cleanup also failed: %s\n", error.what());
-        } catch(...) {
-            std::fputs("Application cleanup also failed\n", stderr);
-        }
-    }
-
-    void Application::end() {
+    Result<void, Error> Application::end() {
+        using RunResult = Result<void, Error>;
         if(!std::exchange(m_shutdown_required, false))
-            return;
+            return RunResult::success();
+        m_engine->prepare_shutdown();
         // 钩子失败时保留 Engine，让派生类剩余成员先析构，避免悬空 GPU owner。
-        on_shutdown();
+        if(auto result = on_shutdown(); !result)
+            return result;
         m_engine.reset();
         m_diagnostics.reset();
+        return RunResult::success();
     }
 
     int run(Application* app, const LaunchOptions& options) {
         const auto& directory = options.config_directory;
-        Config config =
+        auto config =
             ConfigLoader{}.load(std::vector<std::string>{(directory / "common.yaml").string(),
                 (directory / "profiles" / (options.config_profile + ".yaml")).string()});
-        app->run(std::move(config));
+        if(!config) {
+            std::cerr << "Application failed: " << config.error() << '\n';
+            return 1;
+        }
+        if(auto result = app->run(std::move(config).value()); !result) {
+            std::cerr << "Application failed: " << result.error().message << '\n';
+            return 1;
+        }
         return 0;
     }
 }

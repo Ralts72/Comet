@@ -15,37 +15,37 @@ namespace {
     const std::filesystem::path DEMO_MESH = "meshes/cube.gltf";
     const std::filesystem::path DEMO_MATERIAL = "materials/demo.mat";
 
-    Comet::AssetHandle load_required_mesh(
+    Comet::Result<Comet::AssetHandle, Comet::Error> load_required_mesh(
         Comet::AssetManager& asset_manager, const std::filesystem::path& relative_path) {
         const Comet::AssetRecord* record = asset_manager.get_database().find(relative_path);
         if(!record) {
-            LOG_FATAL("Required mesh asset '{}' is not indexed", relative_path.generic_string());
+            return Comet::Result<Comet::AssetHandle, Comet::Error>::failure(
+                {"Required mesh asset is not indexed: " + relative_path.generic_string()});
         }
-
-        if(!asset_manager.import_mesh(record->handle) || !asset_manager.load_mesh(record->handle)) {
-            LOG_FATAL("Failed to load required mesh asset '{}'", relative_path.generic_string());
-        }
-        return record->handle;
+        const auto handle = record->handle;
+        if(auto imported = asset_manager.import_mesh(handle); !imported)
+            return Comet::Result<Comet::AssetHandle, Comet::Error>::failure(imported.error());
+        if(auto loaded = asset_manager.load_mesh(handle); !loaded)
+            return Comet::Result<Comet::AssetHandle, Comet::Error>::failure(loaded.error());
+        return Comet::Result<Comet::AssetHandle, Comet::Error>::success(handle);
     }
 
-    Comet::AssetHandle load_required_material(
+    Comet::Result<Comet::AssetHandle, Comet::Error> load_required_material(
         Comet::AssetManager& asset_manager, const std::filesystem::path& relative_path) {
         const Comet::AssetRecord* record = asset_manager.get_database().find(relative_path);
         if(!record) {
-            LOG_FATAL(
-                "Required material asset '{}' is not indexed", relative_path.generic_string());
+            return Comet::Result<Comet::AssetHandle, Comet::Error>::failure(
+                {"Required material asset is not indexed: " + relative_path.generic_string()});
         }
-
-        if(!asset_manager.load_material(record->handle)) {
-            LOG_FATAL(
-                "Failed to load required material asset '{}'", relative_path.generic_string());
-        }
-        return record->handle;
+        const auto handle = record->handle;
+        if(auto loaded = asset_manager.load_material(handle); !loaded)
+            return Comet::Result<Comet::AssetHandle, Comet::Error>::failure(loaded.error());
+        return Comet::Result<Comet::AssetHandle, Comet::Error>::success(handle);
     }
 
     class GameApp final: public Comet::Application {
     public:
-        void on_init() override {
+        Comet::Result<void, Comet::Error> on_init() override {
             LOG_INFO("app init");
 
             auto& engine = get_engine();
@@ -61,9 +61,14 @@ namespace {
                     "Asset scan issue at '{}': {}", issue.path.generic_string(), issue.message);
             }
 
-            const Comet::AssetHandle mesh_handle = load_required_mesh(*m_asset_manager, DEMO_MESH);
-            const Comet::AssetHandle material_handle =
-                load_required_material(*m_asset_manager, DEMO_MATERIAL);
+            const auto mesh = load_required_mesh(*m_asset_manager, DEMO_MESH);
+            if(!mesh)
+                return Comet::Result<void, Comet::Error>::failure(mesh.error());
+            const auto material = load_required_material(*m_asset_manager, DEMO_MATERIAL);
+            if(!material)
+                return Comet::Result<void, Comet::Error>::failure(material.error());
+            const auto mesh_handle = mesh.value();
+            const auto material_handle = material.value();
 
             auto scene = std::make_unique<Comet::Scene>();
             Comet::Entity main_camera = scene->create_entity("Main Camera");
@@ -86,13 +91,15 @@ namespace {
 
             m_cube_entity_ids = {first_cube.get_id(), second_cube.get_id()};
             engine.set_scene(std::move(scene));
+            return Comet::Result<void, Comet::Error>::success();
         }
 
-        void on_update(Comet::UpdateContext context) override {
-            m_asset_manager->process_completions();
+        Comet::Result<void, Comet::Error> on_update(Comet::UpdateContext context) override {
+            if(auto assets = m_asset_manager->process_completions(); !assets)
+                return Comet::Result<void, Comet::Error>::failure(assets.error());
             Comet::Scene* scene = get_engine().get_scene();
             if(!scene) {
-                return;
+                return Comet::Result<void, Comet::Error>::success();
             }
 
             for(std::size_t index = 0; index < m_cube_entity_ids.size(); ++index) {
@@ -103,11 +110,13 @@ namespace {
                         Comet::Math::Vec3(0.0f, context.delta_time * 100.0f * direction, 0.0f));
                 }
             }
+            return Comet::Result<void, Comet::Error>::success();
         }
 
-        void on_shutdown() override {
+        Comet::Result<void, Comet::Error> on_shutdown() override {
             LOG_INFO("app shutdown");
             m_asset_manager.reset();
+            return Comet::Result<void, Comet::Error>::success();
         }
 
     private:

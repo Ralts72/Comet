@@ -24,30 +24,31 @@ namespace Comet {
 
     class COMET_API Renderer {
     public:
-        Renderer(const Window& window, const Config& config, const AssetRegistry& asset_registry);
+        static Result<std::unique_ptr<Renderer>, GraphicsError> create(
+            const Window& window, const Config& config, const AssetRegistry& asset_registry);
 
         ~Renderer();
 
-        // 成功后才能提取场景并调用 render_frame；准备阶段允许 UI 修改或替换 Scene。
-        [[nodiscard]] bool prepare_frame();
+        // 成功值 true 才能提取并绘制；false 表示延期，准备阶段允许 UI 修改或替换 Scene。
+        [[nodiscard]] Result<bool, GraphicsError> prepare_frame();
         // 消费场景快照，完成绘制、提交和呈现。
-        void render_frame(const RenderScene& render_scene);
+        [[nodiscard]] Result<void, GraphicsError> render_frame(const RenderScene& render_scene);
 
         Result<void, GraphicsError> enable_offscreen_rendering(Math::Vec2u initial_size);
         Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
             MaterialRenderer::ShaderCode shaders);
-        [[nodiscard]] bool recreate_swapchain();
+        void request_swapchain_recreation();
         void wait_idle();
+        void prepare_shutdown() noexcept;
         void set_swapchain_resource_callbacks(std::function<void()> release,
             std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild);
         [[nodiscard]] const FrameScheduler& get_frame_scheduler() const { return *m_frames; }
 
-        void set_render_view(RenderView view);
+        Result<void, GraphicsError> set_render_view(RenderView view);
 
-        using OverlayPrepareCallback = std::function<void()>;
         using OverlayRenderCallback = std::function<void(CommandBuffer&)>;
 
-        void set_overlay_callbacks(OverlayPrepareCallback prepare, OverlayRenderCallback render);
+        void set_overlay_renderer(OverlayRenderCallback render);
 
         using ViewportPickCallback = std::function<void(std::optional<ScenePickHit>)>;
         void request_viewport_pick(Math::Vec2u pixel, Math::Vec2u image_resolution);
@@ -67,6 +68,9 @@ namespace Comet {
         [[nodiscard]] const RenderContext& get_render_context() const { return *m_render_context; }
 
     private:
+        Renderer(std::unique_ptr<RenderContext> context, std::unique_ptr<ResourceManager> resources,
+            std::unique_ptr<FrameScheduler> frames, std::unique_ptr<SceneRenderer> scene,
+            const AssetRegistry& assets);
         struct ViewportPickRequest {
             Math::Vec2u pixel;
             Math::Vec2u image_resolution;
@@ -79,8 +83,8 @@ namespace Comet {
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         SceneResolver m_scene_resolver;
         RenderView m_render_view;
-        OverlayPrepareCallback m_prepare_overlay;
         OverlayRenderCallback m_render_overlay;
+        bool m_shutdown_prepared = false;
         std::optional<ViewportPickRequest> m_viewport_pick_request;
         ViewportPickCallback m_viewport_pick_callback;
         LineDrawList m_line_draw_list;

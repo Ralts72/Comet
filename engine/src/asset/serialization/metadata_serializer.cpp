@@ -46,29 +46,38 @@ namespace Comet {
 
         Result<AssetMetadata> decode_metadata(
             const Json::Node& root, const Json::Context& context) {
-            context.validate_keys(root, {"version", "guid", "type", "importer"});
+            if(auto valid = context.validate_keys(root, {"version", "guid", "type", "importer"});
+                !valid)
+                return Result<AssetMetadata>::failure(valid.error());
 
-            const std::uint32_t version = context.read_scalar<std::uint32_t>(
-                context.required_child(root, "version"), "version", "an unsigned integer");
-            if(version != MetadataSerializer::FORMAT_VERSION) {
-                return Result<AssetMetadata>::failure(context.error(
-                    "version", "unsupported version " + std::to_string(version) + "; expected "
-                                   + std::to_string(MetadataSerializer::FORMAT_VERSION)));
+            const auto version =
+                context.read_field<std::uint32_t>(root, "version", "an unsigned integer");
+            if(!version)
+                return Result<AssetMetadata>::failure(version.error());
+            if(version.value() != MetadataSerializer::FORMAT_VERSION) {
+                return Result<AssetMetadata>::failure(context.error("version",
+                    "unsupported version " + std::to_string(version.value()) + "; expected "
+                        + std::to_string(MetadataSerializer::FORMAT_VERSION)));
             }
 
-            const AssetHandle handle(context.read_scalar<AssetHandle::ValueType>(
-                context.required_child(root, "guid"), "guid", "a non-zero unsigned integer"));
+            const auto guid = context.read_field<AssetHandle::ValueType>(
+                root, "guid", "a non-zero unsigned integer");
+            if(!guid)
+                return Result<AssetMetadata>::failure(guid.error());
+            const AssetHandle handle(guid.value());
             if(!handle) {
                 return Result<AssetMetadata>::failure(
                     context.error("guid", "expected a non-zero value"));
             }
 
-            const std::string type_name = context.read_scalar<std::string>(
-                context.required_child(root, "type"), "type", "an asset type string");
-            const auto type = asset_type_from_string(type_name);
+            const auto type_name =
+                context.read_field<std::string>(root, "type", "an asset type string");
+            if(!type_name)
+                return Result<AssetMetadata>::failure(type_name.error());
+            const auto type = asset_type_from_string(type_name.value());
             if(!type) {
                 return Result<AssetMetadata>::failure(
-                    context.error("type", "unknown asset type '" + type_name + "'"));
+                    context.error("type", "unknown asset type '" + type_name.value() + "'"));
             }
 
             AssetImportSettings import_settings = std::monostate{};
@@ -79,21 +88,27 @@ namespace Comet {
                     return Result<AssetMetadata>::failure(
                         context.error("<root>", "missing required field 'importer'"));
                 }
-                context.validate_keys(importer, {"color_space", "flip_y"}, "importer");
+                if(auto valid =
+                        context.validate_keys(importer, {"color_space", "flip_y"}, "importer");
+                    !valid)
+                    return Result<AssetMetadata>::failure(valid.error());
 
-                const std::string color_space_name = context.read_scalar<std::string>(
-                    context.required_child(importer, "color_space", "importer"),
-                    "importer.color_space", "a texture color space string");
-                const auto color_space = texture_color_space_from_string(color_space_name);
+                const auto color_space_name = context.read_field<std::string>(
+                    importer, "color_space", "a texture color space string", "importer");
+                if(!color_space_name)
+                    return Result<AssetMetadata>::failure(color_space_name.error());
+                const auto color_space = texture_color_space_from_string(color_space_name.value());
                 if(!color_space) {
                     return Result<AssetMetadata>::failure(context.error("importer.color_space",
-                        "unknown texture color space '" + color_space_name + "'"));
+                        "unknown texture color space '" + color_space_name.value() + "'"));
                 }
 
-                import_settings = TextureImportSettings{.color_space = *color_space,
-                    .flip_y = context.read_scalar<bool>(
-                        context.required_child(importer, "flip_y", "importer"), "importer.flip_y",
-                        "a boolean")};
+                const auto flip_y =
+                    context.read_field<bool>(importer, "flip_y", "a boolean", "importer");
+                if(!flip_y)
+                    return Result<AssetMetadata>::failure(flip_y.error());
+                import_settings =
+                    TextureImportSettings{.color_space = *color_space, .flip_y = flip_y.value()};
             } else if(has_importer) {
                 return Result<AssetMetadata>::failure(
                     context.error("importer", "import settings are not supported for asset type '"

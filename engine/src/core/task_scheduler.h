@@ -17,6 +17,7 @@ namespace Comet {
     public:
         using Task = std::function<void()>;
 
+        // 容量必须为正；worker_count 为 0 时按硬件线程数选择。
         explicit TaskScheduler(std::size_t worker_count = 0, std::size_t queue_capacity = 128);
         ~TaskScheduler();
 
@@ -25,10 +26,11 @@ namespace Comet {
         TaskScheduler(TaskScheduler&&) = delete;
         TaskScheduler& operator=(TaskScheduler&&) = delete;
 
-        [[nodiscard]] std::future<void> submit(Task task);
-        // 队列满或停止接收时立即返回空，不在提交线程执行任务或等待容量。
+        // 空任务、队列满或停止接收时立即返回空，不在提交线程执行任务或等待容量。
         [[nodiscard]] std::optional<std::future<void>> try_submit(Task task);
         void wait_idle();
+        // Owner 线程调用；停止接收并排空任务，可重复调用，不可由 Worker 调用。
+        void shutdown();
 
         [[nodiscard]] std::size_t get_worker_count() const noexcept;
         [[nodiscard]] std::size_t get_queue_capacity() const noexcept { return m_queue_capacity; }

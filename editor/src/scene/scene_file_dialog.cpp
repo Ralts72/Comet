@@ -1,15 +1,17 @@
 #include "scene/scene_file_dialog.h"
-#include "scene/scene_document.h"
 #include <algorithm>
+#include <utility>
 #include <imgui.h>
 namespace CometEditor {
-    void SceneFileDialog::request(const Action dialog, SceneDocument& document,
+    void SceneFileDialog::request(const Action dialog, const std::filesystem::path& current_path,
         const std::filesystem::path& scene_directory) {
         m_action = dialog;
         m_open_requested = true;
-        document.clear_error();
+        m_close_requested = false;
+        m_request.reset();
+        m_error.clear();
 
-        std::string initial_path = document.get_path();
+        std::string initial_path = current_path.string();
         if(dialog == Action::Save && initial_path.empty()) {
             initial_path = (scene_directory / "untitled.scene").string();
         } else if(dialog == Action::Open && initial_path.empty()) {
@@ -20,9 +22,9 @@ namespace CometEditor {
             m_path_buffer.data());
     }
 
-    bool SceneFileDialog::render(SceneDocument& document) {
+    void SceneFileDialog::render() {
         if(m_action == Action::None) {
-            return false;
+            return;
         }
 
         const bool is_open = m_action == Action::Open;
@@ -32,9 +34,15 @@ namespace CometEditor {
             m_open_requested = false;
         }
 
-        bool opened = false;
         if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            return false;
+            return;
+        }
+        if(m_close_requested) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            m_action = Action::None;
+            m_close_requested = false;
+            return;
         }
 
         ImGui::SetNextItemWidth(560.0f);
@@ -43,32 +51,33 @@ namespace CometEditor {
 
         const char* action = is_open ? "Open" : "Save";
         if((ImGui::Button(action, ImVec2(100.0f, 0.0f)) || submitted)) {
-            const std::string path(m_path_buffer.data());
-            const bool succeeded = is_open ? document.open(path) : document.save(path);
-            if(succeeded) {
-                if(is_open) {
-                    opened = true;
-                }
-                ImGui::CloseCurrentPopup();
-                m_action = Action::None;
-            }
+            m_request = Request{m_action, m_path_buffer.data()};
         }
         ImGui::SameLine();
         if(ImGui::Button("Cancel", ImVec2(100.0f, 0.0f))) {
             ImGui::CloseCurrentPopup();
             m_action = Action::None;
-            document.clear_error();
+            m_request.reset();
+            m_error.clear();
         }
 
-        if(!document.get_last_error().empty()) {
+        if(!m_error.empty()) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.25f, 0.2f, 1.0f));
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 560.0f);
-            ImGui::TextWrapped("%s", document.get_last_error().c_str());
+            ImGui::TextWrapped("%s", m_error.c_str());
             ImGui::PopTextWrapPos();
             ImGui::PopStyleColor();
         }
         ImGui::EndPopup();
-        return opened;
+    }
+
+    std::optional<SceneFileDialog::Request> SceneFileDialog::take_request() {
+        return std::exchange(m_request, std::nullopt);
+    }
+
+    void SceneFileDialog::complete(const Comet::Result<void, Comet::Error>& result) {
+        m_close_requested = static_cast<bool>(result);
+        m_error = result ? std::string{} : result.error().message;
     }
 
 }

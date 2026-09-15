@@ -1,15 +1,9 @@
 #include "config/config_loader.h"
-#include "config/config.h"
-
+#include "common/file_io.h"
 #include <array>
 #include <cmath>
-#include <filesystem>
-#include <optional>
 #include <sstream>
-#include <stdexcept>
 #include <string_view>
-#include <vector>
-
 #include <yaml-cpp/yaml.h>
 
 namespace Comet {
@@ -18,253 +12,190 @@ namespace Comet {
             std::pair{"bgra8_unorm", Format::B8G8R8A8_UNORM},
             std::pair{"rgba8_srgb", Format::R8G8B8A8_SRGB},
             std::pair{"rgba8_unorm", Format::R8G8B8A8_UNORM}};
-
         constexpr std::array COLOR_SPACES = {
             std::pair{"srgb_nonlinear", ImageColorSpace::SrgbNonlinearKHR}};
-
         constexpr std::array DEPTH_FORMATS = {std::pair{"d32_float", Format::D32_SFLOAT},
             std::pair{"d24_unorm_s8_uint", Format::D24_UNORM_S8_UINT},
             std::pair{"d32_float_s8_uint", Format::D32_SFLOAT_S8_UINT}};
-
         constexpr std::array PRESENT_MODES = {std::pair{"immediate", PresentMode::Immediate},
             std::pair{"mailbox", PresentMode::Mailbox}, std::pair{"fifo", PresentMode::Fifo},
             std::pair{"fifo_relaxed", PresentMode::FifoRelaxed}};
-
-        std::runtime_error config_error(
-            const std::string& config_path, const std::string_view key, const std::string& detail) {
-            return std::runtime_error(
-                "Invalid config '" + config_path + "' at '" + std::string(key) + "': " + detail);
+        std::string config_error(
+            std::string_view path, std::string_view key, std::string_view detail) {
+            return "Invalid config '" + std::string(path) + "' at '" + std::string(key)
+                   + "': " + std::string(detail);
         }
-
-        std::optional<YAML::Node> find_node(
-            const YAML::Node& root, const std::string_view key, const std::string& config_path) {
-            if(!root.IsDefined() || root.IsNull()) {
-                return std::nullopt;
+        class ConfigReader {
+        public:
+            ConfigReader(const YAML::Node& root, const std::string& path)
+                : m_root(root), m_path(path) {}
+            template<typename T>
+            bool read(std::string_view key, T& value, std::string_view expected) {
+                YAML::Node node(YAML::NodeType::Undefined);
+                if(!find(key, node))
+                    return false;
+                if(!node.IsDefined())
+                    return true;
+                T candidate{};
+                if(!node.IsScalar() || !YAML::convert<T>::decode(node, candidate))
+                    return fail(key, "expected " + std::string(expected));
+                value = std::move(candidate);
+                return true;
             }
-
-            YAML::Node node = root;
-            std::stringstream key_stream{std::string(key)};
-            std::string segment;
-            std::string parent_path;
-
-            while(std::getline(key_stream, segment, '.')) {
-                if(!node.IsMap()) {
-                    const std::string location = parent_path.empty() ? "<root>" : parent_path;
-                    throw config_error(config_path, location, "expected a mapping");
+            template<typename T, std::size_t Size>
+            bool named(std::string_view key, T& value,
+                const std::array<std::pair<const char*, T>, Size>& names) {
+                YAML::Node node(YAML::NodeType::Undefined);
+                if(!find(key, node))
+                    return false;
+                if(!node.IsDefined())
+                    return true;
+                if(!node.IsScalar())
+                    return fail(key, "expected a string");
+                const auto& name = node.Scalar();
+                std::string expected;
+                for(const auto& [label, candidate] : names) {
+                    if(name == label) {
+                        value = candidate;
+                        return true;
+                    }
+                    if(!expected.empty())
+                        expected += ", ";
+                    expected += label;
                 }
-
-                const YAML::Node child = static_cast<const YAML::Node&>(node)[segment];
-                if(!child.IsDefined()) {
-                    return std::nullopt;
+                return fail(key, "unknown value '" + name + "'; expected one of: " + expected);
+            }
+            bool samples(SampleCount& value) {
+                std::uint32_t count = static_cast<std::uint32_t>(value);
+                if(!read("vulkan.msaa_samples", count, "one of 1, 2, 4, 8, 16, 32, or 64"))
+                    return false;
+                if(count == 0 || count > 64 || (count & (count - 1)) != 0)
+                    return fail(
+                        "vulkan.msaa_samples", "unsupported sample count " + std::to_string(count));
+                value = static_cast<SampleCount>(count);
+                return true;
+            }
+            bool color(Math::Vec4& value) {
+                YAML::Node node(YAML::NodeType::Undefined);
+                if(!find("render.clear_color", node))
+                    return false;
+                if(!node.IsDefined())
+                    return true;
+                if(!node.IsSequence() || node.size() != 4)
+                    return fail("render.clear_color", "expected an array of four numbers");
+                Math::Vec4 candidate;
+                for(std::size_t i = 0; i < 4; ++i) {
+                    const auto element = node[i];
+                    if(!element.IsScalar() || !YAML::convert<float>::decode(element, candidate[i])
+                        || !std::isfinite(candidate[i]))
+                        return fail("render.clear_color", "expected finite numbers");
                 }
+                value = candidate;
+                return true;
+            }
+            const std::string& error() const { return m_error; }
 
-                node.reset(child);
-                if(!parent_path.empty()) {
-                    parent_path += '.';
+        private:
+            bool fail(std::string_view key, std::string_view detail) {
+                m_error = config_error(m_path, key, detail);
+                return false;
+            }
+            bool find(std::string_view key, YAML::Node& output) {
+                if(!m_root.IsDefined() || m_root.IsNull())
+                    return true;
+                YAML::Node node = m_root;
+                std::stringstream stream{std::string(key)};
+                std::string segment, parent;
+                while(std::getline(stream, segment, '.')) {
+                    if(!node.IsMap())
+                        return fail(parent.empty() ? "<root>" : parent, "expected a mapping");
+                    const auto child = static_cast<const YAML::Node&>(node)[segment];
+                    if(!child.IsDefined())
+                        return true;
+                    node.reset(child);
+                    if(!parent.empty())
+                        parent += '.';
+                    parent += segment;
                 }
-                parent_path += segment;
+                output.reset(node);
+                return true;
             }
-
-            return node;
-        }
-
-        template<typename T>
-        T read_value(const YAML::Node& root, const std::string_view key, T default_value,
-            const std::string_view expected_type, const std::string& config_path) {
-            const auto node = find_node(root, key, config_path);
-            if(!node.has_value()) {
-                return default_value;
-            }
-
-            try {
-                return node->as<T>();
-            } catch(const YAML::Exception& error) {
-                throw config_error(config_path, key,
-                    "expected " + std::string(expected_type) + ", got " + YAML::Dump(*node) + " ("
-                        + error.what() + ")");
-            }
-        }
-
-        template<typename T, std::size_t Size>
-        T read_named_value(const YAML::Node& root, const std::string_view key,
-            const T default_value, const std::array<std::pair<const char*, T>, Size>& values,
-            const std::string& config_path) {
-            if(!find_node(root, key, config_path).has_value()) {
-                return default_value;
-            }
-
-            const auto name = read_value<std::string>(root, key, {}, "a string", config_path);
-            for(const auto& [candidate, value] : values) {
-                if(name == candidate) {
-                    return value;
-                }
-            }
-
-            std::string expected;
-            for(const auto& [candidate, value] : values) {
-                static_cast<void>(value);
-                if(!expected.empty()) {
-                    expected += ", ";
-                }
-                expected += candidate;
-            }
-            throw config_error(
-                config_path, key, "unknown value '" + name + "'; expected one of: " + expected);
-        }
-
-        SampleCount read_sample_count(const YAML::Node& root, const std::string_view key,
-            const SampleCount default_value, const std::string& config_path) {
-            if(!find_node(root, key, config_path).has_value()) {
-                return default_value;
-            }
-
-            switch(const auto value = read_value<std::uint32_t>(
-                       root, key, 0, "one of 1, 2, 4, 8, 16, 32, or 64", config_path)) {
-                case 1:
-                    return SampleCount::Count1;
-                case 2:
-                    return SampleCount::Count2;
-                case 4:
-                    return SampleCount::Count4;
-                case 8:
-                    return SampleCount::Count8;
-                case 16:
-                    return SampleCount::Count16;
-                case 32:
-                    return SampleCount::Count32;
-                case 64:
-                    return SampleCount::Count64;
-                default:
-                    throw config_error(config_path, key,
-                        "unsupported sample count " + std::to_string(value)
-                            + "; expected one of: 1, 2, 4, 8, 16, 32, 64");
-            }
-        }
-
-        Math::Vec4 read_clear_color(const YAML::Node& root, const Config::Render& defaults,
-            const std::string& config_path) {
-            if(!find_node(root, "render.clear_color", config_path).has_value()) {
-                return defaults.clear_color;
-            }
-
-            const auto values = read_value<std::vector<float>>(
-                root, "render.clear_color", {}, "an array of four numbers", config_path);
-            if(values.size() != 4) {
-                throw config_error(config_path, "render.clear_color",
-                    "expected an array of four numbers, got " + std::to_string(values.size())
-                        + " values");
-            }
-
-            return {values[0], values[1], values[2], values[3]};
-        }
-
-        void validate_config(const Config& config, const std::string& config_path) {
-            if(config.window.width <= 0) {
-                throw config_error(config_path, "window.width", "must be greater than zero");
-            }
-            if(config.window.height <= 0) {
-                throw config_error(config_path, "window.height", "must be greater than zero");
-            }
-            if(config.vulkan.swapchain_image_count == 0) {
-                throw config_error(
-                    config_path, "vulkan.swapchain_image_count", "must be greater than zero");
-            }
-            if(config.render.max_frames_in_flight == 0) {
-                throw config_error(
-                    config_path, "render.max_frames_in_flight", "must be greater than zero");
-            }
-            if(!std::isfinite(config.render.max_anisotropy)
-                || config.render.max_anisotropy < 1.0f) {
-                throw config_error(config_path, "render.max_anisotropy",
-                    "must be a finite number of at least 1.0");
-            }
-        }
-
-        void merge_config_file(Config& config, const std::string& config_path) {
-            if(!std::filesystem::exists(config_path)) {
-                throw std::runtime_error("Config file not found: " + config_path);
-            }
-
+            const YAML::Node& m_root;
+            const std::string& m_path;
+            std::string m_error;
+        };
+        Result<void> merge_config_file(Config& config, const std::string& path) {
+            auto text = read_text_file(path);
+            if(!text)
+                return Result<void>::failure(text.error());
             YAML::Node root;
             try {
-                root = YAML::LoadFile(config_path);
+                root = YAML::Load(text.value());
             } catch(const YAML::Exception& error) {
-                throw std::runtime_error(
-                    "Failed to load config '" + config_path + "': " + std::string(error.what()));
+                return Result<void>::failure(config_error(path, "<root>", error.what()));
             }
-
-            if(root.IsDefined() && !root.IsNull() && !root.IsMap()) {
-                throw config_error(config_path, "<root>", "expected a mapping");
-            }
-
-            config.diagnostics.log.enable_file_logging =
-                read_value<bool>(root, "diagnostics.enable_file_logging",
-                    config.diagnostics.log.enable_file_logging, "a boolean", config_path);
-            config.diagnostics.log.level = read_value<std::string>(root, "diagnostics.log_level",
-                config.diagnostics.log.level, "a string", config_path);
-            config.diagnostics.enable_profiler =
-                read_value<bool>(root, "diagnostics.enable_profiler",
-                    config.diagnostics.enable_profiler, "a boolean", config_path);
-
-            config.window.width = read_value<int>(
-                root, "window.width", config.window.width, "an integer", config_path);
-            config.window.height = read_value<int>(
-                root, "window.height", config.window.height, "an integer", config_path);
-            config.window.title = read_value<std::string>(
-                root, "window.title", config.window.title, "a string", config_path);
-            config.window.fullscreen = read_value<bool>(
-                root, "window.fullscreen", config.window.fullscreen, "a boolean", config_path);
-            config.window.resizable = read_value<bool>(
-                root, "window.resizable", config.window.resizable, "a boolean", config_path);
-
-            config.vulkan.surface_format = read_named_value(root, "vulkan.surface_format",
-                config.vulkan.surface_format, SURFACE_FORMATS, config_path);
-            config.vulkan.color_space = read_named_value(
-                root, "vulkan.color_space", config.vulkan.color_space, COLOR_SPACES, config_path);
-            config.vulkan.depth_format = read_named_value(root, "vulkan.depth_format",
-                config.vulkan.depth_format, DEPTH_FORMATS, config_path);
-            config.vulkan.present_mode = read_named_value(root, "vulkan.present_mode",
-                config.vulkan.present_mode, PRESENT_MODES, config_path);
-            config.vulkan.swapchain_image_count =
-                read_value<std::uint32_t>(root, "vulkan.swapchain_image_count",
-                    config.vulkan.swapchain_image_count, "a non-negative integer", config_path);
-            config.vulkan.msaa_samples = read_sample_count(
-                root, "vulkan.msaa_samples", config.vulkan.msaa_samples, config_path);
-            config.vulkan.enable_validation =
-                read_value<bool>(root, "diagnostics.enable_validation",
-                    config.vulkan.enable_validation, "a boolean", config_path);
-
-            config.render.max_frames_in_flight =
-                read_value<std::uint32_t>(root, "render.max_frames_in_flight",
-                    config.render.max_frames_in_flight, "a non-negative integer", config_path);
-            config.render.clear_color = read_clear_color(root, config.render, config_path);
-            config.render.enable_vsync = read_value<bool>(
-                root, "render.enable_vsync", config.render.enable_vsync, "a boolean", config_path);
-            config.render.max_anisotropy = read_value<float>(root, "render.max_anisotropy",
-                config.render.max_anisotropy, "a number", config_path);
+            if(root.IsDefined() && !root.IsNull() && !root.IsMap())
+                return Result<void>::failure(config_error(path, "<root>", "expected a mapping"));
+            ConfigReader reader(root, path);
+            if(!reader.read("diagnostics.enable_file_logging",
+                   config.diagnostics.log.enable_file_logging, "a boolean")
+                || !reader.read("diagnostics.log_level", config.diagnostics.log.level, "a string")
+                || !reader.read(
+                    "diagnostics.enable_profiler", config.diagnostics.enable_profiler, "a boolean")
+                || !reader.read("window.width", config.window.width, "an integer")
+                || !reader.read("window.height", config.window.height, "an integer")
+                || !reader.read("window.title", config.window.title, "a string")
+                || !reader.read("window.fullscreen", config.window.fullscreen, "a boolean")
+                || !reader.read("window.resizable", config.window.resizable, "a boolean")
+                || !reader.named(
+                    "vulkan.surface_format", config.vulkan.surface_format, SURFACE_FORMATS)
+                || !reader.named("vulkan.color_space", config.vulkan.color_space, COLOR_SPACES)
+                || !reader.named("vulkan.depth_format", config.vulkan.depth_format, DEPTH_FORMATS)
+                || !reader.named("vulkan.present_mode", config.vulkan.present_mode, PRESENT_MODES)
+                || !reader.read("vulkan.swapchain_image_count", config.vulkan.swapchain_image_count,
+                    "a non-negative integer")
+                || !reader.samples(config.vulkan.msaa_samples)
+                || !reader.read(
+                    "diagnostics.enable_validation", config.vulkan.enable_validation, "a boolean")
+                || !reader.read("render.max_frames_in_flight", config.render.max_frames_in_flight,
+                    "a non-negative integer")
+                || !reader.color(config.render.clear_color)
+                || !reader.read("render.enable_vsync", config.render.enable_vsync, "a boolean")
+                || !reader.read("render.max_anisotropy", config.render.max_anisotropy, "a number"))
+                return Result<void>::failure(reader.error());
+            return Result<void>::success();
         }
     }
-
-    Config ConfigLoader::load(const std::string& config_path) const {
-        return load(std::vector{config_path});
+    Result<Config> ConfigLoader::load(const std::string& path) const {
+        return load(std::vector{path});
     }
-
-    Config ConfigLoader::load(const std::vector<std::string>& config_paths) const {
-        if(config_paths.empty()) {
-            throw std::runtime_error("At least one config file is required");
-        }
-
+    Result<Config> ConfigLoader::load(const std::vector<std::string>& paths) const {
+        if(paths.empty())
+            return Result<Config>::failure("At least one config file is required");
         Config config;
-        std::string source_description;
-        for(const auto& config_path : config_paths) {
-            merge_config_file(config, config_path);
-            if(!source_description.empty()) {
-                source_description += ", ";
-            }
-            source_description += config_path;
+        std::string sources;
+        for(const auto& path : paths) {
+            if(auto result = merge_config_file(config, path); !result)
+                return Result<Config>::failure(result.error());
+            if(!sources.empty())
+                sources += ", ";
+            sources += path;
         }
-
-        validate_config(config, source_description);
-        return config;
+        if(config.window.width <= 0)
+            return Result<Config>::failure(
+                config_error(sources, "window.width", "must be greater than zero"));
+        if(config.window.height <= 0)
+            return Result<Config>::failure(
+                config_error(sources, "window.height", "must be greater than zero"));
+        if(config.vulkan.swapchain_image_count == 0)
+            return Result<Config>::failure(
+                config_error(sources, "vulkan.swapchain_image_count", "must be greater than zero"));
+        if(config.render.max_frames_in_flight == 0)
+            return Result<Config>::failure(
+                config_error(sources, "render.max_frames_in_flight", "must be greater than zero"));
+        if(!std::isfinite(config.render.max_anisotropy) || config.render.max_anisotropy < 1.0f)
+            return Result<Config>::failure(config_error(
+                sources, "render.max_anisotropy", "must be a finite number of at least 1.0"));
+        return Result<Config>::success(std::move(config));
     }
 }

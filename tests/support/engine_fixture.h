@@ -22,7 +22,9 @@ namespace Comet::Tests {
             config.window.width = 160;
             config.window.height = 120;
             config.vulkan.enable_validation = true;
-            engine = std::make_unique<Engine>(config);
+            auto created = Engine::create(config);
+            ASSERT_TRUE(created) << created.error().message;
+            engine = std::move(created).value();
         }
 
         void TearDown() override {

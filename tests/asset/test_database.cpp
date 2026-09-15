@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -214,6 +215,48 @@ namespace Comet::Tests {
                 .load(metadata_path(project.paths().assets() / updated->path))
                 .value();
         EXPECT_EQ(metadata.import_settings, AssetImportSettings(settings));
+    }
+
+    TEST(AssetDatabaseTest, UnchangedSettingsDoNotRewriteMetadataOrConsumeRevision) {
+        const TemporaryProject project;
+        const auto path = project.add_file("textures/albedo.png");
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto metadata = metadata_path(path);
+        const auto timestamp = std::filesystem::last_write_time(metadata) - std::chrono::hours(1);
+        std::filesystem::last_write_time(metadata, timestamp);
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto record = *database.find("textures/albedo.png");
+        const auto revision = database.get_revision(record.handle);
+
+        ASSERT_TRUE(database.update_import_settings(record.handle, record.import_settings));
+        EXPECT_EQ(database.get_revision(record.handle), revision);
+        EXPECT_EQ(std::filesystem::last_write_time(metadata), timestamp);
+        EXPECT_FALSE(database.update_import_settings(record.handle, std::monostate{}));
+        EXPECT_EQ(database.get_revision(record.handle), revision);
+        EXPECT_EQ(std::filesystem::last_write_time(metadata), timestamp);
+
+        ASSERT_TRUE(
+            database.update_import_settings(record.handle, TextureImportSettings{.flip_y = true}));
+        EXPECT_EQ(database.get_revision(record.handle), revision + 1);
+        EXPECT_TRUE(database.scan().modified_assets.empty());
+    }
+
+    TEST(AssetDatabaseTest, UnchangedDependenciesKeepRevisionAndReverseIndex) {
+        const TemporaryProject project;
+        project.add_file("materials/default.mat", std::string(EMPTY_MATERIAL));
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto handle = database.find("materials/default.mat")->handle;
+        ASSERT_TRUE(database.update_dependencies(handle, {AssetHandle(42), AssetHandle(73)}));
+        const auto revision = database.get_revision(handle);
+        ASSERT_TRUE(database.update_dependencies(
+            handle, {AssetHandle(73), AssetHandle(42), AssetHandle(42)}));
+        EXPECT_EQ(database.get_revision(handle), revision);
+        EXPECT_TRUE(std::ranges::equal(
+            database.get_dependencies(handle), std::vector{AssetHandle(42), AssetHandle(73)}));
+        EXPECT_TRUE(
+            std::ranges::equal(database.get_dependents(AssetHandle(42)), std::vector{handle}));
     }
 
     TEST(AssetDatabaseTest, RejectsImportSettingsForAnotherAssetType) {

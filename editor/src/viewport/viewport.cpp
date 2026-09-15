@@ -1,6 +1,5 @@
 #include "viewport/viewport.h"
 #include "render/render_context.h"
-#include "render/resource/resource_manager.h"
 #include "graphics/device.h"
 #include "graphics/resource/sampler.h"
 
@@ -14,7 +13,6 @@
 #include "ui/imgui_context.h"
 
 #include <algorithm>
-#include <stdexcept>
 #include <utility>
 
 namespace CometEditor {
@@ -31,16 +29,14 @@ namespace CometEditor {
     Viewport::Viewport(EditorState& state, SelectionService& selection, CommandHistory& history,
         const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
         const EditorShortcuts& shortcuts, Comet::Renderer& renderer, Comet::AssetRegistry& assets,
-        ImGuiContext& ui)
+        ImGuiContext& ui, std::shared_ptr<Comet::Sampler> sampler)
         : m_state(state), m_selection(selection), m_renderer(renderer), m_assets(assets), m_ui(ui),
-          m_gizmo(history, components), m_panel(state, selection, m_gizmo, inspector_edit,
-                                            viewport_dimension_limit(renderer), shortcuts) {
+          m_sampler(std::move(sampler)), m_gizmo(history, components),
+          m_panel(state, selection, m_gizmo, inspector_edit, viewport_dimension_limit(renderer),
+              shortcuts) {
         auto& scene_renderer = m_renderer.get_scene_renderer();
-        auto sampler = m_renderer.get_resource_manager().get_sampler_manager().get_nearest_clamp();
-        if(!sampler)
-            throw std::runtime_error(
-                "Cannot initialize viewport sampler: " + sampler.error().message);
-        m_sampler = std::move(sampler).value();
+        if(!m_sampler)
+            LOG_FATAL("Viewport requires a prepared sampler");
         const auto count = m_renderer.get_frame_scheduler().get_frame_slot_count();
         for(std::uint32_t slot = 0; slot < count; ++slot)
             m_ui.set_viewport_image(slot, scene_renderer.get_offscreen_color_view(slot), m_sampler);
@@ -54,7 +50,7 @@ namespace CometEditor {
         m_panel.set_texture_id(m_ui.get_viewport_texture_id(slot), size.x, size.y);
     }
 
-    void Viewport::update(Comet::Scene* scene) {
+    Comet::Result<void, Comet::Error> Viewport::update(Comet::Scene* scene) {
         if(m_state.mode == EditorMode::Edit) {
             if(const auto projection = m_panel.take_projection_request())
                 m_state.camera.projection = *projection;
@@ -63,9 +59,12 @@ namespace CometEditor {
         }
         if(m_panel.take_focus_request() && m_state.mode == EditorMode::Edit)
             focus_selection(scene);
-        m_renderer.set_render_view(
-            make_render_view(m_state, m_panel.is_visible(), m_panel.get_requested_render_size()));
+        if(auto view = m_renderer.set_render_view(make_render_view(
+               m_state, m_panel.is_visible(), m_panel.get_requested_render_size()));
+            !view)
+            return Comet::Result<void, Comet::Error>::failure(view.error().as_error());
         m_panel.draw_gizmo();
+        return Comet::Result<void, Comet::Error>::success();
     }
 
     void Viewport::focus_selection(Comet::Scene* scene) {

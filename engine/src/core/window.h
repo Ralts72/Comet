@@ -34,6 +34,7 @@ namespace Comet {
         void poll_events();
 
         void wait_events();
+        void wait_events(double timeout_seconds);
         [[nodiscard]] std::vector<FileDrop> take_file_drops();
 
     private:

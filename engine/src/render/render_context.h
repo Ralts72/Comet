@@ -1,6 +1,7 @@
 #pragma once
 #include "common/export.h"
 #include "config/config.h"
+#include "graphics/result.h"
 
 #include <memory>
 
@@ -11,8 +12,8 @@ namespace Comet {
     class Window;
     class COMET_API RenderContext {
     public:
-        RenderContext(const Window& window, const Config::Vulkan& vulkan_config,
-            const Config::Render& render_config);
+        static Result<std::unique_ptr<RenderContext>, GraphicsError> create(const Window& window,
+            const Config::Vulkan& vulkan_config, const Config::Render& render_config);
         ~RenderContext();
 
         [[nodiscard]] Device& get_device() { return *m_device; }
@@ -25,6 +26,8 @@ namespace Comet {
         void wait_idle() const;
 
     private:
+        RenderContext(std::unique_ptr<Context> context, std::unique_ptr<Device> device,
+            std::unique_ptr<Swapchain> swapchain);
         std::unique_ptr<Context> m_context;
         std::unique_ptr<Device> m_device;
         std::unique_ptr<Swapchain> m_swapchain;

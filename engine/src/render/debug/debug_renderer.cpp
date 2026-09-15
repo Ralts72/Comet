@@ -12,7 +12,6 @@
 #include "debug_line_vert.h"
 
 #include <limits>
-#include <stdexcept>
 #include <utility>
 
 namespace Comet {
@@ -69,20 +68,22 @@ namespace Comet {
             "debug_line_pipeline", layout, config, vertex_shader.value(), fragment_shader.value());
     }
 
-    void DebugRenderer::render(FrameScheduler& frame_scheduler,
+    Result<void, GraphicsError> DebugRenderer::render(FrameScheduler& frame_scheduler,
         const ViewProjectMatrix& view_project, const LineDrawList& draw_list) {
         const auto vertices = draw_list.vertices();
         if(vertices.empty()) {
-            return;
+            return Result<void, GraphicsError>::success();
         }
         if(vertices.size() > std::numeric_limits<uint32_t>::max()) {
             LOG_ERROR("Debug draw vertex count exceeds uint32_t range");
-            return;
+            return Result<void, GraphicsError>::success();
         }
         auto& resources = m_frame_resources.at(frame_scheduler.get_current_frame_slot_index());
-        if(!ensure_capacity(resources, vertices.size())) {
-            return;
-        }
+        const auto capacity = ensure_capacity(resources, vertices.size());
+        if(!capacity)
+            return Result<void, GraphicsError>::failure(capacity.error());
+        if(!capacity.value())
+            return Result<void, GraphicsError>::success();
         resources.vertex_buffer->write(vertices.data(), vertices.size_bytes());
         frame_scheduler.retain_current_frame_resource(resources.vertex_buffer);
         frame_scheduler.retain_current_frame_resource(m_pipeline);
@@ -94,24 +95,26 @@ namespace Comet {
         command_buffer.push_constants(*m_pipeline->get_layout(),
             Flags<ShaderStage>(ShaderStage::Vertex), 0, &view_projection, sizeof(view_projection));
         command_buffer.draw(static_cast<uint32_t>(vertices.size()));
+        return Result<void, GraphicsError>::success();
     }
 
-    bool DebugRenderer::ensure_capacity(FrameResources& resources, const std::size_t vertex_count) {
+    Result<bool, GraphicsError> DebugRenderer::ensure_capacity(
+        FrameResources& resources, const std::size_t vertex_count) {
         if(vertex_count > std::numeric_limits<std::size_t>::max() / sizeof(LineDrawList::Vertex)) {
             LOG_ERROR("Debug draw vertex buffer size overflow");
-            return false;
+            return Result<bool, GraphicsError>::success(false);
         }
         const std::size_t required_bytes = vertex_count * sizeof(LineDrawList::Vertex);
         std::size_t capacity = 256 * sizeof(LineDrawList::Vertex);
         if(resources.vertex_buffer) {
             capacity = resources.vertex_buffer->get_size();
             if(capacity >= required_bytes) {
-                return true;
+                return Result<bool, GraphicsError>::success(true);
             }
         }
         if(resources.growth_retry_requests > 0) {
             --resources.growth_retry_requests;
-            return false;
+            return Result<bool, GraphicsError>::success(false);
         }
         while(capacity < required_bytes) {
             if(capacity > std::numeric_limits<std::size_t>::max() / 2) {
@@ -125,15 +128,14 @@ namespace Comet {
                 capacity, true, nullptr, "debug line vertex buffer");
         if(!candidate) {
             if(candidate.error().is_device_lost())
-                throw std::runtime_error(
-                    "Device lost while growing debug line buffer: " + candidate.error().message);
+                return Result<bool, GraphicsError>::failure(candidate.error());
             LOG_ERROR("Failed to grow debug line vertex buffer to {} bytes: {}", capacity,
                 candidate.error().message);
             // 调试绘制非关键；保留旧 buffer，跳过本批，避免每次请求都重试并刷日志。
             resources.growth_retry_requests = 120;
-            return false;
+            return Result<bool, GraphicsError>::success(false);
         }
         resources.vertex_buffer = std::move(candidate).value();
-        return true;
+        return Result<bool, GraphicsError>::success(true);
     }
 }

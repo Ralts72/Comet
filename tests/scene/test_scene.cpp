@@ -119,11 +119,13 @@ namespace Comet::Tests {
         Scene scene;
         Entity entity = scene.create_entity("Temporary");
         const EntityId id = entity.get_id();
+        const EntityUuid uuid = entity.get_uuid();
 
         scene.destroy_entity(entity);
 
         EXPECT_FALSE(entity);
         EXPECT_FALSE(scene.find_entity(id));
+        EXPECT_FALSE(scene.find_entity(uuid));
         EXPECT_EQ(scene.entity_count(), 0u);
     }
 
@@ -194,6 +196,25 @@ namespace Comet::Tests {
         EXPECT_EQ(scene.get_parent(grandchild), child);
     }
 
+    TEST(SceneTest, ReparentUpdatesIndexedChildren) {
+        Scene scene;
+        Entity first_parent = scene.create_entity("First Parent");
+        Entity second_parent = scene.create_entity("Second Parent");
+        Entity child = scene.create_entity("Child");
+
+        ASSERT_TRUE(scene.set_parent(child, first_parent));
+        ASSERT_EQ(scene.get_children(first_parent).size(), 1u);
+
+        ASSERT_TRUE(scene.set_parent(child, second_parent));
+        EXPECT_TRUE(scene.get_children(first_parent).empty());
+        ASSERT_EQ(scene.get_children(second_parent).size(), 1u);
+        EXPECT_EQ(scene.get_children(second_parent).front(), child);
+
+        ASSERT_TRUE(scene.clear_parent(child));
+        EXPECT_TRUE(scene.get_children(second_parent).empty());
+        EXPECT_EQ(scene.get_root_entities().size(), 3u);
+    }
+
     TEST(SceneTest, ReparentKeepsLocalTransformAndUpdatesWorldMatrix) {
         Scene scene;
         Entity first_parent = scene.create_entity("First Parent");
@@ -227,6 +248,101 @@ namespace Comet::Tests {
         ASSERT_TRUE(scene.clear_parent(child));
         EXPECT_TRUE(
             TestUtils::Mat4Equal(scene.get_world_matrix(child), child_transform.to_matrix()));
+    }
+
+    TEST(SceneTest, RecomputesOnlyChangedTransformSubtrees) {
+        Scene scene;
+        auto parent = scene.create_entity("Parent");
+        auto child = scene.create_entity("Child");
+        auto other = scene.create_entity("Other");
+        ASSERT_TRUE(scene.set_parent(child, parent));
+        EXPECT_EQ(scene.update_world_transforms(), 3u);
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+
+        auto& retained = parent.get_component<TransformComponent>();
+        retained.translation.x = 2;
+        EXPECT_EQ(scene.update_world_transforms(), 2u);
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+        retained.translation.x = 4;
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 4);
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+
+        other.get_component<TransformComponent>().translation.y = 3;
+        static_cast<void>(scene.get_world_matrix(child));
+        EXPECT_EQ(scene.update_world_transforms(), 1u);
+        ASSERT_TRUE(scene.set_parent(child, other));
+        EXPECT_EQ(scene.update_world_transforms(), 1u);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].y, 3);
+    }
+
+    TEST(SceneTest, RecomputesDescendantsWhenTransformIsRemoved) {
+        Scene scene;
+        auto parent = scene.create_entity();
+        auto child = scene.create_entity();
+        ASSERT_TRUE(scene.set_parent(child, parent));
+        parent.get_component<TransformComponent>().translation.x = 5;
+        EXPECT_EQ(scene.update_world_transforms(), 2u);
+        parent.remove_component<TransformComponent>();
+        EXPECT_EQ(scene.update_world_transforms(), 2u);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 0);
+        parent.add_component<TransformComponent>().translation.x = 9;
+        EXPECT_EQ(scene.update_world_transforms(), 2u);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 9);
+    }
+
+    TEST(SceneTest, WorldMatrixReflectsChangesThroughRetainedTransformReference) {
+        Scene scene;
+        Entity entity = scene.create_entity();
+        auto& transform = entity.get_component<TransformComponent>();
+        EXPECT_TRUE(TestUtils::IsIdentityMatrix(scene.get_world_matrix(entity)));
+
+        transform.translation = Math::Vec3(3.0f, 4.0f, 5.0f);
+        EXPECT_TRUE(TestUtils::Mat4Equal(scene.get_world_matrix(entity), transform.to_matrix()));
+        transform.rotate(Math::Vec3(0.0f, 45.0f, 0.0f));
+        EXPECT_TRUE(TestUtils::Mat4Equal(scene.get_world_matrix(entity), transform.to_matrix()));
+    }
+
+    TEST(SceneTest, WorldMatrixReflectsTransformStructureChanges) {
+        Scene scene;
+        Entity entity = scene.create_entity("Transform");
+        entity.get_component<TransformComponent>().translation = Math::Vec3(2.0f, 3.0f, 4.0f);
+        EXPECT_TRUE(TestUtils::Mat4Equal(scene.get_world_matrix(entity),
+            Math::translate(Math::Mat4(1.0f), Math::Vec3(2.0f, 3.0f, 4.0f))));
+
+        entity.remove_component<TransformComponent>();
+        EXPECT_TRUE(TestUtils::IsIdentityMatrix(scene.get_world_matrix(entity)));
+
+        auto& transform = entity.add_component<TransformComponent>();
+        transform.translation = Math::Vec3(-1.0f, 0.5f, 7.0f);
+        EXPECT_TRUE(TestUtils::Mat4Equal(scene.get_world_matrix(entity), transform.to_matrix()));
+    }
+
+    TEST(SceneTest, CameraWorldTransformIgnoresHierarchyScaleButKeepsWorldPosition) {
+        Scene scene;
+        Entity parent = scene.create_entity("Parent");
+        Entity camera = scene.create_entity("Camera");
+        auto& parent_transform = parent.get_component<TransformComponent>();
+        parent_transform.translation = Math::Vec3(4.0f, 5.0f, 6.0f);
+        parent_transform.rotation = Math::Vec3(0.0f, 35.0f, 0.0f);
+        parent_transform.scale = Math::Vec3(2.0f, 3.0f, 4.0f);
+        auto& camera_transform = camera.get_component<TransformComponent>();
+        camera_transform.translation = Math::Vec3(1.0f, 2.0f, 3.0f);
+        camera_transform.rotation = Math::Vec3(10.0f, 20.0f, 30.0f);
+        camera_transform.scale = Math::Vec3(5.0f, 6.0f, 7.0f);
+        ASSERT_TRUE(scene.set_parent(camera, parent));
+
+        scene.update_world_transforms();
+
+        const auto& world = camera.get_component<WorldTransformComponent>();
+        const Math::Mat4 expected_world =
+            parent_transform.to_matrix() * camera_transform.to_matrix();
+        Math::Mat4 expected_camera = Math::compose_trs(parent_transform.translation,
+                                         parent_transform.rotation, Math::Vec3(1))
+                                     * Math::compose_trs(camera_transform.translation,
+                                         camera_transform.rotation, Math::Vec3(1));
+        expected_camera[3] = expected_world[3];
+        EXPECT_TRUE(TestUtils::Mat4Equal(world.world_matrix, expected_world));
+        EXPECT_TRUE(TestUtils::Mat4Equal(world.camera_world_matrix, expected_camera));
     }
 
     TEST(SceneTest, DestroyingParentDestroysEntireSubtree) {

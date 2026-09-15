@@ -31,7 +31,9 @@ namespace Comet::Tests {
             config.vulkan.enable_validation = true;
             config.vulkan.msaa_samples = std::get<1>(GetParam());
             config.render.max_frames_in_flight = 2;
-            engine = std::make_unique<Engine>(config);
+            auto created = Engine::create(config);
+            ASSERT_TRUE(created) << created.error().message;
+            engine = std::move(created).value();
             if(std::get<0>(GetParam())) {
                 auto& renderer = engine->get_renderer();
                 ASSERT_TRUE(renderer.enable_offscreen_rendering({160, 120}));
@@ -47,8 +49,8 @@ namespace Comet::Tests {
                     context.get_device(), *presentation_pass, swapchain);
                 ASSERT_TRUE(target) << target.error();
                 presentation_target = std::move(target).value();
-                renderer.set_overlay_callbacks(
-                    {}, [this](CommandBuffer& command_buffer) { present(command_buffer); });
+                renderer.set_overlay_renderer(
+                    [this](CommandBuffer& command_buffer) { present(command_buffer); });
             }
             scene.cameras.push_back(RenderCamera{.primary = true});
         }
@@ -100,14 +102,17 @@ namespace Comet::Tests {
             return list;
         }
 
-        bool draw_frame(const LineDrawList& list = {}) {
+        bool draw_frame(const LineDrawList& list = {}, const LineDrawList& ready_lines = {}) {
             auto& renderer = engine->get_renderer();
             engine->get_window().poll_events();
             renderer.submit_lines(list);
-            if(!renderer.prepare_frame()) {
+            const auto preparation = renderer.prepare_frame();
+            EXPECT_TRUE(preparation);
+            if(!preparation || !preparation.value()) {
                 return false;
             }
-            renderer.render_frame(scene);
+            renderer.submit_lines(ready_lines);
+            EXPECT_TRUE(renderer.render_frame(scene));
             return true;
         }
 
@@ -123,11 +128,7 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         const auto initial = allocations();
         const auto batch = lines(100);
-        renderer.set_overlay_callbacks([&] { renderer.submit_lines(batch); },
-            [this](CommandBuffer& command_buffer) { present(command_buffer); });
-        ASSERT_TRUE(draw_frame(batch));
-        renderer.set_overlay_callbacks(
-            {}, [this](CommandBuffer& command_buffer) { present(command_buffer); });
+        ASSERT_TRUE(draw_frame(batch, batch));
         const auto first_slot = allocations();
         EXPECT_EQ(first_slot.count, initial.count + 1);
         EXPECT_GE(first_slot.bytes - initial.bytes, batch.vertices().size_bytes() * 2);
@@ -150,7 +151,7 @@ namespace Comet::Tests {
         }
 
         if(std::get<0>(GetParam())) {
-            renderer.set_render_view({.render_size = {192, 128}});
+            ASSERT_TRUE(renderer.set_render_view({.render_size = {192, 128}}));
             ASSERT_TRUE(draw_frame(batch));
             EXPECT_EQ(renderer.get_scene_renderer().get_render_target().get_size(),
                 Math::Vec2u(192, 128));
@@ -166,9 +167,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(draw_frame());
         EXPECT_EQ(allocations().count, initial.count);
 
-        renderer.set_render_view({.visible = false});
+        ASSERT_TRUE(renderer.set_render_view({.visible = false}));
         ASSERT_TRUE(draw_frame(lines(100)));
-        renderer.set_render_view({});
+        ASSERT_TRUE(renderer.set_render_view({}));
         ASSERT_TRUE(draw_frame());
         EXPECT_EQ(allocations().count, initial.count);
     }
@@ -184,9 +185,13 @@ namespace Comet::Tests {
         EXPECT_FALSE(renderer.enable_offscreen_rendering({limit + 1, 128}));
         EXPECT_EQ(&scene_renderer.get_render_target(), previous);
         EXPECT_EQ(scene_renderer.get_material_layouts(), layouts);
-        ASSERT_TRUE(renderer.prepare_frame());
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            ASSERT_TRUE(preparation.value());
+        }
         EXPECT_FALSE(renderer.enable_offscreen_rendering({192, 128}));
-        renderer.render_frame(scene);
+        EXPECT_TRUE(renderer.render_frame(scene));
         if(!std::get<0>(GetParam()))
             return;
         const std::weak_ptr<ImageView> old_view = scene_renderer.get_offscreen_color_view(0);

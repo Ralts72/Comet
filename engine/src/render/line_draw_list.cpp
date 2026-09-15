@@ -2,12 +2,12 @@
 
 #include <algorithm>
 #include <array>
-#include <stdexcept>
 
 namespace Comet {
     bool LineDrawList::add_line(
         const Math::Vec3 start, const Math::Vec3 end, const Math::Vec4 color) {
-        if(!Math::is_finite(start) || !Math::is_finite(end) || !Math::is_finite(color)) {
+        if(!Math::is_finite(start) || !Math::is_finite(end) || !Math::is_finite(color)
+            || m_vertices.max_size() - m_vertices.size() < 2) {
             return false;
         }
         // 一次插入两个顶点，分配失败时也不留下半条线。
@@ -22,7 +22,8 @@ namespace Comet {
 
     bool LineDrawList::add_box(
         const BoundingBox& box, const Math::Mat4& transform, const Math::Vec4 color) {
-        if(!box.is_valid() || !Math::is_finite(color)) {
+        if(!box.is_valid() || !Math::is_finite(color)
+            || m_vertices.max_size() - m_vertices.size() < 24) {
             return false;
         }
         for(int column = 0; column < 4; ++column) {
@@ -60,14 +61,17 @@ namespace Comet {
         return true;
     }
 
-    void LineDrawList::append(const LineDrawList& draw_list) {
+    bool LineDrawList::append(const LineDrawList& draw_list) {
         const std::size_t count = draw_list.m_vertices.size();
+        if(count == 0)
+            return true;
         const std::size_t offset = m_vertices.size();
         if(count > m_vertices.max_size() - offset) {
-            throw std::length_error("Line draw vertex count exceeds vector capacity");
+            return false;
         }
         m_vertices.resize(offset + count);
         // resize 后再取源地址，也支持把列表自身追加一次。
         std::copy_n(draw_list.m_vertices.begin(), count, m_vertices.begin() + offset);
+        return true;
     }
 }

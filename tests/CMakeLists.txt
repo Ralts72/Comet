@@ -32,7 +32,13 @@ endif ()
 
 target_include_directories(unit_testing PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME unit_testing COMMAND unit_testing)
+if (APPLE)
+    # Rapid window teardown can leave AppKit animations occupying dispatch workers
+    # needed by Metal compilation. Disable animations only in the test process.
+    add_test(NAME unit_testing COMMAND unit_testing -NSAutomaticWindowAnimationsEnabled NO)
+else ()
+    add_test(NAME unit_testing COMMAND unit_testing)
+endif ()
 add_test(NAME shader_build_contract COMMAND "${CMAKE_COMMAND}"
         "-DCOMPILE_TOOL=$<TARGET_FILE:comet_shader_compiler>"
         "-DCOMET_ROOT=${CMAKE_SOURCE_DIR}"

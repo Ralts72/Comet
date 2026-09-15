@@ -1,6 +1,6 @@
 # 渲染资源所有权
 
-描述当前 owner、调用边界和销毁规则；未来 Shader 热更新/RenderGraph/RenderThread 设计见[路线图](../engine-roadmap.md)。
+描述当前 owner、调用边界和销毁规则；未来项目 Shader／RenderGraph／RenderThread 设计见[路线图](../engine-roadmap.md)。
 
 ## 先看哪个类
 
@@ -83,10 +83,16 @@ Editor
 
 Application 的实现集中在 runtime.cpp，对外只提供完整的 run(Config) 生命周期：
 创建 Diagnostics／Engine → on_init → 引擎更新循环 → end。start/main_loop 不再作为可独立调用的接口。
-初始化和更新失败共用一个捕获边界；on_init 一旦开始，就会尝试一次 on_shutdown，应用必须能关闭部分初始化的成员。
-end 是内部操作，提前消费关闭标记，保证关闭钩子自身抛错后不会再次调用。
+Engine::create → Renderer::create → RenderContext::create 在局部准备 owner，成功后才移交私有构造器，不提供公开的半初始化对象。
+交换链或场景目标准备失败返回原始错误，局部 owner 逆序释放；Engine 创建失败时释放 Diagnostics，不调用 on_init/on_shutdown，并允许重新启动。
+这不是所有原生创建故障均可恢复的保证：Window、Context、Device 等底层已有的不变量/致命检查与标准库异常仍保持原约束。
+初始化和更新失败显式返回 Result；on_init 一旦开始，就会尝试一次 on_shutdown，应用必须能关闭部分初始化的成员。
+end 是内部操作，提前消费关闭标记，先完成 Engine 的关闭准备，再调用应用关闭钩子，失败也不会重复调用。
 钩子失败时保留 Engine／Diagnostics，由应用析构先释放派生类剩余资源、再释放基类 owner；
 原始初始化／更新错误继续向上传递，清理错误单独报告。关闭失败的实例不能重新运行。
+run 和私有 end 返回 Result<void, Error>。通用 Error 只保存消息与 std::error_code，图形错误在边界通过 GraphicsError::as_error 保留原生类别与数值，不再把呈现 Result 转为异常或捕获后重抛。
+应用钩子及第三方异常在这两个生命周期边界转换；vk::SystemError 保留原生结果码，其他异常保留诊断。
+Comet::run 消费结果并返回非零退出码；启动配置等尚未迁移的异常由 launch 兜底。
 
 ImGuiContext 的原生 Context 由带私有 ContextDeleter 的 unique_ptr 拥有；create 在私有候选中 initialize。
 失败返回或异常展开都会销毁候选，由 cleanup 先关闭借用 GPU 资源的后端，再析构 pool／target。
@@ -115,10 +121,11 @@ SwapchainTarget 与 MultiTarget 是公开同级类型：
 ## 一帧经过哪里
 
 ```text
-Engine：事件 → Application 更新
+Engine::run → 内部 tick：事件与时间 → Application::on_update（编辑器准备或应用运行逻辑）
   → Renderer::prepare_frame
       回收完成的 upload → Presentation 等待 slot / acquire / 开始录制
-      → overlay prepare（UI、编辑命令、相机输入、最新 RenderView）
+  → Application::on_frame_ready（仅帧就绪后）
+      ImGui begin → UI、编辑命令、相机输入、最新 RenderView → ImGui end → 反馈提交
   → SceneExtractor（读取此时的活动 Scene，更新 world transform）
   → Renderer::render_frame
   → SceneResolver（使用实际 Target 尺寸）
@@ -128,7 +135,19 @@ Engine：事件 → Application 更新
 ```
 
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
+Scene 维护 EntityId／UUID 查询索引与父子索引，结构修改时同步维护；这些索引不参与序列化。
+Scene 的同步检查遍历全部节点，比较本地 TRS、组件是否存在、parent ID 和父级计算版本，仅重算变化节点。
+单个 get_world_matrix 只检查祖先链；持续持有可变组件引用的写入同样在下次查询／提取时生效。
+缓存属于 Scene 私有状态，不序列化；update_world_transforms 返回实际重算数量，静止场景为零。
+Engine 同步借用 update 和 frame_ready 两个函数，不保存注册表；UI 修改后再同步变换并提取，避免使用上一帧数据。Renderer 不再调用 UI 准备，ImGuiContext 不再持有 UI 业务回调；Editor 在 on_frame_ready 显式调用 begin_frame/end_frame。
+camera_world_matrix 使用层级旋转与普通世界矩阵的位置，本地及祖先缩放不进入相机朝向。
+本地 TR 只计算一次，普通矩阵在其基础上应用 scale；相机与物体继续使用各自的父级矩阵。
 SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler，不访问呈现队列；录制时借用传入的帧上下文。
+
+MaterialRenderer::render、DebugRenderer::render 与 SceneRenderer::render_scene_pass 返回 GraphicsError。
+材质准备/调试缓冲增长遇到 DeviceLost 原样返回；普通失败仍沿用兼容旧材质或跳过调试批次。
+Renderer 收到场景 pass 失败后停止 overlay 与提交，调用 prepare_shutdown 等待在途工作，然后返回 Engine。
+部分录制的命令缓冲只由 owner 销毁，不结束并提交空帧，也不重新用于下一帧。
 Editor 通过 Renderer 注册 Overlay 重建钩子、读取只读帧信息；整帧命令缓冲直接传给 Overlay。
 SceneResolver 只解析 Camera、Mesh 和 Material 引用，不检查模板、属性名或纹理数量。
 
@@ -274,7 +293,7 @@ RenderPass::create 使用 UniqueRenderPass，构造仅接管完整附件描述�
 SceneRenderer 对离屏 resize 保存失败尺寸及 RetryBackoff：同一请求仅在 Vulkan 主机／设备内存不足时
 按 1、2、4 秒最多重试三次，耗尽或其他错误停止；新尺寸（包括回到实际尺寸）或目标重新安装清除旧失败状态。
 相同请求每帧只检查期限，不重复创建；第一次失败与最终停止分别记录日志。DeviceLost 仍退出。
-resize 仍在 Overlay prepare 中同步准备并安装，不改变 ImGui 更新顺序；失败不能覆盖实际 Target 尺寸，
+resize 在 on_frame_ready 的 Viewport::update 中同步准备并安装，不改变 ImGui 更新顺序；失败不能覆盖实际 Target 尺寸，
 纹理绑定、场景 viewport 和拾取分辨率继续使用实际目标。该限制按单个尺寸请求计算，不限制连续不同尺寸的尝试。
 RetryBackoff 是无资源、无线程的值类型，只管理预约／一次性到期消费／次数／重置；默认三次指数退避，可按实例指定策略。
 请求身份、输入复核、可重试错误判断与日志仍由 ShaderReload／Editor／SceneRenderer 各自处理，不集中为全局重试服务。
@@ -296,7 +315,7 @@ get_cached_pipeline_count 包括尚未清理的过期项。模板选择、Pipeli
 
 ## 编辑命令与视口时序
 
-只有 prepare_frame 成功才提取并提交；overlay prepare 可以修改或替换 Scene，Engine 在其返回后重新读取 owner。
+只有 prepare_frame 成功且值为 true 才调用 frame_ready；frame_ready 返回 Result<void, Error>，成功后才提取并提交。它可以修改或替换 Scene，Engine 在其返回后重新读取 owner。失败时 Engine 执行关闭准备并返回原始错误，不再绘制或重用已取得的帧；这不是可恢复的单帧取消接口，失败后的 Engine 拒绝再次运行。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。
 编辑命令完成后提取，因此组件修改、Undo/Redo 和当前帧拾取使用同一份场景快照。
 Editor::finish_active_edit 统一取消未完成 Gizmo、提交 Inspector 编辑；失败时拒绝后续请求。
@@ -383,16 +402,28 @@ extent 变化只重建 target；format/image count 变化还会影响 ImGui back
 
 Generation 的 shared ownership 只解决寿命，不保证 WSI 可继续 acquire：
 传入 oldSwapchain 调用创建后，无论成功失败旧 core 都退休。调用前取走 active 引用，旧 owner 仅保活至创建调用结束，绝不再发布为 active。
-新 Generation 用 UniqueSwapchainKHR 持有句柄，图像查询失败或包装异常都会释放新句柄；失败返回给应用退出边界。
-只有调用创建前的零尺寸延期才允许恢复旧 dependent；创建失败后的无呈现恢复见[路线图](../engine-roadmap.md)。
+新 Generation 用 UniqueSwapchainKHR 持有句柄，图像查询失败或包装异常都会释放新句柄。
+Presentation 区分交换链重建、dependent 重建与 surface 重建阶段；任一阶段未完成时不 acquire、不录制。
+内存不足、OutOfDate、SurfaceLost、Timeout／NotReady 按 1／2／4 秒最多重试三次；
+dependent 暂时失败保留已成功创建的新 Generation，下次仅重建 dependent，重复释放必须兼容部分初始化状态。
+零尺寸延期保持待重建状态；无呈现时主循环继续更新，并通过短时事件等待避免忙等。
+SurfaceLost 在等待 graphics／present、释放 dependent 后重建 surface，并检查原呈现队列是否支持新 surface。
+Generation 同时保活自己的 surface，旧代外部引用不能使 surface 提前释放；实例仍须晚于全部代销毁。
+设备丢失、不支持的配置及重试耗尽以 Result 错误传过 Renderer／Engine，由 Application 统一进入退出清理。
+request_swapchain_recreation 只登记请求并重置手动重试预算；begin_frame 是唯一推进恢复的入口。
+acquire／present 的自动重建请求不重置预算；提交末尾不直接重建，避免一次调用隐含多个恢复入口。
+prepare_frame 返回 Result<bool, GraphicsError>：true 可绘制、false 延期、失败保留原生码；render_frame 返回 Result<void, GraphicsError>。
+这不承诺全部底层录制／等待接口 noexcept；未迁移的第三方异常仍可能导致进程终止，不保证有序清理。
+Context 对外只提供借用 Surface 句柄，Surface owner 仅在 Context／Swapchain 内部共享。
+首次创建与恢复共用私有 Surface 候选创建函数，恢复路径额外校验当前呈现队列，再安装候选。
 
-关闭先解绑捕获 Editor/ImGuiContext 的 callback，结束后台工作并等待必要 GPU 完成，再释放：
+关闭先由 Engine 调用 TaskScheduler::shutdown 停止接收、排空任务并回收线程，再由 Renderer 停止新帧并等待 GPU；随后应用解绑捕获 Editor/ImGuiContext 的 callback 并释放资源。shutdown 由 owner 线程调用，不可从 Worker 调用，也不支持多个线程同时关闭；wait_idle 只等待瞬时空闲，不承担关闭职责。Engine 不直接访问 Device。独立底层 owner 的安全析构等待仍保留。资源释放顺序为：
 ImGui dependent → Registry/SceneRenderer → ResourceManager → Swapchain/Device/Context → Window。
 Device 必须比 Buffer、Image、Mesh、Texture、completion token 活得更久；shutdown 允许 Device idle。
 Swapchain::create 返回完整候选；recreate 的 Deferred 表示尚未调用原生创建、旧代未退休。
 acquire 返回 Result<optional<uint32_t>, GraphicsError>：空索引表示 OutOfDate，成功／Suboptimal 才包含有效索引。
-present 返回 Presented 或 RecreateRequired；负向错误保留 GraphicsError。Presentation 不解析原生状态码，重复 OutOfDate 不开始帧录制。
-Device::wait_idle_for_shutdown 捕获 Vulkan 等待错误并报告；Engine／Renderer／RenderContext／ImGui 和上传析构复用此边界继续释放资源。
+present 返回 Presented 或 RecreateRequired；负向错误保留 GraphicsError。Presentation 按错误码决定恢复阶段，重复 OutOfDate 不开始帧录制。
+Device::wait_idle_for_shutdown 检查 Vulkan 原生等待返回码并报告；Engine／Renderer／RenderContext／ImGui 和上传析构复用此边界继续释放资源。
 上传管理器仅在还有在途批次时做关闭等待，不再在析构中逐个等待可能因设备丢失失败的 completion；正常运行时的等待接口不变。
 
 GLFW 由 Window 实现管理：首个窗口初始化，最后一个窗口释放后终止，创建／销毁在主线程执行。

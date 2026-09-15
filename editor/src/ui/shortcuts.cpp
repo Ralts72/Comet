@@ -1,9 +1,7 @@
 #include "ui/shortcuts.h"
+#include "common/file_io.h"
 
 #include <algorithm>
-#include <fstream>
-#include <iterator>
-#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -34,12 +32,12 @@ namespace CometEditor {
                 if(text == name)
                     return key;
             }
-            throw std::runtime_error("Unknown or reserved key '" + std::string(name)
-                                     + "' (Escape is reserved for cancellation)");
+            return ImGuiKey_None;
         }
     }
 
-    EditorShortcuts::Binding EditorShortcuts::parse_binding(std::string_view text) {
+    Comet::Result<EditorShortcuts::Binding> EditorShortcuts::parse_binding(std::string_view text) {
+        using Result = Comet::Result<Binding>;
         ImGuiKeyChord modifiers = 0;
         // ImGui 根据 ConfigMacOSXBehaviors 把此处的 Ctrl 映射为 Cmd。
         while(text.find('+') != std::string_view::npos) {
@@ -53,74 +51,87 @@ namespace CometEditor {
             else if(token == "Alt")
                 modifier = ImGuiMod_Alt;
             else
-                throw std::runtime_error("Unknown modifier '" + std::string(token)
-                                         + "'; expected Primary, Shift or Alt");
+                return Result::failure("Unknown modifier '" + std::string(token)
+                                       + "'; expected Primary, Shift or Alt");
             if(modifiers & modifier)
-                throw std::runtime_error("Duplicate shortcut modifier");
+                return Result::failure("Duplicate shortcut modifier");
             modifiers |= modifier;
             text.remove_prefix(separator + 1);
         }
-        return {modifiers | parse_key(text), std::string(text)};
+        const auto key = parse_key(text);
+        if(key == ImGuiKey_None)
+            return Result::failure("Unknown or reserved key '" + std::string(text)
+                                   + "' (Escape is reserved for cancellation)");
+        return Result::success({modifiers | key, std::string(text)});
     }
 
     EditorShortcuts::EditorShortcuts() {
-        constexpr std::array defaults{
-            "Primary+N", "Primary+O", "Primary+S", "Primary+Z", "Primary+Shift+Z", "F"};
+        const std::array<Binding, 6> defaults{
+            {{ImGuiMod_Ctrl | ImGuiKey_N, "N"}, {ImGuiMod_Ctrl | ImGuiKey_O, "O"},
+                {ImGuiMod_Ctrl | ImGuiKey_S, "S"}, {ImGuiMod_Ctrl | ImGuiKey_Z, "Z"},
+                {ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, "Z"}, {ImGuiKey_F, "F"}}};
         for(std::size_t index = 0; index < defaults.size(); ++index)
-            m_bindings[index].push_back(parse_binding(defaults[index]));
-        m_bindings[static_cast<std::size_t>(Action::Redo)].push_back(parse_binding("Primary+Y"));
+            m_bindings[index].push_back(defaults[index]);
+        m_bindings[static_cast<std::size_t>(Action::Redo)].push_back(
+            {ImGuiMod_Ctrl | ImGuiKey_Y, "Y"});
     }
 
-    EditorShortcuts EditorShortcuts::load(const std::filesystem::path& path) {
-        std::ifstream file(path);
-        if(!file)
-            throw std::runtime_error("Cannot read shortcut config: " + path.string());
-        const std::string text{
-            std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-        if(file.bad())
-            throw std::runtime_error("Cannot read shortcut config: " + path.string());
-        try {
-            return parse(text);
-        } catch(const std::exception& error) {
-            throw std::runtime_error(
-                "Invalid shortcut config '" + path.string() + "': " + error.what());
-        }
+    Comet::Result<EditorShortcuts> EditorShortcuts::load(const std::filesystem::path& path) {
+        using Result = Comet::Result<EditorShortcuts>;
+        auto text = Comet::read_text_file(path);
+        if(!text)
+            return Result::failure(text.error());
+        auto result = parse(text.value());
+        if(!result)
+            return Result::failure(
+                "Invalid shortcut config '" + path.string() + "': " + result.error());
+        return result;
     }
 
-    EditorShortcuts EditorShortcuts::parse(const std::string_view yaml) {
+    Comet::Result<EditorShortcuts> EditorShortcuts::parse(const std::string_view yaml) {
+        using Result = Comet::Result<EditorShortcuts>;
         EditorShortcuts result;
-        const YAML::Node root = YAML::Load(std::string(yaml));
+        YAML::Node root;
+        try {
+            root = YAML::Load(std::string(yaml));
+        } catch(const YAML::Exception& error) {
+            return Result::failure(error.what());
+        }
         if(!root || root.IsNull())
-            return result;
+            return Result::success(std::move(result));
         if(!root.IsMap())
-            throw std::runtime_error("Expected a config mapping");
+            return Result::failure("Expected a config mapping");
         const YAML::Node editor = root["editor"];
         if(!editor)
-            return result;
+            return Result::success(std::move(result));
         if(!editor.IsMap())
-            throw std::runtime_error("editor must be a mapping");
+            return Result::failure("editor must be a mapping");
         const YAML::Node shortcuts = editor["shortcuts"];
         if(!shortcuts)
-            return result;
+            return Result::success(std::move(result));
         if(!shortcuts.IsMap())
-            throw std::runtime_error("editor.shortcuts must be a mapping");
+            return Result::failure("editor.shortcuts must be a mapping");
 
         std::unordered_set<std::string> configured;
         for(const auto& entry : shortcuts) {
-            const std::string name = entry.first.as<std::string>();
+            if(!entry.first.IsScalar())
+                return Result::failure("Shortcut action must be a string");
+            const std::string name = entry.first.Scalar();
             const auto action = std::ranges::find(ACTION_NAMES, name);
             if(action == ACTION_NAMES.end() || !configured.insert(name).second)
-                throw std::runtime_error("Unknown or duplicate shortcut action: " + name);
+                return Result::failure("Unknown or duplicate shortcut action: " + name);
             if(!entry.second.IsSequence())
-                throw std::runtime_error("editor.shortcuts." + name + " must be a list");
+                return Result::failure("editor.shortcuts." + name + " must be a list");
             auto& bindings = result.m_bindings[action - ACTION_NAMES.begin()];
             bindings.clear();
             for(const auto& chord : entry.second) {
-                try {
-                    bindings.push_back(parse_binding(chord.as<std::string>()));
-                } catch(const std::exception& error) {
-                    throw std::runtime_error("editor.shortcuts." + name + ": " + error.what());
-                }
+                const auto location = "editor.shortcuts." + name + ": ";
+                if(!chord.IsScalar())
+                    return Result::failure(location + "binding must be a string");
+                auto binding = parse_binding(chord.Scalar());
+                if(!binding)
+                    return Result::failure(location + binding.error());
+                bindings.push_back(std::move(binding).value());
             }
         }
 
@@ -130,12 +141,11 @@ namespace CometEditor {
             for(const auto& binding : result.m_bindings[index]) {
                 const auto [owner, inserted] = owners.emplace(binding.chord, ACTION_NAMES[index]);
                 if(!inserted)
-                    throw std::runtime_error("Shortcut conflict between "
-                                             + std::string(owner->second) + " and "
-                                             + std::string(ACTION_NAMES[index]));
+                    return Result::failure("Shortcut conflict between " + std::string(owner->second)
+                                           + " and " + std::string(ACTION_NAMES[index]));
             }
         }
-        return result;
+        return Result::success(std::move(result));
     }
 
     bool EditorShortcuts::pressed(const Action action, const ImGuiInputFlags flags) const {

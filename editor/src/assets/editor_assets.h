@@ -2,6 +2,7 @@
 
 #include "asset/asset_manager.h"
 #include "asset/source_monitor.h"
+#include "assets/asset_edit.h"
 #include <unordered_set>
 
 namespace Comet {
@@ -16,18 +17,15 @@ namespace CometEditor {
             Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler);
 
         [[nodiscard]] Comet::AssetScanReport refresh();
-        [[nodiscard]] std::optional<Comet::AssetScanReport> update();
+        [[nodiscard]] Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> update();
         [[nodiscard]] Comet::AssetScanReport move(
             Comet::AssetHandle handle, const std::filesystem::path& destination);
         [[nodiscard]] Comet::AssetScanReport import_files(
             std::span<const std::filesystem::path> sources, const std::filesystem::path& directory);
-        [[nodiscard]] bool update_material(
-            Comet::AssetHandle handle, const Comet::MaterialData& data);
-        [[nodiscard]] bool reimport_texture(
-            Comet::AssetHandle handle, Comet::TextureImportSettings settings);
-        [[nodiscard]] bool load_reference(
+        [[nodiscard]] Comet::Result<void, Comet::Error> apply_edit(const AssetEdit& edit);
+        [[nodiscard]] Comet::Result<void, Comet::Error> load_reference(
             Comet::AssetHandle handle, Comet::AssetType type, Comet::AssetRevision revision);
-        [[nodiscard]] std::size_t prepare_scene(
+        [[nodiscard]] Comet::Result<std::size_t, Comet::Error> prepare_scene(
             Comet::Scene& scene, const Comet::ComponentRegistry& components);
         [[nodiscard]] bool take_reference_refresh_request();
         void request_mesh_reimport(Comet::AssetHandle handle);

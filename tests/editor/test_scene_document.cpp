@@ -39,19 +39,39 @@ namespace CometEditor::Tests {
         };
     }
 
-    TEST(SceneDocumentTest, ActivationFailureIsNotReportedAsSceneParseFailure) {
+    TEST(SceneDocumentTest, PreparationFailurePreservesSceneAndDocumentPath) {
         const Comet::SceneSerializer serializer(component_registry());
         const TemporarySceneFile file;
         Comet::Scene scene;
         ASSERT_TRUE(serializer.save(scene, file.path()));
+        auto active = std::make_unique<Comet::Scene>();
+        const auto original = active.get();
+        int installations = 0;
+        const Comet::Error preparation_error{
+            "candidate preparation rejected", std::make_error_code(std::errc::io_error)};
         SceneDocument document(
-            serializer, file.paths(), [&] { return &scene; },
-            [](std::unique_ptr<Comet::Scene>) -> std::unique_ptr<Comet::Scene> {
-                throw std::runtime_error("device lost during asset preparation");
+            serializer, file.paths(), [&] { return active.get(); },
+            [&](std::unique_ptr<Comet::Scene> candidate) {
+                ++installations;
+                active.swap(candidate);
+                return candidate;
+            },
+            [&](Comet::Scene& candidate) {
+                EXPECT_NE(&candidate, original);
+                EXPECT_EQ(active.get(), original);
+                return Comet::Result<void, Comet::Error>::failure(preparation_error);
             });
-        EXPECT_THROW(static_cast<void>(document.open(file.path())), std::runtime_error);
-        EXPECT_TRUE(document.get_path().empty());
-        EXPECT_TRUE(document.get_last_error().empty());
+        ASSERT_TRUE(document.save(file.path()));
+        const auto opened = document.open(file.path());
+        ASSERT_FALSE(opened);
+        EXPECT_EQ(opened.error().code, preparation_error.code);
+        const auto created = document.create_new();
+        ASSERT_FALSE(created);
+        EXPECT_EQ(created.error().code, preparation_error.code);
+        EXPECT_EQ(active.get(), original);
+        EXPECT_EQ(installations, 0);
+        EXPECT_EQ(document.get_path(), file.path());
+        EXPECT_EQ(document.get_last_error(), "candidate preparation rejected");
     }
 
     TEST(SceneDocumentTest, OpenPreservesUnresolvedAssetReferences) {

@@ -1,11 +1,12 @@
 #pragma once
 #include "common/export.h"
+#include "common/error.h"
+#include "common/result.h"
 #include "timer.h"
 
 #include <functional>
 #include <memory>
 #include <utility>
-#include <vector>
 
 namespace Comet {
     class AssetRegistry;
@@ -18,15 +19,17 @@ namespace Comet {
 
     class COMET_API Engine {
     public:
-        explicit Engine(const Config& config);
+        static Result<std::unique_ptr<Engine>, Error> create(const Config& config);
 
         ~Engine();
 
-        void on_update() const;
+        // 终止生命周期时调用；先完成后台工作和 GPU 使用，再释放应用持有的资源。
+        void prepare_shutdown();
 
-        void register_update_callback(std::function<void(UpdateContext)> callback) {
-            m_update_callbacks.push_back(std::move(callback));
-        }
+        // 同步运行；更新函数仅在本次调用期间使用，不保存到引擎中。
+        [[nodiscard]] Result<void, Error> run(
+            const std::function<Result<void, Error>(UpdateContext)>& update = {},
+            const std::function<Result<void, Error>()>& frame_ready = {});
 
         void set_scene(std::unique_ptr<Scene> scene);
 
@@ -50,12 +53,18 @@ namespace Comet {
         [[nodiscard]] const Renderer& get_renderer() const { return *m_renderer; }
 
     private:
+        Engine(std::unique_ptr<Window> window, std::unique_ptr<AssetRegistry> assets,
+            std::unique_ptr<Renderer> renderer, std::unique_ptr<TaskScheduler> scheduler);
+        [[nodiscard]] Result<void, Error> tick(
+            const std::function<Result<void, Error>(UpdateContext)>& update,
+            const std::function<Result<void, Error>()>& frame_ready);
         std::unique_ptr<Timer> m_timer;
         std::unique_ptr<TaskScheduler> m_task_scheduler;
         std::unique_ptr<Window> m_window;
         std::unique_ptr<AssetRegistry> m_asset_registry;
         std::unique_ptr<Scene> m_scene;
         std::unique_ptr<Renderer> m_renderer;
-        std::vector<std::function<void(UpdateContext)>> m_update_callbacks;
+        bool m_running = false;
+        bool m_shutdown_prepared = false;
     };
 }

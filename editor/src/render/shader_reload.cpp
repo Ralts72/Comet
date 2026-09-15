@@ -3,7 +3,6 @@
 #include "core/task_scheduler.h"
 
 #include <algorithm>
-#include <exception>
 #include <utility>
 
 namespace CometEditor {
@@ -39,14 +38,10 @@ namespace CometEditor {
         if(m_pending
             && m_pending->completion.wait_for(std::chrono::seconds(0))
                    == std::future_status::ready) {
-            auto output = std::move(m_pending->output);
-            try {
-                m_pending->completion.get();
-            } catch(const std::exception& error) {
-                output->succeeded = false;
-                output->diagnostics = error.what();
-            }
+            auto pending = std::move(*m_pending);
             m_pending.reset();
+            auto output = std::move(pending.output);
+            pending.completion.get();
             if(output->revision == m_revision) {
                 if(!inputs_unchanged(*output)) {
                     request(now);

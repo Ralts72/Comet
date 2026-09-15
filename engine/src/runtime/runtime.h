@@ -18,21 +18,25 @@ namespace Comet {
     public:
         virtual ~Application() = default;
 
-        void run(Config config);
+        [[nodiscard]] Result<void, Error> run(Config config);
 
         [[nodiscard]] Engine& get_engine() { return *m_engine; }
         [[nodiscard]] const Engine& get_engine() const { return *m_engine; }
 
-        virtual void on_init() = 0;
+        virtual Result<void, Error> on_init() = 0;
 
-        virtual void on_update(UpdateContext context) = 0;
+        virtual Result<void, Error> on_update(UpdateContext context) {
+            return Result<void, Error>::success();
+        }
+
+        // 仅在帧就绪后调用；编辑在随后提取中生效。失败终止生命周期，不重用已获取帧。
+        virtual Result<void, Error> on_frame_ready() { return Result<void, Error>::success(); }
 
         // on_init 一旦开始，退出时就会调用；必须能清理部分初始化的状态。
-        virtual void on_shutdown() = 0;
+        virtual Result<void, Error> on_shutdown() = 0;
 
     private:
-        void end();
-        void end_after_failure() noexcept;
+        [[nodiscard]] Result<void, Error> end();
 
         std::unique_ptr<Diagnostics> m_diagnostics;
         std::unique_ptr<Engine> m_engine;

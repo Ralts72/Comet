@@ -56,6 +56,25 @@ namespace CometEditor::Tests {
         }
     }
 
+    TEST_F(ShaderReloadTest, DeliversAcceptedCompilationAfterSchedulerShutdown) {
+        ShaderReload reload(scheduler, requests);
+        EXPECT_FALSE(reload.update(now));
+        scheduler.shutdown();
+
+        const auto result = reload.update(now);
+        ASSERT_TRUE(result);
+        EXPECT_TRUE(result->succeeded) << result->diagnostics;
+        EXPECT_EQ(result->stages.size(), requests.size());
+        EXPECT_FALSE(reload.update(now));
+
+        reload.request(now);
+        now += std::chrono::seconds(1);
+        EXPECT_FALSE(reload.update(now));
+        scheduler.wait_idle();
+        now += std::chrono::seconds(1);
+        EXPECT_FALSE(reload.update(now));
+    }
+
     TEST_F(ShaderReloadTest, DiscardsChangedSnapshotBeforePublicationAndDebouncesRetry) {
         ShaderReload reload(scheduler, requests);
         EXPECT_FALSE(reload.update(now));
@@ -100,10 +119,11 @@ namespace CometEditor::Tests {
 
         std::promise<void> started;
         std::promise<void> release;
-        auto blocker = scheduler.submit([&] {
+        auto blocker = scheduler.try_submit([&] {
             started.set_value();
             release.get_future().wait();
         });
+        ASSERT_TRUE(blocker);
         started.get_future().wait();
         auto queued = scheduler.try_submit([] {});
         EXPECT_TRUE(queued);
@@ -111,7 +131,7 @@ namespace CometEditor::Tests {
         now += std::chrono::seconds(1);
         EXPECT_FALSE(reload.update(now));
         release.set_value();
-        blocker.get();
+        blocker->get();
         scheduler.wait_idle();
         auto retried = finish(reload);
         ASSERT_TRUE(retried);

@@ -11,7 +11,6 @@
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 
-#include <stdexcept>
 #include <utility>
 
 namespace Comet {
@@ -134,7 +133,7 @@ namespace Comet {
         return *m_target->target;
     }
 
-    std::vector<QueueSemaphoreSubmit> SceneRenderer::render_scene_pass(
+    Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::render_scene_pass(
         FrameScheduler& frames, const RenderSubmission& submission, const LineDrawList& lines) {
         PROFILE_SCOPE("SceneRenderer::render_scene_pass");
         auto& command = frames.get_current_command_buffer();
@@ -152,32 +151,37 @@ namespace Comet {
             Graphics::get_scissor(static_cast<float>(size.x), static_cast<float>(size.y)));
         auto waits = m_target->materials->render(
             frames, submission.view_project_matrix, submission.render_items);
-        if(submission.view_project_matrix)
-            m_target->debug->render(frames, *submission.view_project_matrix, lines);
+        if(!waits)
+            return waits;
+        if(submission.view_project_matrix) {
+            if(auto debug = m_target->debug->render(frames, *submission.view_project_matrix, lines);
+                !debug)
+                return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
+                    debug.error());
+        }
         m_target->target->end_render_target(command);
         return waits;
     }
 
-    void SceneRenderer::resize_offscreen_target(
+    Result<void, GraphicsError> SceneRenderer::resize_offscreen_target(
         const Math::Vec2u size, const std::chrono::steady_clock::time_point now) {
         if(!m_target->offscreen || size.x == 0 || size.y == 0) {
-            return;
+            return Result<void, GraphicsError>::success();
         }
         if(m_resize_failure && m_resize_failure->size != size)
             m_resize_failure.reset();
         if(m_target->target->get_size() == size) {
             m_resize_failure.reset();
-            return;
+            return Result<void, GraphicsError>::success();
         }
         if(m_resize_failure && !m_resize_failure->retry.consume(now))
-            return;
+            return Result<void, GraphicsError>::success();
 
         auto candidate = RenderTarget::try_create_multi_target(
             m_device, *m_target->pass, size, m_frame_slot_count);
         if(!candidate) {
             if(candidate.error().is_device_lost())
-                throw std::runtime_error(
-                    "Device lost while resizing offscreen target: " + candidate.error().message);
+                return Result<void, GraphicsError>::failure(candidate.error());
             const Math::Vec2u current_size = m_target->target->get_size();
             if(!m_resize_failure)
                 m_resize_failure = ResizeFailure{size};
@@ -192,7 +196,7 @@ namespace Comet {
                 LOG_WARN("Keeping offscreen target at {}x{}; resize to {}x{} will retry: {}",
                     current_size.x, current_size.y, size.x, size.y, candidate.error().message);
             }
-            return;
+            return Result<void, GraphicsError>::success();
         }
 
         std::shared_ptr<RenderTarget> next_generation(std::move(candidate).value());
@@ -200,6 +204,7 @@ namespace Comet {
         LOG_INFO("Commit offscreen render target generation {}x{}", size.x, size.y);
         m_target->target = std::move(next_generation);
         m_resize_failure.reset();
+        return Result<void, GraphicsError>::success();
     }
 
     std::shared_ptr<ImageView> SceneRenderer::get_offscreen_color_view(uint32_t slot) const {

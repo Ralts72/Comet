@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <stdexcept>
 #include <system_error>
 #include <unordered_set>
 #include <utility>
@@ -177,12 +176,6 @@ namespace Comet {
         std::unordered_map<AssetHandle, std::uint64_t> asset_source_signatures;
         std::unordered_map<AssetHandle, AssetRevision> asset_revisions;
         AssetRevision next_revision = m_next_revision;
-        const auto issue_revision = [&next_revision]() {
-            if(next_revision == std::numeric_limits<AssetRevision>::max()) {
-                throw std::overflow_error("Asset revision counter exhausted");
-            }
-            return next_revision++;
-        };
 
         const std::filesystem::path assets_root = m_paths.assets();
         std::error_code error;
@@ -426,24 +419,25 @@ namespace Comet {
 
         for(const auto& [handle, record] : assets) {
             const auto previous = m_assets.find(handle);
-            if(previous == m_assets.end()) {
-                report.added_assets.push_back(handle);
-                asset_revisions.emplace(handle, issue_revision());
+            const auto previous_signature = m_asset_source_signatures.find(handle);
+            const auto previous_revision = m_asset_revisions.find(handle);
+            const bool added = previous == m_assets.end();
+            const bool changed = added || previous->second != record
+                                 || previous_signature == m_asset_source_signatures.end()
+                                 || previous_signature->second != asset_source_signatures.at(handle)
+                                 || previous_revision == m_asset_revisions.end();
+            if(!changed) {
+                asset_revisions.emplace(handle, previous_revision->second);
                 continue;
             }
-
-            const auto previous_signature = m_asset_source_signatures.find(handle);
-            const bool source_changed =
-                previous_signature == m_asset_source_signatures.end()
-                || previous_signature->second != asset_source_signatures.at(handle);
-            const auto previous_revision = m_asset_revisions.find(handle);
-            if(previous->second != record || source_changed
-                || previous_revision == m_asset_revisions.end()) {
-                report.modified_assets.push_back(handle);
-                asset_revisions.emplace(handle, issue_revision());
-            } else {
-                asset_revisions.emplace(handle, previous_revision->second);
+            if(next_revision == std::numeric_limits<AssetRevision>::max()) {
+                add_issue(report, record.path, "Asset revision counter exhausted");
+                report.added_assets.clear();
+                report.modified_assets.clear();
+                return report;
             }
+            (added ? report.added_assets : report.modified_assets).push_back(handle);
+            asset_revisions.emplace(handle, next_revision++);
         }
         for(const auto& [handle, record] : m_assets) {
             static_cast<void>(record);
@@ -471,31 +465,31 @@ namespace Comet {
     Result<void> AssetDatabase::update_import_settings(
         const AssetHandle handle, AssetImportSettings import_settings) {
         const auto asset = m_assets.find(handle);
-        if(asset == m_assets.end()) {
+        if(asset == m_assets.end())
             return Result<void>::failure(
                 "Cannot update import settings for an unindexed asset handle "
                 + std::to_string(handle.value()));
-        }
 
-        AssetRecord& record = asset->second;
+        auto& record = asset->second;
+        const auto signature = asset_source_signature(m_paths.assets() / record.path,
+            m_paths.assets(), find_import_dependencies(m_import_dependencies_by_asset, handle));
+        const auto previous = m_asset_source_signatures.find(handle);
+        if(record.import_settings == import_settings && previous != m_asset_source_signatures.end()
+            && previous->second == signature)
+            return Result<void>::success();
+        if(m_next_revision == std::numeric_limits<AssetRevision>::max())
+            return Result<void>::failure("Asset revision counter exhausted");
+
         const AssetMetadata metadata{
             .handle = record.handle, .type = record.type, .import_settings = import_settings};
-        auto saved =
-            MetadataSerializer{}.save(metadata, metadata_path(m_paths.assets() / record.path));
-        if(!saved)
+        if(auto saved =
+                MetadataSerializer{}.save(metadata, metadata_path(m_paths.assets() / record.path));
+            !saved)
             return saved;
-        const bool settings_changed = record.import_settings != import_settings;
         record.import_settings = std::move(import_settings);
-        const std::uint64_t source_signature =
-            asset_source_signature(m_paths.assets() / record.path, m_paths.assets(),
-                find_import_dependencies(m_import_dependencies_by_asset, handle));
-        const auto previous_signature = m_asset_source_signatures.find(handle);
-        const bool source_changed = previous_signature == m_asset_source_signatures.end()
-                                    || previous_signature->second != source_signature;
-        m_asset_source_signatures[handle] = source_signature;
-        if(settings_changed || source_changed) {
-            m_asset_revisions[handle] = issue_revision();
-        }
+        m_asset_source_signatures[handle] = asset_source_signature(m_paths.assets() / record.path,
+            m_paths.assets(), find_import_dependencies(m_import_dependencies_by_asset, handle));
+        m_asset_revisions[handle] = m_next_revision++;
         return Result<void>::success();
     }
 
@@ -518,6 +512,16 @@ namespace Comet {
 
         AssetRecord& record = asset->second;
         const bool dependencies_changed = record.dependencies != dependencies;
+        const std::uint64_t source_signature =
+            asset_source_signature(m_paths.assets() / record.path, m_paths.assets(),
+                find_import_dependencies(m_import_dependencies_by_asset, handle));
+        const auto previous_signature = m_asset_source_signatures.find(handle);
+        const bool source_changed = previous_signature == m_asset_source_signatures.end()
+                                    || previous_signature->second != source_signature;
+        if(!dependencies_changed && !source_changed)
+            return Result<void>::success();
+        if(m_next_revision == std::numeric_limits<AssetRevision>::max())
+            return Result<void>::failure("Asset revision counter exhausted");
         for(const AssetHandle dependency : record.dependencies) {
             auto dependents = m_dependents_by_dependency.find(dependency);
             if(dependents == m_dependents_by_dependency.end()) {
@@ -537,16 +541,9 @@ namespace Comet {
                 dependents.insert(position, handle);
             }
         }
-        const std::uint64_t source_signature =
-            asset_source_signature(m_paths.assets() / record.path, m_paths.assets(),
-                find_import_dependencies(m_import_dependencies_by_asset, handle));
-        const auto previous_signature = m_asset_source_signatures.find(handle);
-        const bool source_changed = previous_signature == m_asset_source_signatures.end()
-                                    || previous_signature->second != source_signature;
+
         m_asset_source_signatures[handle] = source_signature;
-        if(dependencies_changed || source_changed) {
-            m_asset_revisions[handle] = issue_revision();
-        }
+        m_asset_revisions[handle] = m_next_revision++;
         return Result<void>::success();
     }
 
@@ -678,10 +675,4 @@ namespace Comet {
         return m_assets.size();
     }
 
-    AssetRevision AssetDatabase::issue_revision() {
-        if(m_next_revision == std::numeric_limits<AssetRevision>::max()) {
-            throw std::overflow_error("Asset revision counter exhausted");
-        }
-        return m_next_revision++;
-    }
 }

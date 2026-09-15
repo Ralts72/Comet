@@ -58,12 +58,7 @@ namespace CometEditor {
                 m_selection.select_asset(asset.handle);
             }
             record_drop_target(path);
-            const bool can_drag = m_move_asset_callback
-                                  || ((asset.type == Comet::AssetType::Mesh
-                                          || asset.type == Comet::AssetType::Material
-                                          || asset.type == Comet::AssetType::Texture)
-                                      && m_history.get_scene());
-            if(can_drag && ImGui::BeginDragDropSource()) {
+            if(ImGui::BeginDragDropSource()) {
                 const AssetDragPayload payload{asset.handle, m_database.get_revision(asset.handle),
                     m_history.generation(), asset.type};
                 ImGui::SetDragDropPayload(
@@ -74,9 +69,9 @@ namespace CometEditor {
             if(ImGui::BeginPopupContextItem()) {
                 if(asset.type == Comet::AssetType::Mesh && ImGui::MenuItem("Reimport"))
                     m_reimport_request = asset.handle;
-                if(ImGui::MenuItem("Rename", nullptr, false, !!m_move_asset_callback))
+                if(ImGui::MenuItem("Rename"))
                     request_rename(asset);
-                if(ImGui::MenuItem("Refresh", nullptr, false, !!m_refresh_callback))
+                if(ImGui::MenuItem("Refresh"))
                     m_refresh_requested = true;
                 ImGui::EndPopup();
             }
@@ -91,12 +86,9 @@ namespace CometEditor {
 
     ProjectPanel::ProjectPanel(const Comet::AssetDatabase& database,
         std::filesystem::path asset_root, Comet::AssetScanReport scan_report,
-        RefreshCallback refresh_callback, MoveAssetCallback move_asset_callback,
         SelectionService& selection, const CommandHistory& history)
         : EditorPanel("Project"), m_database(database), m_asset_root(std::move(asset_root)),
-          m_tree(build_asset_tree()), m_scan_report(std::move(scan_report)),
-          m_refresh_callback(std::move(refresh_callback)),
-          m_move_asset_callback(std::move(move_asset_callback)), m_selection(selection),
+          m_tree(build_asset_tree()), m_scan_report(std::move(scan_report)), m_selection(selection),
           m_history(history) {}
 
     void ProjectPanel::render() {
@@ -135,20 +127,11 @@ namespace CometEditor {
 
         if(ImGui::BeginPopupContextWindow("Project actions",
                ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
-            if(ImGui::MenuItem("Refresh", nullptr, false, !!m_refresh_callback))
+            if(ImGui::MenuItem("Refresh"))
                 m_refresh_requested = true;
             ImGui::EndPopup();
         }
 
-        // 遍历结束后才应用操作结果，避免重建仍在使用的目录树。
-        if(auto request = std::exchange(m_pending_move, std::nullopt)) {
-            if(m_database.is_current(request->handle, request->revision))
-                move_asset(request->handle, request->destination);
-            else
-                m_operation_error = "Asset changed while dragging; please try again";
-        }
-        if(std::exchange(m_refresh_requested, false) && m_refresh_callback)
-            update_scan_report(m_refresh_callback());
         render_rename_dialog();
         if(!m_renaming_asset && !m_operation_error.empty()) {
             ImGui::TextWrapped("%s", m_operation_error.c_str());
@@ -158,6 +141,19 @@ namespace CometEditor {
 
     std::optional<Comet::AssetHandle> ProjectPanel::take_mesh_reimport_request() {
         return std::exchange(m_reimport_request, std::nullopt);
+    }
+
+    bool ProjectPanel::take_refresh_request() {
+        return std::exchange(m_refresh_requested, false);
+    }
+
+    std::optional<ProjectPanel::MoveRequest> ProjectPanel::take_move_request() {
+        auto request = std::exchange(m_pending_move, std::nullopt);
+        if(request && !m_database.is_current(request->handle, request->revision)) {
+            m_operation_error = "Asset changed while editing; please try again";
+            return std::nullopt;
+        }
+        return request;
     }
 
     void ProjectPanel::record_drop_target(const std::filesystem::path& directory) {
@@ -188,7 +184,7 @@ namespace CometEditor {
     }
 
     void ProjectPanel::accept_asset_drop(const std::filesystem::path& directory) {
-        if(!m_move_asset_callback || !ImGui::BeginDragDropTarget())
+        if(!ImGui::BeginDragDropTarget())
             return;
         if(const auto payload =
                 read_asset_drag_payload(ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE))) {
@@ -203,15 +199,8 @@ namespace CometEditor {
         ImGui::EndDragDropTarget();
     }
 
-    bool ProjectPanel::move_asset(
-        const Comet::AssetHandle handle, const std::filesystem::path& destination) {
+    void ProjectPanel::complete_move(const MoveRequest& request, Comet::AssetScanReport report) {
         m_operation_error.clear();
-        if(!m_move_asset_callback)
-            return false;
-        const auto* record = m_database.find(handle);
-        if(record && record->path == destination)
-            return true;
-        auto report = m_move_asset_callback(handle, destination);
         const bool committed = report.snapshot_updated;
         if(!committed) {
             m_operation_error = "Asset operation could not be committed";
@@ -219,11 +208,13 @@ namespace CometEditor {
                 m_operation_error = report.issues.front().message;
         }
         update_scan_report(std::move(report));
-        return committed;
+        if(committed && m_renaming_asset == request.handle)
+            m_close_rename = true;
     }
 
     void ProjectPanel::request_rename(const Comet::AssetRecord& record) {
         m_renaming_asset = record.handle;
+        m_close_rename = false;
         m_operation_error.clear();
         m_name_buffer.fill('\0');
         const auto name = record.path.stem().string();
@@ -240,10 +231,17 @@ namespace CometEditor {
         if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
 
+        if(std::exchange(m_close_rename, false)) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            m_renaming_asset = Comet::INVALID_ASSET_HANDLE;
+            return;
+        }
+
         const auto* record = m_database.find(m_renaming_asset);
         if(!record)
             ImGui::TextDisabled("Asset is no longer available");
-        ImGui::BeginDisabled(!record || !m_move_asset_callback);
+        ImGui::BeginDisabled(!record);
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(360.0f);
@@ -253,8 +251,7 @@ namespace CometEditor {
             ImGui::SameLine();
             ImGui::TextUnformatted(record->path.extension().string().c_str());
         }
-        if((ImGui::Button("Rename", ImVec2(100.0f, 0.0f)) || submitted) && record
-            && m_move_asset_callback) {
+        if((ImGui::Button("Rename", ImVec2(100.0f, 0.0f)) || submitted) && record) {
             const std::string name(m_name_buffer.data());
             if(name.empty() || name == "." || name == ".."
                 || name.find_first_of("/\\:") != std::string::npos) {
@@ -262,10 +259,12 @@ namespace CometEditor {
             } else {
                 const auto destination =
                     record->path.parent_path() / (name + record->path.extension().string());
-                if(move_asset(m_renaming_asset, destination)) {
+                if(record->path == destination) {
                     ImGui::CloseCurrentPopup();
                     m_renaming_asset = Comet::INVALID_ASSET_HANDLE;
-                }
+                } else
+                    m_pending_move = MoveRequest{
+                        record->handle, m_database.get_revision(record->handle), destination};
             }
         }
         ImGui::EndDisabled();

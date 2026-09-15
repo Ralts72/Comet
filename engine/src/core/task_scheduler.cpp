@@ -1,8 +1,9 @@
 #include "core/task_scheduler.h"
+#include "common/scope_exit.h"
+#include "diagnostics/logger.h"
 
 #include <algorithm>
 #include <memory>
-#include <stdexcept>
 #include <utility>
 
 namespace Comet {
@@ -20,27 +21,21 @@ namespace Comet {
     TaskScheduler::TaskScheduler(const std::size_t worker_count, const std::size_t queue_capacity)
         : m_queue_capacity(queue_capacity) {
         if(queue_capacity == 0)
-            throw std::invalid_argument("Task queue capacity must be positive");
+            LOG_FATAL("Task queue capacity must be positive");
         const std::size_t resolved_count = resolve_worker_count(worker_count);
         m_workers.reserve(resolved_count);
-        try {
-            for(std::size_t index = 0; index < resolved_count; ++index) {
-                m_workers.emplace_back([this] { worker_loop(); });
-            }
-        } catch(...) {
-            {
-                const std::lock_guard lock(m_mutex);
-                m_stopping = true;
-            }
-            m_task_available.notify_all();
-            for(std::thread& worker : m_workers) {
-                worker.join();
-            }
-            throw;
+        ScopeExit stop_partial_workers([this] { shutdown(); });
+        for(std::size_t index = 0; index < resolved_count; ++index) {
+            m_workers.emplace_back([this] { worker_loop(); });
         }
+        stop_partial_workers.release();
     }
 
     TaskScheduler::~TaskScheduler() {
+        shutdown();
+    }
+
+    void TaskScheduler::shutdown() {
         {
             const std::lock_guard lock(m_mutex);
             m_stopping = true;
@@ -53,17 +48,9 @@ namespace Comet {
         }
     }
 
-    std::future<void> TaskScheduler::submit(Task task) {
-        auto result = try_submit(std::move(task));
-        if(!result)
-            throw std::runtime_error("Task scheduler queue is full or stopping");
-        return std::move(*result);
-    }
-
     std::optional<std::future<void>> TaskScheduler::try_submit(Task task) {
-        if(!task) {
-            throw std::invalid_argument("Cannot submit an empty task");
-        }
+        if(!task)
+            return std::nullopt;
 
         std::future<void> result;
         {

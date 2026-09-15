@@ -11,31 +11,37 @@
 #include "diagnostics/profiler.h"
 
 #include <utility>
-#include <stdexcept>
 
 namespace Comet {
-    Renderer::Renderer(
-        const Window& window, const Config& config, const AssetRegistry& asset_registry)
-        : m_scene_resolver(asset_registry) {
-        PROFILE_SCOPE("Renderer::Constructor");
-
-        m_render_context = std::make_unique<RenderContext>(window, config.vulkan, config.render);
-
-        LOG_INFO("create resource manager");
-        m_resource_manager = std::make_unique<ResourceManager>(m_render_context->get_device());
-
-        LOG_INFO("create scene renderer");
-        m_frames = std::make_unique<FrameScheduler>(
-            m_render_context->get_device(), config.render.max_frames_in_flight);
-        auto& swapchain = m_render_context->get_swapchain();
-        m_frames->initialize_swapchain_images(static_cast<uint32_t>(swapchain.get_images().size()));
-        m_scene_renderer = std::make_unique<SceneRenderer>(m_render_context->get_device(),
+    Result<std::unique_ptr<Renderer>, GraphicsError> Renderer::create(
+        const Window& window, const Config& config, const AssetRegistry& asset_registry) {
+        using Creation = Result<std::unique_ptr<Renderer>, GraphicsError>;
+        if(config.render.max_frames_in_flight == 0)
+            return Creation::failure({"Renderer requires at least one frame slot"});
+        auto context = RenderContext::create(window, config.vulkan, config.render);
+        if(!context)
+            return Creation::failure(context.error());
+        auto& device = context.value()->get_device();
+        auto resources = std::make_unique<ResourceManager>(device);
+        auto frames = std::make_unique<FrameScheduler>(device, config.render.max_frames_in_flight);
+        auto& swapchain = context.value()->get_swapchain();
+        frames->initialize_swapchain_images(static_cast<uint32_t>(swapchain.get_images().size()));
+        auto scene = std::make_unique<SceneRenderer>(device,
             Graphics::vk_to_format(
                 swapchain.get_active_generation()->get_config().surface_format.format),
             config.vulkan, config.render);
-        if(auto result = m_scene_renderer->configure_presentation(*m_resource_manager, swapchain);
-            !result)
-            throw std::runtime_error("Cannot initialize scene target: " + result.error().message);
+        if(auto configured = scene->configure_presentation(*resources, swapchain); !configured)
+            return Creation::failure(configured.error());
+        return Creation::success(std::unique_ptr<Renderer>(new Renderer(std::move(context).value(),
+            std::move(resources), std::move(frames), std::move(scene), asset_registry)));
+    }
+
+    Renderer::Renderer(std::unique_ptr<RenderContext> context,
+        std::unique_ptr<ResourceManager> resources, std::unique_ptr<FrameScheduler> frames,
+        std::unique_ptr<SceneRenderer> scene, const AssetRegistry& assets)
+        : m_render_context(std::move(context)), m_resource_manager(std::move(resources)),
+          m_frames(std::move(frames)), m_scene_renderer(std::move(scene)),
+          m_scene_resolver(assets) {
         m_presentation = std::make_unique<Presentation>(*m_render_context, *m_frames,
             Presentation::Dependent{[this] { m_scene_renderer->release_presentation_target(); },
                 [this](const SwapchainCompatibility& compatibility) {
@@ -44,22 +50,24 @@ namespace Comet {
                 }});
     }
 
-    bool Renderer::prepare_frame() {
+    Result<bool, GraphicsError> Renderer::prepare_frame() {
+        if(m_shutdown_prepared)
+            return Result<bool, GraphicsError>::failure({"Renderer is shutting down"});
         PROFILE_SCOPE("prepare frame");
         m_resource_manager->collect_completed_uploads();
 
-        if(!m_presentation->begin_frame()) {
+        auto preparation = m_presentation->begin_frame();
+        if(!preparation || !preparation.value()) {
             m_viewport_pick_request.reset();
             m_line_draw_list.clear();
-            return false;
+            return preparation;
         }
-        if(m_prepare_overlay) {
-            m_prepare_overlay();
-        }
-        return true;
+        return preparation;
     }
 
-    void Renderer::render_frame(const RenderScene& render_scene) {
+    Result<void, GraphicsError> Renderer::render_frame(const RenderScene& render_scene) {
+        if(m_shutdown_prepared)
+            return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
         PROFILE_SCOPE("render frame");
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
@@ -78,11 +86,17 @@ namespace Comet {
             m_scene_renderer->render_scene_pass(*m_frames, submission, m_line_draw_list);
         m_line_draw_list.clear();
 
+        if(!resource_waits) {
+            // 部分录制的帧不提交、不复用；等待在途工作后由 owner 销毁。
+            prepare_shutdown();
+            return Result<void, GraphicsError>::failure(resource_waits.error());
+        }
+
         if(m_render_overlay) {
             m_render_overlay(m_frames->get_current_command_buffer());
         }
 
-        m_presentation->end_frame(resource_waits);
+        return m_presentation->end_frame(resource_waits.value());
     }
 
     Result<void, GraphicsError> Renderer::enable_offscreen_rendering(
@@ -101,8 +115,8 @@ namespace Comet {
         return m_scene_renderer->reload_material_shaders(std::move(shaders));
     }
 
-    bool Renderer::recreate_swapchain() {
-        return m_presentation->recreate_swapchain();
+    void Renderer::request_swapchain_recreation() {
+        m_presentation->request_recreation();
     }
 
     void Renderer::wait_idle() {
@@ -115,17 +129,21 @@ namespace Comet {
         m_presentation->set_overlay({std::move(release), std::move(rebuild)});
     }
 
-    void Renderer::set_render_view(RenderView view) {
-        m_render_view = std::move(view);
-        if(m_render_view.visible && m_render_view.render_size.x > 0
-            && m_render_view.render_size.y > 0) {
-            m_scene_renderer->resize_offscreen_target(m_render_view.render_size);
+    Result<void, GraphicsError> Renderer::set_render_view(RenderView view) {
+        if(m_shutdown_prepared)
+            return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
+        if(view.visible && view.render_size.x > 0 && view.render_size.y > 0) {
+            if(auto resized = m_scene_renderer->resize_offscreen_target(view.render_size);
+                !resized) {
+                prepare_shutdown();
+                return resized;
+            }
         }
+        m_render_view = std::move(view);
+        return Result<void, GraphicsError>::success();
     }
 
-    void Renderer::set_overlay_callbacks(
-        OverlayPrepareCallback prepare, OverlayRenderCallback render) {
-        m_prepare_overlay = std::move(prepare);
+    void Renderer::set_overlay_renderer(OverlayRenderCallback render) {
         m_render_overlay = std::move(render);
     }
 
@@ -140,12 +158,19 @@ namespace Comet {
     }
 
     void Renderer::submit_lines(const LineDrawList& draw_list) {
-        m_line_draw_list.append(draw_list);
+        if(!m_line_draw_list.append(draw_list))
+            LOG_WARN("Debug line batch rejected: vertex capacity exceeded");
+    }
+
+    void Renderer::prepare_shutdown() noexcept {
+        if(std::exchange(m_shutdown_prepared, true))
+            return;
+        m_render_context->get_device().wait_idle_for_shutdown();
     }
 
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
-        m_render_context->get_device().wait_idle_for_shutdown();
+        prepare_shutdown();
 
         m_presentation.reset();
         m_frames.reset();

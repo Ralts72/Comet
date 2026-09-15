@@ -97,8 +97,12 @@ namespace Comet::Tests {
         EXPECT_FALSE(result.error().result.has_value());
         EXPECT_EQ(&renderer.get_scene_renderer().get_render_target(), previous);
         EXPECT_EQ(previous->get_size(), size);
-        ASSERT_TRUE(renderer.prepare_frame());
-        renderer.render_frame({});
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            ASSERT_TRUE(preparation.value());
+        }
+        EXPECT_TRUE(renderer.render_frame({}));
     }
 
     TEST_F(MaterialRenderingTest, ShaderPublicationRejectsFixedContractChangesAndActiveFrames) {
@@ -147,18 +151,22 @@ namespace Comet::Tests {
             EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
         }
         ASSERT_TRUE(renderer.reload_material_shaders(original));
-        ASSERT_TRUE(renderer.prepare_frame());
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            ASSERT_TRUE(preparation.value());
+        }
         EXPECT_TRUE(renderer.get_frame_scheduler().is_frame_active());
         const auto rejected = renderer.reload_material_shaders(original);
         EXPECT_FALSE(rejected);
         if(!rejected)
             EXPECT_NE(rejected.error().message.find("frame boundary"), std::string::npos);
-        renderer.render_frame({});
+        EXPECT_TRUE(renderer.render_frame({}));
         EXPECT_FALSE(renderer.get_frame_scheduler().is_frame_active());
         ASSERT_TRUE(renderer.reload_material_shaders(original));
     }
 
-    TEST_F(MaterialRenderingTest, OverlayRebuildFailurePropagatesToApplicationBoundary) {
+    TEST_F(MaterialRenderingTest, OverlayRebuildFailureReturnsErrorWithoutThrowing) {
         auto& renderer = engine->get_renderer();
         bool released = false;
         renderer.set_swapchain_resource_callbacks([&] { released = true; },
@@ -166,7 +174,11 @@ namespace Comet::Tests {
                 EXPECT_TRUE(released);
                 return Result<void, GraphicsError>::failure({"overlay rebuild failed"});
             });
-        EXPECT_THROW(static_cast<void>(renderer.recreate_swapchain()), std::runtime_error);
+        renderer.request_swapchain_recreation();
+        EXPECT_FALSE(released);
+        const auto preparation = renderer.prepare_frame();
+        ASSERT_FALSE(preparation);
+        EXPECT_EQ(preparation.error().message, "overlay rebuild failed");
         renderer.set_swapchain_resource_callbacks({}, {});
     }
 
@@ -210,11 +222,11 @@ namespace Comet::Tests {
         auto blue = texture({0, 0, 255, 255});
         ASSERT_TRUE(blue) << blue.error();
         textured->set_texture_property("u_Texture1", std::move(blue).value());
-        textured->set_scalar_property("blend", 0.25f);
-        textured->set_vector_property("tint", {1, 0.5f, 0.5f, 1});
+        EXPECT_TRUE(textured->set_scalar_property("blend", 0.25f));
+        EXPECT_TRUE(textured->set_vector_property("tint", {1, 0.5f, 0.5f, 1}));
         const auto solid = std::make_shared<Material>("solid", "unlit_color");
-        solid->set_vector_property("color", {0.2f, 0.8f, 0.4f, 1});
-        solid->set_scalar_property("intensity", 0.5f);
+        EXPECT_TRUE(solid->set_vector_property("color", {0.2f, 0.8f, 0.4f, 1}));
+        EXPECT_TRUE(solid->set_scalar_property("intensity", 0.5f));
         const std::vector<ResolvedRenderItem> items{
             {.model_matrix = Math::translate(Math::Mat4(1), {-0.5f, 0, 0}),
                 .mesh = mesh,
@@ -306,7 +318,7 @@ namespace Comet::Tests {
                 auto red = texture({255, 0, 0, 255});
                 ASSERT_TRUE(red) << red.error();
                 textured->set_texture_property("u_Texture0", std::move(red).value());
-                textured->set_scalar_property("blend", 0.75f);
+                EXPECT_TRUE(textured->set_scalar_property("blend", 0.75f));
                 // 材质不变，仅替换 Shader；旧槽位此时尚未回收。
                 const auto published =
                     materials->reload_shaders(pipelines, updated, SampleCount::Count1);
@@ -359,6 +371,7 @@ namespace Comet::Tests {
             command.set_scissor(Graphics::get_scissor(64, 32));
             const auto waits = materials->render(frames,
                 ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)}, items);
+            ASSERT_TRUE(waits) << waits.error();
             target->end_render_target(command);
             vk::MemoryBarrier barrier(
                 vk::AccessFlagBits::eColorAttachmentWrite, vk::AccessFlagBits::eTransferRead);
@@ -376,7 +389,7 @@ namespace Comet::Tests {
             command.get().pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
                 vk::PipelineStageFlagBits::eHost, {}, barrier, {}, {});
             command.end();
-            const auto submission = frames.submit(waits, {});
+            const auto submission = frames.submit(waits.value(), {});
             ASSERT_TRUE(submission) << submission.error();
             frames.end_frame();
             const std::array<uint32_t, 4> expected_creations{2, 1, 0, 0};

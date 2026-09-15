@@ -59,9 +59,9 @@ namespace CometEditor::Tests {
                         ImGui::TextUnformatted("Extra widget content");
                     return result;
                 }));
-            inspector = std::make_unique<InspectorPanel>(state, selection, history, edit,
-                components, widgets, assets,
-                Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY).assets(), nullptr, nullptr);
+            inspector =
+                std::make_unique<InspectorPanel>(state, selection, history, edit, components,
+                    widgets, assets, Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY).assets());
             frame();
             frame();
         }
@@ -534,7 +534,10 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(EditingUiTest, ConfiguredShortcutReplacesDefaultAndKeepsContextGuards) {
-        shortcuts = EditorShortcuts::parse("editor: {shortcuts: {scene.save: [Primary+Shift+S]}}");
+        auto parsed =
+            EditorShortcuts::parse("editor: {shortcuts: {scene.save: [Primary+Shift+S]}}");
+        ASSERT_TRUE(parsed);
+        shortcuts = std::move(parsed).value();
         auto& io = ImGui::GetIO();
         const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
         frame();

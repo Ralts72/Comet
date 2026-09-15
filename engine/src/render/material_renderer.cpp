@@ -22,7 +22,6 @@
 #include <array>
 #include <chrono>
 #include <iterator>
-#include <stdexcept>
 #include <string_view>
 #include <tuple>
 
@@ -281,10 +280,11 @@ namespace Comet {
         return Creation::success(std::move(state));
     }
 
-    std::shared_ptr<MaterialRenderer::MaterialResources> MaterialRenderer::prepare_material(
-        const MaterialBinding& material, const uint64_t frame_serial) {
+    Result<std::shared_ptr<MaterialRenderer::MaterialResources>, GraphicsError> MaterialRenderer::
+        prepare_material(const MaterialBinding& material, const uint64_t frame_serial) {
+        using Preparation = Result<std::shared_ptr<MaterialResources>, GraphicsError>;
         if(!material.resource)
-            return nullptr;
+            return Preparation::success(nullptr);
         const auto pipeline = m_pipelines.find(material.resource->get_template_name());
         if(pipeline == m_pipelines.end()) {
             const auto [entry, inserted] =
@@ -294,14 +294,14 @@ namespace Comet {
                 LOG_ERROR("Unsupported material layout '{}' for handle {}",
                     material.resource->get_template_name(), material.material_handle.value());
             }
-            return nullptr;
+            return Preparation::success(nullptr);
         }
         m_unsupported.erase(material.material_handle);
         auto& cached = m_materials[material.material_handle];
         cached.used = true;
         const auto keep_previous = [&](const GraphicsError& error) {
             if(error.is_device_lost())
-                throw std::runtime_error("Device lost while preparing material: " + error.message);
+                return Preparation::failure(error);
             const auto previous = cached.resources && cached.resources->pipeline == pipeline->second
                                       ? cached.resources
                                       : nullptr;
@@ -311,7 +311,7 @@ namespace Comet {
                     previous ? "retained" : "unavailable");
                 cached.preparation_error = error.message;
             }
-            return previous;
+            return Preparation::success(previous);
         };
         const auto preparation = m_prepared.prepare(
             material.material_handle, material.resource, pipeline->second->layout);
@@ -320,12 +320,12 @@ namespace Comet {
         const auto& prepared = preparation.value();
         if(cached.resources && cached.resources->prepared == prepared
             && cached.resources->pipeline == pipeline->second)
-            return cached.resources;
+            return Preparation::success(cached.resources);
         if(cached.failed_candidate == prepared && cached.failed_pipeline.lock() == pipeline->second
             && frame_serial < cached.retry_after_serial) {
             if(cached.resources && cached.resources->pipeline == pipeline->second)
-                return cached.resources;
-            return nullptr;
+                return Preparation::success(cached.resources);
+            return Preparation::success(nullptr);
         }
         auto candidate = create_material(prepared, pipeline->second, cached.resources);
         if(!candidate) {
@@ -341,7 +341,7 @@ namespace Comet {
         cached.failed_pipeline.reset();
         cached.preparation_error.clear();
         ++m_statistics.material_versions_created;
-        return cached.resources;
+        return Preparation::success(cached.resources);
     }
 
     Result<std::shared_ptr<MaterialRenderer::MaterialResources>, GraphicsError> MaterialRenderer::
@@ -395,8 +395,8 @@ namespace Comet {
         return Creation::success(std::move(candidate));
     }
 
-    std::vector<QueueSemaphoreSubmit> MaterialRenderer::render(FrameScheduler& frames,
-        const std::optional<ViewProjectMatrix>& view,
+    Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> MaterialRenderer::render(
+        FrameScheduler& frames, const std::optional<ViewProjectMatrix>& view,
         const std::span<const ResolvedRenderItem> items) {
         m_statistics = {};
         m_statistics.frame_set_count = static_cast<uint32_t>(m_frames.size());
@@ -408,9 +408,12 @@ namespace Comet {
             std::vector<DrawItem> queue;
             queue.reserve(items.size());
             for(const auto& item : items) {
-                if(auto material =
-                        prepare_material(item.material, frames.get_current_frame_serial()))
-                    queue.push_back({&item, std::move(material)});
+                auto material = prepare_material(item.material, frames.get_current_frame_serial());
+                if(!material)
+                    return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
+                        material.error());
+                if(material.value())
+                    queue.push_back({&item, std::move(material).value()});
             }
             std::stable_sort(queue.begin(), queue.end(), [](const DrawItem& a, const DrawItem& b) {
                 return std::tie(a.material->prepared->layout->get_name(),
@@ -461,6 +464,6 @@ namespace Comet {
             [&](const auto& entry) { return entry.second != frames.get_current_frame_serial(); });
         m_statistics.cached_material_versions = static_cast<uint32_t>(std::ranges::count_if(
             m_materials, [](const auto& entry) { return bool(entry.second.resources); }));
-        return waits;
+        return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success(std::move(waits));
     }
 }

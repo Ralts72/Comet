@@ -9,28 +9,23 @@
 namespace Comet::AssetSerialization {
     template<typename Data, typename Encode>
     Result<std::string> serialize_json(std::string_view kind, const Data& data, Encode encode) {
-        try {
-            const Json::Context context(kind, "<memory>");
-            Json::Writer writer;
-            auto result = encode(data, context, writer);
-            if(!result)
-                return Result<std::string>::failure(result.error());
-            return Result<std::string>::success(std::move(writer).finish());
-        } catch(const Json::Error& error) {
-            return Result<std::string>::failure(error.what());
-        }
+        const Json::Context context(kind, "<memory>");
+        Json::Writer writer;
+        auto result = encode(data, context, writer);
+        if(!result)
+            return Result<std::string>::failure(result.error());
+        return std::move(writer).finish();
     }
 
     template<typename T, typename Decode>
     Result<T> deserialize_json(
         std::string_view kind, std::string_view contents, std::string_view source, Decode decode) {
         const Json::Context context(kind, source);
-        try {
-            simdjson::dom::parser parser;
-            return decode(context.parse(parser, contents), context);
-        } catch(const Json::Error& error) {
-            return Result<T>::failure(error.what());
-        }
+        simdjson::dom::parser parser;
+        auto root = context.parse(parser, contents);
+        if(!root)
+            return Result<T>::failure(root.error());
+        return decode(root.value(), context);
     }
 
     template<typename Serializer, typename Data>

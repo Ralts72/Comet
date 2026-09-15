@@ -4,7 +4,7 @@
 #include <imgui.h>
 #include <algorithm>
 #include <limits>
-#include <stdexcept>
+#include "diagnostics/logger.h"
 
 namespace CometEditor {
     namespace {
@@ -35,7 +35,7 @@ namespace CometEditor {
         const auto register_editor = [&registry](const Comet::PropertyType type,
                                          PropertyEditorRegistry::PropertyEditor editor) {
             if(!registry.register_editor(type, std::move(editor))) {
-                throw std::logic_error("Invalid built-in property editor");
+                LOG_FATAL("Invalid built-in property editor");
             }
         };
 

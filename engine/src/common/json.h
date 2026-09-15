@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/result.h"
 #include <simdjson.h>
 
 #include <algorithm>
@@ -8,7 +9,6 @@
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -17,59 +17,72 @@
 namespace Comet::Json {
     using Node = simdjson::dom::element;
 
-    class COMET_API Error final: public std::runtime_error {
-    public:
-        using std::runtime_error::runtime_error;
-    };
-
     class Context final {
     public:
         Context(std::string_view kind, std::string_view source) : m_kind(kind), m_source(source) {}
 
         std::string error(std::string_view location, std::string_view detail) const;
-        Node parse(simdjson::dom::parser& parser, std::string_view contents) const;
-        simdjson::dom::object object(Node node, std::string_view location) const;
-        simdjson::dom::array array(Node node, std::string_view location) const;
-        Node required_child(
+        Result<Node> parse(simdjson::dom::parser& parser, std::string_view contents) const;
+        Result<simdjson::dom::object> object(Node node, std::string_view location) const;
+        Result<simdjson::dom::array> array(Node node, std::string_view location) const;
+        Result<Node> required_child(
             Node node, std::string_view key, std::string_view location = "<root>") const;
 
         template<typename Keys>
-        void validate_keys(
+        Result<void> validate_keys(
             Node node, const Keys& allowed, std::string_view location = "<root>") const {
-            for(const auto field : object(node, location)) {
+            auto fields = object(node, location);
+            if(!fields)
+                return Result<void>::failure(fields.error());
+            for(const auto field : fields.value()) {
                 if(std::ranges::find(allowed, field.key) == std::ranges::end(allowed))
-                    throw Error(error(location, "unknown field '" + std::string(field.key) + "'"));
+                    return Result<void>::failure(
+                        error(location, "unknown field '" + std::string(field.key) + "'"));
             }
+            return Result<void>::success();
         }
 
-        void validate_keys(Node node, std::initializer_list<std::string_view> allowed,
+        Result<void> validate_keys(Node node, std::initializer_list<std::string_view> allowed,
             std::string_view location = "<root>") const {
-            validate_keys<decltype(allowed)>(node, allowed, location);
+            return validate_keys<decltype(allowed)>(node, allowed, location);
         }
 
         template<typename T>
-        T read_scalar(Node node, std::string_view location, std::string_view expected) const {
+        Result<T> read_scalar(
+            Node node, std::string_view location, std::string_view expected) const {
             if constexpr(std::is_same_v<T, std::string>) {
                 std::string_view value;
                 if(!node.get_string().get(value))
-                    return std::string(value);
+                    return Result<T>::success(std::string(value));
             } else if constexpr(std::is_same_v<T, bool>) {
                 bool value;
                 if(!node.get_bool().get(value))
-                    return value;
+                    return Result<T>::success(value);
             } else if constexpr(std::is_unsigned_v<T>) {
                 std::uint64_t value;
                 if(!node.get_uint64().get(value) && value <= std::numeric_limits<T>::max())
-                    return static_cast<T>(value);
+                    return Result<T>::success(static_cast<T>(value));
             } else if constexpr(std::is_floating_point_v<T>) {
                 double value;
                 if(!node.get_double().get(value) && std::isfinite(value)
                     && std::abs(value) <= std::numeric_limits<T>::max())
-                    return static_cast<T>(value);
+                    return Result<T>::success(static_cast<T>(value));
             } else {
                 static_assert(!sizeof(T), "Unsupported JSON scalar type");
             }
-            throw Error(error(location, "expected " + std::string(expected)));
+            return Result<T>::failure(error(location, "expected " + std::string(expected)));
+        }
+
+        template<typename T>
+        Result<T> read_field(Node object, std::string_view key, std::string_view expected,
+            std::string_view location = "<root>") const {
+            auto child = required_child(object, key, location);
+            if(!child)
+                return Result<T>::failure(child.error());
+            const auto field_location = location == "<root>"
+                                            ? std::string(key)
+                                            : std::string(location) + "." + std::string(key);
+            return read_scalar<T>(child.value(), field_location, expected);
         }
 
     private:
@@ -97,7 +110,7 @@ namespace Comet::Json {
             value(data);
         }
 
-        std::string finish() &&;
+        Result<std::string> finish() &&;
 
     private:
         struct Scope {
@@ -105,12 +118,13 @@ namespace Comet::Json {
             bool empty = true;
             bool awaiting_value = false;
         };
-        void before_value();
+        bool before_value();
         void separator();
         void end_scope(bool object);
         void quoted(std::string_view text);
 
         std::string m_output;
         std::vector<Scope> m_scopes;
+        std::string m_error;
     };
 }

@@ -1,4 +1,5 @@
 #include "common/result.h"
+#include "common/error.h"
 
 #include <gtest/gtest.h>
 
@@ -6,6 +7,15 @@
 #include <string>
 
 namespace Comet::Tests {
+    TEST(ResultTest, CommonErrorPreservesNonGraphicsErrorCodes) {
+        const auto result = Result<void, Error>::failure(
+            {"project is read-only", std::make_error_code(std::errc::permission_denied)});
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().message, "project is read-only");
+        EXPECT_EQ(result.error().code, std::errc::permission_denied);
+        EXPECT_FALSE(Error{"invalid configuration"}.code);
+    }
+
     TEST(ResultTest, SupportsTypedErrorsWithoutChangingStringResults) {
         enum class Error { Rejected };
         const auto failed = Result<int, Error>::failure(Error::Rejected);

@@ -4,6 +4,7 @@
 
 #include <future>
 #include <memory>
+#include <gtest/gtest.h>
 
 namespace Comet::Tests {
     // 确认 Worker 已占用，并在断言提前退出时也解除阻塞。
@@ -12,10 +13,16 @@ namespace Comet::Tests {
         explicit BlockedWorker(TaskScheduler& scheduler) {
             auto started = std::make_shared<std::promise<void>>();
             auto entered = started->get_future();
-            m_completion = scheduler.submit([started, gate = m_release.get_future().share()] {
-                started->set_value();
-                gate.wait();
-            });
+            auto completion =
+                scheduler.try_submit([started, gate = m_release.get_future().share()] {
+                    started->set_value();
+                    gate.wait();
+                });
+            if(!completion) {
+                ADD_FAILURE() << "Failed to submit blocking worker";
+                return;
+            }
+            m_completion = std::move(*completion);
             entered.wait();
         }
 

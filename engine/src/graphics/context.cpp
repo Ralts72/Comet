@@ -101,9 +101,7 @@ namespace Comet {
     }
 
     Context::~Context() {
-        if(m_surface) {
-            m_instance.destroySurfaceKHR(m_surface);
-        }
+        m_surface.reset();
         if(m_debug_messenger) {
             destroy_debug_messenger(m_instance, m_debug_messenger);
         }
@@ -220,19 +218,45 @@ namespace Comet {
         }
 
         m_device_capability = select_physical_device(
-            m_instance.enumeratePhysicalDevices(), m_surface, capability_request);
+            m_instance.enumeratePhysicalDevices(), get_surface(), capability_request);
     }
 
     void Context::create_surface(const Window& window) {
-        const auto glfw_window = window.get();
-        if(!glfw_window) {
-            LOG_FATAL("GLFW window not created");
-        }
-        VkSurfaceKHR surface = VK_NULL_HANDLE;
-        if(glfwCreateWindowSurface(m_instance, glfw_window, nullptr, &surface) != VK_SUCCESS) {
-            LOG_FATAL("Create Vulkan surface failed");
-        }
-        m_surface = vk::SurfaceKHR(surface);
+        auto candidate = create_surface_candidate(window);
+        if(!candidate)
+            LOG_FATAL("{}", candidate.error().message);
+        m_surface = std::make_shared<vk::UniqueSurfaceKHR>(std::move(candidate).value());
         LOG_INFO("Vulkan surface created successfully");
+    }
+
+    Result<vk::UniqueSurfaceKHR, GraphicsError> Context::create_surface_candidate(
+        const Window& window) {
+        using Creation = Result<vk::UniqueSurfaceKHR, GraphicsError>;
+        if(!window.get())
+            return Creation::failure({"GLFW window not created"});
+        VkSurfaceKHR surface = VK_NULL_HANDLE;
+        const auto result = static_cast<vk::Result>(
+            glfwCreateWindowSurface(m_instance, window.get(), nullptr, &surface));
+        if(result != vk::Result::eSuccess)
+            return Creation::failure({"Cannot create window surface", result});
+        return Creation::success(vk::UniqueSurfaceKHR(vk::SurfaceKHR(surface), {m_instance}));
+    }
+
+    Result<void, GraphicsError> Context::recreate_surface(const Window& window) {
+        auto candidate = create_surface_candidate(window);
+        if(!candidate)
+            return Result<void, GraphicsError>::failure(candidate.error());
+        vk::Bool32 supported = false;
+        const auto support = get_physical_device().getSurfaceSupportKHR(
+            get_present_queue_family().queue_family_index.value(), candidate.value().get(),
+            &supported);
+        if(support != vk::Result::eSuccess)
+            return Result<void, GraphicsError>::failure(
+                {"Cannot query presentation support", support});
+        if(!supported)
+            return Result<void, GraphicsError>::failure(
+                {"New surface is incompatible with the current presentation queue"});
+        m_surface = std::make_shared<vk::UniqueSurfaceKHR>(std::move(candidate).value());
+        return Result<void, GraphicsError>::success();
     }
 }

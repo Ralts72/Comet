@@ -23,8 +23,8 @@ namespace Comet {
         static Result<std::unique_ptr<DebugRenderer>, GraphicsError> create(Device& device,
             PipelineManager& pipeline_manager, uint32_t frame_slot_count, SampleCount sample_count);
 
-        void render(FrameScheduler& frame_scheduler, const ViewProjectMatrix& view_project,
-            const LineDrawList& draw_list);
+        Result<void, GraphicsError> render(FrameScheduler& frame_scheduler,
+            const ViewProjectMatrix& view_project, const LineDrawList& draw_list);
 
     private:
         DebugRenderer(
@@ -37,7 +37,8 @@ namespace Comet {
             uint32_t growth_retry_requests = 0;
         };
 
-        [[nodiscard]] bool ensure_capacity(FrameResources& resources, std::size_t vertex_count);
+        [[nodiscard]] Result<bool, GraphicsError> ensure_capacity(
+            FrameResources& resources, std::size_t vertex_count);
 
         Device& m_device;
         std::shared_ptr<Pipeline> m_pipeline;

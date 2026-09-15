@@ -32,15 +32,11 @@ namespace CometEditor {
         CommandHistory& history, PropertyEditTransaction& property_edit,
         const Comet::ComponentRegistry& component_registry,
         const PropertyEditorRegistry& property_editor_registry,
-        const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root,
-        UpdateMaterialCallback update_material_callback,
-        ReimportTextureCallback reimport_texture_callback)
+        const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root)
         : EditorPanel("Inspector"), m_state(state), m_selection(selection), m_history(history),
           m_property_edit(property_edit), m_component_registry(component_registry),
           m_property_editor_registry(property_editor_registry), m_asset_database(asset_database),
-          m_assets_root(std::move(assets_root)),
-          m_update_material_callback(std::move(update_material_callback)),
-          m_reimport_texture_callback(std::move(reimport_texture_callback)) {}
+          m_assets_root(std::move(assets_root)) {}
 
     void InspectorPanel::set_material_layouts(
         std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts) {
@@ -164,7 +160,7 @@ namespace CometEditor {
         const Comet::ComponentDescriptor& component, const Comet::PropertyDescriptor& property) {
         if(!property.editable || property.read_only)
             return;
-        auto value = property.copy_value(component.get_component(entity));
+        auto value = property.copy_value(component.get_component(std::as_const(entity)));
         if(!value)
             return;
         const PropertyEditTransaction::Target target{entity.get_uuid(), component.id, property.id};
@@ -455,14 +451,11 @@ namespace CometEditor {
 
     void InspectorPanel::reimport_texture(
         const Comet::AssetRecord& record, const Comet::TextureImportSettings& previous_settings) {
-        if(!m_texture_import_settings || !m_reimport_texture_callback) {
+        if(!m_texture_import_settings) {
             return;
         }
-
-        if(!m_reimport_texture_callback(record.handle, *m_texture_import_settings)) {
-            m_texture_import_settings = previous_settings;
-            return;
-        }
+        m_asset_edit = AssetEdit{record.handle, m_loaded_revision,
+            TextureEdit{previous_settings, *m_texture_import_settings}};
     }
 
     void InspectorPanel::update_material(
@@ -471,11 +464,21 @@ namespace CometEditor {
             return;
         }
 
-        if(!m_update_material_callback
-            || !m_update_material_callback(record.handle, *m_material_data)) {
-            m_material_data = previous_data;
+        m_asset_edit = AssetEdit{
+            record.handle, m_loaded_revision, MaterialEdit{previous_data, *m_material_data}};
+    }
+
+    std::optional<AssetEdit> InspectorPanel::take_asset_edit() {
+        return std::exchange(m_asset_edit, std::nullopt);
+    }
+
+    void InspectorPanel::complete_asset_edit(const AssetEdit& edit, const bool succeeded) {
+        if(succeeded || m_loaded_asset != edit.handle || m_loaded_revision != edit.revision)
             return;
-        }
+        if(const auto* material = std::get_if<MaterialEdit>(&edit.value))
+            m_material_data = material->before;
+        else
+            m_texture_import_settings = std::get<TextureEdit>(edit.value).before;
     }
 
     std::string InspectorPanel::validate_material() const {

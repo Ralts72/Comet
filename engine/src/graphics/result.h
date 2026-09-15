@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/error.h"
 #include "common/result.h"
 
 #include <optional>
@@ -10,9 +11,13 @@
 #include <vulkan/vulkan.hpp>
 
 namespace Comet {
+    [[nodiscard]] COMET_API bool is_device_lost(const Error& error);
+
     struct GraphicsError {
         std::string message;
         std::optional<vk::Result> result = std::nullopt;
+
+        [[nodiscard]] COMET_API Error as_error() const;
 
         [[nodiscard]] bool is_device_lost() const noexcept {
             return result == vk::Result::eErrorDeviceLost;

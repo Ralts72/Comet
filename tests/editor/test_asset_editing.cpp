@@ -68,14 +68,7 @@ namespace CometEditor::Tests {
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
             inspector = std::make_unique<InspectorPanel>(
-                state, selection, history, edit, registry, widgets, database, paths.assets(),
-                [this](Comet::AssetHandle handle, const Comet::MaterialData& data) {
-                    EXPECT_EQ(handle, material);
-                    ++material_updates;
-                    submitted_material = data;
-                    return material_update_success;
-                },
-                nullptr);
+                state, selection, history, edit, registry, widgets, database, paths.assets());
             frame();
             frame();
         }
@@ -99,6 +92,16 @@ namespace CometEditor::Tests {
                 project->render();
             }
             ImGui::Render();
+            if(const auto request = inspector->take_asset_edit()) {
+                EXPECT_EQ(request->handle, material);
+                EXPECT_EQ(request->revision, database.get_revision(material));
+                const auto* update = std::get_if<MaterialEdit>(&request->value);
+                ASSERT_NE(update, nullptr);
+                ++material_updates;
+                submitted_material = update->after;
+                inspector->complete_asset_edit(*request, material_update_success);
+                EXPECT_FALSE(inspector->take_asset_edit());
+            }
         }
 
         std::optional<InspectorPanel::AssetAssignment> click(ImVec2 point) {
@@ -192,7 +195,7 @@ namespace CometEditor::Tests {
     };
 
     TEST_F(AssetEditingUiTest, ProjectDragKeepsSelectionAndOriginalDocumentGeneration) {
-        ProjectPanel project(database, paths.assets(), {}, nullptr, nullptr, selection, history);
+        ProjectPanel project(database, paths.assets(), {}, selection, history);
         const auto draw = [&]() {
             ImGui::NewFrame();
             ImGui::SetNextWindowPos({20, 40});
@@ -234,8 +237,8 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(AssetEditingUiTest, ProjectToInspectorDragKeepsTheTargetVisible) {
-        project = std::make_unique<ProjectPanel>(database, paths.assets(), Comet::AssetScanReport{},
-            nullptr, nullptr, selection, history);
+        project = std::make_unique<ProjectPanel>(
+            database, paths.assets(), Comet::AssetScanReport{}, selection, history);
         frame();
         frame();
         const auto* window = ImGui::FindWindowByName("Project");

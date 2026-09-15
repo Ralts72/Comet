@@ -2,7 +2,6 @@
 
 #include <gtest/gtest.h>
 #include <limits>
-#include <stdexcept>
 #include <type_traits>
 
 namespace Comet::Tests {
@@ -16,25 +15,49 @@ namespace Comet::Tests {
 
         const auto initial = material.get_revision();
         material.set_texture_property("albedo", nullptr);
-        material.set_scalar_property("blend", 0.25f);
+        EXPECT_TRUE(material.set_scalar_property("blend", 0.25f));
         const Math::Vec4 tint(0.2f, 0.4f, 0.6f, 0.8f);
-        material.set_vector_property("tint", tint);
+        EXPECT_TRUE(material.set_vector_property("tint", tint));
         EXPECT_EQ(material.get_revision(), initial + 3);
         EXPECT_EQ(material.get_scalar_property("blend"), 0.25f);
         EXPECT_EQ(material.get_vector_property("tint"), tint);
 
         material.set_texture_property("albedo", nullptr);
-        material.set_scalar_property("blend", 0.25f);
-        material.set_vector_property("tint", tint);
+        EXPECT_TRUE(material.set_scalar_property("blend", 0.25f));
+        EXPECT_TRUE(material.set_vector_property("tint", tint));
         EXPECT_EQ(material.get_revision(), initial + 3);
-        EXPECT_THROW(material.set_scalar_property("blend", std::numeric_limits<float>::infinity()),
-            std::invalid_argument);
-        EXPECT_THROW(material.set_vector_property(
-                         "tint", {0, 0, std::numeric_limits<float>::quiet_NaN(), 1}),
-            std::invalid_argument);
+        EXPECT_FALSE(material.set_scalar_property("blend", std::numeric_limits<float>::infinity()));
+        EXPECT_FALSE(material.set_vector_property(
+            "tint", {0, 0, std::numeric_limits<float>::quiet_NaN(), 1}));
         EXPECT_EQ(material.get_revision(), initial + 3);
         EXPECT_EQ(material.get_scalar_property("blend"), 0.25f);
         EXPECT_EQ(material.get_vector_property("tint"), tint);
+    }
+
+    TEST(MaterialTest, RejectsNonFiniteComponentsWithoutCreatingOrMutatingProperties) {
+        Material material("finite", "test");
+        ASSERT_TRUE(material.set_scalar_property("scalar", 0.5f));
+        const Math::Vec4 original(0.1f, 0.2f, 0.3f, 1.0f);
+        ASSERT_TRUE(material.set_vector_property("vector", original));
+        const auto revision = material.get_revision();
+        for(const float invalid : {std::numeric_limits<float>::infinity(),
+                -std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
+            EXPECT_FALSE(material.set_scalar_property("scalar", invalid));
+            EXPECT_FALSE(material.set_scalar_property("new_scalar", invalid));
+            for(int component = 0; component < 4; ++component) {
+                auto value = original;
+                value[component] = invalid;
+                EXPECT_FALSE(material.set_vector_property("vector", value));
+                EXPECT_FALSE(material.set_vector_property("new_vector", value));
+            }
+            EXPECT_EQ(material.get_revision(), revision);
+            EXPECT_EQ(material.get_scalar_property("scalar"), 0.5f);
+            EXPECT_EQ(material.get_vector_property("vector"), original);
+            EXPECT_FALSE(material.get_scalar_property("new_scalar"));
+            EXPECT_FALSE(material.get_vector_property("new_vector"));
+        }
+        EXPECT_TRUE(material.set_scalar_property("scalar", 0.75f));
+        EXPECT_EQ(material.get_revision(), revision + 1);
     }
 
     TEST(MaterialLayoutTest, BuiltinLayoutsShareIdentityAndCarryAuthoringMetadata) {

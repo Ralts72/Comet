@@ -268,19 +268,20 @@ namespace CometEditor {
         m_initialized = false;
     }
 
-    void ImGuiContext::update_frame() const {
+    bool ImGuiContext::begin_frame() {
+        m_draw_data_ready = false;
         if(!m_initialized) {
-            LOG_ERROR("ImGuiContext not initialized, skipping update_frame");
-            return;
+            LOG_ERROR("ImGuiContext not initialized, skipping begin_frame");
+            return false;
         }
 
         if(m_is_recreating) {
-            return;
+            return false;
         }
 
         if(!m_window.get()) {
             LOG_WARN("Window is invalid, skipping ImGui frame");
-            return;
+            return false;
         }
 
         ImGui_ImplVulkan_NewFrame();
@@ -292,11 +293,12 @@ namespace CometEditor {
             ImGui::NewFrame();
         }
 
-        if(m_ui_callback) {
-            m_ui_callback();
-        }
+        return true;
+    }
 
+    void ImGuiContext::end_frame() {
         ImGui::Render();
+        m_draw_data_ready = true;
     }
 
     void ImGuiContext::render(Comet::CommandBuffer& command_buffer) const {
@@ -308,7 +310,7 @@ namespace CometEditor {
         m_render_target->begin_render_target(command_buffer);
 
         ImDrawData* draw_data = ImGui::GetDrawData();
-        if(draw_data && draw_data->CmdListsCount > 0) {
+        if(m_draw_data_ready && draw_data && draw_data->CmdListsCount > 0) {
             ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer.get());
         }
 
@@ -320,10 +322,6 @@ namespace CometEditor {
             LOG_ERROR("ImGuiContext not initialized, cannot release swapchain resources");
             return;
         }
-        if(m_is_recreating) {
-            return;
-        }
-
         LOG_INFO("Releasing ImGui swapchain resources");
         m_is_recreating = true;
         m_render_target.reset();
@@ -343,13 +341,17 @@ namespace CometEditor {
         LOG_INFO("Rebuilding ImGui swapchain resources");
         auto& device = m_render_context.get_device();
         auto& swapchain = m_render_context.get_swapchain();
-        const bool rebuild_backend =
-            compatibility.format_changed || compatibility.image_count_changed;
+        const bool rebuild_backend = compatibility.format_changed
+                                     || compatibility.image_count_changed
+                                     || !ImGui::GetIO().BackendRendererUserData;
         if(rebuild_backend) {
-            unregister_viewport_textures();
-            ImGui_ImplVulkan_Shutdown();
+            if(ImGui::GetIO().BackendRendererUserData) {
+                unregister_viewport_textures();
+                ImGui_ImplVulkan_Shutdown();
+            }
             // Vulkan 后端关闭时也会清除主视口的平台数据。
-            ImGui_ImplGlfw_Shutdown();
+            if(ImGui::GetIO().BackendPlatformUserData)
+                ImGui_ImplGlfw_Shutdown();
             m_descriptor_pool.reset();
         }
         if(compatibility.format_changed) {

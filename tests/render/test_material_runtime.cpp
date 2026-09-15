@@ -37,9 +37,9 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(values[0], 1);
         EXPECT_FLOAT_EQ(values[4], 1);
         EXPECT_FLOAT_EQ(values[7], 0);
-        material->set_scalar_property("intensity", 0.25f);
+        EXPECT_TRUE(material->set_scalar_property("intensity", 0.25f));
         const Math::Vec4 color(0.2f, 0.4f, 0.6f, 0.8f);
-        material->set_vector_property("color", color);
+        EXPECT_TRUE(material->set_vector_property("color", color));
         const auto updated = cache.prepare(AssetHandle(1), material, layout);
         ASSERT_TRUE(updated);
         std::memcpy(values.data(), updated.value()->parameters.data(), sizeof(values));
@@ -155,8 +155,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(registry.register_asset(AssetHandle(11), mesh.value()));
         ASSERT_TRUE(registry.register_asset(AssetHandle(12), material));
         const auto solid = std::make_shared<Material>("solid", "unlit_color");
-        solid->set_vector_property("color", {0.25f, 0.75f, 0.5f, 1});
-        solid->set_scalar_property("intensity", 0.5f);
+        EXPECT_TRUE(solid->set_vector_property("color", {0.25f, 0.75f, 0.5f, 1}));
+        EXPECT_TRUE(solid->set_scalar_property("intensity", 0.5f));
         ASSERT_TRUE(registry.register_asset(AssetHandle(13), solid));
         RenderScene scene;
         scene.cameras.push_back({.primary = true});
@@ -169,7 +169,9 @@ namespace Comet::Tests {
         int frames = 0;
         for(int attempt = 0; attempt < 20 && frames < 8; ++attempt) {
             engine->get_window().poll_events();
-            if(!renderer.prepare_frame()) {
+            const auto preparation = renderer.prepare_frame();
+            EXPECT_TRUE(preparation);
+            if(!preparation || !preparation.value()) {
                 continue;
             }
             if(frames == 2) {
@@ -182,15 +184,15 @@ namespace Comet::Tests {
                 EXPECT_TRUE(registry.replace_asset(AssetHandle(12), material));
             }
             if(frames == 3)
-                solid->set_scalar_property("intensity", 0.75f);
+                EXPECT_TRUE(solid->set_scalar_property("intensity", 0.75f));
             if(frames == 6)
-                solid->set_scalar_property("intensity", 0.75f);
+                EXPECT_TRUE(solid->set_scalar_property("intensity", 0.75f));
             if(frames == 7) {
                 material = std::make_shared<Material>("replacement", "unlit_color");
                 EXPECT_TRUE(registry.replace_asset(AssetHandle(12), material));
                 first.reset();
             }
-            renderer.render_frame(scene);
+            EXPECT_TRUE(renderer.render_frame(scene));
             const auto& stats = renderer.get_scene_renderer().get_material_statistics();
             EXPECT_EQ(stats.frame_set_count, 2u);
             EXPECT_EQ(stats.draw_calls, 3u);
@@ -233,8 +235,12 @@ namespace Comet::Tests {
         scene.render_items.push_back(
             {.entity_id = 1, .mesh_handle = AssetHandle(11), .material_handle = AssetHandle(12)});
         const auto draw = [&](uint32_t expected) {
-            ASSERT_TRUE(renderer.prepare_frame());
-            renderer.render_frame(scene);
+            {
+                const auto preparation = renderer.prepare_frame();
+                ASSERT_TRUE(preparation) << preparation.error();
+                ASSERT_TRUE(preparation.value());
+            }
+            EXPECT_TRUE(renderer.render_frame(scene));
             EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, expected);
         };
         draw(1);

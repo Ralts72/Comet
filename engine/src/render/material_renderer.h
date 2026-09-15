@@ -61,8 +61,8 @@ namespace Comet {
             PipelineManager& pipelines, const ShaderCode& shaders, SampleCount samples);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
-        [[nodiscard]] std::vector<QueueSemaphoreSubmit> render(FrameScheduler& frames,
-            const std::optional<ViewProjectMatrix>& view,
+        [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
+            FrameScheduler& frames, const std::optional<ViewProjectMatrix>& view,
             std::span<const ResolvedRenderItem> items);
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
 
@@ -108,7 +108,8 @@ namespace Comet {
             PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
             SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout);
-        [[nodiscard]] std::shared_ptr<MaterialResources> prepare_material(
+        // 成功空值表示本次无可绘制版本；失败表示不能继续当前帧。
+        [[nodiscard]] Result<std::shared_ptr<MaterialResources>, GraphicsError> prepare_material(
             const MaterialBinding& material, uint64_t frame_serial);
         Result<std::shared_ptr<MaterialResources>, GraphicsError> create_material(
             const std::shared_ptr<const PreparedMaterial>& prepared,

@@ -34,6 +34,8 @@ cmake --build --preset dev-debug --parallel
 ctest --preset dev-debug
 ```
 
+macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创建/销毁产生的动画任务阻塞 Metal 编译；不影响 app/editor，图形测试仍使用真实窗口和 GPU。
+
 | Profile | 类型 / 目标 | 脚本 |
 | --- | --- | --- |
 | `dev-debug` | Debug：app、editor、tests | `./build.sh` |
@@ -129,23 +131,40 @@ JSON 解析直接依赖已有 simdjson。
 
 - 启动：app/editor 共用 `RUN_APP` 和 `Comet::launch`，统一参数传递、`--help`、错误退出和 Application 所有权。
   各入口提供返回 `Result` 的创建函数，负责参数校验和依赖准备；`Editor` 只接收已加载的 `Project`，不解析命令行。
-  `Comet::run` 读取配置，再由 `Application::run` 统一驱动初始化、更新和关闭；异常在生命周期边界处理，具体契约见资源所有权文档。
+  `Comet::run` 读取配置，`Application::run` 驱动初始化、更新和关闭；三个生命周期钩子直接返回 Result，入口消费失败并返回非零退出码，不再设置异常兜底。
+  生命周期使用通用 Error（消息与标准 error_code），图形层在边界保留 Vulkan 错误类别和数值。关闭先由 Engine 停止接收后台任务并排空已接收任务、Renderer 停止帧并等待 GPU，再执行应用资源清理。
+  Engine／Renderer／RenderContext 使用 create 返回 Result，依赖准备成功后才构造完整对象；Engine 创建失败不调用应用钩子。
+  demo 的必需资产缺失、导入或加载失败通过初始化错误退出并清理，保留原始错误码，不直接 LOG_FATAL。
+- 场景：Scene 维护 EntityId／UUID 和父子索引，创建、删除与换父级同步更新索引。
+  世界变换比较本地 TRS 与父级版本，仅重算发生变化的节点；单个矩阵查询只检查祖先链。
+  相机继承世界位置与层级旋转，朝向不受本地及祖先缩放影响。
+  Engine::run 管主循环，内部 tick 显式推进应用更新、帧准备、on_frame_ready 编辑和场景提取；未就绪的帧不执行编辑或绘制。Editor 在 on_update 处理后台完成与模式请求，在 on_frame_ready 顺序完成 UI、编辑命令和视口更新。
+  on_frame_ready 返回 Result；失败会停止引擎生命周期并保留原始错误，不绘制或重用已获取的帧。
+  Play/Stop 会话返回 Result<bool, Error>，区分未发生切换与准备失败；准备错误保留错误码，设备丢失交由主循环退出。
+  场景 New/Open/Save 同样返回完整错误；普通文件错误留在对话框内，设备丢失不会触发启动场景回退。
+  Inspector 的材质/纹理编辑只产生带版本的 AssetEdit；Editor 在统一请求阶段交给 EditorAssets::apply_edit 校验版本并保存/重导入，再回传结果。失败恢复仍匹配该请求的面板草稿，不在控件绘制回调中创建 GPU 资源。
 - 渲染：`Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
   Renderer 装配 FrameScheduler，Presentation 负责 acquire／submit／present 与有序重建；SceneRenderer 只管理场景目标与 pass。
   完整目标切换先准备 pass、附件、材质和辅助线绘制器，全部成功后安装；旧帧保留完整依赖版本。
   SceneResolver 只解析 Mesh/Material 引用；MaterialRenderer 准备并绘制材质队列，无相机帧也清理缓存和重置统计。
   MaterialRuntimeCache 按材质版本和不可变布局准备纹理与参数快照；同一布局驱动 descriptor 和参数打包。
+  Material 数值 setter 返回是否接受；非有限值被拒绝，相同值不递增版本。
   已有材质的 CPU／GPU 更新失败保留同一资产的兼容旧版本；清除引用或切换资产不会使用无关历史材质。
+  材质准备或调试缓冲扩容遇到设备丢失时返回帧错误，停止后续录制与提交，不复用部分录制的帧。
   属性显示保留声明顺序，GPU binding 仅在准备绑定时排序；热发布日志包含管线准备、候选复制及材质准备耗时。
   相机 FrameSet 按 slot 更新，MaterialSet 按材质版本跨 slot 复用，物体矩阵使用 push constant；在途版本由 FrameSlot 保活。
   Shader 加载时反射实际 SPIR-V，Pipeline 创建／缓存查询前校验绑定及 push constant，材质另检查参数块类型与偏移。
   ShaderInterface 只公开 Comet 值类型；Vulkan 布局转换与覆盖校验留在 ShaderLayout 实现中。
   CPU 创建／校验使用公共 `Result<T>`；图形错误与原生结果位于 `graphics/result.h`，句柄创建工具只供后端实现使用。
-  GPU 候选由 RAII 回收，管理器只发布成功对象；普通重载失败保留旧版本，设备丢失沿应用边界退出清理。
+  GPU 候选由 RAII 回收，管理器只发布成功对象；普通重载失败保留旧版本。资产加载及部分绘制路径的设备丢失异常仍待迁移，尚不能保证这些路径有序退出。
+  资产首次加载、重载及材质依赖失败统一返回 Result；设备丢失经编辑器/应用传给 Engine，停止后续操作，已落盘或已发布产物不回滚。
   MaterialRenderer 只描述资源与槽位，DescriptorSet 负责原生批量写入，CommandBuffer 负责集合绑定；不在材质层拼装 Vulkan 结构。
   WSI 与提交返回显式结果；退休交换链不重新发布，失败提交不产生 completion，也不登记在途帧。
-  具体创建、保活与关闭契约见资源所有权文档；ImGui 后端内部失败、WSI 无呈现恢复等限制见路线图。
+  WSI 暂时失败进入无呈现状态，按 1／2／4 秒最多重试三次；SurfaceLost 重建 surface 并校验呈现队列兼容性。
+  手动重建只登记请求，在下一次帧准备统一执行；帧准备返回 Result，成功值 false 表示延期。
+  预期呈现失败经 Renderer／Engine 原样返回，在 Application 生命周期边界统一处理。
+  重试耗尽、设备丢失和不支持的配置沿生命周期边界退出；具体契约见资源所有权文档。
   Pipeline 按 Shader 字节码／入口、specialization、布局、渲染状态及 RenderPass 域复用，名称只作标签；缓存弱引用不代替在途帧保活。
   specialization 支持 bool 与 32 位数值，按阶段和位模式校验／缓存并传给 GPU；只用于固定接口的创建期变体。
   改变数组长度的变体使用编译期 defines，不用 specialization；材质逐帧参数仍走原有 uniform。
@@ -155,20 +174,34 @@ JSON 解析直接依赖已有 simdjson。
   GLFW 是 engine 的私有依赖，原生句柄仅供 Vulkan／ImGui 后端及底层测试对接，不用于普通业务操作。
 - 调试绘制：`LineDrawList` 提交单帧世界空间线段/包围盒，`DebugRenderer` 在场景 pass 内绘制，
   使用当前相机和正常深度测试；不依赖 ImGui，编辑器选中框是其中一个调用方。
+  添加或合并顶点数量超限时返回失败；Renderer 拒绝该批次并保留本帧已提交的线段。
 - 资产：`AssetDatabase` 管身份与依赖，`ImportService` 管导入，`AssetManager` 协调加载与发布，
   `AssetRegistry` 是唯一 Handle 缓存；`ResourceManager` 只创建设备资源。
+  Manager 内部的 `AssetTaskQueue` 管后台排队、同资产请求合并、背压、完成预算与关闭等待，不作为公共引擎服务导出。
+  `TaskScheduler::try_submit` 是唯一提交入口；空任务、队列满或关闭时返回空结果，调用方须检查后再使用 future。
+  调度器队列容量和资产异步预算必须为正；零值视为编程错误，不表示关闭异步功能，也不会自动改成默认值。
+  Worker 的业务失败通过导入候选或编译诊断返回；消费前 get 同步并检查任务是否正常结束，不将未预期异常吞掉后继续发布。
+  Mesh／Texture／Material 首次加载共用缓存与发布校验，创建期间资产 revision 变化则丢弃候选。
+  显式纹理重导入同样在创建后复核 revision，过期候选不写入导入设置、不替换旧纹理。
+  Material Reload/Update 在依赖加载后复核 revision，过期操作不保存文件或发布材质。
+  数据库无变化的设置/依赖更新不消耗 revision；版本耗尽时拒绝变更，不允许回绕。
+  扫描触发的材质刷新通过后台读取、主线程完成处理发布；扫描和 Worker 不创建 GPU 资源，发布前保留旧材质。
   导入、资产序列化和数据库更新统一用公共 `Result<T>` 返回预期失败，调用方决定如何报告；GPU 错误仍保留 Vulkan 结果码。
   公共文件读取／原子写入同样返回 `Result`，写入先完成同目录临时文件，再替换目标；失败由 RAII 尝试清理临时文件。
 - 持久化：`Project::load`、项目资产路径解析和 `SceneSerializer` 返回 `Result`；Open 失败保留当前场景，
-  Save 失败不更新文档路径，Play 克隆失败留在 Edit。JSON 数据错误在序列化边界转换，其他异常仍交给生命周期边界。
-- 编辑器：`Editor` 装配依赖与帧阶段，`EditorAssets` 管引用选择／模型放置的资源准备、源监视和写入确认，
-  `SceneFileDialog` 管路径弹窗；属性控件显式返回手势状态，`SceneDocument` 与 Play 会话仍保持独立。
-  Project 消费资产操作返回的扫描结果并更新目录树；Inspector 按 Handle/revision 管理自己的资产缓存，不依赖入口手动失效。
+  Save 失败不更新文档路径，Play 克隆失败留在 Edit。JSON 解析、字段校验与序列化直接返回 Result；配置暂保留 yaml-cpp 解析异常转换，不更换依赖。
+  Open／New／Play 在安装候选前显式准备资产，缺失引用仍保留供修复；准备被拒绝时不替换当前场景。Stop 直接恢复保留的 Edit 场景，不重新执行资产准备。
+  Editor 统一安装活动场景并更新选择、层级面板与命令历史；安装时先取消旧交互，再替换场景，Play／Stop 显式指定目标模式。
+- 编辑器：`Editor` 装配依赖与帧阶段，`EditorAssets` 管资产编辑校验与执行、引用选择／模型放置的资源准备、源监视和写入确认，
+  `SceneFileDialog` 只管理路径弹窗并产生请求，Editor 在统一请求阶段调用 `SceneDocument` 后回传结果；属性控件显式返回手势状态，文档与 Play 会话仍保持独立。
+  Project 产生刷新、移动和重导入请求，由 Editor 调用 EditorAssets 执行；面板消费扫描结果更新目录树，不在绘制时扫描或移动文件。Inspector 按 Handle/revision 管理自己的资产缓存，不依赖入口手动失效。
   `viewport/viewport.h` 是视口功能入口，拥有 ViewPanel 与 TransformGizmo，负责纹理同步、相机更新和拾取／选中反馈；
+  采样器由 Editor 初始化时准备并传入，获取失败返回初始化错误，Viewport 不自行创建该 GPU 依赖。
   活动 Scene 按调用传入，不持有 Engine。相机状态及算法集中在 `viewport/camera_controller`，资产引用控件与载荷集中在 `assets/asset_reference`。
 - Mesh Runtime 只读已发布的 Mesh Artifact；缓存丢失需先导入，不自动回退解析 glTF。
   Texture 暂时直接解码源文件，后续再引入 Artifact。
 - 离屏视口 resize 失败保留旧画面与实际分辨率；内存不足按 1、2、4 秒最多重试三次，耗尽或其他错误等待新尺寸。
+  设备丢失通过视口更新返回帧错误并停止渲染，不进入普通 resize 重试。
 - 世界 +Y 向上，Vulkan Viewport 用负高度转换画面坐标；`flip_y` 仅控制纹理导入。
   Shader 编译产物只进入构建目录，学习源码不作为生产 Shader 的隐式依赖。
   Shader 编译库与构建 CLI 独立于 engine；材质描述集中在 `render/material.h`，准备缓存与 GPU 绘制各自独立。

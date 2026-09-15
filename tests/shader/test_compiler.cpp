@@ -134,8 +134,8 @@ namespace Comet::Tests {
 
         MaterialRuntimeCache cache;
         auto material = std::make_shared<Material>("solid", "unlit_color");
-        material->set_scalar_property("intensity", 0.25f);
-        material->set_vector_property("color", {0.2f, 0.4f, 0.6f, 1});
+        EXPECT_TRUE(material->set_scalar_property("intensity", 0.25f));
+        EXPECT_TRUE(material->set_vector_property("color", {0.2f, 0.4f, 0.6f, 1}));
         const auto previous = cache.prepare(AssetHandle(1), material, original);
         ASSERT_TRUE(previous);
         auto candidate = cache;

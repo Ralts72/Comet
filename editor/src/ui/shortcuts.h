@@ -1,6 +1,7 @@
 #pragma once
 
 #include <imgui.h>
+#include "common/result.h"
 
 #include <array>
 #include <filesystem>
@@ -14,8 +15,8 @@ namespace CometEditor {
         enum class Action { NewScene, OpenScene, SaveScene, Undo, Redo, FocusSelection };
 
         EditorShortcuts();
-        [[nodiscard]] static EditorShortcuts load(const std::filesystem::path& path);
-        [[nodiscard]] static EditorShortcuts parse(std::string_view yaml);
+        [[nodiscard]] static Comet::Result<EditorShortcuts> load(const std::filesystem::path& path);
+        [[nodiscard]] static Comet::Result<EditorShortcuts> parse(std::string_view yaml);
 
         // 调用者负责模式、焦点、文本输入及拖动等上下文限制。
         [[nodiscard]] bool pressed(Action action, ImGuiInputFlags flags) const;
@@ -27,7 +28,7 @@ namespace CometEditor {
             std::string key_name;
         };
 
-        [[nodiscard]] static Binding parse_binding(std::string_view text);
+        [[nodiscard]] static Comet::Result<Binding> parse_binding(std::string_view text);
         std::array<std::vector<Binding>, 6> m_bindings;
     };
 }

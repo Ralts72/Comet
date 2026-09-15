@@ -54,8 +54,8 @@ namespace Comet {
         }
         ++window_count;
         glfwSetWindowUserPointer(m_window.get(), this);
-        glfwSetDropCallback(m_window.get(), [](GLFWwindow* window, int count, const char** paths) {
-            try {
+        glfwSetDropCallback(
+            m_window.get(), [](GLFWwindow* window, int count, const char** paths) noexcept {
                 FileDrop drop;
                 double x, y;
                 glfwGetCursorPos(window, &x, &y);
@@ -66,10 +66,7 @@ namespace Comet {
                 }
                 static_cast<Window*>(glfwGetWindowUserPointer(window))
                     ->m_file_drops.push_back(std::move(drop));
-            } catch(const std::exception& error) {
-                LOG_ERROR("Cannot receive dropped files: {}", error.what());
-            }
-        });
+            });
 
         if(!config.fullscreen) {
             if(GLFWmonitor* primary_monitor = glfwGetPrimaryMonitor()) {
@@ -108,6 +105,10 @@ namespace Comet {
     void Window::poll_events() {
         PROFILE_SCOPE("Window::PollEvents");
         glfwPollEvents();
+    }
+
+    void Window::wait_events(double timeout_seconds) {
+        glfwWaitEventsTimeout(timeout_seconds);
     }
 
     void Window::wait_events() {

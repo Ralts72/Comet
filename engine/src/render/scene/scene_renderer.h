@@ -33,9 +33,11 @@ namespace Comet {
         [[nodiscard]] const RenderTarget& get_render_target() const;
         [[nodiscard]] std::shared_ptr<ImageView> get_offscreen_color_view(uint32_t slot) const;
 
-        [[nodiscard]] std::vector<QueueSemaphoreSubmit> render_scene_pass(FrameScheduler& frames,
-            const RenderSubmission& submission, const LineDrawList& lines = {});
-        void resize_offscreen_target(Math::Vec2u size,
+        [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render_scene_pass(
+            FrameScheduler& frames, const RenderSubmission& submission,
+            const LineDrawList& lines = {});
+        // 普通失败保留旧目标并管理重试；设备错误终止调用链。
+        Result<void, GraphicsError> resize_offscreen_target(Math::Vec2u size,
             std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
 
     private:

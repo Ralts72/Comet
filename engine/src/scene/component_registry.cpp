@@ -2,7 +2,7 @@
 
 #include "scene/components.h"
 
-#include <stdexcept>
+#include "diagnostics/logger.h"
 #include <algorithm>
 #include <unordered_set>
 #include <utility>
@@ -167,7 +167,7 @@ namespace Comet {
         ComponentRegistry registry;
         const auto register_component = [&registry](ComponentDescriptor descriptor) {
             if(!registry.register_component(std::move(descriptor))) {
-                throw std::logic_error("Invalid built-in component descriptor");
+                LOG_FATAL("Invalid built-in component descriptor");
             }
         };
 

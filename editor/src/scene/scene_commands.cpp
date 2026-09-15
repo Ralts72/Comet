@@ -1,4 +1,5 @@
 #include "scene/scene_commands.h"
+#include "common/scope_exit.h"
 
 #include <unordered_set>
 #include <unordered_map>
@@ -68,41 +69,33 @@ namespace CometEditor::SceneCommands {
 
             std::vector<Comet::Entity> created;
             created.reserve(snapshots.size());
-            const auto rollback = [&]() {
+            Comet::ScopeExit rollback([&]() {
                 for(auto it = created.rbegin(); it != created.rend(); ++it)
                     scene.destroy_entity(*it);
-            };
-            try {
-                for(const auto& snapshot : snapshots) {
-                    auto entity = scene.create_entity_with_uuid(snapshot.uuid, snapshot.name);
-                    if(!entity) {
-                        rollback();
-                        return false;
-                    }
-                    created.push_back(entity);
-                    // 空名称和缺少 Transform 的源实体也必须原样恢复。
-                    entity.get_component<Comet::NameComponent>().name = snapshot.name;
-                    entity.remove_component<Comet::TransformComponent>();
-                    for(const auto& value : snapshot.components) {
-                        if(!registry.find_component(value.id)->restore_component(
-                               entity, value.value)) {
-                            rollback();
-                            return false;
-                        }
-                    }
+            });
+            for(const auto& snapshot : snapshots) {
+                auto entity = scene.create_entity_with_uuid(snapshot.uuid, snapshot.name);
+                if(!entity) {
+                    return false;
                 }
-                for(const auto& snapshot : snapshots) {
-                    if(snapshot.parent
-                        && !scene.set_parent(
-                            scene.find_entity(snapshot.uuid), scene.find_entity(snapshot.parent))) {
-                        rollback();
+                created.push_back(entity);
+                // 空名称和缺少 Transform 的源实体也必须原样恢复。
+                entity.get_component<Comet::NameComponent>().name = snapshot.name;
+                entity.remove_component<Comet::TransformComponent>();
+                for(const auto& value : snapshot.components) {
+                    if(!registry.find_component(value.id)->restore_component(entity, value.value)) {
                         return false;
                     }
                 }
-            } catch(...) {
-                rollback();
-                throw;
             }
+            for(const auto& snapshot : snapshots) {
+                if(snapshot.parent
+                    && !scene.set_parent(
+                        scene.find_entity(snapshot.uuid), scene.find_entity(snapshot.parent))) {
+                    return false;
+                }
+            }
+            rollback.release();
             return true;
         }
 
@@ -188,16 +181,13 @@ namespace CometEditor::SceneCommands {
                     if(!component->add_component(entity))
                         return false;
                     // Redo 使用初始快照，不重新取默认值。
-                    try {
-                        m_snapshot = component->capture_component(entity);
-                    } catch(...) {
-                        static_cast<void>(component->remove_component(entity));
-                        throw;
-                    }
+                    Comet::ScopeExit rollback(
+                        [&] { static_cast<void>(component->remove_component(entity)); });
+                    m_snapshot = component->capture_component(entity);
                     if(!m_snapshot.has_value()) {
-                        static_cast<void>(component->remove_component(entity));
                         return false;
                     }
+                    rollback.release();
                     return true;
                 }
                 auto snapshot = component->capture_component(entity);

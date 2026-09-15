@@ -2,6 +2,7 @@
 #include "diagnostics/logger.h"
 #include "scene/component_registry.h"
 #include <utility>
+#include "graphics/result.h"
 
 namespace CometEditor {
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
@@ -55,7 +56,7 @@ namespace CometEditor {
         return report;
     }
 
-    std::optional<Comet::AssetScanReport> EditorAssets::update() {
+    Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> EditorAssets::update() {
         const auto result = m_monitor.poll();
         observe(result);
         std::optional<Comet::AssetScanReport> report;
@@ -68,9 +69,14 @@ namespace CometEditor {
                 LOG_WARN("Automatic mesh import was not accepted for handle {}", handle.value());
         }
         m_pending_mesh_imports.clear();
-        if(!m_manager.process_completions().empty())
+        auto completed = m_manager.process_completions();
+        if(!completed)
+            return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::failure(
+                completed.error());
+        if(!completed.value().empty())
             m_reference_refresh_requested = true;
-        return report;
+        return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::success(
+            std::move(report));
     }
 
     Comet::AssetScanReport EditorAssets::move(
@@ -106,26 +112,24 @@ namespace CometEditor {
         return report;
     }
 
-    bool EditorAssets::update_material(
-        const Comet::AssetHandle handle, const Comet::MaterialData& data) {
-        const auto* record = database().find(handle);
-        const auto path = record ? record->path : std::filesystem::path{};
-        if(!m_manager.update_material(handle, data))
-            return false;
-        acknowledge(path);
-        return true;
-    }
+    Comet::Result<void, Comet::Error> EditorAssets::apply_edit(const AssetEdit& edit) {
+        if(!database().is_current(edit.handle, edit.revision))
+            return Comet::Result<void, Comet::Error>::failure({"Asset edit revision is stale"});
 
-    bool EditorAssets::reimport_texture(
-        const Comet::AssetHandle handle, const Comet::TextureImportSettings settings) {
-        const auto* record = database().find(handle);
-        const auto path = record ? record->path : std::filesystem::path{};
-        if(!m_manager.reimport_texture(handle, settings))
-            return false;
-        m_reference_refresh_requested = true;
-        if(!path.empty())
+        const auto path = database().find(edit.handle)->path;
+        if(const auto* material = std::get_if<MaterialEdit>(&edit.value)) {
+            if(auto updated = m_manager.update_material(edit.handle, material->after); !updated)
+                return Comet::Result<void, Comet::Error>::failure(updated.error());
+            acknowledge(path);
+        } else {
+            if(auto imported = m_manager.reimport_texture(
+                   edit.handle, std::get<TextureEdit>(edit.value).after);
+                !imported)
+                return Comet::Result<void, Comet::Error>::failure(imported.error());
+            m_reference_refresh_requested = true;
             acknowledge(Comet::metadata_path(path));
-        return true;
+        }
+        return Comet::Result<void, Comet::Error>::success();
     }
 
     void EditorAssets::request_mesh_reimport(const Comet::AssetHandle handle) {
@@ -134,29 +138,34 @@ namespace CometEditor {
             LOG_WARN("Mesh reimport request was not accepted for handle {}", handle.value());
     }
 
-    bool EditorAssets::load_reference(const Comet::AssetHandle handle, const Comet::AssetType type,
-        const Comet::AssetRevision revision) {
+    Comet::Result<void, Comet::Error> EditorAssets::load_reference(const Comet::AssetHandle handle,
+        const Comet::AssetType type, const Comet::AssetRevision revision) {
         if(!handle)
-            return true; // 空引用允许保存在场景中。
+            return Comet::Result<void, Comet::Error>::success(); // 空引用允许保存在场景中。
         if(!database().is_current(handle, revision)) {
-            LOG_ERROR("Cannot load asset {}: stale or incompatible reference", handle.value());
-            return false;
+            return Comet::Result<void, Comet::Error>::failure(
+                {"Asset reference revision is stale"});
         }
         return m_manager.ensure_loaded(handle, type);
     }
 
-    std::size_t EditorAssets::prepare_scene(
+    Comet::Result<std::size_t, Comet::Error> EditorAssets::prepare_scene(
         Comet::Scene& scene, const Comet::ComponentRegistry& components) {
         m_reference_refresh_requested = false;
         std::size_t missing = 0;
         for(const auto& reference : components.collect_asset_references(scene)) {
-            if(!m_manager.ensure_loaded(reference.handle, reference.type))
+            if(auto loaded = m_manager.ensure_loaded(reference.handle, reference.type); !loaded) {
+                if(Comet::is_device_lost(loaded.error()))
+                    return Comet::Result<std::size_t, Comet::Error>::failure(loaded.error());
+                LOG_WARN(
+                    "Unresolved asset {}: {}", reference.handle.value(), loaded.error().message);
                 ++missing;
+            }
         }
         if(missing)
             LOG_WARN(
                 "Scene has {} unresolved asset references; data is preserved for repair", missing);
-        return missing;
+        return Comet::Result<std::size_t, Comet::Error>::success(missing);
     }
 
     bool EditorAssets::take_reference_refresh_request() {

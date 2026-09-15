@@ -221,6 +221,22 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(MaterialSerializerTest, StopsAtFirstInvalidNestedField) {
+        const MaterialSerializer serializer;
+        const auto result = serializer.deserialize(
+            R"({"version":2,"template":"test","properties":{"tint":{"type":"vector","value":[1,"bad",3,4]}}})",
+            "invalid-vector.mat");
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error(),
+            "Invalid material 'invalid-vector.mat' at 'properties.tint.value[1]': expected a finite number");
+
+        const auto invalid_object = serializer.deserialize(
+            R"({"version":2,"template":"test","properties":[]})", "invalid-object.mat");
+        ASSERT_FALSE(invalid_object);
+        EXPECT_EQ(invalid_object.error(),
+            "Invalid material 'invalid-object.mat' at 'properties': expected an object");
+    }
+
     TEST(MaterialSerializerTest, PreservesSourceAndFieldDiagnostics) {
         const MaterialSerializer serializer;
         const auto missing = serializer.deserialize(R"({"version": 2})", "missing.mat");
@@ -239,5 +255,18 @@ namespace Comet::Tests {
         ASSERT_FALSE(scalar);
         EXPECT_EQ(scalar.error(),
             "Invalid material 'scalar.mat' at 'version': expected an unsigned integer");
+
+        const auto missing_type = serializer.deserialize(
+            R"({"version":2,"template":"test","properties":{"slot":{}}})", "missing-type.mat");
+        ASSERT_FALSE(missing_type);
+        EXPECT_EQ(missing_type.error(),
+            "Invalid material 'missing-type.mat' at 'properties.slot': missing required field 'type'");
+
+        const auto wrong_type = serializer.deserialize(
+            R"({"version":2,"template":"test","properties":{"slot":{"type":false}}})",
+            "wrong-type.mat");
+        ASSERT_FALSE(wrong_type);
+        EXPECT_EQ(wrong_type.error(),
+            "Invalid material 'wrong-type.mat' at 'properties.slot.type': expected a string");
     }
 }

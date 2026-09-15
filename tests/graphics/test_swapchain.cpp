@@ -3,10 +3,13 @@
 #include "graphics/swapchain.h"
 #include "graphics/vk_capability.h"
 #include "graphics/device.h"
+#include "graphics/context.h"
 #include "render/scene/scene_renderer.h"
 #include "support/engine_fixture.h"
 
 #include <limits>
+#include <chrono>
+#include <thread>
 #include <type_traits>
 
 namespace Comet::Tests {
@@ -26,22 +29,173 @@ namespace Comet::Tests {
         ASSERT_FALSE(rejected);
         EXPECT_FALSE(rejected.error().result.has_value());
         EXPECT_EQ(context.get_swapchain().get_active_generation(), generation);
-        ASSERT_TRUE(renderer.prepare_frame());
-        renderer.render_frame({});
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            ASSERT_TRUE(preparation.value());
+        }
+        EXPECT_TRUE(renderer.render_frame({}));
     }
 
     TEST_F(SwapchainLifecycleTest, RebuildInstallsNewGenerationAndContinuesRendering) {
         auto& renderer = engine->get_renderer();
         auto& swapchain = renderer.get_render_context().get_swapchain();
         auto previous = swapchain.get_active_generation();
-        ASSERT_TRUE(renderer.recreate_swapchain());
+        renderer.request_swapchain_recreation();
+        EXPECT_EQ(swapchain.get_active_generation(), previous);
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            ASSERT_TRUE(preparation.value());
+        }
         EXPECT_NE(swapchain.get_active_generation(), previous);
         previous.reset();
-        ASSERT_TRUE(renderer.prepare_frame());
-        renderer.render_frame({});
-        ASSERT_TRUE(renderer.recreate_swapchain());
-        ASSERT_TRUE(renderer.prepare_frame());
-        renderer.render_frame({});
+        EXPECT_TRUE(renderer.render_frame({}));
+        renderer.request_swapchain_recreation();
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            ASSERT_TRUE(preparation.value());
+        }
+        EXPECT_TRUE(renderer.render_frame({}));
+    }
+
+    TEST_F(SwapchainLifecycleTest, CoalescesRequestsUntilNextFramePreparation) {
+        auto& renderer = engine->get_renderer();
+        auto& swapchain = renderer.get_render_context().get_swapchain();
+        const auto previous = swapchain.get_active_generation();
+        auto preparation = renderer.prepare_frame();
+        ASSERT_TRUE(preparation);
+        ASSERT_TRUE(preparation.value());
+        renderer.request_swapchain_recreation();
+        renderer.request_swapchain_recreation();
+        EXPECT_EQ(swapchain.get_active_generation(), previous);
+        EXPECT_TRUE(renderer.render_frame({}));
+        EXPECT_EQ(swapchain.get_active_generation(), previous);
+        preparation = renderer.prepare_frame();
+        ASSERT_TRUE(preparation);
+        ASSERT_TRUE(preparation.value());
+        EXPECT_NE(swapchain.get_active_generation(), previous);
+        EXPECT_TRUE(renderer.render_frame({}));
+    }
+
+    TEST_F(SwapchainLifecycleTest, RetriesDependentWithoutReplacingSuccessfulGeneration) {
+        auto& renderer = engine->get_renderer();
+        auto& swapchain = renderer.get_render_context().get_swapchain();
+        auto previous = swapchain.get_active_generation();
+        int rebuilds = 0;
+        renderer.set_swapchain_resource_callbacks([] {},
+            [&](const SwapchainCompatibility&) {
+                if(++rebuilds == 1)
+                    return Result<void, GraphicsError>::failure(
+                        {"temporary overlay allocation failure",
+                            vk::Result::eErrorOutOfDeviceMemory});
+                return Result<void, GraphicsError>::success();
+            });
+        renderer.request_swapchain_recreation();
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            EXPECT_FALSE(preparation.value());
+        }
+        auto candidate = swapchain.get_active_generation();
+        ASSERT_NE(candidate, previous);
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            EXPECT_FALSE(preparation.value());
+        }
+        EXPECT_EQ(rebuilds, 1);
+        EXPECT_FALSE(renderer.get_frame_scheduler().is_frame_active());
+        renderer.request_swapchain_recreation();
+        EXPECT_EQ(swapchain.get_active_generation(), candidate);
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            ASSERT_TRUE(preparation.value());
+        }
+        EXPECT_TRUE(renderer.render_frame({}));
+        renderer.set_swapchain_resource_callbacks({}, {});
+    }
+
+    TEST_F(SwapchainLifecycleTest, AutomaticallyResumesAfterTemporaryDependentFailure) {
+        auto& renderer = engine->get_renderer();
+        int rebuilds = 0;
+        renderer.set_swapchain_resource_callbacks([] {},
+            [&](const SwapchainCompatibility&) {
+                if(++rebuilds == 1)
+                    return Result<void, GraphicsError>::failure(
+                        {"temporary allocation failure", vk::Result::eErrorOutOfHostMemory});
+                return Result<void, GraphicsError>::success();
+            });
+        renderer.request_swapchain_recreation();
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            ASSERT_FALSE(preparation.value());
+        }
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        bool resumed = false;
+        while(std::chrono::steady_clock::now() < deadline) {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            if(preparation.value()) {
+                resumed = true;
+                EXPECT_TRUE(renderer.render_frame({}));
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        renderer.set_swapchain_resource_callbacks({}, {});
+        EXPECT_TRUE(resumed);
+        EXPECT_EQ(rebuilds, 2);
+    }
+
+    TEST_F(SwapchainLifecycleTest, DoesNotRetryDeviceLoss) {
+        auto& renderer = engine->get_renderer();
+        renderer.set_swapchain_resource_callbacks([] {},
+            [](const SwapchainCompatibility&) {
+                return Result<void, GraphicsError>::failure(
+                    {"device lost", vk::Result::eErrorDeviceLost});
+            });
+        renderer.request_swapchain_recreation();
+        const auto preparation = renderer.prepare_frame();
+        ASSERT_FALSE(preparation);
+        EXPECT_EQ(preparation.error().result, vk::Result::eErrorDeviceLost);
+        renderer.set_swapchain_resource_callbacks({}, {});
+    }
+
+    TEST_F(SwapchainLifecycleTest, SurfaceLossReplacesSurfaceAndResumesPresentation) {
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context().get_context();
+        auto surface = context.get_surface();
+        auto generation = renderer.get_render_context().get_swapchain().get_active_generation();
+        int rebuilds = 0;
+        renderer.set_swapchain_resource_callbacks([] {},
+            [&](const SwapchainCompatibility&) {
+                if(++rebuilds == 1)
+                    return Result<void, GraphicsError>::failure(
+                        {"surface lost during rebuild", vk::Result::eErrorSurfaceLostKHR});
+                return Result<void, GraphicsError>::success();
+            });
+        renderer.request_swapchain_recreation();
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            EXPECT_FALSE(preparation.value());
+        }
+        renderer.request_swapchain_recreation();
+        {
+            const auto preparation = renderer.prepare_frame();
+            ASSERT_TRUE(preparation) << preparation.error();
+            ASSERT_TRUE(preparation.value());
+        }
+        EXPECT_NE(context.get_surface(), surface);
+        EXPECT_TRUE(
+            context.get_physical_device().getSurfaceCapabilitiesKHR(surface).maxImageArrayLayers
+            > 0);
+        EXPECT_TRUE(renderer.render_frame({}));
+        renderer.set_swapchain_resource_callbacks({}, {});
     }
 
     namespace {

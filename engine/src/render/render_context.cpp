@@ -7,10 +7,11 @@
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 
-#include <stdexcept>
+#include <utility>
 
 namespace Comet {
-    RenderContext::RenderContext(const Window& window, const Config::Vulkan& vulkan_config,
+    Result<std::unique_ptr<RenderContext>, GraphicsError> RenderContext::create(
+        const Window& window, const Config::Vulkan& vulkan_config,
         const Config::Render& render_config) {
         PROFILE_SCOPE("RenderContext::Constructor");
         LOG_INFO("init graphics system");
@@ -28,25 +29,28 @@ namespace Comet {
             .depth_format = vulkan_config.depth_format,
             .sample_count = vulkan_config.msaa_samples,
             .max_sampler_anisotropy = render_config.max_anisotropy};
-        m_context = std::make_unique<Context>(window, vulkan_config, capability_request);
+        auto context = std::make_unique<Context>(window, vulkan_config, capability_request);
 
         LOG_INFO("create device");
-        m_device = std::make_unique<Device>(*m_context);
+        auto device = std::make_unique<Device>(*context);
 
         LOG_INFO("create swapchain");
-        auto swapchain = Swapchain::create(window, *m_context, *m_device, swapchain_request);
+        auto swapchain = Swapchain::create(window, *context, *device, swapchain_request);
         if(!swapchain)
-            throw std::runtime_error(
-                "Cannot initialize presentation: " + swapchain.error().message);
-        m_swapchain = std::move(swapchain).value();
+            return Result<std::unique_ptr<RenderContext>, GraphicsError>::failure(
+                swapchain.error());
+        return Result<std::unique_ptr<RenderContext>, GraphicsError>::success(
+            std::unique_ptr<RenderContext>(new RenderContext(
+                std::move(context), std::move(device), std::move(swapchain).value())));
     }
 
+    RenderContext::RenderContext(std::unique_ptr<Context> context, std::unique_ptr<Device> device,
+        std::unique_ptr<Swapchain> swapchain)
+        : m_context(std::move(context)), m_device(std::move(device)),
+          m_swapchain(std::move(swapchain)) {}
+
     void RenderContext::wait_idle() const {
-        if(m_device) {
-            m_device->wait_idle();
-        } else {
-            LOG_ERROR("m_device is nullptr, can't wait idle");
-        }
+        m_device->wait_idle();
     }
 
     RenderContext::~RenderContext() {

@@ -22,7 +22,8 @@ namespace Comet {
         [[nodiscard]] bool add_box(const BoundingBox& box, const Math::Mat4& transform,
             Math::Vec4 color = Math::Vec4(1.0f));
 
-        void append(const LineDrawList& draw_list);
+        // 顶点数量超限时拒绝整批追加，保留已有线段。
+        [[nodiscard]] bool append(const LineDrawList& draw_list);
         void clear() { m_vertices.clear(); }
 
         [[nodiscard]] bool empty() const { return m_vertices.empty(); }

@@ -82,12 +82,13 @@ namespace Comet {
 
             void write_float(const float value) { write_u32(std::bit_cast<std::uint32_t>(value)); }
 
-            void write_string(const std::string_view value) {
+            bool write_string(const std::string_view value) {
                 if(value.size() > MAX_PATH_LENGTH) {
-                    throw std::runtime_error("Mesh artifact input path is too long");
+                    return false;
                 }
                 write_u32(static_cast<std::uint32_t>(value.size()));
                 write_bytes(std::as_bytes(std::span(value)));
+                return true;
             }
 
             [[nodiscard]] const std::vector<std::byte>& data() const { return m_data; }
@@ -211,18 +212,18 @@ namespace Comet {
                    && Math::is_finite(vertex.normal);
         }
 
-        void write_vertex(BinaryWriter& writer, const MeshVertex& vertex) {
+        bool write_vertex(BinaryWriter& writer, const MeshVertex& vertex) {
             const std::array values{vertex.position.x, vertex.position.y, vertex.position.z,
                 vertex.texcoord.x, vertex.texcoord.y, vertex.normal.x, vertex.normal.y,
                 vertex.normal.z};
             if(!std::ranges::all_of(
                    values, [](const float value) { return std::isfinite(value); })) {
-                throw std::runtime_error(
-                    "Cannot publish a mesh artifact containing non-finite vertex data");
+                return false;
             }
             for(const float value : values) {
                 writer.write_float(value);
             }
+            return true;
         }
 
         [[nodiscard]] bool valid_source_inputs(const ImportInputSnapshot& snapshot) {
@@ -251,132 +252,127 @@ namespace Comet {
 
     std::optional<MeshArtifact> MeshArtifact::load(
         const std::filesystem::path& artifact_path, const AssetHandle expected_handle) {
-        try {
-            const auto file = read_file(artifact_path);
-            if(!file || file->size() < MAGIC.size() + sizeof(std::uint64_t)) {
-                return std::nullopt;
-            }
-
-            std::uint64_t stored_checksum = 0;
-            if(!read_checksum(*file, stored_checksum)) {
-                return std::nullopt;
-            }
-            const std::span payload(*file);
-            const std::span<const std::byte> serialized =
-                payload.first(payload.size() - sizeof(stored_checksum));
-            if(hash_bytes(serialized) != stored_checksum) {
-                return std::nullopt;
-            }
-
-            BinaryReader reader(serialized);
-            std::uint32_t format_version = 0;
-            std::uint32_t stored_importer_version = 0;
-            std::uint64_t stored_handle = 0;
-            std::uint32_t input_count = 0;
-            std::uint32_t vertex_count = 0;
-            std::uint32_t index_count = 0;
-            if(!reader.read_bytes(MAGIC) || !reader.read_u32(format_version)
-                || !reader.read_u32(stored_importer_version) || !reader.read_u64(stored_handle)
-                || !reader.read_u32(input_count) || !reader.read_u32(vertex_count)
-                || !reader.read_u32(index_count) || format_version != FORMAT_VERSION
-                || stored_importer_version == 0 || stored_handle == 0
-                || AssetHandle(stored_handle) != expected_handle || input_count == 0
-                || input_count > MAX_INPUT_COUNT || vertex_count == 0 || index_count == 0
-                || index_count % 3 != 0) {
-                return std::nullopt;
-            }
-
-            MeshArtifact artifact{
-                .handle = AssetHandle(stored_handle), .importer_version = stored_importer_version};
-            artifact.source_inputs.files.reserve(input_count);
-            for(std::uint32_t index = 0; index < input_count; ++index) {
-                std::string serialized_path;
-                ImportInputFingerprint input;
-                if(!reader.read_string(serialized_path) || !reader.read_u64(input.size)
-                    || !reader.read_u64(input.hash)) {
-                    return std::nullopt;
-                }
-                const std::filesystem::path relative =
-                    path_from_utf8(serialized_path).lexically_normal();
-                if(!is_safe_relative_path(relative) || path_to_utf8(relative) != serialized_path) {
-                    return std::nullopt;
-                }
-                input.relative_path = relative;
-                artifact.source_inputs.files.push_back(std::move(input));
-            }
-            if(!valid_source_inputs(artifact.source_inputs)) {
-                return std::nullopt;
-            }
-
-            constexpr std::uint64_t SERIALIZED_VERTEX_SIZE = 8 * sizeof(float);
-            const std::uint64_t expected_mesh_size =
-                static_cast<std::uint64_t>(vertex_count) * SERIALIZED_VERTEX_SIZE
-                + static_cast<std::uint64_t>(index_count) * sizeof(std::uint32_t);
-            if(expected_mesh_size != reader.remaining()) {
-                return std::nullopt;
-            }
-
-            artifact.data.vertices.resize(vertex_count);
-            for(MeshVertex& vertex : artifact.data.vertices) {
-                if(!read_vertex(reader, vertex)) {
-                    return std::nullopt;
-                }
-            }
-            artifact.data.indices.resize(index_count);
-            for(std::uint32_t& index : artifact.data.indices) {
-                if(!reader.read_u32(index) || index >= vertex_count) {
-                    return std::nullopt;
-                }
-            }
-
-            return artifact;
-        } catch(...) {
+        const auto file = read_file(artifact_path);
+        if(!file || file->size() < MAGIC.size() + sizeof(std::uint64_t)) {
             return std::nullopt;
         }
+
+        std::uint64_t stored_checksum = 0;
+        if(!read_checksum(*file, stored_checksum)) {
+            return std::nullopt;
+        }
+        const std::span payload(*file);
+        const std::span<const std::byte> serialized =
+            payload.first(payload.size() - sizeof(stored_checksum));
+        if(hash_bytes(serialized) != stored_checksum) {
+            return std::nullopt;
+        }
+
+        BinaryReader reader(serialized);
+        std::uint32_t format_version = 0;
+        std::uint32_t stored_importer_version = 0;
+        std::uint64_t stored_handle = 0;
+        std::uint32_t input_count = 0;
+        std::uint32_t vertex_count = 0;
+        std::uint32_t index_count = 0;
+        if(!reader.read_bytes(MAGIC) || !reader.read_u32(format_version)
+            || !reader.read_u32(stored_importer_version) || !reader.read_u64(stored_handle)
+            || !reader.read_u32(input_count) || !reader.read_u32(vertex_count)
+            || !reader.read_u32(index_count) || format_version != FORMAT_VERSION
+            || stored_importer_version == 0 || stored_handle == 0
+            || AssetHandle(stored_handle) != expected_handle || input_count == 0
+            || input_count > MAX_INPUT_COUNT || vertex_count == 0 || index_count == 0
+            || index_count % 3 != 0) {
+            return std::nullopt;
+        }
+
+        MeshArtifact artifact{
+            .handle = AssetHandle(stored_handle), .importer_version = stored_importer_version};
+        artifact.source_inputs.files.reserve(input_count);
+        for(std::uint32_t index = 0; index < input_count; ++index) {
+            std::string serialized_path;
+            ImportInputFingerprint input;
+            if(!reader.read_string(serialized_path) || !reader.read_u64(input.size)
+                || !reader.read_u64(input.hash)) {
+                return std::nullopt;
+            }
+            const std::filesystem::path relative =
+                path_from_utf8(serialized_path).lexically_normal();
+            if(!is_safe_relative_path(relative) || path_to_utf8(relative) != serialized_path) {
+                return std::nullopt;
+            }
+            input.relative_path = relative;
+            artifact.source_inputs.files.push_back(std::move(input));
+        }
+        if(!valid_source_inputs(artifact.source_inputs)) {
+            return std::nullopt;
+        }
+
+        constexpr std::uint64_t SERIALIZED_VERTEX_SIZE = 8 * sizeof(float);
+        const std::uint64_t expected_mesh_size =
+            static_cast<std::uint64_t>(vertex_count) * SERIALIZED_VERTEX_SIZE
+            + static_cast<std::uint64_t>(index_count) * sizeof(std::uint32_t);
+        if(expected_mesh_size != reader.remaining()) {
+            return std::nullopt;
+        }
+
+        artifact.data.vertices.resize(vertex_count);
+        for(MeshVertex& vertex : artifact.data.vertices) {
+            if(!read_vertex(reader, vertex)) {
+                return std::nullopt;
+            }
+        }
+        artifact.data.indices.resize(index_count);
+        for(std::uint32_t& index : artifact.data.indices) {
+            if(!reader.read_u32(index) || index >= vertex_count) {
+                return std::nullopt;
+            }
+        }
+
+        return artifact;
     }
 
     Result<void> MeshArtifact::publish_atomic(const std::filesystem::path& artifact_path) const {
-        try {
-            if(data.vertices.empty() || data.indices.empty() || data.indices.size() % 3 != 0
-                || data.vertices.size() > std::numeric_limits<std::uint32_t>::max()
-                || data.indices.size() > std::numeric_limits<std::uint32_t>::max()) {
-                return Result<void>::failure(
-                    "Cannot publish a mesh artifact with invalid vertex or index counts");
-            }
-
-            if(!handle || importer_version == 0 || !valid_source_inputs(source_inputs)) {
-                return Result<void>::failure(
-                    "Cannot publish a mesh artifact with invalid source inputs");
-            }
-
-            BinaryWriter writer;
-            writer.write_bytes(MAGIC);
-            writer.write_u32(FORMAT_VERSION);
-            writer.write_u32(importer_version);
-            writer.write_u64(handle.value());
-            writer.write_u32(static_cast<std::uint32_t>(source_inputs.files.size()));
-            writer.write_u32(static_cast<std::uint32_t>(data.vertices.size()));
-            writer.write_u32(static_cast<std::uint32_t>(data.indices.size()));
-            for(const ImportInputFingerprint& input : source_inputs.files) {
-                writer.write_string(path_to_utf8(input.relative_path));
-                writer.write_u64(input.size);
-                writer.write_u64(input.hash);
-            }
-            for(const MeshVertex& vertex : data.vertices) {
-                write_vertex(writer, vertex);
-            }
-            for(const std::uint32_t index : data.indices) {
-                if(index >= data.vertices.size()) {
-                    return Result<void>::failure(
-                        "Cannot publish a mesh artifact with an out-of-range index");
-                }
-                writer.write_u32(index);
-            }
-            writer.write_u64(hash_bytes(writer.data()));
-            return write_binary_file_atomic(artifact_path, writer.data());
-        } catch(const std::runtime_error& error) {
-            return Result<void>::failure(error.what());
+        if(data.vertices.empty() || data.indices.empty() || data.indices.size() % 3 != 0
+            || data.vertices.size() > std::numeric_limits<std::uint32_t>::max()
+            || data.indices.size() > std::numeric_limits<std::uint32_t>::max()) {
+            return Result<void>::failure(
+                "Cannot publish a mesh artifact with invalid vertex or index counts");
         }
+
+        if(!handle || importer_version == 0 || !valid_source_inputs(source_inputs)) {
+            return Result<void>::failure(
+                "Cannot publish a mesh artifact with invalid source inputs");
+        }
+
+        BinaryWriter writer;
+        writer.write_bytes(MAGIC);
+        writer.write_u32(FORMAT_VERSION);
+        writer.write_u32(importer_version);
+        writer.write_u64(handle.value());
+        writer.write_u32(static_cast<std::uint32_t>(source_inputs.files.size()));
+        writer.write_u32(static_cast<std::uint32_t>(data.vertices.size()));
+        writer.write_u32(static_cast<std::uint32_t>(data.indices.size()));
+        for(const ImportInputFingerprint& input : source_inputs.files) {
+            if(!writer.write_string(path_to_utf8(input.relative_path)))
+                return Result<void>::failure("Mesh artifact input path is too long");
+            writer.write_u64(input.size);
+            writer.write_u64(input.hash);
+        }
+        for(const MeshVertex& vertex : data.vertices) {
+            if(!write_vertex(writer, vertex))
+                return Result<void>::failure(
+                    "Cannot publish a mesh artifact containing non-finite vertex data");
+        }
+        for(const std::uint32_t index : data.indices) {
+            if(index >= data.vertices.size()) {
+                return Result<void>::failure(
+                    "Cannot publish a mesh artifact with an out-of-range index");
+            }
+            writer.write_u32(index);
+        }
+        writer.write_u64(hash_bytes(writer.data()));
+        return write_binary_file_atomic(artifact_path, writer.data());
     }
 
     std::vector<std::filesystem::path> MeshArtifact::source_dependencies() const {

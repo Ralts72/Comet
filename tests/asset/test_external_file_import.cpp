@@ -142,6 +142,17 @@ namespace Comet::Tests {
         EXPECT_TRUE(std::filesystem::exists(image));
     }
 
+    TEST_F(ExternalFileImportTest, InvalidGltfReturnsDiagnosticWithoutPublishing) {
+        const auto source = external / "broken.gltf";
+        std::ofstream(source) << "not glTF";
+        const auto report = import({source});
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_FALSE(report.snapshot_updated);
+        ASSERT_FALSE(report.issues.empty());
+        EXPECT_FALSE(report.issues.back().message.empty());
+        expect_empty();
+    }
+
     TEST_F(ExternalFileImportTest, MissingImageAndInvalidTextureAreRejected) {
         const auto source = mesh();
         std::filesystem::remove(external / "images/albedo.png");
@@ -214,6 +225,27 @@ namespace Comet::Tests {
         EXPECT_TRUE(std::filesystem::exists(image));
     }
 
+    TEST_F(
+        ExternalFileImportTest, BlockedStagingReturnsFailureAndAllowsRetryWithoutDeletingBlocker) {
+        const auto source = texture();
+        std::filesystem::create_directories(paths.cache().parent_path());
+        std::ofstream(paths.cache()) << "existing cache blocker";
+        const auto rejected = import({source});
+        EXPECT_FALSE(rejected.succeeded());
+        EXPECT_FALSE(rejected.snapshot_updated);
+        EXPECT_EQ(manager.get_database().size(), 0);
+        EXPECT_TRUE(std::filesystem::is_empty(paths.assets() / "folder"));
+        EXPECT_EQ(read(paths.cache()), "existing cache blocker");
+        EXPECT_TRUE(std::filesystem::exists(source));
+
+        ASSERT_TRUE(std::filesystem::remove(paths.cache()));
+        const auto retried = import({source});
+        ASSERT_TRUE(retried.succeeded());
+        EXPECT_TRUE(retried.snapshot_updated);
+        EXPECT_TRUE(manager.get_database().find("folder/texture.png"));
+        EXPECT_TRUE(std::filesystem::is_empty(paths.cache() / "file-import"));
+    }
+
     TEST_F(ExternalFileImportTest, IndexFailureRollsBackPublishedFilesAndGeneratedMetadata) {
         const auto source = mesh();
         std::ofstream(paths.assets() / "broken.png") << "existing";
@@ -224,5 +256,13 @@ namespace Comet::Tests {
         expect_empty();
         EXPECT_EQ(read(paths.assets() / "broken.png.meta"), "invalid metadata");
         EXPECT_EQ(read(paths.assets() / "broken.png"), "existing");
+        ASSERT_TRUE(std::filesystem::remove(paths.assets() / "broken.png"));
+        ASSERT_TRUE(std::filesystem::remove(paths.assets() / "broken.png.meta"));
+        const auto retried = import({source});
+        ASSERT_TRUE(retried.succeeded());
+        EXPECT_TRUE(retried.snapshot_updated);
+        EXPECT_TRUE(manager.get_database().find("folder/model.gltf"));
+        EXPECT_TRUE(std::filesystem::is_regular_file(paths.assets() / "folder/data/model.bin"));
+        EXPECT_TRUE(std::filesystem::is_empty(paths.cache() / "file-import"));
     }
 }

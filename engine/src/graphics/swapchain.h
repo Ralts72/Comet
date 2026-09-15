@@ -47,8 +47,9 @@ namespace Comet {
             friend class Swapchain;
 
             Generation(vk::UniqueSwapchainKHR swapchain, std::vector<std::shared_ptr<Image>> images,
-                SwapchainConfig config);
+                SwapchainConfig config, std::shared_ptr<vk::UniqueSurfaceKHR> surface);
 
+            std::shared_ptr<vk::UniqueSurfaceKHR> m_surface;
             vk::UniqueSwapchainKHR m_swapchain;
             std::vector<std::shared_ptr<Image>> m_images;
             SwapchainConfig m_config;
@@ -70,6 +71,8 @@ namespace Comet {
 
         enum class RecreateStatus { Recreated, Deferred };
         Result<RecreateStatus, GraphicsError> recreate();
+        // 调用前必须完成在途帧和 present，并释放 dependent。
+        Result<void, GraphicsError> recreate_surface();
 
         [[nodiscard]] Result<std::optional<uint32_t>, GraphicsError> acquire_next_image(
             const Semaphore& semaphore);

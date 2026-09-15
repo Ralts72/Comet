@@ -3,7 +3,7 @@
 #include "diagnostics/logger.h"
 
 #include <algorithm>
-#include <unordered_map>
+#include "common/scope_exit.h"
 #include <unordered_set>
 
 namespace Comet {
@@ -22,19 +22,30 @@ namespace Comet {
 
         const entt::entity handle = m_registry.create();
         Entity entity(handle, this);
+        const EntityId id = m_next_entity_id;
+        bool id_indexed = false;
+        bool uuid_indexed = false;
 
-        try {
-            m_registry.emplace<IdComponent>(handle, m_next_entity_id++);
-            m_registry.emplace<UuidComponent>(handle, uuid);
-            m_registry.emplace<NameComponent>(handle, name.empty() ? "Entity" : name);
-            m_registry.emplace<TransformComponent>(handle);
-            m_registry.emplace<RelationshipComponent>(handle);
-            m_registry.emplace<WorldTransformComponent>(handle);
-        } catch(...) {
+        ScopeExit rollback([&] {
+            if(id_indexed)
+                m_entities_by_id.erase(id);
+            if(uuid_indexed)
+                m_entities_by_uuid.erase(uuid);
             m_registry.destroy(handle);
-            throw;
+        });
+        m_registry.emplace<IdComponent>(handle, id);
+        m_registry.emplace<UuidComponent>(handle, uuid);
+        m_registry.emplace<NameComponent>(handle, name.empty() ? "Entity" : name);
+        m_registry.emplace<TransformComponent>(handle);
+        m_registry.emplace<RelationshipComponent>(handle);
+        m_registry.emplace<WorldTransformComponent>(handle);
+        id_indexed = m_entities_by_id.emplace(id, handle).second;
+        uuid_indexed = m_entities_by_uuid.emplace(uuid, handle).second;
+        if(!id_indexed || !uuid_indexed) {
+            LOG_FATAL("Scene entity index is inconsistent");
         }
-
+        rollback.release();
+        ++m_next_entity_id;
         return entity;
     }
 
@@ -55,8 +66,16 @@ namespace Comet {
             pending.insert(pending.end(), children.begin(), children.end());
         }
         // 所有遍历分配在删除前完成，避免半途分配失败留下半棵树。
-        for(auto it = subtree.rbegin(); it != subtree.rend(); ++it)
+        remove_child_index(entity.get_component<RelationshipComponent>().parent, entity.m_handle);
+        for(auto it = subtree.rbegin(); it != subtree.rend(); ++it) {
+            const EntityId id = it->get_id();
+            const EntityUuid uuid = it->get_uuid();
+            m_children_by_parent.erase(id);
+            m_entities_by_id.erase(id);
+            m_entities_by_uuid.erase(uuid);
+            m_transform_states.erase(id);
             m_registry.destroy(it->m_handle);
+        }
     }
 
     bool Scene::set_parent(const Entity child, const Entity parent) {
@@ -69,7 +88,16 @@ namespace Comet {
             return true;
         }
 
-        relationship.parent = parent.get_id();
+        const EntityId previous_parent = relationship.parent;
+        const EntityId new_parent = parent.get_id();
+        // 先完成可能失败的分配，再修改已有关系；新列表构造成功后才加入索引。
+        const auto children = m_children_by_parent.find(new_parent);
+        if(children == m_children_by_parent.end())
+            m_children_by_parent.emplace(new_parent, std::vector{child.m_handle});
+        else
+            children->second.push_back(child.m_handle);
+        relationship.parent = new_parent;
+        remove_child_index(previous_parent, child.m_handle);
         return true;
     }
 
@@ -83,7 +111,9 @@ namespace Comet {
             return true;
         }
 
+        const EntityId previous_parent = relationship.parent;
         relationship.parent = INVALID_ENTITY_ID;
+        remove_child_index(previous_parent, child.m_handle);
         return true;
     }
 
@@ -101,23 +131,24 @@ namespace Comet {
             return children;
         }
 
-        const EntityId parent_id = entity.get_id();
-        const auto view = m_registry.view<IdComponent, RelationshipComponent>();
-        for(const entt::entity handle : view) {
-            if(view.get<RelationshipComponent>(handle).parent == parent_id) {
-                children.push_back(Entity(handle, this));
-            }
+        const auto indexed = m_children_by_parent.find(entity.get_id());
+        if(indexed == m_children_by_parent.end()) {
+            return children;
         }
+        children.reserve(indexed->second.size());
+        for(const entt::entity handle : indexed->second)
+            children.push_back(Entity(handle, this));
         std::ranges::sort(children, {}, &Entity::get_id);
         return children;
     }
 
     std::vector<Entity> Scene::get_root_entities() {
         std::vector<Entity> roots;
-        for(const Entity entity : get_entities()) {
-            if(!get_parent(entity)) {
-                roots.push_back(entity);
-            }
+        roots.reserve(m_entities_by_id.size());
+        for(const auto& [id, handle] : m_entities_by_id) {
+            static_cast<void>(id);
+            if(m_registry.get<RelationshipComponent>(handle).parent == INVALID_ENTITY_ID)
+                roots.push_back(Entity(handle, this));
         }
         std::ranges::sort(roots, {}, &Entity::get_id);
         return roots;
@@ -135,66 +166,61 @@ namespace Comet {
         return false;
     }
 
-    void Scene::update_world_transforms() {
-        std::unordered_map<EntityId, entt::entity> handles;
-        const auto id_view = m_registry.view<IdComponent>();
-        handles.reserve(entity_count());
-        for(const entt::entity handle : id_view) {
-            handles.emplace(id_view.get<IdComponent>(handle).id, handle);
+    bool Scene::update_world_transform(const entt::entity handle) {
+        const EntityId id = m_registry.get<IdComponent>(handle).id;
+        const EntityId parent = m_registry.get<RelationshipComponent>(handle).parent;
+        const auto* local = m_registry.try_get<TransformComponent>(handle);
+        const uint64_t parent_version =
+            parent == INVALID_ENTITY_ID ? 0 : m_transform_states.at(parent).version;
+        auto& state = m_transform_states[id];
+        const bool same_local = state.has_local == (local != nullptr)
+                                && (!local
+                                    || (state.local.translation == local->translation
+                                        && state.local.rotation == local->rotation
+                                        && state.local.scale == local->scale));
+        if(state.version != 0 && state.parent == parent && state.parent_version == parent_version
+            && same_local)
+            return false;
+
+        const auto* parent_world =
+            parent == INVALID_ENTITY_ID
+                ? nullptr
+                : &m_registry.get<WorldTransformComponent>(m_entities_by_id.at(parent));
+        auto& world = m_registry.get<WorldTransformComponent>(handle);
+        const Math::Mat4 camera_local =
+            local ? Math::compose_trs(local->translation, local->rotation, Math::Vec3(1))
+                  : Math::Mat4(1);
+        const Math::Mat4 local_matrix =
+            local ? Math::scale(camera_local, local->scale) : camera_local;
+        world.world_matrix =
+            parent_world ? parent_world->world_matrix * local_matrix : local_matrix;
+        world.camera_world_matrix =
+            parent_world ? parent_world->camera_world_matrix * camera_local : camera_local;
+        world.camera_world_matrix[3] = world.world_matrix[3];
+        state.local = local ? *local : TransformComponent{};
+        state.has_local = local != nullptr;
+        state.parent = parent;
+        state.parent_version = parent_version;
+        ++state.version;
+        return true;
+    }
+
+    std::size_t Scene::update_world_transforms() {
+        std::vector<entt::entity> pending;
+        pending.reserve(m_entities_by_id.size());
+        for(const auto& [id, handle] : m_entities_by_id) {
+            if(m_registry.get<RelationshipComponent>(handle).parent == INVALID_ENTITY_ID)
+                pending.push_back(handle);
         }
-
-        std::unordered_map<EntityId, std::vector<entt::entity>> children;
-        std::vector<entt::entity> roots;
-        roots.reserve(handles.size());
-        for(const auto& [id, handle] : handles) {
-            const auto* relationship = m_registry.try_get<RelationshipComponent>(handle);
-            const EntityId parent_id = relationship ? relationship->parent : INVALID_ENTITY_ID;
-            if(parent_id != INVALID_ENTITY_ID && parent_id != id && handles.contains(parent_id)) {
-                children[parent_id].push_back(handle);
-            } else {
-                roots.push_back(handle);
-            }
+        std::size_t updated = 0;
+        for(std::size_t index = 0; index < pending.size(); ++index) {
+            const auto handle = pending[index];
+            updated += update_world_transform(handle);
+            const auto children = m_children_by_parent.find(m_registry.get<IdComponent>(handle).id);
+            if(children != m_children_by_parent.end())
+                pending.insert(pending.end(), children->second.begin(), children->second.end());
         }
-
-        std::unordered_set<EntityId> visited;
-        visited.reserve(handles.size());
-
-        const auto update_subtree = [this, &children, &visited](const entt::entity handle,
-                                        const Math::Mat4& parent_world,
-                                        const auto& update_subtree_ref) -> void {
-            const EntityId id = m_registry.get<IdComponent>(handle).id;
-            if(!visited.insert(id).second) {
-                return;
-            }
-
-            const auto* transform = m_registry.try_get<TransformComponent>(handle);
-            auto& world_transform = m_registry.get_or_emplace<WorldTransformComponent>(handle);
-
-            const Math::Mat4 local_matrix = transform ? transform->to_matrix() : Math::Mat4(1.0f);
-            Math::Mat4 camera_local_matrix(1.0f);
-            if(transform) {
-                camera_local_matrix = Math::compose_trs(
-                    transform->translation, transform->rotation, Math::Vec3(1.0f));
-            }
-            world_transform.world_matrix = parent_world * local_matrix;
-            world_transform.camera_world_matrix = parent_world * camera_local_matrix;
-
-            if(const auto child_handles = children.find(id); child_handles != children.end()) {
-                for(const entt::entity child_handle : child_handles->second) {
-                    update_subtree_ref(
-                        child_handle, world_transform.world_matrix, update_subtree_ref);
-                }
-            }
-        };
-
-        for(const entt::entity root : roots) {
-            update_subtree(root, Math::Mat4(1.0f), update_subtree);
-        }
-        for(const auto& [id, handle] : handles) {
-            if(!visited.contains(id)) {
-                update_subtree(handle, Math::Mat4(1.0f), update_subtree);
-            }
-        }
+        return updated;
     }
 
     const Math::Mat4& Scene::get_world_matrix(const Entity entity) {
@@ -202,7 +228,11 @@ namespace Comet {
             LOG_FATAL("Cannot get world matrix for an invalid entity");
         }
 
-        update_world_transforms();
+        std::vector<entt::entity> ancestors;
+        for(Entity current = entity; current; current = get_parent(current))
+            ancestors.push_back(current.m_handle);
+        for(auto it = ancestors.rbegin(); it != ancestors.rend(); ++it)
+            update_world_transform(*it);
         return m_registry.get<WorldTransformComponent>(entity.m_handle).world_matrix;
     }
 
@@ -211,14 +241,8 @@ namespace Comet {
             return {};
         }
 
-        const auto view = m_registry.view<IdComponent>();
-        for(const entt::entity handle : view) {
-            if(view.get<IdComponent>(handle).id == id) {
-                return {handle, this};
-            }
-        }
-
-        return {};
+        const auto entity = m_entities_by_id.find(id);
+        return entity == m_entities_by_id.end() ? Entity{} : Entity(entity->second, this);
     }
 
     Entity Scene::find_entity(const EntityUuid uuid) {
@@ -226,24 +250,18 @@ namespace Comet {
             return {};
         }
 
-        const auto view = m_registry.view<UuidComponent>();
-        for(const entt::entity handle : view) {
-            if(view.get<UuidComponent>(handle).uuid == uuid) {
-                return {handle, this};
-            }
-        }
-
-        return {};
+        const auto entity = m_entities_by_uuid.find(uuid);
+        return entity == m_entities_by_uuid.end() ? Entity{} : Entity(entity->second, this);
     }
 
     std::vector<Entity> Scene::get_entities() {
         std::vector<Entity> entities;
-        entities.reserve(entity_count());
-
-        const auto view = m_registry.view<IdComponent>();
-        for(const entt::entity handle : view) {
+        entities.reserve(m_entities_by_id.size());
+        for(const auto& [id, handle] : m_entities_by_id) {
+            static_cast<void>(id);
             entities.push_back(Entity(handle, this));
         }
+        std::ranges::sort(entities, {}, &Entity::get_id);
 
         return entities;
     }
@@ -254,6 +272,17 @@ namespace Comet {
     }
 
     std::size_t Scene::entity_count() const {
-        return m_registry.view<IdComponent>().size();
+        return m_entities_by_id.size();
+    }
+
+    void Scene::remove_child_index(const EntityId parent, const entt::entity child) {
+        if(parent == INVALID_ENTITY_ID)
+            return;
+        const auto children = m_children_by_parent.find(parent);
+        if(children == m_children_by_parent.end())
+            return;
+        std::erase(children->second, child);
+        if(children->second.empty())
+            m_children_by_parent.erase(children);
     }
 }

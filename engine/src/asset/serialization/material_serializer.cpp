@@ -90,25 +90,37 @@ namespace Comet {
         }
 
         Result<MaterialData> decode_material(const Json::Node& root, const Json::Context& context) {
-            context.validate_keys(root, {"version", "template", "properties"});
+            if(auto valid = context.validate_keys(root, {"version", "template", "properties"});
+                !valid)
+                return Result<MaterialData>::failure(valid.error());
 
-            const std::uint32_t version = context.read_scalar<std::uint32_t>(
-                context.required_child(root, "version"), "version", "an unsigned integer");
-            if(version != MaterialSerializer::FORMAT_VERSION) {
-                return Result<MaterialData>::failure(
-                    context.error("version", "unsupported version " + std::to_string(version)));
+            const auto version =
+                context.read_field<std::uint32_t>(root, "version", "an unsigned integer");
+            if(!version)
+                return Result<MaterialData>::failure(version.error());
+            if(version.value() != MaterialSerializer::FORMAT_VERSION) {
+                return Result<MaterialData>::failure(context.error(
+                    "version", "unsupported version " + std::to_string(version.value())));
             }
 
             MaterialData data;
-            data.template_name = context.read_scalar<std::string>(
-                context.required_child(root, "template"), "template", "a non-empty string");
+            auto template_name =
+                context.read_field<std::string>(root, "template", "a non-empty string");
+            if(!template_name)
+                return Result<MaterialData>::failure(template_name.error());
+            data.template_name = std::move(template_name).value();
             if(data.template_name.empty()) {
                 return Result<MaterialData>::failure(
                     context.error("template", "expected a non-empty string"));
             }
 
-            const Json::Node properties = context.required_child(root, "properties");
-            for(const auto entry : context.object(properties, "properties")) {
+            const auto properties = context.required_child(root, "properties");
+            if(!properties)
+                return Result<MaterialData>::failure(properties.error());
+            const auto fields = context.object(properties.value(), "properties");
+            if(!fields)
+                return Result<MaterialData>::failure(fields.error());
+            for(const auto entry : fields.value()) {
                 const std::string property_name(entry.key);
                 if(property_name.empty()) {
                     return Result<MaterialData>::failure(
@@ -116,26 +128,41 @@ namespace Comet {
                 }
                 const std::string property_location = "properties." + property_name;
                 const Json::Node property = entry.value;
-                const std::string type = context.read_scalar<std::string>(
-                    context.required_child(property, "type", property_location),
-                    property_location + ".type", "a string");
+                const auto type_result = context.read_field<std::string>(
+                    property, "type", "a string", property_location);
+                if(!type_result)
+                    return Result<MaterialData>::failure(type_result.error());
+                const auto& type = type_result.value();
                 if(type == "scalar" || type == "vector") {
-                    context.validate_keys(property, {"type", "value"}, property_location);
+                    if(auto valid =
+                            context.validate_keys(property, {"type", "value"}, property_location);
+                        !valid)
+                        return Result<MaterialData>::failure(valid.error());
                     const auto value = context.required_child(property, "value", property_location);
+                    if(!value)
+                        return Result<MaterialData>::failure(value.error());
                     const auto location = property_location + ".value";
                     if(type == "scalar") {
-                        data.scalar_properties.emplace(property_name,
-                            context.read_scalar<float>(value, location, "a finite number"));
+                        const auto scalar =
+                            context.read_scalar<float>(value.value(), location, "a finite number");
+                        if(!scalar)
+                            return Result<MaterialData>::failure(scalar.error());
+                        data.scalar_properties.emplace(property_name, scalar.value());
                     } else {
-                        const auto elements = context.array(value, location);
-                        if(elements.size() != 4)
+                        const auto elements = context.array(value.value(), location);
+                        if(!elements)
+                            return Result<MaterialData>::failure(elements.error());
+                        if(elements.value().size() != 4)
                             return Result<MaterialData>::failure(
                                 context.error(location, "expected four finite numbers"));
                         Math::Vec4 vector(0.0f);
                         int index = 0;
-                        for(const auto element : elements) {
-                            vector[index] = context.read_scalar<float>(element,
+                        for(const auto element : elements.value()) {
+                            const auto scalar = context.read_scalar<float>(element,
                                 location + "[" + std::to_string(index) + "]", "a finite number");
+                            if(!scalar)
+                                return Result<MaterialData>::failure(scalar.error());
+                            vector[index] = scalar.value();
                             ++index;
                         }
                         data.vector_properties.emplace(property_name, vector);
@@ -147,11 +174,15 @@ namespace Comet {
                         property_location + ".type", "unsupported property type '" + type + "'"));
                 }
 
-                context.validate_keys(property, {"type", "asset"}, property_location);
-                const std::uint64_t asset = context.read_scalar<std::uint64_t>(
-                    context.required_child(property, "asset", property_location),
-                    property_location + ".asset", "a non-zero unsigned integer");
-                const AssetHandle texture_handle(asset);
+                if(auto valid =
+                        context.validate_keys(property, {"type", "asset"}, property_location);
+                    !valid)
+                    return Result<MaterialData>::failure(valid.error());
+                const auto asset = context.read_field<std::uint64_t>(
+                    property, "asset", "a non-zero unsigned integer", property_location);
+                if(!asset)
+                    return Result<MaterialData>::failure(asset.error());
+                const AssetHandle texture_handle(asset.value());
                 if(!texture_handle) {
                     return Result<MaterialData>::failure(context.error(
                         property_location + ".asset", "expected a non-zero unsigned integer"));

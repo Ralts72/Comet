@@ -65,15 +65,17 @@ namespace Comet::Tests {
     TEST_F(LineDrawListTest, AppendsOwnedCopiesAndCanAppendItself) {
         LineDrawList other;
         ASSERT_TRUE(other.add_line({1, 2, 3}, {4, 5, 6}));
-        list.append(other);
+        ASSERT_TRUE(list.append(other));
         other.clear();
-        list.append(list);
+        ASSERT_TRUE(list.append(list));
         ASSERT_EQ(list.line_count(), 2U);
         EXPECT_EQ(list.vertices()[0].position, list.vertices()[2].position);
         EXPECT_EQ(list.vertices()[1].position, list.vertices()[3].position);
-        list.append(other);
+        EXPECT_TRUE(list.append(other));
         EXPECT_EQ(list.line_count(), 2U);
         list.clear();
+        EXPECT_TRUE(list.empty());
+        EXPECT_TRUE(list.append(list));
         EXPECT_TRUE(list.empty());
         EXPECT_TRUE(list.add_box(BoundingBox::from_point({1, 1, 1})));
         EXPECT_EQ(list.line_count(), 12U);
