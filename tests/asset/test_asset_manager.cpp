@@ -321,12 +321,59 @@ namespace Comet::Tests {
         EXPECT_EQ(factory.mesh_creation_count(), 0);
     }
 
+    TEST_F(AssetBackpressureTest, ModifiedResidentAssetsRetryAfterQueuePressureWithoutAnotherScan) {
+        std::array<std::shared_ptr<Mesh>, 3> previous;
+        for(std::size_t i = 0; i < handles.size(); ++i) {
+            ASSERT_TRUE(manager.import_mesh(handles[i]));
+            auto loaded = manager.load_mesh(handles[i]);
+            ASSERT_TRUE(loaded);
+            previous[i] = loaded.value();
+        }
+        BlockedWorker blocker(scheduler);
+        for(const auto handle : handles)
+            TemporaryProject::write_mesh(
+                project.paths().assets() / ("meshes/" + std::to_string(handle.value()) + ".gltf"),
+                R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})");
+        const auto scan = manager.scan();
+        ASSERT_EQ(scan.modified_assets.size(), handles.size());
+        blocker.release();
+        EXPECT_EQ(drain().size(), handles.size());
+        for(std::size_t i = 0; i < handles.size(); ++i)
+            EXPECT_NE(registry.resolve<Mesh>(handles[i]), previous[i]);
+    }
+
     TEST_F(AssetBackpressureTest, RejectsInvalidAsyncLimits) {
         const auto previous_style = GTEST_FLAG_GET(death_test_style);
         GTEST_FLAG_SET(death_test_style, "threadsafe");
         EXPECT_DEATH((AssetManager{project.paths(), registry, factory, scheduler, {0, 1}}), "");
         EXPECT_DEATH((AssetManager{project.paths(), registry, factory, scheduler, {1, 0}}), "");
         GTEST_FLAG_SET(death_test_style, previous_style);
+    }
+
+    TEST_F(AssetBackpressureTest, TextureAndMaterialRefreshRetryLatestRevisionAfterPressure) {
+        const AssetHandle texture(71), material(72);
+        const auto texture_path = project.add_texture(texture);
+        const auto material_path = project.add_material(material, "before");
+        ASSERT_TRUE(manager.scan().succeeded());
+        auto old_texture = loaded_asset(manager.load_texture(texture));
+        auto old_material = loaded_asset(manager.load_material(material));
+        ASSERT_TRUE(old_texture);
+        ASSERT_TRUE(old_material);
+        BlockedWorker blocker(scheduler);
+        ASSERT_TRUE(manager.import_mesh_async(handles[0]));
+        ASSERT_TRUE(manager.import_mesh_async(handles[1]));
+        TemporaryProject::replace_texture(texture_path);
+        ASSERT_TRUE(MaterialSerializer{}.save({.template_name = "intermediate"}, material_path));
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(MaterialSerializer{}.save({.template_name = "latest"}, material_path));
+        ASSERT_TRUE(manager.scan().succeeded());
+        blocker.release();
+        const auto published = drain();
+        EXPECT_NE(registry.resolve<Texture>(texture), old_texture);
+        EXPECT_NE(registry.resolve<Material>(material), old_material);
+        EXPECT_EQ(registry.resolve<Material>(material)->get_template_name(), "latest");
+        EXPECT_NE(std::ranges::find(published, texture), published.end());
+        EXPECT_NE(std::ranges::find(published, material), published.end());
     }
 
     TEST_F(AssetBackpressureTest, GlobalQueuePressureDefersAndCoalescesLatestRequest) {

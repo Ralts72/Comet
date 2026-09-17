@@ -39,6 +39,64 @@ namespace CometEditor::Tests {
         };
     }
 
+    TEST(SceneDocumentTest, SavedStateTracksUndoBranchesAndFailedSaves) {
+        const auto& registry = component_registry();
+        const Comet::SceneSerializer serializer(registry);
+        const TemporarySceneFile file;
+        auto active = std::make_unique<Comet::Scene>();
+        auto entity = active->create_entity();
+        CommandHistory history;
+        history.bind_scene(active.get());
+        SceneDocument document(
+            serializer, file.paths(), history, [&] { return active.get(); },
+            [&](std::unique_ptr<Comet::Scene> candidate) {
+                active.swap(candidate);
+                history.bind_scene(active.get());
+                return candidate;
+            });
+        PropertyEditTransaction edit(history, registry);
+        const PropertyEditTransaction::Target target{entity.get_uuid(), "transform", "translation"};
+        ASSERT_TRUE(edit.apply(target, Comet::Math::Vec3(1)));
+        EXPECT_TRUE(document.is_modified());
+        ASSERT_TRUE(document.save(file.path()));
+        EXPECT_FALSE(document.is_modified());
+        ASSERT_TRUE(edit.apply(target, Comet::Math::Vec3(2)));
+        EXPECT_TRUE(document.is_modified());
+        EXPECT_FALSE(document.save(""));
+        EXPECT_TRUE(document.is_modified());
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(document.is_modified());
+        ASSERT_TRUE(history.redo());
+        EXPECT_TRUE(document.is_modified());
+        document.request({SceneDocument::Action::Open, file.path()});
+        EXPECT_TRUE(document.needs_confirmation());
+        EXPECT_FALSE(document.take_ready_request());
+        document.decide(SceneDocument::Decision::Save);
+        EXPECT_FALSE(document.needs_confirmation());
+        EXPECT_FALSE(document.save(""));
+        EXPECT_FALSE(document.take_ready_request());
+        ASSERT_TRUE(document.save(file.path()));
+        const auto next = document.take_ready_request();
+        ASSERT_TRUE(next);
+        EXPECT_EQ(next->action, SceneDocument::Action::Open);
+        EXPECT_EQ(next->path, file.path());
+        EXPECT_FALSE(document.take_ready_request());
+        ASSERT_TRUE(edit.apply(target, Comet::Math::Vec3(3)));
+        document.request({SceneDocument::Action::Close, {}});
+        document.request({SceneDocument::Action::New, {}});
+        document.decide(SceneDocument::Decision::Cancel);
+        EXPECT_FALSE(document.has_pending_request());
+        EXPECT_TRUE(document.is_modified());
+        document.request({SceneDocument::Action::Close, {}});
+        document.decide(SceneDocument::Decision::Discard);
+        const auto close = document.take_ready_request();
+        ASSERT_TRUE(close);
+        EXPECT_EQ(close->action, SceneDocument::Action::Close);
+        EXPECT_TRUE(document.is_modified());
+        ASSERT_TRUE(document.create_new());
+        EXPECT_FALSE(document.is_modified());
+    }
+
     TEST(SceneDocumentTest, PreparationFailurePreservesSceneAndDocumentPath) {
         const Comet::SceneSerializer serializer(component_registry());
         const TemporarySceneFile file;
@@ -49,8 +107,9 @@ namespace CometEditor::Tests {
         int installations = 0;
         const Comet::Error preparation_error{
             "candidate preparation rejected", std::make_error_code(std::errc::io_error)};
+        CommandHistory history;
         SceneDocument document(
-            serializer, file.paths(), [&] { return active.get(); },
+            serializer, file.paths(), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> candidate) {
                 ++installations;
                 active.swap(candidate);
@@ -86,8 +145,9 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(serializer.save(saved, file.path()));
 
         auto active = std::make_unique<Comet::Scene>();
+        CommandHistory history;
         SceneDocument document(
-            serializer, file.paths(), [&] { return active.get(); },
+            serializer, file.paths(), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
                 active.swap(replacement);
                 return replacement;
@@ -106,8 +166,9 @@ namespace CometEditor::Tests {
         const Comet::SceneSerializer serializer(component_registry());
         std::unique_ptr<Comet::Scene> active;
         const TemporarySceneFile file;
+        CommandHistory history;
         SceneDocument document(
-            serializer, file.paths(), [&] { return active.get(); },
+            serializer, file.paths(), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
                 active.swap(replacement);
                 return replacement;
@@ -137,8 +198,9 @@ namespace CometEditor::Tests {
         const TemporarySceneFile file;
         auto active = std::make_unique<Comet::Scene>();
         active->create_entity("Keep Me");
+        CommandHistory history;
         SceneDocument document(
-            serializer, file.paths(), [&] { return active.get(); },
+            serializer, file.paths(), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
                 active.swap(replacement);
                 return replacement;
@@ -169,8 +231,9 @@ namespace CometEditor::Tests {
         auto active_scene = std::make_unique<Comet::Scene>();
         active_scene->create_entity("Saved Entity");
         const TemporarySceneFile file;
+        CommandHistory history;
         SceneDocument document(
-            serializer, file.paths(), [&active_scene]() { return active_scene.get(); },
+            serializer, file.paths(), history, [&active_scene]() { return active_scene.get(); },
             [&active_scene](std::unique_ptr<Comet::Scene> replacement) {
                 active_scene.swap(replacement);
                 return replacement;
@@ -196,8 +259,9 @@ namespace CometEditor::Tests {
         auto active = std::make_unique<Comet::Scene>();
         auto entity = active->create_entity("Valid");
         const auto original = active.get();
+        CommandHistory history;
         SceneDocument document(
-            serializer, file.paths(), [&] { return active.get(); },
+            serializer, file.paths(), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
                 active.swap(replacement);
                 return replacement;

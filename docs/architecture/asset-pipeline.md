@@ -145,9 +145,9 @@ Artifact 已成功发布后若 GPU 创建失败，旧 Runtime Mesh 仍保留，�
 普通创建失败允许继续使用旧对象；DeviceLost 只保留所有权以便正常清理，不表示旧 GPU 对象仍可继续使用。
 完成处理仅捕获 Worker future 异常，owner 发布异常向应用传播；无论发布是否成功，作用域清理都会释放已消费的任务槽位。
 process_completions 返回 Result<vector<AssetHandle>, Error>：成功值中 Mesh 指 Artifact，Texture/Material 指 Runtime；缓存复用、普通失败或过期任务不算发布。直接 Mesh/Texture GPU 创建遇到 DeviceLost 返回带原生码的错误，停止本批剩余发布并回收当前槽位；已发布产物不回滚，失败结果不携带成功 Handle 列表。EditorAssets::update 与应用 on_update 显式向上传递该错误。材质依赖加载同样返回原生错误；前台引用赋值、Inspector 编辑、候选准备和 demo 必需资产加载已接通该协议。标准库或非预期工厂异常不在此捕获。
-EditorAssets 将非空发布、已提交扫描及显式纹理重导入成功合并成一次引用重查请求，在 UI 全部结束后消费。
-重查只加载当前活动场景的引用，坏引用不改写，也不制造撤销记录；失败等待下一次明确事件，不每帧重试。
-场景激活时的显式准备同时满足已有重查请求，避免同帧重复准备。大量首次 GPU 创建仍同步，预算和增量需求索引后置。
+EditorAssets 保留扫描、发布及显式纹理重导入的变更 Handle。活动场景安装或编辑历史变化时收集一次引用集合；后台发布不再重新遍历组件。
+on_update 在获取渲染帧前按变更 Handle 及依赖闭包恢复缓存的引用。尚未解析的引用在明确扫描/发布事件后重试，以覆盖尚未建立依赖索引的坏材质；无新事件时不持续重试。
+恢复按条数和时间软预算处理，默认 2 项/2 ms，未消费项留待后续更新；单次 GPU 创建不能被抢占。场景切换移除旧引用待办，初次候选准备仍是完整同步操作。引用恢复不改写组件或制造撤销记录。
 
 EditorAssets 在成功提交扫描快照后收集 Mesh Handles，下一次 update 通过 `import_mesh_async(IfNeeded)`
 提交后台检查／导入，不依赖选择或 UI 按钮。有效 Artifact 复用且不重写；缺失、损坏或过期时重建。
@@ -164,7 +164,8 @@ Force 请求在接收时直接升级未派发的缓存检查，或为已提交�
 若后继没有排队容量，当场返回 false，不先记意图再在完成处理时尝试排队。
 同 Handle 的在途任务未回收前不派发后继，但其他 Handle 可以前进。派发前与发布前都验证 revision。
 全局队列满时 try_submit 返回空，资产请求留在本地等待 process_completions 再派发，不在 owner 线程执行或等待容量。
-本地请求队列满时返回 false 并记录日志；拒绝的请求不保证自动重试，可显式 Reimport 或等待下一次源变化。
+本地请求队列满时返回 false。EditorAssets 保留自动 Mesh/显式 Force 待办；AssetManager 保留扫描触发的驻留资源刷新 Handle/revision，process_completions 释放容量后再提交。相同资产合并，删除/过期请求丢弃，Force 不被自动缓存检查覆盖。
+待办只保存身份/版本/模式，不持有解码数据，也不绕过 Worker 队列限制；内容失败不走容量重试。直接调用底层 import_mesh_async 的消费者仍需处理 false。
 get_async_status 仅供 owner 查询已提交未回收／未派发数量，不是 Worker 实时运行数。
 每个在途槽持有 future 和独立 ImportResult；Worker 只写自己的结果，owner 在 future 就绪后才读取。
 不再使用 Mesh／Texture 完成队列或完成 mutex，AsyncState 由 AssetManager 独占。
@@ -172,7 +173,7 @@ process_completions 默认共用最多 2 项、2 ms 的消费预算，可传 Com
 成功、失败、过期和缓存复用均计数；数量为零或时间非正暂停消费，但仍可派发等待任务。
 正时间预算至少允许一个就绪结果前进；时间只在开启下一个结果前检查，不抢占单次文件替换、GPU 创建或依赖刷新。
 预算外的就绪结果继续占在途槽，发布／丢弃后才回收；递归 process_completions 被拒绝。
-当前不限制单任务字节数和时长；同步扫描、显式加载／导入与场景引用恢复不受此预算约束。
+当前不限制单任务字节数和时长；同步扫描、显式加载／导入不受完成预算约束；增量引用恢复使用单独的同类型软预算，不保证整帧上限。
 
 依赖索引分两类：
 
@@ -206,7 +207,7 @@ Texture 后台刷新和显式重导入共用 `reload_loaded_material_dependents(
   候选数据库扫描 → 可信则提交，否则补偿回滚。两个文件不能获得单次 OS 原子 rename；
   回滚自身失败必须报告具体诊断，不声称成功。普通 Mesh 移动不等于重写 glTF 外部 URI。
 - 成功后保留 Selection，并向 Monitor 确认精确变动路径，避免再次识别自身写入。
-- Project 的刷新／移动回调只返回扫描结果，由面板在目录树遍历结束后更新展示；后台扫描和外部导入结果仍由 Editor 转交。
+- Project 只产生刷新／移动请求，由 Editor 在下一次 on_update 执行并回传扫描结果；Inspector 编辑、文件操作和引用加载同样不在获取 GPU 帧后执行。
   Inspector 自己以 Handle/revision 判断是否重新加载字段；无关扫描不清空缓存，选中资产变化后下一次显示时重读。
   失败加载也记录尝试过的 revision，避免每帧重试；可手动 Retry Load，或在新 revision 到来后自动重试。
 

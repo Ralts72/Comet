@@ -31,12 +31,21 @@ namespace CometEditor {
 
     void EditorAssets::accept_scan(const Comet::AssetScanReport& report) {
         if(report.snapshot_updated) {
-            m_reference_refresh_requested = true;
+            m_reference_changes.insert(report.added_assets.begin(), report.added_assets.end());
+            m_reference_changes.insert(
+                report.modified_assets.begin(), report.modified_assets.end());
+            m_reference_changes.insert(report.removed_assets.begin(), report.removed_assets.end());
+            m_pending_references.insert(
+                m_unresolved_references.begin(), m_unresolved_references.end());
             // 失败的模型可能尚无 buffer 依赖索引，不能只检查变化的 Handle。
-            m_pending_mesh_imports.clear();
+            std::erase_if(m_pending_mesh_imports, [&](const auto& entry) {
+                const auto* record = database().find(entry.first);
+                return !record || record->type != Comet::AssetType::Mesh;
+            });
             for(const auto& record : database().get_assets()) {
                 if(record.type == Comet::AssetType::Mesh)
-                    m_pending_mesh_imports.insert(record.handle);
+                    m_pending_mesh_imports.try_emplace(
+                        record.handle, Comet::AssetManager::MeshImportMode::IfNeeded);
             }
         }
         if(report.generated_metadata) {
@@ -64,17 +73,22 @@ namespace CometEditor {
             report = m_manager.scan();
             accept_scan(*report);
         }
-        for(const auto handle : m_pending_mesh_imports) {
-            if(!m_manager.import_mesh_async(handle))
-                LOG_WARN("Automatic mesh import was not accepted for handle {}", handle.value());
+        for(auto request = m_pending_mesh_imports.begin();
+            request != m_pending_mesh_imports.end();) {
+            const auto* record = database().find(request->first);
+            if(!record || record->type != Comet::AssetType::Mesh) {
+                request = m_pending_mesh_imports.erase(request);
+                continue;
+            }
+            if(!m_manager.import_mesh_async(request->first, request->second))
+                break;
+            request = m_pending_mesh_imports.erase(request);
         }
-        m_pending_mesh_imports.clear();
         auto completed = m_manager.process_completions();
         if(!completed)
             return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::failure(
                 completed.error());
-        if(!completed.value().empty())
-            m_reference_refresh_requested = true;
+        m_reference_changes.insert(completed.value().begin(), completed.value().end());
         return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::success(
             std::move(report));
     }
@@ -126,16 +140,20 @@ namespace CometEditor {
                    edit.handle, std::get<TextureEdit>(edit.value).after);
                 !imported)
                 return Comet::Result<void, Comet::Error>::failure(imported.error());
-            m_reference_refresh_requested = true;
+            m_reference_changes.insert(edit.handle);
             acknowledge(Comet::metadata_path(path));
         }
         return Comet::Result<void, Comet::Error>::success();
     }
 
     void EditorAssets::request_mesh_reimport(const Comet::AssetHandle handle) {
-        m_pending_mesh_imports.erase(handle);
-        if(!m_manager.import_mesh_async(handle, Comet::AssetManager::MeshImportMode::Force))
-            LOG_WARN("Mesh reimport request was not accepted for handle {}", handle.value());
+        const auto* record = database().find(handle);
+        if(!record || record->type != Comet::AssetType::Mesh)
+            return;
+        if(m_manager.import_mesh_async(handle, Comet::AssetManager::MeshImportMode::Force))
+            m_pending_mesh_imports.erase(handle);
+        else
+            m_pending_mesh_imports[handle] = Comet::AssetManager::MeshImportMode::Force;
     }
 
     Comet::Result<void, Comet::Error> EditorAssets::load_reference(const Comet::AssetHandle handle,
@@ -151,7 +169,6 @@ namespace CometEditor {
 
     Comet::Result<std::size_t, Comet::Error> EditorAssets::prepare_scene(
         Comet::Scene& scene, const Comet::ComponentRegistry& components) {
-        m_reference_refresh_requested = false;
         std::size_t missing = 0;
         for(const auto& reference : components.collect_asset_references(scene)) {
             if(auto loaded = m_manager.ensure_loaded(reference.handle, reference.type); !loaded) {
@@ -168,8 +185,56 @@ namespace CometEditor {
         return Comet::Result<std::size_t, Comet::Error>::success(missing);
     }
 
-    bool EditorAssets::take_reference_refresh_request() {
-        return std::exchange(m_reference_refresh_requested, false);
+    void EditorAssets::track_scene(
+        Comet::Scene& scene, const Comet::ComponentRegistry& components) {
+        const auto references = components.collect_asset_references(scene);
+        std::set<Comet::ComponentRegistry::AssetReference> next(
+            references.begin(), references.end());
+        for(const auto& reference : next)
+            if(!m_scene_references.contains(reference))
+                m_pending_references.insert(reference);
+        m_scene_references = std::move(next);
+        std::erase_if(m_pending_references,
+            [&](const auto& reference) { return !m_scene_references.contains(reference); });
+        std::erase_if(m_unresolved_references,
+            [&](const auto& reference) { return !m_scene_references.contains(reference); });
+    }
+
+    Comet::Result<std::size_t, Comet::Error> EditorAssets::restore_references(
+        const Comet::AssetManager::CompletionBudget budget) {
+        auto changed = std::exchange(m_reference_changes, {});
+        std::vector<Comet::AssetHandle> pending(changed.begin(), changed.end());
+        for(std::size_t i = 0; i < pending.size(); ++i)
+            for(const auto dependent : database().get_dependents(pending[i]))
+                if(changed.insert(dependent).second)
+                    pending.push_back(dependent);
+        for(const auto& reference : m_scene_references)
+            if(changed.contains(reference.handle))
+                m_pending_references.insert(reference);
+        // 失败的材质可能尚无完整依赖索引，发布事件也重试有限的未解析引用。
+        if(!changed.empty())
+            m_pending_references.insert(
+                m_unresolved_references.begin(), m_unresolved_references.end());
+        const auto start = std::chrono::steady_clock::now();
+        std::size_t processed = 0;
+        while(!m_pending_references.empty() && processed < budget.max_results
+              && budget.max_time > std::chrono::nanoseconds::zero()
+              && (processed == 0 || std::chrono::steady_clock::now() - start < budget.max_time)) {
+            const auto reference = *m_pending_references.begin();
+            m_pending_references.erase(m_pending_references.begin());
+            ++processed;
+            auto loaded = m_manager.ensure_loaded(reference.handle, reference.type);
+            if(loaded) {
+                m_unresolved_references.erase(reference);
+            } else {
+                m_unresolved_references.insert(reference);
+                if(Comet::is_device_lost(loaded.error()))
+                    return Comet::Result<std::size_t, Comet::Error>::failure(loaded.error());
+                LOG_WARN(
+                    "Unresolved asset {}: {}", reference.handle.value(), loaded.error().message);
+            }
+        }
+        return Comet::Result<std::size_t, Comet::Error>::success(processed);
     }
 
 }

@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <unordered_map>
 
 namespace Comet {
     class AssetRegistry;
@@ -77,6 +78,7 @@ namespace Comet {
 
     private:
         void apply_scan_report(const AssetScanReport& report);
+        void retry_refresh_requests();
         Result<void, Error> reload_loaded_material_dependents(AssetHandle texture_handle);
         Result<void, Error> publish_material(AssetHandle handle, const MaterialData& data,
             const std::shared_ptr<Material>& material, bool replace_existing);
@@ -104,5 +106,6 @@ namespace Comet {
         AssetRegistry& m_registry;
         RenderResourceFactory& m_resource_factory;
         std::unique_ptr<AssetTaskQueue> m_task_queue;
+        std::unordered_map<AssetHandle, AssetRevision> m_refresh_requests;
     };
 }

@@ -202,12 +202,17 @@ namespace Comet {
             switch(record->type) {
                 case AssetType::Texture:
                     if(!schedule_loaded_texture_refresh(*record)) {
+                        if(m_registry.resolve<Texture>(handle)
+                            && std::holds_alternative<TextureImportSettings>(
+                                record->import_settings))
+                            m_refresh_requests[handle] = m_database.get_revision(handle);
                         LOG_ERROR("Failed to schedule refresh for modified texture asset handle {}",
                             handle.value());
                     }
                     break;
                 case AssetType::Material:
                     if(!schedule_material_refresh(*record)) {
+                        m_refresh_requests[handle] = m_database.get_revision(handle);
                         LOG_ERROR(
                             "Failed to schedule refresh for modified material asset handle {}",
                             handle.value());
@@ -215,6 +220,7 @@ namespace Comet {
                     break;
                 case AssetType::Mesh:
                     if(!schedule_mesh_task(*record, MeshImportMode::Force)) {
+                        m_refresh_requests[handle] = m_database.get_revision(handle);
                         LOG_ERROR("Failed to schedule refresh for modified mesh asset handle {}",
                             handle.value());
                     }
@@ -226,6 +232,37 @@ namespace Comet {
                         handle.value(), to_string(record->type));
                     break;
             }
+        }
+    }
+
+    void AssetManager::retry_refresh_requests() {
+        for(auto request = m_refresh_requests.begin(); request != m_refresh_requests.end();) {
+            const auto [handle, revision] = *request;
+            const auto* record = m_database.find(handle);
+            if(!record || !m_database.is_current(handle, revision)
+                || !m_registry.contains(handle)) {
+                request = m_refresh_requests.erase(request);
+                continue;
+            }
+            bool accepted = true;
+            switch(record->type) {
+                case AssetType::Mesh:
+                    accepted = schedule_mesh_task(*record, MeshImportMode::Force);
+                    break;
+                case AssetType::Material:
+                    accepted = schedule_material_refresh(*record);
+                    break;
+                case AssetType::Texture:
+                    if(m_registry.resolve<Texture>(handle)
+                        && std::holds_alternative<TextureImportSettings>(record->import_settings))
+                        accepted = schedule_loaded_texture_refresh(*record);
+                    break;
+                default:
+                    break;
+            }
+            if(!accepted)
+                break;
+            request = m_refresh_requests.erase(request);
         }
     }
 
@@ -264,6 +301,7 @@ namespace Comet {
             [&](AssetImportResult& result) { return publish_import_result(result, published); });
         if(!completion)
             return Result<std::vector<AssetHandle>, Error>::failure(completion.error());
+        retry_refresh_requests();
         return Result<std::vector<AssetHandle>, Error>::success(std::move(published));
     }
 

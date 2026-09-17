@@ -46,6 +46,30 @@ namespace {
         EXPECT_FLOAT_EQ(x(), 0);
     }
 
+    TEST_F(CommandHistoryTest, StateIdentitySurvivesUndoButNotNewBranchesOrTruncation) {
+        const auto initial = history.state_id();
+        change(1);
+        const auto saved = history.state_id();
+        change(2);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(history.state_id(), saved);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(history.state_id(), initial);
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(history.state_id(), saved);
+        change(3);
+        const auto branch = history.state_id();
+        EXPECT_NE(branch, saved);
+        change(4);
+        change(5);
+        ASSERT_TRUE(history.undo());
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(history.state_id(), branch);
+        EXPECT_FALSE(history.undo());
+        history.clear();
+        EXPECT_NE(history.state_id(), branch);
+    }
+
     TEST_F(CommandHistoryTest, PreviewsManyChangesButRecordsOneGesture) {
         ASSERT_TRUE(edit.begin(translation()));
         ASSERT_TRUE(edit.preview(Math::Vec3(1, 0, 0)));

@@ -8,6 +8,7 @@ namespace CometEditor {
         m_action = dialog;
         m_open_requested = true;
         m_close_requested = false;
+        m_cancelled = false;
         m_request.reset();
         m_error.clear();
 
@@ -55,6 +56,7 @@ namespace CometEditor {
         }
         ImGui::SameLine();
         if(ImGui::Button("Cancel", ImVec2(100.0f, 0.0f))) {
+            m_cancelled = true;
             ImGui::CloseCurrentPopup();
             m_action = Action::None;
             m_request.reset();

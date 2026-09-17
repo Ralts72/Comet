@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <utility>
 namespace CometEditor {
     class SceneFileDialog {
     public:
@@ -18,11 +19,13 @@ namespace CometEditor {
         void render();
         [[nodiscard]] std::optional<Request> take_request();
         void complete(const Comet::Result<void, Comet::Error>& result);
+        [[nodiscard]] bool take_cancelled() { return std::exchange(m_cancelled, false); }
 
     private:
         Action m_action = Action::None;
         bool m_open_requested = false;
         bool m_close_requested = false;
+        bool m_cancelled = false;
         std::optional<Request> m_request;
         std::string m_error;
         std::array<char, 1024> m_path_buffer{};

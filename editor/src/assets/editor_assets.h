@@ -3,7 +3,10 @@
 #include "asset/asset_manager.h"
 #include "asset/source_monitor.h"
 #include "assets/asset_edit.h"
+#include "scene/component_registry.h"
+#include <set>
 #include <unordered_set>
+#include <unordered_map>
 
 namespace Comet {
     class Scene;
@@ -27,7 +30,9 @@ namespace CometEditor {
             Comet::AssetHandle handle, Comet::AssetType type, Comet::AssetRevision revision);
         [[nodiscard]] Comet::Result<std::size_t, Comet::Error> prepare_scene(
             Comet::Scene& scene, const Comet::ComponentRegistry& components);
-        [[nodiscard]] bool take_reference_refresh_request();
+        void track_scene(Comet::Scene& scene, const Comet::ComponentRegistry& components);
+        [[nodiscard]] Comet::Result<std::size_t, Comet::Error> restore_references(
+            Comet::AssetManager::CompletionBudget budget = {});
         void request_mesh_reimport(Comet::AssetHandle handle);
         [[nodiscard]] const Comet::AssetDatabase& database() const {
             return m_manager.get_database();
@@ -40,8 +45,12 @@ namespace CometEditor {
 
         Comet::AssetManager m_manager;
         Comet::AssetSourceMonitor m_monitor;
-        std::unordered_set<Comet::AssetHandle> m_pending_mesh_imports;
+        std::unordered_map<Comet::AssetHandle, Comet::AssetManager::MeshImportMode>
+            m_pending_mesh_imports;
         std::string m_monitor_error;
-        bool m_reference_refresh_requested = false;
+        std::unordered_set<Comet::AssetHandle> m_reference_changes;
+        std::set<Comet::ComponentRegistry::AssetReference> m_scene_references;
+        std::set<Comet::ComponentRegistry::AssetReference> m_pending_references;
+        std::set<Comet::ComponentRegistry::AssetReference> m_unresolved_references;
     };
 }

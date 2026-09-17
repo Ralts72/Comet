@@ -19,7 +19,8 @@ namespace CometEditor::Tests {
         Comet::SceneSerializer serializer{components};
         std::unique_ptr<Comet::Scene> active = std::make_unique<Comet::Scene>();
         int installations = 0;
-        SceneDocument document{serializer, Comet::ProjectPaths(directory.path()),
+        CommandHistory history;
+        SceneDocument document{serializer, Comet::ProjectPaths(directory.path()), history,
             [this] { return active.get(); },
             [this](std::unique_ptr<Comet::Scene> scene) {
                 ++installations;

@@ -35,13 +35,21 @@ namespace CometEditor {
         [[nodiscard]] std::size_t redo_size() const { return m_redo.size(); }
         [[nodiscard]] Comet::Scene* get_scene() const { return m_scene; }
         [[nodiscard]] std::uint64_t generation() const { return m_generation; }
+        [[nodiscard]] std::uint64_t state_id() const { return m_state_id; }
 
     private:
         std::size_t m_capacity;
         Comet::Scene* m_scene = nullptr;
         std::uint64_t m_generation = 0;
-        std::vector<std::unique_ptr<Command>> m_undo;
-        std::vector<std::unique_ptr<Command>> m_redo;
+        struct Entry {
+            std::unique_ptr<Command> command;
+            std::uint64_t before;
+            std::uint64_t after;
+        };
+        std::uint64_t m_next_state_id = 1;
+        std::uint64_t m_state_id = 0;
+        std::vector<Entry> m_undo;
+        std::vector<Entry> m_redo;
     };
 
     // Inspector 与 Gizmo 共用，不依赖 ImGui，也不持有组件地址。

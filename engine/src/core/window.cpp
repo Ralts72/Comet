@@ -54,6 +54,13 @@ namespace Comet {
         }
         ++window_count;
         glfwSetWindowUserPointer(m_window.get(), this);
+        glfwSetWindowCloseCallback(m_window.get(), [](GLFWwindow* window) {
+            auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+            if(owner.m_confirm_close) {
+                glfwSetWindowShouldClose(window, GLFW_FALSE);
+                owner.m_close_requested = true;
+            }
+        });
         glfwSetDropCallback(
             m_window.get(), [](GLFWwindow* window, int count, const char** paths) noexcept {
                 FileDrop drop;
@@ -88,6 +95,10 @@ namespace Comet {
 
     void Window::request_close() {
         glfwSetWindowShouldClose(m_window.get(), GLFW_TRUE);
+    }
+
+    bool Window::take_close_request() {
+        return std::exchange(m_close_requested, false);
     }
 
     bool Window::is_minimized() const {

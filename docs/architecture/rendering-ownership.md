@@ -121,11 +121,11 @@ SwapchainTarget 与 MultiTarget 是公开同级类型：
 ## 一帧经过哪里
 
 ```text
-Engine::run → 内部 tick：事件与时间 → Application::on_update（编辑器准备或应用运行逻辑）
+Engine::run → 内部 tick：事件与时间 → Application::on_update（消费上次 UI 请求、文档操作、资产维护与模式切换）
   → Renderer::prepare_frame
       回收完成的 upload → Presentation 等待 slot / acquire / 开始录制
   → Application::on_frame_ready（仅帧就绪后）
-      ImGui begin → UI、编辑命令、相机输入、最新 RenderView → ImGui end → 反馈提交
+      ImGui begin → UI/请求收集、即时属性与 Gizmo、相机输入、最新 RenderView → ImGui end → 反馈提交
   → SceneExtractor（读取此时的活动 Scene，更新 world transform）
   → Renderer::render_frame
   → SceneResolver（使用实际 Target 尺寸）
@@ -135,6 +135,7 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（编�
 ```
 
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
+文件扫描、复制、保存和同步资产加载在 on_update 执行，不占用已 acquire 的帧；这不是将全部 I/O 移出主线程。请求仍由唯一 Editor 执行，不新增事件总线。Window 可选择拦截原生关闭事件，Editor 处理未保存决策后才通过 request_close 确认退出。
 Scene 维护 EntityId／UUID 查询索引与父子索引，结构修改时同步维护；这些索引不参与序列化。
 Scene 的同步检查遍历全部节点，比较本地 TRS、组件是否存在、parent ID 和父级计算版本，仅重算变化节点。
 单个 get_world_matrix 只检查祖先链；持续持有可变组件引用的写入同样在下次查询／提取时生效。

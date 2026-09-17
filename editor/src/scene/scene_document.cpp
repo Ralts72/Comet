@@ -9,10 +9,11 @@
 
 namespace CometEditor {
     SceneDocument::SceneDocument(const Comet::SceneSerializer& serializer,
-        Comet::ProjectPaths paths, ActiveSceneGetter get_active_scene,
-        ActiveSceneReplacer replace_active_scene, PrepareCandidate prepare_candidate)
-        : m_serializer(serializer), m_paths(std::move(paths)),
-          m_get_active_scene(std::move(get_active_scene)),
+        Comet::ProjectPaths paths, const CommandHistory& history,
+        ActiveSceneGetter get_active_scene, ActiveSceneReplacer replace_active_scene,
+        PrepareCandidate prepare_candidate)
+        : m_serializer(serializer), m_history(history), m_saved_state(history.state_id()),
+          m_paths(std::move(paths)), m_get_active_scene(std::move(get_active_scene)),
           m_replace_active_scene(std::move(replace_active_scene)),
           m_prepare_candidate(std::move(prepare_candidate)) {}
 
@@ -73,9 +74,39 @@ namespace CometEditor {
             return Comet::Result<void, Comet::Error>::failure({m_last_error});
         }
         m_path = resolved.value().string();
+        m_saved_state = m_history.state_id();
+        m_pending_state = PendingState::Confirm;
         m_last_error.clear();
         LOG_INFO("Saved scene '{}'", path);
         return Comet::Result<void, Comet::Error>::success();
+    }
+
+    void SceneDocument::request(Request request) {
+        if(m_pending_request)
+            return;
+        m_pending_request = std::move(request);
+        m_pending_state = PendingState::Confirm;
+    }
+
+    void SceneDocument::decide(const Decision decision) {
+        if(decision == Decision::Cancel) {
+            m_pending_request.reset();
+            m_pending_state = PendingState::Confirm;
+        } else if(m_pending_request) {
+            m_pending_state =
+                decision == Decision::Save ? PendingState::Saving : PendingState::Discard;
+        }
+    }
+
+    bool SceneDocument::needs_confirmation() const {
+        return m_pending_request && m_pending_state == PendingState::Confirm && is_modified();
+    }
+
+    std::optional<SceneDocument::Request> SceneDocument::take_ready_request() {
+        if(!m_pending_request || m_pending_state == PendingState::Saving || needs_confirmation())
+            return std::nullopt;
+        m_pending_state = PendingState::Confirm;
+        return std::exchange(m_pending_request, std::nullopt);
     }
 
     Comet::Result<void, Comet::Error> SceneDocument::replace_scene(
@@ -95,6 +126,7 @@ namespace CometEditor {
         }
         static_cast<void>(m_replace_active_scene(std::move(scene)));
         m_path = std::move(path);
+        m_saved_state = m_history.state_id();
         m_last_error.clear();
         return Comet::Result<void, Comet::Error>::success();
     }

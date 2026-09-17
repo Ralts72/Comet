@@ -60,7 +60,6 @@ namespace Comet {
         if(!preparation || !preparation.value()) {
             m_viewport_pick_request.reset();
             m_line_draw_list.clear();
-            return preparation;
         }
         return preparation;
     }

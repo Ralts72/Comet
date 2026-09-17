@@ -27,6 +27,8 @@ namespace Comet {
 
         [[nodiscard]] bool should_close() const;
         void request_close();
+        void confirm_close_requests(bool enabled) { m_confirm_close = enabled; }
+        [[nodiscard]] bool take_close_request();
         [[nodiscard]] bool is_minimized() const;
 
         [[nodiscard]] Math::Vec2u get_framebuffer_size() const;
@@ -44,5 +46,7 @@ namespace Comet {
 
         std::unique_ptr<GLFWwindow, WindowDeleter> m_window;
         std::vector<FileDrop> m_file_drops;
+        bool m_confirm_close = false;
+        bool m_close_requested = false;
     };
 }

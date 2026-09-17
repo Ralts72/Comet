@@ -120,7 +120,6 @@ namespace Comet {
         auto& queue = m_async_state->queued_tasks;
         const auto queued = std::ranges::find(queue, handle, &AsyncState::QueuedAssetTask::handle);
         if(queued == queue.end() && queue.size() >= m_async_limits.queued) {
-            LOG_WARN("Asset request queue is full; retry asset handle {}", handle.value());
             return false;
         }
         const auto [entry, inserted] = m_async_state->pending_assets.try_emplace(handle);

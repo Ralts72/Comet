@@ -105,8 +105,9 @@ namespace {
                     return Comet::Result<void, Comet::Error>::failure(prepared.error());
                 return Comet::Result<void, Comet::Error>::success();
             };
-            m_scene_document = std::make_unique<CometEditor::SceneDocument>(m_scene_serializer,
-                m_project.paths(), get_active_scene, replace_active_scene, prepare_candidate);
+            m_scene_document =
+                std::make_unique<CometEditor::SceneDocument>(m_scene_serializer, m_project.paths(),
+                    m_command_history, get_active_scene, replace_active_scene, prepare_candidate);
             LOG_INFO(
                 "Opened project '{}' at '{}'", m_project.name(), m_project.paths().root().string());
             if(m_project.startup_scene().empty()) {
@@ -148,10 +149,26 @@ namespace {
                 });
 
             LOG_INFO("Editor initialized");
+            engine.get_window().confirm_close_requests(true);
             return Comet::Result<void, Comet::Error>::success();
         }
 
         Comet::Result<void, Comet::Error> on_update(const Comet::UpdateContext context) override {
+            if(auto requests = process_editor_requests(); !requests)
+                return requests;
+            if(get_engine().get_window().take_close_request()) {
+                m_scene_session->request_mode(CometEditor::EditorMode::Edit);
+                if(m_editor_state.mode == CometEditor::EditorMode::Play) {
+                    if(auto stopped = apply_editor_mode_request(); !stopped)
+                        return stopped;
+                }
+                if(finish_active_edit())
+                    m_scene_document->request({CometEditor::SceneDocument::Action::Close, {}});
+            }
+            if(auto action = execute_document_action(); !action)
+                return action;
+            if(get_engine().get_window().should_close())
+                return Comet::Result<void, Comet::Error>::success();
             if(auto result = update_material_shaders(); !result)
                 return result;
             auto assets = m_assets->update();
@@ -161,6 +178,13 @@ namespace {
                 m_project_panel->update_scan_report(std::move(*assets.value()));
             if(auto mode = apply_editor_mode_request(); !mode)
                 return mode;
+
+            if(m_reference_history_state != m_command_history.state_id()) {
+                m_assets->track_scene(*get_engine().get_scene(), m_component_registry);
+                m_reference_history_state = m_command_history.state_id();
+            }
+            if(auto restored = m_assets->restore_references(); !restored)
+                return Comet::Result<void, Comet::Error>::failure(restored.error());
 
             m_menu_bar->set_fps(context.fps);
             return Comet::Result<void, Comet::Error>::success();
@@ -173,8 +197,6 @@ namespace {
             {
                 const Comet::ScopeExit end_ui([this] { m_imgui_context->end_frame(); });
                 draw_editor_ui();
-                if(auto requests = process_editor_requests(); !requests)
-                    return requests;
                 if(auto viewport = m_viewport->update(get_engine().get_scene()); !viewport)
                     return viewport;
             }
@@ -183,6 +205,7 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> on_shutdown() override {
+            get_engine().get_window().confirm_close_requests(false);
             LOG_INFO("Editor shutting down...");
             get_engine().get_renderer().set_overlay_renderer({});
             get_engine().get_renderer().set_viewport_pick_callback({});
@@ -328,7 +351,8 @@ namespace {
                         LOG_WARN("Cannot redo scene edit");
                     break;
                 case CometEditor::MenuBar::Command::NewScene:
-                    return m_scene_document->create_new();
+                    m_scene_document->request({CometEditor::SceneDocument::Action::New, {}});
+                    break;
                 case CometEditor::MenuBar::Command::OpenScene:
                     m_scene_file_dialog.request(CometEditor::SceneFileDialog::Action::Open,
                         m_scene_document->get_path(), m_project.paths().assets() / "scenes");
@@ -353,11 +377,14 @@ namespace {
             static_cast<void>(m_property_edit.cancel());
             auto previous = get_engine().replace_scene(std::move(scene));
             auto* active = get_engine().get_scene();
-            m_command_history.bind_scene(mode == CometEditor::EditorMode::Edit ? active : nullptr);
+            if(mode == CometEditor::EditorMode::Edit && m_command_history.get_scene() != active)
+                m_command_history.bind_scene(active);
             if(m_selection) {
                 m_selection->set_scene(*active);
                 m_hierarchy_panel->set_scene(*active);
             }
+            m_assets->track_scene(*active, m_component_registry);
+            m_reference_history_state = m_command_history.state_id();
             return previous;
         }
 
@@ -424,14 +451,18 @@ namespace {
             constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
             ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), dockspace_flags);
 
+            ImGui::BeginDisabled(m_scene_document->has_pending_request());
             m_menu_bar->render();
             m_hierarchy_panel->render();
             m_viewport->panel().render();
             m_inspector_panel->render();
             m_project_panel->render();
+            ImGui::EndDisabled();
             m_console_panel->render();
             m_scene_file_dialog.render();
-            m_menu_bar->collect_shortcuts();
+            draw_unsaved_dialog();
+            if(!m_scene_document->has_pending_request())
+                m_menu_bar->collect_shortcuts();
         }
 
         Comet::Result<void, Comet::Error> handle_asset_assignment(
@@ -463,6 +494,7 @@ namespace {
             if(m_editor_state.mode == CometEditor::EditorMode::Play) {
                 if(!property->assign_value(component->get_component(entity), request.asset.handle))
                     LOG_ERROR("Cannot update runtime asset reference");
+                m_assets->track_scene(*scene, m_component_registry);
                 return Comet::Result<void, Comet::Error>::success();
             }
             if(!m_property_edit.apply(request.target, request.asset.handle))
@@ -531,15 +563,23 @@ namespace {
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
             const auto mode = m_viewport->panel().take_mode_request();
             const auto file_request = m_scene_file_dialog.take_request();
+            if(m_scene_file_dialog.take_cancelled()) {
+                m_scene_document->decide(CometEditor::SceneDocument::Decision::Cancel);
+            }
             // 弹窗提交、菜单命令优先，避免切换场景后执行旧编辑请求。
             if(file_request) {
-                const auto result =
-                    file_request->action == CometEditor::SceneFileDialog::Action::Open
-                        ? m_scene_document->open(file_request->path)
-                        : m_scene_document->save(file_request->path);
-                m_scene_file_dialog.complete(result);
-                if(!result && is_device_lost(result.error()))
-                    return result;
+                if(!finish_active_edit())
+                    return Comet::Result<void, Comet::Error>::success();
+                if(file_request->action == CometEditor::SceneFileDialog::Action::Open) {
+                    m_scene_document->request(
+                        {CometEditor::SceneDocument::Action::Open, file_request->path});
+                    m_scene_file_dialog.complete(Comet::Result<void, Comet::Error>::success());
+                } else {
+                    const auto result = m_scene_document->save(file_request->path);
+                    m_scene_file_dialog.complete(result);
+                    if(!result && is_device_lost(result.error()))
+                        return result;
+                }
             } else if(menu_command) {
                 if(auto command = handle_command(*menu_command);
                     !command && is_device_lost(command.error()))
@@ -559,20 +599,62 @@ namespace {
                     LOG_WARN("Asset assignment rejected: {}", result.error().message);
                 }
             }
-            if(mode && !file_request) {
+            if(mode && !file_request && !m_scene_document->has_pending_request()) {
                 if(finish_active_edit())
                     m_scene_session->request_mode(*mode);
-            }
-            if(m_assets->take_reference_refresh_request()) {
-                if(auto* scene = get_engine().get_scene()) {
-                    if(auto prepared = m_assets->prepare_scene(*scene, m_component_registry);
-                        !prepared)
-                        return Comet::Result<void, Comet::Error>::failure(prepared.error());
-                }
             }
             return Comet::Result<void, Comet::Error>::success();
         }
 
+        Comet::Result<void, Comet::Error> execute_document_action() {
+            const auto action = m_scene_document->take_ready_request();
+            if(!action)
+                return Comet::Result<void, Comet::Error>::success();
+            if(action->action == CometEditor::SceneDocument::Action::Close) {
+                get_engine().get_window().request_close();
+                return Comet::Result<void, Comet::Error>::success();
+            }
+            auto result = action->action == CometEditor::SceneDocument::Action::New
+                              ? m_scene_document->create_new()
+                              : m_scene_document->open(action->path);
+            if(!result && !is_device_lost(result.error())) {
+                LOG_WARN("Scene operation rejected: {}", result.error().message);
+                if(action->action == CometEditor::SceneDocument::Action::Open) {
+                    m_scene_file_dialog.request(CometEditor::SceneFileDialog::Action::Open,
+                        action->path, m_project.paths().assets() / "scenes");
+                    m_scene_file_dialog.complete(result);
+                }
+                return Comet::Result<void, Comet::Error>::success();
+            }
+            return result;
+        }
+
+        void draw_unsaved_dialog() {
+            if(m_scene_document->needs_confirmation())
+                ImGui::OpenPopup("Unsaved Scene");
+            if(!ImGui::BeginPopupModal("Unsaved Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                return;
+            ImGui::TextUnformatted("Save changes before continuing?");
+            if(ImGui::Button("Save")) {
+                m_scene_document->decide(CometEditor::SceneDocument::Decision::Save);
+                m_scene_file_dialog.request(CometEditor::SceneFileDialog::Action::Save,
+                    m_scene_document->get_path(), m_project.paths().assets() / "scenes");
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if(ImGui::Button("Discard")) {
+                m_scene_document->decide(CometEditor::SceneDocument::Decision::Discard);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if(ImGui::Button("Cancel")) {
+                m_scene_document->decide(CometEditor::SceneDocument::Decision::Cancel);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        std::uint64_t m_reference_history_state = 0;
         Comet::Project m_project;
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;

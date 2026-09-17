@@ -71,7 +71,7 @@ GLFW 以动态库构建，确保引擎和 UI 后端共用一份窗口系统状�
 项目描述 `project.json` 同样使用 JSON；仅 `config/` 中的引擎、编辑器 Profile 与快捷键配置继续使用 YAML。
 JSON 解析直接依赖已有 simdjson。
 后台导入采用有界任务队列，同一资产尚未执行的旧请求会被最新 revision 合并替换；
-队列满时明确拒绝新请求，可通过 Reimport 重试。已加载资源在刷新失败时继续保留。
+队列满时底层返回拒绝，编辑器自动导入和已加载资源刷新保留轻量待办，在容量恢复后重试；导入内容错误等待新变更或 Reimport。刷新失败继续保留旧资源。
 后台结果默认每次最多处理 2 项、采用 2 ms 非抢占软预算；未发布结果继续占据在途额度，同步扫描／加载不受此预算约束。
 示例项目根目录是仓库的 `demo/`，不是仓库根；可完整复制该目录作为外部项目。
 旧仓库根 `.comet/` 不自动迁移，新位置缺少缓存／布局时会重新生成，旧数据保留。
@@ -105,7 +105,9 @@ JSON 解析直接依赖已有 simdjson。
   World 旋转不接受非均匀缩放父级，此时使用 Local。Escape、失焦或隐藏视口取消拖动。
 - Edit 中名称、Transform、Camera 和 Mesh/Material 引用支持撤销；一次手势只记一条历史。
   Inspector 的 Add Component／组件标题右键支持 Camera、Mesh Renderer 增删，Name／Transform 不开放增删。
-  Play 仅实时调试已有属性，不记录 Edit 历史；New/Open 成功和 Edit/Play 切换会清空历史。
+  Play 仅实时调试已有属性，不记录 Edit 历史；Stop 恢复原 Edit 历史，New/Open 成功才清空历史。
+  New/Open 和窗口关闭遇到未保存场景时提供 Save/Discard/Cancel；保存失败或取消另存路径不会继续切换。
+  未保存状态使用历史状态 ID 与保存点判断，支持撤销回保存点、分支编辑和历史截断；不包含独立的资产文件编辑。
 - Hierarchy 空白处／Scene 右键创建根实体，实体右键创建子实体、删除或 Duplicate 整棵子树；
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
 - 编辑器快捷键位于 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启。
@@ -138,7 +140,7 @@ JSON 解析直接依赖已有 simdjson。
 - 场景：Scene 维护 EntityId／UUID 和父子索引，创建、删除与换父级同步更新索引。
   世界变换比较本地 TRS 与父级版本，仅重算发生变化的节点；单个矩阵查询只检查祖先链。
   相机继承世界位置与层级旋转，朝向不受本地及祖先缩放影响。
-  Engine::run 管主循环，内部 tick 显式推进应用更新、帧准备、on_frame_ready 编辑和场景提取；未就绪的帧不执行编辑或绘制。Editor 在 on_update 处理后台完成与模式请求，在 on_frame_ready 顺序完成 UI、编辑命令和视口更新。
+  Engine::run 管主循环，内部 tick 显式推进应用更新、帧准备、on_frame_ready 编辑和场景提取。Editor 在 on_update 消费上一 UI 帧的请求、后台完成与模式请求；文件读写、扫描、资产编辑和拖放加载均在获取渲染帧前执行。on_frame_ready 只绘制 UI、收集请求、处理即时属性/Gizmo 编辑和视口更新；渲染延期不阻止已收集请求执行。
   on_frame_ready 返回 Result；失败会停止引擎生命周期并保留原始错误，不绘制或重用已获取的帧。
   Play/Stop 会话返回 Result<bool, Error>，区分未发生切换与准备失败；准备错误保留错误码，设备丢失交由主循环退出。
   场景 New/Open/Save 同样返回完整错误；普通文件错误留在对话框内，设备丢失不会触发启动场景回退。
@@ -186,6 +188,7 @@ JSON 解析直接依赖已有 simdjson。
   Material Reload/Update 在依赖加载后复核 revision，过期操作不保存文件或发布材质。
   数据库无变化的设置/依赖更新不消耗 revision；版本耗尽时拒绝变更，不允许回绕。
   扫描触发的材质刷新通过后台读取、主线程完成处理发布；扫描和 Worker 不创建 GPU 资源，发布前保留旧材质。
+  活动场景引用在安装或编辑历史变化时重新索引；后台完成保留变更 Handle，只恢复受影响和未解析的引用，每次默认最多处理 2 项、软预算 2 ms。初次场景准备仍完整执行，单次 GPU 创建不可抢占；同步扫描和文件复制仍可能阻塞主线程，不宣称已实现全异步 I/O。
   导入、资产序列化和数据库更新统一用公共 `Result<T>` 返回预期失败，调用方决定如何报告；GPU 错误仍保留 Vulkan 结果码。
   公共文件读取／原子写入同样返回 `Result`，写入先完成同目录临时文件，再替换目标；失败由 RAII 尝试清理临时文件。
 - 持久化：`Project::load`、项目资产路径解析和 `SceneSerializer` 返回 `Result`；Open 失败保留当前场景，

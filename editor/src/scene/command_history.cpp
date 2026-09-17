@@ -65,6 +65,7 @@ namespace CometEditor {
         m_undo.clear();
         m_redo.clear();
         ++m_generation;
+        m_state_id = m_next_state_id++;
     }
 
     bool CommandHistory::execute(std::unique_ptr<Command> command) {
@@ -78,22 +79,26 @@ namespace CometEditor {
             return false;
         if(m_undo.size() == m_capacity)
             m_undo.erase(m_undo.begin());
-        m_undo.push_back(std::move(command));
+        const auto after = m_next_state_id++;
+        m_undo.push_back({std::move(command), m_state_id, after});
+        m_state_id = after;
         m_redo.clear();
         return true;
     }
 
     bool CommandHistory::undo() {
-        if(!can_undo() || !m_undo.back()->undo(*m_scene))
+        if(!can_undo() || !m_undo.back().command->undo(*m_scene))
             return false;
+        m_state_id = m_undo.back().before;
         m_redo.push_back(std::move(m_undo.back()));
         m_undo.pop_back();
         return true;
     }
 
     bool CommandHistory::redo() {
-        if(!can_redo() || !m_redo.back()->redo(*m_scene))
+        if(!can_redo() || !m_redo.back().command->redo(*m_scene))
             return false;
+        m_state_id = m_redo.back().after;
         m_undo.push_back(std::move(m_redo.back()));
         m_redo.pop_back();
         return true;

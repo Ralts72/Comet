@@ -6,6 +6,30 @@
 #include <memory>
 
 namespace Comet::Tests {
+    TEST(WindowTest, CloseConfirmationConsumesNativeRequestsWithoutStoppingTheLoop) {
+        Config::Window config;
+        config.width = 64;
+        config.height = 64;
+        Window window(config);
+        const auto callback = glfwSetWindowCloseCallback(window.get(), nullptr);
+        ASSERT_NE(callback, nullptr);
+        glfwSetWindowCloseCallback(window.get(), callback);
+        window.confirm_close_requests(true);
+        glfwSetWindowShouldClose(window.get(), GLFW_TRUE);
+        callback(window.get());
+        EXPECT_FALSE(window.should_close());
+        EXPECT_TRUE(window.take_close_request());
+        EXPECT_FALSE(window.take_close_request());
+        window.request_close();
+        EXPECT_TRUE(window.should_close());
+        glfwSetWindowShouldClose(window.get(), GLFW_FALSE);
+        window.confirm_close_requests(false);
+        glfwSetWindowShouldClose(window.get(), GLFW_TRUE);
+        callback(window.get());
+        EXPECT_TRUE(window.should_close());
+        EXPECT_FALSE(window.take_close_request());
+    }
+
     TEST(WindowTest, WindowsOwnBackendLifetimeAndCloseIndependently) {
         Config::Window config;
         config.width = 64;
