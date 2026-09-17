@@ -630,6 +630,14 @@ namespace Comet {
         return std::span<const AssetHandle>(dependents->second);
     }
 
+    void AssetDatabase::include_dependents(std::unordered_set<AssetHandle>& handles) const {
+        std::vector<AssetHandle> pending(handles.begin(), handles.end());
+        for(std::size_t i = 0; i < pending.size(); ++i)
+            for(const auto dependent : get_dependents(pending[i]))
+                if(handles.insert(dependent).second)
+                    pending.push_back(dependent);
+    }
+
     std::span<const std::filesystem::path> AssetDatabase::get_import_dependencies(
         const AssetHandle handle) const {
         return find_import_dependencies(m_import_dependencies_by_asset, handle);

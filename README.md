@@ -179,6 +179,7 @@ JSON 解析直接依赖已有 simdjson。
   添加或合并顶点数量超限时返回失败；Renderer 拒绝该批次并保留本帧已提交的线段。
 - 资产：`AssetDatabase` 管身份与依赖，`ImportService` 管导入，`AssetManager` 协调加载与发布，
   `AssetRegistry` 是唯一 Handle 缓存；`ResourceManager` 只创建设备资源。
+  传递依赖遍历统一由数据库提供，供资源失效与场景引用恢复复用；首次刷新与背压重试共用 Manager 内部调度入口。
   Manager 内部的 `AssetTaskQueue` 管后台排队、同资产请求合并、背压、完成预算与关闭等待，不作为公共引擎服务导出。
   `TaskScheduler::try_submit` 是唯一提交入口；空任务、队列满或关闭时返回空结果，调用方须检查后再使用 future。
   调度器队列容量和资产异步预算必须为正；零值视为编程错误，不表示关闭异步功能，也不会自动改成默认值。

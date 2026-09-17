@@ -147,6 +147,7 @@ Artifact 已成功发布后若 GPU 创建失败，旧 Runtime Mesh 仍保留，�
 process_completions 返回 Result<vector<AssetHandle>, Error>：成功值中 Mesh 指 Artifact，Texture/Material 指 Runtime；缓存复用、普通失败或过期任务不算发布。直接 Mesh/Texture GPU 创建遇到 DeviceLost 返回带原生码的错误，停止本批剩余发布并回收当前槽位；已发布产物不回滚，失败结果不携带成功 Handle 列表。EditorAssets::update 与应用 on_update 显式向上传递该错误。材质依赖加载同样返回原生错误；前台引用赋值、Inspector 编辑、候选准备和 demo 必需资产加载已接通该协议。标准库或非预期工厂异常不在此捕获。
 EditorAssets 保留扫描、发布及显式纹理重导入的变更 Handle。活动场景安装或编辑历史变化时收集一次引用集合；后台发布不再重新遍历组件。
 on_update 在获取渲染帧前按变更 Handle 及依赖闭包恢复缓存的引用。尚未解析的引用在明确扫描/发布事件后重试，以覆盖尚未建立依赖索引的坏材质；无新事件时不持续重试。
+依赖闭包统一通过 AssetDatabase::include_dependents 扩展输入集合，与删除资产后的 Runtime 失效共用遍历；保留输入句柄并去重，支持缺失资产和依赖环。
 恢复按条数和时间软预算处理，默认 2 项/2 ms，未消费项留待后续更新；单次 GPU 创建不能被抢占。场景切换移除旧引用待办，初次候选准备仍是完整同步操作。引用恢复不改写组件或制造撤销记录。
 
 EditorAssets 在成功提交扫描快照后收集 Mesh Handles，下一次 update 通过 `import_mesh_async(IfNeeded)`
@@ -166,6 +167,7 @@ Force 请求在接收时直接升级未派发的缓存检查，或为已提交�
 全局队列满时 try_submit 返回空，资产请求留在本地等待 process_completions 再派发，不在 owner 线程执行或等待容量。
 本地请求队列满时返回 false。EditorAssets 保留自动 Mesh/显式 Force 待办；AssetManager 保留扫描触发的驻留资源刷新 Handle/revision，process_completions 释放容量后再提交。相同资产合并，删除/过期请求丢弃，Force 不被自动缓存检查覆盖。
 待办只保存身份/版本/模式，不持有解码数据，也不绕过 Worker 队列限制；内容失败不走容量重试。直接调用底层 import_mesh_async 的消费者仍需处理 false。
+首次驻留刷新与待办重试共用 schedule_refresh，区分 Scheduled／Deferred／Rejected；只保留 Deferred，不将正常容量等待记录为错误。
 get_async_status 仅供 owner 查询已提交未回收／未派发数量，不是 Worker 实时运行数。
 每个在途槽持有 future 和独立 ImportResult；Worker 只写自己的结果，owner 在 future 就绪后才读取。
 不再使用 Mesh／Texture 完成队列或完成 mutex，AsyncState 由 AssetManager 独占。

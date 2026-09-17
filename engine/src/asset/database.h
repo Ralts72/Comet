@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Comet {
@@ -60,6 +61,8 @@ namespace Comet {
         // 借用视图：数据库修改后，不可继续持有或遍历。
         [[nodiscard]] std::span<const AssetHandle> get_dependencies(AssetHandle handle) const;
         [[nodiscard]] std::span<const AssetHandle> get_dependents(AssetHandle handle) const;
+        // 扩展为包含输入资产及所有传递依赖方的集合，允许缺失句柄和依赖环。
+        void include_dependents(std::unordered_set<AssetHandle>& handles) const;
         [[nodiscard]] std::span<const std::filesystem::path> get_import_dependencies(
             AssetHandle handle) const;
         [[nodiscard]] std::span<const AssetHandle> get_import_dependents(

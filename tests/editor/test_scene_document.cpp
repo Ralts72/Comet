@@ -93,6 +93,16 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(close);
         EXPECT_EQ(close->action, SceneDocument::Action::Close);
         EXPECT_TRUE(document.is_modified());
+        document.decide(SceneDocument::Decision::Discard);
+        document.request({SceneDocument::Action::Open, file.path()});
+        document.request({SceneDocument::Action::New, {}});
+        EXPECT_TRUE(document.needs_confirmation());
+        EXPECT_FALSE(document.take_ready_request());
+        document.decide(SceneDocument::Decision::Discard);
+        const auto open = document.take_ready_request();
+        ASSERT_TRUE(open);
+        EXPECT_EQ(open->action, SceneDocument::Action::Open);
+        EXPECT_EQ(open->path, file.path());
         ASSERT_TRUE(document.create_new());
         EXPECT_FALSE(document.is_modified());
     }

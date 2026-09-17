@@ -20,7 +20,6 @@
 #include <algorithm>
 #include <chrono>
 #include <map>
-#include <queue>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -173,19 +172,7 @@ namespace Comet {
 
         std::unordered_set<AssetHandle> invalidated(
             report.removed_assets.begin(), report.removed_assets.end());
-        std::queue<AssetHandle> pending_invalidations;
-        for(const AssetHandle handle : report.removed_assets) {
-            pending_invalidations.push(handle);
-        }
-        while(!pending_invalidations.empty()) {
-            const AssetHandle dependency = pending_invalidations.front();
-            pending_invalidations.pop();
-            for(const AssetHandle dependent : m_database.get_dependents(dependency)) {
-                if(invalidated.insert(dependent).second) {
-                    pending_invalidations.push(dependent);
-                }
-            }
-        }
+        m_database.include_dependents(invalidated);
         for(const AssetHandle handle : invalidated) {
             static_cast<void>(m_registry.unregister_asset(handle));
         }
@@ -199,40 +186,40 @@ namespace Comet {
             if(!record) {
                 continue;
             }
-            switch(record->type) {
-                case AssetType::Texture:
-                    if(!schedule_loaded_texture_refresh(*record)) {
-                        if(m_registry.resolve<Texture>(handle)
-                            && std::holds_alternative<TextureImportSettings>(
-                                record->import_settings))
-                            m_refresh_requests[handle] = m_database.get_revision(handle);
-                        LOG_ERROR("Failed to schedule refresh for modified texture asset handle {}",
-                            handle.value());
-                    }
-                    break;
-                case AssetType::Material:
-                    if(!schedule_material_refresh(*record)) {
-                        m_refresh_requests[handle] = m_database.get_revision(handle);
-                        LOG_ERROR(
-                            "Failed to schedule refresh for modified material asset handle {}",
-                            handle.value());
-                    }
-                    break;
-                case AssetType::Mesh:
-                    if(!schedule_mesh_task(*record, MeshImportMode::Force)) {
-                        m_refresh_requests[handle] = m_database.get_revision(handle);
-                        LOG_ERROR("Failed to schedule refresh for modified mesh asset handle {}",
-                            handle.value());
-                    }
-                    break;
-                default:
-                    static_cast<void>(m_registry.unregister_asset(handle));
-                    LOG_WARN(
-                        "Unloaded modified asset handle {} because runtime reload is not implemented for type '{}'",
-                        handle.value(), to_string(record->type));
-                    break;
-            }
+            if(schedule_refresh(*record) == RefreshResult::Deferred)
+                m_refresh_requests[handle] = m_database.get_revision(handle);
+            else
+                m_refresh_requests.erase(handle);
         }
+    }
+
+    AssetManager::RefreshResult AssetManager::schedule_refresh(const AssetRecord& record) {
+        bool accepted = false;
+        switch(record.type) {
+            case AssetType::Mesh:
+                accepted = schedule_mesh_task(record, MeshImportMode::Force);
+                break;
+            case AssetType::Material:
+                accepted = schedule_material_refresh(record);
+                break;
+            case AssetType::Texture:
+                if(!m_registry.resolve<Texture>(record.handle)
+                    || !std::holds_alternative<TextureImportSettings>(record.import_settings)) {
+                    LOG_ERROR(
+                        "Cannot refresh texture asset handle {}: incompatible runtime type or settings",
+                        record.handle.value());
+                    return RefreshResult::Rejected;
+                }
+                accepted = schedule_loaded_texture_refresh(record);
+                break;
+            default:
+                static_cast<void>(m_registry.unregister_asset(record.handle));
+                LOG_WARN(
+                    "Unloaded modified asset handle {} because runtime reload is not implemented for type '{}'",
+                    record.handle.value(), to_string(record.type));
+                return RefreshResult::Rejected;
+        }
+        return accepted ? RefreshResult::Scheduled : RefreshResult::Deferred;
     }
 
     void AssetManager::retry_refresh_requests() {
@@ -244,23 +231,7 @@ namespace Comet {
                 request = m_refresh_requests.erase(request);
                 continue;
             }
-            bool accepted = true;
-            switch(record->type) {
-                case AssetType::Mesh:
-                    accepted = schedule_mesh_task(*record, MeshImportMode::Force);
-                    break;
-                case AssetType::Material:
-                    accepted = schedule_material_refresh(*record);
-                    break;
-                case AssetType::Texture:
-                    if(m_registry.resolve<Texture>(handle)
-                        && std::holds_alternative<TextureImportSettings>(record->import_settings))
-                        accepted = schedule_loaded_texture_refresh(*record);
-                    break;
-                default:
-                    break;
-            }
-            if(!accepted)
+            if(schedule_refresh(*record) == RefreshResult::Deferred)
                 break;
             request = m_refresh_requests.erase(request);
         }

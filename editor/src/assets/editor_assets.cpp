@@ -203,18 +203,15 @@ namespace CometEditor {
     Comet::Result<std::size_t, Comet::Error> EditorAssets::restore_references(
         const Comet::AssetManager::CompletionBudget budget) {
         auto changed = std::exchange(m_reference_changes, {});
-        std::vector<Comet::AssetHandle> pending(changed.begin(), changed.end());
-        for(std::size_t i = 0; i < pending.size(); ++i)
-            for(const auto dependent : database().get_dependents(pending[i]))
-                if(changed.insert(dependent).second)
-                    pending.push_back(dependent);
-        for(const auto& reference : m_scene_references)
-            if(changed.contains(reference.handle))
-                m_pending_references.insert(reference);
-        // 失败的材质可能尚无完整依赖索引，发布事件也重试有限的未解析引用。
-        if(!changed.empty())
+        if(!changed.empty()) {
+            database().include_dependents(changed);
+            for(const auto& reference : m_scene_references)
+                if(changed.contains(reference.handle))
+                    m_pending_references.insert(reference);
+            // 失败的材质可能尚无完整依赖索引，发布事件也重试有限的未解析引用。
             m_pending_references.insert(
                 m_unresolved_references.begin(), m_unresolved_references.end());
+        }
         const auto start = std::chrono::steady_clock::now();
         std::size_t processed = 0;
         while(!m_pending_references.empty() && processed < budget.max_results

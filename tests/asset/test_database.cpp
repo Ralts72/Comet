@@ -259,6 +259,32 @@ namespace Comet::Tests {
             std::ranges::equal(database.get_dependents(AssetHandle(42)), std::vector{handle}));
     }
 
+    TEST(AssetDatabaseTest, IncludesTransitiveDependentsWithCyclesAndMissingRoots) {
+        const TemporaryProject project;
+        project.add_file("materials/first.mat", std::string(EMPTY_MATERIAL));
+        project.add_file("materials/second.mat", std::string(EMPTY_MATERIAL));
+        project.add_file("materials/third.mat", std::string(EMPTY_MATERIAL));
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto first = database.find("materials/first.mat")->handle;
+        const auto second = database.find("materials/second.mat")->handle;
+        const auto third = database.find("materials/third.mat")->handle;
+        const AssetHandle missing(42);
+        ASSERT_EQ(database.find(missing), nullptr);
+        ASSERT_TRUE(database.update_dependencies(first, {missing, third}));
+        ASSERT_TRUE(database.update_dependencies(second, {first}));
+        ASSERT_TRUE(database.update_dependencies(third, {first, second}));
+
+        std::unordered_set<AssetHandle> affected;
+        database.include_dependents(affected);
+        EXPECT_TRUE(affected.empty());
+        affected.insert(missing);
+        database.include_dependents(affected);
+        EXPECT_EQ(affected, (std::unordered_set<AssetHandle>{missing, first, second, third}));
+        database.include_dependents(affected);
+        EXPECT_EQ(affected.size(), 4);
+    }
+
     TEST(AssetDatabaseTest, RejectsImportSettingsForAnotherAssetType) {
         const TemporaryProject project;
         project.add_file("materials/default.mat", std::string(EMPTY_MATERIAL));

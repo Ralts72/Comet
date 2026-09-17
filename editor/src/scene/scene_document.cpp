@@ -75,7 +75,8 @@ namespace CometEditor {
         }
         m_path = resolved.value().string();
         m_saved_state = m_history.state_id();
-        m_pending_state = PendingState::Confirm;
+        if(m_pending_request)
+            m_pending_request->state = PendingState::Confirm;
         m_last_error.clear();
         LOG_INFO("Saved scene '{}'", path);
         return Comet::Result<void, Comet::Error>::success();
@@ -84,29 +85,29 @@ namespace CometEditor {
     void SceneDocument::request(Request request) {
         if(m_pending_request)
             return;
-        m_pending_request = std::move(request);
-        m_pending_state = PendingState::Confirm;
+        m_pending_request = PendingRequest{std::move(request)};
     }
 
     void SceneDocument::decide(const Decision decision) {
         if(decision == Decision::Cancel) {
             m_pending_request.reset();
-            m_pending_state = PendingState::Confirm;
         } else if(m_pending_request) {
-            m_pending_state =
+            m_pending_request->state =
                 decision == Decision::Save ? PendingState::Saving : PendingState::Discard;
         }
     }
 
     bool SceneDocument::needs_confirmation() const {
-        return m_pending_request && m_pending_state == PendingState::Confirm && is_modified();
+        return m_pending_request && m_pending_request->state == PendingState::Confirm
+            && is_modified();
     }
 
     std::optional<SceneDocument::Request> SceneDocument::take_ready_request() {
-        if(!m_pending_request || m_pending_state == PendingState::Saving || needs_confirmation())
+        if(!m_pending_request || m_pending_request->state == PendingState::Saving
+            || needs_confirmation())
             return std::nullopt;
-        m_pending_state = PendingState::Confirm;
-        return std::exchange(m_pending_request, std::nullopt);
+        auto pending = std::exchange(m_pending_request, std::nullopt);
+        return std::move(pending->action);
     }
 
     Comet::Result<void, Comet::Error> SceneDocument::replace_scene(

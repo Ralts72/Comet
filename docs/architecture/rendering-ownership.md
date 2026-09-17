@@ -91,8 +91,8 @@ end 是内部操作，提前消费关闭标记，先完成 Engine 的关闭准�
 钩子失败时保留 Engine／Diagnostics，由应用析构先释放派生类剩余资源、再释放基类 owner；
 原始初始化／更新错误继续向上传递，清理错误单独报告。关闭失败的实例不能重新运行。
 run 和私有 end 返回 Result<void, Error>。通用 Error 只保存消息与 std::error_code，图形错误在边界通过 GraphicsError::as_error 保留原生类别与数值，不再把呈现 Result 转为异常或捕获后重抛。
-应用钩子及第三方异常在这两个生命周期边界转换；vk::SystemError 保留原生结果码，其他异常保留诊断。
-Comet::run 消费结果并返回非零退出码；启动配置等尚未迁移的异常由 launch 兜底。
+应用钩子通过 Result 返回预期失败；run／end／launch 不捕获第三方或未预期异常，不保证异常路径调用关闭钩子。
+Comet::run 消费结果并返回非零退出码；YAML 配置解析异常仅在 ConfigLoader 内转换，不在入口兜底。
 
 ImGuiContext 的原生 Context 由带私有 ContextDeleter 的 unique_ptr 拥有；create 在私有候选中 initialize。
 失败返回或异常展开都会销毁候选，由 cleanup 先关闭借用 GPU 资源的后端，再析构 pool／target。

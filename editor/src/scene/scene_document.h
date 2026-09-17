@@ -61,7 +61,10 @@ namespace CometEditor {
         std::string m_path;
         std::string m_last_error;
         enum class PendingState { Confirm, Saving, Discard };
-        PendingState m_pending_state = PendingState::Confirm;
-        std::optional<Request> m_pending_request;
+        struct PendingRequest {
+            Request action;
+            PendingState state = PendingState::Confirm;
+        };
+        std::optional<PendingRequest> m_pending_request;
     };
 }
