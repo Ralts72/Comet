@@ -2,6 +2,7 @@
 #include "vk_common.h"
 #include "common/export.h"
 #include "graphics/resource/memory_budget.h"
+#include "graphics/pipeline/pipeline_cache.h"
 #include "queue.h"
 #include "graphics/command/command_buffer.h"
 #include "vk_capability.h"
@@ -69,7 +70,8 @@ namespace Comet {
             return m_present_queues.at(index);
         }
 
-        [[nodiscard]] vk::PipelineCache get_pipeline_cache() const { return m_pipeline_cache; }
+        [[nodiscard]] PipelineCache& get_pipeline_cache() { return *m_pipeline_cache; }
+        [[nodiscard]] const PipelineCache& get_pipeline_cache() const { return *m_pipeline_cache; }
 
         [[nodiscard]] const DeviceCapability& get_capability() const { return m_capability; }
 
@@ -100,7 +102,7 @@ namespace Comet {
         std::vector<Queue> m_graphics_queues;
         std::vector<Queue> m_present_queues;
         DeviceCapability m_capability;
-        vk::PipelineCache m_pipeline_cache;
+        std::unique_ptr<PipelineCache> m_pipeline_cache;
         std::unique_ptr<CommandPool> m_default_command_pool;
     };
 }

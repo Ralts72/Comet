@@ -1,6 +1,7 @@
 file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
 )
+list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/graphics/pipeline_cache_probe.cpp")
 add_executable(unit_testing ${TEST_SOURCES})
 include("${CMAKE_SOURCE_DIR}/engine/cmake/compile_shader.cmake")
 compile_shaders(
@@ -46,3 +47,12 @@ add_test(NAME shader_build_contract COMMAND "${CMAKE_COMMAND}"
         "-DGENERATOR=${CMAKE_GENERATOR}"
         "-DBUILD_CONFIG=$<CONFIG>"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/shader/test_build.cmake")
+
+add_executable(pipeline_cache_probe graphics/pipeline_cache_probe.cpp)
+target_link_libraries(pipeline_cache_probe PRIVATE engine)
+comet_copy_runtime_dependencies(pipeline_cache_probe)
+add_test(NAME pipeline_cache_process COMMAND "${CMAKE_COMMAND}"
+        "-DPROBE=$<TARGET_FILE:pipeline_cache_probe>"
+        "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/pipeline-cache-process"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/graphics/test_pipeline_cache_process.cmake")
+set_tests_properties(unit_testing pipeline_cache_process PROPERTIES RESOURCE_LOCK comet_gpu)

@@ -46,7 +46,8 @@
 namespace {
     class Editor final: public Comet::Application {
     public:
-        explicit Editor(Comet::Project project) : m_project(std::move(project)) {}
+        explicit Editor(Comet::Project project)
+            : Application(project.paths().cache()), m_project(std::move(project)) {}
 
         Comet::Result<void, Comet::Error> on_init() override {
             LOG_INFO("Editor initializing...");

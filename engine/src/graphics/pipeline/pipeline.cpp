@@ -100,7 +100,7 @@ namespace Comet {
         auto handle = Graphics::create_handle<vk::Pipeline>(device.get(),
             "Create graphics pipeline '" + name + "'", [&](vk::Pipeline* output) noexcept {
                 return device.get().createGraphicsPipelines(
-                    device.get_pipeline_cache(), 1, &pipeline_create_info, nullptr, output);
+                    device.get_pipeline_cache().get(), 1, &pipeline_create_info, nullptr, output);
             });
         if(!handle)
             return Result<std::shared_ptr<Pipeline>, GraphicsError>::failure(handle.error());

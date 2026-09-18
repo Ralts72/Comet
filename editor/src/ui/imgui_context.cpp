@@ -222,6 +222,7 @@ namespace CometEditor {
         init_info.Instance = context.instance();
         init_info.PhysicalDevice = context.get_physical_device();
         init_info.Device = device.get();
+        init_info.PipelineCache = device.get_pipeline_cache().get();
         init_info.QueueFamily = context.get_graphics_queue_family().queue_family_index.value();
         init_info.Queue = device.get_graphics_queue(0).get();
         init_info.DescriptorPool = m_descriptor_pool->get();

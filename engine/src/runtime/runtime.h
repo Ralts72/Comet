@@ -16,6 +16,8 @@ namespace Comet {
 
     class COMET_API Application {
     public:
+        explicit Application(std::filesystem::path cache_directory = {})
+            : m_cache_directory(std::move(cache_directory)) {}
         virtual ~Application() = default;
 
         [[nodiscard]] Result<void, Error> run(Config config);
@@ -38,6 +40,7 @@ namespace Comet {
     private:
         [[nodiscard]] Result<void, Error> end();
 
+        std::filesystem::path m_cache_directory;
         std::unique_ptr<Diagnostics> m_diagnostics;
         std::unique_ptr<Engine> m_engine;
         bool m_shutdown_required = false;

@@ -53,6 +53,7 @@ set(SOURCES
         src/graphics/resource/image_view.cpp
         src/graphics/frame_buffer.cpp
         src/graphics/pipeline/pipeline.cpp
+        src/graphics/pipeline/pipeline_cache.cpp
         src/graphics/pipeline/pipeline_config.cpp
         src/graphics/pipeline/pipeline_key.cpp
         src/graphics/pipeline/shader.cpp

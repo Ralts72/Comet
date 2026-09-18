@@ -45,6 +45,8 @@ namespace {
 
     class GameApp final: public Comet::Application {
     public:
+        GameApp() : Application(Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY).cache()) {}
+
         Comet::Result<void, Comet::Error> on_init() override {
             LOG_INFO("app init");
 

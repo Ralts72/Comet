@@ -33,6 +33,10 @@ namespace Comet {
 
         LOG_INFO("create device");
         auto device = std::make_unique<Device>(*context);
+        if(auto restored =
+               device->get_pipeline_cache().restore(vulkan_config.pipeline_cache_directory);
+            !restored)
+            return Result<std::unique_ptr<RenderContext>, GraphicsError>::failure(restored.error());
 
         LOG_INFO("create swapchain");
         auto swapchain = Swapchain::create(window, *context, *device, swapchain_request);

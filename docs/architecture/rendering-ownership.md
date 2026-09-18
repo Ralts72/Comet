@@ -312,7 +312,29 @@ Key 包含完整 Shader 内容／入口、layout、配置、RenderPass 身份与
 Key 属于 Device/RenderPass 域，不是持久格式；其中 Vulkan 值不传播到材质或 ShaderInterface API。
 PipelineManager 只持 weak_ptr，使用方与 FrameSlot 持有实际 Pipeline；创建请求或 collect_unused 清理过期键，不每帧扫描。
 get_cached_pipeline_count 包括尚未清理的过期项。模板选择、Pipeline 对象复用、驱动 PipelineCache 是三种不同职责。
-材质热发布同时切换 PipelineState 与 GPU 材质缓存；后续驱动缓存与复杂接口见[路线图](../engine-roadmap.md#阶段-5渲染架构升级)。
+材质热发布同时切换 PipelineState 与 GPU 材质缓存；复杂接口的后续安排见[路线图](../engine-roadmap.md#阶段-5渲染架构升级)。
+
+### 驱动 PipelineCache 持久化
+
+Device 独占 `graphics/pipeline/pipeline_cache`，Pipeline 和 ImGui 只借用原生缓存句柄。
+Application 构造时接收可选缓存根目录，在 run 中传入 Config::Vulkan；Editor 从实际 ProjectPaths 取目录，
+app 从 demo 项目取目录。RenderContext 在创建 Device 后、创建渲染资源前调用 restore。
+图形层只接收目录，不依赖 Project、AssetDatabase 或 UI；空目录不读写磁盘，直接传 Config 的调用者也可指定目录。
+
+Device 已有的空内存缓存是回退对象；有效磁盘数据创建临时候选并合并到它，不替换消费者借用的缓存句柄。
+缺失、损坏或不兼容文件不阻断启动；驱动拒绝候选时保留内存缓存，OOM／DeviceLost 及合并失败返回 GraphicsError。
+新读取、校验、合并与保存路径没有 try/catch/throw；Device 原有逻辑设备和初始空缓存创建边界未在本项扩展迁移。
+
+文件名包含 vendorID、deviceID 和 pipelineCacheUUID。Comet 封装为固定小端 32 字节头：magic、版本、头长度、
+payload 长度和 FNV-1a 校验和；payload 再校验 Vulkan v1 头及设备身份。先限制文件大小再分配，驱动数据上限 64 MiB。
+校验和仅检测意外损坏，不是认证；缓存不能作为不可信远端数据的安全隔离措施。
+
+正常关闭在原生 Device 销毁前保存；也可由 owner 显式调用 save，不在每帧写盘。
+取数据最多处理三轮 INCOMPLETE，再复用公共原子文件写入；失败返回 Result 并保留原目标，析构只报告错误后继续释放缓存。
+没有异常兜底，不承诺内存耗尽等未预期异常下仍能有序关闭。
+多进程采用最后一次完整写入，不合并文件或加跨进程锁；崩溃可能丢失本次新增缓存，不影响资源正确性。
+Restored 仅表示驱动接收并合并了兼容数据，不证明内部命中或固定性能收益。测试覆盖 CPU 格式、真实绘制、失败保存与跨进程恢复；
+驱动拒绝候选和 GPU 内存失败尚无故障注入，历史 UUID 文件清理与目录总预算留待实际规模需要。
 
 ## 编辑命令与视口时序
 

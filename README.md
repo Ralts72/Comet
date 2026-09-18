@@ -168,6 +168,8 @@ JSON 解析直接依赖已有 simdjson。
   预期呈现失败经 Renderer／Engine 原样返回，在 Application 生命周期边界统一处理。
   重试耗尽、设备丢失和不支持的配置沿生命周期边界退出；具体契约见资源所有权文档。
   Pipeline 按 Shader 字节码／入口、specialization、布局、渲染状态及 RenderPass 域复用，名称只作标签；缓存弱引用不代替在途帧保活。
+  Device 的驱动 PipelineCache 在项目 `.comet/cache/vulkan/` 持久化，校验设备身份、版本和校验和；坏文件回退内存缓存，正常关闭原子保存。
+  Editor 使用实际打开项目的缓存目录，示例 app 使用 demo 项目目录；直接运行 Config 可通过空缓存路径禁用磁盘操作。不保证固定提速比例。
   specialization 支持 bool 与 32 位数值，按阶段和位模式校验／缓存并传给 GPU；只用于固定接口的创建期变体。
   改变数组长度的变体使用编译期 defines，不用 specialization；材质逐帧参数仍走原有 uniform。
   `graphics/pipeline/` 中，`pipeline_config` 管配置，`pipeline_key` 管缓存身份，`pipeline` 管 GPU 对象创建与复用。

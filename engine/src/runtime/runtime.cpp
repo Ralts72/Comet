@@ -13,6 +13,8 @@ namespace Comet {
         using RunResult = Result<void, Error>;
         if(m_engine)
             return RunResult::failure({"Application is already started"});
+        if(!m_cache_directory.empty())
+            config.vulkan.pipeline_cache_directory = m_cache_directory / "vulkan";
         m_diagnostics = std::make_unique<Diagnostics>(config.diagnostics);
         auto engine = Engine::create(config);
         if(!engine) {
