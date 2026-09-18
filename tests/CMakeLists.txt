@@ -2,6 +2,7 @@ file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
 )
 list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/graphics/pipeline_cache_probe.cpp")
+list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/graphics/test_swapchain_recovery.cpp")
 add_executable(unit_testing ${TEST_SOURCES})
 include("${CMAKE_SOURCE_DIR}/engine/cmake/compile_shader.cmake")
 compile_shaders(
@@ -55,4 +56,27 @@ add_test(NAME pipeline_cache_process COMMAND "${CMAKE_COMMAND}"
         "-DPROBE=$<TARGET_FILE:pipeline_cache_probe>"
         "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/pipeline-cache-process"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/graphics/test_pipeline_cache_process.cmake")
-set_tests_properties(unit_testing pipeline_cache_process PROPERTIES RESOURCE_LOCK comet_gpu)
+# Isolated WSI fault injection: compile the actual consumers with renamed Vulkan entry points.
+add_executable(swapchain_recovery
+        graphics/test_swapchain_recovery.cpp
+        "${CMAKE_SOURCE_DIR}/engine/src/graphics/swapchain.cpp"
+        "${CMAKE_SOURCE_DIR}/engine/src/graphics/queue.cpp"
+        "${CMAKE_SOURCE_DIR}/engine/src/graphics/convert.cpp"
+        "${CMAKE_SOURCE_DIR}/engine/src/render/render_context.cpp"
+        "${CMAKE_SOURCE_DIR}/engine/src/render/presentation.cpp")
+target_link_libraries(swapchain_recovery PRIVATE engine gtest_main Vulkan::Vulkan)
+target_compile_definitions(swapchain_recovery PRIVATE
+        vkCreateSwapchainKHR=comet_test_create_swapchain
+        vkGetSwapchainImagesKHR=comet_test_get_swapchain_images
+        vkGetPhysicalDeviceSurfaceFormatsKHR=comet_test_get_surface_formats
+        vkAcquireNextImageKHR=comet_test_acquire_next_image
+        vkQueuePresentKHR=comet_test_queue_present)
+comet_copy_runtime_dependencies(swapchain_recovery)
+if (APPLE)
+    add_test(NAME swapchain_recovery COMMAND swapchain_recovery -NSAutomaticWindowAnimationsEnabled NO)
+else ()
+    add_test(NAME swapchain_recovery COMMAND swapchain_recovery)
+endif ()
+set_tests_properties(swapchain_recovery PROPERTIES TIMEOUT 90)
+set_tests_properties(unit_testing pipeline_cache_process swapchain_recovery
+        PROPERTIES RESOURCE_LOCK comet_gpu)

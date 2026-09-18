@@ -301,7 +301,7 @@ RetryBackoff 是无资源、无线程的值类型，只管理预约／一次性�
 SwapchainTarget 只发布完成全部 framebuffer 的候选，失败先释放 framebuffer/view，再释放 Generation 引用。
 FrameBuffer 无调用方的 fatal 创建包装已移除，目标统一使用 try_create。
 ImGuiContext::create 和重建返回结果，失败时关闭已初始化后端，再销毁池、目标与 pass；不发布半初始化 UI。
-重建已释放旧依赖，失败不作逐帧重试：Presentation 在应用边界抛出错误并退出清理。
+重建已释放旧依赖；暂时失败由 Presentation 有界退避重试，设备丢失或重试耗尽以 Result 返回应用退出清理。
 ImGui 第三方后端内部创建目前仍不能靠 Init 的 bool 完整报告 GPU 失败；回调处还有未交给后端 owner 的局部资源，不直接抛异常跳过释放。
 当前后端的 Vulkan Shutdown 还清除主视口平台数据，因此 format/image count 重建同时关闭并重建 GLFW 后端；保留 ImGui Context 和 UI 状态。
 Application 的失败清理及 Device 关闭等待保护必须保留，不以 LOG_FATAL 替代可恢复错误。
@@ -427,7 +427,8 @@ Generation 的 shared ownership 只解决寿命，不保证 WSI 可继续 acquir
 传入 oldSwapchain 调用创建后，无论成功失败旧 core 都退休。调用前取走 active 引用，旧 owner 仅保活至创建调用结束，绝不再发布为 active。
 新 Generation 用 UniqueSwapchainKHR 持有句柄，图像查询失败或包装异常都会释放新句柄。
 Presentation 区分交换链重建、dependent 重建与 surface 重建阶段；任一阶段未完成时不 acquire、不录制。
-内存不足、OutOfDate、SurfaceLost、Timeout／NotReady 按 1／2／4 秒最多重试三次；
+恢复阶段的内存不足、OutOfDate、SurfaceLost、Timeout／NotReady／Incomplete 按 1／2／4 秒最多重试三次；
+surface format／present mode 枚举单次最多四轮，持续 INCOMPLETE 返回恢复层，不能在 owner 线程无限循环。
 dependent 暂时失败保留已成功创建的新 Generation，下次仅重建 dependent，重复释放必须兼容部分初始化状态。
 零尺寸延期保持待重建状态；无呈现时主循环继续更新，并通过短时事件等待避免忙等。
 SurfaceLost 在等待 graphics／present、释放 dependent 后重建 surface，并检查原呈现队列是否支持新 surface。
@@ -439,6 +440,14 @@ prepare_frame 返回 Result<bool, GraphicsError>：true 可绘制、false 延期
 这不承诺全部底层录制／等待接口 noexcept；未迁移的第三方异常仍可能导致进程终止，不保证有序清理。
 Context 对外只提供借用 Surface 句柄，Surface owner 仅在 Context／Swapchain 内部共享。
 首次创建与恢复共用私有 Surface 候选创建函数，恢复路径额外校验当前呈现队列，再安装候选。
+
+旧 027 的无呈现恢复已按当前 Presentation 所有权核对：独立 swapchain_recovery 测试目标重编译实际 WSI 消费者，
+仅在测试进程重命名 Vulkan 入口，生产接口没有故障注入字段或回调。
+创建失败测试先真实创建并退休旧交换链，再销毁候选、返回 OOM；同时覆盖图像枚举失败、连续 acquire OutOfDate、
+present 后结束已提交帧、无 active 时关闭、surface 枚举有界及自动重试预算耗尽。
+直接呈现与附带离屏目标两种配置均执行真实 clear／submit／present，验证暂停期间不 acquire／提交、恢复使用空 oldSwapchain、离屏 owner 不变。
+这不是完整 ImGui 人工验收；SurfaceLost 的已有回归从 dependent 返回错误驱动恢复，不模拟平台真实丢失窗口。
+与旧 027 不同，当前回调必须允许重复释放，以清理 dependent 部分重建后的资源；不迁回旧的固定 100 ms 无限重试。
 
 关闭先由 Engine 调用 TaskScheduler::shutdown 停止接收、排空任务并回收线程，再由 Renderer 停止新帧并等待 GPU；随后应用解绑捕获 Editor/ImGuiContext 的 callback 并释放资源。shutdown 由 owner 线程调用，不可从 Worker 调用，也不支持多个线程同时关闭；wait_idle 只等待瞬时空闲，不承担关闭职责。Engine 不直接访问 Device。独立底层 owner 的安全析构等待仍保留。资源释放顺序为：
 ImGui dependent → Registry/SceneRenderer → ResourceManager → Swapchain/Device/Context → Window。

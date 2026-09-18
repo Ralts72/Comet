@@ -19,7 +19,7 @@
 以当前 main 的功能与验收为准，继续逐项对照 feat/auto2 的实现及原始提交，而不是机械 cherry-pick。
 每项先注明对应旧提交、当前覆盖、需要调整及仍未覆盖的范围，再适配 main 的 Result、目录边界和生命周期；
 临时代码说明留在仓库内供学习，不进入提交。旧分支的已实现行为不能只因 main 有同名功能就判为完整覆盖。
-材质布局重建、呈现／场景边界和完整目标事务已收敛；辅助线 Shader 热更新按实际需求暂缓，旧 026 驱动 PipelineCache 持久化已适配当前主线；下一步先核对旧 027 WSI 恢复的现有覆盖，再评估旧 028 RenderGraph 与真实多 pass 的最小接入范围；
+材质布局重建、呈现／场景边界和完整目标事务已收敛；辅助线 Shader 热更新按实际需求暂缓，旧 026 驱动 PipelineCache 与旧 027 WSI 恢复已核对适配；下一步推进旧 028 有序 RenderGraph 的资源声明、同步计划及真实多 pass 验证，不迁回旧所有权和异常协议；
 阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
@@ -234,6 +234,8 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
   删除无生产消费者的 ShaderManager 及后台重复反射。Debug 热重载暂缓，保留辅助线绘制和统一构建路径；
   有实际辅助线着色效果开发需求时再评估，不作为下一项的前置条件。
 - 026 `6d9f365`：已适配设备／版本校验、损坏拒绝、原子保存、ImGui 借用和跨进程恢复；使用实际项目目录与 Result，不迁回旧异常捕获，不替代 PipelineKey 对象缓存。候选驱动拒绝／OOM 尚无故障注入，缓存总预算和淘汰仍待实际需求。
+- 027 `88cdd4a`：主线已由 Presentation 管恢复，补齐独立 WSI 故障注入回归及持续 INCOMPLETE 的有界枚举；保留 1／2／4 秒预算和 SurfaceLost 扩展，不恢复旧 SceneRenderer 编排或固定间隔无限重试。人工 ImGui、真实平台 SurfaceLost 及设备恢复仍不在覆盖内。
+- 028 `fd1d5f3`：下一项先做有序 pass 的资源使用声明和纯 CPU 同步计划，再接当前离屏目标及真实 GPU producer/consumer；复用 Barrier2／FrameSlot，外部 upload／WSI 等待保持显式。不预建 DAG 重排、瞬态分配、多队列或 RenderThread。
 - 原生文件监听按阶段 3 专项安排，旧分支同样采用轮询，不作为最终方案迁回。
 
 specialization 已贯通类型化值、默认值规范化、反射校验、PipelineKey 和 GPU 创建。

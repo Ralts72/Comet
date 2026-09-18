@@ -164,6 +164,7 @@ JSON 解析直接依赖已有 simdjson。
   MaterialRenderer 只描述资源与槽位，DescriptorSet 负责原生批量写入，CommandBuffer 负责集合绑定；不在材质层拼装 Vulkan 结构。
   WSI 与提交返回显式结果；退休交换链不重新发布，失败提交不产生 completion，也不登记在途帧。
   WSI 暂时失败进入无呈现状态，按 1／2／4 秒最多重试三次；SurfaceLost 重建 surface 并校验呈现队列兼容性。
+  Surface 枚举单次最多尝试四轮，持续 INCOMPLETE 转入退避，不在帧准备中无限循环；独立 WSI 故障注入测试覆盖退休失败与恢复。
   手动重建只登记请求，在下一次帧准备统一执行；帧准备返回 Result，成功值 false 表示延期。
   预期呈现失败经 Renderer／Engine 原样返回，在 Application 生命周期边界统一处理。
   重试耗尽、设备丢失和不支持的配置沿生命周期边界退出；具体契约见资源所有权文档。
