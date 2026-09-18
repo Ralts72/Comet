@@ -52,6 +52,12 @@ namespace Comet {
         }
 
         switch(usage) {
+            case ResourceUsage::HostRead:
+                return ResourceState{.stages = Flags<PipelineStage>(PipelineStage::Host),
+                    .access = Flags<Access>(Access::HostRead), .queue_family = queue_family};
+            case ResourceUsage::HostWrite:
+                return ResourceState{.stages = Flags<PipelineStage>(PipelineStage::Host),
+                    .access = Flags<Access>(Access::HostWrite), .queue_family = queue_family};
             case ResourceUsage::Undefined:
             case ResourceUsage::Present:
                 return ResourceState{.queue_family = queue_family};
@@ -122,6 +128,8 @@ namespace Comet {
             case ResourceUsage::IndexBuffer:
             case ResourceUsage::IndirectBuffer:
             case ResourceUsage::UniformRead:
+            case ResourceUsage::HostRead:
+            case ResourceUsage::HostWrite:
                 return std::nullopt;
             default:
                 break;
@@ -166,6 +174,8 @@ namespace Comet {
             case ResourceUsage::IndexBuffer:
             case ResourceUsage::IndirectBuffer:
             case ResourceUsage::UniformRead:
+            case ResourceUsage::HostRead:
+            case ResourceUsage::HostWrite:
                 return std::nullopt;
         }
         return ImageState{.resource = *resource, .layout = layout, .subresources = subresources};

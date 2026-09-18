@@ -7,6 +7,10 @@
 #include <utility>
 
 namespace Comet {
+    std::span<const std::shared_ptr<ImageView>> FrameBuffer::get_attachments() const {
+        return m_attachments;
+    }
+
     GpuResourceResult<std::shared_ptr<FrameBuffer>> FrameBuffer::try_create(Device& device,
         RenderPass& render_pass, const std::vector<std::shared_ptr<ImageView>>& image_views,
         const uint32_t width, const uint32_t height) {

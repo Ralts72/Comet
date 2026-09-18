@@ -61,28 +61,19 @@ namespace Comet {
         [[nodiscard]] uint32_t get_current_frame_slot_index() const { return m_current_frame_slot; }
         [[nodiscard]] uint32_t get_frame_slot_count() const { return m_frame_slot_count; }
         [[nodiscard]] bool is_frame_active() const { return m_frame_active; }
+        [[nodiscard]] bool is_recording_frame() const;
+        [[nodiscard]] uint32_t get_queue_family_index() const;
+        [[nodiscard]] Device& get_device() const { return m_device; }
         [[nodiscard]] uint64_t get_current_frame_serial() const { return m_current_frame_serial; }
-        [[nodiscard]] uint64_t get_completed_frame_serial() const {
-            return m_completed_frame_serial;
-        }
-        [[nodiscard]] bool is_frame_serial_complete(const uint64_t frame_serial) const {
-            return frame_serial == 0 || frame_serial <= m_completed_frame_serial;
-        }
+        [[nodiscard]] uint64_t get_completed_frame_serial() const;
+        [[nodiscard]] bool is_frame_serial_complete(uint64_t frame_serial) const;
 
-        [[nodiscard]] FrameSlot& get_current_frame_slot() {
-            return m_frame_slots.at(m_current_frame_slot);
-        }
-        [[nodiscard]] const FrameSlot& get_current_frame_slot() const {
-            return m_frame_slots.at(m_current_frame_slot);
-        }
+        [[nodiscard]] FrameSlot& get_current_frame_slot();
+        [[nodiscard]] const FrameSlot& get_current_frame_slot() const;
 
-        [[nodiscard]] SwapchainImageState& get_swapchain_image_state(uint32_t image_index) {
-            return m_swapchain_image_states.at(image_index);
-        }
+        [[nodiscard]] SwapchainImageState& get_swapchain_image_state(uint32_t image_index);
 
-        [[nodiscard]] CommandBuffer& get_current_command_buffer() {
-            return get_current_frame_slot().command_buffer;
-        }
+        [[nodiscard]] CommandBuffer& get_current_command_buffer();
 
     private:
         void wait_for_slot(uint32_t frame_slot_index);

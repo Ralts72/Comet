@@ -77,7 +77,9 @@ namespace Comet {
         ColorAttachmentWrite,
         DepthStencilAttachmentWrite,
         DepthStencilAttachmentRead,
-        Present
+        Present,
+        HostRead,
+        HostWrite
     };
 
     enum class ImageAspect {

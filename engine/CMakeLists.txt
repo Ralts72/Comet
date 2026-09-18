@@ -26,6 +26,7 @@ set(SOURCES
         src/common/file_io.cpp
         src/common/retry_backoff.cpp
         src/render/presentation.cpp
+        src/render/render_graph.cpp
         src/config/config_loader.cpp
         src/diagnostics/diagnostics.cpp
         src/diagnostics/profiler.cpp

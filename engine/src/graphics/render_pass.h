@@ -16,6 +16,7 @@ namespace Comet {
         SampleCount sample_count = SampleCount::Count1;
         ImageLayout resolve_final_layout = ImageLayout::PresentSrcKHR;
         Flags<ImageUsage> resolve_usage = Flags<ImageUsage>(ImageUsage::ColorAttachment);
+        ImageLayout resolve_initial_layout = ImageLayout::Undefined;
     };
 
     class COMET_API RenderPass {
@@ -33,9 +34,7 @@ namespace Comet {
 
         [[nodiscard]] vk::RenderPass get() const { return m_render_pass.get(); }
         [[nodiscard]] uint32_t get_subpass_count() const { return m_subpass_count; }
-        [[nodiscard]] const std::vector<Attachment>& get_attachments() const {
-            return m_attachments;
-        }
+        [[nodiscard]] const std::vector<Attachment>& get_attachments() const;
 
     private:
         RenderPass(vk::UniqueRenderPass render_pass, std::vector<Attachment> attachments,

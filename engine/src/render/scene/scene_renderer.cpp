@@ -1,4 +1,7 @@
 #include "render/scene/scene_renderer.h"
+#include "render/render_graph.h"
+#include "graphics/frame_buffer.h"
+#include "graphics/resource/image_view.h"
 #include "graphics/device.h"
 #include "graphics/render_pass.h"
 #include "graphics/attachment.h"
@@ -21,6 +24,7 @@ namespace Comet {
         std::shared_ptr<RenderTarget> target;
         std::unique_ptr<MaterialRenderer> materials;
         std::unique_ptr<DebugRenderer> debug;
+        std::optional<RenderGraph::Plan> graph;
         bool offscreen = false;
     };
 
@@ -38,20 +42,26 @@ namespace Comet {
         auto next = std::make_shared<TargetState>();
         next->offscreen = !swapchain;
         auto color = Attachment::get_color_attachment(m_surface_format, m_msaa_samples);
+        auto depth = Attachment::get_depth_attachment(m_depth_format, m_msaa_samples);
+        if(next->offscreen) {
+            color.description.initial_layout = ImageLayout::ColorAttachmentOptimal;
+            color.description.final_layout = ImageLayout::ColorAttachmentOptimal;
+            depth.description.initial_layout = ImageLayout::DepthStencilAttachmentOptimal;
+        }
         if(next->offscreen && m_msaa_samples == SampleCount::Count1) {
             color.description.store_op = AttachmentStoreOp::Store;
-            color.description.final_layout = ImageLayout::ShaderReadOnlyOptimal;
             color.usage |= ImageUsage::Sampled;
         }
         RenderSubPass subpass{
             {}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)}, m_msaa_samples};
         if(next->offscreen) {
-            subpass.resolve_final_layout = ImageLayout::ShaderReadOnlyOptimal;
+            subpass.resolve_initial_layout = ImageLayout::ColorAttachmentOptimal;
+            subpass.resolve_final_layout = ImageLayout::ColorAttachmentOptimal;
             subpass.resolve_usage =
                 Flags<ImageUsage>(ImageUsage::ColorAttachment) | ImageUsage::Sampled;
         }
         auto pass = RenderPass::create(m_device,
-            {color, Attachment::get_depth_attachment(m_depth_format, m_msaa_samples)}, {subpass},
+            {color, depth}, {subpass},
             m_surface_format);
         if(!pass)
             return Creation::failure(pass.error());
@@ -81,6 +91,35 @@ namespace Comet {
         if(!debug)
             return Creation::failure(debug.error());
         next->debug = std::move(debug).value();
+        if(next->offscreen) {
+            RenderGraph graph;
+            RenderGraph::Pass scene{"scene", {}};
+            RenderGraph::ResourceId output;
+            for(const auto& attachment : next->pass->get_attachments()) {
+                const bool is_depth =
+                    Graphics::is_depth_stencil_format(attachment.description.format);
+                auto aspects =
+                    Flags<ImageAspect>(is_depth ? ImageAspect::Depth : ImageAspect::Color);
+                if(is_depth && !Graphics::is_depth_only_format(attachment.description.format))
+                    aspects |= ImageAspect::Stencil;
+                const auto id =
+                    graph.import_image("attachment " + std::to_string(scene.uses.size()),
+                        {.subresources = {.aspects = aspects}});
+                scene.uses.push_back({id,
+                    is_depth ? ResourceUsage::DepthStencilAttachmentWrite
+                             : ResourceUsage::ColorAttachmentWrite,
+                    {}});
+                if(!is_depth)
+                    output = id;
+            }
+            graph.add_pass(std::move(scene));
+            graph.export_resource({output, ResourceUsage::SampledRead,
+                Flags<PipelineStage>(PipelineStage::FragmentShader)});
+            auto compiled = graph.compile();
+            if(!compiled)
+                return Creation::failure({compiled.error()});
+            next->graph = std::move(compiled).value();
+        }
         return Creation::success(std::move(next));
     }
 
@@ -136,12 +175,35 @@ namespace Comet {
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::render_scene_pass(
         FrameScheduler& frames, const RenderSubmission& submission, const LineDrawList& lines) {
         PROFILE_SCOPE("SceneRenderer::render_scene_pass");
-        auto& command = frames.get_current_command_buffer();
         frames.retain_current_frame_resource(m_target);
         frames.retain_current_frame_resource(m_target->target);
-        const auto image = m_target->offscreen ? frames.get_current_frame_slot_index() : 0;
+        if(!m_target->graph)
+            return draw_scene(frames, frames.get_current_command_buffer(), submission, lines);
+
+        const auto image = frames.get_current_frame_slot_index();
+        std::vector<RenderGraph::Binding> bindings;
+        for(const auto& view : m_target->target->get_framebuffer(image)->get_attachments())
+            bindings.emplace_back(view->get_image());
+        std::vector<QueueSemaphoreSubmit> waits;
+        const auto recorded = m_target->graph->record(frames, bindings,
+            [this, &frames, &submission, &lines, &waits](size_t, CommandBuffer& command) {
+                auto drawn = draw_scene(frames, command, submission, lines);
+                if(!drawn)
+                    return Result<void, GraphicsError>::failure(drawn.error());
+                waits = std::move(drawn).value();
+                return Result<void, GraphicsError>::success();
+            });
+        if(!recorded)
+            return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
+                recorded.error());
+        return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success(std::move(waits));
+    }
+
+    Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::draw_scene(
+        FrameScheduler& frames, CommandBuffer& command, const RenderSubmission& submission,
+        const LineDrawList& lines) {
         if(m_target->offscreen)
-            m_target->target->begin_render_target(command, image);
+            m_target->target->begin_render_target(command, frames.get_current_frame_slot_index());
         else
             m_target->target->begin_render_target(command);
         const auto size = m_target->target->get_size();

@@ -9,6 +9,34 @@
 #include <utility>
 
 namespace Comet {
+    bool FrameScheduler::is_recording_frame() const {
+        return m_frame_active && !m_submission_recorded;
+    }
+
+    uint64_t FrameScheduler::get_completed_frame_serial() const {
+        return m_completed_frame_serial;
+    }
+
+    bool FrameScheduler::is_frame_serial_complete(const uint64_t frame_serial) const {
+        return frame_serial == 0 || frame_serial <= m_completed_frame_serial;
+    }
+
+    FrameSlot& FrameScheduler::get_current_frame_slot() {
+        return m_frame_slots.at(m_current_frame_slot);
+    }
+
+    const FrameSlot& FrameScheduler::get_current_frame_slot() const {
+        return m_frame_slots.at(m_current_frame_slot);
+    }
+
+    SwapchainImageState& FrameScheduler::get_swapchain_image_state(const uint32_t image_index) {
+        return m_swapchain_image_states.at(image_index);
+    }
+
+    CommandBuffer& FrameScheduler::get_current_command_buffer() {
+        return get_current_frame_slot().command_buffer;
+    }
+
     FrameScheduler::FrameScheduler(Device& device, const uint32_t frame_slot_count)
         : m_device(device), m_frame_slot_count(frame_slot_count) {
         if(frame_slot_count == 0) {
@@ -34,6 +62,10 @@ namespace Comet {
 
         wait_for_slot(m_current_frame_slot);
         m_current_slot_ready = true;
+    }
+
+    uint32_t FrameScheduler::get_queue_family_index() const {
+        return m_device.get_capability().graphics_queue_family.queue_family_index.value();
     }
 
     void FrameScheduler::wait_for_all_slots() {

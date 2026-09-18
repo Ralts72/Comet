@@ -80,3 +80,13 @@ endif ()
 set_tests_properties(swapchain_recovery PROPERTIES TIMEOUT 90)
 set_tests_properties(unit_testing pipeline_cache_process swapchain_recovery
         PROPERTIES RESOURCE_LOCK comet_gpu)
+if (APPLE)
+    add_test(NAME render_graph_sync_validation COMMAND unit_testing
+            --gtest_filter=RenderGraphGpuTest.* -NSAutomaticWindowAnimationsEnabled NO)
+else ()
+    add_test(NAME render_graph_sync_validation COMMAND unit_testing
+            --gtest_filter=RenderGraphGpuTest.*)
+endif ()
+set_tests_properties(render_graph_sync_validation PROPERTIES
+        ENVIRONMENT "VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT"
+        RESOURCE_LOCK comet_gpu TIMEOUT 90)

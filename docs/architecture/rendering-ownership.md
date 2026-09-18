@@ -1,6 +1,6 @@
 # 渲染资源所有权
 
-描述当前 owner、调用边界和销毁规则；未来项目 Shader／RenderGraph／RenderThread 设计见[路线图](../engine-roadmap.md)。
+描述当前 owner、调用边界和销毁规则；未来项目 Shader／多 pass 扩展／RenderThread 设计见[路线图](../engine-roadmap.md)。
 
 ## 先看哪个类
 
@@ -415,6 +415,39 @@ VMA memory budget 只在扩展确实启用后使用；估算值不当作硬上�
 
 ResourceState/ImageState 描述 stage/access/layout/subresource/queue owner，不保存在 Image 的单一 current_layout 中。
 Barrier2 描述访问依赖，timeline 描述完成；跨 queue family 需配对 release/acquire 和 semaphore，不能只改 index。
+
+## 有序 RenderGraph
+
+RenderGraph 只收集 imported 资源、按顺序执行的 pass 和 exported usage；所有声明校验集中在
+`compile() -> Result<Plan>`，不在 import/add_pass 时逐项传播错误。Plan 是不持有 GPU owner 的值快照，
+不改变 pass 顺序，不分配资源，也不持有队列或全局图像 layout。ResourceId 仅在所属图内有效。
+
+编译器按 image subresource 或 buffer offset/size 跟踪状态：保留实际 writer、已初始化内容和全部 reader scope，
+处理 RAW/WAR/WAW 与布局转换；相同可见范围的重复读取不重复插入 barrier。
+导出只建立外部消费者需要的可见性，不能凭空初始化内容或冒充新的 producer。
+下一次提交可显式导入 `get_final_states()`；跨队列同步不由当前图实现。
+
+`Plan::record` 先检查当前帧、设备、queue family、绑定类型、范围、图像 usage 和重叠别名，
+再预建全部原生 barrier，随后保活绑定并按 barrier → pass callback → export 的顺序录制。
+同一原生资源的非重叠范围可以分别声明；重叠范围必须合为一个声明。Buffer 创建 usage 仍由调用方保证，
+不能检测不同句柄背后的内存别名。回调必须遵守声明，图不会解析实际 Vulkan 命令。
+回调返回 GraphicsError 时立即停止并原样传播，已经录制的命令不回滚；上层必须退出该帧，不能提交部分结果。
+回调同步执行且不保存，接收当前帧的 CommandBuffer&。SceneRenderer 的实际绘制集中在私有 draw_scene，
+直接呈现直接调用，离屏路径仅通过短回调适配并收集其返回的上传等待信息，不另设 Pass 类层次。
+
+SceneRenderer 的离屏 TargetState 保存一次编译的 Plan。每帧绑定当前 slot 的实际附件，
+先转换到 attachment layout，再绘制材质和辅助线，最后将颜色／MSAA resolve 输出转为 SampledRead。
+附件每次清除，slot 复用前已等待 GPU，因此允许从 Undefined 丢弃旧内容；resize 只替换实际绑定，
+旧目标继续由在途帧保活。传统 RenderPass 在图内不再隐式承担离屏输出的采样转换。
+直接呈现和 ImGui 不整体纳入图；呈现 RenderPass 显式 external dependency 对齐 acquire 等待阶段。
+
+ImageInfo 支持显式 mip/layer 数量，但不自动生成 mip，也未新增完整数组纹理视图 API。
+HostRead/HostWrite 只用于外部交接，不作为 GPU pass；CPU 读回仍必须等待 completion，并满足映射／缓存一致性要求。
+Upload timeline、WSI semaphore 和资源初始化真实性仍是调用方契约。
+
+测试覆盖 CPU 计划、四 pass 实际读回、mip/layer/buffer 区间、跨提交交接、绑定拒绝、回调失败、
+MSAA 与离屏 resize。独立 `render_graph_sync_validation` CTest 开启同步校验，
+以不提交的漏 barrier 命令作为负对照，确认校验层生效；不替代跨平台运行和人工视觉验收。
 
 ## Swapchain 与关闭
 

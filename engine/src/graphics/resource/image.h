@@ -13,6 +13,8 @@ namespace Comet {
         Format format;
         Math::Vec3u extent;
         Flags<ImageUsage> usage;
+        uint32_t mip_levels = 1;
+        uint32_t array_layers = 1;
     };
 
     class COMET_API Image {
@@ -34,6 +36,7 @@ namespace Comet {
         static std::shared_ptr<Image> wrap(Device& device, vk::Image image, const ImageInfo& info);
 
         [[nodiscard]] ImageInfo get_info() const { return m_info; }
+        [[nodiscard]] Device& get_device() const { return m_device; }
         [[nodiscard]] vk::Image get() const { return m_image; }
 
     protected:

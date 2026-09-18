@@ -17,6 +17,7 @@ namespace Comet {
     class Device;
     class ResourceManager;
     class FrameScheduler;
+    class CommandBuffer;
     class RenderTarget;
     class ImageView;
     class Swapchain;
@@ -59,6 +60,9 @@ namespace Comet {
         };
         Result<std::shared_ptr<TargetState>, GraphicsError> create_target(
             ResourceManager& resources, Swapchain* swapchain, Math::Vec2u size);
+        Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> draw_scene(
+            FrameScheduler& frames, CommandBuffer& command, const RenderSubmission& submission,
+            const LineDrawList& lines);
 
         Device& m_device;
         Format m_surface_format;

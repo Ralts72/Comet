@@ -2,6 +2,9 @@
 #include "graphics/device.h"
 #include "diagnostics/logger.h"
 
+#include <algorithm>
+#include <bit>
+
 namespace Comet {
     namespace {
         void validate_image_info(const ImageInfo& info) {
@@ -22,8 +25,8 @@ namespace Comet {
             create_info.imageType = vk::ImageType::e2D;
             create_info.format = Graphics::format_to_vk(info.format);
             create_info.extent = Graphics::get_extent(info.extent.x, info.extent.y, info.extent.z);
-            create_info.mipLevels = 1;
-            create_info.arrayLayers = 1;
+            create_info.mipLevels = info.mip_levels;
+            create_info.arrayLayers = info.array_layers;
             create_info.samples = Graphics::sample_count_to_vk(sample_count);
             create_info.tiling = vk::ImageTiling::eOptimal;
             create_info.usage = Graphics::image_usage_to_vk(info.usage);
@@ -47,6 +50,11 @@ namespace Comet {
         const ImageInfo& info, const bool within_budget, const SampleCount sample_count,
         const std::string_view debug_name) {
         validate_image_info(info);
+        if(info.mip_levels == 0 || info.array_layers == 0 || info.extent.z != 1
+            || info.mip_levels > std::bit_width(std::max(info.extent.x, info.extent.y))
+            || (sample_count != SampleCount::Count1 && info.mip_levels != 1))
+            return GpuResourceResult<std::shared_ptr<Image>>::failure(
+                vk::Result::eErrorInitializationFailed);
         auto allocation =
             device.get_allocator().try_create_image(build_image_create_info(info, sample_count),
                 {.usage = AllocationUsage::Device,

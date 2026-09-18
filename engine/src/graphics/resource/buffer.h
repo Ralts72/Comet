@@ -48,6 +48,7 @@ namespace Comet {
 
         [[nodiscard]] vk::Buffer get() const { return m_buffer; }
         [[nodiscard]] size_t get_size() const { return m_size; }
+        [[nodiscard]] Device& get_device() const { return m_device; }
 
     protected:
         [[nodiscard]] Allocator& get_allocator() const;

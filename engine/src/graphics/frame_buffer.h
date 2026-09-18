@@ -4,6 +4,7 @@
 #include "graphics/result.h"
 
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace Comet {
@@ -28,6 +29,7 @@ namespace Comet {
         [[nodiscard]] vk::Framebuffer get() const { return m_frame_buffer; }
         [[nodiscard]] uint32_t get_width() const { return m_width; }
         [[nodiscard]] uint32_t get_height() const { return m_height; }
+        [[nodiscard]] std::span<const std::shared_ptr<ImageView>> get_attachments() const;
 
     private:
         FrameBuffer(Device& device, std::vector<std::shared_ptr<ImageView>> image_views,

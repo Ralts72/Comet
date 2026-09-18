@@ -149,6 +149,8 @@ JSON 解析直接依赖已有 simdjson。
   帧准备与 UI 修改完成后才提取 Scene；Scene 只保存组件和资产 Handle，GPU 生命周期由渲染层管理。
   Renderer 装配 FrameScheduler，Presentation 负责 acquire／submit／present 与有序重建；SceneRenderer 只管理场景目标与 pass。
   完整目标切换先准备 pass、附件、材质和辅助线绘制器，全部成功后安装；旧帧保留完整依赖版本。
+  RenderGraph 按声明顺序编译资源访问与 Barrier2；离屏场景由图完成附件布局转换，并导出供 UI 采样的颜色图像。
+  图不分配资源、不提交队列；实际绑定由 FrameSlot 保活，上传和 WSI 的外部等待仍由原有提交链路负责。
   SceneResolver 只解析 Mesh/Material 引用；MaterialRenderer 准备并绘制材质队列，无相机帧也清理缓存和重置统计。
   MaterialRuntimeCache 按材质版本和不可变布局准备纹理与参数快照；同一布局驱动 descriptor 和参数打包。
   Material 数值 setter 返回是否接受；非有限值被拒绝，相同值不递增版本。

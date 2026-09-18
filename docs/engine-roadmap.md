@@ -19,7 +19,7 @@
 以当前 main 的功能与验收为准，继续逐项对照 feat/auto2 的实现及原始提交，而不是机械 cherry-pick。
 每项先注明对应旧提交、当前覆盖、需要调整及仍未覆盖的范围，再适配 main 的 Result、目录边界和生命周期；
 临时代码说明留在仓库内供学习，不进入提交。旧分支的已实现行为不能只因 main 有同名功能就判为完整覆盖。
-材质布局重建、呈现／场景边界和完整目标事务已收敛；辅助线 Shader 热更新按实际需求暂缓，旧 026 驱动 PipelineCache 与旧 027 WSI 恢复已核对适配；下一步推进旧 028 有序 RenderGraph 的资源声明、同步计划及真实多 pass 验证，不迁回旧所有权和异常协议；
+材质布局重建、呈现／场景边界和完整目标事务已收敛；辅助线 Shader 热更新按实际需求暂缓，旧 026 驱动 PipelineCache、旧 027 WSI 恢复与旧 028 有序 RenderGraph 已核对适配；下一步对照旧 029 的 HDR 场景与共享 SDR 输出 pass，不迁回旧所有权和异常协议；
 阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
@@ -235,7 +235,8 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
   有实际辅助线着色效果开发需求时再评估，不作为下一项的前置条件。
 - 026 `6d9f365`：已适配设备／版本校验、损坏拒绝、原子保存、ImGui 借用和跨进程恢复；使用实际项目目录与 Result，不迁回旧异常捕获，不替代 PipelineKey 对象缓存。候选驱动拒绝／OOM 尚无故障注入，缓存总预算和淘汰仍待实际需求。
 - 027 `88cdd4a`：主线已由 Presentation 管恢复，补齐独立 WSI 故障注入回归及持续 INCOMPLETE 的有界枚举；保留 1／2／4 秒预算和 SurfaceLost 扩展，不恢复旧 SceneRenderer 编排或固定间隔无限重试。人工 ImGui、真实平台 SurfaceLost 及设备恢复仍不在覆盖内。
-- 028 `fd1d5f3`：下一项先做有序 pass 的资源使用声明和纯 CPU 同步计划，再接当前离屏目标及真实 GPU producer/consumer；复用 Barrier2／FrameSlot，外部 upload／WSI 等待保持显式。不预建 DAG 重排、瞬态分配、多队列或 RenderThread。
+- 028 `fd1d5f3`：已适配有序资源声明、纯 CPU 同步计划、当前离屏目标及真实 GPU producer/consumer。声明统一在 compile 返回 Result，录制失败保留 GraphicsError，复用 Barrier2／FrameSlot；同步校验覆盖子资源、区间、跨提交、MSAA 与 resize。外部 upload／WSI 等待保持显式；尚无 DAG 重排、瞬态分配、多队列、内存别名跟踪或 RenderThread。
+- 029 `624a143`：下一项对照 HDR 场景目标与共享 fullscreen SDR 输出，先明确格式支持、线性色彩与输出转换、runtime/editor 的目标所有权，再落地真实双 pass 验证。光照、阴影和 bloom 后续逐项推进。
 - 原生文件监听按阶段 3 专项安排，旧分支同样采用轮询，不作为最终方案迁回。
 
 specialization 已贯通类型化值、默认值规范化、反射校验、PipelineKey 和 GPU 创建。
@@ -420,6 +421,8 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 
 ### RenderGraph 与多 pass
 
+- 当前有序图已用于离屏附件；详细录制与失败契约见[渲染所有权](architecture/rendering-ownership.md#有序-rendergraph)。
+  后续多 pass 优先复用现有图，不把当前单 queue 实现描述成自动多队列调度器。
 - Pass 声明读写 usage/subresource；imported/exported 资源明确边界状态，tracker 编译 Barrier2。
   Image 不保存单一全局 current_layout；状态属于录制/编译上下文，持久资源在提交边界交接 handoff state。
 - 处理 layout 变化、RAW/WAR/WAW 和 ownership，兼容 read-after-read 不机械加全 barrier。
