@@ -449,7 +449,7 @@ namespace Comet::AssetSourceOperations {
                    staging / "material.mat.meta");
                 !saved)
                 return saved;
-            // Publish only files we own, without overwriting a concurrently created destination.
+            // 只发布本次创建的文件，不覆盖并发创建的目标。
             std::filesystem::create_hard_link(staging / "material.mat.meta", meta, error);
             if(error)
                 return Result<void>::failure(

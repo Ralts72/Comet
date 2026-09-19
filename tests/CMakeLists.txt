@@ -49,7 +49,7 @@ if (COMET_BUILD_EDITOR)
     target_compile_definitions(integration_testing PRIVATE COMET_TEST_EDITOR_UI)
 endif ()
 
-# AppKit animations can occupy dispatch workers needed by Metal compilation.
+# AppKit 窗口动画可能占用 Metal 编译所需的调度线程，因此仅在测试进程中关闭动画。
 set(TEST_PLATFORM_ARGS)
 if (APPLE)
     list(APPEND TEST_PLATFORM_ARGS -NSAutomaticWindowAnimationsEnabled NO)
@@ -80,7 +80,7 @@ add_test(NAME pipeline_cache_process COMMAND "${CMAKE_COMMAND}"
         "-DPROBE=$<TARGET_FILE:pipeline_cache_probe>"
         "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/pipeline-cache-process"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/graphics/test_pipeline_cache_process.cmake")
-# Isolated WSI fault injection: compile the actual consumers with renamed Vulkan entry points.
+# 仅为此测试重命名 Vulkan 入口，编译真实调用方进行隔离的 WSI 故障注入。
 add_executable(swapchain_recovery
         graphics/test_swapchain_recovery.cpp
         "${CMAKE_SOURCE_DIR}/engine/src/graphics/swapchain.cpp"

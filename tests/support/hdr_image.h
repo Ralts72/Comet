@@ -6,7 +6,7 @@
 #include <functional>
 
 namespace Comet::Tests {
-    // Uncompressed Radiance RGBE; lets import tests exercise real HDR decoding without fixtures.
+    // 生成未压缩 Radiance RGBE，让测试覆盖真实 HDR 解码而不依赖外部资源文件。
     inline void write_hdr(
         const std::filesystem::path& path, int width = 16, int height = 8,
         const std::function<std::array<unsigned char, 4>(int, int)>& pixel = [](int, int) {

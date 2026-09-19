@@ -423,7 +423,7 @@ namespace CometEditor::Tests {
         click(widget_point("Change Material Template", "Switch"));
         ASSERT_EQ(material_updates, 2);
         EXPECT_EQ(submitted_material.template_name, "pbr");
-        // Failed publication restores the old template and its widgets, not just its file.
+        // 发布失败必须同时恢复旧模板及其控件，不能只恢复文件。
         drag_value(material_point("intensity", "Intensity"), 20);
         EXPECT_EQ(submitted_material.template_name, "unlit_color");
     }
@@ -432,7 +432,6 @@ namespace CometEditor::Tests {
         selection.select_asset(material);
         frame();
         select_template("unlit_color");
-        // Cancel is the second button; use its actual frame ID rather than a fixed screen position.
         auto* popup = ImGui::FindWindowByName("Change Material Template");
         ASSERT_NE(popup, nullptr);
         const auto cancel = popup->GetID("Cancel");

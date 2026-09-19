@@ -21,7 +21,7 @@ namespace Comet {
             return Result<std::size_t>::failure(
                 "Environment requires a 2:1 HDR up to 8K / 256 MiB");
         const auto face = std::bit_floor(static_cast<std::size_t>(width / 4));
-        // Decode + float faces/reduction + mip vector growth and artifact serialization.
+        // 预留解码、浮点立方体面与降采样、mip 容器扩容和产物序列化的内存。
         return Result<std::size_t>::success(source_size + std::size_t(width) * height * 16
             + face * face * 6 * 20 + face * face * 6 * 8 * 4 + 16 * 1024 * 1024);
     }
@@ -36,7 +36,7 @@ namespace Comet {
         return estimate_bytes(size, width, height);
     }
 
-    // stb's HDR decoder ignores EOF in flat pixels and the last RLE run. Check framing first.
+    // stb 的 HDR 解码可能漏报未压缩像素或末尾 RLE 段截断，因此先校验数据完整性。
     static bool complete_hdr_payload(
         const std::string_view source, const int width, const int height) {
         const auto header_end = source.find("\n\n");
@@ -156,7 +156,7 @@ namespace Comet {
                 }
             }
         }
-        // Background mip chain only; roughness-prefiltered lighting is a separate IBL artifact.
+        // 此处只生成背景 mip；光照用的粗糙度预滤波由 prepare_lighting 单独完成。
         for(int extent = size; extent > 0; extent /= 2) {
             const size_t offset = result.pixels.size();
             result.pixels.resize(offset + level.size() * sizeof(glm::u16vec4));

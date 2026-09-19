@@ -62,7 +62,7 @@ download() {
     echo "Installed: $relative_path"
 }
 
-# Keep each asset's URL and checksum pinned; record its source and license in README.md.
+# 固定资源地址和校验和；来源与许可记录在 README.md。
 download "demo/assets/environments/small_hangar_01_1k.hdr" \
     "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/small_hangar_01_1k.hdr" \
     "2ddc8b58715d325fde50f35bafe3cbe37434252bb51e1b744697f902bfebfb98"

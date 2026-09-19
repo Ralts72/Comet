@@ -53,7 +53,7 @@ namespace Comet {
             .importer_version = EnvironmentImporter::VERSION,
             .source = fingerprint,
             .data = std::move(imported).value()};
-        // Only the CPU cache is written here; workers never publish runtime/GPU objects.
+        // 后台线程仅写入 CPU 缓存，不发布运行时或 GPU 对象。
         if(auto saved = artifact.publish_atomic(environment_artifact_path(record.handle)); !saved)
             return Result<EnvironmentArtifact>::failure(saved.error());
         return Result<EnvironmentArtifact>::success(std::move(artifact));

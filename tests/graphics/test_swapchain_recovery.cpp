@@ -13,8 +13,6 @@
 #include <sstream>
 #include <thread>
 
-// Entry replacements below are confined to the standalone test executable.
-
 #undef vkGetPhysicalDeviceSurfaceFormatsKHR
 extern "C" VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceSurfaceFormatsKHR(
     VkPhysicalDevice device, VkSurfaceKHR surface, uint32_t* count, VkSurfaceFormatKHR* formats);

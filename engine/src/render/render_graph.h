@@ -82,7 +82,6 @@ namespace Comet {
         // 构建阶段仅收集声明，compile 统一验证；ResourceId 只在当前图内有效。
         [[nodiscard]] ResourceId import_image(std::string name, ImageState initial);
         [[nodiscard]] ResourceId import_buffer(std::string name, BufferState initial);
-        // 返回当前图内的注册 ID；record 回调使用同一个 ID。
         PassId add_pass(Pass pass);
         void export_resource(Use use);
         [[nodiscard]] Result<Plan> compile() const;

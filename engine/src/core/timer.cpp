@@ -4,7 +4,6 @@ namespace Comet {
     void Timer::tick() {
         const auto now = std::chrono::steady_clock::now();
 
-        // 单调时钟不受系统时间调整影响。
         const std::chrono::duration<double> frame_time = now - m_last_frame;
         m_delta_time = static_cast<float>(frame_time.count());
         m_total_time += m_delta_time;

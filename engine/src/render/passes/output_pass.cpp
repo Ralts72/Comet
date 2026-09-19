@@ -120,7 +120,7 @@ namespace Comet {
                 || !(bloom->get_image()->get_info().usage & ImageUsage::Sampled)))
             return Result<void, GraphicsError>::failure({"Invalid output pass bloom image"});
         const auto slot = frames.get_current_frame_slot_index();
-        // Disabled bloom still needs a valid descriptor, but the shader does not sample it.
+        // 关闭 Bloom 时仍需有效描述符作为占位，但着色器不会采样该绑定。
         auto bloom_input = hdr_color;
         if(settings.bloom_enabled())
             bloom_input = bloom;

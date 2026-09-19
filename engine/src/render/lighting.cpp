@@ -6,7 +6,6 @@
 #include <vector>
 
 namespace Comet {
-    // std140 布局与 forward.glsl 对应；字段具名化不改变原有偏移和大小。
     static_assert(sizeof(LightingData::Light) == 64);
     static_assert(offsetof(LightingData::Light, type) == 12);
     static_assert(offsetof(LightingData::Light, direction) == 16);

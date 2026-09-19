@@ -23,7 +23,8 @@
 #include <utility>
 
 namespace Comet {
-    // 同一兼容性版本，按依赖的逆序析构；在途帧保留整代，resize 另保留实际目标。
+    // 配套绘制资源按依赖逆序析构，scene_pass 最后释放。
+    // 在途帧保留整组资源；缩放会替换内部目标，因此还需单独保留本帧使用的目标。
     struct SceneRenderer::RenderState {
         std::shared_ptr<RenderPass> scene_pass;
         std::unique_ptr<PipelineManager> pipelines;

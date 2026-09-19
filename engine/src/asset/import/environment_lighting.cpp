@@ -63,7 +63,7 @@ namespace Comet {
     private:
         glm::vec3 texel(int face, int x, int y, uint32_t mip) const {
             const int size = m_data.width >> mip;
-            // Reproject filter taps crossing a face edge instead of clamping a seam.
+            // 越过立方体面边缘的采样点投影到相邻面，避免边缘钳制造成接缝。
             if(x < 0 || y < 0 || x >= size || y >= size) {
                 const auto next = cube_coordinate(face_direction(
                     face, 2.0f * (x + 0.5f) / size - 1, 2.0f * (y + 0.5f) / size - 1));
@@ -129,8 +129,8 @@ namespace Comet {
         return result;
     }
 
-    // Split-sum GGX with alpha = roughness^2 and height-correlated Smith visibility,
-    // matching the direct-light BRDF. Integrate at texel centers to avoid grazing singularities.
+    // GGX 分离求和使用 alpha = roughness² 和高度相关 Smith 可见性，与直接光照的 BRDF 一致。
+    // 在纹素中心积分，避开掠射角奇点。
     static TextureData integrate_brdf() {
         auto result = make_texture(EnvironmentData::BRDF_SIZE, false, false);
         for(int y = 0; y < result.height; ++y) {
@@ -228,7 +228,7 @@ namespace Comet {
     }
 
     EnvironmentData EnvironmentImporter::prepare_lighting(TextureData background) {
-        // Independent of the HDR source; initialize once on an import worker, never per frame.
+        // BRDF 积分与 HDR 源无关，首次导入时计算一次，后续共用。
         static const auto brdf = integrate_brdf();
         EnvironmentData result;
         result.irradiance = convolve(background, false);

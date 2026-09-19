@@ -9,7 +9,7 @@ namespace Comet {
     class RenderResourceFactory;
     struct EnvironmentData;
 
-    // Published as one generation; frames retain the complete lighting/background set.
+    // 背景与光照资源整组发布，在途帧保留整组资源。
     struct COMET_API Environment {
         std::shared_ptr<Texture> background;
         std::shared_ptr<Texture> irradiance;

@@ -36,7 +36,7 @@ namespace Comet::Tests {
         const auto smooth = pixel_at(data.brdf, data.brdf.width - 1);
         EXPECT_NEAR(smooth.x + smooth.y, 1, 0.01f);
         const auto rough = pixel_at(data.brdf, size_t(data.brdf.width) * data.brdf.height - 1);
-        // At N=V and alpha=1, the white conductor integral is 1-ln(2).
+        // N=V、alpha=1 时，白色导体的积分结果为 1-ln(2)。
         EXPECT_NEAR(rough.x + rough.y, 1 - std::log(2.0), 0.015);
     }
 
@@ -106,10 +106,10 @@ namespace Comet::Tests {
                 &packed, imported.value().background.pixels.data() + face * 8, sizeof(packed));
             faces[face] = glm::unpackHalf(packed);
         }
-        EXPECT_FLOAT_EQ(faces[0].x, 0.625f); // +X: center longitude
-        EXPECT_FLOAT_EQ(faces[1].x, 0.625f); // -X: wrapped seam
-        EXPECT_FLOAT_EQ(faces[2].y, 1.0f);   // +Y: top row
-        EXPECT_FLOAT_EQ(faces[3].y, 0.0f);   // -Y: bottom row
+        EXPECT_FLOAT_EQ(faces[0].x, 0.625f); // +X：中央经线。
+        EXPECT_FLOAT_EQ(faces[1].x, 0.625f); // -X：跨接缝环绕采样。
+        EXPECT_FLOAT_EQ(faces[2].y, 1.0f);   // +Y：顶部行。
+        EXPECT_FLOAT_EQ(faces[3].y, 0.0f);   // -Y：底部行。
         EXPECT_FLOAT_EQ(faces[4].x, 0.875f); // +Z
         EXPECT_FLOAT_EQ(faces[5].x, 0.375f); // -Z
     }

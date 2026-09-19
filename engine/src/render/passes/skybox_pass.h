@@ -19,7 +19,7 @@ namespace Comet {
     struct RenderSubmission;
     struct SampledImageBinding;
 
-    // Records the background inside the scene render pass, before opaque geometry.
+    // 在已开启的场景通道内绘制背景，先于不透明物体。
     class COMET_API SkyboxPass {
     public:
         static Result<std::unique_ptr<SkyboxPass>, GraphicsError> create(

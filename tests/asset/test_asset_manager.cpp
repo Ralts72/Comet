@@ -1589,7 +1589,7 @@ namespace Comet::Tests {
         write_hdr(source, 8, 4);
         ASSERT_TRUE(manager.scan().succeeded());
         scheduler.wait_idle();
-        // The background succeeds, but the following irradiance upload fails.
+        // 背景上传成功，但随后的漫反射环境贴图上传失败。
         factory.on_next_texture_creation([&] {
             factory.on_next_texture_creation([&] { factory.fail_texture_creation(true); });
         });

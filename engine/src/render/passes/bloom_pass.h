@@ -15,7 +15,7 @@ namespace Comet {
     class Sampler;
     struct SampledImageBinding;
 
-    // Half-resolution HDR extraction and separable blur; final composition belongs to OutputPass.
+    // 半分辨率 HDR 高亮提取与横纵模糊；最终合成由 OutputPass 负责。
     class COMET_API BloomPass {
     public:
         struct Passes {
@@ -29,7 +29,7 @@ namespace Comet {
         BloomPass(const BloomPass&) = delete;
         BloomPass& operator=(const BloomPass&) = delete;
 
-        // Both candidates must succeed before replacing the current target generation.
+        // 两个候选目标均创建成功后才替换旧目标。
         Result<void, GraphicsError> resize(Math::Vec2u source_size);
         void append_bindings(std::vector<RenderGraph::Binding>& bindings, uint32_t slot) const;
         [[nodiscard]] std::shared_ptr<ImageView> get_output(uint32_t slot) const;

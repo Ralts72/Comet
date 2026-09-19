@@ -1117,7 +1117,7 @@ namespace Comet::Tests {
             submit(device, frames, drawn.value());
             outputs.push_back(output);
 
-            // Independent hemisphere quadrature of the direct specular BRDF at N=V.
+            // 在 N=V 时独立积分直接光照的镜面 BRDF，作为半球反射参考值。
             glm::dvec3 reflected(0);
             const glm::dvec3 base(0.8, 0.2, 0.1);
             const auto f0 = glm::mix(glm::dvec3(0.04), base, double(sample.metallic));
@@ -1389,7 +1389,7 @@ namespace Comet::Tests {
         Format format{};
         for(size_t index = 0; index < outputs.size(); ++index) {
             if(index == 1) {
-                // Dropping a valid GPU candidate models a later file-save failure.
+                // 丢弃有效 GPU 候选，模拟后续保存文件失败而未发布。
                 auto abandoned = renderer.prepare_material_update(handle, pbr);
                 ASSERT_TRUE(abandoned) << abandoned.error();
                 EXPECT_FALSE(renderer.prepare_material_update(

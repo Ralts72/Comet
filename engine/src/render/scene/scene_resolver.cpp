@@ -20,7 +20,7 @@ namespace Comet {
         submission.environment = render_scene.environment;
         const auto handle = render_scene.environment.asset;
         AssetHandle invalid_environment;
-        // Unpublished environments may still be loading; the asset layer reports failures.
+        // 未发布的环境资源可能仍在加载；加载失败由资产层报告。
         if(handle && (render_scene.environment.background || render_scene.environment.lighting)) {
             auto environment = m_asset_registry.resolve<Environment>(handle);
             if(environment) {

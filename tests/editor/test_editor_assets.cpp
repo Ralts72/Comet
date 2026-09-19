@@ -86,7 +86,7 @@ namespace CometEditor::Tests {
                    / (std::to_string(mesh.value()) + ".bin");
         }
         void complete_imports() {
-            // A soft publication budget can consume only one result per owner update.
+            // 发布软预算可能让一次更新只消费一个结果，需分轮取完。
             const auto count = assets->database().get_assets().size();
             for(std::size_t i = 0; i <= count; ++i) {
                 ASSERT_TRUE(assets->update());
@@ -475,7 +475,7 @@ namespace CometEditor::Tests {
             const auto target = directory / entry.path().lexically_relative(source);
             std::filesystem::create_directories(target.parent_path());
             std::filesystem::copy_file(entry.path(), target);
-            // Metadata is checked in; large optional downloads are replaced with tiny fixtures.
+            // 仓库只保存环境资源的元数据；测试用微型 HDR 替代可选的大文件下载。
             if(target.extension() == ".meta" && target.stem().extension() == ".hdr")
                 Comet::Tests::write_hdr(target.parent_path() / target.stem());
         }

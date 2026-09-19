@@ -63,7 +63,7 @@ namespace Comet {
         std::array<char, 8> magic{};
         if(!input.read(magic.data(), magic.size()) || std::string_view(magic.data(), 8) != MAGIC)
             return std::nullopt;
-        // Fixed little-endian header; reject old/incomplete generations before allocating.
+        // 头部固定为小端编码；分配纹理存储前先拒绝旧版本或不完整产物。
         std::array<uint64_t, 10> fields{};
         for(auto& field : fields) {
             std::array<unsigned char, 8> bytes{};

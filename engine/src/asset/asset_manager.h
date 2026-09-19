@@ -72,7 +72,7 @@ namespace Comet {
         [[nodiscard]] AssetAsyncStatus get_async_status() const;
         [[nodiscard]] Result<void, Error> ensure_loaded(
             AssetHandle handle, AssetType expected_type);
-        // Environment preparation is asynchronous; success accepts demand, not GPU residency.
+        // 环境资源异步准备；成功仅表示已接受加载需求，不保证 GPU 资源已驻留。
         [[nodiscard]] Result<void, Error> request_load(AssetHandle handle, AssetType expected_type);
         enum class MissingAssetPolicy { FailRequired, AllowMissing };
         [[nodiscard]] Result<std::size_t, Error> prepare_references(

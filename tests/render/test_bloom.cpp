@@ -75,7 +75,7 @@ namespace Comet::Tests {
                         }
                     reduced[y * width + x] = half(energy / double(count));
                 }
-            // Independent CPU convolution, rounding after each RGBA16F pass.
+            // 独立计算 CPU 卷积参考值，每轮按 RGBA16F 精度舍入。
             constexpr std::array weights{1, 8, 28, 56, 70, 56, 28, 8, 1};
             for(int axis = 0; axis < 2; ++axis) {
                 Pixels blurred(reduced.size());

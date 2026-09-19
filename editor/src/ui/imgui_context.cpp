@@ -184,9 +184,7 @@ namespace CometEditor {
 
         std::vector<Comet::RenderSubPass> render_sub_passes;
         Comet::RenderSubPass render_sub_pass = {
-            {}, {Comet::SubpassColorAttachment(0)}, {}, // ImGui 不需要深度测试
-            Comet::SampleCount::Count1                  // ImGui 不使用 MSAA
-        };
+            {}, {Comet::SubpassColorAttachment(0)}, {}, Comet::SampleCount::Count1};
         render_sub_passes.emplace_back(render_sub_pass);
 
         auto& device = m_render_context.get_device();
