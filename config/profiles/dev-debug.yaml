@@ -4,4 +4,5 @@ diagnostics:
   log_level: trace
   enable_file_logging: false
   enable_profiler: true
+  enable_render_diagnostics: true
   enable_validation: true

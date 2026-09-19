@@ -137,9 +137,18 @@ namespace CometEditor {
         }
         io.IniFilename = m_ini_path.c_str();
 
-        const std::string font_path =
-            std::string(COMET_EDITOR_RESOURCE_DIRECTORY) + "/fonts/Roboto-Regular.ttf";
-        io.Fonts->AddFontFromFileTTF(font_path.c_str(), 16.0f);
+        const auto font_directory =
+            std::filesystem::path(COMET_EDITOR_RESOURCE_DIRECTORY) / "fonts";
+        if(!io.Fonts->AddFontFromFileTTF(
+               (font_directory / "Roboto-Bold.ttf").string().c_str(), 16.0f))
+            return Comet::Result<void, Comet::GraphicsError>::failure(
+                {"Cannot load editor Latin font"});
+        ImFontConfig chinese_font;
+        chinese_font.MergeMode = true;
+        if(!io.Fonts->AddFontFromFileTTF(
+               (font_directory / "NotoSansSC-Bold.otf").string().c_str(), 16.0f, &chinese_font))
+            return Comet::Result<void, Comet::GraphicsError>::failure(
+                {"Cannot load editor Chinese font"});
 
         ImGui::StyleColorsDark();
 

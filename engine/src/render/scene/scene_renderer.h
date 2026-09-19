@@ -9,6 +9,7 @@
 #include "render/debug/line_draw_list.h"
 
 #include <chrono>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -17,6 +18,7 @@ namespace Comet {
     class Device;
     class RenderResources;
     class FrameScheduler;
+    class RenderDiagnostics;
     class CommandBuffer;
     class RenderTarget;
     class ImageView;
@@ -36,7 +38,7 @@ namespace Comet {
 
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
             FrameScheduler& frames, const RenderSubmission& submission,
-            const LineDrawList& lines = {});
+            const LineDrawList& lines = {}, RenderDiagnostics* diagnostics = nullptr);
         // 普通失败保留旧目标并管理重试；设备错误终止调用链。
         Result<void, GraphicsError> resize_offscreen_target(Math::Vec2u size,
             std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
@@ -67,6 +69,9 @@ namespace Comet {
             RenderResources& resources, Swapchain* swapchain, Math::Vec2u size);
         Result<void, GraphicsError> replace_targets(
             RenderState& state, Swapchain* swapchain, Math::Vec2u size);
+        Result<void, GraphicsError> record_pass(std::size_t pass, FrameScheduler& frames,
+            const RenderSubmission& submission, const LineDrawList& lines,
+            const LightingData& lighting, std::vector<QueueSemaphoreSubmit>& waits);
         Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> draw_scene(FrameScheduler& frames,
             CommandBuffer& command, const RenderSubmission& submission, const LineDrawList& lines,
             const LightingData& lighting);

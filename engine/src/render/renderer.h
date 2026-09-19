@@ -22,6 +22,7 @@ namespace Comet {
     class RenderResources;
     class SceneRenderer;
     class Config;
+    class RenderDiagnostics;
 
     class COMET_API Renderer {
     public:
@@ -47,6 +48,8 @@ namespace Comet {
         void set_swapchain_resource_callbacks(std::function<void()> release,
             std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild);
         [[nodiscard]] const FrameScheduler& get_frame_scheduler() const { return *m_frames; }
+        [[nodiscard]] RenderDiagnostics& get_diagnostics() { return *m_diagnostics; }
+        [[nodiscard]] const RenderDiagnostics& get_diagnostics() const { return *m_diagnostics; }
 
         Result<void, GraphicsError> set_render_view(RenderView view);
         // 仅允许在帧间修改；准备失败时保留旧参数和资源。
@@ -85,6 +88,7 @@ namespace Comet {
         std::unique_ptr<RenderContext> m_render_context;
         std::unique_ptr<RenderResources> m_render_resources;
         std::unique_ptr<FrameScheduler> m_frames;
+        std::unique_ptr<RenderDiagnostics> m_diagnostics;
         std::unique_ptr<Presentation> m_presentation;
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         SceneResolver m_scene_resolver;

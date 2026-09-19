@@ -17,6 +17,14 @@ namespace CometEditor {
             render_file_menu();
             render_edit_menu();
             render_view_menu();
+            if(ImGui::BeginMenu(Ui::label("Language").c_str())) {
+                if(ImGui::MenuItem(
+                       "简体中文###Chinese", nullptr, Ui::language() == Ui::Language::Chinese))
+                    m_requested_language = Ui::Language::Chinese;
+                if(ImGui::MenuItem("English", nullptr, Ui::language() == Ui::Language::English))
+                    m_requested_language = Ui::Language::English;
+                ImGui::EndMenu();
+            }
 
             float fps_text_width = ImGui::CalcTextSize("FPS: 999.9").x;
             ImGui::SameLine(
@@ -28,17 +36,17 @@ namespace CometEditor {
     }
 
     void MenuBar::render_file_menu() {
-        if(ImGui::BeginMenu("File", m_state.mode == EditorMode::Edit)) {
+        if(ImGui::BeginMenu(Ui::label("File").c_str(), m_state.mode == EditorMode::Edit)) {
             const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
-            if(ImGui::MenuItem("New Scene",
+            if(ImGui::MenuItem(Ui::label("New Scene").c_str(),
                    m_shortcuts.label(EditorShortcuts::Action::NewScene, mac).c_str())) {
                 m_requested_command = Command::NewScene;
             }
-            if(ImGui::MenuItem("Open Scene",
+            if(ImGui::MenuItem(Ui::label("Open Scene").c_str(),
                    m_shortcuts.label(EditorShortcuts::Action::OpenScene, mac).c_str())) {
                 m_requested_command = Command::OpenScene;
             }
-            if(ImGui::MenuItem("Save Scene",
+            if(ImGui::MenuItem(Ui::label("Save Scene").c_str(),
                    m_shortcuts.label(EditorShortcuts::Action::SaveScene, mac).c_str())) {
                 m_requested_command = Command::SaveScene;
             }
@@ -47,14 +55,14 @@ namespace CometEditor {
     }
 
     void MenuBar::render_edit_menu() {
-        if(ImGui::BeginMenu("Edit", m_state.mode == EditorMode::Edit)) {
+        if(ImGui::BeginMenu(Ui::label("Edit").c_str(), m_state.mode == EditorMode::Edit)) {
             const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
-            if(ImGui::MenuItem("Undo",
+            if(ImGui::MenuItem(Ui::label("Undo").c_str(),
                    m_shortcuts.label(EditorShortcuts::Action::Undo, mac).c_str(), false,
                    m_history.can_undo())) {
                 m_requested_command = Command::Undo;
             }
-            if(ImGui::MenuItem("Redo",
+            if(ImGui::MenuItem(Ui::label("Redo").c_str(),
                    m_shortcuts.label(EditorShortcuts::Action::Redo, mac).c_str(), false,
                    m_history.can_redo())) {
                 m_requested_command = Command::Redo;
@@ -87,10 +95,14 @@ namespace CometEditor {
         return std::exchange(m_requested_command, std::nullopt);
     }
 
+    std::optional<Ui::Language> MenuBar::take_language_request() {
+        return std::exchange(m_requested_language, std::nullopt);
+    }
+
     void MenuBar::render_view_menu() {
-        if(ImGui::BeginMenu("View")) {
+        if(ImGui::BeginMenu(Ui::label("View").c_str())) {
             for(auto* panel : m_panels) {
-                if(ImGui::MenuItem(panel->get_name().c_str(), nullptr, panel->is_open())) {
+                if(ImGui::MenuItem(panel->window_label().c_str(), nullptr, panel->is_open())) {
                     panel->toggle_visible();
                 }
             }

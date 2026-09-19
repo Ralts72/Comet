@@ -7,6 +7,7 @@
 #include "graphics/vk_common.h"
 
 #include <string_view>
+#include <string>
 #include <utility>
 
 #include <vk_mem_alloc.h>
@@ -97,6 +98,7 @@ namespace Comet {
         void set_current_frame_index(uint64_t frame_serial) const;
 
         [[nodiscard]] MemoryBudgetSnapshot query_memory_budget() const;
+        [[nodiscard]] Result<std::string> build_allocation_report() const;
 
     private:
         VmaAllocator m_allocator = VK_NULL_HANDLE;

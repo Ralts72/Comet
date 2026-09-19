@@ -25,15 +25,18 @@ add_library(editor_ui STATIC
         src/inspector/property_editor_registry.cpp
         src/scene/hierarchy.cpp
         src/scene/scene_file_dialog.cpp
+        src/render/render_stats.cpp
         src/ui/dialogs.cpp
         src/ui/console.cpp
         src/ui/imgui_context.cpp
         src/ui/menu_bar.cpp
+        src/ui/language.cpp
         src/ui/shortcuts.cpp
         src/viewport/viewport_panel.cpp
         src/viewport/viewport.cpp
 )
 target_link_libraries(editor_ui PUBLIC editor_core imgui PRIVATE yaml-cpp)
+target_compile_options(editor_ui PUBLIC "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 target_compile_definitions(editor_ui PRIVATE
         COMET_EDITOR_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources"
 )

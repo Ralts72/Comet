@@ -9,27 +9,27 @@ namespace CometEditor {
         if(!m_user_visible)
             return;
 
-        if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
+        if(!ImGui::Begin(window_label().c_str(), &m_user_visible)) {
             ImGui::End();
             return;
         }
 
-        if(ImGui::Button("Clear")) {
+        if(ImGui::Button(Ui::label("Clear").c_str())) {
             clear_logs();
         }
         ImGui::SameLine();
 
-        bool filters_changed = ImGui::Checkbox("Trace", &m_show_trace);
+        bool filters_changed = ImGui::Checkbox(Ui::label("Trace").c_str(), &m_show_trace);
         ImGui::SameLine();
-        filters_changed |= ImGui::Checkbox("Debug", &m_show_debug);
+        filters_changed |= ImGui::Checkbox(Ui::label("Debug").c_str(), &m_show_debug);
         ImGui::SameLine();
-        filters_changed |= ImGui::Checkbox("Info", &m_show_info);
+        filters_changed |= ImGui::Checkbox(Ui::label("Info").c_str(), &m_show_info);
         ImGui::SameLine();
-        filters_changed |= ImGui::Checkbox("Warning", &m_show_warning);
+        filters_changed |= ImGui::Checkbox(Ui::label("Warning").c_str(), &m_show_warning);
         ImGui::SameLine();
-        filters_changed |= ImGui::Checkbox("Error", &m_show_error);
+        filters_changed |= ImGui::Checkbox(Ui::label("Error").c_str(), &m_show_error);
         ImGui::SameLine();
-        filters_changed |= ImGui::Checkbox("Critical", &m_show_critical);
+        filters_changed |= ImGui::Checkbox(Ui::label("Critical").c_str(), &m_show_critical);
 
         ImGui::Separator();
 

@@ -30,6 +30,7 @@ set(SOURCES
         src/common/retry_backoff.cpp
         src/render/presentation.cpp
         src/render/render_graph.cpp
+        src/render/render_diagnostics.cpp
         src/render/passes/output_pass.cpp
         src/render/passes/bloom_pass.cpp
         src/render/post_process.cpp
@@ -37,6 +38,7 @@ set(SOURCES
         src/render/passes/shadow_pass.cpp
         src/config/config_loader.cpp
         src/diagnostics/diagnostics.cpp
+        src/diagnostics/timing_history.cpp
         src/diagnostics/profiler.cpp
         src/diagnostics/logger.cpp
         src/core/window.cpp
@@ -51,6 +53,7 @@ set(SOURCES
         src/graphics/convert.cpp
         src/graphics/context.cpp
         src/graphics/device.cpp
+        src/graphics/gpu_timer.cpp
         src/graphics/vk_capability.cpp
         src/graphics/synchronization/barrier.cpp
         src/graphics/synchronization/gpu_completion_point.cpp

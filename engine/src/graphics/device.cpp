@@ -159,6 +159,10 @@ namespace Comet {
         return get_allocator().query_memory_budget();
     }
 
+    Result<std::string> Device::build_allocation_report() const {
+        return get_allocator().build_allocation_report();
+    }
+
     std::unique_ptr<CommandContext> Device::create_command_context() {
         return std::make_unique<CommandContext>(*this);
     }

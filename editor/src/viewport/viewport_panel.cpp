@@ -6,12 +6,32 @@
 #include <imgui_internal.h>
 
 #include <cmath>
+#include <span>
 #include <utility>
 
 namespace CometEditor {
     namespace {
         constexpr std::uint32_t RESIZE_STABLE_FRAME_COUNT = 2;
         constexpr float TOOLBAR_BUTTON_WIDTH = 40.0f;
+
+        bool edit_choice(const char* title, int& selected, std::span<const char* const> choices) {
+            if(!ImGui::BeginCombo(Ui::label(title).c_str(), Ui::text(choices[selected])))
+                return false;
+            bool changed = false;
+            for(size_t index = 0; index < choices.size(); ++index) {
+                ImGui::PushID(static_cast<int>(index));
+                if(ImGui::Selectable(
+                       Ui::label(choices[index]).c_str(), selected == static_cast<int>(index))) {
+                    selected = static_cast<int>(index);
+                    changed = true;
+                }
+                if(selected == static_cast<int>(index))
+                    ImGui::SetItemDefaultFocus();
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+            return changed;
+        }
     }
 
     ViewportPanel::ViewportPanel(const EditorState& state, SelectionService& selection,
@@ -36,7 +56,7 @@ namespace CometEditor {
             return;
         }
 
-        if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
+        if(!ImGui::Begin(window_label().c_str(), &m_user_visible)) {
             reset_hidden_view();
             ImGui::End();
             return;
@@ -70,28 +90,28 @@ namespace CometEditor {
         const ImVec2 button_size(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight());
         ImGui::AlignTextToFramePadding();
         if(is_playing) {
-            ImGui::TextUnformatted("Play");
+            ImGui::TextUnformatted(Ui::text("Play"));
         } else {
-            ImGui::TextUnformatted("Edit");
+            ImGui::TextUnformatted(Ui::text("Edit"));
         }
         ImGui::SameLine();
-        ImGui::TextDisabled("|");
+        ImGui::TextDisabled("%s", "|");
         ImGui::SameLine();
         ImGui::BeginDisabled(is_playing);
         render_projection_controls();
         ImGui::EndDisabled();
 
         ImGui::SameLine();
-        ImGui::TextDisabled("|");
+        ImGui::TextDisabled("%s", "|");
         ImGui::SameLine();
         ImGui::BeginDisabled(is_playing);
-        if(ImGui::Button("Play", button_size)) {
+        if(ImGui::Button(Ui::label("Play").c_str(), button_size)) {
             m_mode_request = EditorMode::Play;
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::BeginDisabled(!is_playing);
-        if(ImGui::Button("Stop", button_size)) {
+        if(ImGui::Button(Ui::label("Stop").c_str(), button_size)) {
             m_mode_request = EditorMode::Edit;
         }
         ImGui::EndDisabled();
@@ -107,33 +127,38 @@ namespace CometEditor {
     }
 
     void ViewportPanel::render_gizmo_settings() {
-        if(ImGui::Button("Tool", ImVec2(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight())))
+        if(ImGui::Button(
+               Ui::label("Tool").c_str(), ImVec2(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight())))
             ImGui::OpenPopup("Gizmo Settings");
         if(!ImGui::BeginPopup("Gizmo Settings"))
             return;
         auto settings = m_gizmo.settings();
         int mode = static_cast<int>(settings.mode);
         ImGui::SetNextItemWidth(120);
-        bool changed = ImGui::Combo("Mode", &mode, "Move\0Rotate\0Scale\0");
+        constexpr const char* modes[]{"Move", "Rotate", "Scale"};
+        bool changed = edit_choice("Mode", mode, modes);
         settings.mode = static_cast<TransformGizmo::Mode>(mode);
         int space = static_cast<int>(settings.space);
         if(settings.mode == TransformGizmo::Mode::Scale) {
-            ImGui::TextUnformatted("Space: Local (scale)");
+            ImGui::TextUnformatted(Ui::text("Space: Local (scale)"));
         } else {
             ImGui::SetNextItemWidth(120);
-            changed |= ImGui::Combo("Space", &space, "World\0Local\0");
+            constexpr const char* spaces[]{"World", "Local"};
+            changed |= edit_choice("Space", space, spaces);
             settings.space = static_cast<TransformGizmo::Space>(space);
         }
-        changed |= ImGui::Checkbox("Snap", &settings.snap);
+        changed |= ImGui::Checkbox(Ui::label("Snap").c_str(), &settings.snap);
         ImGui::BeginDisabled(!settings.snap);
         ImGui::SetNextItemWidth(120);
         if(settings.mode == TransformGizmo::Mode::Rotate)
-            changed |=
-                ImGui::InputFloat("Angle step", &settings.rotation_step_degrees, 0, 0, "%.1f");
+            changed |= ImGui::InputFloat(
+                Ui::label("Angle step").c_str(), &settings.rotation_step_degrees, 0, 0, "%.1f");
         else if(settings.mode == TransformGizmo::Mode::Scale)
-            changed |= ImGui::InputFloat("Scale step", &settings.scale_step, 0, 0, "%.2f");
+            changed |= ImGui::InputFloat(
+                Ui::label("Scale step").c_str(), &settings.scale_step, 0, 0, "%.2f");
         else
-            changed |= ImGui::InputFloat("Move step", &settings.translation_step, 0, 0, "%.3f");
+            changed |= ImGui::InputFloat(
+                Ui::label("Move step").c_str(), &settings.translation_step, 0, 0, "%.3f");
         ImGui::EndDisabled();
         if(settings.mode == TransformGizmo::Mode::Rotate
             && settings.space == TransformGizmo::Space::World)
@@ -186,8 +211,9 @@ namespace CometEditor {
         }
 
         ImGui::SetNextItemWidth(dropdown_width);
-        if(ImGui::BeginCombo("##Resolution", resolution_label)) {
-            if(ImGui::Selectable("Free", m_play_resolution_policy.mode == ResolutionMode::Free)) {
+        if(ImGui::BeginCombo("##Resolution", Ui::text(resolution_label))) {
+            if(ImGui::Selectable(Ui::label("Free").c_str(),
+                   m_play_resolution_policy.mode == ResolutionMode::Free)) {
                 m_play_resolution_policy = {};
             }
             if(ImGui::Selectable(
@@ -217,8 +243,9 @@ namespace CometEditor {
         const char* display_label =
             m_play_display_mode == ViewportLayout::DisplayMode::Fit ? "Fit" : "1x";
         ImGui::SetNextItemWidth(dropdown_width);
-        if(ImGui::BeginCombo("##Display", display_label)) {
-            if(ImGui::Selectable("Fit", m_play_display_mode == ViewportLayout::DisplayMode::Fit)) {
+        if(ImGui::BeginCombo("##Display", Ui::text(display_label))) {
+            if(ImGui::Selectable(Ui::label("Fit").c_str(),
+                   m_play_display_mode == ViewportLayout::DisplayMode::Fit)) {
                 m_play_display_mode = ViewportLayout::DisplayMode::Fit;
             }
             if(ImGui::Selectable(

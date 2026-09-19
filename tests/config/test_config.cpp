@@ -10,6 +10,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 using namespace Comet;
 
@@ -62,8 +63,24 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
         EXPECT_EQ(config.diagnostics.log.level, expectation.log_level);
         EXPECT_FALSE(config.diagnostics.log.enable_file_logging);
         EXPECT_EQ(config.diagnostics.enable_profiler, expectation.enable_profiler);
+        EXPECT_EQ(config.diagnostics.enable_render_diagnostics,
+            std::string_view(expectation.name) != "app-release");
         EXPECT_EQ(config.vulkan.enable_validation, expectation.enable_validation);
     }
+}
+
+TEST(ConfigTest, RenderDiagnosticsIsIndependentAndValidatesBoolean) {
+    EXPECT_FALSE(Config{}.diagnostics.enable_render_diagnostics);
+    const TemporaryConfigFile enabled(
+        "diagnostics:\n  enable_render_diagnostics: true\n  enable_profiler: false\n");
+    auto loaded = ConfigLoader{}.load(enabled.path());
+    ASSERT_TRUE(loaded) << loaded.error();
+    EXPECT_TRUE(loaded.value().diagnostics.enable_render_diagnostics);
+    EXPECT_FALSE(loaded.value().diagnostics.enable_profiler);
+    const TemporaryConfigFile invalid("diagnostics:\n  enable_render_diagnostics: wrong\n");
+    loaded = ConfigLoader{}.load(invalid.path());
+    ASSERT_FALSE(loaded);
+    EXPECT_NE(loaded.error().find("diagnostics.enable_render_diagnostics"), std::string::npos);
 }
 
 TEST(ConfigTest, ParsesStartupOutputModesAndValidatesHeadroom) {

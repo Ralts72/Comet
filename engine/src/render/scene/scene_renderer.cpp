@@ -1,6 +1,7 @@
 #include "render/scene/scene_renderer.h"
 #include "render/material/material_layout.h"
 #include "render/render_graph.h"
+#include "render/render_diagnostics.h"
 #include "render/passes/output_pass.h"
 #include "render/passes/bloom_pass.h"
 #include "render/passes/shadow_pass.h"
@@ -311,7 +312,8 @@ namespace Comet {
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::render(
-        FrameScheduler& frames, const RenderSubmission& submission, const LineDrawList& lines) {
+        FrameScheduler& frames, const RenderSubmission& submission, const LineDrawList& lines,
+        RenderDiagnostics* diagnostics) {
         PROFILE_SCOPE("SceneRenderer::render");
         using RenderResult = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         frames.retain_current_frame_resource(m_state);
@@ -325,36 +327,49 @@ namespace Comet {
             bindings.emplace_back(view->get_image());
         if(m_state->bloom_passes)
             m_state->bloom->append_bindings(bindings, image);
-        const auto hdr = m_state->hdr_target->get_color_view(image);
-        std::shared_ptr<ImageView> bloom;
-        if(m_state->bloom_passes)
-            bloom = m_state->bloom->get_output(image);
         std::vector<QueueSemaphoreSubmit> waits;
-        const auto recorded = m_state->graph.record(frames, bindings,
-            [this, &frames, &submission, &lines, &waits, &lighting, &hdr, &bloom](
-                RenderGraph::PassId pass, CommandBuffer& command) {
-                if(pass == m_state->output_pass_id)
-                    return m_state->output_pass->render(
-                        frames, m_state->output_target, hdr, m_post_process, bloom);
-                auto drawn = RenderResult::success({});
-                if(pass == m_state->shadow_pass_id)
-                    drawn = m_state->shadow_pass->render(frames, lighting, submission.render_items);
-                else if(pass == m_state->scene_pass_id)
-                    drawn = draw_scene(frames, command, submission, lines, lighting);
-                else if(m_state->bloom_passes)
-                    return m_state->bloom->render(
-                        frames, pass, *m_state->bloom_passes, hdr, m_post_process.bloom_threshold);
-                else
-                    return Result<void, GraphicsError>::failure({"Unknown scene render pass"});
-                if(!drawn)
-                    return Result<void, GraphicsError>::failure(drawn.error());
-                for(const auto& wait : drawn.value())
-                    merge_semaphore_wait(waits, wait);
-                return Result<void, GraphicsError>::success();
-            });
+        const auto recorder = [this, &frames, &submission, &lines, &lighting, &waits](
+                                  RenderGraph::PassId pass, CommandBuffer&) {
+            return record_pass(pass, frames, submission, lines, lighting, waits);
+        };
+        auto recorded = Result<void, GraphicsError>::success();
+        if(diagnostics)
+            recorded = diagnostics->record(m_state->graph, bindings, recorder);
+        else
+            recorded = m_state->graph.record(frames, bindings, recorder);
         if(!recorded)
             return RenderResult::failure(recorded.error());
         return RenderResult::success(std::move(waits));
+    }
+
+    Result<void, GraphicsError> SceneRenderer::record_pass(std::size_t pass, FrameScheduler& frames,
+        const RenderSubmission& submission, const LineDrawList& lines, const LightingData& lighting,
+        std::vector<QueueSemaphoreSubmit>& waits) {
+        const auto slot = frames.get_current_frame_slot_index();
+        if(pass == m_state->output_pass_id) {
+            const auto hdr = m_state->hdr_target->get_color_view(slot);
+            std::shared_ptr<ImageView> bloom;
+            if(m_state->bloom_passes)
+                bloom = m_state->bloom->get_output(slot);
+            return m_state->output_pass->render(
+                frames, m_state->output_target, hdr, m_post_process, bloom);
+        }
+        auto drawn = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success({});
+        if(pass == m_state->shadow_pass_id)
+            drawn = m_state->shadow_pass->render(frames, lighting, submission.render_items);
+        else if(pass == m_state->scene_pass_id)
+            drawn = draw_scene(
+                frames, frames.get_current_command_buffer(), submission, lines, lighting);
+        else if(m_state->bloom_passes)
+            return m_state->bloom->render(frames, pass, *m_state->bloom_passes,
+                m_state->hdr_target->get_color_view(slot), m_post_process.bloom_threshold);
+        else
+            return Result<void, GraphicsError>::failure({"Unknown scene render pass"});
+        if(!drawn)
+            return Result<void, GraphicsError>::failure(drawn.error());
+        for(const auto& wait : drawn.value())
+            merge_semaphore_wait(waits, wait);
+        return Result<void, GraphicsError>::success();
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::draw_scene(

@@ -16,6 +16,7 @@
 | `render/material/material_runtime.h` | 手工 MaterialLayout、PreparedMaterial 快照与版本缓存 |
 | `graphics/pipeline/shader_interface.h` | 入口级 SPIR-V 反射结果与绑定覆盖校验；仅拥有 CPU 值 |
 | `render/frame_scheduler.h` | FrameSlot 复用、提交及成功登记、image 关联、完成序号与 retention |
+| `render/render_diagnostics.h` | 有界场景图 CPU/GPU 采样与低频预算快照，借用 FrameScheduler |
 | `render/debug/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
 | `render/resource/render_resources.h` | 设备资源工厂、上传及 Sampler 共享资源 |
 | `graphics/` | Vulkan 对象与显式同步后端 |
@@ -51,6 +52,7 @@ Engine
     │                    Swapchain → active Generation
     ├── RenderResources → UploadManager / SamplerManager
     ├── FrameScheduler → FrameSlot[N] / SwapchainImageState[M]
+    ├── RenderDiagnostics → GpuTimer[slot]（实际使用的池由 FrameSlot 保活）
     ├── Presentation（借用 RenderContext、FrameScheduler；有序协调 Scene／Overlay dependent）
     ├── RenderView / SceneResolver
     ├── LineDrawList（单帧 CPU 请求）
@@ -70,6 +72,7 @@ Engine
 
 Editor
 ├── EditorAssets → AssetManager（借用 Engine 的服务）
+├── RenderStatsPanel（只读 Engine/Renderer 快照，提交一次性采样／报告请求）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
 ├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
 ├── Viewport → ViewportPanel / TransformGizmo（借用状态、选择、Renderer、Registry 和 ImGuiContext）
@@ -156,6 +159,34 @@ Renderer 收到场景 pass 失败后停止 overlay 与提交，调用 prepare_sh
 部分录制的命令缓冲只由 owner 销毁，不结束并提交空帧，也不重新用于下一帧。
 Editor 通过 Renderer 注册 Overlay 重建钩子、读取只读帧信息；整帧命令缓冲直接传给 Overlay。
 SceneResolver 只解析 Camera、Mesh、Material 和 Environment 引用，不检查模板、属性名或纹理数量。
+
+## 渲染诊断
+
+Engine 保存上一完整循环的 events/update/prepare/render-submit 墙钟分段；prepare 包含帧等待和 UI，
+render-submit 包含提取、解析、录制与提交／呈现调用。暂缓呈现记录 rendered=false；错误中止不发布半条样本，
+最小化等待不作为正常帧采样。该运行时开关独立于 scope Profiler 的编译开关。
+
+Renderer 拥有 RenderDiagnostics，SceneRenderer 只在录制图时借用，不再次扩大场景资源所有权。
+主循环使用 Engine::FrameTiming，图采样使用 RenderDiagnostics::GraphTiming：计量范围、序号和完成时刻不同，不合并成混合数据结构。
+SceneRenderer::record_pass 负责具名 Pass 分发，局部 lambda 仅适配 RenderGraph 的同步回调，不保存或跨线程调度。
+诊断包围既有 Plan::record：CPU 明细计量各回调，总时间还包含图校验与屏障录制；GPU 使用图首、各 pass 结束、
+图尾导出屏障后的时间戳。相邻 GPU 边界包含依赖等待，不表示各 pass 独占硬件的时间。
+场景图不含 ImGui overlay、present 完成或其他队列，CPU/GPU 快照分别带帧序号。
+
+每个 FrameSlot 懒创建固定 34 项的 GpuTimer，最多记录 32 个 pass、每个名称最多 128 字节。
+超限仍执行完整图，截断 CPU 明细并跳过该图的 GPU 采样。保留槽位待完成样本、最新快照及有界时间统计。
+Engine 与 RenderDiagnostics 共用纯 CPU 的 TimingHistory：100 个 50 ms 桶，逐样本累计 sum/count/max，
+查询近 1 秒统计和近 5 秒趋势；图布局变化时清空对应历史。GPU 按确认完成后的收集时刻归桶，不伪装为执行时间线。
+面板每 250 ms 复制显示快照，暂停只冻结显示，不影响采样。停止后保留最后窗口，重新启用清空旧采样。
+graphics/gpu_timer 封装原生查询、有效位和周期换算，render 不直接操作 vk::QueryPool。
+帧的完成 serial 经 FrameScheduler 确认后才能读取查询，不以 availability 代替完成证据，也不额外等待 GPU。
+池在首次录制前交给 FrameSlot 保活；关闭采样或销毁诊断对象不提前释放在途池。Renderer 关闭仍先等待既有提交。
+普通查询创建／读取失败只关闭 GPU 采样并报告一次；DeviceLost 沿 GraphicsError 返回，不吞成诊断降级。
+图录制失败沿用原有中止帧协议，不发布半条样本、不提交部分命令、不在同一测量帧重试录制。
+
+内存预算开启后至多每秒采样一次。详细分配报告由 Allocator 生成 VMA 原生 JSON，Device 转发；
+Editor 在 on_update 消费面板请求并原子写入项目私有状态目录，不在 GPU 层处理项目路径，面板 getter 也不触发采样或写盘。
+报告反映 VMA 管理的分配与驱动预算，并非所有 GPU 内存；手动生成／保存仍占用主线程。
 
 ## 材质、Shader 与 Pipeline
 

@@ -5,6 +5,10 @@
 #include "graphics/resource/sampler.h"
 #include "assets/editor_assets.h"
 #include "render/shader_reload.h"
+#include "render/render_stats.h"
+#include "render/render_diagnostics.h"
+#include "common/file_io.h"
+#include "graphics/device.h"
 #include "scene/scene_file_dialog.h"
 #include "ui/dialogs.h"
 #include "scene/command_history.h"
@@ -71,6 +75,14 @@ namespace {
 
             m_console_panel = std::make_shared<CometEditor::ConsolePanel>();
             setup_log_redirect();
+
+            auto translations = CometEditor::Ui::load_translations();
+            if(translations) {
+                m_translations = std::move(translations).value();
+            } else {
+                LOG_WARN("{}; using English editor text", translations.error());
+                m_ui_language = CometEditor::Ui::Language::English;
+            }
 
             const std::filesystem::path shader_root(COMET_BUILTIN_SHADER_DIRECTORY);
             CometEditor::ShaderReload::Requests shader_requests;
@@ -161,6 +173,9 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> on_update(const Comet::UpdateContext context) override {
+            if(const auto language = m_menu_bar->take_language_request())
+                m_ui_language = *language;
+            process_diagnostics_requests();
             if(auto requests = process_editor_requests(); !requests)
                 return requests;
             if(get_engine().get_window().take_close_request()) {
@@ -226,6 +241,7 @@ namespace {
                 static_cast<void>(m_property_edit.cancel());
             m_command_history.bind_scene(nullptr);
             m_menu_bar.reset();
+            m_render_stats.reset();
             m_project_panel.reset();
             m_hierarchy_panel.reset();
             m_inspector_panel.reset();
@@ -242,6 +258,27 @@ namespace {
         }
 
     private:
+        void process_diagnostics_requests() {
+            auto& renderer = get_engine().get_renderer();
+            if(const auto capture = m_render_stats->take_capture_request()) {
+                if(auto enabled = renderer.get_diagnostics().set_enabled(*capture); !enabled)
+                    LOG_ERROR("Cannot change render diagnostics: {}", enabled.error());
+            }
+            if(!m_render_stats->take_allocation_report_request())
+                return;
+            const auto report =
+                renderer.get_render_context().get_device().build_allocation_report();
+            if(!report) {
+                LOG_ERROR("Cannot build allocation report: {}", report.error());
+                return;
+            }
+            const auto path = m_project.paths().editor_state() / "diagnostics/gpu-allocations.json";
+            if(auto saved = Comet::write_text_file_atomic(path, report.value()); !saved)
+                LOG_ERROR("Cannot save allocation report: {}", saved.error());
+            else
+                LOG_INFO("Allocation report saved to {}", path.string());
+        }
+
         Comet::Result<void, Comet::Error> update_material_shaders() {
             const auto compilation = m_material_shader_reload->update();
             if(!compilation)
@@ -463,10 +500,13 @@ namespace {
             m_menu_bar->register_panel(*m_inspector_panel);
             m_menu_bar->register_panel(*m_project_panel);
             m_menu_bar->register_panel(*m_console_panel);
+            m_render_stats = std::make_unique<CometEditor::RenderStatsPanel>(get_engine());
+            m_menu_bar->register_panel(*m_render_stats);
             return Comet::Result<void, Comet::Error>::success();
         }
 
         void draw_editor_ui() {
+            const CometEditor::Ui::LanguageScope language(m_ui_language, &m_translations);
             constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
             ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), dockspace_flags);
 
@@ -478,6 +518,7 @@ namespace {
             m_project_panel->render();
             ImGui::EndDisabled();
             m_console_panel->render();
+            m_render_stats->render();
             m_scene_file_dialog.render();
             draw_unsaved_dialog();
             if(!m_scene_document->has_pending_request())
@@ -718,6 +759,8 @@ namespace {
         Comet::SceneSerializer m_scene_serializer{m_component_registry};
         CometEditor::EditorState m_editor_state;
         CometEditor::EditorShortcuts m_shortcuts;
+        CometEditor::Ui::Language m_ui_language = CometEditor::Ui::Language::Chinese;
+        CometEditor::Ui::Translations m_translations;
         std::unique_ptr<CometEditor::SceneDocument> m_scene_document;
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
         CometEditor::SceneFileDialog m_scene_file_dialog;
@@ -728,6 +771,7 @@ namespace {
         std::unique_ptr<CometEditor::InspectorPanel> m_inspector_panel;
         std::unique_ptr<CometEditor::ProjectPanel> m_project_panel;
         std::shared_ptr<CometEditor::ConsolePanel> m_console_panel;
+        std::unique_ptr<CometEditor::RenderStatsPanel> m_render_stats;
     };
 
     Comet::Result<std::unique_ptr<Comet::Application>> create_editor(

@@ -101,7 +101,7 @@ set_tests_properties(swapchain_recovery PROPERTIES TIMEOUT 90)
 set_tests_properties(pipeline_cache_process swapchain_recovery
         PROPERTIES RESOURCE_LOCK comet_gpu LABELS "integration")
 add_test(NAME render_graph_sync_validation COMMAND integration_testing
-        --gtest_filter=RenderGraphGpuTest.*:BloomGpuTest.* ${TEST_PLATFORM_ARGS})
+        --gtest_filter=RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.* ${TEST_PLATFORM_ARGS})
 set_tests_properties(render_graph_sync_validation PROPERTIES
         ENVIRONMENT "VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT"
         RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration")

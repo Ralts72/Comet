@@ -1,6 +1,7 @@
 #include "renderer.h"
 #include "config/config.h"
 #include "render/render_context.h"
+#include "render/render_diagnostics.h"
 #include "render/resource/render_resources.h"
 #include "render/scene/scene_renderer.h"
 #include "core/window.h"
@@ -29,8 +30,13 @@ namespace Comet {
         auto scene = std::make_unique<SceneRenderer>(device, config.vulkan, config.render);
         if(auto configured = scene->configure_presentation(*resources, swapchain); !configured)
             return Creation::failure(configured.error());
-        return Creation::success(std::unique_ptr<Renderer>(new Renderer(std::move(context).value(),
-            std::move(resources), std::move(frames), std::move(scene), asset_registry)));
+        auto renderer = std::unique_ptr<Renderer>(new Renderer(std::move(context).value(),
+            std::move(resources), std::move(frames), std::move(scene), asset_registry));
+        if(auto enabled =
+                renderer->m_diagnostics->set_enabled(config.diagnostics.enable_render_diagnostics);
+            !enabled)
+            return Creation::failure({enabled.error()});
+        return Creation::success(std::move(renderer));
     }
 
     Renderer::Renderer(std::unique_ptr<RenderContext> context,
@@ -39,6 +45,7 @@ namespace Comet {
         : m_render_context(std::move(context)), m_render_resources(std::move(resources)),
           m_frames(std::move(frames)), m_scene_renderer(std::move(scene)),
           m_scene_resolver(assets) {
+        m_diagnostics = std::make_unique<RenderDiagnostics>(*m_frames);
         m_presentation = std::make_unique<Presentation>(*m_render_context, *m_frames,
             Presentation::Dependent{[this] { m_scene_renderer->release_presentation_target(); },
                 [this](const SwapchainCompatibility& compatibility) {
@@ -54,6 +61,11 @@ namespace Comet {
         m_render_resources->collect_completed_uploads();
 
         auto preparation = m_presentation->begin_frame();
+        if(preparation) {
+            if(auto collected = m_diagnostics->collect_completed(); !collected)
+                return Result<bool, GraphicsError>::failure(collected.error());
+            m_diagnostics->poll_memory();
+        }
         if(!preparation || !preparation.value()) {
             m_viewport_pick_request.reset();
             m_line_draw_list.clear();
@@ -79,7 +91,7 @@ namespace Comet {
             m_line_draw_list.clear();
         }
         const auto resource_waits =
-            m_scene_renderer->render(*m_frames, submission, m_line_draw_list);
+            m_scene_renderer->render(*m_frames, submission, m_line_draw_list, m_diagnostics.get());
         m_line_draw_list.clear();
 
         if(!resource_waits) {
@@ -185,6 +197,7 @@ namespace Comet {
         prepare_shutdown();
 
         m_presentation.reset();
+        m_diagnostics.reset();
         m_frames.reset();
         m_scene_renderer.reset();
         m_render_resources.reset();

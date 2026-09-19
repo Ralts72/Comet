@@ -1,4 +1,5 @@
 #include "scene/scene_file_dialog.h"
+#include "ui/language.h"
 #include <algorithm>
 #include <utility>
 #include <imgui.h>
@@ -35,7 +36,8 @@ namespace CometEditor {
             m_open_requested = false;
         }
 
-        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if(!ImGui::BeginPopupModal(
+               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             return;
         }
         if(m_close_requested) {
@@ -47,15 +49,15 @@ namespace CometEditor {
         }
 
         ImGui::SetNextItemWidth(560.0f);
-        const bool submitted = ImGui::InputText("Path", m_path_buffer.data(), m_path_buffer.size(),
-            ImGuiInputTextFlags_EnterReturnsTrue);
+        const bool submitted = ImGui::InputText(Ui::label("Path").c_str(), m_path_buffer.data(),
+            m_path_buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue);
 
         const char* action = is_open ? "Open" : "Save";
-        if((ImGui::Button(action, ImVec2(100.0f, 0.0f)) || submitted)) {
+        if((ImGui::Button(Ui::label(action).c_str(), ImVec2(100.0f, 0.0f)) || submitted)) {
             m_request = Request{m_action, m_path_buffer.data()};
         }
         ImGui::SameLine();
-        if(ImGui::Button("Cancel", ImVec2(100.0f, 0.0f))) {
+        if(ImGui::Button(Ui::label("Cancel").c_str(), ImVec2(100.0f, 0.0f))) {
             m_cancelled = true;
             ImGui::CloseCurrentPopup();
             m_action = Action::None;

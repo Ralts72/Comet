@@ -20,6 +20,7 @@ namespace Comet {
         struct Diagnostics {
             Log log;
             bool enable_profiler = false;
+            bool enable_render_diagnostics = false;
         };
 
         struct Window {

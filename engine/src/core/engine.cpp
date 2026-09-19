@@ -4,6 +4,7 @@
 #include "core/window.h"
 #include "graphics/device.h"
 #include "render/renderer.h"
+#include "render/render_diagnostics.h"
 #include "render/render_context.h"
 #include "render/resource/render_resources.h"
 #include "asset/registry.h"
@@ -92,18 +93,51 @@ namespace Comet {
         const std::function<Result<void, Error>(UpdateContext)>& update,
         const std::function<Result<void, Error>()>& frame_ready) {
         PROFILE_SCOPE("Engine::Frame");
+        const bool capture = m_renderer->get_diagnostics().is_enabled();
+        using Clock = std::chrono::steady_clock;
+        auto phase_start = capture ? Clock::now() : Clock::time_point{};
+        const auto phase_ms = [&] {
+            if(!capture)
+                return 0.0;
+            const auto now = Clock::now();
+            const auto duration =
+                std::chrono::duration<double, std::milli>(now - phase_start).count();
+            phase_start = now;
+            return duration;
+        };
+        FrameTiming timing;
+        const auto publish = [&] {
+            if(capture && m_renderer->get_diagnostics().is_enabled()) {
+                timing.total_ms = timing.events_ms + timing.update_ms + timing.prepare_ms
+                                  + timing.render_submit_ms;
+                if(!m_frame_timing)
+                    m_frame_history.clear();
+                const TimingHistory::Entry phases[]{{"Events", timing.events_ms},
+                    {"Update", timing.update_ms}, {"Prepare / UI", timing.prepare_ms},
+                    {"Render / submit", timing.render_submit_ms}};
+                m_frame_history.record(timing.total_ms, phases);
+                m_frame_timing = timing;
+            } else {
+                m_frame_timing.reset();
+            }
+        };
+        if(!capture)
+            m_frame_timing.reset();
         m_window->poll_events();
         if(m_window->should_close())
             return Result<void, Error>::success();
 
         const auto framebuffer_size = m_window->get_framebuffer_size();
         if(framebuffer_size.x == 0 || framebuffer_size.y == 0) {
+            m_frame_timing.reset();
             m_window->wait_events();
             m_timer->tick();
             return Result<void, Error>::success();
         }
 
+        timing.events_ms = phase_ms();
         m_timer->tick();
+        timing.frame_index = m_timer->get_update_context().frame_index;
         if(update) {
             if(auto result = update(m_timer->get_update_context()); !result)
                 return result;
@@ -111,11 +145,14 @@ namespace Comet {
         if(m_window->should_close())
             return Result<void, Error>::success();
 
+        timing.update_ms = phase_ms();
         const auto preparation = m_renderer->prepare_frame();
         if(!preparation)
             return Result<void, Error>::failure(preparation.error().as_error());
         if(!preparation.value()) {
             m_window->wait_events(0.016);
+            timing.prepare_ms = phase_ms();
+            publish();
             return Result<void, Error>::success();
         }
 
@@ -127,12 +164,16 @@ namespace Comet {
             }
         }
 
+        timing.prepare_ms = phase_ms();
         RenderScene render_scene;
         if(m_scene)
             render_scene = SceneExtractor::extract(*m_scene);
         const auto rendered = m_renderer->render_frame(render_scene);
         if(!rendered)
             return Result<void, Error>::failure(rendered.error().as_error());
+        timing.render_submit_ms = phase_ms();
+        timing.rendered = true;
+        publish();
         return Result<void, Error>::success();
     }
 }

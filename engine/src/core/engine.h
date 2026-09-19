@@ -2,10 +2,12 @@
 #include "common/export.h"
 #include "common/error.h"
 #include "common/result.h"
+#include "diagnostics/timing_history.h"
 #include "timer.h"
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace Comet {
@@ -19,6 +21,19 @@ namespace Comet {
 
     class COMET_API Engine {
     public:
+        struct FrameTiming {
+            int frame_index = 0;
+            double events_ms = 0;
+            double update_ms = 0;
+            double prepare_ms = 0;
+            double render_submit_ms = 0;
+            double total_ms = 0;
+            bool rendered = false;
+        };
+        [[nodiscard]] const std::optional<FrameTiming>& get_frame_timing() const {
+            return m_frame_timing;
+        }
+        [[nodiscard]] const TimingHistory& frame_history() const { return m_frame_history; }
         static Result<std::unique_ptr<Engine>, Error> create(const Config& config);
 
         ~Engine();
@@ -64,6 +79,8 @@ namespace Comet {
         std::unique_ptr<AssetRegistry> m_asset_registry;
         std::unique_ptr<Scene> m_scene;
         std::unique_ptr<Renderer> m_renderer;
+        std::optional<FrameTiming> m_frame_timing;
+        TimingHistory m_frame_history;
         bool m_running = false;
         bool m_shutdown_prepared = false;
     };

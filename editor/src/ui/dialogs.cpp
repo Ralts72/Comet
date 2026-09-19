@@ -1,4 +1,5 @@
 #include "ui/dialogs.h"
+#include "ui/language.h"
 
 #include <imgui.h>
 
@@ -8,22 +9,23 @@ namespace CometEditor {
         constexpr const char* title = "Change Material Template";
         if(pending)
             ImGui::OpenPopup(title);
-        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if(!ImGui::BeginPopupModal(
+               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return std::nullopt;
         std::optional<bool> decision;
         if(!pending) {
             ImGui::CloseCurrentPopup();
         } else {
-            ImGui::Text("Switch to %s?", template_name.c_str());
+            ImGui::Text(Ui::text("Switch to %s?"), template_name.c_str());
             if(!discarded_properties.empty()) {
-                ImGui::TextUnformatted("Incompatible properties will be discarded:");
+                ImGui::TextUnformatted(Ui::text("Incompatible properties will be discarded:"));
                 for(const auto& name : discarded_properties)
                     ImGui::BulletText("%s", name.c_str());
             }
-            if(ImGui::Button("Switch"))
+            if(ImGui::Button(Ui::label("Switch").c_str()))
                 decision = true;
             ImGui::SameLine();
-            if(ImGui::Button("Cancel"))
+            if(ImGui::Button(Ui::label("Cancel").c_str()))
                 decision = false;
             if(decision)
                 ImGui::CloseCurrentPopup();
@@ -36,17 +38,18 @@ namespace CometEditor {
         const bool needs_confirmation) {
         if(needs_confirmation)
             ImGui::OpenPopup("Unsaved Scene");
-        if(!ImGui::BeginPopupModal("Unsaved Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if(!ImGui::BeginPopupModal(
+               Ui::label("Unsaved Scene").c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return std::nullopt;
         std::optional<SceneDocument::Decision> decision;
-        ImGui::TextUnformatted("Save changes before continuing?");
-        if(ImGui::Button("Save"))
+        ImGui::TextUnformatted(Ui::text("Save changes before continuing?"));
+        if(ImGui::Button(Ui::label("Save").c_str()))
             decision = SceneDocument::Decision::Save;
         ImGui::SameLine();
-        if(ImGui::Button("Discard"))
+        if(ImGui::Button(Ui::label("Discard").c_str()))
             decision = SceneDocument::Decision::Discard;
         ImGui::SameLine();
-        if(ImGui::Button("Cancel"))
+        if(ImGui::Button(Ui::label("Cancel").c_str()))
             decision = SceneDocument::Decision::Cancel;
         if(decision)
             ImGui::CloseCurrentPopup();

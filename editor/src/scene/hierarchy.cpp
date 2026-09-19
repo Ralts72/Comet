@@ -103,17 +103,17 @@ namespace CometEditor {
 
     void HierarchyPanel::render_context_menu(const Comet::Entity entity) {
         ImGui::BeginDisabled(!can_edit_scene());
-        if(ImGui::MenuItem(entity ? "Create Child" : "Create Entity")) {
+        if(ImGui::MenuItem(Ui::label(entity ? "Create Child" : "Create Entity").c_str())) {
             const auto parent = entity ? entity.get_uuid() : Comet::EntityUuid{};
             m_request = Request{Request::Type::Create, {}, parent, m_history.generation()};
             m_expand_entity = parent;
         }
         if(entity) {
             ImGui::Separator();
-            if(ImGui::MenuItem("Duplicate"))
+            if(ImGui::MenuItem(Ui::label("Duplicate").c_str()))
                 m_request = Request{
                     Request::Type::Duplicate, entity.get_uuid(), {}, m_history.generation()};
-            if(ImGui::MenuItem("Delete"))
+            if(ImGui::MenuItem(Ui::label("Delete").c_str()))
                 m_request =
                     Request{Request::Type::Delete, entity.get_uuid(), {}, m_history.generation()};
         }
@@ -124,7 +124,7 @@ namespace CometEditor {
         if(!m_user_visible)
             return;
 
-        if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
+        if(!ImGui::Begin(window_label().c_str(), &m_user_visible)) {
             ImGui::End();
             return;
         }
@@ -133,7 +133,7 @@ namespace CometEditor {
                                    | ImGuiTreeNodeFlags_SpanAvailWidth;
         if(m_selection.get_selected_scene())
             flags |= ImGuiTreeNodeFlags_Selected;
-        const bool scene_open = ImGui::TreeNodeEx("Scene", flags);
+        const bool scene_open = ImGui::TreeNodeEx(Ui::label("Scene").c_str(), flags);
         if(ImGui::IsItemClicked())
             m_selection.select_scene();
         if(ImGui::BeginPopupContextItem("Scene actions")) {

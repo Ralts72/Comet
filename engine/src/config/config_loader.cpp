@@ -144,6 +144,8 @@ namespace Comet {
                 || !reader.read("diagnostics.log_level", config.diagnostics.log.level, "a string")
                 || !reader.read(
                     "diagnostics.enable_profiler", config.diagnostics.enable_profiler, "a boolean")
+                || !reader.read("diagnostics.enable_render_diagnostics",
+                    config.diagnostics.enable_render_diagnostics, "a boolean")
                 || !reader.read("window.width", config.window.width, "an integer")
                 || !reader.read("window.height", config.window.height, "an integer")
                 || !reader.read("window.title", config.window.title, "a string")

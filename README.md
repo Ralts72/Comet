@@ -80,6 +80,21 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 `ctest --preset dev-debug -L unit` 可快速检查逻辑，完整 `ctest --preset dev-debug` 仍包含 GPU 生命周期、同步和 WSI 回归。
 `COMET_NATIVE_OPTIMIZATION` 只适合本机构建。配置与诊断采用“编译期能力 + Profile 运行时策略”。
 
+`diagnostics.enable_render_diagnostics` 独立于 scope Profiler 的编译开关；开发 Profile 默认开启，
+`app-release` 默认关闭。编辑器默认显示「渲染统计」面板，也可通过「视图 / View」菜单显示／隐藏。
+配置只决定启动时是否采样；「采集数据」在运行时的帧边界切换采样，隐藏面板不会停止采样，切换结果不写回配置。
+面板区分包含等待的 CPU 整帧墙钟时间、场景图 CPU 录制和已完成帧的 GPU 时间；GPU 不包含 UI 绘制与呈现完成，
+CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍可观察 CPU。
+面板每 250 毫秒刷新，显示近 1 秒均值／峰值及近 5 秒趋势；底层仍逐帧采集，峰值不会因 UI 降频而丢失。
+「暂停显示」只冻结面板，不停止采集；CPU 阶段、渲染阶段和显存堆明细可展开。日常观察无需保存报告。
+显存预算至多每秒采样一次，并标明驱动报告或 VMA 估算。「保存显存分配报告」手动生成详细报告，
+原子保存到项目 `.comet/editor/diagnostics/gpu-allocations.json`，再次保存替换旧报告，结果写入 Log。
+编辑器使用 16px Roboto Bold，并合并 Noto Sans SC Bold 覆盖中文。
+顶栏「语言 / Language」可切换简体中文和 English，默认中文，本次会话有效。
+切换只影响编辑器内置显示文本，保留控件身份及布局；资产名、路径、Shader 标识和原始日志不翻译。
+中文词表位于 `editor/resources/locales/zh-CN.yaml`，启动时加载一次；修改文案后重启即可，无需重新编译。
+缺词回退英文原文，文件无效时记录日志并使用英文；键和值必须是字符串，格式占位符须与英文原文完全一致。
+
 启动时的显示输出在 `config/common.yaml` 的 `render` 下设置，也可由当前 Profile 覆盖：
 
 ```yaml

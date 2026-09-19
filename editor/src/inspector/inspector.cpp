@@ -72,7 +72,7 @@ namespace CometEditor {
             return;
         }
 
-        if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
+        if(!ImGui::Begin(window_label().c_str(), &m_user_visible)) {
             static_cast<void>(finish_edit());
             ImGui::End();
             return;
@@ -89,7 +89,7 @@ namespace CometEditor {
             render_scene(*scene);
         } else {
             static_cast<void>(m_property_edit.commit());
-            ImGui::TextUnformatted("No entity or asset selected");
+            ImGui::TextUnformatted(Ui::text("No entity or asset selected"));
         }
 
         confirm_material_template();
@@ -97,7 +97,7 @@ namespace CometEditor {
     }
 
     void InspectorPanel::render_entity(Comet::Entity entity) {
-        ImGui::Text("Entity ID: %llu", static_cast<unsigned long long>(entity.get_id()));
+        ImGui::Text(Ui::text("Entity ID: %llu"), static_cast<unsigned long long>(entity.get_id()));
 
         bool active_property_visible = false;
         const bool edit_structure =
@@ -112,12 +112,12 @@ namespace CometEditor {
 
             ImGui::PushID(component_descriptor.id.c_str());
             const bool is_name = component_descriptor.id == "name";
-            const bool expanded =
-                is_name
-                || ImGui::CollapsingHeader(
-                    component_descriptor.display_name.c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+            const bool expanded = is_name
+                                  || ImGui::CollapsingHeader(
+                                      Ui::label(component_descriptor.display_name.c_str()).c_str(),
+                                      ImGuiTreeNodeFlags_DefaultOpen);
             if(!is_name && ImGui::BeginPopupContextItem("Component actions")) {
-                if(ImGui::MenuItem("Remove Component", nullptr, false,
+                if(ImGui::MenuItem(Ui::label("Remove Component").c_str(), nullptr, false,
                        edit_structure
                            && SceneCommands::can_edit_component_structure(component_descriptor)))
                     remove = &component_descriptor;
@@ -143,13 +143,13 @@ namespace CometEditor {
         }
         const Comet::ComponentDescriptor* add = nullptr;
         ImGui::BeginDisabled(!edit_structure);
-        if(ImGui::Button("Add Component"))
+        if(ImGui::Button(Ui::label("Add Component").c_str()))
             ImGui::OpenPopup("Add Component");
         if(ImGui::BeginPopup("Add Component")) {
             for(const auto& component : m_component_registry.components()) {
                 if(SceneCommands::can_edit_component_structure(component)
                     && !component.has_component(entity)
-                    && ImGui::MenuItem(component.display_name.c_str()))
+                    && ImGui::MenuItem(Ui::label(component.display_name.c_str()).c_str()))
                     add = &component;
             }
             ImGui::EndPopup();
@@ -174,7 +174,7 @@ namespace CometEditor {
     }
 
     void InspectorPanel::render_scene(Comet::Scene& scene) {
-        ImGui::SeparatorText("Environment");
+        ImGui::SeparatorText(Ui::text("Environment"));
         const bool can_edit = m_state.mode == EditorMode::Edit && m_history.get_scene() == &scene;
         if(!can_edit)
             static_cast<void>(finish_edit(true));
@@ -187,25 +187,26 @@ namespace CometEditor {
             environment.asset = asset->handle;
             changed = true;
         }
-        changed |= ImGui::Checkbox("Background", &environment.background);
-        changed |= ImGui::Checkbox("Lighting", &environment.lighting);
+        changed |= ImGui::Checkbox(Ui::label("Background").c_str(), &environment.background);
+        changed |= ImGui::Checkbox(Ui::label("Lighting").c_str(), &environment.lighting);
         bool finished = changed;
-        changed |= ImGui::DragFloat("Intensity", &environment.intensity, 0.02f, 0.0f, 64.0f, "%.2f",
-            ImGuiSliderFlags_AlwaysClamp);
-        if(can_edit && ImGui::IsItemActivated())
-            static_cast<void>(m_property_edit.begin_environment());
-        if(ImGui::IsItemActive())
-            m_active_item = ImGui::GetItemID();
-        finished |= ImGui::IsItemDeactivated();
-        changed |= ImGui::DragFloat("Lighting intensity", &environment.lighting_intensity, 0.02f,
+        changed |= ImGui::DragFloat(Ui::label("Intensity").c_str(), &environment.intensity, 0.02f,
             0.0f, 64.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         if(can_edit && ImGui::IsItemActivated())
             static_cast<void>(m_property_edit.begin_environment());
         if(ImGui::IsItemActive())
             m_active_item = ImGui::GetItemID();
         finished |= ImGui::IsItemDeactivated();
-        changed |=
-            ImGui::DragFloat("Rotation", &environment.rotation, 0.5f, 0.0f, 0.0f, "%.1f deg");
+        changed |= ImGui::DragFloat(Ui::label("Lighting intensity").c_str(),
+            &environment.lighting_intensity, 0.02f, 0.0f, 64.0f, "%.2f",
+            ImGuiSliderFlags_AlwaysClamp);
+        if(can_edit && ImGui::IsItemActivated())
+            static_cast<void>(m_property_edit.begin_environment());
+        if(ImGui::IsItemActive())
+            m_active_item = ImGui::GetItemID();
+        finished |= ImGui::IsItemDeactivated();
+        changed |= ImGui::DragFloat(
+            Ui::label("Rotation").c_str(), &environment.rotation, 0.5f, 0.0f, 0.0f, "%.1f deg");
         if(can_edit && ImGui::IsItemActivated())
             static_cast<void>(m_property_edit.begin_environment());
         if(ImGui::IsItemActive())
@@ -333,8 +334,8 @@ namespace CometEditor {
             load_asset(*record);
         }
 
-        ImGui::Text("Path: %s", record->path.generic_string().c_str());
-        ImGui::Text("Type: %s", Comet::to_string(record->type).data());
+        ImGui::Text(Ui::text("Path: %s"), record->path.generic_string().c_str());
+        ImGui::Text(Ui::text("Type: %s"), Comet::to_string(record->type).data());
         ImGui::Separator();
 
         if(!m_asset_error.empty()) {
@@ -344,7 +345,7 @@ namespace CometEditor {
         if(record->type == Comet::AssetType::Material) {
             if(m_material_data) {
                 render_material(*record);
-            } else if(ImGui::Button("Retry Load")) {
+            } else if(ImGui::Button(Ui::label("Retry Load").c_str())) {
                 load_asset(*record);
             }
             return;
@@ -353,25 +354,25 @@ namespace CometEditor {
         if(record->type == Comet::AssetType::Texture) {
             if(m_texture_import_settings) {
                 render_texture(*record);
-            } else if(ImGui::Button("Retry Load")) {
+            } else if(ImGui::Button(Ui::label("Retry Load").c_str())) {
                 load_asset(*record);
             }
             return;
         }
 
-        ImGui::TextDisabled("No inspector is available for this asset type");
+        ImGui::TextDisabled("%s", Ui::text("No inspector is available for this asset type"));
     }
 
     void InspectorPanel::render_texture(const Comet::AssetRecord& record) {
         std::optional<Comet::TextureImportSettings> previous_settings;
         const char* color_space = texture_color_space_label(m_texture_import_settings->color_space);
-        if(ImGui::BeginCombo("Color Space", color_space)) {
+        if(ImGui::BeginCombo(Ui::label("Color Space").c_str(), Ui::text(color_space))) {
             constexpr std::array color_spaces{
                 Comet::TextureColorSpace::Srgb, Comet::TextureColorSpace::Linear};
             for(const Comet::TextureColorSpace candidate : color_spaces) {
                 const bool selected = candidate == m_texture_import_settings->color_space;
                 const char* label = texture_color_space_label(candidate);
-                if(ImGui::Selectable(label, selected) && !selected) {
+                if(ImGui::Selectable(Ui::label(label).c_str(), selected) && !selected) {
                     if(!previous_settings) {
                         previous_settings = *m_texture_import_settings;
                     }
@@ -385,7 +386,7 @@ namespace CometEditor {
         }
 
         bool flip_y = m_texture_import_settings->flip_y;
-        if(ImGui::Checkbox("Flip Y", &flip_y)) {
+        if(ImGui::Checkbox(Ui::label("Flip Y").c_str(), &flip_y)) {
             if(!previous_settings) {
                 previous_settings = *m_texture_import_settings;
             }
@@ -400,7 +401,8 @@ namespace CometEditor {
     void InspectorPanel::render_material(const Comet::AssetRecord& record) {
         std::optional<Comet::MaterialData> previous_data;
         const auto layout = material_layout();
-        if(ImGui::BeginCombo("Template", m_material_data->template_name.c_str())) {
+        if(ImGui::BeginCombo(
+               Ui::label("Template").c_str(), m_material_data->template_name.c_str())) {
             for(const auto& candidate : m_material_layouts) {
                 const bool selected = candidate->get_name() == m_material_data->template_name;
                 if(ImGui::Selectable(candidate->get_name().c_str(), selected) && !selected)
@@ -412,7 +414,7 @@ namespace CometEditor {
             ImGui::EndCombo();
         }
         if(!layout) {
-            ImGui::TextDisabled("No registered layout for this material");
+            ImGui::TextDisabled("%s", Ui::text("No registered layout for this material"));
             return;
         }
         const auto remember_previous = [&] {
@@ -421,7 +423,7 @@ namespace CometEditor {
         };
         ImGui::BeginDisabled(m_template_change.has_value());
         if(!layout->get_textures().empty())
-            ImGui::SeparatorText("Textures");
+            ImGui::SeparatorText(Ui::text("Textures"));
 
         for(const auto& property : layout->get_textures()) {
             const auto& property_name = property.name;
@@ -457,7 +459,7 @@ namespace CometEditor {
         }
 
         if(!layout->get_scalars().empty() || !layout->get_vectors().empty())
-            ImGui::SeparatorText("Parameters");
+            ImGui::SeparatorText(Ui::text("Parameters"));
         for(const auto& property : layout->get_scalars()) {
             const auto found = m_material_data->scalar_properties.find(property.name);
             float value = property.default_value;
@@ -467,8 +469,8 @@ namespace CometEditor {
             const auto& label =
                 property.display_name.empty() ? property.name : property.display_name;
             ImGui::PushID(property.name.c_str());
-            if(ImGui::DragFloat(label.c_str(), &value, property.step, property.min_value,
-                   property.max_value, "%.3f", ImGuiSliderFlags_AlwaysClamp)
+            if(ImGui::DragFloat(Ui::label(label.c_str()).c_str(), &value, property.step,
+                   property.min_value, property.max_value, "%.3f", ImGuiSliderFlags_AlwaysClamp)
                 && value != before) {
                 remember_previous();
                 m_material_data->texture_properties.erase(property.name);
@@ -488,9 +490,10 @@ namespace CometEditor {
             ImGui::PushID(property.name.c_str());
             bool changed = false;
             if(property.semantic == Comet::MaterialLayout::VectorProperty::Semantic::Color) {
-                changed = ImGui::ColorEdit4(label.c_str(), &value.x, ImGuiColorEditFlags_Float);
+                changed = ImGui::ColorEdit4(
+                    Ui::label(label.c_str()).c_str(), &value.x, ImGuiColorEditFlags_Float);
             } else {
-                changed = ImGui::DragFloat4(label.c_str(), &value.x, 0.01f);
+                changed = ImGui::DragFloat4(Ui::label(label.c_str()).c_str(), &value.x, 0.01f);
             }
             if(changed && value != before) {
                 remember_previous();

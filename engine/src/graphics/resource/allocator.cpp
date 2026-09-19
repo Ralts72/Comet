@@ -3,6 +3,7 @@
 #include "diagnostics/logger.h"
 
 #include <array>
+#include <memory>
 #include <string>
 
 namespace Comet {
@@ -230,6 +231,16 @@ namespace Comet {
             return;
         }
         vmaSetCurrentFrameIndex(m_allocator, static_cast<uint32_t>(frame_serial));
+    }
+
+    Result<std::string> Allocator::build_allocation_report() const {
+        char* text = nullptr;
+        vmaBuildStatsString(m_allocator, &text, VK_TRUE);
+        const auto release = [this](char* value) { vmaFreeStatsString(m_allocator, value); };
+        const std::unique_ptr<char, decltype(release)> owner(text, release);
+        if(!text)
+            return Result<std::string>::failure("Cannot build VMA allocation report");
+        return Result<std::string>::success(text);
     }
 
     MemoryBudgetSnapshot Allocator::query_memory_budget() const {

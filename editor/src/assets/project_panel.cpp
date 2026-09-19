@@ -68,11 +68,12 @@ namespace CometEditor {
                 ImGui::EndDragDropSource();
             }
             if(ImGui::BeginPopupContextItem()) {
-                if(asset.type == Comet::AssetType::Mesh && ImGui::MenuItem("Reimport"))
+                if(asset.type == Comet::AssetType::Mesh
+                    && ImGui::MenuItem(Ui::label("Reimport").c_str()))
                     m_reimport_request = asset.handle;
-                if(ImGui::MenuItem("Rename"))
+                if(ImGui::MenuItem(Ui::label("Rename").c_str()))
                     request_rename(asset);
-                if(ImGui::MenuItem("Refresh"))
+                if(ImGui::MenuItem(Ui::label("Refresh").c_str()))
                     m_refresh_requested = true;
                 ImGui::EndPopup();
             }
@@ -100,7 +101,7 @@ namespace CometEditor {
         if(!m_user_visible)
             return;
 
-        if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
+        if(!ImGui::Begin(window_label().c_str(), &m_user_visible)) {
             ImGui::End();
             return;
         }
@@ -115,7 +116,7 @@ namespace CometEditor {
         render_directory_menu({});
         if(root_open) {
             if(m_tree.assets.empty() && m_tree.directories.empty()) {
-                ImGui::TextDisabled("No indexed assets");
+                ImGui::TextDisabled("%s", Ui::text("No indexed assets"));
             } else {
                 render_asset_tree(m_tree, {});
             }
@@ -123,7 +124,8 @@ namespace CometEditor {
         }
 
         if(!m_scan_report.issues.empty()
-            && ImGui::CollapsingHeader("Scan Issues", ImGuiTreeNodeFlags_DefaultOpen)) {
+            && ImGui::CollapsingHeader(
+                Ui::label("Scan Issues").c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
             for(const Comet::AssetScanIssue& issue : m_scan_report.issues) {
                 ImGui::BulletText(
                     "%s: %s", issue.path.generic_string().c_str(), issue.message.c_str());
@@ -132,9 +134,10 @@ namespace CometEditor {
 
         if(ImGui::BeginPopupContextWindow("Project actions",
                ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
-            if(ImGui::MenuItem("New Material...", nullptr, false, !m_material_layouts.empty()))
+            if(ImGui::MenuItem(Ui::label("New Material...").c_str(), nullptr, false,
+                   !m_material_layouts.empty()))
                 request_create_material({});
-            if(ImGui::MenuItem("Refresh"))
+            if(ImGui::MenuItem(Ui::label("Refresh").c_str()))
                 m_refresh_requested = true;
             ImGui::EndPopup();
         }
@@ -156,7 +159,8 @@ namespace CometEditor {
 
     void ProjectPanel::render_directory_menu(const std::filesystem::path& directory) {
         if(ImGui::BeginPopupContextItem()) {
-            if(ImGui::MenuItem("New Material...", nullptr, false, !m_material_layouts.empty()))
+            if(ImGui::MenuItem(Ui::label("New Material...").c_str(), nullptr, false,
+                   !m_material_layouts.empty()))
                 request_create_material(directory);
             ImGui::EndPopup();
         }
@@ -178,23 +182,24 @@ namespace CometEditor {
         const bool opening = std::exchange(m_create_requested, false);
         if(opening)
             ImGui::OpenPopup(title);
-        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if(!ImGui::BeginPopupModal(
+               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
         if(std::exchange(m_close_create, false)) {
             ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
             return;
         }
-        ImGui::Text("Directory: assets/%s", m_create_directory.generic_string().c_str());
+        ImGui::Text(Ui::text("Directory: assets/%s"), m_create_directory.generic_string().c_str());
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(320.0f);
-        const bool submitted = ImGui::InputText("Name", m_material_name.data(),
+        const bool submitted = ImGui::InputText(Ui::label("Name").c_str(), m_material_name.data(),
             m_material_name.size(), ImGuiInputTextFlags_EnterReturnsTrue);
         ImGui::SameLine();
         ImGui::TextUnformatted(".mat");
         ImGui::SetNextItemWidth(320.0f);
-        if(ImGui::BeginCombo("Template", m_create_template.c_str())) {
+        if(ImGui::BeginCombo(Ui::label("Template").c_str(), m_create_template.c_str())) {
             for(const auto& layout : m_material_layouts) {
                 const bool selected = layout->get_name() == m_create_template;
                 if(ImGui::Selectable(layout->get_name().c_str(), selected))
@@ -204,7 +209,7 @@ namespace CometEditor {
             }
             ImGui::EndCombo();
         }
-        if(ImGui::Button("Create") || submitted) {
+        if(ImGui::Button(Ui::label("Create").c_str()) || submitted) {
             const std::string name(m_material_name.data());
             const auto layout = std::ranges::find_if(m_material_layouts,
                 [&](const auto& item) { return item->get_name() == m_create_template; });
@@ -225,7 +230,7 @@ namespace CometEditor {
             }
         }
         ImGui::SameLine();
-        if(ImGui::Button("Cancel")) {
+        if(ImGui::Button(Ui::label("Cancel").c_str())) {
             ImGui::CloseCurrentPopup();
             m_operation_error.clear();
         }
@@ -345,7 +350,8 @@ namespace CometEditor {
         const bool opening = std::exchange(m_rename_requested, false);
         if(opening)
             ImGui::OpenPopup(title);
-        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if(!ImGui::BeginPopupModal(
+               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
 
         if(std::exchange(m_close_rename, false)) {
@@ -357,18 +363,20 @@ namespace CometEditor {
 
         const auto* record = m_database.find(m_renaming_asset);
         if(!record)
-            ImGui::TextDisabled("Asset is no longer available");
+            ImGui::TextDisabled("%s", Ui::text("Asset is no longer available"));
         ImGui::BeginDisabled(!record);
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(360.0f);
-        const bool submitted = ImGui::InputText("Name", m_name_buffer.data(), m_name_buffer.size(),
-            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+        const bool submitted =
+            ImGui::InputText(Ui::label("Name").c_str(), m_name_buffer.data(), m_name_buffer.size(),
+                ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
         if(record) {
             ImGui::SameLine();
             ImGui::TextUnformatted(record->path.extension().string().c_str());
         }
-        if((ImGui::Button("Rename", ImVec2(100.0f, 0.0f)) || submitted) && record) {
+        if((ImGui::Button(Ui::label("Rename").c_str(), ImVec2(100.0f, 0.0f)) || submitted)
+            && record) {
             const std::string name(m_name_buffer.data());
             if(name.empty() || name == "." || name == ".."
                 || name.find_first_of("/\\:") != std::string::npos) {
@@ -386,7 +394,7 @@ namespace CometEditor {
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if(ImGui::Button("Cancel", ImVec2(100.0f, 0.0f))) {
+        if(ImGui::Button(Ui::label("Cancel").c_str(), ImVec2(100.0f, 0.0f))) {
             ImGui::CloseCurrentPopup();
             m_renaming_asset = Comet::INVALID_ASSET_HANDLE;
             m_operation_error.clear();

@@ -1,4 +1,5 @@
 #include "assets/asset_reference.h"
+#include "ui/language.h"
 #include "asset/database.h"
 #include <imgui.h>
 #include <cstring>
@@ -8,21 +9,22 @@ namespace CometEditor {
     bool edit_asset_reference(const char* label, Comet::AssetHandle& handle,
         const Comet::AssetDatabase& database, const std::optional<Comet::AssetType> type,
         const bool allow_none) {
-        std::string preview = "None";
+        std::string preview = Ui::text("None");
         if(handle.is_valid()) {
             const auto* record = database.find(handle);
             if(!record) {
-                preview = "Missing";
+                preview = Ui::text("Missing");
             } else if(type && record->type != *type) {
-                preview = "Invalid type: " + record->path.generic_string();
+                preview = std::string(Ui::text("Invalid type: ")) + record->path.generic_string();
             } else {
                 preview = record->path.generic_string();
             }
         }
 
         bool changed = false;
-        if(ImGui::BeginCombo(label, preview.c_str())) {
-            if(allow_none && ImGui::Selectable("None", !handle.is_valid()) && handle.is_valid()) {
+        if(ImGui::BeginCombo(Ui::label(label).c_str(), preview.c_str())) {
+            if(allow_none && ImGui::Selectable(Ui::label("None").c_str(), !handle.is_valid())
+                && handle.is_valid()) {
                 handle = {};
                 changed = true;
             }
@@ -44,7 +46,7 @@ namespace CometEditor {
                 }
             }
             if(!has_candidates) {
-                ImGui::TextDisabled("No matching assets");
+                ImGui::TextDisabled("%s", Ui::text("No matching assets"));
             }
             ImGui::EndCombo();
         }
