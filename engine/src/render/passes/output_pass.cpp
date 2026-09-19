@@ -68,6 +68,8 @@ namespace Comet {
         DescriptorSetLayoutBindings bindings;
         bindings.add_binding(
             0, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
+        bindings.add_binding(
+            1, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
         auto descriptor_layout = DescriptorSetLayout::create(device, bindings);
         if(!descriptor_layout)
             return Creation::failure(descriptor_layout.error());
@@ -88,7 +90,7 @@ namespace Comet {
         ShaderLayout layout;
         layout.descriptor_set_layouts = {descriptor_layout.value()};
         layout.push_constants.push_back(
-            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, 12));
+            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, 16));
         PipelineConfig config;
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         PipelineManager pipelines(device, *pass.value());
@@ -104,19 +106,28 @@ namespace Comet {
 
     Result<void, GraphicsError> OutputPass::render(FrameScheduler& frames,
         const std::shared_ptr<RenderTarget>& output, const std::shared_ptr<ImageView>& hdr_color,
-        const float exposure) {
+        const PostProcessSettings& settings, const std::shared_ptr<ImageView>& bloom) {
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_bindings.size() || !output || !hdr_color
-            || !std::isfinite(exposure) || exposure < 0.0f)
+            || !settings.validate() || (settings.bloom_enabled() && !bloom))
             return Result<void, GraphicsError>::failure(
-                {"Invalid output pass frame, input or exposure"});
+                {"Invalid output pass frame, input or settings"});
         if(&hdr_color->get_image()->get_device() != &m_device
             || !(hdr_color->get_image()->get_info().usage & ImageUsage::Sampled))
             return Result<void, GraphicsError>::failure({"Invalid output pass input image"});
+        if(bloom
+            && (&bloom->get_image()->get_device() != &m_device
+                || !(bloom->get_image()->get_info().usage & ImageUsage::Sampled)))
+            return Result<void, GraphicsError>::failure({"Invalid output pass bloom image"});
         const auto slot = frames.get_current_frame_slot_index();
+        // Disabled bloom still needs a valid descriptor, but the shader does not sample it.
+        auto bloom_input = hdr_color;
+        if(settings.bloom_enabled())
+            bloom_input = bloom;
         auto& binding = m_bindings[slot];
-        if(!binding || binding->image != hdr_color) {
-            auto candidate = SampledImageBinding::create(m_device, hdr_color, m_layout, m_sampler);
+        if(!binding || binding->images[0] != hdr_color || binding->images[1] != bloom_input) {
+            auto candidate = SampledImageBinding::create(
+                m_device, {hdr_color, bloom_input}, m_layout, m_sampler);
             if(!candidate)
                 return Result<void, GraphicsError>::failure(candidate.error());
             binding = std::move(candidate).value();
@@ -140,8 +151,11 @@ namespace Comet {
             float exposure;
             uint32_t encode_srgb;
             float headroom;
+            float bloom_strength;
         };
-        const Parameters parameters{exposure, m_encode_srgb ? 1u : 0u, m_headroom};
+        static_assert(sizeof(Parameters) == 16);
+        const Parameters parameters{
+            settings.exposure, m_encode_srgb ? 1u : 0u, m_headroom, settings.bloom_strength};
         command.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Fragment),
             0, &parameters, sizeof(parameters));
         command.draw(3);

@@ -5,6 +5,7 @@ set(SHADER_PROGRAMS
         material/pbr
         debug/line
         post/display
+        post/bloom
         environment/skybox
         shadow/directional
 )

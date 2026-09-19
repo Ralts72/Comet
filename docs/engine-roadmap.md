@@ -12,7 +12,7 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、任务背压与发布预算已接通，仍有扩展 | 增量引用恢复、字节预算与更多导入格式 |
 | 4 视口与交互 | 4A/4B 主链路完成，4C 材质创建与模板选择已接通 | 内容编辑与资产撤销扩展 |
-| 5 渲染升级 | PBR/base-color、阴影、材质反射、全局 IBL 与内置 Shader 热发布已接通 | bloom、项目 Shader 资产化 |
+| 5 渲染升级 | PBR/base-color、阴影、材质反射、全局 IBL、Bloom 与内置 Shader 热发布已接通 | 耗时与显存诊断、项目 Shader 资产化 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
@@ -29,14 +29,15 @@
    先使用现有 pbr／unlit_color 与共享 metadata，不等待项目 Shader 资产化，也不为每个用户材质注册 C++ 类型。
 2. **已接通：环境光照**（阶段 3／5）：背景与照明独立控制，后台准备 irradiance／GGX prefilter／BRDF LUT，
    整组缓存和 GPU 发布复用现有预算／版本链路；PBR 的背光非金属和金属均可获得环境贡献。
-3. **再推进 bloom**（阶段 5）：基于已经可编辑、具有直接光与环境光的 HDR 场景验证多 pass 效果；bloom 不补偿缺失照明。
-4. **后续独立里程碑：项目自定义 Shader**（阶段 3／5）：复用材质编辑入口，接通程序资产、metadata、动态布局与发布所有权。
+3. **已接通：Bloom**（阶段 5）：HDR 高亮提取、半分辨率横纵模糊与显示前合成，支持启动配置和帧边界调整；Bloom 不补偿缺失照明。
+4. **下一步：有界渲染诊断**（阶段 5）：对照旧 `034 / f6dd1ac`，补齐 CPU/GPU 耗时、低频显存预算与按需分配报告，复用现有帧生命周期。
+5. **后续独立里程碑：项目自定义 Shader**（阶段 3／5）：复用材质编辑入口，接通程序资产、metadata、动态布局与发布所有权。
    依赖材质编辑闭环和程序资产协议，不把它作为 PBR／环境照明的前置；出现真实自定义着色需求时可独立提前。
 
 与 feat/auto2 结合：本轮复用已迁移的 `9a7b2e3` 共享布局面板和 `40dfe50` 候选发布思路，补齐该分支未提供的材质创建／模板选择。
-旧 PBR 后的 `033 / 63b2394` 是 bloom，不含环境照明；保留其 HDR 提取／模糊／合成算法和像素测试作为后续迁移来源，
-届时适配当前 OutputPass、RenderGraph 和 HDR/SDR 输出，不迁回旧 PostProcessRenderer 的命名与职责。
-先补当前内容生产与照明缺口，再回接 bloom、诊断和阶段 6，不能用新增规划替代旧分支逐项核对。
+旧 PBR 后的 `033 / 63b2394` 已适配为独立 BloomPass 与 OutputPass 合成，沿用 HDR 提取／模糊算法和像素验收思路，
+接入当前 RenderGraph、HDR/SDR 输出与在途资源所有权，不迁回旧 PostProcessRenderer 的命名与职责。
+内容生产、环境照明和 Bloom 主链路接通后，继续核对旧 034 诊断，再衔接阶段 6，不能用新增规划替代旧分支逐项核对。
 
 WSI 暂时失败的无呈现重试及 SurfaceLost 重建已接通；设备丢失恢复与跨呈现队列迁移仍需单独设计。
 
@@ -276,6 +277,7 @@ Shader 基础能力与后续独立验收项：
 - 030 `30dce0f`：已适配方向／点／聚光、32 灯上限、lit_color 和帧 UBO；枚举共用 Inspector／撤销／JSON，姿态保留主线的层级去缩放语义。热发布与重建保留各组成功字节码，不迁回 ShaderManager、旧 YAML 或异常。CPU、UI 和 GPU 像素／版本寿命测试覆盖主链路；人工视觉与远端平台验收另行进行。
 - 031 `531c7b6`：适配为 `passes/ShadowPass`，深度图与 FrameSet 按槽位独立，复用 RenderGraph 深度写入／采样依赖与上传等待合并；创建和录制返回 Result。纯深度管线按真实子通道颜色附件数创建。单方向光、1024²、3×3 PCF，覆盖开关、删除、移动、目标重建和在途寿命；不迁入旧异常与命名。级联、稳定化、透明裁切、点／聚光阴影及跨平台视觉验收后续处理。
 - 032 `be721fe`：接入 pbr、160 字节相机 Frame UBO 与共用光源采样；保留当前接收面深度梯度阴影算法、Result 与具名完整程序发布，不恢复 ShaderManager 或共享顶点消费者隐式绑定。后续补齐可选 base-color 纹理与白色默认绑定，参数和纹理编辑复用 Inspector。demo 立方体继续使用原 PBR 资产身份，引用已有 sRGB 纹理，移除不再使用的 demo.mat；不迁移其双纹理 blend 语义。法线／金属粗糙度贴图、IBL、透明和 glTF 材质导入仍未覆盖。
+- 033 `63b2394`：适配为 BloomPass 的半分辨率高亮提取、九采样横纵模糊与 OutputPass 的线性 HDR 合成，支持 YAML 配置和帧边界参数／开关调整。关闭时不执行额外 pass，首次关闭不创建中间目标；开启后保留目标供复用。复用完整目标替换和帧保活，覆盖 SDR/HDR 像素、奇数／极小尺寸、极值、MSAA、开关、resize 与同步校验。未引入旧异常、soft-knee、多级金字塔或自动曝光；第二中间目标分配失败仍无真实 OOM 注入。
 - 原生文件监听按阶段 3 专项安排，旧分支同样采用轮询，不作为最终方案迁回。
 
 specialization 已贯通类型化值、默认值规范化、反射校验、PipelineKey 和 GPU 创建。
@@ -462,7 +464,7 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 
 ### RenderGraph 与多 pass
 
-- 当前有序图已用于 app/editor 的方向光阴影、HDR 场景与显示输出 pass；详细录制与失败契约见[渲染所有权](architecture/rendering-ownership.md#有序-rendergraph)。
+- 当前有序图已用于 app/editor 的方向光阴影、HDR 场景、可选 Bloom 与显示输出 pass；详细录制与失败契约见[渲染所有权](architecture/rendering-ownership.md#有序-rendergraph)。
   后续多 pass 优先复用现有图，不把当前单 queue 实现描述成自动多队列调度器。
 - Pass 声明读写 usage/subresource；imported/exported 资源明确边界状态，tracker 编译 Barrier2。
   Image 不保存单一全局 current_layout；状态属于录制/编译上下文，持久资源在提交边界交接 handoff state。
@@ -471,7 +473,7 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 - Synchronization 2 / Timeline 已启用；API version 为 1.3 不代表所有可选 feature 自动启用。
 - Dynamic Rendering 在真实多 pass/attachment 需求下评估，不为 API 更换重写阶段 4。
   检查显式 feature、ImGui/MSAA/resize、调试工具和目标 GPU；可按 pass 保留传统 RenderPass。
-- 有界 Forward Lighting、三类 LightComponent、单方向光阴影与 PBR/base-color 纹理已接通；先材质编辑闭环，再环境光照／IBL，之后 bloom。
+- 有界 Forward Lighting、三类 LightComponent、单方向光阴影、PBR/base-color、材质编辑、环境光照／IBL 与 Bloom 已接通；下一步补齐有界耗时与显存诊断。
   纹理受光复用材质准备、资产引用与 Shader 发布链路；仅保留 unlit_color 与 pbr 模板，旧双纹理混合和 Lambert Shader 已清理。
   地面材质改为 ground.mat，沿用原资产 ID，使用纯色非金属 PBR；不承诺与 Lambert 像素等价。
   PBR 使用线性 base_color 乘采样纹理，不继承旧 blend 参数；无纹理使用白色默认绑定。
@@ -482,7 +484,7 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
   HDR10/PQ、跨屏及系统模式切换后的安全重建，再处理编辑器 HDR 视口与 UI 亮度合成。不是下一项光源迁移的前置条件。
 - 低频采样 GPU memory budget，详细 allocation dump 手动触发；补足 CPU/GPU frame-time 诊断。
 
-### 环境照明与天空盒（材质编辑闭环之后，bloom 之前）
+### 环境照明与天空盒
 
 当前已接天空盒和全局 IBL；关闭环境或缺失资源时保留直接光基线，不依赖曝光或 bloom 补偿缺失照明。
 
@@ -503,7 +505,7 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
    IBL 可在隐藏天空盒时继续照明，天空盒可显示而关闭 IBL；这不包含局部反射探针、动态 GI 或光线追踪。
 
 验收：关闭环境时保留直接光基线；非零均匀环境下背光非金属获得漫反射、金属获得粗糙度相关镜面贡献；
-背景与照明开关、强度／旋转、保存重开、SDR／HDR 色彩路径和资源替换／失败保留均通过回归，再进入 bloom。
+背景与照明开关、强度／旋转、保存重开、SDR／HDR 色彩路径和资源替换／失败保留均通过回归；与 Bloom 独立控制和验收。
 
 ### 线程演进
 

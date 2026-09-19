@@ -163,6 +163,11 @@ namespace Comet {
                     "a non-negative integer")
                 || !reader.named("render.output_mode", config.render.output_mode, OUTPUT_MODES)
                 || !reader.read("render.hdr_headroom", config.render.hdr_headroom, "a number")
+                || !reader.read("render.exposure", config.render.post_process.exposure, "a number")
+                || !reader.read(
+                    "render.bloom_strength", config.render.post_process.bloom_strength, "a number")
+                || !reader.read("render.bloom_threshold",
+                    config.render.post_process.bloom_threshold, "a number")
                 || !reader.color(config.render.clear_color)
                 || !reader.read("render.enable_vsync", config.render.enable_vsync, "a boolean")
                 || !reader.read("render.max_anisotropy", config.render.max_anisotropy, "a number"))
@@ -204,6 +209,8 @@ namespace Comet {
             || config.render.hdr_headroom > 16.0f)
             return Result<Config>::failure(config_error(
                 sources, "render.hdr_headroom", "must be a finite number between 1 and 16"));
+        if(auto valid = config.render.post_process.validate(); !valid)
+            return Result<Config>::failure(config_error(sources, "render", valid.error()));
         return Result<Config>::success(std::move(config));
     }
 }

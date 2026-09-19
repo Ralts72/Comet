@@ -3,6 +3,7 @@
 #include "common/export.h"
 #include "graphics/enums.h"
 #include "graphics/result.h"
+#include "render/post_process.h"
 
 #include <memory>
 #include <vector>
@@ -33,7 +34,8 @@ namespace Comet {
         // 输入须为单采样 SampledRead；output 由本 pass 创建，Device 存活至 GPU 完成。
         [[nodiscard]] Result<void, GraphicsError> render(FrameScheduler& frames,
             const std::shared_ptr<RenderTarget>& output,
-            const std::shared_ptr<ImageView>& hdr_color, float exposure = 1.0f);
+            const std::shared_ptr<ImageView>& hdr_color, const PostProcessSettings& settings = {},
+            const std::shared_ptr<ImageView>& bloom = {});
 
     private:
         OutputPass(Device& device, std::shared_ptr<RenderPass> pass,

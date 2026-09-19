@@ -29,6 +29,7 @@ namespace Comet {
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
         [[nodiscard]] const MaterialRenderer::Statistics& get_material_statistics() const;
+        [[nodiscard]] const PostProcessSettings& get_post_process_settings() const;
         [[nodiscard]] RenderTarget& get_render_target();
         [[nodiscard]] const RenderTarget& get_render_target() const;
         [[nodiscard]] std::shared_ptr<ImageView> get_offscreen_color_view(uint32_t slot) const;
@@ -42,6 +43,7 @@ namespace Comet {
 
     private:
         friend class Renderer;
+        Result<void, GraphicsError> set_post_process_settings(const PostProcessSettings& settings);
         [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>
         prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
@@ -56,6 +58,7 @@ namespace Comet {
             Swapchain& swapchain, const SwapchainCompatibility& compatibility);
 
         struct RenderState;
+        Result<void, GraphicsError> rebuild_graph(RenderState& state, bool bloom_enabled);
         struct ResizeFailure {
             Math::Vec2u size;
             RetryBackoff retry;
@@ -75,6 +78,7 @@ namespace Comet {
         SampleCount m_msaa_samples;
         Math::Vec4 m_clear_color;
         uint32_t m_frame_slot_count;
+        PostProcessSettings m_post_process;
         std::shared_ptr<RenderState> m_state;
         std::optional<ResizeFailure> m_resize_failure;
         std::optional<MaterialShaders> m_material_shaders;

@@ -90,6 +90,34 @@ TEST(ConfigTest, ParsesStartupOutputModesAndValidatesHeadroom) {
     EXPECT_EQ(defaults.value().render.output_mode, OutputMode::Sdr);
 }
 
+TEST(ConfigTest, PostProcessDefaultsOverridesAndInvalidValues) {
+    const TemporaryConfigFile empty("{}");
+    const auto defaults = ConfigLoader{}.load(empty.path());
+    ASSERT_TRUE(defaults);
+    EXPECT_FLOAT_EQ(defaults.value().render.post_process.exposure, 1);
+    EXPECT_FALSE(defaults.value().render.post_process.bloom_enabled());
+    const TemporaryConfigFile base(
+        "render:\n  exposure: 2\n  bloom_strength: 0.5\n  bloom_threshold: 3\n");
+    const TemporaryConfigFile override_file("render:\n  bloom_strength: 0\n");
+    const auto overridden = ConfigLoader{}.load(std::vector{base.path(), override_file.path()});
+    ASSERT_TRUE(overridden);
+    EXPECT_FLOAT_EQ(overridden.value().render.post_process.exposure, 2);
+    EXPECT_FLOAT_EQ(overridden.value().render.post_process.bloom_threshold, 3);
+    EXPECT_FALSE(overridden.value().render.post_process.bloom_enabled());
+    const auto enabled = ConfigLoader{}.load(base.path());
+    ASSERT_TRUE(enabled);
+    EXPECT_TRUE(enabled.value().render.post_process.bloom_enabled());
+    for(const auto* field : {"exposure", "bloom_strength", "bloom_threshold"}) {
+        for(const auto* value : {"-1", ".nan", ".inf", "100000", "wrong"}) {
+            SCOPED_TRACE(std::string(field) + "=" + value);
+            const TemporaryConfigFile file(std::string("render:\n  ") + field + ": " + value);
+            const auto loaded = ConfigLoader{}.load(file.path());
+            ASSERT_FALSE(loaded);
+            EXPECT_NE(loaded.error().find(field), std::string::npos);
+        }
+    }
+}
+
 TEST(ConfigTest, ParsesExplicitConfiguration) {
     const TemporaryConfigFile file(R"(
 vulkan:

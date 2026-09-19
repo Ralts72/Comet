@@ -8,6 +8,7 @@
 #include "render/frame_scheduler.h"
 #include "render/material/material_renderer.h"
 #include "render/presentation.h"
+#include "render/post_process.h"
 
 #include <functional>
 #include <memory>
@@ -48,6 +49,8 @@ namespace Comet {
         [[nodiscard]] const FrameScheduler& get_frame_scheduler() const { return *m_frames; }
 
         Result<void, GraphicsError> set_render_view(RenderView view);
+        // Only between frames; failed preparation keeps the previous settings and resources.
+        Result<void, GraphicsError> set_post_process_settings(const PostProcessSettings& settings);
 
         using OverlayRenderCallback = std::function<void(CommandBuffer&)>;
 

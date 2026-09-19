@@ -147,6 +147,14 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
+    Result<void, GraphicsError> Renderer::set_post_process_settings(
+        const PostProcessSettings& settings) {
+        if(m_shutdown_prepared || m_frames->is_frame_active())
+            return Result<void, GraphicsError>::failure(
+                {"Post-process changes require a live frame boundary"});
+        return m_scene_renderer->set_post_process_settings(settings);
+    }
+
     void Renderer::set_overlay_renderer(OverlayRenderCallback render) {
         m_render_overlay = std::move(render);
     }

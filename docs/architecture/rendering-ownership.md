@@ -57,7 +57,8 @@ Engine
     └── SceneRenderer
         └── RenderState（完整兼容版本，FrameSlot 保活）
             ├── 场景 RenderPass / PipelineManager / HDR 与最终 RenderTarget
-            ├── OutputPass → 色调映射 / 输出编码 / 采样绑定
+            ├── BloomPass（可选）→ 高亮提取 / 横纵模糊 / ping-pong Target[slot]
+            ├── OutputPass → HDR 合成 / 色调映射 / 输出编码 / 采样绑定
             ├── ShadowPass → 深度 RenderPass / Pipeline / DepthTarget[slot]
             ├── SkyboxPass → Pipeline / Sampler / 不可变 cubemap Binding[slot]
             ├── DebugRenderer → 线段 Pipeline / VertexBuffer[slot]
@@ -133,6 +134,7 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
   → Renderer::render_frame
   → SceneResolver（使用实际 Target 尺寸）
   → 按请求 CPU pick → scene pass（SkyboxPass → 场景物体 → DebugRenderer）
+  → 可选 Bloom（高亮提取 → 横向模糊 → 纵向模糊）→ OutputPass
   → overlay render（录制已生成的 ImGui 数据）
   → Presentation submit / present
 ```
@@ -211,7 +213,7 @@ EntityId 最小、强度大于零且 casts_shadow 开启的方向光，构造覆
 PropertyDescriptor 默认仍要求字段存在；仅 casts_shadow 显式标记 required=false，
 缺失时保留组件默认值，null／非法类型仍拒绝，不放宽其他必填字段。
 
-SceneRenderer 的有序图是 ShadowPass → scene → OutputPass。D32 深度图按帧槽位独立，
+SceneRenderer 的有序图是 ShadowPass → scene → 可选 Bloom → OutputPass。D32 深度图按帧槽位独立，
 深度写入到片元采样的 layout/access/stage 转换由 RenderGraph 生成；不在材质内插入屏障。
 ShadowPass 保留通道、目标、管线和 Mesh；FrameResources 保留实际采样 View 与 nearest Sampler，
 完整 RenderState 替换与 resize 都不销毁在途帧使用的资源。各 pass 的上传等待按 semaphore 合并。
@@ -233,7 +235,7 @@ Environment 拥有 background、irradiance、specular、brdf 四个 Texture，�
 HDR 导入器生成六层 RGBA16F 和背景 mip 链，UploadBatch 一次提交全部 mip／layer，统一转入 SampledRead。
 SkyboxPass 在场景 RenderPass 内先画全屏三角形，不读写深度；随后几何和辅助线按原流程绘制。
 射线由逆投影、相机旋转和环境旋转重建，丢弃相机平移；正交视图也按射线方向采样。
-SkyboxPass 和 OutputPass 共用不可变 SampledImageBinding，绑定拥有 view、layout、sampler 和 descriptor pool；帧保留绑定及管线，不改写在途 descriptor。
+SkyboxPass、BloomPass 和 OutputPass 共用不可变 SampledImageBinding，绑定拥有按连续 binding 排列的 views、layout、sampler 和 descriptor pool；帧保留绑定及管线，不改写在途 descriptor。
 SkyboxPass 返回实际绘制所需的上传等待，SceneRenderer 只合并，不重复判断背景开关或资源条件。
 MaterialRenderer 在同一场景 pass 消费 IBL，不新增 pass/System。槽位 fence 完成后更新 FrameSet 并保留整代 Environment，合并实际采样纹理的上传等待；缺失／禁用时绑定有效黑色占位并设置照明强度为零。
 `environment/lighting.glsl` 使用 split-sum：irradiance 存 E/pi，specular 按 perceptual roughness 选择 GGX 预滤波 mip，BRDF LUT 的 RG 存 F0 的比例与偏置。
@@ -486,10 +488,10 @@ RenderGraph 只收集 imported 资源、按顺序执行的 pass 和 exported usa
 回调同步执行且不保存，接收当前帧的 CommandBuffer&。SceneRenderer 的场景绘制集中在私有 draw_scene，
 app/editor 均通过短回调选择场景或色调映射 pass，并收集场景返回的上传等待信息，不另设 Pass 类层次。
 
-SceneRenderer 的 RenderState 保存一次编译的双 pass Plan。每帧绑定当前 slot 的 HDR 实际附件，
+SceneRenderer 的 RenderState 保存编译后的有序 Plan，仅 Bloom 开关变化时重新编排。每帧绑定当前 slot 的 HDR 实际附件，
 先转换到 attachment layout，再绘制材质和辅助线，将颜色／MSAA resolve 输出转为 SampledRead，供色调映射读取。
 附件每次清除，slot 复用前已等待 GPU，因此允许从 Undefined 丢弃旧内容；resize 只替换实际绑定，
-旧目标继续由在途帧保活。图管理 HDR 附件和两个 pass 之间的同步；最终输出 RenderPass 负责清除、
+旧目标继续由在途帧保活。图管理阴影、HDR 附件和 Bloom ping-pong 的写读同步；最终输出 RenderPass 负责清除、
 存储及 Present／ShaderReadOnly 转换，不在图中重复声明它的 layout。ImGui 和 WSI 提交仍在图外，
 呈现 RenderPass 的 external dependency 对齐 acquire 等待阶段。
 
@@ -519,18 +521,18 @@ OutputPass 只拥有固定输出 RenderPass、fullscreen Pipeline、sampler、de
 
 app 输出到 SwapchainTarget，editor 输出到 SDR MultiTarget；对外 get_render_target 和
 get_offscreen_color_view 仍代表最终显示目标，不暴露中间 HDR。
-replace_targets 先准备 HDR 和输出目标，全部成功才同时替换。普通离屏 resize 保留现有重试预算；
-失败时不发布半套尺寸，旧帧保留实际两套目标。运行时 WSI 重建同样重建 HDR／输出配对，
+replace_targets 先准备 HDR 和输出目标，再准备启用中的 Bloom 双目标，全部成功才同时替换。普通离屏 resize 保留现有重试预算；
+失败时不发布半套尺寸，旧帧保留实际使用的目标。运行时 WSI 重建同样重建整套目标，
 但不改变交换链退休后不可回滚的原有规则。
 输入 Binding 最多按 slot 保留旧 HDR view，直到该 slot 换用新 view 或绘制器销毁。
 
 fullscreen triangle 不需要顶点缓冲，正高度 viewport 保持纹理方向。
 色调映射为 H * (1 - exp(-max(color, 0) * exposure / H))，SDR 的 H=1，HDR 的 H=render.hdr_headroom；
-H 表示相对白色的输出峰值（1..16，默认 4），不是显示器查询结果；当前场景曝光固定为 1。
-pass 接口拒绝负数、NaN 和无穷曝光。sRGB 附件由硬件编码，UNORM 附件由 Shader 执行分段 sRGB 编码。
+H 表示相对白色的输出峰值（1..16，默认 4），不是显示器查询结果；曝光来自 PostProcessSettings，缺省为 1。
+配置与 API 共用 PostProcessSettings::validate，拒绝非有限数和越界参数。sRGB 附件由硬件编码，UNORM 附件由 Shader 执行分段 sRGB 编码。
 扩展线性 HDR 输出必须是 RGBA16F + ExtendedSrgbLinearEXT，不做 gamma 编码，不再将高亮压进 0..1。
 白色基准 1 由系统合成器解释，不假定跨平台固定 nits；实际显示亮度仍由系统和屏幕决定。
-不支持 HDR10/PQ、自动曝光、Bloom 或动态后处理节点。
+不支持 HDR10/PQ、自动曝光或动态后处理节点。
 世界空间辅助线与场景一起经过映射，ImGui 不经过场景色调映射。
 
 render.output_mode 默认 sdr；hdr / auto 在 surface 枚举中优先选择上述 HDR 格式与颜色空间组合，
@@ -547,6 +549,24 @@ GPU 像素测试覆盖 RGBA/BGRA、sRGB/UNORM、曝光 1/0.25/0、高亮和暗�
 还覆盖浮点 HDR 的 H=1/4/16、大于 1 的像素和无 gamma 编码，以及三种启动模式的真实呈现和重建。
 生产场景覆盖 MSAA 1/4、resize 和旧输出的在途保活，并验证输出绘制器提前销毁后的帧资源寿命。
 双目标第二次分配的 OOM 尚无专项故障注入，不能把尺寸拒绝测试当成该失败路径已验证。
+
+### Bloom
+
+BloomPass 只拥有高亮提取与两遍模糊的 Pipeline、RenderPass、双目标和不可变采样绑定，不负责最终显示。
+`append_passes` 返回当前图的三个 PassId 和输出 ResourceId；SceneRenderer 编排，RenderGraph 产生 ping/pong 的写读／读写屏障。
+半分辨率按上取整计算，提取先对各有效源像素按 RGB 最大分量扣除阈值再平均，奇数边界不重复采样。
+模糊使用归一化九 tap 二项核；display 手动双线性上采样，不增加浮点格式线性过滤的能力要求。
+OutputPass 先合成 `HDR + bloom_strength * bloom`，限制到 half-float 有限范围，再曝光和显示映射。
+提取／模糊的 push ABI 为 8 字节，display 为 16 字节，CPU static_assert 与 Shader 反射测试核对。
+
+PostProcessSettings 是独立值类型，供启动配置和 Renderer 帧边界 API 共用：曝光 0..100，强度 0..10，阈值 0..65504。
+强度 0 时不声明、绑定或录制 Bloom pass；首次开启才创建资源，关闭后缓存最近目标供再次开启复用。
+仅开关切换重编译图；已开启时修改阈值、强度、曝光只改变 push constant。设置不写入 Scene，也没有新增 Editor 面板。
+resize 先创建两个局部候选，再一次性替换；FrameSlot 保留真正使用的目标、Binding、Pipeline 与 RenderPass。
+两张 RGBA16F 纹理每 slot 约占 `2 * ceil(W/2) * ceil(H/2) * 8` 字节，另计对齐与在途旧版本。
+测试复用 `tests/support/render_gpu_test.h` 的设备、读回与校验日志夹具；不为测试增加引擎协议。
+覆盖独立 CPU 像素参考、极小／奇数尺寸、SDR/HDR、关闭／阈值／曝光极值、MSAA、在途参数切换、resize 与 pass 提前销毁。
+暂不含多级金字塔、soft knee、镜头污渍和自动曝光；中途真实 OOM 故障注入仍是测试缺口。
 
 ## Swapchain 与关闭
 

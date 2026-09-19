@@ -100,9 +100,9 @@ namespace Comet {
         for(unsigned column = 0; column < 4; ++column)
             if(!Math::is_finite(clip_to_environment[column]))
                 return Draw::failure({"Skybox camera transform must be finite"});
-        if(!binding || binding->image != texture->get_image_view()) {
+        if(!binding || binding->images.front() != texture->get_image_view()) {
             auto candidate = SampledImageBinding::create(
-                m_device, texture->get_image_view(), m_layout, m_sampler);
+                m_device, {texture->get_image_view()}, m_layout, m_sampler);
             if(!candidate)
                 return Draw::failure(candidate.error());
             binding = std::move(candidate).value();

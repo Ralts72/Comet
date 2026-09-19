@@ -93,6 +93,22 @@ render:
 macOS 由 MoltenVK 配置 EDR layer；实际高亮受屏幕与系统亮度限制。编辑器启动策略暂时强制 SDR，避免 UI 和视口混用编码。
 HDR 使用相对白色的线性输出，不承诺固定 nits；暂不支持 HDR10/PQ、运行时切换、跨屏模式适配或自动亮度校准。
 
+Bloom（高亮泛光）同样在 `render` 下配置，app 和 editor 共用，修改 YAML 后重启：
+
+```yaml
+render:
+  exposure: 1          # 0..100，线性 HDR 合成后应用
+  bloom_strength: 0.15 # 0..10，0 关闭；不执行提取和模糊 pass
+  bloom_threshold: 1   # 0..65504，曝光前的线性 HDR 阈值
+```
+
+Bloom 在半分辨率提取高亮，横／纵模糊后在线性 HDR 中合成，再做 SDR/HDR 显示映射；不影响 ImGui。
+它只让高亮向邻域扩散，不提供环境照明，也不要求显示器支持 HDR。无超阈值亮区时不会产生光晕。
+代码可在 `on_update` 等活动帧之外调用 `Renderer::set_post_process_settings(PostProcessSettings)`；
+录制中拒绝修改，失败保留旧参数与资源。纯参数变化不重建图或材质管线，开关变化才重编排。
+当前没有编辑器后处理面板或自动曝光；裸 `Config` 默认关闭 Bloom，仓库共享配置开启轻量效果。
+从未开启时不创建 Bloom 资源；开启后再关闭保留最近纹理以便复用，不立即归还这部分显存。
+
 macOS 和 Windows 下 app/editor 分别使用橙色、蓝色彗星静态图标，资源位于各自的 `resources/icons/`，不参与项目资产扫描。
 macOS 在构建目录内生成 `app/Comet.app` 和 `editor/CometEditor.app`，内含静态 ICNS 图标；启动脚本自动使用 bundle 内的新入口。
 Windows 通过 `.rc` 将 ICO 编译进 exe，GLFW 自动用作初始窗口图标；不在运行时加载 PNG，Linux 暂不配置图标。
@@ -229,13 +245,14 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 | `shadow/` | 方向光深度生成，与材质前向采样分开 |
 | `environment/` | `skybox.vert` + `skybox.frag`，仅绘制场景背景 |
 | `debug/` | 调试线绘制 |
-| `post/` | 显示输出：曝光、色调映射、SDR/HDR 编码 |
+| `post/` | Bloom 高亮提取／模糊与最终合成、曝光、色调映射、SDR/HDR 编码 |
 
 ### 材质与阶段配对
 
 - `unlit_color`：`unlit_color.vert` + `unlit_color.frag`，直接输出颜色和强度。
 - `pbr`：`pbr.vert` + `pbr.frag`，金属度／粗糙度 PBR，使用 `lighting/forward.glsl` 的光源衰减和阴影采样。
 - 调试线与显示输出分别使用 `debug/line.vert/.frag`、`post/display.vert/.frag`。
+- Bloom 使用 `post/bloom.vert/.frag`，与 display 共用 `common/fullscreen.glsl` 顶点实现。
 - 阴影使用 `shadow/directional.vert/.frag`；片元阶段无颜色输出，只写深度。
 
 `lit` 表示受光，`unlit` 表示不受光，和 HDR/SDR 输出模式无关。
