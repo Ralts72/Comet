@@ -1,5 +1,5 @@
 #ifdef COMET_TEST_EDITOR_UI
-#include "viewport/view.h"
+#include "viewport/viewport_panel.h"
 #include "scene/selection.h"
 #include "viewport/transform_gizmo.h"
 #include "ui/shortcuts.h"
@@ -23,7 +23,7 @@ namespace CometEditor::Tests {
         SelectionService selection{scene};
         EditorState state;
         EditorShortcuts shortcuts;
-        ViewPanel viewport{state, selection, gizmo, property_edit, 4096, shortcuts};
+        ViewportPanel viewport{state, selection, gizmo, property_edit, 4096, shortcuts};
         int gizmo_vertices = 0;
         bool mesh_drag = false;
         AssetDragPayload mesh_payload{.handle = Comet::AssetHandle(42),

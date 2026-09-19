@@ -15,13 +15,13 @@ namespace CometEditor {
     class PropertyEditTransaction;
     class EditorShortcuts;
 
-    class ViewPanel: public EditorPanel {
+    class ViewportPanel: public EditorPanel {
     public:
         struct MeshDrop {
             AssetDragPayload asset;
             Comet::Math::Vec3 position;
         };
-        ViewPanel(const EditorState& state, SelectionService& selection, TransformGizmo& gizmo,
+        ViewportPanel(const EditorState& state, SelectionService& selection, TransformGizmo& gizmo,
             PropertyEditTransaction& inspector_edit, std::uint32_t max_render_dimension,
             const EditorShortcuts& shortcuts);
 

@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace Comet {
@@ -16,8 +17,8 @@ namespace Comet {
 
     class COMET_API Application {
     public:
-        explicit Application(std::filesystem::path cache_directory = {})
-            : m_cache_directory(std::move(cache_directory)) {}
+        explicit Application(std::filesystem::path cache_directory = {},
+            std::optional<OutputMode> output_mode_override = {});
         virtual ~Application() = default;
 
         [[nodiscard]] Result<void, Error> run(Config config);
@@ -41,6 +42,7 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> end();
 
         std::filesystem::path m_cache_directory;
+        std::optional<OutputMode> m_output_mode_override;
         std::unique_ptr<Diagnostics> m_diagnostics;
         std::unique_ptr<Engine> m_engine;
         bool m_shutdown_required = false;

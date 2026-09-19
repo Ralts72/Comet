@@ -1,7 +1,8 @@
-#include "runtime/runtime.h"
+#include "runtime/application.h"
 #include "config/config.h"
 
 #include "config/config_loader.h"
+#include "diagnostics/logger.h"
 
 #include <cstdio>
 #include <iostream>
@@ -9,6 +10,11 @@
 #include <vector>
 
 namespace Comet {
+    Application::Application(
+        std::filesystem::path cache_directory, std::optional<OutputMode> output_mode_override)
+        : m_cache_directory(std::move(cache_directory)),
+          m_output_mode_override(output_mode_override) {}
+
     Result<void, Error> Application::run(Config config) {
         using RunResult = Result<void, Error>;
         if(m_engine)
@@ -16,6 +22,11 @@ namespace Comet {
         if(!m_cache_directory.empty())
             config.vulkan.pipeline_cache_directory = m_cache_directory / "vulkan";
         m_diagnostics = std::make_unique<Diagnostics>(config.diagnostics);
+        if(m_output_mode_override) {
+            if(config.render.output_mode != *m_output_mode_override)
+                LOG_WARN("Application overrides the configured output mode (editor uses SDR)");
+            config.render.output_mode = *m_output_mode_override;
+        }
         auto engine = Engine::create(config);
         if(!engine) {
             m_diagnostics.reset();

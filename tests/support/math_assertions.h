@@ -1,6 +1,6 @@
 #pragma once
 #include <gtest/gtest.h>
-#include "../engine/src/core/math_utils.h"
+#include "core/math_utils.h"
 
 namespace Comet::Tests {
     class TestUtils {

@@ -4,12 +4,12 @@
 #include "render/renderer.h"
 #include "render/scene/scene_renderer.h"
 #include "render/render_context.h"
-#include "render/resource/resource_manager.h"
-#include "render/resource/mesh_data.h"
-#include "render/resource/texture_data.h"
+#include "render/resource/render_resources.h"
+#include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 #include "asset/registry.h"
-#include "render/material.h"
-#include "render/material_runtime.h"
+#include "render/material/material.h"
+#include "render/material/material_runtime.h"
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
 #include "render/scene/scene_resolver.h"
@@ -133,7 +133,7 @@ namespace Comet::Tests {
     class MaterialRuntimeGpuTest: public EngineTest {
     protected:
         std::shared_ptr<Texture> texture() {
-            return engine->get_resource_manager()
+            return engine->get_render_resources()
                 .try_create_texture({.width = 1, .height = 1, .pixels = {255, 255, 255, 255}})
                 .value();
         }
@@ -143,7 +143,7 @@ namespace Comet::Tests {
         const MeshData data{
             .vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
             .indices = {0, 1, 2}};
-        auto mesh = engine->get_resource_manager().try_create_mesh(data);
+        auto mesh = engine->get_render_resources().try_create_mesh(data);
         ASSERT_TRUE(mesh);
         auto first = texture();
         const std::weak_ptr<Texture> retired_texture = first;
@@ -218,7 +218,7 @@ namespace Comet::Tests {
         const MeshData data{
             .vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
             .indices = {0, 1, 2}};
-        auto mesh = engine->get_resource_manager().try_create_mesh(data);
+        auto mesh = engine->get_render_resources().try_create_mesh(data);
         ASSERT_TRUE(mesh);
         auto image = texture();
         auto material = std::make_shared<Material>("test", "unlit_texture_blend");
@@ -302,7 +302,7 @@ namespace Comet::Tests {
     TEST_F(MaterialRuntimeGpuTest, ResolverAcceptsAnyMaterialWithoutInspectingProperties) {
         MeshData data;
         data.vertices = {{{-0.5f, 0, -2}}, {{0.5f, 0, -2}}, {{0, 0.5f, -2}}};
-        auto result = engine->get_resource_manager().try_create_mesh(data);
+        auto result = engine->get_render_resources().try_create_mesh(data);
         ASSERT_TRUE(result);
         auto mesh = result.value();
         const auto material = std::make_shared<Material>("future", "arbitrary_layout");

@@ -14,6 +14,8 @@ namespace Comet {
             std::pair{"rgba8_unorm", Format::R8G8B8A8_UNORM}};
         constexpr std::array COLOR_SPACES = {
             std::pair{"srgb_nonlinear", ImageColorSpace::SrgbNonlinearKHR}};
+        constexpr std::array OUTPUT_MODES = {std::pair{"sdr", OutputMode::Sdr},
+            std::pair{"hdr", OutputMode::Hdr}, std::pair{"auto", OutputMode::Auto}};
         constexpr std::array DEPTH_FORMATS = {std::pair{"d32_float", Format::D32_SFLOAT},
             std::pair{"d24_unorm_s8_uint", Format::D24_UNORM_S8_UINT},
             std::pair{"d32_float_s8_uint", Format::D32_SFLOAT_S8_UINT}};
@@ -159,6 +161,8 @@ namespace Comet {
                     "diagnostics.enable_validation", config.vulkan.enable_validation, "a boolean")
                 || !reader.read("render.max_frames_in_flight", config.render.max_frames_in_flight,
                     "a non-negative integer")
+                || !reader.named("render.output_mode", config.render.output_mode, OUTPUT_MODES)
+                || !reader.read("render.hdr_headroom", config.render.hdr_headroom, "a number")
                 || !reader.color(config.render.clear_color)
                 || !reader.read("render.enable_vsync", config.render.enable_vsync, "a boolean")
                 || !reader.read("render.max_anisotropy", config.render.max_anisotropy, "a number"))
@@ -196,6 +200,10 @@ namespace Comet {
         if(!std::isfinite(config.render.max_anisotropy) || config.render.max_anisotropy < 1.0f)
             return Result<Config>::failure(config_error(
                 sources, "render.max_anisotropy", "must be a finite number of at least 1.0"));
+        if(!std::isfinite(config.render.hdr_headroom) || config.render.hdr_headroom < 1.0f
+            || config.render.hdr_headroom > 16.0f)
+            return Result<Config>::failure(config_error(
+                sources, "render.hdr_headroom", "must be a finite number between 1 and 16"));
         return Result<Config>::success(std::move(config));
     }
 }

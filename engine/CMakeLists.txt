@@ -27,6 +27,7 @@ set(SOURCES
         src/common/retry_backoff.cpp
         src/render/presentation.cpp
         src/render/render_graph.cpp
+        src/render/passes/output_pass.cpp
         src/config/config_loader.cpp
         src/diagnostics/diagnostics.cpp
         src/diagnostics/profiler.cpp
@@ -36,7 +37,7 @@ set(SOURCES
         src/core/project_paths.cpp
         src/core/project.cpp
         src/runtime/entry.cpp
-        src/runtime/runtime.cpp
+        src/runtime/application.cpp
         src/core/task_scheduler.cpp
         src/core/engine.cpp
         src/core/geometry.cpp
@@ -71,7 +72,7 @@ set(SOURCES
         src/graphics/pipeline/descriptor_set.cpp
         src/graphics/resource/sampler.cpp
         src/render/renderer.cpp
-        src/render/line_draw_list.cpp
+        src/render/debug/line_draw_list.cpp
         src/render/debug/debug_renderer.cpp
         src/render/render_target.cpp
         src/render/resource/mesh.cpp
@@ -82,11 +83,11 @@ set(SOURCES
         src/render/scene/scene_picking.cpp
         src/render/scene/scene_extractor.cpp
         src/render/scene/scene_renderer.cpp
-        src/render/resource/resource_manager.cpp
+        src/render/resource/render_resources.cpp
         src/render/frame_scheduler.cpp
-        src/render/material.cpp
-        src/render/material_runtime.cpp
-        src/render/material_renderer.cpp
+        src/render/material/material.cpp
+        src/render/material/material_runtime.cpp
+        src/render/material/material_renderer.cpp
         src/scene/entity.cpp
         src/scene/entity_uuid.cpp
         src/scene/component_registry.cpp

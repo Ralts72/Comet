@@ -66,6 +66,30 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
     }
 }
 
+TEST(ConfigTest, ParsesStartupOutputModesAndValidatesHeadroom) {
+    for(const auto& [name, mode] : std::array{std::pair{"sdr", OutputMode::Sdr},
+            std::pair{"hdr", OutputMode::Hdr}, std::pair{"auto", OutputMode::Auto}}) {
+        const TemporaryConfigFile file(
+            std::string("render:\n  output_mode: ") + name + "\n  hdr_headroom: 2.5\n");
+        const auto loaded = ConfigLoader{}.load(file.path());
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(loaded.value().render.output_mode, mode);
+        EXPECT_FLOAT_EQ(loaded.value().render.hdr_headroom, 2.5f);
+    }
+    for(const auto value : {"0", "17", ".inf", ".nan", "wrong"}) {
+        const TemporaryConfigFile file(std::string("render:\n  hdr_headroom: ") + value);
+        const auto loaded = ConfigLoader{}.load(file.path());
+        ASSERT_FALSE(loaded);
+        EXPECT_NE(loaded.error().find("render.hdr_headroom"), std::string::npos);
+    }
+    const TemporaryConfigFile invalid("render:\n  output_mode: wrong");
+    EXPECT_FALSE(ConfigLoader{}.load(invalid.path()));
+    const TemporaryConfigFile empty("{}");
+    const auto defaults = ConfigLoader{}.load(empty.path());
+    ASSERT_TRUE(defaults);
+    EXPECT_EQ(defaults.value().render.output_mode, OutputMode::Sdr);
+}
+
 TEST(ConfigTest, ParsesExplicitConfiguration) {
     const TemporaryConfigFile file(R"(
 vulkan:

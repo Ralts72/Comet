@@ -1,6 +1,6 @@
 # Comet 引擎路线图
 
-更新：2026-09-18。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
+更新：2026-09-19。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
 本文只维护阶段、待办和设计约束，不累计每次迁移的完成日志。
 
 ## 当前阶段与下一步
@@ -19,51 +19,40 @@
 以当前 main 的功能与验收为准，继续逐项对照 feat/auto2 的实现及原始提交，而不是机械 cherry-pick。
 每项先注明对应旧提交、当前覆盖、需要调整及仍未覆盖的范围，再适配 main 的 Result、目录边界和生命周期；
 临时代码说明留在仓库内供学习，不进入提交。旧分支的已实现行为不能只因 main 有同名功能就判为完整覆盖。
-材质布局重建、呈现／场景边界和完整目标事务已收敛；辅助线 Shader 热更新按实际需求暂缓，旧 026 驱动 PipelineCache、旧 027 WSI 恢复与旧 028 有序 RenderGraph 已核对适配；下一步对照旧 029 的 HDR 场景与共享 SDR 输出 pass，不迁回旧所有权和异常协议；
+材质布局重建、呈现／场景边界和完整目标事务已收敛；辅助线 Shader 热更新按实际需求暂缓，旧 026 驱动 PipelineCache、旧 027 WSI 恢复、旧 028 有序 RenderGraph 与旧 029 HDR／SDR 双 pass 已核对适配；下一步对照旧 030 的类型化光源与有界 forward 光照，不迁回旧所有权和异常协议；
 阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
 WSI 暂时失败的无呈现重试及 SurfaceLost 重建已接通；设备丢失恢复与跨呈现队列迁移仍需单独设计。
 
-### 当前架构收敛安排
+### 架构收敛原则
 
-| 问题 | 所属阶段 | 当前处理与后续条件 |
-| --- | --- | --- |
-| 呈现层预期失败转异常 | 5：失败 API 与消费者 | 已将 Presentation／Renderer／Engine 的预期失败贯通为 Result，统一在 Application 生命周期边界处理；继续迁移底层录制／等待失败 |
-| 恢复入口与重试策略混杂 | 5：WSI | 已改为请求只登记、帧准备统一推进；手动请求重置预算，自动 OutOfDate 不重置 |
-| Surface owner 对外暴露 | 5：GPU 所有权 | 已收回到 Context／Swapchain 内部，Generation 继续保活 Surface |
-| 资产队列拆分后仍暴露实现 | 3：资产任务 | 已取消队列导出，Manager 公共类型不再依赖队列；当前保留资产专用执行模块 |
-| Runtime 虚函数与注册回调重叠 | 6：运行时入口 | 已移除通用阶段注册表；on_update 管更新，on_frame_ready 管帧就绪后的交互，Engine::tick 明确排序 |
-| UI 绘制隐式执行文件/资产操作 | 4：编辑器 | Inspector、Project、场景文件弹窗交付请求，Editor 统一调用已有资产/文档入口并回传结果；不新增命令总线 |
-| Transform 写入／查询／同步混杂 | 6：Transform 更新 | 保留当前兼容行为；先确定写入契约，再拆分即时查询与已同步快照读取 |
-
-当前优化以减少外露协议和统一状态推进入口为验收，不以新增类或拆文件数量作为收益。
-当前优先收敛已迁移流程的可读性，不继续跨模块机械清理异常。JSON 字段读取合并为 read_field，Scene 解析共享 Context，删除纯转发辅助层；不新增错误传播宏或隐式状态。
-业务失败按既有 Result/诊断协议传递，不统一压成 bool；自有异常语法仅剩明确暂缓的 YAML 捕获。future.get 仍检查任务异常，标准库与第三方未预期异常不保证有序退出，具体边界以异常审查清单为准。
-快捷键配置读取与校验已改为 Result，仅在 YAML 解析边界转换第三方异常；Scene 换父节点通过先分配后提交避免捕获后重抛。
-配置／导入迁移已保留字段定位、旧状态及回滚语义，没有增加通用异常包装器。
-Application::run/end 已返回 Result，入口负责错误报告与退出码；文件导入/移动使用 error_code 和扫描报告，统一清理本次变更，ScopeExit 保留提前退出清理。
-内置组件和属性编辑器注册失败改为 LOG_FATAL，仅适用于代码内不变量，不用于用户数据或 GPU 可恢复失败。
-全局剩余异常按 [异常处理审查](architecture/error-handling-audit.md) 分类，分模块迁移，不能用 terminate 替代需要清理的退出。
+- 当前实现与失败边界以架构文档为准，不在路线图重复已完成的逐文件迁移记录。
+- 优先减少外露协议、统一状态推进入口，不以新增类或拆文件数量作为收益。
+- 预期业务失败保留 Result 与错误类别；LOG_FATAL 仅用于内部不变量，不代替需要清理的退出。
+- 不跨模块机械清理异常，也不新增通用错误传播宏；第三方边界按实际实现处理。
+- Transform 写入契约与快照读取安排在阶段 6；项目 Shader 所有权调整随阶段 5 的真实消费者推进。
 
 ## 基本边界
 
 - Scene 与持久化数据只保存组件、Entity UUID 和 AssetHandle，不保存路径、GPU handle 或运行时 shared_ptr。
 - AssetHandle 是非零 64 位持久资产身份；EntityId 是进程内实体标识，EntityUuid 用于持久定位，二者不混用。
-- AssetRegistry 是唯一 Handle → Runtime Asset 缓存。ResourceManager 不建立第二份资产缓存。
+- AssetRegistry 是唯一 Handle → Runtime Asset 缓存。RenderResources 不建立第二份资产缓存。
+  CPU MeshData／TextureData 位于 asset/data；材质定义／准备／绘制聚合到 render/material，辅助线聚合到 render/debug。
+  SceneRenderer::RenderState 保存完整兼容资源，render 执行多 pass；不为目录整理增加抽象基类。
 - Engine 组合通用能力，app/editor 组合项目工作流；不把 demo bootstrap 或 ImGui 专用类放入 engine。
 - 以实际职责、可测试契约和生命周期拆分，不为减少成员数量套结构体，不为对齐设计图增加转发 façade。
 - 保持 C++20；通用纯逻辑先有测试，Vulkan 行为通过集成测试和 validation 检查。
 - Shader 学习源码保留，但不与生产编译列表、现行 descriptor 协议混淆。
 - 所有格式规则以根目录 .clang-format 为准，不在路线图或 AGENTS 重复一套排版细则。
 
-当前实现以[资产管线](architecture/asset-pipeline.md)和[资源所有权](architecture/rendering-ownership.md)为准；
+当前实现以代码和[资源所有权](architecture/rendering-ownership.md)为准；
 下文的新类型名是目标职责，不意味着立即新增同名文件或类。
 
 ## 阶段 3：补全资产工作流
 
 当前基线：资产身份、扫描、导入／加载、后台发布及场景引用恢复已接通；
-实际行为与失败边界见[资产管线](architecture/asset-pipeline.md)。
+实际行为与失败边界以 AssetManager、ImportService 及对应测试为准。
 
 待办：
 
@@ -149,7 +138,7 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
 当前基线：单视口相机与布局、拾取／聚焦、选中包围盒、平移／旋转／本地缩放 Gizmo，
 组件与层级编辑、引用选择／拖放、外部资产导入，以及统一场景撤销历史。
 操作说明见 [README](../README.md#编辑器使用)；帧时序、事务和资源寿命见
-[资源所有权](architecture/rendering-ownership.md)，文件操作边界见[资产管线](architecture/asset-pipeline.md)。
+[资源所有权](architecture/rendering-ownership.md)，文件操作边界以 SceneDocument 和 EditorAssets 的实现为准。
 
 剩余：
 
@@ -236,7 +225,8 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
 - 026 `6d9f365`：已适配设备／版本校验、损坏拒绝、原子保存、ImGui 借用和跨进程恢复；使用实际项目目录与 Result，不迁回旧异常捕获，不替代 PipelineKey 对象缓存。候选驱动拒绝／OOM 尚无故障注入，缓存总预算和淘汰仍待实际需求。
 - 027 `88cdd4a`：主线已由 Presentation 管恢复，补齐独立 WSI 故障注入回归及持续 INCOMPLETE 的有界枚举；保留 1／2／4 秒预算和 SurfaceLost 扩展，不恢复旧 SceneRenderer 编排或固定间隔无限重试。人工 ImGui、真实平台 SurfaceLost 及设备恢复仍不在覆盖内。
 - 028 `fd1d5f3`：已适配有序资源声明、纯 CPU 同步计划、当前离屏目标及真实 GPU producer/consumer。声明统一在 compile 返回 Result，录制失败保留 GraphicsError，复用 Barrier2／FrameSlot；同步校验覆盖子资源、区间、跨提交、MSAA 与 resize。外部 upload／WSI 等待保持显式；尚无 DAG 重排、瞬态分配、多队列、内存别名跟踪或 RenderThread。
-- 029 `624a143`：下一项对照 HDR 场景目标与共享 fullscreen SDR 输出，先明确格式支持、线性色彩与输出转换、runtime/editor 的目标所有权，再落地真实双 pass 验证。光照、阴影和 bloom 后续逐项推进。
+- 029 `624a143`：已适配 RGBA16F 场景与共享 fullscreen 输出，保留 Result、短回调和完整 RenderState 所有权；中间／输出目标成对替换，提前检查 HDR 格式与采样数。启动配置支持 sdr/hdr/auto，HDR 优先 RGBA16F + 扩展线性 sRGB，不支持时回退 SDR；编辑器固定 SDR。GPU 像素验证覆盖 RGBA/BGRA、sRGB/UNORM、浮点 HDR、高亮、曝光、方向、MSAA、resize 和在途资源保活。尚无显示器亮度校准、HDR10/PQ、自动曝光、中间格式降级或第二目标 OOM 故障注入。
+- 030 `30dce0f`：下一项对照类型化 LightComponent 与有界 forward 光照；先确定组件／反射／序列化、世界空间提取与每帧光源缓冲契约，再实现方向／点／聚光灯。阴影、PBR 和 Bloom 后续逐项推进。
 - 原生文件监听按阶段 3 专项安排，旧分支同样采用轮询，不作为最终方案迁回。
 
 specialization 已贯通类型化值、默认值规范化、反射校验、PipelineKey 和 GPU 创建。
@@ -258,7 +248,7 @@ Shipping 只消费预编译打包数据，不要求松散 .spv。
 
 ### 资源服务与程序版本所有权（随项目 Shader 接入）
 
-目标不是减少 ResourceManager 的字段数量，而是按资源身份、程序版本、设备资源和帧生命周期划分职责。
+目标不是减少 RenderResources 的字段数量，而是按资源身份、程序版本、设备资源和帧生命周期划分职责。
 当前 SceneRenderer::m_material_shaders 是为重建保留成功字节码的过渡实现；短期保留，
 不只为搬走一个 optional 创建新 Manager，也不恢复仅按名称缓存 ShaderModule 的 ShaderManager。
 本项随项目 Shader／程序资产分步落地，不阻塞旧 026 的驱动 PipelineCache，不恢复辅助线热重载。
@@ -268,7 +258,7 @@ Shipping 只消费预编译打包数据，不要求松散 .spv。
 | 角色 | 应负责 | 不应负责 |
 | --- | --- | --- |
 | AssetDatabase／AssetRegistry／AssetManager | 项目程序的稳定身份、依赖、导入产物与加载；沿用既有职责分工 | 按窗口／RenderPass 选择 Pipeline，提前宣布 GPU 版本发布成功 |
-| ResourceManager | 实现 RenderResourceFactory，创建 Mesh／Texture，组织上传与 Sampler 复用 | 项目文件监视、程序当前版本、材质语义、帧编排 |
+| RenderResources | 实现 RenderResourceFactory，创建 Mesh／Texture，组织上传与 Sampler 复用 | 项目文件监视、程序当前版本、材质语义、帧编排 |
 | 渲染层程序状态 | 持有当前渲染域已发布的不可变程序版本，为消费者提供版本快照 | 文件轮询、源码编译、窗口尺寸、命令录制 |
 | MaterialRenderer | 从程序快照、材质数据和目标兼容性准备 Pipeline／参数／绑定，执行绘制 | 作为唯一程序版本仓库，在目标重建时丢失程序身份 |
 | SceneRenderer | 目标／pass 兼容资源的完整安装、场景录制与消费者重建；整帧和呈现归 Renderer／Presentation | 长期保存阶段字节码或实现源码热重载策略 |
@@ -277,7 +267,7 @@ Shipping 只消费预编译打包数据，不要求松散 .spv。
 程序状态由长期存活的 Renderer 或同级渲染运行时 owner 装配，生命周期长于具体 SceneRenderer／MaterialRenderer 的目标重建。
 具体类名在实施时确定；优先使用一个入口清晰的 render 程序模块，不按每种 Shader 再建 Manager 或大量单字段文件。
 AssetRegistry 继续作为稳定资产 Handle 的统一解析入口；渲染域的发布状态按程序身份关联，不能再创建平行身份表。
-编辑器通过明确的候选发布命令交付 CPU 数据，不把编译回调注入 ResourceManager 或 SceneRenderer。
+编辑器通过明确的候选发布命令交付 CPU 数据，不把编译回调注入 RenderResources 或 SceneRenderer。
 
 #### 程序身份、候选与版本
 
@@ -402,6 +392,7 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 现有 Device、FrameScheduler、UploadManager 继续演进，不为目标名称再包一层。
 
 - Device 管 logical device、queues、allocator、能力和设备缓存，不拥有所有资产、FrameSlot 或业务 target。
+  设备候选按实际 RGBA16F 场景格式检查混合、采样与 MSAA；与目标创建复用 graphics 层校验，最终输出另查单采样能力。
 - FrameSlot 管复用时点：等待 completion → 释放 retained owners → reset command/descriptor/transient arenas。
   CommandPool 按 slot + recording thread + queue family 隔离；长期材质和 swapchain image 状态不放入 slot。
 - Descriptor 分 frame arena、persistent arena 和 editor-owned ImGui pool；分页 pool、object ring/dynamic UBO/SSBO
@@ -413,6 +404,7 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 - waitIdle 可用于 shutdown、设备恢复与平台回退，不应成为常规资产替换机制；graphics fence 不代表 present 已完成。
 - 运行时 format/sample-dependent RenderPass/Pipeline 需与 target 形成兼容、可替换的 generation；
   当前不兼容格式仍明确终止，不能继续绑定旧 Pipeline。
+  启动输出偏好与重建固定组合分开传递，固定组合不可用不回退为另一种编码。
 - **WSI 无呈现恢复**：传入非空 oldSwapchain 调用创建后，无论成功失败，旧交换链都已退休。
   当前 Presentation 已区分 no-present／dependent／surface 恢复，暂时错误有界退避，失败不从退休对象 acquire。
   创建失败后的重试使用空 oldSwapchain；dependent 重建失败复用成功新代，SurfaceLost 重建并校验新 surface。
@@ -421,7 +413,7 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 
 ### RenderGraph 与多 pass
 
-- 当前有序图已用于离屏附件；详细录制与失败契约见[渲染所有权](architecture/rendering-ownership.md#有序-rendergraph)。
+- 当前有序图已用于 app/editor 的 HDR 场景与色调映射双 pass；详细录制与失败契约见[渲染所有权](architecture/rendering-ownership.md#有序-rendergraph)。
   后续多 pass 优先复用现有图，不把当前单 queue 实现描述成自动多队列调度器。
 - Pass 声明读写 usage/subresource；imported/exported 资源明确边界状态，tracker 编译 Barrier2。
   Image 不保存单一全局 current_layout；状态属于录制/编译上下文，持久资源在提交边界交接 handoff state。
@@ -432,6 +424,8 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
   检查显式 feature、ImGui/MSAA/resize、调试工具和目标 GPU；可按 pass 保留传统 RenderPass。
 - Forward Lighting → LightComponent（方向/点/聚光）→ shadow → PBR → tone mapping/gamma/bloom。
   先完成小型 forward 场景，不一次构建完整 deferred renderer。
+- 显示输出已支持启动时选择 SDR / 扩展线性 HDR，默认 SDR；后续按真实需求增加显示器 headroom／白点校准、
+  HDR10/PQ、跨屏及系统模式切换后的安全重建，再处理编辑器 HDR 视口与 UI 亮度合成。不是下一项光源迁移的前置条件。
 - 低频采样 GPU memory budget，详细 allocation dump 手动触发；补足 CPU/GPU frame-time 诊断。
 
 ### 线程演进

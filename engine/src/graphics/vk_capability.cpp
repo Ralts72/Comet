@@ -178,10 +178,13 @@ namespace Comet {
                     present_modes, Graphics::present_mode_to_vk(request.swapchain.present_mode))
                 != present_modes.end();
 
-            candidate_info.color_format_supported = supports_image_format(physical_device,
-                Graphics::format_to_vk(request.swapchain.surface_format),
-                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                Graphics::sample_count_to_vk(request.sample_count));
+            candidate_info.scene_color_supported = static_cast<bool>(validate_color_target(
+                physical_device, request.scene_color_format, request.sample_count));
+            candidate_info.output_color_supported =
+                swapchain_result.status == SwapchainStatus::Ready
+                && supports_image_format(physical_device,
+                    swapchain_result.config.surface_format.format,
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, vk::SampleCountFlagBits::e1);
             candidate_info.depth_format_supported =
                 supports_image_format(physical_device, Graphics::format_to_vk(request.depth_format),
                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
@@ -271,10 +274,13 @@ namespace Comet {
         } else if(!candidate.swapchain_message.empty()) {
             evaluation.notes.push_back(candidate.swapchain_message);
         }
-        if(!candidate.color_format_supported) {
+        if(!candidate.scene_color_supported) {
             evaluation.rejection_reasons.emplace_back(
-                "configured color format does not support the requested MSAA sample count");
+                "scene color format does not support attachment, blending, sampling or requested MSAA");
         }
+        if(!candidate.output_color_supported)
+            evaluation.rejection_reasons.emplace_back(
+                "output color format does not support single-sample color attachment");
         if(!candidate.depth_format_supported) {
             evaluation.rejection_reasons.emplace_back(
                 "configured depth format does not support the requested MSAA sample count");
@@ -346,10 +352,44 @@ namespace Comet {
         return selection;
     }
 
+    Result<void, GraphicsError> validate_color_target(
+        const vk::PhysicalDevice device, const Format format, const SampleCount samples) {
+        const auto sample_bits = static_cast<uint32_t>(samples);
+        if(sample_bits == 0 || sample_bits > 64 || (sample_bits & (sample_bits - 1)) != 0)
+            return Result<void, GraphicsError>::failure({"Invalid color target sample count"});
+        const auto native_format = Graphics::format_to_vk(format);
+        const auto features = device.getFormatProperties(native_format);
+        const auto required = vk::FormatFeatureFlagBits::eColorAttachment
+                              | vk::FormatFeatureFlagBits::eColorAttachmentBlend
+                              | vk::FormatFeatureFlagBits::eSampledImage;
+        if((features.optimalTilingFeatures & required) != required)
+            return Result<void, GraphicsError>::failure(
+                {"Color target requires attachment, blending and sampling support",
+                    vk::Result::eErrorFormatNotSupported});
+        for(const auto count : {SampleCount::Count1, samples}) {
+            auto usage = vk::ImageUsageFlags(vk::ImageUsageFlagBits::eColorAttachment);
+            if(count == SampleCount::Count1)
+                usage |= vk::ImageUsageFlagBits::eSampled;
+            vk::ImageFormatProperties properties;
+            const auto result = device.getImageFormatProperties(native_format, vk::ImageType::e2D,
+                vk::ImageTiling::eOptimal, usage, {}, &properties);
+            if(result != vk::Result::eSuccess)
+                return Result<void, GraphicsError>::failure(
+                    {"Cannot query color target support", result});
+            if(!(properties.sampleCounts & Graphics::sample_count_to_vk(count)))
+                return Result<void, GraphicsError>::failure(
+                    {"Color target MSAA sample count is unsupported",
+                        vk::Result::eErrorFormatNotSupported});
+            if(samples == SampleCount::Count1)
+                break;
+        }
+        return Result<void, GraphicsError>::success();
+    }
+
     SwapchainResult select_swapchain(const vk::SurfaceCapabilitiesKHR& capabilities,
         const std::vector<vk::SurfaceFormatKHR>& surface_formats,
         const std::vector<vk::PresentModeKHR>& present_modes, const vk::Extent2D framebuffer_extent,
-        const SwapchainRequest& request) {
+        const SwapchainRequest& request, const std::optional<vk::SurfaceFormatKHR> fixed_output) {
         if(framebuffer_extent.width == 0 || framebuffer_extent.height == 0) {
             return deferred_swapchain("framebuffer extent is zero");
         }
@@ -375,9 +415,21 @@ namespace Comet {
             return unsupported_swapchain("surface current transform is not supported");
         }
 
-        const auto surface_format = find_surface_format(
-            surface_formats, vk::SurfaceFormatKHR{Graphics::format_to_vk(request.surface_format),
-                                 Graphics::image_color_space_to_vk(request.color_space)});
+        std::optional<vk::SurfaceFormatKHR> surface_format;
+        if(fixed_output) {
+            surface_format = find_surface_format(surface_formats, *fixed_output);
+            if(!surface_format)
+                return unsupported_swapchain("fixed output format and color space are unavailable");
+        } else if(request.output_mode != OutputMode::Sdr) {
+            surface_format = find_surface_format(surface_formats,
+                {vk::Format::eR16G16B16A16Sfloat, vk::ColorSpaceKHR::eExtendedSrgbLinearEXT});
+        }
+        const bool hdr_fallback =
+            !fixed_output && request.output_mode != OutputMode::Sdr && !surface_format;
+        if(!surface_format)
+            surface_format = find_surface_format(
+                surface_formats, {Graphics::format_to_vk(request.surface_format),
+                                     Graphics::image_color_space_to_vk(request.color_space)});
         if(!surface_format) {
             return unsupported_swapchain(
                 "configured surface format and color space are unavailable");
@@ -443,6 +495,11 @@ namespace Comet {
                              + vk::to_string(result.config.present_mode);
         }
 
+        if(hdr_fallback) {
+            if(!result.message.empty())
+                result.message += "; ";
+            result.message += "RGBA16F / extended linear sRGB output unavailable; using SDR";
+        }
         return result;
     }
 

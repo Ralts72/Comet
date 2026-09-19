@@ -4,9 +4,9 @@
 #include "render/scene/render_scene.h"
 #include "render/scene/scene_resolver.h"
 #include "render/scene/scene_picking.h"
-#include "render/line_draw_list.h"
+#include "render/debug/line_draw_list.h"
 #include "render/frame_scheduler.h"
-#include "render/material_renderer.h"
+#include "render/material/material_renderer.h"
 #include "render/presentation.h"
 
 #include <functional>
@@ -18,7 +18,7 @@ namespace Comet {
     class Window;
     class CommandBuffer;
     class RenderContext;
-    class ResourceManager;
+    class RenderResources;
     class SceneRenderer;
     class Config;
 
@@ -58,9 +58,9 @@ namespace Comet {
         // 没有有效视图时也会消费并清空。
         void submit_lines(const LineDrawList& draw_list);
 
-        [[nodiscard]] ResourceManager& get_resource_manager() { return *m_resource_manager; }
-        [[nodiscard]] const ResourceManager& get_resource_manager() const {
-            return *m_resource_manager;
+        [[nodiscard]] RenderResources& get_render_resources() { return *m_render_resources; }
+        [[nodiscard]] const RenderResources& get_render_resources() const {
+            return *m_render_resources;
         }
         [[nodiscard]] SceneRenderer& get_scene_renderer() { return *m_scene_renderer; }
         [[nodiscard]] const SceneRenderer& get_scene_renderer() const { return *m_scene_renderer; }
@@ -68,7 +68,7 @@ namespace Comet {
         [[nodiscard]] const RenderContext& get_render_context() const { return *m_render_context; }
 
     private:
-        Renderer(std::unique_ptr<RenderContext> context, std::unique_ptr<ResourceManager> resources,
+        Renderer(std::unique_ptr<RenderContext> context, std::unique_ptr<RenderResources> resources,
             std::unique_ptr<FrameScheduler> frames, std::unique_ptr<SceneRenderer> scene,
             const AssetRegistry& assets);
         struct ViewportPickRequest {
@@ -77,7 +77,7 @@ namespace Comet {
         };
 
         std::unique_ptr<RenderContext> m_render_context;
-        std::unique_ptr<ResourceManager> m_resource_manager;
+        std::unique_ptr<RenderResources> m_render_resources;
         std::unique_ptr<FrameScheduler> m_frames;
         std::unique_ptr<Presentation> m_presentation;
         std::unique_ptr<SceneRenderer> m_scene_renderer;

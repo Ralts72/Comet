@@ -1,4 +1,4 @@
-#include "runtime/runtime.h"
+#include "runtime/application.h"
 #include "core/window.h"
 #include "graphics/device.h"
 #include "render/renderer.h"
@@ -16,8 +16,8 @@ namespace {
         bool rendered = false;
 
         Comet::Result<void, Comet::Error> on_init() override {
-            const auto& cache = get_engine().get_renderer().get_render_context()
-                                    .get_device().get_pipeline_cache();
+            const auto& cache =
+                get_engine().get_renderer().get_render_context().get_device().get_pipeline_cache();
             status = cache.get_load_status();
             path = cache.get_path();
             auto scene = std::make_unique<Comet::Scene>();
@@ -49,10 +49,9 @@ int main(int argc, char** argv) {
         expected = Comet::PipelineCache::LoadStatus::Restored;
     else if(std::string_view(argv[3]) != "missing")
         return 2;
-    const auto result = Comet::run(&app,
-        {.config_directory = argv[1], .config_profile = "probe"});
+    const auto result = Comet::run(&app, {.config_directory = argv[1], .config_profile = "probe"});
     std::cout << "cache status=" << static_cast<int>(app.status) << '\n';
     return result != 0 || !app.rendered || app.status != expected
-        || app.path.parent_path() != std::filesystem::path(argv[2]) / "vulkan"
-        || !std::filesystem::is_regular_file(app.path);
+           || app.path.parent_path() != std::filesystem::path(argv[2]) / "vulkan"
+           || !std::filesystem::is_regular_file(app.path);
 }

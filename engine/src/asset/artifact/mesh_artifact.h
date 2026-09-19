@@ -4,7 +4,7 @@
 #include "asset/import/input_snapshot.h"
 #include "common/export.h"
 #include "common/result.h"
-#include "render/resource/mesh_data.h"
+#include "asset/data/mesh_data.h"
 
 #include <cstdint>
 #include <filesystem>

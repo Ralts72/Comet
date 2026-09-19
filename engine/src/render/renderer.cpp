@@ -1,7 +1,7 @@
 #include "renderer.h"
 #include "config/config.h"
 #include "render/render_context.h"
-#include "render/resource/resource_manager.h"
+#include "render/resource/render_resources.h"
 #include "render/scene/scene_renderer.h"
 #include "core/window.h"
 #include "graphics/device.h"
@@ -22,14 +22,11 @@ namespace Comet {
         if(!context)
             return Creation::failure(context.error());
         auto& device = context.value()->get_device();
-        auto resources = std::make_unique<ResourceManager>(device);
+        auto resources = std::make_unique<RenderResources>(device);
         auto frames = std::make_unique<FrameScheduler>(device, config.render.max_frames_in_flight);
         auto& swapchain = context.value()->get_swapchain();
         frames->initialize_swapchain_images(static_cast<uint32_t>(swapchain.get_images().size()));
-        auto scene = std::make_unique<SceneRenderer>(device,
-            Graphics::vk_to_format(
-                swapchain.get_active_generation()->get_config().surface_format.format),
-            config.vulkan, config.render);
+        auto scene = std::make_unique<SceneRenderer>(device, config.vulkan, config.render);
         if(auto configured = scene->configure_presentation(*resources, swapchain); !configured)
             return Creation::failure(configured.error());
         return Creation::success(std::unique_ptr<Renderer>(new Renderer(std::move(context).value(),
@@ -37,9 +34,9 @@ namespace Comet {
     }
 
     Renderer::Renderer(std::unique_ptr<RenderContext> context,
-        std::unique_ptr<ResourceManager> resources, std::unique_ptr<FrameScheduler> frames,
+        std::unique_ptr<RenderResources> resources, std::unique_ptr<FrameScheduler> frames,
         std::unique_ptr<SceneRenderer> scene, const AssetRegistry& assets)
-        : m_render_context(std::move(context)), m_resource_manager(std::move(resources)),
+        : m_render_context(std::move(context)), m_render_resources(std::move(resources)),
           m_frames(std::move(frames)), m_scene_renderer(std::move(scene)),
           m_scene_resolver(assets) {
         m_presentation = std::make_unique<Presentation>(*m_render_context, *m_frames,
@@ -54,7 +51,7 @@ namespace Comet {
         if(m_shutdown_prepared)
             return Result<bool, GraphicsError>::failure({"Renderer is shutting down"});
         PROFILE_SCOPE("prepare frame");
-        m_resource_manager->collect_completed_uploads();
+        m_render_resources->collect_completed_uploads();
 
         auto preparation = m_presentation->begin_frame();
         if(!preparation || !preparation.value()) {
@@ -82,7 +79,7 @@ namespace Comet {
             m_line_draw_list.clear();
         }
         const auto resource_waits =
-            m_scene_renderer->render_scene_pass(*m_frames, submission, m_line_draw_list);
+            m_scene_renderer->render(*m_frames, submission, m_line_draw_list);
         m_line_draw_list.clear();
 
         if(!resource_waits) {
@@ -103,7 +100,7 @@ namespace Comet {
         if(m_frames->is_frame_active())
             return Result<void, GraphicsError>::failure(
                 {"Target configuration requires a frame boundary"});
-        return m_scene_renderer->configure_offscreen(*m_resource_manager, initial_size);
+        return m_scene_renderer->configure_offscreen(*m_render_resources, initial_size);
     }
 
     Result<MaterialRenderer::ReloadReport, GraphicsError> Renderer::reload_material_shaders(
@@ -174,7 +171,7 @@ namespace Comet {
         m_presentation.reset();
         m_frames.reset();
         m_scene_renderer.reset();
-        m_resource_manager.reset();
+        m_render_resources.reset();
         m_render_context.reset();
     }
 }

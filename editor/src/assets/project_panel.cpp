@@ -1,4 +1,4 @@
-#include "assets/project.h"
+#include "assets/project_panel.h"
 #include "scene/selection.h"
 #include "assets/asset_reference.h"
 #include "scene/command_history.h"

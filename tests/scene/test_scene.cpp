@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "scene/components.h"
 #include "scene/scene.h"
-#include "../test_utils.h"
+#include "support/math_assertions.h"
 #include <algorithm>
 #include <concepts>
 #include <type_traits>

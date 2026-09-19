@@ -1,6 +1,6 @@
 #include "asset/asset_manager.h"
-#include "render/resource/texture_data.h"
-#include "render/resource/mesh_data.h"
+#include "asset/data/texture_data.h"
+#include "asset/data/mesh_data.h"
 
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/registry.h"
@@ -8,7 +8,7 @@
 #include "asset/serialization/metadata_serializer.h"
 #include "core/task_scheduler.h"
 #include "support/blocked_worker.h"
-#include "render/material.h"
+#include "render/material/material.h"
 #include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
 #include "render/resource/texture.h"

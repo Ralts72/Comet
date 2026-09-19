@@ -17,7 +17,8 @@ namespace Comet::Tests {
                 .shares_graphics_present_queue = true,
                 .swapchain_status = SwapchainStatus::Ready,
                 .requested_present_mode_supported = true,
-                .color_format_supported = true,
+                .scene_color_supported = true,
+                .output_color_supported = true,
                 .depth_format_supported = true,
                 .timeline_semaphore_supported = true,
                 .synchronization2_supported = true};
@@ -29,6 +30,27 @@ namespace Comet::Tests {
                     return reason.find(text) != std::string::npos;
                 });
         }
+    }
+
+    TEST(DeviceCandidateEvaluationTest,
+        RejectsMissingSceneCapabilitiesRegardlessOfOutputModeOrScore) {
+        auto unsuitable = make_suitable_candidate();
+        unsuitable.device_type = vk::PhysicalDeviceType::eDiscreteGpu;
+        unsuitable.scene_color_supported = false;
+        const auto suitable = make_suitable_candidate();
+        for(const auto mode : {OutputMode::Sdr, OutputMode::Hdr, OutputMode::Auto}) {
+            DeviceCapabilityRequest request;
+            request.swapchain.output_mode = mode;
+            const auto rejected = evaluate_device_candidate(unsuitable, request);
+            EXPECT_FALSE(rejected.is_suitable());
+            EXPECT_TRUE(contains_reason(rejected, "scene color format"));
+            EXPECT_TRUE(evaluate_device_candidate(suitable, request).is_suitable());
+        }
+        auto missing_output = suitable;
+        missing_output.output_color_supported = false;
+        const auto rejected = evaluate_device_candidate(missing_output, {});
+        EXPECT_FALSE(rejected.is_suitable());
+        EXPECT_TRUE(contains_reason(rejected, "output color format"));
     }
 
     TEST(DeviceCandidateEvaluationTest, RejectsApiVersionBelowRequirement) {
@@ -48,7 +70,8 @@ namespace Comet::Tests {
         candidate.missing_required_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
         candidate.swapchain_status = SwapchainStatus::Unsupported;
         candidate.swapchain_message = "no surface formats";
-        candidate.color_format_supported = false;
+        candidate.scene_color_supported = false;
+        candidate.output_color_supported = false;
         candidate.depth_format_supported = false;
         candidate.timeline_semaphore_supported = false;
         candidate.synchronization2_supported = false;

@@ -98,5 +98,6 @@ namespace Comet {
         Device& m_device;
         std::shared_ptr<Generation> m_active_generation;
         SwapchainRequest m_request;
+        std::optional<vk::SurfaceFormatKHR> m_output_format;
     };
 }

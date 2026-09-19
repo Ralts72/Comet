@@ -1,5 +1,5 @@
 #include "render/resource/texture.h"
-#include "render/resource/texture_data.h"
+#include "asset/data/texture_data.h"
 #include "graphics/command/upload_manager.h"
 #include "graphics/device.h"
 #include "graphics/resource/image.h"

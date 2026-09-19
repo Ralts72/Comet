@@ -1,5 +1,5 @@
 #include "runtime/entry.h"
-#include "render/resource/resource_manager.h"
+#include "render/resource/render_resources.h"
 #include "diagnostics/logger.h"
 #include "asset/asset_manager.h"
 #include "core/project_paths.h"
@@ -51,12 +51,12 @@ namespace {
             LOG_INFO("app init");
 
             auto& engine = get_engine();
-            auto& resource_manager = engine.get_resource_manager();
+            auto& render_resources = engine.get_render_resources();
             auto& asset_registry = engine.get_asset_registry();
 
             m_asset_manager = std::make_unique<Comet::AssetManager>(
                 Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY), asset_registry,
-                resource_manager, engine.get_task_scheduler());
+                render_resources, engine.get_task_scheduler());
             const Comet::AssetScanReport scan_report = m_asset_manager->scan();
             for(const Comet::AssetScanIssue& issue : scan_report.issues) {
                 LOG_WARN(

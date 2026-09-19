@@ -19,16 +19,17 @@ endif ()
 
 add_library(editor_ui STATIC
         src/assets/asset_reference.cpp
-        src/assets/project.cpp
+        src/assets/project_panel.cpp
         src/inspector/inspector.cpp
         src/inspector/property_editor_registry.cpp
         src/scene/hierarchy.cpp
         src/scene/scene_file_dialog.cpp
+        src/ui/dialogs.cpp
         src/ui/console.cpp
         src/ui/imgui_context.cpp
         src/ui/menu_bar.cpp
         src/ui/shortcuts.cpp
-        src/viewport/view.cpp
+        src/viewport/viewport_panel.cpp
         src/viewport/viewport.cpp
 )
 target_link_libraries(editor_ui PUBLIC editor_core imgui PRIVATE yaml-cpp)

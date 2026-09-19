@@ -20,12 +20,14 @@ namespace Comet {
         if(render_config.enable_vsync) {
             present_mode = PresentMode::Fifo;
         }
-        const SwapchainRequest swapchain_request{.image_count = vulkan_config.swapchain_image_count,
+        const SwapchainRequest swapchain_request{.output_mode = render_config.output_mode,
+            .image_count = vulkan_config.swapchain_image_count,
             .surface_format = vulkan_config.surface_format,
             .color_space = vulkan_config.color_space,
             .present_mode = present_mode,
             .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)};
         const DeviceCapabilityRequest capability_request{.swapchain = swapchain_request,
+            .scene_color_format = Config::Render::SCENE_COLOR_FORMAT,
             .depth_format = vulkan_config.depth_format,
             .sample_count = vulkan_config.msaa_samples,
             .max_sampler_anisotropy = render_config.max_anisotropy};
@@ -34,7 +36,7 @@ namespace Comet {
         LOG_INFO("create device");
         auto device = std::make_unique<Device>(*context);
         if(auto restored =
-               device->get_pipeline_cache().restore(vulkan_config.pipeline_cache_directory);
+                device->get_pipeline_cache().restore(vulkan_config.pipeline_cache_directory);
             !restored)
             return Result<std::unique_ptr<RenderContext>, GraphicsError>::failure(restored.error());
 

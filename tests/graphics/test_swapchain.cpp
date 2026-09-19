@@ -233,6 +233,65 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(SwapchainConfigTest, StartupOutputUsesSupportedFormatAndColorSpacePair) {
+        auto formats = make_surface_formats();
+        const vk::SurfaceFormatKHR hdr{
+            vk::Format::eR16G16B16A16Sfloat, vk::ColorSpaceKHR::eExtendedSrgbLinearEXT};
+        formats.push_back(hdr);
+        for(const auto mode : {OutputMode::Sdr, OutputMode::Hdr, OutputMode::Auto}) {
+            auto request = make_request();
+            request.output_mode = mode;
+            const auto selected = select_swapchain(
+                make_capabilities(), formats, make_present_modes(), {320, 240}, request);
+            ASSERT_EQ(selected.status, SwapchainStatus::Ready);
+            EXPECT_EQ(selected.config.surface_format, mode == OutputMode::Sdr ? formats[0] : hdr);
+            EXPECT_TRUE(selected.message.empty());
+        }
+        for(const auto mode : {OutputMode::Hdr, OutputMode::Auto}) {
+            auto request = make_request();
+            request.output_mode = mode;
+            for(const auto unsupported : {vk::SurfaceFormatKHR{vk::Format::eR16G16B16A16Sfloat,
+                                              vk::ColorSpaceKHR::eSrgbNonlinear},
+                    vk::SurfaceFormatKHR{
+                        vk::Format::eB8G8R8A8Srgb, vk::ColorSpaceKHR::eExtendedSrgbLinearEXT},
+                    vk::SurfaceFormatKHR{
+                        vk::Format::eA2B10G10R10UnormPack32, vk::ColorSpaceKHR::eHdr10St2084EXT}}) {
+                formats = make_surface_formats();
+                formats.push_back(unsupported);
+                const auto fallback = select_swapchain(
+                    make_capabilities(), formats, make_present_modes(), {320, 240}, request);
+                ASSERT_EQ(fallback.status, SwapchainStatus::Ready);
+                EXPECT_EQ(fallback.config.surface_format, formats.front());
+                EXPECT_NE(fallback.message.find("using SDR"), std::string::npos);
+            }
+            const auto unavailable = select_swapchain(
+                make_capabilities(), {}, make_present_modes(), {320, 240}, request);
+            EXPECT_EQ(unavailable.status, SwapchainStatus::Unsupported);
+        }
+    }
+
+    TEST(SwapchainConfigTest, FixedOutputOverridesStartupPreferenceWithoutFallback) {
+        const vk::SurfaceFormatKHR hdr{
+            vk::Format::eR16G16B16A16Sfloat, vk::ColorSpaceKHR::eExtendedSrgbLinearEXT};
+        const auto sdr = make_surface_formats().front();
+        for(const auto mode : {OutputMode::Sdr, OutputMode::Hdr, OutputMode::Auto}) {
+            auto request = make_request();
+            request.output_mode = mode;
+            for(const auto fixed : {sdr, hdr}) {
+                const auto selected = select_swapchain(make_capabilities(), {sdr, hdr},
+                    make_present_modes(), {320, 240}, request, fixed);
+                ASSERT_EQ(selected.status, SwapchainStatus::Ready);
+                EXPECT_EQ(selected.config.surface_format, fixed);
+                EXPECT_TRUE(selected.message.empty());
+                const auto missing = select_swapchain(make_capabilities(),
+                    {fixed == hdr ? sdr : hdr}, make_present_modes(), {320, 240}, request, fixed);
+                EXPECT_EQ(missing.status, SwapchainStatus::Unsupported);
+                EXPECT_NE(missing.message.find("fixed output"), std::string::npos);
+                EXPECT_EQ(request.output_mode, mode);
+            }
+        }
+    }
+
     TEST(SwapchainConfigTest, UsesFixedExtentAndSurfaceTransform) {
         const auto result = select_swapchain(make_capabilities(), make_surface_formats(),
             make_present_modes(), vk::Extent2D{320, 240}, make_request());

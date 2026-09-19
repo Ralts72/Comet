@@ -1,4 +1,4 @@
-#include "render/material_renderer.h"
+#include "render/material/material_renderer.h"
 
 #include "diagnostics/logger.h"
 #include "graphics/device.h"
@@ -9,10 +9,10 @@
 #include "graphics/resource/image_view.h"
 #include "graphics/resource/sampler.h"
 #include "render/frame_scheduler.h"
-#include "render/material.h"
+#include "render/material/material.h"
 #include "render/resource/mesh.h"
-#include "render/resource/mesh_data.h"
-#include "render/resource/resource_manager.h"
+#include "asset/data/mesh_data.h"
+#include "render/resource/render_resources.h"
 #include "render/resource/texture.h"
 #include "material_mesh_vert.h"
 #include "material_textured_frag.h"
@@ -46,7 +46,7 @@ namespace Comet {
     MaterialRenderer::MaterialRenderer(Device& device) : m_device(device) {}
 
     Result<std::unique_ptr<MaterialRenderer>, GraphicsError> MaterialRenderer::create(
-        Device& device, PipelineManager& pipelines, ResourceManager& resources,
+        Device& device, PipelineManager& pipelines, RenderResources& resources,
         const uint32_t frame_slot_count, const SampleCount samples, const ShaderCode* shaders) {
         auto candidate = std::unique_ptr<MaterialRenderer>(new MaterialRenderer(device));
         if(auto result =
@@ -59,7 +59,7 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> MaterialRenderer::initialize(PipelineManager& pipelines,
-        ResourceManager& resources, const uint32_t frame_slot_count, const SampleCount samples,
+        RenderResources& resources, const uint32_t frame_slot_count, const SampleCount samples,
         const ShaderCode* shaders) {
         if(frame_slot_count == 0)
             return Result<void, GraphicsError>::failure({"Material renderer requires frame slots"});

@@ -2,7 +2,7 @@
 #include "common/export.h"
 #include "graphics/result.h"
 #include "graphics/synchronization/gpu_completion_point.h"
-#include "render/resource/mesh_data.h"
+#include "asset/data/mesh_data.h"
 
 #include <memory>
 

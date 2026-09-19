@@ -12,7 +12,7 @@
 #include "graphics/pipeline/vertex_description.h"
 #include <algorithm>
 #include <array>
-#include "render/material.h"
+#include "render/material/material.h"
 #include "material_mesh_vert.h"
 #include "material_textured_frag.h"
 #include "material_solid_frag.h"

@@ -4,7 +4,7 @@
 #include "graphics/result.h"
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/queue.h"
-#include "render/material_runtime.h"
+#include "render/material/material_runtime.h"
 #include "render/scene/render_submission.h"
 
 #include <cstdint>
@@ -21,7 +21,7 @@ namespace Comet {
     class FrameScheduler;
     class Pipeline;
     class PipelineManager;
-    class ResourceManager;
+    class RenderResources;
     class Sampler;
     class Shader;
 
@@ -54,7 +54,7 @@ namespace Comet {
         };
 
         static Result<std::unique_ptr<MaterialRenderer>, GraphicsError> create(Device& device,
-            PipelineManager& pipelines, ResourceManager& resources, uint32_t frame_slot_count,
+            PipelineManager& pipelines, RenderResources& resources, uint32_t frame_slot_count,
             SampleCount samples, const ShaderCode* shaders = nullptr);
         // 在新一帧绘制前调用；两种材质管线全部成功后才替换。
         Result<ReloadReport, GraphicsError> reload_shaders(
@@ -69,7 +69,7 @@ namespace Comet {
     private:
         explicit MaterialRenderer(Device& device);
         Result<void, GraphicsError> initialize(PipelineManager& pipelines,
-            ResourceManager& resources, uint32_t frame_slot_count, SampleCount samples,
+            RenderResources& resources, uint32_t frame_slot_count, SampleCount samples,
             const ShaderCode* shaders);
 
         struct PipelineState {

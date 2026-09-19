@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "editor_state.h"
-#include "../test_utils.h"
+#include "support/math_assertions.h"
 
 namespace CometEditor::Tests {
     TEST(RenderViewTest, EditModeUsesCameraOverride) {

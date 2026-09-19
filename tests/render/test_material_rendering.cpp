@@ -5,9 +5,9 @@
 #include "render/render_context.h"
 #include "render/render_target.h"
 #include "render/frame_scheduler.h"
-#include "render/resource/resource_manager.h"
-#include "render/resource/mesh_data.h"
-#include "render/resource/texture_data.h"
+#include "render/resource/render_resources.h"
+#include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 #include "graphics/context.h"
 #include "graphics/device.h"
 #include "graphics/attachment.h"
@@ -16,8 +16,8 @@
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/convert.h"
-#include "render/material.h"
-#include "render/material_renderer.h"
+#include "render/material/material.h"
+#include "render/material/material_renderer.h"
 #include "render/debug/debug_renderer.h"
 #include "render/scene/scene_renderer.h"
 #include "render/resource/mesh.h"
@@ -39,21 +39,21 @@
 
 namespace Comet::Tests {
     static_assert(!std::is_constructible_v<MaterialRenderer, Device&, PipelineManager&,
-        ResourceManager&, uint32_t, SampleCount>);
+        RenderResources&, uint32_t, SampleCount>);
     static_assert(!std::is_constructible_v<DebugRenderer, Device&, PipelineManager&,
-        ResourceManager&, uint32_t, SampleCount>);
+        RenderResources&, uint32_t, SampleCount>);
 
     class MaterialRenderingTest: public EngineTest {
     protected:
         GpuResourceResult<std::shared_ptr<Texture>> texture(std::vector<uint8_t> rgba) {
-            return engine->get_resource_manager().try_create_texture(
+            return engine->get_render_resources().try_create_texture(
                 {.width = 1, .height = 1, .pixels = std::move(rgba)});
         }
     };
 
     TEST_F(MaterialRenderingTest, RejectsMissingFrameSlotsAndCanCreateAfterFailure) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        auto& resources = engine->get_resource_manager();
+        auto& resources = engine->get_render_resources();
         const auto color = Attachment::get_color_attachment(Format::R8G8B8A8_UNORM);
         auto pass_result = RenderPass::create(device,
             {color, Attachment::get_depth_attachment(Format::D32_SFLOAT)},
@@ -146,7 +146,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(pass) << pass.error();
             PipelineManager pipelines(device, *pass.value());
             auto rebuilt = MaterialRenderer::create(device, pipelines,
-                engine->get_resource_manager(), 2, SampleCount::Count1, &candidate);
+                engine->get_render_resources(), 2, SampleCount::Count1, &candidate);
             EXPECT_FALSE(rebuilt);
             EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
         }
@@ -201,7 +201,7 @@ namespace Comet::Tests {
         target->set_clear_value(ClearValue(Math::Vec4(0, 0, 0, 1)));
         PipelineManager pipelines(device, pass);
         auto material_result = MaterialRenderer::create(
-            device, pipelines, engine->get_resource_manager(), 2, SampleCount::Count1);
+            device, pipelines, engine->get_render_resources(), 2, SampleCount::Count1);
         ASSERT_TRUE(material_result) << material_result.error();
         auto materials = std::move(material_result).value();
         FrameScheduler frames(device, 2);
@@ -209,7 +209,7 @@ namespace Comet::Tests {
         const MeshData mesh_data{.vertices = {{{-0.4f, -0.8f, 0.5f}}, {{0.4f, -0.8f, 0.5f}},
                                      {{0.4f, 0.8f, 0.5f}}, {{-0.4f, 0.8f, 0.5f}}},
             .indices = {0, 1, 2, 2, 3, 0}};
-        const auto mesh_result = engine->get_resource_manager().try_create_mesh(mesh_data);
+        const auto mesh_result = engine->get_render_resources().try_create_mesh(mesh_data);
         ASSERT_TRUE(mesh_result) << mesh_result.error();
         const auto mesh = mesh_result.value();
         const auto textured = std::make_shared<Material>("textured", "unlit_texture_blend");
@@ -312,7 +312,7 @@ namespace Comet::Tests {
             updated.vertex, layout_textured.words, layout_solid.words};
         // 第一条候选有效、第二条失败，随后读回的纹理材质仍应使用原 Shader。
         context.wait_idle();
-        engine->get_resource_manager().collect_completed_uploads();
+        engine->get_render_resources().collect_completed_uploads();
         for(int iteration = 0; iteration < 4; ++iteration) {
             if(iteration == 1) {
                 auto red = texture({255, 0, 0, 255});
@@ -431,7 +431,7 @@ namespace Comet::Tests {
         }
         device.get().unmapMemory(*memory);
         auto rebuilt = MaterialRenderer::create(
-            device, pipelines, engine->get_resource_manager(), 2, SampleCount::Count1, &relocated);
+            device, pipelines, engine->get_render_resources(), 2, SampleCount::Count1, &relocated);
         ASSERT_TRUE(rebuilt) << rebuilt.error();
         for(const auto& layout : rebuilt.value()->get_material_layouts())
             EXPECT_EQ(layout->get_parameter_size(), 48u);

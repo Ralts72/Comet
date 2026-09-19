@@ -1,16 +1,16 @@
 #include "core/engine.h"
 #include "core/task_scheduler.h"
 #include "config/config.h"
-#include "render/resource/mesh_data.h"
+#include "asset/data/mesh_data.h"
 #include "render/renderer.h"
 #include "render/scene/scene_renderer.h"
 #include "render/render_target.h"
 #include "render/render_context.h"
-#include "render/resource/resource_manager.h"
+#include "render/resource/render_resources.h"
 #include "graphics/device.h"
 #include "core/window.h"
 #include "asset/registry.h"
-#include "render/material.h"
+#include "render/material/material.h"
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
 #include "scene/scene.h"
@@ -159,7 +159,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine_result) << engine_result.error().message;
         auto& engine = *engine_result.value();
         auto& renderer = engine.get_renderer();
-        auto& resources = engine.get_resource_manager();
+        auto& resources = engine.get_render_resources();
         const MeshData data{.vertices = {{.position = {-1, -1, 0}}, {.position = {1, -1, 0}},
                                 {.position = {0, 1, 0}}},
             .indices = {0, 1, 2}};

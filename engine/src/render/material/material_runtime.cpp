@@ -1,6 +1,6 @@
-#include "render/material_runtime.h"
+#include "render/material/material_runtime.h"
 
-#include "render/material.h"
+#include "render/material/material.h"
 
 #include <algorithm>
 #include <cstring>

@@ -1,4 +1,4 @@
-#include "viewport/view.h"
+#include "viewport/viewport_panel.h"
 #include "ui/shortcuts.h"
 #include "scene/selection.h"
 #include "viewport/transform_gizmo.h"
@@ -14,14 +14,14 @@ namespace CometEditor {
         constexpr float TOOLBAR_BUTTON_WIDTH = 40.0f;
     }
 
-    ViewPanel::ViewPanel(const EditorState& state, SelectionService& selection,
+    ViewportPanel::ViewportPanel(const EditorState& state, SelectionService& selection,
         TransformGizmo& gizmo, PropertyEditTransaction& inspector_edit,
         const std::uint32_t max_render_dimension, const EditorShortcuts& shortcuts)
         : EditorPanel("Viewport"), m_state(state), m_selection(selection), m_gizmo(gizmo),
           m_inspector_edit(inspector_edit), m_shortcuts(shortcuts),
           m_max_render_dimension(max_render_dimension) {}
 
-    void ViewPanel::render() {
+    void ViewportPanel::render() {
         m_actually_visible = false;
         m_camera_input.reset();
         m_camera_projection_request.reset();
@@ -57,7 +57,7 @@ namespace CometEditor {
         ImGui::End();
     }
 
-    void ViewPanel::reset_hidden_view() {
+    void ViewportPanel::reset_hidden_view() {
         m_layout = {};
         m_observed_render_resolution = {};
         m_requested_render_size = {};
@@ -65,7 +65,7 @@ namespace CometEditor {
         cancel_interaction();
     }
 
-    void ViewPanel::render_toolbar() {
+    void ViewportPanel::render_toolbar() {
         const bool is_playing = m_state.mode == EditorMode::Play;
         const ImVec2 button_size(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight());
         ImGui::AlignTextToFramePadding();
@@ -106,7 +106,7 @@ namespace CometEditor {
         ImGui::Separator();
     }
 
-    void ViewPanel::render_gizmo_settings() {
+    void ViewportPanel::render_gizmo_settings() {
         if(ImGui::Button("Tool", ImVec2(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight())))
             ImGui::OpenPopup("Gizmo Settings");
         if(!ImGui::BeginPopup("Gizmo Settings"))
@@ -144,7 +144,7 @@ namespace CometEditor {
         ImGui::EndPopup();
     }
 
-    void ViewPanel::render_projection_controls() {
+    void ViewportPanel::render_projection_controls() {
         using Projection = Comet::RenderCamera::Projection;
         const ImVec2 button_size(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight());
         for(const Projection projection : {Projection::Orthographic, Projection::Perspective}) {
@@ -166,7 +166,7 @@ namespace CometEditor {
         }
     }
 
-    void ViewPanel::render_play_toolbar() {
+    void ViewportPanel::render_play_toolbar() {
         using ResolutionMode = ViewportLayout::ResolutionPolicy::Mode;
         const float dropdown_width = TOOLBAR_BUTTON_WIDTH + ImGui::GetFrameHeight();
         const Comet::Math::Vec2u hd_resolution(1280, 720);
@@ -229,7 +229,7 @@ namespace CometEditor {
         }
     }
 
-    void ViewPanel::render_view_content() {
+    void ViewportPanel::render_view_content() {
         const ImVec2 content_size = ImGui::GetContentRegionAvail();
         const ImVec2 content_origin = ImGui::GetCursorScreenPos();
         const ImGuiViewport* window_viewport = ImGui::GetWindowViewport();
@@ -298,11 +298,11 @@ namespace CometEditor {
         update_view_interaction();
     }
 
-    std::optional<ViewPanel::MeshDrop> ViewPanel::take_mesh_drop() {
+    std::optional<ViewportPanel::MeshDrop> ViewportPanel::take_mesh_drop() {
         return std::exchange(m_mesh_drop, std::nullopt);
     }
 
-    void ViewPanel::update_view_interaction() {
+    void ViewportPanel::update_view_interaction() {
         if(m_state.mode != EditorMode::Edit || ImGui::IsDragDropActive()) {
             cancel_interaction();
             return;
@@ -417,11 +417,11 @@ namespace CometEditor {
         };
     }
 
-    void ViewPanel::reset_camera_interaction() {
+    void ViewportPanel::reset_camera_interaction() {
         m_camera_drag.reset();
     }
 
-    void ViewPanel::cancel_interaction() {
+    void ViewportPanel::cancel_interaction() {
         static_cast<void>(m_gizmo.cancel());
         if(m_gizmo_id != 0 && ImGui::GetActiveID() == m_gizmo_id) {
             ImGui::ClearActiveID();
@@ -429,7 +429,7 @@ namespace CometEditor {
         reset_camera_interaction();
     }
 
-    void ViewPanel::draw_gizmo() {
+    void ViewportPanel::draw_gizmo() {
         // draw list 仅在当前 UI 帧内有效。
         ImDrawList* draw_list = std::exchange(m_gizmo_draw_list, nullptr);
         if(!draw_list || m_state.mode != EditorMode::Edit || m_pick_request || m_mode_request
@@ -491,33 +491,33 @@ namespace CometEditor {
         draw_list->PopClipRect();
     }
 
-    std::optional<EditorCameraInput> ViewPanel::take_camera_input() {
+    std::optional<EditorCameraInput> ViewportPanel::take_camera_input() {
         return std::exchange(m_camera_input, std::nullopt);
     }
 
-    std::optional<Comet::RenderCamera::Projection> ViewPanel::take_projection_request() {
+    std::optional<Comet::RenderCamera::Projection> ViewportPanel::take_projection_request() {
         return std::exchange(m_camera_projection_request, std::nullopt);
     }
 
-    std::optional<EditorMode> ViewPanel::take_mode_request() {
+    std::optional<EditorMode> ViewportPanel::take_mode_request() {
         return std::exchange(m_mode_request, std::nullopt);
     }
 
-    std::optional<Comet::Math::Vec2u> ViewPanel::take_pick_request() {
+    std::optional<Comet::Math::Vec2u> ViewportPanel::take_pick_request() {
         return std::exchange(m_pick_request, std::nullopt);
     }
 
-    bool ViewPanel::take_focus_request() {
+    bool ViewportPanel::take_focus_request() {
         return std::exchange(m_focus_request, false);
     }
 
-    void ViewPanel::set_texture_id(
+    void ViewportPanel::set_texture_id(
         const ImTextureID texture_id, const std::uint32_t width, const std::uint32_t height) {
         m_texture_id = texture_id;
         m_texture_resolution = Comet::Math::Vec2u(width, height);
     }
 
-    void ViewPanel::clear_texture() {
+    void ViewportPanel::clear_texture() {
         m_texture_id = ImTextureID_Invalid;
         m_texture_resolution = {};
     }

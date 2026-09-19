@@ -9,10 +9,10 @@ namespace Comet {
     class Device;
     class SamplerManager;
 
-    class COMET_API ResourceManager final: public RenderResourceFactory {
+    class COMET_API RenderResources final: public RenderResourceFactory {
     public:
-        explicit ResourceManager(Device& device);
-        ~ResourceManager() override;
+        explicit RenderResources(Device& device);
+        ~RenderResources() override;
 
         [[nodiscard]] SamplerManager& get_sampler_manager() { return *m_sampler_manager; }
         [[nodiscard]] const SamplerManager& get_sampler_manager() const {

@@ -2,6 +2,8 @@
 #include "common/scope_exit.h"
 #include "config/config.h"
 #include "render/renderer.h"
+#include "render/render_context.h"
+#include "graphics/swapchain.h"
 #include "core/window.h"
 #include "diagnostics/logger.h"
 #include "support/temporary_directory.h"
@@ -120,6 +122,28 @@ namespace Comet::Tests {
         ASSERT_TRUE(app.run(config));
         EXPECT_EQ(app.initializations, 1);
         EXPECT_EQ(app.shutdowns, 1);
+    }
+
+    TEST(ApplicationCreationTest, OutputOverrideWinsBeforeGraphicsInitialization) {
+        class App final: public Application {
+        public:
+            using Application::Application;
+            RunResult on_init() override {
+                const auto& swapchain =
+                    get_engine().get_renderer().get_render_context().get_swapchain();
+                EXPECT_EQ(swapchain.get_active_generation()->get_config().surface_format.colorSpace,
+                    vk::ColorSpaceKHR::eSrgbNonlinear);
+                get_engine().get_window().request_close();
+                return RunResult::success();
+            }
+            RunResult on_shutdown() override { return RunResult::success(); }
+        } app({}, OutputMode::Sdr);
+        Config config;
+        config.render.output_mode = OutputMode::Hdr;
+        config.window.width = 160;
+        config.window.height = 120;
+        config.diagnostics.log.enable_file_logging = false;
+        ASSERT_TRUE(app.run(config));
     }
 
     class ApplicationLifecycleTest: public ::testing::TestWithParam<std::pair<int, bool>> {

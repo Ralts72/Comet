@@ -3,7 +3,7 @@
 #include "config/config.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
-#include "render/resource/resource_manager.h"
+#include "render/resource/render_resources.h"
 #include "core/window.h"
 #include "graphics/swapchain.h"
 #include "graphics/resource/sampler.h"
@@ -77,7 +77,7 @@ namespace CometEditor::Tests {
         PropertyEditTransaction edit(history, components);
         EditorState state;
         EditorShortcuts shortcuts;
-        auto sampler = renderer.get_resource_manager().get_sampler_manager().get_nearest_clamp();
+        auto sampler = renderer.get_render_resources().get_sampler_manager().get_nearest_clamp();
         ASSERT_TRUE(sampler) << sampler.error();
         Viewport viewport(state, selection, history, components, edit, shortcuts, renderer,
             engine.get_asset_registry(), ui, std::move(sampler).value());

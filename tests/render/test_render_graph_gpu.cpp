@@ -1,4 +1,6 @@
 #include "render/render_graph.h"
+#include "render/passes/output_pass.h"
+#include <cmath>
 #include "core/engine.h"
 #include "core/window.h"
 #include "config/config.h"
@@ -18,6 +20,7 @@
 #include "diagnostics/logger.h"
 
 #include <gtest/gtest.h>
+#include <glm/gtc/packing.hpp>
 #include <spdlog/sinks/ostream_sink.h>
 #include <cstring>
 #include <cstdlib>
@@ -101,6 +104,40 @@ namespace Comet::Tests {
                 frames.wait_for_all_slots();
             }
         };
+        static void copy_output(FrameScheduler& frames, const std::shared_ptr<Image>& image,
+            const std::shared_ptr<Readback>& readback, Math::Vec2u size) {
+            RenderGraph graph;
+            auto state = *resolve_image_state(ResourceUsage::SampledRead,
+                {.aspects = Flags<ImageAspect>(ImageAspect::Color)},
+                Flags<PipelineStage>(PipelineStage::FragmentShader));
+            // RenderPass 的 final layout 已生效，但最后的数据生产者仍是颜色附件写入。
+            state.resource = *resolve_resource_state(ResourceUsage::ColorAttachmentWrite);
+            const auto source = graph.import_image("SDR", state);
+            const auto destination = graph.import_buffer("host", {{}, 0, readback->get_size()});
+            graph.add_pass(
+                {"readback", {{source, ResourceUsage::TransferSource, {}},
+                                 {destination, ResourceUsage::TransferDestination, {}}}});
+            graph.export_resource({destination, ResourceUsage::HostRead, {}});
+            const std::vector<RenderGraph::Binding> bindings{
+                image, std::static_pointer_cast<Buffer>(readback)};
+            auto plan = graph.compile();
+            ASSERT_TRUE(plan) << plan.error();
+            ASSERT_TRUE(plan.value().record(frames, bindings, [&](size_t, CommandBuffer& command) {
+                vk::BufferImageCopy region;
+                region.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+                region.imageExtent = vk::Extent3D(size.x, size.y, 1);
+                command.get().copyImageToBuffer(
+                    image->get(), vk::ImageLayout::eTransferSrcOptimal, readback->get(), region);
+                return Result<void, GraphicsError>::success();
+            }));
+        }
+        static int mapped_byte(float hdr, float exposure = 1.0f) {
+            const auto linear = 1.0f - std::exp(-std::max(hdr, 0.0f) * exposure);
+            const auto encoded = linear <= 0.0031308f
+                                     ? 12.92f * linear
+                                     : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+            return static_cast<int>(std::lround(encoded * 255.0f));
+        }
     };
 
     TEST_F(RenderGraphGpuTest, ExecutesFourPassesOnDisjointMipsLayersAndBufferRanges) {
@@ -429,6 +466,265 @@ namespace Comet::Tests {
             }
             context.wait_idle();
             renderer.set_overlay_renderer({});
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, ToneMapsHdrWithoutClippingOrVerticalFlipInSdrAndLinearHdr) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        struct Output {
+            Format format;
+            float headroom;
+        };
+        for(const auto [format, headroom] : {Output{Format::R8G8B8A8_SRGB, 1},
+                Output{Format::R8G8B8A8_UNORM, 1}, Output{Format::B8G8R8A8_SRGB, 1},
+                Output{Format::B8G8R8A8_UNORM, 1}, Output{Format::R16G16B16A16_SFLOAT, 1},
+                Output{Format::R16G16B16A16_SFLOAT, 4}, Output{Format::R16G16B16A16_SFLOAT, 16}}) {
+            const bool linear_hdr = format == Format::R16G16B16A16_SFLOAT;
+            const auto color_space = linear_hdr ? ImageColorSpace::ExtendedSrgbLinearEXT
+                                                : ImageColorSpace::SrgbNonlinearKHR;
+            auto output_pass = OutputPass::create(device, format, true, 2, color_space, headroom);
+            ASSERT_TRUE(output_pass) << output_pass.error().message;
+            auto color = Attachment::get_color_attachment(Format::R16G16B16A16_SFLOAT);
+            color.description.initial_layout = color.description.final_layout =
+                ImageLayout::ColorAttachmentOptimal;
+            color.description.store_op = AttachmentStoreOp::Store;
+            color.usage |= ImageUsage::Sampled;
+            auto source_pass = RenderPass::create(device, {color},
+                {{{}, {SubpassColorAttachment(0)}, {}}}, Format::R16G16B16A16_SFLOAT);
+            ASSERT_TRUE(source_pass) << source_pass.error().message;
+            auto created_source =
+                RenderTarget::try_create_multi_target(device, *source_pass.value(), {4, 4}, 2);
+            ASSERT_TRUE(created_source);
+            auto source = std::move(created_source).value();
+            auto created_output = RenderTarget::try_create_multi_target(
+                device, output_pass.value()->get_render_pass(), {4, 4}, 2);
+            ASSERT_TRUE(created_output);
+            std::shared_ptr<RenderTarget> output = std::move(created_output).value();
+            source->set_clear_value(ClearValue(Math::Vec4(4.0f, 0.5f, 0.001f, 1.0f)));
+            auto readback = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), linear_hdr ? 128 : 64);
+            ASSERT_TRUE(readback->get());
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            EXPECT_FALSE(output_pass.value()->render(frames, output, source->get_color_view(0)));
+            EXPECT_FALSE(OutputPass::create(device, format, true, 0));
+            RenderGraph graph;
+            const auto hdr =
+                graph.import_image("HDR", *resolve_image_state(ResourceUsage::Undefined,
+                                              {.aspects = Flags<ImageAspect>(ImageAspect::Color)}));
+            graph.add_pass({"scene", {{hdr, ResourceUsage::ColorAttachmentWrite, {}}}});
+            graph.add_pass(
+                {"output_pass", {{hdr, ResourceUsage::SampledRead,
+                                    Flags<PipelineStage>(PipelineStage::FragmentShader)}}});
+            const auto plan = graph.compile();
+            ASSERT_TRUE(plan) << plan.error();
+            for(const auto exposure : {1.0f, 0.25f, 0.0f}) {
+                frames.wait_for_current_slot();
+                frames.begin_frame(0);
+                frames.get_current_command_buffer().begin();
+                const auto slot = frames.get_current_frame_slot_index();
+                for(const float invalid : {-1.0f, std::numeric_limits<float>::infinity(),
+                        std::numeric_limits<float>::quiet_NaN()})
+                    EXPECT_FALSE(output_pass.value()->render(
+                        frames, output, source->get_color_view(slot), invalid));
+                EXPECT_FALSE(output_pass.value()->render(frames, {}, source->get_color_view(slot)));
+                EXPECT_FALSE(output_pass.value()->render(frames, output, {}));
+                const std::vector<RenderGraph::Binding> bindings{
+                    source->get_color_view(slot)->get_image()};
+                ASSERT_TRUE(
+                    plan.value().record(frames, bindings, [&](size_t pass, CommandBuffer& command) {
+                        if(pass == 0) {
+                            source->begin_render_target(command, slot);
+                            const vk::ClearAttachment lower(vk::ImageAspectFlagBits::eColor, 0,
+                                vk::ClearColorValue(std::array<float, 4>{0.0f, 2.0f, 0.5f, 1.0f}));
+                            command.get().clearAttachments(
+                                lower, vk::ClearRect(vk::Rect2D({0, 2}, {4, 2}), 0, 1));
+                            command.end_render_pass();
+                        } else {
+                            return output_pass.value()->render(
+                                frames, output, source->get_color_view(slot), exposure);
+                        }
+                        return Result<void, GraphicsError>::success();
+                    }));
+                copy_output(frames, output->get_color_view(slot)->get_image(), readback, {4, 4});
+                const auto retained = std::weak_ptr(output);
+                if(exposure == 0.0f) {
+                    output_pass.value().reset();
+                    output.reset();
+                    EXPECT_FALSE(retained.expired());
+                }
+                submit(device, frames);
+                frames.wait_for_all_slots();
+                if(exposure == 0.0f)
+                    EXPECT_TRUE(retained.expired());
+                const auto bytes = readback->read();
+                const bool bgra =
+                    format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+                for(size_t y = 0; y < 4; ++y) {
+                    const std::array<float, 3> expected =
+                        y < 2 ? std::array<float, 3>{4.0f, 0.5f, 0.001f}
+                              : std::array<float, 3>{0.0f, 2.0f, 0.5f};
+                    for(size_t x = 0; x < 4; ++x) {
+                        for(size_t channel = 0; channel < 3; ++channel) {
+                            if(linear_hdr) {
+                                uint16_t half;
+                                std::memcpy(
+                                    &half, bytes.data() + ((y * 4 + x) * 4 + channel) * 2, 2);
+                                const float actual = glm::unpackHalf1x16(half);
+                                const float mapped =
+                                    headroom
+                                    * (1.0f - std::exp(-expected[channel] * exposure / headroom));
+                                EXPECT_NEAR(actual, mapped, 0.005f);
+                                if(y < 2 && channel == 0 && headroom > 1 && exposure == 1)
+                                    EXPECT_GT(actual, 1.0f);
+                                continue;
+                            }
+                            EXPECT_NEAR(
+                                std::to_integer<int>(
+                                    bytes[(y * 4 + x) * 4 + (bgra ? 2 - channel : channel)]),
+                                mapped_byte(expected[channel], exposure), 2)
+                                << "format=" << static_cast<int>(format) << " pixel=" << x << ','
+                                << y;
+                        }
+                        if(linear_hdr) {
+                            uint16_t alpha;
+                            std::memcpy(&alpha, bytes.data() + ((y * 4 + x) * 4 + 3) * 2, 2);
+                            EXPECT_EQ(glm::unpackHalf1x16(alpha), 1.0f);
+                        } else {
+                            EXPECT_EQ(bytes[(y * 4 + x) * 4 + 3], std::byte{255});
+                        }
+                    }
+                }
+            }
+            EXPECT_FALSE(OutputPass::create(device, Format::R16G16B16A16_SFLOAT, true, 2));
+        }
+        EXPECT_FALSE(OutputPass::create(
+            device, Format::R8G8B8A8_SRGB, true, 2, ImageColorSpace::ExtendedSrgbLinearEXT));
+        EXPECT_FALSE(OutputPass::create(
+            device, Format::R16G16B16A16_SFLOAT, true, 2, ImageColorSpace::Hdr10St2084EXT));
+        for(const auto invalid : {0.0f, 17.0f, std::numeric_limits<float>::quiet_NaN()})
+            EXPECT_FALSE(OutputPass::create(device, Format::R16G16B16A16_SFLOAT, true, 2,
+                ImageColorSpace::ExtendedSrgbLinearEXT, invalid));
+    }
+
+    TEST_F(RenderGraphGpuTest, ColorTargetValidationUsesSceneFormatAndSampleRequirements) {
+        const auto physical = engine->get_renderer()
+                                  .get_render_context()
+                                  .get_device()
+                                  .get_capability()
+                                  .physical_device;
+        EXPECT_TRUE(validate_color_target(
+            physical, Config::Render::SCENE_COLOR_FORMAT, SampleCount::Count1));
+        const auto depth = validate_color_target(physical, Format::D32_SFLOAT, SampleCount::Count1);
+        ASSERT_FALSE(depth);
+        EXPECT_EQ(depth.error().result, vk::Result::eErrorFormatNotSupported);
+        EXPECT_FALSE(validate_color_target(
+            physical, Config::Render::SCENE_COLOR_FORMAT, static_cast<SampleCount>(0)));
+        EXPECT_FALSE(validate_color_target(
+            physical, Config::Render::SCENE_COLOR_FORMAT, static_cast<SampleCount>(3)));
+    }
+
+    TEST_F(RenderGraphGpuTest, StartupOutputModesPresentAndKeepTheirFormatOnRebuild) {
+        for(const auto mode : {OutputMode::Sdr, OutputMode::Hdr, OutputMode::Auto}) {
+            engine.reset();
+            Config config;
+            config.render.output_mode = mode;
+            config.vulkan.enable_validation = true;
+            config.window.width = 160;
+            config.window.height = 120;
+            auto created = Engine::create(config);
+            ASSERT_TRUE(created) << created.error().message;
+            engine = std::move(created).value();
+            auto& renderer = engine->get_renderer();
+            auto& swapchain = renderer.get_render_context().get_swapchain();
+            const auto selected = swapchain.get_active_generation()->get_config().surface_format;
+            if(mode == OutputMode::Sdr)
+                EXPECT_EQ(selected.colorSpace, vk::ColorSpaceKHR::eSrgbNonlinear);
+            else
+                EXPECT_TRUE(selected.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear
+                            || (selected.colorSpace == vk::ColorSpaceKHR::eExtendedSrgbLinearEXT
+                                && selected.format == vk::Format::eR16G16B16A16Sfloat));
+            for(unsigned frame = 0; frame < 3; ++frame) {
+                if(frame == 1)
+                    renderer.request_swapchain_recreation();
+                const auto ready = renderer.prepare_frame();
+                ASSERT_TRUE(ready) << ready.error().message;
+                ASSERT_TRUE(ready.value());
+                ASSERT_TRUE(renderer.render_frame({}));
+                EXPECT_EQ(swapchain.get_active_generation()->get_config().surface_format, selected);
+            }
+            renderer.wait_idle();
+            ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
+            EXPECT_EQ(renderer.get_scene_renderer()
+                          .get_offscreen_color_view(0)
+                          ->get_image()
+                          ->get_info()
+                          .format,
+                config.vulkan.surface_format);
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, ProductionHdrClearSurvivesMsaaAndTargetGenerationChanges) {
+        for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
+            Config config;
+            config.vulkan.msaa_samples = samples;
+            config.render.clear_color = {4.0f, 0.5f, 0.02f, 1.0f};
+            config.window.width = 160;
+            config.window.height = 120;
+            config.vulkan.enable_validation = true;
+            config.render.max_frames_in_flight = 2;
+            engine.reset();
+            auto created = Engine::create(config);
+            ASSERT_TRUE(created) << created.error().message;
+            engine = std::move(created).value();
+            auto& renderer = engine->get_renderer();
+            ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
+            auto& scene = renderer.get_scene_renderer();
+            auto& context = renderer.get_render_context();
+            auto& device = context.get_device();
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            std::weak_ptr<ImageView> old;
+            for(unsigned iteration = 0; iteration < 4; ++iteration) {
+                const Math::Vec2u size = iteration < 2 ? Math::Vec2u(4, 4) : Math::Vec2u(8, 6);
+                ASSERT_TRUE(scene.resize_offscreen_target(size));
+                frames.wait_for_current_slot();
+                frames.begin_frame(0);
+                frames.get_current_command_buffer().begin();
+                const auto slot = frames.get_current_frame_slot_index();
+                auto readback = std::make_shared<Readback>(
+                    device, context.get_context().get_physical_device(), size.x * size.y * 4);
+                auto view = scene.get_offscreen_color_view(slot);
+                const auto format = view->get_image()->get_info().format;
+                EXPECT_NE(format, Format::R16G16B16A16_SFLOAT);
+                auto drawn = scene.render(frames, {});
+                ASSERT_TRUE(drawn) << drawn.error().message;
+                EXPECT_TRUE(drawn.value().empty());
+                copy_output(frames, view->get_image(), readback, size);
+                if(iteration == 0) {
+                    old = view;
+                    ASSERT_TRUE(scene.resize_offscreen_target({8, 6}));
+                    view.reset();
+                    EXPECT_FALSE(old.expired());
+                }
+                submit(device, frames);
+                frames.wait_for_all_slots();
+                if(iteration == 0)
+                    EXPECT_TRUE(old.expired());
+                const bool bgra =
+                    format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+                const auto bytes = readback->read();
+                const std::array<float, 3> hdr{4.0f, 0.5f, 0.02f};
+                for(size_t pixel = 0; pixel < size.x * size.y; ++pixel)
+                    for(size_t channel = 0; channel < 3; ++channel) {
+                        const auto component = bgra ? 2 - channel : channel;
+                        EXPECT_NEAR(std::to_integer<int>(bytes[pixel * 4 + component]),
+                            mapped_byte(hdr[channel]), 2);
+                    }
+            }
         }
     }
 

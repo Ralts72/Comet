@@ -11,15 +11,15 @@
 | `render/scene/scene_extractor.h` | Scene → 不含 GPU 对象的 RenderScene 快照 |
 | `render/scene/scene_resolver.h` | Handle/Camera → RenderSubmission |
 | `render/presentation.h` | acquire／submit／present 与交换链 dependent 有序重建 |
-| `render/scene/scene_renderer.h` | 完整目标版本的创建／安装与场景 pass 录制 |
-| `render/material_renderer.h` | Frame/Material descriptor、材质 Pipeline、队列排序与 Mesh 绘制 |
-| `render/material_runtime.h` | 手工 MaterialLayout、PreparedMaterial 快照与版本缓存 |
+| `render/scene/scene_renderer.h` | 完整目标版本的创建／安装与多 pass 编排 |
+| `render/material/material_renderer.h` | Frame/Material descriptor、材质 Pipeline、队列排序与 Mesh 绘制 |
+| `render/material/material_runtime.h` | 手工 MaterialLayout、PreparedMaterial 快照与版本缓存 |
 | `graphics/pipeline/shader_interface.h` | 入口级 SPIR-V 反射结果与绑定覆盖校验；仅拥有 CPU 值 |
 | `render/frame_scheduler.h` | FrameSlot 复用、提交及成功登记、image 关联、完成序号与 retention |
-| `render/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
-| `render/resource/resource_manager.h` | 设备资源工厂、上传及 Sampler 共享资源 |
+| `render/debug/line_draw_list.h` | 通用 CPU 线段列表；`render/debug/debug_renderer.h` 是当前 GPU 消费者 |
+| `render/resource/render_resources.h` | 设备资源工厂、上传及 Sampler 共享资源 |
 | `graphics/` | Vulkan 对象与显式同步后端 |
-| `editor/src/viewport/viewport.h` | 组合 ViewPanel/Gizmo，连接编辑器相机、选择反馈与 Renderer |
+| `editor/src/viewport/viewport.h` | 组合 ViewportPanel/Gizmo，连接编辑器相机、选择反馈与 Renderer |
 | `editor/src/ui/imgui_context.h` | 编辑器 UI 最终呈现和私有纹理绑定，不属于 engine |
 
 engine 入口路径相对 `engine/src/`。Graphics 的 command/resource/pipeline/synchronization 按职责分目录；
@@ -49,14 +49,15 @@ Engine
     ├── RenderContext → Context / Device / Swapchain
     │                    Device → Allocator / queues / PipelineCache
     │                    Swapchain → active Generation
-    ├── ResourceManager → UploadManager / SamplerManager
+    ├── RenderResources → UploadManager / SamplerManager
     ├── FrameScheduler → FrameSlot[N] / SwapchainImageState[M]
     ├── Presentation（借用 RenderContext、FrameScheduler；有序协调 Scene／Overlay dependent）
     ├── RenderView / SceneResolver
     ├── LineDrawList（单帧 CPU 请求）
     └── SceneRenderer
-        └── TargetState（完整兼容版本，FrameSlot 保活）
-            ├── RenderPass / PipelineManager / RenderTarget
+        └── RenderState（完整兼容版本，FrameSlot 保活）
+            ├── 场景 RenderPass / PipelineManager / HDR 与最终 RenderTarget
+            ├── OutputPass → 色调映射 / 输出编码 / 采样绑定
             ├── DebugRenderer → 线段 Pipeline / VertexBuffer[slot]
             └── MaterialRenderer
                 ├── PipelineState → MaterialLayout / material descriptor layout / Pipeline
@@ -68,7 +69,7 @@ Editor
 ├── EditorAssets → AssetManager（借用 Engine 的服务）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
 ├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
-├── Viewport → ViewPanel / TransformGizmo（借用状态、选择、Renderer、Registry 和 ImGuiContext）
+├── Viewport → ViewportPanel / TransformGizmo（借用状态、选择、Renderer、Registry 和 ImGuiContext）
 └── ImGuiContext
     ├── RenderPass / SwapchainTarget / DescriptorPool
     └── TextureBinding[slot] → ImageView / Sampler / ImGui descriptor
@@ -81,7 +82,7 @@ Editor
 
 ## 应用启动与失败清理
 
-Application 的实现集中在 runtime.cpp，对外只提供完整的 run(Config) 生命周期：
+Application 的实现集中在 runtime/application.cpp，对外只提供完整的 run(Config) 生命周期：
 创建 Diagnostics／Engine → on_init → 引擎更新循环 → end。start/main_loop 不再作为可独立调用的接口。
 Engine::create → Renderer::create → RenderContext::create 在局部准备 owner，成功后才移交私有构造器，不提供公开的半初始化对象。
 交换链或场景目标准备失败返回原始错误，局部 owner 逆序释放；Engine 创建失败时释放 Diagnostics，不调用 on_init/on_shutdown，并允许重新启动。
@@ -145,7 +146,7 @@ camera_world_matrix 使用层级旋转与普通世界矩阵的位置，本地及
 本地 TR 只计算一次，普通矩阵在其基础上应用 scale；相机与物体继续使用各自的父级矩阵。
 SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler，不访问呈现队列；录制时借用传入的帧上下文。
 
-MaterialRenderer::render、DebugRenderer::render 与 SceneRenderer::render_scene_pass 返回 GraphicsError。
+MaterialRenderer::render、DebugRenderer::render 与 SceneRenderer::render 返回 GraphicsError。
 材质准备/调试缓冲增长遇到 DeviceLost 原样返回；普通失败仍沿用兼容旧材质或跳过调试批次。
 Renderer 收到场景 pass 失败后停止 overlay 与提交，调用 prepare_shutdown 等待在途工作，然后返回 Engine。
 部分录制的命令缓冲只由 owner 销毁，不结束并提交空帧，也不重新用于下一帧。
@@ -158,9 +159,9 @@ SceneResolver 只解析 Camera、Mesh 和 Material 引用，不检查模板、�
 
 | 入口 | 职责 | 不负责 |
 | --- | --- | --- |
-| `render/material.h` | Material 属性与 revision；不可变 MaterialLayout 参数描述、默认值和编辑语义 | 资产身份、GPU 缓存、UI 控件 |
-| `render/material_runtime.h` | MaterialRuntimeCache 准备并缓存 Texture 引用和参数字节 | 创建 Vulkan 对象 |
-| `render/material_renderer.h` | 帧／材质 descriptor、Pipeline 选择、排序与绘制 | 解析 Scene 或资产文件 |
+| `render/material/material.h` | Material 属性与 revision；不可变 MaterialLayout 参数描述、默认值和编辑语义 | 资产身份、GPU 缓存、UI 控件 |
+| `render/material/material_runtime.h` | MaterialRuntimeCache 准备并缓存 Texture 引用和参数字节 | 创建 Vulkan 对象 |
+| `render/material/material_renderer.h` | 帧／材质 descriptor、Pipeline 选择、排序与绘制 | 解析 Scene 或资产文件 |
 | `tools/shader/compiler.h` | CPU 源编译、依赖快照和诊断；CLI 负责文件输出 | Vulkan 对象、编辑器热重载编排 |
 | `graphics/pipeline/shader_interface.h` | SPIR-V 入口级自有反射数据，仅公开 Comet 类型 | 自动生成编辑语义、完整字节码校验 |
 | `graphics/pipeline/shader.h` | ShaderLayout 覆盖校验、局部 Shader GPU 候选 | 监视源码、名称缓存、启动编译任务 |
@@ -229,25 +230,26 @@ graphics/creation.h 统一将 device-owned 句柄纳入 UniqueHandle，再判断
 Shader、PipelineLayout、Pipeline 的私有构造函数只接收已创建的 owner；Pipeline 先销毁自身句柄，再释放 Layout。
 分配 C++ 容器等非预期异常仍可传播，不承诺 noexcept。
 MaterialRenderer::create 在私有候选中初始化 frame 资源和内置管线；DebugRenderer::create 成功创建 Pipeline 后才构造对象。
-SceneRenderer 的私有 create_target 创建完整 TargetState：RenderPass、RenderTarget、PipelineManager、MaterialRenderer、DebugRenderer。
+SceneRenderer 的私有 create_state 创建完整 RenderState：场景 RenderPass、中间／最终 RenderTarget、
+PipelineManager、MaterialRenderer、DebugRenderer 和 OutputPass。
 全部成功后才安装；配置入口不再拆成可被调用方任意组合的 setup 阶段。
 完整目标切换仅经 Renderer 在活动帧外执行，不增加全设备等待；失败保持旧代，成功后旧代仍由已提交帧保留。
-TargetState 按依赖逆序析构，RenderPass 最后释放；FrameSlot 同时保留完整版本和实际录制的 Target，确保 resize 替换附件不丢旧引用。
+RenderState 按依赖逆序析构，RenderPass 最后释放；FrameSlot 同时保留完整版本和实际录制的 Target，确保 resize 替换附件不丢旧引用。
 单纯尺寸变化仍只创建 MultiTarget，不重建材质或管线；它允许在 Overlay prepare、场景 pass 开始前同步安装。
-最外层 Renderer／Editor 启动暂将结果错误交给现有异常清理边界；内置 MaterialLayout 常量错误仍属于内部不变量。
+最外层 Renderer／Editor 将预期失败作为 Result 返回 Application；内置 MaterialLayout 常量错误属于内部不变量。
 DescriptorSetLayout／DescriptorPool 创建及 DescriptorSet 分配也返回 Result<T, GraphicsError>。
 布局和池使用 UniqueHandle，集合只借用句柄，由池统一回收；布局可共享，池工厂返回 unique_ptr，
 FrameResources／MaterialResources 按实际保活需要转为 shared_ptr，ImGui 仍独占池。
 集合分配先准备 CPU 容器，再调用 Vulkan-Hpp 返回码重载；失败不 reset 池，也不破坏已有集合。
 材质准备显式检查 Buffer、Pool 与集合分配结果，成功写入 descriptor 后才发布，不再整段 catch std::exception。
-启动消费者检查结果后暂沿现有异常清理边界退出；ImGui 后端内部调用不属于上述 Comet API 的迁移范围。
+启动消费者检查结果并返回失败；ImGui 后端内部调用不属于上述 Comet API 的覆盖范围。
 DescriptorSet::update 接收嵌套的 UniformBufferWrite／ImageSamplerWrite，立即转换并批量写入；
 写入项引用 Comet Buffer／ImageView／Sampler，不保存资源，也不自动同步 GPU，调用方仍须保证目标集合可安全修改。
 CommandBuffer::bind_descriptor_sets 只接收 Comet Layout／Set，原生绑定点与句柄数组留在 graphics 实现中。
 GpuResourceResult 通过 error() 提供 GraphicsError，业务层读取 message／is_device_lost()，不为了日志解析 vk::Result；
 原生 result() 保留给 graphics 内部和诊断测试。这是消费接口收敛，不是完整的多后端抽象或 Vulkan 头文件隔离。
 资产 Mesh／Texture 创建、调试 buffer 扩容和离屏 resize 在普通失败时保留原有降级策略；DeviceLost 必须向应用退出边界传播。
-ensure_loaded 不兜底所有异常，材质创建和场景激活移出文件读写 catch；后台完成只捕获 Worker future 的异常，不捕获 owner 上的 GPU 发布。
+ensure_loaded 不兜底所有异常，材质创建和场景激活移出文件读写 catch；后台完成通过 future.get 检查任务结果，不为 owner 上的 GPU 发布增加异常兜底。
 完成任务在发布成功或异常展开后均释放槽位，避免析构再次等待已 get 的 future；不提前释放正在发布的槽位，保持重入与预算语义。
 Mesh／Texture 的无调用方 fatal 创建包装以及 RenderTarget 的 fatal 离屏包装已移除，现有消费者使用可失败入口。
 Sampler::create 返回 Result<shared_ptr<Sampler>, GraphicsError>，校验配置后用返回码重载创建 UniqueSampler。
@@ -285,7 +287,7 @@ GPU ShaderModule 仍会为候选临时创建，重复发布无新 Pipeline／材
 SceneRenderer 保存最后成功的字节码，重建目标／管线时沿用，不因重建恢复到嵌入版本；关闭编辑器后不持久保存开发覆盖。
 DebugRenderer 初始化和目标重建统一通过 create → create_pipeline 使用构建内嵌 Shader，
 由 Shader／PipelineKey 校验布局、顶点输入和阶段连接；不提供热发布入口或覆盖字节码。
-Debug 不使用 ResourceManager；render 把实际 Pipeline／buffer 交给 FrameSlot 保活。
+Debug 不使用 RenderResources；render 把实际 Pipeline／buffer 交给 FrameSlot 保活。
 内置 MaterialLayout 仅支持已登记属性的布局重绑定；新增属性语义、复杂 I/O 和项目程序资产仍待后续。CPU 后台化不等于 GPU 创建无主线程开销。
 Sampler 只拥有自身 UniqueSampler，不另存 Device 句柄；管理器借用 Device，设备仍必须活到所有 sampler 释放之后。
 RenderPass::create 使用 UniqueRenderPass，构造仅接管完整附件描述和句柄；错误返回 GraphicsError。
@@ -364,12 +366,12 @@ Viewport 在 UI 编辑命令完成后读取选中实体的 Mesh local bounds 和
 普通帧在 prepare 提交；有视口拾取请求时，等结果更新 Selection 后再提交，避免旧框和新框同时出现。
 选择状态仍由 SelectionService 持有，Scene/Mesh/Material 不保存 selected 标记；Play、隐藏视口或无有效 Mesh 时不提交。
 
-Viewport 拥有 ViewPanel 和 TransformGizmo，借用 EditorState、Selection、Renderer、AssetRegistry 和 ImGuiContext；
+Viewport 拥有 ViewportPanel 和 TransformGizmo，借用 EditorState、Selection、Renderer、AssetRegistry 和 ImGuiContext；
 每次更新显式接收当前 Scene，不另存活动场景指针。Editor 负责挂接和解除帧回调、场景重绑以及跨面板命令。
 TransformGizmo 是编辑器侧的投影、命中与平移／旋转／缩放事务，不是渲染资源。它与 Inspector 各自持有 PropertyEditTransaction，
 共享同一个 CommandHistory；拖动用 UUID 定位，按模式预览 translation、rotation 或 scale，释放提交一次，取消恢复。
-ViewPanel 优先将普通左键交给 Gizmo，未命中才请求场景拾取；拖动时占有 ImGui active ID，阻止快捷键和相机导航。
-UI 回调完成命令／相机更新后，ViewPanel::draw_gizmo 将最新句柄追加到本帧窗口 draw list，随后 ImGui::Render。
+ViewportPanel 优先将普通左键交给 Gizmo，未命中才请求场景拾取；拖动时占有 ImGui active ID，阻止快捷键和相机导航。
+UI 回调完成命令／相机更新后，ViewportPanel::draw_gizmo 将最新句柄追加到本帧窗口 draw list，随后 ImGui::Render。
 箭头和旋转环作为可操作的 UI 覆盖层不受场景深度遮挡；显示与命中共用线段集合，不需要修改 DebugRenderer 或向 engine 注入编辑器状态。
 点击拾取帧不显示旧选择的箭头，新选择箭头在下一 UI 帧出现；选中包围盒仍由拾取回调在当帧提交。
 
@@ -432,14 +434,15 @@ RenderGraph 只收集 imported 资源、按顺序执行的 pass 和 exported usa
 同一原生资源的非重叠范围可以分别声明；重叠范围必须合为一个声明。Buffer 创建 usage 仍由调用方保证，
 不能检测不同句柄背后的内存别名。回调必须遵守声明，图不会解析实际 Vulkan 命令。
 回调返回 GraphicsError 时立即停止并原样传播，已经录制的命令不回滚；上层必须退出该帧，不能提交部分结果。
-回调同步执行且不保存，接收当前帧的 CommandBuffer&。SceneRenderer 的实际绘制集中在私有 draw_scene，
-直接呈现直接调用，离屏路径仅通过短回调适配并收集其返回的上传等待信息，不另设 Pass 类层次。
+回调同步执行且不保存，接收当前帧的 CommandBuffer&。SceneRenderer 的场景绘制集中在私有 draw_scene，
+app/editor 均通过短回调选择场景或色调映射 pass，并收集场景返回的上传等待信息，不另设 Pass 类层次。
 
-SceneRenderer 的离屏 TargetState 保存一次编译的 Plan。每帧绑定当前 slot 的实际附件，
-先转换到 attachment layout，再绘制材质和辅助线，最后将颜色／MSAA resolve 输出转为 SampledRead。
+SceneRenderer 的 RenderState 保存一次编译的双 pass Plan。每帧绑定当前 slot 的 HDR 实际附件，
+先转换到 attachment layout，再绘制材质和辅助线，将颜色／MSAA resolve 输出转为 SampledRead，供色调映射读取。
 附件每次清除，slot 复用前已等待 GPU，因此允许从 Undefined 丢弃旧内容；resize 只替换实际绑定，
-旧目标继续由在途帧保活。传统 RenderPass 在图内不再隐式承担离屏输出的采样转换。
-直接呈现和 ImGui 不整体纳入图；呈现 RenderPass 显式 external dependency 对齐 acquire 等待阶段。
+旧目标继续由在途帧保活。图管理 HDR 附件和两个 pass 之间的同步；最终输出 RenderPass 负责清除、
+存储及 Present／ShaderReadOnly 转换，不在图中重复声明它的 layout。ImGui 和 WSI 提交仍在图外，
+呈现 RenderPass 的 external dependency 对齐 acquire 等待阶段。
 
 ImageInfo 支持显式 mip/layer 数量，但不自动生成 mip，也未新增完整数组纹理视图 API。
 HostRead/HostWrite 只用于外部交接，不作为 GPU pass；CPU 读回仍必须等待 completion，并满足映射／缓存一致性要求。
@@ -448,6 +451,53 @@ Upload timeline、WSI semaphore 和资源初始化真实性仍是调用方契约
 测试覆盖 CPU 计划、四 pass 实际读回、mip/layer/buffer 区间、跨提交交接、绑定拒绝、回调失败、
 MSAA 与离屏 resize。独立 `render_graph_sync_validation` CTest 开启同步校验，
 以不提交的漏 barrier 命令作为负对照，确认校验层生效；不替代跨平台运行和人工视觉验收。
+
+## HDR 与 SDR 输出
+
+场景颜色由 Config::Render::SCENE_COLOR_FORMAT 固定为 R16G16B16A16_SFLOAT，MSAA resolve 也保留 HDR。
+RenderContext 把场景格式写入 DeviceCapabilityRequest；设备候选评估和场景创建复用
+graphics 层的 validate_color_target，检查 attachment／blend／sampled、单采样 resolve 和场景 MSAA。
+输出附件按实际选中的交换链格式单独检查 Count1，不把显示格式当成场景 MSAA 格式。
+缺少场景能力的设备在候选阶段被拒绝；SceneRenderer 的复核失败仍返回 GraphicsError。
+不静默退回 8 位场景颜色，也不自动更换场景格式。
+
+OutputPass 位于 `render/passes/`，由 SceneRenderer::RenderState 持有，是具体的最终输出步骤，
+不是与 SceneRenderer 并列的渲染子系统，也不是底层 Vulkan RenderPass 的别名；不引入通用 Pass 基类。
+OutputPass 只拥有固定输出 RenderPass、fullscreen Pipeline、sampler、descriptor layout
+和每 slot 的输入 Binding，不拥有 Scene、Window 或 FrameScheduler。
+创建、绑定准备和录制通过 Result 返回失败；旧 Binding 不原地修改，替换后由在途帧保留。
+录制保留实际 Binding、输出目标及其 GPU 依赖，即使绘制器先销毁，已录制资源仍存活到帧完成。
+
+app 输出到 SwapchainTarget，editor 输出到 SDR MultiTarget；对外 get_render_target 和
+get_offscreen_color_view 仍代表最终显示目标，不暴露中间 HDR。
+replace_targets 先准备 HDR 和输出目标，全部成功才同时替换。普通离屏 resize 保留现有重试预算；
+失败时不发布半套尺寸，旧帧保留实际两套目标。运行时 WSI 重建同样重建 HDR／输出配对，
+但不改变交换链退休后不可回滚的原有规则。
+输入 Binding 最多按 slot 保留旧 HDR view，直到该 slot 换用新 view 或绘制器销毁。
+
+fullscreen triangle 不需要顶点缓冲，正高度 viewport 保持纹理方向。
+色调映射为 H * (1 - exp(-max(color, 0) * exposure / H))，SDR 的 H=1，HDR 的 H=render.hdr_headroom；
+H 表示相对白色的输出峰值（1..16，默认 4），不是显示器查询结果；当前场景曝光固定为 1。
+pass 接口拒绝负数、NaN 和无穷曝光。sRGB 附件由硬件编码，UNORM 附件由 Shader 执行分段 sRGB 编码。
+扩展线性 HDR 输出必须是 RGBA16F + ExtendedSrgbLinearEXT，不做 gamma 编码，不再将高亮压进 0..1。
+白色基准 1 由系统合成器解释，不假定跨平台固定 nits；实际显示亮度仍由系统和屏幕决定。
+不支持 HDR10/PQ、自动曝光、Bloom 或动态后处理节点。
+世界空间辅助线与场景一起经过映射，ImGui 不经过场景色调映射。
+
+render.output_mode 默认 sdr；hdr / auto 在 surface 枚举中优先选择上述 HDR 格式与颜色空间组合，
+未提供时回退原配置的 SDR 组合并报告原因；不会挑选仅格式相同或仅颜色空间相同的条目。
+Context 可选启用 VK_EXT_swapchain_colorspace，未提供扩展时仍可启动 SDR。
+首次成功创建后 Swapchain 固定输出组合，resize / surface 恢复不重新切换模式；固定组合消失则按原有 Result 失败路径退出。
+select_swapchain 通过独立的可选 fixed_output 接收该组合，优先严格校验；不修改请求的 OutputMode，
+也不再使用 Sdr 表示“跳过自动选择”。
+这是启动策略，不支持拖动跨屏或系统 HDR 热切换后的重新适配。auto 与 hdr 当前采用同一能力选择策略，日志保留不同请求值。
+Editor 在 Application 启动前通过构造参数固定 SDR；共享 YAML 无法将编辑器换成 HDR。
+SceneRenderer 的离屏输出独立使用配置的 SDR 格式，呈现输出使用交换链实际格式和颜色空间。
+
+GPU 像素测试覆盖 RGBA/BGRA、sRGB/UNORM、曝光 1/0.25/0、高亮和暗部、上下方向及 alpha；
+还覆盖浮点 HDR 的 H=1/4/16、大于 1 的像素和无 gamma 编码，以及三种启动模式的真实呈现和重建。
+生产场景覆盖 MSAA 1/4、resize 和旧输出的在途保活，并验证输出绘制器提前销毁后的帧资源寿命。
+双目标第二次分配的 OOM 尚无专项故障注入，不能把尺寸拒绝测试当成该失败路径已验证。
 
 ## Swapchain 与关闭
 
@@ -483,7 +533,7 @@ present 后结束已提交帧、无 active 时关闭、surface 枚举有界及�
 与旧 027 不同，当前回调必须允许重复释放，以清理 dependent 部分重建后的资源；不迁回旧的固定 100 ms 无限重试。
 
 关闭先由 Engine 调用 TaskScheduler::shutdown 停止接收、排空任务并回收线程，再由 Renderer 停止新帧并等待 GPU；随后应用解绑捕获 Editor/ImGuiContext 的 callback 并释放资源。shutdown 由 owner 线程调用，不可从 Worker 调用，也不支持多个线程同时关闭；wait_idle 只等待瞬时空闲，不承担关闭职责。Engine 不直接访问 Device。独立底层 owner 的安全析构等待仍保留。资源释放顺序为：
-ImGui dependent → Registry/SceneRenderer → ResourceManager → Swapchain/Device/Context → Window。
+ImGui dependent → Registry/SceneRenderer → RenderResources → Swapchain/Device/Context → Window。
 Device 必须比 Buffer、Image、Mesh、Texture、completion token 活得更久；shutdown 允许 Device idle。
 Swapchain::create 返回完整候选；recreate 的 Deferred 表示尚未调用原生创建、旧代未退休。
 acquire 返回 Result<optional<uint32_t>, GraphicsError>：空索引表示 OutOfDate，成功／Suboptimal 才包含有效索引。
@@ -500,7 +550,7 @@ GLFW 使用共享库，避免 Engine 动态库与 ImGui／测试各自静态链�
 
 ## Viewport 和拾取边界
 
-ViewPanel 采样 UI、维护 resize debounce 和一次性请求；ViewportLayout 计算逻辑尺寸、物理尺寸、display/visible rect。
+ViewportPanel 采样 UI、维护 resize debounce 和一次性请求；ViewportLayout 计算逻辑尺寸、物理尺寸、display/visible rect。
 实际纹理像素映射采用左上闭、右下开，排除工具栏、留白和 1x 裁切；debounce 中不使用尚未发布的尺寸。
 上限取设备 maxImageDimension2D 与 editor 4096 软上限较小值，等比约束。
 camera_controller 只做纯数学，不依赖 ImGui。

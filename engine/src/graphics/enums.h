@@ -690,6 +690,8 @@ namespace Comet {
         All = R | G | B | A,
     };
 
+    enum class OutputMode { Sdr, Hdr, Auto };
+
     enum class ImageColorSpace {
         SrgbNonlinearKHR = 0,
         DisplayP3NonlinearEXT,

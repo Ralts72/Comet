@@ -2,7 +2,7 @@
 
 #include "render/scene/scene_picking.h"
 #include "graphics/vk_common.h"
-#include "../test_utils.h"
+#include "support/math_assertions.h"
 
 #include <array>
 #include <algorithm>

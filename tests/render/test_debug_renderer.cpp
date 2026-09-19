@@ -8,7 +8,7 @@
 #include "graphics/device.h"
 #include "core/window.h"
 #include "diagnostics/logger.h"
-#include "render/line_draw_list.h"
+#include "render/debug/line_draw_list.h"
 #include "graphics/resource/image.h"
 
 #include <gtest/gtest.h>

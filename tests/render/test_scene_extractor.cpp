@@ -2,7 +2,7 @@
 
 #include "render/scene/scene_extractor.h"
 #include "scene/scene.h"
-#include "../test_utils.h"
+#include "support/math_assertions.h"
 
 #include <algorithm>
 

@@ -5,7 +5,7 @@
 #include "graphics/device.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
-#include "render/resource/resource_manager.h"
+#include "render/resource/render_resources.h"
 #include "asset/registry.h"
 #include "core/task_scheduler.h"
 #include "diagnostics/logger.h"
@@ -54,12 +54,12 @@ namespace Comet {
         m_shutdown_prepared = true;
     }
 
-    ResourceManager& Engine::get_resource_manager() {
-        return m_renderer->get_resource_manager();
+    RenderResources& Engine::get_render_resources() {
+        return m_renderer->get_render_resources();
     }
 
-    const ResourceManager& Engine::get_resource_manager() const {
-        return get_renderer().get_resource_manager();
+    const RenderResources& Engine::get_render_resources() const {
+        return get_renderer().get_render_resources();
     }
 
     void Engine::set_scene(std::unique_ptr<Scene> scene) {

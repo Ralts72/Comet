@@ -123,8 +123,9 @@ namespace Comet {
             return Result<RecreateStatus, GraphicsError>::failure(
                 {"Cannot query present modes", modes});
         const auto framebuffer_size = m_window.get_framebuffer_size();
+        // 启动时选择一次；resize / surface 恢复不能悄悄改变输出编码。
         const auto selection = select_swapchain(capabilities, surface_formats, present_modes,
-            vk::Extent2D{framebuffer_size.x, framebuffer_size.y}, m_request);
+            vk::Extent2D{framebuffer_size.x, framebuffer_size.y}, m_request, m_output_format);
         const auto& [status, config, message] = selection;
         if(status == SwapchainStatus::Deferred)
             return Result<RecreateStatus, GraphicsError>::success(RecreateStatus::Deferred);
@@ -138,6 +139,16 @@ namespace Comet {
             return Result<RecreateStatus, GraphicsError>::failure(candidate.error());
         }
         m_active_generation = std::move(candidate).value();
+        if(!m_output_format) {
+            const char* requested = m_request.output_mode == OutputMode::Hdr    ? "hdr"
+                                    : m_request.output_mode == OutputMode::Auto ? "auto"
+                                                                                : "sdr";
+            LOG_INFO("Display output: requested={}, actual={}", requested,
+                config.surface_format.colorSpace == vk::ColorSpaceKHR::eExtendedSrgbLinearEXT
+                    ? "hdr (extended linear sRGB)"
+                    : "sdr");
+            m_output_format = config.surface_format;
+        }
 
         LOG_INFO(
             "Vulkan swapchain created: images={}, extent={}x{}, format={}, color_space={}, present_mode={}, transform={}, composite_alpha={}, usage={}, layers={}, clipped={}",

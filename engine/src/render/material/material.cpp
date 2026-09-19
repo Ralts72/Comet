@@ -1,4 +1,4 @@
-#include "render/material.h"
+#include "render/material/material.h"
 #include "diagnostics/logger.h"
 #include "graphics/pipeline/shader_interface.h"
 

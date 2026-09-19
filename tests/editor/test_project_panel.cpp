@@ -1,7 +1,7 @@
 #ifdef COMET_TEST_EDITOR_UI
-#include "assets/project.h"
-#include "render/resource/mesh_data.h"
-#include "render/resource/texture_data.h"
+#include "assets/project_panel.h"
+#include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 #include "scene/selection.h"
 #include "scene/command_history.h"
 #include "assets/asset_reference.h"

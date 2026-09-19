@@ -3,7 +3,7 @@
 #include "asset/import_settings.h"
 #include "common/export.h"
 #include "common/result.h"
-#include "render/resource/texture_data.h"
+#include "asset/data/texture_data.h"
 
 #include <filesystem>
 

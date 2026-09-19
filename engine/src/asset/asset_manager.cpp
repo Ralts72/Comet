@@ -2,7 +2,7 @@
 #include "asset/import/asset_task_queue.h"
 #include "asset/import/import_candidate.h"
 #include "common/result.h"
-#include "render/resource/texture_data.h"
+#include "asset/data/texture_data.h"
 
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/import/import_service.h"
@@ -12,7 +12,7 @@
 #include "asset/source_operations.h"
 #include "common/file_io.h"
 #include "diagnostics/logger.h"
-#include "render/material.h"
+#include "render/material/material.h"
 #include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
 #include "render/resource/texture.h"

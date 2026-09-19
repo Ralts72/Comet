@@ -1,6 +1,6 @@
 #pragma once
 
-#include "viewport/view.h"
+#include "viewport/viewport_panel.h"
 #include "viewport/transform_gizmo.h"
 #include "render/scene/scene_picking.h"
 #include "common/error.h"
@@ -28,7 +28,7 @@ namespace CometEditor {
         Viewport(const Viewport&) = delete;
         Viewport& operator=(const Viewport&) = delete;
 
-        [[nodiscard]] ViewPanel& panel() { return m_panel; }
+        [[nodiscard]] ViewportPanel& panel() { return m_panel; }
 
         void update_texture();
         // 面板命令处理后、SceneExtractor 提取前调用。
@@ -47,6 +47,6 @@ namespace CometEditor {
         ImGuiContext& m_ui;
         std::shared_ptr<Comet::Sampler> m_sampler;
         TransformGizmo m_gizmo;
-        ViewPanel m_panel;
+        ViewportPanel m_panel;
     };
 }

@@ -1,5 +1,5 @@
 #include "asset/import/mesh_importer.h"
-#include "render/resource/mesh_data.h"
+#include "asset/data/mesh_data.h"
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>

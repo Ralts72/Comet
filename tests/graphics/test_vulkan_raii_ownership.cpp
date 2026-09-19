@@ -1,6 +1,6 @@
 #include <type_traits>
-#include "render/resource/mesh_data.h"
-#include "render/resource/texture_data.h"
+#include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 #include <utility>
 
 #include "graphics/resource/buffer.h"

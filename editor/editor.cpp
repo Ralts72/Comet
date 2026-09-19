@@ -1,11 +1,12 @@
 #include "runtime/entry.h"
 #include "render/render_context.h"
-#include "render/resource/resource_manager.h"
+#include "render/resource/render_resources.h"
 #include "graphics/swapchain.h"
 #include "graphics/resource/sampler.h"
 #include "assets/editor_assets.h"
 #include "render/shader_reload.h"
 #include "scene/scene_file_dialog.h"
+#include "ui/dialogs.h"
 #include "scene/command_history.h"
 #include "scene/scene_commands.h"
 #include "scene/editor_scene_session.h"
@@ -24,7 +25,7 @@
 #include "ui/menu_bar.h"
 #include "ui/console.h"
 #include "inspector/inspector.h"
-#include "assets/project.h"
+#include "assets/project_panel.h"
 #include "viewport/viewport.h"
 #include "scene/hierarchy.h"
 #include "scene/selection.h"
@@ -47,7 +48,8 @@ namespace {
     class Editor final: public Comet::Application {
     public:
         explicit Editor(Comet::Project project)
-            : Application(project.paths().cache()), m_project(std::move(project)) {}
+            : Application(project.paths().cache(), Comet::OutputMode::Sdr),
+              m_project(std::move(project)) {}
 
         Comet::Result<void, Comet::Error> on_init() override {
             LOG_INFO("Editor initializing...");
@@ -90,7 +92,7 @@ namespace {
                 LOG_ERROR("{}; using default editor shortcuts", shortcuts.error());
 
             m_assets = std::make_unique<CometEditor::EditorAssets>(m_project.paths(),
-                engine.get_asset_registry(), engine.get_resource_manager(),
+                engine.get_asset_registry(), engine.get_render_resources(),
                 engine.get_task_scheduler());
             auto initial_asset_scan = m_assets->refresh();
             m_property_editor_registry =
@@ -422,7 +424,7 @@ namespace {
         Comet::Result<void, Comet::Error> setup_panels(
             Comet::Scene& scene, Comet::AssetScanReport initial_asset_scan) {
             auto sampler =
-                get_engine().get_resource_manager().get_sampler_manager().get_nearest_clamp();
+                get_engine().get_render_resources().get_sampler_manager().get_nearest_clamp();
             if(!sampler)
                 return Comet::Result<void, Comet::Error>::failure(sampler.error().as_error());
             m_menu_bar = std::make_unique<CometEditor::MenuBar>(
@@ -504,7 +506,7 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> handle_mesh_drop(
-            const CometEditor::ViewPanel::MeshDrop& request) {
+            const CometEditor::ViewportPanel::MeshDrop& request) {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit
                 || request.asset.generation != m_command_history.generation()
                 || !m_command_history.get_scene()
@@ -631,28 +633,15 @@ namespace {
         }
 
         void draw_unsaved_dialog() {
-            if(m_scene_document->needs_confirmation())
-                ImGui::OpenPopup("Unsaved Scene");
-            if(!ImGui::BeginPopupModal("Unsaved Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            const auto decision =
+                CometEditor::draw_unsaved_scene_dialog(m_scene_document->needs_confirmation());
+            if(!decision)
                 return;
-            ImGui::TextUnformatted("Save changes before continuing?");
-            if(ImGui::Button("Save")) {
-                m_scene_document->decide(CometEditor::SceneDocument::Decision::Save);
+            m_scene_document->decide(*decision);
+            if(*decision == CometEditor::SceneDocument::Decision::Save) {
                 m_scene_file_dialog.request(CometEditor::SceneFileDialog::Action::Save,
                     m_scene_document->get_path(), m_project.paths().assets() / "scenes");
-                ImGui::CloseCurrentPopup();
             }
-            ImGui::SameLine();
-            if(ImGui::Button("Discard")) {
-                m_scene_document->decide(CometEditor::SceneDocument::Decision::Discard);
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::SameLine();
-            if(ImGui::Button("Cancel")) {
-                m_scene_document->decide(CometEditor::SceneDocument::Decision::Cancel);
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndPopup();
         }
 
         std::uint64_t m_reference_history_state = 0;

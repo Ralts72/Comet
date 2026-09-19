@@ -93,4 +93,23 @@ namespace Comet::Tests {
             {.origin = Math::Vec3(0.0f, 0.0f, 5.0f), .direction = Math::Vec3(0.0f, 0.0f, -1.0f)},
             invalid));
     }
+
+    TEST(BoundingBoxTest, CenterDoesNotOverflowForLargeFiniteCoordinates) {
+        const float maximum = std::numeric_limits<float>::max();
+        const BoundingBox box{
+            .minimum = Math::Vec3(maximum * 0.5f), .maximum = Math::Vec3(maximum)};
+        ASSERT_TRUE(box.is_valid());
+        const auto center = box.center();
+        EXPECT_TRUE(std::isfinite(center.x));
+        EXPECT_TRUE(std::isfinite(center.y));
+        EXPECT_TRUE(std::isfinite(center.z));
+        EXPECT_FLOAT_EQ(center.x, maximum * 0.75f);
+    }
+
+    TEST(BoundingBoxTest, RejectsInvertedOrNonFiniteBoxes) {
+        EXPECT_FALSE(
+            (BoundingBox{.minimum = Math::Vec3(1.0f), .maximum = Math::Vec3(-1.0f)}).is_valid());
+        EXPECT_FALSE(
+            BoundingBox::from_point(Math::Vec3(std::numeric_limits<float>::infinity())).is_valid());
+    }
 }

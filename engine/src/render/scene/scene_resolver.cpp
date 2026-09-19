@@ -2,7 +2,7 @@
 
 #include "asset/registry.h"
 #include "diagnostics/logger.h"
-#include "render/material.h"
+#include "render/material/material.h"
 #include "render/resource/mesh.h"
 
 #include <utility>

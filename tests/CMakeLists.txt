@@ -34,13 +34,12 @@ endif ()
 
 target_include_directories(unit_testing PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
+# AppKit animations can occupy dispatch workers needed by Metal compilation.
+set(TEST_PLATFORM_ARGS)
 if (APPLE)
-    # Rapid window teardown can leave AppKit animations occupying dispatch workers
-    # needed by Metal compilation. Disable animations only in the test process.
-    add_test(NAME unit_testing COMMAND unit_testing -NSAutomaticWindowAnimationsEnabled NO)
-else ()
-    add_test(NAME unit_testing COMMAND unit_testing)
+    list(APPEND TEST_PLATFORM_ARGS -NSAutomaticWindowAnimationsEnabled NO)
 endif ()
+add_test(NAME unit_testing COMMAND unit_testing ${TEST_PLATFORM_ARGS})
 add_test(NAME shader_build_contract COMMAND "${CMAKE_COMMAND}"
         "-DCOMPILE_TOOL=$<TARGET_FILE:comet_shader_compiler>"
         "-DCOMET_ROOT=${CMAKE_SOURCE_DIR}"
@@ -72,21 +71,12 @@ target_compile_definitions(swapchain_recovery PRIVATE
         vkAcquireNextImageKHR=comet_test_acquire_next_image
         vkQueuePresentKHR=comet_test_queue_present)
 comet_copy_runtime_dependencies(swapchain_recovery)
-if (APPLE)
-    add_test(NAME swapchain_recovery COMMAND swapchain_recovery -NSAutomaticWindowAnimationsEnabled NO)
-else ()
-    add_test(NAME swapchain_recovery COMMAND swapchain_recovery)
-endif ()
+add_test(NAME swapchain_recovery COMMAND swapchain_recovery ${TEST_PLATFORM_ARGS})
 set_tests_properties(swapchain_recovery PROPERTIES TIMEOUT 90)
 set_tests_properties(unit_testing pipeline_cache_process swapchain_recovery
         PROPERTIES RESOURCE_LOCK comet_gpu)
-if (APPLE)
-    add_test(NAME render_graph_sync_validation COMMAND unit_testing
-            --gtest_filter=RenderGraphGpuTest.* -NSAutomaticWindowAnimationsEnabled NO)
-else ()
-    add_test(NAME render_graph_sync_validation COMMAND unit_testing
-            --gtest_filter=RenderGraphGpuTest.*)
-endif ()
+add_test(NAME render_graph_sync_validation COMMAND unit_testing
+        --gtest_filter=RenderGraphGpuTest.* ${TEST_PLATFORM_ARGS})
 set_tests_properties(render_graph_sync_validation PROPERTIES
         ENVIRONMENT "VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT"
         RESOURCE_LOCK comet_gpu TIMEOUT 90)

@@ -5,7 +5,7 @@
 #include "diagnostics/logger.h"
 
 #include "asset/serialization/material_serializer.h"
-#include "render/material.h"
+#include "render/material/material.h"
 #include "scene/component_registry.h"
 
 #include <algorithm>

@@ -2,6 +2,7 @@
 
 #include "common/export.h"
 #include "graphics/enums.h"
+#include "graphics/result.h"
 
 #include <vulkan/vulkan.hpp>
 
@@ -20,6 +21,7 @@ namespace Comet {
     };
 
     struct SwapchainRequest {
+        OutputMode output_mode = OutputMode::Sdr;
         uint32_t image_count = 3;
         Format surface_format = Format::B8G8R8A8_SRGB;
         ImageColorSpace color_space = ImageColorSpace::SrgbNonlinearKHR;
@@ -30,6 +32,7 @@ namespace Comet {
     struct DeviceCapabilityRequest {
         uint32_t required_api_version = REQUIRED_VULKAN_API_VERSION;
         SwapchainRequest swapchain;
+        Format scene_color_format = Format::R16G16B16A16_SFLOAT;
         Format depth_format = Format::D32_SFLOAT;
         SampleCount sample_count = SampleCount::Count1;
         float max_sampler_anisotropy = 1.0f;
@@ -85,7 +88,8 @@ namespace Comet {
         SwapchainStatus swapchain_status = SwapchainStatus::Unsupported;
         std::string swapchain_message;
         bool requested_present_mode_supported = false;
-        bool color_format_supported = false;
+        bool scene_color_supported = false;
+        bool output_color_supported = false;
         bool depth_format_supported = false;
         bool timeline_semaphore_supported = false;
         bool synchronization2_supported = false;
@@ -116,6 +120,10 @@ namespace Comet {
     [[nodiscard]] COMET_API DeviceCandidateEvaluation evaluate_device_candidate(
         const DeviceCandidateInfo& candidate, const DeviceCapabilityRequest& request);
 
+    // 可采样、可混合的颜色目标；MSAA 时也检查单采样 resolve 图像。
+    [[nodiscard]] COMET_API Result<void, GraphicsError> validate_color_target(
+        vk::PhysicalDevice device, Format format, SampleCount samples);
+
     [[nodiscard]] DeviceCapability select_physical_device(
         const std::vector<vk::PhysicalDevice>& physical_devices, vk::SurfaceKHR surface,
         const DeviceCapabilityRequest& request, uint32_t required_graphics_queue_count = 1,
@@ -125,5 +133,6 @@ namespace Comet {
         const vk::SurfaceCapabilitiesKHR& capabilities,
         const std::vector<vk::SurfaceFormatKHR>& surface_formats,
         const std::vector<vk::PresentModeKHR>& present_modes, vk::Extent2D framebuffer_extent,
-        const SwapchainRequest& request);
+        const SwapchainRequest& request,
+        std::optional<vk::SurfaceFormatKHR> fixed_output = std::nullopt);
 }

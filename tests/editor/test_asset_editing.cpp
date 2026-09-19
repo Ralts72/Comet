@@ -1,11 +1,11 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "inspector/inspector.h"
-#include "assets/project.h"
+#include "assets/project_panel.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
-#include "render/material.h"
+#include "render/material/material.h"
 
 #include "support/imgui_context.h"
 

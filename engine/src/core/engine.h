@@ -14,7 +14,7 @@ namespace Comet {
     class TaskScheduler;
     class Window;
     class Renderer;
-    class ResourceManager;
+    class RenderResources;
     class Config;
 
     class COMET_API Engine {
@@ -41,8 +41,8 @@ namespace Comet {
         [[nodiscard]] AssetRegistry& get_asset_registry() { return *m_asset_registry; }
         [[nodiscard]] const AssetRegistry& get_asset_registry() const { return *m_asset_registry; }
 
-        [[nodiscard]] ResourceManager& get_resource_manager();
-        [[nodiscard]] const ResourceManager& get_resource_manager() const;
+        [[nodiscard]] RenderResources& get_render_resources();
+        [[nodiscard]] const RenderResources& get_render_resources() const;
 
         [[nodiscard]] TaskScheduler& get_task_scheduler() { return *m_task_scheduler; }
         [[nodiscard]] const TaskScheduler& get_task_scheduler() const { return *m_task_scheduler; }

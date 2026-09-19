@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "../test_utils.h"
+#include "support/math_assertions.h"
 #include "viewport/camera_controller.h"
 
 #include <limits>

@@ -3,7 +3,7 @@
 #include "common/export.h"
 #include "graphics/enums.h"
 #include "graphics/result.h"
-#include "render/line_draw_list.h"
+#include "render/debug/line_draw_list.h"
 #include "render/scene/render_types.h"
 
 #include <cstdint>

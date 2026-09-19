@@ -42,6 +42,10 @@ namespace Comet {
         };
 
         struct Render {
+            static constexpr Format SCENE_COLOR_FORMAT = Format::R16G16B16A16_SFLOAT;
+            OutputMode output_mode = OutputMode::Sdr;
+            // 扩展线性输出峰值相对于 SDR 白色的倍数，不代表显示器实测能力。
+            float hdr_headroom = 4.0f;
             std::uint32_t max_frames_in_flight = 2;
             Math::Vec4 clear_color{0.2f, 0.4f, 0.1f, 1.0f};
             bool enable_vsync = false;
