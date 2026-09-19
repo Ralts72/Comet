@@ -62,7 +62,8 @@ namespace Comet {
         Result<void, GraphicsError> replace_targets(
             RenderState& state, Swapchain* swapchain, Math::Vec2u size);
         Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> draw_scene(FrameScheduler& frames,
-            CommandBuffer& command, const RenderSubmission& submission, const LineDrawList& lines);
+            CommandBuffer& command, const RenderSubmission& submission, const LineDrawList& lines,
+            const LightingData& lighting);
 
         Device& m_device;
         Format m_offscreen_format;

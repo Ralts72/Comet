@@ -33,15 +33,16 @@ namespace Comet {
         RenderPass& operator=(RenderPass&&) noexcept = delete;
 
         [[nodiscard]] vk::RenderPass get() const { return m_render_pass.get(); }
-        [[nodiscard]] uint32_t get_subpass_count() const { return m_subpass_count; }
+        [[nodiscard]] uint32_t get_subpass_count() const;
+        [[nodiscard]] uint32_t get_color_attachment_count(uint32_t subpass) const;
         [[nodiscard]] const std::vector<Attachment>& get_attachments() const;
 
     private:
         RenderPass(vk::UniqueRenderPass render_pass, std::vector<Attachment> attachments,
-            uint32_t subpass_count);
+            std::vector<uint32_t> color_attachment_counts);
 
         vk::UniqueRenderPass m_render_pass;
         std::vector<Attachment> m_attachments;
-        uint32_t m_subpass_count = 0;
+        std::vector<uint32_t> m_color_attachment_counts;
     };
 }

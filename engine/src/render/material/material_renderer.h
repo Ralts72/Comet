@@ -26,6 +26,7 @@ namespace Comet {
     class RenderResources;
     class Sampler;
     class Shader;
+    class ImageView;
 
     // 调用方须先等待槽位、开启场景通道并设置视口与裁剪区域。
     class COMET_API MaterialRenderer {
@@ -60,9 +61,11 @@ namespace Comet {
             PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
+        // shadow_map 必须已处于片元 SampledRead；即使关闭阴影也需有效采样绑定。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
             FrameScheduler& frames, const std::optional<ViewProjectMatrix>& view,
-            std::span<const ResolvedRenderItem> items, std::span<const RenderLight> lights = {});
+            std::span<const ResolvedRenderItem> items, const LightingData& lighting,
+            const std::shared_ptr<ImageView>& shadow_map);
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
 
     private:
@@ -81,6 +84,8 @@ namespace Comet {
             std::shared_ptr<DescriptorPool> pool;
             std::shared_ptr<CPUBuffer> buffer;
             std::shared_ptr<CPUBuffer> lighting;
+            std::shared_ptr<Sampler> shadow_sampler;
+            std::shared_ptr<ImageView> shadow_map;
             std::optional<DescriptorSet> descriptor;
         };
         struct MaterialResources {

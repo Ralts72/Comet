@@ -237,8 +237,9 @@ namespace CometEditor::Tests {
             },
             [&](Comet::Scene& scene) {
                 const auto prepared = assets->prepare_scene(scene, components);
-                return prepared ? Comet::Result<void, Comet::Error>::success()
-                                : Comet::Result<void, Comet::Error>::failure(prepared.error());
+                if(!prepared)
+                    return Comet::Result<void, Comet::Error>::failure(prepared.error());
+                return Comet::Result<void, Comet::Error>::success();
             });
         factory.fail = true;
         factory.failure = vk::Result::eErrorDeviceLost;

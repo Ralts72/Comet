@@ -92,8 +92,9 @@ namespace CometEditor::Tests {
                 EXPECT_NE(&candidate, edit);
                 EXPECT_EQ(active.get(), edit);
                 EXPECT_EQ(state.mode, EditorMode::Edit);
-                return accept ? Comet::Result<void, Comet::Error>::success()
-                              : Comet::Result<void, Comet::Error>::failure(preparation_error);
+                if(!accept)
+                    return Comet::Result<void, Comet::Error>::failure(preparation_error);
+                return Comet::Result<void, Comet::Error>::success();
             });
         session.request_mode(EditorMode::Play);
         const auto rejected = session.apply_mode_request();

@@ -7,7 +7,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | 目录 | 职责 |
 | --- | --- |
 | `engine/src/` | 引擎库：runtime、core、scene、asset、render、graphics、config、diagnostics |
-| `engine/shaders/` | 生产 Shader，按 material、lighting、debug、post、common 分目录；仅编译 CMake 显式列表 |
+| `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、ui 组织，`resources/` 保存私有字体等资源 |
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
@@ -81,9 +81,11 @@ GLFW 以动态库构建，确保引擎和 UI 后端共用一份窗口系统状�
 ./editor.sh ./demo                  # 显式打开同一示例项目
 ./editor.sh /Projects/MyGame        # 读取该目录的 project.json
 ./editor.sh /Projects/MyGame/project.json
+./release.sh                       # app 运行同一个 demo/project.json 的启动场景
+./release.sh /Projects/MyGame      # app 运行外部项目
 ```
 
-编辑器可执行文件也接受同样的可选路径参数；相对路径以调用者的工作目录为基准。`--help` 显示用法。
+app 和 editor 可执行文件都接受同样的可选路径参数；相对路径以调用者的工作目录为基准。`--help` 显示用法。
 项目需要 `project.json` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。
 编辑器生成的 `.scene`（v2）、`.mat`（v2）、`.meta`（v3）使用 JSON，扩展名不变；
 `.scene` 的 `entities` 只放根实体，子实体通过 `children` 嵌套，不再保存 `parent` 引用；UUID 仍全场景唯一。
@@ -106,7 +108,16 @@ JSON 解析直接依赖已有 simdjson。
 ```
 
 `startup_scene` 相对项目 `assets/`；省略或空字符串表示空场景。项目描述不配置默认材质，场景保存自己的材质引用。
-项目描述错误或缺少 assets 时启动失败，不回退仓库项目；启动场景缺失／损坏则记录错误并打开空场景，不覆盖原文件。
+app 与 editor 共用 Project、SceneSerializer 和场景资产引用，不再分别创建示例物体、相机或灯光。
+app 使用场景 primary Camera；Edit 使用编辑器相机，因此同一场景不保证相同取景。
+app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场景或必需资源加载失败会终止启动，
+不像 editor 那样保留缺失引用供修复。这仍是开发期运行入口，不是已打包的 Shipping Player。
+仅打开仓库自带 demo 时，app 额外旋转 UUID 为 `672cd0cc-501f-419e-af5e-a883a0cd3d02` 的立方体；
+重命名不影响旋转，删除或换 UUID 后跳过；外部项目（包括复制出去的 demo）默认静止。
+旋转只修改内存，不保存回 `.scene`；属于 app 示例行为，尚不在 editor Play 中执行。
+后续通用 System／脚本接入后再统一运行行为，不把演示逻辑写入 Project 或 SceneSerializer。
+两种入口遇到项目描述错误或缺少 assets 都会启动失败，不回退仓库项目；仅 editor 在启动场景缺失／损坏时
+记录错误并打开空场景，供用户修复，不覆盖原文件。
 引擎 Profile、编辑器快捷键仍读取开发构建自带的 `config/`，字体／图标／Shader 不需要复制到每个项目。
 当前支持启动时选择一个项目，尚不支持运行中切换项目、最近项目列表、项目创建向导或独立打包。
 
@@ -129,7 +140,10 @@ JSON 解析直接依赖已有 simdjson。
   未保存状态使用历史状态 ID 与保存点判断，支持撤销回保存点、分支编辑和历史截断；不包含独立的资产文件编辑。
 - Light 支持 Directional／Point／Spot，类型和参数共用场景保存与撤销。方向由 Transform 的本地 -Z 决定；
   Point／Spot 的 Range 是世界距离，聚光角度是半锥角。受光需使用 `lit_color` 材质，无有效光源时为黑色。
-  默认示例已加入 Key Light 和 `materials/lit.mat`；原不受光材质仍保留。
+  Directional 的 Cast shadow 可启用阴影；最多选择一盏有效方向光，使用 1024² 深度图与 3×3 PCF。
+  默认示例包含投影 Key Light、Ground 和 `materials/lit.mat`；原不受光材质仍保留。
+  阴影覆盖当前提交网格的包围盒，暂不支持级联、透明裁切或点／聚光阴影。
+  当前没有天空盒和环境光照 IBL，背景仍使用配置的 clear color；相关计划见路线图。
 - Hierarchy 空白处／Scene 右键创建根实体，实体右键创建子实体、删除或 Duplicate 整棵子树；
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
 - 编辑器快捷键位于 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启。
@@ -151,6 +165,52 @@ JSON 解析直接依赖已有 simdjson。
   缺失纹理槽需补齐后才发布，切换其他资产会丢弃未完成草稿；尚不支持切换模板或动态指定项目 Shader。
 - View 菜单与面板关闭按钮共享显隐状态；菜单只展示已接通的操作。
 
+## Shader 开发
+
+以下目录相对 `engine/shaders/`。
+
+### 目录与职责
+
+| 目录 | 内容 |
+| --- | --- |
+| `material/` | 网格顶点入口与材质片元着色 |
+| `common/mesh_vertex.glsl` | 共用网格输入、Frame/Object 布局与顶点变换 |
+| `lighting/forward.glsl` | 前向光源布局、方向与衰减计算 |
+| `shadow/` | 方向光深度生成，与材质前向采样分开 |
+| `debug/` | 调试线绘制 |
+| `post/` | 全屏三角形与显示输出：曝光、色调映射、SDR/HDR 编码 |
+
+### 材质与阶段配对
+
+- `unlit_color`：`unlit_color.vert` + `unlit_color.frag`，直接输出颜色和强度。
+- `unlit_texture_blend`：`unlit_texture_blend.vert` + `unlit_texture_blend.frag`，混合纹理，不计算光源。
+- `lit_color`：`lambert.vert` + `lambert.frag`，使用 Lambert 漫反射与场景光源。
+- 调试线与显示输出分别使用 `debug/line.vert/.frag`、`post/display.vert/.frag`。
+- 阴影使用 `shadow/directional.vert/.frag`；片元阶段无颜色输出，只写深度。
+
+`lit` 表示受光，`unlit` 表示不受光，和 HDR/SDR 输出模式无关。
+材质模板名属于资产持久化协议；文件名描述当前算法，二者不要求同名。
+三个网格入口包含同一份顶点实现；`COMET_MESH_LIGHTING` 只为受光版本启用世界位置、
+逆转置法线计算和对应输出，不给不受光版本增加法线计算。
+全屏顶点与调试线的输入协议不同，保持独立。
+
+### 修改与验证
+
+完整程序以同目录、同名 `.vert/.frag` 表示；新增程序需加入 `engine/shaders/CMakeLists.txt` 显式配对列表。
+当前生成文件使用阶段文件名，须保持全局唯一。
+公共 `.glsl` 通过相对路径包含，构建依赖与编辑器热重载均跟踪实际 include。
+编辑器只热重载材质的三个程序（六个阶段）；调试线、阴影与显示输出修改需重新构建。
+`MaterialShaders` 按程序名持有顶点/片元字节码，允许提交任意完整程序对；
+缺失单个阶段会拒绝整个候选批次，未提交的程序保留原版本，目标重建仍沿用成功发布的版本。
+程序定义、默认字节码、固定契约校验和覆盖合并位于 `engine/src/render/material/material_shader.h/.cpp`。
+编辑器和 MaterialRenderer 共用这份程序定义；未知程序名或显式空程序同样被拒绝。
+Frame 位于 set 0，材质位于 set 1，Object 使用 push constant；修改布局须同步 C++ 和契约测试。
+Frame binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 是按帧槽位绑定的阴影图。
+`forward.glsl` 使用 nearest sampler 手工 3×3 PCF；正高度阴影视口与投影 UV 一致。
+
+运行 `cmake --build --preset dev-debug --parallel` 和 `ctest --preset dev-debug` 验证。
+旧学习头文件与示例已移除，需要参考时可查 Git 历史。
+
 ## 架构入口
 
 - **运行时**：`runtime/application` 管初始化、循环与关闭；Engine 组合 Scene、任务和渲染服务。
@@ -158,7 +218,7 @@ JSON 解析直接依赖已有 simdjson。
 - **场景**：Scene 保存组件、UUID 与 AssetHandle；世界矩阵按 TRS 和父级版本更新。
   编辑器在帧准备前执行文件与资产请求，UI/Gizmo 修改后再提取当帧场景。
 - **渲染**：`Scene → SceneExtractor → SceneResolver → SceneRenderer`。
-  Renderer 组合帧调度与呈现，SceneRenderer 编排 RGBA16F 场景和 OutputPass；
+  Renderer 组合帧调度与呈现，SceneRenderer 编排 ShadowPass → RGBA16F 场景 → OutputPass；
   RenderGraph 负责 pass 间同步，FrameSlot 保留在途资源，Presentation 处理交换链恢复。
   MaterialShader 模块定义程序、字节码与固定接口契约，MaterialRenderer 管理 GPU 候选、材质版本发布和绘制。
   Material 保存实例参数，MaterialLayout 独立描述布局；属性描述位于 `scene/property`，不依赖 ECS 注册器。
@@ -169,7 +229,7 @@ JSON 解析直接依赖已有 simdjson。
   面板产生请求，由统一更新阶段执行；Viewport 管相机、拾取和 Gizmo，不持有 Engine。
   简单确认弹窗集中在 `editor/src/ui/dialogs`，只返回选择；有路径和请求状态的 SceneFileDialog 独立保留。
 - **Shader**：编译工具独立于 engine。开发编辑器支持内置材质程序后台编译和候选发布，
-  失败保留旧画面；辅助线 Shader 修改仍需重新构建。项目 Shader 和复杂接口尚未接入。
+  失败保留旧画面；辅助线、阴影与输出 Shader 修改仍需重新构建。项目 Shader 和复杂接口尚未接入。
 - **坐标**：世界 +Y 向上，Vulkan Viewport 负高度转换画面坐标；`flip_y` 仅影响纹理导入。
 
 实现契约与扩展计划分别维护，避免在 README 重复细节：

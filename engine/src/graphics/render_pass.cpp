@@ -5,6 +5,14 @@
 #include <algorithm>
 
 namespace Comet {
+    uint32_t RenderPass::get_subpass_count() const {
+        return static_cast<uint32_t>(m_color_attachment_counts.size());
+    }
+
+    uint32_t RenderPass::get_color_attachment_count(const uint32_t subpass) const {
+        return m_color_attachment_counts[subpass];
+    }
+
     const std::vector<Attachment>& RenderPass::get_attachments() const {
         return m_attachments;
     }
@@ -146,11 +154,13 @@ namespace Comet {
         std::vector<vk::SubpassDependency> dependencies;
         for(uint32_t index = 0; index < actual_sub_passes.size(); ++index) {
             const auto& subpass = actual_sub_passes[index];
-            const bool presents = std::ranges::any_of(subpass.color_attachments,
-                [&](const auto& reference) {
-                    return actual_attachments[reference.index].description.final_layout
-                        == ImageLayout::PresentSrcKHR;
-                }) || (subpass.sample_count > SampleCount::Count1
+            const bool presents =
+                std::ranges::any_of(subpass.color_attachments,
+                    [&](const auto& reference) {
+                        return actual_attachments[reference.index].description.final_layout
+                               == ImageLayout::PresentSrcKHR;
+                    })
+                || (subpass.sample_count > SampleCount::Count1
                     && subpass.resolve_final_layout == ImageLayout::PresentSrcKHR);
             if(!presents)
                 continue;
@@ -161,7 +171,7 @@ namespace Comet {
             dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
             dependency.dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
             dependency.dstAccessMask = vk::AccessFlagBits::eColorAttachmentRead
-                | vk::AccessFlagBits::eColorAttachmentWrite;
+                                       | vk::AccessFlagBits::eColorAttachmentWrite;
             dependencies.push_back(dependency);
         }
         if(actual_sub_passes.size() > 1) {
@@ -227,13 +237,15 @@ namespace Comet {
         LOG_INFO("Vulkan render pass created successfully");
         LOG_TRACE("RenderPass: attachment count: {}, subpass count: {}", actual_attachments.size(),
             actual_sub_passes.size());
-        return CreationResult::success(
-            std::unique_ptr<RenderPass>(new RenderPass(std::move(handle).value(),
-                std::move(actual_attachments), static_cast<uint32_t>(actual_sub_passes.size()))));
+        std::vector<uint32_t> color_counts;
+        for(const auto& subpass : actual_sub_passes)
+            color_counts.push_back(static_cast<uint32_t>(subpass.color_attachments.size()));
+        return CreationResult::success(std::unique_ptr<RenderPass>(new RenderPass(
+            std::move(handle).value(), std::move(actual_attachments), std::move(color_counts))));
     }
 
     RenderPass::RenderPass(vk::UniqueRenderPass render_pass, std::vector<Attachment> attachments,
-        const uint32_t subpass_count)
+        std::vector<uint32_t> color_attachment_counts)
         : m_render_pass(std::move(render_pass)), m_attachments(std::move(attachments)),
-          m_subpass_count(subpass_count) {}
+          m_color_attachment_counts(std::move(color_attachment_counts)) {}
 }

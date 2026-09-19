@@ -79,9 +79,12 @@ namespace Comet::Json {
             auto child = required_child(object, key, location);
             if(!child)
                 return Result<T>::failure(child.error());
-            const auto field_location = location == "<root>"
-                                            ? std::string(key)
-                                            : std::string(location) + "." + std::string(key);
+            std::string field_location;
+            if(location != "<root>") {
+                field_location = location;
+                field_location += '.';
+            }
+            field_location += key;
             return read_scalar<T>(child.value(), field_location, expected);
         }
 

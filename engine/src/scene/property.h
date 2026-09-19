@@ -32,6 +32,7 @@ namespace Comet {
         bool serializable = true;
         bool transient = false;
         bool read_only = false;
+        bool required = true; // 反序列化时必须存在；可选字段缺失时保留组件默认值。
         NumericPropertyMetadata numeric;
         std::optional<AssetType> asset_type;
     };
@@ -53,6 +54,7 @@ namespace Comet {
         bool serializable = true;
         bool transient = false;
         bool read_only = false;
+        bool required = true;
         NumericPropertyMetadata numeric;
         std::optional<AssetType> asset_type;
         std::function<void*(void*)> mutable_accessor;
@@ -114,6 +116,7 @@ namespace Comet {
             .serializable = metadata.serializable,
             .transient = metadata.transient,
             .read_only = metadata.read_only,
+            .required = metadata.required,
             .numeric = std::move(metadata.numeric),
             .asset_type = metadata.asset_type,
             .mutable_accessor = [member](void* component) -> void* {

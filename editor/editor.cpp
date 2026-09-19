@@ -627,9 +627,11 @@ namespace {
                 get_engine().get_window().request_close();
                 return Comet::Result<void, Comet::Error>::success();
             }
-            auto result = action->action == CometEditor::SceneDocument::Action::New
-                              ? m_scene_document->create_new()
-                              : m_scene_document->open(action->path);
+            auto result = Comet::Result<void, Comet::Error>::success();
+            if(action->action == CometEditor::SceneDocument::Action::New)
+                result = m_scene_document->create_new();
+            else
+                result = m_scene_document->open(action->path);
             if(!result && !is_device_lost(result.error())) {
                 LOG_WARN("Scene operation rejected: {}", result.error().message);
                 if(action->action == CometEditor::SceneDocument::Action::Open) {

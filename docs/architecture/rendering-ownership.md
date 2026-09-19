@@ -58,10 +58,11 @@ Engine
         └── RenderState（完整兼容版本，FrameSlot 保活）
             ├── 场景 RenderPass / PipelineManager / HDR 与最终 RenderTarget
             ├── OutputPass → 色调映射 / 输出编码 / 采样绑定
+            ├── ShadowPass → 深度 RenderPass / Pipeline / DepthTarget[slot]
             ├── DebugRenderer → 线段 Pipeline / VertexBuffer[slot]
             └── MaterialRenderer
                 ├── PipelineState → MaterialLayout / material descriptor layout / Pipeline
-                ├── FrameResources[slot] → 相机与光照 UBO / FrameSet / pool
+                ├── FrameResources[slot] → 相机与光照 UBO / 阴影 View 与 Sampler / FrameSet / pool
                 ├── MaterialRuntimeCache → PreparedMaterial → Texture / 参数字节
                 └── MaterialResources[material version] → PreparedMaterial / PipelineState / Sampler / 参数 UBO / pool / MaterialSet
 
@@ -172,18 +173,41 @@ SceneResolver 只解析 Camera、Mesh 和 Material 引用，不检查模板、�
 ### Forward 光照
 
 `LightComponent → SceneExtractor → RenderScene.lights → RenderSubmission.lights → LightingData → FrameSet`。
-组件只保存类型、启用、线性颜色、强度、范围和聚光半锥角；枚举以稳定字符串写入 JSON，
+组件只保存类型、启用、线性颜色、强度、范围、聚光半锥角和 casts_shadow；枚举以稳定字符串写入 JSON，
 Inspector／Undo／Clone 复用 PropertyDescriptor，不增加灯光专用命令。
 pose_world_matrix 共用相机姿态语义：世界位置含父级变换，方向只继承旋转，不继承本地或祖先缩放。
 
 `render/lighting.h/.cpp` 负责值快照与 std140 打包，无 Scene 或 GPU owner。
 按 EntityId 稳定选择前 32 个有效光源；非法参数与超限分别统计，数量变化时报告，不能当作空间筛选。
-FrameSet binding 0 是相机，binding 1 是片元光照 UBO；每灯四个 vec4，末尾 counts，总计 2064 字节。
+FrameSet binding 0 是相机，binding 1 是片元光照 UBO，binding 2 是阴影 sampler2D。
+UBO 每灯四个 vec4，末尾 counts、shadow_view_projection 和 shadow_parameters，总计 2144 字节。
 每个 slot 等待完成后写入，FrameResources 由在途帧保活；灯光变化不更新材质 revision 或重建 MaterialSet。
 
 `lit_color` 提供纯色 albedo 和 Lambert 漫反射；点光使用有限范围衰减，聚光增加锥角权重。
 法线按模型矩阵逆转置变换，近奇异变换输出零法线；无有效灯光时为黑色，不添加隐藏环境光。
-强度是当前渲染参数，不承诺完整物理光度单位；尚无阴影、PBR、IBL 或 clustered/tiled 筛选。
+强度是当前渲染参数，不承诺完整物理光度单位；尚无 PBR、IBL 或 clustered/tiled 筛选。
+
+### 方向光阴影
+
+`ShadowPass::prepare` 对提交网格的世界包围盒求并集，再由 LightingData 选择前 32 灯中
+EntityId 最小、强度大于零且 casts_shadow 开启的方向光，构造覆盖场景的正交投影。
+无相机、无有效网格或无符合条件的光源时，阴影索引为 -1；旧场景缺失开关时默认关闭。
+阴影开关复用已有保存、克隆和属性撤销链路，不增加新组件或编辑命令。
+PropertyDescriptor 默认仍要求字段存在；仅 casts_shadow 显式标记 required=false，
+缺失时保留组件默认值，null／非法类型仍拒绝，不放宽其他必填字段。
+
+SceneRenderer 的有序图是 ShadowPass → scene → OutputPass。D32 深度图按帧槽位独立，
+深度写入到片元采样的 layout/access/stage 转换由 RenderGraph 生成；不在材质内插入屏障。
+ShadowPass 保留通道、目标、管线和 Mesh；FrameResources 保留实际采样 View 与 nearest Sampler，
+完整 RenderState 替换与 resize 都不销毁在途帧使用的资源。各 pass 的上传等待按 semaphore 合并。
+MaterialRenderer 只接收已准备的 LightingData 与有效采样 View，不创建隐式后备资源；
+未启用阴影时 ShadowPass 仍清除深度图，保持固定图与有效 descriptor。
+
+当前固定 1024²、单方向光、手工 3×3 PCF；使用接收平面深度梯度补偿邻域采样，
+偏移覆盖 nearest texel 量化误差并按入射角调整。所有提交网格均按不透明遮挡物处理，
+只有受光材质接收阴影。阴影视口使用正高度，与采样 UV 匹配；主场景仍使用负高度。
+尚无级联、texel 稳定化、视锥筛选、透明裁切、逐物体投影开关或点／聚光阴影；
+大场景或动态包围盒会降低精度并可能抖动，后续按实际画面需求扩展。
 
 Shader 热发布按程序接收完整顶点/片元对，可更新任意一个或多个程序；固定 Frame/Object 接口不可修改。
 MaterialShaders 是具名程序集合，不依附 MaterialRenderer 的嵌套类型；未知名称、空集合或不完整程序在 GPU 创建前拒绝。
@@ -191,7 +215,7 @@ MaterialShader 模块复用 ShaderInterface 反射校验，MaterialRenderer 保�
 各组未参与更新时保留原版本，全部候选准备成功后发布；SceneRenderer 合并保存成功的各组字节码，
 完整目标重建不会丢失其他程序的开发覆盖。编辑器监视六个材质阶段及其实际 include，
 包括 `common/mesh_vertex.glsl` 与 `lighting/forward.glsl`；生产目录约定见
-[Shader 说明](../../engine/shaders/README.md)。
+[README 的 Shader 开发](../../README.md#shader-开发)。
 
 ### 材质准备与寿命
 

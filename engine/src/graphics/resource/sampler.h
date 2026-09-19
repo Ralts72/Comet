@@ -14,6 +14,7 @@ namespace Comet {
     struct SamplerDesc {
         Filter mag_filter = Filter::Linear;
         Filter min_filter = Filter::Linear;
+        SamplerMipmapMode mipmap_mode = SamplerMipmapMode::Linear;
         SamplerAddressMode address_mode_u = SamplerAddressMode::Repeat;
         SamplerAddressMode address_mode_v = SamplerAddressMode::Repeat;
         SamplerAddressMode address_mode_w = SamplerAddressMode::Repeat;

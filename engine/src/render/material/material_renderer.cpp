@@ -29,15 +29,7 @@ namespace Comet {
             const GpuCompletionPoint& completion, const Flags<PipelineStage> stages) {
             if(!completion.is_valid())
                 return;
-            const QueueSemaphoreSubmit candidate(completion, stages);
-            const auto found = std::ranges::find_if(
-                waits, [&](const auto& wait) { return wait.semaphore == candidate.semaphore; });
-            if(found == waits.end()) {
-                waits.push_back(candidate);
-            } else {
-                found->value = std::max(found->value, candidate.value);
-                found->stage_mask = found->stage_mask | candidate.stage_mask;
-            }
+            merge_semaphore_wait(waits, QueueSemaphoreSubmit(completion, stages));
         }
     }
 
@@ -67,17 +59,23 @@ namespace Comet {
         if(!sampler)
             return Result<void, GraphicsError>::failure(sampler.error());
         m_sampler = std::move(sampler).value();
+        auto shadow_sampler = resources.get_sampler_manager().get_nearest_clamp();
+        if(!shadow_sampler)
+            return Result<void, GraphicsError>::failure(shadow_sampler.error());
         DescriptorSetLayoutBindings frame_bindings;
         frame_bindings.add_binding(
             0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
         frame_bindings.add_binding(
             1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
+        frame_bindings.add_binding(
+            2, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
         auto frame_layout = DescriptorSetLayout::create(device, frame_bindings);
         if(!frame_layout)
             return Result<void, GraphicsError>::failure(frame_layout.error());
         m_frame_layout = std::move(frame_layout).value();
         DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count * 2);
+        pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, frame_slot_count);
         auto pool_result = DescriptorPool::create(device, frame_slot_count, pool_sizes);
         if(!pool_result)
             return Result<void, GraphicsError>::failure(pool_result.error());
@@ -89,6 +87,7 @@ namespace Comet {
             auto frame = std::make_shared<FrameResources>();
             frame->layout = m_frame_layout;
             frame->pool = pool;
+            frame->shadow_sampler = shadow_sampler.value();
             auto buffer =
                 Buffer::try_create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::Uniform),
                     sizeof(ViewProjectMatrix), false, nullptr, "frame view-project");
@@ -139,9 +138,11 @@ namespace Comet {
             if(!fragment)
                 return Result<void, GraphicsError>::failure(fragment.error());
             const auto old = m_pipelines.find(std::string(layout_name));
-            const auto metadata = old == m_pipelines.end()
-                                      ? MaterialLayout::find_builtin(layout_name)
-                                      : old->second->layout;
+            std::shared_ptr<const MaterialLayout> metadata;
+            if(old == m_pipelines.end())
+                metadata = MaterialLayout::find_builtin(layout_name);
+            else
+                metadata = old->second->layout;
             auto reflected = MaterialLayout::reflect(metadata, fragment.value()->get_interface());
             if(!reflected)
                 return Result<void, GraphicsError>::failure({reflected.error()});
@@ -291,9 +292,9 @@ namespace Comet {
         const auto keep_previous = [&](const GraphicsError& error) {
             if(error.is_device_lost())
                 return Preparation::failure(error);
-            const auto previous = cached.resources && cached.resources->pipeline == pipeline->second
-                                      ? cached.resources
-                                      : nullptr;
+            std::shared_ptr<MaterialResources> previous;
+            if(cached.resources && cached.resources->pipeline == pipeline->second)
+                previous = cached.resources;
             if(cached.preparation_error != error.message) {
                 LOG_ERROR("Cannot prepare material for handle {}: {}; previous version {}",
                     material.material_handle.value(), error.message,
@@ -386,8 +387,12 @@ namespace Comet {
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> MaterialRenderer::render(
         FrameScheduler& frames, const std::optional<ViewProjectMatrix>& view,
-        const std::span<const ResolvedRenderItem> items,
-        const std::span<const RenderLight> lights) {
+        const std::span<const ResolvedRenderItem> items, const LightingData& lighting,
+        const std::shared_ptr<ImageView>& shadow_map) {
+        if(!frames.is_recording_frame() || &frames.get_device() != &m_device
+            || frames.get_current_frame_slot_index() >= m_frames.size() || !shadow_map)
+            return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
+                {"Invalid material render frame or shadow input"});
         const auto previous_omissions =
             std::pair(m_statistics.excess_lights, m_statistics.invalid_lights);
         m_statistics = {};
@@ -396,8 +401,13 @@ namespace Comet {
         if(view) {
             const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
             frame->buffer->write(&*view);
-            const auto lighting = LightingData::prepare(lights);
             frame->lighting->write(&lighting);
+            if(frame->shadow_map != shadow_map) {
+                const DescriptorSet::ImageSamplerWrite write{
+                    2, *shadow_map, *frame->shadow_sampler};
+                frame->descriptor->update(m_device, {}, std::span(&write, 1));
+                frame->shadow_map = shadow_map;
+            }
             m_statistics.light_count = static_cast<uint32_t>(lighting.counts.x);
             m_statistics.excess_lights = static_cast<uint32_t>(lighting.counts.y);
             m_statistics.invalid_lights = static_cast<uint32_t>(lighting.counts.z);

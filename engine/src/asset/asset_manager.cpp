@@ -242,23 +242,27 @@ namespace Comet {
         switch(expected_type) {
             case AssetType::Mesh: {
                 auto loaded = load_mesh(handle);
-                return loaded ? Result<void, Error>::success()
-                              : Result<void, Error>::failure(loaded.error());
+                if(!loaded)
+                    return Result<void, Error>::failure(loaded.error());
+                break;
             }
             case AssetType::Material: {
                 auto loaded = load_material(handle);
-                return loaded ? Result<void, Error>::success()
-                              : Result<void, Error>::failure(loaded.error());
+                if(!loaded)
+                    return Result<void, Error>::failure(loaded.error());
+                break;
             }
             case AssetType::Texture: {
                 auto loaded = load_texture(handle);
-                return loaded ? Result<void, Error>::success()
-                              : Result<void, Error>::failure(loaded.error());
+                if(!loaded)
+                    return Result<void, Error>::failure(loaded.error());
+                break;
             }
             default:
                 return Result<void, Error>::failure(
                     {"Runtime loading is not supported for this asset type"});
         }
+        return Result<void, Error>::success();
     }
 
     Result<std::vector<AssetHandle>, Error> AssetManager::process_completions() {
@@ -511,9 +515,11 @@ namespace Comet {
             return Result<std::shared_ptr<Texture>, Error>::failure({updated.error()});
         }
 
-        const bool published = previous_texture
-                                   ? m_registry.replace_asset(handle, texture.value())
-                                   : m_registry.register_asset(handle, texture.value());
+        bool published;
+        if(previous_texture)
+            published = m_registry.replace_asset(handle, texture.value());
+        else
+            published = m_registry.register_asset(handle, texture.value());
         if(!published) {
             return Result<std::shared_ptr<Texture>, Error>::failure(
                 {"Failed to publish runtime texture"});
@@ -648,8 +654,11 @@ namespace Comet {
         if(auto updated = m_database.update_dependencies(handle, get_asset_dependencies(data));
             !updated)
             return Result<void, Error>::failure({updated.error()});
-        const bool published = replace_existing ? m_registry.replace_asset(handle, material)
-                                                : m_registry.register_asset(handle, material);
+        bool published;
+        if(replace_existing)
+            published = m_registry.replace_asset(handle, material);
+        else
+            published = m_registry.register_asset(handle, material);
         if(!published)
             return Result<void, Error>::failure({"Failed to publish material"});
         return Result<void, Error>::success();

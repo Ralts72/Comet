@@ -140,13 +140,15 @@ namespace Comet {
         }
         m_active_generation = std::move(candidate).value();
         if(!m_output_format) {
-            const char* requested = m_request.output_mode == OutputMode::Hdr    ? "hdr"
-                                    : m_request.output_mode == OutputMode::Auto ? "auto"
-                                                                                : "sdr";
-            LOG_INFO("Display output: requested={}, actual={}", requested,
-                config.surface_format.colorSpace == vk::ColorSpaceKHR::eExtendedSrgbLinearEXT
-                    ? "hdr (extended linear sRGB)"
-                    : "sdr");
+            const char* requested = "sdr";
+            if(m_request.output_mode == OutputMode::Hdr)
+                requested = "hdr";
+            else if(m_request.output_mode == OutputMode::Auto)
+                requested = "auto";
+            const char* actual = "sdr";
+            if(config.surface_format.colorSpace == vk::ColorSpaceKHR::eExtendedSrgbLinearEXT)
+                actual = "hdr (extended linear sRGB)";
+            LOG_INFO("Display output: requested={}, actual={}", requested, actual);
             m_output_format = config.surface_format;
         }
 

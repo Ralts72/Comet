@@ -86,7 +86,7 @@ namespace Comet {
             const PipelineConfig& config);
 
         [[nodiscard]] static vk::PipelineColorBlendStateCreateInfo create_color_blend_state(
-            const PipelineConfig& config);
+            std::span<const vk::PipelineColorBlendAttachmentState> attachments);
 
         [[nodiscard]] static vk::PipelineViewportStateCreateInfo create_viewport_state(
             const vk::Viewport& viewport, const vk::Rect2D& scissor);

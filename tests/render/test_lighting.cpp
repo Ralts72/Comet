@@ -21,6 +21,7 @@ namespace Comet::Tests {
         transform.scale = {2, -3, -4};
         auto light = scene.create_entity("light");
         light.add_component<LightComponent>().type = LightType::Spot;
+        light.get_component<LightComponent>().casts_shadow = true;
         auto& child = light.get_component<TransformComponent>();
         child.translation = {0, 0, 2};
         child.scale = {0, -10, 0};
@@ -44,6 +45,7 @@ namespace Comet::Tests {
         extracted.lights.clear();
         ASSERT_EQ(submission.lights.size(), 1);
         EXPECT_EQ(submission.lights[0].entity_id, light.get_id());
+        EXPECT_TRUE(submission.lights[0].casts_shadow);
     }
 
     TEST(LightingTest, PacksDeterministicBoundedValidLightsAndReportsRejectedInputs) {
@@ -99,8 +101,93 @@ namespace Comet::Tests {
             [](const auto& binding) { return binding.set == 0 && binding.binding == 1; });
         ASSERT_NE(found, shader.get_bindings().end());
         EXPECT_EQ(found->block_size, sizeof(LightingData));
-        ASSERT_EQ(found->members.size(), 2);
-        EXPECT_EQ(found->members.back().offset, offsetof(LightingData, counts));
+        ASSERT_EQ(found->members.size(), 4);
+        EXPECT_EQ(found->members[1].offset, offsetof(LightingData, counts));
+        EXPECT_EQ(found->members[2].offset, offsetof(LightingData, shadow_view_projection));
+        EXPECT_EQ(found->members[3].offset, offsetof(LightingData, shadow_parameters));
+    }
+
+    TEST(LightingTest, FitsDirectionalShadowBoundsAndHandlesVerticalDirections) {
+        const BoundingBox bounds{{-3, -1, -8}, {7, 4, 2}};
+        for(const Math::Vec3 direction : {Math::Vec3(0, 0, -1), Math::Vec3(0, -1, 0),
+                Math::Vec3(0, 1, 0), Math::Vec3(1, -2, 3)}) {
+            RenderLight light{.direction = direction, .casts_shadow = true};
+            auto data = LightingData::prepare(std::span(&light, 1));
+            data.prepare_shadow(bounds, 1024);
+            ASSERT_EQ(data.shadow_parameters.x, 0);
+            EXPECT_FLOAT_EQ(data.shadow_parameters.z, 1.0f / 1024);
+            for(int corner = 0; corner < 8; ++corner) {
+                auto point = bounds.minimum;
+                for(int axis = 0; axis < 3; ++axis)
+                    if(corner & (1 << axis))
+                        point[axis] = bounds.maximum[axis];
+                const auto clip = data.shadow_view_projection * Math::Vec4(point, 1);
+                ASSERT_TRUE(Math::is_finite(clip));
+                EXPECT_LT(std::abs(clip.x), 1);
+                EXPECT_LT(std::abs(clip.y), 1);
+                EXPECT_GT(clip.z, 0);
+                EXPECT_LT(clip.z, 1);
+            }
+        }
+    }
+
+    TEST(LightingTest, ShadowSelectsOnlyRetainedDirectionalLightAndResetsInvalidFit) {
+        std::vector<RenderLight> lights{{.entity_id = 8, .casts_shadow = true},
+            {.entity_id = 1, .type = LightType::Point, .casts_shadow = true}, {.entity_id = 2},
+            {.entity_id = 4, .intensity = 0, .casts_shadow = true},
+            {.entity_id = 6, .casts_shadow = true}};
+        auto data = LightingData::prepare(lights);
+        const BoundingBox bounds{{-1, -1, -1}, {1, 1, 1}};
+        data.prepare_shadow(bounds, 1024);
+        EXPECT_EQ(data.shadow_parameters.x, 3);
+        data.prepare_shadow(bounds, 0);
+        EXPECT_EQ(data.shadow_parameters.x, -1);
+        data.prepare_shadow(BoundingBox::from_point({0, 0, 0}), 1024);
+        EXPECT_EQ(data.shadow_parameters.x, -1);
+        data.prepare_shadow({{2, 0, 0}, {1, 1, 1}}, 1024);
+        EXPECT_EQ(data.shadow_parameters.x, -1);
+        lights.clear();
+        for(uint32_t id = 0; id < 33; ++id)
+            lights.push_back({.entity_id = id, .casts_shadow = id == 32});
+        data = LightingData::prepare(lights);
+        data.prepare_shadow(bounds, 1024);
+        EXPECT_EQ(data.shadow_parameters.x, -1);
+    }
+
+    TEST(LightingTest, ShadowFlagUsesPropertyUndoSerializationAndLegacyDefault) {
+        auto registry = create_scene_component_registry();
+        SceneSerializer serializer(registry);
+        Scene scene;
+        auto light = scene.create_entity("shadow light");
+        light.add_component<LightComponent>();
+        CometEditor::CommandHistory history;
+        history.bind_scene(&scene);
+        CometEditor::PropertyEditTransaction edit(history, registry);
+        ASSERT_TRUE(edit.begin({light.get_uuid(), "light", "casts_shadow"}));
+        ASSERT_TRUE(edit.preview(true));
+        ASSERT_TRUE(edit.commit());
+        EXPECT_TRUE(light.get_component<LightComponent>().casts_shadow);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(light.get_component<LightComponent>().casts_shadow);
+        ASSERT_TRUE(history.redo());
+        auto cloned = serializer.clone(scene);
+        ASSERT_TRUE(cloned) << cloned.error();
+        EXPECT_TRUE(cloned.value()
+                ->find_entity(light.get_uuid())
+                .get_component<LightComponent>()
+                .casts_shadow);
+        auto legacy = serializer.deserialize(R"({"version": 2, "entities": [{
+            "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d03",
+            "components": {"name": "Legacy light", "light": {
+                "type": "directional", "enabled": true, "color": [1, 1, 1],
+                "intensity": 1, "range": 10, "inner_angle": 20, "outer_angle": 30
+            }}
+        }]})");
+        ASSERT_TRUE(legacy) << legacy.error();
+        const auto legacy_id = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d03");
+        ASSERT_TRUE(legacy_id);
+        EXPECT_FALSE(
+            legacy.value()->find_entity(*legacy_id).get_component<LightComponent>().casts_shadow);
     }
 
     TEST(LightingTest, TypedEnumRoundTripsAndUsesExistingPropertyUndoAndClone) {

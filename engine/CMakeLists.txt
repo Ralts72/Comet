@@ -28,6 +28,7 @@ set(SOURCES
         src/render/presentation.cpp
         src/render/render_graph.cpp
         src/render/passes/output_pass.cpp
+        src/render/passes/shadow_pass.cpp
         src/config/config_loader.cpp
         src/diagnostics/diagnostics.cpp
         src/diagnostics/profiler.cpp

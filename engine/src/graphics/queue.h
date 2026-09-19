@@ -5,6 +5,7 @@
 #include "vk_common.h"
 
 #include <memory>
+#include <vector>
 
 namespace Comet {
     class Device;
@@ -22,6 +23,10 @@ namespace Comet {
 
         QueueSemaphoreSubmit(const GpuCompletionPoint& completion, Flags<PipelineStage> stage_mask);
     };
+
+    // 同一 semaphore 只提交一次等待，取最大 timeline 值并合并消费者阶段。
+    COMET_API void merge_semaphore_wait(
+        std::vector<QueueSemaphoreSubmit>& waits, const QueueSemaphoreSubmit& candidate);
 
     class COMET_API Queue {
     public:

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CALLER_DIRECTORY="$PWD"
 cd "$ROOT_DIR"
 
 echo "配置 app-release（Release）..."
@@ -14,7 +15,8 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 if [ -x "$EXEC" ]; then
     echo "运行 Release App: $EXEC"
-    "$EXEC"
+    cd "$CALLER_DIRECTORY"
+    exec "$EXEC" "$@"
 else
     echo "Release App executable not found: $EXEC"
     exit 1

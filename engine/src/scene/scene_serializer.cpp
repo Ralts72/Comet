@@ -249,6 +249,9 @@ namespace Comet {
                         continue;
                     }
                     const std::string property_location = component_location + "." + property.id;
+                    if(!property.required
+                        && component[property.id].error() == simdjson::NO_SUCH_FIELD)
+                        continue;
                     const auto child =
                         context.required_child(component, property.id, component_location);
                     if(!child)

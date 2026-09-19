@@ -76,6 +76,7 @@ namespace Comet {
         // 本地 -Z 为出光方向；聚光半锥角，单位为度。
         float inner_angle = 20.0f;
         float outer_angle = 30.0f;
+        bool casts_shadow = false;
     };
 
     struct COMET_API CameraComponent {

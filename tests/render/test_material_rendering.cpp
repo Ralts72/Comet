@@ -211,6 +211,8 @@ namespace Comet::Tests {
             device, pipelines, engine->get_render_resources(), 2, SampleCount::Count1);
         ASSERT_TRUE(material_result) << material_result.error();
         auto materials = std::move(material_result).value();
+        const auto shadow_input = texture({255, 255, 255, 255});
+        ASSERT_TRUE(shadow_input) << shadow_input.error();
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         const MeshData mesh_data{.vertices = {{{-0.4f, -0.8f, 0.5f}}, {{0.4f, -0.8f, 0.5f}},
@@ -391,7 +393,8 @@ namespace Comet::Tests {
             command.set_viewport(Graphics::get_viewport(64, 32));
             command.set_scissor(Graphics::get_scissor(64, 32));
             const auto waits = materials->render(frames,
-                ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)}, items);
+                ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)}, items, {},
+                shadow_input.value()->get_image_view());
             ASSERT_TRUE(waits) << waits.error();
             target->end_render_target(command);
             vk::MemoryBarrier barrier(

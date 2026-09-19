@@ -34,6 +34,12 @@ namespace Comet::Tests {
         ASSERT_TRUE(valid) << valid.error();
         EXPECT_TRUE(valid.value()->get());
         EXPECT_EQ(valid.value()->get_subpass_count(), 1u);
+        EXPECT_EQ(valid.value()->get_color_attachment_count(0), 1u);
+        auto depth_only =
+            RenderPass::create(device, {Attachment::get_depth_attachment(Format::D32_SFLOAT)},
+                {RenderSubPass{.depth_stencil_attachments = {SubpassDepthStencilAttachment(0)}}});
+        ASSERT_TRUE(depth_only) << depth_only.error();
+        EXPECT_EQ(depth_only.value()->get_color_attachment_count(0), 0u);
     }
 
     TEST_F(RenderPassTest, FailedTargetDoesNotReplaceSwapchainGeneration) {

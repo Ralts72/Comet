@@ -2,6 +2,7 @@
 #include "render/material/material_layout.h"
 #include "render/render_graph.h"
 #include "render/passes/output_pass.h"
+#include "render/passes/shadow_pass.h"
 #include "graphics/frame_buffer.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/device.h"
@@ -24,6 +25,7 @@ namespace Comet {
         std::shared_ptr<RenderPass> scene_pass;
         std::unique_ptr<PipelineManager> pipelines;
         std::unique_ptr<OutputPass> output_pass;
+        std::unique_ptr<ShadowPass> shadow_pass;
         std::shared_ptr<RenderTarget> hdr_target;
         std::shared_ptr<RenderTarget> output_target;
         std::unique_ptr<MaterialRenderer> materials;
@@ -71,16 +73,22 @@ namespace Comet {
         if(!pass)
             return Creation::failure(pass.error());
         next->scene_pass = std::move(pass).value();
-        const auto surface_output =
-            swapchain ? swapchain->get_active_generation()->get_config().surface_format
-                      : vk::SurfaceFormatKHR{Graphics::format_to_vk(m_offscreen_format),
-                            vk::ColorSpaceKHR::eSrgbNonlinear};
+        vk::SurfaceFormatKHR surface_output;
+        if(swapchain)
+            surface_output = swapchain->get_active_generation()->get_config().surface_format;
+        else
+            surface_output = vk::SurfaceFormatKHR{
+                Graphics::format_to_vk(m_offscreen_format), vk::ColorSpaceKHR::eSrgbNonlinear};
         auto output_pass = OutputPass::create(m_device,
             Graphics::vk_to_format(surface_output.format), next->offscreen, m_frame_slot_count,
             Graphics::vk_to_image_color_space(surface_output.colorSpace), m_hdr_headroom);
         if(!output_pass)
             return Creation::failure(output_pass.error());
         next->output_pass = std::move(output_pass).value();
+        auto shadow_pass = ShadowPass::create(m_device, m_frame_slot_count);
+        if(!shadow_pass)
+            return Creation::failure(shadow_pass.error());
+        next->shadow_pass = std::move(shadow_pass).value();
         if(auto targets = replace_targets(*next, swapchain, size); !targets)
             return Creation::failure(targets.error());
         next->pipelines = std::make_unique<PipelineManager>(m_device, *next->scene_pass);
@@ -96,6 +104,10 @@ namespace Comet {
             return Creation::failure(debug.error());
         next->debug = std::move(debug).value();
         RenderGraph graph;
+        const auto shadow = graph.import_image(
+            "shadow depth", {.subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}});
+        graph.add_pass(
+            {"directional shadow", {{shadow, ResourceUsage::DepthStencilAttachmentWrite, {}}}});
         RenderGraph::Pass scene{"scene", {}};
         RenderGraph::ResourceId output;
         for(const auto& attachment : next->scene_pass->get_attachments()) {
@@ -105,13 +117,15 @@ namespace Comet {
                 aspects |= ImageAspect::Stencil;
             const auto id = graph.import_image("attachment " + std::to_string(scene.uses.size()),
                 {.subresources = {.aspects = aspects}});
-            scene.uses.push_back({id,
-                is_depth ? ResourceUsage::DepthStencilAttachmentWrite
-                         : ResourceUsage::ColorAttachmentWrite,
-                {}});
+            auto usage = ResourceUsage::ColorAttachmentWrite;
+            if(is_depth)
+                usage = ResourceUsage::DepthStencilAttachmentWrite;
+            scene.uses.push_back({id, usage, {}});
             if(!is_depth)
                 output = id;
         }
+        scene.uses.push_back({shadow, ResourceUsage::SampledRead,
+            Flags<PipelineStage>(PipelineStage::FragmentShader)});
         graph.add_pass(std::move(scene));
         graph.add_pass({"tone map", {{output, ResourceUsage::SampledRead,
                                         Flags<PipelineStage>(PipelineStage::FragmentShader)}}});
@@ -211,42 +225,51 @@ namespace Comet {
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::render(
         FrameScheduler& frames, const RenderSubmission& submission, const LineDrawList& lines) {
         PROFILE_SCOPE("SceneRenderer::render");
+        using RenderResult = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         frames.retain_current_frame_resource(m_state);
         frames.retain_current_frame_resource(m_state->output_target);
         frames.retain_current_frame_resource(m_state->hdr_target);
         const auto image = frames.get_current_frame_slot_index();
-        std::vector<RenderGraph::Binding> bindings;
+        const auto lighting = ShadowPass::prepare(submission);
+        std::vector<RenderGraph::Binding> bindings{
+            m_state->shadow_pass->get_depth_view(image)->get_image()};
         for(const auto& view : m_state->hdr_target->get_framebuffer(image)->get_attachments())
             bindings.emplace_back(view->get_image());
         std::vector<QueueSemaphoreSubmit> waits;
         const auto recorded = m_state->graph.record(frames, bindings,
-            [this, &frames, &submission, &lines, &waits](size_t pass, CommandBuffer& command) {
-                if(pass == 1)
+            [this, &frames, &submission, &lines, &waits, &lighting](
+                size_t pass, CommandBuffer& command) {
+                if(pass == 2)
                     return m_state->output_pass->render(frames, m_state->output_target,
                         m_state->hdr_target->get_color_view(frames.get_current_frame_slot_index()));
-                auto drawn = draw_scene(frames, command, submission, lines);
+                auto drawn = RenderResult::success({});
+                if(pass == 0)
+                    drawn = m_state->shadow_pass->render(frames, lighting, submission.render_items);
+                else
+                    drawn = draw_scene(frames, command, submission, lines, lighting);
                 if(!drawn)
                     return Result<void, GraphicsError>::failure(drawn.error());
-                waits = std::move(drawn).value();
+                for(const auto& wait : drawn.value())
+                    merge_semaphore_wait(waits, wait);
                 return Result<void, GraphicsError>::success();
             });
         if(!recorded)
-            return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
-                recorded.error());
-        return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success(std::move(waits));
+            return RenderResult::failure(recorded.error());
+        return RenderResult::success(std::move(waits));
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::draw_scene(
         FrameScheduler& frames, CommandBuffer& command, const RenderSubmission& submission,
-        const LineDrawList& lines) {
+        const LineDrawList& lines, const LightingData& lighting) {
         m_state->hdr_target->begin_render_target(command, frames.get_current_frame_slot_index());
         const auto size = m_state->hdr_target->get_size();
         command.set_viewport(
             Graphics::get_viewport(static_cast<float>(size.x), static_cast<float>(size.y)));
         command.set_scissor(
             Graphics::get_scissor(static_cast<float>(size.x), static_cast<float>(size.y)));
-        auto waits = m_state->materials->render(
-            frames, submission.view_project_matrix, submission.render_items, submission.lights);
+        auto waits = m_state->materials->render(frames, submission.view_project_matrix,
+            submission.render_items, lighting,
+            m_state->shadow_pass->get_depth_view(frames.get_current_frame_slot_index()));
         if(!waits)
             return waits;
         if(submission.view_project_matrix) {

@@ -110,9 +110,11 @@ namespace Comet {
                 return Scalar::Unknown;
             if(type->type_flags & SPV_REFLECT_TYPE_FLAG_FLOAT)
                 return Scalar::Float;
-            if(type->type_flags & SPV_REFLECT_TYPE_FLAG_INT)
-                return type->traits.numeric.scalar.signedness ? Scalar::SignedInteger
-                                                              : Scalar::UnsignedInteger;
+            if(type->type_flags & SPV_REFLECT_TYPE_FLAG_INT) {
+                if(type->traits.numeric.scalar.signedness)
+                    return Scalar::SignedInteger;
+                return Scalar::UnsignedInteger;
+            }
             if(type->type_flags & SPV_REFLECT_TYPE_FLAG_BOOL)
                 return Scalar::Boolean;
             return Scalar::Unknown;

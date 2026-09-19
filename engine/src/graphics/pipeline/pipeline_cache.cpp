@@ -133,8 +133,11 @@ namespace Comet {
             return RestoreResult::success();
         m_load_status = LoadStatus::Rejected;
         auto file = read_file(m_path);
-        auto data = file ? decode(file.value(), m_properties)
-                         : Result<std::span<const std::byte>>::failure(file.error());
+        if(!file) {
+            LOG_WARN("Pipeline cache '{}' rejected: {}", m_path.string(), file.error());
+            return RestoreResult::success();
+        }
+        auto data = decode(file.value(), m_properties);
         if(!data) {
             LOG_WARN("Pipeline cache '{}' rejected: {}", m_path.string(), data.error());
             return RestoreResult::success();

@@ -69,11 +69,27 @@
         "light": {
           "type": "directional",
           "enabled": true,
+          "casts_shadow": true,
           "color": [1, 1, 1],
           "intensity": 4,
           "range": 10,
           "inner_angle": 20,
           "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d04",
+      "components": {
+        "name": "Ground",
+        "transform": {
+          "translation": [0, -0.8, 0],
+          "rotation": [0, 0, 0],
+          "scale": [4, 0.1, 4]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 9429603817048603172
         }
       }
     }

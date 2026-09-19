@@ -29,6 +29,8 @@ namespace Comet {
             return false;
         };
         if(!valid_filter(desc.mag_filter) || !valid_filter(desc.min_filter)
+            || (desc.mipmap_mode != SamplerMipmapMode::Nearest
+                && desc.mipmap_mode != SamplerMipmapMode::Linear)
             || !valid_address(desc.address_mode_u) || !valid_address(desc.address_mode_v)
             || !valid_address(desc.address_mode_w))
             return Result<std::shared_ptr<Sampler>, GraphicsError>::failure(
@@ -52,7 +54,7 @@ namespace Comet {
         info.maxAnisotropy = desc.max_anisotropy;
         info.borderColor = vk::BorderColor::eIntOpaqueBlack;
         info.unnormalizedCoordinates = false;
-        info.mipmapMode = vk::SamplerMipmapMode::eLinear;
+        info.mipmapMode = Graphics::sampler_mipmap_mode_to_vk(desc.mipmap_mode);
         info.mipLodBias = 0.0f;
         info.minLod = 0.0f;
         info.maxLod = VK_LOD_CLAMP_NONE;
@@ -83,6 +85,7 @@ namespace Comet {
         SamplerDesc desc;
         desc.mag_filter = Filter::Nearest;
         desc.min_filter = Filter::Nearest;
+        desc.mipmap_mode = SamplerMipmapMode::Nearest;
         desc.address_mode_u = SamplerAddressMode::ClampToEdge;
         desc.address_mode_v = SamplerAddressMode::ClampToEdge;
         desc.address_mode_w = SamplerAddressMode::ClampToEdge;

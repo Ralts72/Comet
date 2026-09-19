@@ -182,14 +182,13 @@ namespace Comet {
             && same_local)
             return false;
 
-        const auto* parent_world =
-            parent == INVALID_ENTITY_ID
-                ? nullptr
-                : &m_registry.get<WorldTransformComponent>(m_entities_by_id.at(parent));
+        const WorldTransformComponent* parent_world = nullptr;
+        if(parent != INVALID_ENTITY_ID)
+            parent_world = &m_registry.get<WorldTransformComponent>(m_entities_by_id.at(parent));
         auto& world = m_registry.get<WorldTransformComponent>(handle);
-        const Math::Mat4 pose_local =
-            local ? Math::compose_trs(local->translation, local->rotation, Math::Vec3(1))
-                  : Math::Mat4(1);
+        Math::Mat4 pose_local(1);
+        if(local)
+            pose_local = Math::compose_trs(local->translation, local->rotation, Math::Vec3(1));
         const Math::Mat4 local_matrix = local ? Math::scale(pose_local, local->scale) : pose_local;
         world.world_matrix =
             parent_world ? parent_world->world_matrix * local_matrix : local_matrix;

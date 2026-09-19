@@ -149,6 +149,8 @@ namespace Comet {
                  {{LightType::Directional, {"directional", "Directional"}},
                      {LightType::Point, {"point", "Point"}}, {LightType::Spot, {"spot", "Spot"}}}),
                 make_property_descriptor("enabled", "Enabled", &LightComponent::enabled),
+                make_property_descriptor("casts_shadow", "Cast shadow (directional)",
+                    &LightComponent::casts_shadow, {.required = false}),
                 make_property_descriptor("color", "Color (linear)", &LightComponent::color,
                     {.numeric = {.speed = 0.01f, .minimum = 0.0f, .maximum = 1.0f}}),
                 make_property_descriptor("intensity", "Intensity", &LightComponent::intensity,

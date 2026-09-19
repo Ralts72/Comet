@@ -27,6 +27,9 @@ namespace Comet::Tests {
         invalid = {};
         invalid.address_mode_w = static_cast<SamplerAddressMode>(-1);
         EXPECT_FALSE(Sampler::create(device, invalid));
+        invalid = {};
+        invalid.mipmap_mode = static_cast<SamplerMipmapMode>(-1);
+        EXPECT_FALSE(Sampler::create(device, invalid));
 
         auto valid = Sampler::create(device);
         ASSERT_TRUE(valid) << valid.error();
@@ -72,6 +75,7 @@ namespace Comet::Tests {
         const auto& nearest_desc = nearest.value()->get_description();
         EXPECT_EQ(nearest_desc.mag_filter, Filter::Nearest);
         EXPECT_EQ(nearest_desc.min_filter, Filter::Nearest);
+        EXPECT_EQ(nearest_desc.mipmap_mode, SamplerMipmapMode::Nearest);
         EXPECT_EQ(nearest_desc.address_mode_u, SamplerAddressMode::ClampToEdge);
         EXPECT_EQ(nearest_desc.address_mode_v, SamplerAddressMode::ClampToEdge);
         EXPECT_EQ(nearest_desc.address_mode_w, SamplerAddressMode::ClampToEdge);

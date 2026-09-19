@@ -6,6 +6,7 @@ set(SHADER_PROGRAMS
         material/lambert
         debug/line
         post/display
+        shadow/directional
 )
 set(SHADER_FILES)
 foreach(PROGRAM IN LISTS SHADER_PROGRAMS)

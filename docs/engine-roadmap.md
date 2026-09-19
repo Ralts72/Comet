@@ -19,7 +19,7 @@
 以当前 main 的功能与验收为准，继续逐项对照 feat/auto2 的实现及原始提交，而不是机械 cherry-pick。
 每项先注明对应旧提交、当前覆盖、需要调整及仍未覆盖的范围，再适配 main 的 Result、目录边界和生命周期；
 临时代码说明留在仓库内供学习，不进入提交。旧分支的已实现行为不能只因 main 有同名功能就判为完整覆盖。
-材质布局重建、呈现／场景边界和完整目标事务已收敛；辅助线 Shader 热更新按实际需求暂缓，旧 026 驱动 PipelineCache、旧 027 WSI 恢复、旧 028 有序 RenderGraph 与旧 029 HDR／SDR 双 pass 已核对适配；旧 030 类型化光源与有界 forward 光照已按当前所有权和 Result 协议适配；下一步对照方向光阴影 pass 与采样依赖；
+材质布局重建、呈现／场景边界和完整目标事务已收敛；辅助线 Shader 热更新按实际需求暂缓，旧 026 驱动 PipelineCache、旧 027 WSI 恢复、旧 028 有序 RenderGraph 与旧 029 HDR／SDR 双 pass 已核对适配；旧 030 类型化光源与有界 forward 光照、旧 031 单方向光阴影已按当前所有权和 Result 协议适配；下一步对照 PBR 与 base-color 纹理；
 阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
@@ -226,7 +226,8 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
 - 027 `88cdd4a`：主线已由 Presentation 管恢复，补齐独立 WSI 故障注入回归及持续 INCOMPLETE 的有界枚举；保留 1／2／4 秒预算和 SurfaceLost 扩展，不恢复旧 SceneRenderer 编排或固定间隔无限重试。人工 ImGui、真实平台 SurfaceLost 及设备恢复仍不在覆盖内。
 - 028 `fd1d5f3`：已适配有序资源声明、纯 CPU 同步计划、当前离屏目标及真实 GPU producer/consumer。声明统一在 compile 返回 Result，录制失败保留 GraphicsError，复用 Barrier2／FrameSlot；同步校验覆盖子资源、区间、跨提交、MSAA 与 resize。外部 upload／WSI 等待保持显式；尚无 DAG 重排、瞬态分配、多队列、内存别名跟踪或 RenderThread。
 - 029 `624a143`：已适配 RGBA16F 场景与共享 fullscreen 输出，保留 Result、短回调和完整 RenderState 所有权；中间／输出目标成对替换，提前检查 HDR 格式与采样数。启动配置支持 sdr/hdr/auto，HDR 优先 RGBA16F + 扩展线性 sRGB，不支持时回退 SDR；编辑器固定 SDR。GPU 像素验证覆盖 RGBA/BGRA、sRGB/UNORM、浮点 HDR、高亮、曝光、方向、MSAA、resize 和在途资源保活。尚无显示器亮度校准、HDR10/PQ、自动曝光、中间格式降级或第二目标 OOM 故障注入。
-- 030 `30dce0f`：已适配方向／点／聚光、32 灯上限、lit_color 和帧 UBO；枚举共用 Inspector／撤销／JSON，姿态保留主线的层级去缩放语义。热发布与重建保留各组成功字节码，不迁回 ShaderManager、旧 YAML 或异常。CPU、UI 和 GPU 像素／版本寿命测试覆盖主链路；人工视觉与远端平台验收另行进行。下一项为方向光阴影 pass，PBR 与 Bloom 后续推进。
+- 030 `30dce0f`：已适配方向／点／聚光、32 灯上限、lit_color 和帧 UBO；枚举共用 Inspector／撤销／JSON，姿态保留主线的层级去缩放语义。热发布与重建保留各组成功字节码，不迁回 ShaderManager、旧 YAML 或异常。CPU、UI 和 GPU 像素／版本寿命测试覆盖主链路；人工视觉与远端平台验收另行进行。
+- 031 `531c7b6`：适配为 `passes/ShadowPass`，深度图与 FrameSet 按槽位独立，复用 RenderGraph 深度写入／采样依赖与上传等待合并；创建和录制返回 Result。纯深度管线按真实子通道颜色附件数创建。单方向光、1024²、3×3 PCF，覆盖开关、删除、移动、目标重建和在途寿命；不迁入旧异常与命名。级联、稳定化、透明裁切、点／聚光阴影及跨平台视觉验收后续处理。
 - 原生文件监听按阶段 3 专项安排，旧分支同样采用轮询，不作为最终方案迁回。
 
 specialization 已贯通类型化值、默认值规范化、反射校验、PipelineKey 和 GPU 创建。
@@ -413,7 +414,7 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 
 ### RenderGraph 与多 pass
 
-- 当前有序图已用于 app/editor 的 HDR 场景与色调映射双 pass；详细录制与失败契约见[渲染所有权](architecture/rendering-ownership.md#有序-rendergraph)。
+- 当前有序图已用于 app/editor 的方向光阴影、HDR 场景与显示输出 pass；详细录制与失败契约见[渲染所有权](architecture/rendering-ownership.md#有序-rendergraph)。
   后续多 pass 优先复用现有图，不把当前单 queue 实现描述成自动多队列调度器。
 - Pass 声明读写 usage/subresource；imported/exported 资源明确边界状态，tracker 编译 Barrier2。
   Image 不保存单一全局 current_layout；状态属于录制/编译上下文，持久资源在提交边界交接 handoff state。
@@ -422,10 +423,15 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 - Synchronization 2 / Timeline 已启用；API version 为 1.3 不代表所有可选 feature 自动启用。
 - Dynamic Rendering 在真实多 pass/attachment 需求下评估，不为 API 更换重写阶段 4。
   检查显式 feature、ImGui/MSAA/resize、调试工具和目标 GPU；可按 pass 保留传统 RenderPass。
-- 有界 Forward Lighting 与三类 LightComponent 已接通；继续 shadow → PBR → bloom。
+- 有界 Forward Lighting、三类 LightComponent 与单方向光阴影已接通；继续 PBR → bloom。
   纹理受光材质随 PBR/base-color 纹理接入：结合现有 demo 的纹理与灯光，复用材质准备和 Shader 发布链路，
   保留旧 unlit 模板与资产身份；迁移时明确 tint/albedo、纹理色彩空间和混合参数的映射，不只替换模板名。
   先完成小型 forward 场景，不一次构建完整 deferred renderer。
+- 天空盒／环境贴图尚未实现：安排在基础 PBR 与 base-color 纹理之后。先补齐 cubemap／HDR 环境资产的
+  导入、GPU 上传和采样，再接入仅绘制背景的 SkyboxPass，复用 HDR 目标、RenderGraph 与按帧资源保活。
+  天空盒只随相机旋转，不随位置平移，不能覆盖场景几何；验证朝向、深度、曝光和 SDR／HDR 输出。
+  背景可见不等于环境光照：漫反射 irradiance、镜面预滤波和 BRDF LUT 的 IBL 独立跟进，
+  不把环境贴图套到普通 Mesh 材质上，也不与显示器 HDR 开关混为一谈。
 - 显示输出已支持启动时选择 SDR / 扩展线性 HDR，默认 SDR；后续按真实需求增加显示器 headroom／白点校准、
   HDR10/PQ、跨屏及系统模式切换后的安全重建，再处理编辑器 HDR 视口与 UI 亮度合成。不是下一项光源迁移的前置条件。
 - 低频采样 GPU memory budget，详细 allocation dump 手动触发；补足 CPU/GPU frame-time 诊断。
@@ -454,6 +460,9 @@ validation、同步测试和生命周期回归通过。
 ## 阶段 6：游戏运行时
 
 - Input（键鼠/手柄）、Fixed Update 与普通 Update、Native Script 生命周期和字段暴露。
+- app 与 editor 已共用项目与启动场景数据；app 对仓库 demo 的固定 UUID 旋转仅是演示行为，
+  外部项目和 editor Play 不执行它。通用 System／脚本接入后统一 app／Play 行为注册、场景替换和生命周期，
+  移除 app 内的演示 UUID 绑定；本轮不为示例旋转添加专用组件或空壳 System。
 - EditorMode 只含 Edit/Play；RuntimeState（Running/Paused）与之正交，支持暂停/单步，不增加 EditorMode::Paused。
 - 当前 Engine::run 管循环、私有 tick 推进单帧；on_update 后准备帧，帧就绪才执行 on_frame_ready，然后提取当前场景并渲染。
   两个函数仅在 run 调用期间借用；编辑器请求执行与后台维护在 on_update，UI/请求收集/即时属性与视口更新在 on_frame_ready。无通用阶段注册表或预留 Late 钩子。
@@ -478,9 +487,11 @@ validation、同步测试和生命周期回归通过。
 
 ## 阶段 7：项目格式与发布
 
-- 已提前补齐最小项目入口：`project.json` 保存版本、名称和可选启动场景；编辑器接受项目目录／描述文件路径。
+- 已提前补齐最小项目入口：`project.json` 保存版本、名称和可选启动场景；app／editor 接受项目目录／描述文件路径。
   项目 roots、资产索引、缓存、布局及 SceneDocument 均绑定同一项目；相对场景路径基于 assets，拒绝越界 Open/Save。
   无参数打开仓库 `demo/` 内的独立示例项目，显式无效项目不回退示例；空启动场景创建空文档，不硬编码示例资源。
+  app 同样读取启动场景并按组件引用加载资产，启动时同步确保 Mesh Artifact；指定场景／必需资源损坏时报错退出，
+  editor 保留缺失引用供修复。app 尚未去掉开发期导入器与源码目录依赖，不等同于 Shipping Manifest 加载。
 - 编辑器内增加 File → Open Project，与现有 Open Scene 分开；选择目录或 project.json，并提供最近项目列表。
   切换前处理未保存场景和活动属性／Gizmo 编辑，Play 模式先退出；取消或新项目校验失败时保持当前项目不变。
   第一版可通过重启编辑器进程打开新项目，避免直接交换活动 AssetManager；若支持原地切换，须先排空旧任务和在途帧，
@@ -489,7 +500,7 @@ validation、同步测试和生命周期回归通过。
 - 后续扩展项目设置 UI、记录上次文档、Build Settings 和项目模板，去掉发布对源码目录的依赖。
   项目创建时生成 project.json；项目设置修改并校验成功后自动原子保存，不单独增加 Save Project 按钮。
   Save Scene 仅保存场景，不连带重写项目描述；只有启动场景等项目设置变化才保存项目，编辑器本地状态仍放 .comet/。
-  让 app 读取项目场景，替换当前独立代码示例；编辑器／引擎自带 Profile、字体和 Shader 与项目内容保持分离。
+  编辑器／引擎自带 Profile、字体和 Shader 与项目内容保持分离。
 - 已提前接入确定性 JSON：编辑器生成的 .scene v2、.mat v2、.meta v3 使用 JSON，扩展名与身份引用不变。
   .scene 按 children 嵌套保存子实体，保留 UUID，并在根节点和每组兄弟节点内稳定排序；不兼容旧 parent 字段。
   engine 显式依赖 simdjson，Scene/Material/Metadata 共用 JSON 读写工具。
