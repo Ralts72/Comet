@@ -8,7 +8,6 @@
 #include "render/frame_scheduler.h"
 #include "render/material/material_renderer.h"
 #include "render/presentation.h"
-#include "render/post_process.h"
 
 #include <functional>
 #include <memory>
@@ -52,8 +51,6 @@ namespace Comet {
         [[nodiscard]] const RenderDiagnostics& get_diagnostics() const { return *m_diagnostics; }
 
         Result<void, GraphicsError> set_render_view(RenderView view);
-        // 仅允许在帧间修改；准备失败时保留旧参数和资源。
-        Result<void, GraphicsError> set_post_process_settings(const PostProcessSettings& settings);
 
         using OverlayRenderCallback = std::function<void(CommandBuffer&)>;
 

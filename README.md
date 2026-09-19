@@ -107,22 +107,19 @@ render:
 日志区分请求模式与实际模式。`auto` 检测的是 Vulkan 输出支持，不是显示器实测亮度，也不会切换系统 HDR 设置。
 macOS 由 MoltenVK 配置 EDR layer；实际高亮受屏幕与系统亮度限制。编辑器启动策略暂时强制 SDR，避免 UI 和视口混用编码。
 HDR 使用相对白色的线性输出，不承诺固定 nits；暂不支持 HDR10/PQ、运行时切换、跨屏模式适配或自动亮度校准。
+SDR/HDR 指显示输出；内部场景目前始终使用浮点 HDR 目标与最终输出 Pass，关闭 Bloom 不会切换成 LDR 管线。
 
-Bloom（高亮泛光）同样在 `render` 下配置，app 和 editor 共用，修改 YAML 后重启：
+Bloom（泛光）和曝光属于场景内容，不在引擎 YAML 中配置。点击「层级 / Hierarchy」中的「场景 / Scene」，
+在 Inspector 的「后处理 / Post Processing」修改：曝光 0..100、泛光开关、强度 0..10、阈值 0..65504。
+拖动实时预览，松手记录一次撤销，Esc 取消；双击可输入数值。保存场景后写入 `.scene` 的 `post_process`，
+Edit、Play 和独立 app 共用这份数据。Play 中该面板只读，运行时代码可修改 Runtime Scene，不回写 Edit 文档。
+新场景默认关闭泛光；demo 场景显式开启强度 0.15、阈值 1。关闭开关保留调好的参数，强度为 0 也不执行泛光。
 
-```yaml
-render:
-  exposure: 1          # 0..100，线性 HDR 合成后应用
-  bloom_strength: 0.15 # 0..10，0 关闭；不执行提取和模糊 pass
-  bloom_threshold: 1   # 0..65504，曝光前的线性 HDR 阈值
-```
-
-Bloom 在半分辨率提取高亮，横／纵模糊后在线性 HDR 中合成，再做 SDR/HDR 显示映射；不影响 ImGui。
-它只让高亮向邻域扩散，不提供环境照明，也不要求显示器支持 HDR。无超阈值亮区时不会产生光晕。
-代码可在 `on_update` 等活动帧之外调用 `Renderer::set_post_process_settings(PostProcessSettings)`；
-录制中拒绝修改，失败保留旧参数与资源。纯参数变化不重建图或材质管线，开关变化才重编排。
-当前没有编辑器后处理面板或自动曝光；裸 `Config` 默认关闭 Bloom，仓库共享配置开启轻量效果。
-从未开启时不创建 Bloom 资源；开启后再关闭保留最近纹理以便复用，不立即归还这部分显存。
+Bloom 在半分辨率提取高亮，横／纵模糊后在线性 HDR 中合成，再做曝光和 SDR/HDR 显示映射；不影响 ImGui。
+阈值在曝光前应用，只让超阈值亮区向邻域扩散，不提供环境照明，也不要求显示器支持 HDR。
+代码通过 `Scene::set_post_process(PostProcessSettings)` 修改内容；渲染器消费场景快照，不另设全局覆盖入口。
+纯参数变化不重建图或材质管线，是否执行泛光发生变化时才重编排。首次启用才创建资源，关闭后保留最近纹理供复用。
+目前没有自动曝光、相机级覆盖或局部后处理区域。
 
 macOS 和 Windows 下 app/editor 分别使用橙色、蓝色彗星静态图标，资源位于各自的 `resources/icons/`，不参与项目资产扫描。
 macOS 在构建目录内生成 `app/Comet.app` 和 `editor/CometEditor.app`，内含静态 ICNS 图标；启动脚本自动使用 bundle 内的新入口。
@@ -204,6 +201,8 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
   PBR 支持全局 IBL：环境漫反射和随粗糙度变化的镜面反射，不添加固定 ambient。
 - 点击 Hierarchy 的 Scene，在 Inspector 的 Environment 中选择 HDR map，勾选 Background 显示天空盒。
   Lighting 独立控制环境照明，Lighting intensity 控制照明强度；隐藏背景时仍可照明，Intensity 只控制背景。
+  背景色 / Background color 保存在线性 RGB 的场景环境设置中（0..65504），不再读取引擎 `clear_color`。
+  新场景默认黑色；关闭天空盒或环境资源尚未就绪时显示该颜色，它仍经过曝光、Bloom 和显示映射。
   demo 预配置并启用了 Poly Haven 的 Small Hangar 01 4K HDR 背景和照明（CC0，约 25.1 MiB），app/editor 共用；
   使用 `./tools/download_assets.sh` 获取，来源与许可见上方构建说明，运行时无需联网。
   强度范围 0..64，旋转绕世界 Y 轴、复用 Transform 的角度循环规则；拖动实时预览，松手提交一次撤销，Esc 取消。

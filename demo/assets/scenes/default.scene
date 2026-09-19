@@ -6,7 +6,18 @@
     "intensity": 1,
     "rotation": 0,
     "lighting": true,
-    "lighting_intensity": 1
+    "lighting_intensity": 1,
+    "background_color": [
+      0,
+      0,
+      0
+    ]
+  },
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": true,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1
   },
   "entities": [
     {

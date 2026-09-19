@@ -49,8 +49,7 @@ namespace Comet {
         Device& device, const Config::Vulkan& vulkan, const Config::Render& render)
         : m_device(device), m_offscreen_format(vulkan.surface_format),
           m_hdr_headroom(render.hdr_headroom), m_depth_format(vulkan.depth_format),
-          m_msaa_samples(vulkan.msaa_samples), m_clear_color(render.clear_color),
-          m_frame_slot_count(render.max_frames_in_flight), m_post_process(render.post_process) {}
+          m_msaa_samples(vulkan.msaa_samples), m_frame_slot_count(render.max_frames_in_flight) {}
 
     Result<std::shared_ptr<SceneRenderer::RenderState>, GraphicsError> SceneRenderer::create_state(
         RenderResources& resources, Swapchain* swapchain, Math::Vec2u size) {
@@ -103,7 +102,7 @@ namespace Comet {
         if(!shadow_pass)
             return Creation::failure(shadow_pass.error());
         next->shadow_pass = std::move(shadow_pass).value();
-        if(m_post_process.bloom_enabled()) {
+        if(m_post_process.uses_bloom()) {
             auto bloom = BloomPass::create(m_device, m_frame_slot_count);
             if(!bloom)
                 return Creation::failure(bloom.error());
@@ -128,7 +127,7 @@ namespace Comet {
         if(!debug)
             return Creation::failure(debug.error());
         next->debug = std::move(debug).value();
-        if(auto graph = rebuild_graph(*next, m_post_process.bloom_enabled()); !graph)
+        if(auto graph = rebuild_graph(*next, m_post_process.uses_bloom()); !graph)
             return Creation::failure(graph.error());
         return Creation::success(std::move(next));
     }
@@ -180,15 +179,17 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    Result<void, GraphicsError> SceneRenderer::set_post_process_settings(
+    Result<void, GraphicsError> SceneRenderer::prepare_post_process(
         const PostProcessSettings& settings) {
+        if(settings == m_post_process)
+            return Result<void, GraphicsError>::success();
         if(auto valid = settings.validate(); !valid)
             return Result<void, GraphicsError>::failure({valid.error()});
         if(!m_state)
             return Result<void, GraphicsError>::failure({"Scene renderer is not configured"});
-        if(settings.bloom_enabled() != m_post_process.bloom_enabled()) {
+        if(settings.uses_bloom() != m_post_process.uses_bloom()) {
             std::unique_ptr<BloomPass> candidate;
-            if(settings.bloom_enabled()) {
+            if(settings.uses_bloom()) {
                 auto* bloom = m_state->bloom.get();
                 if(!bloom) {
                     auto created = BloomPass::create(m_device, m_frame_slot_count);
@@ -200,7 +201,7 @@ namespace Comet {
                 if(auto resized = bloom->resize(m_state->output_target->get_size()); !resized)
                     return resized;
             }
-            if(auto graph = rebuild_graph(*m_state, settings.bloom_enabled()); !graph)
+            if(auto graph = rebuild_graph(*m_state, settings.uses_bloom()); !graph)
                 return graph;
             if(candidate)
                 m_state->bloom = std::move(candidate);
@@ -236,8 +237,7 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(candidate.error());
             output = std::move(candidate).value();
         }
-        hdr.value()->set_clear_value(ClearValue(m_clear_color));
-        if(m_post_process.bloom_enabled()) {
+        if(m_post_process.uses_bloom()) {
             if(auto bloom = state.bloom->resize(size); !bloom)
                 return bloom;
         }
@@ -316,6 +316,8 @@ namespace Comet {
         RenderDiagnostics* diagnostics) {
         PROFILE_SCOPE("SceneRenderer::render");
         using RenderResult = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
+        if(auto prepared = prepare_post_process(submission.post_process); !prepared)
+            return RenderResult::failure(prepared.error());
         frames.retain_current_frame_resource(m_state);
         frames.retain_current_frame_resource(m_state->output_target);
         frames.retain_current_frame_resource(m_state->hdr_target);
@@ -375,6 +377,8 @@ namespace Comet {
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::draw_scene(
         FrameScheduler& frames, CommandBuffer& command, const RenderSubmission& submission,
         const LineDrawList& lines, const LightingData& lighting) {
+        m_state->hdr_target->set_clear_value(
+            ClearValue(Math::Vec4(submission.environment.background_color, 1.0f)));
         m_state->hdr_target->begin_render_target(command, frames.get_current_frame_slot_index());
         const auto size = m_state->hdr_target->get_size();
         command.set_viewport(

@@ -24,27 +24,6 @@ namespace CometEditor::Tests {
         }
     };
 
-    TEST_F(SceneCommandsTest, EnvironmentChangesAreUndoableAndInvalidEditsDoNotDirtyHistory) {
-        const auto initial_state = history.state_id();
-        EXPECT_FALSE(SceneCommands::set_environment(history, {}));
-        EXPECT_FALSE(SceneCommands::set_environment(history, {{}, true, -1, 0}));
-        EXPECT_EQ(history.state_id(), initial_state);
-        const Comet::SceneEnvironment environment{
-            Comet::AssetHandle(33), true, 1.5f, 90, true, 0.25f};
-        ASSERT_TRUE(SceneCommands::set_environment(history, environment));
-        EXPECT_EQ(history.undo_size(), 1u);
-        EXPECT_NE(history.state_id(), initial_state);
-        EXPECT_EQ(scene.get_environment(), environment);
-        ASSERT_TRUE(history.undo());
-        EXPECT_EQ(scene.get_environment(), Comet::SceneEnvironment{});
-        EXPECT_EQ(history.state_id(), initial_state);
-        ASSERT_TRUE(history.redo());
-        EXPECT_EQ(scene.get_environment(), environment);
-        auto clone = Comet::SceneSerializer(registry).clone(scene);
-        ASSERT_TRUE(clone);
-        EXPECT_EQ(clone.value()->get_environment(), environment);
-    }
-
     TEST_F(SceneCommandsTest, MeshPlacementIsOneUndoableSerializableEntity) {
         const auto uuid = SceneCommands::create_mesh_entity(
             history, registry, "Placed", Comet::AssetHandle(8), Comet::AssetHandle(9), {2, 3, 4});

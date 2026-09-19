@@ -18,14 +18,8 @@ render:
   output_mode: auto
   # HDR 输出峰值相对于 SDR 白色的倍数（1..16），不是显示器检测结果。
   hdr_headroom: 4
-  # 线性 HDR 合成后曝光；Bloom 强度为 0 时关闭，阈值在曝光前应用。
-  exposure: 1
-  bloom_strength: 0.15
-  bloom_threshold: 1
   # CPU 可并行准备的帧槽位数量
   max_frames_in_flight: 2
-  # 分量顺序为 RGBA。
-  clear_color: [ 0.2, 0.4, 0.1, 1.0 ]
   enable_vsync: false
   # 期望的各向异性过滤倍率；1 表示关闭，超过设备上限时会回退到支持的最大值
   max_anisotropy: 8

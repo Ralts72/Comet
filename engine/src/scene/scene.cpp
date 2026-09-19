@@ -8,7 +8,19 @@
 #include <unordered_set>
 
 namespace Comet {
+    bool Scene::set_post_process(const PostProcessSettings& settings) {
+        if(!settings.validate())
+            return false;
+        m_post_process = settings;
+        return true;
+    }
+
     bool Scene::set_environment(const SceneEnvironment& environment) {
+        for(int channel = 0; channel < 3; ++channel) {
+            const auto value = environment.background_color[channel];
+            if(!std::isfinite(value) || value < 0.0f || value > 65504.0f)
+                return false;
+        }
         if(!std::isfinite(environment.intensity) || environment.intensity < 0.0f
             || environment.intensity > 64.0f || !std::isfinite(environment.rotation)
             || !std::isfinite(environment.lighting_intensity)

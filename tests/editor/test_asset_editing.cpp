@@ -164,7 +164,7 @@ namespace CometEditor::Tests {
                 const ImVec2 point{window->WorkRect.Min.x + 40, y};
                 ImGui::GetIO().AddMousePosEvent(point.x, point.y);
                 frame();
-                if(ImGui::GetHoveredID() == id)
+                if(ImGui::GetCurrentContext()->HoveredId == id)
                     return point;
             }
             ADD_FAILURE() << "Material widget not found: " << name;
@@ -202,7 +202,7 @@ namespace CometEditor::Tests {
                 const ImVec2 point{window->WorkRect.Min.x + 15, y};
                 ImGui::GetIO().AddMousePosEvent(point.x, point.y);
                 frame();
-                if(ImGui::GetHoveredID() == id)
+                if(ImGui::GetCurrentContext()->HoveredId == id)
                     return point;
             }
             ADD_FAILURE() << "Widget not found: " << window_name << "/" << label;
@@ -263,6 +263,91 @@ namespace CometEditor::Tests {
         EXPECT_EQ(history.undo_size(), 2u);
     }
 
+    TEST_F(AssetEditingUiTest, BloomTogglePreservesParametersAndPlayIsReadOnly) {
+        const Comet::PostProcessSettings settings{
+            .exposure = 2, .bloom_enabled = true, .bloom_strength = 0.75f, .bloom_threshold = 3};
+        ASSERT_TRUE(scene.set_post_process(settings));
+        selection.select_scene();
+        frame();
+        click(widget_point("Inspector", "Bloom"));
+        EXPECT_FALSE(scene.get_post_process().bloom_enabled);
+        EXPECT_FLOAT_EQ(scene.get_post_process().bloom_strength, settings.bloom_strength);
+        EXPECT_FLOAT_EQ(scene.get_post_process().bloom_threshold, settings.bloom_threshold);
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.get_post_process(), settings);
+        ASSERT_TRUE(history.redo());
+        state.mode = EditorMode::Play;
+        frame();
+        const auto before = scene.get_post_process();
+        click(widget_point("Inspector", "Bloom"));
+        begin_value_drag(widget_point("Inspector", "Exposure"), 30);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(scene.get_post_process(), before);
+        EXPECT_EQ(history.undo_size(), 1u);
+    }
+
+    TEST_F(AssetEditingUiTest, BloomDragPreviewsCommitsOnceAndEscapeRestoresOnlyCurrentEdit) {
+        ASSERT_TRUE(scene.set_post_process({.bloom_enabled = true}));
+        selection.select_scene();
+        frame();
+        auto& io = ImGui::GetIO();
+        begin_value_drag(widget_point("Inspector", "Bloom strength"), 30);
+        EXPECT_GT(scene.get_post_process().bloom_strength, 0.15f);
+        EXPECT_EQ(history.undo_size(), 0u);
+        const auto preview = scene.get_post_process();
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(scene.get_post_process().bloom_strength, 0.15f);
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(scene.get_post_process(), preview);
+
+        begin_value_drag(widget_point("Inspector", "Bloom threshold"), 30);
+        EXPECT_GT(scene.get_post_process().bloom_threshold, preview.bloom_threshold);
+        io.AddKeyEvent(ImGuiKey_Escape, true);
+        frame();
+        io.AddKeyEvent(ImGuiKey_Escape, false);
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(scene.get_post_process(), preview);
+        EXPECT_EQ(history.undo_size(), 1u);
+    }
+
+    TEST_F(AssetEditingUiTest, PostProcessNumberInputAndSelectionChangeFinishDocumentEdit) {
+        selection.select_scene();
+        frame();
+        auto& io = ImGui::GetIO();
+        const auto point = widget_point("Inspector", "Exposure");
+        click(point);
+        click(point);
+        ASSERT_TRUE(
+            ImGui::TempInputIsActive(ImGui::FindWindowByName("Inspector")->GetID("Exposure")));
+        io.AddInputCharactersUTF8("2.5");
+        frame();
+        EXPECT_EQ(history.undo_size(), 0u);
+        io.AddKeyEvent(ImGuiKey_Enter, true);
+        frame();
+        io.AddKeyEvent(ImGuiKey_Enter, false);
+        frame();
+        EXPECT_FLOAT_EQ(scene.get_post_process().exposure, 2.5f);
+        EXPECT_EQ(history.undo_size(), 1u);
+
+        for(int index = 0; index < 20; ++index)
+            frame();
+        begin_value_drag(widget_point("Inspector", "Exposure"), 30);
+        EXPECT_GT(scene.get_post_process().exposure, 2.5f);
+        selection.select_entity(entity.get_id());
+        frame();
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(history.undo_size(), 2u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(scene.get_post_process().exposure, 2.5f);
+    }
+
     TEST_F(AssetEditingUiTest, EnvironmentLightingHasIndependentControlsAndOneUndoPerDrag) {
         selection.select_scene();
         frame();
@@ -318,6 +403,32 @@ namespace CometEditor::Tests {
         EXPECT_EQ(history.undo_size(), 1u);
         ASSERT_TRUE(history.undo());
         EXPECT_FLOAT_EQ(scene.get_environment().intensity, 1.0f);
+    }
+
+    TEST_F(AssetEditingUiTest, BackgroundColorPreviewsCancelsAndSharesSceneHistory) {
+        selection.select_scene();
+        frame();
+        const auto point = material_point("Background color", "##X");
+        begin_value_drag(point, 30);
+        const auto preview = scene.get_environment();
+        EXPECT_GT(preview.background_color.x, 0);
+        EXPECT_EQ(history.undo_size(), 0u);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.get_environment().background_color, Comet::Math::Vec3(0));
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(scene.get_environment(), preview);
+
+        begin_value_drag(point, 30);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, true);
+        frame();
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(scene.get_environment(), preview);
+        EXPECT_EQ(history.undo_size(), 1u);
     }
 
     TEST_F(AssetEditingUiTest, EnvironmentDragPreviewsAndRecordsOneUndoEntry) {

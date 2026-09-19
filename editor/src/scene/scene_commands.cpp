@@ -6,18 +6,6 @@
 
 namespace CometEditor::SceneCommands {
     namespace {
-        class SetEnvironmentCommand final: public CommandHistory::Command {
-        public:
-            SetEnvironmentCommand(Comet::SceneEnvironment before, Comet::SceneEnvironment after)
-                : m_before(before), m_after(after) {}
-            bool undo(Comet::Scene& scene) override { return scene.set_environment(m_before); }
-            bool redo(Comet::Scene& scene) override { return scene.set_environment(m_after); }
-
-        private:
-            Comet::SceneEnvironment m_before;
-            Comet::SceneEnvironment m_after;
-        };
-
         struct EntitySnapshot {
             struct Component {
                 std::string id;
@@ -238,14 +226,6 @@ namespace CometEditor::SceneCommands {
                 return {};
             return uuid;
         }
-    }
-
-    bool set_environment(CommandHistory& history, const Comet::SceneEnvironment& environment) {
-        const auto* scene = history.get_scene();
-        if(!scene || scene->get_environment() == environment)
-            return false;
-        return history.execute(
-            std::make_unique<SetEnvironmentCommand>(scene->get_environment(), environment));
     }
 
     Comet::EntityUuid create_entity(CommandHistory& history,

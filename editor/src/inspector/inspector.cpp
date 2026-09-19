@@ -19,6 +19,11 @@
 
 namespace CometEditor {
     namespace {
+        constexpr PropertyEditTransaction::SceneTarget<Comet::SceneEnvironment> environment_target{
+            &Comet::Scene::get_environment, &Comet::Scene::set_environment};
+        constexpr PropertyEditTransaction::SceneTarget<Comet::PostProcessSettings>
+            post_process_target{&Comet::Scene::get_post_process, &Comet::Scene::set_post_process};
+
         const char* texture_color_space_label(const Comet::TextureColorSpace color_space) {
             switch(color_space) {
                 case Comet::TextureColorSpace::Srgb:
@@ -63,7 +68,7 @@ namespace CometEditor {
 
     void InspectorPanel::render() {
         m_asset_assignment.reset();
-        if(m_property_edit.editing_environment()
+        if(m_property_edit.editing_scene()
             && (!m_user_visible || !m_selection.get_selected_scene()
                 || m_selection.get_selected_scene() != m_history.get_scene()))
             static_cast<void>(finish_edit());
@@ -84,7 +89,7 @@ namespace CometEditor {
             static_cast<void>(m_property_edit.commit());
             render_asset(asset);
         } else if(auto* scene = m_selection.get_selected_scene()) {
-            if(!m_property_edit.editing_environment())
+            if(!m_property_edit.editing_scene())
                 static_cast<void>(finish_edit());
             render_scene(*scene);
         } else {
@@ -174,6 +179,11 @@ namespace CometEditor {
     }
 
     void InspectorPanel::render_scene(Comet::Scene& scene) {
+        render_environment(scene);
+        render_post_process(scene);
+    }
+
+    void InspectorPanel::render_environment(Comet::Scene& scene) {
         ImGui::SeparatorText(Ui::text("Environment"));
         const bool can_edit = m_state.mode == EditorMode::Edit && m_history.get_scene() == &scene;
         if(!can_edit)
@@ -190,35 +200,75 @@ namespace CometEditor {
         changed |= ImGui::Checkbox(Ui::label("Background").c_str(), &environment.background);
         changed |= ImGui::Checkbox(Ui::label("Lighting").c_str(), &environment.lighting);
         bool finished = changed;
+        const auto track_item = [&] {
+            if(can_edit && ImGui::IsItemActivated())
+                static_cast<void>(m_property_edit.begin(environment_target));
+            if(ImGui::IsItemActive())
+                m_active_item = ImGui::GetItemID();
+            finished |= ImGui::IsItemDeactivated();
+        };
+        changed |= ImGui::ColorEdit3(Ui::label("Background color").c_str(),
+            &environment.background_color.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+        track_item();
         changed |= ImGui::DragFloat(Ui::label("Intensity").c_str(), &environment.intensity, 0.02f,
             0.0f, 64.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        if(can_edit && ImGui::IsItemActivated())
-            static_cast<void>(m_property_edit.begin_environment());
-        if(ImGui::IsItemActive())
-            m_active_item = ImGui::GetItemID();
-        finished |= ImGui::IsItemDeactivated();
+        track_item();
         changed |= ImGui::DragFloat(Ui::label("Lighting intensity").c_str(),
             &environment.lighting_intensity, 0.02f, 0.0f, 64.0f, "%.2f",
             ImGuiSliderFlags_AlwaysClamp);
-        if(can_edit && ImGui::IsItemActivated())
-            static_cast<void>(m_property_edit.begin_environment());
-        if(ImGui::IsItemActive())
-            m_active_item = ImGui::GetItemID();
-        finished |= ImGui::IsItemDeactivated();
+        track_item();
         changed |= ImGui::DragFloat(
             Ui::label("Rotation").c_str(), &environment.rotation, 0.5f, 0.0f, 0.0f, "%.1f deg");
-        if(can_edit && ImGui::IsItemActivated())
-            static_cast<void>(m_property_edit.begin_environment());
-        if(ImGui::IsItemActive())
-            m_active_item = ImGui::GetItemID();
-        finished |= ImGui::IsItemDeactivated();
+        track_item();
         if(cancel) {
             static_cast<void>(finish_edit(true));
         } else if(can_edit) {
             if(changed
-                && (!m_property_edit.begin_environment() || !m_property_edit.preview(environment)))
+                && (!m_property_edit.begin(environment_target)
+                    || !m_property_edit.preview(environment_target, environment)))
                 LOG_WARN("Invalid environment value; previous preview retained");
-            if(finished)
+            if(finished && m_property_edit.targets(environment_target))
+                static_cast<void>(finish_edit());
+        }
+        ImGui::EndDisabled();
+    }
+
+    void InspectorPanel::render_post_process(Comet::Scene& scene) {
+        ImGui::SeparatorText(Ui::text("Post Processing"));
+        const bool can_edit = m_state.mode == EditorMode::Edit && m_history.get_scene() == &scene;
+        ImGui::BeginDisabled(!can_edit);
+        const bool cancel = can_edit && ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+        auto settings = scene.get_post_process();
+        bool finished = false;
+        const auto track_item = [&] {
+            if(can_edit && ImGui::IsItemActivated())
+                static_cast<void>(m_property_edit.begin(post_process_target));
+            if(ImGui::IsItemActive())
+                m_active_item = ImGui::GetItemID();
+            finished |= ImGui::IsItemDeactivated();
+        };
+        bool changed = ImGui::DragFloat(Ui::label("Exposure").c_str(), &settings.exposure, 0.02f,
+            0.0f, 100.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        track_item();
+        const bool toggled = ImGui::Checkbox(Ui::label("Bloom").c_str(), &settings.bloom_enabled);
+        changed |= toggled;
+        finished |= toggled;
+        ImGui::BeginDisabled(!settings.bloom_enabled);
+        changed |= ImGui::DragFloat(Ui::label("Bloom strength").c_str(), &settings.bloom_strength,
+            0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        track_item();
+        changed |= ImGui::DragFloat(Ui::label("Bloom threshold").c_str(), &settings.bloom_threshold,
+            0.05f, 0.0f, 65504.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        track_item();
+        ImGui::EndDisabled();
+        if(cancel) {
+            static_cast<void>(finish_edit(true));
+        } else if(can_edit) {
+            if(changed
+                && (!m_property_edit.begin(post_process_target)
+                    || !m_property_edit.preview(post_process_target, settings)))
+                LOG_WARN("Invalid post-process value; previous preview retained");
+            if(finished && m_property_edit.targets(post_process_target))
                 static_cast<void>(finish_edit());
         }
         ImGui::EndDisabled();

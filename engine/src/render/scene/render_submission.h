@@ -5,6 +5,7 @@
 #include "render/scene/render_types.h"
 #include "scene/entity_id.h"
 #include "render/lighting.h"
+#include "render/post_process.h"
 #include "scene/scene_environment.h"
 
 #include <memory>
@@ -33,6 +34,7 @@ namespace Comet {
         std::vector<ResolvedRenderItem> render_items;
         std::vector<RenderLight> lights;
         SceneEnvironment environment;
+        PostProcessSettings post_process;
         std::shared_ptr<Environment> environment_resource;
     };
 }

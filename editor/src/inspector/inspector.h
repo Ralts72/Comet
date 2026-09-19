@@ -47,6 +47,8 @@ namespace CometEditor {
 
     private:
         void render_scene(Comet::Scene& scene);
+        void render_environment(Comet::Scene& scene);
+        void render_post_process(Comet::Scene& scene);
         void render_entity(Comet::Entity entity);
         void render_property(Comet::Entity entity, const Comet::ComponentDescriptor& component,
             const Comet::PropertyDescriptor& property);

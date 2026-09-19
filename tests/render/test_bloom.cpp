@@ -5,6 +5,8 @@
 #include "render/resource/texture.h"
 #include "render/render_target.h"
 #include "render/scene/scene_renderer.h"
+#include "scene/scene.h"
+#include "core/window.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/pipeline/shader_interface.h"
 #include "bloom_frag.h"
@@ -175,9 +177,12 @@ namespace Comet::Tests {
                     device, display.value()->get_render_pass(), size, 2);
                 ASSERT_TRUE(target);
                 std::shared_ptr<RenderTarget> output = std::move(target).value();
-                for(const auto settings : {PostProcessSettings{}, PostProcessSettings{1, 0.5f, 1},
-                        PostProcessSettings{0.25f, 1, 0}, PostProcessSettings{1, 1, 65504},
-                        PostProcessSettings{0, 1, 1}, PostProcessSettings{100, 10, 0}}) {
+                for(const auto settings :
+                    {PostProcessSettings{}, PostProcessSettings{1, true, 0.5f, 1},
+                        PostProcessSettings{0.25f, true, 1, 0},
+                        PostProcessSettings{1, true, 1, 65504}, PostProcessSettings{0, true, 1, 1},
+                        PostProcessSettings{100, true, 10, 0}, PostProcessSettings{1, true, 0, 0},
+                        PostProcessSettings{1, false, 10, 0}}) {
                     SCOPED_TRACE(std::to_string(settings.exposure) + "/"
                                  + std::to_string(settings.bloom_strength) + "/"
                                  + std::to_string(settings.bloom_threshold));
@@ -190,7 +195,7 @@ namespace Comet::Tests {
                     RenderGraph::Pass output_pass{
                         "display", {{input, ResourceUsage::SampledRead,
                                        Flags<PipelineStage>(PipelineStage::FragmentShader)}}};
-                    if(settings.bloom_enabled()) {
+                    if(settings.uses_bloom()) {
                         passes = BloomPass::append_passes(graph, input);
                         output_pass.uses.push_back({passes->output, ResourceUsage::SampledRead,
                             Flags<PipelineStage>(PipelineStage::FragmentShader)});
@@ -198,7 +203,7 @@ namespace Comet::Tests {
                     const auto display_id = graph.add_pass(std::move(output_pass));
                     const auto plan = graph.compile();
                     ASSERT_TRUE(plan) << plan.error();
-                    EXPECT_EQ(plan.value().get_passes().size(), settings.bloom_enabled() ? 4u : 1u);
+                    EXPECT_EQ(plan.value().get_passes().size(), settings.uses_bloom() ? 4u : 1u);
                     frames.wait_for_current_slot();
                     frames.begin_frame(0);
                     frames.get_current_command_buffer().begin();
@@ -228,12 +233,12 @@ namespace Comet::Tests {
                     frames.wait_for_all_slots();
                     const auto bytes = readback->read();
                     const auto blurred = reference(source, size, settings.bloom_threshold);
+                    const double strength = settings.uses_bloom() ? settings.bloom_strength : 0;
                     for(size_t pixel = 0; pixel < source.size(); ++pixel) {
                         for(size_t channel = 0; channel < 3; ++channel) {
-                            const double value =
-                                std::clamp(source[pixel][channel]
-                                               + blurred[pixel][channel] * settings.bloom_strength,
-                                    0.0, 65504.0);
+                            const double value = std::clamp(
+                                source[pixel][channel] + blurred[pixel][channel] * strength, 0.0,
+                                65504.0);
                             const double mapped =
                                 headroom * (1 - std::exp(-value * settings.exposure / headroom));
                             if(hdr_output) {
@@ -327,8 +332,6 @@ namespace Comet::Tests {
         config.window.height = 120;
         config.vulkan.enable_validation = true;
         config.vulkan.msaa_samples = SampleCount::Count4;
-        config.render.clear_color = {4, 2, 0.5f, 1};
-        config.render.post_process = {1, 0.5f, 1};
         auto created = Engine::create(config);
         ASSERT_TRUE(created) << created.error().message;
         engine = std::move(created).value();
@@ -336,10 +339,13 @@ namespace Comet::Tests {
         const auto prepared = renderer.prepare_frame();
         ASSERT_TRUE(prepared);
         ASSERT_TRUE(prepared.value());
-        EXPECT_FALSE(renderer.set_post_process_settings({}));
         RenderScene initial_scene;
+        initial_scene.environment.background_color = {4, 2, 0.5f};
+        initial_scene.post_process = {.bloom_enabled = true, .bloom_strength = 0.5f};
         initial_scene.cameras.push_back(RenderCamera{.primary = true});
         ASSERT_TRUE(renderer.render_frame(initial_scene));
+        EXPECT_EQ(
+            renderer.get_scene_renderer().get_post_process_settings(), initial_scene.post_process);
         renderer.wait_idle();
         ASSERT_TRUE(renderer.enable_offscreen_rendering({17, 9}));
         auto& scene = renderer.get_scene_renderer();
@@ -349,21 +355,25 @@ namespace Comet::Tests {
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
         std::vector<std::shared_ptr<Readback>> outputs;
-        const std::array settings{PostProcessSettings{1, 0.5f, 1}, PostProcessSettings{1, 0, 1},
-            PostProcessSettings{0.25f, 1, 0}, PostProcessSettings{1, 1, 65504}};
+        const std::array settings{PostProcessSettings{1, true, 0.5f, 1},
+            PostProcessSettings{1, false, 0.5f, 1}, PostProcessSettings{0.25f, true, 1, 0},
+            PostProcessSettings{1, true, 1, 65504}};
         const std::array sizes{
             Math::Vec2u(17, 9), Math::Vec2u(33, 25), Math::Vec2u(33, 25), Math::Vec2u(1, 1)};
+        const std::array colors{Math::Vec3(4, 2, 0.5f), Math::Vec3(0.1f, 0.2f, 0.3f),
+            Math::Vec3(8, 2, 1), Math::Vec3(0)};
         for(size_t i = 0; i < settings.size(); ++i) {
-            ASSERT_TRUE(renderer.set_post_process_settings(settings[i]));
             ASSERT_TRUE(scene.resize_offscreen_target(sizes[i]));
-            EXPECT_FALSE(renderer.set_post_process_settings({.bloom_strength = -1}));
-            EXPECT_FLOAT_EQ(
-                scene.get_post_process_settings().bloom_strength, settings[i].bloom_strength);
             frames.wait_for_current_slot();
             frames.begin_frame(0);
             frames.get_current_command_buffer().begin();
-            auto rendered = scene.render(frames, {});
+            const auto before = scene.get_post_process_settings();
+            EXPECT_FALSE(scene.render(frames, {.post_process = {.bloom_strength = -1}}));
+            EXPECT_EQ(scene.get_post_process_settings(), before);
+            auto rendered = scene.render(frames,
+                {.environment = {.background_color = colors[i]}, .post_process = settings[i]});
             ASSERT_TRUE(rendered) << rendered.error().message;
+            EXPECT_EQ(scene.get_post_process_settings(), settings[i]);
             auto readback = std::make_shared<Readback>(
                 device, context.get_context().get_physical_device(), sizes[i].x * sizes[i].y * 4);
             copy_output(frames,
@@ -378,15 +388,51 @@ namespace Comet::Tests {
         for(size_t i = 0; i < outputs.size(); ++i) {
             const auto bytes = outputs[i]->read();
             for(size_t channel = 0; channel < 3; ++channel) {
-                const double value = config.render.clear_color[channel];
-                const double glow = value * std::max(4.0 - settings[i].bloom_threshold, 0.0) / 4.0;
+                const double value = colors[i][channel];
+                const double peak = std::max({colors[i].x, colors[i].y, colors[i].z});
+                double glow = 0;
+                if(peak > 0)
+                    glow = value * std::max(peak - settings[i].bloom_threshold, 0.0) / peak;
+                const double strength = settings[i].uses_bloom() ? settings[i].bloom_strength : 0;
                 const double mapped =
-                    1
-                    - std::exp(-(value + glow * settings[i].bloom_strength) * settings[i].exposure);
+                    1 - std::exp(-(value + glow * strength) * settings[i].exposure);
                 EXPECT_NEAR(std::to_integer<int>(bytes[bgra ? 2 - channel : channel]),
                     std::lround(encode(mapped) * 255), 2);
             }
         }
         renderer.wait_idle();
+    }
+
+    TEST_F(BloomGpuTest, EngineConsumesUiEditsAndSceneReplacementWithoutGlobalSettings) {
+        auto& renderer = engine->get_renderer();
+        engine->set_scene(std::make_unique<Scene>());
+        const PostProcessSettings enabled{.exposure = 0.75f, .bloom_enabled = true};
+        unsigned rendered = 0;
+        unsigned updates = 0;
+        const auto result = engine->run(
+            [&](UpdateContext) {
+                if(rendered == 1)
+                    EXPECT_EQ(renderer.get_scene_renderer().get_post_process_settings(), enabled);
+                if(rendered >= 2) {
+                    EXPECT_EQ(renderer.get_scene_renderer().get_post_process_settings(),
+                        PostProcessSettings{});
+                    engine->get_window().request_close();
+                }
+                if(++updates > 30)
+                    engine->get_window().request_close();
+                return Result<void, Error>::success();
+            },
+            [&] {
+                if(rendered == 0) {
+                    if(!engine->get_scene()->set_post_process(enabled))
+                        return Result<void, Error>::failure({"Cannot edit scene post processing"});
+                } else {
+                    engine->set_scene(std::make_unique<Scene>());
+                }
+                ++rendered;
+                return Result<void, Error>::success();
+            });
+        ASSERT_TRUE(result) << result.error().message;
+        EXPECT_EQ(rendered, 2u);
     }
 }

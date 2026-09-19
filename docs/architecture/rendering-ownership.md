@@ -536,12 +536,24 @@ MSAA 与离屏 resize。独立 `render_graph_sync_validation` CTest 开启同步
 
 ## HDR 与 SDR 输出
 
+场景只保存外观数据，不持有 Pass 实例或执行顺序。物体可以参与阴影、主绘制等多个阶段；
+材质／物体选择与屏幕空间处理分开，后者需要明确的颜色、深度或遮罩输入，由渲染管线编排资源与合成。
+目前没有为 MeshRenderer 提供任意 Pass 列表或自定义后处理链。
+
 场景颜色由 Config::Render::SCENE_COLOR_FORMAT 固定为 R16G16B16A16_SFLOAT，MSAA resolve 也保留 HDR。
 RenderContext 把场景格式写入 DeviceCapabilityRequest；设备候选评估和场景创建复用
 graphics 层的 validate_color_target，检查 attachment／blend／sampled、单采样 resolve 和场景 MSAA。
 输出附件按实际选中的交换链格式单独检查 Count1，不把显示格式当成场景 MSAA 格式。
 缺少场景能力的设备在候选阶段被拒绝；SceneRenderer 的复核失败仍返回 GraphicsError。
 不静默退回 8 位场景颜色，也不自动更换场景格式。
+这不是可独立关闭的 HDR 特效：主绘制就发生在浮点目标中，随后 OutputPass 完成显示映射。
+相对 8 位直接输出，它增加颜色存储／带宽与全屏输出成本；不因 Bloom 关闭就自动消除。
+是否增加轻量输出路径应基于实际 GPU 测量，并一起处理材质、高亮、MSAA 和编辑器离屏语义。
+
+清屏颜色来自本帧 `RenderSubmission.environment.background_color`，不在 SceneRenderer 缓存配置副本。
+它是 SceneEnvironment 的线性 RGB 值，有限范围 0..65504，默认黑色；清屏 alpha 固定为 1。
+天空盒覆盖它；天空盒禁用或资源未就绪时作为背景。设置在录制开始前写入 RenderTarget，
+已经录制的命令保留各自清屏值，因此不修改在途帧，也不需要重建目标／管线。
 
 OutputPass 位于 `render/passes/`，由 SceneRenderer::RenderState 持有，是具体的最终输出步骤，
 不是与 SceneRenderer 并列的渲染子系统，也不是底层 Vulkan RenderPass 的别名；不引入通用 Pass 基类。
@@ -560,7 +572,7 @@ replace_targets 先准备 HDR 和输出目标，再准备启用中的 Bloom 双�
 fullscreen triangle 不需要顶点缓冲，正高度 viewport 保持纹理方向。
 色调映射为 H * (1 - exp(-max(color, 0) * exposure / H))，SDR 的 H=1，HDR 的 H=render.hdr_headroom；
 H 表示相对白色的输出峰值（1..16，默认 4），不是显示器查询结果；曝光来自 PostProcessSettings，缺省为 1。
-配置与 API 共用 PostProcessSettings::validate，拒绝非有限数和越界参数。sRGB 附件由硬件编码，UNORM 附件由 Shader 执行分段 sRGB 编码。
+场景数据与渲染输入共用 PostProcessSettings::validate，拒绝非有限数和越界参数。sRGB 附件由硬件编码，UNORM 附件由 Shader 执行分段 sRGB 编码。
 扩展线性 HDR 输出必须是 RGBA16F + ExtendedSrgbLinearEXT，不做 gamma 编码，不再将高亮压进 0..1。
 白色基准 1 由系统合成器解释，不假定跨平台固定 nits；实际显示亮度仍由系统和屏幕决定。
 不支持 HDR10/PQ、自动曝光或动态后处理节点。
@@ -590,13 +602,21 @@ BloomPass 只拥有高亮提取与两遍模糊的 Pipeline、RenderPass、双目
 OutputPass 先合成 `HDR + bloom_strength * bloom`，限制到 half-float 有限范围，再曝光和显示映射。
 提取／模糊的 push ABI 为 8 字节，display 为 16 字节，CPU static_assert 与 Shader 反射测试核对。
 
-PostProcessSettings 是独立值类型，供启动配置和 Renderer 帧边界 API 共用：曝光 0..100，强度 0..10，阈值 0..65504。
-强度 0 时不声明、绑定或录制 Bloom pass；首次开启才创建资源，关闭后缓存最近目标供再次开启复用。
-仅开关切换重编译图；已开启时修改阈值、强度、曝光只改变 push constant。设置不写入 Scene，也没有新增 Editor 面板。
+PostProcessSettings 是 Scene 持有的值类型，与环境设置并列：曝光 0..100，独立泛光开关、强度 0..10、阈值 0..65504。
+SceneSerializer 保存至 `.scene/post_process`；缺省使用曝光 1、泛光关闭，显式对象必须包含完整字段并通过校验。
+Inspector 的场景后处理复用 PropertyEditTransaction 和 CommandHistory，提供实时预览、撤销、取消和保存；Play 克隆继承参数，面板只读。
+环境与后处理通过类型化 SceneTarget（getter/setter）接入统一事务；事务不列举具体场景值类型。
+提交捕获校验／归一化后的实际值并记录已应用命令，不先恢复旧值再重放；Undo/Redo 只修改场景数据，不操作 GPU。
+数据沿 Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission 传递；app 与编辑器相机使用同一路径。
+SceneRenderer 在本帧图录制前准备快照要求的设置，缓存仅代表已准备的状态，不是另一份可写配置；不再有 Config 或 Renderer 全局覆盖入口。
+相同设置直接复用；仅是否执行泛光变化时重编译图，其他变化只影响 push constant。准备失败不发布候选设置并沿既有渲染失败路径返回。
+开关关闭或强度为 0 时不声明、绑定或录制 Bloom pass，OutputPass 传入的合成强度为 0；关闭开关不会清空场景里的强度和阈值。
+首次开启才创建资源，关闭后缓存最近目标供再次开启复用。
 resize 先创建两个局部候选，再一次性替换；FrameSlot 保留真正使用的目标、Binding、Pipeline 与 RenderPass。
 两张 RGBA16F 纹理每 slot 约占 `2 * ceil(W/2) * ceil(H/2) * 8` 字节，另计对齐与在途旧版本。
 测试复用 `tests/support/render_gpu_test.h` 的设备、读回与校验日志夹具；不为测试增加引擎协议。
-覆盖独立 CPU 像素参考、极小／奇数尺寸、SDR/HDR、关闭／阈值／曝光极值、MSAA、在途参数切换、resize 与 pass 提前销毁。
+覆盖独立 CPU 像素参考、极小／奇数尺寸、SDR/HDR、关闭／阈值／曝光极值、MSAA、在途参数切换、resize 与 pass 提前销毁，
+以及场景保存重开、Play 克隆、UI 手势历史和真实引擎循环内的场景替换。
 暂不含多级金字塔、soft knee、镜头污渍和自动曝光；中途真实 OOM 故障注入仍是测试缺口。
 
 ## Swapchain 与关闭

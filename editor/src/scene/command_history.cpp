@@ -1,5 +1,4 @@
 #include "scene/command_history.h"
-#include "scene/scene_commands.h"
 
 #include <algorithm>
 #include <utility>
@@ -117,7 +116,7 @@ namespace CometEditor {
     bool PropertyEditTransaction::targets(const Target& target) const {
         if(!active())
             return false;
-        const auto* component = std::get_if<ComponentEdit>(&m_edit->before);
+        const auto* component = std::get_if<ComponentEdit>(&m_edit->change);
         return component && component->target == target;
     }
 
@@ -137,28 +136,14 @@ namespace CometEditor {
         return true;
     }
 
-    bool PropertyEditTransaction::editing_environment() const {
-        return active() && std::holds_alternative<Comet::SceneEnvironment>(m_edit->before);
-    }
-
-    bool PropertyEditTransaction::begin_environment() {
-        if(editing_environment())
-            return true;
-        if(!commit() || !m_history.get_scene())
-            return false;
-        m_edit = Edit{
-            m_history.get_scene()->get_environment(), m_history.generation(), m_history.state_id()};
-        return true;
-    }
-
-    bool PropertyEditTransaction::preview(const Comet::SceneEnvironment& value) {
-        return editing_environment() && m_history.get_scene()->set_environment(value);
+    bool PropertyEditTransaction::editing_scene() const {
+        return active() && !std::holds_alternative<ComponentEdit>(m_edit->change);
     }
 
     bool PropertyEditTransaction::preview(const Comet::PropertyValue& value) {
         if(!active())
             return false;
-        const auto* edit = std::get_if<ComponentEdit>(&m_edit->before);
+        const auto* edit = std::get_if<ComponentEdit>(&m_edit->change);
         if(!edit)
             return false;
         const auto property = resolve(m_history.get_scene(), m_registry, edit->target);
@@ -179,17 +164,14 @@ namespace CometEditor {
             m_edit.reset();
             return true;
         }
-        if(const auto* before = std::get_if<Comet::SceneEnvironment>(&m_edit->before)) {
-            auto& scene = *m_history.get_scene();
-            const auto after = scene.get_environment();
-            if(!scene.set_environment(*before))
-                return false;
-            const bool recorded =
-                after == *before || SceneCommands::set_environment(m_history, after);
+        if(auto* edit = std::get_if<std::unique_ptr<SceneEditBase>>(&m_edit->change)) {
+            // 预览已修改文档，只记录前后值，不再恢复旧值后重放一次。
+            const bool recorded = !(*edit)->capture_after(*m_history.get_scene())
+                                  || m_history.record_applied(std::move(*edit));
             m_edit.reset();
             return recorded;
         }
-        const auto& edit = std::get<ComponentEdit>(m_edit->before);
+        const auto& edit = std::get<ComponentEdit>(m_edit->change);
         const auto property = resolve(m_history.get_scene(), m_registry, edit.target);
         if(!property.descriptor) {
             m_edit.reset();
@@ -214,12 +196,12 @@ namespace CometEditor {
             m_edit.reset();
             return true;
         }
-        if(const auto* before = std::get_if<Comet::SceneEnvironment>(&m_edit->before)) {
-            const bool restored = m_history.get_scene()->set_environment(*before);
+        if(const auto* edit = std::get_if<std::unique_ptr<SceneEditBase>>(&m_edit->change)) {
+            const bool restored = (*edit)->undo(*m_history.get_scene());
             m_edit.reset();
             return restored;
         }
-        const auto& edit = std::get<ComponentEdit>(m_edit->before);
+        const auto& edit = std::get<ComponentEdit>(m_edit->change);
         const auto property = resolve(m_history.get_scene(), m_registry, edit.target);
         const bool restored = property.descriptor
                               && property.descriptor->assign_value(property.component, edit.before);

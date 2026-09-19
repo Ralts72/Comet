@@ -2,6 +2,7 @@
 
 #include "asset/handle.h"
 #include "render/lighting.h"
+#include "render/post_process.h"
 #include "common/export.h"
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
@@ -46,6 +47,7 @@ namespace Comet {
         std::vector<RenderItem> render_items;
         std::vector<RenderLight> lights;
         SceneEnvironment environment;
+        PostProcessSettings post_process;
     };
 
     struct RenderView {

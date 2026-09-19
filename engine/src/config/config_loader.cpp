@@ -77,24 +77,6 @@ namespace Comet {
                 value = static_cast<SampleCount>(count);
                 return true;
             }
-            bool color(Math::Vec4& value) {
-                YAML::Node node(YAML::NodeType::Undefined);
-                if(!find("render.clear_color", node))
-                    return false;
-                if(!node.IsDefined())
-                    return true;
-                if(!node.IsSequence() || node.size() != 4)
-                    return fail("render.clear_color", "expected an array of four numbers");
-                Math::Vec4 candidate;
-                for(std::size_t i = 0; i < 4; ++i) {
-                    const auto element = node[i];
-                    if(!element.IsScalar() || !YAML::convert<float>::decode(element, candidate[i])
-                        || !std::isfinite(candidate[i]))
-                        return fail("render.clear_color", "expected finite numbers");
-                }
-                value = candidate;
-                return true;
-            }
             const std::string& error() const { return m_error; }
 
         private:
@@ -165,12 +147,6 @@ namespace Comet {
                     "a non-negative integer")
                 || !reader.named("render.output_mode", config.render.output_mode, OUTPUT_MODES)
                 || !reader.read("render.hdr_headroom", config.render.hdr_headroom, "a number")
-                || !reader.read("render.exposure", config.render.post_process.exposure, "a number")
-                || !reader.read(
-                    "render.bloom_strength", config.render.post_process.bloom_strength, "a number")
-                || !reader.read("render.bloom_threshold",
-                    config.render.post_process.bloom_threshold, "a number")
-                || !reader.color(config.render.clear_color)
                 || !reader.read("render.enable_vsync", config.render.enable_vsync, "a boolean")
                 || !reader.read("render.max_anisotropy", config.render.max_anisotropy, "a number"))
                 return Result<void>::failure(reader.error());
@@ -211,8 +187,6 @@ namespace Comet {
             || config.render.hdr_headroom > 16.0f)
             return Result<Config>::failure(config_error(
                 sources, "render.hdr_headroom", "must be a finite number between 1 and 16"));
-        if(auto valid = config.render.post_process.validate(); !valid)
-            return Result<Config>::failure(config_error(sources, "render", valid.error()));
         return Result<Config>::success(std::move(config));
     }
 }

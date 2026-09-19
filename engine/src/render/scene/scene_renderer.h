@@ -45,7 +45,7 @@ namespace Comet {
 
     private:
         friend class Renderer;
-        Result<void, GraphicsError> set_post_process_settings(const PostProcessSettings& settings);
+        Result<void, GraphicsError> prepare_post_process(const PostProcessSettings& settings);
         [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>
         prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
@@ -81,7 +81,6 @@ namespace Comet {
         float m_hdr_headroom;
         Format m_depth_format;
         SampleCount m_msaa_samples;
-        Math::Vec4 m_clear_color;
         uint32_t m_frame_slot_count;
         PostProcessSettings m_post_process;
         std::shared_ptr<RenderState> m_state;

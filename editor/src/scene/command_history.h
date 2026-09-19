@@ -1,13 +1,13 @@
 #pragma once
 
 #include "scene/component_registry.h"
-#include "scene/scene_environment.h"
 
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <vector>
 #include <variant>
+#include <utility>
 
 namespace CometEditor {
     class CommandHistory {
@@ -64,28 +64,92 @@ namespace CometEditor {
             bool operator==(const Target&) const = default;
         };
 
+        template<typename Value> struct SceneTarget {
+            const Value& (Comet::Scene::*get)() const = nullptr;
+            bool (Comet::Scene::*set)(const Value&) = nullptr;
+            bool operator==(const SceneTarget&) const = default;
+        };
+
         PropertyEditTransaction(CommandHistory& history, const Comet::ComponentRegistry& registry);
         PropertyEditTransaction(const PropertyEditTransaction&) = delete;
         PropertyEditTransaction& operator=(const PropertyEditTransaction&) = delete;
 
         [[nodiscard]] bool begin(Target target);
-        [[nodiscard]] bool begin_environment();
-        [[nodiscard]] bool editing_environment() const;
+        [[nodiscard]] bool editing_scene() const;
         [[nodiscard]] bool apply(Target target, const Comet::PropertyValue& value);
         [[nodiscard]] bool preview(const Comet::PropertyValue& value);
-        [[nodiscard]] bool preview(const Comet::SceneEnvironment& value);
         [[nodiscard]] bool commit();
         [[nodiscard]] bool cancel();
         [[nodiscard]] bool active() const;
         [[nodiscard]] bool targets(const Target& target) const;
 
+        template<typename Value> [[nodiscard]] bool targets(SceneTarget<Value> target) const {
+            if(!editing_scene())
+                return false;
+            const auto* edit = dynamic_cast<const SceneEdit<Value>*>(
+                std::get<std::unique_ptr<SceneEditBase>>(m_edit->change).get());
+            return edit && edit->target == target;
+        }
+
+        template<typename Value> [[nodiscard]] bool begin(SceneTarget<Value> target) {
+            if(!target.get || !target.set)
+                return false;
+            if(targets(target))
+                return true;
+            if(!commit() || !m_history.get_scene())
+                return false;
+            m_edit = Edit{
+                std::make_unique<SceneEdit<Value>>(target, (m_history.get_scene()->*target.get)()),
+                m_history.generation(), m_history.state_id()};
+            return true;
+        }
+
+        template<typename Value>
+        [[nodiscard]] bool preview(SceneTarget<Value> target, const Value& value) {
+            return targets(target) && (m_history.get_scene()->*target.set)(value);
+        }
+
+        template<typename Value>
+        [[nodiscard]] bool apply(SceneTarget<Value> target, const Value& value) {
+            if(!commit() || !begin(target))
+                return false;
+            if(preview(target, value) && commit())
+                return true;
+            static_cast<void>(cancel());
+            return false;
+        }
+
     private:
+        class SceneEditBase: public CommandHistory::Command {
+        public:
+            [[nodiscard]] virtual bool capture_after(const Comet::Scene& scene) = 0;
+        };
+
+        template<typename Value> class SceneEdit final: public SceneEditBase {
+        public:
+            SceneEdit(SceneTarget<Value> target, const Value& before)
+                : target(target), m_before(before), m_after(before) {}
+
+            bool undo(Comet::Scene& scene) override { return (scene.*target.set)(m_before); }
+            bool redo(Comet::Scene& scene) override { return (scene.*target.set)(m_after); }
+            bool capture_after(const Comet::Scene& scene) override {
+                m_after = (scene.*target.get)();
+                return m_before != m_after;
+            }
+
+            const SceneTarget<Value> target;
+
+        private:
+            Value m_before;
+            Value m_after;
+        };
+
         struct ComponentEdit {
             Target target;
             Comet::PropertyValue before;
         };
         struct Edit {
-            std::variant<ComponentEdit, Comet::SceneEnvironment> before;
+            std::variant<ComponentEdit, std::unique_ptr<SceneEditBase>> change;
             std::uint64_t generation;
             std::uint64_t history_state;
         };

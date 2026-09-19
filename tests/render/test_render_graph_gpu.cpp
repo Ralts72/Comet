@@ -796,7 +796,6 @@ namespace Comet::Tests {
         for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
             Config config;
             config.vulkan.msaa_samples = samples;
-            config.render.clear_color = {4.0f, 0.5f, 0.02f, 1.0f};
             config.window.width = 160;
             config.window.height = 120;
             config.vulkan.enable_validation = true;
@@ -826,7 +825,8 @@ namespace Comet::Tests {
                 auto view = scene.get_offscreen_color_view(slot);
                 const auto format = view->get_image()->get_info().format;
                 EXPECT_NE(format, Format::R16G16B16A16_SFLOAT);
-                auto drawn = scene.render(frames, {});
+                auto drawn = scene.render(
+                    frames, {.environment = {.background_color = {4.0f, 0.5f, 0.02f}}});
                 ASSERT_TRUE(drawn) << drawn.error().message;
                 EXPECT_TRUE(drawn.value().empty());
                 copy_output(frames, view->get_image(), readback, size);

@@ -107,34 +107,6 @@ TEST(ConfigTest, ParsesStartupOutputModesAndValidatesHeadroom) {
     EXPECT_EQ(defaults.value().render.output_mode, OutputMode::Sdr);
 }
 
-TEST(ConfigTest, PostProcessDefaultsOverridesAndInvalidValues) {
-    const TemporaryConfigFile empty("{}");
-    const auto defaults = ConfigLoader{}.load(empty.path());
-    ASSERT_TRUE(defaults);
-    EXPECT_FLOAT_EQ(defaults.value().render.post_process.exposure, 1);
-    EXPECT_FALSE(defaults.value().render.post_process.bloom_enabled());
-    const TemporaryConfigFile base(
-        "render:\n  exposure: 2\n  bloom_strength: 0.5\n  bloom_threshold: 3\n");
-    const TemporaryConfigFile override_file("render:\n  bloom_strength: 0\n");
-    const auto overridden = ConfigLoader{}.load(std::vector{base.path(), override_file.path()});
-    ASSERT_TRUE(overridden);
-    EXPECT_FLOAT_EQ(overridden.value().render.post_process.exposure, 2);
-    EXPECT_FLOAT_EQ(overridden.value().render.post_process.bloom_threshold, 3);
-    EXPECT_FALSE(overridden.value().render.post_process.bloom_enabled());
-    const auto enabled = ConfigLoader{}.load(base.path());
-    ASSERT_TRUE(enabled);
-    EXPECT_TRUE(enabled.value().render.post_process.bloom_enabled());
-    for(const auto* field : {"exposure", "bloom_strength", "bloom_threshold"}) {
-        for(const auto* value : {"-1", ".nan", ".inf", "100000", "wrong"}) {
-            SCOPED_TRACE(std::string(field) + "=" + value);
-            const TemporaryConfigFile file(std::string("render:\n  ") + field + ": " + value);
-            const auto loaded = ConfigLoader{}.load(file.path());
-            ASSERT_FALSE(loaded);
-            EXPECT_NE(loaded.error().find(field), std::string::npos);
-        }
-    }
-}
-
 TEST(ConfigTest, ParsesExplicitConfiguration) {
     const TemporaryConfigFile file(R"(
 vulkan:
@@ -146,7 +118,6 @@ vulkan:
   msaa_samples: 8
 render:
   max_frames_in_flight: 3
-  clear_color: [0.9, 0.7, 0.5, 0.3]
   enable_vsync: true
   max_anisotropy: 16
 window:
@@ -187,7 +158,6 @@ diagnostics:
     EXPECT_EQ(config.render.max_frames_in_flight, 3u);
     EXPECT_TRUE(config.render.enable_vsync);
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, 16.0f);
-    EXPECT_EQ(config.render.clear_color, Math::Vec4(0.9f, 0.7f, 0.5f, 0.3f));
 }
 
 TEST(ConfigTest, UsesDefaultsForMissingFields) {
@@ -200,7 +170,6 @@ TEST(ConfigTest, UsesDefaultsForMissingFields) {
     EXPECT_EQ(config.window.width, 960);
     EXPECT_EQ(config.window.height, Config::Window{}.height);
     EXPECT_EQ(config.diagnostics.log.level, Config::Log{}.level);
-    EXPECT_EQ(config.render.clear_color, Config::Render{}.clear_color);
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, Config::Render{}.max_anisotropy);
 }
 
@@ -255,12 +224,6 @@ TEST(ConfigTest, RejectsInvalidFieldTypeWithFieldAndFileContext) {
     EXPECT_NE(message.find(file.path()), std::string::npos);
     EXPECT_NE(message.find("window.width"), std::string::npos);
     EXPECT_NE(message.find("expected an integer"), std::string::npos);
-}
-
-TEST(ConfigTest, RejectsInvalidClearColorLength) {
-    const TemporaryConfigFile file("render:\n  clear_color: [0.1, 0.2, 0.3]\n");
-
-    EXPECT_FALSE(ConfigLoader{}.load(file.path()));
 }
 
 TEST(ConfigTest, ValidatesRequiredPositiveValues) {

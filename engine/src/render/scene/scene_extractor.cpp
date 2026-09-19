@@ -9,6 +9,7 @@ namespace Comet {
 
         RenderScene render_scene;
         render_scene.environment = scene.get_environment();
+        render_scene.post_process = scene.get_post_process();
 
         const auto camera_view =
             scene.m_registry

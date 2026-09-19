@@ -10,6 +10,11 @@ namespace {
     using namespace Comet;
     using namespace CometEditor;
 
+    constexpr PropertyEditTransaction::SceneTarget<SceneEnvironment> environment_target{
+        &Scene::get_environment, &Scene::set_environment};
+    constexpr PropertyEditTransaction::SceneTarget<PostProcessSettings> post_process_target{
+        &Scene::get_post_process, &Scene::set_post_process};
+
     class CommandHistoryTest: public ::testing::Test {
     protected:
         ComponentRegistry registry = create_scene_component_registry();
@@ -34,8 +39,9 @@ namespace {
         const auto before = scene.get_environment();
         auto value = before;
         value.intensity = 3;
-        ASSERT_TRUE(edit.begin_environment());
-        ASSERT_TRUE(edit.preview(value));
+        value.background_color = {0.25f, 0.5f, 1.5f};
+        ASSERT_TRUE(edit.begin(environment_target));
+        ASSERT_TRUE(edit.preview(environment_target, value));
         EXPECT_EQ(history.undo_size(), 0u);
         ASSERT_TRUE(edit.begin(translation()));
         EXPECT_EQ(history.undo_size(), 1u);
@@ -49,25 +55,95 @@ namespace {
         EXPECT_EQ(scene.get_environment(), value);
     }
 
+    TEST_F(CommandHistoryTest, PostProcessGesturesCommitBeforeEnvironmentAndUndoIndependently) {
+        const auto original = scene.get_post_process();
+        auto settings = original;
+        settings.bloom_enabled = true;
+        ASSERT_TRUE(edit.begin(post_process_target));
+        ASSERT_TRUE(edit.preview(post_process_target, settings));
+        settings.exposure = 2;
+        ASSERT_TRUE(edit.preview(post_process_target, settings));
+        EXPECT_EQ(history.undo_size(), 0u);
+        ASSERT_TRUE(edit.begin(environment_target));
+        EXPECT_EQ(history.undo_size(), 1u);
+        auto environment = scene.get_environment();
+        environment.intensity = 3;
+        ASSERT_TRUE(edit.preview(environment_target, environment));
+        ASSERT_TRUE(edit.commit());
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.get_environment(), SceneEnvironment{});
+        EXPECT_EQ(scene.get_post_process(), settings);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.get_post_process(), original);
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(scene.get_post_process(), settings);
+    }
+
+    TEST_F(CommandHistoryTest, PostProcessInvalidCancelNoOpAndRebindDoNotAddHistory) {
+        const auto state = history.state_id();
+        ASSERT_TRUE(edit.begin(post_process_target));
+        EXPECT_FALSE(edit.preview(post_process_target, PostProcessSettings{.exposure = -1}));
+        ASSERT_TRUE(edit.commit());
+        EXPECT_EQ(history.state_id(), state);
+        ASSERT_TRUE(edit.begin(post_process_target));
+        ASSERT_TRUE(edit.preview(post_process_target, PostProcessSettings{.exposure = 3}));
+        ASSERT_TRUE(edit.cancel());
+        EXPECT_EQ(scene.get_post_process(), PostProcessSettings{});
+        EXPECT_EQ(history.state_id(), state);
+        ASSERT_TRUE(edit.begin(post_process_target));
+        Scene replacement;
+        history.bind_scene(&replacement);
+        EXPECT_FALSE(edit.preview(post_process_target, PostProcessSettings{.bloom_enabled = true}));
+        ASSERT_TRUE(edit.commit());
+        EXPECT_EQ(replacement.get_post_process(), PostProcessSettings{});
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
+
     TEST_F(CommandHistoryTest, EnvironmentCancelNoOpAndSceneSwitchPreserveHistory) {
         const auto before = scene.get_environment();
         auto value = before;
         value.rotation = 450;
-        ASSERT_TRUE(edit.begin_environment());
-        ASSERT_TRUE(edit.preview(value));
+        ASSERT_TRUE(edit.begin(environment_target));
+        ASSERT_TRUE(edit.preview(environment_target, value));
         ASSERT_TRUE(edit.cancel());
         EXPECT_EQ(scene.get_environment(), before);
         EXPECT_EQ(history.undo_size(), 0u);
-        ASSERT_TRUE(edit.begin_environment());
+        ASSERT_TRUE(edit.begin(environment_target));
         ASSERT_TRUE(edit.commit());
         EXPECT_EQ(history.undo_size(), 0u);
-        ASSERT_TRUE(edit.begin_environment());
+        ASSERT_TRUE(edit.begin(environment_target));
         value.intensity = -1;
-        EXPECT_FALSE(edit.preview(value));
+        EXPECT_FALSE(edit.preview(environment_target, value));
         Scene replacement;
         history.bind_scene(&replacement);
         ASSERT_TRUE(edit.cancel());
         EXPECT_EQ(replacement.get_environment(), before);
+    }
+
+    TEST_F(CommandHistoryTest, SceneTargetsKeepIdentityAndRecordNormalizedValues) {
+        const auto initial_state = history.state_id();
+        EXPECT_TRUE(edit.apply(environment_target, {}));
+        EXPECT_FALSE(edit.apply(environment_target, {{}, true, -1, 0}));
+        EXPECT_EQ(history.state_id(), initial_state);
+        auto environment = scene.get_environment();
+        environment.rotation = 450;
+        ASSERT_TRUE(edit.begin(environment_target));
+        EXPECT_TRUE(edit.targets(environment_target));
+        EXPECT_FALSE(edit.targets(post_process_target));
+        EXPECT_FALSE(edit.preview(post_process_target, PostProcessSettings{.exposure = 2}));
+        EXPECT_FALSE(edit.begin(PropertyEditTransaction::SceneTarget<SceneEnvironment>{}));
+        EXPECT_TRUE(edit.targets(environment_target));
+        ASSERT_TRUE(edit.preview(environment_target, environment));
+        ASSERT_TRUE(edit.commit());
+        EXPECT_FLOAT_EQ(scene.get_environment().rotation, 90);
+        const auto state = history.state_id();
+        ASSERT_TRUE(edit.apply(environment_target, environment));
+        EXPECT_EQ(history.state_id(), state);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(scene.get_environment().rotation, 0);
+        EXPECT_EQ(history.state_id(), initial_state);
+        ASSERT_TRUE(history.redo());
+        EXPECT_FLOAT_EQ(scene.get_environment().rotation, 90);
     }
 
     TEST_F(CommandHistoryTest, DiscreteApplyFinishesPreviousGestureAndRejectsWrongType) {

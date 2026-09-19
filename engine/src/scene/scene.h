@@ -8,6 +8,7 @@
 #include "common/export.h"
 #include "scene/entity.h"
 #include "scene/scene_environment.h"
+#include "render/post_process.h"
 #include <entt.hpp>
 
 namespace Comet {
@@ -62,6 +63,8 @@ namespace Comet {
 
         [[nodiscard]] const SceneEnvironment& get_environment() const { return m_environment; }
         [[nodiscard]] bool set_environment(const SceneEnvironment& environment);
+        [[nodiscard]] const PostProcessSettings& get_post_process() const { return m_post_process; }
+        [[nodiscard]] bool set_post_process(const PostProcessSettings& settings);
 
     private:
         friend class Entity;
@@ -83,6 +86,7 @@ namespace Comet {
 
         EntityId m_next_entity_id = 1;
         SceneEnvironment m_environment;
+        PostProcessSettings m_post_process;
         entt::registry m_registry;
         std::unordered_map<EntityId, entt::entity> m_entities_by_id;
         std::unordered_map<EntityUuid, entt::entity> m_entities_by_uuid;

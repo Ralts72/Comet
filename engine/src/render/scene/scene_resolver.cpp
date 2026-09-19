@@ -18,6 +18,7 @@ namespace Comet {
         submission.view_project_matrix = resolve_camera(render_scene, view);
         submission.lights = render_scene.lights;
         submission.environment = render_scene.environment;
+        submission.post_process = render_scene.post_process;
         const auto handle = render_scene.environment.asset;
         AssetHandle invalid_environment;
         // 未发布的环境资源可能仍在加载；加载失败由资产层报告。

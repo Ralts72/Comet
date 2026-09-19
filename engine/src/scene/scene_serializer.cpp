@@ -503,6 +503,16 @@ namespace Comet {
         writer.field("rotation", environment.rotation);
         writer.field("lighting", environment.lighting);
         writer.field("lighting_intensity", environment.lighting_intensity);
+        writer.key("background_color");
+        write_vec3(writer, environment.background_color);
+        writer.end_object();
+        const auto& post_process = scene.get_post_process();
+        writer.key("post_process");
+        writer.begin_object();
+        writer.field("exposure", post_process.exposure);
+        writer.field("bloom_enabled", post_process.bloom_enabled);
+        writer.field("bloom_strength", post_process.bloom_strength);
+        writer.field("bloom_threshold", post_process.bloom_threshold);
         writer.end_object();
         writer.key("entities");
         writer.begin_array();
@@ -526,8 +536,8 @@ namespace Comet {
             return LoadResult::failure(parsed.error());
         const Json::Node root = parsed.value();
 
-        if(auto valid =
-                context.validate_keys(root, {"version", "entities", "environment"}, "<root>");
+        if(auto valid = context.validate_keys(
+               root, {"version", "entities", "environment", "post_process"}, "<root>");
             !valid)
             return LoadResult::failure(valid.error());
         const auto version =
@@ -565,7 +575,7 @@ namespace Comet {
                 return LoadResult::failure(context.error("environment", "invalid object"));
             if(auto valid = context.validate_keys(environment_node,
                    {"asset", "background", "intensity", "rotation", "lighting",
-                       "lighting_intensity"},
+                       "lighting_intensity", "background_color"},
                    "environment");
                 !valid)
                 return LoadResult::failure(valid.error());
@@ -601,9 +611,53 @@ namespace Comet {
                     return LoadResult::failure(lighting_intensity.error());
                 environment.lighting_intensity = lighting_intensity.value();
             }
+            Json::Node color_node;
+            if(const auto error = environment_node["background_color"].get(color_node);
+                error != simdjson::NO_SUCH_FIELD) {
+                if(error)
+                    return LoadResult::failure(
+                        context.error("environment.background_color", "invalid color"));
+                auto color = read_vec3(color_node, context, "environment.background_color");
+                if(!color)
+                    return LoadResult::failure(color.error());
+                environment.background_color = color.value();
+            }
             if(!scene->set_environment(environment))
-                return LoadResult::failure(context.error(
-                    "environment", "background and lighting intensities must be between 0 and 64"));
+                return LoadResult::failure(context.error("environment",
+                    "intensities must be between 0 and 64; background color must be finite "
+                    "linear RGB between 0 and 65504"));
+        }
+        Json::Node post_process_node;
+        if(const auto error = root["post_process"].get(post_process_node);
+            error != simdjson::NO_SUCH_FIELD) {
+            if(error)
+                return LoadResult::failure(context.error("post_process", "invalid object"));
+            if(auto valid = context.validate_keys(post_process_node,
+                   {"exposure", "bloom_enabled", "bloom_strength", "bloom_threshold"},
+                   "post_process");
+                !valid)
+                return LoadResult::failure(valid.error());
+            const auto exposure = context.read_field<float>(
+                post_process_node, "exposure", "a finite number", "post_process");
+            const auto enabled = context.read_field<bool>(
+                post_process_node, "bloom_enabled", "a boolean", "post_process");
+            const auto strength = context.read_field<float>(
+                post_process_node, "bloom_strength", "a finite number", "post_process");
+            const auto threshold = context.read_field<float>(
+                post_process_node, "bloom_threshold", "a finite number", "post_process");
+            if(!exposure)
+                return LoadResult::failure(exposure.error());
+            if(!enabled)
+                return LoadResult::failure(enabled.error());
+            if(!strength)
+                return LoadResult::failure(strength.error());
+            if(!threshold)
+                return LoadResult::failure(threshold.error());
+            const PostProcessSettings settings{
+                exposure.value(), enabled.value(), strength.value(), threshold.value()};
+            if(auto valid = settings.validate(); !valid)
+                return LoadResult::failure(context.error("post_process", valid.error()));
+            scene->m_post_process = settings;
         }
         std::unordered_map<EntityUuid, Entity> loaded_entities;
         loaded_entities.reserve(records.size());

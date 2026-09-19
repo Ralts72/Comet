@@ -109,7 +109,7 @@ namespace Comet {
         const PostProcessSettings& settings, const std::shared_ptr<ImageView>& bloom) {
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_bindings.size() || !output || !hdr_color
-            || !settings.validate() || (settings.bloom_enabled() && !bloom))
+            || !settings.validate() || (settings.uses_bloom() && !bloom))
             return Result<void, GraphicsError>::failure(
                 {"Invalid output pass frame, input or settings"});
         if(&hdr_color->get_image()->get_device() != &m_device
@@ -122,7 +122,7 @@ namespace Comet {
         const auto slot = frames.get_current_frame_slot_index();
         // 关闭 Bloom 时仍需有效描述符作为占位，但着色器不会采样该绑定。
         auto bloom_input = hdr_color;
-        if(settings.bloom_enabled())
+        if(settings.uses_bloom())
             bloom_input = bloom;
         auto& binding = m_bindings[slot];
         if(!binding || binding->images[0] != hdr_color || binding->images[1] != bloom_input) {
@@ -154,8 +154,9 @@ namespace Comet {
             float bloom_strength;
         };
         static_assert(sizeof(Parameters) == 16);
+        const float strength = settings.uses_bloom() ? settings.bloom_strength : 0.0f;
         const Parameters parameters{
-            settings.exposure, m_encode_srgb ? 1u : 0u, m_headroom, settings.bloom_strength};
+            settings.exposure, m_encode_srgb ? 1u : 0u, m_headroom, strength};
         command.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Fragment),
             0, &parameters, sizeof(parameters));
         command.draw(3);

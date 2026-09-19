@@ -6,6 +6,9 @@
 #include "scene/scene_serializer.h"
 #include "support/math_assertions.h"
 #include "render/scene/scene_extractor.h"
+#include "render/scene/scene_resolver.h"
+#include "asset/registry.h"
+#include "support/temporary_directory.h"
 
 #include <filesystem>
 #include <limits>
@@ -16,9 +19,81 @@
 #include <utility>
 
 namespace Comet::Tests {
+    TEST(ScenePostProcessTest, PersistsClonesAndTravelsThroughBothCameraPaths) {
+        Scene scene;
+        const PostProcessSettings settings{.exposure = 0.75f,
+            .bloom_enabled = true,
+            .bloom_strength = 0.5f,
+            .bloom_threshold = 2.0f};
+        ASSERT_TRUE(scene.set_post_process(settings));
+        scene.create_entity("Camera").add_component<CameraComponent>().primary = true;
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        TemporaryDirectory directory;
+        const auto path = (directory.path() / "bloom.scene").string();
+        ASSERT_TRUE(serializer.save(scene, path));
+        const auto loaded = serializer.load(path);
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(loaded.value()->get_post_process(), settings);
+        const auto cloned = serializer.clone(*loaded.value());
+        ASSERT_TRUE(cloned) << cloned.error();
+        const auto snapshot = SceneExtractor::extract(*cloned.value());
+        EXPECT_EQ(snapshot.post_process, settings);
+        const AssetRegistry assets;
+        SceneResolver resolver(assets);
+        RenderView view{.render_size = {160, 120}};
+        EXPECT_EQ(resolver.resolve(snapshot, view).post_process, settings);
+        view.camera_selection = RenderView::CameraSelection::Override;
+        view.camera_override = RenderCamera{};
+        EXPECT_EQ(resolver.resolve(snapshot, view).post_process, settings);
+
+        auto disabled = settings;
+        disabled.bloom_enabled = false;
+        ASSERT_TRUE(cloned.value()->set_post_process(disabled));
+        EXPECT_FALSE(cloned.value()->get_post_process().uses_bloom());
+        EXPECT_EQ(scene.get_post_process(), settings);
+        EXPECT_EQ(resolver.resolve(SceneExtractor::extract(*cloned.value()), view).post_process,
+            disabled);
+        EXPECT_EQ(resolver.resolve(RenderScene{}, view).post_process, PostProcessSettings{});
+    }
+
+    TEST(ScenePostProcessTest, DefaultsOffAndRejectsMalformedOrOutOfRangeSettings) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        const auto loaded = serializer.deserialize(R"({"version":2,"entities":[]})");
+        ASSERT_TRUE(loaded);
+        auto& scene = *loaded.value();
+        EXPECT_EQ(scene.get_post_process(), PostProcessSettings{});
+        EXPECT_FALSE(scene.get_post_process().uses_bloom());
+        for(auto field : {&PostProcessSettings::exposure, &PostProcessSettings::bloom_strength,
+                &PostProcessSettings::bloom_threshold}) {
+            for(float invalid : {-1.0f, 100000.0f, std::numeric_limits<float>::quiet_NaN(),
+                    std::numeric_limits<float>::infinity()}) {
+                auto value = scene.get_post_process();
+                value.*field = invalid;
+                EXPECT_FALSE(scene.set_post_process(value));
+                EXPECT_EQ(scene.get_post_process(), PostProcessSettings{});
+            }
+        }
+        for(const char* object : {"null", "[]", "{}",
+                R"({"exposure":-1,"bloom_enabled":true,"bloom_strength":1,"bloom_threshold":1})",
+                R"({"exposure":101,"bloom_enabled":true,"bloom_strength":1,"bloom_threshold":1})",
+                R"({"exposure":1,"bloom_enabled":true,"bloom_strength":11,"bloom_threshold":1})",
+                R"({"exposure":1,"bloom_enabled":true,"bloom_strength":1,"bloom_threshold":65505})",
+                R"({"exposure":1,"bloom_enabled":1,"bloom_strength":1,"bloom_threshold":1})",
+                R"({"exposure":"bad","bloom_enabled":true,"bloom_strength":1,"bloom_threshold":1})",
+                R"({"exposure":1,"bloom_enabled":true,"bloom_strength":1,"bloom_threshold":1,"unknown":0})"}) {
+            const auto result = serializer.deserialize(
+                std::string(R"({"version":2,"entities":[],"post_process":)") + object + "}");
+            ASSERT_FALSE(result) << object;
+            EXPECT_NE(result.error().find("post_process"), std::string::npos);
+        }
+    }
+
     TEST(SceneEnvironmentTest, PersistsExtractsAndCollectsReferenceWithoutAnEntity) {
         Scene scene;
-        const SceneEnvironment environment{AssetHandle(902), true, 2.0f, -90.0f, true, 0.75f};
+        const SceneEnvironment environment{
+            AssetHandle(902), true, 2.0f, -90.0f, true, 0.75f, {0.25f, 0.5f, 2.0f}};
         ASSERT_TRUE(scene.set_environment(environment));
         EXPECT_EQ(scene.get_environment().rotation, -90.0f);
         const auto registry = create_scene_component_registry();
@@ -27,6 +102,16 @@ namespace Comet::Tests {
         EXPECT_EQ(references.front().handle, environment.asset);
         EXPECT_EQ(references.front().type, AssetType::Environment);
         EXPECT_EQ(SceneExtractor::extract(scene).environment, scene.get_environment());
+        AssetRegistry assets;
+        SceneResolver resolver(assets);
+        RenderView view;
+        EXPECT_EQ(resolver.resolve(SceneExtractor::extract(scene), view).environment,
+            scene.get_environment());
+        view.camera_selection = RenderView::CameraSelection::Override;
+        view.camera_override = RenderCamera{};
+        view.render_size = {64, 64};
+        EXPECT_EQ(resolver.resolve(SceneExtractor::extract(scene), view).environment,
+            scene.get_environment());
         const SceneSerializer serializer(registry);
         auto cloned = serializer.clone(scene);
         ASSERT_TRUE(cloned) << cloned.error();
@@ -44,11 +129,27 @@ namespace Comet::Tests {
         auto legacy = serializer.deserialize(R"({"version":2,"entities":[]})");
         ASSERT_TRUE(legacy);
         EXPECT_EQ(legacy.value()->get_environment(), SceneEnvironment{});
+        EXPECT_EQ(legacy.value()->get_environment().background_color, Math::Vec3(0));
         auto background_only = serializer.deserialize(
             R"({"version":2,"environment":{"asset":0,"background":true,"intensity":1,"rotation":0},"entities":[]})");
         ASSERT_TRUE(background_only);
         EXPECT_FALSE(background_only.value()->get_environment().lighting);
         EXPECT_FLOAT_EQ(background_only.value()->get_environment().lighting_intensity, 1);
+        for(const auto* color :
+            {"null", "true", "[1,2]", "[1,2,3,4]", "[-1,0,0]", "[0,65505,0]", "[0,\"bad\",0]"}) {
+            EXPECT_FALSE(serializer.deserialize(
+                std::string(
+                    R"({"version":2,"environment":{"asset":0,"background":false,"intensity":1,"rotation":0,"background_color":)")
+                + color + R"(},"entities":[]})"))
+                << color;
+        }
+        for(const float channel : {-1.0f, 65505.0f, std::numeric_limits<float>::infinity(),
+                std::numeric_limits<float>::quiet_NaN()}) {
+            auto invalid_color = SceneEnvironment{};
+            invalid_color.background_color.y = channel;
+            EXPECT_FALSE(legacy.value()->set_environment(invalid_color));
+            EXPECT_EQ(legacy.value()->get_environment(), SceneEnvironment{});
+        }
         for(const auto* invalid : {"-1", "65", "null", "true", "\"bad\""}) {
             EXPECT_FALSE(serializer.deserialize(
                 std::string(
