@@ -111,6 +111,14 @@ namespace Comet {
         return m_scene_renderer->reload_material_shaders(std::move(shaders));
     }
 
+    Result<MaterialRenderer::MaterialUpdate, GraphicsError> Renderer::prepare_material_update(
+        const AssetHandle handle, const std::shared_ptr<const Material>& material) {
+        if(m_frames->is_frame_active())
+            return Result<MaterialRenderer::MaterialUpdate, GraphicsError>::failure(
+                {"Material preparation requires a frame boundary"});
+        return m_scene_renderer->prepare_material_update(handle, material);
+    }
+
     void Renderer::request_swapchain_recreation() {
         m_presentation->request_recreation();
     }

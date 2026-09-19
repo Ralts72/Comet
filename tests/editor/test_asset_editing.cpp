@@ -185,6 +185,31 @@ namespace CometEditor::Tests {
             frame();
         }
 
+        ImVec2 widget_point(const char* window_name, const char* label) {
+            auto* window = ImGui::FindWindowByName(window_name);
+            if(!window) {
+                ADD_FAILURE() << "Window not found: " << window_name;
+                return {};
+            }
+            const auto id = window->GetID(label);
+            for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 3) {
+                const ImVec2 point{window->WorkRect.Min.x + 15, y};
+                ImGui::GetIO().AddMousePosEvent(point.x, point.y);
+                frame();
+                if(ImGui::GetHoveredID() == id)
+                    return point;
+            }
+            ADD_FAILURE() << "Widget not found: " << window_name << "/" << label;
+            return {};
+        }
+
+        void select_template(const char* name) {
+            click(widget_point("Inspector", "Template"));
+            frame();
+            click(widget_point("##Combo_00", name));
+            frame();
+        }
+
         std::optional<InspectorPanel::AssetAssignment> drop(ImVec2 point) {
             auto& io = ImGui::GetIO();
             io.AddMousePosEvent(point.x, point.y);
@@ -204,6 +229,100 @@ namespace CometEditor::Tests {
             return request;
         }
     };
+
+    TEST_F(AssetEditingUiTest, TemplateSwitchRequiresConfirmationAndRestoresOnFailure) {
+        selection.select_asset(material);
+        frame();
+        select_template("unlit_color");
+        EXPECT_EQ(material_updates, 0);
+        ASSERT_NE(ImGui::FindWindowByName("Change Material Template"), nullptr);
+        click(widget_point("Change Material Template", "Switch"));
+        ASSERT_EQ(material_updates, 1);
+        EXPECT_EQ(submitted_material.template_name, "unlit_color");
+        EXPECT_TRUE(submitted_material.texture_properties.empty());
+        EXPECT_EQ(submitted_material.scalar_properties.at("intensity"), 1);
+        material_update_success = false;
+        select_template("pbr");
+        click(widget_point("Change Material Template", "Switch"));
+        ASSERT_EQ(material_updates, 2);
+        EXPECT_EQ(submitted_material.template_name, "pbr");
+        // Failed publication restores the old template and its widgets, not just its file.
+        drag_value(material_point("intensity", "Intensity"), 20);
+        EXPECT_EQ(submitted_material.template_name, "unlit_color");
+    }
+
+    TEST_F(AssetEditingUiTest, CancellingTemplateSwitchDoesNotPublishOrDropTexture) {
+        selection.select_asset(material);
+        frame();
+        select_template("unlit_color");
+        // Cancel is the second button; use its actual frame ID rather than a fixed screen position.
+        auto* popup = ImGui::FindWindowByName("Change Material Template");
+        ASSERT_NE(popup, nullptr);
+        const auto cancel = popup->GetID("Cancel");
+        bool cancelled = false;
+        for(float y = popup->WorkRect.Min.y; y < popup->WorkRect.Max.y && !cancelled; y += 4) {
+            for(float x = popup->WorkRect.Min.x; x < popup->WorkRect.Max.x; x += 4) {
+                ImGui::GetIO().AddMousePosEvent(x, y);
+                frame();
+                if(ImGui::GetHoveredID() == cancel) {
+                    click({x, y});
+                    cancelled = true;
+                    break;
+                }
+            }
+        }
+        EXPECT_TRUE(cancelled);
+        EXPECT_EQ(material_updates, 0);
+        drag_value(material_point("roughness", "Roughness"), 20);
+        ASSERT_GT(material_updates, 0);
+        EXPECT_EQ(submitted_material.template_name, "pbr");
+        EXPECT_EQ(submitted_material.texture_properties.at("base_color_texture"), texture);
+    }
+
+    TEST_F(AssetEditingUiTest, ProjectCreatesMaterialThroughRequestAndSelectsCommittedAsset) {
+        project = std::make_unique<ProjectPanel>(
+            database, paths.assets(), Comet::AssetScanReport{}, selection, history);
+        project->set_material_layouts({Comet::MaterialLayout::find_builtin("pbr")});
+        frame();
+        frame();
+        auto* window = ImGui::FindWindowByName("Project");
+        const auto point = ImVec2(window->WorkRect.Min.x + 20, window->WorkRect.Max.y - 20);
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(point.x, point.y);
+        frame();
+        io.AddMouseButtonEvent(1, true);
+        frame();
+        io.AddMouseButtonEvent(1, false);
+        frame();
+        frame();
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        const auto* popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        click(widget_point(popup->Name, "New Material..."));
+        frame();
+        click(widget_point("New Material", "Name"));
+        io.AddInputCharactersUTF8("authored");
+        frame();
+        click(widget_point("New Material", "Create"));
+        const auto request = project->take_create_material_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->destination, "authored.mat");
+        EXPECT_EQ(request->data.template_name, "pbr");
+        EXPECT_TRUE(request->data.texture_properties.empty());
+        EXPECT_FALSE(project->take_create_material_request());
+        EXPECT_FALSE(database.find(request->destination));
+        Comet::AssetScanReport failed;
+        failed.issues.push_back({request->destination, "Write denied"});
+        project->complete_create_material(*request, std::move(failed));
+        frame();
+        EXPECT_NE(selection.get_selected_asset(), material);
+        ASSERT_TRUE(
+            Comet::MaterialSerializer{}.save(request->data, paths.assets() / request->destination));
+        project->complete_create_material(*request, database.scan());
+        EXPECT_EQ(selection.get_selected_asset(), database.find(request->destination)->handle);
+        frame();
+        EXPECT_FALSE(ImGui::IsPopupOpen("New Material", ImGuiPopupFlags_AnyPopupId));
+    }
 
     TEST_F(AssetEditingUiTest, ProjectDragKeepsSelectionAndOriginalDocumentGeneration) {
         ProjectPanel project(database, paths.assets(), {}, selection, history);

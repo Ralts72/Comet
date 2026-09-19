@@ -1141,6 +1141,76 @@ namespace Comet::Tests {
         }
     }
 
+    TEST_F(RenderGraphGpuTest, MaterialEditCandidatesPublishAtomicallyAndKeepOldFramePixels) {
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context();
+        auto& device = context.get_device();
+        ASSERT_TRUE(renderer.enable_offscreen_rendering({2, 2}));
+        auto& scene = renderer.get_scene_renderer();
+        const AssetHandle handle(786);
+        auto material = std::make_shared<Material>("authored", "unlit_color");
+        ASSERT_TRUE(material->set_vector_property("color", {0, 1, 0, 1}));
+        auto pbr = std::make_shared<Material>("authored", "pbr");
+        RenderSubmission submission{
+            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
+            .render_items = {{.mesh = lit_quad(), .material = {handle, material}}}};
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 4> outputs;
+        Format format{};
+        for(size_t index = 0; index < outputs.size(); ++index) {
+            if(index == 1) {
+                // Dropping a valid GPU candidate models a later file-save failure.
+                auto abandoned = renderer.prepare_material_update(handle, pbr);
+                ASSERT_TRUE(abandoned) << abandoned.error();
+                EXPECT_FALSE(renderer.prepare_material_update(
+                    handle, std::make_shared<Material>("invalid", "missing_template")));
+            } else if(index == 2) {
+                auto update = renderer.prepare_material_update(handle, pbr);
+                ASSERT_TRUE(update) << update.error();
+                std::move(update).value().publish();
+                submission.render_items.front().material.resource = pbr;
+            } else if(index == 3) {
+                auto red = std::make_shared<Material>("authored", "unlit_color");
+                ASSERT_TRUE(red->set_vector_property("color", {1, 0, 0, 1}));
+                auto update = renderer.prepare_material_update(handle, red);
+                ASSERT_TRUE(update) << update.error();
+                std::move(update).value().publish();
+                submission.render_items.front().material.resource = std::move(red);
+            }
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            auto drawn = scene.render(frames, submission);
+            ASSERT_TRUE(drawn) << drawn.error();
+            EXPECT_EQ(scene.get_material_statistics().draw_calls, 1);
+            if(index > 0)
+                EXPECT_EQ(scene.get_material_statistics().material_bindings_created, 0);
+            outputs[index] =
+                std::make_shared<Readback>(device, context.get_context().get_physical_device(), 16);
+            const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
+            format = view->get_image()->get_info().format;
+            copy_output(frames, view->get_image(), outputs[index], {2, 2});
+            submit(device, frames, drawn.value());
+        }
+        frames.wait_for_all_slots();
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        const std::array<Math::Vec3, 4> expected{
+            Math::Vec3(0, 1, 0), Math::Vec3(0, 1, 0), Math::Vec3(0), Math::Vec3(1, 0, 0)};
+        for(size_t index = 0; index < outputs.size(); ++index) {
+            const auto bytes = outputs[index]->read();
+            for(size_t pixel = 0; pixel < 4; ++pixel)
+                for(unsigned channel = 0; channel < 3; ++channel) {
+                    const auto component = bgra ? 2 - channel : channel;
+                    EXPECT_NEAR(std::to_integer<int>(bytes[pixel * 4 + component]),
+                        mapped_byte(expected[index][channel]), 2)
+                        << index;
+                }
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, PbrTextureUsesUvColorSpaceAndFallsBackAfterClear) {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();

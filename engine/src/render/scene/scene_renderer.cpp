@@ -210,6 +210,14 @@ namespace Comet {
         return result;
     }
 
+    Result<MaterialRenderer::MaterialUpdate, GraphicsError> SceneRenderer::prepare_material_update(
+        const AssetHandle handle, const std::shared_ptr<const Material>& material) {
+        if(!m_state)
+            return Result<MaterialRenderer::MaterialUpdate, GraphicsError>::failure(
+                {"Scene renderer is not configured"});
+        return m_state->materials->prepare_material_update(handle, material);
+    }
+
     std::vector<std::shared_ptr<const MaterialLayout>> SceneRenderer::get_material_layouts() const {
         if(!m_state)
             return {};

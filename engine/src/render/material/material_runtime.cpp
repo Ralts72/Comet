@@ -87,4 +87,9 @@ namespace Comet {
             entry.used = false;
         }
     }
+
+    void MaterialRuntimeCache::merge(MaterialRuntimeCache&& candidates) {
+        for(auto& [handle, entry] : candidates.m_entries)
+            m_entries.insert_or_assign(handle, std::move(entry));
+    }
 }

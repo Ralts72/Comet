@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -45,6 +46,7 @@ namespace Comet {
 
         [[nodiscard]] static std::shared_ptr<const MaterialLayout> find_builtin(
             std::string_view name);
+        [[nodiscard]] static std::span<const std::shared_ptr<const MaterialLayout>> builtins();
 
         static Result<MaterialLayout> create(std::string name,
             std::vector<TextureProperty> textures, uint32_t parameter_size = 0,

@@ -71,8 +71,7 @@ namespace Comet {
         return Result<void>::success();
     }
 
-    std::shared_ptr<const MaterialLayout> MaterialLayout::find_builtin(
-        const std::string_view name) {
+    std::span<const std::shared_ptr<const MaterialLayout>> MaterialLayout::builtins() {
         const auto builtin =
             [](Result<MaterialLayout> candidate) -> std::shared_ptr<const MaterialLayout> {
             if(!candidate)
@@ -92,6 +91,12 @@ namespace Comet {
                     {"roughness", 20, 0.5f, 0.045f, 1, 0.01f, "Roughness"}},
                 std::vector<VectorProperty>{{"base_color", 0, {0.8f, 0.8f, 0.8f, 1},
                     VectorProperty::Semantic::Color, "Base Color"}}))};
+        return layouts;
+    }
+
+    std::shared_ptr<const MaterialLayout> MaterialLayout::find_builtin(
+        const std::string_view name) {
+        const auto layouts = builtins();
         const auto found = std::ranges::find_if(
             layouts, [&](const auto& layout) { return layout->get_name() == name; });
         if(found == layouts.end())

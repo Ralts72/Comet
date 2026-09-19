@@ -6,6 +6,7 @@
 #include "scene/command_history.h"
 #include "editor_state.h"
 #include "assets/asset_reference.h"
+#include "assets/material_editing.h"
 
 #include <filesystem>
 #include <memory>
@@ -40,7 +41,7 @@ namespace CometEditor {
             std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts);
         [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
         [[nodiscard]] std::optional<AssetEdit> take_asset_edit();
-        void complete_asset_edit(const AssetEdit& edit, bool succeeded);
+        void complete_asset_edit(const AssetEdit& edit, bool succeeded, std::string error = {});
 
     private:
         void render_entity(Comet::Entity entity);
@@ -53,6 +54,7 @@ namespace CometEditor {
         void render_asset(Comet::AssetHandle handle);
         void render_texture(const Comet::AssetRecord& record);
         void render_material(const Comet::AssetRecord& record);
+        void confirm_material_template();
         void load_asset(const Comet::AssetRecord& record);
         void reimport_texture(const Comet::AssetRecord& record,
             const Comet::TextureImportSettings& previous_settings);
@@ -77,6 +79,7 @@ namespace CometEditor {
         std::string m_asset_error;
         std::optional<AssetAssignment> m_asset_assignment;
         std::optional<AssetEdit> m_asset_edit;
+        std::optional<MaterialTemplateChange> m_template_change;
     };
 
 }

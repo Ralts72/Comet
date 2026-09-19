@@ -42,6 +42,9 @@ namespace Comet {
 
     private:
         friend class Renderer;
+        [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>
+        prepare_material_update(
+            AssetHandle handle, const std::shared_ptr<const Material>& material);
         Result<void, GraphicsError> configure_presentation(
             RenderResources& resources, Swapchain& swapchain);
         Result<void, GraphicsError> configure_offscreen(

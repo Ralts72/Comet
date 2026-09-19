@@ -91,6 +91,21 @@ namespace Comet::Tests {
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), 0u);
     }
 
+    TEST_F(MaterialRenderingTest, MaterialPreparationRequiresFrameBoundary) {
+        auto& renderer = engine->get_renderer();
+        const auto material = std::make_shared<Material>("edit", "pbr");
+        {
+            auto candidate = renderer.prepare_material_update(AssetHandle(1), material);
+            ASSERT_TRUE(candidate) << candidate.error();
+        }
+        auto frame = renderer.prepare_frame();
+        ASSERT_TRUE(frame);
+        ASSERT_TRUE(frame.value());
+        auto rejected = renderer.prepare_material_update(AssetHandle(1), material);
+        EXPECT_FALSE(rejected);
+        EXPECT_TRUE(renderer.render_frame({}));
+    }
+
     TEST_F(MaterialRenderingTest, InvalidOffscreenExtentKeepsCurrentTarget) {
         auto& renderer = engine->get_renderer();
         auto* previous = &renderer.get_scene_renderer().get_render_target();

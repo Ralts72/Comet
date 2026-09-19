@@ -45,6 +45,7 @@ namespace CometEditor {
                 name.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
             record_drop_target(directory_path);
             accept_asset_drop(directory_path);
+            render_directory_menu(directory_path);
             if(open) {
                 render_asset_tree(directory, directory_path);
                 ImGui::TreePop();
@@ -89,7 +90,10 @@ namespace CometEditor {
         SelectionService& selection, const CommandHistory& history)
         : EditorPanel("Project"), m_database(database), m_asset_root(std::move(asset_root)),
           m_tree(build_asset_tree()), m_scan_report(std::move(scan_report)), m_selection(selection),
-          m_history(history) {}
+          m_history(history) {
+        const auto builtins = Comet::MaterialLayout::builtins();
+        m_material_layouts.assign(builtins.begin(), builtins.end());
+    }
 
     void ProjectPanel::render() {
         m_drop_targets.clear();
@@ -108,6 +112,7 @@ namespace CometEditor {
             "assets", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
         record_drop_target({});
         accept_asset_drop({});
+        render_directory_menu({});
         if(root_open) {
             if(m_tree.assets.empty() && m_tree.directories.empty()) {
                 ImGui::TextDisabled("No indexed assets");
@@ -127,16 +132,128 @@ namespace CometEditor {
 
         if(ImGui::BeginPopupContextWindow("Project actions",
                ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
+            if(ImGui::MenuItem("New Material...", nullptr, false, !m_material_layouts.empty()))
+                request_create_material({});
             if(ImGui::MenuItem("Refresh"))
                 m_refresh_requested = true;
             ImGui::EndPopup();
         }
 
         render_rename_dialog();
+        render_create_material_dialog();
         if(!m_renaming_asset && !m_operation_error.empty()) {
             ImGui::TextWrapped("%s", m_operation_error.c_str());
         }
         ImGui::End();
+    }
+
+    void ProjectPanel::set_material_layouts(
+        std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts) {
+        std::erase(layouts, nullptr);
+        std::ranges::sort(layouts, {}, [](const auto& layout) { return layout->get_name(); });
+        m_material_layouts = std::move(layouts);
+    }
+
+    void ProjectPanel::render_directory_menu(const std::filesystem::path& directory) {
+        if(ImGui::BeginPopupContextItem()) {
+            if(ImGui::MenuItem("New Material...", nullptr, false, !m_material_layouts.empty()))
+                request_create_material(directory);
+            ImGui::EndPopup();
+        }
+    }
+
+    void ProjectPanel::request_create_material(const std::filesystem::path& directory) {
+        m_create_directory = directory;
+        m_material_name.fill('\0');
+        m_create_template.clear();
+        if(!m_material_layouts.empty())
+            m_create_template = m_material_layouts.front()->get_name();
+        m_operation_error.clear();
+        m_close_create = false;
+        m_create_requested = true;
+    }
+
+    void ProjectPanel::render_create_material_dialog() {
+        constexpr const char* title = "New Material";
+        const bool opening = std::exchange(m_create_requested, false);
+        if(opening)
+            ImGui::OpenPopup(title);
+        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            return;
+        if(std::exchange(m_close_create, false)) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+        ImGui::Text("Directory: assets/%s", m_create_directory.generic_string().c_str());
+        if(opening)
+            ImGui::SetKeyboardFocusHere();
+        ImGui::SetNextItemWidth(320.0f);
+        const bool submitted = ImGui::InputText("Name", m_material_name.data(),
+            m_material_name.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        ImGui::TextUnformatted(".mat");
+        ImGui::SetNextItemWidth(320.0f);
+        if(ImGui::BeginCombo("Template", m_create_template.c_str())) {
+            for(const auto& layout : m_material_layouts) {
+                const bool selected = layout->get_name() == m_create_template;
+                if(ImGui::Selectable(layout->get_name().c_str(), selected))
+                    m_create_template = layout->get_name();
+                if(selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        if(ImGui::Button("Create") || submitted) {
+            const std::string name(m_material_name.data());
+            const auto layout = std::ranges::find_if(m_material_layouts,
+                [&](const auto& item) { return item->get_name() == m_create_template; });
+            if(name.empty() || name == "." || name == ".."
+                || name.find_first_of("/\\:") != std::string::npos)
+                m_operation_error = "Enter a file name, not a path";
+            else if(layout == m_material_layouts.end())
+                m_operation_error = "Selected template is no longer available";
+            else if(std::ranges::any_of((*layout)->get_textures(),
+                        [](const auto& property) { return !property.optional; }))
+                m_operation_error = "This template requires textures before it can be created";
+            else {
+                auto filename = name;
+                if(!filename.ends_with(".mat"))
+                    filename += ".mat";
+                m_pending_create = CreateMaterialRequest{
+                    m_create_directory / filename, make_material_data(**layout)};
+            }
+        }
+        ImGui::SameLine();
+        if(ImGui::Button("Cancel")) {
+            ImGui::CloseCurrentPopup();
+            m_operation_error.clear();
+        }
+        if(!m_operation_error.empty())
+            ImGui::TextWrapped("%s", m_operation_error.c_str());
+        ImGui::EndPopup();
+    }
+
+    std::optional<ProjectPanel::CreateMaterialRequest> ProjectPanel::
+        take_create_material_request() {
+        return std::exchange(m_pending_create, std::nullopt);
+    }
+
+    void ProjectPanel::complete_create_material(
+        const CreateMaterialRequest& request, Comet::AssetScanReport report) {
+        m_operation_error.clear();
+        const bool committed = report.snapshot_updated;
+        if(!committed) {
+            m_operation_error = "Material could not be created";
+            if(!report.issues.empty())
+                m_operation_error = report.issues.front().message;
+        }
+        update_scan_report(std::move(report));
+        if(committed) {
+            if(const auto* record = m_database.find(request.destination))
+                m_selection.select_asset(record->handle);
+            m_close_create = true;
+        }
     }
 
     std::optional<Comet::AssetHandle> ProjectPanel::take_mesh_reimport_request() {

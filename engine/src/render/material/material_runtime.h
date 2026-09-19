@@ -40,6 +40,7 @@ namespace Comet {
         Result<std::shared_ptr<const PreparedMaterial>> rebind(
             AssetHandle handle, const std::shared_ptr<const MaterialLayout>& layout);
         void swap(MaterialRuntimeCache& other) noexcept;
+        void merge(MaterialRuntimeCache&& candidates);
 
     private:
         struct Entry {

@@ -1,8 +1,10 @@
 #include "asset/source_operations.h"
 
 #include "common/result.h"
+#include "common/file_io.h"
 #include "common/scope_exit.h"
 #include "asset/serialization/metadata_serializer.h"
+#include "asset/serialization/material_serializer.h"
 #include "asset/import/mesh_importer.h"
 #include "asset/import/texture_importer.h"
 #include <fastgltf/core.hpp>
@@ -366,6 +368,106 @@ namespace Comet::AssetSourceOperations {
             report.issues.push_back({directory, result.error()});
         }
         cleanup(&report);
+        cleanup_on_exit.release();
+        return report;
+    }
+
+    AssetScanReport create_material(AssetDatabase& database, const ProjectPaths& paths,
+        const std::filesystem::path& destination, const MaterialData& data) {
+        if(!is_safe_destination(destination) || extension_of(destination) != ".mat")
+            return operation_error(
+                destination, "Material destination must be a relative .mat path");
+        if(auto valid = validate_relative(destination); !valid)
+            return operation_error(destination, valid.error());
+        auto serialized = MaterialSerializer{}.serialize(data);
+        if(!serialized)
+            return operation_error(destination, serialized.error());
+        std::error_code error;
+        const auto root = std::filesystem::canonical(paths.assets(), error);
+        if(error)
+            return operation_error(
+                destination, "Cannot resolve assets directory: " + error.message());
+        const auto target = root / destination;
+        const auto meta = metadata_path(target);
+        if(auto valid = validate_inside(root, target); !valid)
+            return operation_error(destination, valid.error());
+        if(!std::filesystem::is_directory(target.parent_path(), error))
+            return operation_error(destination, "Material directory does not exist");
+        for(const auto& path : {target, meta})
+            if(auto valid = validate_available(path); !valid)
+                return operation_error(destination, valid.error());
+
+        const auto handle = AssetHandle::generate();
+        const auto staging_parent = paths.cache() / "material-create";
+        std::filesystem::create_directories(staging_parent, error);
+        if(error)
+            return operation_error(
+                destination, "Cannot create staging directory: " + error.message());
+        const auto staging = staging_parent / std::to_string(handle.value());
+        if(!std::filesystem::create_directory(staging, error))
+            return operation_error(destination, "Cannot reserve material staging directory");
+
+        AssetScanReport report;
+        bool source_published = false;
+        bool metadata_published = false;
+        bool committed = false;
+        const auto cleanup = [&] {
+            const auto remove = [&](const std::filesystem::path& path) {
+                std::error_code failure;
+                std::filesystem::remove(path, failure);
+                if(failure)
+                    report.issues.push_back(
+                        {path, "Material rollback failed: " + failure.message()});
+            };
+            if(!committed) {
+                if(source_published)
+                    remove(target);
+                if(metadata_published)
+                    remove(meta);
+            }
+            std::error_code failure;
+            std::filesystem::remove_all(staging, failure);
+            if(failure)
+                report.issues.push_back({staging, "Staging cleanup failed: " + failure.message()});
+        };
+        ScopeExit cleanup_on_exit(cleanup);
+        const auto publish = [&]() -> Result<void> {
+            if(auto saved = write_text_file_atomic(staging / "material.mat", serialized.value());
+                !saved)
+                return saved;
+            if(auto saved = MetadataSerializer{}.save(
+                   {.handle = handle,
+                       .type = AssetType::Material,
+                       .import_settings = make_default_import_settings(AssetType::Material)},
+                   staging / "material.mat.meta");
+                !saved)
+                return saved;
+            // Publish only files we own, without overwriting a concurrently created destination.
+            std::filesystem::create_hard_link(staging / "material.mat.meta", meta, error);
+            if(error)
+                return Result<void>::failure(
+                    "Cannot publish material metadata: " + error.message());
+            metadata_published = true;
+            std::filesystem::create_hard_link(staging / "material.mat", target, error);
+            if(error)
+                return Result<void>::failure("Cannot publish material: " + error.message());
+            source_published = true;
+            AssetDatabase candidate = database;
+            report = candidate.scan();
+            const auto* record = candidate.find(handle);
+            if(!report.snapshot_updated || !report.succeeded() || !record
+                || record->path != destination.lexically_normal()
+                || record->type != AssetType::Material)
+                return Result<void>::failure("Material could not be indexed; creation rolled back");
+            database = std::move(candidate);
+            committed = true;
+            return Result<void>::success();
+        };
+        if(auto published = publish(); !published) {
+            report = operation_error(destination, published.error());
+            report.indexed_assets = database.size();
+        }
+        cleanup();
         cleanup_on_exit.release();
         return report;
     }

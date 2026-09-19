@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/database.h"
+#include "asset/material_data.h"
 #include "asset/import/asset_task_types.h"
 #include "common/export.h"
 #include "common/error.h"
@@ -31,6 +32,23 @@ namespace Comet {
 
     class COMET_API AssetManager final {
     public:
+        class COMET_API MaterialUpdate {
+        public:
+            [[nodiscard]] AssetHandle handle() const { return m_record.handle; }
+            [[nodiscard]] std::shared_ptr<const Material> material() const;
+
+        private:
+            friend class AssetManager;
+            MaterialUpdate() = default;
+            const AssetManager* m_owner = nullptr;
+            AssetRecord m_record;
+            AssetRevision m_revision = 0;
+            MaterialData m_data;
+            std::string m_serialized;
+            std::shared_ptr<Material> m_material;
+            std::shared_ptr<Material> m_previous;
+        };
+
         AssetManager(ProjectPaths paths, AssetRegistry& registry,
             RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler);
         AssetManager(ProjectPaths paths, AssetRegistry& registry,
@@ -58,9 +76,15 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> load_texture(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> reimport_texture(
             AssetHandle handle, TextureImportSettings import_settings);
+        [[nodiscard]] AssetScanReport create_material(
+            const std::filesystem::path& destination, const MaterialData& data);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> load_material(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> update_material(
             AssetHandle handle, const MaterialData& data);
+        [[nodiscard]] Result<MaterialUpdate, Error> prepare_material_update(
+            AssetHandle handle, const MaterialData& data);
+        [[nodiscard]] Result<std::shared_ptr<Material>, Error> commit_material_update(
+            const MaterialUpdate& update);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> reload_material(AssetHandle handle);
 
         [[nodiscard]] const AssetDatabase& get_database() const noexcept { return m_database; }

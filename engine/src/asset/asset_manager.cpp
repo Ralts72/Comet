@@ -165,6 +165,14 @@ namespace Comet {
         return report;
     }
 
+    AssetScanReport AssetManager::create_material(
+        const std::filesystem::path& destination, const MaterialData& data) {
+        auto report =
+            AssetSourceOperations::create_material(m_database, m_paths, destination, data);
+        apply_scan_report(report);
+        return report;
+    }
+
     void AssetManager::apply_scan_report(const AssetScanReport& report) {
         if(!report.snapshot_updated) {
             return;
@@ -616,49 +624,78 @@ namespace Comet {
 
     Result<std::shared_ptr<Material>, Error> AssetManager::update_material(
         const AssetHandle handle, const MaterialData& data) {
+        auto update = prepare_material_update(handle, data);
+        if(!update)
+            return Result<std::shared_ptr<Material>, Error>::failure(update.error());
+        return commit_material_update(update.value());
+    }
+
+    std::shared_ptr<const Material> AssetManager::MaterialUpdate::material() const {
+        return m_material;
+    }
+
+    Result<AssetManager::MaterialUpdate, Error> AssetManager::prepare_material_update(
+        const AssetHandle handle, const MaterialData& data) {
+        using Preparation = Result<MaterialUpdate, Error>;
         if(!validate_asset_handle(handle, "update a material")) {
-            return Result<std::shared_ptr<Material>, Error>::failure({"Invalid material handle"});
+            return Preparation::failure({"Invalid material handle"});
         }
 
         const AssetRecord* record = find_asset_record(m_database, handle, AssetType::Material);
         if(!record) {
-            return Result<std::shared_ptr<Material>, Error>::failure(
-                {"Material is not indexed with the expected type"});
+            return Preparation::failure({"Material is not indexed with the expected type"});
         }
 
         const auto runtime = find_runtime_asset<Material>(m_registry, handle);
         if(runtime.type_conflict) {
-            return Result<std::shared_ptr<Material>, Error>::failure(
-                {"Runtime material type conflict"});
+            return Preparation::failure({"Runtime material type conflict"});
         }
-        const bool has_runtime_asset = static_cast<bool>(runtime.asset);
 
         const AssetRevision revision = m_database.get_revision(handle);
         const AssetRecord snapshot = *record;
         const auto serialized_data = MaterialSerializer{}.serialize(data);
         if(!serialized_data) {
-            return Result<std::shared_ptr<Material>, Error>::failure({serialized_data.error()});
+            return Preparation::failure({serialized_data.error()});
         }
         auto material = create_runtime_material(snapshot, data);
         if(!material)
-            return material;
+            return Preparation::failure(material.error());
         if(!m_database.is_current(handle, revision)) {
             LOG_DEBUG("Discarded stale material update for asset handle {} (revision {})",
                 handle.value(), revision);
-            return Result<std::shared_ptr<Material>, Error>::failure(
-                {"Material changed during update"});
+            return Preparation::failure({"Material changed during update"});
         }
-        if(auto saved =
-                write_text_file_atomic(m_paths.assets() / snapshot.path, serialized_data.value());
+        MaterialUpdate update;
+        update.m_owner = this;
+        update.m_record = snapshot;
+        update.m_revision = revision;
+        update.m_data = data;
+        update.m_serialized = serialized_data.value();
+        update.m_material = std::move(material).value();
+        update.m_previous = runtime.asset;
+        return Preparation::success(std::move(update));
+    }
+
+    Result<std::shared_ptr<Material>, Error> AssetManager::commit_material_update(
+        const MaterialUpdate& update) {
+        const auto handle = update.handle();
+        const auto runtime = find_runtime_asset<Material>(m_registry, handle);
+        if(update.m_owner != this || !update.m_material
+            || !m_database.is_current(handle, update.m_revision) || runtime.type_conflict
+            || runtime.asset != update.m_previous)
+            return Result<std::shared_ptr<Material>, Error>::failure({"Material update is stale"});
+        if(auto saved = write_text_file_atomic(
+               m_paths.assets() / update.m_record.path, update.m_serialized);
             !saved) {
             return Result<std::shared_ptr<Material>, Error>::failure({saved.error()});
         }
-        if(auto published = publish_material(handle, data, material.value(), has_runtime_asset);
+        if(auto published = publish_material(
+               handle, update.m_data, update.m_material, static_cast<bool>(update.m_previous));
             !published)
             return Result<std::shared_ptr<Material>, Error>::failure(published.error());
-        LOG_INFO("Updated material asset '{}' (handle {})", snapshot.path.generic_string(),
+        LOG_INFO("Updated material asset '{}' (handle {})", update.m_record.path.generic_string(),
             handle.value());
-        return material;
+        return Result<std::shared_ptr<Material>, Error>::success(update.m_material);
     }
 
     Result<void, Error> AssetManager::publish_material(const AssetHandle handle,

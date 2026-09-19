@@ -140,6 +140,7 @@ namespace {
             if(auto panels = setup_panels(scene, std::move(initial_asset_scan)); !panels)
                 return panels;
             m_inspector_panel->set_material_layouts(scene_renderer.get_material_layouts());
+            m_project_panel->set_material_layouts(scene_renderer.get_material_layouts());
 
             renderer.set_overlay_renderer([this](Comet::CommandBuffer& command_buffer) {
                 m_imgui_context->render(command_buffer);
@@ -284,6 +285,7 @@ namespace {
             if(result.value().pipelines == 0)
                 return Comet::Result<void, Comet::Error>::success();
             m_inspector_panel->set_material_layouts(scene_renderer.get_material_layouts());
+            m_project_panel->set_material_layouts(scene_renderer.get_material_layouts());
             LOG_INFO(
                 "Published material Shader revision {}: {} pipelines, {} material versions, {} bindings",
                 compilation->revision, result.value().pipelines, result.value().material_versions,
@@ -548,15 +550,39 @@ namespace {
             return process_scene_requests();
         }
 
+        Comet::Result<void, Comet::Error> apply_asset_edit(const CometEditor::AssetEdit& edit) {
+            if(!std::holds_alternative<CometEditor::MaterialEdit>(edit.value))
+                return m_assets->apply_edit(edit);
+            auto update = m_assets->prepare_material_edit(edit);
+            if(!update)
+                return Comet::Result<void, Comet::Error>::failure(update.error());
+            auto& renderer = get_engine().get_renderer();
+            auto bindings =
+                renderer.prepare_material_update(edit.handle, update.value().material());
+            if(!bindings)
+                return Comet::Result<void, Comet::Error>::failure(bindings.error().as_error());
+            if(auto committed = m_assets->commit_material_edit(update.value()); !committed)
+                return committed;
+            std::move(bindings).value().publish();
+            return Comet::Result<void, Comet::Error>::success();
+        }
+
         Comet::Result<void, Comet::Error> process_asset_requests() {
+            if(const auto create = m_project_panel->take_create_material_request())
+                m_project_panel->complete_create_material(
+                    *create, m_assets->create_material(create->destination, create->data));
             if(const auto move = m_project_panel->take_move_request())
                 m_project_panel->complete_move(
                     *move, m_assets->move(move->handle, move->destination));
             if(m_project_panel->take_refresh_request())
                 m_project_panel->update_scan_report(m_assets->refresh());
             if(const auto edit = m_inspector_panel->take_asset_edit()) {
-                const auto result = m_assets->apply_edit(*edit);
-                m_inspector_panel->complete_asset_edit(*edit, static_cast<bool>(result));
+                const auto result = apply_asset_edit(*edit);
+                std::string error;
+                if(!result)
+                    error = result.error().message;
+                m_inspector_panel->complete_asset_edit(
+                    *edit, static_cast<bool>(result), std::move(error));
                 if(!result) {
                     if(is_device_lost(result.error()))
                         return result;

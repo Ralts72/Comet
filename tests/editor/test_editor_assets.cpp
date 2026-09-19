@@ -1,4 +1,6 @@
 #include "assets/editor_assets.h"
+#include "assets/material_editing.h"
+#include "asset/serialization/metadata_serializer.h"
 #include "asset/data/mesh_data.h"
 #include "asset/data/texture_data.h"
 #include "asset/artifact/mesh_artifact.h"
@@ -98,6 +100,143 @@ namespace CometEditor::Tests {
             return record->handle;
         }
     };
+
+    TEST_F(EditorAssetsTest, CreatesMaterialWithStableIdentityThenEditsMovesAndReopens) {
+        const auto paths = Comet::ProjectPaths(root);
+        std::filesystem::create_directory(paths.assets() / "materials");
+        const auto data = make_material_data(*Comet::MaterialLayout::find_builtin("pbr"));
+        const auto report = assets->create_material("materials/new.mat", data);
+        ASSERT_TRUE(report.snapshot_updated);
+        ASSERT_TRUE(report.succeeded());
+        const auto* record = assets->database().find("materials/new.mat");
+        ASSERT_NE(record, nullptr);
+        const auto handle = record->handle;
+        EXPECT_EQ(report.added_assets, std::vector{handle});
+        EXPECT_EQ(Comet::MaterialSerializer{}.load(paths.assets() / record->path).value(), data);
+        EXPECT_EQ(Comet::MetadataSerializer{}
+                      .load(Comet::metadata_path(paths.assets() / record->path))
+                      .value()
+                      .handle,
+            handle);
+        ASSERT_TRUE(assets->load_reference(
+            handle, Comet::AssetType::Material, assets->database().get_revision(handle)));
+        const auto original = runtime.resolve<Comet::Material>(handle);
+        ASSERT_TRUE(original);
+        const auto unlit = make_material_data(*Comet::MaterialLayout::find_builtin("unlit_color"));
+        ASSERT_TRUE(assets->apply_edit(
+            {handle, assets->database().get_revision(handle), MaterialEdit{data, unlit}}));
+        EXPECT_NE(runtime.resolve<Comet::Material>(handle), original);
+        ASSERT_TRUE(assets->move(handle, "renamed.mat").snapshot_updated);
+        Comet::AssetDatabase reopened(paths);
+        ASSERT_TRUE(reopened.scan().succeeded());
+        ASSERT_NE(reopened.find(handle), nullptr);
+        EXPECT_EQ(reopened.find(handle)->path, "renamed.mat");
+        EXPECT_EQ(Comet::MaterialSerializer{}.load(paths.assets() / "renamed.mat").value(), unlit);
+    }
+
+    TEST_F(EditorAssetsTest, MaterialCreationRejectsCollisionsUnsafePathsAndInvalidData) {
+        const auto paths = Comet::ProjectPaths(root);
+        const auto data = make_material_data(*Comet::MaterialLayout::find_builtin("pbr"));
+        ASSERT_TRUE(assets->create_material("existing.mat", data).snapshot_updated);
+        const auto handle = assets->database().find("existing.mat")->handle;
+        const auto revision = assets->database().get_revision(handle);
+        const auto changed =
+            make_material_data(*Comet::MaterialLayout::find_builtin("unlit_color"));
+        for(const auto& path : {"existing.mat", "../escape.mat", "missing/new.mat", "bad.txt",
+                ".comet-tmp-hidden.mat"}) {
+            const auto report = assets->create_material(path, changed);
+            EXPECT_FALSE(report.snapshot_updated) << path;
+            EXPECT_FALSE(report.succeeded()) << path;
+        }
+        EXPECT_FALSE(
+            assets->create_material(paths.assets() / "absolute.mat", data).snapshot_updated);
+        EXPECT_FALSE(assets->create_material("invalid.mat", {}).snapshot_updated);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "invalid.mat"));
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "invalid.mat.meta"));
+        EXPECT_TRUE(assets->database().is_current(handle, revision));
+        EXPECT_EQ(Comet::MaterialSerializer{}.load(paths.assets() / "existing.mat").value(), data);
+        std::ofstream(paths.assets() / "occupied.mat.meta") << "reserved";
+        EXPECT_FALSE(assets->create_material("occupied.mat", data).snapshot_updated);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "occupied.mat"));
+    }
+
+    TEST_F(EditorAssetsTest, MaterialCreationRejectsEscapingSymlinksAndUnavailableStaging) {
+        const auto paths = Comet::ProjectPaths(root);
+        const auto outside = root / "outside";
+        std::filesystem::create_directory(outside);
+        std::error_code error;
+        std::filesystem::create_directory_symlink(outside, paths.assets() / "link", error);
+        if(error)
+            GTEST_SKIP() << "Directory symlinks unavailable: " << error.message();
+        const auto data = make_material_data(*Comet::MaterialLayout::find_builtin("pbr"));
+        EXPECT_FALSE(assets->create_material("link/escape.mat", data).snapshot_updated);
+        EXPECT_FALSE(std::filesystem::exists(outside / "escape.mat"));
+        std::filesystem::create_directories(paths.cache());
+        std::ofstream(paths.cache() / "material-create") << "not a directory";
+        EXPECT_FALSE(assets->create_material("new.mat", data).snapshot_updated);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "new.mat"));
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "new.mat.meta"));
+    }
+
+    TEST_F(EditorAssetsTest, MaterialCreationRollsBackWhenIndexCannotCommit) {
+        const auto paths = Comet::ProjectPaths(root);
+        std::ofstream(paths.assets() / "broken.mat") << "{}";
+        std::ofstream(paths.assets() / "broken.mat.meta") << "invalid metadata";
+        const auto size = assets->database().size();
+        const auto report = assets->create_material(
+            "new.mat", make_material_data(*Comet::MaterialLayout::find_builtin("pbr")));
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_EQ(assets->database().size(), size);
+        EXPECT_FALSE(assets->database().find("new.mat"));
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "new.mat"));
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "new.mat.meta"));
+    }
+
+    TEST_F(EditorAssetsTest,
+        PreparedMaterialEditDoesNotPublishUntilCommittedAndRejectsStaleCandidate) {
+        const auto material = add_material();
+        const auto original = runtime.resolve<Comet::Material>(material);
+        const auto path = Comet::ProjectPaths(root).assets() / "placement.mat";
+        const auto original_data = Comet::MaterialSerializer{}.load(path).value();
+        const auto revision = assets->database().get_revision(material);
+        const auto data = make_material_data(*Comet::MaterialLayout::find_builtin("pbr"));
+        const AssetEdit edit{material, revision, MaterialEdit{original_data, data}};
+        auto first = assets->prepare_material_edit(edit);
+        auto stale = assets->prepare_material_edit(edit);
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(stale);
+        EXPECT_EQ(runtime.resolve<Comet::Material>(material), original);
+        EXPECT_EQ(Comet::MaterialSerializer{}.load(path).value(), original_data);
+        EXPECT_EQ(assets->database().get_revision(material), revision);
+        ASSERT_TRUE(assets->commit_material_edit(first.value()));
+        EXPECT_EQ(runtime.resolve<Comet::Material>(material), first.value().material());
+        EXPECT_EQ(Comet::MaterialSerializer{}.load(path).value(), data);
+        EXPECT_FALSE(assets->commit_material_edit(stale.value()));
+        EXPECT_EQ(runtime.resolve<Comet::Material>(material), first.value().material());
+    }
+
+    TEST_F(EditorAssetsTest, FailedPreparedMaterialSaveKeepsResidentVersionAndCanRetry) {
+        const auto material = add_material();
+        const auto original = runtime.resolve<Comet::Material>(material);
+        const auto path = Comet::ProjectPaths(root).assets() / "placement.mat";
+        const auto original_data = Comet::MaterialSerializer{}.load(path).value();
+        const auto data = make_material_data(*Comet::MaterialLayout::find_builtin("pbr"));
+        auto update = assets->prepare_material_edit({material,
+            assets->database().get_revision(material), MaterialEdit{original_data, data}});
+        ASSERT_TRUE(update);
+        const auto backup = path.parent_path() / "backup";
+        std::filesystem::rename(path, backup);
+        std::filesystem::create_directory(path);
+        EXPECT_FALSE(assets->commit_material_edit(update.value()));
+        EXPECT_EQ(runtime.resolve<Comet::Material>(material), original);
+        std::filesystem::remove(path);
+        std::filesystem::rename(backup, path);
+        EXPECT_EQ(Comet::MaterialSerializer{}.load(path).value(), original_data);
+        ASSERT_TRUE(assets->commit_material_edit(update.value()));
+        EXPECT_EQ(runtime.resolve<Comet::Material>(material), update.value().material());
+        EXPECT_EQ(Comet::MaterialSerializer{}.load(path).value(), data);
+    }
 
     TEST_F(EditorAssetsTest, StaleMaterialEditPreservesFileAndResidentVersion) {
         const auto material = add_material();

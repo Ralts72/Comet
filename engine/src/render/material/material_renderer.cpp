@@ -240,6 +240,40 @@ namespace Comet {
         return result;
     }
 
+    Result<MaterialRenderer::MaterialUpdate, GraphicsError> MaterialRenderer::
+        prepare_material_update(
+            const AssetHandle handle, const std::shared_ptr<const Material>& material) {
+        using Preparation = Result<MaterialUpdate, GraphicsError>;
+        if(!handle || !material)
+            return Preparation::failure({"Material update requires an identity and source"});
+        const auto pipeline = m_pipelines.find(material->get_template_name());
+        if(pipeline == m_pipelines.end())
+            return Preparation::failure({"Material template is not available"});
+        MaterialUpdate update;
+        update.m_owner = this;
+        update.m_handle = handle;
+        auto prepared = update.m_prepared.prepare(handle, material, pipeline->second->layout);
+        if(!prepared)
+            return Preparation::failure({prepared.error()});
+        std::shared_ptr<MaterialResources> previous;
+        if(const auto cached = m_materials.find(handle); cached != m_materials.end())
+            previous = cached->second.resources;
+        auto resources = create_material(prepared.value(), pipeline->second, previous);
+        if(!resources)
+            return Preparation::failure(resources.error());
+        update.m_resources = std::move(resources).value();
+        return Preparation::success(std::move(update));
+    }
+
+    void MaterialRenderer::MaterialUpdate::publish() && {
+        m_owner->m_prepared.merge(std::move(m_prepared));
+        auto& cached = m_owner->m_materials[m_handle];
+        cached = {};
+        cached.resources = std::move(m_resources);
+        cached.used = true;
+        m_owner->m_unsupported.erase(m_handle);
+    }
+
     Result<std::shared_ptr<const MaterialRenderer::PipelineState>, GraphicsError> MaterialRenderer::
         create_pipeline(PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,

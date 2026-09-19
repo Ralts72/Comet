@@ -1,11 +1,16 @@
 #pragma once
 
 #include "asset/database.h"
+#include "asset/material_data.h"
 #include "core/project_paths.h"
 
 #include <filesystem>
 
 namespace Comet::AssetSourceOperations {
+    [[nodiscard]] AssetScanReport create_material(AssetDatabase& database,
+        const ProjectPaths& paths, const std::filesystem::path& destination,
+        const MaterialData& data);
+
     [[nodiscard]] AssetScanReport move(AssetDatabase& database, const ProjectPaths& paths,
         AssetHandle handle, const std::filesystem::path& destination);
 

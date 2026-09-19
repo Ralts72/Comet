@@ -1,6 +1,7 @@
 add_library(editor_core STATIC
         src/editor_state.cpp
         src/assets/editor_assets.cpp
+        src/assets/material_editing.cpp
         src/render/shader_reload.cpp
         src/scene/command_history.cpp
         src/scene/editor_scene_session.cpp
