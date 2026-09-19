@@ -59,6 +59,7 @@ Engine
             ├── 场景 RenderPass / PipelineManager / HDR 与最终 RenderTarget
             ├── OutputPass → 色调映射 / 输出编码 / 采样绑定
             ├── ShadowPass → 深度 RenderPass / Pipeline / DepthTarget[slot]
+            ├── SkyboxPass → Pipeline / Sampler / 不可变 cubemap Binding[slot]
             ├── DebugRenderer → 线段 Pipeline / VertexBuffer[slot]
             └── MaterialRenderer
                 ├── PipelineState → MaterialLayout / material descriptor layout / Pipeline
@@ -131,7 +132,7 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
   → SceneExtractor（读取此时的活动 Scene，更新 world transform）
   → Renderer::render_frame
   → SceneResolver（使用实际 Target 尺寸）
-  → 按请求 CPU pick → scene pass（场景物体 → DebugRenderer）
+  → 按请求 CPU pick → scene pass（SkyboxPass → 场景物体 → DebugRenderer）
   → overlay render（录制已生成的 ImGui 数据）
   → Presentation submit / present
 ```
@@ -220,6 +221,18 @@ MaterialRenderer 只接收已准备的 LightingData 与有效采样 View，不�
 当前固定 1024²、单方向光、手工 3×3 PCF；使用接收平面深度梯度补偿邻域采样，
 偏移覆盖 nearest texel 量化误差并按入射角调整。所有提交网格均按不透明遮挡物处理，
 只有受光材质接收阴影。阴影视口使用正高度，与采样 UV 匹配；主场景仍使用负高度。
+
+### 场景环境背景
+
+SceneEnvironment 保存单一环境 Handle、背景开关、强度与 Y 旋转；不包含 GPU owner，也不作为实体组件。
+SceneExtractor 复制配置，SceneResolver 从 AssetRegistry 取得 cubemap Texture，RenderSubmission 持有本帧版本。
+Environment 与普通 Texture 在数据库中为不同资产类型，但共用 Texture 的 GPU 上传与所有权；材质 2D 槽拒绝 Environment。
+HDR 导入器生成六层 RGBA16F 和背景 mip 链，UploadBatch 一次提交全部 mip／layer，统一转入 SampledRead。
+SkyboxPass 在场景 RenderPass 内先画全屏三角形，不读写深度；随后几何和辅助线按原流程绘制。
+射线由逆投影、相机旋转和环境旋转重建，丢弃相机平移；正交视图也按射线方向采样。
+每帧槽位绑定不可变 Texture／descriptor pool，帧额外保留绑定、管线、layout、sampler；资源替换不会改写在途 descriptor。
+SceneRenderer 合并环境上传 completion 的 FragmentShader 等待，复用原 HDR 目标与 OutputPass，不增加图像中转或图 pass。
+当前只改变背景，尚无 IBL；首次解码同步，驻留重载后台解码，缓存与首次异步准备随 IBL 阶段扩展。
 尚无级联、texel 稳定化、视锥筛选、透明裁切、逐物体投影开关或点／聚光阴影；
 大场景或动态包围盒会降低精度并可能抖动，后续按实际画面需求扩展。
 
@@ -303,7 +316,7 @@ Shader、PipelineLayout、Pipeline 的私有构造函数只接收已创建的 ow
 分配 C++ 容器等非预期异常仍可传播，不承诺 noexcept。
 MaterialRenderer::create 在私有候选中初始化 frame 资源和内置管线；DebugRenderer::create 成功创建 Pipeline 后才构造对象。
 SceneRenderer 的私有 create_state 创建完整 RenderState：场景 RenderPass、中间／最终 RenderTarget、
-PipelineManager、MaterialRenderer、DebugRenderer 和 OutputPass。
+PipelineManager、MaterialRenderer、DebugRenderer、ShadowPass、SkyboxPass 和 OutputPass。
 全部成功后才安装；配置入口不再拆成可被调用方任意组合的 setup 阶段。
 完整目标切换仅经 Renderer 在活动帧外执行，不增加全设备等待；失败保持旧代，成功后旧代仍由已提交帧保留。
 RenderState 按依赖逆序析构，RenderPass 最后释放；FrameSlot 同时保留完整版本和实际录制的 Target，确保 resize 替换附件不丢旧引用。

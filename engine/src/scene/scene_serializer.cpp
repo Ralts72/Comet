@@ -494,6 +494,14 @@ namespace Comet {
         Json::Writer writer;
         writer.begin_object();
         writer.field("version", std::uint64_t(FORMAT_VERSION));
+        const auto& environment = scene.get_environment();
+        writer.key("environment");
+        writer.begin_object();
+        writer.field("asset", environment.asset.value());
+        writer.field("background", environment.background);
+        writer.field("intensity", environment.intensity);
+        writer.field("rotation", environment.rotation);
+        writer.end_object();
         writer.key("entities");
         writer.begin_array();
         for(const auto index : children[INVALID_ENTITY_UUID]) {
@@ -516,7 +524,9 @@ namespace Comet {
             return LoadResult::failure(parsed.error());
         const Json::Node root = parsed.value();
 
-        if(auto valid = context.validate_keys(root, {"version", "entities"}, "<root>"); !valid)
+        if(auto valid =
+                context.validate_keys(root, {"version", "entities", "environment"}, "<root>");
+            !valid)
             return LoadResult::failure(valid.error());
         const auto version =
             context.read_field<std::uint32_t>(root, "version", "a non-negative integer");
@@ -546,6 +556,36 @@ namespace Comet {
         }
 
         auto scene = std::make_unique<Scene>();
+        Json::Node environment_node;
+        if(const auto error = root["environment"].get(environment_node);
+            error != simdjson::NO_SUCH_FIELD) {
+            if(error)
+                return LoadResult::failure(context.error("environment", "invalid object"));
+            if(auto valid = context.validate_keys(environment_node,
+                   {"asset", "background", "intensity", "rotation"}, "environment");
+                !valid)
+                return LoadResult::failure(valid.error());
+            auto asset = context.read_field<uint64_t>(
+                environment_node, "asset", "an asset handle", "environment");
+            auto background = context.read_field<bool>(
+                environment_node, "background", "a boolean", "environment");
+            auto intensity = context.read_field<float>(
+                environment_node, "intensity", "a finite number", "environment");
+            auto rotation = context.read_field<float>(
+                environment_node, "rotation", "a finite number", "environment");
+            if(!asset)
+                return LoadResult::failure(asset.error());
+            if(!background)
+                return LoadResult::failure(background.error());
+            if(!intensity)
+                return LoadResult::failure(intensity.error());
+            if(!rotation)
+                return LoadResult::failure(rotation.error());
+            if(!scene->set_environment({AssetHandle(asset.value()), background.value(),
+                   intensity.value(), rotation.value()}))
+                return LoadResult::failure(
+                    context.error("environment", "intensity must be between 0 and 64"));
+        }
         std::unordered_map<EntityUuid, Entity> loaded_entities;
         loaded_entities.reserve(records.size());
         for(const EntityRecord& record : records) {

@@ -4,6 +4,9 @@
 #include "diagnostics/logger.h"
 #include "render/material/material.h"
 #include "render/resource/mesh.h"
+#include "render/resource/texture.h"
+#include "graphics/resource/image_view.h"
+#include "graphics/resource/image.h"
 
 #include <utility>
 
@@ -16,6 +19,21 @@ namespace Comet {
         RenderSubmission submission;
         submission.view_project_matrix = resolve_camera(render_scene, view);
         submission.lights = render_scene.lights;
+        submission.environment = render_scene.environment;
+        const auto handle = render_scene.environment.asset;
+        if(handle && render_scene.environment.background) {
+            auto texture = m_asset_registry.resolve<Texture>(handle);
+            if(texture && texture->get_image_view()->get_image()->get_info().cubemap) {
+                submission.environment_texture = std::move(texture);
+                m_missing_environment = {};
+            } else if(m_missing_environment != handle) {
+                LOG_ERROR("Scene references missing or non-cubemap environment handle {}",
+                    handle.value());
+                m_missing_environment = handle;
+            }
+        } else {
+            m_missing_environment = {};
+        }
         submission.render_items.reserve(render_scene.render_items.size());
 
         for(const RenderItem& render_item : render_scene.render_items) {

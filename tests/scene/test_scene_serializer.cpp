@@ -5,6 +5,7 @@
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
 #include "support/math_assertions.h"
+#include "render/scene/scene_extractor.h"
 
 #include <filesystem>
 #include <limits>
@@ -15,6 +16,52 @@
 #include <utility>
 
 namespace Comet::Tests {
+    TEST(SceneEnvironmentTest, PersistsExtractsAndCollectsReferenceWithoutAnEntity) {
+        Scene scene;
+        const SceneEnvironment environment{AssetHandle(902), true, 2.0f, -90.0f};
+        ASSERT_TRUE(scene.set_environment(environment));
+        EXPECT_EQ(scene.get_environment().rotation, -90.0f);
+        const auto registry = create_scene_component_registry();
+        const auto references = registry.collect_asset_references(scene);
+        ASSERT_EQ(references.size(), 1u);
+        EXPECT_EQ(references.front().handle, environment.asset);
+        EXPECT_EQ(references.front().type, AssetType::Environment);
+        EXPECT_EQ(SceneExtractor::extract(scene).environment, scene.get_environment());
+        const SceneSerializer serializer(registry);
+        auto cloned = serializer.clone(scene);
+        ASSERT_TRUE(cloned) << cloned.error();
+        EXPECT_EQ(cloned.value()->get_environment(), scene.get_environment());
+        EXPECT_EQ(cloned.value()->entity_count(), 0u);
+        auto hidden = scene.get_environment();
+        hidden.background = false;
+        ASSERT_TRUE(scene.set_environment(hidden));
+        EXPECT_EQ(registry.collect_asset_references(scene).size(), 1u);
+    }
+
+    TEST(SceneEnvironmentTest, LegacyScenesDefaultOffAndInvalidEnvironmentIsRejected) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        auto legacy = serializer.deserialize(R"({"version":2,"entities":[]})");
+        ASSERT_TRUE(legacy);
+        EXPECT_EQ(legacy.value()->get_environment(), SceneEnvironment{});
+        EXPECT_FALSE(serializer.deserialize(R"({"version":2,"environment":null,"entities":[]})"));
+        EXPECT_FALSE(serializer.deserialize(
+            R"({"version":2,"environment":{"asset":0,"background":true,"intensity":-1,"rotation":0},"entities":[]})"));
+        EXPECT_FALSE(serializer.deserialize(
+            R"({"version":2,"environment":{"asset":0,"background":true,"intensity":1,"rotation":"bad"},"entities":[]})"));
+        EXPECT_FALSE(serializer.deserialize(
+            R"({"version":2,"environment":{"asset":0,"background":true,"intensity":1,"rotation":0,"unknown":3},"entities":[]})"));
+        auto invalid = SceneEnvironment{};
+        invalid.intensity = std::numeric_limits<float>::quiet_NaN();
+        EXPECT_FALSE(legacy.value()->set_environment(invalid));
+        invalid.intensity = 65;
+        EXPECT_FALSE(legacy.value()->set_environment(invalid));
+        invalid.intensity = 1;
+        invalid.rotation = std::numeric_limits<float>::infinity();
+        EXPECT_FALSE(legacy.value()->set_environment(invalid));
+        EXPECT_EQ(legacy.value()->get_environment(), SceneEnvironment{});
+    }
+
     namespace {
         struct DescriptorTestComponent {
             float persisted = 0.0f;

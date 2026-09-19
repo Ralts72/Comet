@@ -4,6 +4,7 @@
 #include "assets/asset_edit.h"
 #include "ui/editor_panel.h"
 #include "scene/command_history.h"
+#include "scene/scene_environment.h"
 #include "editor_state.h"
 #include "assets/asset_reference.h"
 #include "assets/material_editing.h"
@@ -37,6 +38,7 @@ namespace CometEditor {
             const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root);
 
         void render() override;
+        [[nodiscard]] bool finish_environment_edit(bool cancel = false);
         void set_material_layouts(
             std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts);
         [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
@@ -44,6 +46,7 @@ namespace CometEditor {
         void complete_asset_edit(const AssetEdit& edit, bool succeeded, std::string error = {});
 
     private:
+        void render_scene(Comet::Scene& scene);
         void render_entity(Comet::Entity entity);
         void render_property(Comet::Entity entity, const Comet::ComponentDescriptor& component,
             const Comet::PropertyDescriptor& property);
@@ -80,6 +83,14 @@ namespace CometEditor {
         std::optional<AssetAssignment> m_asset_assignment;
         std::optional<AssetEdit> m_asset_edit;
         std::optional<MaterialTemplateChange> m_template_change;
+        struct EnvironmentEdit {
+            uint64_t generation;
+            uint64_t history_state;
+            Comet::SceneEnvironment before;
+            Comet::SceneEnvironment value;
+            uint32_t active_item = 0;
+        };
+        std::optional<EnvironmentEdit> m_environment_edit;
     };
 
 }

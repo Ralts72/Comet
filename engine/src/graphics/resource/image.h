@@ -15,6 +15,7 @@ namespace Comet {
         Flags<ImageUsage> usage;
         uint32_t mip_levels = 1;
         uint32_t array_layers = 1;
+        bool cubemap = false;
     };
 
     class COMET_API Image {

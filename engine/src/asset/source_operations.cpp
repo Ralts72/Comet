@@ -7,6 +7,7 @@
 #include "asset/serialization/material_serializer.h"
 #include "asset/import/mesh_importer.h"
 #include "asset/import/texture_importer.h"
+#include "asset/import/environment_importer.h"
 #include <fastgltf/core.hpp>
 
 #include <algorithm>
@@ -213,7 +214,8 @@ namespace Comet::AssetSourceOperations {
                 return Result<void>::success();
             };
             for(const auto& source : sources) {
-                if(!is_mesh_file(source) && !is_texture_file(source))
+                if(!is_mesh_file(source) && !is_texture_file(source)
+                    && extension_of(source) != ".hdr")
                     continue;
                 if(!source.is_absolute())
                     return Result<void>::failure("Dropped file path must be absolute");
@@ -242,9 +244,10 @@ namespace Comet::AssetSourceOperations {
             }
             if(roots.empty())
                 return Result<void>::failure(
-                    "Drop PNG/JPEG textures or glTF/GLB models (not directories)");
+                    "Drop PNG/JPEG textures, HDR environments or glTF/GLB models (not directories)");
             for(const auto& source : sources) {
-                if(is_mesh_file(source) || is_texture_file(source))
+                if(is_mesh_file(source) || is_texture_file(source)
+                    || extension_of(source) == ".hdr")
                     continue;
                 if(extension_of(source) == ".meta") {
                     auto owner = source;
@@ -302,6 +305,9 @@ namespace Comet::AssetSourceOperations {
                                 "glTF dependencies changed during copy; retry import");
                     }
                     if(auto result = MeshImporter{}.import(staging / relative); !result)
+                        return Result<void>::failure(result.error());
+                } else if(extension_of(relative) == ".hdr") {
+                    if(auto result = EnvironmentImporter{}.import(staging / relative); !result)
                         return Result<void>::failure(result.error());
                 } else {
                     if(auto result = TextureImporter{}.import(staging / relative); !result)

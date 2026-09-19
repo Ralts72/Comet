@@ -14,6 +14,7 @@ set(SOURCES
         src/asset/import/import_service.cpp
         src/asset/import/asset_task_queue.cpp
         src/asset/import/texture_importer.cpp
+        src/asset/import/environment_importer.cpp
         src/asset/asset_manager.cpp
         src/asset/material_data.cpp
         src/asset/metadata.cpp
@@ -28,6 +29,7 @@ set(SOURCES
         src/render/presentation.cpp
         src/render/render_graph.cpp
         src/render/passes/output_pass.cpp
+        src/render/passes/skybox_pass.cpp
         src/render/passes/shadow_pass.cpp
         src/config/config_loader.cpp
         src/diagnostics/diagnostics.cpp

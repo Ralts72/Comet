@@ -9,6 +9,7 @@
 #include "core/project.h"
 #include "render/resource/resource_factory.h"
 #include "render/resource/mesh.h"
+#include "render/resource/texture.h"
 #include "render/material/material.h"
 #include "scene/scene_document.h"
 #include "scene/editor_scene_session.h"
@@ -17,6 +18,7 @@
 #include "scene/scene_serializer.h"
 #include "asset/serialization/material_serializer.h"
 #include "support/temporary_directory.h"
+#include "support/hdr_image.h"
 
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -100,6 +102,30 @@ namespace CometEditor::Tests {
             return record->handle;
         }
     };
+
+    TEST_F(EditorAssetsTest, RestoresSceneEnvironmentReferenceAfterSourceRepair) {
+        factory.fail_texture = false;
+        const auto path = Comet::ProjectPaths(root).assets() / "studio.hdr";
+        Comet::Tests::write_hdr(path);
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto handle = assets->database().find("studio.hdr")->handle;
+        Comet::Scene scene;
+        const auto components = Comet::create_scene_component_registry();
+        ASSERT_TRUE(scene.set_environment({handle, true, 1, 0}));
+        assets->track_scene(scene, components);
+        ASSERT_TRUE(assets->restore_references());
+        ASSERT_TRUE(runtime.resolve<Comet::Texture>(handle));
+        std::filesystem::remove(path);
+        ASSERT_TRUE(assets->refresh().snapshot_updated);
+        EXPECT_FALSE(runtime.contains(handle));
+        ASSERT_TRUE(assets->restore_references());
+        EXPECT_EQ(scene.get_environment().asset, handle);
+        Comet::Tests::write_hdr(path);
+        ASSERT_TRUE(assets->refresh().succeeded());
+        ASSERT_EQ(assets->database().find("studio.hdr")->handle, handle);
+        ASSERT_TRUE(assets->restore_references());
+        EXPECT_TRUE(runtime.resolve<Comet::Texture>(handle));
+    }
 
     TEST_F(EditorAssetsTest, CreatesMaterialWithStableIdentityThenEditsMovesAndReopens) {
         const auto paths = Comet::ProjectPaths(root);
@@ -435,6 +461,8 @@ namespace CometEditor::Tests {
         const auto directory = Comet::ProjectPaths(root).assets();
         std::filesystem::copy(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets",
             directory, std::filesystem::copy_options::recursive);
+        // Exercise loading with a local fixture, independent of optional demo downloads.
+        Comet::Tests::write_hdr(directory / "environments/small_hangar_01_4k.hdr");
         std::filesystem::copy_file(
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "project.json",
             root / "project.json");

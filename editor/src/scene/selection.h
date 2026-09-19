@@ -21,6 +21,7 @@ namespace CometEditor {
 
             m_selected_entity_id = entity_id;
             m_selected_asset = Comet::INVALID_ASSET_HANDLE;
+            m_scene_selected = false;
         }
 
         void select_asset(const Comet::AssetHandle asset) {
@@ -31,9 +32,11 @@ namespace CometEditor {
 
             m_selected_entity_id = Comet::INVALID_ENTITY_ID;
             m_selected_asset = asset;
+            m_scene_selected = false;
         }
 
         void clear() {
+            m_scene_selected = false;
             m_selected_entity_id = Comet::INVALID_ENTITY_ID;
             m_selected_asset = Comet::INVALID_ASSET_HANDLE;
         }
@@ -48,6 +51,15 @@ namespace CometEditor {
                 m_selected_entity_id = Comet::INVALID_ENTITY_ID;
             }
             return entity;
+        }
+
+        void select_scene() {
+            clear();
+            m_scene_selected = true;
+        }
+
+        [[nodiscard]] Comet::Scene* get_selected_scene() const {
+            return m_scene_selected ? m_scene : nullptr;
         }
 
         [[nodiscard]] Comet::EntityId get_selected_entity_id() const {
@@ -66,6 +78,7 @@ namespace CometEditor {
 
     private:
         Comet::Scene* m_scene;
+        bool m_scene_selected = false;
         Comet::EntityId m_selected_entity_id = Comet::INVALID_ENTITY_ID;
         Comet::AssetHandle m_selected_asset = Comet::INVALID_ASSET_HANDLE;
     };

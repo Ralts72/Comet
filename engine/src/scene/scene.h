@@ -7,6 +7,7 @@
 
 #include "common/export.h"
 #include "scene/entity.h"
+#include "scene/scene_environment.h"
 #include <entt.hpp>
 
 namespace Comet {
@@ -59,6 +60,9 @@ namespace Comet {
 
         [[nodiscard]] std::size_t entity_count() const;
 
+        [[nodiscard]] const SceneEnvironment& get_environment() const { return m_environment; }
+        [[nodiscard]] bool set_environment(const SceneEnvironment& environment);
+
     private:
         friend class Entity;
         friend class SceneExtractor;
@@ -78,6 +82,7 @@ namespace Comet {
         };
 
         EntityId m_next_entity_id = 1;
+        SceneEnvironment m_environment;
         entt::registry m_registry;
         std::unordered_map<EntityId, entt::entity> m_entities_by_id;
         std::unordered_map<EntityUuid, entt::entity> m_entities_by_uuid;

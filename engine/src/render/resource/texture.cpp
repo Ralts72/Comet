@@ -7,6 +7,8 @@
 #include "graphics/synchronization/resource_state.h"
 
 #include <limits>
+#include <algorithm>
+#include <bit>
 #include <span>
 
 namespace Comet {
@@ -22,7 +24,18 @@ namespace Comet {
             || width * height > std::numeric_limits<size_t>::max() / bytes_per_pixel) {
             LOG_FATAL("Texture pixel data size exceeds size_t range");
         }
-        const size_t expected_size = width * height * bytes_per_pixel;
+        if(data.mip_levels == 0 || data.mip_levels > std::bit_width(std::max(width, height))
+            || (data.cubemap && width != height) || (!data.cubemap && data.mip_levels != 1))
+            LOG_FATAL("Invalid texture mip count or cubemap dimensions");
+        const uint32_t layers = data.cubemap ? 6 : 1;
+        size_t expected_size = 0;
+        for(uint32_t mip = 0; mip < data.mip_levels; ++mip) {
+            const auto level_size = std::max(width >> mip, size_t{1})
+                                    * std::max(height >> mip, size_t{1}) * bytes_per_pixel;
+            if(level_size > (std::numeric_limits<size_t>::max() - expected_size) / layers)
+                LOG_FATAL("Texture mip data size exceeds size_t range");
+            expected_size += level_size * layers;
+        }
         if(data.pixels.size() != expected_size) {
             LOG_FATAL("Texture pixel data size {} does not match expected size {}",
                 data.pixels.size(), expected_size);
@@ -30,6 +43,8 @@ namespace Comet {
 
         const ImageSubresourceRange subresources{
             .aspects = Flags<ImageAspect>(ImageAspect::Color),
+            .level_count = data.mip_levels,
+            .layer_count = layers,
         };
         const auto initial_state = resolve_image_state(ResourceUsage::Undefined, subresources);
         const auto sampled_state = resolve_image_state(ResourceUsage::SampledRead, subresources,
@@ -42,6 +57,9 @@ namespace Comet {
             .format = data.format,
             .extent = Math::Vec3u(data.width, data.height, 1),
             .usage = Flags<ImageUsage>(ImageUsage::Sampled) | ImageUsage::CopyDst,
+            .mip_levels = data.mip_levels,
+            .array_layers = layers,
+            .cubemap = data.cubemap,
         };
         auto image_attempt = Image::try_create(
             device, image_info, within_budget, SampleCount::Count1, "texture image");

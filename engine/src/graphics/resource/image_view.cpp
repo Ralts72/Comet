@@ -27,6 +27,8 @@ namespace Comet {
         vk::ImageViewCreateInfo create_info{};
         create_info.image = image->get();
         create_info.viewType = vk::ImageViewType::e2D;
+        if(image->get_info().cubemap)
+            create_info.viewType = vk::ImageViewType::eCube;
         create_info.format = Graphics::format_to_vk(image->get_info().format);
         create_info.components = {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
             vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity};
@@ -36,6 +38,10 @@ namespace Comet {
         subresource_range.levelCount = 1;
         subresource_range.baseArrayLayer = 0;
         subresource_range.layerCount = 1;
+        if(image->get_info().cubemap) {
+            subresource_range.levelCount = image->get_info().mip_levels;
+            subresource_range.layerCount = 6;
+        }
         create_info.subresourceRange = subresource_range;
 
         vk::ImageView image_view{};

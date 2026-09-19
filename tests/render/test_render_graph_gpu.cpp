@@ -20,13 +20,16 @@
 #include "graphics/resource/image_view.h"
 #include "diagnostics/logger.h"
 #include "render/resource/mesh.h"
+#include "render/resource/texture.h"
 #include "render/resource/render_resources.h"
 #include "asset/data/mesh_data.h"
 #include "asset/data/texture_data.h"
+#include "asset/import/environment_importer.h"
 #include "render/material/material.h"
 #include "common/file_io.h"
 #include "shader/compiler.h"
 #include "support/temporary_directory.h"
+#include "support/hdr_image.h"
 #include "pbr_vert.h"
 
 #include <gtest/gtest.h>
@@ -1139,6 +1142,165 @@ namespace Comet::Tests {
                 }
             }
         }
+    }
+
+    TEST_F(RenderGraphGpuTest, SkyboxFacesRespectCameraRotationNotTranslationAndKeepOldFrames) {
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context();
+        auto& device = context.get_device();
+        const Math::Vec2u size(9, 9);
+        ASSERT_TRUE(renderer.enable_offscreen_rendering(size));
+        TextureData data{.width = 4,
+            .height = 4,
+            .format = Format::R16G16B16A16_SFLOAT,
+            .mip_levels = 3,
+            .cubemap = true};
+        const std::array<Math::Vec3, 6> colors{
+            {{4, 0, 0}, {0, 4, 0}, {0, 0, 4}, {4, 4, 0}, {4, 0, 4}, {0, 4, 4}}};
+        for(int extent = 4; extent > 0; extent /= 2)
+            for(const auto color : colors)
+                for(int i = 0; i < extent * extent; ++i) {
+                    const auto packed = glm::packHalf(glm::vec4(color, 1));
+                    const auto offset = data.pixels.size();
+                    data.pixels.resize(offset + sizeof(packed));
+                    std::memcpy(data.pixels.data() + offset, &packed, sizeof(packed));
+                }
+        auto uploaded = engine->get_render_resources().try_create_texture(data);
+        ASSERT_TRUE(uploaded) << uploaded.error().message;
+        RenderSubmission submission{.view_project_matrix = ViewProjectMatrix{Math::Mat4(1),
+                                        Math::perspective(60.0f, 1.0f, 0.1f, 100.0f)},
+            .environment = {{}, true, 0.5f, 0},
+            .environment_texture = std::move(uploaded).value()};
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 9> outputs;
+        const std::array<Math::Vec3, 9> expected{
+            {colors[5] * 0.5f, colors[5] * 0.5f, colors[0] * 0.5f, colors[5] * 0.5f,
+                colors[2] * 0.5f, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 1, 0}}};
+        auto& scene = renderer.get_scene_renderer();
+        Format output_format{};
+        for(size_t index = 0; index < outputs.size(); ++index) {
+            if(index == 1)
+                submission.view_project_matrix->view =
+                    Math::look_at({19, 4, 8}, {19, 4, 7}, {0, 1, 0});
+            if(index == 2)
+                submission.environment.rotation = 90;
+            if(index == 3) {
+                submission.environment.rotation = 0;
+                submission.view_project_matrix->projection = Math::ortho(-1, 1, -1, 1, 0.1f, 100);
+            }
+            if(index == 4)
+                submission.view_project_matrix->view =
+                    Math::look_at({0, 0, 0}, {0, 1, 0}, {0, 0, 1});
+            if(index == 5) {
+                for(size_t offset = 0; offset < data.pixels.size(); offset += 8) {
+                    const auto packed = glm::packHalf(glm::vec4(2, 0, 0, 1));
+                    std::memcpy(data.pixels.data() + offset, &packed, sizeof(packed));
+                }
+                auto replacement = engine->get_render_resources().try_create_texture(data);
+                ASSERT_TRUE(replacement);
+                submission.environment_texture = std::move(replacement).value();
+            }
+            if(index == 6)
+                submission.environment.background = false;
+            if(index == 7) {
+                submission.environment.background = true;
+                submission.environment_texture.reset();
+            }
+            if(index == 8) {
+                auto replacement = engine->get_render_resources().try_create_texture(data);
+                ASSERT_TRUE(replacement);
+                submission.environment_texture = std::move(replacement).value();
+                submission.view_project_matrix =
+                    ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                        Math::ortho(-2, 2, -2, 2, 0.1f, 100)};
+                auto material = std::make_shared<Material>("foreground", "unlit_color");
+                ASSERT_TRUE(material->set_vector_property("color", {0, 1, 0, 1}));
+                submission.render_items.push_back(
+                    {.mesh = lit_quad(), .material = {AssetHandle(1243), material}});
+            }
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            auto drawn = scene.render(frames, submission);
+            ASSERT_TRUE(drawn) << drawn.error();
+            outputs[index] = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), size.x * size.y * 4);
+            const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
+            output_format = view->get_image()->get_info().format;
+            copy_output(frames, view->get_image(), outputs[index], size);
+            submit(device, frames, drawn.value());
+        }
+        frames.wait_for_all_slots();
+        const bool bgra =
+            output_format == Format::B8G8R8A8_SRGB || output_format == Format::B8G8R8A8_UNORM;
+        for(size_t index = 0; index < outputs.size(); ++index) {
+            const auto bytes = outputs[index]->read();
+            for(unsigned channel = 0; channel < 3; ++channel) {
+                const auto component = bgra ? 2 - channel : channel;
+                if(index != 6 && index != 7)
+                    EXPECT_NEAR(std::to_integer<int>(bytes[(4 * size.x + 4) * 4 + component]),
+                        mapped_byte(expected[index][channel]), 2)
+                        << index << ',' << channel;
+            }
+        }
+        EXPECT_EQ(outputs[0]->read(), outputs[1]->read());
+        EXPECT_EQ(outputs[6]->read(), outputs[7]->read());
+        const auto foreground = outputs[8]->read();
+        const unsigned red = bgra ? 2 : 0;
+        EXPECT_NEAR(std::to_integer<int>(foreground[red]), mapped_byte(1), 2);
+    }
+
+    TEST_F(RenderGraphGpuTest, ImportedHdrSkyboxSurvivesMsaaResolve) {
+        Config config;
+        config.window.width = 160;
+        config.window.height = 120;
+        config.vulkan.enable_validation = true;
+        config.vulkan.msaa_samples = SampleCount::Count4;
+        engine.reset();
+        auto created = Engine::create(config);
+        ASSERT_TRUE(created);
+        engine = std::move(created).value();
+        TemporaryDirectory directory;
+        write_hdr(directory.path() / "sky.hdr");
+        auto imported = EnvironmentImporter{}.import(directory.path() / "sky.hdr");
+        ASSERT_TRUE(imported);
+        auto texture = engine->get_render_resources().try_create_texture(imported.value());
+        ASSERT_TRUE(texture);
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context();
+        auto& device = context.get_device();
+        ASSERT_TRUE(renderer.enable_offscreen_rendering({2, 2}));
+        RenderSubmission submission{.view_project_matrix = ViewProjectMatrix{Math::Mat4(1),
+                                        Math::perspective(60.0f, 1, 0.1f, 100)},
+            .environment = {{}, true, 1, 0},
+            .environment_texture = texture.value()};
+        FrameScheduler frames(device, config.render.max_frames_in_flight);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        frames.wait_for_current_slot();
+        frames.begin_frame(0);
+        frames.get_current_command_buffer().begin();
+        auto& scene = renderer.get_scene_renderer();
+        auto drawn = scene.render(frames, submission);
+        ASSERT_TRUE(drawn) << drawn.error();
+        auto output =
+            std::make_shared<Readback>(device, context.get_context().get_physical_device(), 16);
+        const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
+        copy_output(frames, view->get_image(), output, {2, 2});
+        submit(device, frames, drawn.value());
+        frames.wait_for_all_slots();
+        const auto format = view->get_image()->get_info().format;
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        const auto pixels = output->read();
+        const Math::Vec3 expected(4, 2, 1);
+        for(size_t pixel = 0; pixel < 4; ++pixel)
+            for(unsigned channel = 0; channel < 3; ++channel) {
+                const unsigned component = bgra ? 2 - channel : channel;
+                EXPECT_NEAR(std::to_integer<int>(pixels[pixel * 4 + component]),
+                    mapped_byte(expected[channel]), 2);
+            }
     }
 
     TEST_F(RenderGraphGpuTest, MaterialEditCandidatesPublishAtomicallyAndKeepOldFramePixels) {

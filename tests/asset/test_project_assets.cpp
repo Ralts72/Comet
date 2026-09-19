@@ -1,13 +1,57 @@
 #include "asset/metadata.h"
+#include "asset/import/environment_importer.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "core/project_paths.h"
+#include "core/project.h"
+#include "scene/component_registry.h"
+#include "scene/scene_serializer.h"
 
 #include <gtest/gtest.h>
 
 #include <filesystem>
 
 namespace Comet::Tests {
+    TEST(ProjectAssetsTest, DemoStartupEnvironmentHasStableMetadata) {
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        const auto registry = create_scene_component_registry();
+        const auto scene_path = project.value().paths().assets() / project.value().startup_scene();
+        const auto scene = SceneSerializer(registry).load(scene_path.string());
+        ASSERT_TRUE(scene) << scene.error();
+        const auto& environment = scene.value()->get_environment();
+        ASSERT_TRUE(environment.background);
+        ASSERT_TRUE(environment.asset);
+
+        const auto source =
+            project.value().paths().assets() / "environments/small_hangar_01_4k.hdr";
+        const auto metadata = MetadataSerializer{}.load(metadata_path(source));
+        ASSERT_TRUE(metadata) << metadata.error();
+        EXPECT_EQ(metadata.value().type, AssetType::Environment);
+        EXPECT_EQ(metadata.value().handle, environment.asset);
+    }
+
+    class ProjectAssetIntegrationTest: public ::testing::TestWithParam<int> {};
+
+    TEST_P(ProjectAssetIntegrationTest, DownloadedEnvironmentImportsAsCubemap) {
+        const auto source =
+            ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY).assets()
+            / ("environments/small_hangar_01_" + std::to_string(GetParam()) + "k.hdr");
+        if(!std::filesystem::exists(source))
+            GTEST_SKIP() << "Optional HDR is absent; run ./tools/download_assets.sh";
+        const auto imported = EnvironmentImporter{}.import(source);
+        ASSERT_TRUE(imported) << imported.error();
+        EXPECT_TRUE(imported.value().cubemap);
+        EXPECT_EQ(imported.value().width, GetParam() * 256);
+        EXPECT_EQ(imported.value().format, Format::R16G16B16A16_SFLOAT);
+        EXPECT_EQ(imported.value().width, imported.value().height);
+        EXPECT_GT(imported.value().mip_levels, 1u);
+        EXPECT_FALSE(imported.value().pixels.empty());
+    }
+
+    INSTANTIATE_TEST_SUITE_P(
+        Resolutions, ProjectAssetIntegrationTest, ::testing::Values(1, 2, 4, 8));
+
     TEST(ProjectAssetsTest, DemoAssetsHaveStableIdentityAndValidReferences) {
         const ProjectPaths paths(COMET_SAMPLE_PROJECT_DIRECTORY);
         const MetadataSerializer serializer;

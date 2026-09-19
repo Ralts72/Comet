@@ -7,6 +7,7 @@
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/import/import_service.h"
 #include "asset/import/texture_importer.h"
+#include "asset/import/environment_importer.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/source_operations.h"
@@ -47,13 +48,11 @@ namespace Comet {
                 .result = imports.build_mesh_artifact(handle, relative_path)};
         }
 
-        TextureImportCandidate import_texture_candidate(const std::filesystem::path& asset_root,
-            const AssetHandle handle, const AssetRevision revision,
-            const std::filesystem::path& relative_path, const TextureImportSettings& settings) {
-            return {.handle = handle,
-                .revision = revision,
-                .relative_path = relative_path,
-                .result = TextureImporter{}.import(asset_root / relative_path, settings)};
+        Result<TextureData> import_texture_data(const std::filesystem::path& path,
+            const AssetType type, const TextureImportSettings& settings) {
+            if(type == AssetType::Environment)
+                return EnvironmentImporter{}.import(path);
+            return TextureImporter{}.import(path, settings);
         }
 
         bool validate_asset_handle(const AssetHandle handle, const std::string_view operation) {
@@ -211,8 +210,11 @@ namespace Comet {
                 accepted = schedule_material_refresh(record);
                 break;
             case AssetType::Texture:
+            case AssetType::Environment:
                 if(!m_registry.resolve<Texture>(record.handle)
-                    || !std::holds_alternative<TextureImportSettings>(record.import_settings)) {
+                    || (record.type == AssetType::Texture
+                        && !std::holds_alternative<TextureImportSettings>(
+                            record.import_settings))) {
                     LOG_ERROR(
                         "Cannot refresh texture asset handle {}: incompatible runtime type or settings",
                         record.handle.value());
@@ -248,6 +250,12 @@ namespace Comet {
     Result<void, Error> AssetManager::ensure_loaded(
         const AssetHandle handle, const AssetType expected_type) {
         switch(expected_type) {
+            case AssetType::Environment: {
+                auto loaded = load_environment(handle);
+                if(!loaded)
+                    return Result<void, Error>::failure(loaded.error());
+                break;
+            }
             case AssetType::Mesh: {
                 auto loaded = load_mesh(handle);
                 if(!loaded)
@@ -499,6 +507,12 @@ namespace Comet {
                 }
                 return create_runtime_texture(record, *settings);
             });
+    }
+
+    Result<std::shared_ptr<Texture>, Error> AssetManager::load_environment(
+        const AssetHandle handle) {
+        return load_runtime_asset<Texture>(m_database, m_registry, handle, AssetType::Environment,
+            [this](const AssetRecord& record) { return create_runtime_texture(record, {}); });
     }
 
     Result<std::shared_ptr<Texture>, Error> AssetManager::reimport_texture(
@@ -769,22 +783,24 @@ namespace Comet {
         }
 
         const auto* settings = std::get_if<TextureImportSettings>(&record.import_settings);
-        if(!settings) {
+        if(!settings && record.type != AssetType::Environment) {
             LOG_ERROR("Texture asset handle {} has incompatible import settings", handle.value());
             return false;
         }
 
         return m_task_queue->schedule(handle, revision,
             [asset_root = m_paths.assets(), handle, revision, relative_path = record.path,
-                settings = *settings](AssetImportResult& result) {
-                result.candidate =
-                    import_texture_candidate(asset_root, handle, revision, relative_path, settings);
+                settings = settings ? *settings : TextureImportSettings{},
+                type = record.type](AssetImportResult& result) {
+                result.candidate = TextureImportCandidate{handle, revision, relative_path,
+                    import_texture_data(asset_root / relative_path, type, settings)};
             });
     }
 
     Result<std::shared_ptr<Texture>, Error> AssetManager::create_runtime_texture(
         const AssetRecord& record, const TextureImportSettings& import_settings) {
-        auto data = TextureImporter{}.import(m_paths.assets() / record.path, import_settings);
+        auto data =
+            import_texture_data(m_paths.assets() / record.path, record.type, import_settings);
         if(!data)
             return Result<std::shared_ptr<Texture>, Error>::failure({data.error()});
         auto texture = m_resource_factory.try_create_texture(data.value());

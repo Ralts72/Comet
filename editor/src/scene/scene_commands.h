@@ -1,8 +1,11 @@
 #pragma once
 
 #include "scene/command_history.h"
+#include "scene/scene_environment.h"
 
 namespace CometEditor::SceneCommands {
+    [[nodiscard]] bool set_environment(
+        CommandHistory& history, const Comet::SceneEnvironment& environment);
     [[nodiscard]] Comet::EntityUuid create_entity(CommandHistory& history,
         const Comet::ComponentRegistry& registry, std::string name = "Entity",
         Comet::EntityUuid parent = {});

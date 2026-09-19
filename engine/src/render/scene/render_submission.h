@@ -5,6 +5,7 @@
 #include "render/scene/render_types.h"
 #include "scene/entity_id.h"
 #include "render/lighting.h"
+#include "scene/scene_environment.h"
 
 #include <memory>
 #include <optional>
@@ -13,6 +14,7 @@
 namespace Comet {
     class Mesh;
     class Material;
+    class Texture;
 
     struct MaterialBinding {
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
@@ -30,5 +32,7 @@ namespace Comet {
         std::optional<ViewProjectMatrix> view_project_matrix;
         std::vector<ResolvedRenderItem> render_items;
         std::vector<RenderLight> lights;
+        SceneEnvironment environment;
+        std::shared_ptr<Texture> environment_texture;
     };
 }

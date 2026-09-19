@@ -63,12 +63,16 @@ namespace CometEditor {
 
     void InspectorPanel::render() {
         m_asset_assignment.reset();
+        if(!m_user_visible || !m_selection.get_selected_scene()
+            || m_selection.get_selected_scene() != m_history.get_scene())
+            static_cast<void>(finish_environment_edit());
         if(!m_user_visible) {
             static_cast<void>(m_property_edit.commit());
             return;
         }
 
         if(!ImGui::Begin(m_name.c_str(), &m_user_visible)) {
+            static_cast<void>(finish_environment_edit());
             static_cast<void>(m_property_edit.commit());
             ImGui::End();
             return;
@@ -79,6 +83,9 @@ namespace CometEditor {
         } else if(const Comet::AssetHandle asset = m_selection.get_selected_asset()) {
             static_cast<void>(m_property_edit.commit());
             render_asset(asset);
+        } else if(auto* scene = m_selection.get_selected_scene()) {
+            static_cast<void>(m_property_edit.commit());
+            render_scene(*scene);
         } else {
             static_cast<void>(m_property_edit.commit());
             ImGui::TextUnformatted("No entity or asset selected");
@@ -163,6 +170,68 @@ namespace CometEditor {
             if(!changed)
                 LOG_ERROR("Cannot change component structure");
         }
+    }
+
+    void InspectorPanel::render_scene(Comet::Scene& scene) {
+        ImGui::SeparatorText("Environment");
+        const bool can_edit = m_state.mode == EditorMode::Edit && m_history.get_scene() == &scene;
+        if(!can_edit)
+            static_cast<void>(finish_environment_edit(true));
+        if(!m_environment_edit || !can_edit
+            || m_environment_edit->generation != m_history.generation()
+            || m_environment_edit->history_state != m_history.state_id())
+            m_environment_edit = EnvironmentEdit{m_history.generation(), m_history.state_id(),
+                scene.get_environment(), scene.get_environment()};
+        ImGui::BeginDisabled(!can_edit);
+        const bool cancel = can_edit && ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+        auto& environment = m_environment_edit->value;
+        bool changed = edit_asset_reference(
+            "HDR map", environment.asset, m_asset_database, Comet::AssetType::Environment);
+        if(const auto asset = accept_asset_drop(Comet::AssetType::Environment)) {
+            environment.asset = asset->handle;
+            changed = true;
+        }
+        changed |= ImGui::Checkbox("Background", &environment.background);
+        bool finished = changed;
+        changed |= ImGui::DragFloat("Intensity", &environment.intensity, 0.02f, 0.0f, 64.0f, "%.2f",
+            ImGuiSliderFlags_AlwaysClamp);
+        if(ImGui::IsItemActive() && !m_environment_edit->active_item)
+            m_environment_edit->active_item = ImGui::GetItemID();
+        finished |= ImGui::IsItemDeactivated();
+        changed |=
+            ImGui::DragFloat("Rotation", &environment.rotation, 0.5f, 0.0f, 0.0f, "%.1f deg");
+        if(ImGui::IsItemActive() && !m_environment_edit->active_item)
+            m_environment_edit->active_item = ImGui::GetItemID();
+        finished |= ImGui::IsItemDeactivated();
+        if(cancel) {
+            static_cast<void>(finish_environment_edit(true));
+        } else if(can_edit) {
+            if(changed && !scene.set_environment(environment))
+                LOG_WARN("Invalid environment value; previous preview retained");
+            if(finished)
+                static_cast<void>(finish_environment_edit());
+        }
+        ImGui::EndDisabled();
+        if(!can_edit)
+            m_environment_edit.reset();
+    }
+
+    bool InspectorPanel::finish_environment_edit(const bool cancel) {
+        auto edit = std::exchange(m_environment_edit, std::nullopt);
+        if(edit && edit->active_item && ImGui::GetCurrentContext()
+            && ImGui::GetActiveID() == edit->active_item)
+            ImGui::ClearActiveID();
+        auto* scene = m_history.get_scene();
+        if(!edit || !scene || edit->generation != m_history.generation()
+            || edit->history_state != m_history.state_id())
+            return true;
+        const auto after = scene->get_environment();
+        // Restore the gesture's starting point so the command captures the correct undo value.
+        if(!scene->set_environment(edit->before))
+            return false;
+        if(cancel || m_state.mode != EditorMode::Edit || after == edit->before)
+            return true;
+        return SceneCommands::set_environment(m_history, after);
     }
 
     void InspectorPanel::render_property(Comet::Entity entity,

@@ -3,6 +3,26 @@
 #include <gtest/gtest.h>
 
 namespace CometEditor::Tests {
+    TEST(SelectionServiceTest, SceneSelectionIsExclusiveAndClearedOnDocumentSwitch) {
+        Comet::Scene scene;
+        SelectionService selection(scene);
+        const auto entity = scene.create_entity();
+        selection.select_entity(entity.get_id());
+        selection.select_scene();
+        EXPECT_EQ(selection.get_selected_scene(), &scene);
+        EXPECT_FALSE(selection.get_selected_entity());
+        EXPECT_FALSE(selection.get_selected_asset());
+        selection.select_asset(Comet::AssetHandle(8));
+        EXPECT_EQ(selection.get_selected_scene(), nullptr);
+        selection.select_scene();
+        selection.select_entity(entity.get_id());
+        EXPECT_EQ(selection.get_selected_scene(), nullptr);
+        selection.select_scene();
+        Comet::Scene other;
+        selection.set_scene(other);
+        EXPECT_EQ(selection.get_selected_scene(), nullptr);
+    }
+
     TEST(SelectionServiceTest, RejectsUnknownEntityId) {
         Comet::Scene scene;
         SelectionService selection(scene);

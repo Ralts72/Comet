@@ -7,12 +7,12 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | 目录 | 职责 |
 | --- | --- |
 | `engine/src/` | 引擎库：runtime、core、scene、asset、render、graphics、config、diagnostics |
-| `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、debug、post、common 分目录；仅编译 CMake 显式列表 |
+| `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、ui 组织，`resources/` 保存私有字体等资源 |
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
-| `demo/assets/` | 示例项目场景、源资产及相邻 `.meta`，进入版本控制 |
+| `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
 | `demo/project.json` | 示例项目描述：版本、名称和启动场景 |
 | `config/` | `common.yaml` 与各 Profile 配置 |
 | `demo/.comet/` | 示例项目本机缓存与编辑器布局，不进入版本控制 |
@@ -39,6 +39,24 @@ cmake --preset dev-debug
 cmake --build --preset dev-debug --parallel
 ctest --preset dev-debug
 ```
+
+可选的 HDR 天空背景不进入 Git/LFS；需要时显式下载（依赖 `curl` 和 `sha256sum` 或 `shasum`）：
+
+```bash
+./tools/download_assets.sh
+```
+
+脚本按 1K、2K、4K、8K 顺序下载 Small Hangar 01 的四个版本，总计约 130.7 MiB，默认场景引用 4K。
+每个版本有独立的 `.meta`，可在 Environment 的 HDR map 中切换；4K 转成单面 1024 的 cubemap，
+8K 转成单面 2048，包含 mip 的纹理约占 256 MiB，解码时还需要额外 CPU 内存。16K 超出导入尺寸限制，不下载。
+脚本可从任意工作目录运行，逐文件校验 SHA-256，跳过已校验文件；下载失败不会覆盖现有资源。
+未下载时 demo 保留环境资产引用并提示缺失，背景回退为纯色；下载后重新打开项目即可。
+构建和启动不会自动联网。普通测试无需该文件；真实 HDR 导入集成测试缺文件时跳过，下载后自动参与 CTest。
+资源来自 [Poly Haven 的 Small Hangar 01](https://polyhaven.com/a/small_hangar_01)，作者 Sergej Majboroda，
+采用 [CC0 许可](https://polyhaven.com/license)；脚本下载未修改的原始 HDR，可使用、修改和再分发。
+新增可下载资源时，同步维护脚本内的路径／URL／SHA-256、对应的 `.gitignore` 规则和本节来源说明。
+`demo/assets/environments/` 默认忽略资源本体，但保留 `.meta`。
+相邻 `.meta` 与场景仍进入 Git；小型必需图片、字体继续使用现有 LFS 规则。
 
 macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创建/销毁产生的动画任务阻塞 Metal 编译；不影响 app/editor，图形测试仍使用真实窗口和 GPU。
 
@@ -143,7 +161,17 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
   Directional 的 Cast shadow 可启用阴影；最多选择一盏有效方向光，使用 1024² 深度图与 3×3 PCF。
   默认示例包含投影 Key Light、Ground 和纯色 PBR 地面材质 `materials/ground.mat`。
   阴影覆盖当前提交网格的包围盒，暂不支持级联、透明裁切或点／聚光阴影。
-  当前没有天空盒和环境光照 IBL，背景仍使用配置的 clear color；相关计划见路线图。
+  当前尚未接环境光照 IBL；天空盒只改变背景，不为 PBR 提供照明。
+- 点击 Hierarchy 的 Scene，在 Inspector 的 Environment 中选择 HDR map，勾选 Background 显示天空盒。
+  demo 预配置了 Poly Haven 的 Small Hangar 01 4K HDR 背景（CC0，约 25.1 MiB），app/editor 共用；
+  使用 `./tools/download_assets.sh` 获取，来源与许可见上方构建说明，运行时无需联网。
+  强度范围 0..64，旋转绕世界 Y 轴、复用 Transform 的角度循环规则；拖动实时预览，松手提交一次撤销，Esc 取消。
+  双击可输入数值，回车或失焦提交；保存、撤销和进入 Play 前统一结束当前环境编辑。
+  配置支持撤销、保存重开及 Play 克隆；Edit 中可下拉选择或从 Project 拖入环境资产，Play 中只读。
+  缺省关闭保持旧场景外观；缺失引用保留并诊断，背景回退到 clear color，不替换成另一张环境图。
+  支持 2:1 Radiance `.hdr`（宽度 4..8192，最大 256 MiB），线性解码到 RGBA16F cubemap 与背景 mip 链，单面最高 2048²。
+  拒绝损坏文件和超出 float16 范围的像素；首次加载与外部文件导入仍同步，驻留环境重载在后台解码、主线程发布，失败保留旧资源。
+  此阶段未提供 EXR、六面图片导入、环境磁盘缓存或 IBL 预计算。
 - Hierarchy 空白处／Scene 右键创建根实体，实体右键创建子实体、删除或 Duplicate 整棵子树；
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
 - 编辑器快捷键位于 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启。
@@ -154,7 +182,7 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
   Inspector 的材质／纹理设置按变化提交，日志统一进入 Log；资产文件修改暂不纳入场景撤销。
 - Project 目录或空白处右键 New Material，填写名称并选择 `pbr`／`unlit_color`，创建后自动选中。
   `.mat` 与稳定身份 `.meta` 成对创建，不覆盖同名文件；普通失败回滚本次创建，不保证进程崩溃时的双文件原子性。
-- Finder／系统文件管理器可将 PNG/JPEG、glTF/GLB 拖入 Project，复制到落点目录。
+- Finder／系统文件管理器可将 PNG/JPEG、HDR 环境图、glTF/GLB 拖入 Project，复制到落点目录。
   glTF 连同相对 buffer／图片复制，新建身份、不移动源文件、不沿用外部 .meta、不覆盖同名目标。
   暂不接收整目录、独立 .bin、网络或含 `..` 的依赖；整批失败回滚，复制大文件仍可能阻塞 UI。
 - Mesh 自动后台生成 Artifact；未加载模型只生成缓存，不创建 GPU 对象。删除缓存后用 Refresh 或重启补建。
@@ -182,11 +210,12 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 | 目录 | 内容 |
 | --- | --- |
 | `material/` | 网格顶点入口与材质片元着色 |
-| `common/` | 共用网格顶点实现与 `frame.glsl` 相机帧布局 |
+| `common/` | 共用网格／全屏三角形顶点实现与 `frame.glsl` 相机帧布局 |
 | `lighting/forward.glsl` | 前向光源布局、方向与衰减计算 |
 | `shadow/` | 方向光深度生成，与材质前向采样分开 |
+| `environment/` | `skybox.vert` + `skybox.frag`，仅绘制场景背景 |
 | `debug/` | 调试线绘制 |
-| `post/` | 全屏三角形与显示输出：曝光、色调映射、SDR/HDR 编码 |
+| `post/` | 显示输出：曝光、色调映射、SDR/HDR 编码 |
 
 ### 材质与阶段配对
 
@@ -209,7 +238,7 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 完整程序以同目录、同名 `.vert/.frag` 表示；新增程序需加入 `engine/shaders/CMakeLists.txt` 显式配对列表。
 当前生成文件使用阶段文件名，须保持全局唯一。
 公共 `.glsl` 通过相对路径包含，构建依赖与编辑器热重载均跟踪实际 include。
-编辑器热重载已登记的材质程序及其公共 include；调试线、阴影与显示输出修改需重新构建。
+编辑器热重载已登记的材质程序及其公共 include；调试线、阴影、天空盒与显示输出修改需重新构建。
 `MaterialShaders` 按程序名持有顶点/片元字节码，允许提交任意完整程序对；
 缺失单个阶段会拒绝整个候选批次，未提交的程序保留原版本，目标重建仍沿用成功发布的版本。
 程序定义、默认字节码、固定契约校验和覆盖合并位于 `engine/src/render/material/material_shader.h/.cpp`。
@@ -241,7 +270,7 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
   面板产生请求，由统一更新阶段执行；Viewport 管相机、拾取和 Gizmo，不持有 Engine。
   简单确认弹窗集中在 `editor/src/ui/dialogs`，只返回选择；有路径和请求状态的 SceneFileDialog 独立保留。
 - **Shader**：编译工具独立于 engine。开发编辑器支持内置材质程序后台编译和候选发布，
-  失败保留旧画面；辅助线、阴影与输出 Shader 修改仍需重新构建。项目 Shader 和复杂接口尚未接入。
+  失败保留旧画面；辅助线、阴影、天空盒与输出 Shader 修改仍需重新构建。项目 Shader 和复杂接口尚未接入。
 - **坐标**：世界 +Y 向上，Vulkan Viewport 负高度转换画面坐标；`flip_y` 仅影响纹理导入。
 
 实现契约与扩展计划分别维护，避免在 README 重复细节：

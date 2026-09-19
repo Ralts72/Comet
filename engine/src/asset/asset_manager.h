@@ -74,6 +74,7 @@ namespace Comet {
             AssetHandle handle, MeshImportMode mode = MeshImportMode::IfNeeded);
         [[nodiscard]] Result<std::shared_ptr<Mesh>, Error> load_mesh(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> load_texture(AssetHandle handle);
+        [[nodiscard]] Result<std::shared_ptr<Texture>, Error> load_environment(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> reimport_texture(
             AssetHandle handle, TextureImportSettings import_settings);
         [[nodiscard]] AssetScanReport create_material(

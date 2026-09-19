@@ -3,10 +3,20 @@
 #include "diagnostics/logger.h"
 
 #include <algorithm>
+#include <cmath>
 #include "common/scope_exit.h"
 #include <unordered_set>
 
 namespace Comet {
+    bool Scene::set_environment(const SceneEnvironment& environment) {
+        if(!std::isfinite(environment.intensity) || environment.intensity < 0.0f
+            || environment.intensity > 64.0f || !std::isfinite(environment.rotation))
+            return false;
+        m_environment = environment;
+        m_environment.rotation = Math::wrap_degrees(environment.rotation);
+        return true;
+    }
+
     Entity Scene::create_entity(const std::string& name) {
         EntityUuid uuid;
         do {

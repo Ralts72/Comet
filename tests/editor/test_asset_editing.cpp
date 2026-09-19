@@ -11,6 +11,7 @@
 #include "support/imgui_context.h"
 
 #include "support/temporary_directory.h"
+#include "support/hdr_image.h"
 
 #include <gtest/gtest.h>
 #include <imgui.h>
@@ -170,7 +171,7 @@ namespace CometEditor::Tests {
             return {};
         }
 
-        void drag_value(ImVec2 point, float distance) {
+        void begin_value_drag(ImVec2 point, float distance) {
             auto& io = ImGui::GetIO();
             io.AddMousePosEvent(point.x, point.y);
             frame();
@@ -180,6 +181,11 @@ namespace CometEditor::Tests {
             frame();
             io.AddMousePosEvent(point.x + distance, point.y);
             frame();
+        }
+
+        void drag_value(ImVec2 point, float distance) {
+            begin_value_drag(point, distance);
+            auto& io = ImGui::GetIO();
             io.AddMouseButtonEvent(0, false);
             frame();
             frame();
@@ -229,6 +235,156 @@ namespace CometEditor::Tests {
             return request;
         }
     };
+
+    TEST_F(AssetEditingUiTest, SceneEnvironmentPickerAndBackgroundUseSceneHistory) {
+        Comet::Tests::write_hdr(paths.assets() / "studio.hdr");
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto environment = database.find("studio.hdr")->handle;
+        selection.select_scene();
+        frame();
+        click(widget_point("Inspector", "HDR map"));
+        frame();
+        const std::string item = "studio.hdr###" + std::to_string(environment.value());
+        click(widget_point("##Combo_00", item.c_str()));
+        EXPECT_EQ(scene.get_environment().asset, environment);
+        EXPECT_EQ(history.undo_size(), 1u);
+        click(widget_point("Inspector", "Background"));
+        EXPECT_TRUE(scene.get_environment().background);
+        EXPECT_EQ(history.undo_size(), 2u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(scene.get_environment().background);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(scene.get_environment().asset);
+        ASSERT_TRUE(history.redo());
+        ASSERT_TRUE(history.redo());
+        state.mode = EditorMode::Play;
+        frame();
+        EXPECT_EQ(scene.get_environment().asset, environment);
+        EXPECT_EQ(history.undo_size(), 2u);
+    }
+
+    TEST_F(AssetEditingUiTest, EnvironmentNumberCommitsOnceAndEscapeDiscardsDraft) {
+        selection.select_scene();
+        frame();
+        auto& io = ImGui::GetIO();
+        const auto point = widget_point("Inspector", "Intensity");
+        click(point);
+        click(point);
+        ASSERT_TRUE(
+            ImGui::TempInputIsActive(ImGui::FindWindowByName("Inspector")->GetID("Intensity")));
+        io.AddInputCharactersUTF8("2");
+        frame();
+        io.AddInputCharactersUTF8(".5");
+        frame();
+        EXPECT_EQ(history.undo_size(), 0u);
+        io.AddKeyEvent(ImGuiKey_Enter, true);
+        frame();
+        io.AddKeyEvent(ImGuiKey_Enter, false);
+        frame();
+        EXPECT_FLOAT_EQ(scene.get_environment().intensity, 2.5f);
+        EXPECT_EQ(history.undo_size(), 1u);
+        for(int index = 0; index < 20; ++index)
+            frame();
+        click(point);
+        click(point);
+        io.AddInputCharactersUTF8("9");
+        frame();
+        io.AddKeyEvent(ImGuiKey_Escape, true);
+        frame();
+        io.AddKeyEvent(ImGuiKey_Escape, false);
+        frame();
+        EXPECT_FLOAT_EQ(scene.get_environment().intensity, 2.5f);
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(scene.get_environment().intensity, 1.0f);
+    }
+
+    TEST_F(AssetEditingUiTest, EnvironmentDragPreviewsAndRecordsOneUndoEntry) {
+        selection.select_scene();
+        frame();
+        const auto point = widget_point("Inspector", "Intensity");
+        begin_value_drag(point, 30);
+        EXPECT_GT(scene.get_environment().intensity, 1.0f);
+        EXPECT_EQ(history.undo_size(), 0u);
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(point.x + 60, point.y);
+        frame();
+        const auto preview = scene.get_environment();
+        EXPECT_EQ(history.undo_size(), 0u);
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(history.undo_size(), 1u);
+        EXPECT_EQ(scene.get_environment(), preview);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(scene.get_environment().intensity, 1.0f);
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(scene.get_environment(), preview);
+    }
+
+    TEST_F(AssetEditingUiTest, EnvironmentRotationWrapsAndEscapeRestoresPreview) {
+        auto before = scene.get_environment();
+        before.rotation = 179;
+        ASSERT_TRUE(scene.set_environment(before));
+        selection.select_scene();
+        frame();
+        begin_value_drag(widget_point("Inspector", "Rotation"), 30);
+        EXPECT_LT(scene.get_environment().rotation, 0.0f);
+        EXPECT_GE(scene.get_environment().rotation, -180.0f);
+        auto& io = ImGui::GetIO();
+        io.AddKeyEvent(ImGuiKey_Escape, true);
+        frame();
+        io.AddKeyEvent(ImGuiKey_Escape, false);
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(scene.get_environment(), before);
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
+
+    TEST_F(AssetEditingUiTest, EnvironmentDragFinishesBeforeDocumentActions) {
+        selection.select_scene();
+        frame();
+        begin_value_drag(widget_point("Inspector", "Intensity"), 30);
+        const auto preview = scene.get_environment();
+        ASSERT_TRUE(inspector->finish_environment_edit());
+        EXPECT_EQ(history.undo_size(), 1u);
+        EXPECT_EQ(scene.get_environment(), preview);
+        ASSERT_TRUE(history.undo());
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_FLOAT_EQ(scene.get_environment().intensity, 1.0f);
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
+
+    TEST_F(AssetEditingUiTest, EnvironmentDragCommitsWhenSelectionChanges) {
+        selection.select_scene();
+        frame();
+        begin_value_drag(widget_point("Inspector", "Intensity"), 30);
+        const auto preview = scene.get_environment();
+        selection.select_entity(entity.get_id());
+        frame();
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(history.undo_size(), 1u);
+        EXPECT_EQ(scene.get_environment(), preview);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(scene.get_environment().intensity, 1.0f);
+    }
+
+    TEST_F(AssetEditingUiTest, EnvironmentIntensityClampsAndModeChangeCancelsPreview) {
+        auto before = scene.get_environment();
+        before.intensity = 63.9f;
+        ASSERT_TRUE(scene.set_environment(before));
+        selection.select_scene();
+        frame();
+        begin_value_drag(widget_point("Inspector", "Intensity"), 100);
+        EXPECT_FLOAT_EQ(scene.get_environment().intensity, 64.0f);
+        state.mode = EditorMode::Play;
+        frame();
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(scene.get_environment(), before);
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
 
     TEST_F(AssetEditingUiTest, TemplateSwitchRequiresConfirmationAndRestoresOnFailure) {
         selection.select_asset(material);

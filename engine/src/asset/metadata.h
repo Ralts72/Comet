@@ -11,7 +11,15 @@
 #include <string_view>
 
 namespace Comet {
-    enum class AssetType : std::uint8_t { Unknown, Texture, Material, Mesh, Shader, Scene };
+    enum class AssetType : std::uint8_t {
+        Unknown,
+        Texture,
+        Material,
+        Mesh,
+        Shader,
+        Scene,
+        Environment
+    };
 
     [[nodiscard]] COMET_API std::string_view to_string(AssetType type) noexcept;
     [[nodiscard]] COMET_API std::optional<AssetType> asset_type_from_string(

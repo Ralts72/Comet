@@ -34,6 +34,7 @@ namespace Comet {
         const AssetRegistry& m_asset_registry;
         std::unordered_set<AssetHandle> m_missing_mesh_handles;
         std::unordered_set<AssetHandle> m_missing_material_handles;
+        AssetHandle m_missing_environment;
         std::optional<CameraDiagnostic> m_camera_diagnostic;
         bool m_missing_primary_camera = false;
         bool m_missing_camera_override = false;

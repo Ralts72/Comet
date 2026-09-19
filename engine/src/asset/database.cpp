@@ -36,6 +36,8 @@ namespace Comet {
 
         std::optional<AssetType> asset_type_from_path(const std::filesystem::path& path) {
             const std::string extension = lowercase_extension(path);
+            if(extension == ".hdr")
+                return AssetType::Environment;
 
             if(extension == ".png" || extension == ".jpg" || extension == ".jpeg") {
                 return AssetType::Texture;

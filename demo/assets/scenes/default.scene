@@ -1,5 +1,11 @@
 {
   "version": 2,
+  "environment": {
+    "asset": 11764928350182740632,
+    "background": true,
+    "intensity": 1,
+    "rotation": 0
+  },
   "entities": [
     {
       "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d01",

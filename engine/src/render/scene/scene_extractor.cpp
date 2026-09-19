@@ -8,6 +8,7 @@ namespace Comet {
         scene.update_world_transforms();
 
         RenderScene render_scene;
+        render_scene.environment = scene.get_environment();
 
         const auto camera_view =
             scene.m_registry

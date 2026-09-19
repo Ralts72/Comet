@@ -22,6 +22,8 @@ namespace Comet {
         vk::ImageCreateInfo build_image_create_info(
             const ImageInfo& info, const SampleCount sample_count) {
             vk::ImageCreateInfo create_info{};
+            if(info.cubemap)
+                create_info.flags = vk::ImageCreateFlagBits::eCubeCompatible;
             create_info.imageType = vk::ImageType::e2D;
             create_info.format = Graphics::format_to_vk(info.format);
             create_info.extent = Graphics::get_extent(info.extent.x, info.extent.y, info.extent.z);
@@ -50,10 +52,13 @@ namespace Comet {
         const ImageInfo& info, const bool within_budget, const SampleCount sample_count,
         const std::string_view debug_name) {
         validate_image_info(info);
-        const auto max_mip_levels = static_cast<uint32_t>(
-            std::bit_width(std::max(info.extent.x, info.extent.y)));
+        const auto max_mip_levels =
+            static_cast<uint32_t>(std::bit_width(std::max(info.extent.x, info.extent.y)));
         if(info.mip_levels == 0 || info.array_layers == 0 || info.extent.z != 1
             || info.mip_levels > max_mip_levels
+            || (info.cubemap
+                && (info.extent.x != info.extent.y || info.array_layers != 6
+                    || sample_count != SampleCount::Count1))
             || (sample_count != SampleCount::Count1 && info.mip_levels != 1))
             return GpuResourceResult<std::shared_ptr<Image>>::failure(
                 vk::Result::eErrorInitializationFailed);

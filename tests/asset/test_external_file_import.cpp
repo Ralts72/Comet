@@ -5,6 +5,7 @@
 #include "asset/serialization/metadata_serializer.h"
 #include "core/task_scheduler.h"
 #include "render/resource/resource_factory.h"
+#include "support/hdr_image.h"
 #include <gtest/gtest.h>
 #include <array>
 #include <fstream>
@@ -80,6 +81,20 @@ namespace Comet::Tests {
             EXPECT_TRUE(!std::filesystem::exists(staging) || std::filesystem::is_empty(staging));
         }
     };
+
+    TEST_F(ExternalFileImportTest, CopiesHdrEnvironmentAndRejectsMalformedSource) {
+        const auto source = external / "studio.hdr";
+        write_hdr(source);
+        ASSERT_TRUE(import({source}).succeeded());
+        const auto* record = manager.get_database().find("folder/studio.hdr");
+        ASSERT_NE(record, nullptr);
+        EXPECT_EQ(record->type, AssetType::Environment);
+        EXPECT_EQ(read(paths.assets() / "folder/studio.hdr"), read(source));
+        const auto invalid = external / "invalid.hdr";
+        std::ofstream(invalid) << "invalid";
+        EXPECT_FALSE(import({invalid}).succeeded());
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/invalid.hdr"));
+    }
 
     TEST_F(ExternalFileImportTest, CopiesTextureWithoutExternalMetadataOrSceneMutation) {
         const auto source = texture("纹理.png");

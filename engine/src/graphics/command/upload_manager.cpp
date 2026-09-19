@@ -122,9 +122,10 @@ namespace Comet {
         if(before.subresources != after.subresources
             || before.resource.queue_family != after.resource.queue_family
             || range.aspects != ImageAspect::Color || range.base_mip_level != 0
-            || range.level_count != 1 || range.base_array_layer != 0 || range.layer_count != 1
+            || range.level_count != info.mip_levels || range.base_array_layer != 0
+            || range.layer_count != info.array_layers
             || !static_cast<bool>(info.usage & ImageUsage::CopyDst)) {
-            LOG_FATAL("Image upload currently requires one full color subresource "
+            LOG_FATAL("Image upload requires all color mip levels and layers "
                       "with stable queue ownership and CopyDst usage");
         }
 
@@ -141,8 +142,20 @@ namespace Comet {
             LOG_FATAL("UploadManager failed to resolve image transfer state");
         }
         context.transition_image_state(*destination, before, *transfer);
-        context.copy_buffer_to_image(*staging.page->buffer, *destination, transfer->layout,
-            vk::Extent3D{info.extent.x, info.extent.y, info.extent.z}, 0, 1, 0, staging.offset);
+        size_t offset = 0;
+        for(uint32_t mip = 0; mip < info.mip_levels; ++mip) {
+            const uint32_t width = std::max(info.extent.x >> mip, 1u);
+            const uint32_t height = std::max(info.extent.y >> mip, 1u);
+            const size_t size = size_t(width) * height * info.array_layers
+                                * Graphics::format_size_in_bytes(info.format);
+            if(offset > data.size() || size > data.size() - offset)
+                LOG_FATAL("Image upload data is smaller than its subresources");
+            context.copy_buffer_to_image(*staging.page->buffer, *destination, transfer->layout,
+                vk::Extent3D{width, height, 1}, 0, info.array_layers, mip, staging.offset + offset);
+            offset += size;
+        }
+        if(offset != data.size())
+            LOG_FATAL("Image upload data exceeds its subresources");
         context.transition_image_state(*destination, *transfer, after);
 
         m_resources.images.push_back(std::move(destination));

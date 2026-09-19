@@ -3,6 +3,8 @@
 #include "render/render_graph.h"
 #include "render/passes/output_pass.h"
 #include "render/passes/shadow_pass.h"
+#include "render/passes/skybox_pass.h"
+#include "render/resource/texture.h"
 #include "graphics/frame_buffer.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/device.h"
@@ -26,6 +28,7 @@ namespace Comet {
         std::unique_ptr<PipelineManager> pipelines;
         std::unique_ptr<OutputPass> output_pass;
         std::unique_ptr<ShadowPass> shadow_pass;
+        std::unique_ptr<SkyboxPass> skybox_pass;
         std::shared_ptr<RenderTarget> hdr_target;
         std::shared_ptr<RenderTarget> output_target;
         std::unique_ptr<MaterialRenderer> materials;
@@ -96,6 +99,11 @@ namespace Comet {
         if(auto targets = replace_targets(*next, swapchain, size); !targets)
             return Creation::failure(targets.error());
         next->pipelines = std::make_unique<PipelineManager>(m_device, *next->scene_pass);
+        auto skybox =
+            SkyboxPass::create(m_device, *next->pipelines, m_msaa_samples, m_frame_slot_count);
+        if(!skybox)
+            return Creation::failure(skybox.error());
+        next->skybox_pass = std::move(skybox).value();
         auto materials =
             MaterialRenderer::create(m_device, *next->pipelines, resources, m_frame_slot_count,
                 m_msaa_samples, m_material_shaders ? &*m_material_shaders : nullptr);
@@ -282,11 +290,22 @@ namespace Comet {
             Graphics::get_viewport(static_cast<float>(size.x), static_cast<float>(size.y)));
         command.set_scissor(
             Graphics::get_scissor(static_cast<float>(size.x), static_cast<float>(size.y)));
+        if(auto skybox = m_state->skybox_pass->render(frames, submission); !skybox)
+            return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
+                skybox.error());
         auto waits = m_state->materials->render(frames, submission.view_project_matrix,
             submission.render_items, lighting,
             m_state->shadow_pass->get_depth_view(frames.get_current_frame_slot_index()));
         if(!waits)
             return waits;
+        if(submission.environment.background && submission.environment_texture
+            && submission.view_project_matrix) {
+            const auto completion = submission.environment_texture->get_ready_completion();
+            if(completion.is_valid())
+                merge_semaphore_wait(
+                    waits.value(), QueueSemaphoreSubmit(completion,
+                                       Flags<PipelineStage>(PipelineStage::FragmentShader)));
+        }
         if(submission.view_project_matrix) {
             if(auto debug = m_state->debug->render(frames, *submission.view_project_matrix, lines);
                 !debug)

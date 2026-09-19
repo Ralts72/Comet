@@ -129,9 +129,13 @@ namespace CometEditor {
             return;
         }
 
-        const bool scene_open = ImGui::TreeNodeEx("Scene", ImGuiTreeNodeFlags_DefaultOpen
-                                                               | ImGuiTreeNodeFlags_OpenOnArrow
-                                                               | ImGuiTreeNodeFlags_SpanAvailWidth);
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow
+                                   | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if(m_selection.get_selected_scene())
+            flags |= ImGuiTreeNodeFlags_Selected;
+        const bool scene_open = ImGui::TreeNodeEx("Scene", flags);
+        if(ImGui::IsItemClicked())
+            m_selection.select_scene();
         if(ImGui::BeginPopupContextItem("Scene actions")) {
             render_context_menu({});
             ImGui::EndPopup();
