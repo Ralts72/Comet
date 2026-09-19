@@ -2,11 +2,10 @@
 
 #include "asset/handle.h"
 #include "render/lighting.h"
-#include "render/post_process.h"
 #include "common/export.h"
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
-#include "scene/scene_environment.h"
+#include "scene/scene_settings.h"
 
 #include <optional>
 #include <vector>

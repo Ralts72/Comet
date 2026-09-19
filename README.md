@@ -116,6 +116,8 @@ Edit、Play 和独立 app 共用这份数据。Play 中该面板只读，运行�
 新场景默认关闭泛光；demo 场景显式开启强度 0.15、阈值 1。关闭开关保留调好的参数，强度为 0 也不执行泛光。
 
 Bloom 在半分辨率提取高亮，横／纵模糊后在线性 HDR 中合成，再做曝光和 SDR/HDR 显示映射；不影响 ImGui。
+开启时若 GPU 资源不足，保留上次可用效果并有限重试，错误写入日志；场景中的开关意图不回滚。
+重试耗尽后可关闭再开启；设备丢失仍会退出，不属于可恢复的效果准备失败。
 阈值在曝光前应用，只让超阈值亮区向邻域扩散，不提供环境照明，也不要求显示器支持 HDR。
 代码通过 `Scene::set_post_process(PostProcessSettings)` 修改内容；渲染器消费场景快照，不另设全局覆盖入口。
 纯参数变化不重建图或材质管线，是否执行泛光发生变化时才重编排。首次启用才创建资源，关闭后保留最近纹理供复用。
@@ -312,7 +314,8 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
   AssetRegistry 是唯一 Handle 缓存，RenderResources 只创建设备资源；Worker 不操作 Scene 或 GPU。
   Mesh 加载已发布 Artifact，Texture 暂时直接解码源文件。
 - **编辑器**：Editor 装配服务，SceneDocument 管文档与保存点，CommandHistory 管撤销。
-  面板产生请求，由统一更新阶段执行；Viewport 管相机、拾取和 Gizmo，不持有 Engine。
+  面板产生请求，由统一更新阶段交给 SceneEditor 校验和执行；Viewport 管相机、拾取和 Gizmo，不持有 Engine。
+  Inspector 的材质读取交给 EditorAssets，默认值／模板迁移／草稿校验集中在 material_editing。
   简单确认弹窗集中在 `editor/src/ui/dialogs`，只返回选择；有路径和请求状态的 SceneFileDialog 独立保留。
 - **Shader**：编译工具独立于 engine。开发编辑器支持内置材质程序后台编译和候选发布，
   失败保留旧画面；辅助线、阴影、天空盒与输出 Shader 修改仍需重新构建。项目 Shader 和复杂接口尚未接入。
@@ -327,4 +330,5 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
 
 C++ 遵循根目录 `.clang-format`（100 列），只格式化相关代码，不处理 Shader 和第三方源码。
 测试按所属模块放在 `tests/`，公共辅助工具放在 `tests/support/`。
+编辑器的纯 CPU 测试位于 `tests/editor/core/`，面板和渲染集成测试位于 `tests/editor/ui/`，不再按文件名逐项排除。
 头文件应能独立编译，实现文件直接包含自己使用的类型，不依赖入口头的传递包含。

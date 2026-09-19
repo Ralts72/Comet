@@ -15,9 +15,16 @@
 #include <gtest/gtest.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <cstring>
+#include <cmath>
 #include <sstream>
 
 namespace Comet::Tests {
+    template<typename T> T encode_srgb(T linear) {
+        if(linear <= T(0.0031308))
+            return T(12.92) * linear;
+        return T(1.055) * std::pow(linear, T(1.0 / 2.4)) - T(0.055);
+    }
+
     class RenderGpuTest: public testing::Test {
     protected:
         // 测试专用 host-coherent 读回 owner，不改变生产 Buffer 的映射策略。

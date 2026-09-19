@@ -180,33 +180,59 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> SceneRenderer::prepare_post_process(
-        const PostProcessSettings& settings) {
-        if(settings == m_post_process)
-            return Result<void, GraphicsError>::success();
+        const PostProcessSettings& settings, const std::chrono::steady_clock::time_point now) {
         if(auto valid = settings.validate(); !valid)
             return Result<void, GraphicsError>::failure({valid.error()});
         if(!m_state)
             return Result<void, GraphicsError>::failure({"Scene renderer is not configured"});
-        if(settings.uses_bloom() != m_post_process.uses_bloom()) {
-            std::unique_ptr<BloomPass> candidate;
-            if(settings.uses_bloom()) {
-                auto* bloom = m_state->bloom.get();
-                if(!bloom) {
-                    auto created = BloomPass::create(m_device, m_frame_slot_count);
-                    if(!created)
-                        return Result<void, GraphicsError>::failure(created.error());
-                    candidate = std::move(created).value();
-                    bloom = candidate.get();
-                }
-                if(auto resized = bloom->resize(m_state->output_target->get_size()); !resized)
-                    return resized;
-            }
-            if(auto graph = rebuild_graph(*m_state, settings.uses_bloom()); !graph)
-                return graph;
-            if(candidate)
-                m_state->bloom = std::move(candidate);
+        const auto size = m_state->output_target->get_size();
+        if(settings.uses_bloom() == m_post_process.uses_bloom()) {
+            m_post_process_failure.reset();
+            m_post_process = settings;
+            return Result<void, GraphicsError>::success();
         }
-        m_post_process = settings;
+        if(m_post_process_failure && m_post_process_failure->size != size)
+            m_post_process_failure.reset();
+        if(m_post_process_failure && !m_post_process_failure->retry.consume(now))
+            return Result<void, GraphicsError>::success();
+        const auto prepared = configure_bloom(settings.uses_bloom());
+        if(prepared) {
+            m_post_process = settings;
+            m_post_process_failure.reset();
+            return prepared;
+        }
+        if(!prepared.error().is_out_of_memory())
+            return prepared;
+        if(!m_post_process_failure)
+            m_post_process_failure = TargetRetry{size};
+        auto& retry = m_post_process_failure->retry;
+        if(!retry.schedule(now))
+            LOG_ERROR("Post-process preparation exhausted retries; keeping previous settings: {}",
+                prepared.error().message);
+        else if(retry.retry_count() == 1)
+            LOG_WARN("Post-process preparation will retry; keeping previous settings: {}",
+                prepared.error().message);
+        return Result<void, GraphicsError>::success();
+    }
+
+    Result<void, GraphicsError> SceneRenderer::configure_bloom(const bool enabled) {
+        std::unique_ptr<BloomPass> candidate;
+        if(enabled) {
+            auto* bloom = m_state->bloom.get();
+            if(!bloom) {
+                auto created = BloomPass::create(m_device, m_frame_slot_count);
+                if(!created)
+                    return Result<void, GraphicsError>::failure(created.error());
+                candidate = std::move(created).value();
+                bloom = candidate.get();
+            }
+            if(auto resized = bloom->resize(m_state->output_target->get_size()); !resized)
+                return resized;
+        }
+        if(auto graph = rebuild_graph(*m_state, enabled); !graph)
+            return graph;
+        if(candidate)
+            m_state->bloom = std::move(candidate);
         return Result<void, GraphicsError>::success();
     }
 
@@ -254,6 +280,7 @@ namespace Comet {
             return Result<void, GraphicsError>::failure(next.error());
         m_state = std::move(next).value();
         m_resize_failure.reset();
+        m_post_process_failure.reset();
         return Result<void, GraphicsError>::success();
     }
 
@@ -264,6 +291,7 @@ namespace Comet {
             return Result<void, GraphicsError>::failure(next.error());
         m_state = std::move(next).value();
         m_resize_failure.reset();
+        m_post_process_failure.reset();
         return Result<void, GraphicsError>::success();
     }
 
@@ -316,8 +344,6 @@ namespace Comet {
         RenderDiagnostics* diagnostics) {
         PROFILE_SCOPE("SceneRenderer::render");
         using RenderResult = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
-        if(auto prepared = prepare_post_process(submission.post_process); !prepared)
-            return RenderResult::failure(prepared.error());
         frames.retain_current_frame_resource(m_state);
         frames.retain_current_frame_resource(m_state->output_target);
         frames.retain_current_frame_resource(m_state->hdr_target);
@@ -424,7 +450,7 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(candidate.error());
             const Math::Vec2u current_size = m_state->output_target->get_size();
             if(!m_resize_failure)
-                m_resize_failure = ResizeFailure{size};
+                m_resize_failure = TargetRetry{size};
             auto& failure = *m_resize_failure;
             const auto attempts = failure.retry.retry_count() + 1;
             if(!candidate.error().is_out_of_memory() || !failure.retry.schedule(now)) {

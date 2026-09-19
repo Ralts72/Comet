@@ -59,9 +59,8 @@ namespace CometEditor::Tests {
                         ImGui::TextUnformatted("Extra widget content");
                     return result;
                 }));
-            inspector =
-                std::make_unique<InspectorPanel>(state, selection, history, edit, components,
-                    widgets, assets, Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY).assets());
+            inspector = std::make_unique<InspectorPanel>(
+                state, selection, history, edit, components, widgets, assets);
             frame();
             frame();
         }

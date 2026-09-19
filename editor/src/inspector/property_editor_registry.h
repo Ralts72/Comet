@@ -17,6 +17,7 @@ namespace CometEditor {
         bool began = false;
         bool finished = false;
         [[nodiscard]] static PropertyEditResult from_item(bool changed);
+        void include_item(bool item_changed);
     };
 
     class PropertyEditorRegistry {

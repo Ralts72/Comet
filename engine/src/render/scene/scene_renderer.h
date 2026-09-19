@@ -36,6 +36,11 @@ namespace Comet {
         [[nodiscard]] const RenderTarget& get_render_target() const;
         [[nodiscard]] std::shared_ptr<ImageView> get_offscreen_color_view(uint32_t slot) const;
 
+        // 在录制前准备；OOM 保留上一份可用设置，并进行有界重试。
+        [[nodiscard]] Result<void, GraphicsError> prepare_post_process(
+            const PostProcessSettings& settings,
+            std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
+        // 仅录制已准备的状态；场景快照的后处理设置由上一步消费。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
             FrameScheduler& frames, const RenderSubmission& submission,
             const LineDrawList& lines = {}, RenderDiagnostics* diagnostics = nullptr);
@@ -45,7 +50,7 @@ namespace Comet {
 
     private:
         friend class Renderer;
-        Result<void, GraphicsError> prepare_post_process(const PostProcessSettings& settings);
+        Result<void, GraphicsError> configure_bloom(bool enabled);
         [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>
         prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
@@ -61,7 +66,7 @@ namespace Comet {
 
         struct RenderState;
         Result<void, GraphicsError> rebuild_graph(RenderState& state, bool bloom_enabled);
-        struct ResizeFailure {
+        struct TargetRetry {
             Math::Vec2u size;
             RetryBackoff retry;
         };
@@ -84,7 +89,8 @@ namespace Comet {
         uint32_t m_frame_slot_count;
         PostProcessSettings m_post_process;
         std::shared_ptr<RenderState> m_state;
-        std::optional<ResizeFailure> m_resize_failure;
+        std::optional<TargetRetry> m_resize_failure;
+        std::optional<TargetRetry> m_post_process_failure;
         std::optional<MaterialShaders> m_material_shaders;
     };
 }

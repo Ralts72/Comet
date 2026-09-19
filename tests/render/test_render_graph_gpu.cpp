@@ -75,12 +75,7 @@ namespace Comet::Tests {
         }
         static int mapped_byte(float hdr, float exposure = 1.0f) {
             const auto linear = 1.0f - std::exp(-std::max(hdr, 0.0f) * exposure);
-            float encoded;
-            if(linear <= 0.0031308f)
-                encoded = 12.92f * linear;
-            else
-                encoded = 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
-            return static_cast<int>(std::lround(encoded * 255.0f));
+            return static_cast<int>(std::lround(encode_srgb(linear) * 255.0f));
         }
         std::shared_ptr<Mesh> lit_quad(Math::Vec3 normal = {0, 0, 1}) {
             MeshData data{

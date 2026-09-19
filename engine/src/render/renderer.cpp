@@ -80,6 +80,9 @@ namespace Comet {
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
         const RenderSubmission submission = m_scene_resolver.resolve(render_scene, frame_view);
+        if(auto prepared = m_scene_renderer->prepare_post_process(submission.post_process);
+            !prepared)
+            return prepared;
         const auto pick_request = std::exchange(m_viewport_pick_request, std::nullopt);
         if(pick_request && frame_view.visible
             && pick_request->image_resolution == frame_view.render_size

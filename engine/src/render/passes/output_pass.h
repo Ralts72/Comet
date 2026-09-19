@@ -3,7 +3,7 @@
 #include "common/export.h"
 #include "graphics/enums.h"
 #include "graphics/result.h"
-#include "render/post_process.h"
+#include "scene/scene_settings.h"
 
 #include <memory>
 #include <vector>

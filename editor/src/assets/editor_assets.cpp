@@ -1,14 +1,23 @@
 #include "assets/editor_assets.h"
 #include "scene/component_registry.h"
 #include "diagnostics/logger.h"
-#include "scene/component_registry.h"
 #include <utility>
 #include "graphics/result.h"
+#include "asset/serialization/material_serializer.h"
 
 namespace CometEditor {
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
         Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler)
-        : m_manager(paths, registry, factory, scheduler), m_monitor(paths.assets()) {}
+        : m_manager(paths, registry, factory, scheduler), m_assets_root(paths.assets()),
+          m_monitor(paths.assets()) {}
+
+    Comet::Result<Comet::MaterialData> EditorAssets::read_material(const AssetRead& request) const {
+        const auto* record = database().find(request.handle);
+        if(!record || record->type != Comet::AssetType::Material
+            || !database().is_current(request.handle, request.revision))
+            return Comet::Result<Comet::MaterialData>::failure("Material read request is stale");
+        return Comet::MaterialSerializer{}.load(m_assets_root / record->path);
+    }
 
     void EditorAssets::observe(const Comet::AssetSourceMonitor::PollResult& result) {
         using State = Comet::AssetSourceMonitor::PollState;

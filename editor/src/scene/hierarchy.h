@@ -1,6 +1,7 @@
 #pragma once
 #include "ui/editor_panel.h"
 #include "scene/entity_uuid.h"
+#include "scene/scene_editor.h"
 
 #include <cstdint>
 #include <optional>
@@ -17,13 +18,7 @@ namespace CometEditor {
 
     class HierarchyPanel: public EditorPanel {
     public:
-        struct Request {
-            enum class Type { Create, Delete, Reparent, Duplicate };
-            Type type;
-            Comet::EntityUuid entity;
-            Comet::EntityUuid parent;
-            std::uint64_t generation;
-        };
+        using Request = SceneEditor::StructureRequest;
 
         HierarchyPanel(Comet::Scene& scene, SelectionService& selection,
             const CommandHistory& history, const EditorState& state);

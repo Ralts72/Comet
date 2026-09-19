@@ -622,10 +622,9 @@ namespace Comet {
                     return LoadResult::failure(color.error());
                 environment.background_color = color.value();
             }
-            if(!scene->set_environment(environment))
-                return LoadResult::failure(context.error("environment",
-                    "intensities must be between 0 and 64; background color must be finite "
-                    "linear RGB between 0 and 65504"));
+            if(auto valid = environment.validate(); !valid)
+                return LoadResult::failure(context.error("environment", valid.error()));
+            static_cast<void>(scene->set_environment(environment));
         }
         Json::Node post_process_node;
         if(const auto error = root["post_process"].get(post_process_node);

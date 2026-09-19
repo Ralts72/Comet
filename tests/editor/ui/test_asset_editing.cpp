@@ -69,7 +69,7 @@ namespace CometEditor::Tests {
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
             inspector = std::make_unique<InspectorPanel>(
-                state, selection, history, edit, registry, widgets, database, paths.assets());
+                state, selection, history, edit, registry, widgets, database);
             frame();
             frame();
         }
@@ -104,6 +104,10 @@ namespace CometEditor::Tests {
                 project->render();
             }
             ImGui::Render();
+            if(const auto request = inspector->take_asset_read())
+                inspector->complete_asset_read(
+                    *request, Comet::MaterialSerializer{}.load(
+                                  paths.assets() / database.find(request->handle)->path));
             if(const auto request = inspector->take_asset_edit()) {
                 EXPECT_EQ(request->handle, material);
                 EXPECT_EQ(request->revision, database.get_revision(material));

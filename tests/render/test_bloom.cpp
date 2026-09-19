@@ -116,11 +116,6 @@ namespace Comet::Tests {
                 }
             return upsampled;
         }
-        static double encode(double linear) {
-            if(linear <= 0.0031308)
-                return 12.92 * linear;
-            return 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
-        }
     };
 
     TEST_F(BloomGpuTest, MatchesCpuPixelsForOddTinySdrHdrDisabledAndExtremeSettings) {
@@ -248,7 +243,7 @@ namespace Comet::Tests {
                                 EXPECT_NEAR(glm::unpackHalf1x16(packed), mapped, 0.008);
                             } else {
                                 EXPECT_NEAR(std::to_integer<int>(bytes[pixel * stride + channel]),
-                                    std::lround(encode(mapped) * 255), 2);
+                                    std::lround(encode_srgb(mapped) * 255), 2);
                             }
                         }
                         if(hdr_output) {
@@ -368,8 +363,9 @@ namespace Comet::Tests {
             frames.begin_frame(0);
             frames.get_current_command_buffer().begin();
             const auto before = scene.get_post_process_settings();
-            EXPECT_FALSE(scene.render(frames, {.post_process = {.bloom_strength = -1}}));
+            EXPECT_FALSE(scene.prepare_post_process({.bloom_strength = -1}));
             EXPECT_EQ(scene.get_post_process_settings(), before);
+            ASSERT_TRUE(scene.prepare_post_process(settings[i]));
             auto rendered = scene.render(frames,
                 {.environment = {.background_color = colors[i]}, .post_process = settings[i]});
             ASSERT_TRUE(rendered) << rendered.error().message;
@@ -397,7 +393,7 @@ namespace Comet::Tests {
                 const double mapped =
                     1 - std::exp(-(value + glow * strength) * settings[i].exposure);
                 EXPECT_NEAR(std::to_integer<int>(bytes[bgra ? 2 - channel : channel]),
-                    std::lround(encode(mapped) * 255), 2);
+                    std::lround(encode_srgb(mapped) * 255), 2);
             }
         }
         renderer.wait_idle();

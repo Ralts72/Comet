@@ -12,7 +12,7 @@
 | 2 序列化与编辑器闭环 | MVP 已完成 | Schema、迁移与项目格式见阶段 7 |
 | 3 资产数据库与导入 | 主链路、任务背压与发布预算已接通，仍有扩展 | 增量引用恢复、字节预算与更多导入格式 |
 | 4 视口与交互 | 4A/4B 主链路完成，4C 材质创建与模板选择已接通 | 内容编辑与资产撤销扩展 |
-| 5 渲染升级 | PBR/base-color、阴影、材质反射、全局 IBL、Bloom、内置 Shader 热发布与渲染诊断已接通 | 阶段性架构审查、代表场景测量、项目 Shader 资产化 |
+| 5 渲染升级 | PBR/base-color、阴影、材质反射、全局 IBL、Bloom、内置 Shader 热发布与渲染诊断已接通 | 代表场景测量、项目 Shader 资产化 |
 | 6 游戏运行时 | 规划 | 输入、System、脚本、物理、音频 |
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
@@ -31,14 +31,14 @@
    整组缓存和 GPU 发布复用现有预算／版本链路；PBR 的背光非金属和金属均可获得环境贡献。
 3. **已接通：Bloom**（阶段 5）：HDR 高亮提取、半分辨率横纵模糊与显示前合成；曝光／泛光作为场景内容接入 Inspector 实时编辑、撤销和保存，app/editor 统一消费场景快照，不再由引擎 YAML 决定外观。Bloom 不补偿缺失照明。
 4. **已接通：有界渲染诊断**（阶段 5）：旧 `034 / f6dd1ac` 适配为 Renderer 所有的诊断服务，提供 CPU/GPU 耗时、低频显存预算与按需分配报告；查询封装在 graphics，完成证据与保活复用既有帧生命周期。
-5. **下一步：阶段性架构审查**（阶段 5）：核对旧 `035 / 253d5d1` 的平台生命周期、面板状态与关机边界在 main 的覆盖，不重复迁回已修正的实现；随后对照 `9fcb93c` 补齐可复现的代表场景性能测量，再衔接阶段 6。
+5. **下一步：代表场景性能测量**（阶段 5）：旧 `035 / 253d5d1` 的窗口生命周期、面板状态和关机边界已核对；场景编辑执行入口、Inspector 资产读取、设置校验和 Bloom 准备失败策略已收敛。接着对照 `9fcb93c` 补齐可复现的代表场景测量，再衔接阶段 6。
 6. **后续独立里程碑：项目自定义 Shader**（阶段 3／5）：复用材质编辑入口，接通程序资产、metadata、动态布局与发布所有权。
    依赖材质编辑闭环和程序资产协议，不把它作为 PBR／环境照明的前置；出现真实自定义着色需求时可独立提前。
 
 与 feat/auto2 结合：本轮复用已迁移的 `9a7b2e3` 共享布局面板和 `40dfe50` 候选发布思路，补齐该分支未提供的材质创建／模板选择。
 旧 PBR 后的 `033 / 63b2394` 已适配为独立 BloomPass 与 OutputPass 合成，沿用 HDR 提取／模糊算法和像素验收思路，
 接入当前 RenderGraph、HDR/SDR 输出与在途资源所有权，不迁回旧 PostProcessRenderer 的命名与职责。
-旧 034 诊断已适配当前 Result 和所有权，后续继续逐项核对架构审查与测量，不能用新增规划替代旧分支验收，也不能用带 validation 的小测试耗时代表真实项目性能。
+旧 034 诊断和旧 035 架构审查已按 main 核对，后续继续核对代表场景测量；不能用新增规划替代旧分支验收，也不能用带 validation 的小测试耗时代表真实项目性能。
 
 WSI 暂时失败的无呈现重试及 SurfaceLost 重建已接通；设备丢失恢复与跨呈现队列迁移仍需单独设计。
 
@@ -220,6 +220,11 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
   本轮只覆盖现有标量、向量／颜色和纹理能力，不承诺任意 uniform、结构体、数组都能自动编辑。
 - **提交边界**：创建、模板切换和参数修改走同一资产编辑入口；先完成失败可恢复的保存／运行时发布。
   资产 Undo/Redo 在资产文件事务上独立扩展，不混入场景历史，也不把当前自动保存称为可撤销编辑。
+- **待办：材质手势事务与资产撤销一起交付**：拖动只发布运行时预览，结束手势后原子保存一次；取消恢复手势前版本。
+  当前仍是每次有效值变化保存，不宣称已完成预览／落盘分离。实现前需定义预览覆盖的 owner、源 revision 变化、
+  Shader 发布和切换资产时的结束规则；保存失败保留可重试草稿，取消不依赖重新创建 GPU 资源。
+  验收包含零变化不写盘、一次拖动一次保存／历史、取消零写盘、外部修改不被旧预览覆盖以及保存／GPU 失败回退。
+  不用全局 debounce 或仅延迟写文件替代这项事务，也不为它提前拆出各类型 AssetManager。
 
 当前实现：目录／空白处 New Material 与 Template 下拉框共用已发布布局；纯函数负责默认值和兼容参数迁移。
 创建在缓存暂存 `.mat`／`.meta` 后以不覆盖的硬链接发布，候选数据库扫描成功才替换索引；普通失败回滚，不承诺崩溃原子性。
@@ -267,23 +272,10 @@ Shader 基础能力与后续独立验收项：
    后续按消费者扩展 normalized／packed 顶点格式转换、复杂 I/O、插值／附件输出及设备能力校验；
    不把这一步的保守限制说成 Vulkan 完整兼容规则，也不把反射视为完整 SPIR-V validator。
 
-近期旧实现对照顺序：
-
-- 023 `5ae0775`：兼容材质热更与绑定复用已覆盖；保留 main 的 Result、CPU/GPU 分离，不恢复 ShaderManager 发布快照。
-- 024 `40dfe50`：已接已登记属性的布局重绑定、驻留材质整批重建和 Inspector 同步；
-  使用 Result 和布局对象身份，不恢复布局 revision 计数或 ShaderManager 快照，不包含任意新属性或项目 Shader 资产。
-- 025 `c186e75`：只保留架构整理：具名 CPU 编译服务、局部 GPU 候选和在途帧所有权，
-  删除无生产消费者的 ShaderManager 及后台重复反射。Debug 热重载暂缓，保留辅助线绘制和统一构建路径；
-  有实际辅助线着色效果开发需求时再评估，不作为下一项的前置条件。
-- 026 `6d9f365`：已适配设备／版本校验、损坏拒绝、原子保存、ImGui 借用和跨进程恢复；使用实际项目目录与 Result，不迁回旧异常捕获，不替代 PipelineKey 对象缓存。候选驱动拒绝／OOM 尚无故障注入，缓存总预算和淘汰仍待实际需求。
-- 027 `88cdd4a`：主线已由 Presentation 管恢复，补齐独立 WSI 故障注入回归及持续 INCOMPLETE 的有界枚举；保留 1／2／4 秒预算和 SurfaceLost 扩展，不恢复旧 SceneRenderer 编排或固定间隔无限重试。人工 ImGui、真实平台 SurfaceLost 及设备恢复仍不在覆盖内。
-- 028 `fd1d5f3`：已适配有序资源声明、纯 CPU 同步计划、当前离屏目标及真实 GPU producer/consumer。声明统一在 compile 返回 Result，录制失败保留 GraphicsError，复用 Barrier2／FrameSlot；同步校验覆盖子资源、区间、跨提交、MSAA 与 resize。外部 upload／WSI 等待保持显式；尚无 DAG 重排、瞬态分配、多队列、内存别名跟踪或 RenderThread。
-- 029 `624a143`：已适配 RGBA16F 场景与共享 fullscreen 输出，保留 Result、短回调和完整 RenderState 所有权；中间／输出目标成对替换，提前检查 HDR 格式与采样数。启动配置支持 sdr/hdr/auto，HDR 优先 RGBA16F + 扩展线性 sRGB，不支持时回退 SDR；编辑器固定 SDR。GPU 像素验证覆盖 RGBA/BGRA、sRGB/UNORM、浮点 HDR、高亮、曝光、方向、MSAA、resize 和在途资源保活。尚无显示器亮度校准、HDR10/PQ、自动曝光、中间格式降级或第二目标 OOM 故障注入。
-- 030 `30dce0f`：已适配方向／点／聚光、32 灯上限、lit_color 和帧 UBO；枚举共用 Inspector／撤销／JSON，姿态保留主线的层级去缩放语义。热发布与重建保留各组成功字节码，不迁回 ShaderManager、旧 YAML 或异常。CPU、UI 和 GPU 像素／版本寿命测试覆盖主链路；人工视觉与远端平台验收另行进行。
-- 031 `531c7b6`：适配为 `passes/ShadowPass`，深度图与 FrameSet 按槽位独立，复用 RenderGraph 深度写入／采样依赖与上传等待合并；创建和录制返回 Result。纯深度管线按真实子通道颜色附件数创建。单方向光、1024²、3×3 PCF，覆盖开关、删除、移动、目标重建和在途寿命；不迁入旧异常与命名。级联、稳定化、透明裁切、点／聚光阴影及跨平台视觉验收后续处理。
-- 032 `be721fe`：接入 pbr、160 字节相机 Frame UBO 与共用光源采样；保留当前接收面深度梯度阴影算法、Result 与具名完整程序发布，不恢复 ShaderManager 或共享顶点消费者隐式绑定。后续补齐可选 base-color 纹理与白色默认绑定，参数和纹理编辑复用 Inspector。demo 立方体继续使用原 PBR 资产身份，引用已有 sRGB 纹理，移除不再使用的 demo.mat；不迁移其双纹理 blend 语义。法线／金属粗糙度贴图、IBL、透明和 glTF 材质导入仍未覆盖。
-- 033 `63b2394`：适配为 BloomPass 的半分辨率高亮提取、九采样横纵模糊与 OutputPass 的线性 HDR 合成；参数现归属场景，支持 Inspector、撤销与持久化。关闭时不执行额外 pass，首次关闭不创建中间目标；开启后保留目标供复用。复用完整目标替换和帧保活，覆盖 SDR/HDR 像素、奇数／极小尺寸、极值、MSAA、开关、resize 与同步校验。未引入旧异常、soft-knee、多级金字塔或自动曝光；第二中间目标分配失败仍无真实 OOM 注入。
-- 原生文件监听按阶段 3 专项安排，旧分支同样采用轮询，不作为最终方案迁回。
+旧实现的核对依据保留为索引，现行契约与覆盖边界见[渲染资源所有权](architecture/rendering-ownership.md)：
+023–025：`5ae0775 / 40dfe50 / c186e75`；026–029：`6d9f365 / 88cdd4a / fd1d5f3 / 624a143`；
+030–035：`30dce0f / 531c7b6 / be721fe / 63b2394 / f6dd1ac / 253d5d1`。
+不迁回旧 ShaderManager、异常协议和固定间隔无限重试；原生文件监听仍按阶段 3 专项推进。
 
 specialization 已贯通类型化值、默认值规范化、反射校验、PipelineKey 和 GPU 创建。
 当前仅支持 bool/int32/uint32/float32 的固定接口变体；所有依赖 specialization 的数组长度暂不接受，
@@ -374,17 +366,8 @@ ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存
 
 ### 可失败创建 API 与消费者迁移（热更新前置）
 
-当前已完成的边界：
-
-- CPU 反射、布局、specialization、PipelineKey 校验和公共文件 I/O 返回 Result，不发布部分结果。
-- Shader／Pipeline、Descriptor、Sampler、RenderPass／target、Comet 侧 ImGui 初始化返回完整 GPU 候选，失败由 RAII 回收。
-- 资产 GPU 发布、调试缓冲扩容与离屏 resize 区分普通失败和 DeviceLost；前者保持原有降级，后者交给应用退出清理。
-- WSI 创建／重建、acquire、present 已返回显式结果；退休交换链不重新发布。
-- Queue／CommandContext／UploadBatch 和帧提交只在成功后登记 completion、serial 与资源保活；关闭等待失败不阻断析构。
-- Scene／Project 解析、项目资产路径与应用工厂返回公共 Result；Open／Save／Play 消费失败结果，保留已有状态。
-  JSON 数据校验直接返回 Result；生命周期钩子也返回 Result，入口不再捕获异常。未迁移路径仍可能异常终止，不承诺所有接口 noexcept 或所有故障都能有序退出。
-
-现行职责、所有权和测试边界统一见[渲染资源所有权](architecture/rendering-ownership.md)，此处只保留后续验收项：
+公共 Result、GraphicsError、候选所有权和应用退出协议已接通；现行契约统一见
+[创建与错误边界](architecture/rendering-ownership.md#gpu-创建与错误)。后续验收项：
 
 1. **命令录制／同步对象创建／运行期等待**：按实际消费者继续检查异常边界；每步同时迁移接口、生产调用方及测试，
    不保留可被业务绕回使用的旧入口，也不承诺所有函数 noexcept。
@@ -395,19 +378,8 @@ ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存
 4. **原生数据边界**：PipelineConfig、viewport/scissor 按真实消费者整理；不复制全部 Vulkan 类型或预建多后端框架。
    ImGui Vulkan 适配仍允许在私有实现中使用原生接口。
 
-公共 Result 位于无资产／Vulkan 依赖的 common 层；GraphicsError 与 GpuResourceResult 位于 graphics/result.h。
-后者保留原生错误码，诊断字符串按需生成，不为统一外观改变提交失败路径的分配行为。
-CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结果保留各自的信息量。
-公共创建／校验结果必须被消费，不能仅将 throw 移到 helper 或宏中，也不以全局禁用异常代替接口设计。
-第三方异常在适配边界转换；不可承诺恢复的内存耗尽、析构保护和内部不变量错误另行处理。
-
-失败策略由 owner 决定：启动所需资源创建失败应返回启动失败并正常清理；运行中候选失败保留旧版本，
-无旧版本则明确跳过／报告，不伪装成功；设备丢失与资源不足保留区别，不隐式无限重试。
-缓存只插入成功候选，失败不破坏已有项；旧 Shader／Layout／Pipeline／材质版本仍由在途帧持有。
-
-验收：坏字节码、布局／specialization 不匹配和可控 GPU 创建失败均返回可诊断结果；
-原对象与缓存保持有效，失败候选无泄漏；首次创建失败不发布半初始化对象；启动清理、运行中替换、帧保活测试通过。
-每个子项通过调用点审查确认所有消费者检查结果，避免新旧错误协议长期并存；后续按当前架构推进，不逐提交照搬旧分支。
+每个子项同时迁移接口、生产消费者与测试；覆盖坏输入、局部创建失败、旧版本保留和关闭清理，
+不以全局禁用异常或新增传播宏代替错误边界设计。
 
 ### Shader 编译产物与发布
 
@@ -481,7 +453,7 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 - Synchronization 2 / Timeline 已启用；API version 为 1.3 不代表所有可选 feature 自动启用。
 - Dynamic Rendering 在真实多 pass/attachment 需求下评估，不为 API 更换重写阶段 4。
   检查显式 feature、ImGui/MSAA/resize、调试工具和目标 GPU；可按 pass 保留传统 RenderPass。
-- 有界 Forward Lighting、三类 LightComponent、单方向光阴影、PBR/base-color、材质编辑、环境光照／IBL、Bloom 与有界渲染诊断已接通；下一步核对阶段性审查与代表场景测量。
+- 有界 Forward Lighting、三类 LightComponent、单方向光阴影、PBR/base-color、材质编辑、环境光照／IBL、Bloom 与有界渲染诊断已接通；架构审查已完成，下一步核对代表场景测量。
   纹理受光复用材质准备、资产引用与 Shader 发布链路；仅保留 unlit_color 与 pbr 模板，旧双纹理混合和 Lambert Shader 已清理。
   地面材质改为 ground.mat，沿用原资产 ID，使用纯色非金属 PBR；不承诺与 Lambert 像素等价。
   PBR 使用线性 base_color 乘采样纹理，不继承旧 blend 参数；无纹理使用白色默认绑定。

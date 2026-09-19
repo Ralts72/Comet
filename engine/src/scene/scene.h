@@ -7,8 +7,7 @@
 
 #include "common/export.h"
 #include "scene/entity.h"
-#include "scene/scene_environment.h"
-#include "render/post_process.h"
+#include "scene/scene_settings.h"
 #include <entt.hpp>
 
 namespace Comet {

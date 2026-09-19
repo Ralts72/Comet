@@ -289,15 +289,6 @@ EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 m
 此预算不是进程 RSS 上限，也不覆盖普通纹理／Mesh 解码或 GPU 分配；GPU 创建仍使用现有资源工厂的预算及 Result。
 显式同步 load_environment 保留给阻塞式工具调用；app/editor 场景需求不使用它。文件复制与其他资产首次加载仍可能阻塞主线程。
 
-### 材质 Shader 热发布
-
-Shader 热发布按程序接收完整顶点/片元对，可更新任意一个或多个程序；固定 Frame/Object 接口不可修改。
-MaterialShaders 是具名程序集合，不依附 MaterialRenderer 的嵌套类型；未知名称、空集合或不完整程序在 GPU 创建前拒绝。
-MaterialShader 模块复用 ShaderInterface 反射校验，MaterialRenderer 保留管线与材质版本的原子发布。
-各组未参与更新时保留原版本，全部候选准备成功后发布；SceneRenderer 合并保存成功的各组字节码，
-完整目标重建不会丢失其他程序的开发覆盖。编辑器监视已登记的材质阶段及其实际 include，
-包括 `common/mesh_vertex.glsl` 与 `lighting/forward.glsl`；生产目录约定见
-[README 的 Shader 开发](../../README.md#shader-开发)。
 
 ### 材质准备与寿命
 
@@ -363,7 +354,11 @@ normalized／packed 转换、复杂插值、StorageImage 格式及完整附件�
   标准库等未预期异常仍可传播，不承诺 noexcept。完成队列在成功、失败或展开时均释放已消费槽位。
 - SamplerManager 仅复用同名同配置对象；不同配置不覆盖旧对象，各向异性使用精确值作缓存身份。
 
-#### Shader 热发布
+### 材质 Shader 热发布
+
+MaterialShaders 是完整顶点／片元程序的具名集合；未知名称、空集合和不完整程序在 GPU 创建前拒绝。
+MaterialShader 复用 ShaderInterface 校验；未参与更新的程序保留原版本，SceneRenderer 合并成功字节码供完整目标重建。
+生产目录和 include 约定见 [Shader 开发](../../README.md#shader-开发)。
 
 Worker 只编译请求副本，不访问 Editor、Scene、Device；服务销毁后 CPU 工作可结束，但不会再发布。
 每组一个在途任务和一个合并的最新请求，共用 TaskScheduler 背压。每批处理完整阶段集合，
@@ -425,6 +420,12 @@ Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不�
 Editor::finish_active_edit 统一取消未完成 Gizmo、调用 Inspector::finish_edit；失败时拒绝后续请求。
 组件属性与场景环境共用 PropertyEditTransaction 的 begin／preview／commit／cancel 和文档代际检查。
 Inspector 只跟踪 ImGui 活动控件；保存、切场景或模式切换不再维护环境专用事务。
+环境与后处理通过 PropertyEditResult 汇总控件手势，共用一次 begin／preview／commit／cancel 适配。
+SceneEditor 是实体结构编辑、撤销／重做、Mesh 插入和资产赋值的 CPU 执行入口，校验模式、文档代际、属性契约并更新选择。
+SceneCommands 保留具体命令及逆操作；SceneDocument 管保存点，EditorSceneSession 管 Play 副本，不互相兼任。
+Editor 只负责请求优先级、结束 UI 活动项和安装场景后的重绑；不把渲染生命周期回调改成事件。
+Inspector 发出带 Handle／revision 的材质读取请求，由 EditorAssets 解析；返回时再核对选择与 revision，过期结果丢弃。
+材质默认值、模板迁移和草稿校验集中在 material_editing；面板不直接解析文件。
 请求仍在 UI 遍历结束后执行，并保留文档 generation／资产 revision 校验与菜单优先级。
 离散属性赋值使用 PropertyEditTransaction::apply：结束已有手势，再 begin／preview／commit；
 失败取消新事务。持续拖动仍使用独立的 begin／preview／commit，不在每帧创建历史记录。
@@ -602,14 +603,18 @@ BloomPass 只拥有高亮提取与两遍模糊的 Pipeline、RenderPass、双目
 OutputPass 先合成 `HDR + bloom_strength * bloom`，限制到 half-float 有限范围，再曝光和显示映射。
 提取／模糊的 push ABI 为 8 字节，display 为 16 字节，CPU static_assert 与 Shader 反射测试核对。
 
-PostProcessSettings 是 Scene 持有的值类型，与环境设置并列：曝光 0..100，独立泛光开关、强度 0..10、阈值 0..65504。
+scene/scene_settings 定义 Scene 持有的环境与后处理值类型及合法性校验；不包含 GPU 对象或 Pass。
+PostProcessSettings 的曝光为 0..100，独立泛光开关、强度 0..10、阈值 0..65504；UI 复用这些边界。
 SceneSerializer 保存至 `.scene/post_process`；缺省使用曝光 1、泛光关闭，显式对象必须包含完整字段并通过校验。
 Inspector 的场景后处理复用 PropertyEditTransaction 和 CommandHistory，提供实时预览、撤销、取消和保存；Play 克隆继承参数，面板只读。
 环境与后处理通过类型化 SceneTarget（getter/setter）接入统一事务；事务不列举具体场景值类型。
 提交捕获校验／归一化后的实际值并记录已应用命令，不先恢复旧值再重放；Undo/Redo 只修改场景数据，不操作 GPU。
 数据沿 Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission 传递；app 与编辑器相机使用同一路径。
-SceneRenderer 在本帧图录制前准备快照要求的设置，缓存仅代表已准备的状态，不是另一份可写配置；不再有 Config 或 Renderer 全局覆盖入口。
-相同设置直接复用；仅是否执行泛光变化时重编译图，其他变化只影响 push constant。准备失败不发布候选设置并沿既有渲染失败路径返回。
+Renderer 先调用 prepare_post_process，再调用 SceneRenderer::render 录制图；缓存仅代表已准备的状态，不是另一份可写配置。
+仅是否执行泛光变化时重编译图，其他变化只影响 push constant。OOM 不发布候选，仍用旧设置完成本帧；
+依次等待 1、2、4 秒，最多重试三次，耗尽后等取消请求或目标尺寸变化。普通数值拖动不刷新资源重试预算。
+取消开启请求立即清除重试。Scene 的用户意图不回滚；设备丢失、非法输入和非内存创建错误继续向上传递。
+开始场景命令录制后的失败仍按原路径停止提交并关闭，不能套用准备阶段的降级规则。
 开关关闭或强度为 0 时不声明、绑定或录制 Bloom pass，OutputPass 传入的合成强度为 0；关闭开关不会清空场景里的强度和阈值。
 首次开启才创建资源，关闭后缓存最近目标供再次开启复用。
 resize 先创建两个局部候选，再一次性替换；FrameSlot 保留真正使用的目标、Binding、Pipeline 与 RenderPass。
@@ -617,7 +622,9 @@ resize 先创建两个局部候选，再一次性替换；FrameSlot 保留真正
 测试复用 `tests/support/render_gpu_test.h` 的设备、读回与校验日志夹具；不为测试增加引擎协议。
 覆盖独立 CPU 像素参考、极小／奇数尺寸、SDR/HDR、关闭／阈值／曝光极值、MSAA、在途参数切换、resize 与 pass 提前销毁，
 以及场景保存重开、Play 克隆、UI 手势历史和真实引擎循环内的场景替换。
-暂不含多级金字塔、soft knee、镜头污渍和自动曝光；中途真实 OOM 故障注入仍是测试缺口。
+独立 post_process_recovery 目标用测试工厂模拟 OOM／DeviceLost，真实执行 Renderer 与 SceneRenderer，验证继续提交、有限重试和错误分类。
+这不等同于真实驱动显存耗尽或 Bloom 第二张目标创建失败；这些底层分配注入仍未覆盖。
+暂不含多级金字塔、soft knee、镜头污渍和自动曝光。
 
 ## Swapchain 与关闭
 

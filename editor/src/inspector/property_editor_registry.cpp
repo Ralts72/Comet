@@ -31,6 +31,14 @@ namespace CometEditor {
             .finished = ImGui::IsItemDeactivated()};
     }
 
+    void PropertyEditResult::include_item(bool item_changed) {
+        const auto item = from_item(item_changed);
+        changed |= item.changed;
+        active |= item.active;
+        began |= item.began;
+        finished |= item.finished;
+    }
+
     PropertyEditorRegistry create_property_editor_registry(const Comet::AssetDatabase& database) {
         PropertyEditorRegistry registry;
         const auto register_editor = [&registry](const Comet::PropertyType type,

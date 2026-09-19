@@ -7,6 +7,11 @@
 #include <variant>
 
 namespace CometEditor {
+    struct AssetRead {
+        Comet::AssetHandle handle;
+        Comet::AssetRevision revision;
+    };
+
     struct MaterialEdit {
         Comet::MaterialData before;
         Comet::MaterialData after;

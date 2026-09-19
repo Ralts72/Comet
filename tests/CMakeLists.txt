@@ -1,22 +1,18 @@
 file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
 )
-list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/graphics/pipeline_cache_probe.cpp")
-list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/graphics/test_swapchain_recovery.cpp")
+set(ISOLATED_TEST_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/pipeline_cache_probe.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/test_swapchain_recovery.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/render/test_post_process_recovery.cpp")
 file(GLOB_RECURSE INTEGRATION_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/graphics/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/render/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/editor/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/editor/ui/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/runtime/*.cpp")
 list(APPEND INTEGRATION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/core/test_window.cpp")
-list(REMOVE_ITEM INTEGRATION_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/pipeline_cache_probe.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/test_swapchain_recovery.cpp")
-foreach(scope command_history scene_commands scene_document editor_assets editor_scene_session
-        material_editing selection shader_reload camera_controller transform_gizmo viewport_layout)
-    list(REMOVE_ITEM INTEGRATION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/test_${scope}.cpp")
-endforeach()
-list(REMOVE_ITEM TEST_SOURCES ${INTEGRATION_SOURCES})
+list(REMOVE_ITEM INTEGRATION_SOURCES ${ISOLATED_TEST_SOURCES})
+list(REMOVE_ITEM TEST_SOURCES ${INTEGRATION_SOURCES} ${ISOLATED_TEST_SOURCES})
 add_executable(unit_testing ${TEST_SOURCES})
 add_executable(integration_testing test.cpp ${INTEGRATION_SOURCES})
 include("${CMAKE_SOURCE_DIR}/engine/cmake/compile_shader.cmake")
@@ -104,4 +100,15 @@ add_test(NAME render_graph_sync_validation COMMAND integration_testing
         --gtest_filter=RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.* ${TEST_PLATFORM_ARGS})
 set_tests_properties(render_graph_sync_validation PROPERTIES
         ENVIRONMENT "VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT"
+        RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration")
+
+add_executable(post_process_recovery test.cpp render/test_post_process_recovery.cpp
+        "${CMAKE_SOURCE_DIR}/engine/src/render/renderer.cpp"
+        "${CMAKE_SOURCE_DIR}/engine/src/render/scene/scene_renderer.cpp"
+        "${CMAKE_SOURCE_DIR}/engine/src/graphics/convert.cpp")
+target_link_libraries(post_process_recovery PRIVATE engine gtest)
+target_compile_definitions(post_process_recovery PRIVATE COMET_EXPORTS)
+comet_copy_runtime_dependencies(post_process_recovery)
+add_test(NAME post_process_recovery COMMAND post_process_recovery ${TEST_PLATFORM_ARGS})
+set_tests_properties(post_process_recovery PROPERTIES
         RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration")

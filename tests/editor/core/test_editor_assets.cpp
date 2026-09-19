@@ -14,6 +14,8 @@
 #include "render/material/material.h"
 #include "scene/scene_document.h"
 #include "scene/editor_scene_session.h"
+#include "scene/scene_editor.h"
+#include "scene/selection.h"
 #include "editor_state.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
@@ -107,6 +109,82 @@ namespace CometEditor::Tests {
             return record->handle;
         }
     };
+
+    TEST_F(EditorAssetsTest, SceneEditingRejectsStaleAndPlayRequestsWithoutChangingSelection) {
+        Comet::Scene scene;
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+        SceneEditor::StructureRequest request{
+            SceneEditor::StructureRequest::Type::Create, {}, {}, history.generation()};
+        ASSERT_TRUE(editor.execute(&scene, request));
+        const auto selected = selection.get_selected_entity_id();
+        EXPECT_EQ(scene.entity_count(), 1);
+        ++request.generation;
+        EXPECT_FALSE(editor.execute(&scene, request));
+        EXPECT_EQ(selection.get_selected_entity_id(), selected);
+        state.mode = EditorMode::Play;
+        request.generation = history.generation();
+        EXPECT_FALSE(editor.execute(&scene, request));
+        EXPECT_FALSE(editor.undo(&scene));
+        state.mode = EditorMode::Edit;
+        ASSERT_TRUE(editor.undo(&scene));
+        EXPECT_EQ(scene.entity_count(), 0);
+        ASSERT_TRUE(editor.redo(&scene));
+        EXPECT_EQ(scene.entity_count(), 1);
+        Comet::Scene other;
+        EXPECT_FALSE(editor.execute(&other, request));
+    }
+
+    TEST_F(EditorAssetsTest, AssetAssignmentUsesHistoryOnlyForTheEditScene) {
+        const auto material = add_material();
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<Comet::MeshRendererComponent>();
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+        SceneEditor::AssetInput input{material, assets->database().get_revision(material),
+            history.generation(), Comet::AssetType::Material};
+        PropertyEditTransaction::Target target{entity.get_uuid(), "mesh_renderer", "material"};
+        ASSERT_TRUE(editor.assign_asset(&scene, target, input));
+        EXPECT_EQ(entity.get_component<Comet::MeshRendererComponent>().material, material);
+        ASSERT_TRUE(editor.undo(&scene));
+        EXPECT_FALSE(entity.get_component<Comet::MeshRendererComponent>().material);
+        const auto history_state = history.state_id();
+
+        Comet::Scene runtime_scene;
+        auto runtime_entity = runtime_scene.create_entity_with_uuid(entity.get_uuid());
+        runtime_entity.add_component<Comet::MeshRendererComponent>();
+        state.mode = EditorMode::Play;
+        ASSERT_TRUE(editor.assign_asset(&runtime_scene, target, input));
+        EXPECT_EQ(runtime_entity.get_component<Comet::MeshRendererComponent>().material, material);
+        EXPECT_FALSE(entity.get_component<Comet::MeshRendererComponent>().material);
+        EXPECT_EQ(history.state_id(), history_state);
+        ++input.generation;
+        EXPECT_FALSE(editor.assign_asset(&runtime_scene, target, input));
+    }
+
+    TEST_F(EditorAssetsTest, MaterialReadsValidateIdentityAndRevisionWithoutPublishingRuntime) {
+        const auto handle = add_material();
+        const auto runtime_before = runtime.resolve<Comet::Material>(handle);
+        AssetRead request{handle, assets->database().get_revision(handle)};
+        auto read = assets->read_material(request);
+        ASSERT_TRUE(read);
+        EXPECT_EQ(read.value().template_name, "test");
+        EXPECT_EQ(runtime.resolve<Comet::Material>(handle), runtime_before);
+        ++request.revision;
+        EXPECT_FALSE(assets->read_material(request));
+        EXPECT_FALSE(assets->read_material({mesh, assets->database().get_revision(mesh)}));
+    }
 
     TEST_F(EditorAssetsTest, RestoresSceneEnvironmentReferenceAfterSourceRepair) {
         factory.fail_texture = false;

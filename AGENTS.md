@@ -4,9 +4,9 @@
 
 Comet is a C++20 CMake project. `engine/` builds the shared `engine` library and contains core runtime, graphics,
 render, and common utilities under `engine/src/`; engine-owned GLSL sources live in `engine/shaders/`. Runtime config
-lives in `config/`, project source assets in `assets/`, and editor-private resources in `editor/resources/`. `app/`
-builds the sample runtime executable from `app/main.cpp`. `editor/` builds the ImGui editor and keeps panels in
-`editor/src/panels/`. `tests/` builds the `unit_testing` GoogleTest target. `3rdparty/`
+lives in `config/`, sample project assets in `demo/assets/`, and editor-private resources in `editor/resources/`. `app/`
+builds the sample runtime executable from `app/main.cpp`. `editor/src/` groups core logic and panels by feature:
+`scene/`, `viewport/`, `assets/`, `inspector/`, `render/`, and `ui/`. `tests/` builds CPU, integration, and isolated recovery tests. `3rdparty/`
 contains third-party dependencies; most are submodules, while `3rdparty/VulkanMemoryAllocator/` and `3rdparty/entt/`
 are vendored source. EnTT is vendored as a single header under `3rdparty/entt/entt.hpp`.
 Avoid editing third-party code unless updating a dependency.
@@ -22,7 +22,8 @@ Avoid editing third-party code unless updating a dependency.
 - `./editor.sh`: configure/build the RelWithDebInfo editor in `build-editor`, then launch it.
 - `./release.sh`: configure/build `build-release`, then launch `build-release/app/app`.
 
-The engine requires Vulkan files and `glslangValidator`; CI also provides Xvfb for GLFW tests.
+The engine requires the Vulkan SDK. CMake builds `comet_shader_compiler` from the glslang submodule;
+an external `glslangValidator` is not required. Linux CI provides Xvfb for GLFW tests.
 
 ## Coding Style & Naming Conventions
 
@@ -33,9 +34,9 @@ comments short and useful.
 
 ## Testing Guidelines
 
-Tests use GoogleTest and are collected recursively from `tests/*.cpp` and `tests/*.h`. Name new files
-`test_<feature>.cpp` and place them near their scope, for example `tests/common/test_config.cpp` or
-`tests/integration/test_integration.cpp`. Prefer `TEST_F` with small fixtures for shared setup. Run
+Tests use GoogleTest and collect `.cpp` sources under `tests/`. Name new files `test_<feature>.cpp`
+and keep them near their scope. Editor CPU tests belong in `tests/editor/core/`; UI integration tests belong in
+`tests/editor/ui/`. Shared fixtures live in `tests/support/`. Prefer small fixtures that preserve independent assertions. Run
 `ctest --test-dir build --output-on-failure` before opening a PR.
 
 ## Commit & Pull Request Guidelines

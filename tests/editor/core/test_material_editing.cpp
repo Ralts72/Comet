@@ -1,8 +1,26 @@
 #include "assets/material_editing.h"
+#include "asset/database.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 
 namespace CometEditor::Tests {
+    TEST(MaterialEditingTest, DraftValidationIsIndependentOfInspectorAndRejectsTypedMismatches) {
+        Comet::Tests::TemporaryDirectory directory;
+        const Comet::AssetDatabase database{Comet::ProjectPaths(directory.path())};
+        const auto layout = Comet::MaterialLayout::find_builtin("pbr");
+        auto data = make_material_data(*layout);
+        EXPECT_TRUE(validate_material_data(data, *layout, database));
+        data.texture_properties["metallic"] = Comet::AssetHandle(1);
+        EXPECT_FALSE(validate_material_data(data, *layout, database));
+        data.texture_properties.clear();
+        data.texture_properties["base_color_texture"] = Comet::AssetHandle(1);
+        EXPECT_FALSE(validate_material_data(data, *layout, database));
+        data.texture_properties.clear();
+        data.template_name = "unlit_color";
+        EXPECT_FALSE(validate_material_data(data, *layout, database));
+    }
+
     TEST(MaterialEditingTest, PublicTemplatesProduceDefaultsWithoutFakeTextureHandles) {
         for(const auto& layout : Comet::MaterialLayout::builtins()) {
             const auto data = make_material_data(*layout);

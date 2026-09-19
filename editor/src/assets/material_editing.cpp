@@ -1,8 +1,48 @@
 #include "assets/material_editing.h"
+#include "asset/database.h"
 
 #include <algorithm>
 
 namespace CometEditor {
+    Comet::Result<void> validate_material_data(const Comet::MaterialData& data,
+        const Comet::MaterialLayout& layout, const Comet::AssetDatabase& database) {
+        if(data.template_name != layout.get_name())
+            return Comet::Result<void>::failure("Material template does not match its layout");
+        const auto unknown_property = [](const auto& values, const auto& properties) {
+            for(const auto& [name, value] : values) {
+                if(!std::ranges::any_of(
+                       properties, [&](const auto& property) { return property.name == name; }))
+                    return name;
+            }
+            return std::string{};
+        };
+        for(const auto& name : {unknown_property(data.texture_properties, layout.get_textures()),
+                unknown_property(data.scalar_properties, layout.get_scalars()),
+                unknown_property(data.vector_properties, layout.get_vectors())}) {
+            if(!name.empty())
+                return Comet::Result<void>::failure(
+                    "Unknown or incorrectly typed property '" + name + "' in this layout");
+        }
+        for(const auto& property : layout.get_textures()) {
+            if(!property.optional && !data.texture_properties.contains(property.name))
+                return Comet::Result<void>::failure(
+                    "Complete texture slot '" + property.name + "' to publish changes");
+        }
+
+        for(const auto& [property_name, texture_handle] : data.texture_properties) {
+            const Comet::AssetRecord* texture = database.find(texture_handle);
+            if(!texture) {
+                return Comet::Result<void>::failure(
+                    "Texture property '" + property_name + "' references a missing asset");
+            }
+            if(texture->type != Comet::AssetType::Texture) {
+                return Comet::Result<void>::failure(
+                    "Texture property '" + property_name + "' references a non-texture asset");
+            }
+        }
+        return Comet::Result<void>::success();
+    }
+
     Comet::MaterialData make_material_data(const Comet::MaterialLayout& layout) {
         Comet::MaterialData data{.template_name = layout.get_name()};
         for(const auto& property : layout.get_scalars())
@@ -30,7 +70,7 @@ namespace CometEditor {
                     change.discarded_properties.push_back(name);
             }
         };
-        // Unknown source templates have no semantic contract; none of their values are guessed.
+        // 未知源模板没有可比较的语义，不能猜测哪些值可沿用。
         const auto& source = previous ? *previous : next;
         copy_compatible(data.texture_properties, source.get_textures(), next.get_textures(),
             change.data.texture_properties, [](const auto&, const auto&) { return true; });

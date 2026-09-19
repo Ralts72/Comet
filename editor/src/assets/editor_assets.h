@@ -26,6 +26,8 @@ namespace CometEditor {
         [[nodiscard]] Comet::AssetScanReport import_files(
             std::span<const std::filesystem::path> sources, const std::filesystem::path& directory);
         [[nodiscard]] Comet::Result<void, Comet::Error> apply_edit(const AssetEdit& edit);
+        [[nodiscard]] Comet::Result<Comet::MaterialData> read_material(
+            const AssetRead& request) const;
         [[nodiscard]] Comet::Result<Comet::AssetManager::MaterialUpdate, Comet::Error>
         prepare_material_edit(const AssetEdit& edit);
         [[nodiscard]] Comet::Result<void, Comet::Error> commit_material_edit(
@@ -50,6 +52,7 @@ namespace CometEditor {
         void acknowledge(const std::filesystem::path& path);
 
         Comet::AssetManager m_manager;
+        std::filesystem::path m_assets_root;
         Comet::AssetSourceMonitor m_monitor;
         std::unordered_map<Comet::AssetHandle, Comet::MeshImportMode> m_pending_mesh_imports;
         std::string m_monitor_error;

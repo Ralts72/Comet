@@ -6,7 +6,6 @@
 #include "ui/dialogs.h"
 #include "diagnostics/logger.h"
 
-#include "asset/serialization/material_serializer.h"
 #include "render/material/material.h"
 #include "scene/component_registry.h"
 
@@ -19,6 +18,11 @@
 
 namespace CometEditor {
     namespace {
+        const std::string& property_label(const auto& property) {
+            if(property.display_name.empty())
+                return property.name;
+            return property.display_name;
+        }
         constexpr PropertyEditTransaction::SceneTarget<Comet::SceneEnvironment> environment_target{
             &Comet::Scene::get_environment, &Comet::Scene::set_environment};
         constexpr PropertyEditTransaction::SceneTarget<Comet::PostProcessSettings>
@@ -39,11 +43,10 @@ namespace CometEditor {
         CommandHistory& history, PropertyEditTransaction& property_edit,
         const Comet::ComponentRegistry& component_registry,
         const PropertyEditorRegistry& property_editor_registry,
-        const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root)
+        const Comet::AssetDatabase& asset_database)
         : EditorPanel("Inspector"), m_state(state), m_selection(selection), m_history(history),
           m_property_edit(property_edit), m_component_registry(component_registry),
-          m_property_editor_registry(property_editor_registry), m_asset_database(asset_database),
-          m_assets_root(std::move(assets_root)) {
+          m_property_editor_registry(property_editor_registry), m_asset_database(asset_database) {
         const auto builtins = Comet::MaterialLayout::builtins();
         m_material_layouts.assign(builtins.begin(), builtins.end());
     }
@@ -183,53 +186,53 @@ namespace CometEditor {
         render_post_process(scene);
     }
 
+    template<typename Value>
+    void InspectorPanel::apply_scene_edit(PropertyEditTransaction::SceneTarget<Value> target,
+        const Value& value, const PropertyEditResult& result, bool can_edit) {
+        if(!can_edit)
+            return;
+        if(result.active)
+            m_active_item = ImGui::GetActiveID();
+        if(ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            static_cast<void>(finish_edit(true));
+            return;
+        }
+        if((result.began || result.changed) && !m_property_edit.begin(target))
+            return;
+        if(result.changed && !m_property_edit.preview(target, value))
+            LOG_WARN("Invalid scene setting; previous preview retained");
+        if(result.finished && m_property_edit.targets(target))
+            static_cast<void>(finish_edit());
+    }
+
     void InspectorPanel::render_environment(Comet::Scene& scene) {
         ImGui::SeparatorText(Ui::text("Environment"));
         const bool can_edit = m_state.mode == EditorMode::Edit && m_history.get_scene() == &scene;
         if(!can_edit)
             static_cast<void>(finish_edit(true));
         ImGui::BeginDisabled(!can_edit);
-        const bool cancel = can_edit && ImGui::IsKeyPressed(ImGuiKey_Escape, false);
         auto environment = scene.get_environment();
-        bool changed = edit_asset_reference(
+        PropertyEditResult result;
+        result.changed = edit_asset_reference(
             "HDR map", environment.asset, m_asset_database, Comet::AssetType::Environment);
         if(const auto asset = accept_asset_drop(Comet::AssetType::Environment)) {
             environment.asset = asset->handle;
-            changed = true;
+            result.changed = true;
         }
-        changed |= ImGui::Checkbox(Ui::label("Background").c_str(), &environment.background);
-        changed |= ImGui::Checkbox(Ui::label("Lighting").c_str(), &environment.lighting);
-        bool finished = changed;
-        const auto track_item = [&] {
-            if(can_edit && ImGui::IsItemActivated())
-                static_cast<void>(m_property_edit.begin(environment_target));
-            if(ImGui::IsItemActive())
-                m_active_item = ImGui::GetItemID();
-            finished |= ImGui::IsItemDeactivated();
-        };
-        changed |= ImGui::ColorEdit3(Ui::label("Background color").c_str(),
-            &environment.background_color.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
-        track_item();
-        changed |= ImGui::DragFloat(Ui::label("Intensity").c_str(), &environment.intensity, 0.02f,
-            0.0f, 64.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        track_item();
-        changed |= ImGui::DragFloat(Ui::label("Lighting intensity").c_str(),
-            &environment.lighting_intensity, 0.02f, 0.0f, 64.0f, "%.2f",
-            ImGuiSliderFlags_AlwaysClamp);
-        track_item();
-        changed |= ImGui::DragFloat(
-            Ui::label("Rotation").c_str(), &environment.rotation, 0.5f, 0.0f, 0.0f, "%.1f deg");
-        track_item();
-        if(cancel) {
-            static_cast<void>(finish_edit(true));
-        } else if(can_edit) {
-            if(changed
-                && (!m_property_edit.begin(environment_target)
-                    || !m_property_edit.preview(environment_target, environment)))
-                LOG_WARN("Invalid environment value; previous preview retained");
-            if(finished && m_property_edit.targets(environment_target))
-                static_cast<void>(finish_edit());
-        }
+        result.changed |= ImGui::Checkbox(Ui::label("Background").c_str(), &environment.background);
+        result.changed |= ImGui::Checkbox(Ui::label("Lighting").c_str(), &environment.lighting);
+        result.finished = result.changed;
+        result.include_item(ImGui::ColorEdit3(Ui::label("Background color").c_str(),
+            &environment.background_color.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR));
+        result.include_item(
+            ImGui::DragFloat(Ui::label("Intensity").c_str(), &environment.intensity, 0.02f, 0.0f,
+                Comet::SceneEnvironment::MAX_INTENSITY, "%.2f", ImGuiSliderFlags_AlwaysClamp));
+        result.include_item(ImGui::DragFloat(Ui::label("Lighting intensity").c_str(),
+            &environment.lighting_intensity, 0.02f, 0.0f, Comet::SceneEnvironment::MAX_INTENSITY,
+            "%.2f", ImGuiSliderFlags_AlwaysClamp));
+        result.include_item(ImGui::DragFloat(
+            Ui::label("Rotation").c_str(), &environment.rotation, 0.5f, 0.0f, 0.0f, "%.1f deg"));
+        apply_scene_edit(environment_target, environment, result, can_edit);
         ImGui::EndDisabled();
     }
 
@@ -237,40 +240,23 @@ namespace CometEditor {
         ImGui::SeparatorText(Ui::text("Post Processing"));
         const bool can_edit = m_state.mode == EditorMode::Edit && m_history.get_scene() == &scene;
         ImGui::BeginDisabled(!can_edit);
-        const bool cancel = can_edit && ImGui::IsKeyPressed(ImGuiKey_Escape, false);
         auto settings = scene.get_post_process();
-        bool finished = false;
-        const auto track_item = [&] {
-            if(can_edit && ImGui::IsItemActivated())
-                static_cast<void>(m_property_edit.begin(post_process_target));
-            if(ImGui::IsItemActive())
-                m_active_item = ImGui::GetItemID();
-            finished |= ImGui::IsItemDeactivated();
-        };
-        bool changed = ImGui::DragFloat(Ui::label("Exposure").c_str(), &settings.exposure, 0.02f,
-            0.0f, 100.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        track_item();
+        PropertyEditResult result;
+        result.include_item(
+            ImGui::DragFloat(Ui::label("Exposure").c_str(), &settings.exposure, 0.02f, 0.0f,
+                Comet::PostProcessSettings::MAX_EXPOSURE, "%.2f", ImGuiSliderFlags_AlwaysClamp));
         const bool toggled = ImGui::Checkbox(Ui::label("Bloom").c_str(), &settings.bloom_enabled);
-        changed |= toggled;
-        finished |= toggled;
+        result.changed |= toggled;
+        result.finished |= toggled;
         ImGui::BeginDisabled(!settings.bloom_enabled);
-        changed |= ImGui::DragFloat(Ui::label("Bloom strength").c_str(), &settings.bloom_strength,
-            0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        track_item();
-        changed |= ImGui::DragFloat(Ui::label("Bloom threshold").c_str(), &settings.bloom_threshold,
-            0.05f, 0.0f, 65504.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        track_item();
+        result.include_item(ImGui::DragFloat(Ui::label("Bloom strength").c_str(),
+            &settings.bloom_strength, 0.01f, 0.0f, Comet::PostProcessSettings::MAX_BLOOM_STRENGTH,
+            "%.2f", ImGuiSliderFlags_AlwaysClamp));
+        result.include_item(ImGui::DragFloat(Ui::label("Bloom threshold").c_str(),
+            &settings.bloom_threshold, 0.05f, 0.0f, Comet::PostProcessSettings::MAX_BLOOM_THRESHOLD,
+            "%.2f", ImGuiSliderFlags_AlwaysClamp));
         ImGui::EndDisabled();
-        if(cancel) {
-            static_cast<void>(finish_edit(true));
-        } else if(can_edit) {
-            if(changed
-                && (!m_property_edit.begin(post_process_target)
-                    || !m_property_edit.preview(post_process_target, settings)))
-                LOG_WARN("Invalid post-process value; previous preview retained");
-            if(finished && m_property_edit.targets(post_process_target))
-                static_cast<void>(finish_edit());
-        }
+        apply_scene_edit(post_process_target, settings, result, can_edit);
         ImGui::EndDisabled();
     }
 
@@ -482,8 +468,7 @@ namespace CometEditor {
             if(found != m_material_data->texture_properties.end())
                 texture_handle = found->second;
             ImGui::PushID(property_name.c_str());
-            const auto& label =
-                property.display_name.empty() ? property.name : property.display_name;
+            const auto& label = property_label(property);
             const auto assign = [&](Comet::AssetHandle value) {
                 if(value == texture_handle)
                     return;
@@ -516,8 +501,7 @@ namespace CometEditor {
             if(found != m_material_data->scalar_properties.end())
                 value = found->second;
             const float before = value;
-            const auto& label =
-                property.display_name.empty() ? property.name : property.display_name;
+            const auto& label = property_label(property);
             ImGui::PushID(property.name.c_str());
             if(ImGui::DragFloat(Ui::label(label.c_str()).c_str(), &value, property.step,
                    property.min_value, property.max_value, "%.3f", ImGuiSliderFlags_AlwaysClamp)
@@ -535,8 +519,7 @@ namespace CometEditor {
             if(found != m_material_data->vector_properties.end())
                 value = found->second;
             const auto before = value;
-            const auto& label =
-                property.display_name.empty() ? property.name : property.display_name;
+            const auto& label = property_label(property);
             ImGui::PushID(property.name.c_str());
             bool changed = false;
             if(property.semantic == Comet::MaterialLayout::VectorProperty::Semantic::Color) {
@@ -616,11 +599,23 @@ namespace CometEditor {
             return;
         }
 
-        auto data = Comet::MaterialSerializer{}.load(m_assets_root / record.path);
-        if(data)
-            m_material_data = std::move(data).value();
+        m_asset_read = AssetRead{record.handle, m_loaded_revision};
+    }
+
+    std::optional<AssetRead> InspectorPanel::take_asset_read() {
+        return std::exchange(m_asset_read, std::nullopt);
+    }
+
+    void InspectorPanel::complete_asset_read(
+        const AssetRead& request, Comet::Result<Comet::MaterialData> result) {
+        if(request.handle != m_loaded_asset || request.revision != m_loaded_revision
+            || m_selection.get_selected_asset() != request.handle
+            || !m_asset_database.is_current(request.handle, request.revision))
+            return;
+        if(result)
+            m_material_data = std::move(result).value();
         else
-            m_asset_error = data.error();
+            m_asset_error = result.error();
     }
 
     void InspectorPanel::reimport_texture(
@@ -660,42 +655,14 @@ namespace CometEditor {
     }
 
     std::string InspectorPanel::validate_material() const {
-        if(!m_material_data) {
+        if(!m_material_data)
             return "Material data is not loaded";
-        }
-
         const auto layout = material_layout();
         if(!layout)
             return "Material layout is not registered";
-        const auto unknown_property = [](const auto& values, const auto& properties) {
-            for(const auto& [name, value] : values) {
-                if(!std::ranges::any_of(
-                       properties, [&](const auto& property) { return property.name == name; }))
-                    return name;
-            }
-            return std::string{};
-        };
-        for(const auto& name :
-            {unknown_property(m_material_data->texture_properties, layout->get_textures()),
-                unknown_property(m_material_data->scalar_properties, layout->get_scalars()),
-                unknown_property(m_material_data->vector_properties, layout->get_vectors())}) {
-            if(!name.empty())
-                return "Unknown or incorrectly typed property '" + name + "' in this layout";
-        }
-        for(const auto& property : layout->get_textures()) {
-            if(!property.optional && !m_material_data->texture_properties.contains(property.name))
-                return "Complete texture slot '" + property.name + "' to publish changes";
-        }
-
-        for(const auto& [property_name, texture_handle] : m_material_data->texture_properties) {
-            const Comet::AssetRecord* texture = m_asset_database.find(texture_handle);
-            if(!texture) {
-                return "Texture property '" + property_name + "' references a missing asset";
-            }
-            if(texture->type != Comet::AssetType::Texture) {
-                return "Texture property '" + property_name + "' references a non-texture asset";
-            }
-        }
+        const auto result = validate_material_data(*m_material_data, *layout, m_asset_database);
+        if(!result)
+            return result.error();
         return {};
     }
 }

@@ -6,6 +6,7 @@ add_library(editor_core STATIC
         src/scene/command_history.cpp
         src/scene/editor_scene_session.cpp
         src/scene/scene_commands.cpp
+        src/scene/scene_editor.cpp
         src/scene/scene_document.cpp
         src/viewport/camera_controller.cpp
         src/viewport/transform_gizmo.cpp

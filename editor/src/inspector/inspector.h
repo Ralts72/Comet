@@ -4,12 +4,11 @@
 #include "assets/asset_edit.h"
 #include "ui/editor_panel.h"
 #include "scene/command_history.h"
-#include "scene/scene_environment.h"
+#include "scene/scene_settings.h"
 #include "editor_state.h"
 #include "assets/asset_reference.h"
 #include "assets/material_editing.h"
 
-#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,6 +23,7 @@ namespace Comet {
 namespace CometEditor {
     class PropertyEditorRegistry;
     class SelectionService;
+    struct PropertyEditResult;
 
     class InspectorPanel: public EditorPanel {
     public:
@@ -35,7 +35,7 @@ namespace CometEditor {
             CommandHistory& history, PropertyEditTransaction& property_edit,
             const Comet::ComponentRegistry& component_registry,
             const PropertyEditorRegistry& property_editor_registry,
-            const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root);
+            const Comet::AssetDatabase& asset_database);
 
         void render() override;
         [[nodiscard]] bool finish_edit(bool cancel = false);
@@ -43,9 +43,15 @@ namespace CometEditor {
             std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts);
         [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
         [[nodiscard]] std::optional<AssetEdit> take_asset_edit();
+        [[nodiscard]] std::optional<AssetRead> take_asset_read();
+        void complete_asset_read(
+            const AssetRead& request, Comet::Result<Comet::MaterialData> result);
         void complete_asset_edit(const AssetEdit& edit, bool succeeded, std::string error = {});
 
     private:
+        template<typename Value>
+        void apply_scene_edit(PropertyEditTransaction::SceneTarget<Value> target,
+            const Value& value, const PropertyEditResult& result, bool can_edit);
         void render_scene(Comet::Scene& scene);
         void render_environment(Comet::Scene& scene);
         void render_post_process(Comet::Scene& scene);
@@ -75,7 +81,6 @@ namespace CometEditor {
         const Comet::ComponentRegistry& m_component_registry;
         const PropertyEditorRegistry& m_property_editor_registry;
         const Comet::AssetDatabase& m_asset_database;
-        std::filesystem::path m_assets_root;
         Comet::AssetHandle m_loaded_asset;
         Comet::AssetRevision m_loaded_revision = 0;
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;
@@ -84,6 +89,7 @@ namespace CometEditor {
         std::string m_asset_error;
         std::optional<AssetAssignment> m_asset_assignment;
         std::optional<AssetEdit> m_asset_edit;
+        std::optional<AssetRead> m_asset_read;
         std::optional<MaterialTemplateChange> m_template_change;
         uint32_t m_active_item = 0;
     };
