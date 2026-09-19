@@ -1,11 +1,63 @@
 #include "asset/import/import_service.h"
 
 #include "asset/import/mesh_importer.h"
+#include "asset/import/environment_importer.h"
+#include "asset/import/texture_importer.h"
 
 #include <utility>
 
 namespace Comet {
     ImportService::ImportService(ProjectPaths paths) : m_paths(std::move(paths)) {}
+
+    MeshArtifactCandidate ImportService::prepare_mesh(
+        const AssetRecord& record, const AssetRevision revision, const MeshImportMode mode) const {
+        if(mode == MeshImportMode::IfNeeded) {
+            if(auto artifact = find_current_mesh_artifact(record.handle, record.path))
+                return {record.handle, revision, record.path,
+                    Result<MeshArtifact>::success(std::move(*artifact)), true};
+        }
+        return {
+            record.handle, revision, record.path, build_mesh_artifact(record.handle, record.path)};
+    }
+
+    Result<TextureData> ImportService::prepare_texture(
+        const AssetRecord& record, const TextureImportSettings& settings) const {
+        return TextureImporter{}.import(m_paths.assets() / record.path, settings);
+    }
+
+    std::filesystem::path ImportService::environment_artifact_path(const AssetHandle handle) const {
+        return m_paths.cache() / "imported" / "environment"
+               / (std::to_string(handle.value()) + ".bin");
+    }
+
+    Result<EnvironmentArtifact> ImportService::prepare_environment(
+        const AssetRecord& record, const std::size_t memory_budget) const {
+        const auto source = m_paths.assets() / record.path;
+        auto inputs = capture_import_inputs(m_paths.assets(), source, {});
+        if(!inputs)
+            return Result<EnvironmentArtifact>::failure(inputs.error());
+        const auto& fingerprint = inputs.value().files.front();
+        if(auto cached = EnvironmentArtifact::load(
+               environment_artifact_path(record.handle), record.handle, memory_budget)) {
+            if(cached->importer_version == EnvironmentImporter::VERSION
+                && cached->source == fingerprint
+                && import_inputs_are_current(m_paths.assets(), inputs.value()))
+                return Result<EnvironmentArtifact>::success(std::move(*cached));
+        }
+        auto imported = EnvironmentImporter{}.import(source, memory_budget);
+        if(!imported)
+            return Result<EnvironmentArtifact>::failure(imported.error());
+        if(!import_inputs_are_current(m_paths.assets(), inputs.value()))
+            return Result<EnvironmentArtifact>::failure("Environment changed during preparation");
+        EnvironmentArtifact artifact{.handle = record.handle,
+            .importer_version = EnvironmentImporter::VERSION,
+            .source = fingerprint,
+            .data = std::move(imported).value()};
+        // Only the CPU cache is written here; workers never publish runtime/GPU objects.
+        if(auto saved = artifact.publish_atomic(environment_artifact_path(record.handle)); !saved)
+            return Result<EnvironmentArtifact>::failure(saved.error());
+        return Result<EnvironmentArtifact>::success(std::move(artifact));
+    }
 
     std::filesystem::path ImportService::mesh_artifact_path(const AssetHandle handle) const {
         return m_paths.cache() / "imported" / "mesh" / (std::to_string(handle.value()) + ".bin");

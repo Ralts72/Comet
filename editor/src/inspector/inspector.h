@@ -38,7 +38,7 @@ namespace CometEditor {
             const Comet::AssetDatabase& asset_database, std::filesystem::path assets_root);
 
         void render() override;
-        [[nodiscard]] bool finish_environment_edit(bool cancel = false);
+        [[nodiscard]] bool finish_edit(bool cancel = false);
         void set_material_layouts(
             std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts);
         [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
@@ -83,14 +83,7 @@ namespace CometEditor {
         std::optional<AssetAssignment> m_asset_assignment;
         std::optional<AssetEdit> m_asset_edit;
         std::optional<MaterialTemplateChange> m_template_change;
-        struct EnvironmentEdit {
-            uint64_t generation;
-            uint64_t history_state;
-            Comet::SceneEnvironment before;
-            Comet::SceneEnvironment value;
-            uint32_t active_item = 0;
-        };
-        std::optional<EnvironmentEdit> m_environment_edit;
+        uint32_t m_active_item = 0;
     };
 
 }

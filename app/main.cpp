@@ -46,15 +46,17 @@ namespace {
                     "Asset scan issue at '{}': {}", issue.path.generic_string(), issue.message);
 
             // 开发期 app 在启动阶段补齐 Artifact，不把源模型导入放进运行帧。
-            for(const auto& reference : components.collect_asset_references(*scene)) {
+            const auto references = components.collect_asset_references(*scene);
+            for(const auto& reference : references) {
                 if(reference.type == Comet::AssetType::Mesh) {
                     if(auto imported = m_asset_manager->import_mesh(reference.handle); !imported)
                         return Init::failure(imported.error());
                 }
-                if(auto loaded = m_asset_manager->ensure_loaded(reference.handle, reference.type);
-                    !loaded)
-                    return Init::failure(loaded.error());
             }
+            if(auto prepared = m_asset_manager->prepare_references(
+                   references, Comet::AssetManager::MissingAssetPolicy::FailRequired);
+                !prepared)
+                return Init::failure(prepared.error());
             LOG_INFO("App project '{}', startup scene '{}', demo rotation {}",
                 m_project.paths().root().string(), m_project.startup_scene().generic_string(),
                 static_cast<bool>(m_rotating_entity));

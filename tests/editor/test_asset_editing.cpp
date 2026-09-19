@@ -345,7 +345,7 @@ namespace CometEditor::Tests {
         frame();
         begin_value_drag(widget_point("Inspector", "Intensity"), 30);
         const auto preview = scene.get_environment();
-        ASSERT_TRUE(inspector->finish_environment_edit());
+        ASSERT_TRUE(inspector->finish_edit());
         EXPECT_EQ(history.undo_size(), 1u);
         EXPECT_EQ(scene.get_environment(), preview);
         ASSERT_TRUE(history.undo());

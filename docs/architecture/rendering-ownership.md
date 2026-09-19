@@ -153,7 +153,7 @@ MaterialRenderer::render、DebugRenderer::render 与 SceneRenderer::render 返�
 Renderer 收到场景 pass 失败后停止 overlay 与提交，调用 prepare_shutdown 等待在途工作，然后返回 Engine。
 部分录制的命令缓冲只由 owner 销毁，不结束并提交空帧，也不重新用于下一帧。
 Editor 通过 Renderer 注册 Overlay 重建钩子、读取只读帧信息；整帧命令缓冲直接传给 Overlay。
-SceneResolver 只解析 Camera、Mesh 和 Material 引用，不检查模板、属性名或纹理数量。
+SceneResolver 只解析 Camera、Mesh、Material 和 Environment 引用，不检查模板、属性名或纹理数量。
 
 ## 材质、Shader 与 Pipeline
 
@@ -222,6 +222,9 @@ MaterialRenderer 只接收已准备的 LightingData 与有效采样 View，不�
 偏移覆盖 nearest texel 量化误差并按入射角调整。所有提交网格均按不透明遮挡物处理，
 只有受光材质接收阴影。阴影视口使用正高度，与采样 UV 匹配；主场景仍使用负高度。
 
+尚无级联、texel 稳定化、视锥筛选、透明裁切、逐物体投影开关或点／聚光阴影；
+大场景或动态包围盒会降低阴影精度并可能抖动，后续按实际画面需求扩展。
+
 ### 场景环境背景
 
 SceneEnvironment 保存单一环境 Handle、背景开关、强度与 Y 旋转；不包含 GPU owner，也不作为实体组件。
@@ -230,11 +233,25 @@ Environment 与普通 Texture 在数据库中为不同资产类型，但共用 T
 HDR 导入器生成六层 RGBA16F 和背景 mip 链，UploadBatch 一次提交全部 mip／layer，统一转入 SampledRead。
 SkyboxPass 在场景 RenderPass 内先画全屏三角形，不读写深度；随后几何和辅助线按原流程绘制。
 射线由逆投影、相机旋转和环境旋转重建，丢弃相机平移；正交视图也按射线方向采样。
-每帧槽位绑定不可变 Texture／descriptor pool，帧额外保留绑定、管线、layout、sampler；资源替换不会改写在途 descriptor。
-SceneRenderer 合并环境上传 completion 的 FragmentShader 等待，复用原 HDR 目标与 OutputPass，不增加图像中转或图 pass。
-当前只改变背景，尚无 IBL；首次解码同步，驻留重载后台解码，缓存与首次异步准备随 IBL 阶段扩展。
-尚无级联、texel 稳定化、视锥筛选、透明裁切、逐物体投影开关或点／聚光阴影；
-大场景或动态包围盒会降低精度并可能抖动，后续按实际画面需求扩展。
+SkyboxPass 和 OutputPass 共用不可变 SampledImageBinding，绑定拥有 view、layout、sampler 和 descriptor pool；帧保留绑定及管线，不改写在途 descriptor。
+SkyboxPass 返回实际绘制所需的上传等待，SceneRenderer 只合并，不重复判断背景开关或资源条件。
+当前只改变背景，尚无 IBL；资产准备见下节。
+
+### 环境资产准备
+
+`场景引用 → AssetManager::request_load → AssetTaskQueue → ImportService → EnvironmentArtifact → owner 发布 Texture`。
+app/editor 共用引用准备：场景环境是可选引用，缺失时保留 Handle 并诊断；app 拒绝必需引用失败，编辑器允许修复。DeviceLost 始终向上传递。
+SceneResolver 不将 Registry 中尚未发布的环境当作错误，等待期间返回无环境纹理的提交；真实缺失／准备失败由资产层报告。
+已发布对象不是 Texture 或不是 cubemap 时，SceneResolver 仍报告类型错误并按 Handle 去重，不依赖 AssetManager 的调度状态。
+ImportService 负责 CPU 导入与缓存，AssetManager 负责加载需求、revision 检查和运行时发布；二者不访问 ImGui。
+后台首次准备与驻留重载共用缓存路径，输入路径／内容指纹和算法版本必须匹配；格式、尺寸、载荷长度和校验值不符则重建。
+缓存原子写只保证单文件；缓存可独立存在，不代表 GPU 已发布。GPU 创建失败不替换 Registry，旧帧仍持有旧版本。
+环境任务根据源尺寸估算工作集，默认共享 2 GiB CPU 预约预算；完成候选在发布或丢弃前不释放预约。
+主线程仅做小型头部／文件大小预检和 GPU 发布，CPU 大块读取、转换、校验与缓存写入在 Worker；预检后源增长超预算会失败。
+此预算不是进程 RSS 上限，也不覆盖普通纹理／Mesh 解码或 GPU 分配；GPU 创建仍使用现有资源工厂的预算及 Result。
+显式同步 load_environment 保留给阻塞式工具调用；app/editor 场景需求不使用它。文件复制与其他资产首次加载仍可能阻塞主线程。
+
+### 材质 Shader 热发布
 
 Shader 热发布按程序接收完整顶点/片元对，可更新任意一个或多个程序；固定 Frame/Object 接口不可修改。
 MaterialShaders 是具名程序集合，不依附 MaterialRenderer 的嵌套类型；未知名称、空集合或不完整程序在 GPU 创建前拒绝。
@@ -280,126 +297,65 @@ Project 新建材质只创建源和身份，首次指定给物体时沿用资产
 
 ### 编译、反射与缓存边界
 
-编译库静态依赖 glslang，不链接 engine；CLI 复用 common/file_io.cpp 原子写 SPIR-V 和 depfile，再由构建生成内嵌字节码头。
-每个请求独占解析器与输入快照，进程初始化仅一次；快照记录逻辑路径、解析路径，以及存在或缺失的内容。
-成功返回前复核输入，失败不返回字节码；include 诊断保留源文件／行号并追加具体原因。
-参数、源文件读取与 include 限制使用明确失败返回，文件系统查询使用 error_code；缺失是可记录的依赖状态，读取错误不是缺失。
-compile_source 负责单次编译结果，公开 compile 统一收集依赖和复核输入；不因早退漏掉失败请求的依赖。
-第三方调用、include 处理和 CLI 写文件保留异常边界。
-depfile 只列存在的依赖，新增遮蔽文件不保证自动触发构建。原子写针对单文件，不是 SPIR-V／depfile 的跨文件事务。
-开发编辑器的 Worker 发布复核请求 revision 与输入，快照不等于文件锁；具体热更新所有权见下文。
+| 模块 | 输入／输出 | 约束 |
+| --- | --- | --- |
+| ShaderCompiler / CLI | 源码、include、选项 → SPIR-V 与依赖快照 | 静态依赖 glslang，不链接 engine，不创建 GPU 对象 |
+| ShaderInterface | 指定入口字节码 → 自有反射值 | 不向业务层暴露原生 SPIR-V 类型，不等同于完整 validator |
+| MaterialLayout | metadata + 反射 → 不可变参数布局 | 编辑语义来自 metadata；目前仅支持已登记字段和普通 float sampler2D |
+| Shader / PipelineKey | 反射、布局、配置 → 完整候选 | 创建前检查 descriptor、push constant、顶点格式和阶段连接 |
+| PipelineManager | 完整 key → 弱引用 Pipeline 缓存 | 使用方和 FrameSlot 持有实际对象，名称仅作标签 |
 
-Shader 先反射指定入口再创建 module，拥有字节码副本和反射值；作为创建 Pipeline 的局部候选，不保留全局名称缓存。
-ShaderLayout 检查 descriptor 类型／数量／stage 和 push 覆盖；MaterialLayout 额外核对材质参数块大小、偏移、类型与纹理协议。
-BlockMember 递归保存自有类型、数组维度／stride 和矩阵存储方式；push constant 保留成员信息。
-采样图片保留维度、数值类型、数组／多采样／深度信息，当前 MaterialLayout 只接纳普通 float sampler2D。
-has_same_resource_layout 是 descriptor／push 的保守资源比较，包含成员名称，不替代阶段连通性或完整 Shader 兼容验证；
-尚未覆盖 StorageImage 的格式等通用计算资源契约。原生 SPIR-V 枚举不进入公共类型。
-原生反射类型仅在 shader_interface.cpp 转换，Vulkan 布局对照留在 ShaderLayout 实现中。
-反射 API 独立于 Device；当前 Worker 只编译，消费端核对固定契约，Shader 创建执行自身反射校验，
-材质布局重绑定由 MaterialRenderer 调用 MaterialLayout::reflect 完成；
-头和指令长度预检不是完整 SPIR-V validator。
-ShaderInterface 按入口保存 user input/output 的名称、location 与 Comet Format，跳过 built-in；不向调用方暴露 SPIR-V 原生类型。
-基础 I/O 限定为 location-based 32 位标量／向量，数组、矩阵、结构体、64 位与非零 component 明确拒绝。
-PipelineKey 在配置副本规范化后校验 Vertex→Fragment 的 location／精确类型，并检查顶点 attribute 的 location／精确格式与 binding 存在性。
-额外未消费的顶点属性／顶点输出允许保留；缺失、类型不符在创建 PipelineLayout／Pipeline 和查写缓存前返回错误。
-这是当前 Comet 的保守输入契约，normalized／packed 格式转换、复杂插值和附件输出兼容性仍待扩展。
+编译请求独占解析器与输入快照，成功前复核内容；失败不返回字节码，但保留诊断与失败依赖。
+快照包括缺失 include 候选，读取错误不能伪装成缺失。depfile 仅列存在文件，新增遮蔽文件不保证触发构建；
+SPIR-V 和 depfile 各自原子写，不是跨文件事务。第三方异常边界保留在编译工具内部。
 
-ShaderInterface::reflect、MaterialLayout::create、布局／specialization 校验及 PipelineKey::create
-与资产导入、序列化统一使用 common/result.h 的 Result<T> 返回预期失败，不保留资产层别名或转发头。
-反射和布局只返回完整候选，specialization 先完整校验再删除默认值，PipelineKey 在配置副本上规范化。
-Shader::create 与 PipelineManager 检查这些结果，失败不发布候选。
-Result 的错误类型可选，默认仍为字符串；Shader／Pipeline 链路使用 GraphicsError 保存消息和可选原生 Vulkan 结果码。
-CPU 校验错误不伪造 Vulkan 错误码；GPU 创建使用 Vulkan-Hpp 返回码重载，不捕获 vk::SystemError 或调用 LOG_FATAL。
-graphics/creation.h 统一将 device-owned 句柄纳入 UniqueHandle，再判断返回码，失败时连同部分创建的句柄一起回收。
-Shader、PipelineLayout、Pipeline 的私有构造函数只接收已创建的 owner；Pipeline 先销毁自身句柄，再释放 Layout。
-分配 C++ 容器等非预期异常仍可传播，不承诺 noexcept。
-MaterialRenderer::create 在私有候选中初始化 frame 资源和内置管线；DebugRenderer::create 成功创建 Pipeline 后才构造对象。
-SceneRenderer 的私有 create_state 创建完整 RenderState：场景 RenderPass、中间／最终 RenderTarget、
-PipelineManager、MaterialRenderer、DebugRenderer、ShadowPass、SkyboxPass 和 OutputPass。
-全部成功后才安装；配置入口不再拆成可被调用方任意组合的 setup 阶段。
-完整目标切换仅经 Renderer 在活动帧外执行，不增加全设备等待；失败保持旧代，成功后旧代仍由已提交帧保留。
-RenderState 按依赖逆序析构，RenderPass 最后释放；FrameSlot 同时保留完整版本和实际录制的 Target，确保 resize 替换附件不丢旧引用。
-单纯尺寸变化仍只创建 MultiTarget，不重建材质或管线；它允许在 Overlay prepare、场景 pass 开始前同步安装。
-最外层 Renderer／Editor 将预期失败作为 Result 返回 Application；内置 MaterialLayout 常量错误属于内部不变量。
-DescriptorSetLayout／DescriptorPool 创建及 DescriptorSet 分配也返回 Result<T, GraphicsError>。
-布局和池使用 UniqueHandle，集合只借用句柄，由池统一回收；布局可共享，池工厂返回 unique_ptr，
-FrameResources／MaterialResources 按实际保活需要转为 shared_ptr，ImGui 仍独占池。
-集合分配先准备 CPU 容器，再调用 Vulkan-Hpp 返回码重载；失败不 reset 池，也不破坏已有集合。
-材质准备显式检查 Buffer、Pool 与集合分配结果，成功写入 descriptor 后才发布，不再整段 catch std::exception。
-启动消费者检查结果并返回失败；ImGui 后端内部调用不属于上述 Comet API 的覆盖范围。
-DescriptorSet::update 接收嵌套的 UniformBufferWrite／ImageSamplerWrite，立即转换并批量写入；
-写入项引用 Comet Buffer／ImageView／Sampler，不保存资源，也不自动同步 GPU，调用方仍须保证目标集合可安全修改。
-CommandBuffer::bind_descriptor_sets 只接收 Comet Layout／Set，原生绑定点与句柄数组留在 graphics 实现中。
-GpuResourceResult 通过 error() 提供 GraphicsError，业务层读取 message／is_device_lost()，不为了日志解析 vk::Result；
-原生 result() 保留给 graphics 内部和诊断测试。这是消费接口收敛，不是完整的多后端抽象或 Vulkan 头文件隔离。
-资产 Mesh／Texture 创建、调试 buffer 扩容和离屏 resize 在普通失败时保留原有降级策略；DeviceLost 必须向应用退出边界传播。
-ensure_loaded 不兜底所有异常，材质创建和场景激活移出文件读写 catch；后台完成通过 future.get 检查任务结果，不为 owner 上的 GPU 发布增加异常兜底。
-完成任务在发布成功或异常展开后均释放槽位，避免析构再次等待已 get 的 future；不提前释放正在发布的槽位，保持重入与预算语义。
-Mesh／Texture 的无调用方 fatal 创建包装以及 RenderTarget 的 fatal 离屏包装已移除，现有消费者使用可失败入口。
-Sampler::create 返回 Result<shared_ptr<Sampler>, GraphicsError>，校验配置后用返回码重载创建 UniqueSampler。
-SamplerManager 的预设统一经过 create_sampler；同名同配置复用，同名不同配置返回错误，不替换已有对象。
-linear-repeat 预设使用各向异性数值的精确位模式作为内部名称后缀，不以舍入后的显示字符串作缓存身份。
-MaterialRenderer 向上传递 sampler 错误；Viewport 只在构造时取得 nearest-clamp 并持有，帧更新仅复用。
-开发编辑器的 `render/shader_reload` 接收 1..16 个具名 CPU 请求；当前按同名 vert/frag 登记材质程序，不监视辅助线 Shader。
-Worker 只捕获请求副本和共享结果，不访问 Editor、Scene 或 Device。销毁服务后已有 CPU 工作可以结束，但不会再发布。
-每组最多一个在途任务及合并的最新请求，共用 TaskScheduler 背压；无 GPU 类型、发布回调或全局 EventBus。
-每批任务编译所有阶段，消费时复核 revision、全部输入及缺失 include 候选；失败结果也作为下一次监视的基线。
-CPU 编译成功和 GPU 发布成功分开；Editor 负责具体程序映射、日志与 Inspector 同步。
-Editor 仅对 GraphicsError::is_out_of_memory 判定的 Vulkan 主机／设备内存不足请求 retry_delivery；
-ShaderReload 使用 common/RetryBackoff 保存重新交付期限和次数，同一 revision 依次等待 1、2、4 秒，最多重试三次，复用已编译 CPU 结果，不持有 GPU 候选或调用发布回调。
-重复预约不延后期限或消耗次数；额度耗尽后记录停止日志，等待新请求。新请求同时重置次数。
-重试前复核 revision 和全部输入；新请求取消旧重试。消费成功或不可重试失败不再请求交付，编译失败不能重试交付。
-每个 revision 的内存不足重试提示只记录一次，其他发布错误仍独立报告；DeviceLost 沿应用清理边界退出。
-每次 GPU 准备针对当前 SceneRenderer 的目标重新执行，不保存旧 RenderPass 的半成品；未改变目标重建和 WSI 失败策略。
-主线程在 Engine 帧准备和绘制前调用 Renderer::reload_material_shaders；入口拒绝活动帧内发布，内部再交 SceneRenderer。
-MaterialRenderer 先对照构建内嵌程序的固定资源契约；仅允许片元 MaterialSet 1 进入布局重绑定。
-随后准备完整候选管线表，并复制 CPU 准备缓存与驻留材质索引，在候选中按新布局重打包、创建材质绑定；
-任一失败不切换已发布索引。全部成功后 swap 管线、CPU 缓存与 GPU 材质，SceneRenderer 才记录新的覆盖字节码。
-ReloadReport 报告管线准备、候选索引复制、材质 CPU 准备与材质 GPU 创建耗时及数量；Editor 成功发布时写入日志。
-管线准备时间包含反射／校验，不伪称纯 GPU 时间；这些是观测值，不设耗时阈值测试，也不据此预先跨帧拆分事务。
-create_material 共用于普通材质更新和热更事务，只创建资源／返回结果；错误策略由调用方决定，不修改全局统计或缓存。
-初次创建、热更和 Renderer 重建使用同一基线，不能把待验证覆盖当作初始可信接口。
-这保护运行时热更，不自动证明重新构建后的内嵌 Shader 与 C++ ABI 一致；修改内置协议仍须同时更新 C++ 与测试。
-ShaderModule 只在候选创建期间存在；不设名称缓存，PipelineManager 缓存仍是弱引用。
-MaterialResources 缓存同时比较 PreparedMaterial 和 PipelineState；旧资源可暂作分配失败时的回退，并由在途帧持有至槽位回收。
-固定布局复用 DescriptorSetLayout；命中原 Pipeline 时保留原 PipelineState。
-只换 Pipeline、材质数据未变时复制 MaterialResources 的共享引用并替换新包装内的 PipelineState，不重建 Buffer／Pool／Set，
-也不修改在途帧保留的旧包装。material_versions_created 统计版本，material_bindings_created 只统计实际新建的材质绑定。
-两者是 render 期间统计；提前重建的工作量由 reload_shaders 返回的 ReloadReport 提供，不混入下一帧统计。
-相同 Pipeline 批次无需复制驻留缓存；大量布局重建仍在 owner 线程同步准备，存在峰值内存与帧时间成本。
-GPU ShaderModule 仍会为候选临时创建，重复发布无新 Pipeline／材质版本不代表完全无 GPU API 调用。
-SceneRenderer 保存最后成功的字节码，重建目标／管线时沿用，不因重建恢复到嵌入版本；关闭编辑器后不持久保存开发覆盖。
-DebugRenderer 初始化和目标重建统一通过 create → create_pipeline 使用构建内嵌 Shader，
-由 Shader／PipelineKey 校验布局、顶点输入和阶段连接；不提供热发布入口或覆盖字节码。
-Debug 不使用 RenderResources；render 把实际 Pipeline／buffer 交给 FrameSlot 保活。
-内置 MaterialLayout 仅支持已登记属性的布局重绑定；新增属性语义、复杂 I/O 和项目程序资产仍待后续。CPU 后台化不等于 GPU 创建无主线程开销。
-Sampler 只拥有自身 UniqueSampler，不另存 Device 句柄；管理器借用 Device，设备仍必须活到所有 sampler 释放之后。
-RenderPass::create 使用 UniqueRenderPass，构造仅接管完整附件描述和句柄；错误返回 GraphicsError。
-交换链目标与离屏目标共用附件创建逻辑，前者复用 Generation 的呈现图像，其余附件独立创建。
+反射检查是保守契约：阶段 I/O 仅接纳 location-based 32 位标量／向量；
+数组、矩阵、结构体、64 位和非零 component 明确拒绝。允许未消费输出／顶点属性；
+normalized／packed 转换、复杂插值、StorageImage 格式及完整附件兼容仍待扩展。
+资源布局比较包含成员名称，不代表所有 Shader 行为兼容。
 
-SceneRenderer 对离屏 resize 保存失败尺寸及 RetryBackoff：同一请求仅在 Vulkan 主机／设备内存不足时
-按 1、2、4 秒最多重试三次，耗尽或其他错误停止；新尺寸（包括回到实际尺寸）或目标重新安装清除旧失败状态。
-相同请求每帧只检查期限，不重复创建；第一次失败与最终停止分别记录日志。DeviceLost 仍退出。
-resize 在 on_frame_ready 的 Viewport::update 中同步准备并安装，不改变 ImGui 更新顺序；失败不能覆盖实际 Target 尺寸，
-纹理绑定、场景 viewport 和拾取分辨率继续使用实际目标。该限制按单个尺寸请求计算，不限制连续不同尺寸的尝试。
-RetryBackoff 是无资源、无线程的值类型，只管理预约／一次性到期消费／次数／重置；默认三次指数退避，可按实例指定策略。
-请求身份、输入复核、可重试错误判断与日志仍由 ShaderReload／Editor／SceneRenderer 各自处理，不集中为全局重试服务。
-SwapchainTarget 只发布完成全部 framebuffer 的候选，失败先释放 framebuffer/view，再释放 Generation 引用。
-FrameBuffer 无调用方的 fatal 创建包装已移除，目标统一使用 try_create。
-ImGuiContext::create 和重建返回结果，失败时关闭已初始化后端，再销毁池、目标与 pass；不发布半初始化 UI。
-重建已释放旧依赖；暂时失败由 Presentation 有界退避重试，设备丢失或重试耗尽以 Result 返回应用退出清理。
-ImGui 第三方后端内部创建目前仍不能靠 Init 的 bool 完整报告 GPU 失败；回调处还有未交给后端 owner 的局部资源，不直接抛异常跳过释放。
-当前后端的 Vulkan Shutdown 还清除主视口平台数据，因此 format/image count 重建同时关闭并重建 GLFW 后端；保留 ImGui Context 和 UI 状态。
-Application 的失败清理及 Device 关闭等待保护必须保留，不以 LOG_FATAL 替代可恢复错误。
+#### GPU 创建与错误
 
-PipelineConfig 与状态位于 pipeline_config.h/.cpp，PipelineKey 的完整判等、规范化与哈希位于 pipeline_key.h/.cpp。
-Key 包含完整 Shader 内容／入口、layout、配置、RenderPass 身份与附件格式／采样数；名称只作标签，hash 不代替相等比较。
-动态 viewport/scissor 的无关静态值和无关顺序会规范化；规范化配置、静态 viewport/scissor 和 subpass 都用于实际创建。
-Key 属于 Device/RenderPass 域，不是持久格式；其中 Vulkan 值不传播到材质或 ShaderInterface API。
-PipelineManager 只持 weak_ptr，使用方与 FrameSlot 持有实际 Pipeline；创建请求或 collect_unused 清理过期键，不每帧扫描。
-get_cached_pipeline_count 包括尚未清理的过期项。模板选择、Pipeline 对象复用、驱动 PipelineCache 是三种不同职责。
-材质热发布同时切换 PipelineState 与 GPU 材质缓存；复杂接口的后续安排见[路线图](../engine-roadmap.md#阶段-5渲染架构升级)。
+- 公开创建入口返回完整候选或 Result；CPU 校验错误不伪造 Vulkan 错误码。
+- graphics/creation.h 接管 device-owned 句柄后判断返回码，失败回收包括部分创建的原生对象。
+  Pipeline 先销毁自身句柄再释放 Layout；DescriptorSet 借用池内句柄，由池回收。
+- 描述符写入立即消费 Buffer／ImageView／Sampler 引用，不保活资源，也不自动同步 GPU。
+  消费者负责可修改时点与帧保活；ImGui 第三方后端内部失败不属于所有 Comet 工厂的覆盖保证。
+- 普通创建失败按消费者策略保留旧版或跳过，DeviceLost 传到应用退出清理；不用 LOG_FATAL 替代可恢复错误。
+  标准库等未预期异常仍可传播，不承诺 noexcept。完成队列在成功、失败或展开时均释放已消费槽位。
+- SamplerManager 仅复用同名同配置对象；不同配置不覆盖旧对象，各向异性使用精确值作缓存身份。
+
+#### Shader 热发布
+
+Worker 只编译请求副本，不访问 Editor、Scene、Device；服务销毁后 CPU 工作可结束，但不会再发布。
+每组一个在途任务和一个合并的最新请求，共用 TaskScheduler 背压。每批处理完整阶段集合，
+消费时复核 revision、全部输入及缺失 include；失败结果也作为后续监视基线。当前只监视已登记材质程序。
+
+Editor 在活动帧之外发起发布：固定 Frame/Object 契约保持不变，仅 MaterialSet 1 可重绑定布局。
+MaterialRenderer 准备完整 PipelineState、CPU 缓存和驻留 GPU 材质候选；全部成功后统一切换。
+保存成功字节码用于目标重建，关闭编辑器不持久保存开发覆盖。DebugRenderer 只使用内嵌程序。
+
+只换 Pipeline 而材质数据不变时复用参数 buffer／pool／set，不修改在途帧持有的旧包装。
+缓存判等同时使用 PreparedMaterial 与 PipelineState；旧版回退只能用于同 Handle 且兼容当前管线。
+ReloadReport 区分候选准备、CPU 打包、GPU 创建耗时；不设置固定性能倍数断言。
+大量布局重建仍同步占用 owner，CPU 后台化不代表 GPU 创建没有主线程成本。
+
+Shader GPU 发布和离屏 resize 仅对 Vulkan 主机／设备内存不足采用 1、2、4 秒退避，最多三次。
+新输入／新尺寸重置身份与预算；重试前复核输入，不保留旧 RenderPass 的半成品。
+RetryBackoff 只管理期限和次数，错误策略由各消费者决定，不建立全局重试服务。
+resize 失败保持实际 Target 尺寸，纹理、viewport 与拾取始终使用实际目标；DeviceLost 退出。
+
+#### 目标与缓存身份
+
+完整 RenderState 在私有候选中创建，全部成功才安装；FrameSlot 保留版本及实际录制的 Target。
+完整切换位于活动帧外，纯尺寸变化仅更换 MultiTarget，可在场景 pass 前安装，不重建材质管线。
+ImGui 重建失败先关闭已初始化后端；WSI 有界重试与 Application 关闭准备不能被 fatal 包装替代。
+当前 Vulkan 后端 Shutdown 也清除平台数据，因此格式／image count 重建同时重建 GLFW 后端，保留 Context/UI 状态。
+
+PipelineKey 包含字节码、入口、布局、规范化配置、RenderPass 身份和附件格式／采样数，
+hash 不替代完整相等比较。动态状态无关值会规范化，同一副本用于实际创建。
+Key 属于 Device／RenderPass 域，不是持久格式；过期弱引用在创建请求或显式回收时移除。
+模板选择、Pipeline 对象缓存与驱动 PipelineCache 是不同职责。
 
 ### 驱动 PipelineCache 持久化
 
@@ -428,7 +384,9 @@ Restored 仅表示驱动接收并合并了兼容数据，不证明内部命中�
 只有 prepare_frame 成功且值为 true 才调用 frame_ready；frame_ready 返回 Result<void, Error>，成功后才提取并提交。它可以修改或替换 Scene，Engine 在其返回后重新读取 owner。失败时 Engine 执行关闭准备并返回原始错误，不再绘制或重用已取得的帧；这不是可恢复的单帧取消接口，失败后的 Engine 拒绝再次运行。
 Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。
 编辑命令完成后提取，因此组件修改、Undo/Redo 和当前帧拾取使用同一份场景快照。
-Editor::finish_active_edit 统一取消未完成 Gizmo、提交 Inspector 编辑；失败时拒绝后续请求。
+Editor::finish_active_edit 统一取消未完成 Gizmo、调用 Inspector::finish_edit；失败时拒绝后续请求。
+组件属性与场景环境共用 PropertyEditTransaction 的 begin／preview／commit／cancel 和文档代际检查。
+Inspector 只跟踪 ImGui 活动控件；保存、切场景或模式切换不再维护环境专用事务。
 请求仍在 UI 遍历结束后执行，并保留文档 generation／资产 revision 校验与菜单优先级。
 离散属性赋值使用 PropertyEditTransaction::apply：结束已有手势，再 begin／preview／commit；
 失败取消新事务。持续拖动仍使用独立的 begin／preview／commit，不在每帧创建历史记录。

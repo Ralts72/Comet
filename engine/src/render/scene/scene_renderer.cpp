@@ -290,22 +290,16 @@ namespace Comet {
             Graphics::get_viewport(static_cast<float>(size.x), static_cast<float>(size.y)));
         command.set_scissor(
             Graphics::get_scissor(static_cast<float>(size.x), static_cast<float>(size.y)));
-        if(auto skybox = m_state->skybox_pass->render(frames, submission); !skybox)
-            return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
-                skybox.error());
+        auto skybox = m_state->skybox_pass->render(frames, submission);
+        if(!skybox)
+            return skybox;
         auto waits = m_state->materials->render(frames, submission.view_project_matrix,
             submission.render_items, lighting,
             m_state->shadow_pass->get_depth_view(frames.get_current_frame_slot_index()));
         if(!waits)
             return waits;
-        if(submission.environment.background && submission.environment_texture
-            && submission.view_project_matrix) {
-            const auto completion = submission.environment_texture->get_ready_completion();
-            if(completion.is_valid())
-                merge_semaphore_wait(
-                    waits.value(), QueueSemaphoreSubmit(completion,
-                                       Flags<PipelineStage>(PipelineStage::FragmentShader)));
-        }
+        for(const auto& wait : skybox.value())
+            merge_semaphore_wait(waits.value(), wait);
         if(submission.view_project_matrix) {
             if(auto debug = m_state->debug->render(frames, *submission.view_project_matrix, lines);
                 !debug)

@@ -1,11 +1,13 @@
 #pragma once
 
 #include "scene/component_registry.h"
+#include "scene/scene_environment.h"
 
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <vector>
+#include <variant>
 
 namespace CometEditor {
     class CommandHistory {
@@ -67,18 +69,25 @@ namespace CometEditor {
         PropertyEditTransaction& operator=(const PropertyEditTransaction&) = delete;
 
         [[nodiscard]] bool begin(Target target);
+        [[nodiscard]] bool begin_environment();
+        [[nodiscard]] bool editing_environment() const;
         [[nodiscard]] bool apply(Target target, const Comet::PropertyValue& value);
         [[nodiscard]] bool preview(const Comet::PropertyValue& value);
+        [[nodiscard]] bool preview(const Comet::SceneEnvironment& value);
         [[nodiscard]] bool commit();
         [[nodiscard]] bool cancel();
         [[nodiscard]] bool active() const;
         [[nodiscard]] bool targets(const Target& target) const;
 
     private:
-        struct Edit {
+        struct ComponentEdit {
             Target target;
             Comet::PropertyValue before;
+        };
+        struct Edit {
+            std::variant<ComponentEdit, Comet::SceneEnvironment> before;
             std::uint64_t generation;
+            std::uint64_t history_state;
         };
 
         CommandHistory& m_history;

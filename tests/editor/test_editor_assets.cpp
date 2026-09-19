@@ -85,8 +85,12 @@ namespace CometEditor::Tests {
                    / (std::to_string(mesh.value()) + ".bin");
         }
         void complete_imports() {
-            ASSERT_TRUE(assets->update());
-            scheduler.wait_idle();
+            // A soft publication budget can consume only one result per owner update.
+            const auto count = assets->database().get_assets().size();
+            for(std::size_t i = 0; i <= count; ++i) {
+                ASSERT_TRUE(assets->update());
+                scheduler.wait_idle();
+            }
             ASSERT_TRUE(assets->update());
         }
 
@@ -114,6 +118,8 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(scene.set_environment({handle, true, 1, 0}));
         assets->track_scene(scene, components);
         ASSERT_TRUE(assets->restore_references());
+        scheduler.wait_idle();
+        ASSERT_TRUE(assets->update());
         ASSERT_TRUE(runtime.resolve<Comet::Texture>(handle));
         std::filesystem::remove(path);
         ASSERT_TRUE(assets->refresh().snapshot_updated);
@@ -124,6 +130,8 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(assets->refresh().succeeded());
         ASSERT_EQ(assets->database().find("studio.hdr")->handle, handle);
         ASSERT_TRUE(assets->restore_references());
+        scheduler.wait_idle();
+        ASSERT_TRUE(assets->update());
         EXPECT_TRUE(runtime.resolve<Comet::Texture>(handle));
     }
 
@@ -459,10 +467,17 @@ namespace CometEditor::Tests {
 
     TEST_F(EditorAssetsTest, ExternalProjectOpensStartupSceneAndRecoversAfterInitialImport) {
         const auto directory = Comet::ProjectPaths(root).assets();
-        std::filesystem::copy(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets",
-            directory, std::filesystem::copy_options::recursive);
-        // Exercise loading with a local fixture, independent of optional demo downloads.
-        Comet::Tests::write_hdr(directory / "environments/small_hangar_01_4k.hdr");
+        const auto source = std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets";
+        for(const auto& entry : std::filesystem::recursive_directory_iterator(source)) {
+            if(!entry.is_regular_file() || entry.path().extension() == ".hdr")
+                continue;
+            const auto target = directory / entry.path().lexically_relative(source);
+            std::filesystem::create_directories(target.parent_path());
+            std::filesystem::copy_file(entry.path(), target);
+            // Metadata is checked in; large optional downloads are replaced with tiny fixtures.
+            if(target.extension() == ".meta" && target.stem().extension() == ".hdr")
+                Comet::Tests::write_hdr(target.parent_path() / target.stem());
+        }
         std::filesystem::copy_file(
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "project.json",
             root / "project.json");

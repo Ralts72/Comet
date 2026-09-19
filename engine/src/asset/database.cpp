@@ -1,5 +1,5 @@
 #include "asset/database.h"
-#include "asset/material_data.h"
+#include "asset/data/material_data.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 

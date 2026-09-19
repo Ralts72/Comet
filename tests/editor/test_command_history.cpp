@@ -30,6 +30,46 @@ namespace {
         }
     };
 
+    TEST_F(CommandHistoryTest, EnvironmentSharesGestureLifecycleWithComponentProperties) {
+        const auto before = scene.get_environment();
+        auto value = before;
+        value.intensity = 3;
+        ASSERT_TRUE(edit.begin_environment());
+        ASSERT_TRUE(edit.preview(value));
+        EXPECT_EQ(history.undo_size(), 0u);
+        ASSERT_TRUE(edit.begin(translation()));
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(edit.preview(Math::Vec3(2, 0, 0)));
+        ASSERT_TRUE(edit.commit());
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(x(), 0);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.get_environment(), before);
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(scene.get_environment(), value);
+    }
+
+    TEST_F(CommandHistoryTest, EnvironmentCancelNoOpAndSceneSwitchPreserveHistory) {
+        const auto before = scene.get_environment();
+        auto value = before;
+        value.rotation = 450;
+        ASSERT_TRUE(edit.begin_environment());
+        ASSERT_TRUE(edit.preview(value));
+        ASSERT_TRUE(edit.cancel());
+        EXPECT_EQ(scene.get_environment(), before);
+        EXPECT_EQ(history.undo_size(), 0u);
+        ASSERT_TRUE(edit.begin_environment());
+        ASSERT_TRUE(edit.commit());
+        EXPECT_EQ(history.undo_size(), 0u);
+        ASSERT_TRUE(edit.begin_environment());
+        value.intensity = -1;
+        EXPECT_FALSE(edit.preview(value));
+        Scene replacement;
+        history.bind_scene(&replacement);
+        ASSERT_TRUE(edit.cancel());
+        EXPECT_EQ(replacement.get_environment(), before);
+    }
+
     TEST_F(CommandHistoryTest, DiscreteApplyFinishesPreviousGestureAndRejectsWrongType) {
         ASSERT_TRUE(edit.begin(translation()));
         ASSERT_TRUE(edit.preview(Math::Vec3(2, 0, 0)));

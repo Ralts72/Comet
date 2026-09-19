@@ -21,19 +21,21 @@ namespace Comet {
         submission.lights = render_scene.lights;
         submission.environment = render_scene.environment;
         const auto handle = render_scene.environment.asset;
+        AssetHandle invalid_environment;
+        // Unpublished environments may still be loading; the asset layer reports failures.
         if(handle && render_scene.environment.background) {
             auto texture = m_asset_registry.resolve<Texture>(handle);
             if(texture && texture->get_image_view()->get_image()->get_info().cubemap) {
                 submission.environment_texture = std::move(texture);
-                m_missing_environment = {};
-            } else if(m_missing_environment != handle) {
-                LOG_ERROR("Scene references missing or non-cubemap environment handle {}",
-                    handle.value());
-                m_missing_environment = handle;
+            } else if(m_asset_registry.contains(handle)) {
+                invalid_environment = handle;
+                if(m_invalid_environment != handle)
+                    LOG_ERROR("Scene references incompatible environment asset handle {} "
+                              "(expected cubemap texture)",
+                        handle.value());
             }
-        } else {
-            m_missing_environment = {};
         }
+        m_invalid_environment = invalid_environment;
         submission.render_items.reserve(render_scene.render_items.size());
 
         for(const RenderItem& render_item : render_scene.render_items) {

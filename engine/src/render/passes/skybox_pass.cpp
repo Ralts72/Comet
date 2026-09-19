@@ -8,6 +8,7 @@
 #include "graphics/resource/sampler.h"
 #include "render/frame_scheduler.h"
 #include "render/resource/texture.h"
+#include "render/resource/sampled_image_binding.h"
 #include "render/scene/render_submission.h"
 #include "skybox_vert.h"
 #include "skybox_frag.h"
@@ -16,12 +17,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace Comet {
-    struct SkyboxPass::Binding {
-        std::shared_ptr<Texture> texture;
-        std::unique_ptr<DescriptorPool> pool;
-        DescriptorSet descriptor;
-    };
-
     Result<std::unique_ptr<SkyboxPass>, GraphicsError> SkyboxPass::create(Device& device,
         PipelineManager& pipelines, const SampleCount samples, const uint32_t frame_slots) {
         using Creation = Result<std::unique_ptr<SkyboxPass>, GraphicsError>;
@@ -73,27 +68,9 @@ namespace Comet {
         return Creation::success(std::move(pass));
     }
 
-    Result<std::shared_ptr<SkyboxPass::Binding>, GraphicsError> SkyboxPass::create_binding(
-        const std::shared_ptr<Texture>& texture) {
-        using Creation = Result<std::shared_ptr<Binding>, GraphicsError>;
-        DescriptorPoolSizes sizes;
-        sizes.add_pool_size(DescriptorType::CombinedImageSampler, 1);
-        auto pool = DescriptorPool::create(m_device, 1, sizes);
-        if(!pool)
-            return Creation::failure(pool.error());
-        auto sets = pool.value()->allocate_descriptor_set(*m_layout, 1);
-        if(!sets)
-            return Creation::failure(sets.error());
-        auto binding = std::make_shared<Binding>(
-            Binding{texture, std::move(pool).value(), sets.value().front()});
-        const DescriptorSet::ImageSamplerWrite write{0, *texture->get_image_view(), *m_sampler};
-        binding->descriptor.update(m_device, {}, std::span(&write, 1));
-        return Creation::success(std::move(binding));
-    }
-
-    Result<void, GraphicsError> SkyboxPass::render(
+    Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SkyboxPass::render(
         FrameScheduler& frames, const RenderSubmission& submission) {
-        using Draw = Result<void, GraphicsError>;
+        using Draw = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_bindings.size())
             return Draw::failure({"Invalid skybox frame"});
@@ -101,7 +78,7 @@ namespace Comet {
         if(!submission.environment.background || !submission.environment_texture
             || !submission.view_project_matrix) {
             binding.reset();
-            return Draw::success();
+            return Draw::success({});
         }
         const auto& texture = submission.environment_texture;
         const auto& image = texture->get_image_view()->get_image();
@@ -122,16 +99,15 @@ namespace Comet {
         for(unsigned column = 0; column < 4; ++column)
             if(!Math::is_finite(clip_to_environment[column]))
                 return Draw::failure({"Skybox camera transform must be finite"});
-        if(!binding || binding->texture != texture) {
-            auto candidate = create_binding(texture);
+        if(!binding || binding->image != texture->get_image_view()) {
+            auto candidate = SampledImageBinding::create(
+                m_device, texture->get_image_view(), m_layout, m_sampler);
             if(!candidate)
                 return Draw::failure(candidate.error());
             binding = std::move(candidate).value();
         }
         frames.retain_current_frame_resource(binding);
         frames.retain_current_frame_resource(m_pipeline);
-        frames.retain_current_frame_resource(m_layout);
-        frames.retain_current_frame_resource(m_sampler);
         auto& command = frames.get_current_command_buffer();
         command.bind_pipeline(*m_pipeline);
         command.bind_descriptor_sets(*m_pipeline->get_layout(), std::span(&binding->descriptor, 1));
@@ -140,6 +116,10 @@ namespace Comet {
         command.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Fragment),
             64, &submission.environment.intensity, sizeof(float));
         command.draw(3);
-        return Draw::success();
+        const auto completion = texture->get_ready_completion();
+        if(completion.is_valid())
+            return Draw::success({QueueSemaphoreSubmit(
+                completion, Flags<PipelineStage>(PipelineStage::FragmentShader))});
+        return Draw::success({});
     }
 }

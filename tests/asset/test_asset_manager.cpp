@@ -3,6 +3,7 @@
 #include "asset/data/mesh_data.h"
 
 #include "asset/artifact/mesh_artifact.h"
+#include "asset/import/environment_importer.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
@@ -1433,6 +1434,110 @@ namespace Comet::Tests {
 
         EXPECT_TRUE(registry.resolve<Mesh>(handle) == original);
         EXPECT_EQ(resource_factory.mesh_creation_count(), 2);
+    }
+
+    TEST(AssetManagerTest, MissingOptionalReferencesDoNotPreventRuntimeStartup) {
+        const TemporaryProject project;
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const std::array optional{AssetReference{AssetHandle(17), AssetType::Environment, false}};
+        auto prepared =
+            manager.prepare_references(optional, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(prepared);
+        EXPECT_EQ(prepared.value(), 1u);
+        const std::array required{AssetReference{AssetHandle(18), AssetType::Mesh}};
+        EXPECT_FALSE(
+            manager.prepare_references(required, AssetManager::MissingAssetPolicy::FailRequired));
+        EXPECT_TRUE(
+            manager.prepare_references(required, AssetManager::MissingAssetPolicy::AllowMissing));
+        EXPECT_EQ(factory.texture_creation_count(), 0);
+    }
+
+    TEST(AssetManagerTest, EnvironmentFirstLoadKeepsItsByteReservationUntilOwnerPublication) {
+        const TemporaryProject project;
+        const auto source = project.paths().assets() / "one.hdr";
+        write_hdr(source);
+        write_hdr(project.paths().assets() / "two.hdr");
+        auto bytes = EnvironmentImporter::working_bytes(source);
+        ASSERT_TRUE(bytes);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler,
+            {.in_flight = 4, .queued = 4, .working_bytes = bytes.value()});
+        BlockedWorker blocked(scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto first = manager.get_database().find("one.hdr")->handle;
+        const auto second = manager.get_database().find("two.hdr")->handle;
+        ASSERT_TRUE(manager.request_load(first, AssetType::Environment));
+        ASSERT_TRUE(manager.request_load(second, AssetType::Environment));
+        EXPECT_EQ(factory.texture_creation_count(), 0);
+        EXPECT_EQ(manager.get_async_status().in_flight, 1u);
+        EXPECT_EQ(manager.get_async_status().queued, 1u);
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, bytes.value());
+        blocked.release();
+        scheduler.wait_idle();
+        EXPECT_FALSE(registry.contains(first));
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, bytes.value());
+        EXPECT_EQ(completed_handles(manager.process_completions()), std::vector{first});
+        scheduler.wait_idle();
+        EXPECT_EQ(completed_handles(manager.process_completions()), std::vector{second});
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
+        EXPECT_EQ(factory.texture_creation_count(), 2);
+    }
+
+    TEST(AssetManagerTest, EnvironmentRejectsOversizedDemandAndStaleFirstLoad) {
+        const TemporaryProject project;
+        const auto source = project.paths().assets() / "studio.hdr";
+        write_hdr(source);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager constrained(
+            project.paths(), registry, factory, scheduler, {.working_bytes = 1});
+        ASSERT_TRUE(constrained.scan().succeeded());
+        const auto handle = constrained.get_database().find("studio.hdr")->handle;
+        EXPECT_FALSE(constrained.request_load(handle, AssetType::Environment));
+        EXPECT_EQ(constrained.get_async_status().in_flight, 0u);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.request_load(handle, AssetType::Environment));
+        scheduler.wait_idle();
+        std::filesystem::remove(source);
+        ASSERT_TRUE(manager.scan().snapshot_updated);
+        EXPECT_TRUE(completed_handles(manager.process_completions()).empty());
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_EQ(factory.texture_creation_count(), 0);
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
+    }
+
+    TEST(AssetManagerTest, GrowingEnvironmentCannotExceedItsQueuedReservation) {
+        const TemporaryProject project;
+        const auto source = project.paths().assets() / "studio.hdr";
+        write_hdr(source);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        BlockedWorker blocked(scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto handle = manager.get_database().find("studio.hdr")->handle;
+        ASSERT_TRUE(manager.request_load(handle, AssetType::Environment));
+        write_hdr(source, 32, 16);
+        blocked.release();
+        scheduler.wait_idle();
+        EXPECT_TRUE(completed_handles(manager.process_completions()).empty());
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_EQ(factory.texture_creation_count(), 0);
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
+        EXPECT_FALSE(manager.request_load(handle, AssetType::Environment));
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.request_load(handle, AssetType::Environment));
+        scheduler.wait_idle();
+        EXPECT_EQ(completed_handles(manager.process_completions()), std::vector{handle});
     }
 
     TEST(AssetManagerTest, EnvironmentLoadsAndRefreshesWithoutEnteringMaterialTextureSlots) {

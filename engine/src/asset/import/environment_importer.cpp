@@ -1,5 +1,4 @@
 #include "asset/import/environment_importer.h"
-#include "common/file_io.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/packing.hpp>
@@ -10,10 +9,33 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <numbers>
 
 namespace Comet {
+    static Result<std::size_t> estimate_bytes(
+        const std::size_t source_size, const int width, const int height) {
+        if(source_size > 256 * 1024 * 1024 || width < 4 || width > 8192 || height < 2
+            || height > 4096 || width != height * 2)
+            return Result<std::size_t>::failure(
+                "Environment requires a 2:1 HDR up to 8K / 256 MiB");
+        const auto face = std::bit_floor(static_cast<std::size_t>(width / 4));
+        // Decode + float faces/reduction + mip vector growth and artifact serialization.
+        return Result<std::size_t>::success(source_size + std::size_t(width) * height * 16
+                                            + face * face * 6 * 20 + face * face * 6 * 8 * 4);
+    }
+
+    Result<std::size_t> EnvironmentImporter::working_bytes(const std::filesystem::path& path) {
+        std::error_code error;
+        const auto size = std::filesystem::file_size(path, error);
+        int width = 0, height = 0, channels = 0;
+        if(error || !stbi_info(path.string().c_str(), &width, &height, &channels))
+            return Result<std::size_t>::failure(
+                "Cannot inspect environment source: " + path.string());
+        return estimate_bytes(size, width, height);
+    }
+
     // stb's HDR decoder ignores EOF in flat pixels and the last RLE run. Check framing first.
     static bool complete_hdr_payload(
         const std::string_view source, const int width, const int height) {
@@ -53,28 +75,32 @@ namespace Comet {
     }
 
     Result<TextureData> EnvironmentImporter::import(
-        const std::filesystem::path& source_path) const {
+        const std::filesystem::path& source_path, const std::size_t memory_budget) const {
         const auto path = source_path.string();
         std::error_code error;
         const auto size_on_disk = std::filesystem::file_size(source_path, error);
-        if(error || size_on_disk > 256 * 1024 * 1024)
+        if(error || size_on_disk > 256 * 1024 * 1024 || size_on_disk > memory_budget)
             return Result<TextureData>::failure(
                 "Cannot read HDR environment or source exceeds 256 MiB: " + path);
-        auto source = read_text_file(source_path);
-        if(!source)
-            return Result<TextureData>::failure(source.error());
-        if(source.value().size() > 256 * 1024 * 1024)
-            return Result<TextureData>::failure("HDR source exceeds 256 MiB: " + path);
-        const auto* bytes = reinterpret_cast<const stbi_uc*>(source.value().data());
-        const int byte_count = static_cast<int>(source.value().size());
+        std::string source(size_on_disk, '\0');
+        std::ifstream input(source_path, std::ios::binary);
+        if(!input.read(source.data(), source.size())
+            || input.peek() != std::ifstream::traits_type::eof())
+            return Result<TextureData>::failure("Cannot read HDR or source size changed: " + path);
+        const auto* bytes = reinterpret_cast<const stbi_uc*>(source.data());
+        const int byte_count = static_cast<int>(source.size());
         int width = 0, height = 0, channels = 0;
         if(!stbi_is_hdr_from_memory(bytes, byte_count)
             || !stbi_info_from_memory(bytes, byte_count, &width, &height, &channels) || width < 4
             || width > 8192 || height < 2 || height > 4096 || width != height * 2)
             return Result<TextureData>::failure(
                 "Environment requires a 2:1 Radiance HDR image (4..8192 pixels wide)");
-        if(!complete_hdr_payload(source.value(), width, height))
+        if(!complete_hdr_payload(source, width, height))
             return Result<TextureData>::failure("Truncated or invalid HDR pixel stream: " + path);
+        const auto required = estimate_bytes(source.size(), width, height);
+        if(!required || required.value() > memory_budget)
+            return Result<TextureData>::failure(
+                "Environment exceeds its reserved CPU memory budget");
         std::unique_ptr<float, decltype(&stbi_image_free)> pixels(
             stbi_loadf_from_memory(bytes, byte_count, &width, &height, &channels, 4),
             &stbi_image_free);

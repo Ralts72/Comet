@@ -2,7 +2,7 @@
 
 #include "asset/handle.h"
 #include "asset/import_settings.h"
-#include "asset/material_data.h"
+#include "asset/data/material_data.h"
 
 #include <variant>
 

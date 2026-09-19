@@ -202,20 +202,8 @@ namespace CometEditor {
 
     Comet::Result<std::size_t, Comet::Error> EditorAssets::prepare_scene(
         Comet::Scene& scene, const Comet::ComponentRegistry& components) {
-        std::size_t missing = 0;
-        for(const auto& reference : components.collect_asset_references(scene)) {
-            if(auto loaded = m_manager.ensure_loaded(reference.handle, reference.type); !loaded) {
-                if(Comet::is_device_lost(loaded.error()))
-                    return Comet::Result<std::size_t, Comet::Error>::failure(loaded.error());
-                LOG_WARN(
-                    "Unresolved asset {}: {}", reference.handle.value(), loaded.error().message);
-                ++missing;
-            }
-        }
-        if(missing)
-            LOG_WARN(
-                "Scene has {} unresolved asset references; data is preserved for repair", missing);
-        return Comet::Result<std::size_t, Comet::Error>::success(missing);
+        return m_manager.prepare_references(components.collect_asset_references(scene),
+            Comet::AssetManager::MissingAssetPolicy::AllowMissing);
     }
 
     void EditorAssets::track_scene(
@@ -252,7 +240,7 @@ namespace CometEditor {
             const auto reference = *m_pending_references.begin();
             m_pending_references.erase(m_pending_references.begin());
             ++processed;
-            auto loaded = m_manager.ensure_loaded(reference.handle, reference.type);
+            auto loaded = m_manager.request_load(reference.handle, reference.type);
             if(loaded) {
                 m_unresolved_references.erase(reference);
             } else {

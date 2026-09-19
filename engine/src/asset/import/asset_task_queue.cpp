@@ -21,17 +21,20 @@ namespace Comet {
             AssetRevision revision = INVALID_ASSET_REVISION;
             std::future<void> completion;
             std::shared_ptr<AssetImportResult> result;
+            std::size_t working_bytes = 0;
         };
         struct QueuedAssetTask {
             AssetHandle handle;
             AssetRevision revision;
             std::function<void(AssetImportResult&)> task;
+            std::size_t working_bytes = 0;
         };
 
         std::unordered_map<AssetHandle, PendingAssetTask> pending_assets;
         std::vector<ScheduledAssetTask> scheduled_tasks;
         std::deque<QueuedAssetTask> queued_tasks;
         bool processing_completions = false;
+        std::size_t reserved_bytes = 0;
 
         bool has_queued_task(const AssetHandle handle, const AssetRevision revision) const {
             return std::ranges::any_of(queued_tasks, [&](const auto& request) {
@@ -44,7 +47,7 @@ namespace Comet {
         const AssetDatabase& database, TaskScheduler& scheduler, Limits limits)
         : m_database(database), m_task_scheduler(scheduler), m_async_limits(limits),
           m_async_state(std::make_unique<AsyncState>()) {
-        if(limits.in_flight == 0 || limits.queued == 0)
+        if(limits.in_flight == 0 || limits.queued == 0 || limits.working_bytes == 0)
             LOG_FATAL("Asset async limits must be positive");
         m_async_state->scheduled_tasks.reserve(limits.in_flight);
     }
@@ -56,7 +59,8 @@ namespace Comet {
     }
 
     AssetTaskQueue::Status AssetTaskQueue::status() const {
-        return {m_async_state->scheduled_tasks.size(), m_async_state->queued_tasks.size()};
+        return {m_async_state->scheduled_tasks.size(), m_async_state->queued_tasks.size(),
+            m_async_state->reserved_bytes};
     }
 
     bool AssetTaskQueue::contains(const AssetHandle handle, const AssetRevision revision) const {
@@ -94,7 +98,10 @@ namespace Comet {
                 m_async_state->pending_assets.erase(pending);
 
             // 发布期间继续占槽；异常退出也必须移除已消费的 future。
-            const ScopeExit remove_completed([&] { task = tasks.erase(task); });
+            const ScopeExit remove_completed([&] {
+                m_async_state->reserved_bytes -= task->working_bytes;
+                task = tasks.erase(task);
+            });
             // 业务失败在候选 Result 中；get 同步写入并拒绝异常中断的候选。
             task->completion.get();
             if(!m_database.is_current(task->handle, task->revision)) {
@@ -110,7 +117,10 @@ namespace Comet {
     }
 
     bool AssetTaskQueue::schedule(const AssetHandle handle, const AssetRevision revision,
-        std::function<void(AssetImportResult&)> task, const bool force_mesh_rebuild) {
+        std::function<void(AssetImportResult&)> task, const bool force_mesh_rebuild,
+        const std::size_t working_bytes) {
+        if(working_bytes > m_async_limits.working_bytes)
+            return false;
         const auto pending = m_async_state->pending_assets.find(handle);
         if(pending != m_async_state->pending_assets.end() && pending->second.revision == revision
             && (!force_mesh_rebuild || pending->second.force_mesh_rebuild)) {
@@ -128,9 +138,9 @@ namespace Comet {
                 m_async_state->pending_assets.erase(entry);
         });
         if(queued != queue.end())
-            *queued = {handle, revision, std::move(task)};
+            *queued = {handle, revision, std::move(task), working_bytes};
         else
-            queue.push_back({handle, revision, std::move(task)});
+            queue.push_back({handle, revision, std::move(task), working_bytes});
         entry->second = {.revision = revision, .force_mesh_rebuild = force_mesh_rebuild};
         undo_pending_insert.release();
         dispatch_queued_tasks();
@@ -158,14 +168,20 @@ namespace Comet {
                 ++request;
                 continue;
             }
+            if(request->working_bytes
+                > m_async_limits.working_bytes - m_async_state->reserved_bytes) {
+                ++request;
+                continue;
+            }
             auto result = std::make_shared<AssetImportResult>();
             auto completion =
                 m_task_scheduler.try_submit([task = request->task, result] { task(*result); });
             if(!completion)
                 break;
             // 构造时已预留全部在途槽位；接受任务后这里只移动完整所有者。
-            scheduled.push_back(
-                {request->handle, request->revision, std::move(*completion), std::move(result)});
+            scheduled.push_back({request->handle, request->revision, std::move(*completion),
+                std::move(result), request->working_bytes});
+            m_async_state->reserved_bytes += request->working_bytes;
             request = queue.erase(request);
         }
     }

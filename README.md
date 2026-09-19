@@ -18,7 +18,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `demo/.comet/` | 示例项目本机缓存与编辑器布局，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
-`runtime/application.*` 管应用生命周期；`asset/data/` 保存导入器与渲染层共用的 CPU Mesh/Texture 数据。
+`runtime/application.*` 管应用生命周期；`asset/data/` 保存 Mesh、Texture、Material 的 CPU 数据。
 `render/material/` 聚合材质定义、准备缓存与绘制，`render/debug/` 聚合辅助线，`render/passes/` 保存具体渲染步骤。
 `RenderResources` 组织 Mesh/Texture 创建、上传和 Sampler 复用；资产身份缓存仍只由 `AssetRegistry` 管理。
 编辑器的 `ProjectPanel` 位于 `assets/project_panel.*`，`ViewportPanel` 位于 `viewport/viewport_panel.*`，
@@ -51,7 +51,12 @@ ctest --preset dev-debug
 8K 转成单面 2048，包含 mip 的纹理约占 256 MiB，解码时还需要额外 CPU 内存。16K 超出导入尺寸限制，不下载。
 脚本可从任意工作目录运行，逐文件校验 SHA-256，跳过已校验文件；下载失败不会覆盖现有资源。
 未下载时 demo 保留环境资产引用并提示缺失，背景回退为纯色；下载后重新打开项目即可。
-构建和启动不会自动联网。普通测试无需该文件；真实 HDR 导入集成测试缺文件时跳过，下载后自动参与 CTest。
+构建和启动不会自动联网。普通测试使用小型本地数据，不自动导入下载的 HDR。
+真实 HDR 验证需显式启用：`cmake --preset dev-debug -DCOMET_TEST_DOWNLOADED_ASSETS=ON`，
+再运行 `ctest --preset dev-debug -L assets`；缺文件时跳过。设为 `OFF` 可恢复默认测试范围。
+环境首次使用和重载都在后台准备；未驻留时使用纯色背景，不视为加载失败，重载期间保留旧有效资源。
+真正的缺失或导入失败由资产加载层诊断，渲染解析只报告已发布对象的类型错误。
+缓存位于项目 `.comet/cache/imported/environment/`，可删除重建；输入内容或导入算法版本变化后自动失效。
 资源来自 [Poly Haven 的 Small Hangar 01](https://polyhaven.com/a/small_hangar_01)，作者 Sergej Majboroda，
 采用 [CC0 许可](https://polyhaven.com/license)；脚本下载未修改的原始 HDR，可使用、修改和再分发。
 新增可下载资源时，同步维护脚本内的路径／URL／SHA-256、对应的 `.gitignore` 规则和本节来源说明。
@@ -71,6 +76,8 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 物理目录按功能聚合，编译目标按依赖划分；例如 `scene/scene_document` 属于 core，`scene/hierarchy` 属于 ui。
 仅启用 tests 时仍构建 editor_core，不构建 UI；新增编辑器源码只需维护所属库的清单。
 `tests/support/` 提供测试专用的 ImGui Context、临时目录与 Worker 同步辅助，不进入引擎。
+测试分为 `unit_testing`（CPU 逻辑）和 `integration_testing`（图形／UI／运行时）；
+`ctest --preset dev-debug -L unit` 可快速检查逻辑，完整 `ctest --preset dev-debug` 仍包含 GPU 生命周期、同步和 WSI 回归。
 `COMET_NATIVE_OPTIMIZATION` 只适合本机构建。配置与诊断采用“编译期能力 + Profile 运行时策略”。
 
 启动时的显示输出在 `config/common.yaml` 的 `render` 下设置，也可由当前 Profile 覆盖：
@@ -170,8 +177,9 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
   配置支持撤销、保存重开及 Play 克隆；Edit 中可下拉选择或从 Project 拖入环境资产，Play 中只读。
   缺省关闭保持旧场景外观；缺失引用保留并诊断，背景回退到 clear color，不替换成另一张环境图。
   支持 2:1 Radiance `.hdr`（宽度 4..8192，最大 256 MiB），线性解码到 RGBA16F cubemap 与背景 mip 链，单面最高 2048²。
-  拒绝损坏文件和超出 float16 范围的像素；首次加载与外部文件导入仍同步，驻留环境重载在后台解码、主线程发布，失败保留旧资源。
-  此阶段未提供 EXR、六面图片导入、环境磁盘缓存或 IBL 预计算。
+  拒绝损坏文件和超出 float16 范围的像素；环境首次准备与重载均在后台读取缓存／解码，主线程发布 GPU 资源，失败保留旧资源。
+  环境 CPU 准备按预估工作集共享 2 GiB 预约预算；这不是进程总内存上限。外部文件复制、普通纹理首次加载与 GPU 创建仍同步。
+  此阶段未提供 EXR、六面图片导入或 IBL 预计算。
 - Hierarchy 空白处／Scene 右键创建根实体，实体右键创建子实体、删除或 Duplicate 整棵子树；
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
 - 编辑器快捷键位于 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启。

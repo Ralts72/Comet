@@ -33,13 +33,11 @@
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
 
-#include <exception>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
-#include <stdexcept>
 #include <utility>
 #include <imgui.h>
 #include <spdlog/sinks/callback_sink.h>
@@ -222,9 +220,10 @@ namespace {
             renderer.set_swapchain_resource_callbacks({}, {});
             if(m_viewport)
                 m_viewport->panel().cancel_interaction();
-            static_cast<void>(m_property_edit.cancel());
             if(m_inspector_panel)
-                static_cast<void>(m_inspector_panel->finish_environment_edit(true));
+                static_cast<void>(m_inspector_panel->finish_edit(true));
+            else
+                static_cast<void>(m_property_edit.cancel());
             m_command_history.bind_scene(nullptr);
             m_menu_bar.reset();
             m_project_panel.reset();
@@ -301,7 +300,7 @@ namespace {
 
         bool finish_active_edit() {
             m_viewport->panel().cancel_interaction();
-            if(m_inspector_panel->finish_environment_edit() && m_property_edit.commit())
+            if(m_inspector_panel->finish_edit())
                 return true;
             LOG_ERROR("Cannot finish active property edit; editor request rejected");
             return false;
@@ -390,10 +389,11 @@ namespace {
             std::unique_ptr<Comet::Scene> scene, CometEditor::EditorMode mode) {
             // 旧场景仍存活时结束交互；返回 owner 后才允许调用者销毁或保留它。
             if(m_inspector_panel)
-                static_cast<void>(m_inspector_panel->finish_environment_edit(true));
+                static_cast<void>(m_inspector_panel->finish_edit(true));
+            else
+                static_cast<void>(m_property_edit.cancel());
             if(m_viewport)
                 m_viewport->panel().cancel_interaction();
-            static_cast<void>(m_property_edit.cancel());
             auto previous = get_engine().replace_scene(std::move(scene));
             auto* active = get_engine().get_scene();
             if(mode == CometEditor::EditorMode::Edit && m_command_history.get_scene() != active)

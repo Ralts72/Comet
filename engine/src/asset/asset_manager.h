@@ -1,8 +1,9 @@
 #pragma once
 
 #include "asset/database.h"
-#include "asset/material_data.h"
+#include "asset/data/material_data.h"
 #include "asset/import/asset_task_types.h"
+#include "asset/reference.h"
 #include "common/export.h"
 #include "common/error.h"
 #include "common/result.h"
@@ -69,6 +70,11 @@ namespace Comet {
         [[nodiscard]] AssetAsyncStatus get_async_status() const;
         [[nodiscard]] Result<void, Error> ensure_loaded(
             AssetHandle handle, AssetType expected_type);
+        // Environment preparation is asynchronous; success accepts demand, not GPU residency.
+        [[nodiscard]] Result<void, Error> request_load(AssetHandle handle, AssetType expected_type);
+        enum class MissingAssetPolicy { FailRequired, AllowMissing };
+        [[nodiscard]] Result<std::size_t, Error> prepare_references(
+            std::span<const AssetReference> references, MissingAssetPolicy policy);
         [[nodiscard]] Result<void, Error> import_mesh(AssetHandle handle);
         [[nodiscard]] bool import_mesh_async(
             AssetHandle handle, MeshImportMode mode = MeshImportMode::IfNeeded);
@@ -107,6 +113,7 @@ namespace Comet {
         [[nodiscard]] bool schedule_mesh_task(const AssetRecord& record, MeshImportMode mode);
         [[nodiscard]] bool schedule_loaded_texture_refresh(const AssetRecord& record);
         [[nodiscard]] bool schedule_material_refresh(const AssetRecord& record);
+        [[nodiscard]] Result<bool, Error> schedule_environment(const AssetRecord& record);
         // 空值表示未发布；Handle 表示已发布；错误表示不能继续处理队列。
         using ImportPublication = Result<std::optional<AssetHandle>, Error>;
         ImportPublication publish_import_result(AssetImportResult& result);
@@ -127,5 +134,6 @@ namespace Comet {
         RenderResourceFactory& m_resource_factory;
         std::unique_ptr<AssetTaskQueue> m_task_queue;
         std::unordered_map<AssetHandle, AssetRevision> m_refresh_requests;
+        std::unordered_map<AssetHandle, AssetRevision> m_failed_environments;
     };
 }

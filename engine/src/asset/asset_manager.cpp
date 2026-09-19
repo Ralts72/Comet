@@ -6,7 +6,6 @@
 
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/import/import_service.h"
-#include "asset/import/texture_importer.h"
 #include "asset/import/environment_importer.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
@@ -29,32 +28,6 @@
 
 namespace Comet {
     namespace {
-        MeshArtifactCandidate build_mesh_artifact_candidate(const ProjectPaths& paths,
-            const AssetHandle handle, const AssetRevision revision,
-            const std::filesystem::path& relative_path, MeshImportMode mode) {
-            const ImportService imports(paths);
-            if(mode == MeshImportMode::IfNeeded) {
-                if(auto artifact = imports.find_current_mesh_artifact(handle, relative_path)) {
-                    return {.handle = handle,
-                        .revision = revision,
-                        .relative_path = relative_path,
-                        .result = Result<MeshArtifact>::success(std::move(*artifact)),
-                        .reused_artifact = true};
-                }
-            }
-            return {.handle = handle,
-                .revision = revision,
-                .relative_path = relative_path,
-                .result = imports.build_mesh_artifact(handle, relative_path)};
-        }
-
-        Result<TextureData> import_texture_data(const std::filesystem::path& path,
-            const AssetType type, const TextureImportSettings& settings) {
-            if(type == AssetType::Environment)
-                return EnvironmentImporter{}.import(path);
-            return TextureImporter{}.import(path, settings);
-        }
-
         bool validate_asset_handle(const AssetHandle handle, const std::string_view operation) {
             if(handle) {
                 return true;
@@ -182,6 +155,7 @@ namespace Comet {
         m_database.include_dependents(invalidated);
         for(const AssetHandle handle : invalidated) {
             static_cast<void>(m_registry.unregister_asset(handle));
+            m_failed_environments.erase(handle);
         }
 
         for(const AssetHandle handle : report.modified_assets) {
@@ -210,11 +184,8 @@ namespace Comet {
                 accepted = schedule_material_refresh(record);
                 break;
             case AssetType::Texture:
-            case AssetType::Environment:
                 if(!m_registry.resolve<Texture>(record.handle)
-                    || (record.type == AssetType::Texture
-                        && !std::holds_alternative<TextureImportSettings>(
-                            record.import_settings))) {
+                    || !std::holds_alternative<TextureImportSettings>(record.import_settings)) {
                     LOG_ERROR(
                         "Cannot refresh texture asset handle {}: incompatible runtime type or settings",
                         record.handle.value());
@@ -222,6 +193,15 @@ namespace Comet {
                 }
                 accepted = schedule_loaded_texture_refresh(record);
                 break;
+            case AssetType::Environment: {
+                auto scheduled = schedule_environment(record);
+                if(!scheduled) {
+                    LOG_WARN("Cannot refresh environment: {}", scheduled.error().message);
+                    return RefreshResult::Rejected;
+                }
+                accepted = scheduled.value();
+                break;
+            }
             default:
                 static_cast<void>(m_registry.unregister_asset(record.handle));
                 LOG_WARN(
@@ -237,7 +217,7 @@ namespace Comet {
             const auto [handle, revision] = *request;
             const auto* record = m_database.find(handle);
             if(!record || !m_database.is_current(handle, revision)
-                || !m_registry.contains(handle)) {
+                || (!m_registry.contains(handle) && record->type != AssetType::Environment)) {
                 request = m_refresh_requests.erase(request);
                 continue;
             }
@@ -279,6 +259,47 @@ namespace Comet {
                     {"Runtime loading is not supported for this asset type"});
         }
         return Result<void, Error>::success();
+    }
+
+    Result<void, Error> AssetManager::request_load(
+        const AssetHandle handle, const AssetType expected_type) {
+        if(expected_type != AssetType::Environment)
+            return ensure_loaded(handle, expected_type);
+        const auto* record = m_database.find(handle);
+        if(!record || record->type != expected_type)
+            return Result<void, Error>::failure(
+                {"Environment is not indexed: " + std::to_string(handle.value())});
+        if(m_registry.resolve<Texture>(handle))
+            return Result<void, Error>::success();
+        if(m_registry.contains(handle))
+            return Result<void, Error>::failure({"Runtime environment type conflict"});
+        const auto revision = m_database.get_revision(handle);
+        if(const auto failed = m_failed_environments.find(handle);
+            failed != m_failed_environments.end() && failed->second == revision)
+            return Result<void, Error>::failure(
+                {"Environment preparation failed; waiting for source changes"});
+        auto scheduled = schedule_environment(*record);
+        if(!scheduled)
+            return Result<void, Error>::failure(scheduled.error());
+        if(!scheduled.value())
+            m_refresh_requests[handle] = revision;
+        return Result<void, Error>::success();
+    }
+
+    Result<std::size_t, Error> AssetManager::prepare_references(
+        const std::span<const AssetReference> references, const MissingAssetPolicy policy) {
+        std::size_t missing = 0;
+        for(const auto& reference : references) {
+            auto loaded = request_load(reference.handle, reference.type);
+            if(loaded)
+                continue;
+            if(is_device_lost(loaded.error())
+                || (reference.required && policy == MissingAssetPolicy::FailRequired))
+                return Result<std::size_t, Error>::failure(loaded.error());
+            LOG_WARN("Unresolved asset {}: {}", reference.handle.value(), loaded.error().message);
+            ++missing;
+        }
+        return Result<std::size_t, Error>::success(missing);
     }
 
     Result<std::vector<AssetHandle>, Error> AssetManager::process_completions() {
@@ -383,8 +404,12 @@ namespace Comet {
 
     AssetManager::ImportPublication AssetManager::publish_texture_candidate(
         TextureImportCandidate& candidate) {
+        const auto* record = m_database.find(candidate.handle);
+        const bool environment = record && record->type == AssetType::Environment;
+        if(environment)
+            m_failed_environments[candidate.handle] = candidate.revision;
         if(!candidate.result) {
-            LOG_ERROR("Failed to import modified texture asset '{}' (handle {}): {}",
+            LOG_ERROR("Failed to prepare texture asset '{}' (handle {}): {}",
                 candidate.relative_path.generic_string(), candidate.handle.value(),
                 candidate.result.error());
             return ImportPublication::success(std::nullopt);
@@ -403,14 +428,23 @@ namespace Comet {
                 candidate.handle.value(), candidate.revision);
             return ImportPublication::success(std::nullopt);
         }
-        if(!m_registry.replace_asset(candidate.handle, texture)) {
+        bool published = false;
+        if(environment && !m_registry.contains(candidate.handle))
+            published = m_registry.register_asset(candidate.handle, texture);
+        else
+            published = m_registry.replace_asset(candidate.handle, texture);
+        if(!published) {
             LOG_ERROR("Failed to publish refreshed runtime texture for asset handle {}",
                 candidate.handle.value());
             return ImportPublication::success(std::nullopt);
         }
-        if(auto refreshed = reload_loaded_material_dependents(candidate.handle); !refreshed)
-            return ImportPublication::failure(refreshed.error());
-        LOG_INFO("Reloaded texture asset '{}' (handle {})",
+        if(environment) {
+            m_failed_environments.erase(candidate.handle);
+        } else {
+            if(auto refreshed = reload_loaded_material_dependents(candidate.handle); !refreshed)
+                return ImportPublication::failure(refreshed.error());
+        }
+        LOG_INFO("Published texture asset '{}' (handle {})",
             candidate.relative_path.generic_string(), candidate.handle.value());
         return ImportPublication::success(candidate.handle);
     }
@@ -512,7 +546,17 @@ namespace Comet {
     Result<std::shared_ptr<Texture>, Error> AssetManager::load_environment(
         const AssetHandle handle) {
         return load_runtime_asset<Texture>(m_database, m_registry, handle, AssetType::Environment,
-            [this](const AssetRecord& record) { return create_runtime_texture(record, {}); });
+            [this](const AssetRecord& record) -> Result<std::shared_ptr<Texture>, Error> {
+                auto prepared =
+                    m_import_service->prepare_environment(record, m_task_queue->memory_budget());
+                if(!prepared)
+                    return Result<std::shared_ptr<Texture>, Error>::failure({prepared.error()});
+                auto texture = m_resource_factory.try_create_texture(prepared.value().data);
+                if(!texture)
+                    return Result<std::shared_ptr<Texture>, Error>::failure(
+                        texture.error().as_error());
+                return Result<std::shared_ptr<Texture>, Error>::success(std::move(texture).value());
+            });
     }
 
     Result<std::shared_ptr<Texture>, Error> AssetManager::reimport_texture(
@@ -757,10 +801,8 @@ namespace Comet {
         const auto revision = m_database.get_revision(handle);
         return m_task_queue->schedule(
             handle, revision,
-            [paths = m_paths, handle, revision, relative_path = record.path, mode](
-                AssetImportResult& result) {
-                result.candidate =
-                    build_mesh_artifact_candidate(paths, handle, revision, relative_path, mode);
+            [paths = m_paths, record, revision, mode](AssetImportResult& result) {
+                result.candidate = ImportService(paths).prepare_mesh(record, revision, mode);
             },
             mode == MeshImportMode::Force);
     }
@@ -783,24 +825,48 @@ namespace Comet {
         }
 
         const auto* settings = std::get_if<TextureImportSettings>(&record.import_settings);
-        if(!settings && record.type != AssetType::Environment) {
+        if(!settings) {
             LOG_ERROR("Texture asset handle {} has incompatible import settings", handle.value());
             return false;
         }
 
         return m_task_queue->schedule(handle, revision,
-            [asset_root = m_paths.assets(), handle, revision, relative_path = record.path,
-                settings = settings ? *settings : TextureImportSettings{},
-                type = record.type](AssetImportResult& result) {
-                result.candidate = TextureImportCandidate{handle, revision, relative_path,
-                    import_texture_data(asset_root / relative_path, type, settings)};
+            [paths = m_paths, handle, revision, record, settings = *settings](
+                AssetImportResult& result) {
+                result.candidate = TextureImportCandidate{handle, revision, record.path,
+                    ImportService(paths).prepare_texture(record, settings)};
             });
+    }
+
+    Result<bool, Error> AssetManager::schedule_environment(const AssetRecord& record) {
+        const auto revision = m_database.get_revision(record.handle);
+        if(m_task_queue->contains(record.handle, revision))
+            return Result<bool, Error>::success(true);
+        auto bytes = EnvironmentImporter::working_bytes(m_paths.assets() / record.path);
+        if(!bytes)
+            return Result<bool, Error>::failure({bytes.error()});
+        if(bytes.value() > m_task_queue->memory_budget())
+            return Result<bool, Error>::failure(
+                {"Environment exceeds the asset CPU memory budget"});
+        const auto accepted = m_task_queue->schedule(
+            record.handle, revision,
+            [paths = m_paths, record, revision, budget = bytes.value()](AssetImportResult& result) {
+                auto prepared = ImportService(paths).prepare_environment(record, budget);
+                auto data = Result<TextureData>::failure("Environment preparation failed");
+                if(prepared)
+                    data = Result<TextureData>::success(std::move(prepared).value().data);
+                else
+                    data = Result<TextureData>::failure(prepared.error());
+                result.candidate =
+                    TextureImportCandidate{record.handle, revision, record.path, std::move(data)};
+            },
+            false, bytes.value());
+        return Result<bool, Error>::success(accepted);
     }
 
     Result<std::shared_ptr<Texture>, Error> AssetManager::create_runtime_texture(
         const AssetRecord& record, const TextureImportSettings& import_settings) {
-        auto data =
-            import_texture_data(m_paths.assets() / record.path, record.type, import_settings);
+        auto data = m_import_service->prepare_texture(record, import_settings);
         if(!data)
             return Result<std::shared_ptr<Texture>, Error>::failure({data.error()});
         auto texture = m_resource_factory.try_create_texture(data.value());

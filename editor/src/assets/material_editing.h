@@ -1,6 +1,6 @@
 #pragma once
 
-#include "asset/material_data.h"
+#include "asset/data/material_data.h"
 #include "render/material/material_layout.h"
 
 namespace CometEditor {

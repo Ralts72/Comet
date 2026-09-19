@@ -10,6 +10,7 @@
 #include "graphics/resource/sampler.h"
 #include "render/frame_scheduler.h"
 #include "render/render_target.h"
+#include "render/resource/sampled_image_binding.h"
 #include "display_vert.h"
 #include "display_frag.h"
 
@@ -17,12 +18,6 @@
 #include <utility>
 
 namespace Comet {
-    struct OutputPass::Binding {
-        std::shared_ptr<ImageView> image;
-        std::unique_ptr<DescriptorPool> pool;
-        DescriptorSet descriptor;
-    };
-
     OutputPass::OutputPass(Device& device, std::shared_ptr<RenderPass> pass,
         std::shared_ptr<DescriptorSetLayout> layout, std::shared_ptr<Sampler> sampler,
         std::shared_ptr<Pipeline> pipeline, const uint32_t frame_slots, const bool encode_srgb,
@@ -107,24 +102,6 @@ namespace Comet {
                 offscreen, hdr ? hdr_headroom : 1.0f)));
     }
 
-    Result<std::shared_ptr<OutputPass::Binding>, GraphicsError> OutputPass::create_binding(
-        const std::shared_ptr<ImageView>& image) {
-        using Creation = Result<std::shared_ptr<Binding>, GraphicsError>;
-        DescriptorPoolSizes sizes;
-        sizes.add_pool_size(DescriptorType::CombinedImageSampler, 1);
-        auto pool = DescriptorPool::create(m_device, 1, sizes);
-        if(!pool)
-            return Creation::failure(pool.error());
-        auto sets = pool.value()->allocate_descriptor_set(*m_layout, 1);
-        if(!sets)
-            return Creation::failure(sets.error());
-        auto candidate = std::make_shared<Binding>(
-            Binding{image, std::move(pool).value(), sets.value().front()});
-        const DescriptorSet::ImageSamplerWrite write{0, *image, *m_sampler};
-        candidate->descriptor.update(m_device, {}, std::span(&write, 1));
-        return Creation::success(std::move(candidate));
-    }
-
     Result<void, GraphicsError> OutputPass::render(FrameScheduler& frames,
         const std::shared_ptr<RenderTarget>& output, const std::shared_ptr<ImageView>& hdr_color,
         const float exposure) {
@@ -139,15 +116,13 @@ namespace Comet {
         const auto slot = frames.get_current_frame_slot_index();
         auto& binding = m_bindings[slot];
         if(!binding || binding->image != hdr_color) {
-            auto candidate = create_binding(hdr_color);
+            auto candidate = SampledImageBinding::create(m_device, hdr_color, m_layout, m_sampler);
             if(!candidate)
                 return Result<void, GraphicsError>::failure(candidate.error());
             binding = std::move(candidate).value();
         }
         frames.retain_current_frame_resource(binding);
         frames.retain_current_frame_resource(m_pipeline);
-        frames.retain_current_frame_resource(m_layout);
-        frames.retain_current_frame_resource(m_sampler);
         frames.retain_current_frame_resource(m_render_pass);
         frames.retain_current_frame_resource(output);
         auto& command = frames.get_current_command_buffer();

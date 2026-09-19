@@ -1,7 +1,11 @@
 #include <gtest/gtest.h>
 
 #include "asset/registry.h"
+#include "render/material/material.h"
+#include "render/resource/render_resources.h"
+#include "render/resource/texture.h"
 #include "render/scene/scene_resolver.h"
+#include "support/engine_fixture.h"
 #include "support/math_assertions.h"
 
 #include <limits>
@@ -46,6 +50,67 @@ namespace Comet::Tests {
             resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)));
 
         EXPECT_TRUE(submission.render_items.empty());
+    }
+
+    using SceneEnvironmentResolverTest = EngineTest;
+
+    TEST_F(
+        SceneEnvironmentResolverTest, UnpublishedEnvironmentResolvesAfterPublicationWithoutError) {
+        AssetRegistry registry;
+        SceneResolver resolver(registry);
+        RenderScene scene;
+        scene.cameras.push_back({.entity_id = 1, .primary = true});
+        scene.environment = {AssetHandle(17), true, 2, 90};
+        const auto view = runtime_view({160, 120});
+        const auto before = messages.str();
+        for(int frame = 0; frame < 3; ++frame) {
+            const auto submission = resolver.resolve(scene, view);
+            EXPECT_FALSE(submission.environment_texture);
+            EXPECT_EQ(submission.environment, scene.environment);
+        }
+        EXPECT_EQ(messages.str(), before);
+
+        TextureData data{
+            .width = 1, .height = 1, .pixels = std::vector<uint8_t>(24), .cubemap = true};
+        auto texture = engine->get_render_resources().try_create_texture(data);
+        ASSERT_TRUE(texture) << texture.error().message;
+        ASSERT_TRUE(registry.register_asset(scene.environment.asset, texture.value()));
+        const auto published = messages.str();
+        EXPECT_EQ(resolver.resolve(scene, view).environment_texture, texture.value());
+        scene.environment.background = false;
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
+        scene.environment.background = true;
+        ASSERT_TRUE(registry.unregister_asset(scene.environment.asset));
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
+        EXPECT_EQ(messages.str(), published);
+    }
+
+    TEST_F(SceneEnvironmentResolverTest, IncompatibleEnvironmentStillReportsOnceUntilRemoved) {
+        AssetRegistry registry;
+        SceneResolver resolver(registry);
+        RenderScene scene;
+        scene.cameras.push_back({.entity_id = 1, .primary = true});
+        scene.environment = {AssetHandle(17), true, 1, 0};
+        const auto view = runtime_view({160, 120});
+        TextureData data{.width = 1, .height = 1, .pixels = {255, 255, 255, 255}};
+        auto texture = engine->get_render_resources().try_create_texture(data);
+        ASSERT_TRUE(texture) << texture.error().message;
+        ASSERT_TRUE(registry.register_asset(scene.environment.asset, texture.value()));
+        const auto before = messages.str().size();
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
+        const auto reported = messages.str();
+        EXPECT_NE(reported.find("expected cubemap texture", before), std::string::npos);
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
+        EXPECT_EQ(messages.str(), reported);
+
+        ASSERT_TRUE(registry.unregister_asset(scene.environment.asset));
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
+        EXPECT_EQ(messages.str(), reported);
+        ASSERT_TRUE(registry.register_asset(
+            scene.environment.asset, std::make_shared<Material>("wrong type", "unlit_color")));
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
+        EXPECT_NE(
+            messages.str().find("expected cubemap texture", reported.size()), std::string::npos);
     }
 
     TEST(SceneResolverTest, BuildsViewProjectionFromPrimaryCamera) {

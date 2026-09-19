@@ -16,6 +16,7 @@ namespace Comet {
     class Pipeline;
     class DescriptorSetLayout;
     class Sampler;
+    struct SampledImageBinding;
 
     // HDR 场景的最终输出 pass，不拥有场景、窗口或帧调度器。
     class COMET_API OutputPass {
@@ -35,20 +36,17 @@ namespace Comet {
             const std::shared_ptr<ImageView>& hdr_color, float exposure = 1.0f);
 
     private:
-        struct Binding;
         OutputPass(Device& device, std::shared_ptr<RenderPass> pass,
             std::shared_ptr<DescriptorSetLayout> layout, std::shared_ptr<Sampler> sampler,
             std::shared_ptr<Pipeline> pipeline, uint32_t frame_slots, bool encode_srgb,
             bool offscreen, float headroom);
-        Result<std::shared_ptr<Binding>, GraphicsError> create_binding(
-            const std::shared_ptr<ImageView>& image);
 
         Device& m_device;
         std::shared_ptr<RenderPass> m_render_pass;
         std::shared_ptr<DescriptorSetLayout> m_layout;
         std::shared_ptr<Sampler> m_sampler;
         std::shared_ptr<Pipeline> m_pipeline;
-        std::vector<std::shared_ptr<Binding>> m_bindings;
+        std::vector<std::shared_ptr<SampledImageBinding>> m_bindings;
         bool m_encode_srgb;
         bool m_offscreen;
         float m_headroom;

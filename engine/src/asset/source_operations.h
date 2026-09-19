@@ -1,7 +1,7 @@
 #pragma once
 
 #include "asset/database.h"
-#include "asset/material_data.h"
+#include "asset/data/material_data.h"
 #include "core/project_paths.h"
 
 #include <filesystem>

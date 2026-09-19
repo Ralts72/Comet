@@ -6,6 +6,7 @@ find_package(Threads REQUIRED)
 
 set(SOURCES
         src/asset/artifact/mesh_artifact.cpp
+        src/asset/artifact/environment_artifact.cpp
         src/asset/database.cpp
         src/asset/handle.cpp
         src/asset/import_settings.cpp
@@ -16,7 +17,7 @@ set(SOURCES
         src/asset/import/texture_importer.cpp
         src/asset/import/environment_importer.cpp
         src/asset/asset_manager.cpp
-        src/asset/material_data.cpp
+        src/asset/data/material_data.cpp
         src/asset/metadata.cpp
         src/asset/registry.cpp
         src/asset/source_monitor.cpp
@@ -81,6 +82,7 @@ set(SOURCES
         src/render/render_target.cpp
         src/render/resource/mesh.cpp
         src/render/resource/texture.cpp
+        src/render/resource/sampled_image_binding.cpp
         src/render/render_context.cpp
         src/render/scene/scene_resolver.cpp
         src/render/scene/render_scene.cpp

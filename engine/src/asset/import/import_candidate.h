@@ -2,7 +2,7 @@
 
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/database.h"
-#include "asset/material_data.h"
+#include "asset/data/material_data.h"
 #include "asset/data/texture_data.h"
 #include <variant>
 
