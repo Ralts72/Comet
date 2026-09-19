@@ -50,8 +50,10 @@ namespace Comet {
         const ImageInfo& info, const bool within_budget, const SampleCount sample_count,
         const std::string_view debug_name) {
         validate_image_info(info);
+        const auto max_mip_levels = static_cast<uint32_t>(
+            std::bit_width(std::max(info.extent.x, info.extent.y)));
         if(info.mip_levels == 0 || info.array_layers == 0 || info.extent.z != 1
-            || info.mip_levels > std::bit_width(std::max(info.extent.x, info.extent.y))
+            || info.mip_levels > max_mip_levels
             || (sample_count != SampleCount::Count1 && info.mip_levels != 1))
             return GpuResourceResult<std::shared_ptr<Image>>::failure(
                 vk::Result::eErrorInitializationFailed);

@@ -216,8 +216,10 @@ namespace Comet {
             const auto handle = pending[index];
             updated += update_world_transform(handle);
             const auto children = m_children_by_parent.find(m_registry.get<IdComponent>(handle).id);
-            if(children != m_children_by_parent.end())
-                pending.insert(pending.end(), children->second.begin(), children->second.end());
+            if(children != m_children_by_parent.end()) {
+                for(const auto child : children->second)
+                    pending.push_back(child);
+            }
         }
         return updated;
     }

@@ -778,7 +778,9 @@ namespace Comet::Tests {
                 state.resource.queue_family = frames.get_queue_family_index() + 1;
             const auto id = graph.import_image("image", state);
             graph.add_pass({"write", {{id, ResourceUsage::TransferDestination, {}}}});
-            std::vector<RenderGraph::Binding> bindings{image};
+            std::vector<RenderGraph::Binding> bindings;
+            bindings.reserve(2);
+            bindings.emplace_back(image);
             if(mode == 1)
                 graph.export_resource({id, ResourceUsage::SampledRead,
                     Flags<PipelineStage>(PipelineStage::FragmentShader)});
