@@ -1,4 +1,5 @@
 #include "assets/editor_assets.h"
+#include "scene/component_registry.h"
 #include "diagnostics/logger.h"
 #include "scene/component_registry.h"
 #include <utility>
@@ -45,7 +46,7 @@ namespace CometEditor {
             for(const auto& record : database().get_assets()) {
                 if(record.type == Comet::AssetType::Mesh)
                     m_pending_mesh_imports.try_emplace(
-                        record.handle, Comet::AssetManager::MeshImportMode::IfNeeded);
+                        record.handle, Comet::MeshImportMode::IfNeeded);
             }
         }
         if(report.generated_metadata) {
@@ -150,10 +151,10 @@ namespace CometEditor {
         const auto* record = database().find(handle);
         if(!record || record->type != Comet::AssetType::Mesh)
             return;
-        if(m_manager.import_mesh_async(handle, Comet::AssetManager::MeshImportMode::Force))
+        if(m_manager.import_mesh_async(handle, Comet::MeshImportMode::Force))
             m_pending_mesh_imports.erase(handle);
         else
-            m_pending_mesh_imports[handle] = Comet::AssetManager::MeshImportMode::Force;
+            m_pending_mesh_imports[handle] = Comet::MeshImportMode::Force;
     }
 
     Comet::Result<void, Comet::Error> EditorAssets::load_reference(const Comet::AssetHandle handle,
@@ -188,8 +189,7 @@ namespace CometEditor {
     void EditorAssets::track_scene(
         Comet::Scene& scene, const Comet::ComponentRegistry& components) {
         const auto references = components.collect_asset_references(scene);
-        std::set<Comet::ComponentRegistry::AssetReference> next(
-            references.begin(), references.end());
+        std::set<Comet::AssetReference> next(references.begin(), references.end());
         for(const auto& reference : next)
             if(!m_scene_references.contains(reference))
                 m_pending_references.insert(reference);
@@ -201,7 +201,7 @@ namespace CometEditor {
     }
 
     Comet::Result<std::size_t, Comet::Error> EditorAssets::restore_references(
-        const Comet::AssetManager::CompletionBudget budget) {
+        const Comet::AssetCompletionBudget budget) {
         auto changed = std::exchange(m_reference_changes, {});
         if(!changed.empty()) {
             database().include_dependents(changed);

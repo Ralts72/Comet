@@ -1,7 +1,7 @@
 #pragma once
 
 #include "asset/database.h"
-#include "asset/asset_manager.h"
+#include "asset/import/asset_task_types.h"
 #include "common/error.h"
 #include "common/result.h"
 
@@ -16,9 +16,9 @@ namespace Comet {
     // owner 线程管理请求与发布，Worker 只写独占候选。
     class AssetTaskQueue {
     public:
-        using Limits = AssetManager::AsyncLimits;
-        using Status = AssetManager::AsyncStatus;
-        using CompletionBudget = AssetManager::CompletionBudget;
+        using Limits = AssetAsyncLimits;
+        using Status = AssetAsyncStatus;
+        using CompletionBudget = AssetCompletionBudget;
         AssetTaskQueue(const AssetDatabase& database, TaskScheduler& scheduler, Limits limits);
         ~AssetTaskQueue();
         [[nodiscard]] Status status() const;

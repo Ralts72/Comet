@@ -26,6 +26,7 @@ namespace CometEditor::Tests {
         ViewportPanel viewport{state, selection, gizmo, property_edit, 4096, shortcuts};
         int gizmo_vertices = 0;
         bool mesh_drag = false;
+        bool show_other_panel = false;
         AssetDragPayload mesh_payload{.handle = Comet::AssetHandle(42),
             .revision = 1,
             .generation = 0,
@@ -42,6 +43,13 @@ namespace CometEditor::Tests {
 
         void frame() {
             ImGui::NewFrame();
+            if(show_other_panel) {
+                ImGui::SetNextWindowPos(ImVec2(0, 0));
+                ImGui::SetNextWindowSize(ImVec2(150, 100));
+                ImGui::Begin("Other Panel");
+                ImGui::TextUnformatted("Selection");
+                ImGui::End();
+            }
             if(mesh_drag && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceExtern)) {
                 ImGui::SetDragDropPayload(
                     AssetDragPayload::TYPE, &mesh_payload, payload_size, ImGuiCond_Once);
@@ -86,6 +94,29 @@ namespace CometEditor::Tests {
 
         float x() { return entity.get_component<Comet::TransformComponent>().translation.x; }
     };
+
+    TEST_F(ViewportGizmoUiTest, LightAxisDragFromAnotherPanelCommitsAndUndoes) {
+        entity.add_component<Comet::LightComponent>();
+        entity.get_component<Comet::TransformComponent>().rotation = {-30, -35, 0};
+        show_other_panel = true;
+        for(const auto type :
+            {Comet::LightType::Directional, Comet::LightType::Point, Comet::LightType::Spot}) {
+            entity.get_component<Comet::LightComponent>().type = type;
+            frame();
+            ImGui::FocusWindow(ImGui::FindWindowByName("Other Panel"));
+            frame();
+            drag();
+            ASSERT_GT(x(), 0);
+            ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+            frame();
+            EXPECT_FALSE(gizmo.active());
+            EXPECT_EQ(history.undo_size(), 1);
+            EXPECT_FALSE(viewport.take_pick_request());
+            ASSERT_TRUE(history.undo());
+            EXPECT_FLOAT_EQ(x(), 0);
+            history.clear();
+        }
+    }
 
     TEST_F(ViewportGizmoUiTest, ToolMenuChangesInteractionPolicyWithoutEditingScene) {
         auto* window = ImGui::FindWindowByName("Viewport");

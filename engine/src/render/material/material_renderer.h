@@ -19,6 +19,7 @@
 namespace Comet {
     class CPUBuffer;
     class Device;
+    class MaterialLayout;
     class FrameScheduler;
     class Pipeline;
     class PipelineManager;

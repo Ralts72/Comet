@@ -1,4 +1,5 @@
 #include "inspector/inspector.h"
+#include "render/material/material_layout.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
 #include "scene/scene_commands.h"

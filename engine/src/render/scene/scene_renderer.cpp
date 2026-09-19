@@ -1,4 +1,5 @@
 #include "render/scene/scene_renderer.h"
+#include "render/material/material_layout.h"
 #include "render/render_graph.h"
 #include "render/passes/output_pass.h"
 #include "graphics/frame_buffer.h"

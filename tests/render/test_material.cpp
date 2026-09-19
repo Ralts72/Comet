@@ -1,4 +1,5 @@
 #include "render/material/material.h"
+#include "render/material/material_layout.h"
 
 #include <gtest/gtest.h>
 #include <limits>

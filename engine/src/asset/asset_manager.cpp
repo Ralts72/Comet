@@ -30,9 +30,9 @@ namespace Comet {
     namespace {
         MeshArtifactCandidate build_mesh_artifact_candidate(const ProjectPaths& paths,
             const AssetHandle handle, const AssetRevision revision,
-            const std::filesystem::path& relative_path, AssetManager::MeshImportMode mode) {
+            const std::filesystem::path& relative_path, MeshImportMode mode) {
             const ImportService imports(paths);
-            if(mode == AssetManager::MeshImportMode::IfNeeded) {
+            if(mode == MeshImportMode::IfNeeded) {
                 if(auto artifact = imports.find_current_mesh_artifact(handle, relative_path)) {
                     return {.handle = handle,
                         .revision = revision,
@@ -128,11 +128,11 @@ namespace Comet {
     AssetManager::AssetManager(ProjectPaths paths, AssetRegistry& registry,
         RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler)
         : AssetManager(
-              std::move(paths), registry, resource_factory, task_scheduler, AsyncLimits{}) {}
+              std::move(paths), registry, resource_factory, task_scheduler, AssetAsyncLimits{}) {}
 
     AssetManager::AssetManager(ProjectPaths paths, AssetRegistry& registry,
         RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler,
-        const AsyncLimits limits)
+        const AssetAsyncLimits limits)
         : m_paths(std::move(paths)), m_database(m_paths),
           m_import_service(std::make_unique<ImportService>(m_paths)), m_registry(registry),
           m_resource_factory(resource_factory),
@@ -140,7 +140,7 @@ namespace Comet {
 
     AssetManager::~AssetManager() = default;
 
-    AssetManager::AsyncStatus AssetManager::get_async_status() const {
+    AssetAsyncStatus AssetManager::get_async_status() const {
         return m_task_queue->status();
     }
 
@@ -262,11 +262,11 @@ namespace Comet {
     }
 
     Result<std::vector<AssetHandle>, Error> AssetManager::process_completions() {
-        return process_completions(CompletionBudget{});
+        return process_completions(AssetCompletionBudget{});
     }
 
     Result<std::vector<AssetHandle>, Error> AssetManager::process_completions(
-        const CompletionBudget budget) {
+        const AssetCompletionBudget budget) {
         std::vector<AssetHandle> published;
         auto completion = m_task_queue->process_completions(budget,
             [&](AssetImportResult& result) { return publish_import_result(result, published); });

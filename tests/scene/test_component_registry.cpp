@@ -71,9 +71,9 @@ namespace {
         second.add_component<Comet::MeshRendererComponent>(
             Comet::AssetHandle(42), Comet::AssetHandle(43));
         const auto references = registry.collect_asset_references(scene);
-        EXPECT_EQ(references, (std::vector<Comet::ComponentRegistry::AssetReference>{
-                                  {Comet::AssetHandle(42), Comet::AssetType::Mesh},
-                                  {Comet::AssetHandle(43), Comet::AssetType::Material}}));
+        EXPECT_EQ(references,
+            (std::vector<Comet::AssetReference>{{Comet::AssetHandle(42), Comet::AssetType::Mesh},
+                {Comet::AssetHandle(43), Comet::AssetType::Material}}));
         first.get_component<Comet::MeshRendererComponent>().material = Comet::AssetHandle(42);
         EXPECT_EQ(registry.collect_asset_references(scene).size(), 3);
         scene.destroy_entity(first);

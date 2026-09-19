@@ -328,6 +328,9 @@ namespace CometEditor {
         if(pressed && !m_inspector_edit.commit()) {
             pressed = false;
         }
+        // Image 没有可聚焦的 item；先接收从其他面板进入的点击，再判断拖动失焦。
+        if(pressed)
+            ImGui::SetWindowFocus();
         const auto entity = m_selection.get_selected_entity();
         const bool consumed = m_gizmo.update(entity.get_uuid(), m_state.camera.snapshot(), m_layout,
             {

@@ -258,7 +258,7 @@ namespace Comet::Tests {
         AssetManager manager;
 
         AssetBackpressureTest(
-            AssetManager::AsyncLimits limits = {1, 1}, const std::size_t scheduler_capacity = 1)
+            AssetAsyncLimits limits = {1, 1}, const std::size_t scheduler_capacity = 1)
             : scheduler(1, scheduler_capacity),
               manager(project.paths(), registry, factory, scheduler, limits) {}
         std::array<AssetHandle, 3> handles{AssetHandle(41), AssetHandle(42), AssetHandle(43)};
@@ -424,7 +424,7 @@ namespace Comet::Tests {
         auto filler = scheduler.try_submit([] {});
         ASSERT_TRUE(filler);
         ASSERT_TRUE(manager.import_mesh_async(handles[0]));
-        ASSERT_TRUE(manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        ASSERT_TRUE(manager.import_mesh_async(handles[0], MeshImportMode::Force));
         EXPECT_EQ(manager.get_async_status().queued, 1);
         EXPECT_EQ(manager.get_async_status().in_flight, 0);
         blocker.release();
@@ -462,12 +462,12 @@ namespace Comet::Tests {
         BlockedWorker blocker(scheduler);
         ASSERT_TRUE(manager.import_mesh_async(handles[0]));
         ASSERT_TRUE(manager.import_mesh_async(handles[1]));
-        EXPECT_FALSE(manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        EXPECT_FALSE(manager.import_mesh_async(handles[0], MeshImportMode::Force));
         EXPECT_EQ(manager.get_async_status().in_flight, 1);
         EXPECT_EQ(manager.get_async_status().queued, 1);
         blocker.release();
         EXPECT_EQ(drain(), std::vector<AssetHandle>{handles[1]});
-        ASSERT_TRUE(manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        ASSERT_TRUE(manager.import_mesh_async(handles[0], MeshImportMode::Force));
         EXPECT_EQ(drain(), std::vector<AssetHandle>{handles[0]});
     }
 
@@ -510,7 +510,7 @@ namespace Comet::Tests {
     protected:
         AssetCompletionBudgetTest() : AssetBackpressureTest({3, 4}, 8) {}
 
-        static constexpr AssetManager::CompletionBudget one_result{
+        static constexpr AssetCompletionBudget one_result{
             .max_results = 1, .max_time = std::chrono::seconds(1)};
     };
 
@@ -582,15 +582,15 @@ namespace Comet::Tests {
         ASSERT_TRUE(manager.import_mesh_async(handles[0]));
         scheduler.wait_idle();
         EXPECT_TRUE(completed_handles(manager.process_completions({.max_results = 0})).empty());
-        ASSERT_TRUE(manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
-        ASSERT_TRUE(manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        ASSERT_TRUE(manager.import_mesh_async(handles[0], MeshImportMode::Force));
+        ASSERT_TRUE(manager.import_mesh_async(handles[0], MeshImportMode::Force));
         EXPECT_EQ(manager.get_async_status().in_flight, 1);
         EXPECT_EQ(manager.get_async_status().queued, 1);
         EXPECT_TRUE(completed_handles(manager.process_completions(one_result)).empty());
         scheduler.wait_idle();
         EXPECT_TRUE(completed_handles(manager.process_completions({.max_results = 0})).empty());
         ASSERT_TRUE(manager.import_mesh_async(handles[0]));
-        ASSERT_TRUE(manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        ASSERT_TRUE(manager.import_mesh_async(handles[0], MeshImportMode::Force));
         EXPECT_EQ(manager.get_async_status().in_flight, 1);
         EXPECT_EQ(manager.get_async_status().queued, 0);
         EXPECT_EQ(completed_handles(manager.process_completions(one_result)),
@@ -674,7 +674,7 @@ namespace Comet::Tests {
         const auto original = loaded_asset(manager.load_mesh(handles[0]));
         ASSERT_TRUE(original);
         for(const auto handle : handles)
-            ASSERT_TRUE(manager.import_mesh_async(handle, AssetManager::MeshImportMode::Force));
+            ASSERT_TRUE(manager.import_mesh_async(handle, MeshImportMode::Force));
         scheduler.wait_idle();
         factory.fail_mesh_creation(true);
         factory.set_failure_result(vk::Result::eErrorDeviceLost);
@@ -701,7 +701,7 @@ namespace Comet::Tests {
         EXPECT_THROW(completed_handles(manager.process_completions(one_result)), int);
         EXPECT_EQ(manager.get_async_status().in_flight, 0);
         EXPECT_TRUE(registry.resolve<Mesh>(handles[0]) == original);
-        ASSERT_TRUE(manager.import_mesh_async(handles[0], AssetManager::MeshImportMode::Force));
+        ASSERT_TRUE(manager.import_mesh_async(handles[0], MeshImportMode::Force));
         EXPECT_EQ(drain(), std::vector<AssetHandle>{handles[0]});
         EXPECT_TRUE(registry.resolve<Mesh>(handles[0]) != original);
     }
@@ -730,7 +730,7 @@ namespace Comet::Tests {
 
     class MeshAsyncImportTest: public ::testing::Test {
     protected:
-        using Mode = AssetManager::MeshImportMode;
+        using Mode = MeshImportMode;
         static constexpr AssetHandle handle{42};
         TemporaryProject project;
         AssetRegistry registry;

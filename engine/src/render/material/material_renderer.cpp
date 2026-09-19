@@ -1,4 +1,5 @@
 #include "render/material/material_renderer.h"
+#include "render/material/material_layout.h"
 
 #include "diagnostics/logger.h"
 #include "graphics/device.h"

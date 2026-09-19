@@ -1,4 +1,5 @@
 #include "graphics/pipeline/shader_interface.h"
+#include "render/material/material_layout.h"
 #include "graphics/pipeline/shader.h"
 #include "core/engine.h"
 #include "support/engine_fixture.h"

@@ -423,6 +423,8 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 - Dynamic Rendering 在真实多 pass/attachment 需求下评估，不为 API 更换重写阶段 4。
   检查显式 feature、ImGui/MSAA/resize、调试工具和目标 GPU；可按 pass 保留传统 RenderPass。
 - 有界 Forward Lighting 与三类 LightComponent 已接通；继续 shadow → PBR → bloom。
+  纹理受光材质随 PBR/base-color 纹理接入：结合现有 demo 的纹理与灯光，复用材质准备和 Shader 发布链路，
+  保留旧 unlit 模板与资产身份；迁移时明确 tint/albedo、纹理色彩空间和混合参数的映射，不只替换模板名。
   先完成小型 forward 场景，不一次构建完整 deferred renderer。
 - 显示输出已支持启动时选择 SDR / 扩展线性 HDR，默认 SDR；后续按真实需求增加显示器 headroom／白点校准、
   HDR10/PQ、跨屏及系统模式切换后的安全重建，再处理编辑器 HDR 视口与 UI 亮度合成。不是下一项光源迁移的前置条件。

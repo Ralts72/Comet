@@ -1,5 +1,6 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "inspector/inspector.h"
+#include "render/material/material_layout.h"
 #include "assets/project_panel.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"

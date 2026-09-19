@@ -1,13 +1,12 @@
 #pragma once
 
 #include "asset/database.h"
+#include "asset/import/asset_task_types.h"
 #include "common/export.h"
 #include "common/error.h"
 #include "common/result.h"
 #include "core/project_paths.h"
 
-#include <chrono>
-#include <cstddef>
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -28,25 +27,11 @@ namespace Comet {
 
     class COMET_API AssetManager final {
     public:
-        struct AsyncLimits {
-            // 两项均必须为正；这是内部调度预算，不是禁用异步加载的开关。
-            std::size_t in_flight = 8;
-            std::size_t queued = 128;
-        };
-        struct AsyncStatus {
-            std::size_t in_flight;
-            std::size_t queued;
-        };
-        struct CompletionBudget {
-            std::size_t max_results = 2;
-            std::chrono::nanoseconds max_time = std::chrono::milliseconds(2);
-        };
-        enum class MeshImportMode { IfNeeded, Force };
         AssetManager(ProjectPaths paths, AssetRegistry& registry,
             RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler);
         AssetManager(ProjectPaths paths, AssetRegistry& registry,
             RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler,
-            AsyncLimits limits);
+            AssetAsyncLimits limits);
         ~AssetManager();
 
         [[nodiscard]] AssetScanReport scan();
@@ -58,8 +43,8 @@ namespace Comet {
         [[nodiscard]] Result<std::vector<AssetHandle>, Error> process_completions();
         // 失败／过期也计数；时间预算不抢占单个发布操作。
         [[nodiscard]] Result<std::vector<AssetHandle>, Error> process_completions(
-            CompletionBudget budget);
-        [[nodiscard]] AsyncStatus get_async_status() const;
+            AssetCompletionBudget budget);
+        [[nodiscard]] AssetAsyncStatus get_async_status() const;
         [[nodiscard]] Result<void, Error> ensure_loaded(
             AssetHandle handle, AssetType expected_type);
         [[nodiscard]] Result<void, Error> import_mesh(AssetHandle handle);

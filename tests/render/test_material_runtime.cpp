@@ -1,4 +1,5 @@
 #include "core/engine.h"
+#include "render/material/material_layout.h"
 #include "core/window.h"
 #include "support/engine_fixture.h"
 #include "render/renderer.h"

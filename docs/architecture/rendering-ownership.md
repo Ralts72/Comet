@@ -159,7 +159,8 @@ SceneResolver 只解析 Camera、Mesh 和 Material 引用，不检查模板、�
 
 | 入口 | 职责 | 不负责 |
 | --- | --- | --- |
-| `render/material/material.h` | Material 属性与 revision；不可变 MaterialLayout 参数描述、默认值和编辑语义 | 资产身份、GPU 缓存、UI 控件 |
+| `render/material/material.h` | Material 实例属性与 revision | 布局反射、资产身份、GPU 缓存、UI 控件 |
+| `render/material/material_layout.h` | 不可变 MaterialLayout 参数布局、默认值、编辑语义与 Shader 校验 | 可变材质实例、GPU owner |
 | `render/material/material_runtime.h` | MaterialRuntimeCache 准备并缓存 Texture 引用和参数字节 | 创建 Vulkan 对象 |
 | `render/material/material_shader.h` | 具名程序字节码、内置程序与材质映射、固定接口校验、覆盖合并 | GPU owner、后台任务、发布事务 |
 | `render/material/material_renderer.h` | 帧／材质 descriptor、Pipeline 选择、排序与绘制 | 解析 Scene 或资产文件 |

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "scene/component_registry.h"
+#include "scene/property.h"
 
 #include <functional>
 #include <unordered_map>

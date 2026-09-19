@@ -161,6 +161,7 @@ JSON 解析直接依赖已有 simdjson。
   Renderer 组合帧调度与呈现，SceneRenderer 编排 RGBA16F 场景和 OutputPass；
   RenderGraph 负责 pass 间同步，FrameSlot 保留在途资源，Presentation 处理交换链恢复。
   MaterialShader 模块定义程序、字节码与固定接口契约，MaterialRenderer 管理 GPU 候选、材质版本发布和绘制。
+  Material 保存实例参数，MaterialLayout 独立描述布局；属性描述位于 `scene/property`，不依赖 ECS 注册器。
 - **资产**：AssetDatabase 管身份与依赖，ImportService 管导入，AssetManager 管加载与发布。
   AssetRegistry 是唯一 Handle 缓存，RenderResources 只创建设备资源；Worker 不操作 Scene 或 GPU。
   Mesh 加载已发布 Artifact，Texture 暂时直接解码源文件。

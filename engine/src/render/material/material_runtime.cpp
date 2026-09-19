@@ -1,4 +1,5 @@
 #include "render/material/material_runtime.h"
+#include "render/material/material_layout.h"
 
 #include "render/material/material.h"
 
