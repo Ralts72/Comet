@@ -19,7 +19,7 @@ namespace Comet {
     struct PreparedMaterial {
         struct TextureBinding {
             uint32_t binding;
-            std::shared_ptr<Texture> texture;
+            std::shared_ptr<Texture> texture; // 空值表示可选槽位使用白色默认纹理。
 
             bool operator==(const TextureBinding&) const = default;
         };

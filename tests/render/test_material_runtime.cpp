@@ -14,12 +14,71 @@
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
 #include "render/scene/scene_resolver.h"
+#include "graphics/pipeline/shader_interface.h"
+#include "pbr_frag.h"
 
 #include <array>
 #include <cstring>
 #include <gtest/gtest.h>
 
 namespace Comet::Tests {
+
+    TEST(MaterialRuntimeTest, PbrLayoutMatchesShaderAndPreservesOldParameterSnapshots) {
+        const auto layout = MaterialLayout::find_builtin("pbr");
+        ASSERT_TRUE(layout);
+        const auto shader = ShaderInterface::reflect(PBR_FRAG);
+        ASSERT_TRUE(shader) << shader.error();
+        EXPECT_TRUE(layout->validate(shader.value()));
+        const auto reflected = MaterialLayout::reflect(layout, shader.value());
+        ASSERT_TRUE(reflected) << reflected.error();
+        EXPECT_EQ(reflected.value(), layout);
+        ASSERT_EQ(layout->get_parameter_size(), 32);
+        ASSERT_EQ(layout->get_scalars().size(), 2);
+        ASSERT_EQ(layout->get_textures().size(), 1);
+        EXPECT_EQ(layout->get_textures()[0].name, "base_color_texture");
+        EXPECT_TRUE(layout->get_textures()[0].optional);
+        EXPECT_FLOAT_EQ(layout->get_scalars()[1].min_value, 0.045f);
+        MaterialRuntimeCache cache;
+        auto material = std::make_shared<Material>("pbr", "pbr");
+        const auto original = cache.prepare(AssetHandle(782), material, layout);
+        ASSERT_TRUE(original);
+        ASSERT_EQ(original.value()->textures.size(), 1);
+        EXPECT_EQ(original.value()->textures[0].binding, 1);
+        EXPECT_EQ(original.value()->textures[0].texture, nullptr);
+        std::array<float, 8> values{};
+        std::memcpy(values.data(), original.value()->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[0], 0.8f);
+        EXPECT_FLOAT_EQ(values[4], 0);
+        EXPECT_FLOAT_EQ(values[5], 0.5f);
+        EXPECT_TRUE(material->set_scalar_property("metallic", 0.75f));
+        EXPECT_TRUE(material->set_scalar_property("roughness", 0.2f));
+        EXPECT_TRUE(material->set_vector_property("base_color", {0.3f, 0.1f, 0.05f, 1}));
+        const auto next = cache.prepare(AssetHandle(782), material, layout);
+        ASSERT_TRUE(next);
+        EXPECT_NE(next.value(), original.value());
+        std::memcpy(values.data(), next.value()->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[0], 0.3f);
+        EXPECT_FLOAT_EQ(values[4], 0.75f);
+        EXPECT_FLOAT_EQ(values[5], 0.2f);
+        EXPECT_FLOAT_EQ(values[6], 0);
+        EXPECT_FLOAT_EQ(values[7], 0);
+        EXPECT_EQ(next.value(), cache.prepare(AssetHandle(782), material, layout).value());
+        std::memcpy(values.data(), original.value()->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[4], 0);
+        EXPECT_FLOAT_EQ(values[5], 0.5f);
+        const auto& bindings = shader.value().get_bindings();
+        const auto frame = std::ranges::find_if(
+            bindings, [](const auto& binding) { return binding.set == 0 && binding.binding == 0; });
+        ASSERT_NE(frame, bindings.end());
+        EXPECT_EQ(frame->block_size, 160);
+        ASSERT_EQ(frame->members.size(), 6);
+        EXPECT_EQ(frame->members[2].name, "camera_position");
+        EXPECT_EQ(frame->members[2].offset, 128);
+        EXPECT_EQ(frame->members[3].name, "orthographic");
+        EXPECT_EQ(frame->members[3].offset, 140);
+        EXPECT_EQ(frame->members[4].name, "view_direction");
+        EXPECT_EQ(frame->members[4].offset, 144);
+    }
 
     TEST(MaterialRuntimeTest, PacksDefaultsAndParametersWithoutChangingOldSnapshots) {
         MaterialRuntimeCache cache;
@@ -140,6 +199,27 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(MaterialRuntimeGpuTest, OptionalPbrTextureAssignmentAndClearPreserveSnapshots) {
+        MaterialRuntimeCache cache;
+        auto material = std::make_shared<Material>("pbr", "pbr");
+        const auto layout = MaterialLayout::find_builtin("pbr");
+        const AssetHandle handle(782);
+        const auto empty = cache.prepare(handle, material, layout);
+        ASSERT_TRUE(empty);
+        const auto assigned = texture();
+        material->set_texture_property("base_color_texture", assigned);
+        const auto textured = cache.prepare(handle, material, layout);
+        ASSERT_TRUE(textured);
+        EXPECT_EQ(textured.value()->textures[0].texture, assigned);
+        EXPECT_EQ(empty.value()->textures[0].texture, nullptr);
+        material->set_texture_property("base_color_texture", nullptr);
+        const auto cleared = cache.prepare(handle, material, layout);
+        ASSERT_TRUE(cleared);
+        EXPECT_EQ(cleared.value()->textures[0].texture, nullptr);
+        EXPECT_EQ(textured.value()->textures[0].texture, assigned);
+        EXPECT_EQ(cache.prepare(handle, material, layout).value(), cleared.value());
+    }
+
     TEST_F(MaterialRuntimeGpuTest, RendersAcrossSlotsAfterMutationAndAssetReplacement) {
         const MeshData data{
             .vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
@@ -149,9 +229,8 @@ namespace Comet::Tests {
         auto first = texture();
         const std::weak_ptr<Texture> retired_texture = first;
         const auto second = texture();
-        auto material = std::make_shared<Material>("test", "unlit_texture_blend");
-        material->set_texture_property("u_Texture0", first);
-        material->set_texture_property("u_Texture1", first);
+        auto material = std::make_shared<Material>("test", "pbr");
+        material->set_texture_property("base_color_texture", first);
         auto& registry = engine->get_asset_registry();
         ASSERT_TRUE(registry.register_asset(AssetHandle(11), mesh.value()));
         ASSERT_TRUE(registry.register_asset(AssetHandle(12), material));
@@ -176,12 +255,11 @@ namespace Comet::Tests {
                 continue;
             }
             if(frames == 2) {
-                material->set_texture_property("u_Texture0", second);
+                material->set_texture_property("base_color_texture", second);
             }
             if(frames == 4) {
-                material = std::make_shared<Material>("replacement", "unlit_texture_blend");
-                material->set_texture_property("u_Texture0", first);
-                material->set_texture_property("u_Texture1", second);
+                material = std::make_shared<Material>("replacement", "pbr");
+                material->set_texture_property("base_color_texture", first);
                 EXPECT_TRUE(registry.replace_asset(AssetHandle(12), material));
             }
             if(frames == 3)
@@ -215,21 +293,20 @@ namespace Comet::Tests {
         renderer.get_render_context().wait_idle();
     }
 
-    TEST_F(MaterialRuntimeGpuTest, FailedUpdatesRetainOnlySameMaterialAndEmptyFramesCollectCaches) {
+    TEST_F(MaterialRuntimeGpuTest, OptionalTextureClearAndEmptyFramesCollectCaches) {
         const MeshData data{
             .vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
             .indices = {0, 1, 2}};
         auto mesh = engine->get_render_resources().try_create_mesh(data);
         ASSERT_TRUE(mesh);
         auto image = texture();
-        auto material = std::make_shared<Material>("test", "unlit_texture_blend");
-        material->set_texture_property("u_Texture0", image);
-        material->set_texture_property("u_Texture1", image);
+        auto material = std::make_shared<Material>("test", "pbr");
+        material->set_texture_property("base_color_texture", image);
         auto& assets = engine->get_asset_registry();
         ASSERT_TRUE(assets.register_asset(AssetHandle(11), mesh.value()));
         ASSERT_TRUE(assets.register_asset(AssetHandle(12), material));
         ASSERT_TRUE(assets.register_asset(
-            AssetHandle(13), std::make_shared<Material>("invalid", "unlit_texture_blend")));
+            AssetHandle(13), std::make_shared<Material>("invalid", "unknown")));
         auto& renderer = engine->get_renderer();
         RenderScene scene;
         scene.cameras.push_back({.primary = true});
@@ -245,14 +322,14 @@ namespace Comet::Tests {
             EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, expected);
         };
         draw(1);
-        material->set_texture_property("u_Texture0", nullptr);
+        material->set_texture_property("base_color_texture", nullptr);
         draw(1);
         draw(1);
         scene.render_items.front().material_handle = AssetHandle(13);
         draw(0);
         scene.render_items.front().material_handle = AssetHandle(12);
-        draw(0);
-        material->set_texture_property("u_Texture0", image);
+        draw(1);
+        material->set_texture_property("base_color_texture", image);
         draw(1);
         scene.render_items.front().material_handle = {};
         draw(0);

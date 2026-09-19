@@ -15,7 +15,8 @@
 #include <array>
 #include "render/material/material.h"
 #include "unlit_color_vert.h"
-#include "unlit_texture_blend_frag.h"
+#include "pbr_frag.h"
+#include "pbr_vert.h"
 #include "unlit_color_frag.h"
 #include "line_vert.h"
 #include "line_frag.h"
@@ -43,8 +44,8 @@
 
 namespace Comet::Tests {
     TEST(ShaderInterfaceTest, ReflectsUserLocationsAndValidatesStageConnections) {
-        const auto mesh = ShaderInterface::reflect(UNLIT_COLOR_VERT);
-        const auto textured = ShaderInterface::reflect(UNLIT_TEXTURE_BLEND_FRAG);
+        const auto mesh = ShaderInterface::reflect(PBR_VERT);
+        const auto textured = ShaderInterface::reflect(PBR_FRAG);
         const auto solid = ShaderInterface::reflect(UNLIT_COLOR_FRAG);
         const auto debug = ShaderInterface::reflect(LINE_FRAG);
         const auto triangle = ShaderInterface::reflect(PIPELINE_TRIANGLE_VERT);
@@ -56,8 +57,14 @@ namespace Comet::Tests {
         ASSERT_EQ(mesh.value().get_inputs().size(), 3u);
         EXPECT_EQ(mesh.value().get_inputs()[0].location, 0u);
         EXPECT_EQ(mesh.value().get_inputs()[0].format, Format::R32G32B32_SFLOAT);
-        ASSERT_EQ(mesh.value().get_outputs().size(), 1u);
-        EXPECT_EQ(mesh.value().get_outputs()[0].format, Format::R32G32_SFLOAT);
+        ASSERT_EQ(mesh.value().get_outputs().size(), 3u);
+        EXPECT_EQ(mesh.value().get_outputs()[0].format, Format::R32G32B32_SFLOAT);
+        EXPECT_EQ(mesh.value().get_outputs()[2].format, Format::R32G32_SFLOAT);
+        const auto unlit = ShaderInterface::reflect(UNLIT_COLOR_VERT);
+        ASSERT_TRUE(unlit) << unlit.error();
+        EXPECT_TRUE(unlit.value().get_outputs().empty());
+        EXPECT_TRUE(unlit.value().validate_stage_link(solid.value()));
+        EXPECT_FALSE(unlit.value().validate_stage_link(textured.value()));
         EXPECT_TRUE(triangle.value().get_inputs().empty());
         EXPECT_TRUE(triangle.value().get_outputs().empty());
         EXPECT_TRUE(mesh.value().validate_stage_link(textured.value()));
@@ -116,9 +123,9 @@ namespace Comet::Tests {
         EXPECT_EQ(frame.set, 0u);
         EXPECT_EQ(frame.binding, 0u);
         EXPECT_EQ(frame.count, 1u);
-        EXPECT_EQ(frame.block_size, 128u);
+        EXPECT_EQ(frame.block_size, 160u);
         EXPECT_EQ(frame.type, DescriptorType::UniformBuffer);
-        ASSERT_EQ(frame.members.size(), 2u);
+        ASSERT_EQ(frame.members.size(), 6u);
         EXPECT_EQ(frame.members[0].format, Format::UNDEFINED);
         EXPECT_EQ(frame.members[1].format, Format::UNDEFINED);
         ASSERT_EQ(vertex.get_push_constants().size(), 1u);
@@ -126,27 +133,32 @@ namespace Comet::Tests {
         EXPECT_EQ(vertex.get_push_constants()[0].offset, 0u);
         EXPECT_EQ(vertex.get_push_constants()[0].size, 64u);
 
-        auto fragment_result = ShaderInterface::reflect(UNLIT_TEXTURE_BLEND_FRAG);
+        auto fragment_result = ShaderInterface::reflect(PBR_FRAG);
         ASSERT_TRUE(fragment_result) << fragment_result.error();
         const auto fragment = std::move(fragment_result).value();
         EXPECT_EQ(fragment.get_stage(), ShaderStage::Fragment);
-        ASSERT_EQ(fragment.get_bindings().size(), 3u);
+        ASSERT_EQ(fragment.get_bindings().size(), 5u);
         EXPECT_TRUE(fragment.get_push_constants().empty());
-        const auto& parameters = fragment.get_bindings()[0];
+        const auto parameter_binding = std::ranges::find_if(fragment.get_bindings(),
+            [](const auto& binding) { return binding.set == 1 && binding.binding == 0; });
+        ASSERT_NE(parameter_binding, fragment.get_bindings().end());
+        const auto& parameters = *parameter_binding;
         EXPECT_EQ(parameters.set, 1u);
         EXPECT_EQ(parameters.binding, 0u);
         EXPECT_EQ(parameters.block_size, 32u);
-        ASSERT_EQ(parameters.members.size(), 2u);
-        EXPECT_EQ(parameters.members[0].name, "tint");
+        ASSERT_EQ(parameters.members.size(), 3u);
+        EXPECT_EQ(parameters.members[0].name, "base_color");
         EXPECT_EQ(parameters.members[0].offset, 0u);
         EXPECT_EQ(parameters.members[0].format, Format::R32G32B32A32_SFLOAT);
-        EXPECT_EQ(parameters.members[1].name, "blend");
+        EXPECT_EQ(parameters.members[1].name, "metallic");
         EXPECT_EQ(parameters.members[1].offset, 16u);
         EXPECT_EQ(parameters.members[1].format, Format::R32_SFLOAT);
-        for(uint32_t index = 1; index <= 2; ++index) {
-            EXPECT_EQ(fragment.get_bindings()[index].binding, index);
-            EXPECT_EQ(fragment.get_bindings()[index].type, DescriptorType::CombinedImageSampler);
-        }
+        EXPECT_EQ(parameters.members[2].name, "roughness");
+        EXPECT_EQ(parameters.members[2].offset, 20u);
+        const auto texture = std::ranges::find_if(fragment.get_bindings(),
+            [](const auto& binding) { return binding.set == 1 && binding.binding == 1; });
+        ASSERT_NE(texture, fragment.get_bindings().end());
+        EXPECT_EQ(texture->type, DescriptorType::CombinedImageSampler);
         const auto debug_vertex = ShaderInterface::reflect(LINE_VERT);
         ASSERT_TRUE(debug_vertex) << debug_vertex.error();
         EXPECT_TRUE(debug_vertex.value().get_bindings().empty());
@@ -158,15 +170,17 @@ namespace Comet::Tests {
 
     TEST(ShaderInterfaceTest, OwnsReflectedValuesAfterInputAndParserAreGone) {
         const auto reflect = [] {
-            auto temporary = std::vector<uint32_t>(
-                UNLIT_TEXTURE_BLEND_FRAG.begin(), UNLIT_TEXTURE_BLEND_FRAG.end());
+            auto temporary = std::vector<uint32_t>(PBR_FRAG.begin(), PBR_FRAG.end());
             return ShaderInterface::reflect(temporary);
         };
         auto interface_result = reflect();
         ASSERT_TRUE(interface_result) << interface_result.error();
         const auto interface = std::move(interface_result).value();
-        EXPECT_EQ(interface.get_bindings()[0].members[0].name, "tint");
-        EXPECT_TRUE(MaterialLayout::find_builtin("unlit_texture_blend")->validate(interface));
+        const auto material = std::ranges::find_if(interface.get_bindings(),
+            [](const auto& binding) { return binding.set == 1 && binding.binding == 0; });
+        ASSERT_NE(material, interface.get_bindings().end());
+        EXPECT_EQ(material->members[0].name, "base_color");
+        EXPECT_TRUE(MaterialLayout::find_builtin("pbr")->validate(interface));
     }
 
     TEST(ShaderInterfaceTest, RejectsMalformedCodeMissingEntryAndRuntimeArrays) {
@@ -185,15 +199,15 @@ namespace Comet::Tests {
     }
 
     TEST(ShaderInterfaceTest, ChecksMaterialBlockOffsetsFormatsAndTextureBindings) {
-        auto textured_result = ShaderInterface::reflect(UNLIT_TEXTURE_BLEND_FRAG);
+        auto textured_result = ShaderInterface::reflect(PBR_FRAG);
         ASSERT_TRUE(textured_result) << textured_result.error();
         const auto textured = std::move(textured_result).value();
         auto solid_result = ShaderInterface::reflect(UNLIT_COLOR_FRAG);
         ASSERT_TRUE(solid_result) << solid_result.error();
         const auto solid = std::move(solid_result).value();
-        EXPECT_TRUE(MaterialLayout::find_builtin("unlit_texture_blend")->validate(textured));
+        EXPECT_TRUE(MaterialLayout::find_builtin("pbr")->validate(textured));
         EXPECT_TRUE(MaterialLayout::find_builtin("unlit_color")->validate(solid));
-        EXPECT_FALSE(MaterialLayout::find_builtin("unlit_texture_blend")->validate(solid));
+        EXPECT_FALSE(MaterialLayout::find_builtin("pbr")->validate(solid));
         {
             auto candidate = ShaderInterface::reflect(MATERIAL_INTEGER_FRAG);
             ASSERT_TRUE(candidate) << candidate.error();
@@ -214,8 +228,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(missing_member_result) << missing_member_result.error();
         const auto missing_member = std::move(missing_member_result).value();
         EXPECT_FALSE(missing_member.validate(solid));
-        auto wrong_binding_result = MaterialLayout::create(
-            "binding", {{"a", 1}, {"b", 3}}, 32, {{"blend", 16, 1}}, {{"tint", 0, {1, 1, 1, 1}}});
+        auto wrong_binding_result = MaterialLayout::create("binding", {{"base_color_texture", 3}},
+            32, {{"metallic", 16, 0}, {"roughness", 20, 1}}, {{"base_color", 0, {1, 1, 1, 1}}});
         ASSERT_TRUE(wrong_binding_result) << wrong_binding_result.error();
         const auto wrong_binding = std::move(wrong_binding_result).value();
         EXPECT_FALSE(wrong_binding.validate(textured));
@@ -330,7 +344,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(pipelines.create_pipeline("line", layout, config, vertex, fragment));
         EXPECT_FALSE(Shader::create(device, "bad", std::span<const uint32_t>{}));
 
-        auto material_result = ShaderInterface::reflect(UNLIT_TEXTURE_BLEND_FRAG);
+        auto material_result = ShaderInterface::reflect(PBR_FRAG);
         ASSERT_TRUE(material_result) << material_result.error();
         const auto material = std::move(material_result).value();
         EXPECT_FALSE(layout.validate(material));

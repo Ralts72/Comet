@@ -8,13 +8,11 @@
 #include "unlit_color_vert.h"
 #include "directional_vert.h"
 #include "directional_frag.h"
-#include "unlit_texture_blend_vert.h"
-#include "unlit_texture_blend_frag.h"
 #include "unlit_color_frag.h"
 #include "line_vert.h"
 #include "line_frag.h"
-#include "lambert_vert.h"
-#include "lambert_frag.h"
+#include "pbr_vert.h"
+#include "pbr_frag.h"
 #include "display_vert.h"
 #include "display_frag.h"
 
@@ -258,12 +256,9 @@ namespace Comet::Tests {
             EXPECT_FALSE(result.dependencies.empty());
         };
         compare("material/unlit_color.vert", ShaderStage::Vertex, UNLIT_COLOR_VERT);
-        compare("material/unlit_texture_blend.vert", ShaderStage::Vertex, UNLIT_TEXTURE_BLEND_VERT);
-        compare("material/lambert.vert", ShaderStage::Vertex, LAMBERT_VERT);
-        compare(
-            "material/unlit_texture_blend.frag", ShaderStage::Fragment, UNLIT_TEXTURE_BLEND_FRAG);
         compare("material/unlit_color.frag", ShaderStage::Fragment, UNLIT_COLOR_FRAG);
-        compare("material/lambert.frag", ShaderStage::Fragment, LAMBERT_FRAG);
+        compare("material/pbr.vert", ShaderStage::Vertex, PBR_VERT);
+        compare("material/pbr.frag", ShaderStage::Fragment, PBR_FRAG);
         compare("debug/line.vert", ShaderStage::Vertex, LINE_VERT);
         compare("debug/line.frag", ShaderStage::Fragment, LINE_FRAG);
         compare("post/display.vert", ShaderStage::Vertex, DISPLAY_VERT);

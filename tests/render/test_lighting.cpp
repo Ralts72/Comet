@@ -6,7 +6,7 @@
 #include "scene/component_registry.h"
 #include "scene/command_history.h"
 #include "graphics/pipeline/shader_interface.h"
-#include "lambert_frag.h"
+#include "pbr_frag.h"
 
 #include <gtest/gtest.h>
 #include <limits>
@@ -130,7 +130,7 @@ namespace Comet::Tests {
     }
 
     TEST(LightingTest, ShaderFrameBlockMatchesCpuPacking) {
-        const auto reflected = ShaderInterface::reflect(LAMBERT_FRAG);
+        const auto reflected = ShaderInterface::reflect(PBR_FRAG);
         ASSERT_TRUE(reflected) << reflected.error();
         const auto& shader = reflected.value();
         const auto found = std::ranges::find_if(shader.get_bindings(),

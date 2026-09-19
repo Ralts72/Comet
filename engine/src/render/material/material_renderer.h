@@ -91,6 +91,7 @@ namespace Comet {
         struct MaterialResources {
             std::shared_ptr<const PipelineState> pipeline;
             std::shared_ptr<const PreparedMaterial> prepared;
+            std::vector<std::shared_ptr<Texture>> textures;
             std::shared_ptr<Sampler> sampler;
             std::shared_ptr<CPUBuffer> parameters;
             std::shared_ptr<DescriptorPool> pool;
@@ -123,6 +124,7 @@ namespace Comet {
 
         Device& m_device;
         std::shared_ptr<Sampler> m_sampler;
+        std::shared_ptr<Texture> m_white_texture;
         std::shared_ptr<DescriptorSetLayout> m_frame_layout;
         std::vector<std::shared_ptr<FrameResources>> m_frames;
         std::unordered_map<std::string, std::shared_ptr<const PipelineState>> m_pipelines;

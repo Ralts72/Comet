@@ -1,9 +1,8 @@
 set(TARGET_NAME ${SHADER_COMPILE_TARGET})
 
 set(SHADER_PROGRAMS
-        material/unlit_texture_blend
         material/unlit_color
-        material/lambert
+        material/pbr
         debug/line
         post/display
         shadow/directional

@@ -83,37 +83,36 @@ namespace Comet::Tests {
     TEST(MaterialSerializerTest, LoadsTextureHandleProperties) {
         const TemporaryMaterial material(R"({
   "version": 2,
-  "template": "unlit_texture_blend",
+  "template": "test_material",
   "properties": {
-    "u_Texture0": {"type": "texture", "asset": 42},
-    "u_Texture1": {"type": "texture", "asset": 73}
+    "first": {"type": "texture", "asset": 42},
+    "second": {"type": "texture", "asset": 73}
   }
 })");
 
         const MaterialData data = MaterialSerializer{}.load(material.path()).value();
 
-        EXPECT_EQ(data.template_name, "unlit_texture_blend");
+        EXPECT_EQ(data.template_name, "test_material");
         ASSERT_EQ(data.texture_properties.size(), 2u);
-        EXPECT_EQ(data.texture_properties.at("u_Texture0"), AssetHandle(42));
-        EXPECT_EQ(data.texture_properties.at("u_Texture1"), AssetHandle(73));
+        EXPECT_EQ(data.texture_properties.at("first"), AssetHandle(42));
+        EXPECT_EQ(data.texture_properties.at("second"), AssetHandle(73));
     }
 
     TEST(MaterialSerializerTest, SerializesAndSavesDeterministically) {
-        const MaterialData data{.template_name = "unlit_texture_blend",
-            .texture_properties = {
-                {"u_Texture0", AssetHandle(42)}, {"u_Texture1", AssetHandle(73)}}};
+        const MaterialData data{.template_name = "test_material",
+            .texture_properties = {{"first", AssetHandle(42)}, {"second", AssetHandle(73)}}};
         const MaterialSerializer serializer;
         const std::string contents = serializer.serialize(data).value();
 
         EXPECT_EQ(contents, R"({
   "version": 2,
-  "template": "unlit_texture_blend",
+  "template": "test_material",
   "properties": {
-    "u_Texture0": {
+    "first": {
       "type": "texture",
       "asset": 42
     },
-    "u_Texture1": {
+    "second": {
       "type": "texture",
       "asset": 73
     }
@@ -130,8 +129,8 @@ namespace Comet::Tests {
     TEST(MaterialSerializerTest, RejectsInvalidAssetReference) {
         const TemporaryMaterial material(R"({
   "version": 2,
-  "template": "unlit_texture_blend",
-  "properties": {"u_Texture0": {"type": "texture", "asset": 0}}
+  "template": "test_material",
+  "properties": {"first": {"type": "texture", "asset": 0}}
 })");
 
         EXPECT_FALSE(MaterialSerializer{}.load(material.path()));
@@ -140,7 +139,7 @@ namespace Comet::Tests {
     TEST(MaterialSerializerTest, RejectsUnsupportedPropertyType) {
         const TemporaryMaterial material(R"({
   "version": 2,
-  "template": "unlit_texture_blend",
+  "template": "test_material",
   "properties": {"roughness": {"type": "float", "asset": 42}}
 })");
 
@@ -149,7 +148,7 @@ namespace Comet::Tests {
 
     TEST(MaterialSerializerTest, RejectsUnknownFields) {
         const TemporaryMaterial material(
-            R"({"version": 2, "template": "unlit_texture_blend", "properties": {}, "extra": true})");
+            R"({"version": 2, "template": "test_material", "properties": {}, "extra": true})");
 
         EXPECT_FALSE(MaterialSerializer{}.load(material.path()));
     }
@@ -157,12 +156,12 @@ namespace Comet::Tests {
     TEST(MaterialSerializerTest, RejectsInvalidDataBeforeSaving) {
         const MaterialSerializer serializer;
         const TemporaryMaterial material(
-            R"({"version": 2, "template": "unlit_texture_blend", "properties": {}})");
+            R"({"version": 2, "template": "test_material", "properties": {}})");
         const MaterialData original = serializer.load(material.path()).value();
 
         EXPECT_FALSE(serializer.serialize({.template_name = "", .texture_properties = {}}));
-        EXPECT_FALSE(serializer.serialize({.template_name = "unlit_texture_blend",
-            .texture_properties = {{"u_Texture0", INVALID_ASSET_HANDLE}}}));
+        EXPECT_FALSE(serializer.serialize({.template_name = "test_material",
+            .texture_properties = {{"first", INVALID_ASSET_HANDLE}}}));
         EXPECT_FALSE(
             serializer.save({.template_name = "", .texture_properties = {}}, material.path()));
         EXPECT_EQ(serializer.load(material.path()).value(), original);

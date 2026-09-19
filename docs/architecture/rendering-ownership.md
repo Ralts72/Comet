@@ -185,9 +185,21 @@ UBO 每灯 64 字节，使用 position、type、direction、range、color、inte
 类型、标记与计数仍用 float 编码，总计 2144 字节；C++ 静态断言和 Shader 反射测试核对偏移、数组步长与大小。
 每个 slot 等待完成后写入，FrameResources 由在途帧保活；灯光变化不更新材质 revision 或重建 MaterialSet。
 
-`lit_color` 提供纯色 albedo 和 Lambert 漫反射；点光使用有限范围衰减，聚光增加锥角权重。
+受光表面统一使用 `pbr`；点光使用有限范围衰减，聚光增加锥角权重。
 法线按模型矩阵逆转置变换，近奇异变换输出零法线；无有效灯光时为黑色，不添加隐藏环境光。
-强度是当前渲染参数，不承诺完整物理光度单位；尚无 PBR、IBL 或 clustered/tiled 筛选。
+强度是当前渲染参数，不承诺完整物理光度单位；尚无 IBL 或 clustered/tiled 筛选。
+
+`pbr` 在同一场景 pass 内使用 GGX、height-correlated Smith 与 Schlick Fresnel 计算直接光照，
+通过 `lighting/forward.glsl` 的 `sample_light` 和 `shadow_visibility` 获取光照，不增加 PBR pass 或 GPU 资源管理器。
+MaterialSet 的 32 字节参数保存 base_color、metallic、roughness；沿用共享布局、Inspector 与不可变材质版本。
+MaterialSet binding 1 为可选 base_color_texture，采样值在线性空间乘 base_color；sRGB 解码由纹理格式负责。
+MaterialLayout 标记可选槽位，PreparedMaterial 的空纹理表示未指定；MaterialRenderer 绑定自身持有的 1×1 白色纹理。
+实际绑定纹理由不可变 MaterialResources 保活，并与普通纹理一样参与上传等待；不往项目资产库注入默认纹理。
+显式纹理引用仍经 AssetManager 解析，丢失或导入失败不冒充未指定。Inspector 清空槽位时删除属性，不序列化零 Handle。
+Shader 将金属度限制到 0..1、粗糙度限制到 0.045..1，RGB 限制到 RGBA16F 有限范围；当前仍是不透明材质。
+Frame binding 0 由 `common/frame.glsl` 统一声明，160 字节包括两矩阵、相机位置、正交标记和观察方向。
+透视使用相机位置减世界位置，正交使用统一方向；投影判断只适用于当前引擎标准矩阵。
+相机数据按已完成的帧槽写入，不修改材质 revision，不扩大 SceneRenderer 或 Inspector 的材质分支。
 
 ### 方向光阴影
 
@@ -215,13 +227,13 @@ Shader 热发布按程序接收完整顶点/片元对，可更新任意一个或
 MaterialShaders 是具名程序集合，不依附 MaterialRenderer 的嵌套类型；未知名称、空集合或不完整程序在 GPU 创建前拒绝。
 MaterialShader 模块复用 ShaderInterface 反射校验，MaterialRenderer 保留管线与材质版本的原子发布。
 各组未参与更新时保留原版本，全部候选准备成功后发布；SceneRenderer 合并保存成功的各组字节码，
-完整目标重建不会丢失其他程序的开发覆盖。编辑器监视六个材质阶段及其实际 include，
+完整目标重建不会丢失其他程序的开发覆盖。编辑器监视已登记的材质阶段及其实际 include，
 包括 `common/mesh_vertex.glsl` 与 `lighting/forward.glsl`；生产目录约定见
 [README 的 Shader 开发](../../README.md#shader-开发)。
 
 ### 材质准备与寿命
 
-内置 `unlit_texture_blend` / `unlit_color` / `lit_color` 的初始 metadata 由 MaterialLayout::find_builtin 共享。
+内置 `unlit_color` / `pbr` 的初始 metadata 由 MaterialLayout::find_builtin 共享。
 MaterialLayout::reflect 按 shader_name（为空时使用逻辑属性名）匹配已登记属性，重建 offset／块大小／binding；
 名称、默认值、范围、步长和 Color/Vector 语义仍由 metadata 提供。参数块 binding 由布局指导创建和写入，不再固定为 0。
 未知／缺失／改类型字段、多参数块与不支持的资源形状拒绝；相同物理布局复用原对象，不增加平行 revision 计数。
@@ -308,7 +320,7 @@ Sampler::create 返回 Result<shared_ptr<Sampler>, GraphicsError>，校验配置
 SamplerManager 的预设统一经过 create_sampler；同名同配置复用，同名不同配置返回错误，不替换已有对象。
 linear-repeat 预设使用各向异性数值的精确位模式作为内部名称后缀，不以舍入后的显示字符串作缓存身份。
 MaterialRenderer 向上传递 sampler 错误；Viewport 只在构造时取得 nearest-clamp 并持有，帧更新仅复用。
-开发编辑器的 `render/shader_reload` 接收 1..16 个具名 CPU 请求；当前按同名 vert/frag 登记三个材质程序，不监视辅助线 Shader。
+开发编辑器的 `render/shader_reload` 接收 1..16 个具名 CPU 请求；当前按同名 vert/frag 登记材质程序，不监视辅助线 Shader。
 Worker 只捕获请求副本和共享结果，不访问 Editor、Scene 或 Device。销毁服务后已有 CPU 工作可以结束，但不会再发布。
 每组最多一个在途任务及合并的最新请求，共用 TaskScheduler 背压；无 GPU 类型、发布回调或全局 EventBus。
 每批任务编译所有阶段，消费时复核 revision、全部输入及缺失 include 候选；失败结果也作为下一次监视的基线。

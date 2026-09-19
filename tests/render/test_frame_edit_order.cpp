@@ -168,9 +168,8 @@ namespace Comet::Tests {
             resources.try_create_texture({.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
         ASSERT_TRUE(mesh);
         ASSERT_TRUE(texture);
-        auto material = std::make_shared<Material>("Test", "unlit_texture_blend");
-        material->set_texture_property("u_Texture0", texture.value());
-        material->set_texture_property("u_Texture1", texture.value());
+        auto material = std::make_shared<Material>("Test", "pbr");
+        material->set_texture_property("base_color_texture", texture.value());
         ASSERT_TRUE(engine.get_asset_registry().register_asset(AssetHandle(1), mesh.value()));
         ASSERT_TRUE(engine.get_asset_registry().register_asset(AssetHandle(2), material));
         auto make_scene = [](float x) {

@@ -1,11 +1,9 @@
 #include "render/material/material_shader.h"
 #include "graphics/pipeline/shader_interface.h"
-#include "unlit_texture_blend_vert.h"
-#include "unlit_texture_blend_frag.h"
 #include "unlit_color_vert.h"
 #include "unlit_color_frag.h"
-#include "lambert_vert.h"
-#include "lambert_frag.h"
+#include "pbr_vert.h"
+#include "pbr_frag.h"
 
 #include <array>
 #include <optional>
@@ -14,20 +12,15 @@
 namespace Comet {
     std::span<const MaterialShaderDefinition> builtin_material_shaders() {
         static constexpr std::array definitions{
-            MaterialShaderDefinition{"unlit_texture_blend", "unlit_texture_blend"},
             MaterialShaderDefinition{"unlit_color", "unlit_color"},
-            MaterialShaderDefinition{"lambert", "lit_color"}};
+            MaterialShaderDefinition{"pbr", "pbr"}};
         return definitions;
     }
 
     MaterialShaders default_material_shaders() {
-        return {{"unlit_texture_blend",
-                    {{UNLIT_TEXTURE_BLEND_VERT.begin(), UNLIT_TEXTURE_BLEND_VERT.end()},
-                        {UNLIT_TEXTURE_BLEND_FRAG.begin(), UNLIT_TEXTURE_BLEND_FRAG.end()}}},
-            {"unlit_color", {{UNLIT_COLOR_VERT.begin(), UNLIT_COLOR_VERT.end()},
-                                {UNLIT_COLOR_FRAG.begin(), UNLIT_COLOR_FRAG.end()}}},
-            {"lambert", {{LAMBERT_VERT.begin(), LAMBERT_VERT.end()},
-                            {LAMBERT_FRAG.begin(), LAMBERT_FRAG.end()}}}};
+        return {{"unlit_color", {{UNLIT_COLOR_VERT.begin(), UNLIT_COLOR_VERT.end()},
+                                    {UNLIT_COLOR_FRAG.begin(), UNLIT_COLOR_FRAG.end()}}},
+            {"pbr", {{PBR_VERT.begin(), PBR_VERT.end()}, {PBR_FRAG.begin(), PBR_FRAG.end()}}}};
     }
 
     Result<void> validate_material_shaders(const MaterialShaders& shaders) {

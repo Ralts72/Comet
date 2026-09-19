@@ -22,15 +22,12 @@
 #include "render/resource/mesh.h"
 #include "render/resource/render_resources.h"
 #include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 #include "render/material/material.h"
 #include "common/file_io.h"
 #include "shader/compiler.h"
 #include "support/temporary_directory.h"
-#include "lambert_vert.h"
-#include "unlit_color_vert.h"
-#include "unlit_texture_blend_vert.h"
-#include "unlit_texture_blend_frag.h"
-#include "unlit_color_frag.h"
+#include "pbr_vert.h"
 
 #include <gtest/gtest.h>
 #include <glm/gtc/packing.hpp>
@@ -102,9 +99,10 @@ namespace Comet::Tests {
             EXPECT_EQ(messages.str().find("Validation Error"), std::string::npos) << messages.str();
             EXPECT_TRUE(messages.str().empty()) << messages.str();
         }
-        static void submit(Device&, FrameScheduler& frames) {
+        static void submit(
+            Device&, FrameScheduler& frames, std::span<const QueueSemaphoreSubmit> waits = {}) {
             frames.get_current_command_buffer().end();
-            const auto submitted = frames.submit({}, {});
+            const auto submitted = frames.submit(waits, {});
             ASSERT_TRUE(submitted) << submitted.error().message;
             frames.end_frame();
         }
@@ -144,6 +142,34 @@ namespace Comet::Tests {
                 return Result<void, GraphicsError>::success();
             }));
         }
+        static glm::dvec3 pbr_reference(glm::dvec3 normal, glm::dvec3 view, glm::dvec3 light,
+            glm::dvec3 base, double metallic, double roughness, double radiance) {
+            if(glm::length(normal) < 1e-6)
+                return glm::dvec3(0);
+            normal = glm::normalize(normal);
+            view = glm::normalize(view);
+            light = glm::normalize(light);
+            const double nl = std::clamp(glm::dot(normal, light), 0.0, 1.0);
+            const double nv = std::clamp(glm::dot(normal, view), 0.0, 1.0);
+            if(nl <= 0 || nv <= 0)
+                return glm::dvec3(0);
+            const auto halfway = glm::normalize(light + view);
+            const double nh = std::clamp(glm::dot(normal, halfway), 0.0, 1.0);
+            const double vh = std::clamp(glm::dot(view, halfway), 0.0, 1.0);
+            const double a2 = std::pow(std::clamp(roughness, 0.045, 1.0), 4);
+            const double distribution =
+                a2 / (glm::pi<double>() * std::pow(nh * nh * (a2 - 1) + 1, 2));
+            const double geometry = 2 * nl * nv
+                                    / (nv * std::sqrt(a2 + (1 - a2) * nl * nl)
+                                        + nl * std::sqrt(a2 + (1 - a2) * nv * nv));
+            const double grazing = std::pow(1 - vh, 5);
+            const double fresnel = 0.04 + 0.96 * grazing;
+            const auto dielectric = base * (1 - fresnel) / glm::pi<double>()
+                                    + glm::dvec3(fresnel * distribution * geometry / (4 * nl * nv));
+            const auto metal =
+                (base + (1.0 - base) * grazing) * distribution * geometry / (4 * nl * nv);
+            return glm::mix(dielectric, metal, std::clamp(metallic, 0.0, 1.0)) * radiance * nl;
+        }
         static int mapped_byte(float hdr, float exposure = 1.0f) {
             const auto linear = 1.0f - std::exp(-std::max(hdr, 0.0f) * exposure);
             float encoded;
@@ -154,8 +180,9 @@ namespace Comet::Tests {
             return static_cast<int>(std::lround(encoded * 255.0f));
         }
         std::shared_ptr<Mesh> lit_quad(Math::Vec3 normal = {0, 0, 1}) {
-            MeshData data{.vertices = {{{-1, -1, 0.5f}, {}, normal}, {{1, -1, 0.5f}, {}, normal},
-                              {{1, 1, 0.5f}, {}, normal}, {{-1, 1, 0.5f}, {}, normal}},
+            MeshData data{
+                .vertices = {{{-1, -1, 0.5f}, {0, 0}, normal}, {{1, -1, 0.5f}, {1, 0}, normal},
+                    {{1, 1, 0.5f}, {1, 1}, normal}, {{-1, 1, 0.5f}, {0, 1}, normal}},
                 .indices = {0, 1, 2, 2, 3, 0}};
             auto created = engine->get_render_resources().try_create_mesh(data);
             if(!created) {
@@ -654,8 +681,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(renderer.enable_offscreen_rendering({33, 33}));
         auto& scene = renderer.get_scene_renderer();
         auto mesh = lit_quad();
-        auto material = std::make_shared<Material>("shadow receiver", "lit_color");
-        ASSERT_TRUE(material->set_vector_property("albedo", {1, 1, 1, 1}));
+        auto material = std::make_shared<Material>("shadow receiver", "pbr");
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
+        ASSERT_TRUE(material->set_scalar_property("roughness", 1));
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
@@ -702,14 +730,13 @@ namespace Comet::Tests {
                 frames.get_current_command_buffer().begin();
                 auto drawn = scene.render(frames, submission);
                 ASSERT_TRUE(drawn) << drawn.error();
-                EXPECT_TRUE(drawn.value().empty());
                 outputs[index] = std::make_shared<Readback>(
                     device, context.get_context().get_physical_device(), 33 * 33 * 4);
                 copy_output(frames,
                     scene.get_offscreen_color_view(frames.get_current_frame_slot_index())
                         ->get_image(),
                     outputs[index], {33, 33});
-                submit(device, frames);
+                submit(device, frames, drawn.value());
                 if(scenario == Scenario::RebuildAndRemoveOccluder && index == 0)
                     ASSERT_TRUE(renderer.enable_offscreen_rendering({33, 33}));
             }
@@ -725,12 +752,15 @@ namespace Comet::Tests {
                     scenario == Scenario::RebuildAndRemoveOccluder && index == 1;
                 const bool shadow = scenario != Scenario::ShadowsDisabled
                                     && scenario != Scenario::NoLights && !removed_occluder;
-                float irradiance = 1;
+                glm::dvec3 direction{0, 0, 1};
+                if(scenario == Scenario::TiltedLight)
+                    direction = {-1, 0, 1};
+                double radiance = Math::PI;
                 if(scenario == Scenario::NoLights)
-                    irradiance = 0;
-                else if(scenario == Scenario::TiltedLight)
-                    irradiance = std::sqrt(0.5f);
-                const auto lit = mapped_byte(irradiance);
+                    radiance = 0;
+                const auto reference =
+                    pbr_reference({0, 0, 1}, {0, 0, 1}, direction, {1, 1, 1}, 0, 1, radiance);
+                const auto lit = mapped_byte(static_cast<float>(reference.x));
                 for(unsigned channel = 0; channel < 3; ++channel) {
                     const auto at = [&](unsigned x, unsigned y) {
                         return std::to_integer<int>(bytes[(y * 33 + x) * 4 + channel]);
@@ -903,7 +933,7 @@ namespace Comet::Tests {
                     view.reset();
                     EXPECT_FALSE(old.expired());
                 }
-                submit(device, frames);
+                submit(device, frames, drawn.value());
                 frames.wait_for_all_slots();
                 if(iteration == 0)
                     EXPECT_TRUE(old.expired());
@@ -1010,100 +1040,321 @@ namespace Comet::Tests {
         messages.str({});
         messages.clear();
     }
-    TEST_F(RenderGraphGpuTest, LitReloadPreservesInFlightPixelsAndSurvivesTargetRebuild) {
+    TEST_F(RenderGraphGpuTest, PbrParametersAndCameraProjectionMatchReferencePixels) {
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context();
+        auto& device = context.get_device();
+        ASSERT_TRUE(renderer.enable_offscreen_rendering({33, 33}));
+        auto& scene = renderer.get_scene_renderer();
+        auto material = std::make_shared<Material>("pbr", "pbr");
+        ASSERT_TRUE(material->set_vector_property("base_color", {0.8f, 0.2f, 0.1f, 1}));
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        struct Scenario {
+            const char* name;
+            float metallic = 0;
+            float roughness = 0.6f;
+            Math::Vec3 camera{0, 0, 3};
+            bool orthographic = false;
+            LightType light_type = LightType::Directional;
+            Math::Vec3 normal{0, 0, 1};
+            Math::Vec3 light_direction{0.5f, 0, -1};
+            float intensity = 4;
+            bool has_light = true;
+        };
+        for(const auto& sample :
+            {Scenario{.name = "dielectric"}, Scenario{.name = "metal", .metallic = 1},
+                Scenario{.name = "mixed smooth", .metallic = 0.5f, .roughness = 0.2f},
+                Scenario{.name = "lower parameter bounds", .metallic = -1, .roughness = -1},
+                Scenario{.name = "upper parameter bounds", .metallic = 2, .roughness = 2},
+                Scenario{.name = "translated camera", .camera = {1, 0, 3}},
+                Scenario{.name = "orthographic", .orthographic = true},
+                Scenario{.name = "point light",
+                    .light_type = LightType::Point,
+                    .intensity = 4 * Math::PI},
+                Scenario{.name = "spot light",
+                    .light_type = LightType::Spot,
+                    .light_direction = {0, 0, -1},
+                    .intensity = 4 * Math::PI},
+                Scenario{.name = "zero normal", .normal = {}},
+                Scenario{.name = "back-facing normal", .normal = {0, 0, -1}},
+                Scenario{.name = "intense smooth metal",
+                    .metallic = 1,
+                    .roughness = 0.045f,
+                    .light_direction = {0, 0, -1},
+                    .intensity = 10000},
+                Scenario{.name = "no lights", .has_light = false}}) {
+            SCOPED_TRACE(sample.name);
+            ASSERT_TRUE(material->set_scalar_property("metallic", sample.metallic));
+            ASSERT_TRUE(material->set_scalar_property("roughness", sample.roughness));
+            auto projection = Math::perspective(60, 1, 0.1f, 10);
+            if(sample.orthographic)
+                projection = Math::ortho(-1, 1, -1, 1, 0.1f, 10);
+            RenderLight light{.type = sample.light_type,
+                .position = {0, 0, 2.5f},
+                .direction = sample.light_direction,
+                .intensity = sample.intensity};
+            RenderSubmission submission{
+                .view_project_matrix =
+                    ViewProjectMatrix{
+                        Math::look_at(sample.camera, {0, 0, 0.5f}, {0, 1, 0}), projection},
+                .render_items = {{.mesh = lit_quad(sample.normal),
+                    .material = {AssetHandle(781), material}}},
+                .lights = {light}};
+            if(!sample.has_light)
+                submission.lights.clear();
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            const auto drawn = scene.render(frames, submission);
+            ASSERT_TRUE(drawn) << drawn.error();
+            auto output = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
+            copy_output(frames, view->get_image(), output, {33, 33});
+            submit(device, frames, drawn.value());
+            frames.wait_for_all_slots();
+            auto direction = -glm::dvec3(light.direction);
+            double radiance = light.intensity;
+            if(light.type != LightType::Directional) {
+                direction = {0, 0, 1};
+                radiance *= std::pow(1 - std::pow(2.0 / light.range, 4), 2) / 4;
+            }
+            if(!sample.has_light)
+                radiance = 0;
+            const auto expected = pbr_reference(glm::dvec3(sample.normal),
+                glm::dvec3(sample.camera) - glm::dvec3(0, 0, 0.5), direction, {0.8, 0.2, 0.1},
+                sample.metallic, sample.roughness, radiance);
+            const auto bytes = output->read();
+            const auto format = view->get_image()->get_info().format;
+            const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+            for(unsigned x : {4u, 16u, 28u}) {
+                if(!sample.orthographic && x != 16)
+                    continue;
+                for(unsigned channel = 0; channel < 3; ++channel) {
+                    const auto component = bgra ? 2 - channel : channel;
+                    EXPECT_NEAR(std::to_integer<int>(bytes[(16 * 33 + x) * 4 + component]),
+                        mapped_byte(static_cast<float>(expected[channel])), 3);
+                }
+            }
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, PbrTextureUsesUvColorSpaceAndFallsBackAfterClear) {
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context();
+        auto& device = context.get_device();
+        ASSERT_TRUE(renderer.enable_offscreen_rendering({2, 2}));
+        auto& scene = renderer.get_scene_renderer();
+        auto material = std::make_shared<Material>("pbr", "pbr");
+        const Math::Vec3 tint{0.8f, 0.4f, 0.2f};
+        ASSERT_TRUE(material->set_vector_property("base_color", Math::Vec4(tint, 1)));
+        ASSERT_TRUE(material->set_scalar_property("roughness", 1));
+        RenderSubmission submission{
+            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
+            .render_items = {{.mesh = lit_quad(), .material = {AssetHandle(785), material}}},
+            .lights = {{.intensity = Math::PI}}};
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        const std::vector<uint8_t> pixels{
+            128, 64, 32, 0, 255, 0, 128, 255, 0, 255, 64, 255, 255, 255, 255, 255};
+        std::array<std::shared_ptr<Readback>, 4> outputs;
+        Format output_format{};
+        for(size_t index = 0; index < outputs.size(); ++index) {
+            if(index == 1 || index == 2) {
+                auto format = Format::R8G8B8A8_SRGB;
+                if(index == 2)
+                    format = Format::R8G8B8A8_UNORM;
+                auto texture = engine->get_render_resources().try_create_texture(
+                    {.width = 2, .height = 2, .format = format, .pixels = pixels});
+                ASSERT_TRUE(texture) << texture.error();
+                material->set_texture_property("base_color_texture", std::move(texture).value());
+            } else {
+                material->set_texture_property("base_color_texture", nullptr);
+            }
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            const auto drawn = scene.render(frames, submission);
+            ASSERT_TRUE(drawn) << drawn.error();
+            EXPECT_EQ(scene.get_material_statistics().draw_calls, 1);
+            outputs[index] =
+                std::make_shared<Readback>(device, context.get_context().get_physical_device(), 16);
+            const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
+            output_format = view->get_image()->get_info().format;
+            copy_output(frames, view->get_image(), outputs[index], {2, 2});
+            submit(device, frames, drawn.value());
+        }
+        frames.wait_for_all_slots();
+        const bool bgra =
+            output_format == Format::B8G8R8A8_SRGB || output_format == Format::B8G8R8A8_UNORM;
+        for(size_t index = 0; index < outputs.size(); ++index) {
+            SCOPED_TRACE(index);
+            const auto bytes = outputs[index]->read();
+            for(size_t pixel = 0; pixel < 4; ++pixel) {
+                // 场景使用负高度 viewport，读回行序与此测试网格的 V 方向相反。
+                const size_t texel_index = (1 - pixel / 2) * 2 + pixel % 2;
+                for(unsigned channel = 0; channel < 3; ++channel) {
+                    float texel = 1;
+                    if(index == 1 || index == 2)
+                        texel = pixels[texel_index * 4 + channel] / 255.0f;
+                    if(index == 1) {
+                        if(texel <= 0.04045f)
+                            texel /= 12.92f;
+                        else
+                            texel = std::pow((texel + 0.055f) / 1.055f, 2.4f);
+                    }
+                    const auto component = bgra ? 2 - channel : channel;
+                    // 正面、roughness=1、非金属、辐照度 PI：漫反射 0.96*base，镜面 0.01。
+                    EXPECT_NEAR(std::to_integer<int>(bytes[pixel * 4 + component]),
+                        mapped_byte(0.96f * tint[channel] * texel + 0.01f), 3);
+                }
+                EXPECT_EQ(std::to_integer<int>(bytes[pixel * 4 + 3]), 255);
+            }
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, PbrReloadRetainsOldFramesAndSurvivesTargetRebuild) {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
         ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
         auto& scene = renderer.get_scene_renderer();
+        const auto directory = std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material";
+        auto source = read_text_file(directory / "pbr.frag");
+        ASSERT_TRUE(source) << source.error();
+        const std::string color = "clamp(result, 0.0, 65504.0)";
+        const auto offset = source.value().find(color);
+        ASSERT_NE(offset, std::string::npos);
+        source.value().replace(offset, color.size(), "clamp(result * 0.5, 0.0, 65504.0)");
+        TemporaryDirectory temporary;
+        const auto path = temporary.path() / "pbr.frag";
+        ASSERT_TRUE(write_text_file_atomic(path, source.value()));
+        const auto compiled = ShaderCompiler::compile(
+            {.source = path, .stage = ShaderStage::Fragment, .include_directories = {directory}});
+        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+        const MaterialShaders candidate{
+            {"pbr", {{PBR_VERT.begin(), PBR_VERT.end()}, compiled.words}}};
+        auto material = std::make_shared<Material>("pbr", "pbr");
+        ASSERT_TRUE(material->set_vector_property("base_color", {0.5f, 0.5f, 0.5f, 1}));
+        ASSERT_TRUE(material->set_scalar_property("roughness", 1));
+        RenderSubmission submission{
+            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
+            .render_items = {{.mesh = lit_quad(), .material = {AssetHandle(784), material}}},
+            .lights = {{.intensity = Math::PI}}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
-        TemporaryDirectory temporary;
-        const auto directory = std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders";
-        auto source = read_text_file(directory / "material/lambert.frag");
-        ASSERT_TRUE(source);
-        const auto end = source.value().rfind('}');
-        ASSERT_NE(end, std::string::npos);
-        source.value().insert(end, "    color.rgb *= 0.5;\n");
-        ASSERT_TRUE(
-            write_text_file_atomic(temporary.path() / "material/lambert.frag", source.value()));
-        auto compiled =
-            ShaderCompiler::compile({.source = temporary.path() / "material/lambert.frag",
-                .stage = ShaderStage::Fragment,
-                .include_directories = {directory / "material"}});
-        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
-        MaterialShaders candidate{
-            {"lambert", {{std::begin(LAMBERT_VERT), std::end(LAMBERT_VERT)}, compiled.words}}};
-        auto mesh = lit_quad();
-        ASSERT_TRUE(mesh);
-        auto material = std::make_shared<Material>("lit", "lit_color");
-        ASSERT_TRUE(material->set_vector_property("albedo", {0.5f, 0.5f, 0.5f, 1}));
-        RenderSubmission submission{
-            .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
-            .render_items = {{.model_matrix = Math::Mat4(1),
-                .mesh = mesh,
-                .material = {AssetHandle(556), material}}},
-            .lights = {{.intensity = Math::PI}}};
         std::array<std::shared_ptr<Readback>, 3> outputs;
         for(size_t index = 0; index < outputs.size(); ++index) {
             if(index == 1) {
-                const auto report = renderer.reload_material_shaders(candidate);
-                ASSERT_TRUE(report) << report.error().message;
-                EXPECT_EQ(report.value().pipelines, 1);
-                EXPECT_EQ(report.value().material_versions, 1);
-                EXPECT_EQ(report.value().material_bindings, 0);
+                const auto published = renderer.reload_material_shaders(candidate);
+                ASSERT_TRUE(published) << published.error();
+                EXPECT_EQ(published.value().pipelines, 1);
+                EXPECT_EQ(published.value().material_bindings, 0);
                 auto broken = candidate;
-                broken.at("lambert").fragment.clear();
+                broken.at("pbr").fragment.clear();
                 EXPECT_FALSE(renderer.reload_material_shaders(broken));
-                broken.at("lambert").fragment = {0};
+                broken.at("pbr").fragment = {0};
                 EXPECT_FALSE(renderer.reload_material_shaders(broken));
-                auto header = read_text_file(directory / "lighting/forward.glsl");
-                ASSERT_TRUE(header);
+                auto header = read_text_file(directory.parent_path() / "lighting/forward.glsl");
+                ASSERT_TRUE(header) << header.error();
                 const auto binding = header.value().find("binding = 1");
                 ASSERT_NE(binding, std::string::npos);
-                header.value().replace(binding, std::string("binding = 1").size(), "binding = 7");
-                ASSERT_TRUE(write_text_file_atomic(
-                    temporary.path() / "lighting/forward.glsl", header.value()));
-                const auto incompatible =
-                    ShaderCompiler::compile({.source = temporary.path() / "material/lambert.frag",
-                        .stage = ShaderStage::Fragment});
+                header.value().replace(
+                    binding, std::string_view("binding = 1").size(), "binding = 7");
+                auto incompatible_source = source.value();
+                const std::string include = "#include \"../lighting/forward.glsl\"";
+                const auto offset = incompatible_source.find(include);
+                ASSERT_NE(offset, std::string::npos);
+                incompatible_source.replace(offset, include.size(), header.value());
+                const auto incompatible_path = temporary.path() / "incompatible.frag";
+                ASSERT_TRUE(write_text_file_atomic(incompatible_path, incompatible_source));
+                const auto incompatible = ShaderCompiler::compile({.source = incompatible_path,
+                    .stage = ShaderStage::Fragment,
+                    .include_directories = {directory}});
                 ASSERT_TRUE(incompatible.succeeded()) << incompatible.diagnostics;
-                broken.at("lambert").fragment = incompatible.words;
+                broken.at("pbr").fragment = incompatible.words;
                 EXPECT_FALSE(renderer.reload_material_shaders(broken));
             }
             if(index == 2) {
-                const MaterialShaders unlit{
-                    {"unlit_texture_blend",
-                        {{std::begin(UNLIT_TEXTURE_BLEND_VERT), std::end(UNLIT_TEXTURE_BLEND_VERT)},
-                            {std::begin(UNLIT_TEXTURE_BLEND_FRAG),
-                                std::end(UNLIT_TEXTURE_BLEND_FRAG)}}},
-                    {"unlit_color",
-                        {{std::begin(UNLIT_COLOR_VERT), std::end(UNLIT_COLOR_VERT)},
-                            {std::begin(UNLIT_COLOR_FRAG), std::end(UNLIT_COLOR_FRAG)}}}};
-                ASSERT_TRUE(renderer.reload_material_shaders(unlit));
-                // 完整目标重建必须沿用已发布的 lit 字节码，而不是恢复内嵌版本。
+                // 更新其他程序及重建目标不能恢复旧的 PBR 字节码。
+                const auto builtin = default_material_shaders();
+                ASSERT_TRUE(
+                    renderer.reload_material_shaders({{"unlit_color", builtin.at("unlit_color")}}));
                 ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
             }
             frames.wait_for_current_slot();
             frames.begin_frame(0);
             frames.get_current_command_buffer().begin();
             const auto drawn = scene.render(frames, submission);
-            ASSERT_TRUE(drawn) << drawn.error().message;
+            ASSERT_TRUE(drawn) << drawn.error();
             outputs[index] =
                 std::make_shared<Readback>(device, context.get_context().get_physical_device(), 64);
             copy_output(frames,
                 scene.get_offscreen_color_view(frames.get_current_frame_slot_index())->get_image(),
                 outputs[index], {4, 4});
-            submit(device, frames);
+            submit(device, frames, drawn.value());
         }
         frames.wait_for_all_slots();
         for(size_t index = 0; index < outputs.size(); ++index) {
-            const auto pixels = outputs[index]->read();
+            const auto bytes = outputs[index]->read();
+            const auto expected = mapped_byte(index == 0 ? 0.49f : 0.245f);
             for(size_t pixel = 0; pixel < 16; ++pixel)
                 for(size_t channel = 0; channel < 3; ++channel)
-                    EXPECT_NEAR(std::to_integer<int>(pixels[pixel * 4 + channel]),
-                        mapped_byte(index == 0 ? 0.5f : 0.25f), 2);
+                    EXPECT_NEAR(std::to_integer<int>(bytes[pixel * 4 + channel]), expected, 2);
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, PbrReceivesDirectionalShadowWithoutMaterialRebinding) {
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context();
+        auto& device = context.get_device();
+        ASSERT_TRUE(renderer.enable_offscreen_rendering({33, 33}));
+        auto& scene = renderer.get_scene_renderer();
+        const auto mesh = lit_quad();
+        auto material = std::make_shared<Material>("pbr", "pbr");
+        const auto occluder =
+            Math::scale(Math::translate(Math::Mat4(1), {-0.5f, 0, 0.875f}), {0.25f, 0.25f, 0.25f});
+        RenderSubmission submission{
+            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
+            .render_items = {{.mesh = mesh, .material = {AssetHandle(780), material}},
+                {.model_matrix = occluder, .mesh = mesh, .material = {AssetHandle(780), material}}},
+            .lights = {{.direction = {1, 0, -1}, .intensity = 4}}};
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::vector<std::byte>, 2> pixels;
+        for(unsigned index = 0; index < 2; ++index) {
+            submission.lights[0].casts_shadow = index == 1;
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            const auto drawn = scene.render(frames, submission);
+            ASSERT_TRUE(drawn) << drawn.error();
+            EXPECT_EQ(
+                scene.get_material_statistics().material_bindings_created, index == 0 ? 1 : 0);
+            auto output = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            copy_output(frames,
+                scene.get_offscreen_color_view(frames.get_current_frame_slot_index())->get_image(),
+                output, {33, 33});
+            submit(device, frames, drawn.value());
+            frames.wait_for_all_slots();
+            pixels[index] = output->read();
+        }
+        for(unsigned channel = 0; channel < 3; ++channel) {
+            const unsigned center = (16 * 33 + 16) * 4 + channel;
+            const unsigned lit = (16 * 33 + 28) * 4 + channel;
+            EXPECT_GT(std::to_integer<int>(pixels[0][center]), 50);
+            EXPECT_LE(std::to_integer<int>(pixels[1][center]), 3);
+            EXPECT_NEAR(
+                std::to_integer<int>(pixels[0][lit]), std::to_integer<int>(pixels[1][lit]), 2);
         }
     }
 
@@ -1117,8 +1368,9 @@ namespace Comet::Tests {
         auto tilted = lit_quad({1, 0, 1});
         ASSERT_TRUE(mesh);
         ASSERT_TRUE(tilted);
-        auto material = std::make_shared<Material>("lit", "lit_color");
-        ASSERT_TRUE(material->set_vector_property("albedo", {0.5f, 0.25f, 0.125f, 1}));
+        auto material = std::make_shared<Material>("lit", "pbr");
+        ASSERT_TRUE(material->set_vector_property("base_color", {0.5f, 0.25f, 0.125f, 1}));
+        ASSERT_TRUE(material->set_scalar_property("roughness", 1));
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
@@ -1184,7 +1436,6 @@ namespace Comet::Tests {
             frames.get_current_command_buffer().begin();
             const auto rendered = scene.render(frames, submission, {});
             ASSERT_TRUE(rendered) << rendered.error().message;
-            EXPECT_TRUE(rendered.value().empty());
             const auto& statistics = scene.get_material_statistics();
             EXPECT_EQ(statistics.draw_calls, 1);
             EXPECT_EQ(statistics.light_count, scenario == Scenario::NoLights ? 0 : 1);
@@ -1192,14 +1443,15 @@ namespace Comet::Tests {
                 EXPECT_EQ(statistics.material_bindings_created, 0);
             auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
             copy_output(frames, view->get_image(), readback, {17, 17});
-            submit(device, frames);
+            submit(device, frames, rendered.value());
             frames.wait_for_all_slots();
             const auto bytes = readback->read();
             const auto format = view->get_image()->get_info().format;
             const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
             for(unsigned y = 0; y < 17; ++y) {
                 for(unsigned x = 0; x < 17; ++x) {
-                    float irradiance = 1;
+                    double radiance = light.intensity;
+                    glm::dvec3 direction = -glm::dvec3(light.direction);
                     if(attenuated) {
                         const Math::Vec3 position{
                             (x + 0.5f) / 8.5f - 1, 1 - (y + 0.5f) / 8.5f, 0.5f};
@@ -1207,30 +1459,32 @@ namespace Comet::Tests {
                         const float distance = Math::length(delta);
                         const float falloff =
                             std::max(1.0f - std::pow(distance / light.range, 4.0f), 0.0f);
-                        irradiance =
-                            4 * falloff * falloff / (distance * distance) * delta.z / distance;
+                        radiance *= falloff * falloff / (distance * distance);
+                        direction = glm::dvec3(delta / distance);
                         if(spot) {
                             const float inner = std::cos(Math::radians(light.inner_angle));
                             const float outer = std::cos(Math::radians(light.outer_angle));
                             if(inner - outer > 1e-6f) {
                                 const float t = std::clamp(
                                     (delta.z / distance - outer) / (inner - outer), 0.0f, 1.0f);
-                                irradiance *= t * t * (3 - 2 * t);
+                                radiance *= t * t * (3 - 2 * t);
                             } else if(delta.z / distance < outer) {
-                                irradiance = 0;
+                                radiance = 0;
                             }
                         }
                     }
                     if(scenario == Scenario::BackFacing || scenario == Scenario::SingularScale
                         || scenario == Scenario::NoLights || scenario == Scenario::OutOfRange)
-                        irradiance = 0;
+                        radiance = 0;
+                    glm::dvec3 normal{0, 0, 1};
                     if(scenario == Scenario::NonuniformScale)
-                        irradiance = 1 / std::sqrt(1.25f);
-                    const std::array<float, 3> albedo{0.5f, 0.25f, 0.125f};
+                        normal = {0.5, 0, 1};
+                    const auto expected = pbr_reference(
+                        normal, {0, 0, 1}, direction, {0.5, 0.25, 0.125}, 0, 1, radiance);
                     for(size_t channel = 0; channel < 3; ++channel) {
                         const auto component = bgra ? 2 - channel : channel;
                         EXPECT_NEAR(std::to_integer<int>(bytes[(y * 17 + x) * 4 + component]),
-                            mapped_byte(albedo[channel] * irradiance), 3)
+                            mapped_byte(static_cast<float>(expected[channel])), 3)
                             << "at " << x << ',' << y;
                     }
                 }

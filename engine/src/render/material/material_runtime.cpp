@@ -53,7 +53,7 @@ namespace Comet {
         prepared->textures.reserve(layout->get_textures().size());
         for(const auto& property : layout->get_textures()) {
             auto texture = material->get_texture_property(property.name);
-            if(!texture) {
+            if(!texture && !property.optional) {
                 entry.error = "Missing texture property '" + property.name + "'";
                 return Preparation::failure(entry.error);
             }

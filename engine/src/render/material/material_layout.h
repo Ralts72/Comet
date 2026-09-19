@@ -20,6 +20,8 @@ namespace Comet {
             uint32_t binding;
             std::string display_name;
             std::string shader_name;
+            // 未指定的可选纹理由渲染端绑定白色纹理。
+            bool optional = false;
         };
         struct ScalarProperty {
             std::string name;

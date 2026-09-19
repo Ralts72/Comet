@@ -15,7 +15,7 @@ namespace CometEditor::Tests {
         ShaderReload::Requests requests{
             {"vertex", {.source = directory.path() / "material/unlit_color.vert",
                            .stage = Comet::ShaderStage::Vertex}},
-            {"textured", {.source = directory.path() / "material/unlit_texture_blend.frag",
+            {"textured", {.source = directory.path() / "material/pbr.frag",
                              .stage = Comet::ShaderStage::Fragment}},
             {"solid", {.source = directory.path() / "material/unlit_color.frag",
                           .stage = Comet::ShaderStage::Fragment}}};
@@ -58,12 +58,8 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(ShaderReloadTest, SharedVertexIncludeRecompilesEveryMaterialProgram) {
-        requests.emplace(
-            "texture_vertex", Comet::ShaderCompiler::Request{
-                                  .source = directory.path() / "material/unlit_texture_blend.vert",
-                                  .stage = Comet::ShaderStage::Vertex});
-        requests.emplace("lighting_vertex",
-            Comet::ShaderCompiler::Request{.source = directory.path() / "material/lambert.vert",
+        requests.emplace("texture_vertex",
+            Comet::ShaderCompiler::Request{.source = directory.path() / "material/pbr.vert",
                 .stage = Comet::ShaderStage::Vertex});
         ShaderReload reload(scheduler, requests);
         const auto original = finish(reload);
@@ -82,7 +78,7 @@ namespace CometEditor::Tests {
         const auto updated = finish(reload);
         ASSERT_TRUE(updated);
         ASSERT_TRUE(updated->succeeded) << updated->diagnostics;
-        for(const auto* stage : {"vertex", "texture_vertex", "lighting_vertex"})
+        for(const auto* stage : {"vertex", "texture_vertex"})
             EXPECT_NE(original->stages.at(stage).words, updated->stages.at(stage).words);
         EXPECT_EQ(original->stages.at("solid").words, updated->stages.at("solid").words);
     }

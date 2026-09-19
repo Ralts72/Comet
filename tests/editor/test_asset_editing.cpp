@@ -59,8 +59,7 @@ namespace CometEditor::Tests {
             add_asset("second.png", second_texture, Comet::AssetType::Texture);
             add_asset("material.mat", material, Comet::AssetType::Material);
             EXPECT_TRUE(Comet::MaterialSerializer{}.save(
-                {.template_name = "unlit_texture_blend",
-                    .texture_properties = {{"u_Texture0", texture}, {"u_Texture1", texture}}},
+                {.template_name = "pbr", .texture_properties = {{"base_color_texture", texture}}},
                 paths.assets() / "material.mat"));
             ASSERT_TRUE(database.scan().succeeded());
             auto builtins = Comet::create_scene_component_registry();
@@ -75,6 +74,17 @@ namespace CometEditor::Tests {
         }
 
         void TearDown() override { inspector.reset(); }
+
+        void require_texture_pair() {
+            auto layout = Comet::MaterialLayout::create(
+                "required_textures", {{"base_color_texture", 1, "Base Color Texture", ""},
+                                         {"detail_texture", 2, "Detail Texture", ""}});
+            ASSERT_TRUE(layout);
+            inspector->set_material_layouts(
+                {std::make_shared<Comet::MaterialLayout>(std::move(layout).value())});
+            ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+                {.template_name = "required_textures"}, paths.assets() / "material.mat"));
+        }
 
         void frame() {
             ImGui::NewFrame();
@@ -351,12 +361,12 @@ namespace CometEditor::Tests {
         selection.select_asset(material);
         frame();
         frame();
-        const auto point = material_point("u_Texture0", "Texture 0");
+        const auto point = material_point("base_color_texture", "Base Color Texture");
         payload = drag_asset(second_texture, Comet::AssetType::Texture);
         material_update_success = false;
         EXPECT_FALSE(drop(point));
         ASSERT_EQ(material_updates, 1);
-        EXPECT_EQ(submitted_material.texture_properties.at("u_Texture0"), second_texture);
+        EXPECT_EQ(submitted_material.texture_properties.at("base_color_texture"), second_texture);
         material_update_success = true;
         EXPECT_FALSE(drop(point));
         EXPECT_EQ(material_updates, 2);
@@ -366,14 +376,16 @@ namespace CometEditor::Tests {
         EXPECT_EQ(Comet::MaterialSerializer{}
                       .load(paths.assets() / "material.mat")
                       .value()
-                      .texture_properties.at("u_Texture0"),
+                      .texture_properties.at("base_color_texture"),
             texture);
     }
 
     TEST_F(AssetEditingUiTest, SelectedMaterialReloadsOnlyWhenItsRevisionChanges) {
         selection.select_asset(material);
         frame();
-        const auto slot_point = [&]() { return material_point("u_Texture0", "Texture 0"); };
+        const auto slot_point = [&]() {
+            return material_point("base_color_texture", "Base Color Texture");
+        };
         payload = drag_asset(second_texture, Comet::AssetType::Texture);
         EXPECT_FALSE(drop(slot_point()));
         ASSERT_EQ(material_updates, 1);
@@ -389,9 +401,9 @@ namespace CometEditor::Tests {
 
         inspector->set_visible(false);
         ASSERT_TRUE(Comet::MaterialSerializer{}.save(
-            {.template_name = "unlit_texture_blend",
-                .texture_properties = {{"u_Texture0", texture}, {"u_Texture1", texture}},
-                .scalar_properties = {{"blend", 0.25f}}},
+            {.template_name = "pbr",
+                .texture_properties = {{"base_color_texture", texture}},
+                .scalar_properties = {{"roughness", 0.25f}}},
             paths.assets() / "material.mat"));
         ASSERT_TRUE(database.scan().succeeded());
         ASSERT_NE(database.get_revision(material), revision);
@@ -401,7 +413,7 @@ namespace CometEditor::Tests {
         frame();
         EXPECT_FALSE(drop(slot_point()));
         EXPECT_EQ(material_updates, 2);
-        EXPECT_FLOAT_EQ(submitted_material.scalar_properties.at("blend"), 0.25f);
+        EXPECT_FLOAT_EQ(submitted_material.scalar_properties.at("roughness"), 0.25f);
     }
 
     TEST_F(AssetEditingUiTest, FailedMaterialLoadRetriesAfterAssetRevisionChanges) {
@@ -411,23 +423,22 @@ namespace CometEditor::Tests {
         frame();
 
         ASSERT_TRUE(Comet::MaterialSerializer{}.save(
-            {.template_name = "unlit_texture_blend",
-                .texture_properties = {{"u_Texture0", texture}, {"u_Texture1", texture}}},
+            {.template_name = "pbr", .texture_properties = {{"base_color_texture", texture}}},
             paths.assets() / "material.mat"));
         ASSERT_TRUE(database.scan().succeeded());
         frame();
         frame();
         payload = drag_asset(second_texture, Comet::AssetType::Texture);
-        EXPECT_FALSE(drop(material_point("u_Texture0", "Texture 0")));
+        EXPECT_FALSE(drop(material_point("base_color_texture", "Base Color Texture")));
         EXPECT_EQ(material_updates, 1);
-        EXPECT_EQ(submitted_material.template_name, "unlit_texture_blend");
+        EXPECT_EQ(submitted_material.template_name, "pbr");
     }
 
     TEST_F(AssetEditingUiTest, LayoutDefaultsDoNotPublishUntilScalarActuallyChanges) {
         selection.select_asset(material);
         frame();
         frame();
-        const auto point = material_point("blend", "Blend");
+        const auto point = material_point("roughness", "Roughness");
         EXPECT_EQ(material_updates, 0);
         EXPECT_TRUE(Comet::MaterialSerializer{}
                 .load(paths.assets() / "material.mat")
@@ -435,8 +446,8 @@ namespace CometEditor::Tests {
                 .scalar_properties.empty());
         drag_value(point, 30);
         ASSERT_GT(material_updates, 0);
-        EXPECT_GT(submitted_material.scalar_properties.at("blend"), 0.5f);
-        EXPECT_LE(submitted_material.scalar_properties.at("blend"), 1.0f);
+        EXPECT_GT(submitted_material.scalar_properties.at("roughness"), 0.5f);
+        EXPECT_LE(submitted_material.scalar_properties.at("roughness"), 1.0f);
         EXPECT_TRUE(submitted_material.vector_properties.empty());
         const auto updates = material_updates;
         for(int index = 0; index < 10; ++index)
@@ -449,7 +460,7 @@ namespace CometEditor::Tests {
         selection.select_asset(material);
         frame();
         frame();
-        const auto point = material_point("blend", "Blend");
+        const auto point = material_point("roughness", "Roughness");
         material_update_success = false;
         drag_value(point, 20);
         ASSERT_GT(material_updates, 0);
@@ -461,7 +472,7 @@ namespace CometEditor::Tests {
         material_update_success = true;
         drag_value(point, -20);
         EXPECT_GT(material_updates, failed_updates);
-        EXPECT_NEAR(submitted_material.scalar_properties.at("blend"), 0.3f, 0.001f);
+        EXPECT_NEAR(submitted_material.scalar_properties.at("roughness"), 0.3f, 0.001f);
         const auto updates = material_updates;
         frame();
         frame();
@@ -469,21 +480,79 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(AssetEditingUiTest, RepairsMissingTextureSlotsWithoutAnApplyButton) {
-        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
-            {.template_name = "unlit_texture_blend"}, paths.assets() / "material.mat"));
+        require_texture_pair();
         selection.select_asset(material);
         frame();
         frame();
         payload = drag_asset(texture, Comet::AssetType::Texture);
-        EXPECT_FALSE(drop(material_point("u_Texture0", "Texture 0")));
+        EXPECT_FALSE(drop(material_point("base_color_texture", "Base Color Texture")));
         EXPECT_EQ(material_updates, 0);
         payload = drag_asset(second_texture, Comet::AssetType::Texture);
-        EXPECT_FALSE(drop(material_point("u_Texture1", "Texture 1")));
+        EXPECT_FALSE(drop(material_point("detail_texture", "Detail Texture")));
         ASSERT_EQ(material_updates, 1);
-        EXPECT_EQ(submitted_material.texture_properties.at("u_Texture0"), texture);
-        EXPECT_EQ(submitted_material.texture_properties.at("u_Texture1"), second_texture);
+        EXPECT_EQ(submitted_material.texture_properties.at("base_color_texture"), texture);
+        EXPECT_EQ(submitted_material.texture_properties.at("detail_texture"), second_texture);
         frame();
         EXPECT_EQ(material_updates, 1);
+    }
+
+    TEST_F(AssetEditingUiTest, PbrParametersPublishOnChangeWithoutIdleWrites) {
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "pbr"}, paths.assets() / "material.mat"));
+        selection.select_asset(material);
+        frame();
+        frame();
+        EXPECT_EQ(material_updates, 0);
+        drag_value(material_point("metallic", "Metallic"), 20);
+        ASSERT_GT(material_updates, 0);
+        EXPECT_GT(submitted_material.scalar_properties.at("metallic"), 0);
+        EXPECT_LE(submitted_material.scalar_properties.at("metallic"), 1);
+        const auto first = material_updates;
+        drag_value(material_point("roughness", "Roughness"), -20);
+        EXPECT_GT(material_updates, first);
+        EXPECT_GE(submitted_material.scalar_properties.at("roughness"), 0.045f);
+        EXPECT_LT(submitted_material.scalar_properties.at("roughness"), 0.5f);
+        EXPECT_TRUE(submitted_material.texture_properties.empty());
+        const auto updates = material_updates;
+        frame();
+        frame();
+        EXPECT_EQ(material_updates, updates);
+    }
+
+    TEST_F(AssetEditingUiTest, PbrOptionalTextureCanBeAssignedReplacedAndCleared) {
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "pbr"}, paths.assets() / "material.mat"));
+        selection.select_asset(material);
+        frame();
+        frame();
+        payload = drag_asset(texture, Comet::AssetType::Texture);
+        EXPECT_FALSE(drop(material_point("base_color_texture", "Base Color Texture")));
+        ASSERT_EQ(material_updates, 1);
+        EXPECT_EQ(submitted_material.texture_properties.at("base_color_texture"), texture);
+        const auto choose_texture = [&](int row) {
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(5, 5);
+            // 独立点击，避免与上一轮模拟拖放被识别成双击。
+            for(float elapsed = 0; elapsed <= io.MouseDoubleClickTime; elapsed += io.DeltaTime)
+                frame();
+            EXPECT_FALSE(click(material_point("base_color_texture", "Base Color Texture")));
+            frame();
+            const auto* popup = ImGui::FindWindowByName("##Combo_00");
+            ASSERT_NE(popup, nullptr);
+            ASSERT_TRUE(popup->Active);
+            EXPECT_FALSE(click({popup->DC.CursorStartPos.x + 20,
+                popup->DC.CursorStartPos.y + row * ImGui::GetTextLineHeightWithSpacing()
+                    + ImGui::GetTextLineHeight() * 0.5f}));
+        };
+        choose_texture(1); // None 后是按路径排序的 second.png。
+        ASSERT_EQ(material_updates, 2);
+        EXPECT_EQ(submitted_material.texture_properties.at("base_color_texture"), second_texture);
+        choose_texture(0);
+        EXPECT_EQ(material_updates, 3);
+        EXPECT_TRUE(submitted_material.texture_properties.empty());
+        EXPECT_TRUE(Comet::MaterialSerializer{}.serialize(submitted_material));
+        frame();
+        EXPECT_EQ(material_updates, 3);
     }
 
     TEST_F(AssetEditingUiTest, SolidLayoutNeedsNoTextureAndPublishesNumericParameter) {
@@ -520,13 +589,12 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(AssetEditingUiTest, IncompleteTextureDraftDoesNotLeakToAnotherAsset) {
-        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
-            {.template_name = "unlit_texture_blend"}, paths.assets() / "material.mat"));
+        require_texture_pair();
         selection.select_asset(material);
         frame();
         frame();
         payload = drag_asset(texture, Comet::AssetType::Texture);
-        EXPECT_FALSE(drop(material_point("u_Texture0", "Texture 0")));
+        EXPECT_FALSE(drop(material_point("base_color_texture", "Base Color Texture")));
         EXPECT_EQ(material_updates, 0);
         selection.select_asset(texture);
         frame();
@@ -534,7 +602,7 @@ namespace CometEditor::Tests {
         frame();
         frame();
         payload = drag_asset(second_texture, Comet::AssetType::Texture);
-        EXPECT_FALSE(drop(material_point("u_Texture1", "Texture 1")));
+        EXPECT_FALSE(drop(material_point("detail_texture", "Detail Texture")));
         EXPECT_EQ(material_updates, 0);
         EXPECT_TRUE(Comet::MaterialSerializer{}
                 .load(paths.assets() / "material.mat")

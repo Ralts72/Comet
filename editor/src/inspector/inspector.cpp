@@ -351,12 +351,15 @@ namespace CometEditor {
                 remember_previous();
                 m_material_data->scalar_properties.erase(property_name);
                 m_material_data->vector_properties.erase(property_name);
-                m_material_data->texture_properties[property_name] = value;
+                if(value)
+                    m_material_data->texture_properties[property_name] = value;
+                else
+                    m_material_data->texture_properties.erase(property_name);
                 texture_handle = value;
             };
             auto selected = texture_handle;
-            if(edit_asset_reference(
-                   label.c_str(), selected, m_asset_database, Comet::AssetType::Texture, false)) {
+            if(edit_asset_reference(label.c_str(), selected, m_asset_database,
+                   Comet::AssetType::Texture, property.optional)) {
                 assign(selected);
             }
             if(const auto asset = accept_asset_drop(Comet::AssetType::Texture);
@@ -506,7 +509,7 @@ namespace CometEditor {
                 return "Unknown or incorrectly typed property '" + name + "' in this layout";
         }
         for(const auto& property : layout->get_textures()) {
-            if(!m_material_data->texture_properties.contains(property.name))
+            if(!property.optional && !m_material_data->texture_properties.contains(property.name))
                 return "Complete texture slot '" + property.name + "' to publish changes";
         }
 

@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "template": "pbr",
+  "properties": {
+    "metallic": {
+      "type": "scalar",
+      "value": 0
+    },
+    "roughness": {
+      "type": "scalar",
+      "value": 1
+    },
+    "base_color": {
+      "type": "vector",
+      "value": [
+        0.992,
+        1,
+        0.493,
+        1
+      ]
+    }
+  }
+}

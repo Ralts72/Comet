@@ -17,6 +17,7 @@
 #include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <chrono>
 #include <array>
 #include <fstream>
@@ -326,14 +327,18 @@ namespace CometEditor::Tests {
         const auto startup = serializer.load(path);
         ASSERT_TRUE(startup) << startup.error();
         const auto initial_entities = startup.value()->entity_count();
+        const auto expected_references = components.collect_asset_references(*startup.value());
+        const auto expected_meshes = std::ranges::count_if(expected_references,
+            [](const auto& reference) { return reference.type == Comet::AssetType::Mesh; });
+        ASSERT_GT(expected_meshes, 0);
         ASSERT_TRUE(document.open(project.startup_scene().string()));
         ASSERT_NE(active, nullptr);
         EXPECT_EQ(document.get_path(), path);
-        EXPECT_EQ(missing, 1U);
+        EXPECT_EQ(missing, expected_meshes);
         EXPECT_EQ(factory.mesh_creations, 0);
         EXPECT_EQ(active->entity_count(), initial_entities);
         const auto references = components.collect_asset_references(*active);
-        ASSERT_EQ(references.size(), 2U);
+        EXPECT_EQ(references, expected_references);
         for(const auto& reference : references) {
             const auto* record = assets->database().find(reference.handle);
             ASSERT_NE(record, nullptr);
@@ -345,7 +350,7 @@ namespace CometEditor::Tests {
         complete_imports();
         assets->track_scene(*active, components);
         ASSERT_TRUE(assets->restore_references({100, std::chrono::seconds(1)}));
-        EXPECT_EQ(factory.mesh_creations, 1);
+        EXPECT_EQ(factory.mesh_creations, expected_meshes);
         const auto serialized_again = serializer.serialize(*active);
         ASSERT_TRUE(serialized_again) << serialized_again.error();
         EXPECT_EQ(serialized_again.value(), original);
@@ -358,7 +363,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(document.open(path));
         EXPECT_EQ(active->entity_count(), initial_entities + 1);
         EXPECT_EQ(missing, 0U);
-        EXPECT_EQ(factory.mesh_creations, 1);
+        EXPECT_EQ(factory.mesh_creations, expected_meshes);
     }
 
     TEST_F(EditorAssetsTest, ReopenedScenePreparesSharedReferencesFromArtifacts) {

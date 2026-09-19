@@ -1,25 +1,25 @@
 {
   "version": 2,
-  "template": "unlit_texture_blend",
+  "template": "pbr",
   "properties": {
-    "u_Texture0": {
+    "base_color_texture": {
       "type": "texture",
       "asset": 15538271868700781231
     },
-    "u_Texture1": {
-      "type": "texture",
-      "asset": 6692465245512631459
-    },
-    "blend": {
+    "metallic": {
       "type": "scalar",
-      "value": 0.4
+      "value": 0.57
     },
-    "tint": {
+    "roughness": {
+      "type": "scalar",
+      "value": 0.045
+    },
+    "base_color": {
       "type": "vector",
       "value": [
         1,
         1,
-        1,
+        0.642,
         1
       ]
     }

@@ -24,7 +24,7 @@ namespace Comet {
         m_diagnostics = std::make_unique<Diagnostics>(config.diagnostics);
         if(m_output_mode_override) {
             if(config.render.output_mode != *m_output_mode_override)
-                LOG_WARN("Application overrides the configured output mode (editor uses SDR)");
+                LOG_INFO("Application overrides the configured output mode (editor uses SDR)");
             config.render.output_mode = *m_output_mode_override;
         }
         auto engine = Engine::create(config);

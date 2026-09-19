@@ -48,7 +48,7 @@ namespace Comet::Tests {
         }
 
         constexpr std::string_view EMPTY_MATERIAL =
-            R"({"version": 2, "template": "unlit_texture_blend", "properties": {}})";
+            R"({"version": 2, "template": "test_material", "properties": {}})";
     }
 
     TEST(AssetDatabaseTest, GeneratesMetadataAndBuildsBothIndexes) {
@@ -313,7 +313,7 @@ namespace Comet::Tests {
         const std::filesystem::path material = project.add_file("materials/default.mat",
             R"({
   "version": 2,
-  "template": "unlit_texture_blend",
+  "template": "test_material",
   "properties": {
     "first": {"type": "texture", "asset": 42},
     "repeated": {"type": "texture", "asset": 42},
@@ -362,7 +362,7 @@ namespace Comet::Tests {
         const std::filesystem::path owner_material = project.add_file("materials/owner.mat",
             R"({
   "version": 2,
-  "template": "unlit_texture_blend",
+  "template": "test_material",
   "properties": {
     "missing": {"type": "texture", "asset": 999},
     "wrong_type": {"type": "texture", "asset": 73}

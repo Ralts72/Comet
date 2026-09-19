@@ -39,10 +39,7 @@ namespace Comet::Tests {
         merge_material_shaders(combined, update);
         update.at("unlit_color").fragment.clear();
         EXPECT_EQ(combined.at("unlit_color").fragment, expected);
-        EXPECT_EQ(
-            combined.at("unlit_texture_blend").vertex, original.at("unlit_texture_blend").vertex);
-        EXPECT_EQ(combined.at("unlit_texture_blend").fragment,
-            original.at("unlit_texture_blend").fragment);
-        EXPECT_EQ(combined.at("lambert").fragment, original.at("lambert").fragment);
+        EXPECT_EQ(combined.at("pbr").vertex, original.at("pbr").vertex);
+        EXPECT_EQ(combined.at("pbr").fragment, original.at("pbr").fragment);
     }
 }

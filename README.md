@@ -139,9 +139,9 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
   New/Open 和窗口关闭遇到未保存场景时提供 Save/Discard/Cancel；保存失败或取消另存路径不会继续切换。
   未保存状态使用历史状态 ID 与保存点判断，支持撤销回保存点、分支编辑和历史截断；不包含独立的资产文件编辑。
 - Light 支持 Directional／Point／Spot，类型和参数共用场景保存与撤销。方向由 Transform 的本地 -Z 决定；
-  Point／Spot 的 Range 是世界距离，聚光角度是半锥角。受光需使用 `lit_color` 材质，无有效光源时为黑色。
+  Point／Spot 的 Range 是世界距离，聚光角度是半锥角。受光材质统一使用 `pbr`，无有效光源时为黑色。
   Directional 的 Cast shadow 可启用阴影；最多选择一盏有效方向光，使用 1024² 深度图与 3×3 PCF。
-  默认示例包含投影 Key Light、Ground 和 `materials/lit.mat`；原不受光材质仍保留。
+  默认示例包含投影 Key Light、Ground 和纯色 PBR 地面材质 `materials/ground.mat`。
   阴影覆盖当前提交网格的包围盒，暂不支持级联、透明裁切或点／聚光阴影。
   当前没有天空盒和环境光照 IBL，背景仍使用配置的 clear color；相关计划见路线图。
 - Hierarchy 空白处／Scene 右键创建根实体，实体右键创建子实体、删除或 Duplicate 整棵子树；
@@ -160,9 +160,13 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
   新实体材质暂留空，需在 Inspector 指定后才绘制；不导入 glTF 材质。
 - Inspector 引用框支持按类型过滤的资产路径下拉框；Edit 还可从 Project 拖入 Mesh／Material／Texture。
   底层仍保存 Handle，加载失败保持旧引用，丢失引用显示 Missing。Play 仅支持下拉调试，不接受资产拖放。
-  内置模板支持 `unlit_texture_blend`（两纹理、blend、tint）和 `unlit_color`（color、intensity）。
+  内置模板为 `unlit_color`（color、intensity）和 `pbr`（base_color、base_color_texture、metallic、roughness）。
+  默认立方体使用带纹理的 `pbr.mat`，地面使用纯色 `ground.mat`；unlit 适用于不受场景光源影响的颜色标记。
+  PBR 基础颜色为线性颜色参数乘纹理采样值；基础颜色图片通常按 sRGB 导入，由 GPU 解码，不在 Shader 重复 gamma 转换。
+  `base_color_texture` 可选，选择 None 恢复纯色；指定但失效的纹理引用仍视为错误，不静默使用默认纹理。
+  PBR 当前支持直接光照与方向光阴影，不含法线／金属粗糙度贴图、IBL 或透明；金属度范围 0..1，粗糙度范围 0.045..1。
   Inspector 按共享布局显示纹理、标量和颜色参数，变化后自动保存并更新渲染，无需确认；仅查看默认值不会写文件。
-  缺失纹理槽需补齐后才发布，切换其他资产会丢弃未完成草稿；尚不支持切换模板或动态指定项目 Shader。
+  必填纹理槽需补齐后才发布，切换其他资产会丢弃未完成草稿；尚不支持切换模板或动态指定项目 Shader。
 - View 菜单与面板关闭按钮共享显隐状态；菜单只展示已接通的操作。
 
 ## Shader 开发
@@ -174,7 +178,7 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 | 目录 | 内容 |
 | --- | --- |
 | `material/` | 网格顶点入口与材质片元着色 |
-| `common/mesh_vertex.glsl` | 共用网格输入、Frame/Object 布局与顶点变换 |
+| `common/` | 共用网格顶点实现与 `frame.glsl` 相机帧布局 |
 | `lighting/forward.glsl` | 前向光源布局、方向与衰减计算 |
 | `shadow/` | 方向光深度生成，与材质前向采样分开 |
 | `debug/` | 调试线绘制 |
@@ -183,29 +187,32 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 ### 材质与阶段配对
 
 - `unlit_color`：`unlit_color.vert` + `unlit_color.frag`，直接输出颜色和强度。
-- `unlit_texture_blend`：`unlit_texture_blend.vert` + `unlit_texture_blend.frag`，混合纹理，不计算光源。
-- `lit_color`：`lambert.vert` + `lambert.frag`，使用 Lambert 漫反射与场景光源。
+- `pbr`：`pbr.vert` + `pbr.frag`，金属度／粗糙度 PBR，使用 `lighting/forward.glsl` 的光源衰减和阴影采样。
 - 调试线与显示输出分别使用 `debug/line.vert/.frag`、`post/display.vert/.frag`。
 - 阴影使用 `shadow/directional.vert/.frag`；片元阶段无颜色输出，只写深度。
 
 `lit` 表示受光，`unlit` 表示不受光，和 HDR/SDR 输出模式无关。
 材质模板名属于资产持久化协议；文件名描述当前算法，二者不要求同名。
-三个网格入口包含同一份顶点实现；`COMET_MESH_LIGHTING` 只为受光版本启用世界位置、
-逆转置法线计算和对应输出，不给不受光版本增加法线计算。
+网格入口包含同一份顶点实现；`COMET_MESH_LIGHTING` 只为受光版本启用世界位置、
+逆转置法线计算与 UV 输出；不受光版本只计算顶点位置，不携带无用的法线和 UV 输出。
 全屏顶点与调试线的输入协议不同，保持独立。
+
+外部旧材质迁移：`lit_color` 改用 `pbr`，`albedo` 改为 `base_color`，设置 metallic=0、roughness=1，
+可得到粗糙非金属表面，但不与 Lambert 像素等价。旧 `unlit_texture_blend` 不再注册，双纹理混合没有直接等价的 PBR 参数。
 
 ### 修改与验证
 
 完整程序以同目录、同名 `.vert/.frag` 表示；新增程序需加入 `engine/shaders/CMakeLists.txt` 显式配对列表。
 当前生成文件使用阶段文件名，须保持全局唯一。
 公共 `.glsl` 通过相对路径包含，构建依赖与编辑器热重载均跟踪实际 include。
-编辑器只热重载材质的三个程序（六个阶段）；调试线、阴影与显示输出修改需重新构建。
+编辑器热重载已登记的材质程序及其公共 include；调试线、阴影与显示输出修改需重新构建。
 `MaterialShaders` 按程序名持有顶点/片元字节码，允许提交任意完整程序对；
 缺失单个阶段会拒绝整个候选批次，未提交的程序保留原版本，目标重建仍沿用成功发布的版本。
 程序定义、默认字节码、固定契约校验和覆盖合并位于 `engine/src/render/material/material_shader.h/.cpp`。
 编辑器和 MaterialRenderer 共用这份程序定义；未知程序名或显式空程序同样被拒绝。
 Frame 位于 set 0，材质位于 set 1，Object 使用 push constant；修改布局须同步 C++ 和契约测试。
-Frame binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 是按帧槽位绑定的阴影图。
+Frame binding 0 保存 160 字节相机数据，PBR 区分透视的位置差与正交的统一观察方向；
+binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 是按帧槽位绑定的阴影图。
 光照 UBO 的 C++／GLSL 使用对应的具名字段；修改字段时须保持 std140 偏移、数组步长与反射契约一致。
 `forward.glsl` 使用 nearest sampler 手工 3×3 PCF；正高度阴影视口与投影 UV 一致。
 

@@ -4,6 +4,7 @@
 #include "render/render_context.h"
 #include "render/scene/scene_renderer.h"
 #include "render/render_target.h"
+#include "render/resource/render_resources.h"
 #include "graphics/render_pass.h"
 #include "graphics/device.h"
 #include "core/window.h"
@@ -53,6 +54,9 @@ namespace Comet::Tests {
                     [this](CommandBuffer& command_buffer) { present(command_buffer); });
             }
             scene.cameras.push_back(RenderCamera{.primary = true});
+            // 分配统计只比较调试线 buffer，不计初始化纹理上传的临时 staging。
+            engine->get_renderer().wait_idle();
+            engine->get_render_resources().collect_completed_uploads();
         }
 
         void TearDown() override {

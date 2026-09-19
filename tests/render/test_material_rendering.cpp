@@ -27,8 +27,8 @@
 #include "common/file_io.h"
 #include "support/temporary_directory.h"
 #include "unlit_color_vert.h"
-#include "unlit_texture_blend_vert.h"
-#include "unlit_texture_blend_frag.h"
+#include "pbr_vert.h"
+#include "pbr_frag.h"
 #include "unlit_color_frag.h"
 
 #include <gtest/gtest.h>
@@ -79,10 +79,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(debug) << debug.error();
         const auto initial_pipelines = pipelines.get_cached_pipeline_count();
         EXPECT_GT(initial_pipelines, 0u);
-        MaterialShaders invalid{
-            {"unlit_texture_blend",
-                {{std::begin(UNLIT_TEXTURE_BLEND_VERT), std::end(UNLIT_TEXTURE_BLEND_VERT)},
-                    {std::begin(UNLIT_TEXTURE_BLEND_FRAG), std::end(UNLIT_TEXTURE_BLEND_FRAG)}}},
+        MaterialShaders invalid{{"pbr", {{std::begin(PBR_VERT), std::end(PBR_VERT)},
+                                            {std::begin(PBR_FRAG), std::end(PBR_FRAG)}}},
             {"unlit_color", {{std::begin(UNLIT_COLOR_VERT), std::end(UNLIT_COLOR_VERT)}, {0}}}};
         EXPECT_FALSE(materials.value()->reload_shaders(pipelines, invalid, SampleCount::Count1));
         pipelines.collect_unused();
@@ -113,15 +111,20 @@ namespace Comet::Tests {
     TEST_F(MaterialRenderingTest, ShaderPublicationRejectsFixedContractChangesAndActiveFrames) {
         auto& renderer = engine->get_renderer();
         auto& scene_renderer = renderer.get_scene_renderer();
-        const MaterialShaders original{
-            {"unlit_texture_blend",
-                {{std::begin(UNLIT_TEXTURE_BLEND_VERT), std::end(UNLIT_TEXTURE_BLEND_VERT)},
-                    {std::begin(UNLIT_TEXTURE_BLEND_FRAG), std::end(UNLIT_TEXTURE_BLEND_FRAG)}}},
+        const MaterialShaders original{{"pbr", {{std::begin(PBR_VERT), std::end(PBR_VERT)},
+                                                   {std::begin(PBR_FRAG), std::end(PBR_FRAG)}}},
             {"unlit_color", {{std::begin(UNLIT_COLOR_VERT), std::end(UNLIT_COLOR_VERT)},
                                 {std::begin(UNLIT_COLOR_FRAG), std::end(UNLIT_COLOR_FRAG)}}}};
-        const auto source = read_text_file(
+        auto source = read_text_file(
             std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/common/mesh_vertex.glsl");
         ASSERT_TRUE(source) << source.error();
+        const auto frame = read_text_file(
+            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/common/frame.glsl");
+        ASSERT_TRUE(frame) << frame.error();
+        const std::string include = "#include \"frame.glsl\"";
+        const auto include_offset = source.value().find(include);
+        ASSERT_NE(include_offset, std::string::npos);
+        source.value().replace(include_offset, include.size(), frame.value());
         TemporaryDirectory directory;
         for(const auto& [from, to] :
             {std::pair{"mat4 view;\n    mat4 projection;", "mat4 projection;\n    mat4 view;"},
@@ -215,24 +218,23 @@ namespace Comet::Tests {
         ASSERT_TRUE(shadow_input) << shadow_input.error();
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
-        const MeshData mesh_data{.vertices = {{{-0.4f, -0.8f, 0.5f}}, {{0.4f, -0.8f, 0.5f}},
-                                     {{0.4f, 0.8f, 0.5f}}, {{-0.4f, 0.8f, 0.5f}}},
+        const MeshData mesh_data{
+            .vertices = {{{-0.4f, -0.8f, 0.5f}, {}, {0, 0, 1}},
+                {{0.4f, -0.8f, 0.5f}, {}, {0, 0, 1}}, {{0.4f, 0.8f, 0.5f}, {}, {0, 0, 1}},
+                {{-0.4f, 0.8f, 0.5f}, {}, {0, 0, 1}}},
             .indices = {0, 1, 2, 2, 3, 0}};
         const auto mesh_result = engine->get_render_resources().try_create_mesh(mesh_data);
         ASSERT_TRUE(mesh_result) << mesh_result.error();
         const auto mesh = mesh_result.value();
-        const auto textured = std::make_shared<Material>("textured", "unlit_texture_blend");
+        const auto textured = std::make_shared<Material>("textured", "pbr");
         {
             auto red = texture({255, 0, 0, 255});
             ASSERT_TRUE(red) << red.error();
-            textured->set_texture_property("u_Texture0", std::move(red).value());
+            textured->set_texture_property("base_color_texture", std::move(red).value());
         }
-        const std::weak_ptr<Texture> retired = textured->get_texture_property("u_Texture0");
-        auto blue = texture({0, 0, 255, 255});
-        ASSERT_TRUE(blue) << blue.error();
-        textured->set_texture_property("u_Texture1", std::move(blue).value());
-        EXPECT_TRUE(textured->set_scalar_property("blend", 0.25f));
-        EXPECT_TRUE(textured->set_vector_property("tint", {1, 0.5f, 0.5f, 1}));
+        const std::weak_ptr<Texture> retired = textured->get_texture_property("base_color_texture");
+        EXPECT_TRUE(textured->set_scalar_property("roughness", 1));
+        EXPECT_TRUE(textured->set_vector_property("base_color", {1, 0.5f, 0.5f, 1}));
         const auto solid = std::make_shared<Material>("solid", "unlit_color");
         EXPECT_TRUE(solid->set_vector_property("color", {0.2f, 0.8f, 0.4f, 1}));
         EXPECT_TRUE(solid->set_scalar_property("intensity", 0.5f));
@@ -274,22 +276,25 @@ namespace Comet::Tests {
         const auto compiled = ShaderCompiler::compile(
             {.source = sources.path() / "solid.frag", .stage = ShaderStage::Fragment});
         ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
-        const MaterialShaders updated{
-            {"unlit_texture_blend",
-                {{std::begin(UNLIT_TEXTURE_BLEND_VERT), std::end(UNLIT_TEXTURE_BLEND_VERT)},
-                    {std::begin(UNLIT_TEXTURE_BLEND_FRAG), std::end(UNLIT_TEXTURE_BLEND_FRAG)}}},
+        const MaterialShaders updated{{"pbr", {{std::begin(PBR_VERT), std::end(PBR_VERT)},
+                                                  {std::begin(PBR_FRAG), std::end(PBR_FRAG)}}},
             {"unlit_color",
                 {{std::begin(UNLIT_COLOR_VERT), std::end(UNLIT_COLOR_VERT)}, compiled.words}}};
-        auto textured_source = read_text_file(std::filesystem::path(PROJECT_ROOT_DIR)
-                                              / "engine/shaders/material/unlit_texture_blend.frag");
+        auto textured_source = read_text_file(
+            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material/pbr.frag");
         ASSERT_TRUE(textured_source) << textured_source.error();
+        auto relocated_source = textured_source.value();
+        const auto shader_directory =
+            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material";
         const auto assignment = textured_source.value().find("color = ");
         ASSERT_NE(assignment, std::string::npos);
         textured_source.value().insert(assignment + std::string_view("color = ").size(), "0.5 * ");
         ASSERT_TRUE(
             write_text_file_atomic(sources.path() / "textured.frag", textured_source.value()));
-        const auto changed_textured = ShaderCompiler::compile(
-            {.source = sources.path() / "textured.frag", .stage = ShaderStage::Fragment});
+        const auto changed_textured =
+            ShaderCompiler::compile({.source = sources.path() / "textured.frag",
+                .stage = ShaderStage::Fragment,
+                .include_directories = {shader_directory}});
         ASSERT_TRUE(changed_textured.succeeded()) << changed_textured.diagnostics;
         auto broken_solid = solid_source.value();
         broken_solid.insert(
@@ -301,8 +306,7 @@ namespace Comet::Tests {
             {.source = sources.path() / "broken.frag", .stage = ShaderStage::Fragment});
         ASSERT_TRUE(broken.succeeded()) << broken.diagnostics;
         EXPECT_FALSE(materials->reload_shaders(pipelines,
-            {{"unlit_texture_blend",
-                 {updated.at("unlit_texture_blend").vertex, changed_textured.words}},
+            {{"pbr", {updated.at("pbr").vertex, changed_textured.words}},
                 {"unlit_color", {updated.at("unlit_color").vertex, broken.words}}},
             SampleCount::Count1));
         ASSERT_TRUE(write_text_file_atomic(sources.path() / "layout-solid.frag",
@@ -310,34 +314,37 @@ namespace Comet::Tests {
             "layout(set=1,binding=5,std140) uniform MaterialData {float intensity;"
             "layout(offset=32) vec4 color;} material;"
             "void main(){color=vec4(material.color.rgb*material.intensity*0.5,material.color.a);}"));
-        ASSERT_TRUE(write_text_file_atomic(sources.path() / "layout-textured.frag",
-            "#version 450\nlayout(location=0) in vec2 uv;layout(location=0) out vec4 color;"
-            "layout(set=1,binding=3,std140) uniform MaterialData {float blend;"
-            "layout(offset=32) vec4 tint;} material;"
-            "layout(set=1,binding=7) uniform sampler2D texture0;"
-            "layout(set=1,binding=6) uniform sampler2D texture1;"
-            "void main(){color=material.tint*mix(texture(texture0,uv),texture(texture1,uv),clamp(material.blend,0.0,1.0));}"));
+        for(const auto& [from, to] : {std::pair{"binding = 0, std140", "binding = 3, std140"},
+                {"vec4 base_color;\n    float metallic;\n    float roughness;",
+                    "float metallic;\n    float roughness;\n    layout(offset=32) vec4 base_color;"},
+                {"binding = 1) uniform sampler2D", "binding = 7) uniform sampler2D"}}) {
+            const auto offset = relocated_source.find(from);
+            ASSERT_NE(offset, std::string::npos);
+            relocated_source.replace(offset, std::string_view(from).size(), to);
+        }
+        ASSERT_TRUE(
+            write_text_file_atomic(sources.path() / "layout-textured.frag", relocated_source));
         const auto layout_solid = ShaderCompiler::compile(
             {.source = sources.path() / "layout-solid.frag", .stage = ShaderStage::Fragment});
-        const auto layout_textured = ShaderCompiler::compile(
-            {.source = sources.path() / "layout-textured.frag", .stage = ShaderStage::Fragment});
+        const auto layout_textured =
+            ShaderCompiler::compile({.source = sources.path() / "layout-textured.frag",
+                .stage = ShaderStage::Fragment,
+                .include_directories = {shader_directory}});
         ASSERT_TRUE(layout_solid.succeeded()) << layout_solid.diagnostics;
         ASSERT_TRUE(layout_textured.succeeded()) << layout_textured.diagnostics;
-        const MaterialShaders relocated{
-            {"unlit_texture_blend",
-                {updated.at("unlit_texture_blend").vertex, layout_textured.words}},
+        const MaterialShaders relocated{{"pbr", {updated.at("pbr").vertex, layout_textured.words}},
             {"unlit_color", {updated.at("unlit_color").vertex, layout_solid.words}}};
         // 第一条候选有效、第二条失败，随后读回的纹理材质仍应使用原 Shader。
         context.wait_idle();
         engine->get_render_resources().collect_completed_uploads();
         pipelines.collect_unused();
         const auto initial_pipelines = pipelines.get_cached_pipeline_count();
+        const auto lighting = LightingData::prepare(std::array{RenderLight{.intensity = Math::PI}});
         for(int iteration = 0; iteration < 4; ++iteration) {
             if(iteration == 1) {
-                auto red = texture({255, 0, 0, 255});
-                ASSERT_TRUE(red) << red.error();
-                textured->set_texture_property("u_Texture0", std::move(red).value());
-                EXPECT_TRUE(textured->set_scalar_property("blend", 0.75f));
+                auto blue = texture({0, 0, 255, 255});
+                ASSERT_TRUE(blue) << blue.error();
+                textured->set_texture_property("base_color_texture", std::move(blue).value());
                 // 材质不变，仅替换 Shader；旧槽位此时尚未回收。
                 const auto published = materials->reload_shaders(
                     pipelines, {{"unlit_color", updated.at("unlit_color")}}, SampleCount::Count1);
@@ -346,31 +353,22 @@ namespace Comet::Tests {
                 EXPECT_EQ(published.value().material_bindings, 0u);
             }
             if(iteration == 2) {
-                const auto previous_layouts = materials->get_material_layouts();
-                const auto previous_texture = textured->get_texture_property("u_Texture0");
-                textured->set_texture_property("u_Texture0", nullptr);
-                const auto rejected =
-                    materials->reload_shaders(pipelines, relocated, SampleCount::Count1);
-                EXPECT_FALSE(rejected);
-                EXPECT_EQ(materials->get_material_layouts(), previous_layouts);
-                textured->set_texture_property("u_Texture0", previous_texture);
                 const auto published =
                     materials->reload_shaders(pipelines, relocated, SampleCount::Count1);
                 ASSERT_TRUE(published) << published.error();
                 EXPECT_EQ(published.value().material_versions, 2u);
                 EXPECT_EQ(published.value().material_bindings, 2u);
                 for(const auto& layout : materials->get_material_layouts()) {
-                    if(layout->get_name() == "lit_color") {
-                        EXPECT_EQ(layout, MaterialLayout::find_builtin("lit_color"));
+                    if(layout->get_name() != "pbr" && layout->get_name() != "unlit_color") {
+                        EXPECT_EQ(layout, MaterialLayout::find_builtin(layout->get_name()));
                         continue;
                     }
                     EXPECT_EQ(layout->get_parameter_size(), 48u);
-                    if(layout->get_name() == "unlit_texture_blend") {
-                        ASSERT_EQ(layout->get_textures().size(), 2u);
-                        EXPECT_EQ(layout->get_textures()[0].name, "u_Texture0");
+                    if(layout->get_name() == "pbr") {
+                        ASSERT_EQ(layout->get_textures().size(), 1u);
+                        EXPECT_EQ(layout->get_textures()[0].name, "base_color_texture");
                         EXPECT_EQ(layout->get_textures()[0].binding, 7u);
-                        EXPECT_EQ(layout->get_textures()[1].name, "u_Texture1");
-                        EXPECT_EQ(layout->get_textures()[1].binding, 6u);
+                        EXPECT_TRUE(layout->get_textures()[0].optional);
                     }
                 }
             }
@@ -393,8 +391,8 @@ namespace Comet::Tests {
             command.set_viewport(Graphics::get_viewport(64, 32));
             command.set_scissor(Graphics::get_scissor(64, 32));
             const auto waits = materials->render(frames,
-                ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)}, items, {},
-                shadow_input.value()->get_image_view());
+                ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)}, items,
+                lighting, shadow_input.value()->get_image_view());
             ASSERT_TRUE(waits) << waits.error();
             target->end_render_target(command);
             vk::MemoryBarrier barrier(
@@ -446,10 +444,10 @@ namespace Comet::Tests {
                 }
             };
             if(iteration == 0) {
-                check(16, {191, 0, 32});
+                check(16, {247, 3, 3});
                 check(48, {26, 102, 51});
             } else {
-                check(16, {64, 0, 96});
+                check(16, {3, 3, 125});
                 check(48, {13, 51, 26});
             }
         }
@@ -458,10 +456,10 @@ namespace Comet::Tests {
             device, pipelines, engine->get_render_resources(), 2, SampleCount::Count1, &relocated);
         ASSERT_TRUE(rebuilt) << rebuilt.error();
         for(const auto& layout : rebuilt.value()->get_material_layouts()) {
-            if(layout->get_name() == "lit_color")
-                EXPECT_EQ(layout, MaterialLayout::find_builtin("lit_color"));
-            else
+            if(layout->get_name() == "pbr" || layout->get_name() == "unlit_color")
                 EXPECT_EQ(layout->get_parameter_size(), 48u);
+            else
+                EXPECT_EQ(layout, MaterialLayout::find_builtin(layout->get_name()));
         }
     }
 }

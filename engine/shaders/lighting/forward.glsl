@@ -64,38 +64,30 @@ float shadow_visibility(int index, vec3 position, float n_dot_l) {
     return visible / 9.0;
 }
 
-vec3 diffuse_lighting(vec3 position, vec3 normal) {
-    float normal_length = length(normal);
-    if(normal_length < 1e-6 || isnan(normal_length) || isinf(normal_length))
-        return vec3(0.0);
-    vec3 n = normal / normal_length;
-    vec3 result = vec3(0.0);
-    for(int index = 0; index < int(lighting.light_count); ++index) {
-        Light light = lighting.lights[index];
-        int type = int(light.type);
-        vec3 l = -light.direction;
-        float attenuation = 1.0;
-        if(type != LIGHT_DIRECTIONAL) {
-            vec3 delta = light.position - position;
-            float distance_squared = dot(delta, delta);
-            if(distance_squared < 1e-8)
-                continue;
-            float distance = sqrt(distance_squared);
-            l = delta / distance;
-            float falloff = max(1.0 - pow(distance / light.range, 4.0), 0.0);
-            attenuation = falloff * falloff / max(distance_squared, 0.01);
-            if(type == LIGHT_SPOT) {
-                float alignment = dot(-l, light.direction);
-                float cone_weight = step(light.outer_cone_cos, alignment);
-                // 极窄锥角在 float 中可能拥有相同 cos 值，退化为硬边而不是除以零。
-                if(light.inner_cone_cos - light.outer_cone_cos > 1e-6)
-                    cone_weight = smoothstep(light.outer_cone_cos, light.inner_cone_cos, alignment);
-                attenuation *= cone_weight;
-            }
+bool sample_light(int index, vec3 position, out vec3 direction, out vec3 radiance) {
+    Light light = lighting.lights[index];
+    int type = int(light.type);
+    direction = -light.direction;
+    float attenuation = 1.0;
+    if(type != LIGHT_DIRECTIONAL) {
+        vec3 delta = light.position - position;
+        float distance_squared = dot(delta, delta);
+        if(distance_squared < 1e-8 || distance_squared >= light.range * light.range
+            || isnan(distance_squared))
+            return false;
+        float distance = sqrt(distance_squared);
+        direction = delta / distance;
+        float falloff = max(1.0 - pow(distance / light.range, 4.0), 0.0);
+        attenuation = falloff * falloff / max(distance_squared, 0.01);
+        if(type == LIGHT_SPOT) {
+            float alignment = dot(-direction, light.direction);
+            float cone_weight = step(light.outer_cone_cos, alignment);
+            // 极窄锥角在 float 中可能拥有相同 cos 值，退化为硬边而不是除以零。
+            if(light.inner_cone_cos - light.outer_cone_cos > 1e-6)
+                cone_weight = smoothstep(light.outer_cone_cos, light.inner_cone_cos, alignment);
+            attenuation *= cone_weight;
         }
-        float n_dot_l = max(dot(n, l), 0.0);
-        result += light.color * light.intensity * attenuation
-            * n_dot_l * shadow_visibility(index, position, n_dot_l) / 3.141592653589793;
     }
-    return result;
+    radiance = light.color * light.intensity * attenuation;
+    return true;
 }

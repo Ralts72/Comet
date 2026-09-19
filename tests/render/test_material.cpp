@@ -62,10 +62,10 @@ namespace Comet::Tests {
     }
 
     TEST(MaterialLayoutTest, BuiltinLayoutsShareIdentityAndCarryAuthoringMetadata) {
-        const auto textured = MaterialLayout::find_builtin("unlit_texture_blend");
+        const auto textured = MaterialLayout::find_builtin("pbr");
         ASSERT_TRUE(textured);
-        EXPECT_EQ(textured, MaterialLayout::find_builtin("unlit_texture_blend"));
-        EXPECT_EQ(textured->get_scalars().front().display_name, "Blend");
+        EXPECT_EQ(textured, MaterialLayout::find_builtin("pbr"));
+        EXPECT_EQ(textured->get_scalars().front().display_name, "Metallic");
         EXPECT_FLOAT_EQ(textured->get_scalars().front().min_value, 0);
         EXPECT_FLOAT_EQ(textured->get_scalars().front().max_value, 1);
         EXPECT_EQ(textured->get_vectors().front().semantic,

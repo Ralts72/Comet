@@ -13,17 +13,32 @@
 #include "render/material/material.h"
 #include "render/resource/mesh.h"
 #include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 #include "render/resource/render_resources.h"
 #include "render/resource/texture.h"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <iterator>
 #include <string_view>
 #include <tuple>
 
 namespace Comet {
+    // 私有帧 UBO，与 common/frame.glsl 对齐；不把相机姿态存入材质属性。
+    struct alignas(16) MaterialFrameData {
+        ViewProjectMatrix matrices;
+        Math::Vec3 camera_position;
+        float orthographic;
+        Math::Vec3 view_direction;
+        float reserved = 0;
+    };
+    static_assert(sizeof(MaterialFrameData) == 160);
+    static_assert(offsetof(MaterialFrameData, camera_position) == 128);
+    static_assert(offsetof(MaterialFrameData, orthographic) == 140);
+    static_assert(offsetof(MaterialFrameData, view_direction) == 144);
+
     namespace {
         void append_wait(std::vector<QueueSemaphoreSubmit>& waits,
             const GpuCompletionPoint& completion, const Flags<PipelineStage> stages) {
@@ -59,12 +74,17 @@ namespace Comet {
         if(!sampler)
             return Result<void, GraphicsError>::failure(sampler.error());
         m_sampler = std::move(sampler).value();
+        auto white =
+            resources.try_create_texture({.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
+        if(!white)
+            return Result<void, GraphicsError>::failure(white.error());
+        m_white_texture = std::move(white).value();
         auto shadow_sampler = resources.get_sampler_manager().get_nearest_clamp();
         if(!shadow_sampler)
             return Result<void, GraphicsError>::failure(shadow_sampler.error());
         DescriptorSetLayoutBindings frame_bindings;
-        frame_bindings.add_binding(
-            0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
+        frame_bindings.add_binding(0, DescriptorType::UniformBuffer,
+            Flags<ShaderStage>(ShaderStage::Vertex) | ShaderStage::Fragment);
         frame_bindings.add_binding(
             1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
         frame_bindings.add_binding(
@@ -90,7 +110,7 @@ namespace Comet {
             frame->shadow_sampler = shadow_sampler.value();
             auto buffer =
                 Buffer::try_create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::Uniform),
-                    sizeof(ViewProjectMatrix), false, nullptr, "frame view-project");
+                    sizeof(MaterialFrameData), false, nullptr, "frame camera");
             if(!buffer)
                 return Result<void, GraphicsError>::failure(buffer.error());
             frame->buffer = std::move(buffer).value();
@@ -102,7 +122,7 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(lighting.error());
             frame->lighting = std::move(lighting).value();
             const std::array writes{
-                DescriptorSet::UniformBufferWrite{0, *frame->buffer, sizeof(ViewProjectMatrix)},
+                DescriptorSet::UniformBufferWrite{0, *frame->buffer, sizeof(MaterialFrameData)},
                 DescriptorSet::UniformBufferWrite{1, *frame->lighting, sizeof(LightingData)}};
             frame->descriptor->update(device, writes);
             m_frames.push_back(std::move(frame));
@@ -379,8 +399,13 @@ namespace Comet {
                 candidate->parameters->get_size()});
         std::vector<DescriptorSet::ImageSamplerWrite> images;
         images.reserve(prepared->textures.size());
-        for(const auto& binding : prepared->textures)
-            images.push_back({binding.binding, *binding.texture->get_image_view(), *m_sampler});
+        for(const auto& binding : prepared->textures) {
+            auto texture = binding.texture;
+            if(!texture)
+                texture = m_white_texture;
+            images.push_back({binding.binding, *texture->get_image_view(), *m_sampler});
+            candidate->textures.push_back(std::move(texture));
+        }
         candidate->descriptor->update(m_device, buffers, images);
         return Creation::success(std::move(candidate));
     }
@@ -400,7 +425,11 @@ namespace Comet {
         std::vector<QueueSemaphoreSubmit> waits;
         if(view) {
             const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
-            frame->buffer->write(&*view);
+            const auto camera_world = Math::inverse(view->view);
+            // 引擎标准透视矩阵的该项为 -1，正交为 0；不是任意投影的分类器。
+            const MaterialFrameData camera{*view, Math::Vec3(camera_world[3]),
+                view->projection[2][3] == 0 ? 1.0f : 0.0f, Math::Vec3(camera_world[2])};
+            frame->buffer->write(&camera);
             frame->lighting->write(&lighting);
             if(frame->shadow_map != shadow_map) {
                 const DescriptorSet::ImageSamplerWrite write{
@@ -456,8 +485,8 @@ namespace Comet {
                 frames.retain_current_frame_resource(draw.item->mesh);
                 append_wait(waits, draw.item->mesh->get_ready_completion(),
                     Flags<PipelineStage>(PipelineStage::VertexInput));
-                for(const auto& texture : material->prepared->textures) {
-                    append_wait(waits, texture.texture->get_ready_completion(),
+                for(const auto& texture : material->textures) {
+                    append_wait(waits, texture->get_ready_completion(),
                         Flags<PipelineStage>(PipelineStage::FragmentShader));
                 }
                 const PushConstant push{.model = draw.item->model_matrix};
