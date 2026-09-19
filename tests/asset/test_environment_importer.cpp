@@ -8,13 +8,74 @@
 #include <cstring>
 
 namespace Comet::Tests {
+    static glm::vec4 pixel_at(const TextureData& data, size_t pixel) {
+        glm::u16vec4 packed;
+        std::memcpy(&packed, data.pixels.data() + pixel * sizeof(packed), sizeof(packed));
+        return glm::unpackHalf(packed);
+    }
+
+    TEST(EnvironmentImporterTest, LightingConvolutionPreservesUniformRadianceAndIntegratesBrdf) {
+        TemporaryDirectory directory;
+        write_hdr(directory.path() / "uniform.hdr");
+        auto imported = EnvironmentImporter{}.import(directory.path() / "uniform.hdr");
+        ASSERT_TRUE(imported) << imported.error();
+        const auto& data = imported.value();
+        for(const auto* cube : {&data.irradiance, &data.specular}) {
+            ASSERT_TRUE(cube->cubemap);
+            for(size_t pixel = 0; pixel < cube->pixels.size() / 8; ++pixel)
+                EXPECT_EQ(pixel_at(*cube, pixel), glm::vec4(4, 2, 1, 1));
+        }
+        ASSERT_FALSE(data.brdf.cubemap);
+        for(size_t pixel = 0; pixel < data.brdf.pixels.size() / 8; ++pixel) {
+            const auto value = pixel_at(data.brdf, pixel);
+            EXPECT_TRUE(std::isfinite(value.x) && std::isfinite(value.y));
+            EXPECT_GE(value.x, 0);
+            EXPECT_GE(value.y, 0);
+            EXPECT_LE(value.x + value.y, 1.03f);
+        }
+        const auto smooth = pixel_at(data.brdf, data.brdf.width - 1);
+        EXPECT_NEAR(smooth.x + smooth.y, 1, 0.01f);
+        const auto rough = pixel_at(data.brdf, size_t(data.brdf.width) * data.brdf.height - 1);
+        // At N=V and alpha=1, the white conductor integral is 1-ln(2).
+        EXPECT_NEAR(rough.x + rough.y, 1 - std::log(2.0), 0.015);
+    }
+
+    TEST(EnvironmentImporterTest, RoughnessPrefilterIsNotTheBackgroundMipChain) {
+        TemporaryDirectory directory;
+        const auto path = directory.path() / "directional.hdr";
+        write_hdr(path, 64, 32, [](int x, int) {
+            unsigned char red = 0;
+            if(x > 16 && x < 32)
+                red = 128;
+            return std::array<unsigned char, 4>{red, 0, 0, 129};
+        });
+        auto imported = EnvironmentImporter{}.import(path);
+        ASSERT_TRUE(imported);
+        const auto& data = imported.value();
+        EXPECT_EQ(data.specular.mip_levels, data.background.mip_levels);
+        EXPECT_NE(data.specular.pixels, data.background.pixels);
+        float low_min = 1, low_max = 0, high_min = 1, high_max = 0;
+        for(size_t i = 0; i < size_t(data.specular.width) * data.specular.height * 6; ++i) {
+            const float value = pixel_at(data.specular, i).x;
+            low_min = std::min(low_min, value);
+            low_max = std::max(low_max, value);
+        }
+        const auto count = data.specular.pixels.size() / 8;
+        for(size_t i = count - 6; i < count; ++i) {
+            const float value = pixel_at(data.specular, i).x;
+            high_min = std::min(high_min, value);
+            high_max = std::max(high_max, value);
+        }
+        EXPECT_LT(high_max - high_min, low_max - low_min);
+    }
+
     TEST(EnvironmentImporterTest, PreservesHdrEnergyInEveryFaceAndMip) {
         TemporaryDirectory directory;
         const auto path = directory.path() / "studio.hdr";
         write_hdr(path);
         auto imported = EnvironmentImporter{}.import(path);
         ASSERT_TRUE(imported) << imported.error();
-        const auto& data = imported.value();
+        const auto& data = imported.value().background;
         EXPECT_TRUE(data.cubemap);
         EXPECT_EQ(data.format, Format::R16G16B16A16_SFLOAT);
         EXPECT_EQ(data.width, 4);
@@ -41,7 +102,8 @@ namespace Comet::Tests {
         std::array<glm::vec4, 6> faces;
         for(size_t face = 0; face < 6; ++face) {
             glm::u16vec4 packed;
-            std::memcpy(&packed, imported.value().pixels.data() + face * 8, sizeof(packed));
+            std::memcpy(
+                &packed, imported.value().background.pixels.data() + face * 8, sizeof(packed));
             faces[face] = glm::unpackHalf(packed);
         }
         EXPECT_FLOAT_EQ(faces[0].x, 0.625f); // +X: center longitude

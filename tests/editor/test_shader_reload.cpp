@@ -21,13 +21,10 @@ namespace CometEditor::Tests {
                           .stage = Comet::ShaderStage::Fragment}}};
 
         void SetUp() override {
-            for(const auto* folder : {"material", "common", "lighting"}) {
-                std::error_code error;
-                std::filesystem::copy(
-                    std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders" / folder,
-                    directory.path() / folder, std::filesystem::copy_options::recursive, error);
-                ASSERT_FALSE(error) << error.message();
-            }
+            std::error_code error;
+            std::filesystem::copy(std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders",
+                directory.path(), std::filesystem::copy_options::recursive, error);
+            ASSERT_FALSE(error) << error.message();
         }
         void write(std::string_view name, std::string_view contents) {
             ASSERT_TRUE(

@@ -30,6 +30,8 @@ namespace Comet {
     struct MeshArtifactCandidate;
     struct MaterialImportCandidate;
     struct TextureImportCandidate;
+    struct EnvironmentImportCandidate;
+    struct Environment;
 
     class COMET_API AssetManager final {
     public:
@@ -80,7 +82,8 @@ namespace Comet {
             AssetHandle handle, MeshImportMode mode = MeshImportMode::IfNeeded);
         [[nodiscard]] Result<std::shared_ptr<Mesh>, Error> load_mesh(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> load_texture(AssetHandle handle);
-        [[nodiscard]] Result<std::shared_ptr<Texture>, Error> load_environment(AssetHandle handle);
+        [[nodiscard]] Result<std::shared_ptr<Environment>, Error> load_environment(
+            AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> reimport_texture(
             AssetHandle handle, TextureImportSettings import_settings);
         [[nodiscard]] AssetScanReport create_material(
@@ -120,6 +123,7 @@ namespace Comet {
         ImportPublication publish_mesh_candidate(MeshArtifactCandidate& candidate);
         ImportPublication publish_material_candidate(MaterialImportCandidate& candidate);
         ImportPublication publish_texture_candidate(TextureImportCandidate& candidate);
+        ImportPublication publish_environment_candidate(EnvironmentImportCandidate& candidate);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> create_runtime_texture(
             const AssetRecord& record, const TextureImportSettings& import_settings);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> create_runtime_material(

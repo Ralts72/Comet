@@ -135,6 +135,8 @@ JSON 解析直接依赖已有 simdjson。
 `startup_scene` 相对项目 `assets/`；省略或空字符串表示空场景。项目描述不配置默认材质，场景保存自己的材质引用。
 app 与 editor 共用 Project、SceneSerializer 和场景资产引用，不再分别创建示例物体、相机或灯光。
 app 使用场景 primary Camera；Edit 使用编辑器相机，因此同一场景不保证相同取景。
+app 窗口标题显示 `原窗口标题 | 120 FPS`，复用 editor 的平滑 FPS 统计，每 0.5 秒采样一次。
+该数值表示主循环帧率，不是 GPU 耗时；全屏隐藏标题栏时不可见。
 app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场景或必需资源加载失败会终止启动，
 不像 editor 那样保留缺失引用供修复。这仍是开发期运行入口，不是已打包的 Shipping Player。
 仅打开仓库自带 demo 时，app 额外旋转 UUID 为 `672cd0cc-501f-419e-af5e-a883a0cd3d02` 的立方体；
@@ -164,22 +166,25 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
   New/Open 和窗口关闭遇到未保存场景时提供 Save/Discard/Cancel；保存失败或取消另存路径不会继续切换。
   未保存状态使用历史状态 ID 与保存点判断，支持撤销回保存点、分支编辑和历史截断；不包含独立的资产文件编辑。
 - Light 支持 Directional／Point／Spot，类型和参数共用场景保存与撤销。方向由 Transform 的本地 -Z 决定；
-  Point／Spot 的 Range 是世界距离，聚光角度是半锥角。受光材质统一使用 `pbr`，无有效光源时为黑色。
+  Point／Spot 的 Range 是世界距离，聚光角度是半锥角。受光材质统一使用 `pbr`，无直接光与环境照明贡献时为黑色。
   Directional 的 Cast shadow 可启用阴影；最多选择一盏有效方向光，使用 1024² 深度图与 3×3 PCF。
   默认示例包含投影 Key Light、Ground 和纯色 PBR 地面材质 `materials/ground.mat`。
   阴影覆盖当前提交网格的包围盒，暂不支持级联、透明裁切或点／聚光阴影。
-  当前尚未接环境光照 IBL；天空盒只改变背景，不为 PBR 提供照明。
+  PBR 支持全局 IBL：环境漫反射和随粗糙度变化的镜面反射，不添加固定 ambient。
 - 点击 Hierarchy 的 Scene，在 Inspector 的 Environment 中选择 HDR map，勾选 Background 显示天空盒。
-  demo 预配置了 Poly Haven 的 Small Hangar 01 4K HDR 背景（CC0，约 25.1 MiB），app/editor 共用；
+  Lighting 独立控制环境照明，Lighting intensity 控制照明强度；隐藏背景时仍可照明，Intensity 只控制背景。
+  demo 预配置并启用了 Poly Haven 的 Small Hangar 01 4K HDR 背景和照明（CC0，约 25.1 MiB），app/editor 共用；
   使用 `./tools/download_assets.sh` 获取，来源与许可见上方构建说明，运行时无需联网。
   强度范围 0..64，旋转绕世界 Y 轴、复用 Transform 的角度循环规则；拖动实时预览，松手提交一次撤销，Esc 取消。
   双击可输入数值，回车或失焦提交；保存、撤销和进入 Play 前统一结束当前环境编辑。
   配置支持撤销、保存重开及 Play 克隆；Edit 中可下拉选择或从 Project 拖入环境资产，Play 中只读。
-  缺省关闭保持旧场景外观；缺失引用保留并诊断，背景回退到 clear color，不替换成另一张环境图。
+  新增照明字段缺省关闭，保持旧场景外观；缺失引用保留并诊断，背景回退到 clear color、IBL 无贡献，不替换成另一张环境图。
   支持 2:1 Radiance `.hdr`（宽度 4..8192，最大 256 MiB），线性解码到 RGBA16F cubemap 与背景 mip 链，单面最高 2048²。
-  拒绝损坏文件和超出 float16 范围的像素；环境首次准备与重载均在后台读取缓存／解码，主线程发布 GPU 资源，失败保留旧资源。
+  后台导入同时生成漫反射 cubemap（最高 16²）、GGX 镜面预滤波（最高 128²，各 mip 对应粗糙度）与 128² BRDF LUT；
+  它们和背景统一缓存于 `.comet/cache/imported/environment/`，算法版本变更后自动重建，不提交 Git。
+  拒绝损坏文件和超出 float16 范围的像素；首次准备与重载均在后台读取缓存／预计算，主线程整组发布 GPU 资源，失败保留旧资源。
   环境 CPU 准备按预估工作集共享 2 GiB 预约预算；这不是进程总内存上限。外部文件复制、普通纹理首次加载与 GPU 创建仍同步。
-  此阶段未提供 EXR、六面图片导入或 IBL 预计算。
+  此阶段未提供 EXR、六面图片导入、局部反射探针、环境遮蔽或动态 GI；全局 IBL 不读取方向光阴影图。
 - Hierarchy 空白处／Scene 右键创建根实体，实体右键创建子实体、删除或 Duplicate 整棵子树；
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
 - 编辑器快捷键位于 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启。
@@ -199,10 +204,11 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 - Inspector 引用框支持按类型过滤的资产路径下拉框；Edit 还可从 Project 拖入 Mesh／Material／Texture。
   底层仍保存 Handle，加载失败保持旧引用，丢失引用显示 Missing。Play 仅支持下拉调试，不接受资产拖放。
   内置模板为 `unlit_color`（color、intensity）和 `pbr`（base_color、base_color_texture、metallic、roughness）。
-  默认立方体使用带纹理的 `pbr.mat`，地面使用纯色 `ground.mat`；unlit 适用于不受场景光源影响的颜色标记。
+  默认立方体使用带纹理的 `cube.mat`，地面使用纯色 `ground.mat`，两者都是使用 `pbr` 模板的项目材质。
+  材质资产按需通过 New Material 创建；`unlit_color` 适用于不受场景光源影响的颜色标记。
   PBR 基础颜色为线性颜色参数乘纹理采样值；基础颜色图片通常按 sRGB 导入，由 GPU 解码，不在 Shader 重复 gamma 转换。
   `base_color_texture` 可选，选择 None 恢复纯色；指定但失效的纹理引用仍视为错误，不静默使用默认纹理。
-  PBR 当前支持直接光照与方向光阴影，不含法线／金属粗糙度贴图、IBL 或透明；金属度范围 0..1，粗糙度范围 0.045..1。
+  PBR 当前支持直接光照、方向光阴影与全局 IBL，不含法线／金属粗糙度贴图或透明；金属度范围 0..1，粗糙度范围 0.045..1。
   Inspector 按共享布局显示纹理、标量和颜色参数，参数变化后自动保存；仅查看默认值不会写文件。
   Template 下拉框可切换已发布模板，确认时列出不兼容参数；保留兼容值、新参数使用默认值，材质身份不变。
   编辑时先准备依赖与 GPU 绑定，再保存并发布；失败恢复面板原值，旧在途帧继续使用旧资源。

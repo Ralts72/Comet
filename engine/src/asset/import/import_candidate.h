@@ -4,6 +4,7 @@
 #include "asset/database.h"
 #include "asset/data/material_data.h"
 #include "asset/data/texture_data.h"
+#include "asset/data/environment_data.h"
 #include <variant>
 
 namespace Comet {
@@ -25,9 +26,15 @@ namespace Comet {
         AssetRevision revision = INVALID_ASSET_REVISION;
         Result<MaterialData> result;
     };
+    struct EnvironmentImportCandidate {
+        AssetHandle handle;
+        AssetRevision revision = INVALID_ASSET_REVISION;
+        std::filesystem::path relative_path;
+        Result<EnvironmentData> result;
+    };
     struct AssetImportResult {
         std::variant<std::monostate, MeshArtifactCandidate, TextureImportCandidate,
-            MaterialImportCandidate>
+            MaterialImportCandidate, EnvironmentImportCandidate>
             candidate;
     };
 }

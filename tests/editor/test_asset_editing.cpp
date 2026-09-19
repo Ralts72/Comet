@@ -263,6 +263,27 @@ namespace CometEditor::Tests {
         EXPECT_EQ(history.undo_size(), 2u);
     }
 
+    TEST_F(AssetEditingUiTest, EnvironmentLightingHasIndependentControlsAndOneUndoPerDrag) {
+        selection.select_scene();
+        frame();
+        click(widget_point("Inspector", "Lighting"));
+        EXPECT_TRUE(scene.get_environment().lighting);
+        EXPECT_FALSE(scene.get_environment().background);
+        const auto before = scene.get_environment();
+        const auto point = widget_point("Inspector", "Lighting intensity");
+        begin_value_drag(point, 30);
+        EXPECT_GT(scene.get_environment().lighting_intensity, before.lighting_intensity);
+        EXPECT_FLOAT_EQ(scene.get_environment().intensity, before.intensity);
+        EXPECT_EQ(history.undo_size(), 1u);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(history.undo_size(), 2u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.get_environment(), before);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(scene.get_environment().lighting);
+    }
+
     TEST_F(AssetEditingUiTest, EnvironmentNumberCommitsOnceAndEscapeDiscardsDraft) {
         selection.select_scene();
         frame();

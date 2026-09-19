@@ -4,7 +4,9 @@
     "asset": 11764928350182740632,
     "background": true,
     "intensity": 1,
-    "rotation": 0
+    "rotation": 0,
+    "lighting": true,
+    "lighting_intensity": 1
   },
   "entities": [
     {
@@ -68,15 +70,31 @@
       "components": {
         "name": "Key Light",
         "transform": {
-          "translation": [0, 0, 0],
-          "rotation": [-30, -35, 0],
-          "scale": [1, 1, 1]
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            -30,
+            -35,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
         },
         "light": {
           "type": "directional",
           "enabled": true,
           "casts_shadow": true,
-          "color": [1, 1, 1],
+          "color": [
+            1,
+            1,
+            1
+          ],
           "intensity": 4,
           "range": 10,
           "inner_angle": 20,
@@ -89,9 +107,21 @@
       "components": {
         "name": "Ground",
         "transform": {
-          "translation": [0, -0.8, 0],
-          "rotation": [0, 0, 0],
-          "scale": [4, 0.1, 4]
+          "translation": [
+            0,
+            -0.8,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4,
+            0.1,
+            4
+          ]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,

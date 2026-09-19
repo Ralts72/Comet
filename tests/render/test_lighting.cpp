@@ -146,7 +146,8 @@ namespace Comet::Tests {
             std::pair{"shadow_light_index", offsetof(LightingData, shadow_light_index)},
             std::pair{"shadow_depth_bias", offsetof(LightingData, shadow_depth_bias)},
             std::pair{"shadow_texel_size", offsetof(LightingData, shadow_texel_size)},
-            std::pair{"shadow_reserved", offsetof(LightingData, shadow_reserved)}};
+            std::pair{"shadow_reserved", offsetof(LightingData, shadow_reserved)},
+            std::pair{"environment", offsetof(LightingData, environment)}};
         ASSERT_EQ(found->members.size(), fields.size());
         for(size_t index = 0; index < fields.size(); ++index) {
             SCOPED_TRACE(fields[index].first);

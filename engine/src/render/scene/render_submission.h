@@ -14,7 +14,7 @@
 namespace Comet {
     class Mesh;
     class Material;
-    class Texture;
+    struct Environment;
 
     struct MaterialBinding {
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
@@ -33,6 +33,6 @@ namespace Comet {
         std::vector<ResolvedRenderItem> render_items;
         std::vector<RenderLight> lights;
         SceneEnvironment environment;
-        std::shared_ptr<Texture> environment_texture;
+        std::shared_ptr<Environment> environment_resource;
     };
 }

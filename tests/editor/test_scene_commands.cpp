@@ -29,7 +29,8 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(SceneCommands::set_environment(history, {}));
         EXPECT_FALSE(SceneCommands::set_environment(history, {{}, true, -1, 0}));
         EXPECT_EQ(history.state_id(), initial_state);
-        const Comet::SceneEnvironment environment{Comet::AssetHandle(33), true, 1.5f, 90};
+        const Comet::SceneEnvironment environment{
+            Comet::AssetHandle(33), true, 1.5f, 90, true, 0.25f};
         ASSERT_TRUE(SceneCommands::set_environment(history, environment));
         EXPECT_EQ(history.undo_size(), 1u);
         EXPECT_NE(history.state_id(), initial_state);

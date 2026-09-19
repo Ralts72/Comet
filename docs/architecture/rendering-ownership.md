@@ -180,15 +180,15 @@ pose_world_matrix 共用相机姿态语义：世界位置含父级变换，方�
 
 `render/lighting.h/.cpp` 负责值快照与 std140 打包，无 Scene 或 GPU owner。
 按 EntityId 稳定选择前 32 个有效光源；非法参数与超限分别统计，数量变化时报告，不能当作空间筛选。
-FrameSet binding 0 是相机，binding 1 是片元光照 UBO，binding 2 是阴影 sampler2D。
+FrameSet binding 0 是相机，binding 1 是片元光照 UBO，binding 2 是阴影 sampler2D，binding 3/4/5 是环境 irradiance/specular/BRDF LUT。
 UBO 每灯 64 字节，使用 position、type、direction、range、color、intensity、锥角和阴影标记等具名字段；
 末尾是有效／超限／无效数量、shadow_view_projection、shadow_light_index、shadow_depth_bias 和 shadow_texel_size。
-类型、标记与计数仍用 float 编码，总计 2144 字节；C++ 静态断言和 Shader 反射测试核对偏移、数组步长与大小。
+另有 environment vec4 保存照明强度、镜面最大 LOD 和旋转 sin/cos。类型、标记与计数仍用 float 编码，总计 2160 字节；C++ 静态断言和 Shader 反射测试核对偏移、数组步长与大小。
 每个 slot 等待完成后写入，FrameResources 由在途帧保活；灯光变化不更新材质 revision 或重建 MaterialSet。
 
 受光表面统一使用 `pbr`；点光使用有限范围衰减，聚光增加锥角权重。
-法线按模型矩阵逆转置变换，近奇异变换输出零法线；无有效灯光时为黑色，不添加隐藏环境光。
-强度是当前渲染参数，不承诺完整物理光度单位；尚无 IBL 或 clustered/tiled 筛选。
+法线按模型矩阵逆转置变换，近奇异变换输出零法线；无直接光和环境贡献时为黑色，不添加隐藏环境光。
+强度是当前渲染参数，不承诺完整物理光度单位；尚无 clustered/tiled 筛选。
 
 `pbr` 在同一场景 pass 内使用 GGX、height-correlated Smith 与 Schlick Fresnel 计算直接光照，
 通过 `lighting/forward.glsl` 的 `sample_light` 和 `shadow_visibility` 获取光照，不增加 PBR pass 或 GPU 资源管理器。
@@ -225,27 +225,32 @@ MaterialRenderer 只接收已准备的 LightingData 与有效采样 View，不�
 尚无级联、texel 稳定化、视锥筛选、透明裁切、逐物体投影开关或点／聚光阴影；
 大场景或动态包围盒会降低阴影精度并可能抖动，后续按实际画面需求扩展。
 
-### 场景环境背景
+### 场景环境与 IBL
 
-SceneEnvironment 保存单一环境 Handle、背景开关、强度与 Y 旋转；不包含 GPU owner，也不作为实体组件。
-SceneExtractor 复制配置，SceneResolver 从 AssetRegistry 取得 cubemap Texture，RenderSubmission 持有本帧版本。
-Environment 与普通 Texture 在数据库中为不同资产类型，但共用 Texture 的 GPU 上传与所有权；材质 2D 槽拒绝 Environment。
+SceneEnvironment 保存单一环境 Handle、独立背景／照明开关及强度，共享 Y 旋转；不包含 GPU owner，也不作为实体组件。
+SceneExtractor 复制配置，SceneResolver 从 AssetRegistry 取得 Environment，RenderSubmission 持有本帧版本。
+Environment 拥有 background、irradiance、specular、brdf 四个 Texture，复用纹理上传；材质 2D 槽拒绝 Environment。
 HDR 导入器生成六层 RGBA16F 和背景 mip 链，UploadBatch 一次提交全部 mip／layer，统一转入 SampledRead。
 SkyboxPass 在场景 RenderPass 内先画全屏三角形，不读写深度；随后几何和辅助线按原流程绘制。
 射线由逆投影、相机旋转和环境旋转重建，丢弃相机平移；正交视图也按射线方向采样。
 SkyboxPass 和 OutputPass 共用不可变 SampledImageBinding，绑定拥有 view、layout、sampler 和 descriptor pool；帧保留绑定及管线，不改写在途 descriptor。
 SkyboxPass 返回实际绘制所需的上传等待，SceneRenderer 只合并，不重复判断背景开关或资源条件。
-当前只改变背景，尚无 IBL；资产准备见下节。
+MaterialRenderer 在同一场景 pass 消费 IBL，不新增 pass/System。槽位 fence 完成后更新 FrameSet 并保留整代 Environment，合并实际采样纹理的上传等待；缺失／禁用时绑定有效黑色占位并设置照明强度为零。
+`environment/lighting.glsl` 使用 split-sum：irradiance 存 E/pi，specular 按 perceptual roughness 选择 GGX 预滤波 mip，BRDF LUT 的 RG 存 F0 的比例与偏置。
+CPU 积分采用 Hammersley 256 样本、alpha=roughness²、height-correlated Smith，与直接光 GGX 约定一致；预滤波按 PDF 选源 mip，并跨 cubemap 面重投影过滤采样。
+LUT 在线程安全静态初始化中只积分一次，随后随每个缓存保存；单散射近似不实现多重散射补偿、局部探针或环境遮蔽。
+算法依据：[Filament 的 IBL 与预滤波推导](https://google.github.io/filament/main/filament.html#lighting/imagebasedlights)。
 
 ### 环境资产准备
 
-`场景引用 → AssetManager::request_load → AssetTaskQueue → ImportService → EnvironmentArtifact → owner 发布 Texture`。
+`场景引用 → AssetManager::request_load → AssetTaskQueue → ImportService → EnvironmentArtifact → owner 发布 Environment`。
 app/editor 共用引用准备：场景环境是可选引用，缺失时保留 Handle 并诊断；app 拒绝必需引用失败，编辑器允许修复。DeviceLost 始终向上传递。
 SceneResolver 不将 Registry 中尚未发布的环境当作错误，等待期间返回无环境纹理的提交；真实缺失／准备失败由资产层报告。
-已发布对象不是 Texture 或不是 cubemap 时，SceneResolver 仍报告类型错误并按 Handle 去重，不依赖 AssetManager 的调度状态。
+已发布对象不是 Environment 时，SceneResolver 报告类型错误并按 Handle 去重，不依赖 AssetManager 的调度状态。
 ImportService 负责 CPU 导入与缓存，AssetManager 负责加载需求、revision 检查和运行时发布；二者不访问 ImGui。
 后台首次准备与驻留重载共用缓存路径，输入路径／内容指纹和算法版本必须匹配；格式、尺寸、载荷长度和校验值不符则重建。
 缓存原子写只保证单文件；缓存可独立存在，不代表 GPU 已发布。GPU 创建失败不替换 Registry，旧帧仍持有旧版本。
+EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 mip 链和 128² LUT 作为同一载荷校验；旧 v1 自动重建。GPU 四张纹理全部成功且 revision 仍有效后才替换 Registry，部分上传失败不发布半成品。
 环境任务根据源尺寸估算工作集，默认共享 2 GiB CPU 预约预算；完成候选在发布或丢弃前不释放预约。
 主线程仅做小型头部／文件大小预检和 GPU 发布，CPU 大块读取、转换、校验与缓存写入在 Worker；预检后源增长超预算会失败。
 此预算不是进程 RSS 上限，也不覆盖普通纹理／Mesh 解码或 GPU 分配；GPU 创建仍使用现有资源工厂的预算及 Result。

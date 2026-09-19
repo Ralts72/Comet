@@ -293,8 +293,7 @@ namespace Comet {
         auto skybox = m_state->skybox_pass->render(frames, submission);
         if(!skybox)
             return skybox;
-        auto waits = m_state->materials->render(frames, submission.view_project_matrix,
-            submission.render_items, lighting,
+        auto waits = m_state->materials->render(frames, submission, lighting,
             m_state->shadow_pass->get_depth_view(frames.get_current_frame_slot_index()));
         if(!waits)
             return waits;

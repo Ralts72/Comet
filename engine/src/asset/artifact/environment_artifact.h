@@ -1,6 +1,6 @@
 #pragma once
 
-#include "asset/data/texture_data.h"
+#include "asset/data/environment_data.h"
 #include "asset/handle.h"
 #include "asset/import/input_snapshot.h"
 
@@ -16,6 +16,6 @@ namespace Comet {
         AssetHandle handle;
         uint32_t importer_version = 0;
         ImportInputFingerprint source;
-        TextureData data;
+        EnvironmentData data;
     };
 }

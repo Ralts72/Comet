@@ -23,7 +23,7 @@ namespace Comet {
         const auto face = std::bit_floor(static_cast<std::size_t>(width / 4));
         // Decode + float faces/reduction + mip vector growth and artifact serialization.
         return Result<std::size_t>::success(source_size + std::size_t(width) * height * 16
-                                            + face * face * 6 * 20 + face * face * 6 * 8 * 4);
+            + face * face * 6 * 20 + face * face * 6 * 8 * 4 + 16 * 1024 * 1024);
     }
 
     Result<std::size_t> EnvironmentImporter::working_bytes(const std::filesystem::path& path) {
@@ -74,44 +74,54 @@ namespace Comet {
         return true;
     }
 
-    Result<TextureData> EnvironmentImporter::import(
-        const std::filesystem::path& source_path, const std::size_t memory_budget) const {
+    struct HdrImage {
+        int width;
+        int height;
+        std::unique_ptr<float, decltype(&stbi_image_free)> pixels;
+    };
+
+    static Result<HdrImage> decode_source(
+        const std::filesystem::path& source_path, const std::size_t memory_budget) {
         const auto path = source_path.string();
         std::error_code error;
         const auto size_on_disk = std::filesystem::file_size(source_path, error);
         if(error || size_on_disk > 256 * 1024 * 1024 || size_on_disk > memory_budget)
-            return Result<TextureData>::failure(
+            return Result<HdrImage>::failure(
                 "Cannot read HDR environment or source exceeds 256 MiB: " + path);
         std::string source(size_on_disk, '\0');
         std::ifstream input(source_path, std::ios::binary);
         if(!input.read(source.data(), source.size())
             || input.peek() != std::ifstream::traits_type::eof())
-            return Result<TextureData>::failure("Cannot read HDR or source size changed: " + path);
+            return Result<HdrImage>::failure("Cannot read HDR or source size changed: " + path);
         const auto* bytes = reinterpret_cast<const stbi_uc*>(source.data());
         const int byte_count = static_cast<int>(source.size());
         int width = 0, height = 0, channels = 0;
         if(!stbi_is_hdr_from_memory(bytes, byte_count)
             || !stbi_info_from_memory(bytes, byte_count, &width, &height, &channels) || width < 4
             || width > 8192 || height < 2 || height > 4096 || width != height * 2)
-            return Result<TextureData>::failure(
+            return Result<HdrImage>::failure(
                 "Environment requires a 2:1 Radiance HDR image (4..8192 pixels wide)");
         if(!complete_hdr_payload(source, width, height))
-            return Result<TextureData>::failure("Truncated or invalid HDR pixel stream: " + path);
+            return Result<HdrImage>::failure("Truncated or invalid HDR pixel stream: " + path);
         const auto required = estimate_bytes(source.size(), width, height);
         if(!required || required.value() > memory_budget)
-            return Result<TextureData>::failure(
-                "Environment exceeds its reserved CPU memory budget");
+            return Result<HdrImage>::failure("Environment exceeds its reserved CPU memory budget");
         std::unique_ptr<float, decltype(&stbi_image_free)> pixels(
             stbi_loadf_from_memory(bytes, byte_count, &width, &height, &channels, 4),
             &stbi_image_free);
         if(!pixels)
-            return Result<TextureData>::failure("Failed to decode HDR environment: " + path);
+            return Result<HdrImage>::failure("Failed to decode HDR environment: " + path);
         for(size_t i = 0; i < size_t(width) * height * 4; ++i) {
             if(!std::isfinite(pixels.get()[i]) || pixels.get()[i] < 0 || pixels.get()[i] > 65504.0f)
-                return Result<TextureData>::failure(
+                return Result<HdrImage>::failure(
                     "HDR pixels must be finite, nonnegative and representable as float16");
         }
 
+        return Result<HdrImage>::success({width, height, std::move(pixels)});
+    }
+
+    static TextureData import_background(const HdrImage& source) {
+        const auto& [width, height, pixels] = source;
         const int size = static_cast<int>(std::bit_floor(std::min(uint32_t(width / 4), 2048u)));
         TextureData result{.width = size,
             .height = size,
@@ -170,6 +180,24 @@ namespace Comet {
                     }
             level = std::move(reduced);
         }
-        return Result<TextureData>::success(std::move(result));
+        return result;
+    }
+
+    Result<void> EnvironmentImporter::validate_source(
+        const std::filesystem::path& source_path) const {
+        auto decoded = decode_source(source_path, MAX_WORKING_BYTES);
+        if(!decoded)
+            return Result<void>::failure(decoded.error());
+        return Result<void>::success();
+    }
+
+    Result<EnvironmentData> EnvironmentImporter::import(
+        const std::filesystem::path& source_path, const std::size_t memory_budget) const {
+        auto decoded = decode_source(source_path, memory_budget);
+        if(!decoded)
+            return Result<EnvironmentData>::failure(decoded.error());
+        auto background = import_background(decoded.value());
+        decoded.value().pixels.reset();
+        return Result<EnvironmentData>::success(prepare_lighting(std::move(background)));
     }
 }

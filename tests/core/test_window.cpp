@@ -6,6 +6,23 @@
 #include <memory>
 
 namespace Comet::Tests {
+    TEST(WindowTest, TitleStartsFromConfigurationAndCanBeReplaced) {
+        Config::Window config;
+        config.width = 64;
+        config.height = 64;
+        config.title = "Comet Title Test";
+        Window window(config);
+        EXPECT_EQ(window.get_title(), config.title);
+
+        const auto updated = config.title + " | 120 FPS";
+        window.set_title(updated);
+        EXPECT_EQ(window.get_title(), updated);
+        EXPECT_STREQ(glfwGetWindowTitle(window.get()), updated.c_str());
+
+        window.set_title(config.title);
+        EXPECT_EQ(window.get_title(), config.title);
+    }
+
     TEST(WindowTest, CloseConfirmationConsumesNativeRequestsWithoutStoppingTheLoop) {
         Config::Window config;
         config.width = 64;

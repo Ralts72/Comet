@@ -5,6 +5,7 @@
 #include "core/math_utils.h"
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <vector>
 
 struct GLFWwindow;
@@ -24,6 +25,9 @@ namespace Comet {
         Window& operator=(const Window&) = delete;
 
         [[nodiscard]] GLFWwindow* get() const { return m_window.get(); }
+
+        [[nodiscard]] std::string get_title() const;
+        void set_title(const std::string& title);
 
         [[nodiscard]] bool should_close() const;
         void request_close();

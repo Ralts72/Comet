@@ -4,6 +4,7 @@
 #include "render/material/material.h"
 #include "render/resource/render_resources.h"
 #include "render/resource/texture.h"
+#include "render/resource/environment.h"
 #include "render/scene/scene_resolver.h"
 #include "support/engine_fixture.h"
 #include "support/math_assertions.h"
@@ -65,7 +66,7 @@ namespace Comet::Tests {
         const auto before = messages.str();
         for(int frame = 0; frame < 3; ++frame) {
             const auto submission = resolver.resolve(scene, view);
-            EXPECT_FALSE(submission.environment_texture);
+            EXPECT_FALSE(submission.environment_resource);
             EXPECT_EQ(submission.environment, scene.environment);
         }
         EXPECT_EQ(messages.str(), before);
@@ -74,14 +75,18 @@ namespace Comet::Tests {
             .width = 1, .height = 1, .pixels = std::vector<uint8_t>(24), .cubemap = true};
         auto texture = engine->get_render_resources().try_create_texture(data);
         ASSERT_TRUE(texture) << texture.error().message;
-        ASSERT_TRUE(registry.register_asset(scene.environment.asset, texture.value()));
+        auto environment =
+            std::make_shared<Environment>(Environment{.background = texture.value()});
+        ASSERT_TRUE(registry.register_asset(scene.environment.asset, environment));
         const auto published = messages.str();
-        EXPECT_EQ(resolver.resolve(scene, view).environment_texture, texture.value());
+        EXPECT_EQ(resolver.resolve(scene, view).environment_resource, environment);
         scene.environment.background = false;
-        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_resource);
+        scene.environment.lighting = true;
+        EXPECT_EQ(resolver.resolve(scene, view).environment_resource, environment);
         scene.environment.background = true;
         ASSERT_TRUE(registry.unregister_asset(scene.environment.asset));
-        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_resource);
         EXPECT_EQ(messages.str(), published);
     }
 
@@ -97,20 +102,20 @@ namespace Comet::Tests {
         ASSERT_TRUE(texture) << texture.error().message;
         ASSERT_TRUE(registry.register_asset(scene.environment.asset, texture.value()));
         const auto before = messages.str().size();
-        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_resource);
         const auto reported = messages.str();
-        EXPECT_NE(reported.find("expected cubemap texture", before), std::string::npos);
-        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
+        EXPECT_NE(reported.find("expected environment resource", before), std::string::npos);
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_resource);
         EXPECT_EQ(messages.str(), reported);
 
         ASSERT_TRUE(registry.unregister_asset(scene.environment.asset));
-        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_resource);
         EXPECT_EQ(messages.str(), reported);
         ASSERT_TRUE(registry.register_asset(
             scene.environment.asset, std::make_shared<Material>("wrong type", "unlit_color")));
-        EXPECT_FALSE(resolver.resolve(scene, view).environment_texture);
-        EXPECT_NE(
-            messages.str().find("expected cubemap texture", reported.size()), std::string::npos);
+        EXPECT_FALSE(resolver.resolve(scene, view).environment_resource);
+        EXPECT_NE(messages.str().find("expected environment resource", reported.size()),
+            std::string::npos);
     }
 
     TEST(SceneResolverTest, BuildsViewProjectionFromPrimaryCamera) {

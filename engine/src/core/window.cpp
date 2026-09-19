@@ -89,6 +89,14 @@ namespace Comet {
 
     Window::~Window() = default;
 
+    std::string Window::get_title() const {
+        return glfwGetWindowTitle(m_window.get());
+    }
+
+    void Window::set_title(const std::string& title) {
+        glfwSetWindowTitle(m_window.get(), title.c_str());
+    }
+
     bool Window::should_close() const {
         return glfwWindowShouldClose(m_window.get());
     }

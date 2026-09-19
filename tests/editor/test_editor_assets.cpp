@@ -1,3 +1,4 @@
+#include "render/resource/environment.h"
 #include "assets/editor_assets.h"
 #include "assets/material_editing.h"
 #include "asset/serialization/metadata_serializer.h"
@@ -120,7 +121,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(assets->restore_references());
         scheduler.wait_idle();
         ASSERT_TRUE(assets->update());
-        ASSERT_TRUE(runtime.resolve<Comet::Texture>(handle));
+        ASSERT_TRUE(runtime.resolve<Comet::Environment>(handle));
         std::filesystem::remove(path);
         ASSERT_TRUE(assets->refresh().snapshot_updated);
         EXPECT_FALSE(runtime.contains(handle));
@@ -132,7 +133,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(assets->restore_references());
         scheduler.wait_idle();
         ASSERT_TRUE(assets->update());
-        EXPECT_TRUE(runtime.resolve<Comet::Texture>(handle));
+        EXPECT_TRUE(runtime.resolve<Comet::Environment>(handle));
     }
 
     TEST_F(EditorAssetsTest, CreatesMaterialWithStableIdentityThenEditsMovesAndReopens) {

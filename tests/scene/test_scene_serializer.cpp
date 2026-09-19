@@ -18,7 +18,7 @@
 namespace Comet::Tests {
     TEST(SceneEnvironmentTest, PersistsExtractsAndCollectsReferenceWithoutAnEntity) {
         Scene scene;
-        const SceneEnvironment environment{AssetHandle(902), true, 2.0f, -90.0f};
+        const SceneEnvironment environment{AssetHandle(902), true, 2.0f, -90.0f, true, 0.75f};
         ASSERT_TRUE(scene.set_environment(environment));
         EXPECT_EQ(scene.get_environment().rotation, -90.0f);
         const auto registry = create_scene_component_registry();
@@ -44,6 +44,17 @@ namespace Comet::Tests {
         auto legacy = serializer.deserialize(R"({"version":2,"entities":[]})");
         ASSERT_TRUE(legacy);
         EXPECT_EQ(legacy.value()->get_environment(), SceneEnvironment{});
+        auto background_only = serializer.deserialize(
+            R"({"version":2,"environment":{"asset":0,"background":true,"intensity":1,"rotation":0},"entities":[]})");
+        ASSERT_TRUE(background_only);
+        EXPECT_FALSE(background_only.value()->get_environment().lighting);
+        EXPECT_FLOAT_EQ(background_only.value()->get_environment().lighting_intensity, 1);
+        for(const auto* invalid : {"-1", "65", "null", "true", "\"bad\""}) {
+            EXPECT_FALSE(serializer.deserialize(
+                std::string(
+                    R"({"version":2,"environment":{"asset":0,"background":true,"intensity":1,"rotation":0,"lighting_intensity":)")
+                + invalid + R"(},"entities":[]})"));
+        }
         EXPECT_FALSE(serializer.deserialize(R"({"version":2,"environment":null,"entities":[]})"));
         EXPECT_FALSE(serializer.deserialize(
             R"({"version":2,"environment":{"asset":0,"background":true,"intensity":-1,"rotation":0},"entities":[]})"));

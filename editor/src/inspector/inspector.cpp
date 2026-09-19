@@ -188,9 +188,17 @@ namespace CometEditor {
             changed = true;
         }
         changed |= ImGui::Checkbox("Background", &environment.background);
+        changed |= ImGui::Checkbox("Lighting", &environment.lighting);
         bool finished = changed;
         changed |= ImGui::DragFloat("Intensity", &environment.intensity, 0.02f, 0.0f, 64.0f, "%.2f",
             ImGuiSliderFlags_AlwaysClamp);
+        if(can_edit && ImGui::IsItemActivated())
+            static_cast<void>(m_property_edit.begin_environment());
+        if(ImGui::IsItemActive())
+            m_active_item = ImGui::GetItemID();
+        finished |= ImGui::IsItemDeactivated();
+        changed |= ImGui::DragFloat("Lighting intensity", &environment.lighting_intensity, 0.02f,
+            0.0f, 64.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         if(can_edit && ImGui::IsItemActivated())
             static_cast<void>(m_property_edit.begin_environment());
         if(ImGui::IsItemActive())

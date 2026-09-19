@@ -4,6 +4,7 @@
 
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/import/environment_importer.h"
+#include "render/resource/environment.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
@@ -1486,7 +1487,7 @@ namespace Comet::Tests {
         scheduler.wait_idle();
         EXPECT_EQ(completed_handles(manager.process_completions()), std::vector{second});
         EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
-        EXPECT_EQ(factory.texture_creation_count(), 2);
+        EXPECT_EQ(factory.texture_creation_count(), 8);
     }
 
     TEST(AssetManagerTest, EnvironmentRejectsOversizedDemandAndStaleFirstLoad) {
@@ -1554,23 +1555,54 @@ namespace Comet::Tests {
         auto first = manager.load_environment(handle);
         ASSERT_TRUE(first) << first.error();
         EXPECT_TRUE(manager.ensure_loaded(handle, AssetType::Environment));
-        EXPECT_EQ(factory.texture_creation_count(), 1);
+        EXPECT_EQ(factory.texture_creation_count(), 4);
         write_hdr(source, 8, 4);
         ASSERT_TRUE(manager.scan().succeeded());
-        EXPECT_EQ(registry.resolve<Texture>(handle).get(), first.value().get());
+        EXPECT_EQ(registry.resolve<Environment>(handle).get(), first.value().get());
         scheduler.wait_idle();
         EXPECT_EQ(
             completed_handles(manager.process_completions()), std::vector<AssetHandle>{handle});
-        auto second = registry.resolve<Texture>(handle);
+        auto second = registry.resolve<Environment>(handle);
         EXPECT_NE(second.get(), first.value().get());
-        EXPECT_EQ(factory.texture_creation_count(), 2);
+        EXPECT_EQ(factory.texture_creation_count(), 8);
         std::ofstream(source) << "invalid HDR";
         ASSERT_TRUE(manager.scan().succeeded());
         scheduler.wait_idle();
         EXPECT_TRUE(completed_handles(manager.process_completions()).empty());
-        EXPECT_EQ(registry.resolve<Texture>(handle).get(), second.get());
+        EXPECT_EQ(registry.resolve<Environment>(handle).get(), second.get());
         EXPECT_FALSE(manager.load_texture(handle));
         EXPECT_FALSE(manager.reimport_texture(handle, {}));
+    }
+
+    TEST(AssetManagerTest, FailedIblUploadRetainsTheCompletePreviousGeneration) {
+        const TemporaryProject project;
+        const auto source = project.paths().assets() / "studio.hdr";
+        write_hdr(source);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto handle = manager.get_database().find("studio.hdr")->handle;
+        auto original = manager.load_environment(handle);
+        ASSERT_TRUE(original);
+        write_hdr(source, 8, 4);
+        ASSERT_TRUE(manager.scan().succeeded());
+        scheduler.wait_idle();
+        // The background succeeds, but the following irradiance upload fails.
+        factory.on_next_texture_creation([&] {
+            factory.on_next_texture_creation([&] { factory.fail_texture_creation(true); });
+        });
+        EXPECT_TRUE(completed_handles(manager.process_completions()).empty());
+        EXPECT_EQ(registry.resolve<Environment>(handle), original.value());
+        EXPECT_EQ(factory.texture_creation_count(), 6);
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
+        factory.fail_texture_creation(false);
+        write_hdr(source, 16, 8);
+        ASSERT_TRUE(manager.scan().succeeded());
+        scheduler.wait_idle();
+        EXPECT_EQ(completed_handles(manager.process_completions()), std::vector{handle});
+        EXPECT_NE(registry.resolve<Environment>(handle), original.value());
     }
 
     TEST(AssetManagerTest, LoadsAndCachesTextureByAssetHandle) {

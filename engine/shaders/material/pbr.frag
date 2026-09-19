@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 #include "../common/frame.glsl"
 #include "../lighting/forward.glsl"
+#include "../environment/lighting.glsl"
 
 layout(location = 0) in vec3 world_position;
 layout(location = 1) in vec3 world_normal;
@@ -56,6 +57,7 @@ void main() {
         vec3 view = view_vector / view_length;
         float metallic = clamp(material.metallic, 0.0, 1.0);
         float roughness = clamp(material.roughness, 0.045, 1.0);
+        result = evaluate_environment(normal, view, base_color, metallic, roughness);
         for(int index = 0; index < int(lighting.light_count); ++index) {
             vec3 direction, radiance;
             if(!sample_light(index, world_position, direction, radiance))

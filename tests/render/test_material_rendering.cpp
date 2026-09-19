@@ -406,7 +406,9 @@ namespace Comet::Tests {
             command.set_viewport(Graphics::get_viewport(64, 32));
             command.set_scissor(Graphics::get_scissor(64, 32));
             const auto waits = materials->render(frames,
-                ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)}, items,
+                {.view_project_matrix =
+                        ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)},
+                    .render_items = {items.begin(), items.end()}},
                 lighting, shadow_input.value()->get_image_view());
             ASSERT_TRUE(waits) << waits.error();
             target->end_render_target(command);

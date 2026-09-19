@@ -31,7 +31,10 @@ namespace Comet::Tests {
         const auto stamp = std::filesystem::last_write_time(cache);
         auto second = prepare();
         ASSERT_TRUE(second) << second.error();
-        EXPECT_EQ(first.value().data.pixels, second.value().data.pixels);
+        EXPECT_EQ(first.value().data.background.pixels, second.value().data.background.pixels);
+        EXPECT_EQ(first.value().data.irradiance.pixels, second.value().data.irradiance.pixels);
+        EXPECT_EQ(first.value().data.specular.pixels, second.value().data.specular.pixels);
+        EXPECT_EQ(first.value().data.brdf.pixels, second.value().data.brdf.pixels);
         EXPECT_EQ(std::filesystem::last_write_time(cache), stamp);
         EXPECT_FALSE(EnvironmentArtifact::load(cache, AssetHandle(124), 1024));
         EXPECT_FALSE(EnvironmentArtifact::load(cache, record.handle, 1));
@@ -52,7 +55,7 @@ namespace Comet::Tests {
         auto changed = prepare();
         ASSERT_TRUE(changed);
         EXPECT_NE(changed.value().source, first.value().source);
-        EXPECT_EQ(changed.value().data.width, 2);
+        EXPECT_EQ(changed.value().data.background.width, 2);
     }
 
     TEST_F(EnvironmentArtifactTest, FailedSourceDoesNotReplaceLastValidArtifact) {
@@ -64,7 +67,7 @@ namespace Comet::Tests {
             record.handle, EnvironmentImporter::MAX_WORKING_BYTES);
         ASSERT_TRUE(preserved);
         EXPECT_EQ(preserved->source, first.value().source);
-        EXPECT_EQ(preserved->data.pixels, first.value().data.pixels);
+        EXPECT_EQ(preserved->data.background.pixels, first.value().data.background.pixels);
     }
 
     TEST_F(EnvironmentArtifactTest, RejectsPayloadCorruptionAndTrailingBytes) {

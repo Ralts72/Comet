@@ -16,6 +16,7 @@ set(SOURCES
         src/asset/import/asset_task_queue.cpp
         src/asset/import/texture_importer.cpp
         src/asset/import/environment_importer.cpp
+        src/asset/import/environment_lighting.cpp
         src/asset/asset_manager.cpp
         src/asset/data/material_data.cpp
         src/asset/metadata.cpp
@@ -82,6 +83,7 @@ set(SOURCES
         src/render/render_target.cpp
         src/render/resource/mesh.cpp
         src/render/resource/texture.cpp
+        src/render/resource/environment.cpp
         src/render/resource/sampled_image_binding.cpp
         src/render/render_context.cpp
         src/render/scene/scene_resolver.cpp

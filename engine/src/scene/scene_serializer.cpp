@@ -501,6 +501,8 @@ namespace Comet {
         writer.field("background", environment.background);
         writer.field("intensity", environment.intensity);
         writer.field("rotation", environment.rotation);
+        writer.field("lighting", environment.lighting);
+        writer.field("lighting_intensity", environment.lighting_intensity);
         writer.end_object();
         writer.key("entities");
         writer.begin_array();
@@ -562,7 +564,9 @@ namespace Comet {
             if(error)
                 return LoadResult::failure(context.error("environment", "invalid object"));
             if(auto valid = context.validate_keys(environment_node,
-                   {"asset", "background", "intensity", "rotation"}, "environment");
+                   {"asset", "background", "intensity", "rotation", "lighting",
+                       "lighting_intensity"},
+                   "environment");
                 !valid)
                 return LoadResult::failure(valid.error());
             auto asset = context.read_field<uint64_t>(
@@ -581,10 +585,25 @@ namespace Comet {
                 return LoadResult::failure(intensity.error());
             if(!rotation)
                 return LoadResult::failure(rotation.error());
-            if(!scene->set_environment({AssetHandle(asset.value()), background.value(),
-                   intensity.value(), rotation.value()}))
-                return LoadResult::failure(
-                    context.error("environment", "intensity must be between 0 and 64"));
+            SceneEnvironment environment{AssetHandle(asset.value()), background.value(),
+                intensity.value(), rotation.value()};
+            if(environment_node["lighting"].error() != simdjson::NO_SUCH_FIELD) {
+                auto lighting = context.read_field<bool>(
+                    environment_node, "lighting", "a boolean", "environment");
+                if(!lighting)
+                    return LoadResult::failure(lighting.error());
+                environment.lighting = lighting.value();
+            }
+            if(environment_node["lighting_intensity"].error() != simdjson::NO_SUCH_FIELD) {
+                auto lighting_intensity = context.read_field<float>(
+                    environment_node, "lighting_intensity", "a finite number", "environment");
+                if(!lighting_intensity)
+                    return LoadResult::failure(lighting_intensity.error());
+                environment.lighting_intensity = lighting_intensity.value();
+            }
+            if(!scene->set_environment(environment))
+                return LoadResult::failure(context.error(
+                    "environment", "background and lighting intensities must be between 0 and 64"));
         }
         std::unordered_map<EntityUuid, Entity> loaded_entities;
         loaded_entities.reserve(records.size());

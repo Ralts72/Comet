@@ -307,7 +307,8 @@ namespace Comet::AssetSourceOperations {
                     if(auto result = MeshImporter{}.import(staging / relative); !result)
                         return Result<void>::failure(result.error());
                 } else if(extension_of(relative) == ".hdr") {
-                    if(auto result = EnvironmentImporter{}.import(staging / relative); !result)
+                    if(auto result = EnvironmentImporter{}.validate_source(staging / relative);
+                        !result)
                         return Result<void>::failure(result.error());
                 } else {
                     if(auto result = TextureImporter{}.import(staging / relative); !result)

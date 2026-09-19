@@ -24,6 +24,7 @@ layout(set = 0, binding = 1, std140) uniform LightingData {
     float shadow_depth_bias;
     float shadow_texel_size;
     float shadow_reserved;
+    vec4 environment; // intensity, max LOD, sin(rotation), cos(rotation)
 } lighting;
 layout(set = 0, binding = 2) uniform sampler2D shadow_map;
 

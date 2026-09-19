@@ -1,5 +1,6 @@
 #include "asset/database.h"
 #include "asset/import/environment_importer.h"
+#include "asset/import/mesh_importer.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "core/project.h"
@@ -10,6 +11,17 @@
 #include <set>
 
 namespace Comet::Tests {
+    TEST(ProjectAssetsTest, DemoCubeNormalsPointOutwards) {
+        const auto mesh = MeshImporter{}.import(
+            ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY).assets() / "meshes/cube.gltf");
+        ASSERT_TRUE(mesh) << mesh.error();
+        ASSERT_FALSE(mesh.value().vertices.empty());
+        for(const auto& vertex : mesh.value().vertices) {
+            EXPECT_GT(Math::dot(vertex.position, vertex.normal), 0);
+            EXPECT_NEAR(Math::length(vertex.normal), 1, 1e-5f);
+        }
+    }
+
     TEST(ProjectAssetsTest, DemoReferencesHaveUniqueMetadataAndValidMaterialDependencies) {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();
@@ -61,11 +73,11 @@ namespace Comet::Tests {
             GTEST_SKIP() << "Optional HDR is absent; run ./tools/download_assets.sh";
         const auto imported = EnvironmentImporter{}.import(source);
         ASSERT_TRUE(imported) << imported.error();
-        EXPECT_TRUE(imported.value().cubemap);
-        EXPECT_EQ(imported.value().format, Format::R16G16B16A16_SFLOAT);
-        EXPECT_EQ(imported.value().width, imported.value().height);
-        EXPECT_GT(imported.value().mip_levels, 1u);
-        EXPECT_FALSE(imported.value().pixels.empty());
+        EXPECT_TRUE(imported.value().background.cubemap);
+        EXPECT_EQ(imported.value().background.format, Format::R16G16B16A16_SFLOAT);
+        EXPECT_EQ(imported.value().background.width, imported.value().background.height);
+        EXPECT_GT(imported.value().background.mip_levels, 1u);
+        EXPECT_FALSE(imported.value().background.pixels.empty());
     }
 
     INSTANTIATE_TEST_SUITE_P(

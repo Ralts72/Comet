@@ -8,6 +8,7 @@
 #include "graphics/resource/sampler.h"
 #include "render/frame_scheduler.h"
 #include "render/resource/texture.h"
+#include "render/resource/environment.h"
 #include "render/resource/sampled_image_binding.h"
 #include "render/scene/render_submission.h"
 #include "skybox_vert.h"
@@ -75,12 +76,12 @@ namespace Comet {
             || frames.get_current_frame_slot_index() >= m_bindings.size())
             return Draw::failure({"Invalid skybox frame"});
         auto& binding = m_bindings[frames.get_current_frame_slot_index()];
-        if(!submission.environment.background || !submission.environment_texture
+        if(!submission.environment.background || !submission.environment_resource
             || !submission.view_project_matrix) {
             binding.reset();
             return Draw::success({});
         }
-        const auto& texture = submission.environment_texture;
+        const auto& texture = submission.environment_resource->background;
         const auto& image = texture->get_image_view()->get_image();
         if(&image->get_device() != &m_device || !image->get_info().cubemap
             || image->get_info().format != Format::R16G16B16A16_SFLOAT

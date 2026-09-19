@@ -16,10 +16,13 @@
 #include "asset/data/texture_data.h"
 #include "render/resource/render_resources.h"
 #include "render/resource/texture.h"
+#include "render/resource/environment.h"
+#include "graphics/resource/image.h"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <iterator>
 #include <string_view>
@@ -79,6 +82,30 @@ namespace Comet {
         if(!white)
             return Result<void, GraphicsError>::failure(white.error());
         m_white_texture = std::move(white).value();
+        auto black_cube = resources.try_create_texture({.width = 1,
+            .height = 1,
+            .format = Format::R16G16B16A16_SFLOAT,
+            .pixels = std::vector<uint8_t>(6 * 8),
+            .cubemap = true});
+        if(!black_cube)
+            return Result<void, GraphicsError>::failure(black_cube.error());
+        m_empty_environment = std::make_shared<Environment>(Environment{
+            black_cube.value(), black_cube.value(), black_cube.value(), m_white_texture});
+        SamplerDesc environment_desc{.address_mode_u = SamplerAddressMode::ClampToEdge,
+            .address_mode_v = SamplerAddressMode::ClampToEdge,
+            .address_mode_w = SamplerAddressMode::ClampToEdge};
+        const auto features =
+            device.get_capability()
+                .physical_device.getFormatProperties(vk::Format::eR16G16B16A16Sfloat)
+                .optimalTilingFeatures;
+        if(!(features & vk::FormatFeatureFlagBits::eSampledImageFilterLinear)) {
+            environment_desc.mag_filter = Filter::Nearest;
+            environment_desc.min_filter = Filter::Nearest;
+            environment_desc.mipmap_mode = SamplerMipmapMode::Nearest;
+        }
+        auto environment_sampler = Sampler::create(device, environment_desc);
+        if(!environment_sampler)
+            return Result<void, GraphicsError>::failure(environment_sampler.error());
         auto shadow_sampler = resources.get_sampler_manager().get_nearest_clamp();
         if(!shadow_sampler)
             return Result<void, GraphicsError>::failure(shadow_sampler.error());
@@ -89,13 +116,16 @@ namespace Comet {
             1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
         frame_bindings.add_binding(
             2, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
+        for(uint32_t binding = 3; binding <= 5; ++binding)
+            frame_bindings.add_binding(binding, DescriptorType::CombinedImageSampler,
+                Flags<ShaderStage>(ShaderStage::Fragment));
         auto frame_layout = DescriptorSetLayout::create(device, frame_bindings);
         if(!frame_layout)
             return Result<void, GraphicsError>::failure(frame_layout.error());
         m_frame_layout = std::move(frame_layout).value();
         DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count * 2);
-        pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, frame_slot_count);
+        pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, frame_slot_count * 4);
         auto pool_result = DescriptorPool::create(device, frame_slot_count, pool_sizes);
         if(!pool_result)
             return Result<void, GraphicsError>::failure(pool_result.error());
@@ -108,6 +138,7 @@ namespace Comet {
             frame->layout = m_frame_layout;
             frame->pool = pool;
             frame->shadow_sampler = shadow_sampler.value();
+            frame->environment_sampler = environment_sampler.value();
             auto buffer =
                 Buffer::try_create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::Uniform),
                     sizeof(MaterialFrameData), false, nullptr, "frame camera");
@@ -445,9 +476,10 @@ namespace Comet {
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> MaterialRenderer::render(
-        FrameScheduler& frames, const std::optional<ViewProjectMatrix>& view,
-        const std::span<const ResolvedRenderItem> items, const LightingData& lighting,
+        FrameScheduler& frames, const RenderSubmission& submission, const LightingData& lighting,
         const std::shared_ptr<ImageView>& shadow_map) {
+        const auto& view = submission.view_project_matrix;
+        const auto& items = submission.render_items;
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_frames.size() || !shadow_map)
             return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
@@ -464,7 +496,32 @@ namespace Comet {
             const MaterialFrameData camera{*view, Math::Vec3(camera_world[3]),
                 view->projection[2][3] == 0 ? 1.0f : 0.0f, Math::Vec3(camera_world[2])};
             frame->buffer->write(&camera);
-            frame->lighting->write(&lighting);
+            auto environment = m_empty_environment;
+            auto frame_lighting = lighting;
+            if(submission.environment.lighting && submission.environment_resource) {
+                environment = submission.environment_resource;
+                const float rotation = Math::radians(submission.environment.rotation);
+                const auto& image = environment->specular->get_image_view()->get_image();
+                frame_lighting.environment = {submission.environment.lighting_intensity,
+                    float(image->get_info().mip_levels - 1), std::sin(rotation),
+                    std::cos(rotation)};
+            }
+            frame->lighting->write(&frame_lighting);
+            if(frame->environment != environment) {
+                const std::array writes{
+                    DescriptorSet::ImageSamplerWrite{
+                        3, *environment->irradiance->get_image_view(), *frame->environment_sampler},
+                    DescriptorSet::ImageSamplerWrite{
+                        4, *environment->specular->get_image_view(), *frame->environment_sampler},
+                    DescriptorSet::ImageSamplerWrite{
+                        5, *environment->brdf->get_image_view(), *frame->environment_sampler}};
+                frame->descriptor->update(m_device, {}, writes);
+                frame->environment = environment;
+            }
+            for(const auto& texture :
+                {environment->irradiance, environment->specular, environment->brdf})
+                append_wait(waits, texture->get_ready_completion(),
+                    Flags<PipelineStage>(PipelineStage::FragmentShader));
             if(frame->shadow_map != shadow_map) {
                 const DescriptorSet::ImageSamplerWrite write{
                     2, *shadow_map, *frame->shadow_sampler};

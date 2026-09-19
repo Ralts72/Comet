@@ -4,9 +4,7 @@
 #include "diagnostics/logger.h"
 #include "render/material/material.h"
 #include "render/resource/mesh.h"
-#include "render/resource/texture.h"
-#include "graphics/resource/image_view.h"
-#include "graphics/resource/image.h"
+#include "render/resource/environment.h"
 
 #include <utility>
 
@@ -23,15 +21,15 @@ namespace Comet {
         const auto handle = render_scene.environment.asset;
         AssetHandle invalid_environment;
         // Unpublished environments may still be loading; the asset layer reports failures.
-        if(handle && render_scene.environment.background) {
-            auto texture = m_asset_registry.resolve<Texture>(handle);
-            if(texture && texture->get_image_view()->get_image()->get_info().cubemap) {
-                submission.environment_texture = std::move(texture);
+        if(handle && (render_scene.environment.background || render_scene.environment.lighting)) {
+            auto environment = m_asset_registry.resolve<Environment>(handle);
+            if(environment) {
+                submission.environment_resource = std::move(environment);
             } else if(m_asset_registry.contains(handle)) {
                 invalid_environment = handle;
                 if(m_invalid_environment != handle)
                     LOG_ERROR("Scene references incompatible environment asset handle {} "
-                              "(expected cubemap texture)",
+                              "(expected environment resource)",
                         handle.value());
             }
         }

@@ -24,7 +24,8 @@ namespace Comet {
             || width * height > std::numeric_limits<size_t>::max() / bytes_per_pixel) {
             LOG_FATAL("Texture pixel data size exceeds size_t range");
         }
-        if(data.mip_levels == 0 || data.mip_levels > std::bit_width(std::max(width, height))
+        const auto max_mip_levels = static_cast<uint32_t>(std::bit_width(std::max(width, height)));
+        if(data.mip_levels == 0 || data.mip_levels > max_mip_levels
             || (data.cubemap && width != height) || (!data.cubemap && data.mip_levels != 1))
             LOG_FATAL("Invalid texture mip count or cubemap dimensions");
         const uint32_t layers = data.cubemap ? 6 : 1;

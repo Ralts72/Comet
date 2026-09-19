@@ -10,7 +10,9 @@
 namespace Comet {
     bool Scene::set_environment(const SceneEnvironment& environment) {
         if(!std::isfinite(environment.intensity) || environment.intensity < 0.0f
-            || environment.intensity > 64.0f || !std::isfinite(environment.rotation))
+            || environment.intensity > 64.0f || !std::isfinite(environment.rotation)
+            || !std::isfinite(environment.lighting_intensity)
+            || environment.lighting_intensity < 0.0f || environment.lighting_intensity > 64.0f)
             return false;
         m_environment = environment;
         m_environment.rotation = Math::wrap_degrees(environment.rotation);

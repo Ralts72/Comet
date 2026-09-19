@@ -3,12 +3,15 @@
 #include "diagnostics/logger.h"
 #include "asset/asset_manager.h"
 #include "core/project.h"
+#include "core/window.h"
 #include "scene/scene.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
 
+#include <cmath>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <system_error>
 #include <utility>
 
@@ -37,6 +40,7 @@ namespace {
             }
 
             auto& engine = get_engine();
+            m_window_title = engine.get_window().get_title();
             m_asset_manager = std::make_unique<Comet::AssetManager>(m_project.paths(),
                 engine.get_asset_registry(), engine.get_render_resources(),
                 engine.get_task_scheduler());
@@ -65,6 +69,12 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> on_update(Comet::UpdateContext context) override {
+            const auto fps = static_cast<int>(std::round(context.fps));
+            if(context.fps > 0.0f && fps != m_displayed_fps) {
+                get_engine().get_window().set_title(
+                    m_window_title + " | " + std::to_string(fps) + " FPS");
+                m_displayed_fps = fps;
+            }
             if(auto assets = m_asset_manager->process_completions(); !assets)
                 return Comet::Result<void, Comet::Error>::failure(assets.error());
             auto* scene = get_engine().get_scene();
@@ -86,6 +96,8 @@ namespace {
         Comet::Project m_project;
         Comet::EntityUuid m_rotating_entity = Comet::INVALID_ENTITY_UUID;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
+        std::string m_window_title;
+        int m_displayed_fps = -1;
     };
 
     Comet::Result<std::unique_ptr<Comet::Application>> create_game_app(

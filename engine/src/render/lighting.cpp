@@ -24,7 +24,7 @@ namespace Comet {
     static_assert(offsetof(LightingData, shadow_light_index) == LightingData::MAX_LIGHTS * 64 + 80);
     static_assert(offsetof(LightingData, shadow_depth_bias) == LightingData::MAX_LIGHTS * 64 + 84);
     static_assert(offsetof(LightingData, shadow_texel_size) == LightingData::MAX_LIGHTS * 64 + 88);
-    static_assert(sizeof(LightingData) == LightingData::MAX_LIGHTS * 64 + 96);
+    static_assert(sizeof(LightingData) == LightingData::MAX_LIGHTS * 64 + 112);
 
     static bool is_valid_light(const RenderLight& light) {
         if(light.type != LightType::Directional && light.type != LightType::Point

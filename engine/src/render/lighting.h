@@ -44,6 +44,7 @@ namespace Comet {
         float shadow_depth_bias = 0;
         float shadow_texel_size = 0;
         float shadow_reserved = 0;
+        Math::Vec4 environment{0, 0, 0, 1}; // intensity, max LOD, sin(rotation), cos(rotation)
         [[nodiscard]] static LightingData prepare(std::span<const RenderLight> lights);
         void prepare_shadow(const BoundingBox& world_bounds, uint32_t resolution);
     };

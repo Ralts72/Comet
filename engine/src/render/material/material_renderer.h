@@ -83,9 +83,8 @@ namespace Comet {
         // 调用方须先等待槽位、开启场景通道并设置视口与裁剪区域。
         // shadow_map 必须已处于片元 SampledRead；即使关闭阴影也需有效采样绑定。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
-            FrameScheduler& frames, const std::optional<ViewProjectMatrix>& view,
-            std::span<const ResolvedRenderItem> items, const LightingData& lighting,
-            const std::shared_ptr<ImageView>& shadow_map);
+            FrameScheduler& frames, const RenderSubmission& submission,
+            const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map);
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
 
     private:
@@ -106,6 +105,8 @@ namespace Comet {
             std::shared_ptr<CPUBuffer> lighting;
             std::shared_ptr<Sampler> shadow_sampler;
             std::shared_ptr<ImageView> shadow_map;
+            std::shared_ptr<Sampler> environment_sampler;
+            std::shared_ptr<Environment> environment;
             std::optional<DescriptorSet> descriptor;
         };
         struct MaterialResources {
@@ -145,6 +146,7 @@ namespace Comet {
         Device& m_device;
         std::shared_ptr<Sampler> m_sampler;
         std::shared_ptr<Texture> m_white_texture;
+        std::shared_ptr<Environment> m_empty_environment;
         std::shared_ptr<DescriptorSetLayout> m_frame_layout;
         std::vector<std::shared_ptr<FrameResources>> m_frames;
         std::unordered_map<std::string, std::shared_ptr<const PipelineState>> m_pipelines;

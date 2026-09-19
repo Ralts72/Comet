@@ -7,6 +7,7 @@
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/import/import_service.h"
 #include "asset/import/environment_importer.h"
+#include "render/resource/environment.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/source_operations.h"
@@ -269,7 +270,7 @@ namespace Comet {
         if(!record || record->type != expected_type)
             return Result<void, Error>::failure(
                 {"Environment is not indexed: " + std::to_string(handle.value())});
-        if(m_registry.resolve<Texture>(handle))
+        if(m_registry.resolve<Environment>(handle))
             return Result<void, Error>::success();
         if(m_registry.contains(handle))
             return Result<void, Error>::failure({"Runtime environment type conflict"});
@@ -330,6 +331,8 @@ namespace Comet {
             return publish_material_candidate(*candidate);
         if(auto* candidate = std::get_if<TextureImportCandidate>(&result.candidate))
             return publish_texture_candidate(*candidate);
+        if(auto* candidate = std::get_if<EnvironmentImportCandidate>(&result.candidate))
+            return publish_environment_candidate(*candidate);
         return ImportPublication::failure({"Import task completed without a candidate"});
     }
 
@@ -404,10 +407,6 @@ namespace Comet {
 
     AssetManager::ImportPublication AssetManager::publish_texture_candidate(
         TextureImportCandidate& candidate) {
-        const auto* record = m_database.find(candidate.handle);
-        const bool environment = record && record->type == AssetType::Environment;
-        if(environment)
-            m_failed_environments[candidate.handle] = candidate.revision;
         if(!candidate.result) {
             LOG_ERROR("Failed to prepare texture asset '{}' (handle {}): {}",
                 candidate.relative_path.generic_string(), candidate.handle.value(),
@@ -428,23 +427,48 @@ namespace Comet {
                 candidate.handle.value(), candidate.revision);
             return ImportPublication::success(std::nullopt);
         }
-        bool published = false;
-        if(environment && !m_registry.contains(candidate.handle))
-            published = m_registry.register_asset(candidate.handle, texture);
-        else
-            published = m_registry.replace_asset(candidate.handle, texture);
+        const bool published = m_registry.replace_asset(candidate.handle, texture);
         if(!published) {
             LOG_ERROR("Failed to publish refreshed runtime texture for asset handle {}",
                 candidate.handle.value());
             return ImportPublication::success(std::nullopt);
         }
-        if(environment) {
-            m_failed_environments.erase(candidate.handle);
-        } else {
-            if(auto refreshed = reload_loaded_material_dependents(candidate.handle); !refreshed)
-                return ImportPublication::failure(refreshed.error());
-        }
+        if(auto refreshed = reload_loaded_material_dependents(candidate.handle); !refreshed)
+            return ImportPublication::failure(refreshed.error());
         LOG_INFO("Published texture asset '{}' (handle {})",
+            candidate.relative_path.generic_string(), candidate.handle.value());
+        return ImportPublication::success(candidate.handle);
+    }
+
+    AssetManager::ImportPublication AssetManager::publish_environment_candidate(
+        EnvironmentImportCandidate& candidate) {
+        m_failed_environments[candidate.handle] = candidate.revision;
+        if(!candidate.result) {
+            LOG_ERROR("Failed to prepare environment '{}': {}",
+                candidate.relative_path.generic_string(), candidate.result.error());
+            return ImportPublication::success(std::nullopt);
+        }
+        auto environment = Environment::try_create(m_resource_factory, candidate.result.value());
+        if(!environment) {
+            if(environment.error().is_device_lost())
+                return ImportPublication::failure(environment.error().as_error());
+            LOG_ERROR("Failed to create environment {}: {}", candidate.handle.value(),
+                environment.error().message);
+            return ImportPublication::success(std::nullopt);
+        }
+        if(!m_database.is_current(candidate.handle, candidate.revision))
+            return ImportPublication::success(std::nullopt);
+        bool published = false;
+        if(m_registry.contains(candidate.handle))
+            published = m_registry.replace_asset(candidate.handle, environment.value());
+        else
+            published = m_registry.register_asset(candidate.handle, environment.value());
+        if(!published) {
+            LOG_ERROR("Failed to publish environment {}", candidate.handle.value());
+            return ImportPublication::success(std::nullopt);
+        }
+        m_failed_environments.erase(candidate.handle);
+        LOG_INFO("Published environment asset '{}' (handle {})",
             candidate.relative_path.generic_string(), candidate.handle.value());
         return ImportPublication::success(candidate.handle);
     }
@@ -543,19 +567,22 @@ namespace Comet {
             });
     }
 
-    Result<std::shared_ptr<Texture>, Error> AssetManager::load_environment(
+    Result<std::shared_ptr<Environment>, Error> AssetManager::load_environment(
         const AssetHandle handle) {
-        return load_runtime_asset<Texture>(m_database, m_registry, handle, AssetType::Environment,
-            [this](const AssetRecord& record) -> Result<std::shared_ptr<Texture>, Error> {
+        return load_runtime_asset<Environment>(m_database, m_registry, handle,
+            AssetType::Environment,
+            [this](const AssetRecord& record) -> Result<std::shared_ptr<Environment>, Error> {
                 auto prepared =
                     m_import_service->prepare_environment(record, m_task_queue->memory_budget());
                 if(!prepared)
-                    return Result<std::shared_ptr<Texture>, Error>::failure({prepared.error()});
-                auto texture = m_resource_factory.try_create_texture(prepared.value().data);
-                if(!texture)
-                    return Result<std::shared_ptr<Texture>, Error>::failure(
-                        texture.error().as_error());
-                return Result<std::shared_ptr<Texture>, Error>::success(std::move(texture).value());
+                    return Result<std::shared_ptr<Environment>, Error>::failure({prepared.error()});
+                auto environment =
+                    Environment::try_create(m_resource_factory, prepared.value().data);
+                if(!environment)
+                    return Result<std::shared_ptr<Environment>, Error>::failure(
+                        environment.error().as_error());
+                return Result<std::shared_ptr<Environment>, Error>::success(
+                    std::move(environment).value());
             });
     }
 
@@ -852,13 +879,13 @@ namespace Comet {
             record.handle, revision,
             [paths = m_paths, record, revision, budget = bytes.value()](AssetImportResult& result) {
                 auto prepared = ImportService(paths).prepare_environment(record, budget);
-                auto data = Result<TextureData>::failure("Environment preparation failed");
+                auto data = Result<EnvironmentData>::failure("Environment preparation failed");
                 if(prepared)
-                    data = Result<TextureData>::success(std::move(prepared).value().data);
+                    data = Result<EnvironmentData>::success(std::move(prepared).value().data);
                 else
-                    data = Result<TextureData>::failure(prepared.error());
-                result.candidate =
-                    TextureImportCandidate{record.handle, revision, record.path, std::move(data)};
+                    data = Result<EnvironmentData>::failure(prepared.error());
+                result.candidate = EnvironmentImportCandidate{
+                    record.handle, revision, record.path, std::move(data)};
             },
             false, bytes.value());
         return Result<bool, Error>::success(accepted);
