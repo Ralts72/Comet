@@ -14,9 +14,6 @@
 #include "asset/data/mesh_data.h"
 #include "render/resource/render_resources.h"
 #include "render/resource/texture.h"
-#include "material_mesh_vert.h"
-#include "material_textured_frag.h"
-#include "material_solid_frag.h"
 
 #include <algorithm>
 #include <array>
@@ -47,7 +44,8 @@ namespace Comet {
 
     Result<std::unique_ptr<MaterialRenderer>, GraphicsError> MaterialRenderer::create(
         Device& device, PipelineManager& pipelines, RenderResources& resources,
-        const uint32_t frame_slot_count, const SampleCount samples, const ShaderCode* shaders) {
+        const uint32_t frame_slot_count, const SampleCount samples,
+        const MaterialShaders* shaders) {
         auto candidate = std::unique_ptr<MaterialRenderer>(new MaterialRenderer(device));
         if(auto result =
                 candidate->initialize(pipelines, resources, frame_slot_count, samples, shaders);
@@ -60,7 +58,7 @@ namespace Comet {
 
     Result<void, GraphicsError> MaterialRenderer::initialize(PipelineManager& pipelines,
         RenderResources& resources, const uint32_t frame_slot_count, const SampleCount samples,
-        const ShaderCode* shaders) {
+        const MaterialShaders* shaders) {
         if(frame_slot_count == 0)
             return Result<void, GraphicsError>::failure({"Material renderer requires frame slots"});
         auto& device = m_device;
@@ -71,12 +69,14 @@ namespace Comet {
         DescriptorSetLayoutBindings frame_bindings;
         frame_bindings.add_binding(
             0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Vertex));
+        frame_bindings.add_binding(
+            1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
         auto frame_layout = DescriptorSetLayout::create(device, frame_bindings);
         if(!frame_layout)
             return Result<void, GraphicsError>::failure(frame_layout.error());
         m_frame_layout = std::move(frame_layout).value();
         DescriptorPoolSizes pool_sizes;
-        pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count);
+        pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count * 2);
         auto pool_result = DescriptorPool::create(device, frame_slot_count, pool_sizes);
         if(!pool_result)
             return Result<void, GraphicsError>::failure(pool_result.error());
@@ -95,62 +95,44 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(buffer.error());
             frame->buffer = std::move(buffer).value();
             frame->descriptor = descriptors.value()[slot];
-            const DescriptorSet::UniformBufferWrite write{
-                0, *frame->buffer, sizeof(ViewProjectMatrix)};
-            frame->descriptor->update(device, std::span(&write, 1));
+            auto lighting =
+                Buffer::try_create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::Uniform),
+                    sizeof(LightingData), false, nullptr, "frame lighting");
+            if(!lighting)
+                return Result<void, GraphicsError>::failure(lighting.error());
+            frame->lighting = std::move(lighting).value();
+            const std::array writes{
+                DescriptorSet::UniformBufferWrite{0, *frame->buffer, sizeof(ViewProjectMatrix)},
+                DescriptorSet::UniformBufferWrite{1, *frame->lighting, sizeof(LightingData)}};
+            frame->descriptor->update(device, writes);
             m_frames.push_back(std::move(frame));
         }
-        const ShaderCode embedded{
-            std::vector<uint32_t>(std::begin(MATERIAL_MESH_VERT), std::end(MATERIAL_MESH_VERT)),
-            std::vector<uint32_t>(
-                std::begin(MATERIAL_TEXTURED_FRAG), std::end(MATERIAL_TEXTURED_FRAG)),
-            std::vector<uint32_t>(std::begin(MATERIAL_SOLID_FRAG), std::end(MATERIAL_SOLID_FRAG))};
-        auto loaded = reload_shaders(pipelines, shaders ? *shaders : embedded, samples);
+        auto initial = default_material_shaders();
+        if(shaders) {
+            if(auto checked = validate_material_shaders(*shaders); !checked)
+                return Result<void, GraphicsError>::failure({checked.error()});
+            merge_material_shaders(initial, *shaders);
+        }
+        auto loaded = reload_shaders(pipelines, initial, samples);
         if(!loaded)
             return Result<void, GraphicsError>::failure(loaded.error());
         return Result<void, GraphicsError>::success();
     }
 
     Result<MaterialRenderer::ReloadReport, GraphicsError> MaterialRenderer::reload_shaders(
-        PipelineManager& pipelines, const ShaderCode& shaders, SampleCount samples) {
+        PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples) {
         using Reload = Result<ReloadReport, GraphicsError>;
         using Clock = std::chrono::steady_clock;
         const auto start = Clock::now();
         const auto elapsed = [](Clock::time_point since) {
             return std::chrono::duration<double, std::milli>(Clock::now() - since).count();
         };
-        // 内嵌程序是本次构建的固定资源契约，重建 Renderer 时也不能以热更候选建立基线。
-        static const auto vertex_contract = ShaderInterface::reflect(MATERIAL_MESH_VERT);
-        static const auto textured_contract = ShaderInterface::reflect(MATERIAL_TEXTURED_FRAG);
-        static const auto solid_contract = ShaderInterface::reflect(MATERIAL_SOLID_FRAG);
-        const auto validate = [](std::span<const uint32_t> words,
-                                  const Result<ShaderInterface>& contract, std::string_view name,
-                                  std::optional<uint32_t> ignored_set = std::nullopt) {
-            if(!contract)
-                return Result<void, GraphicsError>::failure({contract.error()});
-            const auto candidate = ShaderInterface::reflect(words);
-            if(!candidate)
-                return Result<void, GraphicsError>::failure({candidate.error()});
-            if(!contract.value().has_same_resource_layout(candidate.value(), ignored_set))
-                return Result<void, GraphicsError>::failure(
-                    {"Shader changed fixed resource layout: " + std::string(name)});
-            return Result<void, GraphicsError>::success();
-        };
-        if(auto checked = validate(shaders.vertex, vertex_contract, "material_mesh"); !checked)
-            return Reload::failure(checked.error());
-        if(auto checked =
-                validate(shaders.textured_fragment, textured_contract, "material_textured", 1);
-            !checked)
-            return Reload::failure(checked.error());
-        if(auto checked = validate(shaders.solid_fragment, solid_contract, "material_solid", 1);
-            !checked)
-            return Reload::failure(checked.error());
-        auto vertex = Shader::create(m_device, "material_mesh", shaders.vertex);
-        if(!vertex)
-            return Reload::failure(vertex.error());
+        if(auto checked = validate_material_shaders(shaders); !checked)
+            return Reload::failure({checked.error()});
         ReloadReport report;
-        decltype(m_pipelines) candidates;
-        const auto add_builtin = [&](const std::string& name, std::span<const uint32_t> words,
+        auto candidates = m_pipelines;
+        const auto add_builtin = [&](const std::shared_ptr<Shader>& vertex, const std::string& name,
+                                     std::span<const uint32_t> words,
                                      std::string_view layout_name) {
             auto fragment = Shader::create(m_device, name, words);
             if(!fragment)
@@ -165,25 +147,31 @@ namespace Comet {
             std::shared_ptr<DescriptorSetLayout> descriptor_layout;
             if(old != m_pipelines.end() && reflected.value() == old->second->layout)
                 descriptor_layout = old->second->material_layout;
-            auto candidate = create_pipeline(pipelines, vertex.value(), fragment.value(),
-                reflected.value(), samples, descriptor_layout);
+            auto candidate = create_pipeline(
+                pipelines, vertex, fragment.value(), reflected.value(), samples, descriptor_layout);
             if(!candidate)
                 return Result<void, GraphicsError>::failure(candidate.error());
             if(old != m_pipelines.end() && old->second->pipeline == candidate.value()->pipeline)
-                candidates.emplace(layout_name, old->second);
+                candidates.insert_or_assign(std::string(layout_name), old->second);
             else {
-                candidates.emplace(layout_name, std::move(candidate).value());
+                candidates.insert_or_assign(std::string(layout_name), std::move(candidate).value());
                 ++report.pipelines;
             }
             return Result<void, GraphicsError>::success();
         };
-        if(auto result =
-                add_builtin("material_textured", shaders.textured_fragment, "unlit_texture_blend");
-            !result)
-            return Reload::failure(result.error());
-        if(auto result = add_builtin("material_solid", shaders.solid_fragment, "unlit_color");
-            !result)
-            return Reload::failure(result.error());
+        for(const auto& definition : builtin_material_shaders()) {
+            const auto found = shaders.find(definition.name);
+            if(found == shaders.end())
+                continue;
+            const auto& code = found->second;
+            const std::string name(definition.name);
+            auto vertex = Shader::create(m_device, name, code.vertex);
+            if(!vertex)
+                return Reload::failure(vertex.error());
+            if(auto result = add_builtin(vertex.value(), name, code.fragment, definition.material);
+                !result)
+                return Reload::failure(result.error());
+        }
         report.pipeline_preparation_ms = elapsed(start);
         if(report.pipelines == 0)
             return Reload::success(report);
@@ -397,13 +385,27 @@ namespace Comet {
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> MaterialRenderer::render(
         FrameScheduler& frames, const std::optional<ViewProjectMatrix>& view,
-        const std::span<const ResolvedRenderItem> items) {
+        const std::span<const ResolvedRenderItem> items,
+        const std::span<const RenderLight> lights) {
+        const auto previous_omissions =
+            std::pair(m_statistics.excess_lights, m_statistics.invalid_lights);
         m_statistics = {};
         m_statistics.frame_set_count = static_cast<uint32_t>(m_frames.size());
         std::vector<QueueSemaphoreSubmit> waits;
         if(view) {
             const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
             frame->buffer->write(&*view);
+            const auto lighting = LightingData::prepare(lights);
+            frame->lighting->write(&lighting);
+            m_statistics.light_count = static_cast<uint32_t>(lighting.counts.x);
+            m_statistics.excess_lights = static_cast<uint32_t>(lighting.counts.y);
+            m_statistics.invalid_lights = static_cast<uint32_t>(lighting.counts.z);
+            if((m_statistics.excess_lights || m_statistics.invalid_lights)
+                && previous_omissions
+                       != std::pair(m_statistics.excess_lights, m_statistics.invalid_lights))
+                LOG_WARN("Lighting omitted {} excess and {} invalid lights (limit {})",
+                    m_statistics.excess_lights, m_statistics.invalid_lights,
+                    LightingData::MAX_LIGHTS);
             frames.retain_current_frame_resource(frame);
             std::vector<DrawItem> queue;
             queue.reserve(items.size());

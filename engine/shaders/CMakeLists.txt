@@ -1,14 +1,18 @@
 set(TARGET_NAME ${SHADER_COMPILE_TARGET})
 
-set(SHADER_FILES
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/material_mesh.vert"
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/material_textured.frag"
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/material_solid.frag"
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/debug_line.vert"
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/debug_line.frag"
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/fullscreen.vert"
-        "${CMAKE_CURRENT_SOURCE_DIR}/glsl/tone_map.frag"
+set(SHADER_PROGRAMS
+        material/unlit_texture_blend
+        material/unlit_color
+        material/lambert
+        debug/line
+        post/display
 )
+set(SHADER_FILES)
+foreach(PROGRAM IN LISTS SHADER_PROGRAMS)
+    list(APPEND SHADER_FILES
+            "${CMAKE_CURRENT_SOURCE_DIR}/${PROGRAM}.vert"
+            "${CMAKE_CURRENT_SOURCE_DIR}/${PROGRAM}.frag")
+endforeach()
 
 source_group("shaders" FILES ${SHADER_FILES})
 

@@ -187,16 +187,15 @@ namespace Comet {
                 ? nullptr
                 : &m_registry.get<WorldTransformComponent>(m_entities_by_id.at(parent));
         auto& world = m_registry.get<WorldTransformComponent>(handle);
-        const Math::Mat4 camera_local =
+        const Math::Mat4 pose_local =
             local ? Math::compose_trs(local->translation, local->rotation, Math::Vec3(1))
                   : Math::Mat4(1);
-        const Math::Mat4 local_matrix =
-            local ? Math::scale(camera_local, local->scale) : camera_local;
+        const Math::Mat4 local_matrix = local ? Math::scale(pose_local, local->scale) : pose_local;
         world.world_matrix =
             parent_world ? parent_world->world_matrix * local_matrix : local_matrix;
-        world.camera_world_matrix =
-            parent_world ? parent_world->camera_world_matrix * camera_local : camera_local;
-        world.camera_world_matrix[3] = world.world_matrix[3];
+        world.pose_world_matrix =
+            parent_world ? parent_world->pose_world_matrix * pose_local : pose_local;
+        world.pose_world_matrix[3] = world.world_matrix[3];
         state.local = local ? *local : TransformComponent{};
         state.has_local = local != nullptr;
         state.parent = parent;

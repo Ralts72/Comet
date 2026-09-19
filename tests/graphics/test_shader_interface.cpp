@@ -13,11 +13,11 @@
 #include <algorithm>
 #include <array>
 #include "render/material/material.h"
-#include "material_mesh_vert.h"
-#include "material_textured_frag.h"
-#include "material_solid_frag.h"
-#include "debug_line_vert.h"
-#include "debug_line_frag.h"
+#include "unlit_color_vert.h"
+#include "unlit_texture_blend_frag.h"
+#include "unlit_color_frag.h"
+#include "line_vert.h"
+#include "line_frag.h"
 #include "interface_array_vert.h"
 #include "material_integer_frag.h"
 #include "runtime_array_frag.h"
@@ -42,10 +42,10 @@
 
 namespace Comet::Tests {
     TEST(ShaderInterfaceTest, ReflectsUserLocationsAndValidatesStageConnections) {
-        const auto mesh = ShaderInterface::reflect(MATERIAL_MESH_VERT);
-        const auto textured = ShaderInterface::reflect(MATERIAL_TEXTURED_FRAG);
-        const auto solid = ShaderInterface::reflect(MATERIAL_SOLID_FRAG);
-        const auto debug = ShaderInterface::reflect(DEBUG_LINE_FRAG);
+        const auto mesh = ShaderInterface::reflect(UNLIT_COLOR_VERT);
+        const auto textured = ShaderInterface::reflect(UNLIT_TEXTURE_BLEND_FRAG);
+        const auto solid = ShaderInterface::reflect(UNLIT_COLOR_FRAG);
+        const auto debug = ShaderInterface::reflect(LINE_FRAG);
         const auto triangle = ShaderInterface::reflect(PIPELINE_TRIANGLE_VERT);
         ASSERT_TRUE(mesh) << mesh.error();
         ASSERT_TRUE(textured) << textured.error();
@@ -105,7 +105,7 @@ namespace Comet::Tests {
     }
 
     TEST(ShaderInterfaceTest, ReflectsProductionStagesBindingsAndPushConstants) {
-        auto vertex_result = ShaderInterface::reflect(MATERIAL_MESH_VERT);
+        auto vertex_result = ShaderInterface::reflect(UNLIT_COLOR_VERT);
         ASSERT_TRUE(vertex_result) << vertex_result.error();
         const auto vertex = std::move(vertex_result).value();
         EXPECT_EQ(vertex.get_entry_point(), "main");
@@ -125,7 +125,7 @@ namespace Comet::Tests {
         EXPECT_EQ(vertex.get_push_constants()[0].offset, 0u);
         EXPECT_EQ(vertex.get_push_constants()[0].size, 64u);
 
-        auto fragment_result = ShaderInterface::reflect(MATERIAL_TEXTURED_FRAG);
+        auto fragment_result = ShaderInterface::reflect(UNLIT_TEXTURE_BLEND_FRAG);
         ASSERT_TRUE(fragment_result) << fragment_result.error();
         const auto fragment = std::move(fragment_result).value();
         EXPECT_EQ(fragment.get_stage(), ShaderStage::Fragment);
@@ -146,19 +146,19 @@ namespace Comet::Tests {
             EXPECT_EQ(fragment.get_bindings()[index].binding, index);
             EXPECT_EQ(fragment.get_bindings()[index].type, DescriptorType::CombinedImageSampler);
         }
-        const auto debug_vertex = ShaderInterface::reflect(DEBUG_LINE_VERT);
+        const auto debug_vertex = ShaderInterface::reflect(LINE_VERT);
         ASSERT_TRUE(debug_vertex) << debug_vertex.error();
         EXPECT_TRUE(debug_vertex.value().get_bindings().empty());
         EXPECT_EQ(debug_vertex.value().get_push_constants().size(), 1u);
-        const auto debug_fragment = ShaderInterface::reflect(DEBUG_LINE_FRAG);
+        const auto debug_fragment = ShaderInterface::reflect(LINE_FRAG);
         ASSERT_TRUE(debug_fragment) << debug_fragment.error();
         EXPECT_TRUE(debug_fragment.value().get_bindings().empty());
     }
 
     TEST(ShaderInterfaceTest, OwnsReflectedValuesAfterInputAndParserAreGone) {
         const auto reflect = [] {
-            auto temporary =
-                std::vector<uint32_t>(MATERIAL_TEXTURED_FRAG.begin(), MATERIAL_TEXTURED_FRAG.end());
+            auto temporary = std::vector<uint32_t>(
+                UNLIT_TEXTURE_BLEND_FRAG.begin(), UNLIT_TEXTURE_BLEND_FRAG.end());
             return ShaderInterface::reflect(temporary);
         };
         auto interface_result = reflect();
@@ -171,23 +171,23 @@ namespace Comet::Tests {
     TEST(ShaderInterfaceTest, RejectsMalformedCodeMissingEntryAndRuntimeArrays) {
         EXPECT_FALSE(ShaderInterface::reflect(std::span<const uint32_t>{}));
         EXPECT_FALSE(ShaderInterface::reflect(std::array<uint32_t, 5>{}));
-        EXPECT_FALSE(ShaderInterface::reflect(MATERIAL_MESH_VERT, "missing"));
-        EXPECT_FALSE(ShaderInterface::reflect(MATERIAL_MESH_VERT, ""));
-        EXPECT_FALSE(ShaderInterface::reflect(MATERIAL_MESH_VERT, std::string("main\0other", 10)));
+        EXPECT_FALSE(ShaderInterface::reflect(UNLIT_COLOR_VERT, "missing"));
+        EXPECT_FALSE(ShaderInterface::reflect(UNLIT_COLOR_VERT, ""));
+        EXPECT_FALSE(ShaderInterface::reflect(UNLIT_COLOR_VERT, std::string("main\0other", 10)));
         EXPECT_FALSE(ShaderInterface::reflect(RUNTIME_ARRAY_FRAG));
-        auto truncated = std::span(MATERIAL_MESH_VERT).first(6);
+        auto truncated = std::span(UNLIT_COLOR_VERT).first(6);
         EXPECT_FALSE(ShaderInterface::reflect(truncated));
         auto invalid_instruction =
-            std::vector<uint32_t>(MATERIAL_MESH_VERT.begin(), MATERIAL_MESH_VERT.end());
+            std::vector<uint32_t>(UNLIT_COLOR_VERT.begin(), UNLIT_COLOR_VERT.end());
         invalid_instruction[5] = 0;
         EXPECT_FALSE(ShaderInterface::reflect(invalid_instruction));
     }
 
     TEST(ShaderInterfaceTest, ChecksMaterialBlockOffsetsFormatsAndTextureBindings) {
-        auto textured_result = ShaderInterface::reflect(MATERIAL_TEXTURED_FRAG);
+        auto textured_result = ShaderInterface::reflect(UNLIT_TEXTURE_BLEND_FRAG);
         ASSERT_TRUE(textured_result) << textured_result.error();
         const auto textured = std::move(textured_result).value();
-        auto solid_result = ShaderInterface::reflect(MATERIAL_SOLID_FRAG);
+        auto solid_result = ShaderInterface::reflect(UNLIT_COLOR_FRAG);
         ASSERT_TRUE(solid_result) << solid_result.error();
         const auto solid = std::move(solid_result).value();
         EXPECT_TRUE(MaterialLayout::find_builtin("unlit_texture_blend")->validate(textured));
@@ -278,7 +278,7 @@ namespace Comet::Tests {
 
     TEST_F(ShaderPipelineTest, AcceptsDynamicBufferLayoutsAndUnusedBindings) {
         auto& device = engine->get_renderer().get_render_context().get_device();
-        auto shader_result = ShaderInterface::reflect(MATERIAL_MESH_VERT);
+        auto shader_result = ShaderInterface::reflect(UNLIT_COLOR_VERT);
         ASSERT_TRUE(shader_result) << shader_result.error();
         const auto shader = std::move(shader_result).value();
         DescriptorSetLayoutBindings bindings;
@@ -302,10 +302,10 @@ namespace Comet::Tests {
         ASSERT_TRUE(pass_result) << pass_result.error();
         auto& pass = *pass_result.value();
         PipelineManager pipelines(device, pass);
-        auto vertex_result = Shader::create(device, "line", DEBUG_LINE_VERT);
+        auto vertex_result = Shader::create(device, "line", LINE_VERT);
         ASSERT_TRUE(vertex_result) << vertex_result.error();
         auto vertex = std::move(vertex_result).value();
-        auto fragment_result = Shader::create(device, "line", DEBUG_LINE_FRAG);
+        auto fragment_result = Shader::create(device, "line", LINE_FRAG);
         ASSERT_TRUE(fragment_result) << fragment_result.error();
         auto fragment = std::move(fragment_result).value();
         ShaderLayout layout;
@@ -329,7 +329,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(pipelines.create_pipeline("line", layout, config, vertex, fragment));
         EXPECT_FALSE(Shader::create(device, "bad", std::span<const uint32_t>{}));
 
-        auto material_result = ShaderInterface::reflect(MATERIAL_TEXTURED_FRAG);
+        auto material_result = ShaderInterface::reflect(UNLIT_TEXTURE_BLEND_FRAG);
         ASSERT_TRUE(material_result) << material_result.error();
         const auto material = std::move(material_result).value();
         EXPECT_FALSE(layout.validate(material));
@@ -341,14 +341,14 @@ namespace Comet::Tests {
         EXPECT_FALSE(layout.validate(material));
         layout.descriptor_set_layouts = {nullptr};
         {
-            auto candidate = ShaderInterface::reflect(DEBUG_LINE_FRAG);
+            auto candidate = ShaderInterface::reflect(LINE_FRAG);
             ASSERT_TRUE(candidate) << candidate.error();
             EXPECT_FALSE(layout.validate(candidate.value()));
         }
         layout.descriptor_set_layouts.clear();
         layout.push_constants = {nullptr};
         {
-            auto candidate = ShaderInterface::reflect(DEBUG_LINE_FRAG);
+            auto candidate = ShaderInterface::reflect(LINE_FRAG);
             ASSERT_TRUE(candidate) << candidate.error();
             EXPECT_FALSE(layout.validate(candidate.value()));
         }
@@ -411,8 +411,8 @@ namespace Comet::Tests {
         auto pass = RenderPass::create(device);
         ASSERT_TRUE(pass) << pass.error();
         PipelineManager pipelines(device, *pass.value());
-        auto vertex = Shader::create(device, "debug vertex", DEBUG_LINE_VERT);
-        auto fragment = Shader::create(device, "debug fragment", DEBUG_LINE_FRAG);
+        auto vertex = Shader::create(device, "debug vertex", LINE_VERT);
+        auto fragment = Shader::create(device, "debug fragment", LINE_FRAG);
         auto triangle = Shader::create(device, "triangle", PIPELINE_TRIANGLE_VERT);
         ASSERT_TRUE(vertex) << vertex.error();
         ASSERT_TRUE(fragment) << fragment.error();

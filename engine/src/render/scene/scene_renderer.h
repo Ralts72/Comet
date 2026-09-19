@@ -47,7 +47,7 @@ namespace Comet {
         Result<void, GraphicsError> configure_offscreen(
             RenderResources& resources, Math::Vec2u size);
         Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
-            MaterialRenderer::ShaderCode shaders);
+            MaterialShaders shaders);
         void release_presentation_target();
         Result<void, GraphicsError> rebuild_presentation_target(
             Swapchain& swapchain, const SwapchainCompatibility& compatibility);
@@ -73,6 +73,6 @@ namespace Comet {
         uint32_t m_frame_slot_count;
         std::shared_ptr<RenderState> m_state;
         std::optional<ResizeFailure> m_resize_failure;
-        std::optional<MaterialRenderer::ShaderCode> m_material_shaders;
+        std::optional<MaterialShaders> m_material_shaders;
     };
 }

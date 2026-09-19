@@ -176,14 +176,17 @@ namespace Comet {
     }
 
     Result<MaterialRenderer::ReloadReport, GraphicsError> SceneRenderer::reload_material_shaders(
-        MaterialRenderer::ShaderCode shaders) {
+        MaterialShaders shaders) {
         if(!m_state)
             return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
                 {"Scene pipelines are not initialized"});
         auto result =
             m_state->materials->reload_shaders(*m_state->pipelines, shaders, m_msaa_samples);
-        if(result)
-            m_material_shaders = std::move(shaders);
+        if(result) {
+            if(!m_material_shaders)
+                m_material_shaders.emplace();
+            merge_material_shaders(*m_material_shaders, std::move(shaders));
+        }
         return result;
     }
 
@@ -242,7 +245,7 @@ namespace Comet {
         command.set_scissor(
             Graphics::get_scissor(static_cast<float>(size.x), static_cast<float>(size.y)));
         auto waits = m_state->materials->render(
-            frames, submission.view_project_matrix, submission.render_items);
+            frames, submission.view_project_matrix, submission.render_items, submission.lights);
         if(!waits)
             return waits;
         if(submission.view_project_matrix) {

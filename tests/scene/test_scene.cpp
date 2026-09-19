@@ -342,7 +342,7 @@ namespace Comet::Tests {
                                          camera_transform.rotation, Math::Vec3(1));
         expected_camera[3] = expected_world[3];
         EXPECT_TRUE(TestUtils::Mat4Equal(world.world_matrix, expected_world));
-        EXPECT_TRUE(TestUtils::Mat4Equal(world.camera_world_matrix, expected_camera));
+        EXPECT_TRUE(TestUtils::Mat4Equal(world.pose_world_matrix, expected_camera));
     }
 
     TEST(SceneTest, DestroyingParentDestroysEntireSubtree) {

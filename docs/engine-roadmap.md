@@ -19,7 +19,7 @@
 以当前 main 的功能与验收为准，继续逐项对照 feat/auto2 的实现及原始提交，而不是机械 cherry-pick。
 每项先注明对应旧提交、当前覆盖、需要调整及仍未覆盖的范围，再适配 main 的 Result、目录边界和生命周期；
 临时代码说明留在仓库内供学习，不进入提交。旧分支的已实现行为不能只因 main 有同名功能就判为完整覆盖。
-材质布局重建、呈现／场景边界和完整目标事务已收敛；辅助线 Shader 热更新按实际需求暂缓，旧 026 驱动 PipelineCache、旧 027 WSI 恢复、旧 028 有序 RenderGraph 与旧 029 HDR／SDR 双 pass 已核对适配；下一步对照旧 030 的类型化光源与有界 forward 光照，不迁回旧所有权和异常协议；
+材质布局重建、呈现／场景边界和完整目标事务已收敛；辅助线 Shader 热更新按实际需求暂缓，旧 026 驱动 PipelineCache、旧 027 WSI 恢复、旧 028 有序 RenderGraph 与旧 029 HDR／SDR 双 pass 已核对适配；旧 030 类型化光源与有界 forward 光照已按当前所有权和 Result 协议适配；下一步对照方向光阴影 pass 与采样依赖；
 阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
 编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
 
@@ -194,7 +194,7 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
 
 1. 可失败创建与消费者迁移：反射／布局／Pipeline 校验、GPU 候选创建、结果处理与失败回滚完整接通，见下节。
 2. 内置材质 Shader 后台编译与发布已完成：请求 revision、输入快照复核、整批 GPU 候选切换、失败保留旧版本、在途帧寿命。
-   开发编辑器只登记材质三程序；单个在途任务与最新后继合并，不阻塞等待调度容量。
+   开发编辑器按顶点/片元配对登记三个材质程序；单个在途任务与最新后继合并，不阻塞等待调度容量。
    ShaderReload 接收 1..16 个具名 CPU 请求，不持有渲染器、GPU 对象或发布回调；编译成功不等于 GPU 发布成功。
    Vulkan 主机／设备内存不足时由 Editor 请求重新交付同一 CPU 候选，依次等待 1、2、4 秒，最多重试三次；复核输入和 revision 后重试 GPU 发布，不重新编译。耗尽后等待新请求。
    接口错误不重试，DeviceLost 继续退出；重试成功前旧程序与绑定保持不变。
@@ -226,7 +226,7 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
 - 027 `88cdd4a`：主线已由 Presentation 管恢复，补齐独立 WSI 故障注入回归及持续 INCOMPLETE 的有界枚举；保留 1／2／4 秒预算和 SurfaceLost 扩展，不恢复旧 SceneRenderer 编排或固定间隔无限重试。人工 ImGui、真实平台 SurfaceLost 及设备恢复仍不在覆盖内。
 - 028 `fd1d5f3`：已适配有序资源声明、纯 CPU 同步计划、当前离屏目标及真实 GPU producer/consumer。声明统一在 compile 返回 Result，录制失败保留 GraphicsError，复用 Barrier2／FrameSlot；同步校验覆盖子资源、区间、跨提交、MSAA 与 resize。外部 upload／WSI 等待保持显式；尚无 DAG 重排、瞬态分配、多队列、内存别名跟踪或 RenderThread。
 - 029 `624a143`：已适配 RGBA16F 场景与共享 fullscreen 输出，保留 Result、短回调和完整 RenderState 所有权；中间／输出目标成对替换，提前检查 HDR 格式与采样数。启动配置支持 sdr/hdr/auto，HDR 优先 RGBA16F + 扩展线性 sRGB，不支持时回退 SDR；编辑器固定 SDR。GPU 像素验证覆盖 RGBA/BGRA、sRGB/UNORM、浮点 HDR、高亮、曝光、方向、MSAA、resize 和在途资源保活。尚无显示器亮度校准、HDR10/PQ、自动曝光、中间格式降级或第二目标 OOM 故障注入。
-- 030 `30dce0f`：下一项对照类型化 LightComponent 与有界 forward 光照；先确定组件／反射／序列化、世界空间提取与每帧光源缓冲契约，再实现方向／点／聚光灯。阴影、PBR 和 Bloom 后续逐项推进。
+- 030 `30dce0f`：已适配方向／点／聚光、32 灯上限、lit_color 和帧 UBO；枚举共用 Inspector／撤销／JSON，姿态保留主线的层级去缩放语义。热发布与重建保留各组成功字节码，不迁回 ShaderManager、旧 YAML 或异常。CPU、UI 和 GPU 像素／版本寿命测试覆盖主链路；人工视觉与远端平台验收另行进行。下一项为方向光阴影 pass，PBR 与 Bloom 后续推进。
 - 原生文件监听按阶段 3 专项安排，旧分支同样采用轮询，不作为最终方案迁回。
 
 specialization 已贯通类型化值、默认值规范化、反射校验、PipelineKey 和 GPU 创建。
@@ -422,7 +422,7 @@ CPU 编译工具不依赖 GPU 模块；编译诊断、业务错误和原生结�
 - Synchronization 2 / Timeline 已启用；API version 为 1.3 不代表所有可选 feature 自动启用。
 - Dynamic Rendering 在真实多 pass/attachment 需求下评估，不为 API 更换重写阶段 4。
   检查显式 feature、ImGui/MSAA/resize、调试工具和目标 GPU；可按 pass 保留传统 RenderPass。
-- Forward Lighting → LightComponent（方向/点/聚光）→ shadow → PBR → tone mapping/gamma/bloom。
+- 有界 Forward Lighting 与三类 LightComponent 已接通；继续 shadow → PBR → bloom。
   先完成小型 forward 场景，不一次构建完整 deferred renderer。
 - 显示输出已支持启动时选择 SDR / 扩展线性 HDR，默认 SDR；后续按真实需求增加显示器 headroom／白点校准、
   HDR10/PQ、跨屏及系统模式切换后的安全重建，再处理编辑器 HDR 视口与 UI 亮度合成。不是下一项光源迁移的前置条件。

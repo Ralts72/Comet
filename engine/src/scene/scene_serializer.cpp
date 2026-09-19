@@ -75,10 +75,16 @@ namespace Comet {
                         return Result<PropertyValue>::failure(value.error());
                     return Result<PropertyValue>::success(std::move(value).value());
                 }
+                case PropertyType::Enum:
                 case PropertyType::String: {
                     auto value = context.read_scalar<std::string>(node, location, "a string");
                     if(!value)
                         return Result<PropertyValue>::failure(value.error());
+                    if(property.type == PropertyType::Enum
+                        && std::ranges::none_of(property.enum_options,
+                            [&](const auto& option) { return option.id == value.value(); }))
+                        return Result<PropertyValue>::failure(
+                            context.error(location, "unknown enum name: " + value.value()));
                     return Result<PropertyValue>::success(std::move(value).value());
                 }
                 case PropertyType::Float: {
@@ -147,6 +153,12 @@ namespace Comet {
                 case PropertyType::Bool:
                     *static_cast<bool*>(value) = std::get<bool>(property.value);
                     return Result<void>::success();
+                case PropertyType::Enum:
+                    if(property.descriptor->write_enum
+                        && property.descriptor->write_enum(
+                            value, std::get<std::string>(property.value)))
+                        return Result<void>::success();
+                    return Result<void>::failure(context.error(location, "invalid enum value"));
                 case PropertyType::String:
                     *static_cast<std::string*>(value) = std::get<std::string>(property.value);
                     return Result<void>::success();

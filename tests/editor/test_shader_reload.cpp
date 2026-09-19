@@ -13,24 +13,25 @@ namespace CometEditor::Tests {
         Comet::TaskScheduler scheduler{1, 1};
         ShaderReload::Clock::time_point now{};
         ShaderReload::Requests requests{
-            {"vertex", {.source = directory.path() / "material_mesh.vert",
+            {"vertex", {.source = directory.path() / "material/unlit_color.vert",
                            .stage = Comet::ShaderStage::Vertex}},
-            {"textured", {.source = directory.path() / "material_textured.frag",
+            {"textured", {.source = directory.path() / "material/unlit_texture_blend.frag",
                              .stage = Comet::ShaderStage::Fragment}},
-            {"solid", {.source = directory.path() / "material_solid.frag",
+            {"solid", {.source = directory.path() / "material/unlit_color.frag",
                           .stage = Comet::ShaderStage::Fragment}}};
 
         void SetUp() override {
-            for(const auto& [name, request] : requests) {
-                const auto input =
-                    Comet::read_text_file(std::filesystem::path(PROJECT_ROOT_DIR)
-                                          / "engine/shaders/glsl" / request.source.filename());
-                ASSERT_TRUE(input) << input.error();
-                ASSERT_TRUE(Comet::write_text_file_atomic(request.source, input.value()));
+            for(const auto* folder : {"material", "common", "lighting"}) {
+                std::error_code error;
+                std::filesystem::copy(
+                    std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders" / folder,
+                    directory.path() / folder, std::filesystem::copy_options::recursive, error);
+                ASSERT_FALSE(error) << error.message();
             }
         }
         void write(std::string_view name, std::string_view contents) {
-            ASSERT_TRUE(Comet::write_text_file_atomic(directory.path() / name, contents));
+            ASSERT_TRUE(
+                Comet::write_text_file_atomic(directory.path() / "material" / name, contents));
         }
         std::shared_ptr<const ShaderReload::Compilation> finish(ShaderReload& reload) {
             now += std::chrono::seconds(1);
@@ -56,6 +57,36 @@ namespace CometEditor::Tests {
         }
     }
 
+    TEST_F(ShaderReloadTest, SharedVertexIncludeRecompilesEveryMaterialProgram) {
+        requests.emplace(
+            "texture_vertex", Comet::ShaderCompiler::Request{
+                                  .source = directory.path() / "material/unlit_texture_blend.vert",
+                                  .stage = Comet::ShaderStage::Vertex});
+        requests.emplace("lighting_vertex",
+            Comet::ShaderCompiler::Request{.source = directory.path() / "material/lambert.vert",
+                .stage = Comet::ShaderStage::Vertex});
+        ShaderReload reload(scheduler, requests);
+        const auto original = finish(reload);
+        ASSERT_TRUE(original);
+        ASSERT_TRUE(original->succeeded) << original->diagnostics;
+        const auto path = directory.path() / "common/mesh_vertex.glsl";
+        auto source = Comet::read_text_file(path);
+        ASSERT_TRUE(source);
+        const auto offset = source.value().find("gl_Position =");
+        ASSERT_NE(offset, std::string::npos);
+        source.value().replace(
+            offset, std::string_view("gl_Position =").size(), "gl_Position = 2.0 *");
+        ASSERT_TRUE(Comet::write_text_file_atomic(path, source.value()));
+        now += std::chrono::seconds(1);
+        EXPECT_FALSE(reload.update(now));
+        const auto updated = finish(reload);
+        ASSERT_TRUE(updated);
+        ASSERT_TRUE(updated->succeeded) << updated->diagnostics;
+        for(const auto* stage : {"vertex", "texture_vertex", "lighting_vertex"})
+            EXPECT_NE(original->stages.at(stage).words, updated->stages.at(stage).words);
+        EXPECT_EQ(original->stages.at("solid").words, updated->stages.at("solid").words);
+    }
+
     TEST_F(ShaderReloadTest, DeliversAcceptedCompilationAfterSchedulerShutdown) {
         ShaderReload reload(scheduler, requests);
         EXPECT_FALSE(reload.update(now));
@@ -79,21 +110,20 @@ namespace CometEditor::Tests {
         ShaderReload reload(scheduler, requests);
         EXPECT_FALSE(reload.update(now));
         scheduler.wait_idle();
-        write("material_solid.frag", "#version 450\nthis is invalid\n");
+        write("unlit_color.frag", "#version 450\nthis is invalid\n");
         EXPECT_FALSE(reload.update(now));
         EXPECT_FALSE(reload.update(now + std::chrono::milliseconds(199)));
         auto failed = finish(reload);
         ASSERT_TRUE(failed);
         EXPECT_FALSE(failed->succeeded);
-        EXPECT_NE(failed->diagnostics.find("material_solid.frag"), std::string::npos);
+        EXPECT_NE(failed->diagnostics.find("unlit_color.frag"), std::string::npos);
         EXPECT_GT(failed->revision, 1u);
     }
 
     TEST_F(ShaderReloadTest, WatchesMissingIncludesAfterFailureAndRecoversWithoutExplicitRequest) {
-        write("material_solid.frag",
-            "#version 450\n#extension GL_GOOGLE_include_directive : require\n"
-            "#include \"missing.glsl\"\nlayout(location=0) out vec4 color;\n"
-            "void main(){color=VALUE;}\n");
+        write("unlit_color.frag", "#version 450\n#extension GL_GOOGLE_include_directive : require\n"
+                                  "#include \"missing.glsl\"\nlayout(location=0) out vec4 color;\n"
+                                  "void main(){color=VALUE;}\n");
         ShaderReload reload(scheduler, requests);
         auto failed = finish(reload);
         ASSERT_TRUE(failed);
@@ -204,7 +234,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(compiled->succeeded);
         reload.retry_delivery(compiled->revision, now);
         EXPECT_FALSE(reload.update(now + std::chrono::milliseconds(600)));
-        write("material_solid.frag", "#version 450\ninvalid\n");
+        write("unlit_color.frag", "#version 450\ninvalid\n");
         now += std::chrono::seconds(1);
         // 上次 poll 后输入变化，重试期限先于下次 poll，仍须拒绝旧候选。
         EXPECT_FALSE(reload.update(now));

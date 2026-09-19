@@ -79,7 +79,7 @@ namespace Comet {
                 LOG_FATAL("Invalid built-in material layout: {}", candidate.error());
             return std::make_shared<MaterialLayout>(std::move(candidate).value());
         };
-        static const std::array<std::shared_ptr<const MaterialLayout>, 2> layouts{
+        static const std::array<std::shared_ptr<const MaterialLayout>, 3> layouts{
             builtin(create("unlit_texture_blend",
                 std::vector<TextureProperty>{{"u_Texture0", 1, "Texture 0", "texture0"},
                     {"u_Texture1", 2, "Texture 1", "texture1"}},
@@ -89,7 +89,11 @@ namespace Comet {
             builtin(create("unlit_color", std::vector<TextureProperty>{}, 32,
                 std::vector<ScalarProperty>{{"intensity", 16, 1.0f, 0, 10, 0.05f, "Intensity"}},
                 std::vector<VectorProperty>{
-                    {"color", 0, {1, 1, 1, 1}, VectorProperty::Semantic::Color, "Color"}}))};
+                    {"color", 0, {1, 1, 1, 1}, VectorProperty::Semantic::Color, "Color"}})),
+            builtin(create("lit_color", std::vector<TextureProperty>{}, 16,
+                std::vector<ScalarProperty>{},
+                std::vector<VectorProperty>{{"albedo", 0, {0.8f, 0.8f, 0.8f, 1},
+                    VectorProperty::Semantic::Color, "Albedo"}}))};
         const auto found = std::ranges::find_if(
             layouts, [&](const auto& layout) { return layout->get_name() == name; });
         if(found == layouts.end())

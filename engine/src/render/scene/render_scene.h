@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "render/lighting.h"
 #include "common/export.h"
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
@@ -42,6 +43,7 @@ namespace Comet {
     struct RenderScene {
         std::vector<RenderCamera> cameras;
         std::vector<RenderItem> render_items;
+        std::vector<RenderLight> lights;
     };
 
     struct RenderView {

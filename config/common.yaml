@@ -15,7 +15,7 @@ vulkan:
 render:
   # 启动时选择 sdr / hdr / auto；hdr 和 auto 优先扩展线性输出，不支持时回退 SDR。
   # 编辑器暂时强制 SDR。切换后需重启，不会修改操作系统的 HDR 设置。
-  output_mode: sdr
+  output_mode: auto
   # HDR 输出峰值相对于 SDR 白色的倍数（1..16），不是显示器检测结果。
   hdr_headroom: 4
   # CPU 可并行准备的帧槽位数量

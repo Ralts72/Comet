@@ -5,6 +5,7 @@
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/queue.h"
 #include "render/material/material_runtime.h"
+#include "render/material/material_shader.h"
 #include "render/scene/render_submission.h"
 
 #include <cstdint>
@@ -28,12 +29,6 @@ namespace Comet {
     // 调用方须先等待槽位、开启场景通道并设置视口与裁剪区域。
     class COMET_API MaterialRenderer {
     public:
-        struct ShaderCode {
-            std::vector<uint32_t> vertex;
-            std::vector<uint32_t> textured_fragment;
-            std::vector<uint32_t> solid_fragment;
-        };
-
         struct Statistics {
             uint32_t draw_calls = 0;
             uint32_t pipeline_binds = 0;
@@ -42,6 +37,9 @@ namespace Comet {
             uint32_t material_bindings_created = 0;
             uint32_t cached_material_versions = 0;
             uint32_t frame_set_count = 0;
+            uint32_t light_count = 0;
+            uint32_t excess_lights = 0;
+            uint32_t invalid_lights = 0;
         };
         struct ReloadReport {
             uint32_t pipelines = 0;
@@ -55,22 +53,22 @@ namespace Comet {
 
         static Result<std::unique_ptr<MaterialRenderer>, GraphicsError> create(Device& device,
             PipelineManager& pipelines, RenderResources& resources, uint32_t frame_slot_count,
-            SampleCount samples, const ShaderCode* shaders = nullptr);
-        // 在新一帧绘制前调用；两种材质管线全部成功后才替换。
+            SampleCount samples, const MaterialShaders* shaders = nullptr);
+        // 帧边界提交任意完整顶点/片元程序对；所有候选成功后才替换。
         Result<ReloadReport, GraphicsError> reload_shaders(
-            PipelineManager& pipelines, const ShaderCode& shaders, SampleCount samples);
+            PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
             FrameScheduler& frames, const std::optional<ViewProjectMatrix>& view,
-            std::span<const ResolvedRenderItem> items);
+            std::span<const ResolvedRenderItem> items, std::span<const RenderLight> lights = {});
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
 
     private:
         explicit MaterialRenderer(Device& device);
         Result<void, GraphicsError> initialize(PipelineManager& pipelines,
             RenderResources& resources, uint32_t frame_slot_count, SampleCount samples,
-            const ShaderCode* shaders);
+            const MaterialShaders* shaders);
 
         struct PipelineState {
             std::shared_ptr<const MaterialLayout> layout;
@@ -81,6 +79,7 @@ namespace Comet {
             std::shared_ptr<DescriptorSetLayout> layout;
             std::shared_ptr<DescriptorPool> pool;
             std::shared_ptr<CPUBuffer> buffer;
+            std::shared_ptr<CPUBuffer> lighting;
             std::optional<DescriptorSet> descriptor;
         };
         struct MaterialResources {

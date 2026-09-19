@@ -4,11 +4,16 @@
 #include "render/material/material_runtime.h"
 #include "common/file_io.h"
 #include "support/temporary_directory.h"
-#include "material_mesh_vert.h"
-#include "material_textured_frag.h"
-#include "material_solid_frag.h"
-#include "debug_line_vert.h"
-#include "debug_line_frag.h"
+#include "unlit_color_vert.h"
+#include "unlit_texture_blend_vert.h"
+#include "unlit_texture_blend_frag.h"
+#include "unlit_color_frag.h"
+#include "line_vert.h"
+#include "line_frag.h"
+#include "lambert_vert.h"
+#include "lambert_frag.h"
+#include "display_vert.h"
+#include "display_frag.h"
 
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -240,20 +245,26 @@ namespace Comet::Tests {
     TEST_F(ShaderCompilerTest, MatchesBuildTimeBytecodeForEveryProductionShader) {
         const auto compare = [](const char* filename, ShaderStage stage,
                                  std::span<const uint32_t> embedded) {
-            ShaderCompiler::Request input{.source = std::filesystem::path(PROJECT_ROOT_DIR)
-                                                    / "engine/shaders/glsl" / filename,
+            ShaderCompiler::Request input{
+                .source = std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders" / filename,
                 .stage = stage};
             const auto result = ShaderCompiler::compile(input);
             ASSERT_TRUE(result.succeeded()) << result.diagnostics;
             EXPECT_TRUE(std::ranges::equal(result.words, embedded)) << filename;
             EXPECT_TRUE(ShaderCompiler::inputs_unchanged(result));
-            EXPECT_EQ(result.dependencies.size(), 1u);
+            EXPECT_FALSE(result.dependencies.empty());
         };
-        compare("material_mesh.vert", ShaderStage::Vertex, MATERIAL_MESH_VERT);
-        compare("material_textured.frag", ShaderStage::Fragment, MATERIAL_TEXTURED_FRAG);
-        compare("material_solid.frag", ShaderStage::Fragment, MATERIAL_SOLID_FRAG);
-        compare("debug_line.vert", ShaderStage::Vertex, DEBUG_LINE_VERT);
-        compare("debug_line.frag", ShaderStage::Fragment, DEBUG_LINE_FRAG);
+        compare("material/unlit_color.vert", ShaderStage::Vertex, UNLIT_COLOR_VERT);
+        compare("material/unlit_texture_blend.vert", ShaderStage::Vertex, UNLIT_TEXTURE_BLEND_VERT);
+        compare("material/lambert.vert", ShaderStage::Vertex, LAMBERT_VERT);
+        compare(
+            "material/unlit_texture_blend.frag", ShaderStage::Fragment, UNLIT_TEXTURE_BLEND_FRAG);
+        compare("material/unlit_color.frag", ShaderStage::Fragment, UNLIT_COLOR_FRAG);
+        compare("material/lambert.frag", ShaderStage::Fragment, LAMBERT_FRAG);
+        compare("debug/line.vert", ShaderStage::Vertex, LINE_VERT);
+        compare("debug/line.frag", ShaderStage::Fragment, LINE_FRAG);
+        compare("post/display.vert", ShaderStage::Vertex, DISPLAY_VERT);
+        compare("post/display.frag", ShaderStage::Fragment, DISPLAY_FRAG);
     }
 
     TEST_F(ShaderCompilerTest, HonorsStageEntryAndTarget) {

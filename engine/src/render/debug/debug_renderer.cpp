@@ -8,8 +8,8 @@
 #include "graphics/resource/buffer.h"
 #include "render/frame_scheduler.h"
 
-#include "debug_line_frag.h"
-#include "debug_line_vert.h"
+#include "line_frag.h"
+#include "line_vert.h"
 
 #include <limits>
 #include <utility>
@@ -35,10 +35,10 @@ namespace Comet {
     Result<std::shared_ptr<Pipeline>, GraphicsError> DebugRenderer::create_pipeline(
         Device& device, PipelineManager& pipeline_manager, const SampleCount sample_count) {
         using Creation = Result<std::shared_ptr<Pipeline>, GraphicsError>;
-        const auto vertex_shader = Shader::create(device, "debug_line_vert", DEBUG_LINE_VERT);
+        const auto vertex_shader = Shader::create(device, "line_vert", LINE_VERT);
         if(!vertex_shader)
             return Creation::failure(vertex_shader.error());
-        const auto fragment_shader = Shader::create(device, "debug_line_frag", DEBUG_LINE_FRAG);
+        const auto fragment_shader = Shader::create(device, "line_frag", LINE_FRAG);
         if(!fragment_shader)
             return Creation::failure(fragment_shader.error());
         ShaderLayout layout;

@@ -61,7 +61,7 @@ Engine
             ├── DebugRenderer → 线段 Pipeline / VertexBuffer[slot]
             └── MaterialRenderer
                 ├── PipelineState → MaterialLayout / material descriptor layout / Pipeline
-                ├── FrameResources[slot] → 相机 UBO / FrameSet / pool
+                ├── FrameResources[slot] → 相机与光照 UBO / FrameSet / pool
                 ├── MaterialRuntimeCache → PreparedMaterial → Texture / 参数字节
                 └── MaterialResources[material version] → PreparedMaterial / PipelineState / Sampler / 参数 UBO / pool / MaterialSet
 
@@ -142,7 +142,7 @@ Scene 的同步检查遍历全部节点，比较本地 TRS、组件是否存在�
 单个 get_world_matrix 只检查祖先链；持续持有可变组件引用的写入同样在下次查询／提取时生效。
 缓存属于 Scene 私有状态，不序列化；update_world_transforms 返回实际重算数量，静止场景为零。
 Engine 同步借用 update 和 frame_ready 两个函数，不保存注册表；UI 修改后再同步变换并提取，避免使用上一帧数据。Renderer 不再调用 UI 准备，ImGuiContext 不再持有 UI 业务回调；Editor 在 on_frame_ready 显式调用 begin_frame/end_frame。
-camera_world_matrix 使用层级旋转与普通世界矩阵的位置，本地及祖先缩放不进入相机朝向。
+pose_world_matrix 使用层级旋转与普通世界矩阵的位置，本地及祖先缩放不进入相机朝向。
 本地 TR 只计算一次，普通矩阵在其基础上应用 scale；相机与物体继续使用各自的父级矩阵。
 SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler，不访问呈现队列；录制时借用传入的帧上下文。
 
@@ -161,15 +161,40 @@ SceneResolver 只解析 Camera、Mesh 和 Material 引用，不检查模板、�
 | --- | --- | --- |
 | `render/material/material.h` | Material 属性与 revision；不可变 MaterialLayout 参数描述、默认值和编辑语义 | 资产身份、GPU 缓存、UI 控件 |
 | `render/material/material_runtime.h` | MaterialRuntimeCache 准备并缓存 Texture 引用和参数字节 | 创建 Vulkan 对象 |
+| `render/material/material_shader.h` | 具名程序字节码、内置程序与材质映射、固定接口校验、覆盖合并 | GPU owner、后台任务、发布事务 |
 | `render/material/material_renderer.h` | 帧／材质 descriptor、Pipeline 选择、排序与绘制 | 解析 Scene 或资产文件 |
 | `tools/shader/compiler.h` | CPU 源编译、依赖快照和诊断；CLI 负责文件输出 | Vulkan 对象、编辑器热重载编排 |
 | `graphics/pipeline/shader_interface.h` | SPIR-V 入口级自有反射数据，仅公开 Comet 类型 | 自动生成编辑语义、完整字节码校验 |
 | `graphics/pipeline/shader.h` | ShaderLayout 覆盖校验、局部 Shader GPU 候选 | 监视源码、名称缓存、启动编译任务 |
 | `graphics/pipeline/pipeline.h` | PipelineLayout、Pipeline 与弱对象缓存 | 磁盘缓存策略、资产发布 |
 
+### Forward 光照
+
+`LightComponent → SceneExtractor → RenderScene.lights → RenderSubmission.lights → LightingData → FrameSet`。
+组件只保存类型、启用、线性颜色、强度、范围和聚光半锥角；枚举以稳定字符串写入 JSON，
+Inspector／Undo／Clone 复用 PropertyDescriptor，不增加灯光专用命令。
+pose_world_matrix 共用相机姿态语义：世界位置含父级变换，方向只继承旋转，不继承本地或祖先缩放。
+
+`render/lighting.h/.cpp` 负责值快照与 std140 打包，无 Scene 或 GPU owner。
+按 EntityId 稳定选择前 32 个有效光源；非法参数与超限分别统计，数量变化时报告，不能当作空间筛选。
+FrameSet binding 0 是相机，binding 1 是片元光照 UBO；每灯四个 vec4，末尾 counts，总计 2064 字节。
+每个 slot 等待完成后写入，FrameResources 由在途帧保活；灯光变化不更新材质 revision 或重建 MaterialSet。
+
+`lit_color` 提供纯色 albedo 和 Lambert 漫反射；点光使用有限范围衰减，聚光增加锥角权重。
+法线按模型矩阵逆转置变换，近奇异变换输出零法线；无有效灯光时为黑色，不添加隐藏环境光。
+强度是当前渲染参数，不承诺完整物理光度单位；尚无阴影、PBR、IBL 或 clustered/tiled 筛选。
+
+Shader 热发布按程序接收完整顶点/片元对，可更新任意一个或多个程序；固定 Frame/Object 接口不可修改。
+MaterialShaders 是具名程序集合，不依附 MaterialRenderer 的嵌套类型；未知名称、空集合或不完整程序在 GPU 创建前拒绝。
+MaterialShader 模块复用 ShaderInterface 反射校验，MaterialRenderer 保留管线与材质版本的原子发布。
+各组未参与更新时保留原版本，全部候选准备成功后发布；SceneRenderer 合并保存成功的各组字节码，
+完整目标重建不会丢失其他程序的开发覆盖。编辑器监视六个材质阶段及其实际 include，
+包括 `common/mesh_vertex.glsl` 与 `lighting/forward.glsl`；生产目录约定见
+[Shader 说明](../../engine/shaders/README.md)。
+
 ### 材质准备与寿命
 
-内置 `unlit_texture_blend` / `unlit_color` 的初始 metadata 由 MaterialLayout::find_builtin 共享。
+内置 `unlit_texture_blend` / `unlit_color` / `lit_color` 的初始 metadata 由 MaterialLayout::find_builtin 共享。
 MaterialLayout::reflect 按 shader_name（为空时使用逻辑属性名）匹配已登记属性，重建 offset／块大小／binding；
 名称、默认值、范围、步长和 Color/Vector 语义仍由 metadata 提供。参数块 binding 由布局指导创建和写入，不再固定为 0。
 未知／缺失／改类型字段、多参数块与不支持的资源形状拒绝；相同物理布局复用原对象，不增加平行 revision 计数。
@@ -256,7 +281,7 @@ Sampler::create 返回 Result<shared_ptr<Sampler>, GraphicsError>，校验配置
 SamplerManager 的预设统一经过 create_sampler；同名同配置复用，同名不同配置返回错误，不替换已有对象。
 linear-repeat 预设使用各向异性数值的精确位模式作为内部名称后缀，不以舍入后的显示字符串作缓存身份。
 MaterialRenderer 向上传递 sampler 错误；Viewport 只在构造时取得 nearest-clamp 并持有，帧更新仅复用。
-开发编辑器的 `render/shader_reload` 接收 1..16 个具名 CPU 请求；当前只登记材质三程序，不监视辅助线 Shader。
+开发编辑器的 `render/shader_reload` 接收 1..16 个具名 CPU 请求；当前按同名 vert/frag 登记三个材质程序，不监视辅助线 Shader。
 Worker 只捕获请求副本和共享结果，不访问 Editor、Scene 或 Device。销毁服务后已有 CPU 工作可以结束，但不会再发布。
 每组最多一个在途任务及合并的最新请求，共用 TaskScheduler 背压；无 GPU 类型、发布回调或全局 EventBus。
 每批任务编译所有阶段，消费时复核 revision、全部输入及缺失 include 候选；失败结果也作为下一次监视的基线。

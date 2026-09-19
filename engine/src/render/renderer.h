@@ -36,7 +36,7 @@ namespace Comet {
 
         Result<void, GraphicsError> enable_offscreen_rendering(Math::Vec2u initial_size);
         Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
-            MaterialRenderer::ShaderCode shaders);
+            MaterialShaders shaders);
         void request_swapchain_recreation();
         void wait_idle();
         void prepare_shutdown() noexcept;

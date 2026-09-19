@@ -75,15 +75,20 @@ namespace {
             setup_log_redirect();
 
             const std::filesystem::path shader_root(COMET_BUILTIN_SHADER_DIRECTORY);
-            m_material_shader_reload =
-                std::make_unique<CometEditor::ShaderReload>(engine.get_task_scheduler(),
-                    CometEditor::ShaderReload::Requests{
-                        {"vertex", {.source = shader_root / "material_mesh.vert",
-                                       .stage = Comet::ShaderStage::Vertex}},
-                        {"textured", {.source = shader_root / "material_textured.frag",
-                                         .stage = Comet::ShaderStage::Fragment}},
-                        {"solid", {.source = shader_root / "material_solid.frag",
-                                      .stage = Comet::ShaderStage::Fragment}}});
+            CometEditor::ShaderReload::Requests shader_requests;
+            for(const auto& program : Comet::builtin_material_shaders()) {
+                const auto name = std::string(program.name);
+                shader_requests.emplace(
+                    name + ".vert", Comet::ShaderCompiler::Request{
+                                        .source = shader_root / "material" / (name + ".vert"),
+                                        .stage = Comet::ShaderStage::Vertex});
+                shader_requests.emplace(
+                    name + ".frag", Comet::ShaderCompiler::Request{
+                                        .source = shader_root / "material" / (name + ".frag"),
+                                        .stage = Comet::ShaderStage::Fragment});
+            }
+            m_material_shader_reload = std::make_unique<CometEditor::ShaderReload>(
+                engine.get_task_scheduler(), std::move(shader_requests));
             auto shortcuts = CometEditor::EditorShortcuts::load(
                 std::filesystem::path(COMET_CONFIG_DIRECTORY) / "profiles/editor-dev.yaml");
             if(shortcuts)
@@ -246,8 +251,13 @@ namespace {
             }
             auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
             const auto& stages = compilation->stages;
-            auto result = get_engine().get_renderer().reload_material_shaders(
-                {stages.at("vertex").words, stages.at("textured").words, stages.at("solid").words});
+            Comet::MaterialShaders shaders;
+            for(const auto& program : Comet::builtin_material_shaders()) {
+                const auto name = std::string(program.name);
+                shaders.emplace(name, Comet::MaterialShaderProgram{stages.at(name + ".vert").words,
+                                          stages.at(name + ".frag").words});
+            }
+            auto result = get_engine().get_renderer().reload_material_shaders(std::move(shaders));
             if(!result) {
                 if(result.error().is_device_lost())
                     return Comet::Result<void, Comet::Error>::failure(result.error().as_error());

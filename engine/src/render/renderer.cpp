@@ -104,7 +104,7 @@ namespace Comet {
     }
 
     Result<MaterialRenderer::ReloadReport, GraphicsError> Renderer::reload_material_shaders(
-        MaterialRenderer::ShaderCode shaders) {
+        MaterialShaders shaders) {
         if(m_frames->is_frame_active())
             return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
                 {"Shader publication requires a frame boundary"});

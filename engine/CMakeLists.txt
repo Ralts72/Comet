@@ -73,6 +73,7 @@ set(SOURCES
         src/graphics/resource/sampler.cpp
         src/render/renderer.cpp
         src/render/debug/line_draw_list.cpp
+        src/render/lighting.cpp
         src/render/debug/debug_renderer.cpp
         src/render/render_target.cpp
         src/render/resource/mesh.cpp
@@ -86,6 +87,7 @@ set(SOURCES
         src/render/resource/render_resources.cpp
         src/render/frame_scheduler.cpp
         src/render/material/material.cpp
+        src/render/material/material_shader.cpp
         src/render/material/material_runtime.cpp
         src/render/material/material_renderer.cpp
         src/scene/entity.cpp

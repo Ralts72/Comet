@@ -7,7 +7,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | 目录 | 职责 |
 | --- | --- |
 | `engine/src/` | 引擎库：runtime、core、scene、asset、render、graphics、config、diagnostics |
-| `engine/shaders/` | 引擎 Shader；只编译 CMake 显式列表，其余源码保留供学习 |
+| `engine/shaders/` | 生产 Shader，按 material、lighting、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、ui 组织，`resources/` 保存私有字体等资源 |
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
@@ -123,10 +123,13 @@ JSON 解析直接依赖已有 simdjson。
   Snap 相对拖动起点吸附，默认距离 0.25、角度 15°、缩放增量 0.1，设置只保留在会话中。
   World 旋转不接受非均匀缩放父级，此时使用 Local。Escape、失焦或隐藏视口取消拖动。
 - Edit 中名称、Transform、Camera 和 Mesh/Material 引用支持撤销；一次手势只记一条历史。
-  Inspector 的 Add Component／组件标题右键支持 Camera、Mesh Renderer 增删，Name／Transform 不开放增删。
+  Inspector 的 Add Component／组件标题右键支持 Camera、Mesh Renderer、Light 增删，Name／Transform 不开放增删。
   Play 仅实时调试已有属性，不记录 Edit 历史；Stop 恢复原 Edit 历史，New/Open 成功才清空历史。
   New/Open 和窗口关闭遇到未保存场景时提供 Save/Discard/Cancel；保存失败或取消另存路径不会继续切换。
   未保存状态使用历史状态 ID 与保存点判断，支持撤销回保存点、分支编辑和历史截断；不包含独立的资产文件编辑。
+- Light 支持 Directional／Point／Spot，类型和参数共用场景保存与撤销。方向由 Transform 的本地 -Z 决定；
+  Point／Spot 的 Range 是世界距离，聚光角度是半锥角。受光需使用 `lit_color` 材质，无有效光源时为黑色。
+  默认示例已加入 Key Light 和 `materials/lit.mat`；原不受光材质仍保留。
 - Hierarchy 空白处／Scene 右键创建根实体，实体右键创建子实体、删除或 Duplicate 整棵子树；
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
 - 编辑器快捷键位于 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启。
@@ -157,6 +160,7 @@ JSON 解析直接依赖已有 simdjson。
 - **渲染**：`Scene → SceneExtractor → SceneResolver → SceneRenderer`。
   Renderer 组合帧调度与呈现，SceneRenderer 编排 RGBA16F 场景和 OutputPass；
   RenderGraph 负责 pass 间同步，FrameSlot 保留在途资源，Presentation 处理交换链恢复。
+  MaterialShader 模块定义程序、字节码与固定接口契约，MaterialRenderer 管理 GPU 候选、材质版本发布和绘制。
 - **资产**：AssetDatabase 管身份与依赖，ImportService 管导入，AssetManager 管加载与发布。
   AssetRegistry 是唯一 Handle 缓存，RenderResources 只创建设备资源；Worker 不操作 Scene 或 GPU。
   Mesh 加载已发布 Artifact，Texture 暂时直接解码源文件。

@@ -10,8 +10,8 @@
 #include "graphics/resource/sampler.h"
 #include "render/frame_scheduler.h"
 #include "render/render_target.h"
-#include "fullscreen_vert.h"
-#include "tone_map_frag.h"
+#include "display_vert.h"
+#include "display_frag.h"
 
 #include <cmath>
 #include <utility>
@@ -84,10 +84,10 @@ namespace Comet {
                                         .address_mode_w = SamplerAddressMode::ClampToEdge});
         if(!sampler)
             return Creation::failure(sampler.error());
-        auto vertex = Shader::create(device, "fullscreen", FULLSCREEN_VERT);
+        auto vertex = Shader::create(device, "fullscreen", DISPLAY_VERT);
         if(!vertex)
             return Creation::failure(vertex.error());
-        auto fragment = Shader::create(device, "tone_map", TONE_MAP_FRAG);
+        auto fragment = Shader::create(device, "tone_map", DISPLAY_FRAG);
         if(!fragment)
             return Creation::failure(fragment.error());
         ShaderLayout layout;

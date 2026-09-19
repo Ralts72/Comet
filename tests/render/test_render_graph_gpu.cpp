@@ -18,6 +18,18 @@
 #include "graphics/resource/buffer.h"
 #include "graphics/resource/image_view.h"
 #include "diagnostics/logger.h"
+#include "render/resource/mesh.h"
+#include "render/resource/render_resources.h"
+#include "asset/data/mesh_data.h"
+#include "render/material/material.h"
+#include "common/file_io.h"
+#include "shader/compiler.h"
+#include "support/temporary_directory.h"
+#include "lambert_vert.h"
+#include "unlit_color_vert.h"
+#include "unlit_texture_blend_vert.h"
+#include "unlit_texture_blend_frag.h"
+#include "unlit_color_frag.h"
 
 #include <gtest/gtest.h>
 #include <glm/gtc/packing.hpp>
@@ -137,6 +149,19 @@ namespace Comet::Tests {
                                      ? 12.92f * linear
                                      : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
             return static_cast<int>(std::lround(encoded * 255.0f));
+        }
+        std::shared_ptr<Mesh> lit_quad(Math::Vec3 normal = {0, 0, 1}) {
+            MeshData data{.vertices = {{{-1, -1, 0.5f}, {}, normal}, {{1, -1, 0.5f}, {}, normal},
+                              {{1, 1, 0.5f}, {}, normal}, {{-1, 1, 0.5f}, {}, normal}},
+                .indices = {0, 1, 2, 2, 3, 0}};
+            auto created = engine->get_render_resources().try_create_mesh(data);
+            if(!created) {
+                ADD_FAILURE() << created.error().message;
+                return nullptr;
+            }
+            auto mesh = std::move(created).value();
+            mesh->get_ready_completion().wait();
+            return mesh;
         }
     };
 
@@ -802,4 +827,210 @@ namespace Comet::Tests {
         messages.str({});
         messages.clear();
     }
+    TEST_F(RenderGraphGpuTest, LitReloadPreservesInFlightPixelsAndSurvivesTargetRebuild) {
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context();
+        auto& device = context.get_device();
+        ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
+        auto& scene = renderer.get_scene_renderer();
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        TemporaryDirectory temporary;
+        const auto directory = std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders";
+        auto source = read_text_file(directory / "material/lambert.frag");
+        ASSERT_TRUE(source);
+        const auto end = source.value().rfind('}');
+        ASSERT_NE(end, std::string::npos);
+        source.value().insert(end, "    color.rgb *= 0.5;\n");
+        ASSERT_TRUE(
+            write_text_file_atomic(temporary.path() / "material/lambert.frag", source.value()));
+        auto compiled =
+            ShaderCompiler::compile({.source = temporary.path() / "material/lambert.frag",
+                .stage = ShaderStage::Fragment,
+                .include_directories = {directory / "material"}});
+        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+        MaterialShaders candidate{
+            {"lambert", {{std::begin(LAMBERT_VERT), std::end(LAMBERT_VERT)}, compiled.words}}};
+        auto mesh = lit_quad();
+        ASSERT_TRUE(mesh);
+        auto material = std::make_shared<Material>("lit", "lit_color");
+        ASSERT_TRUE(material->set_vector_property("albedo", {0.5f, 0.5f, 0.5f, 1}));
+        RenderSubmission submission{
+            .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
+            .render_items = {{.model_matrix = Math::Mat4(1),
+                .mesh = mesh,
+                .material = {AssetHandle(556), material}}},
+            .lights = {{.intensity = Math::PI}}};
+        std::array<std::shared_ptr<Readback>, 3> outputs;
+        for(size_t index = 0; index < outputs.size(); ++index) {
+            if(index == 1) {
+                const auto report = renderer.reload_material_shaders(candidate);
+                ASSERT_TRUE(report) << report.error().message;
+                EXPECT_EQ(report.value().pipelines, 1);
+                EXPECT_EQ(report.value().material_versions, 1);
+                EXPECT_EQ(report.value().material_bindings, 0);
+                auto broken = candidate;
+                broken.at("lambert").fragment.clear();
+                EXPECT_FALSE(renderer.reload_material_shaders(broken));
+                broken.at("lambert").fragment = {0};
+                EXPECT_FALSE(renderer.reload_material_shaders(broken));
+                auto header = read_text_file(directory / "lighting/forward.glsl");
+                ASSERT_TRUE(header);
+                const auto binding = header.value().find("binding = 1");
+                ASSERT_NE(binding, std::string::npos);
+                header.value().replace(binding, std::string("binding = 1").size(), "binding = 2");
+                ASSERT_TRUE(write_text_file_atomic(
+                    temporary.path() / "lighting/forward.glsl", header.value()));
+                const auto incompatible =
+                    ShaderCompiler::compile({.source = temporary.path() / "material/lambert.frag",
+                        .stage = ShaderStage::Fragment});
+                ASSERT_TRUE(incompatible.succeeded()) << incompatible.diagnostics;
+                broken.at("lambert").fragment = incompatible.words;
+                EXPECT_FALSE(renderer.reload_material_shaders(broken));
+            }
+            if(index == 2) {
+                const MaterialShaders unlit{
+                    {"unlit_texture_blend",
+                        {{std::begin(UNLIT_TEXTURE_BLEND_VERT), std::end(UNLIT_TEXTURE_BLEND_VERT)},
+                            {std::begin(UNLIT_TEXTURE_BLEND_FRAG),
+                                std::end(UNLIT_TEXTURE_BLEND_FRAG)}}},
+                    {"unlit_color",
+                        {{std::begin(UNLIT_COLOR_VERT), std::end(UNLIT_COLOR_VERT)},
+                            {std::begin(UNLIT_COLOR_FRAG), std::end(UNLIT_COLOR_FRAG)}}}};
+                ASSERT_TRUE(renderer.reload_material_shaders(unlit));
+                // 完整目标重建必须沿用已发布的 lit 字节码，而不是恢复内嵌版本。
+                ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
+            }
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            const auto drawn = scene.render(frames, submission);
+            ASSERT_TRUE(drawn) << drawn.error().message;
+            outputs[index] =
+                std::make_shared<Readback>(device, context.get_context().get_physical_device(), 64);
+            copy_output(frames,
+                scene.get_offscreen_color_view(frames.get_current_frame_slot_index())->get_image(),
+                outputs[index], {4, 4});
+            submit(device, frames);
+        }
+        frames.wait_for_all_slots();
+        for(size_t index = 0; index < outputs.size(); ++index) {
+            const auto pixels = outputs[index]->read();
+            for(size_t pixel = 0; pixel < 16; ++pixel)
+                for(size_t channel = 0; channel < 3; ++channel)
+                    EXPECT_NEAR(std::to_integer<int>(pixels[pixel * 4 + channel]),
+                        mapped_byte(index == 0 ? 0.5f : 0.25f), 2);
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, ForwardLightsProduceExpectedPixelsAndReuseMaterialBindings) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        auto& renderer = engine->get_renderer();
+        ASSERT_TRUE(renderer.enable_offscreen_rendering({17, 17}));
+        auto& scene = renderer.get_scene_renderer();
+        auto mesh = lit_quad();
+        auto tilted = lit_quad({1, 0, 1});
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(tilted);
+        auto material = std::make_shared<Material>("lit", "lit_color");
+        ASSERT_TRUE(material->set_vector_property("albedo", {0.5f, 0.25f, 0.125f, 1}));
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        auto readback = std::make_shared<Readback>(
+            device, context.get_context().get_physical_device(), 17 * 17 * 4);
+        for(unsigned mode = 0; mode < 9; ++mode) {
+            RenderLight light{.entity_id = 1,
+                .position = {0, 0, 2.5f},
+                .intensity = Math::PI,
+                .range = 10,
+                .inner_angle = 5,
+                .outer_angle = 20};
+            if(mode == 1 || mode == 2 || mode == 6) {
+                light.type = mode == 1 ? LightType::Point : LightType::Spot;
+                light.intensity = 4 * Math::PI;
+            }
+            if(mode == 6) {
+                light.inner_angle = 0;
+                light.outer_angle = 0.0001f;
+            }
+            if(mode == 3)
+                light.direction = {0, 0, 1};
+            if(mode == 8) {
+                light.type = LightType::Point;
+                light.range = 0.5f;
+            }
+            auto model = Math::Mat4(1);
+            if(mode == 4)
+                model = Math::scale(model, {2, 1, 1});
+            if(mode == 5)
+                model = Math::scale(model, {1, 1, 0});
+            RenderSubmission submission{
+                .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
+                .render_items = {{.model_matrix = model,
+                    .mesh = mode == 4 ? tilted : mesh,
+                    .material = {AssetHandle(555), material}}},
+                .lights = {light}};
+            if(mode == 7)
+                submission.lights.clear();
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            const auto rendered = scene.render(frames, submission, {});
+            ASSERT_TRUE(rendered) << rendered.error().message;
+            EXPECT_TRUE(rendered.value().empty());
+            const auto& statistics = scene.get_material_statistics();
+            EXPECT_EQ(statistics.draw_calls, 1);
+            EXPECT_EQ(statistics.light_count, mode == 7 ? 0 : 1);
+            if(mode > 0)
+                EXPECT_EQ(statistics.material_bindings_created, 0);
+            auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
+            copy_output(frames, view->get_image(), readback, {17, 17});
+            submit(device, frames);
+            frames.wait_for_all_slots();
+            const auto bytes = readback->read();
+            const auto format = view->get_image()->get_info().format;
+            const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+            for(unsigned y = 0; y < 17; ++y) {
+                for(unsigned x = 0; x < 17; ++x) {
+                    float irradiance = 1;
+                    if(mode == 1 || mode == 2 || mode == 6) {
+                        const Math::Vec3 position{
+                            (x + 0.5f) / 8.5f - 1, 1 - (y + 0.5f) / 8.5f, 0.5f};
+                        const auto delta = light.position - position;
+                        const float distance = Math::length(delta);
+                        const float falloff =
+                            std::max(1.0f - std::pow(distance / light.range, 4.0f), 0.0f);
+                        irradiance =
+                            4 * falloff * falloff / (distance * distance) * delta.z / distance;
+                        if(mode == 2 || mode == 6) {
+                            const float inner = std::cos(Math::radians(light.inner_angle));
+                            const float outer = std::cos(Math::radians(light.outer_angle));
+                            if(inner - outer > 1e-6f) {
+                                const float t = std::clamp(
+                                    (delta.z / distance - outer) / (inner - outer), 0.0f, 1.0f);
+                                irradiance *= t * t * (3 - 2 * t);
+                            } else if(delta.z / distance < outer) {
+                                irradiance = 0;
+                            }
+                        }
+                    }
+                    if(mode == 3 || mode == 5 || mode == 7 || mode == 8)
+                        irradiance = 0;
+                    if(mode == 4)
+                        irradiance = 1 / std::sqrt(1.25f);
+                    const std::array<float, 3> albedo{0.5f, 0.25f, 0.125f};
+                    for(size_t channel = 0; channel < 3; ++channel) {
+                        const auto component = bgra ? 2 - channel : channel;
+                        EXPECT_NEAR(std::to_integer<int>(bytes[(y * 17 + x) * 4 + component]),
+                            mapped_byte(albedo[channel] * irradiance), 3)
+                            << "mode " << mode << " at " << x << ',' << y;
+                    }
+                }
+            }
+        }
+    }
+
 }

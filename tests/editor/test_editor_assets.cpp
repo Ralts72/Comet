@@ -322,12 +322,15 @@ namespace CometEditor::Tests {
         const auto resolved = project.paths().resolve_asset_path(project.startup_scene());
         ASSERT_TRUE(resolved) << resolved.error();
         const auto path = resolved.value().string();
+        const auto startup = serializer.load(path);
+        ASSERT_TRUE(startup) << startup.error();
+        const auto initial_entities = startup.value()->entity_count();
         ASSERT_TRUE(document.open(project.startup_scene().string()));
         ASSERT_NE(active, nullptr);
         EXPECT_EQ(document.get_path(), path);
         EXPECT_EQ(missing, 1U);
         EXPECT_EQ(factory.mesh_creations, 0);
-        EXPECT_EQ(active->entity_count(), 2U);
+        EXPECT_EQ(active->entity_count(), initial_entities);
         const auto references = components.collect_asset_references(*active);
         ASSERT_EQ(references.size(), 2U);
         for(const auto& reference : references) {
@@ -352,7 +355,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(document.save(document.get_path()));
         active.reset();
         ASSERT_TRUE(document.open(path));
-        EXPECT_EQ(active->entity_count(), 3U);
+        EXPECT_EQ(active->entity_count(), initial_entities + 1);
         EXPECT_EQ(missing, 0U);
         EXPECT_EQ(factory.mesh_creations, 1);
     }
