@@ -206,6 +206,7 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 编辑器和 MaterialRenderer 共用这份程序定义；未知程序名或显式空程序同样被拒绝。
 Frame 位于 set 0，材质位于 set 1，Object 使用 push constant；修改布局须同步 C++ 和契约测试。
 Frame binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 是按帧槽位绑定的阴影图。
+光照 UBO 的 C++／GLSL 使用对应的具名字段；修改字段时须保持 std140 偏移、数组步长与反射契约一致。
 `forward.glsl` 使用 nearest sampler 手工 3×3 PCF；正高度阴影视口与投影 UV 一致。
 
 运行 `cmake --build --preset dev-debug --parallel` 和 `ctest --preset dev-debug` 验证。

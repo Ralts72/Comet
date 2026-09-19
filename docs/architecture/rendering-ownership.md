@@ -180,7 +180,9 @@ pose_world_matrix 共用相机姿态语义：世界位置含父级变换，方�
 `render/lighting.h/.cpp` 负责值快照与 std140 打包，无 Scene 或 GPU owner。
 按 EntityId 稳定选择前 32 个有效光源；非法参数与超限分别统计，数量变化时报告，不能当作空间筛选。
 FrameSet binding 0 是相机，binding 1 是片元光照 UBO，binding 2 是阴影 sampler2D。
-UBO 每灯四个 vec4，末尾 counts、shadow_view_projection 和 shadow_parameters，总计 2144 字节。
+UBO 每灯 64 字节，使用 position、type、direction、range、color、intensity、锥角和阴影标记等具名字段；
+末尾是有效／超限／无效数量、shadow_view_projection、shadow_light_index、shadow_depth_bias 和 shadow_texel_size。
+类型、标记与计数仍用 float 编码，总计 2144 字节；C++ 静态断言和 Shader 反射测试核对偏移、数组步长与大小。
 每个 slot 等待完成后写入，FrameResources 由在途帧保活；灯光变化不更新材质 revision 或重建 MaterialSet。
 
 `lit_color` 提供纯色 albedo 和 Lambert 漫反射；点光使用有限范围衰减，聚光增加锥角权重。
@@ -473,6 +475,7 @@ Barrier2 描述访问依赖，timeline 描述完成；跨 queue family 需配对
 RenderGraph 只收集 imported 资源、按顺序执行的 pass 和 exported usage；所有声明校验集中在
 `compile() -> Result<Plan>`，不在 import/add_pass 时逐项传播错误。Plan 是不持有 GPU owner 的值快照，
 不改变 pass 顺序，不分配资源，也不持有队列或全局图像 layout。ResourceId 仅在所属图内有效。
+`add_pass()` 返回图内 PassId，录制回调收到同一 ID；调用方保存注册结果分发，不硬编码 pass 序号。
 
 编译器按 image subresource 或 buffer offset/size 跟踪状态：保留实际 writer、已初始化内容和全部 reader scope，
 处理 RAW/WAR/WAW 与布局转换；相同可见范围的重复读取不重复插入 barrier。

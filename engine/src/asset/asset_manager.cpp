@@ -272,118 +272,131 @@ namespace Comet {
     Result<std::vector<AssetHandle>, Error> AssetManager::process_completions(
         const AssetCompletionBudget budget) {
         std::vector<AssetHandle> published;
-        auto completion = m_task_queue->process_completions(budget,
-            [&](AssetImportResult& result) { return publish_import_result(result, published); });
+        auto completion = m_task_queue->process_completions(budget, [&](AssetImportResult& result) {
+            auto publication = publish_import_result(result);
+            if(!publication)
+                return Result<void, Error>::failure(publication.error());
+            if(publication.value())
+                published.push_back(*publication.value());
+            return Result<void, Error>::success();
+        });
         if(!completion)
             return Result<std::vector<AssetHandle>, Error>::failure(completion.error());
         retry_refresh_requests();
         return Result<std::vector<AssetHandle>, Error>::success(std::move(published));
     }
 
-    Result<void, Error> AssetManager::publish_import_result(
-        AssetImportResult& result, std::vector<AssetHandle>& published) {
-        if(auto* mesh_candidate = std::get_if<MeshArtifactCandidate>(&result.candidate)) {
-            auto& candidate = *mesh_candidate;
-            if(!candidate.result) {
-                LOG_ERROR("Failed to prepare mesh artifact '{}' (handle {}): {}",
-                    candidate.relative_path.generic_string(), candidate.handle.value(),
-                    candidate.result.error());
-                return Result<void, Error>::success();
-            }
-            auto& artifact = candidate.result.value();
-            if(candidate.reused_artifact) {
-                record_import_dependencies(candidate.handle, artifact.source_dependencies());
-                return Result<void, Error>::success();
-            }
-            if(auto publication =
-                    artifact.publish_atomic(m_import_service->mesh_artifact_path(candidate.handle));
-                !publication) {
-                LOG_ERROR("Failed to publish mesh artifact '{}' (handle {}): {}",
-                    candidate.relative_path.generic_string(), candidate.handle.value(),
-                    publication.error());
-                return Result<void, Error>::success();
-            }
+    AssetManager::ImportPublication AssetManager::publish_import_result(AssetImportResult& result) {
+        if(auto* candidate = std::get_if<MeshArtifactCandidate>(&result.candidate))
+            return publish_mesh_candidate(*candidate);
+        if(auto* candidate = std::get_if<MaterialImportCandidate>(&result.candidate))
+            return publish_material_candidate(*candidate);
+        if(auto* candidate = std::get_if<TextureImportCandidate>(&result.candidate))
+            return publish_texture_candidate(*candidate);
+        return ImportPublication::failure({"Import task completed without a candidate"});
+    }
+
+    AssetManager::ImportPublication AssetManager::publish_mesh_candidate(
+        MeshArtifactCandidate& candidate) {
+        if(!candidate.result) {
+            LOG_ERROR("Failed to prepare mesh artifact '{}' (handle {}): {}",
+                candidate.relative_path.generic_string(), candidate.handle.value(),
+                candidate.result.error());
+            return ImportPublication::success(std::nullopt);
+        }
+        auto& artifact = candidate.result.value();
+        if(candidate.reused_artifact) {
             record_import_dependencies(candidate.handle, artifact.source_dependencies());
-
-            // Artifact 已发布；后续 GPU 创建失败不撤销这个事实。
-            published.push_back(candidate.handle);
-            if(auto refreshed =
-                    refresh_loaded_mesh(candidate.handle, candidate.revision, artifact.data);
-                !refreshed) {
-                if(refreshed.error().is_device_lost())
-                    return Result<void, Error>::failure(refreshed.error().as_error());
-                LOG_ERROR("Failed to refresh mesh handle {}: {}", candidate.handle.value(),
-                    refreshed.error().message);
-                return Result<void, Error>::success();
-            }
-            LOG_INFO("Imported mesh artifact '{}' (handle {})",
-                candidate.relative_path.generic_string(), candidate.handle.value());
-            return Result<void, Error>::success();
+            return ImportPublication::success(std::nullopt);
         }
-
-        if(auto* candidate = std::get_if<MaterialImportCandidate>(&result.candidate)) {
-            const auto handle = candidate->record.handle;
-            if(!candidate->result) {
-                LOG_ERROR("Failed to read modified material handle {}: {}", handle.value(),
-                    candidate->result.error());
-                return Result<void, Error>::success();
-            }
-            const auto runtime = find_runtime_asset<Material>(m_registry, handle);
-            if(!runtime.asset)
-                return Result<void, Error>::success();
-            auto material = create_runtime_material(candidate->record, candidate->result.value());
-            if(!material) {
-                if(is_device_lost(material.error()))
-                    return Result<void, Error>::failure(material.error());
-                LOG_ERROR(
-                    "Failed to refresh material {}: {}", handle.value(), material.error().message);
-                return Result<void, Error>::success();
-            }
-            if(!m_database.is_current(handle, candidate->revision))
-                return Result<void, Error>::success();
-            if(auto publication =
-                    publish_material(handle, candidate->result.value(), material.value(), true);
-                !publication) {
-                LOG_ERROR("Failed to publish material {}: {}", handle.value(),
-                    publication.error().message);
-                return Result<void, Error>::success();
-            }
-            published.push_back(handle);
-            return Result<void, Error>::success();
+        if(auto publication =
+                artifact.publish_atomic(m_import_service->mesh_artifact_path(candidate.handle));
+            !publication) {
+            LOG_ERROR("Failed to publish mesh artifact '{}' (handle {}): {}",
+                candidate.relative_path.generic_string(), candidate.handle.value(),
+                publication.error());
+            return ImportPublication::success(std::nullopt);
         }
+        record_import_dependencies(candidate.handle, artifact.source_dependencies());
 
-        auto& candidate = std::get<TextureImportCandidate>(result.candidate);
+        // Artifact 已发布；后续普通 GPU 创建失败不撤销这个事实。
+        if(auto refreshed =
+                refresh_loaded_mesh(candidate.handle, candidate.revision, artifact.data);
+            !refreshed) {
+            if(refreshed.error().is_device_lost())
+                return ImportPublication::failure(refreshed.error().as_error());
+            LOG_ERROR("Failed to refresh mesh handle {}: {}", candidate.handle.value(),
+                refreshed.error().message);
+            return ImportPublication::success(candidate.handle);
+        }
+        LOG_INFO("Imported mesh artifact '{}' (handle {})",
+            candidate.relative_path.generic_string(), candidate.handle.value());
+        return ImportPublication::success(candidate.handle);
+    }
+
+    AssetManager::ImportPublication AssetManager::publish_material_candidate(
+        MaterialImportCandidate& candidate) {
+        const auto handle = candidate.record.handle;
+        if(!candidate.result) {
+            LOG_ERROR("Failed to read modified material handle {}: {}", handle.value(),
+                candidate.result.error());
+            return ImportPublication::success(std::nullopt);
+        }
+        const auto runtime = find_runtime_asset<Material>(m_registry, handle);
+        if(!runtime.asset)
+            return ImportPublication::success(std::nullopt);
+        auto material = create_runtime_material(candidate.record, candidate.result.value());
+        if(!material) {
+            if(is_device_lost(material.error()))
+                return ImportPublication::failure(material.error());
+            LOG_ERROR(
+                "Failed to refresh material {}: {}", handle.value(), material.error().message);
+            return ImportPublication::success(std::nullopt);
+        }
+        if(!m_database.is_current(handle, candidate.revision))
+            return ImportPublication::success(std::nullopt);
+        if(auto publication =
+                publish_material(handle, candidate.result.value(), material.value(), true);
+            !publication) {
+            LOG_ERROR(
+                "Failed to publish material {}: {}", handle.value(), publication.error().message);
+            return ImportPublication::success(std::nullopt);
+        }
+        return ImportPublication::success(handle);
+    }
+
+    AssetManager::ImportPublication AssetManager::publish_texture_candidate(
+        TextureImportCandidate& candidate) {
         if(!candidate.result) {
             LOG_ERROR("Failed to import modified texture asset '{}' (handle {}): {}",
                 candidate.relative_path.generic_string(), candidate.handle.value(),
                 candidate.result.error());
-            return Result<void, Error>::success();
+            return ImportPublication::success(std::nullopt);
         }
         auto texture_attempt = m_resource_factory.try_create_texture(candidate.result.value());
         if(!texture_attempt) {
             if(texture_attempt.error().is_device_lost())
-                return Result<void, Error>::failure(texture_attempt.error().as_error());
+                return ImportPublication::failure(texture_attempt.error().as_error());
             LOG_ERROR("Failed to create refreshed runtime texture for asset handle {}: {}",
                 candidate.handle.value(), texture_attempt.error().message);
-            return Result<void, Error>::success();
+            return ImportPublication::success(std::nullopt);
         }
         auto texture = std::move(texture_attempt).value();
         if(!m_database.is_current(candidate.handle, candidate.revision)) {
             LOG_DEBUG("Discarded stale runtime texture candidate for asset handle {} (revision {})",
                 candidate.handle.value(), candidate.revision);
-            return Result<void, Error>::success();
+            return ImportPublication::success(std::nullopt);
         }
         if(!m_registry.replace_asset(candidate.handle, texture)) {
             LOG_ERROR("Failed to publish refreshed runtime texture for asset handle {}",
                 candidate.handle.value());
-            return Result<void, Error>::success();
+            return ImportPublication::success(std::nullopt);
         }
         if(auto refreshed = reload_loaded_material_dependents(candidate.handle); !refreshed)
-            return refreshed;
-        published.push_back(candidate.handle);
+            return ImportPublication::failure(refreshed.error());
         LOG_INFO("Reloaded texture asset '{}' (handle {})",
             candidate.relative_path.generic_string(), candidate.handle.value());
-        return Result<void, Error>::success();
+        return ImportPublication::success(candidate.handle);
     }
 
     Result<void, Error> AssetManager::import_mesh(const AssetHandle handle) {

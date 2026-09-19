@@ -4,6 +4,7 @@
 #include "graphics/result.h"
 #include "graphics/synchronization/resource_state.h"
 
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -21,6 +22,7 @@ namespace Comet {
     // 有序 pass 的资源依赖计划；不拥有设备、队列或全局图像状态。
     class COMET_API RenderGraph {
     public:
+        using PassId = std::size_t;
         struct ResourceId {
             uint32_t index = std::numeric_limits<uint32_t>::max();
             bool operator==(const ResourceId&) const = default;
@@ -56,7 +58,7 @@ namespace Comet {
         };
         using Binding = std::variant<std::shared_ptr<Image>, std::shared_ptr<Buffer>>;
         // 回调同步执行，不保存；命令缓冲来自当前 FrameScheduler。
-        using RecordPass = std::function<Result<void, GraphicsError>(size_t, CommandBuffer&)>;
+        using RecordPass = std::function<Result<void, GraphicsError>(PassId, CommandBuffer&)>;
 
         class COMET_API Plan {
         public:
@@ -80,7 +82,8 @@ namespace Comet {
         // 构建阶段仅收集声明，compile 统一验证；ResourceId 只在当前图内有效。
         [[nodiscard]] ResourceId import_image(std::string name, ImageState initial);
         [[nodiscard]] ResourceId import_buffer(std::string name, BufferState initial);
-        void add_pass(Pass pass);
+        // 返回当前图内的注册 ID；record 回调使用同一个 ID。
+        PassId add_pass(Pass pass);
         void export_resource(Use use);
         [[nodiscard]] Result<Plan> compile() const;
 

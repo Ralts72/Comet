@@ -63,34 +63,70 @@ namespace Comet::Tests {
         invalid.color.x = std::numeric_limits<float>::quiet_NaN();
         lights.push_back(invalid);
         const auto data = LightingData::prepare(lights);
-        EXPECT_EQ(data.counts, Math::Vec4(32, 8, 3, 0));
+        EXPECT_EQ(data.light_count, 32);
+        EXPECT_EQ(data.excess_lights, 8);
+        EXPECT_EQ(data.invalid_lights, 3);
         for(const auto& light : data.lights) {
-            EXPECT_EQ(light.direction_range, Math::Vec4(0, 0, -1, 0));
-            EXPECT_TRUE(Math::is_finite(light.position_type));
+            EXPECT_EQ(light.direction, Math::Vec3(0, 0, -1));
+            EXPECT_EQ(light.range, 0);
+            EXPECT_TRUE(Math::is_finite(light.position));
         }
         for(auto& light : lights)
             light.type = LightType::Point;
         const auto points = LightingData::prepare(lights);
-        EXPECT_EQ(points.lights.front().position_type.x, 1);
-        EXPECT_EQ(points.lights.back().position_type.x, 32);
+        EXPECT_EQ(points.lights.front().position.x, 1);
+        EXPECT_EQ(points.lights.back().position.x, 32);
     }
 
     TEST(LightingTest, RejectsInvalidRangesConesAndEnergyWithoutPoisoningValidLights) {
         RenderLight light{.type = LightType::Spot};
-        EXPECT_EQ(LightingData::prepare(std::span(&light, 1)).counts.x, 1);
+        EXPECT_EQ(LightingData::prepare(std::span(&light, 1)).light_count, 1);
         light.inner_angle = light.outer_angle;
-        EXPECT_EQ(LightingData::prepare(std::span(&light, 1)).counts.z, 1);
+        EXPECT_EQ(LightingData::prepare(std::span(&light, 1)).invalid_lights, 1);
         light.type = LightType::Point;
         light.range = -1;
-        EXPECT_EQ(LightingData::prepare(std::span(&light, 1)).counts.z, 1);
+        EXPECT_EQ(LightingData::prepare(std::span(&light, 1)).invalid_lights, 1);
         light.range = 10;
         light.intensity = std::numeric_limits<float>::infinity();
-        EXPECT_EQ(LightingData::prepare(std::span(&light, 1)).counts.z, 1);
+        EXPECT_EQ(LightingData::prepare(std::span(&light, 1)).invalid_lights, 1);
         light.intensity = 1;
         light.direction.x = std::numeric_limits<float>::quiet_NaN();
         const auto data = LightingData::prepare(std::span(&light, 1));
-        EXPECT_EQ(data.counts.x, 1);
-        EXPECT_TRUE(Math::is_finite(data.lights.front().direction_range));
+        EXPECT_EQ(data.light_count, 1);
+        EXPECT_TRUE(Math::is_finite(data.lights.front().direction));
+    }
+
+    TEST(LightingTest, ValidatesOnlyFieldsUsedByEachLightType) {
+        const auto nan = std::numeric_limits<float>::quiet_NaN();
+        std::array<RenderLight, 3> lights{{{.entity_id = 1,
+                                               .type = LightType::Directional,
+                                               .position = {nan, nan, nan},
+                                               .range = nan,
+                                               .inner_angle = nan,
+                                               .outer_angle = nan},
+            {.entity_id = 2,
+                .type = LightType::Point,
+                .direction = {nan, nan, nan},
+                .inner_angle = nan,
+                .outer_angle = nan},
+            {.entity_id = 3, .type = LightType::Spot}}};
+        const auto valid = LightingData::prepare(lights);
+        ASSERT_EQ(valid.light_count, 3);
+        EXPECT_EQ(valid.invalid_lights, 0);
+        EXPECT_EQ(valid.lights[0].position, Math::Vec3(0));
+        EXPECT_EQ(valid.lights[0].range, 0);
+        EXPECT_EQ(valid.lights[1].direction, Math::Vec3(0, 0, -1));
+        EXPECT_EQ(valid.lights[1].inner_cone_cos, 0);
+        EXPECT_EQ(valid.lights[1].outer_cone_cos, 0);
+
+        lights[2].inner_angle = nan;
+        EXPECT_EQ(LightingData::prepare(lights).invalid_lights, 1);
+        lights[1].position.x = nan;
+        EXPECT_EQ(LightingData::prepare(lights).invalid_lights, 2);
+        lights[0].direction.x = nan;
+        const auto invalid = LightingData::prepare(lights);
+        EXPECT_EQ(invalid.light_count, 0);
+        EXPECT_EQ(invalid.invalid_lights, 3);
     }
 
     TEST(LightingTest, ShaderFrameBlockMatchesCpuPacking) {
@@ -101,10 +137,43 @@ namespace Comet::Tests {
             [](const auto& binding) { return binding.set == 0 && binding.binding == 1; });
         ASSERT_NE(found, shader.get_bindings().end());
         EXPECT_EQ(found->block_size, sizeof(LightingData));
-        ASSERT_EQ(found->members.size(), 4);
-        EXPECT_EQ(found->members[1].offset, offsetof(LightingData, counts));
-        EXPECT_EQ(found->members[2].offset, offsetof(LightingData, shadow_view_projection));
-        EXPECT_EQ(found->members[3].offset, offsetof(LightingData, shadow_parameters));
+        const std::array fields{std::pair{"lights", offsetof(LightingData, lights)},
+            std::pair{"light_count", offsetof(LightingData, light_count)},
+            std::pair{"excess_lights", offsetof(LightingData, excess_lights)},
+            std::pair{"invalid_lights", offsetof(LightingData, invalid_lights)},
+            std::pair{"reserved", offsetof(LightingData, reserved)},
+            std::pair{"shadow_view_projection", offsetof(LightingData, shadow_view_projection)},
+            std::pair{"shadow_light_index", offsetof(LightingData, shadow_light_index)},
+            std::pair{"shadow_depth_bias", offsetof(LightingData, shadow_depth_bias)},
+            std::pair{"shadow_texel_size", offsetof(LightingData, shadow_texel_size)},
+            std::pair{"shadow_reserved", offsetof(LightingData, shadow_reserved)}};
+        ASSERT_EQ(found->members.size(), fields.size());
+        for(size_t index = 0; index < fields.size(); ++index) {
+            SCOPED_TRACE(fields[index].first);
+            EXPECT_EQ(found->members[index].name, fields[index].first);
+            EXPECT_EQ(found->members[index].offset, fields[index].second);
+        }
+        const std::array light_fields{
+            std::pair{"position", offsetof(LightingData::Light, position)},
+            std::pair{"type", offsetof(LightingData::Light, type)},
+            std::pair{"direction", offsetof(LightingData::Light, direction)},
+            std::pair{"range", offsetof(LightingData::Light, range)},
+            std::pair{"color", offsetof(LightingData::Light, color)},
+            std::pair{"intensity", offsetof(LightingData::Light, intensity)},
+            std::pair{"inner_cone_cos", offsetof(LightingData::Light, inner_cone_cos)},
+            std::pair{"outer_cone_cos", offsetof(LightingData::Light, outer_cone_cos)},
+            std::pair{"casts_shadow", offsetof(LightingData::Light, casts_shadow)},
+            std::pair{"reserved", offsetof(LightingData::Light, reserved)}};
+        EXPECT_EQ(found->members.front().shape.array_stride, sizeof(LightingData::Light));
+        EXPECT_EQ(found->members.front().shape.array_dimensions,
+            (std::vector<uint32_t>{LightingData::MAX_LIGHTS}));
+        const auto& members = found->members.front().members;
+        ASSERT_EQ(members.size(), light_fields.size());
+        for(size_t index = 0; index < light_fields.size(); ++index) {
+            SCOPED_TRACE(light_fields[index].first);
+            EXPECT_EQ(members[index].name, light_fields[index].first);
+            EXPECT_EQ(members[index].offset, light_fields[index].second);
+        }
     }
 
     TEST(LightingTest, FitsDirectionalShadowBoundsAndHandlesVerticalDirections) {
@@ -114,8 +183,8 @@ namespace Comet::Tests {
             RenderLight light{.direction = direction, .casts_shadow = true};
             auto data = LightingData::prepare(std::span(&light, 1));
             data.prepare_shadow(bounds, 1024);
-            ASSERT_EQ(data.shadow_parameters.x, 0);
-            EXPECT_FLOAT_EQ(data.shadow_parameters.z, 1.0f / 1024);
+            ASSERT_EQ(data.shadow_light_index, 0);
+            EXPECT_FLOAT_EQ(data.shadow_texel_size, 1.0f / 1024);
             for(int corner = 0; corner < 8; ++corner) {
                 auto point = bounds.minimum;
                 for(int axis = 0; axis < 3; ++axis)
@@ -139,19 +208,19 @@ namespace Comet::Tests {
         auto data = LightingData::prepare(lights);
         const BoundingBox bounds{{-1, -1, -1}, {1, 1, 1}};
         data.prepare_shadow(bounds, 1024);
-        EXPECT_EQ(data.shadow_parameters.x, 3);
+        EXPECT_EQ(data.shadow_light_index, 3);
         data.prepare_shadow(bounds, 0);
-        EXPECT_EQ(data.shadow_parameters.x, -1);
+        EXPECT_EQ(data.shadow_light_index, -1);
         data.prepare_shadow(BoundingBox::from_point({0, 0, 0}), 1024);
-        EXPECT_EQ(data.shadow_parameters.x, -1);
+        EXPECT_EQ(data.shadow_light_index, -1);
         data.prepare_shadow({{2, 0, 0}, {1, 1, 1}}, 1024);
-        EXPECT_EQ(data.shadow_parameters.x, -1);
+        EXPECT_EQ(data.shadow_light_index, -1);
         lights.clear();
         for(uint32_t id = 0; id < 33; ++id)
             lights.push_back({.entity_id = id, .casts_shadow = id == 32});
         data = LightingData::prepare(lights);
         data.prepare_shadow(bounds, 1024);
-        EXPECT_EQ(data.shadow_parameters.x, -1);
+        EXPECT_EQ(data.shadow_light_index, -1);
     }
 
     TEST(LightingTest, ShadowFlagUsesPropertyUndoSerializationAndLegacyDefault) {

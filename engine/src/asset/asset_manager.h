@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 
 namespace Comet {
@@ -24,6 +25,9 @@ namespace Comet {
     struct GraphicsError;
     class AssetTaskQueue;
     struct AssetImportResult;
+    struct MeshArtifactCandidate;
+    struct MaterialImportCandidate;
+    struct TextureImportCandidate;
 
     class COMET_API AssetManager final {
     public:
@@ -78,8 +82,12 @@ namespace Comet {
         [[nodiscard]] bool schedule_mesh_task(const AssetRecord& record, MeshImportMode mode);
         [[nodiscard]] bool schedule_loaded_texture_refresh(const AssetRecord& record);
         [[nodiscard]] bool schedule_material_refresh(const AssetRecord& record);
-        Result<void, Error> publish_import_result(
-            AssetImportResult& result, std::vector<AssetHandle>& published);
+        // 空值表示未发布；Handle 表示已发布；错误表示不能继续处理队列。
+        using ImportPublication = Result<std::optional<AssetHandle>, Error>;
+        ImportPublication publish_import_result(AssetImportResult& result);
+        ImportPublication publish_mesh_candidate(MeshArtifactCandidate& candidate);
+        ImportPublication publish_material_candidate(MaterialImportCandidate& candidate);
+        ImportPublication publish_texture_candidate(TextureImportCandidate& candidate);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> create_runtime_texture(
             const AssetRecord& record, const TextureImportSettings& import_settings);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> create_runtime_material(

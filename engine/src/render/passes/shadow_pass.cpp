@@ -36,8 +36,9 @@ namespace Comet {
         depth.description.initial_layout = ImageLayout::DepthStencilAttachmentOptimal;
         depth.description.store_op = AttachmentStoreOp::Store;
         depth.usage |= ImageUsage::Sampled;
-        auto pass = RenderPass::create(
-            device, {depth}, {{{}, {}, {SubpassDepthStencilAttachment(0)}, SampleCount::Count1}});
+        const RenderSubPass subpass{
+            .depth_stencil_attachments = {SubpassDepthStencilAttachment(0)}};
+        auto pass = RenderPass::create(device, {depth}, {subpass});
         if(!pass)
             return Creation::failure(pass.error());
         auto target = RenderTarget::try_create_multi_target(
@@ -111,7 +112,7 @@ namespace Comet {
         command.set_viewport(vk::Viewport(0, 0, RESOLUTION, RESOLUTION, 0, 1));
         command.set_scissor(vk::Rect2D({0, 0}, {RESOLUTION, RESOLUTION}));
         std::vector<QueueSemaphoreSubmit> waits;
-        if(lighting.shadow_parameters.x >= 0) {
+        if(lighting.shadow_light_index >= 0) {
             command.bind_pipeline(*m_pipeline);
             for(const auto& item : items) {
                 if(!item.mesh || !transform_box(item.mesh->get_local_bounds(), item.model_matrix))

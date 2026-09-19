@@ -31,6 +31,9 @@ namespace Comet {
         std::unique_ptr<MaterialRenderer> materials;
         std::unique_ptr<DebugRenderer> debug;
         RenderGraph::Plan graph;
+        RenderGraph::PassId shadow_pass_id;
+        RenderGraph::PassId scene_pass_id;
+        RenderGraph::PassId output_pass_id;
         bool offscreen = false;
     };
 
@@ -62,8 +65,9 @@ namespace Comet {
             color.description.store_op = AttachmentStoreOp::Store;
             color.usage |= ImageUsage::Sampled;
         }
-        RenderSubPass subpass{
-            {}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)}, m_msaa_samples};
+        RenderSubPass subpass{.color_attachments = {SubpassColorAttachment(0)},
+            .depth_stencil_attachments = {SubpassDepthStencilAttachment(1)},
+            .sample_count = m_msaa_samples};
         subpass.resolve_initial_layout = ImageLayout::ColorAttachmentOptimal;
         subpass.resolve_final_layout = ImageLayout::ColorAttachmentOptimal;
         subpass.resolve_usage =
@@ -106,7 +110,7 @@ namespace Comet {
         RenderGraph graph;
         const auto shadow = graph.import_image(
             "shadow depth", {.subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}});
-        graph.add_pass(
+        next->shadow_pass_id = graph.add_pass(
             {"directional shadow", {{shadow, ResourceUsage::DepthStencilAttachmentWrite, {}}}});
         RenderGraph::Pass scene{"scene", {}};
         RenderGraph::ResourceId output;
@@ -126,9 +130,10 @@ namespace Comet {
         }
         scene.uses.push_back({shadow, ResourceUsage::SampledRead,
             Flags<PipelineStage>(PipelineStage::FragmentShader)});
-        graph.add_pass(std::move(scene));
-        graph.add_pass({"tone map", {{output, ResourceUsage::SampledRead,
-                                        Flags<PipelineStage>(PipelineStage::FragmentShader)}}});
+        next->scene_pass_id = graph.add_pass(std::move(scene));
+        next->output_pass_id =
+            graph.add_pass({"tone map", {{output, ResourceUsage::SampledRead,
+                                            Flags<PipelineStage>(PipelineStage::FragmentShader)}}});
         auto compiled = graph.compile();
         if(!compiled)
             return Creation::failure({compiled.error()});
@@ -238,15 +243,17 @@ namespace Comet {
         std::vector<QueueSemaphoreSubmit> waits;
         const auto recorded = m_state->graph.record(frames, bindings,
             [this, &frames, &submission, &lines, &waits, &lighting](
-                size_t pass, CommandBuffer& command) {
-                if(pass == 2)
+                RenderGraph::PassId pass, CommandBuffer& command) {
+                if(pass == m_state->output_pass_id)
                     return m_state->output_pass->render(frames, m_state->output_target,
                         m_state->hdr_target->get_color_view(frames.get_current_frame_slot_index()));
                 auto drawn = RenderResult::success({});
-                if(pass == 0)
+                if(pass == m_state->shadow_pass_id)
                     drawn = m_state->shadow_pass->render(frames, lighting, submission.render_items);
-                else
+                else if(pass == m_state->scene_pass_id)
                     drawn = draw_scene(frames, command, submission, lines, lighting);
+                else
+                    return Result<void, GraphicsError>::failure({"Unknown scene render pass"});
                 if(!drawn)
                     return Result<void, GraphicsError>::failure(drawn.error());
                 for(const auto& wait : drawn.value())

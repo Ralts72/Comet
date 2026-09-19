@@ -22,16 +22,28 @@ namespace Comet {
     // 与 forward.glsl 的 std140 布局匹配；不是 Scene 组件或 GPU owner。
     struct alignas(16) COMET_API LightingData {
         static constexpr uint32_t MAX_LIGHTS = 32;
-        struct Light {
-            Math::Vec4 position_type{};
-            Math::Vec4 direction_range{};
-            Math::Vec4 color_intensity{};
-            Math::Vec4 cone{};
+        struct alignas(16) Light {
+            Math::Vec3 position{};
+            float type = 0;
+            Math::Vec3 direction{};
+            float range = 0;
+            Math::Vec3 color{};
+            float intensity = 0;
+            float inner_cone_cos = 0;
+            float outer_cone_cos = 0;
+            float casts_shadow = 0;
+            float reserved = 0;
         };
         std::array<Light, MAX_LIGHTS> lights{};
-        Math::Vec4 counts{}; // 有效数量、超限数量、无效数量、保留。
+        float light_count = 0;
+        float excess_lights = 0;
+        float invalid_lights = 0;
+        float reserved = 0;
         Math::Mat4 shadow_view_projection{1};
-        Math::Vec4 shadow_parameters{-1, 0, 0, 0}; // 光源索引、深度偏移、texel 大小、保留。
+        float shadow_light_index = -1;
+        float shadow_depth_bias = 0;
+        float shadow_texel_size = 0;
+        float shadow_reserved = 0;
         [[nodiscard]] static LightingData prepare(std::span<const RenderLight> lights);
         void prepare_shadow(const BoundingBox& world_bounds, uint32_t resolution);
     };

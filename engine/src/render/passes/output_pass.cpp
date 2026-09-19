@@ -66,8 +66,8 @@ namespace Comet {
             color.usage |= ImageUsage::Sampled;
             color.usage |= ImageUsage::CopySrc;
         }
-        auto pass = RenderPass::create(device, {color},
-            {{{}, {SubpassColorAttachment(0)}, {}, SampleCount::Count1}}, output_format);
+        const RenderSubPass subpass{.color_attachments = {SubpassColorAttachment(0)}};
+        auto pass = RenderPass::create(device, {color}, {subpass}, output_format);
         if(!pass)
             return Creation::failure(pass.error());
         DescriptorSetLayoutBindings bindings;

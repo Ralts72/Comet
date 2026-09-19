@@ -195,18 +195,20 @@ namespace Comet::Tests {
         const auto left = graph.import_buffer("left", {{}, 0, 16});
         const auto right = graph.import_buffer("right", {{}, 16, 16});
         const auto host = graph.import_buffer("readback", {{}, 0, 192});
-        graph.add_pass({"produce", {{a, ResourceUsage::TransferDestination, {}},
-                                       {b, ResourceUsage::TransferDestination, {}},
-                                       {left, ResourceUsage::TransferDestination, {}},
-                                       {right, ResourceUsage::TransferDestination, {}}}});
-        graph.add_pass({"consume",
+        const auto produce =
+            graph.add_pass({"produce", {{a, ResourceUsage::TransferDestination, {}},
+                                           {b, ResourceUsage::TransferDestination, {}},
+                                           {left, ResourceUsage::TransferDestination, {}},
+                                           {right, ResourceUsage::TransferDestination, {}}}});
+        const auto consume = graph.add_pass({"consume",
             {{a, ResourceUsage::TransferSource, {}}, {b, ResourceUsage::TransferSource, {}},
                 {left, ResourceUsage::TransferSource, {}},
                 {right, ResourceUsage::TransferSource, {}},
                 {host, ResourceUsage::TransferDestination, {}}}});
-        graph.add_pass({"overwrite", {{a, ResourceUsage::TransferDestination, {}},
-                                         {left, ResourceUsage::TransferDestination, {}}}});
-        graph.add_pass({"consume new",
+        const auto overwrite =
+            graph.add_pass({"overwrite", {{a, ResourceUsage::TransferDestination, {}},
+                                             {left, ResourceUsage::TransferDestination, {}}}});
+        const auto consume_new = graph.add_pass({"consume new",
             {{a, ResourceUsage::TransferSource, {}}, {left, ResourceUsage::TransferSource, {}},
                 {host, ResourceUsage::TransferDestination, {}}}});
         graph.export_resource({host, ResourceUsage::HostRead, {}});
@@ -220,10 +222,10 @@ namespace Comet::Tests {
         FrameWait wait{device, frames};
         std::vector<RenderGraph::Binding> bindings{
             image, image, data, data, std::static_pointer_cast<Buffer>(output)};
-        unsigned recorded = 0;
-        ASSERT_TRUE(
-            plan.value().record(frames, bindings, [&](size_t pass, const CommandBuffer& commands) {
-                ++recorded;
+        std::vector<RenderGraph::PassId> recorded;
+        ASSERT_TRUE(plan.value().record(
+            frames, bindings, [&](RenderGraph::PassId pass, const CommandBuffer& commands) {
+                recorded.push_back(pass);
                 auto cmd = commands.get();
                 const vk::ImageSubresourceRange range_a(
                     vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
@@ -238,28 +240,30 @@ namespace Comet::Tests {
                     cmd.copyImageToBuffer(
                         image->get(), vk::ImageLayout::eTransferSrcOptimal, output->get(), region);
                 };
-                if(pass == 0) {
+                if(pass == produce) {
                     cmd.clearColorImage(image->get(), vk::ImageLayout::eTransferDstOptimal,
                         vk::ClearColorValue(std::array<float, 4>{1, 0, 0, 1}), range_a);
                     cmd.clearColorImage(image->get(), vk::ImageLayout::eTransferDstOptimal,
                         vk::ClearColorValue(std::array<float, 4>{0, 1, 0, 1}), range_b);
                     cmd.fillBuffer(data->get(), 0, 16, 0x11223344);
                     cmd.fillBuffer(data->get(), 16, 16, 0x55667788);
-                } else if(pass == 1) {
+                } else if(pass == consume) {
                     copy_image(0, 0, 4, 0);
                     copy_image(1, 1, 2, 64);
                     cmd.copyBuffer(data->get(), output->get(), vk::BufferCopy(0, 80, 32));
-                } else if(pass == 2) {
+                } else if(pass == overwrite) {
                     cmd.clearColorImage(image->get(), vk::ImageLayout::eTransferDstOptimal,
                         vk::ClearColorValue(std::array<float, 4>{0, 0, 1, 1}), range_a);
                     cmd.fillBuffer(data->get(), 0, 16, 0xaabbccdd);
-                } else {
+                } else if(pass == consume_new) {
                     copy_image(0, 0, 4, 112);
                     cmd.copyBuffer(data->get(), output->get(), vk::BufferCopy(0, 176, 16));
+                } else {
+                    ADD_FAILURE() << "Unexpected pass ID: " << pass;
                 }
                 return Result<void, GraphicsError>::success();
             }));
-        EXPECT_EQ(recorded, 4u);
+        EXPECT_EQ(recorded, (std::vector{produce, consume, overwrite, consume_new}));
         submit(device, frames);
         auto old_image = std::weak_ptr(image);
         auto old_buffer = std::weak_ptr(data);
@@ -325,18 +329,23 @@ namespace Comet::Tests {
         const ImageInfo valid{.format = Format::R8G8B8A8_UNORM,
             .extent = {4, 4, 1},
             .usage = Flags<ImageUsage>(ImageUsage::CopyDst)};
-        for(unsigned mode = 0; mode < 4; ++mode) {
+        struct InvalidImage {
+            const char* name;
+            uint32_t mip_levels;
+            uint32_t array_layers;
+            uint32_t depth;
+        };
+        for(const auto& invalid :
+            {InvalidImage{"zero mip levels", 0, 1, 1}, InvalidImage{"zero array layers", 1, 0, 1},
+                InvalidImage{"too many mip levels", 4, 1, 1},
+                InvalidImage{"depth on a 2D image", 1, 1, 2}}) {
+            SCOPED_TRACE(invalid.name);
             auto info = valid;
-            if(mode == 0)
-                info.mip_levels = 0;
-            if(mode == 1)
-                info.array_layers = 0;
-            if(mode == 2)
-                info.mip_levels = 4;
-            if(mode == 3)
-                info.extent.z = 2;
+            info.mip_levels = invalid.mip_levels;
+            info.array_layers = invalid.array_layers;
+            info.extent.z = invalid.depth;
             const auto created = Image::try_create(device, info, false);
-            ASSERT_FALSE(created) << mode;
+            ASSERT_FALSE(created);
             EXPECT_EQ(created.result(), vk::Result::eErrorInitializationFailed);
         }
         auto multisampled = valid;
@@ -450,7 +459,7 @@ namespace Comet::Tests {
             const auto format = context.get_swapchain().get_images().front()->get_info().format;
             auto presentation = RenderPass::create(context.get_device(),
                 {Attachment::get_color_attachment(format, SampleCount::Count1)},
-                {{{}, {SubpassColorAttachment(0)}, {}}}, format);
+                {{.color_attachments = {SubpassColorAttachment(0)}}}, format);
             ASSERT_TRUE(presentation) << presentation.error().message;
             auto created_target = RenderTarget::create_swapchain_target(
                 context.get_device(), *presentation.value(), context.get_swapchain());
@@ -520,7 +529,7 @@ namespace Comet::Tests {
             color.description.store_op = AttachmentStoreOp::Store;
             color.usage |= ImageUsage::Sampled;
             auto source_pass = RenderPass::create(device, {color},
-                {{{}, {SubpassColorAttachment(0)}, {}}}, Format::R16G16B16A16_SFLOAT);
+                {{.color_attachments = {SubpassColorAttachment(0)}}}, Format::R16G16B16A16_SFLOAT);
             ASSERT_TRUE(source_pass) << source_pass.error().message;
             auto created_source =
                 RenderTarget::try_create_multi_target(device, *source_pass.value(), {4, 4}, 2);
@@ -651,8 +660,21 @@ namespace Comet::Tests {
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
         std::array<std::shared_ptr<Readback>, 2> outputs;
-        for(unsigned batch = 0; batch < 5; ++batch) {
+        enum class Scenario {
+            MovingOccluder,
+            ShadowsDisabled,
+            RebuildAndRemoveOccluder,
+            NoLights,
+            TiltedLight
+        };
+        for(const auto& [scenario, name] : {std::pair{Scenario::MovingOccluder, "moving occluder"},
+                std::pair{Scenario::ShadowsDisabled, "shadows disabled"},
+                std::pair{Scenario::RebuildAndRemoveOccluder, "rebuild target and remove occluder"},
+                std::pair{Scenario::NoLights, "no lights"},
+                std::pair{Scenario::TiltedLight, "tilted light"}}) {
+            SCOPED_TRACE(name);
             for(unsigned index = 0; index < 2; ++index) {
+                SCOPED_TRACE(index);
                 const float x = index == 0 ? -0.5f : 0.5f;
                 const auto occluder = Math::scale(
                     Math::translate(Math::Mat4(1), {x, 0, 0.625f}), {0.25f, 0.25f, 0.25f});
@@ -662,16 +684,19 @@ namespace Comet::Tests {
                         {.model_matrix = occluder,
                             .mesh = mesh,
                             .material = {AssetHandle(559), material}}},
-                    .lights = {
-                        {.entity_id = 1, .intensity = Math::PI, .casts_shadow = batch != 1}}};
-                if(batch == 2 && index == 1)
+                    .lights = {{.entity_id = 1,
+                        .intensity = Math::PI,
+                        .casts_shadow = scenario != Scenario::ShadowsDisabled}}};
+                if(scenario == Scenario::RebuildAndRemoveOccluder && index == 1)
                     submission.render_items.pop_back();
-                if(batch == 3)
+                if(scenario == Scenario::NoLights)
                     submission.lights.clear();
-                if(batch == 4)
+                if(scenario == Scenario::TiltedLight)
                     submission.lights.front().direction = {1, 0, -1};
                 const auto lighting = ShadowPass::prepare(submission);
-                EXPECT_EQ(lighting.shadow_parameters.x, batch == 1 || batch == 3 ? -1 : 0);
+                const bool shadow_enabled =
+                    scenario != Scenario::ShadowsDisabled && scenario != Scenario::NoLights;
+                EXPECT_EQ(lighting.shadow_light_index, shadow_enabled ? 0 : -1);
                 frames.wait_for_current_slot();
                 frames.begin_frame(0);
                 frames.get_current_command_buffer().begin();
@@ -685,23 +710,32 @@ namespace Comet::Tests {
                         ->get_image(),
                     outputs[index], {33, 33});
                 submit(device, frames);
-                if(batch == 2 && index == 0)
+                if(scenario == Scenario::RebuildAndRemoveOccluder && index == 0)
                     ASSERT_TRUE(renderer.enable_offscreen_rendering({33, 33}));
             }
             // 两帧均提交后才等待，读回各自阴影，不能让后帧覆盖前帧的 depth/UBO。
             frames.wait_for_all_slots();
             for(unsigned index = 0; index < 2; ++index) {
+                SCOPED_TRACE(index);
                 const auto bytes = outputs[index]->read();
-                const unsigned shadow_x = (index == 0 ? 8 : 24) + (batch == 4 ? 4 : 0);
+                const unsigned shadow_offset = scenario == Scenario::TiltedLight ? 4 : 0;
+                const unsigned shadow_x = (index == 0 ? 8 : 24) + shadow_offset;
                 const unsigned other_x = index == 0 ? 24 : 8;
-                const bool shadow = batch != 1 && batch != 3 && !(batch == 2 && index == 1);
-                const auto lit = batch == 3 ? 0 : mapped_byte(batch == 4 ? std::sqrt(0.5f) : 1);
+                const bool removed_occluder =
+                    scenario == Scenario::RebuildAndRemoveOccluder && index == 1;
+                const bool shadow = scenario != Scenario::ShadowsDisabled
+                                    && scenario != Scenario::NoLights && !removed_occluder;
+                float irradiance = 1;
+                if(scenario == Scenario::NoLights)
+                    irradiance = 0;
+                else if(scenario == Scenario::TiltedLight)
+                    irradiance = std::sqrt(0.5f);
+                const auto lit = mapped_byte(irradiance);
                 for(unsigned channel = 0; channel < 3; ++channel) {
                     const auto at = [&](unsigned x, unsigned y) {
                         return std::to_integer<int>(bytes[(y * 33 + x) * 4 + channel]);
                     };
-                    EXPECT_NEAR(at(shadow_x, 16), shadow ? 0 : lit, 3)
-                        << "batch " << batch << " frame " << index;
+                    EXPECT_NEAR(at(shadow_x, 16), shadow ? 0 : lit, 3);
                     EXPECT_NEAR(at(other_x, 16), lit, 3);
                     EXPECT_NEAR(at(16, 3), lit, 3);
                 }
@@ -740,7 +774,7 @@ namespace Comet::Tests {
             .render_items = {{.mesh = lit_quad()}},
             .lights = {{.casts_shadow = true}}};
         const auto lighting = ShadowPass::prepare(submission);
-        ASSERT_EQ(lighting.shadow_parameters.x, 0);
+        ASSERT_EQ(lighting.shadow_light_index, 0);
         RenderGraph graph;
         const auto depth = graph.import_image(
             "shadow depth", *resolve_image_state(ResourceUsage::Undefined,
@@ -902,31 +936,44 @@ namespace Comet::Tests {
             ++calls;
             return Result<void, GraphicsError>::success();
         };
-        for(unsigned mode = 0; mode < 5; ++mode) {
+        enum class InvalidBinding {
+            MipOutOfBounds,
+            MissingSampledUsage,
+            WrongKind,
+            OverlappingAlias,
+            ForeignQueue
+        };
+        for(const auto& [invalid, name] :
+            {std::pair{InvalidBinding::MipOutOfBounds, "mip out of bounds"},
+                std::pair{InvalidBinding::MissingSampledUsage, "missing sampled usage"},
+                std::pair{InvalidBinding::WrongKind, "buffer bound to image"},
+                std::pair{InvalidBinding::OverlappingAlias, "overlapping image alias"},
+                std::pair{InvalidBinding::ForeignQueue, "foreign queue family"}}) {
+            SCOPED_TRACE(name);
             RenderGraph graph;
             auto state = *resolve_image_state(
                 ResourceUsage::Undefined, {.aspects = Flags<ImageAspect>(ImageAspect::Color)});
-            if(mode == 0)
+            if(invalid == InvalidBinding::MipOutOfBounds)
                 state.subresources.base_mip_level = 1;
-            if(mode == 4)
+            if(invalid == InvalidBinding::ForeignQueue)
                 state.resource.queue_family = frames.get_queue_family_index() + 1;
             const auto id = graph.import_image("image", state);
             graph.add_pass({"write", {{id, ResourceUsage::TransferDestination, {}}}});
             std::vector<RenderGraph::Binding> bindings;
             bindings.reserve(2);
             bindings.emplace_back(image);
-            if(mode == 1)
+            if(invalid == InvalidBinding::MissingSampledUsage)
                 graph.export_resource({id, ResourceUsage::SampledRead,
                     Flags<PipelineStage>(PipelineStage::FragmentShader)});
-            if(mode == 2)
+            if(invalid == InvalidBinding::WrongKind)
                 bindings[0] = std::shared_ptr<Buffer>{};
-            if(mode == 3) {
+            if(invalid == InvalidBinding::OverlappingAlias) {
                 static_cast<void>(graph.import_image("alias", state));
                 bindings.push_back(image);
             }
             const auto plan = graph.compile();
             ASSERT_TRUE(plan) << plan.error();
-            EXPECT_FALSE(plan.value().record(frames, bindings, record)) << mode;
+            EXPECT_FALSE(plan.value().record(frames, bindings, record));
         }
         EXPECT_EQ(calls, 0u);
         submit(device, frames);
@@ -1077,39 +1124,60 @@ namespace Comet::Tests {
         FrameWait wait{device, frames};
         auto readback = std::make_shared<Readback>(
             device, context.get_context().get_physical_device(), 17 * 17 * 4);
-        for(unsigned mode = 0; mode < 9; ++mode) {
+        enum class Scenario {
+            Directional,
+            Point,
+            Spot,
+            BackFacing,
+            NonuniformScale,
+            SingularScale,
+            NarrowSpotCone,
+            NoLights,
+            OutOfRange
+        };
+        for(const auto& [scenario, name] : {std::pair{Scenario::Directional, "directional light"},
+                std::pair{Scenario::Point, "point light"}, std::pair{Scenario::Spot, "spot light"},
+                std::pair{Scenario::BackFacing, "back-facing light"},
+                std::pair{Scenario::NonuniformScale, "nonuniform normal scale"},
+                std::pair{Scenario::SingularScale, "singular model scale"},
+                std::pair{Scenario::NarrowSpotCone, "narrow spot cone"},
+                std::pair{Scenario::NoLights, "no lights"},
+                std::pair{Scenario::OutOfRange, "point light out of range"}}) {
+            SCOPED_TRACE(name);
             RenderLight light{.entity_id = 1,
                 .position = {0, 0, 2.5f},
                 .intensity = Math::PI,
                 .range = 10,
                 .inner_angle = 5,
                 .outer_angle = 20};
-            if(mode == 1 || mode == 2 || mode == 6) {
-                light.type = mode == 1 ? LightType::Point : LightType::Spot;
+            const bool spot = scenario == Scenario::Spot || scenario == Scenario::NarrowSpotCone;
+            const bool attenuated = scenario == Scenario::Point || spot;
+            if(attenuated) {
+                light.type = spot ? LightType::Spot : LightType::Point;
                 light.intensity = 4 * Math::PI;
             }
-            if(mode == 6) {
+            if(scenario == Scenario::NarrowSpotCone) {
                 light.inner_angle = 0;
                 light.outer_angle = 0.0001f;
             }
-            if(mode == 3)
+            if(scenario == Scenario::BackFacing)
                 light.direction = {0, 0, 1};
-            if(mode == 8) {
+            if(scenario == Scenario::OutOfRange) {
                 light.type = LightType::Point;
                 light.range = 0.5f;
             }
             auto model = Math::Mat4(1);
-            if(mode == 4)
+            if(scenario == Scenario::NonuniformScale)
                 model = Math::scale(model, {2, 1, 1});
-            if(mode == 5)
+            if(scenario == Scenario::SingularScale)
                 model = Math::scale(model, {1, 1, 0});
             RenderSubmission submission{
                 .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
                 .render_items = {{.model_matrix = model,
-                    .mesh = mode == 4 ? tilted : mesh,
+                    .mesh = scenario == Scenario::NonuniformScale ? tilted : mesh,
                     .material = {AssetHandle(555), material}}},
                 .lights = {light}};
-            if(mode == 7)
+            if(scenario == Scenario::NoLights)
                 submission.lights.clear();
             frames.wait_for_current_slot();
             frames.begin_frame(0);
@@ -1119,8 +1187,8 @@ namespace Comet::Tests {
             EXPECT_TRUE(rendered.value().empty());
             const auto& statistics = scene.get_material_statistics();
             EXPECT_EQ(statistics.draw_calls, 1);
-            EXPECT_EQ(statistics.light_count, mode == 7 ? 0 : 1);
-            if(mode > 0)
+            EXPECT_EQ(statistics.light_count, scenario == Scenario::NoLights ? 0 : 1);
+            if(scenario != Scenario::Directional)
                 EXPECT_EQ(statistics.material_bindings_created, 0);
             auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
             copy_output(frames, view->get_image(), readback, {17, 17});
@@ -1132,7 +1200,7 @@ namespace Comet::Tests {
             for(unsigned y = 0; y < 17; ++y) {
                 for(unsigned x = 0; x < 17; ++x) {
                     float irradiance = 1;
-                    if(mode == 1 || mode == 2 || mode == 6) {
+                    if(attenuated) {
                         const Math::Vec3 position{
                             (x + 0.5f) / 8.5f - 1, 1 - (y + 0.5f) / 8.5f, 0.5f};
                         const auto delta = light.position - position;
@@ -1141,7 +1209,7 @@ namespace Comet::Tests {
                             std::max(1.0f - std::pow(distance / light.range, 4.0f), 0.0f);
                         irradiance =
                             4 * falloff * falloff / (distance * distance) * delta.z / distance;
-                        if(mode == 2 || mode == 6) {
+                        if(spot) {
                             const float inner = std::cos(Math::radians(light.inner_angle));
                             const float outer = std::cos(Math::radians(light.outer_angle));
                             if(inner - outer > 1e-6f) {
@@ -1153,16 +1221,17 @@ namespace Comet::Tests {
                             }
                         }
                     }
-                    if(mode == 3 || mode == 5 || mode == 7 || mode == 8)
+                    if(scenario == Scenario::BackFacing || scenario == Scenario::SingularScale
+                        || scenario == Scenario::NoLights || scenario == Scenario::OutOfRange)
                         irradiance = 0;
-                    if(mode == 4)
+                    if(scenario == Scenario::NonuniformScale)
                         irradiance = 1 / std::sqrt(1.25f);
                     const std::array<float, 3> albedo{0.5f, 0.25f, 0.125f};
                     for(size_t channel = 0; channel < 3; ++channel) {
                         const auto component = bgra ? 2 - channel : channel;
                         EXPECT_NEAR(std::to_integer<int>(bytes[(y * 17 + x) * 4 + component]),
                             mapped_byte(albedo[channel] * irradiance), 3)
-                            << "mode " << mode << " at " << x << ',' << y;
+                            << "at " << x << ',' << y;
                     }
                 }
             }

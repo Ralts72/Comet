@@ -408,9 +408,9 @@ namespace Comet {
                 frame->descriptor->update(m_device, {}, std::span(&write, 1));
                 frame->shadow_map = shadow_map;
             }
-            m_statistics.light_count = static_cast<uint32_t>(lighting.counts.x);
-            m_statistics.excess_lights = static_cast<uint32_t>(lighting.counts.y);
-            m_statistics.invalid_lights = static_cast<uint32_t>(lighting.counts.z);
+            m_statistics.light_count = static_cast<uint32_t>(lighting.light_count);
+            m_statistics.excess_lights = static_cast<uint32_t>(lighting.excess_lights);
+            m_statistics.invalid_lights = static_cast<uint32_t>(lighting.invalid_lights);
             if((m_statistics.excess_lights || m_statistics.invalid_lights)
                 && previous_omissions
                        != std::pair(m_statistics.excess_lights, m_statistics.invalid_lights))

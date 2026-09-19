@@ -1,19 +1,34 @@
+const int LIGHT_DIRECTIONAL = 0;
+const int LIGHT_SPOT = 2;
+
 struct Light {
-    vec4 position_type;
-    vec4 direction_range;
-    vec4 color_intensity;
-    vec4 cone;
+    vec3 position;
+    float type;
+    vec3 direction;
+    float range;
+    vec3 color;
+    float intensity;
+    float inner_cone_cos;
+    float outer_cone_cos;
+    float casts_shadow;
+    float reserved;
 };
 layout(set = 0, binding = 1, std140) uniform LightingData {
     Light lights[32];
-    vec4 counts;
+    float light_count;
+    float excess_lights;
+    float invalid_lights;
+    float reserved;
     mat4 shadow_view_projection;
-    vec4 shadow_parameters;
+    float shadow_light_index;
+    float shadow_depth_bias;
+    float shadow_texel_size;
+    float shadow_reserved;
 } lighting;
 layout(set = 0, binding = 2) uniform sampler2D shadow_map;
 
 float shadow_visibility(int index, vec3 position, float n_dot_l) {
-    if(index != int(lighting.shadow_parameters.x))
+    if(index != int(lighting.shadow_light_index))
         return 1.0;
     vec3 projected = (lighting.shadow_view_projection * vec4(position, 1.0)).xyz;
     vec2 uv = projected.xy * 0.5 + 0.5;
@@ -29,13 +44,13 @@ float shadow_visibility(int index, vec3 position, float n_dot_l) {
     if(projected.z < 0.0 || projected.z > 1.0
         || any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))))
         return 1.0;
-    float bias = lighting.shadow_parameters.y * (1.0 + 4.0 * (1.0 - n_dot_l));
+    float bias = lighting.shadow_depth_bias * (1.0 + 4.0 * (1.0 - n_dot_l));
     // Compensate nearest-texel quantization on the receiver plane.
-    bias += 0.5 * lighting.shadow_parameters.z * dot(abs(depth_gradient), vec2(1.0));
+    bias += 0.5 * lighting.shadow_texel_size * dot(abs(depth_gradient), vec2(1.0));
     float visible = 0.0;
     for(int y = -1; y <= 1; ++y) {
         for(int x = -1; x <= 1; ++x) {
-            vec2 offset = vec2(x, y) * lighting.shadow_parameters.z;
+            vec2 offset = vec2(x, y) * lighting.shadow_texel_size;
             vec2 sample_uv = uv + offset;
             if(any(lessThan(sample_uv, vec2(0.0))) || any(greaterThan(sample_uv, vec2(1.0))))
                 visible += 1.0;
@@ -55,31 +70,31 @@ vec3 diffuse_lighting(vec3 position, vec3 normal) {
         return vec3(0.0);
     vec3 n = normal / normal_length;
     vec3 result = vec3(0.0);
-    for(int index = 0; index < int(lighting.counts.x); ++index) {
+    for(int index = 0; index < int(lighting.light_count); ++index) {
         Light light = lighting.lights[index];
-        int type = int(light.position_type.w);
-        vec3 l = -light.direction_range.xyz;
+        int type = int(light.type);
+        vec3 l = -light.direction;
         float attenuation = 1.0;
-        if(type != 0) {
-            vec3 delta = light.position_type.xyz - position;
+        if(type != LIGHT_DIRECTIONAL) {
+            vec3 delta = light.position - position;
             float distance_squared = dot(delta, delta);
             if(distance_squared < 1e-8)
                 continue;
             float distance = sqrt(distance_squared);
             l = delta / distance;
-            float falloff = max(1.0 - pow(distance / light.direction_range.w, 4.0), 0.0);
+            float falloff = max(1.0 - pow(distance / light.range, 4.0), 0.0);
             attenuation = falloff * falloff / max(distance_squared, 0.01);
-            if(type == 2) {
-                float alignment = dot(-l, light.direction_range.xyz);
-                float cone_weight = step(light.cone.y, alignment);
+            if(type == LIGHT_SPOT) {
+                float alignment = dot(-l, light.direction);
+                float cone_weight = step(light.outer_cone_cos, alignment);
                 // 极窄锥角在 float 中可能拥有相同 cos 值，退化为硬边而不是除以零。
-                if(light.cone.x - light.cone.y > 1e-6)
-                    cone_weight = smoothstep(light.cone.y, light.cone.x, alignment);
+                if(light.inner_cone_cos - light.outer_cone_cos > 1e-6)
+                    cone_weight = smoothstep(light.outer_cone_cos, light.inner_cone_cos, alignment);
                 attenuation *= cone_weight;
             }
         }
         float n_dot_l = max(dot(n, l), 0.0);
-        result += light.color_intensity.rgb * light.color_intensity.w * attenuation
+        result += light.color * light.intensity * attenuation
             * n_dot_l * shadow_visibility(index, position, n_dot_l) / 3.141592653589793;
     }
     return result;

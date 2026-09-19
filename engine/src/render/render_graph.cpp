@@ -175,8 +175,10 @@ namespace Comet {
     RenderGraph::ResourceId RenderGraph::import_buffer(std::string name, BufferState initial) {
         return add_resource({std::move(name), initial});
     }
-    void RenderGraph::add_pass(Pass pass) {
+    RenderGraph::PassId RenderGraph::add_pass(Pass pass) {
+        const PassId id = m_passes.size();
         m_passes.push_back(std::move(pass));
+        return id;
     }
     void RenderGraph::export_resource(Use use) {
         m_exports.push_back(use);

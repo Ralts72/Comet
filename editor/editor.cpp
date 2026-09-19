@@ -543,6 +543,12 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> process_editor_requests() {
+            if(auto assets = process_asset_requests(); !assets)
+                return assets;
+            return process_scene_requests();
+        }
+
+        Comet::Result<void, Comet::Error> process_asset_requests() {
             if(const auto move = m_project_panel->take_move_request())
                 m_project_panel->complete_move(
                     *move, m_assets->move(move->handle, move->destination));
@@ -570,6 +576,27 @@ namespace {
             }
             if(const auto handle = m_project_panel->take_mesh_reimport_request())
                 m_assets->request_mesh_reimport(*handle);
+            return Comet::Result<void, Comet::Error>::success();
+        }
+
+        Comet::Result<void, Comet::Error> handle_scene_file_request(
+            const CometEditor::SceneFileDialog::Request& request) {
+            if(!finish_active_edit())
+                return Comet::Result<void, Comet::Error>::success();
+            if(request.action == CometEditor::SceneFileDialog::Action::Open) {
+                m_scene_document->request({CometEditor::SceneDocument::Action::Open, request.path});
+                m_scene_file_dialog.complete(Comet::Result<void, Comet::Error>::success());
+                return Comet::Result<void, Comet::Error>::success();
+            }
+            const auto saved = m_scene_document->save(request.path);
+            m_scene_file_dialog.complete(saved);
+            if(!saved && is_device_lost(saved.error()))
+                return saved;
+            return Comet::Result<void, Comet::Error>::success();
+        }
+
+        Comet::Result<void, Comet::Error> process_scene_requests() {
+            // 一次取走所有当帧请求；低优先级请求丢弃，不留到新场景或新模式继续执行。
             const auto hierarchy_request = m_hierarchy_panel->take_request();
             const auto menu_command = m_menu_bar->take_command();
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
@@ -579,21 +606,10 @@ namespace {
             if(m_scene_file_dialog.take_cancelled()) {
                 m_scene_document->decide(CometEditor::SceneDocument::Decision::Cancel);
             }
-            // 弹窗提交、菜单命令优先，避免切换场景后执行旧编辑请求。
-            if(file_request) {
-                if(!finish_active_edit())
-                    return Comet::Result<void, Comet::Error>::success();
-                if(file_request->action == CometEditor::SceneFileDialog::Action::Open) {
-                    m_scene_document->request(
-                        {CometEditor::SceneDocument::Action::Open, file_request->path});
-                    m_scene_file_dialog.complete(Comet::Result<void, Comet::Error>::success());
-                } else {
-                    const auto result = m_scene_document->save(file_request->path);
-                    m_scene_file_dialog.complete(result);
-                    if(!result && is_device_lost(result.error()))
-                        return result;
-                }
-            } else if(menu_command) {
+            // 文件弹窗独占本次处理；其余依次为菜单、Hierarchy、Mesh 拖入、资产赋值。
+            if(file_request)
+                return handle_scene_file_request(*file_request);
+            if(menu_command) {
                 if(auto command = handle_command(*menu_command);
                     !command && is_device_lost(command.error()))
                     return command;
@@ -612,7 +628,8 @@ namespace {
                     LOG_WARN("Asset assignment rejected: {}", result.error().message);
                 }
             }
-            if(mode && !file_request && !m_scene_document->has_pending_request()) {
+            // 模式请求可与菜单／Hierarchy 同帧处理，但会抑制拖入和资产赋值。
+            if(mode && !m_scene_document->has_pending_request()) {
                 if(finish_active_edit())
                     m_scene_session->request_mode(*mode);
             }
