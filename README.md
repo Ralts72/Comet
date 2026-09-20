@@ -79,6 +79,7 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 仅启用 tests 时仍构建 editor_core，不构建 UI；新增编辑器源码只需维护所属库的清单。
 `tests/support/` 提供测试专用的 ImGui Context、临时目录与 Worker 同步辅助，不进入引擎。
 测试分为 `unit_testing`（CPU 逻辑）和 `integration_testing`（图形／UI／运行时）；
+按实际设备依赖分组，纯 CPU 的图编译／光照计算／拾取数学仍属 unit；同一 GPU 用例只在普通集成或同步验证入口执行一次。
 `ctest --preset dev-debug -L unit` 可快速检查逻辑，完整 `ctest --preset dev-debug` 仍包含 GPU 生命周期、同步和 WSI 回归。
 `COMET_NATIVE_OPTIMIZATION` 只适合本机构建。配置与诊断采用“编译期能力 + Profile 运行时策略”。
 
@@ -134,6 +135,7 @@ VMA 分配量不等于系统总显存；各分段百分位不能直接相加。C
 面板区分包含等待的 CPU 整帧墙钟时间、场景图 CPU 录制和已完成帧的 GPU 时间；GPU 不包含 UI 绘制与呈现完成，
 CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍可观察 CPU。
 面板每 250 毫秒刷新，显示近 1 秒均值／峰值及近 5 秒趋势；底层仍逐帧采集，峰值不会因 UI 降频而丢失。
+隐藏 Viewport 会跳过离屏场景绘制，Runtime、UI 和资源维护继续；诊断面板标明未绘制场景，不将历史图耗时当成新样本。
 「暂停显示」只冻结面板，不停止采集；CPU 阶段、渲染阶段和显存堆明细可展开。日常观察无需保存报告。
 显存预算至多每秒采样一次，并标明驱动报告或 VMA 估算。「保存显存分配报告」手动生成详细报告，
 原子保存到项目 `.comet/editor/diagnostics/gpu-allocations.json`，再次保存替换旧报告，结果写入 Log。

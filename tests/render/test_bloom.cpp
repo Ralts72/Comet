@@ -204,10 +204,11 @@ namespace Comet::Tests {
                     frames.get_current_command_buffer().begin();
                     const auto slot = frames.get_current_frame_slot_index();
                     const auto source_view = texture.value()->get_image_view();
-                    std::vector<RenderGraph::Binding> bindings{source_view->get_image()};
+                    std::vector<RenderGraph::Binding> bindings(plan.value().resource_count());
+                    bindings[input.index] = source_view->get_image();
                     std::shared_ptr<ImageView> glow;
                     if(passes) {
-                        bloom.value()->append_bindings(bindings, slot);
+                        bloom.value()->bind_resources(bindings, *passes, slot);
                         glow = bloom.value()->get_output(slot);
                     }
                     const auto recorded =
@@ -291,6 +292,12 @@ namespace Comet::Tests {
         const auto passes = BloomPass::append_passes(graph, hdr);
         const auto plan = graph.compile();
         ASSERT_TRUE(plan);
+        std::vector<RenderGraph::Binding> reordered(4);
+        bloom.value()->bind_resources(reordered, {.output = {3}, .intermediate = {1}}, 0);
+        EXPECT_EQ(std::get<std::shared_ptr<Image>>(reordered[3]), first->get_image());
+        EXPECT_TRUE(std::get<std::shared_ptr<Image>>(reordered[1]));
+        EXPECT_FALSE(std::get<std::shared_ptr<Image>>(reordered[0]));
+        EXPECT_FALSE(std::get<std::shared_ptr<Image>>(reordered[2]));
         EXPECT_FALSE(bloom.value()->render(
             frames, passes.ids[0], passes, source.value()->get_image_view(), 1));
         frames.wait_for_current_slot();
@@ -303,8 +310,9 @@ namespace Comet::Tests {
                 std::numeric_limits<float>::quiet_NaN()})
             EXPECT_FALSE(bloom.value()->render(
                 frames, passes.ids[0], passes, source.value()->get_image_view(), invalid));
-        std::vector<RenderGraph::Binding> bindings{source.value()->get_image_view()->get_image()};
-        bloom.value()->append_bindings(bindings, 0);
+        std::vector<RenderGraph::Binding> bindings(plan.value().resource_count());
+        bindings[hdr.index] = source.value()->get_image_view()->get_image();
+        bloom.value()->bind_resources(bindings, passes, 0);
         ASSERT_TRUE(plan.value().record(frames, bindings, [&](auto pass, CommandBuffer&) {
             return bloom.value()->render(frames, pass, passes, source.value()->get_image_view(), 1);
         }));

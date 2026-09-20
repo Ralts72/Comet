@@ -2,9 +2,9 @@
 #include "scene/systems/camera_controller.h"
 #include "render/render_context.h"
 #include "render/resource/render_resources.h"
-#include "graphics/swapchain.h"
 #include "graphics/resource/sampler.h"
 #include "assets/editor_assets.h"
+#include "assets/material_editing.h"
 #include "render/shader_reload.h"
 #include "render/render_stats.h"
 #include "render/render_diagnostics.h"
@@ -51,7 +51,8 @@ namespace {
     class Editor final: public Comet::Application {
     public:
         explicit Editor(Comet::Project project)
-            : Application(project.paths().cache(), project.paths().logs(), Comet::OutputMode::Sdr),
+            : Application(project.paths().cache(), project.paths().logs(), Comet::OutputMode::Sdr,
+                  Comet::Config::Render::SceneOutput::Offscreen),
               m_project(std::move(project)) {}
 
         Comet::Result<void, Comet::Error> on_init() override {
@@ -61,12 +62,6 @@ namespace {
             auto& renderer = engine.get_renderer();
             auto& render_context = renderer.get_render_context();
             auto& scene_renderer = renderer.get_scene_renderer();
-
-            const auto& swapchain = render_context.get_swapchain();
-            if(auto result = renderer.enable_offscreen_rendering(
-                   Comet::Math::Vec2u(swapchain.get_width(), swapchain.get_height()));
-                !result)
-                return Comet::Result<void, Comet::Error>::failure(result.error().as_error());
 
             auto ui = CometEditor::ImGuiContext::create(engine.get_window(), render_context,
                 m_project.paths().editor_state() / "imgui.ini");
@@ -529,20 +524,10 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> apply_asset_edit(const CometEditor::AssetEdit& edit) {
-            if(!std::holds_alternative<CometEditor::MaterialEdit>(edit.value))
-                return m_assets->apply_edit(edit);
-            auto update = m_assets->prepare_material_edit(edit);
-            if(!update)
-                return Comet::Result<void, Comet::Error>::failure(update.error());
-            auto& renderer = get_engine().get_renderer();
-            auto bindings =
-                renderer.prepare_material_update(edit.handle, update.value().material());
-            if(!bindings)
-                return Comet::Result<void, Comet::Error>::failure(bindings.error().as_error());
-            if(auto committed = m_assets->commit_material_edit(update.value()); !committed)
-                return committed;
-            std::move(bindings).value().publish();
-            return Comet::Result<void, Comet::Error>::success();
+            if(std::holds_alternative<CometEditor::MaterialEdit>(edit.value))
+                return CometEditor::apply_material_edit(
+                    *m_assets, get_engine().get_renderer(), edit);
+            return m_assets->apply_texture_edit(edit);
         }
 
         Comet::Result<void, Comet::Error> process_asset_requests() {
@@ -601,9 +586,8 @@ namespace {
             return Comet::Result<void, Comet::Error>::success();
         }
 
-        Comet::Result<void, Comet::Error> apply_play_command(
-            CometEditor::ViewportPanel::PlayCommand command) {
-            using Command = CometEditor::ViewportPanel::PlayCommand;
+        Comet::Result<void, Comet::Error> apply_play_command(CometEditor::PlayCommand command) {
+            using Command = CometEditor::PlayCommand;
             using State = Comet::SceneRuntime::State;
             using Result = Comet::Result<void, Comet::Error>;
             if(command == Command::Play || command == Command::Stop) {

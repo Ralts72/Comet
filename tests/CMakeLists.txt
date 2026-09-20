@@ -9,9 +9,24 @@ file(GLOB_RECURSE INTEGRATION_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/graphics/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/render/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/editor/ui/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/editor/integration/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/runtime/*.cpp")
 list(APPEND INTEGRATION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/core/test_window.cpp")
-list(REMOVE_ITEM INTEGRATION_SOURCES ${ISOLATED_TEST_SOURCES})
+# 目录描述职责，运行分组按是否实际创建窗口／GPU／ImGui 区分。
+set(CPU_RENDER_SOURCES
+        graphics/test_device_capability.cpp
+        graphics/test_resource_state.cpp
+        graphics/test_viewport.cpp
+        graphics/test_vulkan_raii_ownership.cpp
+        render/test_lighting.cpp
+        render/test_line_draw_list.cpp
+        render/test_material.cpp
+        render/test_material_shader.cpp
+        render/test_render_graph.cpp
+        render/test_scene_extractor.cpp
+        render/test_scene_picking.cpp)
+list(TRANSFORM CPU_RENDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+list(REMOVE_ITEM INTEGRATION_SOURCES ${ISOLATED_TEST_SOURCES} ${CPU_RENDER_SOURCES})
 list(REMOVE_ITEM TEST_SOURCES ${INTEGRATION_SOURCES} ${ISOLATED_TEST_SOURCES})
 add_executable(unit_testing ${TEST_SOURCES})
 add_executable(integration_testing test.cpp ${INTEGRATION_SOURCES})
@@ -53,7 +68,9 @@ endif ()
 add_test(NAME unit_testing COMMAND unit_testing
         --gtest_filter=-*/ProjectAssetIntegrationTest.* ${TEST_PLATFORM_ARGS})
 set_tests_properties(unit_testing PROPERTIES LABELS "unit")
-add_test(NAME integration_testing COMMAND integration_testing ${TEST_PLATFORM_ARGS})
+set(SYNC_VALIDATION_FILTER "RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*")
+add_test(NAME integration_testing COMMAND integration_testing
+        "--gtest_filter=-${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(integration_testing PROPERTIES LABELS "integration" RESOURCE_LOCK comet_gpu)
 option(COMET_TEST_DOWNLOADED_ASSETS "Enable tests of optional downloaded demo assets" OFF)
 if(COMET_TEST_DOWNLOADED_ASSETS)
@@ -97,7 +114,7 @@ set_tests_properties(swapchain_recovery PROPERTIES TIMEOUT 90)
 set_tests_properties(pipeline_cache_process swapchain_recovery
         PROPERTIES RESOURCE_LOCK comet_gpu LABELS "integration")
 add_test(NAME render_graph_sync_validation COMMAND integration_testing
-        --gtest_filter=RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.* ${TEST_PLATFORM_ARGS})
+        "--gtest_filter=${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(render_graph_sync_validation PROPERTIES
         ENVIRONMENT "VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT"
         RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration")

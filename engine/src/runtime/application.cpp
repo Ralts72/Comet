@@ -11,9 +11,10 @@
 
 namespace Comet {
     Application::Application(std::filesystem::path cache_directory,
-        std::filesystem::path log_directory, std::optional<OutputMode> output_mode_override)
+        std::filesystem::path log_directory, std::optional<OutputMode> output_mode_override,
+        Config::Render::SceneOutput scene_output)
         : m_cache_directory(std::move(cache_directory)), m_log_directory(std::move(log_directory)),
-          m_output_mode_override(output_mode_override) {}
+          m_output_mode_override(output_mode_override), m_scene_output(scene_output) {}
 
     Result<void, Error> Application::run(Config config) {
         using RunResult = Result<void, Error>;
@@ -29,6 +30,7 @@ namespace Comet {
                 LOG_INFO("Application overrides the configured output mode (editor uses SDR)");
             config.render.output_mode = *m_output_mode_override;
         }
+        config.render.scene_output = m_scene_output;
         auto engine = Engine::create(config);
         if(!engine) {
             m_diagnostics.reset();

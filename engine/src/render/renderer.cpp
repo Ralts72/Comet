@@ -28,7 +28,13 @@ namespace Comet {
         auto& swapchain = context.value()->get_swapchain();
         frames->initialize_swapchain_images(static_cast<uint32_t>(swapchain.get_images().size()));
         auto scene = std::make_unique<SceneRenderer>(device, config.vulkan, config.render);
-        if(auto configured = scene->configure_presentation(*resources, swapchain); !configured)
+        auto configured = Result<void, GraphicsError>::success();
+        if(config.render.scene_output == Config::Render::SceneOutput::Offscreen)
+            configured = scene->configure_offscreen(
+                *resources, {swapchain.get_width(), swapchain.get_height()});
+        else
+            configured = scene->configure_presentation(*resources, swapchain);
+        if(!configured)
             return Creation::failure(configured.error());
         auto renderer = std::unique_ptr<Renderer>(new Renderer(std::move(context).value(),
             std::move(resources), std::move(frames), std::move(scene), asset_registry));
@@ -77,6 +83,15 @@ namespace Comet {
         if(m_shutdown_prepared)
             return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
         PROFILE_SCOPE("render frame");
+        if(!m_render_view.visible && m_scene_renderer->is_offscreen()) {
+            m_viewport_pick_request.reset();
+            m_line_draw_list.clear();
+            m_scene_renderer->skip_frame();
+            m_diagnostics->skip_frame();
+            if(m_render_overlay)
+                m_render_overlay(m_frames->get_current_command_buffer());
+            return m_presentation->end_frame({});
+        }
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
         const RenderSubmission submission = m_scene_resolver.resolve(render_scene, frame_view);

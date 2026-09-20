@@ -2,6 +2,7 @@
 #include "config/config.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
+#include "render/render_diagnostics.h"
 #include "render/scene/scene_renderer.h"
 #include "render/render_target.h"
 #include "render/resource/render_resources.h"
@@ -32,12 +33,13 @@ namespace Comet::Tests {
             config.vulkan.enable_validation = true;
             config.vulkan.msaa_samples = std::get<1>(GetParam());
             config.render.max_frames_in_flight = 2;
+            if(std::get<0>(GetParam()))
+                config.render.scene_output = Config::Render::SceneOutput::Offscreen;
             auto created = Engine::create(config);
             ASSERT_TRUE(created) << created.error().message;
             engine = std::move(created).value();
             if(std::get<0>(GetParam())) {
                 auto& renderer = engine->get_renderer();
-                ASSERT_TRUE(renderer.enable_offscreen_rendering({160, 120}));
                 auto& context = renderer.get_render_context();
                 auto& swapchain = context.get_swapchain();
                 const auto format = swapchain.get_images().front()->get_info().format;
@@ -173,6 +175,8 @@ namespace Comet::Tests {
 
         ASSERT_TRUE(renderer.set_render_view({.visible = false}));
         ASSERT_TRUE(draw_frame(lines(100)));
+        EXPECT_EQ(
+            renderer.get_diagnostics().get_snapshot().scene_rendered, !std::get<0>(GetParam()));
         ASSERT_TRUE(renderer.set_render_view({}));
         ASSERT_TRUE(draw_frame());
         EXPECT_EQ(allocations().count, initial.count);

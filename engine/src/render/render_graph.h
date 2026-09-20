@@ -62,6 +62,7 @@ namespace Comet {
 
         class COMET_API Plan {
         public:
+            [[nodiscard]] std::size_t resource_count() const { return m_resources.size(); }
             [[nodiscard]] std::span<const CompiledPass> get_passes() const { return m_passes; }
             [[nodiscard]] std::span<const State> get_final_states() const { return m_final_states; }
             [[nodiscard]] std::span<const Barrier> get_exports() const { return m_exports; }

@@ -1,9 +1,26 @@
 #include "assets/material_editing.h"
 #include "asset/database.h"
+#include "assets/editor_assets.h"
+#include "render/renderer.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace CometEditor {
+    Comet::Result<void, Comet::Error> apply_material_edit(
+        EditorAssets& assets, Comet::Renderer& renderer, const AssetEdit& edit) {
+        auto update = assets.prepare_material_edit(edit);
+        if(!update)
+            return Comet::Result<void, Comet::Error>::failure(update.error());
+        auto bindings = renderer.prepare_material_update(edit.handle, update.value().material());
+        if(!bindings)
+            return Comet::Result<void, Comet::Error>::failure(bindings.error().as_error());
+        if(auto committed = assets.commit_material_edit(update.value()); !committed)
+            return committed;
+        std::move(bindings).value().publish();
+        return Comet::Result<void, Comet::Error>::success();
+    }
+
     Comet::Result<void> validate_material_data(const Comet::MaterialData& data,
         const Comet::MaterialLayout& layout, const Comet::AssetDatabase& database) {
         if(data.template_name != layout.get_name())

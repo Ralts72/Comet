@@ -34,6 +34,7 @@ namespace Comet {
         [[nodiscard]] const PostProcessSettings& get_post_process_settings() const;
         [[nodiscard]] RenderTarget& get_render_target();
         [[nodiscard]] const RenderTarget& get_render_target() const;
+        [[nodiscard]] bool is_offscreen() const;
         [[nodiscard]] std::shared_ptr<ImageView> get_offscreen_color_view(uint32_t slot) const;
 
         // 在录制前准备；OOM 保留上一份可用设置，并进行有界重试。
@@ -50,6 +51,7 @@ namespace Comet {
 
     private:
         friend class Renderer;
+        void skip_frame();
         Result<void, GraphicsError> configure_bloom(bool enabled);
         [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>
         prepare_material_update(

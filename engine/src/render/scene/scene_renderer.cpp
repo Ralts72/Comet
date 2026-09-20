@@ -38,6 +38,8 @@ namespace Comet {
         std::unique_ptr<MaterialRenderer> materials;
         std::unique_ptr<DebugRenderer> debug;
         RenderGraph::Plan graph;
+        RenderGraph::ResourceId shadow_resource;
+        std::vector<RenderGraph::ResourceId> scene_attachments;
         RenderGraph::PassId shadow_pass_id;
         RenderGraph::PassId scene_pass_id;
         RenderGraph::PassId output_pass_id;
@@ -140,6 +142,7 @@ namespace Comet {
         const auto shadow_pass_id = graph.add_pass(
             {"directional shadow", {{shadow, ResourceUsage::DepthStencilAttachmentWrite, {}}}});
         RenderGraph::Pass scene{"scene", {}};
+        std::vector<RenderGraph::ResourceId> scene_attachments;
         RenderGraph::ResourceId output;
         for(const auto& attachment : state.scene_pass->get_attachments()) {
             const bool is_depth = Graphics::is_depth_stencil_format(attachment.description.format);
@@ -148,6 +151,7 @@ namespace Comet {
                 aspects |= ImageAspect::Stencil;
             const auto id = graph.import_image("attachment " + std::to_string(scene.uses.size()),
                 {.subresources = {.aspects = aspects}});
+            scene_attachments.push_back(id);
             auto usage = ResourceUsage::ColorAttachmentWrite;
             if(is_depth)
                 usage = ResourceUsage::DepthStencilAttachmentWrite;
@@ -172,6 +176,8 @@ namespace Comet {
         if(!compiled)
             return Result<void, GraphicsError>::failure({compiled.error()});
         state.graph = std::move(compiled).value();
+        state.shadow_resource = shadow;
+        state.scene_attachments = std::move(scene_attachments);
         state.shadow_pass_id = shadow_pass_id;
         state.scene_pass_id = scene_pass_id;
         state.output_pass_id = output_pass_id;
@@ -339,6 +345,14 @@ namespace Comet {
         return *m_state->output_target;
     }
 
+    bool SceneRenderer::is_offscreen() const {
+        return m_state && m_state->offscreen;
+    }
+
+    void SceneRenderer::skip_frame() {
+        m_state->materials->reset_statistics();
+    }
+
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::render(
         FrameScheduler& frames, const RenderSubmission& submission, const LineDrawList& lines,
         RenderDiagnostics* diagnostics) {
@@ -349,12 +363,14 @@ namespace Comet {
         frames.retain_current_frame_resource(m_state->hdr_target);
         const auto image = frames.get_current_frame_slot_index();
         const auto lighting = ShadowPass::prepare(submission);
-        std::vector<RenderGraph::Binding> bindings{
-            m_state->shadow_pass->get_depth_view(image)->get_image()};
-        for(const auto& view : m_state->hdr_target->get_framebuffer(image)->get_attachments())
-            bindings.emplace_back(view->get_image());
+        std::vector<RenderGraph::Binding> bindings(m_state->graph.resource_count());
+        bindings[m_state->shadow_resource.index] =
+            m_state->shadow_pass->get_depth_view(image)->get_image();
+        const auto& attachments = m_state->hdr_target->get_framebuffer(image)->get_attachments();
+        for(std::size_t index = 0; index < attachments.size(); ++index)
+            bindings[m_state->scene_attachments[index].index] = attachments[index]->get_image();
         if(m_state->bloom_passes)
-            m_state->bloom->append_bindings(bindings, image);
+            m_state->bloom->bind_resources(bindings, *m_state->bloom_passes, image);
         std::vector<QueueSemaphoreSubmit> waits;
         const auto recorder = [this, &frames, &submission, &lines, &lighting, &waits](
                                   RenderGraph::PassId pass, CommandBuffer&) {

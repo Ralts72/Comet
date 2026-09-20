@@ -167,24 +167,18 @@ namespace CometEditor {
         return Comet::Result<void, Comet::Error>::success();
     }
 
-    Comet::Result<void, Comet::Error> EditorAssets::apply_edit(const AssetEdit& edit) {
+    Comet::Result<void, Comet::Error> EditorAssets::apply_texture_edit(const AssetEdit& edit) {
         if(!database().is_current(edit.handle, edit.revision))
             return Comet::Result<void, Comet::Error>::failure({"Asset edit revision is stale"});
 
+        const auto* texture = std::get_if<TextureEdit>(&edit.value);
+        if(!texture)
+            return Comet::Result<void, Comet::Error>::failure({"Asset edit is not a texture edit"});
         const auto path = database().find(edit.handle)->path;
-        if(std::holds_alternative<MaterialEdit>(edit.value)) {
-            auto update = prepare_material_edit(edit);
-            if(!update)
-                return Comet::Result<void, Comet::Error>::failure(update.error());
-            return commit_material_edit(update.value());
-        } else {
-            if(auto imported = m_manager.reimport_texture(
-                   edit.handle, std::get<TextureEdit>(edit.value).after);
-                !imported)
-                return Comet::Result<void, Comet::Error>::failure(imported.error());
-            m_reference_changes.insert(edit.handle);
-            acknowledge(Comet::metadata_path(path));
-        }
+        if(auto imported = m_manager.reimport_texture(edit.handle, texture->after); !imported)
+            return Comet::Result<void, Comet::Error>::failure(imported.error());
+        m_reference_changes.insert(edit.handle);
+        acknowledge(Comet::metadata_path(path));
         return Comet::Result<void, Comet::Error>::success();
     }
 

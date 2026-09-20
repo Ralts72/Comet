@@ -22,8 +22,6 @@ namespace CometEditor {
 
     class ViewportPanel: public EditorPanel {
     public:
-        enum class PlayCommand { Play, Stop, Pause, Resume, Step };
-
         struct MeshDrop {
             AssetDragPayload asset;
             Comet::Math::Vec3 position;

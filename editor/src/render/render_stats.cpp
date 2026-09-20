@@ -89,6 +89,7 @@ namespace CometEditor {
         m_display.cpu = summarize(diagnostics.cpu_history());
         m_display.gpu = summarize(diagnostics.gpu_history());
         const auto& snapshot = diagnostics.get_snapshot();
+        m_display.scene_rendered = snapshot.scene_rendered;
         m_display.memory = snapshot.memory;
         m_display.has_memory = snapshot.memory_samples > 0;
         m_display.gpu_supported = snapshot.gpu_supported;
@@ -121,6 +122,9 @@ namespace CometEditor {
         else if(!capturing)
             ImGui::TextWrapped("%s", Ui::text("Capture stopped; showing the last samples."));
         ImGui::TextWrapped("%s", Ui::text("Last ~1 s average / peak; display refresh 250 ms."));
+        if(capturing && !m_paused && !m_display.scene_rendered)
+            ImGui::TextWrapped(
+                "%s", Ui::text("Scene rendering skipped; graph timings only show recent history."));
 
         if(ImGui::BeginTable("timing_overview", 2, ImGuiTableFlags_SizingStretchSame)) {
             ImGui::TableNextColumn();

@@ -86,6 +86,7 @@ namespace Comet {
             FrameScheduler& frames, const RenderSubmission& submission,
             const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map);
         [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
+        void reset_statistics() { m_statistics = {}; }
 
     private:
         explicit MaterialRenderer(Device& device);

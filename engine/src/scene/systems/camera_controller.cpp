@@ -78,7 +78,7 @@ namespace Comet {
         float speed = controller.move_speed;
         if(input.key(Key::LeftShift).down)
             speed *= 2;
-        const auto world_delta = direction * speed * std::clamp(delta_time, 0.0f, 0.1f)
+        const auto world_delta = direction * speed * delta_time
                                  + forward * input.scroll.y * controller.move_speed / 15.0f;
         transform.translation += Math::Vec3(world_to_parent * Math::Vec4(world_delta, 0));
         if(Math::is_finite(transform.translation) && Math::is_finite(transform.rotation))

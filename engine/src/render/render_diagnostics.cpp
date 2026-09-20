@@ -91,6 +91,16 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
+    void RenderDiagnostics::skip_frame() {
+        m_snapshot.scene_rendered = false;
+        m_snapshot.cpu.reset();
+        m_snapshot.gpu.reset();
+        // 保留历史窗口，但不把隐藏前的在途采样发布为当前场景数据。
+        for(const auto& slot : m_slots)
+            if(slot)
+                slot->pending.reset();
+    }
+
     Result<void, GraphicsError> RenderDiagnostics::record(const RenderGraph::Plan& plan,
         std::span<const RenderGraph::Binding> bindings, const RenderGraph::RecordPass& callback) {
         if(m_recording || !m_frames.is_recording_frame() || !callback)
@@ -98,7 +108,9 @@ namespace Comet {
         if(!m_enabled) {
             m_recording = true;
             const ScopeExit finish([&] { m_recording = false; });
-            return plan.record(m_frames, bindings, callback);
+            auto recorded = plan.record(m_frames, bindings, callback);
+            m_snapshot.scene_rendered = static_cast<bool>(recorded);
+            return recorded;
         }
         const auto serial = m_frames.get_current_frame_serial();
         if(m_last_recorded_serial == serial)
@@ -165,6 +177,7 @@ namespace Comet {
             std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         m_cpu_history.record(timing.milliseconds, timing.passes);
         m_snapshot.cpu = std::move(timing);
+        m_snapshot.scene_rendered = true;
         return Result<void, GraphicsError>::success();
     }
 }

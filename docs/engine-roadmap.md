@@ -19,44 +19,19 @@
 以当前 main 的功能与验收为准，继续逐项对照 feat/auto2 的实现及原始提交，而不是机械 cherry-pick。
 每项先注明对应旧提交、当前覆盖、需要调整及仍未覆盖的范围，再适配 main 的 Result、目录边界和生命周期；
 临时代码说明留在仓库内供学习，不进入提交。旧分支的已实现行为不能只因 main 有同名功能就判为完整覆盖。
-材质布局重建、呈现／场景边界和完整目标事务已收敛；辅助线 Shader 热更新按实际需求暂缓，旧 026 驱动 PipelineCache、旧 027 WSI 恢复、旧 028 有序 RenderGraph 与旧 029 HDR／SDR 双 pass 已核对适配；旧 030 类型化光源与有界 forward 光照、旧 031 单方向光阴影、旧 032 PBR 已按当前所有权和 Result 协议适配，并接通可选 base-color 纹理。
-阶段 3 的导入扩展及阶段 4 的内容编辑待办继续保留。
-编辑命令与一次性属性事务已有共同执行边界；一对多通知在真实消费者出现后引入，不预建全局 EventBus。
+已完成能力见上表；具体所有权与失败协议见[架构文档](architecture/rendering-ownership.md)。
+旧分支的 026–039 已对照当前实现适配；040 的输入 Gate 与共享相机行为提前接入，但仍需核对其余输入边界。
 
-近期顺序按可用性调整，不机械沿旧分支继续叠加效果：
+接下来的独立验收项：
 
-1. **已接通：材质编辑闭环**（阶段 4C／5）：Project 创建材质、Inspector 选择已有模板、按属性布局编辑并指定给物体。
-   先使用现有 pbr／unlit_color 与共享 metadata，不等待项目 Shader 资产化，也不为每个用户材质注册 C++ 类型。
-2. **已接通：环境光照**（阶段 3／5）：背景与照明独立控制，后台准备 irradiance／GGX prefilter／BRDF LUT，
-   整组缓存和 GPU 发布复用现有预算／版本链路；PBR 的背光非金属和金属均可获得环境贡献。
-3. **已接通：Bloom**（阶段 5）：HDR 高亮提取、半分辨率横纵模糊与显示前合成；曝光／泛光作为场景内容接入 Inspector 实时编辑、撤销和保存，app/editor 统一消费场景快照，不再由引擎 YAML 决定外观。Bloom 不补偿缺失照明。
-4. **已接通：有界渲染诊断**（阶段 5）：旧 `034 / f6dd1ac` 适配为 Renderer 所有的诊断服务，提供 CPU/GPU 耗时、低频显存预算与按需分配报告；查询封装在 graphics，完成证据与保活复用既有帧生命周期。
-5. **已接通：代表场景性能测量**（阶段 5）：旧 `035 / 253d5d1` 架构审查后，按 `036 / 9fcb93c` 适配独立 `render_benchmark`。
-   固定 PBR／三类灯光／阴影场景，比较对象数、分辨率和 Bloom；报告 CPU/GPU 分段、P50/P95、样本覆盖及分配量。
-   沿用当前 Result、场景设置与 Renderer 诊断所有权；不修改生产循环，不以 CI 耗时或缺失 GPU 样本推断性能。
-6. **已接通：运行时输入快照**（阶段 6）：参考旧 `037 / 4b823cc`，键鼠／标准手柄由 Window 采集，
-   Engine 在实际 Update 前发布；轮询／等待／最小化跳帧不消耗待发布边沿。
-   首次连接／重连手柄不伪造 pressed；保持当前窗口 RAII、关闭确认及文件拖入，不迁回旧全局平台生命周期。
-   CameraControllerComponent 已接通 app／Play 的共享相机行为、Inspector／保存／撤销；参考旧 `040 / b2dcf12` 提前接入
-   Input::Gate 和 Play 视口输入边界，保持宿主负责输入归属。
-7. **已接通：固定更新与最小 System 调度**（阶段 6）：旧 `038 / 605b299` 适配为 Result／RAII 生命周期，
-   零步保留输入边沿、多步不重复触发；app 私有 DemoRotationSystem 固定更新，CameraControllerSystem 普通更新。
-   app／Play 共享 Engine 的 SceneRuntime，暂时无法呈现仍推进模拟；没有当帧输入授权时关闭输入，不暂停时间。
-8. **已接通：Play 暂停与单步**（阶段 6）：旧 `039 / 852e390` 按当前 Result 和 Engine 生命周期入口适配，
-   暂停不运行 System，但 UI／资产／渲染继续；单步推进一个固定步和一次同 delta 的普通更新，随后保持暂停。
-   EditorMode 仍只有 Edit／Play，面板只读 Runtime 状态，Play／Stop／暂停／继续／单步共用一条请求路径。
-9. **下一步：Native Script 生命周期与字段注册**（阶段 6）：参考旧 `041 / d409c99`；实施前核对旧 `040 / b2dcf12`
-   尚未覆盖的输入边界，已有 Gate／当帧授权／缺失输入清理不重复迁移。项目行为接 System 和组件元信息，
-   替换 app 私有 DemoRotationSystem，不将示例 UUID 或脚本工厂放进引擎通用配置。
-10. **后续独立里程碑：项目自定义 Shader**（阶段 3／5）：复用材质编辑入口，接通程序资产、metadata、动态布局与发布所有权。
-   依赖材质编辑闭环和程序资产协议，不把它作为 PBR／环境照明的前置；出现真实自定义着色需求时可独立提前。
+1. **Native Script 生命周期与字段注册**（阶段 6）：参考旧 `041 / d409c99`，先核对旧 `040 / b2dcf12`
+   尚未覆盖的行为，不重复迁移 Gate／当帧授权／缺失输入清理。项目行为接 System 和组件元信息，
+   替换 app 私有 DemoRotationSystem，不把示例 UUID 或脚本工厂放进引擎通用配置。
+2. **项目自定义 Shader**（阶段 3／5，独立里程碑）：沿用材质编辑入口，接通程序资产、metadata、动态布局与发布所有权。
+   不作为阶段 6 脚本的前置；有真实内容需求时独立推进。
 
-与 feat/auto2 结合：本轮复用已迁移的 `9a7b2e3` 共享布局面板和 `40dfe50` 候选发布思路，补齐该分支未提供的材质创建／模板选择。
-旧 PBR 后的 `033 / 63b2394` 已适配为独立 BloomPass 与 OutputPass 合成，沿用 HDR 提取／模糊算法和像素验收思路，
-接入当前 RenderGraph、HDR/SDR 输出与在途资源所有权，不迁回旧 PostProcessRenderer 的命名与职责。
-旧 034 诊断、旧 035 架构审查与旧 036 代表场景测量已按 main 核对；不能用新增规划替代旧分支验收，也不能用带 validation 的小测试耗时代表真实项目性能。
-
-WSI 暂时失败的无呈现重试及 SurfaceLost 重建已接通；设备丢失恢复与跨呈现队列迁移仍需单独设计。
+阶段 3 导入扩展与阶段 4 内容编辑待办继续保留。Transform 写入契约、原生文件监听、材质手势保存／资产撤销
+及程序资产所有权按下文阶段推进，不通过本轮职责整理提前引入新体系。
 
 ### 架构收敛原则
 
@@ -187,6 +162,7 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
 - Runtime Camera 的投影设置应通过场景组件/Inspector 表达，不让 Edit 的 2D/3D 开关影响 Play。
 - Runtime 输入单独路由；有真实需求才增加 Eject/Debug Camera 或多 Viewport。
   多个同时可见视口必须各自拥有 Camera、目标尺寸、FrameSlot 目标和提交；隐藏时跳过场景渲染。
+  当前单离屏视口已跳过解析／图录制，UI、资源维护及 Runtime 继续；多视口按相同边界扩展。
 - CPU Pick 保持按点击事件线性测试包围盒。大型场景先测量，再评估可供拾取与视锥裁剪共享的空间索引；
   需同时计入实体、Transform 和 Mesh 变更的维护成本。加速不等于提高拾取精度。
 - 三角形级精度按需求评估；GPU ID/readback 和多 pass outline 留到阶段 5。
@@ -425,7 +401,7 @@ ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存
 - 驱动 PipelineCache blob 用于跨进程加速，不代替对象 key。放在 .comet/cache/vulkan 或平台缓存，
   校验 header size/version、vendorID、deviceID、pipelineCacheUUID，以及 envelope 长度/校验和。
   损坏或不兼容回退空 cache，不影响启动。
-- 当前关闭自动保存，可由 owner 显式保存；编译批次后节流按实际需要接入，不每帧写磁盘。
+- 当前在关闭进程时自动保存，也可由 owner 显式保存；编译批次后节流按实际需要接入，不每帧写磁盘。
   Pipeline 创建/合并/保存由同一 owner 串行访问；后台 ShaderCompiler 不直接操作 Vulkan cache。
 - 测试 key 等价性、兼容性和损坏输入；cold/warm 性能只做测量，不要求固定加速比例。
 - 接入 Shader 发布时，MaterialRenderer 的 GPU 材质缓存必须同时跟踪 PipelineState 版本，不能只比较 PreparedMaterial。

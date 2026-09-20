@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cassert>
 
 namespace Comet {
     BloomPass::BloomPass(Device& device, const uint32_t frame_slots)
@@ -95,7 +96,7 @@ namespace Comet {
         const auto vertical = graph.add_pass(
             {"bloom vertical", {{pong, ResourceUsage::SampledRead, fragment},
                                    {ping, ResourceUsage::ColorAttachmentWrite, {}}}});
-        return {ping, {extract, horizontal, vertical}};
+        return {ping, pong, {extract, horizontal, vertical}};
     }
 
     Result<void, GraphicsError> BloomPass::resize(const Math::Vec2u source_size) {
@@ -122,10 +123,13 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    void BloomPass::append_bindings(
-        std::vector<RenderGraph::Binding>& bindings, const uint32_t slot) const {
-        for(const auto& target : m_targets)
-            bindings.emplace_back(target->get_color_view(slot)->get_image());
+    void BloomPass::bind_resources(
+        std::span<RenderGraph::Binding> bindings, const Passes& passes, const uint32_t slot) const {
+        assert(
+            passes.output.index < bindings.size() && passes.intermediate.index < bindings.size());
+        assert(m_targets[0] && m_targets[1] && slot < m_frame_slots);
+        bindings[passes.output.index] = m_targets[0]->get_color_view(slot)->get_image();
+        bindings[passes.intermediate.index] = m_targets[1]->get_color_view(slot)->get_image();
     }
 
     std::shared_ptr<ImageView> BloomPass::get_output(const uint32_t slot) const {

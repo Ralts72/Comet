@@ -6,14 +6,15 @@
 
 | 入口 | 职责 |
 | --- | --- |
-| `core/engine.h` | 组合 Window、Scene、TaskScheduler、AssetRegistry 和 Renderer，驱动主循环 |
+| `core/engine.h` | 组合宿主服务，统一 SceneRuntime 的绑定、启停与主循环 |
+| `scene/scene_runtime.h` | 拥有串行 System，管理时间、固定步、输入消费、暂停与单步 |
 | `render/renderer.h` | 渲染子系统组合根，编排帧、RenderView、overlay 与拾取 |
 | `render/scene/scene_extractor.h` | Scene → 不含 GPU 对象的 RenderScene 快照 |
 | `render/scene/scene_resolver.h` | Handle/Camera → RenderSubmission |
 | `render/presentation.h` | acquire／submit／present 与交换链 dependent 有序重建 |
 | `render/scene/scene_renderer.h` | 完整目标版本的创建／安装与多 pass 编排 |
 | `render/material/material_renderer.h` | Frame/Material descriptor、材质 Pipeline、队列排序与 Mesh 绘制 |
-| `render/material/material_runtime.h` | 手工 MaterialLayout、PreparedMaterial 快照与版本缓存 |
+| `render/material/material_runtime.h` | PreparedMaterial 快照与版本缓存；布局定义位于 material_layout |
 | `graphics/pipeline/shader_interface.h` | 入口级 SPIR-V 反射结果与绑定覆盖校验；仅拥有 CPU 值 |
 | `render/frame_scheduler.h` | FrameSlot 复用、提交及成功登记、image 关联、完成序号与 retention |
 | `render/render_diagnostics.h` | 有界场景图 CPU/GPU 采样与低频预算快照，借用 FrameScheduler |
@@ -44,8 +45,9 @@ GpuResourceResult 的失败路径先保存错误码，调用 `error()` 时才生
 ```text
 Engine
 ├── Scene（只有组件与 AssetHandle）
+├── SceneRuntime → System[]（活动时借用 Scene，停止时逆序退出）
 ├── TaskScheduler
-├── AssetRegistry → Runtime Mesh / Texture / Material
+├── AssetRegistry → Runtime Mesh / Texture / Material / Environment
 └── Renderer
     ├── RenderContext → Context / Device / Swapchain
     │                    Device → Allocator / queues / PipelineCache
@@ -88,27 +90,23 @@ Editor
 
 ## 应用启动与失败清理
 
-Application 的实现集中在 runtime/application.cpp，对外只提供完整的 run(Config) 生命周期：
-创建 Diagnostics／Engine → on_init → 引擎更新循环 → end。start/main_loop 不再作为可独立调用的接口。
-Engine::create → Renderer::create → RenderContext::create 在局部准备 owner，成功后才移交私有构造器，不提供公开的半初始化对象。
-交换链或场景目标准备失败返回原始错误，局部 owner 逆序释放；Engine 创建失败时释放 Diagnostics，不调用 on_init/on_shutdown，并允许重新启动。
-这不是所有原生创建故障均可恢复的保证：Window、Context、Device 等底层已有的不变量/致命检查与标准库异常仍保持原约束。
-初始化和更新失败显式返回 Result；on_init 一旦开始，就会尝试一次 on_shutdown，应用必须能关闭部分初始化的成员。
-end 是内部操作，提前消费关闭标记，先完成 Engine 的关闭准备，再调用应用关闭钩子，失败也不会重复调用。
-钩子失败时保留 Engine／Diagnostics，由应用析构先释放派生类剩余资源、再释放基类 owner；
-原始初始化／更新错误继续向上传递，清理错误单独报告。关闭失败的实例不能重新运行。
-run 和私有 end 返回 Result<void, Error>。通用 Error 只保存消息与 std::error_code，图形错误在边界通过 GraphicsError::as_error 保留原生类别与数值，不再把呈现 Result 转为异常或捕获后重抛。
-应用钩子通过 Result 返回预期失败；run／end／launch 不捕获第三方或未预期异常，不保证异常路径调用关闭钩子。
-Comet::run 消费结果并返回非零退出码；YAML 配置解析异常仅在 ConfigLoader 内转换，不在入口兜底。
+Application::run(Config) 完整执行：创建 Diagnostics／Engine → on_init → 引擎循环 → 私有 end。
+Engine::create → Renderer::create → RenderContext::create 在局部准备 owner，全部成功才返回完整对象。
+宿主以 `Config::Render::SceneOutput` 选择初始目标：app 直接呈现，Editor 离屏后由 ImGui 呈现，只创建一组场景资源。
+该字段由 Application 构造参数传入，不从 YAML 读取，也不代表 HDR／SDR 颜色模式。
 
-ImGuiContext 的原生 Context 由带私有 ContextDeleter 的 unique_ptr 拥有；create 在私有候选中 initialize。
-失败返回或异常展开都会销毁候选，由 cleanup 先关闭借用 GPU 资源的后端，再析构 pool／target。
-原生 Context 保持最后声明，作为成员展开的顺序保障；不需要 catch 后 cleanup/rethrow。
-正常析构仍先等待 GPU、解除纹理注册，再销毁后端及资源。
-只关闭实际存在的后端，覆盖 swapchain 重建中旧后端已经关闭的状态。
-等待 GPU 的析构保护集中于 Device::wait_idle_for_shutdown，不等同于设备丢失恢复。
+- Engine 创建失败：释放 Diagnostics，不调用应用钩子，允许重试启动。
+- on_init 一旦开始：预期失败沿 Result 返回，end 先做 Engine 关闭准备，再且仅一次调用 on_shutdown。
+  钩子需兼容部分初始化；关闭失败保留 Engine／Diagnostics，派生类资源先析构，且实例不能重启。
+- 原始错误优先返回，清理错误单独报告。Error 保存消息和 std::error_code；图形边界通过 as_error 保留类别和数值。
+  Comet::run 转换为退出码；YAML 解析异常仅在 ConfigLoader 适配。
+- 底层不变量、第三方及标准库未预期异常不由 run／end／launch 捕获，不保证异常路径执行应用关闭钩子。
+  LOG_FATAL 执行 assert／terminate、不展开栈，只用于明确终止的内部错误。
 
-LOG_FATAL 当前执行 assert／terminate，不展开栈，也不会进入上述异常清理；只适合明确终止的内部错误。
+ImGuiContext 的 unique_ptr／私有 deleter 管理原生 Context，create 只发布完整候选。
+cleanup 先关闭实际存在的后端，再释放 pool／target；原生 Context 最后声明，保障构造展开时的清理顺序。
+正常析构先等待 GPU、解除纹理注册；重复清理兼容重建中已关闭的后端。
+Device::wait_idle_for_shutdown 提供析构等待边界，不等同于设备丢失恢复。
 
 ## 图像和目标
 
@@ -136,9 +134,9 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
   → SceneRuntime::advance（Running：有界 Fixed Update → 一次普通 Update；Paused：仅显式单步推进）
   → SceneExtractor（读取此时的活动 Scene，更新 world transform）
   → Renderer::render_frame
-  → SceneResolver（使用实际 Target 尺寸）
-  → 按请求 CPU pick → scene pass（SkyboxPass → 场景物体 → DebugRenderer）
-  → 可选 Bloom（高亮提取 → 横向模糊 → 纵向模糊）→ OutputPass
+      可见或直接呈现：SceneResolver → CPU pick → Shadow → Scene（Skybox / 物体 / 辅助线）
+                    → 可选 Bloom → OutputPass
+      隐藏离屏视图：消费拾取／辅助线请求，不解析资产或录制场景图
   → overlay render（录制已生成的 ImGui 数据）
   → Presentation submit / present
 ```
@@ -149,6 +147,9 @@ EditorSceneSession 管 Play 副本和失败回滚；Stop 走场景替换，由 E
 输入授权每帧清空：App 交付窗口快照，Editor 交付当帧 UI Gate 结果；未授权时释放按钮，不代替 Runtime 的暂停状态。
 暂停只停止 System 的时间推进，宿主维护、UI、场景提取与绘制继续；单步执行一次固定更新和普通更新，然后保持暂停。
 面板只读 Runtime 状态，控制请求由 Editor 在下一次宿主更新经 Engine 应用；暂停／单步不克隆场景，不触发 System 重启。
+PlayCommand 属于 editor_state 的工作流协议，ViewportPanel 只生产请求；它不拥有运行时控制权。
+时间截断仅由 SceneRuntime 的 max_frame_delta 决定，CameraControllerSystem 消费完整 delta，不另作 0.1 秒截断。
+隐藏离屏视图仍运行 UI、Runtime、Scene 提取与上传回收；再显示时准备最新场景设置。直接呈现不走隐藏跳过分支。
 prepare_frame 暂时无可呈现帧时跳过 UI／提取／绘制，仍执行 Runtime；最小化继续等待并重置墙钟增量。
 System 更新失败逆序停止并返回 Result；Engine 随后进入关闭清理，不继续使用已 acquire 的帧。
 替换 Scene 必须发生在 System 执行之外，先停止旧 Runtime；shutdown 在宿主、Scene 和服务释放前停止并销毁 System。
@@ -182,6 +183,8 @@ SceneRenderer::record_pass 负责具名 Pass 分发，局部 lambda 仅适配 Re
 诊断包围既有 Plan::record：CPU 明细计量各回调，总时间还包含图校验与屏障录制；GPU 使用图首、各 pass 结束、
 图尾导出屏障后的时间戳。相邻 GPU 边界包含依赖等待，不表示各 pass 独占硬件的时间。
 场景图不含 ImGui overlay、present 完成或其他队列，CPU/GPU 快照分别带帧序号。
+隐藏离屏视图将 scene_rendered 置 false，清除当前图样本与待发布的旧查询，材质帧统计归零；不伪造零耗时图。
+历史窗口自然老化，面板明确提示显示的是近期历史；CPU 整帧与显存采样不受影响。
 
 每个 FrameSlot 懒创建固定 34 项的 GpuTimer，最多记录 32 个 pass、每个名称最多 128 字节。
 超限仍执行完整图，截断 CPU 明细并跳过该图的 GPU 采样。保留槽位待完成样本、最新快照及有界时间统计。
@@ -329,7 +332,9 @@ CPU 准备失败与 GPU 创建失败共用回退判断，只保留同 Handle 且
 编辑器材质文件修改采用显式准备／提交，区别于上述绘制时的延迟准备：
 AssetManager::prepare_material_update 保留源 revision、序列化内容及只读运行时候选，不改原材质文件或该材质的 Registry 条目。
 Renderer 在无活动帧时接收候选，MaterialRenderer 在局部缓存打包参数并创建完整 GPU 绑定；失败丢弃候选。
-Editor 随后提交文件和 Registry，成功才发布 GPU 候选；保存失败时两类候选均释放，Inspector 恢复旧模板和参数。
+editor/assets/material_editing 的 apply_material_edit 统一串联以上步骤：提交文件和 Registry，成功才发布 GPU 候选；
+保存失败时两类候选均释放，Inspector 恢复旧模板和参数。Editor 只分发请求；EditorAssets 保留底层 prepare/commit，
+纹理使用明确的 apply_texture_edit，不再有绕过 GPU 准备的通用材质提交分支。
 这一小段同步操作不得插入 Shader 发布或 renderer 重建；旧在途帧仍独立持有旧 MaterialResources。
 不以回调把 Renderer 注入资产层；AssetManager 不认识 Pipeline/Descriptor，MaterialRenderer 不解析资产文件。
 Project 新建材质只创建源和身份，首次指定给物体时沿用资产加载；模板切换不生成新 Handle，也不修改场景引用。
@@ -424,9 +429,8 @@ Restored 仅表示驱动接收并合并了兼容数据，不证明内部命中�
 
 ## 编辑命令与视口时序
 
-只有 prepare_frame 成功且值为 true 才调用 frame_ready；frame_ready 返回 Result<void, Error>，成功后才提取并提交。它可以修改或替换 Scene，Engine 在其返回后重新读取 owner。失败时 Engine 执行关闭准备并返回原始错误，不再绘制或重用已取得的帧；这不是可恢复的单帧取消接口，失败后的 Engine 拒绝再次运行。
-Renderer 不接收 Scene getter/provider，仍只消费 owned RenderScene；不持有可变 Scene 或 EnTT 引用。
-编辑命令完成后提取，因此组件修改、Undo/Redo 和当前帧拾取使用同一份场景快照。
+帧的调用顺序与失败协议见「一帧经过哪里」。Renderer 只消费 owned RenderScene，不持有可变 Scene 或 EnTT 引用；
+组件修改、Undo/Redo 和当前帧拾取使用同一份编辑后快照。
 Editor::finish_active_edit 统一取消未完成 Gizmo、调用 Inspector::finish_edit；失败时拒绝后续请求。
 组件属性与场景环境共用 PropertyEditTransaction 的 begin／preview／commit／cancel 和文档代际检查。
 Inspector 只跟踪 ImGui 活动控件；保存、切场景或模式切换不再维护环境专用事务。
@@ -435,7 +439,7 @@ SceneEditor 是实体结构编辑、撤销／重做、Mesh 插入和资产赋值
 SceneCommands 保留具体命令及逆操作；SceneDocument 管保存点，EditorSceneSession 管 Play 副本，不互相兼任。
 Editor 只负责请求优先级、结束 UI 活动项和安装场景后的重绑；不把渲染生命周期回调改成事件。
 Inspector 发出带 Handle／revision 的材质读取请求，由 EditorAssets 解析；返回时再核对选择与 revision，过期结果丢弃。
-材质默认值、模板迁移和草稿校验集中在 material_editing；面板不直接解析文件。
+材质默认值、模板迁移、草稿校验与完整提交集中在 material_editing；面板不直接解析文件。
 请求仍在 UI 遍历结束后执行，并保留文档 generation／资产 revision 校验与菜单优先级。
 离散属性赋值使用 PropertyEditTransaction::apply：结束已有手势，再 begin／preview／commit；
 失败取消新事务。持续拖动仍使用独立的 begin／preview／commit，不在每帧创建历史记录。
@@ -516,6 +520,8 @@ RenderGraph 只收集 imported 资源、按顺序执行的 pass 和 exported usa
 `compile() -> Result<Plan>`，不在 import/add_pass 时逐项传播错误。Plan 是不持有 GPU owner 的值快照，
 不改变 pass 顺序，不分配资源，也不持有队列或全局图像 layout。ResourceId 仅在所属图内有效。
 `add_pass()` 返回图内 PassId，录制回调收到同一 ID；调用方保存注册结果分发，不硬编码 pass 序号。
+SceneRenderer 保存阴影与场景附件的 ResourceId，Bloom 保存 ping/pong 的 ResourceId。
+每帧按 Plan::resource_count 分配绑定表，再按 ID 填写；资源声明顺序不再隐含在 append/emplace_back 中。
 
 编译器按 image subresource 或 buffer offset/size 跟踪状态：保留实际 writer、已初始化内容和全部 reader scope，
 处理 RAW/WAR/WAW 与布局转换；相同可见范围的重复读取不重复插入 barrier。
@@ -607,7 +613,7 @@ GPU 像素测试覆盖 RGBA/BGRA、sRGB/UNORM、曝光 1/0.25/0、高亮和暗�
 ### Bloom
 
 BloomPass 只拥有高亮提取与两遍模糊的 Pipeline、RenderPass、双目标和不可变采样绑定，不负责最终显示。
-`append_passes` 返回当前图的三个 PassId 和输出 ResourceId；SceneRenderer 编排，RenderGraph 产生 ping/pong 的写读／读写屏障。
+`append_passes` 返回当前图的三个 PassId 及两个 ResourceId；SceneRenderer 编排，RenderGraph 产生 ping/pong 的写读／读写屏障。
 半分辨率按上取整计算，提取先对各有效源像素按 RGB 最大分量扣除阈值再平均，奇数边界不重复采样。
 模糊使用归一化九 tap 二项核；display 手动双线性上采样，不增加浮点格式线性过滤的能力要求。
 OutputPass 先合成 `HDR + bloom_strength * bloom`，限制到 half-float 有限范围，再曝光和显示映射。
@@ -661,13 +667,9 @@ prepare_frame 返回 Result<bool, GraphicsError>：true 可绘制、false 延期
 Context 对外只提供借用 Surface 句柄，Surface owner 仅在 Context／Swapchain 内部共享。
 首次创建与恢复共用私有 Surface 候选创建函数，恢复路径额外校验当前呈现队列，再安装候选。
 
-旧 027 的无呈现恢复已按当前 Presentation 所有权核对：独立 swapchain_recovery 测试目标重编译实际 WSI 消费者，
-仅在测试进程重命名 Vulkan 入口，生产接口没有故障注入字段或回调。
-创建失败测试先真实创建并退休旧交换链，再销毁候选、返回 OOM；同时覆盖图像枚举失败、连续 acquire OutOfDate、
-present 后结束已提交帧、无 active 时关闭、surface 枚举有界及自动重试预算耗尽。
-直接呈现与附带离屏目标两种配置均执行真实 clear／submit／present，验证暂停期间不 acquire／提交、恢复使用空 oldSwapchain、离屏 owner 不变。
-这不是完整 ImGui 人工验收；SurfaceLost 的已有回归从 dependent 返回错误驱动恢复，不模拟平台真实丢失窗口。
-与旧 027 不同，当前回调必须允许重复释放，以清理 dependent 部分重建后的资源；不迁回旧的固定 100 ms 无限重试。
+独立 swapchain_recovery 测试重编译真实 WSI 消费者，只在测试进程重命名 Vulkan 入口，不增加生产故障注入协议。
+覆盖真实旧代退休、创建／枚举失败、OutOfDate、无 active 时关闭、有限重试与恢复后的提交，含离屏 owner 保持。
+SurfaceLost 通过 dependent 错误驱动，不模拟平台真实丢失窗口，也不替代 ImGui 人工验收。
 
 关闭先由 Engine 调用 TaskScheduler::shutdown 停止接收、排空任务并回收线程，再由 Renderer 停止新帧并等待 GPU；随后应用解绑捕获 Editor/ImGuiContext 的 callback 并释放资源。shutdown 由 owner 线程调用，不可从 Worker 调用，也不支持多个线程同时关闭；wait_idle 只等待瞬时空闲，不承担关闭职责。Engine 不直接访问 Device。独立底层 owner 的安全析构等待仍保留。资源释放顺序为：
 ImGui dependent → Registry/SceneRenderer → RenderResources → Swapchain/Device/Context → Window。

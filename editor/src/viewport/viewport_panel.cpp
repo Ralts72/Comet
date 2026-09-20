@@ -595,7 +595,7 @@ namespace CometEditor {
         return std::exchange(m_camera_projection_request, std::nullopt);
     }
 
-    std::optional<ViewportPanel::PlayCommand> ViewportPanel::take_play_command() {
+    std::optional<PlayCommand> ViewportPanel::take_play_command() {
         return std::exchange(m_play_command, std::nullopt);
     }
 

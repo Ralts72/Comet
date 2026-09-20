@@ -1,6 +1,4 @@
 #include "asset/asset_manager.h"
-#include "asset/data/texture_data.h"
-#include "asset/data/mesh_data.h"
 
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/import/environment_importer.h"
@@ -10,10 +8,11 @@
 #include "asset/serialization/metadata_serializer.h"
 #include "core/task_scheduler.h"
 #include "support/blocked_worker.h"
+#include "support/render_resource_factory.h"
+#include "support/temporary_directory.h"
 #include "support/hdr_image.h"
 #include "render/material/material.h"
 #include "render/resource/mesh.h"
-#include "render/resource/resource_factory.h"
 #include "render/resource/texture.h"
 
 #include <gtest/gtest.h>
@@ -24,7 +23,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <future>
 #include <memory>
 #include <string>
@@ -52,19 +50,9 @@ namespace Comet::Tests {
     namespace {
         class TemporaryProject final {
         public:
-            TemporaryProject() {
-                m_root = std::filesystem::temp_directory_path()
-                         / ("comet_asset_manager_test_"
-                             + std::to_string(AssetHandle::generate().value()));
-                std::filesystem::create_directories(paths().assets());
-            }
+            TemporaryProject() { std::filesystem::create_directories(paths().assets()); }
 
-            ~TemporaryProject() {
-                std::error_code error;
-                std::filesystem::remove_all(m_root, error);
-            }
-
-            [[nodiscard]] ProjectPaths paths() const { return ProjectPaths(m_root); }
+            [[nodiscard]] ProjectPaths paths() const { return ProjectPaths(m_directory.path()); }
 
             std::filesystem::path add_material(
                 const AssetHandle handle, const std::string& template_name) const {
@@ -168,77 +156,7 @@ namespace Comet::Tests {
             }
 
         private:
-            std::filesystem::path m_root;
-        };
-
-        // Mesh／Texture 是身份占位符，只能比较身份，不能解引用或打印对象内容。
-        class FakeRenderResourceFactory final: public RenderResourceFactory {
-        public:
-            GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(
-                const TextureData&) override {
-                ++m_texture_creation_count;
-                if(m_on_texture_creation) {
-                    auto callback = std::exchange(m_on_texture_creation, {});
-                    callback();
-                }
-                if(m_fail_texture_creation) {
-                    return GpuResourceResult<std::shared_ptr<Texture>>::failure(m_failure_result);
-                }
-
-                auto owner = std::make_shared<std::uint8_t>(0);
-                return GpuResourceResult<std::shared_ptr<Texture>>::success(
-                    std::shared_ptr<Texture>(owner, reinterpret_cast<Texture*>(owner.get())));
-            }
-
-            GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(
-                const MeshData& data) override {
-                ++m_mesh_creation_count;
-                m_last_mesh_vertex_count = data.vertices.size();
-                if(m_on_mesh_creation) {
-                    auto callback = std::exchange(m_on_mesh_creation, {});
-                    callback();
-                }
-                if(m_fail_mesh_creation) {
-                    return GpuResourceResult<std::shared_ptr<Mesh>>::failure(m_failure_result);
-                }
-
-                auto owner = std::make_shared<std::uint8_t>(0);
-                return GpuResourceResult<std::shared_ptr<Mesh>>::success(
-                    std::shared_ptr<Mesh>(owner, reinterpret_cast<Mesh*>(owner.get())));
-            }
-
-            void fail_mesh_creation(const bool fail) { m_fail_mesh_creation = fail; }
-
-            void fail_texture_creation(const bool fail) { m_fail_texture_creation = fail; }
-
-            void set_failure_result(vk::Result result) { m_failure_result = result; }
-
-            void on_next_mesh_creation(std::function<void()> callback) {
-                m_on_mesh_creation = std::move(callback);
-            }
-            void on_next_texture_creation(std::function<void()> callback) {
-                m_on_texture_creation = std::move(callback);
-            }
-
-            [[nodiscard]] std::size_t mesh_creation_count() const { return m_mesh_creation_count; }
-
-            [[nodiscard]] std::size_t last_mesh_vertex_count() const {
-                return m_last_mesh_vertex_count;
-            }
-
-            [[nodiscard]] std::size_t texture_creation_count() const {
-                return m_texture_creation_count;
-            }
-
-        private:
-            vk::Result m_failure_result = vk::Result::eErrorOutOfDeviceMemory;
-            bool m_fail_mesh_creation = false;
-            bool m_fail_texture_creation = false;
-            std::size_t m_mesh_creation_count = 0;
-            std::size_t m_last_mesh_vertex_count = 0;
-            std::size_t m_texture_creation_count = 0;
-            std::function<void()> m_on_mesh_creation;
-            std::function<void()> m_on_texture_creation;
+            TemporaryDirectory m_directory;
         };
 
         bool contains_handle(const std::vector<AssetHandle>& handles, const AssetHandle expected) {

@@ -135,6 +135,7 @@
 "Display paused; collection continues if enabled.": "显示已暂停；启用时仍继续采集。"
 "Capture stopped; showing the last samples.": "已停止采集，显示最后的采样。"
 "Last ~1 s average / peak; display refresh 250 ms.": "近 1 秒均值 / 峰值；显示每 250 毫秒刷新。"
+"Scene rendering skipped; graph timings only show recent history.": "当前未绘制场景；图耗时仅展示近期历史。"
 "CPU frame (including waits)": "CPU 整帧（包含等待）"
 "GPU scene graph (excluding UI)": "GPU 场景渲染图（不含 UI）"
 "CPU graph recording": "CPU 渲染图录制"

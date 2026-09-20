@@ -2,13 +2,10 @@
 #include "assets/editor_assets.h"
 #include "assets/material_editing.h"
 #include "asset/serialization/metadata_serializer.h"
-#include "asset/data/mesh_data.h"
-#include "asset/data/texture_data.h"
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/registry.h"
 #include "core/task_scheduler.h"
 #include "core/project.h"
-#include "render/resource/resource_factory.h"
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
 #include "render/material/material.h"
@@ -22,6 +19,7 @@
 #include "scene/scene_runtime.h"
 #include "asset/serialization/material_serializer.h"
 #include "support/temporary_directory.h"
+#include "support/render_resource_factory.h"
 #include "support/hdr_image.h"
 
 #include <gtest/gtest.h>
@@ -35,34 +33,7 @@
 namespace CometEditor::Tests {
     class EditorAssetsTest: public ::testing::Test {
     protected:
-        class Factory: public Comet::RenderResourceFactory {
-        public:
-            int mesh_creations = 0;
-            bool fail = false;
-            bool fail_texture = true;
-            vk::Result failure = vk::Result::eErrorOutOfDeviceMemory;
-            Comet::GpuResourceResult<std::shared_ptr<Comet::Mesh>> try_create_mesh(
-                const Comet::MeshData&) override {
-                ++mesh_creations;
-                if(fail)
-                    return Comet::GpuResourceResult<std::shared_ptr<Comet::Mesh>>::failure(failure);
-                // 只验证加载编排，不解引用替代的 GPU 对象。
-                auto owner = std::make_shared<int>(0);
-                return Comet::GpuResourceResult<std::shared_ptr<Comet::Mesh>>::success(
-                    std::shared_ptr<Comet::Mesh>(
-                        owner, reinterpret_cast<Comet::Mesh*>(owner.get())));
-            }
-            Comet::GpuResourceResult<std::shared_ptr<Comet::Texture>> try_create_texture(
-                const Comet::TextureData&) override {
-                if(!fail_texture) {
-                    auto owner = std::make_shared<int>(0);
-                    return Comet::GpuResourceResult<std::shared_ptr<Comet::Texture>>::success(
-                        std::shared_ptr<Comet::Texture>(
-                            owner, reinterpret_cast<Comet::Texture*>(owner.get())));
-                }
-                return Comet::GpuResourceResult<std::shared_ptr<Comet::Texture>>::failure(failure);
-            }
-        } factory;
+        Comet::Tests::FakeRenderResourceFactory factory;
         Comet::Tests::TemporaryDirectory directory;
         const std::filesystem::path root = directory.path();
         Comet::AssetRegistry runtime;
@@ -70,6 +41,7 @@ namespace CometEditor::Tests {
         std::unique_ptr<EditorAssets> assets;
         Comet::AssetHandle mesh;
         void SetUp() override {
+            factory.fail_texture_creation(true);
             const auto directory = Comet::ProjectPaths(root).assets();
             std::filesystem::create_directories(directory);
             std::filesystem::copy_file(
@@ -188,7 +160,7 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(EditorAssetsTest, RestoresSceneEnvironmentReferenceAfterSourceRepair) {
-        factory.fail_texture = false;
+        factory.fail_texture_creation(false);
         const auto path = Comet::ProjectPaths(root).assets() / "studio.hdr";
         Comet::Tests::write_hdr(path);
         ASSERT_TRUE(assets->refresh().succeeded());
@@ -237,8 +209,10 @@ namespace CometEditor::Tests {
         const auto original = runtime.resolve<Comet::Material>(handle);
         ASSERT_TRUE(original);
         const auto unlit = make_material_data(*Comet::MaterialLayout::find_builtin("unlit_color"));
-        ASSERT_TRUE(assets->apply_edit(
-            {handle, assets->database().get_revision(handle), MaterialEdit{data, unlit}}));
+        auto update = assets->prepare_material_edit(
+            {handle, assets->database().get_revision(handle), MaterialEdit{data, unlit}});
+        ASSERT_TRUE(update);
+        ASSERT_TRUE(assets->commit_material_edit(update.value()));
         EXPECT_NE(runtime.resolve<Comet::Material>(handle), original);
         ASSERT_TRUE(assets->move(handle, "renamed.mat").snapshot_updated);
         Comet::AssetDatabase reopened(paths);
@@ -356,7 +330,9 @@ namespace CometEditor::Tests {
         const auto material = add_material();
         const AssetEdit edit{material, assets->database().get_revision(material),
             MaterialEdit{{}, {.template_name = "updated"}}};
-        ASSERT_TRUE(assets->apply_edit(edit));
+        auto update = assets->prepare_material_edit(edit);
+        ASSERT_TRUE(update);
+        ASSERT_TRUE(assets->commit_material_edit(update.value()));
         const auto published = runtime.resolve<Comet::Material>(material);
         ASSERT_TRUE(published);
         const auto revision = assets->database().get_revision(material);
@@ -366,7 +342,7 @@ namespace CometEditor::Tests {
 
         auto stale = edit;
         std::get<MaterialEdit>(stale.value).after.template_name = "stale";
-        const auto rejected = assets->apply_edit(stale);
+        const auto rejected = assets->prepare_material_edit(stale);
         ASSERT_FALSE(rejected);
         EXPECT_EQ(rejected.error().message, "Asset edit revision is stale");
         EXPECT_EQ(runtime.resolve<Comet::Material>(material), published);
@@ -391,16 +367,16 @@ namespace CometEditor::Tests {
         extra.add_component<Comet::MeshRendererComponent>(second, Comet::AssetHandle{});
         assets->track_scene(scene, components);
         EXPECT_EQ(assets->restore_references({1, std::chrono::seconds(1)}).value(), 1);
-        EXPECT_EQ(factory.mesh_creations, 1);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
         EXPECT_EQ(assets->restore_references({1, std::chrono::seconds(1)}).value(), 1);
-        EXPECT_EQ(factory.mesh_creations, 2);
+        EXPECT_EQ(factory.mesh_creation_count(), 2);
         EXPECT_EQ(assets->restore_references().value(), 0);
         // 无关源变化不应重新检查当前场景的驻留引用。
         static_cast<void>(add_material());
         EXPECT_EQ(assets->restore_references().value(), 0);
         assets->track_scene(scene, components);
         EXPECT_EQ(assets->restore_references().value(), 0);
-        EXPECT_EQ(factory.mesh_creations, 2);
+        EXPECT_EQ(factory.mesh_creation_count(), 2);
     }
 
     TEST_F(EditorAssetsTest, ReferenceRecoveryDropsRemovedSceneReferencesAndPreservesDeviceErrors) {
@@ -413,10 +389,10 @@ namespace CometEditor::Tests {
         Comet::Scene empty;
         assets->track_scene(empty, components);
         EXPECT_EQ(assets->restore_references().value(), 0);
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
         assets->track_scene(scene, components);
-        factory.fail = true;
-        factory.failure = vk::Result::eErrorDeviceLost;
+        factory.fail_mesh_creation(true);
+        factory.set_failure_result(vk::Result::eErrorDeviceLost);
         const auto restored = assets->restore_references();
         ASSERT_FALSE(restored);
         EXPECT_TRUE(Comet::is_device_lost(restored.error()));
@@ -439,7 +415,7 @@ namespace CometEditor::Tests {
                 std::filesystem::exists(Comet::ProjectPaths(root).cache() / "imported/mesh"
                                         / (std::to_string(record.handle.value()) + ".bin")));
         }
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
     }
 
     TEST_F(EditorAssetsTest, RemovedAssetEditIsRejectedBeforePublication) {
@@ -449,7 +425,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(std::filesystem::remove(path));
         ASSERT_TRUE(std::filesystem::remove(Comet::metadata_path(path)));
         ASSERT_TRUE(assets->refresh().succeeded());
-        EXPECT_FALSE(assets->apply_edit(edit));
+        EXPECT_FALSE(assets->prepare_material_edit(edit));
         EXPECT_FALSE(std::filesystem::exists(path));
         EXPECT_FALSE(runtime.contains(material));
     }
@@ -460,8 +436,8 @@ namespace CometEditor::Tests {
             mesh, Comet::AssetType::Mesh, assets->database().get_revision(mesh)));
         const auto original = runtime.resolve<Comet::Mesh>(mesh);
         ASSERT_TRUE(original);
-        factory.fail = true;
-        factory.failure = vk::Result::eErrorDeviceLost;
+        factory.fail_mesh_creation(true);
+        factory.set_failure_result(vk::Result::eErrorDeviceLost);
         assets->request_mesh_reimport(mesh);
         scheduler.wait_idle();
 
@@ -495,8 +471,8 @@ namespace CometEditor::Tests {
                     return Comet::Result<void, Comet::Error>::failure(prepared.error());
                 return Comet::Result<void, Comet::Error>::success();
             });
-        factory.fail = true;
-        factory.failure = vk::Result::eErrorDeviceLost;
+        factory.fail_mesh_creation(true);
+        factory.set_failure_result(vk::Result::eErrorDeviceLost);
         const auto loaded = assets->load_reference(
             mesh, Comet::AssetType::Mesh, assets->database().get_revision(mesh));
         ASSERT_FALSE(loaded);
@@ -507,7 +483,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(active.get(), original);
         EXPECT_FALSE(runtime.contains(mesh));
 
-        factory.failure = vk::Result::eErrorOutOfDeviceMemory;
+        factory.set_failure_result(vk::Result::eErrorOutOfDeviceMemory);
         EXPECT_TRUE(document.open("candidate.scene"));
         EXPECT_NE(active.get(), original);
         EXPECT_FALSE(runtime.contains(mesh));
@@ -526,13 +502,13 @@ namespace CometEditor::Tests {
         const auto material = add_material();
         const auto original = runtime.resolve<Comet::Material>(material);
         ASSERT_TRUE(original);
-        factory.failure = vk::Result::eErrorDeviceLost;
-        const auto reimported =
-            assets->apply_edit({texture, assets->database().get_revision(texture), TextureEdit{}});
+        factory.set_failure_result(vk::Result::eErrorDeviceLost);
+        const auto reimported = assets->apply_texture_edit(
+            {texture, assets->database().get_revision(texture), TextureEdit{}});
         ASSERT_FALSE(reimported);
         EXPECT_TRUE(Comet::is_device_lost(reimported.error()));
         const auto updated =
-            assets->apply_edit({material, assets->database().get_revision(material),
+            assets->prepare_material_edit({material, assets->database().get_revision(material),
                 MaterialEdit{{},
                     {.template_name = "changed", .texture_properties = {{"albedo", texture}}}}});
         ASSERT_FALSE(updated);
@@ -566,7 +542,7 @@ namespace CometEditor::Tests {
         auto project = std::move(project_result).value();
         assets = std::make_unique<EditorAssets>(project.paths(), runtime, factory, scheduler);
         ASSERT_TRUE(assets->refresh().succeeded());
-        factory.fail_texture = false;
+        factory.fail_texture_creation(false);
         const auto components = Comet::create_scene_component_registry();
         const Comet::SceneSerializer serializer(components);
         std::unique_ptr<Comet::Scene> active;
@@ -597,7 +573,7 @@ namespace CometEditor::Tests {
         ASSERT_NE(active, nullptr);
         EXPECT_EQ(document.get_path(), path);
         EXPECT_EQ(missing, expected_meshes);
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
         EXPECT_EQ(active->entity_count(), initial_entities);
         const auto references = components.collect_asset_references(*active);
         EXPECT_EQ(references, expected_references);
@@ -612,7 +588,7 @@ namespace CometEditor::Tests {
         complete_imports();
         assets->track_scene(*active, components);
         ASSERT_TRUE(assets->restore_references({100, std::chrono::seconds(1)}));
-        EXPECT_EQ(factory.mesh_creations, expected_meshes);
+        EXPECT_EQ(factory.mesh_creation_count(), expected_meshes);
         const auto serialized_again = serializer.serialize(*active);
         ASSERT_TRUE(serialized_again) << serialized_again.error();
         EXPECT_EQ(serialized_again.value(), original);
@@ -625,7 +601,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(document.open(path));
         EXPECT_EQ(active->entity_count(), initial_entities + 1);
         EXPECT_EQ(missing, 0U);
-        EXPECT_EQ(factory.mesh_creations, expected_meshes);
+        EXPECT_EQ(factory.mesh_creation_count(), expected_meshes);
     }
 
     TEST_F(EditorAssetsTest, ReopenedScenePreparesSharedReferencesFromArtifacts) {
@@ -662,12 +638,12 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(runtime.resolve<Comet::Material>(material));
         EXPECT_EQ(
             active->find_entity(uuid).get_component<Comet::MeshRendererComponent>().mesh, mesh);
-        EXPECT_EQ(factory.mesh_creations, 1);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
         assets->track_scene(*active, components);
         ASSERT_TRUE(assets->restore_references({100, std::chrono::seconds(1)}));
         EXPECT_EQ(assets->restore_references().value(), 0);
         ASSERT_TRUE(document.open(path));
-        EXPECT_EQ(factory.mesh_creations, 1);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
     }
 
     TEST_F(EditorAssetsTest, MissingArtifactRepairsAfterPublicationWithoutChangingScene) {
@@ -695,7 +671,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(document.open(path));
         EXPECT_TRUE(document.get_last_error().empty());
         EXPECT_FALSE(std::filesystem::exists(artifact_path()));
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
         complete_imports();
         EXPECT_FALSE(runtime.contains(mesh));
         assets->track_scene(*active, components);
@@ -708,7 +684,7 @@ namespace CometEditor::Tests {
             static_cast<void>(assets->update());
             EXPECT_EQ(assets->restore_references().value(), 0);
         }
-        EXPECT_EQ(factory.mesh_creations, 1);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
     }
 
     TEST_F(EditorAssetsTest, SceneRefreshCoalescesSuccessfulScansButNotFailedImports) {
@@ -753,12 +729,12 @@ namespace CometEditor::Tests {
         EXPECT_EQ(assets->prepare_scene(scene, components).value(), 1);
         assets->track_scene(scene, components);
         EXPECT_EQ(assets->restore_references().value(), 1);
-        EXPECT_FALSE(
-            assets->apply_edit({texture, assets->database().get_revision(texture), TextureEdit{}}));
+        EXPECT_FALSE(assets->apply_texture_edit(
+            {texture, assets->database().get_revision(texture), TextureEdit{}}));
         EXPECT_EQ(assets->restore_references().value(), 0);
-        factory.fail_texture = false;
-        ASSERT_TRUE(
-            assets->apply_edit({texture, assets->database().get_revision(texture), TextureEdit{}}));
+        factory.fail_texture_creation(false);
+        ASSERT_TRUE(assets->apply_texture_edit(
+            {texture, assets->database().get_revision(texture), TextureEdit{}}));
         EXPECT_FALSE(runtime.contains(material));
         EXPECT_EQ(assets->restore_references().value(), 1);
         EXPECT_TRUE(runtime.contains(material));
@@ -790,12 +766,12 @@ namespace CometEditor::Tests {
         session.request_mode(EditorMode::Play);
         ASSERT_TRUE(session.apply_mode_request());
         EXPECT_TRUE(runtime.contains(mesh));
-        const auto creations = factory.mesh_creations;
+        const auto creations = factory.mesh_creation_count();
         session.request_mode(EditorMode::Edit);
         ASSERT_TRUE(session.apply_mode_request());
         EXPECT_TRUE(runtime.contains(mesh));
         EXPECT_EQ(preparations, 1);
-        EXPECT_EQ(factory.mesh_creations, creations);
+        EXPECT_EQ(factory.mesh_creation_count(), creations);
     }
 
     TEST_F(EditorAssetsTest, ExternalFileImportQueuesArtifactWithoutGpuOrExplicitRefresh) {
@@ -815,7 +791,7 @@ namespace CometEditor::Tests {
         complete_imports();
         EXPECT_TRUE(Comet::MeshArtifact::load(artifact, handle));
         EXPECT_FALSE(runtime.contains(handle));
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
         EXPECT_TRUE(std::filesystem::exists(source));
     }
 
@@ -824,19 +800,19 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(assets->load_reference({}, Comet::AssetType::Mesh, 0));
         EXPECT_FALSE(assets->load_reference(mesh, Comet::AssetType::Mesh, revision));
         EXPECT_FALSE(std::filesystem::exists(artifact_path()));
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
         complete_imports();
         EXPECT_FALSE(assets->load_reference(mesh, Comet::AssetType::Mesh, revision + 1));
         EXPECT_FALSE(assets->load_reference(mesh, Comet::AssetType::Material, revision));
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
         std::ofstream(Comet::ProjectPaths(root).assets() / "model.gltf") << "invalid";
-        factory.fail = true;
+        factory.fail_mesh_creation(true);
         EXPECT_FALSE(assets->load_reference(mesh, Comet::AssetType::Mesh, revision));
         EXPECT_FALSE(runtime.contains(mesh));
-        factory.fail = false;
+        factory.fail_mesh_creation(false);
         EXPECT_TRUE(assets->load_reference(mesh, Comet::AssetType::Mesh, revision));
         EXPECT_TRUE(assets->load_reference(mesh, Comet::AssetType::Mesh, revision));
-        EXPECT_EQ(factory.mesh_creations, 2);
+        EXPECT_EQ(factory.mesh_creation_count(), 2);
     }
 
     TEST_F(EditorAssetsTest, MissingReferenceCannotBeLoadedButEmptyReferenceIsAllowed) {
@@ -844,7 +820,7 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(assets->load_reference(
             missing, Comet::AssetType::Mesh, assets->database().get_revision(missing)));
         EXPECT_TRUE(assets->load_reference({}, Comet::AssetType::Mesh, {}));
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
     }
 
     TEST_F(EditorAssetsTest, ScannedMeshesImportAutomaticallyWithoutSelectionOrGpu) {
@@ -852,7 +828,7 @@ namespace CometEditor::Tests {
         complete_imports();
         EXPECT_TRUE(Comet::MeshArtifact::load(artifact_path(), mesh));
         EXPECT_FALSE(runtime.contains(mesh));
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
         // 无扫描事件时，不自动补建手工删除的缓存。
         std::filesystem::remove(artifact_path());
         complete_imports();
@@ -866,16 +842,16 @@ namespace CometEditor::Tests {
         complete_imports();
         ASSERT_TRUE(assets->load_reference(
             mesh, Comet::AssetType::Mesh, assets->database().get_revision(mesh)));
-        EXPECT_EQ(factory.mesh_creations, 1);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
         const auto stamp = std::filesystem::file_time_type::clock::now() - std::chrono::hours(1);
         std::filesystem::last_write_time(artifact_path(), stamp);
         ASSERT_TRUE(assets->refresh().succeeded());
         complete_imports();
         EXPECT_EQ(std::filesystem::last_write_time(artifact_path()), stamp);
-        EXPECT_EQ(factory.mesh_creations, 1);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
         assets->request_mesh_reimport(mesh);
         complete_imports();
-        EXPECT_EQ(factory.mesh_creations, 2);
+        EXPECT_EQ(factory.mesh_creation_count(), 2);
         EXPECT_NE(std::filesystem::last_write_time(artifact_path()), stamp);
     }
 
@@ -898,7 +874,7 @@ namespace CometEditor::Tests {
             artifact_path().parent_path() / (std::to_string(added->handle.value()) + ".bin");
         EXPECT_TRUE(Comet::MeshArtifact::load(second_artifact, added->handle));
         EXPECT_NE(std::filesystem::last_write_time(artifact_path()), stamp);
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
     }
 
     TEST_F(EditorAssetsTest, FailedImportWaitsForNewScanOrExplicitRetry) {
@@ -913,7 +889,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(assets->refresh().succeeded());
         complete_imports();
         EXPECT_TRUE(Comet::MeshArtifact::load(artifact_path(), mesh));
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
     }
 
     TEST_F(EditorAssetsTest, AddingPreviouslyMissingBufferRetriesUnindexedDependency) {
@@ -941,7 +917,7 @@ namespace CometEditor::Tests {
         complete_imports();
         EXPECT_TRUE(Comet::MeshArtifact::load(artifact_path(), mesh));
         EXPECT_FALSE(assets->database().get_import_dependencies(mesh).empty());
-        EXPECT_EQ(factory.mesh_creations, 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
     }
 
     TEST_F(EditorAssetsTest, MovePreservesIdentityAndAcknowledgesEditorWrite) {

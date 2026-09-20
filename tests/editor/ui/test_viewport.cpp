@@ -13,12 +13,100 @@
 #include "core/engine.h"
 #include "render/scene/scene_extractor.h"
 #include "support/temporary_directory.h"
+#include "support/scene_motion_system.h"
+#include "common/scope_exit.h"
+#include "render/scene/scene_renderer.h"
+#include "render/render_diagnostics.h"
 
 #include <gtest/gtest.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 
 namespace CometEditor::Tests {
+    TEST(ViewportTest, HiddenOffscreenViewSkipsGraphButKeepsRuntimeAndUiAlive) {
+        Comet::Config config;
+        config.window.width = 160;
+        config.window.height = 120;
+        config.vulkan.enable_validation = true;
+        config.render.scene_output = Comet::Config::Render::SceneOutput::Offscreen;
+        config.diagnostics.enable_render_diagnostics = true;
+        auto created = Comet::Engine::create(config);
+        ASSERT_TRUE(created) << created.error();
+        auto& engine = *created.value();
+        auto& renderer = engine.get_renderer();
+        auto& scene_renderer = renderer.get_scene_renderer();
+        ASSERT_TRUE(scene_renderer.is_offscreen());
+        ASSERT_TRUE(scene_renderer.get_offscreen_color_view(0));
+        engine.set_scene(std::make_unique<Comet::Scene>());
+        auto calls = std::make_shared<Comet::Tests::RuntimeCalls>();
+        ASSERT_TRUE(engine.add_system(std::make_unique<Comet::Tests::SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine.start_scene_runtime());
+        Comet::Tests::TemporaryDirectory directory;
+        auto ui_result = ImGuiContext::create(
+            engine.get_window(), renderer.get_render_context(), directory.path() / "imgui.ini");
+        ASSERT_TRUE(ui_result) << ui_result.error();
+        auto& ui = *ui_result.value();
+        const Comet::ScopeExit cleanup([&] {
+            renderer.set_overlay_renderer({});
+            renderer.set_viewport_pick_callback({});
+            renderer.wait_idle();
+        });
+        unsigned overlays = 0;
+        unsigned picks = 0;
+        unsigned prepared_frames = 0;
+        bool visible = true;
+        renderer.set_viewport_pick_callback([&](auto) { ++picks; });
+        renderer.set_overlay_renderer([&](Comet::CommandBuffer& command) {
+            ++overlays;
+            ui.render(command);
+            const auto& snapshot = renderer.get_diagnostics().get_snapshot();
+            EXPECT_EQ(snapshot.scene_rendered, visible);
+            EXPECT_EQ(snapshot.cpu.has_value(), visible);
+            if(!visible) {
+                EXPECT_FALSE(snapshot.gpu);
+                EXPECT_EQ(scene_renderer.get_material_statistics().draw_calls, 0);
+                EXPECT_FLOAT_EQ(scene_renderer.get_post_process_settings().exposure, 1);
+            }
+            EXPECT_EQ(overlays, prepared_frames);
+            EXPECT_EQ(calls->updates, prepared_frames);
+            EXPECT_EQ(calls->starts, 1);
+            EXPECT_EQ(calls->stops, 0);
+            if(overlays == 4)
+                engine.get_window().request_close();
+        });
+        unsigned attempts = 0;
+        const auto run = engine.run(
+            [&](Comet::UpdateContext) {
+                if(++attempts > 10)
+                    engine.get_window().request_close();
+                return Comet::Result<void, Comet::Error>::success();
+            },
+            [&] {
+                ++prepared_frames;
+                visible = prepared_frames == 1 || prepared_frames == 4;
+                if(!ui.begin_frame())
+                    return Comet::Result<void, Comet::Error>::failure({"UI is not ready"});
+                ImGui::Begin("UI stays active");
+                ImGui::TextUnformatted("Inspector");
+                ImGui::End();
+                ui.end_frame();
+                auto view = renderer.set_render_view({.visible = visible,
+                    .camera_selection = Comet::RenderView::CameraSelection::Override,
+                    .camera_override = Comet::RenderCamera{}});
+                if(!view)
+                    return Comet::Result<void, Comet::Error>::failure(view.error().as_error());
+                if(!visible) {
+                    renderer.request_viewport_pick({1, 1}, {160, 120});
+                    EXPECT_TRUE(engine.get_scene()->set_post_process({.exposure = 2}));
+                }
+                return Comet::Result<void, Comet::Error>::success();
+            });
+        ASSERT_TRUE(run) << run.error();
+        EXPECT_EQ(overlays, 4);
+        EXPECT_EQ(picks, 0);
+        EXPECT_FLOAT_EQ(scene_renderer.get_post_process_settings().exposure, 2);
+    }
+
     TEST(ViewportTest, RebuildsAfterBackendsWereClosedDuringFailedRecreation) {
         Comet::Config config;
         config.vulkan.enable_validation = true;

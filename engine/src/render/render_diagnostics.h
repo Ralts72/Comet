@@ -23,6 +23,7 @@ namespace Comet {
             bool truncated = false;
         };
         struct Snapshot {
+            bool scene_rendered = false;
             std::optional<GraphTiming> cpu;
             std::optional<GraphTiming> gpu;
             MemoryBudgetSnapshot memory;
@@ -45,6 +46,7 @@ namespace Comet {
             const RenderGraph::RecordPass& callback);
         void poll_memory(Clock::time_point now = Clock::now());
         [[nodiscard]] Result<void, GraphicsError> collect_completed();
+        void skip_frame();
 
     private:
         struct Slot;

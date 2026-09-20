@@ -113,7 +113,7 @@ namespace Comet::Tests {
         input.key_event(Input::Key::E, true);
         input.key_event(Input::Key::LeftShift, true);
         update(1);
-        EXPECT_NEAR(Math::length(camera.translation), 0.6f, 0.00001f);
+        EXPECT_NEAR(Math::length(camera.translation), 6.0f, 0.00001f);
 
         camera.translation = {};
         input.key_event(Input::Key::W, false);
@@ -125,6 +125,17 @@ namespace Comet::Tests {
         input.gamepad_sample(0, pad);
         update();
         expect_position({0.3f, 0, 0});
+    }
+
+    TEST_F(CameraControllerTest, MovementUsesAllRuntimeTimeRegardlessOfFramePartition) {
+        input.key_event(Input::Key::W, true);
+        update(0.2f);
+        const auto single_frame = camera.translation;
+        camera.translation = {};
+        update(0.1f);
+        update(0.1f);
+        expect_position(single_frame);
+        expect_position({0, 0, -0.6f});
     }
 
     TEST_F(CameraControllerTest, OptInSettingsAndPrimarySelectionDoNotAffectOtherCameras) {

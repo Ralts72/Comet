@@ -466,5 +466,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0.05));
         EXPECT_EQ(runtime.get_timing().fixed_steps, 5u);
         EXPECT_NEAR(camera.get_component<TransformComponent>().translation.z, -0.35f, 1e-6f);
+        advance(10);
+        EXPECT_NEAR(camera.get_component<TransformComponent>().translation.z, -1.10f, 1e-6f);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().total_time, 0.35);
     }
 }

@@ -26,6 +26,7 @@ namespace CometEditor {
             bool has_memory = false;
             bool gpu_supported = false;
             bool truncated = false;
+            bool scene_rendered = false;
             std::string gpu_error;
         };
         void refresh_display(bool capturing);

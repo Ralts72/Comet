@@ -20,6 +20,7 @@ namespace Comet {
     public:
         struct Passes {
             RenderGraph::ResourceId output;
+            RenderGraph::ResourceId intermediate;
             std::array<RenderGraph::PassId, 3> ids;
         };
 
@@ -31,7 +32,8 @@ namespace Comet {
 
         // 两个候选目标均创建成功后才替换旧目标。
         Result<void, GraphicsError> resize(Math::Vec2u source_size);
-        void append_bindings(std::vector<RenderGraph::Binding>& bindings, uint32_t slot) const;
+        void bind_resources(
+            std::span<RenderGraph::Binding> bindings, const Passes& passes, uint32_t slot) const;
         [[nodiscard]] std::shared_ptr<ImageView> get_output(uint32_t slot) const;
         [[nodiscard]] Result<void, GraphicsError> render(FrameScheduler& frames,
             RenderGraph::PassId pass, const Passes& passes, const std::shared_ptr<ImageView>& hdr,
