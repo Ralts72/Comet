@@ -19,7 +19,8 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
-`runtime/application.*` 管应用生命周期；`asset/data/` 保存 Mesh、Texture、Material 的 CPU 数据。
+`runtime/` 管应用入口与宿主生命周期；`scene/` 管 ECS 数据、组件元信息与调度，System 接口及具体行为集中在 `scene/systems/`。
+`asset/data/` 保存 Mesh、Texture、Material 的 CPU 数据。
 `render/material/` 聚合材质定义、准备缓存与绘制，`render/debug/` 聚合辅助线，`render/passes/` 保存具体渲染步骤。
 `RenderResources` 组织 Mesh/Texture 创建、上传和 Sampler 复用；资产身份缓存仍只由 `AssetRegistry` 管理。
 编辑器的 `ProjectPanel` 位于 `assets/project_panel.*`，`ViewportPanel` 位于 `viewport/viewport_panel.*`，
@@ -228,8 +229,8 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 不像 editor 那样保留缺失引用供修复。这仍是开发期运行入口，不是已打包的 Shipping Player。
 仅打开仓库自带 demo 时，app 额外旋转 UUID 为 `672cd0cc-501f-419e-af5e-a883a0cd3d02` 的立方体；
 重命名不影响旋转，删除或换 UUID 后跳过；外部项目（包括复制出去的 demo）默认静止。
-旋转只修改内存，不保存回 `.scene`；属于 app 示例行为，尚不在 editor Play 中执行。
-后续通用 System／脚本接入后再统一运行行为，不把演示逻辑写入 Project 或 SceneSerializer。
+旋转通过 app 私有的 `DemoRotationSystem` 固定更新，只修改内存，不保存回 `.scene`，不在 editor Play 中执行。
+后续项目脚本接入后移除该演示 UUID 绑定，不把示例行为写入 Project 或 SceneSerializer。
 两种入口遇到项目描述错误或缺少 assets 都会启动失败，不回退仓库项目；仅 editor 在启动场景缺失／损坏时
 记录错误并打开空场景，供用户修复，不覆盖原文件。
 引擎 Profile、编辑器快捷键仍读取开发构建自带的 `config/`，字体／图标／Shader 不需要复制到每个项目。
@@ -252,8 +253,25 @@ app 与 editor Play 共用可选的 `CameraControllerComponent`：在 Edit 中�
 app 中 Esc 退出；Play 中鼠标进入画面即可操作，无需点击激活；Esc 与 Stop 一样直接返回 Edit。
 鼠标离开画面、失焦、弹窗或编辑文字时停止接收；回来后原先按住的按钮需要松开重按。
 控制只改变运行状态，退出 Play 恢复 Edit 场景，不生成逐帧撤销记录。
-Edit 相机和编辑器快捷键保持原有 ImGui 路径；动作绑定、重映射、文本／IME、鼠标锁定和固定步消费仍是后续事项。
+Edit 相机和编辑器快捷键保持原有 ImGui 路径；动作绑定、重映射、文本／IME、鼠标锁定仍是后续事项。
 Frame 可复制，但不是持久回放格式。
+
+### 场景运行时
+
+Engine 持有 `SceneRuntime`，App 启动场景和 editor Play 共用同一调度；Edit 不运行游戏 System。
+宿主通过 Engine 注册 System、配置时间并启停当前场景，不直接操作 Engine 内部的调度器。
+System 按注册顺序启动，每帧先执行零到多次 `fixed_update`，再执行一次 `update`，退出时逆序 `on_stop`。
+相机控制由 `CameraControllerSystem::update` 执行；UI／资源维护仍由宿主负责，不改成游戏 System。
+默认固定步长 1/60 秒，最多接收 0.25 秒帧增量、每帧最多补算 8 步，超额整步丢弃并记录在 Timing 中。
+无固定步时累积输入边沿，首个固定步消费，后续补算不重复；普通更新仍能读取本帧边沿。
+
+宿主用 `Engine::set_runtime_input` 交付当帧输入：app 使用窗口快照，editor 在所有面板绘制后交付 Gate 过滤结果。
+未交付输入时仍推进模拟，但按钮释放、移动／滚轮归零，不复用旧的 UI 授权。暂时无可呈现帧也执行 System，
+最小化沿用等待与计时重置策略。场景提取发生在 System 更新后；替换场景先停止旧 Runtime，显式启动新场景。
+System 通过 Result 报告失败，启动／更新失败会逆序清理；Play 启动失败恢复原 Edit 场景。
+`Scene::each<Components...>` 按组件组合查询，不创建全实体列表或排序；身份／层级／世界变换只读，查询内不做结构增删。
+`ComponentRegistry` 只描述属性、序列化和编辑能力，不存组件实例，也不注册 System；实例存储属于 Scene。
+当前仅主线程串行执行；暂停／单步、渲染插值、依赖调度、物理和脚本仍待接入。
 
 ## 编辑器使用
 
@@ -378,10 +396,11 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
 
 ## 架构入口
 
-- **运行时**：`runtime/application` 管初始化、循环与关闭；Engine 组合 Scene、任务和渲染服务。
+- **运行时**：`runtime/application` 管初始化与关闭；Engine 管主循环，组合 Scene、SceneRuntime、任务和渲染服务。
+  `scene/scene_runtime` 按顺序执行 `scene/systems/system.h` 的固定／普通更新，拥有启动与逆序停止边界；Engine 负责与活动 Scene 绑定。
   生命周期用 Result 传递预期失败，入口报告错误并设置退出码。
 - **场景**：Scene 保存组件、UUID 与 AssetHandle；世界矩阵按 TRS 和父级版本更新。
-  编辑器在帧准备前执行文件与资产请求，UI/Gizmo 修改后再提取当帧场景。
+  编辑器在帧准备前执行文件与资产请求，UI/Gizmo 与 System 修改后再提取当帧场景。
 - **渲染**：`Scene → SceneExtractor → SceneResolver → SceneRenderer`。
   Renderer 组合帧调度与呈现，SceneRenderer 编排 ShadowPass → RGBA16F 场景 → OutputPass；
   RenderGraph 负责 pass 间同步，FrameSlot 保留在途资源，Presentation 处理交换链恢复。

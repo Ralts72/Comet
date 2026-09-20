@@ -3,7 +3,7 @@
 #include "scene/selection.h"
 #include "viewport/transform_gizmo.h"
 #include "ui/shortcuts.h"
-#include "runtime/camera_controller.h"
+#include "scene/systems/camera_controller.h"
 
 #include "support/imgui_context.h"
 
@@ -87,8 +87,10 @@ namespace CometEditor::Tests {
             }
             const auto& routed = viewport.route_runtime_input(runtime_input.publish_frame());
             runtime_accepting = routed.focused;
-            if(state.mode == EditorMode::Play)
-                Comet::update_camera_controller(scene, routed, 0.1f);
+            if(state.mode == EditorMode::Play) {
+                Comet::CameraControllerSystem system;
+                EXPECT_TRUE(system.update(scene, {0.1, 0, 0, routed}));
+            }
             ImGui::Render();
         }
 

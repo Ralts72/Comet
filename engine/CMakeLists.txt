@@ -48,7 +48,6 @@ set(SOURCES
         src/core/project.cpp
         src/runtime/entry.cpp
         src/runtime/application.cpp
-        src/runtime/camera_controller.cpp
         src/core/task_scheduler.cpp
         src/core/engine.cpp
         src/core/geometry.cpp
@@ -111,6 +110,8 @@ set(SOURCES
         src/scene/property.cpp
         src/scene/scene.cpp
         src/scene/scene_serializer.cpp
+        src/scene/scene_runtime.cpp
+        src/scene/systems/camera_controller.cpp
 )
 
 add_library(engine SHARED ${SOURCES})

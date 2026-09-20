@@ -9,9 +9,11 @@
 namespace CometEditor {
     EditorSceneSession::EditorSceneSession(EditorState& state,
         const Comet::SceneSerializer& serializer, ActiveSceneGetter get_active_scene,
-        ActiveSceneReplacer replace_active_scene, PrepareCandidate prepare_candidate)
+        ActiveSceneReplacer replace_active_scene, StartRuntime start_runtime,
+        PrepareCandidate prepare_candidate)
         : m_state(state), m_serializer(serializer), m_get_active_scene(std::move(get_active_scene)),
           m_replace_active_scene(std::move(replace_active_scene)),
+          m_start_runtime(std::move(start_runtime)),
           m_prepare_candidate(std::move(prepare_candidate)) {}
 
     EditorSceneSession::~EditorSceneSession() = default;
@@ -56,6 +58,10 @@ namespace CometEditor {
         m_edit_scene = m_replace_active_scene(std::move(runtime_scene).value(), EditorMode::Play);
         if(!m_edit_scene) {
             LOG_FATAL("Entering Play mode did not retain the Edit scene");
+        }
+        if(auto started = m_start_runtime(); !started) {
+            auto failed_scene = m_replace_active_scene(std::move(m_edit_scene), EditorMode::Edit);
+            return Comet::Result<bool, Comet::Error>::failure(started.error());
         }
 
         m_state.mode = EditorMode::Play;

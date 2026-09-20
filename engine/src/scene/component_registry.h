@@ -77,6 +77,7 @@ namespace Comet {
         }
     };
 
+    // 组件类型与属性元信息；组件实例由 Scene 持有。
     class COMET_API ComponentRegistry {
     public:
         [[nodiscard]] bool register_component(ComponentDescriptor descriptor);

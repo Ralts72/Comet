@@ -13,7 +13,7 @@
 | 3 资产数据库与导入 | 主链路、任务背压与发布预算已接通，仍有扩展 | 增量引用恢复、字节预算与更多导入格式 |
 | 4 视口与交互 | 4A/4B 主链路完成，4C 材质创建与模板选择已接通 | 内容编辑与资产撤销扩展 |
 | 5 渲染升级 | 核心 forward 链路、诊断与代表场景测量已接通 | 项目 Shader 资产化、实例化、可选延迟渲染；路径追踪为远期扩展 |
-| 6 游戏运行时 | 输入帧快照已接通 | 固定更新、输入路由、System、脚本、物理、音频 |
+| 6 游戏运行时 | 输入、固定更新与串行 System 已接通 | 暂停／单步、动作映射、脚本、物理、音频 |
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
 以当前 main 的功能与验收为准，继续逐项对照 feat/auto2 的实现及原始提交，而不是机械 cherry-pick。
@@ -38,10 +38,13 @@
    Engine 在实际 Update 前发布；轮询／等待／最小化跳帧不消耗待发布边沿。
    首次连接／重连手柄不伪造 pressed；保持当前窗口 RAII、关闭确认及文件拖入，不迁回旧全局平台生命周期。
    CameraControllerComponent 已接通 app／Play 的共享相机行为、Inspector／保存／撤销；参考旧 `040 / b2dcf12` 提前接入
-   Input::Gate 和 Play 视口输入边界，不把相机更新等同于完整运行时调度。
-7. **下一步：固定更新与最小 System 调度**（阶段 6）：参考旧 `038 / 605b299`，定义有界固定步累计，
-   零步保留输入边沿、多步不重复触发；按实际消费者接入，不预建通用阶段注册表。暂停／单步、完整运行时输入消费和脚本后续独立验收。
-8. **后续独立里程碑：项目自定义 Shader**（阶段 3／5）：复用材质编辑入口，接通程序资产、metadata、动态布局与发布所有权。
+   Input::Gate 和 Play 视口输入边界，保持宿主负责输入归属。
+7. **已接通：固定更新与最小 System 调度**（阶段 6）：旧 `038 / 605b299` 适配为 Result／RAII 生命周期，
+   零步保留输入边沿、多步不重复触发；app 私有 DemoRotationSystem 固定更新，CameraControllerSystem 普通更新。
+   app／Play 共享 Engine 的 SceneRuntime，暂时无法呈现仍推进模拟；没有当帧输入授权时关闭输入，不暂停时间。
+8. **下一步：Play 暂停与单步**（阶段 6）：参考旧 `039 / 852e390`，在现有 SceneRuntime／EditorSceneSession 上接入，
+   暂停时编辑器与资产维护继续；定义单步的时间和输入消费，不扩大 EditorMode，也不把暂停实现成停止整个 Engine。
+9. **后续独立里程碑：项目自定义 Shader**（阶段 3／5）：复用材质编辑入口，接通程序资产、metadata、动态布局与发布所有权。
    依赖材质编辑闭环和程序资产协议，不把它作为 PBR／环境照明的前置；出现真实自定义着色需求时可独立提前。
 
 与 feat/auto2 结合：本轮复用已迁移的 `9a7b2e3` 共享布局面板和 `40dfe50` 候选发布思路，补齐该分支未提供的材质创建／模板选择。
@@ -595,23 +598,30 @@ validation、同步测试和生命周期回归通过。
 - Input 键鼠／标准手柄快照已接通，不依赖 ImGui／GLFW 公共类型；事件只累计到 pending，Update 前发布稳定 Frame。
   同帧短点击保留按下／释放两种边沿，但不保留次数和顺序；手柄为状态采样，不保证捕获采样间的超短点击。
   失焦释放输入，恢复焦点／设备连接重建基线；Frame 只在主线程发布，值副本可持有，不是磁盘回放协议。
-  后续分别接 Fixed Update／普通 Update、动作映射与重绑定、文本／IME、鼠标锁定／raw motion，
+  Fixed Update／普通 Update 已分别消费输入；后续接动作映射与重绑定、文本／IME、鼠标锁定／raw motion，
   再接 Native Script 生命周期和字段暴露；不把基础输入状态机扩成全局 EventBus。
-- CameraControllerComponent 已作为可选场景组件落地：app／Play 共用 runtime/camera_controller，控制当前主相机，
+- CameraControllerComponent 已作为可选场景组件落地：app／Play 共用 scene/systems/camera_controller，控制当前主相机，
   enabled／move_speed／look_sensitivity 复用属性注册、Inspector、Serializer 与 Undo/Redo；demo 在场景中启用。
   支持相机朝向移动、右键转向、父级变换下的世界移动，不含碰撞、光标锁定或动作重映射。
   Play 画面悬停即可接收输入，Gate 消费当前帧 UI 归属，阻止文本／弹窗／离开画面／失焦时输入穿透；
   Esc 与 Stop 共用退出流程，丢弃运行场景副本并恢复 Edit。
-  当前 editor 仅在 UI 就绪后更新相机；固定步／System 接入时统一运行时更新时序，不让物理与脚本依赖渲染就绪。
+  相机已由 CameraControllerSystem 普通更新；editor 只在 UI 就绪后授权输入，模拟本身不依赖是否可呈现。
 - app 与 editor 已共用项目与启动场景数据；app 对仓库 demo 的固定 UUID 旋转仍仅是演示行为，
-  外部项目和 editor Play 不执行它。通用 System／脚本接入后统一行为注册、场景替换和生命周期，
-  移除 app 内剩余演示 UUID 绑定；不为示例旋转添加专用组件或空壳 System。
-- EditorMode 只含 Edit/Play；RuntimeState（Running/Paused）与之正交，支持暂停/单步，不增加 EditorMode::Paused。
-- 当前 Engine::run 管循环、私有 tick 推进单帧；on_update 后准备帧，帧就绪才执行 on_frame_ready，然后提取当前场景并渲染。
+  外部项目和 editor Play 不执行它，当前由 app 私有 DemoRotationSystem 固定更新。生命周期已统一，
+  后续项目脚本接入后移除剩余演示 UUID 绑定，不为示例旋转添加专用组件。
+- EditorMode 只含 Edit/Play；后续 RuntimeState（Running/Paused）与之正交，支持暂停/单步，不增加 EditorMode::Paused。
+- 当前 Engine::run 管循环、私有 tick 推进单帧；on_update 后准备帧，帧就绪才执行 on_frame_ready，
+  再统一推进 SceneRuntime 的固定／普通更新，最后提取当前场景并渲染；暂时无呈现帧只跳过 UI／提取／绘制。
   两个函数仅在 run 调用期间借用；编辑器请求执行与后台维护在 on_update，UI/请求收集/即时属性与视口更新在 on_frame_ready。无通用阶段注册表或预留 Late 钩子。
-- 后续按真实消费者加入固定步长、暂停／单步与 System 调度，应用生命周期钩子不兼任通用调度协议。
-  阶段和依赖以物理、动画、相机等实际需求为依据，不新增空壳 System 或通用 EventBus。
-  验收包含更新顺序、场景替换、异常清理、回调寿命，以及模拟暂停时编辑器与资产维护继续运行。
+- SceneRuntime 已拥有串行 System、固定步累计和独立输入消费，参数校验／启动／更新返回 Result，失败逆序清理，
+  不自动重试部分组件写入。替换 Scene 先停止 Runtime，关闭时在宿主与资产释放前销毁 System；活动期禁止修改列表或重入。
+  调度器与 System 接口归属 scene/，runtime/ 仅保留应用宿主；Engine 统一启停和场景绑定，仅暴露只读 Runtime 状态。
+  EditorSceneSession 负责克隆／恢复／失败回滚，经宿主请求启动；替换时的停止只由 Engine 执行。
+  每个消费者通过当帧输入授权接入，不将窗口原始键盘状态自动交给 Play；无输入仍推进时间，最小化不积压长时间补帧。
+  后续暂停／单步、渲染插值和真实物理／动画依赖分别验收，不预建通用阶段注册表或并行调度。
+- Scene 的类型化 each 查询已供 CameraControllerSystem／SceneExtractor 共用，不暴露 registry；场景维护组件保持只读。
+  get_entities 仍供需要稳定 EntityId 顺序的编辑器／序列化路径使用。ComponentRegistry 只负责元信息，不是 ECS 存储或 System 注册表。
+  查询内只允许组件值读写；结构增删暂在查询外执行，将来结合脚本／物理需要再定义延迟结构命令的应用时点。
 - Scene 已维护 ID／UUID／父子索引，按本地 TRS 与父级版本增量重算矩阵，单个查询只检查祖先链。
   为兼容可变引用写入，场景提取前仍需 O(N) 值检查；未来 TransformSystem 收口修改入口后再改为 dirty 集合遍历，
   不能仅在 get_component 时标脏。

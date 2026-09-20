@@ -190,7 +190,7 @@ namespace Comet {
                 return axes.at(static_cast<size_t>(value));
             }
         };
-        struct Frame {
+        struct COMET_API Frame {
             uint64_t serial = 0;
             bool focused = false;
             std::array<ButtonState, static_cast<size_t>(Key::Count)> keys{};
@@ -199,6 +199,8 @@ namespace Comet {
             Math::Vec2 cursor_delta{};
             Math::Vec2 scroll{};
             std::array<GamepadState, MAX_GAMEPADS> gamepads{};
+
+            void clear_transients();
 
             [[nodiscard]] const ButtonState& key(Key value) const {
                 return keys.at(static_cast<size_t>(value));

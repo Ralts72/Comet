@@ -7,7 +7,7 @@
 #include "scene/scene.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
-#include "runtime/camera_controller.h"
+#include "scene/systems/camera_controller.h"
 
 #include <cmath>
 #include <filesystem>
@@ -17,14 +17,29 @@
 #include <utility>
 
 namespace {
+    class DemoRotationSystem final: public Comet::System {
+    public:
+        Comet::Result<void, Comet::Error> fixed_update(
+            Comet::Scene& scene, const Context& context) override {
+            if(auto cube = scene.find_entity(m_entity))
+                cube.get_component<Comet::TransformComponent>().rotate(
+                    {0.0f, static_cast<float>(context.delta_time) * 100.0f, 0.0f});
+            return Comet::Result<void, Comet::Error>::success();
+        }
+
+    private:
+        const Comet::EntityUuid m_entity =
+            Comet::EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02")
+                .value_or(Comet::INVALID_ENTITY_UUID);
+    };
+
     class GameApp final: public Comet::Application {
     public:
         explicit GameApp(Comet::Project project, const bool is_demo)
             : Application(project.paths().cache(), project.paths().logs()),
               m_project(std::move(project)) {
             if(is_demo)
-                m_rotating_entity = Comet::EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02")
-                                        .value_or(Comet::INVALID_ENTITY_UUID);
+                m_demo_rotation = std::make_unique<DemoRotationSystem>();
         }
 
         Comet::Result<void, Comet::Error> on_init() override {
@@ -65,9 +80,16 @@ namespace {
                 return Init::failure(prepared.error());
             LOG_INFO("App project '{}', startup scene '{}', demo rotation {}",
                 m_project.paths().root().string(), m_project.startup_scene().generic_string(),
-                static_cast<bool>(m_rotating_entity));
+                static_cast<bool>(m_demo_rotation));
             engine.set_scene(std::move(scene));
-            return Init::success();
+            if(m_demo_rotation) {
+                if(auto added = engine.add_system(std::move(m_demo_rotation)); !added)
+                    return added;
+            }
+            if(auto added = engine.add_system(std::make_unique<Comet::CameraControllerSystem>());
+                !added)
+                return added;
+            return engine.start_scene_runtime();
         }
 
         Comet::Result<void, Comet::Error> on_update(Comet::UpdateContext context) override {
@@ -79,17 +101,9 @@ namespace {
             }
             if(auto assets = m_asset_manager->process_completions(); !assets)
                 return Comet::Result<void, Comet::Error>::failure(assets.error());
-            auto* scene = get_engine().get_scene();
-            if(scene)
-                Comet::update_camera_controller(
-                    *scene, get_engine().get_input_frame(), context.delta_time);
+            get_engine().set_runtime_input(get_engine().get_input_frame());
             if(get_engine().get_input_frame().key(Comet::Input::Key::Escape).pressed)
                 get_engine().get_window().request_close();
-            if(scene && m_rotating_entity) {
-                if(auto cube = scene->find_entity(m_rotating_entity))
-                    cube.get_component<Comet::TransformComponent>().rotate(
-                        {0.0f, context.delta_time * 100.0f, 0.0f});
-            }
             return Comet::Result<void, Comet::Error>::success();
         }
 
@@ -101,7 +115,7 @@ namespace {
 
     private:
         Comet::Project m_project;
-        Comet::EntityUuid m_rotating_entity = Comet::INVALID_ENTITY_UUID;
+        std::unique_ptr<DemoRotationSystem> m_demo_rotation;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
         std::string m_window_title;
         int m_displayed_fps = -1;

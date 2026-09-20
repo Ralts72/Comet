@@ -19,6 +19,7 @@
 #include "editor_state.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
+#include "scene/scene_runtime.h"
 #include "asset/serialization/material_serializer.h"
 #include "support/temporary_directory.h"
 #include "support/hdr_image.h"
@@ -772,12 +773,15 @@ namespace CometEditor::Tests {
         complete_imports();
         EditorState state;
         int preparations = 0;
+        Comet::SceneRuntime scene_runtime;
         EditorSceneSession session(
             state, serializer, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement, EditorMode) {
+                EXPECT_TRUE(scene_runtime.stop());
                 active.swap(replacement);
                 return replacement;
             },
+            [&] { return scene_runtime.start(*active); },
             [&](Comet::Scene& candidate) {
                 ++preparations;
                 EXPECT_EQ(assets->prepare_scene(candidate, components).value(), 0);

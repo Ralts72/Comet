@@ -147,15 +147,19 @@ namespace Comet {
         return m_frame;
     }
 
+    void Input::Frame::clear_transients() {
+        clear_edges(keys);
+        clear_edges(mouse_buttons);
+        for(auto& gamepad : gamepads)
+            clear_edges(gamepad.buttons);
+        cursor_delta = {};
+        scroll = {};
+    }
+
     const Input::Frame& Input::publish_frame() {
         ++m_pending.serial;
         m_frame = m_pending;
-        clear_edges(m_pending.keys);
-        clear_edges(m_pending.mouse_buttons);
-        for(auto& gamepad : m_pending.gamepads)
-            clear_edges(gamepad.buttons);
-        m_pending.cursor_delta = {};
-        m_pending.scroll = {};
+        m_pending.clear_transients();
         return m_frame;
     }
 }

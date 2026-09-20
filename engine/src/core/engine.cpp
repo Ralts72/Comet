@@ -50,6 +50,10 @@ namespace Comet {
     void Engine::prepare_shutdown() {
         if(m_shutdown_prepared)
             return;
+        if(auto stopped = stop_scene_runtime(); !stopped)
+            LOG_FATAL("Cannot shut down Engine during System execution");
+        if(auto cleared = m_scene_runtime.clear_systems(); !cleared)
+            LOG_FATAL("Cannot release stopped scene systems");
         m_task_scheduler->shutdown();
         m_renderer->prepare_shutdown();
         m_shutdown_prepared = true;
@@ -64,14 +68,44 @@ namespace Comet {
     }
 
     void Engine::set_scene(std::unique_ptr<Scene> scene) {
-        m_scene = std::move(scene);
+        static_cast<void>(replace_scene(std::move(scene)));
     }
 
     const Input::Frame& Engine::get_input_frame() const {
         return m_window->get_input_frame();
     }
 
+    Result<void, Error> Engine::add_system(std::unique_ptr<System> system) {
+        if(m_shutdown_prepared)
+            return Result<void, Error>::failure({"Engine is shutting down"});
+        return m_scene_runtime.add_system(std::move(system));
+    }
+
+    Result<void, Error> Engine::set_runtime_settings(SceneRuntime::Settings settings) {
+        if(m_shutdown_prepared)
+            return Result<void, Error>::failure({"Engine is shutting down"});
+        return m_scene_runtime.set_settings(settings);
+    }
+
+    Result<void, Error> Engine::start_scene_runtime() {
+        if(m_shutdown_prepared)
+            return Result<void, Error>::failure({"Engine is shutting down"});
+        if(!m_scene)
+            return Result<void, Error>::failure({"Cannot start runtime without an active scene"});
+        return m_scene_runtime.start(*m_scene);
+    }
+
+    Result<void, Error> Engine::stop_scene_runtime() {
+        auto stopped = m_scene_runtime.stop();
+        if(stopped)
+            m_runtime_input.reset();
+        return stopped;
+    }
+
     std::unique_ptr<Scene> Engine::replace_scene(std::unique_ptr<Scene> scene) noexcept {
+        // System 执行时不得销毁其借用的 Scene；换场景请求须交由宿主下一次更新处理。
+        if(auto stopped = stop_scene_runtime(); !stopped)
+            LOG_FATAL("Cannot replace Scene during System execution");
         m_scene.swap(scene);
         return scene;
     }
@@ -139,6 +173,7 @@ namespace Comet {
             return Result<void, Error>::success();
         }
 
+        m_runtime_input.reset();
         m_window->publish_input_frame();
         timing.events_ms = phase_ms();
         m_timer->tick();
@@ -154,14 +189,7 @@ namespace Comet {
         const auto preparation = m_renderer->prepare_frame();
         if(!preparation)
             return Result<void, Error>::failure(preparation.error().as_error());
-        if(!preparation.value()) {
-            m_window->wait_events(0.016);
-            timing.prepare_ms = phase_ms();
-            publish();
-            return Result<void, Error>::success();
-        }
-
-        if(frame_ready) {
+        if(preparation.value() && frame_ready) {
             if(auto edited = frame_ready(); !edited) {
                 // 已获取的帧不再重用；交互失败终止本次引擎生命周期。
                 prepare_shutdown();
@@ -170,6 +198,19 @@ namespace Comet {
         }
 
         timing.prepare_ms = phase_ms();
+        if(auto advanced = m_scene_runtime.advance(m_timer->get_update_context().delta_time,
+               m_runtime_input ? &*m_runtime_input : nullptr);
+            !advanced) {
+            prepare_shutdown();
+            return advanced;
+        }
+        timing.update_ms += phase_ms();
+        if(!preparation.value()) {
+            m_window->wait_events(0.016);
+            timing.prepare_ms += phase_ms();
+            publish();
+            return Result<void, Error>::success();
+        }
         RenderScene render_scene;
         if(m_scene)
             render_scene = SceneExtractor::extract(*m_scene);

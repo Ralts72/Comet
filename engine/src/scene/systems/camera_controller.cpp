@@ -1,29 +1,28 @@
-#include "runtime/camera_controller.h"
+#include "scene/systems/camera_controller.h"
 #include "scene/scene.h"
 
 #include <algorithm>
 #include <cmath>
 
 namespace Comet {
-    void update_camera_controller(Scene& scene, const Input::Frame& input, float delta_time) {
+    Result<void, Error> CameraControllerSystem::update(Scene& scene, const Context& context) {
+        const auto& input = context.input;
+        const auto delta_time = static_cast<float>(context.delta_time);
         if(!input.focused || !std::isfinite(delta_time) || delta_time < 0)
-            return;
+            return Result<void, Error>::success();
         Entity camera;
         // 与 SceneResolver 一致：多个主相机时使用最小 EntityId，不回退到其他控制器。
-        for(auto entity : scene.get_entities()) {
-            if(entity.has_component<CameraComponent>() && entity.has_component<TransformComponent>()
-                && entity.get_component<CameraComponent>().primary) {
-                camera = entity;
-                break;
-            }
-        }
-        if(!camera || !camera.has_component<CameraControllerComponent>()
-            || !camera.has_component<TransformComponent>())
-            return;
+        scene.each<const CameraComponent, const TransformComponent>(
+            [&](Entity entity, const CameraComponent& candidate, const TransformComponent&) {
+                if(candidate.primary && (!camera || entity.get_id() < camera.get_id()))
+                    camera = entity;
+            });
+        if(!camera || !camera.has_component<CameraControllerComponent>())
+            return Result<void, Error>::success();
         const auto& controller = camera.get_component<CameraControllerComponent>();
         if(!controller.enabled || !std::isfinite(controller.move_speed) || controller.move_speed < 0
             || !std::isfinite(controller.look_sensitivity) || controller.look_sensitivity < 0)
-            return;
+            return Result<void, Error>::success();
 
         auto& current = camera.get_component<TransformComponent>();
         auto transform = current;
@@ -35,7 +34,7 @@ namespace Comet {
             for(int column = 0; column < 4; ++column)
                 if(!Math::is_finite(world_to_parent[column])
                     || !Math::is_finite(parent_pose[column]))
-                    return;
+                    return Result<void, Error>::success();
         }
         using Key = Input::Key;
 
@@ -84,5 +83,6 @@ namespace Comet {
         transform.translation += Math::Vec3(world_to_parent * Math::Vec4(world_delta, 0));
         if(Math::is_finite(transform.translation) && Math::is_finite(transform.rotation))
             current = transform;
+        return Result<void, Error>::success();
     }
 }

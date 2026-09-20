@@ -1,5 +1,5 @@
 #include "runtime/entry.h"
-#include "runtime/camera_controller.h"
+#include "scene/systems/camera_controller.h"
 #include "render/render_context.h"
 #include "render/resource/render_resources.h"
 #include "graphics/swapchain.h"
@@ -145,8 +145,11 @@ namespace {
                 [this](std::unique_ptr<Comet::Scene> scene, CometEditor::EditorMode mode) {
                     return install_scene(std::move(scene), mode);
                 },
-                prepare_candidate);
+                [engine_ptr] { return engine_ptr->start_scene_runtime(); }, prepare_candidate);
             auto& scene = *engine.get_scene();
+            if(auto added = engine.add_system(std::make_unique<Comet::CameraControllerSystem>());
+                !added)
+                return added;
             m_selection.emplace(scene);
             m_scene_editor = std::make_unique<CometEditor::SceneEditor>(m_editor_state,
                 m_command_history, m_property_edit, m_component_registry, *m_selection, *m_assets);
@@ -176,7 +179,6 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> on_update(const Comet::UpdateContext context) override {
-            m_frame_delta_time = context.delta_time;
             if(const auto language = m_menu_bar->take_language_request())
                 m_ui_language = *language;
             process_diagnostics_requests();
@@ -227,9 +229,7 @@ namespace {
                 draw_editor_ui();
                 const auto& input =
                     m_viewport->panel().route_runtime_input(get_engine().get_input_frame());
-                if(auto* scene = get_engine().get_scene();
-                    scene && m_editor_state.mode == CometEditor::EditorMode::Play)
-                    Comet::update_camera_controller(*scene, input, m_frame_delta_time);
+                get_engine().set_runtime_input(input);
                 if(auto viewport = m_viewport->update(get_engine().get_scene()); !viewport)
                     return viewport;
             }
@@ -680,7 +680,6 @@ namespace {
         }
 
         std::uint64_t m_reference_history_state = 0;
-        float m_frame_delta_time = 0;
         Comet::Project m_project;
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;

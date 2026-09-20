@@ -53,6 +53,42 @@ namespace Comet::Tests {
     static_assert(CanAddComponent<CameraComponent>);
     static_assert(CanRemoveComponent<CameraComponent>);
 
+    TEST(SceneTest, TypedQueryFiltersComponentsAndProtectsSceneManagedValues) {
+        Scene scene;
+        EXPECT_EQ(scene.component_count<CameraComponent>(), 0u);
+        int visited = 0;
+        scene.each<CameraComponent>([&](Entity, CameraComponent&) { ++visited; });
+        EXPECT_EQ(visited, 0);
+
+        const auto ordinary = scene.create_entity("Ordinary");
+        auto camera = scene.create_entity("Camera");
+        camera.add_component<CameraComponent>().primary = true;
+        scene.each<const CameraComponent, TransformComponent, IdComponent, UuidComponent,
+            RelationshipComponent, WorldTransformComponent>(
+            [&](Entity entity, auto& lens, auto& transform, auto& id, auto& uuid,
+                auto& relationship, auto& world) {
+                static_assert(std::is_same_v<decltype(lens), const CameraComponent&>);
+                static_assert(std::is_same_v<decltype(transform), TransformComponent&>);
+                static_assert(std::is_same_v<decltype(id), const IdComponent&>);
+                static_assert(std::is_same_v<decltype(uuid), const UuidComponent&>);
+                static_assert(std::is_same_v<decltype(relationship), const RelationshipComponent&>);
+                static_assert(std::is_same_v<decltype(world), const WorldTransformComponent&>);
+                EXPECT_EQ(entity, camera);
+                EXPECT_EQ(id.id, camera.get_id());
+                EXPECT_TRUE(lens.primary);
+                transform.translation.x = 3;
+                ++visited;
+            });
+        EXPECT_EQ(visited, 1);
+        EXPECT_EQ(scene.component_count<const CameraComponent>(), 1u);
+        EXPECT_EQ(camera.get_component<TransformComponent>().translation.x, 3);
+        EXPECT_EQ(ordinary.get_component<TransformComponent>().translation.x, 0);
+        camera.remove_component<CameraComponent>();
+        scene.each<CameraComponent>([&](Entity, CameraComponent&) { ++visited; });
+        EXPECT_EQ(visited, 1);
+        EXPECT_EQ(scene.component_count<CameraComponent>(), 0u);
+    }
+
     TEST(SceneTest, CreateEntityAddsDefaultComponents) {
         Scene scene;
 

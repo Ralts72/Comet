@@ -18,8 +18,85 @@
 #include <gtest/gtest.h>
 #include <GLFW/glfw3.h>
 
+#include <type_traits>
+#include <utility>
+
 namespace Comet::Tests {
+    static_assert(
+        std::is_same_v<decltype(std::declval<Engine&>().get_scene_runtime()), const SceneRuntime&>);
+
+    namespace {
+        struct RuntimeCalls {
+            int starts = 0;
+            int updates = 0;
+            int stops = 0;
+            bool input_focused = false;
+            bool fail_update = false;
+            Scene* started_scene = nullptr;
+            Scene* stopped_scene = nullptr;
+        };
+        class SceneMotionSystem final: public System {
+        public:
+            explicit SceneMotionSystem(std::shared_ptr<RuntimeCalls> calls)
+                : m_calls(std::move(calls)) {}
+            Result<void, Error> on_start(Scene& scene) override {
+                ++m_calls->starts;
+                m_calls->started_scene = &scene;
+                return Result<void, Error>::success();
+            }
+            Result<void, Error> update(Scene& scene, const Context& context) override {
+                ++m_calls->updates;
+                m_calls->input_focused = context.input.focused;
+                if(auto object = scene.find_entity(EntityId(2)))
+                    object.get_component<TransformComponent>().translation.x = 0;
+                if(m_calls->fail_update)
+                    return Result<void, Error>::failure({"runtime update failed"});
+                return Result<void, Error>::success();
+            }
+            void on_stop(Scene& scene) noexcept override {
+                ++m_calls->stops;
+                m_calls->stopped_scene = &scene;
+            }
+
+        private:
+            std::shared_ptr<RuntimeCalls> m_calls;
+        };
+    }
+
     class FrameEditOrderTest: public ::testing::TestWithParam<bool> {};
+
+    TEST(EngineRunTest, RuntimeLifecycleFollowsOwnedSceneAndShutdownIsFinal) {
+        auto created = Engine::create(Config{});
+        ASSERT_TRUE(created) << created.error().message;
+        auto& engine = *created.value();
+        EXPECT_FALSE(engine.start_scene_runtime());
+        auto calls = std::make_shared<RuntimeCalls>();
+        ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine.set_runtime_settings({.fixed_delta = 0.02}));
+        engine.set_scene(std::make_unique<Scene>());
+        ASSERT_TRUE(engine.start_scene_runtime());
+        EXPECT_EQ(calls->started_scene, engine.get_scene());
+        EXPECT_FALSE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
+        EXPECT_FALSE(engine.set_runtime_settings({}));
+
+        auto previous = engine.replace_scene(std::make_unique<Scene>());
+        EXPECT_FALSE(engine.get_scene_runtime().is_active());
+        EXPECT_EQ(calls->stops, 1);
+        EXPECT_EQ(calls->stopped_scene, previous.get());
+        ASSERT_TRUE(engine.start_scene_runtime());
+        EXPECT_EQ(calls->started_scene, engine.get_scene());
+        EXPECT_EQ(calls->starts, 2);
+        ASSERT_TRUE(engine.stop_scene_runtime());
+        ASSERT_TRUE(engine.stop_scene_runtime());
+        EXPECT_EQ(calls->stops, 2);
+        ASSERT_TRUE(engine.start_scene_runtime());
+        engine.prepare_shutdown();
+        EXPECT_EQ(calls->stops, 3);
+        EXPECT_EQ(calls->stopped_scene, engine.get_scene());
+        EXPECT_FALSE(engine.start_scene_runtime());
+        EXPECT_FALSE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
+        EXPECT_FALSE(engine.set_runtime_settings({}));
+    }
 
     TEST(EngineRunTest, UpdateCanCloseBeforeRenderingAndRejectsReentry) {
         Config config;
@@ -54,6 +131,11 @@ namespace Comet::Tests {
         auto engine_result = Engine::create(Config{});
         ASSERT_TRUE(engine_result) << engine_result.error().message;
         auto& engine = *engine_result.value();
+        auto calls = std::make_shared<RuntimeCalls>();
+        engine.set_scene(std::make_unique<Scene>());
+        auto& runtime = engine.get_scene_runtime();
+        ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine.start_scene_runtime());
         auto& renderer = engine.get_renderer();
         auto* window = engine.get_window().get();
         const auto key = glfwSetKeyCallback(window, nullptr);
@@ -99,6 +181,32 @@ namespace Comet::Tests {
         EXPECT_EQ(rebuilds, 1);
         EXPECT_EQ(edits, 0);
         EXPECT_EQ(draws, 0);
+        EXPECT_EQ(calls->updates, 1);
+        EXPECT_FALSE(calls->input_focused);
+        EXPECT_EQ(runtime.get_timing().frame_index, 1u);
+    }
+
+    TEST(EngineRunTest, RuntimeFailureStopsSystemsBeforeReturningWithoutDrawing) {
+        auto engine_result = Engine::create(Config{});
+        ASSERT_TRUE(engine_result) << engine_result.error().message;
+        auto& engine = *engine_result.value();
+        auto calls = std::make_shared<RuntimeCalls>();
+        calls->fail_update = true;
+        engine.set_scene(std::make_unique<Scene>());
+        auto& runtime = engine.get_scene_runtime();
+        ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine.start_scene_runtime());
+        int draws = 0;
+        engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) { ++draws; });
+        const auto result = engine.run();
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().message, "runtime update failed");
+        EXPECT_EQ(calls->updates, 1);
+        EXPECT_EQ(calls->stops, 1);
+        EXPECT_EQ(draws, 0);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_FALSE(engine.run());
+        engine.get_renderer().set_overlay_renderer({});
     }
 
     TEST(EngineRunTest, FrameReadyFailureStopsEngineWithoutDrawingOrReusingAcquiredFrame) {
@@ -200,6 +308,10 @@ namespace Comet::Tests {
             return scene;
         };
         engine.set_scene(make_scene(20));
+        auto calls = std::make_shared<RuntimeCalls>();
+        auto& runtime = engine.get_scene_runtime();
+        ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine.start_scene_runtime());
         int preparations = 0;
         bool picked = false;
         std::optional<uint64_t> allocations_before_lines;
@@ -214,12 +326,20 @@ namespace Comet::Tests {
         const auto frame_ready = [&] {
             ++preparations;
             if(GetParam()) {
-                engine.set_scene(make_scene(0));
+                auto previous = engine.replace_scene(make_scene(10));
+                EXPECT_FALSE(runtime.is_active());
+                EXPECT_EQ(calls->stops, 1);
+                EXPECT_EQ(previous->find_entity(EntityId(2))
+                              .get_component<TransformComponent>()
+                              .translation.x,
+                    20);
+                if(auto started = engine.start_scene_runtime(); !started)
+                    return started;
             } else {
                 engine.get_scene()
                     ->find_entity(EntityId(2))
                     .get_component<TransformComponent>()
-                    .translation.x = 0;
+                    .translation.x = 10;
             }
             const auto size = renderer.get_scene_renderer().get_render_target().get_size();
             renderer.request_viewport_pick(size / 2u, size);
@@ -263,6 +383,8 @@ namespace Comet::Tests {
         renderer.set_overlay_renderer({});
         renderer.set_viewport_pick_callback({});
         EXPECT_EQ(preparations, 1);
+        EXPECT_EQ(calls->updates, 1);
+        EXPECT_EQ(runtime.get_timing().frame_index, 1u);
         EXPECT_TRUE(picked);
         EXPECT_TRUE(allocations_before_lines.has_value());
     }

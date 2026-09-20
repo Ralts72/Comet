@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -11,7 +12,6 @@
 #include <entt.hpp>
 
 namespace Comet {
-    class SceneExtractor;
     class SceneSerializer;
 
     class COMET_API Scene {
@@ -56,6 +56,19 @@ namespace Comet {
 
         [[nodiscard]] std::vector<Entity> get_entities();
 
+        // 只遍历匹配组件的实体，不保证顺序；回调内不增删实体或组件。
+        template<typename... Components, typename Function> void each(Function&& function) {
+            auto view = m_registry.view<QueryComponent<Components>...>();
+            for(const auto handle : view)
+                function(
+                    Entity(handle, this), view.template get<QueryComponent<Components>>(handle)...);
+        }
+
+        template<typename Component> [[nodiscard]] std::size_t component_count() const {
+            const auto* storage = m_registry.storage<std::remove_const_t<Component>>();
+            return storage ? storage->size() : 0;
+        }
+
         [[nodiscard]] bool is_valid(Entity entity) const;
 
         [[nodiscard]] std::size_t entity_count() const;
@@ -67,9 +80,12 @@ namespace Comet {
 
     private:
         friend class Entity;
-        friend class SceneExtractor;
         friend class SceneSerializer;
         friend class ComponentRegistry;
+
+        template<typename Component>
+        using QueryComponent = std::conditional_t<is_scene_read_only_component_v<Component>,
+            const Component, Component>;
 
         [[nodiscard]] bool has_cycle(Entity child, Entity parent);
         void remove_child_index(EntityId parent, entt::entity child);

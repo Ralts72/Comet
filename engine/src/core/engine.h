@@ -4,6 +4,7 @@
 #include "common/result.h"
 #include "core/input.h"
 #include "diagnostics/timing_history.h"
+#include "scene/scene_runtime.h"
 #include "timer.h"
 
 #include <functional>
@@ -54,6 +55,14 @@ namespace Comet {
         [[nodiscard]] Scene* get_scene() { return m_scene.get(); }
         [[nodiscard]] const Scene* get_scene() const { return m_scene.get(); }
 
+        [[nodiscard]] Result<void, Error> add_system(std::unique_ptr<System> system);
+        [[nodiscard]] Result<void, Error> set_runtime_settings(SceneRuntime::Settings settings);
+        [[nodiscard]] Result<void, Error> start_scene_runtime();
+        [[nodiscard]] Result<void, Error> stop_scene_runtime();
+        [[nodiscard]] const SceneRuntime& get_scene_runtime() const { return m_scene_runtime; }
+        // 当帧授权，下一帧清空；未提供输入时仍推进模拟。
+        void set_runtime_input(const Input::Frame& input) { m_runtime_input = input; }
+
         [[nodiscard]] AssetRegistry& get_asset_registry() { return *m_asset_registry; }
         [[nodiscard]] const AssetRegistry& get_asset_registry() const { return *m_asset_registry; }
 
@@ -81,6 +90,8 @@ namespace Comet {
         std::unique_ptr<AssetRegistry> m_asset_registry;
         std::unique_ptr<Scene> m_scene;
         std::unique_ptr<Renderer> m_renderer;
+        SceneRuntime m_scene_runtime;
+        std::optional<Input::Frame> m_runtime_input;
         std::optional<FrameTiming> m_frame_timing;
         TimingHistory m_frame_history;
         bool m_running = false;

@@ -1,4 +1,4 @@
-#include "runtime/camera_controller.h"
+#include "scene/systems/camera_controller.h"
 #include "scene/scene.h"
 
 #include <gtest/gtest.h>
@@ -21,7 +21,8 @@ namespace Comet::Tests {
         }
 
         void update(float delta_time = 0.1f) {
-            update_camera_controller(scene, input.publish_frame(), delta_time);
+            CameraControllerSystem system;
+            EXPECT_TRUE(system.update(scene, {delta_time, 0, 0, input.publish_frame()}));
         }
 
         void expect_position(Math::Vec3 expected) const {

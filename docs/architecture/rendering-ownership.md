@@ -132,7 +132,8 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
   → Renderer::prepare_frame
       回收完成的 upload → Presentation 等待 slot / acquire / 开始录制
   → Application::on_frame_ready（仅帧就绪后）
-      ImGui begin → UI/请求收集、即时属性与 Gizmo、相机输入、最新 RenderView → ImGui end → 反馈提交
+      ImGui begin → UI/请求收集、即时属性与 Gizmo、输入授权、最新 RenderView → ImGui end → 反馈提交
+  → SceneRuntime::advance（活动场景：有界 Fixed Update → 一次普通 Update）
   → SceneExtractor（读取此时的活动 Scene，更新 world transform）
   → Renderer::render_frame
   → SceneResolver（使用实际 Target 尺寸）
@@ -143,12 +144,19 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
 ```
 
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
+Engine 持有 Runtime 和 Scene，统一绑定与启停；App 和 EditorSceneSession 只请求启动 Engine 的当前 Scene。
+EditorSceneSession 管 Play 副本和失败回滚；Stop 走场景替换，由 Engine 先停止 System 再恢复 Edit，不重复管理调度器。
+输入授权每帧清空：App 交付窗口快照，Editor 交付当帧 UI Gate 结果；未授权时释放按钮，但模拟仍推进。
+prepare_frame 暂时无可呈现帧时跳过 UI／提取／绘制，仍执行 Runtime；最小化继续等待并重置墙钟增量。
+System 更新失败逆序停止并返回 Result；Engine 随后进入关闭清理，不继续使用已 acquire 的帧。
+替换 Scene 必须发生在 System 执行之外，先停止旧 Runtime；shutdown 在宿主、Scene 和服务释放前停止并销毁 System。
 文件扫描、复制、保存和同步资产加载在 on_update 执行，不占用已 acquire 的帧；这不是将全部 I/O 移出主线程。请求仍由唯一 Editor 执行，不新增事件总线。Window 可选择拦截原生关闭事件，Editor 处理未保存决策后才通过 request_close 确认退出。
 Scene 维护 EntityId／UUID 查询索引与父子索引，结构修改时同步维护；这些索引不参与序列化。
+SceneExtractor 与 CameraControllerSystem 共用 Scene 的类型化 each 查询；渲染提取不再是 Scene 的 friend，也不直接访问 EnTT registry。
 Scene 的同步检查遍历全部节点，比较本地 TRS、组件是否存在、parent ID 和父级计算版本，仅重算变化节点。
 单个 get_world_matrix 只检查祖先链；持续持有可变组件引用的写入同样在下次查询／提取时生效。
 缓存属于 Scene 私有状态，不序列化；update_world_transforms 返回实际重算数量，静止场景为零。
-Engine 同步借用 update 和 frame_ready 两个函数，不保存注册表；UI 修改后再同步变换并提取，避免使用上一帧数据。Renderer 不再调用 UI 准备，ImGuiContext 不再持有 UI 业务回调；Editor 在 on_frame_ready 显式调用 begin_frame/end_frame。
+Engine 同步借用 update 和 frame_ready 两个函数，不保存宿主回调注册表；UI 与 System 修改后再同步变换并提取，避免使用上一帧数据。Renderer 不再调用 UI 准备，ImGuiContext 不再持有 UI 业务回调；Editor 在 on_frame_ready 显式调用 begin_frame/end_frame。
 pose_world_matrix 使用层级旋转与普通世界矩阵的位置，本地及祖先缩放不进入相机朝向。
 本地 TR 只计算一次，普通矩阵在其基础上应用 scale；相机与物体继续使用各自的父级矩阵。
 SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler，不访问呈现队列；录制时借用传入的帧上下文。
