@@ -79,6 +79,17 @@ namespace CometEditor::Tests {
         EXPECT_EQ(edit_entity.get_component<Comet::TransformComponent>().translation,
             Comet::Math::Vec3(0));
 
+        ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(20, &input.publish_frame()));
+        EXPECT_FLOAT_EQ(
+            runtime_entity.get_component<Comet::TransformComponent>().translation.z, -0.5f);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        EXPECT_NEAR(runtime_entity.get_component<Comet::TransformComponent>().translation.z,
+            -0.5f - 5.0f / 60.0f, 1e-6f);
+        EXPECT_EQ(state.mode, EditorMode::Play);
+        EXPECT_EQ(history.state_id(), edited_state);
+        ASSERT_TRUE(runtime.request_step());
         session.request_mode(EditorMode::Edit);
         ASSERT_TRUE(session.apply_mode_request());
         EXPECT_EQ(state.mode, EditorMode::Edit);

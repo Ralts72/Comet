@@ -133,7 +133,7 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
       回收完成的 upload → Presentation 等待 slot / acquire / 开始录制
   → Application::on_frame_ready（仅帧就绪后）
       ImGui begin → UI/请求收集、即时属性与 Gizmo、输入授权、最新 RenderView → ImGui end → 反馈提交
-  → SceneRuntime::advance（活动场景：有界 Fixed Update → 一次普通 Update）
+  → SceneRuntime::advance（Running：有界 Fixed Update → 一次普通 Update；Paused：仅显式单步推进）
   → SceneExtractor（读取此时的活动 Scene，更新 world transform）
   → Renderer::render_frame
   → SceneResolver（使用实际 Target 尺寸）
@@ -146,7 +146,9 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 Engine 持有 Runtime 和 Scene，统一绑定与启停；App 和 EditorSceneSession 只请求启动 Engine 的当前 Scene。
 EditorSceneSession 管 Play 副本和失败回滚；Stop 走场景替换，由 Engine 先停止 System 再恢复 Edit，不重复管理调度器。
-输入授权每帧清空：App 交付窗口快照，Editor 交付当帧 UI Gate 结果；未授权时释放按钮，但模拟仍推进。
+输入授权每帧清空：App 交付窗口快照，Editor 交付当帧 UI Gate 结果；未授权时释放按钮，不代替 Runtime 的暂停状态。
+暂停只停止 System 的时间推进，宿主维护、UI、场景提取与绘制继续；单步执行一次固定更新和普通更新，然后保持暂停。
+面板只读 Runtime 状态，控制请求由 Editor 在下一次宿主更新经 Engine 应用；暂停／单步不克隆场景，不触发 System 重启。
 prepare_frame 暂时无可呈现帧时跳过 UI／提取／绘制，仍执行 Runtime；最小化继续等待并重置墙钟增量。
 System 更新失败逆序停止并返回 Result；Engine 随后进入关闭清理，不继续使用已 acquire 的帧。
 替换 Scene 必须发生在 System 执行之外，先停止旧 Runtime；shutdown 在宿主、Scene 和服务释放前停止并销毁 System。

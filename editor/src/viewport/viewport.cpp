@@ -26,14 +26,15 @@ namespace CometEditor {
         }
     }
 
-    Viewport::Viewport(EditorState& state, SelectionService& selection, CommandHistory& history,
+    Viewport::Viewport(EditorState& state, const Comet::SceneRuntime& runtime,
+        SelectionService& selection, CommandHistory& history,
         const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
         const EditorShortcuts& shortcuts, Comet::Renderer& renderer, Comet::AssetRegistry& assets,
         ImGuiContext& ui, std::shared_ptr<Comet::Sampler> sampler)
         : m_state(state), m_selection(selection), m_renderer(renderer), m_assets(assets), m_ui(ui),
           m_sampler(std::move(sampler)), m_gizmo(history, components),
-          m_panel(state, selection, m_gizmo, inspector_edit, viewport_dimension_limit(renderer),
-              shortcuts) {
+          m_panel(state, runtime, selection, m_gizmo, inspector_edit,
+              viewport_dimension_limit(renderer), shortcuts) {
         auto& scene_renderer = m_renderer.get_scene_renderer();
         if(!m_sampler)
             LOG_FATAL("Viewport requires a prepared sampler");

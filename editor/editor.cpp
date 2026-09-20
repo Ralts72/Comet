@@ -464,10 +464,10 @@ namespace {
 
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
                 scene, *m_selection, m_command_history, m_editor_state);
-            m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state, *m_selection,
-                m_command_history, m_component_registry, m_property_edit, m_shortcuts,
-                get_engine().get_renderer(), get_engine().get_asset_registry(), *m_imgui_context,
-                std::move(sampler).value());
+            m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
+                get_engine().get_scene_runtime(), *m_selection, m_command_history,
+                m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),
+                get_engine().get_asset_registry(), *m_imgui_context, std::move(sampler).value());
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(m_editor_state,
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_assets->database());
@@ -601,13 +601,36 @@ namespace {
             return Comet::Result<void, Comet::Error>::success();
         }
 
+        Comet::Result<void, Comet::Error> apply_play_command(
+            CometEditor::ViewportPanel::PlayCommand command) {
+            using Command = CometEditor::ViewportPanel::PlayCommand;
+            using State = Comet::SceneRuntime::State;
+            using Result = Comet::Result<void, Comet::Error>;
+            if(command == Command::Play || command == Command::Stop) {
+                if(finish_active_edit()) {
+                    auto mode = CometEditor::EditorMode::Edit;
+                    if(command == Command::Play)
+                        mode = CometEditor::EditorMode::Play;
+                    m_scene_session->request_mode(mode);
+                }
+                return Result::success();
+            }
+            if(m_editor_state.mode != CometEditor::EditorMode::Play)
+                return Result::success();
+            if(command == Command::Pause)
+                return get_engine().set_runtime_state(State::Paused);
+            if(command == Command::Resume)
+                return get_engine().set_runtime_state(State::Running);
+            return get_engine().request_runtime_step();
+        }
+
         Comet::Result<void, Comet::Error> process_scene_requests() {
             // 一次取走所有当帧请求；低优先级请求丢弃，不留到新场景或新模式继续执行。
             const auto hierarchy_request = m_hierarchy_panel->take_request();
             const auto menu_command = m_menu_bar->take_command();
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
-            const auto mode = m_viewport->panel().take_mode_request();
+            const auto play_command = m_viewport->panel().take_play_command();
             const auto file_request = m_scene_file_dialog.take_request();
             if(m_scene_file_dialog.take_cancelled()) {
                 m_scene_document->decide(CometEditor::SceneDocument::Decision::Cancel);
@@ -621,23 +644,23 @@ namespace {
                     return command;
             } else if(hierarchy_request)
                 handle_scene_request(*hierarchy_request);
-            else if(mesh_drop && !mode) {
+            else if(mesh_drop && !play_command) {
                 if(auto result = handle_mesh_drop(*mesh_drop); !result) {
                     if(is_device_lost(result.error()))
                         return result;
                     LOG_WARN("Mesh drop rejected: {}", result.error().message);
                 }
-            } else if(asset_assignment && !mode) {
+            } else if(asset_assignment && !play_command) {
                 if(auto result = handle_asset_assignment(*asset_assignment); !result) {
                     if(is_device_lost(result.error()))
                         return result;
                     LOG_WARN("Asset assignment rejected: {}", result.error().message);
                 }
             }
-            // 模式请求可与菜单／Hierarchy 同帧处理，但会抑制拖入和资产赋值。
-            if(mode && !m_scene_document->has_pending_request()) {
-                if(finish_active_edit())
-                    m_scene_session->request_mode(*mode);
+            // 运行控制抑制同帧拖入和资产赋值，文件操作挂起时丢弃。
+            if(play_command && !m_scene_document->has_pending_request()) {
+                if(auto applied = apply_play_command(*play_command); !applied)
+                    LOG_WARN("Play command rejected: {}", applied.error().message);
             }
             return Comet::Result<void, Comet::Error>::success();
         }

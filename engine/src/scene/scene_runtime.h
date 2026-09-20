@@ -12,6 +12,8 @@ namespace Comet {
     // 主线程串行编排；活动 Scene 必须活到 stop 完成之后。
     class COMET_API SceneRuntime final {
     public:
+        enum class State { Running, Paused };
+
         struct Settings {
             double fixed_delta = 1.0 / 60.0;
             double max_frame_delta = 0.25;
@@ -37,9 +39,12 @@ namespace Comet {
         Result<void, Error> clear_systems();
         Result<void, Error> start(Scene& scene);
         Result<void, Error> stop();
-        // nullptr 关闭输入，但仍推进模拟；输入只在调用期间借用。
+        Result<void, Error> set_state(State state);
+        Result<void, Error> request_step();
+        // nullptr 关闭输入，不改变运行／暂停状态；输入只在调用期间借用。
         Result<void, Error> advance(double delta_time, const Input::Frame* input = nullptr);
         [[nodiscard]] bool is_active() const { return m_scene != nullptr; }
+        [[nodiscard]] State get_state() const { return m_state; }
         [[nodiscard]] const Timing& get_timing() const { return m_timing; }
 
     private:
@@ -52,6 +57,9 @@ namespace Comet {
         Scene* m_scene = nullptr;
         size_t m_started = 0;
         bool m_executing = false;
+        State m_state = State::Running;
+        bool m_step_pending = false;
+        bool m_rebase_input = false;
         double m_accumulator = 0;
         Input::Frame m_fixed_input;
         std::optional<uint64_t> m_input_serial;

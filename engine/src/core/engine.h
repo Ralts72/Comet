@@ -59,8 +59,10 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> set_runtime_settings(SceneRuntime::Settings settings);
         [[nodiscard]] Result<void, Error> start_scene_runtime();
         [[nodiscard]] Result<void, Error> stop_scene_runtime();
+        [[nodiscard]] Result<void, Error> set_runtime_state(SceneRuntime::State state);
+        [[nodiscard]] Result<void, Error> request_runtime_step();
         [[nodiscard]] const SceneRuntime& get_scene_runtime() const { return m_scene_runtime; }
-        // 当帧授权，下一帧清空；未提供输入时仍推进模拟。
+        // 当帧授权，下一帧清空；不改变 Runtime 的运行／暂停状态。
         void set_runtime_input(const Input::Frame& input) { m_runtime_input = input; }
 
         [[nodiscard]] AssetRegistry& get_asset_registry() { return *m_asset_registry; }

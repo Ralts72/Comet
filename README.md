@@ -260,18 +260,21 @@ Frame 可复制，但不是持久回放格式。
 
 Engine 持有 `SceneRuntime`，App 启动场景和 editor Play 共用同一调度；Edit 不运行游戏 System。
 宿主通过 Engine 注册 System、配置时间并启停当前场景，不直接操作 Engine 内部的调度器。
-System 按注册顺序启动，每帧先执行零到多次 `fixed_update`，再执行一次 `update`，退出时逆序 `on_stop`。
+System 按注册顺序启动，运行帧先执行零到多次 `fixed_update`，再执行一次 `update`，退出时逆序 `on_stop`。
 相机控制由 `CameraControllerSystem::update` 执行；UI／资源维护仍由宿主负责，不改成游戏 System。
 默认固定步长 1/60 秒，最多接收 0.25 秒帧增量、每帧最多补算 8 步，超额整步丢弃并记录在 Timing 中。
 无固定步时累积输入边沿，首个固定步消费，后续补算不重复；普通更新仍能读取本帧边沿。
 
 宿主用 `Engine::set_runtime_input` 交付当帧输入：app 使用窗口快照，editor 在所有面板绘制后交付 Gate 过滤结果。
-未交付输入时仍推进模拟，但按钮释放、移动／滚轮归零，不复用旧的 UI 授权。暂时无可呈现帧也执行 System，
+未交付输入时不暂停模拟，但按钮释放、移动／滚轮归零，不复用旧的 UI 授权。运行状态下暂时无可呈现帧也执行 System，
 最小化沿用等待与计时重置策略。场景提取发生在 System 更新后；替换场景先停止旧 Runtime，显式启动新场景。
 System 通过 Result 报告失败，启动／更新失败会逆序清理；Play 启动失败恢复原 Edit 场景。
 `Scene::each<Components...>` 按组件组合查询，不创建全实体列表或排序；身份／层级／世界变换只读，查询内不做结构增删。
 `ComponentRegistry` 只描述属性、序列化和编辑能力，不存组件实例，也不注册 System；实例存储属于 Scene。
-当前仅主线程串行执行；暂停／单步、渲染插值、依赖调度、物理和脚本仍待接入。
+SceneRuntime 的 Running／Paused 与 Edit／Play 分离：暂停不调用 System，不累积补帧时间，UI、资产维护与渲染继续。
+单步执行一次固定更新和一次同时间增量的普通更新，随后保持暂停；重复待处理请求合并为一步。
+暂停与恢复边界丢弃输入边沿、鼠标位移和滚轮，单步仅使用当前已授权的按住状态；Stop 清除待处理单步。
+当前仅主线程串行执行；渲染插值、依赖调度、物理和脚本仍待接入。
 
 ## 编辑器使用
 
@@ -279,6 +282,7 @@ System 通过 Result 报告失败，启动／更新失败会逆序清理；Play 
   不恢复上次打开的其他文档；坏资源引用保留并记录 Log，后台导入完成后自动重试加载。
 - Edit 使用独立相机；Play 运行场景副本及其 primary Camera，Stop 不回写运行时修改。
   2D/3D 只切换 Edit 投影；Play 分辨率可选 Free、16:9、HD、FHD，Fit 等比适应，1x 原尺寸裁切。
+  Play 工具栏的 `||` 暂停、`>` 继续、`|>` 单步；单步仅在暂停时可用，控制请求在下一次宿主更新执行。
 - Edit 视口右键或 Option/Alt+左键环绕，中键或 Option/Alt+Shift+左键平移，滚轮／双指滚动缩放。
   左键按模型包围盒粗拾取，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。橙色选中框受场景遮挡。
 - Edit 选中实体后，Tool → Mode 选择 Move／Rotate／Scale，拖动轴、圆环或缩放方块。

@@ -10,6 +10,10 @@
 #include <cstdint>
 #include <optional>
 
+namespace Comet {
+    class SceneRuntime;
+}
+
 namespace CometEditor {
     class SelectionService;
     class TransformGizmo;
@@ -18,11 +22,14 @@ namespace CometEditor {
 
     class ViewportPanel: public EditorPanel {
     public:
+        enum class PlayCommand { Play, Stop, Pause, Resume, Step };
+
         struct MeshDrop {
             AssetDragPayload asset;
             Comet::Math::Vec3 position;
         };
-        ViewportPanel(const EditorState& state, SelectionService& selection, TransformGizmo& gizmo,
+        ViewportPanel(const EditorState& state, const Comet::SceneRuntime& runtime,
+            SelectionService& selection, TransformGizmo& gizmo,
             PropertyEditTransaction& inspector_edit, std::uint32_t max_render_dimension,
             const EditorShortcuts& shortcuts);
 
@@ -52,7 +59,7 @@ namespace CometEditor {
 
         [[nodiscard]] std::optional<Comet::RenderCamera::Projection> take_projection_request();
 
-        [[nodiscard]] std::optional<EditorMode> take_mode_request();
+        [[nodiscard]] std::optional<PlayCommand> take_play_command();
 
         [[nodiscard]] std::optional<Comet::Math::Vec2u> take_pick_request();
 
@@ -68,6 +75,7 @@ namespace CometEditor {
         };
 
         void render_toolbar();
+        void render_runtime_controls();
         void render_projection_controls();
         void render_gizmo_settings();
         void render_play_toolbar();
@@ -78,6 +86,7 @@ namespace CometEditor {
         void reset_camera_interaction();
 
         const EditorState& m_state;
+        const Comet::SceneRuntime& m_runtime;
         SelectionService& m_selection;
         TransformGizmo& m_gizmo;
         PropertyEditTransaction& m_inspector_edit;
@@ -100,7 +109,7 @@ namespace CometEditor {
         std::uint32_t m_render_resolution_stable_frames = 0;
         std::optional<EditorCameraInput> m_camera_input;
         std::optional<Comet::RenderCamera::Projection> m_camera_projection_request;
-        std::optional<EditorMode> m_mode_request;
+        std::optional<PlayCommand> m_play_command;
         std::optional<Comet::Math::Vec2u> m_pick_request;
         bool m_focus_request = false;
         std::optional<CameraDrag> m_camera_drag;

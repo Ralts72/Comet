@@ -66,6 +66,7 @@ namespace Comet::Tests {
 
     class SceneRuntimeTest: public testing::Test {
     protected:
+        using State = SceneRuntime::State;
         Scene scene;
         Calls calls;
         SceneRuntime runtime;
@@ -291,6 +292,8 @@ namespace Comet::Tests {
     }
 
     TEST_F(SceneRuntimeTest, InvalidSettingsAndReentryAreRejectedWithoutChangingTheActiveRun) {
+        EXPECT_FALSE(runtime.set_state(State::Paused));
+        EXPECT_FALSE(runtime.request_step());
         EXPECT_FALSE(runtime.set_settings({.fixed_delta = 0}));
         EXPECT_FALSE(runtime.set_settings({.max_fixed_steps = 0}));
         EXPECT_FALSE(
@@ -300,6 +303,8 @@ namespace Comet::Tests {
         system->update_frame = [&](Scene& active, const System::Context&) {
             EXPECT_FALSE(runtime.start(active));
             EXPECT_FALSE(runtime.stop());
+            EXPECT_FALSE(runtime.set_state(State::Paused));
+            EXPECT_FALSE(runtime.request_step());
             EXPECT_FALSE(runtime.advance(0));
             EXPECT_FALSE(runtime.clear_systems());
             EXPECT_FALSE(runtime.set_settings({}));
@@ -311,6 +316,8 @@ namespace Comet::Tests {
             EXPECT_FALSE(runtime.stop());
         };
         ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(runtime.request_step());
+        EXPECT_FALSE(runtime.set_state(static_cast<State>(99)));
         EXPECT_FALSE(runtime.advance(-1));
         EXPECT_FALSE(runtime.advance(std::numeric_limits<double>::quiet_NaN()));
         advance(0.1);
@@ -318,6 +325,130 @@ namespace Comet::Tests {
         EXPECT_EQ(runtime.get_timing().frame_index, 1u);
         ASSERT_TRUE(runtime.stop());
         system->stop = {};
+    }
+
+    TEST_F(SceneRuntimeTest, PauseFreezesSimulationAndResumeRebasesTimeAndInput) {
+        add();
+        ASSERT_TRUE(runtime.start(scene));
+        input.key_event(Input::Key::W, true);
+        advance(0.04);
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        EXPECT_TRUE(runtime.is_active());
+        const auto before = runtime.get_timing();
+        input.key_event(Input::Key::W, false);
+        input.key_event(Input::Key::Space, true);
+        input.cursor_event({0, 0});
+        input.cursor_event({9, 8});
+        input.scroll_event({0, 4});
+        advance(60);
+        input.key_event(Input::Key::Space, false);
+        advance(60);
+        EXPECT_EQ(calls.order, (std::vector<std::string>{"start A", "update A"}));
+        EXPECT_EQ(runtime.get_timing().frame_index, before.frame_index);
+        EXPECT_EQ(runtime.get_timing().fixed_index, before.fixed_index);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().total_time, before.total_time);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().dropped_time, 0);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().interpolation, 0);
+
+        ASSERT_TRUE(runtime.set_state(State::Running));
+        input.key_event(Input::Key::W, true);
+        input.scroll_event({0, 2});
+        advance(0.04);
+        EXPECT_TRUE(calls.fixed.empty());
+        EXPECT_TRUE(calls.updates.back().input.key(Input::Key::W).down);
+        EXPECT_FALSE(calls.updates.back().input.key(Input::Key::W).pressed);
+        EXPECT_EQ(calls.updates.back().input.scroll, Math::Vec2(0));
+        input.key_event(Input::Key::W, false);
+        advance(0.06);
+        ASSERT_EQ(calls.fixed.size(), 1u);
+        EXPECT_FALSE(calls.fixed.back().input.key(Input::Key::W).pressed);
+        EXPECT_TRUE(calls.fixed.back().input.key(Input::Key::W).released);
+        EXPECT_FALSE(calls.fixed.back().input.key(Input::Key::Space).pressed);
+        EXPECT_FALSE(calls.fixed.back().input.key(Input::Key::Space).released);
+        EXPECT_EQ(calls.fixed.back().input.cursor_delta, Math::Vec2(0));
+        EXPECT_EQ(calls.fixed.back().input.scroll, Math::Vec2(0));
+        EXPECT_NEAR(runtime.get_timing().total_time, 0.14, 1e-9);
+    }
+
+    TEST_F(SceneRuntimeTest, SingleStepRunsBothPhasesOnceAndCoalescesPendingRequests) {
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.1, .max_frame_delta = 0.01}));
+        add("A");
+        add("B");
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        input.key_event(Input::Key::W, true);
+        input.scroll_event({0, 2});
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.request_step());
+        advance(10);
+        EXPECT_EQ(calls.order, (std::vector<std::string>{"start A", "start B", "fixed A", "fixed B",
+                                   "update A", "update B"}));
+        EXPECT_EQ(runtime.get_state(), State::Paused);
+        EXPECT_EQ(runtime.get_timing().frame_index, 1u);
+        EXPECT_EQ(runtime.get_timing().fixed_steps, 1u);
+        EXPECT_EQ(runtime.get_timing().fixed_index, 1u);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().total_time, 0.1);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().fixed_time, 0.1);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().dropped_time, 0);
+        for(const auto& sample : calls.fixed) {
+            EXPECT_DOUBLE_EQ(sample.delta, 0.1);
+            EXPECT_TRUE(sample.input.key(Input::Key::W).down);
+            EXPECT_FALSE(sample.input.key(Input::Key::W).pressed);
+            EXPECT_EQ(sample.input.scroll, Math::Vec2(0));
+        }
+        EXPECT_DOUBLE_EQ(calls.updates.front().delta, 0.1);
+        advance(10);
+        EXPECT_EQ(runtime.get_timing().frame_index, 1u);
+        EXPECT_EQ(runtime.get_timing().fixed_steps, 0u);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(runtime.get_timing().fixed_index, 2u);
+        EXPECT_FALSE(calls.fixed.back().input.focused);
+        EXPECT_FALSE(calls.fixed.back().input.key(Input::Key::W).down);
+        EXPECT_EQ(calls.updates.size(), 4u);
+    }
+
+    TEST_F(SceneRuntimeTest, ResumeAndStopCancelPendingStepsAndRestartIsRunning) {
+        add();
+        ASSERT_TRUE(runtime.start(scene));
+        advance(0.06);
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.set_state(State::Running));
+        advance(0.04);
+        EXPECT_TRUE(calls.fixed.empty());
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(runtime.get_state(), State::Running);
+        advance(0);
+        EXPECT_TRUE(calls.fixed.empty());
+        EXPECT_EQ(runtime.get_timing().frame_index, 1u);
+    }
+
+    TEST_F(SceneRuntimeTest, FailedSingleStepCleansUpAndCannotBeReplayed) {
+        add("A");
+        auto* failing = add("B");
+        const Error failure{"step failed", std::make_error_code(std::errc::io_error)};
+        failing->fixed = [&](Scene&, const System::Context&) {
+            EXPECT_FALSE(runtime.set_state(State::Running));
+            EXPECT_FALSE(runtime.request_step());
+            return UpdateResult::failure(failure);
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        ASSERT_TRUE(runtime.request_step());
+        const auto result = runtime.advance(0);
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().code, failure.code);
+        EXPECT_EQ(result.error().message, failure.message);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_EQ(calls.order[calls.order.size() - 2], "stop B");
+        EXPECT_EQ(calls.order.back(), "stop A");
+        EXPECT_TRUE(calls.updates.empty());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(calls.fixed.size(), 2u);
     }
 
     TEST_F(SceneRuntimeTest, CameraRunsOncePerFrameNotOncePerFixedStep) {

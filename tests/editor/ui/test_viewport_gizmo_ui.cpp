@@ -4,6 +4,7 @@
 #include "viewport/transform_gizmo.h"
 #include "ui/shortcuts.h"
 #include "scene/systems/camera_controller.h"
+#include "scene/scene_runtime.h"
 
 #include "support/imgui_context.h"
 
@@ -16,6 +17,7 @@ namespace CometEditor::Tests {
     protected:
         Comet::Tests::ImGuiTestContext imgui{{1000, 800}};
         Comet::Scene scene;
+        Comet::SceneRuntime runtime;
         Comet::Entity entity = scene.create_entity();
         Comet::ComponentRegistry components = Comet::create_scene_component_registry();
         CommandHistory history;
@@ -24,7 +26,7 @@ namespace CometEditor::Tests {
         SelectionService selection{scene};
         EditorState state;
         EditorShortcuts shortcuts;
-        ViewportPanel viewport{state, selection, gizmo, property_edit, 4096, shortcuts};
+        ViewportPanel viewport{state, runtime, selection, gizmo, property_edit, 4096, shortcuts};
         int gizmo_vertices = 0;
         bool mesh_drag = false;
         bool show_other_panel = false;
@@ -40,6 +42,7 @@ namespace CometEditor::Tests {
 
         void SetUp() override {
             runtime_input.focus_event(true);
+            ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::CameraControllerSystem>()));
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
             viewport.set_texture_id(static_cast<ImTextureID>(1), 800, 600);
@@ -88,8 +91,7 @@ namespace CometEditor::Tests {
             const auto& routed = viewport.route_runtime_input(runtime_input.publish_frame());
             runtime_accepting = routed.focused;
             if(state.mode == EditorMode::Play) {
-                Comet::CameraControllerSystem system;
-                EXPECT_TRUE(system.update(scene, {0.1, 0, 0, routed}));
+                EXPECT_TRUE(runtime.advance(0.1, &routed));
             }
             ImGui::Render();
         }
@@ -126,12 +128,67 @@ namespace CometEditor::Tests {
             state.mode = EditorMode::Play;
             entity.add_component<Comet::CameraComponent>().primary = true;
             entity.add_component<Comet::CameraControllerComponent>();
+            ASSERT_TRUE(runtime.start(scene));
             frame();
             const auto& rect = viewport.get_layout().image_visible_rect;
             move_pointer((rect.min + rect.max) * 0.5f);
             EXPECT_TRUE(runtime_accepting);
         }
     };
+
+    TEST_F(ViewportGizmoUiTest, PlayControlsReadRuntimeStateAndOnlyEmitOneCommand) {
+        using Command = ViewportPanel::PlayCommand;
+        using State = Comet::SceneRuntime::State;
+        auto* window = ImGui::FindWindowByName("Viewport");
+        ASSERT_NE(window, nullptr);
+        ImGui::ActivateItemByID(window->GetID("||##Pause"));
+        frame();
+        EXPECT_FALSE(viewport.take_play_command());
+        ImGui::ActivateItemByID(window->GetID(Ui::label("Play").c_str()));
+        frame();
+        EXPECT_EQ(viewport.take_play_command(), Command::Play);
+        EXPECT_EQ(state.mode, EditorMode::Edit);
+
+        activate_play_camera();
+        ImGui::ActivateItemByID(window->GetID("|>##Step"));
+        frame();
+        EXPECT_FALSE(viewport.take_play_command());
+        ImGui::ActivateItemByID(window->GetID("||##Pause"));
+        frame();
+        EXPECT_EQ(viewport.take_play_command(), Command::Pause);
+        EXPECT_FALSE(viewport.take_play_command());
+        EXPECT_EQ(runtime.get_state(), State::Running);
+
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        frame();
+        const auto fixed_index = runtime.get_timing().fixed_index;
+        ImGui::ActivateItemByID(window->GetID("|>##Step"));
+        frame();
+        EXPECT_EQ(viewport.take_play_command(), Command::Step);
+        EXPECT_EQ(runtime.get_timing().fixed_index, fixed_index);
+        ASSERT_TRUE(runtime.request_step());
+        frame();
+        EXPECT_EQ(runtime.get_timing().fixed_index, fixed_index + 1);
+        EXPECT_EQ(runtime.get_state(), State::Paused);
+        frame();
+        EXPECT_EQ(runtime.get_timing().fixed_index, fixed_index + 1);
+        ImGui::ActivateItemByID(window->GetID(">##Resume"));
+        frame();
+        EXPECT_EQ(viewport.take_play_command(), Command::Resume);
+        EXPECT_EQ(runtime.get_state(), State::Paused);
+        ASSERT_TRUE(runtime.stop());
+        frame();
+        ImGui::ActivateItemByID(window->GetID("|>##Step"));
+        frame();
+        EXPECT_FALSE(viewport.take_play_command());
+        ImGui::ActivateItemByID(window->GetID("||##Pause"));
+        frame();
+        EXPECT_FALSE(viewport.take_play_command());
+        ImGui::ActivateItemByID(window->GetID(Ui::label("Stop").c_str()));
+        frame();
+        EXPECT_EQ(viewport.take_play_command(), Command::Stop);
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
 
     TEST_F(ViewportGizmoUiTest, PlayCameraAcceptsHoverWithoutClickAndBlocksHeldKeysOnReentry) {
         activate_play_camera();
@@ -164,26 +221,26 @@ namespace CometEditor::Tests {
         runtime_input.key_event(Comet::Input::Key::Escape, true);
         frame();
         EXPECT_FALSE(runtime_accepting);
-        EXPECT_EQ(viewport.take_mode_request(), EditorMode::Edit);
+        EXPECT_EQ(viewport.take_play_command(), ViewportPanel::PlayCommand::Stop);
         EXPECT_EQ(
             entity.get_component<Comet::TransformComponent>().translation, Comet::Math::Vec3(0));
 
         viewport.set_visible(false);
         runtime_input.key_event(Comet::Input::Key::Escape, false);
         frame();
-        EXPECT_FALSE(viewport.take_mode_request());
+        EXPECT_FALSE(viewport.take_play_command());
         runtime_input.key_event(Comet::Input::Key::Escape, true);
         frame();
-        EXPECT_EQ(viewport.take_mode_request(), EditorMode::Edit);
+        EXPECT_EQ(viewport.take_play_command(), ViewportPanel::PlayCommand::Stop);
         frame();
-        EXPECT_FALSE(viewport.take_mode_request());
+        EXPECT_FALSE(viewport.take_play_command());
 
         state.mode = EditorMode::Edit;
         runtime_input.key_event(Comet::Input::Key::Escape, false);
         frame();
         runtime_input.key_event(Comet::Input::Key::Escape, true);
         frame();
-        EXPECT_FALSE(viewport.take_mode_request());
+        EXPECT_FALSE(viewport.take_play_command());
     }
 
     TEST_F(ViewportGizmoUiTest, PopupOpenedAfterViewportStopsRuntimeInTheSameFrame) {

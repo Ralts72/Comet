@@ -79,8 +79,8 @@ namespace CometEditor::Tests {
         EditorShortcuts shortcuts;
         auto sampler = renderer.get_render_resources().get_sampler_manager().get_nearest_clamp();
         ASSERT_TRUE(sampler) << sampler.error();
-        Viewport viewport(state, selection, history, components, edit, shortcuts, renderer,
-            engine.get_asset_registry(), ui, std::move(sampler).value());
+        Viewport viewport(state, engine.get_scene_runtime(), selection, history, components, edit,
+            shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value());
         renderer.set_overlay_renderer(
             [&](Comet::CommandBuffer& command_buffer) { ui.render(command_buffer); });
         const auto draw_frame = [&] {

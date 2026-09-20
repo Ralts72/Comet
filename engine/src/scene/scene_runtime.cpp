@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace Comet {
     namespace {
@@ -61,6 +62,9 @@ namespace Comet {
         if(m_executing || is_active())
             return Result<void, Error>::failure({"Scene runtime is already active or executing"});
         m_scene = &scene;
+        m_state = State::Running;
+        m_step_pending = false;
+        m_rebase_input = false;
         m_timing = {};
         m_accumulator = 0;
         m_fixed_input = {};
@@ -81,6 +85,9 @@ namespace Comet {
         while(m_started > 0)
             m_systems[--m_started]->on_stop(*m_scene);
         m_scene = nullptr;
+        m_state = State::Running;
+        m_step_pending = false;
+        m_rebase_input = false;
         m_accumulator = 0;
         m_fixed_input = {};
         m_input_serial.reset();
@@ -134,6 +141,31 @@ namespace Comet {
         return frame;
     }
 
+    Result<void, Error> SceneRuntime::set_state(State state) {
+        if(m_executing || !is_active())
+            return Result<void, Error>::failure({"Runtime state requires an idle active scene"});
+        if(state != State::Running && state != State::Paused)
+            return Result<void, Error>::failure({"Invalid scene runtime state"});
+        if(m_state == state)
+            return Result<void, Error>::success();
+        m_state = state;
+        m_step_pending = false;
+        m_rebase_input = true;
+        m_accumulator = 0;
+        m_fixed_input.clear_transients();
+        m_timing.fixed_steps = 0;
+        m_timing.interpolation = 0;
+        m_timing.dropped_time = 0;
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> SceneRuntime::request_step() {
+        if(m_executing || !is_active() || m_state != State::Paused)
+            return Result<void, Error>::failure({"Single step requires an idle paused scene"});
+        m_step_pending = true;
+        return Result<void, Error>::success();
+    }
+
     Result<void, Error> SceneRuntime::advance(double delta_time, const Input::Frame* input) {
         if(m_executing)
             return Result<void, Error>::failure({"Cannot reenter an executing scene runtime"});
@@ -142,10 +174,24 @@ namespace Comet {
                 {"Scene runtime delta must be finite and nonnegative"});
         if(!is_active())
             return Result<void, Error>::success();
-        const auto frame_input = consume_input(input);
-        const double delta = std::min(delta_time, m_settings.max_frame_delta);
-        m_timing.dropped_time = delta_time - delta;
+        auto frame_input = consume_input(input);
+        if(m_state == State::Paused || m_rebase_input) {
+            // 暂停／恢复／单步只采样当前电平，不回放边沿、鼠标位移或滚轮。
+            frame_input.clear_transients();
+            m_fixed_input = frame_input;
+            m_rebase_input = false;
+        }
+        const bool stepping = std::exchange(m_step_pending, false);
         m_timing.fixed_steps = 0;
+        m_timing.dropped_time = 0;
+        if(m_state == State::Paused && !stepping)
+            return Result<void, Error>::success();
+
+        double delta = m_settings.fixed_delta;
+        if(!stepping) {
+            delta = std::min(delta_time, m_settings.max_frame_delta);
+            m_timing.dropped_time = delta_time - delta;
+        }
         m_accumulator += delta;
         const double step = m_settings.fixed_delta;
         const double epsilon = step * 1e-9;

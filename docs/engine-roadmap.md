@@ -1,6 +1,6 @@
 # Comet 引擎路线图
 
-更新：2026-09-20。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
+更新：2026-09-21。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
 本文只维护阶段、待办和设计约束，不累计每次迁移的完成日志。
 
 ## 当前阶段与下一步
@@ -13,7 +13,7 @@
 | 3 资产数据库与导入 | 主链路、任务背压与发布预算已接通，仍有扩展 | 增量引用恢复、字节预算与更多导入格式 |
 | 4 视口与交互 | 4A/4B 主链路完成，4C 材质创建与模板选择已接通 | 内容编辑与资产撤销扩展 |
 | 5 渲染升级 | 核心 forward 链路、诊断与代表场景测量已接通 | 项目 Shader 资产化、实例化、可选延迟渲染；路径追踪为远期扩展 |
-| 6 游戏运行时 | 输入、固定更新与串行 System 已接通 | 暂停／单步、动作映射、脚本、物理、音频 |
+| 6 游戏运行时 | 输入、固定更新、串行 System 与暂停／单步已接通 | 动作映射、脚本、物理、音频 |
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
 以当前 main 的功能与验收为准，继续逐项对照 feat/auto2 的实现及原始提交，而不是机械 cherry-pick。
@@ -42,9 +42,13 @@
 7. **已接通：固定更新与最小 System 调度**（阶段 6）：旧 `038 / 605b299` 适配为 Result／RAII 生命周期，
    零步保留输入边沿、多步不重复触发；app 私有 DemoRotationSystem 固定更新，CameraControllerSystem 普通更新。
    app／Play 共享 Engine 的 SceneRuntime，暂时无法呈现仍推进模拟；没有当帧输入授权时关闭输入，不暂停时间。
-8. **下一步：Play 暂停与单步**（阶段 6）：参考旧 `039 / 852e390`，在现有 SceneRuntime／EditorSceneSession 上接入，
-   暂停时编辑器与资产维护继续；定义单步的时间和输入消费，不扩大 EditorMode，也不把暂停实现成停止整个 Engine。
-9. **后续独立里程碑：项目自定义 Shader**（阶段 3／5）：复用材质编辑入口，接通程序资产、metadata、动态布局与发布所有权。
+8. **已接通：Play 暂停与单步**（阶段 6）：旧 `039 / 852e390` 按当前 Result 和 Engine 生命周期入口适配，
+   暂停不运行 System，但 UI／资产／渲染继续；单步推进一个固定步和一次同 delta 的普通更新，随后保持暂停。
+   EditorMode 仍只有 Edit／Play，面板只读 Runtime 状态，Play／Stop／暂停／继续／单步共用一条请求路径。
+9. **下一步：Native Script 生命周期与字段注册**（阶段 6）：参考旧 `041 / d409c99`；实施前核对旧 `040 / b2dcf12`
+   尚未覆盖的输入边界，已有 Gate／当帧授权／缺失输入清理不重复迁移。项目行为接 System 和组件元信息，
+   替换 app 私有 DemoRotationSystem，不将示例 UUID 或脚本工厂放进引擎通用配置。
+10. **后续独立里程碑：项目自定义 Shader**（阶段 3／5）：复用材质编辑入口，接通程序资产、metadata、动态布局与发布所有权。
    依赖材质编辑闭环和程序资产协议，不把它作为 PBR／环境照明的前置；出现真实自定义着色需求时可独立提前。
 
 与 feat/auto2 结合：本轮复用已迁移的 `9a7b2e3` 共享布局面板和 `40dfe50` 候选发布思路，补齐该分支未提供的材质创建／模板选择。
@@ -609,7 +613,10 @@ validation、同步测试和生命周期回归通过。
 - app 与 editor 已共用项目与启动场景数据；app 对仓库 demo 的固定 UUID 旋转仍仅是演示行为，
   外部项目和 editor Play 不执行它，当前由 app 私有 DemoRotationSystem 固定更新。生命周期已统一，
   后续项目脚本接入后移除剩余演示 UUID 绑定，不为示例旋转添加专用组件。
-- EditorMode 只含 Edit/Play；后续 RuntimeState（Running/Paused）与之正交，支持暂停/单步，不增加 EditorMode::Paused。
+- EditorMode 只含 Edit/Play；SceneRuntime::State（Running/Paused）与之正交，暂停不触发 on_stop/on_start。
+  暂停帧只消费输入基线，不执行 System 或累计墙钟时间；单步运行一轮 fixed_update 和 update，二者 delta 均为 fixed_delta。
+  暂停／恢复清零不足一步的累计时间与瞬态输入，单步只读取当前授权的电平；重复请求合并，恢复／Stop／失败取消待执行单步。
+  Play 控制在宿主更新中通过 Engine 执行；只读面板不持有可变 Runtime，也不把运行状态写入 Scene 或编辑撤销历史。
 - 当前 Engine::run 管循环、私有 tick 推进单帧；on_update 后准备帧，帧就绪才执行 on_frame_ready，
   再统一推进 SceneRuntime 的固定／普通更新，最后提取当前场景并渲染；暂时无呈现帧只跳过 UI／提取／绘制。
   两个函数仅在 run 调用期间借用；编辑器请求执行与后台维护在 on_update，UI/请求收集/即时属性与视口更新在 on_frame_ready。无通用阶段注册表或预留 Late 钩子。
@@ -618,7 +625,7 @@ validation、同步测试和生命周期回归通过。
   调度器与 System 接口归属 scene/，runtime/ 仅保留应用宿主；Engine 统一启停和场景绑定，仅暴露只读 Runtime 状态。
   EditorSceneSession 负责克隆／恢复／失败回滚，经宿主请求启动；替换时的停止只由 Engine 执行。
   每个消费者通过当帧输入授权接入，不将窗口原始键盘状态自动交给 Play；无输入仍推进时间，最小化不积压长时间补帧。
-  后续暂停／单步、渲染插值和真实物理／动画依赖分别验收，不预建通用阶段注册表或并行调度。
+  后续渲染插值和真实物理／动画依赖分别验收，不预建通用阶段注册表或并行调度。
 - Scene 的类型化 each 查询已供 CameraControllerSystem／SceneExtractor 共用，不暴露 registry；场景维护组件保持只读。
   get_entities 仍供需要稳定 EntityId 顺序的编辑器／序列化路径使用。ComponentRegistry 只负责元信息，不是 ECS 存储或 System 注册表。
   查询内只允许组件值读写；结构增删暂在查询外执行，将来结合脚本／物理需要再定义延迟结构命令的应用时点。

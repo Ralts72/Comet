@@ -28,6 +28,7 @@ namespace Comet::Tests {
     namespace {
         struct RuntimeCalls {
             int starts = 0;
+            int fixed_updates = 0;
             int updates = 0;
             int stops = 0;
             bool input_focused = false;
@@ -53,6 +54,10 @@ namespace Comet::Tests {
                     return Result<void, Error>::failure({"runtime update failed"});
                 return Result<void, Error>::success();
             }
+            Result<void, Error> fixed_update(Scene&, const Context&) override {
+                ++m_calls->fixed_updates;
+                return Result<void, Error>::success();
+            }
             void on_stop(Scene& scene) noexcept override {
                 ++m_calls->stops;
                 m_calls->stopped_scene = &scene;
@@ -70,6 +75,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(created) << created.error().message;
         auto& engine = *created.value();
         EXPECT_FALSE(engine.start_scene_runtime());
+        EXPECT_FALSE(engine.set_runtime_state(SceneRuntime::State::Paused));
+        EXPECT_FALSE(engine.request_runtime_step());
         auto calls = std::make_shared<RuntimeCalls>();
         ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
         ASSERT_TRUE(engine.set_runtime_settings({.fixed_delta = 0.02}));
@@ -96,6 +103,61 @@ namespace Comet::Tests {
         EXPECT_FALSE(engine.start_scene_runtime());
         EXPECT_FALSE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
         EXPECT_FALSE(engine.set_runtime_settings({}));
+    }
+
+    TEST(EngineRunTest, PausedRuntimeKeepsHostAndRenderingAliveWhileStepRunsOnce) {
+        auto created = Engine::create(Config{});
+        ASSERT_TRUE(created) << created.error().message;
+        auto& engine = *created.value();
+        auto calls = std::make_shared<RuntimeCalls>();
+        engine.set_scene(std::make_unique<Scene>());
+        ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine.start_scene_runtime());
+        ASSERT_TRUE(engine.set_runtime_state(SceneRuntime::State::Paused));
+        int hosts = 0;
+        int ui_frames = 0;
+        int draws = 0;
+        engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) {
+            ++draws;
+            EXPECT_EQ(calls->starts, 1);
+            EXPECT_EQ(calls->stops, 0);
+            if(draws == 1) {
+                EXPECT_EQ(calls->updates, 0);
+                EXPECT_EQ(calls->fixed_updates, 0);
+            } else if(draws <= 3) {
+                EXPECT_EQ(calls->updates, 1);
+                EXPECT_EQ(calls->fixed_updates, 1);
+                EXPECT_EQ(engine.get_scene_runtime().get_state(), SceneRuntime::State::Paused);
+            } else {
+                EXPECT_EQ(calls->updates, 2);
+                EXPECT_EQ(engine.get_scene_runtime().get_state(), SceneRuntime::State::Running);
+                engine.get_window().request_close();
+            }
+        });
+        const auto result = engine.run(
+            [&](UpdateContext) {
+                ++hosts;
+                if(hosts > 8)
+                    engine.get_window().request_close();
+                if(hosts == 2)
+                    return engine.request_runtime_step();
+                if(hosts == 4)
+                    return engine.set_runtime_state(SceneRuntime::State::Running);
+                return Result<void, Error>::success();
+            },
+            [&] {
+                ++ui_frames;
+                return Result<void, Error>::success();
+            });
+        engine.get_renderer().set_overlay_renderer({});
+        ASSERT_TRUE(result);
+        EXPECT_EQ(hosts, 4);
+        EXPECT_EQ(ui_frames, 4);
+        EXPECT_EQ(draws, 4);
+        engine.prepare_shutdown();
+        EXPECT_EQ(calls->stops, 1);
+        EXPECT_FALSE(engine.set_runtime_state(SceneRuntime::State::Paused));
+        EXPECT_FALSE(engine.request_runtime_step());
     }
 
     TEST(EngineRunTest, UpdateCanCloseBeforeRenderingAndRejectsReentry) {

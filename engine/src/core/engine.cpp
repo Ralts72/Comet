@@ -102,6 +102,18 @@ namespace Comet {
         return stopped;
     }
 
+    Result<void, Error> Engine::set_runtime_state(SceneRuntime::State state) {
+        if(m_shutdown_prepared)
+            return Result<void, Error>::failure({"Engine is shutting down"});
+        return m_scene_runtime.set_state(state);
+    }
+
+    Result<void, Error> Engine::request_runtime_step() {
+        if(m_shutdown_prepared)
+            return Result<void, Error>::failure({"Engine is shutting down"});
+        return m_scene_runtime.request_step();
+    }
+
     std::unique_ptr<Scene> Engine::replace_scene(std::unique_ptr<Scene> scene) noexcept {
         // System 执行时不得销毁其借用的 Scene；换场景请求须交由宿主下一次更新处理。
         if(auto stopped = stop_scene_runtime(); !stopped)
