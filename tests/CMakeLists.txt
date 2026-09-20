@@ -112,3 +112,12 @@ comet_copy_runtime_dependencies(post_process_recovery)
 add_test(NAME post_process_recovery COMMAND post_process_recovery ${TEST_PLATFORM_ARGS})
 set_tests_properties(post_process_recovery PROPERTIES
         RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration")
+
+if (TARGET render_benchmark)
+    add_test(NAME render_benchmark_smoke COMMAND "${CMAKE_COMMAND}"
+            "-DBENCHMARK=$<TARGET_FILE:render_benchmark>"
+            "-DOUTPUT_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/render-benchmark"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/render/test_benchmark.cmake")
+    set_tests_properties(render_benchmark_smoke PROPERTIES
+            RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration")
+endif ()

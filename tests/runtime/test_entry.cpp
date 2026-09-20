@@ -1,5 +1,7 @@
 #include "runtime/entry.h"
 #include "common/scope_exit.h"
+#include "common/file_io.h"
+#include "core/project_paths.h"
 #include "config/config.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
@@ -137,13 +139,49 @@ namespace Comet::Tests {
                 return RunResult::success();
             }
             RunResult on_shutdown() override { return RunResult::success(); }
-        } app({}, OutputMode::Sdr);
+        } app({}, {}, OutputMode::Sdr);
         Config config;
         config.render.output_mode = OutputMode::Hdr;
         config.window.width = 160;
         config.window.height = 120;
         config.diagnostics.log.enable_file_logging = false;
         ASSERT_TRUE(app.run(config));
+    }
+
+    TEST(ApplicationCreationTest, LogsStayInsideTheSelectedProjectThroughShutdown) {
+        TemporaryDirectory directory;
+        const ProjectPaths paths(directory.path() / "external-project");
+        class App final: public Application {
+        public:
+            using Application::Application;
+            std::filesystem::path log_path;
+            RunResult on_init() override {
+                log_path = Logger::get_log_file_path();
+                LOG_INFO("project startup");
+                get_engine().get_window().request_close();
+                return RunResult::success();
+            }
+            RunResult on_shutdown() override {
+                LOG_INFO("project shutdown");
+                return RunResult::success();
+            }
+        } app(paths.cache(), paths.logs());
+        Logger::shutdown();
+        Config config;
+        config.window.width = 160;
+        config.window.height = 120;
+        config.vulkan.msaa_samples = SampleCount::Count1;
+        config.diagnostics.log.level = "info";
+        config.diagnostics.log.directory = directory.path() / "wrong-project";
+        ASSERT_TRUE(app.run(config));
+        EXPECT_EQ(app.log_path.parent_path(), paths.logs());
+        EXPECT_FALSE(std::filesystem::exists(config.diagnostics.log.directory));
+        const auto contents = read_text_file(app.log_path);
+        ASSERT_TRUE(contents) << contents.error();
+        EXPECT_NE(contents.value().find("init renderer"), std::string::npos);
+        EXPECT_NE(contents.value().find("project startup"), std::string::npos);
+        EXPECT_NE(contents.value().find("project shutdown"), std::string::npos);
+        EXPECT_TRUE(Logger::get_log_file_path().empty());
     }
 
     class ApplicationLifecycleTest: public ::testing::TestWithParam<std::pair<int, bool>> {

@@ -18,6 +18,7 @@ namespace Comet {
     class COMET_API Application {
     public:
         explicit Application(std::filesystem::path cache_directory = {},
+            std::filesystem::path log_directory = {},
             std::optional<OutputMode> output_mode_override = {});
         virtual ~Application() = default;
 
@@ -42,6 +43,7 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> end();
 
         std::filesystem::path m_cache_directory;
+        std::filesystem::path m_log_directory;
         std::optional<OutputMode> m_output_mode_override;
         std::unique_ptr<Diagnostics> m_diagnostics;
         std::unique_ptr<Engine> m_engine;

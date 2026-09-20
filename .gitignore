@@ -5,7 +5,6 @@
 build/
 build-editor/
 build-release/
-logs/
 .codegraph/
 .comet/
 

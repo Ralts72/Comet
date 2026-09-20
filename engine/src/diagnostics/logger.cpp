@@ -1,11 +1,11 @@
 #include "diagnostics/logger.h"
-#include "config/config.h"
 
 #include <chrono>
+#include <cstdio>
 #include <ctime>
-#include <filesystem>
 #include <iomanip>
 #include <sstream>
+#include <utility>
 
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -35,19 +35,23 @@ namespace Comet {
         return spdlog::level::info;
     }
 
+    static std::shared_ptr<spdlog::sinks::sink> open_log_file(const std::string& filename) {
+        try {
+            return std::make_shared<spdlog::sinks::basic_file_sink_mt>(filename, false);
+        } catch(const spdlog::spdlog_ex& error) {
+            std::fprintf(stderr, "Cannot open log file '%s': %s; console logging remains active\n",
+                filename.c_str(), error.what());
+            return {};
+        }
+    }
+
     void Logger::init(const Config::Log& config, const bool enable_profiler) {
         if(s_initialized) {
             return;
         }
 
-        std::filesystem::path logs_dir(std::string(PROJECT_ROOT_DIR));
-        logs_dir /= "logs";
-
-        if(config.enable_file_logging) {
-            if(!std::filesystem::exists(logs_dir)) {
-                std::filesystem::create_directories(logs_dir);
-            }
-        }
+        const auto& logs_dir = config.directory;
+        const bool write_files = config.enable_file_logging && !logs_dir.empty();
 
         static std::string shared_timestamp;
         if(shared_timestamp.empty()) {
@@ -66,14 +70,13 @@ namespace Comet {
 #ifdef COMET_ENABLE_PROFILER
         std::string profiler_filename;
 #endif
-        if(config.enable_file_logging) {
+        if(write_files) {
             log_filename = (logs_dir / ("comet_" + shared_timestamp + ".log")).string();
 #ifdef COMET_ENABLE_PROFILER
             if(enable_profiler) {
                 profiler_filename = (logs_dir / ("profiler_" + shared_timestamp + ".log")).string();
             }
 #endif
-            s_current_log_file_path = log_filename;
         }
 
         auto shared_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
@@ -82,15 +85,13 @@ namespace Comet {
         if(!s_console_logger) {
             shared_console_sink->set_pattern("%^[%T] [%l] %v%$");
 
-            if(config.enable_file_logging) {
-                auto file_sink =
-                    std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename, false);
-                file_sink->set_pattern("[%Y-%m-%d %T.%e] [%l] %v");
-
-                s_console_logger = std::make_shared<spdlog::logger>(
-                    "console", spdlog::sinks_init_list{shared_console_sink, file_sink});
-            } else {
-                s_console_logger = std::make_shared<spdlog::logger>("console", shared_console_sink);
+            s_console_logger = std::make_shared<spdlog::logger>("console", shared_console_sink);
+            if(write_files) {
+                if(auto file_sink = open_log_file(log_filename)) {
+                    file_sink->set_pattern("[%Y-%m-%d %T.%e] [%l] %v");
+                    s_console_logger->sinks().push_back(std::move(file_sink));
+                    s_current_log_file_path = log_filename;
+                }
             }
 
             spdlog::level::level_enum log_level = parse_log_level(config.level);
@@ -109,16 +110,12 @@ namespace Comet {
             auto profiler_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
             profiler_console_sink->set_pattern("%^[Profiler] %-50v%$");
 
-            if(config.enable_file_logging) {
-                auto profiler_file_sink =
-                    std::make_shared<spdlog::sinks::basic_file_sink_mt>(profiler_filename, false);
-                profiler_file_sink->set_pattern("[%Y-%m-%d %T.%e] [Profiler] %v");
-
-                s_profiler_logger = std::make_shared<spdlog::logger>(
-                    "profiler", spdlog::sinks_init_list{profiler_console_sink, profiler_file_sink});
-            } else {
-                s_profiler_logger =
-                    std::make_shared<spdlog::logger>("profiler", profiler_console_sink);
+            s_profiler_logger = std::make_shared<spdlog::logger>("profiler", profiler_console_sink);
+            if(write_files) {
+                if(auto file_sink = open_log_file(profiler_filename)) {
+                    file_sink->set_pattern("[%Y-%m-%d %T.%e] [Profiler] %v");
+                    s_profiler_logger->sinks().push_back(std::move(file_sink));
+                }
             }
 
             s_profiler_logger->set_level(spdlog::level::trace);

@@ -13,6 +13,7 @@ namespace Comet {
         struct Log {
             bool enable_file_logging = true;
             std::string level = "trace";
+            std::filesystem::path directory;
         };
 
         struct Diagnostics {

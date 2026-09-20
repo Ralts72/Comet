@@ -1,0 +1,4 @@
+add_executable(render_benchmark main.cpp)
+target_link_libraries(render_benchmark PRIVATE engine)
+target_compile_definitions(render_benchmark PRIVATE COMET_BENCHMARK_BUILD_TYPE="$<CONFIG>")
+comet_copy_runtime_dependencies(render_benchmark)

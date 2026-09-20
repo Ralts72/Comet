@@ -50,7 +50,7 @@ namespace {
     class Editor final: public Comet::Application {
     public:
         explicit Editor(Comet::Project project)
-            : Application(project.paths().cache(), Comet::OutputMode::Sdr),
+            : Application(project.paths().cache(), project.paths().logs(), Comet::OutputMode::Sdr),
               m_project(std::move(project)) {}
 
         Comet::Result<void, Comet::Error> on_init() override {

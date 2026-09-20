@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(COMET_BUILD_APP "Build the runtime application" ON)
 option(COMET_BUILD_EDITOR "Build the ImGui editor" OFF)
 option(COMET_BUILD_TESTS "Build unit tests" OFF)
+option(COMET_BUILD_BENCHMARKS "Build performance benchmarks" OFF)
 option(COMET_NATIVE_OPTIMIZATION "Optimize engine code for the build machine CPU" OFF)
 set(COMET_CONFIG_PROFILE "" CACHE STRING "Runtime configuration profile")
 
@@ -46,6 +47,10 @@ if ((COMET_BUILD_APP OR COMET_BUILD_EDITOR) AND COMET_CONFIG_PROFILE STREQUAL ""
 endif ()
 
 add_subdirectory(engine)
+
+if (COMET_BUILD_BENCHMARKS)
+    add_subdirectory(tools/render_benchmark)
+endif ()
 
 if (COMET_BUILD_APP)
     add_subdirectory(app)

@@ -19,7 +19,8 @@ namespace {
     class GameApp final: public Comet::Application {
     public:
         explicit GameApp(Comet::Project project, const bool rotate_demo)
-            : Application(project.paths().cache()), m_project(std::move(project)) {
+            : Application(project.paths().cache(), project.paths().logs()),
+              m_project(std::move(project)) {
             if(rotate_demo)
                 m_rotating_entity = Comet::EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02")
                                         .value_or(Comet::INVALID_ENTITY_UUID);

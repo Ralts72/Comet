@@ -55,6 +55,10 @@ namespace Comet {
         return local_data() / "cache";
     }
 
+    std::filesystem::path ProjectPaths::logs() const {
+        return local_data() / "logs";
+    }
+
     std::filesystem::path ProjectPaths::editor_state() const {
         return local_data() / "editor";
     }

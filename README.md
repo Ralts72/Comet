@@ -9,13 +9,14 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `engine/src/` | 引擎库：runtime、core、scene、asset、render、graphics、config、diagnostics |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
+| `tools/render_benchmark/` | 固定场景渲染性能基准，链接 engine，不依赖测试框架或编辑器 |
 | `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、ui 组织，`resources/` 保存私有字体等资源 |
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
 | `demo/project.json` | 示例项目描述：版本、名称和启动场景 |
 | `config/` | `common.yaml` 与各 Profile 配置 |
-| `demo/.comet/` | 示例项目本机缓存与编辑器布局，不进入版本控制 |
+| `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
 `runtime/application.*` 管应用生命周期；`asset/data/` 保存 Mesh、Texture、Material 的 CPU 数据。
@@ -67,11 +68,11 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 
 | Profile | 类型 / 目标 | 脚本 |
 | --- | --- | --- |
-| `dev-debug` | Debug：app、editor、tests | `./build.sh` |
+| `dev-debug` | Debug：app、editor、tests、benchmark | `./build.sh` |
 | `editor-dev` | RelWithDebInfo：editor | `./editor.sh` |
 | `app-release` | Release：app | `./release.sh` |
 
-手动配置需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS`。
+构建 app/editor 需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS/BENCHMARKS`。
 编辑器源码由 `editor_core`（不依赖 ImGui）和 `editor_ui` 两个内部库管理，入口与测试共同链接。
 物理目录按功能聚合，编译目标按依赖划分；例如 `scene/scene_document` 属于 core，`scene/hierarchy` 属于 ui。
 仅启用 tests 时仍构建 editor_core，不构建 UI；新增编辑器源码只需维护所属库的清单。
@@ -79,6 +80,52 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 测试分为 `unit_testing`（CPU 逻辑）和 `integration_testing`（图形／UI／运行时）；
 `ctest --preset dev-debug -L unit` 可快速检查逻辑，完整 `ctest --preset dev-debug` 仍包含 GPU 生命周期、同步和 WSI 回归。
 `COMET_NATIVE_OPTIMIZATION` 只适合本机构建。配置与诊断采用“编译期能力 + Profile 运行时策略”。
+
+### 可复现渲染测量
+
+`render_benchmark` 是固定场景的渲染性能基准程序，用于比较引擎改动前后的性能。
+它自行创建场景、采样并退出，不监控其他进程，也不加载任意项目；app/editor 的实时观察使用下方渲染诊断。
+一键构建并测量，复用 `build-release/` 的 Release 引擎，不创建另一套专用构建目录：
+
+```bash
+./tools/benchmark.sh
+./tools/benchmark.sh /tmp/comet-benchmark.csv 64 640 360 240 1
+./tools/benchmark.sh --help
+```
+
+无参数时使用第二条命令的场景参数，报告保存到 `build-release/reports/render-benchmark.csv`；成功时替换上一次报告。
+脚本仅构建基准目标及其依赖，不构建测试或编辑器、不启动 app；自定义相对报告路径以调用时的工作目录为准。
+macOS 测量期间临时阻止系统空闲睡眠，并关闭本进程窗口动画，退出后恢复。
+这是工具输出，不是某个用户项目的日志；需要归档的报告可通过参数另存。
+
+`COMET_BUILD_BENCHMARKS` 可独立开启；`dev-debug`／`ci-release` 默认开启，完整构建会生成工具，
+完整 CTest 会运行 `render_benchmark_smoke`，但只验证短场景和报告正确性，不比较耗时门槛。
+只想快速验证可运行以下命令，Debug 数据不作为正式性能基线：
+
+```bash
+cmake --preset dev-debug
+cmake --build --preset dev-debug --target render_benchmark --parallel
+ctest --preset dev-debug -R '^render_benchmark_smoke$'
+```
+
+无脚本时可用 `cmake --preset app-release -DCOMET_BUILD_BENCHMARKS=ON`，然后只构建 `render_benchmark`。
+工具位于 `<构建目录>/tools/render_benchmark/`；仅构建工具无需开启 `COMET_BUILD_TESTS`。
+`app-release`／`editor-dev` 默认不构建基准；再次使用这些 preset 配置会恢复该默认，不删除已编译产物。
+
+参数依次为 CSV 路径、物体数（1..4096）、逻辑窗口宽高（64..4096）、采样帧数（8..10000）、Bloom（0/1）。
+macOS 可在末尾追加 `-NSAutomaticWindowAnimationsEnabled NO` 关闭该进程的窗口动画；报告以实际 framebuffer 像素为准。
+固定场景使用共享 PBR 材质、立方体网格与地面、三类光源、方向光阴影、4×MSAA 和 SDR 输出；IBL 关闭，
+不依赖可选 HDR 下载。资产复制到临时目录后走生产扫描／导入／加载，结束清理，不修改 demo 的资源和缓存。
+预热 32 帧后输出 CPU 整帧及分段、CPU/GPU 图和各 pass 的样本数、P50/P95，以及设备、呈现模式和 VMA 分配量。
+GPU 样本按提交序号去重；`gpu_status` 区分完整、部分、不支持和降级，不把缺样本写成零耗时。
+窗口／呈现变化、少画物体或提前退出会拒绝报告；成功报告原子替换指定文件。
+
+测量请求关闭 validation，外部强制 layer 仍需自行排除；应在同机 Release、设备保持唤醒、无并行构建或其他 GPU 测试时重复比较。
+可分别提高物体数、提高实际分辨率、关闭 Bloom，避免一次改变所有变量。物体数增加时会缩小立方体，
+它不是纯 CPU 实验，也不代表多材质、透明物体、IBL 或编辑器开销。CPU 墙钟包含等待，GPU 图不含呈现完成，
+VMA 分配量不等于系统总显存；各分段百分位不能直接相加。CI smoke 只验证测量契约，不设置绝对耗时门槛。
+
+### 交互式渲染诊断
 
 `diagnostics.enable_render_diagnostics` 独立于 scope Profiler 的编译开关；开发 Profile 默认开启，
 `app-release` 默认关闭。编辑器默认显示「渲染统计」面板，也可通过「视图 / View」菜单显示／隐藏。
@@ -89,6 +136,16 @@ CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍�
 「暂停显示」只冻结面板，不停止采集；CPU 阶段、渲染阶段和显存堆明细可展开。日常观察无需保存报告。
 显存预算至多每秒采样一次，并标明驱动报告或 VMA 估算。「保存显存分配报告」手动生成详细报告，
 原子保存到项目 `.comet/editor/diagnostics/gpu-allocations.json`，再次保存替换旧报告，结果写入 Log。
+
+普通文件日志与 Scope Profiler 日志统一保存到**当前项目**的 `.comet/logs/`，
+分别命名为 `comet_<时间戳>.log`、`profiler_<时间戳>.log`；app/editor 使用同一目录规则。
+例如默认 demo 的路径是 `demo/.comet/logs/`，打开外部项目则写到外部项目内，不依赖仓库根目录或工作目录。
+各 Profile 默认 `diagnostics.enable_file_logging: false`；在 `config/profiles/<Profile>.yaml` 中改为 `true`
+后才创建目录与文件。Profiler 文件还需当前构建支持且启用 `diagnostics.enable_profiler`。
+路径由启动入口传入，不作为 YAML 中的机器路径配置。无日志路径时仅保留终端／自定义输出端，
+目录无法写入时向标准错误提示并保留这些输出，不回退写到其他目录；项目／配置加载前的失败仍输出到终端。
+旧仓库根 `logs/` 不自动搬迁或删除。
+
 编辑器使用 16px Roboto Bold，并合并 Noto Sans SC Bold 覆盖中文。
 顶栏「语言 / Language」可切换简体中文和 English，默认中文，本次会话有效。
 切换只影响编辑器内置显示文本，保留控件身份及布局；资产名、路径、Shader 标识和原始日志不翻译。

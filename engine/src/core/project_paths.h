@@ -16,6 +16,7 @@ namespace Comet {
             const std::filesystem::path& path) const;
         [[nodiscard]] std::filesystem::path local_data() const;
         [[nodiscard]] std::filesystem::path cache() const;
+        [[nodiscard]] std::filesystem::path logs() const;
         [[nodiscard]] std::filesystem::path editor_state() const;
 
     private:
