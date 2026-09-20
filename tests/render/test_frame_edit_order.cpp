@@ -16,6 +16,7 @@
 #include "scene/scene.h"
 
 #include <gtest/gtest.h>
+#include <GLFW/glfw3.h>
 
 namespace Comet::Tests {
     class FrameEditOrderTest: public ::testing::TestWithParam<bool> {};
@@ -30,6 +31,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(engine.run(
             [&](UpdateContext) {
                 ++updates;
+                EXPECT_EQ(engine.get_input_frame().serial, 1u);
                 const auto nested = engine.run();
                 EXPECT_FALSE(nested);
                 if(!nested) {
@@ -53,6 +55,12 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine_result) << engine_result.error().message;
         auto& engine = *engine_result.value();
         auto& renderer = engine.get_renderer();
+        auto* window = engine.get_window().get();
+        const auto key = glfwSetKeyCallback(window, nullptr);
+        glfwSetKeyCallback(window, key);
+        const auto focus = glfwSetWindowFocusCallback(window, nullptr);
+        glfwSetWindowFocusCallback(window, focus);
+        ASSERT_TRUE(key && focus);
         int updates = 0;
         int edits = 0;
         int draws = 0;
@@ -67,8 +75,17 @@ namespace Comet::Tests {
         renderer.request_swapchain_recreation();
         const auto result = engine.run(
             [&](UpdateContext) {
-                if(++updates == 2)
+                EXPECT_EQ(engine.get_input_frame().serial, static_cast<uint64_t>(updates + 1));
+                if(++updates == 1) {
+                    focus(window, GLFW_TRUE);
+                    key(window, GLFW_KEY_SPACE, 0, GLFW_PRESS, 0);
+                    key(window, GLFW_KEY_SPACE, 0, GLFW_RELEASE, 0);
+                    EXPECT_FALSE(engine.get_input_frame().key(Input::Key::Space).pressed);
+                } else {
+                    EXPECT_TRUE(engine.get_input_frame().key(Input::Key::Space).pressed);
+                    EXPECT_TRUE(engine.get_input_frame().key(Input::Key::Space).released);
                     engine.get_window().request_close();
+                }
                 return Result<void, Error>::success();
             },
             [&] {

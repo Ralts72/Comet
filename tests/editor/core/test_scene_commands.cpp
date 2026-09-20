@@ -24,6 +24,33 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(SceneCommandsTest, CameraControllerUsesSharedEditingHistoryAndPersistence) {
+        ASSERT_TRUE(add("camera_controller"));
+        const PropertyEditTransaction::Target target{
+            entity.get_uuid(), "camera_controller", "move_speed"};
+        ASSERT_TRUE(edit.apply(target, 8.0f));
+        EXPECT_EQ(entity.get_component<Comet::CameraControllerComponent>().move_speed, 8);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<Comet::CameraControllerComponent>().move_speed, 3);
+        ASSERT_TRUE(history.redo());
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "camera_controller", "enabled"}, false));
+        ASSERT_TRUE(remove("camera_controller"));
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(entity.get_component<Comet::CameraControllerComponent>().enabled);
+        EXPECT_EQ(entity.get_component<Comet::CameraControllerComponent>().move_speed, 8);
+        const Comet::SceneSerializer serializer(registry);
+        auto serialized = serializer.serialize(scene);
+        ASSERT_TRUE(serialized) << serialized.error();
+        auto restored = serializer.deserialize(serialized.value());
+        ASSERT_TRUE(restored) << restored.error();
+        auto loaded = restored.value()->find_entity(entity.get_uuid());
+        ASSERT_TRUE(loaded.has_component<Comet::CameraControllerComponent>());
+        EXPECT_FALSE(loaded.get_component<Comet::CameraControllerComponent>().enabled);
+        EXPECT_EQ(loaded.get_component<Comet::CameraControllerComponent>().move_speed, 8);
+        EXPECT_FLOAT_EQ(
+            loaded.get_component<Comet::CameraControllerComponent>().look_sensitivity, 0.2f);
+    }
+
     TEST_F(SceneCommandsTest, MeshPlacementIsOneUndoableSerializableEntity) {
         const auto uuid = SceneCommands::create_mesh_entity(
             history, registry, "Placed", Comet::AssetHandle(8), Comet::AssetHandle(9), {2, 3, 4});

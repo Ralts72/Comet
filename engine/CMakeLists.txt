@@ -42,11 +42,13 @@ set(SOURCES
         src/diagnostics/profiler.cpp
         src/diagnostics/logger.cpp
         src/core/window.cpp
+        src/core/input.cpp
         src/core/timer.cpp
         src/core/project_paths.cpp
         src/core/project.cpp
         src/runtime/entry.cpp
         src/runtime/application.cpp
+        src/runtime/camera_controller.cpp
         src/core/task_scheduler.cpp
         src/core/engine.cpp
         src/core/geometry.cpp

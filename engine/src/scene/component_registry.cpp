@@ -145,6 +145,16 @@ namespace Comet {
                 make_property_descriptor("far_clip", "Far Clip", &CameraComponent::far_clip,
                     {.numeric = {.speed = 1.0f, .minimum = 0.001f}})}));
 
+        register_component(make_component_descriptor<CameraControllerComponent>("camera_controller",
+            "Camera Controller",
+            {make_property_descriptor("enabled", "Enabled", &CameraControllerComponent::enabled),
+                make_property_descriptor("move_speed", "Move Speed",
+                    &CameraControllerComponent::move_speed,
+                    {.numeric = {.speed = 0.1f, .minimum = 0.0f, .maximum = 1000.0f}}),
+                make_property_descriptor("look_sensitivity", "Look Sensitivity",
+                    &CameraControllerComponent::look_sensitivity,
+                    {.numeric = {.speed = 0.01f, .minimum = 0.0f, .maximum = 10.0f}})}));
+
         register_component(make_component_descriptor<LightComponent>("light", "Light",
             {make_enum_property_descriptor<LightComponent, LightType>("type", "Type",
                  &LightComponent::type,

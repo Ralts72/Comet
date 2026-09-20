@@ -18,6 +18,7 @@ namespace {
         EXPECT_NE(registry.find_component("transform"), nullptr);
         EXPECT_NE(registry.find_component("mesh_renderer"), nullptr);
         EXPECT_NE(registry.find_component("camera"), nullptr);
+        EXPECT_NE(registry.find_component("camera_controller"), nullptr);
         EXPECT_NE(registry.find_component("light"), nullptr);
 
         const auto& transform = *registry.find_component("transform");

@@ -67,6 +67,10 @@ namespace Comet {
         m_scene = std::move(scene);
     }
 
+    const Input::Frame& Engine::get_input_frame() const {
+        return m_window->get_input_frame();
+    }
+
     std::unique_ptr<Scene> Engine::replace_scene(std::unique_ptr<Scene> scene) noexcept {
         m_scene.swap(scene);
         return scene;
@@ -135,6 +139,7 @@ namespace Comet {
             return Result<void, Error>::success();
         }
 
+        m_window->publish_input_frame();
         timing.events_ms = phase_ms();
         m_timer->tick();
         timing.frame_index = m_timer->get_update_context().frame_index;

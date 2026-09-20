@@ -86,4 +86,11 @@ namespace Comet {
         float near_clip = 0.1f;
         float far_clip = 1000.0f;
     };
+
+    struct COMET_API CameraControllerComponent {
+        bool enabled = true;
+        float move_speed = 3.0f;
+        // 每个窗口逻辑像素对应的转角，单位为度。
+        float look_sensitivity = 0.2f;
+    };
 }

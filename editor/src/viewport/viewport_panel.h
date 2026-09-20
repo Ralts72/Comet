@@ -4,6 +4,7 @@
 #include "ui/editor_panel.h"
 #include "viewport/viewport_layout.h"
 #include "assets/asset_reference.h"
+#include "core/input.h"
 
 #include <imgui.h>
 #include <cstdint>
@@ -43,6 +44,10 @@ namespace CometEditor {
 
         [[nodiscard]] bool is_visible() const { return m_actually_visible; }
 
+        // 所有面板绘制后复核焦点／弹窗，避免当帧输入穿透到运行场景。
+        [[nodiscard]] const Comet::Input::Frame& route_runtime_input(
+            const Comet::Input::Frame& input);
+
         [[nodiscard]] std::optional<EditorCameraInput> take_camera_input();
 
         [[nodiscard]] std::optional<Comet::RenderCamera::Projection> take_projection_request();
@@ -68,6 +73,7 @@ namespace CometEditor {
         void render_play_toolbar();
         void render_view_content();
         void update_view_interaction();
+        void update_play_interaction();
         void reset_hidden_view();
         void reset_camera_interaction();
 
@@ -79,6 +85,9 @@ namespace CometEditor {
         ImGuiID m_gizmo_id = 0;
         ImDrawList* m_gizmo_draw_list = nullptr;
         bool m_actually_visible = false;
+        ImGuiID m_window_id = 0;
+        bool m_play_image_hovered = false;
+        Comet::Input::Gate m_runtime_input;
         std::uint32_t m_max_render_dimension = 0;
         ViewportLayout::ResolutionPolicy m_play_resolution_policy;
         ViewportLayout::DisplayMode m_play_display_mode = ViewportLayout::DisplayMode::Fit;

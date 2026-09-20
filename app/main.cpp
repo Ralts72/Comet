@@ -7,6 +7,7 @@
 #include "scene/scene.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
+#include "runtime/camera_controller.h"
 
 #include <cmath>
 #include <filesystem>
@@ -18,10 +19,10 @@
 namespace {
     class GameApp final: public Comet::Application {
     public:
-        explicit GameApp(Comet::Project project, const bool rotate_demo)
+        explicit GameApp(Comet::Project project, const bool is_demo)
             : Application(project.paths().cache(), project.paths().logs()),
               m_project(std::move(project)) {
-            if(rotate_demo)
+            if(is_demo)
                 m_rotating_entity = Comet::EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02")
                                         .value_or(Comet::INVALID_ENTITY_UUID);
         }
@@ -79,6 +80,11 @@ namespace {
             if(auto assets = m_asset_manager->process_completions(); !assets)
                 return Comet::Result<void, Comet::Error>::failure(assets.error());
             auto* scene = get_engine().get_scene();
+            if(scene)
+                Comet::update_camera_controller(
+                    *scene, get_engine().get_input_frame(), context.delta_time);
+            if(get_engine().get_input_frame().key(Comet::Input::Key::Escape).pressed)
+                get_engine().get_window().request_close();
             if(scene && m_rotating_entity) {
                 if(auto cube = scene->find_entity(m_rotating_entity))
                     cube.get_component<Comet::TransformComponent>().rotate(

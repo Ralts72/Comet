@@ -46,6 +46,11 @@
           "fov": 45,
           "near_clip": 0.1,
           "far_clip": 1000
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 3,
+          "look_sensitivity": 0.2
         }
       }
     },

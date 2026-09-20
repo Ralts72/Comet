@@ -14,6 +14,14 @@ namespace CometEditor {
         constexpr std::uint32_t RESIZE_STABLE_FRAME_COUNT = 2;
         constexpr float TOOLBAR_BUTTON_WIDTH = 40.0f;
 
+        bool ui_blocks_runtime_input() {
+            const auto& io = ImGui::GetIO();
+            return io.AppFocusLost || io.WantTextInput || io.KeyCtrl || io.KeySuper || io.KeyAlt
+                   || ImGui::IsAnyItemActive() || ImGui::IsDragDropActive()
+                   || ImGui::IsPopupOpen(
+                       nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+        }
+
         bool edit_choice(const char* title, int& selected, std::span<const char* const> choices) {
             if(!ImGui::BeginCombo(Ui::label(title).c_str(), Ui::text(choices[selected])))
                 return false;
@@ -43,6 +51,7 @@ namespace CometEditor {
 
     void ViewportPanel::render() {
         m_actually_visible = false;
+        m_play_image_hovered = false;
         m_camera_input.reset();
         m_camera_projection_request.reset();
         m_mode_request.reset();
@@ -63,6 +72,7 @@ namespace CometEditor {
         }
 
         m_actually_visible = true;
+        m_window_id = ImGui::GetCurrentWindow()->RootWindow->ID;
         m_gizmo_id = ImGui::GetID("TransformGizmo");
         if(m_gizmo.active()) {
             ImGui::KeepAliveID(m_gizmo_id);
@@ -330,6 +340,13 @@ namespace CometEditor {
     }
 
     void ViewportPanel::update_view_interaction() {
+        if(m_state.mode == EditorMode::Play) {
+            if(m_gizmo.active())
+                cancel_interaction();
+            reset_camera_interaction();
+            update_play_interaction();
+            return;
+        }
         if(m_state.mode != EditorMode::Edit || ImGui::IsDragDropActive()) {
             cancel_interaction();
             return;
@@ -452,11 +469,38 @@ namespace CometEditor {
     }
 
     void ViewportPanel::cancel_interaction() {
+        m_play_image_hovered = false;
+        m_runtime_input = {};
         static_cast<void>(m_gizmo.cancel());
         if(m_gizmo_id != 0 && ImGui::GetActiveID() == m_gizmo_id) {
             ImGui::ClearActiveID();
         }
         reset_camera_interaction();
+    }
+
+    void ViewportPanel::update_play_interaction() {
+        const auto& io = ImGui::GetIO();
+        m_play_image_hovered =
+            m_texture_id != ImTextureID_Invalid && ImGui::IsItemHovered()
+            && map_viewport_point_to_pixel(m_layout, {io.MousePos.x, io.MousePos.y}).has_value();
+        if(!m_play_image_hovered || m_mode_request || ui_blocks_runtime_input())
+            return;
+        ImGui::SetWindowFocus();
+        ImGui::SetKeyOwner(ImGuiKey_MouseWheelX, m_gizmo_id);
+        ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_gizmo_id);
+    }
+
+    const Comet::Input::Frame& ViewportPanel::route_runtime_input(
+        const Comet::Input::Frame& input) {
+        if(m_state.mode == EditorMode::Play && input.focused
+            && input.key(Comet::Input::Key::Escape).pressed)
+            m_mode_request = EditorMode::Edit;
+        const auto* focused = GImGui->NavWindow;
+        const bool accepting = m_state.mode == EditorMode::Play && m_actually_visible
+                               && m_play_image_hovered && !m_mode_request && focused
+                               && focused->RootWindow->ID == m_window_id
+                               && !ui_blocks_runtime_input();
+        return m_runtime_input.read(input, accepting);
     }
 
     void ViewportPanel::draw_gizmo() {

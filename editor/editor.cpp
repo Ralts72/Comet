@@ -1,4 +1,5 @@
 #include "runtime/entry.h"
+#include "runtime/camera_controller.h"
 #include "render/render_context.h"
 #include "render/resource/render_resources.h"
 #include "graphics/swapchain.h"
@@ -175,6 +176,7 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> on_update(const Comet::UpdateContext context) override {
+            m_frame_delta_time = context.delta_time;
             if(const auto language = m_menu_bar->take_language_request())
                 m_ui_language = *language;
             process_diagnostics_requests();
@@ -216,11 +218,18 @@ namespace {
 
         Comet::Result<void, Comet::Error> on_frame_ready() override {
             m_viewport->update_texture();
-            if(!m_imgui_context->begin_frame())
+            if(!m_imgui_context->begin_frame()) {
+                m_viewport->panel().cancel_interaction();
                 return Comet::Result<void, Comet::Error>::success();
+            }
             {
                 const Comet::ScopeExit end_ui([this] { m_imgui_context->end_frame(); });
                 draw_editor_ui();
+                const auto& input =
+                    m_viewport->panel().route_runtime_input(get_engine().get_input_frame());
+                if(auto* scene = get_engine().get_scene();
+                    scene && m_editor_state.mode == CometEditor::EditorMode::Play)
+                    Comet::update_camera_controller(*scene, input, m_frame_delta_time);
                 if(auto viewport = m_viewport->update(get_engine().get_scene()); !viewport)
                     return viewport;
             }
@@ -671,6 +680,7 @@ namespace {
         }
 
         std::uint64_t m_reference_history_state = 0;
+        float m_frame_delta_time = 0;
         Comet::Project m_project;
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;

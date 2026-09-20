@@ -3,6 +3,7 @@
 #include "scene/selection.h"
 #include "viewport/transform_gizmo.h"
 #include "ui/shortcuts.h"
+#include "runtime/camera_controller.h"
 
 #include "support/imgui_context.h"
 
@@ -27,6 +28,10 @@ namespace CometEditor::Tests {
         int gizmo_vertices = 0;
         bool mesh_drag = false;
         bool show_other_panel = false;
+        bool open_popup_after_viewport = false;
+        bool focus_text_after_viewport = false;
+        Comet::Input runtime_input;
+        bool runtime_accepting = false;
         AssetDragPayload mesh_payload{.handle = Comet::AssetHandle(42),
             .revision = 1,
             .generation = 0,
@@ -34,6 +39,7 @@ namespace CometEditor::Tests {
         std::size_t payload_size = sizeof(AssetDragPayload);
 
         void SetUp() override {
+            runtime_input.focus_event(true);
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
             viewport.set_texture_id(static_cast<ImTextureID>(1), 800, 600);
@@ -63,6 +69,26 @@ namespace CometEditor::Tests {
             const int before = window ? window->DrawList->VtxBuffer.Size : 0;
             viewport.draw_gizmo();
             gizmo_vertices = window ? window->DrawList->VtxBuffer.Size - before : 0;
+            if(open_popup_after_viewport) {
+                ImGui::OpenPopup("Block runtime");
+                open_popup_after_viewport = false;
+            }
+            if(ImGui::BeginPopupModal("Block runtime")) {
+                ImGui::TextUnformatted("Modal");
+                ImGui::EndPopup();
+            }
+            if(focus_text_after_viewport) {
+                ImGui::SetNextWindowPos({0, 0});
+                ImGui::Begin("Text editor");
+                char text[64]{};
+                ImGui::SetKeyboardFocusHere();
+                ImGui::InputText("Name", text, sizeof(text));
+                ImGui::End();
+            }
+            const auto& routed = viewport.route_runtime_input(runtime_input.publish_frame());
+            runtime_accepting = routed.focused;
+            if(state.mode == EditorMode::Play)
+                Comet::update_camera_controller(scene, routed, 0.1f);
             ImGui::Render();
         }
 
@@ -93,7 +119,97 @@ namespace CometEditor::Tests {
         }
 
         float x() { return entity.get_component<Comet::TransformComponent>().translation.x; }
+
+        void activate_play_camera() {
+            state.mode = EditorMode::Play;
+            entity.add_component<Comet::CameraComponent>().primary = true;
+            entity.add_component<Comet::CameraControllerComponent>();
+            frame();
+            const auto& rect = viewport.get_layout().image_visible_rect;
+            move_pointer((rect.min + rect.max) * 0.5f);
+            EXPECT_TRUE(runtime_accepting);
+        }
     };
+
+    TEST_F(ViewportGizmoUiTest, PlayCameraAcceptsHoverWithoutClickAndBlocksHeldKeysOnReentry) {
+        activate_play_camera();
+        const auto& transform = entity.get_component<Comet::TransformComponent>();
+        runtime_input.key_event(Comet::Input::Key::W, true);
+        frame();
+        EXPECT_NEAR(transform.translation.z, -0.3f, 0.00001f);
+        const auto before = transform.translation;
+        move_pointer({990, 790});
+        EXPECT_FALSE(runtime_accepting);
+        EXPECT_EQ(transform.translation, before);
+        const auto& rect = viewport.get_layout().image_visible_rect;
+        move_pointer((rect.min + rect.max) * 0.5f);
+        EXPECT_TRUE(runtime_accepting);
+        EXPECT_EQ(transform.translation, before);
+        runtime_input.key_event(Comet::Input::Key::W, false);
+        frame();
+        runtime_input.key_event(Comet::Input::Key::W, true);
+        frame();
+        EXPECT_NEAR(transform.translation.z, -0.6f, 0.00001f);
+        viewport.set_visible(false);
+        frame();
+        EXPECT_FALSE(runtime_accepting);
+        EXPECT_NEAR(transform.translation.z, -0.6f, 0.00001f);
+    }
+
+    TEST_F(ViewportGizmoUiTest, EscapeRequestsStopEvenWhenPlayViewportIsHidden) {
+        activate_play_camera();
+        runtime_input.key_event(Comet::Input::Key::W, true);
+        runtime_input.key_event(Comet::Input::Key::Escape, true);
+        frame();
+        EXPECT_FALSE(runtime_accepting);
+        EXPECT_EQ(viewport.take_mode_request(), EditorMode::Edit);
+        EXPECT_EQ(
+            entity.get_component<Comet::TransformComponent>().translation, Comet::Math::Vec3(0));
+
+        viewport.set_visible(false);
+        runtime_input.key_event(Comet::Input::Key::Escape, false);
+        frame();
+        EXPECT_FALSE(viewport.take_mode_request());
+        runtime_input.key_event(Comet::Input::Key::Escape, true);
+        frame();
+        EXPECT_EQ(viewport.take_mode_request(), EditorMode::Edit);
+        frame();
+        EXPECT_FALSE(viewport.take_mode_request());
+
+        state.mode = EditorMode::Edit;
+        runtime_input.key_event(Comet::Input::Key::Escape, false);
+        frame();
+        runtime_input.key_event(Comet::Input::Key::Escape, true);
+        frame();
+        EXPECT_FALSE(viewport.take_mode_request());
+    }
+
+    TEST_F(ViewportGizmoUiTest, PopupOpenedAfterViewportStopsRuntimeInTheSameFrame) {
+        activate_play_camera();
+        runtime_input.key_event(Comet::Input::Key::W, true);
+        open_popup_after_viewport = true;
+        frame();
+        EXPECT_FALSE(runtime_accepting);
+        EXPECT_EQ(
+            entity.get_component<Comet::TransformComponent>().translation, Comet::Math::Vec3(0));
+    }
+
+    TEST_F(ViewportGizmoUiTest, TextFocusAndModeChangesDoNotLeakInputToRuntime) {
+        activate_play_camera();
+        runtime_input.key_event(Comet::Input::Key::W, true);
+        focus_text_after_viewport = true;
+        frame();
+        frame();
+        EXPECT_FALSE(runtime_accepting);
+        EXPECT_EQ(
+            entity.get_component<Comet::TransformComponent>().translation, Comet::Math::Vec3(0));
+        viewport.cancel_interaction();
+        state.mode = EditorMode::Edit;
+        frame();
+        EXPECT_FALSE(runtime_accepting);
+        EXPECT_EQ(
+            entity.get_component<Comet::TransformComponent>().translation, Comet::Math::Vec3(0));
+    }
 
     TEST_F(ViewportGizmoUiTest, LightAxisDragFromAnotherPanelCommitsAndUndoes) {
         entity.add_component<Comet::LightComponent>();

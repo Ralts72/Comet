@@ -4,6 +4,7 @@
 #include "scene/component_registry.h"
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
+#include "runtime/camera_controller.h"
 
 #include <gtest/gtest.h>
 
@@ -28,7 +29,9 @@ namespace CometEditor::Tests {
             .bloom_enabled = true, .bloom_strength = 0.5f};
         ASSERT_TRUE(active_scene->set_post_process(post_process));
         Comet::Scene* original_edit_scene = active_scene.get();
-        const Comet::Entity edit_entity = active_scene->create_entity("Edit Entity");
+        Comet::Entity edit_entity = active_scene->create_entity("Edit Entity");
+        edit_entity.add_component<Comet::CameraComponent>().primary = true;
+        edit_entity.add_component<Comet::CameraControllerComponent>().move_speed = 5;
         const Comet::EntityUuid entity_uuid = edit_entity.get_uuid();
         CommandHistory history;
         history.bind_scene(active_scene.get());
@@ -61,12 +64,22 @@ namespace CometEditor::Tests {
         Comet::Entity runtime_entity = active_scene->find_entity(entity_uuid);
         ASSERT_TRUE(runtime_entity);
         runtime_entity.get_component<Comet::NameComponent>().name = "Runtime Entity";
+        Comet::Input input;
+        input.focus_event(true);
+        input.key_event(Comet::Input::Key::W, true);
+        Comet::update_camera_controller(*active_scene, input.publish_frame(), 0.1f);
+        EXPECT_FLOAT_EQ(
+            runtime_entity.get_component<Comet::TransformComponent>().translation.z, -0.5f);
+        EXPECT_EQ(edit_entity.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(0));
 
         session.request_mode(EditorMode::Edit);
         ASSERT_TRUE(session.apply_mode_request());
         EXPECT_EQ(state.mode, EditorMode::Edit);
         EXPECT_EQ(active_scene.get(), original_edit_scene);
         EXPECT_EQ(active_scene->get_post_process(), post_process);
+        EXPECT_EQ(edit_entity.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(0));
         EXPECT_EQ(active_scene->find_entity(entity_uuid).get_component<Comet::NameComponent>().name,
             "Edited Name");
         EXPECT_EQ(history.state_id(), edited_state);

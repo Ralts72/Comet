@@ -235,13 +235,33 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 引擎 Profile、编辑器快捷键仍读取开发构建自带的 `config/`，字体／图标／Shader 不需要复制到每个项目。
 当前支持启动时选择一个项目，尚不支持运行中切换项目、最近项目列表、项目创建向导或独立打包。
 
+### 运行时输入
+
+`Engine::get_input_frame()` 提供键盘、鼠标和标准手柄的只读帧快照，不依赖 ImGui。
+Window 采集事件，Engine 在 Update 前发布一次；`down / pressed / released` 分别表示按住／刚按下／刚松开，
+同一批事件内的快速按下再松开会同时保留两种边沿。轮询或等待事件不推进快照，最小化跳过 Update 时也不发布。
+失焦释放按钮并清空位移／滚轮／轴；手柄首次连接、重连或恢复焦点时只建立按住状态，不伪造一次新的按下。
+光标为窗口逻辑坐标，滚轮保留双轴偏移；手柄摇杆为 [-1,1]、Y 向下，扳机为 [0,1]，死区由消费者决定。
+
+app 与 editor Play 共用可选的 `CameraControllerComponent`：在 Edit 中选中主相机，
+通过 Inspector → Add Component → Camera Controller 添加，并配置启用、移动速度和转向灵敏度；保存进 `.scene`。
+只控制实际渲染的主相机；未添加／未启用组件时不移动，多个 primary 时与渲染一致选择最小 EntityId。
+仓库 demo 已默认添加；外部项目同样按组件启用，不依赖项目路径或硬编码相机 UUID。
+右键拖动转向（本地俯仰限制 ±89°），WASD 沿相机朝向移动，Q/E 沿世界上下移动，左 Shift 加速，滚轮沿视线移动。
+第一个标准手柄支持左摇杆移动和左右扳机升降；暂不锁定／隐藏光标，也没有碰撞或手柄转向。
+app 中 Esc 退出；Play 中鼠标进入画面即可操作，无需点击激活；Esc 与 Stop 一样直接返回 Edit。
+鼠标离开画面、失焦、弹窗或编辑文字时停止接收；回来后原先按住的按钮需要松开重按。
+控制只改变运行状态，退出 Play 恢复 Edit 场景，不生成逐帧撤销记录。
+Edit 相机和编辑器快捷键保持原有 ImGui 路径；动作绑定、重映射、文本／IME、鼠标锁定和固定步消费仍是后续事项。
+Frame 可复制，但不是持久回放格式。
+
 ## 编辑器使用
 
 - File → Open/Save 操作当前项目 assets 内的 `.scene`，拒绝越界路径。启动打开 project.json 指定的场景，
   不恢复上次打开的其他文档；坏资源引用保留并记录 Log，后台导入完成后自动重试加载。
 - Edit 使用独立相机；Play 运行场景副本及其 primary Camera，Stop 不回写运行时修改。
   2D/3D 只切换 Edit 投影；Play 分辨率可选 Free、16:9、HD、FHD，Fit 等比适应，1x 原尺寸裁切。
-- 视口右键或 Option/Alt+左键环绕，中键或 Option/Alt+Shift+左键平移，滚轮／双指滚动缩放。
+- Edit 视口右键或 Option/Alt+左键环绕，中键或 Option/Alt+Shift+左键平移，滚轮／双指滚动缩放。
   左键按模型包围盒粗拾取，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。橙色选中框受场景遮挡。
 - Edit 选中实体后，Tool → Mode 选择 Move／Rotate／Scale，拖动轴、圆环或缩放方块。
   Move／Rotate 的 Space 可选 World／Local；Scale 固定 Local，轴手柄调整单分量，中心手柄沿屏幕右上拖动等比放大。
