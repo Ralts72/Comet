@@ -122,39 +122,44 @@ namespace CometEditor {
                 }
                 return PropertyEditResult{.changed = changed, .finished = changed};
             });
-        register_editor(Comet::PropertyType::Parameters,
-            [scalar_editors = registry](const Comet::PropertyDescriptor&, void* value) {
-                auto& parameters = *static_cast<Comet::ParameterMap*>(value);
-                PropertyEditResult result;
-                for(auto& [name, parameter] : parameters) {
-                    ImGui::PushID(name.c_str());
-                    const auto item = std::visit(
-                        [&](auto& scalar) {
-                            using T = std::remove_cvref_t<decltype(scalar)>;
-                            Comet::PropertyDescriptor descriptor{.id = name, .display_name = name};
-                            if constexpr(std::is_same_v<T, bool>)
-                                descriptor.type = Comet::PropertyType::Bool;
-                            else if constexpr(std::is_same_v<T, float>)
-                                descriptor.type = Comet::PropertyType::Float;
-                            else if constexpr(std::is_same_v<T, Comet::Math::Vec3>)
-                                descriptor.type = Comet::PropertyType::Vec3;
-                            else
-                                descriptor.type = Comet::PropertyType::String;
-                            return scalar_editors.edit_property(descriptor, &scalar);
-                        },
-                        parameter);
-                    result.changed |= item.changed;
-                    result.active |= item.active;
-                    result.began |= item.began;
-                    result.finished |= item.finished;
-                    if(item.active_item)
-                        result.active_item = item.active_item;
-                    ImGui::PopID();
-                }
-                if(result.active)
-                    result.finished = false;
-                return result;
-            });
         return registry;
+    }
+
+    PropertyEditResult PropertyEditorRegistry::edit_parameters(
+        const Comet::ParameterMap& defaults, Comet::ParameterMap& overrides) const {
+        PropertyEditResult result;
+        for(const auto& [name, fallback] : defaults) {
+            auto value = fallback;
+            if(const auto found = overrides.find(name); found != overrides.end())
+                value = found->second;
+            ImGui::PushID(name.c_str());
+            const auto item = std::visit(
+                [&](auto& scalar) {
+                    using T = std::remove_cvref_t<decltype(scalar)>;
+                    Comet::PropertyDescriptor descriptor{.id = name, .display_name = name};
+                    if constexpr(std::is_same_v<T, bool>)
+                        descriptor.type = Comet::PropertyType::Bool;
+                    else if constexpr(std::is_same_v<T, float>)
+                        descriptor.type = Comet::PropertyType::Float;
+                    else if constexpr(std::is_same_v<T, Comet::Math::Vec3>)
+                        descriptor.type = Comet::PropertyType::Vec3;
+                    else
+                        descriptor.type = Comet::PropertyType::String;
+                    return edit_property(descriptor, &scalar);
+                },
+                value);
+            if(item.changed)
+                overrides.insert_or_assign(name, std::move(value));
+            result.changed |= item.changed;
+            result.active |= item.active;
+            result.began |= item.began;
+            result.finished |= item.finished;
+            if(item.active_item)
+                result.active_item = item.active_item;
+            ImGui::PopID();
+        }
+        if(result.active)
+            result.finished = false;
+        return result;
     }
 }

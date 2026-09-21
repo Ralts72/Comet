@@ -46,7 +46,8 @@ namespace Comet {
         // 同步运行；更新函数仅在本次调用期间使用，不保存到引擎中。
         [[nodiscard]] Result<void, Error> run(
             const std::function<Result<void, Error>(UpdateContext)>& update = {},
-            const std::function<Result<void, Error>()>& frame_ready = {});
+            const std::function<Result<void, Error>()>& frame_ready = {},
+            const std::function<Result<void, Error>(const Error&)>& runtime_failed = {});
 
         void set_scene(std::unique_ptr<Scene> scene);
 
@@ -85,7 +86,8 @@ namespace Comet {
             std::unique_ptr<Renderer> renderer, std::unique_ptr<TaskScheduler> scheduler);
         [[nodiscard]] Result<void, Error> tick(
             const std::function<Result<void, Error>(UpdateContext)>& update,
-            const std::function<Result<void, Error>()>& frame_ready);
+            const std::function<Result<void, Error>()>& frame_ready,
+            const std::function<Result<void, Error>(const Error&)>& runtime_failed);
         std::unique_ptr<Timer> m_timer;
         std::unique_ptr<TaskScheduler> m_task_scheduler;
         std::unique_ptr<Window> m_window;

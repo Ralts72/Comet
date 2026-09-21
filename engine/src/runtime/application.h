@@ -40,6 +40,11 @@ namespace Comet {
         // 仅在帧就绪后调用；编辑在随后提取中生效。失败终止生命周期，不重用已获取帧。
         virtual Result<void, Error> on_frame_ready() { return Result<void, Error>::success(); }
 
+        // System 已停止且已获取帧已完成；成功表示宿主恢复完成，可进入下一帧。
+        virtual Result<void, Error> on_runtime_error(const Error& error) {
+            return Result<void, Error>::failure(error);
+        }
+
         // on_init 一旦开始，退出时就会调用；必须能清理部分初始化的状态。
         virtual Result<void, Error> on_shutdown() = 0;
 

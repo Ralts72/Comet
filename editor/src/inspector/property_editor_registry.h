@@ -47,6 +47,8 @@ namespace CometEditor {
         [[nodiscard]] bool contains(const Comet::PropertyType type) const {
             return m_editors.contains(type);
         }
+        [[nodiscard]] PropertyEditResult edit_parameters(
+            const Comet::ParameterMap& defaults, Comet::ParameterMap& overrides) const;
 
     private:
         std::unordered_map<Comet::PropertyType, PropertyEditor> m_editors;

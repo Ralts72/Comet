@@ -138,7 +138,11 @@ namespace CometEditor {
             if(expanded) {
                 for(const Comet::PropertyDescriptor& property : component_descriptor.properties) {
                     ImGui::PushID(property.id.c_str());
-                    render_property(entity, component_descriptor, property);
+                    if(component_descriptor.id == "script"
+                        && property.type == Comet::PropertyType::Parameters)
+                        render_script_parameters(entity, component_descriptor, property);
+                    else
+                        render_property(entity, component_descriptor, property);
                     active_property_visible |= m_property_edit.targets(
                         {entity.get_uuid(), component_descriptor.id, property.id});
                     ImGui::PopID();
@@ -280,32 +284,9 @@ namespace CometEditor {
         auto value = property.copy_value(component.get_component(std::as_const(entity)));
         if(!value)
             return;
-        const PropertyEditTransaction::Target target{entity.get_uuid(), component.id, property.id};
-        if(component.id == "script" && property.type == Comet::PropertyType::Parameters) {
-            const auto& binding = entity.get_component<Comet::ScriptComponent>();
-            if(!binding.asset)
-                return;
-            const auto script = m_runtime_assets.resolve<Comet::Script>(binding.asset);
-            if(!script) {
-                ImGui::TextDisabled("%s", Ui::text("Script unavailable; see Console"));
-                return;
-            }
-            if(ImGui::Button(Ui::label("Reset script parameters").c_str())) {
-                if(m_state.mode == EditorMode::Play)
-                    entity.get_component<Comet::ScriptComponent>().parameters.clear();
-                else
-                    static_cast<void>(m_property_edit.apply(target, Comet::ParameterMap{}));
-                return;
-            }
-            auto effective = script->parameters(binding.parameters);
-            if(!effective) {
-                ImGui::TextWrapped("%s", effective.error().message.c_str());
-                return;
-            }
-            value = std::move(effective).value();
-        }
         if(property.type == Comet::PropertyType::AssetHandle && property.asset_type) {
-            render_asset_property(target, property, std::get<Comet::AssetHandle>(*value));
+            render_asset_property({entity.get_uuid(), component.id, property.id}, property,
+                std::get<Comet::AssetHandle>(*value));
             return;
         }
         if(!m_property_editor_registry.contains(property.type))
@@ -315,6 +296,51 @@ namespace CometEditor {
                 return m_property_editor_registry.edit_property(property, &edited);
             },
             *value);
+        apply_property_edit(entity, component, property, *value, result);
+    }
+
+    void InspectorPanel::render_script_parameters(Comet::Entity entity,
+        const Comet::ComponentDescriptor& component, const Comet::PropertyDescriptor& property) {
+        const auto& binding = entity.get_component<Comet::ScriptComponent>();
+        std::shared_ptr<const Comet::Script> script;
+        if(m_state.mode == EditorMode::Play)
+            script = binding.running_script();
+        else
+            script = m_runtime_assets.resolve<Comet::Script>(binding.asset);
+        const PropertyEditTransaction::Target target{entity.get_uuid(), component.id, property.id};
+        if(m_property_edit.targets(target) && m_script_edit_version != script) {
+            if(!m_property_edit.cancel()) {
+                LOG_ERROR("Cannot cancel parameter edit after script definition changed");
+                return;
+            }
+            ImGui::ClearActiveID();
+        }
+        m_script_edit_version = script;
+        if(!binding.asset)
+            return;
+        if(!script) {
+            ImGui::TextDisabled("%s", Ui::text("Script unavailable; see Console"));
+            return;
+        }
+        if(ImGui::Button(Ui::label("Restore default parameters").c_str())) {
+            apply_property_edit(entity, component, property, Comet::ParameterMap{},
+                {.changed = true, .finished = true});
+            return;
+        }
+        if(auto effective = script->parameters(binding.parameters); !effective) {
+            ImGui::TextWrapped("%s", effective.error().message.c_str());
+            return;
+        }
+        auto overrides = binding.parameters;
+        const auto result =
+            m_property_editor_registry.edit_parameters(script->defaults(), overrides);
+        apply_property_edit(entity, component, property, overrides, result);
+    }
+
+    void InspectorPanel::apply_property_edit(Comet::Entity entity,
+        const Comet::ComponentDescriptor& component, const Comet::PropertyDescriptor& property,
+        const Comet::PropertyValue& value, const PropertyEditResult& result) {
+        const PropertyEditTransaction::Target target{entity.get_uuid(), component.id, property.id};
         const bool changed = result.changed;
         const bool active = result.active;
         const bool activated = result.began;
@@ -326,7 +352,7 @@ namespace CometEditor {
         }
         if(m_state.mode == EditorMode::Play) {
             // Play 中仍可调试 Runtime 属性，但不写入 Edit 文档历史。
-            if(changed && !property.assign_value(component.get_component(entity), *value)) {
+            if(changed && !property.assign_value(component.get_component(entity), value)) {
                 LOG_ERROR("Cannot update runtime property");
             }
             return;
@@ -345,7 +371,7 @@ namespace CometEditor {
                 ImGui::ClearActiveID();
                 return;
             }
-            if(changed && !m_property_edit.preview(*value)) {
+            if(changed && !m_property_edit.preview(value)) {
                 LOG_ERROR("Cannot preview edit of {}.{}", component.id, property.id);
             }
             if(deactivated || (changed && !active)) {

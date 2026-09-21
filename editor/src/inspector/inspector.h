@@ -19,6 +19,7 @@ namespace Comet {
     class ComponentRegistry;
     class Entity;
     class MaterialLayout;
+    class Script;
 }
 
 namespace CometEditor {
@@ -59,6 +60,11 @@ namespace CometEditor {
         void render_entity(Comet::Entity entity);
         void render_property(Comet::Entity entity, const Comet::ComponentDescriptor& component,
             const Comet::PropertyDescriptor& property);
+        void render_script_parameters(Comet::Entity entity,
+            const Comet::ComponentDescriptor& component, const Comet::PropertyDescriptor& property);
+        void apply_property_edit(Comet::Entity entity, const Comet::ComponentDescriptor& component,
+            const Comet::PropertyDescriptor& property, const Comet::PropertyValue& value,
+            const PropertyEditResult& result);
         void render_asset_property(const PropertyEditTransaction::Target& target,
             const Comet::PropertyDescriptor& property, Comet::AssetHandle handle);
         [[nodiscard]] std::optional<AssetDragPayload> accept_asset_drop(
@@ -83,6 +89,7 @@ namespace CometEditor {
         const PropertyEditorRegistry& m_property_editor_registry;
         const Comet::AssetDatabase& m_asset_database;
         const Comet::AssetRegistry& m_runtime_assets;
+        std::shared_ptr<const Comet::Script> m_script_edit_version;
         Comet::AssetHandle m_loaded_asset;
         Comet::AssetRevision m_loaded_revision = 0;
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;

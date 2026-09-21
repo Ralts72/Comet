@@ -1,6 +1,6 @@
-# 渲染资源所有权
+# 引擎架构与运行时边界
 
-描述当前 owner、调用边界和销毁规则；未来项目 Shader／多 pass 扩展／RenderThread 设计见[路线图](../engine-roadmap.md)。
+描述当前运行时、编辑器、资产与渲染的调用链、所有权和失败边界；待实现能力与验收见[路线图](../engine-roadmap.md)。
 
 ## 先看哪个类
 
@@ -155,20 +155,18 @@ PlayCommand 属于 editor_state 的工作流协议，ViewportPanel 只生产请�
 隐藏离屏视图仍运行 UI、Runtime、Scene 提取与上传回收；再显示时准备最新场景设置。直接呈现不走隐藏跳过分支。
 prepare_frame 暂时无可呈现帧时跳过 UI／提取／绘制，仍执行 Runtime；最小化继续等待并重置墙钟增量。
 最小化同时清除窗口瞬态与 Runtime 待处理按下；采样中断版本使 Gate 先释放再获取，不要求 UI 消费恢复首帧。
-System 更新失败逆序停止并返回 Result；Engine 随后进入关闭清理，不继续使用已 acquire 的帧。
+System 更新失败逆序停止并返回 Result。无恢复处理或 DeviceLost 时退出；配置宿主恢复时，Engine 不提取已部分写入的 Scene，
+先用空场景完成已 acquire 的帧，再调用 Application::on_runtime_error。Editor 恢复 Edit；app 默认返回失败退出。
+恢复本身或空帧绘制失败仍关闭宿主，不重试失败的模拟步骤，也不让未提交帧进入下一次 prepare。
 替换 Scene 必须发生在 System 执行之外，先停止旧 Runtime；shutdown 在宿主、Scene 和服务释放前停止并销毁 System。
-Script 资产保存 Lua 源码与默认参数；ScriptComponent 属于 Scene，只保存资产引用和参数覆盖。
-ScriptSystem 借用 AssetRegistry，持有 Script 资产和独立 VM 实例，不持有组件地址；Lua API 留在 scripting/script.cpp。
-启动批次按实体 UUID 排序，停止按实际启动顺序逆序，不把动态新增后的排序当作启动顺序。
-阶段边界同步宿主对实体／组件的增删；第一版 Lua API 不开放结构增删。每次调用读取最新参数，运行中保留启动时源码。
-on_stop 只清理自有资源，不访问已删除实体或重入 Runtime；字段编辑不重启，组件删除再添加才产生新生命周期。
 文件扫描、复制、保存和同步资产加载在 on_update 执行，不占用已 acquire 的帧；这不是将全部 I/O 移出主线程。请求仍由唯一 Editor 执行，不新增事件总线。Window 可选择拦截原生关闭事件，Editor 处理未保存决策后才通过 request_close 确认退出。
 Scene 维护 EntityId／UUID 查询索引与父子索引，结构修改时同步维护；这些索引不参与序列化。
 SceneExtractor 与 CameraControllerSystem 共用 Scene 的类型化 each 查询；渲染提取不再是 Scene 的 friend，也不直接访问 EnTT registry。
 Scene 的同步检查遍历全部节点，比较本地 TRS、组件是否存在、parent ID 和父级计算版本，仅重算变化节点。
 单个 get_world_matrix 只检查祖先链；持续持有可变组件引用的写入同样在下次查询／提取时生效。
 缓存属于 Scene 私有状态，不序列化；update_world_transforms 返回实际重算数量，静止场景为零。
-Engine 同步借用 update 和 frame_ready 两个函数，不保存宿主回调注册表；UI 与 System 修改后再同步变换并提取，避免使用上一帧数据。Renderer 不再调用 UI 准备，ImGuiContext 不再持有 UI 业务回调；Editor 在 on_frame_ready 显式调用 begin_frame/end_frame。
+Engine 同步借用宿主更新、UI 准备和运行错误处理，不保存回调注册表；UI 与 System 修改后再同步变换并提取。
+Renderer 不调用 UI 准备；Editor 在 on_frame_ready 显式调用 ImGuiContext::begin_frame/end_frame。
 pose_world_matrix 使用层级旋转与普通世界矩阵的位置，本地及祖先缩放不进入相机朝向。
 本地 TR 只计算一次，普通矩阵在其基础上应用 scale；相机与物体继续使用各自的父级矩阵。
 SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler，不访问呈现队列；录制时借用传入的帧上下文。
@@ -183,6 +181,25 @@ prepare_frame 成功返回 false 仍表示可恢复的延期，不进入关闭�
 部分录制的命令缓冲只由 owner 销毁，不结束并提交空帧，也不重新用于下一帧。
 Editor 通过 Renderer 注册 Overlay 重建钩子、读取只读帧信息；整帧命令缓冲直接传给 Overlay。
 SceneResolver 只解析 Camera、Mesh、Material 和 Environment 引用，不检查模板、属性名或纹理数量。
+
+## Lua 脚本与参数
+
+Script 保存源码与默认参数；ScriptComponent 序列化资产引用和用户覆盖，弱引用的活动定义只供运行观察。
+复制组件不携带运行绑定；ScriptSystem 独占 VM 并保活所用 Script，停止时解除绑定，组件不持有解释器。
+`scripting/script.cpp` 管 VM、资源限制、字段解析与受保护执行；私有 `lua_bindings` 只注册引擎能力。
+公共 API 不暴露 Lua 或 System 调度类型，Invocation 仅借用本次调用的输入与时间。
+
+Edit 的 Inspector 使用当前资产定义，Play 使用组件的活动定义；源码扫描失效缓存不会改变运行实例或其参数类型。
+Edit 修改源码导致定义切换时取消旧参数手势；恢复默认参数清空覆盖，和重载源码无关。
+参数编辑只写变化字段，明确设置成默认值仍保留覆盖；不把没编辑过的默认字段一起固化。
+导出配置通过现有 PropertyEditTransaction 保存／撤销，Play 调参不写 Edit 历史。
+
+阶段边界只查询 ScriptComponent，新增批次按 UUID 排序；停止按实际启动顺序逆序，包含部分启动失败。
+参数覆盖按值复核，仅变化时重新合并默认值并生成 Lua 配置表；`self.parameters` 及 Vec3 值只读，支持 pairs／索引／长度。
+脚本运行状态放在 self 的其他字段中。on_stop 不访问实体；字段编辑不重启，组件重建产生新寿命。
+当前每实体独立 VM，源码最多 1 MiB、Lua 堆最多 8 MiB、每次受保护调用最多约 20 万条 Lua 指令。
+限制不等于墙钟超时或安全沙箱；不开放文件、原生库、require、动态代码、元表和 rawset。
+未提供运行中源码替换、模块依赖、结构增删或材质 API；未来能力按路线图独立验收。
 
 ## 渲染诊断
 

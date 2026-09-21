@@ -239,6 +239,17 @@ namespace {
             return Comet::Result<void, Comet::Error>::success();
         }
 
+        Comet::Result<void, Comet::Error> on_runtime_error(const Comet::Error& error) override {
+            if(m_editor_state.mode != CometEditor::EditorMode::Play || !m_scene_session)
+                return Comet::Result<void, Comet::Error>::failure(error);
+            LOG_ERROR("Play stopped: {}", error.message);
+            m_scene_session->request_mode(CometEditor::EditorMode::Edit);
+            const auto restored = m_scene_session->apply_mode_request();
+            if(!restored)
+                return Comet::Result<void, Comet::Error>::failure(restored.error());
+            return Comet::Result<void, Comet::Error>::success();
+        }
+
         Comet::Result<void, Comet::Error> on_shutdown() override {
             get_engine().get_window().confirm_close_requests(false);
             LOG_INFO("Editor shutting down...");

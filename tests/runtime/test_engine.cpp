@@ -214,6 +214,43 @@ namespace Comet::Tests {
         engine.get_renderer().set_overlay_renderer({});
     }
 
+    TEST(EngineRunTest, RuntimeRecoveryCompletesAcquiredFrameBeforeReplacingScene) {
+        auto created = Engine::create(Config{});
+        ASSERT_TRUE(created);
+        auto& engine = *created.value();
+        engine.set_scene(std::make_unique<Scene>());
+        const auto original = engine.get_scene();
+        auto calls = std::make_shared<RuntimeCalls>();
+        calls->fail_update = true;
+        ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine.start_scene_runtime());
+        int draws = 0;
+        int recoveries = 0;
+        engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) { ++draws; });
+        const auto result = engine.run(
+            [&](UpdateContext) {
+                if(draws >= 2)
+                    engine.get_window().request_close();
+                return Result<void, Error>::success();
+            },
+            {},
+            [&](const Error& error) {
+                ++recoveries;
+                EXPECT_EQ(error.message, "runtime update failed");
+                EXPECT_EQ(draws, 1);
+                EXPECT_FALSE(engine.get_renderer().get_frame_scheduler().is_frame_active());
+                EXPECT_FALSE(engine.get_scene_runtime().is_active());
+                EXPECT_EQ(calls->stops, 1);
+                auto previous = engine.replace_scene(std::make_unique<Scene>());
+                EXPECT_EQ(previous.get(), original);
+                return Result<void, Error>::success();
+            });
+        EXPECT_TRUE(result);
+        EXPECT_EQ(recoveries, 1);
+        EXPECT_EQ(draws, 2);
+        engine.get_renderer().set_overlay_renderer({});
+    }
+
     TEST(EngineRunTest, FrameReadyFailureStopsEngineWithoutDrawingOrReusingAcquiredFrame) {
         auto engine_result = Engine::create(Config{});
         ASSERT_TRUE(engine_result) << engine_result.error().message;

@@ -182,7 +182,7 @@ namespace Comet {
             case AssetType::Script:
                 // 活动实例保留旧源码；下次准备场景时加载新版，不在运行中替换 VM。
                 static_cast<void>(m_registry.unregister_asset(record.handle));
-                return RefreshResult::Rejected;
+                return RefreshResult::Invalidated;
             case AssetType::Mesh:
                 accepted = schedule_mesh_task(record, MeshImportMode::Force);
                 break;
@@ -213,7 +213,7 @@ namespace Comet {
                 LOG_WARN(
                     "Unloaded modified asset handle {} because runtime reload is not implemented for type '{}'",
                     record.handle.value(), to_string(record.type));
-                return RefreshResult::Rejected;
+                return RefreshResult::Invalidated;
         }
         return accepted ? RefreshResult::Scheduled : RefreshResult::Deferred;
     }

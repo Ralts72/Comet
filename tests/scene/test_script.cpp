@@ -12,6 +12,9 @@
 #include "common/file_io.h"
 #include "support/temporary_directory.h"
 #include "support/render_resource_factory.h"
+#include "common/scope_exit.h"
+#include "diagnostics/logger.h"
+#include <spdlog/sinks/callback_sink.h>
 
 #include <gtest/gtest.h>
 #include <limits>
@@ -51,8 +54,7 @@ namespace Comet::Tests {
                     self.steps = self.steps + 1
                     comet.translate(0, dt, 0)
                 end,
-                update = function(self) comet.translate(0, 0, self.steps) end,
-                on_stop = function(self) assert(self.steps == 2) end
+                update = function(self) comet.translate(0, 0, self.steps) end
             }
         )");
         auto a = actor();
@@ -138,7 +140,7 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, 11);
     }
 
-    TEST_F(ScriptTest, InvalidCodeSchemaAndUnsafeLibrariesFailWithoutProcessTermination) {
+    TEST(ScriptSourceTest, InvalidCodeSchemaAndUnsafeLibrariesFailWithoutProcessTermination) {
         EXPECT_FALSE(Script::create("return {"));
         EXPECT_FALSE(Script::create("return 42"));
         EXPECT_FALSE(Script::create("return {update = true}"));
@@ -150,6 +152,63 @@ namespace Comet::Tests {
         EXPECT_TRUE(Script::create(
             "assert(io == nil and os == nil and package == nil and debug == nil and load == nil and pcall == nil); return {}"));
         EXPECT_FALSE(Script::create("comet.rotate(0, 1, 0); return {}"));
+    }
+
+    TEST(ScriptInvocationTest, CachedParametersAreReadOnlyAndStopErrorsAreObservable) {
+        const auto script = Script::create(R"(return {
+            properties = {speed = 1, direction = {1, 2, 3}},
+            on_start = function(self) self.config = self.parameters; self.steps = 0 end,
+            update = function(self)
+                assert(self.parameters == self.config)
+                assert(#self.parameters.direction == 3)
+                local count = 0
+                for k, v in pairs(self.parameters) do count = count + 1 end
+                assert(count == 2)
+                self.steps = self.steps + 1
+            end,
+            on_stop = function(self)
+                assert(self.steps == 2)
+                self.parameters.direction[1] = 0
+            end
+        })");
+        ASSERT_TRUE(script);
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        const auto& parameters = script.value()->defaults();
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, parameters));
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, parameters));
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, parameters));
+        auto stopped = instance.value()->invoke(Script::Phase::Stop, {}, parameters);
+        ASSERT_FALSE(stopped);
+        EXPECT_NE(stopped.error().message.find("read-only"), std::string::npos);
+    }
+
+    TEST_F(ScriptTest, CleanupRunsOnceInReverseActualStartOrderEvenAfterFailure) {
+        Config::Log config;
+        config.enable_file_logging = false;
+        Logger::init(config);
+        const auto logger = Logger::get_console_logger();
+        std::vector<std::string> messages;
+        const auto sink = std::make_shared<spdlog::sinks::callback_sink_mt>(
+            [&](const spdlog::details::log_msg& message) {
+                messages.emplace_back(message.payload.data(), message.payload.size());
+            });
+        logger->sinks().push_back(sink);
+        const ScopeExit remove_sink([&] { std::erase(logger->sinks(), sink); });
+        source(
+            "return {properties = {label = 'first'}, on_stop = function(self) error(self.parameters.label) end}");
+        auto first = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        auto second = actor();
+        second.get_component<ScriptComponent>().parameters["label"] = std::string("second");
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_EQ(messages.size(), 2u);
+        EXPECT_NE(messages[0].find("second"), std::string::npos);
+        EXPECT_NE(messages[1].find("first"), std::string::npos);
+        EXPECT_FALSE(first.get_component<ScriptComponent>().running_script());
+        EXPECT_FALSE(second.get_component<ScriptComponent>().running_script());
     }
 
     TEST_F(ScriptTest, RuntimeFailureStopsAndAllowsExplicitRestart) {

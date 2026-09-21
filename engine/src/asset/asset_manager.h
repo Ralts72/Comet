@@ -103,7 +103,7 @@ namespace Comet {
 
     private:
         void apply_scan_report(const AssetScanReport& report);
-        enum class RefreshResult { Scheduled, Deferred, Rejected };
+        enum class RefreshResult { Scheduled, Deferred, Invalidated, Rejected };
         [[nodiscard]] RefreshResult schedule_refresh(const AssetRecord& record);
         void retry_refresh_requests();
         Result<void, Error> reload_loaded_material_dependents(AssetHandle texture_handle);

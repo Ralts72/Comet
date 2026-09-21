@@ -1,6 +1,6 @@
 #include "scripting/script.h"
 #include "common/file_io.h"
-#include "scene/scene.h"
+#include "scripting/lua_bindings.h"
 
 extern "C" {
 #include <lua.h>
@@ -11,6 +11,7 @@ extern "C" {
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <optional>
 
 namespace Comet {
     struct Script::Instance::Impl {
@@ -22,9 +23,12 @@ namespace Comet {
         std::string name;
         int definition = LUA_NOREF;
         int self = LUA_NOREF;
-        Entity entity;
+        LuaBindings::Context bindings;
         const ParameterMap* parameters = nullptr;
-        const System::Context* context = nullptr;
+        std::optional<ParameterMap> previous_parameters;
+        int parameter_table = LUA_NOREF;
+        bool parameters_changed = true;
+        double delta_time = 0;
         Phase phase = Phase::Start;
 
         ~Impl() {
@@ -56,53 +60,6 @@ namespace Comet {
             if(--current(state).budget <= 0)
                 luaL_error(state, "Script instruction budget exceeded");
         }
-        static TransformComponent& transform(lua_State* state) {
-            auto& vm = current(state);
-            if(!vm.entity || !vm.entity.has_component<TransformComponent>())
-                luaL_error(state, "Entity is unavailable in this script phase");
-            return vm.entity.get_component<TransformComponent>();
-        }
-        static float number(lua_State* state, int index) {
-            const auto value = luaL_checknumber(state, index);
-            if(!std::isfinite(value) || std::abs(value) > std::numeric_limits<float>::max())
-                luaL_error(state, "Expected a finite float");
-            return static_cast<float>(value);
-        }
-        static int rotate(lua_State* state) {
-            const Math::Vec3 value{number(state, 1), number(state, 2), number(state, 3)};
-            auto& target = transform(state);
-            if(!Math::is_finite(target.rotation + value))
-                return luaL_error(state, "Rotation overflow");
-            target.rotate(value);
-            return 0;
-        }
-        static int translate(lua_State* state) {
-            const Math::Vec3 value{number(state, 1), number(state, 2), number(state, 3)};
-            auto& target = transform(state);
-            if(!Math::is_finite(target.translation + value))
-                return luaL_error(state, "Translation overflow");
-            target.translation += value;
-            return 0;
-        }
-        static int position(lua_State* state) {
-            const auto value = transform(state).translation;
-            lua_pushnumber(state, value.x);
-            lua_pushnumber(state, value.y);
-            lua_pushnumber(state, value.z);
-            return 3;
-        }
-        static int key_down(lua_State* state) {
-            const auto* context = current(state).context;
-            const char* name = luaL_checkstring(state, 1);
-            Input::Key key = Input::Key::Unknown;
-            if(name[0] >= 'A' && name[0] <= 'Z' && name[1] == '\0')
-                key = static_cast<Input::Key>(static_cast<int>(Input::Key::A) + name[0] - 'A');
-            else
-                return luaL_error(state, "key_down currently accepts A-Z");
-            lua_pushboolean(
-                state, context && context->input.focused && context->input.key(key).down);
-            return 1;
-        }
 
         static int initialize(lua_State* state) {
             auto& vm = current(state);
@@ -116,15 +73,11 @@ namespace Comet {
             lua_pop(state, 1);
             // 不开放文件、原生库、动态代码、元表与嵌套保护调用，避免绕过执行边界。
             for(const char* name : {"dofile", "loadfile", "load", "collectgarbage", "pcall",
-                    "xpcall", "setmetatable", "getmetatable", "print"}) {
+                    "xpcall", "setmetatable", "getmetatable", "rawset", "print"}) {
                 lua_pushnil(state);
                 lua_setglobal(state, name);
             }
-            lua_newtable(state);
-            const luaL_Reg api[]{{"rotate", rotate}, {"translate", translate},
-                {"position", position}, {"key_down", key_down}, {nullptr, nullptr}};
-            luaL_setfuncs(state, api, 0);
-            lua_setglobal(state, "comet");
+            LuaBindings::install(state, vm.bindings);
             if(luaL_loadbufferx(state, vm.source.data(), vm.source.size(), vm.name.c_str(), "t")
                 != LUA_OK)
                 return lua_error(state);
@@ -144,6 +97,47 @@ namespace Comet {
             return 0;
         }
 
+        static int readonly_write(lua_State* state) {
+            return luaL_error(
+                state, "Script parameters are read-only; store runtime state on self");
+        }
+        static int readonly_next(lua_State* state) {
+            lua_settop(state, 2);
+            lua_pushvalue(state, lua_upvalueindex(1));
+            lua_pushvalue(state, 2);
+            if(!lua_next(state, -2))
+                return 0;
+            return 2;
+        }
+        static int readonly_pairs(lua_State* state) {
+            lua_pushvalue(state, lua_upvalueindex(1));
+            lua_pushcclosure(state, readonly_next, 1);
+            lua_pushnil(state);
+            lua_pushnil(state);
+            return 3;
+        }
+        static int readonly_length(lua_State* state) {
+            lua_pushinteger(
+                state, static_cast<lua_Integer>(lua_rawlen(state, lua_upvalueindex(1))));
+            return 1;
+        }
+        static void make_readonly(lua_State* state) {
+            // 用代理隔离脚本写入，才能安全复用未变化的配置表。
+            lua_newtable(state);
+            lua_newtable(state);
+            lua_pushvalue(state, -3);
+            lua_setfield(state, -2, "__index");
+            lua_pushcfunction(state, readonly_write);
+            lua_setfield(state, -2, "__newindex");
+            lua_pushvalue(state, -3);
+            lua_pushcclosure(state, readonly_pairs, 1);
+            lua_setfield(state, -2, "__pairs");
+            lua_pushvalue(state, -3);
+            lua_pushcclosure(state, readonly_length, 1);
+            lua_setfield(state, -2, "__len");
+            lua_setmetatable(state, -2);
+            lua_remove(state, -2);
+        }
         static void push_parameter(lua_State* state, const ParameterValue& parameter) {
             std::visit(
                 [state](const auto& value) {
@@ -160,6 +154,7 @@ namespace Comet {
                             lua_pushnumber(state, value[i]);
                             lua_rawseti(state, -2, i + 1);
                         }
+                        make_readonly(state);
                     }
                 },
                 parameter);
@@ -167,22 +162,26 @@ namespace Comet {
 
         static int dispatch(lua_State* state) {
             auto& vm = current(state);
+            if(vm.parameters_changed) {
+                lua_newtable(state);
+                for(const auto& [name, value] : *vm.parameters) {
+                    push_parameter(state, value);
+                    lua_setfield(state, -2, name.c_str());
+                }
+                make_readonly(state);
+                const int replacement = luaL_ref(state, LUA_REGISTRYINDEX);
+                luaL_unref(state, LUA_REGISTRYINDEX, vm.parameter_table);
+                vm.parameter_table = replacement;
+            }
             const char* names[]{"on_start", "fixed_update", "update", "on_stop"};
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.definition);
             lua_getfield(state, -1, names[static_cast<int>(vm.phase)]);
             if(lua_isnil(state, -1))
                 return 0;
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.self);
-            lua_newtable(state);
-            for(const auto& [name, value] : *vm.parameters) {
-                push_parameter(state, value);
-                lua_setfield(state, -2, name.c_str());
-            }
+            lua_rawgeti(state, LUA_REGISTRYINDEX, vm.parameter_table);
             lua_setfield(state, -2, "parameters");
-            double delta = 0;
-            if(vm.context)
-                delta = vm.context->delta_time;
-            lua_pushnumber(state, delta);
+            lua_pushnumber(state, vm.delta_time);
             lua_call(state, 2, 0);
             return 0;
         }
@@ -283,19 +282,29 @@ namespace Comet {
     Script::Instance::Instance(std::unique_ptr<Impl> impl) : m_impl(std::move(impl)) {}
     Script::Instance::~Instance() = default;
 
-    Result<void, Error> Script::Instance::invoke(Phase phase, Entity entity,
-        const ParameterMap& parameters, const System::Context* context) {
-        if(!valid_parameters(parameters))
+    Result<void, Error> Script::Instance::invoke(
+        Phase phase, Entity entity, const ParameterMap& parameters, Invocation invocation) {
+        m_impl->parameters_changed =
+            !m_impl->previous_parameters || *m_impl->previous_parameters != parameters;
+        if(m_impl->parameters_changed && !valid_parameters(parameters))
             return Result<void, Error>::failure({"Invalid script parameters"});
-        m_impl->entity = entity;
+        m_impl->bindings = {entity, invocation.input};
         m_impl->parameters = &parameters;
-        m_impl->context = context;
+        m_impl->delta_time = invocation.delta_time;
         m_impl->phase = phase;
         const auto result = m_impl->call(Impl::dispatch);
-        m_impl->entity = {};
+        m_impl->bindings = {};
         m_impl->parameters = nullptr;
-        m_impl->context = nullptr;
+        if(result && m_impl->parameters_changed)
+            m_impl->previous_parameters = parameters;
+        if(!result)
+            m_impl->previous_parameters.reset();
         return result;
+    }
+
+    Result<void, Error> Script::Instance::invoke(
+        Phase phase, Entity entity, const ParameterMap& parameters) {
+        return invoke(phase, entity, parameters, {});
     }
 
     Result<std::unique_ptr<Script::Instance>, Error> Script::instantiate() const {

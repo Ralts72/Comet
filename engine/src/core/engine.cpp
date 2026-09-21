@@ -123,7 +123,8 @@ namespace Comet {
     }
 
     Result<void, Error> Engine::run(const std::function<Result<void, Error>(UpdateContext)>& update,
-        const std::function<Result<void, Error>()>& frame_ready) {
+        const std::function<Result<void, Error>()>& frame_ready,
+        const std::function<Result<void, Error>(const Error&)>& runtime_failed) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
         if(m_running)
@@ -133,7 +134,7 @@ namespace Comet {
         LOG_INFO("running engine...");
 
         while(!m_window->should_close()) {
-            if(auto frame = tick(update, frame_ready); !frame)
+            if(auto frame = tick(update, frame_ready, runtime_failed); !frame)
                 return frame;
         }
         return Result<void, Error>::success();
@@ -141,7 +142,8 @@ namespace Comet {
 
     Result<void, Error> Engine::tick(
         const std::function<Result<void, Error>(UpdateContext)>& update,
-        const std::function<Result<void, Error>()>& frame_ready) {
+        const std::function<Result<void, Error>()>& frame_ready,
+        const std::function<Result<void, Error>(const Error&)>& runtime_failed) {
         PROFILE_SCOPE("Engine::Frame");
         const bool capture = m_renderer->get_diagnostics().is_enabled();
         using Clock = std::chrono::steady_clock;
@@ -219,8 +221,23 @@ namespace Comet {
         if(auto advanced = m_scene_runtime.advance(m_timer->get_update_context().delta_time,
                m_runtime_input ? &*m_runtime_input : nullptr);
             !advanced) {
-            prepare_shutdown();
-            return advanced;
+            if(!runtime_failed || is_device_lost(advanced.error())) {
+                prepare_shutdown();
+                return advanced;
+            }
+            // 不提取部分写入的场景；已 acquire 的帧先用空场景完成，再交给宿主恢复。
+            if(preparation.value()) {
+                if(auto drained = m_renderer->render_frame({}); !drained) {
+                    prepare_shutdown();
+                    return Result<void, Error>::failure(drained.error().as_error());
+                }
+            }
+            m_runtime_input.reset();
+            if(auto recovered = runtime_failed(advanced.error()); !recovered) {
+                prepare_shutdown();
+                return recovered;
+            }
+            return Result<void, Error>::success();
         }
         timing.update_ms += phase_ms();
         if(!preparation.value()) {

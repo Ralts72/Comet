@@ -1,6 +1,6 @@
 # Comet 引擎路线图
 
-更新：2026-09-21。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
+更新：2026-09-22。目标是能完成小型 3D 项目的编辑器型引擎，先打通数据和编辑闭环，再扩展渲染与运行时能力。
 本文只维护阶段、待办和设计约束，不累计每次迁移的完成日志。
 
 ## 当前阶段与下一步
@@ -13,13 +13,13 @@
 | 3 资产数据库与导入 | 主链路、任务背压与发布预算已接通，仍有扩展 | 增量引用恢复、字节预算与更多导入格式 |
 | 4 视口与交互 | 4A/4B 主链路完成，4C 材质创建与模板选择已接通 | 内容编辑与资产撤销扩展 |
 | 5 渲染升级 | 核心 forward 链路、诊断与代表场景测量已接通 | 项目 Shader 资产化、实例化、可选延迟渲染；路径追踪为远期扩展 |
-| 6 游戏运行时 | 输入、固定更新、串行 System、暂停／单步与 Lua Script 已接通 | 动作映射、物理、音频、脚本 API 与运行错误恢复 |
+| 6 游戏运行时 | 输入、固定更新、串行 System、暂停／单步与 Lua Script 已接通 | 动作映射、物理、音频、脚本 API 与模块依赖 |
 | 7 内容生产与发布 | 项目打开最小入口已落地，其余规划 | 项目设置 UI、格式迁移、打包 |
 
 以当前 main 的功能与验收为准，继续逐项对照 feat/auto2 的实现及原始提交，而不是机械 cherry-pick。
 每项先注明对应旧提交、当前覆盖、需要调整及仍未覆盖的范围，再适配 main 的 Result、目录边界和生命周期；
 临时代码说明留在仓库内供学习，不进入提交。旧分支的已实现行为不能只因 main 有同名功能就判为完整覆盖。
-已完成能力见上表；具体所有权与失败协议见[架构文档](architecture/rendering-ownership.md)。
+已完成能力见上表；具体所有权与失败协议见[架构文档](architecture/overview.md)。
 旧分支的 026–041 已对照当前实现适配；040 的采样中断边界已补齐，041 改用 Result 与现有 scene/systems 组织。
 
 接下来的独立验收项：
@@ -53,7 +53,7 @@
 - Shader 只保留实际使用的生产实现与有明确覆盖目标的测试资源；不为学习用途长期维护已被替代的模板。
 - 所有格式规则以根目录 .clang-format 为准，不在路线图或 AGENTS 重复一套排版细则。
 
-当前实现以代码和[资源所有权](architecture/rendering-ownership.md)为准；
+当前实现以代码和[架构与所有权](architecture/overview.md)为准；
 下文的新类型名是目标职责，不意味着立即新增同名文件或类。
 
 ## 阶段 3：补全资产工作流
@@ -145,7 +145,7 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
 当前基线：单视口相机与布局、拾取／聚焦、选中包围盒、平移／旋转／本地缩放 Gizmo，
 组件与层级编辑、引用选择／拖放、外部资产导入，以及统一场景撤销历史。
 操作说明见 [README](../README.md#编辑器使用)；帧时序、事务和资源寿命见
-[资源所有权](architecture/rendering-ownership.md)，文件操作边界以 SceneDocument 和 EditorAssets 的实现为准。
+[架构与所有权](architecture/overview.md)，文件操作边界以 SceneDocument 和 EditorAssets 的实现为准。
 
 剩余：
 
@@ -193,7 +193,7 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
 
 当前内置模板收敛为 unlit_color 和 pbr，不等于通用项目 Shader。
 已接通材质版本快照、Frame/Material/Object 分层、共享布局 Inspector、SPIR-V 反射校验、PipelineKey 与 CPU 编译／构建 CLI；
-实现与失败边界集中在[资源所有权](architecture/rendering-ownership.md#材质shader-与-pipeline)。
+实现与失败边界集中在[架构与所有权](architecture/overview.md#材质shader-与-pipeline)。
 
 #### 材质编辑闭环（已接通，资产撤销后续扩展）
 
@@ -263,7 +263,7 @@ Shader 基础能力与后续独立验收项：
    后续按消费者扩展 normalized／packed 顶点格式转换、复杂 I/O、插值／附件输出及设备能力校验；
    不把这一步的保守限制说成 Vulkan 完整兼容规则，也不把反射视为完整 SPIR-V validator。
 
-旧实现的核对依据保留为索引，现行契约与覆盖边界见[渲染资源所有权](architecture/rendering-ownership.md)：
+旧实现的核对依据保留为索引，现行契约与覆盖边界见[架构与所有权](architecture/overview.md)：
 023–025：`5ae0775 / 40dfe50 / c186e75`；026–029：`6d9f365 / 88cdd4a / fd1d5f3 / 624a143`；
 030–035：`30dce0f / 531c7b6 / be721fe / 63b2394 / f6dd1ac / 253d5d1`。
 不迁回旧 ShaderManager、异常协议和固定间隔无限重试；原生文件监听仍按阶段 3 专项推进。
@@ -358,7 +358,7 @@ ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存
 ### 可失败创建 API 与消费者迁移（热更新前置）
 
 公共 Result、GraphicsError、候选所有权和应用退出协议已接通；现行契约统一见
-[创建与错误边界](architecture/rendering-ownership.md#gpu-创建与错误)。后续验收项：
+[创建与错误边界](architecture/overview.md#gpu-创建与错误)。后续验收项：
 
 1. **命令录制／同步对象创建／运行期等待**：按实际消费者继续检查异常边界；每步同时迁移接口、生产调用方及测试，
    不保留可被业务绕回使用的旧入口，也不承诺所有函数 noexcept。
@@ -432,7 +432,7 @@ ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存
 
 ### RenderGraph 与多 pass
 
-- 当前有序图已用于 app/editor 的方向光阴影、HDR 场景、可选 Bloom 与显示输出 pass；详细录制与失败契约见[渲染所有权](architecture/rendering-ownership.md#有序-rendergraph)。
+- 当前有序图已用于 app/editor 的方向光阴影、HDR 场景、可选 Bloom 与显示输出 pass；详细录制与失败契约见[渲染所有权](architecture/overview.md#有序-rendergraph)。
   当前顺序为：阴影 → 场景颜色（清屏、天空背景、材质网格、辅助线、按需 MSAA resolve）
   → 可选 Bloom（高亮提取、横向模糊、纵向模糊）→ OutputPass（合成、曝光、显示映射／编码）→ 编辑器 UI → 呈现。
   SkyboxPass 等绘制类不一定是独立图节点；当前天空背景和辅助线都在 scene 节点内。图按声明顺序执行并编译资源屏障，
@@ -456,7 +456,7 @@ ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存
   内部线性 HDR 场景目标与显示器 HDR 输出分开：当前 SDR 也使用浮点场景目标；OutputPass 是最终显示步骤，不是可选 HDR 特效。
   保持线性光照／合成、动态范围和一次正确的输出编码；曝光 1 是中性倍率，不是关闭显示映射。
   不为增加开关提前建立 LDR 双管线；独立全屏输出有成本，后续仅依据实际 GPU 测量评估融合或轻量路径，不能丢失色彩转换职责。
-- 已接通低频 GPU memory budget、手动 allocation dump、CPU 循环分段和场景图 CPU/GPU 计时；范围与延迟见[渲染诊断](architecture/rendering-ownership.md#渲染诊断)。独立测量入口与复现命令见 [README](../README.md#可复现渲染测量)，须关闭 validation，区分等待、CPU 录制和 GPU，不凭 FPS 直接决定引入 RenderThread。
+- 已接通低频 GPU memory budget、手动 allocation dump、CPU 循环分段和场景图 CPU/GPU 计时；范围与延迟见[渲染诊断](architecture/overview.md#渲染诊断)。独立测量入口与复现命令见 [README](../README.md#可复现渲染测量)，须关闭 validation，区分等待、CPU 录制和 GPU，不凭 FPS 直接决定引入 RenderThread。
   现有基线为静态共享材质场景，暂不引入 RenderThread、并行录制或 Dynamic Rendering；在真实高对象／多材质场景
   证明相应阶段持续占据预算后再评估，不能把减少绑定等同于减少 draw，也不以桌面呈现等待证明缺少渲染线程。
 - 后处理外观参数属于项目内容，当前按场景保存；引擎提供算法与校验，编辑器提供内容编辑。跨场景预设、相机覆盖、局部区域和画质降级按真实需求扩展，不提前引入全局配置与场景之间的多级覆盖。
@@ -586,15 +586,10 @@ validation、同步测试和生命周期回归通过。
   Play 画面悬停即可接收输入，Gate 消费当前帧 UI 归属，阻止文本／弹窗／离开画面／失焦时输入穿透；
   Esc 与 Stop 共用退出流程，丢弃运行场景副本并恢复 Edit。
   相机已由 CameraControllerSystem 普通更新；editor 只在 UI 就绪后授权输入，模拟本身不依赖是否可呈现。
-- Lua ScriptSystem 已接 on_start／fixed_update／update／on_stop，预期失败用 Result，清理包含部分启动失败。
-  组件存字段，System 持行为实例；组件寿命标识不序列化，复制得到新身份，存储搬移保留身份。
-  demo 的 spin.lua 作为项目资产由 app／Play 同用；不保留示例 UUID、路径判断或项目 C++ 行为链接。
-  ScriptComponent 保存资产和参数覆盖；Script 缓存源码与默认参数，ScriptSystem 独占各实体 VM。
-  bool／float／Vec3／string 参数复用属性事务和场景 JSON；运行实例不序列化。
-  源码修改由资产扫描失效缓存，新实例使用新版本；第一版不保留状态热重载，不支持 require 或实体结构修改 API。
-  后续优先区分脚本业务错误与引擎故障：编辑器回调失败停止 Play 并恢复 Edit，不关闭整个宿主；
-  当前仍遵循 System 更新失败关闭宿主的既有策略。再按需求接动作查询、模块依赖、调试与受控实体 API。
-  阶段边界用实体快照同步脚本，回调前复核寿命；大量脚本的结构变更索引在测出扫描瓶颈后引入。
+- Lua 生命周期、稀疏参数覆盖、Play 定义隔离及运行错误恢复已接通，当前契约见架构文档的“Lua 脚本与参数”。
+  后续接动作查询、模块依赖、调试与受控实体 API；结构变更索引在测出匹配组件扫描瓶颈后引入。
+  源码重新加载先独立验收“验证候选 → 更新边界重建实例 → 保留兼容覆盖 → 重新 on_start”，
+  候选验证失败保留旧实例；代码、定义与实例一起切换。保留任意 Lua 运行状态的热迁移另行评估。
 - **脚本驱动材质参数（未实现，阶段 6 与阶段 5 材质链路协同）**：当前 Material 已有 C++ 标量／Vec4
   更新与 revision，Lua 尚未提供材质访问；不能把此基础接口视为脚本闭环已完成。
   先支持本实体 MeshRenderer 的运行时材质参数覆盖，驱动已登记的 float／Vec4（含颜色）属性；
@@ -608,7 +603,7 @@ validation、同步测试和生命周期回归通过。
   无材质、无效属性及 Shader 重载后字段不兼容有诊断且不发布无效值；场景切换清理覆盖，在途帧资源仍有效。
   先对现有材质模板闭环，不等待完整项目 Shader 系统；纹理切换、复杂类型及全局 Shader 参数随后独立扩展。
 - 串行 System、固定更新、输入授权、Play 隔离和暂停／单步已接通；当前调用链与失败边界见
-  [一帧经过哪里](architecture/rendering-ownership.md#一帧经过哪里)，不在路线图重复实现细节。
+  [一帧经过哪里](architecture/overview.md#一帧经过哪里)，不在路线图重复实现细节。
   后续物理等系统接入须保持：暂停不累计墙钟时间；单步只执行一轮固定／普通更新；
   暂停／恢复清除累计余量和瞬态输入，重复单步合并，恢复／Stop／失败取消待执行单步；
   无输入仍推进模拟，失去呈现能力不重放输入；场景替换先停止旧 System，更新失败不重试部分写入。

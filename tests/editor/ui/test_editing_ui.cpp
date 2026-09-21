@@ -9,6 +9,8 @@
 #include "asset/registry.h"
 #include "scripting/script.h"
 #include "scene/script_component.h"
+#include "scene/systems/script_system.h"
+#include "scene/scene_runtime.h"
 
 #include "support/imgui_context.h"
 
@@ -112,7 +114,7 @@ namespace CometEditor::Tests {
     };
 
     TEST_F(EditingUiTest, ScriptDefaultsStayImplicitUntilAnUndoableParameterEdit) {
-        auto script = Comet::Script::create("return {properties = {speed = 100}}");
+        auto script = Comet::Script::create("return {properties = {speed = 100, enabled = true}}");
         ASSERT_TRUE(script);
         const Comet::AssetHandle handle{1234};
         ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
@@ -121,13 +123,13 @@ namespace CometEditor::Tests {
         bool change = false;
         bool rendered = false;
         ASSERT_TRUE(widgets.register_editor(
-            Comet::PropertyType::Parameters, [&](const Comet::PropertyDescriptor&, void* value) {
+            Comet::PropertyType::Float, [&](const Comet::PropertyDescriptor&, void* value) {
                 rendered = true;
-                auto& parameters = *static_cast<Comet::ParameterMap*>(value);
-                EXPECT_EQ(std::get<float>(parameters.at("speed")), 100);
+                auto& speed = *static_cast<float*>(value);
+                EXPECT_EQ(speed, 100);
                 if(!change)
                     return PropertyEditResult{};
-                parameters["speed"] = 50.0f;
+                speed = 50.0f;
                 change = false;
                 return PropertyEditResult{.changed = true, .finished = true};
             }));
@@ -137,10 +139,75 @@ namespace CometEditor::Tests {
         change = true;
         frame();
         EXPECT_EQ(std::get<float>(binding.parameters.at("speed")), 50);
+        EXPECT_EQ(binding.parameters.size(), 1u);
         ASSERT_TRUE(history.undo());
         EXPECT_TRUE(binding.parameters.empty());
         ASSERT_TRUE(history.redo());
         EXPECT_EQ(std::get<float>(binding.parameters.at("speed")), 50);
+        const auto updated =
+            Comet::Script::create("return {properties = {speed = 200, enabled = false}}");
+        ASSERT_TRUE(updated);
+        const auto effective = updated.value()->parameters(binding.parameters);
+        ASSERT_TRUE(effective);
+        EXPECT_EQ(std::get<float>(effective.value().at("speed")), 50);
+        EXPECT_FALSE(std::get<bool>(effective.value().at("enabled")));
+    }
+
+    TEST_F(EditingUiTest, ScriptDefinitionChangeCancelsPendingParameterGesture) {
+        const Comet::AssetHandle handle{1234};
+        auto original = Comet::Script::create("return {properties = {speed = 100}}");
+        ASSERT_TRUE(original);
+        ASSERT_TRUE(runtime_assets.register_asset(handle, original.value()));
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        binding.asset = handle;
+        ASSERT_TRUE(widgets.register_editor(
+            Comet::PropertyType::Float, [](const Comet::PropertyDescriptor&, void* value) {
+                *static_cast<float*>(value) = 25;
+                return PropertyEditResult{.changed = true, .active = true, .began = true};
+            }));
+        const auto before = history.state_id();
+        frame();
+        EXPECT_TRUE(edit.active());
+        EXPECT_EQ(std::get<float>(binding.parameters.at("speed")), 25);
+        auto changed = Comet::Script::create("return {properties = {speed = 'new type'}}");
+        ASSERT_TRUE(changed);
+        ASSERT_TRUE(runtime_assets.replace_asset(handle, changed.value()));
+        frame();
+        EXPECT_FALSE(edit.active());
+        EXPECT_TRUE(binding.parameters.empty());
+        EXPECT_EQ(history.state_id(), before);
+    }
+
+    TEST_F(EditingUiTest, PlayParameterEditorUsesActiveVersionNotReloadedAsset) {
+        const Comet::AssetHandle handle{1234};
+        auto original = Comet::Script::create("return {properties = {speed = 100}}");
+        ASSERT_TRUE(original);
+        ASSERT_TRUE(runtime_assets.register_asset(handle, original.value()));
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        binding.asset = handle;
+        Comet::SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::ScriptSystem>(runtime_assets)));
+        ASSERT_TRUE(runtime.start(scene));
+        state.mode = EditorMode::Play;
+        auto changed = Comet::Script::create("return {properties = {speed = 'new type'}}");
+        ASSERT_TRUE(changed);
+        ASSERT_TRUE(runtime_assets.replace_asset(handle, changed.value()));
+        bool rendered = false;
+        ASSERT_TRUE(widgets.register_editor(
+            Comet::PropertyType::Float, [&](const Comet::PropertyDescriptor&, void* value) {
+                rendered = true;
+                EXPECT_EQ(*static_cast<float*>(value), 100);
+                *static_cast<float*>(value) = 25;
+                return PropertyEditResult{.changed = true, .finished = true};
+            }));
+        const auto before = history.state_id();
+        frame();
+        EXPECT_TRUE(rendered);
+        EXPECT_EQ(history.state_id(), before);
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(binding.running_script(), original.value());
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(binding.running_script());
     }
 
     TEST_F(EditingUiTest, CameraInputsStayCompactAndLeaveRoomForLabels) {

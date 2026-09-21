@@ -1,24 +1,31 @@
 #pragma once
 
 #include "scene/property.h"
-#include "scene/entity.h"
-#include "scene/systems/system.h"
+#include "common/error.h"
+#include "common/result.h"
+#include "core/input.h"
 
 #include <filesystem>
 #include <memory>
 
 namespace Comet {
+    class Entity;
     // 不可变源码与字段默认值；运行实例不存入资产缓存。
     class COMET_API Script final {
     public:
         enum class Phase { Start, FixedUpdate, Update, Stop };
+        struct Invocation {
+            double delta_time = 0;
+            const Input::Frame* input = nullptr;
+        };
         class COMET_API Instance final {
         public:
             ~Instance();
             Instance(const Instance&) = delete;
             Instance& operator=(const Instance&) = delete;
-            Result<void, Error> invoke(Phase phase, Entity entity, const ParameterMap& parameters,
-                const System::Context* context = nullptr);
+            Result<void, Error> invoke(
+                Phase phase, Entity entity, const ParameterMap& parameters, Invocation invocation);
+            Result<void, Error> invoke(Phase phase, Entity entity, const ParameterMap& parameters);
 
         private:
             friend class Script;

@@ -6,6 +6,9 @@
 #include "scene/scene_serializer.h"
 #include "scene/systems/camera_controller.h"
 #include "scene/scene_runtime.h"
+#include "scene/systems/script_system.h"
+#include "scene/script_component.h"
+#include "asset/registry.h"
 
 #include <gtest/gtest.h>
 
@@ -20,6 +23,64 @@ namespace CometEditor::Tests {
                 Comet::create_scene_component_registry();
             return registry;
         }
+    }
+
+    TEST(EditorSceneSessionTest, ScriptFailureRestoresEditSceneAndAllowsAnotherPlay) {
+        const Comet::SceneSerializer serializer(component_registry());
+        EditorState state;
+        auto active_scene = std::make_unique<Comet::Scene>();
+        auto* original = active_scene.get();
+        auto entity = active_scene->create_entity();
+        const Comet::AssetHandle handle{42};
+        entity.add_component<Comet::ScriptComponent>().asset = handle;
+        Comet::AssetRegistry assets;
+        auto script = Comet::Script::create(R"(return {update = function(self)
+            comet.translate(3, 0, 0)
+            error('project failure')
+        end})");
+        ASSERT_TRUE(script);
+        ASSERT_TRUE(assets.register_asset(handle, script.value()));
+        Comet::SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::ScriptSystem>(assets)));
+        CommandHistory history;
+        history.bind_scene(original);
+        const auto saved = history.state_id();
+        EditorSceneSession session(
+            state, serializer, [&] { return active_scene.get(); },
+            [&](std::unique_ptr<Comet::Scene> replacement, EditorMode) {
+                EXPECT_TRUE(runtime.stop());
+                active_scene.swap(replacement);
+                return replacement;
+            },
+            [&] { return runtime.start(*active_scene); });
+
+        session.request_mode(EditorMode::Play);
+        ASSERT_TRUE(session.apply_mode_request());
+        auto failed = runtime.advance(0.01);
+        ASSERT_FALSE(failed);
+        EXPECT_NE(failed.error().message.find("project failure"), std::string::npos);
+        EXPECT_FALSE(runtime.is_active());
+        session.request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session.apply_mode_request());
+        EXPECT_EQ(active_scene.get(), original);
+        EXPECT_EQ(
+            entity.get_component<Comet::TransformComponent>().translation, Comet::Math::Vec3(0));
+        EXPECT_EQ(history.state_id(), saved);
+        EXPECT_FALSE(entity.get_component<Comet::ScriptComponent>().running_script());
+
+        auto repaired =
+            Comet::Script::create("return {update = function(self) comet.translate(1, 0, 0) end}");
+        ASSERT_TRUE(repaired);
+        ASSERT_TRUE(assets.replace_asset(handle, repaired.value()));
+        session.request_mode(EditorMode::Play);
+        ASSERT_TRUE(session.apply_mode_request());
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FLOAT_EQ(active_scene->find_entity(entity.get_uuid())
+                            .get_component<Comet::TransformComponent>()
+                            .translation.x,
+            1);
+        session.request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session.apply_mode_request());
     }
 
     TEST(EditorSceneSessionTest, DefersPlayAndRestoresOriginalEditScene) {

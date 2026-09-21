@@ -172,4 +172,4 @@
 "CPU and GPU are sampled independently, not necessarily from the same frame.": "CPU 与 GPU 分别统计，不一定来自同一帧。"
 "Script": "脚本"
 "Script unavailable; see Console": "脚本未加载，请查看日志"
-"Reset script parameters": "重置脚本参数"
+"Restore default parameters": "恢复默认参数"

@@ -115,6 +115,7 @@ set(SOURCES
         src/scene/script_component.cpp
         src/scene/systems/script_system.cpp
         src/scripting/script.cpp
+        src/scripting/lua_bindings.cpp
 )
 
 add_library(engine SHARED ${SOURCES})

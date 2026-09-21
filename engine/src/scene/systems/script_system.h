@@ -4,6 +4,7 @@
 #include "scene/entity.h"
 #include "scripting/script.h"
 #include <map>
+#include <optional>
 #include <vector>
 
 namespace Comet {
@@ -30,13 +31,14 @@ namespace Comet {
             std::shared_ptr<const Script> script;
             std::unique_ptr<Script::Instance> instance;
             ParameterMap parameters;
+            std::optional<ParameterMap> overrides;
         };
         bool is_live(const Key& key, const Entry& entry) const;
         Result<void, Error> synchronize(Scene& scene);
         Result<void, Error> dispatch(Scene& scene, const Context& context, Script::Phase phase);
         Result<void, Error> invoke(
             const Key& key, Entry& entry, Script::Phase phase, const Context* context = nullptr);
-        void stop_entry(Entry& entry) noexcept;
+        void stop_entry(const Key& key, Entry& entry) noexcept;
         void stop_all() noexcept;
 
         const AssetRegistry& m_assets;
