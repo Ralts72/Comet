@@ -589,19 +589,12 @@ validation、同步测试和生命周期回归通过。
 - app 与 editor 已共用项目与启动场景数据；app 对仓库 demo 的固定 UUID 旋转仍仅是演示行为，
   外部项目和 editor Play 不执行它，当前由 app 私有 DemoRotationSystem 固定更新。生命周期已统一，
   后续项目脚本接入后移除剩余演示 UUID 绑定，不为示例旋转添加专用组件。
-- EditorMode 只含 Edit/Play；SceneRuntime::State（Running/Paused）与之正交，暂停不触发 on_stop/on_start。
-  暂停帧只消费输入基线，不执行 System 或累计墙钟时间；单步运行一轮 fixed_update 和 update，二者 delta 均为 fixed_delta。
-  暂停／恢复清零不足一步的累计时间与瞬态输入，单步只读取当前授权的电平；重复请求合并，恢复／Stop／失败取消待执行单步。
-  Play 控制在宿主更新中通过 Engine 执行；只读面板不持有可变 Runtime，也不把运行状态写入 Scene 或编辑撤销历史。
-- 当前 Engine::run 管循环、私有 tick 推进单帧；on_update 后准备帧，帧就绪才执行 on_frame_ready，
-  再统一推进 SceneRuntime 的固定／普通更新，最后提取当前场景并渲染；暂时无呈现帧只跳过 UI／提取／绘制。
-  两个函数仅在 run 调用期间借用；编辑器请求执行与后台维护在 on_update，UI/请求收集/即时属性与视口更新在 on_frame_ready。无通用阶段注册表或预留 Late 钩子。
-- SceneRuntime 已拥有串行 System、固定步累计和独立输入消费，参数校验／启动／更新返回 Result，失败逆序清理，
-  不自动重试部分组件写入。替换 Scene 先停止 Runtime，关闭时在宿主与资产释放前销毁 System；活动期禁止修改列表或重入。
-  调度器与 System 接口归属 scene/，runtime/ 仅保留应用宿主；Engine 统一启停和场景绑定，仅暴露只读 Runtime 状态。
-  EditorSceneSession 负责克隆／恢复／失败回滚，经宿主请求启动；替换时的停止只由 Engine 执行。
-  每个消费者通过当帧输入授权接入，不将窗口原始键盘状态自动交给 Play；无输入仍推进时间，最小化不积压长时间补帧。
-  后续渲染插值和真实物理／动画依赖分别验收，不预建通用阶段注册表或并行调度。
+- 串行 System、固定更新、输入授权、Play 隔离和暂停／单步已接通；当前调用链与失败边界见
+  [一帧经过哪里](architecture/rendering-ownership.md#一帧经过哪里)，不在路线图重复实现细节。
+  后续脚本／物理接入须保持：暂停不累计墙钟时间；单步只执行一轮固定／普通更新；
+  暂停／恢复清除累计余量和瞬态输入，重复单步合并，恢复／Stop／失败取消待执行单步；
+  无输入仍推进模拟，失去呈现能力不重放输入；场景替换先停止旧 System，更新失败不重试部分写入。
+  渲染插值和真实物理／动画依赖分别验收，不预建通用阶段注册表或并行调度。
 - Scene 的类型化 each 查询已供 CameraControllerSystem／SceneExtractor 共用，不暴露 registry；场景维护组件保持只读。
   get_entities 仍供需要稳定 EntityId 顺序的编辑器／序列化路径使用。ComponentRegistry 只负责元信息，不是 ECS 存储或 System 注册表。
   查询内只允许组件值读写；结构增删暂在查询外执行，将来结合脚本／物理需要再定义延迟结构命令的应用时点。

@@ -93,7 +93,9 @@ Editor
 Application::run(Config) 完整执行：创建 Diagnostics／Engine → on_init → 引擎循环 → 私有 end。
 Engine::create → Renderer::create → RenderContext::create 在局部准备 owner，全部成功才返回完整对象。
 宿主以 `Config::Render::SceneOutput` 选择初始目标：app 直接呈现，Editor 离屏后由 ImGui 呈现，只创建一组场景资源。
-该字段由 Application 构造参数传入，不从 YAML 读取，也不代表 HDR／SDR 颜色模式。
+Application::Options 提供具名宿主选项：缓存／日志目录，以及可选的输出模式／场景目标覆盖。
+未指定覆盖时保留 run(Config) 的值；Editor 显式要求 SDR 和 Offscreen。
+scene_output 不从 YAML 读取，也不代表 HDR／SDR 颜色模式。
 
 - Engine 创建失败：释放 Diagnostics，不调用应用钩子，允许重试启动。
 - on_init 一旦开始：预期失败沿 Result 返回，end 先做 Engine 关闭准备，再且仅一次调用 on_shutdown。
@@ -166,7 +168,9 @@ SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler，不访问呈�
 
 MaterialRenderer::render、DebugRenderer::render 与 SceneRenderer::render 返回 GraphicsError。
 材质准备/调试缓冲增长遇到 DeviceLost 原样返回；普通失败仍沿用兼容旧材质或跳过调试批次。
-Renderer 收到场景 pass 失败后停止 overlay 与提交，调用 prepare_shutdown 等待在途工作，然后返回 Engine。
+Renderer 的帧准备、后处理准备、录制、提交或呈现返回不可恢复错误时，统一进入 prepare_shutdown，拒绝再次准备／绘制。
+Engine 接收到帧错误后也进入关闭准备，停止 System 和后台任务；不依赖 Application 才完成终止。
+prepare_frame 成功返回 false 仍表示可恢复的延期，不进入关闭；acquire 前的宿主更新错误不改变既有重入策略。
 部分录制的命令缓冲只由 owner 销毁，不结束并提交空帧，也不重新用于下一帧。
 Editor 通过 Renderer 注册 Overlay 重建钩子、读取只读帧信息；整帧命令缓冲直接传给 Overlay。
 SceneResolver 只解析 Camera、Mesh、Material 和 Environment 引用，不检查模板、属性名或纹理数量。
@@ -183,7 +187,8 @@ SceneRenderer::record_pass 负责具名 Pass 分发，局部 lambda 仅适配 Re
 诊断包围既有 Plan::record：CPU 明细计量各回调，总时间还包含图校验与屏障录制；GPU 使用图首、各 pass 结束、
 图尾导出屏障后的时间戳。相邻 GPU 边界包含依赖等待，不表示各 pass 独占硬件的时间。
 场景图不含 ImGui overlay、present 完成或其他队列，CPU/GPU 快照分别带帧序号。
-隐藏离屏视图将 scene_rendered 置 false，清除当前图样本与待发布的旧查询，材质帧统计归零；不伪造零耗时图。
+隐藏离屏视图将 scene_rendered 置 false，清除当前图样本与待发布的旧查询；不伪造零耗时图。
+材质绘制／绑定等当帧活动计数归零；缓存材质数和 FrameSet 数按实际驻留状态查询，不因隐藏视口归零。
 历史窗口自然老化，面板明确提示显示的是近期历史；CPU 整帧与显存采样不受影响。
 
 每个 FrameSlot 懒创建固定 34 项的 GpuTimer，最多记录 32 个 pass、每个名称最多 128 字节。
@@ -326,7 +331,9 @@ CPU 缓存淘汰不代表 GPU 已完成，不能据此删除 retained owners。
 DeviceLost 则交给应用退出清理边界，不把失效设备当作可继续渲染的旧版本。
 CPU 准备失败与 GPU 创建失败共用回退判断，只保留同 Handle 且匹配当前 PipelineState 的旧版本；无旧版、不支持模板则跳过。
 清除引用、移除物体或切换到其他 Handle 不回退到无关材质；回退项仍标记使用。
-每个执行的帧都维护统计和缓存，无相机时不写相机 buffer、不录制 draw，但仍清理未使用项；未成功 acquire 的跳帧不伪造提交。
+绘制周期结束时清理未使用缓存；无相机的绘制周期也执行这一步。隐藏视口保留有效缓存，避免恢复时全部重建。
+Renderer 每次 prepare_frame 在 acquire 前检查 Registry，移除已注销材质的 CPU／GPU 缓存，隐藏／延期同样执行。
+同 Handle 的新版本不触发这类淘汰，仍允许准备失败时回退旧兼容版本；在途帧保活不受缓存淘汰影响。
 队列按模板名与材质 Handle 排序。
 
 编辑器材质文件修改采用显式准备／提交，区别于上述绘制时的延迟准备：
@@ -408,7 +415,7 @@ Key 属于 Device／RenderPass 域，不是持久格式；过期弱引用在创�
 ### 驱动 PipelineCache 持久化
 
 Device 独占 `graphics/pipeline/pipeline_cache`，Pipeline 和 ImGui 只借用原生缓存句柄。
-Application 构造时接收可选缓存根目录，在 run 中传入 Config::Vulkan；Editor 从实际 ProjectPaths 取目录，
+Application::Options 接收可选缓存根目录，在 run 中传入 Config::Vulkan；Editor 从实际 ProjectPaths 取目录，
 app 从 demo 项目取目录。RenderContext 在创建 Device 后、创建渲染资源前调用 restore。
 图形层只接收目录，不依赖 Project、AssetDatabase 或 UI；空目录不读写磁盘，直接传 Config 的调用者也可指定目录。
 

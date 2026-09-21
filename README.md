@@ -432,5 +432,6 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
 
 C++ 遵循根目录 `.clang-format`（100 列），只格式化相关代码，不处理 Shader 和第三方源码。
 测试按所属模块放在 `tests/`，公共辅助工具放在 `tests/support/`。
-编辑器的纯 CPU 测试位于 `tests/editor/core/`，面板和渲染集成测试位于 `tests/editor/ui/`，不再按文件名逐项排除。
+编辑器的纯 CPU 测试位于 `tests/editor/core/`，面板测试位于 `tests/editor/ui/`，无 UI 的图形工作流测试位于 `tests/editor/integration/`。
+新增测试须在 `tests/CMakeLists.txt` 明确归入 CPU、集成或独立进程组；配置时检查遗漏和重复，不根据目录自动猜测。
 头文件应能独立编译，实现文件直接包含自己使用的类型，不依赖入口头的传递包含。

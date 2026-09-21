@@ -17,10 +17,13 @@ namespace Comet {
 
     class COMET_API Application {
     public:
-        explicit Application(std::filesystem::path cache_directory = {},
-            std::filesystem::path log_directory = {},
-            std::optional<OutputMode> output_mode_override = {},
-            Config::Render::SceneOutput scene_output = Config::Render::SceneOutput::Presentation);
+        struct Options {
+            std::filesystem::path cache_directory;
+            std::filesystem::path log_directory;
+            std::optional<OutputMode> output_mode;
+            std::optional<Config::Render::SceneOutput> scene_output;
+        };
+        explicit Application(Options options = {});
         virtual ~Application() = default;
 
         [[nodiscard]] Result<void, Error> run(Config config);
@@ -43,10 +46,7 @@ namespace Comet {
     private:
         [[nodiscard]] Result<void, Error> end();
 
-        std::filesystem::path m_cache_directory;
-        std::filesystem::path m_log_directory;
-        std::optional<OutputMode> m_output_mode_override;
-        Config::Render::SceneOutput m_scene_output;
+        Options m_options;
         std::unique_ptr<Diagnostics> m_diagnostics;
         std::unique_ptr<Engine> m_engine;
         bool m_shutdown_required = false;

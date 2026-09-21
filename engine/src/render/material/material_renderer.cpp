@@ -1,5 +1,6 @@
 #include "render/material/material_renderer.h"
 #include "render/material/material_layout.h"
+#include "asset/registry.h"
 
 #include "diagnostics/logger.h"
 #include "graphics/device.h"
@@ -52,6 +53,26 @@ namespace Comet {
     }
 
     MaterialRenderer::MaterialRenderer(Device& device) : m_device(device) {}
+
+    MaterialRenderer::Statistics MaterialRenderer::get_statistics() const {
+        auto statistics = m_statistics;
+        statistics.frame_set_count = static_cast<uint32_t>(m_frames.size());
+        statistics.cached_material_versions = static_cast<uint32_t>(std::ranges::count_if(
+            m_materials, [](const auto& entry) { return bool(entry.second.resources); }));
+        return statistics;
+    }
+
+    void MaterialRenderer::collect_removed_assets(const AssetRegistry& assets) {
+        // 仅淘汰已注销身份；同 Handle 的旧版本仍可作为准备失败时的回退。
+        std::erase_if(m_materials, [&](const auto& entry) {
+            if(assets.resolve<Material>(entry.first))
+                return false;
+            m_prepared.erase(entry.first);
+            return true;
+        });
+        std::erase_if(m_unsupported,
+            [&](const auto& entry) { return !assets.resolve<Material>(entry.first); });
+    }
 
     Result<std::unique_ptr<MaterialRenderer>, GraphicsError> MaterialRenderer::create(
         Device& device, PipelineManager& pipelines, RenderResources& resources,
@@ -487,7 +508,6 @@ namespace Comet {
         const auto previous_omissions =
             std::pair(m_statistics.excess_lights, m_statistics.invalid_lights);
         m_statistics = {};
-        m_statistics.frame_set_count = static_cast<uint32_t>(m_frames.size());
         std::vector<QueueSemaphoreSubmit> waits;
         if(view) {
             const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
@@ -595,8 +615,6 @@ namespace Comet {
         m_prepared.collect_unused();
         std::erase_if(m_unsupported,
             [&](const auto& entry) { return entry.second != frames.get_current_frame_serial(); });
-        m_statistics.cached_material_versions = static_cast<uint32_t>(std::ranges::count_if(
-            m_materials, [](const auto& entry) { return bool(entry.second.resources); }));
         return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success(std::move(waits));
     }
 }

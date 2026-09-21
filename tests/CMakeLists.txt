@@ -1,19 +1,48 @@
-file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
-)
-set(ISOLATED_TEST_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/pipeline_cache_probe.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/test_swapchain_recovery.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/render/test_post_process_recovery.cpp")
-file(GLOB_RECURSE INTEGRATION_SOURCES CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/graphics/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/render/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/editor/ui/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/editor/integration/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/runtime/*.cpp")
-list(APPEND INTEGRATION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/core/test_window.cpp")
-# 目录描述职责，运行分组按是否实际创建窗口／GPU／ImGui 区分。
-set(CPU_RENDER_SOURCES
+# 按运行依赖显式分组；扫描只检查遗漏，不替新测试猜测执行环境。
+set(UNIT_TEST_SOURCES
+        asset/test_asset_manager.cpp
+        asset/test_database.cpp
+        asset/test_environment_artifact.cpp
+        asset/test_environment_importer.cpp
+        asset/test_external_file_import.cpp
+        asset/test_handle.cpp
+        asset/test_import_input_snapshot.cpp
+        asset/test_material_serializer.cpp
+        asset/test_mesh_artifact.cpp
+        asset/test_mesh_data.cpp
+        asset/test_mesh_importer.cpp
+        asset/test_metadata.cpp
+        asset/test_project_assets.cpp
+        asset/test_registry.cpp
+        asset/test_source_monitor.cpp
+        asset/test_texture_importer.cpp
+        common/test_file_io.cpp
+        common/test_result.cpp
+        common/test_retry_backoff.cpp
+        common/test_scope_exit.cpp
+        config/test_config.cpp
+        core/test_geometry.cpp
+        core/test_input.cpp
+        core/test_math_utils.cpp
+        core/test_project.cpp
+        core/test_project_paths.cpp
+        core/test_task_scheduler.cpp
+        core/test_timer.cpp
+        diagnostics/test_logger.cpp
+        diagnostics/test_profiler.cpp
+        diagnostics/test_timing_history.cpp
+        editor/core/test_camera_controller.cpp
+        editor/core/test_command_history.cpp
+        editor/core/test_editor_assets.cpp
+        editor/core/test_editor_scene_session.cpp
+        editor/core/test_material_editing.cpp
+        editor/core/test_render_view.cpp
+        editor/core/test_scene_commands.cpp
+        editor/core/test_scene_document.cpp
+        editor/core/test_selection.cpp
+        editor/core/test_shader_reload.cpp
+        editor/core/test_transform_gizmo.cpp
+        editor/core/test_viewport_layout.cpp
         graphics/test_device_capability.cpp
         graphics/test_resource_state.cpp
         graphics/test_viewport.cpp
@@ -24,11 +53,72 @@ set(CPU_RENDER_SOURCES
         render/test_material_shader.cpp
         render/test_render_graph.cpp
         render/test_scene_extractor.cpp
-        render/test_scene_picking.cpp)
-list(TRANSFORM CPU_RENDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
-list(REMOVE_ITEM INTEGRATION_SOURCES ${ISOLATED_TEST_SOURCES} ${CPU_RENDER_SOURCES})
-list(REMOVE_ITEM TEST_SOURCES ${INTEGRATION_SOURCES} ${ISOLATED_TEST_SOURCES})
-add_executable(unit_testing ${TEST_SOURCES})
+        render/test_scene_picking.cpp
+        scene/test_camera_controller.cpp
+        scene/test_component_registry.cpp
+        scene/test_entity_uuid.cpp
+        scene/test_scene.cpp
+        scene/test_scene_runtime.cpp
+        scene/test_scene_serializer.cpp
+        shader/test_compiler.cpp)
+set(INTEGRATION_SOURCES
+        core/test_window.cpp
+        editor/integration/test_material_editing.cpp
+        editor/ui/test_asset_editing.cpp
+        editor/ui/test_console_panel.cpp
+        editor/ui/test_editing_ui.cpp
+        editor/ui/test_language.cpp
+        editor/ui/test_project_panel.cpp
+        editor/ui/test_property_editor_registry.cpp
+        editor/ui/test_scene_file_dialog.cpp
+        editor/ui/test_shortcuts.cpp
+        editor/ui/test_unsaved_scene_dialog.cpp
+        editor/ui/test_viewport.cpp
+        editor/ui/test_viewport_gizmo_ui.cpp
+        editor/ui/test_viewport_play_ui.cpp
+        graphics/test_allocator.cpp
+        graphics/test_barrier.cpp
+        graphics/test_creation.cpp
+        graphics/test_descriptor_set.cpp
+        graphics/test_pipeline_cache.cpp
+        graphics/test_queue.cpp
+        graphics/test_render_pass.cpp
+        graphics/test_sampler.cpp
+        graphics/test_shader_interface.cpp
+        graphics/test_swapchain.cpp
+        graphics/test_upload_manager.cpp
+        render/test_bloom.cpp
+        render/test_debug_renderer.cpp
+        render/test_frame_edit_order.cpp
+        render/test_frame_scheduler.cpp
+        render/test_material_rendering.cpp
+        render/test_material_runtime.cpp
+        render/test_offscreen_resize.cpp
+        render/test_render_diagnostics.cpp
+        render/test_render_graph_gpu.cpp
+        render/test_scene_resolver.cpp
+        runtime/test_engine.cpp
+        runtime/test_entry.cpp)
+set(ISOLATED_TEST_SOURCES
+        graphics/pipeline_cache_probe.cpp
+        graphics/test_swapchain_recovery.cpp
+        render/test_post_process_recovery.cpp)
+
+file(GLOB_RECURSE DISCOVERED_TEST_SOURCES CONFIGURE_DEPENDS
+        RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+set(ASSIGNED_TEST_SOURCES test.cpp ${UNIT_TEST_SOURCES}
+        ${INTEGRATION_SOURCES} ${ISOLATED_TEST_SOURCES})
+list(LENGTH ASSIGNED_TEST_SOURCES ASSIGNED_COUNT)
+list(REMOVE_DUPLICATES ASSIGNED_TEST_SOURCES)
+list(LENGTH ASSIGNED_TEST_SOURCES UNIQUE_COUNT)
+if(NOT ASSIGNED_COUNT EQUAL UNIQUE_COUNT)
+    message(FATAL_ERROR "Test source assigned to more than one execution group")
+endif()
+list(REMOVE_ITEM DISCOVERED_TEST_SOURCES ${ASSIGNED_TEST_SOURCES})
+if(DISCOVERED_TEST_SOURCES)
+    message(FATAL_ERROR "Assign new test sources to an execution group: ${DISCOVERED_TEST_SOURCES}")
+endif()
+add_executable(unit_testing test.cpp ${UNIT_TEST_SOURCES})
 add_executable(integration_testing test.cpp ${INTEGRATION_SOURCES})
 include("${CMAKE_SOURCE_DIR}/engine/cmake/compile_shader.cmake")
 compile_shaders(

@@ -10,7 +10,8 @@
 namespace {
     class CacheProbe final: public Comet::Application {
     public:
-        explicit CacheProbe(const std::filesystem::path& directory) : Application(directory) {}
+        explicit CacheProbe(const std::filesystem::path& directory)
+            : Application({.cache_directory = directory}) {}
         Comet::PipelineCache::LoadStatus status{};
         std::filesystem::path path;
         bool rendered = false;

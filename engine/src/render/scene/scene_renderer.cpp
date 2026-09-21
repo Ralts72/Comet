@@ -330,7 +330,7 @@ namespace Comet {
         return m_state->materials->get_material_layouts();
     }
 
-    const MaterialRenderer::Statistics& SceneRenderer::get_material_statistics() const {
+    MaterialRenderer::Statistics SceneRenderer::get_material_statistics() const {
         return m_state->materials->get_statistics();
     }
 
@@ -351,6 +351,10 @@ namespace Comet {
 
     void SceneRenderer::skip_frame() {
         m_state->materials->reset_statistics();
+    }
+
+    void SceneRenderer::collect_removed_assets(const AssetRegistry& assets) {
+        m_state->materials->collect_removed_assets(assets);
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::render(

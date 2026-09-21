@@ -5,6 +5,7 @@
 #include "config/config.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
+#include "render/scene/scene_renderer.h"
 #include "graphics/swapchain.h"
 #include "core/window.h"
 #include "diagnostics/logger.h"
@@ -139,13 +140,38 @@ namespace Comet::Tests {
                 return RunResult::success();
             }
             RunResult on_shutdown() override { return RunResult::success(); }
-        } app({}, {}, OutputMode::Sdr);
+        } app({.output_mode = OutputMode::Sdr});
         Config config;
         config.render.output_mode = OutputMode::Hdr;
         config.window.width = 160;
         config.window.height = 120;
         config.diagnostics.log.enable_file_logging = false;
         ASSERT_TRUE(app.run(config));
+    }
+
+    TEST(ApplicationCreationTest, SceneOutputUsesConfigUnlessHostExplicitlyOverridesIt) {
+        class App final: public Application {
+        public:
+            using Application::Application;
+            bool offscreen = false;
+            RunResult on_init() override {
+                offscreen = get_engine().get_renderer().get_scene_renderer().is_offscreen();
+                get_engine().get_window().request_close();
+                return RunResult::success();
+            }
+            RunResult on_shutdown() override { return RunResult::success(); }
+        };
+        Config config;
+        config.window.width = 160;
+        config.window.height = 120;
+        config.render.scene_output = Config::Render::SceneOutput::Offscreen;
+        config.diagnostics.log.enable_file_logging = false;
+        App configured;
+        ASSERT_TRUE(configured.run(config));
+        EXPECT_TRUE(configured.offscreen);
+        App overridden({.scene_output = Config::Render::SceneOutput::Presentation});
+        ASSERT_TRUE(overridden.run(config));
+        EXPECT_FALSE(overridden.offscreen);
     }
 
     TEST(ApplicationCreationTest, LogsStayInsideTheSelectedProjectThroughShutdown) {
@@ -165,7 +191,7 @@ namespace Comet::Tests {
                 LOG_INFO("project shutdown");
                 return RunResult::success();
             }
-        } app(paths.cache(), paths.logs());
+        } app({.cache_directory = paths.cache(), .log_directory = paths.logs()});
         Logger::shutdown();
         Config config;
         config.window.width = 160;

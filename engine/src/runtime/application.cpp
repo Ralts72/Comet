@@ -10,27 +10,24 @@
 #include <vector>
 
 namespace Comet {
-    Application::Application(std::filesystem::path cache_directory,
-        std::filesystem::path log_directory, std::optional<OutputMode> output_mode_override,
-        Config::Render::SceneOutput scene_output)
-        : m_cache_directory(std::move(cache_directory)), m_log_directory(std::move(log_directory)),
-          m_output_mode_override(output_mode_override), m_scene_output(scene_output) {}
+    Application::Application(Options options) : m_options(std::move(options)) {}
 
     Result<void, Error> Application::run(Config config) {
         using RunResult = Result<void, Error>;
         if(m_engine)
             return RunResult::failure({"Application is already started"});
-        if(!m_cache_directory.empty())
-            config.vulkan.pipeline_cache_directory = m_cache_directory / "vulkan";
-        if(!m_log_directory.empty())
-            config.diagnostics.log.directory = m_log_directory;
+        if(!m_options.cache_directory.empty())
+            config.vulkan.pipeline_cache_directory = m_options.cache_directory / "vulkan";
+        if(!m_options.log_directory.empty())
+            config.diagnostics.log.directory = m_options.log_directory;
         m_diagnostics = std::make_unique<Diagnostics>(config.diagnostics);
-        if(m_output_mode_override) {
-            if(config.render.output_mode != *m_output_mode_override)
-                LOG_INFO("Application overrides the configured output mode (editor uses SDR)");
-            config.render.output_mode = *m_output_mode_override;
+        if(m_options.output_mode) {
+            if(config.render.output_mode != *m_options.output_mode)
+                LOG_INFO("Application overrides the configured output mode");
+            config.render.output_mode = *m_options.output_mode;
         }
-        config.render.scene_output = m_scene_output;
+        if(m_options.scene_output)
+            config.render.scene_output = *m_options.scene_output;
         auto engine = Engine::create(config);
         if(!engine) {
             m_diagnostics.reset();

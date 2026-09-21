@@ -17,6 +17,8 @@
 #include "common/scope_exit.h"
 #include "render/scene/scene_renderer.h"
 #include "render/render_diagnostics.h"
+#include "asset/registry.h"
+#include "render/material/material.h"
 
 #include <gtest/gtest.h>
 #include <imgui_impl_glfw.h>
@@ -37,6 +39,14 @@ namespace CometEditor::Tests {
         auto& scene_renderer = renderer.get_scene_renderer();
         ASSERT_TRUE(scene_renderer.is_offscreen());
         ASSERT_TRUE(scene_renderer.get_offscreen_color_view(0));
+        const Comet::AssetHandle handle(72);
+        auto material = std::make_shared<Comet::Material>("cached", "pbr");
+        std::weak_ptr<Comet::Material> source = material;
+        ASSERT_TRUE(engine.get_asset_registry().register_asset(handle, material));
+        auto update = renderer.prepare_material_update(handle, material);
+        ASSERT_TRUE(update) << update.error();
+        std::move(update).value().publish();
+        material.reset();
         engine.set_scene(std::make_unique<Comet::Scene>());
         auto calls = std::make_shared<Comet::Tests::RuntimeCalls>();
         ASSERT_TRUE(engine.add_system(std::make_unique<Comet::Tests::SceneMotionSystem>(calls)));
@@ -62,6 +72,10 @@ namespace CometEditor::Tests {
             const auto& snapshot = renderer.get_diagnostics().get_snapshot();
             EXPECT_EQ(snapshot.scene_rendered, visible);
             EXPECT_EQ(snapshot.cpu.has_value(), visible);
+            const auto statistics = scene_renderer.get_material_statistics();
+            EXPECT_EQ(statistics.frame_set_count, config.render.max_frames_in_flight);
+            EXPECT_EQ(statistics.cached_material_versions, overlays < 3 ? 1u : 0u);
+            EXPECT_EQ(source.expired(), overlays >= 3);
             if(!visible) {
                 EXPECT_FALSE(snapshot.gpu);
                 EXPECT_EQ(scene_renderer.get_material_statistics().draw_calls, 0);
@@ -77,6 +91,8 @@ namespace CometEditor::Tests {
         unsigned attempts = 0;
         const auto run = engine.run(
             [&](Comet::UpdateContext) {
+                if(overlays == 2)
+                    EXPECT_TRUE(engine.get_asset_registry().unregister_asset(handle));
                 if(++attempts > 10)
                     engine.get_window().request_close();
                 return Comet::Result<void, Comet::Error>::success();

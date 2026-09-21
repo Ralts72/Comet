@@ -258,6 +258,26 @@ namespace Comet::Tests {
         EXPECT_FALSE(engine.get_renderer().render_frame({}));
     }
 
+    TEST(EngineRunTest, RendererFailureAlsoStopsRuntimeAndTaskSubmission) {
+        auto created = Engine::create(Config{});
+        ASSERT_TRUE(created) << created.error();
+        auto& engine = *created.value();
+        auto calls = std::make_shared<RuntimeCalls>();
+        engine.set_scene(std::make_unique<Scene>());
+        ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine.start_scene_runtime());
+        const auto result = engine.run({}, [&] {
+            engine.get_renderer().prepare_shutdown();
+            return Result<void, Error>::success();
+        });
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().message, "Renderer is shutting down");
+        EXPECT_EQ(calls->stops, 1);
+        EXPECT_FALSE(engine.get_scene_runtime().is_active());
+        EXPECT_FALSE(engine.get_task_scheduler().try_submit([] {}));
+        EXPECT_FALSE(engine.run());
+    }
+
     TEST(EngineRunTest, CallbackFailureDoesNotLeaveLoopRunning) {
         Config config;
         auto engine_result = Engine::create(config);

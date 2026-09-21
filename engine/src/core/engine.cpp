@@ -199,8 +199,10 @@ namespace Comet {
 
         timing.update_ms = phase_ms();
         const auto preparation = m_renderer->prepare_frame();
-        if(!preparation)
+        if(!preparation) {
+            prepare_shutdown();
             return Result<void, Error>::failure(preparation.error().as_error());
+        }
         if(preparation.value() && frame_ready) {
             if(auto edited = frame_ready(); !edited) {
                 // 已获取的帧不再重用；交互失败终止本次引擎生命周期。
@@ -227,8 +229,10 @@ namespace Comet {
         if(m_scene)
             render_scene = SceneExtractor::extract(*m_scene);
         const auto rendered = m_renderer->render_frame(render_scene);
-        if(!rendered)
+        if(!rendered) {
+            prepare_shutdown();
             return Result<void, Error>::failure(rendered.error().as_error());
+        }
         timing.render_submit_ms = phase_ms();
         timing.rendered = true;
         publish();

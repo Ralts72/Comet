@@ -36,7 +36,8 @@ namespace {
     class GameApp final: public Comet::Application {
     public:
         explicit GameApp(Comet::Project project, const bool is_demo)
-            : Application(project.paths().cache(), project.paths().logs()),
+            : Application({.cache_directory = project.paths().cache(),
+                  .log_directory = project.paths().logs()}),
               m_project(std::move(project)) {
             if(is_demo)
                 m_demo_rotation = std::make_unique<DemoRotationSystem>();

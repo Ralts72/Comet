@@ -37,6 +37,7 @@ namespace Comet {
             const std::shared_ptr<const MaterialLayout>& layout);
 
         void collect_unused();
+        void erase(AssetHandle handle) { m_entries.erase(handle); }
         Result<std::shared_ptr<const PreparedMaterial>> rebind(
             AssetHandle handle, const std::shared_ptr<const MaterialLayout>& layout);
         void swap(MaterialRuntimeCache& other) noexcept;

@@ -17,6 +17,7 @@
 #include <vector>
 
 namespace Comet {
+    class AssetRegistry;
     class CPUBuffer;
     class Device;
     class MaterialLayout;
@@ -85,8 +86,9 @@ namespace Comet {
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
             FrameScheduler& frames, const RenderSubmission& submission,
             const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map);
-        [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
+        [[nodiscard]] Statistics get_statistics() const;
         void reset_statistics() { m_statistics = {}; }
+        void collect_removed_assets(const AssetRegistry& assets);
 
     private:
         explicit MaterialRenderer(Device& device);

@@ -32,7 +32,7 @@ namespace Comet {
 
         // 成功值 true 才能提取并绘制；false 表示延期，准备阶段允许 UI 修改或替换 Scene。
         [[nodiscard]] Result<bool, GraphicsError> prepare_frame();
-        // 消费场景快照，完成绘制、提交和呈现。
+        // 消费场景快照，完成绘制、提交和呈现；帧错误终止本次 Renderer 生命周期。
         [[nodiscard]] Result<void, GraphicsError> render_frame(const RenderScene& render_scene);
 
         Result<void, GraphicsError> enable_offscreen_rendering(Math::Vec2u initial_size);
@@ -89,6 +89,7 @@ namespace Comet {
         std::unique_ptr<Presentation> m_presentation;
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         SceneResolver m_scene_resolver;
+        const AssetRegistry& m_asset_registry;
         RenderView m_render_view;
         OverlayRenderCallback m_render_overlay;
         bool m_shutdown_prepared = false;

@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "common/scope_exit.h"
 #include "config/config.h"
 #include "render/render_context.h"
 #include "render/render_diagnostics.h"
@@ -49,8 +50,8 @@ namespace Comet {
         std::unique_ptr<RenderResources> resources, std::unique_ptr<FrameScheduler> frames,
         std::unique_ptr<SceneRenderer> scene, const AssetRegistry& assets)
         : m_render_context(std::move(context)), m_render_resources(std::move(resources)),
-          m_frames(std::move(frames)), m_scene_renderer(std::move(scene)),
-          m_scene_resolver(assets) {
+          m_frames(std::move(frames)), m_scene_renderer(std::move(scene)), m_scene_resolver(assets),
+          m_asset_registry(assets) {
         m_diagnostics = std::make_unique<RenderDiagnostics>(*m_frames);
         m_presentation = std::make_unique<Presentation>(*m_render_context, *m_frames,
             Presentation::Dependent{[this] { m_scene_renderer->release_presentation_target(); },
@@ -63,8 +64,12 @@ namespace Comet {
     Result<bool, GraphicsError> Renderer::prepare_frame() {
         if(m_shutdown_prepared)
             return Result<bool, GraphicsError>::failure({"Renderer is shutting down"});
+        ScopeExit failed([this] { prepare_shutdown(); });
+        if(m_frames->is_frame_active())
+            return Result<bool, GraphicsError>::failure({"A render frame is already active"});
         PROFILE_SCOPE("prepare frame");
         m_render_resources->collect_completed_uploads();
+        m_scene_renderer->collect_removed_assets(m_asset_registry);
 
         auto preparation = m_presentation->begin_frame();
         if(preparation) {
@@ -76,12 +81,17 @@ namespace Comet {
             m_viewport_pick_request.reset();
             m_line_draw_list.clear();
         }
+        if(preparation)
+            failed.release();
         return preparation;
     }
 
     Result<void, GraphicsError> Renderer::render_frame(const RenderScene& render_scene) {
         if(m_shutdown_prepared)
             return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
+        ScopeExit failed([this] { prepare_shutdown(); });
+        if(!m_frames->is_recording_frame())
+            return Result<void, GraphicsError>::failure({"No prepared render frame"});
         PROFILE_SCOPE("render frame");
         if(!m_render_view.visible && m_scene_renderer->is_offscreen()) {
             m_viewport_pick_request.reset();
@@ -90,7 +100,10 @@ namespace Comet {
             m_diagnostics->skip_frame();
             if(m_render_overlay)
                 m_render_overlay(m_frames->get_current_command_buffer());
-            return m_presentation->end_frame({});
+            auto submitted = m_presentation->end_frame({});
+            if(submitted)
+                failed.release();
+            return submitted;
         }
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
@@ -113,8 +126,6 @@ namespace Comet {
         m_line_draw_list.clear();
 
         if(!resource_waits) {
-            // 部分录制的帧不提交、不复用；等待在途工作后由 owner 销毁。
-            prepare_shutdown();
             return Result<void, GraphicsError>::failure(resource_waits.error());
         }
 
@@ -122,7 +133,10 @@ namespace Comet {
             m_render_overlay(m_frames->get_current_command_buffer());
         }
 
-        return m_presentation->end_frame(resource_waits.value());
+        auto submitted = m_presentation->end_frame(resource_waits.value());
+        if(submitted)
+            failed.release();
+        return submitted;
     }
 
     Result<void, GraphicsError> Renderer::enable_offscreen_rendering(

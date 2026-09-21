@@ -30,7 +30,7 @@ namespace Comet {
         SceneRenderer(Device& device, const Config::Vulkan& vulkan, const Config::Render& render);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
-        [[nodiscard]] const MaterialRenderer::Statistics& get_material_statistics() const;
+        [[nodiscard]] MaterialRenderer::Statistics get_material_statistics() const;
         [[nodiscard]] const PostProcessSettings& get_post_process_settings() const;
         [[nodiscard]] RenderTarget& get_render_target();
         [[nodiscard]] const RenderTarget& get_render_target() const;
@@ -52,6 +52,7 @@ namespace Comet {
     private:
         friend class Renderer;
         void skip_frame();
+        void collect_removed_assets(const AssetRegistry& assets);
         Result<void, GraphicsError> configure_bloom(bool enabled);
         [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>
         prepare_material_update(

@@ -53,6 +53,19 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(MaterialRenderingTest, FailedFramePreparationCannotReuseAcquiredFrame) {
+        auto& renderer = engine->get_renderer();
+        auto prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared);
+        ASSERT_TRUE(prepared.value());
+        RenderScene scene;
+        scene.post_process.exposure = -1;
+        const auto result = renderer.render_frame(scene);
+        ASSERT_FALSE(result);
+        EXPECT_FALSE(renderer.prepare_frame());
+        EXPECT_FALSE(renderer.render_frame({}));
+    }
+
     TEST_F(MaterialRenderingTest, RejectsMissingFrameSlotsAndCanCreateAfterFailure) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         auto& resources = engine->get_render_resources();
