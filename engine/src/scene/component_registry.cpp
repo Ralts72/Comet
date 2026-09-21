@@ -1,6 +1,7 @@
 #include "scene/component_registry.h"
 
 #include "scene/components.h"
+#include "scene/script_component.h"
 
 #include "diagnostics/logger.h"
 #include <algorithm>
@@ -26,6 +27,10 @@ namespace Comet {
             || !descriptor.const_component_accessor || find_component(descriptor.id) != nullptr) {
             return false;
         }
+
+        for(const auto& existing : m_components)
+            if(descriptor.type_id != 0 && existing.type_id == descriptor.type_id)
+                return false;
 
         std::unordered_set<std::string> property_ids;
         for(const PropertyDescriptor& property : descriptor.properties) {
@@ -116,6 +121,12 @@ namespace Comet {
                 LOG_FATAL("Invalid built-in component descriptor");
             }
         };
+
+        register_component(make_component_descriptor<ScriptComponent>("script", "Script",
+            {make_property_descriptor(
+                 "asset", "Script", &ScriptComponent::asset, {.asset_type = AssetType::Script}),
+                make_property_descriptor(
+                    "parameters", "Parameters", &ScriptComponent::parameters)}));
 
         // 名称已由 .scene 单独保存，避免重复序列化。
         register_component(make_component_descriptor<NameComponent>("name", "Name",

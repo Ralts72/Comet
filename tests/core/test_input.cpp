@@ -34,6 +34,30 @@ namespace Comet::Tests {
         EXPECT_FALSE(input.publish_frame().key(Input::Key::W).released);
     }
 
+    TEST_F(InputTest, SamplingInterruptionReleasesThenReacquiresEvenIfFramesWereSkipped) {
+        Input::Gate gate;
+        gate.read(input.publish_frame(), true);
+        input.key_event(Input::Key::W, true);
+        ASSERT_TRUE(gate.read(input.publish_frame(), true).key(Input::Key::W).down);
+        input.cursor_event({0, 0});
+        input.cursor_event({10, 10});
+        input.scroll_event({1, 1});
+        input.discard_pending();
+        input.publish_frame();
+        const auto resumed = input.publish_frame();
+        EXPECT_EQ(resumed.cursor_delta, Math::Vec2(0));
+        EXPECT_EQ(resumed.scroll, Math::Vec2(0));
+        const auto released = gate.read(resumed, true);
+        EXPECT_TRUE(released.key(Input::Key::W).released);
+        EXPECT_FALSE(released.key(Input::Key::W).down);
+        EXPECT_EQ(gate.read(resumed, true).serial, released.serial);
+        EXPECT_FALSE(gate.read(input.publish_frame(), true).key(Input::Key::W).down);
+        input.key_event(Input::Key::W, false);
+        gate.read(input.publish_frame(), true);
+        input.key_event(Input::Key::W, true);
+        EXPECT_TRUE(gate.read(input.publish_frame(), true).key(Input::Key::W).pressed);
+    }
+
     TEST_F(InputTest, QuickTapPreservesBothEdgesWithoutAnUnboundedEventQueue) {
         input.key_event(Input::Key::Space, true);
         input.key_event(Input::Key::Space, false);

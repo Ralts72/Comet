@@ -192,6 +192,8 @@ namespace Comet {
         };
         struct COMET_API Frame {
             uint64_t serial = 0;
+            // 消费者可能跳过恢复首帧，用版本变化识别采样中断。
+            uint64_t interruption = 0;
             bool focused = false;
             std::array<ButtonState, static_cast<size_t>(Key::Count)> keys{};
             std::array<ButtonState, static_cast<size_t>(MouseButton::Count)> mouse_buttons{};
@@ -221,6 +223,7 @@ namespace Comet {
                 + MAX_GAMEPADS * static_cast<size_t>(GamepadButton::Count);
             Frame m_frame;
             std::optional<uint64_t> m_source_serial;
+            std::optional<uint64_t> m_interrupted_serial;
             std::bitset<BUTTON_COUNT> m_blocked;
             bool m_accepting = false;
         };
@@ -233,6 +236,7 @@ namespace Comet {
         void gamepad_sample(size_t index, const std::optional<GamepadSample>& sample);
         // 同一帧内的边沿只记录是否发生，不保存次数／顺序；返回值稳定到下次发布。
         const Frame& publish_frame();
+        void discard_pending();
         [[nodiscard]] const Frame& get_frame() const { return m_frame; }
 
     private:

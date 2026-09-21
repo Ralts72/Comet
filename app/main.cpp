@@ -8,40 +8,20 @@
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
 #include "scene/systems/camera_controller.h"
+#include "scene/systems/script_system.h"
 
 #include <cmath>
-#include <filesystem>
 #include <memory>
 #include <string>
-#include <system_error>
 #include <utility>
 
 namespace {
-    class DemoRotationSystem final: public Comet::System {
-    public:
-        Comet::Result<void, Comet::Error> fixed_update(
-            Comet::Scene& scene, const Context& context) override {
-            if(auto cube = scene.find_entity(m_entity))
-                cube.get_component<Comet::TransformComponent>().rotate(
-                    {0.0f, static_cast<float>(context.delta_time) * 100.0f, 0.0f});
-            return Comet::Result<void, Comet::Error>::success();
-        }
-
-    private:
-        const Comet::EntityUuid m_entity =
-            Comet::EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02")
-                .value_or(Comet::INVALID_ENTITY_UUID);
-    };
-
     class GameApp final: public Comet::Application {
     public:
-        explicit GameApp(Comet::Project project, const bool is_demo)
+        explicit GameApp(Comet::Project project)
             : Application({.cache_directory = project.paths().cache(),
                   .log_directory = project.paths().logs()}),
-              m_project(std::move(project)) {
-            if(is_demo)
-                m_demo_rotation = std::make_unique<DemoRotationSystem>();
-        }
+              m_project(std::move(project)) {}
 
         Comet::Result<void, Comet::Error> on_init() override {
             using Init = Comet::Result<void, Comet::Error>;
@@ -79,15 +59,14 @@ namespace {
                    references, Comet::AssetManager::MissingAssetPolicy::FailRequired);
                 !prepared)
                 return Init::failure(prepared.error());
-            LOG_INFO("App project '{}', startup scene '{}', demo rotation {}",
-                m_project.paths().root().string(), m_project.startup_scene().generic_string(),
-                static_cast<bool>(m_demo_rotation));
+            LOG_INFO("App project '{}', startup scene '{}'", m_project.paths().root().string(),
+                m_project.startup_scene().generic_string());
             engine.set_scene(std::move(scene));
-            if(m_demo_rotation) {
-                if(auto added = engine.add_system(std::move(m_demo_rotation)); !added)
-                    return added;
-            }
             if(auto added = engine.add_system(std::make_unique<Comet::CameraControllerSystem>());
+                !added)
+                return added;
+            if(auto added = engine.add_system(
+                   std::make_unique<Comet::ScriptSystem>(engine.get_asset_registry()));
                 !added)
                 return added;
             return engine.start_scene_runtime();
@@ -102,7 +81,7 @@ namespace {
             }
             if(auto assets = m_asset_manager->process_completions(); !assets)
                 return Comet::Result<void, Comet::Error>::failure(assets.error());
-            get_engine().set_runtime_input(get_engine().get_input_frame());
+            get_engine().set_runtime_input(m_input_gate.read(get_engine().get_input_frame(), true));
             if(get_engine().get_input_frame().key(Comet::Input::Key::Escape).pressed)
                 get_engine().get_window().request_close();
             return Comet::Result<void, Comet::Error>::success();
@@ -116,7 +95,7 @@ namespace {
 
     private:
         Comet::Project m_project;
-        std::unique_ptr<DemoRotationSystem> m_demo_rotation;
+        Comet::Input::Gate m_input_gate;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
         std::string m_window_title;
         int m_displayed_fps = -1;
@@ -131,11 +110,8 @@ namespace {
             arguments.empty() ? COMET_SAMPLE_PROJECT_DIRECTORY : arguments.front());
         if(!project)
             return Comet::Result<std::unique_ptr<Comet::Application>>::failure(project.error());
-        std::error_code error;
-        const bool is_demo = std::filesystem::equivalent(
-            project.value().paths().root(), COMET_SAMPLE_PROJECT_DIRECTORY, error);
         return Comet::Result<std::unique_ptr<Comet::Application>>::success(
-            std::make_unique<GameApp>(std::move(project).value(), is_demo && !error));
+            std::make_unique<GameApp>(std::move(project).value()));
     }
 }
 

@@ -42,6 +42,7 @@ namespace Comet {
         void poll_events();
         // 事件采集不推进快照；由 Engine 在 Update 前发布一次。
         const Input::Frame& publish_input_frame();
+        void discard_pending_input() { m_input.discard_pending(); }
         [[nodiscard]] const Input::Frame& get_input_frame() const { return m_input.get_frame(); }
 
         void wait_events();

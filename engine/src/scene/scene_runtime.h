@@ -41,6 +41,7 @@ namespace Comet {
         Result<void, Error> stop();
         Result<void, Error> set_state(State state);
         Result<void, Error> request_step();
+        Result<void, Error> discard_input();
         // nullptr 关闭输入，不改变运行／暂停状态；输入只在调用期间借用。
         Result<void, Error> advance(double delta_time, const Input::Frame* input = nullptr);
         [[nodiscard]] bool is_active() const { return m_scene != nullptr; }

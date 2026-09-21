@@ -82,6 +82,20 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(ExternalFileImportTest, ImportsLuaAsAnAssetAndRejectsInvalidCode) {
+        const auto source = external / "spin.lua";
+        std::ofstream(source) << "return {properties = {speed = 100}}";
+        ASSERT_TRUE(import({source}).succeeded());
+        const auto* record = manager.get_database().find("folder/spin.lua");
+        ASSERT_NE(record, nullptr);
+        EXPECT_EQ(record->type, AssetType::Script);
+        EXPECT_TRUE(manager.load_script(record->handle));
+        const auto invalid = external / "invalid.lua";
+        std::ofstream(invalid) << "return {";
+        EXPECT_FALSE(import({invalid}).succeeded());
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/invalid.lua"));
+    }
+
     TEST_F(ExternalFileImportTest, CopiesHdrEnvironmentAndRejectsMalformedSource) {
         const auto source = external / "studio.hdr";
         write_hdr(source);

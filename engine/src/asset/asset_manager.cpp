@@ -17,6 +17,7 @@
 #include "render/resource/mesh.h"
 #include "render/resource/resource_factory.h"
 #include "render/resource/texture.h"
+#include "scripting/script.h"
 
 #include <algorithm>
 #include <chrono>
@@ -178,6 +179,10 @@ namespace Comet {
     AssetManager::RefreshResult AssetManager::schedule_refresh(const AssetRecord& record) {
         bool accepted = false;
         switch(record.type) {
+            case AssetType::Script:
+                // 活动实例保留旧源码；下次准备场景时加载新版，不在运行中替换 VM。
+                static_cast<void>(m_registry.unregister_asset(record.handle));
+                return RefreshResult::Rejected;
             case AssetType::Mesh:
                 accepted = schedule_mesh_task(record, MeshImportMode::Force);
                 break;
@@ -231,6 +236,12 @@ namespace Comet {
     Result<void, Error> AssetManager::ensure_loaded(
         const AssetHandle handle, const AssetType expected_type) {
         switch(expected_type) {
+            case AssetType::Script: {
+                auto loaded = load_script(handle);
+                if(!loaded)
+                    return Result<void, Error>::failure(loaded.error());
+                break;
+            }
             case AssetType::Environment: {
                 auto loaded = load_environment(handle);
                 if(!loaded)
@@ -564,6 +575,16 @@ namespace Comet {
                         {"Texture asset has incompatible import settings"});
                 }
                 return create_runtime_texture(record, *settings);
+            });
+    }
+
+    Result<std::shared_ptr<Script>, Error> AssetManager::load_script(const AssetHandle handle) {
+        return load_runtime_asset<Script>(m_database, m_registry, handle, AssetType::Script,
+            [this](const AssetRecord& record) -> Result<std::shared_ptr<Script>, Error> {
+                auto path = m_paths.resolve_asset_path(record.path);
+                if(!path)
+                    return Result<std::shared_ptr<Script>, Error>::failure({path.error()});
+                return Script::load(path.value());
             });
     }
 

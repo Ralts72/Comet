@@ -14,6 +14,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
+| `demo/scripts.h/.cpp` | 编译进示例宿主的项目行为与字段注册，不属于引擎内置组件 |
 | `demo/project.json` | 示例项目描述：版本、名称和启动场景 |
 | `config/` | `common.yaml` 与各 Profile 配置 |
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
@@ -229,10 +230,12 @@ app 窗口标题显示 `原窗口标题 | 120 FPS`，复用 editor 的平滑 FPS
 该数值表示主循环帧率，不是 GPU 耗时；全屏隐藏标题栏时不可见。
 app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场景或必需资源加载失败会终止启动，
 不像 editor 那样保留缺失引用供修复。这仍是开发期运行入口，不是已打包的 Shipping Player。
-仅打开仓库自带 demo 时，app 额外旋转 UUID 为 `672cd0cc-501f-419e-af5e-a883a0cd3d02` 的立方体；
-重命名不影响旋转，删除或换 UUID 后跳过；外部项目（包括复制出去的 demo）默认静止。
-旋转通过 app 私有的 `DemoRotationSystem` 固定更新，只修改内存，不保存回 `.scene`，不在 editor Play 中执行。
-后续项目脚本接入后移除该演示 UUID 绑定，不把示例行为写入 Project 或 SceneSerializer。
+示例立方体通过 Script 组件引用 `demo/assets/scripts/spin.lua`，`speed` 为每秒角度，`enabled` 控制是否旋转。
+app 和 editor Play 共用该行为，不依赖 UUID 或项目路径；Edit 不执行旋转，Play 修改不保存回 Edit 场景。
+Inspector 可增删 Script、选择 Lua 资产、编辑参数并撤销；保存后独立 app 使用同一份配置。
+Lua 5.4.8 以子模块引入，首次构建引擎需要编译 Lua，但新增项目 `.lua` 不需要改 CMake 或重新编译宿主。
+脚本放在项目 assets 内（也可从 Finder 导入），由 `.meta` 提供稳定身份；修改源码后重新 Play 使用新版本，
+当前不将新代码注入正在运行的实例。字段改名／类型变化会报告旧覆盖值不匹配，可在 Inspector 重置脚本参数。
 两种入口遇到项目描述错误或缺少 assets 都会启动失败，不回退仓库项目；仅 editor 在启动场景缺失／损坏时
 记录错误并打开空场景，供用户修复，不覆盖原文件。
 引擎 Profile、编辑器快捷键仍读取开发构建自带的 `config/`，字体／图标／Shader 不需要复制到每个项目。
@@ -267,16 +270,25 @@ System 按注册顺序启动，运行帧先执行零到多次 `fixed_update`，�
 默认固定步长 1/60 秒，最多接收 0.25 秒帧增量、每帧最多补算 8 步，超额整步丢弃并记录在 Timing 中。
 无固定步时累积输入边沿，首个固定步消费，后续补算不重复；普通更新仍能读取本帧边沿。
 
-宿主用 `Engine::set_runtime_input` 交付当帧输入：app 使用窗口快照，editor 在所有面板绘制后交付 Gate 过滤结果。
+宿主用 `Engine::set_runtime_input` 交付当帧输入：app 经 Gate 过滤窗口快照，editor 在所有面板绘制后交付 Gate 过滤结果。
 未交付输入时不暂停模拟，但按钮释放、移动／滚轮归零，不复用旧的 UI 授权。运行状态下暂时无可呈现帧也执行 System，
-最小化沿用等待与计时重置策略。场景提取发生在 System 更新后；替换场景先停止旧 Runtime，显式启动新场景。
+最小化等待并重置墙钟增量、丢弃待消费输入；恢复时先释放，再重新获取输入，不回放旧点击／位移。
+场景提取发生在 System 更新后；替换场景先停止旧 Runtime，显式启动新场景。
 System 通过 Result 报告失败，启动／更新失败会逆序清理；Play 启动失败恢复原 Edit 场景。
 `Scene::each<Components...>` 按组件组合查询，不创建全实体列表或排序；身份／层级／世界变换只读，查询内不做结构增删。
 `ComponentRegistry` 只描述属性、序列化和编辑能力，不存组件实例，也不注册 System；实例存储属于 Scene。
 SceneRuntime 的 Running／Paused 与 Edit／Play 分离：暂停不调用 System，不累积补帧时间，UI、资产维护与渲染继续。
 单步执行一次固定更新和一次同时间增量的普通更新，随后保持暂停；重复待处理请求合并为一步。
 暂停与恢复边界丢弃输入边沿、鼠标位移和滚轮，单步仅使用当前已授权的按住状态；Stop 清除待处理单步。
-当前仅主线程串行执行；渲染插值、依赖调度、物理和脚本仍待接入。
+Lua Script 由 `scene/systems/script_system` 统一调度，`scene/script_component` 只保存资产引用与参数覆盖。
+`scripting/script` 隐藏 Lua C API，保存源码和默认参数；每个行为实例拥有独立 VM，由 System 独占。
+bool／float／Vec3／string 参数通过 PropertyDescriptor 的 ParameterMap 接 Inspector、Serializer 与 Undo。
+每个阶段前同步增删，回调前复核实体和组件寿命；复制组件得到新身份，搬移存储保留身份，修改字段不会重启脚本。
+脚本用 Result 报告失败，Runtime 停止全部 System；on_stop 包含部分启动失败的清理，不能依赖实体仍然存在。
+当前每实体一个脚本，主线程串行执行；不开放文件、网络、原生库和 require，提供本实体变换与已授权 A-Z 按键查询。
+每次受保护调用限制 20 万条 Lua 指令，每实例限制 8 MiB Lua 堆；这些是错误防护，不是面向不可信代码的安全沙箱。
+Play 启动失败返回 Edit；运行中回调失败仍按现有 System 失败策略停止 Runtime 并关闭宿主，不自动重试部分写入。
+编辑器运行错误恢复、模块依赖及保留状态热重载另行完善；渲染插值、依赖调度与物理仍待接入。
 
 ## 编辑器使用
 

@@ -159,6 +159,14 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
+    Result<void, Error> SceneRuntime::discard_input() {
+        if(m_executing)
+            return Result<void, Error>::failure({"Cannot discard input during runtime callbacks"});
+        if(is_active())
+            static_cast<void>(consume_input(nullptr));
+        return Result<void, Error>::success();
+    }
+
     Result<void, Error> SceneRuntime::request_step() {
         if(m_executing || !is_active() || m_state != State::Paused)
             return Result<void, Error>::failure({"Single step requires an idle paused scene"});

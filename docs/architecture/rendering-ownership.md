@@ -8,6 +8,7 @@
 | --- | --- |
 | `core/engine.h` | 组合宿主服务，统一 SceneRuntime 的绑定、启停与主循环 |
 | `scene/scene_runtime.h` | 拥有串行 System，管理时间、固定步、输入消费、暂停与单步 |
+| `scene/systems/script_system.h` | Lua 行为实例的启动、阶段更新、寿命复核与逆序清理；字段仍属于 Scene 组件 |
 | `render/renderer.h` | 渲染子系统组合根，编排帧、RenderView、overlay 与拾取 |
 | `render/scene/scene_extractor.h` | Scene → 不含 GPU 对象的 RenderScene 快照 |
 | `render/scene/scene_resolver.h` | Handle/Camera → RenderSubmission |
@@ -153,8 +154,14 @@ PlayCommand 属于 editor_state 的工作流协议，ViewportPanel 只生产请�
 时间截断仅由 SceneRuntime 的 max_frame_delta 决定，CameraControllerSystem 消费完整 delta，不另作 0.1 秒截断。
 隐藏离屏视图仍运行 UI、Runtime、Scene 提取与上传回收；再显示时准备最新场景设置。直接呈现不走隐藏跳过分支。
 prepare_frame 暂时无可呈现帧时跳过 UI／提取／绘制，仍执行 Runtime；最小化继续等待并重置墙钟增量。
+最小化同时清除窗口瞬态与 Runtime 待处理按下；采样中断版本使 Gate 先释放再获取，不要求 UI 消费恢复首帧。
 System 更新失败逆序停止并返回 Result；Engine 随后进入关闭清理，不继续使用已 acquire 的帧。
 替换 Scene 必须发生在 System 执行之外，先停止旧 Runtime；shutdown 在宿主、Scene 和服务释放前停止并销毁 System。
+Script 资产保存 Lua 源码与默认参数；ScriptComponent 属于 Scene，只保存资产引用和参数覆盖。
+ScriptSystem 借用 AssetRegistry，持有 Script 资产和独立 VM 实例，不持有组件地址；Lua API 留在 scripting/script.cpp。
+启动批次按实体 UUID 排序，停止按实际启动顺序逆序，不把动态新增后的排序当作启动顺序。
+阶段边界同步宿主对实体／组件的增删；第一版 Lua API 不开放结构增删。每次调用读取最新参数，运行中保留启动时源码。
+on_stop 只清理自有资源，不访问已删除实体或重入 Runtime；字段编辑不重启，组件删除再添加才产生新生命周期。
 文件扫描、复制、保存和同步资产加载在 on_update 执行，不占用已 acquire 的帧；这不是将全部 I/O 移出主线程。请求仍由唯一 Editor 执行，不新增事件总线。Window 可选择拦截原生关闭事件，Editor 处理未保存决策后才通过 request_close 确认退出。
 Scene 维护 EntityId／UUID 查询索引与父子索引，结构修改时同步维护；这些索引不参与序列化。
 SceneExtractor 与 CameraControllerSystem 共用 Scene 的类型化 each 查询；渲染提取不再是 Scene 的 friend，也不直接访问 EnTT registry。

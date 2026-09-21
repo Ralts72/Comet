@@ -89,7 +89,7 @@ namespace CometEditor {
         TransformGizmo& m_gizmo;
         PropertyEditTransaction& m_inspector_edit;
         const EditorShortcuts& m_shortcuts;
-        ImGuiID m_gizmo_id = 0;
+        ImGuiID m_interaction_id = 0;
         ImDrawList* m_gizmo_draw_list = nullptr;
         bool m_actually_visible = false;
         ImGuiID m_window_id = 0;

@@ -3,6 +3,7 @@
 #include "scene/property.h"
 
 #include <functional>
+#include <cstdint>
 #include <unordered_map>
 #include <utility>
 
@@ -16,6 +17,7 @@ namespace CometEditor {
         bool active = false;
         bool began = false;
         bool finished = false;
+        uint32_t active_item = 0;
         [[nodiscard]] static PropertyEditResult from_item(bool changed);
         void include_item(bool item_changed);
     };

@@ -15,6 +15,7 @@
 #include <vector>
 
 namespace Comet {
+    class AssetRegistry;
     class ComponentRegistry;
     class Entity;
     class MaterialLayout;
@@ -35,7 +36,7 @@ namespace CometEditor {
             CommandHistory& history, PropertyEditTransaction& property_edit,
             const Comet::ComponentRegistry& component_registry,
             const PropertyEditorRegistry& property_editor_registry,
-            const Comet::AssetDatabase& asset_database);
+            const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets);
 
         void render() override;
         [[nodiscard]] bool finish_edit(bool cancel = false);
@@ -81,6 +82,7 @@ namespace CometEditor {
         const Comet::ComponentRegistry& m_component_registry;
         const PropertyEditorRegistry& m_property_editor_registry;
         const Comet::AssetDatabase& m_asset_database;
+        const Comet::AssetRegistry& m_runtime_assets;
         Comet::AssetHandle m_loaded_asset;
         Comet::AssetRevision m_loaded_revision = 0;
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;

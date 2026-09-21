@@ -51,6 +51,8 @@ namespace Comet {
                 || extension == ".geom") {
                 return AssetType::Shader;
             }
+            if(extension == ".lua")
+                return AssetType::Script;
             if(extension == ".scene")
                 return AssetType::Scene;
             return std::nullopt;

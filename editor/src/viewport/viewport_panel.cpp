@@ -74,9 +74,9 @@ namespace CometEditor {
 
         m_actually_visible = true;
         m_window_id = ImGui::GetCurrentWindow()->RootWindow->ID;
-        m_gizmo_id = ImGui::GetID("TransformGizmo");
+        m_interaction_id = ImGui::GetID("TransformGizmo");
         if(m_gizmo.active()) {
-            ImGui::KeepAliveID(m_gizmo_id);
+            ImGui::KeepAliveID(m_interaction_id);
         }
 
         ImGui::BeginDisabled(m_gizmo.active());
@@ -380,7 +380,7 @@ namespace CometEditor {
 
         if(pointer_over_image || m_gizmo.active()) {
             // Image 没有 item ID；直接指定 owner，拖动期间也阻止窗口滚动。
-            ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_gizmo_id);
+            ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_interaction_id);
         }
 
         const bool was_dragging = m_gizmo.active();
@@ -411,9 +411,9 @@ namespace CometEditor {
                           || m_texture_id == ImTextureID_Invalid,
             });
         if(m_gizmo.active()) {
-            ImGui::SetActiveID(m_gizmo_id, ImGui::GetCurrentWindow());
-            ImGui::KeepAliveID(m_gizmo_id);
-        } else if(was_dragging && ImGui::GetActiveID() == m_gizmo_id) {
+            ImGui::SetActiveID(m_interaction_id, ImGui::GetCurrentWindow());
+            ImGui::KeepAliveID(m_interaction_id);
+        } else if(was_dragging && ImGui::GetActiveID() == m_interaction_id) {
             ImGui::ClearActiveID();
         }
         if(consumed) {
@@ -493,7 +493,7 @@ namespace CometEditor {
         m_play_image_hovered = false;
         m_runtime_input = {};
         static_cast<void>(m_gizmo.cancel());
-        if(m_gizmo_id != 0 && ImGui::GetActiveID() == m_gizmo_id) {
+        if(m_interaction_id != 0 && ImGui::GetActiveID() == m_interaction_id) {
             ImGui::ClearActiveID();
         }
         reset_camera_interaction();
@@ -508,8 +508,8 @@ namespace CometEditor {
             || ui_blocks_runtime_input())
             return;
         ImGui::SetWindowFocus();
-        ImGui::SetKeyOwner(ImGuiKey_MouseWheelX, m_gizmo_id);
-        ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_gizmo_id);
+        ImGui::SetKeyOwner(ImGuiKey_MouseWheelX, m_interaction_id);
+        ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_interaction_id);
     }
 
     const Comet::Input::Frame& ViewportPanel::route_runtime_input(

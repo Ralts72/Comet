@@ -6,6 +6,9 @@
 #include "scene/hierarchy.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
+#include "asset/registry.h"
+#include "scripting/script.h"
+#include "scene/script_component.h"
 
 #include "support/imgui_context.h"
 
@@ -23,6 +26,7 @@ namespace CometEditor::Tests {
         Comet::Entity entity = scene.create_entity();
         Comet::ComponentRegistry components = Comet::create_scene_component_registry();
         Comet::AssetDatabase assets{Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY)};
+        Comet::AssetRegistry runtime_assets;
         CommandHistory history;
         PropertyEditTransaction edit{history, components};
         SelectionService selection{scene};
@@ -60,7 +64,7 @@ namespace CometEditor::Tests {
                     return result;
                 }));
             inspector = std::make_unique<InspectorPanel>(
-                state, selection, history, edit, components, widgets, assets);
+                state, selection, history, edit, components, widgets, assets, runtime_assets);
             frame();
             frame();
         }
@@ -106,6 +110,38 @@ namespace CometEditor::Tests {
             frame();
         }
     };
+
+    TEST_F(EditingUiTest, ScriptDefaultsStayImplicitUntilAnUndoableParameterEdit) {
+        auto script = Comet::Script::create("return {properties = {speed = 100}}");
+        ASSERT_TRUE(script);
+        const Comet::AssetHandle handle{1234};
+        ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        binding.asset = handle;
+        bool change = false;
+        bool rendered = false;
+        ASSERT_TRUE(widgets.register_editor(
+            Comet::PropertyType::Parameters, [&](const Comet::PropertyDescriptor&, void* value) {
+                rendered = true;
+                auto& parameters = *static_cast<Comet::ParameterMap*>(value);
+                EXPECT_EQ(std::get<float>(parameters.at("speed")), 100);
+                if(!change)
+                    return PropertyEditResult{};
+                parameters["speed"] = 50.0f;
+                change = false;
+                return PropertyEditResult{.changed = true, .finished = true};
+            }));
+        frame();
+        EXPECT_TRUE(rendered);
+        EXPECT_TRUE(binding.parameters.empty());
+        change = true;
+        frame();
+        EXPECT_EQ(std::get<float>(binding.parameters.at("speed")), 50);
+        ASSERT_TRUE(history.undo());
+        EXPECT_TRUE(binding.parameters.empty());
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(std::get<float>(binding.parameters.at("speed")), 50);
+    }
 
     TEST_F(EditingUiTest, CameraInputsStayCompactAndLeaveRoomForLabels) {
         entity.add_component<Comet::CameraComponent>();

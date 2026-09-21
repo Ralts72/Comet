@@ -8,6 +8,7 @@
 #include "asset/import/mesh_importer.h"
 #include "asset/import/texture_importer.h"
 #include "asset/import/environment_importer.h"
+#include "scripting/script.h"
 #include <fastgltf/core.hpp>
 
 #include <algorithm>
@@ -215,7 +216,7 @@ namespace Comet::AssetSourceOperations {
             };
             for(const auto& source : sources) {
                 if(!is_mesh_file(source) && !is_texture_file(source)
-                    && extension_of(source) != ".hdr")
+                    && extension_of(source) != ".hdr" && extension_of(source) != ".lua")
                     continue;
                 if(!source.is_absolute())
                     return Result<void>::failure("Dropped file path must be absolute");
@@ -244,10 +245,10 @@ namespace Comet::AssetSourceOperations {
             }
             if(roots.empty())
                 return Result<void>::failure(
-                    "Drop PNG/JPEG textures, HDR environments or glTF/GLB models (not directories)");
+                    "Drop PNG/JPEG textures, HDR environments, Lua scripts or glTF/GLB models (not directories)");
             for(const auto& source : sources) {
-                if(is_mesh_file(source) || is_texture_file(source)
-                    || extension_of(source) == ".hdr")
+                if(is_mesh_file(source) || is_texture_file(source) || extension_of(source) == ".hdr"
+                    || extension_of(source) == ".lua")
                     continue;
                 if(extension_of(source) == ".meta") {
                     auto owner = source;
@@ -306,6 +307,9 @@ namespace Comet::AssetSourceOperations {
                     }
                     if(auto result = MeshImporter{}.import(staging / relative); !result)
                         return Result<void>::failure(result.error());
+                } else if(extension_of(relative) == ".lua") {
+                    if(auto script = Script::load(staging / relative); !script)
+                        return Result<void>::failure(script.error().message);
                 } else if(extension_of(relative) == ".hdr") {
                     if(auto result = EnvironmentImporter{}.validate_source(staging / relative);
                         !result)

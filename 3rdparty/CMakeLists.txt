@@ -1,5 +1,20 @@
 set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "Enable -fPIC for all 3rd party libraries")
 
+# Lua
+set(LUA_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lua")
+set(LUA_SOURCES
+    lapi.c lcode.c lctype.c ldebug.c ldo.c ldump.c lfunc.c lgc.c llex.c
+    lmem.c lobject.c lopcodes.c lparser.c lstate.c lstring.c ltable.c
+    ltm.c lundump.c lvm.c lzio.c lauxlib.c lbaselib.c lmathlib.c
+    ltablib.c lstrlib.c lutf8lib.c)
+list(TRANSFORM LUA_SOURCES PREPEND "${LUA_SOURCE_DIR}/")
+add_library(comet_lua STATIC ${LUA_SOURCES})
+target_include_directories(comet_lua SYSTEM PUBLIC "${LUA_SOURCE_DIR}")
+set_target_properties(comet_lua PROPERTIES C_VISIBILITY_PRESET hidden)
+if(UNIX)
+    target_link_libraries(comet_lua PRIVATE m)
+endif()
+
 # spdlog
 set(SPDLOG_ENABLE_PCH ON)
 option(SPDLOG_BUILD_EXAMPLE OFF)

@@ -8,6 +8,9 @@
 
 #include "render/material/material.h"
 #include "scene/component_registry.h"
+#include "scene/script_component.h"
+#include "asset/registry.h"
+#include "scripting/script.h"
 
 #include <algorithm>
 #include <array>
@@ -43,10 +46,11 @@ namespace CometEditor {
         CommandHistory& history, PropertyEditTransaction& property_edit,
         const Comet::ComponentRegistry& component_registry,
         const PropertyEditorRegistry& property_editor_registry,
-        const Comet::AssetDatabase& asset_database)
+        const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets)
         : EditorPanel("Inspector"), m_state(state), m_selection(selection), m_history(history),
           m_property_edit(property_edit), m_component_registry(component_registry),
-          m_property_editor_registry(property_editor_registry), m_asset_database(asset_database) {
+          m_property_editor_registry(property_editor_registry), m_asset_database(asset_database),
+          m_runtime_assets(runtime_assets) {
         const auto builtins = Comet::MaterialLayout::builtins();
         m_material_layouts.assign(builtins.begin(), builtins.end());
     }
@@ -277,6 +281,29 @@ namespace CometEditor {
         if(!value)
             return;
         const PropertyEditTransaction::Target target{entity.get_uuid(), component.id, property.id};
+        if(component.id == "script" && property.type == Comet::PropertyType::Parameters) {
+            const auto& binding = entity.get_component<Comet::ScriptComponent>();
+            if(!binding.asset)
+                return;
+            const auto script = m_runtime_assets.resolve<Comet::Script>(binding.asset);
+            if(!script) {
+                ImGui::TextDisabled("%s", Ui::text("Script unavailable; see Console"));
+                return;
+            }
+            if(ImGui::Button(Ui::label("Reset script parameters").c_str())) {
+                if(m_state.mode == EditorMode::Play)
+                    entity.get_component<Comet::ScriptComponent>().parameters.clear();
+                else
+                    static_cast<void>(m_property_edit.apply(target, Comet::ParameterMap{}));
+                return;
+            }
+            auto effective = script->parameters(binding.parameters);
+            if(!effective) {
+                ImGui::TextWrapped("%s", effective.error().message.c_str());
+                return;
+            }
+            value = std::move(effective).value();
+        }
         if(property.type == Comet::PropertyType::AssetHandle && property.asset_type) {
             render_asset_property(target, property, std::get<Comet::AssetHandle>(*value));
             return;
@@ -292,8 +319,11 @@ namespace CometEditor {
         const bool active = result.active;
         const bool activated = result.began;
         const bool deactivated = result.finished;
-        if(active)
-            m_active_item = ImGui::GetItemID();
+        if(active) {
+            m_active_item = result.active_item;
+            if(!m_active_item)
+                m_active_item = ImGui::GetItemID();
+        }
         if(m_state.mode == EditorMode::Play) {
             // Play 中仍可调试 Runtime 属性，但不写入 Edit 文档历史。
             if(changed && !property.assign_value(component.get_component(entity), *value)) {

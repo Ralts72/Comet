@@ -114,6 +114,28 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.clear_systems());
     }
 
+    TEST_F(SceneRuntimeTest, InputInterruptionDiscardsPendingPressButPreservesReleaseAndClock) {
+        add();
+        ASSERT_TRUE(runtime.start(scene));
+        input.key_event(Input::Key::W, true);
+        input.scroll_event({1, 2});
+        const auto frame = input.publish_frame();
+        ASSERT_TRUE(runtime.advance(0.01, &frame));
+        ASSERT_TRUE(calls.fixed.empty());
+        const auto timing = runtime.get_timing();
+        ASSERT_TRUE(runtime.discard_input());
+        ASSERT_TRUE(runtime.discard_input());
+        EXPECT_EQ(runtime.get_timing().frame_index, timing.frame_index);
+        EXPECT_EQ(runtime.get_timing().total_time, timing.total_time);
+        ASSERT_TRUE(runtime.advance(0.09));
+        ASSERT_EQ(calls.fixed.size(), 1);
+        EXPECT_FALSE(calls.fixed[0].input.key(Input::Key::W).pressed);
+        EXPECT_TRUE(calls.fixed[0].input.key(Input::Key::W).released);
+        EXPECT_EQ(calls.fixed[0].input.scroll, Math::Vec2(0));
+        ASSERT_TRUE(runtime.advance(0.1));
+        EXPECT_FALSE(calls.fixed[1].input.key(Input::Key::W).released);
+    }
+
     TEST_F(SceneRuntimeTest, AccumulatesZeroStepInputAndConsumesEdgesOnlyOnTheFirstFixedStep) {
         add();
         ASSERT_TRUE(runtime.start(scene));

@@ -7,6 +7,7 @@
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "render/material/material.h"
+#include "asset/registry.h"
 
 #include "support/imgui_context.h"
 
@@ -26,6 +27,7 @@ namespace CometEditor::Tests {
         const std::filesystem::path root = directory.path();
         Comet::ProjectPaths paths{root};
         Comet::AssetDatabase database{paths};
+        Comet::AssetRegistry runtime_assets;
         Comet::Scene scene;
         Comet::Entity entity = scene.create_entity();
         Comet::ComponentRegistry registry;
@@ -69,7 +71,7 @@ namespace CometEditor::Tests {
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
             inspector = std::make_unique<InspectorPanel>(
-                state, selection, history, edit, registry, widgets, database);
+                state, selection, history, edit, registry, widgets, database, runtime_assets);
             frame();
             frame();
         }

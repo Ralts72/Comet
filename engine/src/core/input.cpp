@@ -103,7 +103,9 @@ namespace Comet {
     const Input::Frame& Input::Gate::read(const Frame& source, bool enabled) {
         if(m_source_serial && source.serial < *m_source_serial)
             *this = Gate{};
-        const bool accepting = enabled && source.focused;
+        if(source.interruption != m_frame.interruption)
+            m_interrupted_serial = source.serial;
+        const bool accepting = enabled && source.focused && m_interrupted_serial != source.serial;
         const bool fresh = !m_source_serial || source.serial != *m_source_serial;
         if(!fresh && accepting == m_accepting)
             return m_frame;
@@ -161,5 +163,11 @@ namespace Comet {
         m_frame = m_pending;
         m_pending.clear_transients();
         return m_frame;
+    }
+
+    void Input::discard_pending() {
+        m_pending.clear_transients();
+        ++m_pending.interruption;
+        m_has_cursor_position = false;
     }
 }

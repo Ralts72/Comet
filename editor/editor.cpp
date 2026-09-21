@@ -36,6 +36,7 @@
 #include "scene/selection.h"
 #include "scene/scene.h"
 #include "scene/component_registry.h"
+#include "scene/systems/script_system.h"
 #include "scene/scene_serializer.h"
 
 #include <cstdint>
@@ -145,6 +146,10 @@ namespace {
                 [engine_ptr] { return engine_ptr->start_scene_runtime(); }, prepare_candidate);
             auto& scene = *engine.get_scene();
             if(auto added = engine.add_system(std::make_unique<Comet::CameraControllerSystem>());
+                !added)
+                return added;
+            if(auto added = engine.add_system(
+                   std::make_unique<Comet::ScriptSystem>(engine.get_asset_registry()));
                 !added)
                 return added;
             m_selection.emplace(scene);
@@ -467,7 +472,8 @@ namespace {
                 get_engine().get_asset_registry(), *m_imgui_context, std::move(sampler).value());
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(m_editor_state,
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
-                m_property_editor_registry, m_assets->database());
+                m_property_editor_registry, m_assets->database(),
+                get_engine().get_asset_registry());
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(m_assets->database(),
                 m_project.paths().assets(), std::move(initial_asset_scan), *m_selection,
                 m_command_history);

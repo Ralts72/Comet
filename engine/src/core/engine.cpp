@@ -180,7 +180,11 @@ namespace Comet {
         const auto framebuffer_size = m_window->get_framebuffer_size();
         if(framebuffer_size.x == 0 || framebuffer_size.y == 0) {
             m_frame_timing.reset();
+            m_runtime_input.reset();
+            if(auto discarded = m_scene_runtime.discard_input(); !discarded)
+                return discarded;
             m_window->wait_events();
+            m_window->discard_pending_input();
             m_timer->tick();
             return Result<void, Error>::success();
         }

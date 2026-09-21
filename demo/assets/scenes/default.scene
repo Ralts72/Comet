@@ -58,6 +58,10 @@
       "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d02",
       "components": {
         "name": "Editor Cube",
+        "script": {
+          "asset": 7821648321594001021,
+          "parameters": {}
+        },
         "transform": {
           "translation": [
             0,

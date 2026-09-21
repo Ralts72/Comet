@@ -69,6 +69,45 @@ namespace Comet {
         Result<PropertyValue> read_property_value(const PropertyDescriptor& property,
             const Json::Node& node, const Json::Context& context, const std::string_view location) {
             switch(property.type) {
+                case PropertyType::Parameters: {
+                    auto object = context.object(node, location);
+                    if(!object)
+                        return Result<PropertyValue>::failure(object.error());
+                    ParameterMap parameters;
+                    for(const auto field : object.value()) {
+                        PropertyDescriptor item;
+                        if(field.value.is_bool())
+                            item.type = PropertyType::Bool;
+                        else if(field.value.is_number())
+                            item.type = PropertyType::Float;
+                        else if(field.value.is_string())
+                            item.type = PropertyType::String;
+                        else if(field.value.is_array())
+                            item.type = PropertyType::Vec3;
+                        else
+                            return Result<PropertyValue>::failure(
+                                context.error(location, "Unsupported parameter type"));
+                        auto value = read_property_value(item, field.value, context,
+                            std::string(location) + "." + std::string(field.key));
+                        if(!value)
+                            return value;
+                        const bool inserted = std::visit(
+                            [&](const auto& scalar) {
+                                using T = std::remove_cvref_t<decltype(scalar)>;
+                                if constexpr(std::is_same_v<T, AssetHandle>
+                                             || std::is_same_v<T, ParameterMap>)
+                                    return false;
+                                else
+                                    return parameters.emplace(std::string(field.key), scalar)
+                                        .second;
+                            },
+                            value.value());
+                        if(!inserted || !valid_parameters(parameters))
+                            return Result<PropertyValue>::failure(
+                                context.error(location, "Invalid or duplicate parameter"));
+                    }
+                    return Result<PropertyValue>::success(std::move(parameters));
+                }
                 case PropertyType::Bool: {
                     auto value = context.read_scalar<bool>(node, location, "a boolean");
                     if(!value)
@@ -124,6 +163,10 @@ namespace Comet {
                 vector && !Math::is_finite(*vector))
                 return Result<PropertyValue>::failure(
                     context.error(location, "expected finite numbers"));
+            if(const auto* parameters = std::get_if<ParameterMap>(&*value);
+                parameters && !valid_parameters(*parameters))
+                return Result<PropertyValue>::failure(
+                    context.error(location, "Invalid parameters"));
             return Result<PropertyValue>::success(std::move(*value));
         }
 
@@ -135,7 +178,22 @@ namespace Comet {
                         write_vec3(writer, value);
                     else if constexpr(std::is_same_v<T, AssetHandle>)
                         writer.value(value.value());
-                    else
+                    else if constexpr(std::is_same_v<T, ParameterMap>) {
+                        writer.begin_object();
+                        for(const auto& [name, parameter] : value) {
+                            writer.key(name);
+                            std::visit(
+                                [&](const auto& item) {
+                                    if constexpr(std::is_same_v<std::remove_cvref_t<decltype(item)>,
+                                                     Math::Vec3>)
+                                        write_vec3(writer, item);
+                                    else
+                                        writer.value(item);
+                                },
+                                parameter);
+                        }
+                        writer.end_object();
+                    } else
                         writer.value(value);
                 },
                 property.value);
@@ -150,6 +208,9 @@ namespace Comet {
             }
 
             switch(property.descriptor->type) {
+                case PropertyType::Parameters:
+                    *static_cast<ParameterMap*>(value) = std::get<ParameterMap>(property.value);
+                    return Result<void>::success();
                 case PropertyType::Bool:
                     *static_cast<bool*>(value) = std::get<bool>(property.value);
                     return Result<void>::success();
