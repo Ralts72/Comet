@@ -169,6 +169,8 @@ SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler，不访问呈�
 MaterialRenderer::render、DebugRenderer::render 与 SceneRenderer::render 返回 GraphicsError。
 材质准备/调试缓冲增长遇到 DeviceLost 原样返回；普通失败仍沿用兼容旧材质或跳过调试批次。
 Renderer 的帧准备、后处理准备、录制、提交或呈现返回不可恢复错误时，统一进入 prepare_shutdown，拒绝再次准备／绘制。
+关闭后也拒绝目标切换、Shader 发布和材质候选创建；仍允许解除宿主回调。
+prepare_shutdown 已执行设备等待，之后的 wait_idle 为幂等空操作；正常运行时仍禁止等待未提交的活动帧。
 Engine 接收到帧错误后也进入关闭准备，停止 System 和后台任务；不依赖 Application 才完成终止。
 prepare_frame 成功返回 false 仍表示可恢复的延期，不进入关闭；acquire 前的宿主更新错误不改变既有重入策略。
 部分录制的命令缓冲只由 owner 销毁，不结束并提交空帧，也不重新用于下一帧。

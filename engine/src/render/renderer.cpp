@@ -141,6 +141,8 @@ namespace Comet {
 
     Result<void, GraphicsError> Renderer::enable_offscreen_rendering(
         const Math::Vec2u initial_size) {
+        if(m_shutdown_prepared)
+            return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
         if(m_frames->is_frame_active())
             return Result<void, GraphicsError>::failure(
                 {"Target configuration requires a frame boundary"});
@@ -149,6 +151,9 @@ namespace Comet {
 
     Result<MaterialRenderer::ReloadReport, GraphicsError> Renderer::reload_material_shaders(
         MaterialShaders shaders) {
+        if(m_shutdown_prepared)
+            return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
+                {"Renderer is shutting down"});
         if(m_frames->is_frame_active())
             return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
                 {"Shader publication requires a frame boundary"});
@@ -157,6 +162,9 @@ namespace Comet {
 
     Result<MaterialRenderer::MaterialUpdate, GraphicsError> Renderer::prepare_material_update(
         const AssetHandle handle, const std::shared_ptr<const Material>& material) {
+        if(m_shutdown_prepared)
+            return Result<MaterialRenderer::MaterialUpdate, GraphicsError>::failure(
+                {"Renderer is shutting down"});
         if(m_frames->is_frame_active())
             return Result<MaterialRenderer::MaterialUpdate, GraphicsError>::failure(
                 {"Material preparation requires a frame boundary"});
@@ -168,6 +176,9 @@ namespace Comet {
     }
 
     void Renderer::wait_idle() {
+        // 关闭准备已等待设备；失败遗留的未提交帧不能再按正常帧等待。
+        if(m_shutdown_prepared)
+            return;
         m_frames->wait_for_all_slots();
         m_render_context->get_device().get_present_queue(0).wait_idle();
     }

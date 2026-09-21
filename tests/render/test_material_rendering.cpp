@@ -62,8 +62,37 @@ namespace Comet::Tests {
         scene.post_process.exposure = -1;
         const auto result = renderer.render_frame(scene);
         ASSERT_FALSE(result);
+        ASSERT_TRUE(renderer.get_frame_scheduler().is_recording_frame());
+        renderer.wait_idle();
+        renderer.prepare_shutdown();
+        renderer.wait_idle();
         EXPECT_FALSE(renderer.prepare_frame());
         EXPECT_FALSE(renderer.render_frame({}));
+    }
+
+    TEST_F(MaterialRenderingTest, ShutdownRejectsResourceChangesWithoutAnActiveFrame) {
+        auto& renderer = engine->get_renderer();
+        auto& scene = renderer.get_scene_renderer();
+        const auto* target = &scene.get_render_target();
+        auto material = std::make_shared<Material>("shutdown test", "pbr");
+        ASSERT_FALSE(renderer.get_frame_scheduler().is_frame_active());
+        renderer.prepare_shutdown();
+        const auto expect_shutdown = [](const auto& result) {
+            ASSERT_FALSE(result);
+            EXPECT_EQ(result.error().message, "Renderer is shutting down");
+        };
+        expect_shutdown(renderer.enable_offscreen_rendering({160, 120}));
+        expect_shutdown(renderer.reload_material_shaders({}));
+        expect_shutdown(renderer.prepare_material_update(AssetHandle(72), material));
+        EXPECT_EQ(&scene.get_render_target(), target);
+        EXPECT_FALSE(scene.is_offscreen());
+        EXPECT_EQ(scene.get_material_statistics().cached_material_versions, 0u);
+        renderer.set_overlay_renderer({});
+        renderer.set_viewport_pick_callback({});
+        renderer.set_swapchain_resource_callbacks({}, {});
+        renderer.wait_idle();
+        renderer.prepare_shutdown();
+        renderer.wait_idle();
     }
 
     TEST_F(MaterialRenderingTest, RejectsMissingFrameSlotsAndCanCreateAfterFailure) {
