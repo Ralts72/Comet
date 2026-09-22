@@ -73,6 +73,7 @@ set(SPIRV_REFLECT_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(spirv-reflect EXCLUDE_FROM_ALL)
 set_target_properties(spirv-reflect-static PROPERTIES C_VISIBILITY_PRESET hidden)
 
+# glslang
 block(SCOPE_FOR VARIABLES)
     set(ENABLE_GLSLANG_BINARIES OFF)
     set(ENABLE_SPIRV ON)
@@ -92,10 +93,12 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         -Wno-stringop-overflow)
 endif()
 
+# imgui
 if (COMET_BUILD_EDITOR)
     add_subdirectory(imgui EXCLUDE_FROM_ALL)
 endif ()
 
+# googletest
 if (COMET_BUILD_TESTS)
     option(INSTALL_GTEST OFF)
     option(BUILD_GMOCK OFF)

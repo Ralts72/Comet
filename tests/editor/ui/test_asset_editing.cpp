@@ -83,7 +83,7 @@ namespace CometEditor::Tests {
                 "required_textures", {{"base_color_texture", 1, "Base Color Texture", ""},
                                          {"detail_texture", 2, "Detail Texture", ""}});
             ASSERT_TRUE(layout);
-            inspector->set_material_layouts(
+            inspector->asset_inspector().set_material_layouts(
                 {std::make_shared<Comet::MaterialLayout>(std::move(layout).value())});
             ASSERT_TRUE(Comet::MaterialSerializer{}.save(
                 {.template_name = "required_textures"}, paths.assets() / "material.mat"));
@@ -106,19 +106,19 @@ namespace CometEditor::Tests {
                 project->render();
             }
             ImGui::Render();
-            if(const auto request = inspector->take_asset_read())
-                inspector->complete_asset_read(
+            if(const auto request = inspector->asset_inspector().take_asset_read())
+                inspector->asset_inspector().complete_asset_read(
                     *request, Comet::MaterialSerializer{}.load(
                                   paths.assets() / database.find(request->handle)->path));
-            if(const auto request = inspector->take_asset_edit()) {
+            if(const auto request = inspector->asset_inspector().take_asset_edit()) {
                 EXPECT_EQ(request->handle, material);
                 EXPECT_EQ(request->revision, database.get_revision(material));
                 const auto* update = std::get_if<MaterialEdit>(&request->value);
                 ASSERT_NE(update, nullptr);
                 ++material_updates;
                 submitted_material = update->after;
-                inspector->complete_asset_edit(*request, material_update_success);
-                EXPECT_FALSE(inspector->take_asset_edit());
+                inspector->asset_inspector().complete_asset_edit(*request, material_update_success);
+                EXPECT_FALSE(inspector->asset_inspector().take_asset_edit());
             }
         }
 
@@ -1008,9 +1008,12 @@ namespace CometEditor::Tests {
         payload = drag_asset(texture, Comet::AssetType::Texture);
         EXPECT_FALSE(drop(material_point("base_color_texture", "Base Color Texture")));
         EXPECT_EQ(material_updates, 0);
+        inspector->set_visible(false);
         selection.select_asset(texture);
         frame();
         selection.select_asset(material);
+        frame();
+        inspector->set_visible(true);
         frame();
         frame();
         payload = drag_asset(second_texture, Comet::AssetType::Texture);
@@ -1050,7 +1053,7 @@ namespace CometEditor::Tests {
             5);
         ASSERT_TRUE(layout) << layout.error();
         const auto published = std::make_shared<Comet::MaterialLayout>(std::move(layout).value());
-        inspector->set_material_layouts({published});
+        inspector->asset_inspector().set_material_layouts({published});
         frame();
         EXPECT_EQ(material_updates, 0);
         drag_value(material_point("intensity", "Power"), 20);
@@ -1058,7 +1061,7 @@ namespace CometEditor::Tests {
         EXPECT_GT(submitted_material.scalar_properties.at("intensity"), 0.5f);
         const auto edited = submitted_material;
         const auto updates = material_updates;
-        inspector->set_material_layouts({published});
+        inspector->asset_inspector().set_material_layouts({published});
         for(int index = 0; index < 5; ++index)
             frame();
         EXPECT_EQ(material_updates, updates);

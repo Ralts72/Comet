@@ -20,7 +20,8 @@ namespace {
     public:
         explicit GameApp(Comet::Project project)
             : Application({.cache_directory = project.paths().cache(),
-                  .log_directory = project.paths().logs()}),
+                  .log_directory = project.paths().logs(),
+                  .window_title = project.name()}),
               m_project(std::move(project)) {}
 
         Comet::Result<void, Comet::Error> on_init() override {
@@ -38,7 +39,6 @@ namespace {
             }
 
             auto& engine = get_engine();
-            m_window_title = engine.get_window().get_title();
             m_asset_manager = std::make_unique<Comet::AssetManager>(m_project.paths(),
                 engine.get_asset_registry(), engine.get_render_resources(),
                 engine.get_task_scheduler());
@@ -76,7 +76,7 @@ namespace {
             const auto fps = static_cast<int>(std::round(context.fps));
             if(context.fps > 0.0f && fps != m_displayed_fps) {
                 get_engine().get_window().set_title(
-                    m_window_title + " | " + std::to_string(fps) + " FPS");
+                    m_project.name() + " | " + std::to_string(fps) + " FPS");
                 m_displayed_fps = fps;
             }
             if(auto assets = m_asset_manager->process_completions(); !assets)
@@ -97,7 +97,6 @@ namespace {
         Comet::Project m_project;
         Comet::Input::Gate m_input_gate;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
-        std::string m_window_title;
         int m_displayed_fps = -1;
     };
 

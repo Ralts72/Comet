@@ -3,8 +3,35 @@
 #include "scene/scene_commands.h"
 #include "scene/selection.h"
 #include "assets/editor_assets.h"
+#include "scene/script_component.h"
 
 namespace CometEditor {
+    namespace {
+        class ScriptAssignment final: public CommandHistory::Command {
+        public:
+            ScriptAssignment(Comet::Entity entity, Comet::AssetHandle asset)
+                : m_entity(entity.get_uuid()),
+                  m_before(entity.get_component<Comet::ScriptComponent>()) {
+                m_after.asset = asset;
+            }
+            bool undo(Comet::Scene& scene) override { return apply(scene, m_before); }
+            bool redo(Comet::Scene& scene) override { return apply(scene, m_after); }
+
+        private:
+            bool apply(Comet::Scene& scene, const Comet::ScriptComponent& value) const {
+                auto entity = scene.find_entity(m_entity);
+                if(!entity || !entity.has_component<Comet::ScriptComponent>())
+                    return false;
+                // 先复制配置再安装；恢复时生成新寿命，不携带运行绑定。
+                auto replacement = value;
+                entity.get_component<Comet::ScriptComponent>() = std::move(replacement);
+                return true;
+            }
+            Comet::EntityUuid m_entity;
+            Comet::ScriptComponent m_before;
+            Comet::ScriptComponent m_after;
+        };
+    }
     SceneEditor::SceneEditor(const EditorState& state, CommandHistory& history,
         PropertyEditTransaction& edit, const Comet::ComponentRegistry& components,
         SelectionService& selection, EditorAssets& assets)
@@ -76,6 +103,16 @@ namespace CometEditor {
             return Result::failure({"Cannot finish active property edit"});
         if(auto loaded = m_assets.load_reference(asset.handle, asset.type, asset.revision); !loaded)
             return loaded;
+        if(target.component == "script" && target.property == "asset") {
+            auto command = std::make_unique<ScriptAssignment>(entity, asset.handle);
+            if(m_state.mode == EditorMode::Play) {
+                if(!command->redo(*scene))
+                    return Result::failure({"Cannot update runtime script binding"});
+                m_assets.track_scene(*scene, m_components);
+            } else if(!m_history.execute(std::move(command)))
+                return Result::failure({"Cannot commit script binding"});
+            return Result::success();
+        }
         if(m_state.mode == EditorMode::Play) {
             if(!property->assign_value(component->get_component(entity), asset.handle))
                 return Result::failure({"Cannot update runtime asset reference"});

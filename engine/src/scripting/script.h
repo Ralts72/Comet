@@ -39,7 +39,9 @@ namespace Comet {
         [[nodiscard]] static Result<std::shared_ptr<Script>, Error> create(
             std::string source, std::string name = "<script>");
         [[nodiscard]] Result<std::unique_ptr<Instance>, Error> instantiate() const;
-        [[nodiscard]] Result<ParameterMap, Error> parameters(const ParameterMap& overrides) const;
+        [[nodiscard]] Result<void, Error> validate_overrides(const ParameterMap& overrides) const;
+        [[nodiscard]] Result<ParameterMap, Error> resolve_parameters(
+            const ParameterMap& overrides) const;
         [[nodiscard]] const ParameterMap& defaults() const { return m_defaults; }
 
     private:

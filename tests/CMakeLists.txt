@@ -59,7 +59,8 @@ set(UNIT_TEST_SOURCES
         scene/test_entity_uuid.cpp
         scene/test_scene.cpp
         scene/test_scene_runtime.cpp
-        scene/test_script.cpp
+        scene/test_script_system.cpp
+        scripting/test_script.cpp
         scene/test_scene_serializer.cpp
         shader/test_compiler.cpp)
 set(INTEGRATION_SOURCES

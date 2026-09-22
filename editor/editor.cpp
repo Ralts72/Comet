@@ -55,7 +55,8 @@ namespace {
             : Application({.cache_directory = project.paths().cache(),
                   .log_directory = project.paths().logs(),
                   .output_mode = Comet::OutputMode::Sdr,
-                  .scene_output = Comet::Config::Render::SceneOutput::Offscreen}),
+                  .scene_output = Comet::Config::Render::SceneOutput::Offscreen,
+                  .window_title = "Comet Editor"}),
               m_project(std::move(project)) {}
 
         Comet::Result<void, Comet::Error> on_init() override {
@@ -157,7 +158,8 @@ namespace {
                 m_command_history, m_property_edit, m_component_registry, *m_selection, *m_assets);
             if(auto panels = setup_panels(scene, std::move(initial_asset_scan)); !panels)
                 return panels;
-            m_inspector_panel->set_material_layouts(scene_renderer.get_material_layouts());
+            m_inspector_panel->asset_inspector().set_material_layouts(
+                scene_renderer.get_material_layouts());
             m_project_panel->set_material_layouts(scene_renderer.get_material_layouts());
 
             renderer.set_overlay_renderer([this](Comet::CommandBuffer& command_buffer) {
@@ -347,7 +349,8 @@ namespace {
                 LOG_WARN("{}", compilation->diagnostics);
             if(result.value().pipelines == 0)
                 return Comet::Result<void, Comet::Error>::success();
-            m_inspector_panel->set_material_layouts(scene_renderer.get_material_layouts());
+            m_inspector_panel->asset_inspector().set_material_layouts(
+                scene_renderer.get_material_layouts());
             m_project_panel->set_material_layouts(scene_renderer.get_material_layouts());
             LOG_INFO(
                 "Published material Shader revision {}: {} pipelines, {} material versions, {} bindings",
@@ -550,8 +553,9 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> process_asset_requests() {
-            if(const auto request = m_inspector_panel->take_asset_read())
-                m_inspector_panel->complete_asset_read(*request, m_assets->read_material(*request));
+            if(const auto request = m_inspector_panel->asset_inspector().take_asset_read())
+                m_inspector_panel->asset_inspector().complete_asset_read(
+                    *request, m_assets->read_material(*request));
             if(const auto create = m_project_panel->take_create_material_request())
                 m_project_panel->complete_create_material(
                     *create, m_assets->create_material(create->destination, create->data));
@@ -560,12 +564,12 @@ namespace {
                     *move, m_assets->move(move->handle, move->destination));
             if(m_project_panel->take_refresh_request())
                 m_project_panel->update_scan_report(m_assets->refresh());
-            if(const auto edit = m_inspector_panel->take_asset_edit()) {
+            if(const auto edit = m_inspector_panel->asset_inspector().take_asset_edit()) {
                 const auto result = apply_asset_edit(*edit);
                 std::string error;
                 if(!result)
                     error = result.error().message;
-                m_inspector_panel->complete_asset_edit(
+                m_inspector_panel->asset_inspector().complete_asset_edit(
                     *edit, static_cast<bool>(result), std::move(error));
                 if(!result) {
                     if(is_device_lost(result.error()))

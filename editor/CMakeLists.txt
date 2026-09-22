@@ -23,6 +23,7 @@ add_library(editor_ui STATIC
         src/assets/asset_reference.cpp
         src/assets/project_panel.cpp
         src/inspector/inspector.cpp
+        src/inspector/asset_inspector.cpp
         src/inspector/property_editor_registry.cpp
         src/scene/hierarchy.cpp
         src/scene/scene_file_dialog.cpp

@@ -1,3 +1,5 @@
+#include "scripting/script.h"
+#include "common/file_io.h"
 #include "asset/asset_manager.h"
 
 #include "asset/artifact/mesh_artifact.h"
@@ -2042,4 +2044,32 @@ namespace Comet::Tests {
         EXPECT_EQ(
             MaterialSerializer{}.load(material_path).value().template_name, "updated_template");
     }
+
+    TEST(ScriptAssetTest, MetadataAndAssetManagerLoadLuaWithoutProjectCompilation) {
+        const AssetHandle handle{42};
+        AssetRegistry assets;
+        TemporaryDirectory directory;
+        ProjectPaths paths(directory.path());
+        std::filesystem::create_directories(paths.assets());
+        ASSERT_TRUE(write_text_file_atomic(
+            paths.assets() / "spin.lua", "return {properties = {speed = 2}}"));
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = handle, .type = AssetType::Script}, paths.assets() / "spin.lua.meta"));
+        TaskScheduler scheduler(1);
+        FakeRenderResourceFactory factory;
+        AssetManager manager(paths, assets, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        auto loaded = manager.load_script(handle);
+        ASSERT_TRUE(loaded) << loaded.error().message;
+        EXPECT_EQ(std::get<float>(loaded.value()->defaults().at("speed")), 2);
+        EXPECT_EQ(manager.load_script(handle).value(), loaded.value());
+        ASSERT_TRUE(write_text_file_atomic(
+            paths.assets() / "spin.lua", "return {properties = {speed = 200}}"));
+        ASSERT_TRUE(manager.scan().succeeded());
+        auto updated = manager.load_script(handle);
+        ASSERT_TRUE(updated);
+        EXPECT_NE(updated.value(), loaded.value());
+        EXPECT_EQ(std::get<float>(updated.value()->defaults().at("speed")), 200);
+    }
+
 }

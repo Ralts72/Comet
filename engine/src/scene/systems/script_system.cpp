@@ -41,7 +41,7 @@ namespace Comet {
         const Key& key, Entry& entry, Script::Phase phase, const Context* context) {
         const auto& overrides = entry.entity.get_component<ScriptComponent>().parameters;
         if(!entry.overrides || *entry.overrides != overrides) {
-            auto parameters = entry.script->parameters(overrides);
+            auto parameters = entry.script->resolve_parameters(overrides);
             if(!parameters)
                 return Result<void, Error>::failure(
                     {key.entity.to_string() + ": " + parameters.error().message});
@@ -85,8 +85,10 @@ namespace Comet {
             auto instance = script->instantiate();
             if(!instance)
                 return Result<void, Error>::failure(instance.error());
-            auto& entry = m_entries.emplace(key, Entry{entity, std::move(script),
-                std::move(instance).value(), {}, {}}).first->second;
+            auto& entry = m_entries
+                              .emplace(key, Entry{entity, std::move(script),
+                                                std::move(instance).value(), {}, {}})
+                              .first->second;
             m_start_order.push_back(key);
             entry.entity.get_component<ScriptComponent>().m_running_script = entry.script;
             if(auto started = invoke(key, entry, Script::Phase::Start); !started)

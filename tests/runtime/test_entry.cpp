@@ -127,6 +127,29 @@ namespace Comet::Tests {
         EXPECT_EQ(app.shutdowns, 1);
     }
 
+    TEST(ApplicationCreationTest, HostTitleOverridesConfigBeforeInitialization) {
+        class App final: public Application {
+        public:
+            using Application::Application;
+            std::string expected_title;
+            RunResult on_init() override {
+                EXPECT_EQ(get_engine().get_window().get_title(), expected_title);
+                get_engine().get_window().request_close();
+                return RunResult::success();
+            }
+            RunResult on_shutdown() override { return RunResult::success(); }
+        };
+        Config config;
+        config.window.title = "Configured title";
+        for(const std::optional<std::string>& title :
+            {std::optional<std::string>{}, std::optional<std::string>{"My Project"},
+                std::optional<std::string>{"Comet Editor"}}) {
+            App app({.window_title = title});
+            app.expected_title = title.value_or(config.window.title);
+            ASSERT_TRUE(app.run(config));
+        }
+    }
+
     TEST(ApplicationCreationTest, OutputOverrideWinsBeforeGraphicsInitialization) {
         class App final: public Application {
         public:

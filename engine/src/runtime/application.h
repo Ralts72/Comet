@@ -22,6 +22,7 @@ namespace Comet {
             std::filesystem::path log_directory;
             std::optional<OutputMode> output_mode;
             std::optional<Config::Render::SceneOutput> scene_output;
+            std::optional<std::string> window_title;
         };
         explicit Application(Options options = {});
         virtual ~Application() = default;

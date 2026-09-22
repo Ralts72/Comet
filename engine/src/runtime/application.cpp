@@ -28,6 +28,8 @@ namespace Comet {
         }
         if(m_options.scene_output)
             config.render.scene_output = *m_options.scene_output;
+        if(m_options.window_title)
+            config.window.title = *m_options.window_title;
         auto engine = Engine::create(config);
         if(!engine) {
             m_diagnostics.reset();

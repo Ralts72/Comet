@@ -12,6 +12,7 @@ extern "C" {
 #include <cstdlib>
 #include <limits>
 #include <optional>
+#include <string_view>
 
 namespace Comet {
     struct Script::Instance::Impl {
@@ -19,7 +20,7 @@ namespace Comet {
         lua_State* state = nullptr;
         size_t memory = 0;
         int budget = 0;
-        std::string source;
+        std::string_view source;
         std::string name;
         int definition = LUA_NOREF;
         int self = LUA_NOREF;
@@ -317,6 +318,7 @@ namespace Comet {
         *static_cast<Instance::Impl**>(lua_getextraspace(impl->state)) = impl.get();
         if(auto initialized = impl->call(Instance::Impl::initialize); !initialized)
             return Result<std::unique_ptr<Instance>, Error>::failure(initialized.error());
+        impl->source = {};
         return Result<std::unique_ptr<Instance>, Error>::success(
             std::unique_ptr<Instance>(new Instance(std::move(impl))));
     }
@@ -349,17 +351,24 @@ namespace Comet {
         return create(std::move(source).value(), path.string());
     }
 
-    Result<ParameterMap, Error> Script::parameters(const ParameterMap& overrides) const {
+    Result<void, Error> Script::validate_overrides(const ParameterMap& overrides) const {
         if(!valid_parameters(overrides))
-            return Result<ParameterMap, Error>::failure({"Invalid script parameter values"});
-        auto values = m_defaults;
+            return Result<void, Error>::failure({"Invalid script parameter values"});
         for(const auto& [name, value] : overrides) {
-            const auto found = values.find(name);
-            if(found == values.end() || found->second.index() != value.index())
-                return Result<ParameterMap, Error>::failure(
+            const auto found = m_defaults.find(name);
+            if(found == m_defaults.end() || found->second.index() != value.index())
+                return Result<void, Error>::failure(
                     {"Script parameter no longer matches declaration: " + name});
-            found->second = value;
         }
+        return Result<void, Error>::success();
+    }
+
+    Result<ParameterMap, Error> Script::resolve_parameters(const ParameterMap& overrides) const {
+        if(auto checked = validate_overrides(overrides); !checked)
+            return Result<ParameterMap, Error>::failure(checked.error());
+        auto values = m_defaults;
+        for(const auto& [name, value] : overrides)
+            values.at(name) = value;
         return Result<ParameterMap, Error>::success(std::move(values));
     }
 }

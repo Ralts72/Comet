@@ -24,4 +24,6 @@ namespace CometEditor {
 
     [[nodiscard]] std::optional<AssetDragPayload> read_asset_drag_payload(
         const ImGuiPayload* payload);
+    [[nodiscard]] std::optional<AssetDragPayload> accept_asset_drop(
+        const Comet::AssetDatabase& database, Comet::AssetType type, std::uint64_t generation);
 }

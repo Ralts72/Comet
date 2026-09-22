@@ -53,6 +53,23 @@ namespace CometEditor {
         return changed;
     }
 
+    std::optional<AssetDragPayload> accept_asset_drop(
+        const Comet::AssetDatabase& database, Comet::AssetType type, std::uint64_t generation) {
+        if(!ImGui::BeginDragDropTarget())
+            return std::nullopt;
+        std::optional<AssetDragPayload> result;
+        if(const auto payload = read_asset_drag_payload(ImGui::GetDragDropPayload())) {
+            const auto* record = database.find(payload->handle);
+            if(payload->type == type && record && record->type == type
+                && database.is_current(payload->handle, payload->revision)
+                && payload->generation == generation
+                && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE))
+                result = payload;
+        }
+        ImGui::EndDragDropTarget();
+        return result;
+    }
+
     std::optional<AssetDragPayload> read_asset_drag_payload(const ImGuiPayload* payload) {
         if(!payload || !payload->IsDataType(AssetDragPayload::TYPE) || !payload->Data
             || payload->DataSize != sizeof(AssetDragPayload))

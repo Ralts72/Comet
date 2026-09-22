@@ -17,6 +17,9 @@
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
 #include "scene/scene_runtime.h"
+#include "scene/script_component.h"
+#include "scene/systems/script_system.h"
+#include "common/file_io.h"
 #include "asset/serialization/material_serializer.h"
 #include "support/temporary_directory.h"
 #include "support/render_resource_factory.h"
@@ -111,6 +114,78 @@ namespace CometEditor::Tests {
         EXPECT_EQ(scene.entity_count(), 1);
         Comet::Scene other;
         EXPECT_FALSE(editor.execute(&other, request));
+    }
+
+    TEST_F(EditorAssetsTest, ScriptAssignmentResetsOverridesAsOneUndoableBindingChange) {
+        const auto path = Comet::ProjectPaths(root).assets();
+        ASSERT_TRUE(
+            Comet::write_text_file_atomic(path / "a.lua", "return {properties = {speed = 1}}"));
+        ASSERT_TRUE(
+            Comet::write_text_file_atomic(path / "b.lua", "return {properties = {speed = false}}"));
+        ASSERT_TRUE(Comet::write_text_file_atomic(path / "bad.lua", "return {"));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto a = assets->database().find("a.lua")->handle;
+        const auto b = assets->database().find("b.lua")->handle;
+        const auto bad = assets->database().find("bad.lua")->handle;
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+        const PropertyEditTransaction::Target target{entity.get_uuid(), "script", "asset"};
+        const auto input = [&](Comet::AssetHandle handle) {
+            return SceneEditor::AssetInput{handle, assets->database().get_revision(handle),
+                history.generation(), Comet::AssetType::Script};
+        };
+        ASSERT_TRUE(editor.assign_asset(&scene, target, input(a)));
+        const Comet::ParameterMap overrides{{"speed", 20.0f}};
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "script", "parameters"}, overrides));
+        const auto before = history.state_id();
+        const auto count = history.undo_size();
+        ASSERT_TRUE(editor.assign_asset(&scene, target, input(b)));
+        EXPECT_EQ(binding.asset, b);
+        EXPECT_TRUE(binding.parameters.empty());
+        EXPECT_EQ(history.undo_size(), count + 1);
+        ASSERT_TRUE(editor.undo(&scene));
+        EXPECT_EQ(binding.asset, a);
+        EXPECT_EQ(binding.parameters, overrides);
+        EXPECT_EQ(history.state_id(), before);
+        EXPECT_FALSE(editor.assign_asset(&scene, target, input(bad)));
+        EXPECT_EQ(binding.asset, a);
+        EXPECT_EQ(binding.parameters, overrides);
+        EXPECT_EQ(history.state_id(), before);
+        ASSERT_TRUE(editor.redo(&scene));
+        EXPECT_EQ(binding.asset, b);
+        EXPECT_TRUE(binding.parameters.empty());
+        const auto after = history.state_id();
+        ASSERT_TRUE(editor.assign_asset(&scene, target, input(b)));
+        EXPECT_EQ(history.state_id(), after);
+        ASSERT_TRUE(editor.assign_asset(&scene, target, input({})));
+        EXPECT_FALSE(binding.asset);
+        EXPECT_TRUE(binding.parameters.empty());
+        ASSERT_TRUE(editor.undo(&scene));
+        EXPECT_EQ(binding.asset, b);
+        EXPECT_EQ(history.state_id(), after);
+
+        Comet::Scene playing;
+        auto runtime_entity = playing.create_entity_with_uuid(entity.get_uuid());
+        auto& runtime_binding = runtime_entity.add_component<Comet::ScriptComponent>();
+        runtime_binding.asset = b;
+        runtime_binding.parameters = {{"speed", true}};
+        state.mode = EditorMode::Play;
+        ASSERT_TRUE(editor.assign_asset(&playing, target, input(a)));
+        EXPECT_TRUE(runtime_binding.parameters.empty());
+        EXPECT_EQ(history.state_id(), after);
+        EXPECT_EQ(binding.asset, b);
+        Comet::SceneRuntime execution;
+        ASSERT_TRUE(execution.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        ASSERT_TRUE(execution.start(playing));
+        ASSERT_TRUE(execution.stop());
     }
 
     TEST_F(EditorAssetsTest, AssetAssignmentUsesHistoryOnlyForTheEditScene) {

@@ -78,6 +78,7 @@ Editor
 ├── RenderStatsPanel（只读 Engine/Renderer 快照，提交一次性采样／报告请求）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
 ├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
+├── InspectorPanel → AssetInspector（材质／纹理草稿和请求，不保存文件或拥有 GPU 对象）
 ├── Viewport → ViewportPanel / TransformGizmo（借用状态、选择、Renderer、Registry 和 ImGuiContext）
 └── ImGuiContext
     ├── RenderPass / SwapchainTarget / DescriptorPool
@@ -145,61 +146,60 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
 ```
 
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
-Engine 持有 Runtime 和 Scene，统一绑定与启停；App 和 EditorSceneSession 只请求启动 Engine 的当前 Scene。
-EditorSceneSession 管 Play 副本和失败回滚；Stop 走场景替换，由 Engine 先停止 System 再恢复 Edit，不重复管理调度器。
-输入授权每帧清空：App 交付窗口快照，Editor 交付当帧 UI Gate 结果；未授权时释放按钮，不代替 Runtime 的暂停状态。
-暂停只停止 System 的时间推进，宿主维护、UI、场景提取与绘制继续；单步执行一次固定更新和普通更新，然后保持暂停。
-面板只读 Runtime 状态，控制请求由 Editor 在下一次宿主更新经 Engine 应用；暂停／单步不克隆场景，不触发 System 重启。
-PlayCommand 属于 editor_state 的工作流协议，ViewportPanel 只生产请求；它不拥有运行时控制权。
-时间截断仅由 SceneRuntime 的 max_frame_delta 决定，CameraControllerSystem 消费完整 delta，不另作 0.1 秒截断。
-隐藏离屏视图仍运行 UI、Runtime、Scene 提取与上传回收；再显示时准备最新场景设置。直接呈现不走隐藏跳过分支。
-prepare_frame 暂时无可呈现帧时跳过 UI／提取／绘制，仍执行 Runtime；最小化继续等待并重置墙钟增量。
-最小化同时清除窗口瞬态与 Runtime 待处理按下；采样中断版本使 Gate 先释放再获取，不要求 UI 消费恢复首帧。
-System 更新失败逆序停止并返回 Result。无恢复处理或 DeviceLost 时退出；配置宿主恢复时，Engine 不提取已部分写入的 Scene，
-先用空场景完成已 acquire 的帧，再调用 Application::on_runtime_error。Editor 恢复 Edit；app 默认返回失败退出。
-恢复本身或空帧绘制失败仍关闭宿主，不重试失败的模拟步骤，也不让未提交帧进入下一次 prepare。
-替换 Scene 必须发生在 System 执行之外，先停止旧 Runtime；shutdown 在宿主、Scene 和服务释放前停止并销毁 System。
-文件扫描、复制、保存和同步资产加载在 on_update 执行，不占用已 acquire 的帧；这不是将全部 I/O 移出主线程。请求仍由唯一 Editor 执行，不新增事件总线。Window 可选择拦截原生关闭事件，Editor 处理未保存决策后才通过 request_close 确认退出。
-Scene 维护 EntityId／UUID 查询索引与父子索引，结构修改时同步维护；这些索引不参与序列化。
-SceneExtractor 与 CameraControllerSystem 共用 Scene 的类型化 each 查询；渲染提取不再是 Scene 的 friend，也不直接访问 EnTT registry。
-Scene 的同步检查遍历全部节点，比较本地 TRS、组件是否存在、parent ID 和父级计算版本，仅重算变化节点。
-单个 get_world_matrix 只检查祖先链；持续持有可变组件引用的写入同样在下次查询／提取时生效。
-缓存属于 Scene 私有状态，不序列化；update_world_transforms 返回实际重算数量，静止场景为零。
-Engine 同步借用宿主更新、UI 准备和运行错误处理，不保存回调注册表；UI 与 System 修改后再同步变换并提取。
-Renderer 不调用 UI 准备；Editor 在 on_frame_ready 显式调用 ImGuiContext::begin_frame/end_frame。
-pose_world_matrix 使用层级旋转与普通世界矩阵的位置，本地及祖先缩放不进入相机朝向。
-本地 TR 只计算一次，普通矩阵在其基础上应用 scale；相机与物体继续使用各自的父级矩阵。
-SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler，不访问呈现队列；录制时借用传入的帧上下文。
+Engine 拥有 Scene/Runtime，只同步借用宿主回调；EditorSceneSession 保留 Edit Scene，负责 Play 副本与恢复。
+Renderer 不调用 UI 准备；SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler 或呈现队列。
 
-MaterialRenderer::render、DebugRenderer::render 与 SceneRenderer::render 返回 GraphicsError。
-材质准备/调试缓冲增长遇到 DeviceLost 原样返回；普通失败仍沿用兼容旧材质或跳过调试批次。
-Renderer 的帧准备、后处理准备、录制、提交或呈现返回不可恢复错误时，统一进入 prepare_shutdown，拒绝再次准备／绘制。
-关闭后也拒绝目标切换、Shader 发布和材质候选创建；仍允许解除宿主回调。
-prepare_shutdown 已执行设备等待，之后的 wait_idle 为幂等空操作；正常运行时仍禁止等待未提交的活动帧。
-Engine 接收到帧错误后也进入关闭准备，停止 System 和后台任务；不依赖 Application 才完成终止。
-prepare_frame 成功返回 false 仍表示可恢复的延期，不进入关闭；acquire 前的宿主更新错误不改变既有重入策略。
-部分录制的命令缓冲只由 owner 销毁，不结束并提交空帧，也不重新用于下一帧。
-Editor 通过 Renderer 注册 Overlay 重建钩子、读取只读帧信息；整帧命令缓冲直接传给 Overlay。
-SceneResolver 只解析 Camera、Mesh、Material 和 Environment 引用，不检查模板、属性名或纹理数量。
+**运行与输入：** SceneRuntime 是时间截断的唯一入口，先有界固定更新再普通更新；暂停仍维护 UI、资产与绘制，
+单步只推进一轮固定／普通更新。ViewportPanel 生产控制请求，由 Editor 在下一次 on_update 经 Engine 应用。
+App 交付窗口快照，Editor 交付当帧 UI Gate 结果；每帧清空授权，未授权释放按钮但不暂停模拟。
+隐藏离屏视图仍执行 UI、Runtime、Scene 提取和上传回收；暂时无呈现帧时只跳过 UI／提取／绘制。
+最小化等待并重置墙钟增量、窗口瞬态及 Runtime 待处理按下；Gate 根据采样中断版本重新获取授权。
+
+**运行失败：** System 更新失败逆序停止，不重试部分执行的模拟。Engine 不再提取部分写入的 Scene，
+而是完成已 acquire 的空场景帧，再交给 Application::on_runtime_error；Editor 恢复 Edit，app 默认失败退出。
+DeviceLost、空帧绘制或恢复失败仍退出。Scene 替换必须在 System 执行外，且先停止旧 Runtime。
+文件扫描、保存、同步加载和模式切换在 on_update 执行，不占用已 acquire 的帧，但仍可能占用主线程。
+原生关闭可由 Editor 拦截，完成未保存决策后再 request_close。
+
+**场景读取：** Scene 维护非持久化的 ID／UUID／父子索引，类型化 each 隔离 EnTT。
+全场景同步比较本地 TRS、组件与父级版本，仅重算变化节点；单个 world matrix 查询只检查祖先链。
+持有可变组件引用的写入在下次同步可见，静止场景重算数为零。pose_world_matrix 继承层级位置／旋转而忽略缩放。
+SceneResolver 只解析 Camera、Mesh、Material 和 Environment 引用，不负责材质模板或参数合法性。
+
+**渲染失败：** GraphicsError 沿 MaterialRenderer／DebugRenderer／SceneRenderer 返回。
+准备阶段的普通失败可保留兼容旧材质或跳过调试批次；DeviceLost 原样传播。
+不可恢复的准备／录制／提交／呈现失败使 Renderer 和 Engine 进入关闭准备，停止 System 与后台任务，
+拒绝新帧、目标切换、Shader 发布和材质候选，仍允许解绑回调；之后 wait_idle 幂等。
+prepare_frame 返回 false 只是延期。部分录制失败的命令缓冲不能结束后提交或复用；
+这不同于上面 System 在场景录制前失败时完成空场景帧的恢复路径。
 
 ## Lua 脚本与参数
 
-Script 保存源码与默认参数；ScriptComponent 序列化资产引用和用户覆盖，弱引用的活动定义只供运行观察。
-复制组件不携带运行绑定；ScriptSystem 独占 VM 并保活所用 Script，停止时解除绑定，组件不持有解释器。
-`scripting/script.cpp` 管 VM、资源限制、字段解析与受保护执行；私有 `lua_bindings` 只注册引擎能力。
-公共 API 不暴露 Lua 或 System 调度类型，Invocation 仅借用本次调用的输入与时间。
+| 所属位置 | 持有与职责 |
+| --- | --- |
+| Script | 不可变源码、字段默认值；创建独立 Instance |
+| Script::Instance | VM、保护调用与 Lua 配置表；初始化期间借用源码，不长期复制源码 |
+| 私有 lua_bindings | 当前实体／授权输入的 API 适配，不访问 Editor 或渲染资源 |
+| ScriptSystem | 独占实例、保活所用 Script、同步组件寿命与阶段调用 |
+| ScriptComponent | 持久化 Handle 与稀疏覆盖；非持久化寿命与活动定义弱引用 |
 
-Edit 的 Inspector 使用当前资产定义，Play 使用组件的活动定义；源码扫描失效缓存不会改变运行实例或其参数类型。
-Edit 修改源码导致定义切换时取消旧参数手势；恢复默认参数清空覆盖，和重载源码无关。
-参数编辑只写变化字段，明确设置成默认值仍保留覆盖；不把没编辑过的默认字段一起固化。
-导出配置通过现有 PropertyEditTransaction 保存／撤销，Play 调参不写 Edit 历史。
+复制组件不携带运行绑定。每实体独立 VM；阶段边界只查询脚本组件，新增批次按 UUID 启动，
+按实际启动逆序停止，包含部分启动失败。on_stop 不访问实体；参数编辑不重启实例。
 
-阶段边界只查询 ScriptComponent，新增批次按 UUID 排序；停止按实际启动顺序逆序，包含部分启动失败。
-参数覆盖按值复核，仅变化时重新合并默认值并生成 Lua 配置表；`self.parameters` 及 Vec3 值只读，支持 pairs／索引／长度。
-脚本运行状态放在 self 的其他字段中。on_stop 不访问实体；字段编辑不重启，组件重建产生新寿命。
-当前每实体独立 VM，源码最多 1 MiB、Lua 堆最多 8 MiB、每次受保护调用最多约 20 万条 Lua 指令。
-限制不等于墙钟超时或安全沙箱；不开放文件、原生库、require、动态代码、元表和 rawset。
-未提供运行中源码替换、模块依赖、结构增删或材质 API；未来能力按路线图独立验收。
+Inspector Edit 使用当前资产定义，Play 使用活动实例定义；Edit 定义切换会取消旧参数手势。
+更换脚本是 SceneEditor 的完整命令：先加载候选，再一次替换引用并清空覆盖，Edit 的 Undo 同时恢复二者。
+清空引用同样清空覆盖；选同一引用不重置参数；失败不改变原绑定。Play 直接改运行副本，不写 Edit 历史。
+同一资产的源码更新不会替换活动实例，重新 Play 才使用新版；不是运行中热重载。
+
+参数检查与合并分开：Inspector 调用 validate_overrides，不生成无用的完整参数表；
+ScriptSystem 仅在覆盖变化时 resolve_parameters，Instance 仅在有效值变化时重建 Lua 配置表。
+两层快照分别检测覆盖和 Lua 输入，不引入跨层 revision 协议。
+明确编辑成默认值仍保存覆盖；“恢复默认参数”清空覆盖，可撤销但不重载源码。
+self.parameters 及 Vec3 配置只读，支持 pairs／索引／长度；运行状态写到 self 的其他字段，不持久化。
+
+源码最多 1 MiB、每 VM 的 Lua 堆最多 8 MiB、每次保护调用最多约 20 万条指令；
+不等于墙钟超时或安全沙箱。不开放文件、原生库、require、动态代码、元表和 rawset。
+动作映射、模块依赖、受控实体／材质 API 与源码热替换见路线图，不在 VM 内提前建立管理框架。
 
 ## 渲染诊断
 
@@ -462,21 +462,23 @@ Restored 仅表示驱动接收并合并了兼容数据，不证明内部命中�
 
 ## 编辑命令与视口时序
 
-帧的调用顺序与失败协议见「一帧经过哪里」。Renderer 只消费 owned RenderScene，不持有可变 Scene 或 EnTT 引用；
-组件修改、Undo/Redo 和当前帧拾取使用同一份编辑后快照。
-Editor::finish_active_edit 统一取消未完成 Gizmo、调用 Inspector::finish_edit；失败时拒绝后续请求。
-组件属性与场景环境共用 PropertyEditTransaction 的 begin／preview／commit／cancel 和文档代际检查。
-Inspector 只跟踪 ImGui 活动控件；保存、切场景或模式切换不再维护环境专用事务。
-环境与后处理通过 PropertyEditResult 汇总控件手势，共用一次 begin／preview／commit／cancel 适配。
-SceneEditor 是实体结构编辑、撤销／重做、Mesh 插入和资产赋值的 CPU 执行入口，校验模式、文档代际、属性契约并更新选择。
-SceneCommands 保留具体命令及逆操作；SceneDocument 管保存点，EditorSceneSession 管 Play 副本，不互相兼任。
-Editor 只负责请求优先级、结束 UI 活动项和安装场景后的重绑；不把渲染生命周期回调改成事件。
-Inspector 发出带 Handle／revision 的材质读取请求，由 EditorAssets 解析；返回时再核对选择与 revision，过期结果丢弃。
-材质默认值、模板迁移、草稿校验与完整提交集中在 material_editing；面板不直接解析文件。
-请求仍在 UI 遍历结束后执行，并保留文档 generation／资产 revision 校验与菜单优先级。
-离散属性赋值使用 PropertyEditTransaction::apply：结束已有手势，再 begin／preview／commit；
-失败取消新事务。持续拖动仍使用独立的 begin／preview／commit，不在每帧创建历史记录。
-Play 引用调试直接写克隆场景，不经过 Edit 历史；资产文件写入也不混入场景历史。
+帧顺序见「一帧经过哪里」。Renderer 消费 owned RenderScene，不持有可变 Scene/EnTT；
+组件编辑、Undo/Redo 和拾取使用同一份编辑后快照。
+
+| 入口 | 边界 |
+| --- | --- |
+| InspectorPanel | 选择分发、实体／场景属性、脚本定义选择；不持有材质或纹理草稿 |
+| AssetInspector | 材质／纹理草稿、模板确认、读取与编辑请求；无 CommandHistory、Scene 或 Renderer 依赖 |
+| SceneEditor | 模式／代际检查、实体结构、脚本绑定、引用赋值及选择更新 |
+| SceneCommands / CommandHistory | 具体逆操作与历史游标；不触发文件或 GPU 操作 |
+| SceneDocument / EditorSceneSession | 保存点／文档操作，以及 Play 副本／恢复 |
+
+Editor 调度跨面板请求，结束活动手势并安装／重绑场景。Inspector 与 Gizmo 各自持有 PropertyEditTransaction，
+共享 CommandHistory；环境／后处理也走 begin／preview／commit／cancel。拖动预览，结束后只提交一次；
+离散 apply 先结束旧手势，失败取消新事务。结束活动手势失败会拒绝后续请求。
+资产请求携带 Handle/revision；AssetInspector 切换选择后清空旧草稿与请求，过期完成结果不覆盖当前选择。
+EditorAssets 执行读取；material_editing 负责模板迁移、校验与完整提交，宿主负责文件／GPU 操作。
+Play 组件调试不进入 Edit 历史，资产文件编辑也不混入场景历史。渲染生命周期保持同步回调，不改成事件总线。
 
 结构命令保存完整组件快照，未知或不可恢复的组件会阻止破坏性操作；
 撤销恢复 UUID 与父子关系，不恢复旧 EntityId、选择或展开状态。

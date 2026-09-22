@@ -25,7 +25,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 `render/material/` 聚合材质定义、准备缓存与绘制，`render/debug/` 聚合辅助线，`render/passes/` 保存具体渲染步骤。
 `RenderResources` 组织 Mesh/Texture 创建、上传和 Sampler 复用；资产身份缓存仍只由 `AssetRegistry` 管理。
 编辑器的 `ProjectPanel` 位于 `assets/project_panel.*`，`ViewportPanel` 位于 `viewport/viewport_panel.*`，
-面板不代替项目数据或视口交互协调器。
+InspectorPanel 分发选择并编辑场景属性，AssetInspector 独立持有材质／纹理草稿；面板不直接保存文件或发布 GPU 资源。
 
 ## 构建与运行
 
@@ -226,16 +226,15 @@ JSON 解析直接依赖已有 simdjson。
 `startup_scene` 相对项目 `assets/`；省略或空字符串表示空场景。项目描述不配置默认材质，场景保存自己的材质引用。
 app 与 editor 共用 Project、SceneSerializer 和场景资产引用，不再分别创建示例物体、相机或灯光。
 app 使用场景 primary Camera；Edit 使用编辑器相机，因此同一场景不保证相同取景。
-app 窗口标题显示 `原窗口标题 | 120 FPS`，复用 editor 的平滑 FPS 统计，每 0.5 秒采样一次。
+app 窗口创建时使用 `project.json` 的项目名，运行时显示 `项目名 | 120 FPS`；编辑器标题固定为 `Comet Editor`。
+FPS 复用 editor 的平滑统计，每 0.5 秒采样一次。
 该数值表示主循环帧率，不是 GPU 耗时；全屏隐藏标题栏时不可见。
 app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场景或必需资源加载失败会终止启动，
 不像 editor 那样保留缺失引用供修复。这仍是开发期运行入口，不是已打包的 Shipping Player。
 示例立方体通过 Script 组件引用 `demo/assets/scripts/spin.lua`，`speed` 为每秒角度，`enabled` 控制是否旋转。
 app 和 editor Play 共用该行为，不依赖 UUID 或项目路径；Edit 不执行旋转，Play 修改不保存回 Edit 场景。
-Inspector 可增删 Script、选择 Lua 资产、编辑参数并撤销；保存后独立 app 使用同一份配置。
-Lua 5.4.8 以子模块引入，首次构建引擎需要编译 Lua，但新增项目 `.lua` 不需要改 CMake 或重新编译宿主。
-脚本放在项目 assets 内（也可从 Finder 导入），由 `.meta` 提供稳定身份；修改源码后重新 Play 使用新版本，
-当前不将新代码注入正在运行的实例。字段改名／类型变化会报告旧覆盖值不匹配，可在 Inspector 恢复默认参数。
+项目 `.lua` 位于 assets，由 `.meta` 提供身份，也可从 Finder 导入；新增脚本无需改 CMake 或重编译宿主。
+引擎私有链接 Lua 5.4.8；参数编辑与运行限制见下方“场景运行时”。
 两种入口遇到项目描述错误或缺少 assets 都会启动失败，不回退仓库项目；仅 editor 在启动场景缺失／损坏时
 记录错误并打开空场景，供用户修复，不覆盖原文件。
 引擎 Profile、编辑器快捷键仍读取开发构建自带的 `config/`，字体／图标／Shader 不需要复制到每个项目。
@@ -269,7 +268,9 @@ Play 修改只作用于副本；脚本启动或运行失败会记录错误并恢
 独立 app 默认在运行错误时退出，不自动重试已部分执行的一帧。
 
 Lua 的 `properties` 声明显式导出的 bool／float／Vec3／string 配置；只有编辑过的字段保存为实体覆盖。
+Inspector 切换／清空 Script 引用会同时清空覆盖，一次 Undo 恢复旧脚本和参数；加载失败不改原绑定。
 “恢复默认参数”清空覆盖，可撤销，不重新加载源码。Play 面板跟随活动实例的定义，不混用更新后的资产参数。
+修改源码后重新 Play 使用新版；字段改名或类型变化会报告覆盖不匹配，可恢复默认参数后重新配置。
 `self.parameters` 是只读配置；累计时间等内部状态放在 self 的其他字段，不显示或保存到场景。
 目前每实体一个脚本，提供本实体变换和已授权 A-Z 按键查询；不支持 require、材质 API 或运行中源码替换。
 Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。调用、寿命和失败边界见[架构说明](docs/architecture/overview.md#lua-脚本与参数)。

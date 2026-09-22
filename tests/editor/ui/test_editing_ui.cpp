@@ -147,7 +147,7 @@ namespace CometEditor::Tests {
         const auto updated =
             Comet::Script::create("return {properties = {speed = 200, enabled = false}}");
         ASSERT_TRUE(updated);
-        const auto effective = updated.value()->parameters(binding.parameters);
+        const auto effective = updated.value()->resolve_parameters(binding.parameters);
         ASSERT_TRUE(effective);
         EXPECT_EQ(std::get<float>(effective.value().at("speed")), 50);
         EXPECT_FALSE(std::get<bool>(effective.value().at("enabled")));

@@ -1,3 +1,4 @@
+#include "scene/script_component.h"
 #include "scene/scene_commands.h"
 #include "scene/scene_serializer.h"
 
@@ -574,4 +575,23 @@ namespace CometEditor::Tests {
         EXPECT_EQ(entity.get_component<ExtraComponent>().hidden, "owned hidden data");
         EXPECT_FLOAT_EQ(entity.get_component<ExtraComponent>().visible, 9);
     }
+
+    TEST_F(SceneCommandsTest, ScriptCopiesAndStructuralSnapshotsCreateFreshLifetime) {
+        using Comet::ScriptComponent;
+        const Comet::AssetHandle handle{42};
+        entity.add_component<ScriptComponent>().asset = handle;
+        const auto original = entity.get_component<ScriptComponent>().lifetime();
+        ScriptComponent copy = entity.get_component<ScriptComponent>();
+        EXPECT_NE(copy.lifetime(), original);
+        const auto copied = copy.lifetime();
+        ScriptComponent moved = std::move(copy);
+        EXPECT_EQ(moved.lifetime(), copied);
+        const auto* descriptor = registry.find_component("script");
+        const auto snapshot = descriptor->capture_component(entity);
+        ASSERT_TRUE(descriptor->remove_component(entity));
+        ASSERT_TRUE(descriptor->restore_component(entity, snapshot));
+        EXPECT_NE(entity.get_component<ScriptComponent>().lifetime(), original);
+        EXPECT_EQ(entity.get_component<ScriptComponent>().asset, handle);
+    }
+
 }

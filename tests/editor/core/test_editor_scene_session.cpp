@@ -326,4 +326,55 @@ namespace CometEditor::Tests {
         EXPECT_EQ(state.mode, EditorMode::Play);
         EXPECT_EQ(replacements, 1);
     }
+
+    TEST(EditorSceneSessionTest, ScriptParametersUseUndoSerializationAndPlayClone) {
+        using namespace Comet;
+        const AssetHandle handle{42};
+        AssetRegistry assets;
+        Scene scene;
+        const auto components = create_scene_component_registry();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        auto script = Script::create(R"(return {
+            properties = {speed = 100, enabled = true, label = "spin", axis = {0, 1, 0}},
+            fixed_update = function(self, dt)
+                if self.parameters.enabled then comet.rotate(0, self.parameters.speed * dt, 0) end
+            end
+        })");
+        ASSERT_TRUE(script);
+        ASSERT_TRUE(assets.register_asset(handle, script.value()));
+        auto entity = scene.create_entity();
+        entity.add_component<ScriptComponent>().asset = handle;
+        const auto lifetime = entity.get_component<ScriptComponent>().lifetime();
+        CometEditor::CommandHistory history;
+        history.bind_scene(&scene);
+        CometEditor::PropertyEditTransaction edit(history, components);
+        ParameterMap values{{"speed", 90.0f}, {"enabled", true}, {"axis", Math::Vec3{0, 1, 0}},
+            {"label", std::string("test")}};
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "script", "parameters"}, values));
+        EXPECT_EQ(entity.get_component<ScriptComponent>().lifetime(), lifetime);
+        ASSERT_TRUE(history.undo());
+        EXPECT_TRUE(entity.get_component<ScriptComponent>().parameters.empty());
+        ASSERT_TRUE(history.redo());
+        const SceneSerializer serializer(components);
+        auto encoded = serializer.serialize(scene);
+        ASSERT_TRUE(encoded);
+        EXPECT_EQ(encoded.value().find("lifetime"), std::string::npos);
+        auto play = serializer.deserialize(encoded.value());
+        ASSERT_TRUE(play) << play.error();
+        auto clone = play.value()->find_entity(entity.get_uuid());
+        EXPECT_NE(clone.get_component<ScriptComponent>().lifetime(), lifetime);
+        EXPECT_EQ(clone.get_component<ScriptComponent>().parameters, values);
+        ASSERT_TRUE(runtime.start(*play.value()));
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_FLOAT_EQ(clone.get_component<TransformComponent>().rotation.y, 0);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_NEAR(clone.get_component<TransformComponent>().rotation.y, 0.9f, 1e-5f);
+        EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().rotation.y, 0);
+        ASSERT_TRUE(runtime.stop());
+    }
+
 }
