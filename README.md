@@ -6,7 +6,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 
 | 目录 | 职责 |
 | --- | --- |
-| `engine/src/` | 引擎库：runtime、core、scene、asset、render、graphics、config、diagnostics |
+| `engine/src/` | 引擎库：runtime、core、input、scene、asset、render、graphics、config、diagnostics |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `tools/render_benchmark/` | 固定场景渲染性能基准，链接 engine，不依赖测试框架或编辑器 |
@@ -15,12 +15,13 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
 | `demo/assets/scripts/` | Lua 项目行为；默认字段由脚本声明，实体仅保存覆盖值 |
-| `demo/project.json` | 示例项目描述：版本、名称和启动场景 |
+| `demo/project.json` | 示例项目描述：版本、名称、启动场景和输入绑定 |
 | `config/` | `common.yaml` 与各 Profile 配置 |
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
 `runtime/` 管应用入口与宿主生命周期；`scene/` 管 ECS 数据、组件元信息与调度，System 接口及具体行为集中在 `scene/systems/`。
+`input/` 集中物理采集、门控、动作映射和阶段消费；从 `runtime_input.h` 看编排，从 `input_state.h` 看只读消费接口。
 `asset/data/` 保存 Mesh、Texture、Material 的 CPU 数据。
 `render/material/` 聚合材质定义、准备缓存与绘制，`render/debug/` 聚合辅助线，`render/passes/` 保存具体渲染步骤。
 `RenderResources` 组织 Mesh/Texture 创建、上传和 Sampler 复用；资产身份缓存仍只由 `AssetRegistry` 管理。
@@ -251,14 +252,49 @@ Window 采集事件，Engine 在 Update 前发布一次；`down / pressed / rele
 app 与 editor Play 共用可选的 `CameraControllerComponent`：在 Edit 中选中主相机，
 通过 Inspector → Add Component → Camera Controller 添加，并配置启用、移动速度和转向灵敏度；保存进 `.scene`。
 只控制实际渲染的主相机；未添加／未启用组件时不移动，多个 primary 时与渲染一致选择最小 EntityId。
-仓库 demo 已默认添加；外部项目同样按组件启用，不依赖项目路径或硬编码相机 UUID。
+仓库 demo 已默认添加；外部项目需要同时启用组件并配置下述 `camera.*` 动作，不依赖项目路径或硬编码相机 UUID。
 右键拖动转向（本地俯仰限制 ±89°），WASD 沿相机朝向移动，Q/E 沿世界上下移动，左 Shift 加速，滚轮沿视线移动。
 第一个标准手柄支持左摇杆移动和左右扳机升降；暂不锁定／隐藏光标，也没有碰撞或手柄转向。
 app 中 Esc 退出；Play 中鼠标进入画面即可操作，无需点击激活；Esc 与 Stop 一样直接返回 Edit。
 鼠标离开画面、失焦、弹窗或编辑文字时停止接收；回来后原先按住的按钮需要松开重按。
 控制只改变运行状态，退出 Play 恢复 Edit 场景，不生成逐帧撤销记录。
-Edit 相机和编辑器快捷键保持原有 ImGui 路径；动作绑定、重映射、文本／IME、鼠标锁定仍是后续事项。
+Edit 相机和编辑器快捷键保持原有 ImGui 路径；运行中重绑定 UI、文本／IME、鼠标锁定仍是后续事项。
 Frame 可复制，但不是持久回放格式。
+
+### 项目输入动作
+
+`project.json` 的可选 `input_actions` 保存具名动作；省略表示无绑定，不注入示例按键。
+App 与 Play 在启动时加载同一配置；修改后需重启宿主，目前不热加载项目配置。
+
+```json
+"input_actions": [
+  {"name": "jump", "type": "button", "bindings": [
+    {"source": "key", "control": "Space"},
+    {"source": "gamepad_button", "control": "South"}
+  ]},
+  {"name": "move", "type": "axis", "bindings": [
+    {"source": "key", "control": "D"},
+    {"source": "key", "control": "A", "scale": -1},
+    {"source": "gamepad_axis", "control": "LeftX", "deadzone": 0.15}
+  ]}
+]
+```
+
+`button` 合并键／鼠标按钮／手柄按钮的电平与边沿；`axis` 合并数字按键和手柄轴，限制到 [-1,1]；
+`delta` 只接受 `motion`（CursorX／CursorY／ScrollX／ScrollY），保留位移单位，不乘 delta time。
+`scale` 默认为 1，可用于轴反向；`deadzone` 默认为 0，仅用于手柄轴。手柄取第一个连接的标准设备。
+键名支持 A–Z、0–9、F1–F25、Space、Escape、Enter、Tab、Backspace、Delete、Insert、Home、End、
+PageUp／PageDown、方向键及 Left／Right 的 Shift、Control、Alt、Super；不识别的名字会报错，不静默忽略。
+最多 128 个动作、每动作 16 个绑定；`bindings: []` 显式禁用动作。完整相机配置见 `demo/project.json`：
+`camera.move_x/y/z` 为局部右／世界上／局部后方向轴，`camera.look/boost` 为按钮，
+`camera.look_x/y` 和 `camera.zoom` 为位移。相机缺失动作视为未绑定，类型错误会报告运行失败。
+
+Lua 在 `update`／`fixed_update` 中调用 `comet.action_value(name)` 或按钮专用的
+`comet.action_down/pressed/released(name)`；未知名称或错误类型会报告脚本错误。
+固定步保留零步帧的短按，多次补步只触发一次边沿；普通更新有独立快照，不与固定步抢输入。
+相机与脚本只读取同一阶段的 `InputState`；`RuntimeInput` 负责输入累积、动作求值与暂停基线，
+SceneRuntime 只调度阶段，不逐层传递额外的动作参数。物理快照仍供窗口／Gate 使用，不属于脚本系统。
+demo 的空格／手柄 South 切换方块旋转；运行状态保存在 Lua `self`，Stop 不回写场景参数。
 
 ### 场景运行时
 
@@ -272,7 +308,8 @@ Inspector 切换／清空 Script 引用会同时清空覆盖，一次 Undo 恢�
 “恢复默认参数”清空覆盖，可撤销，不重新加载源码。Play 面板跟随活动实例的定义，不混用更新后的资产参数。
 修改源码后重新 Play 使用新版；字段改名或类型变化会报告覆盖不匹配，可恢复默认参数后重新配置。
 `self.parameters` 是只读配置；累计时间等内部状态放在 self 的其他字段，不显示或保存到场景。
-目前每实体一个脚本，提供本实体变换和已授权 A-Z 按键查询；不支持 require、材质 API 或运行中源码替换。
+目前每实体一个脚本，提供本实体变换和已授权动作查询（仍保留 A-Z 的 `key_down` 底层查询）；
+不支持 require、材质 API 或运行中源码替换。
 Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。调用、寿命和失败边界见[架构说明](docs/architecture/overview.md#lua-脚本与参数)。
 
 ## 编辑器使用

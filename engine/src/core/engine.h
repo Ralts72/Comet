@@ -2,7 +2,7 @@
 #include "common/export.h"
 #include "common/error.h"
 #include "common/result.h"
-#include "core/input.h"
+#include "input/input.h"
 #include "diagnostics/timing_history.h"
 #include "scene/scene_runtime.h"
 #include "timer.h"
@@ -58,6 +58,7 @@ namespace Comet {
 
         [[nodiscard]] Result<void, Error> add_system(std::unique_ptr<System> system);
         [[nodiscard]] Result<void, Error> set_runtime_settings(SceneRuntime::Settings settings);
+        [[nodiscard]] Result<void, Error> set_input_actions(InputActions actions);
         [[nodiscard]] Result<void, Error> start_scene_runtime();
         [[nodiscard]] Result<void, Error> stop_scene_runtime();
         [[nodiscard]] Result<void, Error> set_runtime_state(SceneRuntime::State state);

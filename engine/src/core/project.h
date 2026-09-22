@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/project_paths.h"
+#include "input/input_actions.h"
 #include "common/result.h"
 
 #include <cstdint>
@@ -16,6 +17,7 @@ namespace Comet {
         [[nodiscard]] const ProjectPaths& paths() const { return m_paths; }
         [[nodiscard]] const std::string& name() const { return m_name; }
         [[nodiscard]] const std::filesystem::path& startup_scene() const { return m_startup_scene; }
+        [[nodiscard]] const InputActions& input_actions() const { return m_input_actions; }
 
     private:
         explicit Project(ProjectPaths paths);
@@ -23,5 +25,6 @@ namespace Comet {
         ProjectPaths m_paths;
         std::string m_name;
         std::filesystem::path m_startup_scene;
+        InputActions m_input_actions;
     };
 }

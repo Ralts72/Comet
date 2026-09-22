@@ -3,7 +3,7 @@
 #include "common/error.h"
 #include "common/export.h"
 #include "common/result.h"
-#include "core/input.h"
+#include "input/input_state.h"
 
 namespace Comet {
     class Scene;
@@ -14,7 +14,7 @@ namespace Comet {
             double delta_time;
             double total_time;
             uint64_t index;
-            const Input::Frame& input;
+            const InputState& input;
         };
 
         virtual ~System() = default;

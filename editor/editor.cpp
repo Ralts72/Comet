@@ -146,6 +146,8 @@ namespace {
                 },
                 [engine_ptr] { return engine_ptr->start_scene_runtime(); }, prepare_candidate);
             auto& scene = *engine.get_scene();
+            if(auto configured = engine.set_input_actions(m_project.input_actions()); !configured)
+                return configured;
             if(auto added = engine.add_system(std::make_unique<Comet::CameraControllerSystem>());
                 !added)
                 return added;

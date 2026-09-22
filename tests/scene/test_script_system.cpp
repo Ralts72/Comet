@@ -4,6 +4,7 @@
 #include "scene/systems/script_system.h"
 #include "scene/scene_runtime.h"
 #include "asset/registry.h"
+#include "core/project.h"
 #include "common/scope_exit.h"
 #include "diagnostics/logger.h"
 #include <spdlog/sinks/callback_sink.h>
@@ -158,6 +159,76 @@ namespace Comet::Tests {
         EXPECT_NEAR(entity.get_component<TransformComponent>().translation.z, 0.1f, 1e-6f);
         ASSERT_TRUE(runtime.advance(0.1));
         EXPECT_NEAR(entity.get_component<TransformComponent>().translation.z, 0.1f, 1e-6f);
+    }
+
+    TEST_F(ScriptSystemTest, NamedActionsUseProjectBindingsAndDoNotRepeatAcrossFixedSteps) {
+        auto actions =
+            InputActions::create({{"jump", InputActions::Type::Button, {{Input::Key::J}}},
+                {"move", InputActions::Type::Axis, {{Input::Key::L}}}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
+        source(R"(return {
+            fixed_update = function(self, dt)
+                if comet.action_pressed('jump') then comet.translate(1,0,0) end
+                if comet.action_released('jump') then comet.translate(0,1,0) end
+                comet.translate(0,0,comet.action_value('move') * dt)
+            end,
+            update = function(self)
+                self.held = comet.action_down('jump')
+                assert(self.held == comet.key_down('J'))
+            end
+        })");
+        auto entity = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::J, true);
+        input.key_event(Input::Key::J, false);
+        input.key_event(Input::Key::L, true);
+        ASSERT_TRUE(runtime.advance(0.001, &input.publish_frame()));
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        const auto& position = entity.get_component<TransformComponent>().translation;
+        EXPECT_FLOAT_EQ(position.x, 1);
+        EXPECT_FLOAT_EQ(position.y, 1);
+        EXPECT_NEAR(position.z, 0.03f, 1e-6f);
+        ASSERT_TRUE(runtime.advance(0.02));
+        EXPECT_NEAR(position.z, 0.03f, 1e-6f);
+        ASSERT_TRUE(runtime.stop());
+        source("return {update = function(self) comet.action_down('typo') end}");
+        ASSERT_TRUE(runtime.start(scene));
+        auto failed = runtime.advance(0);
+        ASSERT_FALSE(failed);
+        EXPECT_NE(failed.error().message.find("Unknown input action: typo"), std::string::npos);
+        EXPECT_FALSE(runtime.is_active());
+    }
+
+    TEST_F(ScriptSystemTest, DemoProjectAndLuaSourceUseTheSameToggleContract) {
+        const auto project = Project::load(
+            std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "demo");
+        ASSERT_TRUE(project) << project.error();
+        ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
+        auto script = Script::load(project.value().paths().assets() / "scripts/spin.lua");
+        ASSERT_TRUE(script) << script.error().message;
+        ASSERT_TRUE(assets.register_asset(handle, std::move(script).value()));
+        auto entity = actor();
+        const auto& rotation = entity.get_component<TransformComponent>().rotation;
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FLOAT_EQ(rotation.y, 1);
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::Space, true);
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_FLOAT_EQ(rotation.y, 1);
+        input.key_event(Input::Key::Space, false);
+        ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+        input.key_event(Input::Key::Space, true);
+        ASSERT_TRUE(runtime.advance(0.02, &input.publish_frame()));
+        EXPECT_FLOAT_EQ(rotation.y, 3);
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FLOAT_EQ(rotation.y, 4);
     }
 
 }

@@ -10,7 +10,7 @@
 #include <optional>
 
 namespace Comet {
-    // 事件先累积、再一次性发布；不依赖窗口、ImGui 或游戏操作映射。
+    // 平台事件先累积、再发布物理快照；游戏消费者读取 RuntimeInput 生成的 InputState。
     class COMET_API Input {
     public:
         enum class Key {

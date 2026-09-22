@@ -22,7 +22,6 @@ set(UNIT_TEST_SOURCES
         common/test_scope_exit.cpp
         config/test_config.cpp
         core/test_geometry.cpp
-        core/test_input.cpp
         core/test_math_utils.cpp
         core/test_project.cpp
         core/test_project_paths.cpp
@@ -47,6 +46,9 @@ set(UNIT_TEST_SOURCES
         graphics/test_resource_state.cpp
         graphics/test_viewport.cpp
         graphics/test_vulkan_raii_ownership.cpp
+        input/test_input.cpp
+        input/test_input_actions.cpp
+        input/test_runtime_input.cpp
         render/test_lighting.cpp
         render/test_line_draw_list.cpp
         render/test_material.cpp

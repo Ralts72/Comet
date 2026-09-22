@@ -62,6 +62,8 @@ namespace {
             LOG_INFO("App project '{}', startup scene '{}'", m_project.paths().root().string(),
                 m_project.startup_scene().generic_string());
             engine.set_scene(std::move(scene));
+            if(auto configured = engine.set_input_actions(m_project.input_actions()); !configured)
+                return configured;
             if(auto added = engine.add_system(std::make_unique<Comet::CameraControllerSystem>());
                 !added)
                 return added;

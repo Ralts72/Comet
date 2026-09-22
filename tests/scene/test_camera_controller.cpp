@@ -1,5 +1,6 @@
 #include "scene/systems/camera_controller.h"
 #include "scene/scene.h"
+#include "core/project.h"
 
 #include <gtest/gtest.h>
 #include <cmath>
@@ -12,8 +13,14 @@ namespace Comet::Tests {
         Scene scene;
         Entity entity = scene.create_entity("Camera");
         TransformComponent& camera = entity.get_component<TransformComponent>();
+        InputActions actions;
+        InputState input_state;
 
         void SetUp() override {
+            const auto project = Project::load(
+                std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "demo");
+            ASSERT_TRUE(project) << project.error();
+            actions = project.value().input_actions();
             input.focus_event(true);
             input.cursor_event({0, 0});
             entity.add_component<CameraComponent>().primary = true;
@@ -22,7 +29,9 @@ namespace Comet::Tests {
 
         void update(float delta_time = 0.1f) {
             CameraControllerSystem system;
-            EXPECT_TRUE(system.update(scene, {delta_time, 0, 0, input.publish_frame()}));
+            const auto& frame = input.publish_frame();
+            actions.evaluate(frame, input_state);
+            EXPECT_TRUE(system.update(scene, {delta_time, 0, 0, input_state}));
         }
 
         void expect_position(Math::Vec3 expected) const {
@@ -201,5 +210,19 @@ namespace Comet::Tests {
         update();
         EXPECT_EQ(camera.translation, before);
         EXPECT_TRUE(Math::is_finite(camera.translation));
+    }
+
+    TEST_F(CameraControllerTest, RebindingChangesControlsWithoutChangingTheSystem) {
+        auto rebound = InputActions::create(
+            {{"camera.move_z", InputActions::Type::Axis, {{Input::Key::Up, -1}}}});
+        ASSERT_TRUE(rebound);
+        actions = std::move(rebound).value();
+        input_state = {};
+        input.key_event(Input::Key::W, true);
+        update();
+        expect_position({});
+        input.key_event(Input::Key::Up, true);
+        update();
+        expect_position({0, 0, -0.3f});
     }
 }

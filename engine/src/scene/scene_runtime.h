@@ -1,9 +1,9 @@
 #pragma once
 
 #include "scene/systems/system.h"
+#include "input/runtime_input.h"
 
 #include <memory>
-#include <optional>
 #include <vector>
 
 namespace Comet {
@@ -35,6 +35,7 @@ namespace Comet {
         SceneRuntime& operator=(const SceneRuntime&) = delete;
 
         Result<void, Error> set_settings(Settings settings);
+        Result<void, Error> set_input_actions(InputActions actions);
         Result<void, Error> add_system(std::unique_ptr<System> system);
         Result<void, Error> clear_systems();
         Result<void, Error> start(Scene& scene);
@@ -50,7 +51,6 @@ namespace Comet {
 
     private:
         void stop_systems() noexcept;
-        Input::Frame consume_input(const Input::Frame* input);
 
         Settings m_settings;
         Timing m_timing;
@@ -60,9 +60,7 @@ namespace Comet {
         bool m_executing = false;
         State m_state = State::Running;
         bool m_step_pending = false;
-        bool m_rebase_input = false;
         double m_accumulator = 0;
-        Input::Frame m_fixed_input;
-        std::optional<uint64_t> m_input_serial;
+        RuntimeInput m_input;
     };
 }

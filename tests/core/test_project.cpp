@@ -62,6 +62,37 @@ namespace Comet::Tests {
         EXPECT_TRUE(std::filesystem::is_empty(root / "assets"));
     }
 
+    TEST_F(ProjectTest, LoadsProjectActionsAndRejectsBadInputWithoutFallback) {
+        write(R"({"version":1,"name":"Game","input_actions":[
+            {"name":"move","type":"axis","bindings":[
+                {"source":"key","control":"L","scale":-1}]},
+            {"name":"disabled","type":"button","bindings":[]}]})");
+        auto project = Project::load(root);
+        ASSERT_TRUE(project) << project.error();
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::L, true);
+        InputState frame;
+        project.value().input_actions().evaluate(input.publish_frame(), frame);
+        ASSERT_NE(frame.action("move"), nullptr);
+        EXPECT_FLOAT_EQ(frame.action("move")->value, -1);
+        EXPECT_FALSE(frame.action("disabled")->down);
+        const std::string invalid[]{"null", "{}",
+            R"([{"name":"move","type":"axis","bindings":[{"source":"key","control":"Typo"}]}])",
+            R"([{"name":"move","type":"axis","bindings":[{"source":"key","control":"W","scale":null}]}])",
+            R"([{"name":"move","type":"axis","bindings":[{"source":"gamepad_axis","control":"LeftX","deadzone":1}]}])",
+            R"([{"name":"look","type":"delta","bindings":[{"source":"key","control":"W"}]}])",
+            R"([{"name":"jump","type":"button","bindings":[],"extra":1}])",
+            R"([{"name":"jump","type":"button","bindings":[]},{"name":"jump","type":"button","bindings":[]}])"};
+        for(const auto& value : invalid) {
+            SCOPED_TRACE(value);
+            write("{\"version\":1,\"name\":\"Game\",\"input_actions\":" + value + "}");
+            const auto loaded = Project::load(root);
+            ASSERT_FALSE(loaded);
+            EXPECT_NE(loaded.error().find("input_actions"), std::string::npos);
+        }
+    }
+
     TEST_F(ProjectTest, RejectsInvalidManifestAndDoesNotRewriteIt) {
         const std::string invalid[]{"[]", R"({"version": 2, "name": "Game"})",
             R"({"version": 0, "name": "Game"})", R"({"name": "Game"})",

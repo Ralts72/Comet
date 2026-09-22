@@ -1,4 +1,4 @@
-#include "core/input.h"
+#include "input/input.h"
 
 #include <algorithm>
 #include <cmath>

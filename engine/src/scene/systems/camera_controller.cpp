@@ -8,7 +8,7 @@ namespace Comet {
     Result<void, Error> CameraControllerSystem::update(Scene& scene, const Context& context) {
         const auto& input = context.input;
         const auto delta_time = static_cast<float>(context.delta_time);
-        if(!input.focused || !std::isfinite(delta_time) || delta_time < 0)
+        if(!input.focused() || !std::isfinite(delta_time) || delta_time < 0)
             return Result<void, Error>::success();
         Entity camera;
         // 与 SceneResolver 一致：多个主相机时使用最小 EntityId，不回退到其他控制器。
@@ -36,37 +36,34 @@ namespace Comet {
                     || !Math::is_finite(parent_pose[column]))
                     return Result<void, Error>::success();
         }
-        using Key = Input::Key;
-
-        const auto& look = input.mouse(Input::MouseButton::Right);
+        using Type = InputState::Action::Type;
+        const std::pair<std::string_view, Type> expected[]{{"camera.move_x", Type::Axis},
+            {"camera.move_y", Type::Axis}, {"camera.move_z", Type::Axis},
+            {"camera.look", Type::Button}, {"camera.look_x", Type::Delta},
+            {"camera.look_y", Type::Delta}, {"camera.zoom", Type::Delta},
+            {"camera.boost", Type::Button}};
+        for(const auto& [name, type] : expected)
+            if(const auto* value = input.action(name); value && value->type != type)
+                return Result<void, Error>::failure(
+                    {"Camera action has wrong type: " + std::string(name)});
+        const auto value = [&](std::string_view name) {
+            if(const auto* action = input.action(name))
+                return action->value;
+            return 0.0f;
+        };
+        const auto* look = input.action("camera.look");
         // 本帧位移可能包含按下前的移动；开始拖动时跳过，下一帧再转向。
-        if(look.down && !look.pressed) {
+        if(look && look->down && !look->pressed) {
             transform.rotation.x =
                 std::clamp(Math::wrap_degrees(transform.rotation.x)
-                               - input.cursor_delta.y * controller.look_sensitivity,
+                               - value("camera.look_y") * controller.look_sensitivity,
                     -89.0f, 89.0f);
             transform.rotation.y = Math::wrap_degrees(
-                transform.rotation.y - input.cursor_delta.x * controller.look_sensitivity);
+                transform.rotation.y - value("camera.look_x") * controller.look_sensitivity);
         }
 
-        Math::Vec3 movement{float(input.key(Key::D).down) - float(input.key(Key::A).down),
-            float(input.key(Key::E).down) - float(input.key(Key::Q).down),
-            float(input.key(Key::S).down) - float(input.key(Key::W).down)};
-        const auto stick = [](float value) {
-            const float magnitude = std::abs(value);
-            if(magnitude <= 0.15f)
-                return 0.0f;
-            return std::copysign((magnitude - 0.15f) / 0.85f, value);
-        };
-        for(const auto& pad : input.gamepads) {
-            if(!pad.connected)
-                continue;
-            using Axis = Input::GamepadAxis;
-            movement.x += stick(pad.axis(Axis::LeftX));
-            movement.z += stick(pad.axis(Axis::LeftY));
-            movement.y += pad.axis(Axis::RightTrigger) - pad.axis(Axis::LeftTrigger);
-            break;
-        }
+        const Math::Vec3 movement{
+            value("camera.move_x"), value("camera.move_y"), value("camera.move_z")};
 
         const auto rotation =
             parent_pose * Math::compose_trs(Math::Vec3(0), transform.rotation, Math::Vec3(1));
@@ -76,10 +73,10 @@ namespace Comet {
         if(Math::length(direction) > 1)
             direction = Math::normalize(direction);
         float speed = controller.move_speed;
-        if(input.key(Key::LeftShift).down)
+        if(value("camera.boost") != 0)
             speed *= 2;
         const auto world_delta = direction * speed * delta_time
-                                 + forward * input.scroll.y * controller.move_speed / 15.0f;
+                                 + forward * value("camera.zoom") * controller.move_speed / 15.0f;
         transform.translation += Math::Vec3(world_to_parent * Math::Vec4(world_delta, 0));
         if(Math::is_finite(transform.translation) && Math::is_finite(transform.rotation))
             current = transform;

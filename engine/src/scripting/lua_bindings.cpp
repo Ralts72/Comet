@@ -1,6 +1,6 @@
 #include "scripting/lua_bindings.h"
 #include "scene/scene.h"
-#include "core/input.h"
+#include "input/input_state.h"
 
 extern "C" {
 #include <lua.h>
@@ -58,7 +58,35 @@ namespace Comet::LuaBindings {
                 key = static_cast<Input::Key>(static_cast<int>(Input::Key::A) + name[0] - 'A');
             else
                 return luaL_error(state, "key_down currently accepts A-Z");
-            lua_pushboolean(state, input && input->focused && input->key(key).down);
+            lua_pushboolean(state, input && input->focused() && input->physical().key(key).down);
+            return 1;
+        }
+        const InputState::Action& action(lua_State* state, bool button) {
+            const auto* input = current(state).input;
+            const char* name = luaL_checkstring(state, 1);
+            if(!input)
+                luaL_error(state, "Input actions are only available during update/fixed_update");
+            const auto* value = input->action(name);
+            if(!value)
+                luaL_error(state, "Unknown input action: %s", name);
+            if(button && value->type != InputState::Action::Type::Button)
+                luaL_error(state, "Expected button action: %s", name);
+            return *value;
+        }
+        int action_value(lua_State* state) {
+            lua_pushnumber(state, action(state, false).value);
+            return 1;
+        }
+        int action_down(lua_State* state) {
+            lua_pushboolean(state, action(state, true).down);
+            return 1;
+        }
+        int action_pressed(lua_State* state) {
+            lua_pushboolean(state, action(state, true).pressed);
+            return 1;
+        }
+        int action_released(lua_State* state) {
+            lua_pushboolean(state, action(state, true).released);
             return 1;
         }
     }
@@ -67,7 +95,9 @@ namespace Comet::LuaBindings {
         lua_newtable(state);
         lua_pushlightuserdata(state, &context);
         const luaL_Reg api[]{{"rotate", rotate}, {"translate", translate}, {"position", position},
-            {"key_down", key_down}, {nullptr, nullptr}};
+            {"key_down", key_down}, {"action_value", action_value}, {"action_down", action_down},
+            {"action_pressed", action_pressed}, {"action_released", action_released},
+            {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);
         lua_setglobal(state, "comet");
     }

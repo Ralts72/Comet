@@ -34,16 +34,16 @@ namespace Comet::Tests {
             }
             UpdateResult fixed_update(Scene& scene, const Context& context) override {
                 calls.order.push_back("fixed " + name);
-                calls.fixed.push_back(
-                    {context.delta_time, context.total_time, context.index, context.input});
+                calls.fixed.push_back({context.delta_time, context.total_time, context.index,
+                    context.input.physical()});
                 if(fixed)
                     return fixed(scene, context);
                 return UpdateResult::success();
             }
             UpdateResult update(Scene& scene, const Context& context) override {
                 calls.order.push_back("update " + name);
-                calls.updates.push_back(
-                    {context.delta_time, context.total_time, context.index, context.input});
+                calls.updates.push_back({context.delta_time, context.total_time, context.index,
+                    context.input.physical()});
                 if(update_frame)
                     return update_frame(scene, context);
                 return UpdateResult::success();
@@ -478,6 +478,11 @@ namespace Comet::Tests {
         camera.add_component<CameraComponent>().primary = true;
         camera.add_component<CameraControllerComponent>();
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        auto actions = InputActions::create(
+            {{"camera.move_z", InputActions::Type::Axis, {{Input::Key::W, -1}}},
+                {"camera.zoom", InputActions::Type::Delta, {{InputActions::Motion::ScrollY}}}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
         ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
         ASSERT_TRUE(runtime.start(scene));
         input.key_event(Input::Key::W, true);
@@ -491,5 +496,114 @@ namespace Comet::Tests {
         advance(10);
         EXPECT_NEAR(camera.get_component<TransformComponent>().translation.z, -1.10f, 1e-6f);
         EXPECT_DOUBLE_EQ(runtime.get_timing().total_time, 0.35);
+    }
+
+    TEST_F(SceneRuntimeTest, ActionsFollowFixedConsumptionPauseAndRebindingBoundaries) {
+        auto actions =
+            InputActions::create({{"jump", InputActions::Type::Button, {{Input::Key::Space}}},
+                {"look", InputActions::Type::Delta, {{InputActions::Motion::ScrollY}}}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(actions.value()));
+        std::vector<InputState::Action> fixed;
+        std::vector<InputState::Action> updates;
+        std::vector<float> deltas;
+        auto* system = add();
+        system->fixed = [&](Scene&, const System::Context& context) {
+            fixed.push_back(*context.input.action("jump"));
+            deltas.push_back(context.input.action("look")->value);
+            return UpdateResult::success();
+        };
+        system->update_frame = [&](Scene&, const System::Context& context) {
+            updates.push_back(*context.input.action("jump"));
+            return UpdateResult::success();
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(runtime.set_input_actions(actions.value()));
+        input.key_event(Input::Key::Space, true);
+        input.key_event(Input::Key::Space, false);
+        input.scroll_event({0, 2});
+        advance(0.01);
+        EXPECT_TRUE(fixed.empty());
+        EXPECT_TRUE(updates.back().pressed);
+        advance(0.2);
+        ASSERT_EQ(fixed.size(), 2u);
+        EXPECT_TRUE(fixed[0].pressed);
+        EXPECT_TRUE(fixed[0].released);
+        EXPECT_FALSE(fixed[1].pressed);
+        EXPECT_FALSE(fixed[1].released);
+        EXPECT_EQ(deltas, (std::vector<float>{2, 0}));
+        EXPECT_FALSE(updates.back().pressed);
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        input.key_event(Input::Key::Space, true);
+        input.scroll_event({0, 10});
+        advance(0.2);
+        ASSERT_TRUE(runtime.request_step());
+        advance(0.2);
+        EXPECT_TRUE(fixed.back().down);
+        EXPECT_FALSE(fixed.back().pressed);
+        EXPECT_FLOAT_EQ(deltas.back(), 0);
+        ASSERT_TRUE(runtime.set_state(State::Running));
+        advance(0.1);
+        EXPECT_FALSE(fixed.back().pressed);
+        EXPECT_TRUE(fixed.back().down);
+        ASSERT_TRUE(runtime.advance(0.1));
+        EXPECT_TRUE(fixed.back().released);
+        EXPECT_TRUE(updates.back().released);
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(runtime.set_input_actions({}));
+    }
+
+    TEST_F(SceneRuntimeTest, ActionMappingCannotBypassGateOrReplayDeniedPendingPress) {
+        auto actions =
+            InputActions::create({{"jump", InputActions::Type::Button, {{Input::Key::Space}}}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
+        std::vector<InputState::Action> fixed;
+        std::vector<InputState::Action> updates;
+        auto* system = add();
+        system->fixed = [&](Scene&, const System::Context& context) {
+            fixed.push_back(*context.input.action("jump"));
+            return UpdateResult::success();
+        };
+        system->update_frame = [&](Scene&, const System::Context& context) {
+            updates.push_back(*context.input.action("jump"));
+            return UpdateResult::success();
+        };
+        Input::Gate gate;
+        auto routed = [&](double delta, bool enabled) {
+            const auto& frame = gate.read(input.publish_frame(), enabled);
+            ASSERT_TRUE(runtime.advance(delta, &frame));
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        routed(0, true);
+        input.key_event(Input::Key::Space, true);
+        routed(0.01, true);
+        EXPECT_TRUE(updates.back().pressed);
+        EXPECT_TRUE(fixed.empty());
+        routed(0.1, false);
+        EXPECT_FALSE(fixed.back().pressed);
+        EXPECT_FALSE(fixed.back().down);
+        EXPECT_TRUE(updates.back().released);
+        routed(0.1, true);
+        EXPECT_FALSE(fixed.back().down);
+        EXPECT_FALSE(updates.back().pressed);
+        input.key_event(Input::Key::Space, false);
+        routed(0.1, true);
+        input.key_event(Input::Key::Space, true);
+        routed(0.1, true);
+        EXPECT_TRUE(fixed.back().pressed);
+        EXPECT_TRUE(updates.back().pressed);
+        ASSERT_TRUE(runtime.stop());
+        auto replacement = InputActions::create({{"other", InputActions::Type::Button, {}}});
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(replacement).value()));
+        system->fixed = {};
+        system->update_frame = [&](Scene&, const System::Context& context) {
+            EXPECT_EQ(context.input.action("jump"), nullptr);
+            EXPECT_NE(context.input.action("other"), nullptr);
+            return UpdateResult::success();
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        routed(0, true);
     }
 }

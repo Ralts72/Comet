@@ -6,26 +6,6 @@
 #include <utility>
 
 namespace Comet {
-    namespace {
-        void block_buttons(auto& buttons, const auto& previous) {
-            for(size_t i = 0; i < buttons.size(); ++i)
-                buttons[i] = {.released = buttons[i].released || previous[i].down};
-        }
-
-        void merge_buttons(auto& buttons, const auto& previous, bool accept_press) {
-            for(size_t i = 0; i < buttons.size(); ++i) {
-                if(accept_press)
-                    buttons[i].pressed |= previous[i].pressed;
-                buttons[i].released |= previous[i].released;
-            }
-        }
-
-        void accumulate(Math::Vec2& target, const Math::Vec2 value) {
-            if(Math::is_finite(value) && Math::is_finite(target + value))
-                target += value;
-        }
-    }
-
     SceneRuntime::~SceneRuntime() {
         stop_systems();
     }
@@ -51,6 +31,13 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
+    Result<void, Error> SceneRuntime::set_input_actions(InputActions actions) {
+        if(m_executing || is_active())
+            return Result<void, Error>::failure({"Stop the scene runtime before rebinding input"});
+        m_input.configure(std::move(actions));
+        return Result<void, Error>::success();
+    }
+
     Result<void, Error> SceneRuntime::clear_systems() {
         if(m_executing || is_active())
             return Result<void, Error>::failure({"Stop the scene runtime before clearing systems"});
@@ -64,11 +51,9 @@ namespace Comet {
         m_scene = &scene;
         m_state = State::Running;
         m_step_pending = false;
-        m_rebase_input = false;
         m_timing = {};
         m_accumulator = 0;
-        m_fixed_input = {};
-        m_input_serial.reset();
+        m_input.reset();
         m_executing = true;
         ScopeExit cleanup([&] { stop_systems(); });
         while(m_started < m_systems.size()) {
@@ -87,10 +72,8 @@ namespace Comet {
         m_scene = nullptr;
         m_state = State::Running;
         m_step_pending = false;
-        m_rebase_input = false;
         m_accumulator = 0;
-        m_fixed_input = {};
-        m_input_serial.reset();
+        m_input.reset();
         m_executing = false;
     }
 
@@ -99,46 +82,6 @@ namespace Comet {
             return Result<void, Error>::failure({"Cannot stop an executing scene runtime"});
         stop_systems();
         return Result<void, Error>::success();
-    }
-
-    Input::Frame SceneRuntime::consume_input(const Input::Frame* input) {
-        Input::Frame frame;
-        if(input) {
-            frame = *input;
-            if(m_input_serial && input->serial < *m_input_serial) {
-                m_fixed_input = {};
-                m_input_serial.reset();
-            }
-            if(m_input_serial && input->serial == *m_input_serial)
-                frame.clear_transients();
-            m_input_serial = input->serial;
-        }
-        if(!frame.focused) {
-            block_buttons(frame.keys, m_fixed_input.keys);
-            block_buttons(frame.mouse_buttons, m_fixed_input.mouse_buttons);
-            frame.cursor_delta = {};
-            frame.scroll = {};
-        }
-        for(size_t i = 0; i < frame.gamepads.size(); ++i) {
-            auto& pad = frame.gamepads[i];
-            if(!frame.focused || !pad.connected) {
-                block_buttons(pad.buttons, m_fixed_input.gamepads[i].buttons);
-                pad.axes.fill(0);
-            }
-        }
-
-        auto pending = frame;
-        merge_buttons(pending.keys, m_fixed_input.keys, frame.focused);
-        merge_buttons(pending.mouse_buttons, m_fixed_input.mouse_buttons, frame.focused);
-        for(size_t i = 0; i < pending.gamepads.size(); ++i)
-            merge_buttons(pending.gamepads[i].buttons, m_fixed_input.gamepads[i].buttons,
-                frame.focused && pending.gamepads[i].connected);
-        if(frame.focused) {
-            accumulate(pending.cursor_delta, m_fixed_input.cursor_delta);
-            accumulate(pending.scroll, m_fixed_input.scroll);
-        }
-        m_fixed_input = pending;
-        return frame;
     }
 
     Result<void, Error> SceneRuntime::set_state(State state) {
@@ -150,9 +93,8 @@ namespace Comet {
             return Result<void, Error>::success();
         m_state = state;
         m_step_pending = false;
-        m_rebase_input = true;
         m_accumulator = 0;
-        m_fixed_input.clear_transients();
+        m_input.rebase();
         m_timing.fixed_steps = 0;
         m_timing.interpolation = 0;
         m_timing.dropped_time = 0;
@@ -163,7 +105,7 @@ namespace Comet {
         if(m_executing)
             return Result<void, Error>::failure({"Cannot discard input during runtime callbacks"});
         if(is_active())
-            static_cast<void>(consume_input(nullptr));
+            m_input.discard();
         return Result<void, Error>::success();
     }
 
@@ -182,13 +124,7 @@ namespace Comet {
                 {"Scene runtime delta must be finite and nonnegative"});
         if(!is_active())
             return Result<void, Error>::success();
-        auto frame_input = consume_input(input);
-        if(m_state == State::Paused || m_rebase_input) {
-            // 暂停／恢复／单步只采样当前电平，不回放边沿、鼠标位移或滚轮。
-            frame_input.clear_transients();
-            m_fixed_input = frame_input;
-            m_rebase_input = false;
-        }
+        m_input.prepare(input, m_state == State::Paused);
         const bool stepping = std::exchange(m_step_pending, false);
         m_timing.fixed_steps = 0;
         m_timing.dropped_time = 0;
@@ -212,11 +148,10 @@ namespace Comet {
             ++m_timing.fixed_steps;
             m_timing.fixed_time = m_timing.fixed_index * step;
             const System::Context context{
-                step, m_timing.fixed_time, m_timing.fixed_index, m_fixed_input};
+                step, m_timing.fixed_time, m_timing.fixed_index, m_input.consume_fixed()};
             for(auto& system : m_systems)
                 if(auto result = system->fixed_update(*m_scene, context); !result)
                     return result;
-            m_fixed_input.clear_transients();
             m_accumulator = std::max(0.0, m_accumulator - step);
         }
         const double dropped = std::floor((m_accumulator + epsilon) / step) * step;
@@ -226,7 +161,7 @@ namespace Comet {
         m_timing.total_time += delta;
         ++m_timing.frame_index;
         const System::Context context{
-            delta, m_timing.total_time, m_timing.frame_index, frame_input};
+            delta, m_timing.total_time, m_timing.frame_index, m_input.update()};
         for(auto& system : m_systems)
             if(auto result = system->update(*m_scene, context); !result)
                 return result;

@@ -42,7 +42,10 @@ set(SOURCES
         src/diagnostics/profiler.cpp
         src/diagnostics/logger.cpp
         src/core/window.cpp
-        src/core/input.cpp
+        src/input/input.cpp
+        src/input/input_actions.cpp
+        src/input/input_state.cpp
+        src/input/runtime_input.cpp
         src/core/timer.cpp
         src/core/project_paths.cpp
         src/core/project.cpp

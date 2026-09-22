@@ -3,20 +3,20 @@
 #include "scene/property.h"
 #include "common/error.h"
 #include "common/result.h"
-#include "core/input.h"
 
 #include <filesystem>
 #include <memory>
 
 namespace Comet {
     class Entity;
+    class InputState;
     // 不可变源码与字段默认值；运行实例不存入资产缓存。
     class COMET_API Script final {
     public:
         enum class Phase { Start, FixedUpdate, Update, Stop };
         struct Invocation {
             double delta_time = 0;
-            const Input::Frame* input = nullptr;
+            const InputState* input = nullptr;
         };
         class COMET_API Instance final {
         public:

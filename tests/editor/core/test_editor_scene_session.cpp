@@ -104,6 +104,10 @@ namespace CometEditor::Tests {
         std::vector<EditorMode> installed_modes;
         Comet::SceneRuntime runtime;
         ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::CameraControllerSystem>()));
+        auto actions = Comet::InputActions::create(
+            {{"camera.move_z", Comet::InputActions::Type::Axis, {{Comet::Input::Key::W, -1}}}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
 
         EditorSceneSession session(
             state, serializer, [&active_scene]() { return active_scene.get(); },

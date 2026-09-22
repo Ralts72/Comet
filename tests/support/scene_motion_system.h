@@ -27,7 +27,7 @@ namespace Comet::Tests {
         }
         Result<void, Error> update(Scene& scene, const Context& context) override {
             ++m_calls->updates;
-            m_calls->input_focused = context.input.focused;
+            m_calls->input_focused = context.input.focused();
             if(auto object = scene.find_entity(EntityId(2)))
                 object.get_component<TransformComponent>().translation.x = 0;
             if(m_calls->fail_update)

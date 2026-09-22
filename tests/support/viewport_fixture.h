@@ -42,6 +42,10 @@ namespace CometEditor::Tests {
 
         void SetUp() override {
             runtime_input.focus_event(true);
+            auto actions = Comet::InputActions::create(
+                {{"camera.move_z", Comet::InputActions::Type::Axis, {{Comet::Input::Key::W, -1}}}});
+            ASSERT_TRUE(actions);
+            ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
             ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::CameraControllerSystem>()));
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());

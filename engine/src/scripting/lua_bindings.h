@@ -1,15 +1,15 @@
 #pragma once
 
 #include "scene/entity.h"
-#include "core/input.h"
 
 struct lua_State;
 
 namespace Comet {
+    class InputState;
     namespace LuaBindings {
         struct Context {
             Entity entity;
-            const Input::Frame* input = nullptr;
+            const InputState* input = nullptr;
         };
 
         void install(lua_State* state, Context& context);

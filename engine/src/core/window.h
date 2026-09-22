@@ -3,7 +3,7 @@
 #include "common/export.h"
 #include "config/config.h"
 #include "core/math_utils.h"
-#include "core/input.h"
+#include "input/input.h"
 #include <filesystem>
 #include <memory>
 #include <string>

@@ -7,7 +7,9 @@
 | 入口 | 职责 |
 | --- | --- |
 | `core/engine.h` | 组合宿主服务，统一 SceneRuntime 的绑定、启停与主循环 |
-| `scene/scene_runtime.h` | 拥有串行 System，管理时间、固定步、输入消费、暂停与单步 |
+| `scene/scene_runtime.h` | 拥有串行 System，管理时间、固定步、暂停与单步，调用输入模块准备阶段数据 |
+| `input/runtime_input.h` | 运行域输入：序号去重、固定步累积、动作求值、暂停基线和重置 |
+| `input/input_state.h` | 同一授权／阶段的物理与动作只读快照，System／Lua 的统一消费入口 |
 | `scene/systems/script_system.h` | Lua 行为实例的启动、阶段更新、寿命复核与逆序清理；字段仍属于 Scene 组件 |
 | `render/renderer.h` | 渲染子系统组合根，编排帧、RenderView、overlay 与拾取 |
 | `render/scene/scene_extractor.h` | Scene → 不含 GPU 对象的 RenderScene 快照 |
@@ -155,6 +157,15 @@ App 交付窗口快照，Editor 交付当帧 UI Gate 结果；每帧清空授权
 隐藏离屏视图仍执行 UI、Runtime、Scene 提取和上传回收；暂时无呈现帧时只跳过 UI／提取／绘制。
 最小化等待并重置墙钟增量、窗口瞬态及 Runtime 待处理按下；Gate 根据采样中断版本重新获取授权。
 
+Project 持有 InputActions 配置；宿主启动时交给 SceneRuntime 内的 RuntimeInput，仅停止状态允许替换。
+`Window → Input::Frame → Gate → RuntimeInput → InputState → System／Lua`：
+动作不读取平台或 ImGui，不绕过授权。RuntimeInput 拥有映射、普通／固定阶段快照和待消费的物理输入；
+SceneRuntime 只调用 prepare／consume_fixed／update 及生命周期接口，不处理按钮合并或分别安装物理／动作参数。
+InputState 同时拥有该阶段的物理与动作值，只读公开，可复制保留；引用在输入 owner 下一次修改前有效。
+零固定步不丢短按，多步不重复边沿，暂停／单步同时重建两类状态的基线。
+多个绑定合为一个按钮电平，释放其中一个仍按住的动作不会产生释放；轴与位移不伪装成按钮。
+CameraControllerSystem 只约定 `camera.*` 动作语义，具体设备、按键、反向和死区属于项目配置。
+
 **运行失败：** System 更新失败逆序停止，不重试部分执行的模拟。Engine 不再提取部分写入的 Scene，
 而是完成已 acquire 的空场景帧，再交给 Application::on_runtime_error；Editor 恢复 Edit，app 默认失败退出。
 DeviceLost、空帧绘制或恢复失败仍退出。Scene 替换必须在 System 执行外，且先停止旧 Runtime。
@@ -199,7 +210,9 @@ self.parameters 及 Vec3 配置只读，支持 pairs／索引／长度；运行�
 
 源码最多 1 MiB、每 VM 的 Lua 堆最多 8 MiB、每次保护调用最多约 20 万条指令；
 不等于墙钟超时或安全沙箱。不开放文件、原生库、require、动态代码、元表和 rawset。
-动作映射、模块依赖、受控实体／材质 API 与源码热替换见路线图，不在 VM 内提前建立管理框架。
+Lua 只借用当前阶段的 InputState；原始按键和动作查询来自同一快照，不依赖 InputActions 或 RuntimeInput。
+Script::Invocation 与 LuaBindings::Context 各只传一个 input，结束调用后解除借用，不自行采集或消耗输入。
+模块依赖、受控实体／材质 API 与源码热替换见路线图，不在 VM 内提前建立管理框架。
 
 ## 渲染诊断
 

@@ -4,7 +4,7 @@
 #include "ui/editor_panel.h"
 #include "viewport/viewport_layout.h"
 #include "assets/asset_reference.h"
-#include "core/input.h"
+#include "input/input.h"
 
 #include <imgui.h>
 #include <cstdint>
