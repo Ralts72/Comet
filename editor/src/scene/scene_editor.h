@@ -5,6 +5,8 @@
 #include "asset/metadata.h"
 #include "common/error.h"
 
+#include <string>
+
 namespace CometEditor {
     class EditorAssets;
     class SelectionService;
@@ -32,6 +34,8 @@ namespace CometEditor {
 
         [[nodiscard]] bool can_edit(const Comet::Scene* scene, std::uint64_t generation) const;
         [[nodiscard]] bool execute(Comet::Scene* scene, const StructureRequest& request);
+        [[nodiscard]] bool rename_entity(Comet::Scene* scene, Comet::EntityUuid entity,
+            const std::string& name, std::uint64_t generation);
         [[nodiscard]] bool undo(Comet::Scene* scene);
         [[nodiscard]] bool redo(Comet::Scene* scene);
         [[nodiscard]] Comet::Result<void, Comet::Error> assign_asset(Comet::Scene* scene,

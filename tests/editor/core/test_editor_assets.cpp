@@ -19,6 +19,7 @@
 #include "scene/scene_runtime.h"
 #include "scene/script_component.h"
 #include "scene/systems/script_system.h"
+#include "scripting/script.h"
 #include "common/file_io.h"
 #include "asset/serialization/material_serializer.h"
 #include "support/temporary_directory.h"
@@ -114,6 +115,38 @@ namespace CometEditor::Tests {
         EXPECT_EQ(scene.entity_count(), 1);
         Comet::Scene other;
         EXPECT_FALSE(editor.execute(&other, request));
+    }
+
+    TEST_F(EditorAssetsTest, EntityRenameUsesPropertyHistoryAndRejectsStaleRequests) {
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        const auto uuid = entity.get_uuid();
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+
+        ASSERT_TRUE(editor.rename_entity(
+            &scene, uuid, "新名称" + std::string(512, 'n'), history.generation()));
+        EXPECT_EQ(history.undo_size(), 1);
+        EXPECT_EQ(
+            entity.get_component<Comet::NameComponent>().name, "新名称" + std::string(512, 'n'));
+        ASSERT_TRUE(editor.undo(&scene));
+        EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "Entity");
+        ASSERT_TRUE(editor.redo(&scene));
+        EXPECT_EQ(
+            entity.get_component<Comet::NameComponent>().name, "新名称" + std::string(512, 'n'));
+        EXPECT_FALSE(editor.rename_entity(&scene, uuid, "", history.generation()));
+        EXPECT_FALSE(editor.rename_entity(&scene, uuid, "Stale", history.generation() + 1));
+        state.mode = EditorMode::Play;
+        EXPECT_FALSE(editor.rename_entity(&scene, uuid, "Runtime", history.generation()));
+        state.mode = EditorMode::Edit;
+        scene.destroy_entity(entity);
+        EXPECT_FALSE(editor.rename_entity(&scene, uuid, "Missing", history.generation()));
+        EXPECT_EQ(history.undo_size(), 1);
     }
 
     TEST_F(EditorAssetsTest, ScriptAssignmentResetsOverridesAsOneUndoableBindingChange) {
@@ -295,6 +328,108 @@ namespace CometEditor::Tests {
         ASSERT_NE(reopened.find(handle), nullptr);
         EXPECT_EQ(reopened.find(handle)->path, "renamed.mat");
         EXPECT_EQ(Comet::MaterialSerializer{}.load(paths.assets() / "renamed.mat").value(), unlit);
+    }
+
+    TEST_F(EditorAssetsTest, CreatesModuleScriptWithStableIdentityAndLoadsIt) {
+        const auto paths = Comet::ProjectPaths(root);
+        std::filesystem::create_directory(paths.assets() / "scripts");
+        const auto report = assets->create_script("scripts/new_script.lua");
+        ASSERT_TRUE(report.snapshot_updated);
+        ASSERT_TRUE(report.succeeded());
+        const auto* record = assets->database().find("scripts/new_script.lua");
+        ASSERT_NE(record, nullptr);
+        EXPECT_EQ(record->type, Comet::AssetType::Script);
+        EXPECT_EQ(report.added_assets, std::vector{record->handle});
+        const auto source = Comet::read_text_file(paths.assets() / record->path);
+        ASSERT_TRUE(source);
+        EXPECT_NE(source.value().find("function script:update(dt)"), std::string::npos);
+        EXPECT_NE(source.value().find("return script"), std::string::npos);
+        EXPECT_EQ(Comet::MetadataSerializer{}
+                      .load(Comet::metadata_path(paths.assets() / record->path))
+                      .value()
+                      .handle,
+            record->handle);
+        ASSERT_TRUE(assets->load_reference(record->handle, Comet::AssetType::Script,
+            assets->database().get_revision(record->handle)));
+        EXPECT_TRUE(runtime.resolve<Comet::Script>(record->handle));
+        Comet::Scene scene;
+        scene.create_entity().add_component<Comet::ScriptComponent>().asset = record->handle;
+        Comet::SceneRuntime player;
+        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        ASSERT_TRUE(player.start(scene));
+        ASSERT_TRUE(player.advance(1.0 / 60.0));
+        ASSERT_TRUE(player.stop());
+        Comet::AssetDatabase reopened(paths);
+        ASSERT_TRUE(reopened.scan().succeeded());
+        ASSERT_NE(reopened.find(record->handle), nullptr);
+    }
+
+    TEST_F(EditorAssetsTest, ScriptCreationRejectsConflictsAndRollsBackOnIndexFailure) {
+        const auto paths = Comet::ProjectPaths(root);
+        ASSERT_TRUE(assets->create_script("new.lua").succeeded());
+        const auto handle = assets->database().find("new.lua")->handle;
+        const auto revision = assets->database().get_revision(handle);
+        for(const auto& path :
+            {"new.lua", "../escape.lua", "missing/new.lua", "bad.txt", ".comet-tmp-hidden.lua"}) {
+            const auto report = assets->create_script(path);
+            EXPECT_FALSE(report.snapshot_updated) << path;
+            EXPECT_FALSE(report.succeeded()) << path;
+        }
+        EXPECT_FALSE(assets->create_script(paths.assets() / "absolute.lua").snapshot_updated);
+        EXPECT_TRUE(assets->database().is_current(handle, revision));
+        std::ofstream(paths.assets() / "broken.mat.meta") << "invalid metadata";
+        std::ofstream(paths.assets() / "broken.mat") << "{}";
+        const auto failed = assets->create_script("rolled_back.lua");
+        EXPECT_FALSE(failed.snapshot_updated);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "rolled_back.lua"));
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "rolled_back.lua.meta"));
+    }
+
+    TEST_F(EditorAssetsTest, DeletingAssetMovesSourceAndIdentityToProjectTrash) {
+        const auto paths = Comet::ProjectPaths(root);
+        ASSERT_TRUE(assets->create_script("remove_me.lua").succeeded());
+        const auto handle = assets->database().find("remove_me.lua")->handle;
+        ASSERT_TRUE(assets->load_reference(
+            handle, Comet::AssetType::Script, assets->database().get_revision(handle)));
+        ASSERT_TRUE(runtime.resolve<Comet::Script>(handle));
+        const auto report = assets->remove(handle);
+        ASSERT_TRUE(report.snapshot_updated);
+        ASSERT_TRUE(report.succeeded());
+        EXPECT_EQ(report.removed_assets, std::vector{handle});
+        EXPECT_FALSE(assets->database().find(handle));
+        EXPECT_FALSE(runtime.resolve<Comet::Script>(handle));
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "remove_me.lua"));
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "remove_me.lua.meta"));
+        const auto trash = paths.local_data() / "trash";
+        const auto entry = std::filesystem::directory_iterator(trash)->path();
+        ASSERT_TRUE(std::filesystem::exists(entry / "remove_me.lua"));
+        ASSERT_TRUE(std::filesystem::exists(entry / "remove_me.lua.meta"));
+        std::filesystem::rename(entry / "remove_me.lua", paths.assets() / "remove_me.lua");
+        std::filesystem::rename(
+            entry / "remove_me.lua.meta", paths.assets() / "remove_me.lua.meta");
+        ASSERT_TRUE(assets->refresh().succeeded());
+        ASSERT_NE(assets->database().find(handle), nullptr);
+    }
+
+    TEST_F(EditorAssetsTest, DeletingAssetRejectsIndexedDependentsAndRollsBackFailedScan) {
+        const auto paths = Comet::ProjectPaths(root);
+        std::ofstream(paths.assets() / "albedo.png") << "not decoded by scan";
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto texture = assets->database().find("albedo.png")->handle;
+        Comet::MaterialData material_data{
+            .template_name = "pbr", .texture_properties = {{"base_color_texture", texture}}};
+        ASSERT_TRUE(assets->create_material("uses_albedo.mat", material_data).succeeded());
+        EXPECT_FALSE(assets->remove(texture).snapshot_updated);
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "albedo.png"));
+        ASSERT_TRUE(assets->create_script("keep.lua").succeeded());
+        const auto script = assets->database().find("keep.lua")->handle;
+        std::ofstream(paths.assets() / "broken.mat") << "{}";
+        std::ofstream(paths.assets() / "broken.mat.meta") << "invalid metadata";
+        const auto report = assets->remove(script);
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "keep.lua"));
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "keep.lua.meta"));
+        EXPECT_NE(assets->database().find(script), nullptr);
     }
 
     TEST_F(EditorAssetsTest, MaterialCreationRejectsCollisionsUnsafePathsAndInvalidData) {

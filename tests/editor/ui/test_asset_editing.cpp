@@ -161,10 +161,9 @@ namespace CometEditor::Tests {
 
         ImVec2 property_point(int index) {
             auto* window = ImGui::FindWindowByName("Inspector");
-            // 此 fixture 只注册 MeshRenderer：Entity ID、组件标题、两个引用控件。
+            // 此 fixture 只注册 MeshRenderer：组件标题、两个引用控件。
             return {window->DC.CursorStartPos.x + 50,
-                window->DC.CursorStartPos.y + ImGui::GetTextLineHeightWithSpacing()
-                    + (index + 1) * ImGui::GetFrameHeightWithSpacing()
+                window->DC.CursorStartPos.y + (index + 1) * ImGui::GetFrameHeightWithSpacing()
                     + ImGui::GetFrameHeight() * 0.5f};
         }
 
@@ -623,6 +622,49 @@ namespace CometEditor::Tests {
         EXPECT_EQ(selection.get_selected_asset(), database.find(request->destination)->handle);
         frame();
         EXPECT_FALSE(ImGui::IsPopupOpen("New Material", ImGuiPopupFlags_AnyPopupId));
+    }
+
+    TEST_F(AssetEditingUiTest, ProjectCreatesScriptThroughRequestAndSelectsCommittedAsset) {
+        project = std::make_unique<ProjectPanel>(
+            database, paths.assets(), Comet::AssetScanReport{}, selection, history);
+        frame();
+        frame();
+        auto* window = ImGui::FindWindowByName("Project");
+        ASSERT_NE(window, nullptr);
+        const auto point = ImVec2(window->WorkRect.Min.x + 20, window->WorkRect.Max.y - 20);
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(point.x, point.y);
+        frame();
+        io.AddMouseButtonEvent(1, true);
+        frame();
+        io.AddMouseButtonEvent(1, false);
+        frame();
+        frame();
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        const auto* popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        click(widget_point(popup->Name, "New Script..."));
+        frame();
+        click(widget_point("New Script", "Name"));
+        io.AddInputCharactersUTF8("generated");
+        frame();
+        click(widget_point("New Script", "Create"));
+        const auto request = project->take_create_script_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->destination, "generated.lua");
+        EXPECT_FALSE(project->take_create_script_request());
+        Comet::AssetScanReport failed;
+        failed.issues.push_back({request->destination, "Write denied"});
+        project->complete_create_script(*request, std::move(failed));
+        frame();
+        EXPECT_NE(selection.get_selected_asset(), material);
+        std::ofstream(paths.assets() / request->destination) << "return {}";
+        project->complete_create_script(*request, database.scan());
+        const auto* created = database.find(request->destination);
+        ASSERT_NE(created, nullptr);
+        EXPECT_EQ(selection.get_selected_asset(), created->handle);
+        frame();
+        EXPECT_FALSE(ImGui::IsPopupOpen("New Script", ImGuiPopupFlags_AnyPopupId));
     }
 
     TEST_F(AssetEditingUiTest, ProjectDragKeepsSelectionAndOriginalDocumentGeneration) {

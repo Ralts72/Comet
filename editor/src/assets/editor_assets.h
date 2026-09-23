@@ -27,6 +27,7 @@ namespace CometEditor {
         [[nodiscard]] Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> update();
         [[nodiscard]] Comet::AssetScanReport move(
             Comet::AssetHandle handle, const std::filesystem::path& destination);
+        [[nodiscard]] Comet::AssetScanReport remove(Comet::AssetHandle handle);
         [[nodiscard]] Comet::AssetScanReport import_files(
             std::span<const std::filesystem::path> sources, const std::filesystem::path& directory);
         [[nodiscard]] Comet::Result<void, Comet::Error> apply_texture_edit(const AssetEdit& edit);
@@ -38,6 +39,8 @@ namespace CometEditor {
             const Comet::AssetManager::MaterialUpdate& update);
         [[nodiscard]] Comet::AssetScanReport create_material(
             const std::filesystem::path& destination, const Comet::MaterialData& data);
+        [[nodiscard]] Comet::AssetScanReport create_script(
+            const std::filesystem::path& destination);
         [[nodiscard]] Comet::Result<void, Comet::Error> load_reference(
             Comet::AssetHandle handle, Comet::AssetType type, Comet::AssetRevision revision);
         [[nodiscard]] Comet::Result<std::size_t, Comet::Error> prepare_scene(

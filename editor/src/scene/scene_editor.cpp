@@ -72,6 +72,13 @@ namespace CometEditor {
         return false;
     }
 
+    bool SceneEditor::rename_entity(Comet::Scene* scene, Comet::EntityUuid uuid,
+        const std::string& name, std::uint64_t generation) {
+        if(!can_edit(scene, generation) || name.empty() || !scene->find_entity(uuid))
+            return false;
+        return m_edit.apply({uuid, "name", "name"}, name);
+    }
+
     bool SceneEditor::undo(Comet::Scene* scene) {
         return can_edit(scene, m_history.generation()) && m_edit.commit() && m_history.undo();
     }

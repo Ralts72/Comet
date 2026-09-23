@@ -40,21 +40,15 @@ namespace CometEditor::Tests {
         MenuBar menu{state, history, shortcuts};
         std::unique_ptr<InspectorPanel> inspector;
         ImVec2 drag_point{};
-        ImVec2 name_point{};
+        ImVec2 text_point{};
         float inspector_width = 700;
         bool draw_trailing_item = false;
+        bool show_text_input = false;
+        char text_buffer[32]{};
 
         void SetUp() override {
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
-            ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::String,
-                [this, builtin = create_property_editor_registry(assets)](
-                    const Comet::PropertyDescriptor& property, void* value) {
-                    const auto result = builtin.edit_property(property, value);
-                    const auto start = ImGui::GetItemRectMin();
-                    name_point = ImVec2(start.x + 20, start.y + 8);
-                    return result;
-                }));
             ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::Vec3,
                 [this, builtin = create_property_editor_registry(assets)](
                     const Comet::PropertyDescriptor& property, void* value) {
@@ -80,26 +74,26 @@ namespace CometEditor::Tests {
             ImGui::SetNextWindowPos(ImVec2(20, 40));
             ImGui::SetNextWindowSize(ImVec2(inspector_width, 500));
             inspector->render();
+            if(show_text_input) {
+                ImGui::Begin("Text input");
+                ImGui::InputText("##Text", text_buffer, sizeof(text_buffer));
+                const auto start = ImGui::GetItemRectMin();
+                text_point = ImVec2(start.x + 20, start.y + 8);
+                ImGui::End();
+            }
             menu.collect_shortcuts();
             ImGui::Render();
         }
         float x() { return entity.get_component<Comet::TransformComponent>().translation.x; }
-        void type_name(const std::string& text) {
+        void focus_text_input() {
+            show_text_input = true;
+            frame();
             auto& io = ImGui::GetIO();
-            io.AddMousePosEvent(name_point.x, name_point.y);
+            io.AddMousePosEvent(text_point.x, text_point.y);
             frame();
             io.AddMouseButtonEvent(0, true);
             frame();
             io.AddMouseButtonEvent(0, false);
-            frame();
-            const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
-            io.AddKeyEvent(modifier, true);
-            io.AddKeyEvent(ImGuiKey_A, true);
-            frame();
-            io.AddKeyEvent(ImGuiKey_A, false);
-            io.AddKeyEvent(modifier, false);
-            frame();
-            io.AddInputCharactersUTF8(text.c_str());
             frame();
         }
         void drag() {
@@ -422,6 +416,63 @@ namespace CometEditor::Tests {
         EXPECT_EQ(scene.entity_count(), 1);
     }
 
+    TEST_F(HierarchyUiTest, RenameIsRequestedFromContextMenuOnlyAfterConfirmation) {
+        auto* window = ImGui::FindWindowByName("Hierarchy");
+        ASSERT_NE(window, nullptr);
+        auto& io = ImGui::GetIO();
+        const ImVec2 entity_point(window->WorkRect.Min.x + 70,
+            window->DC.CursorPosPrevLine.y + ImGui::GetTextLineHeight() * 0.5f);
+        const auto open_rename = [&] {
+            io.AddMousePosEvent(entity_point.x, entity_point.y);
+            draw();
+            io.AddMouseButtonEvent(1, true);
+            draw();
+            io.AddMouseButtonEvent(1, false);
+            draw();
+            draw();
+            auto& context = *ImGui::GetCurrentContext();
+            ASSERT_EQ(context.OpenPopupStack.Size, 1);
+            auto* popup = context.OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID("Rename"));
+            draw();
+            draw();
+        };
+
+        open_rename();
+        auto* dialog = ImGui::FindWindowByName("Rename Entity");
+        ASSERT_NE(dialog, nullptr);
+        ImGui::ActivateItemByID(dialog->GetID("Cancel"));
+        draw();
+        EXPECT_FALSE(hierarchy.take_rename_request());
+        EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "Entity");
+
+        open_rename();
+        dialog = ImGui::FindWindowByName("Rename Entity");
+        ASSERT_NE(dialog, nullptr);
+        const auto text = "新名称" + std::string(512, 'n');
+        ImGui::ActivateItemByID(dialog->GetID("Name"));
+        draw();
+        const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+        io.AddKeyEvent(modifier, true);
+        io.AddKeyEvent(ImGuiKey_A, true);
+        draw();
+        io.AddKeyEvent(ImGuiKey_A, false);
+        io.AddKeyEvent(modifier, false);
+        draw();
+        io.AddInputCharactersUTF8(text.c_str());
+        draw();
+        EXPECT_FALSE(hierarchy.take_rename_request());
+        io.AddKeyEvent(ImGuiKey_Enter, true);
+        draw();
+        auto request = hierarchy.take_rename_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->entity, entity.get_uuid());
+        EXPECT_EQ(request->name, text);
+        EXPECT_EQ(request->generation, history.generation());
+        EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "Entity");
+    }
+
     TEST_F(EditingUiTest, AddComponentMenuUsesHistoryAndIsDisabledInPlay) {
         auto* window = ImGui::FindWindowByName("Inspector");
         ASSERT_NE(window, nullptr);
@@ -531,6 +582,18 @@ namespace CometEditor::Tests {
         EXPECT_FLOAT_EQ(x(), 0);
     }
 
+    TEST_F(EditingUiTest, EntityNameIsNotEditedInInspector) {
+        bool string_editor_called = false;
+        ASSERT_TRUE(widgets.register_editor(
+            Comet::PropertyType::String, [&](const Comet::PropertyDescriptor&, void*) {
+                string_editor_called = true;
+                return PropertyEditResult{};
+            }));
+        frame();
+        EXPECT_FALSE(string_editor_called);
+        EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "Entity");
+    }
+
     TEST_F(EditingUiTest, MissingHistoryIsNotTreatedAsPlayMode) {
         history.bind_scene(nullptr);
         drag();
@@ -569,38 +632,6 @@ namespace CometEditor::Tests {
         click({popup->DC.CursorStartPos.x + 30,
             popup->DC.CursorStartPos.y + ImGui::GetTextLineHeight() * 0.5f});
         EXPECT_TRUE(inspector->is_open());
-    }
-
-    TEST_F(EditingUiTest, NameInputCommitsOneRecordWithoutTruncatingUtf8) {
-        const std::string name = "新名称" + std::string(512, 'n');
-        type_name(name);
-        EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, name);
-        EXPECT_FALSE(history.can_undo());
-        ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, true);
-        frame();
-        EXPECT_EQ(history.undo_size(), 1);
-        ASSERT_TRUE(history.undo());
-        EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "Entity");
-        ASSERT_TRUE(history.redo());
-        EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, name);
-    }
-
-    TEST_F(EditingUiTest, EscapeRestoresNameAndPlayDoesNotRecordNameChanges) {
-        type_name("Cancelled");
-        ASSERT_EQ(entity.get_component<Comet::NameComponent>().name, "Cancelled");
-        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, true);
-        frame();
-        EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "Entity");
-        EXPECT_FALSE(history.can_undo());
-        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
-        frame();
-        history.bind_scene(nullptr);
-        state.mode = EditorMode::Play;
-        type_name("Runtime");
-        EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "Runtime");
-        ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, true);
-        frame();
-        EXPECT_FALSE(history.can_undo());
     }
 
     TEST_F(EditingUiTest, EscapeRestoresGestureWithoutRecordingOrReactivation) {
@@ -708,7 +739,7 @@ namespace CometEditor::Tests {
         io.AddKeyEvent(modifier, false);
         state.mode = EditorMode::Edit;
         frame();
-        type_name("Editing");
+        focus_text_input();
         io.AddKeyEvent(modifier, true);
         io.AddKeyEvent(ImGuiMod_Shift, true);
         io.AddKeyEvent(ImGuiKey_S, true);

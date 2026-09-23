@@ -30,11 +30,21 @@ namespace CometEditor {
     void HierarchyPanel::set_scene(Comet::Scene& scene) {
         m_scene = &scene;
         m_request.reset();
+        m_rename_request.reset();
+        m_renaming_entity = {};
+        m_open_rename = false;
         m_expand_entity = {};
     }
 
     std::optional<HierarchyPanel::Request> HierarchyPanel::take_request() {
         auto request = std::exchange(m_request, std::nullopt);
+        if(!can_edit_scene() || (request && request->generation != m_history.generation()))
+            return std::nullopt;
+        return request;
+    }
+
+    std::optional<HierarchyPanel::RenameRequest> HierarchyPanel::take_rename_request() {
+        auto request = std::exchange(m_rename_request, std::nullopt);
         if(!can_edit_scene() || (request && request->generation != m_history.generation()))
             return std::nullopt;
         return request;
@@ -110,6 +120,12 @@ namespace CometEditor {
         }
         if(entity) {
             ImGui::Separator();
+            if(ImGui::MenuItem(Ui::label("Rename").c_str())) {
+                m_renaming_entity = entity.get_uuid();
+                m_rename_generation = m_history.generation();
+                m_rename_name = entity.get_component<Comet::NameComponent>().name;
+                m_open_rename = true;
+            }
             if(ImGui::MenuItem(Ui::label("Duplicate").c_str()))
                 m_request = Request{
                     Request::Type::Duplicate, entity.get_uuid(), {}, m_history.generation()};
@@ -118,6 +134,54 @@ namespace CometEditor {
                     Request{Request::Type::Delete, entity.get_uuid(), {}, m_history.generation()};
         }
         ImGui::EndDisabled();
+    }
+
+    void HierarchyPanel::render_rename_dialog() {
+        constexpr const char* title = "Rename Entity";
+        const bool opening = std::exchange(m_open_rename, false);
+        if(opening)
+            ImGui::OpenPopup(title);
+        if(!ImGui::BeginPopupModal(
+               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            return;
+
+        const bool valid = can_edit_scene() && m_rename_generation == m_history.generation()
+                           && m_scene->find_entity(m_renaming_entity);
+        if(!valid) {
+            ImGui::CloseCurrentPopup();
+            m_renaming_entity = {};
+            ImGui::EndPopup();
+            return;
+        }
+
+        if(opening)
+            ImGui::SetKeyboardFocusHere();
+        ImGui::SetNextItemWidth(360.0f);
+        const bool submitted = ImGui::InputText(
+            Ui::label("Name").c_str(), m_rename_name.data(), m_rename_name.capacity() + 1,
+            ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_EnterReturnsTrue
+                | ImGuiInputTextFlags_AutoSelectAll,
+            [](ImGuiInputTextCallbackData* data) {
+                auto& name = *static_cast<std::string*>(data->UserData);
+                name.resize(static_cast<std::size_t>(data->BufTextLen));
+                data->Buf = name.data();
+                return 0;
+            },
+            &m_rename_name);
+        if(ImGui::Button(Ui::label("Rename").c_str()) || submitted) {
+            if(!m_rename_name.empty()) {
+                m_rename_request =
+                    RenameRequest{m_renaming_entity, m_rename_name, m_rename_generation};
+                ImGui::CloseCurrentPopup();
+                m_renaming_entity = {};
+            }
+        }
+        ImGui::SameLine();
+        if(ImGui::Button(Ui::label("Cancel").c_str())) {
+            ImGui::CloseCurrentPopup();
+            m_renaming_entity = {};
+        }
+        ImGui::EndPopup();
     }
 
     void HierarchyPanel::render() {
@@ -153,6 +217,8 @@ namespace CometEditor {
             render_context_menu({});
             ImGui::EndPopup();
         }
+
+        render_rename_dialog();
 
         ImGui::End();
     }

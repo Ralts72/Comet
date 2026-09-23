@@ -70,8 +70,6 @@ namespace CometEditor {
     }
 
     void InspectorPanel::render_entity(Comet::Entity entity) {
-        ImGui::Text(Ui::text("Entity ID: %llu"), static_cast<unsigned long long>(entity.get_id()));
-
         bool active_property_visible = false;
         const bool edit_structure =
             m_state.mode == EditorMode::Edit && m_history.get_scene()
@@ -84,12 +82,14 @@ namespace CometEditor {
             }
 
             ImGui::PushID(component_descriptor.id.c_str());
-            const bool is_name = component_descriptor.id == "name";
-            const bool expanded = is_name
-                                  || ImGui::CollapsingHeader(
-                                      Ui::label(component_descriptor.display_name.c_str()).c_str(),
-                                      ImGuiTreeNodeFlags_DefaultOpen);
-            if(!is_name && ImGui::BeginPopupContextItem("Component actions")) {
+            if(component_descriptor.id == "name") {
+                ImGui::PopID();
+                continue;
+            }
+            const bool expanded = ImGui::CollapsingHeader(
+                Ui::label(component_descriptor.display_name.c_str()).c_str(),
+                ImGuiTreeNodeFlags_DefaultOpen);
+            if(ImGui::BeginPopupContextItem("Component actions")) {
                 if(ImGui::MenuItem(Ui::label("Remove Component").c_str(), nullptr, false,
                        edit_structure
                            && SceneCommands::can_edit_component_structure(component_descriptor)))
@@ -110,9 +110,6 @@ namespace CometEditor {
                 }
             }
             ImGui::PopID();
-            if(is_name) {
-                ImGui::Separator();
-            }
         }
         if(!active_property_visible && !m_property_edit.commit()) {
             LOG_ERROR("Cannot finish hidden property edit");

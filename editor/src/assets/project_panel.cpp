@@ -73,6 +73,8 @@ namespace CometEditor {
                     m_reimport_request = asset.handle;
                 if(ImGui::MenuItem(Ui::label("Rename").c_str()))
                     request_rename(asset);
+                if(ImGui::MenuItem(Ui::label("Delete").c_str()))
+                    request_delete(asset);
                 if(ImGui::MenuItem(Ui::label("Refresh").c_str()))
                     m_refresh_requested = true;
                 ImGui::EndPopup();
@@ -137,13 +139,17 @@ namespace CometEditor {
             if(ImGui::MenuItem(Ui::label("New Material...").c_str(), nullptr, false,
                    !m_material_layouts.empty()))
                 request_create_material({});
+            if(ImGui::MenuItem(Ui::label("New Script...").c_str()))
+                request_create_script({});
             if(ImGui::MenuItem(Ui::label("Refresh").c_str()))
                 m_refresh_requested = true;
             ImGui::EndPopup();
         }
 
         render_rename_dialog();
+        render_delete_dialog();
         render_create_material_dialog();
+        render_create_script_dialog();
         if(!m_renaming_asset && !m_operation_error.empty()) {
             ImGui::TextWrapped("%s", m_operation_error.c_str());
         }
@@ -162,6 +168,8 @@ namespace CometEditor {
             if(ImGui::MenuItem(Ui::label("New Material...").c_str(), nullptr, false,
                    !m_material_layouts.empty()))
                 request_create_material(directory);
+            if(ImGui::MenuItem(Ui::label("New Script...").c_str()))
+                request_create_script(directory);
             ImGui::EndPopup();
         }
     }
@@ -175,6 +183,14 @@ namespace CometEditor {
         m_operation_error.clear();
         m_close_create = false;
         m_create_requested = true;
+    }
+
+    void ProjectPanel::request_create_script(const std::filesystem::path& directory) {
+        m_create_directory = directory;
+        m_script_name.fill('\0');
+        m_operation_error.clear();
+        m_close_create_script = false;
+        m_create_script_requested = true;
     }
 
     void ProjectPanel::render_create_material_dialog() {
@@ -244,20 +260,80 @@ namespace CometEditor {
         return std::exchange(m_pending_create, std::nullopt);
     }
 
+    void ProjectPanel::render_create_script_dialog() {
+        constexpr const char* title = "New Script";
+        const bool opening = std::exchange(m_create_script_requested, false);
+        if(opening)
+            ImGui::OpenPopup(title);
+        if(!ImGui::BeginPopupModal(
+               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            return;
+        if(std::exchange(m_close_create_script, false)) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+        ImGui::Text(Ui::text("Directory: assets/%s"), m_create_directory.generic_string().c_str());
+        if(opening)
+            ImGui::SetKeyboardFocusHere();
+        ImGui::SetNextItemWidth(320.0f);
+        const bool submitted = ImGui::InputText(Ui::label("Name").c_str(), m_script_name.data(),
+            m_script_name.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        ImGui::TextUnformatted(".lua");
+        if(ImGui::Button(Ui::label("Create").c_str()) || submitted) {
+            std::string name(m_script_name.data());
+            if(name.empty() || name == "." || name == ".."
+                || name.find_first_of("/\\:") != std::string::npos)
+                m_operation_error = "Enter a file name, not a path";
+            else {
+                if(!name.ends_with(".lua"))
+                    name += ".lua";
+                m_pending_script_create = CreateScriptRequest{m_create_directory / name};
+                m_operation_error.clear();
+            }
+        }
+        ImGui::SameLine();
+        if(ImGui::Button(Ui::label("Cancel").c_str())) {
+            ImGui::CloseCurrentPopup();
+            m_operation_error.clear();
+        }
+        if(!m_operation_error.empty())
+            ImGui::TextWrapped("%s", m_operation_error.c_str());
+        ImGui::EndPopup();
+    }
+
+    std::optional<ProjectPanel::CreateScriptRequest> ProjectPanel::take_create_script_request() {
+        return std::exchange(m_pending_script_create, std::nullopt);
+    }
+
     void ProjectPanel::complete_create_material(
         const CreateMaterialRequest& request, Comet::AssetScanReport report) {
+        complete_create_asset(request.destination, std::move(report), false);
+    }
+
+    void ProjectPanel::complete_create_script(
+        const CreateScriptRequest& request, Comet::AssetScanReport report) {
+        complete_create_asset(request.destination, std::move(report), true);
+    }
+
+    void ProjectPanel::complete_create_asset(const std::filesystem::path& destination,
+        Comet::AssetScanReport report, const bool script) {
         m_operation_error.clear();
         const bool committed = report.snapshot_updated;
         if(!committed) {
-            m_operation_error = "Material could not be created";
+            m_operation_error = "Asset could not be created";
             if(!report.issues.empty())
                 m_operation_error = report.issues.front().message;
         }
         update_scan_report(std::move(report));
         if(committed) {
-            if(const auto* record = m_database.find(request.destination))
+            if(const auto* record = m_database.find(destination))
                 m_selection.select_asset(record->handle);
-            m_close_create = true;
+            if(script)
+                m_close_create_script = true;
+            else
+                m_close_create = true;
         }
     }
 
@@ -271,6 +347,15 @@ namespace CometEditor {
 
     std::optional<ProjectPanel::MoveRequest> ProjectPanel::take_move_request() {
         auto request = std::exchange(m_pending_move, std::nullopt);
+        if(request && !m_database.is_current(request->handle, request->revision)) {
+            m_operation_error = "Asset changed while editing; please try again";
+            return std::nullopt;
+        }
+        return request;
+    }
+
+    std::optional<ProjectPanel::DeleteRequest> ProjectPanel::take_delete_request() {
+        auto request = std::exchange(m_pending_delete, std::nullopt);
         if(request && !m_database.is_current(request->handle, request->revision)) {
             m_operation_error = "Asset changed while editing; please try again";
             return std::nullopt;
@@ -332,6 +417,65 @@ namespace CometEditor {
         update_scan_report(std::move(report));
         if(committed && m_renaming_asset == request.handle)
             m_close_rename = true;
+    }
+
+    void ProjectPanel::complete_delete(
+        const DeleteRequest& request, Comet::AssetScanReport report) {
+        m_operation_error.clear();
+        const bool committed = report.snapshot_updated;
+        if(!committed) {
+            m_operation_error = "Asset could not be deleted";
+            if(!report.issues.empty())
+                m_operation_error = report.issues.front().message;
+        }
+        update_scan_report(std::move(report));
+        if(committed && m_deleting_asset == request.handle)
+            m_close_delete = true;
+    }
+
+    void ProjectPanel::request_delete(const Comet::AssetRecord& record) {
+        m_deleting_asset = record.handle;
+        m_delete_requested = true;
+        m_close_delete = false;
+        m_operation_error.clear();
+    }
+
+    void ProjectPanel::render_delete_dialog() {
+        constexpr const char* title = "Delete Asset";
+        if(std::exchange(m_delete_requested, false))
+            ImGui::OpenPopup(title);
+        if(!ImGui::BeginPopupModal(
+               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            return;
+        if(std::exchange(m_close_delete, false)) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            m_deleting_asset = {};
+            return;
+        }
+        const auto* record = m_database.find(m_deleting_asset);
+        if(record)
+            ImGui::TextWrapped(Ui::text("Move assets/%s to project trash?"),
+                record->path.generic_string().c_str());
+        else
+            ImGui::TextDisabled("%s", Ui::text("Asset is no longer available"));
+        ImGui::TextDisabled("%s", Ui::text("Scene references will not be cleared."));
+        ImGui::BeginDisabled(!record);
+        if(ImGui::Button(Ui::label("Move to Trash").c_str())) {
+            m_pending_delete =
+                DeleteRequest{m_deleting_asset, m_database.get_revision(m_deleting_asset)};
+            m_operation_error.clear();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if(ImGui::Button(Ui::label("Cancel").c_str())) {
+            ImGui::CloseCurrentPopup();
+            m_deleting_asset = {};
+            m_operation_error.clear();
+        }
+        if(!m_operation_error.empty())
+            ImGui::TextWrapped("%s", m_operation_error.c_str());
+        ImGui::EndPopup();
     }
 
     void ProjectPanel::request_rename(const Comet::AssetRecord& record) {

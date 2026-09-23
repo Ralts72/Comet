@@ -10,12 +10,14 @@
 #include "asset/import/environment_importer.h"
 #include "scripting/script.h"
 #include "audio/audio.h"
+#include "diagnostics/logger.h"
 #include <fastgltf/core.hpp>
 
 #include <algorithm>
 #include <cctype>
 #include <map>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <type_traits>
 #include <utility>
@@ -388,103 +390,245 @@ namespace Comet::AssetSourceOperations {
         return report;
     }
 
+    namespace {
+        AssetScanReport create_text_asset(AssetDatabase& database, const ProjectPaths& paths,
+            const std::filesystem::path& destination, const std::string_view contents,
+            const AssetType type, const std::string_view extension, const std::string_view name) {
+            if(!is_safe_destination(destination) || extension_of(destination) != extension)
+                return operation_error(destination, std::string(name)
+                                                        + " destination must be a relative "
+                                                        + std::string(extension) + " path");
+            if(auto valid = validate_relative(destination); !valid)
+                return operation_error(destination, valid.error());
+            std::error_code error;
+            const auto root = std::filesystem::canonical(paths.assets(), error);
+            if(error)
+                return operation_error(
+                    destination, "Cannot resolve assets directory: " + error.message());
+            const auto target = root / destination;
+            const auto meta = metadata_path(target);
+            if(auto valid = validate_inside(root, target); !valid)
+                return operation_error(destination, valid.error());
+            if(!std::filesystem::is_directory(target.parent_path(), error))
+                return operation_error(
+                    destination, std::string(name) + " directory does not exist");
+            for(const auto& path : {target, meta})
+                if(auto valid = validate_available(path); !valid)
+                    return operation_error(destination, valid.error());
+
+            const auto handle = AssetHandle::generate();
+            std::string staging_name(name);
+            std::ranges::transform(staging_name, staging_name.begin(),
+                [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+            const auto staging_parent = paths.cache() / (staging_name + "-create");
+            std::filesystem::create_directories(staging_parent, error);
+            if(error)
+                return operation_error(
+                    destination, "Cannot create staging directory: " + error.message());
+            const auto staging = staging_parent / std::to_string(handle.value());
+            if(!std::filesystem::create_directory(staging, error))
+                return operation_error(
+                    destination, "Cannot reserve " + staging_name + " staging directory");
+
+            AssetScanReport report;
+            bool source_published = false;
+            bool metadata_published = false;
+            bool committed = false;
+            const auto cleanup = [&] {
+                const auto remove = [&](const std::filesystem::path& path) {
+                    std::error_code failure;
+                    std::filesystem::remove(path, failure);
+                    if(failure)
+                        report.issues.push_back(
+                            {path, std::string(name) + " rollback failed: " + failure.message()});
+                };
+                if(!committed) {
+                    if(source_published)
+                        remove(target);
+                    if(metadata_published)
+                        remove(meta);
+                }
+                std::error_code failure;
+                std::filesystem::remove_all(staging, failure);
+                if(failure)
+                    report.issues.push_back(
+                        {staging, "Staging cleanup failed: " + failure.message()});
+            };
+            ScopeExit cleanup_on_exit(cleanup);
+            const auto publish = [&]() -> Result<void> {
+                const auto staged_source = staging / ("asset" + std::string(extension));
+                const auto staged_metadata = metadata_path(staged_source);
+                if(auto saved = write_text_file_atomic(staged_source, contents); !saved)
+                    return saved;
+                if(auto saved = MetadataSerializer{}.save(
+                       {.handle = handle,
+                           .type = type,
+                           .import_settings = make_default_import_settings(type)},
+                       staged_metadata);
+                    !saved)
+                    return saved;
+                // 只发布本次创建的文件，不覆盖并发创建的目标。
+                std::filesystem::create_hard_link(staged_metadata, meta, error);
+                if(error)
+                    return Result<void>::failure(
+                        "Cannot publish " + staging_name + " metadata: " + error.message());
+                metadata_published = true;
+                std::filesystem::create_hard_link(staged_source, target, error);
+                if(error)
+                    return Result<void>::failure(
+                        "Cannot publish " + staging_name + ": " + error.message());
+                source_published = true;
+                AssetDatabase candidate = database;
+                report = candidate.scan();
+                const auto* record = candidate.find(handle);
+                if(!report.snapshot_updated || !report.succeeded() || !record
+                    || record->path != destination.lexically_normal() || record->type != type)
+                    return Result<void>::failure(
+                        std::string(name) + " could not be indexed; creation rolled back");
+                database = std::move(candidate);
+                committed = true;
+                return Result<void>::success();
+            };
+            if(auto published = publish(); !published) {
+                report = operation_error(destination, published.error());
+                report.indexed_assets = database.size();
+            }
+            cleanup();
+            cleanup_on_exit.release();
+            return report;
+        }
+    }
+
     AssetScanReport create_material(AssetDatabase& database, const ProjectPaths& paths,
         const std::filesystem::path& destination, const MaterialData& data) {
-        if(!is_safe_destination(destination) || extension_of(destination) != ".mat")
-            return operation_error(
-                destination, "Material destination must be a relative .mat path");
-        if(auto valid = validate_relative(destination); !valid)
-            return operation_error(destination, valid.error());
         auto serialized = MaterialSerializer{}.serialize(data);
         if(!serialized)
             return operation_error(destination, serialized.error());
-        std::error_code error;
-        const auto root = std::filesystem::canonical(paths.assets(), error);
-        if(error)
-            return operation_error(
-                destination, "Cannot resolve assets directory: " + error.message());
-        const auto target = root / destination;
-        const auto meta = metadata_path(target);
-        if(auto valid = validate_inside(root, target); !valid)
-            return operation_error(destination, valid.error());
-        if(!std::filesystem::is_directory(target.parent_path(), error))
-            return operation_error(destination, "Material directory does not exist");
-        for(const auto& path : {target, meta})
-            if(auto valid = validate_available(path); !valid)
-                return operation_error(destination, valid.error());
+        return create_text_asset(database, paths, destination, serialized.value(),
+            AssetType::Material, ".mat", "Material");
+    }
 
-        const auto handle = AssetHandle::generate();
-        const auto staging_parent = paths.cache() / "material-create";
-        std::filesystem::create_directories(staging_parent, error);
+    AssetScanReport create_script(AssetDatabase& database, const ProjectPaths& paths,
+        const std::filesystem::path& destination) {
+        constexpr std::string_view source = R"(local script = {}
+
+function script:update(dt)
+end
+
+return script
+)";
+        if(auto valid = Script::create(std::string(source), destination.generic_string()); !valid)
+            return operation_error(destination, valid.error().message);
+        return create_text_asset(
+            database, paths, destination, source, AssetType::Script, ".lua", "Script");
+    }
+
+    AssetScanReport remove_asset(
+        AssetDatabase& database, const ProjectPaths& paths, const AssetHandle handle) {
+        const auto* indexed = database.find(handle);
+        if(!indexed)
+            return operation_error({}, "Asset is not indexed");
+        const AssetRecord record = *indexed;
+        if(!database.get_dependents(handle).empty())
+            return operation_error(record.path, "Asset is referenced by another indexed asset");
+        if(!is_safe_destination(record.path))
+            return operation_error(record.path, "Asset path is not a safe relative path");
+
+        const auto source = paths.assets() / record.path;
+        const auto metadata_file = metadata_path(source);
+        const auto metadata = MetadataSerializer{}.load(metadata_file);
+        if(!metadata || metadata.value().handle != handle || metadata.value().type != record.type)
+            return operation_error(
+                record.path, "Asset metadata does not match its indexed identity");
+
+        std::error_code error;
+        const auto project_root = std::filesystem::canonical(paths.root(), error);
+        if(error)
+            return operation_error(record.path, "Cannot resolve project root: " + error.message());
+        const auto assets_root = std::filesystem::canonical(paths.assets(), error);
         if(error)
             return operation_error(
-                destination, "Cannot create staging directory: " + error.message());
-        const auto staging = staging_parent / std::to_string(handle.value());
-        if(!std::filesystem::create_directory(staging, error))
-            return operation_error(destination, "Cannot reserve material staging directory");
+                record.path, "Cannot resolve assets directory: " + error.message());
+        for(const auto& path : {source, metadata_file}) {
+            if(auto valid = validate_inside(assets_root, path); !valid)
+                return operation_error(record.path, valid.error());
+            const auto status = std::filesystem::symlink_status(path, error);
+            if(error || !std::filesystem::is_regular_file(status))
+                return operation_error(
+                    record.path, "Asset source and metadata must be regular files");
+        }
+
+        const auto trash_root = paths.local_data() / "trash";
+        if(auto valid = validate_inside(project_root, trash_root); !valid)
+            return operation_error(record.path, valid.error());
+        std::filesystem::create_directories(trash_root, error);
+        if(error)
+            return operation_error(record.path, "Cannot create project trash: " + error.message());
+        const auto trash_entry = trash_root / std::to_string(AssetHandle::generate().value());
+        if(!std::filesystem::create_directory(trash_entry, error))
+            return operation_error(record.path, "Cannot reserve project trash entry");
+        const auto trashed_source = trash_entry / record.path;
+        const auto trashed_metadata = metadata_path(trashed_source);
 
         AssetScanReport report;
-        bool source_published = false;
-        bool metadata_published = false;
-        bool committed = false;
-        const auto cleanup = [&] {
-            const auto remove = [&](const std::filesystem::path& path) {
-                std::error_code failure;
-                std::filesystem::remove(path, failure);
-                if(failure)
-                    report.issues.push_back(
-                        {path, "Material rollback failed: " + failure.message()});
-            };
-            if(!committed) {
-                if(source_published)
-                    remove(target);
-                if(metadata_published)
-                    remove(meta);
+        bool source_moved = false;
+        bool metadata_moved = false;
+        std::error_code source_restore_error;
+        std::error_code metadata_restore_error;
+        const auto rollback = [&] {
+            if(metadata_moved)
+                std::filesystem::rename(trashed_metadata, metadata_file, metadata_restore_error);
+            if(source_moved)
+                std::filesystem::rename(trashed_source, source, source_restore_error);
+            if(!source_restore_error && !metadata_restore_error) {
+                std::error_code cleanup_error;
+                std::filesystem::remove_all(trash_entry, cleanup_error);
+                if(cleanup_error)
+                    report.issues.push_back({trash_entry,
+                        "Cannot clean project trash entry: " + cleanup_error.message()});
             }
-            std::error_code failure;
-            std::filesystem::remove_all(staging, failure);
-            if(failure)
-                report.issues.push_back({staging, "Staging cleanup failed: " + failure.message()});
         };
-        ScopeExit cleanup_on_exit(cleanup);
-        const auto publish = [&]() -> Result<void> {
-            if(auto saved = write_text_file_atomic(staging / "material.mat", serialized.value());
-                !saved)
-                return saved;
-            if(auto saved = MetadataSerializer{}.save(
-                   {.handle = handle,
-                       .type = AssetType::Material,
-                       .import_settings = make_default_import_settings(AssetType::Material)},
-                   staging / "material.mat.meta");
-                !saved)
-                return saved;
-            // 只发布本次创建的文件，不覆盖并发创建的目标。
-            std::filesystem::create_hard_link(staging / "material.mat.meta", meta, error);
+        ScopeExit rollback_on_exit(rollback);
+        AssetDatabase candidate = database;
+        const auto remove = [&]() -> Result<void> {
+            std::filesystem::create_directories(trashed_source.parent_path(), error);
+            if(error)
+                return Result<void>::failure("Cannot prepare project trash: " + error.message());
+            std::filesystem::rename(source, trashed_source, error);
             if(error)
                 return Result<void>::failure(
-                    "Cannot publish material metadata: " + error.message());
-            metadata_published = true;
-            std::filesystem::create_hard_link(staging / "material.mat", target, error);
+                    "Cannot move asset to project trash: " + error.message());
+            source_moved = true;
+            std::filesystem::rename(metadata_file, trashed_metadata, error);
             if(error)
-                return Result<void>::failure("Cannot publish material: " + error.message());
-            source_published = true;
-            AssetDatabase candidate = database;
+                return Result<void>::failure(
+                    "Cannot move asset metadata to project trash: " + error.message());
+            metadata_moved = true;
             report = candidate.scan();
-            const auto* record = candidate.find(handle);
-            if(!report.snapshot_updated || !report.succeeded() || !record
-                || record->path != destination.lexically_normal()
-                || record->type != AssetType::Material)
-                return Result<void>::failure("Material could not be indexed; creation rolled back");
-            database = std::move(candidate);
-            committed = true;
+            if(!report.snapshot_updated || !report.succeeded() || candidate.find(handle)
+                || std::ranges::find(report.removed_assets, handle) == report.removed_assets.end())
+                return Result<void>::failure("Asset removal could not be indexed");
             return Result<void>::success();
         };
-        if(auto published = publish(); !published) {
-            report = operation_error(destination, published.error());
-            report.indexed_assets = database.size();
+        const auto result = remove();
+        if(result) {
+            database = std::move(candidate);
+            rollback_on_exit.release();
+            LOG_INFO("Moved asset '{}' to project trash '{}'", record.path.generic_string(),
+                trash_entry.generic_string());
+            return report;
         }
-        cleanup();
-        cleanup_on_exit.release();
+        rollback();
+        rollback_on_exit.release();
+        report.snapshot_updated = false;
+        report.indexed_assets = database.size();
+        report.added_assets.clear();
+        report.removed_assets.clear();
+        report.modified_assets.clear();
+        report.issues.push_back({record.path, result.error()});
+        if(source_restore_error || metadata_restore_error)
+            report.issues.push_back({trash_entry,
+                "Asset rollback was incomplete; recover source and metadata from project trash"});
         return report;
     }
 

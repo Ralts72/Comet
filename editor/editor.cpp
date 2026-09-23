@@ -576,6 +576,11 @@ namespace {
             if(const auto create = m_project_panel->take_create_material_request())
                 m_project_panel->complete_create_material(
                     *create, m_assets->create_material(create->destination, create->data));
+            if(const auto create = m_project_panel->take_create_script_request())
+                m_project_panel->complete_create_script(
+                    *create, m_assets->create_script(create->destination));
+            if(const auto remove = m_project_panel->take_delete_request())
+                m_project_panel->complete_delete(*remove, m_assets->remove(remove->handle));
             if(const auto move = m_project_panel->take_move_request())
                 m_project_panel->complete_move(
                     *move, m_assets->move(move->handle, move->destination));
@@ -651,6 +656,7 @@ namespace {
         Comet::Result<void, Comet::Error> process_scene_requests() {
             // 一次取走所有当帧请求；低优先级请求丢弃，不留到新场景或新模式继续执行。
             const auto hierarchy_request = m_hierarchy_panel->take_request();
+            const auto rename_request = m_hierarchy_panel->take_rename_request();
             const auto menu_command = m_menu_bar->take_command();
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
@@ -668,7 +674,12 @@ namespace {
                     return command;
             } else if(hierarchy_request)
                 handle_scene_request(*hierarchy_request);
-            else if(mesh_drop && !play_command) {
+            else if(rename_request) {
+                if(finish_active_edit()
+                    && !m_scene_editor->rename_entity(get_engine().get_scene(),
+                        rename_request->entity, rename_request->name, rename_request->generation))
+                    LOG_WARN("Entity rename was rejected or had no effect");
+            } else if(mesh_drop && !play_command) {
                 if(auto result = handle_mesh_drop(*mesh_drop); !result) {
                     if(is_device_lost(result.error()))
                         return result;

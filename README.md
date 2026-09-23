@@ -372,16 +372,21 @@ Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。�
   拒绝损坏文件和超出 float16 范围的像素；首次准备与重载均在后台读取缓存／预计算，主线程整组发布 GPU 资源，失败保留旧资源。
   环境 CPU 准备按预估工作集共享 2 GiB 预约预算；这不是进程总内存上限。外部文件复制、普通纹理首次加载与 GPU 创建仍同步。
   此阶段未提供 EXR、六面图片导入、局部反射探针、环境遮蔽或动态 GI；全局 IBL 不读取方向光阴影图。
-- Hierarchy 空白处／Scene 右键创建根实体，实体右键创建子实体、删除或 Duplicate 整棵子树；
+- Hierarchy 空白处／Scene 右键创建根实体，实体右键重命名、创建子实体、删除或 Duplicate 整棵子树；
+  名称在右键弹窗中修改，确认后记录一次撤销；Inspector 不再显示名称输入框。
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
 - 编辑器快捷键位于 `config/editor.yaml` 的 `editor.shortcuts`，与运行 Profile 独立，修改后重启。
   Undo/Redo 默认 Ctrl+Z／Ctrl+Y，macOS 为 Cmd+Z／Cmd+Shift+Z，文本编辑时不抢占控件的撤销。
   `Primary` 代表 Cmd／Ctrl，`[]` 禁用绑定；冲突会记录日志并回退默认配置。
 - Project 自动监视资产变化；右键 Refresh 重扫，Reimport 强制重建 Mesh 缓存。
-  拖动资产到目录可移动，右键 Rename 改名；源文件与 .meta 成对操作，不覆盖冲突文件，暂不移动整目录。
+  拖动资产到目录可移动，右键 Rename 改名，右键 Delete 经确认后把资产及 `.meta` 移到项目 `.comet/trash/`；
+  已被其他索引资产引用的文件不能删除，场景引用不会自动清空。回收目录仅在本机、不纳入版本控制；
+  误删时可从日志所示回收路径将文件和 `.meta` 一起移回原相对路径，再 Refresh。暂不移动整目录。
   Inspector 的材质／纹理设置按变化提交，日志统一进入 Log；资产文件修改暂不纳入场景撤销。
 - Project 目录或空白处右键 New Material，填写名称并选择 `pbr`／`unlit_color`，创建后自动选中。
   `.mat` 与稳定身份 `.meta` 成对创建，不覆盖同名文件；普通失败回滚本次创建，不保证进程崩溃时的双文件原子性。
+- Project 目录或空白处右键 New Script，填写名称后创建模块式 `.lua` 和稳定身份 `.meta`，并自动选中。
+  默认脚本只包含 `update` 方法，可按需增加 `properties`、`on_start`、`fixed_update`、`on_stop`；脚本分配给实体后在 Play／app 中执行。
 - Finder／系统文件管理器可将 PNG/JPEG、HDR 环境图、glTF/GLB 拖入 Project，复制到落点目录。
   glTF 连同相对 buffer／图片复制，新建身份、不移动源文件、不沿用外部 .meta、不覆盖同名目标。
   暂不接收整目录、独立 .bin、网络或含 `..` 的依赖；整批失败回滚，复制大文件仍可能阻塞 UI。

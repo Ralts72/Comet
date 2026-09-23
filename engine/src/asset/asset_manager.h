@@ -69,6 +69,7 @@ namespace Comet {
         [[nodiscard]] AssetScanReport scan();
         [[nodiscard]] AssetScanReport move_asset(
             AssetHandle handle, const std::filesystem::path& destination);
+        [[nodiscard]] AssetScanReport remove_asset(AssetHandle handle);
         [[nodiscard]] AssetScanReport import_files(
             std::span<const std::filesystem::path> sources, const std::filesystem::path& directory);
         // 本次成功发布的结果；Mesh Artifact 发布不代表 GPU 已驻留。
@@ -105,6 +106,7 @@ namespace Comet {
             AssetHandle handle, TextureImportSettings import_settings);
         [[nodiscard]] AssetScanReport create_material(
             const std::filesystem::path& destination, const MaterialData& data);
+        [[nodiscard]] AssetScanReport create_script(const std::filesystem::path& destination);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> load_material(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> update_material(
             AssetHandle handle, const MaterialData& data);

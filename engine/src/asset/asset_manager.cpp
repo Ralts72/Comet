@@ -136,6 +136,12 @@ namespace Comet {
         return report;
     }
 
+    AssetScanReport AssetManager::remove_asset(const AssetHandle handle) {
+        auto report = AssetSourceOperations::remove_asset(m_database, m_paths, handle);
+        apply_scan_report(report);
+        return report;
+    }
+
     AssetScanReport AssetManager::import_files(const std::span<const std::filesystem::path> sources,
         const std::filesystem::path& directory) {
         auto report = AssetSourceOperations::import_files(m_database, m_paths, sources, directory);
@@ -147,6 +153,12 @@ namespace Comet {
         const std::filesystem::path& destination, const MaterialData& data) {
         auto report =
             AssetSourceOperations::create_material(m_database, m_paths, destination, data);
+        apply_scan_report(report);
+        return report;
+    }
+
+    AssetScanReport AssetManager::create_script(const std::filesystem::path& destination) {
+        auto report = AssetSourceOperations::create_script(m_database, m_paths, destination);
         apply_scan_report(report);
         return report;
     }

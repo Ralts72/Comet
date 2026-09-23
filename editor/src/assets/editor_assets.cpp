@@ -167,6 +167,18 @@ namespace CometEditor {
         return report;
     }
 
+    Comet::AssetScanReport EditorAssets::remove(const Comet::AssetHandle handle) {
+        const auto* previous = database().find(handle);
+        const auto old_path = previous ? previous->path : std::filesystem::path{};
+        auto report = m_manager.remove_asset(handle);
+        if(report.snapshot_updated) {
+            acknowledge(old_path);
+            acknowledge(Comet::metadata_path(old_path));
+        }
+        accept_scan(report);
+        return report;
+    }
+
     Comet::AssetScanReport EditorAssets::import_files(
         const std::span<const std::filesystem::path> sources,
         const std::filesystem::path& directory) {
@@ -183,6 +195,16 @@ namespace CometEditor {
     Comet::AssetScanReport EditorAssets::create_material(
         const std::filesystem::path& destination, const Comet::MaterialData& data) {
         auto report = m_manager.create_material(destination, data);
+        if(report.snapshot_updated) {
+            acknowledge(destination);
+            acknowledge(Comet::metadata_path(destination));
+        }
+        accept_scan(report);
+        return report;
+    }
+
+    Comet::AssetScanReport EditorAssets::create_script(const std::filesystem::path& destination) {
+        auto report = m_manager.create_script(destination);
         if(report.snapshot_updated) {
             acknowledge(destination);
             acknowledge(Comet::metadata_path(destination));

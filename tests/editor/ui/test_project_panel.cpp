@@ -198,6 +198,49 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(project->file_drop_directory({point.x, point.y}));
     }
 
+    TEST_F(ProjectPanelTest, DeleteRequiresConfirmationAndClearsRemovedSelection) {
+        const auto* record = database.find("a.png");
+        ASSERT_NE(record, nullptr);
+        const auto handle = record->handle;
+        click(row_point(3));
+        ASSERT_EQ(selection.get_selected_asset(), handle);
+
+        const auto open_delete = [&] {
+            click(row_point(3), 1);
+            auto& context = *ImGui::GetCurrentContext();
+            ASSERT_FALSE(context.OpenPopupStack.empty());
+            auto* popup = context.OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID("Delete"));
+            frame();
+            frame();
+            auto* dialog = ImGui::FindWindowByName("Delete Asset");
+            ASSERT_NE(dialog, nullptr);
+            ASSERT_TRUE(dialog->Active);
+        };
+        open_delete();
+        auto* dialog = ImGui::FindWindowByName("Delete Asset");
+        ImGui::ActivateItemByID(dialog->GetID("Cancel"));
+        frame();
+        EXPECT_FALSE(project->take_delete_request());
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "a.png"));
+
+        open_delete();
+        dialog = ImGui::FindWindowByName("Delete Asset");
+        ImGui::ActivateItemByID(dialog->GetID("Move to Trash"));
+        frame();
+        const auto request = project->take_delete_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->handle, handle);
+        EXPECT_EQ(request->revision, database.get_revision(handle));
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "a.png"));
+        project->complete_delete(*request, manager.remove_asset(request->handle));
+        frame();
+        EXPECT_FALSE(database.find(handle));
+        EXPECT_EQ(selection.get_selected_asset(), Comet::INVALID_ASSET_HANDLE);
+        EXPECT_FALSE(ImGui::IsPopupOpen("Delete Asset", ImGuiPopupFlags_AnyPopupId));
+    }
+
     TEST_F(ProjectPanelTest, MeshDragKeepsOriginalIdentityAcrossDocumentChanges) {
         std::filesystem::copy_file(
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
