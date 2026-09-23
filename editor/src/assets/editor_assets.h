@@ -4,7 +4,6 @@
 #include "asset/source_monitor.h"
 #include "assets/asset_edit.h"
 #include "asset/reference.h"
-#include "assets/shader_program_import.h"
 #include <memory>
 #include <optional>
 #include <set>
@@ -15,6 +14,7 @@
 namespace Comet {
     class Scene;
     class ComponentRegistry;
+    class ShaderProgramArtifact;
 }
 
 namespace CometEditor {
@@ -56,10 +56,11 @@ namespace CometEditor {
         void observe(const Comet::AssetSourceMonitor::PollResult& result);
         void accept_scan(const Comet::AssetScanReport& report);
         void acknowledge(const std::filesystem::path& path);
+        void schedule_shader_program_imports();
         Comet::AssetManager m_manager;
         Comet::ProjectPaths m_paths;
         Comet::AssetSourceMonitor m_monitor;
-        ShaderProgramImportService m_program_imports;
+        std::unordered_set<Comet::AssetHandle> m_pending_shader_programs;
         std::unordered_map<Comet::AssetHandle, Comet::MeshImportMode> m_pending_mesh_imports;
         std::string m_monitor_error;
         std::unordered_set<Comet::AssetHandle> m_reference_changes;

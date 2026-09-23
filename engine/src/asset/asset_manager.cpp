@@ -116,6 +116,11 @@ namespace Comet {
         return m_database.update_import_dependencies(handle, std::move(dependencies));
     }
 
+    std::shared_ptr<const ShaderProgramArtifact> AssetManager::compiled_shader_program(
+        const AssetHandle handle) const {
+        return m_registry.resolve<ShaderProgramArtifact>(handle);
+    }
+
     AssetScanReport AssetManager::scan() {
         AssetScanReport report = m_database.scan();
         apply_scan_report(report);
@@ -241,7 +246,73 @@ namespace Comet {
             return publish_texture_candidate(*candidate);
         if(auto* candidate = std::get_if<EnvironmentImportCandidate>(&result.candidate))
             return publish_environment_candidate(*candidate);
+        if(auto* candidate = std::get_if<ShaderProgramImportCandidate>(&result.candidate))
+            return publish_shader_program_candidate(*candidate);
         return ImportPublication::failure({"Import task completed without a candidate"});
+    }
+
+    AssetManager::ImportPublication AssetManager::publish_shader_program_candidate(
+        ShaderProgramImportCandidate& candidate) {
+        const auto& request = candidate.request;
+        const auto handle = request.handle;
+        if(!candidate.result) {
+            std::vector<std::filesystem::path> dependencies(
+                m_database.get_import_dependencies(handle).begin(),
+                m_database.get_import_dependencies(handle).end());
+            dependencies.insert(dependencies.end(), candidate.result.error().dependencies.begin(),
+                candidate.result.error().dependencies.end());
+            if(auto indexed = update_import_dependencies(handle, std::move(dependencies)); !indexed)
+                LOG_WARN("Shader program {} dependencies: {}", handle.value(), indexed.error());
+            LOG_WARN("Shader program {}: {}", handle.value(), candidate.result.error().message);
+            return ImportPublication::success(std::nullopt);
+        }
+
+        const auto* program = m_database.find(handle);
+        const auto* vertex = m_database.find(request.vertex.handle);
+        const auto* fragment = m_database.find(request.fragment.handle);
+        if(!program || program->type != AssetType::ShaderProgram || !vertex
+            || vertex->type != AssetType::Shader || !fragment || fragment->type != AssetType::Shader
+            || !m_database.is_current(request.vertex.handle, request.vertex.revision)
+            || !m_database.is_current(request.fragment.handle, request.fragment.revision))
+            return ImportPublication::success(std::nullopt);
+
+        auto& prepared = candidate.result.value();
+        auto& artifact = prepared.artifact;
+        const auto descriptor = request.descriptor_path.lexically_relative(m_paths.assets());
+        if(artifact.handle != handle || artifact.inputs.files.empty()
+            || artifact.inputs.files.front().relative_path != descriptor
+            || !import_inputs_are_current(m_paths.assets(), artifact.inputs)) {
+            LOG_WARN("Shader program {} candidate is stale or invalid", handle.value());
+            return ImportPublication::success(std::nullopt);
+        }
+        if(!prepared.from_cache) {
+            if(auto saved =
+                    artifact.publish_atomic(m_import_service->shader_program_artifact_path(handle));
+                !saved) {
+                LOG_WARN("Shader program {}: {}", handle.value(), saved.error());
+                return ImportPublication::success(std::nullopt);
+            }
+        }
+
+        std::vector<std::filesystem::path> dependencies;
+        for(const auto& file : artifact.inputs.files)
+            if(file.relative_path != descriptor)
+                dependencies.push_back(file.relative_path);
+        if(auto indexed = update_import_dependencies(handle, std::move(dependencies)); !indexed) {
+            LOG_WARN("Shader program {} dependencies: {}", handle.value(), indexed.error());
+            return ImportPublication::success(std::nullopt);
+        }
+        auto version = std::make_shared<ShaderProgramArtifact>(std::move(artifact));
+        bool stored = false;
+        if(m_registry.contains(handle))
+            stored = m_registry.replace_asset(handle, version);
+        else
+            stored = m_registry.register_asset(handle, version);
+        if(!stored) {
+            LOG_WARN("Shader program {} cannot replace the registered asset", handle.value());
+            return ImportPublication::success(std::nullopt);
+        }
+        return ImportPublication::success(handle);
     }
 
     AssetManager::ImportPublication AssetManager::publish_mesh_candidate(

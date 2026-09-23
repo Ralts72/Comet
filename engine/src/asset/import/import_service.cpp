@@ -63,6 +63,11 @@ namespace Comet {
         return m_paths.cache() / "imported" / "mesh" / (std::to_string(handle.value()) + ".bin");
     }
 
+    std::filesystem::path ImportService::shader_program_artifact_path(
+        const AssetHandle handle) const {
+        return m_paths.cache() / "shaders" / (std::to_string(handle.value()) + ".csp");
+    }
+
     std::optional<MeshArtifact> ImportService::find_current_mesh_artifact(
         const AssetHandle handle, const std::filesystem::path& source_path) const {
         auto artifact = MeshArtifact::load(mesh_artifact_path(handle), handle);

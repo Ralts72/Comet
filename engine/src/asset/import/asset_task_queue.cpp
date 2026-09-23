@@ -102,7 +102,6 @@ namespace Comet {
                 m_async_state->reserved_bytes -= task->working_bytes;
                 task = tasks.erase(task);
             });
-            // 业务失败在候选 Result 中；get 同步写入并拒绝异常中断的候选。
             task->completion.get();
             if(!m_database.is_current(task->handle, task->revision)) {
                 LOG_DEBUG("Discarded stale background asset {} (revision {})", task->handle.value(),

@@ -26,8 +26,14 @@ namespace Comet {
 
         std::unordered_set<AssetHandle> invalidated(
             report.removed_assets.begin(), report.removed_assets.end());
+        const std::unordered_set<AssetHandle> removed(
+            report.removed_assets.begin(), report.removed_assets.end());
         m_database.include_dependents(invalidated);
         for(const AssetHandle handle : invalidated) {
+            const auto* record = m_database.find(handle);
+            // 源资产失效不清掉程序的最后一个成功版本；程序本身删除时才清除。
+            if(record && record->type == AssetType::ShaderProgram && !removed.contains(handle))
+                continue;
             static_cast<void>(m_registry.unregister_asset(handle));
             m_failed_environments.erase(handle);
         }
@@ -41,6 +47,9 @@ namespace Comet {
             if(!record) {
                 continue;
             }
+            // 编辑器提供编译任务，AssetManager 仅在候选完成后发布。
+            if(record->type == AssetType::ShaderProgram)
+                continue;
             if(schedule_refresh(*record) == RefreshResult::Deferred)
                 m_refresh_requests[handle] = m_database.get_revision(handle);
             else
@@ -144,6 +153,19 @@ namespace Comet {
                 result.candidate = ImportService(paths).prepare_mesh(record, revision, mode);
             },
             mode == MeshImportMode::Force);
+    }
+
+    bool AssetManager::import_shader_program_async(
+        ShaderProgramImportRequest request, ShaderProgramPrepare prepare) {
+        const auto* record = m_database.find(request.handle);
+        if(!record || record->type != AssetType::ShaderProgram
+            || !m_database.is_current(request.handle, request.revision))
+            return false;
+        return m_task_queue->schedule(request.handle, request.revision,
+            [request = std::move(request), prepare = std::move(prepare)](
+                AssetImportResult& result) {
+                result.candidate = ShaderProgramImportCandidate{request, prepare()};
+            });
     }
 
     bool AssetManager::schedule_material_refresh(const AssetRecord& record) {

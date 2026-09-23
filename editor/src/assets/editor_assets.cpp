@@ -1,4 +1,5 @@
 #include "assets/editor_assets.h"
+#include "assets/shader_program_import.h"
 #include "scene/component_registry.h"
 #include "diagnostics/logger.h"
 #include <utility>
@@ -12,7 +13,7 @@ namespace CometEditor {
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
         Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler)
         : m_manager(paths, registry, factory, scheduler), m_paths(std::move(paths)),
-          m_monitor(m_paths.assets()), m_program_imports(m_manager, m_paths, scheduler) {}
+          m_monitor(m_paths.assets()) {}
 
     Comet::Result<Comet::MaterialData> EditorAssets::read_material(const AssetRead& request) const {
         const auto* record = database().find(request.handle);
@@ -44,7 +45,17 @@ namespace CometEditor {
 
     void EditorAssets::accept_scan(const Comet::AssetScanReport& report) {
         if(report.snapshot_updated) {
-            m_program_imports.accept_scan(report);
+            std::unordered_set<Comet::AssetHandle> changed;
+            changed.insert(report.added_assets.begin(), report.added_assets.end());
+            changed.insert(report.modified_assets.begin(), report.modified_assets.end());
+            database().include_dependents(changed);
+            for(const auto handle : changed) {
+                const auto* record = database().find(handle);
+                if(record && record->type == Comet::AssetType::ShaderProgram)
+                    m_pending_shader_programs.insert(handle);
+            }
+            for(const auto handle : report.removed_assets)
+                m_pending_shader_programs.erase(handle);
             m_reference_changes.insert(report.added_assets.begin(), report.added_assets.end());
             m_reference_changes.insert(
                 report.modified_assets.begin(), report.modified_assets.end());
@@ -87,7 +98,7 @@ namespace CometEditor {
             report = m_manager.scan();
             accept_scan(*report);
         }
-        m_program_imports.update();
+        schedule_shader_program_imports();
         for(auto request = m_pending_mesh_imports.begin();
             request != m_pending_mesh_imports.end();) {
             const auto* record = database().find(request->first);
@@ -110,7 +121,30 @@ namespace CometEditor {
 
     std::shared_ptr<const Comet::ShaderProgramArtifact> EditorAssets::compiled_shader_program(
         const Comet::AssetHandle handle) const {
-        return m_program_imports.compiled_program(handle);
+        return m_manager.compiled_shader_program(handle);
+    }
+
+    void EditorAssets::schedule_shader_program_imports() {
+        for(auto pending = m_pending_shader_programs.begin();
+            pending != m_pending_shader_programs.end();) {
+            const auto handle = *pending;
+            const auto* record = database().find(handle);
+            if(!record || record->type != Comet::AssetType::ShaderProgram) {
+                pending = m_pending_shader_programs.erase(pending);
+                continue;
+            }
+            auto request = ShaderProgramImport::resolve(database(), m_paths, handle);
+            if(!request) {
+                LOG_WARN("Shader program {}: {}", handle.value(), request.error());
+                pending = m_pending_shader_programs.erase(pending);
+                continue;
+            }
+            const auto input = std::move(request).value();
+            if(!m_manager.import_shader_program_async(input,
+                   [paths = m_paths, input] { return ShaderProgramImport::prepare(paths, input); }))
+                break;
+            pending = m_pending_shader_programs.erase(pending);
+        }
     }
 
     Comet::AssetScanReport EditorAssets::move(

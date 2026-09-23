@@ -33,6 +33,11 @@ namespace Comet {
     struct MaterialImportCandidate;
     struct TextureImportCandidate;
     struct EnvironmentImportCandidate;
+    struct ShaderProgramImportRequest;
+    struct ShaderProgramImportPrepared;
+    struct ShaderProgramImportFailure;
+    struct ShaderProgramImportCandidate;
+    class ShaderProgramArtifact;
     struct Environment;
 
     class COMET_API AssetManager final {
@@ -82,6 +87,12 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> import_mesh(AssetHandle handle);
         [[nodiscard]] bool import_mesh_async(
             AssetHandle handle, MeshImportMode mode = MeshImportMode::IfNeeded);
+        using ShaderProgramPrepare =
+            std::function<Result<ShaderProgramImportPrepared, ShaderProgramImportFailure>()>;
+        [[nodiscard]] bool import_shader_program_async(
+            ShaderProgramImportRequest request, ShaderProgramPrepare prepare);
+        [[nodiscard]] std::shared_ptr<const ShaderProgramArtifact> compiled_shader_program(
+            AssetHandle handle) const;
         [[nodiscard]] Result<std::shared_ptr<Mesh>, Error> load_mesh(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> load_texture(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Script>, Error> load_script(AssetHandle handle);
@@ -102,10 +113,10 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> reload_material(AssetHandle handle);
 
         [[nodiscard]] const AssetDatabase& get_database() const noexcept { return m_database; }
-        [[nodiscard]] Result<void> update_import_dependencies(
-            AssetHandle handle, std::vector<std::filesystem::path> dependencies);
 
     private:
+        [[nodiscard]] Result<void> update_import_dependencies(
+            AssetHandle handle, std::vector<std::filesystem::path> dependencies);
         void apply_scan_report(const AssetScanReport& report);
         enum class RefreshResult { Scheduled, Deferred, Invalidated, Rejected };
         [[nodiscard]] RefreshResult schedule_refresh(const AssetRecord& record);
@@ -130,6 +141,7 @@ namespace Comet {
         ImportPublication publish_material_candidate(MaterialImportCandidate& candidate);
         ImportPublication publish_texture_candidate(TextureImportCandidate& candidate);
         ImportPublication publish_environment_candidate(EnvironmentImportCandidate& candidate);
+        ImportPublication publish_shader_program_candidate(ShaderProgramImportCandidate& candidate);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> create_runtime_texture(
             const AssetRecord& record, const TextureImportSettings& import_settings);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> create_runtime_material(

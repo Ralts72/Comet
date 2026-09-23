@@ -18,6 +18,7 @@ namespace Comet {
         explicit ImportService(ProjectPaths paths);
 
         [[nodiscard]] std::filesystem::path mesh_artifact_path(AssetHandle handle) const;
+        [[nodiscard]] std::filesystem::path shader_program_artifact_path(AssetHandle handle) const;
         [[nodiscard]] std::optional<MeshArtifact> find_current_mesh_artifact(
             AssetHandle handle, const std::filesystem::path& source_path) const;
         [[nodiscard]] Result<MeshArtifact> build_mesh_artifact(
