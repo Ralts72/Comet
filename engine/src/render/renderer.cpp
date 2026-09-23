@@ -28,7 +28,8 @@ namespace Comet {
         auto frames = std::make_unique<FrameScheduler>(device, config.render.max_frames_in_flight);
         auto& swapchain = context.value()->get_swapchain();
         frames->initialize_swapchain_images(static_cast<uint32_t>(swapchain.get_images().size()));
-        auto scene = std::make_unique<SceneRenderer>(device, config.vulkan, config.render);
+        auto scene =
+            std::make_unique<SceneRenderer>(device, asset_registry, config.vulkan, config.render);
         auto configured = Result<void, GraphicsError>::success();
         if(config.render.scene_output == Config::Render::SceneOutput::Offscreen)
             configured = scene->configure_offscreen(

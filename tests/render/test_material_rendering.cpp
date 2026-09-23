@@ -19,6 +19,8 @@
 #include "graphics/convert.h"
 #include "render/material/material.h"
 #include "render/material/material_renderer.h"
+#include "asset/artifact/shader_program_artifact.h"
+#include "asset/registry.h"
 #include "render/debug/debug_renderer.h"
 #include "render/scene/scene_renderer.h"
 #include "render/resource/mesh.h"
@@ -52,6 +54,37 @@ namespace Comet::Tests {
                 {.width = 1, .height = 1, .pixels = std::move(rgba)});
         }
     };
+
+    TEST_F(MaterialRenderingTest, ProjectProgramHandleCreatesPipelineAndRejectsIncompatibleCode) {
+        constexpr AssetHandle program_handle(9081);
+        constexpr AssetHandle material_handle(9082);
+        auto make_program = [&](const bool compatible) {
+            auto program = std::make_shared<ShaderProgramArtifact>();
+            program->handle = program_handle;
+            program->vertex_words.assign(PBR_VERT.begin(), PBR_VERT.end());
+            if(compatible)
+                program->fragment_words.assign(PBR_FRAG.begin(), PBR_FRAG.end());
+            else
+                program->fragment_words.assign(UNLIT_COLOR_FRAG.begin(), UNLIT_COLOR_FRAG.end());
+            return program;
+        };
+        auto& assets = engine->get_asset_registry();
+        ASSERT_TRUE(assets.register_asset(program_handle, make_program(false)));
+        auto material = std::make_shared<Material>("project", "pbr", program_handle);
+        auto& renderer = engine->get_renderer();
+        EXPECT_FALSE(renderer.prepare_material_update(material_handle, material));
+
+        ASSERT_TRUE(assets.replace_asset(program_handle, make_program(true)));
+        auto prepared = renderer.prepare_material_update(material_handle, material);
+        ASSERT_TRUE(prepared) << prepared.error();
+        std::move(prepared).value().publish();
+        EXPECT_EQ(
+            renderer.get_scene_renderer().get_material_statistics().cached_material_versions, 1u);
+
+        ASSERT_TRUE(assets.replace_asset(program_handle, make_program(false)));
+        auto retained = renderer.prepare_material_update(material_handle, material);
+        EXPECT_TRUE(retained) << retained.error();
+    }
 
     TEST_F(MaterialRenderingTest, FailedFramePreparationCannotReuseAcquiredFrame) {
         auto& renderer = engine->get_renderer();

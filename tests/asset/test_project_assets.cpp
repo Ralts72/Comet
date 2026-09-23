@@ -56,9 +56,12 @@ namespace Comet::Tests {
             ASSERT_TRUE(material) << material.error();
             EXPECT_FALSE(material.value().template_name.empty());
             for(const auto dependency : get_asset_dependencies(material.value())) {
-                const auto* texture = database.find(dependency);
-                ASSERT_NE(texture, nullptr);
-                EXPECT_EQ(texture->type, AssetType::Texture);
+                const auto* asset = database.find(dependency);
+                ASSERT_NE(asset, nullptr);
+                auto expected = AssetType::Texture;
+                if(dependency == material.value().shader_program)
+                    expected = AssetType::ShaderProgram;
+                EXPECT_EQ(asset->type, expected);
             }
         }
     }

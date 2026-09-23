@@ -4,8 +4,10 @@
 #include <utility>
 
 namespace Comet {
-    Material::Material(std::string name, std::string template_name)
-        : m_name(std::move(name)), m_template_name(std::move(template_name)) {}
+    Material::Material(std::string name, std::string template_name,
+        const AssetHandle shader_program)
+        : m_name(std::move(name)), m_template_name(std::move(template_name)),
+          m_shader_program(shader_program) {}
 
     void Material::set_texture_property(const std::string& name, std::shared_ptr<Texture> texture) {
         const auto found = m_texture_properties.find(name);

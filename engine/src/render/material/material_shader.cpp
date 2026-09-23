@@ -44,21 +44,24 @@ namespace Comet {
                 return Result<void>::failure("Unknown material Shader program: " + name);
             if(code.vertex.empty() || code.fragment.empty())
                 return Result<void>::failure("Incomplete vertex/fragment pair: " + name);
-            const auto validate = [&](std::span<const uint32_t> words,
-                                      const Result<ShaderInterface>& expected,
-                                      std::optional<uint32_t> ignored_set) {
+            const auto validate = [&](std::span<const uint32_t> words, const std::string& entry,
+                    const Result<ShaderInterface>& expected, std::optional<uint32_t> ignored_set) {
                 if(!expected)
                     return Result<void>::failure(expected.error());
-                const auto candidate = ShaderInterface::reflect(words);
+                const auto candidate = ShaderInterface::reflect(words, entry);
                 if(!candidate)
                     return Result<void>::failure(candidate.error());
                 if(!expected.value().has_same_resource_layout(candidate.value(), ignored_set))
                     return Result<void>::failure("Shader changed fixed resource layout: " + name);
                 return Result<void>::success();
             };
-            if(auto result = validate(code.vertex, contract->second.vertex, std::nullopt); !result)
+            if(auto result =
+                    validate(code.vertex, code.vertex_entry, contract->second.vertex, std::nullopt);
+                !result)
                 return result;
-            if(auto result = validate(code.fragment, contract->second.fragment, 1); !result)
+            if(auto result =
+                    validate(code.fragment, code.fragment_entry, contract->second.fragment, 1);
+                !result)
                 return result;
         }
         return Result<void>::success();

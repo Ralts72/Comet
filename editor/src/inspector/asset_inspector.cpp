@@ -169,6 +169,20 @@ namespace CometEditor {
                 previous_data = *m_material_data;
         };
         ImGui::BeginDisabled(m_template_change.has_value());
+        auto shader_program = m_material_data->shader_program;
+        if(edit_asset_reference(Ui::label("Shader Program").c_str(), shader_program,
+               m_asset_database, Comet::AssetType::ShaderProgram)) {
+            remember_previous();
+            m_material_data->shader_program = shader_program;
+        }
+        if(allow_drop) {
+            if(const auto asset = accept_asset_drop(
+                   m_asset_database, Comet::AssetType::ShaderProgram, generation);
+                asset && asset->handle != m_material_data->shader_program) {
+                remember_previous();
+                m_material_data->shader_program = asset->handle;
+            }
+        }
         if(!layout->get_textures().empty())
             ImGui::SeparatorText(Ui::text("Textures"));
 

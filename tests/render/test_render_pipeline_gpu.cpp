@@ -1,6 +1,79 @@
 #include "support/render_graph_gpu_fixture.h"
+#include "asset/artifact/shader_program_artifact.h"
+#include "asset/registry.h"
+#include "unlit_color_vert.h"
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, ProjectShaderProgramChangesPixelsAfterCpuVersionReplacement) {
+        constexpr AssetHandle program_handle(9811);
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context();
+        auto& device = context.get_device();
+        ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
+        auto& scene = renderer.get_scene_renderer();
+        TemporaryDirectory sources;
+        auto& registry = engine->get_asset_registry();
+        const auto compile_program = [&](const float scale) {
+            const auto path = sources.path() / "project.frag";
+            const std::string fragment =
+                "#version 450\n"
+                "layout(location=0) out vec4 color;\n"
+                "layout(set=1,binding=0,std140) uniform MaterialData {\n"
+                "  vec4 color; float intensity;\n"
+                "} material;\n"
+                "void main() { color = vec4(material.color.rgb * material.intensity * "
+                + std::to_string(scale) + ", material.color.a); }\n";
+            EXPECT_TRUE(write_text_file_atomic(path, fragment));
+            auto compiled =
+                ShaderCompiler::compile({.source = path, .stage = ShaderStage::Fragment});
+            EXPECT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+            auto program = std::make_shared<ShaderProgramArtifact>();
+            program->handle = program_handle;
+            program->vertex_words.assign(UNLIT_COLOR_VERT.begin(), UNLIT_COLOR_VERT.end());
+            program->fragment_words = std::move(compiled.words);
+            return program;
+        };
+        ASSERT_TRUE(registry.register_asset(program_handle, compile_program(0.25f)));
+        auto material = std::make_shared<Material>("project", "unlit_color", program_handle);
+        ASSERT_TRUE(material->set_vector_property("color", {0.8f, 0.4f, 0.2f, 1}));
+        RenderSubmission submission{
+            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
+            .render_items = {{.mesh = lit_quad(), .material = {AssetHandle(9812), material}}}};
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 2> outputs;
+        for(std::size_t index = 0; index < outputs.size(); ++index) {
+            if(index == 1)
+                ASSERT_TRUE(registry.replace_asset(program_handle, compile_program(0.5f)));
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            auto drawn = scene.render(frames, submission);
+            ASSERT_TRUE(drawn) << drawn.error();
+            outputs[index] =
+                std::make_shared<Readback>(device, context.get_context().get_physical_device(), 64);
+            copy_output(frames,
+                scene.get_offscreen_color_view(frames.get_current_frame_slot_index())->get_image(),
+                outputs[index], {4, 4});
+            submit(device, frames, drawn.value());
+        }
+        frames.wait_for_all_slots();
+        const auto format = scene.get_offscreen_color_view(0)->get_image()->get_info().format;
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        for(std::size_t index = 0; index < outputs.size(); ++index) {
+            const auto bytes = outputs[index]->read();
+            const float scale = index == 0 ? 0.25f : 0.5f;
+            for(std::size_t channel = 0; channel < 3; ++channel) {
+                const float base = channel == 0 ? 0.8f : channel == 1 ? 0.4f : 0.2f;
+                const auto component = bgra ? 2 - channel : channel;
+                EXPECT_NEAR(std::to_integer<int>(bytes[(2 * 4 + 2) * 4 + component]),
+                    mapped_byte(base * scale), 3);
+            }
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, PbrParametersAndCameraProjectionMatchReferencePixels) {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();

@@ -23,6 +23,25 @@ namespace Comet::Tests {
         EXPECT_EQ(get_asset_dependencies(decoded.value()), std::vector{AssetHandle(73)});
     }
 
+    TEST(MaterialSerializerTest, ProjectShaderProgramIsAnOptionalStableDependency) {
+        MaterialData data{.template_name = "pbr",
+            .shader_program = AssetHandle(91),
+            .texture_properties = {{"albedo", AssetHandle(73)}}};
+        const MaterialSerializer serializer;
+        const auto encoded = serializer.serialize(data);
+        ASSERT_TRUE(encoded) << encoded.error();
+        EXPECT_NE(encoded.value().find("\"shader_program\": 91"), std::string::npos);
+        EXPECT_EQ(serializer.deserialize(encoded.value()).value(), data);
+        EXPECT_EQ(get_asset_dependencies(data), (std::vector{AssetHandle(73), AssetHandle(91)}));
+
+        data.shader_program = {};
+        const auto builtin = serializer.serialize(data);
+        ASSERT_TRUE(builtin) << builtin.error();
+        EXPECT_EQ(builtin.value().find("shader_program"), std::string::npos);
+        EXPECT_FALSE(serializer.deserialize(
+            R"({"version":2,"template":"pbr","shader_program":0,"properties":{}})"));
+    }
+
     TEST(MaterialSerializerTest, RejectsInvalidTypedParametersAndCrossTypeNames) {
         const MaterialSerializer serializer;
         for(const auto property :

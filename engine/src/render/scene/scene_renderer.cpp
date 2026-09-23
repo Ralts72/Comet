@@ -47,9 +47,9 @@ namespace Comet {
         bool offscreen = false;
     };
 
-    SceneRenderer::SceneRenderer(
-        Device& device, const Config::Vulkan& vulkan, const Config::Render& render)
-        : m_device(device), m_offscreen_format(vulkan.surface_format),
+    SceneRenderer::SceneRenderer(Device& device, const AssetRegistry& assets,
+        const Config::Vulkan& vulkan, const Config::Render& render)
+        : m_device(device), m_assets(assets), m_offscreen_format(vulkan.surface_format),
           m_hdr_headroom(render.hdr_headroom), m_depth_format(vulkan.depth_format),
           m_msaa_samples(vulkan.msaa_samples), m_frame_slot_count(render.max_frames_in_flight) {}
 
@@ -120,7 +120,7 @@ namespace Comet {
         next->skybox_pass = std::move(skybox).value();
         auto materials =
             MaterialRenderer::create(m_device, *next->pipelines, resources, m_frame_slot_count,
-                m_msaa_samples, m_material_shaders ? &*m_material_shaders : nullptr);
+                m_msaa_samples, m_material_shaders ? &*m_material_shaders : nullptr, &m_assets);
         if(!materials)
             return Creation::failure(materials.error());
         next->materials = std::move(materials).value();

@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "template": "unlit_color",
+  "shader_program": 1749083215601001003,
+  "properties": {
+    "color": {"type": "vector", "value": [1, 1, 1, 1]},
+    "intensity": {"type": "scalar", "value": 1}
+  }
+}

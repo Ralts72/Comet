@@ -117,6 +117,28 @@ namespace Comet {
             return std::span<const std::filesystem::path>(dependencies->second);
         }
 
+        std::uint64_t record_source_signature(const AssetRecord& record,
+            const std::span<const AssetHandle> dependencies,
+            const std::filesystem::path& assets_root,
+            const ImportDependenciesByAsset& import_dependencies_by_asset,
+            const std::unordered_map<AssetHandle, AssetRecord>& assets) {
+            std::uint64_t signature = asset_source_signature(assets_root / record.path, assets_root,
+                find_import_dependencies(import_dependencies_by_asset, record.handle));
+            if(record.type != AssetType::ShaderProgram)
+                return signature;
+
+            for(const AssetHandle source : dependencies) {
+                const auto found = assets.find(source);
+                const std::uint64_t source_signature =
+                    found == assets.end()
+                        ? source.value()
+                        : asset_source_signature(assets_root / found->second.path, assets_root,
+                              find_import_dependencies(import_dependencies_by_asset, source));
+                signature = combine_source_signature(signature, source_signature);
+            }
+            return signature;
+        }
+
         Result<std::filesystem::path> normalize_import_dependency(
             const std::filesystem::path& asset_root, const std::filesystem::path& dependency) {
             if(dependency.empty()) {
@@ -155,22 +177,27 @@ namespace Comet {
         }
 
         void add_dependency_issues(AssetScanReport& report, const AssetRecord& owner,
-            const std::unordered_map<AssetHandle, AssetRecord>& assets) {
-            for(const AssetHandle dependency_handle : owner.dependencies) {
+            const MaterialData& data, const std::unordered_map<AssetHandle, AssetRecord>& assets) {
+            const auto check = [&](const AssetHandle dependency_handle,
+                                   const AssetType expected_type) {
                 const auto dependency = assets.find(dependency_handle);
                 if(dependency == assets.end()) {
                     add_issue(report, owner.path,
                         "material dependency handle " + std::to_string(dependency_handle.value())
                             + " is not indexed");
-                    continue;
+                    return;
                 }
-                if(dependency->second.type != AssetType::Texture) {
+                if(dependency->second.type != expected_type) {
                     add_issue(report, owner.path,
                         "material dependency handle " + std::to_string(dependency_handle.value())
                             + " has type '" + std::string(to_string(dependency->second.type))
-                            + "', expected 'texture'");
+                            + "', expected '" + std::string(to_string(expected_type)) + "'");
                 }
-            }
+            };
+            for(const auto& property : data.texture_properties)
+                check(property.second, AssetType::Texture);
+            if(data.shader_program)
+                check(data.shader_program, AssetType::ShaderProgram);
         }
     }
 
@@ -396,7 +423,7 @@ namespace Comet {
             }
             material_record->dependencies = get_asset_dependencies(data.value());
 
-            add_dependency_issues(report, *material_record, assets);
+            add_dependency_issues(report, *material_record, data.value(), assets);
             for(const AssetHandle dependency : material_record->dependencies) {
                 dependents_by_dependency[dependency].push_back(material_record->handle);
             }
@@ -455,8 +482,8 @@ namespace Comet {
         asset_revisions.reserve(assets.size());
         for(const auto& [handle, record] : assets) {
             asset_source_signatures.emplace(
-                handle, asset_source_signature(assets_root / record.path, assets_root,
-                            find_import_dependencies(import_dependencies_by_asset, handle)));
+                handle, record_source_signature(record, record.dependencies, assets_root,
+                            import_dependencies_by_asset, assets));
         }
 
         for(const auto& [handle, record] : assets) {
@@ -513,8 +540,8 @@ namespace Comet {
                 + std::to_string(handle.value()));
 
         auto& record = asset->second;
-        const auto signature = asset_source_signature(m_paths.assets() / record.path,
-            m_paths.assets(), find_import_dependencies(m_import_dependencies_by_asset, handle));
+        const auto signature = record_source_signature(record, record.dependencies,
+            m_paths.assets(), m_import_dependencies_by_asset, m_assets);
         const auto previous = m_asset_source_signatures.find(handle);
         if(record.import_settings == import_settings && previous != m_asset_source_signatures.end()
             && previous->second == signature)
@@ -529,8 +556,8 @@ namespace Comet {
             !saved)
             return saved;
         record.import_settings = std::move(import_settings);
-        m_asset_source_signatures[handle] = asset_source_signature(m_paths.assets() / record.path,
-            m_paths.assets(), find_import_dependencies(m_import_dependencies_by_asset, handle));
+        m_asset_source_signatures[handle] = record_source_signature(record, record.dependencies,
+            m_paths.assets(), m_import_dependencies_by_asset, m_assets);
         m_asset_revisions[handle] = m_next_revision++;
         return Result<void>::success();
     }
@@ -554,9 +581,8 @@ namespace Comet {
 
         AssetRecord& record = asset->second;
         const bool dependencies_changed = record.dependencies != dependencies;
-        const std::uint64_t source_signature =
-            asset_source_signature(m_paths.assets() / record.path, m_paths.assets(),
-                find_import_dependencies(m_import_dependencies_by_asset, handle));
+        const std::uint64_t source_signature = record_source_signature(
+            record, dependencies, m_paths.assets(), m_import_dependencies_by_asset, m_assets);
         const auto previous_signature = m_asset_source_signatures.find(handle);
         const bool source_changed = previous_signature == m_asset_source_signatures.end()
                                     || previous_signature->second != source_signature;
@@ -637,8 +663,8 @@ namespace Comet {
             }
         }
 
-        m_asset_source_signatures[handle] = asset_source_signature(
-            m_paths.assets() / asset->second.path, m_paths.assets(), dependencies);
+        m_asset_source_signatures[handle] = record_source_signature(asset->second,
+            asset->second.dependencies, m_paths.assets(), m_import_dependencies_by_asset, m_assets);
         return Result<void>::success();
     }
 

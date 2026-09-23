@@ -93,6 +93,8 @@ namespace Comet {
             ShaderProgramImportRequest request, ShaderProgramPrepare prepare);
         [[nodiscard]] std::shared_ptr<const ShaderProgramArtifact> compiled_shader_program(
             AssetHandle handle) const;
+        [[nodiscard]] Result<std::shared_ptr<ShaderProgramArtifact>, Error> load_shader_program(
+            AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Mesh>, Error> load_mesh(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> load_texture(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Script>, Error> load_script(AssetHandle handle);

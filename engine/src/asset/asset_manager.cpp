@@ -5,6 +5,7 @@
 #include "asset/data/texture_data.h"
 
 #include "asset/artifact/mesh_artifact.h"
+#include "asset/artifact/shader_program_artifact.h"
 #include "asset/import/import_service.h"
 #include "render/resource/environment.h"
 #include "asset/registry.h"
@@ -185,6 +186,12 @@ namespace Comet {
             }
             case AssetType::Texture: {
                 auto loaded = load_texture(handle);
+                if(!loaded)
+                    return Result<void, Error>::failure(loaded.error());
+                break;
+            }
+            case AssetType::ShaderProgram: {
+                auto loaded = load_shader_program(handle);
                 if(!loaded)
                     return Result<void, Error>::failure(loaded.error());
                 break;
@@ -546,6 +553,20 @@ namespace Comet {
             });
     }
 
+    Result<std::shared_ptr<ShaderProgramArtifact>, Error> AssetManager::load_shader_program(
+        const AssetHandle handle) {
+        return load_runtime_asset<ShaderProgramArtifact>(m_database, m_registry, handle,
+            AssetType::ShaderProgram, [this, handle](const AssetRecord&) {
+                auto artifact = ShaderProgramArtifact::load(
+                    m_import_service->shader_program_artifact_path(handle), handle);
+                if(!artifact || !import_inputs_are_current(m_paths.assets(), artifact->inputs))
+                    return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::failure(
+                        {"Current compiled Shader program artifact is unavailable"});
+                return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::success(
+                    std::make_shared<ShaderProgramArtifact>(std::move(*artifact)));
+            });
+    }
+
     Result<std::shared_ptr<Script>, Error> AssetManager::load_script(const AssetHandle handle) {
         return load_runtime_asset<Script>(m_database, m_registry, handle, AssetType::Script,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Script>, Error> {
@@ -835,6 +856,16 @@ namespace Comet {
 
     Result<std::shared_ptr<Material>, Error> AssetManager::create_runtime_material(
         const AssetRecord& record, const MaterialData& data) {
+        if(data.shader_program) {
+            const auto* program = m_database.find(data.shader_program);
+            if(!program || program->type != AssetType::ShaderProgram)
+                return Result<std::shared_ptr<Material>, Error>::failure(
+                    {"Material '" + record.path.generic_string()
+                        + "' references a missing or non-program Shader asset"});
+            if(auto loaded = load_shader_program(data.shader_program); !loaded)
+                return Result<std::shared_ptr<Material>, Error>::failure(
+                    {"Material '" + record.path.generic_string() + "': " + loaded.error().message});
+        }
         std::map<std::string, std::shared_ptr<Texture>> textures;
         for(const auto& [property_name, texture_handle] : data.texture_properties) {
             auto texture = load_texture(texture_handle);
@@ -847,7 +878,8 @@ namespace Comet {
             textures.emplace(property_name, std::move(texture).value());
         }
 
-        auto material = std::make_shared<Material>(record.path.stem().string(), data.template_name);
+        auto material = std::make_shared<Material>(
+            record.path.stem().string(), data.template_name, data.shader_program);
         for(const auto& [property_name, texture] : textures) {
             material->set_texture_property(property_name, texture);
         }

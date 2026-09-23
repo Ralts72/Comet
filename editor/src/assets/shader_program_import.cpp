@@ -122,9 +122,10 @@ namespace CometEditor {
             || !Comet::import_inputs_are_current(paths.assets(), inputs.value()))
             return Prepared::failure(
                 {"Shader inputs changed during compilation", std::move(watched)});
-        return Prepared::success({{request.handle, std::move(inputs).value(),
-                                      std::move(vertex.words), std::move(fragment.words)},
-            false});
+        return Prepared::success(
+            {{request.handle, std::move(inputs).value(), std::move(vertex.words),
+                 std::move(fragment.words), request.vertex.entry, request.fragment.entry},
+                false});
     }
 
 }

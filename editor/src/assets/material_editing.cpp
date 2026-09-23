@@ -25,6 +25,12 @@ namespace CometEditor {
         const Comet::MaterialLayout& layout, const Comet::AssetDatabase& database) {
         if(data.template_name != layout.get_name())
             return Comet::Result<void>::failure("Material template does not match its layout");
+        if(data.shader_program) {
+            const auto* program = database.find(data.shader_program);
+            if(!program || program->type != Comet::AssetType::ShaderProgram)
+                return Comet::Result<void>::failure(
+                    "Shader program references a missing or non-program asset");
+        }
         const auto unknown_property = [](const auto& values, const auto& properties) {
             for(const auto& [name, value] : values) {
                 if(!std::ranges::any_of(

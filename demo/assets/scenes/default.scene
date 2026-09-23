@@ -216,6 +216,21 @@
           "radius": 0.5
         }
       }
+    },
+    {
+      "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d06",
+      "components": {
+        "name": "Project Shader Cube",
+        "transform": {
+          "translation": [1, 0.1, 0],
+          "rotation": [0, 0, 0],
+          "scale": [0.55, 0.55, 0.55]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 1749083215601001004
+        }
+      }
     }
   ]
 }

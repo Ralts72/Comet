@@ -14,6 +14,8 @@ namespace Comet {
     struct MaterialShaderProgram {
         std::vector<uint32_t> vertex;
         std::vector<uint32_t> fragment;
+        std::string vertex_entry = "main";
+        std::string fragment_entry = "main";
     };
 
     // Key 是程序名，不是材质模板名；未提供的程序保持原版本。

@@ -16,6 +16,7 @@ namespace Comet {
         constexpr std::size_t MAX_BYTES = 64 * 1024 * 1024;
         constexpr std::size_t MAX_INPUTS = 512;
         constexpr std::size_t MAX_PATH_BYTES = 16 * 1024;
+        constexpr std::size_t MAX_ENTRY_BYTES = 256;
         constexpr std::uint64_t HASH_SEED = 14695981039346656037ull;
 
         void append_u64(std::vector<std::byte>& output, const std::uint64_t value) {
@@ -93,6 +94,17 @@ namespace Comet {
                 return valid_words(words);
             }
 
+            bool read_entry(std::string& entry) {
+                std::uint64_t length = 0;
+                if(!read_u64(length) || length == 0 || length > MAX_ENTRY_BYTES
+                    || length > m_input.size() - m_offset)
+                    return false;
+                entry.resize(length);
+                for(std::size_t i = 0; i < length; ++i)
+                    entry[i] = char(std::to_integer<unsigned char>(m_input[m_offset++]));
+                return entry.find('\0') == std::string::npos;
+            }
+
             [[nodiscard]] bool at_end() const { return m_offset == m_input.size(); }
 
         private:
@@ -134,7 +146,8 @@ namespace Comet {
                 return std::nullopt;
             artifact.inputs.files.push_back(std::move(file));
         }
-        if(!reader.read_words(artifact.vertex_words, vertex_count)
+        if(!reader.read_entry(artifact.vertex_entry) || !reader.read_entry(artifact.fragment_entry)
+            || !reader.read_words(artifact.vertex_words, vertex_count)
             || !reader.read_words(artifact.fragment_words, fragment_count) || !reader.at_end())
             return std::nullopt;
         return artifact;
@@ -142,7 +155,10 @@ namespace Comet {
 
     Result<void> ShaderProgramArtifact::publish_atomic(const std::filesystem::path& path) const {
         if(!handle || inputs.files.empty() || inputs.files.size() > MAX_INPUTS
-            || !valid_words(vertex_words) || !valid_words(fragment_words))
+            || !valid_words(vertex_words) || !valid_words(fragment_words) || vertex_entry.empty()
+            || vertex_entry.size() > MAX_ENTRY_BYTES || vertex_entry.find('\0') != std::string::npos
+            || fragment_entry.empty() || fragment_entry.size() > MAX_ENTRY_BYTES
+            || fragment_entry.find('\0') != std::string::npos)
             return Result<void>::failure("Invalid shader program artifact");
         if(vertex_words.size() + fragment_words.size() > MAX_BYTES / sizeof(std::uint32_t))
             return Result<void>::failure("Shader program artifact exceeds size limit");
@@ -158,6 +174,13 @@ namespace Comet {
             append_u64(payload, file.size);
             append_u64(payload, file.hash);
         }
+        const auto append_entry = [&](const std::string& entry) {
+            append_u64(payload, entry.size());
+            for(const unsigned char character : entry)
+                payload.push_back(std::byte(character));
+        };
+        append_entry(vertex_entry);
+        append_entry(fragment_entry);
         const auto append_words = [&](const std::vector<std::uint32_t>& words) {
             for(const auto word : words)
                 for(unsigned shift = 0; shift < 32; shift += 8)

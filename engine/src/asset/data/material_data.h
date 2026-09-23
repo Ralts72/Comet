@@ -11,6 +11,7 @@
 namespace Comet {
     struct MaterialData {
         std::string template_name;
+        AssetHandle shader_program;
         std::map<std::string, AssetHandle> texture_properties;
         std::map<std::string, float> scalar_properties;
         std::map<std::string, Math::Vec4> vector_properties;

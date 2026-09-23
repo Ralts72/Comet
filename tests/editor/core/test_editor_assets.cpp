@@ -648,7 +648,8 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(document.open(project.startup_scene().string()));
         ASSERT_NE(active, nullptr);
         EXPECT_EQ(document.get_path(), path);
-        EXPECT_EQ(missing, expected_meshes);
+        // 项目 Shader 先完成后台编译，其材质和 Mesh 初次打开时都会暂缺。
+        EXPECT_EQ(missing, expected_meshes + 1);
         EXPECT_EQ(factory.mesh_creation_count(), 0);
         EXPECT_EQ(active->entity_count(), initial_entities);
         const auto references = components.collect_asset_references(*active);

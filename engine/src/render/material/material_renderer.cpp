@@ -1,6 +1,7 @@
 #include "render/material/material_renderer.h"
 #include "render/material/material_layout.h"
 #include "asset/registry.h"
+#include "asset/artifact/shader_program_artifact.h"
 
 #include "diagnostics/logger.h"
 #include "graphics/device.h"
@@ -52,7 +53,9 @@ namespace Comet {
         }
     }
 
-    MaterialRenderer::MaterialRenderer(Device& device) : m_device(device) {}
+    MaterialRenderer::MaterialRenderer(Device& device, PipelineManager& pipelines,
+        const SampleCount samples, const AssetRegistry* assets)
+        : m_device(device), m_pipeline_manager(pipelines), m_samples(samples), m_assets(assets) {}
 
     MaterialRenderer::Statistics MaterialRenderer::get_statistics() const {
         auto statistics = m_statistics;
@@ -72,13 +75,17 @@ namespace Comet {
         });
         std::erase_if(m_unsupported,
             [&](const auto& entry) { return !assets.resolve<Material>(entry.first); });
+        std::erase_if(m_project_pipelines, [&](const auto& entry) {
+            return !assets.resolve<ShaderProgramArtifact>(entry.first.first);
+        });
     }
 
     Result<std::unique_ptr<MaterialRenderer>, GraphicsError> MaterialRenderer::create(
         Device& device, PipelineManager& pipelines, RenderResources& resources,
-        const uint32_t frame_slot_count, const SampleCount samples,
-        const MaterialShaders* shaders) {
-        auto candidate = std::unique_ptr<MaterialRenderer>(new MaterialRenderer(device));
+        const uint32_t frame_slot_count, const SampleCount samples, const MaterialShaders* shaders,
+        const AssetRegistry* assets) {
+        auto candidate = std::unique_ptr<MaterialRenderer>(
+            new MaterialRenderer(device, pipelines, samples, assets));
         if(auto result =
                 candidate->initialize(pipelines, resources, frame_slot_count, samples, shaders);
             !result)
@@ -204,9 +211,9 @@ namespace Comet {
         ReloadReport report;
         auto candidates = m_pipelines;
         const auto add_builtin = [&](const std::shared_ptr<Shader>& vertex, const std::string& name,
-                                     std::span<const uint32_t> words,
+                                     std::span<const uint32_t> words, const std::string& entry,
                                      std::string_view layout_name) {
-            auto fragment = Shader::create(m_device, name, words);
+            auto fragment = Shader::create(m_device, name, words, entry);
             if(!fragment)
                 return Result<void, GraphicsError>::failure(fragment.error());
             const auto old = m_pipelines.find(std::string(layout_name));
@@ -239,10 +246,11 @@ namespace Comet {
                 continue;
             const auto& code = found->second;
             const std::string name(definition.name);
-            auto vertex = Shader::create(m_device, name, code.vertex);
+            auto vertex = Shader::create(m_device, name, code.vertex, code.vertex_entry);
             if(!vertex)
                 return Reload::failure(vertex.error());
-            if(auto result = add_builtin(vertex.value(), name, code.fragment, definition.material);
+            if(auto result = add_builtin(
+                   vertex.value(), name, code.fragment, code.fragment_entry, definition.material);
                 !result)
                 return Reload::failure(result.error());
         }
@@ -254,7 +262,7 @@ namespace Comet {
         auto material_candidates = m_materials;
         report.candidate_copy_ms = elapsed(copy_start);
         for(auto& [handle, cached] : material_candidates) {
-            if(!cached.resources)
+            if(!cached.resources || cached.resources->pipeline->shader_program)
                 continue;
             const auto& pipeline = candidates.at(cached.resources->prepared->layout->get_name());
             if(pipeline == cached.resources->pipeline)
@@ -298,19 +306,29 @@ namespace Comet {
         using Preparation = Result<MaterialUpdate, GraphicsError>;
         if(!handle || !material)
             return Preparation::failure({"Material update requires an identity and source"});
-        const auto pipeline = m_pipelines.find(material->get_template_name());
-        if(pipeline == m_pipelines.end())
-            return Preparation::failure({"Material template is not available"});
+        std::shared_ptr<const PipelineState> pipeline;
+        if(material->get_shader_program()) {
+            auto project =
+                project_pipeline(material->get_shader_program(), material->get_template_name());
+            if(!project)
+                return Preparation::failure(project.error());
+            pipeline = std::move(project).value();
+        } else if(const auto builtin = m_pipelines.find(material->get_template_name());
+            builtin != m_pipelines.end()) {
+            pipeline = builtin->second;
+        }
+        if(!pipeline)
+            return Preparation::failure({"Material Shader program is not available"});
         MaterialUpdate update;
         update.m_owner = this;
         update.m_handle = handle;
-        auto prepared = update.m_prepared.prepare(handle, material, pipeline->second->layout);
+        auto prepared = update.m_prepared.prepare(handle, material, pipeline->layout);
         if(!prepared)
             return Preparation::failure({prepared.error()});
         std::shared_ptr<MaterialResources> previous;
         if(const auto cached = m_materials.find(handle); cached != m_materials.end())
             previous = cached->second.resources;
-        auto resources = create_material(prepared.value(), pipeline->second, previous);
+        auto resources = create_material(prepared.value(), pipeline, previous);
         if(!resources)
             return Preparation::failure(resources.error());
         update.m_resources = std::move(resources).value();
@@ -327,15 +345,90 @@ namespace Comet {
     }
 
     Result<std::shared_ptr<const MaterialRenderer::PipelineState>, GraphicsError> MaterialRenderer::
+        project_pipeline(const AssetHandle handle, const std::string& template_name) {
+        using Selection = Result<std::shared_ptr<const PipelineState>, GraphicsError>;
+        if(!m_assets)
+            return Selection::success(nullptr);
+        const auto source = m_assets->resolve<ShaderProgramArtifact>(handle);
+        if(!source)
+            return Selection::success(nullptr);
+        const auto builtin = m_pipelines.find(template_name);
+        if(builtin == m_pipelines.end())
+            return Selection::success(nullptr);
+        auto& active = m_project_pipelines[{handle, template_name}];
+        if(active.source == source || active.failed_source == source)
+            return Selection::success(active.pipeline);
+
+        const auto reject = [&](const GraphicsError& error) -> Selection {
+            if(error.is_device_lost())
+                return Selection::failure(error);
+            LOG_ERROR("Cannot publish project Shader program {} for '{}': {}; previous version {}",
+                handle.value(), template_name, error.message,
+                active.pipeline ? "retained" : "unavailable");
+            active.failed_source = source;
+            return Selection::success(active.pipeline);
+        };
+        if(auto checked = validate_material_shaders(
+               {{template_name, {source->vertex_words, source->fragment_words, source->vertex_entry,
+                                    source->fragment_entry}}});
+            !checked)
+            return reject({checked.error()});
+        const auto name = "project Shader " + std::to_string(handle.value());
+        auto vertex = Shader::create(m_device, name, source->vertex_words, source->vertex_entry);
+        if(!vertex)
+            return reject(vertex.error());
+        auto fragment =
+            Shader::create(m_device, name, source->fragment_words, source->fragment_entry);
+        if(!fragment)
+            return reject(fragment.error());
+        auto reflected =
+            MaterialLayout::reflect(builtin->second->layout, fragment.value()->get_interface());
+        if(!reflected)
+            return reject({reflected.error()});
+        if(reflected.value() != builtin->second->layout)
+            return reject({"Project Shader changes the selected template's property layout"});
+        auto candidate = create_pipeline(m_pipeline_manager, vertex.value(), fragment.value(),
+            reflected.value(), m_samples, builtin->second->material_layout, handle);
+        if(!candidate)
+            return reject(candidate.error());
+
+        auto prepared = m_prepared;
+        auto materials = m_materials;
+        for(auto& [material_handle, cached] : materials) {
+            if(!cached.resources || cached.resources->pipeline->shader_program != handle
+                || cached.resources->pipeline->layout->get_name() != template_name)
+                continue;
+            auto rebound = prepared.rebind(material_handle, candidate.value()->layout);
+            if(!rebound)
+                return reject({rebound.error()});
+            auto resources = create_material(rebound.value(), candidate.value(), cached.resources);
+            if(!resources)
+                return reject(resources.error());
+            cached.resources = std::move(resources).value();
+            cached.failed_candidate.reset();
+            cached.failed_pipeline.reset();
+            cached.preparation_error.clear();
+        }
+        m_prepared.swap(prepared);
+        m_materials.swap(materials);
+        active.source = std::move(source);
+        active.failed_source.reset();
+        active.pipeline = std::move(candidate).value();
+        return Selection::success(active.pipeline);
+    }
+
+    Result<std::shared_ptr<const MaterialRenderer::PipelineState>, GraphicsError> MaterialRenderer::
         create_pipeline(PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
-            const SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout) {
+            const SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout,
+            const AssetHandle shader_program) {
         using Creation = Result<std::shared_ptr<const PipelineState>, GraphicsError>;
         if(!layout)
             return Creation::failure({"Missing material layout"});
         if(auto checked = layout->validate(fragment->get_interface()); !checked)
             return Creation::failure({checked.error()});
         auto state = std::make_shared<PipelineState>();
+        state->shader_program = shader_program;
         state->layout = std::move(layout);
         if(!material_layout) {
             DescriptorSetLayoutBindings bindings;
@@ -381,14 +474,24 @@ namespace Comet {
         using Preparation = Result<std::shared_ptr<MaterialResources>, GraphicsError>;
         if(!material.resource)
             return Preparation::success(nullptr);
-        const auto pipeline = m_pipelines.find(material.resource->get_template_name());
-        if(pipeline == m_pipelines.end()) {
+        std::shared_ptr<const PipelineState> pipeline;
+        if(material.resource->get_shader_program()) {
+            auto project = project_pipeline(
+                material.resource->get_shader_program(), material.resource->get_template_name());
+            if(!project)
+                return Preparation::failure(project.error());
+            pipeline = std::move(project).value();
+        } else if(const auto builtin = m_pipelines.find(material.resource->get_template_name());
+            builtin != m_pipelines.end()) {
+            pipeline = builtin->second;
+        }
+        if(!pipeline) {
             const auto [entry, inserted] =
                 m_unsupported.try_emplace(material.material_handle, frame_serial);
             entry->second = frame_serial;
             if(inserted) {
-                LOG_ERROR("Unsupported material layout '{}' for handle {}",
-                    material.resource->get_template_name(), material.material_handle.value());
+                LOG_ERROR("Unavailable Shader program for material handle {} and template '{}'",
+                    material.material_handle.value(), material.resource->get_template_name());
             }
             return Preparation::success(nullptr);
         }
@@ -399,7 +502,7 @@ namespace Comet {
             if(error.is_device_lost())
                 return Preparation::failure(error);
             std::shared_ptr<MaterialResources> previous;
-            if(cached.resources && cached.resources->pipeline == pipeline->second)
+            if(cached.resources && cached.resources->pipeline == pipeline)
                 previous = cached.resources;
             if(cached.preparation_error != error.message) {
                 LOG_ERROR("Cannot prepare material for handle {}: {}; previous version {}",
@@ -409,24 +512,24 @@ namespace Comet {
             }
             return Preparation::success(previous);
         };
-        const auto preparation = m_prepared.prepare(
-            material.material_handle, material.resource, pipeline->second->layout);
+        const auto preparation =
+            m_prepared.prepare(material.material_handle, material.resource, pipeline->layout);
         if(!preparation)
             return keep_previous({preparation.error()});
         const auto& prepared = preparation.value();
         if(cached.resources && cached.resources->prepared == prepared
-            && cached.resources->pipeline == pipeline->second)
+            && cached.resources->pipeline == pipeline)
             return Preparation::success(cached.resources);
-        if(cached.failed_candidate == prepared && cached.failed_pipeline.lock() == pipeline->second
+        if(cached.failed_candidate == prepared && cached.failed_pipeline.lock() == pipeline
             && frame_serial < cached.retry_after_serial) {
-            if(cached.resources && cached.resources->pipeline == pipeline->second)
+            if(cached.resources && cached.resources->pipeline == pipeline)
                 return Preparation::success(cached.resources);
             return Preparation::success(nullptr);
         }
-        auto candidate = create_material(prepared, pipeline->second, cached.resources);
+        auto candidate = create_material(prepared, pipeline, cached.resources);
         if(!candidate) {
             cached.failed_candidate = prepared;
-            cached.failed_pipeline = pipeline->second;
+            cached.failed_pipeline = pipeline;
             cached.retry_after_serial = frame_serial + 60;
             return keep_previous(candidate.error());
         }

@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -28,6 +29,7 @@ namespace Comet {
     class Sampler;
     class Shader;
     class ImageView;
+    class ShaderProgramArtifact;
 
     class COMET_API MaterialRenderer {
         struct MaterialResources;
@@ -73,7 +75,8 @@ namespace Comet {
 
         static Result<std::unique_ptr<MaterialRenderer>, GraphicsError> create(Device& device,
             PipelineManager& pipelines, RenderResources& resources, uint32_t frame_slot_count,
-            SampleCount samples, const MaterialShaders* shaders = nullptr);
+            SampleCount samples, const MaterialShaders* shaders = nullptr,
+            const AssetRegistry* assets = nullptr);
         // 帧边界提交任意完整顶点/片元程序对；所有候选成功后才替换。
         Result<ReloadReport, GraphicsError> reload_shaders(
             PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples);
@@ -91,15 +94,22 @@ namespace Comet {
         void collect_removed_assets(const AssetRegistry& assets);
 
     private:
-        explicit MaterialRenderer(Device& device);
+        MaterialRenderer(Device& device, PipelineManager& pipelines, SampleCount samples,
+            const AssetRegistry* assets);
         Result<void, GraphicsError> initialize(PipelineManager& pipelines,
             RenderResources& resources, uint32_t frame_slot_count, SampleCount samples,
             const MaterialShaders* shaders);
 
         struct PipelineState {
+            AssetHandle shader_program;
             std::shared_ptr<const MaterialLayout> layout;
             std::shared_ptr<DescriptorSetLayout> material_layout;
             std::shared_ptr<Pipeline> pipeline;
+        };
+        struct ProjectPipeline {
+            std::shared_ptr<const ShaderProgramArtifact> source;
+            std::shared_ptr<const ShaderProgramArtifact> failed_source;
+            std::shared_ptr<const PipelineState> pipeline;
         };
         struct FrameResources {
             std::shared_ptr<DescriptorSetLayout> layout;
@@ -137,7 +147,10 @@ namespace Comet {
         Result<std::shared_ptr<const PipelineState>, GraphicsError> create_pipeline(
             PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
-            SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout);
+            SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout,
+            AssetHandle shader_program = INVALID_ASSET_HANDLE);
+        Result<std::shared_ptr<const PipelineState>, GraphicsError> project_pipeline(
+            AssetHandle handle, const std::string& template_name);
         // 成功空值表示本次无可绘制版本；失败表示不能继续当前帧。
         [[nodiscard]] Result<std::shared_ptr<MaterialResources>, GraphicsError> prepare_material(
             const MaterialBinding& material, uint64_t frame_serial);
@@ -147,12 +160,16 @@ namespace Comet {
             const std::shared_ptr<MaterialResources>& previous);
 
         Device& m_device;
+        PipelineManager& m_pipeline_manager;
+        SampleCount m_samples;
+        const AssetRegistry* m_assets;
         std::shared_ptr<Sampler> m_sampler;
         std::shared_ptr<Texture> m_white_texture;
         std::shared_ptr<Environment> m_empty_environment;
         std::shared_ptr<DescriptorSetLayout> m_frame_layout;
         std::vector<std::shared_ptr<FrameResources>> m_frames;
         std::unordered_map<std::string, std::shared_ptr<const PipelineState>> m_pipelines;
+        std::map<std::pair<AssetHandle, std::string>, ProjectPipeline> m_project_pipelines;
         MaterialRuntimeCache m_prepared;
         std::unordered_map<AssetHandle, CachedMaterial> m_materials;
         std::unordered_map<AssetHandle, uint64_t> m_unsupported;

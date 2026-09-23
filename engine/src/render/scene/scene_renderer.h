@@ -16,6 +16,7 @@
 
 namespace Comet {
     class Device;
+    class AssetRegistry;
     class RenderResources;
     class FrameScheduler;
     class RenderDiagnostics;
@@ -27,7 +28,8 @@ namespace Comet {
 
     class COMET_API SceneRenderer {
     public:
-        SceneRenderer(Device& device, const Config::Vulkan& vulkan, const Config::Render& render);
+        SceneRenderer(Device& device, const AssetRegistry& assets, const Config::Vulkan& vulkan,
+            const Config::Render& render);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
         [[nodiscard]] MaterialRenderer::Statistics get_material_statistics() const;
@@ -85,6 +87,7 @@ namespace Comet {
             const LightingData& lighting);
 
         Device& m_device;
+        const AssetRegistry& m_assets;
         Format m_offscreen_format;
         float m_hdr_headroom;
         Format m_depth_format;

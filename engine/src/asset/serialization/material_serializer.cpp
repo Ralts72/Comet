@@ -55,6 +55,8 @@ namespace Comet {
             writer.begin_object();
             writer.field("version", std::uint64_t(MaterialSerializer::FORMAT_VERSION));
             writer.field("template", data.template_name);
+            if(data.shader_program)
+                writer.field("shader_program", data.shader_program.value());
 
             writer.key("properties");
             writer.begin_object();
@@ -90,7 +92,8 @@ namespace Comet {
         }
 
         Result<MaterialData> decode_material(const Json::Node& root, const Json::Context& context) {
-            if(auto valid = context.validate_keys(root, {"version", "template", "properties"});
+            if(auto valid = context.validate_keys(
+                   root, {"version", "template", "shader_program", "properties"});
                 !valid)
                 return Result<MaterialData>::failure(valid.error());
 
@@ -112,6 +115,18 @@ namespace Comet {
             if(data.template_name.empty()) {
                 return Result<MaterialData>::failure(
                     context.error("template", "expected a non-empty string"));
+            }
+
+            Json::Node program;
+            if(!root["shader_program"].get(program)) {
+                const auto handle = context.read_scalar<AssetHandle::ValueType>(
+                    program, "shader_program", "a non-zero unsigned integer");
+                if(!handle)
+                    return Result<MaterialData>::failure(handle.error());
+                data.shader_program = AssetHandle(handle.value());
+                if(!data.shader_program)
+                    return Result<MaterialData>::failure(
+                        context.error("shader_program", "expected a non-zero value"));
             }
 
             const auto properties = context.required_child(root, "properties");
