@@ -22,7 +22,9 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 
 `runtime/` 管应用入口与宿主生命周期；`scene/` 管 ECS 数据、组件元信息与调度，System 接口及具体行为集中在 `scene/systems/`。
 `input/` 集中物理采集、门控、动作映射和阶段消费；从 `runtime_input.h` 看编排，从 `input_state.h` 看只读消费接口。
-`asset/data/` 保存 Mesh、Texture、Material 的 CPU 数据。
+`asset/data/` 保存 Mesh、Texture、Material 和 Shader 程序的 CPU 数据。项目 `.shader` 文件以源资产 Handle 组合 vertex／fragment
+阶段及入口，旁边的 `.meta` 保持程序身份；编辑器后台编译后把可重建的 CPU 字节码缓存到项目 `.comet/cache/shaders/`。
+当前项目程序尚未接入材质选择或 GPU Pipeline，不能把“编译成功”理解为画面已切换。
 `render/material/` 聚合材质定义、准备缓存与绘制，`render/debug/` 聚合辅助线，`render/passes/` 保存具体渲染步骤。
 `RenderResources` 组织 Mesh/Texture 创建、上传和 Sampler 复用；资产身份缓存仍只由 `AssetRegistry` 管理。
 编辑器的 `ProjectPanel` 位于 `assets/project_panel.*`，`ViewportPanel` 位于 `viewport/viewport_panel.*`，

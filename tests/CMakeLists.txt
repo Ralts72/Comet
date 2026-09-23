@@ -43,6 +43,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_scene_document.cpp
         editor/core/test_selection.cpp
         editor/core/test_shader_reload.cpp
+        editor/core/test_shader_program_import.cpp
         editor/core/test_transform_gizmo.cpp
         editor/core/test_viewport_layout.cpp
         graphics/test_device_capability.cpp

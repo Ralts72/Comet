@@ -4,9 +4,13 @@
 #include "asset/source_monitor.h"
 #include "assets/asset_edit.h"
 #include "asset/reference.h"
+#include "assets/shader_program_import.h"
+#include <memory>
+#include <optional>
 #include <set>
 #include <unordered_set>
 #include <unordered_map>
+#include <vector>
 
 namespace Comet {
     class Scene;
@@ -45,15 +49,17 @@ namespace CometEditor {
         [[nodiscard]] const Comet::AssetDatabase& database() const {
             return m_manager.get_database();
         }
+        [[nodiscard]] std::shared_ptr<const Comet::ShaderProgramArtifact> compiled_shader_program(
+            Comet::AssetHandle handle) const;
 
     private:
         void observe(const Comet::AssetSourceMonitor::PollResult& result);
         void accept_scan(const Comet::AssetScanReport& report);
         void acknowledge(const std::filesystem::path& path);
-
         Comet::AssetManager m_manager;
-        std::filesystem::path m_assets_root;
+        Comet::ProjectPaths m_paths;
         Comet::AssetSourceMonitor m_monitor;
+        ShaderProgramImportService m_program_imports;
         std::unordered_map<Comet::AssetHandle, Comet::MeshImportMode> m_pending_mesh_imports;
         std::string m_monitor_error;
         std::unordered_set<Comet::AssetHandle> m_reference_changes;

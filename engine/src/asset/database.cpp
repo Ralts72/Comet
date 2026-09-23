@@ -1,6 +1,7 @@
 #include "asset/database.h"
 #include "asset/data/material_data.h"
 #include "asset/serialization/material_serializer.h"
+#include "asset/serialization/shader_program_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 
 #include <algorithm>
@@ -51,6 +52,8 @@ namespace Comet {
                 || extension == ".geom") {
                 return AssetType::Shader;
             }
+            if(extension == ".shader")
+                return AssetType::ShaderProgram;
             if(extension == ".lua")
                 return AssetType::Script;
             if(extension == ".wav")
@@ -61,7 +64,8 @@ namespace Comet {
         }
 
         bool is_import_source_only_path(const std::filesystem::path& path) {
-            return lowercase_extension(path) == ".bin";
+            const auto extension = lowercase_extension(path);
+            return extension == ".bin" || extension == ".glsl";
         }
 
         std::string path_text(const std::filesystem::path& path) {
@@ -396,6 +400,38 @@ namespace Comet {
             for(const AssetHandle dependency : material_record->dependencies) {
                 dependents_by_dependency[dependency].push_back(material_record->handle);
             }
+        }
+
+        const ShaderProgramSerializer program_serializer;
+        for(auto& [handle, record] : assets) {
+            if(record.type != AssetType::ShaderProgram)
+                continue;
+            const auto data = program_serializer.load(assets_root / record.path);
+            if(!data) {
+                add_issue(report, record.path, data.error());
+                continue;
+            }
+            const auto index_stage = [&](const std::string_view stage,
+                                         const std::string_view expected_extension,
+                                         const AssetHandle source) {
+                const auto dependency = assets.find(source);
+                const auto label =
+                    std::string(stage) + " source handle " + std::to_string(source.value());
+                if(dependency == assets.end())
+                    add_issue(report, record.path, label + " is not indexed");
+                else if(dependency->second.type != AssetType::Shader)
+                    add_issue(report, record.path, label + " must reference a Shader asset");
+                else if(lowercase_extension(dependency->second.path) != expected_extension)
+                    add_issue(report, record.path,
+                        label + " must reference a " + std::string(expected_extension) + " source");
+                record.dependencies.push_back(source);
+                dependents_by_dependency[source].push_back(handle);
+            };
+            index_stage("vertex", ".vert", data.value().vertex.source);
+            index_stage("fragment", ".frag", data.value().fragment.source);
+            std::ranges::sort(record.dependencies);
+            record.dependencies.erase(
+                std::ranges::unique(record.dependencies).begin(), record.dependencies.end());
         }
 
         for(auto& dependency : dependents_by_dependency) {

@@ -4,19 +4,22 @@
 #include <utility>
 #include "graphics/result.h"
 #include "asset/serialization/material_serializer.h"
+#include "core/task_scheduler.h"
+
+#include <algorithm>
 
 namespace CometEditor {
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
         Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler)
-        : m_manager(paths, registry, factory, scheduler), m_assets_root(paths.assets()),
-          m_monitor(paths.assets()) {}
+        : m_manager(paths, registry, factory, scheduler), m_paths(std::move(paths)),
+          m_monitor(m_paths.assets()), m_program_imports(m_manager, m_paths, scheduler) {}
 
     Comet::Result<Comet::MaterialData> EditorAssets::read_material(const AssetRead& request) const {
         const auto* record = database().find(request.handle);
         if(!record || record->type != Comet::AssetType::Material
             || !database().is_current(request.handle, request.revision))
             return Comet::Result<Comet::MaterialData>::failure("Material read request is stale");
-        return Comet::MaterialSerializer{}.load(m_assets_root / record->path);
+        return Comet::MaterialSerializer{}.load(m_paths.assets() / record->path);
     }
 
     void EditorAssets::observe(const Comet::AssetSourceMonitor::PollResult& result) {
@@ -41,6 +44,7 @@ namespace CometEditor {
 
     void EditorAssets::accept_scan(const Comet::AssetScanReport& report) {
         if(report.snapshot_updated) {
+            m_program_imports.accept_scan(report);
             m_reference_changes.insert(report.added_assets.begin(), report.added_assets.end());
             m_reference_changes.insert(
                 report.modified_assets.begin(), report.modified_assets.end());
@@ -83,6 +87,7 @@ namespace CometEditor {
             report = m_manager.scan();
             accept_scan(*report);
         }
+        m_program_imports.update();
         for(auto request = m_pending_mesh_imports.begin();
             request != m_pending_mesh_imports.end();) {
             const auto* record = database().find(request->first);
@@ -101,6 +106,11 @@ namespace CometEditor {
         m_reference_changes.insert(completed.value().begin(), completed.value().end());
         return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::success(
             std::move(report));
+    }
+
+    std::shared_ptr<const Comet::ShaderProgramArtifact> EditorAssets::compiled_shader_program(
+        const Comet::AssetHandle handle) const {
+        return m_program_imports.compiled_program(handle);
     }
 
     Comet::AssetScanReport EditorAssets::move(

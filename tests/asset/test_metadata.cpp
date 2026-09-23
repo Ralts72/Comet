@@ -77,7 +77,7 @@ namespace Comet::Tests {
 
     TEST(AssetMetadataTest, SupportsDeclaredAssetTypes) {
         constexpr AssetType types[] = {AssetType::Texture, AssetType::Material, AssetType::Mesh,
-            AssetType::Shader, AssetType::Scene, AssetType::Audio};
+            AssetType::Shader, AssetType::ShaderProgram, AssetType::Scene, AssetType::Audio};
 
         for(const AssetType type : types) {
             SCOPED_TRACE(std::string(to_string(type)));

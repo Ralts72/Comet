@@ -8,6 +8,7 @@ set(SOURCES
         src/audio/audio.cpp
         src/asset/artifact/mesh_artifact.cpp
         src/asset/artifact/environment_artifact.cpp
+        src/asset/artifact/shader_program_artifact.cpp
         src/asset/database.cpp
         src/asset/handle.cpp
         src/asset/import_settings.cpp
@@ -26,6 +27,7 @@ set(SOURCES
         src/asset/source_monitor.cpp
         src/asset/source_operations.cpp
         src/asset/serialization/material_serializer.cpp
+        src/asset/serialization/shader_program_serializer.cpp
         src/asset/serialization/metadata_serializer.cpp
         src/common/json.cpp
         src/common/file_io.cpp

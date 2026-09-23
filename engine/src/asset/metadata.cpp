@@ -17,6 +17,8 @@ namespace Comet {
                 return "mesh";
             case AssetType::Shader:
                 return "shader";
+            case AssetType::ShaderProgram:
+                return "shader_program";
             case AssetType::Scene:
                 return "scene";
             case AssetType::Unknown:
@@ -40,6 +42,8 @@ namespace Comet {
             return AssetType::Mesh;
         if(value == "shader")
             return AssetType::Shader;
+        if(value == "shader_program")
+            return AssetType::ShaderProgram;
         if(value == "scene")
             return AssetType::Scene;
         return std::nullopt;

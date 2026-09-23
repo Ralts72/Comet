@@ -600,7 +600,8 @@ namespace CometEditor::Tests {
         const auto directory = Comet::ProjectPaths(root).assets();
         const auto source = std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets";
         for(const auto& entry : std::filesystem::recursive_directory_iterator(source)) {
-            if(!entry.is_regular_file() || entry.path().extension() == ".hdr")
+            if(!entry.is_regular_file() || entry.path().extension() == ".hdr"
+                || entry.path().filename() == ".DS_Store")
                 continue;
             const auto target = directory / entry.path().lexically_relative(source);
             std::filesystem::create_directories(target.parent_path());

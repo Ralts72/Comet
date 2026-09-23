@@ -17,6 +17,7 @@ namespace Comet {
         Material,
         Mesh,
         Shader,
+        ShaderProgram,
         Scene,
         Environment,
         Script,

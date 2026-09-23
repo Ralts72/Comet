@@ -102,6 +102,8 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> reload_material(AssetHandle handle);
 
         [[nodiscard]] const AssetDatabase& get_database() const noexcept { return m_database; }
+        [[nodiscard]] Result<void> update_import_dependencies(
+            AssetHandle handle, std::vector<std::filesystem::path> dependencies);
 
     private:
         void apply_scan_report(const AssetScanReport& report);

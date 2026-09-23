@@ -111,6 +111,11 @@ namespace Comet {
 
     AssetManager::~AssetManager() = default;
 
+    Result<void> AssetManager::update_import_dependencies(
+        const AssetHandle handle, std::vector<std::filesystem::path> dependencies) {
+        return m_database.update_import_dependencies(handle, std::move(dependencies));
+    }
+
     AssetScanReport AssetManager::scan() {
         AssetScanReport report = m_database.scan();
         apply_scan_report(report);
