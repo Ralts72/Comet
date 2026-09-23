@@ -115,6 +115,7 @@ set(SOURCES
         src/scene/scene_serializer.cpp
         src/scene/scene_runtime.cpp
         src/scene/systems/camera_controller.cpp
+        src/scene/systems/physics_system.cpp
         src/scene/script_component.cpp
         src/scene/systems/script_system.cpp
         src/scripting/script.cpp
@@ -132,6 +133,7 @@ target_link_libraries(engine
         EnTT::EnTT
         PRIVATE
         comet_lua
+        Jolt::Jolt
         glfw
         Threads::Threads
         stb_image

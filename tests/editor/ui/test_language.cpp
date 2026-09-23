@@ -88,6 +88,10 @@ File: 文件
         {
             const Ui::LanguageScope chinese(Ui::Language::Chinese, &translations);
             EXPECT_STREQ(Ui::text("Inspector"), "属性");
+            EXPECT_STREQ(Ui::text("Rigid Body"), "刚体");
+            EXPECT_STREQ(Ui::text("Collider"), "碰撞体");
+            EXPECT_STREQ(Ui::text("Box Half Extents"), "盒体半尺寸");
+            EXPECT_STREQ(Ui::text("Dynamic"), "动态");
             EXPECT_EQ(ImHashStr(Ui::label("Inspector").c_str()), ImHashStr("Inspector"));
             EXPECT_EQ(
                 ImHashStr(Ui::label("Near Clip").c_str(), 0, 123), ImHashStr("Near Clip", 0, 123));

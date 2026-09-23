@@ -1,6 +1,6 @@
 # Comet 引擎
 
-Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui 编辑器，目前重点是场景编辑、资产导入和单视口交互。
+Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui 编辑器，目前重点是场景编辑、资产导入和单视口交互。Play 与示例 app 还支持固定步刚体模拟。
 
 ## 项目结构
 
@@ -33,6 +33,7 @@ InspectorPanel 分发选择并编辑场景属性，AssetInspector 独立持有�
 需要 CMake 3.31+、C++20 编译器、Vulkan SDK、Git LFS 和 Submodule。
 SPIRV-Reflect 以固定版本 submodule 接入，仅作为 engine 的私有静态反射依赖；不构建其工具与测试。
 glslang 以正式版本 `16.6.0` 的固定提交作为 submodule，由构建生成 `comet_shader_compiler`；不再要求额外安装 `glslangValidator`。
+Jolt Physics 以 `v5.6.0` 的固定提交作为 submodule，只构建 CPU 刚体库；Scene 只保存刚体／碰撞体组件，物理世界在 Play／app 的 System 中创建。
 首次构建会增加源编译器的编译耗时，但 engine／app 不链接该编译库，发布运行不需要源编译器。
 
 ```bash
@@ -77,7 +78,7 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 
 构建 app/editor 需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS/BENCHMARKS`。
 编辑器源码由 `editor_core`（不依赖 ImGui）和 `editor_ui` 两个内部库管理，入口与测试共同链接。
-物理目录按功能聚合，编译目标按依赖划分；例如 `scene/scene_document` 属于 core，`scene/hierarchy` 属于 ui。
+源码目录按功能聚合，编译目标按依赖划分；例如 `scene/scene_document` 属于 core，`scene/hierarchy` 属于 ui。
 仅启用 tests 时仍构建 editor_core，不构建 UI；新增编辑器源码只需维护所属库的清单。
 `tests/support/` 提供测试专用的 ImGui Context、临时目录与 Worker 同步辅助，不进入引擎。
 测试分为 `unit_testing`（CPU 逻辑）和 `integration_testing`（图形／UI／运行时）；
@@ -304,6 +305,13 @@ app 与 editor Play 共用 SceneRuntime：先固定更新，再普通更新，�
 默认固定步 1/60 秒，每帧最多补算 8 步；暂停仍允许 UI 和资源维护，单步只推进一次固定更新和普通更新。
 Play 修改只作用于副本；脚本启动或运行失败会记录错误并恢复 Edit，不关闭编辑器。设备丢失等渲染故障仍退出。
 独立 app 默认在运行错误时退出，不自动重试已部分执行的一帧。
+
+demo 场景的 Ground 有静态盒碰撞体，Falling Cube 有动态刚体；打开编辑器点击 Play（或运行 app）即可看到方块落地，
+Edit 中位置保持原样。刚体与碰撞体在 Inspector 添加、编辑并保存到 `.scene`；物理世界不会保存，Stop 即销毁。
+只添加碰撞体不会参与模拟，还需添加刚体；静态刚体本身不会下落，也只有与其他物理 body 接触时才有碰撞效果。
+demo 的旋转立方体由 Lua 驱动，若同时设为动态刚体，脚本与物理都会写它的旋转；首版尚无专用于脚本驱动障碍物的运动学刚体。
+目前只支持无父级实体的盒／球碰撞体；盒尺寸乘以实体正缩放，球体要求均匀正缩放。
+首版在主线程模拟，最多 1024 个刚体；碰撞事件、约束和角色控制器尚未接入。
 
 Lua 的 `properties` 声明显式导出的 bool／float／Vec3／string 配置；只有编辑过的字段保存为实体覆盖。
 Inspector 切换／清空 Script 引用会同时清空覆盖，一次 Undo 恢复旧脚本和参数；加载失败不改原绑定。

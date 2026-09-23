@@ -94,4 +94,18 @@ namespace Comet {
         // 每个窗口逻辑像素对应的转角，单位为度。
         float look_sensitivity = 0.2f;
     };
+
+    enum class BodyMotion { Static, Dynamic };
+
+    struct COMET_API RigidBodyComponent {
+        BodyMotion motion = BodyMotion::Dynamic;
+    };
+
+    enum class ColliderShape { Box, Sphere };
+
+    struct COMET_API ColliderComponent {
+        ColliderShape shape = ColliderShape::Box;
+        Math::Vec3 half_extents{0.5f};
+        float radius = 0.5f;
+    };
 }

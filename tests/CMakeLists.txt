@@ -59,6 +59,7 @@ set(UNIT_TEST_SOURCES
         scene/test_camera_controller.cpp
         scene/test_component_registry.cpp
         scene/test_entity_uuid.cpp
+        scene/test_physics_system.cpp
         scene/test_scene.cpp
         scene/test_scene_runtime.cpp
         scene/test_script_system.cpp

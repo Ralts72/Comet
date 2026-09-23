@@ -28,3 +28,6 @@
 [submodule "3rdparty/lua"]
 	path = 3rdparty/lua
 	url = https://github.com/lua/lua.git
+[submodule "3rdparty/JoltPhysics"]
+	path = 3rdparty/JoltPhysics
+	url = https://github.com/jrouwe/JoltPhysics.git

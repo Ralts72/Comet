@@ -11,6 +11,7 @@
 | `input/runtime_input.h` | 运行域输入：序号去重、固定步累积、动作求值、暂停基线和重置 |
 | `input/input_state.h` | 同一授权／阶段的物理与动作只读快照，System／Lua 的统一消费入口 |
 | `scene/systems/script_system.h` | Lua 行为实例的启动、阶段更新、寿命复核与逆序清理；字段仍属于 Scene 组件 |
+| `scene/systems/physics_system.h` | 固定步 Jolt 世界，按 Scene 刚体／碰撞体组件同步；只在运行态持有物理对象 |
 | `render/renderer.h` | 渲染子系统组合根，编排帧、RenderView、overlay 与拾取 |
 | `render/scene/scene_extractor.h` | Scene → 不含 GPU 对象的 RenderScene 快照 |
 | `render/scene/scene_resolver.h` | Handle/Camera → RenderSubmission |
@@ -49,6 +50,7 @@ GpuResourceResult 的失败路径先保存错误码，调用 `error()` 时才生
 Engine
 ├── Scene（只有组件与 AssetHandle）
 ├── SceneRuntime → System[]（活动时借用 Scene，停止时逆序退出）
+│   └── PhysicsSystem → Jolt world / bodies（Play／app 专有；Stop 销毁）
 ├── TaskScheduler
 ├── AssetRegistry → Runtime Mesh / Texture / Material / Environment
 └── Renderer
@@ -165,6 +167,10 @@ InputState 同时拥有该阶段的物理与动作值，只读公开，可复制
 零固定步不丢短按，多步不重复边沿，暂停／单步同时重建两类状态的基线。
 多个绑定合为一个按钮电平，释放其中一个仍按住的动作不会产生释放；轴与位移不伪装成按钮。
 CameraControllerSystem 只约定 `camera.*` 动作语义，具体设备、按键、反向和死区属于项目配置。
+PhysicsSystem 排在脚本之后：脚本的固定步 Transform 写入先作为物理传送同步，然后 Jolt 模拟并回写动态刚体；
+静态刚体只从 Scene 同步位置，不由模拟改写。Collider 的尺寸乘以本地正缩放，球体暂要求均匀缩放，
+刚体暂不允许父级，避免把局部 TRS 误当世界姿态。Scene 只保存 RigidBody／Collider 参数，
+Play／app 启动时创建 Jolt 世界和 body，Stop／启动失败时清理；Edit Scene 不模拟。
 
 **运行失败：** System 更新失败逆序停止，不重试部分执行的模拟。Engine 不再提取部分写入的 Scene，
 而是完成已 acquire 的空场景帧，再交给 Application::on_runtime_error；Editor 恢复 Edit，app 默认失败退出。

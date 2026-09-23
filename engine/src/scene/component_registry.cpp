@@ -174,6 +174,23 @@ namespace Comet {
                     &CameraControllerComponent::look_sensitivity,
                     {.numeric = {.speed = 0.01f, .minimum = 0.0f, .maximum = 10.0f}})}));
 
+        register_component(make_component_descriptor<RigidBodyComponent>("rigid_body", "Rigid Body",
+            {make_enum_property_descriptor<RigidBodyComponent, BodyMotion>("motion", "Motion",
+                &RigidBodyComponent::motion,
+                {{BodyMotion::Static, {"static", "Static"}},
+                    {BodyMotion::Dynamic, {"dynamic", "Dynamic"}}})}));
+
+        register_component(make_component_descriptor<ColliderComponent>("collider", "Collider",
+            {make_enum_property_descriptor<ColliderComponent, ColliderShape>("shape", "Shape",
+                 &ColliderComponent::shape,
+                 {{ColliderShape::Box, {"box", "Box"}},
+                     {ColliderShape::Sphere, {"sphere", "Sphere"}}}),
+                make_property_descriptor("half_extents", "Box Half Extents",
+                    &ColliderComponent::half_extents,
+                    {.numeric = {.speed = 0.05f, .minimum = 0.001f}}),
+                make_property_descriptor("radius", "Sphere Radius", &ColliderComponent::radius,
+                    {.numeric = {.speed = 0.05f, .minimum = 0.001f}})}));
+
         register_component(make_component_descriptor<LightComponent>("light", "Light",
             {make_enum_property_descriptor<LightComponent, LightType>("type", "Type",
                  &LightComponent::type,

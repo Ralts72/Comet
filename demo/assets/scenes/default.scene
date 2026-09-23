@@ -82,6 +82,18 @@
         "mesh_renderer": {
           "mesh": 7535385251553858160,
           "material": 6482638524486200214
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5
         }
       }
     },
@@ -146,6 +158,57 @@
         "mesh_renderer": {
           "mesh": 7535385251553858160,
           "material": 9429603817048603172
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5
+        }
+      }
+    },
+    {
+      "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d05",
+      "components": {
+        "name": "Falling Cube",
+        "transform": {
+          "translation": [
+            -0.0689944,
+            0.9,
+            0.46558404
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.35,
+            0.35,
+            0.35
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6482638524486200214
+        },
+        "rigid_body": {
+          "motion": "dynamic"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5
         }
       }
     }

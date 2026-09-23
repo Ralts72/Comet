@@ -37,6 +37,7 @@
 #include "scene/scene.h"
 #include "scene/component_registry.h"
 #include "scene/systems/script_system.h"
+#include "scene/systems/physics_system.h"
 #include "scene/scene_serializer.h"
 
 #include <cstdint>
@@ -154,6 +155,8 @@ namespace {
             if(auto added = engine.add_system(
                    std::make_unique<Comet::ScriptSystem>(engine.get_asset_registry()));
                 !added)
+                return added;
+            if(auto added = engine.add_system(std::make_unique<Comet::PhysicsSystem>()); !added)
                 return added;
             m_selection.emplace(scene);
             m_scene_editor = std::make_unique<CometEditor::SceneEditor>(m_editor_state,

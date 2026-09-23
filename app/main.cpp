@@ -9,6 +9,7 @@
 #include "scene/scene_serializer.h"
 #include "scene/systems/camera_controller.h"
 #include "scene/systems/script_system.h"
+#include "scene/systems/physics_system.h"
 
 #include <cmath>
 #include <memory>
@@ -70,6 +71,8 @@ namespace {
             if(auto added = engine.add_system(
                    std::make_unique<Comet::ScriptSystem>(engine.get_asset_registry()));
                 !added)
+                return added;
+            if(auto added = engine.add_system(std::make_unique<Comet::PhysicsSystem>()); !added)
                 return added;
             return engine.start_scene_runtime();
         }
