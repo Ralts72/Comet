@@ -66,16 +66,18 @@ namespace Comet {
         return std::nullopt;
     }
 
-    bool PropertyDescriptor::assign_value(void* component, const PropertyValue& value) const {
+    bool PropertyDescriptor::assign_value(
+        void* component, const PropertyValue& value, WriteMode mode) const {
         void* destination = get_value(component);
-        if(!destination || !editable || read_only) {
+        if(!destination || (mode == WriteMode::Edit && (!editable || read_only))) {
             return false;
         }
         if(type == PropertyType::Enum) {
             const auto* name = std::get_if<std::string>(&value);
             if(!name || !write_enum || !write_enum(destination, *name))
                 return false;
-            notify_changed(destination);
+            if(mode == WriteMode::Edit)
+                notify_changed(destination);
             return true;
         }
         const bool assigned = std::visit(
@@ -104,7 +106,7 @@ namespace Comet {
                 return true;
             },
             value);
-        if(assigned) {
+        if(assigned && mode == WriteMode::Edit) {
             notify_changed(destination);
         }
         return assigned;

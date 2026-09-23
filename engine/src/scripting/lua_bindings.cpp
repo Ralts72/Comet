@@ -15,7 +15,7 @@ namespace Comet::LuaBindings {
         Context& current(lua_State* state) {
             return *static_cast<Context*>(lua_touserdata(state, lua_upvalueindex(1)));
         }
-        TransformComponent& transform(lua_State* state) {
+        const TransformComponent& transform(lua_State* state) {
             auto& entity = current(state).entity;
             if(!entity || !entity.has_component<TransformComponent>())
                 luaL_error(state, "Entity is unavailable in this script phase");
@@ -29,18 +29,22 @@ namespace Comet::LuaBindings {
         }
         int rotate(lua_State* state) {
             const Math::Vec3 value{number(state, 1), number(state, 2), number(state, 3)};
-            auto& target = transform(state);
+            auto target = transform(state);
             if(!Math::is_finite(target.rotation + value))
                 return luaL_error(state, "Rotation overflow");
             target.rotate(value);
+            if(!current(state).entity.try_set_transform(target))
+                return luaL_error(state, "Invalid transform");
             return 0;
         }
         int translate(lua_State* state) {
             const Math::Vec3 value{number(state, 1), number(state, 2), number(state, 3)};
-            auto& target = transform(state);
+            auto target = transform(state);
             if(!Math::is_finite(target.translation + value))
                 return luaL_error(state, "Translation overflow");
             target.translation += value;
+            if(!current(state).entity.try_set_transform(target))
+                return luaL_error(state, "Invalid transform");
             return 0;
         }
         int position(lua_State* state) {

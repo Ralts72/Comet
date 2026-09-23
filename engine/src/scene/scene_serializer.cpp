@@ -199,43 +199,6 @@ namespace Comet {
                 property.value);
         }
 
-        Result<void> assign_property_value(const PropertyRecord& property, void* component,
-            const Json::Context& context, const std::string_view location) {
-            void* value = property.descriptor->get_value(component);
-            if(value == nullptr) {
-                return Result<void>::failure(
-                    context.error(location, "property accessor returned null"));
-            }
-
-            switch(property.descriptor->type) {
-                case PropertyType::Parameters:
-                    *static_cast<ParameterMap*>(value) = std::get<ParameterMap>(property.value);
-                    return Result<void>::success();
-                case PropertyType::Bool:
-                    *static_cast<bool*>(value) = std::get<bool>(property.value);
-                    return Result<void>::success();
-                case PropertyType::Enum:
-                    if(property.descriptor->write_enum
-                        && property.descriptor->write_enum(
-                            value, std::get<std::string>(property.value)))
-                        return Result<void>::success();
-                    return Result<void>::failure(context.error(location, "invalid enum value"));
-                case PropertyType::String:
-                    *static_cast<std::string*>(value) = std::get<std::string>(property.value);
-                    return Result<void>::success();
-                case PropertyType::Float:
-                    *static_cast<float*>(value) = std::get<float>(property.value);
-                    return Result<void>::success();
-                case PropertyType::Vec3:
-                    *static_cast<Math::Vec3*>(value) = std::get<Math::Vec3>(property.value);
-                    return Result<void>::success();
-                case PropertyType::AssetHandle:
-                    *static_cast<AssetHandle*>(value) = std::get<AssetHandle>(property.value);
-                    return Result<void>::success();
-            }
-            return Result<void>::failure(context.error(location, "unsupported property type"));
-        }
-
         std::string entity_location(const std::size_t index) {
             return "entities[" + std::to_string(index) + "]";
         }
@@ -754,16 +717,12 @@ namespace Comet {
                     return LoadResult::failure(
                         context.error(component_location, "failed to create component"));
                 }
-                void* component = component_descriptor.get_component(entity);
-                if(component == nullptr) {
-                    return LoadResult::failure(
-                        context.error(component_location, "component accessor returned null"));
-                }
                 for(const PropertyRecord& property : component_record->properties) {
-                    auto result = assign_property_value(property, component, context,
-                        component_location + "." + property.descriptor->id);
-                    if(!result)
-                        return LoadResult::failure(result.error());
+                    if(!component_descriptor.assign_property(entity, property.descriptor->id,
+                           property.value, PropertyDescriptor::WriteMode::Restore))
+                        return LoadResult::failure(
+                            context.error(component_location + "." + property.descriptor->id,
+                                "failed to restore property"));
                 }
             }
             loaded_entities.emplace(record.uuid, entity);

@@ -35,6 +35,25 @@ namespace {
         }
     };
 
+    TEST_F(CommandHistoryTest, TransformPreviewCancelUndoAndRedoInvalidateDescendants) {
+        auto child = scene.create_entity();
+        ASSERT_TRUE(scene.set_parent(child, entity));
+        scene.update_world_transforms();
+        ASSERT_TRUE(edit.begin(translation()));
+        ASSERT_TRUE(edit.preview(Math::Vec3(3, 0, 0)));
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 3);
+        ASSERT_TRUE(edit.cancel());
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 0);
+        change(7);
+        EXPECT_EQ(scene.update_world_transforms(), 2u);
+        EXPECT_FLOAT_EQ(child.get_component<WorldTransformComponent>().world_matrix[3].x, 7);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 0);
+        ASSERT_TRUE(history.redo());
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 7);
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+    }
+
     TEST_F(CommandHistoryTest, EnvironmentSharesGestureLifecycleWithComponentProperties) {
         const auto before = scene.get_environment();
         auto value = before;

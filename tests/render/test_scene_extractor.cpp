@@ -19,16 +19,21 @@ namespace Comet::Tests {
         Scene scene;
 
         Entity first = scene.create_entity("First");
-        auto& first_transform = first.get_component<TransformComponent>();
-        first_transform.translation = Math::Vec3(1.0f, 2.0f, 3.0f);
-        first_transform.rotation = Math::Vec3(10.0f, 20.0f, 30.0f);
-        first_transform.scale = Math::Vec3(2.0f, 2.0f, 2.0f);
+        const auto& first_transform = first.get_component<TransformComponent>();
+        EXPECT_TRUE(first.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(1.0f, 2.0f, 3.0f); }));
+        EXPECT_TRUE(first.try_edit_transform(
+            [&](auto& value) { value.rotation = Math::Vec3(10.0f, 20.0f, 30.0f); }));
+        EXPECT_TRUE(first.try_edit_transform(
+            [&](auto& value) { value.scale = Math::Vec3(2.0f, 2.0f, 2.0f); }));
         first.add_component<MeshRendererComponent>(AssetHandle(10), AssetHandle(20));
 
         Entity second = scene.create_entity("Second");
-        auto& second_transform = second.get_component<TransformComponent>();
-        second_transform.translation = Math::Vec3(-4.0f, 5.0f, 6.0f);
-        second_transform.rotation = Math::Vec3(0.0f, 90.0f, 0.0f);
+        const auto& second_transform = second.get_component<TransformComponent>();
+        EXPECT_TRUE(second.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(-4.0f, 5.0f, 6.0f); }));
+        EXPECT_TRUE(second.try_edit_transform(
+            [&](auto& value) { value.rotation = Math::Vec3(0.0f, 90.0f, 0.0f); }));
         second.add_component<MeshRendererComponent>(AssetHandle(30), AssetHandle(40));
 
         scene.create_entity("No MeshRenderer");
@@ -65,10 +70,12 @@ namespace Comet::Tests {
     TEST(SceneExtractorTest, ExtractsWorldMatrixForChildEntity) {
         Scene scene;
         Entity parent = scene.create_entity("Parent");
-        parent.get_component<TransformComponent>().translation = Math::Vec3(2.0f, 0.0f, 0.0f);
+        EXPECT_TRUE(parent.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(2.0f, 0.0f, 0.0f); }));
 
         Entity child = scene.create_entity("Child");
-        child.get_component<TransformComponent>().translation = Math::Vec3(0.0f, 3.0f, 0.0f);
+        EXPECT_TRUE(child.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(0.0f, 3.0f, 0.0f); }));
         child.add_component<MeshRendererComponent>(AssetHandle(10), AssetHandle(20));
         ASSERT_TRUE(scene.set_parent(child, parent));
 
@@ -84,10 +91,13 @@ namespace Comet::Tests {
     TEST(SceneExtractorTest, ExtractsCameraViewWithoutTransformScale) {
         Scene scene;
         Entity camera_entity = scene.create_entity("Main Camera");
-        auto& transform = camera_entity.get_component<TransformComponent>();
-        transform.translation = Math::Vec3(1.0f, 2.0f, 3.0f);
-        transform.rotation = Math::Vec3(10.0f, 20.0f, 30.0f);
-        transform.scale = Math::Vec3(2.0f, 3.0f, 4.0f);
+        const auto& transform = camera_entity.get_component<TransformComponent>();
+        EXPECT_TRUE(camera_entity.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(1.0f, 2.0f, 3.0f); }));
+        EXPECT_TRUE(camera_entity.try_edit_transform(
+            [&](auto& value) { value.rotation = Math::Vec3(10.0f, 20.0f, 30.0f); }));
+        EXPECT_TRUE(camera_entity.try_edit_transform(
+            [&](auto& value) { value.scale = Math::Vec3(2.0f, 3.0f, 4.0f); }));
         auto& camera = camera_entity.add_component<CameraComponent>();
         camera.primary = true;
         camera.fov = 60.0f;
@@ -99,9 +109,11 @@ namespace Comet::Tests {
         missing_transform.remove_component<TransformComponent>();
 
         Entity camera_parent = scene.create_entity("Camera Parent");
-        auto& parent_transform = camera_parent.get_component<TransformComponent>();
-        parent_transform.translation = Math::Vec3(5.0f, 0.0f, 0.0f);
-        parent_transform.rotation = Math::Vec3(0.0f, 15.0f, 0.0f);
+        const auto& parent_transform = camera_parent.get_component<TransformComponent>();
+        EXPECT_TRUE(camera_parent.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(5.0f, 0.0f, 0.0f); }));
+        EXPECT_TRUE(camera_parent.try_edit_transform(
+            [&](auto& value) { value.rotation = Math::Vec3(0.0f, 15.0f, 0.0f); }));
         ASSERT_TRUE(scene.set_parent(camera_entity, camera_parent));
 
         TransformComponent camera_pose = transform;

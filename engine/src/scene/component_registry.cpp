@@ -9,6 +9,14 @@
 #include <utility>
 
 namespace Comet {
+    bool ComponentDescriptor::assign_property(Entity entity, std::string_view property_id,
+        const PropertyValue& value, PropertyDescriptor::WriteMode mode) const {
+        const auto* property = find_property(property_id);
+        if(!has_component(entity) || !property || !assign_property_callback)
+            return false;
+        return assign_property_callback(entity, *property, value, mode);
+    }
+
     std::any ComponentDescriptor::capture_component(const Entity& entity) const {
         if(!entity || !has_component(entity) || !capture_component_callback)
             return {};
@@ -23,7 +31,7 @@ namespace Comet {
 
     bool ComponentRegistry::register_component(ComponentDescriptor descriptor) {
         if(descriptor.id.empty() || descriptor.display_name.empty()
-            || !descriptor.has_component_callback || !descriptor.mutable_component_accessor
+            || !descriptor.has_component_callback || !descriptor.assign_property_callback
             || !descriptor.const_component_accessor || find_component(descriptor.id) != nullptr) {
             return false;
         }

@@ -12,7 +12,7 @@ namespace Comet::Tests {
         Input input;
         Scene scene;
         Entity entity = scene.create_entity("Camera");
-        TransformComponent& camera = entity.get_component<TransformComponent>();
+        const TransformComponent& camera = entity.get_component<TransformComponent>();
         InputActions actions;
         InputState input_state;
 
@@ -83,26 +83,26 @@ namespace Comet::Tests {
     }
 
     TEST_F(CameraControllerTest, MovesAlongCameraAxesButKeepsVerticalMovementInWorldSpace) {
-        camera.rotation = {30, -90, 0};
-        camera.scale = {2, 3, 4};
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.rotation = {30, -90, 0}; }));
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.scale = {2, 3, 4}; }));
         const Math::Vec3 forward{std::sqrt(0.75f), 0.5f, 0};
         input.key_event(Input::Key::W, true);
         update();
         expect_position(forward * 0.3f);
 
-        camera.translation = {};
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation = {}; }));
         input.key_event(Input::Key::W, false);
         input.key_event(Input::Key::D, true);
         update();
         expect_position({0, 0, 0.3f});
 
-        camera.translation = {};
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation = {}; }));
         input.key_event(Input::Key::D, false);
         input.key_event(Input::Key::E, true);
         update();
         expect_position({0, 0.3f, 0});
 
-        camera.translation = {};
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation = {}; }));
         input.key_event(Input::Key::E, false);
         input.scroll_event({0, 1});
         update(0);
@@ -117,14 +117,14 @@ namespace Comet::Tests {
         update();
         expect_position({0.3f, 0, 0});
 
-        camera.translation = {};
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation = {}; }));
         input.key_event(Input::Key::D, true);
         input.key_event(Input::Key::E, true);
         input.key_event(Input::Key::LeftShift, true);
         update(1);
         EXPECT_NEAR(Math::length(camera.translation), 6.0f, 0.00001f);
 
-        camera.translation = {};
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation = {}; }));
         input.key_event(Input::Key::W, false);
         input.key_event(Input::Key::D, false);
         input.key_event(Input::Key::E, false);
@@ -140,7 +140,7 @@ namespace Comet::Tests {
         input.key_event(Input::Key::W, true);
         update(0.2f);
         const auto single_frame = camera.translation;
-        camera.translation = {};
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation = {}; }));
         update(0.1f);
         update(0.1f);
         expect_position(single_frame);
@@ -186,9 +186,8 @@ namespace Comet::Tests {
 
     TEST_F(CameraControllerTest, ParentPoseDrivesDirectionWhileScaleDoesNotChangeWorldSpeed) {
         auto parent = scene.create_entity("Rig");
-        auto& rig = parent.get_component<TransformComponent>();
-        rig.rotation = {0, -90, 0};
-        rig.scale = {2, 3, 4};
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.rotation = {0, -90, 0}; }));
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.scale = {2, 3, 4}; }));
         ASSERT_TRUE(scene.set_parent(entity, parent));
         input.key_event(Input::Key::W, true);
         update();
@@ -198,15 +197,16 @@ namespace Comet::Tests {
         EXPECT_NEAR(world.z, 0, 0.00001f);
         input.key_event(Input::Key::W, false);
         input.key_event(Input::Key::E, true);
-        rig.rotation = {25, -90, 30};
-        camera.translation = {};
+        EXPECT_TRUE(
+            parent.try_edit_transform([&](auto& value) { value.rotation = {25, -90, 30}; }));
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation = {}; }));
         update();
         world = Math::Vec3(scene.get_world_matrix(entity)[3]);
         EXPECT_NEAR(world.x, 0, 0.00001f);
         EXPECT_NEAR(world.y, 0.3f, 0.00001f);
         EXPECT_NEAR(world.z, 0, 0.00001f);
         const auto before = camera.translation;
-        rig.scale = {};
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.scale = {}; }));
         update();
         EXPECT_EQ(camera.translation, before);
         EXPECT_TRUE(Math::is_finite(camera.translation));

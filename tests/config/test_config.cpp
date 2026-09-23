@@ -64,7 +64,7 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
         EXPECT_FALSE(config.diagnostics.log.enable_file_logging);
         EXPECT_EQ(config.diagnostics.enable_profiler, expectation.enable_profiler);
         EXPECT_EQ(config.diagnostics.enable_render_diagnostics,
-            std::string_view(expectation.name) != "app-release");
+            std::string_view(expectation.name) == "dev-debug");
         EXPECT_EQ(config.vulkan.enable_validation, expectation.enable_validation);
     }
 }
@@ -123,7 +123,7 @@ render:
 window:
   width: 901
   height: 517
-  title: "Config Test"
+  title: "Ignored YAML Title"
   fullscreen: true
   resizable: false
 diagnostics:
@@ -143,7 +143,7 @@ diagnostics:
 
     EXPECT_EQ(config.window.width, 901);
     EXPECT_EQ(config.window.height, 517);
-    EXPECT_EQ(config.window.title, "Config Test");
+    EXPECT_EQ(config.window.title, Config::Window{}.title);
     EXPECT_TRUE(config.window.fullscreen);
     EXPECT_FALSE(config.window.resizable);
 
@@ -189,7 +189,7 @@ TEST(ConfigTest, LaterLayersOverrideEarlierLayersBeforeValidation) {
     const TemporaryConfigFile common(R"(
 window:
   width: 0
-  title: "Shared Title"
+  height: 800
 render:
   max_anisotropy: 4
 diagnostics:
@@ -209,7 +209,7 @@ diagnostics:
     const Config& config = loaded.value();
 
     EXPECT_EQ(config.window.width, 1200);
-    EXPECT_EQ(config.window.title, "Shared Title");
+    EXPECT_EQ(config.window.height, 800);
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, 4.0f);
     EXPECT_EQ(config.diagnostics.log.level, "warn");
     EXPECT_TRUE(config.diagnostics.enable_profiler);

@@ -49,10 +49,10 @@ namespace Comet::Tests {
         auto make_scene = [](float x) {
             auto scene = std::make_unique<Scene>();
             auto camera = scene->create_entity("Camera");
-            camera.get_component<TransformComponent>().translation.z = 3;
+            EXPECT_TRUE(camera.try_edit_transform([&](auto& value) { value.translation.z = 3; }));
             camera.add_component<CameraComponent>().primary = true;
             auto object = scene->create_entity("Object");
-            object.get_component<TransformComponent>().translation.x = x;
+            EXPECT_TRUE(object.try_edit_transform([&](auto& value) { value.translation.x = x; }));
             object.add_component<MeshRendererComponent>(AssetHandle(1), AssetHandle(2));
             return scene;
         };
@@ -85,10 +85,9 @@ namespace Comet::Tests {
                 if(auto started = engine.start_scene_runtime(); !started)
                     return started;
             } else {
-                engine.get_scene()
-                    ->find_entity(EntityId(2))
-                    .get_component<TransformComponent>()
-                    .translation.x = 10;
+                EXPECT_TRUE(engine.get_scene()
+                        ->find_entity(EntityId(2))
+                        .try_edit_transform([](auto& value) { value.translation.x = 10; }));
             }
             const auto size = renderer.get_scene_renderer().get_render_target().get_size();
             renderer.request_viewport_pick(size / 2u, size);

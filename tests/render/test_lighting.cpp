@@ -15,16 +15,16 @@ namespace Comet::Tests {
     TEST(LightingTest, OwnsWorldPoseAndIgnoresLocalAndAncestorScaleForDirection) {
         Scene scene;
         auto parent = scene.create_entity("parent");
-        auto& transform = parent.get_component<TransformComponent>();
-        transform.translation = {4, 2, 1};
-        transform.rotation = {0, 90, 0};
-        transform.scale = {2, -3, -4};
+        const auto& transform = parent.get_component<TransformComponent>();
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.translation = {4, 2, 1}; }));
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.rotation = {0, 90, 0}; }));
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.scale = {2, -3, -4}; }));
         auto light = scene.create_entity("light");
         light.add_component<LightComponent>().type = LightType::Spot;
         light.get_component<LightComponent>().casts_shadow = true;
-        auto& child = light.get_component<TransformComponent>();
-        child.translation = {0, 0, 2};
-        child.scale = {0, -10, 0};
+        const auto& child = light.get_component<TransformComponent>();
+        EXPECT_TRUE(light.try_edit_transform([&](auto& value) { value.translation = {0, 0, 2}; }));
+        EXPECT_TRUE(light.try_edit_transform([&](auto& value) { value.scale = {0, -10, 0}; }));
         ASSERT_TRUE(scene.set_parent(light, parent));
         auto extracted = SceneExtractor::extract(scene);
         ASSERT_EQ(extracted.lights.size(), 1);

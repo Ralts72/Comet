@@ -24,8 +24,7 @@ namespace Comet {
             || !std::isfinite(controller.look_sensitivity) || controller.look_sensitivity < 0)
             return Result<void, Error>::success();
 
-        auto& current = camera.get_component<TransformComponent>();
-        auto transform = current;
+        auto transform = camera.get_component<TransformComponent>();
         Math::Mat4 parent_pose(1);
         Math::Mat4 world_to_parent(1);
         if(auto parent = scene.get_parent(camera)) {
@@ -78,8 +77,9 @@ namespace Comet {
         const auto world_delta = direction * speed * delta_time
                                  + forward * value("camera.zoom") * controller.move_speed / 15.0f;
         transform.translation += Math::Vec3(world_to_parent * Math::Vec4(world_delta, 0));
-        if(Math::is_finite(transform.translation) && Math::is_finite(transform.rotation))
-            current = transform;
+        if(Math::is_finite(transform.translation) && Math::is_finite(transform.rotation)
+            && !camera.try_set_transform(transform))
+            return Result<void, Error>::failure({"Cannot update camera transform"});
         return Result<void, Error>::success();
     }
 }

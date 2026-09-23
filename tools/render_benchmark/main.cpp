@@ -122,41 +122,35 @@ namespace {
             return Result<void>::failure("Invalid benchmark post processing settings");
         auto camera = scene->create_entity("Camera");
         camera.add_component<Comet::CameraComponent>().primary = true;
-        auto& camera_transform = camera.get_component<Comet::TransformComponent>();
-        camera_transform.translation = {0, 10, 16};
-        camera_transform.rotation.x = -30;
+        camera.set_transform({.translation = {0, 10, 16}, .rotation = {-30, 0, 0}});
         const auto columns = static_cast<unsigned>(std::ceil(std::sqrt(options.objects)));
         const float spacing = 10.0f / columns;
         for(unsigned index = 0; index < options.objects; ++index) {
             auto entity = scene->create_entity("PBR cube");
             entity.add_component<Comet::MeshRendererComponent>(mesh->handle, material->handle);
-            auto& transform = entity.get_component<Comet::TransformComponent>();
-            transform.translation = {
-                (index % columns + 0.5f) * spacing - 5, 0, (index / columns + 0.5f) * spacing - 5};
-            transform.rotation.y = 20;
-            transform.scale = Comet::Math::Vec3(spacing * 0.65f);
+            entity.set_transform({.translation = {(index % columns + 0.5f) * spacing - 5, 0,
+                                      (index / columns + 0.5f) * spacing - 5},
+                .rotation = {0, 20, 0},
+                .scale = Comet::Math::Vec3(spacing * 0.65f)});
         }
         auto ground = scene->create_entity("Ground");
         ground.add_component<Comet::MeshRendererComponent>(mesh->handle, material->handle);
-        auto& ground_transform = ground.get_component<Comet::TransformComponent>();
-        ground_transform.translation.y = -spacing * 0.325f - 0.1f;
-        ground_transform.scale = {12, 0.2f, 12};
+        ground.set_transform(
+            {.translation = {0, -spacing * 0.325f - 0.1f, 0}, .scale = {12, 0.2f, 12}});
         auto key = scene->create_entity("Directional");
-        key.get_component<Comet::TransformComponent>().rotation = {-30, -35, 0};
+        key.set_transform({.rotation = {-30, -35, 0}});
         auto& directional = key.add_component<Comet::LightComponent>();
         directional.intensity = 4;
         directional.casts_shadow = true;
         auto point = scene->create_entity("Point");
-        point.get_component<Comet::TransformComponent>().translation = {-3, 2, 0};
+        point.set_transform({.translation = {-3, 2, 0}});
         auto& point_light = point.add_component<Comet::LightComponent>();
         point_light.type = Comet::LightType::Point;
         point_light.color = {1, 0.2f, 0.1f};
         point_light.intensity = 20;
         point_light.range = 8;
         auto spot = scene->create_entity("Spot");
-        auto& spot_transform = spot.get_component<Comet::TransformComponent>();
-        spot_transform.translation = {3, 4, 3};
-        spot_transform.rotation = {-50, 30, 0};
+        spot.set_transform({.translation = {3, 4, 3}, .rotation = {-50, 30, 0}});
         auto& spot_light = spot.add_component<Comet::LightComponent>();
         spot_light.type = Comet::LightType::Spot;
         spot_light.color = {0.1f, 0.2f, 1};

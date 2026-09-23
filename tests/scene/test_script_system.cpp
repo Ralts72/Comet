@@ -50,12 +50,19 @@ namespace Comet::Tests {
         )");
         auto a = actor();
         auto b = actor();
+        auto child = scene.create_entity();
+        ASSERT_TRUE(scene.set_parent(child, a));
+        scene.update_world_transforms();
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0.02));
         EXPECT_EQ(a.get_component<TransformComponent>().translation,
             b.get_component<TransformComponent>().translation);
         EXPECT_NEAR(a.get_component<TransformComponent>().translation.y, 0.02f, 1e-6f);
         EXPECT_FLOAT_EQ(a.get_component<TransformComponent>().translation.z, 2);
+        EXPECT_EQ(scene.update_world_transforms(), 3u);
+        EXPECT_EQ(Math::Vec3(child.get_component<WorldTransformComponent>().world_matrix[3]),
+            a.get_component<TransformComponent>().translation);
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
         ASSERT_TRUE(runtime.stop());
         ASSERT_TRUE(runtime.stop());
     }

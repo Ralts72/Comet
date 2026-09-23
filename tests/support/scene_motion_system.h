@@ -28,8 +28,10 @@ namespace Comet::Tests {
         Result<void, Error> update(Scene& scene, const Context& context) override {
             ++m_calls->updates;
             m_calls->input_focused = context.input.focused();
-            if(auto object = scene.find_entity(EntityId(2)))
-                object.get_component<TransformComponent>().translation.x = 0;
+            if(auto object = scene.find_entity(EntityId(2))) {
+                if(!object.try_edit_transform([](auto& value) { value.translation.x = 0; }))
+                    return Result<void, Error>::failure({"cannot edit transform"});
+            }
             if(m_calls->fail_update)
                 return Result<void, Error>::failure({"runtime update failed"});
             return Result<void, Error>::success();

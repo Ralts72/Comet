@@ -6,6 +6,8 @@
 #include <concepts>
 #include <type_traits>
 #include <utility>
+#include <limits>
+#include <random>
 
 namespace Comet::Tests {
 
@@ -49,7 +51,10 @@ namespace Comet::Tests {
     static_assert(!CanRemoveComponent<NameComponent>);
     static_assert(!CanRemoveComponent<WorldTransformComponent>);
     static_assert(HasMutableComponentAccess<NameComponent>);
-    static_assert(HasMutableComponentAccess<TransformComponent>);
+    static_assert(!HasMutableComponentAccess<TransformComponent>);
+    static_assert(
+        std::is_same_v<decltype(std::declval<Entity>().add_component<TransformComponent>()),
+            const TransformComponent&>);
     static_assert(CanAddComponent<CameraComponent>);
     static_assert(CanRemoveComponent<CameraComponent>);
 
@@ -68,7 +73,7 @@ namespace Comet::Tests {
             [&](Entity entity, auto& lens, auto& transform, auto& id, auto& uuid,
                 auto& relationship, auto& world) {
                 static_assert(std::is_same_v<decltype(lens), const CameraComponent&>);
-                static_assert(std::is_same_v<decltype(transform), TransformComponent&>);
+                static_assert(std::is_same_v<decltype(transform), const TransformComponent&>);
                 static_assert(std::is_same_v<decltype(id), const IdComponent&>);
                 static_assert(std::is_same_v<decltype(uuid), const UuidComponent&>);
                 static_assert(std::is_same_v<decltype(relationship), const RelationshipComponent&>);
@@ -76,7 +81,8 @@ namespace Comet::Tests {
                 EXPECT_EQ(entity, camera);
                 EXPECT_EQ(id.id, camera.get_id());
                 EXPECT_TRUE(lens.primary);
-                transform.translation.x = 3;
+                EXPECT_TRUE(
+                    entity.try_edit_transform([](auto& value) { value.translation.x = 3; }));
                 ++visited;
             });
         EXPECT_EQ(visited, 1);
@@ -257,11 +263,13 @@ namespace Comet::Tests {
         Entity second_parent = scene.create_entity("Second Parent");
         Entity child = scene.create_entity("Child");
 
-        first_parent.get_component<TransformComponent>().translation = Math::Vec3(1.0f, 0.0f, 0.0f);
-        second_parent.get_component<TransformComponent>().translation =
-            Math::Vec3(5.0f, 0.0f, 0.0f);
-        auto& child_transform = child.get_component<TransformComponent>();
-        child_transform.translation = Math::Vec3(0.0f, 2.0f, 0.0f);
+        EXPECT_TRUE(first_parent.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(1.0f, 0.0f, 0.0f); }));
+        EXPECT_TRUE(second_parent.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(5.0f, 0.0f, 0.0f); }));
+        const auto& child_transform = child.get_component<TransformComponent>();
+        EXPECT_TRUE(child.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(0.0f, 2.0f, 0.0f); }));
         const TransformComponent local_before_reparent = child_transform;
 
         ASSERT_TRUE(scene.set_parent(child, first_parent));
@@ -269,7 +277,8 @@ namespace Comet::Tests {
             first_parent.get_component<TransformComponent>().to_matrix()
                 * child_transform.to_matrix()));
 
-        first_parent.get_component<TransformComponent>().translation.x = 3.0f;
+        EXPECT_TRUE(
+            first_parent.try_edit_transform([&](auto& value) { value.translation.x = 3.0f; }));
         EXPECT_TRUE(TestUtils::Mat4Equal(scene.get_world_matrix(child),
             first_parent.get_component<TransformComponent>().to_matrix()
                 * child_transform.to_matrix()));
@@ -295,15 +304,14 @@ namespace Comet::Tests {
         EXPECT_EQ(scene.update_world_transforms(), 3u);
         EXPECT_EQ(scene.update_world_transforms(), 0u);
 
-        auto& retained = parent.get_component<TransformComponent>();
-        retained.translation.x = 2;
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.translation.x = 2; }));
         EXPECT_EQ(scene.update_world_transforms(), 2u);
         EXPECT_EQ(scene.update_world_transforms(), 0u);
-        retained.translation.x = 4;
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.translation.x = 4; }));
         EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 4);
         EXPECT_EQ(scene.update_world_transforms(), 0u);
 
-        other.get_component<TransformComponent>().translation.y = 3;
+        EXPECT_TRUE(other.try_edit_transform([&](auto& value) { value.translation.y = 3; }));
         static_cast<void>(scene.get_world_matrix(child));
         EXPECT_EQ(scene.update_world_transforms(), 1u);
         ASSERT_TRUE(scene.set_parent(child, other));
@@ -311,45 +319,174 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].y, 3);
     }
 
+    TEST(SceneTest, RequiredTransformWritesCommitAndKeepNoOpSemantics) {
+        Scene scene;
+        auto entity = scene.create_entity();
+        entity.set_transform({.translation = {1, 2, 3}});
+        EXPECT_EQ(scene.update_world_transforms(), 1u);
+        int calls = 0;
+        entity.edit_transform([&](auto& value) {
+            ++calls;
+            value.translation.x = 4;
+        });
+        EXPECT_EQ(calls, 1);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(entity)[3].x, 4);
+        entity.set_transform(entity.get_component<TransformComponent>());
+        entity.edit_transform([](auto&) {});
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+    }
+
+    TEST(SceneDeathTest, RequiredTransformWritesRejectInvalidContracts) {
+        Scene scene;
+        auto entity = scene.create_entity();
+        EXPECT_DEATH(Entity{}.set_transform({}), "");
+        EXPECT_DEATH(entity.edit_transform([](auto& value) {
+            value.translation.x = std::numeric_limits<float>::infinity();
+        }),
+            "");
+        entity.remove_component<TransformComponent>();
+        EXPECT_DEATH(entity.edit_transform([](auto&) {}), "");
+    }
+
+    TEST(SceneTest, TransformWritesCommitCopiesAndRejectInvalidOrUnchangedValues) {
+        Scene scene;
+        auto entity = scene.create_entity();
+        scene.update_world_transforms();
+        auto draft = entity.get_component<TransformComponent>();
+        draft.translation.x = 7;
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(entity)[3].x, 0);
+        ASSERT_TRUE(entity.try_set_transform(draft));
+        EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, 7);
+        EXPECT_FLOAT_EQ(entity.get_component<WorldTransformComponent>().world_matrix[3].x, 0);
+        EXPECT_EQ(scene.update_world_transforms(), 1u);
+        EXPECT_FLOAT_EQ(entity.get_component<WorldTransformComponent>().world_matrix[3].x, 7);
+        EXPECT_TRUE(entity.try_set_transform(draft));
+        EXPECT_TRUE(entity.try_edit_transform([](auto&) {}));
+        EXPECT_FALSE(entity.try_edit_transform([](auto& value) {
+            value.translation.y = 8;
+            value.rotation.z = std::numeric_limits<float>::infinity();
+        }));
+        EXPECT_EQ(entity.get_component<TransformComponent>().translation, draft.translation);
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+        scene.destroy_entity(entity);
+        EXPECT_FALSE(entity.try_set_transform(draft));
+        EXPECT_FALSE(entity.try_edit_transform([](auto&) { FAIL() << "Invalid entity callback"; }));
+    }
+
+    TEST(SceneTest, ImmediateQueryLeavesOtherDirtyBranchesPendingAndDestructionClearsThem) {
+        Scene scene;
+        auto root = scene.create_entity();
+        auto left = scene.create_entity();
+        auto right = scene.create_entity();
+        ASSERT_TRUE(scene.set_parent(left, root));
+        ASSERT_TRUE(scene.set_parent(right, root));
+        scene.update_world_transforms();
+        ASSERT_TRUE(root.try_set_transform({.translation = {2, 0, 0}}));
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(left)[3].x, 2);
+        // 祖先已同步，但另一支仍脏；再次写祖先必须重新覆盖已干净的分支。
+        ASSERT_TRUE(root.try_set_transform({.translation = {4, 0, 0}}));
+        EXPECT_EQ(scene.update_world_transforms(), 3u);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(right)[3].x, 4);
+        ASSERT_TRUE(right.try_set_transform({.translation = {1, 0, 0}}));
+        ASSERT_TRUE(scene.clear_parent(right));
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(right)[3].x, 1);
+        ASSERT_TRUE(root.try_set_transform({.translation = {6, 0, 0}}));
+        scene.destroy_entity(root);
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+        auto replacement = scene.create_entity();
+        EXPECT_TRUE(TestUtils::IsIdentityMatrix(scene.get_world_matrix(replacement)));
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+    }
+
+    TEST(SceneTest, DirtyCacheMatchesDirectTrsCompositionAcrossMixedHierarchyEdits) {
+        Scene scene;
+        std::vector<Entity> entities;
+        for(int i = 0; i < 24; ++i)
+            entities.push_back(scene.create_entity());
+        std::mt19937 random(42);
+        for(int step = 0; step < 160; ++step) {
+            const auto index = random() % entities.size();
+            auto entity = entities[index];
+            switch(step % 4) {
+                case 0:
+                    if(!entity.has_component<TransformComponent>())
+                        entity.add_component<TransformComponent>();
+                    ASSERT_TRUE(entity.try_set_transform({.translation = {float(step % 7), -2, 1},
+                        .rotation = {10, float(step % 45), -20},
+                        .scale = {1, -0.5f, 2}}));
+                    break;
+                case 1:
+                    if(index > 0)
+                        ASSERT_TRUE(scene.set_parent(entity, entities[random() % index]));
+                    break;
+                case 2:
+                    entity.remove_component<TransformComponent>();
+                    break;
+                case 3:
+                    ASSERT_TRUE(scene.clear_parent(entity));
+                    break;
+            }
+            if(step % 2 == 0)
+                static_cast<void>(scene.get_world_matrix(entity));
+            scene.update_world_transforms();
+            for(const auto target : entities) {
+                Math::Mat4 expected(1);
+                for(auto current = target; current; current = scene.get_parent(current)) {
+                    if(current.has_component<TransformComponent>())
+                        expected =
+                            current.get_component<TransformComponent>().to_matrix() * expected;
+                }
+                EXPECT_TRUE(TestUtils::Mat4Equal(
+                    target.get_component<WorldTransformComponent>().world_matrix, expected));
+            }
+            EXPECT_EQ(scene.update_world_transforms(), 0u);
+        }
+    }
+
     TEST(SceneTest, RecomputesDescendantsWhenTransformIsRemoved) {
         Scene scene;
         auto parent = scene.create_entity();
         auto child = scene.create_entity();
         ASSERT_TRUE(scene.set_parent(child, parent));
-        parent.get_component<TransformComponent>().translation.x = 5;
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.translation.x = 5; }));
         EXPECT_EQ(scene.update_world_transforms(), 2u);
         parent.remove_component<TransformComponent>();
         EXPECT_EQ(scene.update_world_transforms(), 2u);
         EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 0);
-        parent.add_component<TransformComponent>().translation.x = 9;
+        parent.add_component<Comet::TransformComponent>();
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.translation.x = 9; }));
         EXPECT_EQ(scene.update_world_transforms(), 2u);
         EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 9);
     }
 
-    TEST(SceneTest, WorldMatrixReflectsChangesThroughRetainedTransformReference) {
+    TEST(SceneTest, ReadOnlyTransformReferenceObservesExplicitWrites) {
         Scene scene;
         Entity entity = scene.create_entity();
-        auto& transform = entity.get_component<TransformComponent>();
+        const auto& transform = entity.get_component<TransformComponent>();
         EXPECT_TRUE(TestUtils::IsIdentityMatrix(scene.get_world_matrix(entity)));
 
-        transform.translation = Math::Vec3(3.0f, 4.0f, 5.0f);
+        EXPECT_TRUE(entity.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(3.0f, 4.0f, 5.0f); }));
         EXPECT_TRUE(TestUtils::Mat4Equal(scene.get_world_matrix(entity), transform.to_matrix()));
-        transform.rotate(Math::Vec3(0.0f, 45.0f, 0.0f));
+        EXPECT_TRUE(entity.try_edit_transform(
+            [&](auto& value) { value.rotate(Math::Vec3(0.0f, 45.0f, 0.0f)); }));
         EXPECT_TRUE(TestUtils::Mat4Equal(scene.get_world_matrix(entity), transform.to_matrix()));
     }
 
     TEST(SceneTest, WorldMatrixReflectsTransformStructureChanges) {
         Scene scene;
         Entity entity = scene.create_entity("Transform");
-        entity.get_component<TransformComponent>().translation = Math::Vec3(2.0f, 3.0f, 4.0f);
+        EXPECT_TRUE(entity.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(2.0f, 3.0f, 4.0f); }));
         EXPECT_TRUE(TestUtils::Mat4Equal(scene.get_world_matrix(entity),
             Math::translate(Math::Mat4(1.0f), Math::Vec3(2.0f, 3.0f, 4.0f))));
 
         entity.remove_component<TransformComponent>();
         EXPECT_TRUE(TestUtils::IsIdentityMatrix(scene.get_world_matrix(entity)));
 
-        auto& transform = entity.add_component<TransformComponent>();
-        transform.translation = Math::Vec3(-1.0f, 0.5f, 7.0f);
+        const auto& transform = entity.add_component<TransformComponent>();
+        EXPECT_TRUE(entity.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(-1.0f, 0.5f, 7.0f); }));
         EXPECT_TRUE(TestUtils::Mat4Equal(scene.get_world_matrix(entity), transform.to_matrix()));
     }
 
@@ -357,14 +494,20 @@ namespace Comet::Tests {
         Scene scene;
         Entity parent = scene.create_entity("Parent");
         Entity camera = scene.create_entity("Camera");
-        auto& parent_transform = parent.get_component<TransformComponent>();
-        parent_transform.translation = Math::Vec3(4.0f, 5.0f, 6.0f);
-        parent_transform.rotation = Math::Vec3(0.0f, 35.0f, 0.0f);
-        parent_transform.scale = Math::Vec3(2.0f, 3.0f, 4.0f);
-        auto& camera_transform = camera.get_component<TransformComponent>();
-        camera_transform.translation = Math::Vec3(1.0f, 2.0f, 3.0f);
-        camera_transform.rotation = Math::Vec3(10.0f, 20.0f, 30.0f);
-        camera_transform.scale = Math::Vec3(5.0f, 6.0f, 7.0f);
+        const auto& parent_transform = parent.get_component<TransformComponent>();
+        EXPECT_TRUE(parent.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(4.0f, 5.0f, 6.0f); }));
+        EXPECT_TRUE(parent.try_edit_transform(
+            [&](auto& value) { value.rotation = Math::Vec3(0.0f, 35.0f, 0.0f); }));
+        EXPECT_TRUE(parent.try_edit_transform(
+            [&](auto& value) { value.scale = Math::Vec3(2.0f, 3.0f, 4.0f); }));
+        const auto& camera_transform = camera.get_component<TransformComponent>();
+        EXPECT_TRUE(camera.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(1.0f, 2.0f, 3.0f); }));
+        EXPECT_TRUE(camera.try_edit_transform(
+            [&](auto& value) { value.rotation = Math::Vec3(10.0f, 20.0f, 30.0f); }));
+        EXPECT_TRUE(camera.try_edit_transform(
+            [&](auto& value) { value.scale = Math::Vec3(5.0f, 6.0f, 7.0f); }));
         ASSERT_TRUE(scene.set_parent(camera, parent));
 
         scene.update_world_transforms();

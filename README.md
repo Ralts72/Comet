@@ -131,8 +131,8 @@ VMA 分配量不等于系统总显存；各分段百分位不能直接相加。C
 
 ### 交互式渲染诊断
 
-`diagnostics.enable_render_diagnostics` 独立于 scope Profiler 的编译开关；开发 Profile 默认开启，
-`app-release` 默认关闭。编辑器默认显示「渲染统计」面板，也可通过「视图 / View」菜单显示／隐藏。
+`diagnostics.enable_render_diagnostics` 独立于 scope Profiler 的编译开关；`dev-debug` 默认开启，
+`editor-dev`／`app-release` 默认关闭。编辑器默认显示「渲染统计」面板，也可通过「视图 / View」菜单显示／隐藏。
 配置只决定启动时是否采样；「采集数据」在运行时的帧边界切换采样，隐藏面板不会停止采样，切换结果不写回配置。
 面板区分包含等待的 CPU 整帧墙钟时间、场景图 CPU 录制和已完成帧的 GPU 时间；GPU 不包含 UI 绘制与呈现完成，
 CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍可观察 CPU。
@@ -228,6 +228,7 @@ JSON 解析直接依赖已有 simdjson。
 app 与 editor 共用 Project、SceneSerializer 和场景资产引用，不再分别创建示例物体、相机或灯光。
 app 使用场景 primary Camera；Edit 使用编辑器相机，因此同一场景不保证相同取景。
 app 窗口创建时使用 `project.json` 的项目名，运行时显示 `项目名 | 120 FPS`；编辑器标题固定为 `Comet Editor`。
+窗口标题由宿主提供，不从共享 YAML 配置读取。
 FPS 复用 editor 的平滑统计，每 0.5 秒采样一次。
 该数值表示主循环帧率，不是 GPU 耗时；全屏隐藏标题栏时不可见。
 app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场景或必需资源加载失败会终止启动，
@@ -439,7 +440,9 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
 - **运行时**：`runtime/application` 管初始化与关闭；Engine 管主循环，组合 Scene、SceneRuntime、任务和渲染服务。
   `scene/scene_runtime` 按顺序执行 `scene/systems/system.h` 的固定／普通更新，拥有启动与逆序停止边界；Engine 负责与活动 Scene 绑定。
   生命周期用 Result 传递预期失败，入口报告错误并设置退出码。
-- **场景**：Scene 保存组件、UUID 与 AssetHandle；世界矩阵按 TRS 和父级版本更新。
+- **场景**：Scene 保存组件、UUID 与 AssetHandle；Transform 通过 `set_transform`／`edit_transform` 显式写入，
+  这些 void 接口用于保证有效的内部调用；可失败输入使用返回 bool 的 `try_set_transform`／`try_edit_transform`。
+  相同值不标脏。世界矩阵只同步受影响的节点及后代；即时查询同步祖先链，渲染提取先同步再只读缓存。
   编辑器在帧准备前执行文件与资产请求，UI/Gizmo 与 System 修改后再提取当帧场景。
 - **渲染**：`Scene → SceneExtractor → SceneResolver → SceneRenderer`。
   Renderer 组合帧调度与呈现，SceneRenderer 编排 ShadowPass → RGBA16F 场景 → OutputPass；

@@ -17,7 +17,15 @@ namespace Comet {
 
         template<typename T, typename... Args>
             requires(!is_scene_managed_component_v<T>)
-        T& add_component(Args&&... args);
+        decltype(auto) add_component(Args&&... args);
+
+        [[nodiscard]] bool try_set_transform(const TransformComponent& transform) const;
+        // 确定有效的内部写入；违反约定时终止，不静默丢弃。
+        void set_transform(const TransformComponent& transform) const;
+
+        // 回调编辑临时副本；成功返回后提交，不能持有副本引用。
+        template<typename Function> [[nodiscard]] bool try_edit_transform(Function&& edit) const;
+        template<typename Function> void edit_transform(Function&& edit) const;
 
         template<typename T>
             requires(!is_scene_read_only_component_v<T>)
@@ -45,6 +53,7 @@ namespace Comet {
         friend class ComponentRegistry;
 
         Entity(entt::entity handle, Scene* scene);
+        static void require_transform_write(bool accepted);
 
         entt::entity m_handle = entt::null;
         Scene* m_scene = nullptr;

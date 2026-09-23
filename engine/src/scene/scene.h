@@ -3,6 +3,7 @@
 #include <string>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -45,9 +46,10 @@ namespace Comet {
 
         [[nodiscard]] std::vector<Entity> get_root_entities();
 
-        // 检查本地值，返回实际重算的节点数。
+        // 同步脏节点；之后可直接读取只读 WorldTransformComponent，返回重算节点数。
         std::size_t update_world_transforms();
 
+        // 即时查询：仅同步该实体的脏祖先链，不刷新无关分支。
         [[nodiscard]] const Math::Mat4& get_world_matrix(Entity entity);
 
         [[nodiscard]] Entity find_entity(EntityId id);
@@ -89,15 +91,9 @@ namespace Comet {
 
         [[nodiscard]] bool has_cycle(Entity child, Entity parent);
         void remove_child_index(EntityId parent, entt::entity child);
-        bool update_world_transform(entt::entity handle);
-
-        struct TransformState {
-            TransformComponent local;
-            EntityId parent = INVALID_ENTITY_ID;
-            uint64_t parent_version = 0;
-            uint64_t version = 0;
-            bool has_local = false;
-        };
+        void mark_transform_dirty(entt::entity handle);
+        void update_world_transform(entt::entity handle);
+        std::size_t sync_transform_chain(entt::entity handle);
 
         EntityId m_next_entity_id = 1;
         SceneEnvironment m_environment;
@@ -106,19 +102,38 @@ namespace Comet {
         std::unordered_map<EntityId, entt::entity> m_entities_by_id;
         std::unordered_map<EntityUuid, entt::entity> m_entities_by_uuid;
         std::unordered_map<EntityId, std::vector<entt::entity>> m_children_by_parent;
-        std::unordered_map<EntityId, TransformState> m_transform_states;
+        std::unordered_set<entt::entity> m_dirty_transforms;
+        std::vector<entt::entity> m_transform_work;
     };
 
     template<typename T, typename... Args>
         requires(!is_scene_managed_component_v<T>)
-    T& Entity::add_component(Args&&... args) {
-        return m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...);
+    decltype(auto) Entity::add_component(Args&&... args) {
+        if constexpr(std::is_same_v<T, TransformComponent>) {
+            m_scene->mark_transform_dirty(m_handle);
+            return std::as_const(
+                m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...));
+        } else {
+            return m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...);
+        }
     }
 
     template<typename T>
         requires(!is_scene_read_only_component_v<T>)
     T& Entity::get_component() {
         return m_scene->m_registry.get<T>(m_handle);
+    }
+
+    template<typename Function> bool Entity::try_edit_transform(Function&& edit) const {
+        if(!has_component<TransformComponent>())
+            return false;
+        auto candidate = get_component<TransformComponent>();
+        std::forward<Function>(edit)(candidate);
+        return try_set_transform(candidate);
+    }
+
+    template<typename Function> void Entity::edit_transform(Function&& edit) const {
+        require_transform_write(try_edit_transform(std::forward<Function>(edit)));
     }
 
     template<typename T> const T& Entity::get_component() const {
@@ -132,6 +147,10 @@ namespace Comet {
     template<typename T>
         requires(!is_scene_managed_component_v<T>)
     void Entity::remove_component() const {
+        if constexpr(std::is_same_v<T, TransformComponent>) {
+            if(has_component<T>())
+                m_scene->mark_transform_dirty(m_handle);
+        }
         m_scene->m_registry.remove<T>(m_handle);
     }
 }

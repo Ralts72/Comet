@@ -84,8 +84,9 @@ namespace {
         for(const auto projection :
             {RenderCamera::Projection::Perspective, RenderCamera::Projection::Orthographic}) {
             camera.projection = projection;
-            auto& transform = entity.get_component<TransformComponent>();
-            transform.scale = {-2, 0.5f, 3};
+            const auto& transform = entity.get_component<TransformComponent>();
+            EXPECT_TRUE(
+                entity.try_edit_transform([&](auto& value) { value.scale = {-2, 0.5f, 3}; }));
             ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Rotate}));
             const auto ring = begin_z_rotation();
             ASSERT_TRUE(update({.position = ring.segments[12].start, .down = true}));
@@ -107,13 +108,12 @@ namespace {
 
     TEST_F(TransformGizmoTest, ScaleUsesLocalAxisAndCanRecoverZeroComponent) {
         auto parent = scene.create_entity();
-        auto& parent_transform = parent.get_component<TransformComponent>();
-        parent_transform.rotation.z = 45;
-        parent_transform.scale = {-2, 3, 1};
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.rotation.z = 45; }));
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.scale = {-2, 3, 1}; }));
         ASSERT_TRUE(scene.set_parent(entity, parent));
-        auto& transform = entity.get_component<TransformComponent>();
-        transform.rotation.z = 30;
-        transform.scale = {0, -2, 3};
+        const auto& transform = entity.get_component<TransformComponent>();
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.rotation.z = 30; }));
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.scale = {0, -2, 3}; }));
         const auto parent_before = scene.get_world_matrix(parent);
         ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Scale}));
         const auto handle = gizmo.handles(entity.get_uuid(), camera, layout)[0];
@@ -135,9 +135,9 @@ namespace {
     TEST_F(TransformGizmoTest, EachScaleAxisPreviewsIndependentlyAndCancelRestoresStart) {
         camera.projection = RenderCamera::Projection::Orthographic;
         camera.view_matrix = Math::look_at(Math::Vec3(3, 2, 4), Math::Vec3(0), Math::Vec3(0, 1, 0));
-        auto& transform = entity.get_component<TransformComponent>();
+        const auto& transform = entity.get_component<TransformComponent>();
         const Math::Vec3 initial(-1, 0, 2);
-        transform.scale = initial;
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.scale = initial; }));
         ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Scale}));
         for(int axis = 0; axis < 3; ++axis) {
             SCOPED_TRACE(axis);
@@ -160,8 +160,8 @@ namespace {
     }
 
     TEST_F(TransformGizmoTest, UniformScalePreservesRatiosAcrossZeroAndNegativeFactor) {
-        auto& transform = entity.get_component<TransformComponent>();
-        transform.scale = {2, -3, 0};
+        const auto& transform = entity.get_component<TransformComponent>();
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.scale = {2, -3, 0}; }));
         ASSERT_TRUE(gizmo.set_settings(
             {.mode = TransformGizmo::Mode::Scale, .snap = true, .scale_step = 0.25f}));
         const auto handle = gizmo.handles(entity.get_uuid(), camera, layout)[3];
@@ -188,8 +188,9 @@ namespace {
             camera.projection = projection;
             for(const auto multiplier : {1U, 2U}) {
                 layout.image_resolution = Math::Vec2u(1600, 1200) * multiplier;
-                auto& transform = entity.get_component<TransformComponent>();
-                transform.scale = {0.13f, 2, 3};
+                const auto& transform = entity.get_component<TransformComponent>();
+                EXPECT_TRUE(
+                    entity.try_edit_transform([&](auto& value) { value.scale = {0.13f, 2, 3}; }));
                 ASSERT_TRUE(gizmo.set_settings(
                     {.mode = TransformGizmo::Mode::Scale, .snap = true, .scale_step = 0.25f}));
                 auto start = begin_x();
@@ -206,7 +207,7 @@ namespace {
     }
 
     TEST_F(TransformGizmoTest, ScaleCancelsOnContextChangesAndRejectsInvalidStep) {
-        auto& transform = entity.get_component<TransformComponent>();
+        const auto& transform = entity.get_component<TransformComponent>();
         ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Scale}));
         const auto start = begin_x();
         ASSERT_TRUE(update({.position = start + Math::Vec2(45, 0), .down = true}));
@@ -215,7 +216,7 @@ namespace {
             .scale_step = std::numeric_limits<float>::infinity()}));
         EXPECT_FALSE(gizmo.set_settings({.mode = TransformGizmo::Mode::Scale, .scale_step = -1}));
         EXPECT_TRUE(gizmo.active());
-        transform.rotation.z = 30;
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.rotation.z = 30; }));
         ASSERT_TRUE(update({.position = start + Math::Vec2(60, 0), .down = true}));
         EXPECT_FALSE(gizmo.active());
         EXPECT_EQ(transform.scale, Math::Vec3(1));
@@ -225,7 +226,8 @@ namespace {
 
     TEST_F(TransformGizmoTest, TransformGesturesRoundTripThroughSceneSerialization) {
         auto parent = scene.create_entity("Parent");
-        parent.get_component<TransformComponent>().translation = {0.1f, 0.2f, 0};
+        EXPECT_TRUE(
+            parent.try_edit_transform([&](auto& value) { value.translation = {0.1f, 0.2f, 0}; }));
         ASSERT_TRUE(scene.set_parent(entity, parent));
         auto start = begin_x();
         ASSERT_TRUE(update({.position = start + Math::Vec2(30, 0), .released = true}));
@@ -264,13 +266,12 @@ namespace {
 
     TEST_F(TransformGizmoTest, LocalRotationPreservesNonUniformParentAndOwnScale) {
         auto parent = scene.create_entity();
-        auto& parent_transform = parent.get_component<TransformComponent>();
-        parent_transform.rotation.z = 45;
-        parent_transform.scale = {-2, 3, 1};
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.rotation.z = 45; }));
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.scale = {-2, 3, 1}; }));
         ASSERT_TRUE(scene.set_parent(entity, parent));
-        auto& transform = entity.get_component<TransformComponent>();
-        transform.rotation.z = 30;
-        transform.scale = {2, 0, -3};
+        const auto& transform = entity.get_component<TransformComponent>();
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.rotation.z = 30; }));
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.scale = {2, 0, -3}; }));
         const auto parent_before = scene.get_world_matrix(parent);
         const auto before = rotation_matrix();
         ASSERT_TRUE(gizmo.set_settings(
@@ -306,7 +307,8 @@ namespace {
                 up = {0, 0, 1};
             camera.view_matrix = Math::look_at(direction * 3.0f, Math::Vec3(0), up);
             for(const auto initial : {Math::Vec3(25, 30, 15), Math::Vec3(0, 90, 0)}) {
-                entity.get_component<TransformComponent>().rotation = initial;
+                EXPECT_TRUE(
+                    entity.try_edit_transform([&](auto& value) { value.rotation = initial; }));
                 const auto before = rotation_matrix();
                 const auto ring = gizmo.handles(entity.get_uuid(), camera, layout)[axis];
                 ASSERT_TRUE(ring);
@@ -328,12 +330,13 @@ namespace {
 
     TEST_F(TransformGizmoTest, WorldRotationConjugatesUniformAndMirroredParentBasis) {
         auto parent = scene.create_entity();
-        auto& parent_transform = parent.get_component<TransformComponent>();
-        parent_transform.rotation = {15, -20, 30};
+        EXPECT_TRUE(
+            parent.try_edit_transform([&](auto& value) { value.rotation = {15, -20, 30}; }));
         ASSERT_TRUE(scene.set_parent(entity, parent));
         for(const auto scale : {Math::Vec3(2), Math::Vec3(-2, 2, 2)}) {
-            parent_transform.scale = scale;
-            entity.get_component<TransformComponent>().rotation = {25, 30, 15};
+            EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.scale = scale; }));
+            EXPECT_TRUE(
+                entity.try_edit_transform([&](auto& value) { value.rotation = {25, 30, 15}; }));
             const auto parent_matrix = Math::Mat3(scene.get_world_matrix(parent));
             const auto before = rotation_matrix();
             ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Rotate}));
@@ -345,7 +348,7 @@ namespace {
             ASSERT_TRUE(history.undo());
             history.clear();
         }
-        parent_transform.scale = {2, 3, 1};
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.scale = {2, 3, 1}; }));
         for(const auto& handle : gizmo.handles(entity.get_uuid(), camera, layout))
             EXPECT_FALSE(handle);
         EXPECT_EQ(history.undo_size(), 0);
@@ -373,8 +376,8 @@ namespace {
 
     TEST_F(TransformGizmoTest, RotationCancelsOnModeOriginOrUndefinedAngleChanges) {
         for(int reason = 0; reason < 3; ++reason) {
-            auto& transform = entity.get_component<TransformComponent>();
-            transform.translation = {};
+            const auto& transform = entity.get_component<TransformComponent>();
+            EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation = {}; }));
             ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Rotate}));
             const auto ring = begin_z_rotation();
             ASSERT_TRUE(update({.position = ring.segments[12].start, .down = true}));
@@ -384,7 +387,8 @@ namespace {
             if(reason == 0) {
                 ASSERT_TRUE(gizmo.set_settings({}));
             } else if(reason == 1) {
-                transform.translation.x = 1;
+                EXPECT_TRUE(
+                    entity.try_edit_transform([&](auto& value) { value.translation.x = 1; }));
                 ASSERT_TRUE(update({.position = ring.segments[20].start, .down = true}));
                 EXPECT_FLOAT_EQ(transform.translation.x, 1);
             } else {
@@ -397,9 +401,9 @@ namespace {
     }
 
     TEST_F(TransformGizmoTest, LocalAxesFollowRotationAndIgnoreOwnNegativeScale) {
-        auto& transform = entity.get_component<TransformComponent>();
-        transform.rotation.z = 90;
-        transform.scale = {-2, 0, 3};
+        const auto& transform = entity.get_component<TransformComponent>();
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.rotation.z = 90; }));
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.scale = {-2, 0, 3}; }));
         ASSERT_TRUE(gizmo.set_settings({.space = TransformGizmo::Space::Local}));
         const auto handles = gizmo.handles(entity.get_uuid(), camera, layout);
         ASSERT_TRUE(handles[0]);
@@ -418,11 +422,10 @@ namespace {
 
     TEST_F(TransformGizmoTest, LocalDragUsesParentAffineBasisAndWorldUnitSnap) {
         auto parent = scene.create_entity();
-        auto& parent_transform = parent.get_component<TransformComponent>();
-        parent_transform.rotation.z = 45;
-        parent_transform.scale = {2, 3, 1};
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.rotation.z = 45; }));
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.scale = {2, 3, 1}; }));
         ASSERT_TRUE(scene.set_parent(entity, parent));
-        entity.get_component<TransformComponent>().rotation.z = 30;
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.rotation.z = 30; }));
         ASSERT_TRUE(gizmo.set_settings(
             {.space = TransformGizmo::Space::Local, .snap = true, .translation_step = 0.25f}));
         const auto handle = gizmo.handles(entity.get_uuid(), camera, layout)[0];
@@ -440,7 +443,7 @@ namespace {
     }
 
     TEST_F(TransformGizmoTest, SnapUsesStartRelativeDistanceAndSmallMotionIsNoOp) {
-        entity.get_component<TransformComponent>().translation.x = 0.13f;
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation.x = 0.13f; }));
         ASSERT_TRUE(gizmo.set_settings({.snap = true, .translation_step = 0.25f}));
         auto start = begin_x();
         ASSERT_TRUE(update({.position = start + Math::Vec2(10, 0), .released = true}));
@@ -491,7 +494,7 @@ namespace {
         EXPECT_EQ(history.undo_size(), 0);
         const auto local_start = begin_x();
         ASSERT_TRUE(update({.position = local_start + Math::Vec2(60, 0), .down = true}));
-        entity.get_component<TransformComponent>().rotation.z = 15;
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.rotation.z = 15; }));
         ASSERT_TRUE(update({.position = local_start + Math::Vec2(80, 0), .down = true}));
         EXPECT_FALSE(gizmo.active());
         expect_vector(translation(), Math::Vec3(0));
@@ -616,9 +619,10 @@ namespace {
 
     TEST_F(TransformGizmoTest, ConvertsWorldAxisMovementThroughRotatedScaledParent) {
         auto parent = scene.create_entity("Parent");
-        auto& parent_transform = parent.get_component<TransformComponent>();
-        parent_transform.rotation.z = 90.0f;
-        parent_transform.scale = Math::Vec3(2, 3, 1);
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) {
+            value.rotation.z = 90.0f;
+            value.scale = Math::Vec3(2, 3, 1);
+        }));
         ASSERT_TRUE(scene.set_parent(entity, parent));
         const auto start = begin_x();
         ASSERT_TRUE(update({.position = start + Math::Vec2(90, 0), .released = true}));
@@ -634,12 +638,15 @@ namespace {
 
     TEST_F(TransformGizmoTest, NoMotionUnderParentDoesNotInventAnUndoRecord) {
         auto parent = scene.create_entity("Parent");
-        auto& parent_transform = parent.get_component<TransformComponent>();
-        parent_transform.translation = Math::Vec3(0.1f, -0.2f, 0.3f);
-        parent_transform.rotation = Math::Vec3(13, 29, 47);
-        parent_transform.scale = Math::Vec3(0.7f, 1.3f, 0.8f);
+        EXPECT_TRUE(parent.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(0.1f, -0.2f, 0.3f); }));
+        EXPECT_TRUE(parent.try_edit_transform(
+            [&](auto& value) { value.rotation = Math::Vec3(13, 29, 47); }));
+        EXPECT_TRUE(parent.try_edit_transform(
+            [&](auto& value) { value.scale = Math::Vec3(0.7f, 1.3f, 0.8f); }));
         ASSERT_TRUE(scene.set_parent(entity, parent));
-        entity.get_component<TransformComponent>().translation = Math::Vec3(0.3f);
+        EXPECT_TRUE(
+            entity.try_edit_transform([&](auto& value) { value.translation = Math::Vec3(0.3f); }));
         const auto before = translation();
         const auto start = begin_x();
         ASSERT_TRUE(update({.position = start, .released = true}));
@@ -663,14 +670,14 @@ namespace {
         ASSERT_TRUE(scene.set_parent(entity, parent));
         auto start = begin_x();
         ASSERT_TRUE(update({.position = start + Math::Vec2(80, 0), .down = true}));
-        parent.get_component<TransformComponent>().rotation.z = 30;
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.rotation.z = 30; }));
         EXPECT_TRUE(update({.position = start, .down = true}));
         EXPECT_EQ(translation(), Math::Vec3(0));
         start = begin_x();
         ASSERT_TRUE(update({.position = start + Math::Vec2(80, 0), .down = true}));
         auto same_matrix_parent = scene.create_entity("Replacement parent");
-        same_matrix_parent.get_component<TransformComponent>() =
-            parent.get_component<TransformComponent>();
+        EXPECT_TRUE(
+            same_matrix_parent.try_set_transform(parent.get_component<TransformComponent>()));
         ASSERT_TRUE(scene.set_parent(entity, same_matrix_parent));
         EXPECT_TRUE(update({.position = start, .down = true}));
         EXPECT_EQ(translation(), Math::Vec3(0));
@@ -785,14 +792,15 @@ namespace {
     TEST_F(TransformGizmoTest, RejectsNonFiniteSingularAndDepthClippedGeometry) {
         auto parent = scene.create_entity("Parent");
         ASSERT_TRUE(scene.set_parent(entity, parent));
-        parent.get_component<TransformComponent>().scale.y = 0;
+        EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.scale.y = 0; }));
         EXPECT_FALSE(gizmo.handles(entity.get_uuid(), camera, layout)[0]);
         ASSERT_TRUE(scene.clear_parent(entity));
-        entity.get_component<TransformComponent>().translation.z = 4;
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation.z = 4; }));
         EXPECT_FALSE(gizmo.handles(entity.get_uuid(), camera, layout)[0]);
-        entity.get_component<TransformComponent>().translation.z = -2000;
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation.z = -2000; }));
         EXPECT_FALSE(gizmo.handles(entity.get_uuid(), camera, layout)[0]);
-        entity.get_component<TransformComponent>().translation = Math::Vec3(0);
+        EXPECT_TRUE(
+            entity.try_edit_transform([&](auto& value) { value.translation = Math::Vec3(0); }));
         camera.view_matrix = Math::Mat4(0);
         EXPECT_FALSE(gizmo.handles(entity.get_uuid(), camera, layout)[0]);
         camera.view_matrix = Math::look_at(Math::Vec3(0, 0, 3), Math::Vec3(0), Math::Vec3(0, 1, 0));

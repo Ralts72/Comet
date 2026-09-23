@@ -43,6 +43,7 @@ namespace Comet {
     };
 
     struct PropertyDescriptor {
+        enum class WriteMode { Edit, Restore };
         struct EnumOption {
             std::string id;
             std::string display_name;
@@ -50,7 +51,7 @@ namespace Comet {
         [[nodiscard]] COMET_API std::optional<PropertyValue> copy_value(
             const void* component) const;
         [[nodiscard]] COMET_API bool assign_value(
-            void* component, const PropertyValue& value) const;
+            void* component, const PropertyValue& value, WriteMode mode = WriteMode::Edit) const;
 
         std::string id;
         std::string display_name;

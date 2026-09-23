@@ -7,7 +7,18 @@ namespace CometEditor {
     namespace {
         struct ResolvedProperty {
             const Comet::PropertyDescriptor* descriptor = nullptr;
-            void* component = nullptr;
+            const Comet::ComponentDescriptor* component = nullptr;
+            Comet::Entity entity;
+
+            std::optional<Comet::PropertyValue> read() const {
+                if(!descriptor)
+                    return std::nullopt;
+                return descriptor->copy_value(component->get_component(entity));
+            }
+
+            bool write(const Comet::PropertyValue& value) const {
+                return descriptor && component->assign_property(entity, descriptor->id, value);
+            }
         };
 
         ResolvedProperty resolve(Comet::Scene* scene, const Comet::ComponentRegistry& registry,
@@ -21,7 +32,7 @@ namespace CometEditor {
             const auto* property = component->find_property(target.property);
             if(!property || !property->editable || property->read_only)
                 return {};
-            return {property, component->get_component(entity)};
+            return {property, component, entity};
         }
 
         class PropertyCommand final: public CommandHistory::Command {
@@ -38,8 +49,7 @@ namespace CometEditor {
         private:
             bool apply(Comet::Scene& scene, const Comet::PropertyValue& value) const {
                 const auto property = resolve(&scene, m_registry, m_target);
-                return property.descriptor
-                       && property.descriptor->assign_value(property.component, value);
+                return property.write(value);
             }
 
             const Comet::ComponentRegistry& m_registry;
@@ -128,7 +138,7 @@ namespace CometEditor {
         const auto property = resolve(m_history.get_scene(), m_registry, target);
         if(!property.descriptor)
             return false;
-        auto before = property.descriptor->copy_value(property.component);
+        auto before = property.read();
         if(!before)
             return false;
         m_edit = Edit{ComponentEdit{std::move(target), std::move(*before)}, m_history.generation(),
@@ -147,7 +157,7 @@ namespace CometEditor {
         if(!edit)
             return false;
         const auto property = resolve(m_history.get_scene(), m_registry, edit->target);
-        return property.descriptor && property.descriptor->assign_value(property.component, value);
+        return property.write(value);
     }
 
     bool PropertyEditTransaction::apply(Target target, const Comet::PropertyValue& value) {
@@ -177,7 +187,7 @@ namespace CometEditor {
             m_edit.reset();
             return false;
         }
-        const auto after = property.descriptor->copy_value(property.component);
+        const auto after = property.read();
         if(!after) {
             m_edit.reset();
             return false;
@@ -203,8 +213,7 @@ namespace CometEditor {
         }
         const auto& edit = std::get<ComponentEdit>(m_edit->change);
         const auto property = resolve(m_history.get_scene(), m_registry, edit.target);
-        const bool restored = property.descriptor
-                              && property.descriptor->assign_value(property.component, edit.before);
+        const bool restored = property.write(edit.before);
         m_edit.reset();
         return restored;
     }

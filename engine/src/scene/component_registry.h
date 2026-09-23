@@ -23,7 +23,9 @@ namespace Comet {
         std::function<bool(const Entity&)> has_component_callback;
         std::function<void(Entity&)> add_component_callback;
         std::function<void(Entity&)> remove_component_callback;
-        std::function<void*(Entity&)> mutable_component_accessor;
+        std::function<bool(Entity&, const PropertyDescriptor&, const PropertyValue&,
+            PropertyDescriptor::WriteMode)>
+            assign_property_callback;
         std::function<const void*(const Entity&)> const_component_accessor;
         std::function<std::any(const Entity&)> capture_component_callback;
         std::function<bool(Entity&, const std::any&)> restore_component_callback;
@@ -52,12 +54,9 @@ namespace Comet {
             return !has_component(entity);
         }
 
-        [[nodiscard]] void* get_component(Entity& entity) const {
-            if(!has_component(entity) || !mutable_component_accessor) {
-                return nullptr;
-            }
-            return mutable_component_accessor(entity);
-        }
+        [[nodiscard]] COMET_API bool assign_property(Entity entity, std::string_view property_id,
+            const PropertyValue& value,
+            PropertyDescriptor::WriteMode mode = PropertyDescriptor::WriteMode::Edit) const;
 
         [[nodiscard]] const void* get_component(const Entity& entity) const {
             if(!has_component(entity) || !const_component_accessor) {
@@ -105,9 +104,18 @@ namespace Comet {
             .properties = std::move(properties),
             .has_component_callback =
                 [](const Entity& entity) { return entity.has_component<Component>(); },
-            .mutable_component_accessor = [](Entity& entity) -> void* {
-                return &entity.get_component<Component>();
-            },
+            .assign_property_callback =
+                [](Entity& entity, const PropertyDescriptor& property, const PropertyValue& value,
+                    PropertyDescriptor::WriteMode mode) {
+                    if constexpr(std::is_same_v<Component, TransformComponent>) {
+                        auto candidate = entity.get_component<Component>();
+                        return property.assign_value(&candidate, value, mode)
+                               && entity.try_set_transform(candidate);
+                    } else {
+                        return property.assign_value(
+                            &entity.get_component<Component>(), value, mode);
+                    }
+                },
             .const_component_accessor = [](const Entity& entity) -> const void* {
                 return &entity.get_component<Component>();
             }};

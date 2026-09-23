@@ -114,7 +114,7 @@ namespace CometEditor {
             return Result::success();
         }
         if(m_state.mode == EditorMode::Play) {
-            if(!property->assign_value(component->get_component(entity), asset.handle))
+            if(!component->assign_property(entity, property->id, asset.handle))
                 return Result::failure({"Cannot update runtime asset reference"});
             m_assets.track_scene(*scene, m_components);
         } else if(!m_edit.apply(target, asset.handle))

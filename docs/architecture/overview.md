@@ -173,8 +173,20 @@ DeviceLost、空帧绘制或恢复失败仍退出。Scene 替换必须在 System
 原生关闭可由 Editor 拦截，完成未保存决策后再 request_close。
 
 **场景读取：** Scene 维护非持久化的 ID／UUID／父子索引，类型化 each 隔离 EnTT。
-全场景同步比较本地 TRS、组件与父级版本，仅重算变化节点；单个 world matrix 查询只检查祖先链。
-持有可变组件引用的写入在下次同步可见，静止场景重算数为零。pose_world_matrix 继承层级位置／旋转而忽略缩放。
+Transform 的 getter、each 和添加返回值均为只读；`Entity::try_set_transform` 提交完整值，
+`try_edit_transform` 编辑临时副本后提交。成功立即更新本地 TRS，非法输入返回 false，相同值成功但不标脏；
+对应的 `set_transform`／`edit_transform` 是 void 便捷入口，复用同一实现，调用约定失败走 LOG_FATAL。
+前者用于脚本／属性编辑等可失败输入，后者用于确定有效的内部初始化，不通过静默忽略结果消除调用噪声。
+读取本身不标脏，不再允许长期持有可变 Transform 引用绕过失效协议。
+ComponentDescriptor 只公开只读组件访问，通过 assign_property 将属性写入交给类型化回调；
+Transform 在副本上赋值后进入 try_set_transform，Inspector／Gizmo／Undo／Lua／CameraController 共用此边界。
+Serializer 也通过该入口恢复属性；Restore 模式忽略 UI 可编辑标记并保留已存值，不执行编辑用的角度归一化。
+创建、TRS／父级变化和组件增删标记受影响子树；重复标记跳过已脏子树，销毁清除对应脏节点。
+`update_world_transforms` 只消费脏集合，按父先子后更新；无变化时不扫描实体或比较 TRS。
+`get_world_matrix` 是即时查询，仅同步该实体的脏祖先链；无关脏分支留给后续同步。
+SceneExtractor 同步后直接读取 WorldTransformComponent，不在每个渲染项中触发更新或分配遍历容器。
+WorldTransformComponent 是最近一次同步的只读缓存，不是独立冻结快照；需要跨修改保留时复制值，
+RenderScene 则拥有本次提取的矩阵副本。pose_world_matrix 继承层级位置／旋转而忽略缩放。
 SceneResolver 只解析 Camera、Mesh、Material 和 Environment 引用，不负责材质模板或参数合法性。
 
 **渲染失败：** GraphicsError 沿 MaterialRenderer／DebugRenderer／SceneRenderer 返回。

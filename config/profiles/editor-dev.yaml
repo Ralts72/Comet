@@ -4,7 +4,7 @@ diagnostics:
   log_level: info
   enable_file_logging: false
   enable_profiler: false
-  enable_render_diagnostics: true
+  enable_render_diagnostics: false
   enable_validation: false
 
 # 所有构建下的编辑器均读取此段；诊断配置仍由当前构建 Profile 决定。

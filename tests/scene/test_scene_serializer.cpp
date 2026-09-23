@@ -262,14 +262,19 @@ namespace Comet::Tests {
         ASSERT_TRUE(root);
         ASSERT_TRUE(child);
 
-        auto& root_transform = root.get_component<TransformComponent>();
-        root_transform.translation = Math::Vec3(3.0f, 4.0f, 5.0f);
-        root_transform.rotation = Math::Vec3(10.0f, 20.0f, 30.0f);
-        root_transform.scale = Math::Vec3(2.0f);
-        auto& child_transform = child.get_component<TransformComponent>();
-        child_transform.translation = Math::Vec3(1.0f, 2.0f, 3.0f);
-        child_transform.rotation = Math::Vec3(-15.0f, 45.0f, 5.0f);
-        child_transform.scale = Math::Vec3(0.5f, 1.5f, 2.0f);
+        const auto& root_transform = root.get_component<TransformComponent>();
+        EXPECT_TRUE(root.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(3.0f, 4.0f, 5.0f); }));
+        EXPECT_TRUE(root.try_edit_transform(
+            [&](auto& value) { value.rotation = Math::Vec3(10.0f, 20.0f, 30.0f); }));
+        EXPECT_TRUE(root.try_edit_transform([&](auto& value) { value.scale = Math::Vec3(2.0f); }));
+        const auto& child_transform = child.get_component<TransformComponent>();
+        EXPECT_TRUE(child.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(1.0f, 2.0f, 3.0f); }));
+        EXPECT_TRUE(child.try_edit_transform(
+            [&](auto& value) { value.rotation = Math::Vec3(-15.0f, 45.0f, 5.0f); }));
+        EXPECT_TRUE(child.try_edit_transform(
+            [&](auto& value) { value.scale = Math::Vec3(0.5f, 1.5f, 2.0f); }));
         child.add_component<MeshRendererComponent>(AssetHandle(101), AssetHandle(202));
         auto& camera = root.add_component<CameraComponent>();
         camera.primary = true;
@@ -360,7 +365,8 @@ namespace Comet::Tests {
         Entity edit_child = edit_scene.create_entity_with_uuid(child_uuid, "Edit Child");
         ASSERT_TRUE(edit_parent);
         ASSERT_TRUE(edit_child);
-        edit_child.get_component<TransformComponent>().translation = Math::Vec3(1.0f, 2.0f, 3.0f);
+        EXPECT_TRUE(edit_child.try_edit_transform(
+            [&](auto& value) { value.translation = Math::Vec3(1.0f, 2.0f, 3.0f); }));
         ASSERT_TRUE(edit_scene.set_parent(edit_child, edit_parent));
 
         const SceneSerializer serializer = make_scene_serializer();
@@ -379,7 +385,8 @@ namespace Comet::Tests {
             Math::Vec3(1.0f, 2.0f, 3.0f));
 
         runtime_parent.get_component<NameComponent>().name = "Runtime Parent";
-        runtime_child.get_component<TransformComponent>().translation.x = 9.0f;
+        EXPECT_TRUE(
+            runtime_child.try_edit_transform([&](auto& value) { value.translation.x = 9.0f; }));
 
         EXPECT_EQ(edit_parent.get_component<NameComponent>().name, "Edit Parent");
         EXPECT_FLOAT_EQ(edit_child.get_component<TransformComponent>().translation.x, 1.0f);
@@ -619,8 +626,7 @@ namespace Comet::Tests {
 
         Scene scene;
         Entity entity = scene.create_entity("Invalid");
-        entity.get_component<TransformComponent>().translation.x =
-            std::numeric_limits<float>::infinity();
+        entity.add_component<CameraComponent>().fov = std::numeric_limits<float>::infinity();
         const auto result = make_scene_serializer().serialize(scene);
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().find("finite"), std::string::npos);

@@ -130,7 +130,6 @@ namespace Comet {
                     config.diagnostics.enable_render_diagnostics, "a boolean")
                 || !reader.read("window.width", config.window.width, "an integer")
                 || !reader.read("window.height", config.window.height, "an integer")
-                || !reader.read("window.title", config.window.title, "a string")
                 || !reader.read("window.fullscreen", config.window.fullscreen, "a boolean")
                 || !reader.read("window.resizable", config.window.resizable, "a boolean")
                 || !reader.named(

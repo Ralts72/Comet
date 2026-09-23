@@ -27,6 +27,5 @@ render:
 window:
   width: 960
   height: 720
-  title: "Comet Engine"
   fullscreen: false
   resizable: true

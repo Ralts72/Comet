@@ -93,22 +93,20 @@ namespace {
 
         const auto& transform = *registry.find_component("transform");
         ASSERT_TRUE(transform.has_component(entity));
-        void* transform_value = transform.get_component(entity);
+        const void* transform_value = transform.get_component(entity);
         ASSERT_NE(transform_value, nullptr);
 
         const auto& rotation = require_property(transform, "rotation");
-        auto& rotation_value =
-            *static_cast<Comet::Math::Vec3*>(rotation.get_value(transform_value));
-        rotation_value = {0.0f, 725.0f, -540.0f};
-        rotation.notify_changed(&rotation_value);
+        ASSERT_TRUE(transform.assign_property(entity, "rotation", Comet::Math::Vec3(0, 725, -540)));
+        const auto& rotation_value =
+            *static_cast<const Comet::Math::Vec3*>(rotation.get_value(transform_value));
         EXPECT_FLOAT_EQ(rotation_value.x, 0.0f);
         EXPECT_FLOAT_EQ(rotation_value.y, 5.0f);
         EXPECT_FLOAT_EQ(rotation_value.z, -180.0f);
 
         const auto& camera = *registry.find_component("camera");
         ASSERT_TRUE(camera.has_component(entity));
-        const auto& primary = require_property(camera, "primary");
-        *static_cast<bool*>(primary.get_value(camera.get_component(entity))) = true;
+        ASSERT_TRUE(camera.assign_property(entity, "primary", true));
         EXPECT_TRUE(entity.get_component<Comet::CameraComponent>().primary);
     }
 
@@ -130,6 +128,26 @@ namespace {
         EXPECT_FALSE(entity.has_component<Comet::CameraComponent>());
     }
 
+    TEST(ComponentRegistryTest, RestorePreservesSerializedValuesAndUsesTransformWriteBoundary) {
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        auto descriptor = *Comet::create_scene_component_registry().find_component("transform");
+        descriptor.properties[0].read_only = true;
+        descriptor.properties[0].editable = false;
+        scene.update_world_transforms();
+        EXPECT_FALSE(descriptor.assign_property(entity, "translation", Comet::Math::Vec3(2)));
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+        ASSERT_TRUE(descriptor.assign_property(entity, "translation", Comet::Math::Vec3(2),
+            Comet::PropertyDescriptor::WriteMode::Restore));
+        EXPECT_EQ(scene.update_world_transforms(), 1u);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(entity)[3].x, 2);
+        ASSERT_TRUE(descriptor.assign_property(entity, "rotation", Comet::Math::Vec3(0, 725, 0),
+            Comet::PropertyDescriptor::WriteMode::Restore));
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().rotation.y, 725);
+        EXPECT_FALSE(descriptor.assign_property(entity, "rotation", 5.0f));
+        EXPECT_FALSE(descriptor.assign_property(entity, "missing", Comet::Math::Vec3(0)));
+    }
+
     TEST(ComponentRegistryTest, NameUsesStringValuesButCannotBeAddedOrRemoved) {
         Comet::Scene scene;
         auto entity = scene.create_entity("Before");
@@ -142,9 +160,9 @@ namespace {
         EXPECT_FALSE(component.add_component(entity));
         EXPECT_FALSE(component.remove_component(entity));
         EXPECT_EQ(name.type, Comet::PropertyType::String);
-        ASSERT_TRUE(name.assign_value(component.get_component(entity), std::string("名称")));
+        ASSERT_TRUE(component.assign_property(entity, "name", std::string("名称")));
         EXPECT_EQ(std::get<std::string>(*name.copy_value(component.get_component(entity))), "名称");
-        EXPECT_FALSE(name.assign_value(component.get_component(entity), 1.0f));
+        EXPECT_FALSE(component.assign_property(entity, "name", 1.0f));
         EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "名称");
     }
 

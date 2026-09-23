@@ -55,7 +55,8 @@ namespace Comet {
 
     template<typename T>
     inline constexpr bool is_scene_read_only_component_v =
-        std::is_same_v<std::remove_cvref_t<T>, IdComponent>
+        std::is_same_v<std::remove_cvref_t<T>, TransformComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, IdComponent>
         || std::is_same_v<std::remove_cvref_t<T>, UuidComponent>
         || std::is_same_v<std::remove_cvref_t<T>, RelationshipComponent>
         || std::is_same_v<std::remove_cvref_t<T>, WorldTransformComponent>;

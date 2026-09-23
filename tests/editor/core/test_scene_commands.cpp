@@ -126,7 +126,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(scene.set_parent(grandchild, child));
         child.add_component<Comet::MeshRendererComponent>(
             Comet::AssetHandle(8), Comet::AssetHandle(9));
-        child.get_component<Comet::TransformComponent>().translation.x = 6;
+        EXPECT_TRUE(child.try_edit_transform([&](auto& value) { value.translation.x = 6; }));
         const auto copy_uuid =
             SceneCommands::duplicate_entity(history, registry, entity.get_uuid());
         ASSERT_TRUE(copy_uuid);
@@ -146,7 +146,7 @@ namespace CometEditor::Tests {
         ASSERT_EQ(copy_grandchildren.size(), 1);
         EXPECT_NE(copy_grandchildren.front().get_uuid(), grandchild.get_uuid());
         const auto copied_child_uuid = copied_child.get_uuid();
-        child.get_component<Comet::TransformComponent>().translation.x = 12;
+        EXPECT_TRUE(child.try_edit_transform([&](auto& value) { value.translation.x = 12; }));
         EXPECT_FLOAT_EQ(copied_child.get_component<Comet::TransformComponent>().translation.x, 6);
         EXPECT_EQ(history.undo_size(), 1);
         ASSERT_TRUE(history.undo());
@@ -249,7 +249,8 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(SceneCommandsTest, CreateChildIsOneCommandAndRestoresParentByUuid) {
-        entity.get_component<Comet::TransformComponent>().translation = {10, 20, 30};
+        EXPECT_TRUE(
+            entity.try_edit_transform([&](auto& value) { value.translation = {10, 20, 30}; }));
         const auto parent_uuid = entity.get_uuid();
         const auto child_uuid =
             SceneCommands::create_entity(history, registry, "Child", parent_uuid);
@@ -414,7 +415,7 @@ namespace CometEditor::Tests {
 
     TEST_F(SceneCommandsTest, ReparentKeepsLocalTransformAndRejectsCyclesAndNoOps) {
         const auto parent = scene.create_entity("Parent");
-        entity.get_component<Comet::TransformComponent>().translation.x = 7;
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.translation.x = 7; }));
         ASSERT_TRUE(SceneCommands::reparent_entity(history, entity.get_uuid(), parent.get_uuid()));
         EXPECT_EQ(scene.get_parent(entity), parent);
         EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().translation.x, 7);

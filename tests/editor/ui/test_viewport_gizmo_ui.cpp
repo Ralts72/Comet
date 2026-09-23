@@ -6,7 +6,8 @@ namespace CometEditor::Tests {
 
     TEST_F(ViewportGizmoUiTest, LightAxisDragFromAnotherPanelCommitsAndUndoes) {
         entity.add_component<Comet::LightComponent>();
-        entity.get_component<Comet::TransformComponent>().rotation = {-30, -35, 0};
+        EXPECT_TRUE(
+            entity.try_edit_transform([&](auto& value) { value.rotation = {-30, -35, 0}; }));
         show_other_panel = true;
         for(const auto type :
             {Comet::LightType::Directional, Comet::LightType::Point, Comet::LightType::Spot}) {
@@ -102,8 +103,8 @@ namespace CometEditor::Tests {
     TEST_F(ViewportGizmoUiTest, CenterScaleCapturesInputAndPreservesComponentRatios) {
         state.camera.perspective.position = {0, 0, 3};
         state.camera.target = {};
-        auto& transform = entity.get_component<Comet::TransformComponent>();
-        transform.scale = {1, -2, 3};
+        const auto& transform = entity.get_component<Comet::TransformComponent>();
+        EXPECT_TRUE(entity.try_edit_transform([&](auto& value) { value.scale = {1, -2, 3}; }));
         ASSERT_TRUE(gizmo.set_settings(
             {.mode = TransformGizmo::Mode::Scale, .snap = true, .scale_step = 0.25f}));
         frame();

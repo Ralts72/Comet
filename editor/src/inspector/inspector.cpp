@@ -312,7 +312,7 @@ namespace CometEditor {
         }
         if(m_state.mode == EditorMode::Play) {
             // Play 中仍可调试 Runtime 属性，但不写入 Edit 文档历史。
-            if(changed && !property.assign_value(component.get_component(entity), value)) {
+            if(changed && !component.assign_property(entity, property.id, value)) {
                 LOG_ERROR("Cannot update runtime property");
             }
             return;
