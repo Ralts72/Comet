@@ -120,6 +120,12 @@ namespace Comet {
             }
             if(root.IsDefined() && !root.IsNull() && !root.IsMap())
                 return Result<void>::failure(config_error(path, "<root>", "expected a mapping"));
+            if(root.IsMap()) {
+                const YAML::Node render = root["render"];
+                if(render.IsMap() && render["enable_vsync"].IsDefined())
+                    return Result<void>::failure(config_error(
+                        path, "render.enable_vsync", "use vulkan.present_mode instead"));
+            }
             ConfigReader reader(root, path);
             if(!reader.read("diagnostics.enable_file_logging",
                    config.diagnostics.log.enable_file_logging, "a boolean")
@@ -146,7 +152,6 @@ namespace Comet {
                     "a non-negative integer")
                 || !reader.named("render.output_mode", config.render.output_mode, OUTPUT_MODES)
                 || !reader.read("render.hdr_headroom", config.render.hdr_headroom, "a number")
-                || !reader.read("render.enable_vsync", config.render.enable_vsync, "a boolean")
                 || !reader.read("render.max_anisotropy", config.render.max_anisotropy, "a number"))
                 return Result<void>::failure(reader.error());
             return Result<void>::success();

@@ -51,7 +51,6 @@ namespace Comet {
             // 扩展线性输出峰值相对于 SDR 白色的倍数，不代表显示器实测能力。
             float hdr_headroom = 4.0f;
             std::uint32_t max_frames_in_flight = 2;
-            bool enable_vsync = false;
             float max_anisotropy = 1.0f;
         };
 

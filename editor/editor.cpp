@@ -100,7 +100,7 @@ namespace {
             m_material_shader_reload = std::make_unique<CometEditor::ShaderReload>(
                 engine.get_task_scheduler(), std::move(shader_requests));
             auto shortcuts = CometEditor::EditorShortcuts::load(
-                std::filesystem::path(COMET_CONFIG_DIRECTORY) / "profiles/editor-dev.yaml");
+                std::filesystem::path(COMET_CONFIG_DIRECTORY) / "editor.yaml");
             if(shortcuts)
                 m_shortcuts = std::move(shortcuts).value();
             else

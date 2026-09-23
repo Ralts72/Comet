@@ -1,0 +1,11 @@
+# 编辑器快捷键默认配置，与构建 Profile 无关；修改后重启编辑器。
+# 缺省项沿用内置默认值，[] 禁用该动作。
+# Primary = macOS Cmd / 其他平台 Ctrl；Alt 在 macOS 上是 Option。
+editor:
+  shortcuts:
+    scene.new: ["Primary+N"]
+    scene.open: ["Primary+O"]
+    scene.save: ["Primary+S"]
+    edit.undo: ["Primary+Z"]
+    edit.redo: ["Primary+Shift+Z", "Primary+Y"]
+    viewport.focus_selection: ["F"]

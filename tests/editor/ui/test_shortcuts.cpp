@@ -8,9 +8,9 @@
 namespace CometEditor::Tests {
     using Action = EditorShortcuts::Action;
 
-    TEST(EditorShortcutsTest, ProjectProfileIsValid) {
-        EXPECT_TRUE(EditorShortcuts::load(
-            std::filesystem::path(PROJECT_ROOT_DIR) / "config/profiles/editor-dev.yaml"));
+    TEST(EditorShortcutsTest, EditorDefaultsAreValid) {
+        EXPECT_TRUE(
+            EditorShortcuts::load(std::filesystem::path(PROJECT_ROOT_DIR) / "config/editor.yaml"));
     }
 
     TEST(EditorShortcutsTest, OverridesOnlySpecifiedActionsAndAllowsDisabling) {

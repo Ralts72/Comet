@@ -118,7 +118,6 @@ vulkan:
   msaa_samples: 8
 render:
   max_frames_in_flight: 3
-  enable_vsync: true
   max_anisotropy: 16
 window:
   width: 901
@@ -156,7 +155,6 @@ diagnostics:
     EXPECT_FALSE(config.vulkan.enable_validation);
 
     EXPECT_EQ(config.render.max_frames_in_flight, 3u);
-    EXPECT_TRUE(config.render.enable_vsync);
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, 16.0f);
 }
 
@@ -246,6 +244,14 @@ TEST(ConfigTest, RejectsUnknownVulkanEnumName) {
     const auto& message = result.error();
     EXPECT_NE(message.find("vulkan.present_mode"), std::string::npos);
     EXPECT_NE(message.find("fastest"), std::string::npos);
+}
+
+TEST(ConfigTest, RejectsRemovedVsyncOverride) {
+    const TemporaryConfigFile file("render:\n  enable_vsync: true\n");
+    const auto result = ConfigLoader{}.load(file.path());
+    ASSERT_FALSE(result);
+    EXPECT_NE(result.error().find("render.enable_vsync"), std::string::npos);
+    EXPECT_NE(result.error().find("vulkan.present_mode"), std::string::npos);
 }
 
 TEST(ConfigTest, RejectsUnsupportedMsaaSampleCount) {

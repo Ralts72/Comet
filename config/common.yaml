@@ -6,7 +6,7 @@ vulkan:
   color_space: srgb_nonlinear
   # 深度格式: d32_float, d24_unorm_s8_uint, d32_float_s8_uint
   depth_format: d32_float
-  # 呈现模式: immediate, mailbox, fifo, fifo_relaxed
+  # 呈现模式: immediate（不等待垂直同步）, mailbox, fifo（垂直同步）, fifo_relaxed
   present_mode: immediate
   swapchain_image_count: 3
   # MSAA 采样数 (1, 2, 4, 8, 16, 32, 64)
@@ -20,7 +20,6 @@ render:
   hdr_headroom: 4
   # CPU 可并行准备的帧槽位数量
   max_frames_in_flight: 2
-  enable_vsync: false
   # 期望的各向异性过滤倍率；1 表示关闭，超过设备上限时会回退到支持的最大值
   max_anisotropy: 8
 

@@ -16,15 +16,11 @@ namespace Comet {
         PROFILE_SCOPE("RenderContext::Constructor");
         LOG_INFO("init graphics system");
 
-        PresentMode present_mode = vulkan_config.present_mode;
-        if(render_config.enable_vsync) {
-            present_mode = PresentMode::Fifo;
-        }
         const SwapchainRequest swapchain_request{.output_mode = render_config.output_mode,
             .image_count = vulkan_config.swapchain_image_count,
             .surface_format = vulkan_config.surface_format,
             .color_space = vulkan_config.color_space,
-            .present_mode = present_mode,
+            .present_mode = vulkan_config.present_mode,
             .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)};
         const DeviceCapabilityRequest capability_request{.swapchain = swapchain_request,
             .scene_color_format = Config::Render::SCENE_COLOR_FORMAT,

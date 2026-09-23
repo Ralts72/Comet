@@ -16,7 +16,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
 | `demo/assets/scripts/` | Lua 项目行为；默认字段由脚本声明，实体仅保存覆盖值 |
 | `demo/project.json` | 示例项目描述：版本、名称、启动场景和输入绑定 |
-| `config/` | `common.yaml` 与各 Profile 配置 |
+| `config/` | `common.yaml`、各运行 Profile 与独立的 `editor.yaml` 快捷键配置 |
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
@@ -166,6 +166,7 @@ render:
 ```
 
 `sdr` 强制普通输出；`hdr` / `auto` 在驱动提供 RGBA16F + 扩展线性 sRGB 时使用该组合，否则回退配置的 SDR 格式并记录原因。
+帧呈现只由 `vulkan.present_mode` 选择：`fifo` 等待垂直同步，`immediate` 不等待；设备不支持所选模式时回退并记录原因。
 日志区分请求模式与实际模式。`auto` 检测的是 Vulkan 输出支持，不是显示器实测亮度，也不会切换系统 HDR 设置。
 macOS 由 MoltenVK 配置 EDR layer；实际高亮受屏幕与系统亮度限制。编辑器启动策略暂时强制 SDR，避免 UI 和视口混用编码。
 HDR 使用相对白色的线性输出，不承诺固定 nits；暂不支持 HDR10/PQ、运行时切换、跨屏模式适配或自动亮度校准。
@@ -355,7 +356,7 @@ Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。�
   此阶段未提供 EXR、六面图片导入、局部反射探针、环境遮蔽或动态 GI；全局 IBL 不读取方向光阴影图。
 - Hierarchy 空白处／Scene 右键创建根实体，实体右键创建子实体、删除或 Duplicate 整棵子树；
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
-- 编辑器快捷键位于 `config/profiles/editor-dev.yaml` 的 `editor.shortcuts`，修改后重启。
+- 编辑器快捷键位于 `config/editor.yaml` 的 `editor.shortcuts`，与运行 Profile 独立，修改后重启。
   Undo/Redo 默认 Ctrl+Z／Ctrl+Y，macOS 为 Cmd+Z／Cmd+Shift+Z，文本编辑时不抢占控件的撤销。
   `Primary` 代表 Cmd／Ctrl，`[]` 禁用绑定；冲突会记录日志并回退默认配置。
 - Project 自动监视资产变化；右键 Refresh 重扫，Reimport 强制重建 Mesh 缓存。
