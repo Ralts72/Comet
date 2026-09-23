@@ -20,5 +20,9 @@ namespace Comet {
         [[nodiscard]] Result<void> save(
             const ShaderProgramData& data, const std::filesystem::path& path) const;
         [[nodiscard]] Result<ShaderProgramData> load(const std::filesystem::path& path) const;
+        [[nodiscard]] Result<std::string> serialize_material(
+            const ShaderProgramMaterial& material) const;
+        [[nodiscard]] Result<ShaderProgramMaterial> deserialize_material(
+            std::string_view contents) const;
     };
 }

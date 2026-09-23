@@ -1,5 +1,7 @@
 #include "inspector/asset_inspector.h"
+#include "asset/artifact/shader_program_artifact.h"
 #include "assets/asset_reference.h"
+#include "render/material/material_programs.h"
 #include "ui/dialogs.h"
 #include "ui/language.h"
 
@@ -26,8 +28,9 @@ namespace CometEditor {
         }
     }
 
-    AssetInspector::AssetInspector(const Comet::AssetDatabase& database)
-        : m_asset_database(database) {
+    AssetInspector::AssetInspector(
+        const Comet::AssetDatabase& database, const Comet::MaterialPrograms& programs)
+        : m_asset_database(database), m_programs(programs) {
         const auto builtins = Comet::MaterialLayout::builtins();
         m_material_layouts.assign(builtins.begin(), builtins.end());
     }
@@ -52,16 +55,49 @@ namespace CometEditor {
         std::ranges::sort(layouts, {}, [](const auto& layout) { return layout->get_name(); });
         m_material_layouts = std::move(layouts);
         m_template_change.reset();
+        m_program_layout_source.reset();
+        m_program_layout.reset();
+        m_program_layout_template.clear();
+        m_program_layout_error.clear();
     }
 
     std::shared_ptr<const Comet::MaterialLayout> AssetInspector::material_layout() const {
         if(!m_material_data)
             return nullptr;
+        return layout_for(m_material_data->shader_program, m_material_data->template_name);
+    }
+
+    std::shared_ptr<const Comet::MaterialLayout> AssetInspector::layout_for(
+        const Comet::AssetHandle program, const std::string& template_name) const {
+        std::shared_ptr<const Comet::MaterialLayout> builtin;
         for(const auto& layout : m_material_layouts) {
-            if(layout && layout->get_name() == m_material_data->template_name)
-                return layout;
+            if(layout && layout->get_name() == template_name) {
+                builtin = layout;
+                break;
+            }
         }
-        return nullptr;
+        if(!program)
+            return builtin;
+        if(const auto* active = m_programs.published(program, template_name))
+            return active->layout;
+        const auto source = m_programs.latest(program);
+        if(!source) {
+            m_program_layout_error = "Shader program is not compiled yet";
+            return nullptr;
+        }
+        if(source == m_program_layout_source && template_name == m_program_layout_template)
+            return m_program_layout;
+        m_program_layout_source = source;
+        m_program_layout_template = template_name;
+        m_program_layout.reset();
+        m_program_layout_error.clear();
+        auto described = m_programs.describe(*source, template_name, builtin);
+        if(!described) {
+            m_program_layout_error = described.error();
+            return nullptr;
+        }
+        m_program_layout = std::move(described).value();
+        return m_program_layout;
     }
 
     void AssetInspector::render(std::uint64_t generation, bool allow_drop) {
@@ -149,7 +185,7 @@ namespace CometEditor {
         std::optional<Comet::MaterialData> previous_data;
         const auto layout = material_layout();
         if(ImGui::BeginCombo(
-               Ui::label("Template").c_str(), m_material_data->template_name.c_str())) {
+               Ui::label("Render Template").c_str(), m_material_data->template_name.c_str())) {
             for(const auto& candidate : m_material_layouts) {
                 const bool selected = candidate->get_name() == m_material_data->template_name;
                 if(ImGui::Selectable(candidate->get_name().c_str(), selected) && !selected)
@@ -160,28 +196,46 @@ namespace CometEditor {
             }
             ImGui::EndCombo();
         }
-        if(!layout) {
-            ImGui::TextDisabled("%s", Ui::text("No registered layout for this material"));
-            return;
-        }
         const auto remember_previous = [&] {
             if(!previous_data)
                 previous_data = *m_material_data;
         };
         ImGui::BeginDisabled(m_template_change.has_value());
+        const auto select_program = [&](const Comet::AssetHandle program) {
+            if(program == m_material_data->shader_program)
+                return;
+            if(program && !m_programs.latest(program)) {
+                m_asset_error = "Shader program is not compiled yet";
+                return;
+            }
+            const auto next_layout = layout_for(program, m_material_data->template_name);
+            if(!next_layout) {
+                m_asset_error = "Shader program layout is unavailable";
+                if(!m_program_layout_error.empty())
+                    m_asset_error = m_program_layout_error;
+                return;
+            }
+            m_template_change =
+                change_material_template(*m_material_data, layout.get(), *next_layout);
+            m_template_change->data.shader_program = program;
+            m_asset_error.clear();
+        };
         auto shader_program = m_material_data->shader_program;
         if(edit_asset_reference(Ui::label("Shader Program").c_str(), shader_program,
-               m_asset_database, Comet::AssetType::ShaderProgram)) {
-            remember_previous();
-            m_material_data->shader_program = shader_program;
-        }
+               m_asset_database, Comet::AssetType::ShaderProgram))
+            select_program(shader_program);
         if(allow_drop) {
             if(const auto asset = accept_asset_drop(
                    m_asset_database, Comet::AssetType::ShaderProgram, generation);
-                asset && asset->handle != m_material_data->shader_program) {
-                remember_previous();
-                m_material_data->shader_program = asset->handle;
-            }
+                asset)
+                select_program(asset->handle);
+        }
+        if(!layout) {
+            ImGui::TextDisabled("%s", Ui::text("No registered layout for this material"));
+            if(!m_program_layout_error.empty())
+                ImGui::TextWrapped("%s", m_program_layout_error.c_str());
+            ImGui::EndDisabled();
+            return;
         }
         if(!layout->get_textures().empty())
             ImGui::SeparatorText(Ui::text("Textures"));

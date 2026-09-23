@@ -3,6 +3,7 @@
 #include "config/config.h"
 #include "render/render_context.h"
 #include "render/render_diagnostics.h"
+#include "render/material/material_programs.h"
 #include "render/resource/render_resources.h"
 #include "render/scene/scene_renderer.h"
 #include "core/window.h"
@@ -26,10 +27,11 @@ namespace Comet {
         auto& device = context.value()->get_device();
         auto resources = std::make_unique<RenderResources>(device);
         auto frames = std::make_unique<FrameScheduler>(device, config.render.max_frames_in_flight);
+        auto programs = std::make_unique<MaterialPrograms>(asset_registry);
         auto& swapchain = context.value()->get_swapchain();
         frames->initialize_swapchain_images(static_cast<uint32_t>(swapchain.get_images().size()));
         auto scene =
-            std::make_unique<SceneRenderer>(device, asset_registry, config.vulkan, config.render);
+            std::make_unique<SceneRenderer>(device, *programs, config.vulkan, config.render);
         auto configured = Result<void, GraphicsError>::success();
         if(config.render.scene_output == Config::Render::SceneOutput::Offscreen)
             configured = scene->configure_offscreen(
@@ -38,8 +40,9 @@ namespace Comet {
             configured = scene->configure_presentation(*resources, swapchain);
         if(!configured)
             return Creation::failure(configured.error());
-        auto renderer = std::unique_ptr<Renderer>(new Renderer(std::move(context).value(),
-            std::move(resources), std::move(frames), std::move(scene), asset_registry));
+        auto renderer =
+            std::unique_ptr<Renderer>(new Renderer(std::move(context).value(), std::move(resources),
+                std::move(frames), std::move(programs), std::move(scene), asset_registry));
         if(auto enabled =
                 renderer->m_diagnostics->set_enabled(config.diagnostics.enable_render_diagnostics);
             !enabled)
@@ -49,10 +52,11 @@ namespace Comet {
 
     Renderer::Renderer(std::unique_ptr<RenderContext> context,
         std::unique_ptr<RenderResources> resources, std::unique_ptr<FrameScheduler> frames,
-        std::unique_ptr<SceneRenderer> scene, const AssetRegistry& assets)
+        std::unique_ptr<MaterialPrograms> programs, std::unique_ptr<SceneRenderer> scene,
+        const AssetRegistry& assets)
         : m_render_context(std::move(context)), m_render_resources(std::move(resources)),
-          m_frames(std::move(frames)), m_scene_renderer(std::move(scene)), m_scene_resolver(assets),
-          m_asset_registry(assets) {
+          m_frames(std::move(frames)), m_programs(std::move(programs)),
+          m_scene_renderer(std::move(scene)), m_scene_resolver(assets), m_asset_registry(assets) {
         m_diagnostics = std::make_unique<RenderDiagnostics>(*m_frames);
         m_presentation = std::make_unique<Presentation>(*m_render_context, *m_frames,
             Presentation::Dependent{[this] { m_scene_renderer->release_presentation_target(); },
@@ -82,6 +86,7 @@ namespace Comet {
             return Result<bool, GraphicsError>::failure({"A render frame is already active"});
         PROFILE_SCOPE("prepare frame");
         m_render_resources->collect_completed_uploads();
+        m_programs->collect_removed();
         m_scene_renderer->collect_removed_assets(m_asset_registry);
 
         auto preparation = m_presentation->begin_frame();
@@ -121,6 +126,8 @@ namespace Comet {
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
         const RenderSubmission submission = m_scene_resolver.resolve(render_scene, frame_view);
+        if(auto programs = m_scene_renderer->prepare_material_programs(submission); !programs)
+            return programs;
         if(auto prepared = m_scene_renderer->prepare_post_process(submission.post_process);
             !prepared)
             return prepared;

@@ -1,6 +1,7 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "inspector/inspector.h"
 #include "render/material/material_layout.h"
+#include "render/material/material_programs.h"
 #include "assets/project_panel.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
@@ -8,6 +9,9 @@
 #include "asset/serialization/metadata_serializer.h"
 #include "render/material/material.h"
 #include "asset/registry.h"
+#include "asset/artifact/shader_program_artifact.h"
+#include "asset/serialization/shader_program_serializer.h"
+#include "shader/compiler.h"
 
 #include "support/imgui_context.h"
 
@@ -18,6 +22,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <fstream>
+#include <tuple>
 
 namespace CometEditor::Tests {
     class AssetEditingUiTest: public ::testing::Test {
@@ -28,6 +33,7 @@ namespace CometEditor::Tests {
         Comet::ProjectPaths paths{root};
         Comet::AssetDatabase database{paths};
         Comet::AssetRegistry runtime_assets;
+        Comet::MaterialPrograms programs{runtime_assets};
         Comet::Scene scene;
         Comet::Entity entity = scene.create_entity();
         Comet::ComponentRegistry registry;
@@ -38,6 +44,8 @@ namespace CometEditor::Tests {
         std::unique_ptr<InspectorPanel> inspector;
         std::unique_ptr<ProjectPanel> project;
         const Comet::AssetHandle mesh{42}, material{43}, texture{44}, second_texture{45};
+        const Comet::AssetHandle second_material{49};
+        Comet::AssetHandle expected_material = material;
         AssetDragPayload payload{};
         EditorState state;
         std::size_t payload_size = sizeof(AssetDragPayload);
@@ -70,8 +78,8 @@ namespace CometEditor::Tests {
             entity.add_component<Comet::MeshRendererComponent>();
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
-            inspector = std::make_unique<InspectorPanel>(
-                state, selection, history, edit, registry, widgets, database, runtime_assets);
+            inspector = std::make_unique<InspectorPanel>(state, selection, history, edit, registry,
+                widgets, database, runtime_assets, programs);
             frame();
             frame();
         }
@@ -111,8 +119,8 @@ namespace CometEditor::Tests {
                     *request, Comet::MaterialSerializer{}.load(
                                   paths.assets() / database.find(request->handle)->path));
             if(const auto request = inspector->asset_inspector().take_asset_edit()) {
-                EXPECT_EQ(request->handle, material);
-                EXPECT_EQ(request->revision, database.get_revision(material));
+                EXPECT_EQ(request->handle, expected_material);
+                EXPECT_EQ(request->revision, database.get_revision(request->handle));
                 const auto* update = std::get_if<MaterialEdit>(&request->value);
                 ASSERT_NE(update, nullptr);
                 ++material_updates;
@@ -216,7 +224,7 @@ namespace CometEditor::Tests {
         }
 
         void select_template(const char* name) {
-            click(widget_point("Inspector", "Template"));
+            click(widget_point("Inspector", "Render Template"));
             frame();
             click(widget_point("##Combo_00", name));
             frame();
@@ -978,6 +986,95 @@ namespace CometEditor::Tests {
         ASSERT_GT(material_updates, 0);
         EXPECT_GT(submitted_material.scalar_properties.at("intensity"), 1.0f);
         EXPECT_TRUE(submitted_material.texture_properties.empty());
+    }
+
+    TEST_F(AssetEditingUiTest, SharedProjectShaderKeepsTwoMaterialEditorsAfterRejectedVersion) {
+        const auto source_root =
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/shaders";
+        constexpr Comet::AssetHandle vertex_handle(46), fragment_handle(47), program_handle(48);
+        for(const auto [name, handle, type] :
+            {std::tuple{"stripes.vert", vertex_handle, Comet::AssetType::Shader},
+                {"stripes.frag", fragment_handle, Comet::AssetType::Shader}}) {
+            const auto target = paths.assets() / name;
+            std::filesystem::copy_file(source_root / name, target);
+            ASSERT_TRUE(Comet::MetadataSerializer{}.save(
+                {.handle = handle, .type = type}, Comet::metadata_path(target)));
+        }
+        const auto descriptor = paths.assets() / "stripes.shader";
+        const auto source = Comet::ShaderProgramSerializer{}.load(source_root / "stripes.shader");
+        ASSERT_TRUE(source) << source.error();
+        auto data = source.value();
+        data.vertex.source = vertex_handle;
+        data.fragment.source = fragment_handle;
+        ASSERT_TRUE(Comet::ShaderProgramSerializer{}.save(data, descriptor));
+        ASSERT_TRUE(Comet::MetadataSerializer{}.save(
+            {.handle = program_handle, .type = Comet::AssetType::ShaderProgram},
+            Comet::metadata_path(descriptor)));
+        ASSERT_TRUE(database.scan().succeeded());
+        auto vertex = Comet::ShaderCompiler::compile(
+            {.source = paths.assets() / "stripes.vert", .stage = Comet::ShaderStage::Vertex});
+        auto fragment = Comet::ShaderCompiler::compile(
+            {.source = paths.assets() / "stripes.frag", .stage = Comet::ShaderStage::Fragment});
+        ASSERT_TRUE(vertex.succeeded()) << vertex.diagnostics;
+        ASSERT_TRUE(fragment.succeeded()) << fragment.diagnostics;
+        auto program = std::make_shared<Comet::ShaderProgramArtifact>();
+        program->handle = program_handle;
+        program->vertex_words = std::move(vertex.words);
+        program->fragment_words = std::move(fragment.words);
+        program->material = data.material;
+        ASSERT_TRUE(runtime_assets.register_asset(program_handle, program));
+        auto layout = programs.describe(
+            *program, "unlit_color", Comet::MaterialLayout::find_builtin("unlit_color"));
+        ASSERT_TRUE(layout) << layout.error();
+        programs.publish(program_handle, "unlit_color", program, layout.value());
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "unlit_color",
+                .shader_program = program_handle,
+                .scalar_properties = {{"intensity", 1.0f}, {"frequency", 18.0f}},
+                .vector_properties = {{"color", {1, 1, 1, 1}}}},
+            paths.assets() / "material.mat"));
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "unlit_color",
+                .shader_program = program_handle,
+                .scalar_properties = {{"intensity", 1.0f}, {"frequency", 6.0f}},
+                .vector_properties = {{"color", {0.2f, 0.6f, 1.0f, 1.0f}}}},
+            paths.assets() / "second.mat"));
+        ASSERT_TRUE(Comet::MetadataSerializer{}.save(
+            {.handle = second_material, .type = Comet::AssetType::Material},
+            Comet::metadata_path(paths.assets() / "second.mat")));
+        ASSERT_TRUE(database.scan().succeeded());
+        selection.select_asset(material);
+        frame();
+        frame();
+        EXPECT_EQ(material_updates, 0);
+        drag_value(material_point("frequency", "Stripe Frequency"), 20);
+        ASSERT_GT(material_updates, 0);
+        EXPECT_GT(submitted_material.scalar_properties.at("frequency"), 18.0f);
+        EXPECT_EQ(submitted_material.shader_program, program_handle);
+        const auto first_material_edit = submitted_material;
+        expected_material = second_material;
+        selection.select_asset(second_material);
+        frame();
+        frame();
+        drag_value(material_point("frequency", "Stripe Frequency"), 20);
+        EXPECT_GT(submitted_material.scalar_properties.at("frequency"), 6.0f);
+        EXPECT_LT(submitted_material.scalar_properties.at("frequency"),
+            first_material_edit.scalar_properties.at("frequency"));
+        EXPECT_EQ(submitted_material.shader_program, program_handle);
+        const auto updates_before_failure = material_updates;
+        auto broken = std::make_shared<Comet::ShaderProgramArtifact>(*program);
+        broken->material->scalars[1].name = "missing";
+        ASSERT_TRUE(runtime_assets.replace_asset(program_handle, broken));
+        frame();
+        drag_value(material_point("frequency", "Stripe Frequency"), 20);
+        EXPECT_GT(material_updates, updates_before_failure);
+        expected_material = material;
+        selection.select_asset(material);
+        frame();
+        frame();
+        const auto first_updates_before_failure = material_updates;
+        drag_value(material_point("frequency", "Stripe Frequency"), 20);
+        EXPECT_GT(material_updates, first_updates_before_failure);
     }
 
     TEST_F(AssetEditingUiTest, ColorMetadataUsesAnEditableColorWidgetWithoutIdleWrites) {

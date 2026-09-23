@@ -25,8 +25,8 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 `asset/data/` 保存 Mesh、Texture、Material 和 Shader 程序的 CPU 数据。项目 `.shader` 文件以源资产 Handle 组合 vertex／fragment
 阶段及入口，旁边的 `.meta` 保持程序身份；编辑器后台编译后把可重建的 CPU 字节码缓存到项目 `.comet/cache/shaders/`。
 材质的 Inspector 可用 `Shader Program` 选择项目 `.shader`，保存为可选的稳定 Handle；未选择时沿用内置程序。
-目前项目程序须与材质 `Template` 的固定资源／属性布局兼容，渲染端才会建立 Pipeline；编译或 GPU 准备失败保留上一个可用版本。
-开发期 app 可读取编辑器生成且输入仍有效的缓存，但不会编译源码；发布包脱离开发机缓存的程序交付、动态属性布局及 Inspector 生成仍待实现。
+项目 `.shader` 可声明材质纹理、标量与四维向量的名称、默认值和编辑信息；反射核对实际 binding、类型与偏移。渲染域保存 GPU 已接受的程序版本，Inspector 优先显示该版本的属性；新候选失败时画面和 Inspector 均保留旧版。`Render Template` 约束帧资源、顶点输入等非材质接口。
+开发期 app 可读取编辑器生成且输入仍有效的缓存，但不会编译源码；发布包脱离开发机缓存的程序交付和更复杂的 Shader 接口仍待实现。
 `render/material/` 聚合材质定义、准备缓存与绘制，`render/debug/` 聚合辅助线，`render/passes/` 保存具体渲染步骤。
 `RenderResources` 组织 Mesh/Texture 创建、上传和 Sampler 复用；资产身份缓存仍只由 `AssetRegistry` 管理。
 编辑器的 `ProjectPanel` 位于 `assets/project_panel.*`，`ViewportPanel` 位于 `viewport/viewport_panel.*`，
@@ -398,15 +398,15 @@ Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。�
   `base_color_texture` 可选，选择 None 恢复纯色；指定但失效的纹理引用仍视为错误，不静默使用默认纹理。
   PBR 当前支持直接光照、方向光阴影与全局 IBL，不含法线／金属粗糙度贴图或透明；金属度范围 0..1，粗糙度范围 0.045..1。
   Inspector 按共享布局显示纹理、标量和颜色参数，参数变化后自动保存；仅查看默认值不会写文件。
-  Template 下拉框可切换已发布模板，确认时列出不兼容参数；保留兼容值、新参数使用默认值，材质身份不变。
+  Render Template 下拉框可切换已发布模板，确认时列出不兼容参数；保留兼容值、新参数使用默认值，材质身份不变。
   编辑时先准备依赖与 GPU 绑定，再保存并发布；失败恢复面板原值，旧在途帧继续使用旧资源。
-  必填纹理槽需补齐后才发布，切换其他资产会丢弃未完成草稿；项目 Shader 当前须兼容所选模板的固定布局。
+  必填纹理槽需补齐后才发布，切换其他资产会丢弃未完成草稿；项目 Shader 的材质属性可独立声明，非材质接口仍须兼容所选模板。
 - View 菜单与面板关闭按钮共享显隐状态；菜单只展示已接通的操作。
 
 ## Shader 开发
 
 项目示例位于 `demo/assets/shaders/stripes.vert`、`stripes.frag` 和 `stripes.shader`，材质 `demo/assets/materials/stripes.mat`
-通过稳定 Handle 引用程序。启动编辑器打开默认场景，可看到右侧条纹立方体；编辑 `stripes.frag` 后等待后台编译即可观察变化。
+通过稳定 Handle 引用程序。`stripes.shader` 为 `frequency` 等属性提供默认值和编辑范围；启动编辑器打开默认场景，可看到右侧条纹立方体，在 Inspector 修改频率或编辑 `stripes.frag` 后可观察变化。
 项目 Shader 不进入引擎的 CMake 内嵌程序列表，开发期 app 需要先由编辑器生成有效的程序缓存。
 
 以下目录相对 `engine/shaders/`。
@@ -480,8 +480,8 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
   面板产生请求，由统一更新阶段交给 SceneEditor 校验和执行；Viewport 管相机、拾取和 Gizmo，不持有 Engine。
   Inspector 的材质读取交给 EditorAssets，默认值／模板迁移／草稿校验集中在 material_editing。
   简单确认弹窗集中在 `editor/src/ui/dialogs`，只返回选择；有路径和请求状态的 SceneFileDialog 独立保留。
-- **Shader**：编译工具独立于 engine。开发编辑器支持内置材质程序后台编译和候选发布，
-  失败保留旧画面；辅助线、阴影、天空盒与输出 Shader 修改仍需重新构建。项目 Shader 和复杂接口尚未接入。
+- **Shader**：编译工具独立于 engine。开发编辑器支持内置材质程序和项目 `.shader` 的后台编译与候选发布，
+  失败保留旧画面；项目材质属性由描述与反射共同确定。辅助线、阴影、天空盒与输出 Shader 修改仍需重新构建，更复杂的项目接口尚未接入。
 - **坐标**：世界 +Y 向上，Vulkan Viewport 负高度转换画面坐标；`flip_y` 仅影响纹理导入。
 
 实现契约与扩展计划分别维护，避免在 README 重复细节：

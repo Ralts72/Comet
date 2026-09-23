@@ -199,7 +199,7 @@ namespace CometEditor {
         ImGui::SameLine();
         ImGui::TextUnformatted(".mat");
         ImGui::SetNextItemWidth(320.0f);
-        if(ImGui::BeginCombo(Ui::label("Template").c_str(), m_create_template.c_str())) {
+        if(ImGui::BeginCombo(Ui::label("Render Template").c_str(), m_create_template.c_str())) {
             for(const auto& layout : m_material_layouts) {
                 const bool selected = layout->get_name() == m_create_template;
                 if(ImGui::Selectable(layout->get_name().c_str(), selected))

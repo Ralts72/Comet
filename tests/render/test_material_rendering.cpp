@@ -1,5 +1,6 @@
 #include "core/engine.h"
 #include "render/material/material_layout.h"
+#include "render/material/material_programs.h"
 #include "core/math_utils.h"
 #include "support/engine_fixture.h"
 #include "render/renderer.h"
@@ -84,6 +85,74 @@ namespace Comet::Tests {
         ASSERT_TRUE(assets.replace_asset(program_handle, make_program(false)));
         auto retained = renderer.prepare_material_update(material_handle, material);
         EXPECT_TRUE(retained) << retained.error();
+    }
+
+    TEST_F(MaterialRenderingTest, ProjectProgramMetadataPreparesCustomScalarLayout) {
+        constexpr AssetHandle program_handle(9083);
+        constexpr AssetHandle material_handle(9084);
+        TemporaryDirectory directory;
+        const auto source = directory.path() / "custom.frag";
+        ASSERT_TRUE(write_text_file_atomic(source,
+            "#version 450\n"
+            "layout(location=0) out vec4 color;\n"
+            "layout(set=1,binding=0,std140) uniform MaterialData {\n"
+            "  vec4 color; float intensity; float frequency;\n"
+            "} material;\n"
+            "void main(){ color=vec4(material.color.rgb * material.intensity "
+            "* material.frequency, material.color.a); }\n"));
+        auto compiled = ShaderCompiler::compile({.source = source, .stage = ShaderStage::Fragment});
+        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+        auto program = std::make_shared<ShaderProgramArtifact>();
+        program->handle = program_handle;
+        program->vertex_words.assign(UNLIT_COLOR_VERT.begin(), UNLIT_COLOR_VERT.end());
+        program->fragment_words = std::move(compiled.words);
+        program->material =
+            ShaderProgramMaterial{.scalars = {{"intensity", "Intensity", 1.0f, 0.0f, 10.0f, 0.05f},
+                                      {"frequency", "Frequency", 2.0f, 0.0f, 4.0f, 0.1f}},
+                .vectors = {{"color", "Color", {1, 1, 1, 1}, true}}};
+        ASSERT_TRUE(engine->get_asset_registry().register_asset(program_handle, program));
+        auto material = std::make_shared<Material>("custom", "unlit_color", program_handle);
+        ASSERT_TRUE(material->set_scalar_property("frequency", 3.0f));
+        auto prepared = engine->get_renderer().prepare_material_update(material_handle, material);
+        ASSERT_TRUE(prepared) << prepared.error();
+        std::move(prepared).value().publish();
+        const auto* published =
+            engine->get_renderer().get_material_programs().published(program_handle, "unlit_color");
+        ASSERT_NE(published, nullptr);
+        EXPECT_EQ(published->source, program);
+        const auto first_layout = published->layout;
+        auto duplicate = std::make_shared<ShaderProgramArtifact>(*program);
+        ASSERT_TRUE(engine->get_asset_registry().replace_asset(program_handle, duplicate));
+        auto unchanged = engine->get_renderer().prepare_material_update(material_handle, material);
+        ASSERT_TRUE(unchanged) << unchanged.error();
+        published =
+            engine->get_renderer().get_material_programs().published(program_handle, "unlit_color");
+        ASSERT_NE(published, nullptr);
+        EXPECT_EQ(published->source, duplicate);
+        EXPECT_EQ(published->layout, first_layout);
+        auto incompatible = std::make_shared<ShaderProgramArtifact>(*program);
+        incompatible->material->scalars[1].name = "missing";
+        ASSERT_TRUE(engine->get_asset_registry().replace_asset(program_handle, incompatible));
+        auto rejected = engine->get_renderer().prepare_material_update(material_handle, material);
+        ASSERT_TRUE(rejected) << rejected.error();
+        published =
+            engine->get_renderer().get_material_programs().published(program_handle, "unlit_color");
+        ASSERT_NE(published, nullptr);
+        EXPECT_EQ(published->source, duplicate);
+        EXPECT_EQ(published->layout->get_scalars()[1].name, "frequency");
+        ASSERT_TRUE(engine->get_renderer().enable_offscreen_rendering({64, 64}));
+        auto rebuilt = engine->get_renderer().prepare_material_update(material_handle, material);
+        ASSERT_TRUE(rebuilt) << rebuilt.error();
+        std::move(rebuilt).value().publish();
+        published =
+            engine->get_renderer().get_material_programs().published(program_handle, "unlit_color");
+        ASSERT_NE(published, nullptr);
+        EXPECT_EQ(published->source, duplicate);
+        EXPECT_EQ(engine->get_renderer()
+                      .get_scene_renderer()
+                      .get_material_statistics()
+                      .cached_material_versions,
+            1u);
     }
 
     TEST_F(MaterialRenderingTest, FailedFramePreparationCannotReuseAcquiredFrame) {

@@ -17,6 +17,7 @@
 namespace Comet {
     class Device;
     class AssetRegistry;
+    class MaterialPrograms;
     class RenderResources;
     class FrameScheduler;
     class RenderDiagnostics;
@@ -28,7 +29,7 @@ namespace Comet {
 
     class COMET_API SceneRenderer {
     public:
-        SceneRenderer(Device& device, const AssetRegistry& assets, const Config::Vulkan& vulkan,
+        SceneRenderer(Device& device, MaterialPrograms& programs, const Config::Vulkan& vulkan,
             const Config::Render& render);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
@@ -43,6 +44,8 @@ namespace Comet {
         [[nodiscard]] Result<void, GraphicsError> prepare_post_process(
             const PostProcessSettings& settings,
             std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
+        [[nodiscard]] Result<void, GraphicsError> prepare_material_programs(
+            const RenderSubmission& submission);
         // 仅录制已准备的状态；场景快照的后处理设置由上一步消费。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
             FrameScheduler& frames, const RenderSubmission& submission,
@@ -87,7 +90,7 @@ namespace Comet {
             const LightingData& lighting);
 
         Device& m_device;
-        const AssetRegistry& m_assets;
+        MaterialPrograms& m_programs;
         Format m_offscreen_format;
         float m_hdr_headroom;
         Format m_depth_format;
@@ -97,6 +100,5 @@ namespace Comet {
         std::shared_ptr<RenderState> m_state;
         std::optional<TargetRetry> m_resize_failure;
         std::optional<TargetRetry> m_post_process_failure;
-        std::optional<MaterialShaders> m_material_shaders;
     };
 }

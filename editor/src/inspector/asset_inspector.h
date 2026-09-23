@@ -10,11 +10,17 @@
 #include <string>
 #include <vector>
 
+namespace Comet {
+    class MaterialPrograms;
+    class ShaderProgramArtifact;
+}
+
 namespace CometEditor {
     // 拥有资产编辑草稿；文件与 GPU 操作仍由宿主消费请求后执行。
     class AssetInspector {
     public:
-        explicit AssetInspector(const Comet::AssetDatabase& database);
+        AssetInspector(
+            const Comet::AssetDatabase& database, const Comet::MaterialPrograms& programs);
         void select(Comet::AssetHandle handle);
         void render(std::uint64_t generation, bool allow_drop);
         void set_material_layouts(
@@ -37,8 +43,11 @@ namespace CometEditor {
             const Comet::AssetRecord& record, const Comet::MaterialData& previous_data);
         [[nodiscard]] std::string validate_material() const;
         [[nodiscard]] std::shared_ptr<const Comet::MaterialLayout> material_layout() const;
+        [[nodiscard]] std::shared_ptr<const Comet::MaterialLayout> layout_for(
+            Comet::AssetHandle program, const std::string& template_name) const;
 
         const Comet::AssetDatabase& m_asset_database;
+        const Comet::MaterialPrograms& m_programs;
         Comet::AssetHandle m_selected_asset;
         Comet::AssetHandle m_loaded_asset;
         Comet::AssetRevision m_loaded_revision = 0;
@@ -49,5 +58,9 @@ namespace CometEditor {
         std::optional<AssetEdit> m_asset_edit;
         std::optional<AssetRead> m_asset_read;
         std::optional<MaterialTemplateChange> m_template_change;
+        mutable std::shared_ptr<const Comet::ShaderProgramArtifact> m_program_layout_source;
+        mutable std::shared_ptr<const Comet::MaterialLayout> m_program_layout;
+        mutable std::string m_program_layout_template;
+        mutable std::string m_program_layout_error;
     };
 }

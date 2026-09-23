@@ -91,6 +91,17 @@ namespace CometEditor::Tests {
             R"({"version":1,"vertex":{"source":0,"entry":"main"},"fragment":{"source":2,"entry":"main"}})"));
     }
 
+    TEST(ShaderProgramSerializerTest, RejectsInvalidMaterialPropertyMetadata) {
+        const Comet::ShaderProgramSerializer serializer;
+        EXPECT_FALSE(serializer.deserialize_material(
+            R"({"material":{"textures":[{"name":"value"}],"scalars":[{"name":"value","default":1}]}})"));
+        EXPECT_FALSE(serializer.deserialize_material(
+            R"({"material":{"scalars":[{"name":"value","default":1,"min":2,"max":1}]}})"));
+        EXPECT_FALSE(serializer.deserialize_material(
+            R"({"material":{"vectors":[{"name":"tint","default":[1,2,3]}]}})"));
+        EXPECT_FALSE(serializer.deserialize_material(R"({"material":{},"unexpected":1})"));
+    }
+
     TEST(DemoShaderProgramTest, CompilesForUnlitMaterial) {
         const Comet::ProjectPaths paths(COMET_SAMPLE_PROJECT_DIRECTORY);
         Comet::AssetDatabase database(paths);
@@ -116,10 +127,20 @@ namespace CometEditor::Tests {
         auto shader =
             Comet::ShaderInterface::reflect(artifact.fragment_words, artifact.fragment_entry);
         ASSERT_TRUE(shader) << shader.error();
-        const auto layout = Comet::MaterialLayout::find_builtin("unlit_color");
-        auto reflected = Comet::MaterialLayout::reflect(layout, shader.value());
+        ASSERT_TRUE(artifact.material);
+        auto reflected =
+            Comet::MaterialLayout::from_program("unlit_color", *artifact.material, shader.value());
         ASSERT_TRUE(reflected) << reflected.error();
-        EXPECT_EQ(reflected.value(), layout);
+        EXPECT_EQ(reflected.value()->get_scalars().size(), 2u);
+        EXPECT_EQ(reflected.value()->get_scalars()[1].name, "frequency");
+        EXPECT_EQ(reflected.value()->get_scalars()[1].default_value, 18.0f);
+        Comet::Tests::TemporaryDirectory output;
+        const auto cache = output.path() / "stripes.csp";
+        ASSERT_TRUE(artifact.publish_atomic(cache));
+        const auto restored = Comet::ShaderProgramArtifact::load(cache, program->handle);
+        ASSERT_TRUE(restored);
+        ASSERT_TRUE(restored->material);
+        EXPECT_EQ(restored->material, artifact.material);
     }
 
     TEST_F(ShaderProgramImportTest, StableIdentityAndSourceDependencies) {

@@ -47,6 +47,7 @@ namespace Comet {
         ShaderProgramImportSource vertex;
         ShaderProgramImportSource fragment;
         std::filesystem::path descriptor_path;
+        std::optional<ShaderProgramMaterial> material;
     };
     struct ShaderProgramImportFailure {
         std::string message;

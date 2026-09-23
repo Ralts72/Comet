@@ -56,6 +56,8 @@ namespace Comet::Tests {
         project.add_file("textures/albedo.PNG");
         project.add_file("Materials/default.mat", std::string(EMPTY_MATERIAL));
         project.add_file(".comet-tmp-interrupted-write.1", "partial");
+        project.add_file(".DS_Store", "Finder metadata");
+        project.add_file("textures/.DS_Store", "Finder metadata");
         AssetDatabase database(project.paths());
 
         const AssetScanReport report = database.scan();

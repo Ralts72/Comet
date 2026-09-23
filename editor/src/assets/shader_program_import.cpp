@@ -59,7 +59,8 @@ namespace CometEditor {
         if(!fragment)
             return Comet::Result<Request>::failure(fragment.error());
         return Comet::Result<Request>::success({handle, database.get_revision(handle),
-            std::move(vertex).value(), std::move(fragment).value(), descriptor_path});
+            std::move(vertex).value(), std::move(fragment).value(), descriptor_path,
+            std::move(descriptor).value().material});
     }
 
     Comet::Result<ShaderProgramImport::Candidate, ShaderProgramImport::Failure>
@@ -124,7 +125,8 @@ namespace CometEditor {
                 {"Shader inputs changed during compilation", std::move(watched)});
         return Prepared::success(
             {{request.handle, std::move(inputs).value(), std::move(vertex.words),
-                 std::move(fragment.words), request.vertex.entry, request.fragment.entry},
+                 std::move(fragment.words), request.vertex.entry, request.fragment.entry,
+                 request.material},
                 false});
     }
 

@@ -7,6 +7,7 @@
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
 #include "asset/registry.h"
+#include "render/material/material_programs.h"
 #include "scripting/script.h"
 #include "scene/script_component.h"
 #include "scene/systems/script_system.h"
@@ -29,6 +30,7 @@ namespace CometEditor::Tests {
         Comet::ComponentRegistry components = Comet::create_scene_component_registry();
         Comet::AssetDatabase assets{Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY)};
         Comet::AssetRegistry runtime_assets;
+        Comet::MaterialPrograms programs{runtime_assets};
         CommandHistory history;
         PropertyEditTransaction edit{history, components};
         SelectionService selection{scene};
@@ -65,8 +67,8 @@ namespace CometEditor::Tests {
                         ImGui::TextUnformatted("Extra widget content");
                     return result;
                 }));
-            inspector = std::make_unique<InspectorPanel>(
-                state, selection, history, edit, components, widgets, assets, runtime_assets);
+            inspector = std::make_unique<InspectorPanel>(state, selection, history, edit,
+                components, widgets, assets, runtime_assets, programs);
             frame();
             frame();
         }

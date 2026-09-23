@@ -70,12 +70,13 @@ Engine
 │   └── PhysicsSystem → Jolt world / bodies（Play／app 专有；Stop 销毁）
 │   └── AudioSystem → AudioPlayback / Voice（有声音源时创建；Stop 销毁）
 ├── TaskScheduler
-├── AssetRegistry → Runtime Mesh / Texture / Material / Environment / Script / AudioClip
+├── AssetRegistry → Runtime Mesh / Texture / Material / Environment / Script / AudioClip / ShaderProgramArtifact
 └── Renderer
     ├── RenderContext → Context / Device / Swapchain
     │                    Device → Allocator / queues / PipelineCache
     │                    Swapchain → active Generation
     ├── RenderResources → UploadManager / SamplerManager
+    ├── MaterialPrograms → 已通过 GPU 准备的程序 CPU 版本与布局（跨目标重建）
     ├── FrameScheduler → FrameSlot[N] / SwapchainImageState[M]
     ├── RenderDiagnostics → GpuTimer[slot]（实际使用的池由 FrameSlot 保活）
     ├── Presentation（借用 RenderContext、FrameScheduler；有序协调 Scene／Overlay dependent）
@@ -100,7 +101,7 @@ Editor
 ├── RenderStatsPanel（只读 Engine/Renderer 快照，提交一次性采样／报告请求）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
 ├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
-├── InspectorPanel → AssetInspector（材质／纹理草稿和请求，不保存文件或拥有 GPU 对象）
+├── InspectorPanel → AssetInspector（材质／纹理草稿和请求，只读 MaterialPrograms 的发布布局）
 ├── Viewport → ViewportPanel / TransformGizmo（借用状态、选择、Renderer、Registry 和 ImGuiContext）
 └── ImGuiContext
     ├── RenderPass / SwapchainTarget / DescriptorPool
@@ -293,6 +294,7 @@ Editor 在 on_update 消费面板请求并原子写入项目私有状态目录�
 | `render/material/material_layout.h` | 不可变 MaterialLayout 参数布局、默认值、编辑语义与 Shader 校验 | 可变材质实例、GPU owner |
 | `render/material/material_runtime.h` | MaterialRuntimeCache 准备并缓存 Texture 引用和参数字节 | 创建 Vulkan 对象 |
 | `render/material/material_shader.h` | 具名程序字节码、内置程序与材质映射、固定接口校验、覆盖合并 | GPU owner、后台任务、发布事务 |
+| `render/material/material_programs.h` | 跨目标重建保存已发布程序版本；统一项目程序的 CPU 契约预检 | 目标相关 Pipeline、源码编译、文件监视 |
 | `render/material/material_renderer.h` | 帧／材质 descriptor、Pipeline 选择、排序与绘制 | 解析 Scene 或资产文件 |
 | `tools/shader/compiler.h` | CPU 源编译、依赖快照和诊断；CLI 负责文件输出 | Vulkan 对象、编辑器热重载编排 |
 | `graphics/pipeline/shader_interface.h` | SPIR-V 入口级自有反射数据，仅公开 Comet 类型 | 自动生成编辑语义、完整字节码校验 |
@@ -388,10 +390,12 @@ EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 m
 ### 材质准备与寿命
 
 内置 `unlit_color` / `pbr` 的初始 metadata 由 MaterialLayout::find_builtin 共享。
-MaterialLayout::reflect 按 shader_name（为空时使用逻辑属性名）匹配已登记属性，重建 offset／块大小／binding；
+内置与项目属性共用 MaterialLayout 的反射映射；项目 `.shader` 的 metadata 先转为属性声明，反射再填充 offset／块大小／binding。
+映射按 shader_name（为空时使用逻辑属性名）匹配已登记属性；
 名称、默认值、范围、步长和 Color/Vector 语义仍由 metadata 提供。参数块 binding 由布局指导创建和写入，不再固定为 0。
+这是当前实现的职责位置，不表示 `.shader` 永久拥有材质编辑语义；后续边界和迁移前提见[内容资源约束](../engine-roadmap.md#内容资源的跨阶段约束)。
 未知／缺失／改类型字段、多参数块与不支持的资源形状拒绝；相同物理布局复用原对象，不增加平行 revision 计数。
-Editor 在初始化和成功热更后向 Inspector／Project 交付已发布布局快照；控件、模板候选和草稿校验使用同一布局，不清空草稿、不自动保存。
+Editor 在初始化和内置程序成功热更后向 Inspector／Project 交付模板布局；项目材质优先读取 MaterialPrograms 已发布版本的布局，未使用的新程序可做 CPU 预览。控件和草稿校验使用对应布局，不清空草稿、不自动保存。
 Editor 通过 Renderer 获取该快照，不直接访问 SceneRenderer 的目标实现；ImGui 初始化和显存诊断仍留在明确的图形集成入口。
 独立面板初始化使用 MaterialLayout::builtins；收到发布列表后不再补回未发布模板。目标重建后同值布局仍可用于 UI，不让面板引用 Renderer。
 布局构造后不可变，以对象身份区分版本；Material 可修改，以自身 revision 标记真实变化。
@@ -457,7 +461,7 @@ normalized／packed 转换、复杂插值、StorageImage 格式及完整附件�
 ### 材质 Shader 热发布
 
 MaterialShaders 是完整顶点／片元程序的具名集合；未知名称、空集合和不完整程序在 GPU 创建前拒绝。
-MaterialShader 复用 ShaderInterface 校验；未参与更新的程序保留原版本，SceneRenderer 合并成功字节码供完整目标重建。
+MaterialShader 复用 ShaderInterface 校验；未参与更新的程序保留原版本。MaterialPrograms 保存成功的内置覆盖字节码和项目程序版本，供目标重建使用。
 生产目录和 include 约定见 [Shader 开发](../../README.md#shader-开发)。
 
 Worker 只编译请求副本，不访问 Editor、Scene、Device；服务销毁后 CPU 工作可结束，但不会再发布。
@@ -466,7 +470,7 @@ Worker 只编译请求副本，不访问 Editor、Scene、Device；服务销毁�
 
 Editor 在活动帧之外发起发布：固定 Frame/Object 契约保持不变，仅 MaterialSet 1 可重绑定布局。
 MaterialRenderer 准备完整 PipelineState、CPU 缓存和驻留 GPU 材质候选；全部成功后统一切换。
-保存成功字节码用于目标重建，关闭编辑器不持久保存开发覆盖。DebugRenderer 只使用内嵌程序。
+项目程序先在场景 pass 录制前按本帧引用去重准备，MaterialRenderer 的逐物体绘制只消费已选 Pipeline；候选失败保留旧版。保存成功字节码用于目标重建，关闭编辑器不持久保存开发覆盖。DebugRenderer 只使用内嵌程序。
 
 只换 Pipeline 而材质数据不变时复用参数 buffer／pool／set，不修改在途帧持有的旧包装。
 缓存判等同时使用 PreparedMaterial 与 PipelineState；旧版回退只能用于同 Handle 且兼容当前管线。

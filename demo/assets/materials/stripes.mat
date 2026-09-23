@@ -4,6 +4,7 @@
   "shader_program": 1749083215601001003,
   "properties": {
     "color": {"type": "vector", "value": [1, 1, 1, 1]},
-    "intensity": {"type": "scalar", "value": 1}
+    "intensity": {"type": "scalar", "value": 1},
+    "frequency": {"type": "scalar", "value": 18}
   }
 }

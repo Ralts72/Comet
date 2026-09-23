@@ -2,6 +2,7 @@
 
 #include "asset/handle.h"
 #include "asset/import/input_snapshot.h"
+#include "asset/data/shader_program_data.h"
 #include "common/export.h"
 #include "common/result.h"
 
@@ -15,7 +16,7 @@ namespace Comet {
     // CPU-only compiled program. A published instance is never mutated by a consumer.
     class COMET_API ShaderProgramArtifact final {
     public:
-        static constexpr std::uint32_t FORMAT_VERSION = 2;
+        static constexpr std::uint32_t FORMAT_VERSION = 3;
 
         [[nodiscard]] static std::optional<ShaderProgramArtifact> load(
             const std::filesystem::path& path, AssetHandle handle);
@@ -27,5 +28,6 @@ namespace Comet {
         std::vector<std::uint32_t> fragment_words;
         std::string vertex_entry = "main";
         std::string fragment_entry = "main";
+        std::optional<ShaderProgramMaterial> material;
     };
 }

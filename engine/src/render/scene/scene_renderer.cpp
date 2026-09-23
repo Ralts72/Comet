@@ -1,5 +1,6 @@
 #include "render/scene/scene_renderer.h"
 #include "render/material/material_layout.h"
+#include "render/material/material_programs.h"
 #include "render/render_graph.h"
 #include "render/render_diagnostics.h"
 #include "render/passes/output_pass.h"
@@ -47,9 +48,9 @@ namespace Comet {
         bool offscreen = false;
     };
 
-    SceneRenderer::SceneRenderer(Device& device, const AssetRegistry& assets,
+    SceneRenderer::SceneRenderer(Device& device, MaterialPrograms& programs,
         const Config::Vulkan& vulkan, const Config::Render& render)
-        : m_device(device), m_assets(assets), m_offscreen_format(vulkan.surface_format),
+        : m_device(device), m_programs(programs), m_offscreen_format(vulkan.surface_format),
           m_hdr_headroom(render.hdr_headroom), m_depth_format(vulkan.depth_format),
           m_msaa_samples(vulkan.msaa_samples), m_frame_slot_count(render.max_frames_in_flight) {}
 
@@ -118,9 +119,8 @@ namespace Comet {
         if(!skybox)
             return Creation::failure(skybox.error());
         next->skybox_pass = std::move(skybox).value();
-        auto materials =
-            MaterialRenderer::create(m_device, *next->pipelines, resources, m_frame_slot_count,
-                m_msaa_samples, m_material_shaders ? &*m_material_shaders : nullptr, &m_assets);
+        auto materials = MaterialRenderer::create(m_device, *next->pipelines, resources,
+            m_frame_slot_count, m_msaa_samples, m_programs.builtin_overrides(), &m_programs);
         if(!materials)
             return Creation::failure(materials.error());
         next->materials = std::move(materials).value();
@@ -221,6 +221,13 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
+    Result<void, GraphicsError> SceneRenderer::prepare_material_programs(
+        const RenderSubmission& submission) {
+        if(!m_state)
+            return Result<void, GraphicsError>::failure({"Scene renderer is not configured"});
+        return m_state->materials->prepare_programs(submission);
+    }
+
     Result<void, GraphicsError> SceneRenderer::configure_bloom(const bool enabled) {
         std::unique_ptr<BloomPass> candidate;
         if(enabled) {
@@ -308,11 +315,8 @@ namespace Comet {
                 {"Scene pipelines are not initialized"});
         auto result =
             m_state->materials->reload_shaders(*m_state->pipelines, shaders, m_msaa_samples);
-        if(result) {
-            if(!m_material_shaders)
-                m_material_shaders.emplace();
-            merge_material_shaders(*m_material_shaders, std::move(shaders));
-        }
+        if(result)
+            m_programs.publish_builtin(std::move(shaders));
         return result;
     }
 

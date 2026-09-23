@@ -26,6 +26,7 @@ namespace Comet {
     class RenderDiagnostics;
     class ImageView;
     class MaterialLayout;
+    class MaterialPrograms;
 
     class COMET_API Renderer {
     public:
@@ -51,6 +52,7 @@ namespace Comet {
             MaterialShaders shaders);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
+        [[nodiscard]] const MaterialPrograms& get_material_programs() const { return *m_programs; }
         [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>
         prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
@@ -88,8 +90,8 @@ namespace Comet {
 
     private:
         Renderer(std::unique_ptr<RenderContext> context, std::unique_ptr<RenderResources> resources,
-            std::unique_ptr<FrameScheduler> frames, std::unique_ptr<SceneRenderer> scene,
-            const AssetRegistry& assets);
+            std::unique_ptr<FrameScheduler> frames, std::unique_ptr<MaterialPrograms> programs,
+            std::unique_ptr<SceneRenderer> scene, const AssetRegistry& assets);
         struct ViewportPickRequest {
             Math::Vec2u pixel;
             Math::Vec2u image_resolution;
@@ -100,6 +102,7 @@ namespace Comet {
         std::unique_ptr<FrameScheduler> m_frames;
         std::unique_ptr<RenderDiagnostics> m_diagnostics;
         std::unique_ptr<Presentation> m_presentation;
+        std::unique_ptr<MaterialPrograms> m_programs;
         std::unique_ptr<SceneRenderer> m_scene_renderer;
         SceneResolver m_scene_resolver;
         const AssetRegistry& m_asset_registry;

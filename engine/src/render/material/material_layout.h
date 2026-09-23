@@ -13,6 +13,7 @@
 
 namespace Comet {
     class ShaderInterface;
+    struct ShaderProgramMaterial;
 
     class COMET_API MaterialLayout {
     public:
@@ -54,6 +55,8 @@ namespace Comet {
             uint32_t parameter_binding = 0);
         static Result<std::shared_ptr<const MaterialLayout>> reflect(
             const std::shared_ptr<const MaterialLayout>& metadata, const ShaderInterface& shader);
+        static Result<std::shared_ptr<const MaterialLayout>> from_program(
+            std::string name, const ShaderProgramMaterial& metadata, const ShaderInterface& shader);
         MaterialLayout(const MaterialLayout&) = default;
         MaterialLayout(MaterialLayout&&) = default;
         MaterialLayout& operator=(const MaterialLayout&) = delete;
@@ -71,6 +74,9 @@ namespace Comet {
 
     private:
         MaterialLayout() = default;
+        static Result<std::shared_ptr<const MaterialLayout>> reflect_properties(
+            const std::shared_ptr<const MaterialLayout>& metadata, const ShaderInterface& shader,
+            bool reuse_unchanged);
         std::string m_name;
         std::vector<TextureProperty> m_textures;
         uint32_t m_parameter_size;

@@ -13,6 +13,7 @@
 
 namespace Comet {
     class AssetRegistry;
+    class MaterialPrograms;
     class ComponentRegistry;
     class Entity;
     class Script;
@@ -33,7 +34,8 @@ namespace CometEditor {
             CommandHistory& history, PropertyEditTransaction& property_edit,
             const Comet::ComponentRegistry& component_registry,
             const PropertyEditorRegistry& property_editor_registry,
-            const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets);
+            const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
+            const Comet::MaterialPrograms& programs);
 
         void render() override;
         [[nodiscard]] bool finish_edit(bool cancel = false);

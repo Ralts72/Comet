@@ -30,6 +30,7 @@ namespace Comet {
     class Shader;
     class ImageView;
     class ShaderProgramArtifact;
+    class MaterialPrograms;
 
     class COMET_API MaterialRenderer {
         struct MaterialResources;
@@ -76,7 +77,7 @@ namespace Comet {
         static Result<std::unique_ptr<MaterialRenderer>, GraphicsError> create(Device& device,
             PipelineManager& pipelines, RenderResources& resources, uint32_t frame_slot_count,
             SampleCount samples, const MaterialShaders* shaders = nullptr,
-            const AssetRegistry* assets = nullptr);
+            MaterialPrograms* programs = nullptr);
         // 帧边界提交任意完整顶点/片元程序对；所有候选成功后才替换。
         Result<ReloadReport, GraphicsError> reload_shaders(
             PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples);
@@ -84,6 +85,8 @@ namespace Comet {
             const;
         [[nodiscard]] Result<MaterialUpdate, GraphicsError> prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
+        [[nodiscard]] Result<void, GraphicsError> prepare_programs(
+            const RenderSubmission& submission);
         // 调用方须先等待槽位、开启场景通道并设置视口与裁剪区域。
         // shadow_map 必须已处于片元 SampledRead；即使关闭阴影也需有效采样绑定。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
@@ -95,7 +98,7 @@ namespace Comet {
 
     private:
         MaterialRenderer(Device& device, PipelineManager& pipelines, SampleCount samples,
-            const AssetRegistry* assets);
+            MaterialPrograms* programs);
         Result<void, GraphicsError> initialize(PipelineManager& pipelines,
             RenderResources& resources, uint32_t frame_slot_count, SampleCount samples,
             const MaterialShaders* shaders);
@@ -162,7 +165,7 @@ namespace Comet {
         Device& m_device;
         PipelineManager& m_pipeline_manager;
         SampleCount m_samples;
-        const AssetRegistry* m_assets;
+        MaterialPrograms* m_programs;
         std::shared_ptr<Sampler> m_sampler;
         std::shared_ptr<Texture> m_white_texture;
         std::shared_ptr<Environment> m_empty_environment;

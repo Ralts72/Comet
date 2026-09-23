@@ -108,6 +108,7 @@ set(SOURCES
         src/render/frame_scheduler.cpp
         src/render/material/material.cpp
         src/render/material/material_layout.cpp
+        src/render/material/material_programs.cpp
         src/render/material/material_shader.cpp
         src/render/material/material_runtime.cpp
         src/render/material/material_renderer.cpp

@@ -1,4 +1,5 @@
 #include "render/material/material_layout.h"
+#include "asset/data/shader_program_data.h"
 #include "diagnostics/logger.h"
 #include "graphics/pipeline/shader_interface.h"
 
@@ -179,6 +180,12 @@ namespace Comet {
 
     Result<std::shared_ptr<const MaterialLayout>> MaterialLayout::reflect(
         const std::shared_ptr<const MaterialLayout>& metadata, const ShaderInterface& shader) {
+        return reflect_properties(metadata, shader, true);
+    }
+
+    Result<std::shared_ptr<const MaterialLayout>> MaterialLayout::reflect_properties(
+        const std::shared_ptr<const MaterialLayout>& metadata, const ShaderInterface& shader,
+        const bool reuse_unchanged) {
         using Layout = Result<std::shared_ptr<const MaterialLayout>>;
         if(!metadata || shader.get_stage() != ShaderStage::Fragment)
             return Layout::failure("Material reflection requires metadata and a fragment shader");
@@ -237,7 +244,7 @@ namespace Comet {
             return Layout::failure("Shader is missing registered material properties");
         changed |= parameter_size != metadata->m_parameter_size
                    || parameter_binding != metadata->m_parameter_binding;
-        if(!changed) {
+        if(!changed && reuse_unchanged) {
             if(auto checked = metadata->validate(shader); !checked)
                 return Layout::failure(checked.error());
             return Layout::success(metadata);
@@ -249,6 +256,24 @@ namespace Comet {
         if(auto checked = candidate.value().validate(shader); !checked)
             return Layout::failure(checked.error());
         return Layout::success(std::make_shared<MaterialLayout>(std::move(candidate).value()));
+    }
+
+    Result<std::shared_ptr<const MaterialLayout>> MaterialLayout::from_program(
+        std::string name, const ShaderProgramMaterial& metadata, const ShaderInterface& shader) {
+        auto seed = std::shared_ptr<MaterialLayout>(new MaterialLayout);
+        seed->m_name = std::move(name);
+        seed->m_parameter_size = 0;
+        for(const auto& property : metadata.textures)
+            seed->m_textures.push_back(
+                {property.name, 0, property.display_name, {}, property.optional});
+        for(const auto& property : metadata.scalars)
+            seed->m_scalars.push_back({property.name, 0, property.default_value, property.min_value,
+                property.max_value, property.step, property.display_name});
+        for(const auto& property : metadata.vectors)
+            seed->m_vectors.push_back({property.name, 0, property.default_value,
+                property.color ? VectorProperty::Semantic::Color : VectorProperty::Semantic::Vector,
+                property.display_name});
+        return reflect_properties(seed, shader, false);
     }
 
 }

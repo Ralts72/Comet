@@ -27,11 +27,12 @@ namespace CometEditor {
         CommandHistory& history, PropertyEditTransaction& property_edit,
         const Comet::ComponentRegistry& component_registry,
         const PropertyEditorRegistry& property_editor_registry,
-        const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets)
+        const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
+        const Comet::MaterialPrograms& programs)
         : EditorPanel("Inspector"), m_state(state), m_selection(selection), m_history(history),
           m_property_edit(property_edit), m_component_registry(component_registry),
           m_property_editor_registry(property_editor_registry), m_asset_database(asset_database),
-          m_runtime_assets(runtime_assets), m_asset_inspector(asset_database) {}
+          m_runtime_assets(runtime_assets), m_asset_inspector(asset_database, programs) {}
 
     void InspectorPanel::render() {
         m_asset_inspector.select(m_selection.get_selected_asset());

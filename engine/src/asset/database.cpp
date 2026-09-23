@@ -275,7 +275,8 @@ namespace Comet {
         std::unordered_set<std::filesystem::path> source_paths;
         std::vector<std::filesystem::path> source_files;
         for(const std::filesystem::path& file : files) {
-            if(file.filename().string().starts_with(".comet-tmp-")) {
+            if(file.filename() == ".DS_Store"
+                || file.filename().string().starts_with(".comet-tmp-")) {
                 continue;
             }
             if(file.extension() == ".meta") {

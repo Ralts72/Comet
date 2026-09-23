@@ -1,10 +1,14 @@
 #include "support/render_graph_gpu_fixture.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/registry.h"
+#include "render/material/material_layout.h"
+#include "render/material/material_programs.h"
 #include "unlit_color_vert.h"
 
+#include <algorithm>
+
 namespace Comet::Tests {
-    TEST_F(RenderGraphGpuTest, ProjectShaderProgramChangesPixelsAfterCpuVersionReplacement) {
+    TEST_F(RenderGraphGpuTest, ProjectShaderProgramKeepsTwoMaterialsAfterRejectedVersion) {
         constexpr AssetHandle program_handle(9811);
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
@@ -19,9 +23,10 @@ namespace Comet::Tests {
                 "#version 450\n"
                 "layout(location=0) out vec4 color;\n"
                 "layout(set=1,binding=0,std140) uniform MaterialData {\n"
-                "  vec4 color; float intensity;\n"
+                "  vec4 color; float intensity; float frequency;\n"
                 "} material;\n"
-                "void main() { color = vec4(material.color.rgb * material.intensity * "
+                "void main() { color = vec4(material.color.rgb * material.intensity "
+                "* material.frequency * "
                 + std::to_string(scale) + ", material.color.a); }\n";
             EXPECT_TRUE(write_text_file_atomic(path, fragment));
             auto compiled =
@@ -31,27 +36,62 @@ namespace Comet::Tests {
             program->handle = program_handle;
             program->vertex_words.assign(UNLIT_COLOR_VERT.begin(), UNLIT_COLOR_VERT.end());
             program->fragment_words = std::move(compiled.words);
+            program->material = ShaderProgramMaterial{
+                .scalars = {{"intensity", "Intensity", 1.0f, 0.0f, 10.0f, 0.05f},
+                    {"frequency", "Frequency", 1.0f, 0.0f, 10.0f, 0.1f}},
+                .vectors = {{"color", "Color", {1, 1, 1, 1}, true}}};
             return program;
         };
         ASSERT_TRUE(registry.register_asset(program_handle, compile_program(0.25f)));
-        auto material = std::make_shared<Material>("project", "unlit_color", program_handle);
-        ASSERT_TRUE(material->set_vector_property("color", {0.8f, 0.4f, 0.2f, 1}));
+        auto left = std::make_shared<Material>("left", "unlit_color", program_handle);
+        ASSERT_TRUE(left->set_vector_property("color", {0.6f, 0.3f, 0.1f, 1}));
+        ASSERT_TRUE(left->set_scalar_property("frequency", 1.0f));
+        auto right = std::make_shared<Material>("right", "unlit_color", program_handle);
+        ASSERT_TRUE(right->set_vector_property("color", {0.1f, 0.3f, 0.6f, 1}));
+        ASSERT_TRUE(right->set_scalar_property("frequency", 2.0f));
+        auto quad = lit_quad();
+        ASSERT_NE(quad, nullptr);
         RenderSubmission submission{
             .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
                 Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
-            .render_items = {{.mesh = lit_quad(), .material = {AssetHandle(9812), material}}}};
+            .render_items = {
+                {.model_matrix = Math::scale(
+                     Math::translate(Math::Mat4(1), {-0.5f, 0, 0}), {0.5f, 1, 1}),
+                    .mesh = quad,
+                    .material = {AssetHandle(9812), left}},
+                {.model_matrix = Math::scale(
+                     Math::translate(Math::Mat4(1), {0.5f, 0, 0}), {0.5f, 1, 1}),
+                    .mesh = quad,
+                    .material = {AssetHandle(9813), right}}}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
-        std::array<std::shared_ptr<Readback>, 2> outputs;
+        std::array<std::shared_ptr<Readback>, 3> outputs;
+        std::shared_ptr<const ShaderProgramArtifact> accepted;
         for(std::size_t index = 0; index < outputs.size(); ++index) {
-            if(index == 1)
+            if(index == 1) {
                 ASSERT_TRUE(registry.replace_asset(program_handle, compile_program(0.5f)));
+            } else if(index == 2) {
+                auto broken = compile_program(1.0f);
+                broken->material->scalars[1].name = "missing";
+                ASSERT_TRUE(registry.replace_asset(program_handle, std::move(broken)));
+            }
+            ASSERT_TRUE(scene.prepare_material_programs(submission));
+            const auto* published =
+                renderer.get_material_programs().published(program_handle, "unlit_color");
+            ASSERT_NE(published, nullptr);
+            if(index == 2) {
+                EXPECT_EQ(published->source, accepted);
+                EXPECT_EQ(published->layout->get_scalars()[1].name, "frequency");
+            } else {
+                accepted = published->source;
+            }
             frames.wait_for_current_slot();
             frames.begin_frame(0);
             frames.get_current_command_buffer().begin();
             auto drawn = scene.render(frames, submission);
             ASSERT_TRUE(drawn) << drawn.error();
+            EXPECT_EQ(scene.get_material_statistics().cached_material_versions, 2u);
             outputs[index] =
                 std::make_shared<Readback>(device, context.get_context().get_physical_device(), 64);
             copy_output(frames,
@@ -65,13 +105,26 @@ namespace Comet::Tests {
         for(std::size_t index = 0; index < outputs.size(); ++index) {
             const auto bytes = outputs[index]->read();
             const float scale = index == 0 ? 0.25f : 0.5f;
-            for(std::size_t channel = 0; channel < 3; ++channel) {
-                const float base = channel == 0 ? 0.8f : channel == 1 ? 0.4f : 0.2f;
-                const auto component = bgra ? 2 - channel : channel;
-                EXPECT_NEAR(std::to_integer<int>(bytes[(2 * 4 + 2) * 4 + component]),
-                    mapped_byte(base * scale), 3);
+            for(std::size_t side = 0; side < 2; ++side) {
+                const auto pixel = (2 * 4 + (side == 0 ? 0 : 3)) * 4;
+                const std::array<float, 3> base =
+                    side == 0 ? std::array{0.6f, 0.3f, 0.1f} : std::array{0.1f, 0.3f, 0.6f};
+                const float frequency = side == 0 ? 1.0f : 2.0f;
+                for(std::size_t channel = 0; channel < base.size(); ++channel) {
+                    const auto component = bgra ? 2 - channel : channel;
+                    EXPECT_NEAR(std::to_integer<int>(bytes[pixel + component]),
+                        mapped_byte(base[channel] * frequency * scale), 3);
+                }
             }
         }
+        const auto diagnostics = messages.str();
+        EXPECT_NE(diagnostics.find("Missing or incompatible material parameter: missing"),
+            std::string::npos);
+        EXPECT_EQ(std::count(diagnostics.begin(), diagnostics.end(), '\n'), 1);
+        EXPECT_EQ(diagnostics.find("VUID-"), std::string::npos);
+        EXPECT_EQ(diagnostics.find("Validation Error"), std::string::npos);
+        messages.str(std::string{});
+        messages.clear();
     }
 
     TEST_F(RenderGraphGpuTest, PbrParametersAndCameraProjectionMatchReferencePixels) {

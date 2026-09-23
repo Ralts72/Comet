@@ -1,4 +1,5 @@
 #include "asset/artifact/shader_program_artifact.h"
+#include "asset/serialization/shader_program_serializer.h"
 #include "common/file_io.h"
 
 #include <cstddef>
@@ -17,6 +18,7 @@ namespace Comet {
         constexpr std::size_t MAX_INPUTS = 512;
         constexpr std::size_t MAX_PATH_BYTES = 16 * 1024;
         constexpr std::size_t MAX_ENTRY_BYTES = 256;
+        constexpr std::size_t MAX_MATERIAL_BYTES = 64 * 1024;
         constexpr std::uint64_t HASH_SEED = 14695981039346656037ull;
 
         void append_u64(std::vector<std::byte>& output, const std::uint64_t value) {
@@ -94,10 +96,9 @@ namespace Comet {
                 return valid_words(words);
             }
 
-            bool read_entry(std::string& entry) {
+            bool read_text(std::string& entry, const std::size_t maximum) {
                 std::uint64_t length = 0;
-                if(!read_u64(length) || length == 0 || length > MAX_ENTRY_BYTES
-                    || length > m_input.size() - m_offset)
+                if(!read_u64(length) || length > maximum || length > m_input.size() - m_offset)
                     return false;
                 entry.resize(length);
                 for(std::size_t i = 0; i < length; ++i)
@@ -146,10 +147,20 @@ namespace Comet {
                 return std::nullopt;
             artifact.inputs.files.push_back(std::move(file));
         }
-        if(!reader.read_entry(artifact.vertex_entry) || !reader.read_entry(artifact.fragment_entry)
+        std::string material_text;
+        if(!reader.read_text(artifact.vertex_entry, MAX_ENTRY_BYTES)
+            || !reader.read_text(artifact.fragment_entry, MAX_ENTRY_BYTES)
+            || artifact.vertex_entry.empty() || artifact.fragment_entry.empty()
+            || !reader.read_text(material_text, MAX_MATERIAL_BYTES)
             || !reader.read_words(artifact.vertex_words, vertex_count)
             || !reader.read_words(artifact.fragment_words, fragment_count) || !reader.at_end())
             return std::nullopt;
+        if(!material_text.empty()) {
+            auto parsed = ShaderProgramSerializer{}.deserialize_material(material_text);
+            if(!parsed)
+                return std::nullopt;
+            artifact.material = std::move(parsed).value();
+        }
         return artifact;
     }
 
@@ -162,6 +173,15 @@ namespace Comet {
             return Result<void>::failure("Invalid shader program artifact");
         if(vertex_words.size() + fragment_words.size() > MAX_BYTES / sizeof(std::uint32_t))
             return Result<void>::failure("Shader program artifact exceeds size limit");
+        std::string material_text;
+        if(material) {
+            auto serialized = ShaderProgramSerializer{}.serialize_material(*material);
+            if(!serialized)
+                return Result<void>::failure(serialized.error());
+            material_text = std::move(serialized).value();
+            if(material_text.size() > MAX_MATERIAL_BYTES)
+                return Result<void>::failure("Shader material metadata exceeds size limit");
+        }
         std::vector<std::byte> payload;
         for(const auto& file : inputs.files) {
             const auto bytes = file.relative_path.generic_u8string();
@@ -181,6 +201,7 @@ namespace Comet {
         };
         append_entry(vertex_entry);
         append_entry(fragment_entry);
+        append_entry(material_text);
         const auto append_words = [&](const std::vector<std::uint32_t>& words) {
             for(const auto word : words)
                 for(unsigned shift = 0; shift < 32; shift += 8)
