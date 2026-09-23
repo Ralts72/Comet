@@ -1,4 +1,5 @@
 #include "scripting/script.h"
+#include "audio/audio.h"
 #include "common/file_io.h"
 #include "asset/asset_manager.h"
 
@@ -2070,6 +2071,28 @@ namespace Comet::Tests {
         ASSERT_TRUE(updated);
         EXPECT_NE(updated.value(), loaded.value());
         EXPECT_EQ(std::get<float>(updated.value()->defaults().at("speed")), 200);
+    }
+
+    TEST(AudioAssetTest, ScansAndLoadsWavByHandle) {
+        constexpr AssetHandle handle{42};
+        AssetRegistry assets;
+        TemporaryDirectory directory;
+        ProjectPaths paths(directory.path());
+        std::filesystem::create_directories(paths.assets());
+        const auto destination = paths.assets() / "cue.wav";
+        std::filesystem::copy_file(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/audio/play_chime.wav",
+            destination);
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = handle, .type = AssetType::Audio}, metadata_path(destination)));
+        TaskScheduler scheduler(1);
+        FakeRenderResourceFactory factory;
+        AssetManager manager(paths, assets, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        auto loaded = manager.load_audio(handle);
+        ASSERT_TRUE(loaded) << loaded.error().message;
+        EXPECT_EQ(loaded.value(), assets.resolve<AudioClip>(handle));
+        EXPECT_GT(loaded.value()->frame_count(), 0u);
     }
 
 }

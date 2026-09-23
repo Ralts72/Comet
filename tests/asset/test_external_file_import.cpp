@@ -96,6 +96,22 @@ namespace Comet::Tests {
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/invalid.lua"));
     }
 
+    TEST_F(ExternalFileImportTest, ImportsWavAsAnAssetAndRejectsInvalidAudio) {
+        const auto source = external / "cue.wav";
+        std::filesystem::copy_file(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/audio/play_chime.wav",
+            source);
+        ASSERT_TRUE(import({source}).succeeded());
+        const auto* record = manager.get_database().find("folder/cue.wav");
+        ASSERT_NE(record, nullptr);
+        EXPECT_EQ(record->type, AssetType::Audio);
+        EXPECT_TRUE(manager.load_audio(record->handle));
+        const auto invalid = external / "invalid.wav";
+        std::ofstream(invalid) << "not a wave";
+        EXPECT_FALSE(import({invalid}).succeeded());
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/invalid.wav"));
+    }
+
     TEST_F(ExternalFileImportTest, CopiesHdrEnvironmentAndRejectsMalformedSource) {
         const auto source = external / "studio.hdr";
         write_hdr(source);

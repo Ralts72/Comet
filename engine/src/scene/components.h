@@ -95,6 +95,22 @@ namespace Comet {
         float look_sensitivity = 0.2f;
     };
 
+    struct COMET_API AudioSourceComponent {
+        AudioSourceComponent();
+        AudioSourceComponent(const AudioSourceComponent& other);
+        AudioSourceComponent& operator=(const AudioSourceComponent& other);
+        AudioSourceComponent(AudioSourceComponent&&) noexcept = default;
+        AudioSourceComponent& operator=(AudioSourceComponent&&) noexcept = default;
+
+        AssetHandle clip;
+        bool loop = false;
+        float volume = 0.5f;
+        [[nodiscard]] uint64_t lifetime() const noexcept { return m_lifetime; }
+
+    private:
+        uint64_t m_lifetime;
+    };
+
     enum class BodyMotion { Static, Dynamic };
 
     struct COMET_API RigidBodyComponent {

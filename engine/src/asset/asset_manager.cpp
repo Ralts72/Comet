@@ -18,6 +18,7 @@
 #include "render/resource/resource_factory.h"
 #include "render/resource/texture.h"
 #include "scripting/script.h"
+#include "audio/audio.h"
 
 #include <algorithm>
 #include <chrono>
@@ -179,8 +180,9 @@ namespace Comet {
     AssetManager::RefreshResult AssetManager::schedule_refresh(const AssetRecord& record) {
         bool accepted = false;
         switch(record.type) {
+            case AssetType::Audio:
             case AssetType::Script:
-                // 活动实例保留旧源码；下次准备场景时加载新版，不在运行中替换 VM。
+                // 活动实例保留旧资源；下次准备场景时加载新版，不在运行中替换实例。
                 static_cast<void>(m_registry.unregister_asset(record.handle));
                 return RefreshResult::Invalidated;
             case AssetType::Mesh:
@@ -236,6 +238,12 @@ namespace Comet {
     Result<void, Error> AssetManager::ensure_loaded(
         const AssetHandle handle, const AssetType expected_type) {
         switch(expected_type) {
+            case AssetType::Audio: {
+                auto loaded = load_audio(handle);
+                if(!loaded)
+                    return Result<void, Error>::failure(loaded.error());
+                break;
+            }
             case AssetType::Script: {
                 auto loaded = load_script(handle);
                 if(!loaded)
@@ -585,6 +593,16 @@ namespace Comet {
                 if(!path)
                     return Result<std::shared_ptr<Script>, Error>::failure({path.error()});
                 return Script::load(path.value());
+            });
+    }
+
+    Result<std::shared_ptr<AudioClip>, Error> AssetManager::load_audio(const AssetHandle handle) {
+        return load_runtime_asset<AudioClip>(m_database, m_registry, handle, AssetType::Audio,
+            [this](const AssetRecord& record) -> Result<std::shared_ptr<AudioClip>, Error> {
+                auto path = m_paths.resolve_asset_path(record.path);
+                if(!path)
+                    return Result<std::shared_ptr<AudioClip>, Error>::failure({path.error()});
+                return AudioClip::load(path.value());
             });
     }
 

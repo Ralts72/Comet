@@ -77,6 +77,16 @@ block(SCOPE_FOR VARIABLES)
     add_subdirectory(JoltPhysics/Build EXCLUDE_FROM_ALL)
 endblock()
 
+# 只编译 miniaudio 核心实现，不配置上游样例和可选依赖。
+add_library(comet_miniaudio STATIC miniaudio/miniaudio.c)
+target_include_directories(comet_miniaudio SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/miniaudio")
+target_compile_definitions(comet_miniaudio PRIVATE MA_NO_ENCODING MA_NO_FLAC MA_NO_MP3)
+find_package(Threads REQUIRED)
+target_link_libraries(comet_miniaudio PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+if(UNIX AND NOT APPLE)
+    target_link_libraries(comet_miniaudio PUBLIC m)
+endif()
+
 # simdjson
 set(SIMDJSON_BUILD_STATIC_LIB OFF CACHE BOOL "" FORCE)
 set(SIMDJSON_ENABLE_THREADS ON CACHE BOOL "" FORCE)

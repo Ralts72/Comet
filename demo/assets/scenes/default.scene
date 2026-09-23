@@ -51,6 +51,11 @@
           "enabled": true,
           "move_speed": 3,
           "look_sensitivity": 0.2
+        },
+        "audio_source": {
+          "clip": 8247160951280394421,
+          "loop": false,
+          "volume": 0.5
         }
       }
     },

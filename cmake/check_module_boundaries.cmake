@@ -21,10 +21,10 @@ file(GLOB_RECURSE ENGINE_FILES RELATIVE "${ENGINE_SOURCE}"
 check_includes("${ENGINE_FILES}" "editor/|imgui" "Engine must not include Editor or ImGui")
 
 set(LOW_LEVEL_FILES)
-foreach(directory common input scene scripting)
+foreach(directory common input scene scripting audio)
     file(GLOB_RECURSE files RELATIVE "${ENGINE_SOURCE}"
         "${ENGINE_SOURCE}/${directory}/*.h" "${ENGINE_SOURCE}/${directory}/*.cpp")
     list(APPEND LOW_LEVEL_FILES ${files})
 endforeach()
 check_includes("${LOW_LEVEL_FILES}" "render/|graphics/|[Vv]ulkan|GLFW/"
-    "Scene/Input/Scripting/Common must not include rendering or platform backends")
+    "Scene/Input/Scripting/Audio/Common must not include rendering or platform backends")

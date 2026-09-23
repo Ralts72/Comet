@@ -5,6 +5,7 @@ add_subdirectory(shaders)
 find_package(Threads REQUIRED)
 
 set(SOURCES
+        src/audio/audio.cpp
         src/asset/artifact/mesh_artifact.cpp
         src/asset/artifact/environment_artifact.cpp
         src/asset/database.cpp
@@ -116,6 +117,8 @@ set(SOURCES
         src/scene/scene_runtime.cpp
         src/scene/systems/camera_controller.cpp
         src/scene/systems/physics_system.cpp
+        src/scene/systems/audio_system.cpp
+        src/scene/audio_source_component.cpp
         src/scene/script_component.cpp
         src/scene/systems/script_system.cpp
         src/scripting/script.cpp
@@ -134,6 +137,7 @@ target_link_libraries(engine
         PRIVATE
         comet_lua
         Jolt::Jolt
+        comet_miniaudio
         glfw
         Threads::Threads
         stb_image

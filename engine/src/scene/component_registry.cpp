@@ -174,6 +174,14 @@ namespace Comet {
                     &CameraControllerComponent::look_sensitivity,
                     {.numeric = {.speed = 0.01f, .minimum = 0.0f, .maximum = 10.0f}})}));
 
+        register_component(
+            make_component_descriptor<AudioSourceComponent>("audio_source", "Audio Source",
+                {make_property_descriptor("clip", "Audio Clip", &AudioSourceComponent::clip,
+                     {.asset_type = AssetType::Audio}),
+                    make_property_descriptor("loop", "Loop", &AudioSourceComponent::loop),
+                    make_property_descriptor("volume", "Volume", &AudioSourceComponent::volume,
+                        {.numeric = {.speed = 0.01f, .minimum = 0.0f, .maximum = 1.0f}})}));
+
         register_component(make_component_descriptor<RigidBodyComponent>("rigid_body", "Rigid Body",
             {make_enum_property_descriptor<RigidBodyComponent, BodyMotion>("motion", "Motion",
                 &RigidBodyComponent::motion,

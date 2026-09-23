@@ -10,6 +10,7 @@
 #include "scene/systems/camera_controller.h"
 #include "scene/systems/script_system.h"
 #include "scene/systems/physics_system.h"
+#include "scene/systems/audio_system.h"
 
 #include <cmath>
 #include <memory>
@@ -73,6 +74,10 @@ namespace {
                 !added)
                 return added;
             if(auto added = engine.add_system(std::make_unique<Comet::PhysicsSystem>()); !added)
+                return added;
+            if(auto added = engine.add_system(
+                   std::make_unique<Comet::AudioSystem>(engine.get_asset_registry()));
+                !added)
                 return added;
             return engine.start_scene_runtime();
         }

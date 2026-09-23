@@ -77,7 +77,7 @@ namespace Comet::Tests {
 
     TEST(AssetMetadataTest, SupportsDeclaredAssetTypes) {
         constexpr AssetType types[] = {AssetType::Texture, AssetType::Material, AssetType::Mesh,
-            AssetType::Shader, AssetType::Scene};
+            AssetType::Shader, AssetType::Scene, AssetType::Audio};
 
         for(const AssetType type : types) {
             SCOPED_TRACE(std::string(to_string(type)));
@@ -91,7 +91,7 @@ namespace Comet::Tests {
         const MetadataSerializer serializer;
 
         EXPECT_FALSE(serializer.deserialize(R"({"version": 3, "guid": 0, "type": "material"})"));
-        EXPECT_FALSE(serializer.deserialize(R"({"version": 3, "guid": 42, "type": "audio"})"));
+        EXPECT_FALSE(serializer.deserialize(R"({"version": 3, "guid": 42, "type": "video"})"));
         EXPECT_FALSE(serializer.serialize({.handle = INVALID_ASSET_HANDLE,
             .type = AssetType::Texture,
             .import_settings = TextureImportSettings{}}));

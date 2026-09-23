@@ -23,6 +23,7 @@ namespace Comet {
     class TaskScheduler;
     class Texture;
     class Script;
+    class AudioClip;
     struct MaterialData;
     struct MeshData;
     struct GraphicsError;
@@ -84,6 +85,7 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<Mesh>, Error> load_mesh(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> load_texture(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Script>, Error> load_script(AssetHandle handle);
+        [[nodiscard]] Result<std::shared_ptr<AudioClip>, Error> load_audio(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Environment>, Error> load_environment(
             AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> reimport_texture(

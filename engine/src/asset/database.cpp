@@ -53,6 +53,8 @@ namespace Comet {
             }
             if(extension == ".lua")
                 return AssetType::Script;
+            if(extension == ".wav")
+                return AssetType::Audio;
             if(extension == ".scene")
                 return AssetType::Scene;
             return std::nullopt;

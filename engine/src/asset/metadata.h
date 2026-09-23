@@ -19,7 +19,8 @@ namespace Comet {
         Shader,
         Scene,
         Environment,
-        Script
+        Script,
+        Audio
     };
 
     [[nodiscard]] COMET_API std::string_view to_string(AssetType type) noexcept;

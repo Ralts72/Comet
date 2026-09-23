@@ -3,6 +3,8 @@
 namespace Comet {
     std::string_view to_string(const AssetType type) noexcept {
         switch(type) {
+            case AssetType::Audio:
+                return "audio";
             case AssetType::Script:
                 return "script";
             case AssetType::Environment:
@@ -24,6 +26,8 @@ namespace Comet {
     }
 
     std::optional<AssetType> asset_type_from_string(const std::string_view value) noexcept {
+        if(value == "audio")
+            return AssetType::Audio;
         if(value == "script")
             return AssetType::Script;
         if(value == "environment")

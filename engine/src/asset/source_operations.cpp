@@ -9,6 +9,7 @@
 #include "asset/import/texture_importer.h"
 #include "asset/import/environment_importer.h"
 #include "scripting/script.h"
+#include "audio/audio.h"
 #include <fastgltf/core.hpp>
 
 #include <algorithm>
@@ -216,7 +217,8 @@ namespace Comet::AssetSourceOperations {
             };
             for(const auto& source : sources) {
                 if(!is_mesh_file(source) && !is_texture_file(source)
-                    && extension_of(source) != ".hdr" && extension_of(source) != ".lua")
+                    && extension_of(source) != ".hdr" && extension_of(source) != ".lua"
+                    && extension_of(source) != ".wav")
                     continue;
                 if(!source.is_absolute())
                     return Result<void>::failure("Dropped file path must be absolute");
@@ -245,10 +247,10 @@ namespace Comet::AssetSourceOperations {
             }
             if(roots.empty())
                 return Result<void>::failure(
-                    "Drop PNG/JPEG textures, HDR environments, Lua scripts or glTF/GLB models (not directories)");
+                    "Drop PNG/JPEG textures, HDR environments, Lua scripts, WAV audio or glTF/GLB models (not directories)");
             for(const auto& source : sources) {
                 if(is_mesh_file(source) || is_texture_file(source) || extension_of(source) == ".hdr"
-                    || extension_of(source) == ".lua")
+                    || extension_of(source) == ".lua" || extension_of(source) == ".wav")
                     continue;
                 if(extension_of(source) == ".meta") {
                     auto owner = source;
@@ -310,6 +312,9 @@ namespace Comet::AssetSourceOperations {
                 } else if(extension_of(relative) == ".lua") {
                     if(auto script = Script::load(staging / relative); !script)
                         return Result<void>::failure(script.error().message);
+                } else if(extension_of(relative) == ".wav") {
+                    if(auto clip = AudioClip::load(staging / relative); !clip)
+                        return Result<void>::failure(clip.error().message);
                 } else if(extension_of(relative) == ".hdr") {
                     if(auto result = EnvironmentImporter{}.validate_source(staging / relative);
                         !result)

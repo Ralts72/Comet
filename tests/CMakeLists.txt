@@ -1,5 +1,6 @@
 # 按运行依赖显式分组；扫描只检查遗漏，不替新测试猜测执行环境。
 set(UNIT_TEST_SOURCES
+        audio/test_audio.cpp
         asset/test_asset_manager.cpp
         asset/test_database.cpp
         asset/test_environment_artifact.cpp

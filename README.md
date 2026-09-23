@@ -1,12 +1,12 @@
 # Comet 引擎
 
-Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui 编辑器，目前重点是场景编辑、资产导入和单视口交互。Play 与示例 app 还支持固定步刚体模拟。
+Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui 编辑器，目前重点是场景编辑、资产导入和单视口交互。Play 与示例 app 还支持固定步刚体模拟和基础音频播放。
 
 ## 项目结构
 
 | 目录 | 职责 |
 | --- | --- |
-| `engine/src/` | 引擎库：runtime、core、input、scene、asset、render、graphics、config、diagnostics |
+| `engine/src/` | 引擎库：runtime、core、input、scene、asset、audio、render、graphics、config、diagnostics |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `tools/render_benchmark/` | 固定场景渲染性能基准，链接 engine，不依赖测试框架或编辑器 |
@@ -34,6 +34,7 @@ InspectorPanel 分发选择并编辑场景属性，AssetInspector 独立持有�
 SPIRV-Reflect 以固定版本 submodule 接入，仅作为 engine 的私有静态反射依赖；不构建其工具与测试。
 glslang 以正式版本 `16.6.0` 的固定提交作为 submodule，由构建生成 `comet_shader_compiler`；不再要求额外安装 `glslangValidator`。
 Jolt Physics 以 `v5.6.0` 的固定提交作为 submodule，只构建 CPU 刚体库；Scene 只保存刚体／碰撞体组件，物理世界在 Play／app 的 System 中创建。
+miniaudio 以固定版本 submodule 接入；目前仅解码项目中的 WAV 短音效，播放设备只在运行场景有声音源时创建。
 首次构建会增加源编译器的编译耗时，但 engine／app 不链接该编译库，发布运行不需要源编译器。
 
 ```bash
@@ -312,6 +313,11 @@ Edit 中位置保持原样。刚体与碰撞体在 Inspector 添加、编辑并�
 demo 的旋转立方体由 Lua 驱动，若同时设为动态刚体，脚本与物理都会写它的旋转；首版尚无专用于脚本驱动障碍物的运动学刚体。
 目前只支持无父级实体的盒／球碰撞体；盒尺寸乘以实体正缩放，球体要求均匀正缩放。
 首版在主线程模拟，最多 1024 个刚体；碰撞事件、约束和角色控制器尚未接入。
+
+demo 主相机附有 Audio Source，Play 或启动 app 时播放一次 `demo/assets/audio/play_chime.wav`；Edit 不播放，Stop 销毁播放实例。
+项目 WAV 由 Git LFS 管理，与相邻 `.meta` 一起使用，也可从 Finder 拖入 Project；场景只保存 Audio Clip 的 Handle、循环和 0..1 音量。可在 Inspector 添加或编辑 Audio Source。
+首版将短音效完整解码到内存，限制为单／双声道、约 1600 万采样值；尚无流式音乐、空间定位或混音编辑器。
+无可用输出设备时会记录警告并静音继续运行；暂停场景目前不暂停已经发出的声音。
 
 Lua 的 `properties` 声明显式导出的 bool／float／Vec3／string 配置；只有编辑过的字段保存为实体覆盖。
 Inspector 切换／清空 Script 引用会同时清空覆盖，一次 Undo 恢复旧脚本和参数；加载失败不改原绑定。

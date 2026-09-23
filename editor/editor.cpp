@@ -38,6 +38,7 @@
 #include "scene/component_registry.h"
 #include "scene/systems/script_system.h"
 #include "scene/systems/physics_system.h"
+#include "scene/systems/audio_system.h"
 #include "scene/scene_serializer.h"
 
 #include <cstdint>
@@ -158,6 +159,10 @@ namespace {
                 !added)
                 return added;
             if(auto added = engine.add_system(std::make_unique<Comet::PhysicsSystem>()); !added)
+                return added;
+            if(auto added = engine.add_system(
+                   std::make_unique<Comet::AudioSystem>(engine.get_asset_registry()));
+                !added)
                 return added;
             m_selection.emplace(scene);
             m_scene_editor = std::make_unique<CometEditor::SceneEditor>(m_editor_state,
@@ -487,8 +492,11 @@ namespace {
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
                 scene, *m_selection, m_command_history, m_editor_state);
             const auto device_limit = get_engine()
-                .get_renderer().get_render_context().get_device()
-                .get_capability().max_image_dimension_2d;
+                                          .get_renderer()
+                                          .get_render_context()
+                                          .get_device()
+                                          .get_capability()
+                                          .max_image_dimension_2d;
             if(device_limit == 0)
                 LOG_FATAL("Selected Vulkan device has no valid 2D image dimension limit");
             m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
