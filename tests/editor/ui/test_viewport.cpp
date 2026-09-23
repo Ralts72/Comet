@@ -3,6 +3,7 @@
 #include "config/config.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
+#include "graphics/device.h"
 #include "render/resource/render_resources.h"
 #include "core/window.h"
 #include "graphics/swapchain.h"
@@ -16,6 +17,7 @@
 #include "support/scene_motion_system.h"
 #include "common/scope_exit.h"
 #include "render/scene/scene_renderer.h"
+#include "render/render_target.h"
 #include "render/render_diagnostics.h"
 #include "asset/registry.h"
 #include "render/material/material.h"
@@ -23,6 +25,7 @@
 #include <gtest/gtest.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
+#include <algorithm>
 
 namespace CometEditor::Tests {
     TEST(ViewportTest, HiddenOffscreenViewSkipsGraphButKeepsRuntimeAndUiAlive) {
@@ -184,7 +187,10 @@ namespace CometEditor::Tests {
         auto sampler = renderer.get_render_resources().get_sampler_manager().get_nearest_clamp();
         ASSERT_TRUE(sampler) << sampler.error();
         Viewport viewport(state, engine.get_scene_runtime(), selection, history, components, edit,
-            shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value());
+            shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value(),
+            std::min(
+                renderer.get_render_context().get_device().get_capability().max_image_dimension_2d,
+                std::uint32_t{4096}));
         renderer.set_overlay_renderer(
             [&](Comet::CommandBuffer& command_buffer) { ui.render(command_buffer); });
         const auto draw_frame = [&] {
@@ -193,6 +199,11 @@ namespace CometEditor::Tests {
             EXPECT_TRUE(preparation);
             if(!preparation || !preparation.value())
                 return false;
+            const auto frame = renderer.get_offscreen_frame();
+            EXPECT_LT(frame.slot, renderer.get_frame_scheduler().get_frame_slot_count());
+            EXPECT_EQ(frame.size, renderer.get_scene_renderer().get_render_target().get_size());
+            EXPECT_EQ(frame.color_view,
+                renderer.get_scene_renderer().get_offscreen_color_view(frame.slot));
             viewport.update_texture();
             if(!ui.begin_frame())
                 return false;

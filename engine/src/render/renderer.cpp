@@ -61,6 +61,14 @@ namespace Comet {
                 }});
     }
 
+    Renderer::OffscreenFrame Renderer::get_offscreen_frame() const {
+        if(!m_frames->is_frame_active() || !m_scene_renderer->is_offscreen())
+            LOG_FATAL("Offscreen frame requires an active offscreen renderer frame");
+        const auto slot = m_frames->get_current_frame_slot_index();
+        return {slot, m_scene_renderer->get_render_target().get_size(),
+            m_scene_renderer->get_offscreen_color_view(slot)};
+    }
+
     Result<bool, GraphicsError> Renderer::prepare_frame() {
         if(m_shutdown_prepared)
             return Result<bool, GraphicsError>::failure({"Renderer is shutting down"});

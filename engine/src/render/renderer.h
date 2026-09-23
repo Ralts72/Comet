@@ -9,6 +9,7 @@
 #include "render/material/material_renderer.h"
 #include "render/presentation.h"
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -22,9 +23,16 @@ namespace Comet {
     class SceneRenderer;
     class Config;
     class RenderDiagnostics;
+    class ImageView;
 
     class COMET_API Renderer {
     public:
+        struct OffscreenFrame {
+            uint32_t slot;
+            Math::Vec2u size;
+            std::shared_ptr<ImageView> color_view;
+        };
+
         static Result<std::unique_ptr<Renderer>, GraphicsError> create(
             const Window& window, const Config& config, const AssetRegistry& asset_registry);
 
@@ -36,6 +44,7 @@ namespace Comet {
         [[nodiscard]] Result<void, GraphicsError> render_frame(const RenderScene& render_scene);
 
         Result<void, GraphicsError> enable_offscreen_rendering(Math::Vec2u initial_size);
+        [[nodiscard]] OffscreenFrame get_offscreen_frame() const;
         Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
             MaterialShaders shaders);
         [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>

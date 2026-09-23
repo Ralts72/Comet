@@ -180,6 +180,9 @@ add_test(NAME shader_build_contract COMMAND "${CMAKE_COMMAND}"
         "-DGENERATOR=${CMAKE_GENERATOR}"
         "-DBUILD_CONFIG=$<CONFIG>"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/shader/test_build.cmake")
+add_test(NAME module_boundaries COMMAND "${CMAKE_COMMAND}"
+        "-DCOMET_SOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/cmake/check_module_boundaries.cmake")
 
 add_executable(pipeline_cache_probe graphics/pipeline_cache_probe.cpp)
 target_link_libraries(pipeline_cache_probe PRIVATE engine)

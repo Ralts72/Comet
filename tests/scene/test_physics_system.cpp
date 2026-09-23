@@ -107,8 +107,8 @@ namespace Comet::Tests {
         auto loaded = serializer.load(
             std::string(COMET_SAMPLE_PROJECT_DIRECTORY) + "/assets/scenes/default.scene");
         ASSERT_TRUE(loaded) << loaded.error();
-        EXPECT_EQ(loaded.value()->component_count<RigidBodyComponent>(), 2u);
-        EXPECT_EQ(loaded.value()->component_count<ColliderComponent>(), 2u);
+        EXPECT_EQ(loaded.value()->component_count<RigidBodyComponent>(), 3u);
+        EXPECT_EQ(loaded.value()->component_count<ColliderComponent>(), 3u);
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
         ASSERT_TRUE(runtime.start(*loaded.value()));

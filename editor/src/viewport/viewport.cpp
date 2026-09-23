@@ -1,54 +1,35 @@
 #include "viewport/viewport.h"
-#include "render/render_context.h"
-#include "graphics/device.h"
 #include "graphics/resource/sampler.h"
 
 #include "asset/registry.h"
 #include "diagnostics/logger.h"
 #include "render/renderer.h"
-#include "render/render_target.h"
 #include "render/resource/mesh.h"
-#include "render/scene/scene_renderer.h"
 #include "scene/selection.h"
 #include "ui/imgui_context.h"
 
-#include <algorithm>
 #include <utility>
 
 namespace CometEditor {
-    namespace {
-        std::uint32_t viewport_dimension_limit(const Comet::Renderer& renderer) {
-            const auto limit =
-                renderer.get_render_context().get_device().get_capability().max_image_dimension_2d;
-            if(limit == 0)
-                LOG_FATAL("Selected Vulkan device has no valid 2D image dimension limit");
-            return std::min(limit, std::uint32_t{4096});
-        }
-    }
-
     Viewport::Viewport(EditorState& state, const Comet::SceneRuntime& runtime,
         SelectionService& selection, CommandHistory& history,
         const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
         const EditorShortcuts& shortcuts, Comet::Renderer& renderer, Comet::AssetRegistry& assets,
-        ImGuiContext& ui, std::shared_ptr<Comet::Sampler> sampler)
+        ImGuiContext& ui, std::shared_ptr<Comet::Sampler> sampler,
+        const std::uint32_t max_render_dimension)
         : m_state(state), m_selection(selection), m_renderer(renderer), m_assets(assets), m_ui(ui),
           m_sampler(std::move(sampler)), m_gizmo(history, components),
-          m_panel(state, runtime, selection, m_gizmo, inspector_edit,
-              viewport_dimension_limit(renderer), shortcuts) {
-        auto& scene_renderer = m_renderer.get_scene_renderer();
+          m_panel(
+              state, runtime, selection, m_gizmo, inspector_edit, max_render_dimension, shortcuts) {
         if(!m_sampler)
             LOG_FATAL("Viewport requires a prepared sampler");
-        const auto count = m_renderer.get_frame_scheduler().get_frame_slot_count();
-        for(std::uint32_t slot = 0; slot < count; ++slot)
-            m_ui.set_viewport_image(slot, scene_renderer.get_offscreen_color_view(slot), m_sampler);
     }
 
     void Viewport::update_texture() {
-        auto& scene_renderer = m_renderer.get_scene_renderer();
-        const auto slot = m_renderer.get_frame_scheduler().get_current_frame_slot_index();
-        m_ui.set_viewport_image(slot, scene_renderer.get_offscreen_color_view(slot), m_sampler);
-        const auto size = scene_renderer.get_render_target().get_size();
-        m_panel.set_texture_id(m_ui.get_viewport_texture_id(slot), size.x, size.y);
+        const auto frame = m_renderer.get_offscreen_frame();
+        m_ui.set_viewport_image(frame.slot, frame.color_view, m_sampler);
+        m_panel.set_texture_id(
+            m_ui.get_viewport_texture_id(frame.slot), frame.size.x, frame.size.y);
     }
 
     Comet::Result<void, Comet::Error> Viewport::update(Comet::Scene* scene) {

@@ -2,6 +2,21 @@
 
 描述当前运行时、编辑器、资产与渲染的调用链、所有权和失败边界；待实现能力与验收见[路线图](../engine-roadmap.md)。
 
+## 模块依赖方向
+
+| 模块 | 当前允许的主要依赖 | 边界与例外 |
+| --- | --- | --- |
+| `common/`、`input/` | 通用值、输入采样及映射 | 不引入 Render、Graphics 或窗口后端头；窗口事件的接线在 `core/window` |
+| `scene/`、`scripting/` | 通用值、输入、资产身份／只读缓存；脚本实现可依赖 Lua，物理实现可依赖 Jolt | Scene 组件和序列化不含 GPU 对象；System 不直接调用渲染后端 |
+| `asset/` | Scene 所用稳定 Handle、CPU 数据、文件与后台任务 | `asset/data/texture_data.h` 暂复用不含 Vulkan 头的 `graphics/enums.h`，拆分前不假装完全独立 |
+| `render/` | Scene 提取结果、资产缓存、Graphics | Renderer 编排帧与离屏输出；SceneRenderer 拥有目标，不知道 ImGui |
+| `graphics/` | Vulkan、平台窗口及通用能力 | 图形后端不依赖 Editor；`core/engine.cpp` 是宿主组合点，可使用 Graphics/Render |
+| `editor/`、`app/` | Engine 组合入口、明确的工作流接口 | ImGui/Vulkan 对接集中在 `editor/editor.cpp` 和 `editor/src/ui/imgui_context.cpp`；业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
+
+`module_boundaries` CTest 扫描 engine 源文件的 include：整个 engine 不得引入 Editor/ImGui；
+`common/`、`input/`、`scene/`、`scripting/` 不得引入 Render、Graphics、Vulkan/GLFW 后端。
+这条低成本规则不等同于独立编译目标或完整依赖图；当前 `engine` 仍是一个库，`core/engine.cpp` 的宿主组合依赖和 `asset/data` 的上述枚举复用仍是明确例外。
+
 ## 先看哪个类
 
 | 入口 | 职责 |

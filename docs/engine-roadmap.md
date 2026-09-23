@@ -40,7 +40,7 @@
 - 不跨模块机械清理异常，也不新增通用错误传播宏；第三方边界按实际实现处理。
 - Transform 的显式写入与同步边界随物理／动画接入继续验证；项目 Shader 所有权调整随阶段 5 的真实消费者推进。
 
-### 模块依赖与 Engine／Editor 边界（待推进，高优先级）
+### 模块依赖与 Engine／Editor 边界（首轮已接通，持续收敛）
 
 目标是让模块职责不仅靠目录和约定表达，也能从依赖关系及有限的构建约束中看出来。先核对当前 include、链接和调用关系，再定边界；不以立即拆分 `engine` CMake target 为目标。
 
@@ -50,6 +50,10 @@
 - **按纵向功能增量迁移**：选择一个实际消费者作为试点，迁移接口、调用方和测试后再扩展到相邻模块；期间保留 app/editor 的既有行为和生命周期协议。不得仅为缩短 `Engine` 成员列表引入转发 façade、Service Locator 或一批新 Manager。
 
 验收：有一份与代码相符的模块依赖表；新增代码无法轻易建立上述禁止依赖；至少一个 Engine／Editor 使用路径通过窄接口完成，编辑器业务代码不再依赖相应底层实现；app、editor 与相关测试仍可按需构建并通过。此专项不要求一次性拆库、重写已有模块，也不要求建立无窗口／无 Vulkan 的完整 Headless Runtime。
+
+首轮落地：依赖表与明确例外见架构文档；CTest include 检查约束底层模块反向依赖；
+Viewport 使用 Renderer 的当前离屏帧快照，不再直接读取 SceneRenderer、RenderTarget 或 RenderContext。
+后续继续按真实消费者缩小 Engine／Editor 其他穿透路径，暂不拆分 engine 库。
 
 ## 基本边界
 
