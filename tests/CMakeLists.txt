@@ -2,6 +2,8 @@
 set(UNIT_TEST_SOURCES
         audio/test_audio.cpp
         asset/test_asset_manager.cpp
+        asset/test_asset_publication.cpp
+        asset/test_asset_task_queue.cpp
         asset/test_database.cpp
         asset/test_environment_artifact.cpp
         asset/test_environment_importer.cpp
@@ -102,6 +104,7 @@ set(INTEGRATION_SOURCES
         render/test_offscreen_resize.cpp
         render/test_render_diagnostics.cpp
         render/test_render_graph_gpu.cpp
+        render/test_render_pipeline_gpu.cpp
         render/test_scene_resolver.cpp
         runtime/test_engine.cpp
         runtime/test_entry.cpp)

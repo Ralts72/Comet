@@ -19,6 +19,7 @@ set(SOURCES
         src/asset/import/environment_importer.cpp
         src/asset/import/environment_lighting.cpp
         src/asset/asset_manager.cpp
+        src/asset/asset_manager_async.cpp
         src/asset/data/material_data.cpp
         src/asset/metadata.cpp
         src/asset/registry.cpp

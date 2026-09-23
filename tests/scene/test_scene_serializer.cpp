@@ -19,6 +19,29 @@
 #include <utility>
 
 namespace Comet::Tests {
+    TEST(SceneSerializerTest, RejectsAudioVolumeOutsideDataBoundsOnLoadAndSave) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        auto& source = scene.create_entity("Sound").add_component<AudioSourceComponent>();
+
+        auto serialized = serializer.serialize(scene);
+        ASSERT_TRUE(serialized) << serialized.error();
+        std::string invalid = serialized.value();
+        const auto position = invalid.find(R"("volume": 0.5)");
+        ASSERT_NE(position, std::string::npos);
+        invalid.replace(position, std::string(R"("volume": 0.5)").size(), R"("volume": 1.5)");
+        auto loaded = serializer.deserialize(invalid, "invalid-audio.scene");
+        EXPECT_FALSE(loaded);
+        if(!loaded) {
+            EXPECT_NE(loaded.error().find("volume"), std::string::npos);
+            EXPECT_NE(loaded.error().find("outside allowed bounds"), std::string::npos);
+        }
+
+        source.volume = 1.5f;
+        EXPECT_FALSE(serializer.serialize(scene));
+    }
+
     TEST(ScenePostProcessTest, PersistsClonesAndTravelsThroughBothCameraPaths) {
         Scene scene;
         const PostProcessSettings settings{.exposure = 0.75f,

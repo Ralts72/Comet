@@ -66,10 +66,38 @@ namespace Comet {
         return std::nullopt;
     }
 
+    bool PropertyDescriptor::accepts_value(const PropertyValue& value) const {
+        const auto in_bounds = [this](const float number) {
+            return !numeric.enforce_bounds
+                   || ((!numeric.minimum || number >= *numeric.minimum)
+                       && (!numeric.maximum || number <= *numeric.maximum));
+        };
+        return std::visit(
+            [this, &in_bounds](const auto& source) {
+                using Value = std::remove_cvref_t<decltype(source)>;
+                if constexpr(std::is_same_v<Value, bool>)
+                    return type == PropertyType::Bool;
+                else if constexpr(std::is_same_v<Value, float>)
+                    return type == PropertyType::Float && std::isfinite(source)
+                           && in_bounds(source);
+                else if constexpr(std::is_same_v<Value, Math::Vec3>)
+                    return type == PropertyType::Vec3 && Math::is_finite(source)
+                           && in_bounds(source.x) && in_bounds(source.y) && in_bounds(source.z);
+                else if constexpr(std::is_same_v<Value, std::string>)
+                    return type == PropertyType::String || type == PropertyType::Enum;
+                else if constexpr(std::is_same_v<Value, ParameterMap>)
+                    return type == PropertyType::Parameters && valid_parameters(source);
+                else
+                    return type == PropertyType::AssetHandle;
+            },
+            value);
+    }
+
     bool PropertyDescriptor::assign_value(
         void* component, const PropertyValue& value, WriteMode mode) const {
         void* destination = get_value(component);
-        if(!destination || (mode == WriteMode::Edit && (!editable || read_only))) {
+        if(!destination || !accepts_value(value)
+            || (mode == WriteMode::Edit && (!editable || read_only))) {
             return false;
         }
         if(type == PropertyType::Enum) {
@@ -81,27 +109,8 @@ namespace Comet {
             return true;
         }
         const bool assigned = std::visit(
-            [this, destination](const auto& source) {
+            [destination](const auto& source) {
                 using Value = std::remove_cvref_t<decltype(source)>;
-                if constexpr(std::is_same_v<Value, bool>) {
-                    if(type != PropertyType::Bool)
-                        return false;
-                } else if constexpr(std::is_same_v<Value, float>) {
-                    if(type != PropertyType::Float || !std::isfinite(source))
-                        return false;
-                } else if constexpr(std::is_same_v<Value, Math::Vec3>) {
-                    if(type != PropertyType::Vec3 || !Math::is_finite(source))
-                        return false;
-                } else if constexpr(std::is_same_v<Value, std::string>) {
-                    if(type != PropertyType::String)
-                        return false;
-                } else if constexpr(std::is_same_v<Value, ParameterMap>) {
-                    if(type != PropertyType::Parameters || !valid_parameters(source))
-                        return false;
-                } else {
-                    if(type != PropertyType::AssetHandle)
-                        return false;
-                }
                 *static_cast<Value*>(destination) = source;
                 return true;
             },

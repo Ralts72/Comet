@@ -5,6 +5,7 @@
 
 #include "diagnostics/logger.h"
 #include <algorithm>
+#include <cmath>
 #include <unordered_set>
 #include <utility>
 
@@ -44,6 +45,12 @@ namespace Comet {
         for(const PropertyDescriptor& property : descriptor.properties) {
             if(property.id.empty() || property.display_name.empty() || !property.mutable_accessor
                 || !property.const_accessor || (property.transient && property.serializable)
+                || (property.numeric.enforce_bounds
+                    && (!property.numeric.minimum && !property.numeric.maximum))
+                || (property.numeric.minimum && !std::isfinite(*property.numeric.minimum))
+                || (property.numeric.maximum && !std::isfinite(*property.numeric.maximum))
+                || (property.numeric.minimum && property.numeric.maximum
+                    && *property.numeric.minimum > *property.numeric.maximum)
                 || (property.asset_type
                     && (property.type != PropertyType::AssetHandle
                         || *property.asset_type == AssetType::Unknown))
@@ -180,7 +187,10 @@ namespace Comet {
                      {.asset_type = AssetType::Audio}),
                     make_property_descriptor("loop", "Loop", &AudioSourceComponent::loop),
                     make_property_descriptor("volume", "Volume", &AudioSourceComponent::volume,
-                        {.numeric = {.speed = 0.01f, .minimum = 0.0f, .maximum = 1.0f}})}));
+                        {.numeric = {.speed = 0.01f,
+                             .minimum = 0.0f,
+                             .maximum = 1.0f,
+                             .enforce_bounds = true}})}));
 
         register_component(make_component_descriptor<RigidBodyComponent>("rigid_body", "Rigid Body",
             {make_enum_property_descriptor<RigidBodyComponent, BodyMotion>("motion", "Motion",

@@ -30,6 +30,7 @@ namespace Comet {
         float speed = 0.1f;
         std::optional<float> minimum;
         std::optional<float> maximum;
+        bool enforce_bounds = false;
     };
 
     struct PropertyMetadata {
@@ -50,6 +51,7 @@ namespace Comet {
         };
         [[nodiscard]] COMET_API std::optional<PropertyValue> copy_value(
             const void* component) const;
+        [[nodiscard]] COMET_API bool accepts_value(const PropertyValue& value) const;
         [[nodiscard]] COMET_API bool assign_value(
             void* component, const PropertyValue& value, WriteMode mode = WriteMode::Edit) const;
 

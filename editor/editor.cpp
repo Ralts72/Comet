@@ -24,7 +24,6 @@
 #include "core/project.h"
 #include "common/scope_exit.h"
 #include "render/renderer.h"
-#include "render/scene/scene_renderer.h"
 #include "core/window.h"
 #include "diagnostics/logger.h"
 #include "ui/menu_bar.h"
@@ -68,7 +67,6 @@ namespace {
             auto& engine = get_engine();
             auto& renderer = engine.get_renderer();
             auto& render_context = renderer.get_render_context();
-            auto& scene_renderer = renderer.get_scene_renderer();
 
             auto ui = CometEditor::ImGuiContext::create(engine.get_window(), render_context,
                 m_project.paths().editor_state() / "imgui.ini");
@@ -169,9 +167,9 @@ namespace {
                 m_command_history, m_property_edit, m_component_registry, *m_selection, *m_assets);
             if(auto panels = setup_panels(scene, std::move(initial_asset_scan)); !panels)
                 return panels;
-            m_inspector_panel->asset_inspector().set_material_layouts(
-                scene_renderer.get_material_layouts());
-            m_project_panel->set_material_layouts(scene_renderer.get_material_layouts());
+            auto material_layouts = renderer.get_material_layouts();
+            m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
+            m_project_panel->set_material_layouts(std::move(material_layouts));
 
             renderer.set_overlay_renderer([this](Comet::CommandBuffer& command_buffer) {
                 m_imgui_context->render(command_buffer);
@@ -326,7 +324,6 @@ namespace {
                     compilation->diagnostics);
                 return Comet::Result<void, Comet::Error>::success();
             }
-            auto& scene_renderer = get_engine().get_renderer().get_scene_renderer();
             const auto& stages = compilation->stages;
             Comet::MaterialShaders shaders;
             for(const auto& program : Comet::builtin_material_shaders()) {
@@ -360,9 +357,9 @@ namespace {
                 LOG_WARN("{}", compilation->diagnostics);
             if(result.value().pipelines == 0)
                 return Comet::Result<void, Comet::Error>::success();
-            m_inspector_panel->asset_inspector().set_material_layouts(
-                scene_renderer.get_material_layouts());
-            m_project_panel->set_material_layouts(scene_renderer.get_material_layouts());
+            auto material_layouts = get_engine().get_renderer().get_material_layouts();
+            m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
+            m_project_panel->set_material_layouts(std::move(material_layouts));
             LOG_INFO(
                 "Published material Shader revision {}: {} pipelines, {} material versions, {} bindings",
                 compilation->revision, result.value().pipelines, result.value().material_versions,

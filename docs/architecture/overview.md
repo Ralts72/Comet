@@ -205,6 +205,8 @@ Transform 的 getter、each 和添加返回值均为只读；`Entity::try_set_tr
 ComponentDescriptor 只公开只读组件访问，通过 assign_property 将属性写入交给类型化回调；
 Transform 在副本上赋值后进入 try_set_transform，Inspector／Gizmo／Undo／Lua／CameraController 共用此边界。
 Serializer 也通过该入口恢复属性；Restore 模式忽略 UI 可编辑标记并保留已存值，不执行编辑用的角度归一化。
+NumericPropertyMetadata 的范围默认只是控件提示；明确设置 enforce_bounds 的属性才把范围作为数据契约。
+Audio Source 音量采用该契约，编辑、恢复和保存共用 PropertyDescriptor 校验；AudioSystem 仍防御直接写入组件的越界值。
 创建、TRS／父级变化和组件增删标记受影响子树；重复标记跳过已脏子树，销毁清除对应脏节点。
 `update_world_transforms` 只消费脏集合，按父先子后更新；无变化时不扫描实体或比较 TRS。
 `get_world_matrix` 是即时查询，仅同步该实体的脏祖先链；无关脏分支留给后续同步。
@@ -390,6 +392,7 @@ MaterialLayout::reflect 按 shader_name（为空时使用逻辑属性名）匹�
 名称、默认值、范围、步长和 Color/Vector 语义仍由 metadata 提供。参数块 binding 由布局指导创建和写入，不再固定为 0。
 未知／缺失／改类型字段、多参数块与不支持的资源形状拒绝；相同物理布局复用原对象，不增加平行 revision 计数。
 Editor 在初始化和成功热更后向 Inspector／Project 交付已发布布局快照；控件、模板候选和草稿校验使用同一布局，不清空草稿、不自动保存。
+Editor 通过 Renderer 获取该快照，不直接访问 SceneRenderer 的目标实现；ImGui 初始化和显存诊断仍留在明确的图形集成入口。
 独立面板初始化使用 MaterialLayout::builtins；收到发布列表后不再补回未发布模板。目标重建后同值布局仍可用于 UI，不让面板引用 Renderer。
 布局构造后不可变，以对象身份区分版本；Material 可修改，以自身 revision 标记真实变化。
 MaterialLayout 保留 metadata 声明顺序，PreparedMaterial 单独按 binding 排序纹理绑定；热更物理 binding 不改变 Inspector 槽位顺序。

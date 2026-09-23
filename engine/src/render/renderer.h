@@ -13,6 +13,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <vector>
 
 namespace Comet {
     class AssetRegistry;
@@ -24,6 +25,7 @@ namespace Comet {
     class Config;
     class RenderDiagnostics;
     class ImageView;
+    class MaterialLayout;
 
     class COMET_API Renderer {
     public:
@@ -47,6 +49,8 @@ namespace Comet {
         [[nodiscard]] OffscreenFrame get_offscreen_frame() const;
         Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
             MaterialShaders shaders);
+        [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
+            const;
         [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>
         prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);

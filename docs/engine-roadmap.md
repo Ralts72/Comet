@@ -250,19 +250,10 @@ Unity 6 文档列有 Windows 的 Directory Monitoring，并在导入期间输入
 Shader 基础能力与后续独立验收项：
 
 1. 可失败创建与消费者迁移：反射／布局／Pipeline 校验、GPU 候选创建、结果处理与失败回滚完整接通，见下节。
-2. 内置材质 Shader 后台编译与发布已完成：请求 revision、输入快照复核、整批 GPU 候选切换、失败保留旧版本、在途帧寿命。
-   开发编辑器按顶点/片元配对登记材质程序；单个在途任务与最新后继合并，不阻塞等待调度容量。
-   ShaderReload 接收 1..16 个具名 CPU 请求，不持有渲染器、GPU 对象或发布回调；编译成功不等于 GPU 发布成功。
-   Vulkan 主机／设备内存不足时由 Editor 请求重新交付同一 CPU 候选，依次等待 1、2、4 秒，最多重试三次；复核输入和 revision 后重试 GPU 发布，不重新编译。耗尽后等待新请求。
-   接口错误不重试，DeviceLost 继续退出；重试成功前旧程序与绑定保持不变。
-   Renderer 检查发布帧边界，SceneRenderer 发布材质程序并暂存成功字节码供目标重建，旧 Pipeline 由在途帧保活。无生产消费者的 ShaderManager 已移除。
-   热发布已报告管线准备、候选复制、材质 CPU／GPU 准备耗时；根据真实规模再决定增量／跨帧准备，不提前改写事务。
-   已登记属性可重建 MaterialSet 的 offset／块大小／binding；Frame／Object 与基础顶点输入、Vertex→Fragment 仍须匹配。
-   已补固定资源契约（递归 block／push 成员、矩阵／数组形状、采样图片类型）、兼容更新的材质绑定复用、
-   相同 Pipeline 发布幂等性与活动帧入口检查；驻留材质候选整批成功后切换，并向 Inspector 交付布局快照。
-   新属性、复杂参数和项目 Shader 资产未接通，不能把有限布局重绑定说成任意接口动态生成。
-   监视仍是每 500 ms 内容复核、200 ms 防抖，不是原生文件事件；GPU 创建仍可能造成主线程尖峰。
-   原生监听、尾沿防抖与漏事件恢复统一按阶段 3 的“统一文件监听与防抖”专项推进，不在 Shader 内另建后端。
+2. 内置材质 Shader 的后台编译、失败保留旧版、整批 GPU 发布及在途帧保活已完成；
+   当前只覆盖已登记的内置材质程序和有限的布局重绑定，不等于项目 Shader 资产。
+   现行调用链、重试与失败边界见[架构文档](architecture/overview.md#材质-shader-热发布)；
+   原生文件监听仍按阶段 3 的共用专项推进。
 3. 项目 Shader／程序资产与布局生成：补复杂参数、顶点输入／stage 间接口、外部字节码校验。
    同步完成下节“资源服务与程序版本所有权”的迁移，不把程序状态继续叠加到 SceneRenderer。
    复用上面的模板选择控件，将候选扩展为内置公开程序与项目程序，支持新增 metadata 属性驱动面板；
@@ -273,10 +264,7 @@ Shader 基础能力与后续独立验收项：
    后续按消费者扩展 normalized／packed 顶点格式转换、复杂 I/O、插值／附件输出及设备能力校验；
    不把这一步的保守限制说成 Vulkan 完整兼容规则，也不把反射视为完整 SPIR-V validator。
 
-旧实现的核对依据保留为索引，现行契约与覆盖边界见[架构与所有权](architecture/overview.md)：
-023–025：`5ae0775 / 40dfe50 / c186e75`；026–029：`6d9f365 / 88cdd4a / fd1d5f3 / 624a143`；
-030–035：`30dce0f / 531c7b6 / be721fe / 63b2394 / f6dd1ac / 253d5d1`。
-不迁回旧 ShaderManager、异常协议和固定间隔无限重试；原生文件监听仍按阶段 3 专项推进。
+现行契约与覆盖边界见[架构与所有权](architecture/overview.md)；不迁回旧 ShaderManager、异常协议和固定间隔无限重试。
 
 specialization 已贯通类型化值、默认值规范化、反射校验、PipelineKey 和 GPU 创建。
 当前仅支持 bool/int32/uint32/float32 的固定接口变体；所有依赖 specialization 的数组长度暂不接受，

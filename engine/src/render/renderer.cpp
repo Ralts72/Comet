@@ -69,6 +69,10 @@ namespace Comet {
             m_scene_renderer->get_offscreen_color_view(slot)};
     }
 
+    std::vector<std::shared_ptr<const MaterialLayout>> Renderer::get_material_layouts() const {
+        return m_scene_renderer->get_material_layouts();
+    }
+
     Result<bool, GraphicsError> Renderer::prepare_frame() {
         if(m_shutdown_prepared)
             return Result<bool, GraphicsError>::failure({"Renderer is shutting down"});

@@ -55,6 +55,31 @@ namespace {
         EXPECT_FALSE(registry.register_component(std::move(unknown)));
     }
 
+    TEST(ComponentRegistryTest, AudioVolumeHasDataBoundsNotJustEditorDragBounds) {
+        const auto registry = Comet::create_scene_component_registry();
+        const auto& descriptor = *registry.find_component("audio_source");
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<Comet::AudioSourceComponent>();
+
+        EXPECT_FALSE(descriptor.assign_property(entity, "volume", -0.1f));
+        EXPECT_FALSE(descriptor.assign_property(
+            entity, "volume", 1.1f, Comet::PropertyDescriptor::WriteMode::Restore));
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::AudioSourceComponent>().volume, 0.5f);
+        EXPECT_TRUE(descriptor.assign_property(entity, "volume", 1.0f));
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::AudioSourceComponent>().volume, 1.0f);
+    }
+
+    TEST(ComponentRegistryTest, RejectsInvalidEnforcedNumericBounds) {
+        Comet::ComponentRegistry registry;
+        auto descriptor = Comet::make_component_descriptor<Comet::AudioSourceComponent>(
+            "audio_source", "Audio Source",
+            {Comet::make_property_descriptor("volume", "Volume",
+                &Comet::AudioSourceComponent::volume,
+                {.numeric = {.minimum = 1.0f, .maximum = 0.0f, .enforce_bounds = true}})});
+        EXPECT_FALSE(registry.register_component(std::move(descriptor)));
+    }
+
     TEST(ComponentRegistryTest, CollectsOwnedTypedReferencesIncludingReadOnlyFields) {
         const auto builtins = Comet::create_scene_component_registry();
         auto descriptor = *builtins.find_component("mesh_renderer");

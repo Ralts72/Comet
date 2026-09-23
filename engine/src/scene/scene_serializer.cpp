@@ -130,12 +130,18 @@ namespace Comet {
                     auto value = context.read_scalar<float>(node, location, "a finite number");
                     if(!value)
                         return Result<PropertyValue>::failure(value.error());
+                    if(!property.accepts_value(value.value()))
+                        return Result<PropertyValue>::failure(
+                            context.error(location, "value outside allowed bounds"));
                     return Result<PropertyValue>::success(std::move(value).value());
                 }
                 case PropertyType::Vec3: {
                     auto value = read_vec3(node, context, location);
                     if(!value)
                         return Result<PropertyValue>::failure(value.error());
+                    if(!property.accepts_value(value.value()))
+                        return Result<PropertyValue>::failure(
+                            context.error(location, "value outside allowed bounds"));
                     return Result<PropertyValue>::success(value.value());
                 }
                 case PropertyType::AssetHandle: {
@@ -167,6 +173,9 @@ namespace Comet {
                 parameters && !valid_parameters(*parameters))
                 return Result<PropertyValue>::failure(
                     context.error(location, "Invalid parameters"));
+            if(!property.accepts_value(*value))
+                return Result<PropertyValue>::failure(
+                    context.error(location, "value violates property constraints"));
             return Result<PropertyValue>::success(std::move(*value));
         }
 
