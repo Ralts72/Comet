@@ -10,17 +10,14 @@
 namespace CometEditor {
     SceneDocument::SceneDocument(const Comet::SceneSerializer& serializer,
         Comet::ProjectPaths paths, const CommandHistory& history,
-        ActiveSceneGetter get_active_scene, ActiveSceneReplacer replace_active_scene,
-        PrepareCandidate prepare_candidate)
+        ActiveSceneGetter get_active_scene, ActivateScene activate_scene)
         : m_serializer(serializer), m_history(history), m_saved_state(history.state_id()),
           m_paths(std::move(paths)), m_get_active_scene(std::move(get_active_scene)),
-          m_replace_active_scene(std::move(replace_active_scene)),
-          m_prepare_candidate(std::move(prepare_candidate)) {}
+          m_activate_scene(std::move(activate_scene)) {}
 
     Comet::Result<void, Comet::Error> SceneDocument::create_new() {
-        if(auto replaced = replace_scene(std::make_unique<Comet::Scene>(), {}); !replaced) {
-            return replaced;
-        }
+        if(auto activated = activate_scene(std::make_unique<Comet::Scene>(), {}); !activated)
+            return activated;
         LOG_INFO("Created new scene");
         return Comet::Result<void, Comet::Error>::success();
     }
@@ -43,9 +40,9 @@ namespace CometEditor {
             LOG_ERROR("Failed to open scene '{}': {}", path, m_last_error);
             return Comet::Result<void, Comet::Error>::failure({m_last_error});
         }
-        if(auto replaced = replace_scene(std::move(scene).value(), resolved.value().string());
-            !replaced)
-            return replaced;
+        if(auto activated = activate_scene(std::move(scene).value(), resolved.value().string());
+            !activated)
+            return activated;
         LOG_INFO("Opened scene '{}'", path);
         return Comet::Result<void, Comet::Error>::success();
     }
@@ -99,7 +96,7 @@ namespace CometEditor {
 
     bool SceneDocument::needs_confirmation() const {
         return m_pending_request && m_pending_request->state == PendingState::Confirm
-            && is_modified();
+               && is_modified();
     }
 
     std::optional<SceneDocument::Request> SceneDocument::take_ready_request() {
@@ -110,7 +107,7 @@ namespace CometEditor {
         return std::move(pending->action);
     }
 
-    Comet::Result<void, Comet::Error> SceneDocument::replace_scene(
+    Comet::Result<void, Comet::Error> SceneDocument::activate_scene(
         std::unique_ptr<Comet::Scene> scene, std::string path) {
         if(!scene) {
             m_last_error = "Cannot activate an empty scene";
@@ -118,14 +115,11 @@ namespace CometEditor {
             return Comet::Result<void, Comet::Error>::failure({m_last_error});
         }
 
-        if(m_prepare_candidate) {
-            if(auto prepared = m_prepare_candidate(*scene); !prepared) {
-                m_last_error = prepared.error().message;
-                LOG_ERROR("Cannot prepare scene: {}", m_last_error);
-                return Comet::Result<void, Comet::Error>::failure(prepared.error());
-            }
+        if(auto activated = m_activate_scene(std::move(scene)); !activated) {
+            m_last_error = activated.error().message;
+            LOG_ERROR("Cannot activate scene: {}", m_last_error);
+            return activated;
         }
-        static_cast<void>(m_replace_active_scene(std::move(scene)));
         m_path = std::move(path);
         m_saved_state = m_history.state_id();
         m_last_error.clear();

@@ -111,18 +111,15 @@ namespace {
                 CometEditor::create_property_editor_registry(m_assets->database());
             Comet::Engine* engine_ptr = &engine;
             const auto get_active_scene = [engine_ptr]() { return engine_ptr->get_scene(); };
-            const auto replace_active_scene = [this](std::unique_ptr<Comet::Scene> scene) {
-                return install_scene(std::move(scene), CometEditor::EditorMode::Edit);
-            };
-            const auto prepare_candidate = [this](Comet::Scene& scene) {
-                // 缺失引用保留供编辑器修复，不阻止安装候选场景。
-                if(auto prepared = m_assets->prepare_scene(scene, m_component_registry); !prepared)
-                    return Comet::Result<void, Comet::Error>::failure(prepared.error());
+            const auto activate_edit_scene = [this](std::unique_ptr<Comet::Scene> scene) {
+                auto activated =
+                    activate_candidate_scene(std::move(scene), CometEditor::EditorMode::Edit);
+                if(!activated)
+                    return Comet::Result<void, Comet::Error>::failure(activated.error());
                 return Comet::Result<void, Comet::Error>::success();
             };
-            m_scene_document =
-                std::make_unique<CometEditor::SceneDocument>(m_scene_serializer, m_project.paths(),
-                    m_command_history, get_active_scene, replace_active_scene, prepare_candidate);
+            m_scene_document = std::make_unique<CometEditor::SceneDocument>(m_scene_serializer,
+                m_project.paths(), m_command_history, get_active_scene, activate_edit_scene);
             LOG_INFO(
                 "Opened project '{}' at '{}'", m_project.name(), m_project.paths().root().string());
             if(m_project.startup_scene().empty()) {
@@ -138,10 +135,14 @@ namespace {
             }
             m_scene_session = std::make_unique<CometEditor::EditorSceneSession>(
                 m_editor_state, m_scene_serializer, get_active_scene,
-                [this](std::unique_ptr<Comet::Scene> scene, CometEditor::EditorMode mode) {
-                    return install_scene(std::move(scene), mode);
+                [this](std::unique_ptr<Comet::Scene> scene) {
+                    return activate_candidate_scene(
+                        std::move(scene), CometEditor::EditorMode::Play);
                 },
-                [engine_ptr] { return engine_ptr->start_scene_runtime(); }, prepare_candidate);
+                [this](std::unique_ptr<Comet::Scene> scene) {
+                    return commit_scene(std::move(scene), CometEditor::EditorMode::Edit);
+                },
+                [engine_ptr] { return engine_ptr->start_scene_runtime(); });
             auto& scene = *engine.get_scene();
             if(auto configured = engine.set_input_actions(m_project.input_actions()); !configured)
                 return configured;
@@ -409,7 +410,18 @@ namespace {
             return Comet::Result<void, Comet::Error>::success();
         }
 
-        std::unique_ptr<Comet::Scene> install_scene(
+        Comet::Result<std::unique_ptr<Comet::Scene>, Comet::Error> activate_candidate_scene(
+            std::unique_ptr<Comet::Scene> scene, CometEditor::EditorMode mode) {
+            using Activation = Comet::Result<std::unique_ptr<Comet::Scene>, Comet::Error>;
+            if(!scene)
+                return Activation::failure({"Cannot activate an empty scene"});
+            // 缺失引用保留供编辑器修复，不阻止安装候选场景。
+            if(auto prepared = m_assets->prepare_scene(*scene, m_component_registry); !prepared)
+                return Activation::failure(prepared.error());
+            return Activation::success(commit_scene(std::move(scene), mode));
+        }
+
+        std::unique_ptr<Comet::Scene> commit_scene(
             std::unique_ptr<Comet::Scene> scene, CometEditor::EditorMode mode) {
             // 旧场景仍存活时结束交互；返回 owner 后才允许调用者销毁或保留它。
             if(m_inspector_panel)

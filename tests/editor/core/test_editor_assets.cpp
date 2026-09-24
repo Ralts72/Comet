@@ -672,13 +672,10 @@ namespace CometEditor::Tests {
         SceneDocument document(
             serializer, Comet::ProjectPaths(root), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
-                active.swap(replacement);
-                return replacement;
-            },
-            [&](Comet::Scene& scene) {
-                const auto prepared = assets->prepare_scene(scene, components);
+                const auto prepared = assets->prepare_scene(*replacement, components);
                 if(!prepared)
                     return Comet::Result<void, Comet::Error>::failure(prepared.error());
+                active.swap(replacement);
                 return Comet::Result<void, Comet::Error>::success();
             });
         factory.fail_mesh_creation(true);
@@ -762,11 +759,8 @@ namespace CometEditor::Tests {
         SceneDocument document(
             serializer, project.paths(), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
+                missing = assets->prepare_scene(*replacement, components).value();
                 active.swap(replacement);
-                return replacement;
-            },
-            [&](Comet::Scene& candidate) {
-                missing = assets->prepare_scene(candidate, components).value();
                 return Comet::Result<void, Comet::Error>::success();
             });
 
@@ -838,11 +832,8 @@ namespace CometEditor::Tests {
         SceneDocument document(
             serializer, Comet::ProjectPaths(root), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
+                EXPECT_EQ(assets->prepare_scene(*replacement, components).value(), 0);
                 active.swap(replacement);
-                return replacement;
-            },
-            [&](Comet::Scene& candidate) {
-                EXPECT_EQ(assets->prepare_scene(candidate, components).value(), 0);
                 return Comet::Result<void, Comet::Error>::success();
             });
         ASSERT_TRUE(document.open(path));
@@ -873,11 +864,8 @@ namespace CometEditor::Tests {
         SceneDocument document(
             serializer, Comet::ProjectPaths(root), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
+                EXPECT_EQ(assets->prepare_scene(*replacement, components).value(), 2);
                 active.swap(replacement);
-                return replacement;
-            },
-            [&](Comet::Scene& candidate) {
-                EXPECT_EQ(assets->prepare_scene(candidate, components).value(), 2);
                 return Comet::Result<void, Comet::Error>::success();
             });
         ASSERT_TRUE(document.open(path));
@@ -962,19 +950,20 @@ namespace CometEditor::Tests {
         EditorState state;
         int preparations = 0;
         Comet::SceneRuntime scene_runtime;
+        const auto replace = [&](std::unique_ptr<Comet::Scene> replacement) {
+            EXPECT_TRUE(scene_runtime.stop());
+            active.swap(replacement);
+            return replacement;
+        };
         EditorSceneSession session(
             state, serializer, [&] { return active.get(); },
-            [&](std::unique_ptr<Comet::Scene> replacement, EditorMode) {
-                EXPECT_TRUE(scene_runtime.stop());
-                active.swap(replacement);
-                return replacement;
-            },
-            [&] { return scene_runtime.start(*active); },
-            [&](Comet::Scene& candidate) {
+            [&](std::unique_ptr<Comet::Scene> candidate) {
                 ++preparations;
-                EXPECT_EQ(assets->prepare_scene(candidate, components).value(), 0);
-                return Comet::Result<void, Comet::Error>::success();
-            });
+                EXPECT_EQ(assets->prepare_scene(*candidate, components).value(), 0);
+                return Comet::Result<std::unique_ptr<Comet::Scene>, Comet::Error>::success(
+                    replace(std::move(candidate)));
+            },
+            replace, [&] { return scene_runtime.start(*active); });
         session.request_mode(EditorMode::Play);
         ASSERT_TRUE(session.apply_mode_request());
         EXPECT_TRUE(runtime.contains(mesh));

@@ -169,7 +169,8 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
 ```
 
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
-Engine 拥有 Scene/Runtime，只同步借用宿主回调；EditorSceneSession 保留 Edit Scene，负责 Play 副本与恢复。
+Engine 拥有 Scene/Runtime，只同步借用宿主回调。Editor 为新场景统一执行资产准备与激活；准备失败不替换活动场景。
+SceneDocument 只接收激活结果并更新文档路径／保存点；EditorSceneSession 保留 Edit Scene，负责 Play 副本与失败恢复，恢复时不重新准备资产。
 Renderer 不调用 UI 准备；SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler 或呈现队列。
 
 **运行与输入：** SceneRuntime 是时间截断的唯一入口，先有界固定更新再普通更新；暂停仍维护 UI、资产与绘制，

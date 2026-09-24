@@ -25,7 +25,7 @@ namespace CometEditor::Tests {
             [this](std::unique_ptr<Comet::Scene> scene) {
                 ++installations;
                 active.swap(scene);
-                return scene;
+                return Comet::Result<void, Comet::Error>::success();
             }};
         SceneFileDialog dialog;
         const std::filesystem::path path = directory.path() / "assets/untitled.scene";

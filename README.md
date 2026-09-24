@@ -484,6 +484,7 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
   AssetRegistry 是唯一 Handle 缓存，RenderResources 只创建设备资源；Worker 不操作 Scene 或 GPU。
   Mesh 加载已发布 Artifact，Texture 暂时直接解码源文件。
 - **编辑器**：Editor 装配服务，SceneDocument 管文档与保存点，CommandHistory 管撤销。
+  新场景由 Editor 先准备资产再激活；Play 失败或停止时恢复保留的 Edit 场景，不重复准备。
   面板产生请求，由统一更新阶段交给 SceneEditor 校验和执行；Viewport 管相机、拾取和 Gizmo，不持有 Engine。
   Inspector 的材质读取交给 EditorAssets，默认值／模板迁移／草稿校验集中在 material_editing。
   简单确认弹窗集中在 `editor/src/ui/dialogs`，只返回选择；有路径和请求状态的 SceneFileDialog 独立保留。

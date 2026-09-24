@@ -18,6 +18,9 @@
 
 namespace CometEditor::Tests {
     namespace {
+        using SceneOwner = std::unique_ptr<Comet::Scene>;
+        using Activation = Comet::Result<SceneOwner, Comet::Error>;
+
         const Comet::ComponentRegistry& component_registry() {
             static const Comet::ComponentRegistry registry =
                 Comet::create_scene_component_registry();
@@ -45,14 +48,17 @@ namespace CometEditor::Tests {
         CommandHistory history;
         history.bind_scene(original);
         const auto saved = history.state_id();
+        const auto replace = [&](SceneOwner replacement) {
+            EXPECT_TRUE(runtime.stop());
+            active_scene.swap(replacement);
+            return replacement;
+        };
         EditorSceneSession session(
             state, serializer, [&] { return active_scene.get(); },
-            [&](std::unique_ptr<Comet::Scene> replacement, EditorMode) {
-                EXPECT_TRUE(runtime.stop());
-                active_scene.swap(replacement);
-                return replacement;
+            [&](SceneOwner candidate) {
+                return Activation::success(replace(std::move(candidate)));
             },
-            [&] { return runtime.start(*active_scene); });
+            replace, [&] { return runtime.start(*active_scene); });
 
         session.request_mode(EditorMode::Play);
         ASSERT_TRUE(session.apply_mode_request());
@@ -109,17 +115,20 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(actions);
         ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
 
+        const auto replace = [&](SceneOwner replacement, EditorMode mode) {
+            EXPECT_TRUE(runtime.stop());
+            installed_modes.push_back(mode);
+            active_scene.swap(replacement);
+            if(mode == EditorMode::Edit && history.get_scene() != active_scene.get())
+                history.bind_scene(active_scene.get());
+            return replacement;
+        };
         EditorSceneSession session(
             state, serializer, [&active_scene]() { return active_scene.get(); },
-            [&active_scene, &installed_modes, &history, &runtime](
-                std::unique_ptr<Comet::Scene> replacement, EditorMode mode) {
-                EXPECT_TRUE(runtime.stop());
-                installed_modes.push_back(mode);
-                active_scene.swap(replacement);
-                if(mode == EditorMode::Edit && history.get_scene() != active_scene.get())
-                    history.bind_scene(active_scene.get());
-                return replacement;
+            [&](SceneOwner candidate) {
+                return Activation::success(replace(std::move(candidate), EditorMode::Play));
             },
+            [&](SceneOwner retained) { return replace(std::move(retained), EditorMode::Edit); },
             [&] { return runtime.start(*active_scene); });
 
         session.request_mode(EditorMode::Play);
@@ -184,24 +193,24 @@ namespace CometEditor::Tests {
         int preparations = 0;
         int installations = 0;
         Comet::SceneRuntime runtime;
+        const auto replace = [&](SceneOwner candidate) {
+            EXPECT_TRUE(runtime.stop());
+            ++installations;
+            active.swap(candidate);
+            return candidate;
+        };
         EditorSceneSession session(
             state, serializer, [&] { return active.get(); },
-            [&](std::unique_ptr<Comet::Scene> candidate, EditorMode) {
-                EXPECT_TRUE(runtime.stop());
-                ++installations;
-                active.swap(candidate);
-                return candidate;
-            },
-            [&] { return runtime.start(*active); },
-            [&](Comet::Scene& candidate) {
+            [&](SceneOwner candidate) {
                 ++preparations;
-                EXPECT_NE(&candidate, edit);
+                EXPECT_NE(candidate.get(), edit);
                 EXPECT_EQ(active.get(), edit);
                 EXPECT_EQ(state.mode, EditorMode::Edit);
                 if(!accept)
-                    return Comet::Result<void, Comet::Error>::failure(preparation_error);
-                return Comet::Result<void, Comet::Error>::success();
-            });
+                    return Activation::failure(preparation_error);
+                return Activation::success(replace(std::move(candidate)));
+            },
+            replace, [&] { return runtime.start(*active); });
         session.request_mode(EditorMode::Play);
         const auto rejected = session.apply_mode_request();
         ASSERT_FALSE(rejected);
@@ -226,14 +235,17 @@ namespace CometEditor::Tests {
         EditorState state;
         std::unique_ptr<Comet::Scene> active_scene;
         Comet::SceneRuntime runtime;
+        const auto replace = [&](SceneOwner replacement) {
+            EXPECT_TRUE(runtime.stop());
+            active_scene.swap(replacement);
+            return replacement;
+        };
         EditorSceneSession session(
             state, serializer, [&active_scene]() { return active_scene.get(); },
-            [&active_scene, &runtime](std::unique_ptr<Comet::Scene> replacement, EditorMode) {
-                EXPECT_TRUE(runtime.stop());
-                active_scene.swap(replacement);
-                return replacement;
+            [&](SceneOwner candidate) {
+                return Activation::success(replace(std::move(candidate)));
             },
-            [&] { return runtime.start(*active_scene); });
+            replace, [&] { return runtime.start(*active_scene); });
 
         session.request_mode(EditorMode::Play);
 
@@ -267,14 +279,17 @@ namespace CometEditor::Tests {
         auto system = std::make_unique<StartupSystem>();
         auto* probe = system.get();
         ASSERT_TRUE(runtime.add_system(std::move(system)));
+        const auto replace = [&](SceneOwner candidate) {
+            EXPECT_TRUE(runtime.stop());
+            active.swap(candidate);
+            return candidate;
+        };
         EditorSceneSession session(
             state, serializer, [&] { return active.get(); },
-            [&](std::unique_ptr<Comet::Scene> candidate, EditorMode) {
-                EXPECT_TRUE(runtime.stop());
-                active.swap(candidate);
-                return candidate;
+            [&](SceneOwner candidate) {
+                return Activation::success(replace(std::move(candidate)));
             },
-            [&] { return runtime.start(*active); });
+            replace, [&] { return runtime.start(*active); });
 
         session.request_mode(EditorMode::Play);
         const auto failed = session.apply_mode_request();
@@ -305,15 +320,18 @@ namespace CometEditor::Tests {
         auto entity = active->create_entity(std::string(1, '\xff'));
         int replacements = 0;
         Comet::SceneRuntime runtime;
+        const auto replace = [&](SceneOwner replacement) {
+            EXPECT_TRUE(runtime.stop());
+            ++replacements;
+            active.swap(replacement);
+            return replacement;
+        };
         EditorSceneSession session(
             state, serializer, [&] { return active.get(); },
-            [&](std::unique_ptr<Comet::Scene> replacement, EditorMode) {
-                EXPECT_TRUE(runtime.stop());
-                ++replacements;
-                active.swap(replacement);
-                return replacement;
+            [&](SceneOwner candidate) {
+                return Activation::success(replace(std::move(candidate)));
             },
-            [&] { return runtime.start(*active); });
+            replace, [&] { return runtime.start(*active); });
 
         session.request_mode(EditorMode::Play);
         EXPECT_FALSE(session.apply_mode_request());

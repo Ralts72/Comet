@@ -17,15 +17,18 @@ namespace CometEditor {
     class EditorSceneSession final {
     public:
         using ActiveSceneGetter = std::function<Comet::Scene*()>;
-        // 替换前由场景所有者停止旧场景的 Runtime。
-        using ActiveSceneReplacer =
-            std::function<std::unique_ptr<Comet::Scene>(std::unique_ptr<Comet::Scene>, EditorMode)>;
+        // 激活失败不得替换活动场景；成功时返回保留的 Edit 场景。
+        using ActivatePlayScene =
+            std::function<Comet::Result<std::unique_ptr<Comet::Scene>, Comet::Error>(
+                std::unique_ptr<Comet::Scene>)>;
+        // 恢复保留的 Edit 场景不重新准备资产，并返回待销毁的 Play 场景。
+        using RestoreEditScene =
+            std::function<std::unique_ptr<Comet::Scene>(std::unique_ptr<Comet::Scene>)>;
         using StartRuntime = std::function<Comet::Result<void, Comet::Error>()>;
-        using PrepareCandidate = std::function<Comet::Result<void, Comet::Error>(Comet::Scene&)>;
 
         EditorSceneSession(EditorState& state, const Comet::SceneSerializer& serializer,
-            ActiveSceneGetter get_active_scene, ActiveSceneReplacer replace_active_scene,
-            StartRuntime start_runtime, PrepareCandidate prepare_candidate = {});
+            ActiveSceneGetter get_active_scene, ActivatePlayScene activate_play_scene,
+            RestoreEditScene restore_edit_scene, StartRuntime start_runtime);
 
         ~EditorSceneSession();
 
@@ -43,9 +46,9 @@ namespace CometEditor {
         EditorState& m_state;
         const Comet::SceneSerializer& m_serializer;
         ActiveSceneGetter m_get_active_scene;
-        ActiveSceneReplacer m_replace_active_scene;
+        ActivatePlayScene m_activate_play_scene;
+        RestoreEditScene m_restore_edit_scene;
         StartRuntime m_start_runtime;
-        PrepareCandidate m_prepare_candidate;
         std::unique_ptr<Comet::Scene> m_edit_scene;
         std::optional<EditorMode> m_requested_mode;
     };

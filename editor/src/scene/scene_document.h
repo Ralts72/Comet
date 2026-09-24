@@ -25,13 +25,13 @@ namespace CometEditor {
             std::string path;
         };
         using ActiveSceneGetter = std::function<Comet::Scene*()>;
-        using ActiveSceneReplacer =
-            std::function<std::unique_ptr<Comet::Scene>(std::unique_ptr<Comet::Scene>)>;
-        using PrepareCandidate = std::function<Comet::Result<void, Comet::Error>(Comet::Scene&)>;
+        // 失败时不得替换活动场景；文档路径和保存点只在成功后更新。
+        using ActivateScene =
+            std::function<Comet::Result<void, Comet::Error>(std::unique_ptr<Comet::Scene>)>;
 
         SceneDocument(const Comet::SceneSerializer& serializer, Comet::ProjectPaths paths,
             const CommandHistory& history, ActiveSceneGetter get_active_scene,
-            ActiveSceneReplacer replace_active_scene, PrepareCandidate prepare_candidate = {});
+            ActivateScene activate_scene);
 
         [[nodiscard]] Comet::Result<void, Comet::Error> create_new();
         [[nodiscard]] Comet::Result<void, Comet::Error> open(const std::string& path);
@@ -48,7 +48,7 @@ namespace CometEditor {
         [[nodiscard]] std::optional<Request> take_ready_request();
 
     private:
-        [[nodiscard]] Comet::Result<void, Comet::Error> replace_scene(
+        [[nodiscard]] Comet::Result<void, Comet::Error> activate_scene(
             std::unique_ptr<Comet::Scene> scene, std::string path);
 
         const Comet::SceneSerializer& m_serializer;
@@ -56,8 +56,7 @@ namespace CometEditor {
         std::uint64_t m_saved_state;
         Comet::ProjectPaths m_paths;
         ActiveSceneGetter m_get_active_scene;
-        ActiveSceneReplacer m_replace_active_scene;
-        PrepareCandidate m_prepare_candidate;
+        ActivateScene m_activate_scene;
         std::string m_path;
         std::string m_last_error;
         enum class PendingState { Confirm, Saving, Discard };

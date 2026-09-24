@@ -52,7 +52,7 @@ namespace CometEditor::Tests {
             [&](std::unique_ptr<Comet::Scene> candidate) {
                 active.swap(candidate);
                 history.bind_scene(active.get());
-                return candidate;
+                return Comet::Result<void, Comet::Error>::success();
             });
         PropertyEditTransaction edit(history, registry);
         const PropertyEditTransaction::Target target{entity.get_uuid(), "transform", "translation"};
@@ -114,19 +114,15 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(serializer.save(scene, file.path()));
         auto active = std::make_unique<Comet::Scene>();
         const auto original = active.get();
-        int installations = 0;
+        int activation_attempts = 0;
         const Comet::Error preparation_error{
             "candidate preparation rejected", std::make_error_code(std::errc::io_error)};
         CommandHistory history;
         SceneDocument document(
             serializer, file.paths(), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> candidate) {
-                ++installations;
-                active.swap(candidate);
-                return candidate;
-            },
-            [&](Comet::Scene& candidate) {
-                EXPECT_NE(&candidate, original);
+                ++activation_attempts;
+                EXPECT_NE(candidate.get(), original);
                 EXPECT_EQ(active.get(), original);
                 return Comet::Result<void, Comet::Error>::failure(preparation_error);
             });
@@ -138,7 +134,7 @@ namespace CometEditor::Tests {
         ASSERT_FALSE(created);
         EXPECT_EQ(created.error().code, preparation_error.code);
         EXPECT_EQ(active.get(), original);
-        EXPECT_EQ(installations, 0);
+        EXPECT_EQ(activation_attempts, 2);
         EXPECT_EQ(document.get_path(), file.path());
         EXPECT_EQ(document.get_last_error(), "candidate preparation rejected");
     }
@@ -160,7 +156,7 @@ namespace CometEditor::Tests {
             serializer, file.paths(), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
                 active.swap(replacement);
-                return replacement;
+                return Comet::Result<void, Comet::Error>::success();
             });
         ASSERT_TRUE(document.open(file.path()));
         EXPECT_EQ(document.get_path(), file.path());
@@ -181,7 +177,7 @@ namespace CometEditor::Tests {
             serializer, file.paths(), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
                 active.swap(replacement);
-                return replacement;
+                return Comet::Result<void, Comet::Error>::success();
             });
         ASSERT_FALSE(document.open(file.path()));
         EXPECT_EQ(active, nullptr);
@@ -213,7 +209,7 @@ namespace CometEditor::Tests {
             serializer, file.paths(), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
                 active.swap(replacement);
-                return replacement;
+                return Comet::Result<void, Comet::Error>::success();
             });
         ASSERT_TRUE(document.save("scenes/saved.scene"));
         const auto saved_path = document.get_path();
@@ -246,7 +242,7 @@ namespace CometEditor::Tests {
             serializer, file.paths(), history, [&active_scene]() { return active_scene.get(); },
             [&active_scene](std::unique_ptr<Comet::Scene> replacement) {
                 active_scene.swap(replacement);
-                return replacement;
+                return Comet::Result<void, Comet::Error>::success();
             });
         ASSERT_TRUE(document.save(file.path()));
         EXPECT_EQ(document.get_path(), file.path());
@@ -274,7 +270,7 @@ namespace CometEditor::Tests {
             serializer, file.paths(), history, [&] { return active.get(); },
             [&](std::unique_ptr<Comet::Scene> replacement) {
                 active.swap(replacement);
-                return replacement;
+                return Comet::Result<void, Comet::Error>::success();
             });
         ASSERT_TRUE(document.save(file.path()));
         const auto contents = Comet::read_text_file(file.path());
