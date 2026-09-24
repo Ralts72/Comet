@@ -37,6 +37,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_camera_controller.cpp
         editor/core/test_command_history.cpp
         editor/core/test_editor_assets.cpp
+        editor/core/test_editor_request_policy.cpp
         editor/core/test_editor_scene_session.cpp
         editor/core/test_material_editing.cpp
         editor/core/test_render_view.cpp

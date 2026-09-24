@@ -10,6 +10,7 @@
 #include "common/file_io.h"
 #include "graphics/device.h"
 #include "scene/scene_file_dialog.h"
+#include "scene/editor_request_policy.h"
 #include "ui/dialogs.h"
 #include "scene/command_history.h"
 #include "scene/scene_editor.h"
@@ -651,7 +652,7 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> process_scene_requests() {
-            // 一次取走所有当帧请求；低优先级请求丢弃，不留到新场景或新模式继续执行。
+            // 一次取走所有当帧请求；未选中的请求不留到新场景或新模式执行。
             const auto hierarchy_request = m_hierarchy_panel->take_request();
             const auto rename_request = m_hierarchy_panel->take_rename_request();
             const auto menu_command = m_menu_bar->take_command();
@@ -659,40 +660,70 @@ namespace {
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
             const auto play_command = m_viewport->panel().take_play_command();
             const auto file_request = m_scene_file_dialog.take_request();
-            if(m_scene_file_dialog.take_cancelled()) {
+            const bool dialog_cancelled = m_scene_file_dialog.take_cancelled();
+            if(dialog_cancelled)
                 m_scene_document->decide(CometEditor::SceneDocument::Decision::Cancel);
-            }
-            // 文件弹窗独占本次处理；其余依次为菜单、Hierarchy、Mesh 拖入、资产赋值。
-            if(file_request)
-                return handle_scene_file_request(*file_request);
-            if(menu_command) {
-                if(auto command = handle_command(*menu_command);
-                    !command && is_device_lost(command.error()))
-                    return command;
-            } else if(hierarchy_request)
-                handle_scene_request(*hierarchy_request);
-            else if(rename_request) {
-                if(finish_active_edit()
-                    && !m_scene_editor->rename_entity(get_engine().get_scene(),
-                        rename_request->entity, rename_request->name, rename_request->generation))
-                    LOG_WARN("Entity rename was rejected or had no effect");
-            } else if(mesh_drop && !play_command) {
-                if(auto result = handle_mesh_drop(*mesh_drop); !result) {
-                    if(is_device_lost(result.error()))
+
+            using Kind = CometEditor::SceneRequestKind;
+            const auto selected = CometEditor::select_scene_request({
+                .file_dialog = file_request.has_value(),
+                .menu = menu_command.has_value(),
+                .play = play_command.has_value(),
+                .structure = hierarchy_request.has_value(),
+                .rename = rename_request.has_value(),
+                .mesh_drop = mesh_drop.has_value(),
+                .asset_assignment = asset_assignment.has_value(),
+                .document_pending = m_scene_document->has_pending_request(),
+                .dialog_cancelled = dialog_cancelled,
+            });
+            switch(selected) {
+                case Kind::None:
+                    break;
+                case Kind::FileDialog:
+                    return handle_scene_file_request(*file_request);
+                case Kind::Menu: {
+                    auto result = handle_command(*menu_command);
+                    if(!result && is_device_lost(result.error()))
                         return result;
-                    LOG_WARN("Mesh drop rejected: {}", result.error().message);
+                    break;
                 }
-            } else if(asset_assignment && !play_command) {
-                if(auto result = handle_asset_assignment(*asset_assignment); !result) {
-                    if(is_device_lost(result.error()))
-                        return result;
-                    LOG_WARN("Asset assignment rejected: {}", result.error().message);
+                case Kind::Play: {
+                    auto result = apply_play_command(*play_command);
+                    if(!result) {
+                        if(is_device_lost(result.error()))
+                            return result;
+                        LOG_WARN("Play command rejected: {}", result.error().message);
+                    }
+                    break;
                 }
-            }
-            // 运行控制抑制同帧拖入和资产赋值，文件操作挂起时丢弃。
-            if(play_command && !m_scene_document->has_pending_request()) {
-                if(auto applied = apply_play_command(*play_command); !applied)
-                    LOG_WARN("Play command rejected: {}", applied.error().message);
+                case Kind::Structure:
+                    handle_scene_request(*hierarchy_request);
+                    break;
+                case Kind::Rename:
+                    if(finish_active_edit()
+                        && !m_scene_editor->rename_entity(get_engine().get_scene(),
+                            rename_request->entity, rename_request->name,
+                            rename_request->generation))
+                        LOG_WARN("Entity rename was rejected or had no effect");
+                    break;
+                case Kind::MeshDrop: {
+                    auto result = handle_mesh_drop(*mesh_drop);
+                    if(!result) {
+                        if(is_device_lost(result.error()))
+                            return result;
+                        LOG_WARN("Mesh drop rejected: {}", result.error().message);
+                    }
+                    break;
+                }
+                case Kind::AssetAssignment: {
+                    auto result = handle_asset_assignment(*asset_assignment);
+                    if(!result) {
+                        if(is_device_lost(result.error()))
+                            return result;
+                        LOG_WARN("Asset assignment rejected: {}", result.error().message);
+                    }
+                    break;
+                }
             }
             return Comet::Result<void, Comet::Error>::success();
         }
