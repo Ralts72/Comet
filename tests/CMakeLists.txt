@@ -28,7 +28,7 @@ set(UNIT_TEST_SOURCES
         core/test_project.cpp
         core/test_project_paths.cpp
         core/test_task_scheduler.cpp
-        core/test_timer.cpp
+        core/test_frame_timer.cpp
         diagnostics/test_frame_diagnostics.cpp
         diagnostics/test_logger.cpp
         diagnostics/test_profiler.cpp

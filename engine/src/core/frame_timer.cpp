@@ -1,7 +1,7 @@
-#include "timer.h"
+#include "frame_timer.h"
 
 namespace Comet {
-    void Timer::tick() {
+    void FrameTimer::tick() {
         const auto now = std::chrono::steady_clock::now();
 
         const std::chrono::duration<double> frame_time = now - m_last_frame;
@@ -28,7 +28,7 @@ namespace Comet {
         m_frame_index++;
     }
 
-    UpdateContext Timer::get_update_context() const {
+    UpdateContext FrameTimer::get_update_context() const {
         return {.delta_time = m_delta_time,
             .total_time = m_total_time,
             .frame_index = m_frame_index,

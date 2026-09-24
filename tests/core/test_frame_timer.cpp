@@ -1,10 +1,10 @@
-#include "core/timer.h"
+#include "core/frame_timer.h"
 
 #include <gtest/gtest.h>
 
 namespace Comet::Tests {
-    TEST(TimerTest, StartsWithEmptyUpdateContext) {
-        const Timer timer;
+    TEST(FrameTimerTest, StartsWithEmptyUpdateContext) {
+        const FrameTimer timer;
         const UpdateContext context = timer.get_update_context();
         EXPECT_FLOAT_EQ(context.delta_time, 0.0f);
         EXPECT_FLOAT_EQ(context.total_time, 0.0f);
@@ -12,8 +12,8 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(context.fps, 0.0f);
     }
 
-    TEST(TimerTest, AdvancesFramesAndAccumulatesNonnegativeElapsedTime) {
-        Timer timer;
+    TEST(FrameTimerTest, AdvancesFramesAndAccumulatesNonnegativeElapsedTime) {
+        FrameTimer timer;
         float previous_total = 0.0f;
         for(int frame = 1; frame <= 10; ++frame) {
             timer.tick();

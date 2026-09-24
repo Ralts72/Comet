@@ -13,10 +13,10 @@ namespace Comet {
         float fps = 0.0f;
     };
 
-    class COMET_API Timer {
+    class COMET_API FrameTimer {
     public:
-        Timer() = default;
-        ~Timer() = default;
+        FrameTimer() = default;
+        ~FrameTimer() = default;
         void tick();
 
         [[nodiscard]] UpdateContext get_update_context() const;

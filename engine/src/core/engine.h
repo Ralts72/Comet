@@ -5,7 +5,7 @@
 #include "input/input.h"
 #include "diagnostics/frame_diagnostics.h"
 #include "scene/scene_runtime.h"
-#include "timer.h"
+#include "frame_timer.h"
 
 #include <functional>
 #include <memory>
@@ -82,7 +82,7 @@ namespace Comet {
             const std::function<Result<void, Error>(FrameContext&)>& update,
             const std::function<Result<void, Error>(FrameContext&)>& frame_ready,
             const std::function<Result<void, Error>(const Error&)>& runtime_failed);
-        std::unique_ptr<Timer> m_timer;
+        std::unique_ptr<FrameTimer> m_frame_timer;
         std::unique_ptr<TaskScheduler> m_task_scheduler;
         std::unique_ptr<Window> m_window;
         std::unique_ptr<AssetRegistry> m_asset_registry;

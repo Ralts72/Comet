@@ -50,7 +50,7 @@ set(SOURCES
         src/input/input_actions.cpp
         src/input/input_state.cpp
         src/input/runtime_input.cpp
-        src/core/timer.cpp
+        src/core/frame_timer.cpp
         src/core/project_paths.cpp
         src/core/project.cpp
         src/runtime/entry.cpp

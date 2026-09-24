@@ -36,7 +36,7 @@ namespace Comet {
 
     Engine::Engine(std::unique_ptr<Window> window, std::unique_ptr<AssetRegistry> assets,
         std::unique_ptr<Renderer> renderer, std::unique_ptr<TaskScheduler> scheduler)
-        : m_timer(std::make_unique<Timer>()), m_task_scheduler(std::move(scheduler)),
+        : m_frame_timer(std::make_unique<FrameTimer>()), m_task_scheduler(std::move(scheduler)),
           m_window(std::move(window)), m_asset_registry(std::move(assets)),
           m_renderer(std::move(renderer)) {}
 
@@ -178,14 +178,14 @@ namespace Comet {
                 return discarded;
             m_window->wait_events();
             m_window->discard_pending_input();
-            m_timer->tick();
+            m_frame_timer->tick();
             return Result<void, Error>::success();
         }
 
         m_window->publish_input_frame();
         m_frame_diagnostics.mark_events();
-        m_timer->tick();
-        FrameContext frame{m_timer->get_update_context(), m_window->get_input_frame(), {}};
+        m_frame_timer->tick();
+        FrameContext frame{m_frame_timer->get_update_context(), m_window->get_input_frame(), {}};
         m_frame_diagnostics.set_frame_index(frame.update.frame_index);
         if(update) {
             if(auto result = update(frame); !result)
