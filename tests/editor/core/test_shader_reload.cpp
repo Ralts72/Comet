@@ -55,6 +55,24 @@ namespace CometEditor::Tests {
         }
     }
 
+    TEST_F(ShaderReloadTest, UsesConfiguredQuietPeriodForExplicitRequests) {
+        ShaderReload reload(scheduler, requests, {}, std::chrono::milliseconds(350));
+        const auto initial = finish(reload);
+        ASSERT_TRUE(initial);
+
+        reload.request(now);
+        EXPECT_FALSE(reload.update(now + std::chrono::milliseconds(349)));
+        scheduler.wait_idle();
+        EXPECT_FALSE(reload.update(now + std::chrono::milliseconds(349)));
+
+        now += std::chrono::milliseconds(350);
+        EXPECT_FALSE(reload.update(now));
+        scheduler.wait_idle();
+        const auto next = reload.update(now);
+        ASSERT_TRUE(next);
+        EXPECT_EQ(next->revision, initial->revision + 1);
+    }
+
     TEST_F(ShaderReloadTest, SharedVertexIncludeRecompilesEveryMaterialProgram) {
         requests.emplace("texture_vertex",
             Comet::ShaderCompiler::Request{.source = directory.path() / "material/pbr.vert",

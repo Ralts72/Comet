@@ -16,7 +16,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
 | `demo/assets/scripts/` | Lua 项目行为；默认字段由脚本声明，实体仅保存覆盖值 |
 | `demo/project.json` | 示例项目描述：版本、名称、启动场景和输入绑定 |
-| `config/` | `common.yaml`、各运行 Profile 与独立的 `editor.yaml` 快捷键配置 |
+| `config/` | `common.yaml`、各运行 Profile 与独立的 `editor.yaml` 编辑器配置 |
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
@@ -375,7 +375,8 @@ Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。�
 - Hierarchy 空白处／Scene 右键创建根实体，实体右键重命名、创建子实体、删除或 Duplicate 整棵子树；
   名称在右键弹窗中修改，确认后记录一次撤销；Inspector 不再显示名称输入框。
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
-- 编辑器快捷键位于 `config/editor.yaml` 的 `editor.shortcuts`，与运行 Profile 独立，修改后重启。
+- 编辑器快捷键位于 `config/editor.yaml` 的 `editor.shortcuts`，Shader 文件变化静默期位于
+  `editor.file_watch.quiet_period_ms`（0..2000 ms，默认 200；0 表示关闭防抖）。两者与运行 Profile 独立，修改后重启编辑器。
   Undo/Redo 默认 Ctrl+Z／Ctrl+Y，macOS 为 Cmd+Z／Cmd+Shift+Z，文本编辑时不抢占控件的撤销。
   `Primary` 代表 Cmd／Ctrl，`[]` 禁用绑定；冲突会记录日志并回退默认配置。
 - Project 自动监视资产变化；右键 Refresh 重扫，Reimport 强制重建 Mesh 缓存。

@@ -11,14 +11,12 @@
 #include <algorithm>
 
 namespace CometEditor {
-    namespace {
-        constexpr auto SHADER_IMPORT_QUIET_PERIOD = std::chrono::milliseconds(200);
-    }
-
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
-        Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler)
+        Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler,
+        const std::chrono::milliseconds quiet_period)
         : m_paths(std::move(paths)), m_database(m_paths),
-          m_manager(m_database, registry, factory, scheduler), m_monitor(m_paths.assets()) {
+          m_manager(m_database, registry, factory, scheduler), m_monitor(m_paths.assets()),
+          m_quiet_period(quiet_period) {
         if(!m_monitor.uses_native_notifications())
             LOG_WARN("Asset source monitor is using periodic fallback scans");
     }
@@ -64,7 +62,7 @@ namespace CometEditor {
                 if(record && record->type == Comet::AssetType::ShaderProgram) {
                     auto& due = m_pending_shader_programs[handle];
                     if(change_time)
-                        due = *change_time + SHADER_IMPORT_QUIET_PERIOD;
+                        due = *change_time + m_quiet_period;
                     else
                         due = Clock::time_point{};
                 }

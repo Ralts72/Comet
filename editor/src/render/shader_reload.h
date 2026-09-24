@@ -1,6 +1,7 @@
 #pragma once
 
 #include "file_recheck_trigger.h"
+#include "file_watch_config.h"
 #include "shader/compiler.h"
 #include "common/retry_backoff.h"
 
@@ -30,7 +31,8 @@ namespace CometEditor {
         };
 
         ShaderReload(Comet::TaskScheduler& scheduler, Requests requests,
-            std::filesystem::path watch_root = {});
+            std::filesystem::path watch_root = {},
+            std::chrono::milliseconds quiet_period = DEFAULT_FILE_WATCH_QUIET_PERIOD);
         void request(Clock::time_point now = Clock::now());
         // 调用方决定是否重试消费；不重新编译，交付前仍复核输入与 revision。
         bool retry_delivery(uint64_t revision, Clock::time_point now = Clock::now());
@@ -50,6 +52,7 @@ namespace CometEditor {
         Comet::TaskScheduler& m_scheduler;
         Requests m_requests;
         FileRecheckTrigger m_changes;
+        std::chrono::milliseconds m_quiet_period;
         std::optional<Pending> m_pending;
         std::shared_ptr<const Compilation> m_observed;
         Comet::RetryBackoff m_delivery_retry;

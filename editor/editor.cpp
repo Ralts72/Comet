@@ -2,6 +2,7 @@
 #include "render/resource/render_resources.h"
 #include "graphics/resource/sampler.h"
 #include "assets/editor_assets.h"
+#include "file_watch_config.h"
 #include "assets/material_editing.h"
 #include "render/shader_reload.h"
 #include "render/render_stats.h"
@@ -80,6 +81,15 @@ namespace {
             }
 
             const std::filesystem::path shader_root(COMET_BUILTIN_SHADER_DIRECTORY);
+            const auto editor_config =
+                std::filesystem::path(COMET_CONFIG_DIRECTORY) / "editor.yaml";
+            auto quiet_period = CometEditor::DEFAULT_FILE_WATCH_QUIET_PERIOD;
+            auto configured_quiet_period = CometEditor::load_file_watch_quiet_period(editor_config);
+            if(configured_quiet_period)
+                quiet_period = configured_quiet_period.value();
+            else
+                LOG_ERROR(
+                    "{}; using default file-watch quiet period", configured_quiet_period.error());
             CometEditor::ShaderReload::Requests shader_requests;
             for(const auto& program : Comet::builtin_material_shaders()) {
                 const auto name = std::string(program.name);
@@ -93,11 +103,10 @@ namespace {
                                         .stage = Comet::ShaderStage::Fragment});
             }
             m_material_shader_reload = std::make_unique<CometEditor::ShaderReload>(
-                engine.get_task_scheduler(), std::move(shader_requests), shader_root);
+                engine.get_task_scheduler(), std::move(shader_requests), shader_root, quiet_period);
             if(!m_material_shader_reload->uses_native_notifications())
                 LOG_WARN("Built-in shader monitor is using periodic fallback checks");
-            auto shortcuts = CometEditor::EditorShortcuts::load(
-                std::filesystem::path(COMET_CONFIG_DIRECTORY) / "editor.yaml");
+            auto shortcuts = CometEditor::EditorShortcuts::load(editor_config);
             if(shortcuts)
                 m_shortcuts = std::move(shortcuts).value();
             else
@@ -105,7 +114,7 @@ namespace {
 
             m_assets = std::make_unique<CometEditor::EditorAssets>(m_project.paths(),
                 engine.get_asset_registry(), engine.get_render_resources(),
-                engine.get_task_scheduler());
+                engine.get_task_scheduler(), quiet_period);
             auto initial_asset_scan = m_assets->refresh();
             m_property_editor_registry =
                 CometEditor::create_property_editor_registry(m_assets->database());

@@ -6,19 +6,15 @@
 #include <utility>
 
 namespace CometEditor {
-    namespace {
-        constexpr auto DEBOUNCE = std::chrono::milliseconds(200);
-    }
-
-    ShaderReload::ShaderReload(
-        Comet::TaskScheduler& scheduler, Requests requests, std::filesystem::path watch_root)
-        : m_scheduler(scheduler), m_requests(std::move(requests)),
-          m_changes(std::move(watch_root)) {}
+    ShaderReload::ShaderReload(Comet::TaskScheduler& scheduler, Requests requests,
+        std::filesystem::path watch_root, const std::chrono::milliseconds quiet_period)
+        : m_scheduler(scheduler), m_requests(std::move(requests)), m_changes(std::move(watch_root)),
+          m_quiet_period(quiet_period) {}
 
     void ShaderReload::request(Clock::time_point now) {
         ++m_revision;
         m_requested = true;
-        m_due = now + DEBOUNCE;
+        m_due = now + m_quiet_period;
         m_delivery_retry.reset();
     }
 
@@ -60,7 +56,7 @@ namespace CometEditor {
             if(!m_requested)
                 request(now);
             else if(recheck == FileRecheckTrigger::Reason::Notification)
-                m_due = now + DEBOUNCE;
+                m_due = now + m_quiet_period;
         }
         if(m_delivery_retry.consume(now)) {
             if(m_observed && m_observed->revision == m_revision && inputs_unchanged(*m_observed))
@@ -95,7 +91,7 @@ namespace CometEditor {
             m_pending.emplace(Pending{std::move(output), std::move(*completion)});
             m_requested = false;
         } else {
-            m_due = now + DEBOUNCE;
+            m_due = now + m_quiet_period;
         }
         return {};
     }

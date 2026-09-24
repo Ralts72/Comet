@@ -351,7 +351,7 @@ namespace CometEditor::Tests {
         Comet::Tests::FakeRenderResourceFactory factory;
         Comet::AssetRegistry registry;
         Comet::TaskScheduler scheduler(1);
-        EditorAssets assets(paths, registry, factory, scheduler);
+        EditorAssets assets(paths, registry, factory, scheduler, std::chrono::milliseconds(350));
         ASSERT_TRUE(assets.refresh().succeeded());
         ASSERT_TRUE(assets.update());
         scheduler.wait_idle();
@@ -372,14 +372,14 @@ namespace CometEditor::Tests {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         ASSERT_TRUE(changed);
-        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(199)));
+        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(349)));
         scheduler.wait_idle();
-        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(199)));
+        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(349)));
         EXPECT_EQ(assets.compiled_shader_program(program), first);
 
-        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(200)));
+        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(350)));
         scheduler.wait_idle();
-        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(200)));
+        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(350)));
         EXPECT_NE(assets.compiled_shader_program(program), first);
     }
 

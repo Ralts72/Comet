@@ -1,5 +1,6 @@
 #include "assets/source_monitor.h"
 #include "file_recheck_trigger.h"
+#include "file_watch_config.h"
 
 #include "asset/handle.h"
 
@@ -40,6 +41,35 @@ namespace CometEditor::Tests {
         private:
             std::filesystem::path m_root;
         };
+    }
+
+    TEST(FileWatchConfigTest, LoadsEditorQuietPeriodAndUsesDefaultWhenAbsent) {
+        auto configured = load_file_watch_quiet_period(
+            std::filesystem::path(PROJECT_ROOT_DIR) / "config/editor.yaml");
+        ASSERT_TRUE(configured);
+        EXPECT_EQ(configured.value(), std::chrono::milliseconds(200));
+        auto absent = parse_file_watch_quiet_period("editor: {shortcuts: {}}");
+        ASSERT_TRUE(absent);
+        EXPECT_EQ(absent.value(), DEFAULT_FILE_WATCH_QUIET_PERIOD);
+    }
+
+    TEST(FileWatchConfigTest, ValidatesQuietPeriodRangeAndShape) {
+        for(const int value : {0, 350, 2000}) {
+            auto parsed = parse_file_watch_quiet_period(
+                "editor: {file_watch: {quiet_period_ms: " + std::to_string(value) + "}}");
+            ASSERT_TRUE(parsed);
+            EXPECT_EQ(parsed.value(), std::chrono::milliseconds(value));
+        }
+        for(const auto* yaml : {"editor: [", "editor: []", "editor: {file_watch: []}",
+                "editor: {file_watch: {quiet_period_ms: null}}",
+                "editor: {file_watch: {quiet_period_ms: -1}}",
+                "editor: {file_watch: {quiet_period_ms: 2001}}",
+                "editor: {file_watch: {quiet_period_ms: 1.5}}",
+                "editor: {file_watch: {quiet_period_ms: [200]}}"}) {
+            SCOPED_TRACE(yaml);
+            auto parsed = parse_file_watch_quiet_period(yaml);
+            EXPECT_FALSE(parsed);
+        }
     }
 
     TEST(FileRecheckTriggerTest, ReportsFallbackOnlyWhenDue) {

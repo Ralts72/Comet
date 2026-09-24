@@ -4,6 +4,7 @@
 #include "assets/source_monitor.h"
 #include "assets/asset_edit.h"
 #include "asset/reference.h"
+#include "file_watch_config.h"
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -23,7 +24,8 @@ namespace CometEditor {
     public:
         using Clock = std::chrono::steady_clock;
         EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
-            Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler);
+            Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler,
+            std::chrono::milliseconds quiet_period = DEFAULT_FILE_WATCH_QUIET_PERIOD);
 
         [[nodiscard]] Comet::AssetScanReport refresh();
         [[nodiscard]] Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> update(
@@ -66,6 +68,7 @@ namespace CometEditor {
         Comet::AssetDatabase m_database;
         Comet::AssetManager m_manager;
         AssetSourceMonitor m_monitor;
+        std::chrono::milliseconds m_quiet_period;
         std::unordered_map<Comet::AssetHandle, Clock::time_point> m_pending_shader_programs;
         std::unordered_map<Comet::AssetHandle, Comet::MeshImportMode> m_pending_mesh_imports;
         std::string m_monitor_error;

@@ -1,5 +1,6 @@
 add_library(editor_core STATIC
         src/editor_state.cpp
+        src/file_watch_config.cpp
         src/file_recheck_trigger.cpp
         src/assets/editor_assets.cpp
         src/assets/source_monitor.cpp
@@ -15,7 +16,7 @@ add_library(editor_core STATIC
         src/viewport/transform_gizmo.cpp
         src/viewport/viewport_layout.cpp
 )
-target_link_libraries(editor_core PUBLIC engine comet_shader_tools)
+target_link_libraries(editor_core PUBLIC engine comet_shader_tools PRIVATE yaml-cpp)
 if(APPLE)
     target_link_libraries(editor_core PRIVATE "-framework CoreServices")
 endif()
