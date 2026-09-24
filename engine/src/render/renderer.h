@@ -30,6 +30,8 @@ namespace Comet {
 
     class COMET_API Renderer {
     public:
+        enum class FramePreparation { Ready, Deferred };
+
         struct OffscreenFrame {
             uint32_t slot;
             Math::Vec2u size;
@@ -41,8 +43,8 @@ namespace Comet {
 
         ~Renderer();
 
-        // 成功值 true 才能提取并绘制；false 表示延期，准备阶段允许 UI 修改或替换 Scene。
-        [[nodiscard]] Result<bool, GraphicsError> prepare_frame();
+        // Ready 才能提取并绘制；Deferred 不持有活动帧。
+        [[nodiscard]] Result<FramePreparation, GraphicsError> prepare_frame();
         // 消费场景快照，完成绘制、提交和呈现；帧错误终止本次 Renderer 生命周期。
         [[nodiscard]] Result<void, GraphicsError> render_frame(const RenderScene& render_scene);
 

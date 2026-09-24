@@ -264,7 +264,8 @@ namespace Comet::Tests {
         ASSERT_NE(before.find("Waiting for samples"), std::string::npos);
         const auto render_graph = [&] {
             auto prepared = renderer.prepare_frame();
-            ASSERT_TRUE(prepared && prepared.value());
+            ASSERT_TRUE(prepared);
+            ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
             ASSERT_TRUE(renderer.render_frame({}));
             renderer.wait_idle();
             ASSERT_TRUE(diagnostics.collect_completed());
@@ -319,7 +320,7 @@ namespace Comet::Tests {
         for(unsigned frame = 0; frame < 2; ++frame) {
             auto prepared = renderer.prepare_frame();
             ASSERT_TRUE(prepared) << prepared.error();
-            ASSERT_TRUE(prepared.value());
+            ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
             ASSERT_TRUE(ui.begin_frame());
             EXPECT_STREQ(ImGui::GetFont()->GetDebugName(), "Roboto-Bold.ttf");
             for(const auto glyph : U"渲染统计采集显存堆预算阴影模糊耗时")

@@ -251,7 +251,7 @@ namespace Comet::Tests {
             engine->get_window().poll_events();
             const auto preparation = renderer.prepare_frame();
             EXPECT_TRUE(preparation);
-            if(!preparation || !preparation.value()) {
+            if(!preparation || preparation.value() != Renderer::FramePreparation::Ready) {
                 continue;
             }
             if(frames == 2) {
@@ -316,7 +316,7 @@ namespace Comet::Tests {
             {
                 const auto preparation = renderer.prepare_frame();
                 ASSERT_TRUE(preparation) << preparation.error();
-                ASSERT_TRUE(preparation.value());
+                ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
             }
             EXPECT_TRUE(renderer.render_frame(scene));
             EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, expected);

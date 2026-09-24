@@ -7,10 +7,6 @@
 #include "scene/scene.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
-#include "scene/systems/camera_controller.h"
-#include "scene/systems/script_system.h"
-#include "scene/systems/physics_system.h"
-#include "scene/systems/audio_system.h"
 
 #include <cmath>
 #include <memory>
@@ -66,18 +62,7 @@ namespace {
             engine.set_scene(std::move(scene));
             if(auto configured = engine.set_input_actions(m_project.input_actions()); !configured)
                 return configured;
-            if(auto added = engine.add_system(std::make_unique<Comet::CameraControllerSystem>());
-                !added)
-                return added;
-            if(auto added = engine.add_system(
-                   std::make_unique<Comet::ScriptSystem>(engine.get_asset_registry()));
-                !added)
-                return added;
-            if(auto added = engine.add_system(std::make_unique<Comet::PhysicsSystem>()); !added)
-                return added;
-            if(auto added = engine.add_system(
-                   std::make_unique<Comet::AudioSystem>(engine.get_asset_registry()));
-                !added)
+            if(auto added = engine.add_default_scene_systems(); !added)
                 return added;
             return engine.start_scene_runtime();
         }

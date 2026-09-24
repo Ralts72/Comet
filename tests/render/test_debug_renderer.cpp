@@ -114,7 +114,7 @@ namespace Comet::Tests {
             renderer.submit_lines(list);
             const auto preparation = renderer.prepare_frame();
             EXPECT_TRUE(preparation);
-            if(!preparation || !preparation.value()) {
+            if(!preparation || preparation.value() != Renderer::FramePreparation::Ready) {
                 return false;
             }
             renderer.submit_lines(ready_lines);
@@ -196,7 +196,7 @@ namespace Comet::Tests {
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            ASSERT_TRUE(preparation.value());
+            ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
         EXPECT_FALSE(renderer.enable_offscreen_rendering({192, 128}));
         EXPECT_TRUE(renderer.render_frame(scene));

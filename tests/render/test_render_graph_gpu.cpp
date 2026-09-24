@@ -331,7 +331,7 @@ namespace Comet::Tests {
                 renderer.submit_lines(lines);
                 const auto prepared = renderer.prepare_frame();
                 ASSERT_TRUE(prepared);
-                ASSERT_TRUE(prepared.value());
+                ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
                 ASSERT_TRUE(renderer.render_frame(scene));
             }
             context.wait_idle();
@@ -680,7 +680,7 @@ namespace Comet::Tests {
                     renderer.request_swapchain_recreation();
                 const auto ready = renderer.prepare_frame();
                 ASSERT_TRUE(ready) << ready.error().message;
-                ASSERT_TRUE(ready.value());
+                ASSERT_EQ(ready.value(), Renderer::FramePreparation::Ready);
                 ASSERT_TRUE(renderer.render_frame({}));
                 EXPECT_EQ(swapchain.get_active_generation()->get_config().surface_format, selected);
             }

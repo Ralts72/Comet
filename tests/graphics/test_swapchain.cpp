@@ -32,7 +32,7 @@ namespace Comet::Tests {
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            ASSERT_TRUE(preparation.value());
+            ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
         EXPECT_TRUE(renderer.render_frame({}));
     }
@@ -46,7 +46,7 @@ namespace Comet::Tests {
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            ASSERT_TRUE(preparation.value());
+            ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
         EXPECT_NE(swapchain.get_active_generation(), previous);
         previous.reset();
@@ -55,7 +55,7 @@ namespace Comet::Tests {
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            ASSERT_TRUE(preparation.value());
+            ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
         EXPECT_TRUE(renderer.render_frame({}));
     }
@@ -66,7 +66,7 @@ namespace Comet::Tests {
         const auto previous = swapchain.get_active_generation();
         auto preparation = renderer.prepare_frame();
         ASSERT_TRUE(preparation);
-        ASSERT_TRUE(preparation.value());
+        ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         renderer.request_swapchain_recreation();
         renderer.request_swapchain_recreation();
         EXPECT_EQ(swapchain.get_active_generation(), previous);
@@ -74,7 +74,7 @@ namespace Comet::Tests {
         EXPECT_EQ(swapchain.get_active_generation(), previous);
         preparation = renderer.prepare_frame();
         ASSERT_TRUE(preparation);
-        ASSERT_TRUE(preparation.value());
+        ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         EXPECT_NE(swapchain.get_active_generation(), previous);
         EXPECT_TRUE(renderer.render_frame({}));
     }
@@ -96,14 +96,14 @@ namespace Comet::Tests {
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            EXPECT_FALSE(preparation.value());
+            EXPECT_EQ(preparation.value(), Renderer::FramePreparation::Deferred);
         }
         auto candidate = swapchain.get_active_generation();
         ASSERT_NE(candidate, previous);
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            EXPECT_FALSE(preparation.value());
+            EXPECT_EQ(preparation.value(), Renderer::FramePreparation::Deferred);
         }
         EXPECT_EQ(rebuilds, 1);
         EXPECT_FALSE(renderer.get_frame_scheduler().is_frame_active());
@@ -112,7 +112,7 @@ namespace Comet::Tests {
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            ASSERT_TRUE(preparation.value());
+            ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
         EXPECT_TRUE(renderer.render_frame({}));
         renderer.set_swapchain_resource_callbacks({}, {});
@@ -132,14 +132,14 @@ namespace Comet::Tests {
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            ASSERT_FALSE(preparation.value());
+            ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Deferred);
         }
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
         bool resumed = false;
         while(std::chrono::steady_clock::now() < deadline) {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            if(preparation.value()) {
+            if(preparation.value() == Renderer::FramePreparation::Ready) {
                 resumed = true;
                 EXPECT_TRUE(renderer.render_frame({}));
                 break;
@@ -182,13 +182,13 @@ namespace Comet::Tests {
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            EXPECT_FALSE(preparation.value());
+            EXPECT_EQ(preparation.value(), Renderer::FramePreparation::Deferred);
         }
         renderer.request_swapchain_recreation();
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            ASSERT_TRUE(preparation.value());
+            ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
         EXPECT_NE(context.get_surface(), surface);
         EXPECT_TRUE(

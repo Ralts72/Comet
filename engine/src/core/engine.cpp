@@ -13,6 +13,10 @@
 #include "diagnostics/profiler.h"
 #include "render/scene/scene_extractor.h"
 #include "scene/scene.h"
+#include "scene/systems/audio_system.h"
+#include "scene/systems/camera_controller.h"
+#include "scene/systems/physics_system.h"
+#include "scene/systems/script_system.h"
 
 namespace Comet {
     Result<std::unique_ptr<Engine>, Error> Engine::create(const Config& config) {
@@ -79,6 +83,17 @@ namespace Comet {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
         return m_scene_runtime.add_system(std::move(system));
+    }
+
+    Result<void, Error> Engine::add_default_scene_systems() {
+        // 注册顺序也是各更新阶段的执行顺序；SceneRuntime 停止时按逆序清理。
+        if(auto added = add_system(std::make_unique<CameraControllerSystem>()); !added)
+            return added;
+        if(auto added = add_system(std::make_unique<ScriptSystem>(*m_asset_registry)); !added)
+            return added;
+        if(auto added = add_system(std::make_unique<PhysicsSystem>()); !added)
+            return added;
+        return add_system(std::make_unique<AudioSystem>(*m_asset_registry));
     }
 
     Result<void, Error> Engine::set_runtime_settings(SceneRuntime::Settings settings) {
@@ -215,7 +230,8 @@ namespace Comet {
             prepare_shutdown();
             return Result<void, Error>::failure(preparation.error().as_error());
         }
-        if(preparation.value() && frame_ready) {
+        const bool frame_ready_to_render = preparation.value() == Renderer::FramePreparation::Ready;
+        if(frame_ready_to_render && frame_ready) {
             if(auto edited = frame_ready(); !edited) {
                 // 已获取的帧不再重用；交互失败终止本次引擎生命周期。
                 prepare_shutdown();
@@ -232,7 +248,7 @@ namespace Comet {
                 return advanced;
             }
             // 不提取部分写入的场景；已 acquire 的帧先用空场景完成，再交给宿主恢复。
-            if(preparation.value()) {
+            if(frame_ready_to_render) {
                 if(auto drained = m_renderer->render_frame({}); !drained) {
                     prepare_shutdown();
                     return Result<void, Error>::failure(drained.error().as_error());
@@ -246,7 +262,7 @@ namespace Comet {
             return Result<void, Error>::success();
         }
         timing.update_ms += phase_ms();
-        if(!preparation.value()) {
+        if(!frame_ready_to_render) {
             m_window->wait_events(0.016);
             timing.prepare_ms += phase_ms();
             publish();

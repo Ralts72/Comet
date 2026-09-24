@@ -150,7 +150,7 @@ namespace CometEditor::Tests {
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            ASSERT_TRUE(preparation.value());
+            ASSERT_EQ(preparation.value(), Comet::Renderer::FramePreparation::Ready);
         }
         ASSERT_TRUE(ui.begin_frame());
         ui.end_frame();
@@ -197,7 +197,7 @@ namespace CometEditor::Tests {
             engine.get_window().poll_events();
             const auto preparation = renderer.prepare_frame();
             EXPECT_TRUE(preparation);
-            if(!preparation || !preparation.value())
+            if(!preparation || preparation.value() != Comet::Renderer::FramePreparation::Ready)
                 return false;
             const auto frame = renderer.get_offscreen_frame();
             EXPECT_LT(frame.slot, renderer.get_frame_scheduler().get_frame_slot_count());

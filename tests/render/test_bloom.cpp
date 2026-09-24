@@ -341,7 +341,7 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         const auto prepared = renderer.prepare_frame();
         ASSERT_TRUE(prepared);
-        ASSERT_TRUE(prepared.value());
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
         RenderScene initial_scene;
         initial_scene.environment.background_color = {4, 2, 0.5f};
         initial_scene.post_process = {.bloom_enabled = true, .bloom_strength = 0.5f};

@@ -115,7 +115,7 @@ namespace Comet::Tests {
             renderer.submit_lines(lines);
             auto frame = renderer.prepare_frame();
             ASSERT_TRUE(frame);
-            ASSERT_TRUE(frame.value());
+            ASSERT_EQ(frame.value(), Renderer::FramePreparation::Ready);
             RenderScene scene;
             scene.cameras.push_back(RenderCamera{.primary = true});
             ASSERT_TRUE(renderer.render_frame(scene));

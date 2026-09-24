@@ -57,6 +57,7 @@ namespace Comet {
         [[nodiscard]] const Scene* get_scene() const { return m_scene.get(); }
 
         [[nodiscard]] Result<void, Error> add_system(std::unique_ptr<System> system);
+        [[nodiscard]] Result<void, Error> add_default_scene_systems();
         [[nodiscard]] Result<void, Error> set_runtime_settings(SceneRuntime::Settings settings);
         [[nodiscard]] Result<void, Error> set_input_actions(InputActions actions);
         [[nodiscard]] Result<void, Error> start_scene_runtime();

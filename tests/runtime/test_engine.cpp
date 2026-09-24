@@ -13,6 +13,17 @@ namespace Comet::Tests {
     static_assert(
         std::is_same_v<decltype(std::declval<Engine&>().get_scene_runtime()), const SceneRuntime&>);
 
+    TEST(EngineRunTest, DefaultSystemsInstallBeforeRuntimeStarts) {
+        auto created = Engine::create(Config{});
+        ASSERT_TRUE(created) << created.error().message;
+        auto& engine = *created.value();
+        ASSERT_TRUE(engine.add_default_scene_systems());
+        engine.set_scene(std::make_unique<Scene>());
+        ASSERT_TRUE(engine.start_scene_runtime());
+        EXPECT_FALSE(engine.add_default_scene_systems());
+        ASSERT_TRUE(engine.stop_scene_runtime());
+    }
+
     TEST(EngineRunTest, RuntimeLifecycleFollowsOwnedSceneAndShutdownIsFinal) {
         auto created = Engine::create(Config{});
         ASSERT_TRUE(created) << created.error().message;

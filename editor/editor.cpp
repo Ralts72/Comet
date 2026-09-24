@@ -1,5 +1,4 @@
 #include "runtime/entry.h"
-#include "scene/systems/camera_controller.h"
 #include "render/render_context.h"
 #include "render/resource/render_resources.h"
 #include "graphics/resource/sampler.h"
@@ -35,9 +34,6 @@
 #include "scene/selection.h"
 #include "scene/scene.h"
 #include "scene/component_registry.h"
-#include "scene/systems/script_system.h"
-#include "scene/systems/physics_system.h"
-#include "scene/systems/audio_system.h"
 #include "scene/scene_serializer.h"
 
 #include <cstdint>
@@ -149,18 +145,7 @@ namespace {
             auto& scene = *engine.get_scene();
             if(auto configured = engine.set_input_actions(m_project.input_actions()); !configured)
                 return configured;
-            if(auto added = engine.add_system(std::make_unique<Comet::CameraControllerSystem>());
-                !added)
-                return added;
-            if(auto added = engine.add_system(
-                   std::make_unique<Comet::ScriptSystem>(engine.get_asset_registry()));
-                !added)
-                return added;
-            if(auto added = engine.add_system(std::make_unique<Comet::PhysicsSystem>()); !added)
-                return added;
-            if(auto added = engine.add_system(
-                   std::make_unique<Comet::AudioSystem>(engine.get_asset_registry()));
-                !added)
+            if(auto added = engine.add_default_scene_systems(); !added)
                 return added;
             m_selection.emplace(scene);
             m_scene_editor = std::make_unique<CometEditor::SceneEditor>(m_editor_state,

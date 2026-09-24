@@ -159,7 +159,7 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto prepared = renderer.prepare_frame();
         ASSERT_TRUE(prepared);
-        ASSERT_TRUE(prepared.value());
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
         RenderScene scene;
         scene.post_process.exposure = -1;
         const auto result = renderer.render_frame(scene);
@@ -244,7 +244,7 @@ namespace Comet::Tests {
         }
         auto frame = renderer.prepare_frame();
         ASSERT_TRUE(frame);
-        ASSERT_TRUE(frame.value());
+        ASSERT_EQ(frame.value(), Renderer::FramePreparation::Ready);
         auto rejected = renderer.prepare_material_update(AssetHandle(1), material);
         EXPECT_FALSE(rejected);
         EXPECT_TRUE(renderer.render_frame({}));
@@ -262,7 +262,7 @@ namespace Comet::Tests {
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            ASSERT_TRUE(preparation.value());
+            ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
         EXPECT_TRUE(renderer.render_frame({}));
     }
@@ -323,7 +323,7 @@ namespace Comet::Tests {
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
-            ASSERT_TRUE(preparation.value());
+            ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
         EXPECT_TRUE(renderer.get_frame_scheduler().is_frame_active());
         const auto rejected = renderer.reload_material_shaders(original);

@@ -78,30 +78,35 @@ namespace Comet {
         return m_scene_renderer->get_material_layouts();
     }
 
-    Result<bool, GraphicsError> Renderer::prepare_frame() {
+    Result<Renderer::FramePreparation, GraphicsError> Renderer::prepare_frame() {
+        using Preparation = Result<FramePreparation, GraphicsError>;
         if(m_shutdown_prepared)
-            return Result<bool, GraphicsError>::failure({"Renderer is shutting down"});
+            return Preparation::failure({"Renderer is shutting down"});
         ScopeExit failed([this] { prepare_shutdown(); });
         if(m_frames->is_frame_active())
-            return Result<bool, GraphicsError>::failure({"A render frame is already active"});
+            return Preparation::failure({"A render frame is already active"});
         PROFILE_SCOPE("prepare frame");
         m_render_resources->collect_completed_uploads();
         m_programs->collect_removed();
         m_scene_renderer->collect_removed_assets(m_asset_registry);
 
         auto preparation = m_presentation->begin_frame();
-        if(preparation) {
-            if(auto collected = m_diagnostics->collect_completed(); !collected)
-                return Result<bool, GraphicsError>::failure(collected.error());
-            m_diagnostics->poll_memory();
+        if(!preparation) {
+            m_viewport_pick_request.reset();
+            m_line_draw_list.clear();
+            return Preparation::failure(preparation.error());
         }
-        if(!preparation || !preparation.value()) {
+        if(auto collected = m_diagnostics->collect_completed(); !collected)
+            return Preparation::failure(collected.error());
+        m_diagnostics->poll_memory();
+        auto status = FramePreparation::Ready;
+        if(!preparation.value()) {
+            status = FramePreparation::Deferred;
             m_viewport_pick_request.reset();
             m_line_draw_list.clear();
         }
-        if(preparation)
-            failed.release();
-        return preparation;
+        failed.release();
+        return Preparation::success(status);
     }
 
     Result<void, GraphicsError> Renderer::render_frame(const RenderScene& render_scene) {

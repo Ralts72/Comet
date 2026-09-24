@@ -50,7 +50,7 @@ TEST(PostProcessRecoveryTest, KeepsRenderingAndBoundsRetriesWithoutChangingAutho
     submission.post_process = requested;
     const auto frame = renderer->prepare_frame();
     ASSERT_TRUE(frame);
-    ASSERT_TRUE(frame.value());
+    ASSERT_EQ(frame.value(), Renderer::FramePreparation::Ready);
     ASSERT_TRUE(renderer->render_frame(submission));
     EXPECT_EQ(creations, 4U);
     EXPECT_EQ(submission.post_process, requested);
