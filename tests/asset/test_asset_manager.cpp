@@ -1,6 +1,17 @@
 #include "support/asset_manager_fixture.h"
+#include "asset/source_operations.h"
 
 namespace Comet::Tests {
+    namespace {
+        AssetScanReport move_source(AssetDatabase& database, AssetManager& manager,
+            const ProjectPaths& paths, AssetHandle handle,
+            const std::filesystem::path& destination) {
+            auto report = AssetSourceOperations::move(database, paths, handle, destination);
+            manager.accept_scan_report(report);
+            return report;
+        }
+    }
+
     class MeshAsyncImportTest: public ::testing::Test {
     protected:
         using Mode = MeshImportMode;
@@ -9,7 +20,8 @@ namespace Comet::Tests {
         AssetRegistry registry;
         FakeRenderResourceFactory factory;
         TaskScheduler scheduler{1};
-        AssetManager manager{project.paths(), registry, factory, scheduler};
+        AssetDatabase database{project.paths()};
+        AssetManager manager{database, registry, factory, scheduler};
         std::filesystem::path source;
 
         void SetUp() override {
@@ -257,7 +269,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(blocker);
         EXPECT_TRUE(manager.import_mesh_async(handle));
         const auto before = manager.get_database().get_revision(handle);
-        const auto report = manager.move_asset(handle, "moved/new.gltf");
+        const auto report =
+            move_source(database, manager, project.paths(), handle, "moved/new.gltf");
         EXPECT_TRUE(report.succeeded());
         EXPECT_NE(manager.get_database().get_revision(handle), before);
         EXPECT_TRUE(manager.import_mesh_async(handle));
@@ -301,13 +314,15 @@ namespace Comet::Tests {
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
         TaskScheduler task_scheduler(1);
-        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+        AssetDatabase database(project.paths());
+        AssetManager manager(database, registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().succeeded());
         const std::shared_ptr<Material> original = loaded_asset(manager.load_material(handle));
         ASSERT_NE(original, nullptr);
 
-        const AssetScanReport report = manager.move_asset(handle, "renamed/moved.mat");
+        const AssetScanReport report =
+            move_source(database, manager, project.paths(), handle, "renamed/moved.mat");
 
         EXPECT_TRUE(report.succeeded());
         EXPECT_TRUE(report.snapshot_updated);
@@ -335,14 +350,16 @@ namespace Comet::Tests {
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
         TaskScheduler task_scheduler(1);
-        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+        AssetDatabase database(project.paths());
+        AssetManager manager(database, registry, resource_factory, task_scheduler);
 
         ASSERT_TRUE(manager.scan().snapshot_updated);
         ASSERT_TRUE(manager.import_mesh(handle));
         const std::shared_ptr<Mesh> original = loaded_asset(manager.load_mesh(handle));
         ASSERT_NE(original, nullptr);
 
-        const AssetScanReport report = manager.move_asset(handle, "renamed/moved.gltf");
+        const AssetScanReport report =
+            move_source(database, manager, project.paths(), handle, "renamed/moved.gltf");
 
         EXPECT_TRUE(report.succeeded());
         EXPECT_TRUE(report.snapshot_updated);
@@ -371,10 +388,12 @@ namespace Comet::Tests {
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
         TaskScheduler task_scheduler(1);
-        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+        AssetDatabase database(project.paths());
+        AssetManager manager(database, registry, resource_factory, task_scheduler);
         ASSERT_TRUE(manager.scan().snapshot_updated);
 
-        const AssetScanReport report = manager.move_asset(handle, "occupied.mat");
+        const AssetScanReport report =
+            move_source(database, manager, project.paths(), handle, "occupied.mat");
 
         EXPECT_FALSE(report.snapshot_updated);
         EXPECT_TRUE(has_issue_containing(report, "destination already exists"));
@@ -390,10 +409,12 @@ namespace Comet::Tests {
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
         TaskScheduler task_scheduler(1);
-        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+        AssetDatabase database(project.paths());
+        AssetManager manager(database, registry, resource_factory, task_scheduler);
         ASSERT_TRUE(manager.scan().snapshot_updated);
 
-        const AssetScanReport report = manager.move_asset(handle, "../outside.mat");
+        const AssetScanReport report =
+            move_source(database, manager, project.paths(), handle, "../outside.mat");
 
         EXPECT_FALSE(report.snapshot_updated);
         EXPECT_TRUE(has_issue_containing(report, "project-relative file path inside assets"));
@@ -409,7 +430,8 @@ namespace Comet::Tests {
         AssetRegistry registry;
         FakeRenderResourceFactory resource_factory;
         TaskScheduler task_scheduler(1);
-        AssetManager manager(project.paths(), registry, resource_factory, task_scheduler);
+        AssetDatabase database(project.paths());
+        AssetManager manager(database, registry, resource_factory, task_scheduler);
         ASSERT_TRUE(manager.scan().succeeded());
 
         const std::filesystem::path duplicate = project.paths().assets() / "duplicate.mat";
@@ -418,7 +440,8 @@ namespace Comet::Tests {
         EXPECT_TRUE(MetadataSerializer{}.save(
             {.handle = handle, .type = AssetType::Material}, metadata_path(duplicate)));
 
-        const AssetScanReport report = manager.move_asset(handle, "renamed/moved.mat");
+        const AssetScanReport report =
+            move_source(database, manager, project.paths(), handle, "renamed/moved.mat");
 
         EXPECT_FALSE(report.snapshot_updated);
         EXPECT_TRUE(has_issue_containing(report, "duplicate guid 42"));
@@ -432,7 +455,8 @@ namespace Comet::Tests {
 
         ASSERT_TRUE(std::filesystem::remove(duplicate));
         ASSERT_TRUE(std::filesystem::remove(metadata_path(duplicate)));
-        const auto retried = manager.move_asset(handle, "renamed/moved.mat");
+        const auto retried =
+            move_source(database, manager, project.paths(), handle, "renamed/moved.mat");
         ASSERT_TRUE(retried.succeeded());
         ASSERT_TRUE(retried.snapshot_updated);
         EXPECT_EQ(manager.get_database().find(handle)->path, "renamed/moved.mat");

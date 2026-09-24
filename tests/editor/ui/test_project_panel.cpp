@@ -1,14 +1,9 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "assets/project_panel.h"
-#include "asset/data/mesh_data.h"
-#include "asset/data/texture_data.h"
 #include "scene/selection.h"
 #include "scene/command_history.h"
 #include "assets/asset_reference.h"
-#include "asset/asset_manager.h"
-#include "asset/registry.h"
-#include "core/task_scheduler.h"
-#include "render/resource/resource_factory.h"
+#include "asset/source_operations.h"
 
 #include "support/imgui_context.h"
 
@@ -25,28 +20,10 @@ namespace CometEditor::Tests {
     class ProjectPanelTest: public ::testing::Test {
     protected:
         Comet::Tests::ImGuiTestContext imgui;
-        class Factory: public Comet::RenderResourceFactory {
-        public:
-            Comet::GpuResourceResult<std::shared_ptr<Comet::Mesh>> try_create_mesh(
-                const Comet::MeshData&) override {
-                ADD_FAILURE() << "Asset file operations must not create GPU resources";
-                return Comet::GpuResourceResult<std::shared_ptr<Comet::Mesh>>::failure(
-                    vk::Result::eErrorUnknown);
-            }
-            Comet::GpuResourceResult<std::shared_ptr<Comet::Texture>> try_create_texture(
-                const Comet::TextureData&) override {
-                ADD_FAILURE() << "Asset file operations must not create GPU resources";
-                return Comet::GpuResourceResult<std::shared_ptr<Comet::Texture>>::failure(
-                    vk::Result::eErrorUnknown);
-            }
-        } factory;
         Comet::Tests::TemporaryDirectory directory;
         const std::filesystem::path root = directory.path();
         Comet::ProjectPaths paths{root};
-        Comet::AssetRegistry registry;
-        Comet::TaskScheduler scheduler{1};
-        Comet::AssetManager manager{paths, registry, factory, scheduler};
-        const Comet::AssetDatabase& database = manager.get_database();
+        Comet::AssetDatabase database{paths};
         Comet::Scene scene;
         CommandHistory history;
         SelectionService selection{scene};
@@ -62,7 +39,7 @@ namespace CometEditor::Tests {
             std::ofstream(paths.assets() / "a.png") << "a";
             std::ofstream(paths.assets() / "b.png") << "b";
             std::ofstream(paths.assets() / "folder/c.png") << "c";
-            auto report = manager.scan();
+            auto report = database.scan();
             ASSERT_TRUE(report.succeeded());
             history.bind_scene(&scene);
             project = std::make_unique<ProjectPanel>(
@@ -85,11 +62,12 @@ namespace CometEditor::Tests {
                     moved_handle = request->handle;
                     destination = request->destination;
                     project->complete_move(
-                        *request, manager.move_asset(request->handle, request->destination));
+                        *request, Comet::AssetSourceOperations::move(
+                                      database, paths, request->handle, request->destination));
                 }
                 if(project->take_refresh_request()) {
                     ++refresh_count;
-                    project->update_scan_report(manager.scan());
+                    project->update_scan_report(database.scan());
                 }
             }
         }
@@ -190,7 +168,7 @@ namespace CometEditor::Tests {
 
     TEST_F(ProjectPanelTest, ExternalFileDropTargetsEmptyDirectoriesAndRejectsPopups) {
         std::filesystem::create_directories(paths.assets() / "empty");
-        project->update_scan_report(manager.scan());
+        project->update_scan_report(database.scan());
         frame();
         const auto point = row_point(1);
         EXPECT_EQ(project->file_drop_directory({point.x, point.y}), std::filesystem::path("empty"));
@@ -234,7 +212,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(request->handle, handle);
         EXPECT_EQ(request->revision, database.get_revision(handle));
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "a.png"));
-        project->complete_delete(*request, manager.remove_asset(request->handle));
+        project->complete_delete(
+            *request, Comet::AssetSourceOperations::remove_asset(database, paths, request->handle));
         frame();
         EXPECT_FALSE(database.find(handle));
         EXPECT_EQ(selection.get_selected_asset(), Comet::INVALID_ASSET_HANDLE);
@@ -245,7 +224,7 @@ namespace CometEditor::Tests {
         std::filesystem::copy_file(
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
             paths.assets() / "model.gltf");
-        project->update_scan_report(manager.scan());
+        project->update_scan_report(database.scan());
         frame();
         const auto handle = database.find("model.gltf")->handle;
         const auto revision = database.get_revision(handle);
@@ -303,7 +282,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(request->handle, source);
         EXPECT_EQ(request->destination, "deferred.png");
         EXPECT_FALSE(project->take_move_request());
-        project->complete_move(*request, manager.move_asset(request->handle, request->destination));
+        project->complete_move(*request, Comet::AssetSourceOperations::move(database, paths,
+                                             request->handle, request->destination));
         frame();
         frame();
         EXPECT_FALSE(ImGui::FindWindowByName("Rename Asset")->Active);
@@ -335,7 +315,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(refresh_count, 0);
         ASSERT_TRUE(project->take_refresh_request());
         EXPECT_FALSE(project->take_refresh_request());
-        project->update_scan_report(manager.scan());
+        project->update_scan_report(database.scan());
         EXPECT_TRUE(database.find("new.png"));
     }
 
@@ -409,7 +389,7 @@ namespace CometEditor::Tests {
 
     TEST_F(ProjectPanelTest, MeshReimportUsesContextTargetWithoutSelectionStatusUi) {
         std::ofstream(paths.assets() / "model.gltf") << "{}";
-        project->update_scan_report(manager.scan());
+        project->update_scan_report(database.scan());
         const auto* record = database.find("model.gltf");
         ASSERT_NE(record, nullptr);
         const auto handle = record->handle;
@@ -450,7 +430,7 @@ namespace CometEditor::Tests {
     TEST_F(ProjectPanelTest, DragRejectsAssetChangedDuringGesture) {
         begin_drag(3);
         std::ofstream(paths.assets() / "a.png") << "changed content";
-        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(database.scan().succeeded());
         drop(1);
         EXPECT_EQ(move_count, 0);
         EXPECT_TRUE(database.find("a.png"));

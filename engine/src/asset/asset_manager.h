@@ -64,14 +64,14 @@ namespace Comet {
         AssetManager(ProjectPaths paths, AssetRegistry& registry,
             RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler,
             AssetAsyncLimits limits);
+        // 借用项目索引；database 必须比 AssetManager 活得更久。
+        AssetManager(AssetDatabase& database, AssetRegistry& registry,
+            RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler);
         ~AssetManager();
 
         [[nodiscard]] AssetScanReport scan();
-        [[nodiscard]] AssetScanReport move_asset(
-            AssetHandle handle, const std::filesystem::path& destination);
-        [[nodiscard]] AssetScanReport remove_asset(AssetHandle handle);
-        [[nodiscard]] AssetScanReport import_files(
-            std::span<const std::filesystem::path> sources, const std::filesystem::path& directory);
+        // 外部索引 owner 修改数据库后调用一次，再处理后台完成结果。
+        void accept_scan_report(const AssetScanReport& report);
         // 本次成功发布的结果；Mesh Artifact 发布不代表 GPU 已驻留。
         [[nodiscard]] Result<std::vector<AssetHandle>, Error> process_completions();
         // 失败／过期也计数；时间预算不抢占单个发布操作。
@@ -104,9 +104,6 @@ namespace Comet {
             AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> reimport_texture(
             AssetHandle handle, TextureImportSettings import_settings);
-        [[nodiscard]] AssetScanReport create_material(
-            const std::filesystem::path& destination, const MaterialData& data);
-        [[nodiscard]] AssetScanReport create_script(const std::filesystem::path& destination);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> load_material(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> update_material(
             AssetHandle handle, const MaterialData& data);
@@ -121,7 +118,6 @@ namespace Comet {
     private:
         [[nodiscard]] Result<void> update_import_dependencies(
             AssetHandle handle, std::vector<std::filesystem::path> dependencies);
-        void apply_scan_report(const AssetScanReport& report);
         enum class RefreshResult { Scheduled, Deferred, Invalidated, Rejected };
         [[nodiscard]] RefreshResult schedule_refresh(const AssetRecord& record);
         void retry_refresh_requests();
@@ -154,7 +150,8 @@ namespace Comet {
             const AssetRecord& record, const MaterialData& data);
 
         ProjectPaths m_paths;
-        AssetDatabase m_database;
+        std::unique_ptr<AssetDatabase> m_owned_database;
+        AssetDatabase& m_database;
         std::unique_ptr<ImportService> m_import_service;
         AssetRegistry& m_registry;
         RenderResourceFactory& m_resource_factory;

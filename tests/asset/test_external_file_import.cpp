@@ -2,6 +2,7 @@
 #include "asset/data/mesh_data.h"
 #include "asset/data/texture_data.h"
 #include "asset/registry.h"
+#include "asset/source_operations.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "core/task_scheduler.h"
 #include "render/resource/resource_factory.h"
@@ -33,7 +34,8 @@ namespace Comet::Tests {
         std::filesystem::path external = root / "external";
         AssetRegistry registry;
         TaskScheduler scheduler{1};
-        AssetManager manager{paths, registry, factory, scheduler};
+        AssetDatabase database{paths};
+        AssetManager manager{database, registry, factory, scheduler};
 
         void SetUp() override {
             std::filesystem::create_directories(paths.assets() / "folder");
@@ -68,7 +70,10 @@ namespace Comet::Tests {
         }
         AssetScanReport import(std::initializer_list<std::filesystem::path> files,
             const std::filesystem::path& directory = "folder") {
-            return manager.import_files(std::span(files.begin(), files.size()), directory);
+            auto report = AssetSourceOperations::import_files(
+                database, paths, std::span(files.begin(), files.size()), directory);
+            manager.accept_scan_report(report);
+            return report;
         }
         std::string read(const std::filesystem::path& path) {
             std::ifstream input(path, std::ios::binary);

@@ -19,7 +19,7 @@ namespace Comet {
         return m_task_queue->status();
     }
 
-    void AssetManager::apply_scan_report(const AssetScanReport& report) {
+    void AssetManager::accept_scan_report(const AssetScanReport& report) {
         if(!report.snapshot_updated) {
             return;
         }

@@ -481,6 +481,7 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
   MaterialShader 模块定义程序、字节码与固定接口契约，MaterialRenderer 管理 GPU 候选、材质版本发布和绘制。
   Material 保存实例参数，MaterialLayout 独立描述布局；属性描述位于 `scene/property`，不依赖 ECS 注册器。
 - **资产**：AssetDatabase 管身份与依赖，ImportService 管导入，AssetManager 管加载与发布。
+  编辑器由 EditorAssets 持有 AssetDatabase 并执行源文件操作，AssetManager 借用同一索引处理运行时失效与重载；开发态 app 仍可由 AssetManager 自行持有索引。
   AssetRegistry 是唯一 Handle 缓存，RenderResources 只创建设备资源；Worker 不操作 Scene 或 GPU。
   Mesh 加载已发布 Artifact，Texture 暂时直接解码源文件。
 - **编辑器**：Editor 装配服务，SceneDocument 管文档与保存点，CommandHistory 管撤销。

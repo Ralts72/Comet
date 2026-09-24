@@ -49,9 +49,7 @@ namespace CometEditor {
         [[nodiscard]] Comet::Result<std::size_t, Comet::Error> restore_references(
             Comet::AssetCompletionBudget budget = {});
         void request_mesh_reimport(Comet::AssetHandle handle);
-        [[nodiscard]] const Comet::AssetDatabase& database() const {
-            return m_manager.get_database();
-        }
+        [[nodiscard]] const Comet::AssetDatabase& database() const { return m_database; }
         [[nodiscard]] std::shared_ptr<const Comet::ShaderProgramArtifact> compiled_shader_program(
             Comet::AssetHandle handle) const;
 
@@ -60,8 +58,9 @@ namespace CometEditor {
         void accept_scan(const Comet::AssetScanReport& report);
         void acknowledge(const std::filesystem::path& path);
         void schedule_shader_program_imports();
-        Comet::AssetManager m_manager;
         Comet::ProjectPaths m_paths;
+        Comet::AssetDatabase m_database;
+        Comet::AssetManager m_manager;
         Comet::AssetSourceMonitor m_monitor;
         std::unordered_set<Comet::AssetHandle> m_pending_shader_programs;
         std::unordered_map<Comet::AssetHandle, Comet::MeshImportMode> m_pending_mesh_imports;

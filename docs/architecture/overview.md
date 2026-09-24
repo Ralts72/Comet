@@ -97,7 +97,8 @@ Engine
                 └── MaterialResources[material version] → PreparedMaterial / PipelineState / Sampler / 参数 UBO / pool / MaterialSet
 
 Editor
-├── EditorAssets → AssetManager（借用 Engine 的服务）
+├── EditorAssets → AssetDatabase（编辑器项目索引 owner）→ AssetSourceOperations（源文件操作）
+│   └── AssetManager（借用同一索引，处理加载、失效与发布）
 ├── RenderStatsPanel（只读 Engine/Renderer 快照，提交一次性采样／报告请求；报告由 RenderDiagnostics 生成）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
 ├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
@@ -111,7 +112,7 @@ Editor
 - 引用表示必需且不可重绑定的借用；指针用于可空、可换 owner 或 moved-from 状态。
   unique_ptr 独占，shared_ptr 延长共享寿命；原生 Vulkan/GLFW handle 仍遵守各自协议。
 - Renderer 是组合根，不是所有 GPU 对象的直接 owner；Device 也不反向拥有业务服务。
-- app/editor 的 AssetManager 先于 Engine 销毁；后台任务先结束，GPU 使用完成后再释放 Registry 和渲染资源。
+- EditorAssets 中 AssetManager 先于其借用的 AssetDatabase 销毁；开发态 app 的 AssetManager 自持索引。app/editor 的 AssetManager 均先于 Engine 销毁；后台任务先结束，GPU 使用完成后再释放 Registry 和渲染资源。
 
 ## 应用启动与失败清理
 

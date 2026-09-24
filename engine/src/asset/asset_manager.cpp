@@ -10,7 +10,6 @@
 #include "render/resource/environment.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
-#include "asset/source_operations.h"
 #include "common/file_io.h"
 #include "diagnostics/logger.h"
 #include "render/material/material.h"
@@ -105,10 +104,18 @@ namespace Comet {
     AssetManager::AssetManager(ProjectPaths paths, AssetRegistry& registry,
         RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler,
         const AssetAsyncLimits limits)
-        : m_paths(std::move(paths)), m_database(m_paths),
+        : m_paths(std::move(paths)), m_owned_database(std::make_unique<AssetDatabase>(m_paths)),
+          m_database(*m_owned_database), m_import_service(std::make_unique<ImportService>(m_paths)),
+          m_registry(registry), m_resource_factory(resource_factory),
+          m_task_queue(std::make_unique<AssetTaskQueue>(m_database, task_scheduler, limits)) {}
+
+    AssetManager::AssetManager(AssetDatabase& database, AssetRegistry& registry,
+        RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler)
+        : m_paths(database.paths()), m_database(database),
           m_import_service(std::make_unique<ImportService>(m_paths)), m_registry(registry),
           m_resource_factory(resource_factory),
-          m_task_queue(std::make_unique<AssetTaskQueue>(m_database, task_scheduler, limits)) {}
+          m_task_queue(
+              std::make_unique<AssetTaskQueue>(m_database, task_scheduler, AssetAsyncLimits{})) {}
 
     AssetManager::~AssetManager() = default;
 
@@ -124,42 +131,7 @@ namespace Comet {
 
     AssetScanReport AssetManager::scan() {
         AssetScanReport report = m_database.scan();
-        apply_scan_report(report);
-        return report;
-    }
-
-    AssetScanReport AssetManager::move_asset(
-        const AssetHandle handle, const std::filesystem::path& destination) {
-        AssetScanReport report =
-            AssetSourceOperations::move(m_database, m_paths, handle, destination);
-        apply_scan_report(report);
-        return report;
-    }
-
-    AssetScanReport AssetManager::remove_asset(const AssetHandle handle) {
-        auto report = AssetSourceOperations::remove_asset(m_database, m_paths, handle);
-        apply_scan_report(report);
-        return report;
-    }
-
-    AssetScanReport AssetManager::import_files(const std::span<const std::filesystem::path> sources,
-        const std::filesystem::path& directory) {
-        auto report = AssetSourceOperations::import_files(m_database, m_paths, sources, directory);
-        apply_scan_report(report);
-        return report;
-    }
-
-    AssetScanReport AssetManager::create_material(
-        const std::filesystem::path& destination, const MaterialData& data) {
-        auto report =
-            AssetSourceOperations::create_material(m_database, m_paths, destination, data);
-        apply_scan_report(report);
-        return report;
-    }
-
-    AssetScanReport AssetManager::create_script(const std::filesystem::path& destination) {
-        auto report = AssetSourceOperations::create_script(m_database, m_paths, destination);
-        apply_scan_report(report);
+        accept_scan_report(report);
         return report;
     }
 

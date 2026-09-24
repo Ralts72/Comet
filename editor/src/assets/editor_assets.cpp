@@ -5,6 +5,7 @@
 #include <utility>
 #include "graphics/result.h"
 #include "asset/serialization/material_serializer.h"
+#include "asset/source_operations.h"
 #include "core/task_scheduler.h"
 
 #include <algorithm>
@@ -12,8 +13,8 @@
 namespace CometEditor {
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
         Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler)
-        : m_manager(paths, registry, factory, scheduler), m_paths(std::move(paths)),
-          m_monitor(m_paths.assets()) {}
+        : m_paths(std::move(paths)), m_database(m_paths),
+          m_manager(m_database, registry, factory, scheduler), m_monitor(m_paths.assets()) {}
 
     Comet::Result<Comet::MaterialData> EditorAssets::read_material(const AssetRead& request) const {
         const auto* record = database().find(request.handle);
@@ -44,6 +45,7 @@ namespace CometEditor {
     }
 
     void EditorAssets::accept_scan(const Comet::AssetScanReport& report) {
+        m_manager.accept_scan_report(report);
         if(report.snapshot_updated) {
             std::unordered_set<Comet::AssetHandle> changed;
             changed.insert(report.added_assets.begin(), report.added_assets.end());
@@ -85,7 +87,7 @@ namespace CometEditor {
 
     Comet::AssetScanReport EditorAssets::refresh() {
         observe(m_monitor.poll_now());
-        auto report = m_manager.scan();
+        auto report = m_database.scan();
         accept_scan(report);
         return report;
     }
@@ -95,7 +97,7 @@ namespace CometEditor {
         observe(result);
         std::optional<Comet::AssetScanReport> report;
         if(result.state == Comet::AssetSourceMonitor::PollState::Changed) {
-            report = m_manager.scan();
+            report = m_database.scan();
             accept_scan(*report);
         }
         schedule_shader_program_imports();
@@ -151,7 +153,7 @@ namespace CometEditor {
         const Comet::AssetHandle handle, const std::filesystem::path& destination) {
         const auto* previous = database().find(handle);
         const auto old_path = previous ? previous->path : std::filesystem::path{};
-        auto report = m_manager.move_asset(handle, destination);
+        auto report = Comet::AssetSourceOperations::move(m_database, m_paths, handle, destination);
         if(report.snapshot_updated) {
             if(const auto* current = database().find(handle)) {
                 acknowledge(old_path);
@@ -170,7 +172,7 @@ namespace CometEditor {
     Comet::AssetScanReport EditorAssets::remove(const Comet::AssetHandle handle) {
         const auto* previous = database().find(handle);
         const auto old_path = previous ? previous->path : std::filesystem::path{};
-        auto report = m_manager.remove_asset(handle);
+        auto report = Comet::AssetSourceOperations::remove_asset(m_database, m_paths, handle);
         if(report.snapshot_updated) {
             acknowledge(old_path);
             acknowledge(Comet::metadata_path(old_path));
@@ -182,7 +184,8 @@ namespace CometEditor {
     Comet::AssetScanReport EditorAssets::import_files(
         const std::span<const std::filesystem::path> sources,
         const std::filesystem::path& directory) {
-        auto report = m_manager.import_files(sources, directory);
+        auto report =
+            Comet::AssetSourceOperations::import_files(m_database, m_paths, sources, directory);
         if(report.snapshot_updated) {
             observe(m_monitor.poll_now());
             LOG_INFO("Imported {} asset(s) into assets/{}", report.added_assets.size(),
@@ -194,7 +197,8 @@ namespace CometEditor {
 
     Comet::AssetScanReport EditorAssets::create_material(
         const std::filesystem::path& destination, const Comet::MaterialData& data) {
-        auto report = m_manager.create_material(destination, data);
+        auto report =
+            Comet::AssetSourceOperations::create_material(m_database, m_paths, destination, data);
         if(report.snapshot_updated) {
             acknowledge(destination);
             acknowledge(Comet::metadata_path(destination));
@@ -204,7 +208,7 @@ namespace CometEditor {
     }
 
     Comet::AssetScanReport EditorAssets::create_script(const std::filesystem::path& destination) {
-        auto report = m_manager.create_script(destination);
+        auto report = Comet::AssetSourceOperations::create_script(m_database, m_paths, destination);
         if(report.snapshot_updated) {
             acknowledge(destination);
             acknowledge(Comet::metadata_path(destination));

@@ -46,6 +46,7 @@ namespace Comet {
     class COMET_API AssetDatabase final {
     public:
         explicit AssetDatabase(ProjectPaths paths);
+        [[nodiscard]] const ProjectPaths& paths() const noexcept { return m_paths; }
 
         [[nodiscard]] AssetScanReport scan();
 
