@@ -197,12 +197,12 @@ namespace Comet::Tests {
         EXPECT_FALSE(diagnostics.get_snapshot().memory.heaps.empty());
         ASSERT_TRUE(diagnostics.set_enabled(false));
         diagnostics.poll_memory(start + std::chrono::seconds(10));
-        auto report = device.build_allocation_report();
+        auto report = diagnostics.build_allocation_report();
         ASSERT_TRUE(report) << report.error();
         EXPECT_NE(report.value().find("diagnostics-report-test"), std::string::npos);
         EXPECT_NE(report.value().find("\"Total\""), std::string::npos);
         allocation.reset();
-        report = device.build_allocation_report();
+        report = diagnostics.build_allocation_report();
         ASSERT_TRUE(report);
         EXPECT_EQ(report.value().find("diagnostics-report-test"), std::string::npos);
         EXPECT_EQ(diagnostics.get_snapshot().memory_samples, 2);
@@ -310,8 +310,8 @@ namespace Comet::Tests {
             engine->get_window(), renderer.get_render_context(), directory.path() / "imgui.ini");
         ASSERT_TRUE(created) << created.error();
         auto& ui = *created.value();
-        CometEditor::RenderStatsPanel panel(engine->frame_diagnostics(),
-            renderer.get_diagnostics());
+        CometEditor::RenderStatsPanel panel(
+            engine->frame_diagnostics(), renderer.get_diagnostics());
         panel.set_visible(true);
         renderer.set_overlay_renderer([&](CommandBuffer& command) { ui.render(command); });
         const ScopeExit finish([&] {
@@ -337,8 +337,8 @@ namespace Comet::Tests {
     TEST_F(RenderDiagnosticsGpuTest, StatsPanelStartsVisibleAndOnlyEmitsRequestsOnInteraction) {
         ImGuiTestContext imgui({800, 700});
         auto& io = ImGui::GetIO();
-        CometEditor::RenderStatsPanel panel(engine->frame_diagnostics(),
-            engine->get_renderer().get_diagnostics());
+        CometEditor::RenderStatsPanel panel(
+            engine->frame_diagnostics(), engine->get_renderer().get_diagnostics());
         const auto frame = [&] {
             ImGui::NewFrame();
             if(panel.is_open()) {

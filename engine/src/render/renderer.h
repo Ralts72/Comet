@@ -50,6 +50,7 @@ namespace Comet {
 
         Result<void, GraphicsError> enable_offscreen_rendering(Math::Vec2u initial_size);
         [[nodiscard]] OffscreenFrame get_offscreen_frame() const;
+        [[nodiscard]] uint32_t max_render_target_dimension() const;
         Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
             MaterialShaders shaders);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()

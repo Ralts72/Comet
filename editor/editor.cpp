@@ -1,5 +1,4 @@
 #include "runtime/entry.h"
-#include "render/render_context.h"
 #include "render/resource/render_resources.h"
 #include "graphics/resource/sampler.h"
 #include "assets/editor_assets.h"
@@ -8,7 +7,6 @@
 #include "render/render_stats.h"
 #include "render/render_diagnostics.h"
 #include "common/file_io.h"
-#include "graphics/device.h"
 #include "scene/scene_file_dialog.h"
 #include "scene/editor_request_policy.h"
 #include "ui/dialogs.h"
@@ -38,7 +36,6 @@
 #include "scene/scene_serializer.h"
 
 #include <cstdint>
-#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -288,8 +285,7 @@ namespace {
             }
             if(!m_render_stats->take_allocation_report_request())
                 return;
-            const auto report =
-                renderer.get_render_context().get_device().build_allocation_report();
+            const auto report = renderer.get_diagnostics().build_allocation_report();
             if(!report) {
                 LOG_ERROR("Cannot build allocation report: {}", report.error());
                 return;
@@ -485,19 +481,10 @@ namespace {
 
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
                 scene, *m_selection, m_command_history, m_editor_state);
-            const auto device_limit = get_engine()
-                                          .get_renderer()
-                                          .get_render_context()
-                                          .get_device()
-                                          .get_capability()
-                                          .max_image_dimension_2d;
-            if(device_limit == 0)
-                LOG_FATAL("Selected Vulkan device has no valid 2D image dimension limit");
             m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
                 get_engine().get_scene_runtime(), *m_selection, m_command_history,
                 m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),
-                get_engine().get_asset_registry(), *m_imgui_context, std::move(sampler).value(),
-                std::min(device_limit, std::uint32_t{4096}));
+                get_engine().get_asset_registry(), *m_imgui_context, std::move(sampler).value());
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(m_editor_state,
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_assets->database(), get_engine().get_asset_registry(),

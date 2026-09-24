@@ -187,10 +187,7 @@ namespace CometEditor::Tests {
         auto sampler = renderer.get_render_resources().get_sampler_manager().get_nearest_clamp();
         ASSERT_TRUE(sampler) << sampler.error();
         Viewport viewport(state, engine.get_scene_runtime(), selection, history, components, edit,
-            shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value(),
-            std::min(
-                renderer.get_render_context().get_device().get_capability().max_image_dimension_2d,
-                std::uint32_t{4096}));
+            shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value());
         renderer.set_overlay_renderer(
             [&](Comet::CommandBuffer& command_buffer) { ui.render(command_buffer); });
         const auto draw_frame = [&] {

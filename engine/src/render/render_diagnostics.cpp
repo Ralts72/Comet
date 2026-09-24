@@ -40,6 +40,10 @@ namespace Comet {
         return Result<void>::success();
     }
 
+    Result<std::string> RenderDiagnostics::build_allocation_report() const {
+        return m_frames.get_device().build_allocation_report();
+    }
+
     void RenderDiagnostics::disable_gpu(std::string message) {
         if(m_snapshot.gpu_error.empty())
             LOG_WARN("GPU timing disabled: {}", message);

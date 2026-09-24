@@ -98,11 +98,11 @@ Engine
 
 Editor
 ├── EditorAssets → AssetManager（借用 Engine 的服务）
-├── RenderStatsPanel（只读 Engine/Renderer 快照，提交一次性采样／报告请求）
+├── RenderStatsPanel（只读 Engine/Renderer 快照，提交一次性采样／报告请求；报告由 RenderDiagnostics 生成）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
 ├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
 ├── InspectorPanel → AssetInspector（材质／纹理草稿和请求，只读 MaterialPrograms 的发布布局）
-├── Viewport → ViewportPanel / TransformGizmo（借用状态、选择、Renderer、Registry 和 ImGuiContext）
+├── Viewport → ViewportPanel / TransformGizmo（借用状态、选择、Renderer、Registry 和 ImGuiContext；尺寸上限由 Renderer 提供）
 └── ImGuiContext
     ├── RenderPass / SwapchainTarget / DescriptorPool
     └── TextureBinding[slot] → ImageView / Sampler / ImGui descriptor

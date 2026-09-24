@@ -8,6 +8,7 @@
 #include "scene/selection.h"
 #include "ui/imgui_context.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace CometEditor {
@@ -15,12 +16,11 @@ namespace CometEditor {
         SelectionService& selection, CommandHistory& history,
         const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
         const EditorShortcuts& shortcuts, Comet::Renderer& renderer, Comet::AssetRegistry& assets,
-        ImGuiContext& ui, std::shared_ptr<Comet::Sampler> sampler,
-        const std::uint32_t max_render_dimension)
+        ImGuiContext& ui, std::shared_ptr<Comet::Sampler> sampler)
         : m_state(state), m_selection(selection), m_renderer(renderer), m_assets(assets), m_ui(ui),
           m_sampler(std::move(sampler)), m_gizmo(history, components),
-          m_panel(
-              state, runtime, selection, m_gizmo, inspector_edit, max_render_dimension, shortcuts) {
+          m_panel(state, runtime, selection, m_gizmo, inspector_edit,
+              std::min(renderer.max_render_target_dimension(), std::uint32_t{4096}), shortcuts) {
         if(!m_sampler)
             LOG_FATAL("Viewport requires a prepared sampler");
     }

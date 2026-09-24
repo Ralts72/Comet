@@ -74,6 +74,13 @@ namespace Comet {
             m_scene_renderer->get_offscreen_color_view(slot)};
     }
 
+    uint32_t Renderer::max_render_target_dimension() const {
+        const auto limit = m_render_context->get_device().get_capability().max_image_dimension_2d;
+        if(limit == 0)
+            LOG_FATAL("Selected Vulkan device has no valid 2D image dimension limit");
+        return limit;
+    }
+
     std::vector<std::shared_ptr<const MaterialLayout>> Renderer::get_material_layouts() const {
         return m_scene_renderer->get_material_layouts();
     }

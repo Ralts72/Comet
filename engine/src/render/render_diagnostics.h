@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <optional>
+#include <string>
 
 namespace Comet {
     // 只观察既有帧生命周期，不额外等待 GPU；由渲染所属线程访问。
@@ -37,6 +38,7 @@ namespace Comet {
         RenderDiagnostics(const RenderDiagnostics&) = delete;
         RenderDiagnostics& operator=(const RenderDiagnostics&) = delete;
         [[nodiscard]] Result<void> set_enabled(bool enabled);
+        [[nodiscard]] Result<std::string> build_allocation_report() const;
         [[nodiscard]] bool is_enabled() const { return m_enabled; }
         [[nodiscard]] const Snapshot& get_snapshot() const { return m_snapshot; }
         [[nodiscard]] const TimingHistory& cpu_history() const { return m_cpu_history; }

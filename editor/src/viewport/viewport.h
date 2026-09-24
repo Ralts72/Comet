@@ -7,7 +7,6 @@
 #include "common/result.h"
 
 #include <memory>
-#include <cstdint>
 
 namespace Comet {
     class AssetRegistry;
@@ -24,8 +23,8 @@ namespace CometEditor {
             SelectionService& selection, CommandHistory& history,
             const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
             const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
-            Comet::AssetRegistry& assets, ImGuiContext& ui, std::shared_ptr<Comet::Sampler> sampler,
-            std::uint32_t max_render_dimension);
+            Comet::AssetRegistry& assets, ImGuiContext& ui,
+            std::shared_ptr<Comet::Sampler> sampler);
 
         Viewport(const Viewport&) = delete;
         Viewport& operator=(const Viewport&) = delete;
