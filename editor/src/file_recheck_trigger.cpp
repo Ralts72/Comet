@@ -1,4 +1,4 @@
-#include "core/directory_change_signal.h"
+#include "file_recheck_trigger.h"
 
 #include <algorithm>
 #include <atomic>
@@ -9,8 +9,8 @@
 #include <dispatch/dispatch.h>
 #endif
 
-namespace Comet {
-    struct DirectoryChangeSignal::Backend {
+namespace CometEditor {
+    struct FileRecheckTrigger::Backend {
         std::atomic<bool> pending = false;
         std::atomic<bool> available = false;
 
@@ -85,14 +85,14 @@ namespace Comet {
 #endif
     };
 
-    DirectoryChangeSignal::DirectoryChangeSignal(
+    FileRecheckTrigger::FileRecheckTrigger(
         std::filesystem::path root, const std::chrono::milliseconds fallback_interval)
         : m_backend(std::make_unique<Backend>(root)),
           m_fallback_interval(std::max(fallback_interval, std::chrono::milliseconds::zero())) {}
 
-    DirectoryChangeSignal::~DirectoryChangeSignal() = default;
+    FileRecheckTrigger::~FileRecheckTrigger() = default;
 
-    bool DirectoryChangeSignal::poll(const Clock::time_point now) {
+    bool FileRecheckTrigger::poll(const Clock::time_point now) {
         if(m_backend->pending.exchange(false))
             return true;
         if(m_backend->available.load())
@@ -103,7 +103,7 @@ namespace Comet {
         return true;
     }
 
-    bool DirectoryChangeSignal::uses_native_notifications() const {
+    bool FileRecheckTrigger::uses_native_notifications() const {
         return m_backend->available.load();
     }
 }

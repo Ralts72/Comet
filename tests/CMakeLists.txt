@@ -17,7 +17,6 @@ set(UNIT_TEST_SOURCES
         asset/test_metadata.cpp
         asset/test_project_assets.cpp
         asset/test_registry.cpp
-        asset/test_source_monitor.cpp
         asset/test_texture_importer.cpp
         common/test_file_io.cpp
         common/test_result.cpp
@@ -45,6 +44,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_scene_document.cpp
         editor/core/test_selection.cpp
         editor/core/test_shader_reload.cpp
+        editor/core/test_source_monitor.cpp
         editor/core/test_shader_program_import.cpp
         editor/core/test_transform_gizmo.cpp
         editor/core/test_viewport_layout.cpp

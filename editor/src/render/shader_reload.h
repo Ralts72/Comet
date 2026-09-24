@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/directory_change_signal.h"
+#include "file_recheck_trigger.h"
 #include "shader/compiler.h"
 #include "common/retry_backoff.h"
 
@@ -49,7 +49,7 @@ namespace CometEditor {
 
         Comet::TaskScheduler& m_scheduler;
         Requests m_requests;
-        Comet::DirectoryChangeSignal m_changes;
+        FileRecheckTrigger m_changes;
         std::optional<Pending> m_pending;
         std::shared_ptr<const Compilation> m_observed;
         Comet::RetryBackoff m_delivery_retry;

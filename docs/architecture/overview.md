@@ -109,8 +109,8 @@ Editor
     └── TextureBinding[slot] → ImageView / Sampler / ImGui descriptor
 ```
 
-项目资产与内置 Shader 共用 `core/DirectoryChangeSignal` 的目录变化提示。macOS 后端使用递归 FSEvents，
-回调只置位，不读取文件或操作资源；主线程消费提示后分别复核资产目录快照与 Shader 输入快照。
+项目资产与内置 Shader 共用编辑器内的 `FileRecheckTrigger`。它只提示“需要复核”，不判定文件是否真的变化。
+macOS 后端使用递归 FSEvents，回调只置位，不读取文件或操作资源；主线程消费提示后分别复核资产目录快照与 Shader 输入快照。
 监听不可用或根目录失效时退回 500 ms 轮询；手动 Refresh 仍可直接复核。
 目前资产变化仍在主线程全目录扫描，Shader 仍按批次等待固定 200 ms；按资产／依赖批次尾沿防抖、
 后台局部复核和 Windows 原生后端留在路线图中，不把本轮视为整个监听专项完成。

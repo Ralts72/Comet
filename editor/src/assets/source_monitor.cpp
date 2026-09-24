@@ -1,9 +1,9 @@
-#include "asset/source_monitor.h"
+#include "assets/source_monitor.h"
 
 #include <system_error>
 #include <utility>
 
-namespace Comet {
+namespace CometEditor {
     namespace {
         bool is_temporary_asset_write(const std::filesystem::path& path) {
             return path.filename().string().starts_with(".comet-tmp-");

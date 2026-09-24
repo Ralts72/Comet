@@ -1,6 +1,8 @@
 add_library(editor_core STATIC
         src/editor_state.cpp
+        src/file_recheck_trigger.cpp
         src/assets/editor_assets.cpp
+        src/assets/source_monitor.cpp
         src/assets/shader_program_import.cpp
         src/assets/material_editing.cpp
         src/render/shader_reload.cpp
@@ -14,6 +16,9 @@ add_library(editor_core STATIC
         src/viewport/viewport_layout.cpp
 )
 target_link_libraries(editor_core PUBLIC engine comet_shader_tools)
+if(APPLE)
+    target_link_libraries(editor_core PRIVATE "-framework CoreServices")
+endif()
 target_include_directories(editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 if (NOT COMET_BUILD_EDITOR)

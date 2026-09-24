@@ -1,7 +1,7 @@
 #pragma once
 
 #include "asset/asset_manager.h"
-#include "asset/source_monitor.h"
+#include "assets/source_monitor.h"
 #include "assets/asset_edit.h"
 #include "asset/reference.h"
 #include <memory>
@@ -54,14 +54,14 @@ namespace CometEditor {
             Comet::AssetHandle handle) const;
 
     private:
-        void observe(const Comet::AssetSourceMonitor::PollResult& result);
+        void observe(const AssetSourceMonitor::PollResult& result);
         void accept_scan(const Comet::AssetScanReport& report);
         void acknowledge(const std::filesystem::path& path);
         void schedule_shader_program_imports();
         Comet::ProjectPaths m_paths;
         Comet::AssetDatabase m_database;
         Comet::AssetManager m_manager;
-        Comet::AssetSourceMonitor m_monitor;
+        AssetSourceMonitor m_monitor;
         std::unordered_set<Comet::AssetHandle> m_pending_shader_programs;
         std::unordered_map<Comet::AssetHandle, Comet::MeshImportMode> m_pending_mesh_imports;
         std::string m_monitor_error;

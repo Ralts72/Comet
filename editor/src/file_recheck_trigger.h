@@ -1,23 +1,21 @@
 #pragma once
 
-#include "common/export.h"
-
 #include <chrono>
 #include <filesystem>
 #include <memory>
 
-namespace Comet {
+namespace CometEditor {
     // 文件通知只是线索；消费方仍须复核自己的源码快照。
-    class COMET_API DirectoryChangeSignal final {
+    class FileRecheckTrigger final {
     public:
         using Clock = std::chrono::steady_clock;
 
-        explicit DirectoryChangeSignal(std::filesystem::path root,
+        explicit FileRecheckTrigger(std::filesystem::path root,
             std::chrono::milliseconds fallback_interval = std::chrono::milliseconds(500));
-        ~DirectoryChangeSignal();
+        ~FileRecheckTrigger();
 
-        DirectoryChangeSignal(const DirectoryChangeSignal&) = delete;
-        DirectoryChangeSignal& operator=(const DirectoryChangeSignal&) = delete;
+        FileRecheckTrigger(const FileRecheckTrigger&) = delete;
+        FileRecheckTrigger& operator=(const FileRecheckTrigger&) = delete;
 
         [[nodiscard]] bool poll(Clock::time_point now = Clock::now());
         [[nodiscard]] bool uses_native_notifications() const;

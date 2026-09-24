@@ -27,8 +27,8 @@ namespace CometEditor {
         return Comet::MaterialSerializer{}.load(m_paths.assets() / record->path);
     }
 
-    void EditorAssets::observe(const Comet::AssetSourceMonitor::PollResult& result) {
-        using State = Comet::AssetSourceMonitor::PollState;
+    void EditorAssets::observe(const AssetSourceMonitor::PollResult& result) {
+        using State = AssetSourceMonitor::PollState;
         if(result.state == State::NotPolled)
             return;
         if(result.state != State::Failed) {
@@ -99,7 +99,7 @@ namespace CometEditor {
         const auto result = m_monitor.poll();
         observe(result);
         std::optional<Comet::AssetScanReport> report;
-        if(result.state == Comet::AssetSourceMonitor::PollState::Changed) {
+        if(result.state == AssetSourceMonitor::PollState::Changed) {
             report = m_database.scan();
             accept_scan(*report);
         }

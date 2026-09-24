@@ -1,4 +1,4 @@
-#include "asset/source_monitor.h"
+#include "assets/source_monitor.h"
 
 #include "asset/handle.h"
 
@@ -10,14 +10,14 @@
 #include <string>
 #include <thread>
 
-namespace Comet::Tests {
+namespace CometEditor::Tests {
     namespace {
         class TemporaryAssetDirectory final {
         public:
             TemporaryAssetDirectory() {
                 m_root = std::filesystem::temp_directory_path()
                          / ("comet_asset_source_monitor_test_"
-                             + std::to_string(AssetHandle::generate().value()));
+                             + std::to_string(Comet::AssetHandle::generate().value()));
                 std::filesystem::create_directories(m_root);
             }
 

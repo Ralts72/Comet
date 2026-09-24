@@ -1,7 +1,6 @@
 #pragma once
 
-#include "common/export.h"
-#include "core/directory_change_signal.h"
+#include "file_recheck_trigger.h"
 
 #include <chrono>
 #include <cstdint>
@@ -9,8 +8,8 @@
 #include <map>
 #include <string>
 
-namespace Comet {
-    class COMET_API AssetSourceMonitor final {
+namespace CometEditor {
+    class AssetSourceMonitor final {
     public:
         enum class PollState { NotPolled, Unchanged, Changed, Failed };
 
@@ -45,7 +44,7 @@ namespace Comet {
             Snapshot& snapshot, std::filesystem::path& issue_path, std::string& message) const;
 
         std::filesystem::path m_root;
-        DirectoryChangeSignal m_changes;
+        FileRecheckTrigger m_changes;
         Snapshot m_snapshot;
         bool m_initial_poll_attempted = false;
         bool m_has_baseline = false;
