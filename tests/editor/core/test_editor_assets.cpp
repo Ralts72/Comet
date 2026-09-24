@@ -860,6 +860,7 @@ namespace CometEditor::Tests {
         auto before = std::move(before_result).value();
         const auto path = (Comet::ProjectPaths(root).assets() / "missing.scene").string();
         ASSERT_TRUE(serializer.save(*active, path));
+        ASSERT_TRUE(assets->refresh().succeeded());
         CommandHistory history;
         SceneDocument document(
             serializer, Comet::ProjectPaths(root), history, [&] { return active.get(); },

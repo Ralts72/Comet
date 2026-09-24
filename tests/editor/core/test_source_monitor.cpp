@@ -70,6 +70,38 @@ namespace CometEditor::Tests {
         EXPECT_EQ(reason, FileRecheckTrigger::Reason::Notification);
     }
 
+    TEST(FileRecheckTriggerTest, ResumesNativeWatchingWhenMissingRootAppears) {
+        const TemporaryAssetDirectory directory;
+        FileRecheckTrigger available_probe(directory.root());
+        if(!available_probe.uses_native_notifications())
+            GTEST_SKIP() << "Native file notifications are unavailable";
+
+        const auto root = directory.root() / "later";
+        FileRecheckTrigger trigger(root, std::chrono::milliseconds(500));
+        EXPECT_FALSE(trigger.uses_native_notifications());
+        const auto now = FileRecheckTrigger::Clock::time_point{};
+        EXPECT_EQ(trigger.poll(now), FileRecheckTrigger::Reason::Fallback);
+
+        std::filesystem::create_directories(root);
+        EXPECT_EQ(trigger.poll(now + std::chrono::milliseconds(500)),
+            FileRecheckTrigger::Reason::Fallback);
+        EXPECT_FALSE(trigger.uses_native_notifications());
+        EXPECT_EQ(
+            trigger.poll(now + std::chrono::seconds(2)), FileRecheckTrigger::Reason::Fallback);
+        EXPECT_TRUE(trigger.uses_native_notifications());
+
+        static_cast<void>(trigger.poll());
+        directory.write("later/new.scene", "scene");
+        auto reason = FileRecheckTrigger::Reason::None;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while(reason != FileRecheckTrigger::Reason::Notification
+              && std::chrono::steady_clock::now() < deadline) {
+            reason = trigger.poll();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        EXPECT_EQ(reason, FileRecheckTrigger::Reason::Notification);
+    }
+
     TEST(AssetSourceMonitorTest, ReportsFileChangesOnlyOnce) {
         const TemporaryAssetDirectory directory;
         AssetSourceMonitor monitor(directory.root());
@@ -94,6 +126,20 @@ namespace CometEditor::Tests {
         directory.write(".comet-tmp-material.1", "partial");
 
         EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+    }
+
+    TEST(AssetSourceMonitorTest, IgnoresFinderMetadataWithoutHidingAssetChanges) {
+        const TemporaryAssetDirectory directory;
+        AssetSourceMonitor monitor(directory.root());
+        ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+
+        directory.write(".DS_Store", "finder");
+        directory.write("textures/.DS_Store", "finder");
+        EXPECT_FALSE(monitor.acknowledge(".DS_Store"));
+        EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+
+        directory.write("textures/albedo.png", "image");
+        EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Changed);
     }
 
     TEST(AssetSourceMonitorTest, AcknowledgesEditorOwnedWrites) {

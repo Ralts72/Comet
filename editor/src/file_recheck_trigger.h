@@ -23,8 +23,10 @@ namespace CometEditor {
 
     private:
         struct Backend;
+        std::filesystem::path m_root;
         std::unique_ptr<Backend> m_backend;
         std::chrono::milliseconds m_fallback_interval;
         Clock::time_point m_next_fallback{};
+        Clock::time_point m_next_reconnect{};
     };
 }

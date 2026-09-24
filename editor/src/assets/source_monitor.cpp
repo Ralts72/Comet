@@ -5,8 +5,9 @@
 
 namespace CometEditor {
     namespace {
-        bool is_temporary_asset_write(const std::filesystem::path& path) {
-            return path.filename().string().starts_with(".comet-tmp-");
+        bool is_ignored_asset_source(const std::filesystem::path& path) {
+            const auto filename = path.filename();
+            return filename == ".DS_Store" || filename.string().starts_with(".comet-tmp-");
         }
 
         bool is_valid_relative_path(const std::filesystem::path& path) {
@@ -54,7 +55,8 @@ namespace CometEditor {
     }
 
     bool AssetSourceMonitor::acknowledge(const std::filesystem::path& relative_path) {
-        if(!m_has_baseline || !is_valid_relative_path(relative_path)) {
+        if(!m_has_baseline || !is_valid_relative_path(relative_path)
+            || is_ignored_asset_source(relative_path)) {
             return false;
         }
 
@@ -127,7 +129,7 @@ namespace CometEditor {
                 return false;
             }
 
-            if(regular_file && !is_temporary_asset_write(entry.path())) {
+            if(regular_file && !is_ignored_asset_source(entry.path())) {
                 const auto write_time = entry.last_write_time(error);
                 if(error) {
                     issue_path = entry.path();

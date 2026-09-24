@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <system_error>
+#include <utility>
 
 #ifdef __APPLE__
 #include <CoreServices/CoreServices.h>
@@ -10,6 +11,12 @@
 #endif
 
 namespace CometEditor {
+#ifdef __APPLE__
+    namespace {
+        constexpr auto RECONNECT_INTERVAL = std::chrono::seconds(2);
+    }
+#endif
+
     struct FileRecheckTrigger::Backend {
         std::atomic<bool> pending = false;
         std::atomic<bool> available = false;
@@ -87,7 +94,7 @@ namespace CometEditor {
 
     FileRecheckTrigger::FileRecheckTrigger(
         std::filesystem::path root, const std::chrono::milliseconds fallback_interval)
-        : m_backend(std::make_unique<Backend>(root)),
+        : m_root(std::move(root)), m_backend(std::make_unique<Backend>(m_root)),
           m_fallback_interval(std::max(fallback_interval, std::chrono::milliseconds::zero())) {}
 
     FileRecheckTrigger::~FileRecheckTrigger() = default;
@@ -100,6 +107,12 @@ namespace CometEditor {
         if(now < m_next_fallback)
             return Reason::None;
         m_next_fallback = now + m_fallback_interval;
+#ifdef __APPLE__
+        if(!m_root.empty() && now >= m_next_reconnect) {
+            m_next_reconnect = now + RECONNECT_INTERVAL;
+            m_backend = std::make_unique<Backend>(m_root);
+        }
+#endif
         return Reason::Fallback;
     }
 
