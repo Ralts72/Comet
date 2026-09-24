@@ -11,6 +11,7 @@
 namespace CometEditor {
     class AssetSourceMonitor final {
     public:
+        using Clock = FileRecheckTrigger::Clock;
         enum class PollState { NotPolled, Unchanged, Changed, Failed };
 
         struct PollResult {
@@ -22,7 +23,7 @@ namespace CometEditor {
         explicit AssetSourceMonitor(std::filesystem::path root,
             std::chrono::milliseconds poll_interval = std::chrono::milliseconds(500));
 
-        [[nodiscard]] PollResult poll();
+        [[nodiscard]] PollResult poll(Clock::time_point now = Clock::now());
         [[nodiscard]] PollResult poll_now();
         [[nodiscard]] bool uses_native_notifications() const {
             return m_changes.uses_native_notifications();

@@ -16,10 +16,12 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <iterator>
 #include <span>
 #include <stdexcept>
+#include <thread>
 
 namespace CometEditor::Tests {
     namespace {
@@ -343,6 +345,42 @@ namespace CometEditor::Tests {
         scheduler.wait_idle();
         ASSERT_TRUE(assets.update());
         EXPECT_EQ(assets.compiled_shader_program(program), second);
+    }
+
+    TEST_F(ShaderProgramImportTest, FileNotificationDefersProgramImportUntilQuietPeriod) {
+        Comet::Tests::FakeRenderResourceFactory factory;
+        Comet::AssetRegistry registry;
+        Comet::TaskScheduler scheduler(1);
+        EditorAssets assets(paths, registry, factory, scheduler);
+        ASSERT_TRUE(assets.refresh().succeeded());
+        ASSERT_TRUE(assets.update());
+        scheduler.wait_idle();
+        ASSERT_TRUE(assets.update());
+        const auto first = assets.compiled_shader_program(program);
+        ASSERT_TRUE(first);
+
+        const auto now = EditorAssets::Clock::now() + std::chrono::hours(1);
+        const auto revision = assets.database().get_revision(program);
+        ASSERT_TRUE(Comet::write_text_file_atomic(
+            paths.assets() / "shaders/test.frag", std::string(FRAGMENT) + "\n// changed source\n"));
+        bool changed = false;
+        for(int attempt = 0; attempt < 200 && !changed; ++attempt) {
+            auto updated = assets.update(now);
+            ASSERT_TRUE(updated);
+            changed = assets.database().get_revision(program) != revision;
+            if(!changed)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        ASSERT_TRUE(changed);
+        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(199)));
+        scheduler.wait_idle();
+        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(199)));
+        EXPECT_EQ(assets.compiled_shader_program(program), first);
+
+        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(200)));
+        scheduler.wait_idle();
+        ASSERT_TRUE(assets.update(now + std::chrono::milliseconds(200)));
+        EXPECT_NE(assets.compiled_shader_program(program), first);
     }
 
     TEST_F(ShaderProgramImportTest, MissingIncludeCreationTriggersRetry) {

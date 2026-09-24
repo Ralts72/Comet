@@ -11,6 +11,10 @@
 #include <algorithm>
 
 namespace CometEditor {
+    namespace {
+        constexpr auto SHADER_IMPORT_QUIET_PERIOD = std::chrono::milliseconds(200);
+    }
+
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
         Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler)
         : m_paths(std::move(paths)), m_database(m_paths),
@@ -47,7 +51,8 @@ namespace CometEditor {
             static_cast<void>(m_monitor.acknowledge(path));
     }
 
-    void EditorAssets::accept_scan(const Comet::AssetScanReport& report) {
+    void EditorAssets::accept_scan(
+        const Comet::AssetScanReport& report, const std::optional<Clock::time_point> change_time) {
         m_manager.accept_scan_report(report);
         if(report.snapshot_updated) {
             std::unordered_set<Comet::AssetHandle> changed;
@@ -56,8 +61,13 @@ namespace CometEditor {
             database().include_dependents(changed);
             for(const auto handle : changed) {
                 const auto* record = database().find(handle);
-                if(record && record->type == Comet::AssetType::ShaderProgram)
-                    m_pending_shader_programs.insert(handle);
+                if(record && record->type == Comet::AssetType::ShaderProgram) {
+                    auto& due = m_pending_shader_programs[handle];
+                    if(change_time)
+                        due = *change_time + SHADER_IMPORT_QUIET_PERIOD;
+                    else
+                        due = Clock::time_point{};
+                }
             }
             for(const auto handle : report.removed_assets)
                 m_pending_shader_programs.erase(handle);
@@ -95,15 +105,16 @@ namespace CometEditor {
         return report;
     }
 
-    Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> EditorAssets::update() {
-        const auto result = m_monitor.poll();
+    Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> EditorAssets::update(
+        const Clock::time_point now) {
+        const auto result = m_monitor.poll(now);
         observe(result);
         std::optional<Comet::AssetScanReport> report;
         if(result.state == AssetSourceMonitor::PollState::Changed) {
             report = m_database.scan();
-            accept_scan(*report);
+            accept_scan(*report, now);
         }
-        schedule_shader_program_imports();
+        schedule_shader_program_imports(now);
         for(auto request = m_pending_mesh_imports.begin();
             request != m_pending_mesh_imports.end();) {
             const auto* record = database().find(request->first);
@@ -129,10 +140,14 @@ namespace CometEditor {
         return m_manager.compiled_shader_program(handle);
     }
 
-    void EditorAssets::schedule_shader_program_imports() {
+    void EditorAssets::schedule_shader_program_imports(const Clock::time_point now) {
         for(auto pending = m_pending_shader_programs.begin();
             pending != m_pending_shader_programs.end();) {
-            const auto handle = *pending;
+            if(now < pending->second) {
+                ++pending;
+                continue;
+            }
+            const auto handle = pending->first;
             const auto* record = database().find(handle);
             if(!record || record->type != Comet::AssetType::ShaderProgram) {
                 pending = m_pending_shader_programs.erase(pending);

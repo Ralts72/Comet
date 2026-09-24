@@ -24,8 +24,8 @@ namespace CometEditor {
         std::filesystem::path root, const std::chrono::milliseconds poll_interval)
         : m_root(std::move(root).lexically_normal()), m_changes(m_root, poll_interval) {}
 
-    AssetSourceMonitor::PollResult AssetSourceMonitor::poll() {
-        const auto reason = m_changes.poll();
+    AssetSourceMonitor::PollResult AssetSourceMonitor::poll(const Clock::time_point now) {
+        const auto reason = m_changes.poll(now);
         if(!m_initial_poll_attempted || reason != FileRecheckTrigger::Reason::None)
             return poll_now();
         return {};

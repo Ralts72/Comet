@@ -4,6 +4,7 @@
 #include "assets/source_monitor.h"
 #include "assets/asset_edit.h"
 #include "asset/reference.h"
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <set>
@@ -20,11 +21,13 @@ namespace Comet {
 namespace CometEditor {
     class EditorAssets {
     public:
+        using Clock = std::chrono::steady_clock;
         EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
             Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler);
 
         [[nodiscard]] Comet::AssetScanReport refresh();
-        [[nodiscard]] Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> update();
+        [[nodiscard]] Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> update(
+            Clock::time_point now = Clock::now());
         [[nodiscard]] Comet::AssetScanReport move(
             Comet::AssetHandle handle, const std::filesystem::path& destination);
         [[nodiscard]] Comet::AssetScanReport remove(Comet::AssetHandle handle);
@@ -55,14 +58,15 @@ namespace CometEditor {
 
     private:
         void observe(const AssetSourceMonitor::PollResult& result);
-        void accept_scan(const Comet::AssetScanReport& report);
+        void accept_scan(const Comet::AssetScanReport& report,
+            std::optional<Clock::time_point> change_time = std::nullopt);
         void acknowledge(const std::filesystem::path& path);
-        void schedule_shader_program_imports();
+        void schedule_shader_program_imports(Clock::time_point now);
         Comet::ProjectPaths m_paths;
         Comet::AssetDatabase m_database;
         Comet::AssetManager m_manager;
         AssetSourceMonitor m_monitor;
-        std::unordered_set<Comet::AssetHandle> m_pending_shader_programs;
+        std::unordered_map<Comet::AssetHandle, Clock::time_point> m_pending_shader_programs;
         std::unordered_map<Comet::AssetHandle, Comet::MeshImportMode> m_pending_mesh_imports;
         std::string m_monitor_error;
         std::unordered_set<Comet::AssetHandle> m_reference_changes;
