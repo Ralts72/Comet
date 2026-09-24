@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <future>
+#include <thread>
 
 namespace CometEditor::Tests {
     class ShaderReloadTest: public testing::Test {
@@ -78,6 +79,30 @@ namespace CometEditor::Tests {
         for(const auto* stage : {"vertex", "texture_vertex"})
             EXPECT_NE(original->stages.at(stage).words, updated->stages.at(stage).words);
         EXPECT_EQ(original->stages.at("solid").words, updated->stages.at("solid").words);
+    }
+
+    TEST_F(ShaderReloadTest, NativeNotificationRecompilesAtomicReplacement) {
+        ShaderReload reload(scheduler, requests, directory.path());
+        if(!reload.uses_native_notifications())
+            GTEST_SKIP() << "Native file notifications are unavailable";
+        const auto original = finish(reload);
+        ASSERT_TRUE(original);
+        ASSERT_TRUE(original->succeeded);
+
+        write("unlit_color.frag", "#version 450\ninvalid source\n");
+        std::shared_ptr<const ShaderReload::Compilation> changed;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while(!changed && std::chrono::steady_clock::now() < deadline) {
+            now += std::chrono::milliseconds(20);
+            auto result = reload.update(now);
+            if(result && result->revision > original->revision)
+                changed = std::move(result);
+            scheduler.wait_idle();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        ASSERT_TRUE(changed);
+        EXPECT_FALSE(changed->succeeded);
+        EXPECT_GT(changed->revision, original->revision);
     }
 
     TEST_F(ShaderReloadTest, DeliversAcceptedCompilationAfterSchedulerShutdown) {

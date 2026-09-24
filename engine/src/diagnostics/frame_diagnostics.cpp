@@ -68,6 +68,10 @@ namespace Comet {
 
     void FrameDiagnostics::clear_current() {
         m_current.reset();
+        cancel_pending_frame();
+    }
+
+    void FrameDiagnostics::cancel_pending_frame() {
         m_recording = false;
     }
 }

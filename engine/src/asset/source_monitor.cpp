@@ -21,22 +21,20 @@ namespace Comet {
 
     AssetSourceMonitor::AssetSourceMonitor(
         std::filesystem::path root, const std::chrono::milliseconds poll_interval)
-        : m_root(std::move(root).lexically_normal()), m_poll_interval(poll_interval) {
-        if(m_poll_interval < std::chrono::milliseconds::zero()) {
-            m_poll_interval = std::chrono::milliseconds::zero();
-        }
-    }
+        : m_root(std::move(root).lexically_normal()), m_changes(m_root, poll_interval) {}
 
     AssetSourceMonitor::PollResult AssetSourceMonitor::poll() {
-        const auto now = std::chrono::steady_clock::now();
-        if(now < m_next_poll) {
-            return {};
-        }
-        m_next_poll = now + m_poll_interval;
-        return poll_now();
+        const bool changed = m_changes.poll();
+        if(!m_initial_poll_attempted || changed)
+            return poll_now();
+        return {};
     }
 
     AssetSourceMonitor::PollResult AssetSourceMonitor::poll_now() {
+        if(!m_initial_poll_attempted) {
+            m_initial_poll_attempted = true;
+            static_cast<void>(m_changes.poll());
+        }
         Snapshot snapshot;
         PollResult result;
         if(!capture_snapshot(snapshot, result.issue_path, result.message)) {

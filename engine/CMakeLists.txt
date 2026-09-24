@@ -47,6 +47,7 @@ set(SOURCES
         src/diagnostics/profiler.cpp
         src/diagnostics/logger.cpp
         src/core/window.cpp
+        src/core/directory_change_signal.cpp
         src/input/input.cpp
         src/input/input_actions.cpp
         src/input/input_state.cpp
@@ -151,6 +152,9 @@ target_link_libraries(engine
         simdjson::simdjson
         yaml-cpp
 )
+if(APPLE)
+    target_link_libraries(engine PRIVATE "-framework CoreServices")
+endif()
 target_include_directories(engine
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src

@@ -7,12 +7,13 @@
 
 namespace CometEditor {
     namespace {
-        constexpr auto POLL_INTERVAL = std::chrono::milliseconds(500);
         constexpr auto DEBOUNCE = std::chrono::milliseconds(200);
     }
 
-    ShaderReload::ShaderReload(Comet::TaskScheduler& scheduler, Requests requests)
-        : m_scheduler(scheduler), m_requests(std::move(requests)) {}
+    ShaderReload::ShaderReload(
+        Comet::TaskScheduler& scheduler, Requests requests, std::filesystem::path watch_root)
+        : m_scheduler(scheduler), m_requests(std::move(requests)),
+          m_changes(std::move(watch_root)) {}
 
     void ShaderReload::request(Clock::time_point now) {
         ++m_revision;
@@ -35,6 +36,7 @@ namespace CometEditor {
     }
 
     std::shared_ptr<const ShaderReload::Compilation> ShaderReload::update(Clock::time_point now) {
+        const bool source_changed = m_changes.poll(now);
         if(m_pending
             && m_pending->completion.wait_for(std::chrono::seconds(0))
                    == std::future_status::ready) {
@@ -47,18 +49,14 @@ namespace CometEditor {
                     request(now);
                 } else {
                     m_observed = output;
-                    m_next_poll = now + POLL_INTERVAL;
                     return output;
                 }
             }
         }
         if(m_pending)
             return {};
-        if(!m_requested && now >= m_next_poll) {
-            m_next_poll = now + POLL_INTERVAL;
-            if(m_observed && !inputs_unchanged(*m_observed))
-                request(now);
-        }
+        if(source_changed && !m_requested && m_observed && !inputs_unchanged(*m_observed))
+            request(now);
         if(m_delivery_retry.consume(now)) {
             if(m_observed && m_observed->revision == m_revision && inputs_unchanged(*m_observed))
                 return m_observed;

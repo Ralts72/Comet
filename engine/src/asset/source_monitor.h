@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "core/directory_change_signal.h"
 
 #include <chrono>
 #include <cstdint>
@@ -24,6 +25,9 @@ namespace Comet {
 
         [[nodiscard]] PollResult poll();
         [[nodiscard]] PollResult poll_now();
+        [[nodiscard]] bool uses_native_notifications() const {
+            return m_changes.uses_native_notifications();
+        }
 
         [[nodiscard]] bool acknowledge(const std::filesystem::path& relative_path);
 
@@ -41,9 +45,9 @@ namespace Comet {
             Snapshot& snapshot, std::filesystem::path& issue_path, std::string& message) const;
 
         std::filesystem::path m_root;
-        std::chrono::milliseconds m_poll_interval;
-        std::chrono::steady_clock::time_point m_next_poll{};
+        DirectoryChangeSignal m_changes;
         Snapshot m_snapshot;
+        bool m_initial_poll_attempted = false;
         bool m_has_baseline = false;
         bool m_initial_capture_failed = false;
     };

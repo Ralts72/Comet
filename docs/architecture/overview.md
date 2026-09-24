@@ -109,6 +109,12 @@ Editor
     └── TextureBinding[slot] → ImageView / Sampler / ImGui descriptor
 ```
 
+项目资产与内置 Shader 共用 `core/DirectoryChangeSignal` 的目录变化提示。macOS 后端使用递归 FSEvents，
+回调只置位，不读取文件或操作资源；主线程消费提示后分别复核资产目录快照与 Shader 输入快照。
+监听不可用或根目录失效时退回 500 ms 轮询；手动 Refresh 仍可直接复核。
+目前资产变化仍在主线程全目录扫描，Shader 仍按批次等待固定 200 ms；按资产／依赖批次尾沿防抖、
+后台局部复核和 Windows 原生后端留在路线图中，不把本轮视为整个监听专项完成。
+
 - 引用表示必需且不可重绑定的借用；指针用于可空、可换 owner 或 moved-from 状态。
   unique_ptr 独占，shared_ptr 延长共享寿命；原生 Vulkan/GLFW handle 仍遵守各自协议。
 - Renderer 是组合根，不是所有 GPU 对象的直接 owner；Device 也不反向拥有业务服务。
@@ -175,8 +181,8 @@ SceneDocument 只接收激活结果并更新文档路径／保存点；EditorSce
 Editor 每次更新取走上一 UI 帧的场景请求，只执行一个：文件弹窗提交、菜单、Play 控制、结构编辑、重命名、Mesh 拖入、资产赋值依次优先；未保存确认期间仅接收文件弹窗提交，取消弹窗则全部丢弃。未选中的请求不延后重放。
 Renderer 不调用 UI 准备；SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler 或呈现队列。
 `on_frame_ready` 只在取得可绘制帧后运行，拾取反馈在 Runtime 更新和场景解析后、场景与 overlay 录制前同步应用，
-因此选择框仍可进入当帧。交换链延期时不执行该回调或绘制，但 Runtime 继续推进；主循环在提前退出或失败时
-丢弃未完成帧的 CPU 诊断快照，不把上一帧数据当作当前帧。
+因此选择框仍可进入当帧。交换链延期时不执行该回调或绘制，但 Runtime 继续推进。失败退出清空当前
+CPU 诊断；正常关闭只取消未完成采样，保留上一条已完成帧的数据。
 
 **运行与输入：** SceneRuntime 是时间截断的唯一入口，先有界固定更新再普通更新；暂停仍维护 UI、资产与绘制，
 单步只推进一轮固定／普通更新。ViewportPanel 生产控制请求，由 Editor 在下一次 on_update 经 Engine 应用。

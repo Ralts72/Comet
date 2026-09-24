@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 
 namespace Comet::Tests {
     namespace {
@@ -112,7 +113,42 @@ namespace Comet::Tests {
         ASSERT_EQ(monitor.poll().state, AssetSourceMonitor::PollState::Unchanged);
         directory.write("new.png", "texture");
 
-        EXPECT_EQ(monitor.poll().state, AssetSourceMonitor::PollState::NotPolled);
-        EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Changed);
+        if(monitor.uses_native_notifications()) {
+            auto state = AssetSourceMonitor::PollState::NotPolled;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while(state != AssetSourceMonitor::PollState::Changed
+                  && std::chrono::steady_clock::now() < deadline) {
+                state = monitor.poll().state;
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            EXPECT_EQ(state, AssetSourceMonitor::PollState::Changed);
+            EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+        } else {
+            EXPECT_EQ(monitor.poll().state, AssetSourceMonitor::PollState::NotPolled);
+            EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Changed);
+        }
+    }
+
+    TEST(AssetSourceMonitorTest, NativeNotificationFindsAtomicReplacement) {
+        const TemporaryAssetDirectory directory;
+        directory.write("material.mat", "old");
+        AssetSourceMonitor monitor(directory.root(), std::chrono::hours(1));
+        if(!monitor.uses_native_notifications())
+            GTEST_SKIP() << "Native file notifications are unavailable";
+        ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+
+        directory.write(".comet-tmp-material.1", "replacement contents");
+        std::filesystem::rename(
+            directory.root() / ".comet-tmp-material.1", directory.root() / "material.mat");
+
+        auto state = AssetSourceMonitor::PollState::NotPolled;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while(state != AssetSourceMonitor::PollState::Changed
+              && std::chrono::steady_clock::now() < deadline) {
+            state = monitor.poll().state;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        EXPECT_EQ(state, AssetSourceMonitor::PollState::Changed);
+        EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
     }
 }

@@ -28,6 +28,7 @@ namespace Comet {
         void mark_runtime_update();
         void mark_render_submit();
         void finish_frame(bool rendered, bool still_enabled);
+        void cancel_pending_frame();
         void clear_current();
 
         [[nodiscard]] const std::optional<Timing>& current() const { return m_current; }

@@ -22,6 +22,12 @@ namespace Comet {
             timing.events_ms + timing.update_ms + timing.prepare_ms + timing.render_submit_ms);
         EXPECT_EQ(diagnostics.history().summarize().total.count, 1);
 
+        diagnostics.begin_frame(true);
+        diagnostics.cancel_pending_frame();
+        ASSERT_TRUE(diagnostics.current());
+        EXPECT_EQ(diagnostics.current()->frame_index, 7);
+        EXPECT_EQ(diagnostics.history().summarize().total.count, 1);
+
         diagnostics.begin_frame(false);
         EXPECT_FALSE(diagnostics.current());
         diagnostics.begin_frame(true);

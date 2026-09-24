@@ -14,7 +14,10 @@ namespace CometEditor {
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
         Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler)
         : m_paths(std::move(paths)), m_database(m_paths),
-          m_manager(m_database, registry, factory, scheduler), m_monitor(m_paths.assets()) {}
+          m_manager(m_database, registry, factory, scheduler), m_monitor(m_paths.assets()) {
+        if(!m_monitor.uses_native_notifications())
+            LOG_WARN("Asset source monitor is using periodic fallback scans");
+    }
 
     Comet::Result<Comet::MaterialData> EditorAssets::read_material(const AssetRead& request) const {
         const auto* record = database().find(request.handle);

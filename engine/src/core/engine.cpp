@@ -166,8 +166,11 @@ namespace Comet {
         m_frame_diagnostics.begin_frame(m_renderer->get_diagnostics().is_enabled());
         ScopeExit discard_unfinished_diagnostics([this] { m_frame_diagnostics.clear_current(); });
         m_window->poll_events();
-        if(m_window->should_close())
+        if(m_window->should_close()) {
+            m_frame_diagnostics.cancel_pending_frame();
+            discard_unfinished_diagnostics.release();
             return Result<void, Error>::success();
+        }
 
         const auto framebuffer_size = m_window->get_framebuffer_size();
         if(framebuffer_size.x == 0 || framebuffer_size.y == 0) {
@@ -188,8 +191,11 @@ namespace Comet {
             if(auto result = update(frame); !result)
                 return result;
         }
-        if(m_window->should_close())
+        if(m_window->should_close()) {
+            m_frame_diagnostics.cancel_pending_frame();
+            discard_unfinished_diagnostics.release();
             return Result<void, Error>::success();
+        }
 
         m_frame_diagnostics.mark_update();
         const auto preparation = m_renderer->prepare_frame();
