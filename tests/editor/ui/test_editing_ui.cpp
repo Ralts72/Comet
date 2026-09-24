@@ -245,7 +245,7 @@ namespace CometEditor::Tests {
         CommandHistory history;
         SelectionService selection{scene};
         EditorState state;
-        HierarchyPanel hierarchy{scene, selection, history, state};
+        HierarchyPanel hierarchy{selection, history, state};
 
         void SetUp() override {
             history.bind_scene(&scene);
@@ -261,6 +261,23 @@ namespace CometEditor::Tests {
             ImGui::Render();
         }
     };
+
+    TEST_F(HierarchyUiTest, RendersNewSelectionSceneAfterSwitch) {
+        auto* window = ImGui::FindWindowByName("Hierarchy");
+        ASSERT_NE(window, nullptr);
+        const float first_scene_last_row = window->DC.CursorPosPrevLine.y;
+
+        Comet::Scene next_scene;
+        next_scene.create_entity("First");
+        next_scene.create_entity("Second");
+        selection.set_scene(next_scene);
+        history.bind_scene(&next_scene);
+        hierarchy.reset_for_scene_change();
+        draw();
+
+        EXPECT_GT(window->DC.CursorPosPrevLine.y, first_scene_last_row);
+        EXPECT_EQ(&selection.get_scene(), &next_scene);
+    }
 
     TEST_F(HierarchyUiTest, HierarchyQueuesOneRequestWithoutMutatingDuringUiTraversal) {
         auto* window = ImGui::FindWindowByName("Hierarchy");
@@ -338,7 +355,8 @@ namespace CometEditor::Tests {
         history.bind_scene(&scene);
         choose("Create Entity");
         draw();
-        hierarchy.set_scene(scene);
+        selection.set_scene(scene);
+        hierarchy.reset_for_scene_change();
         EXPECT_FALSE(hierarchy.take_request());
         choose("Create Entity");
         draw();

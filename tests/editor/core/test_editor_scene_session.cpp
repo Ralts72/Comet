@@ -183,6 +183,67 @@ namespace CometEditor::Tests {
         EXPECT_EQ(installed_modes, (std::vector{EditorMode::Play, EditorMode::Edit}));
     }
 
+    TEST(EditorSceneSessionTest, StartsPlayAfterActivationAndStopsBeforeRestoringEdit) {
+        class OrderedSystem final: public Comet::System {
+        public:
+            explicit OrderedSystem(std::vector<std::string>& events) : m_events(events) {}
+
+            Comet::Result<void, Comet::Error> on_start(Comet::Scene&) override {
+                m_events.emplace_back("system-start");
+                return Comet::Result<void, Comet::Error>::success();
+            }
+
+            void on_stop(Comet::Scene&) noexcept override { m_events.emplace_back("system-stop"); }
+
+        private:
+            std::vector<std::string>& m_events;
+        };
+
+        const Comet::SceneSerializer serializer(component_registry());
+        EditorState state;
+        auto active = std::make_unique<Comet::Scene>();
+        const auto* edit_scene = active.get();
+        std::vector<std::string> events;
+        events.reserve(6);
+        Comet::SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<OrderedSystem>(events)));
+        EditorSceneSession session(
+            state, serializer, [&] { return active.get(); },
+            [&](SceneOwner candidate) {
+                events.emplace_back("prepare");
+                EXPECT_EQ(active.get(), edit_scene);
+                active.swap(candidate);
+                events.emplace_back("activate-play");
+                return Activation::success(std::move(candidate));
+            },
+            [&](SceneOwner retained) {
+                EXPECT_EQ(state.mode, EditorMode::Play);
+                EXPECT_EQ(retained.get(), edit_scene);
+                EXPECT_TRUE(runtime.stop());
+                events.emplace_back("restore-edit");
+                active.swap(retained);
+                return retained;
+            },
+            [&] {
+                events.emplace_back("runtime-start");
+                EXPECT_NE(active.get(), edit_scene);
+                return runtime.start(*active);
+            });
+
+        session.request_mode(EditorMode::Play);
+        ASSERT_TRUE(session.apply_mode_request());
+        EXPECT_EQ(events, (std::vector<std::string>{
+                              "prepare", "activate-play", "runtime-start", "system-start"}));
+        EXPECT_EQ(state.mode, EditorMode::Play);
+
+        session.request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session.apply_mode_request());
+        EXPECT_EQ(events, (std::vector<std::string>{"prepare", "activate-play", "runtime-start",
+                              "system-start", "system-stop", "restore-edit"}));
+        EXPECT_EQ(active.get(), edit_scene);
+        EXPECT_EQ(state.mode, EditorMode::Edit);
+    }
+
     TEST(EditorSceneSessionTest, PreparationFailureAllowsRetryAndStopSkipsPreparation) {
         const Comet::SceneSerializer serializer(component_registry());
         EditorState state;

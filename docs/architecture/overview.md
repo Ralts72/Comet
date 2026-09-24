@@ -439,6 +439,8 @@ Renderer 在无活动帧时接收候选，MaterialRenderer 在局部缓存打包
 editor/assets/material_editing 的 apply_material_edit 统一串联以上步骤：提交文件和 Registry，成功才发布 GPU 候选；
 保存失败时两类候选均释放，Inspector 恢复旧模板和参数。Editor 只分发请求；EditorAssets 保留底层 prepare/commit，
 纹理使用明确的 apply_texture_edit，不再有绕过 GPU 准备的通用材质提交分支。
+这两个编辑入口同时涉及源数据和运行时发布，不能仅按所在目录拆开提交步骤；它们不代表
+`AssetManager` 重新接管了移动、删除、导入和创建等源文件工作流。
 这一小段同步操作不得插入 Shader 发布或 renderer 重建；旧在途帧仍独立持有旧 MaterialResources。
 不以回调把 Renderer 注入资产层；AssetManager 不认识 Pipeline/Descriptor，MaterialRenderer 不解析资产文件。
 Project 新建材质只创建源和身份，首次指定给物体时沿用资产加载；模板切换不生成新 Handle，也不修改场景引用。

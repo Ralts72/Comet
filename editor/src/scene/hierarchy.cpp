@@ -18,17 +18,16 @@ namespace CometEditor {
         };
     }
 
-    HierarchyPanel::HierarchyPanel(Comet::Scene& scene, SelectionService& selection,
-        const CommandHistory& history, const EditorState& state)
-        : EditorPanel("Hierarchy"), m_scene(&scene), m_selection(selection), m_history(history),
-          m_state(state) {}
+    HierarchyPanel::HierarchyPanel(
+        SelectionService& selection, const CommandHistory& history, const EditorState& state)
+        : EditorPanel("Hierarchy"), m_selection(selection), m_history(history), m_state(state) {}
 
     bool HierarchyPanel::can_edit_scene() const {
-        return m_state.mode == EditorMode::Edit && m_history.get_scene() == m_scene;
+        return m_state.mode == EditorMode::Edit
+               && m_history.get_scene() == &m_selection.get_scene();
     }
 
-    void HierarchyPanel::set_scene(Comet::Scene& scene) {
-        m_scene = &scene;
+    void HierarchyPanel::reset_for_scene_change() {
         m_request.reset();
         m_rename_request.reset();
         m_renaming_entity = {};
@@ -58,7 +57,8 @@ namespace CometEditor {
         if(const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ENTITY_PAYLOAD_TYPE);
             payload && payload->DataSize == sizeof(EntityPayload)) {
             const auto& source = *static_cast<const EntityPayload*>(payload->Data);
-            if(source.generation == m_history.generation() && m_scene->find_entity(source.entity))
+            if(source.generation == m_history.generation()
+                && m_selection.get_scene().find_entity(source.entity))
                 m_request = Request{Request::Type::Reparent, source.entity,
                     parent ? parent.get_uuid() : Comet::EntityUuid{}, source.generation};
         }
@@ -66,7 +66,7 @@ namespace CometEditor {
     }
 
     void HierarchyPanel::render_entity_node(const Comet::Entity entity) {
-        const std::vector<Comet::Entity> children = m_scene->get_children(entity);
+        const std::vector<Comet::Entity> children = m_selection.get_scene().get_children(entity);
         const auto& name = entity.get_component<Comet::NameComponent>().name;
         const std::string display_name = name.empty() ? "<Unnamed Entity>" : name;
 
@@ -146,7 +146,7 @@ namespace CometEditor {
             return;
 
         const bool valid = can_edit_scene() && m_rename_generation == m_history.generation()
-                           && m_scene->find_entity(m_renaming_entity);
+                           && m_selection.get_scene().find_entity(m_renaming_entity);
         if(!valid) {
             ImGui::CloseCurrentPopup();
             m_renaming_entity = {};
@@ -206,7 +206,7 @@ namespace CometEditor {
         }
         accept_reparent_drop({});
         if(scene_open) {
-            for(const Comet::Entity root : m_scene->get_root_entities()) {
+            for(const Comet::Entity root : m_selection.get_scene().get_root_entities()) {
                 render_entity_node(root);
             }
             ImGui::TreePop();

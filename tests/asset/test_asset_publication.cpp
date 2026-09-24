@@ -39,7 +39,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(loaded_asset(manager.load_texture(handle)));
     }
 
-    enum class MaterialOperation { Load, Reload, Update };
+    enum class MaterialOperation { Load, Reload, PrepareUpdate };
     class MaterialPublicationTest: public ::testing::TestWithParam<MaterialOperation> {};
 
     TEST_P(MaterialPublicationTest, DiscardsMaterialRemovedDuringDependencyCreation) {
@@ -67,8 +67,8 @@ namespace Comet::Tests {
             case MaterialOperation::Reload:
                 EXPECT_FALSE(manager.reload_material(material));
                 break;
-            case MaterialOperation::Update:
-                EXPECT_FALSE(manager.update_material(material, data.value()));
+            case MaterialOperation::PrepareUpdate:
+                EXPECT_FALSE(manager.prepare_material_update(material, data.value()));
                 break;
         }
         EXPECT_FALSE(registry.contains(material));
@@ -78,7 +78,7 @@ namespace Comet::Tests {
 
     INSTANTIATE_TEST_SUITE_P(AllEntryPoints, MaterialPublicationTest,
         ::testing::Values(
-            MaterialOperation::Load, MaterialOperation::Reload, MaterialOperation::Update));
+            MaterialOperation::Load, MaterialOperation::Reload, MaterialOperation::PrepareUpdate));
 
     TEST(AssetManagerTest, KeepsPreviousTextureWhenRuntimeCreationFails) {
         const TemporaryProject project;
@@ -501,8 +501,10 @@ namespace Comet::Tests {
         const MaterialData parameters{.template_name = "updated_template",
             .scalar_properties = {{"intensity", 0.75f}},
             .vector_properties = {{"color", {0.2f, 0.4f, 0.6f, 1}}}};
+        const auto prepared = manager.prepare_material_update(handle, parameters);
+        ASSERT_TRUE(prepared);
         const std::shared_ptr<Material> updated =
-            loaded_asset(manager.update_material(handle, parameters));
+            loaded_asset(manager.commit_material_update(prepared.value()));
 
         ASSERT_NE(updated, nullptr);
         EXPECT_NE(updated, original);
@@ -514,8 +516,8 @@ namespace Comet::Tests {
             MaterialSerializer{}.load(material_path).value().template_name, "updated_template");
 
         const std::shared_ptr<Material> before_invalid_update = registry.resolve<Material>(handle);
-        EXPECT_FALSE(
-            manager.update_material(handle, {.template_name = "", .texture_properties = {}}));
+        EXPECT_FALSE(manager.prepare_material_update(
+            handle, {.template_name = "", .texture_properties = {}}));
         EXPECT_EQ(registry.resolve<Material>(handle), before_invalid_update);
         EXPECT_EQ(
             MaterialSerializer{}.load(material_path).value().template_name, "updated_template");

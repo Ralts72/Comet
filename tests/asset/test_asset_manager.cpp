@@ -128,7 +128,7 @@ namespace Comet::Tests {
                 (GraphicsError{"", vk::Result::eErrorDeviceLost}.as_error().code));
         }
         {
-            const auto result = manager.update_material(material_handle, data);
+            const auto result = manager.prepare_material_update(material_handle, data);
             ASSERT_FALSE(result);
             EXPECT_TRUE(is_device_lost(result.error()));
             EXPECT_EQ(result.error().code,

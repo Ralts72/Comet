@@ -151,7 +151,7 @@ namespace {
             m_selection.emplace(scene);
             m_scene_editor = std::make_unique<CometEditor::SceneEditor>(m_editor_state,
                 m_command_history, m_property_edit, m_component_registry, *m_selection, *m_assets);
-            if(auto panels = setup_panels(scene, std::move(initial_asset_scan)); !panels)
+            if(auto panels = setup_panels(std::move(initial_asset_scan)); !panels)
                 return panels;
             auto material_layouts = renderer.get_material_layouts();
             m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
@@ -435,7 +435,7 @@ namespace {
                 m_command_history.bind_scene(active);
             if(m_selection) {
                 m_selection->set_scene(*active);
-                m_hierarchy_panel->set_scene(*active);
+                m_hierarchy_panel->reset_for_scene_change();
             }
             m_assets->track_scene(*active, m_component_registry);
             m_reference_history_state = m_command_history.state_id();
@@ -472,8 +472,7 @@ namespace {
             Comet::Logger::add_custom_sink(gui_sink);
         }
 
-        Comet::Result<void, Comet::Error> setup_panels(
-            Comet::Scene& scene, Comet::AssetScanReport initial_asset_scan) {
+        Comet::Result<void, Comet::Error> setup_panels(Comet::AssetScanReport initial_asset_scan) {
             auto sampler =
                 get_engine().get_render_resources().get_sampler_manager().get_nearest_clamp();
             if(!sampler)
@@ -482,7 +481,7 @@ namespace {
                 m_editor_state, m_command_history, m_shortcuts);
 
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
-                scene, *m_selection, m_command_history, m_editor_state);
+                *m_selection, m_command_history, m_editor_state);
             m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
                 get_engine().get_scene_runtime(), *m_selection, m_command_history,
                 m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),

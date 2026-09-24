@@ -26,12 +26,12 @@ namespace CometEditor {
             std::uint64_t generation;
         };
 
-        HierarchyPanel(Comet::Scene& scene, SelectionService& selection,
-            const CommandHistory& history, const EditorState& state);
+        HierarchyPanel(
+            SelectionService& selection, const CommandHistory& history, const EditorState& state);
 
         void render() override;
 
-        void set_scene(Comet::Scene& scene);
+        void reset_for_scene_change();
         [[nodiscard]] std::optional<Request> take_request();
         [[nodiscard]] std::optional<RenameRequest> take_rename_request();
 
@@ -43,7 +43,6 @@ namespace CometEditor {
 
         void accept_reparent_drop(Comet::Entity parent);
 
-        Comet::Scene* m_scene;
         SelectionService& m_selection;
         const CommandHistory& m_history;
         const EditorState& m_state;

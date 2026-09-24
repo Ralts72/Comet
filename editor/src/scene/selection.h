@@ -62,6 +62,8 @@ namespace CometEditor {
             return m_scene_selected ? m_scene : nullptr;
         }
 
+        [[nodiscard]] Comet::Scene& get_scene() const { return *m_scene; }
+
         [[nodiscard]] Comet::EntityId get_selected_entity_id() const {
             return m_selected_entity_id;
         }

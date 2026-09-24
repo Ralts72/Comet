@@ -711,14 +711,6 @@ namespace Comet {
         return material;
     }
 
-    Result<std::shared_ptr<Material>, Error> AssetManager::update_material(
-        const AssetHandle handle, const MaterialData& data) {
-        auto update = prepare_material_update(handle, data);
-        if(!update)
-            return Result<std::shared_ptr<Material>, Error>::failure(update.error());
-        return commit_material_update(update.value());
-    }
-
     std::shared_ptr<const Material> AssetManager::MaterialUpdate::material() const {
         return m_material;
     }

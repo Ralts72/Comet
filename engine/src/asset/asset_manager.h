@@ -105,8 +105,6 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> reimport_texture(
             AssetHandle handle, TextureImportSettings import_settings);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> load_material(AssetHandle handle);
-        [[nodiscard]] Result<std::shared_ptr<Material>, Error> update_material(
-            AssetHandle handle, const MaterialData& data);
         [[nodiscard]] Result<MaterialUpdate, Error> prepare_material_update(
             AssetHandle handle, const MaterialData& data);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> commit_material_update(
