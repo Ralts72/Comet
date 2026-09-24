@@ -174,6 +174,9 @@ Engine 拥有 Scene/Runtime，只同步借用宿主回调。Editor 为新场景�
 SceneDocument 只接收激活结果并更新文档路径／保存点；EditorSceneSession 保留 Edit Scene，负责 Play 副本与失败恢复，恢复时不重新准备资产。
 Editor 每次更新取走上一 UI 帧的场景请求，只执行一个：文件弹窗提交、菜单、Play 控制、结构编辑、重命名、Mesh 拖入、资产赋值依次优先；未保存确认期间仅接收文件弹窗提交，取消弹窗则全部丢弃。未选中的请求不延后重放。
 Renderer 不调用 UI 准备；SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler 或呈现队列。
+`on_frame_ready` 只在取得可绘制帧后运行，拾取反馈在 Runtime 更新和场景解析后、场景与 overlay 录制前同步应用，
+因此选择框仍可进入当帧。交换链延期时不执行该回调或绘制，但 Runtime 继续推进；主循环在提前退出或失败时
+丢弃未完成帧的 CPU 诊断快照，不把上一帧数据当作当前帧。
 
 **运行与输入：** SceneRuntime 是时间截断的唯一入口，先有界固定更新再普通更新；暂停仍维护 UI、资产与绘制，
 单步只推进一轮固定／普通更新。ViewportPanel 生产控制请求，由 Editor 在下一次 on_update 经 Engine 应用。

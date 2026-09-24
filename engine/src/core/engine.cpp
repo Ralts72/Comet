@@ -164,13 +164,13 @@ namespace Comet {
         const std::function<Result<void, Error>(const Error&)>& runtime_failed) {
         PROFILE_SCOPE("Engine::Frame");
         m_frame_diagnostics.begin_frame(m_renderer->get_diagnostics().is_enabled());
+        ScopeExit discard_unfinished_diagnostics([this] { m_frame_diagnostics.clear_current(); });
         m_window->poll_events();
         if(m_window->should_close())
             return Result<void, Error>::success();
 
         const auto framebuffer_size = m_window->get_framebuffer_size();
         if(framebuffer_size.x == 0 || framebuffer_size.y == 0) {
-            m_frame_diagnostics.clear_current();
             if(auto discarded = m_scene_runtime.discard_input(); !discarded)
                 return discarded;
             m_window->wait_events();
@@ -232,6 +232,7 @@ namespace Comet {
             m_window->wait_events(0.016);
             m_frame_diagnostics.mark_deferred_wait();
             m_frame_diagnostics.finish_frame(false, m_renderer->get_diagnostics().is_enabled());
+            discard_unfinished_diagnostics.release();
             return Result<void, Error>::success();
         }
         RenderScene render_scene;
@@ -244,6 +245,7 @@ namespace Comet {
         }
         m_frame_diagnostics.mark_render_submit();
         m_frame_diagnostics.finish_frame(true, m_renderer->get_diagnostics().is_enabled());
+        discard_unfinished_diagnostics.release();
         return Result<void, Error>::success();
     }
 }

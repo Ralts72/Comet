@@ -394,4 +394,29 @@ namespace Comet::Tests {
         EXPECT_EQ(updates, 1);
     }
 
+    TEST(EngineRunTest, FailedUpdateDiscardsPreviousFrameDiagnostics) {
+        Config config;
+        config.diagnostics.enable_render_diagnostics = true;
+        auto created = Engine::create(config);
+        ASSERT_TRUE(created) << created.error().message;
+        auto& engine = *created.value();
+        int updates = 0;
+        int draws = 0;
+        engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) { ++draws; });
+
+        const auto result = engine.run([&](Engine::FrameContext&) {
+            if(++updates == 1)
+                return Result<void, Error>::success();
+            EXPECT_TRUE(engine.frame_diagnostics().current().has_value());
+            return Result<void, Error>::failure({"update failed"});
+        });
+
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().message, "update failed");
+        EXPECT_EQ(updates, 2);
+        EXPECT_EQ(draws, 1);
+        EXPECT_FALSE(engine.frame_diagnostics().current().has_value());
+        engine.get_renderer().set_overlay_renderer({});
+    }
+
 }

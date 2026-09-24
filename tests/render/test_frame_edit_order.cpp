@@ -61,6 +61,7 @@ namespace Comet::Tests {
         auto& runtime = engine.get_scene_runtime();
         ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
         ASSERT_TRUE(engine.start_scene_runtime());
+        int updates = 0;
         int preparations = 0;
         bool picked = false;
         std::optional<uint64_t> allocations_before_lines;
@@ -74,6 +75,9 @@ namespace Comet::Tests {
         };
         const auto frame_ready = [&](Engine::FrameContext&) {
             ++preparations;
+            EXPECT_EQ(updates, 1);
+            EXPECT_EQ(calls->updates, 0);
+            EXPECT_TRUE(renderer.get_frame_scheduler().is_frame_active());
             if(GetParam()) {
                 auto previous = engine.replace_scene(make_scene(10));
                 EXPECT_FALSE(runtime.is_active());
@@ -94,6 +98,8 @@ namespace Comet::Tests {
             return Result<void, Error>::success();
         };
         renderer.set_overlay_renderer([&](CommandBuffer&) {
+            EXPECT_TRUE(picked);
+            EXPECT_EQ(calls->updates, 1);
             // 结果回调提交的线段必须已在当前 scene pass 分配并录制。
             if(allocations_before_lines) {
                 const auto& materials = renderer.get_scene_renderer().get_material_statistics();
@@ -103,6 +109,9 @@ namespace Comet::Tests {
             engine.get_window().request_close();
         });
         renderer.set_viewport_pick_callback([&](std::optional<ScenePickHit> hit) {
+            EXPECT_EQ(preparations, 1);
+            EXPECT_EQ(calls->updates, 1);
+            EXPECT_TRUE(renderer.get_frame_scheduler().is_frame_active());
             picked = hit && hit->entity_id == EntityId(2);
             if(hit) {
                 auto& scene = *engine.get_scene();
@@ -120,7 +129,6 @@ namespace Comet::Tests {
                 renderer.submit_lines(lines);
             }
         });
-        int updates = 0;
         EXPECT_TRUE(engine.run(
             [&](Engine::FrameContext&) {
                 if(++updates > 5)
