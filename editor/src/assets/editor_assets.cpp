@@ -109,7 +109,10 @@ namespace CometEditor {
         observe(result);
         std::optional<Comet::AssetScanReport> report;
         if(result.state == AssetSourceMonitor::PollState::Changed) {
-            report = m_database.scan();
+            if(!result.requires_full_scan)
+                report = m_database.scan_changed_sources(result.changed_paths);
+            if(!report)
+                report = m_database.scan();
             accept_scan(*report, now);
         }
         schedule_shader_program_imports(now);

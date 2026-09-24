@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace CometEditor {
     class AssetSourceMonitor final {
@@ -18,6 +19,8 @@ namespace CometEditor {
             PollState state = PollState::NotPolled;
             std::filesystem::path issue_path;
             std::string message;
+            std::vector<std::filesystem::path> changed_paths;
+            bool requires_full_scan = false;
         };
 
         explicit AssetSourceMonitor(std::filesystem::path root,
@@ -43,6 +46,8 @@ namespace CometEditor {
 
         [[nodiscard]] bool capture_snapshot(
             Snapshot& snapshot, std::filesystem::path& issue_path, std::string& message) const;
+        [[nodiscard]] PollResult poll_changed_files(
+            const std::vector<std::filesystem::path>& paths);
 
         std::filesystem::path m_root;
         FileRecheckTrigger m_changes;

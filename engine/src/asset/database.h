@@ -9,6 +9,7 @@
 #include <compare>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -49,6 +50,9 @@ namespace Comet {
         [[nodiscard]] const ProjectPaths& paths() const noexcept { return m_paths; }
 
         [[nodiscard]] AssetScanReport scan();
+        // 仅更新已索引的非结构性源码；返回空值时调用方必须执行完整 scan。
+        [[nodiscard]] std::optional<AssetScanReport> scan_changed_sources(
+            std::span<const std::filesystem::path> paths);
 
         [[nodiscard]] Result<void> update_import_settings(
             AssetHandle handle, AssetImportSettings import_settings);

@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <fstream>
 #include <iterator>
@@ -102,6 +103,32 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(serializer.deserialize_material(
             R"({"material":{"vectors":[{"name":"tint","default":[1,2,3]}]}})"));
         EXPECT_FALSE(serializer.deserialize_material(R"({"material":{},"unexpected":1})"));
+    }
+
+    TEST_F(ShaderProgramImportTest, ScopedIncludeChangeAdvancesSourceAndProgramOnly) {
+        const auto vertex = database.find("shaders/test.vert")->handle;
+        const auto fragment = database.find("shaders/test.frag")->handle;
+        ASSERT_TRUE(database.update_import_dependencies(fragment, {"shaders/color.glsl"}));
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto vertex_revision = database.get_revision(vertex);
+        const auto fragment_revision = database.get_revision(fragment);
+        const auto program_revision = database.get_revision(program);
+
+        ASSERT_TRUE(Comet::write_text_file_atomic(
+            paths.assets() / "shaders/color.glsl", "#define COLOR vec4(0.0,1.0,0.0,1.0)\n"));
+        const std::array changed{std::filesystem::path("shaders/color.glsl")};
+        const auto report = database.scan_changed_sources(changed);
+
+        ASSERT_TRUE(report);
+        EXPECT_EQ(report->modified_assets.size(), 2u);
+        EXPECT_NE(
+            std::ranges::find(report->modified_assets, fragment), report->modified_assets.end());
+        EXPECT_NE(
+            std::ranges::find(report->modified_assets, program), report->modified_assets.end());
+        EXPECT_EQ(database.get_revision(vertex), vertex_revision);
+        EXPECT_GT(database.get_revision(fragment), fragment_revision);
+        EXPECT_GT(database.get_revision(program), program_revision);
+        EXPECT_TRUE(database.scan().modified_assets.empty());
     }
 
     TEST(DemoShaderProgramTest, CompilesForUnlitMaterial) {

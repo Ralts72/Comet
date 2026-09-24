@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -152,6 +153,58 @@ namespace Comet::Tests {
         EXPECT_GT(database.get_revision(handle), initial_revision);
         EXPECT_FALSE(database.is_current(handle, initial_revision));
         EXPECT_TRUE(database.is_current(handle, database.get_revision(handle)));
+    }
+
+    TEST(AssetDatabaseTest, ScopedScanUpdatesKnownSourceAndImporterDependency) {
+        const TemporaryProject project;
+        project.add_file("textures/albedo.png", "first");
+        project.add_file("textures/other.png", "unchanged");
+        project.add_file("meshes/model.gltf", "model");
+        project.add_file("meshes/model.bin", "buffer-a");
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto texture = database.find("textures/albedo.png")->handle;
+        const auto other = database.find("textures/other.png")->handle;
+        const auto mesh = database.find("meshes/model.gltf")->handle;
+        ASSERT_TRUE(database.update_import_dependencies(mesh, {"meshes/model.bin"}));
+        const auto texture_revision = database.get_revision(texture);
+        const auto other_revision = database.get_revision(other);
+        const auto mesh_revision = database.get_revision(mesh);
+
+        project.add_file("textures/albedo.png", "second version");
+        project.add_file("meshes/model.bin", "buffer-b-expanded");
+        const std::array changed{std::filesystem::path("textures/albedo.png"),
+            std::filesystem::path("meshes/model.bin")};
+        const auto report = database.scan_changed_sources(changed);
+
+        ASSERT_TRUE(report);
+        EXPECT_TRUE(report->snapshot_updated);
+        auto expected = std::vector{texture, mesh};
+        std::ranges::sort(expected);
+        EXPECT_EQ(report->modified_assets, expected);
+        EXPECT_GT(database.get_revision(texture), texture_revision);
+        EXPECT_GT(database.get_revision(mesh), mesh_revision);
+        EXPECT_EQ(database.get_revision(other), other_revision);
+        EXPECT_TRUE(database.scan().modified_assets.empty());
+    }
+
+    TEST(AssetDatabaseTest, ScopedScanFallsBackForIdentityAndDependencyChanges) {
+        const TemporaryProject project;
+        const auto texture_path = project.add_file("texture.png", "first");
+        project.add_file("material.mat", std::string(EMPTY_MATERIAL));
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+
+        const std::array material{std::filesystem::path("material.mat")};
+        EXPECT_FALSE(database.scan_changed_sources(material));
+        const std::array sidecar{std::filesystem::path("texture.meta")};
+        EXPECT_FALSE(database.scan_changed_sources(sidecar));
+        const std::array unknown{std::filesystem::path("new.png")};
+        EXPECT_FALSE(database.scan_changed_sources(unknown));
+        std::filesystem::remove(texture_path);
+        const std::array removed{std::filesystem::path("texture.png")};
+        EXPECT_FALSE(database.scan_changed_sources(removed));
+        EXPECT_TRUE(database.scan().snapshot_updated);
     }
 
     TEST(AssetDatabaseTest, TracksImporterSourceDependencies) {

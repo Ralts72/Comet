@@ -234,6 +234,48 @@ namespace CometEditor::Tests {
         }
     }
 
+    TEST(AssetSourceMonitorTest, NativeNotificationScopesKnownFileChange) {
+        const TemporaryAssetDirectory directory;
+        directory.write("textures/albedo.png", "first");
+        AssetSourceMonitor monitor(directory.root(), std::chrono::hours(1));
+        if(!monitor.uses_native_notifications())
+            GTEST_SKIP() << "Native file notifications are unavailable";
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+
+        directory.write("textures/albedo.png", "second version");
+        AssetSourceMonitor::PollResult result;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while(result.state != AssetSourceMonitor::PollState::Changed
+              && std::chrono::steady_clock::now() < deadline) {
+            result = monitor.poll();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        ASSERT_EQ(result.state, AssetSourceMonitor::PollState::Changed);
+        EXPECT_FALSE(result.requires_full_scan);
+        EXPECT_EQ(
+            result.changed_paths, (std::vector<std::filesystem::path>{"textures/albedo.png"}));
+    }
+
+    TEST(AssetSourceMonitorTest, NativeNotificationFallsBackForNewFile) {
+        const TemporaryAssetDirectory directory;
+        AssetSourceMonitor monitor(directory.root(), std::chrono::hours(1));
+        if(!monitor.uses_native_notifications())
+            GTEST_SKIP() << "Native file notifications are unavailable";
+        ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+
+        directory.write("new.scene", "scene");
+        AssetSourceMonitor::PollResult result;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while(result.state != AssetSourceMonitor::PollState::Changed
+              && std::chrono::steady_clock::now() < deadline) {
+            result = monitor.poll();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        ASSERT_EQ(result.state, AssetSourceMonitor::PollState::Changed);
+        EXPECT_TRUE(result.requires_full_scan);
+    }
+
     TEST(AssetSourceMonitorTest, NativeNotificationFindsAtomicReplacement) {
         const TemporaryAssetDirectory directory;
         directory.write("material.mat", "old");

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 namespace CometEditor {
     // 文件通知只是线索；消费方仍须复核自己的源码快照。
@@ -10,6 +11,11 @@ namespace CometEditor {
     public:
         using Clock = std::chrono::steady_clock;
         enum class Reason { None, Notification, Fallback };
+        struct Changes {
+            Reason reason = Reason::None;
+            std::vector<std::filesystem::path> paths;
+            bool requires_full_scan = false;
+        };
 
         explicit FileRecheckTrigger(std::filesystem::path root,
             std::chrono::milliseconds fallback_interval = std::chrono::milliseconds(500));
@@ -19,6 +25,7 @@ namespace CometEditor {
         FileRecheckTrigger& operator=(const FileRecheckTrigger&) = delete;
 
         [[nodiscard]] Reason poll(Clock::time_point now = Clock::now());
+        [[nodiscard]] Changes poll_changes(Clock::time_point now = Clock::now());
         [[nodiscard]] bool uses_native_notifications() const;
 
     private:

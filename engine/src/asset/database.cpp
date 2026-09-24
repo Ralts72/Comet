@@ -532,6 +532,69 @@ namespace Comet {
         return report;
     }
 
+    std::optional<AssetScanReport> AssetDatabase::scan_changed_sources(
+        const std::span<const std::filesystem::path> paths) {
+        std::unordered_set<AssetHandle> affected;
+        const auto root = m_paths.assets();
+        for(const auto& path : paths) {
+            const auto normalized = path.lexically_normal();
+            if(normalized.empty() || normalized == "." || normalized.is_absolute()
+                || *normalized.begin() == ".." || normalized.extension() == ".meta")
+                return std::nullopt;
+
+            std::error_code error;
+            if(!std::filesystem::is_regular_file(root / normalized, error) || error)
+                return std::nullopt;
+
+            const auto asset = m_handles_by_path.find(normalized);
+            const auto importers = m_import_dependents_by_source.find(normalized);
+            if(asset == m_handles_by_path.end() && importers == m_import_dependents_by_source.end())
+                return std::nullopt;
+            if(asset != m_handles_by_path.end()) {
+                const auto type = m_assets.at(asset->second).type;
+                if(type == AssetType::Material || type == AssetType::ShaderProgram)
+                    return std::nullopt;
+                affected.insert(asset->second);
+            }
+            if(importers != m_import_dependents_by_source.end())
+                affected.insert(importers->second.begin(), importers->second.end());
+        }
+
+        const std::vector<AssetHandle> direct(affected.begin(), affected.end());
+        for(const AssetHandle handle : direct) {
+            const auto dependents = m_dependents_by_dependency.find(handle);
+            if(dependents == m_dependents_by_dependency.end())
+                continue;
+            for(const AssetHandle dependent : dependents->second) {
+                if(m_assets.at(dependent).type == AssetType::ShaderProgram)
+                    affected.insert(dependent);
+            }
+        }
+
+        AssetScanReport report;
+        report.indexed_assets = m_assets.size();
+        std::vector<std::pair<AssetHandle, std::uint64_t>> updates;
+        for(const AssetHandle handle : affected) {
+            const auto& record = m_assets.at(handle);
+            const auto signature = record_source_signature(
+                record, record.dependencies, root, m_import_dependencies_by_asset, m_assets);
+            const auto previous = m_asset_source_signatures.find(handle);
+            if(previous != m_asset_source_signatures.end() && previous->second == signature)
+                continue;
+            updates.emplace_back(handle, signature);
+        }
+        if(updates.size() > std::numeric_limits<AssetRevision>::max() - m_next_revision)
+            return std::nullopt;
+        for(const auto& [handle, signature] : updates) {
+            m_asset_source_signatures[handle] = signature;
+            m_asset_revisions[handle] = m_next_revision++;
+            report.modified_assets.push_back(handle);
+        }
+        std::ranges::sort(report.modified_assets);
+        report.snapshot_updated = !report.modified_assets.empty();
+        return report;
+    }
+
     Result<void> AssetDatabase::update_import_settings(
         const AssetHandle handle, AssetImportSettings import_settings) {
         const auto asset = m_assets.find(handle);

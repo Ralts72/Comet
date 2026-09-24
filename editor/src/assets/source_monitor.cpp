@@ -25,10 +25,58 @@ namespace CometEditor {
         : m_root(std::move(root).lexically_normal()), m_changes(m_root, poll_interval) {}
 
     AssetSourceMonitor::PollResult AssetSourceMonitor::poll(const Clock::time_point now) {
-        const auto reason = m_changes.poll(now);
-        if(!m_initial_poll_attempted || reason != FileRecheckTrigger::Reason::None)
+        const auto changes = m_changes.poll_changes(now);
+        if(!m_initial_poll_attempted || changes.reason == FileRecheckTrigger::Reason::Fallback
+            || changes.requires_full_scan)
             return poll_now();
+        if(changes.reason == FileRecheckTrigger::Reason::Notification)
+            return poll_changed_files(changes.paths);
         return {};
+    }
+
+    AssetSourceMonitor::PollResult AssetSourceMonitor::poll_changed_files(
+        const std::vector<std::filesystem::path>& paths) {
+        if(paths.empty())
+            return poll_now();
+
+        std::error_code error;
+        const auto absolute_root = std::filesystem::weakly_canonical(m_root, error);
+        if(error)
+            return poll_now();
+
+        std::map<std::filesystem::path, FileState> updates;
+        for(const auto& path : paths) {
+            const auto relative = path.lexically_normal().lexically_relative(absolute_root);
+            if(!is_valid_relative_path(relative))
+                return poll_now();
+            if(is_ignored_asset_source(relative))
+                continue;
+            const auto previous = m_snapshot.find(relative);
+            if(previous == m_snapshot.end())
+                return poll_now();
+
+            const auto absolute_path = absolute_root / relative;
+            if(!std::filesystem::is_regular_file(absolute_path, error) || error)
+                return poll_now();
+            const auto write_time = std::filesystem::last_write_time(absolute_path, error);
+            if(error)
+                return poll_now();
+            const auto size = std::filesystem::file_size(absolute_path, error);
+            if(error)
+                return poll_now();
+            updates[relative] = FileState{.write_time = write_time, .size = size};
+        }
+
+        PollResult result{.state = PollState::Unchanged};
+        for(const auto& [path, state] : updates) {
+            if(m_snapshot.at(path) == state)
+                continue;
+            m_snapshot[path] = state;
+            result.changed_paths.push_back(path);
+        }
+        if(!result.changed_paths.empty())
+            result.state = PollState::Changed;
+        return result;
     }
 
     AssetSourceMonitor::PollResult AssetSourceMonitor::poll_now() {
@@ -51,6 +99,7 @@ namespace CometEditor {
         m_has_baseline = true;
         m_initial_capture_failed = false;
         result.state = changed ? PollState::Changed : PollState::Unchanged;
+        result.requires_full_scan = true;
         return result;
     }
 

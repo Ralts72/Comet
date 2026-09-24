@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
+#include <mutex>
 #include <system_error>
 #include <utility>
 
@@ -14,12 +16,16 @@ namespace CometEditor {
 #ifdef __APPLE__
     namespace {
         constexpr auto RECONNECT_INTERVAL = std::chrono::seconds(2);
+        constexpr std::size_t MAX_CHANGED_PATHS = 1024;
     }
 #endif
 
     struct FileRecheckTrigger::Backend {
-        std::atomic<bool> pending = false;
         std::atomic<bool> available = false;
+        std::mutex changes_mutex;
+        bool pending = false;
+        bool requires_full_scan = false;
+        std::vector<std::filesystem::path> paths;
 
 #ifdef __APPLE__
         FSEventStreamRef stream = nullptr;
@@ -48,16 +54,46 @@ namespace CometEditor {
             FSEventStreamContext context{.version = 0, .info = this};
             stream = FSEventStreamCreate(
                 kCFAllocatorDefault,
-                [](ConstFSEventStreamRef, void* info, size_t count, void*,
+                [](ConstFSEventStreamRef, void* info, size_t count, void* event_paths,
                     const FSEventStreamEventFlags flags[], const FSEventStreamEventId[]) {
                     auto& backend = *static_cast<Backend*>(info);
+                    const auto* paths = static_cast<char**>(event_paths);
+                    std::lock_guard lock(backend.changes_mutex);
                     for(size_t index = 0; index < count; ++index) {
-                        if(flags[index]
+                        const auto event = flags[index];
+                        if(event
                             & (kFSEventStreamEventFlagRootChanged | kFSEventStreamEventFlagMount
                                 | kFSEventStreamEventFlagUnmount))
                             backend.available.store(false);
+                        if(event
+                            & (kFSEventStreamEventFlagMustScanSubDirs
+                                | kFSEventStreamEventFlagUserDropped
+                                | kFSEventStreamEventFlagKernelDropped
+                                | kFSEventStreamEventFlagRootChanged | kFSEventStreamEventFlagMount
+                                | kFSEventStreamEventFlagUnmount)) {
+                            backend.requires_full_scan = true;
+                        } else if(event & kFSEventStreamEventFlagItemIsFile) {
+                            if(!paths || !paths[index]) {
+                                backend.requires_full_scan = true;
+                                continue;
+                            }
+                            if(!backend.requires_full_scan) {
+                                if(backend.paths.size() == MAX_CHANGED_PATHS) {
+                                    backend.paths.clear();
+                                    backend.requires_full_scan = true;
+                                } else {
+                                    backend.paths.emplace_back(paths[index]);
+                                }
+                            }
+                        } else if(!(event & kFSEventStreamEventFlagItemIsDir)
+                                  || event
+                                         & (kFSEventStreamEventFlagItemCreated
+                                             | kFSEventStreamEventFlagItemRemoved
+                                             | kFSEventStreamEventFlagItemRenamed)) {
+                            backend.requires_full_scan = true;
+                        }
                     }
-                    backend.pending.store(true);
+                    backend.pending = backend.requires_full_scan || !backend.paths.empty();
                 },
                 &context, paths, kFSEventStreamEventIdSinceNow, 0.05,
                 kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagWatchRoot
@@ -100,12 +136,25 @@ namespace CometEditor {
     FileRecheckTrigger::~FileRecheckTrigger() = default;
 
     FileRecheckTrigger::Reason FileRecheckTrigger::poll(const Clock::time_point now) {
-        if(m_backend->pending.exchange(false))
-            return Reason::Notification;
+        return poll_changes(now).reason;
+    }
+
+    FileRecheckTrigger::Changes FileRecheckTrigger::poll_changes(const Clock::time_point now) {
+        {
+            std::lock_guard lock(m_backend->changes_mutex);
+            if(m_backend->pending) {
+                Changes changes{.reason = Reason::Notification,
+                    .paths = std::move(m_backend->paths),
+                    .requires_full_scan = m_backend->requires_full_scan};
+                m_backend->pending = false;
+                m_backend->requires_full_scan = false;
+                return changes;
+            }
+        }
         if(m_backend->available.load())
-            return Reason::None;
+            return {};
         if(now < m_next_fallback)
-            return Reason::None;
+            return {};
         m_next_fallback = now + m_fallback_interval;
 #ifdef __APPLE__
         if(!m_root.empty() && now >= m_next_reconnect) {
@@ -113,7 +162,7 @@ namespace CometEditor {
             m_backend = std::make_unique<Backend>(m_root);
         }
 #endif
-        return Reason::Fallback;
+        return {.reason = Reason::Fallback, .requires_full_scan = true};
     }
 
     bool FileRecheckTrigger::uses_native_notifications() const {
