@@ -9,6 +9,7 @@ namespace CometEditor {
     class FileRecheckTrigger final {
     public:
         using Clock = std::chrono::steady_clock;
+        enum class Reason { None, Notification, Fallback };
 
         explicit FileRecheckTrigger(std::filesystem::path root,
             std::chrono::milliseconds fallback_interval = std::chrono::milliseconds(500));
@@ -17,7 +18,7 @@ namespace CometEditor {
         FileRecheckTrigger(const FileRecheckTrigger&) = delete;
         FileRecheckTrigger& operator=(const FileRecheckTrigger&) = delete;
 
-        [[nodiscard]] bool poll(Clock::time_point now = Clock::now());
+        [[nodiscard]] Reason poll(Clock::time_point now = Clock::now());
         [[nodiscard]] bool uses_native_notifications() const;
 
     private:

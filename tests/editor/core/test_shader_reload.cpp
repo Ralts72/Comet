@@ -81,6 +81,27 @@ namespace CometEditor::Tests {
         EXPECT_EQ(original->stages.at("solid").words, updated->stages.at("solid").words);
     }
 
+    TEST_F(ShaderReloadTest, FallbackRecheckDoesNotExtendPendingReload) {
+        ShaderReload reload(scheduler, requests);
+        const auto original = finish(reload);
+        ASSERT_TRUE(original);
+        ASSERT_TRUE(original->succeeded) << original->diagnostics;
+
+        now += std::chrono::milliseconds(400);
+        reload.request(now);
+        write("unlit_color.frag", "#version 450\ninvalid source\n");
+        now += std::chrono::milliseconds(100);
+        EXPECT_FALSE(reload.update(now));
+
+        now += std::chrono::milliseconds(100);
+        EXPECT_FALSE(reload.update(now));
+        scheduler.wait_idle();
+        const auto updated = reload.update(now);
+        ASSERT_TRUE(updated);
+        EXPECT_EQ(updated->revision, original->revision + 1);
+        EXPECT_FALSE(updated->succeeded);
+    }
+
     TEST_F(ShaderReloadTest, NativeNotificationRecompilesAtomicReplacement) {
         ShaderReload reload(scheduler, requests, directory.path());
         if(!reload.uses_native_notifications())

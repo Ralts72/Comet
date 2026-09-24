@@ -1,4 +1,5 @@
 #include "assets/source_monitor.h"
+#include "file_recheck_trigger.h"
 
 #include "asset/handle.h"
 
@@ -39,6 +40,34 @@ namespace CometEditor::Tests {
         private:
             std::filesystem::path m_root;
         };
+    }
+
+    TEST(FileRecheckTriggerTest, ReportsFallbackOnlyWhenDue) {
+        FileRecheckTrigger trigger({}, std::chrono::milliseconds(500));
+        const auto now = FileRecheckTrigger::Clock::time_point{};
+        EXPECT_EQ(trigger.poll(now), FileRecheckTrigger::Reason::Fallback);
+        EXPECT_EQ(
+            trigger.poll(now + std::chrono::milliseconds(499)), FileRecheckTrigger::Reason::None);
+        EXPECT_EQ(trigger.poll(now + std::chrono::milliseconds(500)),
+            FileRecheckTrigger::Reason::Fallback);
+    }
+
+    TEST(FileRecheckTriggerTest, ReportsNativeNotification) {
+        const TemporaryAssetDirectory directory;
+        FileRecheckTrigger trigger(directory.root(), std::chrono::hours(1));
+        if(!trigger.uses_native_notifications())
+            GTEST_SKIP() << "Native file notifications are unavailable";
+        static_cast<void>(trigger.poll());
+        directory.write("new.scene", "scene");
+
+        auto reason = FileRecheckTrigger::Reason::None;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while(reason != FileRecheckTrigger::Reason::Notification
+              && std::chrono::steady_clock::now() < deadline) {
+            reason = trigger.poll();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        EXPECT_EQ(reason, FileRecheckTrigger::Reason::Notification);
     }
 
     TEST(AssetSourceMonitorTest, ReportsFileChangesOnlyOnce) {

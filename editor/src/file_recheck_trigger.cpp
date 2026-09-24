@@ -92,15 +92,15 @@ namespace CometEditor {
 
     FileRecheckTrigger::~FileRecheckTrigger() = default;
 
-    bool FileRecheckTrigger::poll(const Clock::time_point now) {
+    FileRecheckTrigger::Reason FileRecheckTrigger::poll(const Clock::time_point now) {
         if(m_backend->pending.exchange(false))
-            return true;
+            return Reason::Notification;
         if(m_backend->available.load())
-            return false;
+            return Reason::None;
         if(now < m_next_fallback)
-            return false;
+            return Reason::None;
         m_next_fallback = now + m_fallback_interval;
-        return true;
+        return Reason::Fallback;
     }
 
     bool FileRecheckTrigger::uses_native_notifications() const {

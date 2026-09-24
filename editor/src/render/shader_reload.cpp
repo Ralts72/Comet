@@ -36,7 +36,7 @@ namespace CometEditor {
     }
 
     std::shared_ptr<const ShaderReload::Compilation> ShaderReload::update(Clock::time_point now) {
-        const bool source_changed = m_changes.poll(now);
+        const auto recheck = m_changes.poll(now);
         if(m_pending
             && m_pending->completion.wait_for(std::chrono::seconds(0))
                    == std::future_status::ready) {
@@ -55,8 +55,13 @@ namespace CometEditor {
         }
         if(m_pending)
             return {};
-        if(source_changed && !m_requested && m_observed && !inputs_unchanged(*m_observed))
-            request(now);
+        if(recheck != FileRecheckTrigger::Reason::None && m_observed
+            && !inputs_unchanged(*m_observed)) {
+            if(!m_requested)
+                request(now);
+            else if(recheck == FileRecheckTrigger::Reason::Notification)
+                m_due = now + DEBOUNCE;
+        }
         if(m_delivery_retry.consume(now)) {
             if(m_observed && m_observed->revision == m_revision && inputs_unchanged(*m_observed))
                 return m_observed;

@@ -24,8 +24,8 @@ namespace CometEditor {
         : m_root(std::move(root).lexically_normal()), m_changes(m_root, poll_interval) {}
 
     AssetSourceMonitor::PollResult AssetSourceMonitor::poll() {
-        const bool changed = m_changes.poll();
-        if(!m_initial_poll_attempted || changed)
+        const auto reason = m_changes.poll();
+        if(!m_initial_poll_attempted || reason != FileRecheckTrigger::Reason::None)
             return poll_now();
         return {};
     }
