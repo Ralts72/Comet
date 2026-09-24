@@ -468,6 +468,8 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
 
 - **运行时**：`runtime/application` 管初始化与关闭；Engine 管主循环，组合 Scene、SceneRuntime、任务和渲染服务。
   `scene/scene_runtime` 按顺序执行 `scene/systems/system.h` 的固定／普通更新，拥有启动与逆序停止边界；Engine 负责与活动 Scene 绑定。
+  `Engine::FrameContext` 只在当帧存在：宿主在 update 或帧就绪回调中授权输入，SceneRuntime 随后消费，不跨帧保存授权。
+  `FrameDiagnostics` 记录主循环阶段耗时；渲染图和 GPU 诊断由 `RenderDiagnostics` 负责。
   生命周期用 Result 传递预期失败，入口报告错误并设置退出码。
 - **场景**：Scene 保存组件、UUID 与 AssetHandle；Transform 通过 `set_transform`／`edit_transform` 显式写入，
   这些 void 接口用于保证有效的内部调用；可失败输入使用返回 bool 的 `try_set_transform`／`try_edit_transform`。

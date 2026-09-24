@@ -72,7 +72,7 @@ namespace Comet::Tests {
             }
             return count;
         };
-        const auto frame_ready = [&] {
+        const auto frame_ready = [&](Engine::FrameContext&) {
             ++preparations;
             if(GetParam()) {
                 auto previous = engine.replace_scene(make_scene(10));
@@ -122,7 +122,7 @@ namespace Comet::Tests {
         });
         int updates = 0;
         EXPECT_TRUE(engine.run(
-            [&](UpdateContext) {
+            [&](Engine::FrameContext&) {
                 if(++updates > 5)
                     engine.get_window().request_close();
                 return Result<void, Error>::success();

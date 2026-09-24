@@ -261,7 +261,7 @@ namespace Comet::Tests {
                     get_engine().get_window().request_close();
                 return RunResult::success();
             }
-            RunResult on_update(UpdateContext) override {
+            RunResult on_update(Engine::FrameContext&) override {
                 if(fail_at == 4)
                     return RunResult::success();
                 if(fail_at == 3)
@@ -269,7 +269,7 @@ namespace Comet::Tests {
                         GraphicsError{"update failure", vk::Result::eErrorDeviceLost}.as_error());
                 return RunResult::failure({"update failure"});
             }
-            RunResult on_frame_ready() override {
+            RunResult on_frame_ready(Engine::FrameContext&) override {
 #ifdef COMET_TEST_EDITOR_UI
                 if(ui->begin_frame()) {
                     const ScopeExit end_ui([this] { ui->end_frame(); });

@@ -39,8 +39,8 @@ namespace Comet {
         m_shutdown_required = true;
         auto result = on_init();
         if(result)
-            result = m_engine->run([this](const UpdateContext dt) { return on_update(dt); },
-                [this] { return on_frame_ready(); },
+            result = m_engine->run([this](Engine::FrameContext& frame) { return on_update(frame); },
+                [this](Engine::FrameContext& frame) { return on_frame_ready(frame); },
                 [this](const Error& error) { return on_runtime_error(error); });
         auto cleanup = end();
         if(!cleanup) {

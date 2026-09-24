@@ -186,7 +186,7 @@ namespace {
         Result<void, Comet::Error> sample(Comet::UpdateContext update) {
             auto& renderer = m_engine.get_renderer();
             const auto& snapshot = renderer.get_diagnostics().get_snapshot();
-            const auto& frame = m_engine.get_frame_timing();
+            const auto& frame = m_engine.frame_diagnostics().current();
             if(update.frame_index > 1) {
                 // 跳帧会使主循环索引与提交序号分离，不能继续当作同一组完整样本。
                 if(!frame || !frame->rendered || frame->frame_index != update.frame_index - 1
@@ -352,8 +352,8 @@ namespace {
         if(auto populated = populate_scene(*engine, assets, options); !populated)
             return populated;
         Measurement measurement(*engine, options);
-        const auto run =
-            engine->run([&](Comet::UpdateContext update) { return measurement.sample(update); });
+        const auto run = engine->run(
+            [&](Comet::Engine::FrameContext& frame) { return measurement.sample(frame.update); });
         if(!run)
             return Result<void>::failure(run.error().message);
         return measurement.write_report();

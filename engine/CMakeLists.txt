@@ -42,6 +42,7 @@ set(SOURCES
         src/render/passes/shadow_pass.cpp
         src/config/config_loader.cpp
         src/diagnostics/diagnostics.cpp
+        src/diagnostics/frame_diagnostics.cpp
         src/diagnostics/timing_history.cpp
         src/diagnostics/profiler.cpp
         src/diagnostics/logger.cpp

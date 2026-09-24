@@ -176,7 +176,7 @@ namespace {
             return Comet::Result<void, Comet::Error>::success();
         }
 
-        Comet::Result<void, Comet::Error> on_update(const Comet::UpdateContext context) override {
+        Comet::Result<void, Comet::Error> on_update(Comet::Engine::FrameContext& frame) override {
             if(const auto language = m_menu_bar->take_language_request())
                 m_ui_language = *language;
             process_diagnostics_requests();
@@ -212,11 +212,12 @@ namespace {
             if(auto restored = m_assets->restore_references(); !restored)
                 return Comet::Result<void, Comet::Error>::failure(restored.error());
 
-            m_menu_bar->set_fps(context.fps);
+            m_menu_bar->set_fps(frame.update.fps);
             return Comet::Result<void, Comet::Error>::success();
         }
 
-        Comet::Result<void, Comet::Error> on_frame_ready() override {
+        Comet::Result<void, Comet::Error> on_frame_ready(
+            Comet::Engine::FrameContext& frame) override {
             m_viewport->update_texture();
             if(!m_imgui_context->begin_frame()) {
                 m_viewport->panel().cancel_interaction();
@@ -225,9 +226,7 @@ namespace {
             {
                 const Comet::ScopeExit end_ui([this] { m_imgui_context->end_frame(); });
                 draw_editor_ui();
-                const auto& input =
-                    m_viewport->panel().route_runtime_input(get_engine().get_input_frame());
-                get_engine().set_runtime_input(input);
+                frame.runtime_input = m_viewport->panel().route_runtime_input(frame.physical_input);
                 if(auto viewport = m_viewport->update(get_engine().get_scene()); !viewport)
                     return viewport;
             }
@@ -498,7 +497,8 @@ namespace {
             m_menu_bar->register_panel(*m_inspector_panel);
             m_menu_bar->register_panel(*m_project_panel);
             m_menu_bar->register_panel(*m_console_panel);
-            m_render_stats = std::make_unique<CometEditor::RenderStatsPanel>(get_engine());
+            m_render_stats = std::make_unique<CometEditor::RenderStatsPanel>(
+                get_engine().frame_diagnostics(), get_engine().get_renderer().get_diagnostics());
             m_menu_bar->register_panel(*m_render_stats);
             return Comet::Result<void, Comet::Error>::success();
         }

@@ -6,13 +6,15 @@
 #include <optional>
 
 namespace Comet {
-    class Engine;
+    class FrameDiagnostics;
+    class RenderDiagnostics;
 }
 
 namespace CometEditor {
     class RenderStatsPanel final: public EditorPanel {
     public:
-        explicit RenderStatsPanel(const Comet::Engine& engine);
+        RenderStatsPanel(
+            const Comet::FrameDiagnostics& frame, const Comet::RenderDiagnostics& render);
         void render() override;
         [[nodiscard]] std::optional<bool> take_capture_request();
         [[nodiscard]] bool take_allocation_report_request();
@@ -30,7 +32,8 @@ namespace CometEditor {
             std::string gpu_error;
         };
         void refresh_display(bool capturing);
-        const Comet::Engine& m_engine;
+        const Comet::FrameDiagnostics& m_frame;
+        const Comet::RenderDiagnostics& m_render;
         Display m_display;
         double m_next_refresh = 0;
         std::optional<bool> m_capture_request;

@@ -94,6 +94,7 @@ namespace Comet {
         Renderer(std::unique_ptr<RenderContext> context, std::unique_ptr<RenderResources> resources,
             std::unique_ptr<FrameScheduler> frames, std::unique_ptr<MaterialPrograms> programs,
             std::unique_ptr<SceneRenderer> scene, const AssetRegistry& assets);
+        void discard_frame_requests();
         struct ViewportPickRequest {
             Math::Vec2u pixel;
             Math::Vec2u image_resolution;

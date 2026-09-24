@@ -213,14 +213,14 @@ namespace Comet::Tests {
         auto& diagnostics = renderer.get_diagnostics();
         ASSERT_TRUE(diagnostics.set_enabled(true));
         unsigned updates = 0;
-        ASSERT_TRUE(engine->run([&](UpdateContext) {
+        ASSERT_TRUE(engine->run([&](Engine::FrameContext&) {
             if(++updates == 4)
                 engine->get_window().request_close();
             return Result<void, Error>::success();
         }));
         ASSERT_EQ(updates, 4);
-        ASSERT_TRUE(engine->get_frame_timing());
-        const auto& timing = *engine->get_frame_timing();
+        ASSERT_TRUE(engine->frame_diagnostics().current());
+        const auto& timing = *engine->frame_diagnostics().current();
         EXPECT_TRUE(timing.rendered);
         EXPECT_GE(timing.events_ms, 0);
         EXPECT_GE(timing.update_ms, 0);
@@ -245,7 +245,7 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& diagnostics = renderer.get_diagnostics();
         ASSERT_TRUE(diagnostics.set_enabled(true));
-        CometEditor::RenderStatsPanel panel(*engine);
+        CometEditor::RenderStatsPanel panel(engine->frame_diagnostics(), diagnostics);
         const auto frame = [&] {
             ImGui::NewFrame();
             ImGui::SetNextWindowSize({950, 850});
@@ -310,7 +310,8 @@ namespace Comet::Tests {
             engine->get_window(), renderer.get_render_context(), directory.path() / "imgui.ini");
         ASSERT_TRUE(created) << created.error();
         auto& ui = *created.value();
-        CometEditor::RenderStatsPanel panel(*engine);
+        CometEditor::RenderStatsPanel panel(engine->frame_diagnostics(),
+            renderer.get_diagnostics());
         panel.set_visible(true);
         renderer.set_overlay_renderer([&](CommandBuffer& command) { ui.render(command); });
         const ScopeExit finish([&] {
@@ -336,7 +337,8 @@ namespace Comet::Tests {
     TEST_F(RenderDiagnosticsGpuTest, StatsPanelStartsVisibleAndOnlyEmitsRequestsOnInteraction) {
         ImGuiTestContext imgui({800, 700});
         auto& io = ImGui::GetIO();
-        CometEditor::RenderStatsPanel panel(*engine);
+        CometEditor::RenderStatsPanel panel(engine->frame_diagnostics(),
+            engine->get_renderer().get_diagnostics());
         const auto frame = [&] {
             ImGui::NewFrame();
             if(panel.is_open()) {

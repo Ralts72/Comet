@@ -117,10 +117,7 @@ namespace Comet {
     }
 
     Result<void, Error> Engine::stop_scene_runtime() {
-        auto stopped = m_scene_runtime.stop();
-        if(stopped)
-            m_runtime_input.reset();
-        return stopped;
+        return m_scene_runtime.stop();
     }
 
     Result<void, Error> Engine::set_runtime_state(SceneRuntime::State state) {
@@ -143,8 +140,8 @@ namespace Comet {
         return scene;
     }
 
-    Result<void, Error> Engine::run(const std::function<Result<void, Error>(UpdateContext)>& update,
-        const std::function<Result<void, Error>()>& frame_ready,
+    Result<void, Error> Engine::run(const std::function<Result<void, Error>(FrameContext&)>& update,
+        const std::function<Result<void, Error>(FrameContext&)>& frame_ready,
         const std::function<Result<void, Error>(const Error&)>& runtime_failed) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
@@ -162,48 +159,18 @@ namespace Comet {
     }
 
     Result<void, Error> Engine::tick(
-        const std::function<Result<void, Error>(UpdateContext)>& update,
-        const std::function<Result<void, Error>()>& frame_ready,
+        const std::function<Result<void, Error>(FrameContext&)>& update,
+        const std::function<Result<void, Error>(FrameContext&)>& frame_ready,
         const std::function<Result<void, Error>(const Error&)>& runtime_failed) {
         PROFILE_SCOPE("Engine::Frame");
-        const bool capture = m_renderer->get_diagnostics().is_enabled();
-        using Clock = std::chrono::steady_clock;
-        auto phase_start = capture ? Clock::now() : Clock::time_point{};
-        const auto phase_ms = [&] {
-            if(!capture)
-                return 0.0;
-            const auto now = Clock::now();
-            const auto duration =
-                std::chrono::duration<double, std::milli>(now - phase_start).count();
-            phase_start = now;
-            return duration;
-        };
-        FrameTiming timing;
-        const auto publish = [&] {
-            if(capture && m_renderer->get_diagnostics().is_enabled()) {
-                timing.total_ms = timing.events_ms + timing.update_ms + timing.prepare_ms
-                                  + timing.render_submit_ms;
-                if(!m_frame_timing)
-                    m_frame_history.clear();
-                const TimingHistory::Entry phases[]{{"Events", timing.events_ms},
-                    {"Update", timing.update_ms}, {"Prepare / UI", timing.prepare_ms},
-                    {"Render / submit", timing.render_submit_ms}};
-                m_frame_history.record(timing.total_ms, phases);
-                m_frame_timing = timing;
-            } else {
-                m_frame_timing.reset();
-            }
-        };
-        if(!capture)
-            m_frame_timing.reset();
+        m_frame_diagnostics.begin_frame(m_renderer->get_diagnostics().is_enabled());
         m_window->poll_events();
         if(m_window->should_close())
             return Result<void, Error>::success();
 
         const auto framebuffer_size = m_window->get_framebuffer_size();
         if(framebuffer_size.x == 0 || framebuffer_size.y == 0) {
-            m_frame_timing.reset();
-            m_runtime_input.reset();
+            m_frame_diagnostics.clear_current();
             if(auto discarded = m_scene_runtime.discard_input(); !discarded)
                 return discarded;
             m_window->wait_events();
@@ -212,19 +179,19 @@ namespace Comet {
             return Result<void, Error>::success();
         }
 
-        m_runtime_input.reset();
         m_window->publish_input_frame();
-        timing.events_ms = phase_ms();
+        m_frame_diagnostics.mark_events();
         m_timer->tick();
-        timing.frame_index = m_timer->get_update_context().frame_index;
+        FrameContext frame{m_timer->get_update_context(), m_window->get_input_frame(), {}};
+        m_frame_diagnostics.set_frame_index(frame.update.frame_index);
         if(update) {
-            if(auto result = update(m_timer->get_update_context()); !result)
+            if(auto result = update(frame); !result)
                 return result;
         }
         if(m_window->should_close())
             return Result<void, Error>::success();
 
-        timing.update_ms = phase_ms();
+        m_frame_diagnostics.mark_update();
         const auto preparation = m_renderer->prepare_frame();
         if(!preparation) {
             prepare_shutdown();
@@ -232,16 +199,16 @@ namespace Comet {
         }
         const bool frame_ready_to_render = preparation.value() == Renderer::FramePreparation::Ready;
         if(frame_ready_to_render && frame_ready) {
-            if(auto edited = frame_ready(); !edited) {
+            if(auto edited = frame_ready(frame); !edited) {
                 // 已获取的帧不再重用；交互失败终止本次引擎生命周期。
                 prepare_shutdown();
                 return edited;
             }
         }
 
-        timing.prepare_ms = phase_ms();
-        if(auto advanced = m_scene_runtime.advance(m_timer->get_update_context().delta_time,
-               m_runtime_input ? &*m_runtime_input : nullptr);
+        m_frame_diagnostics.mark_prepare();
+        if(auto advanced = m_scene_runtime.advance(
+               frame.update.delta_time, frame.runtime_input ? &*frame.runtime_input : nullptr);
             !advanced) {
             if(!runtime_failed || is_device_lost(advanced.error())) {
                 prepare_shutdown();
@@ -254,18 +221,17 @@ namespace Comet {
                     return Result<void, Error>::failure(drained.error().as_error());
                 }
             }
-            m_runtime_input.reset();
             if(auto recovered = runtime_failed(advanced.error()); !recovered) {
                 prepare_shutdown();
                 return recovered;
             }
             return Result<void, Error>::success();
         }
-        timing.update_ms += phase_ms();
+        m_frame_diagnostics.mark_runtime_update();
         if(!frame_ready_to_render) {
             m_window->wait_events(0.016);
-            timing.prepare_ms += phase_ms();
-            publish();
+            m_frame_diagnostics.mark_deferred_wait();
+            m_frame_diagnostics.finish_frame(false, m_renderer->get_diagnostics().is_enabled());
             return Result<void, Error>::success();
         }
         RenderScene render_scene;
@@ -276,9 +242,8 @@ namespace Comet {
             prepare_shutdown();
             return Result<void, Error>::failure(rendered.error().as_error());
         }
-        timing.render_submit_ms = phase_ms();
-        timing.rendered = true;
-        publish();
+        m_frame_diagnostics.mark_render_submit();
+        m_frame_diagnostics.finish_frame(true, m_renderer->get_diagnostics().is_enabled());
         return Result<void, Error>::success();
     }
 }

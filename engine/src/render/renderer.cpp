@@ -92,8 +92,7 @@ namespace Comet {
 
         auto preparation = m_presentation->begin_frame();
         if(!preparation) {
-            m_viewport_pick_request.reset();
-            m_line_draw_list.clear();
+            discard_frame_requests();
             return Preparation::failure(preparation.error());
         }
         if(auto collected = m_diagnostics->collect_completed(); !collected)
@@ -102,8 +101,7 @@ namespace Comet {
         auto status = FramePreparation::Ready;
         if(!preparation.value()) {
             status = FramePreparation::Deferred;
-            m_viewport_pick_request.reset();
-            m_line_draw_list.clear();
+            discard_frame_requests();
         }
         failed.release();
         return Preparation::success(status);
@@ -117,8 +115,7 @@ namespace Comet {
             return Result<void, GraphicsError>::failure({"No prepared render frame"});
         PROFILE_SCOPE("render frame");
         if(!m_render_view.visible && m_scene_renderer->is_offscreen()) {
-            m_viewport_pick_request.reset();
-            m_line_draw_list.clear();
+            discard_frame_requests();
             m_scene_renderer->skip_frame();
             m_diagnostics->skip_frame();
             if(m_render_overlay)
@@ -244,6 +241,11 @@ namespace Comet {
     void Renderer::submit_lines(const LineDrawList& draw_list) {
         if(!m_line_draw_list.append(draw_list))
             LOG_WARN("Debug line batch rejected: vertex capacity exceeded");
+    }
+
+    void Renderer::discard_frame_requests() {
+        m_viewport_pick_request.reset();
+        m_line_draw_list.clear();
     }
 
     void Renderer::prepare_shutdown() noexcept {

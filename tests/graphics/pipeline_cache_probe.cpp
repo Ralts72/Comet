@@ -26,7 +26,7 @@ namespace {
             get_engine().set_scene(std::move(scene));
             return Comet::Result<void, Comet::Error>::success();
         }
-        Comet::Result<void, Comet::Error> on_frame_ready() override {
+        Comet::Result<void, Comet::Error> on_frame_ready(Comet::Engine::FrameContext&) override {
             Comet::LineDrawList lines;
             if(!lines.add_line({-0.5f, 0, -2}, {0.5f, 0, -2}, {0, 1, 0, 1}))
                 return Comet::Result<void, Comet::Error>::failure({"Cannot submit probe geometry"});

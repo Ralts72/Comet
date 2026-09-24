@@ -67,17 +67,17 @@ namespace {
             return engine.start_scene_runtime();
         }
 
-        Comet::Result<void, Comet::Error> on_update(Comet::UpdateContext context) override {
-            const auto fps = static_cast<int>(std::round(context.fps));
-            if(context.fps > 0.0f && fps != m_displayed_fps) {
+        Comet::Result<void, Comet::Error> on_update(Comet::Engine::FrameContext& frame) override {
+            const auto fps = static_cast<int>(std::round(frame.update.fps));
+            if(frame.update.fps > 0.0f && fps != m_displayed_fps) {
                 get_engine().get_window().set_title(
                     m_project.name() + " | " + std::to_string(fps) + " FPS");
                 m_displayed_fps = fps;
             }
             if(auto assets = m_asset_manager->process_completions(); !assets)
                 return Comet::Result<void, Comet::Error>::failure(assets.error());
-            get_engine().set_runtime_input(m_input_gate.read(get_engine().get_input_frame(), true));
-            if(get_engine().get_input_frame().key(Comet::Input::Key::Escape).pressed)
+            frame.runtime_input = m_input_gate.read(frame.physical_input, true);
+            if(frame.physical_input.key(Comet::Input::Key::Escape).pressed)
                 get_engine().get_window().request_close();
             return Comet::Result<void, Comet::Error>::success();
         }

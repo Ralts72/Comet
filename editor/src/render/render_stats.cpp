@@ -1,6 +1,5 @@
 #include "render/render_stats.h"
-#include "core/engine.h"
-#include "render/renderer.h"
+#include "diagnostics/frame_diagnostics.h"
 #include "render/render_diagnostics.h"
 
 #include <imgui.h>
@@ -73,11 +72,11 @@ namespace CometEditor {
         }
     }
 
-    RenderStatsPanel::RenderStatsPanel(const Comet::Engine& engine)
-        : EditorPanel("Render Stats"), m_engine(engine) {}
+    RenderStatsPanel::RenderStatsPanel(
+        const Comet::FrameDiagnostics& frame, const Comet::RenderDiagnostics& render)
+        : EditorPanel("Render Stats"), m_frame(frame), m_render(render) {}
 
     void RenderStatsPanel::refresh_display(bool capturing) {
-        const auto& diagnostics = m_engine.get_renderer().get_diagnostics();
         const auto now = Comet::TimingHistory::Clock::now();
         const auto summarize = [&](const Comet::TimingHistory& history) {
             auto time = now;
@@ -85,10 +84,10 @@ namespace CometEditor {
                 time = history.last_sample_time().value_or(now);
             return history.summarize(time);
         };
-        m_display.frame = summarize(m_engine.frame_history());
-        m_display.cpu = summarize(diagnostics.cpu_history());
-        m_display.gpu = summarize(diagnostics.gpu_history());
-        const auto& snapshot = diagnostics.get_snapshot();
+        m_display.frame = summarize(m_frame.history());
+        m_display.cpu = summarize(m_render.cpu_history());
+        m_display.gpu = summarize(m_render.gpu_history());
+        const auto& snapshot = m_render.get_snapshot();
         m_display.scene_rendered = snapshot.scene_rendered;
         m_display.memory = snapshot.memory;
         m_display.has_memory = snapshot.memory_samples > 0;
@@ -104,7 +103,7 @@ namespace CometEditor {
             ImGui::End();
             return;
         }
-        const bool capturing = m_engine.get_renderer().get_diagnostics().is_enabled();
+        const bool capturing = m_render.is_enabled();
         bool enabled = capturing;
         if(ImGui::Checkbox(Ui::label("Capture").c_str(), &enabled))
             m_capture_request = enabled;

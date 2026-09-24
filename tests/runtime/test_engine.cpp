@@ -24,6 +24,50 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine.stop_scene_runtime());
     }
 
+    TEST(EngineRunTest, FrameContextRoutesInputWithoutCarryingItIntoTheNextFrame) {
+        auto created = Engine::create(Config{});
+        ASSERT_TRUE(created) << created.error().message;
+        auto& engine = *created.value();
+        auto calls = std::make_shared<RuntimeCalls>();
+        engine.set_scene(std::make_unique<Scene>());
+        ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine.start_scene_runtime());
+        int updates = 0;
+        int ready_calls = 0;
+        int draws = 0;
+        Engine::FrameContext* current_frame = nullptr;
+        engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) {
+            if(++draws == 3)
+                engine.get_window().request_close();
+        });
+        const auto result = engine.run(
+            [&](Engine::FrameContext& frame) {
+                current_frame = &frame;
+                ++updates;
+                if(updates > 1)
+                    EXPECT_TRUE(calls->input_focused);
+                if(updates == 1) {
+                    frame.runtime_input = frame.physical_input;
+                    frame.runtime_input->focused = true;
+                }
+                return Result<void, Error>::success();
+            },
+            [&](Engine::FrameContext& frame) {
+                EXPECT_EQ(&frame, current_frame);
+                if(++ready_calls == 2) {
+                    frame.runtime_input = frame.physical_input;
+                    frame.runtime_input->focused = true;
+                }
+                return Result<void, Error>::success();
+            });
+        engine.get_renderer().set_overlay_renderer({});
+        ASSERT_TRUE(result) << result.error().message;
+        EXPECT_EQ(updates, 3);
+        EXPECT_EQ(ready_calls, 3);
+        EXPECT_EQ(calls->updates, 3);
+        EXPECT_FALSE(calls->input_focused);
+    }
+
     TEST(EngineRunTest, RuntimeLifecycleFollowsOwnedSceneAndShutdownIsFinal) {
         auto created = Engine::create(Config{});
         ASSERT_TRUE(created) << created.error().message;
@@ -89,7 +133,7 @@ namespace Comet::Tests {
             }
         });
         const auto result = engine.run(
-            [&](UpdateContext) {
+            [&](Engine::FrameContext&) {
                 ++hosts;
                 if(hosts > 8)
                     engine.get_window().request_close();
@@ -99,7 +143,7 @@ namespace Comet::Tests {
                     return engine.set_runtime_state(SceneRuntime::State::Running);
                 return Result<void, Error>::success();
             },
-            [&] {
+            [&](Engine::FrameContext&) {
                 ++ui_frames;
                 return Result<void, Error>::success();
             });
@@ -122,9 +166,9 @@ namespace Comet::Tests {
         int updates = 0;
         int preparations = 0;
         EXPECT_TRUE(engine.run(
-            [&](UpdateContext) {
+            [&](Engine::FrameContext& frame) {
                 ++updates;
-                EXPECT_EQ(engine.get_input_frame().serial, 1u);
+                EXPECT_EQ(frame.physical_input.serial, 1u);
                 const auto nested = engine.run();
                 EXPECT_FALSE(nested);
                 if(!nested) {
@@ -135,7 +179,7 @@ namespace Comet::Tests {
                 engine.get_window().request_close();
                 return Result<void, Error>::success();
             },
-            [&] {
+            [&](Engine::FrameContext&) {
                 ++preparations;
                 return Result<void, Error>::success();
             }));
@@ -172,21 +216,23 @@ namespace Comet::Tests {
         renderer.set_overlay_renderer([&](CommandBuffer&) { ++draws; });
         renderer.request_swapchain_recreation();
         const auto result = engine.run(
-            [&](UpdateContext) {
-                EXPECT_EQ(engine.get_input_frame().serial, static_cast<uint64_t>(updates + 1));
+            [&](Engine::FrameContext& frame) {
+                EXPECT_EQ(frame.physical_input.serial, static_cast<uint64_t>(updates + 1));
                 if(++updates == 1) {
+                    frame.runtime_input = frame.physical_input;
+                    frame.runtime_input->focused = true;
                     focus(window, GLFW_TRUE);
                     key(window, GLFW_KEY_SPACE, 0, GLFW_PRESS, 0);
                     key(window, GLFW_KEY_SPACE, 0, GLFW_RELEASE, 0);
-                    EXPECT_FALSE(engine.get_input_frame().key(Input::Key::Space).pressed);
+                    EXPECT_FALSE(frame.physical_input.key(Input::Key::Space).pressed);
                 } else {
-                    EXPECT_TRUE(engine.get_input_frame().key(Input::Key::Space).pressed);
-                    EXPECT_TRUE(engine.get_input_frame().key(Input::Key::Space).released);
+                    EXPECT_TRUE(frame.physical_input.key(Input::Key::Space).pressed);
+                    EXPECT_TRUE(frame.physical_input.key(Input::Key::Space).released);
                     engine.get_window().request_close();
                 }
                 return Result<void, Error>::success();
             },
-            [&] {
+            [&](Engine::FrameContext&) {
                 ++edits;
                 return Result<void, Error>::success();
             });
@@ -198,7 +244,7 @@ namespace Comet::Tests {
         EXPECT_EQ(edits, 0);
         EXPECT_EQ(draws, 0);
         EXPECT_EQ(calls->updates, 1);
-        EXPECT_FALSE(calls->input_focused);
+        EXPECT_TRUE(calls->input_focused);
         EXPECT_EQ(runtime.get_timing().frame_index, 1u);
     }
 
@@ -239,7 +285,7 @@ namespace Comet::Tests {
         int recoveries = 0;
         engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) { ++draws; });
         const auto result = engine.run(
-            [&](UpdateContext) {
+            [&](Engine::FrameContext&) {
                 if(draws >= 2)
                     engine.get_window().request_close();
                 return Result<void, Error>::success();
@@ -271,7 +317,7 @@ namespace Comet::Tests {
         engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) { ++draws; });
         const Error failure =
             GraphicsError{"asset creation failed", vk::Result::eErrorDeviceLost}.as_error();
-        const auto result = engine.run({}, [&] {
+        const auto result = engine.run({}, [&](Engine::FrameContext&) {
             ++edits;
             return Result<void, Error>::failure(failure);
         });
@@ -314,7 +360,7 @@ namespace Comet::Tests {
         engine.set_scene(std::make_unique<Scene>());
         ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
         ASSERT_TRUE(engine.start_scene_runtime());
-        const auto result = engine.run({}, [&] {
+        const auto result = engine.run({}, [&](Engine::FrameContext&) {
             engine.get_renderer().prepare_shutdown();
             return Result<void, Error>::success();
         });
@@ -331,7 +377,7 @@ namespace Comet::Tests {
         auto engine_result = Engine::create(config);
         ASSERT_TRUE(engine_result) << engine_result.error().message;
         auto& engine = *engine_result.value();
-        const auto failure = engine.run([](UpdateContext) {
+        const auto failure = engine.run([](Engine::FrameContext&) {
             return Result<void, Error>::failure(
                 GraphicsError{"update failed", vk::Result::eErrorDeviceLost}.as_error());
         });
@@ -340,7 +386,7 @@ namespace Comet::Tests {
         EXPECT_EQ(failure.error().code,
             (GraphicsError{"", vk::Result::eErrorDeviceLost}.as_error().code));
         int updates = 0;
-        EXPECT_TRUE(engine.run([&](UpdateContext) {
+        EXPECT_TRUE(engine.run([&](Engine::FrameContext&) {
             ++updates;
             engine.get_window().request_close();
             return Result<void, Error>::success();

@@ -174,7 +174,7 @@ Renderer 不调用 UI 准备；SceneRenderer 不读 EditorMode/ImGui，不拥有
 
 **运行与输入：** SceneRuntime 是时间截断的唯一入口，先有界固定更新再普通更新；暂停仍维护 UI、资产与绘制，
 单步只推进一轮固定／普通更新。ViewportPanel 生产控制请求，由 Editor 在下一次 on_update 经 Engine 应用。
-App 交付窗口快照，Editor 交付当帧 UI Gate 结果；每帧清空授权，未授权释放按钮但不暂停模拟。
+两个宿主都收到同一个当帧 `Engine::FrameContext`：App 在 on_update 交付窗口 Gate 结果，Editor 在 on_frame_ready 交付 UI Gate 结果；上下文退出时丢弃授权，未授权释放按钮但不暂停模拟。
 隐藏离屏视图仍执行 UI、Runtime、Scene 提取和上传回收；暂时无呈现帧时只跳过 UI／提取／绘制。
 最小化等待并重置墙钟增量、窗口瞬态及 Runtime 待处理按下；Gate 根据采样中断版本重新获取授权。
 
@@ -255,12 +255,13 @@ Script::Invocation 与 LuaBindings::Context 各只传一个 input，结束调用
 
 ## 渲染诊断
 
-Engine 保存上一完整循环的 events/update/prepare/render-submit 墙钟分段；prepare 包含帧等待和 UI，
+Engine 在主循环标记阶段，FrameDiagnostics 负责计时、发布与保存上一完整循环的
+events/update/prepare/render-submit 墙钟分段；prepare 包含帧等待和 UI，
 render-submit 包含提取、解析、录制与提交／呈现调用。暂缓呈现记录 rendered=false；错误中止不发布半条样本，
 最小化等待不作为正常帧采样。该运行时开关独立于 scope Profiler 的编译开关。
 
 Renderer 拥有 RenderDiagnostics，SceneRenderer 只在录制图时借用，不再次扩大场景资源所有权。
-主循环使用 Engine::FrameTiming，图采样使用 RenderDiagnostics::GraphTiming：计量范围、序号和完成时刻不同，不合并成混合数据结构。
+主循环使用 FrameDiagnostics::Timing，图采样使用 RenderDiagnostics::GraphTiming：计量范围、序号和完成时刻不同，不合并成混合数据结构。
 SceneRenderer::record_pass 负责具名 Pass 分发，局部 lambda 仅适配 RenderGraph 的同步回调，不保存或跨线程调度。
 诊断包围既有 Plan::record：CPU 明细计量各回调，总时间还包含图校验与屏障录制；GPU 使用图首、各 pass 结束、
 图尾导出屏障后的时间戳。相邻 GPU 边界包含依赖等待，不表示各 pass 独占硬件的时间。
@@ -271,7 +272,7 @@ SceneRenderer::record_pass 负责具名 Pass 分发，局部 lambda 仅适配 Re
 
 每个 FrameSlot 懒创建固定 34 项的 GpuTimer，最多记录 32 个 pass、每个名称最多 128 字节。
 超限仍执行完整图，截断 CPU 明细并跳过该图的 GPU 采样。保留槽位待完成样本、最新快照及有界时间统计。
-Engine 与 RenderDiagnostics 共用纯 CPU 的 TimingHistory：100 个 50 ms 桶，逐样本累计 sum/count/max，
+FrameDiagnostics 与 RenderDiagnostics 共用纯 CPU 的 TimingHistory：100 个 50 ms 桶，逐样本累计 sum/count/max，
 查询近 1 秒统计和近 5 秒趋势；图布局变化时清空对应历史。GPU 按确认完成后的收集时刻归桶，不伪装为执行时间线。
 面板每 250 ms 复制显示快照，暂停只冻结显示，不影响采样。停止后保留最后窗口，重新启用清空旧采样。
 graphics/gpu_timer 封装原生查询、有效位和周期换算，render 不直接操作 vk::QueryPool。

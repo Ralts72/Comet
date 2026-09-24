@@ -93,14 +93,14 @@ namespace CometEditor::Tests {
         });
         unsigned attempts = 0;
         const auto run = engine.run(
-            [&](Comet::UpdateContext) {
+            [&](Comet::Engine::FrameContext&) {
                 if(overlays == 2)
                     EXPECT_TRUE(engine.get_asset_registry().unregister_asset(handle));
                 if(++attempts > 10)
                     engine.get_window().request_close();
                 return Comet::Result<void, Comet::Error>::success();
             },
-            [&] {
+            [&](Comet::Engine::FrameContext&) {
                 ++prepared_frames;
                 visible = prepared_frames == 1 || prepared_frames == 4;
                 if(!ui.begin_frame())

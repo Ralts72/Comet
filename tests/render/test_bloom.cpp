@@ -414,7 +414,7 @@ namespace Comet::Tests {
         unsigned rendered = 0;
         unsigned updates = 0;
         const auto result = engine->run(
-            [&](UpdateContext) {
+            [&](Engine::FrameContext&) {
                 if(rendered == 1)
                     EXPECT_EQ(renderer.get_scene_renderer().get_post_process_settings(), enabled);
                 if(rendered >= 2) {
@@ -426,7 +426,7 @@ namespace Comet::Tests {
                     engine->get_window().request_close();
                 return Result<void, Error>::success();
             },
-            [&] {
+            [&](Engine::FrameContext&) {
                 if(rendered == 0) {
                     if(!engine->get_scene()->set_post_process(enabled))
                         return Result<void, Error>::failure({"Cannot edit scene post processing"});
