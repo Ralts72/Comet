@@ -91,7 +91,7 @@ namespace CometEditor {
         SelectionService& m_selection;
         const CommandHistory& m_history;
         std::optional<Comet::AssetHandle> m_reimport_request;
-        std::array<char, 1024> m_name_buffer{};
+        std::string m_rename_name;
         std::string m_operation_error;
         Comet::AssetHandle m_renaming_asset;
         bool m_rename_requested = false;

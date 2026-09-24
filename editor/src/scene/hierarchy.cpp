@@ -168,7 +168,7 @@ namespace CometEditor {
                 return 0;
             },
             &m_rename_name);
-        if(ImGui::Button(Ui::label("Rename").c_str()) || submitted) {
+        if(ImGui::Button(Ui::label("Rename").c_str(), ImVec2(100.0f, 0.0f)) || submitted) {
             if(!m_rename_name.empty()) {
                 m_rename_request =
                     RenameRequest{m_renaming_entity, m_rename_name, m_rename_generation};
@@ -177,7 +177,7 @@ namespace CometEditor {
             }
         }
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Cancel").c_str())) {
+        if(ImGui::Button(Ui::label("Cancel").c_str(), ImVec2(100.0f, 0.0f))) {
             ImGui::CloseCurrentPopup();
             m_renaming_entity = {};
         }

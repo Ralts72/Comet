@@ -482,10 +482,7 @@ namespace CometEditor {
         m_renaming_asset = record.handle;
         m_close_rename = false;
         m_operation_error.clear();
-        m_name_buffer.fill('\0');
-        const auto name = record.path.stem().string();
-        std::copy_n(
-            name.data(), std::min(name.size(), m_name_buffer.size() - 1), m_name_buffer.data());
+        m_rename_name = record.path.stem().string();
         m_rename_requested = true;
     }
 
@@ -512,16 +509,24 @@ namespace CometEditor {
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(360.0f);
-        const bool submitted =
-            ImGui::InputText(Ui::label("Name").c_str(), m_name_buffer.data(), m_name_buffer.size(),
-                ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+        const bool submitted = ImGui::InputText(
+            Ui::label("Name").c_str(), m_rename_name.data(), m_rename_name.capacity() + 1,
+            ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_EnterReturnsTrue
+                | ImGuiInputTextFlags_AutoSelectAll,
+            [](ImGuiInputTextCallbackData* data) {
+                auto& name = *static_cast<std::string*>(data->UserData);
+                name.resize(static_cast<std::size_t>(data->BufTextLen));
+                data->Buf = name.data();
+                return 0;
+            },
+            &m_rename_name);
         if(record) {
             ImGui::SameLine();
             ImGui::TextUnformatted(record->path.extension().string().c_str());
         }
         if((ImGui::Button(Ui::label("Rename").c_str(), ImVec2(100.0f, 0.0f)) || submitted)
             && record) {
-            const std::string name(m_name_buffer.data());
+            const std::string& name = m_rename_name;
             if(name.empty() || name == "." || name == ".."
                 || name.find_first_of("/\\:") != std::string::npos) {
                 m_operation_error = "Enter a file name, not a path";

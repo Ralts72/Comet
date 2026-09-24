@@ -310,6 +310,17 @@ namespace CometEditor::Tests {
         EXPECT_EQ(database.find(source)->path, "deferred.png");
     }
 
+    TEST_F(ProjectPanelTest, RenameInputDoesNotTruncateLongUtf8Names) {
+        consume_requests = false;
+        open_rename(3);
+        const std::string name = "长名称" + std::string(1100, 'n');
+        rename(name.c_str());
+        const auto request = project->take_move_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->destination, std::filesystem::path(name + ".png"));
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "a.png"));
+    }
+
     TEST_F(ProjectPanelTest, RefreshOnlyQueuesUntilTheOwnerExecutesIt) {
         consume_requests = false;
         std::ofstream(paths.assets() / "new.png") << "new";
