@@ -36,21 +36,18 @@ namespace CometEditor::AssetSourceOperations {
     };
 
     [[nodiscard]] Comet::AssetScanReport create_material(Comet::AssetDatabase& database,
-        const Comet::ProjectPaths& paths, const std::filesystem::path& destination,
-        const Comet::MaterialData& data);
+        const std::filesystem::path& destination, const Comet::MaterialData& data);
 
-    [[nodiscard]] Comet::AssetScanReport create_script(Comet::AssetDatabase& database,
-        const Comet::ProjectPaths& paths, const std::filesystem::path& destination);
+    [[nodiscard]] Comet::AssetScanReport create_script(
+        Comet::AssetDatabase& database, const std::filesystem::path& destination);
 
     [[nodiscard]] Comet::AssetScanReport move(Comet::AssetDatabase& database,
-        const Comet::ProjectPaths& paths, Comet::AssetHandle handle,
-        const std::filesystem::path& destination);
+        Comet::AssetHandle handle, const std::filesystem::path& destination);
 
-    [[nodiscard]] Comet::AssetScanReport remove_asset(Comet::AssetDatabase& database,
-        const Comet::ProjectPaths& paths, Comet::AssetHandle handle,
-        const TrashMover& move_to_trash);
+    [[nodiscard]] Comet::AssetScanReport remove_asset(
+        Comet::AssetDatabase& database, Comet::AssetHandle handle, const TrashMover& move_to_trash);
 
     [[nodiscard]] Comet::AssetScanReport import_files(Comet::AssetDatabase& database,
-        const Comet::ProjectPaths& paths, std::span<const std::filesystem::path> sources,
-        const std::filesystem::path& directory, Comet::AssetImportLimits limits);
+        std::span<const std::filesystem::path> sources, const std::filesystem::path& directory,
+        Comet::AssetImportLimits limits);
 }

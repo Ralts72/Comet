@@ -14,8 +14,7 @@ namespace Comet::Tests {
         AssetDatabase database(project.paths());
         ASSERT_TRUE(database.scan().snapshot_updated);
 
-        const auto report =
-            SourceOperations::move(database, project.paths(), handle, "occupied.mat");
+        const auto report = SourceOperations::move(database, handle, "occupied.mat");
 
         EXPECT_FALSE(report.snapshot_updated);
         EXPECT_TRUE(has_issue_containing(report, "destination already exists"));
@@ -32,8 +31,7 @@ namespace Comet::Tests {
         AssetDatabase database(project.paths());
         ASSERT_TRUE(database.scan().snapshot_updated);
 
-        const auto report =
-            SourceOperations::move(database, project.paths(), handle, "../outside.mat");
+        const auto report = SourceOperations::move(database, handle, "../outside.mat");
 
         EXPECT_FALSE(report.snapshot_updated);
         EXPECT_TRUE(has_issue_containing(report, "project-relative file path inside assets"));
@@ -55,8 +53,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(MetadataSerializer{}.save(
             {.handle = handle, .type = AssetType::Material}, metadata_path(duplicate)));
 
-        const auto report =
-            SourceOperations::move(database, project.paths(), handle, "renamed/moved.mat");
+        const auto report = SourceOperations::move(database, handle, "renamed/moved.mat");
 
         EXPECT_FALSE(report.snapshot_updated);
         EXPECT_TRUE(has_issue_containing(report, "duplicate guid 42"));
@@ -70,8 +67,7 @@ namespace Comet::Tests {
 
         ASSERT_TRUE(std::filesystem::remove(duplicate));
         ASSERT_TRUE(std::filesystem::remove(metadata_path(duplicate)));
-        const auto retried =
-            SourceOperations::move(database, project.paths(), handle, "renamed/moved.mat");
+        const auto retried = SourceOperations::move(database, handle, "renamed/moved.mat");
         ASSERT_TRUE(retried.succeeded());
         ASSERT_TRUE(retried.snapshot_updated);
         ASSERT_NE(database.find(handle), nullptr);

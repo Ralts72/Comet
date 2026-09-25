@@ -72,7 +72,7 @@ namespace CometEditor::Tests {
                     ++move_count;
                     moved_handle = request->handle;
                     destination = request->destination;
-                    project->complete_move(*request, AssetSourceOperations::move(database, paths,
+                    project->complete_move(*request, AssetSourceOperations::move(database,
                                                          request->handle, request->destination));
                 }
                 if(project->take_refresh_request()) {
@@ -264,7 +264,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(request->revision, database.get_revision(handle));
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "a.png"));
         project->complete_delete(*request,
-            AssetSourceOperations::remove_asset(database, paths, request->handle,
+            AssetSourceOperations::remove_asset(database, request->handle,
                 [this](const std::filesystem::path& entry) { return move_to_fake_trash(entry); }));
         frame();
         EXPECT_FALSE(database.find(handle));
@@ -336,8 +336,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(request->handle, source);
         EXPECT_EQ(request->destination, "deferred.png");
         EXPECT_FALSE(project->take_move_request());
-        project->complete_move(*request,
-            AssetSourceOperations::move(database, paths, request->handle, request->destination));
+        project->complete_move(
+            *request, AssetSourceOperations::move(database, request->handle, request->destination));
         frame();
         frame();
         EXPECT_FALSE(ImGui::FindWindowByName("Rename Asset")->Active);

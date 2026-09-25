@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -104,14 +105,19 @@ namespace CometEditor::AssetSourceOperations {
             return extension;
         }
 
-        bool is_mesh_file(const std::filesystem::path& path) {
+        std::optional<AssetType> external_import_type(const std::filesystem::path& path) {
             const auto extension = extension_of(path);
-            return extension == ".gltf" || extension == ".glb";
-        }
-
-        bool is_texture_file(const std::filesystem::path& path) {
-            const auto extension = extension_of(path);
-            return extension == ".png" || extension == ".jpg" || extension == ".jpeg";
+            if(extension == ".gltf" || extension == ".glb")
+                return AssetType::Mesh;
+            if(extension == ".png" || extension == ".jpg" || extension == ".jpeg")
+                return AssetType::Texture;
+            if(extension == ".hdr")
+                return AssetType::Environment;
+            if(extension == ".lua")
+                return AssetType::Script;
+            if(extension == ".wav")
+                return AssetType::Audio;
+            return std::nullopt;
         }
 
         Result<void> validate_relative(const std::filesystem::path& path) {
@@ -318,9 +324,8 @@ namespace CometEditor::AssetSourceOperations {
                 std::error_code error;
                 // key 是目标相对路径，value 是外部源；相同依赖只复制一次。
                 for(const auto& source : sources) {
-                    if(!is_mesh_file(source) && !is_texture_file(source)
-                        && extension_of(source) != ".hdr" && extension_of(source) != ".lua"
-                        && extension_of(source) != ".wav")
+                    const auto type = external_import_type(source);
+                    if(!type)
                         continue;
                     if(!source.is_absolute())
                         return Result<void>::failure("Dropped file path must be absolute");
@@ -329,7 +334,7 @@ namespace CometEditor::AssetSourceOperations {
                         return result;
                     if(std::ranges::find(roots, relative) == roots.end())
                         roots.push_back(relative);
-                    if(is_mesh_file(source)) {
+                    if(*type == AssetType::Mesh) {
                         const auto parent = std::filesystem::canonical(source.parent_path(), error);
                         if(error)
                             return Result<void>::failure(
@@ -353,9 +358,7 @@ namespace CometEditor::AssetSourceOperations {
                     return Result<void>::failure(
                         "Drop PNG/JPEG textures, HDR environments, Lua scripts, WAV audio or glTF/GLB models (not directories)");
                 for(const auto& source : sources) {
-                    if(is_mesh_file(source) || is_texture_file(source)
-                        || extension_of(source) == ".hdr" || extension_of(source) == ".lua"
-                        || extension_of(source) == ".wav")
+                    if(external_import_type(source))
                         continue;
                     if(extension_of(source) == ".meta") {
                         auto owner = source;
@@ -418,35 +421,50 @@ namespace CometEditor::AssetSourceOperations {
                             "Import source size changed during copy: " + source.string());
                 }
                 for(const auto& relative : roots) {
-                    if(is_mesh_file(relative)) {
-                        // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
-                        auto dependencies = gltf_dependencies(staging / relative);
-                        if(!dependencies)
-                            return Result<void>::failure(dependencies.error());
-                        for(const auto& dependency : dependencies.value()) {
-                            if(!files.contains(dependency))
-                                return Result<void>::failure(
-                                    "glTF dependencies changed during copy; retry import");
+                    const auto type = external_import_type(relative);
+                    if(!type)
+                        return Result<void>::failure(
+                            "Unsupported import source: " + relative.string());
+                    switch(*type) {
+                        case AssetType::Mesh: {
+                            // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
+                            auto dependencies = gltf_dependencies(staging / relative);
+                            if(!dependencies)
+                                return Result<void>::failure(dependencies.error());
+                            for(const auto& dependency : dependencies.value()) {
+                                if(!files.contains(dependency))
+                                    return Result<void>::failure(
+                                        "glTF dependencies changed during copy; retry import");
+                            }
+                            if(auto result = MeshImporter{}.import(
+                                   staging / relative, limits.mesh_working_bytes, limits);
+                                !result)
+                                return Result<void>::failure(result.error());
+                            break;
                         }
-                        if(auto result = MeshImporter{}.import(
-                               staging / relative, limits.mesh_working_bytes, limits);
-                            !result)
-                            return Result<void>::failure(result.error());
-                    } else if(extension_of(relative) == ".lua") {
-                        if(auto script = Script::load(staging / relative); !script)
-                            return Result<void>::failure(script.error().message);
-                    } else if(extension_of(relative) == ".wav") {
-                        if(auto clip = AudioClip::load(staging / relative); !clip)
-                            return Result<void>::failure(clip.error().message);
-                    } else if(extension_of(relative) == ".hdr") {
-                        if(auto result = EnvironmentImporter{}.validate_source(staging / relative);
-                            !result)
-                            return Result<void>::failure(result.error());
-                    } else {
-                        if(auto result = TextureImporter{}.import(
-                               staging / relative, {}, limits.texture_working_bytes, limits);
-                            !result)
-                            return Result<void>::failure(result.error());
+                        case AssetType::Texture:
+                            if(auto result = TextureImporter{}.import(
+                                   staging / relative, {}, limits.texture_working_bytes, limits);
+                                !result)
+                                return Result<void>::failure(result.error());
+                            break;
+                        case AssetType::Environment:
+                            if(auto result =
+                                    EnvironmentImporter{}.validate_source(staging / relative);
+                                !result)
+                                return Result<void>::failure(result.error());
+                            break;
+                        case AssetType::Script:
+                            if(auto script = Script::load(staging / relative); !script)
+                                return Result<void>::failure(script.error().message);
+                            break;
+                        case AssetType::Audio:
+                            if(auto clip = AudioClip::load(staging / relative); !clip)
+                                return Result<void>::failure(clip.error().message);
+                            break;
+                        default:
+                            return Result<void>::failure(
+                                "Unsupported import source: " + relative.string());
                     }
                 }
                 return Result<void>::success();
@@ -454,6 +472,11 @@ namespace CometEditor::AssetSourceOperations {
 
             Result<void> publish_files(AssetDatabase& database) {
                 std::error_code error;
+                const auto database_root =
+                    std::filesystem::canonical(database.paths().assets(), error);
+                if(error || database_root != root)
+                    return Result<void>::failure(
+                        "Prepared file import targets a different project");
                 if(auto result = recheck_destination(); !result)
                     return result;
                 published.reserve(files.size());
@@ -565,11 +588,11 @@ namespace CometEditor::AssetSourceOperations {
         return state->transaction.publish(database);
     }
 
-    AssetScanReport import_files(AssetDatabase& database, const ProjectPaths& paths,
+    AssetScanReport import_files(AssetDatabase& database,
         const std::span<const std::filesystem::path> sources,
         const std::filesystem::path& directory, const AssetImportLimits limits) {
-        auto prepared =
-            PreparedFileImport::prepare(paths, {sources.begin(), sources.end()}, directory, limits);
+        auto prepared = PreparedFileImport::prepare(
+            database.paths(), {sources.begin(), sources.end()}, directory, limits);
         if(!prepared) {
             auto report = operation_error(directory, prepared.error());
             report.indexed_assets = database.size();
@@ -581,7 +604,7 @@ namespace CometEditor::AssetSourceOperations {
     namespace {
         struct TextAssetTransaction {
             AssetDatabase& database;
-            const ProjectPaths& paths;
+            ProjectPaths paths;
             const std::filesystem::path& destination;
             std::string_view contents;
             AssetType type;
@@ -704,26 +727,26 @@ namespace CometEditor::AssetSourceOperations {
             }
         };
 
-        AssetScanReport create_text_asset(AssetDatabase& database, const ProjectPaths& paths,
+        AssetScanReport create_text_asset(AssetDatabase& database,
             const std::filesystem::path& destination, const std::string_view contents,
             const AssetType type, const std::string_view extension, const std::string_view name) {
             return TextAssetTransaction{
-                database, paths, destination, contents, type, extension, name}
+                database, database.paths(), destination, contents, type, extension, name}
                 .run();
         }
     }
 
-    AssetScanReport create_material(AssetDatabase& database, const ProjectPaths& paths,
+    AssetScanReport create_material(AssetDatabase& database,
         const std::filesystem::path& destination, const MaterialData& data) {
         auto serialized = MaterialSerializer{}.serialize(data);
         if(!serialized)
             return operation_error(destination, serialized.error());
-        return create_text_asset(database, paths, destination, serialized.value(),
-            AssetType::Material, ".mat", "Material");
+        return create_text_asset(
+            database, destination, serialized.value(), AssetType::Material, ".mat", "Material");
     }
 
-    AssetScanReport create_script(AssetDatabase& database, const ProjectPaths& paths,
-        const std::filesystem::path& destination) {
+    AssetScanReport create_script(
+        AssetDatabase& database, const std::filesystem::path& destination) {
         constexpr std::string_view source = R"(local script = {}
 
 function script:update(dt)
@@ -734,11 +757,12 @@ return script
         if(auto valid = Script::create(std::string(source), destination.generic_string()); !valid)
             return operation_error(destination, valid.error().message);
         return create_text_asset(
-            database, paths, destination, source, AssetType::Script, ".lua", "Script");
+            database, destination, source, AssetType::Script, ".lua", "Script");
     }
 
-    AssetScanReport remove_asset(AssetDatabase& database, const ProjectPaths& paths,
-        const AssetHandle handle, const TrashMover& move_to_trash) {
+    AssetScanReport remove_asset(
+        AssetDatabase& database, const AssetHandle handle, const TrashMover& move_to_trash) {
+        const ProjectPaths paths = database.paths();
         const auto* indexed = database.find(handle);
         if(!indexed)
             return operation_error({}, "Asset is not indexed");
@@ -885,8 +909,9 @@ return script
         return report;
     }
 
-    AssetScanReport move(AssetDatabase& database, const ProjectPaths& paths,
-        const AssetHandle handle, const std::filesystem::path& destination) {
+    AssetScanReport move(AssetDatabase& database, const AssetHandle handle,
+        const std::filesystem::path& destination) {
+        const ProjectPaths paths = database.paths();
         if(!handle) {
             return operation_error(destination, "cannot move an invalid asset handle");
         }

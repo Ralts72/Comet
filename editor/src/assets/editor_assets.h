@@ -89,7 +89,6 @@ namespace CometEditor {
         void submit_pending_scan();
         void schedule_shader_program_imports(Clock::time_point now);
         void schedule_mesh_imports();
-        Comet::ProjectPaths m_paths;
         Comet::AssetImportLimits m_limits;
         AssetSourceOperations::TrashMover m_trash_mover;
         Comet::AssetDatabase m_database;

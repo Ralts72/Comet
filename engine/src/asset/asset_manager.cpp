@@ -106,9 +106,9 @@ namespace Comet {
     AssetManager::AssetManager(ProjectPaths paths, AssetRegistry& registry,
         RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler,
         const AssetImportLimits limits)
-        : m_paths(std::move(paths)), m_limits(limits),
-          m_owned_database(std::make_unique<AssetDatabase>(m_paths)), m_database(*m_owned_database),
-          m_import_service(std::make_unique<ImportService>(m_paths, m_limits)),
+        : m_limits(limits), m_owned_database(std::make_unique<AssetDatabase>(std::move(paths))),
+          m_database(*m_owned_database),
+          m_import_service(std::make_unique<ImportService>(m_database.paths(), m_limits)),
           m_registry(registry), m_resource_factory(resource_factory),
           m_task_queue(std::make_unique<AssetTaskQueue>(m_database, task_scheduler, limits.async)) {
     }
@@ -116,8 +116,8 @@ namespace Comet {
     AssetManager::AssetManager(AssetDatabase& database, AssetRegistry& registry,
         RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler,
         const AssetImportLimits limits)
-        : m_paths(database.paths()), m_limits(limits), m_database(database),
-          m_import_service(std::make_unique<ImportService>(m_paths, m_limits)),
+        : m_limits(limits), m_database(database),
+          m_import_service(std::make_unique<ImportService>(m_database.paths(), m_limits)),
           m_registry(registry), m_resource_factory(resource_factory),
           m_task_queue(std::make_unique<AssetTaskQueue>(m_database, task_scheduler, limits.async)) {
     }
@@ -274,10 +274,11 @@ namespace Comet {
 
         auto& prepared = candidate.result.value();
         auto& artifact = prepared.artifact;
-        const auto descriptor = request.descriptor_path.lexically_relative(m_paths.assets());
+        const auto descriptor =
+            request.descriptor_path.lexically_relative(m_database.paths().assets());
         if(artifact.handle != handle || artifact.inputs.files.empty()
             || artifact.inputs.files.front().relative_path != descriptor
-            || !import_inputs_are_current(m_paths.assets(), artifact.inputs)) {
+            || !import_inputs_are_current(m_database.paths().assets(), artifact.inputs)) {
             LOG_WARN("Shader program {} candidate is stale or invalid", handle.value());
             return ImportPublication::success(std::nullopt);
         }
@@ -559,7 +560,8 @@ namespace Comet {
             AssetType::ShaderProgram, [this, handle](const AssetRecord&) {
                 auto artifact = ShaderProgramArtifact::load(
                     m_import_service->shader_program_artifact_path(handle), handle);
-                if(!artifact || !import_inputs_are_current(m_paths.assets(), artifact->inputs))
+                if(!artifact
+                    || !import_inputs_are_current(m_database.paths().assets(), artifact->inputs))
                     return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::failure(
                         {"Current compiled Shader program artifact is unavailable"});
                 return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::success(
@@ -570,7 +572,7 @@ namespace Comet {
     Result<std::shared_ptr<Script>, Error> AssetManager::load_script(const AssetHandle handle) {
         return load_runtime_asset<Script>(m_database, m_registry, handle, AssetType::Script,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Script>, Error> {
-                auto path = m_paths.resolve_asset_path(record.path);
+                auto path = m_database.paths().resolve_asset_path(record.path);
                 if(!path)
                     return Result<std::shared_ptr<Script>, Error>::failure({path.error()});
                 return Script::load(path.value());
@@ -580,7 +582,7 @@ namespace Comet {
     Result<std::shared_ptr<AudioClip>, Error> AssetManager::load_audio(const AssetHandle handle) {
         return load_runtime_asset<AudioClip>(m_database, m_registry, handle, AssetType::Audio,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<AudioClip>, Error> {
-                auto path = m_paths.resolve_asset_path(record.path);
+                auto path = m_database.paths().resolve_asset_path(record.path);
                 if(!path)
                     return Result<std::shared_ptr<AudioClip>, Error>::failure({path.error()});
                 return AudioClip::load(path.value());
@@ -705,7 +707,7 @@ namespace Comet {
 
         const AssetRevision revision = m_database.get_revision(handle);
         const AssetRecord snapshot = *record;
-        const auto data = MaterialSerializer{}.load(m_paths.assets() / snapshot.path);
+        const auto data = MaterialSerializer{}.load(m_database.paths().assets() / snapshot.path);
         if(!data) {
             return Result<std::shared_ptr<Material>, Error>::failure({data.error()});
         }
@@ -782,7 +784,7 @@ namespace Comet {
             || runtime.asset != update.m_previous)
             return Result<std::shared_ptr<Material>, Error>::failure({"Material update is stale"});
         if(auto saved = write_text_file_atomic(
-               m_paths.assets() / update.m_record.path, update.m_serialized);
+               m_database.paths().assets() / update.m_record.path, update.m_serialized);
             !saved) {
             return Result<std::shared_ptr<Material>, Error>::failure({saved.error()});
         }
@@ -841,7 +843,7 @@ namespace Comet {
 
     Result<std::shared_ptr<Material>, Error> AssetManager::create_runtime_material(
         const AssetRecord& record) {
-        auto data = MaterialSerializer{}.load(m_paths.assets() / record.path);
+        auto data = MaterialSerializer{}.load(m_database.paths().assets() / record.path);
         if(!data)
             return Result<std::shared_ptr<Material>, Error>::failure({data.error()});
         return create_runtime_material(record, data.value());

@@ -162,7 +162,7 @@ namespace Comet {
     bool AssetManager::schedule_mesh_task(const AssetRecord& record, const MeshImportMode mode) {
         const auto handle = record.handle;
         const auto revision = m_database.get_revision(handle);
-        const auto source = m_paths.assets() / record.path;
+        const auto source = m_database.paths().assets() / record.path;
         std::error_code error;
         const auto source_size = std::filesystem::file_size(source, error);
         Result<std::size_t> estimate = Result<std::size_t>::success(m_limits.mesh_working_bytes);
@@ -189,7 +189,7 @@ namespace Comet {
         const auto budget = estimate.value();
         const bool scheduled = m_task_queue->schedule(
             handle, revision,
-            [paths = m_paths, limits = m_limits, record, revision, mode, budget](
+            [paths = m_database.paths(), limits = m_limits, record, revision, mode, budget](
                 AssetImportResult& result) {
                 result.candidate =
                     ImportService(paths, limits).prepare_mesh(record, revision, mode, budget);
@@ -216,7 +216,7 @@ namespace Comet {
     bool AssetManager::schedule_material_refresh(const AssetRecord& record) {
         const auto revision = m_database.get_revision(record.handle);
         return m_task_queue->schedule(record.handle, revision,
-            [record, revision, root = m_paths.assets()](AssetImportResult& result) {
+            [record, revision, root = m_database.paths().assets()](AssetImportResult& result) {
                 result.candidate = MaterialImportCandidate{
                     record, revision, MaterialSerializer{}.load(root / record.path)};
             });
@@ -238,7 +238,8 @@ namespace Comet {
             return false;
         }
 
-        auto bytes = TextureImporter::working_bytes(m_paths.assets() / record.path, m_limits);
+        auto bytes =
+            TextureImporter::working_bytes(m_database.paths().assets() / record.path, m_limits);
         if(!bytes || bytes.value() > m_task_queue->memory_budget()) {
             const std::string message =
                 bytes ? "Texture exceeds the asset CPU memory budget" : bytes.error();
@@ -251,8 +252,8 @@ namespace Comet {
 
         return m_task_queue->schedule(
             handle, revision,
-            [paths = m_paths, limits = m_limits, handle, revision, record, settings = *settings,
-                budget = bytes.value()](AssetImportResult& result) {
+            [paths = m_database.paths(), limits = m_limits, handle, revision, record,
+                settings = *settings, budget = bytes.value()](AssetImportResult& result) {
                 result.candidate = TextureImportCandidate{handle, revision, record.path,
                     ImportService(paths, limits).prepare_texture(record, settings, budget)};
             },
@@ -263,7 +264,7 @@ namespace Comet {
         const auto revision = m_database.get_revision(record.handle);
         if(m_task_queue->contains(record.handle, revision))
             return Result<bool, Error>::success(true);
-        auto bytes = EnvironmentImporter::working_bytes(m_paths.assets() / record.path);
+        auto bytes = EnvironmentImporter::working_bytes(m_database.paths().assets() / record.path);
         if(!bytes)
             return Result<bool, Error>::failure({bytes.error()});
         if(bytes.value() > m_task_queue->memory_budget())
@@ -271,7 +272,8 @@ namespace Comet {
                 {"Environment exceeds the asset CPU memory budget"});
         const auto accepted = m_task_queue->schedule(
             record.handle, revision,
-            [paths = m_paths, record, revision, budget = bytes.value()](AssetImportResult& result) {
+            [paths = m_database.paths(), record, revision, budget = bytes.value()](
+                AssetImportResult& result) {
                 auto prepared = ImportService(paths).prepare_environment(record, budget);
                 auto data = Result<EnvironmentData>::failure("Environment preparation failed");
                 if(prepared)

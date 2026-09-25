@@ -124,7 +124,9 @@ Finder 的 `.DS_Store` 与原子写临时文件不计入快照变化，
 - 引用表示必需且不可重绑定的借用；指针用于可空、可换 owner 或 moved-from 状态。
   unique_ptr 独占，shared_ptr 延长共享寿命；原生 Vulkan/GLFW handle 仍遵守各自协议。
 - Renderer 是组合根，不是所有 GPU 对象的直接 owner；Device 也不反向拥有业务服务。
-- EditorAssets 中 SceneAssetReferences 先于其借用的 AssetManager 和 AssetDatabase 销毁，AssetManager 先于 AssetDatabase 销毁；开发态 app 的 AssetManager 自持索引。app/editor 的 AssetManager 均先于 Engine 销毁；后台任务先结束，GPU 使用完成后再释放 Registry 和渲染资源。
+- EditorAssets 中 SceneAssetReferences 先于其借用的 AssetManager 和 AssetDatabase 销毁，AssetManager 先于 AssetDatabase 销毁；开发态 app 的 AssetManager 自持索引。
+  EditorAssets 和 AssetManager 从索引读取项目路径，提交后台任务时按值捕获路径快照，不让 Worker 借用数据库。
+  app/editor 的 AssetManager 均先于 Engine 销毁；后台任务先结束，GPU 使用完成后再释放 Registry 和渲染资源。
 
 ## 应用启动与失败清理
 

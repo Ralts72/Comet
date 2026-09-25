@@ -155,7 +155,6 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> create_runtime_material(
             const AssetRecord& record, const MaterialData& data);
 
-        ProjectPaths m_paths;
         AssetImportLimits m_limits;
         std::unique_ptr<AssetDatabase> m_owned_database;
         AssetDatabase& m_database;

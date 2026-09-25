@@ -72,8 +72,8 @@ namespace Comet::Tests {
         }
         AssetScanReport import(std::initializer_list<std::filesystem::path> files,
             const std::filesystem::path& directory = "folder") {
-            auto report = AssetSourceOperations::import_files(database, paths,
-                std::span(files.begin(), files.size()), directory, AssetImportLimits{});
+            auto report = AssetSourceOperations::import_files(
+                database, std::span(files.begin(), files.size()), directory, AssetImportLimits{});
             manager.accept_scan_report(report);
             return report;
         }
@@ -165,6 +165,27 @@ namespace Comet::Tests {
         ASSERT_TRUE(report.succeeded());
         EXPECT_TRUE(database.find("folder/texture.png"));
         EXPECT_TRUE(std::filesystem::is_empty(paths.cache() / "file-import"));
+    }
+
+    TEST_F(ExternalFileImportTest, PreparedImportRejectsAnotherProjectsDatabase) {
+        const auto source = texture();
+        auto prepared = AssetSourceOperations::PreparedFileImport::prepare(
+            paths, {source}, "folder", AssetImportLimits{});
+        ASSERT_TRUE(prepared);
+
+        ProjectPaths other_paths{root / "other-project"};
+        std::filesystem::create_directories(other_paths.assets() / "folder");
+        std::filesystem::copy_file(source, other_paths.assets() / "folder/texture.png");
+        AssetDatabase other_database{other_paths};
+
+        const auto report = std::move(prepared).value().publish(other_database);
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_FALSE(report.succeeded());
+        ASSERT_FALSE(report.issues.empty());
+        EXPECT_NE(report.issues.back().message.find("different project"), std::string::npos);
+        EXPECT_EQ(other_database.size(), 0u);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/texture.png"));
+        EXPECT_TRUE(std::filesystem::is_regular_file(other_paths.assets() / "folder/texture.png"));
     }
 
     TEST_F(ExternalFileImportTest, AbandonedPreparationRemovesOnlyStaging) {

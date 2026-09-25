@@ -16,14 +16,14 @@ namespace CometEditor {
         Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler,
         const std::chrono::milliseconds quiet_period, const Comet::AssetImportLimits limits,
         AssetSourceOperations::TrashMover trash_mover)
-        : m_paths(std::move(paths)), m_limits(limits), m_trash_mover(std::move(trash_mover)),
-          m_database(m_paths), m_manager(m_database, registry, factory, scheduler, m_limits),
-          m_scene_assets(m_database, m_manager), m_monitor(m_paths.assets()),
+        : m_limits(limits), m_trash_mover(std::move(trash_mover)), m_database(std::move(paths)),
+          m_manager(m_database, registry, factory, scheduler, m_limits),
+          m_scene_assets(m_database, m_manager), m_monitor(m_database.paths().assets()),
           m_scheduler(scheduler), m_quiet_period(quiet_period) {
         if(!m_trash_mover)
             m_trash_mover = SystemTrash::move;
         std::error_code error;
-        const auto pending = m_paths.local_data() / "pending-deletions";
+        const auto pending = m_database.paths().local_data() / "pending-deletions";
         if(std::filesystem::is_directory(pending, error)
             && !std::filesystem::is_empty(pending, error))
             LOG_WARN("Unfinished asset deletion remains at '{}'; inspect it before cleanup",
@@ -37,7 +37,7 @@ namespace CometEditor {
         if(!record || record->type != Comet::AssetType::Material
             || !database().is_current(request.handle, request.revision))
             return Comet::Result<Comet::MaterialData>::failure("Material read request is stale");
-        return Comet::MaterialSerializer{}.load(m_paths.assets() / record->path);
+        return Comet::MaterialSerializer{}.load(m_database.paths().assets() / record->path);
     }
 
     void EditorAssets::observe(const AssetSourceMonitor::PollResult& result) {
@@ -207,8 +207,8 @@ namespace CometEditor {
         if(!m_pending_file_import && !m_file_import_requests.empty()) {
             auto& request = m_file_import_requests.front();
             auto completion = m_scheduler.try_submit_result(
-                [paths = m_paths, sources = request.sources, directory = request.directory,
-                    limits = m_limits] {
+                [paths = m_database.paths(), sources = request.sources,
+                    directory = request.directory, limits = m_limits] {
                     return AssetSourceOperations::PreparedFileImport::prepare(
                         paths, sources, directory, limits);
                 });
@@ -222,9 +222,10 @@ namespace CometEditor {
     void EditorAssets::submit_pending_scan() {
         if(m_full_scan_requested && !m_pending_scan) {
             const auto database_generation = m_database.generation();
-            auto completion = m_scheduler.try_submit_result([paths = m_paths, database_generation] {
-                return Comet::AssetDatabase::prepare_scan(paths, database_generation);
-            });
+            auto completion =
+                m_scheduler.try_submit_result([paths = m_database.paths(), database_generation] {
+                    return Comet::AssetDatabase::prepare_scan(paths, database_generation);
+                });
             if(completion) {
                 m_pending_scan.emplace(
                     std::move(*completion), m_monitor.change_generation(), m_full_scan_change_time);
@@ -270,15 +271,16 @@ namespace CometEditor {
                 pending = m_pending_shader_programs.erase(pending);
                 continue;
             }
-            auto request = ShaderProgramImport::resolve(database(), m_paths, handle);
+            auto request = ShaderProgramImport::resolve(database(), m_database.paths(), handle);
             if(!request) {
                 LOG_WARN("Shader program {}: {}", handle.value(), request.error());
                 pending = m_pending_shader_programs.erase(pending);
                 continue;
             }
             const auto input = std::move(request).value();
-            if(!m_manager.import_shader_program_async(input,
-                   [paths = m_paths, input] { return ShaderProgramImport::prepare(paths, input); }))
+            if(!m_manager.import_shader_program_async(input, [paths = m_database.paths(), input] {
+                   return ShaderProgramImport::prepare(paths, input);
+               }))
                 break;
             pending = m_pending_shader_programs.erase(pending);
         }
@@ -288,7 +290,7 @@ namespace CometEditor {
         const Comet::AssetHandle handle, const std::filesystem::path& destination) {
         const auto* previous = database().find(handle);
         const auto old_path = previous ? previous->path : std::filesystem::path{};
-        auto report = AssetSourceOperations::move(m_database, m_paths, handle, destination);
+        auto report = AssetSourceOperations::move(m_database, handle, destination);
         if(report.snapshot_updated) {
             if(const auto* current = database().find(handle)) {
                 acknowledge(old_path);
@@ -307,8 +309,7 @@ namespace CometEditor {
     Comet::AssetScanReport EditorAssets::remove(const Comet::AssetHandle handle) {
         const auto* previous = database().find(handle);
         const auto old_path = previous ? previous->path : std::filesystem::path{};
-        auto report =
-            AssetSourceOperations::remove_asset(m_database, m_paths, handle, m_trash_mover);
+        auto report = AssetSourceOperations::remove_asset(m_database, handle, m_trash_mover);
         if(report.snapshot_updated) {
             acknowledge(old_path);
             acknowledge(Comet::metadata_path(old_path));
@@ -330,8 +331,7 @@ namespace CometEditor {
 
     Comet::AssetScanReport EditorAssets::create_material(
         const std::filesystem::path& destination, const Comet::MaterialData& data) {
-        auto report =
-            AssetSourceOperations::create_material(m_database, m_paths, destination, data);
+        auto report = AssetSourceOperations::create_material(m_database, destination, data);
         if(report.snapshot_updated) {
             acknowledge(destination);
             acknowledge(Comet::metadata_path(destination));
@@ -341,7 +341,7 @@ namespace CometEditor {
     }
 
     Comet::AssetScanReport EditorAssets::create_script(const std::filesystem::path& destination) {
-        auto report = AssetSourceOperations::create_script(m_database, m_paths, destination);
+        auto report = AssetSourceOperations::create_script(m_database, destination);
         if(report.snapshot_updated) {
             acknowledge(destination);
             acknowledge(Comet::metadata_path(destination));
