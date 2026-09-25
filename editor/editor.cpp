@@ -25,6 +25,7 @@
 #include "render/renderer.h"
 #include "core/window.h"
 #include "diagnostics/logger.h"
+#include "diagnostics/profiler.h"
 #include "ui/menu_bar.h"
 #include "ui/console.h"
 #include "inspector/inspector.h"
@@ -183,6 +184,7 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> on_update(Comet::Engine::FrameContext& frame) override {
+            PROFILE_SCOPE("Editor::on_update");
             if(const auto language = m_menu_bar->take_language_request())
                 m_ui_language = *language;
             process_diagnostics_requests();

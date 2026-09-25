@@ -152,6 +152,12 @@ VMA 分配量不等于系统总显存；各分段百分位不能直接相加。C
 退出时会清理临时副本；若清理失败，工具会打印残留路径。Debug 构建只用于验证工具，性能判断应使用 Release 与实际规模的项目。
 `--synthetic` 会在临时项目生成指定数量的简单 Lua 资产及扫描产生的 `.meta`，用于观察文件数量扩大时的开销；它不代表真实项目的资产类型、依赖或存储条件。
 
+若要观察扫描对编辑器帧的影响，可在 `config/profiles/editor-dev.yaml` 临时启用 `diagnostics.enable_profiler`，
+再用 `./editor.sh /path/to/project` 打开项目并触发资产变化。退出时的 Profiler 日志包含 `Engine::Frame`、
+`Editor::on_update`、`EditorAssets::update`、`EditorAssets::restore_references` 和数据库扫描分段。
+这些是各自的累计／最大耗时，最大值不保证来自同一帧，不能直接相加；编辑器「渲染统计」可另行采集帧时间趋势。
+测量时保持窗口可见；最小化后的 `Engine::Frame` 可能包含等待窗口事件的时间，不代表扫描卡顿。
+
 ### 交互式渲染诊断
 
 `diagnostics.enable_render_diagnostics` 独立于 scope Profiler 的编译开关；`dev-debug` 默认开启，

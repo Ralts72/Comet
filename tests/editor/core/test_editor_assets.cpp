@@ -65,6 +65,17 @@ namespace CometEditor::Tests {
             return Comet::ProjectPaths(root).cache() / "imported/mesh"
                    / (std::to_string(mesh.value()) + ".bin");
         }
+        void require_external_mesh_buffer() const {
+            std::ofstream(Comet::ProjectPaths(root).assets() / "model.gltf", std::ios::trunc)
+                << R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":42,"uri":"mesh.bin"}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"indices":1}]}]})";
+        }
+        void add_external_mesh_buffer() const {
+            const std::array<float, 9> vertices{0, 0, 0, 1, 0, 0, 0, 1, 0};
+            const std::array<std::uint16_t, 3> indices{0, 1, 2};
+            std::ofstream buffer(Comet::ProjectPaths(root).assets() / "mesh.bin", std::ios::binary);
+            buffer.write(reinterpret_cast<const char*>(vertices.data()), sizeof(vertices));
+            buffer.write(reinterpret_cast<const char*>(indices.data()), sizeof(indices));
+        }
         void complete_imports() {
             // 发布软预算可能让一次更新只消费一个结果，需分轮取完。
             const auto count = assets->database().get_assets().size();
@@ -1056,6 +1067,24 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(Comet::MeshArtifact::load(artifact_path(), mesh));
     }
 
+    TEST_F(EditorAssetsTest, UnrelatedAssetChangesDoNotRecheckImportedMeshes) {
+        complete_imports();
+        ASSERT_TRUE(Comet::MeshArtifact::load(artifact_path(), mesh));
+        ASSERT_TRUE(std::filesystem::remove(artifact_path()));
+
+        std::ofstream(Comet::ProjectPaths(root).assets() / "unrelated.lua") << "return {}\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(550));
+        const auto report = wait_for_source_report();
+        ASSERT_TRUE(report);
+        ASSERT_TRUE(report->succeeded());
+        complete_imports();
+        EXPECT_FALSE(std::filesystem::exists(artifact_path()));
+
+        ASSERT_TRUE(assets->refresh().succeeded());
+        complete_imports();
+        EXPECT_TRUE(Comet::MeshArtifact::load(artifact_path(), mesh));
+    }
+
     TEST_F(EditorAssetsTest, AutomaticImportReusesCacheUntilExplicitReimport) {
         complete_imports();
         ASSERT_TRUE(assets->load_reference(
@@ -1110,20 +1139,12 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(EditorAssetsTest, AddingPreviouslyMissingBufferRetriesUnindexedDependency) {
-        const auto directory = Comet::ProjectPaths(root).assets();
-        std::ofstream(directory / "model.gltf", std::ios::trunc)
-            << R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":42,"uri":"mesh.bin"}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"indices":1}]}]})";
+        require_external_mesh_buffer();
         ASSERT_TRUE(assets->refresh().succeeded());
         complete_imports();
         EXPECT_FALSE(std::filesystem::exists(artifact_path()));
         EXPECT_TRUE(assets->database().get_import_dependencies(mesh).empty());
-        const std::array<float, 9> vertices{0, 0, 0, 1, 0, 0, 0, 1, 0};
-        const std::array<std::uint16_t, 3> indices{0, 1, 2};
-        {
-            std::ofstream buffer(directory / "mesh.bin", std::ios::binary);
-            buffer.write(reinterpret_cast<const char*>(vertices.data()), sizeof(vertices));
-            buffer.write(reinterpret_cast<const char*>(indices.data()), sizeof(indices));
-        }
+        add_external_mesh_buffer();
         std::this_thread::sleep_for(std::chrono::milliseconds(550));
         const auto report = wait_for_source_report();
         ASSERT_TRUE(report);
@@ -1134,6 +1155,19 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(Comet::MeshArtifact::load(artifact_path(), mesh));
         EXPECT_FALSE(assets->database().get_import_dependencies(mesh).empty());
         EXPECT_EQ(factory.mesh_creation_count(), 0);
+    }
+
+    TEST_F(EditorAssetsTest, BufferAddedBeforeFailedCompletionStillRetriesMesh) {
+        require_external_mesh_buffer();
+        ASSERT_TRUE(assets->refresh().succeeded());
+        ASSERT_TRUE(assets->update());
+        scheduler.wait_idle();
+        add_external_mesh_buffer();
+        ASSERT_TRUE(assets->refresh().succeeded());
+
+        ASSERT_TRUE(assets->update());
+        complete_imports();
+        EXPECT_TRUE(Comet::MeshArtifact::load(artifact_path(), mesh));
     }
 
     TEST_F(EditorAssetsTest, MovePreservesIdentityAndAcknowledgesEditorWrite) {

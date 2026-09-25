@@ -61,7 +61,11 @@ namespace CometEditor {
             database().include_dependents(changed);
             for(const auto handle : changed) {
                 const auto* record = database().find(handle);
-                if(record && record->type == Comet::AssetType::ShaderProgram) {
+                if(!record)
+                    continue;
+                if(record->type == Comet::AssetType::Mesh)
+                    m_pending_mesh_imports.try_emplace(handle, Comet::MeshImportMode::IfNeeded);
+                if(record->type == Comet::AssetType::ShaderProgram) {
                     auto& due = m_pending_shader_programs[handle];
                     if(change_time)
                         due = *change_time + m_quiet_period;
@@ -77,16 +81,13 @@ namespace CometEditor {
             m_reference_changes.insert(report.removed_assets.begin(), report.removed_assets.end());
             m_pending_references.insert(
                 m_unresolved_references.begin(), m_unresolved_references.end());
-            // 失败的模型可能尚无 buffer 依赖索引，不能只检查变化的 Handle。
             std::erase_if(m_pending_mesh_imports, [&](const auto& entry) {
                 const auto* record = database().find(entry.first);
                 return !record || record->type != Comet::AssetType::Mesh;
             });
-            for(const auto& record : database().get_assets()) {
-                if(record.type == Comet::AssetType::Mesh)
-                    m_pending_mesh_imports.try_emplace(
-                        record.handle, Comet::MeshImportMode::IfNeeded);
-            }
+            // 首次导入失败时依赖可能尚未入库，后续文件变化仍需重试它。
+            for(const auto handle : m_manager.mesh_imports_needing_recheck())
+                m_pending_mesh_imports.try_emplace(handle, Comet::MeshImportMode::IfNeeded);
         }
         if(report.generated_metadata) {
             for(const auto handle : report.added_assets) {
@@ -99,16 +100,25 @@ namespace CometEditor {
     }
 
     Comet::AssetScanReport EditorAssets::refresh() {
+        PROFILE_SCOPE("EditorAssets::refresh");
         m_pending_scan.reset();
         m_full_scan_requested = false;
         observe(m_monitor.poll_now());
         auto report = m_database.scan();
         accept_scan(report);
+        if(report.snapshot_updated) {
+            for(const auto& record : database().get_assets()) {
+                if(record.type == Comet::AssetType::Mesh)
+                    m_pending_mesh_imports.try_emplace(
+                        record.handle, Comet::MeshImportMode::IfNeeded);
+            }
+        }
         return report;
     }
 
     Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> EditorAssets::update(
         const Clock::time_point now) {
+        PROFILE_SCOPE("EditorAssets::update");
         const auto result = m_monitor.poll_async(m_scheduler, now);
         observe(result);
         if(result.state == AssetSourceMonitor::PollState::Failed)
@@ -158,6 +168,10 @@ namespace CometEditor {
             const auto* record = database().find(request->first);
             if(!record || record->type != Comet::AssetType::Mesh) {
                 request = m_pending_mesh_imports.erase(request);
+                continue;
+            }
+            if(m_manager.is_mesh_import_pending(request->first)) {
+                ++request;
                 continue;
             }
             if(!m_manager.import_mesh_async(request->first, request->second))
@@ -351,6 +365,7 @@ namespace CometEditor {
 
     Comet::Result<std::size_t, Comet::Error> EditorAssets::restore_references(
         const Comet::AssetCompletionBudget budget) {
+        PROFILE_SCOPE("EditorAssets::restore_references");
         auto changed = std::exchange(m_reference_changes, {});
         if(!changed.empty()) {
             database().include_dependents(changed);

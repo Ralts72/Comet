@@ -13,6 +13,8 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace Comet {
     class AssetRegistry;
@@ -88,6 +90,9 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> import_mesh(AssetHandle handle);
         [[nodiscard]] bool import_mesh_async(
             AssetHandle handle, MeshImportMode mode = MeshImportMode::IfNeeded);
+        [[nodiscard]] bool is_mesh_import_pending(AssetHandle handle) const;
+        // 包含在途和失败的导入；成功确认 Artifact 后移除。
+        [[nodiscard]] std::vector<AssetHandle> mesh_imports_needing_recheck() const;
         using ShaderProgramPrepare =
             std::function<Result<ShaderProgramImportPrepared, ShaderProgramImportFailure>()>;
         [[nodiscard]] bool import_shader_program_async(
@@ -126,8 +131,10 @@ namespace Comet {
             const AssetRecord& record);
         Result<void, GraphicsError> refresh_loaded_mesh(
             AssetHandle handle, AssetRevision revision, const MeshData& data);
-        void record_import_dependencies(
+        bool record_import_dependencies(
             AssetHandle handle, const std::vector<std::filesystem::path>& dependencies);
+        void complete_mesh_import(AssetHandle handle, AssetRevision revision,
+            const std::vector<std::filesystem::path>& dependencies);
         [[nodiscard]] bool schedule_mesh_task(const AssetRecord& record, MeshImportMode mode);
         [[nodiscard]] bool schedule_loaded_texture_refresh(const AssetRecord& record);
         [[nodiscard]] bool schedule_material_refresh(const AssetRecord& record);
@@ -156,5 +163,6 @@ namespace Comet {
         std::unique_ptr<AssetTaskQueue> m_task_queue;
         std::unordered_map<AssetHandle, AssetRevision> m_refresh_requests;
         std::unordered_map<AssetHandle, AssetRevision> m_failed_environments;
+        std::unordered_set<AssetHandle> m_mesh_imports_needing_recheck;
     };
 }

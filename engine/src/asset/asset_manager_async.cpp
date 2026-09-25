@@ -37,6 +37,8 @@ namespace Comet {
             static_cast<void>(m_registry.unregister_asset(handle));
             m_failed_environments.erase(handle);
         }
+        for(const AssetHandle handle : report.removed_assets)
+            m_mesh_imports_needing_recheck.erase(handle);
 
         for(const AssetHandle handle : report.modified_assets) {
             if(invalidated.contains(handle) || !m_registry.contains(handle)) {
@@ -136,23 +138,35 @@ namespace Comet {
         return Result<std::vector<AssetHandle>, Error>::success(std::move(published));
     }
 
-    void AssetManager::record_import_dependencies(
+    bool AssetManager::record_import_dependencies(
         const AssetHandle handle, const std::vector<std::filesystem::path>& dependencies) {
         if(auto updated = m_database.update_import_dependencies(handle, dependencies); !updated) {
             LOG_WARN("Could not index import dependencies for asset handle {}: {}", handle.value(),
                 updated.error());
+            return false;
         }
+        return true;
+    }
+
+    void AssetManager::complete_mesh_import(const AssetHandle handle, const AssetRevision revision,
+        const std::vector<std::filesystem::path>& dependencies) {
+        if(record_import_dependencies(handle, dependencies)
+            && !m_task_queue->contains(handle, revision))
+            m_mesh_imports_needing_recheck.erase(handle);
     }
 
     bool AssetManager::schedule_mesh_task(const AssetRecord& record, const MeshImportMode mode) {
         const auto handle = record.handle;
         const auto revision = m_database.get_revision(handle);
-        return m_task_queue->schedule(
+        const bool scheduled = m_task_queue->schedule(
             handle, revision,
             [paths = m_paths, record, revision, mode](AssetImportResult& result) {
                 result.candidate = ImportService(paths).prepare_mesh(record, revision, mode);
             },
             mode == MeshImportMode::Force);
+        if(scheduled)
+            m_mesh_imports_needing_recheck.insert(handle);
+        return scheduled;
     }
 
     bool AssetManager::import_shader_program_async(

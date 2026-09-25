@@ -316,7 +316,8 @@ namespace Comet {
         }
         auto& artifact = candidate.result.value();
         if(candidate.reused_artifact) {
-            record_import_dependencies(candidate.handle, artifact.source_dependencies());
+            complete_mesh_import(
+                candidate.handle, candidate.revision, artifact.source_dependencies());
             return ImportPublication::success(std::nullopt);
         }
         if(auto publication =
@@ -327,7 +328,7 @@ namespace Comet {
                 publication.error());
             return ImportPublication::success(std::nullopt);
         }
-        record_import_dependencies(candidate.handle, artifact.source_dependencies());
+        complete_mesh_import(candidate.handle, candidate.revision, artifact.source_dependencies());
 
         // Artifact 已发布；后续普通 GPU 创建失败不撤销这个事实。
         if(auto refreshed =
@@ -460,7 +461,7 @@ namespace Comet {
             return Result<void, Error>::failure({"Mesh import is already running"});
         }
         if(auto artifact = m_import_service->find_current_mesh_artifact(handle, snapshot.path)) {
-            record_import_dependencies(handle, artifact->source_dependencies());
+            complete_mesh_import(handle, revision, artifact->source_dependencies());
             LOG_DEBUG("Mesh artifact is current '{}' (handle {})", snapshot.path.generic_string(),
                 handle.value());
             return Result<void, Error>::success();
@@ -484,7 +485,7 @@ namespace Comet {
                 snapshot.path.generic_string(), handle.value(), result.error());
             return Result<void, Error>::failure({result.error()});
         }
-        record_import_dependencies(handle, artifact.source_dependencies());
+        complete_mesh_import(handle, revision, artifact.source_dependencies());
 
         if(auto refreshed = refresh_loaded_mesh(handle, revision, artifact.data); !refreshed)
             return Result<void, Error>::failure(refreshed.error().as_error());
@@ -518,6 +519,14 @@ namespace Comet {
     bool AssetManager::import_mesh_async(const AssetHandle handle, const MeshImportMode mode) {
         const auto* record = find_asset_record(m_database, handle, AssetType::Mesh);
         return record && schedule_mesh_task(*record, mode);
+    }
+
+    bool AssetManager::is_mesh_import_pending(const AssetHandle handle) const {
+        return m_task_queue->contains(handle, m_database.get_revision(handle));
+    }
+
+    std::vector<AssetHandle> AssetManager::mesh_imports_needing_recheck() const {
+        return {m_mesh_imports_needing_recheck.begin(), m_mesh_imports_needing_recheck.end()};
     }
 
     Result<std::shared_ptr<Mesh>, Error> AssetManager::load_mesh(const AssetHandle handle) {
