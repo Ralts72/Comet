@@ -144,9 +144,11 @@ VMA 分配量不等于系统总显存；各分段百分位不能直接相加。C
 ./tools/asset_scan_benchmark/run.sh
 ./tools/asset_scan_benchmark/run.sh /path/to/project 30
 ./tools/asset_scan_benchmark/run.sh --synthetic 1000 30
+./tools/asset_scan_benchmark/run.sh --profile --synthetic 1000 30
 ```
 
 脚本复用 `build-release/` 并只构建所需目标，构建消息写到标准错误，标准输出为 CSV，可重定向保存。
+`--profile` 改用 `build-editor/` 的 RelWithDebInfo 构建，把扫描内部阶段的采样写到标准错误；其耗时不能直接与 Release 的 CSV 数值比较。
 退出时会清理临时副本；若清理失败，工具会打印残留路径。Debug 构建只用于验证工具，性能判断应使用 Release 与实际规模的项目。
 `--synthetic` 会在临时项目生成指定数量的简单 Lua 资产及扫描产生的 `.meta`，用于观察文件数量扩大时的开销；它不代表真实项目的资产类型、依赖或存储条件。
 

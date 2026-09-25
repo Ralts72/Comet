@@ -1,5 +1,7 @@
 #include "asset/database.h"
 #include "common/scope_exit.h"
+#include "diagnostics/logger.h"
+#include "diagnostics/profiler.h"
 
 #include <algorithm>
 #include <charconv>
@@ -8,18 +10,37 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
 
+#include <spdlog/sinks/stdout_sinks.h>
+
 namespace {
     namespace fs = std::filesystem;
     using Clock = std::chrono::steady_clock;
 
-    constexpr std::string_view USAGE = "Usage: asset_scan_benchmark PROJECT_DIRECTORY "
-                                       "[ROUNDS (1..1000)] | --synthetic ASSETS (1..10000) "
-                                       "[ROUNDS (1..1000)]";
+    constexpr std::string_view USAGE = "Usage: asset_scan_benchmark [--profile] "
+                                       "(PROJECT_DIRECTORY [ROUNDS (1..1000)] | "
+                                       "--synthetic ASSETS (1..10000) [ROUNDS (1..1000)])";
+
+    bool start_profile() {
+        Comet::Logger::init({}, true);
+        const auto logger = Comet::Logger::get_profiler_logger();
+        if(!logger) {
+            std::cerr << "Cannot initialize profiler output\n";
+            Comet::Logger::shutdown();
+            return false;
+        }
+        logger->sinks().clear();
+        logger->sinks().push_back(std::make_shared<spdlog::sinks::stderr_sink_mt>());
+        logger->set_pattern("[Profiler] %v");
+        Comet::Profiler::reset();
+        Comet::Profiler::set_enabled(true);
+        return true;
+    }
 
     bool parse_count(const std::string_view input, unsigned& value, const unsigned maximum) {
         const auto [end, error] = std::from_chars(input.data(), input.data() + input.size(), value);
@@ -86,20 +107,28 @@ namespace {
 }
 
 int main(int argc, char** argv) {
-    if(argc == 2 && std::string_view(argv[1]) == "--help") {
+    int first = 1;
+    const bool profile = argc > first && std::string_view(argv[first]) == "--profile";
+    if(profile)
+        ++first;
+    if(argc == first + 1 && std::string_view(argv[first]) == "--help") {
         std::cout << USAGE << '\n';
         return 0;
     }
-    const bool synthetic = argc >= 2 && std::string_view(argv[1]) == "--synthetic";
-    if((synthetic && argc != 3 && argc != 4) || (!synthetic && argc != 2 && argc != 3)) {
+    if(argc <= first) {
+        std::cerr << USAGE << '\n';
+        return 2;
+    }
+    const bool synthetic = std::string_view(argv[first]) == "--synthetic";
+    const int required_arguments = first + (synthetic ? 2 : 1);
+    if(argc != required_arguments && argc != required_arguments + 1) {
         std::cerr << USAGE << '\n';
         return 2;
     }
 
     unsigned rounds = 20;
-    const int rounds_index = synthetic ? 3 : 2;
-    if(argc > rounds_index) {
-        const std::string_view input(argv[rounds_index]);
+    if(argc > required_arguments) {
+        const std::string_view input(argv[required_arguments]);
         if(!parse_count(input, rounds, 1000)) {
             std::cerr << "Invalid round count: " << input << '\n';
             return 2;
@@ -107,15 +136,19 @@ int main(int argc, char** argv) {
     }
 
     unsigned synthetic_count = 0;
-    if(synthetic && !parse_count(argv[2], synthetic_count, 10000)) {
-        std::cerr << "Invalid synthetic asset count: " << argv[2] << '\n';
+    if(synthetic && !parse_count(argv[first + 1], synthetic_count, 10000)) {
+        std::cerr << "Invalid synthetic asset count: " << argv[first + 1] << '\n';
+        return 2;
+    }
+    if(profile && !Comet::Profiler::is_available()) {
+        std::cerr << "Profiling requires a Debug or RelWithDebInfo build\n";
         return 2;
     }
 
     fs::path source_assets;
     std::error_code error;
     if(!synthetic) {
-        source_assets = fs::path(argv[1]) / "assets";
+        source_assets = fs::path(argv[first]) / "assets";
         const auto source_status = fs::symlink_status(source_assets, error);
         if(error || !fs::is_directory(source_status) || fs::is_symlink(source_status)) {
             std::cerr << "Project needs a real, accessible assets directory: " << source_assets
@@ -159,6 +192,15 @@ int main(int argc, char** argv) {
     if(!warmup.issues.empty())
         std::cerr << "Initial scan reported " << warmup.issues.size() << " issue(s)\n";
 
+    if(profile && !start_profile())
+        return 1;
+    const Comet::ScopeExit stop_profile([&] {
+        if(profile) {
+            Comet::Profiler::set_enabled(false);
+            Comet::Logger::shutdown();
+        }
+    });
+
     std::vector<double> prepare_times;
     std::vector<double> publish_times;
     prepare_times.reserve(rounds);
@@ -184,5 +226,7 @@ int main(int argc, char** argv) {
         scenario = "unchanged_full_scan_synthetic_lua";
     print_summary(scenario, "prepare", std::move(prepare_times), database.size());
     print_summary(scenario, "publish", std::move(publish_times), database.size());
+    if(profile)
+        Comet::Profiler::dump_results();
     return 0;
 }

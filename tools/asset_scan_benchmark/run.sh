@@ -9,9 +9,16 @@ usage() {
         '用法：tools/asset_scan_benchmark/run.sh [项目目录 [轮数]]' \
         '不带参数：测量仓库 demo 项目，运行 30 轮。' \
         '合成样本：--synthetic 资产数 [轮数]，用于观察文件数量扩大时的扫描开销。' \
+        '分段采样：--profile [项目目录 [轮数]] 或 --profile --synthetic 资产数 [轮数]。' \
         '项目目录的相对路径以调用时的工作目录为准。' \
-        '复用 build-release，仅构建资产扫描基准及其依赖。'
+        '常规测量复用 build-release；--profile 复用 build-editor。'
 }
+
+profile=false
+if [[ "${1:-}" == "--profile" ]]; then
+    profile=true
+    shift
+fi
 
 if [[ $# -eq 1 && "$1" == "--help" ]]; then
     usage
@@ -33,9 +40,17 @@ else
     args=("$1" "$2")
 fi
 cd "$ROOT_DIR"
-echo '配置并构建 Release 资产扫描基准...' >&2
-cmake --preset app-release -DCOMET_BUILD_BENCHMARKS=ON >&2
-cmake --build --preset app-release --target asset_scan_benchmark --parallel >&2
+if [[ "$profile" == true ]]; then
+    preset=editor-dev
+    build_dir=build-editor
+    args=(--profile "${args[@]}")
+else
+    preset=app-release
+    build_dir=build-release
+fi
+echo "配置并构建 $preset 资产扫描基准..." >&2
+cmake --preset "$preset" -DCOMET_BUILD_BENCHMARKS=ON >&2
+cmake --build --preset "$preset" --target asset_scan_benchmark --parallel >&2
 
 cd "$CALLER_DIRECTORY"
-exec "$ROOT_DIR/build-release/tools/asset_scan_benchmark/asset_scan_benchmark" "${args[@]}"
+exec "$ROOT_DIR/$build_dir/tools/asset_scan_benchmark/asset_scan_benchmark" "${args[@]}"
