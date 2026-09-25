@@ -217,6 +217,29 @@ namespace CometEditor::Tests {
         EXPECT_EQ(selection.get_selected_asset(), database.find("a.png")->handle);
     }
 
+    TEST_F(ProjectPanelTest, UnindexedFilesAreBrowsableButNotAssets) {
+        std::ofstream(paths.assets() / "folder/model.bin") << "companion";
+        std::ofstream(paths.assets() / "notes.txt") << "notes";
+        project->update_scan_report(database.scan());
+        ASSERT_EQ(database.find("folder/model.bin"), nullptr);
+        ASSERT_EQ(database.find("notes.txt"), nullptr);
+
+        const auto selected = database.find("a.png")->handle;
+        selection.select_asset(selected);
+        search("model.bin");
+        EXPECT_EQ(project->file_drop_directory({row_point(2).x, row_point(2).y}),
+            std::filesystem::path("folder"));
+        click(row_point(2));
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+
+        search("c.png.meta");
+        EXPECT_EQ(project->file_drop_directory({row_point(2).x, row_point(2).y}),
+            std::filesystem::path{});
+        search("notes.txt");
+        click(row_point(1));
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+    }
+
     TEST_F(ProjectPanelTest, ExternalFileDropTargetsEmptyDirectoriesAndRejectsPopups) {
         std::filesystem::create_directories(paths.assets() / "empty");
         project->update_scan_report(database.scan());

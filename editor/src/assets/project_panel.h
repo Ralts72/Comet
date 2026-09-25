@@ -60,7 +60,7 @@ namespace CometEditor {
     private:
         struct AssetTreeNode {
             std::map<std::string, AssetTreeNode> directories;
-            std::vector<Comet::AssetRecord> assets;
+            std::map<std::string, std::optional<Comet::AssetRecord>> files;
         };
         struct DropTarget {
             Comet::Math::Vec2 minimum;

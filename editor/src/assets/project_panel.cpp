@@ -32,7 +32,8 @@ namespace CometEditor {
             for(const auto& component : asset.path.parent_path()) {
                 node = &node->directories[component.string()];
             }
-            node->assets.push_back(std::move(asset));
+            const std::string filename = asset.path.filename().string();
+            node->files.emplace(filename, std::move(asset));
         }
         std::error_code error;
         std::filesystem::recursive_directory_iterator iterator(m_asset_root, error), end;
@@ -43,6 +44,16 @@ namespace CometEditor {
                 auto* node = &root;
                 for(const auto& part : iterator->path().lexically_relative(m_asset_root))
                     node = &node->directories[part.string()];
+            } else if(iterator->is_regular_file(error)) {
+                const auto& filename = iterator->path().filename();
+                if(filename.extension() != ".meta" && filename != ".DS_Store"
+                    && !filename.string().starts_with(".comet-tmp-")) {
+                    auto* node = &root;
+                    const auto relative = iterator->path().lexically_relative(m_asset_root);
+                    for(const auto& part : relative.parent_path())
+                        node = &node->directories[part.string()];
+                    node->files.try_emplace(filename.string(), std::nullopt);
+                }
             }
             iterator.increment(error);
         }
@@ -58,12 +69,12 @@ namespace CometEditor {
         for(const auto& [name, directory] : node.directories) {
             const bool directory_matches = contains_search(name, query);
             auto child = filter_asset_tree(directory, directory_matches);
-            if(directory_matches || !child.assets.empty() || !child.directories.empty())
+            if(directory_matches || !child.files.empty() || !child.directories.empty())
                 filtered.directories.emplace(name, std::move(child));
         }
-        for(const auto& asset : node.assets)
-            if(contains_search(asset.path.filename().string(), query))
-                filtered.assets.push_back(asset);
+        for(const auto& [name, asset] : node.files)
+            if(contains_search(name, query))
+                filtered.files.emplace(name, asset);
         return filtered;
     }
 
@@ -91,12 +102,21 @@ namespace CometEditor {
             }
         }
 
-        for(const Comet::AssetRecord& asset : node.assets) {
-            const std::string name = asset.path.filename().string();
-            ImGui::PushID(std::to_string(asset.handle.value()).c_str());
-            if(ImGui::Selectable(name.c_str(), m_selection.is_selected(asset.handle))) {
-                m_selection.select_asset(asset.handle);
+        for(const auto& [name, indexed_asset] : node.files) {
+            if(!indexed_asset) {
+                ImGui::TextUnformatted(name.c_str());
+                record_drop_target(path);
+                if(ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", (path / name).generic_string().c_str());
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%s)", Ui::text("File"));
+                continue;
             }
+            const Comet::AssetRecord& asset = *indexed_asset;
+            ImGui::PushID(std::to_string(asset.handle.value()).c_str());
+            if(ImGui::Selectable(name.c_str(), m_selection.is_selected(asset.handle)))
+                m_selection.select_asset(asset.handle);
             record_drop_target(path);
             if(ImGui::BeginDragDropSource()) {
                 const AssetDragPayload payload{asset.handle, m_database.get_revision(asset.handle),
@@ -152,7 +172,7 @@ namespace CometEditor {
 
         ImGui::SetNextItemWidth(-1.0f);
         if(ImGui::InputTextWithHint(
-               "##asset_search", Ui::text("Search assets..."), m_search.data(), m_search.size()))
+               "##asset_search", Ui::text("Search files..."), m_search.data(), m_search.size()))
             rebuild_search_tree();
 
         const auto& visible_tree = m_filtered_tree ? *m_filtered_tree : m_tree;
@@ -164,9 +184,9 @@ namespace CometEditor {
         accept_asset_drop({});
         render_directory_menu({});
         if(root_open) {
-            if(visible_tree.assets.empty() && visible_tree.directories.empty()) {
+            if(visible_tree.files.empty() && visible_tree.directories.empty()) {
                 ImGui::TextDisabled(
-                    "%s", Ui::text(m_filtered_tree ? "No matching assets" : "No indexed assets"));
+                    "%s", Ui::text(m_filtered_tree ? "No matching files" : "No files"));
             } else {
                 render_asset_tree(visible_tree, {});
             }
