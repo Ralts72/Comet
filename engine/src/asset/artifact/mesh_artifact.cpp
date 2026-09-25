@@ -164,10 +164,11 @@ namespace Comet {
         };
 
         [[nodiscard]] std::optional<std::vector<std::byte>> read_file(
-            const std::filesystem::path& path) {
+            const std::filesystem::path& path, const std::size_t memory_budget) {
             std::error_code error;
             const std::uintmax_t size = std::filesystem::file_size(path, error);
-            if(error || size > static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max())
+            if(error || size > memory_budget / 3
+                || size > static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max())
                 || size
                        > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max())) {
                 return std::nullopt;
@@ -250,9 +251,9 @@ namespace Comet {
         }
     }
 
-    std::optional<MeshArtifact> MeshArtifact::load(
-        const std::filesystem::path& artifact_path, const AssetHandle expected_handle) {
-        const auto file = read_file(artifact_path);
+    std::optional<MeshArtifact> MeshArtifact::load(const std::filesystem::path& artifact_path,
+        const AssetHandle expected_handle, const std::size_t memory_budget) {
+        const auto file = read_file(artifact_path, memory_budget);
         if(!file || file->size() < MAGIC.size() + sizeof(std::uint64_t)) {
             return std::nullopt;
         }

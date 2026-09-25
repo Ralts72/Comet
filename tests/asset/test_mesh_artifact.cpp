@@ -90,6 +90,19 @@ namespace Comet::Tests {
         EXPECT_TRUE(import_inputs_are_current(project.asset_root(), loaded->source_inputs));
     }
 
+    TEST(MeshArtifactTest, RejectsArtifactBeforeReadingBeyondItsBudget) {
+        const TemporaryArtifactProject project;
+        const auto source = project.write_source();
+        const MeshArtifact artifact{.handle = AssetHandle(42),
+            .importer_version = MeshImporter::VERSION,
+            .source_inputs = capture_import_inputs(project.asset_root(), source, {}).value(),
+            .data = make_mesh_data()};
+        ASSERT_TRUE(artifact.publish_atomic(project.artifact_path()));
+        const auto bytes = std::filesystem::file_size(project.artifact_path());
+        EXPECT_FALSE(MeshArtifact::load(project.artifact_path(), AssetHandle(42), bytes * 3 - 1));
+        EXPECT_TRUE(MeshArtifact::load(project.artifact_path(), AssetHandle(42), bytes * 3));
+    }
+
     TEST(MeshArtifactTest, LoadingDoesNotInspectSourceFiles) {
         const TemporaryArtifactProject project;
         const std::filesystem::path source = project.write_source("source-a");

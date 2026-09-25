@@ -7,6 +7,7 @@
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/import/import_service.h"
+#include "asset/import/mesh_importer.h"
 #include "asset/import/texture_importer.h"
 #include "render/resource/environment.h"
 #include "asset/registry.h"
@@ -461,14 +462,16 @@ namespace Comet {
             LOG_WARN("Mesh import is already running for handle {}", handle.value());
             return Result<void, Error>::failure({"Mesh import is already running"});
         }
-        if(auto artifact = m_import_service->find_current_mesh_artifact(handle, snapshot.path)) {
+        if(auto artifact = m_import_service->find_current_mesh_artifact(
+               handle, snapshot.path, MeshImporter::MAX_WORKING_BYTES)) {
             complete_mesh_import(handle, revision, artifact->source_dependencies());
             LOG_DEBUG("Mesh artifact is current '{}' (handle {})", snapshot.path.generic_string(),
                 handle.value());
             return Result<void, Error>::success();
         }
 
-        auto imported = m_import_service->build_mesh_artifact(handle, snapshot.path);
+        auto imported = m_import_service->build_mesh_artifact(
+            handle, snapshot.path, MeshImporter::MAX_WORKING_BYTES);
         if(!imported) {
             LOG_ERROR("{}", imported.error());
             return Result<void, Error>::failure({imported.error()});
@@ -808,8 +811,8 @@ namespace Comet {
     Result<std::shared_ptr<Mesh>, Error> AssetManager::create_runtime_mesh(
         const AssetRecord& record) {
         const auto handle = record.handle;
-        const auto artifact =
-            MeshArtifact::load(m_import_service->mesh_artifact_path(handle), handle);
+        const auto artifact = MeshArtifact::load(
+            m_import_service->mesh_artifact_path(handle), handle, MeshImporter::MAX_WORKING_BYTES);
         if(!artifact)
             return Result<std::shared_ptr<Mesh>, Error>::failure(
                 {"Mesh artifact is missing or invalid; import the asset before loading: "

@@ -131,6 +131,39 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(MeshImporterTest, ChecksWorkingSetBeforeBuildingMeshData) {
+        const TemporaryDirectory directory;
+        const auto source = directory.write_text(
+            "triangle.gltf", make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})"));
+        const auto estimate = MeshImporter::working_bytes(source);
+        ASSERT_TRUE(estimate);
+        EXPECT_GT(estimate.value(), std::filesystem::file_size(source));
+        EXPECT_FALSE(MeshImporter{}.import(source, estimate.value() - 1));
+        EXPECT_TRUE(MeshImporter{}.import(source, estimate.value()));
+
+        auto oversized = make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})");
+        const auto count = oversized.find("\"count\":3");
+        ASSERT_NE(count, std::string::npos);
+        oversized.replace(count, std::string("\"count\":3").size(), "\"count\":4294967295");
+        const auto huge_source = directory.write_text("huge.gltf", oversized);
+        const auto rejected = MeshImporter::working_bytes(huge_source);
+        ASSERT_FALSE(rejected);
+        EXPECT_NE(rejected.error().find("working-set budget"), std::string::npos);
+    }
+
+    TEST(MeshImporterTest, IncludesExternalBufferSizeInWorkingSet) {
+        const TemporaryDirectory directory;
+        const auto buffer = directory.write_triangle_buffer("triangle.bin");
+        const auto source = directory.write_text("triangle.gltf",
+            make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})", "triangle.bin"));
+        const auto before = MeshImporter::working_bytes(source);
+        ASSERT_TRUE(before);
+        std::filesystem::resize_file(buffer, 1024 * 1024);
+        const auto after = MeshImporter::working_bytes(source);
+        ASSERT_TRUE(after);
+        EXPECT_EQ(after.value() - before.value(), 3 * (1024 * 1024 - 42));
+    }
+
     TEST(MeshImporterTest, ImportsGlbContainer) {
         const TemporaryDirectory directory;
         const std::filesystem::path source = directory.write_glb(

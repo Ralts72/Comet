@@ -4,6 +4,7 @@
 #include "asset/import/import_candidate.h"
 #include "asset/import/import_service.h"
 #include "asset/import/environment_importer.h"
+#include "asset/import/mesh_importer.h"
 #include "asset/import/texture_importer.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
@@ -11,6 +12,7 @@
 #include "render/resource/texture.h"
 
 #include <string>
+#include <system_error>
 #include <unordered_set>
 #include <utility>
 #include <variant>
@@ -160,12 +162,40 @@ namespace Comet {
     bool AssetManager::schedule_mesh_task(const AssetRecord& record, const MeshImportMode mode) {
         const auto handle = record.handle;
         const auto revision = m_database.get_revision(handle);
+        const auto source = m_paths.assets() / record.path;
+        std::error_code error;
+        const auto source_size = std::filesystem::file_size(source, error);
+        constexpr std::size_t MAX_OWNER_INSPECT_BYTES = 64 * 1024;
+        Result<std::size_t> estimate =
+            Result<std::size_t>::success(MeshImporter::MAX_WORKING_BYTES);
+        if(error || source_size <= MAX_OWNER_INSPECT_BYTES)
+            estimate = MeshImporter::working_bytes(source);
+        std::string failure;
+        if(!estimate)
+            failure = estimate.error();
+        else if(estimate.value() > m_task_queue->memory_budget())
+            failure = "Mesh exceeds the asset CPU memory budget";
+        if(!failure.empty()) {
+            const bool accepted = m_task_queue->schedule(
+                handle, revision,
+                [handle, revision, path = record.path, message = std::move(failure)](
+                    AssetImportResult& result) {
+                    result.candidate = MeshArtifactCandidate{
+                        handle, revision, path, Result<MeshArtifact>::failure(message)};
+                },
+                mode == MeshImportMode::Force);
+            if(accepted)
+                m_mesh_imports_needing_recheck.insert(handle);
+            return accepted;
+        }
+        const auto budget = estimate.value();
         const bool scheduled = m_task_queue->schedule(
             handle, revision,
-            [paths = m_paths, record, revision, mode](AssetImportResult& result) {
-                result.candidate = ImportService(paths).prepare_mesh(record, revision, mode);
+            [paths = m_paths, record, revision, mode, budget](AssetImportResult& result) {
+                result.candidate =
+                    ImportService(paths).prepare_mesh(record, revision, mode, budget);
             },
-            mode == MeshImportMode::Force);
+            mode == MeshImportMode::Force, budget);
         if(scheduled)
             m_mesh_imports_needing_recheck.insert(handle);
         return scheduled;

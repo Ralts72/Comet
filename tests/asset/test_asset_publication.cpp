@@ -1,5 +1,6 @@
 #include "support/asset_manager_fixture.h"
 #include "asset/import/texture_importer.h"
+#include "asset/import/mesh_importer.h"
 
 namespace Comet::Tests {
     TEST(AssetManagerTest, LoadsAndCachesTextureByAssetHandle) {
@@ -162,6 +163,77 @@ namespace Comet::Tests {
         EXPECT_EQ(completed_handles(manager.process_completions()), std::vector{handle});
         EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
         EXPECT_TRUE(registry.resolve<Texture>(handle) != previous);
+    }
+
+    TEST(AssetManagerTest, MeshImportRetainsItsByteReservationUntilPublication) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const auto source = project.add_mesh(handle);
+        const auto bytes = MeshImporter::working_bytes(source);
+        ASSERT_TRUE(bytes);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+
+        ASSERT_TRUE(manager.import_mesh_async(handle));
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, bytes.value());
+        scheduler.wait_idle();
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, bytes.value());
+        EXPECT_EQ(completed_handles(manager.process_completions()), std::vector{handle});
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
+    }
+
+    TEST(AssetManagerTest, MeshRefreshOverBudgetKeepsPreviousRuntimeVersion) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const auto source = project.add_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler, {.working_bytes = 1});
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_mesh(handle));
+        const auto previous = loaded_asset(manager.load_mesh(handle));
+        ASSERT_TRUE(previous);
+        TemporaryProject::write_mesh(source,
+            R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})");
+
+        ASSERT_TRUE(manager.scan().succeeded());
+        scheduler.wait_idle();
+        EXPECT_TRUE(completed_handles(manager.process_completions()).empty());
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == previous);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
+    }
+
+    TEST(AssetManagerTest, GrowingMeshInputCannotExceedItsQueuedReservation) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle(42);
+        const auto buffer = project.add_external_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_mesh(handle));
+        const auto previous = loaded_asset(manager.load_mesh(handle));
+        ASSERT_TRUE(previous);
+        const auto source = project.paths().assets() / "meshes/external.gltf";
+        const auto reserved = MeshImporter::working_bytes(source);
+        ASSERT_TRUE(reserved);
+
+        BlockedWorker blocker(scheduler);
+        ASSERT_TRUE(manager.import_mesh_async(handle, MeshImportMode::Force));
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, reserved.value());
+        std::filesystem::resize_file(buffer, 1024 * 1024);
+        blocker.release();
+        scheduler.wait_idle();
+        EXPECT_TRUE(completed_handles(manager.process_completions()).empty());
+        EXPECT_TRUE(registry.resolve<Mesh>(handle) == previous);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
     }
 
     TEST(AssetManagerTest, TextureRefreshOverBudgetKeepsPreviousRuntimeVersion) {

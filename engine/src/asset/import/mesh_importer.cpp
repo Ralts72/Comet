@@ -8,18 +8,122 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <variant>
 #include <vector>
 
 namespace Comet {
     namespace {
+        constexpr std::size_t MAX_SOURCE_BYTES = 512ull * 1024 * 1024;
+        constexpr std::size_t IMPORT_OVERHEAD_BYTES = 16ull * 1024 * 1024;
+
         std::string import_error(
             const std::filesystem::path& source_path, const std::string_view message) {
             return "Failed to import mesh '" + source_path.string() + "': " + std::string(message);
+        }
+
+        Result<std::size_t> estimate_mesh_bytes(
+            const fastgltf::Asset& asset, const std::size_t source_bytes) {
+            if(asset.meshes.size() != 1)
+                return Result<std::size_t>::failure(
+                    "exactly one glTF mesh is required per Comet Mesh asset");
+            const std::size_t available = MeshImporter::MAX_WORKING_BYTES - IMPORT_OVERHEAD_BYTES;
+            if(source_bytes > available / 3)
+                return Result<std::size_t>::failure(
+                    "Mesh exceeds its 1 GiB CPU working-set budget");
+            const std::size_t output_budget = (available - source_bytes * 3) / 4;
+            std::size_t output_bytes = 0;
+            for(const fastgltf::Primitive& primitive : asset.meshes.front().primitives) {
+                const auto* position = primitive.findAttribute("POSITION");
+                if(position == primitive.attributes.end()
+                    || position->accessorIndex >= asset.accessors.size())
+                    return Result<std::size_t>::failure("Mesh has no valid POSITION accessor");
+                const std::size_t vertices = asset.accessors[position->accessorIndex].count;
+                std::size_t indices = vertices;
+                if(primitive.indicesAccessor) {
+                    if(*primitive.indicesAccessor >= asset.accessors.size())
+                        return Result<std::size_t>::failure("Mesh has an invalid index accessor");
+                    indices = asset.accessors[*primitive.indicesAccessor].count;
+                }
+                if(vertices == 0 || indices == 0
+                    || vertices > (output_budget - output_bytes) / sizeof(MeshVertex))
+                    return Result<std::size_t>::failure(
+                        "Mesh exceeds its 1 GiB CPU working-set budget");
+                output_bytes += vertices * sizeof(MeshVertex);
+                if(indices > (output_budget - output_bytes) / sizeof(std::uint32_t))
+                    return Result<std::size_t>::failure(
+                        "Mesh exceeds its 1 GiB CPU working-set budget");
+                output_bytes += indices * sizeof(std::uint32_t);
+            }
+            return Result<std::size_t>::success(
+                source_bytes * 3 + output_bytes * 4 + IMPORT_OVERHEAD_BYTES);
+        }
+
+        Result<std::size_t> sum_source_bytes(const std::vector<std::filesystem::path>& files) {
+            std::size_t total = 0;
+            for(const auto& path : files) {
+                std::error_code error;
+                const auto size = std::filesystem::file_size(path, error);
+                if(error || size > MAX_SOURCE_BYTES - total)
+                    return Result<std::size_t>::failure(
+                        "Cannot read mesh input or inputs exceed 512 MiB: " + path.string());
+                total += static_cast<std::size_t>(size);
+            }
+            return Result<std::size_t>::success(total);
+        }
+
+        std::vector<std::filesystem::path> source_paths_for(
+            const std::filesystem::path& source_path, const fastgltf::Asset& asset) {
+            std::vector<std::filesystem::path> files{source_path.lexically_normal()};
+            for(const fastgltf::Buffer& buffer : asset.buffers) {
+                const auto* uri = std::get_if<fastgltf::sources::URI>(&buffer.data);
+                if(!uri || !uri->uri.isLocalPath())
+                    continue;
+                const auto path =
+                    (source_path.parent_path() / uri->uri.fspath()).lexically_normal();
+                if(std::ranges::find(files, path) == files.end())
+                    files.push_back(path);
+            }
+            return files;
+        }
+
+        struct MeshInspection {
+            std::size_t working_bytes;
+            std::vector<std::filesystem::path> source_paths;
+        };
+
+        Result<MeshInspection> inspect_mesh(const std::filesystem::path& source_path) {
+            std::error_code error;
+            const auto source_size = std::filesystem::file_size(source_path, error);
+            if(error || source_size > MAX_SOURCE_BYTES)
+                return Result<MeshInspection>::failure(
+                    "Cannot read mesh input or input exceeds 512 MiB: " + source_path.string());
+            if(source_size > (MeshImporter::MAX_WORKING_BYTES - IMPORT_OVERHEAD_BYTES) / 3)
+                return Result<MeshInspection>::failure(
+                    "Mesh exceeds its 1 GiB CPU working-set budget");
+            auto source = fastgltf::GltfDataBuffer::FromPath(source_path);
+            if(!source)
+                return Result<MeshInspection>::failure(
+                    import_error(source_path, fastgltf::getErrorMessage(source.error())));
+            fastgltf::Parser parser;
+            auto parsed = parser.loadGltf(source.get(), source_path.parent_path(),
+                fastgltf::Options::None, fastgltf::Category::Meshes | fastgltf::Category::Buffers);
+            if(!parsed)
+                return Result<MeshInspection>::failure(
+                    import_error(source_path, fastgltf::getErrorMessage(parsed.error())));
+            auto paths = source_paths_for(source_path, parsed.get());
+            auto source_bytes = sum_source_bytes(paths);
+            if(!source_bytes)
+                return Result<MeshInspection>::failure(source_bytes.error());
+            auto estimate = estimate_mesh_bytes(parsed.get(), source_bytes.value());
+            if(!estimate)
+                return Result<MeshInspection>::failure(estimate.error());
+            return Result<MeshInspection>::success({estimate.value(), std::move(paths)});
         }
 
         Result<void> generate_normals(MeshData& data, const std::size_t first_vertex,
@@ -66,37 +170,36 @@ namespace Comet {
         [[nodiscard]] Result<std::vector<std::filesystem::path>> collect_source_dependencies(
             const std::filesystem::path& source_path) {
             auto source = fastgltf::GltfDataBuffer::FromPath(source_path);
-            if(!source) {
+            if(!source)
                 return Result<std::vector<std::filesystem::path>>::failure(
                     import_error(source_path, fastgltf::getErrorMessage(source.error())));
-            }
-
             fastgltf::Parser parser;
             auto parsed = parser.loadGltf(source.get(), source_path.parent_path(),
                 fastgltf::Options::None, fastgltf::Category::Buffers);
-            if(!parsed) {
+            if(!parsed)
                 return Result<std::vector<std::filesystem::path>>::failure(
                     import_error(source_path, fastgltf::getErrorMessage(parsed.error())));
-            }
-
-            std::vector<std::filesystem::path> dependencies;
-            for(const fastgltf::Buffer& buffer : parsed.get().buffers) {
-                const auto* uri = std::get_if<fastgltf::sources::URI>(&buffer.data);
-                if(!uri || !uri->uri.isLocalPath()) {
-                    continue;
-                }
-
-                const std::filesystem::path dependency =
-                    (source_path.parent_path() / uri->uri.fspath()).lexically_normal();
-                if(std::ranges::find(dependencies, dependency) == dependencies.end()) {
-                    dependencies.push_back(dependency);
-                }
-            }
-            return Result<std::vector<std::filesystem::path>>::success(std::move(dependencies));
+            auto paths = source_paths_for(source_path, parsed.get());
+            return Result<std::vector<std::filesystem::path>>::success(
+                {std::next(paths.begin()), paths.end()});
         }
+
     }
 
-    Result<MeshData> MeshImporter::import(const std::filesystem::path& source_path) const {
+    Result<std::size_t> MeshImporter::working_bytes(const std::filesystem::path& source_path) {
+        auto inspection = inspect_mesh(source_path);
+        if(!inspection)
+            return Result<std::size_t>::failure(inspection.error());
+        return Result<std::size_t>::success(inspection.value().working_bytes);
+    }
+
+    Result<MeshData> MeshImporter::import(
+        const std::filesystem::path& source_path, const std::size_t memory_budget) const {
+        auto inspection = inspect_mesh(source_path);
+        if(!inspection)
+            return Result<MeshData>::failure(inspection.error());
+        if(inspection.value().working_bytes > memory_budget)
+            return Result<MeshData>::failure("Mesh exceeds its reserved CPU memory budget");
         auto source = fastgltf::GltfDataBuffer::FromPath(source_path);
         if(!source) {
             return Result<MeshData>::failure(
@@ -113,6 +216,12 @@ namespace Comet {
         }
 
         fastgltf::Asset asset = std::move(parsed.get());
+        auto source_bytes = sum_source_bytes(inspection.value().source_paths);
+        if(!source_bytes)
+            return Result<MeshData>::failure(source_bytes.error());
+        auto current_estimate = estimate_mesh_bytes(asset, source_bytes.value());
+        if(!current_estimate || current_estimate.value() > memory_budget)
+            return Result<MeshData>::failure("Mesh exceeds its reserved CPU memory budget");
         const fastgltf::Error validation_error = fastgltf::validate(asset);
         if(validation_error != fastgltf::Error::None) {
             return Result<MeshData>::failure(
@@ -286,8 +395,8 @@ namespace Comet {
     }
 
     Result<MeshImportData> MeshImporter::import_with_dependencies(
-        const std::filesystem::path& source_path) const {
-        auto data = import(source_path);
+        const std::filesystem::path& source_path, const std::size_t memory_budget) const {
+        auto data = import(source_path, memory_budget);
         if(!data)
             return Result<MeshImportData>::failure(data.error());
         auto dependencies = collect_source_dependencies(source_path);

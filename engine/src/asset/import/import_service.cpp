@@ -9,15 +9,17 @@
 namespace Comet {
     ImportService::ImportService(ProjectPaths paths) : m_paths(std::move(paths)) {}
 
-    MeshArtifactCandidate ImportService::prepare_mesh(
-        const AssetRecord& record, const AssetRevision revision, const MeshImportMode mode) const {
+    MeshArtifactCandidate ImportService::prepare_mesh(const AssetRecord& record,
+        const AssetRevision revision, const MeshImportMode mode,
+        const std::size_t memory_budget) const {
         if(mode == MeshImportMode::IfNeeded) {
-            if(auto artifact = find_current_mesh_artifact(record.handle, record.path))
+            if(auto artifact =
+                    find_current_mesh_artifact(record.handle, record.path, memory_budget))
                 return {record.handle, revision, record.path,
                     Result<MeshArtifact>::success(std::move(*artifact)), true};
         }
-        return {
-            record.handle, revision, record.path, build_mesh_artifact(record.handle, record.path)};
+        return {record.handle, revision, record.path,
+            build_mesh_artifact(record.handle, record.path, memory_budget)};
     }
 
     Result<TextureData> ImportService::prepare_texture(const AssetRecord& record,
@@ -68,9 +70,9 @@ namespace Comet {
         return m_paths.cache() / "shaders" / (std::to_string(handle.value()) + ".csp");
     }
 
-    std::optional<MeshArtifact> ImportService::find_current_mesh_artifact(
-        const AssetHandle handle, const std::filesystem::path& source_path) const {
-        auto artifact = MeshArtifact::load(mesh_artifact_path(handle), handle);
+    std::optional<MeshArtifact> ImportService::find_current_mesh_artifact(const AssetHandle handle,
+        const std::filesystem::path& source_path, const std::size_t memory_budget) const {
+        auto artifact = MeshArtifact::load(mesh_artifact_path(handle), handle, memory_budget);
         if(!artifact || artifact->handle != handle
             || artifact->importer_version != MeshImporter::VERSION
             || artifact->source_inputs.files.front().relative_path != source_path.lexically_normal()
@@ -80,10 +82,10 @@ namespace Comet {
         return artifact;
     }
 
-    Result<MeshArtifact> ImportService::build_mesh_artifact(
-        const AssetHandle handle, const std::filesystem::path& source_path) const {
+    Result<MeshArtifact> ImportService::build_mesh_artifact(const AssetHandle handle,
+        const std::filesystem::path& source_path, const std::size_t memory_budget) const {
         const auto absolute_source = m_paths.assets() / source_path;
-        auto imported = MeshImporter{}.import_with_dependencies(absolute_source);
+        auto imported = MeshImporter{}.import_with_dependencies(absolute_source, memory_budget);
         if(!imported)
             return Result<MeshArtifact>::failure(imported.error());
         auto inputs = capture_import_inputs(
