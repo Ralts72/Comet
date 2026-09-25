@@ -1,13 +1,20 @@
 #pragma once
 
+#include "common/result.h"
 #include "file_recheck_trigger.h"
 
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <future>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
+
+namespace Comet {
+    class TaskScheduler;
+}
 
 namespace CometEditor {
     class AssetSourceMonitor final {
@@ -26,7 +33,8 @@ namespace CometEditor {
         explicit AssetSourceMonitor(std::filesystem::path root,
             std::chrono::milliseconds poll_interval = std::chrono::milliseconds(500));
 
-        [[nodiscard]] PollResult poll(Clock::time_point now = Clock::now());
+        [[nodiscard]] PollResult poll_async(
+            Comet::TaskScheduler& scheduler, Clock::time_point now = Clock::now());
         [[nodiscard]] PollResult poll_now();
         [[nodiscard]] bool uses_native_notifications() const {
             return m_changes.uses_native_notifications();
@@ -44,8 +52,20 @@ namespace CometEditor {
 
         using Snapshot = std::map<std::filesystem::path, FileState>;
 
-        [[nodiscard]] bool capture_snapshot(
-            Snapshot& snapshot, std::filesystem::path& issue_path, std::string& message) const;
+        struct SnapshotIssue {
+            std::filesystem::path path;
+            std::string message;
+        };
+
+        using SnapshotResult = Comet::Result<Snapshot, SnapshotIssue>;
+
+        struct PendingSnapshot {
+            std::future<SnapshotResult> completion;
+            std::uint64_t generation = 0;
+        };
+
+        [[nodiscard]] static SnapshotResult capture_snapshot(const std::filesystem::path& root);
+        [[nodiscard]] PollResult accept_snapshot(SnapshotResult result);
         [[nodiscard]] PollResult poll_changed_files(
             const std::vector<std::filesystem::path>& paths);
 
@@ -55,5 +75,8 @@ namespace CometEditor {
         bool m_initial_poll_attempted = false;
         bool m_has_baseline = false;
         bool m_initial_capture_failed = false;
+        std::optional<PendingSnapshot> m_pending_snapshot;
+        std::uint64_t m_snapshot_generation = 0;
+        bool m_full_scan_requested = false;
     };
 }

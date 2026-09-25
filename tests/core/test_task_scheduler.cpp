@@ -72,6 +72,18 @@ namespace Comet::Tests {
         EXPECT_EQ(second->wait_for(std::chrono::seconds(0)), std::future_status::ready);
     }
 
+    TEST(TaskSchedulerTest, ReturnsTaskValuesAndRejectsFullQueue) {
+        TaskScheduler scheduler(1, 1);
+        BlockedWorker blocker(scheduler);
+        auto accepted = scheduler.try_submit_result([] { return 42; });
+        ASSERT_TRUE(accepted);
+        EXPECT_FALSE(scheduler.try_submit_result([] { return 7; }));
+
+        blocker.release();
+        EXPECT_EQ(accepted->get(), 42);
+        scheduler.wait_idle();
+    }
+
     TEST(TaskSchedulerTest, DeliversTaskExceptionsThroughFuture) {
         TaskScheduler scheduler(1);
         auto result = scheduler.try_submit([] { throw std::runtime_error("task failed"); });

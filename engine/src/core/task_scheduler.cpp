@@ -52,17 +52,22 @@ namespace Comet {
         if(!task)
             return std::nullopt;
 
-        std::future<void> result;
+        auto scheduled_task = std::make_shared<std::packaged_task<void()>>(std::move(task));
+        auto result = scheduled_task->get_future();
+        if(!enqueue([scheduled_task] { (*scheduled_task)(); }))
+            return std::nullopt;
+        return result;
+    }
+
+    bool TaskScheduler::enqueue(Task task) {
         {
             const std::lock_guard lock(m_mutex);
             if(m_stopping || m_tasks.size() >= m_queue_capacity)
-                return std::nullopt;
-            auto scheduled_task = std::make_shared<std::packaged_task<void()>>(std::move(task));
-            result = scheduled_task->get_future();
-            m_tasks.emplace_back([scheduled_task] { (*scheduled_task)(); });
+                return false;
+            m_tasks.emplace_back(std::move(task));
         }
         m_task_available.notify_one();
-        return result;
+        return true;
     }
 
     void TaskScheduler::wait_idle() {

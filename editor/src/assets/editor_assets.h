@@ -68,6 +68,7 @@ namespace CometEditor {
         Comet::AssetDatabase m_database;
         Comet::AssetManager m_manager;
         AssetSourceMonitor m_monitor;
+        Comet::TaskScheduler& m_scheduler;
         std::chrono::milliseconds m_quiet_period;
         std::unordered_map<Comet::AssetHandle, Clock::time_point> m_pending_shader_programs;
         std::unordered_map<Comet::AssetHandle, Comet::MeshImportMode> m_pending_mesh_imports;

@@ -3,12 +3,14 @@
 #include "file_watch_config.h"
 
 #include "asset/handle.h"
+#include "core/task_scheduler.h"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <string>
 #include <thread>
 
@@ -148,6 +150,70 @@ namespace CometEditor::Tests {
         EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Changed);
     }
 
+    TEST(AssetSourceMonitorTest, AsyncInitialSnapshotWaitsForWorkerAndPublishesOnce) {
+        const TemporaryAssetDirectory directory;
+        directory.write("mesh.gltf", "mesh");
+        AssetSourceMonitor monitor(directory.root());
+        Comet::TaskScheduler scheduler(1);
+        std::promise<void> release;
+        const auto unblock = release.get_future().share();
+        auto blocker = scheduler.try_submit([unblock] { unblock.wait(); });
+        ASSERT_TRUE(blocker);
+
+        EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
+        release.set_value();
+        scheduler.wait_idle();
+        EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::Unchanged);
+        EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+    }
+
+    TEST(AssetSourceMonitorTest, ExplicitRefreshInvalidatesPendingSnapshot) {
+        const TemporaryAssetDirectory directory;
+        directory.write("mesh.gltf", "mesh");
+        AssetSourceMonitor monitor(directory.root());
+        Comet::TaskScheduler scheduler(1);
+        std::promise<void> release;
+        const auto unblock = release.get_future().share();
+        auto blocker = scheduler.try_submit([unblock] { unblock.wait(); });
+        ASSERT_TRUE(blocker);
+
+        EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
+        directory.write("new.scene", "scene");
+        EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+        release.set_value();
+        scheduler.wait_idle();
+        EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
+        EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+    }
+
+    TEST(AssetSourceMonitorTest, QueueRejectionKeepsFullSnapshotRequest) {
+        const TemporaryAssetDirectory directory;
+        AssetSourceMonitor monitor(directory.root());
+        Comet::TaskScheduler scheduler(1, 1);
+        std::promise<void> started;
+        std::promise<void> release;
+        const auto unblock = release.get_future().share();
+        auto blocker = scheduler.try_submit([&] {
+            started.set_value();
+            unblock.wait();
+        });
+        ASSERT_TRUE(blocker);
+        started.get_future().wait();
+        auto queued = scheduler.try_submit([] {});
+        if(!queued) {
+            release.set_value();
+            ADD_FAILURE() << "Could not fill the scheduler queue";
+            return;
+        }
+
+        EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
+        release.set_value();
+        scheduler.wait_idle();
+        EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
+        scheduler.wait_idle();
+        EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::Unchanged);
+    }
+
     TEST(AssetSourceMonitorTest, IgnoresAtomicWriteTemporaryFiles) {
         const TemporaryAssetDirectory directory;
         AssetSourceMonitor monitor(directory.root());
@@ -200,6 +266,22 @@ namespace CometEditor::Tests {
         EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
     }
 
+    TEST(AssetSourceMonitorTest, AsyncCaptureFailureReportsAndRecovers) {
+        const TemporaryAssetDirectory directory;
+        const std::filesystem::path missing = directory.root() / "missing";
+        AssetSourceMonitor monitor(missing, std::chrono::hours(1));
+        Comet::TaskScheduler scheduler(1);
+        EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
+        scheduler.wait_idle();
+        const auto failed = monitor.poll_async(scheduler);
+        EXPECT_EQ(failed.state, AssetSourceMonitor::PollState::Failed);
+        EXPECT_FALSE(failed.message.empty());
+
+        std::filesystem::create_directories(missing);
+        directory.write("missing/new.scene", "scene");
+        EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Changed);
+    }
+
     TEST(AssetSourceMonitorTest, ReportsRecoveryAfterInitialFailureAsChange) {
         const TemporaryAssetDirectory directory;
         const std::filesystem::path missing = directory.root() / "missing";
@@ -215,7 +297,10 @@ namespace CometEditor::Tests {
     TEST(AssetSourceMonitorTest, ThrottledPollDefersFilesystemWork) {
         const TemporaryAssetDirectory directory;
         AssetSourceMonitor monitor(directory.root(), std::chrono::hours(1));
-        ASSERT_EQ(monitor.poll().state, AssetSourceMonitor::PollState::Unchanged);
+        Comet::TaskScheduler scheduler(1);
+        ASSERT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
+        scheduler.wait_idle();
+        ASSERT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::Unchanged);
         directory.write("new.png", "texture");
 
         if(monitor.uses_native_notifications()) {
@@ -223,13 +308,14 @@ namespace CometEditor::Tests {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
             while(state != AssetSourceMonitor::PollState::Changed
                   && std::chrono::steady_clock::now() < deadline) {
-                state = monitor.poll().state;
+                state = monitor.poll_async(scheduler).state;
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
             EXPECT_EQ(state, AssetSourceMonitor::PollState::Changed);
             EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
         } else {
-            EXPECT_EQ(monitor.poll().state, AssetSourceMonitor::PollState::NotPolled);
+            EXPECT_EQ(
+                monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
             EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Changed);
         }
     }
@@ -238,6 +324,7 @@ namespace CometEditor::Tests {
         const TemporaryAssetDirectory directory;
         directory.write("textures/albedo.png", "first");
         AssetSourceMonitor monitor(directory.root(), std::chrono::hours(1));
+        Comet::TaskScheduler scheduler(1);
         if(!monitor.uses_native_notifications())
             GTEST_SKIP() << "Native file notifications are unavailable";
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
@@ -248,7 +335,7 @@ namespace CometEditor::Tests {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         while(result.state != AssetSourceMonitor::PollState::Changed
               && std::chrono::steady_clock::now() < deadline) {
-            result = monitor.poll();
+            result = monitor.poll_async(scheduler);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         ASSERT_EQ(result.state, AssetSourceMonitor::PollState::Changed);
@@ -260,6 +347,7 @@ namespace CometEditor::Tests {
     TEST(AssetSourceMonitorTest, NativeNotificationFallsBackForNewFile) {
         const TemporaryAssetDirectory directory;
         AssetSourceMonitor monitor(directory.root(), std::chrono::hours(1));
+        Comet::TaskScheduler scheduler(1);
         if(!monitor.uses_native_notifications())
             GTEST_SKIP() << "Native file notifications are unavailable";
         ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
@@ -269,7 +357,7 @@ namespace CometEditor::Tests {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         while(result.state != AssetSourceMonitor::PollState::Changed
               && std::chrono::steady_clock::now() < deadline) {
-            result = monitor.poll();
+            result = monitor.poll_async(scheduler);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         ASSERT_EQ(result.state, AssetSourceMonitor::PollState::Changed);
@@ -280,6 +368,7 @@ namespace CometEditor::Tests {
         const TemporaryAssetDirectory directory;
         directory.write("material.mat", "old");
         AssetSourceMonitor monitor(directory.root(), std::chrono::hours(1));
+        Comet::TaskScheduler scheduler(1);
         if(!monitor.uses_native_notifications())
             GTEST_SKIP() << "Native file notifications are unavailable";
         ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
@@ -292,7 +381,7 @@ namespace CometEditor::Tests {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         while(state != AssetSourceMonitor::PollState::Changed
               && std::chrono::steady_clock::now() < deadline) {
-            state = monitor.poll().state;
+            state = monitor.poll_async(scheduler).state;
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         EXPECT_EQ(state, AssetSourceMonitor::PollState::Changed);

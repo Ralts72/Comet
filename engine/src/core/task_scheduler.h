@@ -7,9 +7,12 @@
 #include <deque>
 #include <functional>
 #include <future>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace Comet {
@@ -28,6 +31,17 @@ namespace Comet {
 
         // 空任务、队列满或停止接收时立即返回空，不在提交线程执行任务或等待容量。
         [[nodiscard]] std::optional<std::future<void>> try_submit(Task task);
+        template<typename Function>
+        [[nodiscard]] auto try_submit_result(Function&& function)
+            -> std::optional<std::future<std::invoke_result_t<Function&>>> {
+            using Value = std::invoke_result_t<Function&>;
+            auto task =
+                std::make_shared<std::packaged_task<Value()>>(std::forward<Function>(function));
+            auto result = task->get_future();
+            if(!enqueue([task] { (*task)(); }))
+                return std::nullopt;
+            return result;
+        }
         void wait_idle();
         // Owner 线程调用；停止接收并排空任务，可重复调用，不可由 Worker 调用。
         void shutdown();
@@ -36,6 +50,7 @@ namespace Comet {
         [[nodiscard]] std::size_t get_queue_capacity() const noexcept { return m_queue_capacity; }
 
     private:
+        [[nodiscard]] bool enqueue(Task task);
         void worker_loop();
 
         std::mutex m_mutex;

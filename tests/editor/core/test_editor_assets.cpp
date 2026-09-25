@@ -31,6 +31,7 @@
 #include <chrono>
 #include <array>
 #include <fstream>
+#include <optional>
 #include <thread>
 #include <utility>
 
@@ -72,6 +73,21 @@ namespace CometEditor::Tests {
                 scheduler.wait_idle();
             }
             ASSERT_TRUE(assets->update());
+        }
+
+        std::optional<Comet::AssetScanReport> wait_for_source_report() {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while(std::chrono::steady_clock::now() < deadline) {
+                auto result = assets->update();
+                if(!result) {
+                    ADD_FAILURE() << result.error().message;
+                    return std::nullopt;
+                }
+                if(result.value())
+                    return std::move(result).value();
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            return std::nullopt;
         }
 
         Comet::AssetHandle add_material() {
@@ -1065,10 +1081,9 @@ namespace CometEditor::Tests {
         const auto stamp = std::filesystem::file_time_type::clock::now() - std::chrono::hours(1);
         std::filesystem::last_write_time(artifact_path(), stamp);
         std::this_thread::sleep_for(std::chrono::milliseconds(550));
-        const auto report = assets->update();
+        const auto report = wait_for_source_report();
         ASSERT_TRUE(report);
-        ASSERT_TRUE(report.value());
-        ASSERT_TRUE(report.value()->succeeded());
+        ASSERT_TRUE(report->succeeded());
         complete_imports();
         const auto* added = assets->database().find("second.gltf");
         ASSERT_NE(added, nullptr);
@@ -1110,12 +1125,11 @@ namespace CometEditor::Tests {
             buffer.write(reinterpret_cast<const char*>(indices.data()), sizeof(indices));
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(550));
-        const auto report = assets->update();
+        const auto report = wait_for_source_report();
         ASSERT_TRUE(report);
-        ASSERT_TRUE(report.value());
-        ASSERT_TRUE(report.value()->succeeded());
-        EXPECT_TRUE(report.value()->added_assets.empty());
-        EXPECT_TRUE(report.value()->modified_assets.empty());
+        ASSERT_TRUE(report->succeeded());
+        EXPECT_TRUE(report->added_assets.empty());
+        EXPECT_TRUE(report->modified_assets.empty());
         complete_imports();
         EXPECT_TRUE(Comet::MeshArtifact::load(artifact_path(), mesh));
         EXPECT_FALSE(assets->database().get_import_dependencies(mesh).empty());

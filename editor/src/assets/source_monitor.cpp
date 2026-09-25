@@ -1,6 +1,8 @@
 #include "assets/source_monitor.h"
+#include "core/task_scheduler.h"
 #include "diagnostics/profiler.h"
 
+#include <chrono>
 #include <system_error>
 #include <utility>
 
@@ -25,47 +27,90 @@ namespace CometEditor {
         std::filesystem::path root, const std::chrono::milliseconds poll_interval)
         : m_root(std::move(root).lexically_normal()), m_changes(m_root, poll_interval) {}
 
-    AssetSourceMonitor::PollResult AssetSourceMonitor::poll(const Clock::time_point now) {
+    AssetSourceMonitor::PollResult AssetSourceMonitor::poll_async(
+        Comet::TaskScheduler& scheduler, const Clock::time_point now) {
+        if(!m_initial_poll_attempted) {
+            m_initial_poll_attempted = true;
+            static_cast<void>(m_changes.poll());
+            ++m_snapshot_generation;
+            m_full_scan_requested = true;
+        }
+
         const auto changes = m_changes.poll_changes(now);
-        if(!m_initial_poll_attempted || changes.reason == FileRecheckTrigger::Reason::Fallback
-            || changes.requires_full_scan)
-            return poll_now();
-        if(changes.reason == FileRecheckTrigger::Reason::Notification)
-            return poll_changed_files(changes.paths);
-        return {};
+        if(changes.reason == FileRecheckTrigger::Reason::Fallback) {
+            if(!m_pending_snapshot) {
+                ++m_snapshot_generation;
+                m_full_scan_requested = true;
+            }
+        } else if(changes.requires_full_scan) {
+            ++m_snapshot_generation;
+            m_full_scan_requested = true;
+        } else if(changes.reason == FileRecheckTrigger::Reason::Notification) {
+            if(m_pending_snapshot || m_full_scan_requested) {
+                ++m_snapshot_generation;
+                m_full_scan_requested = true;
+            } else {
+                auto local = poll_changed_files(changes.paths);
+                if(!local.requires_full_scan)
+                    return local;
+                ++m_snapshot_generation;
+                m_full_scan_requested = true;
+            }
+        }
+
+        PollResult result;
+        if(m_pending_snapshot
+            && m_pending_snapshot->completion.wait_for(std::chrono::seconds(0))
+                   == std::future_status::ready) {
+            auto snapshot_result = m_pending_snapshot->completion.get();
+            // 新通知、显式刷新或内部写入使在途快照失效。
+            if(m_pending_snapshot->generation == m_snapshot_generation)
+                result = accept_snapshot(std::move(snapshot_result));
+            m_pending_snapshot.reset();
+        }
+
+        if(m_full_scan_requested && !m_pending_snapshot) {
+            auto completion =
+                scheduler.try_submit_result([root = m_root] { return capture_snapshot(root); });
+            if(completion) {
+                m_pending_snapshot.emplace(std::move(*completion), m_snapshot_generation);
+                m_full_scan_requested = false;
+            }
+        }
+        return result;
     }
 
     AssetSourceMonitor::PollResult AssetSourceMonitor::poll_changed_files(
         const std::vector<std::filesystem::path>& paths) {
         PROFILE_SCOPE("AssetSourceMonitor::poll_changed_files");
         if(paths.empty())
-            return poll_now();
+            return {.requires_full_scan = true};
 
         std::error_code error;
         const auto absolute_root = std::filesystem::weakly_canonical(m_root, error);
         if(error)
-            return poll_now();
+            return {.requires_full_scan = true};
 
         std::map<std::filesystem::path, FileState> updates;
         for(const auto& path : paths) {
             const auto relative = path.lexically_normal().lexically_relative(absolute_root);
             if(!is_valid_relative_path(relative))
-                return poll_now();
+                return {.requires_full_scan = true};
             if(is_ignored_asset_source(relative))
                 continue;
             const auto previous = m_snapshot.find(relative);
             if(previous == m_snapshot.end())
-                return poll_now();
+                return {.requires_full_scan = true};
 
             const auto absolute_path = absolute_root / relative;
             if(!std::filesystem::is_regular_file(absolute_path, error) || error)
-                return poll_now();
+                return {.requires_full_scan = true};
             const auto write_time = std::filesystem::last_write_time(absolute_path, error);
             if(error)
-                return poll_now();
+                return {.requires_full_scan = true};
             const auto size = std::filesystem::file_size(absolute_path, error);
             if(error)
-                return poll_now();
+                return {.requires_full_scan = true};
             updates[relative] = FileState{.write_time = write_time, .size = size};
         }
 
@@ -83,20 +128,29 @@ namespace CometEditor {
 
     AssetSourceMonitor::PollResult AssetSourceMonitor::poll_now() {
         PROFILE_SCOPE("AssetSourceMonitor::poll_now");
+        ++m_snapshot_generation;
+        m_full_scan_requested = false;
         if(!m_initial_poll_attempted) {
             m_initial_poll_attempted = true;
             static_cast<void>(m_changes.poll());
         }
-        Snapshot snapshot;
+        return accept_snapshot(capture_snapshot(m_root));
+    }
+
+    AssetSourceMonitor::PollResult AssetSourceMonitor::accept_snapshot(
+        SnapshotResult snapshot_result) {
+        PROFILE_SCOPE("AssetSourceMonitor::accept_snapshot");
         PollResult result;
-        if(!capture_snapshot(snapshot, result.issue_path, result.message)) {
+        if(!snapshot_result) {
             result.state = PollState::Failed;
-            if(!m_has_baseline) {
+            result.issue_path = snapshot_result.error().path;
+            result.message = snapshot_result.error().message;
+            if(!m_has_baseline)
                 m_initial_capture_failed = true;
-            }
             return result;
         }
 
+        auto snapshot = std::move(snapshot_result).value();
         const bool changed = m_has_baseline ? snapshot != m_snapshot : m_initial_capture_failed;
         m_snapshot = std::move(snapshot);
         m_has_baseline = true;
@@ -121,6 +175,10 @@ namespace CometEditor {
         }
         if(!exists) {
             m_snapshot.erase(normalized);
+            if(m_pending_snapshot) {
+                ++m_snapshot_generation;
+                m_full_scan_requested = true;
+            }
             return true;
         }
 
@@ -137,75 +195,64 @@ namespace CometEditor {
         }
 
         m_snapshot[normalized] = FileState{.write_time = write_time, .size = size};
+        if(m_pending_snapshot) {
+            ++m_snapshot_generation;
+            m_full_scan_requested = true;
+        }
         return true;
     }
 
-    bool AssetSourceMonitor::capture_snapshot(
-        Snapshot& snapshot, std::filesystem::path& issue_path, std::string& message) const {
+    AssetSourceMonitor::SnapshotResult AssetSourceMonitor::capture_snapshot(
+        const std::filesystem::path& root) {
+        PROFILE_SCOPE("AssetSourceMonitor::capture_snapshot");
+        Snapshot snapshot;
         std::error_code error;
-        const bool exists = std::filesystem::exists(m_root, error);
-        if(error) {
-            issue_path = m_root;
-            message = "failed to access assets directory: " + error.message();
-            return false;
-        }
-        if(!exists) {
-            issue_path = m_root;
-            message = "assets directory does not exist";
-            return false;
-        }
-        if(!std::filesystem::is_directory(m_root, error)) {
-            issue_path = m_root;
-            message = "assets path is not a directory";
-            if(error) {
-                message = "failed to access assets directory: " + error.message();
-            }
-            return false;
+        const bool exists = std::filesystem::exists(root, error);
+        if(error)
+            return SnapshotResult::failure(
+                {root, "failed to access assets directory: " + error.message()});
+        if(!exists)
+            return SnapshotResult::failure({root, "assets directory does not exist"});
+        if(!std::filesystem::is_directory(root, error)) {
+            if(error)
+                return SnapshotResult::failure(
+                    {root, "failed to access assets directory: " + error.message()});
+            return SnapshotResult::failure({root, "assets path is not a directory"});
         }
 
         std::filesystem::recursive_directory_iterator iterator(
-            m_root, std::filesystem::directory_options::none, error);
+            root, std::filesystem::directory_options::none, error);
         const std::filesystem::recursive_directory_iterator end;
-        if(error) {
-            issue_path = m_root;
-            message = "failed to scan assets directory: " + error.message();
-            return false;
-        }
+        if(error)
+            return SnapshotResult::failure(
+                {root, "failed to scan assets directory: " + error.message()});
 
         while(iterator != end) {
             const std::filesystem::directory_entry entry = *iterator;
             const bool regular_file = entry.is_regular_file(error);
-            if(error) {
-                issue_path = entry.path();
-                message = "failed to inspect asset source: " + error.message();
-                return false;
-            }
+            if(error)
+                return SnapshotResult::failure(
+                    {entry.path(), "failed to inspect asset source: " + error.message()});
 
             if(regular_file && !is_ignored_asset_source(entry.path())) {
                 const auto write_time = entry.last_write_time(error);
-                if(error) {
-                    issue_path = entry.path();
-                    message = "failed to read asset source write time: " + error.message();
-                    return false;
-                }
+                if(error)
+                    return SnapshotResult::failure({entry.path(),
+                        "failed to read asset source write time: " + error.message()});
                 const std::uintmax_t size = entry.file_size(error);
-                if(error) {
-                    issue_path = entry.path();
-                    message = "failed to read asset source size: " + error.message();
-                    return false;
-                }
+                if(error)
+                    return SnapshotResult::failure(
+                        {entry.path(), "failed to read asset source size: " + error.message()});
 
-                snapshot.emplace(entry.path().lexically_relative(m_root).lexically_normal(),
+                snapshot.emplace(entry.path().lexically_relative(root).lexically_normal(),
                     FileState{.write_time = write_time, .size = size});
             }
 
             iterator.increment(error);
-            if(error) {
-                issue_path = entry.path();
-                message = "failed while scanning assets directory: " + error.message();
-                return false;
-            }
+            if(error)
+                return SnapshotResult::failure(
+                    {entry.path(), "failed while scanning assets directory: " + error.message()});
         }
-        return true;
+        return SnapshotResult::success(std::move(snapshot));
     }
 }

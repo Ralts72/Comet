@@ -17,7 +17,7 @@ namespace CometEditor {
         const std::chrono::milliseconds quiet_period)
         : m_paths(std::move(paths)), m_database(m_paths),
           m_manager(m_database, registry, factory, scheduler), m_monitor(m_paths.assets()),
-          m_quiet_period(quiet_period) {
+          m_scheduler(scheduler), m_quiet_period(quiet_period) {
         if(!m_monitor.uses_native_notifications())
             LOG_WARN("Asset source monitor is using periodic fallback scans");
     }
@@ -107,7 +107,7 @@ namespace CometEditor {
 
     Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> EditorAssets::update(
         const Clock::time_point now) {
-        const auto result = m_monitor.poll(now);
+        const auto result = m_monitor.poll_async(m_scheduler, now);
         observe(result);
         std::optional<Comet::AssetScanReport> report;
         if(result.state == AssetSourceMonitor::PollState::Changed) {
