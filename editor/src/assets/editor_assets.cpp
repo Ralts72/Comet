@@ -150,6 +150,47 @@ namespace CometEditor {
             }
             m_pending_scan.reset();
         }
+        if(m_pending_file_import
+            && m_pending_file_import->completion.wait_for(std::chrono::seconds(0))
+                   == std::future_status::ready) {
+            auto prepared = m_pending_file_import->completion.get();
+            Comet::AssetScanReport import_report;
+            if(prepared) {
+                import_report = std::move(prepared).value().publish(m_database);
+            } else {
+                import_report.indexed_assets = m_database.size();
+                import_report.issues.push_back(
+                    {m_pending_file_import->directory, prepared.error()});
+            }
+            if(import_report.snapshot_updated) {
+                observe(m_monitor.poll_now());
+                LOG_INFO("Imported {} asset(s) into assets/{}", import_report.added_assets.size(),
+                    m_pending_file_import->directory.generic_string());
+            }
+            accept_scan(import_report);
+            if(report && !import_report.snapshot_updated) {
+                report->issues.insert(
+                    report->issues.end(), import_report.issues.begin(), import_report.issues.end());
+            } else {
+                if(report)
+                    import_report.issues.insert(
+                        import_report.issues.end(), report->issues.begin(), report->issues.end());
+                report = std::move(import_report);
+            }
+            m_pending_file_import.reset();
+        }
+        if(!m_pending_file_import && !m_file_import_requests.empty()) {
+            auto& request = m_file_import_requests.front();
+            auto completion = m_scheduler.try_submit_result(
+                [paths = m_paths, sources = request.sources, directory = request.directory] {
+                    return Comet::AssetSourceOperations::PreparedFileImport::prepare(
+                        paths, sources, directory);
+                });
+            if(completion) {
+                m_pending_file_import.emplace(std::move(*completion), request.directory);
+                m_file_import_requests.pop_front();
+            }
+        }
         if(m_full_scan_requested && !m_pending_scan) {
             const auto database_generation = m_database.generation();
             auto completion = m_scheduler.try_submit_result([paths = m_paths, database_generation] {
@@ -251,18 +292,16 @@ namespace CometEditor {
         return report;
     }
 
-    Comet::AssetScanReport EditorAssets::import_files(
+    Comet::Result<void> EditorAssets::queue_import_files(
         const std::span<const std::filesystem::path> sources,
         const std::filesystem::path& directory) {
-        auto report =
-            Comet::AssetSourceOperations::import_files(m_database, m_paths, sources, directory);
-        if(report.snapshot_updated) {
-            observe(m_monitor.poll_now());
-            LOG_INFO("Imported {} asset(s) into assets/{}", report.added_assets.size(),
-                directory.generic_string());
-        }
-        accept_scan(report);
-        return report;
+        constexpr std::size_t max_queued_imports = 8;
+        if(m_file_import_requests.size() >= max_queued_imports)
+            return Comet::Result<void>::failure("External file import queue is full");
+        m_file_import_requests.push_back({{sources.begin(), sources.end()}, directory});
+        LOG_INFO(
+            "Queued {} external file(s) for assets/{}", sources.size(), directory.generic_string());
+        return Comet::Result<void>::success();
     }
 
     Comet::AssetScanReport EditorAssets::create_material(

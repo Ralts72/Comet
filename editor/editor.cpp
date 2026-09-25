@@ -595,11 +595,12 @@ namespace {
                 const auto origin = ImGui::GetMainViewport()->Pos;
                 const auto directory = m_project_panel->file_drop_directory(
                     drop.position + Comet::Math::Vec2(origin.x, origin.y));
-                if(directory)
-                    m_project_panel->update_scan_report(
-                        m_assets->import_files(drop.paths, *directory));
-                else
+                if(directory) {
+                    if(auto queued = m_assets->queue_import_files(drop.paths, *directory); !queued)
+                        LOG_WARN("External file import not queued: {}", queued.error());
+                } else {
                     LOG_WARN("Drop external files onto a Project folder or its empty area");
+                }
             }
             if(const auto handle = m_project_panel->take_mesh_reimport_request())
                 m_assets->request_mesh_reimport(*handle);

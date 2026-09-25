@@ -147,12 +147,19 @@ namespace Comet::AssetSourceOperations {
 
     namespace {
         struct ImportFilesTransaction {
-            AssetDatabase& database;
-            const ProjectPaths& paths;
-            std::span<const std::filesystem::path> sources;
-            const std::filesystem::path& directory;
+            ImportFilesTransaction(ProjectPaths paths, std::vector<std::filesystem::path> sources,
+                std::filesystem::path directory)
+                : paths(std::move(paths)), sources(std::move(sources)),
+                  directory(std::move(directory)) {}
+
+            ~ImportFilesTransaction() { cleanup(nullptr); }
+
+            ProjectPaths paths;
+            std::vector<std::filesystem::path> sources;
+            std::filesystem::path directory;
             std::filesystem::path root;
             std::filesystem::path destination;
+            std::filesystem::path resolved_destination;
             std::map<std::filesystem::path, std::filesystem::path> files;
             std::vector<std::filesystem::path> roots;
             std::filesystem::path staging;
@@ -187,6 +194,9 @@ namespace Comet::AssetSourceOperations {
                         diagnostics->issues.push_back(
                             {staging, "Staging cleanup failed: " + error.message()});
                 }
+                published.clear();
+                created_directories.clear();
+                staging.clear();
             }
 
             Result<void> prepare_destination() {
@@ -204,6 +214,21 @@ namespace Comet::AssetSourceOperations {
                     return Result<void>::failure(
                         "Drop destination is not an existing directory"
                         + (error ? ": " + error.message() : std::string{}));
+                resolved_destination = std::filesystem::canonical(destination, error);
+                if(error)
+                    return Result<void>::failure(
+                        "Cannot resolve drop destination: " + error.message());
+                return Result<void>::success();
+            }
+
+            Result<void> recheck_destination() const {
+                std::error_code error;
+                const auto current_root = std::filesystem::canonical(paths.assets(), error);
+                if(error || current_root != root)
+                    return Result<void>::failure("Project assets directory changed during import");
+                const auto current_destination = std::filesystem::canonical(destination, error);
+                if(error || current_destination != resolved_destination)
+                    return Result<void>::failure("Drop destination changed during import");
                 return Result<void>::success();
             }
 
@@ -355,8 +380,10 @@ namespace Comet::AssetSourceOperations {
                 return Result<void>::success();
             }
 
-            Result<void> publish_files() {
+            Result<void> publish_files(AssetDatabase& database) {
                 std::error_code error;
+                if(auto result = recheck_destination(); !result)
+                    return result;
                 published.reserve(files.size());
                 for(const auto& [relative, source] : files) {
                     const auto target = destination / relative;
@@ -406,19 +433,17 @@ namespace Comet::AssetSourceOperations {
                 return Result<void>::success();
             }
 
-            Result<void> execute() {
+            Result<void> prepare() {
                 if(auto prepared = prepare_destination(); !prepared)
                     return prepared;
                 if(auto collected = collect_files(); !collected)
                     return collected;
-                if(auto staged = stage_files(); !staged)
-                    return staged;
-                return publish_files();
+                return stage_files();
             }
 
-            AssetScanReport run() {
+            AssetScanReport publish(AssetDatabase& database) {
                 ScopeExit cleanup_on_exit([this] { cleanup(nullptr); });
-                const auto result = execute();
+                const auto result = publish_files(database);
                 if(!result) {
                     report.snapshot_updated = false;
                     report.indexed_assets = database.size();
@@ -435,10 +460,47 @@ namespace Comet::AssetSourceOperations {
         };
     }
 
+    struct PreparedFileImport::State {
+        State(ProjectPaths paths, std::vector<std::filesystem::path> sources,
+            std::filesystem::path directory)
+            : transaction(std::move(paths), std::move(sources), std::move(directory)) {}
+
+        ImportFilesTransaction transaction;
+    };
+
+    PreparedFileImport::PreparedFileImport(std::unique_ptr<State> state)
+        : m_state(std::move(state)) {}
+    PreparedFileImport::PreparedFileImport(PreparedFileImport&&) noexcept = default;
+    PreparedFileImport& PreparedFileImport::operator=(PreparedFileImport&&) noexcept = default;
+    PreparedFileImport::~PreparedFileImport() = default;
+
+    Result<PreparedFileImport> PreparedFileImport::prepare(ProjectPaths paths,
+        std::vector<std::filesystem::path> sources, std::filesystem::path directory) {
+        auto state =
+            std::make_unique<State>(std::move(paths), std::move(sources), std::move(directory));
+        if(auto result = state->transaction.prepare(); !result)
+            return Result<PreparedFileImport>::failure(result.error());
+        return Result<PreparedFileImport>::success(PreparedFileImport(std::move(state)));
+    }
+
+    AssetScanReport PreparedFileImport::publish(AssetDatabase& database) && {
+        auto state = std::move(m_state);
+        if(!state)
+            return operation_error({}, "File import preparation was already consumed");
+        return state->transaction.publish(database);
+    }
+
     AssetScanReport import_files(AssetDatabase& database, const ProjectPaths& paths,
         const std::span<const std::filesystem::path> sources,
         const std::filesystem::path& directory) {
-        return ImportFilesTransaction{database, paths, sources, directory}.run();
+        auto prepared =
+            PreparedFileImport::prepare(paths, {sources.begin(), sources.end()}, directory);
+        if(!prepared) {
+            auto report = operation_error(directory, prepared.error());
+            report.indexed_assets = database.size();
+            return report;
+        }
+        return std::move(prepared).value().publish(database);
     }
 
     namespace {

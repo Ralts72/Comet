@@ -1,12 +1,14 @@
 #pragma once
 
 #include "asset/asset_manager.h"
+#include "asset/source_operations.h"
 #include "assets/source_monitor.h"
 #include "assets/asset_edit.h"
 #include "asset/reference.h"
 #include "file_watch_config.h"
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <future>
 #include <memory>
 #include <optional>
@@ -35,7 +37,7 @@ namespace CometEditor {
         [[nodiscard]] Comet::AssetScanReport move(
             Comet::AssetHandle handle, const std::filesystem::path& destination);
         [[nodiscard]] Comet::AssetScanReport remove(Comet::AssetHandle handle);
-        [[nodiscard]] Comet::AssetScanReport import_files(
+        [[nodiscard]] Comet::Result<void> queue_import_files(
             std::span<const std::filesystem::path> sources, const std::filesystem::path& directory);
         [[nodiscard]] Comet::Result<void, Comet::Error> apply_texture_edit(const AssetEdit& edit);
         [[nodiscard]] Comet::Result<Comet::MaterialData> read_material(
@@ -67,6 +69,16 @@ namespace CometEditor {
             Clock::time_point change_time;
         };
 
+        struct FileImportRequest {
+            std::vector<std::filesystem::path> sources;
+            std::filesystem::path directory;
+        };
+
+        struct PendingFileImport {
+            std::future<Comet::Result<Comet::AssetSourceOperations::PreparedFileImport>> completion;
+            std::filesystem::path directory;
+        };
+
         void observe(const AssetSourceMonitor::PollResult& result);
         void accept_scan(const Comet::AssetScanReport& report,
             std::optional<Clock::time_point> change_time = std::nullopt);
@@ -78,6 +90,8 @@ namespace CometEditor {
         AssetSourceMonitor m_monitor;
         Comet::TaskScheduler& m_scheduler;
         std::optional<PendingScan> m_pending_scan;
+        std::optional<PendingFileImport> m_pending_file_import;
+        std::deque<FileImportRequest> m_file_import_requests;
         bool m_full_scan_requested = false;
         Clock::time_point m_full_scan_change_time{};
         std::chrono::milliseconds m_quiet_period;

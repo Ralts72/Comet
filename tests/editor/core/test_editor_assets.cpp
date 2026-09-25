@@ -1009,19 +1009,56 @@ namespace CometEditor::Tests {
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
             source);
         const std::array files{source};
-        const auto report = assets->import_files(files, {});
-        ASSERT_TRUE(report.succeeded());
+        ASSERT_TRUE(assets->queue_import_files(files, {}));
+        EXPECT_EQ(assets->database().find("external.gltf"), nullptr);
+        ASSERT_TRUE(assets->update());
+        scheduler.wait_idle();
+        auto report = wait_for_source_report();
+        ASSERT_TRUE(report);
+        ASSERT_TRUE(report->succeeded());
         const auto* record = assets->database().find("external.gltf");
         ASSERT_NE(record, nullptr);
         const auto handle = record->handle;
         const auto artifact =
             artifact_path().parent_path() / (std::to_string(handle.value()) + ".bin");
-        EXPECT_FALSE(std::filesystem::exists(artifact));
         complete_imports();
         EXPECT_TRUE(Comet::MeshArtifact::load(artifact, handle));
         EXPECT_FALSE(runtime.contains(handle));
         EXPECT_EQ(factory.mesh_creation_count(), 0);
         EXPECT_TRUE(std::filesystem::exists(source));
+    }
+
+    TEST_F(EditorAssetsTest, ExternalFileImportQueueRejectsExcessRequests) {
+        const auto source = root / "external.gltf";
+        std::filesystem::copy_file(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
+            source);
+        const std::array files{source};
+        for(int index = 0; index < 8; ++index)
+            ASSERT_TRUE(assets->queue_import_files(files, {}));
+        EXPECT_FALSE(assets->queue_import_files(files, {}));
+        EXPECT_EQ(assets->database().find("external.gltf"), nullptr);
+    }
+
+    TEST_F(EditorAssetsTest, ExternalFileImportQueuePublishesRequestsInOrder) {
+        const auto sample =
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf";
+        const auto first = root / "first.gltf";
+        const auto second = root / "second.gltf";
+        std::filesystem::copy_file(sample, first);
+        std::filesystem::copy_file(sample, second);
+        const std::array first_files{first};
+        const std::array second_files{second};
+        ASSERT_TRUE(assets->queue_import_files(first_files, {}));
+        ASSERT_TRUE(assets->queue_import_files(second_files, {}));
+
+        for(int attempt = 0; attempt < 6 && !assets->database().find("second.gltf"); ++attempt) {
+            ASSERT_TRUE(assets->update());
+            scheduler.wait_idle();
+        }
+        ASSERT_TRUE(assets->update());
+        EXPECT_TRUE(assets->database().find("first.gltf"));
+        EXPECT_TRUE(assets->database().find("second.gltf"));
     }
 
     TEST_F(EditorAssetsTest, ReferenceLoadingDoesNotImportAndRejectsStaleRevisions) {

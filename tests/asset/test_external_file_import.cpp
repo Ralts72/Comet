@@ -11,6 +11,7 @@
 #include <array>
 #include <fstream>
 #include <iterator>
+#include <utility>
 
 namespace Comet::Tests {
     class ExternalFileImportTest: public ::testing::Test {
@@ -149,6 +150,68 @@ namespace Comet::Tests {
         const auto imported_handle = record->handle;
         EXPECT_FALSE(import({source}).succeeded());
         EXPECT_EQ(manager.get_database().find("folder/纹理.png")->handle, imported_handle);
+    }
+
+    TEST_F(ExternalFileImportTest, PreparedImportPublishesOnlyAfterOwnerCommits) {
+        const auto source = texture();
+        auto prepared =
+            AssetSourceOperations::PreparedFileImport::prepare(paths, {source}, "folder");
+        ASSERT_TRUE(prepared) << prepared.error();
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/texture.png"));
+        EXPECT_EQ(database.size(), 0);
+
+        const auto report = std::move(prepared).value().publish(database);
+        ASSERT_TRUE(report.succeeded());
+        EXPECT_TRUE(database.find("folder/texture.png"));
+        EXPECT_TRUE(std::filesystem::is_empty(paths.cache() / "file-import"));
+    }
+
+    TEST_F(ExternalFileImportTest, AbandonedPreparationRemovesOnlyStaging) {
+        const auto source = texture();
+        {
+            auto prepared =
+                AssetSourceOperations::PreparedFileImport::prepare(paths, {source}, "folder");
+            ASSERT_TRUE(prepared) << prepared.error();
+            EXPECT_FALSE(std::filesystem::is_empty(paths.cache() / "file-import"));
+        }
+        expect_empty();
+    }
+
+    TEST_F(ExternalFileImportTest, PreparedImportRefusesDestinationCreatedBeforePublish) {
+        const auto source = texture();
+        auto prepared =
+            AssetSourceOperations::PreparedFileImport::prepare(paths, {source}, "folder");
+        ASSERT_TRUE(prepared) << prepared.error();
+        std::ofstream(paths.assets() / "folder/texture.png") << "newer project file";
+
+        const auto report = std::move(prepared).value().publish(database);
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_EQ(read(paths.assets() / "folder/texture.png"), "newer project file");
+        EXPECT_EQ(database.size(), 0);
+        EXPECT_TRUE(std::filesystem::is_empty(paths.cache() / "file-import"));
+    }
+
+    TEST_F(ExternalFileImportTest, PreparedImportRefusesRetargetedDirectory) {
+        const auto source = texture();
+        const auto folder = paths.assets() / "folder";
+        std::filesystem::create_directories(folder / "first");
+        std::filesystem::create_directories(folder / "second");
+        std::error_code error;
+        std::filesystem::create_directory_symlink("first", folder / "drop", error);
+        if(error)
+            GTEST_SKIP() << "Symlinks unavailable: " << error.message();
+        auto prepared =
+            AssetSourceOperations::PreparedFileImport::prepare(paths, {source}, "folder/drop");
+        ASSERT_TRUE(prepared) << prepared.error();
+        std::filesystem::remove(folder / "drop");
+        std::filesystem::create_directory_symlink("second", folder / "drop");
+
+        const auto report = std::move(prepared).value().publish(database);
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_FALSE(std::filesystem::exists(folder / "first/texture.png"));
+        EXPECT_FALSE(std::filesystem::exists(folder / "second/texture.png"));
+        EXPECT_EQ(database.size(), 0);
+        EXPECT_TRUE(std::filesystem::is_empty(paths.cache() / "file-import"));
     }
 
     TEST_F(ExternalFileImportTest, GltfCopiesRelativeBufferAndImageAndDeduplicatesInputs) {
