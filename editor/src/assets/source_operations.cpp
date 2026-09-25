@@ -1,4 +1,4 @@
-#include "asset/source_operations.h"
+#include "assets/source_operations.h"
 
 #include "common/result.h"
 #include "common/file_io.h"
@@ -24,7 +24,26 @@
 #include <vector>
 #include <variant>
 
-namespace Comet::AssetSourceOperations {
+namespace CometEditor::AssetSourceOperations {
+    using Comet::AssetDatabase;
+    using Comet::AssetHandle;
+    using Comet::AssetImportLimits;
+    using Comet::AssetRecord;
+    using Comet::AssetScanReport;
+    using Comet::AssetType;
+    using Comet::AudioClip;
+    using Comet::EnvironmentImporter;
+    using Comet::MaterialData;
+    using Comet::MaterialSerializer;
+    using Comet::MeshImporter;
+    using Comet::metadata_path;
+    using Comet::MetadataSerializer;
+    using Comet::ProjectPaths;
+    using Comet::Result;
+    using Comet::ScopeExit;
+    using Comet::Script;
+    using Comet::TextureImporter;
+    using Comet::write_text_file_atomic;
     namespace {
         static_assert(std::is_nothrow_move_assignable_v<AssetDatabase>);
 
@@ -718,9 +737,8 @@ return script
             database, paths, destination, source, AssetType::Script, ".lua", "Script");
     }
 
-    AssetScanReport remove_asset(
-        AssetDatabase& database, const ProjectPaths& paths, const AssetHandle handle,
-        const TrashMover& move_to_trash) {
+    AssetScanReport remove_asset(AssetDatabase& database, const ProjectPaths& paths,
+        const AssetHandle handle, const TrashMover& move_to_trash) {
         const auto* indexed = database.find(handle);
         if(!indexed)
             return operation_error({}, "Asset is not indexed");
@@ -763,9 +781,8 @@ return script
         if(error)
             return operation_error(
                 record.path, "Cannot create deletion staging area: " + error.message());
-        const auto staging_entry = staging_root
-                                   / ("Comet-asset-"
-                                       + std::to_string(AssetHandle::generate().value()));
+        const auto staging_entry =
+            staging_root / ("Comet-asset-" + std::to_string(AssetHandle::generate().value()));
         if(!std::filesystem::create_directory(staging_entry, error))
             return operation_error(record.path, "Cannot reserve deletion staging entry");
         const auto staged_source = staging_entry / record.path;
@@ -802,8 +819,7 @@ return script
                 return Result<void>::failure("Cannot prepare deletion staging: " + error.message());
             std::filesystem::rename(source, staged_source, error);
             if(error)
-                return Result<void>::failure(
-                    "Cannot stage asset for deletion: " + error.message());
+                return Result<void>::failure("Cannot stage asset for deletion: " + error.message());
             source_moved = true;
             std::filesystem::rename(metadata_file, staged_metadata, error);
             if(error)
@@ -848,8 +864,8 @@ return script
             else if(std::filesystem::is_directory(
                         std::filesystem::symlink_status(staging_root, cleanup_error)))
                 std::filesystem::remove(staging_root, cleanup_error);
-            LOG_INFO("Moved asset '{}' and its metadata to system trash",
-                record.path.generic_string());
+            LOG_INFO(
+                "Moved asset '{}' and its metadata to system trash", record.path.generic_string());
             return report;
         }
         rollback();

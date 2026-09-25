@@ -7,7 +7,6 @@ set(UNIT_TEST_SOURCES
         asset/test_database.cpp
         asset/test_environment_artifact.cpp
         asset/test_environment_importer.cpp
-        asset/test_external_file_import.cpp
         asset/test_handle.cpp
         asset/test_import_input_snapshot.cpp
         asset/test_material_serializer.cpp
@@ -36,6 +35,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_camera_controller.cpp
         editor/core/test_command_history.cpp
         editor/core/test_editor_assets.cpp
+        editor/core/test_external_file_import.cpp
         editor/core/test_editor_request_policy.cpp
         editor/core/test_editor_scene_session.cpp
         editor/core/test_material_editing.cpp
@@ -46,6 +46,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_shader_reload.cpp
         editor/core/test_source_monitor.cpp
         editor/core/test_shader_program_import.cpp
+        editor/core/test_source_operations.cpp
         editor/core/test_transform_gizmo.cpp
         editor/core/test_viewport_layout.cpp
         graphics/test_device_capability.cpp

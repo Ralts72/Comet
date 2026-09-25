@@ -3,7 +3,7 @@
 #include "scene/selection.h"
 #include "scene/command_history.h"
 #include "assets/asset_reference.h"
-#include "asset/source_operations.h"
+#include "assets/source_operations.h"
 
 #include "support/imgui_context.h"
 
@@ -72,9 +72,8 @@ namespace CometEditor::Tests {
                     ++move_count;
                     moved_handle = request->handle;
                     destination = request->destination;
-                    project->complete_move(
-                        *request, Comet::AssetSourceOperations::move(
-                                      database, paths, request->handle, request->destination));
+                    project->complete_move(*request, AssetSourceOperations::move(database, paths,
+                                                         request->handle, request->destination));
                 }
                 if(project->take_refresh_request()) {
                     ++refresh_count;
@@ -264,12 +263,9 @@ namespace CometEditor::Tests {
         EXPECT_EQ(request->handle, handle);
         EXPECT_EQ(request->revision, database.get_revision(handle));
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "a.png"));
-        project->complete_delete(
-            *request,
-            Comet::AssetSourceOperations::remove_asset(database, paths, request->handle,
-                [this](const std::filesystem::path& entry) {
-                    return move_to_fake_trash(entry);
-                }));
+        project->complete_delete(*request,
+            AssetSourceOperations::remove_asset(database, paths, request->handle,
+                [this](const std::filesystem::path& entry) { return move_to_fake_trash(entry); }));
         frame();
         EXPECT_FALSE(database.find(handle));
         EXPECT_TRUE(std::filesystem::exists(root / "fake-system-trash/a.png"));
@@ -340,8 +336,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(request->handle, source);
         EXPECT_EQ(request->destination, "deferred.png");
         EXPECT_FALSE(project->take_move_request());
-        project->complete_move(*request, Comet::AssetSourceOperations::move(database, paths,
-                                             request->handle, request->destination));
+        project->complete_move(*request,
+            AssetSourceOperations::move(database, paths, request->handle, request->destination));
         frame();
         frame();
         EXPECT_FALSE(ImGui::FindWindowByName("Rename Asset")->Active);

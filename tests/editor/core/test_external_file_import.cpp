@@ -2,7 +2,7 @@
 #include "asset/data/mesh_data.h"
 #include "asset/data/texture_data.h"
 #include "asset/registry.h"
-#include "asset/source_operations.h"
+#include "assets/source_operations.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "core/task_scheduler.h"
 #include "render/resource/resource_factory.h"
@@ -14,6 +14,7 @@
 #include <utility>
 
 namespace Comet::Tests {
+    namespace AssetSourceOperations = CometEditor::AssetSourceOperations;
     class ExternalFileImportTest: public ::testing::Test {
     protected:
         class Factory: public RenderResourceFactory {

@@ -32,6 +32,8 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 `RenderResources` 组织 Mesh/Texture 创建、上传和 Sampler 复用；资产身份缓存仍只由 `AssetRegistry` 管理。
 编辑器的 `ProjectPanel` 位于 `assets/project_panel.*`，`ViewportPanel` 位于 `viewport/viewport_panel.*`，
 InspectorPanel 分发选择并编辑场景属性，AssetInspector 独立持有材质／纹理草稿；面板不直接保存文件或发布 GPU 资源。
+项目源文件的创建、移动、删除和外部导入由编辑器的 `assets/source_operations.*` 执行；
+Engine 的资产模块保留索引、导入器和运行时加载，不承接编辑器文件事务。
 
 ## 构建与运行
 
@@ -154,7 +156,7 @@ VMA 分配量不等于系统总显存；各分段百分位不能直接相加。C
 
 若要观察扫描对编辑器帧的影响，可在 `config/profiles/editor-dev.yaml` 临时启用 `diagnostics.enable_profiler`，
 再用 `./editor.sh /path/to/project` 打开项目并触发资产变化。退出时的 Profiler 日志包含 `Engine::Frame`、
-`Editor::on_update`、`EditorAssets::update`、`EditorAssets::restore_references` 和数据库扫描分段。
+`Editor::on_update`、`EditorAssets::update`、`SceneAssetReferences::restore` 和数据库扫描分段。
 这些是各自的累计／最大耗时，最大值不保证来自同一帧，不能直接相加；编辑器「渲染统计」可另行采集帧时间趋势。
 测量时保持窗口可见；最小化后的 `Engine::Frame` 可能包含等待窗口事件的时间，不代表扫描卡顿。
 
@@ -516,7 +518,8 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
   MaterialShader 模块定义程序、字节码与固定接口契约，MaterialRenderer 管理 GPU 候选、材质版本发布和绘制。
   Material 保存实例参数，MaterialLayout 独立描述布局；属性描述位于 `scene/property`，不依赖 ECS 注册器。
 - **资产**：AssetDatabase 管身份与依赖，ImportService 管导入，AssetManager 管加载与发布。
-  编辑器由 EditorAssets 持有 AssetDatabase 并执行源文件操作，AssetManager 借用同一索引处理运行时失效与重载；开发态 app 仍可由 AssetManager 自行持有索引。
+  编辑器由 EditorAssets 持有 AssetDatabase 并编排源文件操作；SceneAssetReferences 管活动场景引用的恢复，
+  AssetManager 借用同一索引处理运行时失效与重载。开发态 app 仍可由 AssetManager 自行持有索引。
   AssetRegistry 是唯一 Handle 缓存，RenderResources 只创建设备资源；Worker 不操作 Scene 或 GPU。
   Mesh 加载已发布 Artifact，Texture 暂时直接解码源文件。
 - **编辑器**：Editor 装配服务，SceneDocument 管文档与保存点，CommandHistory 管撤销。

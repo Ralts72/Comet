@@ -1,12 +1,21 @@
 #include "support/asset_manager_fixture.h"
-#include "asset/source_operations.h"
 
 namespace Comet::Tests {
     namespace {
-        AssetScanReport move_source(AssetDatabase& database, AssetManager& manager,
+        AssetScanReport simulate_external_move(AssetDatabase& database, AssetManager& manager,
             const ProjectPaths& paths, AssetHandle handle,
             const std::filesystem::path& destination) {
-            auto report = AssetSourceOperations::move(database, paths, handle, destination);
+            const auto* record = database.find(handle);
+            if(!record) {
+                ADD_FAILURE() << "Asset must be indexed before moving it";
+                return {};
+            }
+            const auto source = paths.assets() / record->path;
+            const auto target = paths.assets() / destination;
+            std::filesystem::create_directories(target.parent_path());
+            std::filesystem::rename(source, target);
+            std::filesystem::rename(metadata_path(source), metadata_path(target));
+            auto report = database.scan();
             manager.accept_scan_report(report);
             return report;
         }
@@ -270,7 +279,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(manager.import_mesh_async(handle));
         const auto before = manager.get_database().get_revision(handle);
         const auto report =
-            move_source(database, manager, project.paths(), handle, "moved/new.gltf");
+            simulate_external_move(database, manager, project.paths(), handle, "moved/new.gltf");
         EXPECT_TRUE(report.succeeded());
         EXPECT_NE(manager.get_database().get_revision(handle), before);
         EXPECT_TRUE(manager.import_mesh_async(handle));
@@ -307,7 +316,7 @@ namespace Comet::Tests {
             project.paths().cache() / "imported" / "mesh" / "42.bin"));
     }
 
-    TEST(AssetManagerTest, MovesSourceAndMetadataWithoutChangingHandle) {
+    TEST(AssetManagerTest, ObservesSourceAndMetadataMoveWithoutChangingHandle) {
         const TemporaryProject project;
         constexpr AssetHandle handle(42);
         const std::filesystem::path source = project.add_material(handle, "move_test");
@@ -322,7 +331,7 @@ namespace Comet::Tests {
         ASSERT_NE(original, nullptr);
 
         const AssetScanReport report =
-            move_source(database, manager, project.paths(), handle, "renamed/moved.mat");
+            simulate_external_move(database, manager, project.paths(), handle, "renamed/moved.mat");
 
         EXPECT_TRUE(report.succeeded());
         EXPECT_TRUE(report.snapshot_updated);
@@ -343,7 +352,7 @@ namespace Comet::Tests {
         EXPECT_NE(registry.resolve<Material>(handle), original);
     }
 
-    TEST(AssetManagerTest, MovesLoadedMeshAndRepublishesArtifact) {
+    TEST(AssetManagerTest, RescansMovedMeshAndRepublishesArtifact) {
         const TemporaryProject project;
         constexpr AssetHandle handle(42);
         const std::filesystem::path source = project.add_mesh(handle);
@@ -358,8 +367,8 @@ namespace Comet::Tests {
         const std::shared_ptr<Mesh> original = loaded_asset(manager.load_mesh(handle));
         ASSERT_NE(original, nullptr);
 
-        const AssetScanReport report =
-            move_source(database, manager, project.paths(), handle, "renamed/moved.gltf");
+        const AssetScanReport report = simulate_external_move(
+            database, manager, project.paths(), handle, "renamed/moved.gltf");
 
         EXPECT_TRUE(report.succeeded());
         EXPECT_TRUE(report.snapshot_updated);
@@ -376,96 +385,6 @@ namespace Comet::Tests {
         ASSERT_TRUE(artifact.has_value());
         ASSERT_FALSE(artifact->source_inputs.files.empty());
         EXPECT_EQ(artifact->source_inputs.files.front().relative_path, "renamed/moved.gltf");
-    }
-
-    TEST(AssetManagerTest, RejectsMoveWhenDestinationAlreadyExists) {
-        const TemporaryProject project;
-        constexpr AssetHandle handle(42);
-        const std::filesystem::path source = project.add_material(handle, "move_test");
-        const std::filesystem::path target = project.paths().assets() / "occupied.mat";
-        EXPECT_TRUE(MaterialSerializer{}.save(
-            {.template_name = "occupied", .texture_properties = {}}, target));
-        AssetRegistry registry;
-        FakeRenderResourceFactory resource_factory;
-        TaskScheduler task_scheduler(1);
-        AssetDatabase database(project.paths());
-        AssetManager manager(database, registry, resource_factory, task_scheduler);
-        ASSERT_TRUE(manager.scan().snapshot_updated);
-
-        const AssetScanReport report =
-            move_source(database, manager, project.paths(), handle, "occupied.mat");
-
-        EXPECT_FALSE(report.snapshot_updated);
-        EXPECT_TRUE(has_issue_containing(report, "destination already exists"));
-        EXPECT_TRUE(std::filesystem::is_regular_file(source));
-        EXPECT_TRUE(std::filesystem::is_regular_file(metadata_path(source)));
-        EXPECT_EQ(manager.get_database().find(handle)->path, "materials/test.mat");
-    }
-
-    TEST(AssetManagerTest, RejectsMoveOutsideAssetRoot) {
-        const TemporaryProject project;
-        constexpr AssetHandle handle(42);
-        const std::filesystem::path source = project.add_material(handle, "move_test");
-        AssetRegistry registry;
-        FakeRenderResourceFactory resource_factory;
-        TaskScheduler task_scheduler(1);
-        AssetDatabase database(project.paths());
-        AssetManager manager(database, registry, resource_factory, task_scheduler);
-        ASSERT_TRUE(manager.scan().snapshot_updated);
-
-        const AssetScanReport report =
-            move_source(database, manager, project.paths(), handle, "../outside.mat");
-
-        EXPECT_FALSE(report.snapshot_updated);
-        EXPECT_TRUE(has_issue_containing(report, "project-relative file path inside assets"));
-        EXPECT_TRUE(std::filesystem::is_regular_file(source));
-        EXPECT_TRUE(std::filesystem::is_regular_file(metadata_path(source)));
-        EXPECT_FALSE(std::filesystem::exists(project.paths().root() / "outside.mat"));
-    }
-
-    TEST(AssetManagerTest, RollsBackMoveWhenScanFindsIdentityConflict) {
-        const TemporaryProject project;
-        constexpr AssetHandle handle(42);
-        const std::filesystem::path source = project.add_material(handle, "move_test");
-        AssetRegistry registry;
-        FakeRenderResourceFactory resource_factory;
-        TaskScheduler task_scheduler(1);
-        AssetDatabase database(project.paths());
-        AssetManager manager(database, registry, resource_factory, task_scheduler);
-        ASSERT_TRUE(manager.scan().succeeded());
-
-        const std::filesystem::path duplicate = project.paths().assets() / "duplicate.mat";
-        EXPECT_TRUE(MaterialSerializer{}.save(
-            {.template_name = "duplicate", .texture_properties = {}}, duplicate));
-        EXPECT_TRUE(MetadataSerializer{}.save(
-            {.handle = handle, .type = AssetType::Material}, metadata_path(duplicate)));
-
-        const AssetScanReport report =
-            move_source(database, manager, project.paths(), handle, "renamed/moved.mat");
-
-        EXPECT_FALSE(report.snapshot_updated);
-        EXPECT_TRUE(has_issue_containing(report, "duplicate guid 42"));
-        EXPECT_TRUE(has_issue_containing(report, "move was rolled back"));
-        EXPECT_TRUE(std::filesystem::is_regular_file(source));
-        EXPECT_TRUE(std::filesystem::is_regular_file(metadata_path(source)));
-        EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / "renamed/moved.mat"));
-        EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / "renamed"));
-        ASSERT_NE(manager.get_database().find(handle), nullptr);
-        EXPECT_EQ(manager.get_database().find(handle)->path, "materials/test.mat");
-
-        ASSERT_TRUE(std::filesystem::remove(duplicate));
-        ASSERT_TRUE(std::filesystem::remove(metadata_path(duplicate)));
-        const auto retried =
-            move_source(database, manager, project.paths(), handle, "renamed/moved.mat");
-        ASSERT_TRUE(retried.succeeded());
-        ASSERT_TRUE(retried.snapshot_updated);
-        EXPECT_EQ(manager.get_database().find(handle)->path, "renamed/moved.mat");
-        EXPECT_FALSE(std::filesystem::exists(source));
-        EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
-        EXPECT_TRUE(
-            std::filesystem::is_regular_file(project.paths().assets() / "renamed/moved.mat"));
-        EXPECT_TRUE(
-            std::filesystem::is_regular_file(project.paths().assets() / "renamed/moved.mat.meta"));
     }
 
     TEST(AssetManagerTest, RebuildsCorruptedMeshArtifactDuringImport) {

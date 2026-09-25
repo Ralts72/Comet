@@ -1,10 +1,10 @@
 #pragma once
 
 #include "asset/asset_manager.h"
-#include "asset/source_operations.h"
+#include "assets/source_operations.h"
 #include "assets/source_monitor.h"
 #include "assets/asset_edit.h"
-#include "asset/reference.h"
+#include "assets/scene_asset_references.h"
 #include "file_watch_config.h"
 #include <chrono>
 #include <cstdint>
@@ -12,8 +12,6 @@
 #include <future>
 #include <memory>
 #include <optional>
-#include <set>
-#include <unordered_set>
 #include <unordered_map>
 #include <vector>
 
@@ -31,7 +29,7 @@ namespace CometEditor {
             Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler,
             std::chrono::milliseconds quiet_period = DEFAULT_FILE_WATCH_QUIET_PERIOD,
             Comet::AssetImportLimits limits = {},
-            Comet::AssetSourceOperations::TrashMover trash_mover = {});
+            AssetSourceOperations::TrashMover trash_mover = {});
 
         [[nodiscard]] Comet::AssetScanReport refresh();
         [[nodiscard]] Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> update(
@@ -77,7 +75,7 @@ namespace CometEditor {
         };
 
         struct PendingFileImport {
-            std::future<Comet::Result<Comet::AssetSourceOperations::PreparedFileImport>> completion;
+            std::future<Comet::Result<AssetSourceOperations::PreparedFileImport>> completion;
             std::filesystem::path directory;
         };
 
@@ -88,9 +86,10 @@ namespace CometEditor {
         void schedule_shader_program_imports(Clock::time_point now);
         Comet::ProjectPaths m_paths;
         Comet::AssetImportLimits m_limits;
-        Comet::AssetSourceOperations::TrashMover m_trash_mover;
+        AssetSourceOperations::TrashMover m_trash_mover;
         Comet::AssetDatabase m_database;
         Comet::AssetManager m_manager;
+        SceneAssetReferences m_scene_assets;
         AssetSourceMonitor m_monitor;
         Comet::TaskScheduler& m_scheduler;
         std::optional<PendingScan> m_pending_scan;
@@ -102,9 +101,5 @@ namespace CometEditor {
         std::unordered_map<Comet::AssetHandle, Clock::time_point> m_pending_shader_programs;
         std::unordered_map<Comet::AssetHandle, Comet::MeshImportMode> m_pending_mesh_imports;
         std::string m_monitor_error;
-        std::unordered_set<Comet::AssetHandle> m_reference_changes;
-        std::set<Comet::AssetReference> m_scene_references;
-        std::set<Comet::AssetReference> m_pending_references;
-        std::set<Comet::AssetReference> m_unresolved_references;
     };
 }

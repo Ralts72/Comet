@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `common/`、`input/` | 通用值、输入采样及映射 | 不引入 Render、Graphics 或窗口后端头；窗口事件的接线在 `core/window` |
 | `scene/`、`scripting/`、`audio/` | 通用值、输入、资产身份／只读缓存；脚本实现可依赖 Lua，物理实现可依赖 Jolt，音频实现可依赖 miniaudio | Scene 组件和序列化不含 GPU／音频设备对象；System 不直接调用渲染后端 |
-| `asset/` | Scene 所用稳定 Handle、CPU 数据、文件与后台任务 | `asset/data/texture_data.h` 暂复用不含 Vulkan 头的 `graphics/enums.h`，拆分前不假装完全独立 |
+| `asset/` | Scene 所用稳定 Handle、CPU 数据、索引、导入器与后台任务 | 编辑器源文件事务在 `editor/assets/`；`asset/data/texture_data.h` 暂复用不含 Vulkan 头的 `graphics/enums.h`，拆分前不假装完全独立 |
 | `render/` | Scene 提取结果、资产缓存、Graphics | Renderer 编排帧与离屏输出；SceneRenderer 拥有目标，不知道 ImGui |
 | `graphics/` | Vulkan、平台窗口及通用能力 | 图形后端不依赖 Editor；`core/engine.cpp` 是宿主组合点，可使用 Graphics/Render |
 | `editor/`、`app/` | Engine 组合入口、明确的工作流接口 | ImGui/Vulkan 对接集中在 `editor/editor.cpp` 和 `editor/src/ui/imgui_context.cpp`；业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
@@ -97,8 +97,11 @@ Engine
                 └── MaterialResources[material version] → PreparedMaterial / PipelineState / Sampler / 参数 UBO / pool / MaterialSet
 
 Editor
-├── EditorAssets → AssetDatabase（编辑器项目索引 owner）→ AssetSourceOperations（源文件操作）
-│   └── AssetManager（借用同一索引，处理加载、失效与发布）
+├── EditorAssets（编辑器项目索引 owner）
+│   ├── AssetDatabase（项目索引）
+│   ├── AssetSourceOperations（编辑器源文件事务，修改索引候选）
+│   ├── AssetManager（借用同一索引，处理加载、失效与发布）
+│   └── SceneAssetReferences（活动场景引用、待恢复与未解析集合；借用索引和 Manager）
 ├── RenderStatsPanel（只读 Engine/Renderer 快照，提交一次性采样／报告请求；报告由 RenderDiagnostics 生成）
 ├── EditorState / SceneDocument / EditorSceneSession / SelectionService
 ├── CommandHistory ← Inspector / TransformGizmo 各自的属性事务
@@ -121,7 +124,7 @@ Finder 的 `.DS_Store` 与原子写临时文件不计入快照变化，
 - 引用表示必需且不可重绑定的借用；指针用于可空、可换 owner 或 moved-from 状态。
   unique_ptr 独占，shared_ptr 延长共享寿命；原生 Vulkan/GLFW handle 仍遵守各自协议。
 - Renderer 是组合根，不是所有 GPU 对象的直接 owner；Device 也不反向拥有业务服务。
-- EditorAssets 中 AssetManager 先于其借用的 AssetDatabase 销毁；开发态 app 的 AssetManager 自持索引。app/editor 的 AssetManager 均先于 Engine 销毁；后台任务先结束，GPU 使用完成后再释放 Registry 和渲染资源。
+- EditorAssets 中 SceneAssetReferences 先于其借用的 AssetManager 和 AssetDatabase 销毁，AssetManager 先于 AssetDatabase 销毁；开发态 app 的 AssetManager 自持索引。app/editor 的 AssetManager 均先于 Engine 销毁；后台任务先结束，GPU 使用完成后再释放 Registry 和渲染资源。
 
 ## 应用启动与失败清理
 

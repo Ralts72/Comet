@@ -1,25 +1,25 @@
 #include "assets/editor_assets.h"
 #include "assets/shader_program_import.h"
 #include "assets/system_trash.h"
-#include "scene/component_registry.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
-#include "graphics/result.h"
 #include "asset/serialization/material_serializer.h"
-#include "asset/source_operations.h"
+#include "assets/source_operations.h"
 #include "core/task_scheduler.h"
 
 #include <algorithm>
+#include <unordered_set>
 #include <utility>
 
 namespace CometEditor {
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
         Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler,
         const std::chrono::milliseconds quiet_period, const Comet::AssetImportLimits limits,
-        Comet::AssetSourceOperations::TrashMover trash_mover)
+        AssetSourceOperations::TrashMover trash_mover)
         : m_paths(std::move(paths)), m_limits(limits), m_trash_mover(std::move(trash_mover)),
           m_database(m_paths), m_manager(m_database, registry, factory, scheduler, m_limits),
-          m_monitor(m_paths.assets()), m_scheduler(scheduler), m_quiet_period(quiet_period) {
+          m_scene_assets(m_database, m_manager), m_monitor(m_paths.assets()),
+          m_scheduler(scheduler), m_quiet_period(quiet_period) {
         if(!m_trash_mover)
             m_trash_mover = SystemTrash::move;
         std::error_code error;
@@ -85,12 +85,6 @@ namespace CometEditor {
             }
             for(const auto handle : report.removed_assets)
                 m_pending_shader_programs.erase(handle);
-            m_reference_changes.insert(report.added_assets.begin(), report.added_assets.end());
-            m_reference_changes.insert(
-                report.modified_assets.begin(), report.modified_assets.end());
-            m_reference_changes.insert(report.removed_assets.begin(), report.removed_assets.end());
-            m_pending_references.insert(
-                m_unresolved_references.begin(), m_unresolved_references.end());
             std::erase_if(m_pending_mesh_imports, [&](const auto& entry) {
                 const auto* record = database().find(entry.first);
                 return !record || record->type != Comet::AssetType::Mesh;
@@ -99,6 +93,7 @@ namespace CometEditor {
             for(const auto handle : m_manager.mesh_imports_needing_recheck())
                 m_pending_mesh_imports.try_emplace(handle, Comet::MeshImportMode::IfNeeded);
         }
+        m_scene_assets.accept_scan(report);
         if(report.generated_metadata) {
             for(const auto handle : report.added_assets) {
                 if(const auto* record = database().find(handle))
@@ -194,7 +189,7 @@ namespace CometEditor {
             auto completion = m_scheduler.try_submit_result(
                 [paths = m_paths, sources = request.sources, directory = request.directory,
                     limits = m_limits] {
-                    return Comet::AssetSourceOperations::PreparedFileImport::prepare(
+                    return AssetSourceOperations::PreparedFileImport::prepare(
                         paths, sources, directory, limits);
                 });
             if(completion) {
@@ -234,7 +229,7 @@ namespace CometEditor {
         if(!completed)
             return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::failure(
                 completed.error());
-        m_reference_changes.insert(completed.value().begin(), completed.value().end());
+        m_scene_assets.mark_changed(completed.value());
         return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::success(
             std::move(report));
     }
@@ -275,7 +270,7 @@ namespace CometEditor {
         const Comet::AssetHandle handle, const std::filesystem::path& destination) {
         const auto* previous = database().find(handle);
         const auto old_path = previous ? previous->path : std::filesystem::path{};
-        auto report = Comet::AssetSourceOperations::move(m_database, m_paths, handle, destination);
+        auto report = AssetSourceOperations::move(m_database, m_paths, handle, destination);
         if(report.snapshot_updated) {
             if(const auto* current = database().find(handle)) {
                 acknowledge(old_path);
@@ -294,8 +289,8 @@ namespace CometEditor {
     Comet::AssetScanReport EditorAssets::remove(const Comet::AssetHandle handle) {
         const auto* previous = database().find(handle);
         const auto old_path = previous ? previous->path : std::filesystem::path{};
-        auto report = Comet::AssetSourceOperations::remove_asset(
-            m_database, m_paths, handle, m_trash_mover);
+        auto report =
+            AssetSourceOperations::remove_asset(m_database, m_paths, handle, m_trash_mover);
         if(report.snapshot_updated) {
             acknowledge(old_path);
             acknowledge(Comet::metadata_path(old_path));
@@ -318,7 +313,7 @@ namespace CometEditor {
     Comet::AssetScanReport EditorAssets::create_material(
         const std::filesystem::path& destination, const Comet::MaterialData& data) {
         auto report =
-            Comet::AssetSourceOperations::create_material(m_database, m_paths, destination, data);
+            AssetSourceOperations::create_material(m_database, m_paths, destination, data);
         if(report.snapshot_updated) {
             acknowledge(destination);
             acknowledge(Comet::metadata_path(destination));
@@ -328,7 +323,7 @@ namespace CometEditor {
     }
 
     Comet::AssetScanReport EditorAssets::create_script(const std::filesystem::path& destination) {
-        auto report = Comet::AssetSourceOperations::create_script(m_database, m_paths, destination);
+        auto report = AssetSourceOperations::create_script(m_database, m_paths, destination);
         if(report.snapshot_updated) {
             acknowledge(destination);
             acknowledge(Comet::metadata_path(destination));
@@ -367,7 +362,7 @@ namespace CometEditor {
         const auto path = database().find(edit.handle)->path;
         if(auto imported = m_manager.reimport_texture(edit.handle, texture->after); !imported)
             return Comet::Result<void, Comet::Error>::failure(imported.error());
-        m_reference_changes.insert(edit.handle);
+        m_scene_assets.mark_changed(edit.handle);
         acknowledge(Comet::metadata_path(path));
         return Comet::Result<void, Comet::Error>::success();
     }
@@ -395,57 +390,17 @@ namespace CometEditor {
 
     Comet::Result<std::size_t, Comet::Error> EditorAssets::prepare_scene(
         Comet::Scene& scene, const Comet::ComponentRegistry& components) {
-        return m_manager.prepare_references(components.collect_asset_references(scene),
-            Comet::AssetManager::MissingAssetPolicy::AllowMissing);
+        return m_scene_assets.prepare_scene(scene, components);
     }
 
     void EditorAssets::track_scene(
         Comet::Scene& scene, const Comet::ComponentRegistry& components) {
-        const auto references = components.collect_asset_references(scene);
-        std::set<Comet::AssetReference> next(references.begin(), references.end());
-        for(const auto& reference : next)
-            if(!m_scene_references.contains(reference))
-                m_pending_references.insert(reference);
-        m_scene_references = std::move(next);
-        std::erase_if(m_pending_references,
-            [&](const auto& reference) { return !m_scene_references.contains(reference); });
-        std::erase_if(m_unresolved_references,
-            [&](const auto& reference) { return !m_scene_references.contains(reference); });
+        m_scene_assets.track_scene(scene, components);
     }
 
     Comet::Result<std::size_t, Comet::Error> EditorAssets::restore_references(
         const Comet::AssetCompletionBudget budget) {
-        PROFILE_SCOPE("EditorAssets::restore_references");
-        auto changed = std::exchange(m_reference_changes, {});
-        if(!changed.empty()) {
-            database().include_dependents(changed);
-            for(const auto& reference : m_scene_references)
-                if(changed.contains(reference.handle))
-                    m_pending_references.insert(reference);
-            // 失败的材质可能尚无完整依赖索引，发布事件也重试有限的未解析引用。
-            m_pending_references.insert(
-                m_unresolved_references.begin(), m_unresolved_references.end());
-        }
-        const auto start = std::chrono::steady_clock::now();
-        std::size_t processed = 0;
-        while(!m_pending_references.empty() && processed < budget.max_results
-              && budget.max_time > std::chrono::nanoseconds::zero()
-              && (processed == 0 || std::chrono::steady_clock::now() - start < budget.max_time)) {
-            const auto reference = *m_pending_references.begin();
-            m_pending_references.erase(m_pending_references.begin());
-            ++processed;
-            auto loaded = m_manager.request_load(reference.handle, reference.type);
-            if(loaded) {
-                m_unresolved_references.erase(reference);
-            } else {
-                m_unresolved_references.insert(reference);
-                if(Comet::is_device_lost(loaded.error()))
-                    return Comet::Result<std::size_t, Comet::Error>::failure(loaded.error());
-                LOG_WARN(
-                    "Unresolved asset {}: {}", reference.handle.value(), loaded.error().message);
-            }
-        }
-        return Comet::Result<std::size_t, Comet::Error>::success(processed);
+        return m_scene_assets.restore(budget);
     }
 
 }
