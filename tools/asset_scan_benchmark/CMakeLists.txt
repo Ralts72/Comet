@@ -1,0 +1,3 @@
+add_executable(asset_scan_benchmark main.cpp)
+target_link_libraries(asset_scan_benchmark PRIVATE engine)
+comet_copy_runtime_dependencies(asset_scan_benchmark)

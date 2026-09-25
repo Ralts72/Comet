@@ -9,7 +9,8 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `engine/src/` | 引擎库：runtime、core、input、scene、asset、audio、render、graphics、config、diagnostics |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
-| `tools/render_benchmark/` | 固定场景渲染性能基准，链接 engine，不依赖测试框架或编辑器 |
+| `tools/render_benchmark/` | 固定场景渲染性能基准及一键运行脚本，链接 engine，不依赖测试框架或编辑器 |
+| `tools/asset_scan_benchmark/` | 可选的资产扫描 CPU 基准及一键运行脚本，分别测量候选准备与索引发布 |
 | `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、ui 组织，`resources/` 保存私有字体等资源 |
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
@@ -98,9 +99,9 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 一键构建并测量，复用 `build-release/` 的 Release 引擎，不创建另一套专用构建目录：
 
 ```bash
-./tools/benchmark.sh
-./tools/benchmark.sh /tmp/comet-benchmark.csv 64 640 360 240 1
-./tools/benchmark.sh --help
+./tools/render_benchmark/run.sh
+./tools/render_benchmark/run.sh /tmp/comet-benchmark.csv 64 640 360 240 1
+./tools/render_benchmark/run.sh --help
 ```
 
 无参数时使用第二条命令的场景参数，报告保存到 `build-release/reports/render-benchmark.csv`；成功时替换上一次报告。
@@ -134,6 +135,18 @@ GPU 样本按提交序号去重；`gpu_status` 区分完整、部分、不支持
 可分别提高物体数、提高实际分辨率、关闭 Bloom，避免一次改变所有变量。物体数增加时会缩小立方体，
 它不是纯 CPU 实验，也不代表多材质、透明物体、IBL 或编辑器开销。CPU 墙钟包含等待，GPU 图不含呈现完成，
 VMA 分配量不等于系统总显存；各分段百分位不能直接相加。CI smoke 只验证测量契约，不设置绝对耗时门槛。
+
+资产扫描基准可接收任意包含 `assets/` 的项目目录。它先复制资产到临时项目并完成一次预热扫描，
+随后对输入不再变化的完整扫描分别输出只读准备和发布阶段的 p50／p95／最大耗时；不会给原项目生成 `.meta`。
+复制耗时不计入样本，项目越大越需要留意临时磁盘空间；这项 CPU 测量不等同于编辑器帧时间。
+
+```bash
+./tools/asset_scan_benchmark/run.sh
+./tools/asset_scan_benchmark/run.sh /path/to/project 30
+```
+
+脚本复用 `build-release/` 并只构建所需目标，构建消息写到标准错误，标准输出为 CSV，可重定向保存。
+退出时会清理临时副本；若清理失败，工具会打印残留路径。Debug 构建只用于验证工具，性能判断应使用 Release 与实际规模的项目。
 
 ### 交互式渲染诊断
 

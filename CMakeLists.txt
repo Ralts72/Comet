@@ -50,6 +50,7 @@ add_subdirectory(engine)
 
 if (COMET_BUILD_BENCHMARKS)
     add_subdirectory(tools/render_benchmark)
+    add_subdirectory(tools/asset_scan_benchmark)
 endif ()
 
 if (COMET_BUILD_APP)

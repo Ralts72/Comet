@@ -1,12 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CALLER_DIRECTORY="$PWD"
 
 usage() {
     printf '%s\n' \
-        '用法：tools/benchmark.sh [OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1)]' \
+        '用法：tools/render_benchmark/run.sh [OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1)]' \
         '不带参数：64 个物体、640×360 逻辑窗口、240 帧、Bloom 开启。' \
         '默认报告：仓库 build-release/reports/render-benchmark.csv。' \
         '自定义相对报告路径以调用时的工作目录为准。' \
