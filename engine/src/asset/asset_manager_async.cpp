@@ -4,11 +4,13 @@
 #include "asset/import/import_candidate.h"
 #include "asset/import/import_service.h"
 #include "asset/import/environment_importer.h"
+#include "asset/import/texture_importer.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
 #include "diagnostics/logger.h"
 #include "render/resource/texture.h"
 
+#include <string>
 #include <unordered_set>
 #include <utility>
 #include <variant>
@@ -194,6 +196,8 @@ namespace Comet {
     bool AssetManager::schedule_loaded_texture_refresh(const AssetRecord& record) {
         const AssetHandle handle = record.handle;
         const AssetRevision revision = m_database.get_revision(handle);
+        if(m_task_queue->contains(handle, revision))
+            return true;
         const auto previous_texture = m_registry.resolve<Texture>(handle);
         if(!previous_texture) {
             return !m_registry.contains(handle);
@@ -205,12 +209,25 @@ namespace Comet {
             return false;
         }
 
-        return m_task_queue->schedule(handle, revision,
-            [paths = m_paths, handle, revision, record, settings = *settings](
-                AssetImportResult& result) {
+        auto bytes = TextureImporter::working_bytes(m_paths.assets() / record.path);
+        if(!bytes || bytes.value() > m_task_queue->memory_budget()) {
+            const std::string message =
+                bytes ? "Texture exceeds the asset CPU memory budget" : bytes.error();
+            return m_task_queue->schedule(handle, revision,
+                [handle, revision, path = record.path, message](AssetImportResult& result) {
+                    result.candidate = TextureImportCandidate{
+                        handle, revision, path, Result<TextureData>::failure(message)};
+                });
+        }
+
+        return m_task_queue->schedule(
+            handle, revision,
+            [paths = m_paths, handle, revision, record, settings = *settings,
+                budget = bytes.value()](AssetImportResult& result) {
                 result.candidate = TextureImportCandidate{handle, revision, record.path,
-                    ImportService(paths).prepare_texture(record, settings)};
-            });
+                    ImportService(paths).prepare_texture(record, settings, budget)};
+            },
+            false, bytes.value());
     }
 
     Result<bool, Error> AssetManager::schedule_environment(const AssetRecord& record) {

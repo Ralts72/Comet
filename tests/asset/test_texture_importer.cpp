@@ -8,7 +8,9 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
+#include <vector>
 
 namespace Comet::Tests {
     TEST(TextureImporterTest, DecodesTextureIntoRgbaPixels) {
@@ -44,6 +46,43 @@ namespace Comet::Tests {
             flipped.pixels.end() - static_cast<std::ptrdiff_t>(row_size)));
         EXPECT_TRUE(std::equal(original.pixels.end() - static_cast<std::ptrdiff_t>(row_size),
             original.pixels.end(), flipped.pixels.begin()));
+    }
+
+    TEST(TextureImporterTest, RespectsDecodedWorkingSetBudget) {
+        const auto source = std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                            / "assets/textures/awesomeface.png";
+        const auto bytes = TextureImporter::working_bytes(source);
+        ASSERT_TRUE(bytes);
+        EXPECT_GT(bytes.value(), std::filesystem::file_size(source));
+        EXPECT_FALSE(TextureImporter{}.import(source, {}, bytes.value() - 1));
+        EXPECT_TRUE(TextureImporter{}.import(source, {}, bytes.value()));
+    }
+
+    TEST(TextureImporterTest, RejectsHugeDimensionsBeforeDecodingPixels) {
+        const auto source =
+            std::filesystem::temp_directory_path()
+            / ("comet_large_header_" + std::to_string(AssetHandle::generate().value()) + ".png");
+        const auto sample = std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                            / "assets/textures/awesomeface.png";
+        std::ifstream input(sample, std::ios::binary);
+        std::vector<char> encoded(std::istreambuf_iterator<char>(input), {});
+        ASSERT_GT(encoded.size(), 24u);
+        encoded[16] = encoded[20] = 0;
+        encoded[17] = encoded[21] = 0;
+        encoded[18] = encoded[22] = 0x40;
+        encoded[19] = encoded[23] = 0;
+        {
+            std::ofstream output(source, std::ios::binary);
+            output.write(encoded.data(), encoded.size());
+        }
+
+        const auto estimate = TextureImporter::working_bytes(source);
+        ASSERT_FALSE(estimate);
+        EXPECT_NE(estimate.error().find("working-set budget"), std::string::npos);
+        EXPECT_FALSE(TextureImporter{}.import(source));
+
+        std::error_code error;
+        std::filesystem::remove(source, error);
     }
 
     TEST(TextureImporterTest, RejectsInvalidImageData) {

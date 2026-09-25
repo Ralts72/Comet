@@ -7,6 +7,7 @@
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/import/import_service.h"
+#include "asset/import/texture_importer.h"
 #include "render/resource/environment.h"
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
@@ -822,7 +823,8 @@ namespace Comet {
 
     Result<std::shared_ptr<Texture>, Error> AssetManager::create_runtime_texture(
         const AssetRecord& record, const TextureImportSettings& import_settings) {
-        auto data = m_import_service->prepare_texture(record, import_settings);
+        auto data = m_import_service->prepare_texture(
+            record, import_settings, TextureImporter::MAX_WORKING_BYTES);
         if(!data)
             return Result<std::shared_ptr<Texture>, Error>::failure({data.error()});
         auto texture = m_resource_factory.try_create_texture(data.value());

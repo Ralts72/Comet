@@ -20,9 +20,9 @@ namespace Comet {
             record.handle, revision, record.path, build_mesh_artifact(record.handle, record.path)};
     }
 
-    Result<TextureData> ImportService::prepare_texture(
-        const AssetRecord& record, const TextureImportSettings& settings) const {
-        return TextureImporter{}.import(m_paths.assets() / record.path, settings);
+    Result<TextureData> ImportService::prepare_texture(const AssetRecord& record,
+        const TextureImportSettings& settings, const std::size_t memory_budget) const {
+        return TextureImporter{}.import(m_paths.assets() / record.path, settings, memory_budget);
     }
 
     std::filesystem::path ImportService::environment_artifact_path(const AssetHandle handle) const {
