@@ -192,7 +192,8 @@ namespace Comet::Tests {
         AssetRegistry registry;
         FakeRenderResourceFactory factory;
         TaskScheduler scheduler(1);
-        AssetManager manager(project.paths(), registry, factory, scheduler, {.working_bytes = 1});
+        AssetManager manager(
+            project.paths(), registry, factory, scheduler, {.async = {.working_bytes = 1}});
         ASSERT_TRUE(manager.scan().succeeded());
         ASSERT_TRUE(manager.import_mesh(handle));
         const auto previous = loaded_asset(manager.load_mesh(handle));
@@ -243,7 +244,8 @@ namespace Comet::Tests {
         AssetRegistry registry;
         FakeRenderResourceFactory factory;
         TaskScheduler scheduler(1);
-        AssetManager manager(project.paths(), registry, factory, scheduler, {.working_bytes = 1});
+        AssetManager manager(
+            project.paths(), registry, factory, scheduler, {.async = {.working_bytes = 1}});
         ASSERT_TRUE(manager.scan().succeeded());
         const auto previous = loaded_asset(manager.load_texture(handle));
         ASSERT_TRUE(previous);

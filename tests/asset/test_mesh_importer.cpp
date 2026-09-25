@@ -141,6 +141,14 @@ namespace Comet::Tests {
         EXPECT_FALSE(MeshImporter{}.import(source, estimate.value() - 1));
         EXPECT_TRUE(MeshImporter{}.import(source, estimate.value()));
 
+        AssetImportLimits limits;
+        limits.source_bytes = std::filesystem::file_size(source) - 1;
+        EXPECT_FALSE(MeshImporter::working_bytes(source, limits));
+        limits.source_bytes = AssetImportLimits{}.source_bytes;
+        limits.mesh_working_bytes = estimate.value() - 1;
+        EXPECT_FALSE(MeshImporter::working_bytes(source, limits));
+        EXPECT_FALSE(MeshImporter{}.import(source, estimate.value(), limits));
+
         auto oversized = make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})");
         const auto count = oversized.find("\"count\":3");
         ASSERT_NE(count, std::string::npos);

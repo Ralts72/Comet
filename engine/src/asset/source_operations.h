@@ -15,8 +15,6 @@
 namespace Comet::AssetSourceOperations {
     class COMET_API PreparedFileImport final {
     public:
-        static constexpr std::uintmax_t MAX_SOURCE_BYTES = 512ull * 1024 * 1024;
-
         PreparedFileImport(PreparedFileImport&&) noexcept;
         PreparedFileImport& operator=(PreparedFileImport&&) noexcept;
         ~PreparedFileImport();
@@ -26,7 +24,7 @@ namespace Comet::AssetSourceOperations {
 
         [[nodiscard]] static Result<PreparedFileImport> prepare(ProjectPaths paths,
             std::vector<std::filesystem::path> sources, std::filesystem::path directory,
-            std::uintmax_t source_byte_budget = MAX_SOURCE_BYTES);
+            std::uintmax_t source_byte_budget);
         [[nodiscard]] AssetScanReport publish(AssetDatabase& database) &&;
 
     private:
@@ -50,5 +48,5 @@ namespace Comet::AssetSourceOperations {
 
     [[nodiscard]] COMET_API AssetScanReport import_files(AssetDatabase& database,
         const ProjectPaths& paths, std::span<const std::filesystem::path> sources,
-        const std::filesystem::path& directory);
+        const std::filesystem::path& directory, std::uintmax_t source_byte_budget);
 }

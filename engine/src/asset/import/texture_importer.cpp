@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <system_error>
@@ -13,45 +14,52 @@
 
 namespace Comet {
     namespace {
-        constexpr std::size_t MAX_SOURCE_BYTES = 512ull * 1024 * 1024;
         constexpr std::size_t DECODE_OVERHEAD_BYTES = 16ull * 1024 * 1024;
 
-        Result<std::size_t> estimate_working_bytes(
-            const std::size_t source_bytes, const int width, const int height) {
+        Result<std::size_t> estimate_working_bytes(const std::size_t source_bytes, const int width,
+            const int height, const AssetImportLimits& limits) {
             constexpr std::size_t bytes_per_pixel = 12;
-            if(source_bytes > MAX_SOURCE_BYTES || width <= 0 || height <= 0)
+            if(source_bytes > limits.source_bytes || width <= 0 || height <= 0)
                 return Result<std::size_t>::failure(
-                    "Texture source exceeds 512 MiB or has invalid dimensions");
+                    "Texture source exceeds its configured limit or has invalid dimensions");
+            if(limits.texture_working_bytes <= DECODE_OVERHEAD_BYTES
+                || source_bytes > limits.texture_working_bytes - DECODE_OVERHEAD_BYTES)
+                return Result<std::size_t>::failure(
+                    "Texture exceeds its configured CPU working-set budget");
             const auto available =
-                TextureImporter::MAX_WORKING_BYTES - DECODE_OVERHEAD_BYTES - source_bytes;
+                limits.texture_working_bytes - DECODE_OVERHEAD_BYTES - source_bytes;
             const auto max_pixels = available / bytes_per_pixel;
             if(static_cast<std::size_t>(width) > max_pixels / static_cast<std::size_t>(height))
                 return Result<std::size_t>::failure(
-                    "Texture exceeds its 1 GiB CPU working-set budget");
+                    "Texture exceeds its configured CPU working-set budget");
             const auto pixels = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
             return Result<std::size_t>::success(
                 source_bytes + pixels * bytes_per_pixel + DECODE_OVERHEAD_BYTES);
         }
     }
 
-    Result<std::size_t> TextureImporter::working_bytes(const std::filesystem::path& source_path) {
+    Result<std::size_t> TextureImporter::working_bytes(
+        const std::filesystem::path& source_path, const AssetImportLimits& limits) {
         std::error_code error;
         const auto source_size = std::filesystem::file_size(source_path, error);
-        if(error || source_size > MAX_SOURCE_BYTES)
+        if(error || source_size > limits.source_bytes
+            || source_size > static_cast<std::uintmax_t>(std::numeric_limits<int>::max()))
             return Result<std::size_t>::failure(
-                "Cannot read texture or source exceeds 512 MiB: " + source_path.string());
+                "Cannot read texture or source exceeds its configured limit: "
+                + source_path.string());
         int width = 0;
         int height = 0;
         int channels = 0;
         if(!stbi_info(source_path.string().c_str(), &width, &height, &channels))
             return Result<std::size_t>::failure(
                 "Cannot inspect texture source: " + source_path.string());
-        return estimate_working_bytes(source_size, width, height);
+        return estimate_working_bytes(source_size, width, height, limits);
     }
 
     Result<TextureData> TextureImporter::import(const std::filesystem::path& source_path,
-        const TextureImportSettings& settings, const std::size_t memory_budget) const {
-        auto estimated = working_bytes(source_path);
+        const TextureImportSettings& settings, const std::size_t memory_budget,
+        const AssetImportLimits& limits) const {
+        auto estimated = working_bytes(source_path, limits);
         if(!estimated)
             return Result<TextureData>::failure(estimated.error());
         if(estimated.value() > memory_budget)
@@ -59,7 +67,8 @@ namespace Comet {
 
         std::error_code error;
         const auto source_size = std::filesystem::file_size(source_path, error);
-        if(error || source_size > MAX_SOURCE_BYTES)
+        if(error || source_size > limits.source_bytes
+            || source_size > static_cast<std::uintmax_t>(std::numeric_limits<int>::max()))
             return Result<TextureData>::failure(
                 "Cannot read texture or source size changed: " + source_path.string());
         std::vector<stbi_uc> source(source_size);
@@ -76,7 +85,7 @@ namespace Comet {
         if(!stbi_info_from_memory(source.data(), byte_count, &width, &height, &channels))
             return Result<TextureData>::failure(
                 "Cannot inspect texture source: " + source_path.string());
-        auto current_estimate = estimate_working_bytes(source.size(), width, height);
+        auto current_estimate = estimate_working_bytes(source.size(), width, height, limits);
         if(!current_estimate || current_estimate.value() > memory_budget)
             return Result<TextureData>::failure("Texture exceeds its reserved CPU memory budget");
         const int inspected_width = width;

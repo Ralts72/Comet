@@ -762,7 +762,7 @@ namespace Comet::Tests {
         FakeRenderResourceFactory factory;
         TaskScheduler scheduler(1);
         AssetManager manager(project.paths(), registry, factory, scheduler,
-            {.in_flight = 4, .queued = 4, .working_bytes = bytes.value()});
+            {.async = {.in_flight = 4, .queued = 4, .working_bytes = bytes.value()}});
         BlockedWorker blocked(scheduler);
         ASSERT_TRUE(manager.scan().succeeded());
         const auto first = manager.get_database().find("one.hdr")->handle;
@@ -792,7 +792,7 @@ namespace Comet::Tests {
         FakeRenderResourceFactory factory;
         TaskScheduler scheduler(1);
         AssetManager constrained(
-            project.paths(), registry, factory, scheduler, {.working_bytes = 1});
+            project.paths(), registry, factory, scheduler, {.async = {.working_bytes = 1}});
         ASSERT_TRUE(constrained.scan().succeeded());
         const auto handle = constrained.get_database().find("studio.hdr")->handle;
         EXPECT_FALSE(constrained.request_load(handle, AssetType::Environment));

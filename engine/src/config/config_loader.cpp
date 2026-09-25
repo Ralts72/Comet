@@ -2,6 +2,7 @@
 #include "common/file_io.h"
 #include <array>
 #include <cmath>
+#include <limits>
 #include <sstream>
 #include <string_view>
 #include <yaml-cpp/yaml.h>
@@ -77,9 +78,25 @@ namespace Comet {
                 value = static_cast<SampleCount>(count);
                 return true;
             }
+            bool megabytes(std::string_view key, std::size_t& bytes) {
+                return scaled_bytes(key, bytes, 1024 * 1024, "an integer number of MiB");
+            }
+            bool kilobytes(std::string_view key, std::size_t& bytes) {
+                return scaled_bytes(key, bytes, 1024, "an integer number of KiB");
+            }
             const std::string& error() const { return m_error; }
 
         private:
+            bool scaled_bytes(std::string_view key, std::size_t& bytes, const std::size_t scale,
+                std::string_view expected) {
+                std::size_t units = bytes / scale;
+                if(!read(key, units, expected))
+                    return false;
+                if(units == 0 || units > std::numeric_limits<std::size_t>::max() / scale)
+                    return fail(key, "must be a positive value that fits in memory size");
+                bytes = units * scale;
+                return true;
+            }
             bool fail(std::string_view key, std::string_view detail) {
                 m_error = config_error(m_path, key, detail);
                 return false;
@@ -154,6 +171,21 @@ namespace Comet {
                 || !reader.read("render.hdr_headroom", config.render.hdr_headroom, "a number")
                 || !reader.read("render.max_anisotropy", config.render.max_anisotropy, "a number"))
                 return Result<void>::failure(reader.error());
+            if(!reader.read(
+                   "assets.async.in_flight", config.assets.async.in_flight, "a positive integer")
+                || !reader.read(
+                    "assets.async.queued", config.assets.async.queued, "a positive integer")
+                || !reader.megabytes("assets.async.working_mib", config.assets.async.working_bytes)
+                || !reader.megabytes("assets.source_max_mib", config.assets.source_bytes)
+                || !reader.megabytes(
+                    "assets.texture_working_mib", config.assets.texture_working_bytes)
+                || !reader.megabytes("assets.mesh_working_mib", config.assets.mesh_working_bytes)
+                || !reader.kilobytes(
+                    "assets.mesh_owner_inspect_kib", config.assets.mesh_owner_inspect_bytes)
+                || !reader.megabytes("assets.external_file_mib", config.assets.external_file_bytes)
+                || !reader.read("assets.external_file_queue", config.assets.external_file_queue,
+                    "a positive integer"))
+                return Result<void>::failure(reader.error());
             return Result<void>::success();
         }
     }
@@ -191,6 +223,30 @@ namespace Comet {
             || config.render.hdr_headroom > 16.0f)
             return Result<Config>::failure(config_error(
                 sources, "render.hdr_headroom", "must be a finite number between 1 and 16"));
+        if(config.assets.async.in_flight == 0 || config.assets.async.queued == 0
+            || config.assets.external_file_queue == 0)
+            return Result<Config>::failure(
+                config_error(sources, "assets", "queue counts must be positive"));
+        if(config.assets.async.in_flight > 64 || config.assets.async.queued > 4096
+            || config.assets.external_file_queue > 256)
+            return Result<Config>::failure(
+                config_error(sources, "assets", "queue counts exceed supported limits"));
+        if(config.assets.source_bytes > 1024ull * 1024 * 1024)
+            return Result<Config>::failure(
+                config_error(sources, "assets.source_max_mib", "must not exceed 1024 MiB"));
+        if(config.assets.texture_working_bytes > 4ull * 1024 * 1024 * 1024
+            || config.assets.mesh_working_bytes > 4ull * 1024 * 1024 * 1024
+            || config.assets.async.working_bytes > 16ull * 1024 * 1024 * 1024)
+            return Result<Config>::failure(
+                config_error(sources, "assets", "working budgets exceed supported limits"));
+        if(config.assets.texture_working_bytes <= 16ull * 1024 * 1024
+            || config.assets.mesh_working_bytes <= 16ull * 1024 * 1024)
+            return Result<Config>::failure(config_error(
+                sources, "assets", "texture and mesh working budgets must exceed 16 MiB"));
+        if(config.assets.mesh_owner_inspect_bytes > config.assets.source_bytes
+            || config.assets.mesh_owner_inspect_bytes > 1024 * 1024)
+            return Result<Config>::failure(config_error(sources, "assets.mesh_owner_inspect_kib",
+                "must not exceed 1 MiB or the source limit"));
         return Result<Config>::success(std::move(config));
     }
 }

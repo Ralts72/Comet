@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "asset/import/asset_task_types.h"
 #include "graphics/enums.h"
 
 #include <cstdint>
@@ -58,5 +59,6 @@ namespace Comet {
         Window window;
         Vulkan vulkan;
         Render render;
+        AssetImportLimits assets;
     };
 }

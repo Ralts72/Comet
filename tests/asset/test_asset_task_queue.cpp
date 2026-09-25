@@ -12,7 +12,7 @@ namespace Comet::Tests {
         AssetBackpressureTest(
             AssetAsyncLimits limits = {1, 1}, const std::size_t scheduler_capacity = 1)
             : scheduler(1, scheduler_capacity),
-              manager(project.paths(), registry, factory, scheduler, limits) {}
+              manager(project.paths(), registry, factory, scheduler, {.async = limits}) {}
         std::array<AssetHandle, 3> handles{AssetHandle(41), AssetHandle(42), AssetHandle(43)};
 
         void SetUp() override {
@@ -97,8 +97,12 @@ namespace Comet::Tests {
     TEST_F(AssetBackpressureTest, RejectsInvalidAsyncLimits) {
         const auto previous_style = GTEST_FLAG_GET(death_test_style);
         GTEST_FLAG_SET(death_test_style, "threadsafe");
-        EXPECT_DEATH((AssetManager{project.paths(), registry, factory, scheduler, {0, 1}}), "");
-        EXPECT_DEATH((AssetManager{project.paths(), registry, factory, scheduler, {1, 0}}), "");
+        EXPECT_DEATH((AssetManager{project.paths(), registry, factory, scheduler,
+                         AssetImportLimits{.async = {0, 1}}}),
+            "");
+        EXPECT_DEATH((AssetManager{project.paths(), registry, factory, scheduler,
+                         AssetImportLimits{.async = {1, 0}}}),
+            "");
         GTEST_FLAG_SET(death_test_style, previous_style);
     }
 
@@ -187,7 +191,8 @@ namespace Comet::Tests {
 
     TEST_F(AssetBackpressureTest, SameHandleSuccessorDoesNotBlockOtherHandles) {
         TaskScheduler roomy_scheduler(1, 4);
-        AssetManager concurrent(project.paths(), registry, factory, roomy_scheduler, {2, 2});
+        AssetManager concurrent(
+            project.paths(), registry, factory, roomy_scheduler, {.async = {2, 2}});
         BlockedWorker blocker(roomy_scheduler);
         ASSERT_TRUE(concurrent.scan().succeeded());
         ASSERT_TRUE(concurrent.import_mesh_async(handles[0]));
@@ -245,7 +250,8 @@ namespace Comet::Tests {
         auto filler = scheduler.try_submit([] {});
         ASSERT_TRUE(filler);
         {
-            AssetManager temporary(project.paths(), registry, factory, scheduler, {1, 1});
+            AssetManager temporary(
+                project.paths(), registry, factory, scheduler, {.async = {1, 1}});
             ASSERT_TRUE(temporary.scan().succeeded());
             ASSERT_TRUE(temporary.import_mesh_async(handles[0]));
             EXPECT_EQ(temporary.get_async_status().queued, 1);

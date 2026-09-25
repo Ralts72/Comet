@@ -56,6 +56,14 @@ namespace Comet::Tests {
         EXPECT_GT(bytes.value(), std::filesystem::file_size(source));
         EXPECT_FALSE(TextureImporter{}.import(source, {}, bytes.value() - 1));
         EXPECT_TRUE(TextureImporter{}.import(source, {}, bytes.value()));
+
+        AssetImportLimits limits;
+        limits.source_bytes = std::filesystem::file_size(source) - 1;
+        EXPECT_FALSE(TextureImporter::working_bytes(source, limits));
+        limits.source_bytes = AssetImportLimits{}.source_bytes;
+        limits.texture_working_bytes = bytes.value() - 1;
+        EXPECT_FALSE(TextureImporter::working_bytes(source, limits));
+        EXPECT_FALSE(TextureImporter{}.import(source, {}, bytes.value(), limits));
     }
 
     TEST(TextureImporterTest, RejectsHugeDimensionsBeforeDecodingPixels) {

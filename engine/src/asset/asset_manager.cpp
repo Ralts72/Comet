@@ -101,23 +101,26 @@ namespace Comet {
     AssetManager::AssetManager(ProjectPaths paths, AssetRegistry& registry,
         RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler)
         : AssetManager(
-              std::move(paths), registry, resource_factory, task_scheduler, AssetAsyncLimits{}) {}
+              std::move(paths), registry, resource_factory, task_scheduler, AssetImportLimits{}) {}
 
     AssetManager::AssetManager(ProjectPaths paths, AssetRegistry& registry,
         RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler,
-        const AssetAsyncLimits limits)
-        : m_paths(std::move(paths)), m_owned_database(std::make_unique<AssetDatabase>(m_paths)),
-          m_database(*m_owned_database), m_import_service(std::make_unique<ImportService>(m_paths)),
+        const AssetImportLimits limits)
+        : m_paths(std::move(paths)), m_limits(limits),
+          m_owned_database(std::make_unique<AssetDatabase>(m_paths)), m_database(*m_owned_database),
+          m_import_service(std::make_unique<ImportService>(m_paths, m_limits)),
           m_registry(registry), m_resource_factory(resource_factory),
-          m_task_queue(std::make_unique<AssetTaskQueue>(m_database, task_scheduler, limits)) {}
+          m_task_queue(std::make_unique<AssetTaskQueue>(m_database, task_scheduler, limits.async)) {
+    }
 
     AssetManager::AssetManager(AssetDatabase& database, AssetRegistry& registry,
-        RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler)
-        : m_paths(database.paths()), m_database(database),
-          m_import_service(std::make_unique<ImportService>(m_paths)), m_registry(registry),
-          m_resource_factory(resource_factory),
-          m_task_queue(
-              std::make_unique<AssetTaskQueue>(m_database, task_scheduler, AssetAsyncLimits{})) {}
+        RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler,
+        const AssetImportLimits limits)
+        : m_paths(database.paths()), m_limits(limits), m_database(database),
+          m_import_service(std::make_unique<ImportService>(m_paths, m_limits)),
+          m_registry(registry), m_resource_factory(resource_factory),
+          m_task_queue(std::make_unique<AssetTaskQueue>(m_database, task_scheduler, limits.async)) {
+    }
 
     AssetManager::~AssetManager() = default;
 
@@ -463,7 +466,7 @@ namespace Comet {
             return Result<void, Error>::failure({"Mesh import is already running"});
         }
         if(auto artifact = m_import_service->find_current_mesh_artifact(
-               handle, snapshot.path, MeshImporter::MAX_WORKING_BYTES)) {
+               handle, snapshot.path, m_limits.mesh_working_bytes)) {
             complete_mesh_import(handle, revision, artifact->source_dependencies());
             LOG_DEBUG("Mesh artifact is current '{}' (handle {})", snapshot.path.generic_string(),
                 handle.value());
@@ -471,7 +474,7 @@ namespace Comet {
         }
 
         auto imported = m_import_service->build_mesh_artifact(
-            handle, snapshot.path, MeshImporter::MAX_WORKING_BYTES);
+            handle, snapshot.path, m_limits.mesh_working_bytes);
         if(!imported) {
             LOG_ERROR("{}", imported.error());
             return Result<void, Error>::failure({imported.error()});
@@ -812,7 +815,7 @@ namespace Comet {
         const AssetRecord& record) {
         const auto handle = record.handle;
         const auto artifact = MeshArtifact::load(
-            m_import_service->mesh_artifact_path(handle), handle, MeshImporter::MAX_WORKING_BYTES);
+            m_import_service->mesh_artifact_path(handle), handle, m_limits.mesh_working_bytes);
         if(!artifact)
             return Result<std::shared_ptr<Mesh>, Error>::failure(
                 {"Mesh artifact is missing or invalid; import the asset before loading: "
@@ -827,7 +830,7 @@ namespace Comet {
     Result<std::shared_ptr<Texture>, Error> AssetManager::create_runtime_texture(
         const AssetRecord& record, const TextureImportSettings& import_settings) {
         auto data = m_import_service->prepare_texture(
-            record, import_settings, TextureImporter::MAX_WORKING_BYTES);
+            record, import_settings, m_limits.texture_working_bytes);
         if(!data)
             return Result<std::shared_ptr<Texture>, Error>::failure({data.error()});
         auto texture = m_resource_factory.try_create_texture(data.value());

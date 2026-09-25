@@ -15,7 +15,7 @@
 namespace Comet {
     class COMET_API ImportService final {
     public:
-        explicit ImportService(ProjectPaths paths);
+        explicit ImportService(ProjectPaths paths, AssetImportLimits limits = {});
 
         [[nodiscard]] std::filesystem::path mesh_artifact_path(AssetHandle handle) const;
         [[nodiscard]] std::filesystem::path shader_program_artifact_path(AssetHandle handle) const;
@@ -33,5 +33,6 @@ namespace Comet {
 
     private:
         ProjectPaths m_paths;
+        AssetImportLimits m_limits;
     };
 }

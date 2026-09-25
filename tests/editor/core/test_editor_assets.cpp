@@ -1038,6 +1038,14 @@ namespace CometEditor::Tests {
             ASSERT_TRUE(assets->queue_import_files(files, {}));
         EXPECT_FALSE(assets->queue_import_files(files, {}));
         EXPECT_EQ(assets->database().find("external.gltf"), nullptr);
+
+        Comet::AssetImportLimits limits;
+        limits.external_file_queue = 2;
+        EditorAssets smaller_queue(Comet::ProjectPaths(root), runtime, factory, scheduler,
+            DEFAULT_FILE_WATCH_QUIET_PERIOD, limits);
+        ASSERT_TRUE(smaller_queue.queue_import_files(files, {}));
+        ASSERT_TRUE(smaller_queue.queue_import_files(files, {}));
+        EXPECT_FALSE(smaller_queue.queue_import_files(files, {}));
     }
 
     TEST_F(EditorAssetsTest, ExternalFileImportQueuePublishesRequestsInOrder) {

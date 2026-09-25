@@ -115,7 +115,7 @@ namespace {
 
             m_assets = std::make_unique<CometEditor::EditorAssets>(m_project.paths(),
                 engine.get_asset_registry(), engine.get_render_resources(),
-                engine.get_task_scheduler(), quiet_period);
+                engine.get_task_scheduler(), quiet_period, get_config().assets);
             auto initial_asset_scan = m_assets->refresh();
             m_property_editor_registry =
                 CometEditor::create_property_editor_registry(m_assets->database());

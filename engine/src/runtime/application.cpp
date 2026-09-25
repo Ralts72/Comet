@@ -30,7 +30,8 @@ namespace Comet {
             config.render.scene_output = *m_options.scene_output;
         if(m_options.window_title)
             config.window.title = *m_options.window_title;
-        auto engine = Engine::create(config);
+        m_config = std::move(config);
+        auto engine = Engine::create(m_config);
         if(!engine) {
             m_diagnostics.reset();
             return RunResult::failure(engine.error());

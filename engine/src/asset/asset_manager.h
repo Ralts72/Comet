@@ -65,10 +65,11 @@ namespace Comet {
             RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler);
         AssetManager(ProjectPaths paths, AssetRegistry& registry,
             RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler,
-            AssetAsyncLimits limits);
+            AssetImportLimits limits);
         // 借用项目索引；database 必须比 AssetManager 活得更久。
         AssetManager(AssetDatabase& database, AssetRegistry& registry,
-            RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler);
+            RenderResourceFactory& resource_factory, TaskScheduler& task_scheduler,
+            AssetImportLimits limits = {});
         ~AssetManager();
 
         [[nodiscard]] AssetScanReport scan();
@@ -155,6 +156,7 @@ namespace Comet {
             const AssetRecord& record, const MaterialData& data);
 
         ProjectPaths m_paths;
+        AssetImportLimits m_limits;
         std::unique_ptr<AssetDatabase> m_owned_database;
         AssetDatabase& m_database;
         std::unique_ptr<ImportService> m_import_service;

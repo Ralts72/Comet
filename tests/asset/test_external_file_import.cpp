@@ -71,8 +71,9 @@ namespace Comet::Tests {
         }
         AssetScanReport import(std::initializer_list<std::filesystem::path> files,
             const std::filesystem::path& directory = "folder") {
-            auto report = AssetSourceOperations::import_files(
-                database, paths, std::span(files.begin(), files.size()), directory);
+            auto report = AssetSourceOperations::import_files(database, paths,
+                std::span(files.begin(), files.size()), directory,
+                AssetImportLimits{}.external_file_bytes);
             manager.accept_scan_report(report);
             return report;
         }
@@ -154,8 +155,8 @@ namespace Comet::Tests {
 
     TEST_F(ExternalFileImportTest, PreparedImportPublishesOnlyAfterOwnerCommits) {
         const auto source = texture();
-        auto prepared =
-            AssetSourceOperations::PreparedFileImport::prepare(paths, {source}, "folder");
+        auto prepared = AssetSourceOperations::PreparedFileImport::prepare(
+            paths, {source}, "folder", AssetImportLimits{}.external_file_bytes);
         ASSERT_TRUE(prepared) << prepared.error();
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/texture.png"));
         EXPECT_EQ(database.size(), 0);
@@ -169,8 +170,8 @@ namespace Comet::Tests {
     TEST_F(ExternalFileImportTest, AbandonedPreparationRemovesOnlyStaging) {
         const auto source = texture();
         {
-            auto prepared =
-                AssetSourceOperations::PreparedFileImport::prepare(paths, {source}, "folder");
+            auto prepared = AssetSourceOperations::PreparedFileImport::prepare(
+                paths, {source}, "folder", AssetImportLimits{}.external_file_bytes);
             ASSERT_TRUE(prepared) << prepared.error();
             EXPECT_FALSE(std::filesystem::is_empty(paths.cache() / "file-import"));
         }
@@ -179,8 +180,8 @@ namespace Comet::Tests {
 
     TEST_F(ExternalFileImportTest, PreparedImportRefusesDestinationCreatedBeforePublish) {
         const auto source = texture();
-        auto prepared =
-            AssetSourceOperations::PreparedFileImport::prepare(paths, {source}, "folder");
+        auto prepared = AssetSourceOperations::PreparedFileImport::prepare(
+            paths, {source}, "folder", AssetImportLimits{}.external_file_bytes);
         ASSERT_TRUE(prepared) << prepared.error();
         std::ofstream(paths.assets() / "folder/texture.png") << "newer project file";
 
@@ -200,8 +201,8 @@ namespace Comet::Tests {
         std::filesystem::create_directory_symlink("first", folder / "drop", error);
         if(error)
             GTEST_SKIP() << "Symlinks unavailable: " << error.message();
-        auto prepared =
-            AssetSourceOperations::PreparedFileImport::prepare(paths, {source}, "folder/drop");
+        auto prepared = AssetSourceOperations::PreparedFileImport::prepare(
+            paths, {source}, "folder/drop", AssetImportLimits{}.external_file_bytes);
         ASSERT_TRUE(prepared) << prepared.error();
         std::filesystem::remove(folder / "drop");
         std::filesystem::create_directory_symlink("second", folder / "drop");

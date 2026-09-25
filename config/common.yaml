@@ -28,3 +28,17 @@ window:
   height: 720
   fullscreen: false
   resizable: true
+
+# 资产导入的容量策略；修改后重启 app/编辑器。估算额度不是进程总内存上限。
+assets:
+  source_max_mib: 512
+  texture_working_mib: 1024
+  mesh_working_mib: 1024
+  mesh_owner_inspect_kib: 64
+  async:
+    in_flight: 8
+    queued: 128
+    working_mib: 2048
+  # Finder 拖入时单批源文件及依赖的暂存输入量与待办数量。
+  external_file_mib: 512
+  external_file_queue: 8

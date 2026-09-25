@@ -171,6 +171,44 @@ TEST(ConfigTest, UsesDefaultsForMissingFields) {
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, Config::Render{}.max_anisotropy);
 }
 
+TEST(ConfigTest, ParsesAssetImportBudgetsAndRejectsInvalidValues) {
+    const TemporaryConfigFile file(R"(
+assets:
+  source_max_mib: 128
+  texture_working_mib: 512
+  mesh_working_mib: 768
+  mesh_owner_inspect_kib: 32
+  external_file_mib: 256
+  external_file_queue: 3
+  async:
+    in_flight: 2
+    queued: 16
+    working_mib: 1536
+)");
+    const auto loaded = ConfigLoader{}.load(file.path());
+    ASSERT_TRUE(loaded) << loaded.error();
+    const auto& assets = loaded.value().assets;
+    EXPECT_EQ(assets.source_bytes, 128ull * 1024 * 1024);
+    EXPECT_EQ(assets.texture_working_bytes, 512ull * 1024 * 1024);
+    EXPECT_EQ(assets.mesh_working_bytes, 768ull * 1024 * 1024);
+    EXPECT_EQ(assets.mesh_owner_inspect_bytes, 32ull * 1024);
+    EXPECT_EQ(assets.external_file_bytes, 256ull * 1024 * 1024);
+    EXPECT_EQ(assets.external_file_queue, 3u);
+    EXPECT_EQ(assets.async.in_flight, 2u);
+    EXPECT_EQ(assets.async.queued, 16u);
+    EXPECT_EQ(assets.async.working_bytes, 1536ull * 1024 * 1024);
+
+    for(const auto invalid : {"assets:\n  source_max_mib: 0\n", "assets:\n  source_max_mib: 2048\n",
+            "assets:\n  texture_working_mib: 16\n", "assets:\n  mesh_owner_inspect_kib: 1048576\n",
+            "assets:\n  external_file_queue: 0\n", "assets:\n  async:\n    in_flight: 65\n",
+            "assets:\n  mesh_working_mib: 4097\n", "assets:\n  async:\n    in_flight: 0\n"}) {
+        const TemporaryConfigFile invalid_file(invalid);
+        const auto result = ConfigLoader{}.load(invalid_file.path());
+        ASSERT_FALSE(result) << invalid;
+        EXPECT_NE(result.error().find("assets"), std::string::npos);
+    }
+}
+
 TEST(ConfigTest, ExplicitValidationSettingOverridesDefault) {
     const bool expected = !Config::Vulkan{}.enable_validation;
     const TemporaryConfigFile file(

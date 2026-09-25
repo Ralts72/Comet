@@ -7,7 +7,8 @@
 #include <utility>
 
 namespace Comet {
-    ImportService::ImportService(ProjectPaths paths) : m_paths(std::move(paths)) {}
+    ImportService::ImportService(ProjectPaths paths, AssetImportLimits limits)
+        : m_paths(std::move(paths)), m_limits(limits) {}
 
     MeshArtifactCandidate ImportService::prepare_mesh(const AssetRecord& record,
         const AssetRevision revision, const MeshImportMode mode,
@@ -24,7 +25,8 @@ namespace Comet {
 
     Result<TextureData> ImportService::prepare_texture(const AssetRecord& record,
         const TextureImportSettings& settings, const std::size_t memory_budget) const {
-        return TextureImporter{}.import(m_paths.assets() / record.path, settings, memory_budget);
+        return TextureImporter{}.import(
+            m_paths.assets() / record.path, settings, memory_budget, m_limits);
     }
 
     std::filesystem::path ImportService::environment_artifact_path(const AssetHandle handle) const {
@@ -85,7 +87,8 @@ namespace Comet {
     Result<MeshArtifact> ImportService::build_mesh_artifact(const AssetHandle handle,
         const std::filesystem::path& source_path, const std::size_t memory_budget) const {
         const auto absolute_source = m_paths.assets() / source_path;
-        auto imported = MeshImporter{}.import_with_dependencies(absolute_source, memory_budget);
+        auto imported =
+            MeshImporter{}.import_with_dependencies(absolute_source, memory_budget, m_limits);
         if(!imported)
             return Result<MeshArtifact>::failure(imported.error());
         auto inputs = capture_import_inputs(

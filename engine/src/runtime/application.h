@@ -31,6 +31,7 @@ namespace Comet {
 
         [[nodiscard]] Engine& get_engine() { return *m_engine; }
         [[nodiscard]] const Engine& get_engine() const { return *m_engine; }
+        [[nodiscard]] const Config& get_config() const { return m_config; }
 
         virtual Result<void, Error> on_init() = 0;
 
@@ -55,6 +56,7 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> end();
 
         Options m_options;
+        Config m_config;
         std::unique_ptr<Diagnostics> m_diagnostics;
         std::unique_ptr<Engine> m_engine;
         bool m_shutdown_required = false;

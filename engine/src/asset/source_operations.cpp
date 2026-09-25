@@ -261,9 +261,9 @@ namespace Comet::AssetSourceOperations {
                         return Result<void>::failure("Cannot measure import file '"
                                                      + source.string() + "': " + error.message());
                     if(size > source_byte_budget - source_bytes)
-                        return Result<void>::failure(
-                            "Import source batch exceeds byte budget of "
-                            + std::to_string(source_byte_budget) + " bytes");
+                        return Result<void>::failure("Import source batch exceeds byte budget of "
+                                                     + std::to_string(source_byte_budget)
+                                                     + " bytes");
                     source_bytes += size;
                     file_sizes.emplace(relative, size);
                 }
@@ -502,6 +502,8 @@ namespace Comet::AssetSourceOperations {
     Result<PreparedFileImport> PreparedFileImport::prepare(ProjectPaths paths,
         std::vector<std::filesystem::path> sources, std::filesystem::path directory,
         const std::uintmax_t source_byte_budget) {
+        if(source_byte_budget == 0)
+            return Result<PreparedFileImport>::failure("File import byte budget must be positive");
         auto state = std::make_unique<State>(
             std::move(paths), std::move(sources), std::move(directory), source_byte_budget);
         if(auto result = state->transaction.prepare(); !result)
@@ -518,9 +520,9 @@ namespace Comet::AssetSourceOperations {
 
     AssetScanReport import_files(AssetDatabase& database, const ProjectPaths& paths,
         const std::span<const std::filesystem::path> sources,
-        const std::filesystem::path& directory) {
-        auto prepared =
-            PreparedFileImport::prepare(paths, {sources.begin(), sources.end()}, directory);
+        const std::filesystem::path& directory, const std::uintmax_t source_byte_budget) {
+        auto prepared = PreparedFileImport::prepare(
+            paths, {sources.begin(), sources.end()}, directory, source_byte_budget);
         if(!prepared) {
             auto report = operation_error(directory, prepared.error());
             report.indexed_assets = database.size();

@@ -14,10 +14,10 @@
 namespace CometEditor {
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
         Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler,
-        const std::chrono::milliseconds quiet_period)
-        : m_paths(std::move(paths)), m_database(m_paths),
-          m_manager(m_database, registry, factory, scheduler), m_monitor(m_paths.assets()),
-          m_scheduler(scheduler), m_quiet_period(quiet_period) {
+        const std::chrono::milliseconds quiet_period, const Comet::AssetImportLimits limits)
+        : m_paths(std::move(paths)), m_limits(limits), m_database(m_paths),
+          m_manager(m_database, registry, factory, scheduler, m_limits),
+          m_monitor(m_paths.assets()), m_scheduler(scheduler), m_quiet_period(quiet_period) {
         if(!m_monitor.uses_native_notifications())
             LOG_WARN("Asset source monitor is using periodic fallback scans");
     }
@@ -182,9 +182,10 @@ namespace CometEditor {
         if(!m_pending_file_import && !m_file_import_requests.empty()) {
             auto& request = m_file_import_requests.front();
             auto completion = m_scheduler.try_submit_result(
-                [paths = m_paths, sources = request.sources, directory = request.directory] {
+                [paths = m_paths, sources = request.sources, directory = request.directory,
+                    budget = m_limits.external_file_bytes] {
                     return Comet::AssetSourceOperations::PreparedFileImport::prepare(
-                        paths, sources, directory);
+                        paths, sources, directory, budget);
                 });
             if(completion) {
                 m_pending_file_import.emplace(std::move(*completion), request.directory);
@@ -295,8 +296,7 @@ namespace CometEditor {
     Comet::Result<void> EditorAssets::queue_import_files(
         const std::span<const std::filesystem::path> sources,
         const std::filesystem::path& directory) {
-        constexpr std::size_t max_queued_imports = 8;
-        if(m_file_import_requests.size() >= max_queued_imports)
+        if(m_file_import_requests.size() >= m_limits.external_file_queue)
             return Comet::Result<void>::failure("External file import queue is full");
         m_file_import_requests.push_back({{sources.begin(), sources.end()}, directory});
         LOG_INFO(
