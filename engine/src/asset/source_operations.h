@@ -6,6 +6,7 @@
 #include "common/result.h"
 #include "core/project_paths.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <span>
@@ -14,6 +15,8 @@
 namespace Comet::AssetSourceOperations {
     class COMET_API PreparedFileImport final {
     public:
+        static constexpr std::uintmax_t MAX_SOURCE_BYTES = 512ull * 1024 * 1024;
+
         PreparedFileImport(PreparedFileImport&&) noexcept;
         PreparedFileImport& operator=(PreparedFileImport&&) noexcept;
         ~PreparedFileImport();
@@ -22,7 +25,8 @@ namespace Comet::AssetSourceOperations {
         PreparedFileImport& operator=(const PreparedFileImport&) = delete;
 
         [[nodiscard]] static Result<PreparedFileImport> prepare(ProjectPaths paths,
-            std::vector<std::filesystem::path> sources, std::filesystem::path directory);
+            std::vector<std::filesystem::path> sources, std::filesystem::path directory,
+            std::uintmax_t source_byte_budget = MAX_SOURCE_BYTES);
         [[nodiscard]] AssetScanReport publish(AssetDatabase& database) &&;
 
     private:

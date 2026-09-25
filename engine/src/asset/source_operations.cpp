@@ -148,19 +148,22 @@ namespace Comet::AssetSourceOperations {
     namespace {
         struct ImportFilesTransaction {
             ImportFilesTransaction(ProjectPaths paths, std::vector<std::filesystem::path> sources,
-                std::filesystem::path directory)
+                std::filesystem::path directory, const std::uintmax_t source_byte_budget)
                 : paths(std::move(paths)), sources(std::move(sources)),
-                  directory(std::move(directory)) {}
+                  directory(std::move(directory)), source_byte_budget(source_byte_budget) {}
 
             ~ImportFilesTransaction() { cleanup(nullptr); }
 
             ProjectPaths paths;
             std::vector<std::filesystem::path> sources;
             std::filesystem::path directory;
+            std::uintmax_t source_byte_budget;
+            std::uintmax_t source_bytes = 0;
             std::filesystem::path root;
             std::filesystem::path destination;
             std::filesystem::path resolved_destination;
             std::map<std::filesystem::path, std::filesystem::path> files;
+            std::map<std::filesystem::path, std::uintmax_t> file_sizes;
             std::vector<std::filesystem::path> roots;
             std::filesystem::path staging;
             std::vector<std::filesystem::path> published;
@@ -252,6 +255,18 @@ namespace Comet::AssetSourceOperations {
                 if(!inserted && it->second != canonical)
                     return Result<void>::failure(
                         "Dropped files have conflicting names: " + relative.string());
+                if(inserted) {
+                    const auto size = std::filesystem::file_size(canonical, error);
+                    if(error)
+                        return Result<void>::failure("Cannot measure import file '"
+                                                     + source.string() + "': " + error.message());
+                    if(size > source_byte_budget - source_bytes)
+                        return Result<void>::failure(
+                            "Import source batch exceeds byte budget of "
+                            + std::to_string(source_byte_budget) + " bytes");
+                    source_bytes += size;
+                    file_sizes.emplace(relative, size);
+                }
                 return Result<void>::success();
             }
 
@@ -340,6 +355,11 @@ namespace Comet::AssetSourceOperations {
                 staging = std::move(candidate);
                 for(const auto& [relative, source] : files) {
                     const auto target = staging / relative;
+                    const auto expected_size = file_sizes.at(relative);
+                    const auto current_size = std::filesystem::file_size(source, error);
+                    if(error || current_size != expected_size)
+                        return Result<void>::failure(
+                            "Import source size changed during preparation: " + source.string());
                     std::filesystem::create_directories(target.parent_path(), error);
                     if(error)
                         return Result<void>::failure(
@@ -348,6 +368,10 @@ namespace Comet::AssetSourceOperations {
                     if(error)
                         return Result<void>::failure("Cannot copy import file '" + source.string()
                                                      + "': " + error.message());
+                    const auto staged_size = std::filesystem::file_size(target, error);
+                    if(error || staged_size != expected_size)
+                        return Result<void>::failure(
+                            "Import source size changed during copy: " + source.string());
                 }
                 for(const auto& relative : roots) {
                     if(is_mesh_file(relative)) {
@@ -462,8 +486,9 @@ namespace Comet::AssetSourceOperations {
 
     struct PreparedFileImport::State {
         State(ProjectPaths paths, std::vector<std::filesystem::path> sources,
-            std::filesystem::path directory)
-            : transaction(std::move(paths), std::move(sources), std::move(directory)) {}
+            std::filesystem::path directory, const std::uintmax_t source_byte_budget)
+            : transaction(
+                  std::move(paths), std::move(sources), std::move(directory), source_byte_budget) {}
 
         ImportFilesTransaction transaction;
     };
@@ -475,9 +500,10 @@ namespace Comet::AssetSourceOperations {
     PreparedFileImport::~PreparedFileImport() = default;
 
     Result<PreparedFileImport> PreparedFileImport::prepare(ProjectPaths paths,
-        std::vector<std::filesystem::path> sources, std::filesystem::path directory) {
-        auto state =
-            std::make_unique<State>(std::move(paths), std::move(sources), std::move(directory));
+        std::vector<std::filesystem::path> sources, std::filesystem::path directory,
+        const std::uintmax_t source_byte_budget) {
+        auto state = std::make_unique<State>(
+            std::move(paths), std::move(sources), std::move(directory), source_byte_budget);
         if(auto result = state->transaction.prepare(); !result)
             return Result<PreparedFileImport>::failure(result.error());
         return Result<PreparedFileImport>::success(PreparedFileImport(std::move(state)));

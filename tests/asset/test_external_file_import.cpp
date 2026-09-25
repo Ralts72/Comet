@@ -214,6 +214,25 @@ namespace Comet::Tests {
         EXPECT_TRUE(std::filesystem::is_empty(paths.cache() / "file-import"));
     }
 
+    TEST_F(ExternalFileImportTest, PreparedImportBoundsTotalSourceAndDependencyBytes) {
+        const auto source = mesh();
+        const auto model_bytes = std::filesystem::file_size(source);
+        const auto buffer_bytes = std::filesystem::file_size(external / "data/model.bin");
+        auto rejected = AssetSourceOperations::PreparedFileImport::prepare(
+            paths, {source}, "folder", model_bytes + buffer_bytes - 1);
+        ASSERT_FALSE(rejected);
+        EXPECT_NE(rejected.error().find("byte budget"), std::string::npos);
+        expect_empty();
+    }
+
+    TEST_F(ExternalFileImportTest, DuplicateInputsConsumeTheByteBudgetOnce) {
+        const auto source = texture();
+        auto prepared = AssetSourceOperations::PreparedFileImport::prepare(
+            paths, {source, source}, "folder", std::filesystem::file_size(source));
+        ASSERT_TRUE(prepared) << prepared.error();
+        EXPECT_TRUE(std::move(prepared).value().publish(database).succeeded());
+    }
+
     TEST_F(ExternalFileImportTest, GltfCopiesRelativeBufferAndImageAndDeduplicatesInputs) {
         const auto source = mesh();
         const auto report = import({source, source, external / "data/model.bin"});
