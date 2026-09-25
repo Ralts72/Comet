@@ -201,6 +201,44 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
+    Result<void, GraphicsError> MaterialRenderer::prepare_builtin_pipeline(
+        PipelineManager& pipelines, const MaterialShaderDefinition& definition,
+        const MaterialShaderProgram& code, SampleCount samples,
+        std::unordered_map<std::string, std::shared_ptr<const PipelineState>>& candidates,
+        ReloadReport& report) {
+        const std::string name(definition.name);
+        auto vertex = Shader::create(m_device, name, code.vertex, code.vertex_entry);
+        if(!vertex)
+            return Result<void, GraphicsError>::failure(vertex.error());
+        auto fragment = Shader::create(m_device, name, code.fragment, code.fragment_entry);
+        if(!fragment)
+            return Result<void, GraphicsError>::failure(fragment.error());
+        const auto old = m_pipelines.find(std::string(definition.material));
+        std::shared_ptr<const MaterialLayout> metadata;
+        if(old == m_pipelines.end())
+            metadata = MaterialLayout::find_builtin(definition.material);
+        else
+            metadata = old->second->layout;
+        auto reflected = MaterialLayout::reflect(metadata, fragment.value()->get_interface());
+        if(!reflected)
+            return Result<void, GraphicsError>::failure({reflected.error()});
+        std::shared_ptr<DescriptorSetLayout> descriptor_layout;
+        if(old != m_pipelines.end() && reflected.value() == old->second->layout)
+            descriptor_layout = old->second->material_layout;
+        auto candidate = create_pipeline(pipelines, vertex.value(), fragment.value(),
+            reflected.value(), samples, descriptor_layout);
+        if(!candidate)
+            return Result<void, GraphicsError>::failure(candidate.error());
+        if(old != m_pipelines.end() && old->second->pipeline == candidate.value()->pipeline)
+            candidates.insert_or_assign(std::string(definition.material), old->second);
+        else {
+            candidates.insert_or_assign(
+                std::string(definition.material), std::move(candidate).value());
+            ++report.pipelines;
+        }
+        return Result<void, GraphicsError>::success();
+    }
+
     Result<MaterialRenderer::ReloadReport, GraphicsError> MaterialRenderer::reload_shaders(
         PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples) {
         using Reload = Result<ReloadReport, GraphicsError>;
@@ -213,47 +251,12 @@ namespace Comet {
             return Reload::failure({checked.error()});
         ReloadReport report;
         auto candidates = m_pipelines;
-        const auto add_builtin = [&](const std::shared_ptr<Shader>& vertex, const std::string& name,
-                                     std::span<const uint32_t> words, const std::string& entry,
-                                     std::string_view layout_name) {
-            auto fragment = Shader::create(m_device, name, words, entry);
-            if(!fragment)
-                return Result<void, GraphicsError>::failure(fragment.error());
-            const auto old = m_pipelines.find(std::string(layout_name));
-            std::shared_ptr<const MaterialLayout> metadata;
-            if(old == m_pipelines.end())
-                metadata = MaterialLayout::find_builtin(layout_name);
-            else
-                metadata = old->second->layout;
-            auto reflected = MaterialLayout::reflect(metadata, fragment.value()->get_interface());
-            if(!reflected)
-                return Result<void, GraphicsError>::failure({reflected.error()});
-            std::shared_ptr<DescriptorSetLayout> descriptor_layout;
-            if(old != m_pipelines.end() && reflected.value() == old->second->layout)
-                descriptor_layout = old->second->material_layout;
-            auto candidate = create_pipeline(
-                pipelines, vertex, fragment.value(), reflected.value(), samples, descriptor_layout);
-            if(!candidate)
-                return Result<void, GraphicsError>::failure(candidate.error());
-            if(old != m_pipelines.end() && old->second->pipeline == candidate.value()->pipeline)
-                candidates.insert_or_assign(std::string(layout_name), old->second);
-            else {
-                candidates.insert_or_assign(std::string(layout_name), std::move(candidate).value());
-                ++report.pipelines;
-            }
-            return Result<void, GraphicsError>::success();
-        };
         for(const auto& definition : builtin_material_shaders()) {
             const auto found = shaders.find(definition.name);
             if(found == shaders.end())
                 continue;
-            const auto& code = found->second;
-            const std::string name(definition.name);
-            auto vertex = Shader::create(m_device, name, code.vertex, code.vertex_entry);
-            if(!vertex)
-                return Reload::failure(vertex.error());
-            if(auto result = add_builtin(
-                   vertex.value(), name, code.fragment, code.fragment_entry, definition.material);
+            if(auto result = prepare_builtin_pipeline(
+                   pipelines, definition, found->second, samples, candidates, report);
                 !result)
                 return Reload::failure(result.error());
         }
@@ -364,6 +367,51 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
+    Result<void, GraphicsError> MaterialRenderer::install_project_pipeline(AssetHandle handle,
+        const std::string& template_name, const std::shared_ptr<const PipelineState>& builtin,
+        ProjectPipeline& active, const std::shared_ptr<const ShaderProgramArtifact>& version) {
+        auto layout = m_programs->describe(*version, template_name, builtin->layout);
+        if(!layout)
+            return Result<void, GraphicsError>::failure({layout.error()});
+        const auto name = "project Shader " + std::to_string(handle.value());
+        auto vertex = Shader::create(m_device, name, version->vertex_words, version->vertex_entry);
+        if(!vertex)
+            return Result<void, GraphicsError>::failure(vertex.error());
+        auto fragment =
+            Shader::create(m_device, name, version->fragment_words, version->fragment_entry);
+        if(!fragment)
+            return Result<void, GraphicsError>::failure(fragment.error());
+        auto candidate =
+            create_pipeline(m_pipeline_manager, vertex.value(), fragment.value(), layout.value(),
+                m_samples, version->material ? nullptr : builtin->material_layout, handle);
+        if(!candidate)
+            return Result<void, GraphicsError>::failure(candidate.error());
+        auto prepared = m_prepared;
+        auto materials = m_materials;
+        for(auto& [material_handle, cached] : materials) {
+            if(!cached.resources || cached.resources->pipeline->shader_program != handle
+                || cached.resources->pipeline->layout->get_name() != template_name)
+                continue;
+            auto rebound = prepared.rebind(material_handle, candidate.value()->layout);
+            if(!rebound)
+                return Result<void, GraphicsError>::failure({rebound.error()});
+            auto resources = create_material(rebound.value(), candidate.value(), cached.resources);
+            if(!resources)
+                return Result<void, GraphicsError>::failure(resources.error());
+            cached.resources = std::move(resources).value();
+            cached.failed_candidate.reset();
+            cached.failed_pipeline.reset();
+            cached.preparation_error.clear();
+        }
+        m_programs->publish(handle, template_name, version, candidate.value()->layout);
+        m_prepared.swap(prepared);
+        m_materials.swap(materials);
+        active.source = version;
+        active.failed_source.reset();
+        active.pipeline = std::move(candidate).value();
+        return Result<void, GraphicsError>::success();
+    }
+
     Result<std::shared_ptr<const MaterialRenderer::PipelineState>, GraphicsError> MaterialRenderer::
         project_pipeline(const AssetHandle handle, const std::string& template_name) {
         using Selection = Result<std::shared_ptr<const PipelineState>, GraphicsError>;
@@ -385,56 +433,13 @@ namespace Comet {
             active.failed_source = failed;
             return Selection::success(active.pipeline);
         };
-        const auto install = [&](const std::shared_ptr<const ShaderProgramArtifact>& version)
-            -> Result<void, GraphicsError> {
-            auto layout = m_programs->describe(*version, template_name, builtin->second->layout);
-            if(!layout)
-                return Result<void, GraphicsError>::failure({layout.error()});
-            const auto name = "project Shader " + std::to_string(handle.value());
-            auto vertex =
-                Shader::create(m_device, name, version->vertex_words, version->vertex_entry);
-            if(!vertex)
-                return Result<void, GraphicsError>::failure(vertex.error());
-            auto fragment =
-                Shader::create(m_device, name, version->fragment_words, version->fragment_entry);
-            if(!fragment)
-                return Result<void, GraphicsError>::failure(fragment.error());
-            auto candidate = create_pipeline(m_pipeline_manager, vertex.value(), fragment.value(),
-                layout.value(), m_samples,
-                version->material ? nullptr : builtin->second->material_layout, handle);
-            if(!candidate)
-                return Result<void, GraphicsError>::failure(candidate.error());
-            auto prepared = m_prepared;
-            auto materials = m_materials;
-            for(auto& [material_handle, cached] : materials) {
-                if(!cached.resources || cached.resources->pipeline->shader_program != handle
-                    || cached.resources->pipeline->layout->get_name() != template_name)
-                    continue;
-                auto rebound = prepared.rebind(material_handle, candidate.value()->layout);
-                if(!rebound)
-                    return Result<void, GraphicsError>::failure({rebound.error()});
-                auto resources =
-                    create_material(rebound.value(), candidate.value(), cached.resources);
-                if(!resources)
-                    return Result<void, GraphicsError>::failure(resources.error());
-                cached.resources = std::move(resources).value();
-                cached.failed_candidate.reset();
-                cached.failed_pipeline.reset();
-                cached.preparation_error.clear();
-            }
-            m_programs->publish(handle, template_name, version, candidate.value()->layout);
-            m_prepared.swap(prepared);
-            m_materials.swap(materials);
-            active.source = version;
-            active.failed_source.reset();
-            active.pipeline = std::move(candidate).value();
-            return Result<void, GraphicsError>::success();
-        };
         if(!active.pipeline) {
             const auto* prior = m_programs->published(handle, template_name);
             if(prior && prior->source != source) {
                 const auto old = prior->source;
-                if(auto restored = install(old); !restored) {
+                if(auto restored = install_project_pipeline(
+                       handle, template_name, builtin->second, active, old);
+                    !restored) {
                     auto fallback = reject(restored.error(), old);
                     if(!fallback)
                         return fallback;
@@ -449,7 +454,9 @@ namespace Comet {
             active.failed_source.reset();
             return Selection::success(active.pipeline);
         }
-        if(auto installed = install(source); !installed)
+        if(auto installed =
+                install_project_pipeline(handle, template_name, builtin->second, active, source);
+            !installed)
             return reject(installed.error(), source);
         return Selection::success(active.pipeline);
     }

@@ -14,6 +14,28 @@
 
 namespace Comet {
     namespace {
+        template<typename Value, typename Query>
+        vk::Result enumerate_surface_values(std::vector<Value>& values, const Query& query) {
+            constexpr uint32_t MAX_ATTEMPTS = 4;
+            for(uint32_t attempt = 0; attempt < MAX_ATTEMPTS; ++attempt) {
+                uint32_t count = 0;
+                auto result = query(&count, nullptr);
+                if(result != vk::Result::eSuccess)
+                    return result;
+                values.resize(count);
+                if(count == 0)
+                    return vk::Result::eSuccess;
+                result = query(&count, values.data());
+                if(result == vk::Result::eSuccess) {
+                    values.resize(count);
+                    return result;
+                }
+                if(result != vk::Result::eIncomplete)
+                    return result;
+            }
+            return vk::Result::eIncomplete;
+        }
+
         GpuResourceResult<std::vector<vk::Image>> get_swapchain_images(
             const vk::Device device, const vk::SwapchainKHR swapchain) {
             constexpr uint32_t MAX_ATTEMPTS = 4;
@@ -86,37 +108,17 @@ namespace Comet {
         if(queried != vk::Result::eSuccess)
             return Result<RecreateStatus, GraphicsError>::failure(
                 {"Cannot query surface capabilities", queried});
-        const auto enumerate = [](auto& values, const auto& query) {
-            constexpr uint32_t MAX_ATTEMPTS = 4;
-            for(uint32_t attempt = 0; attempt < MAX_ATTEMPTS; ++attempt) {
-                uint32_t count = 0;
-                auto result = query(&count, nullptr);
-                if(result != vk::Result::eSuccess)
-                    return result;
-                values.resize(count);
-                if(count == 0)
-                    return vk::Result::eSuccess;
-                result = query(&count, values.data());
-                if(result == vk::Result::eSuccess) {
-                    values.resize(count);
-                    return result;
-                }
-                if(result != vk::Result::eIncomplete)
-                    return result;
-            }
-            return vk::Result::eIncomplete;
-        };
         std::vector<vk::SurfaceFormatKHR> surface_formats;
-        const auto formats =
-            enumerate(surface_formats, [&](uint32_t* count, vk::SurfaceFormatKHR* values) {
+        const auto formats = enumerate_surface_values(
+            surface_formats, [&](uint32_t* count, vk::SurfaceFormatKHR* values) {
                 return physical_device.getSurfaceFormatsKHR(surface, count, values);
             });
         if(formats != vk::Result::eSuccess)
             return Result<RecreateStatus, GraphicsError>::failure(
                 {"Cannot query surface formats", formats});
         std::vector<vk::PresentModeKHR> present_modes;
-        const auto modes =
-            enumerate(present_modes, [&](uint32_t* count, vk::PresentModeKHR* values) {
+        const auto modes = enumerate_surface_values(
+            present_modes, [&](uint32_t* count, vk::PresentModeKHR* values) {
                 return physical_device.getSurfacePresentModesKHR(surface, count, values);
             });
         if(modes != vk::Result::eSuccess)

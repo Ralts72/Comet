@@ -313,9 +313,9 @@ namespace Comet::Tests {
         CometEditor::RenderStatsPanel panel(
             engine->frame_diagnostics(), renderer.get_diagnostics());
         panel.set_visible(true);
-        renderer.set_overlay_renderer([&](CommandBuffer& command) { ui.render(command); });
+        renderer.set_overlay({.render = [&](CommandBuffer& command) { ui.render(command); }});
         const ScopeExit finish([&] {
-            renderer.set_overlay_renderer({});
+            renderer.set_overlay({});
             renderer.wait_idle();
         });
         for(unsigned frame = 0; frame < 2; ++frame) {

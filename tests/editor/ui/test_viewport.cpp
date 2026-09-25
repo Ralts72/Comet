@@ -60,7 +60,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(ui_result) << ui_result.error();
         auto& ui = *ui_result.value();
         const Comet::ScopeExit cleanup([&] {
-            renderer.set_overlay_renderer({});
+            renderer.set_overlay({});
             renderer.set_viewport_pick_callback({});
             renderer.wait_idle();
         });
@@ -69,7 +69,7 @@ namespace CometEditor::Tests {
         unsigned prepared_frames = 0;
         bool visible = true;
         renderer.set_viewport_pick_callback([&](auto) { ++picks; });
-        renderer.set_overlay_renderer([&](Comet::CommandBuffer& command) {
+        renderer.set_overlay({.render = [&](Comet::CommandBuffer& command) {
             ++overlays;
             ui.render(command);
             const auto& snapshot = renderer.get_diagnostics().get_snapshot();
@@ -90,7 +90,7 @@ namespace CometEditor::Tests {
             EXPECT_EQ(calls->stops, 0);
             if(overlays == 4)
                 engine.get_window().request_close();
-        });
+        }});
         unsigned attempts = 0;
         const auto run = engine.run(
             [&](Comet::Engine::FrameContext&) {
@@ -146,7 +146,8 @@ namespace CometEditor::Tests {
         ui.release_swapchain_resources();
         auto rebuilt = ui.rebuild_swapchain_resources({.image_count_changed = true});
         ASSERT_TRUE(rebuilt) << rebuilt.error();
-        renderer.set_overlay_renderer([&](Comet::CommandBuffer& command) { ui.render(command); });
+        renderer.set_overlay(
+            {.render = [&](Comet::CommandBuffer& command) { ui.render(command); }});
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
@@ -155,7 +156,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(ui.begin_frame());
         ui.end_frame();
         EXPECT_TRUE(renderer.render_frame({}));
-        renderer.set_overlay_renderer({});
+        renderer.set_overlay({});
         renderer.wait_idle();
     }
 
@@ -188,8 +189,8 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(sampler) << sampler.error();
         Viewport viewport(state, engine.get_scene_runtime(), selection, history, components, edit,
             shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value());
-        renderer.set_overlay_renderer(
-            [&](Comet::CommandBuffer& command_buffer) { ui.render(command_buffer); });
+        renderer.set_overlay(
+            {.render = [&](Comet::CommandBuffer& command_buffer) { ui.render(command_buffer); }});
         const auto draw_frame = [&] {
             engine.get_window().poll_events();
             const auto preparation = renderer.prepare_frame();
@@ -253,7 +254,7 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(draw_frame());
         EXPECT_FALSE(viewport.panel().is_visible());
 
-        renderer.set_overlay_renderer({});
+        renderer.set_overlay({});
         viewport.panel().cancel_interaction();
         renderer.get_render_context().wait_idle();
     }

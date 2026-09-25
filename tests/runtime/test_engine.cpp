@@ -36,10 +36,10 @@ namespace Comet::Tests {
         int ready_calls = 0;
         int draws = 0;
         Engine::FrameContext* current_frame = nullptr;
-        engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) {
+        engine.get_renderer().set_overlay({.render = [&](CommandBuffer&) {
             if(++draws == 3)
                 engine.get_window().request_close();
-        });
+        }});
         const auto result = engine.run(
             [&](Engine::FrameContext& frame) {
                 current_frame = &frame;
@@ -60,7 +60,7 @@ namespace Comet::Tests {
                 }
                 return Result<void, Error>::success();
             });
-        engine.get_renderer().set_overlay_renderer({});
+        engine.get_renderer().set_overlay({});
         ASSERT_TRUE(result) << result.error().message;
         EXPECT_EQ(updates, 3);
         EXPECT_EQ(ready_calls, 3);
@@ -115,7 +115,7 @@ namespace Comet::Tests {
         int hosts = 0;
         int ui_frames = 0;
         int draws = 0;
-        engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) {
+        engine.get_renderer().set_overlay({.render = [&](CommandBuffer&) {
             ++draws;
             EXPECT_EQ(calls->starts, 1);
             EXPECT_EQ(calls->stops, 0);
@@ -131,7 +131,7 @@ namespace Comet::Tests {
                 EXPECT_EQ(engine.get_scene_runtime().get_state(), SceneRuntime::State::Running);
                 engine.get_window().request_close();
             }
-        });
+        }});
         const auto result = engine.run(
             [&](Engine::FrameContext&) {
                 ++hosts;
@@ -147,7 +147,7 @@ namespace Comet::Tests {
                 ++ui_frames;
                 return Result<void, Error>::success();
             });
-        engine.get_renderer().set_overlay_renderer({});
+        engine.get_renderer().set_overlay({});
         ASSERT_TRUE(result);
         EXPECT_EQ(hosts, 4);
         EXPECT_EQ(ui_frames, 4);
@@ -207,13 +207,14 @@ namespace Comet::Tests {
         int edits = 0;
         int draws = 0;
         int rebuilds = 0;
-        renderer.set_swapchain_resource_callbacks([] {},
-            [&](const SwapchainCompatibility&) {
-                ++rebuilds;
-                return Result<void, GraphicsError>::failure(
-                    {"temporary UI allocation failure", vk::Result::eErrorOutOfDeviceMemory});
-            });
-        renderer.set_overlay_renderer([&](CommandBuffer&) { ++draws; });
+        renderer.set_overlay({.render = [&](CommandBuffer&) { ++draws; },
+            .release = [] {},
+            .rebuild =
+                [&](const SwapchainCompatibility&) {
+                    ++rebuilds;
+                    return Result<void, GraphicsError>::failure(
+                        {"temporary UI allocation failure", vk::Result::eErrorOutOfDeviceMemory});
+                }});
         renderer.request_swapchain_recreation();
         const auto result = engine.run(
             [&](Engine::FrameContext& frame) {
@@ -236,8 +237,7 @@ namespace Comet::Tests {
                 ++edits;
                 return Result<void, Error>::success();
             });
-        renderer.set_overlay_renderer({});
-        renderer.set_swapchain_resource_callbacks({}, {});
+        renderer.set_overlay({});
         EXPECT_TRUE(result);
         EXPECT_EQ(updates, 2);
         EXPECT_EQ(rebuilds, 1);
@@ -259,7 +259,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
         ASSERT_TRUE(engine.start_scene_runtime());
         int draws = 0;
-        engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) { ++draws; });
+        engine.get_renderer().set_overlay({.render = [&](CommandBuffer&) { ++draws; }});
         const auto result = engine.run();
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().message, "runtime update failed");
@@ -268,7 +268,7 @@ namespace Comet::Tests {
         EXPECT_EQ(draws, 0);
         EXPECT_FALSE(runtime.is_active());
         EXPECT_FALSE(engine.run());
-        engine.get_renderer().set_overlay_renderer({});
+        engine.get_renderer().set_overlay({});
     }
 
     TEST(EngineRunTest, RuntimeRecoveryCompletesAcquiredFrameBeforeReplacingScene) {
@@ -283,7 +283,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine.start_scene_runtime());
         int draws = 0;
         int recoveries = 0;
-        engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) { ++draws; });
+        engine.get_renderer().set_overlay({.render = [&](CommandBuffer&) { ++draws; }});
         const auto result = engine.run(
             [&](Engine::FrameContext&) {
                 if(draws >= 2)
@@ -305,7 +305,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(result);
         EXPECT_EQ(recoveries, 1);
         EXPECT_EQ(draws, 2);
-        engine.get_renderer().set_overlay_renderer({});
+        engine.get_renderer().set_overlay({});
     }
 
     TEST(EngineRunTest, FrameReadyFailureStopsEngineWithoutDrawingOrReusingAcquiredFrame) {
@@ -314,7 +314,7 @@ namespace Comet::Tests {
         auto& engine = *engine_result.value();
         int edits = 0;
         int draws = 0;
-        engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) { ++draws; });
+        engine.get_renderer().set_overlay({.render = [&](CommandBuffer&) { ++draws; }});
         const Error failure =
             GraphicsError{"asset creation failed", vk::Result::eErrorDeviceLost}.as_error();
         const auto result = engine.run({}, [&](Engine::FrameContext&) {
@@ -331,7 +331,7 @@ namespace Comet::Tests {
         const auto restarted = engine.run();
         ASSERT_FALSE(restarted);
         EXPECT_EQ(restarted.error().message, "Engine is shutting down");
-        engine.get_renderer().set_overlay_renderer({});
+        engine.get_renderer().set_overlay({});
     }
 
     TEST(EngineRunTest, ShutdownPreparationDrainsWorkAndRejectsNewFrames) {
@@ -402,7 +402,7 @@ namespace Comet::Tests {
         auto& engine = *created.value();
         int updates = 0;
         int draws = 0;
-        engine.get_renderer().set_overlay_renderer([&](CommandBuffer&) { ++draws; });
+        engine.get_renderer().set_overlay({.render = [&](CommandBuffer&) { ++draws; }});
 
         const auto result = engine.run([&](Engine::FrameContext&) {
             if(++updates == 1)
@@ -416,7 +416,7 @@ namespace Comet::Tests {
         EXPECT_EQ(updates, 2);
         EXPECT_EQ(draws, 1);
         EXPECT_FALSE(engine.frame_diagnostics().current().has_value());
-        engine.get_renderer().set_overlay_renderer({});
+        engine.get_renderer().set_overlay({});
     }
 
 }

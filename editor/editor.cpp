@@ -166,15 +166,11 @@ namespace {
             m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
             m_project_panel->set_material_layouts(std::move(material_layouts));
 
-            renderer.set_overlay_renderer([this](Comet::CommandBuffer& command_buffer) {
-                m_imgui_context->render(command_buffer);
-            });
-
-            renderer.set_swapchain_resource_callbacks(
-                [this]() { m_imgui_context->release_swapchain_resources(); },
-                [this](const Comet::SwapchainCompatibility& compatibility) {
-                    return m_imgui_context->rebuild_swapchain_resources(compatibility);
-                });
+            renderer.set_overlay({.render = [this](Comet::CommandBuffer& command_buffer) {
+                m_imgui_context->render(command_buffer); },
+                .release = [this] { m_imgui_context->release_swapchain_resources(); },
+                .rebuild = [this](const Comet::SwapchainCompatibility& compatibility) {
+                        return m_imgui_context->rebuild_swapchain_resources(compatibility); }});
 
             renderer.set_viewport_pick_callback(
                 [this](const std::optional<Comet::ScenePickHit> hit) {
@@ -258,10 +254,8 @@ namespace {
         Comet::Result<void, Comet::Error> on_shutdown() override {
             get_engine().get_window().confirm_close_requests(false);
             LOG_INFO("Editor shutting down...");
-            get_engine().get_renderer().set_overlay_renderer({});
+            get_engine().get_renderer().set_overlay({});
             get_engine().get_renderer().set_viewport_pick_callback({});
-            auto& renderer = get_engine().get_renderer();
-            renderer.set_swapchain_resource_callbacks({}, {});
             if(m_viewport)
                 m_viewport->panel().cancel_interaction();
             if(m_inspector_panel)
@@ -354,9 +348,9 @@ namespace {
             m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
             m_project_panel->set_material_layouts(std::move(material_layouts));
             LOG_INFO(
-                "Published material Shader revision {}: {} pipelines, {} material versions, {} bindings",
-                compilation->revision, result.value().pipelines, result.value().material_versions,
-                result.value().material_bindings);
+                "Published material Shader revision {} ({} stages compiled): {} pipelines, {} material versions, {} bindings",
+                compilation->revision, compilation->compiled_stages, result.value().pipelines,
+                result.value().material_versions, result.value().material_bindings);
             LOG_INFO("Shader preparation: pipelines {:.2f} ms, candidate copies {:.2f} ms, "
                      "material CPU {:.2f} ms, material GPU {:.2f} ms",
                 result.value().pipeline_preparation_ms, result.value().candidate_copy_ms,

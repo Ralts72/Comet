@@ -175,6 +175,32 @@ namespace Comet {
             bodies.erase(it);
         }
 
+        Result<void, Error> synchronize_body(
+            Scene& scene, Entity entity, const RigidBodyComponent& rigid) {
+            auto it = bodies.find(entity.get_uuid());
+            if(it != bodies.end()) {
+                if(auto checked = validate_body(scene, entity); !checked)
+                    return checked;
+                const auto& transform = entity.get_component<TransformComponent>();
+                const auto& collider = entity.get_component<ColliderComponent>();
+                if(it->second.entity != entity || it->second.motion != rigid.motion
+                    || !same_shape(it->second.collider, collider)
+                    || !glm::all(glm::equal(it->second.last_transform.scale, transform.scale))) {
+                    remove_body(it);
+                    return add_body(scene, entity);
+                }
+                if(!same_pose(it->second.last_transform, transform)) {
+                    world.GetBodyInterface().SetPositionAndRotationWhenChanged(it->second.id,
+                        to_position(transform.translation), to_rotation(transform.rotation),
+                        rigid.motion == BodyMotion::Dynamic ? JPH::EActivation::Activate
+                                                            : JPH::EActivation::DontActivate);
+                    it->second.last_transform = transform;
+                }
+                return Result<void, Error>::success();
+            }
+            return add_body(scene, entity);
+        }
+
         Result<void, Error> synchronize(Scene& scene) {
             for(auto it = bodies.begin(); it != bodies.end();) {
                 const auto& body = it->second;
@@ -189,37 +215,11 @@ namespace Comet {
                 ++it;
             }
             Result<void, Error> result = Result<void, Error>::success();
-            scene.each<const RigidBodyComponent>([&](Entity entity,
-                                                     const RigidBodyComponent& rigid) {
-                if(!result)
-                    return;
-                auto it = bodies.find(entity.get_uuid());
-                if(it != bodies.end()) {
-                    if(auto checked = validate_body(scene, entity); !checked) {
-                        result = checked;
-                        return;
-                    }
-                    const auto& transform = entity.get_component<TransformComponent>();
-                    const auto& collider = entity.get_component<ColliderComponent>();
-                    if(it->second.entity != entity || it->second.motion != rigid.motion
-                        || !same_shape(it->second.collider, collider)
-                        || !glm::all(
-                            glm::equal(it->second.last_transform.scale, transform.scale))) {
-                        remove_body(it);
-                        result = add_body(scene, entity);
-                        return;
-                    }
-                    if(!same_pose(it->second.last_transform, transform)) {
-                        world.GetBodyInterface().SetPositionAndRotationWhenChanged(it->second.id,
-                            to_position(transform.translation), to_rotation(transform.rotation),
-                            rigid.motion == BodyMotion::Dynamic ? JPH::EActivation::Activate
-                                                                : JPH::EActivation::DontActivate);
-                        it->second.last_transform = transform;
-                    }
-                } else {
-                    result = add_body(scene, entity);
-                }
-            });
+            scene.each<const RigidBodyComponent>(
+                [&](Entity entity, const RigidBodyComponent& rigid) {
+                    if(result)
+                        result = synchronize_body(scene, entity, rigid);
+                });
             return result;
         }
 

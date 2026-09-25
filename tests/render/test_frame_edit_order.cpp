@@ -97,7 +97,7 @@ namespace Comet::Tests {
             renderer.request_viewport_pick(size / 2u, size);
             return Result<void, Error>::success();
         };
-        renderer.set_overlay_renderer([&](CommandBuffer&) {
+        renderer.set_overlay({.render = [&](CommandBuffer&) {
             EXPECT_TRUE(picked);
             EXPECT_EQ(calls->updates, 1);
             // 结果回调提交的线段必须已在当前 scene pass 分配并录制。
@@ -107,7 +107,7 @@ namespace Comet::Tests {
                     *allocations_before_lines + 1 + materials.material_bindings_created);
             }
             engine.get_window().request_close();
-        });
+        }});
         renderer.set_viewport_pick_callback([&](std::optional<ScenePickHit> hit) {
             EXPECT_EQ(preparations, 1);
             EXPECT_EQ(calls->updates, 1);
@@ -136,7 +136,7 @@ namespace Comet::Tests {
                 return Result<void, Error>::success();
             },
             frame_ready));
-        renderer.set_overlay_renderer({});
+        renderer.set_overlay({});
         renderer.set_viewport_pick_callback({});
         EXPECT_EQ(preparations, 1);
         EXPECT_EQ(calls->updates, 1);

@@ -152,6 +152,14 @@ namespace Comet {
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
             SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout,
             AssetHandle shader_program = INVALID_ASSET_HANDLE);
+        Result<void, GraphicsError> prepare_builtin_pipeline(PipelineManager& pipelines,
+            const MaterialShaderDefinition& definition, const MaterialShaderProgram& code,
+            SampleCount samples,
+            std::unordered_map<std::string, std::shared_ptr<const PipelineState>>& candidates,
+            ReloadReport& report);
+        Result<void, GraphicsError> install_project_pipeline(AssetHandle handle,
+            const std::string& template_name, const std::shared_ptr<const PipelineState>& builtin,
+            ProjectPipeline& active, const std::shared_ptr<const ShaderProgramArtifact>& version);
         Result<std::shared_ptr<const PipelineState>, GraphicsError> project_pipeline(
             AssetHandle handle, const std::string& template_name);
         // 成功空值表示本次无可绘制版本；失败表示不能继续当前帧。

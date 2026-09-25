@@ -338,6 +338,36 @@ namespace Comet {
             return Result<void>::success();
         }
 
+        enum class RecordVisitState { Visiting, Complete };
+
+        Result<void> visit_parent_chain(std::size_t index, std::size_t depth,
+            const std::vector<EntityRecord>& records,
+            const std::unordered_map<EntityUuid, std::size_t>& indices,
+            std::unordered_map<EntityUuid, RecordVisitState>& states,
+            const Json::Context& context) {
+            if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
+                return Result<void>::failure(
+                    context.error(entity_location(index), "maximum hierarchy depth exceeded"));
+            const EntityUuid uuid = records[index].uuid;
+            if(const auto state = states.find(uuid); state != states.end()) {
+                if(state->second == RecordVisitState::Visiting) {
+                    return Result<void>::failure(context.error(
+                        entity_location(index) + ".parent", "parent relationship forms a cycle"));
+                }
+                return Result<void>::success();
+            }
+
+            states.emplace(uuid, RecordVisitState::Visiting);
+            if(records[index].parent) {
+                if(auto result = visit_parent_chain(indices.at(*records[index].parent), depth + 1,
+                       records, indices, states, context);
+                    !result)
+                    return result;
+            }
+            states[uuid] = RecordVisitState::Complete;
+            return Result<void>::success();
+        }
+
         Result<void> validate_records(
             const std::vector<EntityRecord>& records, const Json::Context& context) {
             std::unordered_map<EntityUuid, std::size_t> indices;
@@ -356,37 +386,11 @@ namespace Comet {
                 }
             }
 
-            enum class VisitState { Visiting, Complete };
-            std::unordered_map<EntityUuid, VisitState> states;
+            std::unordered_map<EntityUuid, RecordVisitState> states;
             states.reserve(records.size());
-            const auto visit = [&records, &indices, &states, &context](const std::size_t index,
-                                   const std::size_t depth, const auto& visit_ref) -> Result<void> {
-                if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
-                    return Result<void>::failure(
-                        context.error(entity_location(index), "maximum hierarchy depth exceeded"));
-                const EntityUuid uuid = records[index].uuid;
-                if(const auto state = states.find(uuid); state != states.end()) {
-                    if(state->second == VisitState::Visiting) {
-                        return Result<void>::failure(
-                            context.error(entity_location(index) + ".parent",
-                                "parent relationship forms a cycle"));
-                    }
-                    return Result<void>::success();
-                }
-
-                states.emplace(uuid, VisitState::Visiting);
-                if(records[index].parent) {
-                    if(auto result =
-                            visit_ref(indices.at(*records[index].parent), depth + 1, visit_ref);
-                        !result)
-                        return result;
-                }
-                states[uuid] = VisitState::Complete;
-                return Result<void>::success();
-            };
-
             for(std::size_t index = 0; index < records.size(); ++index) {
-                if(auto result = visit(index, 1, visit); !result)
+                if(auto result = visit_parent_chain(index, 1, records, indices, states, context);
+                    !result)
                     return result;
             }
             return Result<void>::success();

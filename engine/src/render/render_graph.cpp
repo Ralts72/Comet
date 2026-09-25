@@ -162,66 +162,19 @@ namespace Comet {
             result.resource = *next;
             return Result<State>::success(result);
         }
-    }
 
-    RenderGraph::ResourceId RenderGraph::add_resource(Resource resource) {
-        const ResourceId id{static_cast<uint32_t>(m_resources.size())};
-        m_resources.push_back(std::move(resource));
-        return id;
-    }
-    RenderGraph::ResourceId RenderGraph::import_image(std::string name, ImageState initial) {
-        return add_resource({std::move(name), initial});
-    }
-    RenderGraph::ResourceId RenderGraph::import_buffer(std::string name, BufferState initial) {
-        return add_resource({std::move(name), initial});
-    }
-    RenderGraph::PassId RenderGraph::add_pass(Pass pass) {
-        const PassId id = m_passes.size();
-        m_passes.push_back(std::move(pass));
-        return id;
-    }
-    void RenderGraph::export_resource(Use use) {
-        m_exports.push_back(use);
-    }
-
-    Result<RenderGraph::Plan> RenderGraph::compile() const {
-        struct Tracked {
+        struct TrackedResource {
             State state;
             bool has_writer;
             bool has_contents;
             std::vector<ResourceState> visible;
         };
-        if(m_resources.size() > 256 || m_passes.size() > 512 || m_exports.size() > 256)
-            return Result<Plan>::failure("RenderGraph declaration limit exceeded");
-        std::unordered_set<std::string> names;
-        for(const auto& resource : m_resources) {
-            if(resource.name.empty() || !names.insert(resource.name).second)
-                return Result<Plan>::failure(
-                    "RenderGraph resource names must be nonempty and unique");
-            if(auto valid = validate_initial(resource.initial); !valid)
-                return Result<Plan>::failure(resource.name + ": " + valid.error());
-        }
-        names.clear();
-        for(const auto& pass : m_passes)
-            if(pass.name.empty() || !names.insert(pass.name).second || pass.uses.size() > 256)
-                return Result<Plan>::failure("Invalid RenderGraph pass name or use count");
-        Plan result;
-        result.m_resources = m_resources;
-        result.m_image_usages.resize(m_resources.size());
-        std::vector<Tracked> tracked;
-        std::optional<uint32_t> queue;
-        for(const auto& resource : m_resources) {
-            const auto owner = access(resource.initial).queue_family;
-            if(queue && *queue != owner)
-                return Result<Plan>::failure(
-                    "RenderGraph requires one queue owner; import explicit handoffs first");
-            queue = owner;
-            tracked.push_back({resource.initial, writes(access(resource.initial)),
-                initialized(resource.initial), {}});
-        }
-        auto compile_uses = [&](std::span<const Use> uses, std::vector<Barrier>& barriers,
-                                bool exporting) -> Result<void> {
-            std::vector<bool> used(m_resources.size());
+
+        Result<void> compile_uses(std::span<const RenderGraph::Use> uses,
+            std::span<const RenderGraph::Resource> resources, std::vector<TrackedResource>& tracked,
+            std::vector<Flags<ImageUsage>>& image_usages,
+            std::vector<RenderGraph::Barrier>& barriers, bool exporting) {
+            std::vector<bool> used(resources.size());
             for(const auto& use : uses) {
                 if(!exporting
                     && (use.usage == ResourceUsage::HostRead
@@ -238,7 +191,7 @@ namespace Comet {
                     return Result<void>::failure(resolved.error());
                 State after = std::move(resolved).value();
                 if(std::holds_alternative<ImageState>(after)) {
-                    auto& required = result.m_image_usages[use.resource.index];
+                    auto& required = image_usages[use.resource.index];
                     required = required | image_usage(use.usage);
                 }
                 const auto desired = access(after);
@@ -246,7 +199,7 @@ namespace Comet {
                 if(!previous.has_contents
                     && (exporting || !write || use.usage == ResourceUsage::StorageReadWrite))
                     return Result<void>::failure("RenderGraph resource '"
-                                                 + m_resources[use.resource.index].name
+                                                 + resources[use.resource.index].name
                                                  + "' has no initialized producer");
                 const bool changed = layout_changed(previous.state, after);
                 const bool visible = std::ranges::any_of(previous.visible, [&](const auto& scope) {
@@ -270,14 +223,69 @@ namespace Comet {
                 }
             }
             return Result<void>::success();
-        };
+        }
+    }
+
+    RenderGraph::ResourceId RenderGraph::add_resource(Resource resource) {
+        const ResourceId id{static_cast<uint32_t>(m_resources.size())};
+        m_resources.push_back(std::move(resource));
+        return id;
+    }
+    RenderGraph::ResourceId RenderGraph::import_image(std::string name, ImageState initial) {
+        return add_resource({std::move(name), initial});
+    }
+    RenderGraph::ResourceId RenderGraph::import_buffer(std::string name, BufferState initial) {
+        return add_resource({std::move(name), initial});
+    }
+    RenderGraph::PassId RenderGraph::add_pass(Pass pass) {
+        const PassId id = m_passes.size();
+        m_passes.push_back(std::move(pass));
+        return id;
+    }
+    void RenderGraph::export_resource(Use use) {
+        m_exports.push_back(use);
+    }
+
+    Result<RenderGraph::Plan> RenderGraph::compile() const {
+        if(m_resources.size() > 256 || m_passes.size() > 512 || m_exports.size() > 256)
+            return Result<Plan>::failure("RenderGraph declaration limit exceeded");
+        std::unordered_set<std::string> names;
+        for(const auto& resource : m_resources) {
+            if(resource.name.empty() || !names.insert(resource.name).second)
+                return Result<Plan>::failure(
+                    "RenderGraph resource names must be nonempty and unique");
+            if(auto valid = validate_initial(resource.initial); !valid)
+                return Result<Plan>::failure(resource.name + ": " + valid.error());
+        }
+        names.clear();
+        for(const auto& pass : m_passes)
+            if(pass.name.empty() || !names.insert(pass.name).second || pass.uses.size() > 256)
+                return Result<Plan>::failure("Invalid RenderGraph pass name or use count");
+        Plan result;
+        result.m_resources = m_resources;
+        result.m_image_usages.resize(m_resources.size());
+        std::vector<TrackedResource> tracked;
+        std::optional<uint32_t> queue;
+        for(const auto& resource : m_resources) {
+            const auto owner = access(resource.initial).queue_family;
+            if(queue && *queue != owner)
+                return Result<Plan>::failure(
+                    "RenderGraph requires one queue owner; import explicit handoffs first");
+            queue = owner;
+            tracked.push_back({resource.initial, writes(access(resource.initial)),
+                initialized(resource.initial), {}});
+        }
         for(const auto& pass : m_passes) {
             CompiledPass compiled{pass.name, {}};
-            if(auto uses = compile_uses(pass.uses, compiled.barriers, false); !uses)
+            if(auto uses = compile_uses(pass.uses, m_resources, tracked, result.m_image_usages,
+                   compiled.barriers, false);
+                !uses)
                 return Result<Plan>::failure(pass.name + ": " + uses.error());
             result.m_passes.push_back(std::move(compiled));
         }
-        if(auto uses = compile_uses(m_exports, result.m_exports, true); !uses)
+        if(auto uses = compile_uses(
+               m_exports, m_resources, tracked, result.m_image_usages, result.m_exports, true);
+            !uses)
             return Result<Plan>::failure("Exports: " + uses.error());
         for(auto& state : tracked)
             result.m_final_states.push_back(std::move(state.state));

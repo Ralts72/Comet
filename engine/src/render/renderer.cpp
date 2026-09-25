@@ -212,9 +212,9 @@ namespace Comet {
         m_render_context->get_device().get_present_queue(0).wait_idle();
     }
 
-    void Renderer::set_swapchain_resource_callbacks(std::function<void()> release,
-        std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild) {
-        m_presentation->set_overlay({std::move(release), std::move(rebuild)});
+    void Renderer::set_overlay(Overlay overlay) {
+        m_render_overlay = std::move(overlay.render);
+        m_presentation->set_overlay({std::move(overlay.release), std::move(overlay.rebuild)});
     }
 
     Result<void, GraphicsError> Renderer::set_render_view(RenderView view) {
@@ -229,10 +229,6 @@ namespace Comet {
         }
         m_render_view = std::move(view);
         return Result<void, GraphicsError>::success();
-    }
-
-    void Renderer::set_overlay_renderer(OverlayRenderCallback render) {
-        m_render_overlay = std::move(render);
     }
 
     void Renderer::request_viewport_pick(

@@ -93,6 +93,128 @@ namespace Comet {
             writer.end_object();
         }
 
+        Result<void> read_display(Json::Node item, std::string& display,
+            const std::string& location, const Json::Context& context) {
+            Json::Node value;
+            if(item["display"].get(value))
+                return Result<void>::success();
+            auto parsed =
+                context.read_scalar<std::string>(value, location + ".display", "a string");
+            if(!parsed)
+                return Result<void>::failure(parsed.error());
+            display = std::move(parsed).value();
+            return Result<void>::success();
+        }
+
+        Result<ShaderMaterialTexture> read_texture(Json::Node item, const Json::Context& context) {
+            constexpr std::string_view location = "material.textures[]";
+            if(auto valid = context.validate_keys(item, {"name", "display", "optional"}, location);
+                !valid)
+                return Result<ShaderMaterialTexture>::failure(valid.error());
+            auto name = context.read_field<std::string>(item, "name", "a string", location);
+            if(!name)
+                return Result<ShaderMaterialTexture>::failure(name.error());
+            ShaderMaterialTexture texture;
+            texture.name = std::move(name).value();
+            if(auto display =
+                    read_display(item, texture.display_name, std::string(location), context);
+                !display)
+                return Result<ShaderMaterialTexture>::failure(display.error());
+            Json::Node optional;
+            if(!item["optional"].get(optional)) {
+                auto value = context.read_scalar<bool>(
+                    optional, "material.textures[].optional", "a boolean");
+                if(!value)
+                    return Result<ShaderMaterialTexture>::failure(value.error());
+                texture.optional = value.value();
+            }
+            return Result<ShaderMaterialTexture>::success(std::move(texture));
+        }
+
+        Result<void> read_optional_float(Json::Node item, std::string_view field, float& target,
+            std::string_view location, const Json::Context& context) {
+            Json::Node value;
+            if(item[field].get(value))
+                return Result<void>::success();
+            auto parsed = context.read_scalar<float>(
+                value, std::string(location) + "." + std::string(field), "a finite number");
+            if(!parsed)
+                return Result<void>::failure(parsed.error());
+            target = parsed.value();
+            return Result<void>::success();
+        }
+
+        Result<ShaderMaterialScalar> read_scalar(Json::Node item, const Json::Context& context) {
+            constexpr std::string_view location = "material.scalars[]";
+            if(auto valid = context.validate_keys(
+                   item, {"name", "display", "default", "min", "max", "step"}, location);
+                !valid)
+                return Result<ShaderMaterialScalar>::failure(valid.error());
+            auto name = context.read_field<std::string>(item, "name", "a string", location);
+            auto initial = context.read_field<float>(item, "default", "a finite number", location);
+            if(!name)
+                return Result<ShaderMaterialScalar>::failure(name.error());
+            if(!initial)
+                return Result<ShaderMaterialScalar>::failure(initial.error());
+            ShaderMaterialScalar scalar;
+            scalar.name = std::move(name).value();
+            scalar.default_value = initial.value();
+            if(auto display =
+                    read_display(item, scalar.display_name, std::string(location), context);
+                !display)
+                return Result<ShaderMaterialScalar>::failure(display.error());
+            for(const auto [field, target] :
+                {std::pair<std::string_view, float*>{"min", &scalar.min_value},
+                    {"max", &scalar.max_value}, {"step", &scalar.step}})
+                if(auto valid = read_optional_float(item, field, *target, location, context);
+                    !valid)
+                    return Result<ShaderMaterialScalar>::failure(valid.error());
+            return Result<ShaderMaterialScalar>::success(std::move(scalar));
+        }
+
+        Result<ShaderMaterialVector> read_vector(Json::Node item, const Json::Context& context) {
+            constexpr std::string_view location = "material.vectors[]";
+            if(auto valid =
+                    context.validate_keys(item, {"name", "display", "default", "color"}, location);
+                !valid)
+                return Result<ShaderMaterialVector>::failure(valid.error());
+            auto name = context.read_field<std::string>(item, "name", "a string", location);
+            if(!name)
+                return Result<ShaderMaterialVector>::failure(name.error());
+            auto initial_node = context.required_child(item, "default", location);
+            if(!initial_node)
+                return Result<ShaderMaterialVector>::failure(initial_node.error());
+            auto elements = context.array(initial_node.value(), "material.vectors[].default");
+            if(!elements)
+                return Result<ShaderMaterialVector>::failure(elements.error());
+            if(elements.value().size() != 4)
+                return Result<ShaderMaterialVector>::failure(
+                    context.error("material.vectors[].default", "expected four numbers"));
+            ShaderMaterialVector vector;
+            vector.name = std::move(name).value();
+            int index = 0;
+            for(const auto element : elements.value()) {
+                auto value = context.read_scalar<float>(element,
+                    "material.vectors[].default[" + std::to_string(index) + "]", "a finite number");
+                if(!value)
+                    return Result<ShaderMaterialVector>::failure(value.error());
+                vector.default_value[index++] = value.value();
+            }
+            if(auto display =
+                    read_display(item, vector.display_name, std::string(location), context);
+                !display)
+                return Result<ShaderMaterialVector>::failure(display.error());
+            Json::Node color;
+            if(!item["color"].get(color)) {
+                auto value =
+                    context.read_scalar<bool>(color, "material.vectors[].color", "a boolean");
+                if(!value)
+                    return Result<ShaderMaterialVector>::failure(value.error());
+                vector.color = value.value();
+            }
+            return Result<ShaderMaterialVector>::success(std::move(vector));
+        }
+
         Result<ShaderProgramMaterial> read_material(Json::Node node, const Json::Context& context) {
             if(auto valid =
                     context.validate_keys(node, {"textures", "scalars", "vectors"}, "material");
@@ -116,136 +238,16 @@ namespace Comet {
                 }
                 return Result<void>::success();
             };
-            const auto read_display = [&](Json::Node item, std::string& display,
-                                          const std::string& location) -> Result<void> {
-                Json::Node value;
-                if(item["display"].get(value))
-                    return Result<void>::success();
-                auto parsed =
-                    context.read_scalar<std::string>(value, location + ".display", "a string");
-                if(!parsed)
-                    return Result<void>::failure(parsed.error());
-                display = std::move(parsed).value();
-                return Result<void>::success();
-            };
             if(auto result = read_array("textures", material.textures,
-                   [&](Json::Node item) -> Result<ShaderMaterialTexture> {
-                       constexpr std::string_view location = "material.textures[]";
-                       if(auto valid = context.validate_keys(
-                              item, {"name", "display", "optional"}, location);
-                           !valid)
-                           return Result<ShaderMaterialTexture>::failure(valid.error());
-                       auto name =
-                           context.read_field<std::string>(item, "name", "a string", location);
-                       if(!name)
-                           return Result<ShaderMaterialTexture>::failure(name.error());
-                       ShaderMaterialTexture texture;
-                       texture.name = std::move(name).value();
-                       if(auto display =
-                               read_display(item, texture.display_name, std::string(location));
-                           !display)
-                           return Result<ShaderMaterialTexture>::failure(display.error());
-                       Json::Node optional;
-                       if(!item["optional"].get(optional)) {
-                           auto value = context.read_scalar<bool>(
-                               optional, "material.textures[].optional", "a boolean");
-                           if(!value)
-                               return Result<ShaderMaterialTexture>::failure(value.error());
-                           texture.optional = value.value();
-                       }
-                       return Result<ShaderMaterialTexture>::success(std::move(texture));
-                   });
+                   [&](Json::Node item) { return read_texture(item, context); });
                 !result)
                 return Result<ShaderProgramMaterial>::failure(result.error());
             if(auto result = read_array("scalars", material.scalars,
-                   [&](Json::Node item) -> Result<ShaderMaterialScalar> {
-                       constexpr std::string_view location = "material.scalars[]";
-                       if(auto valid = context.validate_keys(
-                              item, {"name", "display", "default", "min", "max", "step"}, location);
-                           !valid)
-                           return Result<ShaderMaterialScalar>::failure(valid.error());
-                       auto name =
-                           context.read_field<std::string>(item, "name", "a string", location);
-                       auto initial =
-                           context.read_field<float>(item, "default", "a finite number", location);
-                       if(!name)
-                           return Result<ShaderMaterialScalar>::failure(name.error());
-                       if(!initial)
-                           return Result<ShaderMaterialScalar>::failure(initial.error());
-                       ShaderMaterialScalar scalar;
-                       scalar.name = std::move(name).value();
-                       scalar.default_value = initial.value();
-                       if(auto display =
-                               read_display(item, scalar.display_name, std::string(location));
-                           !display)
-                           return Result<ShaderMaterialScalar>::failure(display.error());
-                       const auto read_optional = [&](std::string_view field,
-                                                      float& target) -> Result<void> {
-                           Json::Node value;
-                           if(item[field].get(value))
-                               return Result<void>::success();
-                           auto parsed = context.read_scalar<float>(value,
-                               std::string(location) + "." + std::string(field), "a finite number");
-                           if(!parsed)
-                               return Result<void>::failure(parsed.error());
-                           target = parsed.value();
-                           return Result<void>::success();
-                       };
-                       for(const auto [field, target] :
-                           {std::pair<std::string_view, float*>{"min", &scalar.min_value},
-                               {"max", &scalar.max_value}, {"step", &scalar.step}})
-                           if(auto valid = read_optional(field, *target); !valid)
-                               return Result<ShaderMaterialScalar>::failure(valid.error());
-                       return Result<ShaderMaterialScalar>::success(std::move(scalar));
-                   });
+                   [&](Json::Node item) { return read_scalar(item, context); });
                 !result)
                 return Result<ShaderProgramMaterial>::failure(result.error());
             if(auto result = read_array("vectors", material.vectors,
-                   [&](Json::Node item) -> Result<ShaderMaterialVector> {
-                       constexpr std::string_view location = "material.vectors[]";
-                       if(auto valid = context.validate_keys(
-                              item, {"name", "display", "default", "color"}, location);
-                           !valid)
-                           return Result<ShaderMaterialVector>::failure(valid.error());
-                       auto name =
-                           context.read_field<std::string>(item, "name", "a string", location);
-                       if(!name)
-                           return Result<ShaderMaterialVector>::failure(name.error());
-                       auto initial_node = context.required_child(item, "default", location);
-                       if(!initial_node)
-                           return Result<ShaderMaterialVector>::failure(initial_node.error());
-                       auto elements =
-                           context.array(initial_node.value(), "material.vectors[].default");
-                       if(!elements)
-                           return Result<ShaderMaterialVector>::failure(elements.error());
-                       if(elements.value().size() != 4)
-                           return Result<ShaderMaterialVector>::failure(context.error(
-                               "material.vectors[].default", "expected four numbers"));
-                       ShaderMaterialVector vector;
-                       vector.name = std::move(name).value();
-                       int index = 0;
-                       for(const auto element : elements.value()) {
-                           auto value = context.read_scalar<float>(element,
-                               "material.vectors[].default[" + std::to_string(index) + "]",
-                               "a finite number");
-                           if(!value)
-                               return Result<ShaderMaterialVector>::failure(value.error());
-                           vector.default_value[index++] = value.value();
-                       }
-                       if(auto display =
-                               read_display(item, vector.display_name, std::string(location));
-                           !display)
-                           return Result<ShaderMaterialVector>::failure(display.error());
-                       Json::Node color;
-                       if(!item["color"].get(color)) {
-                           auto value = context.read_scalar<bool>(
-                               color, "material.vectors[].color", "a boolean");
-                           if(!value)
-                               return Result<ShaderMaterialVector>::failure(value.error());
-                           vector.color = value.value();
-                       }
-                       return Result<ShaderMaterialVector>::success(std::move(vector));
-                   });
+                   [&](Json::Node item) { return read_vector(item, context); });
                 !result)
                 return Result<ShaderProgramMaterial>::failure(result.error());
             if(auto valid = validate_material(material, context); !valid)

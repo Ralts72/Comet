@@ -52,8 +52,8 @@ namespace Comet::Tests {
                     context.get_device(), *presentation_pass, swapchain);
                 ASSERT_TRUE(target) << target.error();
                 presentation_target = std::move(target).value();
-                renderer.set_overlay_renderer(
-                    [this](CommandBuffer& command_buffer) { present(command_buffer); });
+                renderer.set_overlay(
+                    {.render = [this](CommandBuffer& command_buffer) { present(command_buffer); }});
             }
             scene.cameras.push_back(RenderCamera{.primary = true});
             // 分配统计只比较调试线 buffer，不计初始化纹理上传的临时 staging。

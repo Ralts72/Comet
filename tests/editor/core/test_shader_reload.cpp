@@ -45,6 +45,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(result);
         ASSERT_TRUE(result->succeeded) << result->diagnostics;
         EXPECT_EQ(result->stages.size(), requests.size());
+        EXPECT_EQ(result->compiled_stages, requests.size());
         for(const auto& [name, stage] : result->stages)
             EXPECT_TRUE(stage.succeeded());
         for(int index = 0; index < 3; ++index) {
@@ -71,6 +72,7 @@ namespace CometEditor::Tests {
         const auto next = reload.update(now);
         ASSERT_TRUE(next);
         EXPECT_EQ(next->revision, initial->revision + 1);
+        EXPECT_EQ(next->compiled_stages, 0u);
     }
 
     TEST_F(ShaderReloadTest, SharedVertexIncludeRecompilesEveryMaterialProgram) {
@@ -94,6 +96,7 @@ namespace CometEditor::Tests {
         const auto updated = finish(reload);
         ASSERT_TRUE(updated);
         ASSERT_TRUE(updated->succeeded) << updated->diagnostics;
+        EXPECT_EQ(updated->compiled_stages, 2u);
         for(const auto* stage : {"vertex", "texture_vertex"})
             EXPECT_NE(original->stages.at(stage).words, updated->stages.at(stage).words);
         EXPECT_EQ(original->stages.at("solid").words, updated->stages.at("solid").words);
@@ -118,6 +121,13 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(updated);
         EXPECT_EQ(updated->revision, original->revision + 1);
         EXPECT_FALSE(updated->succeeded);
+        EXPECT_EQ(updated->compiled_stages, 1u);
+
+        reload.request(now);
+        const auto retried = finish(reload);
+        ASSERT_TRUE(retried);
+        EXPECT_FALSE(retried->succeeded);
+        EXPECT_EQ(retried->compiled_stages, 1u);
     }
 
     TEST_F(ShaderReloadTest, NativeNotificationRecompilesAtomicReplacement) {
@@ -192,6 +202,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(recovered);
         EXPECT_TRUE(recovered->succeeded) << recovered->diagnostics;
         EXPECT_GT(recovered->revision, failed->revision);
+        EXPECT_EQ(recovered->compiled_stages, 1u);
     }
 
     TEST_F(ShaderReloadTest, NewRequestSupersedesCompletedResultAndQueueFullDoesNotLoseRequest) {

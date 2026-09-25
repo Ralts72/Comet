@@ -140,6 +140,7 @@ scene_output 不从 YAML 读取，也不代表 HDR／SDR 颜色模式。
   LOG_FATAL 执行 assert／terminate、不展开栈，只用于明确终止的内部错误。
 
 ImGuiContext 的 unique_ptr／私有 deleter 管理原生 Context，create 只发布完整候选。
+Editor 通过 Renderer::set_overlay 一次绑定或解除绘制与交换链释放／重建钩子；拾取反馈是独立的当帧协议。
 cleanup 先关闭实际存在的后端，再释放 pool／target；原生 Context 最后声明，保障构造展开时的清理顺序。
 正常析构先等待 GPU、解除纹理注册；重复清理兼容重建中已关闭的后端。
 Device::wait_idle_for_shutdown 提供析构等待边界，不等同于设备丢失恢复。

@@ -31,6 +31,39 @@ namespace CometEditor {
         });
     }
 
+    void ShaderReload::compile_batch(Compilation& output, const Requests& requests,
+        const std::shared_ptr<const Compilation>& previous) {
+        if(requests.empty() || requests.size() > 16
+            || std::ranges::any_of(requests, [](const auto& entry) {
+                   return entry.first.empty() || entry.second.source.empty();
+               })) {
+            output.diagnostics = "Shader compilation requires 1..16 named source requests";
+            return;
+        }
+        bool success = true;
+        for(const auto& [name, request] : requests) {
+            auto& stage = output.stages[name];
+            bool reused = false;
+            if(previous) {
+                const auto cached = previous->stages.find(name);
+                if(cached != previous->stages.end() && cached->second.succeeded()
+                    && Comet::ShaderCompiler::inputs_unchanged(cached->second)) {
+                    stage = cached->second;
+                    reused = true;
+                }
+            }
+            if(!reused) {
+                stage = Comet::ShaderCompiler::compile(request);
+                ++output.compiled_stages;
+            }
+            success &= stage.succeeded();
+            if(!stage.diagnostics.empty())
+                output.diagnostics +=
+                    name + " (" + request.source.string() + "):\n" + stage.diagnostics + '\n';
+        }
+        output.succeeded = success;
+    }
+
     std::shared_ptr<const ShaderReload::Compilation> ShaderReload::update(Clock::time_point now) {
         const auto recheck = m_changes.poll(now);
         if(m_pending
@@ -68,25 +101,10 @@ namespace CometEditor {
 
         auto output = std::make_shared<Compilation>();
         output->revision = m_revision;
-        auto completion = m_scheduler.try_submit([output, requests = m_requests] {
-            if(requests.empty() || requests.size() > 16
-                || std::ranges::any_of(requests, [](const auto& entry) {
-                       return entry.first.empty() || entry.second.source.empty();
-                   })) {
-                output->diagnostics = "Shader compilation requires 1..16 named source requests";
-                return;
-            }
-            bool success = true;
-            for(const auto& [name, request] : requests) {
-                auto& stage = output->stages[name];
-                stage = Comet::ShaderCompiler::compile(request);
-                success &= stage.succeeded();
-                if(!stage.diagnostics.empty())
-                    output->diagnostics +=
-                        name + " (" + request.source.string() + "):\n" + stage.diagnostics + '\n';
-            }
-            output->succeeded = success;
-        });
+        auto completion =
+            m_scheduler.try_submit([output, requests = m_requests, previous = m_observed] {
+                compile_batch(*output, requests, previous);
+            });
         if(completion) {
             m_pending.emplace(Pending{std::move(output), std::move(*completion)});
             m_requested = false;

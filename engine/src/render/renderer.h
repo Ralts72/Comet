@@ -38,6 +38,12 @@ namespace Comet {
             std::shared_ptr<ImageView> color_view;
         };
 
+        struct Overlay {
+            std::function<void(CommandBuffer&)> render;
+            std::function<void()> release;
+            std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild;
+        };
+
         static Result<std::unique_ptr<Renderer>, GraphicsError> create(
             const Window& window, const Config& config, const AssetRegistry& asset_registry);
 
@@ -62,17 +68,13 @@ namespace Comet {
         void request_swapchain_recreation();
         void wait_idle();
         void prepare_shutdown() noexcept;
-        void set_swapchain_resource_callbacks(std::function<void()> release,
-            std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild);
+        // 同一集成方的绘制与交换链生命周期一起安装或解除。
+        void set_overlay(Overlay overlay);
         [[nodiscard]] const FrameScheduler& get_frame_scheduler() const { return *m_frames; }
         [[nodiscard]] RenderDiagnostics& get_diagnostics() { return *m_diagnostics; }
         [[nodiscard]] const RenderDiagnostics& get_diagnostics() const { return *m_diagnostics; }
 
         Result<void, GraphicsError> set_render_view(RenderView view);
-
-        using OverlayRenderCallback = std::function<void(CommandBuffer&)>;
-
-        void set_overlay_renderer(OverlayRenderCallback render);
 
         using ViewportPickCallback = std::function<void(std::optional<ScenePickHit>)>;
         void request_viewport_pick(Math::Vec2u pixel, Math::Vec2u image_resolution);
@@ -111,7 +113,7 @@ namespace Comet {
         SceneResolver m_scene_resolver;
         const AssetRegistry& m_asset_registry;
         RenderView m_render_view;
-        OverlayRenderCallback m_render_overlay;
+        std::function<void(CommandBuffer&)> m_render_overlay;
         bool m_shutdown_prepared = false;
         std::optional<ViewportPickRequest> m_viewport_pick_request;
         ViewportPickCallback m_viewport_pick_callback;

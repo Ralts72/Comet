@@ -84,14 +84,15 @@ namespace Comet::Tests {
         auto& swapchain = renderer.get_render_context().get_swapchain();
         auto previous = swapchain.get_active_generation();
         int rebuilds = 0;
-        renderer.set_swapchain_resource_callbacks([] {},
-            [&](const SwapchainCompatibility&) {
-                if(++rebuilds == 1)
-                    return Result<void, GraphicsError>::failure(
-                        {"temporary overlay allocation failure",
-                            vk::Result::eErrorOutOfDeviceMemory});
-                return Result<void, GraphicsError>::success();
-            });
+        renderer.set_overlay({.release = [] {},
+            .rebuild =
+                [&](const SwapchainCompatibility&) {
+                    if(++rebuilds == 1)
+                        return Result<void, GraphicsError>::failure(
+                            {"temporary overlay allocation failure",
+                                vk::Result::eErrorOutOfDeviceMemory});
+                    return Result<void, GraphicsError>::success();
+                }});
         renderer.request_swapchain_recreation();
         {
             const auto preparation = renderer.prepare_frame();
@@ -115,19 +116,20 @@ namespace Comet::Tests {
             ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
         EXPECT_TRUE(renderer.render_frame({}));
-        renderer.set_swapchain_resource_callbacks({}, {});
+        renderer.set_overlay({});
     }
 
     TEST_F(SwapchainLifecycleTest, AutomaticallyResumesAfterTemporaryDependentFailure) {
         auto& renderer = engine->get_renderer();
         int rebuilds = 0;
-        renderer.set_swapchain_resource_callbacks([] {},
-            [&](const SwapchainCompatibility&) {
-                if(++rebuilds == 1)
-                    return Result<void, GraphicsError>::failure(
-                        {"temporary allocation failure", vk::Result::eErrorOutOfHostMemory});
-                return Result<void, GraphicsError>::success();
-            });
+        renderer.set_overlay({.release = [] {},
+            .rebuild =
+                [&](const SwapchainCompatibility&) {
+                    if(++rebuilds == 1)
+                        return Result<void, GraphicsError>::failure(
+                            {"temporary allocation failure", vk::Result::eErrorOutOfHostMemory});
+                    return Result<void, GraphicsError>::success();
+                }});
         renderer.request_swapchain_recreation();
         {
             const auto preparation = renderer.prepare_frame();
@@ -146,23 +148,24 @@ namespace Comet::Tests {
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-        renderer.set_swapchain_resource_callbacks({}, {});
+        renderer.set_overlay({});
         EXPECT_TRUE(resumed);
         EXPECT_EQ(rebuilds, 2);
     }
 
     TEST_F(SwapchainLifecycleTest, DoesNotRetryDeviceLoss) {
         auto& renderer = engine->get_renderer();
-        renderer.set_swapchain_resource_callbacks([] {},
-            [](const SwapchainCompatibility&) {
-                return Result<void, GraphicsError>::failure(
-                    {"device lost", vk::Result::eErrorDeviceLost});
-            });
+        renderer.set_overlay({.release = [] {},
+            .rebuild =
+                [](const SwapchainCompatibility&) {
+                    return Result<void, GraphicsError>::failure(
+                        {"device lost", vk::Result::eErrorDeviceLost});
+                }});
         renderer.request_swapchain_recreation();
         const auto preparation = renderer.prepare_frame();
         ASSERT_FALSE(preparation);
         EXPECT_EQ(preparation.error().result, vk::Result::eErrorDeviceLost);
-        renderer.set_swapchain_resource_callbacks({}, {});
+        renderer.set_overlay({});
     }
 
     TEST_F(SwapchainLifecycleTest, SurfaceLossReplacesSurfaceAndResumesPresentation) {
@@ -171,13 +174,14 @@ namespace Comet::Tests {
         auto surface = context.get_surface();
         auto generation = renderer.get_render_context().get_swapchain().get_active_generation();
         int rebuilds = 0;
-        renderer.set_swapchain_resource_callbacks([] {},
-            [&](const SwapchainCompatibility&) {
-                if(++rebuilds == 1)
-                    return Result<void, GraphicsError>::failure(
-                        {"surface lost during rebuild", vk::Result::eErrorSurfaceLostKHR});
-                return Result<void, GraphicsError>::success();
-            });
+        renderer.set_overlay({.release = [] {},
+            .rebuild =
+                [&](const SwapchainCompatibility&) {
+                    if(++rebuilds == 1)
+                        return Result<void, GraphicsError>::failure(
+                            {"surface lost during rebuild", vk::Result::eErrorSurfaceLostKHR});
+                    return Result<void, GraphicsError>::success();
+                }});
         renderer.request_swapchain_recreation();
         {
             const auto preparation = renderer.prepare_frame();
@@ -195,7 +199,7 @@ namespace Comet::Tests {
             context.get_physical_device().getSurfaceCapabilitiesKHR(surface).maxImageArrayLayers
             > 0);
         EXPECT_TRUE(renderer.render_frame({}));
-        renderer.set_swapchain_resource_callbacks({}, {});
+        renderer.set_overlay({});
     }
 
     namespace {

@@ -189,9 +189,8 @@ namespace Comet::Tests {
         EXPECT_EQ(&scene.get_render_target(), target);
         EXPECT_FALSE(scene.is_offscreen());
         EXPECT_EQ(scene.get_material_statistics().cached_material_versions, 0u);
-        renderer.set_overlay_renderer({});
+        renderer.set_overlay({});
         renderer.set_viewport_pick_callback({});
-        renderer.set_swapchain_resource_callbacks({}, {});
         renderer.wait_idle();
         renderer.prepare_shutdown();
         renderer.wait_idle();
@@ -338,17 +337,18 @@ namespace Comet::Tests {
     TEST_F(MaterialRenderingTest, OverlayRebuildFailureReturnsErrorWithoutThrowing) {
         auto& renderer = engine->get_renderer();
         bool released = false;
-        renderer.set_swapchain_resource_callbacks([&] { released = true; },
-            [&](const SwapchainCompatibility&) {
-                EXPECT_TRUE(released);
-                return Result<void, GraphicsError>::failure({"overlay rebuild failed"});
-            });
+        renderer.set_overlay({.release = [&] { released = true; },
+            .rebuild =
+                [&](const SwapchainCompatibility&) {
+                    EXPECT_TRUE(released);
+                    return Result<void, GraphicsError>::failure({"overlay rebuild failed"});
+                }});
         renderer.request_swapchain_recreation();
         EXPECT_FALSE(released);
         const auto preparation = renderer.prepare_frame();
         ASSERT_FALSE(preparation);
         EXPECT_EQ(preparation.error().message, "overlay rebuild failed");
-        renderer.set_swapchain_resource_callbacks({}, {});
+        renderer.set_overlay({});
     }
 
     TEST_F(MaterialRenderingTest, ReadsPixelsFromTwoLayoutsBeforeAndAfterParameterChanges) {

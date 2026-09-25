@@ -22,6 +22,30 @@ namespace CometEditor {
             }
             return property.numeric.maximum.value_or(std::numeric_limits<float>::max());
         }
+
+        PropertyEditResult edit_enum_property(
+            const Comet::PropertyDescriptor& property, void* value) {
+            auto& selected = *static_cast<std::string*>(value);
+            const char* preview = selected.c_str();
+            for(const auto& option : property.enum_options)
+                if(option.id == selected)
+                    preview = Ui::text(option.display_name.c_str());
+            bool changed = false;
+            if(ImGui::BeginCombo(Ui::label(property.display_name.c_str()).c_str(), preview)) {
+                for(const auto& option : property.enum_options) {
+                    ImGui::PushID(option.id.c_str());
+                    if(ImGui::Selectable(
+                           Ui::label(option.display_name.c_str()).c_str(), option.id == selected)
+                        && option.id != selected) {
+                        selected = option.id;
+                        changed = true;
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndCombo();
+            }
+            return PropertyEditResult{.changed = changed, .finished = changed};
+        }
     }
 
     PropertyEditResult PropertyEditResult::from_item(const bool changed) {
@@ -99,29 +123,7 @@ namespace CometEditor {
                     &text));
             });
 
-        register_editor(
-            Comet::PropertyType::Enum, [](const Comet::PropertyDescriptor& property, void* value) {
-                auto& selected = *static_cast<std::string*>(value);
-                const char* preview = selected.c_str();
-                for(const auto& option : property.enum_options)
-                    if(option.id == selected)
-                        preview = Ui::text(option.display_name.c_str());
-                bool changed = false;
-                if(ImGui::BeginCombo(Ui::label(property.display_name.c_str()).c_str(), preview)) {
-                    for(const auto& option : property.enum_options) {
-                        ImGui::PushID(option.id.c_str());
-                        if(ImGui::Selectable(Ui::label(option.display_name.c_str()).c_str(),
-                               option.id == selected)
-                            && option.id != selected) {
-                            selected = option.id;
-                            changed = true;
-                        }
-                        ImGui::PopID();
-                    }
-                    ImGui::EndCombo();
-                }
-                return PropertyEditResult{.changed = changed, .finished = changed};
-            });
+        register_editor(Comet::PropertyType::Enum, edit_enum_property);
         return registry;
     }
 

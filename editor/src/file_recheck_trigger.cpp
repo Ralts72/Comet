@@ -32,6 +32,46 @@ namespace CometEditor {
         dispatch_queue_t queue = nullptr;
         bool started = false;
 
+        static void on_events(ConstFSEventStreamRef, void* info, size_t count, void* event_paths,
+            const FSEventStreamEventFlags flags[], const FSEventStreamEventId[]) {
+            auto& backend = *static_cast<Backend*>(info);
+            const auto* paths = static_cast<char**>(event_paths);
+            std::lock_guard lock(backend.changes_mutex);
+            for(size_t index = 0; index < count; ++index) {
+                const auto event = flags[index];
+                if(event
+                    & (kFSEventStreamEventFlagRootChanged | kFSEventStreamEventFlagMount
+                        | kFSEventStreamEventFlagUnmount))
+                    backend.available.store(false);
+                if(event
+                    & (kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped
+                        | kFSEventStreamEventFlagKernelDropped | kFSEventStreamEventFlagRootChanged
+                        | kFSEventStreamEventFlagMount | kFSEventStreamEventFlagUnmount)) {
+                    backend.requires_full_scan = true;
+                } else if(event & kFSEventStreamEventFlagItemIsFile) {
+                    if(!paths || !paths[index]) {
+                        backend.requires_full_scan = true;
+                        continue;
+                    }
+                    if(!backend.requires_full_scan) {
+                        if(backend.paths.size() == MAX_CHANGED_PATHS) {
+                            backend.paths.clear();
+                            backend.requires_full_scan = true;
+                        } else {
+                            backend.paths.emplace_back(paths[index]);
+                        }
+                    }
+                } else if(!(event & kFSEventStreamEventFlagItemIsDir)
+                          || event
+                                 & (kFSEventStreamEventFlagItemCreated
+                                     | kFSEventStreamEventFlagItemRemoved
+                                     | kFSEventStreamEventFlagItemRenamed)) {
+                    backend.requires_full_scan = true;
+                }
+            }
+            backend.pending = backend.requires_full_scan || !backend.paths.empty();
+        }
+
         explicit Backend(const std::filesystem::path& root) {
             std::error_code error;
             if(!std::filesystem::is_directory(root, error) || error)
@@ -52,50 +92,8 @@ namespace CometEditor {
                 return;
 
             FSEventStreamContext context{.version = 0, .info = this};
-            stream = FSEventStreamCreate(
-                kCFAllocatorDefault,
-                [](ConstFSEventStreamRef, void* info, size_t count, void* event_paths,
-                    const FSEventStreamEventFlags flags[], const FSEventStreamEventId[]) {
-                    auto& backend = *static_cast<Backend*>(info);
-                    const auto* paths = static_cast<char**>(event_paths);
-                    std::lock_guard lock(backend.changes_mutex);
-                    for(size_t index = 0; index < count; ++index) {
-                        const auto event = flags[index];
-                        if(event
-                            & (kFSEventStreamEventFlagRootChanged | kFSEventStreamEventFlagMount
-                                | kFSEventStreamEventFlagUnmount))
-                            backend.available.store(false);
-                        if(event
-                            & (kFSEventStreamEventFlagMustScanSubDirs
-                                | kFSEventStreamEventFlagUserDropped
-                                | kFSEventStreamEventFlagKernelDropped
-                                | kFSEventStreamEventFlagRootChanged | kFSEventStreamEventFlagMount
-                                | kFSEventStreamEventFlagUnmount)) {
-                            backend.requires_full_scan = true;
-                        } else if(event & kFSEventStreamEventFlagItemIsFile) {
-                            if(!paths || !paths[index]) {
-                                backend.requires_full_scan = true;
-                                continue;
-                            }
-                            if(!backend.requires_full_scan) {
-                                if(backend.paths.size() == MAX_CHANGED_PATHS) {
-                                    backend.paths.clear();
-                                    backend.requires_full_scan = true;
-                                } else {
-                                    backend.paths.emplace_back(paths[index]);
-                                }
-                            }
-                        } else if(!(event & kFSEventStreamEventFlagItemIsDir)
-                                  || event
-                                         & (kFSEventStreamEventFlagItemCreated
-                                             | kFSEventStreamEventFlagItemRemoved
-                                             | kFSEventStreamEventFlagItemRenamed)) {
-                            backend.requires_full_scan = true;
-                        }
-                    }
-                    backend.pending = backend.requires_full_scan || !backend.paths.empty();
-                },
-                &context, paths, kFSEventStreamEventIdSinceNow, 0.05,
+            stream = FSEventStreamCreate(kCFAllocatorDefault, &Backend::on_events, &context, paths,
+                kFSEventStreamEventIdSinceNow, 0.05,
                 kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagWatchRoot
                     | kFSEventStreamCreateFlagNoDefer);
             CFRelease(paths);

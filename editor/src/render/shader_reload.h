@@ -7,6 +7,7 @@
 
 #include <map>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <future>
 #include <memory>
@@ -27,6 +28,7 @@ namespace CometEditor {
             uint64_t revision = 0;
             std::map<std::string, Comet::ShaderCompiler::Result> stages;
             std::string diagnostics;
+            std::size_t compiled_stages = 0;
             bool succeeded = false;
         };
 
@@ -48,6 +50,8 @@ namespace CometEditor {
             std::future<void> completion;
         };
         static bool inputs_unchanged(const Compilation& compilation);
+        static void compile_batch(Compilation& output, const Requests& requests,
+            const std::shared_ptr<const Compilation>& previous);
 
         Comet::TaskScheduler& m_scheduler;
         Requests m_requests;
