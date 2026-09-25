@@ -5,6 +5,7 @@
 #include <charconv>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <string>
@@ -16,8 +17,35 @@ namespace {
     namespace fs = std::filesystem;
     using Clock = std::chrono::steady_clock;
 
-    constexpr std::string_view USAGE =
-        "Usage: asset_scan_benchmark PROJECT_DIRECTORY [ROUNDS (1..1000)]";
+    constexpr std::string_view USAGE = "Usage: asset_scan_benchmark PROJECT_DIRECTORY "
+                                       "[ROUNDS (1..1000)] | --synthetic ASSETS (1..10000) "
+                                       "[ROUNDS (1..1000)]";
+
+    bool parse_count(const std::string_view input, unsigned& value, const unsigned maximum) {
+        const auto [end, error] = std::from_chars(input.data(), input.data() + input.size(), value);
+        return error == std::errc{} && end == input.data() + input.size() && value >= 1
+               && value <= maximum;
+    }
+
+    bool create_synthetic_assets(const fs::path& root, const unsigned count) {
+        std::error_code error;
+        const fs::path assets = root / "assets";
+        if(!fs::create_directory(assets, error)) {
+            std::cerr << "Cannot create synthetic assets directory: " << error.message() << '\n';
+            return false;
+        }
+        for(unsigned index = 0; index < count; ++index) {
+            std::ofstream output(
+                assets / ("script_" + std::to_string(index) + ".lua"), std::ios::binary);
+            output << "return {}\n";
+            output.close();
+            if(!output) {
+                std::cerr << "Cannot write synthetic asset " << index << '\n';
+                return false;
+            }
+        }
+        return true;
+    }
 
     Comet::Result<fs::path> create_temporary_project() {
         std::error_code error;
@@ -44,16 +72,16 @@ namespace {
         return std::chrono::duration<double, std::milli>(end - begin).count();
     }
 
-    void print_summary(const std::string_view phase, std::vector<double> samples,
-        const std::size_t indexed_assets) {
+    void print_summary(const std::string_view scenario, const std::string_view phase,
+        std::vector<double> samples, const std::size_t indexed_assets) {
         std::ranges::sort(samples);
         const auto percentile = [&](const std::size_t numerator, const std::size_t denominator) {
             const std::size_t rank = (samples.size() * numerator + denominator - 1) / denominator;
             return samples[rank - 1];
         };
-        std::cout << "unchanged_full_scan," << phase << ',' << indexed_assets << ','
-                  << samples.size() << ',' << percentile(1, 2) << ',' << percentile(95, 100) << ','
-                  << samples.back() << '\n';
+        std::cout << scenario << ',' << phase << ',' << indexed_assets << ',' << samples.size()
+                  << ',' << percentile(1, 2) << ',' << percentile(95, 100) << ',' << samples.back()
+                  << '\n';
     }
 }
 
@@ -62,29 +90,38 @@ int main(int argc, char** argv) {
         std::cout << USAGE << '\n';
         return 0;
     }
-    if(argc != 2 && argc != 3) {
+    const bool synthetic = argc >= 2 && std::string_view(argv[1]) == "--synthetic";
+    if((synthetic && argc != 3 && argc != 4) || (!synthetic && argc != 2 && argc != 3)) {
         std::cerr << USAGE << '\n';
         return 2;
     }
 
     unsigned rounds = 20;
-    if(argc == 3) {
-        const std::string_view input(argv[2]);
-        const auto [end, error] =
-            std::from_chars(input.data(), input.data() + input.size(), rounds);
-        if(error != std::errc{} || end != input.data() + input.size() || rounds < 1
-            || rounds > 1000) {
+    const int rounds_index = synthetic ? 3 : 2;
+    if(argc > rounds_index) {
+        const std::string_view input(argv[rounds_index]);
+        if(!parse_count(input, rounds, 1000)) {
             std::cerr << "Invalid round count: " << input << '\n';
             return 2;
         }
     }
 
-    const fs::path source_assets = fs::path(argv[1]) / "assets";
+    unsigned synthetic_count = 0;
+    if(synthetic && !parse_count(argv[2], synthetic_count, 10000)) {
+        std::cerr << "Invalid synthetic asset count: " << argv[2] << '\n';
+        return 2;
+    }
+
+    fs::path source_assets;
     std::error_code error;
-    const auto source_status = fs::symlink_status(source_assets, error);
-    if(error || !fs::is_directory(source_status) || fs::is_symlink(source_status)) {
-        std::cerr << "Project needs a real, accessible assets directory: " << source_assets << '\n';
-        return 1;
+    if(!synthetic) {
+        source_assets = fs::path(argv[1]) / "assets";
+        const auto source_status = fs::symlink_status(source_assets, error);
+        if(error || !fs::is_directory(source_status) || fs::is_symlink(source_status)) {
+            std::cerr << "Project needs a real, accessible assets directory: " << source_assets
+                      << '\n';
+            return 1;
+        }
     }
 
     auto temporary = create_temporary_project();
@@ -100,11 +137,16 @@ int main(int argc, char** argv) {
             std::cerr << "Cannot remove temporary project '" << temporary_root
                       << "': " << ignored.message() << '\n';
     });
-    fs::copy(source_assets, temporary_root / "assets",
-        fs::copy_options::recursive | fs::copy_options::copy_symlinks, error);
-    if(error) {
-        std::cerr << "Cannot copy assets to temporary project: " << error.message() << '\n';
-        return 1;
+    if(synthetic) {
+        if(!create_synthetic_assets(temporary_root, synthetic_count))
+            return 1;
+    } else {
+        fs::copy(source_assets, temporary_root / "assets",
+            fs::copy_options::recursive | fs::copy_options::copy_symlinks, error);
+        if(error) {
+            std::cerr << "Cannot copy assets to temporary project: " << error.message() << '\n';
+            return 1;
+        }
     }
 
     const Comet::ProjectPaths paths(temporary_root);
@@ -137,7 +179,10 @@ int main(int argc, char** argv) {
 
     std::cout << std::fixed << std::setprecision(3);
     std::cout << "scenario,phase,indexed_assets,rounds,p50_ms,p95_ms,max_ms\n";
-    print_summary("prepare", std::move(prepare_times), database.size());
-    print_summary("publish", std::move(publish_times), database.size());
+    std::string_view scenario = "unchanged_full_scan";
+    if(synthetic)
+        scenario = "unchanged_full_scan_synthetic_lua";
+    print_summary(scenario, "prepare", std::move(prepare_times), database.size());
+    print_summary(scenario, "publish", std::move(publish_times), database.size());
     return 0;
 }

@@ -8,6 +8,7 @@ usage() {
     printf '%s\n' \
         '用法：tools/asset_scan_benchmark/run.sh [项目目录 [轮数]]' \
         '不带参数：测量仓库 demo 项目，运行 30 轮。' \
+        '合成样本：--synthetic 资产数 [轮数]，用于观察文件数量扩大时的扫描开销。' \
         '项目目录的相对路径以调用时的工作目录为准。' \
         '复用 build-release，仅构建资产扫描基准及其依赖。'
 }
@@ -16,13 +17,16 @@ if [[ $# -eq 1 && "$1" == "--help" ]]; then
     usage
     exit 0
 fi
-if [[ $# -gt 2 ]]; then
+if [[ $# -gt 2 && "${1:-}" != "--synthetic" ]] || [[ $# -gt 3 ]] \
+    || [[ "${1:-}" == "--synthetic" && $# -lt 2 ]]; then
     usage >&2
     exit 2
 fi
 
 if [[ $# -eq 0 ]]; then
     args=("$ROOT_DIR/demo" 30)
+elif [[ "$1" == "--synthetic" ]]; then
+    args=("$@")
 elif [[ $# -eq 1 ]]; then
     args=("$1" 30)
 else
