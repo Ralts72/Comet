@@ -2,13 +2,14 @@
 #include "assets/shader_program_import.h"
 #include "scene/component_registry.h"
 #include "diagnostics/logger.h"
-#include <utility>
+#include "diagnostics/profiler.h"
 #include "graphics/result.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/source_operations.h"
 #include "core/task_scheduler.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace CometEditor {
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
@@ -51,6 +52,7 @@ namespace CometEditor {
 
     void EditorAssets::accept_scan(
         const Comet::AssetScanReport& report, const std::optional<Clock::time_point> change_time) {
+        PROFILE_SCOPE("EditorAssets::accept_scan");
         m_manager.accept_scan_report(report);
         if(report.snapshot_updated) {
             std::unordered_set<Comet::AssetHandle> changed;

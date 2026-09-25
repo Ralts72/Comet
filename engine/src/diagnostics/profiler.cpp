@@ -1,6 +1,8 @@
 #include "diagnostics/profiler.h"
 #include "diagnostics/logger.h"
 
+#include <algorithm>
+
 namespace Comet {
 #ifdef COMET_ENABLE_PROFILER
     namespace {
@@ -75,9 +77,10 @@ namespace Comet {
                 .count();
 
         std::lock_guard<std::mutex> lock(s_mtx);
-        auto& [total_time, call_count] = s_records[label];
-        total_time += duration;
-        call_count++;
+        auto& record = s_records[label];
+        record.total_time += duration;
+        record.max_time = std::max(record.max_time, duration);
+        ++record.call_count;
 #endif
     }
 
@@ -97,15 +100,15 @@ namespace Comet {
         }
 
         for(const auto& [label, record] : records) {
-            const auto& [total_time, call_count] = record;
-            if(call_count <= 0)
+            if(record.call_count <= 0)
                 continue;
 
-            const double average = total_time / call_count;
-            const auto level = select_profile_log_level(call_count, average);
+            const double average = record.total_time / record.call_count;
+            const auto level = select_profile_log_level(record.call_count, average);
 
-            logger->log(level, "{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms", label,
-                call_count, total_time, average);
+            logger->log(level,
+                "{:<30}  calls={:<8}  total={:>10.3f} ms    avg={:>10.3f} ms    max={:>10.3f} ms",
+                label, record.call_count, record.total_time, average, record.max_time);
         }
 #endif
     }

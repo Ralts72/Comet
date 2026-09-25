@@ -153,6 +153,7 @@ CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍�
 例如默认 demo 的路径是 `demo/.comet/logs/`，打开外部项目则写到外部项目内，不依赖仓库根目录或工作目录。
 各 Profile 默认 `diagnostics.enable_file_logging: false`；在 `config/profiles/<Profile>.yaml` 中改为 `true`
 后才创建目录与文件。Profiler 文件还需当前构建支持且启用 `diagnostics.enable_profiler`。
+排查资产监视卡顿时，可在 Profiler 输出中分别查看 `AssetSourceMonitor` 的局部文件检查／完整快照、`AssetDatabase` 的局部／全量扫描，以及 `EditorAssets::accept_scan` 的结果处理耗时。
 路径由启动入口传入，不作为 YAML 中的机器路径配置。无日志路径时仅保留终端／自定义输出端，
 目录无法写入时向标准错误提示并保留这些输出，不回退写到其他目录；项目／配置加载前的失败仍输出到终端。
 旧仓库根 `logs/` 不自动搬迁或删除。

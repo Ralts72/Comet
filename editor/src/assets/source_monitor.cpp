@@ -1,4 +1,5 @@
 #include "assets/source_monitor.h"
+#include "diagnostics/profiler.h"
 
 #include <system_error>
 #include <utility>
@@ -36,6 +37,7 @@ namespace CometEditor {
 
     AssetSourceMonitor::PollResult AssetSourceMonitor::poll_changed_files(
         const std::vector<std::filesystem::path>& paths) {
+        PROFILE_SCOPE("AssetSourceMonitor::poll_changed_files");
         if(paths.empty())
             return poll_now();
 
@@ -80,6 +82,7 @@ namespace CometEditor {
     }
 
     AssetSourceMonitor::PollResult AssetSourceMonitor::poll_now() {
+        PROFILE_SCOPE("AssetSourceMonitor::poll_now");
         if(!m_initial_poll_attempted) {
             m_initial_poll_attempted = true;
             static_cast<void>(m_changes.poll());

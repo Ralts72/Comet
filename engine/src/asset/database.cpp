@@ -3,6 +3,7 @@
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/shader_program_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
+#include "diagnostics/profiler.h"
 
 #include <algorithm>
 #include <cctype>
@@ -204,6 +205,7 @@ namespace Comet {
     AssetDatabase::AssetDatabase(ProjectPaths paths) : m_paths(std::move(paths)) {}
 
     AssetScanReport AssetDatabase::scan() {
+        PROFILE_SCOPE("AssetDatabase::scan");
         AssetScanReport report;
         std::unordered_map<AssetHandle, AssetRecord> assets;
         std::unordered_map<std::filesystem::path, AssetHandle> handles_by_path;
@@ -534,6 +536,7 @@ namespace Comet {
 
     std::optional<AssetScanReport> AssetDatabase::scan_changed_sources(
         const std::span<const std::filesystem::path> paths) {
+        PROFILE_SCOPE("AssetDatabase::scan_changed_sources");
         std::unordered_set<AssetHandle> affected;
         const auto root = m_paths.assets();
         for(const auto& path : paths) {

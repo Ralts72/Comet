@@ -12,6 +12,7 @@
 namespace Comet {
     struct ProfileRecord {
         double total_time = 0.0;
+        double max_time = 0.0;
         int call_count = 0;
     };
 
