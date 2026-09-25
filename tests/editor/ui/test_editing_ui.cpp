@@ -227,7 +227,7 @@ namespace CometEditor::Tests {
             frame();
             const auto* window = ImGui::FindWindowByName("Inspector");
             ASSERT_NE(window, nullptr);
-            ASSERT_EQ(bounds.size(), 3);
+            ASSERT_EQ(bounds.size(), 4);
             for(const auto& [end, field_width] : bounds) {
                 EXPECT_LE(end, window->WorkRect.Max.x + 1);
                 EXPECT_GT(field_width, 0);

@@ -153,10 +153,18 @@ namespace Comet {
         requires std::is_enum_v<Enum>
     PropertyDescriptor make_enum_property_descriptor(std::string id, std::string display_name,
         Enum Component::* member,
-        std::vector<std::pair<Enum, PropertyDescriptor::EnumOption>> options) {
+        std::vector<std::pair<Enum, PropertyDescriptor::EnumOption>> options,
+        PropertyMetadata metadata = {}) {
         PropertyDescriptor descriptor{.id = std::move(id),
             .display_name = std::move(display_name),
             .type = PropertyType::Enum,
+            .editable = metadata.editable,
+            .serializable = metadata.serializable,
+            .transient = metadata.transient,
+            .read_only = metadata.read_only,
+            .required = metadata.required,
+            .numeric = std::move(metadata.numeric),
+            .asset_type = metadata.asset_type,
             .mutable_accessor = [member](void* component) -> void* {
                 return &(static_cast<Component*>(component)->*member);
             },

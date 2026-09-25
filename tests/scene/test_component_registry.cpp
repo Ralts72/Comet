@@ -39,7 +39,10 @@ namespace {
 
         const auto& camera = *registry.find_component("camera");
         EXPECT_EQ(require_property(camera, "primary").type, Comet::PropertyType::Bool);
+        EXPECT_EQ(require_property(camera, "projection").type, Comet::PropertyType::Enum);
+        EXPECT_FALSE(require_property(camera, "projection").required);
         EXPECT_EQ(require_property(camera, "fov").type, Comet::PropertyType::Float);
+        EXPECT_FALSE(require_property(camera, "orthographic_height").required);
     }
 
     TEST(ComponentRegistryTest, RejectsAssetTypeMetadataOnNonAssetAndUnknownType) {

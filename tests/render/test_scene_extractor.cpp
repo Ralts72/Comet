@@ -133,4 +133,25 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(extracted.near_clip, 0.2f);
         EXPECT_FLOAT_EQ(extracted.far_clip, 500.0f);
     }
+
+    TEST(SceneExtractorTest, ExtractsSceneCameraOrthographicProjection) {
+        Scene scene;
+        auto camera_entity = scene.create_entity("Camera");
+        auto& camera = camera_entity.add_component<CameraComponent>();
+        camera.primary = true;
+        camera.projection = CameraComponent::Projection::Orthographic;
+        camera.orthographic_height = 8.0f;
+        camera.near_clip = 0.2f;
+        camera.far_clip = 50.0f;
+
+        const auto snapshot = SceneExtractor::extract(scene);
+        ASSERT_EQ(snapshot.cameras.size(), 1u);
+        const auto& extracted = snapshot.cameras.front();
+        EXPECT_EQ(extracted.projection, RenderCamera::Projection::Orthographic);
+        EXPECT_FLOAT_EQ(extracted.orthographic_height, 8.0f);
+        const auto matrix = extracted.projection_matrix(2.0f);
+        ASSERT_TRUE(matrix);
+        EXPECT_TRUE(
+            TestUtils::Mat4Equal(*matrix, Math::ortho(-8.0f, 8.0f, -4.0f, 4.0f, 0.2f, 50.0f)));
+    }
 }

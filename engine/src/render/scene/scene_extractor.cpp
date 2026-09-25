@@ -15,10 +15,15 @@ namespace Comet {
         scene.each<const CameraComponent, const TransformComponent, WorldTransformComponent>(
             [&](Entity entity, const CameraComponent& camera, const TransformComponent&,
                 const WorldTransformComponent& world_transform) {
+                auto projection = RenderCamera::Projection::Perspective;
+                if(camera.projection == CameraComponent::Projection::Orthographic)
+                    projection = RenderCamera::Projection::Orthographic;
                 render_scene.cameras.push_back({.entity_id = entity.get_id(),
                     .primary = camera.primary,
                     .view_matrix = Math::inverse(world_transform.pose_world_matrix),
+                    .projection = projection,
                     .fov_degrees = camera.fov,
+                    .orthographic_height = camera.orthographic_height,
                     .near_clip = camera.near_clip,
                     .far_clip = camera.far_clip});
             });

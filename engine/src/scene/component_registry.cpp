@@ -164,8 +164,17 @@ namespace Comet {
 
         register_component(make_component_descriptor<CameraComponent>("camera", "Camera",
             {make_property_descriptor("primary", "Primary", &CameraComponent::primary),
-                make_property_descriptor("fov", "Field of View", &CameraComponent::fov,
+                make_enum_property_descriptor<CameraComponent, CameraComponent::Projection>(
+                    "projection", "Projection", &CameraComponent::projection,
+                    {{CameraComponent::Projection::Perspective, {"perspective", "Perspective"}},
+                        {CameraComponent::Projection::Orthographic,
+                            {"orthographic", "Orthographic"}}},
+                    {.required = false}),
+                make_property_descriptor("fov", "Perspective FOV", &CameraComponent::fov,
                     {.numeric = {.speed = 1.0f, .minimum = 1.0f, .maximum = 179.0f}}),
+                make_property_descriptor("orthographic_height", "Orthographic Height",
+                    &CameraComponent::orthographic_height,
+                    {.required = false, .numeric = {.speed = 0.1f, .minimum = 0.001f}}),
                 make_property_descriptor("near_clip", "Near Clip", &CameraComponent::near_clip,
                     {.numeric = {.speed = 0.01f, .minimum = 0.001f}}),
                 make_property_descriptor("far_clip", "Far Clip", &CameraComponent::far_clip,

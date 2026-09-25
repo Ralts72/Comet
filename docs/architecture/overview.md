@@ -589,7 +589,7 @@ UI 回调完成命令／相机更新后，ViewportPanel::draw_gizmo 将最新句
 RenderView 的 CameraSelection 选择显式 editor camera 或 Scene primary camera；
 请求 override 却缺少数据时不静默回退。没有合法 Camera 时清屏并保留 UI，不录制场景 draw。
 RenderCamera 统一校验投影参数和 view 有限性，projection_matrix 同时供 SceneResolver、Gizmo 与放置计算使用。
-它不选择活动相机，也不保存 GPU 状态；当前 Runtime CameraComponent 仍提取为透视。
+它不选择活动相机，也不保存 GPU 状态；Runtime CameraComponent 的透视／正交配置从场景提取，Edit 相机仍独立覆盖。
 geometry.h 中的 Comet::unproject_ray接收 inverse VP 与 NDC，返回 near/far 之间的归一化射线。
 拾取先按实际纹理像素中心映射 NDC，保留远裁剪上限；Gizmo 使用连续逻辑坐标并放开射线上限，
 允许拖出画面。两者共用计算，不共用输入坐标策略。

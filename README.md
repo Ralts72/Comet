@@ -364,7 +364,8 @@ Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。�
 - File → Open/Save 操作当前项目 assets 内的 `.scene`，拒绝越界路径。启动打开 project.json 指定的场景，
   不恢复上次打开的其他文档；坏资源引用保留并记录 Log，后台导入完成后自动重试加载。
 - Edit 使用独立相机；Play 运行场景副本及其 primary Camera，Stop 不回写运行时修改。
-  2D/3D 只切换 Edit 投影；Play 分辨率可选 Free、16:9、HD、FHD，Fit 等比适应，1x 原尺寸裁切。
+  2D/3D 只切换 Edit 投影；选中场景相机可在 Inspector 设置 Play/app 使用的透视或正交投影及正交高度。
+  Play 分辨率可选 Free、16:9、HD、FHD，Fit 等比适应，1x 原尺寸裁切。
   Play 工具栏的 `||` 暂停、`>` 继续、`|>` 单步；单步仅在暂停时可用，控制请求在下一次宿主更新执行。
 - Edit 视口右键或 Option/Alt+左键环绕，中键或 Option/Alt+Shift+左键平移，滚轮／双指滚动缩放。
   左键按模型包围盒粗拾取，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。橙色选中框受场景遮挡。

@@ -301,7 +301,9 @@ namespace Comet::Tests {
         child.add_component<MeshRendererComponent>(AssetHandle(101), AssetHandle(202));
         auto& camera = root.add_component<CameraComponent>();
         camera.primary = true;
+        camera.projection = CameraComponent::Projection::Orthographic;
         camera.fov = 60.0f;
+        camera.orthographic_height = 14.0f;
         camera.near_clip = 0.25f;
         camera.far_clip = 2500.0f;
         ASSERT_TRUE(scene.set_parent(child, root));
@@ -345,7 +347,9 @@ namespace Comet::Tests {
         EXPECT_EQ(mesh.material, AssetHandle(202));
         const auto& loaded_camera = loaded_root.get_component<CameraComponent>();
         EXPECT_TRUE(loaded_camera.primary);
+        EXPECT_EQ(loaded_camera.projection, CameraComponent::Projection::Orthographic);
         EXPECT_FLOAT_EQ(loaded_camera.fov, 60.0f);
+        EXPECT_FLOAT_EQ(loaded_camera.orthographic_height, 14.0f);
         EXPECT_FLOAT_EQ(loaded_camera.near_clip, 0.25f);
         EXPECT_FLOAT_EQ(loaded_camera.far_clip, 2500.0f);
 
@@ -355,6 +359,35 @@ namespace Comet::Tests {
         const auto serialized_again = serializer.serialize(*loaded);
         ASSERT_TRUE(serialized_again) << serialized_again.error();
         EXPECT_EQ(serialized_again.value(), contents);
+    }
+
+    TEST(SceneSerializerTest, CameraWithoutProjectionFieldsUsesPerspectiveDefaults) {
+        constexpr std::string_view old_scene = R"({
+            "version": 2,
+            "entities": [{
+                "uuid": "00000000-0000-4000-8000-000000000001",
+                "components": {
+                    "name": "Camera",
+                    "camera": {"primary": true, "fov": 45, "near_clip": 0.1, "far_clip": 100}
+                }
+            }]
+        })";
+        const auto serializer = make_scene_serializer();
+        auto loaded = serializer.deserialize(old_scene);
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto entity = loaded.value()->find_entity(uuid("00000000-0000-4000-8000-000000000001"));
+        ASSERT_TRUE(entity);
+        const auto& camera = entity.get_component<CameraComponent>();
+        EXPECT_EQ(camera.projection, CameraComponent::Projection::Perspective);
+        EXPECT_FLOAT_EQ(camera.orthographic_height, 10.0f);
+
+        std::string invalid(old_scene);
+        const auto fov = invalid.find("\"fov\": 45");
+        ASSERT_NE(fov, std::string::npos);
+        invalid.insert(fov, "\"projection\": \"fisheye\", ");
+        auto rejected = serializer.deserialize(invalid);
+        ASSERT_FALSE(rejected);
+        EXPECT_NE(rejected.error().find("unknown enum name"), std::string::npos);
     }
 
     TEST(SceneSerializerTest, PreservesMissingOptionalComponents) {

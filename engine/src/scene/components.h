@@ -81,9 +81,13 @@ namespace Comet {
     };
 
     struct COMET_API CameraComponent {
+        enum class Projection { Perspective, Orthographic };
+
         bool primary = false;
+        Projection projection = Projection::Perspective;
         // 垂直视场角，单位为度。
         float fov = 45.0f;
+        float orthographic_height = 10.0f;
         float near_clip = 0.1f;
         float far_clip = 1000.0f;
     };
