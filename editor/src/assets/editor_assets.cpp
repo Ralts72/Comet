@@ -124,6 +124,22 @@ namespace CometEditor {
     Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> EditorAssets::update(
         const Clock::time_point now) {
         PROFILE_SCOPE("EditorAssets::update");
+        auto report = update_source_scan(now);
+        advance_file_import(report);
+        submit_pending_scan();
+        schedule_shader_program_imports(now);
+        schedule_mesh_imports();
+        auto completed = m_manager.process_completions();
+        if(!completed)
+            return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::failure(
+                completed.error());
+        m_scene_assets.mark_changed(completed.value());
+        return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::success(
+            std::move(report));
+    }
+
+    std::optional<Comet::AssetScanReport> EditorAssets::update_source_scan(
+        const Clock::time_point now) {
         const auto result = m_monitor.poll_async(m_scheduler, now);
         observe(result);
         if(result.state == AssetSourceMonitor::PollState::Failed)
@@ -155,6 +171,10 @@ namespace CometEditor {
             }
             m_pending_scan.reset();
         }
+        return report;
+    }
+
+    void EditorAssets::advance_file_import(std::optional<Comet::AssetScanReport>& report) {
         if(m_pending_file_import
             && m_pending_file_import->completion.wait_for(std::chrono::seconds(0))
                    == std::future_status::ready) {
@@ -197,6 +217,9 @@ namespace CometEditor {
                 m_file_import_requests.pop_front();
             }
         }
+    }
+
+    void EditorAssets::submit_pending_scan() {
         if(m_full_scan_requested && !m_pending_scan) {
             const auto database_generation = m_database.generation();
             auto completion = m_scheduler.try_submit_result([paths = m_paths, database_generation] {
@@ -209,7 +232,9 @@ namespace CometEditor {
                 m_full_scan_change_time = Clock::time_point{};
             }
         }
-        schedule_shader_program_imports(now);
+    }
+
+    void EditorAssets::schedule_mesh_imports() {
         for(auto request = m_pending_mesh_imports.begin();
             request != m_pending_mesh_imports.end();) {
             const auto* record = database().find(request->first);
@@ -225,13 +250,6 @@ namespace CometEditor {
                 break;
             request = m_pending_mesh_imports.erase(request);
         }
-        auto completed = m_manager.process_completions();
-        if(!completed)
-            return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::failure(
-                completed.error());
-        m_scene_assets.mark_changed(completed.value());
-        return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::success(
-            std::move(report));
     }
 
     std::shared_ptr<const Comet::ShaderProgramArtifact> EditorAssets::compiled_shader_program(

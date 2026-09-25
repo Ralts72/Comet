@@ -83,7 +83,12 @@ namespace CometEditor {
         void accept_scan(const Comet::AssetScanReport& report,
             std::optional<Clock::time_point> change_time = std::nullopt);
         void acknowledge(const std::filesystem::path& path);
+        [[nodiscard]] std::optional<Comet::AssetScanReport> update_source_scan(
+            Clock::time_point now);
+        void advance_file_import(std::optional<Comet::AssetScanReport>& report);
+        void submit_pending_scan();
         void schedule_shader_program_imports(Clock::time_point now);
+        void schedule_mesh_imports();
         Comet::ProjectPaths m_paths;
         Comet::AssetImportLimits m_limits;
         AssetSourceOperations::TrashMover m_trash_mover;
