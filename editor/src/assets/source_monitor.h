@@ -9,6 +9,7 @@
 #include <future>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -62,15 +63,26 @@ namespace CometEditor {
 
         using SnapshotResult = Comet::Result<Snapshot, SnapshotIssue>;
 
+        struct FileUpdates {
+            Snapshot updates;
+            bool requires_full_scan = false;
+        };
+
+        struct PendingFiles {
+            std::future<FileUpdates> completion;
+            std::uint64_t generation = 0;
+        };
+
         struct PendingSnapshot {
             std::future<SnapshotResult> completion;
             std::uint64_t generation = 0;
         };
 
         [[nodiscard]] static SnapshotResult capture_snapshot(const std::filesystem::path& root);
-        [[nodiscard]] PollResult accept_snapshot(SnapshotResult result);
-        [[nodiscard]] PollResult poll_changed_files(
+        [[nodiscard]] static FileUpdates capture_changed_files(const std::filesystem::path& root,
             const std::vector<std::filesystem::path>& paths);
+        [[nodiscard]] PollResult accept_snapshot(SnapshotResult result);
+        [[nodiscard]] PollResult accept_changed_files(const FileUpdates& updates);
 
         std::filesystem::path m_root;
         FileRecheckTrigger m_changes;
@@ -79,6 +91,8 @@ namespace CometEditor {
         bool m_has_baseline = false;
         bool m_initial_capture_failed = false;
         std::optional<PendingSnapshot> m_pending_snapshot;
+        std::optional<PendingFiles> m_pending_files;
+        std::set<std::filesystem::path> m_dirty_paths;
         std::uint64_t m_snapshot_generation = 0;
         std::uint64_t m_change_generation = 0;
         bool m_full_scan_requested = false;

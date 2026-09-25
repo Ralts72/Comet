@@ -363,6 +363,121 @@ namespace CometEditor::Tests {
             result.changed_paths, (std::vector<std::filesystem::path>{"textures/albedo.png"}));
     }
 
+    TEST(AssetSourceMonitorTest, NativeKnownFileCheckWaitsForWorker) {
+        const TemporaryAssetDirectory directory;
+        directory.write("material.mat", "first");
+        AssetSourceMonitor monitor(directory.root(), std::chrono::hours(1));
+        Comet::TaskScheduler scheduler(1);
+        if(!monitor.uses_native_notifications())
+            GTEST_SKIP() << "Native file notifications are unavailable";
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+
+        std::promise<void> release;
+        const auto unblock = release.get_future().share();
+        auto blocker = scheduler.try_submit([unblock] { unblock.wait(); });
+        ASSERT_TRUE(blocker);
+        const auto generation = monitor.change_generation();
+        directory.write("material.mat", "second version");
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while(monitor.change_generation() == generation
+              && std::chrono::steady_clock::now() < deadline) {
+            EXPECT_EQ(monitor.poll_async(scheduler).state,
+                AssetSourceMonitor::PollState::NotPolled);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        EXPECT_GT(monitor.change_generation(), generation);
+        release.set_value();
+        scheduler.wait_idle();
+
+        const auto result = monitor.poll_async(scheduler);
+        EXPECT_EQ(result.state, AssetSourceMonitor::PollState::Changed);
+        EXPECT_FALSE(result.requires_full_scan);
+        EXPECT_EQ(result.changed_paths, (std::vector<std::filesystem::path>{"material.mat"}));
+    }
+
+    TEST(AssetSourceMonitorTest, ExplicitRefreshInvalidatesPendingKnownFileCheck) {
+        const TemporaryAssetDirectory directory;
+        directory.write("material.mat", "first");
+        AssetSourceMonitor monitor(directory.root(), std::chrono::hours(1));
+        Comet::TaskScheduler scheduler(1);
+        if(!monitor.uses_native_notifications())
+            GTEST_SKIP() << "Native file notifications are unavailable";
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+
+        std::promise<void> release;
+        const auto unblock = release.get_future().share();
+        auto blocker = scheduler.try_submit([unblock] { unblock.wait(); });
+        ASSERT_TRUE(blocker);
+        const auto generation = monitor.change_generation();
+        directory.write("material.mat", "second version");
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while(monitor.change_generation() == generation
+              && std::chrono::steady_clock::now() < deadline) {
+            static_cast<void>(monitor.poll_async(scheduler));
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        EXPECT_GT(monitor.change_generation(), generation);
+        EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Changed);
+        release.set_value();
+        scheduler.wait_idle();
+
+        EXPECT_NE(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::Changed);
+        EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+    }
+
+    TEST(AssetSourceMonitorTest, QueueRejectionKeepsKnownFileCheck) {
+        const TemporaryAssetDirectory directory;
+        directory.write("material.mat", "first");
+        AssetSourceMonitor monitor(directory.root(), std::chrono::hours(1));
+        Comet::TaskScheduler scheduler(1, 1);
+        if(!monitor.uses_native_notifications())
+            GTEST_SKIP() << "Native file notifications are unavailable";
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+
+        std::promise<void> started;
+        std::promise<void> release;
+        const auto unblock = release.get_future().share();
+        auto blocker = scheduler.try_submit([&] {
+            started.set_value();
+            unblock.wait();
+        });
+        ASSERT_TRUE(blocker);
+        started.get_future().wait();
+        auto queued = scheduler.try_submit([] {});
+        if(!queued) {
+            release.set_value();
+            ADD_FAILURE() << "Could not fill the scheduler queue";
+            return;
+        }
+
+        const auto generation = monitor.change_generation();
+        directory.write("material.mat", "second version");
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while(monitor.change_generation() == generation
+              && std::chrono::steady_clock::now() < deadline) {
+            EXPECT_EQ(monitor.poll_async(scheduler).state,
+                AssetSourceMonitor::PollState::NotPolled);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        EXPECT_GT(monitor.change_generation(), generation);
+        release.set_value();
+        scheduler.wait_idle();
+
+        AssetSourceMonitor::PollResult result;
+        while(result.state != AssetSourceMonitor::PollState::Changed
+              && std::chrono::steady_clock::now() < deadline) {
+            result = monitor.poll_async(scheduler);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        EXPECT_EQ(result.state, AssetSourceMonitor::PollState::Changed);
+        EXPECT_FALSE(result.requires_full_scan);
+    }
+
     TEST(AssetSourceMonitorTest, NativeNotificationFallsBackForNewFile) {
         const TemporaryAssetDirectory directory;
         AssetSourceMonitor monitor(directory.root(), std::chrono::hours(1));

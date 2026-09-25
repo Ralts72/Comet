@@ -3,11 +3,14 @@
 #include "diagnostics/profiler.h"
 
 #include <chrono>
+#include <cstddef>
 #include <system_error>
 #include <utility>
 
 namespace CometEditor {
     namespace {
+        constexpr std::size_t MAX_PENDING_PATHS = 1024;
+
         bool is_ignored_asset_source(const std::filesystem::path& path) {
             const auto filename = path.filename();
             return filename == ".DS_Store" || filename.string().starts_with(".comet-tmp-");
@@ -48,15 +51,13 @@ namespace CometEditor {
             m_full_scan_requested = true;
         } else if(changes.reason == FileRecheckTrigger::Reason::Notification) {
             ++m_change_generation;
+            ++m_snapshot_generation;
             if(m_pending_snapshot || m_full_scan_requested) {
-                ++m_snapshot_generation;
                 m_full_scan_requested = true;
             } else {
-                auto local = poll_changed_files(changes.paths);
-                if(!local.requires_full_scan)
-                    return local;
-                ++m_snapshot_generation;
-                m_full_scan_requested = true;
+                m_dirty_paths.insert(changes.paths.begin(), changes.paths.end());
+                if(changes.paths.empty() || m_dirty_paths.size() > MAX_PENDING_PATHS)
+                    m_full_scan_requested = true;
             }
         }
 
@@ -66,9 +67,29 @@ namespace CometEditor {
                    == std::future_status::ready) {
             auto snapshot_result = m_pending_snapshot->completion.get();
             // 新通知、显式刷新或内部写入使在途快照失效。
-            if(m_pending_snapshot->generation == m_snapshot_generation)
+            if(m_pending_snapshot->generation == m_snapshot_generation) {
                 result = accept_snapshot(std::move(snapshot_result));
+                m_pending_files.reset();
+                m_dirty_paths.clear();
+            }
             m_pending_snapshot.reset();
+        }
+
+        if(m_full_scan_requested) {
+            m_pending_files.reset();
+            m_dirty_paths.clear();
+        } else if(m_pending_files
+                  && m_pending_files->completion.wait_for(std::chrono::seconds(0))
+                         == std::future_status::ready) {
+            const auto updates = m_pending_files->completion.get();
+            if(!m_pending_snapshot
+                && m_pending_files->generation == m_snapshot_generation) {
+                result = accept_changed_files(updates);
+                m_dirty_paths.clear();
+                if(result.requires_full_scan)
+                    m_full_scan_requested = true;
+            }
+            m_pending_files.reset();
         }
 
         if(m_full_scan_requested && !m_pending_snapshot) {
@@ -79,30 +100,36 @@ namespace CometEditor {
                 m_full_scan_requested = false;
             }
         }
+        if(!m_full_scan_requested && !m_pending_snapshot && !m_pending_files
+            && !m_dirty_paths.empty()) {
+            auto paths = std::vector(m_dirty_paths.begin(), m_dirty_paths.end());
+            auto completion = scheduler.try_submit_result([root = m_root, paths = std::move(paths)] {
+                return capture_changed_files(root, paths);
+            });
+            if(completion)
+                m_pending_files.emplace(std::move(*completion), m_snapshot_generation);
+        }
         return result;
     }
 
-    AssetSourceMonitor::PollResult AssetSourceMonitor::poll_changed_files(
-        const std::vector<std::filesystem::path>& paths) {
-        PROFILE_SCOPE("AssetSourceMonitor::poll_changed_files");
+    AssetSourceMonitor::FileUpdates AssetSourceMonitor::capture_changed_files(
+        const std::filesystem::path& root, const std::vector<std::filesystem::path>& paths) {
+        PROFILE_SCOPE("AssetSourceMonitor::capture_changed_files");
         if(paths.empty())
             return {.requires_full_scan = true};
 
         std::error_code error;
-        const auto absolute_root = std::filesystem::weakly_canonical(m_root, error);
+        const auto absolute_root = std::filesystem::weakly_canonical(root, error);
         if(error)
             return {.requires_full_scan = true};
 
-        std::map<std::filesystem::path, FileState> updates;
+        FileUpdates result;
         for(const auto& path : paths) {
             const auto relative = path.lexically_normal().lexically_relative(absolute_root);
             if(!is_valid_relative_path(relative))
                 return {.requires_full_scan = true};
             if(is_ignored_asset_source(relative))
                 continue;
-            const auto previous = m_snapshot.find(relative);
-            if(previous == m_snapshot.end())
-                return {.requires_full_scan = true};
 
             const auto absolute_path = absolute_root / relative;
             if(!std::filesystem::is_regular_file(absolute_path, error) || error)
@@ -113,11 +140,22 @@ namespace CometEditor {
             const auto size = std::filesystem::file_size(absolute_path, error);
             if(error)
                 return {.requires_full_scan = true};
-            updates[relative] = FileState{.write_time = write_time, .size = size};
+            result.updates[relative] = FileState{.write_time = write_time, .size = size};
         }
+        return result;
+    }
 
+    AssetSourceMonitor::PollResult AssetSourceMonitor::accept_changed_files(
+        const FileUpdates& updates) {
+        PROFILE_SCOPE("AssetSourceMonitor::accept_changed_files");
+        if(updates.requires_full_scan)
+            return {.requires_full_scan = true};
+        for(const auto& update : updates.updates) {
+            if(!m_snapshot.contains(update.first))
+                return {.requires_full_scan = true};
+        }
         PollResult result{.state = PollState::Unchanged};
-        for(const auto& [path, state] : updates) {
+        for(const auto& [path, state] : updates.updates) {
             if(m_snapshot.at(path) == state)
                 continue;
             m_snapshot[path] = state;
@@ -135,6 +173,7 @@ namespace CometEditor {
         ++m_snapshot_generation;
         ++m_change_generation;
         m_full_scan_requested = false;
+        m_dirty_paths.clear();
         if(!m_initial_poll_attempted) {
             m_initial_poll_attempted = true;
             static_cast<void>(m_changes.poll());
