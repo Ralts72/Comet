@@ -15,6 +15,10 @@ option(COMET_BUILD_BENCHMARKS "Build performance benchmarks" OFF)
 option(COMET_NATIVE_OPTIMIZATION "Optimize engine code for the build machine CPU" OFF)
 set(COMET_CONFIG_PROFILE "" CACHE STRING "Runtime configuration profile")
 
+if(APPLE AND (COMET_BUILD_EDITOR OR COMET_BUILD_TESTS))
+    enable_language(OBJCXX)
+endif()
+
 find_package(Vulkan REQUIRED)
 
 set(GLFW_LIBRARY_TYPE SHARED CACHE STRING "GLFW linkage required by Comet" FORCE)

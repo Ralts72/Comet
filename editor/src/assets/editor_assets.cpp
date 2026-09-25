@@ -1,5 +1,6 @@
 #include "assets/editor_assets.h"
 #include "assets/shader_program_import.h"
+#include "assets/system_trash.h"
 #include "scene/component_registry.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
@@ -14,10 +15,19 @@
 namespace CometEditor {
     EditorAssets::EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
         Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler,
-        const std::chrono::milliseconds quiet_period, const Comet::AssetImportLimits limits)
-        : m_paths(std::move(paths)), m_limits(limits), m_database(m_paths),
-          m_manager(m_database, registry, factory, scheduler, m_limits),
+        const std::chrono::milliseconds quiet_period, const Comet::AssetImportLimits limits,
+        Comet::AssetSourceOperations::TrashMover trash_mover)
+        : m_paths(std::move(paths)), m_limits(limits), m_trash_mover(std::move(trash_mover)),
+          m_database(m_paths), m_manager(m_database, registry, factory, scheduler, m_limits),
           m_monitor(m_paths.assets()), m_scheduler(scheduler), m_quiet_period(quiet_period) {
+        if(!m_trash_mover)
+            m_trash_mover = SystemTrash::move;
+        std::error_code error;
+        const auto pending = m_paths.local_data() / "pending-deletions";
+        if(std::filesystem::is_directory(pending, error)
+            && !std::filesystem::is_empty(pending, error))
+            LOG_WARN("Unfinished asset deletion remains at '{}'; inspect it before cleanup",
+                pending.string());
         if(!m_monitor.uses_native_notifications())
             LOG_WARN("Asset source monitor is using periodic fallback scans");
     }
@@ -284,7 +294,8 @@ namespace CometEditor {
     Comet::AssetScanReport EditorAssets::remove(const Comet::AssetHandle handle) {
         const auto* previous = database().find(handle);
         const auto old_path = previous ? previous->path : std::filesystem::path{};
-        auto report = Comet::AssetSourceOperations::remove_asset(m_database, m_paths, handle);
+        auto report = Comet::AssetSourceOperations::remove_asset(
+            m_database, m_paths, handle, m_trash_mover);
         if(report.snapshot_updated) {
             acknowledge(old_path);
             acknowledge(Comet::metadata_path(old_path));

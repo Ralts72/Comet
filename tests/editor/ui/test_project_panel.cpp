@@ -50,6 +50,17 @@ namespace CometEditor::Tests {
 
         void TearDown() override { project.reset(); }
 
+        Comet::Result<void> move_to_fake_trash(const std::filesystem::path& entry) const {
+            const auto destination = root / "fake-system-trash" / entry.filename();
+            std::error_code error;
+            std::filesystem::create_directories(destination.parent_path(), error);
+            if(!error)
+                std::filesystem::rename(entry, destination, error);
+            if(error)
+                return Comet::Result<void>::failure(error.message());
+            return Comet::Result<void>::success();
+        }
+
         void frame() {
             ImGui::NewFrame();
             ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -254,9 +265,15 @@ namespace CometEditor::Tests {
         EXPECT_EQ(request->revision, database.get_revision(handle));
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "a.png"));
         project->complete_delete(
-            *request, Comet::AssetSourceOperations::remove_asset(database, paths, request->handle));
+            *request,
+            Comet::AssetSourceOperations::remove_asset(database, paths, request->handle,
+                [this](const std::filesystem::path& entry) {
+                    return move_to_fake_trash(entry);
+                }));
         frame();
         EXPECT_FALSE(database.find(handle));
+        EXPECT_TRUE(std::filesystem::exists(root / "fake-system-trash/a.png"));
+        EXPECT_TRUE(std::filesystem::exists(root / "fake-system-trash/a.png.meta"));
         EXPECT_EQ(selection.get_selected_asset(), Comet::INVALID_ASSET_HANDLE);
         EXPECT_FALSE(ImGui::IsPopupOpen("Delete Asset", ImGuiPopupFlags_AnyPopupId));
     }

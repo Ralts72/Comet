@@ -1,8 +1,15 @@
+if(APPLE)
+    set(COMET_SYSTEM_TRASH_SOURCE src/assets/system_trash_mac.mm)
+else()
+    set(COMET_SYSTEM_TRASH_SOURCE src/assets/system_trash.cpp)
+endif()
+
 add_library(editor_core STATIC
         src/editor_state.cpp
         src/file_watch_config.cpp
         src/file_recheck_trigger.cpp
         src/assets/editor_assets.cpp
+        ${COMET_SYSTEM_TRASH_SOURCE}
         src/assets/source_monitor.cpp
         src/assets/shader_program_import.cpp
         src/assets/material_editing.cpp
@@ -18,7 +25,13 @@ add_library(editor_core STATIC
 )
 target_link_libraries(editor_core PUBLIC engine comet_shader_tools PRIVATE yaml-cpp)
 if(APPLE)
-    target_link_libraries(editor_core PRIVATE "-framework CoreServices")
+    target_link_libraries(editor_core PRIVATE "-framework CoreServices" "-framework Foundation")
+elseif(WIN32)
+    target_link_libraries(editor_core PRIVATE ole32 shell32)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
+    target_link_libraries(editor_core PRIVATE PkgConfig::GIO)
 endif()
 target_include_directories(editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 

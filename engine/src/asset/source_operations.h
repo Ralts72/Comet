@@ -8,11 +8,14 @@
 #include "core/project_paths.h"
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <span>
 #include <vector>
 
 namespace Comet::AssetSourceOperations {
+    using TrashMover = std::function<Result<void>(const std::filesystem::path&)>;
+
     class COMET_API PreparedFileImport final {
     public:
         PreparedFileImport(PreparedFileImport&&) noexcept;
@@ -44,7 +47,8 @@ namespace Comet::AssetSourceOperations {
         AssetHandle handle, const std::filesystem::path& destination);
 
     [[nodiscard]] COMET_API AssetScanReport remove_asset(
-        AssetDatabase& database, const ProjectPaths& paths, AssetHandle handle);
+        AssetDatabase& database, const ProjectPaths& paths, AssetHandle handle,
+        const TrashMover& move_to_trash);
 
     [[nodiscard]] COMET_API AssetScanReport import_files(AssetDatabase& database,
         const ProjectPaths& paths, std::span<const std::filesystem::path> sources,

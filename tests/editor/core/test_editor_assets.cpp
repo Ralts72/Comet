@@ -45,6 +45,10 @@ namespace CometEditor::Tests {
         Comet::TaskScheduler scheduler{1};
         std::unique_ptr<EditorAssets> assets;
         Comet::AssetHandle mesh;
+        bool reject_trash = false;
+        bool reject_metadata_trash = false;
+        int trash_requests = 0;
+        std::vector<std::filesystem::path> trash_sources;
         void SetUp() override {
             factory.fail_texture_creation(true);
             const auto directory = Comet::ProjectPaths(root).assets();
@@ -52,8 +56,23 @@ namespace CometEditor::Tests {
             std::filesystem::copy_file(
                 std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
                 directory / "model.gltf");
-            assets = std::make_unique<EditorAssets>(
-                Comet::ProjectPaths(root), runtime, factory, scheduler);
+            assets = std::make_unique<EditorAssets>(Comet::ProjectPaths(root), runtime, factory,
+                scheduler, DEFAULT_FILE_WATCH_QUIET_PERIOD, Comet::AssetImportLimits{},
+                [this](const std::filesystem::path& entry) -> Comet::Result<void> {
+                    ++trash_requests;
+                    trash_sources.push_back(entry);
+                    if(reject_trash
+                        || (reject_metadata_trash && entry.extension() == ".meta"))
+                        return Comet::Result<void>::failure("System trash is unavailable");
+                    const auto destination = root / "fake-system-trash" / entry.filename();
+                    std::error_code error;
+                    std::filesystem::create_directories(destination.parent_path(), error);
+                    if(!error)
+                        std::filesystem::rename(entry, destination, error);
+                    if(error)
+                        return Comet::Result<void>::failure(error.message());
+                    return Comet::Result<void>::success();
+                });
             ASSERT_TRUE(assets->refresh().succeeded());
             mesh = assets->database().find("model.gltf")->handle;
         }
@@ -412,7 +431,7 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "rolled_back.lua.meta"));
     }
 
-    TEST_F(EditorAssetsTest, DeletingAssetMovesSourceAndIdentityToProjectTrash) {
+    TEST_F(EditorAssetsTest, DeletingAssetMovesSourceAndIdentityToSystemTrash) {
         const auto paths = Comet::ProjectPaths(root);
         ASSERT_TRUE(assets->create_script("remove_me.lua").succeeded());
         const auto handle = assets->database().find("remove_me.lua")->handle;
@@ -427,15 +446,17 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(runtime.resolve<Comet::Script>(handle));
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "remove_me.lua"));
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "remove_me.lua.meta"));
-        const auto trash = paths.local_data() / "trash";
-        const auto entry = std::filesystem::directory_iterator(trash)->path();
-        ASSERT_TRUE(std::filesystem::exists(entry / "remove_me.lua"));
-        ASSERT_TRUE(std::filesystem::exists(entry / "remove_me.lua.meta"));
-        std::filesystem::rename(entry / "remove_me.lua", paths.assets() / "remove_me.lua");
-        std::filesystem::rename(
-            entry / "remove_me.lua.meta", paths.assets() / "remove_me.lua.meta");
-        ASSERT_TRUE(assets->refresh().succeeded());
-        ASSERT_NE(assets->database().find(handle), nullptr);
+        ASSERT_EQ(trash_requests, 2);
+        EXPECT_EQ(trash_sources[0], paths.assets() / "remove_me.lua");
+        EXPECT_EQ(trash_sources[1], paths.assets() / "remove_me.lua.meta");
+        const auto trash = root / "fake-system-trash";
+        ASSERT_TRUE(std::filesystem::exists(trash / "remove_me.lua"));
+        ASSERT_TRUE(std::filesystem::exists(trash / "remove_me.lua.meta"));
+        const auto metadata =
+            Comet::MetadataSerializer{}.load(trash / "remove_me.lua.meta");
+        ASSERT_TRUE(metadata);
+        EXPECT_EQ(metadata.value().handle, handle);
+        EXPECT_FALSE(std::filesystem::exists(paths.local_data() / "trash"));
     }
 
     TEST_F(EditorAssetsTest, DeletingAssetRejectsIndexedDependentsAndRollsBackFailedScan) {
@@ -454,9 +475,45 @@ namespace CometEditor::Tests {
         std::ofstream(paths.assets() / "broken.mat.meta") << "invalid metadata";
         const auto report = assets->remove(script);
         EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_EQ(trash_requests, 0);
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "keep.lua"));
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "keep.lua.meta"));
         EXPECT_NE(assets->database().find(script), nullptr);
+    }
+
+    TEST_F(EditorAssetsTest, DeletingAssetRollsBackWhenSystemTrashFails) {
+        const auto paths = Comet::ProjectPaths(root);
+        ASSERT_TRUE(assets->create_script("keep.lua").succeeded());
+        const auto handle = assets->database().find("keep.lua")->handle;
+        reject_trash = true;
+
+        const auto report = assets->remove(handle);
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_EQ(trash_requests, 1);
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "keep.lua"));
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "keep.lua.meta"));
+        EXPECT_NE(assets->database().find(handle), nullptr);
+        EXPECT_TRUE(std::filesystem::is_empty(paths.local_data() / "pending-deletions"));
+    }
+
+    TEST_F(EditorAssetsTest, DeletingAssetRestoresThePairWhenMetadataTrashFails) {
+        const auto paths = Comet::ProjectPaths(root);
+        ASSERT_TRUE(assets->create_script("keep.lua").succeeded());
+        const auto handle = assets->database().find("keep.lua")->handle;
+        reject_metadata_trash = true;
+
+        const auto report = assets->remove(handle);
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_EQ(trash_requests, 2);
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "keep.lua"));
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "keep.lua.meta"));
+        EXPECT_NE(assets->database().find(handle), nullptr);
+        EXPECT_TRUE(std::filesystem::exists(root / "fake-system-trash/keep.lua"));
+        EXPECT_FALSE(std::filesystem::equivalent(
+            paths.assets() / "keep.lua", root / "fake-system-trash/keep.lua"));
+        EXPECT_TRUE(std::filesystem::is_empty(paths.local_data() / "pending-deletions"));
     }
 
     TEST_F(EditorAssetsTest, MaterialCreationRejectsCollisionsUnsafePathsAndInvalidData) {

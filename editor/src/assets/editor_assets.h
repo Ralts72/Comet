@@ -30,7 +30,8 @@ namespace CometEditor {
         EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
             Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler,
             std::chrono::milliseconds quiet_period = DEFAULT_FILE_WATCH_QUIET_PERIOD,
-            Comet::AssetImportLimits limits = {});
+            Comet::AssetImportLimits limits = {},
+            Comet::AssetSourceOperations::TrashMover trash_mover = {});
 
         [[nodiscard]] Comet::AssetScanReport refresh();
         [[nodiscard]] Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> update(
@@ -87,6 +88,7 @@ namespace CometEditor {
         void schedule_shader_program_imports(Clock::time_point now);
         Comet::ProjectPaths m_paths;
         Comet::AssetImportLimits m_limits;
+        Comet::AssetSourceOperations::TrashMover m_trash_mover;
         Comet::AssetDatabase m_database;
         Comet::AssetManager m_manager;
         AssetSourceMonitor m_monitor;

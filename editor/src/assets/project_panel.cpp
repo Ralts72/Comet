@@ -503,7 +503,7 @@ namespace CometEditor {
         }
         const auto* record = m_database.find(m_deleting_asset);
         if(record)
-            ImGui::TextWrapped(Ui::text("Move assets/%s to project trash?"),
+            ImGui::TextWrapped(Ui::text("Move assets/%s and its metadata to system trash?"),
                 record->path.generic_string().c_str());
         else
             ImGui::TextDisabled("%s", Ui::text("Asset is no longer available"));
