@@ -88,11 +88,24 @@ namespace Comet {
         [[nodiscard]] std::size_t size() const noexcept;
 
     private:
+        struct FileState {
+            std::filesystem::file_time_type write_time;
+            std::uintmax_t size = 0;
+        };
+
+        using FileStates = std::unordered_map<std::filesystem::path, FileState>;
+
+        [[nodiscard]] static std::uint64_t file_source_signature(
+            const std::filesystem::path& path, const FileStates* files);
+        [[nodiscard]] static std::uint64_t asset_source_signature(
+            const std::filesystem::path& asset_path, const std::filesystem::path& asset_root,
+            std::span<const std::filesystem::path> import_dependencies, const FileStates* files);
         [[nodiscard]] static std::uint64_t record_source_signature(const AssetRecord& record,
             std::span<const AssetHandle> dependencies, const std::filesystem::path& assets_root,
             const std::unordered_map<AssetHandle, std::vector<std::filesystem::path>>&
                 import_dependencies_by_asset,
-            const std::unordered_map<AssetHandle, AssetRecord>& assets);
+            const std::unordered_map<AssetHandle, AssetRecord>& assets,
+            const FileStates* files = nullptr);
 
         ProjectPaths m_paths;
         std::unordered_map<AssetHandle, AssetRecord> m_assets;

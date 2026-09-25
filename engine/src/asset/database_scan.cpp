@@ -143,6 +143,7 @@ namespace Comet {
         AssetScanReport report;
         std::vector<AssetCandidate> candidates;
         std::vector<ScanInput> inputs;
+        FileStates file_states;
         bool complete = false;
         bool stale = false;
     };
@@ -325,6 +326,15 @@ namespace Comet {
         }
 
         prepared->stale = !inputs_unchanged(prepared->inputs);
+        if(!prepared->stale) {
+            prepared->file_states.reserve(prepared->inputs.size());
+            for(const ScanInput& input : prepared->inputs) {
+                if(!input.directory) {
+                    prepared->file_states.emplace(input.path.lexically_normal(),
+                        FileState{.write_time = input.write_time, .size = input.size});
+                }
+            }
+        }
         prepared->complete = true;
         return prepared;
     }
@@ -337,8 +347,13 @@ namespace Comet {
             return std::nullopt;
         if(!prepared->complete)
             return std::move(prepared->report);
-        if(prepared->stale || !inputs_unchanged(prepared->inputs))
+        if(prepared->stale)
             return std::nullopt;
+        {
+            PROFILE_SCOPE("AssetDatabase::publish_validate_inputs");
+            if(!inputs_unchanged(prepared->inputs))
+                return std::nullopt;
+        }
 
         AssetScanReport report = std::move(prepared->report);
         auto& candidates = prepared->candidates;
@@ -497,10 +512,13 @@ namespace Comet {
 
         asset_source_signatures.reserve(assets.size());
         asset_revisions.reserve(assets.size());
-        for(const auto& [handle, record] : assets) {
-            asset_source_signatures.emplace(
-                handle, record_source_signature(record, record.dependencies, assets_root,
-                            import_dependencies_by_asset, assets));
+        {
+            PROFILE_SCOPE("AssetDatabase::publish_source_signatures");
+            for(const auto& [handle, record] : assets) {
+                asset_source_signatures.emplace(
+                    handle, record_source_signature(record, record.dependencies, assets_root,
+                                import_dependencies_by_asset, assets, &prepared->file_states));
+            }
         }
 
         for(const auto& [handle, record] : assets) {

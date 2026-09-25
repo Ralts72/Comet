@@ -120,6 +120,27 @@ namespace Comet::Tests {
         EXPECT_EQ(database.get_revision(database.find("first.png")->handle), revision);
     }
 
+    TEST(AssetDatabaseTest, RejectsPreparedScanWhenMetadataChanges) {
+        const TemporaryProject project;
+        const auto source = project.add_file("texture.png", "pixels");
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const AssetHandle handle = database.find("texture.png")->handle;
+        const AssetRevision revision = database.get_revision(handle);
+
+        auto prepared = AssetDatabase::prepare_scan(project.paths(), database.generation());
+        const auto sidecar = metadata_path(source);
+        auto metadata = MetadataSerializer{}.load(sidecar);
+        ASSERT_TRUE(metadata);
+        metadata.value().import_settings = TextureImportSettings{.flip_y = true};
+        ASSERT_TRUE(MetadataSerializer{}.save(metadata.value(), sidecar));
+
+        EXPECT_FALSE(database.publish_scan(std::move(prepared)));
+        EXPECT_EQ(database.get_revision(handle), revision);
+        EXPECT_TRUE(database.scan().succeeded());
+        EXPECT_GT(database.get_revision(handle), revision);
+    }
+
     TEST(AssetDatabaseTest, RejectsPreparedScanFromAnotherProject) {
         const TemporaryProject source_project;
         const TemporaryProject target_project;

@@ -19,37 +19,6 @@ namespace Comet {
             return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
         }
 
-        std::uint64_t file_source_signature(const std::filesystem::path& path) {
-            std::error_code error;
-            const auto write_time = std::filesystem::last_write_time(path, error);
-            if(error) {
-                return 0;
-            }
-
-            std::uint64_t signature =
-                static_cast<std::uint64_t>(write_time.time_since_epoch().count());
-            const std::uintmax_t size = std::filesystem::file_size(path, error);
-            if(!error) {
-                signature = combine_source_signature(signature, static_cast<std::uint64_t>(size));
-            }
-            return signature;
-        }
-
-        std::uint64_t asset_source_signature(const std::filesystem::path& asset_path,
-            const std::filesystem::path& asset_root,
-            const std::span<const std::filesystem::path> import_dependencies) {
-            std::uint64_t signature = combine_source_signature(file_source_signature(asset_path),
-                file_source_signature(metadata_path(asset_path)));
-            for(const std::filesystem::path& dependency : import_dependencies) {
-                for(const unsigned char character : dependency.generic_string()) {
-                    signature = combine_source_signature(signature, character);
-                }
-                signature = combine_source_signature(
-                    signature, file_source_signature(asset_root / dependency));
-            }
-            return signature;
-        }
-
         std::span<const std::filesystem::path> find_import_dependencies(
             const ImportDependenciesByAsset& dependencies_by_asset, const AssetHandle handle) {
             const auto dependencies = dependencies_by_asset.find(handle);
@@ -94,12 +63,50 @@ namespace Comet {
 
     }
 
+    std::uint64_t AssetDatabase::file_source_signature(
+        const std::filesystem::path& path, const FileStates* files) {
+        if(files) {
+            const auto cached = files->find(path.lexically_normal());
+            if(cached != files->end()) {
+                const auto write_time = static_cast<std::uint64_t>(
+                    cached->second.write_time.time_since_epoch().count());
+                return combine_source_signature(
+                    write_time, static_cast<std::uint64_t>(cached->second.size));
+            }
+        }
+
+        std::error_code error;
+        const auto write_time = std::filesystem::last_write_time(path, error);
+        if(error)
+            return 0;
+
+        std::uint64_t signature = static_cast<std::uint64_t>(write_time.time_since_epoch().count());
+        const std::uintmax_t size = std::filesystem::file_size(path, error);
+        if(!error)
+            signature = combine_source_signature(signature, static_cast<std::uint64_t>(size));
+        return signature;
+    }
+
+    std::uint64_t AssetDatabase::asset_source_signature(const std::filesystem::path& asset_path,
+        const std::filesystem::path& asset_root,
+        const std::span<const std::filesystem::path> import_dependencies, const FileStates* files) {
+        std::uint64_t signature = combine_source_signature(file_source_signature(asset_path, files),
+            file_source_signature(metadata_path(asset_path), files));
+        for(const std::filesystem::path& dependency : import_dependencies) {
+            for(const unsigned char character : dependency.generic_string())
+                signature = combine_source_signature(signature, character);
+            signature = combine_source_signature(
+                signature, file_source_signature(asset_root / dependency, files));
+        }
+        return signature;
+    }
+
     std::uint64_t AssetDatabase::record_source_signature(const AssetRecord& record,
         const std::span<const AssetHandle> dependencies, const std::filesystem::path& assets_root,
         const ImportDependenciesByAsset& import_dependencies_by_asset,
-        const std::unordered_map<AssetHandle, AssetRecord>& assets) {
+        const std::unordered_map<AssetHandle, AssetRecord>& assets, const FileStates* files) {
         std::uint64_t signature = asset_source_signature(assets_root / record.path, assets_root,
-            find_import_dependencies(import_dependencies_by_asset, record.handle));
+            find_import_dependencies(import_dependencies_by_asset, record.handle), files);
         if(record.type != AssetType::ShaderProgram)
             return signature;
 
@@ -109,7 +116,7 @@ namespace Comet {
                 found == assets.end()
                     ? source.value()
                     : asset_source_signature(assets_root / found->second.path, assets_root,
-                          find_import_dependencies(import_dependencies_by_asset, source));
+                          find_import_dependencies(import_dependencies_by_asset, source), files);
             signature = combine_source_signature(signature, source_signature);
         }
         return signature;
