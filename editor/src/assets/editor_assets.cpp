@@ -271,7 +271,7 @@ namespace CometEditor {
                 pending = m_pending_shader_programs.erase(pending);
                 continue;
             }
-            auto request = ShaderProgramImport::resolve(database(), m_database.paths(), handle);
+            auto request = ShaderProgramImport::resolve(database(), handle);
             if(!request) {
                 LOG_WARN("Shader program {}: {}", handle.value(), request.error());
                 pending = m_pending_shader_programs.erase(pending);

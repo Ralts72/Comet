@@ -12,8 +12,7 @@ namespace CometEditor {
         using Import = ShaderProgramImport;
 
         Comet::Result<Import::Source> resolve_source(const Comet::AssetDatabase& database,
-            const Comet::ProjectPaths& paths, const Comet::ShaderProgramStage& stage,
-            const std::string_view extension) {
+            const Comet::ShaderProgramStage& stage, const std::string_view extension) {
             const auto* record = database.find(stage.source);
             auto actual_extension = record ? record->path.extension().string() : std::string{};
             std::ranges::transform(actual_extension, actual_extension.begin(),
@@ -22,8 +21,9 @@ namespace CometEditor {
                 return Comet::Result<Import::Source>::failure(
                     "Shader program source handle does not reference a " + std::string(extension)
                     + " asset: " + std::to_string(stage.source.value()));
-            return Comet::Result<Import::Source>::success({stage.source,
-                database.get_revision(stage.source), paths.assets() / record->path, stage.entry});
+            return Comet::Result<Import::Source>::success(
+                {stage.source, database.get_revision(stage.source),
+                    database.paths().assets() / record->path, stage.entry});
         }
 
         bool contains_path(const Comet::ImportInputSnapshot& snapshot,
@@ -43,19 +43,18 @@ namespace CometEditor {
     }
 
     Comet::Result<ShaderProgramImport::Request> ShaderProgramImport::resolve(
-        const Comet::AssetDatabase& database, const Comet::ProjectPaths& paths,
-        const Comet::AssetHandle handle) {
+        const Comet::AssetDatabase& database, const Comet::AssetHandle handle) {
         const auto* record = database.find(handle);
         if(!record || record->type != Comet::AssetType::ShaderProgram)
             return Comet::Result<Request>::failure("Shader program is not indexed");
-        const auto descriptor_path = paths.assets() / record->path;
+        const auto descriptor_path = database.paths().assets() / record->path;
         auto descriptor = Comet::ShaderProgramSerializer{}.load(descriptor_path);
         if(!descriptor)
             return Comet::Result<Request>::failure(descriptor.error());
-        auto vertex = resolve_source(database, paths, descriptor.value().vertex, ".vert");
+        auto vertex = resolve_source(database, descriptor.value().vertex, ".vert");
         if(!vertex)
             return Comet::Result<Request>::failure(vertex.error());
-        auto fragment = resolve_source(database, paths, descriptor.value().fragment, ".frag");
+        auto fragment = resolve_source(database, descriptor.value().fragment, ".frag");
         if(!fragment)
             return Comet::Result<Request>::failure(fragment.error());
         return Comet::Result<Request>::success({handle, database.get_revision(handle),
@@ -66,6 +65,16 @@ namespace CometEditor {
     Comet::Result<ShaderProgramImport::Candidate, ShaderProgramImport::Failure>
     ShaderProgramImport::prepare(const Comet::ProjectPaths& paths, const Request& request) {
         using Prepared = Comet::Result<Candidate, Failure>;
+        for(const auto& input :
+            {request.descriptor_path, request.vertex.path, request.fragment.path}) {
+            std::error_code error;
+            const auto absolute = std::filesystem::absolute(input, error);
+            if(error)
+                return Prepared::failure(
+                    {"Cannot resolve Shader input path: " + error.message(), {}});
+            if(auto resolved = paths.resolve_asset_path(absolute); !resolved)
+                return Prepared::failure({resolved.error(), {}});
+        }
         if(auto cached = Comet::ShaderProgramArtifact::load(
                Comet::ImportService(paths).shader_program_artifact_path(request.handle),
                request.handle);

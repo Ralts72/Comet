@@ -63,7 +63,7 @@ namespace CometEditor::Tests {
             }
 
             ShaderProgramImport::Request request() {
-                auto result = ShaderProgramImport::resolve(database, paths, program);
+                auto result = ShaderProgramImport::resolve(database, program);
                 EXPECT_TRUE(result) << result.error();
                 return std::move(result).value();
             }
@@ -84,6 +84,34 @@ namespace CometEditor::Tests {
                 return assets.compiled_shader_program(program);
             }
         };
+    }
+
+    TEST_F(ShaderProgramImportTest, ResolvesSourcesWithinIndexedProject) {
+        const auto resolved = request();
+        EXPECT_EQ(resolved.descriptor_path, paths.assets() / "shaders/test.shader");
+        EXPECT_EQ(resolved.vertex.path, paths.assets() / "shaders/test.vert");
+        EXPECT_EQ(resolved.fragment.path, paths.assets() / "shaders/test.frag");
+    }
+
+    TEST_F(ShaderProgramImportTest, RejectsPreparationForAnotherProject) {
+        Comet::ProjectPaths other_paths{directory.path() / "other-project"};
+        std::filesystem::create_directories(other_paths.assets());
+
+        auto prepared = ShaderProgramImport::prepare(other_paths, request());
+        ASSERT_FALSE(prepared);
+        EXPECT_NE(prepared.error().message.find("outside project assets"), std::string::npos);
+    }
+
+    TEST_F(ShaderProgramImportTest, AcceptsRelativeProjectRoot) {
+        Comet::ProjectPaths relative_paths{
+            std::filesystem::relative(paths.root(), std::filesystem::current_path())};
+        Comet::AssetDatabase relative_database{relative_paths};
+        ASSERT_TRUE(relative_database.scan().succeeded());
+
+        auto resolved = ShaderProgramImport::resolve(relative_database, program);
+        ASSERT_TRUE(resolved) << resolved.error();
+        auto prepared = ShaderProgramImport::prepare(relative_paths, resolved.value());
+        ASSERT_TRUE(prepared) << prepared.error().message;
     }
 
     TEST(ShaderProgramSerializerTest, RejectsUnsupportedVersionAndInvalidStageIdentity) {
@@ -145,7 +173,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(data.value().template_name, "unlit_color");
         EXPECT_EQ(data.value().shader_program, program->handle);
 
-        auto request = ShaderProgramImport::resolve(database, paths, program->handle);
+        auto request = ShaderProgramImport::resolve(database, program->handle);
         ASSERT_TRUE(request) << request.error();
         auto prepared = ShaderProgramImport::prepare(paths, request.value());
         ASSERT_TRUE(prepared) << prepared.error().message;
@@ -278,7 +306,7 @@ namespace CometEditor::Tests {
         Comet::TaskScheduler scheduler(1);
         Comet::AssetManager manager(paths, registry, factory, scheduler);
         ASSERT_TRUE(manager.scan().succeeded());
-        auto resolved = ShaderProgramImport::resolve(manager.get_database(), paths, program);
+        auto resolved = ShaderProgramImport::resolve(manager.get_database(), program);
         ASSERT_TRUE(resolved);
         auto prepared = ShaderProgramImport::prepare(paths, resolved.value());
         ASSERT_TRUE(prepared) << prepared.error().message;
@@ -299,7 +327,7 @@ namespace CometEditor::Tests {
         Comet::TaskScheduler scheduler(1);
         Comet::AssetManager manager(paths, registry, factory, scheduler);
         ASSERT_TRUE(manager.scan().succeeded());
-        auto resolved = ShaderProgramImport::resolve(manager.get_database(), paths, program);
+        auto resolved = ShaderProgramImport::resolve(manager.get_database(), program);
         ASSERT_TRUE(resolved);
         auto prepared = ShaderProgramImport::prepare(paths, resolved.value());
         ASSERT_TRUE(prepared) << prepared.error().message;
@@ -320,7 +348,7 @@ namespace CometEditor::Tests {
         Comet::TaskScheduler scheduler(1);
         Comet::AssetManager manager(paths, registry, factory, scheduler);
         ASSERT_TRUE(manager.scan().succeeded());
-        auto resolved = ShaderProgramImport::resolve(manager.get_database(), paths, program);
+        auto resolved = ShaderProgramImport::resolve(manager.get_database(), program);
         ASSERT_TRUE(resolved);
         const auto input = resolved.value();
         using Preparation =

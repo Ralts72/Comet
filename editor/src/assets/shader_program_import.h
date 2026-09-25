@@ -16,8 +16,8 @@ namespace CometEditor {
         using Candidate = Comet::ShaderProgramImportPrepared;
         using Failure = Comet::ShaderProgramImportFailure;
 
-        [[nodiscard]] static Comet::Result<Request> resolve(const Comet::AssetDatabase& database,
-            const Comet::ProjectPaths& paths, Comet::AssetHandle handle);
+        [[nodiscard]] static Comet::Result<Request> resolve(
+            const Comet::AssetDatabase& database, Comet::AssetHandle handle);
         // Worker-safe: consumes only copied paths/identities; never touches the database or GPU.
         [[nodiscard]] static Comet::Result<Candidate, Failure> prepare(
             const Comet::ProjectPaths& paths, const Request& request);
