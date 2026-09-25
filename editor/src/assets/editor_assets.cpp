@@ -183,9 +183,9 @@ namespace CometEditor {
             auto& request = m_file_import_requests.front();
             auto completion = m_scheduler.try_submit_result(
                 [paths = m_paths, sources = request.sources, directory = request.directory,
-                    budget = m_limits.external_file_bytes] {
+                    limits = m_limits] {
                     return Comet::AssetSourceOperations::PreparedFileImport::prepare(
-                        paths, sources, directory, budget);
+                        paths, sources, directory, limits);
                 });
             if(completion) {
                 m_pending_file_import.emplace(std::move(*completion), request.directory);

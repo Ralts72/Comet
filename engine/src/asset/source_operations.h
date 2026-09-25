@@ -2,11 +2,11 @@
 
 #include "asset/database.h"
 #include "asset/data/material_data.h"
+#include "asset/import/asset_task_types.h"
 #include "common/export.h"
 #include "common/result.h"
 #include "core/project_paths.h"
 
-#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <span>
@@ -24,7 +24,7 @@ namespace Comet::AssetSourceOperations {
 
         [[nodiscard]] static Result<PreparedFileImport> prepare(ProjectPaths paths,
             std::vector<std::filesystem::path> sources, std::filesystem::path directory,
-            std::uintmax_t source_byte_budget);
+            AssetImportLimits limits);
         [[nodiscard]] AssetScanReport publish(AssetDatabase& database) &&;
 
     private:
@@ -48,5 +48,5 @@ namespace Comet::AssetSourceOperations {
 
     [[nodiscard]] COMET_API AssetScanReport import_files(AssetDatabase& database,
         const ProjectPaths& paths, std::span<const std::filesystem::path> sources,
-        const std::filesystem::path& directory, std::uintmax_t source_byte_budget);
+        const std::filesystem::path& directory, AssetImportLimits limits);
 }

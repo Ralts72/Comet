@@ -7,12 +7,24 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <cctype>
 #include <map>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 namespace CometEditor {
+    namespace {
+        bool contains_search(const std::string_view text, const std::string_view query) {
+            return std::search(text.begin(), text.end(), query.begin(), query.end(),
+                       [](const unsigned char left, const unsigned char right) {
+                           return std::tolower(left) == std::tolower(right);
+                       })
+                   != text.end();
+        }
+    }
+
     ProjectPanel::AssetTreeNode ProjectPanel::build_asset_tree() const {
         AssetTreeNode root;
         for(Comet::AssetRecord& asset : m_database.get_assets()) {
@@ -37,10 +49,37 @@ namespace CometEditor {
         return root;
     }
 
+    ProjectPanel::AssetTreeNode ProjectPanel::filter_asset_tree(
+        const AssetTreeNode& node, const bool include_all) const {
+        if(include_all)
+            return node;
+        AssetTreeNode filtered;
+        const std::string_view query(m_search.data());
+        for(const auto& [name, directory] : node.directories) {
+            const bool directory_matches = contains_search(name, query);
+            auto child = filter_asset_tree(directory, directory_matches);
+            if(directory_matches || !child.assets.empty() || !child.directories.empty())
+                filtered.directories.emplace(name, std::move(child));
+        }
+        for(const auto& asset : node.assets)
+            if(contains_search(asset.path.filename().string(), query))
+                filtered.assets.push_back(asset);
+        return filtered;
+    }
+
+    void ProjectPanel::rebuild_search_tree() {
+        if(m_search.front() == '\0')
+            m_filtered_tree.reset();
+        else
+            m_filtered_tree = filter_asset_tree(m_tree, false);
+    }
+
     void ProjectPanel::render_asset_tree(
         const AssetTreeNode& node, const std::filesystem::path& path) {
         for(const auto& [name, directory] : node.directories) {
             const auto directory_path = path / name;
+            if(m_filtered_tree)
+                ImGui::SetNextItemOpen(true, ImGuiCond_Always);
             const bool open = ImGui::TreeNodeEx(
                 name.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
             record_drop_target(directory_path);
@@ -111,16 +150,25 @@ namespace CometEditor {
         m_drop_targets.push_back(
             {{content.Min.x, content.Min.y}, {content.Max.x, content.Max.y}, {}});
 
+        ImGui::SetNextItemWidth(-1.0f);
+        if(ImGui::InputTextWithHint(
+               "##asset_search", Ui::text("Search assets..."), m_search.data(), m_search.size()))
+            rebuild_search_tree();
+
+        const auto& visible_tree = m_filtered_tree ? *m_filtered_tree : m_tree;
+        if(m_filtered_tree)
+            ImGui::SetNextItemOpen(true, ImGuiCond_Always);
         const bool root_open = ImGui::TreeNodeEx(
             "assets", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
         record_drop_target({});
         accept_asset_drop({});
         render_directory_menu({});
         if(root_open) {
-            if(m_tree.assets.empty() && m_tree.directories.empty()) {
-                ImGui::TextDisabled("%s", Ui::text("No indexed assets"));
+            if(visible_tree.assets.empty() && visible_tree.directories.empty()) {
+                ImGui::TextDisabled(
+                    "%s", Ui::text(m_filtered_tree ? "No matching assets" : "No indexed assets"));
             } else {
-                render_asset_tree(m_tree, {});
+                render_asset_tree(visible_tree, {});
             }
             ImGui::TreePop();
         }
@@ -555,8 +603,10 @@ namespace CometEditor {
 
     void ProjectPanel::update_scan_report(Comet::AssetScanReport scan_report) {
         m_scan_report = std::move(scan_report);
-        if(m_scan_report.snapshot_updated)
+        if(m_scan_report.snapshot_updated) {
             m_tree = build_asset_tree();
+            rebuild_search_tree();
+        }
         const Comet::AssetHandle selected_asset = m_selection.get_selected_asset();
         if(selected_asset && !m_database.find(selected_asset)) {
             m_selection.clear();

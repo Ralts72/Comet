@@ -68,6 +68,9 @@ namespace CometEditor {
             std::filesystem::path directory;
         };
         [[nodiscard]] AssetTreeNode build_asset_tree() const;
+        [[nodiscard]] AssetTreeNode filter_asset_tree(
+            const AssetTreeNode& node, bool include_all) const;
+        void rebuild_search_tree();
         void record_drop_target(const std::filesystem::path& directory);
         void render_asset_tree(const AssetTreeNode& node, const std::filesystem::path& path);
         void accept_asset_drop(const std::filesystem::path& directory);
@@ -86,6 +89,8 @@ namespace CometEditor {
         const Comet::AssetDatabase& m_database;
         std::filesystem::path m_asset_root;
         AssetTreeNode m_tree;
+        std::optional<AssetTreeNode> m_filtered_tree;
+        std::array<char, 256> m_search{};
         std::vector<DropTarget> m_drop_targets;
         Comet::AssetScanReport m_scan_report;
         SelectionService& m_selection;

@@ -717,7 +717,7 @@ namespace CometEditor::Tests {
         const auto* window = ImGui::FindWindowByName("Project");
         ASSERT_NE(window, nullptr);
         const ImVec2 source{window->WorkRect.Min.x + 70,
-            window->WorkRect.Min.y + 2 * ImGui::GetTextLineHeightWithSpacing()
+            window->WorkRect.Min.y + 3 * ImGui::GetTextLineHeightWithSpacing()
                 + ImGui::GetTextLineHeight() * 0.5f};
         auto& io = ImGui::GetIO();
         io.AddMousePosEvent(source.x, source.y);

@@ -72,12 +72,35 @@ namespace CometEditor::Tests {
             }
         }
 
-        // 初始顺序：assets、folder、c.png、a.png、b.png。
+        // 搜索框之后的顺序：assets、folder、c.png、a.png、b.png。
         ImVec2 row_point(int row) {
             const auto* window = ImGui::FindWindowByName("Project");
-            return {window->WorkRect.Min.x + 70, window->WorkRect.Min.y
-                                                     + row * ImGui::GetTextLineHeightWithSpacing()
-                                                     + ImGui::GetTextLineHeight() * 0.5f};
+            return {window->WorkRect.Min.x + 70,
+                window->WorkRect.Min.y + (row + 1) * ImGui::GetTextLineHeightWithSpacing()
+                    + ImGui::GetTextLineHeight() * 0.5f};
+        }
+
+        void search(const char* query) {
+            auto* window = ImGui::FindWindowByName("Project");
+            ASSERT_NE(window, nullptr);
+            ImGui::ActivateItemByID(window->GetID("##asset_search"));
+            frame();
+            auto& io = ImGui::GetIO();
+            const auto primary = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+            io.AddKeyEvent(primary, true);
+            io.AddKeyEvent(ImGuiKey_A, true);
+            frame();
+            io.AddKeyEvent(ImGuiKey_A, false);
+            io.AddKeyEvent(primary, false);
+            frame();
+            if(*query)
+                io.AddInputCharactersUTF8(query);
+            else {
+                io.AddKeyEvent(ImGuiKey_Backspace, true);
+                frame();
+                io.AddKeyEvent(ImGuiKey_Backspace, false);
+            }
+            frame();
         }
 
         void click(ImVec2 point, int button = 0) {
@@ -164,6 +187,24 @@ namespace CometEditor::Tests {
         project->set_visible(false);
         frame();
         EXPECT_FALSE(directory_at(row_point(1)));
+    }
+
+    TEST_F(ProjectPanelTest, SearchFiltersAssetsAndPreservesDirectoryMatches) {
+        click(row_point(1));
+        search("b.png");
+        click(row_point(1));
+        EXPECT_EQ(selection.get_selected_asset(), database.find("b.png")->handle);
+
+        search("folder");
+        click(row_point(2));
+        EXPECT_EQ(selection.get_selected_asset(), database.find("folder/c.png")->handle);
+
+        search("missing");
+        EXPECT_EQ(selection.get_selected_asset(), database.find("folder/c.png")->handle);
+
+        search("");
+        click(row_point(3));
+        EXPECT_EQ(selection.get_selected_asset(), database.find("a.png")->handle);
     }
 
     TEST_F(ProjectPanelTest, ExternalFileDropTargetsEmptyDirectoriesAndRejectsPopups) {

@@ -72,8 +72,7 @@ namespace Comet::Tests {
         AssetScanReport import(std::initializer_list<std::filesystem::path> files,
             const std::filesystem::path& directory = "folder") {
             auto report = AssetSourceOperations::import_files(database, paths,
-                std::span(files.begin(), files.size()), directory,
-                AssetImportLimits{}.external_file_bytes);
+                std::span(files.begin(), files.size()), directory, AssetImportLimits{});
             manager.accept_scan_report(report);
             return report;
         }
@@ -156,7 +155,7 @@ namespace Comet::Tests {
     TEST_F(ExternalFileImportTest, PreparedImportPublishesOnlyAfterOwnerCommits) {
         const auto source = texture();
         auto prepared = AssetSourceOperations::PreparedFileImport::prepare(
-            paths, {source}, "folder", AssetImportLimits{}.external_file_bytes);
+            paths, {source}, "folder", AssetImportLimits{});
         ASSERT_TRUE(prepared) << prepared.error();
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/texture.png"));
         EXPECT_EQ(database.size(), 0);
@@ -171,7 +170,7 @@ namespace Comet::Tests {
         const auto source = texture();
         {
             auto prepared = AssetSourceOperations::PreparedFileImport::prepare(
-                paths, {source}, "folder", AssetImportLimits{}.external_file_bytes);
+                paths, {source}, "folder", AssetImportLimits{});
             ASSERT_TRUE(prepared) << prepared.error();
             EXPECT_FALSE(std::filesystem::is_empty(paths.cache() / "file-import"));
         }
@@ -181,7 +180,7 @@ namespace Comet::Tests {
     TEST_F(ExternalFileImportTest, PreparedImportRefusesDestinationCreatedBeforePublish) {
         const auto source = texture();
         auto prepared = AssetSourceOperations::PreparedFileImport::prepare(
-            paths, {source}, "folder", AssetImportLimits{}.external_file_bytes);
+            paths, {source}, "folder", AssetImportLimits{});
         ASSERT_TRUE(prepared) << prepared.error();
         std::ofstream(paths.assets() / "folder/texture.png") << "newer project file";
 
@@ -202,7 +201,7 @@ namespace Comet::Tests {
         if(error)
             GTEST_SKIP() << "Symlinks unavailable: " << error.message();
         auto prepared = AssetSourceOperations::PreparedFileImport::prepare(
-            paths, {source}, "folder/drop", AssetImportLimits{}.external_file_bytes);
+            paths, {source}, "folder/drop", AssetImportLimits{});
         ASSERT_TRUE(prepared) << prepared.error();
         std::filesystem::remove(folder / "drop");
         std::filesystem::create_directory_symlink("second", folder / "drop");
@@ -219,8 +218,10 @@ namespace Comet::Tests {
         const auto source = mesh();
         const auto model_bytes = std::filesystem::file_size(source);
         const auto buffer_bytes = std::filesystem::file_size(external / "data/model.bin");
-        auto rejected = AssetSourceOperations::PreparedFileImport::prepare(
-            paths, {source}, "folder", model_bytes + buffer_bytes - 1);
+        AssetImportLimits limits;
+        limits.external_file_bytes = model_bytes + buffer_bytes - 1;
+        auto rejected =
+            AssetSourceOperations::PreparedFileImport::prepare(paths, {source}, "folder", limits);
         ASSERT_FALSE(rejected);
         EXPECT_NE(rejected.error().find("byte budget"), std::string::npos);
         expect_empty();
@@ -228,10 +229,37 @@ namespace Comet::Tests {
 
     TEST_F(ExternalFileImportTest, DuplicateInputsConsumeTheByteBudgetOnce) {
         const auto source = texture();
+        AssetImportLimits limits;
+        limits.external_file_bytes = std::filesystem::file_size(source);
         auto prepared = AssetSourceOperations::PreparedFileImport::prepare(
-            paths, {source, source}, "folder", std::filesystem::file_size(source));
+            paths, {source, source}, "folder", limits);
         ASSERT_TRUE(prepared) << prepared.error();
         EXPECT_TRUE(std::move(prepared).value().publish(database).succeeded());
+    }
+
+    TEST_F(ExternalFileImportTest, PreparationUsesConfiguredSourceAndWorkingLimits) {
+        const auto image = texture();
+        AssetImportLimits limits;
+        limits.source_bytes = std::filesystem::file_size(image) - 1;
+        auto source_rejected =
+            AssetSourceOperations::PreparedFileImport::prepare(paths, {image}, "folder", limits);
+        ASSERT_FALSE(source_rejected);
+        expect_empty();
+
+        limits = {};
+        limits.texture_working_bytes = 16ull * 1024 * 1024;
+        auto texture_rejected =
+            AssetSourceOperations::PreparedFileImport::prepare(paths, {image}, "folder", limits);
+        ASSERT_FALSE(texture_rejected);
+        expect_empty();
+
+        const auto model = mesh();
+        limits = {};
+        limits.mesh_working_bytes = 16ull * 1024 * 1024;
+        auto mesh_rejected =
+            AssetSourceOperations::PreparedFileImport::prepare(paths, {model}, "folder", limits);
+        ASSERT_FALSE(mesh_rejected);
+        expect_empty();
     }
 
     TEST_F(ExternalFileImportTest, GltfCopiesRelativeBufferAndImageAndDeduplicatesInputs) {
