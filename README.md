@@ -153,7 +153,7 @@ CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍�
 例如默认 demo 的路径是 `demo/.comet/logs/`，打开外部项目则写到外部项目内，不依赖仓库根目录或工作目录。
 各 Profile 默认 `diagnostics.enable_file_logging: false`；在 `config/profiles/<Profile>.yaml` 中改为 `true`
 后才创建目录与文件。Profiler 文件还需当前构建支持且启用 `diagnostics.enable_profiler`。
-排查资产监视卡顿时，可在 Profiler 输出中分别查看 `AssetSourceMonitor` 的局部文件检查／完整快照、`AssetDatabase` 的局部／全量扫描，以及 `EditorAssets::accept_scan` 的结果处理耗时。
+排查资产监视卡顿时，可在 Profiler 输出中分别查看 `AssetSourceMonitor` 的局部文件检查／完整快照、`AssetDatabase` 的局部扫描／全量准备／发布，以及 `EditorAssets::accept_scan` 的结果处理耗时。
 路径由启动入口传入，不作为 YAML 中的机器路径配置。无日志路径时仅保留终端／自定义输出端，
 目录无法写入时向标准错误提示并保留这些输出，不回退写到其他目录；项目／配置加载前的失败仍输出到终端。
 旧仓库根 `logs/` 不自动搬迁或删除。
@@ -382,7 +382,7 @@ Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。�
   `Primary` 代表 Cmd／Ctrl，`[]` 禁用绑定；冲突会记录日志并回退默认配置。
 - Project 自动监视资产变化；右键 Refresh 重扫，Reimport 强制重建 Mesh 缓存。
   macOS 以目录通知触发检查，已知文件内容变化按路径复核；新增、删除、移动和结构变化仍全量扫描。
-  结构变化的目录快照在后台获取，完成后主线程更新资产索引；右键 Refresh 仍立即同步重扫。
+  结构变化的目录快照和资产索引候选在后台准备，主线程复核后发布；右键 Refresh 仍立即同步重扫。
   空闲时不周期扫描；其他平台暂用 500 ms 轮询兜底。
   拖动资产到目录可移动，右键 Rename 改名，右键 Delete 经确认后把资产及 `.meta` 移到项目 `.comet/trash/`；
   已被其他索引资产引用的文件不能删除，场景引用不会自动清空。回收目录仅在本机、不纳入版本控制；

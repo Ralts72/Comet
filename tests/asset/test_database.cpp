@@ -80,6 +80,57 @@ namespace Comet::Tests {
         EXPECT_EQ(texture->import_settings, metadata.import_settings);
     }
 
+    TEST(AssetDatabaseTest, PreparationDoesNotWriteMetadataUntilPublication) {
+        const TemporaryProject project;
+        const auto source = project.add_file("new.png");
+        AssetDatabase database(project.paths());
+
+        auto prepared = AssetDatabase::prepare_scan(project.paths(), database.generation());
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
+        EXPECT_EQ(database.size(), 0u);
+
+        auto published = database.publish_scan(std::move(prepared));
+        ASSERT_TRUE(published);
+        EXPECT_TRUE(published->succeeded());
+        EXPECT_EQ(published->generated_metadata, 1u);
+        EXPECT_TRUE(std::filesystem::exists(metadata_path(source)));
+        EXPECT_NE(database.find("new.png"), nullptr);
+    }
+
+    TEST(AssetDatabaseTest, RejectsPreparedScanWhenInputOrDatabaseChanges) {
+        const TemporaryProject project;
+        const auto source = project.add_file("first.png", "first");
+        AssetDatabase database(project.paths());
+
+        auto stale_input = AssetDatabase::prepare_scan(project.paths(), database.generation());
+        project.add_file("first.png", "a longer second version");
+        EXPECT_FALSE(database.publish_scan(std::move(stale_input)));
+        EXPECT_EQ(database.size(), 0u);
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
+
+        auto stale_structure = AssetDatabase::prepare_scan(project.paths(), database.generation());
+        project.add_file("second.png", "second");
+        EXPECT_FALSE(database.publish_scan(std::move(stale_structure)));
+        EXPECT_EQ(database.size(), 0u);
+
+        auto stale_database = AssetDatabase::prepare_scan(project.paths(), database.generation());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto revision = database.get_revision(database.find("first.png")->handle);
+        EXPECT_FALSE(database.publish_scan(std::move(stale_database)));
+        EXPECT_EQ(database.get_revision(database.find("first.png")->handle), revision);
+    }
+
+    TEST(AssetDatabaseTest, RejectsPreparedScanFromAnotherProject) {
+        const TemporaryProject source_project;
+        const TemporaryProject target_project;
+        source_project.add_file("source.png");
+        AssetDatabase target(target_project.paths());
+
+        auto prepared = AssetDatabase::prepare_scan(source_project.paths(), target.generation());
+        EXPECT_FALSE(target.publish_scan(std::move(prepared)));
+        EXPECT_EQ(target.size(), 0u);
+    }
+
     TEST(AssetDatabaseTest, KeepsIdentityWhenAssetAndMetadataMoveTogether) {
         const TemporaryProject project;
         const std::filesystem::path source = project.add_file("old.png");

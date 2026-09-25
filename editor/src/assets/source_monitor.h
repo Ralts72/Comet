@@ -39,6 +39,9 @@ namespace CometEditor {
         [[nodiscard]] bool uses_native_notifications() const {
             return m_changes.uses_native_notifications();
         }
+        [[nodiscard]] std::uint64_t change_generation() const noexcept {
+            return m_change_generation;
+        }
 
         [[nodiscard]] bool acknowledge(const std::filesystem::path& relative_path);
 
@@ -77,6 +80,7 @@ namespace CometEditor {
         bool m_initial_capture_failed = false;
         std::optional<PendingSnapshot> m_pending_snapshot;
         std::uint64_t m_snapshot_generation = 0;
+        std::uint64_t m_change_generation = 0;
         bool m_full_scan_requested = false;
     };
 }

@@ -10,6 +10,7 @@ set(SOURCES
         src/asset/artifact/environment_artifact.cpp
         src/asset/artifact/shader_program_artifact.cpp
         src/asset/database.cpp
+        src/asset/database_scan.cpp
         src/asset/handle.cpp
         src/asset/import_settings.cpp
         src/asset/import/input_snapshot.cpp

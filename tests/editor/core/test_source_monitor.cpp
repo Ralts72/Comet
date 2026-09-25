@@ -167,6 +167,25 @@ namespace CometEditor::Tests {
         EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
     }
 
+    TEST(AssetSourceMonitorTest, UnchangedFallbackDoesNotInvalidateDatabaseCandidate) {
+        const TemporaryAssetDirectory directory;
+        directory.write("mesh.gltf", "mesh");
+        AssetSourceMonitor monitor(directory.root(), std::chrono::milliseconds(1));
+        Comet::TaskScheduler scheduler(1);
+        if(monitor.uses_native_notifications())
+            GTEST_SKIP() << "Fallback polling is unavailable with native notifications";
+        ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
+        const auto generation = monitor.change_generation();
+        const auto later = AssetSourceMonitor::Clock::now() + std::chrono::seconds(1);
+
+        EXPECT_EQ(
+            monitor.poll_async(scheduler, later).state, AssetSourceMonitor::PollState::NotPolled);
+        scheduler.wait_idle();
+        EXPECT_EQ(
+            monitor.poll_async(scheduler, later).state, AssetSourceMonitor::PollState::Unchanged);
+        EXPECT_EQ(monitor.change_generation(), generation);
+    }
+
     TEST(AssetSourceMonitorTest, ExplicitRefreshInvalidatesPendingSnapshot) {
         const TemporaryAssetDirectory directory;
         directory.write("mesh.gltf", "mesh");

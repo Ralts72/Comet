@@ -9,6 +9,7 @@
 #include <compare>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -46,10 +47,19 @@ namespace Comet {
 
     class COMET_API AssetDatabase final {
     public:
+        struct PreparedScan;
+
         explicit AssetDatabase(ProjectPaths paths);
         [[nodiscard]] const ProjectPaths& paths() const noexcept { return m_paths; }
 
         [[nodiscard]] AssetScanReport scan();
+        // 只读准备可在 Worker 执行；发布必须由数据库 owner 串行调用。
+        [[nodiscard]] static std::shared_ptr<PreparedScan> prepare_scan(
+            ProjectPaths paths, std::uint64_t database_generation);
+        // 输入在准备后发生变化时返回空值；调用方应重新准备，不发布旧候选。
+        [[nodiscard]] std::optional<AssetScanReport> publish_scan(
+            std::shared_ptr<PreparedScan> prepared);
+        [[nodiscard]] std::uint64_t generation() const noexcept { return m_generation; }
         // 仅更新已索引的非结构性源码；返回空值时调用方必须执行完整 scan。
         [[nodiscard]] std::optional<AssetScanReport> scan_changed_sources(
             std::span<const std::filesystem::path> paths);
@@ -78,6 +88,12 @@ namespace Comet {
         [[nodiscard]] std::size_t size() const noexcept;
 
     private:
+        [[nodiscard]] static std::uint64_t record_source_signature(const AssetRecord& record,
+            std::span<const AssetHandle> dependencies, const std::filesystem::path& assets_root,
+            const std::unordered_map<AssetHandle, std::vector<std::filesystem::path>>&
+                import_dependencies_by_asset,
+            const std::unordered_map<AssetHandle, AssetRecord>& assets);
+
         ProjectPaths m_paths;
         std::unordered_map<AssetHandle, AssetRecord> m_assets;
         std::unordered_map<std::filesystem::path, AssetHandle> m_handles_by_path;
@@ -89,5 +105,6 @@ namespace Comet {
         std::unordered_map<AssetHandle, std::uint64_t> m_asset_source_signatures;
         std::unordered_map<AssetHandle, AssetRevision> m_asset_revisions;
         AssetRevision m_next_revision = 1;
+        std::uint64_t m_generation = 0;
     };
 }

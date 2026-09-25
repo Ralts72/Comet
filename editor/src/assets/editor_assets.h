@@ -6,6 +6,8 @@
 #include "asset/reference.h"
 #include "file_watch_config.h"
 #include <chrono>
+#include <cstdint>
+#include <future>
 #include <memory>
 #include <optional>
 #include <set>
@@ -59,6 +61,12 @@ namespace CometEditor {
             Comet::AssetHandle handle) const;
 
     private:
+        struct PendingScan {
+            std::future<std::shared_ptr<Comet::AssetDatabase::PreparedScan>> completion;
+            std::uint64_t monitor_generation = 0;
+            Clock::time_point change_time;
+        };
+
         void observe(const AssetSourceMonitor::PollResult& result);
         void accept_scan(const Comet::AssetScanReport& report,
             std::optional<Clock::time_point> change_time = std::nullopt);
@@ -69,6 +77,9 @@ namespace CometEditor {
         Comet::AssetManager m_manager;
         AssetSourceMonitor m_monitor;
         Comet::TaskScheduler& m_scheduler;
+        std::optional<PendingScan> m_pending_scan;
+        bool m_full_scan_requested = false;
+        Clock::time_point m_full_scan_change_time{};
         std::chrono::milliseconds m_quiet_period;
         std::unordered_map<Comet::AssetHandle, Clock::time_point> m_pending_shader_programs;
         std::unordered_map<Comet::AssetHandle, Comet::MeshImportMode> m_pending_mesh_imports;

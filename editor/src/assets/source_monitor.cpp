@@ -44,8 +44,10 @@ namespace CometEditor {
             }
         } else if(changes.requires_full_scan) {
             ++m_snapshot_generation;
+            ++m_change_generation;
             m_full_scan_requested = true;
         } else if(changes.reason == FileRecheckTrigger::Reason::Notification) {
+            ++m_change_generation;
             if(m_pending_snapshot || m_full_scan_requested) {
                 ++m_snapshot_generation;
                 m_full_scan_requested = true;
@@ -121,14 +123,17 @@ namespace CometEditor {
             m_snapshot[path] = state;
             result.changed_paths.push_back(path);
         }
-        if(!result.changed_paths.empty())
+        if(!result.changed_paths.empty()) {
             result.state = PollState::Changed;
+            ++m_snapshot_generation;
+        }
         return result;
     }
 
     AssetSourceMonitor::PollResult AssetSourceMonitor::poll_now() {
         PROFILE_SCOPE("AssetSourceMonitor::poll_now");
         ++m_snapshot_generation;
+        ++m_change_generation;
         m_full_scan_requested = false;
         if(!m_initial_poll_attempted) {
             m_initial_poll_attempted = true;
@@ -155,6 +160,8 @@ namespace CometEditor {
         m_snapshot = std::move(snapshot);
         m_has_baseline = true;
         m_initial_capture_failed = false;
+        if(changed)
+            ++m_change_generation;
         result.state = changed ? PollState::Changed : PollState::Unchanged;
         result.requires_full_scan = true;
         return result;
@@ -175,8 +182,9 @@ namespace CometEditor {
         }
         if(!exists) {
             m_snapshot.erase(normalized);
+            ++m_snapshot_generation;
+            ++m_change_generation;
             if(m_pending_snapshot) {
-                ++m_snapshot_generation;
                 m_full_scan_requested = true;
             }
             return true;
@@ -195,8 +203,9 @@ namespace CometEditor {
         }
 
         m_snapshot[normalized] = FileState{.write_time = write_time, .size = size};
+        ++m_snapshot_generation;
+        ++m_change_generation;
         if(m_pending_snapshot) {
-            ++m_snapshot_generation;
             m_full_scan_requested = true;
         }
         return true;

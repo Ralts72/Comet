@@ -99,6 +99,8 @@ namespace CometEditor {
     }
 
     Comet::AssetScanReport EditorAssets::refresh() {
+        m_pending_scan.reset();
+        m_full_scan_requested = false;
         observe(m_monitor.poll_now());
         auto report = m_database.scan();
         accept_scan(report);
@@ -109,13 +111,46 @@ namespace CometEditor {
         const Clock::time_point now) {
         const auto result = m_monitor.poll_async(m_scheduler, now);
         observe(result);
+        if(result.state == AssetSourceMonitor::PollState::Failed)
+            m_full_scan_requested = false;
         std::optional<Comet::AssetScanReport> report;
         if(result.state == AssetSourceMonitor::PollState::Changed) {
-            if(!result.requires_full_scan)
+            if(!result.requires_full_scan && !m_pending_scan && !m_full_scan_requested)
                 report = m_database.scan_changed_sources(result.changed_paths);
-            if(!report)
-                report = m_database.scan();
-            accept_scan(*report, now);
+            if(report)
+                accept_scan(*report, now);
+            else {
+                m_full_scan_requested = true;
+                m_full_scan_change_time = now;
+            }
+        }
+        if(m_pending_scan
+            && m_pending_scan->completion.wait_for(std::chrono::seconds(0))
+                   == std::future_status::ready) {
+            auto prepared = m_pending_scan->completion.get();
+            if(m_pending_scan->monitor_generation == m_monitor.change_generation()) {
+                report = m_database.publish_scan(std::move(prepared));
+                if(report)
+                    accept_scan(*report, m_pending_scan->change_time);
+            }
+            if(!report && result.state != AssetSourceMonitor::PollState::Failed) {
+                m_full_scan_requested = true;
+                if(m_full_scan_change_time == Clock::time_point{})
+                    m_full_scan_change_time = now;
+            }
+            m_pending_scan.reset();
+        }
+        if(m_full_scan_requested && !m_pending_scan) {
+            const auto database_generation = m_database.generation();
+            auto completion = m_scheduler.try_submit_result([paths = m_paths, database_generation] {
+                return Comet::AssetDatabase::prepare_scan(paths, database_generation);
+            });
+            if(completion) {
+                m_pending_scan.emplace(
+                    std::move(*completion), m_monitor.change_generation(), m_full_scan_change_time);
+                m_full_scan_requested = false;
+                m_full_scan_change_time = Clock::time_point{};
+            }
         }
         schedule_shader_program_imports(now);
         for(auto request = m_pending_mesh_imports.begin();
