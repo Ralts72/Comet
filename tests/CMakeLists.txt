@@ -82,7 +82,7 @@ set(INTEGRATION_SOURCES
         editor/ui/test_language.cpp
         editor/ui/test_project_panel.cpp
         editor/ui/test_property_editor_registry.cpp
-        editor/ui/test_scene_file_dialog.cpp
+        editor/ui/test_path_dialog.cpp
         editor/ui/test_shortcuts.cpp
         editor/ui/test_unsaved_scene_dialog.cpp
         editor/ui/test_viewport.cpp

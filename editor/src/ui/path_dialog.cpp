@@ -1,11 +1,11 @@
-#include "scene/scene_file_dialog.h"
+#include "ui/path_dialog.h"
 #include "ui/language.h"
 #include <algorithm>
 #include <utility>
 #include <imgui.h>
 namespace CometEditor {
-    void SceneFileDialog::request(const Action dialog, const std::filesystem::path& current_path,
-        const std::filesystem::path& scene_directory) {
+    void PathDialog::request(const Action dialog, const std::filesystem::path& current_path,
+        const std::filesystem::path& default_directory) {
         m_action = dialog;
         m_open_requested = true;
         m_close_requested = false;
@@ -14,23 +14,27 @@ namespace CometEditor {
         m_error.clear();
 
         std::string initial_path = current_path.string();
-        if(dialog == Action::Save && initial_path.empty()) {
-            initial_path = (scene_directory / "untitled.scene").string();
-        } else if(dialog == Action::Open && initial_path.empty()) {
-            initial_path = scene_directory.string() + "/";
+        if(dialog == Action::SaveScene && initial_path.empty()) {
+            initial_path = (default_directory / "untitled.scene").string();
+        } else if(initial_path.empty()) {
+            initial_path = default_directory.string() + "/";
         }
         m_path_buffer.fill('\0');
         std::copy_n(initial_path.data(), std::min(initial_path.size(), m_path_buffer.size() - 1),
             m_path_buffer.data());
     }
 
-    void SceneFileDialog::render() {
+    void PathDialog::render() {
         if(m_action == Action::None) {
             return;
         }
 
-        const bool is_open = m_action == Action::Open;
-        const char* title = is_open ? "Open Scene" : "Save Scene";
+        const bool is_open = m_action != Action::SaveScene;
+        const char* title = "Open Scene";
+        if(m_action == Action::SaveScene)
+            title = "Save Scene";
+        else if(m_action == Action::OpenProject)
+            title = "Open Project";
         if(m_open_requested) {
             ImGui::OpenPopup(title);
             m_open_requested = false;
@@ -75,11 +79,11 @@ namespace CometEditor {
         ImGui::EndPopup();
     }
 
-    std::optional<SceneFileDialog::Request> SceneFileDialog::take_request() {
+    std::optional<PathDialog::Request> PathDialog::take_request() {
         return std::exchange(m_request, std::nullopt);
     }
 
-    void SceneFileDialog::complete(const Comet::Result<void, Comet::Error>& result) {
+    void PathDialog::complete(const Comet::Result<void, Comet::Error>& result) {
         m_close_requested = static_cast<bool>(result);
         m_error = result ? std::string{} : result.error().message;
     }

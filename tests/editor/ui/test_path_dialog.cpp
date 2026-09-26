@@ -1,9 +1,10 @@
 #ifdef COMET_TEST_EDITOR_UI
-#include "scene/scene_file_dialog.h"
+#include "ui/path_dialog.h"
 #include "scene/scene_document.h"
 #include "scene/component_registry.h"
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
+#include "core/project.h"
 #include "support/imgui_context.h"
 #include "support/temporary_directory.h"
 
@@ -11,7 +12,7 @@
 #include <imgui_internal.h>
 
 namespace CometEditor::Tests {
-    class SceneFileDialogTest: public ::testing::Test {
+    class PathDialogTest: public ::testing::Test {
     protected:
         Comet::Tests::ImGuiTestContext imgui;
         Comet::Tests::TemporaryDirectory directory;
@@ -27,7 +28,7 @@ namespace CometEditor::Tests {
                 active.swap(scene);
                 return Comet::Result<void, Comet::Error>::success();
             }};
-        SceneFileDialog dialog;
+        PathDialog dialog;
         const std::filesystem::path path = directory.path() / "assets/untitled.scene";
 
         void frame() {
@@ -36,7 +37,7 @@ namespace CometEditor::Tests {
             ImGui::Render();
         }
 
-        void show(SceneFileDialog::Action action) {
+        void show(PathDialog::Action action) {
             dialog.request(action, path, path.parent_path());
             frame();
             frame();
@@ -61,13 +62,13 @@ namespace CometEditor::Tests {
         }
     };
 
-    TEST_F(SceneFileDialogTest, SaveQueuesOnceWithoutWritingDuringRendering) {
-        show(SceneFileDialog::Action::Save);
+    TEST_F(PathDialogTest, SaveQueuesOnceWithoutWritingDuringRendering) {
+        show(PathDialog::Action::SaveScene);
         click("Save Scene");
         EXPECT_FALSE(std::filesystem::exists(path));
         const auto request = dialog.take_request();
         ASSERT_TRUE(request);
-        EXPECT_EQ(request->action, SceneFileDialog::Action::Save);
+        EXPECT_EQ(request->action, PathDialog::Action::SaveScene);
         EXPECT_EQ(request->path, path.string());
         EXPECT_FALSE(dialog.take_request());
         frame();
@@ -82,12 +83,12 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(std::filesystem::exists(path));
     }
 
-    TEST_F(SceneFileDialogTest, FailedOpenStaysOpenAndRetryInstallsOnlyWhenExecuted) {
-        show(SceneFileDialog::Action::Open);
+    TEST_F(PathDialogTest, FailedOpenStaysOpenAndRetryInstallsOnlyWhenExecuted) {
+        show(PathDialog::Action::OpenScene);
         click("Open Scene");
         const auto request = dialog.take_request();
         ASSERT_TRUE(request);
-        EXPECT_EQ(request->action, SceneFileDialog::Action::Open);
+        EXPECT_EQ(request->action, PathDialog::Action::OpenScene);
         EXPECT_EQ(installations, 0);
         const auto* original = active.get();
         const auto failed = document.open(request->path);
@@ -114,13 +115,31 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(ImGui::FindWindowByName("Open Scene")->Active);
     }
 
-    TEST_F(SceneFileDialogTest, CancelClosesWithoutRequestOrFileOperation) {
-        show(SceneFileDialog::Action::Save);
+    TEST_F(PathDialogTest, CancelClosesWithoutRequestOrFileOperation) {
+        show(PathDialog::Action::SaveScene);
         click("Save Scene", true);
         frame();
         EXPECT_FALSE(dialog.take_request());
         EXPECT_FALSE(ImGui::FindWindowByName("Save Scene")->Active);
         EXPECT_FALSE(std::filesystem::exists(path));
+        EXPECT_EQ(installations, 0);
+    }
+
+    TEST_F(PathDialogTest, ProjectOpenReportsFailureWithoutClosingTheDialog) {
+        dialog.request(PathDialog::Action::OpenProject, directory.path(), directory.path());
+        frame();
+        frame();
+        click("Open Project");
+        const auto request = dialog.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->action, PathDialog::Action::OpenProject);
+        EXPECT_EQ(request->path, directory.path().string());
+        auto candidate = Comet::Project::load(request->path);
+        ASSERT_FALSE(candidate);
+        dialog.complete(Comet::Result<void, Comet::Error>::failure({candidate.error()}));
+        frame();
+        frame();
+        EXPECT_TRUE(ImGui::FindWindowByName("Open Project")->Active);
         EXPECT_EQ(installations, 0);
     }
 }

@@ -709,7 +709,8 @@ validation、同步测试和生命周期回归通过。
 - 最小项目入口已接通：app／editor 读取 `project.json` 与同一项目资产；启动、路径约束和缺失引用行为见
   [打开项目](../README.md#打开项目)。
   app 仍依赖开发期导入器与源码目录，不能视为 Shipping Manifest 已完成。
-- 编辑器内增加 File → Open Project，与现有 Open Scene 分开；选择目录或 project.json，并提供最近项目列表。
+- 编辑器内已有 File → Open Project 路径入口，与 Open Scene 分开；可输入目录或 project.json。
+  当前仅 Edit 模式可用，Play 需先手动停止；最近项目列表仍待实现。
   切换前处理未保存场景和活动属性／Gizmo 编辑，Play 模式先退出；取消或新项目校验失败时保持当前项目不变。
   第一版可通过重启编辑器进程打开新项目，避免直接交换活动 AssetManager；若支持原地切换，须先排空旧任务和在途帧，
   再释放旧场景／选择／历史／资产缓存与监视器，保存旧布局并加载新布局，禁止旧项目结果发布到新项目。

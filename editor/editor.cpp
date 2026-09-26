@@ -1,4 +1,4 @@
-#include "runtime/entry.h"
+#include "runtime/application.h"
 #include "render/resource/render_resources.h"
 #include "graphics/resource/sampler.h"
 #include "assets/editor_assets.h"
@@ -8,7 +8,7 @@
 #include "render/render_stats.h"
 #include "render/render_diagnostics.h"
 #include "common/file_io.h"
-#include "scene/scene_file_dialog.h"
+#include "ui/path_dialog.h"
 #include "scene/editor_request_policy.h"
 #include "ui/dialogs.h"
 #include "scene/command_history.h"
@@ -39,9 +39,11 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <imgui.h>
 #include <spdlog/sinks/callback_sink.h>
@@ -56,6 +58,10 @@ namespace {
                   .scene_output = Comet::Config::Render::SceneOutput::Offscreen,
                   .window_title = "Comet Editor"}),
               m_project(std::move(project)) {}
+
+        [[nodiscard]] std::optional<std::filesystem::path> take_next_project() {
+            return std::exchange(m_next_project, std::nullopt);
+        }
 
         Comet::Result<void, Comet::Error> on_init() override {
             LOG_INFO("Editor initializing...");
@@ -389,10 +395,16 @@ namespace {
                 return Comet::Result<void, Comet::Error>::success();
             }
 
-            if(command != CometEditor::MenuBar::Command::CopyEntity && !finish_active_edit())
+            if(command != CometEditor::MenuBar::Command::CopyEntity
+                && command != CometEditor::MenuBar::Command::OpenProject
+                && !finish_active_edit())
                 return Comet::Result<void, Comet::Error>::success();
 
             switch(command) {
+                case CometEditor::MenuBar::Command::OpenProject:
+                    m_path_dialog.request(CometEditor::PathDialog::Action::OpenProject,
+                        m_project.paths().root(), m_project.paths().root());
+                    break;
                 case CometEditor::MenuBar::Command::Undo:
                     if(!m_scene_editor->undo(get_engine().get_scene()))
                         LOG_WARN("Cannot undo scene edit");
@@ -433,12 +445,12 @@ namespace {
                     m_scene_document->request({CometEditor::SceneDocument::Action::New, {}});
                     break;
                 case CometEditor::MenuBar::Command::OpenScene:
-                    m_scene_file_dialog.request(CometEditor::SceneFileDialog::Action::Open,
+                    m_path_dialog.request(CometEditor::PathDialog::Action::OpenScene,
                         m_scene_document->get_path(), m_project.paths().assets() / "scenes");
                     break;
                 case CometEditor::MenuBar::Command::SaveScene:
                     if(m_scene_document->get_path().empty()) {
-                        m_scene_file_dialog.request(CometEditor::SceneFileDialog::Action::Save,
+                        m_path_dialog.request(CometEditor::PathDialog::Action::SaveScene,
                             m_scene_document->get_path(), m_project.paths().assets() / "scenes");
                     } else {
                         return m_scene_document->save(m_scene_document->get_path());
@@ -578,7 +590,7 @@ namespace {
             ImGui::EndDisabled();
             m_console_panel->render();
             m_render_stats->render();
-            m_scene_file_dialog.render();
+            m_path_dialog.render();
             draw_unsaved_dialog();
             if(!m_scene_document->has_pending_request())
                 m_menu_bar->collect_shortcuts();
@@ -662,17 +674,31 @@ namespace {
             return Comet::Result<void, Comet::Error>::success();
         }
 
-        Comet::Result<void, Comet::Error> handle_scene_file_request(
-            const CometEditor::SceneFileDialog::Request& request) {
+        Comet::Result<void, Comet::Error> handle_path_request(
+            const CometEditor::PathDialog::Request& request) {
+            if(request.action == CometEditor::PathDialog::Action::OpenProject) {
+                auto candidate = Comet::Project::load(request.path);
+                if(!candidate) {
+                    m_path_dialog.complete(
+                        Comet::Result<void, Comet::Error>::failure({candidate.error()}));
+                    return Comet::Result<void, Comet::Error>::success();
+                }
+                if(!finish_active_edit())
+                    return Comet::Result<void, Comet::Error>::success();
+                m_next_project = candidate.value().paths().root();
+                m_scene_document->request({CometEditor::SceneDocument::Action::Close, {}});
+                m_path_dialog.complete(Comet::Result<void, Comet::Error>::success());
+                return Comet::Result<void, Comet::Error>::success();
+            }
             if(!finish_active_edit())
                 return Comet::Result<void, Comet::Error>::success();
-            if(request.action == CometEditor::SceneFileDialog::Action::Open) {
+            if(request.action == CometEditor::PathDialog::Action::OpenScene) {
                 m_scene_document->request({CometEditor::SceneDocument::Action::Open, request.path});
-                m_scene_file_dialog.complete(Comet::Result<void, Comet::Error>::success());
+                m_path_dialog.complete(Comet::Result<void, Comet::Error>::success());
                 return Comet::Result<void, Comet::Error>::success();
             }
             const auto saved = m_scene_document->save(request.path);
-            m_scene_file_dialog.complete(saved);
+            m_path_dialog.complete(saved);
             if(!saved && is_device_lost(saved.error()))
                 return saved;
             return Comet::Result<void, Comet::Error>::success();
@@ -708,10 +734,12 @@ namespace {
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
             const auto play_command = m_viewport->panel().take_play_command();
-            const auto file_request = m_scene_file_dialog.take_request();
-            const bool dialog_cancelled = m_scene_file_dialog.take_cancelled();
-            if(dialog_cancelled)
+            const auto file_request = m_path_dialog.take_request();
+            const bool dialog_cancelled = m_path_dialog.take_cancelled();
+            if(dialog_cancelled) {
                 m_scene_document->decide(CometEditor::SceneDocument::Decision::Cancel);
+                m_next_project.reset();
+            }
 
             using Kind = CometEditor::SceneRequestKind;
             const auto selected = CometEditor::select_scene_request({
@@ -729,7 +757,7 @@ namespace {
                 case Kind::None:
                     break;
                 case Kind::FileDialog:
-                    return handle_scene_file_request(*file_request);
+                    return handle_path_request(*file_request);
                 case Kind::Menu: {
                     auto result = handle_command(*menu_command);
                     if(!result && is_device_lost(result.error()))
@@ -793,9 +821,9 @@ namespace {
             if(!result && !is_device_lost(result.error())) {
                 LOG_WARN("Scene operation rejected: {}", result.error().message);
                 if(action->action == CometEditor::SceneDocument::Action::Open) {
-                    m_scene_file_dialog.request(CometEditor::SceneFileDialog::Action::Open,
+                    m_path_dialog.request(CometEditor::PathDialog::Action::OpenScene,
                         action->path, m_project.paths().assets() / "scenes");
-                    m_scene_file_dialog.complete(result);
+                    m_path_dialog.complete(result);
                 }
                 return Comet::Result<void, Comet::Error>::success();
             }
@@ -808,8 +836,10 @@ namespace {
             if(!decision)
                 return;
             m_scene_document->decide(*decision);
+            if(*decision == CometEditor::SceneDocument::Decision::Cancel)
+                m_next_project.reset();
             if(*decision == CometEditor::SceneDocument::Decision::Save) {
-                m_scene_file_dialog.request(CometEditor::SceneFileDialog::Action::Save,
+                m_path_dialog.request(CometEditor::PathDialog::Action::SaveScene,
                     m_scene_document->get_path(), m_project.paths().assets() / "scenes");
             }
         }
@@ -834,7 +864,8 @@ namespace {
         std::unique_ptr<CometEditor::SceneEditor> m_scene_editor;
         std::unique_ptr<CometEditor::SceneDocument> m_scene_document;
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
-        CometEditor::SceneFileDialog m_scene_file_dialog;
+        CometEditor::PathDialog m_path_dialog;
+        std::optional<std::filesystem::path> m_next_project;
 
         std::unique_ptr<CometEditor::MenuBar> m_menu_bar;
         std::unique_ptr<CometEditor::HierarchyPanel> m_hierarchy_panel;
@@ -845,18 +876,32 @@ namespace {
         std::unique_ptr<CometEditor::RenderStatsPanel> m_render_stats;
     };
 
-    Comet::Result<std::unique_ptr<Comet::Application>> create_editor(
-        Comet::ApplicationArguments arguments) {
-        if(arguments.size() > 1 || (!arguments.empty() && arguments.front().starts_with('-')))
-            return Comet::Result<std::unique_ptr<Comet::Application>>::failure(
-                "Expected a project directory or project.json");
-        auto project = Comet::Project::load(
-            arguments.empty() ? COMET_SAMPLE_PROJECT_DIRECTORY : arguments.front());
-        if(!project)
-            return Comet::Result<std::unique_ptr<Comet::Application>>::failure(project.error());
-        return Comet::Result<std::unique_ptr<Comet::Application>>::success(
-            std::make_unique<Editor>(std::move(project).value()));
-    }
 }
 
-RUN_APP(create_editor, "[project-directory | project.json]")
+int main(int argc, char** argv) {
+    if(argc == 2 && std::string_view(argv[1]) == "--help") {
+        std::cout << "Usage: " << std::filesystem::path(argv[0]).filename().string()
+                  << " [project-directory | project.json]\n";
+        return 0;
+    }
+    if(argc > 2 || (argc == 2 && std::string_view(argv[1]).starts_with('-'))) {
+        std::cerr << "Application failed: Expected a project directory or project.json\n";
+        return 1;
+    }
+    std::filesystem::path path = argc == 2 ? argv[1] : COMET_SAMPLE_PROJECT_DIRECTORY;
+    while(true) {
+        auto project = Comet::Project::load(path);
+        if(!project) {
+            std::cerr << "Application failed: " << project.error() << '\n';
+            return 1;
+        }
+        auto editor = std::make_unique<Editor>(std::move(project).value());
+        const int result = Comet::run(editor.get(),
+            {.config_directory = COMET_CONFIG_DIRECTORY, .config_profile = COMET_CONFIG_PROFILE});
+        const auto next = editor->take_next_project();
+        editor.reset();
+        if(result != 0 || !next)
+            return result;
+        path = *next;
+    }
+}

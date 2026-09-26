@@ -16,6 +16,7 @@ namespace CometEditor {
     class MenuBar {
     public:
         enum class Command {
+            OpenProject,
             NewScene,
             OpenScene,
             SaveScene,

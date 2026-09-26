@@ -236,6 +236,9 @@ GLFW 以动态库构建，确保引擎和 UI 后端共用一份窗口系统状�
 ```
 
 app 和 editor 可执行文件都接受同样的可选路径参数；相对路径以调用者的工作目录为基准。`--help` 显示用法。
+编辑器中的“文件 → 打开项目”可输入项目目录或 `project.json` 路径。候选项目校验通过后，
+编辑器先处理未保存场景，再结束旧会话并打开新项目；取消或无效路径不会切换项目。
+运行模式下先停止 Play，才能打开项目菜单。
 项目需要 `project.json` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。
 编辑器生成的 `.scene`（v2）、`.mat`（v2）、`.meta`（v3）使用 JSON，扩展名不变；
 `.scene` 的 `entities` 只放根实体，子实体通过 `children` 嵌套，不再保存 `parent` 引用；UUID 仍全场景唯一。
@@ -535,7 +538,7 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
   新场景由 Editor 先准备资产再激活；Play 失败或停止时恢复保留的 Edit 场景，不重复准备。
   面板产生请求，由统一更新阶段交给 SceneEditor 校验和执行；Viewport 管相机、拾取和 Gizmo，不持有 Engine。
   Inspector 的材质读取交给 EditorAssets，默认值／模板迁移／草稿校验集中在 material_editing。
-  简单确认弹窗集中在 `editor/src/ui/dialogs`，只返回选择；有路径和请求状态的 SceneFileDialog 独立保留。
+  简单确认弹窗集中在 `editor/src/ui/dialogs`，只返回选择；场景与项目共用 `PathDialog` 收集路径请求。
 - **Shader**：编译工具独立于 engine。开发编辑器支持内置材质程序和项目 `.shader` 的后台编译与候选发布，
   失败保留旧画面；项目材质属性由描述与反射共同确定。辅助线、阴影、天空盒与输出 Shader 修改仍需重新构建，更复杂的项目接口尚未接入。
 - **坐标**：世界 +Y 向上，Vulkan Viewport 负高度转换画面坐标；`flip_y` 仅影响纹理导入。

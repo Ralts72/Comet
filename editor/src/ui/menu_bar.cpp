@@ -39,6 +39,9 @@ namespace CometEditor {
     void MenuBar::render_file_menu(
         const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene) {
         if(ImGui::BeginMenu(Ui::label("File").c_str(), m_state.mode == EditorMode::Edit)) {
+            if(ImGui::MenuItem(Ui::label("Open Project").c_str()))
+                m_requested_command = Command::OpenProject;
+            ImGui::Separator();
             const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
             if(ImGui::MenuItem(Ui::label("New Scene").c_str(),
                    m_shortcuts.label(EditorShortcuts::Action::NewScene, mac).c_str())) {

@@ -7,15 +7,15 @@
 #include <string>
 #include <utility>
 namespace CometEditor {
-    class SceneFileDialog {
+    class PathDialog {
     public:
-        enum class Action { None, Open, Save };
+        enum class Action { None, OpenScene, SaveScene, OpenProject };
         struct Request {
             Action action;
             std::string path;
         };
         void request(Action action, const std::filesystem::path& current_path,
-            const std::filesystem::path& scene_directory);
+            const std::filesystem::path& default_directory);
         void render();
         [[nodiscard]] std::optional<Request> take_request();
         void complete(const Comet::Result<void, Comet::Error>& result);
