@@ -352,7 +352,11 @@ Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或�
 `comet.find_entity(uuid)` 按场景内 UUID 查找；格式不合法会报错，实体不存在返回 `nil`。
 引用提供 `:is_valid()`、`:position()`、`:translate(x,y,z)` 和 `:rotate(x,y,z)`；位置与旋转沿用本地 Transform 和角度单位。
 引用只在当前运行场景的生命周期内有效，实体删除、同 UUID 重建或切换场景后旧引用失效；失效引用的读取／修改会报告脚本错误。
-目前跨实体引用仍需在脚本中提供 UUID，Inspector 尚无实体引用选择器；脚本尚不能创建或销毁实体。
+目前跨实体引用仍需在脚本中提供 UUID，Inspector 尚无实体引用选择器。
+脚本在 `on_start`、`fixed_update` 或 `update` 中可调用 `comet.create_entity(name)` 请求创建，返回新实体 UUID；
+也可调用 `comet.destroy_entity(reference)` 请求删除实体及其子树。结构变更在该阶段的所有 System 执行完后提交：
+本阶段内新 UUID 尚不能查到，待删除引用仍有效；下一阶段才能看到结果。暂停时不产生新请求，Stop 或运行失败会丢弃未提交请求。
+创建的实体只有默认组件，脚本可在后续阶段通过返回的 UUID 查找并设置 Transform；这些运行态变更不会写回 Edit 场景。
 
 ### 场景运行时
 

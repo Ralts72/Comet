@@ -104,6 +104,51 @@ namespace Comet::Tests {
         EXPECT_FALSE(runtime.is_active());
     }
 
+    TEST_F(ScriptSystemTest, ScriptEntityCreationAndDestructionUseRuntimeBoundaries) {
+        source(R"(return {
+            on_start = function(self)
+                self.spawned = comet.create_entity('Spawned')
+                assert(comet.find_entity(self.spawned) == nil)
+            end,
+            update = function(self)
+                if not self.destroyed then
+                    local target = comet.find_entity(self.spawned)
+                    assert(target and target:is_valid())
+                    comet.destroy_entity(target)
+                    assert(target:is_valid())
+                    self.target = target
+                    self.destroyed = true
+                else
+                    assert(not self.target:is_valid())
+                    assert(comet.find_entity(self.spawned) == nil)
+                end
+            end
+        })");
+        actor();
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_EQ(scene.entity_count(), 2u);
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(scene.entity_count(), 1u);
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, FailedScriptDiscardsQueuedEntityCreation) {
+        source(R"(return {
+            update = function(self)
+                comet.create_entity('Discarded')
+                error('script failed')
+            end
+        })");
+        actor();
+        ASSERT_TRUE(runtime.start(scene));
+        const auto failed = runtime.advance(0);
+        ASSERT_FALSE(failed);
+        EXPECT_NE(failed.error().message.find("script failed"), std::string::npos);
+        EXPECT_EQ(scene.entity_count(), 1u);
+        EXPECT_FALSE(runtime.is_active());
+    }
+
     TEST_F(ScriptSystemTest, ComponentRemovalReplacementAndFieldEditsHaveDifferentLifetimes) {
         source(R"(return {properties = {speed = 2},
             on_start = function(self) comet.translate(1, 0, 0) end,

@@ -96,6 +96,67 @@ namespace Comet {
         }
     }
 
+    void Scene::begin_entity_requests() {
+        m_entity_requests.clear();
+        m_entity_requests_active = true;
+    }
+
+    std::optional<EntityUuid> Scene::request_create_entity(const std::string_view name) {
+        if(!m_entity_requests_active || m_entity_requests.size() >= MAX_ENTITY_REQUESTS
+            || name.size() > 128 || name.find('\0') != std::string_view::npos)
+            return std::nullopt;
+        EntityUuid uuid;
+        bool reserved = false;
+        do {
+            uuid = EntityUuid::generate();
+            reserved = std::ranges::any_of(m_entity_requests, [uuid](const EntityRequest& request) {
+                return request.type == EntityRequest::Type::Create && request.uuid == uuid;
+            });
+        } while(find_entity(uuid) || reserved);
+        m_entity_requests.push_back(
+            {.type = EntityRequest::Type::Create, .uuid = uuid, .name = std::string(name)});
+        return uuid;
+    }
+
+    bool Scene::request_destroy_entity(const Entity entity) {
+        if(!m_entity_requests_active || !is_valid(entity))
+            return false;
+        const auto uuid = entity.get_uuid();
+        const auto id = entity.get_id();
+        if(std::ranges::any_of(m_entity_requests, [uuid, id](const EntityRequest& request) {
+               return request.type == EntityRequest::Type::Destroy && request.uuid == uuid
+                      && request.id == id;
+           }))
+            return true;
+        if(m_entity_requests.size() >= MAX_ENTITY_REQUESTS)
+            return false;
+        m_entity_requests.push_back({.type = EntityRequest::Type::Destroy,
+            .uuid = uuid,
+            .id = id});
+        return true;
+    }
+
+    bool Scene::commit_entity_requests() {
+        auto requests = std::move(m_entity_requests);
+        m_entity_requests.clear();
+        for(const auto& request : requests) {
+            if(request.type == EntityRequest::Type::Create) {
+                if(!create_entity_with_uuid(request.uuid, request.name))
+                    return false;
+                continue;
+            }
+            const Entity entity = find_entity(request.uuid);
+            if(entity && entity.get_id() == request.id)
+                destroy_entity(entity);
+        }
+        return true;
+    }
+
+    void Scene::end_entity_requests() noexcept {
+        m_entity_requests_active = false;
+        m_entity_requests.clear();
+    }
+
     bool Scene::set_parent(const Entity child, const Entity parent) {
         if(!is_valid(child) || !is_valid(parent) || child == parent || has_cycle(child, parent)) {
             return false;

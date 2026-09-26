@@ -1,6 +1,8 @@
 #pragma once
 #include <cstddef>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
@@ -14,6 +16,7 @@
 
 namespace Comet {
     class SceneSerializer;
+    class SceneRuntime;
 
     class COMET_API Scene {
     public:
@@ -35,6 +38,11 @@ namespace Comet {
             EntityUuid uuid, const std::string& name = "Entity");
 
         void destroy_entity(Entity entity);
+
+        // 仅活动 Runtime 可请求；结构变更在当前启动／更新阶段结束后统一提交。
+        [[nodiscard]] std::optional<EntityUuid> request_create_entity(
+            std::string_view name = "Entity");
+        [[nodiscard]] bool request_destroy_entity(Entity entity);
 
         [[nodiscard]] bool set_parent(Entity child, Entity parent);
 
@@ -83,7 +91,21 @@ namespace Comet {
     private:
         friend class Entity;
         friend class SceneSerializer;
+        friend class SceneRuntime;
         friend class ComponentRegistry;
+
+        static constexpr std::size_t MAX_ENTITY_REQUESTS = 1024;
+
+        struct EntityRequest {
+            enum class Type { Create, Destroy } type;
+            EntityUuid uuid;
+            EntityId id = INVALID_ENTITY_ID;
+            std::string name;
+        };
+
+        void begin_entity_requests();
+        [[nodiscard]] bool commit_entity_requests();
+        void end_entity_requests() noexcept;
 
         template<typename Component>
         using QueryComponent = std::conditional_t<is_scene_read_only_component_v<Component>,
@@ -96,6 +118,8 @@ namespace Comet {
         std::size_t sync_transform_chain(entt::entity handle);
 
         EntityId m_next_entity_id = 1;
+        std::vector<EntityRequest> m_entity_requests;
+        bool m_entity_requests_active = false;
         SceneEnvironment m_environment;
         PostProcessSettings m_post_process;
         entt::registry m_registry;

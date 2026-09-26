@@ -123,6 +123,27 @@ namespace Comet::LuaBindings {
             }
             return push_reference(state, entity);
         }
+        int create_entity(lua_State* state) {
+            auto* scene = current(state).scene;
+            if(!scene)
+                return luaL_error(state, "Entity creation requires an active scene");
+            size_t length = 0;
+            const char* name = luaL_optlstring(state, 1, "Entity", &length);
+            const auto uuid = scene->request_create_entity(std::string_view(name, length));
+            if(!uuid)
+                return luaL_error(state, "Cannot queue entity creation");
+            const auto value = uuid->to_string();
+            lua_pushlstring(state, value.data(), value.size());
+            return 1;
+        }
+        int destroy_entity(lua_State* state) {
+            auto* scene = current(state).scene;
+            if(!scene)
+                return luaL_error(state, "Entity destruction requires an active scene");
+            if(!scene->request_destroy_entity(require_entity(state)))
+                return luaL_error(state, "Cannot queue entity destruction");
+            return 0;
+        }
         int reference_valid(lua_State* state) {
             lua_pushboolean(state, static_cast<bool>(resolve(state, reference(state))));
             return 1;
@@ -190,8 +211,9 @@ namespace Comet::LuaBindings {
         lua_newtable(state);
         lua_pushlightuserdata(state, &context);
         const luaL_Reg api[]{{"rotate", rotate}, {"translate", translate}, {"position", position},
-            {"self_entity", self_entity}, {"find_entity", find_entity}, {"key_down", key_down},
-            {"action_value", action_value}, {"action_down", action_down},
+            {"self_entity", self_entity}, {"find_entity", find_entity},
+            {"create_entity", create_entity}, {"destroy_entity", destroy_entity},
+            {"key_down", key_down}, {"action_value", action_value}, {"action_down", action_down},
             {"action_pressed", action_pressed}, {"action_released", action_released},
             {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);

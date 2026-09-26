@@ -114,6 +114,72 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.clear_systems());
     }
 
+    TEST_F(SceneRuntimeTest, EntityRequestsCommitOnlyAfterAllSystemsInEachPhase) {
+        auto* requester = add("requester");
+        auto* observer = add("observer");
+        EXPECT_FALSE(scene.request_create_entity("Inactive"));
+        EXPECT_FALSE(scene.request_destroy_entity(scene.create_entity("Inactive")));
+        EntityUuid created;
+        requester->start = [&](Scene& current) -> UpdateResult {
+            const auto request = current.request_create_entity("Spawned");
+            if(!request)
+                return UpdateResult::failure({"Cannot queue startup entity"});
+            created = *request;
+            EXPECT_FALSE(current.find_entity(created));
+            return UpdateResult::success();
+        };
+        observer->start = [&](Scene& current) -> UpdateResult {
+            EXPECT_FALSE(current.find_entity(created));
+            return UpdateResult::success();
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.find_entity(created));
+        EXPECT_FALSE(scene.request_create_entity(std::string(129, 'x')));
+
+        requester->fixed = [&](Scene& current, const System::Context&) -> UpdateResult {
+            const auto entity = current.find_entity(created);
+            EXPECT_TRUE(current.request_destroy_entity(entity));
+            EXPECT_TRUE(current.request_destroy_entity(entity));
+            return UpdateResult::success();
+        };
+        observer->fixed = [&](Scene& current, const System::Context&) -> UpdateResult {
+            EXPECT_TRUE(current.find_entity(created));
+            return UpdateResult::success();
+        };
+        advance(0.1);
+        EXPECT_FALSE(scene.find_entity(created));
+
+        requester->update_frame = [&](Scene& current, const System::Context&) -> UpdateResult {
+            const auto request = current.request_create_entity("Updated");
+            if(!request)
+                return UpdateResult::failure({"Cannot queue update entity"});
+            created = *request;
+            EXPECT_FALSE(current.find_entity(created));
+            return UpdateResult::success();
+        };
+        observer->update_frame = [&](Scene& current, const System::Context&) -> UpdateResult {
+            EXPECT_FALSE(current.find_entity(created));
+            return UpdateResult::success();
+        };
+        advance(0);
+        EXPECT_TRUE(scene.find_entity(created));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.request_create_entity("Stopped"));
+    }
+
+    TEST_F(SceneRuntimeTest, FailedPhaseDiscardsUncommittedEntityRequests) {
+        auto* requester = add();
+        requester->update_frame = [&](Scene& current, const System::Context&) -> UpdateResult {
+            EXPECT_TRUE(current.request_create_entity("Discarded"));
+            return UpdateResult::failure({"phase failed"});
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(runtime.advance(0));
+        EXPECT_EQ(scene.entity_count(), 0u);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_FALSE(scene.request_create_entity("Inactive"));
+    }
+
     TEST_F(SceneRuntimeTest, InputInterruptionDiscardsPendingPressButPreservesReleaseAndClock) {
         add();
         ASSERT_TRUE(runtime.start(scene));

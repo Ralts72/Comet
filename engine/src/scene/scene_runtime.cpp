@@ -1,4 +1,5 @@
 #include "scene/scene_runtime.h"
+#include "scene/scene.h"
 #include "common/scope_exit.h"
 
 #include <algorithm>
@@ -54,12 +55,15 @@ namespace Comet {
         m_timing = {};
         m_accumulator = 0;
         m_input.reset();
+        scene.begin_entity_requests();
         m_executing = true;
         ScopeExit cleanup([&] { stop_systems(); });
         while(m_started < m_systems.size()) {
             if(auto result = m_systems[m_started++]->on_start(scene); !result)
                 return result;
         }
+        if(!scene.commit_entity_requests())
+            return Result<void, Error>::failure({"Cannot commit startup entity requests"});
         cleanup.release();
         m_executing = false;
         return Result<void, Error>::success();
@@ -69,6 +73,8 @@ namespace Comet {
         m_executing = true;
         while(m_started > 0)
             m_systems[--m_started]->on_stop(*m_scene);
+        if(m_scene)
+            m_scene->end_entity_requests();
         m_scene = nullptr;
         m_state = State::Running;
         m_step_pending = false;
@@ -152,6 +158,8 @@ namespace Comet {
             for(auto& system : m_systems)
                 if(auto result = system->fixed_update(*m_scene, context); !result)
                     return result;
+            if(!m_scene->commit_entity_requests())
+                return Result<void, Error>::failure({"Cannot commit fixed-step entity requests"});
             m_accumulator = std::max(0.0, m_accumulator - step);
         }
         const double dropped = std::floor((m_accumulator + epsilon) / step) * step;
@@ -165,6 +173,8 @@ namespace Comet {
         for(auto& system : m_systems)
             if(auto result = system->update(*m_scene, context); !result)
                 return result;
+        if(!m_scene->commit_entity_requests())
+            return Result<void, Error>::failure({"Cannot commit update entity requests"});
         cleanup.release();
         m_executing = false;
         return Result<void, Error>::success();
