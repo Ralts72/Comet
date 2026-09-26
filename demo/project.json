@@ -1,42 +1,135 @@
 {
   "version": 1,
-  "name": "Comet Sample",
+  "name": "sampler",
   "startup_scene": "scenes/default.scene",
   "input_actions": [
-    {"name": "camera.move_x", "type": "axis", "bindings": [
-      {"source": "key", "control": "D"},
-      {"source": "key", "control": "A", "scale": -1},
-      {"source": "gamepad_axis", "control": "LeftX", "deadzone": 0.15}
-    ]},
-    {"name": "camera.move_y", "type": "axis", "bindings": [
-      {"source": "key", "control": "E"},
-      {"source": "key", "control": "Q", "scale": -1},
-      {"source": "gamepad_axis", "control": "RightTrigger"},
-      {"source": "gamepad_axis", "control": "LeftTrigger", "scale": -1}
-    ]},
-    {"name": "camera.move_z", "type": "axis", "bindings": [
-      {"source": "key", "control": "S"},
-      {"source": "key", "control": "W", "scale": -1},
-      {"source": "gamepad_axis", "control": "LeftY", "deadzone": 0.15}
-    ]},
-    {"name": "camera.boost", "type": "button", "bindings": [
-      {"source": "key", "control": "LeftShift"}
-    ]},
-    {"name": "camera.look", "type": "button", "bindings": [
-      {"source": "mouse_button", "control": "Right"}
-    ]},
-    {"name": "camera.look_x", "type": "delta", "bindings": [
-      {"source": "motion", "control": "CursorX"}
-    ]},
-    {"name": "camera.look_y", "type": "delta", "bindings": [
-      {"source": "motion", "control": "CursorY"}
-    ]},
-    {"name": "camera.zoom", "type": "delta", "bindings": [
-      {"source": "motion", "control": "ScrollY"}
-    ]},
-    {"name": "spin.toggle", "type": "button", "bindings": [
-      {"source": "key", "control": "Space"},
-      {"source": "gamepad_button", "control": "South"}
-    ]}
+    {
+      "name": "camera.move_x",
+      "type": "axis",
+      "bindings": [
+        {
+          "source": "key",
+          "control": "D"
+        },
+        {
+          "source": "key",
+          "control": "A",
+          "scale": -1
+        },
+        {
+          "source": "gamepad_axis",
+          "control": "LeftX",
+          "deadzone": 0.15
+        }
+      ]
+    },
+    {
+      "name": "camera.move_y",
+      "type": "axis",
+      "bindings": [
+        {
+          "source": "key",
+          "control": "E"
+        },
+        {
+          "source": "key",
+          "control": "Q",
+          "scale": -1
+        },
+        {
+          "source": "gamepad_axis",
+          "control": "RightTrigger"
+        },
+        {
+          "source": "gamepad_axis",
+          "control": "LeftTrigger",
+          "scale": -1
+        }
+      ]
+    },
+    {
+      "name": "camera.move_z",
+      "type": "axis",
+      "bindings": [
+        {
+          "source": "key",
+          "control": "S"
+        },
+        {
+          "source": "key",
+          "control": "W",
+          "scale": -1
+        },
+        {
+          "source": "gamepad_axis",
+          "control": "LeftY",
+          "deadzone": 0.15
+        }
+      ]
+    },
+    {
+      "name": "camera.boost",
+      "type": "button",
+      "bindings": [
+        {
+          "source": "key",
+          "control": "LeftShift"
+        }
+      ]
+    },
+    {
+      "name": "camera.look",
+      "type": "button",
+      "bindings": [
+        {
+          "source": "mouse_button",
+          "control": "Right"
+        }
+      ]
+    },
+    {
+      "name": "camera.look_x",
+      "type": "delta",
+      "bindings": [
+        {
+          "source": "motion",
+          "control": "CursorX"
+        }
+      ]
+    },
+    {
+      "name": "camera.look_y",
+      "type": "delta",
+      "bindings": [
+        {
+          "source": "motion",
+          "control": "CursorY"
+        }
+      ]
+    },
+    {
+      "name": "camera.zoom",
+      "type": "delta",
+      "bindings": [
+        {
+          "source": "motion",
+          "control": "ScrollY"
+        }
+      ]
+    },
+    {
+      "name": "spin.toggle",
+      "type": "button",
+      "bindings": [
+        {
+          "source": "key",
+          "control": "Space"
+        },
+        {
+          "source": "gamepad_button",
+          "control": "South"
+        }
+      ]
+    }
   ]
 }
