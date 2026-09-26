@@ -19,11 +19,13 @@ namespace Comet {
                 control;
             float scale = 1;
             float deadzone = 0;
+            bool operator==(const Binding&) const = default;
         };
         struct Action {
             std::string name;
             Type type = Type::Button;
             std::vector<Binding> bindings;
+            bool operator==(const Action&) const = default;
         };
         struct ControlName {
             std::string_view source;
@@ -34,6 +36,7 @@ namespace Comet {
             std::string_view source, std::string_view control, float scale = 1, float deadzone = 0);
         [[nodiscard]] static Result<ControlName> format_binding(const Binding& binding);
         [[nodiscard]] const std::vector<Action>& actions() const { return m_actions; }
+        bool operator==(const InputActions&) const = default;
         // 同一配置下的电平历史与新快照；不同消费者分别持有，更换配置时清空。
         void evaluate(const Input::Frame& input, InputState& previous) const;
 

@@ -12,11 +12,12 @@ namespace CometEditor {
         const EditorState& state, const CommandHistory& history, const EditorShortcuts& shortcuts)
         : m_state(state), m_history(history), m_shortcuts(shortcuts) {}
 
-    void MenuBar::render(
-        const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene,
+    void MenuBar::render(const std::filesystem::path& current_scene,
+        const std::filesystem::path& startup_scene,
         std::span<const std::filesystem::path> recent_projects) {
         if(ImGui::BeginMainMenuBar()) {
-            render_file_menu(current_scene, startup_scene, recent_projects);
+            render_file_menu(recent_projects);
+            render_project_menu(current_scene, startup_scene);
             render_edit_menu();
             render_view_menu();
             if(ImGui::BeginMenu(Ui::label("Language").c_str())) {
@@ -37,9 +38,7 @@ namespace CometEditor {
         }
     }
 
-    void MenuBar::render_file_menu(
-        const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene,
-        std::span<const std::filesystem::path> recent_projects) {
+    void MenuBar::render_file_menu(std::span<const std::filesystem::path> recent_projects) {
         if(ImGui::BeginMenu(Ui::label("File").c_str(), m_state.mode == EditorMode::Edit)) {
             if(ImGui::MenuItem(Ui::label("New Project").c_str()))
                 m_requested_command = Command::NewProject;
@@ -47,8 +46,7 @@ namespace CometEditor {
                 m_requested_command = Command::OpenProject;
                 m_requested_project_path.reset();
             }
-            if(!recent_projects.empty()
-                && ImGui::BeginMenu(Ui::label("Recent Projects").c_str())) {
+            if(!recent_projects.empty() && ImGui::BeginMenu(Ui::label("Recent Projects").c_str())) {
                 for(const auto& path : recent_projects) {
                     if(ImGui::MenuItem(path.generic_string().c_str())) {
                         m_requested_command = Command::OpenProject;
@@ -57,8 +55,6 @@ namespace CometEditor {
                 }
                 ImGui::EndMenu();
             }
-            if(ImGui::MenuItem(Ui::label("Rename Project...").c_str()))
-                m_requested_command = Command::RenameProject;
             ImGui::Separator();
             const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
             if(ImGui::MenuItem(Ui::label("New Scene").c_str(),
@@ -73,11 +69,19 @@ namespace CometEditor {
                    m_shortcuts.label(EditorShortcuts::Action::SaveScene, mac).c_str())) {
                 m_requested_command = Command::SaveScene;
             }
-            ImGui::Separator();
+            ImGui::EndMenu();
+        }
+    }
+
+    void MenuBar::render_project_menu(
+        const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene) {
+        if(ImGui::BeginMenu(Ui::label("Project").c_str(), m_state.mode == EditorMode::Edit)) {
+            if(ImGui::MenuItem(Ui::label("Rename Project...").c_str()))
+                m_requested_command = Command::RenameProject;
             if(ImGui::BeginMenu(Ui::label("Startup Scene").c_str())) {
                 for(const auto& path : m_available_scenes) {
-                    if(ImGui::MenuItem(path.generic_string().c_str(), nullptr,
-                           path == startup_scene)) {
+                    if(ImGui::MenuItem(
+                           path.generic_string().c_str(), nullptr, path == startup_scene)) {
                         m_requested_command = Command::SetStartupScene;
                         m_requested_startup_scene_path = path;
                     }
@@ -91,6 +95,12 @@ namespace CometEditor {
                         m_requested_startup_scene_path = current_scene;
                     }
                 }
+                ImGui::EndMenu();
+            }
+            ImGui::Separator();
+            if(ImGui::BeginMenu(Ui::label("Settings").c_str())) {
+                if(ImGui::MenuItem(Ui::label("Input").c_str()))
+                    m_requested_command = Command::ProjectInputSettings;
                 ImGui::EndMenu();
             }
             ImGui::EndMenu();

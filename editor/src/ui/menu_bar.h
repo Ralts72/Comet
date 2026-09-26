@@ -20,6 +20,7 @@ namespace CometEditor {
             NewProject,
             OpenProject,
             RenameProject,
+            ProjectInputSettings,
             NewScene,
             OpenScene,
             SaveScene,
@@ -50,9 +51,9 @@ namespace CometEditor {
         void set_fps(const float fps) { m_fps = fps; }
 
     private:
-        void render_file_menu(
-            const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene,
-            std::span<const std::filesystem::path> recent_projects);
+        void render_file_menu(std::span<const std::filesystem::path> recent_projects);
+        void render_project_menu(
+            const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene);
         void render_edit_menu();
         void render_view_menu();
 

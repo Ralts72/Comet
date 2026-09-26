@@ -46,6 +46,7 @@ endif ()
 
 add_library(editor_ui STATIC
         src/project/project_name_dialog.cpp
+        src/project/input_settings_panel.cpp
         src/assets/asset_reference.cpp
         src/assets/project_panel.cpp
         src/inspector/inspector.cpp

@@ -10,6 +10,7 @@
 #include "ui/path_dialog.h"
 #include "project/recent_projects.h"
 #include "project/project_name_dialog.h"
+#include "project/input_settings_panel.h"
 #include "project/project_creation.h"
 #include "project/editor_paths.h"
 #include "project/project_session.h"
@@ -83,8 +84,8 @@ namespace {
                 return Comet::Result<void, Comet::Error>::failure({state_directory.error()});
             m_shortcut_settings_path = state_directory.value() / "shortcuts.yaml";
             m_language_settings_path = state_directory.value() / "language.json";
-            auto ui = CometEditor::ImGuiContext::create(engine.get_window(), render_context,
-                state_directory.value() / "imgui.ini");
+            auto ui = CometEditor::ImGuiContext::create(
+                engine.get_window(), render_context, state_directory.value() / "imgui.ini");
             if(!ui)
                 return Comet::Result<void, Comet::Error>::failure(ui.error().as_error());
             m_imgui_context = std::move(ui).value();
@@ -198,11 +199,12 @@ namespace {
             m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
             m_project_panel->set_material_layouts(std::move(material_layouts));
 
-            renderer.set_overlay({.render = [this](Comet::CommandBuffer& command_buffer) {
-                m_imgui_context->render(command_buffer); },
+            renderer.set_overlay({
+                .render = [this](Comet::CommandBuffer& command_buffer) {
+                    m_imgui_context->render(command_buffer);},
                 .release = [this] { m_imgui_context->release_swapchain_resources(); },
                 .rebuild = [this](const Comet::SwapchainCompatibility& compatibility) {
-                        return m_imgui_context->rebuild_swapchain_resources(compatibility); }});
+                    return m_imgui_context->rebuild_swapchain_resources(compatibility); }});
 
             renderer.set_viewport_pick_callback(
                 [this](const std::optional<Comet::ScenePickHit> hit) {
@@ -459,8 +461,8 @@ namespace {
         }
 
         void record_scene_document() {
-            if(auto recorded = m_project_session->record_scene(
-                   m_scene_document->get_asset_relative_path());
+            if(auto recorded =
+                    m_project_session->record_scene(m_scene_document->get_asset_relative_path());
                 !recorded)
                 LOG_WARN("Cannot update editor session: {}", recorded.error());
         }
@@ -486,8 +488,7 @@ namespace {
             if(command != CometEditor::MenuBar::Command::CopyEntity
                 && command != CometEditor::MenuBar::Command::KeyboardShortcuts
                 && command != CometEditor::MenuBar::Command::OpenProject
-                && command != CometEditor::MenuBar::Command::NewProject
-                && !finish_active_edit())
+                && command != CometEditor::MenuBar::Command::NewProject && !finish_active_edit())
                 return Comet::Result<void, Comet::Error>::success();
 
             switch(command) {
@@ -509,6 +510,9 @@ namespace {
                     break;
                 case CometEditor::MenuBar::Command::RenameProject:
                     m_project_name_dialog.request(m_project.name());
+                    break;
+                case CometEditor::MenuBar::Command::ProjectInputSettings:
+                    m_input_settings_panel.request(m_project.input_actions());
                     break;
                 case CometEditor::MenuBar::Command::KeyboardShortcuts:
                     m_shortcut_settings_dialog.request(m_shortcuts);
@@ -576,7 +580,8 @@ namespace {
                     const auto* asset = m_assets->database().find(scene);
                     const bool is_current_scene = scene == current_saved_scene();
                     if(!is_current_scene && (!asset || asset->type != Comet::AssetType::Scene)) {
-                        LOG_WARN("Startup scene is no longer available: {}", scene.generic_string());
+                        LOG_WARN(
+                            "Startup scene is no longer available: {}", scene.generic_string());
                         break;
                     }
                     const auto path = m_project.paths().resolve_asset_path(scene);
@@ -714,6 +719,10 @@ namespace {
             m_render_stats->render();
             m_path_dialog.render();
             m_project_name_dialog.render();
+            if(m_editor_state.mode == CometEditor::EditorMode::Edit)
+                m_input_settings_panel.render();
+            else
+                m_input_settings_panel.set_visible(false);
             m_shortcut_settings_dialog.render();
             draw_unsaved_dialog();
             if(!m_scene_document->has_pending_request())
@@ -739,6 +748,20 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> process_editor_requests() {
+            if(auto actions = m_input_settings_panel.take_request()) {
+                const auto saved = m_project.save_input_actions(std::move(*actions));
+                m_input_settings_panel.complete(saved);
+                if(!saved) {
+                    LOG_WARN("Cannot save project input actions: {}", saved.error());
+                } else {
+                    const auto configured =
+                        get_engine().set_input_actions(m_project.input_actions());
+                    if(!configured)
+                        LOG_WARN(
+                            "Project input actions were saved; restart the editor to apply: {}",
+                            configured.error().message);
+                }
+            }
             if(auto shortcuts = m_shortcut_settings_dialog.take_request()) {
                 const auto saved = shortcuts->save_overrides(m_shortcut_settings_path);
                 m_shortcut_settings_dialog.complete(saved);
@@ -957,10 +980,10 @@ namespace {
                     const auto path = std::exchange(m_pending_project_creation, std::nullopt);
                     auto created = CometEditor::create_project(*path);
                     if(!created) {
-                        m_path_dialog.request(CometEditor::PathDialog::Action::CreateProject,
-                            *path, m_project.paths().root().parent_path());
-                        m_path_dialog.complete(Comet::Result<void, Comet::Error>::failure(
-                            {created.error()}));
+                        m_path_dialog.request(CometEditor::PathDialog::Action::CreateProject, *path,
+                            m_project.paths().root().parent_path());
+                        m_path_dialog.complete(
+                            Comet::Result<void, Comet::Error>::failure({created.error()}));
                         return Comet::Result<void, Comet::Error>::success();
                     }
                     m_next_project = created.value();
@@ -976,8 +999,8 @@ namespace {
             if(!result && !is_device_lost(result.error())) {
                 LOG_WARN("Scene operation rejected: {}", result.error().message);
                 if(action->action == CometEditor::SceneDocument::Action::Open) {
-                    m_path_dialog.request(CometEditor::PathDialog::Action::OpenScene,
-                        action->path, m_project.paths().assets() / "scenes");
+                    m_path_dialog.request(CometEditor::PathDialog::Action::OpenScene, action->path,
+                        m_project.paths().assets() / "scenes");
                     m_path_dialog.complete(result);
                 }
                 return Comet::Result<void, Comet::Error>::success();
@@ -1027,6 +1050,7 @@ namespace {
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
         CometEditor::PathDialog m_path_dialog;
         CometEditor::ProjectNameDialog m_project_name_dialog;
+        CometEditor::InputSettingsPanel m_input_settings_panel;
         CometEditor::ShortcutSettingsDialog m_shortcut_settings_dialog;
         std::optional<std::filesystem::path> m_next_project;
         std::optional<std::filesystem::path> m_pending_project_creation;

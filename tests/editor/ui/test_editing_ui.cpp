@@ -676,8 +676,8 @@ namespace CometEditor::Tests {
             frame();
         };
         const auto& style = ImGui::GetStyle();
-        const float view_x = ImGui::CalcTextSize("File").x + ImGui::CalcTextSize("Edit").x
-                             + 4.0f * style.ItemSpacing.x + 10.0f;
+        const float view_x = ImGui::CalcTextSize("File").x + ImGui::CalcTextSize("Project").x
+                             + ImGui::CalcTextSize("Edit").x + 6.0f * style.ItemSpacing.x + 10.0f;
         click({view_x, ImGui::GetFrameHeight() * 0.5f});
         frame();
         ImGuiWindow* popup = nullptr;
@@ -900,14 +900,14 @@ namespace CometEditor::Tests {
             menu.render(current, startup);
             ImGui::Render();
         };
-        const auto open_file_menu = [&] {
+        const auto open_project_menu = [&] {
             const auto* bar = ImGui::FindWindowByName("##MainMenuBar");
             ASSERT_NE(bar, nullptr);
-            ImGui::ActivateItemByID(ImHashStr("File", 0, ImHashStr("##MenuBar", 0, bar->ID)));
+            ImGui::ActivateItemByID(ImHashStr("Project", 0, ImHashStr("##MenuBar", 0, bar->ID)));
         };
 
         frame("scenes/current.scene", "scenes/other.scene");
-        open_file_menu();
+        open_project_menu();
         frame("scenes/current.scene", "scenes/other.scene");
         frame("scenes/current.scene", "scenes/other.scene");
         ASSERT_FALSE(GImGui->OpenPopupStack.empty());
@@ -984,7 +984,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(menu.take_command(), MenuBar::Command::NewProject);
     }
 
-    TEST(MenuBarTest, ProjectRenameOpensFromFileMenu) {
+    TEST(MenuBarTest, ProjectRenameOpensFromProjectMenu) {
         Comet::Tests::ImGuiTestContext imgui;
         EditorState state;
         CommandHistory history;
@@ -998,7 +998,7 @@ namespace CometEditor::Tests {
         frame();
         const auto* bar = ImGui::FindWindowByName("##MainMenuBar");
         ASSERT_NE(bar, nullptr);
-        ImGui::ActivateItemByID(ImHashStr("File", 0, ImHashStr("##MenuBar", 0, bar->ID)));
+        ImGui::ActivateItemByID(ImHashStr("Project", 0, ImHashStr("##MenuBar", 0, bar->ID)));
         frame();
         frame();
         ASSERT_FALSE(GImGui->OpenPopupStack.empty());
@@ -1007,6 +1007,36 @@ namespace CometEditor::Tests {
         ImGui::ActivateItemByID(popup->GetID("Rename Project..."));
         frame();
         EXPECT_EQ(menu.take_command(), MenuBar::Command::RenameProject);
+    }
+
+    TEST(MenuBarTest, ProjectInputSettingsOpensFromSettingsMenu) {
+        Comet::Tests::ImGuiTestContext imgui;
+        EditorState state;
+        CommandHistory history;
+        EditorShortcuts shortcuts;
+        MenuBar menu(state, history, shortcuts);
+        const auto frame = [&] {
+            ImGui::NewFrame();
+            menu.render();
+            ImGui::Render();
+        };
+        frame();
+        const auto* bar = ImGui::FindWindowByName("##MainMenuBar");
+        ASSERT_NE(bar, nullptr);
+        ImGui::ActivateItemByID(ImHashStr("Project", 0, ImHashStr("##MenuBar", 0, bar->ID)));
+        frame();
+        frame();
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        auto* popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Settings"));
+        frame();
+        frame();
+        popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Input"));
+        frame();
+        EXPECT_EQ(menu.take_command(), MenuBar::Command::ProjectInputSettings);
     }
 
     TEST(MenuBarTest, StartupSceneCanBeChosenWithoutOpeningIt) {
@@ -1026,7 +1056,7 @@ namespace CometEditor::Tests {
         frame();
         const auto* bar = ImGui::FindWindowByName("##MainMenuBar");
         ASSERT_NE(bar, nullptr);
-        ImGui::ActivateItemByID(ImHashStr("File", 0, ImHashStr("##MenuBar", 0, bar->ID)));
+        ImGui::ActivateItemByID(ImHashStr("Project", 0, ImHashStr("##MenuBar", 0, bar->ID)));
         frame();
         frame();
         ASSERT_FALSE(GImGui->OpenPopupStack.empty());

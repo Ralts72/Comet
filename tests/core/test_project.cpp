@@ -141,6 +141,35 @@ namespace Comet::Tests {
         EXPECT_EQ(project.name(), "New Game");
     }
 
+    TEST_F(ProjectTest, SavesInputActionsAtomicallyAndRejectsStaleProject) {
+        write(R"({"version":1,"name":"Game","startup_scene":"levels/main.scene",
+            "input_actions":[{"name":"jump","type":"button","bindings":[]}]})");
+        auto loaded = Project::load(root);
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto project = std::move(loaded).value();
+        auto right = InputActions::parse_binding("key", "Right");
+        ASSERT_TRUE(right) << right.error();
+        auto actions = InputActions::create(
+            {{"move", InputActions::Type::Axis, {std::move(right).value()}}});
+        ASSERT_TRUE(actions) << actions.error();
+        ASSERT_TRUE(project.save_input_actions(actions.value()));
+        EXPECT_EQ(project.input_actions(), actions.value());
+        const auto saved = read_text_file(root / "project.json");
+        ASSERT_TRUE(saved) << saved.error();
+        ASSERT_TRUE(project.save_input_actions(actions.value()));
+        EXPECT_EQ(read_text_file(root / "project.json").value(), saved.value());
+
+        auto reopened = Project::load(root);
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value().name(), "Game");
+        EXPECT_EQ(reopened.value().startup_scene(), "levels/main.scene");
+        EXPECT_EQ(reopened.value().input_actions(), actions.value());
+
+        write(R"({"version":1,"name":"Changed","startup_scene":"levels/main.scene"})");
+        EXPECT_FALSE(project.save_input_actions(InputActions{}));
+        EXPECT_EQ(project.input_actions(), actions.value());
+    }
+
     TEST_F(ProjectTest, SampleInputBindingsSurviveProjectSave) {
         const auto sample =
             read_text_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "project.json");
