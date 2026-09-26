@@ -9,6 +9,7 @@ add_library(editor_core STATIC
         src/file_watch_config.cpp
         src/file_recheck_trigger.cpp
         src/project/recent_projects.cpp
+        src/project/project_session.cpp
         src/assets/editor_assets.cpp
         src/assets/scene_asset_references.cpp
         src/assets/source_operations.cpp

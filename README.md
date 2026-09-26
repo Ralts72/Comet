@@ -243,6 +243,9 @@ Windows：`%APPDATA%/Comet/recent-projects.json`；Linux：`$XDG_STATE_HOME/come
 编辑器先处理未保存场景，再结束旧会话并打开新项目；取消或无效路径不会切换项目。
 运行模式下先停止 Play，才能打开项目菜单。
 “文件 → 重命名项目”可修改 `project.json` 的项目名；保存前会检查文件是否已被外部修改，成功后原子写入。
+编辑器会在项目的 `.comet/editor/session.json` 记录上次打开的场景；重新打开项目时优先恢复该场景，
+失效时回退到 `project.json` 的启动场景或空场景。明确新建的未保存场景也会记录为“空场景”。
+app 始终使用项目启动场景，不读取编辑器会话状态。
 项目需要 `project.json` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。
 编辑器生成的 `.scene`（v2）、`.mat`（v2）、`.meta`（v3）使用 JSON，扩展名不变；
 `.scene` 的 `entities` 只放根实体，子实体通过 `children` 嵌套，不再保存 `parent` 引用；UUID 仍全场景唯一。

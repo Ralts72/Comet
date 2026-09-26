@@ -11,6 +11,7 @@
 #include "ui/path_dialog.h"
 #include "project/recent_projects.h"
 #include "project/project_name_dialog.h"
+#include "project/project_session.h"
 #include "scene/editor_request_policy.h"
 #include "ui/dialogs.h"
 #include "scene/command_history.h"
@@ -152,17 +153,11 @@ namespace {
                 m_project.paths(), m_command_history, get_active_scene, activate_edit_scene);
             LOG_INFO(
                 "Opened project '{}' at '{}'", m_project.name(), m_project.paths().root().string());
-            if(m_project.startup_scene().empty()) {
-                if(auto created = m_scene_document->create_new(); !created)
-                    return created;
-            } else if(auto opened = m_scene_document->open(m_project.startup_scene().string());
-                !opened) {
-                if(is_device_lost(opened.error()))
-                    return opened;
-                LOG_WARN("Default scene could not be opened; starting with an empty scene");
-                if(auto created = m_scene_document->create_new(); !created)
-                    return created;
-            }
+            m_project_session.emplace(m_project.paths());
+            if(auto loaded = m_project_session->load(); !loaded)
+                LOG_WARN("Editor session unavailable: {}", loaded.error());
+            if(auto opened = open_initial_scene(); !opened)
+                return opened;
             m_scene_session = std::make_unique<CometEditor::EditorSceneSession>(
                 m_editor_state, m_scene_serializer, get_active_scene,
                 [this](std::unique_ptr<Comet::Scene> scene) {
@@ -303,6 +298,7 @@ namespace {
             m_scene_document.reset();
             m_assets.reset();
             m_material_shader_reload.reset();
+            m_project_session.reset();
             m_recent_projects.reset();
             m_console_panel.reset();
             return Comet::Result<void, Comet::Error>::success();
@@ -420,6 +416,32 @@ namespace {
             return Comet::Result<void, Comet::Error>::success();
         }
 
+        Comet::Result<void, Comet::Error> open_initial_scene() {
+            const auto& last_scene = m_project_session->last_scene();
+            const auto preferred = last_scene.value_or(m_project.startup_scene());
+            if(preferred.empty())
+                return m_scene_document->create_new();
+            auto opened = m_scene_document->open(preferred.string());
+            if(opened || is_device_lost(opened.error()))
+                return opened;
+            if(last_scene && preferred != m_project.startup_scene()
+                && !m_project.startup_scene().empty()) {
+                LOG_WARN("Last scene could not be opened; trying the project startup scene");
+                opened = m_scene_document->open(m_project.startup_scene().string());
+                if(opened || is_device_lost(opened.error()))
+                    return opened;
+            }
+            LOG_WARN("Initial scene could not be opened; starting with an empty scene");
+            return m_scene_document->create_new();
+        }
+
+        void record_scene_document() {
+            if(auto recorded = m_project_session->record_scene(
+                   m_scene_document->get_asset_relative_path());
+                !recorded)
+                LOG_WARN("Cannot update editor session: {}", recorded.error());
+        }
+
         Comet::Result<void, Comet::Error> handle_command(
             const CometEditor::MenuBar::Command command,
             const std::optional<std::filesystem::path>& project_path) {
@@ -497,7 +519,10 @@ namespace {
                         m_path_dialog.request(CometEditor::PathDialog::Action::SaveScene,
                             m_scene_document->get_path(), m_project.paths().assets() / "scenes");
                     } else {
-                        return m_scene_document->save(m_scene_document->get_path());
+                        auto saved = m_scene_document->save(m_scene_document->get_path());
+                        if(saved)
+                            record_scene_document();
+                        return saved;
                     }
                     break;
                 case CometEditor::MenuBar::Command::SetStartupScene: {
@@ -745,6 +770,8 @@ namespace {
             }
             const auto saved = m_scene_document->save(request.path);
             m_path_dialog.complete(saved);
+            if(saved)
+                record_scene_document();
             if(!saved && is_device_lost(saved.error()))
                 return saved;
             return Comet::Result<void, Comet::Error>::success();
@@ -874,6 +901,8 @@ namespace {
                 }
                 return Comet::Result<void, Comet::Error>::success();
             }
+            if(result)
+                record_scene_document();
             return result;
         }
 
@@ -915,6 +944,7 @@ namespace {
         CometEditor::ProjectNameDialog m_project_name_dialog;
         std::optional<std::filesystem::path> m_next_project;
         std::optional<CometEditor::RecentProjects> m_recent_projects;
+        std::optional<CometEditor::ProjectSession> m_project_session;
 
         std::unique_ptr<CometEditor::MenuBar> m_menu_bar;
         std::unique_ptr<CometEditor::HierarchyPanel> m_hierarchy_panel;
