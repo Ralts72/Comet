@@ -212,11 +212,12 @@ namespace Comet {
         return Result<Project>::success(std::move(project));
     }
 
-    Result<std::string> Project::serialize(const std::filesystem::path& startup_scene) const {
+    Result<std::string> Project::serialize(
+        const std::string& name, const std::filesystem::path& startup_scene) const {
         Json::Writer writer;
         writer.begin_object();
         writer.field("version", std::uint64_t(FORMAT_VERSION));
-        writer.field("name", m_name);
+        writer.field("name", name);
         writer.field("startup_scene", startup_scene.generic_string());
         if(auto written = write_input_actions(m_input_actions, writer); !written)
             return Result<std::string>::failure(written.error());
@@ -224,8 +225,18 @@ namespace Comet {
         return std::move(writer).finish();
     }
 
+    Result<void> Project::save_name(std::string name) {
+        return save_settings(std::move(name), m_startup_scene);
+    }
+
     Result<void> Project::save_startup_scene(const std::filesystem::path& path) {
+        return save_settings(m_name, path);
+    }
+
+    Result<void> Project::save_settings(std::string name, const std::filesystem::path& path) {
         using Saved = Result<void>;
+        if(name.find_first_not_of(" \t\r\n") == std::string::npos)
+            return Saved::failure("Project name cannot be empty");
         if(!path.empty() && (path.is_absolute() || path.extension() != ".scene"))
             return Saved::failure("Startup scene must be an assets-relative .scene path");
         if(!path.empty()) {
@@ -240,13 +251,14 @@ namespace Comet {
             return Saved::failure(current.error());
         if(current.value() != m_source_contents)
             return Saved::failure("Project file changed since it was loaded");
-        if(candidate == m_startup_scene)
+        if(name == m_name && candidate == m_startup_scene)
             return Saved::success();
-        auto serialized = serialize(candidate);
+        auto serialized = serialize(name, candidate);
         if(!serialized)
             return Saved::failure(serialized.error());
         if(auto saved = write_text_file_atomic(manifest, serialized.value()); !saved)
             return saved;
+        m_name = std::move(name);
         m_startup_scene = candidate;
         m_source_contents = std::move(serialized).value();
         return Saved::success();

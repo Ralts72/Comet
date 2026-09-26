@@ -55,6 +55,8 @@ namespace CometEditor {
                 }
                 ImGui::EndMenu();
             }
+            if(ImGui::MenuItem(Ui::label("Rename Project...").c_str()))
+                m_requested_command = Command::RenameProject;
             ImGui::Separator();
             const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
             if(ImGui::MenuItem(Ui::label("New Scene").c_str(),

@@ -1,5 +1,6 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "ui/path_dialog.h"
+#include "project/project_name_dialog.h"
 #include "scene/scene_document.h"
 #include "scene/component_registry.h"
 #include "scene/scene.h"
@@ -141,6 +142,37 @@ namespace CometEditor::Tests {
         frame();
         EXPECT_TRUE(ImGui::FindWindowByName("Open Project")->Active);
         EXPECT_EQ(installations, 0);
+    }
+
+    TEST(ProjectNameDialogTest, FailureKeepsDialogOpenUntilSaveSucceeds) {
+        Comet::Tests::ImGuiTestContext imgui;
+        ProjectNameDialog dialog;
+        const auto frame = [&] {
+            ImGui::NewFrame();
+            dialog.render();
+            ImGui::Render();
+        };
+        dialog.request("Old Name");
+        frame();
+        frame();
+        auto* popup = ImGui::FindWindowByName("Rename Project");
+        ASSERT_NE(popup, nullptr);
+        ASSERT_TRUE(popup->Active);
+
+        ImGui::ActivateItemByID(popup->GetID("Rename"));
+        frame();
+        EXPECT_EQ(dialog.take_request(), "Old Name");
+        dialog.complete(Comet::Result<void>::failure("Invalid name"));
+        frame();
+        EXPECT_TRUE(popup->Active);
+
+        ImGui::ActivateItemByID(popup->GetID("Rename"));
+        frame();
+        EXPECT_EQ(dialog.take_request(), "Old Name");
+        dialog.complete(Comet::Result<void>::success());
+        frame();
+        frame();
+        EXPECT_FALSE(popup->Active);
     }
 }
 #endif

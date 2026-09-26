@@ -10,6 +10,7 @@
 #include "common/file_io.h"
 #include "ui/path_dialog.h"
 #include "project/recent_projects.h"
+#include "project/project_name_dialog.h"
 #include "scene/editor_request_policy.h"
 #include "ui/dialogs.h"
 #include "scene/command_history.h"
@@ -445,6 +446,9 @@ namespace {
                             m_project.paths().root(), m_project.paths().root());
                     }
                     break;
+                case CometEditor::MenuBar::Command::RenameProject:
+                    m_project_name_dialog.request(m_project.name());
+                    break;
                 case CometEditor::MenuBar::Command::Undo:
                     if(!m_scene_editor->undo(get_engine().get_scene()))
                         LOG_WARN("Cannot undo scene edit");
@@ -634,6 +638,7 @@ namespace {
             m_console_panel->render();
             m_render_stats->render();
             m_path_dialog.render();
+            m_project_name_dialog.render();
             draw_unsaved_dialog();
             if(!m_scene_document->has_pending_request())
                 m_menu_bar->collect_shortcuts();
@@ -658,6 +663,14 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> process_editor_requests() {
+            if(const auto name = m_project_name_dialog.take_request()) {
+                const auto saved = m_project.save_name(*name);
+                m_project_name_dialog.complete(saved);
+                if(!saved)
+                    LOG_WARN("Cannot rename project: {}", saved.error());
+                else
+                    LOG_INFO("Project renamed to '{}'", m_project.name());
+            }
             if(auto assets = process_asset_requests(); !assets)
                 return assets;
             return process_scene_requests();
@@ -899,6 +912,7 @@ namespace {
         std::unique_ptr<CometEditor::SceneDocument> m_scene_document;
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
         CometEditor::PathDialog m_path_dialog;
+        CometEditor::ProjectNameDialog m_project_name_dialog;
         std::optional<std::filesystem::path> m_next_project;
         std::optional<CometEditor::RecentProjects> m_recent_projects;
 

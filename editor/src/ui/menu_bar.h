@@ -18,6 +18,7 @@ namespace CometEditor {
     public:
         enum class Command {
             OpenProject,
+            RenameProject,
             NewScene,
             OpenScene,
             SaveScene,

@@ -43,6 +43,7 @@ if (NOT COMET_BUILD_EDITOR)
 endif ()
 
 add_library(editor_ui STATIC
+        src/project/project_name_dialog.cpp
         src/assets/asset_reference.cpp
         src/assets/project_panel.cpp
         src/inspector/inspector.cpp
