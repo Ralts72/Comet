@@ -49,6 +49,7 @@ namespace Comet {
             entry.overrides = overrides;
         }
         Script::Invocation invocation;
+        invocation.scene = m_scene;
         if(context) {
             invocation.delta_time = context->delta_time;
             invocation.input = &context->input;

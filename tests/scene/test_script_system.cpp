@@ -67,6 +67,43 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST_F(ScriptSystemTest, EntityReferenceReadsAndWritesOnlyLiveSceneEntities) {
+        auto target = scene.create_entity("Target");
+        const auto target_uuid = target.get_uuid();
+        source(std::string(R"(return {
+            on_start = function(self)
+                self.target = comet.find_entity(')")
+               + target_uuid.to_string() + R"(')
+                assert(self.target and self.target:is_valid())
+                local own = comet.self_entity()
+                assert(own:is_valid())
+            end,
+            update = function(self)
+                if not self.target:is_valid() then
+                    self.target:position()
+                end
+                local x, y, z = self.target:position()
+                assert(x == 0 and y == 0 and z == 0)
+                self.target:translate(2, 0, 0)
+                self.target:rotate(0, 30, 0)
+            end
+        })");
+        actor();
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_FLOAT_EQ(target.get_component<TransformComponent>().translation.x, 2);
+        EXPECT_FLOAT_EQ(target.get_component<TransformComponent>().rotation.y, 30);
+
+        scene.destroy_entity(target);
+        auto replacement = scene.create_entity_with_uuid(target_uuid, "Replacement");
+        ASSERT_TRUE(replacement);
+        const auto failed = runtime.advance(0);
+        ASSERT_FALSE(failed);
+        EXPECT_NE(failed.error().message.find("Entity reference is stale"), std::string::npos);
+        EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, 0);
+        EXPECT_FALSE(runtime.is_active());
+    }
+
     TEST_F(ScriptSystemTest, ComponentRemovalReplacementAndFieldEditsHaveDifferentLifetimes) {
         source(R"(return {properties = {speed = 2},
             on_start = function(self) comet.translate(1, 0, 0) end,

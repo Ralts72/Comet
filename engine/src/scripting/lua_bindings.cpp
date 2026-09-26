@@ -8,18 +8,54 @@ extern "C" {
 }
 
 #include <cmath>
+#include <cstdint>
 #include <limits>
+#include <memory>
+#include <string_view>
 
 namespace Comet::LuaBindings {
     namespace {
+        constexpr char ENTITY_REFERENCE_METATABLE[] = "Comet.EntityReference";
+
+        struct EntityReference {
+            EntityUuid uuid;
+            EntityId entity_id;
+            std::uint64_t scene_generation;
+        };
+
         Context& current(lua_State* state) {
             return *static_cast<Context*>(lua_touserdata(state, lua_upvalueindex(1)));
         }
-        const TransformComponent& transform(lua_State* state) {
-            auto& entity = current(state).entity;
+        const TransformComponent& transform(lua_State* state, const Entity entity) {
             if(!entity || !entity.has_component<TransformComponent>())
                 luaL_error(state, "Entity is unavailable in this script phase");
             return entity.get_component<TransformComponent>();
+        }
+        const EntityReference& reference(lua_State* state) {
+            return *static_cast<EntityReference*>(
+                luaL_checkudata(state, 1, ENTITY_REFERENCE_METATABLE));
+        }
+        Entity resolve(lua_State* state, const EntityReference& reference) {
+            const auto& context = current(state);
+            if(!context.scene || context.scene_generation != reference.scene_generation)
+                return {};
+            const Entity entity = context.scene->find_entity(reference.uuid);
+            return entity && entity.get_id() == reference.entity_id ? entity : Entity{};
+        }
+        Entity require_entity(lua_State* state) {
+            const Entity entity = resolve(state, reference(state));
+            if(!entity)
+                luaL_error(state, "Entity reference is stale or outside the active scene");
+            return entity;
+        }
+        int push_reference(lua_State* state, const Entity entity) {
+            auto* storage =
+                static_cast<EntityReference*>(lua_newuserdatauv(state, sizeof(EntityReference), 0));
+            std::construct_at(storage, EntityReference{entity.get_uuid(), entity.get_id(),
+                                           current(state).scene_generation});
+            luaL_getmetatable(state, ENTITY_REFERENCE_METATABLE);
+            lua_setmetatable(state, -2);
+            return 1;
         }
         float number(lua_State* state, int index) {
             const auto value = luaL_checknumber(state, index);
@@ -27,32 +63,78 @@ namespace Comet::LuaBindings {
                 luaL_error(state, "Expected a finite float");
             return static_cast<float>(value);
         }
-        int rotate(lua_State* state) {
-            const Math::Vec3 value{number(state, 1), number(state, 2), number(state, 3)};
-            auto target = transform(state);
+        int rotate_entity(lua_State* state, const Entity entity, const int first_argument) {
+            const Math::Vec3 value{number(state, first_argument), number(state, first_argument + 1),
+                number(state, first_argument + 2)};
+            auto target = transform(state, entity);
             if(!Math::is_finite(target.rotation + value))
                 return luaL_error(state, "Rotation overflow");
             target.rotate(value);
-            if(!current(state).entity.try_set_transform(target))
+            if(!entity.try_set_transform(target))
                 return luaL_error(state, "Invalid transform");
             return 0;
         }
-        int translate(lua_State* state) {
-            const Math::Vec3 value{number(state, 1), number(state, 2), number(state, 3)};
-            auto target = transform(state);
+        int translate_entity(lua_State* state, const Entity entity, const int first_argument) {
+            const Math::Vec3 value{number(state, first_argument), number(state, first_argument + 1),
+                number(state, first_argument + 2)};
+            auto target = transform(state, entity);
             if(!Math::is_finite(target.translation + value))
                 return luaL_error(state, "Translation overflow");
             target.translation += value;
-            if(!current(state).entity.try_set_transform(target))
+            if(!entity.try_set_transform(target))
                 return luaL_error(state, "Invalid transform");
             return 0;
         }
-        int position(lua_State* state) {
-            const auto value = transform(state).translation;
+        int push_position(lua_State* state, const Entity entity) {
+            const auto value = transform(state, entity).translation;
             lua_pushnumber(state, value.x);
             lua_pushnumber(state, value.y);
             lua_pushnumber(state, value.z);
             return 3;
+        }
+        int rotate(lua_State* state) {
+            return rotate_entity(state, current(state).entity, 1);
+        }
+        int translate(lua_State* state) {
+            return translate_entity(state, current(state).entity, 1);
+        }
+        int position(lua_State* state) {
+            return push_position(state, current(state).entity);
+        }
+        int self_entity(lua_State* state) {
+            const auto& context = current(state);
+            if(!context.scene || !context.entity || !context.scene->is_valid(context.entity))
+                return luaL_error(state, "Entity is unavailable in this script phase");
+            return push_reference(state, context.entity);
+        }
+        int find_entity(lua_State* state) {
+            const auto& context = current(state);
+            if(!context.scene)
+                return luaL_error(state, "Entity lookup requires an active scene");
+            size_t length = 0;
+            const char* text = luaL_checklstring(state, 1, &length);
+            const auto uuid = EntityUuid::parse(std::string_view(text, length));
+            if(!uuid)
+                return luaL_error(state, "Expected an entity UUID");
+            const Entity entity = context.scene->find_entity(*uuid);
+            if(!entity) {
+                lua_pushnil(state);
+                return 1;
+            }
+            return push_reference(state, entity);
+        }
+        int reference_valid(lua_State* state) {
+            lua_pushboolean(state, static_cast<bool>(resolve(state, reference(state))));
+            return 1;
+        }
+        int reference_position(lua_State* state) {
+            return push_position(state, require_entity(state));
+        }
+        int reference_rotate(lua_State* state) {
+            return rotate_entity(state, require_entity(state), 2);
+        }
+        int reference_translate(lua_State* state) {
+            return translate_entity(state, require_entity(state), 2);
         }
         int key_down(lua_State* state) {
             const auto* input = current(state).input;
@@ -96,10 +178,20 @@ namespace Comet::LuaBindings {
     }
 
     void install(lua_State* state, Context& context) {
+        luaL_newmetatable(state, ENTITY_REFERENCE_METATABLE);
+        lua_newtable(state);
+        lua_pushlightuserdata(state, &context);
+        const luaL_Reg entity_api[]{{"is_valid", reference_valid}, {"position", reference_position},
+            {"rotate", reference_rotate}, {"translate", reference_translate}, {nullptr, nullptr}};
+        luaL_setfuncs(state, entity_api, 1);
+        lua_setfield(state, -2, "__index");
+        lua_pop(state, 1);
+
         lua_newtable(state);
         lua_pushlightuserdata(state, &context);
         const luaL_Reg api[]{{"rotate", rotate}, {"translate", translate}, {"position", position},
-            {"key_down", key_down}, {"action_value", action_value}, {"action_down", action_down},
+            {"self_entity", self_entity}, {"find_entity", find_entity}, {"key_down", key_down},
+            {"action_value", action_value}, {"action_down", action_down},
             {"action_pressed", action_pressed}, {"action_released", action_released},
             {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);

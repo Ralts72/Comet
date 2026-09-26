@@ -348,6 +348,11 @@ Lua 在 `update`／`fixed_update` 中调用 `comet.action_value(name)` 或按钮
 相机与脚本只读取同一阶段的 `InputState`；`RuntimeInput` 负责输入累积、动作求值与暂停基线，
 SceneRuntime 只调度阶段，不逐层传递额外的动作参数。物理快照仍供窗口／Gate 使用，不属于脚本系统。
 demo 的空格／手柄 South 切换方块旋转；运行状态保存在 Lua `self`，Stop 不回写场景参数。
+Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或用
+`comet.find_entity(uuid)` 按场景内 UUID 查找；格式不合法会报错，实体不存在返回 `nil`。
+引用提供 `:is_valid()`、`:position()`、`:translate(x,y,z)` 和 `:rotate(x,y,z)`；位置与旋转沿用本地 Transform 和角度单位。
+引用只在当前运行场景的生命周期内有效，实体删除、同 UUID 重建或切换场景后旧引用失效；失效引用的读取／修改会报告脚本错误。
+目前跨实体引用仍需在脚本中提供 UUID，Inspector 尚无实体引用选择器；脚本尚不能创建或销毁实体。
 
 ### 场景运行时
 

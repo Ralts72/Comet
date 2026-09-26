@@ -1,5 +1,6 @@
 #include "scripting/script.h"
 #include "scene/entity.h"
+#include "scene/scene.h"
 #include <gtest/gtest.h>
 
 namespace Comet::Tests {
@@ -54,6 +55,55 @@ namespace Comet::Tests {
         EXPECT_TRUE(Script::create(
             "assert(io == nil and os == nil and package == nil and debug == nil and load == nil and pcall == nil); return {}"));
         EXPECT_FALSE(Script::create("comet.rotate(0, 1, 0); return {}"));
+    }
+
+    TEST(ScriptInvocationTest, EntityReferencesDoNotCrossSceneGenerations) {
+        Scene first;
+        Scene second;
+        const EntityUuid uuid = EntityUuid::generate();
+        const auto original = first.create_entity_with_uuid(uuid);
+        const auto replacement = second.create_entity_with_uuid(uuid);
+        auto script = Script::create(R"(return {
+            on_start = function(self)
+                self.reference = comet.self_entity()
+            end,
+            update = function(self)
+                assert(not self.reference:is_valid())
+                assert(comet.find_entity(self.parameters.uuid):is_valid())
+            end
+        })");
+        ASSERT_TRUE(script) << script.error().message;
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance) << instance.error().message;
+        const ParameterMap parameters{{"uuid", uuid.to_string()}};
+        ASSERT_TRUE(instance.value()->invoke(
+            Script::Phase::Start, original, parameters, {.scene = &first}));
+        ASSERT_TRUE(instance.value()->invoke(
+            Script::Phase::Update, replacement, parameters, {.scene = &second}));
+        EXPECT_FALSE(instance.value()->invoke(
+            Script::Phase::Update, original, parameters, {.scene = &second}));
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, parameters));
+        ASSERT_TRUE(instance.value()->invoke(
+            Script::Phase::Update, original, parameters, {.scene = &first}));
+    }
+
+    TEST(ScriptInvocationTest, EntityLookupReportsMalformedIdsAndMissingEntitiesSeparately) {
+        Scene scene;
+        const auto actor = scene.create_entity();
+        auto script = Script::create(R"(return {
+            update = function(self)
+                assert(comet.find_entity(self.parameters.missing) == nil)
+                comet.find_entity('not-a-uuid')
+            end
+        })");
+        ASSERT_TRUE(script) << script.error().message;
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance) << instance.error().message;
+        const ParameterMap parameters{{"missing", EntityUuid::generate().to_string()}};
+        auto result =
+            instance.value()->invoke(Script::Phase::Update, actor, parameters, {.scene = &scene});
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().message.find("Expected an entity UUID"), std::string::npos);
     }
 
     TEST(ScriptInvocationTest, CachedParametersAreReadOnlyAndStopErrorsAreObservable) {

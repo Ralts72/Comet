@@ -1,6 +1,7 @@
 #include "scripting/script.h"
 #include "common/file_io.h"
 #include "scripting/lua_bindings.h"
+#include "scene/scene.h"
 
 extern "C" {
 #include <lua.h>
@@ -25,6 +26,8 @@ namespace Comet {
         int definition = LUA_NOREF;
         int self = LUA_NOREF;
         LuaBindings::Context bindings;
+        Scene* active_scene = nullptr;
+        std::uint64_t scene_generation = 0;
         const ParameterMap* parameters = nullptr;
         std::optional<ParameterMap> previous_parameters;
         int parameter_table = LUA_NOREF;
@@ -289,7 +292,13 @@ namespace Comet {
             !m_impl->previous_parameters || *m_impl->previous_parameters != parameters;
         if(m_impl->parameters_changed && !valid_parameters(parameters))
             return Result<void, Error>::failure({"Invalid script parameters"});
-        m_impl->bindings = {entity, invocation.input};
+        if(invocation.scene && entity && !invocation.scene->is_valid(entity))
+            return Result<void, Error>::failure({"Script entity belongs to another scene"});
+        if(m_impl->active_scene != invocation.scene) {
+            m_impl->active_scene = invocation.scene;
+            ++m_impl->scene_generation;
+        }
+        m_impl->bindings = {entity, invocation.scene, invocation.input, m_impl->scene_generation};
         m_impl->parameters = &parameters;
         m_impl->delta_time = invocation.delta_time;
         m_impl->phase = phase;
