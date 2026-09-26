@@ -13,9 +13,10 @@ namespace CometEditor {
         : m_state(state), m_history(history), m_shortcuts(shortcuts) {}
 
     void MenuBar::render(
-        const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene) {
+        const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene,
+        std::span<const std::filesystem::path> recent_projects) {
         if(ImGui::BeginMainMenuBar()) {
-            render_file_menu(current_scene, startup_scene);
+            render_file_menu(current_scene, startup_scene, recent_projects);
             render_edit_menu();
             render_view_menu();
             if(ImGui::BeginMenu(Ui::label("Language").c_str())) {
@@ -37,10 +38,23 @@ namespace CometEditor {
     }
 
     void MenuBar::render_file_menu(
-        const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene) {
+        const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene,
+        std::span<const std::filesystem::path> recent_projects) {
         if(ImGui::BeginMenu(Ui::label("File").c_str(), m_state.mode == EditorMode::Edit)) {
-            if(ImGui::MenuItem(Ui::label("Open Project").c_str()))
+            if(ImGui::MenuItem(Ui::label("Open Project").c_str())) {
                 m_requested_command = Command::OpenProject;
+                m_requested_project_path.reset();
+            }
+            if(!recent_projects.empty()
+                && ImGui::BeginMenu(Ui::label("Recent Projects").c_str())) {
+                for(const auto& path : recent_projects) {
+                    if(ImGui::MenuItem(path.generic_string().c_str())) {
+                        m_requested_command = Command::OpenProject;
+                        m_requested_project_path = path;
+                    }
+                }
+                ImGui::EndMenu();
+            }
             ImGui::Separator();
             const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
             if(ImGui::MenuItem(Ui::label("New Scene").c_str(),
@@ -110,6 +124,10 @@ namespace CometEditor {
 
     std::optional<MenuBar::Command> MenuBar::take_command() {
         return std::exchange(m_requested_command, std::nullopt);
+    }
+
+    std::optional<std::filesystem::path> MenuBar::take_project_path() {
+        return std::exchange(m_requested_project_path, std::nullopt);
     }
 
     std::optional<Ui::Language> MenuBar::take_language_request() {

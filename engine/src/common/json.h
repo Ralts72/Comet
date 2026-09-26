@@ -17,7 +17,7 @@
 namespace Comet::Json {
     using Node = simdjson::dom::element;
 
-    class Context final {
+    class COMET_API Context final {
     public:
         Context(std::string_view kind, std::string_view source) : m_kind(kind), m_source(source) {}
 
@@ -94,7 +94,7 @@ namespace Comet::Json {
     };
 
     // simdjson 的 DOM 只读且依赖 parser；写入不持有这些借用节点。
-    class Writer final {
+    class COMET_API Writer final {
     public:
         void begin_object();
         void end_object();

@@ -8,6 +8,7 @@ add_library(editor_core STATIC
         src/editor_state.cpp
         src/file_watch_config.cpp
         src/file_recheck_trigger.cpp
+        src/project/recent_projects.cpp
         src/assets/editor_assets.cpp
         src/assets/scene_asset_references.cpp
         src/assets/source_operations.cpp
@@ -25,7 +26,7 @@ add_library(editor_core STATIC
         src/viewport/transform_gizmo.cpp
         src/viewport/viewport_layout.cpp
 )
-target_link_libraries(editor_core PUBLIC engine comet_shader_tools PRIVATE yaml-cpp fastgltf::fastgltf)
+target_link_libraries(editor_core PUBLIC engine comet_shader_tools PRIVATE yaml-cpp fastgltf::fastgltf simdjson)
 if(APPLE)
     target_link_libraries(editor_core PRIVATE "-framework CoreServices" "-framework Foundation")
 elseif(WIN32)

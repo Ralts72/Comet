@@ -9,6 +9,7 @@
 #include "render/render_diagnostics.h"
 #include "common/file_io.h"
 #include "ui/path_dialog.h"
+#include "project/recent_projects.h"
 #include "scene/editor_request_policy.h"
 #include "ui/dialogs.h"
 #include "scene/command_history.h"
@@ -42,6 +43,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -78,6 +80,17 @@ namespace {
 
             m_console_panel = std::make_shared<CometEditor::ConsolePanel>();
             setup_log_redirect();
+
+            auto recent_path = CometEditor::RecentProjects::default_storage_path();
+            if(recent_path) {
+                auto recent = CometEditor::RecentProjects::load(recent_path.value());
+                if(recent)
+                    m_recent_projects = std::move(recent).value();
+                else
+                    LOG_WARN("Recent projects unavailable: {}", recent.error());
+            } else {
+                LOG_WARN("Recent projects unavailable: {}", recent_path.error());
+            }
 
             auto translations = CometEditor::Ui::load_translations();
             if(translations) {
@@ -185,6 +198,10 @@ namespace {
                 });
 
             LOG_INFO("Editor initialized");
+            if(m_recent_projects) {
+                if(auto recorded = m_recent_projects->record(m_project.paths().root()); !recorded)
+                    LOG_WARN("Cannot update recent projects: {}", recorded.error());
+            }
             engine.get_window().confirm_close_requests(true);
             return Comet::Result<void, Comet::Error>::success();
         }
@@ -285,6 +302,7 @@ namespace {
             m_scene_document.reset();
             m_assets.reset();
             m_material_shader_reload.reset();
+            m_recent_projects.reset();
             m_console_panel.reset();
             return Comet::Result<void, Comet::Error>::success();
         }
@@ -388,8 +406,22 @@ namespace {
                 LOG_WARN("Scene structure request was rejected or had no effect");
         }
 
+        Comet::Result<void, Comet::Error> request_project_switch(
+            const std::filesystem::path& path) {
+            auto candidate = Comet::Project::load(path);
+            if(!candidate)
+                return Comet::Result<void, Comet::Error>::failure({candidate.error()});
+            if(!finish_active_edit())
+                return Comet::Result<void, Comet::Error>::failure(
+                    {"Cannot finish active edit before switching projects"});
+            m_next_project = candidate.value().paths().root();
+            m_scene_document->request({CometEditor::SceneDocument::Action::Close, {}});
+            return Comet::Result<void, Comet::Error>::success();
+        }
+
         Comet::Result<void, Comet::Error> handle_command(
-            const CometEditor::MenuBar::Command command) {
+            const CometEditor::MenuBar::Command command,
+            const std::optional<std::filesystem::path>& project_path) {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
                 LOG_WARN("Scene commands are disabled in Play mode");
                 return Comet::Result<void, Comet::Error>::success();
@@ -402,8 +434,16 @@ namespace {
 
             switch(command) {
                 case CometEditor::MenuBar::Command::OpenProject:
-                    m_path_dialog.request(CometEditor::PathDialog::Action::OpenProject,
-                        m_project.paths().root(), m_project.paths().root());
+                    if(project_path) {
+                        if(auto switched = request_project_switch(*project_path); !switched) {
+                            m_path_dialog.request(CometEditor::PathDialog::Action::OpenProject,
+                                *project_path, m_project.paths().root());
+                            m_path_dialog.complete(switched);
+                        }
+                    } else {
+                        m_path_dialog.request(CometEditor::PathDialog::Action::OpenProject,
+                            m_project.paths().root(), m_project.paths().root());
+                    }
                     break;
                 case CometEditor::MenuBar::Command::Undo:
                     if(!m_scene_editor->undo(get_engine().get_scene()))
@@ -582,7 +622,10 @@ namespace {
             ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), dockspace_flags);
 
             ImGui::BeginDisabled(m_scene_document->has_pending_request());
-            m_menu_bar->render(current_saved_scene(), m_project.startup_scene());
+            std::span<const std::filesystem::path> recent;
+            if(m_recent_projects)
+                recent = m_recent_projects->entries();
+            m_menu_bar->render(current_saved_scene(), m_project.startup_scene(), recent);
             m_hierarchy_panel->render();
             m_viewport->panel().render();
             m_inspector_panel->render();
@@ -677,17 +720,7 @@ namespace {
         Comet::Result<void, Comet::Error> handle_path_request(
             const CometEditor::PathDialog::Request& request) {
             if(request.action == CometEditor::PathDialog::Action::OpenProject) {
-                auto candidate = Comet::Project::load(request.path);
-                if(!candidate) {
-                    m_path_dialog.complete(
-                        Comet::Result<void, Comet::Error>::failure({candidate.error()}));
-                    return Comet::Result<void, Comet::Error>::success();
-                }
-                if(!finish_active_edit())
-                    return Comet::Result<void, Comet::Error>::success();
-                m_next_project = candidate.value().paths().root();
-                m_scene_document->request({CometEditor::SceneDocument::Action::Close, {}});
-                m_path_dialog.complete(Comet::Result<void, Comet::Error>::success());
+                m_path_dialog.complete(request_project_switch(request.path));
                 return Comet::Result<void, Comet::Error>::success();
             }
             if(!finish_active_edit())
@@ -731,6 +764,7 @@ namespace {
             const auto hierarchy_request = m_hierarchy_panel->take_request();
             const auto rename_request = m_hierarchy_panel->take_rename_request();
             const auto menu_command = m_menu_bar->take_command();
+            const auto project_path = m_menu_bar->take_project_path();
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
             const auto play_command = m_viewport->panel().take_play_command();
@@ -759,7 +793,7 @@ namespace {
                 case Kind::FileDialog:
                     return handle_path_request(*file_request);
                 case Kind::Menu: {
-                    auto result = handle_command(*menu_command);
+                    auto result = handle_command(*menu_command, project_path);
                     if(!result && is_device_lost(result.error()))
                         return result;
                     break;
@@ -866,6 +900,7 @@ namespace {
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
         CometEditor::PathDialog m_path_dialog;
         std::optional<std::filesystem::path> m_next_project;
+        std::optional<CometEditor::RecentProjects> m_recent_projects;
 
         std::unique_ptr<CometEditor::MenuBar> m_menu_bar;
         std::unique_ptr<CometEditor::HierarchyPanel> m_hierarchy_panel;

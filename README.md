@@ -236,7 +236,10 @@ GLFW 以动态库构建，确保引擎和 UI 后端共用一份窗口系统状�
 ```
 
 app 和 editor 可执行文件都接受同样的可选路径参数；相对路径以调用者的工作目录为基准。`--help` 显示用法。
-编辑器中的“文件 → 打开项目”可输入项目目录或 `project.json` 路径。候选项目校验通过后，
+编辑器中的“文件 → 打开项目”可输入项目目录或 `project.json` 路径；“文件 → 最近项目”列出最近打开的项目。
+列表最多保留 10 项，存于用户目录的编辑器本地状态（macOS：`~/Library/Application Support/Comet/recent-projects.json`；
+Windows：`%APPDATA%/Comet/recent-projects.json`；Linux：`$XDG_STATE_HOME/comet/recent-projects.json`，未设置时使用 `~/.local/state/comet/`），不写入项目。
+候选项目校验通过后，
 编辑器先处理未保存场景，再结束旧会话并打开新项目；取消或无效路径不会切换项目。
 运行模式下先停止 Play，才能打开项目菜单。
 项目需要 `project.json` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。

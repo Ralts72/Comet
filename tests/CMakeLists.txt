@@ -40,6 +40,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_editor_scene_session.cpp
         editor/core/test_material_editing.cpp
         editor/core/test_render_view.cpp
+        editor/core/test_recent_projects.cpp
         editor/core/test_scene_commands.cpp
         editor/core/test_scene_document.cpp
         editor/core/test_selection.cpp
