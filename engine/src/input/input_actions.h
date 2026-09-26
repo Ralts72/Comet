@@ -25,9 +25,15 @@ namespace Comet {
             Type type = Type::Button;
             std::vector<Binding> bindings;
         };
+        struct ControlName {
+            std::string_view source;
+            std::string control;
+        };
         [[nodiscard]] static Result<InputActions> create(std::vector<Action> actions);
         [[nodiscard]] static Result<Binding> parse_binding(
             std::string_view source, std::string_view control, float scale = 1, float deadzone = 0);
+        [[nodiscard]] static Result<ControlName> format_binding(const Binding& binding);
+        [[nodiscard]] const std::vector<Action>& actions() const { return m_actions; }
         // 同一配置下的电平历史与新快照；不同消费者分别持有，更换配置时清空。
         void evaluate(const Input::Frame& input, InputState& previous) const;
 

@@ -6,6 +6,8 @@
 "New Scene": "新建场景"
 "Open Scene": "打开场景"
 "Save Scene": "保存场景"
+"Set Current Scene as Startup": "将当前场景设为启动场景"
+"Clear Startup Scene": "清除启动场景"
 "Undo": "撤销"
 "Redo": "重做"
 "Hierarchy": "层级"

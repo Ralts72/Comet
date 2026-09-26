@@ -13,6 +13,7 @@ namespace Comet {
         static constexpr std::uint32_t FORMAT_VERSION = 1;
 
         [[nodiscard]] static Result<Project> load(const std::filesystem::path& path);
+        [[nodiscard]] Result<void> save_startup_scene(const std::filesystem::path& path);
 
         [[nodiscard]] const ProjectPaths& paths() const { return m_paths; }
         [[nodiscard]] const std::string& name() const { return m_name; }
@@ -21,10 +22,13 @@ namespace Comet {
 
     private:
         explicit Project(ProjectPaths paths);
+        [[nodiscard]] Result<std::string> serialize(
+            const std::filesystem::path& startup_scene) const;
 
         ProjectPaths m_paths;
         std::string m_name;
         std::filesystem::path m_startup_scene;
         InputActions m_input_actions;
+        std::string m_source_contents;
     };
 }

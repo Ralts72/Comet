@@ -12,9 +12,10 @@ namespace CometEditor {
         const EditorState& state, const CommandHistory& history, const EditorShortcuts& shortcuts)
         : m_state(state), m_history(history), m_shortcuts(shortcuts) {}
 
-    void MenuBar::render() {
+    void MenuBar::render(
+        const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene) {
         if(ImGui::BeginMainMenuBar()) {
-            render_file_menu();
+            render_file_menu(current_scene, startup_scene);
             render_edit_menu();
             render_view_menu();
             if(ImGui::BeginMenu(Ui::label("Language").c_str())) {
@@ -35,7 +36,8 @@ namespace CometEditor {
         }
     }
 
-    void MenuBar::render_file_menu() {
+    void MenuBar::render_file_menu(
+        const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene) {
         if(ImGui::BeginMenu(Ui::label("File").c_str(), m_state.mode == EditorMode::Edit)) {
             const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
             if(ImGui::MenuItem(Ui::label("New Scene").c_str(),
@@ -49,6 +51,16 @@ namespace CometEditor {
             if(ImGui::MenuItem(Ui::label("Save Scene").c_str(),
                    m_shortcuts.label(EditorShortcuts::Action::SaveScene, mac).c_str())) {
                 m_requested_command = Command::SaveScene;
+            }
+            ImGui::Separator();
+            if(ImGui::MenuItem(Ui::label("Set Current Scene as Startup").c_str(), nullptr,
+                   !current_scene.empty() && current_scene == startup_scene,
+                   !current_scene.empty())) {
+                m_requested_command = Command::SetStartupScene;
+            }
+            if(ImGui::MenuItem(Ui::label("Clear Startup Scene").c_str(), nullptr, false,
+                   !startup_scene.empty())) {
+                m_requested_command = Command::ClearStartupScene;
             }
             ImGui::EndMenu();
         }

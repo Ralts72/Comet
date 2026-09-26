@@ -1,7 +1,9 @@
 #include "input/input_actions.h"
 
 #include <gtest/gtest.h>
+#include <array>
 #include <limits>
+#include <string_view>
 
 namespace Comet::Tests {
     TEST(InputActionsTest, ButtonBindingsShareHeldStateAndKeepShortClicks) {
@@ -91,5 +93,23 @@ namespace Comet::Tests {
         EXPECT_FALSE(InputActions::parse_binding("keyboard", "W"));
         EXPECT_TRUE(InputActions::parse_binding("key", "F25"));
         EXPECT_TRUE(InputActions::parse_binding("gamepad_button", "South"));
+    }
+
+    TEST(InputActionsTest, FormatsPersistedBindingsForRoundTrip) {
+        using namespace std::literals;
+        constexpr std::array controls{std::pair{"key"sv, "A"sv}, std::pair{"key"sv, "7"sv},
+            std::pair{"key"sv, "F25"sv}, std::pair{"key"sv, "LeftShift"sv},
+            std::pair{"mouse_button"sv, "Right"sv}, std::pair{"gamepad_button"sv, "South"sv},
+            std::pair{"gamepad_axis"sv, "LeftX"sv}, std::pair{"motion"sv, "CursorY"sv}};
+        for(const auto& [source, control] : controls) {
+            SCOPED_TRACE(std::string(source) + "/" + std::string(control));
+            auto parsed = InputActions::parse_binding(source, control);
+            ASSERT_TRUE(parsed) << parsed.error();
+            auto formatted = InputActions::format_binding(parsed.value());
+            ASSERT_TRUE(formatted) << formatted.error();
+            EXPECT_EQ(formatted.value().source, source);
+            EXPECT_EQ(formatted.value().control, control);
+        }
+        EXPECT_FALSE(InputActions::format_binding({Input::Key::Keypad1}));
     }
 }

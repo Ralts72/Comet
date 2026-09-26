@@ -90,6 +90,45 @@ namespace Comet {
                     context.error("input_actions", result.error()));
             return result;
         }
+
+        Result<void> write_input_actions(const InputActions& actions, Json::Writer& writer) {
+            writer.key("input_actions");
+            writer.begin_array();
+            for(const auto& action : actions.actions()) {
+                writer.begin_object();
+                writer.field("name", action.name);
+                switch(action.type) {
+                    case InputActions::Type::Button:
+                        writer.field("type", "button");
+                        break;
+                    case InputActions::Type::Axis:
+                        writer.field("type", "axis");
+                        break;
+                    case InputActions::Type::Delta:
+                        writer.field("type", "delta");
+                        break;
+                }
+                writer.key("bindings");
+                writer.begin_array();
+                for(const auto& binding : action.bindings) {
+                    const auto control = InputActions::format_binding(binding);
+                    if(!control)
+                        return Result<void>::failure(control.error());
+                    writer.begin_object();
+                    writer.field("source", control.value().source);
+                    writer.field("control", control.value().control);
+                    if(binding.scale != 1)
+                        writer.field("scale", binding.scale);
+                    if(binding.deadzone != 0)
+                        writer.field("deadzone", binding.deadzone);
+                    writer.end_object();
+                }
+                writer.end_array();
+                writer.end_object();
+            }
+            writer.end_array();
+            return Result<void>::success();
+        }
     }
 
     Project::Project(ProjectPaths paths) : m_paths(std::move(paths)) {}
@@ -107,6 +146,8 @@ namespace Comet {
         if(error)
             return Result<Project>::failure(
                 "Cannot resolve project manifest '" + path.string() + "': " + error.message());
+        if(manifest.filename() != "project.json")
+            return Result<Project>::failure("Project manifest must be named project.json");
         const std::string source = manifest.string();
         const Json::Context context("project", source);
         simdjson::dom::parser parser;
@@ -167,6 +208,47 @@ namespace Comet {
                 return Result<Project>::failure(actions.error());
             project.m_input_actions = std::move(actions).value();
         }
+        project.m_source_contents = std::move(contents).value();
         return Result<Project>::success(std::move(project));
+    }
+
+    Result<std::string> Project::serialize(const std::filesystem::path& startup_scene) const {
+        Json::Writer writer;
+        writer.begin_object();
+        writer.field("version", std::uint64_t(FORMAT_VERSION));
+        writer.field("name", m_name);
+        writer.field("startup_scene", startup_scene.generic_string());
+        if(auto written = write_input_actions(m_input_actions, writer); !written)
+            return Result<std::string>::failure(written.error());
+        writer.end_object();
+        return std::move(writer).finish();
+    }
+
+    Result<void> Project::save_startup_scene(const std::filesystem::path& path) {
+        using Saved = Result<void>;
+        if(!path.empty() && (path.is_absolute() || path.extension() != ".scene"))
+            return Saved::failure("Startup scene must be an assets-relative .scene path");
+        if(!path.empty()) {
+            const auto resolved = m_paths.resolve_asset_path(path);
+            if(!resolved)
+                return Saved::failure(resolved.error());
+        }
+        const auto candidate = path.lexically_normal();
+        const auto manifest = m_paths.root() / "project.json";
+        const auto current = read_text_file(manifest);
+        if(!current)
+            return Saved::failure(current.error());
+        if(current.value() != m_source_contents)
+            return Saved::failure("Project file changed since it was loaded");
+        if(candidate == m_startup_scene)
+            return Saved::success();
+        auto serialized = serialize(candidate);
+        if(!serialized)
+            return Saved::failure(serialized.error());
+        if(auto saved = write_text_file_atomic(manifest, serialized.value()); !saved)
+            return saved;
+        m_startup_scene = candidate;
+        m_source_contents = std::move(serialized).value();
+        return Saved::success();
     }
 }

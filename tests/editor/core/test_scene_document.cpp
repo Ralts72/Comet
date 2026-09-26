@@ -160,6 +160,7 @@ namespace CometEditor::Tests {
             });
         ASSERT_TRUE(document.open(file.path()));
         EXPECT_EQ(document.get_path(), file.path());
+        EXPECT_EQ(document.get_asset_relative_path(), "untitled.scene");
         EXPECT_TRUE(document.get_last_error().empty());
         const auto restored = active->find_entity(uuid);
         ASSERT_TRUE(restored);
@@ -184,6 +185,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(document.create_new());
         EXPECT_EQ(active->entity_count(), 0U);
         EXPECT_TRUE(document.get_path().empty());
+        EXPECT_TRUE(document.get_asset_relative_path().empty());
         EXPECT_FALSE(std::filesystem::exists(file.path()));
 
         const std::string invalid = "invalid scene";
@@ -214,6 +216,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(document.save("scenes/saved.scene"));
         const auto saved_path = document.get_path();
         EXPECT_EQ(saved_path, (file.paths().assets() / "scenes/saved.scene").string());
+        EXPECT_EQ(document.get_asset_relative_path(), "scenes/saved.scene");
         ASSERT_TRUE(document.open("scenes/saved.scene"));
         const auto outside = file.paths().root() / "outside.scene";
         ASSERT_TRUE(serializer.save(*active, outside.string()));
@@ -224,6 +227,7 @@ namespace CometEditor::Tests {
             EXPECT_FALSE(document.open(path));
             EXPECT_FALSE(document.save(path));
             EXPECT_EQ(document.get_path(), saved_path);
+            EXPECT_EQ(document.get_asset_relative_path(), "scenes/saved.scene");
             EXPECT_EQ(active->entity_count(), 1U);
         }
         const auto stored = Comet::read_text_file(outside);

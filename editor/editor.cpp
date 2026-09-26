@@ -368,6 +368,12 @@ namespace {
             return false;
         }
 
+        [[nodiscard]] std::filesystem::path current_saved_scene() const {
+            if(m_scene_document->is_modified())
+                return {};
+            return m_scene_document->get_asset_relative_path();
+        }
+
         void handle_scene_request(const CometEditor::SceneEditor::StructureRequest& request) {
             if(!m_scene_editor->can_edit(get_engine().get_scene(), request.generation)
                 || !finish_active_edit())
@@ -438,6 +444,27 @@ namespace {
                         return m_scene_document->save(m_scene_document->get_path());
                     }
                     break;
+                case CometEditor::MenuBar::Command::SetStartupScene: {
+                    const auto scene = current_saved_scene();
+                    if(scene.empty()) {
+                        LOG_WARN("Save the current scene before setting it as the startup scene");
+                        break;
+                    }
+                    const auto saved = m_project.save_startup_scene(scene);
+                    if(!saved)
+                        LOG_ERROR("Cannot set startup scene: {}", saved.error());
+                    else
+                        LOG_INFO("Startup scene set to '{}'", scene.generic_string());
+                    break;
+                }
+                case CometEditor::MenuBar::Command::ClearStartupScene: {
+                    const auto saved = m_project.save_startup_scene({});
+                    if(!saved)
+                        LOG_ERROR("Cannot clear startup scene: {}", saved.error());
+                    else
+                        LOG_INFO("Startup scene cleared");
+                    break;
+                }
             }
             return Comet::Result<void, Comet::Error>::success();
         }
@@ -543,7 +570,7 @@ namespace {
             ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), dockspace_flags);
 
             ImGui::BeginDisabled(m_scene_document->has_pending_request());
-            m_menu_bar->render();
+            m_menu_bar->render(current_saved_scene(), m_project.startup_scene());
             m_hierarchy_panel->render();
             m_viewport->panel().render();
             m_inspector_panel->render();

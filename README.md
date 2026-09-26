@@ -259,6 +259,9 @@ JSON 解析直接依赖已有 simdjson。
 ```
 
 `startup_scene` 相对项目 `assets/`；省略或空字符串表示空场景。项目描述不配置默认材质，场景保存自己的材质引用。
+在编辑器中保存场景后，可通过“文件 → 将当前场景设为启动场景”设置启动场景，
+或通过“清除启动场景”移除设置；未保存的当前场景不能设为启动场景。
+修改会立即写入 `project.json`，下次启动 editor／app 时生效。
 app 与 editor 共用 Project、SceneSerializer 和场景资产引用，不再分别创建示例物体、相机或灯光。
 app 使用场景 primary Camera；Edit 使用编辑器相机，因此同一场景不保证相同取景。
 app 窗口创建时使用 `project.json` 的项目名，运行时显示 `项目名 | 120 FPS`；编辑器标题固定为 `Comet Editor`。

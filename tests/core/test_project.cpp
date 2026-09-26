@@ -62,6 +62,75 @@ namespace Comet::Tests {
         EXPECT_TRUE(std::filesystem::is_empty(root / "assets"));
     }
 
+    TEST_F(ProjectTest, SavesStartupSceneAtomicallyAndPreservesInputActions) {
+        write(R"({"version":1,"name":"Game","startup_scene":"levels/old.scene",
+            "input_actions":[{"name":"move","type":"axis","bindings":[
+                {"source":"key","control":"L","scale":-1},
+                {"source":"gamepad_axis","control":"LeftX","deadzone":0.15}]}]})");
+        auto loaded = Project::load(root);
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto project = std::move(loaded).value();
+        ASSERT_TRUE(project.save_startup_scene("levels/new.scene"));
+        EXPECT_EQ(project.startup_scene(), "levels/new.scene");
+
+        auto reopened = Project::load(root);
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value().startup_scene(), "levels/new.scene");
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::L, true);
+        InputState frame;
+        reopened.value().input_actions().evaluate(input.publish_frame(), frame);
+        ASSERT_NE(frame.action("move"), nullptr);
+        EXPECT_FLOAT_EQ(frame.action("move")->value, -1);
+        const auto contents = read_text_file(root / "project.json");
+        ASSERT_TRUE(contents) << contents.error();
+        ASSERT_TRUE(project.save_startup_scene("levels/new.scene"));
+        EXPECT_EQ(read_text_file(root / "project.json").value(), contents.value());
+
+        ASSERT_TRUE(project.save_startup_scene({}));
+        EXPECT_TRUE(project.startup_scene().empty());
+        auto without_startup_scene = Project::load(root);
+        ASSERT_TRUE(without_startup_scene) << without_startup_scene.error();
+        EXPECT_TRUE(without_startup_scene.value().startup_scene().empty());
+    }
+
+    TEST_F(ProjectTest, FailedStartupSceneChangeRetainsOldProject) {
+        write(R"({"version":1,"name":"Game","startup_scene":"levels/old.scene"})");
+        auto loaded = Project::load(root);
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto project = std::move(loaded).value();
+        const auto original = read_text_file(root / "project.json").value();
+        for(const auto& invalid : {"../outside.scene", "/outside.scene", "texture.png"}) {
+            SCOPED_TRACE(invalid);
+            EXPECT_FALSE(project.save_startup_scene(invalid));
+            EXPECT_EQ(project.startup_scene(), "levels/old.scene");
+            EXPECT_EQ(read_text_file(root / "project.json").value(), original);
+        }
+
+        const std::string external = R"({"version":1,"name":"Updated elsewhere"})";
+        write(external);
+        EXPECT_FALSE(project.save_startup_scene("levels/new.scene"));
+        EXPECT_EQ(project.startup_scene(), "levels/old.scene");
+        EXPECT_EQ(read_text_file(root / "project.json").value(), external);
+    }
+
+    TEST_F(ProjectTest, SampleInputBindingsSurviveProjectSave) {
+        const auto sample =
+            read_text_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "project.json");
+        ASSERT_TRUE(sample) << sample.error();
+        write(sample.value());
+        auto loaded = Project::load(root);
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto project = std::move(loaded).value();
+        ASSERT_TRUE(project.save_startup_scene("scenes/another.scene"));
+        auto reopened = Project::load(root);
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value().startup_scene(), "scenes/another.scene");
+        EXPECT_EQ(reopened.value().input_actions().actions().size(),
+            project.input_actions().actions().size());
+    }
+
     TEST_F(ProjectTest, LoadsProjectActionsAndRejectsBadInputWithoutFallback) {
         write(R"({"version":1,"name":"Game","input_actions":[
             {"name":"move","type":"axis","bindings":[
@@ -140,5 +209,8 @@ namespace Comet::Tests {
         EXPECT_FALSE(Project::load(root));
         EXPECT_FALSE(std::filesystem::exists(root / "project.json"));
         EXPECT_FALSE(Project::load(root / "project.yaml"));
+        write(R"({"version":1,"name":"Game"})");
+        std::filesystem::copy_file(root / "project.json", root / "alias.json");
+        EXPECT_FALSE(Project::load(root / "alias.json"));
     }
 }

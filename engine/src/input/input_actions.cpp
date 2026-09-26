@@ -10,6 +10,28 @@
 
 namespace Comet {
     namespace {
+        using namespace std::literals;
+        constexpr std::pair<std::string_view, Input::Key> key_names[]{{"Space", Input::Key::Space},
+            {"Escape", Input::Key::Escape}, {"Enter", Input::Key::Enter}, {"Tab", Input::Key::Tab},
+            {"Backspace", Input::Key::Backspace}, {"Delete", Input::Key::Delete},
+            {"Insert", Input::Key::Insert}, {"Home", Input::Key::Home}, {"End", Input::Key::End},
+            {"PageUp", Input::Key::PageUp}, {"PageDown", Input::Key::PageDown},
+            {"Up", Input::Key::Up}, {"Down", Input::Key::Down}, {"Left", Input::Key::Left},
+            {"Right", Input::Key::Right}, {"LeftShift", Input::Key::LeftShift},
+            {"RightShift", Input::Key::RightShift}, {"LeftControl", Input::Key::LeftControl},
+            {"RightControl", Input::Key::RightControl}, {"LeftAlt", Input::Key::LeftAlt},
+            {"RightAlt", Input::Key::RightAlt}, {"LeftSuper", Input::Key::LeftSuper},
+            {"RightSuper", Input::Key::RightSuper}};
+        constexpr auto mouse_button_names = std::array{"Left"sv, "Right"sv, "Middle"sv, "Extra1"sv,
+            "Extra2"sv, "Extra3"sv, "Extra4"sv, "Extra5"sv};
+        constexpr auto gamepad_button_names = std::array{"South"sv, "East"sv, "West"sv, "North"sv,
+            "LeftShoulder"sv, "RightShoulder"sv, "Back"sv, "Start"sv, "Guide"sv, "LeftThumb"sv,
+            "RightThumb"sv, "DpadUp"sv, "DpadRight"sv, "DpadDown"sv, "DpadLeft"sv};
+        constexpr auto gamepad_axis_names = std::array{
+            "LeftX"sv, "LeftY"sv, "RightX"sv, "RightY"sv, "LeftTrigger"sv, "RightTrigger"sv};
+        constexpr auto motion_names =
+            std::array{"CursorX"sv, "CursorY"sv, "ScrollX"sv, "ScrollY"sv};
+
         template<typename T, size_t N>
         bool named_control(std::string_view name, const std::array<std::string_view, N>& names,
             InputActions::Binding& binding) {
@@ -18,6 +40,16 @@ namespace Comet {
                 return false;
             binding.control = static_cast<T>(it - names.begin());
             return true;
+        }
+
+        template<typename T, size_t N>
+        Result<InputActions::ControlName> named_control_label(
+            T control, std::string_view source, const std::array<std::string_view, N>& names) {
+            const auto index = static_cast<std::size_t>(control);
+            if(index >= names.size())
+                return Result<InputActions::ControlName>::failure(
+                    "Input control cannot be serialized");
+            return Result<InputActions::ControlName>::success({source, std::string(names[index])});
         }
 
         bool key_control(std::string_view name, InputActions::Binding& binding) {
@@ -40,17 +72,7 @@ namespace Comet {
                     return true;
                 }
             }
-            const std::pair<std::string_view, Key> names[]{{"Space", Key::Space},
-                {"Escape", Key::Escape}, {"Enter", Key::Enter}, {"Tab", Key::Tab},
-                {"Backspace", Key::Backspace}, {"Delete", Key::Delete}, {"Insert", Key::Insert},
-                {"Home", Key::Home}, {"End", Key::End}, {"PageUp", Key::PageUp},
-                {"PageDown", Key::PageDown}, {"Up", Key::Up}, {"Down", Key::Down},
-                {"Left", Key::Left}, {"Right", Key::Right}, {"LeftShift", Key::LeftShift},
-                {"RightShift", Key::RightShift}, {"LeftControl", Key::LeftControl},
-                {"RightControl", Key::RightControl}, {"LeftAlt", Key::LeftAlt},
-                {"RightAlt", Key::RightAlt}, {"LeftSuper", Key::LeftSuper},
-                {"RightSuper", Key::RightSuper}};
-            for(const auto& [label, key] : names)
+            for(const auto& [label, key] : key_names)
                 if(name == label) {
                     binding.control = key;
                     return true;
@@ -100,34 +122,55 @@ namespace Comet {
 
     Result<InputActions::Binding> InputActions::parse_binding(
         std::string_view source, std::string_view control, float scale, float deadzone) {
-        using namespace std::literals;
         Binding binding{Input::Key::Unknown, scale, deadzone};
         bool valid = false;
         if(source == "key")
             valid = key_control(control, binding);
         else if(source == "mouse_button")
-            valid = named_control<Input::MouseButton>(control,
-                std::array{"Left"sv, "Right"sv, "Middle"sv, "Extra1"sv, "Extra2"sv, "Extra3"sv,
-                    "Extra4"sv, "Extra5"sv},
-                binding);
+            valid = named_control<Input::MouseButton>(control, mouse_button_names, binding);
         else if(source == "gamepad_button")
-            valid = named_control<Input::GamepadButton>(control,
-                std::array{"South"sv, "East"sv, "West"sv, "North"sv, "LeftShoulder"sv,
-                    "RightShoulder"sv, "Back"sv, "Start"sv, "Guide"sv, "LeftThumb"sv,
-                    "RightThumb"sv, "DpadUp"sv, "DpadRight"sv, "DpadDown"sv, "DpadLeft"sv},
-                binding);
+            valid = named_control<Input::GamepadButton>(control, gamepad_button_names, binding);
         else if(source == "gamepad_axis")
-            valid = named_control<Input::GamepadAxis>(control,
-                std::array{"LeftX"sv, "LeftY"sv, "RightX"sv, "RightY"sv, "LeftTrigger"sv,
-                    "RightTrigger"sv},
-                binding);
+            valid = named_control<Input::GamepadAxis>(control, gamepad_axis_names, binding);
         else if(source == "motion")
-            valid = named_control<Motion>(
-                control, std::array{"CursorX"sv, "CursorY"sv, "ScrollX"sv, "ScrollY"sv}, binding);
+            valid = named_control<Motion>(control, motion_names, binding);
         if(!valid)
             return Result<Binding>::failure(
                 "Unknown input control: " + std::string(source) + "/" + std::string(control));
         return Result<Binding>::success(binding);
+    }
+
+    Result<InputActions::ControlName> InputActions::format_binding(const Binding& binding) {
+        using Name = Result<ControlName>;
+        return std::visit(
+            [](const auto control) -> Name {
+                using T = std::remove_cv_t<decltype(control)>;
+                if constexpr(std::is_same_v<T, Input::Key>) {
+                    if(control >= T::A && control <= T::Z)
+                        return Name::success(
+                            {"key", std::string(1, char('A' + int(control) - int(T::A)))});
+                    if(control >= T::Digit0 && control <= T::Digit9)
+                        return Name::success(
+                            {"key", std::string(1, char('0' + int(control) - int(T::Digit0)))});
+                    if(control >= T::F1 && control <= T::F25)
+                        return Name::success(
+                            {"key", "F" + std::to_string(int(control) - int(T::F1) + 1)});
+                    for(const auto& [label, key] : key_names)
+                        if(control == key)
+                            return Name::success({"key", std::string(label)});
+                } else {
+                    if constexpr(std::is_same_v<T, Input::MouseButton>)
+                        return named_control_label(control, "mouse_button", mouse_button_names);
+                    else if constexpr(std::is_same_v<T, Input::GamepadButton>)
+                        return named_control_label(control, "gamepad_button", gamepad_button_names);
+                    else if constexpr(std::is_same_v<T, Input::GamepadAxis>)
+                        return named_control_label(control, "gamepad_axis", gamepad_axis_names);
+                    else
+                        return named_control_label(control, "motion", motion_names);
+                }
+                return Name::failure("Input control cannot be serialized");
+            },
+            binding.control);
     }
 
     Result<InputActions> InputActions::create(std::vector<Action> actions) {

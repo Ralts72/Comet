@@ -5,6 +5,7 @@
 #include "ui/shortcuts.h"
 #include "ui/language.h"
 
+#include <filesystem>
 #include <optional>
 #include <vector>
 
@@ -18,6 +19,8 @@ namespace CometEditor {
             NewScene,
             OpenScene,
             SaveScene,
+            SetStartupScene,
+            ClearStartupScene,
             Undo,
             Redo,
             CopyEntity,
@@ -28,7 +31,8 @@ namespace CometEditor {
         MenuBar(const EditorState& state, const CommandHistory& history,
             const EditorShortcuts& shortcuts);
 
-        void render();
+        void render(const std::filesystem::path& current_scene = {},
+            const std::filesystem::path& startup_scene = {});
         void collect_shortcuts();
         [[nodiscard]] std::optional<Command> take_command();
         [[nodiscard]] std::optional<Ui::Language> take_language_request();
@@ -38,7 +42,8 @@ namespace CometEditor {
         void set_fps(const float fps) { m_fps = fps; }
 
     private:
-        void render_file_menu();
+        void render_file_menu(
+            const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene);
         void render_edit_menu();
         void render_view_menu();
 

@@ -5,6 +5,7 @@
 #include "scene/scene_serializer.h"
 
 #include <filesystem>
+#include <system_error>
 #include <utility>
 
 namespace CometEditor {
@@ -64,6 +65,14 @@ namespace CometEditor {
             LOG_ERROR("Failed to save scene '{}': {}", path, m_last_error);
             return Comet::Result<void, Comet::Error>::failure({m_last_error});
         }
+        std::error_code error;
+        const auto asset_relative_path =
+            std::filesystem::relative(resolved.value(), m_paths.assets(), error);
+        if(error) {
+            m_last_error = "Cannot resolve scene path relative to assets: " + error.message();
+            LOG_ERROR("Failed to save scene '{}': {}", path, m_last_error);
+            return Comet::Result<void, Comet::Error>::failure({m_last_error});
+        }
         const auto saved = m_serializer.save(*scene, resolved.value().string());
         if(!saved) {
             m_last_error = saved.error();
@@ -71,6 +80,7 @@ namespace CometEditor {
             return Comet::Result<void, Comet::Error>::failure({m_last_error});
         }
         m_path = resolved.value().string();
+        m_asset_relative_path = asset_relative_path;
         m_saved_state = m_history.state_id();
         if(m_pending_request)
             m_pending_request->state = PendingState::Confirm;
@@ -115,12 +125,24 @@ namespace CometEditor {
             return Comet::Result<void, Comet::Error>::failure({m_last_error});
         }
 
+        std::filesystem::path asset_relative_path;
+        if(!path.empty()) {
+            std::error_code error;
+            asset_relative_path = std::filesystem::relative(path, m_paths.assets(), error);
+            if(error) {
+                m_last_error = "Cannot resolve scene path relative to assets: " + error.message();
+                LOG_ERROR("Cannot activate scene: {}", m_last_error);
+                return Comet::Result<void, Comet::Error>::failure({m_last_error});
+            }
+        }
+
         if(auto activated = m_activate_scene(std::move(scene)); !activated) {
             m_last_error = activated.error().message;
             LOG_ERROR("Cannot activate scene: {}", m_last_error);
             return activated;
         }
         m_path = std::move(path);
+        m_asset_relative_path = std::move(asset_relative_path);
         m_saved_state = m_history.state_id();
         m_last_error.clear();
         return Comet::Result<void, Comet::Error>::success();
