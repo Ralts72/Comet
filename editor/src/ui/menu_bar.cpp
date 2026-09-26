@@ -110,6 +110,9 @@ namespace CometEditor {
                    m_history.can_redo())) {
                 m_requested_command = Command::Redo;
             }
+            ImGui::Separator();
+            if(ImGui::MenuItem(Ui::label("Keyboard Shortcuts...").c_str()))
+                m_requested_command = Command::KeyboardShortcuts;
             ImGui::EndMenu();
         }
     }

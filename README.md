@@ -254,7 +254,7 @@ app 始终使用项目启动场景，不读取编辑器会话状态。
 项目需要 `project.json` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。
 编辑器生成的 `.scene`（v2）、`.mat`（v2）、`.meta`（v3）使用 JSON，扩展名不变；
 `.scene` 的 `entities` 只放根实体，子实体通过 `children` 嵌套，不再保存 `parent` 引用；UUID 仍全场景唯一。
-项目描述 `project.json` 同样使用 JSON；仅 `config/` 中的引擎、编辑器 Profile 与快捷键配置继续使用 YAML。
+项目描述 `project.json` 同样使用 JSON；引擎／编辑器开发配置及编辑器用户快捷键覆盖继续使用 YAML。
 JSON 解析直接依赖已有 simdjson。
 后台导入采用有界任务队列，同一资产尚未执行的旧请求会被最新 revision 合并替换；
 队列满时底层返回拒绝，编辑器自动导入和已加载资源刷新保留轻量待办，在容量恢复后重试；导入内容错误等待新变更或 Reimport。刷新失败继续保留旧资源。
@@ -290,7 +290,8 @@ app 和 editor Play 共用该行为，不依赖 UUID 或项目路径；Edit 不�
 引擎私有链接 Lua 5.4.8；参数编辑与运行限制见下方“场景运行时”。
 两种入口遇到项目描述错误或缺少 assets 都会启动失败，不回退仓库项目；仅 editor 在启动场景缺失／损坏时
 记录错误并打开空场景，供用户修复，不覆盖原文件。
-引擎 Profile、编辑器快捷键仍读取开发构建自带的 `config/`，字体／图标／Shader 不需要复制到每个项目。
+引擎 Profile 读取开发构建自带的 `config/`；编辑器快捷键使用内置默认值及用户状态目录中的覆盖文件。
+字体／图标／Shader 不需要复制到每个项目。
 当前支持在编辑器中创建、打开项目；切换通过重启编辑器进程完成，尚不支持原地切换或独立打包。
 
 ### 运行时输入
@@ -424,8 +425,9 @@ Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。�
   每次粘贴生成新实体身份并作为一次场景撤销。剪贴板仅在当前编辑器进程内有效，不使用系统剪贴板。
   选中实体后按 macOS Cmd+Backspace／其他平台 Ctrl+Backspace 可删除整棵子树，支持 Undo；文本输入时不会触发删除快捷键。
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
-- 编辑器快捷键位于 `config/editor.yaml` 的 `editor.shortcuts`，Shader 文件变化静默期位于
-  `editor.file_watch.quiet_period_ms`（0..2000 ms，默认 200；0 表示关闭防抖）。两者与运行 Profile 独立，修改后重启编辑器。
+- 编辑器快捷键默认值内置于代码；可在 Edit → 快捷键设置中修改，保存后立即生效。
+  用户覆盖仅保存不同于默认值的动作，写入用户状态目录的 `shortcuts.yaml`，不修改项目配置或仓库文件。
+  Shader 文件变化静默期位于 `editor.file_watch.quiet_period_ms`（0..2000 ms，默认 200；0 表示关闭防抖），修改后重启编辑器。
   Undo/Redo 默认 Ctrl+Z／Ctrl+Y，macOS 为 Cmd+Z／Cmd+Shift+Z，文本编辑时不抢占控件的撤销。
   `Primary` 代表 Cmd／Ctrl，`[]` 禁用绑定；冲突会记录日志并回退默认配置。
 - Project 自动监视资产变化；右键 Refresh 重扫，Reimport 强制重建 Mesh 缓存。

@@ -26,6 +26,7 @@ namespace CometEditor {
             SetStartupScene,
             Undo,
             Redo,
+            KeyboardShortcuts,
             CopyEntity,
             PasteEntity,
             DeleteSelection

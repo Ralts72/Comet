@@ -9,8 +9,10 @@ namespace CometEditor::Tests {
     using Action = EditorShortcuts::Action;
 
     TEST(EditorShortcutsTest, EditorDefaultsAreValid) {
-        EXPECT_TRUE(
-            EditorShortcuts::load(std::filesystem::path(PROJECT_ROOT_DIR) / "config/editor.yaml"));
+        const EditorShortcuts defaults;
+        EXPECT_EQ(defaults.label(Action::NewScene, false), "Ctrl+N");
+        EXPECT_EQ(defaults.label(Action::Redo, true), "Cmd+Shift+Z / Cmd+Y");
+        EXPECT_EQ(defaults.label(Action::FocusSelection, false), "F");
     }
 
     TEST(EditorShortcutsTest, OverridesOnlySpecifiedActionsAndAllowsDisabling) {
@@ -89,6 +91,46 @@ editor:
         EXPECT_NE(invalid.error().find(path.string()), std::string::npos);
         EXPECT_NE(invalid.error().find("editor.shortcuts.scene.save"), std::string::npos);
         EXPECT_NE(invalid.error().find("Escape"), std::string::npos);
+    }
+
+    TEST(EditorShortcutsTest, UserOverridesPersistAndLeaveBuiltinDefaults) {
+        Comet::Tests::TemporaryDirectory directory;
+        const auto path = directory.path() / "shortcuts.yaml";
+        auto texts = EditorShortcuts{}.binding_texts();
+        texts[static_cast<std::size_t>(Action::SaveScene)] = {"Alt+S", "Primary+Shift+S"};
+        texts[static_cast<std::size_t>(Action::Redo)].clear();
+        auto edited = EditorShortcuts::from_texts(std::move(texts));
+        ASSERT_TRUE(edited) << edited.error();
+        ASSERT_TRUE(edited.value().save_overrides(path));
+
+        const auto yaml = Comet::read_text_file(path);
+        ASSERT_TRUE(yaml) << yaml.error();
+        EXPECT_EQ(yaml.value().find("scene.new"), std::string::npos);
+        EXPECT_NE(yaml.value().find("edit.redo: []"), std::string::npos);
+        auto loaded = EditorShortcuts::load(path);
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(loaded.value().label(Action::NewScene, false), "Ctrl+N");
+        EXPECT_EQ(loaded.value().label(Action::SaveScene, false), "Alt+S / Ctrl+Shift+S");
+        EXPECT_TRUE(loaded.value().label(Action::Redo, false).empty());
+    }
+
+    TEST(EditorShortcutsTest, RejectsConflictingEditedBindings) {
+        auto texts = EditorShortcuts{}.binding_texts();
+        texts[static_cast<std::size_t>(Action::SaveScene)] = {"Primary+O"};
+        auto edited = EditorShortcuts::from_texts(std::move(texts));
+        ASSERT_FALSE(edited);
+        EXPECT_NE(edited.error().find("scene.open"), std::string::npos);
+        EXPECT_NE(edited.error().find("scene.save"), std::string::npos);
+    }
+
+    TEST(EditorShortcutsTest, RestoringDefaultsWritesAValidEmptyOverride) {
+        Comet::Tests::TemporaryDirectory directory;
+        const auto path = directory.path() / "shortcuts.yaml";
+        const EditorShortcuts defaults;
+        ASSERT_TRUE(defaults.save_overrides(path));
+        const auto loaded = EditorShortcuts::load(path);
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(loaded.value().binding_texts(), defaults.binding_texts());
     }
 }
 #endif

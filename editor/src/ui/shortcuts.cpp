@@ -9,9 +9,10 @@
 
 namespace CometEditor {
     namespace {
-        constexpr std::array<std::string_view, 9> ACTION_NAMES{"scene.new", "scene.open",
-            "scene.save", "edit.undo", "edit.redo", "edit.copy_entity", "edit.paste_entity",
-            "edit.delete_selection", "viewport.focus_selection"};
+        constexpr std::array<std::string_view, EditorShortcuts::ACTION_COUNT> ACTION_NAMES{
+            "scene.new", "scene.open", "scene.save", "edit.undo", "edit.redo",
+            "edit.copy_entity", "edit.paste_entity", "edit.delete_selection",
+            "viewport.focus_selection"};
 
         ImGuiKey parse_key(const std::string_view name) {
             if(name.size() == 1 && name[0] >= 'A' && name[0] <= 'Z')
@@ -67,7 +68,7 @@ namespace CometEditor {
     }
 
     EditorShortcuts::EditorShortcuts() {
-        const std::array<Binding, 9> defaults{{{ImGuiMod_Ctrl | ImGuiKey_N, "N"},
+        const std::array<Binding, ACTION_COUNT> defaults{{{ImGuiMod_Ctrl | ImGuiKey_N, "N"},
             {ImGuiMod_Ctrl | ImGuiKey_O, "O"}, {ImGuiMod_Ctrl | ImGuiKey_S, "S"},
             {ImGuiMod_Ctrl | ImGuiKey_Z, "Z"}, {ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, "Z"},
             {ImGuiMod_Ctrl | ImGuiKey_C, "C"}, {ImGuiMod_Ctrl | ImGuiKey_V, "V"},
@@ -137,17 +138,88 @@ namespace CometEditor {
             }
         }
 
+        if(auto valid = validate_conflicts(result); !valid)
+            return Result::failure(valid.error());
+        return Result::success(std::move(result));
+    }
+
+    Comet::Result<void> EditorShortcuts::validate_conflicts(const EditorShortcuts& shortcuts) {
+        using Result = Comet::Result<void>;
         // 全局与视口快捷键可能同时生效，需一起检查冲突。
         std::unordered_map<ImGuiKeyChord, std::string_view> owners;
-        for(std::size_t index = 0; index < result.m_bindings.size(); ++index) {
-            for(const auto& binding : result.m_bindings[index]) {
+        for(std::size_t index = 0; index < shortcuts.m_bindings.size(); ++index) {
+            for(const auto& binding : shortcuts.m_bindings[index]) {
                 const auto [owner, inserted] = owners.emplace(binding.chord, ACTION_NAMES[index]);
                 if(!inserted)
                     return Result::failure("Shortcut conflict between " + std::string(owner->second)
                                            + " and " + std::string(ACTION_NAMES[index]));
             }
         }
+        return Result::success();
+    }
+
+    Comet::Result<EditorShortcuts> EditorShortcuts::from_texts(BindingTexts texts) {
+        using Result = Comet::Result<EditorShortcuts>;
+        EditorShortcuts result;
+        for(std::size_t index = 0; index < texts.size(); ++index) {
+            auto& bindings = result.m_bindings[index];
+            bindings.clear();
+            for(const auto& text : texts[index]) {
+                auto binding = parse_binding(text);
+                if(!binding)
+                    return Result::failure(
+                        std::string(ACTION_NAMES[index]) + ": " + binding.error());
+                bindings.push_back(std::move(binding).value());
+            }
+        }
+        if(auto valid = validate_conflicts(result); !valid)
+            return Result::failure(valid.error());
         return Result::success(std::move(result));
+    }
+
+    EditorShortcuts::BindingTexts EditorShortcuts::binding_texts() const {
+        BindingTexts texts;
+        for(std::size_t index = 0; index < m_bindings.size(); ++index) {
+            for(const auto& binding : m_bindings[index]) {
+                std::string text;
+                if(binding.chord & ImGuiMod_Ctrl)
+                    text += "Primary+";
+                if(binding.chord & ImGuiMod_Alt)
+                    text += "Alt+";
+                if(binding.chord & ImGuiMod_Shift)
+                    text += "Shift+";
+                text += binding.key_name;
+                texts[index].push_back(std::move(text));
+            }
+        }
+        return texts;
+    }
+
+    std::string_view EditorShortcuts::action_name(const Action action) {
+        return ACTION_NAMES.at(static_cast<std::size_t>(action));
+    }
+
+    Comet::Result<void> EditorShortcuts::save_overrides(const std::filesystem::path& path) const {
+        const auto current = binding_texts();
+        const auto base = EditorShortcuts{}.binding_texts();
+        std::string overrides;
+        for(std::size_t index = 0; index < current.size(); ++index) {
+            if(current[index] == base[index])
+                continue;
+            overrides += "    " + std::string(ACTION_NAMES[index]) + ": [";
+            for(std::size_t binding = 0; binding < current[index].size(); ++binding) {
+                if(binding != 0)
+                    overrides += ", ";
+                overrides += '"';
+                overrides += current[index][binding];
+                overrides += '"';
+            }
+            overrides += "]\n";
+        }
+        std::string yaml = "editor:\n  shortcuts: {}\n";
+        if(!overrides.empty())
+            yaml = "editor:\n  shortcuts:\n" + overrides;
+        return Comet::write_text_file_atomic(path, yaml);
     }
 
     bool EditorShortcuts::pressed(const Action action, const ImGuiInputFlags flags) const {

@@ -61,6 +61,7 @@ add_library(editor_ui STATIC
         src/ui/menu_bar.cpp
         src/ui/language.cpp
         src/ui/shortcuts.cpp
+        src/ui/shortcut_settings_dialog.cpp
         src/viewport/viewport_panel.cpp
         src/viewport/viewport.cpp
 )

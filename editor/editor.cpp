@@ -24,6 +24,7 @@
 #include "inspector/property_editor_registry.h"
 #include "scene/scene_document.h"
 #include "ui/shortcuts.h"
+#include "ui/shortcut_settings_dialog.h"
 #include "core/engine.h"
 #include "core/project.h"
 #include "common/scope_exit.h"
@@ -50,6 +51,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 #include <imgui.h>
@@ -80,6 +82,7 @@ namespace {
             const auto state_directory = CometEditor::editor_user_state_directory();
             if(!state_directory)
                 return Comet::Result<void, Comet::Error>::failure({state_directory.error()});
+            m_shortcut_settings_path = state_directory.value() / "shortcuts.yaml";
             auto ui = CometEditor::ImGuiContext::create(engine.get_window(), render_context,
                 state_directory.value() / "imgui.ini");
             if(!ui)
@@ -134,11 +137,17 @@ namespace {
                 engine.get_task_scheduler(), std::move(shader_requests), shader_root, quiet_period);
             if(!m_material_shader_reload->uses_native_notifications())
                 LOG_WARN("Built-in shader monitor is using periodic fallback checks");
-            auto shortcuts = CometEditor::EditorShortcuts::load(editor_config);
-            if(shortcuts)
-                m_shortcuts = std::move(shortcuts).value();
-            else
-                LOG_ERROR("{}; using default editor shortcuts", shortcuts.error());
+            std::error_code shortcut_file_error;
+            if(std::filesystem::exists(m_shortcut_settings_path, shortcut_file_error)) {
+                auto user_shortcuts = CometEditor::EditorShortcuts::load(m_shortcut_settings_path);
+                if(user_shortcuts)
+                    m_shortcuts = std::move(user_shortcuts).value();
+                else
+                    LOG_WARN("{}; using editor shortcut defaults", user_shortcuts.error());
+            } else if(shortcut_file_error) {
+                LOG_WARN("Cannot check editor shortcut settings '{}': {}",
+                    m_shortcut_settings_path.string(), shortcut_file_error.message());
+            }
 
             m_assets = std::make_unique<CometEditor::EditorAssets>(m_project.paths(),
                 engine.get_asset_registry(), engine.get_render_resources(),
@@ -469,6 +478,7 @@ namespace {
             }
 
             if(command != CometEditor::MenuBar::Command::CopyEntity
+                && command != CometEditor::MenuBar::Command::KeyboardShortcuts
                 && command != CometEditor::MenuBar::Command::OpenProject
                 && command != CometEditor::MenuBar::Command::NewProject
                 && !finish_active_edit())
@@ -493,6 +503,9 @@ namespace {
                     break;
                 case CometEditor::MenuBar::Command::RenameProject:
                     m_project_name_dialog.request(m_project.name());
+                    break;
+                case CometEditor::MenuBar::Command::KeyboardShortcuts:
+                    m_shortcut_settings_dialog.request(m_shortcuts);
                     break;
                 case CometEditor::MenuBar::Command::Undo:
                     if(!m_scene_editor->undo(get_engine().get_scene()))
@@ -695,6 +708,7 @@ namespace {
             m_render_stats->render();
             m_path_dialog.render();
             m_project_name_dialog.render();
+            m_shortcut_settings_dialog.render();
             draw_unsaved_dialog();
             if(!m_scene_document->has_pending_request())
                 m_menu_bar->collect_shortcuts();
@@ -719,6 +733,14 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> process_editor_requests() {
+            if(auto shortcuts = m_shortcut_settings_dialog.take_request()) {
+                const auto saved = shortcuts->save_overrides(m_shortcut_settings_path);
+                m_shortcut_settings_dialog.complete(saved);
+                if(saved)
+                    m_shortcuts = std::move(*shortcuts);
+                else
+                    LOG_WARN("Cannot save editor shortcuts: {}", saved.error());
+            }
             if(const auto name = m_project_name_dialog.take_request()) {
                 const auto saved = m_project.save_name(*name);
                 m_project_name_dialog.complete(saved);
@@ -990,6 +1012,7 @@ namespace {
         Comet::SceneSerializer m_scene_serializer{m_component_registry};
         CometEditor::EditorState m_editor_state;
         CometEditor::EditorShortcuts m_shortcuts;
+        std::filesystem::path m_shortcut_settings_path;
         CometEditor::Ui::Language m_ui_language = CometEditor::Ui::Language::Chinese;
         CometEditor::Ui::Translations m_translations;
         std::unique_ptr<CometEditor::SceneEditor> m_scene_editor;
@@ -997,6 +1020,7 @@ namespace {
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
         CometEditor::PathDialog m_path_dialog;
         CometEditor::ProjectNameDialog m_project_name_dialog;
+        CometEditor::ShortcutSettingsDialog m_shortcut_settings_dialog;
         std::optional<std::filesystem::path> m_next_project;
         std::optional<std::filesystem::path> m_pending_project_creation;
         std::optional<CometEditor::RecentProjects> m_recent_projects;

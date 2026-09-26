@@ -3,15 +3,3 @@ editor:
   # Shader 文件变化后等待的静默时间，单位毫秒；0 禁用，范围 0..2000。
   file_watch:
     quiet_period_ms: 200
-  # 缺省项沿用内置默认值，[] 禁用该动作。
-  # Primary = macOS Cmd / 其他平台 Ctrl；Alt 在 macOS 上是 Option。
-  shortcuts:
-    scene.new: ["Primary+N"]
-    scene.open: ["Primary+O"]
-    scene.save: ["Primary+S"]
-    edit.undo: ["Primary+Z"]
-    edit.redo: ["Primary+Shift+Z", "Primary+Y"]
-    edit.copy_entity: ["Primary+C"]
-    edit.paste_entity: ["Primary+V"]
-    edit.delete_selection: ["Primary+Backspace"]
-    viewport.focus_selection: ["F"]
