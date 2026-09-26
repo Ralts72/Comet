@@ -286,6 +286,10 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 不像 editor 那样保留缺失引用供修复。这仍是开发期运行入口，不是已打包的 Shipping Player。
 示例立方体通过 Script 组件引用 `demo/assets/scripts/spin.lua`，`speed` 为每秒角度，`enabled` 控制是否旋转。
 app 和 editor Play 共用该行为，不依赖 UUID 或项目路径；Edit 不执行旋转，Play 修改不保存回 Edit 场景。
+示例场景还有一个脚本交互：进入 Play（或运行 app）后，用左右方向键移动左侧小方块碰触右侧条纹目标。
+目标的触发回调会记录本次运行的分数、删除目标并创建 `Collected_Goal_1` 实体；中间的旋转立方体读取同一分数后上升。
+在编辑器 Play 的层级面板可以看到新实体；它没有 Mesh，因而不在视口绘制。Stop 后重新 Play 可重试，运行时变化不会写回场景。
+空格仍可暂停／恢复中间立方体的旋转。左右方向键绑定在项目 `project.json`，不占用相机的 WASD 控制。
 项目 `.lua` 位于 assets，由 `.meta` 提供身份，也可从 Finder 导入；新增脚本无需改 CMake 或重编译宿主。
 引擎私有链接 Lua 5.4.8；参数编辑与运行限制见下方“场景运行时”。
 两种入口遇到项目描述错误或缺少 assets 都会启动失败，不回退仓库项目；仅 editor 在启动场景缺失／损坏时
@@ -357,6 +361,11 @@ Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或�
 也可调用 `comet.destroy_entity(reference)` 请求删除实体及其子树。结构变更在该阶段的所有 System 执行完后提交：
 本阶段内新 UUID 尚不能查到，待删除引用仍有效；下一阶段才能看到结果。暂停时不产生新请求，Stop 或运行失败会丢弃未提交请求。
 创建的实体只有默认组件，脚本可在后续阶段通过返回的 UUID 查找并设置 Transform；这些运行态变更不会写回 Edit 场景。
+不同实体的脚本可用 `comet.session_set(key, value)`／`comet.session_get(key)` 共享当前运行场景的分数、进度等临时值；
+`session_set(key, nil)` 删除。支持布尔、有限数值、最多 4096 字节的字符串和三个有限数值组成的向量；
+最多 128 个键，键长最多 128 字节。
+写入立即对后续脚本调用可见；暂停保留，单步照常更新，Stop、运行失败或再次启动会清空。
+这些值不进入 `.scene`，也不会从编辑器 Play 写回 Edit 场景；`on_stop` 不访问会话状态。
 刚体与碰撞体接触时，相关实体的脚本可实现 `on_collision_enter(self, other)`／`on_collision_exit(self, other)`；
 把碰撞体的 Trigger 打开后改为 `on_trigger_enter`／`on_trigger_exit`，不产生物理碰撞响应。
 `other` 是当前场景的受保护实体引用。接触在固定步采集，先按固定步、再按实体顺序于同帧普通 `update` 后交付；

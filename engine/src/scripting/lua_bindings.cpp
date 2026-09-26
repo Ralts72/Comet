@@ -11,7 +11,10 @@ extern "C" {
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <string>
 #include <string_view>
+#include <type_traits>
+#include <variant>
 
 namespace Comet::LuaBindings {
     namespace {
@@ -135,6 +138,91 @@ namespace Comet::LuaBindings {
                 return luaL_error(state, "Cannot queue entity destruction");
             return 0;
         }
+        std::string_view session_key(lua_State* state) {
+            size_t length = 0;
+            const char* text = luaL_checklstring(state, 1, &length);
+            const std::string_view key(text, length);
+            if(key.empty() || key.size() > 128 || key.find('\0') != std::string_view::npos)
+                luaL_error(state, "Expected a session key of at most 128 bytes");
+            return key;
+        }
+        Scene& session_scene(lua_State* state) {
+            auto* scene = current(state).scene;
+            if(!scene)
+                luaL_error(state, "Session state requires an active scene");
+            return *scene;
+        }
+        int session_get(lua_State* state) {
+            const auto key = session_key(state);
+            const auto value = session_scene(state).get_session_value(key);
+            if(!value) {
+                lua_pushnil(state);
+                return 1;
+            }
+            std::visit(
+                [state](const auto& item) {
+                    using T = std::remove_cvref_t<decltype(item)>;
+                    if constexpr(std::is_same_v<T, bool>)
+                        lua_pushboolean(state, item);
+                    else if constexpr(std::is_same_v<T, float>)
+                        lua_pushnumber(state, item);
+                    else if constexpr(std::is_same_v<T, std::string>)
+                        lua_pushlstring(state, item.data(), item.size());
+                    else {
+                        lua_createtable(state, 3, 0);
+                        for(int i = 0; i < 3; ++i) {
+                            lua_pushnumber(state, item[i]);
+                            lua_rawseti(state, -2, i + 1);
+                        }
+                    }
+                },
+                *value);
+            return 1;
+        }
+        int session_set(lua_State* state) {
+            const auto key = session_key(state);
+            auto& scene = session_scene(state);
+            if(lua_isnil(state, 2)) {
+                if(!scene.erase_session_value(key))
+                    return luaL_error(state, "Cannot remove session value");
+                return 0;
+            }
+            bool accepted = false;
+            switch(lua_type(state, 2)) {
+                case LUA_TBOOLEAN:
+                    accepted = scene.set_session_value(
+                        key, static_cast<bool>(lua_toboolean(state, 2)));
+                    break;
+                case LUA_TNUMBER:
+                    accepted = scene.set_session_value(key, number(state, 2));
+                    break;
+                case LUA_TSTRING: {
+                    size_t length = 0;
+                    const char* text = lua_tolstring(state, 2, &length);
+                    if(length > 4096)
+                        return luaL_error(state, "Session string exceeds 4096 bytes");
+                    accepted = scene.set_session_value(key, std::string(text, length));
+                    break;
+                }
+                case LUA_TTABLE: {
+                    if(lua_rawlen(state, 2) != 3)
+                        return luaL_error(state, "Session vector needs three numbers");
+                    Math::Vec3 vector;
+                    for(int i = 0; i < 3; ++i) {
+                        lua_rawgeti(state, 2, i + 1);
+                        vector[i] = number(state, -1);
+                        lua_pop(state, 1);
+                    }
+                    accepted = scene.set_session_value(key, vector);
+                    break;
+                }
+                default:
+                    return luaL_error(state, "Unsupported session value type");
+            }
+            if(!accepted)
+                return luaL_error(state, "Cannot set session value");
+            return 0;
+        }
         int reference_valid(lua_State* state) {
             lua_pushboolean(state, static_cast<bool>(resolve(state, reference(state))));
             return 1;
@@ -215,6 +303,7 @@ namespace Comet::LuaBindings {
         const luaL_Reg api[]{{"rotate", rotate}, {"translate", translate}, {"position", position},
             {"self_entity", self_entity}, {"find_entity", find_entity},
             {"create_entity", create_entity}, {"destroy_entity", destroy_entity},
+            {"session_get", session_get}, {"session_set", session_set},
             {"key_down", key_down}, {"action_value", action_value}, {"action_down", action_down},
             {"action_pressed", action_pressed}, {"action_released", action_released},
             {nullptr, nullptr}};

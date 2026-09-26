@@ -4,6 +4,8 @@
 #include "scene/systems/script_system.h"
 #include "scene/systems/physics_system.h"
 #include "scene/scene_runtime.h"
+#include "scene/component_registry.h"
+#include "scene/scene_serializer.h"
 #include "asset/registry.h"
 #include "core/project.h"
 #include "common/scope_exit.h"
@@ -134,6 +136,56 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST_F(ScriptSystemTest, ScriptsShareSceneSessionValuesWithoutPersistingAcrossRuns) {
+        source(R"(return {
+            on_start = function(self)
+                comet.session_set('game.score', 1)
+                comet.session_set('game.ready', true)
+                comet.session_set('game.note', 'ready')
+                comet.session_set('game.spawn', {1, 2, 3})
+            end,
+            fixed_update = function(self)
+                comet.session_set('game.score', comet.session_get('game.score') + 1)
+            end
+        })");
+        actor();
+        const AssetHandle reader_handle{43};
+        auto reader_script = Script::create(R"(return {
+            update = function(self)
+                if self.checked then return end
+                assert(comet.session_get('game.score') == 1)
+                assert(comet.session_get('game.ready') == true)
+                assert(comet.session_get('game.note') == 'ready')
+                local spawn = comet.session_get('game.spawn')
+                assert(spawn[1] == 1 and spawn[2] == 2 and spawn[3] == 3)
+                spawn[1] = 100
+                assert(comet.session_get('game.spawn')[1] == 1)
+                comet.session_set('game.score', 2)
+                comet.session_set('game.note', nil)
+                assert(comet.session_get('game.note') == nil)
+                self.checked = true
+            end
+        })", "reader.lua");
+        ASSERT_TRUE(reader_script);
+        ASSERT_TRUE(assets.register_asset(reader_handle, reader_script.value()));
+        auto reader = scene.create_entity("Reader");
+        reader.add_component<ScriptComponent>().asset = reader_handle;
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 2.0f);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 2.0f);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 3.0f);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_session_value("game.score"));
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 1.0f);
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST_F(ScriptSystemTest, TriggerNotificationsReachOnlyParticipatingScripts) {
         ASSERT_TRUE(runtime.clear_systems());
         ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
@@ -237,10 +289,11 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
-    TEST_F(ScriptSystemTest, FailedScriptDiscardsQueuedEntityCreation) {
+    TEST_F(ScriptSystemTest, FailedScriptClearsQueuedEntityCreationAndSessionState) {
         source(R"(return {
             update = function(self)
                 comet.create_entity('Discarded')
+                comet.session_set('game.score', 1)
                 error('script failed')
             end
         })");
@@ -250,6 +303,7 @@ namespace Comet::Tests {
         ASSERT_FALSE(failed);
         EXPECT_NE(failed.error().message.find("script failed"), std::string::npos);
         EXPECT_EQ(scene.entity_count(), 1u);
+        EXPECT_FALSE(scene.get_session_value("game.score"));
         EXPECT_FALSE(runtime.is_active());
     }
 
@@ -422,6 +476,51 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_FLOAT_EQ(rotation.y, 4);
+    }
+
+    TEST_F(ScriptSystemTest, DemoGoalUsesInputTriggerAndSharedSessionState) {
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
+        for(const auto& [name, script_handle] : {
+                std::pair{"spin.lua", AssetHandle{7821648321594001021}},
+                std::pair{"move_cube.lua", AssetHandle{14309634625000312001ULL}},
+                std::pair{"collect_goal.lua", AssetHandle{14309634625000312002ULL}}}) {
+            auto script = Script::load(project.value().paths().assets() / "scripts" / name);
+            ASSERT_TRUE(script) << script.error().message;
+            ASSERT_TRUE(assets.register_asset(script_handle, std::move(script).value()));
+        }
+        const auto components = create_scene_component_registry();
+        const SceneSerializer serializer(components);
+        auto loaded = serializer.load(
+            (project.value().paths().assets() / "scenes/default.scene").string());
+        ASSERT_TRUE(loaded) << loaded.error();
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(*loaded.value()));
+
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::Right, true);
+        for(int frame = 0; frame < 120; ++frame)
+            ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+
+        const auto goal_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d07");
+        const auto center_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02");
+        ASSERT_TRUE(goal_uuid);
+        ASSERT_TRUE(center_uuid);
+        EXPECT_FALSE(loaded.value()->find_entity(*goal_uuid));
+        const auto score = loaded.value()->get_session_value("demo.score");
+        ASSERT_TRUE(score);
+        EXPECT_FLOAT_EQ(std::get<float>(*score), 1);
+        bool found_marker = false;
+        loaded.value()->each<const NameComponent>([&](Entity, const NameComponent& name) {
+            found_marker |= name.name == "Collected_Goal_1";
+        });
+        EXPECT_TRUE(found_marker);
+        EXPECT_FLOAT_EQ(loaded.value()->find_entity(*center_uuid)
+                            .get_component<TransformComponent>().translation.y, 0.4f);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(loaded.value()->get_session_value("demo.score"));
     }
 
 }

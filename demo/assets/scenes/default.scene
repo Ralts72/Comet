@@ -71,7 +71,7 @@
           "translation": [
             0,
             0,
-            0
+            -1
           ],
           "rotation": [
             -20,
@@ -181,11 +181,15 @@
     {
       "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d05",
       "components": {
-        "name": "Falling Cube",
+        "name": "Move_Cube",
+        "script": {
+          "asset": 14309634625000312001,
+          "parameters": {}
+        },
         "transform": {
           "translation": [
-            -0.0689944,
-            0.9,
+            -0.7,
+            0,
             0.46558404
           ],
           "rotation": [
@@ -214,6 +218,34 @@
             0.5
           ],
           "radius": 0.5
+        }
+      }
+    },
+    {
+      "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d07",
+      "components": {
+        "name": "Collectible_Goal",
+        "script": {
+          "asset": 14309634625000312002,
+          "parameters": {}
+        },
+        "transform": {
+          "translation": [0.7, -0.56, 0.46558404],
+          "rotation": [0, 0, 0],
+          "scale": [0.35, 0.35, 0.35]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 1749083215601001004
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "is_trigger": true
         }
       }
     },

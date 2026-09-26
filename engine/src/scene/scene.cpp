@@ -8,6 +8,13 @@
 #include <unordered_set>
 
 namespace Comet {
+    namespace {
+        bool valid_session_key(const std::string_view key) {
+            return !key.empty() && key.size() <= 128
+                   && key.find('\0') == std::string_view::npos;
+        }
+    }
+
     bool Scene::set_post_process(const PostProcessSettings& settings) {
         if(!settings.validate())
             return false;
@@ -96,13 +103,18 @@ namespace Comet {
         }
     }
 
-    void Scene::begin_entity_requests() {
+    bool Scene::begin_runtime() {
+        if(m_runtime_active)
+            return false;
         m_entity_requests.clear();
-        m_entity_requests_active = true;
+        m_contact_events.clear();
+        m_session_values.clear();
+        m_runtime_active = true;
+        return true;
     }
 
     std::optional<EntityUuid> Scene::request_create_entity(const std::string_view name) {
-        if(!m_entity_requests_active || m_entity_requests.size() >= MAX_ENTITY_REQUESTS
+        if(!m_runtime_active || m_entity_requests.size() >= MAX_ENTITY_REQUESTS
             || name.size() > 128 || name.find('\0') != std::string_view::npos)
             return std::nullopt;
         EntityUuid uuid;
@@ -119,7 +131,7 @@ namespace Comet {
     }
 
     bool Scene::request_destroy_entity(const Entity entity) {
-        if(!m_entity_requests_active || !is_valid(entity))
+        if(!m_runtime_active || !is_valid(entity))
             return false;
         const auto uuid = entity.get_uuid();
         const auto id = entity.get_id();
@@ -152,9 +164,41 @@ namespace Comet {
         return true;
     }
 
-    void Scene::end_entity_requests() noexcept {
-        m_entity_requests_active = false;
+    void Scene::end_runtime() noexcept {
+        m_runtime_active = false;
         m_entity_requests.clear();
+        m_contact_events.clear();
+        m_session_values.clear();
+    }
+
+    std::optional<ParameterValue> Scene::get_session_value(const std::string_view key) const {
+        if(!m_runtime_active || !valid_session_key(key))
+            return std::nullopt;
+        const auto found = m_session_values.find(std::string(key));
+        if(found == m_session_values.end())
+            return std::nullopt;
+        return found->second;
+    }
+
+    bool Scene::set_session_value(const std::string_view key, ParameterValue value) {
+        if(!m_runtime_active || !valid_session_key(key))
+            return false;
+        ParameterMap candidate;
+        candidate.emplace(std::string(key), std::move(value));
+        if(!valid_parameters(candidate))
+            return false;
+        if(m_session_values.size() >= 128 && !m_session_values.contains(std::string(key)))
+            return false;
+        m_session_values.insert_or_assign(candidate.begin()->first,
+            std::move(candidate.begin()->second));
+        return true;
+    }
+
+    bool Scene::erase_session_value(const std::string_view key) {
+        if(!m_runtime_active || !valid_session_key(key))
+            return false;
+        m_session_values.erase(std::string(key));
+        return true;
     }
 
     bool Scene::append_contact_event(ContactEvent event) {

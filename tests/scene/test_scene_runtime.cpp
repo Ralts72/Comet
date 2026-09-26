@@ -1,6 +1,8 @@
 #include "scene/scene_runtime.h"
 #include "scene/systems/camera_controller.h"
 #include "scene/scene.h"
+#include "scene/component_registry.h"
+#include "scene/scene_serializer.h"
 
 #include <gtest/gtest.h>
 
@@ -171,6 +173,7 @@ namespace Comet::Tests {
         auto* requester = add();
         requester->update_frame = [&](Scene& current, const System::Context&) -> UpdateResult {
             EXPECT_TRUE(current.request_create_entity("Discarded"));
+            EXPECT_TRUE(current.set_session_value("game.score", 2.0f));
             return UpdateResult::failure({"phase failed"});
         };
         ASSERT_TRUE(runtime.start(scene));
@@ -178,6 +181,63 @@ namespace Comet::Tests {
         EXPECT_EQ(scene.entity_count(), 0u);
         EXPECT_FALSE(runtime.is_active());
         EXPECT_FALSE(scene.request_create_entity("Inactive"));
+        EXPECT_FALSE(scene.get_session_value("game.score"));
+    }
+
+    TEST_F(SceneRuntimeTest, SessionValuesExistOnlyWhileRuntimeIsActive) {
+        EXPECT_FALSE(scene.set_session_value("game.score", 1.0f));
+        EXPECT_FALSE(scene.get_session_value("game.score"));
+        add();
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.set_session_value("game.score", 1.0f));
+        ASSERT_TRUE(scene.set_session_value("game.complete", false));
+        ASSERT_TRUE(scene.set_session_value("game.note", std::string("ready")));
+        ASSERT_TRUE(scene.set_session_value("game.spawn", Math::Vec3(1, 2, 3)));
+        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 1.0f);
+        SceneRuntime another_runtime;
+        EXPECT_FALSE(another_runtime.start(scene));
+        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 1.0f);
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        const auto serialized = serializer.serialize(scene);
+        ASSERT_TRUE(serialized);
+        EXPECT_EQ(serialized.value().find("game.score"), std::string::npos);
+        auto clone = serializer.clone(scene);
+        ASSERT_TRUE(clone);
+        SceneRuntime clone_runtime;
+        ASSERT_TRUE(clone_runtime.start(*clone.value()));
+        EXPECT_FALSE(clone.value()->get_session_value("game.score"));
+        ASSERT_TRUE(clone_runtime.stop());
+        EXPECT_FALSE(scene.set_session_value("game.score",
+            std::numeric_limits<float>::infinity()));
+        EXPECT_FALSE(scene.set_session_value("", 1.0f));
+        EXPECT_FALSE(scene.set_session_value("game.note", std::string(4097, 'x')));
+        EXPECT_EQ(std::get<std::string>(*scene.get_session_value("game.note")), "ready");
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        advance(1);
+        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 1.0f);
+        ASSERT_TRUE(runtime.request_step());
+        advance(0);
+        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 1.0f);
+        EXPECT_TRUE(scene.erase_session_value("game.note"));
+        EXPECT_FALSE(scene.get_session_value("game.note"));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_session_value("game.score"));
+        EXPECT_FALSE(scene.set_session_value("game.score", 3.0f));
+        ASSERT_TRUE(another_runtime.start(scene));
+        EXPECT_FALSE(scene.get_session_value("game.score"));
+        ASSERT_TRUE(another_runtime.stop());
+    }
+
+    TEST_F(SceneRuntimeTest, SessionStateHasBoundedKeysAndPreservesExistingValues) {
+        ASSERT_TRUE(runtime.start(scene));
+        for(int index = 0; index < 128; ++index)
+            ASSERT_TRUE(scene.set_session_value("key." + std::to_string(index), float(index)));
+        EXPECT_FALSE(scene.set_session_value("overflow", 1.0f));
+        EXPECT_TRUE(scene.set_session_value("key.0", 9.0f));
+        EXPECT_EQ(std::get<float>(*scene.get_session_value("key.0")), 9.0f);
+        EXPECT_FALSE(scene.get_session_value("overflow"));
+        ASSERT_TRUE(runtime.stop());
     }
 
     TEST_F(SceneRuntimeTest, InputInterruptionDiscardsPendingPressButPreservesReleaseAndClock) {

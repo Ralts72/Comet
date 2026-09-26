@@ -130,6 +130,21 @@
           "control": "South"
         }
       ]
+    },
+    {
+      "name": "demo.move_x",
+      "type": "axis",
+      "bindings": [
+        {
+          "source": "key",
+          "control": "Right"
+        },
+        {
+          "source": "key",
+          "control": "Left",
+          "scale": -1
+        }
+      ]
     }
   ]
 }

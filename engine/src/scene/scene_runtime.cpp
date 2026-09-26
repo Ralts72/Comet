@@ -49,14 +49,14 @@ namespace Comet {
     Result<void, Error> SceneRuntime::start(Scene& scene) {
         if(m_executing || is_active())
             return Result<void, Error>::failure({"Scene runtime is already active or executing"});
+        if(!scene.begin_runtime())
+            return Result<void, Error>::failure({"Scene already has an active runtime"});
         m_scene = &scene;
         m_state = State::Running;
         m_step_pending = false;
         m_timing = {};
         m_accumulator = 0;
         m_input.reset();
-        scene.begin_entity_requests();
-        scene.clear_contact_events();
         m_executing = true;
         ScopeExit cleanup([&] { stop_systems(); });
         while(m_started < m_systems.size()) {
@@ -75,9 +75,7 @@ namespace Comet {
         while(m_started > 0)
             m_systems[--m_started]->on_stop(*m_scene);
         if(m_scene)
-            m_scene->end_entity_requests();
-        if(m_scene)
-            m_scene->clear_contact_events();
+            m_scene->end_runtime();
         m_scene = nullptr;
         m_state = State::Running;
         m_step_pending = false;

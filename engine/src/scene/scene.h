@@ -11,6 +11,7 @@
 
 #include "common/export.h"
 #include "scene/entity.h"
+#include "scene/property.h"
 #include "scene/scene_settings.h"
 #include <entt.hpp>
 
@@ -50,6 +51,12 @@ namespace Comet {
         [[nodiscard]] std::optional<EntityUuid> request_create_entity(
             std::string_view name = "Entity");
         [[nodiscard]] bool request_destroy_entity(Entity entity);
+
+        // 仅当前 Runtime 有效，不序列化。
+        [[nodiscard]] std::optional<ParameterValue> get_session_value(
+            std::string_view key) const;
+        [[nodiscard]] bool set_session_value(std::string_view key, ParameterValue value);
+        [[nodiscard]] bool erase_session_value(std::string_view key);
 
         [[nodiscard]] bool set_parent(Entity child, Entity parent);
 
@@ -116,9 +123,9 @@ namespace Comet {
             std::string name;
         };
 
-        void begin_entity_requests();
+        [[nodiscard]] bool begin_runtime();
         [[nodiscard]] bool commit_entity_requests();
-        void end_entity_requests() noexcept;
+        void end_runtime() noexcept;
         [[nodiscard]] bool append_contact_event(ContactEvent event);
         void clear_contact_events() noexcept;
 
@@ -135,7 +142,8 @@ namespace Comet {
         EntityId m_next_entity_id = 1;
         std::vector<EntityRequest> m_entity_requests;
         std::vector<ContactEvent> m_contact_events;
-        bool m_entity_requests_active = false;
+        ParameterMap m_session_values;
+        bool m_runtime_active = false;
         SceneEnvironment m_environment;
         PostProcessSettings m_post_process;
         entt::registry m_registry;
