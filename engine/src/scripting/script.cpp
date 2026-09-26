@@ -34,6 +34,7 @@ namespace Comet {
         bool parameters_changed = true;
         double delta_time = 0;
         Phase phase = Phase::Start;
+        Entity contact_other;
 
         ~Impl() {
             if(state)
@@ -88,7 +89,9 @@ namespace Comet {
             lua_call(state, 0, 1);
             if(!lua_istable(state, -1))
                 return luaL_error(state, "Script must return a table");
-            for(const char* name : {"on_start", "fixed_update", "update", "on_stop"}) {
+            for(const char* name : {"on_start", "fixed_update", "update", "on_stop",
+                    "on_collision_enter", "on_collision_exit", "on_trigger_enter",
+                    "on_trigger_exit"}) {
                 lua_getfield(state, -1, name);
                 const bool valid = lua_isnil(state, -1) || lua_isfunction(state, -1);
                 lua_pop(state, 1);
@@ -177,7 +180,9 @@ namespace Comet {
                 luaL_unref(state, LUA_REGISTRYINDEX, vm.parameter_table);
                 vm.parameter_table = replacement;
             }
-            const char* names[]{"on_start", "fixed_update", "update", "on_stop"};
+            const char* names[]{"on_start", "fixed_update", "update", "on_stop",
+                "on_collision_enter", "on_collision_exit", "on_trigger_enter",
+                "on_trigger_exit"};
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.definition);
             lua_getfield(state, -1, names[static_cast<int>(vm.phase)]);
             if(lua_isnil(state, -1))
@@ -185,7 +190,14 @@ namespace Comet {
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.self);
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.parameter_table);
             lua_setfield(state, -2, "parameters");
-            lua_pushnumber(state, vm.delta_time);
+            if(vm.phase >= Phase::CollisionEnter) {
+                if(!vm.contact_other)
+                    return luaL_error(state, "Contact entity is no longer available");
+                LuaBindings::push_entity_reference(
+                    state, vm.contact_other, vm.bindings.scene_generation);
+            } else {
+                lua_pushnumber(state, vm.delta_time);
+            }
             lua_call(state, 2, 0);
             return 0;
         }
@@ -302,8 +314,10 @@ namespace Comet {
         m_impl->parameters = &parameters;
         m_impl->delta_time = invocation.delta_time;
         m_impl->phase = phase;
+        m_impl->contact_other = invocation.contact_other;
         const auto result = m_impl->call(Impl::dispatch);
         m_impl->bindings = {};
+        m_impl->contact_other = {};
         m_impl->parameters = nullptr;
         if(result && m_impl->parameters_changed)
             m_impl->previous_parameters = parameters;

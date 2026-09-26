@@ -37,7 +37,9 @@ namespace Comet {
         Result<void, Error> synchronize(Scene& scene);
         Result<void, Error> dispatch(Scene& scene, const Context& context, Script::Phase phase);
         Result<void, Error> invoke(
-            const Key& key, Entry& entry, Script::Phase phase, const Context* context = nullptr);
+            const Key& key, Entry& entry, Script::Phase phase, const Context* context = nullptr,
+            Entity contact_other = {});
+        Result<void, Error> dispatch_contacts(Scene& scene, const Context& context);
         void stop_entry(const Key& key, Entry& entry) noexcept;
         void stop_all() noexcept;
 

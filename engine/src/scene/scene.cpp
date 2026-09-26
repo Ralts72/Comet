@@ -157,6 +157,17 @@ namespace Comet {
         m_entity_requests.clear();
     }
 
+    bool Scene::append_contact_event(ContactEvent event) {
+        if(m_contact_events.size() >= 8192)
+            return false;
+        m_contact_events.push_back(event);
+        return true;
+    }
+
+    void Scene::clear_contact_events() noexcept {
+        m_contact_events.clear();
+    }
+
     bool Scene::set_parent(const Entity child, const Entity parent) {
         if(!is_valid(child) || !is_valid(parent) || child == parent || has_cycle(child, parent)) {
             return false;

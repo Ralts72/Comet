@@ -18,5 +18,7 @@ namespace Comet {
         };
 
         void install(lua_State* state, Context& context);
+        int push_entity_reference(lua_State* state, Entity entity,
+            std::uint64_t scene_generation);
     }
 }

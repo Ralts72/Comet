@@ -2,6 +2,7 @@
 #include "scene/script_component.h"
 #include "scene/scene.h"
 #include "scene/systems/script_system.h"
+#include "scene/systems/physics_system.h"
 #include "scene/scene_runtime.h"
 #include "asset/registry.h"
 #include "core/project.h"
@@ -130,6 +131,109 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(scene.entity_count(), 1u);
         ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, TriggerNotificationsReachOnlyParticipatingScripts) {
+        ASSERT_TRUE(runtime.clear_systems());
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        source(R"(return {
+            on_trigger_enter = function(self, other)
+                assert(other:is_valid())
+                comet.translate(0, 1, 0)
+            end,
+            on_trigger_exit = function(self, other)
+                assert(other:is_valid())
+                comet.translate(0, 2, 0)
+            end
+        })");
+        auto sensor = actor();
+        sensor.add_component<RigidBodyComponent>().motion = BodyMotion::Static;
+        sensor.add_component<ColliderComponent>().is_trigger = true;
+        auto unrelated = actor();
+        unrelated.edit_transform([](TransformComponent& transform) {
+            transform.translation = {20, 0, 0};
+        });
+        auto target = scene.create_entity("Target");
+        target.add_component<RigidBodyComponent>();
+        target.add_component<ColliderComponent>();
+        target.edit_transform([](TransformComponent& transform) {
+            transform.translation = {0, 0.3f, 0};
+        });
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FLOAT_EQ(sensor.get_component<TransformComponent>().translation.y, 1);
+        EXPECT_FLOAT_EQ(unrelated.get_component<TransformComponent>().translation.y, 0);
+        target.edit_transform([](TransformComponent& transform) {
+            transform.translation = {10, 3, 0};
+        });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FLOAT_EQ(sensor.get_component<TransformComponent>().translation.y, 3);
+        EXPECT_FLOAT_EQ(unrelated.get_component<TransformComponent>().translation.y, 0);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, FailedContactCallbackStopsRuntimeAndClearsNotifications) {
+        ASSERT_TRUE(runtime.clear_systems());
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        source(R"(return {
+            on_collision_enter = function(self, other)
+                assert(other:is_valid())
+                error('contact failed')
+            end
+        })");
+        auto floor = actor();
+        floor.add_component<RigidBodyComponent>().motion = BodyMotion::Static;
+        floor.add_component<ColliderComponent>();
+        auto falling = scene.create_entity("Falling");
+        falling.add_component<RigidBodyComponent>();
+        falling.add_component<ColliderComponent>();
+        falling.edit_transform([](TransformComponent& transform) {
+            transform.translation = {0, 0.3f, 0};
+        });
+        ASSERT_TRUE(runtime.start(scene));
+        const auto advanced = runtime.advance(0.01);
+        ASSERT_FALSE(advanced);
+        EXPECT_NE(advanced.error().message.find("contact failed"), std::string::npos);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_TRUE(scene.get_contact_events().empty());
+    }
+
+    TEST_F(ScriptSystemTest, ContactForEntityDestroyedAtFixedBoundaryIsNotDelivered) {
+        class DestroyAfterPhysics final: public System {
+        public:
+            explicit DestroyAfterPhysics(Entity target) : target(target) {}
+            Result<void, Error> fixed_update(Scene& scene, const Context&) override {
+                if(!scene.request_destroy_entity(target))
+                    return Result<void, Error>::failure({"Cannot queue entity destruction"});
+                return Result<void, Error>::success();
+            }
+            Entity target;
+        };
+        ASSERT_TRUE(runtime.clear_systems());
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        source(R"(return {
+            on_collision_enter = function(self, other)
+                error('stale contact delivered')
+            end
+        })");
+        auto floor = actor();
+        floor.add_component<RigidBodyComponent>().motion = BodyMotion::Static;
+        floor.add_component<ColliderComponent>();
+        auto falling = scene.create_entity("Falling");
+        falling.add_component<RigidBodyComponent>();
+        falling.add_component<ColliderComponent>();
+        falling.edit_transform([](TransformComponent& transform) {
+            transform.translation = {0, 0.3f, 0};
+        });
+        ASSERT_TRUE(runtime.add_system(std::make_unique<DestroyAfterPhysics>(falling)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FALSE(falling);
+        EXPECT_TRUE(scene.get_contact_events().empty());
         ASSERT_TRUE(runtime.stop());
     }
 

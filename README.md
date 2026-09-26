@@ -357,6 +357,12 @@ Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或�
 也可调用 `comet.destroy_entity(reference)` 请求删除实体及其子树。结构变更在该阶段的所有 System 执行完后提交：
 本阶段内新 UUID 尚不能查到，待删除引用仍有效；下一阶段才能看到结果。暂停时不产生新请求，Stop 或运行失败会丢弃未提交请求。
 创建的实体只有默认组件，脚本可在后续阶段通过返回的 UUID 查找并设置 Transform；这些运行态变更不会写回 Edit 场景。
+刚体与碰撞体接触时，相关实体的脚本可实现 `on_collision_enter(self, other)`／`on_collision_exit(self, other)`；
+把碰撞体的 Trigger 打开后改为 `on_trigger_enter`／`on_trigger_exit`，不产生物理碰撞响应。
+`other` 是当前场景的受保护实体引用。接触在固定步采集，先按固定步、再按实体顺序于同帧普通 `update` 后交付；
+一帧补算多步时可能依次收到进入和离开。任一实体在交付前失效则跳过该通知，Stop／运行失败清空未交付通知。
+当前静态 Trigger 只检测活动中的动态刚体；Jolt 在物体休眠时会结束该接触，所以 `on_trigger_exit` 表示接触结束，
+尚不保证物体已从触发体的几何范围离开。
 
 ### 场景运行时
 

@@ -48,15 +48,6 @@ namespace Comet::LuaBindings {
                 luaL_error(state, "Entity reference is stale or outside the active scene");
             return entity;
         }
-        int push_reference(lua_State* state, const Entity entity) {
-            auto* storage =
-                static_cast<EntityReference*>(lua_newuserdatauv(state, sizeof(EntityReference), 0));
-            std::construct_at(storage, EntityReference{entity.get_uuid(), entity.get_id(),
-                                           current(state).scene_generation});
-            luaL_getmetatable(state, ENTITY_REFERENCE_METATABLE);
-            lua_setmetatable(state, -2);
-            return 1;
-        }
         float number(lua_State* state, int index) {
             const auto value = luaL_checknumber(state, index);
             if(!std::isfinite(value) || std::abs(value) > std::numeric_limits<float>::max())
@@ -105,7 +96,7 @@ namespace Comet::LuaBindings {
             const auto& context = current(state);
             if(!context.scene || !context.entity || !context.scene->is_valid(context.entity))
                 return luaL_error(state, "Entity is unavailable in this script phase");
-            return push_reference(state, context.entity);
+            return push_entity_reference(state, context.entity, context.scene_generation);
         }
         int find_entity(lua_State* state) {
             const auto& context = current(state);
@@ -121,7 +112,7 @@ namespace Comet::LuaBindings {
                 lua_pushnil(state);
                 return 1;
             }
-            return push_reference(state, entity);
+            return push_entity_reference(state, entity, context.scene_generation);
         }
         int create_entity(lua_State* state) {
             auto* scene = current(state).scene;
@@ -196,6 +187,17 @@ namespace Comet::LuaBindings {
             lua_pushboolean(state, action(state, true).released);
             return 1;
         }
+    }
+
+    int push_entity_reference(lua_State* state, const Entity entity,
+        const std::uint64_t scene_generation) {
+        auto* storage =
+            static_cast<EntityReference*>(lua_newuserdatauv(state, sizeof(EntityReference), 0));
+        std::construct_at(storage,
+            EntityReference{entity.get_uuid(), entity.get_id(), scene_generation});
+        luaL_getmetatable(state, ENTITY_REFERENCE_METATABLE);
+        lua_setmetatable(state, -2);
+        return 1;
     }
 
     void install(lua_State* state, Context& context) {

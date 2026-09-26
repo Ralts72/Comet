@@ -127,5 +127,6 @@ namespace Comet {
         ColliderShape shape = ColliderShape::Box;
         Math::Vec3 half_extents{0.5f};
         float radius = 0.5f;
+        bool is_trigger = false;
     };
 }

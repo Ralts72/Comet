@@ -6,18 +6,24 @@
 #include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/RegisterTypes.h>
+#include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
+#include <algorithm>
 #include <cmath>
 #include <map>
 #include <mutex>
 #include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
 
 namespace Comet {
     namespace {
@@ -66,7 +72,7 @@ namespace Comet {
 
         bool same_shape(const ColliderComponent& a, const ColliderComponent& b) {
             return a.shape == b.shape && glm::all(glm::equal(a.half_extents, b.half_extents))
-                   && a.radius == b.radius;
+                   && a.radius == b.radius && a.is_trigger == b.is_trigger;
         }
 
         Result<void, Error> validate_body(Scene& scene, Entity entity) {
@@ -110,6 +116,29 @@ namespace Comet {
     }
 
     struct PhysicsSystem::Impl {
+        using Pair = std::pair<JPH::BodyID, JPH::BodyID>;
+
+        struct ContactCollector final: JPH::ContactListener {
+            void OnContactAdded(const JPH::Body& first, const JPH::Body& second,
+                const JPH::ContactManifold&, JPH::ContactSettings&) override {
+                record(first, second);
+            }
+            void OnContactPersisted(const JPH::Body& first, const JPH::Body& second,
+                const JPH::ContactManifold&, JPH::ContactSettings&) override {
+                record(first, second);
+            }
+            void record(const JPH::Body& first, const JPH::Body& second) {
+                std::lock_guard lock(mutex);
+                active.emplace_back(first.GetID(), second.GetID());
+            }
+            std::vector<Pair> take() {
+                std::lock_guard lock(mutex);
+                return std::exchange(active, {});
+            }
+            std::mutex mutex;
+            std::vector<Pair> active;
+        };
+
         struct JoltLifetime {
             JoltLifetime() { acquire_jolt(); }
             ~JoltLifetime() { release_jolt(); }
@@ -123,6 +152,12 @@ namespace Comet {
             TransformComponent last_transform;
         };
 
+        struct Contact {
+            Entity first;
+            Entity second;
+            bool trigger;
+        };
+
         Impl() : pairs(2), broad_phase(2, 2), jobs(1024) {
             pairs.EnableCollision(STATIC_LAYER, DYNAMIC_LAYER);
             pairs.EnableCollision(DYNAMIC_LAYER, DYNAMIC_LAYER);
@@ -131,6 +166,7 @@ namespace Comet {
             object_filter =
                 std::make_unique<JPH::ObjectVsBroadPhaseLayerFilterTable>(broad_phase, 2, pairs, 2);
             world.Init(1024, 0, 1024, 1024, broad_phase, *object_filter, pairs);
+            world.SetContactListener(&collector);
         }
 
         ~Impl() {
@@ -155,10 +191,11 @@ namespace Comet {
             } else {
                 shape = new JPH::SphereShape(collider.radius * transform.scale.x);
             }
-            const JPH::BodyCreationSettings settings(shape.GetPtr(),
+            JPH::BodyCreationSettings settings(shape.GetPtr(),
                 to_position(transform.translation), to_rotation(transform.rotation),
                 motion == BodyMotion::Static ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic,
                 motion == BodyMotion::Static ? STATIC_LAYER : DYNAMIC_LAYER);
+            settings.mIsSensor = collider.is_trigger;
             const auto id = world.GetBodyInterface().CreateAndAddBody(
                 settings, motion == BodyMotion::Static ? JPH::EActivation::DontActivate
                                                        : JPH::EActivation::Activate);
@@ -223,14 +260,71 @@ namespace Comet {
             return result;
         }
 
+        Result<void, Error> publish_contacts(Scene& scene) {
+            auto active = collector.take();
+            std::sort(active.begin(), active.end());
+            active.erase(std::unique(active.begin(), active.end()), active.end());
+            std::map<JPH::BodyID, const Body*> by_id;
+            for(const auto& [uuid, body] : bodies)
+                by_id.emplace(body.id, &body);
+            std::map<Pair, Contact> current;
+            for(const auto& pair : active) {
+                const auto first = by_id.find(pair.first);
+                const auto second = by_id.find(pair.second);
+                if(first == by_id.end() || second == by_id.end())
+                    continue;
+                Entity first_entity = first->second->entity;
+                Entity second_entity = second->second->entity;
+                if(first_entity.get_uuid() > second_entity.get_uuid())
+                    std::swap(first_entity, second_entity);
+                current.emplace(pair, Contact{first_entity, second_entity,
+                                          first->second->collider.is_trigger
+                                              || second->second->collider.is_trigger});
+            }
+            std::vector<Scene::ContactEvent> events;
+            const auto kind_for = [](const Contact& contact, const bool entering) {
+                if(contact.trigger) {
+                    if(entering)
+                        return Scene::ContactEvent::Kind::TriggerEnter;
+                    return Scene::ContactEvent::Kind::TriggerExit;
+                }
+                if(entering)
+                    return Scene::ContactEvent::Kind::CollisionEnter;
+                return Scene::ContactEvent::Kind::CollisionExit;
+            };
+            for(const auto& [pair, contact] : previous_contacts) {
+                if(!current.contains(pair) && contact.first && contact.second)
+                    events.push_back({kind_for(contact, false), contact.first, contact.second});
+            }
+            for(const auto& [pair, contact] : current) {
+                if(!previous_contacts.contains(pair))
+                    events.push_back({kind_for(contact, true), contact.first, contact.second});
+            }
+            std::sort(events.begin(), events.end(), [](const auto& a, const auto& b) {
+                const auto order = [](const Scene::ContactEvent::Kind kind) {
+                    return kind != Scene::ContactEvent::Kind::CollisionExit
+                           && kind != Scene::ContactEvent::Kind::TriggerExit;
+                };
+                return std::tuple{a.first.get_uuid(), a.second.get_uuid(), order(a.kind), a.kind}
+                       < std::tuple{b.first.get_uuid(), b.second.get_uuid(), order(b.kind), b.kind};
+            });
+            for(const auto& event : events)
+                if(!scene.append_contact_event(event))
+                    return Result<void, Error>::failure({"Too many physics contacts in one frame"});
+            previous_contacts = std::move(current);
+            return Result<void, Error>::success();
+        }
+
         JoltLifetime lifetime;
         JPH::ObjectLayerPairFilterTable pairs;
         JPH::BroadPhaseLayerInterfaceTable broad_phase;
         std::unique_ptr<JPH::ObjectVsBroadPhaseLayerFilterTable> object_filter;
+        ContactCollector collector;
         JPH::PhysicsSystem world;
         JPH::TempAllocatorMalloc allocator;
         JPH::JobSystemSingleThreaded jobs;
         std::map<EntityUuid, Body> bodies;
+        std::map<Pair, Contact> previous_contacts;
     };
 
     PhysicsSystem::PhysicsSystem() = default;
@@ -265,7 +359,7 @@ namespace Comet {
                 return Result<void, Error>::failure({"Cannot write physics transform"});
             body.last_transform = transform;
         }
-        return Result<void, Error>::success();
+        return m_impl->publish_contacts(scene);
     }
 
     void PhysicsSystem::on_stop(Scene&) noexcept {

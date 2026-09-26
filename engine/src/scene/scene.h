@@ -17,9 +17,16 @@
 namespace Comet {
     class SceneSerializer;
     class SceneRuntime;
+    class PhysicsSystem;
 
     class COMET_API Scene {
     public:
+        struct ContactEvent {
+            enum class Kind { CollisionEnter, CollisionExit, TriggerEnter, TriggerExit } kind;
+            Entity first;
+            Entity second;
+        };
+
         Scene() = default;
 
         ~Scene() = default;
@@ -83,6 +90,11 @@ namespace Comet {
 
         [[nodiscard]] std::size_t entity_count() const;
 
+        // 固定步产生；System::update 可只读，当前帧结束后清空。
+        [[nodiscard]] const std::vector<ContactEvent>& get_contact_events() const {
+            return m_contact_events;
+        }
+
         [[nodiscard]] const SceneEnvironment& get_environment() const { return m_environment; }
         [[nodiscard]] bool set_environment(const SceneEnvironment& environment);
         [[nodiscard]] const PostProcessSettings& get_post_process() const { return m_post_process; }
@@ -92,6 +104,7 @@ namespace Comet {
         friend class Entity;
         friend class SceneSerializer;
         friend class SceneRuntime;
+        friend class PhysicsSystem;
         friend class ComponentRegistry;
 
         static constexpr std::size_t MAX_ENTITY_REQUESTS = 1024;
@@ -106,6 +119,8 @@ namespace Comet {
         void begin_entity_requests();
         [[nodiscard]] bool commit_entity_requests();
         void end_entity_requests() noexcept;
+        [[nodiscard]] bool append_contact_event(ContactEvent event);
+        void clear_contact_events() noexcept;
 
         template<typename Component>
         using QueryComponent = std::conditional_t<is_scene_read_only_component_v<Component>,
@@ -119,6 +134,7 @@ namespace Comet {
 
         EntityId m_next_entity_id = 1;
         std::vector<EntityRequest> m_entity_requests;
+        std::vector<ContactEvent> m_contact_events;
         bool m_entity_requests_active = false;
         SceneEnvironment m_environment;
         PostProcessSettings m_post_process;

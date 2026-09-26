@@ -1,5 +1,6 @@
 #pragma once
 
+#include "scene/entity.h"
 #include "scene/property.h"
 #include "common/error.h"
 #include "common/result.h"
@@ -14,11 +15,15 @@ namespace Comet {
     // 不可变源码与字段默认值；运行实例不存入资产缓存。
     class COMET_API Script final {
     public:
-        enum class Phase { Start, FixedUpdate, Update, Stop };
+        enum class Phase {
+            Start, FixedUpdate, Update, Stop,
+            CollisionEnter, CollisionExit, TriggerEnter, TriggerExit
+        };
         struct Invocation {
             double delta_time = 0;
             Scene* scene = nullptr;
             const InputState* input = nullptr;
+            Entity contact_other;
         };
         class COMET_API Instance final {
         public:

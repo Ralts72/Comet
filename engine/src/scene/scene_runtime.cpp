@@ -56,6 +56,7 @@ namespace Comet {
         m_accumulator = 0;
         m_input.reset();
         scene.begin_entity_requests();
+        scene.clear_contact_events();
         m_executing = true;
         ScopeExit cleanup([&] { stop_systems(); });
         while(m_started < m_systems.size()) {
@@ -75,6 +76,8 @@ namespace Comet {
             m_systems[--m_started]->on_stop(*m_scene);
         if(m_scene)
             m_scene->end_entity_requests();
+        if(m_scene)
+            m_scene->clear_contact_events();
         m_scene = nullptr;
         m_state = State::Running;
         m_step_pending = false;
@@ -175,6 +178,7 @@ namespace Comet {
                 return result;
         if(!m_scene->commit_entity_requests())
             return Result<void, Error>::failure({"Cannot commit update entity requests"});
+        m_scene->clear_contact_events();
         cleanup.release();
         m_executing = false;
         return Result<void, Error>::success();

@@ -38,7 +38,8 @@ namespace Comet {
     }
 
     Result<void, Error> ScriptSystem::invoke(
-        const Key& key, Entry& entry, Script::Phase phase, const Context* context) {
+        const Key& key, Entry& entry, Script::Phase phase, const Context* context,
+        const Entity contact_other) {
         const auto& overrides = entry.entity.get_component<ScriptComponent>().parameters;
         if(!entry.overrides || *entry.overrides != overrides) {
             auto parameters = entry.script->resolve_parameters(overrides);
@@ -50,6 +51,7 @@ namespace Comet {
         }
         Script::Invocation invocation;
         invocation.scene = m_scene;
+        invocation.contact_other = contact_other;
         if(context) {
             invocation.delta_time = context->delta_time;
             invocation.input = &context->input;
@@ -119,8 +121,39 @@ namespace Comet {
     Result<void, Error> ScriptSystem::fixed_update(Scene& scene, const Context& context) {
         return dispatch(scene, context, Script::Phase::FixedUpdate);
     }
+    Result<void, Error> ScriptSystem::dispatch_contacts(Scene& scene, const Context& context) {
+        for(const auto& event : scene.get_contact_events()) {
+            if(!scene.is_valid(event.first) || !scene.is_valid(event.second))
+                continue;
+            Script::Phase phase;
+            switch(event.kind) {
+                case Scene::ContactEvent::Kind::CollisionEnter:
+                    phase = Script::Phase::CollisionEnter;
+                    break;
+                case Scene::ContactEvent::Kind::CollisionExit:
+                    phase = Script::Phase::CollisionExit;
+                    break;
+                case Scene::ContactEvent::Kind::TriggerEnter:
+                    phase = Script::Phase::TriggerEnter;
+                    break;
+                case Scene::ContactEvent::Kind::TriggerExit:
+                    phase = Script::Phase::TriggerExit;
+                    break;
+            }
+            for(const auto& [self, other] : {std::pair{event.first, event.second},
+                     std::pair{event.second, event.first}}) {
+                for(auto& [key, entry] : m_entries)
+                    if(entry.entity == self && is_live(key, entry))
+                        if(auto result = invoke(key, entry, phase, &context, other); !result)
+                            return result;
+            }
+        }
+        return Result<void, Error>::success();
+    }
     Result<void, Error> ScriptSystem::update(Scene& scene, const Context& context) {
-        return dispatch(scene, context, Script::Phase::Update);
+        if(auto updated = dispatch(scene, context, Script::Phase::Update); !updated)
+            return updated;
+        return dispatch_contacts(scene, context);
     }
     void ScriptSystem::on_stop(Scene&) noexcept {
         stop_all();
