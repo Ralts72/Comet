@@ -132,7 +132,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(copy_uuid);
         auto copy = scene.find_entity(copy_uuid);
         EXPECT_NE(copy_uuid, entity.get_uuid());
-        EXPECT_EQ(copy.get_component<Comet::NameComponent>().name, "Edited Copy");
+        EXPECT_EQ(copy.get_component<Comet::NameComponent>().name, "Edited_Copy");
         EXPECT_EQ(scene.get_parent(copy), parent);
         auto copy_children = scene.get_children(copy);
         ASSERT_EQ(copy_children.size(), 1);
@@ -220,7 +220,7 @@ namespace CometEditor::Tests {
         const auto uuid = SceneCommands::duplicate_entity(history, registry, entity.get_uuid());
         ASSERT_TRUE(uuid);
         auto copy = scene.find_entity(uuid);
-        EXPECT_EQ(copy.get_component<Comet::NameComponent>().name, "Entity Copy");
+        EXPECT_EQ(copy.get_component<Comet::NameComponent>().name, "Entity_Copy");
         EXPECT_FALSE(copy.has_component<Comet::TransformComponent>());
         EXPECT_TRUE(copy.get_component<Comet::CameraComponent>().primary);
         EXPECT_FLOAT_EQ(copy.get_component<Comet::CameraComponent>().fov, 71);

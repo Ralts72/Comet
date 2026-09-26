@@ -16,6 +16,8 @@ namespace CometEditor {
         std::string initial_path = current_path.string();
         if(dialog == Action::SaveScene && initial_path.empty()) {
             initial_path = (default_directory / "untitled.scene").string();
+        } else if(dialog == Action::CreateProject && initial_path.empty()) {
+            initial_path = (default_directory / "NewProject").string();
         } else if(initial_path.empty()) {
             initial_path = default_directory.string() + "/";
         }
@@ -35,6 +37,8 @@ namespace CometEditor {
             title = "Save Scene";
         else if(m_action == Action::OpenProject)
             title = "Open Project";
+        else if(m_action == Action::CreateProject)
+            title = "New Project";
         if(m_open_requested) {
             ImGui::OpenPopup(title);
             m_open_requested = false;
@@ -57,6 +61,8 @@ namespace CometEditor {
             m_path_buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue);
 
         const char* action = is_open ? "Open" : "Save";
+        if(m_action == Action::CreateProject)
+            action = "Create";
         if((ImGui::Button(Ui::label(action).c_str(), ImVec2(100.0f, 0.0f)) || submitted)) {
             m_request = Request{m_action, m_path_buffer.data()};
         }

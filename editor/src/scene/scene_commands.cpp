@@ -259,7 +259,7 @@ namespace CometEditor::SceneCommands {
             root.parent = parent;
             if(root.name.empty())
                 root.name = "Entity";
-            root.name += " Copy";
+            root.name += "_Copy";
             const auto uuid = root.uuid;
             if(!history.execute(
                    std::make_unique<EntityTreeCommand>(registry, std::move(snapshots), true)))

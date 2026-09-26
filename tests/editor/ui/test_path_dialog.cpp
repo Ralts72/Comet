@@ -144,6 +144,19 @@ namespace CometEditor::Tests {
         EXPECT_EQ(installations, 0);
     }
 
+    TEST_F(PathDialogTest, NewProjectRequestsAPathWithoutCreatingFilesDuringRender) {
+        const auto target = directory.path() / "NewProject";
+        dialog.request(PathDialog::Action::CreateProject, {}, directory.path());
+        frame();
+        frame();
+        click("New Project");
+        const auto request = dialog.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->action, PathDialog::Action::CreateProject);
+        EXPECT_EQ(request->path, target.string());
+        EXPECT_FALSE(std::filesystem::exists(target));
+    }
+
     TEST(ProjectNameDialogTest, FailureKeepsDialogOpenUntilSaveSucceeds) {
         Comet::Tests::ImGuiTestContext imgui;
         ProjectNameDialog dialog;

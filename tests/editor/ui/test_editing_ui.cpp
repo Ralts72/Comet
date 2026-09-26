@@ -959,6 +959,31 @@ namespace CometEditor::Tests {
         EXPECT_EQ(menu.take_project_path(), project);
     }
 
+    TEST(MenuBarTest, NewProjectOpensFromFileMenu) {
+        Comet::Tests::ImGuiTestContext imgui;
+        EditorState state;
+        CommandHistory history;
+        EditorShortcuts shortcuts;
+        MenuBar menu(state, history, shortcuts);
+        const auto frame = [&] {
+            ImGui::NewFrame();
+            menu.render();
+            ImGui::Render();
+        };
+        frame();
+        const auto* bar = ImGui::FindWindowByName("##MainMenuBar");
+        ASSERT_NE(bar, nullptr);
+        ImGui::ActivateItemByID(ImHashStr("File", 0, ImHashStr("##MenuBar", 0, bar->ID)));
+        frame();
+        frame();
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        auto* popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("New Project"));
+        frame();
+        EXPECT_EQ(menu.take_command(), MenuBar::Command::NewProject);
+    }
+
     TEST(MenuBarTest, ProjectRenameOpensFromFileMenu) {
         Comet::Tests::ImGuiTestContext imgui;
         EditorState state;

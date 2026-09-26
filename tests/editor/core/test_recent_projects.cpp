@@ -1,4 +1,5 @@
 #include "project/recent_projects.h"
+#include "project/editor_paths.h"
 
 #include "common/file_io.h"
 #include "support/temporary_directory.h"
@@ -8,6 +9,15 @@
 #include <string>
 
 namespace CometEditor::Tests {
+    TEST(EditorPathsTest, RecentProjectsAndLayoutShareUserDirectory) {
+        const auto directory = editor_user_state_directory();
+        if(!directory)
+            GTEST_SKIP() << directory.error();
+        const auto recent = RecentProjects::default_storage_path();
+        ASSERT_TRUE(recent) << recent.error();
+        EXPECT_EQ(recent.value().parent_path(), directory.value());
+    }
+
     TEST(RecentProjectsTest, PersistsMostRecentFirstWithoutDuplicates) {
         Comet::Tests::TemporaryDirectory directory;
         const auto state = directory.path() / "editor/recent-projects.json";

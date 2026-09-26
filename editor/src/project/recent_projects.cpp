@@ -1,10 +1,10 @@
 #include "project/recent_projects.h"
+#include "project/editor_paths.h"
 
 #include "common/file_io.h"
 #include "common/json.h"
 
 #include <algorithm>
-#include <cstdlib>
 #include <cstdint>
 #include <string>
 #include <system_error>
@@ -17,30 +17,11 @@ namespace CometEditor {
     }
 
     Comet::Result<std::filesystem::path> RecentProjects::default_storage_path() {
-        using Result = Comet::Result<std::filesystem::path>;
-#ifdef _WIN32
-        const char* base = std::getenv("APPDATA");
-        if(base && *base)
-            return Result::success(std::filesystem::path(base) / "Comet/recent-projects.json");
-        return Result::failure("APPDATA is not available for editor state");
-#elif defined(__APPLE__)
-        const char* base = std::getenv("HOME");
-        if(base && *base)
-            return Result::success(std::filesystem::path(base)
-                                   / "Library/Application Support/Comet/recent-projects.json");
-        return Result::failure("HOME is not available for editor state");
-#else
-        if(const char* state = std::getenv("XDG_STATE_HOME"); state && *state) {
-            const std::filesystem::path directory(state);
-            if(directory.is_absolute())
-                return Result::success(directory / "comet/recent-projects.json");
-        }
-        const char* base = std::getenv("HOME");
-        if(base && *base)
-            return Result::success(
-                std::filesystem::path(base) / ".local/state/comet/recent-projects.json");
-        return Result::failure("HOME is not available for editor state");
-#endif
+        auto directory = editor_user_state_directory();
+        if(!directory)
+            return directory;
+        return Comet::Result<std::filesystem::path>::success(
+            directory.value() / "recent-projects.json");
     }
 
     Comet::Result<RecentProjects> RecentProjects::load(std::filesystem::path file) {

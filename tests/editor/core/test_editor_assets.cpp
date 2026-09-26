@@ -190,7 +190,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(destination.find_entity(selection.get_selected_entity_id())
                       .get_component<Comet::NameComponent>()
                       .name,
-            "Original Copy");
+            "Original_Copy");
         state.mode = EditorMode::Play;
         EXPECT_FALSE(editor.execute(&destination, paste));
         EXPECT_EQ(destination.entity_count(), 1);

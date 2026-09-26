@@ -11,6 +11,8 @@
 #include "ui/path_dialog.h"
 #include "project/recent_projects.h"
 #include "project/project_name_dialog.h"
+#include "project/project_creation.h"
+#include "project/editor_paths.h"
 #include "project/project_session.h"
 #include "scene/editor_request_policy.h"
 #include "ui/dialogs.h"
@@ -75,8 +77,11 @@ namespace {
             auto& renderer = engine.get_renderer();
             auto& render_context = renderer.get_render_context();
 
+            const auto state_directory = CometEditor::editor_user_state_directory();
+            if(!state_directory)
+                return Comet::Result<void, Comet::Error>::failure({state_directory.error()});
             auto ui = CometEditor::ImGuiContext::create(engine.get_window(), render_context,
-                m_project.paths().editor_state() / "imgui.ini");
+                state_directory.value() / "imgui.ini");
             if(!ui)
                 return Comet::Result<void, Comet::Error>::failure(ui.error().as_error());
             m_imgui_context = std::move(ui).value();
@@ -465,10 +470,15 @@ namespace {
 
             if(command != CometEditor::MenuBar::Command::CopyEntity
                 && command != CometEditor::MenuBar::Command::OpenProject
+                && command != CometEditor::MenuBar::Command::NewProject
                 && !finish_active_edit())
                 return Comet::Result<void, Comet::Error>::success();
 
             switch(command) {
+                case CometEditor::MenuBar::Command::NewProject:
+                    m_path_dialog.request(CometEditor::PathDialog::Action::CreateProject, {},
+                        m_project.paths().root().parent_path());
+                    break;
                 case CometEditor::MenuBar::Command::OpenProject:
                     if(project_path) {
                         if(auto switched = request_project_switch(*project_path); !switched) {
@@ -778,6 +788,14 @@ namespace {
 
         Comet::Result<void, Comet::Error> handle_path_request(
             const CometEditor::PathDialog::Request& request) {
+            if(request.action == CometEditor::PathDialog::Action::CreateProject) {
+                if(!finish_active_edit())
+                    return Comet::Result<void, Comet::Error>::success();
+                m_pending_project_creation = request.path;
+                m_scene_document->request({CometEditor::SceneDocument::Action::Close, {}});
+                m_path_dialog.complete(Comet::Result<void, Comet::Error>::success());
+                return Comet::Result<void, Comet::Error>::success();
+            }
             if(request.action == CometEditor::PathDialog::Action::OpenProject) {
                 m_path_dialog.complete(request_project_switch(request.path));
                 return Comet::Result<void, Comet::Error>::success();
@@ -835,6 +853,7 @@ namespace {
             if(dialog_cancelled) {
                 m_scene_document->decide(CometEditor::SceneDocument::Decision::Cancel);
                 m_next_project.reset();
+                m_pending_project_creation.reset();
             }
 
             using Kind = CometEditor::SceneRequestKind;
@@ -906,6 +925,18 @@ namespace {
             if(!action)
                 return Comet::Result<void, Comet::Error>::success();
             if(action->action == CometEditor::SceneDocument::Action::Close) {
+                if(m_pending_project_creation) {
+                    const auto path = std::exchange(m_pending_project_creation, std::nullopt);
+                    auto created = CometEditor::create_project(*path);
+                    if(!created) {
+                        m_path_dialog.request(CometEditor::PathDialog::Action::CreateProject,
+                            *path, m_project.paths().root().parent_path());
+                        m_path_dialog.complete(Comet::Result<void, Comet::Error>::failure(
+                            {created.error()}));
+                        return Comet::Result<void, Comet::Error>::success();
+                    }
+                    m_next_project = created.value();
+                }
                 get_engine().get_window().request_close();
                 return Comet::Result<void, Comet::Error>::success();
             }
@@ -934,8 +965,10 @@ namespace {
             if(!decision)
                 return;
             m_scene_document->decide(*decision);
-            if(*decision == CometEditor::SceneDocument::Decision::Cancel)
+            if(*decision == CometEditor::SceneDocument::Decision::Cancel) {
                 m_next_project.reset();
+                m_pending_project_creation.reset();
+            }
             if(*decision == CometEditor::SceneDocument::Decision::Save) {
                 m_path_dialog.request(CometEditor::PathDialog::Action::SaveScene,
                     m_scene_document->get_path(), m_project.paths().assets() / "scenes");
@@ -965,6 +998,7 @@ namespace {
         CometEditor::PathDialog m_path_dialog;
         CometEditor::ProjectNameDialog m_project_name_dialog;
         std::optional<std::filesystem::path> m_next_project;
+        std::optional<std::filesystem::path> m_pending_project_creation;
         std::optional<CometEditor::RecentProjects> m_recent_projects;
         std::optional<CometEditor::ProjectSession> m_project_session;
 

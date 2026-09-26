@@ -41,6 +41,8 @@ namespace CometEditor {
         const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene,
         std::span<const std::filesystem::path> recent_projects) {
         if(ImGui::BeginMenu(Ui::label("File").c_str(), m_state.mode == EditorMode::Edit)) {
+            if(ImGui::MenuItem(Ui::label("New Project").c_str()))
+                m_requested_command = Command::NewProject;
             if(ImGui::MenuItem(Ui::label("Open Project").c_str())) {
                 m_requested_command = Command::OpenProject;
                 m_requested_project_path.reset();
