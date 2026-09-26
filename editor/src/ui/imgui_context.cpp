@@ -123,7 +123,6 @@ namespace CometEditor {
         m_context.reset(ImGui::CreateContext());
         ImGui::SetCurrentContext(m_context.get());
         ImGuiIO& io = ImGui::GetIO();
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
         const std::filesystem::path ini_directory = std::filesystem::path(m_ini_path).parent_path();
