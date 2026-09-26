@@ -888,7 +888,7 @@ namespace CometEditor::Tests {
         io.AddKeyEvent(ImGuiMod_Super, false);
     }
 
-    TEST(MenuBarTest, StartupSceneCommandsRequireSavedScene) {
+    TEST(MenuBarTest, StartupSceneMenuSupportsCurrentUnindexedScene) {
         Comet::Tests::ImGuiTestContext imgui;
         EditorState state;
         CommandHistory history;
@@ -906,31 +906,22 @@ namespace CometEditor::Tests {
             ImGui::ActivateItemByID(ImHashStr("File", 0, ImHashStr("##MenuBar", 0, bar->ID)));
         };
 
-        frame({}, {});
+        frame("scenes/current.scene", "scenes/other.scene");
         open_file_menu();
-        frame({}, {});
-        frame({}, {});
+        frame("scenes/current.scene", "scenes/other.scene");
+        frame("scenes/current.scene", "scenes/other.scene");
         ASSERT_FALSE(GImGui->OpenPopupStack.empty());
         auto* popup = GImGui->OpenPopupStack.back().Window;
         ASSERT_NE(popup, nullptr);
-        ImGui::ActivateItemByID(popup->GetID("Set Current Scene as Startup"));
-        frame({}, {});
-        EXPECT_FALSE(menu.take_command());
-
-        ImGui::ActivateItemByID(popup->GetID("Set Current Scene as Startup"));
-        frame("scenes/current.scene", "scenes/other.scene");
-        EXPECT_EQ(menu.take_command(), MenuBar::Command::SetStartupScene);
-
-        frame("scenes/current.scene", "scenes/other.scene");
-        open_file_menu();
+        ImGui::ActivateItemByID(popup->GetID("Startup Scene"));
         frame("scenes/current.scene", "scenes/other.scene");
         frame("scenes/current.scene", "scenes/other.scene");
-        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
         popup = GImGui->OpenPopupStack.back().Window;
         ASSERT_NE(popup, nullptr);
-        ImGui::ActivateItemByID(popup->GetID("Clear Startup Scene"));
+        ImGui::ActivateItemByID(popup->GetID("scenes/current.scene"));
         frame("scenes/current.scene", "scenes/other.scene");
-        EXPECT_EQ(menu.take_command(), MenuBar::Command::ClearStartupScene);
+        EXPECT_EQ(menu.take_command(), MenuBar::Command::SetStartupScene);
+        EXPECT_EQ(menu.take_startup_scene_path(), "scenes/current.scene");
     }
 
     TEST(MenuBarTest, RecentProjectSelectionProvidesPath) {
@@ -991,6 +982,41 @@ namespace CometEditor::Tests {
         ImGui::ActivateItemByID(popup->GetID("Rename Project..."));
         frame();
         EXPECT_EQ(menu.take_command(), MenuBar::Command::RenameProject);
+    }
+
+    TEST(MenuBarTest, StartupSceneCanBeChosenWithoutOpeningIt) {
+        Comet::Tests::ImGuiTestContext imgui;
+        EditorState state;
+        CommandHistory history;
+        EditorShortcuts shortcuts;
+        MenuBar menu(state, history, shortcuts);
+        const std::filesystem::path scene = "scenes/other.scene";
+        const std::vector available{scene};
+        menu.set_available_scenes(available);
+        const auto frame = [&] {
+            ImGui::NewFrame();
+            menu.render();
+            ImGui::Render();
+        };
+        frame();
+        const auto* bar = ImGui::FindWindowByName("##MainMenuBar");
+        ASSERT_NE(bar, nullptr);
+        ImGui::ActivateItemByID(ImHashStr("File", 0, ImHashStr("##MenuBar", 0, bar->ID)));
+        frame();
+        frame();
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        auto* popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Startup Scene"));
+        frame();
+        frame();
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID(scene.generic_string().c_str()));
+        frame();
+        EXPECT_EQ(menu.take_command(), MenuBar::Command::SetStartupScene);
+        EXPECT_EQ(menu.take_startup_scene_path(), scene);
     }
 }
 #endif

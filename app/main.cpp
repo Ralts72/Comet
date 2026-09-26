@@ -25,16 +25,13 @@ namespace {
         Comet::Result<void, Comet::Error> on_init() override {
             using Init = Comet::Result<void, Comet::Error>;
             const auto components = Comet::create_scene_component_registry();
-            auto scene = std::make_unique<Comet::Scene>();
-            if(!m_project.startup_scene().empty()) {
-                const auto path = m_project.paths().resolve_asset_path(m_project.startup_scene());
-                if(!path)
-                    return Init::failure({path.error()});
-                auto loaded = Comet::SceneSerializer(components).load(path.value().string());
-                if(!loaded)
-                    return Init::failure({loaded.error()});
-                scene = std::move(loaded).value();
-            }
+            const auto path = m_project.paths().resolve_asset_path(m_project.startup_scene());
+            if(!path)
+                return Init::failure({path.error()});
+            auto loaded = Comet::SceneSerializer(components).load(path.value().string());
+            if(!loaded)
+                return Init::failure({loaded.error()});
+            auto scene = std::move(loaded).value();
 
             auto& engine = get_engine();
             m_asset_manager = std::make_unique<Comet::AssetManager>(m_project.paths(),

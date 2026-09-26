@@ -49,6 +49,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 #include <imgui.h>
 #include <spdlog/sinks/callback_sink.h>
 
@@ -178,6 +179,7 @@ namespace {
                 m_command_history, m_property_edit, m_component_registry, *m_selection, *m_assets);
             if(auto panels = setup_panels(std::move(initial_asset_scan)); !panels)
                 return panels;
+            refresh_available_scenes();
             auto material_layouts = renderer.get_material_layouts();
             m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
             m_project_panel->set_material_layouts(std::move(material_layouts));
@@ -227,8 +229,10 @@ namespace {
             auto assets = m_assets->update();
             if(!assets)
                 return Comet::Result<void, Comet::Error>::failure(assets.error());
-            if(assets.value())
+            if(assets.value()) {
                 m_project_panel->update_scan_report(std::move(*assets.value()));
+                refresh_available_scenes();
+            }
             if(auto mode = apply_editor_mode_request(); !mode)
                 return mode;
 
@@ -424,8 +428,7 @@ namespace {
             auto opened = m_scene_document->open(preferred.string());
             if(opened || is_device_lost(opened.error()))
                 return opened;
-            if(last_scene && preferred != m_project.startup_scene()
-                && !m_project.startup_scene().empty()) {
+            if(last_scene && preferred != m_project.startup_scene()) {
                 LOG_WARN("Last scene could not be opened; trying the project startup scene");
                 opened = m_scene_document->open(m_project.startup_scene().string());
                 if(opened || is_device_lost(opened.error()))
@@ -442,9 +445,19 @@ namespace {
                 LOG_WARN("Cannot update editor session: {}", recorded.error());
         }
 
+        void refresh_available_scenes() {
+            std::vector<std::filesystem::path> scenes;
+            for(const auto& asset : m_assets->database().get_assets()) {
+                if(asset.type == Comet::AssetType::Scene)
+                    scenes.push_back(asset.path);
+            }
+            m_menu_bar->set_available_scenes(std::move(scenes));
+        }
+
         Comet::Result<void, Comet::Error> handle_command(
             const CometEditor::MenuBar::Command command,
-            const std::optional<std::filesystem::path>& project_path) {
+            const std::optional<std::filesystem::path>& project_path,
+            const std::optional<std::filesystem::path>& startup_scene_path) {
             if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
                 LOG_WARN("Scene commands are disabled in Play mode");
                 return Comet::Result<void, Comet::Error>::success();
@@ -526,9 +539,25 @@ namespace {
                     }
                     break;
                 case CometEditor::MenuBar::Command::SetStartupScene: {
-                    const auto scene = current_saved_scene();
-                    if(scene.empty()) {
-                        LOG_WARN("Save the current scene before setting it as the startup scene");
+                    if(!startup_scene_path || startup_scene_path->empty()) {
+                        LOG_ERROR("Startup scene request has no path");
+                        break;
+                    }
+                    const auto& scene = *startup_scene_path;
+                    const auto* asset = m_assets->database().find(scene);
+                    const bool is_current_scene = scene == current_saved_scene();
+                    if(!is_current_scene && (!asset || asset->type != Comet::AssetType::Scene)) {
+                        LOG_WARN("Startup scene is no longer available: {}", scene.generic_string());
+                        break;
+                    }
+                    const auto path = m_project.paths().resolve_asset_path(scene);
+                    if(!path) {
+                        LOG_ERROR("Cannot resolve startup scene: {}", path.error());
+                        break;
+                    }
+                    if(auto loaded = m_scene_serializer.load(path.value().string()); !loaded) {
+                        LOG_ERROR("Cannot use startup scene '{}': {}", scene.generic_string(),
+                            loaded.error());
                         break;
                     }
                     const auto saved = m_project.save_startup_scene(scene);
@@ -536,14 +565,6 @@ namespace {
                         LOG_ERROR("Cannot set startup scene: {}", saved.error());
                     else
                         LOG_INFO("Startup scene set to '{}'", scene.generic_string());
-                    break;
-                }
-                case CometEditor::MenuBar::Command::ClearStartupScene: {
-                    const auto saved = m_project.save_startup_scene({});
-                    if(!saved)
-                        LOG_ERROR("Cannot clear startup scene: {}", saved.error());
-                    else
-                        LOG_INFO("Startup scene cleared");
                     break;
                 }
             }
@@ -805,6 +826,7 @@ namespace {
             const auto rename_request = m_hierarchy_panel->take_rename_request();
             const auto menu_command = m_menu_bar->take_command();
             const auto project_path = m_menu_bar->take_project_path();
+            const auto startup_scene_path = m_menu_bar->take_startup_scene_path();
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
             const auto play_command = m_viewport->panel().take_play_command();
@@ -833,7 +855,7 @@ namespace {
                 case Kind::FileDialog:
                     return handle_path_request(*file_request);
                 case Kind::Menu: {
-                    auto result = handle_command(*menu_command, project_path);
+                    auto result = handle_command(*menu_command, project_path, startup_scene_path);
                     if(!result && is_device_lost(result.error()))
                         return result;
                     break;

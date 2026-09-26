@@ -53,12 +53,15 @@ namespace Comet::Tests {
         EXPECT_EQ(relocated_scene.value(), copy / "assets/levels/main.scene");
     }
 
-    TEST_F(ProjectTest, OptionalSceneDoesNotFallBackToSampleAssets) {
+    TEST_F(ProjectTest, StartupSceneIsRequired) {
         write(R"({"version": 1, "name": "Empty Game"})");
-        auto project_result = Project::load(root);
-        ASSERT_TRUE(project_result) << project_result.error();
-        auto project = std::move(project_result).value();
-        EXPECT_TRUE(project.startup_scene().empty());
+        const auto missing = Project::load(root);
+        ASSERT_FALSE(missing);
+        EXPECT_NE(missing.error().find("startup_scene"), std::string::npos);
+        write(R"({"version": 1, "name": "Empty Game", "startup_scene": ""})");
+        const auto empty = Project::load(root);
+        ASSERT_FALSE(empty);
+        EXPECT_NE(empty.error().find("startup_scene"), std::string::npos);
         EXPECT_TRUE(std::filesystem::is_empty(root / "assets"));
     }
 
@@ -88,11 +91,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(project.save_startup_scene("levels/new.scene"));
         EXPECT_EQ(read_text_file(root / "project.json").value(), contents.value());
 
-        ASSERT_TRUE(project.save_startup_scene({}));
-        EXPECT_TRUE(project.startup_scene().empty());
-        auto without_startup_scene = Project::load(root);
-        ASSERT_TRUE(without_startup_scene) << without_startup_scene.error();
-        EXPECT_TRUE(without_startup_scene.value().startup_scene().empty());
+        EXPECT_FALSE(project.save_startup_scene({}));
+        EXPECT_EQ(project.startup_scene(), "levels/new.scene");
+        EXPECT_EQ(read_text_file(root / "project.json").value(), contents.value());
     }
 
     TEST_F(ProjectTest, FailedStartupSceneChangeRetainsOldProject) {
@@ -157,7 +158,7 @@ namespace Comet::Tests {
     }
 
     TEST_F(ProjectTest, LoadsProjectActionsAndRejectsBadInputWithoutFallback) {
-        write(R"({"version":1,"name":"Game","input_actions":[
+        write(R"({"version":1,"name":"Game","startup_scene":"scenes/main.scene","input_actions":[
             {"name":"move","type":"axis","bindings":[
                 {"source":"key","control":"L","scale":-1}]},
             {"name":"disabled","type":"button","bindings":[]}]})");
@@ -180,7 +181,9 @@ namespace Comet::Tests {
             R"([{"name":"jump","type":"button","bindings":[]},{"name":"jump","type":"button","bindings":[]}])"};
         for(const auto& value : invalid) {
             SCOPED_TRACE(value);
-            write("{\"version\":1,\"name\":\"Game\",\"input_actions\":" + value + "}");
+            write("{\"version\":1,\"name\":\"Game\","
+                  "\"startup_scene\":\"scenes/main.scene\",\"input_actions\":"
+                + value + "}");
             const auto loaded = Project::load(root);
             ASSERT_FALSE(loaded);
             EXPECT_NE(loaded.error().find("input_actions"), std::string::npos);
@@ -213,7 +216,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(Project::load(root));
         EXPECT_FALSE(std::filesystem::exists(root / "project.json"));
         EXPECT_FALSE(Project::load({}));
-        write(R"({"version": 1, "name": "Game"})");
+        write(R"({"version": 1, "name": "Game", "startup_scene": "scenes/main.scene"})");
         ASSERT_TRUE(std::filesystem::remove(root / "assets"));
         EXPECT_FALSE(Project::load(root));
         EXPECT_FALSE(std::filesystem::exists(root / "assets"));

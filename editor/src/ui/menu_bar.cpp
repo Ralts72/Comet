@@ -72,14 +72,24 @@ namespace CometEditor {
                 m_requested_command = Command::SaveScene;
             }
             ImGui::Separator();
-            if(ImGui::MenuItem(Ui::label("Set Current Scene as Startup").c_str(), nullptr,
-                   !current_scene.empty() && current_scene == startup_scene,
-                   !current_scene.empty())) {
-                m_requested_command = Command::SetStartupScene;
-            }
-            if(ImGui::MenuItem(Ui::label("Clear Startup Scene").c_str(), nullptr, false,
-                   !startup_scene.empty())) {
-                m_requested_command = Command::ClearStartupScene;
+            if(ImGui::BeginMenu(Ui::label("Startup Scene").c_str())) {
+                for(const auto& path : m_available_scenes) {
+                    if(ImGui::MenuItem(path.generic_string().c_str(), nullptr,
+                           path == startup_scene)) {
+                        m_requested_command = Command::SetStartupScene;
+                        m_requested_startup_scene_path = path;
+                    }
+                }
+                if(!current_scene.empty()
+                    && std::ranges::find(m_available_scenes, current_scene)
+                           == m_available_scenes.end()) {
+                    if(ImGui::MenuItem(current_scene.generic_string().c_str(), nullptr,
+                           current_scene == startup_scene)) {
+                        m_requested_command = Command::SetStartupScene;
+                        m_requested_startup_scene_path = current_scene;
+                    }
+                }
+                ImGui::EndMenu();
             }
             ImGui::EndMenu();
         }
@@ -130,6 +140,14 @@ namespace CometEditor {
 
     std::optional<std::filesystem::path> MenuBar::take_project_path() {
         return std::exchange(m_requested_project_path, std::nullopt);
+    }
+
+    std::optional<std::filesystem::path> MenuBar::take_startup_scene_path() {
+        return std::exchange(m_requested_startup_scene_path, std::nullopt);
+    }
+
+    void MenuBar::set_available_scenes(std::vector<std::filesystem::path> scenes) {
+        m_available_scenes = std::move(scenes);
     }
 
     std::optional<Ui::Language> MenuBar::take_language_request() {

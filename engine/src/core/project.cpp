@@ -183,24 +183,18 @@ namespace Comet {
             return Result<Project>::failure(context.error(
                 "<root>", error ? error.message() : "assets directory does not exist"));
 
-        Json::Node scene;
-        if(!data["startup_scene"].get(scene)) {
-            const auto scene_path =
-                context.read_scalar<std::string>(scene, "startup_scene", "a string");
-            if(!scene_path)
-                return Result<Project>::failure(scene_path.error());
-            const std::filesystem::path relative(scene_path.value());
-            if(!relative.empty()) {
-                if(relative.is_absolute() || relative.extension() != ".scene")
-                    return Result<Project>::failure(
-                        context.error("startup_scene", "expected an assets-relative .scene path"));
-                const auto resolved = project.paths().resolve_asset_path(relative);
-                if(!resolved)
-                    return Result<Project>::failure(
-                        context.error("startup_scene", resolved.error()));
-                project.m_startup_scene = relative.lexically_normal();
-            }
-        }
+        const auto scene_path =
+            context.read_field<std::string>(data, "startup_scene", "an assets-relative .scene path");
+        if(!scene_path)
+            return Result<Project>::failure(scene_path.error());
+        const std::filesystem::path relative(scene_path.value());
+        if(relative.empty() || relative.is_absolute() || relative.extension() != ".scene")
+            return Result<Project>::failure(
+                context.error("startup_scene", "expected an assets-relative .scene path"));
+        const auto resolved = project.paths().resolve_asset_path(relative);
+        if(!resolved)
+            return Result<Project>::failure(context.error("startup_scene", resolved.error()));
+        project.m_startup_scene = relative.lexically_normal();
         Json::Node input;
         if(!data["input_actions"].get(input)) {
             auto actions = read_input_actions(input, context);
@@ -237,13 +231,11 @@ namespace Comet {
         using Saved = Result<void>;
         if(name.find_first_not_of(" \t\r\n") == std::string::npos)
             return Saved::failure("Project name cannot be empty");
-        if(!path.empty() && (path.is_absolute() || path.extension() != ".scene"))
+        if(path.empty() || path.is_absolute() || path.extension() != ".scene")
             return Saved::failure("Startup scene must be an assets-relative .scene path");
-        if(!path.empty()) {
-            const auto resolved = m_paths.resolve_asset_path(path);
-            if(!resolved)
-                return Saved::failure(resolved.error());
-        }
+        const auto resolved = m_paths.resolve_asset_path(path);
+        if(!resolved)
+            return Saved::failure(resolved.error());
         const auto candidate = path.lexically_normal();
         const auto manifest = m_paths.root() / "project.json";
         const auto current = read_text_file(manifest);
