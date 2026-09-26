@@ -1,5 +1,0 @@
-# 编辑器开发期配置，与构建 Profile 无关；修改后重启编辑器。
-editor:
-  # Shader 文件变化后等待的静默时间，单位毫秒；0 禁用，范围 0..2000。
-  file_watch:
-    quiet_period_ms: 200

@@ -14,6 +14,10 @@ namespace CometEditor::Ui {
     // 空路径读取编辑器内置的中文词表；返回值拥有文字，绘制期间保持只读。
     [[nodiscard]] Comet::Result<Translations> load_translations(std::filesystem::path path = {});
     [[nodiscard]] Comet::Result<Translations> parse_translations(std::string_view yaml);
+    [[nodiscard]] Comet::Result<Language> load_language_preference(
+        const std::filesystem::path& path);
+    [[nodiscard]] Comet::Result<void> save_language_preference(
+        const std::filesystem::path& path, Language language);
 
     [[nodiscard]] Language language();
     [[nodiscard]] const char* text(const char* english);

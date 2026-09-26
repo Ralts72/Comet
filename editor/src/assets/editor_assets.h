@@ -5,7 +5,7 @@
 #include "assets/source_monitor.h"
 #include "assets/asset_edit.h"
 #include "assets/scene_asset_references.h"
-#include "file_watch_config.h"
+#include "file_recheck_trigger.h"
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -27,7 +27,7 @@ namespace CometEditor {
         using Clock = std::chrono::steady_clock;
         EditorAssets(Comet::ProjectPaths paths, Comet::AssetRegistry& registry,
             Comet::RenderResourceFactory& factory, Comet::TaskScheduler& scheduler,
-            std::chrono::milliseconds quiet_period = DEFAULT_FILE_WATCH_QUIET_PERIOD,
+            std::chrono::milliseconds quiet_period = DEFAULT_FILE_CHANGE_QUIET_PERIOD,
             Comet::AssetImportLimits limits = {},
             AssetSourceOperations::TrashMover trash_mover = {});
 

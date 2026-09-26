@@ -17,7 +17,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
 | `demo/assets/scripts/` | Lua 项目行为；默认字段由脚本声明，实体仅保存覆盖值 |
 | `demo/project.json` | 示例项目描述：版本、名称、启动场景和输入绑定 |
-| `config/` | `common.yaml`、各运行 Profile 与独立的 `editor.yaml` 编辑器配置 |
+| `config/` | `common.yaml` 与各运行 Profile；不保存项目内容或编辑器个人偏好 |
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
@@ -184,7 +184,7 @@ CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍�
 旧仓库根 `logs/` 不自动搬迁或删除。
 
 编辑器使用 16px Roboto Bold，并合并 Noto Sans SC Bold 覆盖中文。
-顶栏「语言 / Language」可切换简体中文和 English，默认中文，本次会话有效。
+顶栏「语言 / Language」可切换简体中文和 English，首次默认中文；选择保存在用户状态目录的 `language.json`，跨项目生效。
 切换只影响编辑器内置显示文本，保留控件身份及布局；资产名、路径、Shader 标识和原始日志不翻译。
 中文词表位于 `editor/resources/locales/zh-CN.yaml`，启动时加载一次；修改文案后重启即可，无需重新编译。
 缺词回退英文原文，文件无效时记录日志并使用英文；键和值必须是字符串，格式占位符须与英文原文完全一致。
@@ -254,7 +254,7 @@ app 始终使用项目启动场景，不读取编辑器会话状态。
 项目需要 `project.json` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。
 编辑器生成的 `.scene`（v2）、`.mat`（v2）、`.meta`（v3）使用 JSON，扩展名不变；
 `.scene` 的 `entities` 只放根实体，子实体通过 `children` 嵌套，不再保存 `parent` 引用；UUID 仍全场景唯一。
-项目描述 `project.json` 同样使用 JSON；引擎／编辑器开发配置及编辑器用户快捷键覆盖继续使用 YAML。
+项目描述 `project.json` 同样使用 JSON；引擎运行配置及编辑器用户快捷键覆盖继续使用 YAML。
 JSON 解析直接依赖已有 simdjson。
 后台导入采用有界任务队列，同一资产尚未执行的旧请求会被最新 revision 合并替换；
 队列满时底层返回拒绝，编辑器自动导入和已加载资源刷新保留轻量待办，在容量恢复后重试；导入内容错误等待新变更或 Reimport。刷新失败继续保留旧资源。
@@ -427,7 +427,7 @@ Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。�
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
 - 编辑器快捷键默认值内置于代码；可在 Edit → 快捷键设置中修改，保存后立即生效。
   用户覆盖仅保存不同于默认值的动作，写入用户状态目录的 `shortcuts.yaml`，不修改项目配置或仓库文件。
-  Shader 文件变化静默期位于 `editor.file_watch.quiet_period_ms`（0..2000 ms，默认 200；0 表示关闭防抖），修改后重启编辑器。
+  Shader 文件变化后默认等待 200 ms 静默期以合并连续写入；这是编辑器内部策略，不属于项目或用户设置。
   Undo/Redo 默认 Ctrl+Z／Ctrl+Y，macOS 为 Cmd+Z／Cmd+Shift+Z，文本编辑时不抢占控件的撤销。
   `Primary` 代表 Cmd／Ctrl，`[]` 禁用绑定；冲突会记录日志并回退默认配置。
 - Project 自动监视资产变化；右键 Refresh 重扫，Reimport 强制重建 Mesh 缓存。

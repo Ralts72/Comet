@@ -57,7 +57,7 @@ namespace CometEditor::Tests {
                 std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
                 directory / "model.gltf");
             assets = std::make_unique<EditorAssets>(Comet::ProjectPaths(root), runtime, factory,
-                scheduler, DEFAULT_FILE_WATCH_QUIET_PERIOD, Comet::AssetImportLimits{},
+                scheduler, DEFAULT_FILE_CHANGE_QUIET_PERIOD, Comet::AssetImportLimits{},
                 [this](const std::filesystem::path& entry) -> Comet::Result<void> {
                     ++trash_requests;
                     trash_sources.push_back(entry);
@@ -1172,7 +1172,7 @@ namespace CometEditor::Tests {
         Comet::AssetImportLimits limits;
         limits.external_file_queue = 2;
         EditorAssets smaller_queue(Comet::ProjectPaths(root), runtime, factory, scheduler,
-            DEFAULT_FILE_WATCH_QUIET_PERIOD, limits);
+            DEFAULT_FILE_CHANGE_QUIET_PERIOD, limits);
         ASSERT_TRUE(smaller_queue.queue_import_files(files, {}));
         ASSERT_TRUE(smaller_queue.queue_import_files(files, {}));
         EXPECT_FALSE(smaller_queue.queue_import_files(files, {}));

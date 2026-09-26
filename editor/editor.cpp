@@ -2,7 +2,6 @@
 #include "render/resource/render_resources.h"
 #include "graphics/resource/sampler.h"
 #include "assets/editor_assets.h"
-#include "file_watch_config.h"
 #include "assets/material_editing.h"
 #include "render/shader_reload.h"
 #include "render/render_stats.h"
@@ -83,6 +82,7 @@ namespace {
             if(!state_directory)
                 return Comet::Result<void, Comet::Error>::failure({state_directory.error()});
             m_shortcut_settings_path = state_directory.value() / "shortcuts.yaml";
+            m_language_settings_path = state_directory.value() / "language.json";
             auto ui = CometEditor::ImGuiContext::create(engine.get_window(), render_context,
                 state_directory.value() / "imgui.ini");
             if(!ui)
@@ -110,17 +110,17 @@ namespace {
                 LOG_WARN("{}; using English editor text", translations.error());
                 m_ui_language = CometEditor::Ui::Language::English;
             }
+            if(auto preferred = CometEditor::Ui::load_language_preference(m_language_settings_path);
+                preferred) {
+                if(!m_translations.empty()
+                    || preferred.value() == CometEditor::Ui::Language::English)
+                    m_ui_language = preferred.value();
+            } else {
+                LOG_WARN("{}; using default editor language", preferred.error());
+            }
 
             const std::filesystem::path shader_root(COMET_BUILTIN_SHADER_DIRECTORY);
-            const auto editor_config =
-                std::filesystem::path(COMET_CONFIG_DIRECTORY) / "editor.yaml";
-            auto quiet_period = CometEditor::DEFAULT_FILE_WATCH_QUIET_PERIOD;
-            auto configured_quiet_period = CometEditor::load_file_watch_quiet_period(editor_config);
-            if(configured_quiet_period)
-                quiet_period = configured_quiet_period.value();
-            else
-                LOG_ERROR(
-                    "{}; using default file-watch quiet period", configured_quiet_period.error());
+            constexpr auto quiet_period = CometEditor::DEFAULT_FILE_CHANGE_QUIET_PERIOD;
             CometEditor::ShaderReload::Requests shader_requests;
             for(const auto& program : Comet::builtin_material_shaders()) {
                 const auto name = std::string(program.name);
@@ -220,8 +220,14 @@ namespace {
 
         Comet::Result<void, Comet::Error> on_update(Comet::Engine::FrameContext& frame) override {
             PROFILE_SCOPE("Editor::on_update");
-            if(const auto language = m_menu_bar->take_language_request())
+            if(const auto language = m_menu_bar->take_language_request();
+                language && *language != m_ui_language) {
                 m_ui_language = *language;
+                if(auto saved = CometEditor::Ui::save_language_preference(
+                       m_language_settings_path, m_ui_language);
+                    !saved)
+                    LOG_WARN("Cannot save editor language preference: {}", saved.error());
+            }
             process_diagnostics_requests();
             if(auto requests = process_editor_requests(); !requests)
                 return requests;
@@ -1013,6 +1019,7 @@ namespace {
         CometEditor::EditorState m_editor_state;
         CometEditor::EditorShortcuts m_shortcuts;
         std::filesystem::path m_shortcut_settings_path;
+        std::filesystem::path m_language_settings_path;
         CometEditor::Ui::Language m_ui_language = CometEditor::Ui::Language::Chinese;
         CometEditor::Ui::Translations m_translations;
         std::unique_ptr<CometEditor::SceneEditor> m_scene_editor;

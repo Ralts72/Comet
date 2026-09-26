@@ -71,6 +71,36 @@ File: 文件
         EXPECT_STREQ(Ui::text("File"), "File");
     }
 
+    TEST(EditorLanguagePreferenceTest, PersistsAcrossProjectsAndDefaultsToChinese) {
+        TemporaryDirectory directory;
+        const auto path = directory.path() / "editor/language.json";
+        auto initial = Ui::load_language_preference(path);
+        ASSERT_TRUE(initial) << initial.error();
+        EXPECT_EQ(initial.value(), Ui::Language::Chinese);
+
+        ASSERT_TRUE(Ui::save_language_preference(path, Ui::Language::English));
+        auto reopened = Ui::load_language_preference(path);
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value(), Ui::Language::English);
+
+        ASSERT_TRUE(Ui::save_language_preference(path, Ui::Language::Chinese));
+        reopened = Ui::load_language_preference(path);
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value(), Ui::Language::Chinese);
+    }
+
+    TEST(EditorLanguagePreferenceTest, RejectsInvalidStateWithoutOverwritingIt) {
+        TemporaryDirectory directory;
+        const auto path = directory.path() / "language.json";
+        for(const std::string content : {"{", R"({"version":2,"language":"en"})",
+                R"({"version":1,"language":"fr"})", R"({"version":1,"language":42})",
+                R"({"version":1,"language":"en","unknown":true})"}) {
+            ASSERT_TRUE(write_text_file_atomic(path, content));
+            EXPECT_FALSE(Ui::load_language_preference(path));
+            EXPECT_EQ(read_text_file(path).value(), content);
+        }
+    }
+
     class EditorLanguageTest: public testing::Test {
     protected:
         void SetUp() override {

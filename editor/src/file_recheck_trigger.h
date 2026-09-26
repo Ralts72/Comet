@@ -6,6 +6,8 @@
 #include <vector>
 
 namespace CometEditor {
+    inline constexpr auto DEFAULT_FILE_CHANGE_QUIET_PERIOD = std::chrono::milliseconds(200);
+
     // 文件通知只是线索；消费方仍须复核自己的源码快照。
     class FileRecheckTrigger final {
     public:
