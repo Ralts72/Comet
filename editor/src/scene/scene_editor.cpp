@@ -43,6 +43,11 @@ namespace CometEditor {
                && m_history.generation() == generation;
     }
 
+    bool SceneEditor::copy_entity(
+        Comet::Scene* scene, const Comet::EntityUuid entity, const std::uint64_t generation) {
+        return can_edit(scene, generation) && m_clipboard.copy(*scene, m_components, entity);
+    }
+
     bool SceneEditor::execute(Comet::Scene* scene, const StructureRequest& request) {
         if(!can_edit(scene, request.generation) || !m_edit.commit())
             return false;
@@ -64,12 +69,12 @@ namespace CometEditor {
             case Type::Delete:
                 if(!SceneCommands::delete_entity(m_history, m_components, request.entity))
                     return false;
-                m_selection.clear();
+                if(const auto selected = m_selection.get_selected_entity_id();
+                    selected != Comet::INVALID_ENTITY_ID && !scene->find_entity(selected))
+                    m_selection.clear();
                 return true;
             case Type::Reparent:
                 return SceneCommands::reparent_entity(m_history, request.entity, request.parent);
-            case Type::Copy:
-                return m_clipboard.copy(*scene, m_components, request.entity);
             case Type::Paste: {
                 const auto uuid = m_clipboard.paste(m_history, m_components, request.parent);
                 if(!uuid)

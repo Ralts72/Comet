@@ -110,12 +110,11 @@ namespace CometEditor {
         std::optional<DeleteRequest> m_pending_delete;
         std::vector<std::shared_ptr<const Comet::MaterialLayout>> m_material_layouts;
         std::filesystem::path m_create_directory;
-        std::array<char, 256> m_material_name{};
+        std::string m_create_name;
         std::string m_create_template;
         bool m_create_requested = false;
         bool m_close_create = false;
         std::optional<CreateMaterialRequest> m_pending_create;
-        std::array<char, 256> m_script_name{};
         bool m_create_script_requested = false;
         bool m_close_create_script = false;
         std::optional<CreateScriptRequest> m_pending_script_create;

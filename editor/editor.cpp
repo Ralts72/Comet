@@ -383,7 +383,7 @@ namespace {
                 return Comet::Result<void, Comet::Error>::success();
             }
 
-            if(!finish_active_edit())
+            if(command != CometEditor::MenuBar::Command::CopyEntity && !finish_active_edit())
                 return Comet::Result<void, Comet::Error>::success();
 
             switch(command) {
@@ -397,10 +397,8 @@ namespace {
                     break;
                 case CometEditor::MenuBar::Command::CopyEntity:
                     if(const auto entity = m_selection->get_selected_entity(); entity) {
-                        const CometEditor::SceneEditor::StructureRequest request{
-                            CometEditor::SceneEditor::StructureRequest::Type::Copy,
-                            entity.get_uuid(), {}, m_command_history.generation()};
-                        if(!m_scene_editor->execute(get_engine().get_scene(), request))
+                        if(!m_scene_editor->copy_entity(get_engine().get_scene(), entity.get_uuid(),
+                               m_command_history.generation()))
                             LOG_WARN("Cannot copy selected entity");
                     }
                     break;

@@ -23,6 +23,26 @@ namespace CometEditor {
                        })
                    != text.end();
         }
+
+        bool valid_asset_name(const std::string_view name) {
+            return !name.empty() && name != "." && name != ".."
+                   && name.find_first_of("/\\:") == std::string_view::npos;
+        }
+
+        bool input_asset_name(
+            std::string& name, const ImGuiInputTextFlags extra_flags = ImGuiInputTextFlags_None) {
+            return ImGui::InputText(
+                Ui::label("Name").c_str(), name.data(), name.capacity() + 1,
+                ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_EnterReturnsTrue
+                    | extra_flags,
+                [](ImGuiInputTextCallbackData* data) {
+                    auto& text = *static_cast<std::string*>(data->UserData);
+                    text.resize(static_cast<std::size_t>(data->BufTextLen));
+                    data->Buf = text.data();
+                    return 0;
+                },
+                &name);
+        }
     }
 
     ProjectPanel::AssetTreeNode ProjectPanel::build_asset_tree() const {
@@ -244,7 +264,7 @@ namespace CometEditor {
 
     void ProjectPanel::request_create_material(const std::filesystem::path& directory) {
         m_create_directory = directory;
-        m_material_name.fill('\0');
+        m_create_name.clear();
         m_create_template.clear();
         if(!m_material_layouts.empty())
             m_create_template = m_material_layouts.front()->get_name();
@@ -255,7 +275,7 @@ namespace CometEditor {
 
     void ProjectPanel::request_create_script(const std::filesystem::path& directory) {
         m_create_directory = directory;
-        m_script_name.fill('\0');
+        m_create_name.clear();
         m_operation_error.clear();
         m_close_create_script = false;
         m_create_script_requested = true;
@@ -278,8 +298,7 @@ namespace CometEditor {
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(320.0f);
-        const bool submitted = ImGui::InputText(Ui::label("Name").c_str(), m_material_name.data(),
-            m_material_name.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+        const bool submitted = input_asset_name(m_create_name);
         ImGui::SameLine();
         ImGui::TextUnformatted(".mat");
         ImGui::SetNextItemWidth(320.0f);
@@ -294,11 +313,9 @@ namespace CometEditor {
             ImGui::EndCombo();
         }
         if(ImGui::Button(Ui::label("Create").c_str()) || submitted) {
-            const std::string name(m_material_name.data());
             const auto layout = std::ranges::find_if(m_material_layouts,
                 [&](const auto& item) { return item->get_name() == m_create_template; });
-            if(name.empty() || name == "." || name == ".."
-                || name.find_first_of("/\\:") != std::string::npos)
+            if(!valid_asset_name(m_create_name))
                 m_operation_error = "Enter a file name, not a path";
             else if(layout == m_material_layouts.end())
                 m_operation_error = "Selected template is no longer available";
@@ -306,7 +323,7 @@ namespace CometEditor {
                         [](const auto& property) { return !property.optional; }))
                 m_operation_error = "This template requires textures before it can be created";
             else {
-                auto filename = name;
+                auto filename = m_create_name;
                 if(!filename.ends_with(".mat"))
                     filename += ".mat";
                 m_pending_create = CreateMaterialRequest{
@@ -345,16 +362,14 @@ namespace CometEditor {
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(320.0f);
-        const bool submitted = ImGui::InputText(Ui::label("Name").c_str(), m_script_name.data(),
-            m_script_name.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+        const bool submitted = input_asset_name(m_create_name);
         ImGui::SameLine();
         ImGui::TextUnformatted(".lua");
         if(ImGui::Button(Ui::label("Create").c_str()) || submitted) {
-            std::string name(m_script_name.data());
-            if(name.empty() || name == "." || name == ".."
-                || name.find_first_of("/\\:") != std::string::npos)
+            if(!valid_asset_name(m_create_name))
                 m_operation_error = "Enter a file name, not a path";
             else {
+                auto name = m_create_name;
                 if(!name.ends_with(".lua"))
                     name += ".lua";
                 m_pending_script_create = CreateScriptRequest{m_create_directory / name};
@@ -582,17 +597,7 @@ namespace CometEditor {
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(360.0f);
-        const bool submitted = ImGui::InputText(
-            Ui::label("Name").c_str(), m_rename_name.data(), m_rename_name.capacity() + 1,
-            ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_EnterReturnsTrue
-                | ImGuiInputTextFlags_AutoSelectAll,
-            [](ImGuiInputTextCallbackData* data) {
-                auto& name = *static_cast<std::string*>(data->UserData);
-                name.resize(static_cast<std::size_t>(data->BufTextLen));
-                data->Buf = name.data();
-                return 0;
-            },
-            &m_rename_name);
+        const bool submitted = input_asset_name(m_rename_name, ImGuiInputTextFlags_AutoSelectAll);
         if(record) {
             ImGui::SameLine();
             ImGui::TextUnformatted(record->path.extension().string().c_str());
@@ -600,8 +605,7 @@ namespace CometEditor {
         if((ImGui::Button(Ui::label("Rename").c_str(), ImVec2(100.0f, 0.0f)) || submitted)
             && record) {
             const std::string& name = m_rename_name;
-            if(name.empty() || name == "." || name == ".."
-                || name.find_first_of("/\\:") != std::string::npos) {
+            if(!valid_asset_name(name)) {
                 m_operation_error = "Enter a file name, not a path";
             } else {
                 const auto destination =

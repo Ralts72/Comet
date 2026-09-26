@@ -174,11 +174,10 @@ namespace CometEditor::Tests {
         SceneEditor editor(state, history, edit, components, selection, *assets);
 
         using Type = SceneEditor::StructureRequest::Type;
-        const SceneEditor::StructureRequest copy{
-            Type::Copy, original.get_uuid(), {}, history.generation()};
-        ASSERT_TRUE(editor.execute(&source, copy));
+        ASSERT_TRUE(editor.copy_entity(&source, original.get_uuid(), history.generation()));
         EXPECT_TRUE(editor.clipboard().has_content());
         EXPECT_EQ(history.undo_size(), 0);
+        EXPECT_FALSE(editor.copy_entity(&source, original.get_uuid(), history.generation() + 1));
 
         Comet::Scene destination;
         history.bind_scene(&destination);
@@ -195,6 +194,47 @@ namespace CometEditor::Tests {
         state.mode = EditorMode::Play;
         EXPECT_FALSE(editor.execute(&destination, paste));
         EXPECT_EQ(destination.entity_count(), 1);
+    }
+
+    TEST_F(EditorAssetsTest, CopyingEntityDoesNotCommitActivePropertyEdit) {
+        Comet::Scene scene;
+        auto entity = scene.create_entity("Original");
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+
+        ASSERT_TRUE(edit.begin({entity.get_uuid(), "name", "name"}));
+        ASSERT_TRUE(edit.preview(std::string("Draft")));
+        ASSERT_TRUE(editor.copy_entity(&scene, entity.get_uuid(), history.generation()));
+        EXPECT_TRUE(edit.active());
+        EXPECT_EQ(history.undo_size(), 0);
+        EXPECT_TRUE(editor.clipboard().has_content());
+    }
+
+    TEST_F(EditorAssetsTest, DeletingAnotherEntityPreservesSelection) {
+        Comet::Scene scene;
+        auto selected = scene.create_entity("Selected");
+        auto other = scene.create_entity("Other");
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+        selection.select_entity(selected.get_id());
+
+        using Type = SceneEditor::StructureRequest::Type;
+        ASSERT_TRUE(
+            editor.execute(&scene, {Type::Delete, other.get_uuid(), {}, history.generation()}));
+        EXPECT_EQ(selection.get_selected_entity_id(), selected.get_id());
+        ASSERT_TRUE(
+            editor.execute(&scene, {Type::Delete, selected.get_uuid(), {}, history.generation()}));
+        EXPECT_EQ(selection.get_selected_entity_id(), Comet::INVALID_ENTITY_ID);
     }
 
     TEST_F(EditorAssetsTest, EntityRenameUsesPropertyHistoryAndRejectsStaleRequests) {

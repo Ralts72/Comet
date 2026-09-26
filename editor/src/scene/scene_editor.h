@@ -16,7 +16,7 @@ namespace CometEditor {
     class SceneEditor {
     public:
         struct StructureRequest {
-            enum class Type { Create, Delete, Reparent, Duplicate, Copy, Paste };
+            enum class Type { Create, Delete, Reparent, Duplicate, Paste };
             Type type;
             Comet::EntityUuid entity;
             Comet::EntityUuid parent;
@@ -37,6 +37,8 @@ namespace CometEditor {
         [[nodiscard]] const SceneCommands::EntityClipboard& clipboard() const noexcept {
             return m_clipboard;
         }
+        [[nodiscard]] bool copy_entity(
+            Comet::Scene* scene, Comet::EntityUuid entity, std::uint64_t generation);
         [[nodiscard]] bool execute(Comet::Scene* scene, const StructureRequest& request);
         [[nodiscard]] bool rename_entity(Comet::Scene* scene, Comet::EntityUuid entity,
             const std::string& name, std::uint64_t generation);
