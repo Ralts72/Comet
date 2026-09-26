@@ -138,6 +138,12 @@ namespace Comet::LuaBindings {
                 return luaL_error(state, "Cannot queue entity destruction");
             return 0;
         }
+        int play_one_shot(lua_State* state) {
+            const auto& context = current(state);
+            if(!context.scene || !context.scene->request_play_one_shot(context.entity))
+                return luaL_error(state, "Current entity needs a valid Audio Source");
+            return 0;
+        }
         std::string_view session_key(lua_State* state) {
             size_t length = 0;
             const char* text = luaL_checklstring(state, 1, &length);
@@ -303,6 +309,7 @@ namespace Comet::LuaBindings {
         const luaL_Reg api[]{{"rotate", rotate}, {"translate", translate}, {"position", position},
             {"self_entity", self_entity}, {"find_entity", find_entity},
             {"create_entity", create_entity}, {"destroy_entity", destroy_entity},
+            {"play_one_shot", play_one_shot},
             {"session_get", session_get}, {"session_set", session_set},
             {"key_down", key_down}, {"action_value", action_value}, {"action_down", action_down},
             {"action_pressed", action_pressed}, {"action_released", action_released},

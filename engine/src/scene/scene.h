@@ -19,6 +19,7 @@ namespace Comet {
     class SceneSerializer;
     class SceneRuntime;
     class PhysicsSystem;
+    class AudioSystem;
 
     class COMET_API Scene {
     public:
@@ -51,6 +52,8 @@ namespace Comet {
         [[nodiscard]] std::optional<EntityUuid> request_create_entity(
             std::string_view name = "Entity");
         [[nodiscard]] bool request_destroy_entity(Entity entity);
+        // 短音效请求保存源配置的快照；目标在本帧删除后仍可播完。
+        [[nodiscard]] bool request_play_one_shot(Entity entity);
 
         // 仅当前 Runtime 有效，不序列化。
         [[nodiscard]] std::optional<ParameterValue> get_session_value(
@@ -112,9 +115,11 @@ namespace Comet {
         friend class SceneSerializer;
         friend class SceneRuntime;
         friend class PhysicsSystem;
+        friend class AudioSystem;
         friend class ComponentRegistry;
 
         static constexpr std::size_t MAX_ENTITY_REQUESTS = 1024;
+        static constexpr std::size_t MAX_AUDIO_PLAY_REQUESTS = 128;
 
         struct EntityRequest {
             enum class Type { Create, Destroy } type;
@@ -122,9 +127,14 @@ namespace Comet {
             EntityId id = INVALID_ENTITY_ID;
             std::string name;
         };
+        struct AudioPlayRequest {
+            AssetHandle clip;
+            float volume;
+        };
 
         [[nodiscard]] bool begin_runtime();
         [[nodiscard]] bool commit_entity_requests();
+        [[nodiscard]] std::vector<AudioPlayRequest> take_audio_play_requests();
         void end_runtime() noexcept;
         [[nodiscard]] bool append_contact_event(ContactEvent event);
         void clear_contact_events() noexcept;
@@ -141,6 +151,7 @@ namespace Comet {
 
         EntityId m_next_entity_id = 1;
         std::vector<EntityRequest> m_entity_requests;
+        std::vector<AudioPlayRequest> m_audio_play_requests;
         std::vector<ContactEvent> m_contact_events;
         ParameterMap m_session_values;
         bool m_runtime_active = false;

@@ -41,7 +41,7 @@ Engine 的资产模块保留索引、导入器和运行时加载，不承接编�
 SPIRV-Reflect 以固定版本 submodule 接入，仅作为 engine 的私有静态反射依赖；不构建其工具与测试。
 glslang 以正式版本 `16.6.0` 的固定提交作为 submodule，由构建生成 `comet_shader_compiler`；不再要求额外安装 `glslangValidator`。
 Jolt Physics 以 `v5.6.0` 的固定提交作为 submodule，只构建 CPU 刚体库；Scene 只保存刚体／碰撞体组件，物理世界在 Play／app 的 System 中创建。
-miniaudio 以固定版本 submodule 接入；目前仅解码项目中的 WAV 短音效，播放设备只在运行场景有声音源时创建。
+miniaudio 以固定版本 submodule 接入；目前仅解码项目中的 WAV 短音效，播放设备在自动播放或短音效请求首次需要输出时创建。
 首次构建会增加源编译器的编译耗时，但 engine／app 不链接该编译库，发布运行不需要源编译器。
 
 ```bash
@@ -287,7 +287,7 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 示例立方体通过 Script 组件引用 `demo/assets/scripts/spin.lua`，`speed` 为每秒角度，`enabled` 控制是否旋转。
 app 和 editor Play 共用该行为，不依赖 UUID 或项目路径；Edit 不执行旋转，Play 修改不保存回 Edit 场景。
 示例场景还有一个脚本交互：进入 Play（或运行 app）后，用左右方向键移动左侧小方块碰触右侧条纹目标。
-目标的触发回调会记录本次运行的分数、删除目标并创建 `Collected_Goal_1` 实体；中间的旋转立方体读取同一分数后上升。
+目标的触发回调会记录本次运行的分数、播放一次提示音、删除目标并创建 `Collected_Goal_1` 实体；中间的旋转立方体读取同一分数后上升。
 在编辑器 Play 的层级面板可以看到新实体；它没有 Mesh，因而不在视口绘制。Stop 后重新 Play 可重试，运行时变化不会写回场景。
 空格仍可暂停／恢复中间立方体的旋转。左右方向键绑定在项目 `project.json`，不占用相机的 WASD 控制。
 项目 `.lua` 位于 assets，由 `.meta` 提供身份，也可从 Finder 导入；新增脚本无需改 CMake 或重编译宿主。
@@ -385,10 +385,12 @@ Edit 中位置保持原样。刚体与碰撞体在 Inspector 添加、编辑并�
 只添加碰撞体不会参与模拟，还需添加刚体；静态刚体本身不会下落，也只有与其他物理 body 接触时才有碰撞效果。
 demo 的旋转立方体由 Lua 驱动，若同时设为动态刚体，脚本与物理都会写它的旋转；首版尚无专用于脚本驱动障碍物的运动学刚体。
 目前只支持无父级实体的盒／球碰撞体；盒尺寸乘以实体正缩放，球体要求均匀正缩放。
-首版在主线程模拟，最多 1024 个刚体；碰撞事件、约束和角色控制器尚未接入。
+首版在主线程模拟，最多 1024 个刚体；脚本可收到碰撞／触发进入与离开通知，约束和角色控制器尚未接入。
 
-demo 主相机附有 Audio Source，Play 或启动 app 时播放一次 `demo/assets/audio/play_chime.wav`；Edit 不播放，Stop 销毁播放实例。
-项目 WAV 由 Git LFS 管理，与相邻 `.meta` 一起使用，也可从 Finder 拖入 Project；场景只保存 Audio Clip 的 Handle、循环和 0..1 音量。可在 Inspector 添加或编辑 Audio Source。
+demo 目标附有 Audio Source，关闭启动自动播放；碰触目标时脚本调用 `comet.play_one_shot()` 播放一次 `demo/assets/audio/play_chime.wav`。
+这项调用使用当前实体 Audio Source 的片段和音量，忽略循环配置；播放实例由 AudioSystem 保持，目标在同帧删除也不会立刻截断声音。
+没有 Audio Source 或有效片段时调用会报告脚本错误。一般声音源仍可通过 `play_on_start` 在 Play／app 启动时自动播放，默认开启；Edit 不播放，Stop 销毁播放实例。
+项目 WAV 由 Git LFS 管理，与相邻 `.meta` 一起使用，也可从 Finder 拖入 Project；场景保存 Audio Clip 的 Handle、自动播放、循环和 0..1 音量。可在 Inspector 添加或编辑 Audio Source。
 首版将短音效完整解码到内存，限制为单／双声道、约 1600 万采样值；尚无流式音乐、空间定位或混音编辑器。
 无可用输出设备时会记录警告并静音继续运行；暂停场景目前不暂停已经发出的声音。
 

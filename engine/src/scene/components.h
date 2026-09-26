@@ -107,6 +107,7 @@ namespace Comet {
         AudioSourceComponent& operator=(AudioSourceComponent&&) noexcept = default;
 
         AssetHandle clip;
+        bool play_on_start = true;
         bool loop = false;
         float volume = 0.5f;
         [[nodiscard]] uint64_t lifetime() const noexcept { return m_lifetime; }

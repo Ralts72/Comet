@@ -3,10 +3,12 @@
 #include "scene/scene.h"
 #include "scene/systems/script_system.h"
 #include "scene/systems/physics_system.h"
+#include "scene/systems/audio_system.h"
 #include "scene/scene_runtime.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
 #include "asset/registry.h"
+#include "audio/audio.h"
 #include "core/project.h"
 #include "common/scope_exit.h"
 #include "diagnostics/logger.h"
@@ -490,13 +492,22 @@ namespace Comet::Tests {
             ASSERT_TRUE(script) << script.error().message;
             ASSERT_TRUE(assets.register_asset(script_handle, std::move(script).value()));
         }
+        auto cue = AudioClip::load(
+            project.value().paths().assets() / "audio/play_chime.wav");
+        ASSERT_TRUE(cue) << cue.error().message;
+        ASSERT_TRUE(assets.register_asset(
+            AssetHandle{8247160951280394421ULL}, std::move(cue).value()));
         const auto components = create_scene_component_registry();
         const SceneSerializer serializer(components);
-        auto loaded = serializer.load(
+        auto edit_scene = serializer.load(
             (project.value().paths().assets() / "scenes/default.scene").string());
-        ASSERT_TRUE(loaded) << loaded.error();
+        ASSERT_TRUE(edit_scene) << edit_scene.error();
+        auto playing = serializer.clone(*edit_scene.value());
+        ASSERT_TRUE(playing) << playing.error();
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
-        ASSERT_TRUE(runtime.start(*loaded.value()));
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
+        ASSERT_TRUE(runtime.start(*playing.value()));
 
         Input input;
         input.focus_event(true);
@@ -508,19 +519,36 @@ namespace Comet::Tests {
         const auto center_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02");
         ASSERT_TRUE(goal_uuid);
         ASSERT_TRUE(center_uuid);
-        EXPECT_FALSE(loaded.value()->find_entity(*goal_uuid));
-        const auto score = loaded.value()->get_session_value("demo.score");
+        EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
+        const auto score = playing.value()->get_session_value("demo.score");
         ASSERT_TRUE(score);
         EXPECT_FLOAT_EQ(std::get<float>(*score), 1);
         bool found_marker = false;
-        loaded.value()->each<const NameComponent>([&](Entity, const NameComponent& name) {
+        playing.value()->each<const NameComponent>([&](Entity, const NameComponent& name) {
             found_marker |= name.name == "Collected_Goal_1";
         });
         EXPECT_TRUE(found_marker);
-        EXPECT_FLOAT_EQ(loaded.value()->find_entity(*center_uuid)
+        EXPECT_FLOAT_EQ(playing.value()->find_entity(*center_uuid)
                             .get_component<TransformComponent>().translation.y, 0.4f);
         ASSERT_TRUE(runtime.stop());
-        EXPECT_FALSE(loaded.value()->get_session_value("demo.score"));
+        EXPECT_FALSE(playing.value()->get_session_value("demo.score"));
+        EXPECT_TRUE(edit_scene.value()->find_entity(*goal_uuid));
+        auto restarted = serializer.clone(*edit_scene.value());
+        ASSERT_TRUE(restarted) << restarted.error();
+        ASSERT_TRUE(runtime.start(*restarted.value()));
+        EXPECT_TRUE(restarted.value()->find_entity(*goal_uuid));
+        EXPECT_FALSE(restarted.value()->get_session_value("demo.score"));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, OneShotRequiresAnAuthoredAudioSource) {
+        source("return {update = function() comet.play_one_shot() end}");
+        actor();
+        ASSERT_TRUE(runtime.start(scene));
+        const auto failed = runtime.advance(0);
+        ASSERT_FALSE(failed);
+        EXPECT_NE(failed.error().message.find("valid Audio Source"), std::string::npos);
+        EXPECT_FALSE(runtime.is_active());
     }
 
 }

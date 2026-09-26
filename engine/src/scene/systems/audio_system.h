@@ -6,6 +6,7 @@
 
 #include <map>
 #include <memory>
+#include <vector>
 
 namespace Comet {
     class AssetRegistry;
@@ -30,12 +31,14 @@ namespace Comet {
         };
 
         Result<void, Error> synchronize(Scene& scene);
+        Result<void, Error> prepare_playback();
 
         const AssetRegistry& m_assets;
         AudioPlayback::Mode m_mode;
         Scene* m_scene = nullptr;
         std::unique_ptr<AudioPlayback> m_playback;
         std::map<EntityUuid, Entry> m_entries;
+        std::vector<std::unique_ptr<AudioPlayback::Voice>> m_one_shots;
         bool m_device_unavailable = false;
     };
 }

@@ -194,6 +194,8 @@ namespace Comet {
             make_component_descriptor<AudioSourceComponent>("audio_source", "Audio Source",
                 {make_property_descriptor("clip", "Audio Clip", &AudioSourceComponent::clip,
                      {.asset_type = AssetType::Audio}),
+                    make_property_descriptor("play_on_start", "Play On Start",
+                        &AudioSourceComponent::play_on_start),
                     make_property_descriptor("loop", "Loop", &AudioSourceComponent::loop),
                     make_property_descriptor("volume", "Volume", &AudioSourceComponent::volume,
                         {.numeric = {.speed = 0.01f,

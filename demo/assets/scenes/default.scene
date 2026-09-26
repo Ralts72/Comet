@@ -51,11 +51,6 @@
           "enabled": true,
           "move_speed": 3,
           "look_sensitivity": 0.2
-        },
-        "audio_source": {
-          "clip": 8247160951280394421,
-          "loop": false,
-          "volume": 0.5
         }
       }
     },
@@ -237,6 +232,12 @@
         "mesh_renderer": {
           "mesh": 7535385251553858160,
           "material": 1749083215601001004
+        },
+        "audio_source": {
+          "clip": 8247160951280394421,
+          "play_on_start": false,
+          "loop": false,
+          "volume": 0.5
         },
         "rigid_body": {
           "motion": "static"
