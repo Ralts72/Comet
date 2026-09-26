@@ -28,6 +28,9 @@ editor:
         EXPECT_EQ(shortcuts.label(Action::SaveScene, true), "Cmd+Shift+S / F5");
         EXPECT_EQ(shortcuts.label(Action::FocusSelection, true), "Option+G");
         EXPECT_EQ(shortcuts.label(Action::Undo, false), "Ctrl+Z");
+        EXPECT_EQ(shortcuts.label(Action::CopyEntity, false), "Ctrl+C");
+        EXPECT_EQ(shortcuts.label(Action::PasteEntity, true), "Cmd+V");
+        EXPECT_EQ(shortcuts.label(Action::DeleteSelection, true), "Cmd+Backspace");
         EXPECT_TRUE(shortcuts.label(Action::Redo, false).empty());
         const auto defaults = EditorShortcuts::parse("diagnostics: {}");
         ASSERT_TRUE(defaults);
@@ -46,6 +49,9 @@ editor:
                 "editor: {shortcuts: {scene.save: [Escape]}}",
                 "editor: {shortcuts: {scene.save: [Primary+Primary+S]}}",
                 "editor: {shortcuts: {scene.save: [Primary+Z]}}",
+                "editor: {shortcuts: {scene.save: [Primary+C]}}",
+                "editor: {shortcuts: {edit.copy_entity: [Primary+V]}}",
+                "editor: {shortcuts: {edit.delete_selection: [Primary+C]}}",
                 "editor: {shortcuts: {scene.save: [F]}}",
                 "editor: {shortcuts: {scene.save: [Primary+Shift+S, Shift+Primary+S]}}",
                 "editor: {shortcuts: {scene.save: [F5], scene.save: [F6]}}"}) {

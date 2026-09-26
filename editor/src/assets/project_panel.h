@@ -45,6 +45,7 @@ namespace CometEditor {
         void complete_move(const MoveRequest& request, Comet::AssetScanReport report);
         [[nodiscard]] std::optional<DeleteRequest> take_delete_request();
         void complete_delete(const DeleteRequest& request, Comet::AssetScanReport report);
+        void request_delete_selection();
         void set_material_layouts(
             std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts);
         [[nodiscard]] std::optional<CreateMaterialRequest> take_create_material_request();

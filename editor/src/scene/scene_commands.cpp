@@ -226,6 +226,72 @@ namespace CometEditor::SceneCommands {
                 return {};
             return uuid;
         }
+
+        Comet::EntityUuid create_copy(CommandHistory& history,
+            const Comet::ComponentRegistry& registry, std::vector<EntitySnapshot> snapshots,
+            const Comet::EntityUuid parent) {
+            auto* scene = history.get_scene();
+            if(!scene || snapshots.empty() || (parent && !scene->find_entity(parent)))
+                return {};
+            std::unordered_map<Comet::EntityUuid, Comet::EntityUuid> remap;
+            std::unordered_set<Comet::EntityUuid> source_uuids;
+            std::unordered_set<Comet::EntityUuid> reserved;
+            remap.reserve(snapshots.size());
+            source_uuids.reserve(snapshots.size());
+            reserved.reserve(snapshots.size());
+            for(const auto& snapshot : snapshots)
+                source_uuids.insert(snapshot.uuid);
+            for(const auto& snapshot : snapshots) {
+                Comet::EntityUuid uuid;
+                do {
+                    uuid = Comet::EntityUuid::generate();
+                } while(scene->find_entity(uuid) || source_uuids.contains(uuid)
+                        || reserved.contains(uuid));
+                reserved.insert(uuid);
+                remap.emplace(snapshot.uuid, uuid);
+            }
+            for(auto& snapshot : snapshots) {
+                snapshot.uuid = remap.at(snapshot.uuid);
+                if(const auto found = remap.find(snapshot.parent); found != remap.end())
+                    snapshot.parent = found->second;
+            }
+            auto& root = snapshots.front();
+            root.parent = parent;
+            if(root.name.empty())
+                root.name = "Entity";
+            root.name += " Copy";
+            const auto uuid = root.uuid;
+            if(!history.execute(
+                   std::make_unique<EntityTreeCommand>(registry, std::move(snapshots), true)))
+                return {};
+            return uuid;
+        }
+    }
+
+    struct EntityClipboard::Data {
+        std::vector<EntitySnapshot> snapshots;
+    };
+
+    EntityClipboard::EntityClipboard() = default;
+    EntityClipboard::~EntityClipboard() = default;
+
+    bool EntityClipboard::copy(Comet::Scene& scene, const Comet::ComponentRegistry& registry,
+        const Comet::EntityUuid entity) {
+        auto snapshots = capture_tree(scene, registry, scene.find_entity(entity));
+        if(!snapshots)
+            return false;
+        m_data = std::make_unique<Data>(Data{std::move(*snapshots)});
+        return true;
+    }
+
+    Comet::EntityUuid EntityClipboard::paste(CommandHistory& history,
+        const Comet::ComponentRegistry& registry, const Comet::EntityUuid parent) const {
+        return m_data ? create_copy(history, registry, m_data->snapshots, parent)
+                      : Comet::EntityUuid{};
+    }
+
+    bool EntityClipboard::has_content() const noexcept {
+        return m_data != nullptr;
     }
 
     Comet::EntityUuid create_entity(CommandHistory& history,
@@ -264,32 +330,8 @@ namespace CometEditor::SceneCommands {
         auto snapshots = capture_tree(*scene, registry, scene->find_entity(entity));
         if(!snapshots)
             return {};
-        std::unordered_map<Comet::EntityUuid, Comet::EntityUuid> remap;
-        std::unordered_set<Comet::EntityUuid> reserved;
-        remap.reserve(snapshots->size());
-        reserved.reserve(snapshots->size());
-        for(const auto& snapshot : *snapshots) {
-            Comet::EntityUuid uuid;
-            do {
-                uuid = Comet::EntityUuid::generate();
-            } while(scene->find_entity(uuid) || reserved.contains(uuid));
-            reserved.insert(uuid);
-            remap.emplace(snapshot.uuid, uuid);
-        }
-        for(auto& snapshot : *snapshots) {
-            snapshot.uuid = remap.at(snapshot.uuid);
-            if(const auto parent = remap.find(snapshot.parent); parent != remap.end())
-                snapshot.parent = parent->second;
-        }
-        auto& root = snapshots->front();
-        if(root.name.empty())
-            root.name = "Entity";
-        root.name += " Copy";
-        const auto uuid = root.uuid;
-        if(!history.execute(
-               std::make_unique<EntityTreeCommand>(registry, std::move(*snapshots), true)))
-            return {};
-        return uuid;
+        const auto parent = snapshots->front().parent;
+        return create_copy(history, registry, std::move(*snapshots), parent);
     }
 
     bool reparent_entity(

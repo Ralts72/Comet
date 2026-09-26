@@ -508,6 +508,11 @@ namespace CometEditor {
         m_operation_error.clear();
     }
 
+    void ProjectPanel::request_delete_selection() {
+        if(const auto* record = m_database.find(m_selection.get_selected_asset()))
+            request_delete(*record);
+    }
+
     void ProjectPanel::render_delete_dialog() {
         constexpr const char* title = "Delete Asset";
         if(std::exchange(m_delete_requested, false))

@@ -61,8 +61,7 @@ namespace CometEditor::Tests {
                 [this](const std::filesystem::path& entry) -> Comet::Result<void> {
                     ++trash_requests;
                     trash_sources.push_back(entry);
-                    if(reject_trash
-                        || (reject_metadata_trash && entry.extension() == ".meta"))
+                    if(reject_trash || (reject_metadata_trash && entry.extension() == ".meta"))
                         return Comet::Result<void>::failure("System trash is unavailable");
                     const auto destination = root / "fake-system-trash" / entry.filename();
                     std::error_code error;
@@ -161,6 +160,41 @@ namespace CometEditor::Tests {
         EXPECT_EQ(scene.entity_count(), 1);
         Comet::Scene other;
         EXPECT_FALSE(editor.execute(&other, request));
+    }
+
+    TEST_F(EditorAssetsTest, SceneEditorCopiesIntoTheActiveDocumentOnly) {
+        Comet::Scene source;
+        auto original = source.create_entity("Original");
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&source);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(source);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+
+        using Type = SceneEditor::StructureRequest::Type;
+        const SceneEditor::StructureRequest copy{
+            Type::Copy, original.get_uuid(), {}, history.generation()};
+        ASSERT_TRUE(editor.execute(&source, copy));
+        EXPECT_TRUE(editor.clipboard().has_content());
+        EXPECT_EQ(history.undo_size(), 0);
+
+        Comet::Scene destination;
+        history.bind_scene(&destination);
+        selection.set_scene(destination);
+        const SceneEditor::StructureRequest paste{Type::Paste, {}, {}, history.generation()};
+        EXPECT_FALSE(editor.execute(&source, paste));
+        ASSERT_TRUE(editor.execute(&destination, paste));
+        EXPECT_EQ(destination.entity_count(), 1);
+        EXPECT_EQ(history.undo_size(), 1);
+        EXPECT_EQ(destination.find_entity(selection.get_selected_entity_id())
+                      .get_component<Comet::NameComponent>()
+                      .name,
+            "Original Copy");
+        state.mode = EditorMode::Play;
+        EXPECT_FALSE(editor.execute(&destination, paste));
+        EXPECT_EQ(destination.entity_count(), 1);
     }
 
     TEST_F(EditorAssetsTest, EntityRenameUsesPropertyHistoryAndRejectsStaleRequests) {
@@ -452,8 +486,7 @@ namespace CometEditor::Tests {
         const auto trash = root / "fake-system-trash";
         ASSERT_TRUE(std::filesystem::exists(trash / "remove_me.lua"));
         ASSERT_TRUE(std::filesystem::exists(trash / "remove_me.lua.meta"));
-        const auto metadata =
-            Comet::MetadataSerializer{}.load(trash / "remove_me.lua.meta");
+        const auto metadata = Comet::MetadataSerializer{}.load(trash / "remove_me.lua.meta");
         ASSERT_TRUE(metadata);
         EXPECT_EQ(metadata.value().handle, handle);
         EXPECT_FALSE(std::filesystem::exists(paths.local_data() / "trash"));

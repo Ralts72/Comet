@@ -9,8 +9,9 @@
 
 namespace CometEditor {
     namespace {
-        constexpr std::array<std::string_view, 6> ACTION_NAMES{"scene.new", "scene.open",
-            "scene.save", "edit.undo", "edit.redo", "viewport.focus_selection"};
+        constexpr std::array<std::string_view, 9> ACTION_NAMES{"scene.new", "scene.open",
+            "scene.save", "edit.undo", "edit.redo", "edit.copy_entity", "edit.paste_entity",
+            "edit.delete_selection", "viewport.focus_selection"};
 
         ImGuiKey parse_key(const std::string_view name) {
             if(name.size() == 1 && name[0] >= 'A' && name[0] <= 'Z')
@@ -66,10 +67,11 @@ namespace CometEditor {
     }
 
     EditorShortcuts::EditorShortcuts() {
-        const std::array<Binding, 6> defaults{
-            {{ImGuiMod_Ctrl | ImGuiKey_N, "N"}, {ImGuiMod_Ctrl | ImGuiKey_O, "O"},
-                {ImGuiMod_Ctrl | ImGuiKey_S, "S"}, {ImGuiMod_Ctrl | ImGuiKey_Z, "Z"},
-                {ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, "Z"}, {ImGuiKey_F, "F"}}};
+        const std::array<Binding, 9> defaults{{{ImGuiMod_Ctrl | ImGuiKey_N, "N"},
+            {ImGuiMod_Ctrl | ImGuiKey_O, "O"}, {ImGuiMod_Ctrl | ImGuiKey_S, "S"},
+            {ImGuiMod_Ctrl | ImGuiKey_Z, "Z"}, {ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, "Z"},
+            {ImGuiMod_Ctrl | ImGuiKey_C, "C"}, {ImGuiMod_Ctrl | ImGuiKey_V, "V"},
+            {ImGuiMod_Ctrl | ImGuiKey_Backspace, "Backspace"}, {ImGuiKey_F, "F"}}};
         for(std::size_t index = 0; index < defaults.size(); ++index)
             m_bindings[index].push_back(defaults[index]);
         m_bindings[static_cast<std::size_t>(Action::Redo)].push_back(

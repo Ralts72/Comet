@@ -41,6 +41,7 @@
 "Create Child": "创建子实体"
 "Create Entity": "创建实体"
 "Duplicate": "复制"
+"Paste": "粘贴"
 "Delete": "删除"
 "Delete Asset": "删除资产"
 "Move assets/%s and its metadata to system trash?": "将 assets/%s 及其元数据移到系统回收站？"

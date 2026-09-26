@@ -12,7 +12,17 @@
 namespace CometEditor {
     class EditorShortcuts {
     public:
-        enum class Action { NewScene, OpenScene, SaveScene, Undo, Redo, FocusSelection };
+        enum class Action {
+            NewScene,
+            OpenScene,
+            SaveScene,
+            Undo,
+            Redo,
+            CopyEntity,
+            PasteEntity,
+            DeleteSelection,
+            FocusSelection
+        };
 
         EditorShortcuts();
         [[nodiscard]] static Comet::Result<EditorShortcuts> load(const std::filesystem::path& path);
@@ -29,6 +39,6 @@ namespace CometEditor {
         };
 
         [[nodiscard]] static Comet::Result<Binding> parse_binding(std::string_view text);
-        std::array<std::vector<Binding>, 6> m_bindings;
+        std::array<std::vector<Binding>, 9> m_bindings;
     };
 }

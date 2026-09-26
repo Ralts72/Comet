@@ -68,6 +68,15 @@ namespace CometEditor {
                 return true;
             case Type::Reparent:
                 return SceneCommands::reparent_entity(m_history, request.entity, request.parent);
+            case Type::Copy:
+                return m_clipboard.copy(*scene, m_components, request.entity);
+            case Type::Paste: {
+                const auto uuid = m_clipboard.paste(m_history, m_components, request.parent);
+                if(!uuid)
+                    return false;
+                m_selection.select_entity(scene->find_entity(uuid).get_id());
+                return true;
+            }
         }
         return false;
     }

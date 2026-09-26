@@ -162,6 +162,55 @@ namespace CometEditor::Tests {
             6);
     }
 
+    TEST_F(SceneCommandsTest, ClipboardPastesSubtreeAcrossScenesWithIndependentUndo) {
+        auto child = scene.create_entity("Child");
+        ASSERT_TRUE(scene.set_parent(child, entity));
+        child.add_component<Comet::MeshRendererComponent>(
+            Comet::AssetHandle(8), Comet::AssetHandle(9));
+        child.set_transform({.translation = {2, 3, 4}});
+        SceneCommands::EntityClipboard clipboard;
+        ASSERT_TRUE(clipboard.copy(scene, registry, entity.get_uuid()));
+        ASSERT_TRUE(clipboard.has_content());
+
+        Comet::Scene other_scene;
+        history.bind_scene(&other_scene);
+        const auto first_uuid = clipboard.paste(history, registry);
+        ASSERT_TRUE(first_uuid);
+        auto first = other_scene.find_entity(first_uuid);
+        EXPECT_FALSE(other_scene.get_parent(first));
+        auto children = other_scene.get_children(first);
+        ASSERT_EQ(children.size(), 1);
+        EXPECT_NE(children.front().get_uuid(), child.get_uuid());
+        EXPECT_EQ(children.front().get_component<Comet::MeshRendererComponent>().mesh,
+            Comet::AssetHandle(8));
+        EXPECT_EQ(children.front().get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(2, 3, 4));
+
+        scene.destroy_entity(entity);
+        const auto second_uuid = clipboard.paste(history, registry, first_uuid);
+        ASSERT_TRUE(second_uuid);
+        EXPECT_NE(second_uuid, first_uuid);
+        EXPECT_EQ(other_scene.get_parent(other_scene.find_entity(second_uuid)), first);
+        EXPECT_EQ(history.undo_size(), 2);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(other_scene.find_entity(second_uuid));
+        ASSERT_TRUE(history.redo());
+        EXPECT_TRUE(other_scene.find_entity(second_uuid));
+    }
+
+    TEST_F(SceneCommandsTest, InvalidCopyAndPasteKeepExistingClipboardAndHistory) {
+        SceneCommands::EntityClipboard clipboard;
+        EXPECT_FALSE(clipboard.paste(history, registry));
+        ASSERT_TRUE(clipboard.copy(scene, registry, entity.get_uuid()));
+        EXPECT_FALSE(clipboard.copy(scene, registry, Comet::EntityUuid::generate()));
+        ASSERT_TRUE(clipboard.has_content());
+        const auto missing_parent = Comet::EntityUuid::generate();
+        EXPECT_FALSE(clipboard.paste(history, registry, missing_parent));
+        EXPECT_EQ(history.undo_size(), 0);
+        EXPECT_EQ(scene.entity_count(), 1);
+        EXPECT_TRUE(clipboard.paste(history, registry));
+    }
+
     TEST_F(SceneCommandsTest, DuplicateKeepsEmptyNamesMissingTransformAndCameraValues) {
         entity.get_component<Comet::NameComponent>().name.clear();
         entity.remove_component<Comet::TransformComponent>();

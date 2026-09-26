@@ -1,6 +1,7 @@
 #include "scene/hierarchy.h"
 #include "scene/selection.h"
 #include "scene/command_history.h"
+#include "scene/scene_commands.h"
 #include "editor_state.h"
 
 #include <cstdint>
@@ -18,9 +19,10 @@ namespace CometEditor {
         };
     }
 
-    HierarchyPanel::HierarchyPanel(
-        SelectionService& selection, const CommandHistory& history, const EditorState& state)
-        : EditorPanel("Hierarchy"), m_selection(selection), m_history(history), m_state(state) {}
+    HierarchyPanel::HierarchyPanel(SelectionService& selection, const CommandHistory& history,
+        const EditorState& state, const SceneCommands::EntityClipboard& clipboard)
+        : EditorPanel("Hierarchy"), m_selection(selection), m_history(history), m_state(state),
+          m_clipboard(clipboard) {}
 
     bool HierarchyPanel::can_edit_scene() const {
         return m_state.mode == EditorMode::Edit
@@ -116,6 +118,11 @@ namespace CometEditor {
         if(ImGui::MenuItem(Ui::label(entity ? "Create Child" : "Create Entity").c_str())) {
             const auto parent = entity ? entity.get_uuid() : Comet::EntityUuid{};
             m_request = Request{Request::Type::Create, {}, parent, m_history.generation()};
+            m_expand_entity = parent;
+        }
+        if(ImGui::MenuItem(Ui::label("Paste").c_str(), nullptr, false, m_clipboard.has_content())) {
+            const auto parent = entity ? entity.get_uuid() : Comet::EntityUuid{};
+            m_request = Request{Request::Type::Paste, {}, parent, m_history.generation()};
             m_expand_entity = parent;
         }
         if(entity) {

@@ -16,6 +16,9 @@ namespace CometEditor {
     class SelectionService;
     class CommandHistory;
     struct EditorState;
+    namespace SceneCommands {
+        class EntityClipboard;
+    }
 
     class HierarchyPanel: public EditorPanel {
     public:
@@ -26,8 +29,8 @@ namespace CometEditor {
             std::uint64_t generation;
         };
 
-        HierarchyPanel(
-            SelectionService& selection, const CommandHistory& history, const EditorState& state);
+        HierarchyPanel(SelectionService& selection, const CommandHistory& history,
+            const EditorState& state, const SceneCommands::EntityClipboard& clipboard);
 
         void render() override;
 
@@ -46,6 +49,7 @@ namespace CometEditor {
         SelectionService& m_selection;
         const CommandHistory& m_history;
         const EditorState& m_state;
+        const SceneCommands::EntityClipboard& m_clipboard;
         std::optional<Request> m_request;
         std::optional<RenameRequest> m_rename_request;
         Comet::EntityUuid m_renaming_entity;

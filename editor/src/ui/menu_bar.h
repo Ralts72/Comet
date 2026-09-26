@@ -14,7 +14,16 @@ namespace CometEditor {
 
     class MenuBar {
     public:
-        enum class Command { NewScene, OpenScene, SaveScene, Undo, Redo };
+        enum class Command {
+            NewScene,
+            OpenScene,
+            SaveScene,
+            Undo,
+            Redo,
+            CopyEntity,
+            PasteEntity,
+            DeleteSelection
+        };
 
         MenuBar(const EditorState& state, const CommandHistory& history,
             const EditorShortcuts& shortcuts);

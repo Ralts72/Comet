@@ -11,4 +11,7 @@ editor:
     scene.save: ["Primary+S"]
     edit.undo: ["Primary+Z"]
     edit.redo: ["Primary+Shift+Z", "Primary+Y"]
+    edit.copy_entity: ["Primary+C"]
+    edit.paste_entity: ["Primary+V"]
+    edit.delete_selection: ["Primary+Backspace"]
     viewport.focus_selection: ["F"]

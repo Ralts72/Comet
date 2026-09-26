@@ -2,7 +2,27 @@
 
 #include "scene/command_history.h"
 
+#include <memory>
+
 namespace CometEditor::SceneCommands {
+    class EntityClipboard {
+    public:
+        EntityClipboard();
+        ~EntityClipboard();
+        EntityClipboard(const EntityClipboard&) = delete;
+        EntityClipboard& operator=(const EntityClipboard&) = delete;
+
+        [[nodiscard]] bool copy(Comet::Scene& scene, const Comet::ComponentRegistry& registry,
+            Comet::EntityUuid entity);
+        [[nodiscard]] Comet::EntityUuid paste(CommandHistory& history,
+            const Comet::ComponentRegistry& registry, Comet::EntityUuid parent = {}) const;
+        [[nodiscard]] bool has_content() const noexcept;
+
+    private:
+        struct Data;
+        std::unique_ptr<Data> m_data;
+    };
+
     [[nodiscard]] Comet::EntityUuid create_entity(CommandHistory& history,
         const Comet::ComponentRegistry& registry, std::string name = "Entity",
         Comet::EntityUuid parent = {});

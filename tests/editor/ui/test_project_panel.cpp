@@ -277,8 +277,11 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(project->take_delete_request());
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "a.png"));
 
-        open_delete();
+        project->request_delete_selection();
+        frame();
         dialog = ImGui::FindWindowByName("Delete Asset");
+        ASSERT_NE(dialog, nullptr);
+        ASSERT_TRUE(dialog->Active);
         ImGui::ActivateItemByID(dialog->GetID("Move to Trash"));
         frame();
         const auto request = project->take_delete_request();

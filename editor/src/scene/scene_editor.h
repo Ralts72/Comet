@@ -2,6 +2,7 @@
 
 #include "editor_state.h"
 #include "scene/command_history.h"
+#include "scene/scene_commands.h"
 #include "asset/metadata.h"
 #include "common/error.h"
 
@@ -15,7 +16,7 @@ namespace CometEditor {
     class SceneEditor {
     public:
         struct StructureRequest {
-            enum class Type { Create, Delete, Reparent, Duplicate };
+            enum class Type { Create, Delete, Reparent, Duplicate, Copy, Paste };
             Type type;
             Comet::EntityUuid entity;
             Comet::EntityUuid parent;
@@ -33,6 +34,9 @@ namespace CometEditor {
             SelectionService& selection, EditorAssets& assets);
 
         [[nodiscard]] bool can_edit(const Comet::Scene* scene, std::uint64_t generation) const;
+        [[nodiscard]] const SceneCommands::EntityClipboard& clipboard() const noexcept {
+            return m_clipboard;
+        }
         [[nodiscard]] bool execute(Comet::Scene* scene, const StructureRequest& request);
         [[nodiscard]] bool rename_entity(Comet::Scene* scene, Comet::EntityUuid entity,
             const std::string& name, std::uint64_t generation);
@@ -50,5 +54,6 @@ namespace CometEditor {
         const Comet::ComponentRegistry& m_components;
         SelectionService& m_selection;
         EditorAssets& m_assets;
+        SceneCommands::EntityClipboard m_clipboard;
     };
 }

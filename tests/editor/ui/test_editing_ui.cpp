@@ -245,7 +245,8 @@ namespace CometEditor::Tests {
         CommandHistory history;
         SelectionService selection{scene};
         EditorState state;
-        HierarchyPanel hierarchy{selection, history, state};
+        SceneCommands::EntityClipboard clipboard;
+        HierarchyPanel hierarchy{selection, history, state, clipboard};
 
         void SetUp() override {
             history.bind_scene(&scene);
@@ -432,6 +433,45 @@ namespace CometEditor::Tests {
         draw();
         EXPECT_FALSE(hierarchy.take_request());
         EXPECT_EQ(scene.entity_count(), 1);
+    }
+
+    TEST_F(HierarchyUiTest, PasteContextMenuTargetsTheCurrentScene) {
+        auto* window = ImGui::FindWindowByName("Hierarchy");
+        ASSERT_NE(window, nullptr);
+        ASSERT_TRUE(clipboard.copy(scene, components, entity.get_uuid()));
+        const auto choose = [&](const ImVec2 point, const char* action) {
+            if(!ImGui::GetCurrentContext()->OpenPopupStack.empty())
+                ImGui::ClosePopupToLevel(0, true);
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(point.x, point.y);
+            draw();
+            io.AddMouseButtonEvent(1, true);
+            draw();
+            io.AddMouseButtonEvent(1, false);
+            draw();
+            draw();
+            auto& context = *ImGui::GetCurrentContext();
+            ASSERT_EQ(context.OpenPopupStack.Size, 1);
+            auto* popup = context.OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID(action));
+            draw();
+        };
+
+        Comet::Scene next_scene;
+        selection.set_scene(next_scene);
+        history.bind_scene(&next_scene);
+        hierarchy.reset_for_scene_change();
+        draw();
+        window = ImGui::FindWindowByName("Hierarchy");
+        const ImVec2 root_point(window->WorkRect.Min.x + 70,
+            window->WorkRect.Min.y + ImGui::GetTextLineHeight() * 0.5f);
+        choose(root_point, "Paste");
+        auto request = hierarchy.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->type, HierarchyPanel::Request::Type::Paste);
+        EXPECT_FALSE(request->parent);
+        EXPECT_EQ(request->generation, history.generation());
     }
 
     TEST_F(HierarchyUiTest, RenameIsRequestedFromContextMenuOnlyAfterConfirmation) {
@@ -783,6 +823,69 @@ namespace CometEditor::Tests {
             io.AddKeyEvent(ImGuiKey_Z, false);
             frame();
         }
+    }
+
+    TEST_F(EditingUiTest, EntityCopyPasteShortcutsRespectPlatformAndTextInput) {
+        auto& io = ImGui::GetIO();
+        for(const bool mac : {false, true}) {
+            io.ConfigMacOSXBehaviors = mac;
+            frame();
+            frame();
+            const auto modifier = mac ? ImGuiMod_Super : ImGuiMod_Ctrl;
+            io.AddKeyEvent(modifier, true);
+            io.AddKeyEvent(ImGuiKey_C, true);
+            frame();
+            EXPECT_EQ(menu.take_command(), MenuBar::Command::CopyEntity);
+            EXPECT_FALSE(menu.take_command());
+            io.AddKeyEvent(ImGuiKey_C, false);
+            frame();
+            io.AddKeyEvent(ImGuiKey_V, true);
+            frame();
+            EXPECT_EQ(menu.take_command(), MenuBar::Command::PasteEntity);
+            io.AddKeyEvent(ImGuiKey_V, false);
+            io.AddKeyEvent(modifier, false);
+            frame();
+        }
+
+        io.ConfigMacOSXBehaviors = false;
+        focus_text_input();
+        io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        io.AddKeyEvent(ImGuiKey_C, true);
+        frame();
+        EXPECT_FALSE(menu.take_command());
+        io.AddKeyEvent(ImGuiKey_C, false);
+        io.AddKeyEvent(ImGuiKey_V, true);
+        frame();
+        EXPECT_FALSE(menu.take_command());
+        io.AddKeyEvent(ImGuiKey_V, false);
+        io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    }
+
+    TEST_F(EditingUiTest, EntityDeleteShortcutRespectsPlatformAndTextInput) {
+        auto& io = ImGui::GetIO();
+        for(const bool mac : {false, true}) {
+            io.ConfigMacOSXBehaviors = mac;
+            frame();
+            frame();
+            const auto modifier = mac ? ImGuiMod_Super : ImGuiMod_Ctrl;
+            io.AddKeyEvent(modifier, true);
+            io.AddKeyEvent(ImGuiKey_Backspace, true);
+            frame();
+            EXPECT_EQ(menu.take_command(), MenuBar::Command::DeleteSelection);
+            EXPECT_FALSE(menu.take_command());
+            io.AddKeyEvent(ImGuiKey_Backspace, false);
+            io.AddKeyEvent(modifier, false);
+            frame();
+        }
+
+        io.ConfigMacOSXBehaviors = true;
+        focus_text_input();
+        io.AddKeyEvent(ImGuiMod_Super, true);
+        io.AddKeyEvent(ImGuiKey_Backspace, true);
+        frame();
+        EXPECT_FALSE(menu.take_command());
+        io.AddKeyEvent(ImGuiKey_Backspace, false);
+        io.AddKeyEvent(ImGuiMod_Super, false);
     }
 }
 #endif

@@ -78,7 +78,9 @@ namespace CometEditor {
         using Action = EditorShortcuts::Action;
         constexpr std::pair<Action, Command> commands[]{{Action::NewScene, Command::NewScene},
             {Action::OpenScene, Command::OpenScene}, {Action::SaveScene, Command::SaveScene},
-            {Action::Undo, Command::Undo}, {Action::Redo, Command::Redo}};
+            {Action::Undo, Command::Undo}, {Action::Redo, Command::Redo},
+            {Action::CopyEntity, Command::CopyEntity}, {Action::PasteEntity, Command::PasteEntity},
+            {Action::DeleteSelection, Command::DeleteSelection}};
         for(const auto& [action, command] : commands) {
             const bool pressed = m_shortcuts.pressed(action, ImGuiInputFlags_RouteGlobal);
             if(!pressed || m_requested_command)

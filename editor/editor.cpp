@@ -395,6 +395,36 @@ namespace {
                     if(!m_scene_editor->redo(get_engine().get_scene()))
                         LOG_WARN("Cannot redo scene edit");
                     break;
+                case CometEditor::MenuBar::Command::CopyEntity:
+                    if(const auto entity = m_selection->get_selected_entity(); entity) {
+                        const CometEditor::SceneEditor::StructureRequest request{
+                            CometEditor::SceneEditor::StructureRequest::Type::Copy,
+                            entity.get_uuid(), {}, m_command_history.generation()};
+                        if(!m_scene_editor->execute(get_engine().get_scene(), request))
+                            LOG_WARN("Cannot copy selected entity");
+                    }
+                    break;
+                case CometEditor::MenuBar::Command::PasteEntity:
+                    if(m_scene_editor->clipboard().has_content()
+                        && !m_selection->get_selected_asset()) {
+                        const CometEditor::SceneEditor::StructureRequest request{
+                            CometEditor::SceneEditor::StructureRequest::Type::Paste, {}, {},
+                            m_command_history.generation()};
+                        if(!m_scene_editor->execute(get_engine().get_scene(), request))
+                            LOG_WARN("Cannot paste entity into scene");
+                    }
+                    break;
+                case CometEditor::MenuBar::Command::DeleteSelection:
+                    if(m_selection->get_selected_asset()) {
+                        m_project_panel->request_delete_selection();
+                    } else if(const auto entity = m_selection->get_selected_entity(); entity) {
+                        const CometEditor::SceneEditor::StructureRequest request{
+                            CometEditor::SceneEditor::StructureRequest::Type::Delete,
+                            entity.get_uuid(), {}, m_command_history.generation()};
+                        if(!m_scene_editor->execute(get_engine().get_scene(), request))
+                            LOG_WARN("Cannot delete selected entity");
+                    }
+                    break;
                 case CometEditor::MenuBar::Command::NewScene:
                     m_scene_document->request({CometEditor::SceneDocument::Action::New, {}});
                     break;
@@ -486,7 +516,7 @@ namespace {
                 m_editor_state, m_command_history, m_shortcuts);
 
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
-                *m_selection, m_command_history, m_editor_state);
+                *m_selection, m_command_history, m_editor_state, m_scene_editor->clipboard());
             m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
                 get_engine().get_scene_runtime(), *m_selection, m_command_history,
                 m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),
