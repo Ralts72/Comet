@@ -33,6 +33,8 @@ namespace CometEditor {
             PropertyEditTransaction& edit, const Comet::ComponentRegistry& components,
             SelectionService& selection, EditorAssets& assets);
 
+        // 场景已安装且旧交互已结束；Play 保留 Edit 历史，恢复同一 Edit 场景不重置历史。
+        void bind_scene(Comet::Scene& scene, EditorMode mode);
         [[nodiscard]] bool can_edit(const Comet::Scene* scene, std::uint64_t generation) const;
         [[nodiscard]] const SceneCommands::EntityClipboard& clipboard() const noexcept {
             return m_clipboard;

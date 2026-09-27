@@ -44,6 +44,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_project_session.cpp
         editor/core/test_project_creation.cpp
         editor/core/test_scene_commands.cpp
+        editor/core/test_scene_activation.cpp
         editor/core/test_scene_document.cpp
         editor/core/test_selection.cpp
         editor/core/test_shader_reload.cpp

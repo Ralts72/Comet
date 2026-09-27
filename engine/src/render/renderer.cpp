@@ -30,19 +30,13 @@ namespace Comet {
         auto programs = std::make_unique<MaterialPrograms>(asset_registry);
         auto& swapchain = context.value()->get_swapchain();
         frames->initialize_swapchain_images(static_cast<uint32_t>(swapchain.get_images().size()));
-        auto scene =
-            std::make_unique<SceneRenderer>(device, *programs, config.vulkan, config.render);
-        auto configured = Result<void, GraphicsError>::success();
-        if(config.render.scene_output == Config::Render::SceneOutput::Offscreen)
-            configured = scene->configure_offscreen(
-                *resources, {swapchain.get_width(), swapchain.get_height()});
-        else
-            configured = scene->configure_presentation(*resources, swapchain);
-        if(!configured)
-            return Creation::failure(configured.error());
+        auto scene = SceneRenderer::create(
+            device, *programs, *resources, config.vulkan, config.render, swapchain);
+        if(!scene)
+            return Creation::failure(scene.error());
         auto renderer =
             std::unique_ptr<Renderer>(new Renderer(std::move(context).value(), std::move(resources),
-                std::move(frames), std::move(programs), std::move(scene), asset_registry));
+                std::move(frames), std::move(programs), std::move(scene).value(), asset_registry));
         if(auto enabled =
                 renderer->m_diagnostics->set_enabled(config.diagnostics.enable_render_diagnostics);
             !enabled)

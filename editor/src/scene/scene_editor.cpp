@@ -38,6 +38,13 @@ namespace CometEditor {
         : m_state(state), m_history(history), m_edit(edit), m_components(components),
           m_selection(selection), m_assets(assets) {}
 
+    void SceneEditor::bind_scene(Comet::Scene& scene, const EditorMode mode) {
+        if(mode == EditorMode::Edit && m_history.get_scene() != &scene)
+            m_history.bind_scene(&scene);
+        m_selection.set_scene(scene);
+        m_assets.track_scene(scene, m_components);
+    }
+
     bool SceneEditor::can_edit(const Comet::Scene* scene, std::uint64_t generation) const {
         return scene && m_state.mode == EditorMode::Edit && m_history.get_scene() == scene
                && m_history.generation() == generation;

@@ -48,6 +48,31 @@ namespace Comet {
         bool offscreen = false;
     };
 
+    Result<std::unique_ptr<SceneRenderer>, GraphicsError> SceneRenderer::create(Device& device,
+        MaterialPrograms& programs, RenderResources& resources, const Config::Vulkan& vulkan,
+        const Config::Render& render, Math::Vec2u size) {
+        using Creation = Result<std::unique_ptr<SceneRenderer>, GraphicsError>;
+        auto scene =
+            std::unique_ptr<SceneRenderer>(new SceneRenderer(device, programs, vulkan, render));
+        if(auto configured = scene->configure_offscreen(resources, size); !configured)
+            return Creation::failure(configured.error());
+        return Creation::success(std::move(scene));
+    }
+
+    Result<std::unique_ptr<SceneRenderer>, GraphicsError> SceneRenderer::create(Device& device,
+        MaterialPrograms& programs, RenderResources& resources, const Config::Vulkan& vulkan,
+        const Config::Render& render, Swapchain& swapchain) {
+        if(render.scene_output == Config::Render::SceneOutput::Offscreen)
+            return create(device, programs, resources, vulkan, render,
+                Math::Vec2u{swapchain.get_width(), swapchain.get_height()});
+        using Creation = Result<std::unique_ptr<SceneRenderer>, GraphicsError>;
+        auto scene =
+            std::unique_ptr<SceneRenderer>(new SceneRenderer(device, programs, vulkan, render));
+        if(auto configured = scene->configure_presentation(resources, swapchain); !configured)
+            return Creation::failure(configured.error());
+        return Creation::success(std::move(scene));
+    }
+
     SceneRenderer::SceneRenderer(Device& device, MaterialPrograms& programs,
         const Config::Vulkan& vulkan, const Config::Render& render)
         : m_device(device), m_programs(programs), m_offscreen_format(vulkan.surface_format),
@@ -57,6 +82,8 @@ namespace Comet {
     Result<std::shared_ptr<SceneRenderer::RenderState>, GraphicsError> SceneRenderer::create_state(
         RenderResources& resources, Swapchain* swapchain, Math::Vec2u size) {
         using Creation = Result<std::shared_ptr<RenderState>, GraphicsError>;
+        if(m_frame_slot_count == 0)
+            return Creation::failure({"Scene renderer requires at least one frame slot"});
         if(auto valid = m_post_process.validate(); !valid)
             return Creation::failure({valid.error()});
         if(!swapchain && (size.x == 0 || size.y == 0))

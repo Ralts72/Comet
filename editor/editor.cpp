@@ -192,6 +192,7 @@ namespace {
             m_selection.emplace(scene);
             m_scene_editor = std::make_unique<CometEditor::SceneEditor>(m_editor_state,
                 m_command_history, m_property_edit, m_component_registry, *m_selection, *m_assets);
+            m_scene_editor->bind_scene(scene, CometEditor::EditorMode::Edit);
             if(auto panels = setup_panels(std::move(initial_asset_scan)); !panels)
                 return panels;
             refresh_available_scenes();
@@ -199,12 +200,15 @@ namespace {
             m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
             m_project_panel->set_material_layouts(std::move(material_layouts));
 
-            renderer.set_overlay({
-                .render = [this](Comet::CommandBuffer& command_buffer) {
-                    m_imgui_context->render(command_buffer);},
+            renderer.set_overlay({.render =
+                                      [this](Comet::CommandBuffer& command_buffer) {
+                                          m_imgui_context->render(command_buffer);
+                                      },
                 .release = [this] { m_imgui_context->release_swapchain_resources(); },
-                .rebuild = [this](const Comet::SwapchainCompatibility& compatibility) {
-                    return m_imgui_context->rebuild_swapchain_resources(compatibility); }});
+                .rebuild =
+                    [this](const Comet::SwapchainCompatibility& compatibility) {
+                        return m_imgui_context->rebuild_swapchain_resources(compatibility);
+                    }});
 
             renderer.set_viewport_pick_callback(
                 [this](const std::optional<Comet::ScenePickHit> hit) {
@@ -627,13 +631,12 @@ namespace {
                 m_viewport->panel().cancel_interaction();
             auto previous = get_engine().replace_scene(std::move(scene));
             auto* active = get_engine().get_scene();
-            if(mode == CometEditor::EditorMode::Edit && m_command_history.get_scene() != active)
+            if(m_scene_editor)
+                m_scene_editor->bind_scene(*active, mode);
+            else
                 m_command_history.bind_scene(active);
-            if(m_selection) {
-                m_selection->set_scene(*active);
+            if(m_hierarchy_panel)
                 m_hierarchy_panel->reset_for_scene_change();
-            }
-            m_assets->track_scene(*active, m_component_registry);
             m_reference_history_state = m_command_history.state_id();
             return previous;
         }

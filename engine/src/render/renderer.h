@@ -88,7 +88,7 @@ namespace Comet {
         [[nodiscard]] const RenderResources& get_render_resources() const {
             return *m_render_resources;
         }
-        [[nodiscard]] SceneRenderer& get_scene_renderer() { return *m_scene_renderer; }
+        // 仅供诊断读取；生产状态修改经 Renderer 的帧与资源准备接口进入。
         [[nodiscard]] const SceneRenderer& get_scene_renderer() const { return *m_scene_renderer; }
         [[nodiscard]] RenderContext& get_render_context() { return *m_render_context; }
         [[nodiscard]] const RenderContext& get_render_context() const { return *m_render_context; }

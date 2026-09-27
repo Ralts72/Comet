@@ -8,14 +8,18 @@
 | --- | --- | --- |
 | `common/`、`input/` | 通用值、输入采样及映射 | 不引入 Render、Graphics 或窗口后端头；窗口事件的接线在 `core/window` |
 | `scene/`、`scripting/`、`audio/` | 通用值、输入、资产身份／只读缓存；脚本实现可依赖 Lua，物理实现可依赖 Jolt，音频实现可依赖 miniaudio | Scene 组件和序列化不含 GPU／音频设备对象；System 不直接调用渲染后端 |
-| `asset/` | Scene 所用稳定 Handle、CPU 数据、索引、导入器与后台任务 | 编辑器源文件事务在 `editor/assets/`；`asset/data/texture_data.h` 暂复用不含 Vulkan 头的 `graphics/enums.h`，拆分前不假装完全独立 |
+| `asset/` 的数据、索引、导入与序列化 | 稳定 Handle、CPU 数据、文件与后台任务 | 不依赖 Render／图形后端；`asset/data/texture_data.h` 暂复用不含 Vulkan 头的 `graphics/enums.h` |
+| `asset/asset_manager` | 上述 CPU 能力、AssetRegistry，以及 RenderResourceFactory／Runtime Asset | 运行时加载与发布桥接；Render 依赖限定在两个实现文件，源文件编辑事务属于 `editor/assets/` |
 | `render/` | Scene 提取结果、资产缓存、Graphics | Renderer 编排帧与离屏输出；SceneRenderer 拥有目标，不知道 ImGui |
 | `graphics/` | Vulkan、平台窗口及通用能力 | 图形后端不依赖 Editor；`core/engine.cpp` 是宿主组合点，可使用 Graphics/Render |
 | `editor/`、`app/` | Engine 组合入口、明确的工作流接口 | ImGui/Vulkan 对接集中在 `editor/editor.cpp` 和 `editor/src/ui/imgui_context.cpp`；业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
 
-`module_boundaries` CTest 扫描 engine 源文件的 include：整个 engine 不得引入 Editor/ImGui；
+`module_boundaries` CTest 检查直接 include：整个 engine 不得引入 Editor/ImGui；
 `common/`、`input/`、`scene/`、`scripting/`、`audio/` 不得引入 Render、Graphics、Vulkan/GLFW 后端。
-这条低成本规则不等同于独立编译目标或完整依赖图；当前 `engine` 仍是一个库，`core/engine.cpp` 的宿主组合依赖和 `asset/data` 的上述枚举复用仍是明确例外。
+资产层也执行该限制，明确排除 AssetManager 的两个实现文件，并仅允许 TextureData 引用后端无关枚举。
+`editor/src/` 功能代码不得直接包含 SceneRenderer、RenderContext、FrameScheduler、Presentation 或 Vulkan/GLFW 头；
+ImGuiContext 是 UI 后端例外，`editor/editor.cpp` 是扫描范围外的宿主集成点。
+这些是防止依赖倒退的轻量检查，不检查传递包含，也不等同于独立编译目标；当前 `engine` 仍是一个库。
 
 ## 先看哪个类
 
@@ -124,14 +128,22 @@ Finder 的 `.DS_Store` 与原子写临时文件不计入快照变化，
 - 引用表示必需且不可重绑定的借用；指针用于可空、可换 owner 或 moved-from 状态。
   unique_ptr 独占，shared_ptr 延长共享寿命；原生 Vulkan/GLFW handle 仍遵守各自协议。
 - Renderer 是组合根，不是所有 GPU 对象的直接 owner；Device 也不反向拥有业务服务。
+- Renderer 只向诊断消费者提供 const SceneRenderer 访问；修改生产状态走 Renderer 的帧／资源接口。
+  Renderer 集成测试也走正常帧接口；需控制时间、提交与读回的底层测试独立创建 SceneRenderer，不访问 Renderer 私有成员。
+  RenderContext 仍供 ImGui 宿主集成与后端诊断使用，不假装已完全隐藏后端。
 - EditorAssets 中 SceneAssetReferences 先于其借用的 AssetManager 和 AssetDatabase 销毁，AssetManager 先于 AssetDatabase 销毁；开发态 app 的 AssetManager 自持索引。
   EditorAssets 和 AssetManager 从索引读取项目路径，提交后台任务时按值捕获路径快照，不让 Worker 借用数据库。
   app/editor 的 AssetManager 均先于 Engine 销毁；后台任务先结束，GPU 使用完成后再释放 Registry 和渲染资源。
+- `PreparedFileImport::State` 直接拥有暂存路径、待发布文件和清理状态；放弃候选自动清理，发布仍执行输入复核及失败补偿。
+  不再另包一层只转发 prepare/publish 的事务对象；这不改变批次并非崩溃原子的限制。
 
 ## 应用启动与失败清理
 
 Application::run(Config) 完整执行：创建 Diagnostics／Engine → on_init → 引擎循环 → 私有 end。
 Engine::create → Renderer::create → RenderContext::create 在局部准备 owner，全部成功才返回完整对象。
+SceneRenderer::create 的 Swapchain 入口按 scene_output 选择输出，离屏尺寸入口用于显式离屏创建；
+完整目标与管线准备成功后才返回对象；
+构造函数保持私有，Renderer 和底层测试共用该创建边界，没有测试专用 friend 或初始化开关。
 宿主以 `Config::Render::SceneOutput` 选择初始目标：app 直接呈现，Editor 离屏后由 ImGui 呈现，只创建一组场景资源。
 Application::Options 提供具名宿主选项：缓存／日志目录，以及可选的输出模式／场景目标覆盖。
 未指定覆盖时保留 run(Config) 的值；Editor 显式要求 SDR 和 Offscreen。
@@ -187,6 +199,10 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 Engine 拥有 Scene/Runtime，只同步借用宿主回调。Editor 为新场景统一执行资产准备与激活；准备失败不替换活动场景。
 SceneDocument 只接收激活结果并更新文档路径／保存点；EditorSceneSession 保留 Edit Scene，负责 Play 副本与失败恢复，恢复时不重新准备资产。
+安装阶段由 `Editor::commit_scene` 结束旧交互，再经 Engine 停止旧 Runtime、交换 Scene owner；
+`SceneEditor::bind_scene` 统一重绑选择与资产引用，新 Edit 场景才重置历史。进入 Play 时历史仍指向保留的 Edit 场景，
+Stop 返回该场景时也不重置历史。Hierarchy 的 UI 状态清理由宿主保留；首次启动尚无 SceneEditor 时先绑定文档历史，
+服务装配完成后再绑定选择和引用追踪。
 Editor 每次更新取走上一 UI 帧的场景请求，只执行一个：文件弹窗提交、菜单、Play 控制、结构编辑、重命名、Mesh 拖入、资产赋值依次优先；未保存确认期间仅接收文件弹窗提交，取消弹窗则全部丢弃。未选中的请求不延后重放。
 Renderer 不调用 UI 准备；SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler 或呈现队列。
 `on_frame_ready` 只在取得可绘制帧后运行，拾取反馈在 Runtime 更新和场景解析后、场景与 overlay 录制前同步应用，
@@ -207,6 +223,12 @@ InputState 同时拥有该阶段的物理与动作值，只读公开，可复制
 零固定步不丢短按，多步不重复边沿，暂停／单步同时重建两类状态的基线。
 多个绑定合为一个按钮电平，释放其中一个仍按住的动作不会产生释放；轴与位移不伪装成按钮。
 CameraControllerSystem 只约定 `camera.*` 动作语义，具体设备、按键、反向和死区属于项目配置。
+
+项目输入设置的链路是 `InputSettingsPanel 草稿 → InputActions 校验 → 一次性请求 → Project 原子保存 → 停止态 RuntimeInput`。
+面板不写文件、不操作 Engine；保存失败保留草稿，关闭丢弃未保存草稿，无变化保存由 Project 跳过写盘。
+动作和绑定数量上限由 InputActions 定义，项目解析和 UI 共用；键盘录入占用 ImGui 活动项及按键所有权，
+Esc 取消，失焦／关闭结束录入，不把捕获键同时交给编辑器快捷键。该面板仅在 Edit 可用，不代表游戏内改键已实现。
+
 PhysicsSystem 排在脚本之后：脚本的固定步 Transform 写入先作为物理传送同步，然后 Jolt 模拟并回写动态刚体；
 静态刚体只从 Scene 同步位置，不由模拟改写。Collider 的尺寸乘以本地正缩放，球体暂要求均匀缩放，
 刚体暂不允许父级，避免把局部 TRS 误当世界姿态。Scene 只保存 RigidBody／Collider 参数，
@@ -549,16 +571,19 @@ Restored 仅表示驱动接收并合并了兼容数据，不证明内部命中�
 | --- | --- |
 | InspectorPanel | 选择分发、实体／场景属性、脚本定义选择；不持有材质或纹理草稿 |
 | AssetInspector | 材质／纹理草稿、模板确认、读取与编辑请求；无 CommandHistory、Scene 或 Renderer 依赖 |
-| SceneEditor | 模式／代际检查、实体结构、脚本绑定、引用赋值及选择更新 |
+| SceneEditor | 场景安装后的编辑状态重绑；模式／代际检查、实体结构、脚本绑定、引用赋值及选择更新 |
 | SceneCommands / CommandHistory | 具体逆操作与历史游标；不触发文件或 GPU 操作 |
 | SceneDocument / EditorSceneSession | 保存点／文档操作，以及 Play 副本／恢复 |
 
-Editor 调度跨面板请求，结束活动手势并安装／重绑场景。Inspector 与 Gizmo 各自持有 PropertyEditTransaction，
+Editor 调度跨面板请求，结束活动手势并安装场景，编辑状态重绑交给 SceneEditor。Inspector 与 Gizmo 各自持有 PropertyEditTransaction，
 共享 CommandHistory；环境／后处理也走 begin／preview／commit／cancel。拖动预览，结束后只提交一次；
 离散 apply 先结束旧手势，失败取消新事务。结束活动手势失败会拒绝后续请求。
 资产请求携带 Handle/revision；AssetInspector 切换选择后清空旧草稿与请求，过期完成结果不覆盖当前选择。
 EditorAssets 执行读取；material_editing 负责模板迁移、校验与完整提交，宿主负责文件／GPU 操作。
 Play 组件调试不进入 Edit 历史，资产文件编辑也不混入场景历史。渲染生命周期保持同步回调，不改成事件总线。
+
+UI 共用能力留在 `editor/src/ui`：`dialogs` 管确认选择，`widgets::input_text` 管 ImGui 与可增长字符串之间的适配。
+实体名称、资产路径、项目名和属性值仍分别校验；共用控件不意味着合并它们的业务操作或保存策略。
 
 结构命令保存完整组件快照，未知或不可恢复的组件会阻止破坏性操作；
 撤销恢复 UUID 与父子关系，不恢复旧 EntityId、选择或展开状态。

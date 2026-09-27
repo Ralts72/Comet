@@ -3,6 +3,7 @@
 #include "input/input_state.h"
 #include "common/result.h"
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -11,6 +12,8 @@
 namespace Comet {
     class COMET_API InputActions final {
     public:
+        static constexpr std::size_t MAX_ACTIONS = 128;
+        static constexpr std::size_t MAX_BINDINGS = 16;
         using Type = InputState::Action::Type;
         enum class Motion { CursorX, CursorY, ScrollX, ScrollY };
         struct Binding {

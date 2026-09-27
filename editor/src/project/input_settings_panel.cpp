@@ -1,29 +1,17 @@
 #include "project/input_settings_panel.h"
 
 #include "ui/language.h"
+#include "ui/widgets.h"
 
 #include <algorithm>
 #include <array>
-#include <cstring>
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <string_view>
 
 namespace CometEditor {
     namespace {
         using Type = Comet::InputActions::Type;
-
-        void input_text(const char* label, std::string& value) {
-            if(ImGui::InputText(
-                   label, value.data(), value.capacity() + 1, ImGuiInputTextFlags_CallbackResize,
-                   [](ImGuiInputTextCallbackData* data) {
-                       auto& text = *static_cast<std::string*>(data->UserData);
-                       text.resize(static_cast<std::size_t>(data->BufTextLen));
-                       data->Buf = text.data();
-                       return 0;
-                   },
-                   &value))
-                value.resize(std::strlen(value.c_str()));
-        }
 
         const char* type_name(const Type type) {
             switch(type) {
@@ -170,13 +158,15 @@ namespace CometEditor {
         }
         ImGui::TableSetColumnIndex(1);
         ImGui::SetNextItemWidth(-1);
-        input_text("##Control", binding.control);
+        Ui::input_text("##Control", binding.control);
         ImGui::TableSetColumnIndex(2);
         if(binding.source == "key") {
             const bool capturing =
                 m_capturing && *m_capturing == std::pair{action_index, binding_index};
-            if(ImGui::Button(Ui::label(capturing ? "Press Key" : "Record Key").c_str()))
+            if(ImGui::Button(Ui::label(capturing ? "Press Key" : "Record Key").c_str())) {
                 m_capturing = std::pair{action_index, binding_index};
+                ImGui::ClearActiveID();
+            }
         }
         bool shared = false;
         for(std::size_t other = 0; other < m_actions.size(); ++other) {
@@ -214,7 +204,7 @@ namespace CometEditor {
         auto& action = m_actions[index];
         ImGui::PushID(static_cast<int>(index));
         ImGui::SetNextItemWidth(165.0f);
-        input_text("##Name", action.name);
+        Ui::input_text("##Name", action.name);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(110.0f);
         if(ImGui::BeginCombo("##Type", Ui::text(type_name(action.type)))) {
@@ -252,7 +242,7 @@ namespace CometEditor {
             }
             ImGui::EndTable();
         }
-        ImGui::BeginDisabled(action.bindings.size() >= 16);
+        ImGui::BeginDisabled(action.bindings.size() >= Comet::InputActions::MAX_BINDINGS);
         if(ImGui::Button(Ui::label("Add Binding").c_str())) {
             BindingDraft binding{"key", ""};
             if(action.type == Type::Delta)
@@ -265,10 +255,20 @@ namespace CometEditor {
     }
 
     void InputSettingsPanel::capture_key() {
-        if(!m_capturing)
+        const auto owner = ImGui::GetID("KeyCapture");
+        if(!m_capturing || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+            || (ImGui::GetActiveID() != 0 && ImGui::GetActiveID() != owner)) {
+            m_capturing.reset();
+            if(ImGui::GetActiveID() == owner)
+                ImGui::ClearActiveID();
             return;
+        }
+        ImGui::SetActiveID(owner, ImGui::GetCurrentWindow());
+        ImGui::SetActiveIdUsingAllKeyboardKeys();
         if(ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             m_capturing.reset();
+            ImGui::SetKeyOwner(ImGuiKey_Escape, owner, ImGuiInputFlags_LockUntilRelease);
+            ImGui::ClearActiveID();
             return;
         }
         for(int value = ImGuiKey_NamedKey_BEGIN; value < ImGuiKey_NamedKey_END; ++value) {
@@ -280,17 +280,23 @@ namespace CometEditor {
                 if(action < m_actions.size() && binding < m_actions[action].bindings.size())
                     m_actions[action].bindings[binding].control = *name;
                 m_capturing.reset();
+                ImGui::SetKeyOwner(key, owner, ImGuiInputFlags_LockUntilRelease);
+                ImGui::ClearActiveID();
                 return;
             }
         }
     }
 
     void InputSettingsPanel::render() {
-        if(!is_open())
+        if(!is_open()) {
+            m_capturing.reset();
             return;
+        }
         bool open = true;
         ImGui::SetNextWindowSize(ImVec2(900, 540), ImGuiCond_Appearing);
         if(!ImGui::Begin(window_label().c_str(), &open)) {
+            m_capturing.reset();
+            capture_key();
             ImGui::End();
             set_visible(open);
             return;
@@ -309,9 +315,9 @@ namespace CometEditor {
             }
             ImGui::PopID();
         }
-        ImGui::BeginDisabled(m_actions.size() >= 128);
+        ImGui::BeginDisabled(m_actions.size() >= Comet::InputActions::MAX_ACTIONS);
         if(ImGui::Button(Ui::label("Add Action").c_str())) {
-            for(std::size_t number = 1; number <= 128; ++number) {
+            for(std::size_t number = 1; number <= Comet::InputActions::MAX_ACTIONS; ++number) {
                 const auto name = "action_" + std::to_string(number);
                 if(std::ranges::none_of(
                        m_actions, [&](const auto& action) { return action.name == name; })) {
@@ -330,7 +336,6 @@ namespace CometEditor {
         else
             ImGui::TextDisabled("%s", Ui::text("Select an action"));
         ImGui::EndChild();
-        capture_key();
         if(ImGui::Button(Ui::label("Save").c_str())) {
             auto actions = build();
             if(actions) {
@@ -349,6 +354,9 @@ namespace CometEditor {
         }
         if(!m_error.empty())
             ImGui::TextWrapped("%s", m_error.c_str());
+        if(!open)
+            m_capturing.reset();
+        capture_key();
         ImGui::End();
         set_visible(open);
     }

@@ -2,6 +2,7 @@
 #include "scene/selection.h"
 #include "assets/asset_reference.h"
 #include "scene/command_history.h"
+#include "ui/widgets.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -31,17 +32,8 @@ namespace CometEditor {
 
         bool input_asset_name(
             std::string& name, const ImGuiInputTextFlags extra_flags = ImGuiInputTextFlags_None) {
-            return ImGui::InputText(
-                Ui::label("Name").c_str(), name.data(), name.capacity() + 1,
-                ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_EnterReturnsTrue
-                    | extra_flags,
-                [](ImGuiInputTextCallbackData* data) {
-                    auto& text = *static_cast<std::string*>(data->UserData);
-                    text.resize(static_cast<std::size_t>(data->BufTextLen));
-                    data->Buf = text.data();
-                    return 0;
-                },
-                &name);
+            return Ui::input_text(Ui::label("Name").c_str(), name,
+                ImGuiInputTextFlags_EnterReturnsTrue | extra_flags);
         }
     }
 

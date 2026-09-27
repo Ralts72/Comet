@@ -132,6 +132,11 @@ namespace Comet::Tests {
 
     TEST_P(DebugRendererTest, AppendsProducersConsumesOnceAndReusesSlotBuffers) {
         auto& renderer = engine->get_renderer();
+        const auto& scene_renderer = renderer.get_scene_renderer();
+        const auto& swapchain = renderer.get_render_context().get_swapchain();
+        ASSERT_EQ(scene_renderer.is_offscreen(), std::get<0>(GetParam()));
+        EXPECT_EQ(scene_renderer.get_render_target().get_size(),
+            Math::Vec2u(swapchain.get_width(), swapchain.get_height()));
         const auto initial = allocations();
         const auto batch = lines(100);
         ASSERT_TRUE(draw_frame(batch, batch));

@@ -174,8 +174,9 @@ namespace Comet {
     }
 
     Result<InputActions> InputActions::create(std::vector<Action> actions) {
-        if(actions.size() > 128)
-            return Result<InputActions>::failure("At most 128 input actions are supported");
+        if(actions.size() > MAX_ACTIONS)
+            return Result<InputActions>::failure(
+                "At most " + std::to_string(MAX_ACTIONS) + " input actions are supported");
         std::set<std::string> names;
         for(const auto& action : actions) {
             if(action.name.empty() || action.name.size() > 64
@@ -188,9 +189,9 @@ namespace Comet {
             if(action.type != Type::Button && action.type != Type::Axis
                 && action.type != Type::Delta)
                 return Result<InputActions>::failure("Invalid input action type: " + action.name);
-            if(action.bindings.size() > 16)
-                return Result<InputActions>::failure(
-                    "At most 16 bindings per action are supported");
+            if(action.bindings.size() > MAX_BINDINGS)
+                return Result<InputActions>::failure("At most " + std::to_string(MAX_BINDINGS)
+                     + " bindings per action are supported");
             for(const auto& binding : action.bindings) {
                 const bool valid_control = std::visit(
                     [](auto control) {

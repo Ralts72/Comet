@@ -199,6 +199,20 @@ namespace Comet::Tests {
     TEST_F(MaterialRenderingTest, RejectsMissingFrameSlotsAndCanCreateAfterFailure) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         auto& resources = engine->get_render_resources();
+        MaterialPrograms programs(engine->get_asset_registry());
+        Config config;
+        config.render.max_frames_in_flight = 0;
+        auto scene = SceneRenderer::create(
+            device, programs, resources, config.vulkan, config.render, Math::Vec2u{16, 16});
+        ASSERT_FALSE(scene);
+        config.render.max_frames_in_flight = 2;
+        EXPECT_FALSE(SceneRenderer::create(
+            device, programs, resources, config.vulkan, config.render, Math::Vec2u{0, 16}));
+        scene = SceneRenderer::create(
+            device, programs, resources, config.vulkan, config.render, Math::Vec2u{16, 16});
+        ASSERT_TRUE(scene) << scene.error();
+        EXPECT_EQ(scene.value()->get_render_target().get_size(), Math::Vec2u(16, 16));
+        EXPECT_TRUE(scene.value()->is_offscreen());
         const auto color = Attachment::get_color_attachment(Format::R8G8B8A8_UNORM);
         auto pass_result = RenderPass::create(device,
             {color, Attachment::get_depth_attachment(Format::D32_SFLOAT)},
@@ -268,7 +282,6 @@ namespace Comet::Tests {
 
     TEST_F(MaterialRenderingTest, ShaderPublicationRejectsFixedContractChangesAndActiveFrames) {
         auto& renderer = engine->get_renderer();
-        auto& scene_renderer = renderer.get_scene_renderer();
         const MaterialShaders original{{"pbr", {{std::begin(PBR_VERT), std::end(PBR_VERT)},
                                                    {std::begin(PBR_FRAG), std::end(PBR_FRAG)}}},
             {"unlit_color", {{std::begin(UNLIT_COLOR_VERT), std::end(UNLIT_COLOR_VERT)},

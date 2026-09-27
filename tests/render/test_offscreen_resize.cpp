@@ -1,5 +1,6 @@
 #include "support/engine_fixture.h"
 #include "render/scene/scene_renderer.h"
+#include "render/material/material_programs.h"
 #include "render/render_target.h"
 #include "graphics/device.h"
 
@@ -55,8 +56,12 @@ namespace Comet::Tests {
 
     TEST_F(OffscreenResizeTest, RejectsRepeatedInvalidSizeAndPreservesActualTarget) {
         auto& renderer = engine->get_renderer();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({160, 120}));
-        auto& scene = renderer.get_scene_renderer();
+        Config config;
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto created = SceneRenderer::create(renderer.get_render_context().get_device(), programs,
+            engine->get_render_resources(), config.vulkan, config.render, Math::Vec2u{160, 120});
+        ASSERT_TRUE(created) << created.error();
+        auto& scene = *created.value();
         auto* previous = &scene.get_render_target();
         const auto previous_view = scene.get_offscreen_color_view(0);
         const auto limit =

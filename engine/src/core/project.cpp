@@ -75,12 +75,12 @@ namespace Comet {
                     if(!parsed)
                         return Result<InputActions>::failure(context.error(field, parsed.error()));
                     action.bindings.push_back(std::move(parsed).value());
-                    if(action.bindings.size() > 16)
+                    if(action.bindings.size() > InputActions::MAX_BINDINGS)
                         return Result<InputActions>::failure(
                             context.error(field, "too many bindings"));
                 }
                 actions.push_back(std::move(action));
-                if(actions.size() > 128)
+                if(actions.size() > InputActions::MAX_ACTIONS)
                     return Result<InputActions>::failure(
                         context.error(location, "too many actions"));
             }
@@ -183,8 +183,8 @@ namespace Comet {
             return Result<Project>::failure(context.error(
                 "<root>", error ? error.message() : "assets directory does not exist"));
 
-        const auto scene_path =
-            context.read_field<std::string>(data, "startup_scene", "an assets-relative .scene path");
+        const auto scene_path = context.read_field<std::string>(
+            data, "startup_scene", "an assets-relative .scene path");
         if(!scene_path)
             return Result<Project>::failure(scene_path.error());
         const std::filesystem::path relative(scene_path.value());
@@ -206,9 +206,8 @@ namespace Comet {
         return Result<Project>::success(std::move(project));
     }
 
-    Result<std::string> Project::serialize(
-        const std::string& name, const std::filesystem::path& startup_scene,
-        const InputActions& input_actions) const {
+    Result<std::string> Project::serialize(const std::string& name,
+        const std::filesystem::path& startup_scene, const InputActions& input_actions) const {
         Json::Writer writer;
         writer.begin_object();
         writer.field("version", std::uint64_t(FORMAT_VERSION));

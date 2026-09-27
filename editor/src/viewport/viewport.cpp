@@ -1,5 +1,4 @@
 #include "viewport/viewport.h"
-#include "graphics/resource/sampler.h"
 
 #include "asset/registry.h"
 #include "diagnostics/logger.h"

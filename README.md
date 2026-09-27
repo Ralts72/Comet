@@ -11,7 +11,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `tools/render_benchmark/` | 固定场景渲染性能基准及一键运行脚本，链接 engine，不依赖测试框架或编辑器 |
 | `tools/asset_scan_benchmark/` | 可选的资产扫描 CPU 基准及一键运行脚本，分别测量候选准备与索引发布 |
-| `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、ui 组织，`resources/` 保存私有字体等资源 |
+| `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、project、render、ui 组织，`resources/` 保存私有字体等资源 |
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
@@ -569,18 +569,22 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
 - **渲染**：`Scene → SceneExtractor → SceneResolver → SceneRenderer`。
   Renderer 组合帧调度与呈现，SceneRenderer 编排 ShadowPass → RGBA16F 场景 → OutputPass；
   RenderGraph 负责 pass 间同步，FrameSlot 保留在途资源，Presentation 处理交换链恢复。
+  SceneRenderer 通过可失败的 `create` 返回已就绪对象；专项测试独立装配，Renderer 集成测试走正常帧接口。
   MaterialShader 模块定义程序、字节码与固定接口契约，MaterialRenderer 管理 GPU 候选、材质版本发布和绘制。
   Material 保存实例参数，MaterialLayout 独立描述布局；属性描述位于 `scene/property`，不依赖 ECS 注册器。
 - **资产**：AssetDatabase 管身份与依赖，ImportService 管导入，AssetManager 管加载与发布。
+  前两者及 CPU 数据不依赖渲染后端；AssetManager 的实现是资产与 Runtime 渲染资源的桥接点。
   编辑器由 EditorAssets 持有 AssetDatabase 并编排源文件操作；SceneAssetReferences 管活动场景引用的恢复，
   AssetManager 借用同一索引处理运行时失效与重载。开发态 app 仍可由 AssetManager 自行持有索引。
   AssetRegistry 是唯一 Handle 缓存，RenderResources 只创建设备资源；Worker 不操作 Scene 或 GPU。
   Mesh 加载已发布 Artifact，Texture 暂时直接解码源文件。
 - **编辑器**：Editor 装配服务，SceneDocument 管文档与保存点，CommandHistory 管撤销。
   新场景由 Editor 先准备资产再激活；Play 失败或停止时恢复保留的 Edit 场景，不重复准备。
+  场景安装后的历史、选择和引用追踪由 SceneEditor 统一重绑；Play 不改绑 Edit 历史。
   面板产生请求，由统一更新阶段交给 SceneEditor 校验和执行；Viewport 管相机、拾取和 Gizmo，不持有 Engine。
   Inspector 的材质读取交给 EditorAssets，默认值／模板迁移／草稿校验集中在 material_editing。
   简单确认弹窗集中在 `editor/src/ui/dialogs`，只返回选择；场景与项目共用 `PathDialog` 收集路径请求。
+  动态字符串输入共用 `editor/src/ui/widgets`，名称／属性校验仍归各自业务入口。
 - **Shader**：编译工具独立于 engine。开发编辑器支持内置材质程序和项目 `.shader` 的后台编译与候选发布，
   失败保留旧画面；项目材质属性由描述与反射共同确定。辅助线、阴影、天空盒与输出 Shader 修改仍需重新构建，更复杂的项目接口尚未接入。
 - **坐标**：世界 +Y 向上，Vulkan Viewport 负高度转换画面坐标；`flip_y` 仅影响纹理导入。
@@ -596,4 +600,5 @@ C++ 遵循根目录 `.clang-format`（100 列），只格式化相关代码，�
 测试按所属模块放在 `tests/`，公共辅助工具放在 `tests/support/`。
 编辑器的纯 CPU 测试位于 `tests/editor/core/`，面板测试位于 `tests/editor/ui/`，无 UI 的图形工作流测试位于 `tests/editor/integration/`。
 新增测试须在 `tests/CMakeLists.txt` 明确归入 CPU、集成或独立进程组；配置时检查遗漏和重复，不根据目录自动猜测。
+`module_boundaries` 检查底层模块、CPU 资产与编辑器功能代码的直接 include 边界；已知集成例外见架构文档。
 头文件应能独立编译，实现文件直接包含自己使用的类型，不依赖入口头的传递包含。

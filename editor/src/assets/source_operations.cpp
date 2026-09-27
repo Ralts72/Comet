@@ -195,372 +195,348 @@ namespace CometEditor::AssetSourceOperations {
         }
     }
 
-    namespace {
-        struct ImportFilesTransaction {
-            ImportFilesTransaction(ProjectPaths paths, std::vector<std::filesystem::path> sources,
-                std::filesystem::path directory, const AssetImportLimits limits)
-                : paths(std::move(paths)), sources(std::move(sources)),
-                  directory(std::move(directory)), limits(limits) {}
+    struct PreparedFileImport::State {
+        State(ProjectPaths paths, std::vector<std::filesystem::path> sources,
+            std::filesystem::path directory, const AssetImportLimits limits)
+            : paths(std::move(paths)), sources(std::move(sources)), directory(std::move(directory)),
+              limits(limits) {}
 
-            ~ImportFilesTransaction() { cleanup(nullptr); }
+        ~State() { cleanup(nullptr); }
 
-            ProjectPaths paths;
-            std::vector<std::filesystem::path> sources;
-            std::filesystem::path directory;
-            AssetImportLimits limits;
-            std::uintmax_t source_bytes = 0;
-            std::filesystem::path root;
-            std::filesystem::path destination;
-            std::filesystem::path resolved_destination;
-            std::map<std::filesystem::path, std::filesystem::path> files;
-            std::map<std::filesystem::path, std::uintmax_t> file_sizes;
-            std::vector<std::filesystem::path> roots;
-            std::filesystem::path staging;
-            std::vector<std::filesystem::path> published;
-            std::vector<std::filesystem::path> created_directories;
-            bool scanned = false;
-            AssetScanReport report;
-            bool committed = false;
+        ProjectPaths paths;
+        std::vector<std::filesystem::path> sources;
+        std::filesystem::path directory;
+        AssetImportLimits limits;
+        std::uintmax_t source_bytes = 0;
+        std::filesystem::path root;
+        std::filesystem::path destination;
+        std::filesystem::path resolved_destination;
+        std::map<std::filesystem::path, std::filesystem::path> files;
+        std::map<std::filesystem::path, std::uintmax_t> file_sizes;
+        std::vector<std::filesystem::path> roots;
+        std::filesystem::path staging;
+        std::vector<std::filesystem::path> published;
+        std::vector<std::filesystem::path> created_directories;
+        bool scanned = false;
+        AssetScanReport report;
+        bool committed = false;
 
-            void cleanup(AssetScanReport* diagnostics) {
-                const auto remove = [&](const std::filesystem::path& path) {
-                    std::error_code error;
-                    std::filesystem::remove(path, error);
-                    if(error && diagnostics)
-                        diagnostics->issues.push_back(
-                            {path, "Rollback failed: " + error.message()});
-                };
-                if(!committed) {
-                    for(auto it = published.rbegin(); it != published.rend(); ++it) {
-                        if(scanned)
-                            remove(metadata_path(*it));
-                        remove(*it);
+        void cleanup(AssetScanReport* diagnostics) {
+            const auto remove = [&](const std::filesystem::path& path) {
+                std::error_code error;
+                std::filesystem::remove(path, error);
+                if(error && diagnostics)
+                    diagnostics->issues.push_back({path, "Rollback failed: " + error.message()});
+            };
+            if(!committed) {
+                for(auto it = published.rbegin(); it != published.rend(); ++it) {
+                    if(scanned)
+                        remove(metadata_path(*it));
+                    remove(*it);
+                }
+                for(auto it = created_directories.rbegin(); it != created_directories.rend(); ++it)
+                    remove(*it);
+            }
+            if(!staging.empty()) {
+                std::error_code error;
+                std::filesystem::remove_all(staging, error);
+                if(error && diagnostics)
+                    diagnostics->issues.push_back(
+                        {staging, "Staging cleanup failed: " + error.message()});
+            }
+            published.clear();
+            created_directories.clear();
+            staging.clear();
+        }
+
+        Result<void> prepare_destination() {
+            std::error_code error;
+            if(auto result = validate_relative(directory); !result)
+                return result;
+            root = std::filesystem::canonical(paths.assets(), error);
+            if(error)
+                return Result<void>::failure("Cannot resolve assets directory: " + error.message());
+            destination = root / directory;
+            if(auto result = validate_inside(root, destination); !result)
+                return result;
+            if(!std::filesystem::is_directory(destination, error))
+                return Result<void>::failure("Drop destination is not an existing directory"
+                                             + (error ? ": " + error.message() : std::string{}));
+            resolved_destination = std::filesystem::canonical(destination, error);
+            if(error)
+                return Result<void>::failure("Cannot resolve drop destination: " + error.message());
+            return Result<void>::success();
+        }
+
+        Result<void> recheck_destination() const {
+            std::error_code error;
+            const auto current_root = std::filesystem::canonical(paths.assets(), error);
+            if(error || current_root != root)
+                return Result<void>::failure("Project assets directory changed during import");
+            const auto current_destination = std::filesystem::canonical(destination, error);
+            if(error || current_destination != resolved_destination)
+                return Result<void>::failure("Drop destination changed during import");
+            return Result<void>::success();
+        }
+
+        Result<void> add_file(
+            const std::filesystem::path& source, const std::filesystem::path& relative) {
+            if(auto result = validate_relative(relative); !result)
+                return result;
+            std::error_code error;
+            if(!std::filesystem::is_regular_file(source, error))
+                return Result<void>::failure(
+                    "Missing or unreadable import file: " + source.string());
+            const auto canonical = std::filesystem::canonical(source, error);
+            if(error)
+                return Result<void>::failure(
+                    "Cannot resolve import file '" + source.string() + "': " + error.message());
+            const auto within_project = canonical.lexically_relative(root);
+            if(!within_project.empty() && *within_project.begin() != "..")
+                return Result<void>::failure(
+                    "File already belongs to this project: " + source.string());
+            const auto [it, inserted] = files.emplace(relative, canonical);
+            if(!inserted && it->second != canonical)
+                return Result<void>::failure(
+                    "Dropped files have conflicting names: " + relative.string());
+            if(inserted) {
+                const auto size = std::filesystem::file_size(canonical, error);
+                if(error)
+                    return Result<void>::failure(
+                        "Cannot measure import file '" + source.string() + "': " + error.message());
+                if(size > limits.external_file_bytes - source_bytes)
+                    return Result<void>::failure("Import source batch exceeds byte budget of "
+                                                 + std::to_string(limits.external_file_bytes)
+                                                 + " bytes");
+                source_bytes += size;
+                file_sizes.emplace(relative, size);
+            }
+            return Result<void>::success();
+        }
+
+        Result<void> collect_files() {
+            std::error_code error;
+            // key 是目标相对路径，value 是外部源；相同依赖只复制一次。
+            for(const auto& source : sources) {
+                const auto type = external_import_type(source);
+                if(!type)
+                    continue;
+                if(!source.is_absolute())
+                    return Result<void>::failure("Dropped file path must be absolute");
+                const auto relative = source.filename();
+                if(auto result = add_file(source, relative); !result)
+                    return result;
+                if(std::ranges::find(roots, relative) == roots.end())
+                    roots.push_back(relative);
+                if(*type == AssetType::Mesh) {
+                    const auto parent = std::filesystem::canonical(source.parent_path(), error);
+                    if(error)
+                        return Result<void>::failure(
+                            "Cannot resolve model directory: " + error.message());
+                    auto dependencies = gltf_dependencies(source);
+                    if(!dependencies)
+                        return Result<void>::failure(dependencies.error());
+                    for(const auto& dependency : dependencies.value()) {
+                        if(auto result = validate_inside(parent, source.parent_path() / dependency);
+                            !result)
+                            return result;
+                        if(auto result = add_file(source.parent_path() / dependency, dependency);
+                            !result)
+                            return result;
                     }
-                    for(auto it = created_directories.rbegin(); it != created_directories.rend();
-                        ++it)
-                        remove(*it);
                 }
-                if(!staging.empty()) {
-                    std::error_code error;
-                    std::filesystem::remove_all(staging, error);
-                    if(error && diagnostics)
-                        diagnostics->issues.push_back(
-                            {staging, "Staging cleanup failed: " + error.message()});
+            }
+            if(roots.empty())
+                return Result<void>::failure(
+                    "Drop PNG/JPEG textures, HDR environments, Lua scripts, WAV audio or glTF/GLB models (not directories)");
+            for(const auto& source : sources) {
+                if(external_import_type(source))
+                    continue;
+                if(extension_of(source) == ".meta") {
+                    auto owner = source;
+                    owner.replace_extension();
+                    if(std::ranges::find(sources, owner) != sources.end())
+                        continue;
                 }
-                published.clear();
-                created_directories.clear();
-                staging.clear();
-            }
-
-            Result<void> prepare_destination() {
-                std::error_code error;
-                if(auto result = validate_relative(directory); !result)
-                    return result;
-                root = std::filesystem::canonical(paths.assets(), error);
-                if(error)
-                    return Result<void>::failure(
-                        "Cannot resolve assets directory: " + error.message());
-                destination = root / directory;
-                if(auto result = validate_inside(root, destination); !result)
-                    return result;
-                if(!std::filesystem::is_directory(destination, error))
-                    return Result<void>::failure(
-                        "Drop destination is not an existing directory"
-                        + (error ? ": " + error.message() : std::string{}));
-                resolved_destination = std::filesystem::canonical(destination, error);
-                if(error)
-                    return Result<void>::failure(
-                        "Cannot resolve drop destination: " + error.message());
-                return Result<void>::success();
-            }
-
-            Result<void> recheck_destination() const {
-                std::error_code error;
-                const auto current_root = std::filesystem::canonical(paths.assets(), error);
-                if(error || current_root != root)
-                    return Result<void>::failure("Project assets directory changed during import");
-                const auto current_destination = std::filesystem::canonical(destination, error);
-                if(error || current_destination != resolved_destination)
-                    return Result<void>::failure("Drop destination changed during import");
-                return Result<void>::success();
-            }
-
-            Result<void> add_file(
-                const std::filesystem::path& source, const std::filesystem::path& relative) {
-                if(auto result = validate_relative(relative); !result)
-                    return result;
-                std::error_code error;
-                if(!std::filesystem::is_regular_file(source, error))
-                    return Result<void>::failure(
-                        "Missing or unreadable import file: " + source.string());
                 const auto canonical = std::filesystem::canonical(source, error);
                 if(error)
                     return Result<void>::failure(
                         "Cannot resolve import file '" + source.string() + "': " + error.message());
-                const auto within_project = canonical.lexically_relative(root);
-                if(!within_project.empty() && *within_project.begin() != "..")
-                    return Result<void>::failure(
-                        "File already belongs to this project: " + source.string());
-                const auto [it, inserted] = files.emplace(relative, canonical);
-                if(!inserted && it->second != canonical)
-                    return Result<void>::failure(
-                        "Dropped files have conflicting names: " + relative.string());
-                if(inserted) {
-                    const auto size = std::filesystem::file_size(canonical, error);
-                    if(error)
-                        return Result<void>::failure("Cannot measure import file '"
-                                                     + source.string() + "': " + error.message());
-                    if(size > limits.external_file_bytes - source_bytes)
-                        return Result<void>::failure("Import source batch exceeds byte budget of "
-                                                     + std::to_string(limits.external_file_bytes)
-                                                     + " bytes");
-                    source_bytes += size;
-                    file_sizes.emplace(relative, size);
-                }
-                return Result<void>::success();
+                if(std::ranges::none_of(
+                       files, [&](const auto& file) { return file.second == canonical; }))
+                    return Result<void>::failure("Unsupported standalone file: " + source.string());
             }
+            for(const auto& [relative, source] : files) {
+                if(auto result = validate_inside(root, destination / relative); !result)
+                    return result;
+                if(auto result = validate_available(destination / relative); !result)
+                    return result;
+                if(auto result = validate_available(metadata_path(destination / relative)); !result)
+                    return result;
+            }
+            return Result<void>::success();
+        }
 
-            Result<void> collect_files() {
-                std::error_code error;
-                // key 是目标相对路径，value 是外部源；相同依赖只复制一次。
-                for(const auto& source : sources) {
-                    const auto type = external_import_type(source);
-                    if(!type)
-                        continue;
-                    if(!source.is_absolute())
-                        return Result<void>::failure("Dropped file path must be absolute");
-                    const auto relative = source.filename();
-                    if(auto result = add_file(source, relative); !result)
-                        return result;
-                    if(std::ranges::find(roots, relative) == roots.end())
-                        roots.push_back(relative);
-                    if(*type == AssetType::Mesh) {
-                        const auto parent = std::filesystem::canonical(source.parent_path(), error);
-                        if(error)
-                            return Result<void>::failure(
-                                "Cannot resolve model directory: " + error.message());
-                        auto dependencies = gltf_dependencies(source);
+        Result<void> stage_files() {
+            std::error_code error;
+            const auto staging_parent = paths.cache() / "file-import";
+            std::filesystem::create_directories(staging_parent, error);
+            if(error)
+                return Result<void>::failure(
+                    "Cannot create import staging directory: " + error.message());
+            auto candidate = staging_parent / std::to_string(AssetHandle::generate().value());
+            if(!std::filesystem::create_directory(candidate, error))
+                return Result<void>::failure("Cannot reserve file import staging directory"
+                                             + (error ? ": " + error.message() : std::string{}));
+            staging = std::move(candidate);
+            for(const auto& [relative, source] : files) {
+                const auto target = staging / relative;
+                const auto expected_size = file_sizes.at(relative);
+                const auto current_size = std::filesystem::file_size(source, error);
+                if(error || current_size != expected_size)
+                    return Result<void>::failure(
+                        "Import source size changed during preparation: " + source.string());
+                std::filesystem::create_directories(target.parent_path(), error);
+                if(error)
+                    return Result<void>::failure(
+                        "Cannot create staging subdirectory: " + error.message());
+                std::filesystem::copy_file(source, target, error);
+                if(error)
+                    return Result<void>::failure(
+                        "Cannot copy import file '" + source.string() + "': " + error.message());
+                const auto staged_size = std::filesystem::file_size(target, error);
+                if(error || staged_size != expected_size)
+                    return Result<void>::failure(
+                        "Import source size changed during copy: " + source.string());
+            }
+            for(const auto& relative : roots) {
+                const auto type = external_import_type(relative);
+                if(!type)
+                    return Result<void>::failure("Unsupported import source: " + relative.string());
+                switch(*type) {
+                    case AssetType::Mesh: {
+                        // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
+                        auto dependencies = gltf_dependencies(staging / relative);
                         if(!dependencies)
                             return Result<void>::failure(dependencies.error());
                         for(const auto& dependency : dependencies.value()) {
-                            if(auto result =
-                                    validate_inside(parent, source.parent_path() / dependency);
-                                !result)
-                                return result;
-                            if(auto result =
-                                    add_file(source.parent_path() / dependency, dependency);
-                                !result)
-                                return result;
+                            if(!files.contains(dependency))
+                                return Result<void>::failure(
+                                    "glTF dependencies changed during copy; retry import");
                         }
+                        if(auto result = MeshImporter{}.import(
+                               staging / relative, limits.mesh_working_bytes, limits);
+                            !result)
+                            return Result<void>::failure(result.error());
+                        break;
                     }
-                }
-                if(roots.empty())
-                    return Result<void>::failure(
-                        "Drop PNG/JPEG textures, HDR environments, Lua scripts, WAV audio or glTF/GLB models (not directories)");
-                for(const auto& source : sources) {
-                    if(external_import_type(source))
-                        continue;
-                    if(extension_of(source) == ".meta") {
-                        auto owner = source;
-                        owner.replace_extension();
-                        if(std::ranges::find(sources, owner) != sources.end())
-                            continue;
-                    }
-                    const auto canonical = std::filesystem::canonical(source, error);
-                    if(error)
-                        return Result<void>::failure("Cannot resolve import file '"
-                                                     + source.string() + "': " + error.message());
-                    if(std::ranges::none_of(
-                           files, [&](const auto& file) { return file.second == canonical; }))
-                        return Result<void>::failure(
-                            "Unsupported standalone file: " + source.string());
-                }
-                for(const auto& [relative, source] : files) {
-                    if(auto result = validate_inside(root, destination / relative); !result)
-                        return result;
-                    if(auto result = validate_available(destination / relative); !result)
-                        return result;
-                    if(auto result = validate_available(metadata_path(destination / relative));
-                        !result)
-                        return result;
-                }
-                return Result<void>::success();
-            }
-
-            Result<void> stage_files() {
-                std::error_code error;
-                const auto staging_parent = paths.cache() / "file-import";
-                std::filesystem::create_directories(staging_parent, error);
-                if(error)
-                    return Result<void>::failure(
-                        "Cannot create import staging directory: " + error.message());
-                auto candidate = staging_parent / std::to_string(AssetHandle::generate().value());
-                if(!std::filesystem::create_directory(candidate, error))
-                    return Result<void>::failure(
-                        "Cannot reserve file import staging directory"
-                        + (error ? ": " + error.message() : std::string{}));
-                staging = std::move(candidate);
-                for(const auto& [relative, source] : files) {
-                    const auto target = staging / relative;
-                    const auto expected_size = file_sizes.at(relative);
-                    const auto current_size = std::filesystem::file_size(source, error);
-                    if(error || current_size != expected_size)
-                        return Result<void>::failure(
-                            "Import source size changed during preparation: " + source.string());
-                    std::filesystem::create_directories(target.parent_path(), error);
-                    if(error)
-                        return Result<void>::failure(
-                            "Cannot create staging subdirectory: " + error.message());
-                    std::filesystem::copy_file(source, target, error);
-                    if(error)
-                        return Result<void>::failure("Cannot copy import file '" + source.string()
-                                                     + "': " + error.message());
-                    const auto staged_size = std::filesystem::file_size(target, error);
-                    if(error || staged_size != expected_size)
-                        return Result<void>::failure(
-                            "Import source size changed during copy: " + source.string());
-                }
-                for(const auto& relative : roots) {
-                    const auto type = external_import_type(relative);
-                    if(!type)
+                    case AssetType::Texture:
+                        if(auto result = TextureImporter{}.import(
+                               staging / relative, {}, limits.texture_working_bytes, limits);
+                            !result)
+                            return Result<void>::failure(result.error());
+                        break;
+                    case AssetType::Environment:
+                        if(auto result = EnvironmentImporter{}.validate_source(staging / relative);
+                            !result)
+                            return Result<void>::failure(result.error());
+                        break;
+                    case AssetType::Script:
+                        if(auto script = Script::load(staging / relative); !script)
+                            return Result<void>::failure(script.error().message);
+                        break;
+                    case AssetType::Audio:
+                        if(auto clip = AudioClip::load(staging / relative); !clip)
+                            return Result<void>::failure(clip.error().message);
+                        break;
+                    default:
                         return Result<void>::failure(
                             "Unsupported import source: " + relative.string());
-                    switch(*type) {
-                        case AssetType::Mesh: {
-                            // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
-                            auto dependencies = gltf_dependencies(staging / relative);
-                            if(!dependencies)
-                                return Result<void>::failure(dependencies.error());
-                            for(const auto& dependency : dependencies.value()) {
-                                if(!files.contains(dependency))
-                                    return Result<void>::failure(
-                                        "glTF dependencies changed during copy; retry import");
-                            }
-                            if(auto result = MeshImporter{}.import(
-                                   staging / relative, limits.mesh_working_bytes, limits);
-                                !result)
-                                return Result<void>::failure(result.error());
-                            break;
-                        }
-                        case AssetType::Texture:
-                            if(auto result = TextureImporter{}.import(
-                                   staging / relative, {}, limits.texture_working_bytes, limits);
-                                !result)
-                                return Result<void>::failure(result.error());
-                            break;
-                        case AssetType::Environment:
-                            if(auto result =
-                                    EnvironmentImporter{}.validate_source(staging / relative);
-                                !result)
-                                return Result<void>::failure(result.error());
-                            break;
-                        case AssetType::Script:
-                            if(auto script = Script::load(staging / relative); !script)
-                                return Result<void>::failure(script.error().message);
-                            break;
-                        case AssetType::Audio:
-                            if(auto clip = AudioClip::load(staging / relative); !clip)
-                                return Result<void>::failure(clip.error().message);
-                            break;
-                        default:
-                            return Result<void>::failure(
-                                "Unsupported import source: " + relative.string());
-                    }
                 }
-                return Result<void>::success();
             }
+            return Result<void>::success();
+        }
 
-            Result<void> publish_files(AssetDatabase& database) {
-                std::error_code error;
-                const auto database_root =
-                    std::filesystem::canonical(database.paths().assets(), error);
-                if(error || database_root != root)
-                    return Result<void>::failure(
-                        "Prepared file import targets a different project");
-                if(auto result = recheck_destination(); !result)
+        Result<void> publish_files(AssetDatabase& database) {
+            std::error_code error;
+            const auto database_root = std::filesystem::canonical(database.paths().assets(), error);
+            if(error || database_root != root)
+                return Result<void>::failure("Prepared file import targets a different project");
+            if(auto result = recheck_destination(); !result)
+                return result;
+            published.reserve(files.size());
+            for(const auto& [relative, source] : files) {
+                const auto target = destination / relative;
+                if(auto result = validate_inside(root, target); !result)
                     return result;
-                published.reserve(files.size());
-                for(const auto& [relative, source] : files) {
-                    const auto target = destination / relative;
-                    if(auto result = validate_inside(root, target); !result)
-                        return result;
-                    if(auto result = validate_available(metadata_path(target)); !result)
-                        return result;
-                    std::vector<std::filesystem::path> missing;
-                    for(auto parent = target.parent_path(); !parent.empty();
-                        parent = parent.parent_path()) {
-                        const bool exists = std::filesystem::exists(parent, error);
-                        if(error)
-                            return Result<void>::failure(
-                                "Cannot inspect import destination: " + error.message());
-                        if(exists)
-                            break;
-                        missing.push_back(parent);
-                    }
-                    for(auto it = missing.rbegin(); it != missing.rend(); ++it) {
-                        created_directories.push_back(*it);
-                        if(!std::filesystem::create_directory(*it, error))
-                            created_directories.pop_back();
-                        if(error)
-                            return Result<void>::failure(
-                                "Cannot create import destination: " + error.message());
-                    }
-                    // 同卷硬链接原子发布单个文件，并且不会覆盖竞态中新出现的目标。
-                    published.push_back(target);
-                    std::filesystem::create_hard_link(staging / relative, target, error);
-                    if(error) {
-                        published.pop_back();
-                        return Result<void>::failure("Cannot publish imported file '"
-                                                     + target.string() + "': " + error.message());
-                    }
+                if(auto result = validate_available(metadata_path(target)); !result)
+                    return result;
+                std::vector<std::filesystem::path> missing;
+                for(auto parent = target.parent_path(); !parent.empty();
+                    parent = parent.parent_path()) {
+                    const bool exists = std::filesystem::exists(parent, error);
+                    if(error)
+                        return Result<void>::failure(
+                            "Cannot inspect import destination: " + error.message());
+                    if(exists)
+                        break;
+                    missing.push_back(parent);
                 }
-                AssetDatabase candidate_database = database;
-                scanned = true;
-                report = candidate_database.scan();
-                bool indexed = report.snapshot_updated && report.succeeded();
-                for(const auto& relative : roots)
-                    indexed = indexed && candidate_database.find(directory / relative);
-                if(!indexed)
-                    return Result<void>::failure(
-                        "Imported files could not be indexed; import rolled back");
-                database = std::move(candidate_database);
-                committed = true;
-                return Result<void>::success();
-            }
-
-            Result<void> prepare() {
-                if(auto prepared = prepare_destination(); !prepared)
-                    return prepared;
-                if(auto collected = collect_files(); !collected)
-                    return collected;
-                return stage_files();
-            }
-
-            AssetScanReport publish(AssetDatabase& database) {
-                ScopeExit cleanup_on_exit([this] { cleanup(nullptr); });
-                const auto result = publish_files(database);
-                if(!result) {
-                    report.snapshot_updated = false;
-                    report.indexed_assets = database.size();
-                    report.generated_metadata = 0;
-                    report.added_assets.clear();
-                    report.removed_assets.clear();
-                    report.modified_assets.clear();
-                    report.issues.push_back({directory, result.error()});
+                for(auto it = missing.rbegin(); it != missing.rend(); ++it) {
+                    created_directories.push_back(*it);
+                    if(!std::filesystem::create_directory(*it, error))
+                        created_directories.pop_back();
+                    if(error)
+                        return Result<void>::failure(
+                            "Cannot create import destination: " + error.message());
                 }
-                cleanup(&report);
-                cleanup_on_exit.release();
-                return report;
+                // 同卷硬链接原子发布单个文件，并且不会覆盖竞态中新出现的目标。
+                published.push_back(target);
+                std::filesystem::create_hard_link(staging / relative, target, error);
+                if(error) {
+                    published.pop_back();
+                    return Result<void>::failure("Cannot publish imported file '" + target.string()
+                                                 + "': " + error.message());
+                }
             }
-        };
-    }
+            AssetDatabase candidate_database = database;
+            scanned = true;
+            report = candidate_database.scan();
+            bool indexed = report.snapshot_updated && report.succeeded();
+            for(const auto& relative : roots)
+                indexed = indexed && candidate_database.find(directory / relative);
+            if(!indexed)
+                return Result<void>::failure(
+                    "Imported files could not be indexed; import rolled back");
+            database = std::move(candidate_database);
+            committed = true;
+            return Result<void>::success();
+        }
 
-    struct PreparedFileImport::State {
-        State(ProjectPaths paths, std::vector<std::filesystem::path> sources,
-            std::filesystem::path directory, const AssetImportLimits limits)
-            : transaction(std::move(paths), std::move(sources), std::move(directory), limits) {}
+        Result<void> prepare() {
+            if(auto prepared = prepare_destination(); !prepared)
+                return prepared;
+            if(auto collected = collect_files(); !collected)
+                return collected;
+            return stage_files();
+        }
 
-        ImportFilesTransaction transaction;
+        AssetScanReport publish(AssetDatabase& database) {
+            ScopeExit cleanup_on_exit([this] { cleanup(nullptr); });
+            const auto result = publish_files(database);
+            if(!result) {
+                report.snapshot_updated = false;
+                report.indexed_assets = database.size();
+                report.generated_metadata = 0;
+                report.added_assets.clear();
+                report.removed_assets.clear();
+                report.modified_assets.clear();
+                report.issues.push_back({directory, result.error()});
+            }
+            cleanup(&report);
+            cleanup_on_exit.release();
+            return report;
+        }
     };
 
     PreparedFileImport::PreparedFileImport(std::unique_ptr<State> state)
@@ -576,7 +552,7 @@ namespace CometEditor::AssetSourceOperations {
             return Result<PreparedFileImport>::failure("File import byte budget must be positive");
         auto state = std::make_unique<State>(
             std::move(paths), std::move(sources), std::move(directory), limits);
-        if(auto result = state->transaction.prepare(); !result)
+        if(auto result = state->prepare(); !result)
             return Result<PreparedFileImport>::failure(result.error());
         return Result<PreparedFileImport>::success(PreparedFileImport(std::move(state)));
     }
@@ -585,7 +561,7 @@ namespace CometEditor::AssetSourceOperations {
         auto state = std::move(m_state);
         if(!state)
             return operation_error({}, "File import preparation was already consumed");
-        return state->transaction.publish(database);
+        return state->publish(database);
     }
 
     AssetScanReport import_files(AssetDatabase& database,

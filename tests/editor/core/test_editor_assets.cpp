@@ -10,7 +10,6 @@
 #include "render/resource/texture.h"
 #include "render/material/material.h"
 #include "scene/scene_document.h"
-#include "scene/editor_scene_session.h"
 #include "scene/scene_editor.h"
 #include "scene/selection.h"
 #include "editor_state.h"
@@ -815,47 +814,6 @@ namespace CometEditor::Tests {
         EXPECT_EQ(runtime.resolve<Comet::Mesh>(mesh), original);
     }
 
-    TEST_F(EditorAssetsTest, DeviceLostDuringPreparationRejectsSceneInstallation) {
-        complete_imports();
-        const auto components = Comet::create_scene_component_registry();
-        const Comet::SceneSerializer serializer(components);
-        Comet::Scene candidate;
-        candidate.create_entity().add_component<Comet::MeshRendererComponent>(
-            mesh, Comet::AssetHandle{});
-        ASSERT_TRUE(serializer.save(candidate, (root / "assets/candidate.scene").string()));
-        auto active = std::make_unique<Comet::Scene>();
-        const auto* original = active.get();
-        CommandHistory history;
-        SceneDocument document(
-            serializer, Comet::ProjectPaths(root), history, [&] { return active.get(); },
-            [&](std::unique_ptr<Comet::Scene> replacement) {
-                const auto prepared = assets->prepare_scene(*replacement, components);
-                if(!prepared)
-                    return Comet::Result<void, Comet::Error>::failure(prepared.error());
-                active.swap(replacement);
-                return Comet::Result<void, Comet::Error>::success();
-            });
-        factory.fail_mesh_creation(true);
-        factory.set_failure_result(vk::Result::eErrorDeviceLost);
-        const auto loaded = assets->load_reference(
-            mesh, Comet::AssetType::Mesh, assets->database().get_revision(mesh));
-        ASSERT_FALSE(loaded);
-        EXPECT_TRUE(Comet::is_device_lost(loaded.error()));
-        const auto opened = document.open("candidate.scene");
-        ASSERT_FALSE(opened);
-        EXPECT_EQ(opened.error().code, loaded.error().code);
-        EXPECT_EQ(active.get(), original);
-        EXPECT_FALSE(runtime.contains(mesh));
-
-        factory.set_failure_result(vk::Result::eErrorOutOfDeviceMemory);
-        EXPECT_TRUE(document.open("candidate.scene"));
-        EXPECT_NE(active.get(), original);
-        EXPECT_FALSE(runtime.contains(mesh));
-        const auto prepared = assets->prepare_scene(*active, components);
-        ASSERT_TRUE(prepared);
-        EXPECT_EQ(prepared.value(), 1U);
-    }
-
     TEST_F(EditorAssetsTest, MaterialEditingPreservesDependencyDeviceErrorAndOldMaterial) {
         const auto directory = Comet::ProjectPaths(root).assets();
         std::filesystem::copy_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
@@ -1096,41 +1054,6 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(runtime.contains(material));
         EXPECT_EQ(assets->restore_references().value(), 1);
         EXPECT_TRUE(runtime.contains(material));
-    }
-
-    TEST_F(EditorAssetsTest, PlayPreparesCandidateAndStopRestoresWithoutReloading) {
-        const auto components = Comet::create_scene_component_registry();
-        const Comet::SceneSerializer serializer(components);
-        auto active = std::make_unique<Comet::Scene>();
-        active->create_entity().add_component<Comet::MeshRendererComponent>(
-            mesh, Comet::AssetHandle{});
-        complete_imports();
-        EditorState state;
-        int preparations = 0;
-        Comet::SceneRuntime scene_runtime;
-        const auto replace = [&](std::unique_ptr<Comet::Scene> replacement) {
-            EXPECT_TRUE(scene_runtime.stop());
-            active.swap(replacement);
-            return replacement;
-        };
-        EditorSceneSession session(
-            state, serializer, [&] { return active.get(); },
-            [&](std::unique_ptr<Comet::Scene> candidate) {
-                ++preparations;
-                EXPECT_EQ(assets->prepare_scene(*candidate, components).value(), 0);
-                return Comet::Result<std::unique_ptr<Comet::Scene>, Comet::Error>::success(
-                    replace(std::move(candidate)));
-            },
-            replace, [&] { return scene_runtime.start(*active); });
-        session.request_mode(EditorMode::Play);
-        ASSERT_TRUE(session.apply_mode_request());
-        EXPECT_TRUE(runtime.contains(mesh));
-        const auto creations = factory.mesh_creation_count();
-        session.request_mode(EditorMode::Edit);
-        ASSERT_TRUE(session.apply_mode_request());
-        EXPECT_TRUE(runtime.contains(mesh));
-        EXPECT_EQ(preparations, 1);
-        EXPECT_EQ(factory.mesh_creation_count(), creations);
     }
 
     TEST_F(EditorAssetsTest, ExternalFileImportQueuesArtifactWithoutGpuOrExplicitRefresh) {

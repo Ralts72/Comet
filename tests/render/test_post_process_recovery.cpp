@@ -1,6 +1,9 @@
 #include "render/renderer.h"
 #include "render/scene/scene_renderer.h"
 #include "render/passes/bloom_pass.h"
+#include "render/render_context.h"
+#include "render/resource/render_resources.h"
+#include "render/material/material_programs.h"
 #include "core/window.h"
 #include "config/config.h"
 #include "asset/registry.h"
@@ -22,7 +25,7 @@ namespace Comet {
     }
 }
 
-TEST(PostProcessRecoveryTest, KeepsRenderingAndBoundsRetriesWithoutChangingAuthoredSettings) {
+TEST(PostProcessRecoveryTest, SceneBoundsRetriesAndPropagatesDeviceLoss) {
     using namespace Comet;
     using namespace std::chrono_literals;
     Config config;
@@ -30,10 +33,17 @@ TEST(PostProcessRecoveryTest, KeepsRenderingAndBoundsRetriesWithoutChangingAutho
     config.window.height = 64;
     Window window(config.window);
     AssetRegistry assets;
-    auto created = Renderer::create(window, config, assets);
+    auto context = RenderContext::create(window, config.vulkan, config.render);
+    ASSERT_TRUE(context) << context.error();
+    auto& device = context.value()->get_device();
+    MaterialPrograms programs(assets);
+    RenderResources resources(device);
+    auto created = SceneRenderer::create(
+        device, programs, resources, config.vulkan, config.render, Math::Vec2u{96, 64});
     ASSERT_TRUE(created) << created.error().message;
-    auto renderer = std::move(created).value();
-    auto& scene = renderer->get_scene_renderer();
+    auto& scene = *created.value();
+    creations = 0;
+    failure = vk::Result::eErrorOutOfDeviceMemory;
     const PostProcessSettings requested{.bloom_enabled = true};
     const auto now = std::chrono::steady_clock::now();
     ASSERT_TRUE(scene.prepare_post_process(requested, now));
@@ -46,21 +56,37 @@ TEST(PostProcessRecoveryTest, KeepsRenderingAndBoundsRetriesWithoutChangingAutho
     adjusted.exposure = 2;
     ASSERT_TRUE(scene.prepare_post_process(adjusted, now + 30s));
     EXPECT_EQ(creations, 4U);
-    RenderScene submission;
-    submission.post_process = requested;
-    const auto frame = renderer->prepare_frame();
-    ASSERT_TRUE(frame);
-    ASSERT_EQ(frame.value(), Renderer::FramePreparation::Ready);
-    ASSERT_TRUE(renderer->render_frame(submission));
-    EXPECT_EQ(creations, 4U);
-    EXPECT_EQ(submission.post_process, requested);
-    EXPECT_FALSE(scene.get_post_process_settings().uses_bloom());
-    renderer->wait_idle();
-
     ASSERT_TRUE(scene.prepare_post_process({}, now + 31s));
     failure = vk::Result::eErrorDeviceLost;
     const auto lost = scene.prepare_post_process(requested, now + 32s);
     ASSERT_FALSE(lost);
     EXPECT_TRUE(lost.error().is_device_lost());
     EXPECT_EQ(creations, 5U);
+}
+
+TEST(PostProcessRecoveryTest, RendererKeepsDrawingOnOomWithoutChangingAuthoredSettings) {
+    using namespace Comet;
+    Config config;
+    config.window.width = 96;
+    config.window.height = 64;
+    Window window(config.window);
+    AssetRegistry assets;
+    auto created = Renderer::create(window, config, assets);
+    ASSERT_TRUE(created) << created.error();
+    auto& renderer = *created.value();
+    creations = 0;
+    failure = vk::Result::eErrorOutOfDeviceMemory;
+    RenderScene scene;
+    scene.post_process.bloom_enabled = true;
+    const auto authored = scene.post_process;
+    for(unsigned frame = 0; frame < 2; ++frame) {
+        const auto prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared) << prepared.error();
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+        ASSERT_TRUE(renderer.render_frame(scene));
+        EXPECT_EQ(scene.post_process, authored);
+        EXPECT_FALSE(renderer.get_scene_renderer().get_post_process_settings().uses_bloom());
+    }
+    EXPECT_GE(creations, 1U);
+    renderer.wait_idle();
 }

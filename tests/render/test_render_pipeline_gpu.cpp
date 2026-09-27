@@ -13,8 +13,10 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
-        auto& scene = renderer.get_scene_renderer();
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto scene_owner = create_scene(programs, {4, 4});
+        ASSERT_TRUE(scene_owner) << scene_owner.error();
+        auto& scene = *scene_owner.value();
         TemporaryDirectory sources;
         auto& registry = engine->get_asset_registry();
         const auto compile_program = [&](const float scale) {
@@ -54,13 +56,12 @@ namespace Comet::Tests {
         RenderSubmission submission{
             .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
                 Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
-            .render_items = {
-                {.model_matrix = Math::scale(
-                     Math::translate(Math::Mat4(1), {-0.5f, 0, 0}), {0.5f, 1, 1}),
-                    .mesh = quad,
-                    .material = {AssetHandle(9812), left}},
-                {.model_matrix = Math::scale(
-                     Math::translate(Math::Mat4(1), {0.5f, 0, 0}), {0.5f, 1, 1}),
+            .render_items = {{.model_matrix = Math::scale(
+                                  Math::translate(Math::Mat4(1), {-0.5f, 0, 0}), {0.5f, 1, 1}),
+                                 .mesh = quad,
+                                 .material = {AssetHandle(9812), left}},
+                {.model_matrix =
+                        Math::scale(Math::translate(Math::Mat4(1), {0.5f, 0, 0}), {0.5f, 1, 1}),
                     .mesh = quad,
                     .material = {AssetHandle(9813), right}}}};
         FrameScheduler frames(device, 2);
@@ -77,8 +78,7 @@ namespace Comet::Tests {
                 ASSERT_TRUE(registry.replace_asset(program_handle, std::move(broken)));
             }
             ASSERT_TRUE(scene.prepare_material_programs(submission));
-            const auto* published =
-                renderer.get_material_programs().published(program_handle, "unlit_color");
+            const auto* published = programs.published(program_handle, "unlit_color");
             ASSERT_NE(published, nullptr);
             if(index == 2) {
                 EXPECT_EQ(published->source, accepted);
@@ -131,8 +131,10 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({33, 33}));
-        auto& scene = renderer.get_scene_renderer();
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto scene_owner = create_scene(programs, {33, 33});
+        ASSERT_TRUE(scene_owner) << scene_owner.error();
+        auto& scene = *scene_owner.value();
         auto material = std::make_shared<Material>("pbr", "pbr");
         ASSERT_TRUE(material->set_vector_property("base_color", {0.8f, 0.2f, 0.1f, 1}));
         FrameScheduler frames(device, 2);
@@ -232,8 +234,10 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({9, 9}));
-        auto& scene = renderer.get_scene_renderer();
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto scene_owner = create_scene(programs, {9, 9});
+        ASSERT_TRUE(scene_owner) << scene_owner.error();
+        auto& scene = *scene_owner.value();
         TemporaryDirectory directory;
         write_hdr(directory.path() / "uniform.hdr");
         auto data = EnvironmentImporter{}.import(directory.path() / "uniform.hdr");
@@ -340,7 +344,10 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({9, 9}));
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto scene_owner = create_scene(programs, {9, 9});
+        ASSERT_TRUE(scene_owner) << scene_owner.error();
+        auto& scene = *scene_owner.value();
         TemporaryDirectory directory;
         write_hdr(directory.path() / "axes.hdr", 32, 16, [](int x, int) {
             if(x >= 16)
@@ -371,7 +378,6 @@ namespace Comet::Tests {
             frames.wait_for_current_slot();
             frames.begin_frame(0);
             frames.get_current_command_buffer().begin();
-            auto& scene = renderer.get_scene_renderer();
             auto drawn = scene.render(frames, submission);
             ASSERT_TRUE(drawn) << drawn.error();
             outputs[index] = std::make_shared<Readback>(
@@ -395,7 +401,10 @@ namespace Comet::Tests {
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
         const Math::Vec2u size(9, 9);
-        ASSERT_TRUE(renderer.enable_offscreen_rendering(size));
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto scene_owner = create_scene(programs, size);
+        ASSERT_TRUE(scene_owner) << scene_owner.error();
+        auto& scene = *scene_owner.value();
         TextureData data{.width = 4,
             .height = 4,
             .format = Format::R16G16B16A16_SFLOAT,
@@ -425,7 +434,6 @@ namespace Comet::Tests {
         const std::array<Math::Vec3, 9> expected{
             {colors[5] * 0.5f, colors[5] * 0.5f, colors[0] * 0.5f, colors[5] * 0.5f,
                 colors[2] * 0.5f, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 1, 0}}};
-        auto& scene = renderer.get_scene_renderer();
         Format output_format{};
         for(size_t index = 0; index < outputs.size(); ++index) {
             if(index == 1)
@@ -520,7 +528,10 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({2, 2}));
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto scene_owner = create_scene(programs, {2, 2}, SampleCount::Count4);
+        ASSERT_TRUE(scene_owner) << scene_owner.error();
+        auto& scene = *scene_owner.value();
         RenderSubmission submission{.view_project_matrix = ViewProjectMatrix{Math::Mat4(1),
                                         Math::perspective(60.0f, 1, 0.1f, 100)},
             .environment = {{}, true, 1, 0},
@@ -531,7 +542,6 @@ namespace Comet::Tests {
         frames.wait_for_current_slot();
         frames.begin_frame(0);
         frames.get_current_command_buffer().begin();
-        auto& scene = renderer.get_scene_renderer();
         auto drawn = scene.render(frames, submission);
         ASSERT_TRUE(drawn) << drawn.error();
         auto output =
@@ -556,16 +566,23 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({2, 2}));
+        ASSERT_TRUE(prepare_offscreen_host({2, 2}));
         auto& scene = renderer.get_scene_renderer();
         const AssetHandle handle(786);
         auto material = std::make_shared<Material>("authored", "unlit_color");
         ASSERT_TRUE(material->set_vector_property("color", {0, 1, 0, 1}));
         auto pbr = std::make_shared<Material>("authored", "pbr");
-        RenderSubmission submission{
-            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
-            .render_items = {{.mesh = lit_quad(), .material = {handle, material}}}};
+        auto& registry = engine->get_asset_registry();
+        const AssetHandle mesh_handle(787);
+        ASSERT_TRUE(registry.register_asset(mesh_handle, lit_quad()));
+        ASSERT_TRUE(registry.register_asset(handle, material));
+        RenderScene submission{.cameras = {{.primary = true,
+                                   .view_matrix = Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                                   .projection = RenderCamera::Projection::Orthographic,
+                                   .orthographic_height = 2,
+                                   .near_clip = 0.1f,
+                                   .far_clip = 10}},
+            .render_items = {{.mesh_handle = mesh_handle, .material_handle = handle}}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
@@ -582,29 +599,22 @@ namespace Comet::Tests {
                 auto update = renderer.prepare_material_update(handle, pbr);
                 ASSERT_TRUE(update) << update.error();
                 std::move(update).value().publish();
-                submission.render_items.front().material.resource = pbr;
+                ASSERT_TRUE(registry.replace_asset(handle, pbr));
             } else if(index == 3) {
                 auto red = std::make_shared<Material>("authored", "unlit_color");
                 ASSERT_TRUE(red->set_vector_property("color", {1, 0, 0, 1}));
                 auto update = renderer.prepare_material_update(handle, red);
                 ASSERT_TRUE(update) << update.error();
                 std::move(update).value().publish();
-                submission.render_items.front().material.resource = std::move(red);
+                ASSERT_TRUE(registry.replace_asset(handle, std::move(red)));
             }
-            frames.wait_for_current_slot();
-            frames.begin_frame(0);
-            frames.get_current_command_buffer().begin();
-            auto drawn = scene.render(frames, submission);
-            ASSERT_TRUE(drawn) << drawn.error();
+            outputs[index] =
+                std::make_shared<Readback>(device, context.get_context().get_physical_device(), 16);
+            render_and_copy(renderer, submission, frames, outputs[index]);
             EXPECT_EQ(scene.get_material_statistics().draw_calls, 1);
             if(index > 0)
                 EXPECT_EQ(scene.get_material_statistics().material_bindings_created, 0);
-            outputs[index] =
-                std::make_shared<Readback>(device, context.get_context().get_physical_device(), 16);
-            const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
-            format = view->get_image()->get_info().format;
-            copy_output(frames, view->get_image(), outputs[index], {2, 2});
-            submit(device, frames, drawn.value());
+            format = scene.get_offscreen_color_view(0)->get_image()->get_info().format;
         }
         frames.wait_for_all_slots();
         const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
@@ -626,8 +636,10 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({2, 2}));
-        auto& scene = renderer.get_scene_renderer();
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto scene_owner = create_scene(programs, {2, 2});
+        ASSERT_TRUE(scene_owner) << scene_owner.error();
+        auto& scene = *scene_owner.value();
         auto material = std::make_shared<Material>("pbr", "pbr");
         const Math::Vec3 tint{0.8f, 0.4f, 0.2f};
         ASSERT_TRUE(material->set_vector_property("base_color", Math::Vec4(tint, 1)));
@@ -702,8 +714,7 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
-        auto& scene = renderer.get_scene_renderer();
+        ASSERT_TRUE(prepare_offscreen_host({4, 4}));
         const auto directory = std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material";
         auto source = read_text_file(directory / "pbr.frag");
         ASSERT_TRUE(source) << source.error();
@@ -722,10 +733,17 @@ namespace Comet::Tests {
         auto material = std::make_shared<Material>("pbr", "pbr");
         ASSERT_TRUE(material->set_vector_property("base_color", {0.5f, 0.5f, 0.5f, 1}));
         ASSERT_TRUE(material->set_scalar_property("roughness", 1));
-        RenderSubmission submission{
-            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
-            .render_items = {{.mesh = lit_quad(), .material = {AssetHandle(784), material}}},
+        auto& registry = engine->get_asset_registry();
+        ASSERT_TRUE(registry.register_asset(AssetHandle(783), lit_quad()));
+        ASSERT_TRUE(registry.register_asset(AssetHandle(784), material));
+        RenderScene submission{.cameras = {{.primary = true,
+                                   .view_matrix = Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                                   .projection = RenderCamera::Projection::Orthographic,
+                                   .orthographic_height = 2,
+                                   .near_clip = 0.1f,
+                                   .far_clip = 10}},
+            .render_items = {{.mesh_handle = AssetHandle(783),
+                .material_handle = AssetHandle(784)}},
             .lights = {{.intensity = Math::PI}}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
@@ -769,17 +787,10 @@ namespace Comet::Tests {
                     renderer.reload_material_shaders({{"unlit_color", builtin.at("unlit_color")}}));
                 ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
             }
-            frames.wait_for_current_slot();
-            frames.begin_frame(0);
-            frames.get_current_command_buffer().begin();
-            const auto drawn = scene.render(frames, submission);
-            ASSERT_TRUE(drawn) << drawn.error();
+
             outputs[index] =
                 std::make_shared<Readback>(device, context.get_context().get_physical_device(), 64);
-            copy_output(frames,
-                scene.get_offscreen_color_view(frames.get_current_frame_slot_index())->get_image(),
-                outputs[index], {4, 4});
-            submit(device, frames, drawn.value());
+            render_and_copy(renderer, submission, frames, outputs[index]);
         }
         frames.wait_for_all_slots();
         for(size_t index = 0; index < outputs.size(); ++index) {
@@ -795,8 +806,10 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({33, 33}));
-        auto& scene = renderer.get_scene_renderer();
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto scene_owner = create_scene(programs, {33, 33});
+        ASSERT_TRUE(scene_owner) << scene_owner.error();
+        auto& scene = *scene_owner.value();
         const auto mesh = lit_quad();
         auto material = std::make_shared<Material>("pbr", "pbr");
         const auto occluder =
@@ -843,8 +856,10 @@ namespace Comet::Tests {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
         auto& renderer = engine->get_renderer();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({17, 17}));
-        auto& scene = renderer.get_scene_renderer();
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto scene_owner = create_scene(programs, {17, 17});
+        ASSERT_TRUE(scene_owner) << scene_owner.error();
+        auto& scene = *scene_owner.value();
         auto mesh = lit_quad();
         auto tilted = lit_quad({1, 0, 1});
         ASSERT_TRUE(mesh);

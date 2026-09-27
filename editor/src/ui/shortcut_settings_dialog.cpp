@@ -1,33 +1,19 @@
 #include "ui/shortcut_settings_dialog.h"
 
 #include "ui/language.h"
+#include "ui/widgets.h"
 
 #include <array>
 #include <cctype>
-#include <cstring>
 #include <string_view>
 #include <utility>
 #include <imgui.h>
 
 namespace CometEditor {
     namespace {
-        constexpr std::array<const char*, EditorShortcuts::ACTION_COUNT> ACTION_LABELS{
-            "New Scene", "Open Scene", "Save Scene", "Undo", "Redo", "Copy Entity",
-            "Paste Entity", "Delete Selection", "Focus Selection"};
-
-        void input_text(const char* label, std::string& value) {
-            const bool changed = ImGui::InputText(label, value.data(), value.capacity() + 1,
-                ImGuiInputTextFlags_CallbackResize,
-                [](ImGuiInputTextCallbackData* data) {
-                    auto& text = *static_cast<std::string*>(data->UserData);
-                    text.resize(static_cast<std::size_t>(data->BufTextLen));
-                    data->Buf = text.data();
-                    return 0;
-                },
-                &value);
-            if(changed)
-                value.resize(std::strlen(value.c_str()));
-        }
+        constexpr std::array<const char*, EditorShortcuts::ACTION_COUNT> ACTION_LABELS{"New Scene",
+            "Open Scene", "Save Scene", "Undo", "Redo", "Copy Entity", "Paste Entity",
+            "Delete Selection", "Focus Selection"};
 
         std::string_view trim(std::string_view text) {
             while(!text.empty() && std::isspace(static_cast<unsigned char>(text.front())))
@@ -71,10 +57,8 @@ namespace CometEditor {
                 const auto separator = remaining.find(',');
                 const auto chord = trim(remaining.substr(0, separator));
                 if(chord.empty())
-                    return Result::failure(
-                        std::string(EditorShortcuts::action_name(
-                            static_cast<EditorShortcuts::Action>(index)))
-                        + ": empty shortcut");
+                    return Result::failure(std::string(EditorShortcuts::action_name(
+                        static_cast<EditorShortcuts::Action>(index))) + ": empty shortcut");
                 bindings[index].emplace_back(chord);
                 if(separator == std::string_view::npos)
                     break;
@@ -92,8 +76,8 @@ namespace CometEditor {
             ImGui::OpenPopup(title);
             m_open_requested = false;
         }
-        if(!ImGui::BeginPopupModal(Ui::label(title).c_str(), nullptr,
-               ImGuiWindowFlags_AlwaysAutoResize))
+        if(!ImGui::BeginPopupModal(
+               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
         if(m_close_requested) {
             ImGui::CloseCurrentPopup();
@@ -111,7 +95,7 @@ namespace CometEditor {
             ImGui::TextUnformatted(Ui::text(ACTION_LABELS[index]));
             ImGui::SameLine(200.0f);
             ImGui::SetNextItemWidth(330.0f);
-            input_text("##Shortcut", m_draft[index]);
+            Ui::input_text("##Shortcut", m_draft[index]);
             ImGui::PopID();
         }
         if(ImGui::Button(Ui::label("Restore Defaults").c_str())) {

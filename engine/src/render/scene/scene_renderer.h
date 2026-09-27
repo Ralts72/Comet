@@ -29,8 +29,14 @@ namespace Comet {
 
     class COMET_API SceneRenderer {
     public:
-        SceneRenderer(Device& device, MaterialPrograms& programs, const Config::Vulkan& vulkan,
-            const Config::Render& render);
+        // 显式创建指定尺寸的离屏输出。
+        static Result<std::unique_ptr<SceneRenderer>, GraphicsError> create(Device& device,
+            MaterialPrograms& programs, RenderResources& resources, const Config::Vulkan& vulkan,
+            const Config::Render& render, Math::Vec2u size);
+        // 按 scene_output 选择输出；离屏模式以交换链尺寸初始化。
+        static Result<std::unique_ptr<SceneRenderer>, GraphicsError> create(Device& device,
+            MaterialPrograms& programs, RenderResources& resources, const Config::Vulkan& vulkan,
+            const Config::Render& render, Swapchain& swapchain);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
         [[nodiscard]] MaterialRenderer::Statistics get_material_statistics() const;
@@ -56,6 +62,8 @@ namespace Comet {
 
     private:
         friend class Renderer;
+        SceneRenderer(Device& device, MaterialPrograms& programs, const Config::Vulkan& vulkan,
+            const Config::Render& render);
         void skip_frame();
         void collect_removed_assets(const AssetRegistry& assets);
         Result<void, GraphicsError> configure_bloom(bool enabled);

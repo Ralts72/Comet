@@ -483,9 +483,9 @@ namespace Comet::Tests {
     TEST_F(RenderGraphGpuTest, DirectionalShadowsMoveToggleAndKeepInFlightFramesIndependent) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
-        auto& renderer = engine->get_renderer();
-        ASSERT_TRUE(renderer.enable_offscreen_rendering({33, 33}));
-        auto& scene = renderer.get_scene_renderer();
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto scene_owner = create_scene(programs, {33, 33});
+        ASSERT_TRUE(scene_owner) << scene_owner.error();
         auto mesh = lit_quad();
         auto material = std::make_shared<Material>("shadow receiver", "pbr");
         ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
@@ -534,6 +534,7 @@ namespace Comet::Tests {
                 frames.wait_for_current_slot();
                 frames.begin_frame(0);
                 frames.get_current_command_buffer().begin();
+                auto& scene = *scene_owner.value();
                 auto drawn = scene.render(frames, submission);
                 ASSERT_TRUE(drawn) << drawn.error();
                 outputs[index] = std::make_shared<Readback>(
@@ -543,8 +544,10 @@ namespace Comet::Tests {
                         ->get_image(),
                     outputs[index], {33, 33});
                 submit(device, frames, drawn.value());
-                if(scenario == Scenario::RebuildAndRemoveOccluder && index == 0)
-                    ASSERT_TRUE(renderer.enable_offscreen_rendering({33, 33}));
+                if(scenario == Scenario::RebuildAndRemoveOccluder && index == 0) {
+                    scene_owner = create_scene(programs, {33, 33});
+                    ASSERT_TRUE(scene_owner) << scene_owner.error();
+                }
             }
             // 两帧均提交后才等待，读回各自阴影，不能让后帧覆盖前帧的 depth/UBO。
             frames.wait_for_all_slots();
@@ -708,8 +711,10 @@ namespace Comet::Tests {
             ASSERT_TRUE(created) << created.error().message;
             engine = std::move(created).value();
             auto& renderer = engine->get_renderer();
-            ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
-            auto& scene = renderer.get_scene_renderer();
+            MaterialPrograms programs(engine->get_asset_registry());
+            auto scene_owner = create_scene(programs, {4, 4}, samples);
+            ASSERT_TRUE(scene_owner) << scene_owner.error();
+            auto& scene = *scene_owner.value();
             auto& context = renderer.get_render_context();
             auto& device = context.get_device();
             FrameScheduler frames(device, 2);
