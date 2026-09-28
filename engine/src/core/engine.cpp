@@ -220,9 +220,9 @@ namespace Comet {
                 prepare_shutdown();
                 return advanced;
             }
-            // 不提取部分写入的场景；已 acquire 的帧先用空场景完成，再交给宿主恢复。
+            // 不提取部分写入的场景；先完成已 acquire 的帧，再交给宿主恢复。
             if(frame_ready_to_render) {
-                if(auto drained = m_renderer->render_frame({}); !drained) {
+                if(auto drained = m_renderer->render_frame(); !drained) {
                     prepare_shutdown();
                     return Result<void, Error>::failure(drained.error().as_error());
                 }
@@ -241,10 +241,13 @@ namespace Comet {
             discard_unfinished_diagnostics.release();
             return Result<void, Error>::success();
         }
-        RenderScene render_scene;
-        if(m_scene)
-            render_scene = SceneExtractor::extract(*m_scene);
-        const auto rendered = m_renderer->render_frame(render_scene);
+        auto rendered = Result<void, GraphicsError>::success();
+        if(m_scene) {
+            const auto render_scene = SceneExtractor::extract(*m_scene);
+            rendered = m_renderer->render_frame(render_scene);
+        } else {
+            rendered = m_renderer->render_frame();
+        }
         if(!rendered) {
             prepare_shutdown();
             return Result<void, Error>::failure(rendered.error().as_error());

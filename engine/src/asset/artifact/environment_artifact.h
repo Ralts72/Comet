@@ -11,6 +11,9 @@ namespace Comet {
     public:
         [[nodiscard]] static std::optional<EnvironmentArtifact> load(
             const std::filesystem::path& path, AssetHandle handle, std::size_t memory_budget);
+        [[nodiscard]] static std::optional<EnvironmentArtifact> load(
+            const std::filesystem::path& path, AssetHandle handle, std::size_t memory_budget,
+            const ImportInputFingerprint& source, uint32_t importer_version);
         [[nodiscard]] Result<void> publish_atomic(const std::filesystem::path& path) const;
 
         AssetHandle handle;

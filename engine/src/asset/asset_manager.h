@@ -88,6 +88,9 @@ namespace Comet {
         enum class MissingAssetPolicy { FailRequired, AllowMissing };
         [[nodiscard]] Result<std::size_t, Error> prepare_references(
             std::span<const AssetReference> references, MissingAssetPolicy policy);
+        // prepare_references 后只读查询；临时环境预览不算完整资源就绪。
+        [[nodiscard]] Result<bool, Error> references_ready(
+            std::span<const AssetReference> references, MissingAssetPolicy policy) const;
         [[nodiscard]] Result<void, Error> import_mesh(AssetHandle handle);
         [[nodiscard]] bool import_mesh_async(
             AssetHandle handle, MeshImportMode mode = MeshImportMode::IfNeeded);
@@ -140,6 +143,7 @@ namespace Comet {
         [[nodiscard]] bool schedule_loaded_texture_refresh(const AssetRecord& record);
         [[nodiscard]] bool schedule_material_refresh(const AssetRecord& record);
         [[nodiscard]] Result<bool, Error> schedule_environment(const AssetRecord& record);
+        Result<void, Error> publish_environment_previews(AssetCompletionBudget budget);
         // 空值表示未发布；Handle 表示已发布；错误表示不能继续处理队列。
         using ImportPublication = Result<std::optional<AssetHandle>, Error>;
         ImportPublication publish_import_result(AssetImportResult& result);
@@ -164,6 +168,10 @@ namespace Comet {
         std::unique_ptr<AssetTaskQueue> m_task_queue;
         std::unordered_map<AssetHandle, AssetRevision> m_refresh_requests;
         std::unordered_map<AssetHandle, AssetRevision> m_failed_environments;
+        struct PendingEnvironmentPreview;
+        std::unordered_map<AssetHandle, std::shared_ptr<PendingEnvironmentPreview>>
+            m_environment_previews;
         std::unordered_set<AssetHandle> m_mesh_imports_needing_recheck;
+        bool m_processing_completions = false;
     };
 }

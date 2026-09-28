@@ -9,6 +9,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `engine/src/` | 引擎库：runtime、core、input、scene、asset、audio、render、graphics、config、diagnostics |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
+| `tools/asset/` | 编辑器与独立工具共用的项目 Shader 导入，以及无窗口的启动场景资产准备入口 |
 | `tools/render_benchmark/` | 固定场景渲染性能基准及一键运行脚本，链接 engine，不依赖测试框架或编辑器 |
 | `tools/asset_scan_benchmark/` | 可选的资产扫描 CPU 基准及一键运行脚本，分别测量候选准备与索引发布 |
 | `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、project、render、ui 组织，`resources/` 保存私有字体等资源 |
@@ -27,7 +28,8 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 阶段及入口，旁边的 `.meta` 保持程序身份；编辑器后台编译后把可重建的 CPU 字节码缓存到项目 `.comet/cache/shaders/`。
 材质的 Inspector 可用 `Shader Program` 选择项目 `.shader`，保存为可选的稳定 Handle；未选择时沿用内置程序。
 项目 `.shader` 可声明材质纹理、标量与四维向量的名称、默认值和编辑信息；反射核对实际 binding、类型与偏移。渲染域保存 GPU 已接受的程序版本，Inspector 优先显示该版本的属性；新候选失败时画面和 Inspector 均保留旧版。`Render Template` 约束帧资源、顶点输入等非材质接口。
-开发期 app 可读取编辑器生成且输入仍有效的缓存，但不会编译源码；发布包脱离开发机缓存的程序交付和更复杂的 Shader 接口仍待实现。
+开发期 app 读取已准备且输入仍有效的产物，不编译 Shader 源码；`release.sh` 启动前自动准备启动场景依赖，无需先打开编辑器。
+发布包脱离开发机缓存的程序交付和更复杂的 Shader 接口仍待实现。
 `render/material/` 聚合材质定义、准备缓存与绘制，`render/debug/` 聚合辅助线，`render/passes/` 保存具体渲染步骤。
 `RenderResources` 组织 Mesh/Texture 创建、上传和 Sampler 复用；资产身份缓存仍只由 `AssetRegistry` 管理。
 编辑器的 `ProjectPanel` 位于 `assets/project_panel.*`，`ViewportPanel` 位于 `viewport/viewport_panel.*`，
@@ -62,7 +64,20 @@ ctest --preset dev-debug
 脚本按 1K、2K、4K、8K 顺序下载 Small Hangar 01 的四个版本，总计约 130.7 MiB，默认场景引用 4K。
 每个版本有独立的 `.meta`，可在 Environment 的 HDR map 中切换；4K 转成单面 1024 的 cubemap，
 8K 转成单面 2048，包含 mip 的纹理约占 256 MiB，解码时还需要额外 CPU 内存。16K 超出导入尺寸限制，不下载。
+首次环境导入时，编辑器可先显示最高 128²/面的临时背景，完整 IBL 完成后整组替换；重导入已有环境保留旧版。
+app 等待启用的环境准备完成后再启动场景，期间仍处理窗口事件并清屏，不把尚未激活场景诊断为缺少主相机；
+正式场景缺少主相机仍会警告。可选环境缺失或失败会诊断并回退纯色。
 脚本可从任意工作目录运行，逐文件校验 SHA-256，跳过已校验文件；下载失败不会覆盖现有资源。
+
+直接运行 app 前，也可单独增量准备项目（不打开窗口，不创建 GPU 资源）：
+
+```bash
+cmake --build build --target comet_prepare_project --parallel
+./build/tools/asset/comet_prepare_project ./demo
+```
+
+工具读取当前构建 Profile 的导入额度，为启动场景引用的 Mesh、Environment 和 ShaderProgram 准备产物；
+有效缓存不重写，失败保留上一次有效产物。它是开发期资产准备工具，不是发布打包器，也不执行 GPU 管线预热。
 未下载时 demo 保留环境资产引用并提示缺失，背景回退为纯色；下载后重新打开项目即可。
 构建和启动不会自动联网。普通测试使用小型本地数据，不自动导入下载的 HDR。
 真实 HDR 验证需显式启用：`cmake --preset dev-debug -DCOMET_TEST_DOWNLOADED_ASSETS=ON`，
@@ -502,7 +517,7 @@ Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。�
 
 项目示例位于 `demo/assets/shaders/stripes.vert`、`stripes.frag` 和 `stripes.shader`，材质 `demo/assets/materials/stripes.mat`
 通过稳定 Handle 引用程序。`stripes.shader` 为 `frequency` 等属性提供默认值和编辑范围；启动编辑器打开默认场景，可看到右侧条纹立方体，在 Inspector 修改频率或编辑 `stripes.frag` 后可观察变化。
-项目 Shader 不进入引擎的 CMake 内嵌程序列表，开发期 app 需要先由编辑器生成有效的程序缓存。
+项目 Shader 不进入引擎的 CMake 内嵌程序列表；编辑器与 `comet_prepare_project` 共用源编译逻辑，app 只加载产物。
 
 以下目录相对 `engine/shaders/`。
 

@@ -43,7 +43,7 @@ namespace Comet {
 
     class CubeSampler {
     public:
-        explicit CubeSampler(const TextureData& data) : m_data(data) {
+        explicit CubeSampler(const TextureData& data) : m_data(data), m_levels(data.mip_levels) {
             size_t offset = 0;
             for(int size = data.width; size > 0; size /= 2) {
                 m_offsets.push_back(offset);
@@ -51,13 +51,15 @@ namespace Comet {
             }
         }
 
-        glm::vec3 sample(glm::vec3 direction, float lod) const {
+        glm::vec3 sample(glm::vec3 direction, float lod) {
             lod = std::clamp(lod, 0.0f, float(m_data.mip_levels - 1));
             const auto low = static_cast<uint32_t>(lod);
             const auto high = std::min(low + 1, m_data.mip_levels - 1);
             const auto coordinate = cube_coordinate(direction);
-            return glm::mix(
-                sample_level(coordinate, low), sample_level(coordinate, high), lod - low);
+            const auto first = sample_level(coordinate, low);
+            if(low == high || lod == float(low))
+                return first;
+            return glm::mix(first, sample_level(coordinate, high), lod - low);
         }
 
     private:
@@ -71,13 +73,21 @@ namespace Comet {
                 x = std::clamp(int((next.uv.x * 0.5f + 0.5f) * size), 0, size - 1);
                 y = std::clamp(int((next.uv.y * 0.5f + 0.5f) * size), 0, size - 1);
             }
-            glm::u16vec4 packed;
-            const auto offset = m_offsets[mip] + ((size_t(face) * size + y) * size + x) * 8;
-            std::memcpy(&packed, m_data.pixels.data() + offset, sizeof(packed));
-            return glm::vec3(glm::unpackHalf(packed));
+            return m_levels[mip][(size_t(face) * size + y) * size + x];
         }
 
-        glm::vec3 sample_level(CubeCoordinate c, uint32_t mip) const {
+        glm::vec3 sample_level(CubeCoordinate c, uint32_t mip) {
+            auto& level = m_levels[mip];
+            if(level.empty()) {
+                // 每个被采样的 mip 只解码一次，避免卷积内层反复转换 float16。
+                const auto size = m_data.width >> mip;
+                level.resize(size_t(size) * size * 6);
+                for(size_t i = 0; i < level.size(); ++i) {
+                    glm::u16vec4 packed;
+                    std::memcpy(&packed, m_data.pixels.data() + m_offsets[mip] + i * 8, 8);
+                    level[i] = glm::vec3(glm::unpackHalf(packed));
+                }
+            }
             const auto p = (c.uv * 0.5f + 0.5f) * float(m_data.width >> mip) - 0.5f;
             const int x = int(std::floor(p.x)), y = int(std::floor(p.y));
             return glm::mix(
@@ -88,6 +98,7 @@ namespace Comet {
 
         const TextureData& m_data;
         std::vector<size_t> m_offsets;
+        std::vector<std::vector<glm::vec3>> m_levels;
     };
 
     static glm::vec2 hammersley(uint32_t index) {
@@ -163,7 +174,7 @@ namespace Comet {
         const int limit =
             specular ? EnvironmentData::SPECULAR_SIZE : EnvironmentData::IRRADIANCE_SIZE;
         auto result = make_texture(std::min(background.width, limit), true, specular);
-        const CubeSampler source(background);
+        CubeSampler source(background);
         const float texel_angle = 4 * PI / (6 * background.width * background.width);
         for(uint32_t mip = 0; mip < result.mip_levels; ++mip) {
             const int size = result.width >> mip;

@@ -664,7 +664,8 @@ namespace Comet {
             frame->buffer->write(&camera);
             auto environment = m_empty_environment;
             auto frame_lighting = lighting;
-            if(submission.environment.lighting && submission.environment_resource) {
+            if(submission.environment.lighting && submission.environment_resource
+                && submission.environment_resource->has_lighting()) {
                 environment = submission.environment_resource;
                 const float rotation = Math::radians(submission.environment.rotation);
                 const auto& image = environment->specular->get_image_view()->get_image();

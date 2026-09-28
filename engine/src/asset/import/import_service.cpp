@@ -34,21 +34,19 @@ namespace Comet {
                / (std::to_string(handle.value()) + ".bin");
     }
 
-    Result<EnvironmentArtifact> ImportService::prepare_environment(
-        const AssetRecord& record, const std::size_t memory_budget) const {
+    Result<EnvironmentArtifact> ImportService::prepare_environment(const AssetRecord& record,
+        const std::size_t memory_budget, EnvironmentImporter::Preview* preview) const {
         const auto source = m_paths.assets() / record.path;
         auto inputs = capture_import_inputs(m_paths.assets(), source, {});
         if(!inputs)
             return Result<EnvironmentArtifact>::failure(inputs.error());
         const auto& fingerprint = inputs.value().files.front();
-        if(auto cached = EnvironmentArtifact::load(
-               environment_artifact_path(record.handle), record.handle, memory_budget)) {
-            if(cached->importer_version == EnvironmentImporter::VERSION
-                && cached->source == fingerprint
-                && import_inputs_are_current(m_paths.assets(), inputs.value()))
+        if(auto cached = EnvironmentArtifact::load(environment_artifact_path(record.handle),
+               record.handle, memory_budget, fingerprint, EnvironmentImporter::VERSION)) {
+            if(import_inputs_are_current(m_paths.assets(), inputs.value()))
                 return Result<EnvironmentArtifact>::success(std::move(*cached));
         }
-        auto imported = EnvironmentImporter{}.import(source, memory_budget);
+        auto imported = EnvironmentImporter{}.import(source, memory_budget, preview);
         if(!imported)
             return Result<EnvironmentArtifact>::failure(imported.error());
         if(!import_inputs_are_current(m_paths.assets(), inputs.value()))

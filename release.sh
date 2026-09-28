@@ -16,6 +16,11 @@ fi
 if [ -x "$EXEC" ]; then
     echo "运行 Release App: $EXEC"
     cd "$CALLER_DIRECTORY"
+    if [[ $# -eq 0 ]]; then
+        "$ROOT_DIR/build-release/tools/asset/comet_prepare_project" "$ROOT_DIR/demo"
+    elif [[ $# -eq 1 && "$1" != "--help" ]]; then
+        "$ROOT_DIR/build-release/tools/asset/comet_prepare_project" "$1"
+    fi
     exec "$EXEC" "$@"
 else
     echo "Release App executable not found: $EXEC"

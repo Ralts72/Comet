@@ -9,9 +9,11 @@
 #include "scene/scene_serializer.h"
 
 #include <cmath>
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace {
     class GameApp final: public Comet::Application {
@@ -43,7 +45,12 @@ namespace {
                     "Asset scan issue at '{}': {}", issue.path.generic_string(), issue.message);
 
             // 开发期 app 在启动阶段补齐 Artifact，不把源模型导入放进运行帧。
-            const auto references = components.collect_asset_references(*scene);
+            auto references = components.collect_asset_references(*scene);
+            const auto& environment = scene->get_environment();
+            if(!environment.background && !environment.lighting)
+                std::erase_if(references, [](const auto& reference) {
+                    return reference.type == Comet::AssetType::Environment;
+                });
             for(const auto& reference : references) {
                 if(reference.type == Comet::AssetType::Mesh) {
                     if(auto imported = m_asset_manager->import_mesh(reference.handle); !imported)
@@ -56,24 +63,38 @@ namespace {
                 return Init::failure(prepared.error());
             LOG_INFO("App project '{}', startup scene '{}'", m_project.paths().root().string(),
                 m_project.startup_scene().generic_string());
-            engine.set_scene(std::move(scene));
+            m_pending_scene = std::move(scene);
+            m_pending_references = references;
+            engine.get_window().set_title(m_project.name() + " | Loading assets");
             if(auto configured = engine.set_input_actions(m_project.input_actions()); !configured)
                 return configured;
             if(auto added = engine.add_default_scene_systems(); !added)
                 return added;
-            return engine.start_scene_runtime();
+            return Init::success();
         }
 
         Comet::Result<void, Comet::Error> on_update(Comet::Engine::FrameContext& frame) override {
             const auto fps = static_cast<int>(std::round(frame.update.fps));
-            if(frame.update.fps > 0.0f && fps != m_displayed_fps) {
+            if(!m_pending_scene && frame.update.fps > 0.0f && fps != m_displayed_fps) {
                 get_engine().get_window().set_title(
                     m_project.name() + " | " + std::to_string(fps) + " FPS");
                 m_displayed_fps = fps;
             }
             if(auto assets = m_asset_manager->process_completions(); !assets)
                 return Comet::Result<void, Comet::Error>::failure(assets.error());
-            frame.runtime_input = m_input_gate.read(frame.physical_input, true);
+            if(m_pending_scene) {
+                auto ready = m_asset_manager->references_ready(
+                    m_pending_references, Comet::AssetManager::MissingAssetPolicy::FailRequired);
+                if(!ready)
+                    return Comet::Result<void, Comet::Error>::failure(ready.error());
+                if(ready.value()) {
+                    get_engine().set_scene(std::move(m_pending_scene));
+                    m_pending_references.clear();
+                    if(auto started = get_engine().start_scene_runtime(); !started)
+                        return started;
+                }
+            }
+            frame.runtime_input = m_input_gate.read(frame.physical_input, !m_pending_scene);
             if(frame.physical_input.key(Comet::Input::Key::Escape).pressed)
                 get_engine().get_window().request_close();
             return Comet::Result<void, Comet::Error>::success();
@@ -82,6 +103,7 @@ namespace {
         Comet::Result<void, Comet::Error> on_shutdown() override {
             LOG_INFO("app shutdown");
             m_asset_manager.reset();
+            m_pending_scene.reset();
             return Comet::Result<void, Comet::Error>::success();
         }
 
@@ -89,6 +111,8 @@ namespace {
         Comet::Project m_project;
         Comet::Input::Gate m_input_gate;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
+        std::unique_ptr<Comet::Scene> m_pending_scene;
+        std::vector<Comet::AssetReference> m_pending_references;
         int m_displayed_fps = -1;
     };
 

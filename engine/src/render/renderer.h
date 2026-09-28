@@ -53,6 +53,8 @@ namespace Comet {
         [[nodiscard]] Result<FramePreparation, GraphicsError> prepare_frame();
         // 消费场景快照，完成绘制、提交和呈现；帧错误终止本次 Renderer 生命周期。
         [[nodiscard]] Result<void, GraphicsError> render_frame(const RenderScene& render_scene);
+        // 无活动场景时只清屏和绘制 UI，不诊断场景相机。
+        [[nodiscard]] Result<void, GraphicsError> render_frame();
 
         Result<void, GraphicsError> enable_offscreen_rendering(Math::Vec2u initial_size);
         [[nodiscard]] OffscreenFrame get_offscreen_frame() const;
@@ -97,6 +99,7 @@ namespace Comet {
         Renderer(std::unique_ptr<RenderContext> context, std::unique_ptr<RenderResources> resources,
             std::unique_ptr<FrameScheduler> frames, std::unique_ptr<MaterialPrograms> programs,
             std::unique_ptr<SceneRenderer> scene, const AssetRegistry& assets);
+        Result<void, GraphicsError> complete_frame(const RenderScene* render_scene);
         void discard_frame_requests();
         struct ViewportPickRequest {
             Math::Vec2u pixel;

@@ -14,6 +14,24 @@ namespace Comet::Tests {
         return glm::unpackHalf(packed);
     }
 
+    TEST(EnvironmentImporterTest, PreviewIsBoundedAndDoesNotReduceFinalBackgroundQuality) {
+        TemporaryDirectory directory;
+        const auto path = directory.path() / "preview.hdr";
+        write_hdr(path, 1024, 512);
+        EnvironmentImporter::Preview preview;
+        auto imported =
+            EnvironmentImporter{}.import(path, EnvironmentImporter::MAX_WORKING_BYTES, &preview);
+        ASSERT_TRUE(imported) << imported.error();
+        const auto background = preview.take();
+        ASSERT_TRUE(background);
+        EXPECT_EQ(background->width, 128);
+        EXPECT_EQ(pixel_at(*background, 0), glm::vec4(4, 2, 1, 1));
+        EXPECT_TRUE(background->cubemap);
+        EXPECT_EQ(imported.value().background.width, 256);
+        EXPECT_FALSE(imported.value().specular.pixels.empty());
+        EXPECT_FALSE(preview.take());
+    }
+
     TEST(EnvironmentImporterTest, LightingConvolutionPreservesUniformRadianceAndIntegratesBrdf) {
         TemporaryDirectory directory;
         write_hdr(directory.path() / "uniform.hdr");

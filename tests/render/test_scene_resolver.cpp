@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "asset/registry.h"
+#include "common/scope_exit.h"
 #include "render/material/material.h"
 #include "render/resource/render_resources.h"
 #include "render/resource/texture.h"
@@ -10,6 +11,9 @@
 #include "support/math_assertions.h"
 
 #include <limits>
+#include <algorithm>
+#include <sstream>
+#include <spdlog/sinks/ostream_sink.h>
 
 namespace Comet::Tests {
     namespace {
@@ -27,15 +31,26 @@ namespace Comet::Tests {
         EXPECT_FALSE(camera.projection_matrix(1));
     }
 
-    TEST(SceneResolverTest, EmptySceneProducesEmptySubmission) {
+    TEST(SceneResolverTest, ActiveEmptySceneStillReportsMissingPrimaryCameraOnce) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);
+        const auto logger = Logger::get_console_logger();
+        ASSERT_NE(logger, nullptr);
+        std::ostringstream messages;
+        const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(messages);
+        Logger::add_custom_sink(sink);
+        const ScopeExit remove_sink([&] { std::erase(logger->sinks(), sink); });
 
         const RenderSubmission submission =
             resolver.resolve(RenderScene{}, runtime_view(Math::Vec2u(1280, 720)));
 
         EXPECT_FALSE(submission.view_project_matrix);
         EXPECT_TRUE(submission.render_items.empty());
+        const auto reported = messages.str();
+        EXPECT_NE(reported.find("Render scene has no primary camera"), std::string::npos);
+        EXPECT_FALSE(
+            resolver.resolve(RenderScene{}, runtime_view({1280, 720})).view_project_matrix);
+        EXPECT_EQ(messages.str(), reported);
     }
 
     TEST(SceneResolverTest, SkipsItemsWithMissingResources) {

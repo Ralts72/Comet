@@ -688,6 +688,12 @@ namespace Comet::Tests {
         const auto second = manager.get_database().find("two.hdr")->handle;
         ASSERT_TRUE(manager.request_load(first, AssetType::Environment));
         ASSERT_TRUE(manager.request_load(second, AssetType::Environment));
+        const std::array references{AssetReference{first, AssetType::Environment},
+            AssetReference{second, AssetType::Environment}};
+        auto ready =
+            manager.references_ready(references, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(ready);
+        EXPECT_FALSE(ready.value());
         EXPECT_EQ(factory.texture_creation_count(), 0);
         EXPECT_EQ(manager.get_async_status().in_flight, 1u);
         EXPECT_EQ(manager.get_async_status().queued, 1u);
@@ -701,6 +707,75 @@ namespace Comet::Tests {
         EXPECT_EQ(completed_handles(manager.process_completions()), std::vector{second});
         EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
         EXPECT_EQ(factory.texture_creation_count(), 8);
+        ready =
+            manager.references_ready(references, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(ready);
+        EXPECT_TRUE(ready.value());
+    }
+
+    TEST(AssetManagerTest, PreviewIsNotReadyAndFailedPreparationRemovesOnlyThePreview) {
+        const TemporaryProject project;
+        const auto source = project.paths().assets() / "studio.hdr";
+        write_hdr(source);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto handle = manager.get_database().find("studio.hdr")->handle;
+        BlockedWorker blocked(scheduler);
+        ASSERT_TRUE(manager.request_load(handle, AssetType::Environment));
+        auto preview = std::make_shared<Environment>();
+        preview->background = factory.try_create_texture({}).value();
+        ASSERT_TRUE(registry.register_asset(handle, preview));
+        const std::array required{AssetReference{handle, AssetType::Environment}};
+        auto ready =
+            manager.references_ready(required, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(ready);
+        EXPECT_FALSE(ready.value());
+        EXPECT_FALSE(manager.load_environment(handle));
+        std::ofstream(source) << "invalid HDR";
+        blocked.release();
+        scheduler.wait_idle();
+        EXPECT_TRUE(completed_handles(manager.process_completions()).empty());
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_FALSE(
+            manager.references_ready(required, AssetManager::MissingAssetPolicy::FailRequired));
+        const std::array optional{AssetReference{handle, AssetType::Environment, false}};
+        auto fallback =
+            manager.references_ready(optional, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(fallback);
+        EXPECT_TRUE(fallback.value());
+    }
+
+    TEST(AssetManagerTest, SourceChangeRevokesPreviewAndPreparesOnlyTheCurrentRevision) {
+        const TemporaryProject project;
+        const auto source = project.paths().assets() / "studio.hdr";
+        write_hdr(source);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto handle = manager.get_database().find("studio.hdr")->handle;
+        BlockedWorker blocked(scheduler);
+        ASSERT_TRUE(manager.request_load(handle, AssetType::Environment));
+        auto preview = std::make_shared<Environment>();
+        preview->background = factory.try_create_texture({}).value();
+        ASSERT_TRUE(registry.register_asset(handle, preview));
+        write_hdr(source, 8, 4);
+        ASSERT_TRUE(manager.scan().succeeded());
+        EXPECT_FALSE(registry.contains(handle));
+        blocked.release();
+        scheduler.wait_idle();
+        EXPECT_TRUE(completed_handles(manager.process_completions()).empty());
+        scheduler.wait_idle();
+        EXPECT_EQ(completed_handles(manager.process_completions()), std::vector{handle});
+        const auto current = registry.resolve<Environment>(handle);
+        ASSERT_TRUE(current);
+        EXPECT_TRUE(current->has_lighting());
+        EXPECT_NE(current, preview);
+        EXPECT_EQ(factory.texture_creation_count(), 5u);
     }
 
     TEST(AssetManagerTest, EnvironmentRejectsOversizedDemandAndStaleFirstLoad) {

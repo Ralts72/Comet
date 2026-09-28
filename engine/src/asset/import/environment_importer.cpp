@@ -14,6 +14,17 @@
 #include <numbers>
 
 namespace Comet {
+    void EnvironmentImporter::Preview::publish(TextureData background) {
+        auto data = std::make_unique<TextureData>(std::move(background));
+        const std::lock_guard lock(m_mutex);
+        m_background = std::move(data);
+    }
+
+    std::unique_ptr<TextureData> EnvironmentImporter::Preview::take() {
+        const std::lock_guard lock(m_mutex);
+        return std::move(m_background);
+    }
+
     static Result<std::size_t> estimate_bytes(
         const std::size_t source_size, const int width, const int height) {
         if(source_size > 256 * 1024 * 1024 || width < 4 || width > 8192 || height < 2
@@ -120,9 +131,9 @@ namespace Comet {
         return Result<HdrImage>::success({width, height, std::move(pixels)});
     }
 
-    static TextureData import_background(const HdrImage& source) {
+    static TextureData import_background(const HdrImage& source, const uint32_t max_size = 2048) {
         const auto& [width, height, pixels] = source;
-        const int size = static_cast<int>(std::bit_floor(std::min(uint32_t(width / 4), 2048u)));
+        const int size = static_cast<int>(std::bit_floor(std::min(uint32_t(width / 4), max_size)));
         TextureData result{.width = size,
             .height = size,
             .format = Format::R16G16B16A16_SFLOAT,
@@ -191,11 +202,13 @@ namespace Comet {
         return Result<void>::success();
     }
 
-    Result<EnvironmentData> EnvironmentImporter::import(
-        const std::filesystem::path& source_path, const std::size_t memory_budget) const {
+    Result<EnvironmentData> EnvironmentImporter::import(const std::filesystem::path& source_path,
+        const std::size_t memory_budget, Preview* preview) const {
         auto decoded = decode_source(source_path, memory_budget);
         if(!decoded)
             return Result<EnvironmentData>::failure(decoded.error());
+        if(preview)
+            preview->publish(import_background(decoded.value(), 128));
         auto background = import_background(decoded.value());
         decoded.value().pixels.reset();
         return Result<EnvironmentData>::success(prepare_lighting(std::move(background)));

@@ -33,7 +33,6 @@ namespace Comet {
         std::unordered_map<AssetHandle, PendingAssetTask> pending_assets;
         std::vector<ScheduledAssetTask> scheduled_tasks;
         std::deque<QueuedAssetTask> queued_tasks;
-        bool processing_completions = false;
         std::size_t reserved_bytes = 0;
 
         bool has_queued_task(const AssetHandle handle, const AssetRevision revision) const {
@@ -69,15 +68,8 @@ namespace Comet {
                && pending->second.revision == revision;
     }
 
-    Result<void, Error> AssetTaskQueue::process_completions(const CompletionBudget budget,
+    Result<std::size_t, Error> AssetTaskQueue::process_completions(const CompletionBudget budget,
         const std::function<Result<void, Error>(AssetImportResult&)>& publish) {
-        if(m_async_state->processing_completions) {
-            LOG_WARN("Ignoring reentrant asset completion processing");
-            return Result<void, Error>::success();
-        }
-        m_async_state->processing_completions = true;
-        const ScopeExit reset_processing([&] { m_async_state->processing_completions = false; });
-
         const auto start = std::chrono::steady_clock::now();
         auto& tasks = m_async_state->scheduled_tasks;
         std::size_t processed = 0;
@@ -108,11 +100,11 @@ namespace Comet {
                     task->revision);
             } else {
                 if(auto result = publish(*task->result); !result)
-                    return result;
+                    return Result<std::size_t, Error>::failure(result.error());
             }
         }
         dispatch_queued_tasks();
-        return Result<void, Error>::success();
+        return Result<std::size_t, Error>::success(processed);
     }
 
     bool AssetTaskQueue::schedule(const AssetHandle handle, const AssetRevision revision,

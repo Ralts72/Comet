@@ -1,5 +1,5 @@
 #include "assets/editor_assets.h"
-#include "assets/shader_program_import.h"
+#include "asset/shader_program_import.h"
 #include "assets/system_trash.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
@@ -271,7 +271,7 @@ namespace CometEditor {
                 pending = m_pending_shader_programs.erase(pending);
                 continue;
             }
-            auto request = ShaderProgramImport::resolve(database(), handle);
+            auto request = Comet::ShaderProgramImport::resolve(database(), handle);
             if(!request) {
                 LOG_WARN("Shader program {}: {}", handle.value(), request.error());
                 pending = m_pending_shader_programs.erase(pending);
@@ -279,7 +279,7 @@ namespace CometEditor {
             }
             const auto input = std::move(request).value();
             if(!m_manager.import_shader_program_async(input, [paths = m_database.paths(), input] {
-                   return ShaderProgramImport::prepare(paths, input);
+                   return Comet::ShaderProgramImport::prepare(paths, input);
                }))
                 break;
             pending = m_pending_shader_programs.erase(pending);

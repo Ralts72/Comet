@@ -1,4 +1,5 @@
-#include "assets/shader_program_import.h"
+#include "asset/shader_program_import.h"
+#include "asset/project_prepare.h"
 #include "assets/editor_assets.h"
 #include "asset/registry.h"
 #include "asset/import/import_service.h"
@@ -12,6 +13,11 @@
 #include "render/material/material_shader.h"
 #include "support/render_resource_factory.h"
 #include "support/temporary_directory.h"
+#include "support/hdr_image.h"
+#include "core/project.h"
+#include "scene/component_registry.h"
+#include "scene/scene.h"
+#include "scene/scene_serializer.h"
 
 #include <gtest/gtest.h>
 
@@ -25,6 +31,7 @@
 #include <thread>
 
 namespace CometEditor::Tests {
+    using Comet::ShaderProgramImport;
     namespace {
         constexpr std::string_view VERTEX = "#version 450\nlayout(location=0) in vec3 position;\n"
                                             "void main(){gl_Position=vec4(position,1.0);}\n";
@@ -91,6 +98,49 @@ namespace CometEditor::Tests {
         EXPECT_EQ(resolved.descriptor_path, paths.assets() / "shaders/test.shader");
         EXPECT_EQ(resolved.vertex.path, paths.assets() / "shaders/test.vert");
         EXPECT_EQ(resolved.fragment.path, paths.assets() / "shaders/test.frag");
+    }
+
+    TEST_F(
+        ShaderProgramImportTest, StandalonePreparationBuildsSceneDependenciesAndReusesArtifacts) {
+        ASSERT_TRUE(Comet::MaterialSerializer{}.save(
+            {.template_name = "unlit_texture_blend", .shader_program = program},
+            paths.assets() / "test.mat"));
+        Comet::Tests::write_hdr(paths.assets() / "studio.hdr");
+        std::filesystem::copy_file(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
+            paths.assets() / "cube.gltf");
+        ASSERT_TRUE(database.scan().succeeded());
+        Comet::Scene scene;
+        const auto environment = database.find("studio.hdr")->handle;
+        const auto mesh = database.find("cube.gltf")->handle;
+        ASSERT_TRUE(
+            scene.set_environment({.asset = environment, .background = true, .lighting = true}));
+        scene.create_entity().add_component<Comet::MeshRendererComponent>(
+            mesh, database.find("test.mat")->handle);
+        const auto components = Comet::create_scene_component_registry();
+        ASSERT_TRUE(Comet::SceneSerializer(components)
+                .save(scene, (paths.assets() / "main.scene").string()));
+        ASSERT_TRUE(Comet::write_text_file_atomic(paths.root() / "project.json",
+            R"({"version":1,"name":"Prepared","startup_scene":"main.scene"})"));
+        auto project = Comet::Project::load(paths.root());
+        ASSERT_TRUE(project);
+        auto first = Comet::prepare_project(project.value());
+        ASSERT_TRUE(first) << first.error();
+        const Comet::ImportService imports(paths);
+        const std::array artifacts{artifact_path(), imports.environment_artifact_path(environment),
+            imports.mesh_artifact_path(mesh)};
+        std::array<std::filesystem::file_time_type, 3> stamps;
+        for(size_t i = 0; i < artifacts.size(); ++i) {
+            ASSERT_TRUE(std::filesystem::exists(artifacts[i]));
+            stamps[i] = std::filesystem::last_write_time(artifacts[i]);
+        }
+        ASSERT_TRUE(Comet::prepare_project(project.value()));
+        for(size_t i = 0; i < artifacts.size(); ++i)
+            EXPECT_EQ(std::filesystem::last_write_time(artifacts[i]), stamps[i]);
+        ASSERT_TRUE(
+            Comet::write_text_file_atomic(paths.assets() / "shaders/test.frag", "invalid shader"));
+        EXPECT_FALSE(Comet::prepare_project(project.value()));
+        EXPECT_EQ(std::filesystem::last_write_time(artifact_path()), stamps[0]);
     }
 
     TEST_F(ShaderProgramImportTest, RejectsPreparationForAnotherProject) {

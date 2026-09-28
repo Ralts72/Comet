@@ -51,6 +51,7 @@ if ((COMET_BUILD_APP OR COMET_BUILD_EDITOR) AND COMET_CONFIG_PROFILE STREQUAL ""
 endif ()
 
 add_subdirectory(engine)
+add_subdirectory(tools/asset)
 
 if (COMET_BUILD_BENCHMARKS)
     add_subdirectory(tools/render_benchmark)

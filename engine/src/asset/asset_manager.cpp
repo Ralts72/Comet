@@ -200,9 +200,10 @@ namespace Comet {
         if(!record || record->type != expected_type)
             return Result<void, Error>::failure(
                 {"Environment is not indexed: " + std::to_string(handle.value())});
-        if(m_registry.resolve<Environment>(handle))
+        const auto environment = m_registry.resolve<Environment>(handle);
+        if(environment && environment->has_lighting())
             return Result<void, Error>::success();
-        if(m_registry.contains(handle))
+        if(!environment && m_registry.contains(handle))
             return Result<void, Error>::failure({"Runtime environment type conflict"});
         const auto revision = m_database.get_revision(handle);
         if(const auto failed = m_failed_environments.find(handle);
@@ -231,6 +232,32 @@ namespace Comet {
             ++missing;
         }
         return Result<std::size_t, Error>::success(missing);
+    }
+
+    Result<bool, Error> AssetManager::references_ready(
+        const std::span<const AssetReference> references, const MissingAssetPolicy policy) const {
+        bool ready = true;
+        for(const auto& reference : references) {
+            const auto* record = m_database.find(reference.handle);
+            if(record && record->type == reference.type) {
+                if(reference.type != AssetType::Environment
+                    && m_registry.contains(reference.handle))
+                    continue;
+                const auto environment = m_registry.resolve<Environment>(reference.handle);
+                if(environment && environment->has_lighting())
+                    continue;
+                const auto revision = m_database.get_revision(reference.handle);
+                if(m_task_queue->contains(reference.handle, revision)
+                    || m_refresh_requests.contains(reference.handle)) {
+                    ready = false;
+                    continue;
+                }
+            }
+            if(reference.required && policy == MissingAssetPolicy::FailRequired)
+                return Result<bool, Error>::failure(
+                    {"Required asset is not ready: " + std::to_string(reference.handle.value())});
+        }
+        return Result<bool, Error>::success(ready);
     }
 
     AssetManager::ImportPublication AssetManager::publish_import_result(AssetImportResult& result) {
@@ -419,14 +446,23 @@ namespace Comet {
 
     AssetManager::ImportPublication AssetManager::publish_environment_candidate(
         EnvironmentImportCandidate& candidate) {
+        m_environment_previews.erase(candidate.handle);
         m_failed_environments[candidate.handle] = candidate.revision;
+        // 失败时移除临时预览，不把它当成最后一个成功版本。
+        const auto discard_preview = [this, &candidate] {
+            const auto current = m_registry.resolve<Environment>(candidate.handle);
+            if(current && !current->has_lighting())
+                static_cast<void>(m_registry.unregister_asset(candidate.handle));
+        };
         if(!candidate.result) {
+            discard_preview();
             LOG_ERROR("Failed to prepare environment '{}': {}",
                 candidate.relative_path.generic_string(), candidate.result.error());
             return ImportPublication::success(std::nullopt);
         }
         auto environment = Environment::try_create(m_resource_factory, candidate.result.value());
         if(!environment) {
+            discard_preview();
             if(environment.error().is_device_lost())
                 return ImportPublication::failure(environment.error().as_error());
             LOG_ERROR("Failed to create environment {}: {}", candidate.handle.value(),
@@ -591,6 +627,10 @@ namespace Comet {
 
     Result<std::shared_ptr<Environment>, Error> AssetManager::load_environment(
         const AssetHandle handle) {
+        if(const auto current = m_registry.resolve<Environment>(handle);
+            current && !current->has_lighting())
+            return Result<std::shared_ptr<Environment>, Error>::failure(
+                {"Environment is still preparing; use request_load and references_ready"});
         return load_runtime_asset<Environment>(m_database, m_registry, handle,
             AssetType::Environment,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Environment>, Error> {

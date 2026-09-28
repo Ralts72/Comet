@@ -4,6 +4,7 @@
 #include "asset/artifact/environment_artifact.h"
 #include "asset/import/import_candidate.h"
 #include "asset/import/asset_task_types.h"
+#include "asset/import/environment_importer.h"
 #include "asset/handle.h"
 #include "common/export.h"
 #include "common/result.h"
@@ -28,8 +29,8 @@ namespace Comet {
         [[nodiscard]] Result<TextureData> prepare_texture(const AssetRecord& record,
             const TextureImportSettings& settings, std::size_t memory_budget) const;
         [[nodiscard]] std::filesystem::path environment_artifact_path(AssetHandle handle) const;
-        [[nodiscard]] Result<EnvironmentArtifact> prepare_environment(
-            const AssetRecord& record, std::size_t memory_budget) const;
+        [[nodiscard]] Result<EnvironmentArtifact> prepare_environment(const AssetRecord& record,
+            std::size_t memory_budget, EnvironmentImporter::Preview* preview = nullptr) const;
 
     private:
         ProjectPaths m_paths;

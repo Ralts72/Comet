@@ -1,4 +1,4 @@
-#include "assets/shader_program_import.h"
+#include "asset/shader_program_import.h"
 #include "asset/import/import_service.h"
 #include "asset/serialization/shader_program_serializer.h"
 #include "shader/compiler.h"
@@ -7,7 +7,7 @@
 #include <cctype>
 #include <utility>
 
-namespace CometEditor {
+namespace Comet {
     namespace {
         using Import = ShaderProgramImport;
 

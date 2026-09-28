@@ -109,6 +109,14 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> Renderer::render_frame(const RenderScene& render_scene) {
+        return complete_frame(&render_scene);
+    }
+
+    Result<void, GraphicsError> Renderer::render_frame() {
+        return complete_frame(nullptr);
+    }
+
+    Result<void, GraphicsError> Renderer::complete_frame(const RenderScene* render_scene) {
         if(m_shutdown_prepared)
             return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
         ScopeExit failed([this] { prepare_shutdown(); });
@@ -128,7 +136,9 @@ namespace Comet {
         }
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
-        const RenderSubmission submission = m_scene_resolver.resolve(render_scene, frame_view);
+        RenderSubmission submission;
+        if(render_scene)
+            submission = m_scene_resolver.resolve(*render_scene, frame_view);
         if(auto programs = m_scene_renderer->prepare_material_programs(submission); !programs)
             return programs;
         if(auto prepared = m_scene_renderer->prepare_post_process(submission.post_process);

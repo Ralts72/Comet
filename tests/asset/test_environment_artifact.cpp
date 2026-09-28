@@ -38,6 +38,18 @@ namespace Comet::Tests {
         EXPECT_EQ(std::filesystem::last_write_time(cache), stamp);
         EXPECT_FALSE(EnvironmentArtifact::load(cache, AssetHandle(124), 1024));
         EXPECT_FALSE(EnvironmentArtifact::load(cache, record.handle, 1));
+        EnvironmentImporter::Preview preview;
+        auto cached =
+            imports.prepare_environment(record, EnvironmentImporter::MAX_WORKING_BYTES, &preview);
+        ASSERT_TRUE(cached);
+        EXPECT_FALSE(preview.take());
+        auto mismatched = cached.value().source;
+        ++mismatched.hash;
+        EXPECT_FALSE(EnvironmentArtifact::load(cache, record.handle,
+            EnvironmentImporter::MAX_WORKING_BYTES, mismatched, EnvironmentImporter::VERSION));
+        EXPECT_FALSE(
+            EnvironmentArtifact::load(cache, record.handle, EnvironmentImporter::MAX_WORKING_BYTES,
+                cached.value().source, EnvironmentImporter::VERSION + 1));
     }
 
     TEST_F(EnvironmentArtifactTest, RebuildsCorruptionAlgorithmChangesAndChangedSources) {

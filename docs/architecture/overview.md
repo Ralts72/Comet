@@ -10,6 +10,7 @@
 | `scene/`、`scripting/`、`audio/` | 通用值、输入、资产身份／只读缓存；脚本实现可依赖 Lua，物理实现可依赖 Jolt，音频实现可依赖 miniaudio | Scene 组件和序列化不含 GPU／音频设备对象；System 不直接调用渲染后端 |
 | `asset/` 的数据、索引、导入与序列化 | 稳定 Handle、CPU 数据、文件与后台任务 | 不依赖 Render／图形后端；`asset/data/texture_data.h` 暂复用不含 Vulkan 头的 `graphics/enums.h` |
 | `asset/asset_manager` | 上述 CPU 能力、AssetRegistry，以及 RenderResourceFactory／Runtime Asset | 运行时加载与发布桥接；Render 依赖限定在两个实现文件，源文件编辑事务属于 `editor/assets/` |
+| `tools/asset/` | Engine CPU 资产与共用 Shader 编译库 | 编辑器与 CLI 共用源编译；无窗口准备启动场景依赖，engine/app 不链接该工具库 |
 | `render/` | Scene 提取结果、资产缓存、Graphics | Renderer 编排帧与离屏输出；SceneRenderer 拥有目标，不知道 ImGui |
 | `graphics/` | Vulkan、平台窗口及通用能力 | 图形后端不依赖 Editor；`core/engine.cpp` 是宿主组合点，可使用 Graphics/Render |
 | `editor/`、`app/` | Engine 组合入口、明确的工作流接口 | ImGui/Vulkan 对接集中在 `editor/editor.cpp` 和 `editor/src/ui/imgui_context.cpp`；业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
@@ -235,8 +236,10 @@ PhysicsSystem 排在脚本之后：脚本的固定步 Transform 写入先作为�
 Play／app 启动时创建 Jolt 世界和 body，Stop／启动失败时清理；Edit Scene 不模拟。
 
 **运行失败：** System 更新失败逆序停止，不重试部分执行的模拟。Engine 不再提取部分写入的 Scene，
-而是完成已 acquire 的空场景帧，再交给 Application::on_runtime_error；Editor 恢复 Edit，app 默认失败退出。
+而是通过 `Renderer::render_frame()` 完成已 acquire 的无场景帧，再交给 Application::on_runtime_error；Editor 恢复 Edit，app 默认失败退出。
 DeviceLost、空帧绘制或恢复失败仍退出。Scene 替换必须在 System 执行外，且先停止旧 Runtime。
+启动加载期间尚未安装 Scene 也走无场景帧：保留清屏、UI 与提交，不执行场景相机诊断。
+`render_frame(scene)` 表示真实场景，即使快照内容为空也仍检查主相机；不根据实体或相机数量猜测加载状态。
 文件扫描、保存、同步加载和模式切换在 on_update 执行，不占用已 acquire 的帧，但仍可能占用主线程。
 原生关闭可由 Editor 拦截，完成未保存决策后再 request_close。
 
@@ -403,7 +406,8 @@ MaterialRenderer 只接收已准备的 LightingData 与有效采样 View，不�
 
 SceneEnvironment 保存单一环境 Handle、独立背景／照明开关及强度，共享 Y 旋转；不包含 GPU owner，也不作为实体组件。
 SceneExtractor 复制配置，SceneResolver 从 AssetRegistry 取得 Environment，RenderSubmission 持有本帧版本。
-Environment 拥有 background、irradiance、specular、brdf 四个 Texture，复用纹理上传；材质 2D 槽拒绝 Environment。
+完整 Environment 拥有 background、irradiance、specular、brdf 四个 Texture，复用纹理上传；材质 2D 槽拒绝 Environment。
+首次导入的临时 Environment 仅有 background，`has_lighting()` 为 false；MaterialRenderer 使用无 IBL 基线，不访问空光照纹理。
 HDR 导入器生成六层 RGBA16F 和背景 mip 链，UploadBatch 一次提交全部 mip／layer，统一转入 SampledRead。
 SkyboxPass 在场景 RenderPass 内先画全屏三角形，不读写深度；随后几何和辅助线按原流程绘制。
 射线由逆投影、相机旋转和环境旋转重建，丢弃相机平移；正交视图也按射线方向采样。
@@ -419,12 +423,18 @@ LUT 在线程安全静态初始化中只积分一次，随后随每个缓存保�
 
 `场景引用 → AssetManager::request_load → AssetTaskQueue → ImportService → EnvironmentArtifact → owner 发布 Environment`。
 app/editor 共用引用准备：场景环境是可选引用，缺失时保留 Handle 并诊断；app 拒绝必需引用失败，编辑器允许修复。DeviceLost 始终向上传递。
+`request_load` 成功表示接受需求；`references_ready` 才判断完整环境已驻留。app 在等待期间保留候选 Scene，
+继续正常窗口事件与帧循环，就绪后再安装并启动 Runtime；背景／照明都关闭时不请求环境，失败的可选环境可回退。
 SceneResolver 不将 Registry 中尚未发布的环境当作错误，等待期间返回无环境纹理的提交；真实缺失／准备失败由资产层报告。
 已发布对象不是 Environment 时，SceneResolver 报告类型错误并按 Handle 去重，不依赖 AssetManager 的调度状态。
 ImportService 负责 CPU 导入与缓存，AssetManager 负责加载需求、revision 检查和运行时发布；二者不访问 ImGui。
 后台首次准备与驻留重载共用缓存路径，输入路径／内容指纹和算法版本必须匹配；格式、尺寸、载荷长度和校验值不符则重建。
 缓存原子写只保证单文件；缓存可独立存在，不代表 GPU 已发布。GPU 创建失败不替换 Registry，旧帧仍持有旧版本。
-EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 mip 链和 128² LUT 作为同一载荷校验；旧 v1 自动重建。GPU 四张纹理全部成功且 revision 仍有效后才替换 Registry，部分上传失败不发布半成品。
+EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 mip 链和 128² LUT 作为同一载荷校验；旧 v1 自动重建。
+导入读取先比较头部版本与源指纹，再分配和校验完整载荷，避免为已过期的大产物做无效读取。
+冷导入通过单次 Preview 交付最高 128²/面的背景，后台不操作 Registry/GPU；owner 在发布预算内取走快照并复核 revision。
+正式资源仍在 GPU 四张纹理全部成功且 revision 有效后整组替换；失败撤销临时预览，已有完整版本保持不变。
+缓存命中和完整版本重导入不生成临时背景。IBL 卷积按需解码并复用被采样的 mip，不在每个采样点重复转换 float16。
 环境任务根据源尺寸估算工作集，默认共享 2 GiB CPU 预约预算；完成候选在发布或丢弃前不释放预约。
 主线程仅做小型头部／文件大小预检和 GPU 发布，CPU 大块读取、转换、校验与缓存写入在 Worker；预检后源增长超预算会失败。
 此预算不是进程 RSS 上限，也不覆盖普通纹理／Mesh 解码或 GPU 分配；GPU 创建仍使用现有资源工厂的预算及 Result。

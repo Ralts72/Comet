@@ -8,7 +8,7 @@
 
 #include <filesystem>
 
-namespace CometEditor {
+namespace Comet {
     class ShaderProgramImport final {
     public:
         using Source = Comet::ShaderProgramImportSource;
@@ -18,7 +18,7 @@ namespace CometEditor {
 
         [[nodiscard]] static Comet::Result<Request> resolve(
             const Comet::AssetDatabase& database, Comet::AssetHandle handle);
-        // Worker-safe: consumes only copied paths/identities; never touches the database or GPU.
+        // Worker 只消费已复制的路径和身份，不访问数据库或 GPU。
         [[nodiscard]] static Comet::Result<Candidate, Failure> prepare(
             const Comet::ProjectPaths& paths, const Request& request);
     };

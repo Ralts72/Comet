@@ -16,7 +16,6 @@ add_library(editor_core STATIC
         src/assets/source_operations.cpp
         ${COMET_SYSTEM_TRASH_SOURCE}
         src/assets/source_monitor.cpp
-        src/assets/shader_program_import.cpp
         src/assets/material_editing.cpp
         src/render/shader_reload.cpp
         src/scene/command_history.cpp
@@ -28,7 +27,7 @@ add_library(editor_core STATIC
         src/viewport/transform_gizmo.cpp
         src/viewport/viewport_layout.cpp
 )
-target_link_libraries(editor_core PUBLIC engine comet_shader_tools PRIVATE yaml-cpp fastgltf::fastgltf simdjson)
+target_link_libraries(editor_core PUBLIC engine comet_asset_tools comet_shader_tools PRIVATE yaml-cpp fastgltf::fastgltf simdjson)
 if(APPLE)
     target_link_libraries(editor_core PRIVATE "-framework CoreServices" "-framework Foundation")
 elseif(WIN32)

@@ -27,7 +27,7 @@ namespace Comet {
             std::function<void(AssetImportResult&)> task, bool force_mesh_rebuild = false,
             std::size_t working_bytes = 0);
         [[nodiscard]] std::size_t memory_budget() const { return m_async_limits.working_bytes; }
-        Result<void, Error> process_completions(CompletionBudget budget,
+        Result<std::size_t, Error> process_completions(CompletionBudget budget,
             const std::function<Result<void, Error>(AssetImportResult&)>& publish);
 
     private:

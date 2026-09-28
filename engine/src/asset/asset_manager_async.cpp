@@ -9,7 +9,10 @@
 #include "asset/registry.h"
 #include "asset/serialization/material_serializer.h"
 #include "diagnostics/logger.h"
+#include "common/scope_exit.h"
 #include "render/resource/texture.h"
+#include "render/resource/environment.h"
+#include "render/resource/resource_factory.h"
 
 #include <string>
 #include <system_error>
@@ -19,6 +22,11 @@
 #include <vector>
 
 namespace Comet {
+    struct AssetManager::PendingEnvironmentPreview {
+        AssetRevision revision;
+        EnvironmentImporter::Preview preview;
+    };
+
     AssetAsyncStatus AssetManager::get_async_status() const {
         return m_task_queue->status();
     }
@@ -40,18 +48,27 @@ namespace Comet {
                 continue;
             static_cast<void>(m_registry.unregister_asset(handle));
             m_failed_environments.erase(handle);
+            m_environment_previews.erase(handle);
         }
         for(const AssetHandle handle : report.removed_assets)
             m_mesh_imports_needing_recheck.erase(handle);
 
         for(const AssetHandle handle : report.modified_assets) {
-            if(invalidated.contains(handle) || !m_registry.contains(handle)) {
+            const bool preparing_environment = m_environment_previews.contains(handle);
+            if(invalidated.contains(handle)
+                || (!m_registry.contains(handle) && !preparing_environment)) {
                 continue;
             }
 
             const AssetRecord* record = m_database.find(handle);
             if(!record) {
                 continue;
+            }
+            if(preparing_environment) {
+                const auto current = m_registry.resolve<Environment>(handle);
+                if(current && !current->has_lighting())
+                    static_cast<void>(m_registry.unregister_asset(handle));
+                m_environment_previews.erase(handle);
             }
             // 编辑器提供编译任务，AssetManager 仅在候选完成后发布。
             if(record->type == AssetType::ShaderProgram)
@@ -127,6 +144,13 @@ namespace Comet {
 
     Result<std::vector<AssetHandle>, Error> AssetManager::process_completions(
         const AssetCompletionBudget budget) {
+        if(m_processing_completions) {
+            LOG_WARN("Ignoring reentrant asset completion processing");
+            return Result<std::vector<AssetHandle>, Error>::success({});
+        }
+        m_processing_completions = true;
+        const ScopeExit reset_processing([this] { m_processing_completions = false; });
+        const auto start = std::chrono::steady_clock::now();
         std::vector<AssetHandle> published;
         auto completion = m_task_queue->process_completions(budget, [&](AssetImportResult& result) {
             auto publication = publish_import_result(result);
@@ -139,7 +163,48 @@ namespace Comet {
         if(!completion)
             return Result<std::vector<AssetHandle>, Error>::failure(completion.error());
         retry_refresh_requests();
+        auto remaining = budget;
+        remaining.max_results -= completion.value();
+        remaining.max_time -= std::chrono::steady_clock::now() - start;
+        if(auto previews = publish_environment_previews(remaining); !previews)
+            return Result<std::vector<AssetHandle>, Error>::failure(previews.error());
         return Result<std::vector<AssetHandle>, Error>::success(std::move(published));
+    }
+
+    Result<void, Error> AssetManager::publish_environment_previews(
+        const AssetCompletionBudget budget) {
+        const auto start = std::chrono::steady_clock::now();
+        for(auto item = m_environment_previews.begin(); item != m_environment_previews.end();) {
+            const auto [handle, pending] = *item;
+            if(!m_database.is_current(handle, pending->revision)
+                || !m_task_queue->contains(handle, pending->revision)) {
+                item = m_environment_previews.erase(item);
+                continue;
+            }
+            ++item;
+            if(budget.max_results == 0
+                || std::chrono::steady_clock::now() - start >= budget.max_time)
+                break;
+            if(m_registry.contains(handle))
+                continue;
+            auto background = pending->preview.take();
+            if(!background)
+                continue;
+            auto texture = m_resource_factory.try_create_texture(*background);
+            if(!texture) {
+                if(texture.error().is_device_lost())
+                    return Result<void, Error>::failure(texture.error().as_error());
+                LOG_WARN("Cannot upload environment preview: {}", texture.error().message);
+                return Result<void, Error>::success();
+            }
+            if(!m_database.is_current(handle, pending->revision))
+                return Result<void, Error>::success();
+            auto environment = std::make_shared<Environment>();
+            environment->background = std::move(texture).value();
+            static_cast<void>(m_registry.register_asset(handle, std::move(environment)));
+            return Result<void, Error>::success();
+        }
+        return Result<void, Error>::success();
     }
 
     bool AssetManager::record_import_dependencies(
@@ -270,11 +335,17 @@ namespace Comet {
         if(bytes.value() > m_task_queue->memory_budget())
             return Result<bool, Error>::failure(
                 {"Environment exceeds the asset CPU memory budget"});
+        auto preview = std::make_shared<PendingEnvironmentPreview>();
+        preview->revision = revision;
+        const bool needs_preview = !m_registry.contains(record.handle);
         const auto accepted = m_task_queue->schedule(
             record.handle, revision,
-            [paths = m_database.paths(), record, revision, budget = bytes.value()](
-                AssetImportResult& result) {
-                auto prepared = ImportService(paths).prepare_environment(record, budget);
+            [paths = m_database.paths(), record, revision, budget = bytes.value(), preview,
+                needs_preview](AssetImportResult& result) {
+                EnvironmentImporter::Preview* output = nullptr;
+                if(needs_preview)
+                    output = &preview->preview;
+                auto prepared = ImportService(paths).prepare_environment(record, budget, output);
                 auto data = Result<EnvironmentData>::failure("Environment preparation failed");
                 if(prepared)
                     data = Result<EnvironmentData>::success(std::move(prepared).value().data);
@@ -284,6 +355,8 @@ namespace Comet {
                     record.handle, revision, record.path, std::move(data)};
             },
             false, bytes.value());
+        if(accepted)
+            m_environment_previews[record.handle] = std::move(preview);
         return Result<bool, Error>::success(accepted);
     }
 

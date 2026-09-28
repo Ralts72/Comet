@@ -3,6 +3,7 @@
 #include "config/config.h"
 #include "core/window.h"
 #include "render/renderer.h"
+#include "support/engine_fixture.h"
 #include "support/scene_motion_system.h"
 
 #include <gtest/gtest.h>
@@ -12,6 +13,39 @@
 namespace Comet::Tests {
     static_assert(
         std::is_same_v<decltype(std::declval<Engine&>().get_scene_runtime()), const SceneRuntime&>);
+
+    using EngineSceneActivationTest = EngineTest;
+
+    TEST_F(EngineSceneActivationTest, LoadingFramesDoNotHideActiveSceneCameraErrors) {
+        ASSERT_EQ(engine->get_scene(), nullptr);
+        int draws = 0;
+        int updates = 0;
+        engine->get_renderer().set_overlay({.render = [&](CommandBuffer&) {
+            ++draws;
+            const auto warning = messages.str().find("Render scene has no primary camera");
+            if(draws <= 2)
+                EXPECT_EQ(warning, std::string::npos);
+            else
+                EXPECT_NE(warning, std::string::npos);
+            if(draws == 4)
+                engine->get_window().request_close();
+        }});
+        const auto result = engine->run([&](Engine::FrameContext&) {
+            if(++updates > 8)
+                engine->get_window().request_close();
+            if(draws == 2)
+                engine->set_scene(std::make_unique<Scene>());
+            if(draws == 3) {
+                auto camera = engine->get_scene()->create_entity("Camera");
+                camera.add_component<CameraComponent>().primary = true;
+            }
+            return Result<void, Error>::success();
+        });
+        engine->get_renderer().set_overlay({});
+        ASSERT_TRUE(result) << result.error().message;
+        EXPECT_EQ(draws, 4);
+        EXPECT_FALSE(engine->get_renderer().get_frame_scheduler().is_frame_active());
+    }
 
     TEST(EngineRunTest, DefaultSystemsInstallBeforeRuntimeStarts) {
         auto created = Engine::create(Config{});

@@ -57,8 +57,9 @@ namespace Comet {
         return bytes;
     }
 
-    std::optional<EnvironmentArtifact> EnvironmentArtifact::load(const std::filesystem::path& path,
-        const AssetHandle handle, const std::size_t memory_budget) {
+    static std::optional<EnvironmentArtifact> load_artifact(const std::filesystem::path& path,
+        const AssetHandle handle, const std::size_t memory_budget,
+        const ImportInputFingerprint* expected_source, const uint32_t expected_importer) {
         std::ifstream input(path, std::ios::binary);
         std::array<char, 8> magic{};
         if(!input.read(magic.data(), magic.size()) || std::string_view(magic.data(), 8) != MAGIC)
@@ -79,6 +80,10 @@ namespace Comet {
             || mips != static_cast<uint64_t>(std::bit_width(size)) || path_size == 0
             || path_size > 16 * 1024 || payload_size > memory_budget)
             return std::nullopt;
+        if(expected_source
+            && (importer != expected_importer || source_size != expected_source->size
+                || source_hash != expected_source->hash))
+            return std::nullopt;
         auto data = shape(static_cast<uint32_t>(size));
         if(payload_size != payload_bytes(data))
             return std::nullopt;
@@ -92,6 +97,8 @@ namespace Comet {
         for(const auto& part : relative)
             if(part == "..")
                 return std::nullopt;
+        if(expected_source && relative != expected_source->relative_path)
+            return std::nullopt;
         for(auto* texture : {&data.background, &data.irradiance, &data.specular, &data.brdf}) {
             texture->pixels.resize(pixel_bytes(*texture));
             if(!input.read(reinterpret_cast<char*>(texture->pixels.data()), texture->pixels.size()))
@@ -103,6 +110,17 @@ namespace Comet {
             .importer_version = static_cast<uint32_t>(importer),
             .source = {relative, source_size, source_hash},
             .data = std::move(data)};
+    }
+
+    std::optional<EnvironmentArtifact> EnvironmentArtifact::load(const std::filesystem::path& path,
+        const AssetHandle handle, const std::size_t memory_budget) {
+        return load_artifact(path, handle, memory_budget, nullptr, 0);
+    }
+
+    std::optional<EnvironmentArtifact> EnvironmentArtifact::load(const std::filesystem::path& path,
+        const AssetHandle handle, const std::size_t memory_budget,
+        const ImportInputFingerprint& source, const uint32_t importer_version) {
+        return load_artifact(path, handle, memory_budget, &source, importer_version);
     }
 
     Result<void> EnvironmentArtifact::publish_atomic(const std::filesystem::path& path) const {
