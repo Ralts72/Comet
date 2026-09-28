@@ -4,6 +4,7 @@
 #include "scene/components.h"
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
+#include "scene/script_component.h"
 #include "support/math_assertions.h"
 #include "render/scene/scene_extractor.h"
 #include "render/scene/scene_resolver.h"
@@ -19,6 +20,42 @@
 #include <utility>
 
 namespace Comet::Tests {
+    TEST(SceneSerializerTest, EntityParametersRoundTripAndCloneWithoutGuessingStringValues) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        const auto target = scene.create_entity("Target");
+        auto actor = scene.create_entity("Actor");
+        const ParameterMap parameters{{"target", target.get_uuid()}, {"none", EntityUuid{}},
+            {"missing", EntityUuid::generate()}, {"text", target.get_uuid().to_string()}};
+        actor.add_component<ScriptComponent>().parameters = parameters;
+        TemporaryDirectory directory;
+        const auto path = (directory.path() / "references.scene").string();
+        ASSERT_TRUE(serializer.save(scene, path));
+        auto loaded = serializer.load(path);
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(loaded.value()
+                      ->find_entity(actor.get_uuid())
+                      .get_component<ScriptComponent>()
+                      .parameters,
+            parameters);
+        auto clone = serializer.clone(*loaded.value());
+        ASSERT_TRUE(clone) << clone.error();
+        clone.value()->destroy_entity(clone.value()->find_entity(target.get_uuid()));
+        auto cloned_actor = clone.value()->find_entity(actor.get_uuid());
+        EXPECT_EQ(cloned_actor.get_component<ScriptComponent>().parameters, parameters);
+        EXPECT_TRUE(scene.find_entity(target.get_uuid()));
+        auto serialized = serializer.serialize(*clone.value());
+        ASSERT_TRUE(serialized) << serialized.error();
+        EXPECT_TRUE(serializer.deserialize(serialized.value()));
+        auto invalid = serialized.value();
+        const auto field = std::string("\"entity\": \"") + target.get_uuid().to_string() + "\"";
+        const auto position = invalid.find(field);
+        ASSERT_NE(position, std::string::npos);
+        invalid.replace(position, field.size(), "\"entity\": \"not-a-uuid\"");
+        EXPECT_FALSE(serializer.deserialize(invalid));
+    }
+
     TEST(SceneSerializerTest, RejectsAudioVolumeOutsideDataBoundsOnLoadAndSave) {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);

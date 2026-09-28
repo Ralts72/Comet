@@ -60,12 +60,18 @@ namespace CometEditor {
         m_focus_request = false;
         m_mesh_drop.reset();
         m_gizmo_draw_list = nullptr;
+        const bool running = m_state.mode == EditorMode::Play
+                             && m_runtime.get_state() == Comet::SceneRuntime::State::Running;
+        const bool started = running && !m_runtime_was_running;
+        m_runtime_was_running = running;
 
         if(!m_user_visible) {
             reset_hidden_view();
             return;
         }
 
+        if(started && !ui_blocks_runtime_input())
+            ImGui::SetNextWindowFocus();
         if(!ImGui::Begin(window_label().c_str(), &m_user_visible)) {
             reset_hidden_view();
             ImGui::End();
@@ -518,11 +524,13 @@ namespace CometEditor {
             && input.key(Comet::Input::Key::Escape).pressed)
             m_play_command = PlayCommand::Stop;
         const auto* focused = GImGui->NavWindow;
+        const auto image_size = m_layout.image_visible_rect.size();
         const bool accepting = m_state.mode == EditorMode::Play && m_runtime.is_active()
-                               && m_actually_visible && m_play_image_hovered && !m_play_command
-                               && focused && focused->RootWindow->ID == m_window_id
+                               && m_actually_visible && m_texture_id != ImTextureID_Invalid
+                               && image_size.x > 0 && image_size.y > 0 && !m_play_command && focused
+                               && focused->RootWindow->ID == m_window_id
                                && !ui_blocks_runtime_input();
-        return m_runtime_input.read(input, accepting);
+        return m_runtime_input.read(input, accepting, m_play_image_hovered);
     }
 
     void ViewportPanel::draw_gizmo() {

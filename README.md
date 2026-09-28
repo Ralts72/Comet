@@ -327,8 +327,10 @@ app 与 editor Play 共用可选的 `CameraControllerComponent`：在 Edit 中�
 仓库 demo 已默认添加；外部项目需要同时启用组件并配置下述 `camera.*` 动作，不依赖项目路径或硬编码相机 UUID。
 右键拖动转向（本地俯仰限制 ±89°），WASD 沿相机朝向移动，Q/E 沿世界上下移动，左 Shift 加速，滚轮沿视线移动。
 第一个标准手柄支持左摇杆移动和左右扳机升降；暂不锁定／隐藏光标，也没有碰撞或手柄转向。
-app 中 Esc 退出；Play 中鼠标进入画面即可操作，无需点击激活；Esc 与 Stop 一样直接返回 Edit。
-鼠标离开画面、失焦、弹窗或编辑文字时停止接收；回来后原先按住的按钮需要松开重按。
+app 中 Esc 退出；Play 成功启动或从暂停继续时自动聚焦 Viewport，鼠标停在工具栏也能直接按键操作。
+键盘／手柄跟随 Viewport 焦点，鼠标按钮／位移／滚轮只在画面内接收；鼠标进入画面也可自动取得焦点。
+点击其他面板、窗口失焦、弹窗或编辑文字时停止接收；重新取得输入后原先按住的按钮需要松开重按。
+Esc 与 Stop 一样直接返回 Edit，不锁定或移动鼠标光标。
 控制只改变运行状态，退出 Play 恢复 Edit 场景，不生成逐帧撤销记录。
 Edit 相机和编辑器快捷键保持原有 ImGui 路径；运行中重绑定 UI、文本／IME、鼠标锁定仍是后续事项。
 Frame 可复制，但不是持久回放格式。
@@ -374,7 +376,11 @@ Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或�
 `comet.find_entity(uuid)` 按场景内 UUID 查找；格式不合法会报错，实体不存在返回 `nil`。
 引用提供 `:is_valid()`、`:position()`、`:translate(x,y,z)` 和 `:rotate(x,y,z)`；位置与旋转沿用本地 Transform 和角度单位。
 引用只在当前运行场景的生命周期内有效，实体删除、同 UUID 重建或切换场景后旧引用失效；失效引用的读取／修改会报告脚本错误。
-目前跨实体引用仍需在脚本中提供 UUID，Inspector 尚无实体引用选择器。
+跨实体配置可在 Lua 中声明 `player = {type = "entity"}`，再在 Inspector 按实体名称／层级路径选择，
+或在 Edit 中从 Hierarchy 拖入该参数框；场景保存 UUID，重命名不破坏引用。未分配或目标缺失时
+`self.parameters.player:is_valid()` 返回 false；有效引用可用 `==` 与碰撞回调的 `other` 比较。
+复制子树时内部引用指向新副本，外部引用保持原 UUID；删除目标保留引用，撤销删除后可恢复。
+Hierarchy 拖动实体时保留原选择，便于向 Inspector 分配引用；普通单击在松开鼠标后切换选择。
 脚本在 `on_start`、`fixed_update` 或 `update` 中可调用 `comet.create_entity(name)` 请求创建，返回新实体 UUID；
 也可调用 `comet.destroy_entity(reference)` 请求删除实体及其子树。结构变更在该阶段的所有 System 执行完后提交：
 本阶段内新 UUID 尚不能查到，待删除引用仍有效；下一阶段才能看到结果。暂停时不产生新请求，Stop 或运行失败会丢弃未提交请求。
@@ -405,14 +411,16 @@ demo 的旋转立方体由 Lua 驱动，若同时设为动态刚体，脚本与�
 目前只支持无父级实体的盒／球碰撞体；盒尺寸乘以实体正缩放，球体要求均匀正缩放。
 首版在主线程模拟，最多 1024 个刚体；脚本可收到碰撞／触发进入与离开通知，约束和角色控制器尚未接入。
 
-demo 目标附有 Audio Source，关闭启动自动播放；碰触目标时脚本调用 `comet.play_one_shot()` 播放一次 `demo/assets/audio/play_chime.wav`。
+demo 目标的 Script 参数 `player` 指向 `Move_Cube`，只有指定方块碰触目标才计分；其他物体不会误触发。
+目标附有 Audio Source，关闭启动自动播放；触发时脚本调用 `comet.play_one_shot()` 播放一次 `demo/assets/audio/play_chime.wav`。
 这项调用使用当前实体 Audio Source 的片段和音量，忽略循环配置；播放实例由 AudioSystem 保持，目标在同帧删除也不会立刻截断声音。
 没有 Audio Source 或有效片段时调用会报告脚本错误。一般声音源仍可通过 `play_on_start` 在 Play／app 启动时自动播放，默认开启；Edit 不播放，Stop 销毁播放实例。
 项目 WAV 由 Git LFS 管理，与相邻 `.meta` 一起使用，也可从 Finder 拖入 Project；场景保存 Audio Clip 的 Handle、自动播放、循环和 0..1 音量。可在 Inspector 添加或编辑 Audio Source。
 首版将短音效完整解码到内存，限制为单／双声道、约 1600 万采样值；尚无流式音乐、空间定位或混音编辑器。
 无可用输出设备时会记录警告并静音继续运行；暂停场景目前不暂停已经发出的声音。
 
-Lua 的 `properties` 声明显式导出的 bool／float／Vec3／string 配置；只有编辑过的字段保存为实体覆盖。
+Lua 的 `properties` 声明显式导出的 bool／float／Vec3／string 及实体引用配置；只有编辑过的字段保存为实体覆盖。
+实体声明只包含 `type = "entity"`，目标由场景配置，不在脚本源文件硬编码默认 UUID。
 Inspector 切换／清空 Script 引用会同时清空覆盖，一次 Undo 恢复旧脚本和参数；加载失败不改原绑定。
 “恢复默认参数”清空覆盖，可撤销，不重新加载源码。Play 面板跟随活动实例的定义，不混用更新后的资产参数。
 修改源码后重新 Play 使用新版；字段改名或类型变化会报告覆盖不匹配，可恢复默认参数后重新配置。

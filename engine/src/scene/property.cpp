@@ -44,6 +44,8 @@ namespace Comet {
             return std::nullopt;
         }
         switch(type) {
+            case PropertyType::EntityReference:
+                return *static_cast<const EntityUuid*>(value);
             case PropertyType::Parameters:
                 return *static_cast<const ParameterMap*>(value);
             case PropertyType::Bool:
@@ -87,6 +89,8 @@ namespace Comet {
                     return type == PropertyType::String || type == PropertyType::Enum;
                 else if constexpr(std::is_same_v<Value, ParameterMap>)
                     return type == PropertyType::Parameters && valid_parameters(source);
+                else if constexpr(std::is_same_v<Value, EntityUuid>)
+                    return type == PropertyType::EntityReference;
                 else
                     return type == PropertyType::AssetHandle;
             },

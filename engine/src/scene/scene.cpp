@@ -10,8 +10,7 @@
 namespace Comet {
     namespace {
         bool valid_session_key(const std::string_view key) {
-            return !key.empty() && key.size() <= 128
-                   && key.find('\0') == std::string_view::npos;
+            return !key.empty() && key.size() <= 128 && key.find('\0') == std::string_view::npos;
         }
     }
 
@@ -115,8 +114,8 @@ namespace Comet {
     }
 
     std::optional<EntityUuid> Scene::request_create_entity(const std::string_view name) {
-        if(!m_runtime_active || m_entity_requests.size() >= MAX_ENTITY_REQUESTS
-            || name.size() > 128 || name.find('\0') != std::string_view::npos)
+        if(!m_runtime_active || m_entity_requests.size() >= MAX_ENTITY_REQUESTS || name.size() > 128
+            || name.find('\0') != std::string_view::npos)
             return std::nullopt;
         EntityUuid uuid;
         bool reserved = false;
@@ -143,20 +142,16 @@ namespace Comet {
             return true;
         if(m_entity_requests.size() >= MAX_ENTITY_REQUESTS)
             return false;
-        m_entity_requests.push_back({.type = EntityRequest::Type::Destroy,
-            .uuid = uuid,
-            .id = id});
+        m_entity_requests.push_back({.type = EntityRequest::Type::Destroy, .uuid = uuid, .id = id});
         return true;
     }
 
     bool Scene::request_play_one_shot(const Entity entity) {
-        if(!m_runtime_active || !is_valid(entity)
-            || !entity.has_component<AudioSourceComponent>()
+        if(!m_runtime_active || !is_valid(entity) || !entity.has_component<AudioSourceComponent>()
             || m_audio_play_requests.size() >= MAX_AUDIO_PLAY_REQUESTS)
             return false;
         const auto& source = entity.get_component<AudioSourceComponent>();
-        if(!source.clip || !std::isfinite(source.volume) || source.volume < 0
-            || source.volume > 1)
+        if(!source.clip || !std::isfinite(source.volume) || source.volume < 0 || source.volume > 1)
             return false;
         m_audio_play_requests.push_back({source.clip, source.volume});
         return true;
@@ -202,7 +197,8 @@ namespace Comet {
     }
 
     bool Scene::set_session_value(const std::string_view key, ParameterValue value) {
-        if(!m_runtime_active || !valid_session_key(key))
+        if(!m_runtime_active || !valid_session_key(key)
+            || std::holds_alternative<EntityUuid>(value))
             return false;
         ParameterMap candidate;
         candidate.emplace(std::string(key), std::move(value));
@@ -210,8 +206,8 @@ namespace Comet {
             return false;
         if(m_session_values.size() >= 128 && !m_session_values.contains(std::string(key)))
             return false;
-        m_session_values.insert_or_assign(candidate.begin()->first,
-            std::move(candidate.begin()->second));
+        m_session_values.insert_or_assign(
+            candidate.begin()->first, std::move(candidate.begin()->second));
         return true;
     }
 

@@ -52,6 +52,7 @@ add_library(editor_ui STATIC
         src/inspector/asset_inspector.cpp
         src/inspector/property_editor_registry.cpp
         src/scene/hierarchy.cpp
+        src/scene/entity_reference.cpp
         src/ui/path_dialog.cpp
         src/render/render_stats.cpp
         src/ui/dialogs.cpp

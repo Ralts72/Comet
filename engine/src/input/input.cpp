@@ -100,29 +100,32 @@ namespace Comet {
             m_gamepad_baseline[index] = false;
     }
 
-    const Input::Frame& Input::Gate::read(const Frame& source, bool enabled) {
+    const Input::Frame& Input::Gate::read(
+        const Frame& source, const bool enabled, const bool pointer_enabled) {
         if(m_source_serial && source.serial < *m_source_serial)
             *this = Gate{};
         if(source.interruption != m_frame.interruption)
             m_interrupted_serial = source.serial;
         const bool accepting = enabled && source.focused && m_interrupted_serial != source.serial;
+        const bool pointer_accepting = accepting && pointer_enabled;
         const bool fresh = !m_source_serial || source.serial != *m_source_serial;
-        if(!fresh && accepting == m_accepting)
+        if(!fresh && accepting == m_accepting && pointer_accepting == m_pointer_accepting)
             return m_frame;
         const bool acquiring = accepting && !m_accepting;
+        const bool pointer_acquiring = pointer_accepting && !m_pointer_accepting;
         Frame next = source;
         next.serial = m_frame.serial + 1;
         next.focused = accepting;
         size_t index = 0;
-        const auto route = [&](auto& target, const auto& previous) {
+        const auto route = [&](auto& target, const auto& previous, bool active, bool acquired) {
             for(size_t i = 0; i < target.size(); ++i, ++index) {
                 auto& button = target[i];
-                if(!accepting) {
+                if(!active) {
                     m_blocked[index] = button.down;
                     button = {.released = previous[i].down};
                     continue;
                 }
-                const bool blocked = m_blocked[index] || acquiring;
+                const bool blocked = m_blocked[index] || acquired;
                 m_blocked[index] = blocked && button.down;
                 if(blocked) {
                     button = {};
@@ -132,20 +135,21 @@ namespace Comet {
                 }
             }
         };
-        route(next.keys, m_frame.keys);
-        route(next.mouse_buttons, m_frame.mouse_buttons);
+        route(next.keys, m_frame.keys, accepting, acquiring);
+        route(next.mouse_buttons, m_frame.mouse_buttons, pointer_accepting, pointer_acquiring);
         for(size_t pad = 0; pad < next.gamepads.size(); ++pad) {
-            route(next.gamepads[pad].buttons, m_frame.gamepads[pad].buttons);
+            route(next.gamepads[pad].buttons, m_frame.gamepads[pad].buttons, accepting, acquiring);
             if(!accepting || acquiring)
                 next.gamepads[pad].axes.fill(0);
         }
-        if(!accepting || acquiring || !fresh) {
+        if(!pointer_accepting || pointer_acquiring || !fresh) {
             next.cursor_delta = {};
             next.scroll = {};
         }
         m_frame = next;
         m_source_serial = source.serial;
         m_accepting = accepting;
+        m_pointer_accepting = pointer_accepting;
         return m_frame;
     }
 

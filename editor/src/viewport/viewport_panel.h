@@ -94,6 +94,7 @@ namespace CometEditor {
         bool m_actually_visible = false;
         ImGuiID m_window_id = 0;
         bool m_play_image_hovered = false;
+        bool m_runtime_was_running = false;
         Comet::Input::Gate m_runtime_input;
         std::uint32_t m_max_render_dimension = 0;
         ViewportLayout::ResolutionPolicy m_play_resolution_policy;

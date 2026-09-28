@@ -4,6 +4,7 @@
 #include "ui/menu_bar.h"
 #include "inspector/inspector.h"
 #include "scene/hierarchy.h"
+#include "scene/entity_reference.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
 #include "asset/registry.h"
@@ -39,12 +40,16 @@ namespace CometEditor::Tests {
         EditorShortcuts shortcuts;
         MenuBar menu{state, history, shortcuts};
         std::unique_ptr<InspectorPanel> inspector;
+        SceneCommands::EntityClipboard clipboard;
+        std::unique_ptr<HierarchyPanel> hierarchy;
         ImVec2 drag_point{};
         ImVec2 text_point{};
         float inspector_width = 700;
         bool draw_trailing_item = false;
         bool show_text_input = false;
         char text_buffer[32]{};
+        std::optional<EntityDragPayload> dragged_entity;
+        int payload_size = sizeof(EntityDragPayload);
 
         void SetUp() override {
             history.bind_scene(&scene);
@@ -70,8 +75,18 @@ namespace CometEditor::Tests {
         void TearDown() override { inspector.reset(); }
         void frame() {
             ImGui::NewFrame();
+            if(dragged_entity && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceExtern)) {
+                ImGui::SetDragDropPayload(
+                    EntityDragPayload::TYPE, &*dragged_entity, payload_size, ImGuiCond_Once);
+                ImGui::EndDragDropSource();
+            }
             menu.render();
-            ImGui::SetNextWindowPos(ImVec2(20, 40));
+            if(hierarchy) {
+                ImGui::SetNextWindowPos(ImVec2(10, 40));
+                ImGui::SetNextWindowSize(ImVec2(260, 500));
+                hierarchy->render();
+            }
+            ImGui::SetNextWindowPos(ImVec2(hierarchy ? 300 : 20, 40));
             ImGui::SetNextWindowSize(ImVec2(inspector_width, 500));
             inspector->render();
             if(show_text_input) {
@@ -107,7 +122,226 @@ namespace CometEditor::Tests {
             io.AddMousePosEvent(drag_point.x + 60, drag_point.y);
             frame();
         }
+
+        void click(ImVec2 point) {
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(point.x, point.y);
+            frame();
+            io.AddMouseButtonEvent(0, true);
+            frame();
+            io.AddMouseButtonEvent(0, false);
+            frame();
+        }
+
+        ImVec2 entity_parameter_point() {
+            auto* window = ImGui::FindWindowByName("Inspector");
+            ImGuiID id = window->GetID("script");
+            for(const char* part : {"parameters", "player", "player"})
+                id = ImHashStr(part, 0, id);
+            for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 3) {
+                const ImVec2 point{window->WorkRect.Min.x + 30, y};
+                ImGui::GetIO().AddMousePosEvent(point.x, point.y);
+                frame();
+                if(ImGui::GetCurrentContext()->HoveredId == id)
+                    return point;
+            }
+            ADD_FAILURE() << "Entity parameter widget not found";
+            return {};
+        }
+
+        void choose_entity(int row) {
+            click(entity_parameter_point());
+            frame();
+            const auto* popup = ImGui::FindWindowByName("##Combo_00");
+            ASSERT_NE(popup, nullptr);
+            ASSERT_TRUE(popup->Active);
+            click({popup->DC.CursorStartPos.x + 20,
+                popup->DC.CursorStartPos.y + row * ImGui::GetTextLineHeightWithSpacing()
+                    + ImGui::GetTextLineHeight() * 0.5f});
+        }
+
+        void drop_entity(EntityDragPayload payload, int size = sizeof(EntityDragPayload)) {
+            const auto point = entity_parameter_point();
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(point.x, point.y);
+            dragged_entity = payload;
+            payload_size = size;
+            io.AddMouseButtonEvent(0, true);
+            frame();
+            frame();
+            io.AddMouseButtonEvent(0, false);
+            frame();
+            dragged_entity.reset();
+            frame();
+            frame();
+        }
+
+        void show_hierarchy() {
+            inspector_width = 480;
+            hierarchy = std::make_unique<HierarchyPanel>(selection, history, state, clipboard);
+            frame();
+            frame();
+        }
+
+        ImVec2 hierarchy_root_point(Comet::Entity root) {
+            auto* window = ImGui::FindWindowByName("Hierarchy");
+            const auto node_id =
+                reinterpret_cast<const void*>(static_cast<std::uintptr_t>(root.get_id()));
+            const auto id = ImHashData(&node_id, sizeof(node_id), window->GetID("Scene"));
+            for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 3) {
+                const ImVec2 point{window->WorkRect.Min.x + 70, y};
+                ImGui::GetIO().AddMousePosEvent(point.x, point.y);
+                frame();
+                if(GImGui->HoveredId == id)
+                    return point;
+            }
+            ADD_FAILURE() << "Hierarchy root not found";
+            return {};
+        }
+
+        void begin_entity_drag(ImVec2 point) {
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(point.x, point.y);
+            frame();
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+            frame();
+            EXPECT_EQ(selection.get_selected_entity(), entity);
+            io.AddMousePosEvent(point.x + 30, point.y);
+            frame();
+            ASSERT_TRUE(ImGui::IsDragDropActive());
+            EXPECT_EQ(selection.get_selected_entity(), entity);
+        }
     };
+
+    TEST_F(EditingUiTest, HierarchyDragKeepsInspectorTargetAndAssignsOneUndoableReference) {
+        auto script = Comet::Script::create("return {properties = {player = {type = 'entity'}}}");
+        ASSERT_TRUE(script);
+        const Comet::AssetHandle handle{1234};
+        ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        binding.asset = handle;
+        const auto player = scene.create_entity("Player");
+        show_hierarchy();
+        const auto destination = entity_parameter_point();
+        const auto source = hierarchy_root_point(player);
+        begin_entity_drag(source);
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(destination.x, destination.y);
+        frame();
+        frame();
+        EXPECT_TRUE(binding.parameters.empty());
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        frame();
+        EXPECT_EQ(selection.get_selected_entity(), entity);
+        ASSERT_TRUE(binding.parameters.contains("player"));
+        EXPECT_EQ(std::get<Comet::EntityUuid>(binding.parameters.at("player")), player.get_uuid());
+        EXPECT_FALSE(hierarchy->take_request());
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_TRUE(binding.parameters.empty());
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(std::get<Comet::EntityUuid>(binding.parameters.at("player")), player.get_uuid());
+        frame();
+        click(source);
+        EXPECT_EQ(selection.get_selected_entity(), player);
+    }
+
+    TEST_F(EditingUiTest, HierarchyDragCancelPreservesSelectionAndReparentStillQueuesRequest) {
+        const auto player = scene.create_entity("Player");
+        show_hierarchy();
+        const auto parent = hierarchy_root_point(entity);
+        const auto source = hierarchy_root_point(player);
+        auto& io = ImGui::GetIO();
+        for(const auto destination : {ImVec2{790, 590}, source}) {
+            begin_entity_drag(source);
+            io.AddMousePosEvent(destination.x, destination.y);
+            frame();
+            frame();
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+            frame();
+            EXPECT_EQ(selection.get_selected_entity(), entity);
+            EXPECT_FALSE(hierarchy->take_request());
+            EXPECT_FALSE(history.can_undo());
+            frame();
+        }
+        begin_entity_drag(source);
+        io.AddMousePosEvent(parent.x, parent.y);
+        frame();
+        frame();
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        frame();
+        EXPECT_EQ(selection.get_selected_entity(), entity);
+        const auto request = hierarchy->take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->type, HierarchyPanel::Request::Type::Reparent);
+        EXPECT_EQ(request->entity, player.get_uuid());
+        EXPECT_EQ(request->parent, entity.get_uuid());
+        EXPECT_FALSE(scene.get_parent(player));
+    }
+
+    TEST_F(EditingUiTest, EntityParameterSelectionUsesHistoryAndSurvivesRenameAndMissingTarget) {
+        auto script = Comet::Script::create("return {properties = {player = {type = 'entity'}}}");
+        ASSERT_TRUE(script);
+        const Comet::AssetHandle handle{1234};
+        ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        binding.asset = handle;
+        entity.get_component<Comet::NameComponent>().name = "ZOwner";
+        auto target = scene.create_entity("ATarget");
+        const auto target_id = target.get_uuid();
+        frame();
+        choose_entity(1);
+        ASSERT_TRUE(binding.parameters.contains("player"));
+        EXPECT_EQ(std::get<Comet::EntityUuid>(binding.parameters.at("player")), target_id);
+        EXPECT_EQ(history.undo_size(), 1u);
+        EXPECT_FALSE(edit.active());
+        ASSERT_TRUE(history.undo());
+        EXPECT_TRUE(binding.parameters.empty());
+        ASSERT_TRUE(history.redo());
+        target.get_component<Comet::NameComponent>().name = "Renamed";
+        scene.destroy_entity(target);
+        frame();
+        EXPECT_EQ(std::get<Comet::EntityUuid>(binding.parameters.at("player")), target_id);
+        EXPECT_EQ(history.undo_size(), 1u);
+        choose_entity(0);
+        EXPECT_FALSE(std::get<Comet::EntityUuid>(binding.parameters.at("player")));
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(std::get<Comet::EntityUuid>(binding.parameters.at("player")), target_id);
+    }
+
+    TEST_F(EditingUiTest, EntityParameterDropsRejectStaleAndMalformedPayloadsAndPlayHistory) {
+        auto script = Comet::Script::create("return {properties = {player = {type = 'entity'}}}");
+        ASSERT_TRUE(script);
+        const Comet::AssetHandle handle{1234};
+        ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        binding.asset = handle;
+        entity.get_component<Comet::NameComponent>().name = "ZOwner";
+        const auto target = scene.create_entity("ATarget").get_uuid();
+        frame();
+        drop_entity({target, history.generation() + 1});
+        drop_entity({Comet::EntityUuid::generate(), history.generation()});
+        drop_entity({target, history.generation()}, sizeof(EntityDragPayload) - 1);
+        EXPECT_TRUE(binding.parameters.empty());
+        EXPECT_FALSE(history.can_undo());
+        drop_entity({target, history.generation()});
+        ASSERT_TRUE(binding.parameters.contains("player"));
+        EXPECT_EQ(std::get<Comet::EntityUuid>(binding.parameters.at("player")), target);
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+
+        Comet::SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::ScriptSystem>(runtime_assets)));
+        ASSERT_TRUE(runtime.start(scene));
+        state.mode = EditorMode::Play;
+        drop_entity({target, history.generation()});
+        EXPECT_TRUE(binding.parameters.empty());
+        choose_entity(1);
+        ASSERT_TRUE(binding.parameters.contains("player"));
+        EXPECT_EQ(std::get<Comet::EntityUuid>(binding.parameters.at("player")), target);
+        EXPECT_FALSE(history.can_undo());
+        ASSERT_TRUE(runtime.stop());
+    }
 
     TEST_F(EditingUiTest, ScriptDefaultsStayImplicitUntilAnUndoableParameterEdit) {
         auto script = Comet::Script::create("return {properties = {speed = 100, enabled = true}}");

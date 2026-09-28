@@ -167,7 +167,8 @@ namespace Comet::Tests {
                 assert(comet.session_get('game.note') == nil)
                 self.checked = true
             end
-        })", "reader.lua");
+        })",
+            "reader.lua");
         ASSERT_TRUE(reader_script);
         ASSERT_TRUE(assets.register_asset(reader_handle, reader_script.value()));
         auto reader = scene.create_entity("Reader");
@@ -175,6 +176,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 2.0f);
+        EXPECT_FALSE(scene.set_session_value("game.target", reader.get_uuid()));
+        EXPECT_FALSE(scene.get_session_value("game.target"));
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
         ASSERT_TRUE(runtime.advance(1));
         EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 2.0f);
@@ -206,22 +209,19 @@ namespace Comet::Tests {
         sensor.add_component<RigidBodyComponent>().motion = BodyMotion::Static;
         sensor.add_component<ColliderComponent>().is_trigger = true;
         auto unrelated = actor();
-        unrelated.edit_transform([](TransformComponent& transform) {
-            transform.translation = {20, 0, 0};
-        });
+        unrelated.edit_transform(
+            [](TransformComponent& transform) { transform.translation = {20, 0, 0}; });
         auto target = scene.create_entity("Target");
         target.add_component<RigidBodyComponent>();
         target.add_component<ColliderComponent>();
-        target.edit_transform([](TransformComponent& transform) {
-            transform.translation = {0, 0.3f, 0};
-        });
+        target.edit_transform(
+            [](TransformComponent& transform) { transform.translation = {0, 0.3f, 0}; });
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_FLOAT_EQ(sensor.get_component<TransformComponent>().translation.y, 1);
         EXPECT_FLOAT_EQ(unrelated.get_component<TransformComponent>().translation.y, 0);
-        target.edit_transform([](TransformComponent& transform) {
-            transform.translation = {10, 3, 0};
-        });
+        target.edit_transform(
+            [](TransformComponent& transform) { transform.translation = {10, 3, 0}; });
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_FLOAT_EQ(sensor.get_component<TransformComponent>().translation.y, 3);
         EXPECT_FLOAT_EQ(unrelated.get_component<TransformComponent>().translation.y, 0);
@@ -244,9 +244,8 @@ namespace Comet::Tests {
         auto falling = scene.create_entity("Falling");
         falling.add_component<RigidBodyComponent>();
         falling.add_component<ColliderComponent>();
-        falling.edit_transform([](TransformComponent& transform) {
-            transform.translation = {0, 0.3f, 0};
-        });
+        falling.edit_transform(
+            [](TransformComponent& transform) { transform.translation = {0, 0.3f, 0}; });
         ASSERT_TRUE(runtime.start(scene));
         const auto advanced = runtime.advance(0.01);
         ASSERT_FALSE(advanced);
@@ -280,9 +279,8 @@ namespace Comet::Tests {
         auto falling = scene.create_entity("Falling");
         falling.add_component<RigidBodyComponent>();
         falling.add_component<ColliderComponent>();
-        falling.edit_transform([](TransformComponent& transform) {
-            transform.translation = {0, 0.3f, 0};
-        });
+        falling.edit_transform(
+            [](TransformComponent& transform) { transform.translation = {0, 0.3f, 0}; });
         ASSERT_TRUE(runtime.add_system(std::make_unique<DestroyAfterPhysics>(falling)));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0.01));
@@ -484,23 +482,22 @@ namespace Comet::Tests {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();
         ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
-        for(const auto& [name, script_handle] : {
-                std::pair{"spin.lua", AssetHandle{7821648321594001021}},
+        for(const auto& [name, script_handle] :
+            {std::pair{"spin.lua", AssetHandle{7821648321594001021}},
                 std::pair{"move_cube.lua", AssetHandle{14309634625000312001ULL}},
                 std::pair{"collect_goal.lua", AssetHandle{14309634625000312002ULL}}}) {
             auto script = Script::load(project.value().paths().assets() / "scripts" / name);
             ASSERT_TRUE(script) << script.error().message;
             ASSERT_TRUE(assets.register_asset(script_handle, std::move(script).value()));
         }
-        auto cue = AudioClip::load(
-            project.value().paths().assets() / "audio/play_chime.wav");
+        auto cue = AudioClip::load(project.value().paths().assets() / "audio/play_chime.wav");
         ASSERT_TRUE(cue) << cue.error().message;
-        ASSERT_TRUE(assets.register_asset(
-            AssetHandle{8247160951280394421ULL}, std::move(cue).value()));
+        ASSERT_TRUE(
+            assets.register_asset(AssetHandle{8247160951280394421ULL}, std::move(cue).value()));
         const auto components = create_scene_component_registry();
         const SceneSerializer serializer(components);
-        auto edit_scene = serializer.load(
-            (project.value().paths().assets() / "scenes/default.scene").string());
+        auto edit_scene =
+            serializer.load((project.value().paths().assets() / "scenes/default.scene").string());
         ASSERT_TRUE(edit_scene) << edit_scene.error();
         auto playing = serializer.clone(*edit_scene.value());
         ASSERT_TRUE(playing) << playing.error();
@@ -528,8 +525,11 @@ namespace Comet::Tests {
             found_marker |= name.name == "Collected_Goal_1";
         });
         EXPECT_TRUE(found_marker);
-        EXPECT_FLOAT_EQ(playing.value()->find_entity(*center_uuid)
-                            .get_component<TransformComponent>().translation.y, 0.4f);
+        EXPECT_FLOAT_EQ(playing.value()
+                            ->find_entity(*center_uuid)
+                            .get_component<TransformComponent>()
+                            .translation.y,
+            0.4f);
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(playing.value()->get_session_value("demo.score"));
         EXPECT_TRUE(edit_scene.value()->find_entity(*goal_uuid));
@@ -539,6 +539,24 @@ namespace Comet::Tests {
         EXPECT_TRUE(restarted.value()->find_entity(*goal_uuid));
         EXPECT_FALSE(restarted.value()->get_session_value("demo.score"));
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, DemoGoalIgnoresContactsWithUnassignedActors) {
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project);
+        auto script = Script::load(project.value().paths().assets() / "scripts/collect_goal.lua");
+        ASSERT_TRUE(script) << script.error().message;
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        const auto goal = scene.create_entity("Goal");
+        const auto player = scene.create_entity("Player");
+        const auto other = scene.create_entity("Other");
+        for(const auto target : {player.get_uuid(), EntityUuid{}}) {
+            ASSERT_TRUE(instance.value()->invoke(Script::Phase::TriggerEnter, goal,
+                {{"player", target}}, {.scene = &scene, .contact_other = other}));
+        }
+        EXPECT_TRUE(scene.is_valid(goal));
+        EXPECT_FALSE(scene.get_session_value("demo.score"));
     }
 
     TEST_F(ScriptSystemTest, OneShotRequiresAnAuthoredAudioSource) {

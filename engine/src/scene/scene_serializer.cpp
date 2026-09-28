@@ -66,6 +66,12 @@ namespace Comet {
             writer.end_array();
         }
 
+        void write_entity_reference(Json::Writer& writer, const EntityUuid value) {
+            writer.begin_object();
+            writer.field("entity", value.to_string());
+            writer.end_object();
+        }
+
         Result<PropertyValue> read_property_value(const PropertyDescriptor& property,
             const Json::Node& node, const Json::Context& context, const std::string_view location) {
             switch(property.type) {
@@ -84,6 +90,8 @@ namespace Comet {
                             item.type = PropertyType::String;
                         else if(field.value.is_array())
                             item.type = PropertyType::Vec3;
+                        else if(field.value.is_object())
+                            item.type = PropertyType::EntityReference;
                         else
                             return Result<PropertyValue>::failure(
                                 context.error(location, "Unsupported parameter type"));
@@ -151,6 +159,19 @@ namespace Comet {
                         return Result<PropertyValue>::failure(value.error());
                     return Result<PropertyValue>::success(AssetHandle(value.value()));
                 }
+                case PropertyType::EntityReference: {
+                    if(auto valid = context.validate_keys(node, {"entity"}, location); !valid)
+                        return Result<PropertyValue>::failure(valid.error());
+                    auto text =
+                        context.read_field<std::string>(node, "entity", "a UUID string", location);
+                    if(!text)
+                        return Result<PropertyValue>::failure(text.error());
+                    const auto uuid = EntityUuid::parse(text.value());
+                    if(!uuid)
+                        return Result<PropertyValue>::failure(
+                            context.error(location, "expected a canonical entity UUID"));
+                    return Result<PropertyValue>::success(*uuid);
+                }
             }
             return Result<PropertyValue>::failure(
                 context.error(location, "unsupported property type"));
@@ -187,6 +208,8 @@ namespace Comet {
                         write_vec3(writer, value);
                     else if constexpr(std::is_same_v<T, AssetHandle>)
                         writer.value(value.value());
+                    else if constexpr(std::is_same_v<T, EntityUuid>)
+                        write_entity_reference(writer, value);
                     else if constexpr(std::is_same_v<T, ParameterMap>) {
                         writer.begin_object();
                         for(const auto& [name, parameter] : value) {
@@ -196,6 +219,10 @@ namespace Comet {
                                     if constexpr(std::is_same_v<std::remove_cvref_t<decltype(item)>,
                                                      Math::Vec3>)
                                         write_vec3(writer, item);
+                                    else if constexpr(std::is_same_v<
+                                                          std::remove_cvref_t<decltype(item)>,
+                                                          EntityUuid>)
+                                        write_entity_reference(writer, item);
                                     else
                                         writer.value(item);
                                 },

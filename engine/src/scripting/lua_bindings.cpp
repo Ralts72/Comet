@@ -174,6 +174,8 @@ namespace Comet::LuaBindings {
                         lua_pushnumber(state, item);
                     else if constexpr(std::is_same_v<T, std::string>)
                         lua_pushlstring(state, item.data(), item.size());
+                    else if constexpr(std::is_same_v<T, EntityUuid>)
+                        luaL_error(state, "Entity references are not session values");
                     else {
                         lua_createtable(state, 3, 0);
                         for(int i = 0; i < 3; ++i) {
@@ -196,8 +198,8 @@ namespace Comet::LuaBindings {
             bool accepted = false;
             switch(lua_type(state, 2)) {
                 case LUA_TBOOLEAN:
-                    accepted = scene.set_session_value(
-                        key, static_cast<bool>(lua_toboolean(state, 2)));
+                    accepted =
+                        scene.set_session_value(key, static_cast<bool>(lua_toboolean(state, 2)));
                     break;
                 case LUA_TNUMBER:
                     accepted = scene.set_session_value(key, number(state, 2));
@@ -231,6 +233,13 @@ namespace Comet::LuaBindings {
         }
         int reference_valid(lua_State* state) {
             lua_pushboolean(state, static_cast<bool>(resolve(state, reference(state))));
+            return 1;
+        }
+        int reference_equal(lua_State* state) {
+            const auto* right =
+                static_cast<EntityReference*>(luaL_testudata(state, 2, ENTITY_REFERENCE_METATABLE));
+            const Entity left = resolve(state, reference(state));
+            lua_pushboolean(state, right && left && left == resolve(state, *right));
             return 1;
         }
         int reference_position(lua_State* state) {
@@ -283,12 +292,12 @@ namespace Comet::LuaBindings {
         }
     }
 
-    int push_entity_reference(lua_State* state, const Entity entity,
-        const std::uint64_t scene_generation) {
+    int push_entity_reference(
+        lua_State* state, const Entity entity, const std::uint64_t scene_generation) {
         auto* storage =
             static_cast<EntityReference*>(lua_newuserdatauv(state, sizeof(EntityReference), 0));
-        std::construct_at(storage,
-            EntityReference{entity.get_uuid(), entity.get_id(), scene_generation});
+        std::construct_at(
+            storage, EntityReference{entity.get_uuid(), entity.get_id(), scene_generation});
         luaL_getmetatable(state, ENTITY_REFERENCE_METATABLE);
         lua_setmetatable(state, -2);
         return 1;
@@ -296,6 +305,9 @@ namespace Comet::LuaBindings {
 
     void install(lua_State* state, Context& context) {
         luaL_newmetatable(state, ENTITY_REFERENCE_METATABLE);
+        lua_pushlightuserdata(state, &context);
+        lua_pushcclosure(state, reference_equal, 1);
+        lua_setfield(state, -2, "__eq");
         lua_newtable(state);
         lua_pushlightuserdata(state, &context);
         const luaL_Reg entity_api[]{{"is_valid", reference_valid}, {"position", reference_position},
@@ -309,11 +321,10 @@ namespace Comet::LuaBindings {
         const luaL_Reg api[]{{"rotate", rotate}, {"translate", translate}, {"position", position},
             {"self_entity", self_entity}, {"find_entity", find_entity},
             {"create_entity", create_entity}, {"destroy_entity", destroy_entity},
-            {"play_one_shot", play_one_shot},
-            {"session_get", session_get}, {"session_set", session_set},
-            {"key_down", key_down}, {"action_value", action_value}, {"action_down", action_down},
-            {"action_pressed", action_pressed}, {"action_released", action_released},
-            {nullptr, nullptr}};
+            {"play_one_shot", play_one_shot}, {"session_get", session_get},
+            {"session_set", session_set}, {"key_down", key_down}, {"action_value", action_value},
+            {"action_down", action_down}, {"action_pressed", action_pressed},
+            {"action_released", action_released}, {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);
         lua_setglobal(state, "comet");
     }

@@ -6,6 +6,47 @@
 
 namespace CometEditor::SceneCommands {
     namespace {
+        using ReferenceRemap = std::unordered_map<Comet::EntityUuid, Comet::EntityUuid>;
+
+        bool remap_reference(Comet::EntityUuid& uuid, const ReferenceRemap& remap) {
+            const auto found = remap.find(uuid);
+            if(found == remap.end())
+                return false;
+            uuid = found->second;
+            return true;
+        }
+
+        bool remap_entity_references(Comet::Entity entity, const Comet::ComponentRegistry& registry,
+            const ReferenceRemap& remap) {
+            if(remap.empty())
+                return true;
+            for(const auto& component : registry.components()) {
+                const auto* data = component.get_component(entity);
+                if(!data)
+                    continue;
+                for(const auto& property : component.properties) {
+                    if(property.type != Comet::PropertyType::Parameters
+                        && property.type != Comet::PropertyType::EntityReference)
+                        continue;
+                    auto value = property.copy_value(data);
+                    if(!value)
+                        return false;
+                    bool changed = false;
+                    if(auto* uuid = std::get_if<Comet::EntityUuid>(&*value))
+                        changed = remap_reference(*uuid, remap);
+                    else if(auto* parameters = std::get_if<Comet::ParameterMap>(&*value))
+                        for(auto& [name, parameter] : *parameters)
+                            if(auto* reference = std::get_if<Comet::EntityUuid>(&parameter))
+                                changed |= remap_reference(*reference, remap);
+                    if(changed
+                        && !component.assign_property(entity, property.id, *value,
+                            Comet::PropertyDescriptor::WriteMode::Restore))
+                        return false;
+                }
+            }
+            return true;
+        }
+
         struct EntitySnapshot {
             struct Component {
                 std::string id;
@@ -49,7 +90,7 @@ namespace CometEditor::SceneCommands {
         }
 
         bool restore_tree(Comet::Scene& scene, const Comet::ComponentRegistry& registry,
-            const std::vector<EntitySnapshot>& snapshots) {
+            const std::vector<EntitySnapshot>& snapshots, const ReferenceRemap& remap) {
             std::unordered_set<Comet::EntityUuid> uuids;
             for(const auto& snapshot : snapshots) {
                 if(!snapshot.uuid || scene.find_entity(snapshot.uuid)
@@ -89,6 +130,8 @@ namespace CometEditor::SceneCommands {
                 }
             }
             for(const auto& snapshot : snapshots) {
+                if(!remap_entity_references(scene.find_entity(snapshot.uuid), registry, remap))
+                    return false;
                 if(snapshot.parent
                     && !scene.set_parent(
                         scene.find_entity(snapshot.uuid), scene.find_entity(snapshot.parent))) {
@@ -102,16 +145,21 @@ namespace CometEditor::SceneCommands {
         class EntityTreeCommand final: public CommandHistory::Command {
         public:
             EntityTreeCommand(const Comet::ComponentRegistry& registry,
-                std::vector<EntitySnapshot> snapshots, bool creating)
-                : m_registry(registry), m_snapshots(std::move(snapshots)), m_creating(creating) {}
+                std::vector<EntitySnapshot> snapshots, bool creating, ReferenceRemap remap = {})
+                : m_registry(registry), m_snapshots(std::move(snapshots)), m_creating(creating),
+                  m_reference_remap(std::move(remap)) {}
 
             bool undo(Comet::Scene& scene) override { return apply(scene, !m_creating); }
             bool redo(Comet::Scene& scene) override { return apply(scene, m_creating); }
 
         private:
             bool apply(Comet::Scene& scene, bool present) {
-                if(present)
-                    return restore_tree(scene, m_registry, m_snapshots);
+                if(present) {
+                    if(!restore_tree(scene, m_registry, m_snapshots, m_reference_remap))
+                        return false;
+                    m_reference_remap.clear();
+                    return true;
+                }
                 auto root = scene.find_entity(m_snapshots.front().uuid);
                 auto current = capture_tree(scene, m_registry, root);
                 if(!current)
@@ -134,6 +182,7 @@ namespace CometEditor::SceneCommands {
             const Comet::ComponentRegistry& m_registry;
             std::vector<EntitySnapshot> m_snapshots;
             bool m_creating;
+            ReferenceRemap m_reference_remap;
         };
 
         class ReparentCommand final: public CommandHistory::Command {
@@ -233,7 +282,7 @@ namespace CometEditor::SceneCommands {
             auto* scene = history.get_scene();
             if(!scene || snapshots.empty() || (parent && !scene->find_entity(parent)))
                 return {};
-            std::unordered_map<Comet::EntityUuid, Comet::EntityUuid> remap;
+            ReferenceRemap remap;
             std::unordered_set<Comet::EntityUuid> source_uuids;
             std::unordered_set<Comet::EntityUuid> reserved;
             remap.reserve(snapshots.size());
@@ -261,8 +310,8 @@ namespace CometEditor::SceneCommands {
                 root.name = "Entity";
             root.name += "_Copy";
             const auto uuid = root.uuid;
-            if(!history.execute(
-                   std::make_unique<EntityTreeCommand>(registry, std::move(snapshots), true)))
+            if(!history.execute(std::make_unique<EntityTreeCommand>(
+                   registry, std::move(snapshots), true, std::move(remap))))
                 return {};
             return uuid;
         }

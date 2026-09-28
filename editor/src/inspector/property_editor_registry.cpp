@@ -2,6 +2,7 @@
 #include "ui/language.h"
 #include "ui/widgets.h"
 #include "assets/asset_reference.h"
+#include "scene/entity_reference.h"
 
 #include <imgui.h>
 #include <algorithm>
@@ -120,8 +121,9 @@ namespace CometEditor {
         return registry;
     }
 
-    PropertyEditResult PropertyEditorRegistry::edit_parameters(
-        const Comet::ParameterMap& defaults, Comet::ParameterMap& overrides) const {
+    PropertyEditResult PropertyEditorRegistry::edit_parameters(const Comet::ParameterMap& defaults,
+        Comet::ParameterMap& overrides, Comet::Scene& scene,
+        const std::optional<std::uint64_t> drop_generation) const {
         PropertyEditResult result;
         for(const auto& [name, fallback] : defaults) {
             auto value = fallback;
@@ -138,7 +140,11 @@ namespace CometEditor {
                         descriptor.type = Comet::PropertyType::Float;
                     else if constexpr(std::is_same_v<T, Comet::Math::Vec3>)
                         descriptor.type = Comet::PropertyType::Vec3;
-                    else
+                    else if constexpr(std::is_same_v<T, Comet::EntityUuid>) {
+                        const bool changed =
+                            edit_entity_reference(name.c_str(), scalar, scene, drop_generation);
+                        return PropertyEditResult{.changed = changed, .finished = changed};
+                    } else
                         descriptor.type = Comet::PropertyType::String;
                     return edit_property(descriptor, &scalar);
                 },

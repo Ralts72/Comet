@@ -1,4 +1,5 @@
 #include "scene/hierarchy.h"
+#include "scene/entity_reference.h"
 #include "scene/selection.h"
 #include "scene/command_history.h"
 #include "scene/scene_commands.h"
@@ -12,14 +13,6 @@
 #include <utility>
 
 namespace CometEditor {
-    namespace {
-        constexpr const char* ENTITY_PAYLOAD_TYPE = "COMET_ENTITY_UUID";
-        struct EntityPayload {
-            Comet::EntityUuid entity;
-            std::uint64_t generation;
-        };
-    }
-
     HierarchyPanel::HierarchyPanel(SelectionService& selection, const CommandHistory& history,
         const EditorState& state, const SceneCommands::EntityClipboard& clipboard)
         : EditorPanel("Hierarchy"), m_selection(selection), m_history(history), m_state(state),
@@ -53,19 +46,13 @@ namespace CometEditor {
     }
 
     void HierarchyPanel::accept_reparent_drop(const Comet::Entity parent) {
-        if(!can_edit_scene() || !ImGui::BeginDragDropTarget()) {
+        if(!can_edit_scene()) {
             return;
         }
 
-        if(const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ENTITY_PAYLOAD_TYPE);
-            payload && payload->DataSize == sizeof(EntityPayload)) {
-            const auto& source = *static_cast<const EntityPayload*>(payload->Data);
-            if(source.generation == m_history.generation()
-                && m_selection.get_scene().find_entity(source.entity))
-                m_request = Request{Request::Type::Reparent, source.entity,
-                    parent ? parent.get_uuid() : Comet::EntityUuid{}, source.generation};
-        }
-        ImGui::EndDragDropTarget();
+        if(const auto source = accept_entity_drop(m_selection.get_scene(), m_history.generation()))
+            m_request = Request{Request::Type::Reparent, *source,
+                parent ? parent.get_uuid() : Comet::EntityUuid{}, m_history.generation()};
     }
 
     void HierarchyPanel::render_entity_node(const Comet::Entity entity) {
@@ -90,7 +77,9 @@ namespace CometEditor {
             m_expand_entity = {};
         }
         const bool open = ImGui::TreeNodeEx(node_id, flags, "%s", display_name.c_str());
-        if(ImGui::IsItemClicked()) {
+        // 松开完成点击才切换选择，起拖时保留 Inspector 的原目标。
+        if(ImGui::IsItemDeactivated() && ImGui::IsItemHovered()
+            && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && !ImGui::GetDragDropPayload()) {
             m_selection.select_entity(entity.get_id());
         }
         if(ImGui::BeginPopupContextItem()) {
@@ -99,8 +88,8 @@ namespace CometEditor {
         }
 
         if(can_edit_scene() && ImGui::BeginDragDropSource()) {
-            const EntityPayload payload{entity.get_uuid(), m_history.generation()};
-            ImGui::SetDragDropPayload(ENTITY_PAYLOAD_TYPE, &payload, sizeof(payload));
+            const EntityDragPayload payload{entity.get_uuid(), m_history.generation()};
+            ImGui::SetDragDropPayload(EntityDragPayload::TYPE, &payload, sizeof(payload));
             ImGui::TextUnformatted(display_name.c_str());
             ImGui::EndDragDropSource();
         }

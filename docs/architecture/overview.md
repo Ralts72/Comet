@@ -213,6 +213,9 @@ CPU 诊断；正常关闭只取消未完成采样，保留上一条已完成帧�
 **运行与输入：** SceneRuntime 是时间截断的唯一入口，先有界固定更新再普通更新；暂停仍维护 UI、资产与绘制，
 单步只推进一轮固定／普通更新。ViewportPanel 生产控制请求，由 Editor 在下一次 on_update 经 Engine 应用。
 两个宿主都收到同一个当帧 `Engine::FrameContext`：App 在 on_update 交付窗口 Gate 结果，Editor 在 on_frame_ready 交付 UI Gate 结果；上下文退出时丢弃授权，未授权释放按钮但不暂停模拟。
+Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在按钮发出请求时提前授权。
+键盘／手柄跟随窗口焦点，鼠标另受画面悬停限制；Gate 分别维护整体与鼠标授权，避免工具栏点击／滚轮穿透，
+且鼠标离开画面不再中断键盘输入。其他面板取得焦点、文本编辑、弹窗和失焦仍撤销整个授权。
 隐藏离屏视图仍执行 UI、Runtime、Scene 提取和上传回收；暂时无呈现帧时只跳过 UI／提取／绘制。
 最小化等待并重置墙钟增量、窗口瞬态及 Runtime 待处理按下；Gate 根据采样中断版本重新获取授权。
 
@@ -288,10 +291,23 @@ Inspector Edit 使用当前资产定义，Play 使用活动实例定义；Edit �
 同一资产的源码更新不会替换活动实例，重新 Play 才使用新版；不是运行中热重载。
 
 参数检查与合并分开：Inspector 调用 validate_overrides，不生成无用的完整参数表；
-ScriptSystem 仅在覆盖变化时 resolve_parameters，Instance 仅在有效值变化时重建 Lua 配置表。
+ScriptSystem 仅在覆盖变化时 resolve_parameters，Instance 在有效值或运行场景变化时重建 Lua 配置表。
 两层快照分别检测覆盖和 Lua 输入，不引入跨层 revision 协议。
 明确编辑成默认值仍保存覆盖；“恢复默认参数”清空覆盖，可撤销但不重载源码。
 self.parameters 及 Vec3 配置只读，支持 pairs／索引／长度；运行状态写到 self 的其他字段，不持久化。
+
+实体参数用 `{type = "entity"}` 声明，ParameterValue 中保存独立的 EntityUuid 类型，
+Serializer 写为 `{"entity": "UUID"}`；普通字符串不按内容猜测成引用，目标可以暂时缺失。
+Editor 的实体选择控件显示名称／层级路径，与 Hierarchy 共用有文档世代校验的拖放载荷；
+Hierarchy 在完成非拖放点击时才切换选择，起拖期间不改变 Inspector 目标，不额外维护面板锁定状态。
+选择结果仍通过 Parameters 属性进入现有撤销历史，Play 仅修改运行副本且不接收 Edit 的实体拖放。
+复制／粘贴子树时，SceneCommands 根据新旧 UUID 表重映射子树内引用；外部引用保留 UUID，
+若目标在接收场景不存在则显示缺失。撤销删除保留原 UUID，不清除其他实体的配置。
+
+VM 将 UUID 绑定成已有的受保护实体引用，不把 Scene 指针写进 Lua 配置；
+引用同时校验场景世代和 EntityId，有效引用按实体实例比较，未分配或缺失引用可安全调用 `is_valid()`。
+绑定后目标被删除、即使同 UUID 重建，已捕获的引用也不自动转向新实体；参数表重建或重新 Play 才重新解析配置。
+会话值仍只接收 bool／float／Vec3／string，不因共享 ParameterValue 类型而开放实体存储。
 
 源码最多 1 MiB、每 VM 的 Lua 堆最多 8 MiB、每次保护调用最多约 20 万条指令；
 不等于墙钟超时或安全沙箱。不开放文件、原生库、require、动态代码、元表和 rawset。

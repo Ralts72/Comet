@@ -124,6 +124,8 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(scene.set_parent(entity, parent));
         ASSERT_TRUE(scene.set_parent(child, entity));
         ASSERT_TRUE(scene.set_parent(grandchild, child));
+        entity.add_component<Comet::ScriptComponent>().parameters = {
+            {"target", child.get_uuid()}, {"external", parent.get_uuid()}};
         child.add_component<Comet::MeshRendererComponent>(
             Comet::AssetHandle(8), Comet::AssetHandle(9));
         EXPECT_TRUE(child.try_edit_transform([&](auto& value) { value.translation.x = 6; }));
@@ -146,6 +148,12 @@ namespace CometEditor::Tests {
         ASSERT_EQ(copy_grandchildren.size(), 1);
         EXPECT_NE(copy_grandchildren.front().get_uuid(), grandchild.get_uuid());
         const auto copied_child_uuid = copied_child.get_uuid();
+        EXPECT_EQ(std::get<Comet::EntityUuid>(
+                      copy.get_component<Comet::ScriptComponent>().parameters.at("target")),
+            copied_child_uuid);
+        EXPECT_EQ(std::get<Comet::EntityUuid>(
+                      copy.get_component<Comet::ScriptComponent>().parameters.at("external")),
+            parent.get_uuid());
         EXPECT_TRUE(child.try_edit_transform([&](auto& value) { value.translation.x = 12; }));
         EXPECT_FLOAT_EQ(copied_child.get_component<Comet::TransformComponent>().translation.x, 6);
         EXPECT_EQ(history.undo_size(), 1);
@@ -156,6 +164,11 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(history.redo());
         EXPECT_EQ(scene.entity_count(), 7);
         EXPECT_EQ(scene.get_parent(scene.find_entity(copied_child_uuid)).get_uuid(), copy_uuid);
+        EXPECT_EQ(
+            std::get<Comet::EntityUuid>(
+                scene.find_entity(copy_uuid).get_component<Comet::ScriptComponent>().parameters.at(
+                    "target")),
+            copied_child_uuid);
         EXPECT_FLOAT_EQ(scene.find_entity(copied_child_uuid)
                             .get_component<Comet::TransformComponent>()
                             .translation.x,
@@ -165,6 +178,7 @@ namespace CometEditor::Tests {
     TEST_F(SceneCommandsTest, ClipboardPastesSubtreeAcrossScenesWithIndependentUndo) {
         auto child = scene.create_entity("Child");
         ASSERT_TRUE(scene.set_parent(child, entity));
+        entity.add_component<Comet::ScriptComponent>().parameters = {{"target", child.get_uuid()}};
         child.add_component<Comet::MeshRendererComponent>(
             Comet::AssetHandle(8), Comet::AssetHandle(9));
         child.set_transform({.translation = {2, 3, 4}});
@@ -181,6 +195,9 @@ namespace CometEditor::Tests {
         auto children = other_scene.get_children(first);
         ASSERT_EQ(children.size(), 1);
         EXPECT_NE(children.front().get_uuid(), child.get_uuid());
+        EXPECT_EQ(std::get<Comet::EntityUuid>(
+                      first.get_component<Comet::ScriptComponent>().parameters.at("target")),
+            children.front().get_uuid());
         EXPECT_EQ(children.front().get_component<Comet::MeshRendererComponent>().mesh,
             Comet::AssetHandle(8));
         EXPECT_EQ(children.front().get_component<Comet::TransformComponent>().translation,
@@ -196,6 +213,24 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(other_scene.find_entity(second_uuid));
         ASSERT_TRUE(history.redo());
         EXPECT_TRUE(other_scene.find_entity(second_uuid));
+    }
+
+    TEST_F(SceneCommandsTest, ScriptEntityReferenceEditsAndTargetDeletionAreUndoable) {
+        ASSERT_TRUE(add("script"));
+        const auto target = scene.create_entity("Target");
+        const auto uuid = target.get_uuid();
+        const PropertyEditTransaction::Target property{entity.get_uuid(), "script", "parameters"};
+        const Comet::ParameterMap parameters{{"target", uuid}};
+        ASSERT_TRUE(edit.apply(property, parameters));
+        ASSERT_TRUE(history.undo());
+        EXPECT_TRUE(entity.get_component<Comet::ScriptComponent>().parameters.empty());
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(entity.get_component<Comet::ScriptComponent>().parameters, parameters);
+        ASSERT_TRUE(SceneCommands::delete_entity(history, registry, uuid));
+        EXPECT_FALSE(scene.find_entity(uuid));
+        EXPECT_EQ(entity.get_component<Comet::ScriptComponent>().parameters, parameters);
+        ASSERT_TRUE(history.undo());
+        EXPECT_TRUE(scene.find_entity(uuid));
     }
 
     TEST_F(SceneCommandsTest, InvalidCopyAndPasteKeepExistingClipboardAndHistory) {

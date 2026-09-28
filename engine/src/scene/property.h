@@ -3,6 +3,7 @@
 #include "asset/metadata.h"
 #include "common/export.h"
 #include "core/math_utils.h"
+#include "scene/entity_uuid.h"
 
 #include <functional>
 #include <map>
@@ -15,12 +16,21 @@
 #include <vector>
 
 namespace Comet {
-    enum class PropertyType { Bool, Float, Vec3, AssetHandle, String, Enum, Parameters };
+    enum class PropertyType {
+        Bool,
+        Float,
+        Vec3,
+        AssetHandle,
+        String,
+        Enum,
+        Parameters,
+        EntityReference
+    };
 
-    using ParameterValue = std::variant<bool, float, Math::Vec3, std::string>;
+    using ParameterValue = std::variant<bool, float, Math::Vec3, std::string, EntityUuid>;
     using ParameterMap = std::map<std::string, ParameterValue>;
     using PropertyValue =
-        std::variant<bool, float, Math::Vec3, AssetHandle, std::string, ParameterMap>;
+        std::variant<bool, float, Math::Vec3, AssetHandle, std::string, ParameterMap, EntityUuid>;
     [[nodiscard]] COMET_API bool valid_parameters(const ParameterMap& parameters);
 
     [[nodiscard]] COMET_API bool property_values_equal(
@@ -101,6 +111,7 @@ namespace Comet {
                           || std::is_same_v<PropertyValue, Math::Vec3>
                           || std::is_same_v<PropertyValue, AssetHandle>
                           || std::is_same_v<PropertyValue, std::string>
+                          || std::is_same_v<PropertyValue, EntityUuid>
                           || std::is_same_v<PropertyValue, ParameterMap>,
             "Unsupported property type");
 
@@ -115,6 +126,8 @@ namespace Comet {
                 return PropertyType::String;
             } else if constexpr(std::is_same_v<PropertyValue, ParameterMap>) {
                 return PropertyType::Parameters;
+            } else if constexpr(std::is_same_v<PropertyValue, EntityUuid>) {
+                return PropertyType::EntityReference;
             } else {
                 return PropertyType::AssetHandle;
             }

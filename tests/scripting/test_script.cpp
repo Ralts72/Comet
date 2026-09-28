@@ -4,6 +4,89 @@
 #include <gtest/gtest.h>
 
 namespace Comet::Tests {
+    TEST(ScriptSourceTest, EntityPropertiesRequireAnExplicitTypeAndSceneOwnedTarget) {
+        auto script = Script::create("return {properties = {target = {type = 'entity'}}}");
+        ASSERT_TRUE(script) << script.error().message;
+        EXPECT_EQ(std::get<EntityUuid>(script.value()->defaults().at("target")), EntityUuid{});
+        EXPECT_TRUE(script.value()->validate_overrides({{"target", EntityUuid::generate()}}));
+        EXPECT_FALSE(script.value()->validate_overrides({{"target", std::string("uuid")}}));
+        EXPECT_FALSE(Script::create("return {properties = {target = {type = 'unknown'}}}"));
+        EXPECT_FALSE(
+            Script::create(R"(return {properties = {target = {type = 'entity\0extra'}}})"));
+        EXPECT_FALSE(
+            Script::create("return {properties = {target = {type = 'entity', default = 'uuid'}}}"));
+    }
+
+    TEST(ScriptInvocationTest, TypedReferencesCompareByEntityAndRespectLifetimeAndScene) {
+        auto script = Script::create(R"(
+            local script = {properties = {target = {type = 'entity'}}}
+            function script:on_start()
+                self.saved = self.parameters.target
+                assert(self.saved:is_valid())
+                assert(self.saved ~= comet.self_entity())
+            end
+            function script:on_trigger_enter(other)
+                assert(self.parameters.target == other)
+            end
+            function script:update(dt)
+                if dt == 1 then
+                    assert(not self.parameters.target:is_valid())
+                else
+                    assert(not self.saved:is_valid())
+                    assert(self.parameters.target:is_valid())
+                    assert(self.saved ~= self.parameters.target)
+                    self.parameters.target:translate(1, 0, 0)
+                end
+            end
+            return script
+        )");
+        ASSERT_TRUE(script) << script.error().message;
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        Scene scene;
+        const auto actor = scene.create_entity();
+        const auto target = scene.create_entity("Target");
+        const auto uuid = target.get_uuid();
+        const ParameterMap parameters{{"target", uuid}};
+        ASSERT_TRUE(
+            instance.value()->invoke(Script::Phase::Start, actor, parameters, {.scene = &scene}));
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::TriggerEnter, actor, parameters,
+            {.scene = &scene, .contact_other = target}));
+        scene.destroy_entity(target);
+        const auto replacement = scene.create_entity_with_uuid(uuid);
+        ASSERT_TRUE(instance.value()->invoke(
+            Script::Phase::Update, actor, parameters, {.delta_time = 1, .scene = &scene}));
+        EXPECT_EQ(replacement.get_component<TransformComponent>().translation, Math::Vec3(0));
+        Scene other;
+        const auto other_actor = other.create_entity();
+        const auto other_target = other.create_entity_with_uuid(uuid);
+        ASSERT_TRUE(instance.value()->invoke(
+            Script::Phase::Update, other_actor, parameters, {.scene = &other}));
+        EXPECT_EQ(
+            other_target.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
+    }
+
+    TEST(ScriptInvocationTest, UnassignedAndMissingEntityParametersAreSafeInvalidReferences) {
+        auto script = Script::create(R"(return {
+            update = function(self) assert(not self.parameters.target:is_valid()) end,
+            on_start = function(self) self.parameters.target:translate(1, 0, 0) end
+        })");
+        ASSERT_TRUE(script);
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        Scene scene;
+        const auto actor = scene.create_entity();
+        for(const auto target : {EntityUuid{}, EntityUuid::generate()}) {
+            const ParameterMap parameters{{"target", target}};
+            ASSERT_TRUE(instance.value()->invoke(
+                Script::Phase::Update, actor, parameters, {.scene = &scene}));
+            const auto invalid = instance.value()->invoke(
+                Script::Phase::Start, actor, parameters, {.scene = &scene});
+            ASSERT_FALSE(invalid);
+            EXPECT_NE(invalid.error().message.find("stale"), std::string::npos);
+        }
+    }
+
     TEST(ScriptSourceTest, ValidatesOverridesWithoutChangingDefaults) {
         auto script = Script::create("return {properties = {speed = 1, enabled = true}}");
         ASSERT_TRUE(script);

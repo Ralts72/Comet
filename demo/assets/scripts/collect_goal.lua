@@ -1,7 +1,12 @@
 local script = {}
 
+script.properties = {
+    player = {type = "entity"},
+}
+
 function script:on_trigger_enter(other)
-    if self.collected or not other:is_valid() then
+    if self.collected or not self.parameters.player:is_valid()
+        or other ~= self.parameters.player then
         return
     end
 

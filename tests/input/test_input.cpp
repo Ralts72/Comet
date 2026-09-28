@@ -207,6 +207,53 @@ namespace Comet::Tests {
         EXPECT_EQ(gate.read(replacement.publish_frame(), true).scroll, Math::Vec2(0));
     }
 
+    TEST_F(InputTest, PointerGateKeepsKeyboardAndGamepadAndRequiresFreshMousePress) {
+        Input::Gate gate;
+        Input::GamepadSample pad;
+        input.gamepad_sample(0, pad);
+        gate.read(input.publish_frame(), true, false);
+        input.key_event(Input::Key::W, true);
+        input.mouse_button_event(Input::MouseButton::Right, true);
+        input.cursor_event({0, 0});
+        input.cursor_event({10, 20});
+        input.scroll_event({0, 1});
+        pad.buttons[0] = true;
+        pad.axes[0] = 0.8f;
+        input.gamepad_sample(0, pad);
+        const auto raw = input.publish_frame();
+        auto routed = gate.read(raw, true, false);
+        EXPECT_TRUE(routed.focused);
+        EXPECT_TRUE(routed.key(Input::Key::W).pressed);
+        EXPECT_TRUE(routed.gamepads[0].buttons[0].pressed);
+        EXPECT_EQ(routed.gamepads[0].axes[0], 0.8f);
+        EXPECT_FALSE(routed.mouse(Input::MouseButton::Right).down);
+        EXPECT_EQ(routed.cursor_delta, Math::Vec2(0));
+        EXPECT_EQ(routed.scroll, Math::Vec2(0));
+
+        routed = gate.read(raw, true, true);
+        EXPECT_TRUE(routed.key(Input::Key::W).down);
+        EXPECT_FALSE(routed.key(Input::Key::W).pressed);
+        EXPECT_FALSE(routed.mouse(Input::MouseButton::Right).down);
+        EXPECT_EQ(routed.cursor_delta, Math::Vec2(0));
+        EXPECT_EQ(routed.scroll, Math::Vec2(0));
+        EXPECT_EQ(gate.read(raw, true, true).serial, routed.serial);
+        input.mouse_button_event(Input::MouseButton::Right, false);
+        gate.read(input.publish_frame(), true, true);
+        input.mouse_button_event(Input::MouseButton::Right, true);
+        input.cursor_event({15, 25});
+        input.scroll_event({0, 2});
+        const auto inside = input.publish_frame();
+        routed = gate.read(inside, true, true);
+        EXPECT_TRUE(routed.mouse(Input::MouseButton::Right).pressed);
+        EXPECT_EQ(routed.cursor_delta, Math::Vec2(5, 5));
+        EXPECT_EQ(routed.scroll, Math::Vec2(0, 2));
+        routed = gate.read(inside, true, false);
+        EXPECT_TRUE(routed.mouse(Input::MouseButton::Right).released);
+        EXPECT_FALSE(routed.mouse(Input::MouseButton::Right).down);
+        EXPECT_TRUE(routed.key(Input::Key::W).down);
+        EXPECT_EQ(routed.scroll, Math::Vec2(0));
+    }
+
     TEST_F(InputTest, IgnoresInvalidControlsAndNonFinitePointerData) {
         input.key_event(Input::Key::Unknown, true);
         input.key_event(static_cast<Input::Key>(-1), true);

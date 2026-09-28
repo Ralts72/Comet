@@ -4,11 +4,13 @@
 
 #include <functional>
 #include <cstdint>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 
 namespace Comet {
     class AssetDatabase;
+    class Scene;
 }
 
 namespace CometEditor {
@@ -47,8 +49,9 @@ namespace CometEditor {
         [[nodiscard]] bool contains(const Comet::PropertyType type) const {
             return m_editors.contains(type);
         }
-        [[nodiscard]] PropertyEditResult edit_parameters(
-            const Comet::ParameterMap& defaults, Comet::ParameterMap& overrides) const;
+        [[nodiscard]] PropertyEditResult edit_parameters(const Comet::ParameterMap& defaults,
+            Comet::ParameterMap& overrides, Comet::Scene& scene,
+            std::optional<std::uint64_t> drop_generation = std::nullopt) const;
 
     private:
         std::unordered_map<Comet::PropertyType, PropertyEditor> m_editors;

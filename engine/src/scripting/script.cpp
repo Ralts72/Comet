@@ -89,9 +89,9 @@ namespace Comet {
             lua_call(state, 0, 1);
             if(!lua_istable(state, -1))
                 return luaL_error(state, "Script must return a table");
-            for(const char* name : {"on_start", "fixed_update", "update", "on_stop",
-                    "on_collision_enter", "on_collision_exit", "on_trigger_enter",
-                    "on_trigger_exit"}) {
+            for(const char* name :
+                {"on_start", "fixed_update", "update", "on_stop", "on_collision_enter",
+                    "on_collision_exit", "on_trigger_enter", "on_trigger_exit"}) {
                 lua_getfield(state, -1, name);
                 const bool valid = lua_isnil(state, -1) || lua_isfunction(state, -1);
                 lua_pop(state, 1);
@@ -155,7 +155,13 @@ namespace Comet {
                         lua_pushnumber(state, value);
                     else if constexpr(std::is_same_v<T, std::string>)
                         lua_pushlstring(state, value.data(), value.size());
-                    else {
+                    else if constexpr(std::is_same_v<T, EntityUuid>) {
+                        const auto& context = current(state).bindings;
+                        Entity entity;
+                        if(context.scene && value)
+                            entity = context.scene->find_entity(value);
+                        LuaBindings::push_entity_reference(state, entity, context.scene_generation);
+                    } else {
                         lua_createtable(state, 3, 0);
                         for(int i = 0; i < 3; ++i) {
                             lua_pushnumber(state, value[i]);
@@ -181,8 +187,7 @@ namespace Comet {
                 vm.parameter_table = replacement;
             }
             const char* names[]{"on_start", "fixed_update", "update", "on_stop",
-                "on_collision_enter", "on_collision_exit", "on_trigger_enter",
-                "on_trigger_exit"};
+                "on_collision_enter", "on_collision_exit", "on_trigger_enter", "on_trigger_exit"};
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.definition);
             lua_getfield(state, -1, names[static_cast<int>(vm.phase)]);
             if(lua_isnil(state, -1))
@@ -261,6 +266,27 @@ namespace Comet {
                         break;
                     }
                     case LUA_TTABLE: {
+                        lua_getfield(state, -1, "type");
+                        const bool declared = !lua_isnil(state, -1);
+                        const bool entity_reference =
+                            lua_type(state, -1) == LUA_TSTRING && lua_rawlen(state, -1) == 6
+                            && std::string_view(lua_tostring(state, -1)) == "entity";
+                        lua_pop(state, 1);
+                        if(declared) {
+                            if(!entity_reference)
+                                return Result<ParameterMap, Error>::failure(
+                                    {"Unknown script property type"});
+                            lua_pushnil(state);
+                            while(lua_next(state, -2)) {
+                                if(lua_type(state, -2) != LUA_TSTRING || lua_rawlen(state, -2) != 4
+                                    || std::string_view(lua_tostring(state, -2)) != "type")
+                                    return Result<ParameterMap, Error>::failure(
+                                        {"Entity property only accepts type; assign its target in the scene"});
+                                lua_pop(state, 1);
+                            }
+                            value = EntityUuid{};
+                            break;
+                        }
                         if(lua_rawlen(state, -1) != 3)
                             return Result<ParameterMap, Error>::failure(
                                 {"Vector property needs three numbers"});
@@ -309,6 +335,7 @@ namespace Comet {
         if(m_impl->active_scene != invocation.scene) {
             m_impl->active_scene = invocation.scene;
             ++m_impl->scene_generation;
+            m_impl->parameters_changed = true;
         }
         m_impl->bindings = {entity, invocation.scene, invocation.input, m_impl->scene_generation};
         m_impl->parameters = &parameters;

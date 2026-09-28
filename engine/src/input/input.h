@@ -215,7 +215,8 @@ namespace Comet {
         // 调用方决定输入归属；重新取得输入时，已按住的按钮须释放后才能再次触发。
         class COMET_API Gate {
         public:
-            const Frame& read(const Frame& source, bool enabled);
+            // 可单独屏蔽鼠标，保留已授权的键盘和手柄。
+            const Frame& read(const Frame& source, bool enabled, bool pointer_enabled = true);
 
         private:
             static constexpr size_t BUTTON_COUNT =
@@ -226,6 +227,7 @@ namespace Comet {
             std::optional<uint64_t> m_interrupted_serial;
             std::bitset<BUTTON_COUNT> m_blocked;
             bool m_accepting = false;
+            bool m_pointer_accepting = false;
         };
 
         void key_event(Key key, bool down);
