@@ -129,6 +129,7 @@
 "Motion": "运动类型"
 "Static": "静态"
 "Dynamic": "动态"
+"Kinematic": "运动学"
 "Collider": "碰撞体"
 "Shape": "形状"
 "Box": "盒体"

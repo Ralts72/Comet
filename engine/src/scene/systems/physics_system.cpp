@@ -28,7 +28,7 @@
 namespace Comet {
     namespace {
         constexpr JPH::ObjectLayer STATIC_LAYER = 0;
-        constexpr JPH::ObjectLayer DYNAMIC_LAYER = 1;
+        constexpr JPH::ObjectLayer MOVING_LAYER = 1;
         std::mutex jolt_mutex;
         unsigned jolt_users = 0;
 
@@ -65,6 +65,17 @@ namespace Comet {
                 Math::Quat(rotation.GetW(), rotation.GetX(), rotation.GetY(), rotation.GetZ()))));
         }
 
+        JPH::EMotionType to_motion_type(const BodyMotion motion) {
+            switch(motion) {
+                case BodyMotion::Dynamic:
+                    return JPH::EMotionType::Dynamic;
+                case BodyMotion::Kinematic:
+                    return JPH::EMotionType::Kinematic;
+                default:
+                    return JPH::EMotionType::Static;
+            }
+        }
+
         bool same_pose(const TransformComponent& a, const TransformComponent& b) {
             return glm::all(glm::equal(a.translation, b.translation))
                    && glm::all(glm::equal(a.rotation, b.rotation));
@@ -86,7 +97,8 @@ namespace Comet {
             const auto& transform = entity.get_component<TransformComponent>();
             const auto& collider = entity.get_component<ColliderComponent>();
             const auto motion = entity.get_component<RigidBodyComponent>().motion;
-            if(motion != BodyMotion::Static && motion != BodyMotion::Dynamic)
+            if(motion != BodyMotion::Static && motion != BodyMotion::Dynamic
+                && motion != BodyMotion::Kinematic)
                 return Result<void, Error>::failure(
                     {"Unknown rigid body motion: " + entity.get_uuid().to_string()});
             const auto valid_scale = Math::is_finite(transform.scale)
@@ -159,10 +171,10 @@ namespace Comet {
         };
 
         Impl() : pairs(2), broad_phase(2, 2), jobs(1024) {
-            pairs.EnableCollision(STATIC_LAYER, DYNAMIC_LAYER);
-            pairs.EnableCollision(DYNAMIC_LAYER, DYNAMIC_LAYER);
+            pairs.EnableCollision(STATIC_LAYER, MOVING_LAYER);
+            pairs.EnableCollision(MOVING_LAYER, MOVING_LAYER);
             broad_phase.MapObjectToBroadPhaseLayer(STATIC_LAYER, JPH::BroadPhaseLayer(0));
-            broad_phase.MapObjectToBroadPhaseLayer(DYNAMIC_LAYER, JPH::BroadPhaseLayer(1));
+            broad_phase.MapObjectToBroadPhaseLayer(MOVING_LAYER, JPH::BroadPhaseLayer(1));
             object_filter =
                 std::make_unique<JPH::ObjectVsBroadPhaseLayerFilterTable>(broad_phase, 2, pairs, 2);
             world.Init(1024, 0, 1024, 1024, broad_phase, *object_filter, pairs);
@@ -191,14 +203,14 @@ namespace Comet {
             } else {
                 shape = new JPH::SphereShape(collider.radius * transform.scale.x);
             }
-            JPH::BodyCreationSettings settings(shape.GetPtr(),
-                to_position(transform.translation), to_rotation(transform.rotation),
-                motion == BodyMotion::Static ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic,
-                motion == BodyMotion::Static ? STATIC_LAYER : DYNAMIC_LAYER);
+            JPH::BodyCreationSettings settings(shape.GetPtr(), to_position(transform.translation),
+                to_rotation(transform.rotation), to_motion_type(motion),
+                motion == BodyMotion::Static ? STATIC_LAYER : MOVING_LAYER);
             settings.mIsSensor = collider.is_trigger;
-            const auto id = world.GetBodyInterface().CreateAndAddBody(
-                settings, motion == BodyMotion::Static ? JPH::EActivation::DontActivate
-                                                       : JPH::EActivation::Activate);
+            auto activation = JPH::EActivation::Activate;
+            if(motion == BodyMotion::Static)
+                activation = JPH::EActivation::DontActivate;
+            const auto id = world.GetBodyInterface().CreateAndAddBody(settings, activation);
             if(id.IsInvalid())
                 return Result<void, Error>::failure({"Physics body capacity exceeded"});
             bodies.emplace(entity.get_uuid(), Body{entity, id, motion, collider, transform});
@@ -213,7 +225,7 @@ namespace Comet {
         }
 
         Result<void, Error> synchronize_body(
-            Scene& scene, Entity entity, const RigidBodyComponent& rigid) {
+            Scene& scene, Entity entity, const RigidBodyComponent& rigid, const float delta_time) {
             auto it = bodies.find(entity.get_uuid());
             if(it != bodies.end()) {
                 if(auto checked = validate_body(scene, entity); !checked)
@@ -226,11 +238,19 @@ namespace Comet {
                     remove_body(it);
                     return add_body(scene, entity);
                 }
-                if(!same_pose(it->second.last_transform, transform)) {
+                if(rigid.motion == BodyMotion::Kinematic && delta_time > 0) {
+                    // 目标未变也要更新速度，避免沿用上一固定步的运动。
+                    world.GetBodyInterface().MoveKinematic(it->second.id,
+                        to_position(transform.translation), to_rotation(transform.rotation),
+                        delta_time);
+                    it->second.last_transform = transform;
+                } else if(!same_pose(it->second.last_transform, transform)) {
+                    auto activation = JPH::EActivation::DontActivate;
+                    if(rigid.motion != BodyMotion::Static)
+                        activation = JPH::EActivation::Activate;
                     world.GetBodyInterface().SetPositionAndRotationWhenChanged(it->second.id,
                         to_position(transform.translation), to_rotation(transform.rotation),
-                        rigid.motion == BodyMotion::Dynamic ? JPH::EActivation::Activate
-                                                            : JPH::EActivation::DontActivate);
+                        activation);
                     it->second.last_transform = transform;
                 }
                 return Result<void, Error>::success();
@@ -238,7 +258,7 @@ namespace Comet {
             return add_body(scene, entity);
         }
 
-        Result<void, Error> synchronize(Scene& scene) {
+        Result<void, Error> synchronize(Scene& scene, const float delta_time = 0) {
             for(auto it = bodies.begin(); it != bodies.end();) {
                 const auto& body = it->second;
                 if(!body.entity || !body.entity.has_component<RigidBodyComponent>()
@@ -255,7 +275,7 @@ namespace Comet {
             scene.each<const RigidBodyComponent>(
                 [&](Entity entity, const RigidBodyComponent& rigid) {
                     if(result)
-                        result = synchronize_body(scene, entity, rigid);
+                        result = synchronize_body(scene, entity, rigid, delta_time);
                 });
             return result;
         }
@@ -277,9 +297,9 @@ namespace Comet {
                 Entity second_entity = second->second->entity;
                 if(first_entity.get_uuid() > second_entity.get_uuid())
                     std::swap(first_entity, second_entity);
-                current.emplace(pair, Contact{first_entity, second_entity,
-                                          first->second->collider.is_trigger
-                                              || second->second->collider.is_trigger});
+                current.emplace(pair,
+                    Contact{first_entity, second_entity,
+                        first->second->collider.is_trigger || second->second->collider.is_trigger});
             }
             std::vector<Scene::ContactEvent> events;
             const auto kind_for = [](const Contact& contact, const bool entering) {
@@ -340,14 +360,14 @@ namespace Comet {
     Result<void, Error> PhysicsSystem::fixed_update(Scene& scene, const Context& context) {
         if(!m_impl)
             return Result<void, Error>::failure({"Physics world is not active"});
-        if(auto synced = m_impl->synchronize(scene); !synced)
+        const auto delta_time = static_cast<float>(context.delta_time);
+        if(auto synced = m_impl->synchronize(scene, delta_time); !synced)
             return synced;
-        if(m_impl->world.Update(
-               static_cast<float>(context.delta_time), 1, &m_impl->allocator, &m_impl->jobs)
+        if(m_impl->world.Update(delta_time, 1, &m_impl->allocator, &m_impl->jobs)
             != JPH::EPhysicsUpdateError::None)
             return Result<void, Error>::failure({"Physics simulation failed"});
         for(auto& [uuid, body] : m_impl->bodies) {
-            if(body.motion == BodyMotion::Static)
+            if(body.motion != BodyMotion::Dynamic)
                 continue;
             JPH::RVec3 position;
             JPH::Quat rotation;

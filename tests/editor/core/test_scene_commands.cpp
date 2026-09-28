@@ -52,6 +52,29 @@ namespace CometEditor::Tests {
             loaded.get_component<Comet::CameraControllerComponent>().look_sensitivity, 0.2f);
     }
 
+    TEST_F(SceneCommandsTest, KinematicMotionUsesExistingPropertyHistoryAndSerialization) {
+        ASSERT_TRUE(add("rigid_body"));
+        const PropertyEditTransaction::Target target{entity.get_uuid(), "rigid_body", "motion"};
+        ASSERT_TRUE(edit.apply(target, std::string("kinematic")));
+        EXPECT_EQ(
+            entity.get_component<Comet::RigidBodyComponent>().motion, Comet::BodyMotion::Kinematic);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(
+            entity.get_component<Comet::RigidBodyComponent>().motion, Comet::BodyMotion::Dynamic);
+        ASSERT_TRUE(history.redo());
+        const Comet::SceneSerializer serializer(registry);
+        auto serialized = serializer.serialize(scene);
+        ASSERT_TRUE(serialized) << serialized.error();
+        EXPECT_NE(serialized.value().find("\"kinematic\""), std::string::npos);
+        auto restored = serializer.deserialize(serialized.value());
+        ASSERT_TRUE(restored) << restored.error();
+        EXPECT_EQ(restored.value()
+                      ->find_entity(entity.get_uuid())
+                      .get_component<Comet::RigidBodyComponent>()
+                      .motion,
+            Comet::BodyMotion::Kinematic);
+    }
+
     TEST_F(SceneCommandsTest, MeshPlacementIsOneUndoableSerializableEntity) {
         const auto uuid = SceneCommands::create_mesh_entity(
             history, registry, "Placed", Comet::AssetHandle(8), Comet::AssetHandle(9), {2, 3, 4});

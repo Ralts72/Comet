@@ -233,8 +233,11 @@ CameraControllerSystem 只约定 `camera.*` 动作语义，具体设备、按键
 动作和绑定数量上限由 InputActions 定义，项目解析和 UI 共用；键盘录入占用 ImGui 活动项及按键所有权，
 Esc 取消，失焦／关闭结束录入，不把捕获键同时交给编辑器快捷键。该面板仅在 Edit 可用，不代表游戏内改键已实现。
 
-PhysicsSystem 排在脚本之后：脚本的固定步 Transform 写入先作为物理传送同步，然后 Jolt 模拟并回写动态刚体；
-静态刚体只从 Scene 同步位置，不由模拟改写。Collider 的尺寸乘以本地正缩放，球体暂要求均匀缩放，
+PhysicsSystem 排在脚本之后：动态刚体的外部 Transform 写入作为传送同步，随后 Jolt 模拟并回写；
+运动学刚体把 Transform 作为该固定步的目标，经 MoveKinematic 计算线／角速度，不回写 Scene。
+目标不变时也更新运动学速度，避免残留上一固定步的速度。静态刚体只从 Scene 同步位置，不由模拟改写。
+运动学可推动动态物体并触发静态 Trigger，但不是带阻挡／滑动的角色控制器；普通非动态物体之间不额外开启接触检测。
+Collider 的尺寸乘以本地正缩放，球体暂要求均匀缩放，
 刚体暂不允许父级，避免把局部 TRS 误当世界姿态。Scene 只保存 RigidBody／Collider 参数，
 Play／app 启动时创建 Jolt 世界和 body，Stop／启动失败时清理；Edit Scene 不模拟。
 

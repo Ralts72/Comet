@@ -72,6 +72,42 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST_F(ScriptSystemTest, KinematicUsesLuaFixedTargetsAndRespectsPauseStepAndRestart) {
+        source(R"(
+            local script = {}
+            function script:fixed_update(dt)
+                comet.translate(2 * dt, 0, 0)
+                comet.rotate(0, 90 * dt, 0)
+            end
+            return script
+        )");
+        auto entity = actor();
+        entity.add_component<RigidBodyComponent>().motion = BodyMotion::Kinematic;
+        entity.add_component<ColliderComponent>();
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.02));
+        const auto& transform = entity.get_component<TransformComponent>();
+        EXPECT_NEAR(transform.translation.x, 0.04f, 1e-6f);
+        EXPECT_FLOAT_EQ(transform.translation.y, 0);
+        EXPECT_NEAR(transform.rotation.y, 1.8f, 1e-4f);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_NEAR(transform.translation.x, 0.04f, 1e-6f);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_NEAR(transform.translation.x, 0.06f, 1e-6f);
+        EXPECT_NEAR(transform.rotation.y, 2.7f, 1e-4f);
+        ASSERT_TRUE(runtime.stop());
+        entity.set_transform({});
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_NEAR(transform.translation.x, 0.02f, 1e-6f);
+        EXPECT_FLOAT_EQ(transform.translation.y, 0);
+        EXPECT_NEAR(transform.rotation.y, 0.9f, 1e-4f);
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST_F(ScriptSystemTest, EntityReferenceReadsAndWritesOnlyLiveSceneEntities) {
         auto target = scene.create_entity("Target");
         const auto target_uuid = target.get_uuid();

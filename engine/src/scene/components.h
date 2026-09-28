@@ -116,7 +116,7 @@ namespace Comet {
         uint64_t m_lifetime;
     };
 
-    enum class BodyMotion { Static, Dynamic };
+    enum class BodyMotion { Static, Dynamic, Kinematic };
 
     struct COMET_API RigidBodyComponent {
         BodyMotion motion = BodyMotion::Dynamic;

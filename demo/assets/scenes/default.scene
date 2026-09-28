@@ -184,7 +184,7 @@
         "transform": {
           "translation": [
             -0.7,
-            0,
+            -0.56,
             0.46558404
           ],
           "rotation": [
@@ -203,7 +203,7 @@
           "material": 6482638524486200214
         },
         "rigid_body": {
-          "motion": "dynamic"
+          "motion": "kinematic"
         },
         "collider": {
           "shape": "box",

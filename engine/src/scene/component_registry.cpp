@@ -194,8 +194,8 @@ namespace Comet {
             make_component_descriptor<AudioSourceComponent>("audio_source", "Audio Source",
                 {make_property_descriptor("clip", "Audio Clip", &AudioSourceComponent::clip,
                      {.asset_type = AssetType::Audio}),
-                    make_property_descriptor("play_on_start", "Play On Start",
-                        &AudioSourceComponent::play_on_start),
+                    make_property_descriptor(
+                        "play_on_start", "Play On Start", &AudioSourceComponent::play_on_start),
                     make_property_descriptor("loop", "Loop", &AudioSourceComponent::loop),
                     make_property_descriptor("volume", "Volume", &AudioSourceComponent::volume,
                         {.numeric = {.speed = 0.01f,
@@ -207,7 +207,8 @@ namespace Comet {
             {make_enum_property_descriptor<RigidBodyComponent, BodyMotion>("motion", "Motion",
                 &RigidBodyComponent::motion,
                 {{BodyMotion::Static, {"static", "Static"}},
-                    {BodyMotion::Dynamic, {"dynamic", "Dynamic"}}})}));
+                    {BodyMotion::Dynamic, {"dynamic", "Dynamic"}},
+                    {BodyMotion::Kinematic, {"kinematic", "Kinematic"}}})}));
 
         register_component(make_component_descriptor<ColliderComponent>("collider", "Collider",
             {make_enum_property_descriptor<ColliderComponent, ColliderShape>("shape", "Shape",

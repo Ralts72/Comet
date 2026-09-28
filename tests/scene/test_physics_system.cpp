@@ -49,13 +49,12 @@ namespace Comet::Tests {
                 EXPECT_EQ(observed->contacts[0].kind, Scene::ContactEvent::Kind::TriggerEnter);
             else
                 EXPECT_EQ(observed->contacts[0].kind, Scene::ContactEvent::Kind::CollisionEnter);
-            EXPECT_TRUE(observed->contacts[0].first == floor
-                        || observed->contacts[0].second == floor);
+            EXPECT_TRUE(
+                observed->contacts[0].first == floor || observed->contacts[0].second == floor);
             EXPECT_TRUE(scene.get_contact_events().empty());
             ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
-            falling.edit_transform([](TransformComponent& transform) {
-                transform.translation = {10, 3, 0};
-            });
+            falling.edit_transform(
+                [](TransformComponent& transform) { transform.translation = {10, 3, 0}; });
             observed->contacts.clear();
             ASSERT_TRUE(runtime.advance(0.1));
             EXPECT_TRUE(observed->contacts.empty());
@@ -98,6 +97,112 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
         EXPECT_LT(falling.get_component<TransformComponent>().translation.y, 2);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, KinematicMotionPushesDynamicBodyWithoutPhysicsWritingItsPose) {
+        Scene scene;
+        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        auto pusher = add_body(scene, "Pusher", BodyMotion::Kinematic, {-1.5f, 0.5f, 0});
+        auto pushed = add_body(scene, "Pushed", BodyMotion::Dynamic, {0, 0.5f, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int step = 0; step < 30; ++step) {
+            pusher.edit_transform(
+                [](TransformComponent& transform) { transform.translation.x += 0.04f; });
+            const auto target = pusher.get_component<TransformComponent>();
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_EQ(pusher.get_component<TransformComponent>().translation, target.translation);
+        }
+        EXPECT_GT(pushed.get_component<TransformComponent>().translation.x, 0.4f);
+        EXPECT_FLOAT_EQ(pusher.get_component<TransformComponent>().translation.y, 0.5f);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, KinematicStopsAtUnchangedTargetAndExitsStaticTriggerWhenMovedAway) {
+        Scene scene;
+        auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0, 0});
+        sensor.get_component<ColliderComponent>().is_trigger = true;
+        auto mover = add_body(scene, "Mover", BodyMotion::Kinematic, {-2, 0, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        int entries = 0;
+        for(int step = 0; step < 8; ++step) {
+            mover.edit_transform(
+                [](TransformComponent& transform) { transform.translation.x += 0.2f; });
+            ASSERT_TRUE(runtime.advance(0.01));
+            for(const auto& contact : observed->contacts) {
+                EXPECT_EQ(contact.kind, Scene::ContactEvent::Kind::TriggerEnter);
+                ++entries;
+            }
+        }
+        ASSERT_EQ(entries, 1);
+        for(int step = 0; step < 20; ++step) {
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_TRUE(observed->contacts.empty()) << "Stopped at step " << step;
+        }
+        mover.edit_transform([](TransformComponent& transform) { transform.translation.x = -2; });
+        // 接触检测观察固定步开始时的姿态，下一步确认已经分离。
+        ASSERT_TRUE(runtime.advance(0.02));
+        ASSERT_EQ(observed->contacts.size(), 1u);
+        EXPECT_EQ(observed->contacts[0].kind, Scene::ContactEvent::Kind::TriggerExit);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, KinematicRotationMovesColliderAndClearsAngularVelocityAtTarget) {
+        Scene scene;
+        auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0, 1.5f});
+        sensor.get_component<ColliderComponent>().is_trigger = true;
+        auto rod = add_body(scene, "Rod", BodyMotion::Kinematic, {0, 0, 0});
+        rod.get_component<ColliderComponent>().half_extents = {2, 0.2f, 0.2f};
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_TRUE(observed->contacts.empty());
+        rod.edit_transform([](TransformComponent& transform) { transform.rotation.y = 90; });
+        ASSERT_TRUE(runtime.advance(0.02));
+        ASSERT_EQ(observed->contacts.size(), 1u);
+        EXPECT_EQ(observed->contacts[0].kind, Scene::ContactEvent::Kind::TriggerEnter);
+        for(int step = 0; step < 20; ++step) {
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_TRUE(observed->contacts.empty());
+            EXPECT_FLOAT_EQ(rod.get_component<TransformComponent>().rotation.y, 90);
+        }
+        rod.edit_transform([](TransformComponent& transform) { transform.rotation.y = 180; });
+        ASSERT_TRUE(runtime.advance(0.02));
+        ASSERT_EQ(observed->contacts.size(), 1u);
+        EXPECT_EQ(observed->contacts[0].kind, Scene::ContactEvent::Kind::TriggerExit);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, SwitchingMotionRecreatesBodyWithTheNewPoseOwner) {
+        Scene scene;
+        auto body = add_body(scene, "Body", BodyMotion::Kinematic, {0, 2, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(1.0 / 60.0));
+        EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.y, 2);
+        body.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
+        ASSERT_TRUE(runtime.advance(1.0 / 60.0));
+        EXPECT_LT(body.get_component<TransformComponent>().translation.y, 2);
+        body.get_component<RigidBodyComponent>().motion = BodyMotion::Kinematic;
+        const auto frozen = body.get_component<TransformComponent>().translation;
+        for(int step = 0; step < 10; ++step)
+            ASSERT_TRUE(runtime.advance(1.0 / 60.0));
+        EXPECT_EQ(body.get_component<TransformComponent>().translation, frozen);
         ASSERT_TRUE(runtime.stop());
     }
 
