@@ -105,6 +105,10 @@ namespace Comet {
         m_timing.fixed_steps = 0;
         m_timing.interpolation = 0;
         m_timing.dropped_time = 0;
+        m_executing = true;
+        for(auto& system : m_systems)
+            system->on_pause_changed(state == State::Paused);
+        m_executing = false;
         return Result<void, Error>::success();
     }
 

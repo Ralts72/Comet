@@ -6,6 +6,8 @@
 #define MA_NO_MP3
 #include <miniaudio.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <string>
@@ -58,6 +60,9 @@ namespace Comet {
 
     struct AudioPlayback::Impl {
         ma_engine engine{};
+        Mode mode = Mode::Realtime;
+        double silent_frame_remainder = 0;
+        bool paused = false;
         bool initialized = false;
 
         ~Impl() {
@@ -85,10 +90,14 @@ namespace Comet {
     AudioPlayback::AudioPlayback(std::shared_ptr<Impl> impl) : m_impl(std::move(impl)) {}
     AudioPlayback::~AudioPlayback() = default;
 
-    Result<std::unique_ptr<AudioPlayback>, Error> AudioPlayback::create(const Mode mode) {
+    Result<std::unique_ptr<AudioPlayback>, Error> AudioPlayback::create(
+        const Mode mode, const bool start_paused) {
         using Creation = Result<std::unique_ptr<AudioPlayback>, Error>;
         auto impl = std::make_shared<Impl>();
+        impl->mode = mode;
+        impl->paused = start_paused;
         auto config = ma_engine_config_init();
+        config.noAutoStart = start_paused ? MA_TRUE : MA_FALSE;
         if(mode == Mode::Offline) {
             config.noDevice = MA_TRUE;
             config.channels = 2;
@@ -125,6 +134,64 @@ namespace Comet {
         ma_sound_set_volume(&impl->sound, volume);
         ma_sound_set_looping(&impl->sound, looping ? MA_TRUE : MA_FALSE);
         return Creation::success(std::unique_ptr<Voice>(new Voice(std::move(impl))));
+    }
+
+    Result<void, Error> AudioPlayback::set_paused(const bool paused) {
+        if(m_impl->paused == paused)
+            return Result<void, Error>::success();
+        if(m_impl->mode == Mode::Realtime) {
+            ma_result result;
+            if(paused)
+                result = ma_engine_stop(&m_impl->engine);
+            else
+                result = ma_engine_start(&m_impl->engine);
+            if(result != MA_SUCCESS)
+                return Result<void, Error>::failure(
+                    audio_error("Cannot change audio state", result));
+        }
+        m_impl->paused = paused;
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> AudioPlayback::advance_silently(const double delta_time) {
+        if(!m_impl->paused)
+            return Result<void, Error>::failure({"Silent audio advance requires paused playback"});
+        if(!std::isfinite(delta_time) || delta_time < 0 || delta_time > 1)
+            return Result<void, Error>::failure({"Silent audio delta must be in [0, 1] seconds"});
+        const double exact_frames = m_impl->silent_frame_remainder
+                                    + delta_time * ma_engine_get_sample_rate(&m_impl->engine);
+        const auto frames = static_cast<uint64_t>(std::floor(exact_frames + 1e-9));
+        std::array<float, 4096> discarded;
+        const auto capacity = discarded.size() / ma_engine_get_channels(&m_impl->engine);
+        // 设备回调已停止；主线程独占混音推进，采样不送往设备。
+        for(uint64_t remaining = frames; remaining > 0;) {
+            const auto count = std::min<uint64_t>(remaining, capacity);
+            const auto result =
+                ma_engine_read_pcm_frames(&m_impl->engine, discarded.data(), count, nullptr);
+            if(result != MA_SUCCESS)
+                return Result<void, Error>::failure(audio_error("Cannot advance audio", result));
+            remaining -= count;
+        }
+        m_impl->silent_frame_remainder = std::max(0.0, exact_frames - frames);
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> AudioPlayback::read_frames(const std::span<float> samples) {
+        if(m_impl->mode != Mode::Offline)
+            return Result<void, Error>::failure({"Only offline playback can read audio frames"});
+        if(samples.size() % 2 != 0)
+            return Result<void, Error>::failure({"Audio output requires complete stereo frames"});
+        if(samples.empty())
+            return Result<void, Error>::success();
+        if(m_impl->paused) {
+            std::ranges::fill(samples, 0.0f);
+            return Result<void, Error>::success();
+        }
+        const auto result =
+            ma_engine_read_pcm_frames(&m_impl->engine, samples.data(), samples.size() / 2, nullptr);
+        if(result != MA_SUCCESS)
+            return Result<void, Error>::failure(audio_error("Cannot read audio frames", result));
+        return Result<void, Error>::success();
     }
 
     AudioPlayback::Voice::Voice(std::unique_ptr<Impl> impl) : m_impl(std::move(impl)) {}

@@ -50,6 +50,10 @@ namespace Comet::Tests {
                     return update_frame(scene, context);
                 return UpdateResult::success();
             }
+            void on_pause_changed(bool paused) noexcept override {
+                if(pause)
+                    pause(paused);
+            }
             void on_stop(Scene& scene) noexcept override {
                 calls.order.push_back("stop " + name);
                 if(stop)
@@ -58,6 +62,7 @@ namespace Comet::Tests {
             std::function<UpdateResult(Scene&)> start;
             std::function<UpdateResult(Scene&, const Context&)> fixed;
             std::function<UpdateResult(Scene&, const Context&)> update_frame;
+            std::function<void(bool)> pause;
             std::function<void(Scene&)> stop;
 
         private:
@@ -208,8 +213,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(clone_runtime.start(*clone.value()));
         EXPECT_FALSE(clone.value()->get_session_value("game.score"));
         ASSERT_TRUE(clone_runtime.stop());
-        EXPECT_FALSE(scene.set_session_value("game.score",
-            std::numeric_limits<float>::infinity()));
+        EXPECT_FALSE(scene.set_session_value("game.score", std::numeric_limits<float>::infinity()));
         EXPECT_FALSE(scene.set_session_value("", 1.0f));
         EXPECT_FALSE(scene.set_session_value("game.note", std::string(4097, 'x')));
         EXPECT_EQ(std::get<std::string>(*scene.get_session_value("game.note")), "ready");
@@ -516,6 +520,48 @@ namespace Comet::Tests {
         EXPECT_EQ(calls.fixed.back().input.cursor_delta, Math::Vec2(0));
         EXPECT_EQ(calls.fixed.back().input.scroll, Math::Vec2(0));
         EXPECT_NEAR(runtime.get_timing().total_time, 0.14, 1e-9);
+    }
+
+    TEST_F(SceneRuntimeTest, PauseNotifiesSystemsOnlyOnTransitionsAndRejectsReentry) {
+        auto* first = add("A");
+        auto* second = add("B");
+        std::vector<std::string> transitions;
+        first->pause = [&](bool paused) {
+            transitions.push_back(paused ? "pause A" : "resume A");
+            EXPECT_EQ(runtime.get_state(), paused ? State::Paused : State::Running);
+            EXPECT_FALSE(runtime.set_state(State::Running));
+            EXPECT_FALSE(runtime.stop());
+            EXPECT_FALSE(runtime.advance(0));
+            EXPECT_FALSE(runtime.request_step());
+            EXPECT_FALSE(runtime.clear_systems());
+            EXPECT_FALSE(runtime.discard_input());
+        };
+        second->pause = [&](bool paused) {
+            transitions.push_back(paused ? "pause B" : "resume B");
+        };
+        EXPECT_FALSE(runtime.set_state(State::Paused));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.set_state(State::Running));
+        EXPECT_TRUE(transitions.empty());
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        advance(1);
+        ASSERT_TRUE(runtime.request_step());
+        advance(0);
+        EXPECT_EQ(transitions, (std::vector<std::string>{"pause A", "pause B"}));
+        ASSERT_TRUE(runtime.set_state(State::Running));
+        ASSERT_TRUE(runtime.set_state(State::Running));
+        EXPECT_EQ(
+            transitions, (std::vector<std::string>{"pause A", "pause B", "resume A", "resume B"}));
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        const auto before_stop = transitions.size();
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(transitions.size(), before_stop);
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(runtime.get_state(), State::Running);
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        EXPECT_EQ(transitions.size(), before_stop + 2);
+        ASSERT_TRUE(runtime.stop());
     }
 
     TEST_F(SceneRuntimeTest, SingleStepRunsBothPhasesOnceAndCoalescesPendingRequests) {

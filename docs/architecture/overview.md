@@ -212,6 +212,8 @@ CPU 诊断；正常关闭只取消未完成采样，保留上一条已完成帧�
 
 **运行与输入：** SceneRuntime 是时间截断的唯一入口，先有界固定更新再普通更新；暂停仍维护 UI、资产与绘制，
 单步只推进一轮固定／普通更新。ViewportPanel 生产控制请求，由 Editor 在下一次 on_update 经 Engine 应用。
+Runtime 只在 Running／Paused 实际切换时按注册顺序调用 System::on_pause_changed；通知期间禁止重入 Runtime，
+不借该通知推进模拟或改场景结构。单步保持 Paused，不临时发出恢复／再暂停；Stop 直接清理，不先恢复子系统。
 两个宿主都收到同一个当帧 `Engine::FrameContext`：App 在 on_update 交付窗口 Gate 结果，Editor 在 on_frame_ready 交付 UI Gate 结果；上下文退出时丢弃授权，未授权释放按钮但不暂停模拟。
 Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在按钮发出请求时提前授权。
 键盘／手柄跟随窗口焦点，鼠标另受画面悬停限制；Gate 分别维护整体与鼠标授权，避免工具栏点击／滚轮穿透，
@@ -240,6 +242,14 @@ PhysicsSystem 排在脚本之后：动态刚体的外部 Transform 写入作为�
 Collider 的尺寸乘以本地正缩放，球体暂要求均匀缩放，
 刚体暂不允许父级，避免把局部 TRS 误当世界姿态。Scene 只保存 RigidBody／Collider 参数，
 Play／app 启动时创建 Jolt 世界和 body，Stop／启动失败时清理；Edit Scene 不模拟。
+
+AudioSystem 接收同一暂停通知，停止 AudioPlayback 的设备回调，保留 Voice 播放状态；单步期间主线程独占混音推进，
+按 Context::delta_time 读取并丢弃采样。先推进原有声音，再清理结束实例、同步组件和接收本步末的新请求，
+避免提前消耗新音效时长；分数采样帧保留余量，不因连续单步积累截断误差。继续时从推进后的位置恢复设备输出，
+不重播已结束音效；Stop 丢弃全部声音。单步首次创建播放设备时直接以暂停状态初始化，不先启动再关闭设备。
+音频数据与设备仍由 Voice 保活，不向 Scene 或 Editor 暴露 miniaudio 类型。设备启停失败时清理声音并降级为本次运行静音。
+Offline 模式可同步读取 48 kHz 双声道 float PCM；Realtime 禁止外部读取，只有设备停止后才允许静默推进，
+避免设备线程与主线程同时消费混音图。正常播放仍跟随设备时钟，单步新增音效只定位到更新末，不提供步内事件时间戳。
 
 **运行失败：** System 更新失败逆序停止，不重试部分执行的模拟。Engine 不再提取部分写入的 Scene，
 而是通过 `Renderer::render_frame()` 完成已 acquire 的无场景帧，再交给 Application::on_runtime_error；Editor 恢复 Edit，app 默认失败退出。

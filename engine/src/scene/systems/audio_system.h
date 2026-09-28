@@ -20,6 +20,7 @@ namespace Comet {
 
         Result<void, Error> on_start(Scene& scene) override;
         Result<void, Error> update(Scene& scene, const Context& context) override;
+        void on_pause_changed(bool paused) noexcept override;
         void on_stop(Scene& scene) noexcept override;
 
     private:
@@ -40,5 +41,6 @@ namespace Comet {
         std::map<EntityUuid, Entry> m_entries;
         std::vector<std::unique_ptr<AudioPlayback::Voice>> m_one_shots;
         bool m_device_unavailable = false;
+        bool m_paused = false;
     };
 }

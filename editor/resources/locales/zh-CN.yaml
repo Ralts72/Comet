@@ -139,6 +139,7 @@
 "Trigger": "触发器"
 "Audio Source": "音频源"
 "Audio Clip": "音频片段"
+"Play On Start": "启动时播放"
 "Loop": "循环"
 "Volume": "音量"
 "Remove Component": "移除组件"

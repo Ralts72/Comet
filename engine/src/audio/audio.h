@@ -41,13 +41,19 @@ namespace Comet {
         class Voice;
 
         [[nodiscard]] static Result<std::unique_ptr<AudioPlayback>, Error> create(
-            Mode mode = Mode::Realtime);
+            Mode mode = Mode::Realtime, bool start_paused = false);
         ~AudioPlayback();
         AudioPlayback(const AudioPlayback&) = delete;
         AudioPlayback& operator=(const AudioPlayback&) = delete;
 
         [[nodiscard]] Result<std::unique_ptr<Voice>, Error> create_voice(
             std::shared_ptr<const AudioClip> clip, float volume, bool looping);
+        // 暂停设备回调，保留各 Voice 的播放位置和启停状态。
+        [[nodiscard]] Result<void, Error> set_paused(bool paused);
+        // 仅暂停时：静默推进最多一秒，保留不足一个采样帧的时间余量。
+        [[nodiscard]] Result<void, Error> advance_silently(double delta_time);
+        // 仅 Offline：同步输出 48 kHz、双声道交错 float PCM，不访问音频设备。
+        [[nodiscard]] Result<void, Error> read_frames(std::span<float> samples);
 
     private:
         struct Impl;

@@ -16,21 +16,40 @@ namespace Comet {
         return synchronize(scene);
     }
 
-    Result<void, Error> AudioSystem::update(Scene& scene, const Context&) {
+    Result<void, Error> AudioSystem::update(Scene& scene, const Context& context) {
         if(m_scene != &scene)
             return Result<void, Error>::failure({"Audio system requires its active scene"});
+        if(m_paused && m_playback) {
+            if(auto advanced = m_playback->advance_silently(context.delta_time); !advanced)
+                return advanced;
+        }
+        // 当前更新产生的请求在步末生效，不能提前消耗它们的播放时长。
         return synchronize(scene);
+    }
+
+    void AudioSystem::on_pause_changed(const bool paused) noexcept {
+        m_paused = paused;
+        if(!m_playback)
+            return;
+        if(auto changed = m_playback->set_paused(paused); !changed) {
+            LOG_WARN(
+                "Audio state change failed; continuing without sound: {}", changed.error().message);
+            m_one_shots.clear();
+            m_entries.clear();
+            m_playback.reset();
+            m_device_unavailable = true;
+        }
     }
 
     Result<void, Error> AudioSystem::prepare_playback() {
         if(m_playback || m_device_unavailable)
             return Result<void, Error>::success();
-        auto playback = AudioPlayback::create(m_mode);
+        auto playback = AudioPlayback::create(m_mode, m_paused);
         if(!playback) {
             if(m_mode == AudioPlayback::Mode::Offline)
                 return Result<void, Error>::failure(playback.error());
-            LOG_WARN("Audio output unavailable; continuing without sound: {}",
-                playback.error().message);
+            LOG_WARN(
+                "Audio output unavailable; continuing without sound: {}", playback.error().message);
             m_device_unavailable = true;
         } else {
             m_playback = std::move(playback).value();
@@ -39,8 +58,7 @@ namespace Comet {
     }
 
     Result<void, Error> AudioSystem::synchronize(Scene& scene) {
-        std::erase_if(m_one_shots,
-            [](const auto& voice) { return !voice->is_playing(); });
+        std::erase_if(m_one_shots, [](const auto& voice) { return !voice->is_playing(); });
         std::erase_if(m_entries, [](const auto& item) {
             const auto& entry = item.second;
             if(!entry.entity || !entry.entity.template has_component<AudioSourceComponent>())
@@ -53,8 +71,7 @@ namespace Comet {
         std::map<EntityUuid, Entity> pending;
         scene.each<const AudioSourceComponent>(
             [&](Entity entity, const AudioSourceComponent& source) {
-                if(source.clip && source.play_on_start
-                    && !m_entries.contains(entity.get_uuid()))
+                if(source.clip && source.play_on_start && !m_entries.contains(entity.get_uuid()))
                     pending.emplace(entity.get_uuid(), entity);
             });
         for(const auto& [uuid, entity] : pending) {
@@ -110,6 +127,7 @@ namespace Comet {
         m_entries.clear();
         m_playback.reset();
         m_device_unavailable = false;
+        m_paused = false;
         m_scene = nullptr;
     }
 }

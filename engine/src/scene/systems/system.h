@@ -25,6 +25,8 @@ namespace Comet {
         virtual Result<void, Error> update(Scene&, const Context&) {
             return Result<void, Error>::success();
         }
+        // 只通知真实暂停切换；单步不恢复异步子系统，不在这里推进模拟。
+        virtual void on_pause_changed(bool) noexcept {}
         // 包含部分启动失败的清理；不得重入 Runtime 或替换 Scene。
         virtual void on_stop(Scene&) noexcept {}
     };
